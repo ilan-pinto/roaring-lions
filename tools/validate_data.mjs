@@ -89,6 +89,63 @@ if (schemas.unit && schemas.mission && schemas.vfx && schemas.map) {
   failures.push('schema files missing or unparseable — cannot validate content');
 }
 
+// --- mission cross-checks ----------------------------------------------------
+// A mission's map.file must be a real map, and its markers/zones/units must
+// resolve — a typo here is a broken mission a contributor ships blind.
+{
+  const mapsById = new Map();
+  for (const file of jsonFilesIn(join(ROOT, 'data/maps'))) {
+    const m = loadJson(file);
+    if (m?.id) mapsById.set(m.id, m);
+  }
+  const unitIds = new Set();
+  for (const file of jsonFilesIn(join(ROOT, 'data/units'))) {
+    const u = loadJson(file);
+    if (u?.id) unitIds.add(u.id);
+  }
+  for (const file of jsonFilesIn(join(ROOT, 'data/missions'))) {
+    const mi = loadJson(file);
+    if (!mi) continue;
+    const map = mapsById.get(mi.map?.file);
+    if (!map) {
+      failures.push(`${rel(file)}: map.file "${mi.map?.file}" is not a map in data/maps`);
+      continue;
+    }
+    const markerNames = new Set(Object.keys(map.markers ?? {}));
+    const zoneNames = new Set(Object.keys(map.zones ?? {}));
+    const wantMarker = (name, where) => {
+      if (name && !markerNames.has(name)) failures.push(`${rel(file)}: ${where} references unknown marker "${name}"`);
+    };
+    const wantUnit = (name, where) => {
+      if (name && !unitIds.has(name)) failures.push(`${rel(file)}: ${where} references unknown unit "${name}"`);
+    };
+    for (const p of mi.starting_force ?? []) wantUnit(p.unit, 'starting_force');
+    for (const p of mi.enemy?.garrison ?? []) {
+      wantUnit(p.unit, 'garrison');
+      wantMarker(p.marker, 'garrison');
+    }
+    for (const w of mi.enemy?.waves ?? []) {
+      wantMarker(w.to, 'wave');
+      for (const u of w.units ?? []) {
+        wantUnit(u.unit, 'wave');
+        wantMarker(u.from, 'wave');
+      }
+    }
+    for (const t of mi.triggers ?? []) {
+      wantMarker(t.do?.to, 'trigger');
+      if (t.on?.zone && !zoneNames.has(t.on.zone)) {
+        failures.push(`${rel(file)}: trigger references unknown zone "${t.on.zone}"`);
+      }
+      for (const u of t.do?.units ?? []) wantUnit(u.unit, 'trigger spawn');
+    }
+    for (const o of mi.objectives ?? []) {
+      if ((o.type === 'capture' || o.type === 'hold_for') && o.target && !zoneNames.has(o.target)) {
+        failures.push(`${rel(file)}: objective "${o.id}" references unknown zone "${o.target}"`);
+      }
+    }
+  }
+}
+
 // --- map grid + bounds checks (beyond what JSON Schema can express) ---------
 for (const file of jsonFilesIn(join(ROOT, 'data/maps'))) {
   const m = loadJson(file);

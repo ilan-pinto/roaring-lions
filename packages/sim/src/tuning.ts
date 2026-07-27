@@ -119,6 +119,9 @@ export const PROJ_SPEED = new Int32Array([
 export const SCATTER_BASE = 32768; // 0.5
 
 // --- stances / movement ----------------------------------------------------
+/** Signature multiplier for an unsprung ambusher: weapons cold, heads down,
+ *  minimum profile (GDD §6 behaviour vocabulary). */
+export const AMBUSH_SIG = 32768; // 0.5
 export const DEFAULT_TURN_DEG_S = 360;
 /** Speed right-shift while pinned. Calibrated to 6 (÷64 — effectively
  *  halted): together with pinned-units-hold-fire this is what makes fire

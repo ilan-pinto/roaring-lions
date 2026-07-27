@@ -5,6 +5,12 @@
 
 import { fx, type Sim, type SimEvent } from '@lions/sim';
 
+export interface MissionView {
+  name: string;
+  objectives: { id: string; text: string; primary: boolean; status: string }[];
+  result: 'ongoing' | 'victory' | 'defeat';
+}
+
 const PANEL_CSS =
   'position:absolute;top:8px;max-height:calc(100vh - 16px);overflow-y:auto;' +
   'background:rgba(20,21,15,0.88);color:#F2E8D5;font:11px ui-monospace,Menlo,monospace;' +
@@ -26,11 +32,21 @@ export class DebugOverlay {
   private visible = true;
   private feedCount = 0;
 
+  private readonly banner: HTMLDivElement;
+  private bannerShown = false;
+
   constructor(
     host: HTMLElement,
     private readonly sim: Sim,
-    private readonly getSelection: () => number[]
+    private readonly getSelection: () => number[],
+    private readonly getMission?: () => MissionView | null
   ) {
+    this.banner = document.createElement('div');
+    this.banner.style.cssText =
+      'position:absolute;top:38%;left:50%;transform:translate(-50%,-50%);display:none;' +
+      'font:bold 34px ui-monospace,Menlo,monospace;color:#F2E8D5;background:rgba(20,21,15,0.92);' +
+      'padding:18px 42px;border:2px solid #5C625F;border-radius:6px;letter-spacing:2px;';
+    host.appendChild(this.banner);
     this.left = document.createElement('div');
     this.left.style.cssText = PANEL_CSS + 'left:8px;width:300px;';
     this.right = document.createElement('div');
@@ -54,9 +70,24 @@ export class DebugOverlay {
   }
 
   onTick(events: SimEvent[]): void {
+    this.updateBanner();
     if (!this.visible) return;
     for (const e of events) this.pushEvent(e);
     this.renderSelected();
+  }
+
+  /** Mission-level narration (objectives, triggers, waves) into the feed. */
+  note(html: string, color = '#B8FF5A'): void {
+    this.line(html, color);
+  }
+
+  private updateBanner(): void {
+    const m = this.getMission?.();
+    if (!m || m.result === 'ongoing' || this.bannerShown) return;
+    this.bannerShown = true;
+    this.banner.textContent = m.result === 'victory' ? 'MISSION ACCOMPLISHED' : 'MISSION FAILED';
+    this.banner.style.borderColor = m.result === 'victory' ? '#6B8A4A' : '#D93A2B';
+    this.banner.style.display = 'block';
   }
 
   private line(html: string, color = '#F2E8D5'): void {
@@ -133,17 +164,32 @@ export class DebugOverlay {
     }
   }
 
+  private missionHtml(): string {
+    const m = this.getMission?.();
+    if (!m) return '';
+    const rows = [`<b>${m.name}</b>`];
+    for (const o of m.objectives) {
+      const glyph = o.status === 'complete' ? '☑' : o.status === 'failed' ? '☒' : '☐';
+      const color = o.status === 'complete' ? '#6B8A4A' : o.status === 'failed' ? '#D93A2B' : '#F2E8D5';
+      rows.push(
+        `<span style="color:${color}">${glyph} ${o.text}${o.primary ? '' : ' <span style="color:#8E9491">(secondary)</span>'}</span>`
+      );
+    }
+    return rows.join('<br>') + '<br><br>';
+  }
+
   private renderSelected(): void {
     const sel = this.getSelection();
     if (sel.length === 0) {
       this.status.innerHTML =
-        '<b>M0 sandbox</b><br>click: select · right-click: attack-move<br>' +
+        this.missionHtml() +
+        '<b>controls</b><br>click: select · right-click: attack-move<br>' +
         'h: halt · a: select all KDF · o: overlay · wasd/arrows: pan · wheel: zoom<br><br>' +
         '<span style="color:#8E9491">select a unit to inspect its detection maths</span>';
       return;
     }
     const st = this.sim.state;
-    const rows: string[] = [];
+    const rows: string[] = [this.missionHtml()];
     const id = sel[0];
     const type = this.sim.unitTypes[st.typeIdx[id]];
     rows.push(`<b>${this.name(id)}</b> side${st.side[id]}${sel.length > 1 ? ` (+${sel.length - 1} more)` : ''}`);

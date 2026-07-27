@@ -110,6 +110,11 @@
       "properties": {
         "faction": { "enum": ["ashwar", "sarim", "rif"] },
         "doctrine_profile": { "type": "string" },
+        "garrison": {
+          "type": "array",
+          "description": "Defenders emplaced at mission start, with the GDD §6 behaviour vocabulary: one stance per unit, declarative, never scripted.",
+          "items": { "$ref": "#/$defs/placement" }
+        },
         "waves": {
           "type": "array",
           "items": {
@@ -119,6 +124,7 @@
             "properties": {
               "at_seconds": { "type": "integer", "minimum": 0 },
               "trigger": { "type": "string", "description": "Optional objective id; wave fires on completion instead of on the clock." },
+              "to": { "type": "string", "description": "Marker the wave attack-moves toward after spawning. Defaults to holding at the spawn." },
               "units": {
                 "type": "array",
                 "items": {
@@ -131,6 +137,73 @@
                   }
                 }
               }
+            }
+          }
+        }
+      }
+    },
+    "triggers": {
+      "type": "array",
+      "description": "Reactive behaviour (GDD §6): a condition fires an order once. A handful per mission is the budget.",
+      "items": {
+        "type": "object",
+        "required": ["on", "do"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "on": {
+            "type": "object",
+            "required": ["kind"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": { "enum": ["first_contact", "casualties_pct", "timer_s", "zone_entered"] },
+              "value": { "type": "number", "description": "casualties_pct: enemy losses %. timer_s: seconds." },
+              "zone": { "type": "string", "description": "zone_entered: map zone id a player unit must enter." }
+            }
+          },
+          "do": {
+            "type": "object",
+            "required": ["kind"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": { "enum": ["commit", "withdraw_to", "spawn"] },
+              "group": { "type": "string", "description": "commit/withdraw_to: which garrison group moves." },
+              "to": { "type": "string", "description": "Destination marker." },
+              "units": {
+                "type": "array",
+                "description": "spawn only.",
+                "items": { "$ref": "#/$defs/placement" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "placement": {
+      "type": "object",
+      "required": ["unit", "count"],
+      "additionalProperties": false,
+      "properties": {
+        "unit": { "type": "string" },
+        "count": { "type": "integer", "minimum": 1 },
+        "at": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+        "marker": { "type": "string", "description": "Spawn at a named map marker instead of coordinates." },
+        "facing_deg": { "type": "number", "minimum": 0, "maximum": 360 },
+        "group": { "type": "string", "description": "Trigger orders address groups." },
+        "tag": { "type": "string", "description": "Objective targeting (eliminate_hvt, locate)." },
+        "stance": {
+          "type": "object",
+          "required": ["kind"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "enum": ["hold_position", "ambush", "patrol"] },
+            "tiles": { "type": "number", "minimum": 1, "description": "ambush: hold fire and minimum signature until a target closes to this range." },
+            "waypoints": {
+              "type": "array",
+              "minItems": 2,
+              "items": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
             }
           }
         }

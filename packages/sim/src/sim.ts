@@ -57,6 +57,7 @@ import {
   APS_SAT_CAP,
   PROJ_SPEED,
   SCATTER_BASE,
+  AMBUSH_SIG,
   DEFAULT_TURN_DEG_S,
   PIN_SPEED_SHIFT,
 } from './tuning';
@@ -303,6 +304,7 @@ export type SimEvent =
     }
   | { kind: 'component'; tick: number; target: number; result: ComponentResult; overmatch: Fx }
   | { kind: 'nearMiss'; tick: number; shooter: number; x: Fx; y: Fx }
+  | { kind: 'ambushSprung'; tick: number; entity: number }
   | { kind: 'pinned'; tick: number; entity: number }
   | { kind: 'unpinned'; tick: number; entity: number }
   | { kind: 'destroyed'; tick: number; entity: number; by: number };
@@ -372,6 +374,9 @@ export class Sim {
   private readonly mobilityKilled: Uint8Array;
   private readonly firepowerKilled: Uint8Array;
   private readonly pinned: Uint8Array;
+  /** 0 = normal, 1 = ambush (hold fire + minimum signature until sprung). */
+  private readonly stance: Uint8Array;
+  private readonly ambushRadiusSq: Int32Array;
   private readonly apsAmmo: Int32Array;
   private readonly apsReloadLeft: Int32Array;
   private readonly apsRecent: Int32Array;
@@ -452,6 +457,8 @@ export class Sim {
     this.mobilityKilled = new Uint8Array(n);
     this.firepowerKilled = new Uint8Array(n);
     this.pinned = new Uint8Array(n);
+    this.stance = new Uint8Array(n);
+    this.ambushRadiusSq = new Int32Array(n);
     this.apsAmmo = new Int32Array(n);
     this.apsReloadLeft = new Int32Array(n);
     this.apsRecent = new Int32Array(n);
@@ -541,6 +548,13 @@ export class Sim {
     this.commandQueue.push(cmd);
   }
 
+  /** Put a unit in ambush: hold fire and minimum signature until a target
+   *  closes to `tiles` (Q16.16). Cleared when sprung or when re-ordered. */
+  setAmbush(id: number, tiles: Fx): void {
+    this.stance[id] = 1;
+    this.ambushRadiusSq[id] = fx.mul(tiles, tiles);
+  }
+
   /** Dev/test hook: remove a unit as if destroyed (sandbox tooling). */
   debugKill(id: number): void {
     if (this.alive[id] === 1) this.destroy(id, -1);
@@ -588,12 +602,14 @@ export class Sim {
           this.moving[id] = 1;
           this.attackMove[id] = cmd.kind === 'attackMove' ? 1 : 0;
           this.engaging[id] = 0;
+          this.stance[id] = 0; // any order overrides a held stance
         }
       } else {
         for (const id of cmd.ids) {
           this.moving[id] = 0;
           this.fieldRef[id] = -1;
           this.engaging[id] = 0;
+          this.stance[id] = 0;
         }
       }
     }
@@ -669,6 +685,7 @@ export class Sim {
     if (cov < 0) return none;
 
     let sig = tType.signature;
+    if (this.stance[tgt] === 1) sig = fx.mul(sig, AMBUSH_SIG);
     if (this.isEffectivelyMoving(tgt)) sig = fx.mul(sig, MOTION_SIG);
     if (this.tickCount - this.lastFired[tgt] < FIRING_SIG_TICKS) {
       sig = fx.mul(sig, tType.firingSigMult);
@@ -783,6 +800,21 @@ export class Sim {
     return best;
   }
 
+  /** True when any living enemy is inside the ambush radius with LOS. */
+  private checkAmbushSpring(i: number): boolean {
+    const mySide = this.side[i];
+    const px = this.posX[i];
+    const py = this.posY[i];
+    const rSq = this.ambushRadiusSq[i];
+    for (let t = 0; t < this.count; t++) {
+      if (this.alive[t] === 0 || this.side[t] === mySide) continue;
+      const dSq = distSqFx(fx.sub(this.posX[t], px), fx.sub(this.posY[t], py));
+      if (dSq > rSq) continue;
+      if (this.losRay(px >> 16, py >> 16, this.posX[t] >> 16, this.posY[t] >> 16) >= 0) return true;
+    }
+    return false;
+  }
+
   /** Rotate `id` toward `desired` at its turn rate. */
   private turnToward(id: number, desired: Fx): void {
     const type = this.unitTypes[this.typeIdx[id]];
@@ -802,6 +834,17 @@ export class Sim {
         this.engaging[i] = 0;
         this.curTarget[i] = -1;
         continue;
+      }
+      // Ambush: weapons cold until a target closes to the trap range with a
+      // clear line of sight — then spring and fight normally this same tick.
+      if (this.stance[i] === 1) {
+        if (!this.checkAmbushSpring(i)) {
+          this.engaging[i] = 0;
+          this.curTarget[i] = -1;
+          continue;
+        }
+        this.stance[i] = 0;
+        this.pendingEvents.push({ kind: 'ambushSprung', tick: this.tickCount, entity: i });
       }
       const type = this.unitTypes[this.typeIdx[i]];
       if (type.weapons.length === 0) continue;
@@ -1293,6 +1336,8 @@ export class Sim {
     h = hashArray(h, this.mobilityKilled);
     h = hashArray(h, this.firepowerKilled);
     h = hashArray(h, this.pinned);
+    h = hashArray(h, this.stance);
+    h = hashArray(h, this.ambushRadiusSq);
     h = hashArray(h, this.apsAmmo);
     h = hashArray(h, this.apsReloadLeft);
     h = hashArray(h, this.apsRecent);

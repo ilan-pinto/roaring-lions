@@ -1,0 +1,99 @@
+{
+  "id": "beit_sahwan_probe",
+  "name": "Beit Sahwan — Probe",
+  "town": "beit_sahwan",
+  "phase": "clearance",
+  "target_minutes": 12,
+  "briefing": "A company minus probes the town outskirts. Identify the garrison before committing armour: at least one AT position is dug in along the western approach, and the ATGM cell overlooking the eastern road must be destroyed before the follow-on convoy can move. Clear the town centre and hold it.",
+  "map": { "file": "beit_sahwan_outskirts", "player_start": [4, 23] },
+  "ledger": {
+    "requires": [],
+    "produces": ["roster.surviving_units", "roe.cumulative_rating"]
+  },
+  "starting_force": [
+    { "unit": "mbt_lavi", "count": 1, "at": [4, 20] },
+    { "unit": "ifv_namer", "count": 2, "at": [3, 16] },
+    { "unit": "apc_eitan", "count": 1, "at": [2, 23] },
+    { "unit": "inf_squad", "count": 3, "at": [6, 18] },
+    { "unit": "at_team", "count": 1, "at": [5, 21] },
+    { "unit": "mortar_team", "count": 1, "at": [2, 25] },
+    { "unit": "recon_drone", "count": 1, "at": [8, 23] }
+  ],
+  "objectives": [
+    {
+      "id": "picture",
+      "type": "locate",
+      "primary": false,
+      "count": 4,
+      "text": "Build the picture: identify four garrison positions"
+    },
+    {
+      "id": "kill_atgm",
+      "type": "eliminate_hvt",
+      "primary": true,
+      "target": "hvt_atgm",
+      "text": "Destroy the ATGM cell overlooking the east road"
+    },
+    {
+      "id": "take_town",
+      "type": "capture",
+      "primary": true,
+      "target": "town",
+      "seconds": 20,
+      "text": "Clear the town centre and hold it for 20 seconds"
+    }
+  ],
+  "roe": { "enabled": true },
+  "enemy": {
+    "faction": "ashwar",
+    "doctrine_profile": "urban ambush",
+    "garrison": [
+      { "unit": "militia_cell", "count": 1, "at": [27.5, 12.5], "facing_deg": 180 },
+      { "unit": "militia_cell", "count": 1, "at": [33.5, 15.5], "facing_deg": 180 },
+      { "unit": "militia_cell", "count": 1, "at": [29.5, 25.5], "facing_deg": 180 },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [19.5, 19.5],
+        "facing_deg": 180,
+        "stance": { "kind": "ambush", "tiles": 3 }
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [27.5, 24.5],
+        "facing_deg": 180,
+        "stance": { "kind": "ambush", "tiles": 3 }
+      },
+      {
+        "unit": "atgm_cell",
+        "count": 1,
+        "at": [38.5, 22.5],
+        "facing_deg": 180,
+        "tag": "hvt_atgm"
+      },
+      {
+        "unit": "technical",
+        "count": 1,
+        "at": [42.5, 14.5],
+        "stance": { "kind": "patrol", "waypoints": [[42.5, 14.5], [42.5, 32.5]] }
+      },
+      { "unit": "militia_cell", "count": 1, "at": [25.5, 37.5], "facing_deg": 180, "group": "reserve" },
+      { "unit": "mortar_crew", "count": 1, "at": [44.5, 24.5], "facing_deg": 180 }
+    ],
+    "waves": [
+      {
+        "at_seconds": 300,
+        "to": "town_center",
+        "units": [{ "unit": "militia_cell", "count": 2, "from": "mortar_line" }]
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "id": "reserve_counterattack",
+      "on": { "kind": "casualties_pct", "value": 50 },
+      "do": { "kind": "commit", "group": "reserve", "to": "town_center" }
+    }
+  ]
+}

@@ -8,6 +8,14 @@ export { fx, ONE, HALF, HALF_TURN, QUARTER_TURN, FX_MAX, FX_MIN, type Fx } from 
 export { Rng } from './rng';
 export { FlowField } from './flowfield';
 export {
+  MissionRuntime,
+  type MissionJson,
+  type MissionContext,
+  type MissionEvent,
+  type ObjectiveStatus,
+  type PlacementJson,
+} from './mission';
+export {
   Sim,
   TICKS_PER_SECOND,
   DT,

@@ -5,6 +5,7 @@
 
 import palette from '../../../data/palette.json';
 import beitSahwanOutskirts from '../../../data/maps/beit_sahwan_outskirts.json';
+import beitSahwanProbe from '../../../data/missions/beit_sahwan_probe.json';
 
 import mbtLavi from '../../../data/units/kdf/mbt_lavi.json';
 import ifvNamer from '../../../data/units/kdf/ifv_namer.json';
@@ -30,6 +31,13 @@ export const maps = {
 } as const;
 
 export type MapId = keyof typeof maps;
+
+/** Missions, keyed by mission id. Shapes match mission.schema.json. */
+export const missions = {
+  beit_sahwan_probe: beitSahwanProbe,
+} as const;
+
+export type MissionId = keyof typeof missions;
 
 /** The full unit roster, keyed by unit id. Shapes match unit.schema.json. */
 export const units = {
