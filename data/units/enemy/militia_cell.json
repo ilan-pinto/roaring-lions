@@ -1,0 +1,51 @@
+{
+  "id": "militia_cell",
+  "name": "Militia Cell",
+  "faction": "ashwar",
+  "role": "infantry",
+  "cost": {
+    "logistics": 280,
+    "build_time_s": 10,
+    "population": 1
+  },
+  "hull": {
+    "hp": 360,
+    "armor": {
+      "front": 10,
+      "side": 10,
+      "rear": 10
+    },
+    "crew": 6,
+    "suppression_resistance": 0.4
+  },
+  "mobility": {
+    "speed_tiles_s": 0.95
+  },
+  "sensors": {
+    "optics": 0.85,
+    "sight_tiles": 7,
+    "signature": 0.45,
+    "firing_signature_mult": 3.5
+  },
+  "abilities": [
+    "garrison",
+    "tunnel_travel"
+  ],
+  "weapons": [
+    {
+      "id": "rifles",
+      "type": "small_arms",
+      "range_tiles": 7,
+      "effective_range_tiles": 5.5,
+      "accuracy": 0.5,
+      "penetration": 8,
+      "damage": 14,
+      "suppression": 45,
+      "rof_per_min": 320,
+      "can_target": [
+        "ground"
+      ],
+      "collateral_risk": 0.1
+    }
+  ]
+}

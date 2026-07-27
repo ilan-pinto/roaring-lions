@@ -1,0 +1,51 @@
+{
+  "id": "atgm_cell",
+  "name": "ATGM Cell",
+  "faction": "sarim",
+  "role": "at_team",
+  "cost": {
+    "logistics": 235,
+    "build_time_s": 20,
+    "population": 1
+  },
+  "hull": {
+    "hp": 360,
+    "armor": {
+      "front": 10,
+      "side": 10,
+      "rear": 10
+    },
+    "crew": 3,
+    "suppression_resistance": 0.55
+  },
+  "mobility": {
+    "speed_tiles_s": 0.7
+  },
+  "sensors": {
+    "optics": 1.1,
+    "sight_tiles": 10,
+    "signature": 0.5,
+    "firing_signature_mult": 5.0
+  },
+  "abilities": [
+    "hidden_setup"
+  ],
+  "weapons": [
+    {
+      "id": "kornet",
+      "type": "atgm",
+      "range_tiles": 10,
+      "effective_range_tiles": 8,
+      "accuracy": 0.75,
+      "penetration": 900,
+      "damage": 400,
+      "suppression": 10,
+      "rof_per_min": 3,
+      "min_range_tiles": 1,
+      "can_target": [
+        "ground"
+      ],
+      "collateral_risk": 0.3
+    }
+  ]
+}

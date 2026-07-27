@@ -1,0 +1,51 @@
+{
+  "id": "inf_squad",
+  "name": "Rifle Squad",
+  "faction": "kdf",
+  "role": "infantry",
+  "cost": {
+    "logistics": 292,
+    "build_time_s": 15,
+    "population": 1
+  },
+  "hull": {
+    "hp": 400,
+    "armor": {
+      "front": 10,
+      "side": 10,
+      "rear": 10
+    },
+    "crew": 8,
+    "suppression_resistance": 0.5
+  },
+  "mobility": {
+    "speed_tiles_s": 0.9
+  },
+  "sensors": {
+    "optics": 1.0,
+    "sight_tiles": 8,
+    "signature": 0.6,
+    "firing_signature_mult": 3.0
+  },
+  "abilities": [
+    "garrison",
+    "mark_target"
+  ],
+  "weapons": [
+    {
+      "id": "rifles",
+      "type": "small_arms",
+      "range_tiles": 8,
+      "effective_range_tiles": 6.4,
+      "accuracy": 0.6,
+      "penetration": 8,
+      "damage": 15,
+      "suppression": 50,
+      "rof_per_min": 300,
+      "can_target": [
+        "ground"
+      ],
+      "collateral_risk": 0.1
+    }
+  ]
+}

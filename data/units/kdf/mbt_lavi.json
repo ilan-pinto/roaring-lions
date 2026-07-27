@@ -1,0 +1,77 @@
+{
+  "id": "mbt_lavi",
+  "name": "Lavi MBT",
+  "faction": "kdf",
+  "role": "mbt",
+  "cost": {
+    "logistics": 906,
+    "build_time_s": 45,
+    "population": 3
+  },
+  "hull": {
+    "hp": 3000,
+    "armor": {
+      "front": 700,
+      "side": 300,
+      "rear": 150,
+      "top": 80
+    },
+    "crew": 4,
+    "suppression_resistance": 0.8,
+    "aps": {
+      "base_pk": 0.75,
+      "magazine": 3,
+      "reload_s": 8,
+      "ineffective_vs": [
+        "apfsds",
+        "kinetic",
+        "small_arms"
+      ]
+    }
+  },
+  "mobility": {
+    "speed_tiles_s": 1.1,
+    "turn_rate_deg_s": 60,
+    "can_crush": true
+  },
+  "sensors": {
+    "optics": 1.2,
+    "sight_tiles": 12,
+    "thermal": true,
+    "signature": 1.0,
+    "firing_signature_mult": 4.0
+  },
+  "weapons": [
+    {
+      "id": "gun_120",
+      "type": "apfsds",
+      "range_tiles": 12,
+      "effective_range_tiles": 9.6,
+      "accuracy": 0.85,
+      "penetration": 1300,
+      "damage": 520,
+      "suppression": 40,
+      "rof_per_min": 9,
+      "can_target": [
+        "ground",
+        "structure"
+      ],
+      "collateral_risk": 0.55
+    },
+    {
+      "id": "coax_mg",
+      "type": "hmg",
+      "range_tiles": 8,
+      "effective_range_tiles": 6.4,
+      "accuracy": 0.55,
+      "penetration": 20,
+      "damage": 35,
+      "suppression": 60,
+      "rof_per_min": 420,
+      "can_target": [
+        "ground"
+      ],
+      "collateral_risk": 0.2
+    }
+  ]
+}

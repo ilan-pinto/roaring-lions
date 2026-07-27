@@ -1,0 +1,10 @@
+{
+  "name": "@lions/data",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Typed access to game content. The JSON itself lives at the repo root data/ directory (single source of truth shared with the Python validators and CONTRIBUTING.md paths); this package is the typed leaf the app imports it through.",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "id": "at_team",
+  "name": "Spike AT Team",
+  "faction": "kdf",
+  "role": "at_team",
+  "cost": {
+    "logistics": 236,
+    "build_time_s": 18,
+    "population": 1
+  },
+  "hull": {
+    "hp": 380,
+    "armor": {
+      "front": 10,
+      "side": 10,
+      "rear": 10
+    },
+    "crew": 3,
+    "suppression_resistance": 0.5
+  },
+  "mobility": {
+    "speed_tiles_s": 0.7
+  },
+  "sensors": {
+    "optics": 1.1,
+    "sight_tiles": 9,
+    "signature": 0.5,
+    "firing_signature_mult": 5.0
+  },
+  "abilities": [
+    "hidden_setup"
+  ],
+  "weapons": [
+    {
+      "id": "spike_atgm",
+      "type": "atgm",
+      "range_tiles": 9,
+      "effective_range_tiles": 7.2,
+      "accuracy": 0.78,
+      "penetration": 900,
+      "damage": 400,
+      "suppression": 10,
+      "rof_per_min": 3,
+      "min_range_tiles": 1,
+      "can_target": [
+        "ground"
+      ],
+      "collateral_risk": 0.3
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "id": "mortar_team",
+  "name": "60mm Mortar Team",
+  "faction": "kdf",
+  "role": "artillery",
+  "cost": {
+    "logistics": 209,
+    "build_time_s": 18,
+    "population": 1
+  },
+  "hull": {
+    "hp": 350,
+    "armor": {
+      "front": 10,
+      "side": 10,
+      "rear": 10
+    },
+    "crew": 3,
+    "suppression_resistance": 0.45
+  },
+  "mobility": {
+    "speed_tiles_s": 0.65
+  },
+  "sensors": {
+    "optics": 0.9,
+    "sight_tiles": 7,
+    "signature": 0.6,
+    "firing_signature_mult": 4.5
+  },
+  "weapons": [
+    {
+      "id": "mortar_60",
+      "type": "mortar",
+      "range_tiles": 18,
+      "effective_range_tiles": 14,
+      "accuracy": 0.5,
+      "penetration": 30,
+      "damage": 180,
+      "splash_tiles": 1.8,
+      "suppression": 90,
+      "rof_per_min": 4,
+      "min_range_tiles": 4,
+      "can_target": [
+        "ground",
+        "structure"
+      ],
+      "collateral_risk": 0.7
+    }
+  ]
+}

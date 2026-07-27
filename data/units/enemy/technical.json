@@ -1,0 +1,48 @@
+{
+  "id": "technical",
+  "name": "Armed Technical",
+  "faction": "rif",
+  "role": "technical",
+  "cost": {
+    "logistics": 331,
+    "build_time_s": 10,
+    "population": 1
+  },
+  "hull": {
+    "hp": 600,
+    "armor": {
+      "front": 15,
+      "side": 10,
+      "rear": 10
+    },
+    "crew": 3,
+    "suppression_resistance": 0.45
+  },
+  "mobility": {
+    "speed_tiles_s": 2.6,
+    "turn_rate_deg_s": 120
+  },
+  "sensors": {
+    "optics": 1.0,
+    "sight_tiles": 9,
+    "signature": 0.8,
+    "firing_signature_mult": 3.5
+  },
+  "weapons": [
+    {
+      "id": "dshk",
+      "type": "hmg",
+      "range_tiles": 9,
+      "effective_range_tiles": 7.2,
+      "accuracy": 0.62,
+      "penetration": 25,
+      "damage": 40,
+      "suppression": 55,
+      "rof_per_min": 380,
+      "can_target": [
+        "ground"
+      ],
+      "collateral_risk": 0.25
+    }
+  ]
+}

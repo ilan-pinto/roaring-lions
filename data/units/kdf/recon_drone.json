@@ -1,0 +1,36 @@
+{
+  "id": "recon_drone",
+  "name": "Recon Drone",
+  "faction": "kdf",
+  "role": "drone",
+  "cost": {
+    "logistics": 210,
+    "build_time_s": 12,
+    "population": 0
+  },
+  "hull": {
+    "hp": 120,
+    "armor": {
+      "front": 0,
+      "side": 0,
+      "rear": 0
+    },
+    "crew": 0,
+    "suppression_resistance": 1.0
+  },
+  "mobility": {
+    "speed_tiles_s": 2.2,
+    "turn_rate_deg_s": 180
+  },
+  "sensors": {
+    "optics": 2.0,
+    "sight_tiles": 16,
+    "thermal": true,
+    "signature": 0.3,
+    "firing_signature_mult": 1.0
+  },
+  "abilities": [
+    "mark_target",
+    "mark_tunnel"
+  ]
+}

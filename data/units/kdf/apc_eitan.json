@@ -1,0 +1,30 @@
+{
+  "id": "apc_eitan",
+  "name": "Eitan APC",
+  "faction": "kdf",
+  "role": "apc",
+  "cost": { "logistics": 520, "build_time_s": 28, "population": 2 },
+  "hull": {
+    "hp": 1600,
+    "armor": { "front": 220, "side": 140, "rear": 90, "top": 40 },
+    "crew": 2,
+    "suppression_resistance": 0.7
+  },
+  "mobility": { "speed_tiles_s": 1.8, "turn_rate_deg_s": 90 },
+  "sensors": { "optics": 1.0, "sight_tiles": 10, "signature": 0.9, "firing_signature_mult": 3.5 },
+  "weapons": [
+    {
+      "id": "rws_50",
+      "type": "hmg",
+      "range_tiles": 9,
+      "effective_range_tiles": 7.2,
+      "accuracy": 0.6,
+      "penetration": 25,
+      "damage": 40,
+      "suppression": 55,
+      "rof_per_min": 380,
+      "can_target": ["ground"],
+      "collateral_risk": 0.25
+    }
+  ]
+}

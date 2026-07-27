@@ -1,0 +1,53 @@
+{
+  "id": "mortar_crew",
+  "name": "Mortar Crew",
+  "faction": "ashwar",
+  "role": "artillery",
+  "cost": {
+    "logistics": 198,
+    "build_time_s": 15,
+    "population": 1
+  },
+  "hull": {
+    "hp": 330,
+    "armor": {
+      "front": 10,
+      "side": 10,
+      "rear": 10
+    },
+    "crew": 3,
+    "suppression_resistance": 0.4
+  },
+  "mobility": {
+    "speed_tiles_s": 0.6
+  },
+  "sensors": {
+    "optics": 0.85,
+    "sight_tiles": 6,
+    "signature": 0.55,
+    "firing_signature_mult": 4.5
+  },
+  "abilities": [
+    "tunnel_travel"
+  ],
+  "weapons": [
+    {
+      "id": "mortar_82",
+      "type": "mortar",
+      "range_tiles": 16,
+      "effective_range_tiles": 12,
+      "accuracy": 0.45,
+      "penetration": 35,
+      "damage": 200,
+      "splash_tiles": 2.0,
+      "suppression": 95,
+      "rof_per_min": 3,
+      "min_range_tiles": 4,
+      "can_target": [
+        "ground",
+        "structure"
+      ],
+      "collateral_risk": 0.75
+    }
+  ]
+}

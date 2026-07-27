@@ -1,0 +1,31 @@
+{
+  "id": "rpg_team",
+  "name": "RPG Team",
+  "faction": "ashwar",
+  "role": "at_team",
+  "cost": { "logistics": 210, "build_time_s": 12, "population": 1 },
+  "hull": {
+    "hp": 340,
+    "armor": { "front": 10, "side": 10, "rear": 10 },
+    "crew": 3,
+    "suppression_resistance": 0.4
+  },
+  "mobility": { "speed_tiles_s": 0.9 },
+  "sensors": { "optics": 0.85, "sight_tiles": 7, "signature": 0.45, "firing_signature_mult": 4.5 },
+  "abilities": ["garrison", "tunnel_travel", "hidden_setup"],
+  "weapons": [
+    {
+      "id": "rpg7",
+      "type": "rpg",
+      "range_tiles": 5,
+      "effective_range_tiles": 3.5,
+      "accuracy": 0.55,
+      "penetration": 550,
+      "damage": 300,
+      "suppression": 20,
+      "rof_per_min": 4,
+      "can_target": ["ground"],
+      "collateral_risk": 0.35
+    }
+  ]
+}
