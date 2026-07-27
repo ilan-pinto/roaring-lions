@@ -1,0 +1,28 @@
+{
+  "name": "roaring-lions",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.17.0",
+  "scripts": {
+    "dev": "pnpm --filter @lions/app dev",
+    "build": "pnpm --filter @lions/app build",
+    "test": "vitest run",
+    "test:determinism": "vitest run packages/sim/src/determinism.test.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "validate:data": "node tools/validate_data.mjs",
+    "validate:assets": "python3 tools/validate_assets.py",
+    "balance": "pnpm --filter @lions/tools balance",
+    "gen:luts": "node tools/gen_luts.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.32.0",
+    "@types/node": "^26.1.1",
+    "ajv": "^8.17.1",
+    "eslint": "^9.32.0",
+    "globals": "^16.3.0",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.38.0",
+    "vitest": "^3.2.4"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "@lions/tools",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "TypeScript tooling over the sim: headless balance/backtest harness. Python asset/balance validators live alongside.",
+  "scripts": {
+    "balance": "tsx src/balance/cli.ts"
+  },
+  "dependencies": {
+    "@lions/data": "workspace:*",
+    "@lions/sim": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2"
+  }
+}
