@@ -1,0 +1,14 @@
+{
+  "name": "@lions/render",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "PixiJS renderer and VFX. Imports @lions/sim types read-only; subscribes to sim events and never writes back.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@lions/sim": "workspace:*",
+    "pixi.js": "^8.6.6"
+  }
+}

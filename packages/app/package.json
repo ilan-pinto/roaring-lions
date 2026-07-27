@@ -1,0 +1,20 @@
+{
+  "name": "@lions/app",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Shell, input, UI. Composes sim + render + data.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@lions/data": "workspace:*",
+    "@lions/render": "workspace:*",
+    "@lions/sim": "workspace:*"
+  },
+  "devDependencies": {
+    "vite": "^7.0.6"
+  }
+}
