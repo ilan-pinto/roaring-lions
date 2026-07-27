@@ -1,0 +1,57 @@
+{
+  "name": "Sahar Basin",
+  "version": 1,
+  "notes": "Locked 32-color palette. All rendered sprites are quantized to this set in CI. Ramps are ordered light -> dark. Reserved bands MUST NOT appear in unit/building/terrain diffuse art; they are applied at runtime by the VFX and team-color systems only.",
+  "ramps": {
+    "limestone": {
+      "role": "primary terrain, masonry, concrete, sun-bleached surfaces",
+      "colors": ["#F2E8D5", "#D9C7A7", "#B8A182", "#8C7659", "#5E4E3A"]
+    },
+    "dust": {
+      "role": "sand, dirt roads, rubble, particulate",
+      "colors": ["#E0B87A", "#C29455", "#96703C", "#6B4F29"]
+    },
+    "olive": {
+      "role": "KDF vehicle hulls, uniforms, tarps",
+      "colors": ["#8F9464", "#6E7449", "#4E5433", "#333821"]
+    },
+    "gunmetal": {
+      "role": "weapons, tracks, antennae, industrial",
+      "colors": ["#C3C7C4", "#8E9491", "#5C625F", "#363B39"]
+    },
+    "shadow": {
+      "role": "cast shadow, occlusion, interiors, night base",
+      "colors": ["#23241F", "#14150F", "#0A0A08"]
+    },
+    "scrub": {
+      "role": "sparse vegetation, olive trees, palms",
+      "colors": ["#6B8A4A", "#3E5C2E"]
+    },
+    "water": {
+      "role": "sky gradient, sea, cisterns",
+      "colors": ["#A9C4D1", "#4E7186"]
+    }
+  },
+  "reserved": {
+    "vfx": {
+      "role": "RUNTIME ONLY. Saturated band reserved so explosions and tracers pop against desaturated terrain. Rejected by CI if found in static art.",
+      "colors": {
+        "white_hot": "#FFF6D0",
+        "fire": "#FFB43C",
+        "ember": "#E8541E",
+        "interceptor": "#6FE0FF",
+        "tracer": "#B8FF5A"
+      }
+    },
+    "team": {
+      "role": "RUNTIME ONLY. Applied via palette remap on masked pixels. Author team-color regions in pure magenta #FF00FF in the source .blend material.",
+      "colors": {
+        "kedem": "#2F6FD9",
+        "hostile": "#D93A2B",
+        "neutral": "#E8C33A"
+      }
+    }
+  },
+  "mask_key": "#FF00FF",
+  "total_colors": 32
+}

@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roaringlions.dev/schemas/vfx_emitter.schema.json",
+  "title": "VFX Emitter",
+  "description": "Data-driven particle emitter. VFX are the highest-value visual work in this project and they are pure data + code, so contributors can add them without touching the engine or shipping any art. Emitters are triggered by sim events; the emitter itself is PRESENTATION ONLY and must never feed back into the deterministic sim.",
+  "type": "object",
+  "required": ["id", "trigger", "layer", "particles"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+$"
+    },
+    "trigger": {
+      "description": "Sim event that spawns this emitter.",
+      "type": "string",
+      "enum": [
+        "weapon_fire", "projectile_trail", "impact_terrain", "impact_armor",
+        "penetration", "catastrophic_kill", "mobility_kill", "vehicle_move",
+        "rotor_wash", "structure_collapse", "tunnel_collapse",
+        "interceptor_launch", "interceptor_hit", "suppression_near_miss",
+        "eod_breach", "smoke_screen", "flare"
+      ]
+    },
+    "layer": {
+      "type": "string",
+      "enum": ["ground_decal", "below_units", "above_units", "sky"],
+      "description": "ground_decal is persistent battlefield state -- scorch, craters, rubble. Persistence is what makes a map look fought-over instead of freshly loaded."
+    },
+    "persistent": {
+      "type": "boolean",
+      "default": false,
+      "description": "If true, survives for the remainder of the mission. Only valid on ground_decal."
+    },
+    "budget_priority": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10,
+      "default": 5,
+      "description": "Culled first when the particle budget is exceeded. Muzzle flashes should outrank ambient dust."
+    },
+    "screen_shake": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "amplitude_px": { "type": "number", "minimum": 0, "maximum": 24 },
+        "duration_ms": { "type": "integer", "minimum": 0, "maximum": 1200 },
+        "falloff_tiles": { "type": "number", "minimum": 0 }
+      }
+    },
+    "hit_stop_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 120,
+      "default": 0,
+      "description": "Presentation-layer freeze on impact. Sells weight. Never applied to the sim clock."
+    },
+    "light": {
+      "type": "object",
+      "description": "Transient light contribution. This is what makes muzzle flashes read at night and in thermal.",
+      "additionalProperties": false,
+      "properties": {
+        "color": { "$ref": "#/$defs/palette_ref" },
+        "intensity": { "type": "number", "minimum": 0 },
+        "radius_tiles": { "type": "number", "minimum": 0 },
+        "decay_ms": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "particles": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/particle_layer" }
+    }
+  },
+  "$defs": {
+    "palette_ref": {
+      "type": "string",
+      "description": "Palette key, e.g. 'vfx.fire' or 'dust.2'. Raw hex is rejected by CI -- the palette is the reason the game looks cohesive.",
+      "pattern": "^[a-z_]+\\.[a-z0-9_]+$"
+    },
+    "range": {
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "[min, max], sampled from the seeded presentation PRNG."
+    },
+    "particle_layer": {
+      "type": "object",
+      "required": ["count", "lifetime_ms", "color_over_life"],
+      "additionalProperties": false,
+      "properties": {
+        "sprite": {
+          "type": "string",
+          "default": "soft_dot",
+          "enum": ["soft_dot", "hard_dot", "streak", "smoke_puff", "spark", "shard", "ring"]
+        },
+        "count": { "$ref": "#/$defs/range" },
+        "lifetime_ms": { "$ref": "#/$defs/range" },
+        "emit_over_ms": {
+          "type": "integer",
+          "default": 0,
+          "description": "0 = burst. >0 = sustained emission, for trails and fires."
+        },
+        "speed_tiles_s": { "$ref": "#/$defs/range" },
+        "cone_deg": { "type": "number", "minimum": 0, "maximum": 360, "default": 360 },
+        "inherit_velocity": { "type": "number", "minimum": 0, "maximum": 1, "default": 0 },
+        "gravity_tiles_s2": { "type": "number", "default": 0 },
+        "drag": { "type": "number", "minimum": 0, "maximum": 1, "default": 0 },
+        "size_px": { "$ref": "#/$defs/range" },
+        "size_over_life": {
+          "type": "array",
+          "items": { "type": "number", "minimum": 0 },
+          "minItems": 2,
+          "description": "Multiplier curve sampled across lifetime."
+        },
+        "color_over_life": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/palette_ref" },
+          "description": "Stepped, not interpolated -- interpolation would generate off-palette colours. white_hot -> fire -> ember -> dust.3 is the canonical explosion ramp."
+        },
+        "alpha_over_life": {
+          "type": "array",
+          "items": { "type": "number", "minimum": 0, "maximum": 1 },
+          "minItems": 2
+        },
+        "additive": { "type": "boolean", "default": false },
+        "heat_shimmer": {
+          "type": "boolean",
+          "default": false,
+          "description": "Screen-space distortion pass. Reserve for burning wrecks and jet wash."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+ "id": "technical",
+ "name": "technical",
+ "faction": "rif",
+ "role": "technical",
+ "cost": {
+  "logistics": 140,
+  "build_time_s": 20
+ },
+ "hull": {
+  "hp": 600,
+  "armor": {
+   "front": 15,
+   "side": 10,
+   "rear": 10
+  },
+  "crew": 4,
+  "suppression_resistance": 0.5
+ },
+ "mobility": {
+  "speed_tiles_s": 2.6
+ },
+ "sensors": {
+  "optics": 1.0,
+  "sight_tiles": 9,
+  "signature": 0.8
+ },
+ "weapons": [
+  {
+   "id": "hmg",
+   "type": "hmg",
+   "penetration": 25,
+   "damage": 40,
+   "accuracy": 0.62,
+   "rof_per_min": 380,
+   "suppression": 55,
+   "range_tiles": 9,
+   "effective_range_tiles": 7.2
+  }
+ ]
+}

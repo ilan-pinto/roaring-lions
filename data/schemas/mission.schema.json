@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roaringlions.dev/schemas/mission.schema.json",
+  "title": "Mission",
+  "description": "A single short mission, 12-20 minutes. Missions are declarative data, never TypeScript. If a mission needs behaviour this schema cannot express, extend the schema rather than writing engine code -- that is what keeps missions authorable by contributors who do not know the codebase.",
+  "type": "object",
+  "required": ["id", "town", "phase", "map", "objectives", "ledger"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+    "name": { "type": "string" },
+    "town": { "enum": ["beit_sahwan", "khan_rafid", "deir_amun", "tel_marum", "umm_zeitoun", "wadi_halam"] },
+    "phase": {
+      "enum": ["recon", "foothold", "buildup", "clearance", "subterranean"],
+      "description": "The phase this mission is built around. One lead phase per mission."
+    },
+    "target_minutes": { "type": "integer", "minimum": 8, "maximum": 25, "default": 15 },
+    "briefing": { "type": "string" },
+    "map": {
+      "type": "object",
+      "required": ["file"],
+      "additionalProperties": false,
+      "properties": {
+        "file": { "type": "string" },
+        "time_of_day": { "enum": ["dawn", "day", "dusk", "night"], "default": "day" },
+        "player_start": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+      }
+    },
+    "ledger": {
+      "type": "object",
+      "description": "The campaign carry-over contract. This is what lets a contributor author one mission without reading the whole campaign.",
+      "required": ["requires", "produces"],
+      "additionalProperties": false,
+      "properties": {
+        "requires": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Ledger keys read on entry. Missing or sparse values must degrade gracefully into a harder mission, never a broken one."
+        },
+        "produces": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Ledger keys written on exit."
+        }
+      }
+    },
+    "starting_force": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["unit", "count"],
+        "additionalProperties": false,
+        "properties": {
+          "unit": { "type": "string" },
+          "count": { "type": "integer", "minimum": 1 },
+          "from_ledger": { "type": "boolean", "default": false, "description": "If true, draw survivors with veterancy from roster.surviving_units instead of spawning fresh." },
+          "at": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "logistics_start": { "type": "integer", "minimum": 0 },
+        "intel_start": { "type": "integer", "minimum": 0 },
+        "logistics_rate_per_min": { "type": "number", "minimum": 0 },
+        "supply_corridor": { "type": "boolean", "default": false, "description": "If true, logistics income can be interdicted by the enemy. Protecting the corridor becomes gameplay." }
+      }
+    },
+    "objectives": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "primary"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "type": {
+            "enum": ["locate", "mark", "collapse", "escort", "hold_for", "evacuate_before",
+                     "eliminate_hvt", "capture", "survive_until", "no_collateral_above", "destroy_all"],
+            "description": "destroy_all exists but should be rare. Layered objectives are what make a level a level."
+          },
+          "primary": { "type": "boolean" },
+          "text": { "type": "string" },
+          "target": { "type": "string" },
+          "count": { "type": "integer", "minimum": 1 },
+          "seconds": { "type": "integer", "minimum": 1 },
+          "threshold": { "type": "number" },
+          "unlocks_phase": { "type": "string", "description": "Gate: assault cannot begin until civilians are clear, etc." }
+        }
+      }
+    },
+    "roe": {
+      "type": "object",
+      "description": "Rules of engagement scoring. Must be visible in the HUD at all times -- the player should always know what a shot costs before taking it.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "civilian_casualty_penalty": { "type": "number", "default": 8 },
+        "flagged_structure_penalty": { "type": "number", "default": 5 },
+        "disproportionate_ordnance_penalty": { "type": "number", "default": 3 },
+        "fail_below": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Mission failure threshold. Omit for no hard fail." }
+      }
+    },
+    "enemy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "faction": { "enum": ["ashwar", "sarim", "rif"] },
+        "doctrine_profile": { "type": "string" },
+        "waves": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["at_seconds", "units"],
+            "additionalProperties": false,
+            "properties": {
+              "at_seconds": { "type": "integer", "minimum": 0 },
+              "trigger": { "type": "string", "description": "Optional objective id; wave fires on completion instead of on the clock." },
+              "units": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["unit", "count"],
+                  "properties": {
+                    "unit": { "type": "string" },
+                    "count": { "type": "integer", "minimum": 1 },
+                    "from": { "type": "string", "description": "Spawn point or tunnel id. Tunnels keep producing until located and collapsed." }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+ "id": "at_team",
+ "name": "at_team",
+ "faction": "kdf",
+ "role": "at_team",
+ "cost": {
+  "logistics": 320,
+  "build_time_s": 20
+ },
+ "hull": {
+  "hp": 380,
+  "armor": {
+   "front": 10,
+   "side": 10,
+   "rear": 10
+  },
+  "crew": 4,
+  "suppression_resistance": 0.5
+ },
+ "mobility": {
+  "speed_tiles_s": 0.7
+ },
+ "sensors": {
+  "optics": 1.0,
+  "sight_tiles": 9,
+  "signature": 0.5
+ },
+ "weapons": [
+  {
+   "id": "atgm",
+   "type": "atgm",
+   "penetration": 900,
+   "damage": 400,
+   "accuracy": 0.78,
+   "rof_per_min": 3,
+   "suppression": 10,
+   "range_tiles": 9,
+   "effective_range_tiles": 7.2
+  }
+ ]
+}
