@@ -1,0 +1,51 @@
+# All the repo's gates, exactly as contributors run them locally.
+# The determinism job is the interesting one: the same 1000-tick replay must
+# produce the same golden state hash on Linux, macOS, and Windows — that is
+# invariants 2 and 3 made falsifiable.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install numpy pillow
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm validate:data
+      - run: pnpm validate:assets
+      - run: python tools/validate_balance.py --units data/units
+      - run: pnpm balance
+      - run: pnpm build
+
+  determinism:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:determinism
