@@ -4,7 +4,7 @@
 
 import { Sim, fx, TICKS_PER_SECOND } from '@lions/sim';
 import { PixiRenderer, DebugOverlay, type RendererOptions } from '@lions/render';
-import { units, paletteColor } from '@lions/data';
+import { units, maps, parseMap, paletteColor } from '@lions/data';
 
 const MS_PER_TICK = 1000 / TICKS_PER_SECOND;
 const WEST = 32768; // half turn — enemy garrisons face the expected KDF axis
@@ -14,32 +14,16 @@ async function main(): Promise<void> {
   if (!stage) throw new Error('no #stage');
 
   // --- world ---------------------------------------------------------------
-  const sim = new Sim({ seed: 20260727, width: 48, height: 48, capacity: 128 });
-
-  // Urban blocks (blocked tiles) with cover rings around them, plus scattered
-  // wall lines mid-map. Deterministic layout — part of the scenario.
-  const buildings: [number, number, number, number][] = [
-    [28, 10, 4, 3],
-    [34, 16, 5, 4],
-    [30, 24, 4, 4],
-    [36, 30, 4, 3],
-    [26, 36, 6, 3],
-    [20, 18, 3, 3],
-    [22, 30, 3, 3],
-  ];
-  for (const [bx, by, bw, bh] of buildings) {
-    for (let y = by; y < by + bh; y++) {
-      for (let x = bx; x < bx + bw; x++) sim.setBlocked(x, y, true);
-    }
-    for (let y = by - 1; y <= by + bh; y++) {
-      for (let x = bx - 1; x <= bx + bw; x++) {
-        if (x < 0 || y < 0 || x >= 48 || y >= 48) continue;
-        if (sim.blocked[y * 48 + x] === 0 && sim.cover[y * 48 + x] === 0) sim.setCover(x, y, 2);
-      }
+  // Terrain comes from map content, not code (map.schema.json).
+  const map = parseMap(maps.beit_sahwan_outskirts);
+  const sim = new Sim({ seed: 20260727, width: map.width, height: map.height, capacity: 128 });
+  for (let y = 0; y < map.height; y++) {
+    for (let x = 0; x < map.width; x++) {
+      const t = y * map.width + x;
+      if (map.blocked[t] !== 0) sim.setBlocked(x, y, true);
+      if (map.cover[t] !== 0) sim.setCover(x, y, map.cover[t]);
     }
   }
-  for (let y = 8; y < 40; y += 2) sim.setCover(17, y, 1); // a berm line
-  for (let x = 10; x < 16; x++) sim.setCover(x, 22, 1);
 
   // --- roster --------------------------------------------------------------
   const typeOf = new Map<string, number>();

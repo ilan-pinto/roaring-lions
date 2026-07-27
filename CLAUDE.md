@@ -74,6 +74,8 @@ pnpm balance          # headless battle sim, prints win rates
 
 **A VFX emitter:** JSON in `data/vfx/`, validated against `vfx_emitter.schema.json`. Palette keys only, never raw hex.
 
+**A map:** JSON in `data/maps/`, validated against `map.schema.json`. A character grid (`.` open, `1`–`3` cover, `#` building) plus named markers and zones — authorable in a text editor. The loader is `parseMap` in `@lions/data`.
+
 ---
 
 ## What not to do

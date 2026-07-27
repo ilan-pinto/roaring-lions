@@ -7,6 +7,8 @@
 //   data/units/**    against data/schemas/unit.schema.json
 //   data/missions/** against data/schemas/mission.schema.json
 //   data/vfx/**      against data/schemas/vfx_emitter.schema.json
+//   data/maps/**     against data/schemas/map.schema.json, plus grid
+//                    dimensions and marker/zone bounds
 //   tools/fixtures/units/** against the unit schema (synthetic, but must parse)
 //   data/palette.json structural sanity (32 locked colours)
 //   every vfx palette_ref resolves to a real palette key — raw hex is how
@@ -67,21 +69,50 @@ const schemas = {
   unit: loadJson(join(ROOT, 'data/schemas/unit.schema.json')),
   mission: loadJson(join(ROOT, 'data/schemas/mission.schema.json')),
   vfx: loadJson(join(ROOT, 'data/schemas/vfx_emitter.schema.json')),
+  map: loadJson(join(ROOT, 'data/schemas/map.schema.json')),
 };
 
 let checked = 0;
-if (schemas.unit && schemas.mission && schemas.vfx) {
+if (schemas.unit && schemas.mission && schemas.vfx && schemas.map) {
   const validators = {
     unit: ajv.compile(schemas.unit),
     mission: ajv.compile(schemas.mission),
     vfx: ajv.compile(schemas.vfx),
+    map: ajv.compile(schemas.map),
   };
   checked += validateDir(join(ROOT, 'data/units'), validators.unit, 'unit.schema');
   checked += validateDir(join(ROOT, 'data/missions'), validators.mission, 'mission.schema');
   checked += validateDir(join(ROOT, 'data/vfx'), validators.vfx, 'vfx_emitter.schema');
+  checked += validateDir(join(ROOT, 'data/maps'), validators.map, 'map.schema');
   checked += validateDir(join(ROOT, 'tools/fixtures/units'), validators.unit, 'unit.schema');
 } else {
   failures.push('schema files missing or unparseable — cannot validate content');
+}
+
+// --- map grid + bounds checks (beyond what JSON Schema can express) ---------
+for (const file of jsonFilesIn(join(ROOT, 'data/maps'))) {
+  const m = loadJson(file);
+  if (!m) continue;
+  if (Array.isArray(m.rows)) {
+    if (m.rows.length !== m.height) {
+      failures.push(`${rel(file)}: ${m.rows.length} rows but declared height ${m.height}`);
+    }
+    m.rows.forEach((row, y) => {
+      if (typeof row === 'string' && row.length !== m.width) {
+        failures.push(`${rel(file)}: row ${y} has ${row.length} tiles but declared width ${m.width}`);
+      }
+    });
+  }
+  for (const [name, pt] of Object.entries(m.markers ?? {})) {
+    if (pt[0] >= m.width || pt[1] >= m.height) {
+      failures.push(`${rel(file)}: marker "${name}" (${pt[0]},${pt[1]}) out of bounds`);
+    }
+  }
+  for (const [name, z] of Object.entries(m.zones ?? {})) {
+    if (z[0] + z[2] > m.width || z[1] + z[3] > m.height || z[2] <= 0 || z[3] <= 0) {
+      failures.push(`${rel(file)}: zone "${name}" [${z.join(',')}] out of bounds`);
+    }
+  }
 }
 
 // --- palette sanity ---------------------------------------------------------

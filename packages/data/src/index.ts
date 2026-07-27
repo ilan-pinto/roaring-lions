@@ -4,6 +4,7 @@
 // Python validators, and the art pipeline all reference.
 
 import palette from '../../../data/palette.json';
+import beitSahwanOutskirts from '../../../data/maps/beit_sahwan_outskirts.json';
 
 import mbtLavi from '../../../data/units/kdf/mbt_lavi.json';
 import ifvNamer from '../../../data/units/kdf/ifv_namer.json';
@@ -20,6 +21,15 @@ import mortarCrew from '../../../data/units/enemy/mortar_crew.json';
 
 export { palette };
 export type Palette = typeof palette;
+
+export { parseMap, type MapJson, type ParsedMap } from './map';
+
+/** Battlefield maps, keyed by map id. Shapes match map.schema.json. */
+export const maps = {
+  beit_sahwan_outskirts: beitSahwanOutskirts,
+} as const;
+
+export type MapId = keyof typeof maps;
 
 /** The full unit roster, keyed by unit id. Shapes match unit.schema.json. */
 export const units = {
