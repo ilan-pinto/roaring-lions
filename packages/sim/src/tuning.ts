@@ -118,6 +118,12 @@ export const PROJ_SPEED = new Int32Array([
 /** Miss scatter: radius = 0.5 + u tiles, u uniform in [0,1). */
 export const SCATTER_BASE = 32768; // 0.5
 
+// --- veterancy (campaign ledger carry-over) --------------------------------
+/** Effective-accuracy bonus per veterancy level (0-3). */
+export const VET_ACC_BONUS = 3932; // +6% per level
+/** Incoming-suppression reduction per veterancy level. */
+export const VET_SUPP_BONUS = 5243; // -8% per level
+
 // --- stances / movement ----------------------------------------------------
 /** Signature multiplier for an unsprung ambusher: weapons cold, heads down,
  *  minimum profile (GDD §6 behaviour vocabulary). */

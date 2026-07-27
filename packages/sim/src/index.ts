@@ -14,6 +14,8 @@ export {
   type MissionEvent,
   type ObjectiveStatus,
   type PlacementJson,
+  type LedgerData,
+  type LedgerRosterEntry,
 } from './mission';
 export {
   Sim,

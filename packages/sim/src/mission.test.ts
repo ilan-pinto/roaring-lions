@@ -284,6 +284,107 @@ describe('triggers and waves', () => {
   });
 });
 
+describe('campaign ledger (GDD §6 carry-over)', () => {
+  const LEDGER_MISSION = (fromLedger: boolean): MissionJson =>
+    baseMission({
+      starting_force: [{ unit: 'm_squad', count: 3, at: [3, 5], from_ledger: fromLedger }],
+      enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [24, 9], facing_deg: 180 }] },
+      ledger: { requires: ['roster.surviving_units'], produces: ['roster.surviving_units', 'roe.cumulative_rating'] },
+    });
+
+  it('from_ledger draws survivors with their veterancy, degrading gracefully when sparse', () => {
+    const w = makeWorld(LEDGER_MISSION(true), {
+      ledger: {
+        'roster.surviving_units': [
+          { type: 'm_squad', veterancy: 2 },
+          { type: 'm_squad', veterancy: 1 },
+        ],
+      },
+    });
+    // 3 requested, 2 in the roster: a harder mission, never a broken one.
+    expect(w.sim.entityCount).toBe(3); // 2 drawn + 1 enemy
+    expect(w.sim.state.veterancy[0]).toBe(2);
+    expect(w.sim.state.veterancy[1]).toBe(1);
+  });
+
+  it('a fresh campaign (no roster key) spawns the full force; a gutted roster fields a remnant', () => {
+    // Never played: from_ledger entries spawn fresh at full strength.
+    const fresh = makeWorld(LEDGER_MISSION(true), { ledger: {} });
+    const freshPlayers: number[] = [];
+    for (let i = 0; i < fresh.sim.entityCount; i++) if (fresh.sim.state.side[i] === 0) freshPlayers.push(i);
+    expect(freshPlayers.length).toBe(3);
+
+    // Played and lost everyone: the entry still fields one fresh remnant —
+    // harder mission, never a broken one.
+    const gutted = makeWorld(LEDGER_MISSION(true), { ledger: { 'roster.surviving_units': [] } });
+    const guttedPlayers: number[] = [];
+    for (let i = 0; i < gutted.sim.entityCount; i++) if (gutted.sim.state.side[i] === 0) guttedPlayers.push(i);
+    expect(guttedPlayers.length).toBe(1);
+    expect(gutted.sim.state.veterancy[guttedPlayers[0]]).toBe(0);
+  });
+
+  it('victory produces the declared keys: updated roster and cumulative ROE', () => {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_tank', count: 1, at: [4, 5] }],
+        enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [11, 5], facing_deg: 180 }] },
+        ledger: { requires: [], produces: ['roster.surviving_units', 'roe.cumulative_rating'] },
+      }),
+      { ledger: { 'roe.cumulative_rating': 60 } }
+    );
+    const { mission } = w.step(90 * TICKS_PER_SECOND);
+    const end = mission.find((e) => e.kind === 'missionEnd');
+    expect(end?.kind).toBe('missionEnd');
+    if (end?.kind !== 'missionEnd') return;
+    expect(end.result).toBe('victory');
+    const roster = end.ledger['roster.surviving_units'];
+    expect(Array.isArray(roster)).toBe(true);
+    if (Array.isArray(roster)) {
+      expect(roster.length).toBe(1);
+      // The tank got the kill: veterancy 0 -> 1.
+      expect(roster[0]).toEqual({ type: 'm_tank', veterancy: 1 });
+    }
+    // Cumulative ROE averages prior (60) with this mission's rating (100).
+    expect(end.ledger['roe.cumulative_rating']).toBe(80);
+  });
+
+  it('emits only the keys the mission contract declares', () => {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 2 }],
+        ledger: { requires: [], produces: ['roe.cumulative_rating'] },
+      })
+    );
+    const { mission } = w.step(4 * TICKS_PER_SECOND);
+    const end = mission.find((e) => e.kind === 'missionEnd');
+    if (end?.kind !== 'missionEnd') throw new Error('no end');
+    expect(end.ledger['roe.cumulative_rating']).toBe(100);
+    expect('roster.surviving_units' in end.ledger).toBe(false);
+  });
+});
+
+describe('veterancy has combat meaning', () => {
+  it('veterans shoot with better effective accuracy', () => {
+    const shots = (vet: number): number => {
+      const sim = new Sim({ seed: 5, width: 24, height: 8, capacity: 8 });
+      const squad = sim.addUnitType(SQUAD);
+      const dummy = sim.addUnitType(RUNNER);
+      sim.spawn(squad, 0, fx.from(3.5), fx.from(4.5), 0, vet);
+      sim.spawn(dummy, 1, fx.from(7.5), fx.from(4.5));
+      for (let t = 0; t < 20 * TICKS_PER_SECOND; t++) {
+        for (const e of sim.tick()) {
+          if (e.kind === 'fire' && e.shooter === 0) return e.breakdown.accuracy;
+        }
+      }
+      throw new Error('never fired');
+    };
+    const rookie = shots(0);
+    const veteran = shots(3);
+    expect(veteran).toBeGreaterThan(rookie);
+  });
+});
+
 describe('determinism through the runtime', () => {
   it('two identical mission runs produce identical sim hashes', () => {
     const run = (): number => {

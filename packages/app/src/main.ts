@@ -9,6 +9,7 @@ import {
   fx,
   TICKS_PER_SECOND,
   MissionRuntime,
+  type LedgerData,
   type MissionEvent,
   type MissionJson,
 } from '@lions/sim';
@@ -17,6 +18,34 @@ import { units, maps, missions, parseMap, paletteColor, type MapJson } from '@li
 
 const MS_PER_TICK = 1000 / TICKS_PER_SECOND;
 const WEST = 32768; // half turn — garrisons face the expected KDF axis
+
+// Campaign persistence: victories merge their produced ledger keys here;
+// defeats write nothing — replaying a mission for a better ledger is free.
+const LEDGER_KEY = 'lions.campaign.ledger';
+
+function loadLedger(): LedgerData {
+  try {
+    return JSON.parse(window.localStorage.getItem(LEDGER_KEY) ?? '{}') as LedgerData;
+  } catch {
+    return {};
+  }
+}
+
+function saveLedger(ledger: LedgerData): void {
+  window.localStorage.setItem(LEDGER_KEY, JSON.stringify(ledger));
+}
+
+function campaignSummary(ledger: LedgerData): string {
+  const roster = ledger['roster.surviving_units'];
+  const roe = ledger['roe.cumulative_rating'];
+  const parts: string[] = [];
+  if (Array.isArray(roster) && roster.length > 0) {
+    const vets = roster.filter((r) => r.veterancy > 0).length;
+    parts.push(`roster ${roster.length}${vets > 0 ? ` (${vets}★)` : ''}`);
+  }
+  if (typeof roe === 'number') parts.push(`ROE ${roe}`);
+  return parts.length > 0 ? `campaign: ${parts.join(' · ')}` : 'campaign: fresh start';
+}
 
 function sandboxSpawns(sim: Sim, typeOf: Map<string, number>): void {
   const spawn = (id: string, side: number, x: number, y: number, facing = 0): number => {
@@ -79,7 +108,8 @@ async function main(): Promise<void> {
   if (!stage) throw new Error('no #stage');
 
   // --- mode selection ------------------------------------------------------
-  const missionId = new URLSearchParams(window.location.search).get('mission');
+  const params = new URLSearchParams(window.location.search);
+  const missionId = params.get('mission');
   let mission: MissionJson | undefined;
   if (missionId !== null) {
     mission = (missions as Record<string, MissionJson | undefined>)[missionId];
@@ -87,6 +117,7 @@ async function main(): Promise<void> {
       console.warn(`unknown mission "${missionId}" — available: ${Object.keys(missions).join(', ')}`);
     }
   }
+  const ledger: LedgerData = params.get('fresh') !== null ? {} : loadLedger();
 
   // --- world ---------------------------------------------------------------
   const mapJson =
@@ -115,6 +146,7 @@ async function main(): Promise<void> {
       },
       markers: map.markers,
       zones: map.zones,
+      ledger,
     });
     runtime.start();
   } else {
@@ -138,7 +170,12 @@ async function main(): Promise<void> {
   await renderer.init(stage);
   const getMission = (): MissionView | null =>
     runtime && mission
-      ? { name: mission.name ?? mission.id, objectives: runtime.objectiveList, result: runtime.result }
+      ? {
+          name: mission.name ?? mission.id,
+          objectives: runtime.objectiveList,
+          result: runtime.result,
+          campaign: campaignSummary(ledger),
+        }
       : null;
   const overlay = new DebugOverlay(document.body, sim, () => renderer.selection, getMission);
 
@@ -198,6 +235,10 @@ async function main(): Promise<void> {
       for (const me of runtime.step(events)) {
         const described = describeMissionEvent(me, mission);
         if (described) overlay.note(described[0], described[1]);
+        if (me.kind === 'missionEnd' && me.result === 'victory') {
+          saveLedger({ ...ledger, ...me.ledger });
+          overlay.note('<b>campaign ledger updated</b> — survivors and ROE carried forward', '#A9C4D1');
+        }
       }
     }
     overlay.onTick(events);

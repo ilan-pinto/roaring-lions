@@ -9,6 +9,8 @@ export interface MissionView {
   name: string;
   objectives: { id: string; text: string; primary: boolean; status: string }[];
   result: 'ongoing' | 'victory' | 'defeat';
+  /** One-line campaign summary (roster size, cumulative ROE). */
+  campaign?: string;
 }
 
 const PANEL_CSS =
@@ -168,6 +170,7 @@ export class DebugOverlay {
     const m = this.getMission?.();
     if (!m) return '';
     const rows = [`<b>${m.name}</b>`];
+    if (m.campaign) rows.push(`<span style="color:#8E9491">${m.campaign}</span>`);
     for (const o of m.objectives) {
       const glyph = o.status === 'complete' ? '☑' : o.status === 'failed' ? '☒' : '☐';
       const color = o.status === 'complete' ? '#6B8A4A' : o.status === 'failed' ? '#D93A2B' : '#F2E8D5';
@@ -197,6 +200,7 @@ export class DebugOverlay {
       `hp ${fmt(st.hp[id], 0)}/${fmt(type.hp, 0)} · supp ${fmt(st.suppression[id], 2)}${st.pinned[id] ? ' <b>PINNED</b>' : ''}`
     );
     const flags: string[] = [];
+    if (st.veterancy[id] > 0) flags.push('vet ' + '★'.repeat(st.veterancy[id]));
     if (st.moving[id]) flags.push('moving');
     if (st.mobilityKilled[id]) flags.push('M-kill');
     if (st.firepowerKilled[id]) flags.push('F-kill');

@@ -30,6 +30,22 @@ export interface PlacementJson {
   group?: string;
   tag?: string;
   stance?: StanceJson;
+  /** Draw survivors (with veterancy) from roster.surviving_units instead of
+   *  spawning fresh. Sparse rosters degrade gracefully: fewer units, and a
+   *  single fresh remnant when the roster has none of this type. */
+  from_ledger?: boolean;
+}
+
+/** Campaign carry-over: the ledger keys this runtime understands today.
+ *  Missions may declare future keys; the runtime produces only what it can. */
+export interface LedgerRosterEntry {
+  type: string;
+  veterancy: number;
+}
+export interface LedgerData {
+  'roster.surviving_units'?: LedgerRosterEntry[];
+  'roe.cumulative_rating'?: number;
+  [key: string]: unknown;
 }
 
 export interface ObjectiveJson {
@@ -70,6 +86,9 @@ export interface MissionContext {
   typeIdOf: (unitId: string) => number;
   markers: Record<string, readonly number[]>;
   zones: Record<string, readonly number[]>;
+  /** Campaign ledger read on entry (mission.ledger.requires). Absent or
+   *  sparse values make the mission harder, never broken. */
+  ledger?: LedgerData;
 }
 
 export type ObjectiveStatus = 'active' | 'complete' | 'failed';
@@ -84,6 +103,9 @@ export type MissionEvent =
       result: 'victory' | 'defeat';
       roeRating: number;
       survivors: string[];
+      /** The produced carry-over, filtered to mission.ledger.produces. The
+       *  app merges this into the campaign ledger on victory. */
+      ledger: LedgerData;
     };
 
 const SUPPORTED = new Set(['locate', 'eliminate_hvt', 'capture', 'hold_for', 'survive_until', 'destroy_all']);
@@ -115,6 +137,8 @@ export class MissionRuntime {
   private readonly playerIds: number[] = [];
   private readonly enemyIds: number[] = [];
   private readonly identified = new Set<number>();
+  private readonly kills = new Map<number, number>();
+  private readonly rosterPool: LedgerRosterEntry[];
   private readonly firedTriggers: boolean[] = [];
   private readonly spawnedWaves: boolean[] = [];
   private firstContact = false;
@@ -135,6 +159,7 @@ export class MissionRuntime {
     }
     this.firedTriggers = new Array(mission.triggers?.length ?? 0).fill(false);
     this.spawnedWaves = new Array(mission.enemy?.waves?.length ?? 0).fill(false);
+    this.rosterPool = [...(ctx.ledger?.['roster.surviving_units'] ?? [])];
   }
 
   get result(): 'ongoing' | 'victory' | 'defeat' {
@@ -184,12 +209,16 @@ export class MissionRuntime {
     const out: MissionEvent[] = [];
     const tick = this.sim.tickCount;
 
-    // Digest sim events: contacts feed locate + first_contact.
+    // Digest sim events: contacts feed locate + first_contact; kills feed
+    // veterancy progression.
     for (const e of simEvents) {
       if (e.kind === 'fire') this.firstContact = true;
       if (e.kind === 'contact' && e.level === 'identified') {
         this.firstContact = true;
         if (e.side === 0 && this.sim.state.side[e.target] === 1) this.identified.add(e.target);
+      }
+      if (e.kind === 'destroyed' && e.by >= 0) {
+        this.kills.set(e.by, (this.kills.get(e.by) ?? 0) + 1);
       }
     }
 
@@ -229,11 +258,31 @@ export class MissionRuntime {
     }
     const facing = p.facing_deg !== undefined ? fx.div(fx.from(p.facing_deg), fx.fromInt(360)) & 0xffff : 0;
     const typeIdx = this.ctx.typeIdOf(p.unit);
+
+    // Ledger draw (GDD §6): survivors come back with their veterancy. A
+    // sparse roster fields fewer units; a gutted one fields a single fresh
+    // remnant — harder mission, never a broken one. A campaign that has not
+    // produced a roster yet (key absent) is a fresh start, not a degraded one.
+    const hasRoster = this.ctx.ledger?.['roster.surviving_units'] !== undefined;
+    let veterancies: number[];
+    if (side === 0 && p.from_ledger === true && hasRoster) {
+      veterancies = [];
+      for (let k = 0; k < p.count; k++) {
+        const idx = this.rosterPool.findIndex((r) => r.type === p.unit);
+        if (idx < 0) break;
+        veterancies.push(this.rosterPool[idx].veterancy);
+        this.rosterPool.splice(idx, 1);
+      }
+      if (veterancies.length === 0) veterancies = [0];
+    } else {
+      veterancies = new Array(p.count).fill(0);
+    }
+
     const ids: number[] = [];
-    for (let k = 0; k < p.count; k++) {
+    for (let k = 0; k < veterancies.length; k++) {
       const ox = (k % 3) * SPREAD;
       const oy = ((k - (k % 3)) / 3) * SPREAD;
-      const id = this.sim.spawn(typeIdx, side, fx.add(bx, ox), fx.add(by, oy), facing);
+      const id = this.sim.spawn(typeIdx, side, fx.add(bx, ox), fx.add(by, oy), facing, veterancies[k]);
       ids.push(id);
       (side === 0 ? this.playerIds : this.enemyIds).push(id);
       if (p.group) {
@@ -391,16 +440,37 @@ export class MissionRuntime {
 
     this.ended = true;
     this.resultValue = won ? 'victory' : 'defeat';
+    const roeRating = 100; // ROE scoring lands with the civilians slice
+
+    // Produce the carry-over, filtered to the declared contract. Units that
+    // killed something come back a level more veteran (cap 3).
     const survivors: string[] = [];
+    const roster: LedgerRosterEntry[] = [];
     for (const id of this.playerIds) {
-      if (this.sim.state.alive[id] === 1) survivors.push(this.sim.unitTypes[this.sim.state.typeIdx[id]].id);
+      if (this.sim.state.alive[id] !== 1) continue;
+      const typeId = this.sim.unitTypes[this.sim.state.typeIdx[id]].id;
+      survivors.push(typeId);
+      let vet = this.sim.state.veterancy[id];
+      if ((this.kills.get(id) ?? 0) > 0 && vet < 3) vet++;
+      roster.push({ type: typeId, veterancy: vet });
     }
+    const prev = this.ctx.ledger?.['roe.cumulative_rating'];
+    const cumulative = typeof prev === 'number' ? ((prev + roeRating) / 2) | 0 : roeRating;
+
+    const produced: LedgerData = {};
+    for (const key of this.mission.ledger.produces) {
+      if (key === 'roster.surviving_units') produced[key] = roster;
+      else if (key === 'roe.cumulative_rating') produced[key] = cumulative;
+      // Unknown keys: declared for the future, produced by nothing yet.
+    }
+
     out.push({
       kind: 'missionEnd',
       tick,
       result: this.resultValue,
-      roeRating: 100, // ROE scoring lands with the civilians slice
+      roeRating,
       survivors,
+      ledger: produced,
     });
   }
 }

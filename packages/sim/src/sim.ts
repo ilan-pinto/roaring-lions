@@ -58,6 +58,8 @@ import {
   PROJ_SPEED,
   SCATTER_BASE,
   AMBUSH_SIG,
+  VET_ACC_BONUS,
+  VET_SUPP_BONUS,
   DEFAULT_TURN_DEG_S,
   PIN_SPEED_SHIFT,
 } from './tuning';
@@ -377,6 +379,8 @@ export class Sim {
   /** 0 = normal, 1 = ambush (hold fire + minimum signature until sprung). */
   private readonly stance: Uint8Array;
   private readonly ambushRadiusSq: Int32Array;
+  /** Veterancy 0-3, from the campaign ledger. Better aim, steadier nerve. */
+  private readonly veterancy: Uint8Array;
   private readonly apsAmmo: Int32Array;
   private readonly apsReloadLeft: Int32Array;
   private readonly apsRecent: Int32Array;
@@ -419,6 +423,7 @@ export class Sim {
     readonly mobilityKilled: Uint8Array;
     readonly firepowerKilled: Uint8Array;
     readonly apsAmmo: Int32Array;
+    readonly veterancy: Uint8Array;
   };
 
   private readonly seed: number;
@@ -459,6 +464,7 @@ export class Sim {
     this.pinned = new Uint8Array(n);
     this.stance = new Uint8Array(n);
     this.ambushRadiusSq = new Int32Array(n);
+    this.veterancy = new Uint8Array(n);
     this.apsAmmo = new Int32Array(n);
     this.apsReloadLeft = new Int32Array(n);
     this.apsRecent = new Int32Array(n);
@@ -497,6 +503,7 @@ export class Sim {
       mobilityKilled: this.mobilityKilled,
       firepowerKilled: this.firepowerKilled,
       apsAmmo: this.apsAmmo,
+      veterancy: this.veterancy,
     };
   }
 
@@ -522,12 +529,14 @@ export class Sim {
   }
 
   /** facing: initial hull heading in Q16.16 turns (deployment orientation —
-   *  defenders face the expected threat axis). */
-  spawn(typeIdx: number, side: number, x: Fx, y: Fx, facing: Fx = 0): number {
+   *  defenders face the expected threat axis). veterancy: 0-3 from the
+   *  campaign ledger. */
+  spawn(typeIdx: number, side: number, x: Fx, y: Fx, facing: Fx = 0, veterancy = 0): number {
     if (this.count >= this.capacity) throw new Error('sim at capacity');
     const type = this.unitTypes[typeIdx];
     if (type === undefined) throw new Error(`no unit type ${typeIdx}`);
     const id = this.count++;
+    this.veterancy[id] = veterancy > 3 ? 3 : veterancy < 0 ? 0 : veterancy;
     this.alive[id] = 1;
     this.side[id] = side;
     this.typeIdx[id] = typeIdx;
@@ -887,14 +896,19 @@ export class Sim {
     const dSq = distSqFx(fx.sub(tx, px), fx.sub(ty, py));
     const dist = fx.sqrt(dSq);
 
-    // GDD 5.2 — every factor is on the event for the overlay.
+    // GDD 5.2 — every factor is on the event for the overlay. Veterans shoot
+    // straighter: the ledger's carry-over must be worth protecting.
+    const accuracy = fx.min(
+      fx.mul(w.accuracy, fx.add(ONE, this.veterancy[shooter] * VET_ACC_BONUS)),
+      ONE
+    );
     const ratio = fx.div(dist, w.effectiveRange);
     const rangeFalloff = fx.expNeg(fx.mul(FALLOFF_SCALE[w.cls], fx.mul(ratio, ratio)));
     const coverMod = COVER_HIT[this.cover[(ty >> 16) * this.width + (tx >> 16)]];
     const motionMod = this.isEffectivelyMoving(target) ? TARGET_MOTION_MOD : ONE;
     const stanceMod = this.isEffectivelyMoving(shooter) ? MOVING_STANCE_MOD : ONE;
     const suppressionMod = fx.div(ONE, fx.add(ONE, fx.mul(SUPP_K, this.suppression[shooter])));
-    let p = fx.mul(w.accuracy, rangeFalloff);
+    let p = fx.mul(accuracy, rangeFalloff);
     p = fx.mul(p, coverMod);
     p = fx.mul(p, motionMod);
     p = fx.mul(p, stanceMod);
@@ -960,7 +974,7 @@ export class Sim {
       pHit: p,
       roll,
       willHit,
-      breakdown: { accuracy: w.accuracy, rangeFalloff, coverMod, motionMod, stanceMod, suppressionMod },
+      breakdown: { accuracy, rangeFalloff, coverMod, motionMod, stanceMod, suppressionMod },
     });
   }
 
@@ -1182,6 +1196,8 @@ export class Sim {
   private applySuppression(target: number, amount: Fx, coverProtects = true): void {
     const type = this.unitTypes[this.typeIdx[target]];
     let a = fx.mul(amount, type.suppResFactor);
+    const vet = this.veterancy[target];
+    if (vet > 0) a = fx.mul(a, fx.sub(ONE, vet * VET_SUPP_BONUS));
     if (coverProtects) {
       const cov = this.cover[(this.posY[target] >> 16) * this.width + (this.posX[target] >> 16)];
       a = fx.mul(a, COVER_SUPP[cov]);
@@ -1338,6 +1354,7 @@ export class Sim {
     h = hashArray(h, this.pinned);
     h = hashArray(h, this.stance);
     h = hashArray(h, this.ambushRadiusSq);
+    h = hashArray(h, this.veterancy);
     h = hashArray(h, this.apsAmmo);
     h = hashArray(h, this.apsReloadLeft);
     h = hashArray(h, this.apsRecent);
