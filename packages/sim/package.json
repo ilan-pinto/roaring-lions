@@ -1,0 +1,11 @@
+{
+  "name": "@lions/sim",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic Q16.16 fixed-point simulation core. Imports nothing.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./fixed": "./src/fixed.ts"
+  }
+}
