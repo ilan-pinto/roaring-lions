@@ -305,7 +305,7 @@ export type SimEvent =
       penetrated: boolean;
     }
   | { kind: 'component'; tick: number; target: number; result: ComponentResult; overmatch: Fx }
-  | { kind: 'nearMiss'; tick: number; shooter: number; x: Fx; y: Fx }
+  | { kind: 'nearMiss'; tick: number; shooter: number; weaponId: string; x: Fx; y: Fx }
   | { kind: 'ambushSprung'; tick: number; entity: number }
   | { kind: 'pinned'; tick: number; entity: number }
   | { kind: 'unpinned'; tick: number; entity: number }
@@ -740,6 +740,7 @@ export class Sim {
     for (let obs = 0; obs < this.count; obs++) {
       if (this.alive[obs] === 0) continue;
       const oSide = this.side[obs];
+      if (oSide > 1) continue; // civilians (side 2) observe nothing
       for (let tgt = 0; tgt < this.count; tgt++) {
         if (this.alive[tgt] === 0 || this.side[tgt] === oSide) continue;
         const d = this.detectionPair(obs, tgt);
@@ -784,7 +785,9 @@ export class Sim {
     let bestHurts = false;
     let bestDistSq = 0x7fffffff;
     for (let t = 0; t < this.count; t++) {
-      if (this.alive[t] === 0 || this.side[t] === sSide) continue;
+      // Civilians (side 2) are never targets — collateral comes from
+      // ordnance, not aimpoints. That asymmetry is what ROE scores.
+      if (this.alive[t] === 0 || this.side[t] === sSide || this.side[t] > 1) continue;
       if (this.contact[sSide * cap + t] < IDENTIFIED_AT) continue;
       const dSq = distSqFx(fx.sub(this.posX[t], px), fx.sub(this.posY[t], py));
       if (dSq > w.rangeSq || dSq < w.minRangeSq) continue;
@@ -816,7 +819,7 @@ export class Sim {
     const py = this.posY[i];
     const rSq = this.ambushRadiusSq[i];
     for (let t = 0; t < this.count; t++) {
-      if (this.alive[t] === 0 || this.side[t] === mySide) continue;
+      if (this.alive[t] === 0 || this.side[t] === mySide || this.side[t] > 1) continue;
       const dSq = distSqFx(fx.sub(this.posX[t], px), fx.sub(this.posY[t], py));
       if (dSq > rSq) continue;
       if (this.losRay(px >> 16, py >> 16, this.posX[t] >> 16, this.posY[t] >> 16) >= 0) return true;
@@ -1153,7 +1156,14 @@ export class Sim {
   }
 
   private groundImpact(pr: number, x: Fx, y: Fx): void {
-    this.pendingEvents.push({ kind: 'nearMiss', tick: this.tickCount, shooter: this.prShooter[pr], x, y });
+    this.pendingEvents.push({
+      kind: 'nearMiss',
+      tick: this.tickCount,
+      shooter: this.prShooter[pr],
+      weaponId: this.weaponOf(pr).id,
+      x,
+      y,
+    });
     // Near misses suppress everyone close to the impact, both sides.
     const supp = this.prSupp[pr];
     if (supp > 0) {

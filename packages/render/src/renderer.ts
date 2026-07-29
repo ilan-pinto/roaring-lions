@@ -8,10 +8,10 @@ import { fx, type Sim, type SimEvent } from '@lions/sim';
 
 export interface RendererOptions {
   background: string;
-  /** Team marker colours by side index. */
-  teamColors: [string, string];
+  /** Team marker colours by side index (0 player, 1 hostile, 2 neutral). */
+  teamColors: [string, string, string];
   /** Hull colours by side index. */
-  hullColors: [string, string];
+  hullColors: [string, string, string];
   terrainOpen: string;
   terrainCover: [string, string, string];
   terrainBlocked: string;
@@ -219,10 +219,12 @@ export class PixiRenderer {
       const type = this.sim.unitTypes[st.typeIdx[i]];
       const r = type.isSoft ? 7 : 11;
 
-      // Enemies fade in with the player's contact confidence (debug view —
-      // everything stays visible, identification shows as opacity).
+      // Non-player units fade in with the player's contact confidence (debug
+      // view — everything stays visible, identification shows as opacity).
+      // Until identified, a faded contact could be militia or civilians:
+      // exactly the call ROE punishes getting wrong.
       let bodyAlpha = 1;
-      if (side === 1) {
+      if (side !== 0) {
         const lvl = this.sim.contactLevel(0, i);
         bodyAlpha = lvl === 2 ? 1 : lvl === 1 ? 0.65 : 0.35;
       }

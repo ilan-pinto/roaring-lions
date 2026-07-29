@@ -91,6 +91,8 @@ function describeMissionEvent(e: MissionEvent, mission: MissionJson): [string, s
       return [`<b>enemy reacts</b> (${e.id})`, '#E8C33A'];
     case 'wave':
       return [`<b>enemy reinforcements</b> — ${e.count} unit(s) inbound`, '#D93A2B'];
+    case 'roe':
+      return [`<b>ROE −${e.penalty}</b> (${e.reason}) → ${e.score}`, '#D93A2B'];
     case 'missionEnd':
       return [
         e.result === 'victory'
@@ -156,8 +158,8 @@ async function main(): Promise<void> {
   // --- renderer + overlay --------------------------------------------------
   const opts: RendererOptions = {
     background: paletteColor('shadow.1'),
-    teamColors: [paletteColor('team.kedem'), paletteColor('team.hostile')],
-    hullColors: [paletteColor('olive.1'), paletteColor('dust.2')],
+    teamColors: [paletteColor('team.kedem'), paletteColor('team.hostile'), paletteColor('team.neutral')],
+    hullColors: [paletteColor('olive.1'), paletteColor('dust.2'), paletteColor('limestone.1')],
     terrainOpen: paletteColor('limestone.3'),
     terrainCover: [paletteColor('limestone.2'), paletteColor('dust.1'), paletteColor('dust.0')],
     terrainBlocked: paletteColor('limestone.4'),
@@ -175,6 +177,7 @@ async function main(): Promise<void> {
           objectives: runtime.objectiveList,
           result: runtime.result,
           campaign: campaignSummary(ledger),
+          roe: runtime.roeScore,
         }
       : null;
   const overlay = new DebugOverlay(document.body, sim, () => renderer.selection, getMission);
@@ -291,4 +294,13 @@ async function main(): Promise<void> {
   });
 }
 
-void main();
+main().catch((err: unknown) => {
+  console.error('boot failed:', err);
+  const stage = document.getElementById('stage');
+  if (stage) {
+    const pre = document.createElement('pre');
+    pre.style.cssText = 'color:#D93A2B;padding:2rem;white-space:pre-wrap;';
+    pre.textContent = `boot failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`;
+    stage.appendChild(pre);
+  }
+});

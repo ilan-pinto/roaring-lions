@@ -101,7 +101,22 @@
         "civilian_casualty_penalty": { "type": "number", "default": 8 },
         "flagged_structure_penalty": { "type": "number", "default": 5 },
         "disproportionate_ordnance_penalty": { "type": "number", "default": 3 },
+        "flagged_zones": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Map zone ids under protection (clinic, mosque, school). Player ordnance landing inside deducts flagged_structure_penalty per impact."
+        },
         "fail_below": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Mission failure threshold. Omit for no hard fail." }
+      }
+    },
+    "civilians": {
+      "type": "object",
+      "description": "Non-combatants in the area of operations. Untargetable by either side; hurt only by ordnance. They shelter in place until fire lands close, then flee to the refuge.",
+      "additionalProperties": false,
+      "required": ["groups"],
+      "properties": {
+        "groups": { "type": "array", "items": { "$ref": "#/$defs/placement" } },
+        "refuge": { "type": "string", "description": "Marker civilians run to once spooked." }
       }
     },
     "enemy": {

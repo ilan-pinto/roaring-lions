@@ -143,6 +143,14 @@ if (schemas.unit && schemas.mission && schemas.vfx && schemas.map) {
         failures.push(`${rel(file)}: objective "${o.id}" references unknown zone "${o.target}"`);
       }
     }
+    for (const p of mi.civilians?.groups ?? []) {
+      wantUnit(p.unit, 'civilians');
+      wantMarker(p.marker, 'civilians');
+    }
+    wantMarker(mi.civilians?.refuge, 'civilians.refuge');
+    for (const z of mi.roe?.flagged_zones ?? []) {
+      if (!zoneNames.has(z)) failures.push(`${rel(file)}: roe.flagged_zones references unknown zone "${z}"`);
+    }
   }
 }
 

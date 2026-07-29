@@ -19,6 +19,7 @@ import rpgTeam from '../../../data/units/enemy/rpg_team.json';
 import atgmCell from '../../../data/units/enemy/atgm_cell.json';
 import technical from '../../../data/units/enemy/technical.json';
 import mortarCrew from '../../../data/units/enemy/mortar_crew.json';
+import civilians from '../../../data/units/civilians.json';
 
 export { palette };
 export type Palette = typeof palette;
@@ -53,6 +54,7 @@ export const units = {
   atgm_cell: atgmCell,
   technical: technical,
   mortar_crew: mortarCrew,
+  civilians: civilians,
 } as const;
 
 export type UnitId = keyof typeof units;

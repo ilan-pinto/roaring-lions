@@ -1,6 +1,6 @@
 {
   "id": "beit_sahwan_outskirts",
-  "name": "Beit Sahwan — Outskirts",
+  "name": "Beit Sahwan \u2014 Outskirts",
   "width": 48,
   "height": 48,
   "rows": [
@@ -65,6 +65,10 @@
     "mortar_line": [
       44,
       24
+    ],
+    "civ_refuge": [
+      22,
+      45
     ]
   },
   "zones": {
@@ -79,6 +83,12 @@
       8,
       17,
       32
+    ],
+    "clinic": [
+      29,
+      23,
+      6,
+      6
     ]
   }
 }

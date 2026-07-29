@@ -65,6 +65,18 @@ export interface MissionJson {
   ledger: { requires: readonly string[]; produces: readonly string[] };
   objectives: readonly ObjectiveJson[];
   starting_force?: readonly PlacementJson[];
+  civilians?: {
+    groups: readonly PlacementJson[];
+    refuge?: string;
+  };
+  roe?: {
+    enabled?: boolean;
+    civilian_casualty_penalty?: number;
+    flagged_structure_penalty?: number;
+    disproportionate_ordnance_penalty?: number;
+    flagged_zones?: readonly string[];
+    fail_below?: number;
+  };
   enemy?: {
     faction?: string;
     garrison?: readonly PlacementJson[];
@@ -97,6 +109,7 @@ export type MissionEvent =
   | { kind: 'objective'; tick: number; id: string; status: ObjectiveStatus }
   | { kind: 'trigger'; tick: number; id: string }
   | { kind: 'wave'; tick: number; count: number }
+  | { kind: 'roe'; tick: number; penalty: number; reason: string; score: number }
   | {
       kind: 'missionEnd';
       tick: number;
@@ -112,6 +125,19 @@ const SUPPORTED = new Set(['locate', 'eliminate_hvt', 'capture', 'hold_for', 'su
 
 /** Spread for multi-unit placements: 1.25 tiles. */
 const SPREAD = 81920;
+/** Civilians break for the refuge above this suppression (0.3). */
+const CIV_FLEE_AT = 19661;
+/** "Danger close": civilians within this of an aimpoint make heavy ordnance
+ *  disproportionate (2 tiles, squared, Q16.16). */
+const DANGER_CLOSE_SQ = 262144;
+/** Weapons at or above this collateral_risk count as heavy ordnance (0.5). */
+const HEAVY_COLLATERAL = 32768;
+/** Below this collateral_risk a stray does not damage structures (0.3):
+ *  rifle fire does not level clinics; shells and bombs do. */
+const STRUCTURAL_COLLATERAL = 19661;
+/** One structure deduction per zone per this many ticks (10 s): damage to a
+ *  protected site is assessed per incident, not per round. */
+const ZONE_DEDUCT_COOLDOWN = 200;
 
 interface ObjectiveState {
   def: ObjectiveJson;
@@ -136,6 +162,11 @@ export class MissionRuntime {
   private readonly patrols: PatrolState[] = [];
   private readonly playerIds: number[] = [];
   private readonly enemyIds: number[] = [];
+  private readonly civIds: number[] = [];
+  private readonly civFled = new Set<number>();
+  private readonly zoneDeductedAt = new Map<string, number>();
+  private roeScoreValue = 100;
+  private roeFailed = false;
   private readonly identified = new Set<number>();
   private readonly kills = new Map<number, number>();
   private readonly rosterPool: LedgerRosterEntry[];
@@ -166,6 +197,11 @@ export class MissionRuntime {
     return this.resultValue;
   }
 
+  /** Live ROE score 0-100 — must be visible in the HUD at all times. */
+  get roeScore(): number {
+    return this.roeScoreValue;
+  }
+
   objectiveStatus(id: string): ObjectiveStatus {
     const o = this.objectives.find((x) => x.def.id === id);
     if (!o) throw new Error(`no objective ${id}`);
@@ -187,6 +223,7 @@ export class MissionRuntime {
   start(): void {
     for (const p of this.mission.starting_force ?? []) this.spawnPlacement(p, 0);
     for (const p of this.mission.enemy?.garrison ?? []) this.spawnPlacement(p, 1);
+    for (const p of this.mission.civilians?.groups ?? []) this.spawnPlacement(p, 2);
     for (const [tag, ids] of this.tags) {
       if (ids.length === 0) throw new Error(`mission ${this.mission.id}: tag "${tag}" has no units`);
     }
@@ -222,6 +259,8 @@ export class MissionRuntime {
       }
     }
 
+    this.stepRoe(simEvents, tick, out);
+    this.stepCivilians();
     this.stepPatrols();
     this.stepTriggers(tick, out);
     this.stepWaves(tick, out);
@@ -284,7 +323,7 @@ export class MissionRuntime {
       const oy = ((k - (k % 3)) / 3) * SPREAD;
       const id = this.sim.spawn(typeIdx, side, fx.add(bx, ox), fx.add(by, oy), facing, veterancies[k]);
       ids.push(id);
-      (side === 0 ? this.playerIds : this.enemyIds).push(id);
+      (side === 0 ? this.playerIds : side === 1 ? this.enemyIds : this.civIds).push(id);
       if (p.group) {
         const g = this.groups.get(p.group) ?? [];
         g.push(id);
@@ -309,6 +348,81 @@ export class MissionRuntime {
   }
 
   // ----------------------------------------------------------------- systems
+
+  /** ROE scoring (GDD §6): civilian casualties, fire into flagged zones, and
+   *  heavy ordnance danger-close to civilians all deduct. Only player-caused
+   *  harm counts — the score is a judgement of the player's restraint. */
+  private stepRoe(simEvents: SimEvent[], tick: number, out: MissionEvent[]): void {
+    const roe = this.mission.roe;
+    if (roe?.enabled === false) return;
+    const st = this.sim.state;
+    const deduct = (penalty: number, reason: string): void => {
+      this.roeScoreValue = this.roeScoreValue - penalty;
+      if (this.roeScoreValue < 0) this.roeScoreValue = 0;
+      out.push({ kind: 'roe', tick, penalty, reason, score: this.roeScoreValue });
+      const floor = roe?.fail_below;
+      if (floor !== undefined && this.roeScoreValue < floor) this.roeFailed = true;
+    };
+
+    for (const e of simEvents) {
+      if (e.kind === 'destroyed' && this.civIds.includes(e.entity)) {
+        if (e.by >= 0 && st.side[e.by] === 0) {
+          deduct(roe?.civilian_casualty_penalty ?? 8, 'civilian casualties');
+        }
+      } else if (e.kind === 'nearMiss' && st.side[e.shooter] === 0) {
+        // Only ordnance damages structures — rifle strays do not level clinics.
+        const type = this.sim.unitTypes[st.typeIdx[e.shooter]];
+        const weapon = type.weapons.find((w) => w.id === e.weaponId);
+        if (weapon === undefined || weapon.collateralRisk < STRUCTURAL_COLLATERAL) continue;
+        const tx = e.x >> 16;
+        const ty = e.y >> 16;
+        for (const zoneName of roe?.flagged_zones ?? []) {
+          const z = this.zone(zoneName);
+          if (z && tx >= z[0] && tx < z[0] + z[2] && ty >= z[1] && ty < z[1] + z[3]) {
+            const last = this.zoneDeductedAt.get(zoneName);
+            if (last === undefined || tick - last >= ZONE_DEDUCT_COOLDOWN) {
+              this.zoneDeductedAt.set(zoneName, tick);
+              deduct(roe?.flagged_structure_penalty ?? 5, `fire into protected structure (${zoneName})`);
+            }
+            break;
+          }
+        }
+      } else if (e.kind === 'fire' && st.side[e.shooter] === 0) {
+        const type = this.sim.unitTypes[st.typeIdx[e.shooter]];
+        const weapon = type.weapons.find((w) => w.id === e.weaponId);
+        if (weapon !== undefined && weapon.collateralRisk >= HEAVY_COLLATERAL) {
+          const tx = st.posX[e.target];
+          const ty = st.posY[e.target];
+          for (const civ of this.civIds) {
+            if (st.alive[civ] === 0) continue;
+            const dx = (fx.sub(st.posX[civ], tx) >> 8) | 0;
+            const dy = (fx.sub(st.posY[civ], ty) >> 8) | 0;
+            if (dx * dx + dy * dy <= DANGER_CLOSE_SQ) {
+              deduct(
+                roe?.disproportionate_ordnance_penalty ?? 3,
+                'heavy ordnance danger-close to civilians'
+              );
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /** Civilians shelter in place until fire lands close, then break for the
+   *  refuge — once, in fear, not as a controlled unit. */
+  private stepCivilians(): void {
+    const refuge = this.mission.civilians?.refuge;
+    if (refuge === undefined) return;
+    for (const civ of this.civIds) {
+      if (this.sim.state.alive[civ] === 0 || this.civFled.has(civ)) continue;
+      if (this.sim.state.suppression[civ] <= CIV_FLEE_AT) continue;
+      this.civFled.add(civ);
+      const [rx, ry] = this.markerPos(refuge);
+      this.sim.queueCommand({ kind: 'move', ids: [civ], x: rx, y: ry });
+    }
+  }
 
   private stepPatrols(): void {
     for (const p of this.patrols) {
@@ -436,11 +550,13 @@ export class MissionRuntime {
     const won = primaries.length > 0 && primaries.every((o) => o.status === 'complete');
     const wiped =
       this.playerIds.length > 0 && this.playerIds.every((id) => this.sim.state.alive[id] === 0);
-    if (!won && !wiped) return;
+    // An ROE collapse loses the mission even with objectives in hand.
+    const lost = wiped || this.roeFailed;
+    if (!lost && !won) return;
 
     this.ended = true;
-    this.resultValue = won ? 'victory' : 'defeat';
-    const roeRating = 100; // ROE scoring lands with the civilians slice
+    this.resultValue = lost ? 'defeat' : 'victory';
+    const roeRating = this.roeScoreValue;
 
     // Produce the carry-over, filtered to the declared contract. Units that
     // killed something come back a level more veteran (cap 3).

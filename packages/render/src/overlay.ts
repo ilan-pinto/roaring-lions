@@ -11,6 +11,8 @@ export interface MissionView {
   result: 'ongoing' | 'victory' | 'defeat';
   /** One-line campaign summary (roster size, cumulative ROE). */
   campaign?: string;
+  /** Live mission ROE score 0-100 — always visible (GDD §6). */
+  roe?: number;
 }
 
 const PANEL_CSS =
@@ -170,6 +172,10 @@ export class DebugOverlay {
     const m = this.getMission?.();
     if (!m) return '';
     const rows = [`<b>${m.name}</b>`];
+    if (m.roe !== undefined) {
+      const color = m.roe >= 80 ? '#6B8A4A' : m.roe >= 50 ? '#E8C33A' : '#D93A2B';
+      rows.push(`<span style="color:${color}"><b>ROE ${m.roe}</b></span>`);
+    }
     if (m.campaign) rows.push(`<span style="color:#8E9491">${m.campaign}</span>`);
     for (const o of m.objectives) {
       const glyph = o.status === 'complete' ? '☑' : o.status === 'failed' ? '☒' : '☐';
@@ -207,6 +213,14 @@ export class DebugOverlay {
     if (type.hasAps) flags.push(`APS ${st.apsAmmo[id]}/${type.apsMagazine}`);
     rows.push(flags.length ? flags.join(' · ') : 'stationary');
     rows.push(`facing ${(fx.toNumber(st.facing[id]) * 360).toFixed(0)}°`);
+    // Pre-shot cost legibility (GDD §5.8): heavy ordnance warns before it fires.
+    for (const w of type.weapons) {
+      if (fx.toNumber(w.collateralRisk) >= 0.5) {
+        rows.push(
+          `<span style="color:#E8C33A">⚠ ${w.id}: collateral risk ${pct(w.collateralRisk)} — keep civilians clear of the aimpoint</span>`
+        );
+      }
+    }
     rows.push('<br><b>detection vs hostiles</b> <span style="color:#8E9491">(P per tick / confidence)</span>');
     const mySide = st.side[id];
     let shown = 0;

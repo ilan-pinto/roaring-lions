@@ -385,6 +385,188 @@ describe('veterancy has combat meaning', () => {
   });
 });
 
+const CIVILIANS: UnitTypeJson = {
+  id: 'm_civ',
+  hull: { hp: 200, armor: { front: 0, side: 0, rear: 0 }, suppression_resistance: 0.15 },
+  mobility: { speed_tiles_s: 0.8 },
+  sensors: { optics: 0.5, sight_tiles: 4, signature: 0.7, firing_signature_mult: 1.0 },
+};
+
+const MORTAR: UnitTypeJson = {
+  id: 'm_mortar',
+  hull: { hp: 350, armor: { front: 10, side: 10, rear: 10 } },
+  mobility: { speed_tiles_s: 0.65 },
+  sensors: { optics: 0.9, sight_tiles: 7, signature: 0.6 },
+  weapons: [
+    {
+      id: 'tube',
+      type: 'mortar',
+      range_tiles: 18,
+      effective_range_tiles: 14,
+      accuracy: 0.5,
+      penetration: 30,
+      damage: 180,
+      splash_tiles: 1.8,
+      suppression: 90,
+      rof_per_min: 4,
+      min_range_tiles: 4,
+      collateral_risk: 0.7,
+    },
+  ],
+};
+
+describe('civilians and ROE (GDD §6)', () => {
+  function civWorld(partial: Partial<MissionJson>, ctx?: Partial<MissionContext>): World {
+    const sim = new Sim({ seed: 11, width: 28, height: 12, capacity: 32 });
+    const ids = new Map<string, number>();
+    for (const t of [SQUAD, AMBUSHER, RUNNER, TANK, CIVILIANS, MORTAR]) ids.set(t.id, sim.addUnitType(t));
+    const runtime = new MissionRuntime(sim, baseMission(partial), {
+      typeIdOf: (u) => {
+        const t = ids.get(u);
+        if (t === undefined) throw new Error(`unknown unit ${u}`);
+        return t;
+      },
+      markers: { refuge: [2, 10] },
+      zones: { clinic: [20, 2, 4, 4] },
+      ...ctx,
+    });
+    runtime.start();
+    return {
+      sim,
+      runtime,
+      step: (ticks: number) => {
+        const out: { sim: SimEvent[]; mission: MissionEvent[] } = { sim: [], mission: [] };
+        for (let i = 0; i < ticks; i++) {
+          const se = sim.tick();
+          out.sim.push(...se);
+          out.mission.push(...runtime.step(se));
+        }
+        return out;
+      },
+    };
+  }
+
+  it('civilians are never targeted by either side', () => {
+    const w = civWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [6, 5] }],
+      enemy: { garrison: [{ unit: 'm_squad', count: 1, at: [12, 5], facing_deg: 180 }] },
+      civilians: { groups: [{ unit: 'm_civ', count: 1, at: [10, 5] }] },
+    });
+    const civ = 2;
+    expect(w.sim.state.side[civ]).toBe(2);
+    const { sim: events } = w.step(30 * TICKS_PER_SECOND);
+    expect(events.some((e) => e.kind === 'fire')).toBe(true); // combatants fight
+    expect(events.some((e) => e.kind === 'fire' && e.target === civ)).toBe(false);
+  });
+
+  it('spooked civilians flee to the refuge', () => {
+    const w = civWorld({
+      starting_force: [{ unit: 'm_squad', count: 2, at: [4, 5] }],
+      enemy: { garrison: [{ unit: 'm_squad', count: 1, at: [13, 5], facing_deg: 180 }] },
+      civilians: { groups: [{ unit: 'm_civ', count: 1, at: [12, 6] }], refuge: 'refuge' },
+    });
+    const civ = 3;
+    const startDist = Math.hypot(
+      fx.toNumber(w.sim.state.posX[civ]) - 2.5,
+      fx.toNumber(w.sim.state.posY[civ]) - 10.5
+    );
+    // The assault goes in past the civilians; strays land around them.
+    w.sim.queueCommand({ kind: 'attackMove', ids: [0, 1], x: fx.from(13.0), y: fx.from(5.0) });
+    w.step(45 * TICKS_PER_SECOND);
+    expect(w.sim.state.alive[civ]).toBe(1);
+    const endDist = Math.hypot(
+      fx.toNumber(w.sim.state.posX[civ]) - 2.5,
+      fx.toNumber(w.sim.state.posY[civ]) - 10.5
+    );
+    expect(endDist).toBeLessThan(startDist - 2); // clearly moved toward the refuge
+  });
+
+  it('player-caused civilian deaths deduct; enemy-caused do not', () => {
+    const mission: Partial<MissionJson> = {
+      starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+      enemy: { garrison: [{ unit: 'm_squad', count: 1, at: [24, 9], facing_deg: 180 }] },
+      civilians: { groups: [{ unit: 'm_civ', count: 2, at: [10, 9] }] },
+      roe: { enabled: true, civilian_casualty_penalty: 8 },
+    };
+    const w = civWorld(mission);
+    const civA = 2;
+    const civB = 3;
+    // Player kills one civilian, the enemy kills the other.
+    const byPlayer: SimEvent = { kind: 'destroyed', tick: 1, entity: civA, by: 0 };
+    const byEnemy: SimEvent = { kind: 'destroyed', tick: 1, entity: civB, by: 1 };
+    const out = [...w.runtime.step([byPlayer]), ...w.runtime.step([byEnemy])];
+    const roeEvents = out.filter((e) => e.kind === 'roe');
+    expect(roeEvents.length).toBe(1);
+    if (roeEvents[0].kind === 'roe') {
+      expect(roeEvents[0].penalty).toBe(8);
+      expect(roeEvents[0].score).toBe(92);
+    }
+    expect(w.runtime.roeScore).toBe(92);
+  });
+
+  it('ordnance landing in a flagged zone deducts; rifle strays do not', () => {
+    const w = civWorld({
+      starting_force: [
+        { unit: 'm_mortar', count: 1, at: [3, 5] },
+        { unit: 'm_squad', count: 1, at: [3, 7] },
+      ],
+      roe: { enabled: true, flagged_structure_penalty: 5, flagged_zones: ['clinic'] },
+    });
+    const shellInside: SimEvent = { kind: 'nearMiss', tick: 1, shooter: 0, weaponId: 'tube', x: fx.from(21.5), y: fx.from(3.5) };
+    const shellOutside: SimEvent = { kind: 'nearMiss', tick: 1, shooter: 0, weaponId: 'tube', x: fx.from(10.5), y: fx.from(3.5) };
+    const rifleInside: SimEvent = { kind: 'nearMiss', tick: 1, shooter: 1, weaponId: 'rifles', x: fx.from(21.5), y: fx.from(3.5) };
+    const out = [
+      ...w.runtime.step([shellInside]),
+      ...w.runtime.step([shellOutside]),
+      ...w.runtime.step([rifleInside]),
+      // A second shell in the same incident window: cooldown absorbs it.
+      ...w.runtime.step([shellInside]),
+    ];
+    const roeEvents = out.filter((e) => e.kind === 'roe');
+    expect(roeEvents.length).toBe(1);
+    expect(w.runtime.roeScore).toBe(95);
+  });
+
+  it('heavy ordnance fired danger-close to civilians deducts', () => {
+    const w = civWorld({
+      starting_force: [{ unit: 'm_mortar', count: 1, at: [3, 5] }],
+      enemy: { garrison: [{ unit: 'm_squad', count: 1, at: [20, 5], facing_deg: 180 }] },
+      civilians: { groups: [{ unit: 'm_civ', count: 1, at: [21, 5] }] },
+      roe: { enabled: true, disproportionate_ordnance_penalty: 3 },
+    });
+    const fire: SimEvent = {
+      kind: 'fire',
+      tick: 1,
+      shooter: 0,
+      target: 1,
+      weaponId: 'tube',
+      pHit: 1000,
+      roll: 1,
+      willHit: false,
+      breakdown: { accuracy: 1, rangeFalloff: 1, coverMod: 1, motionMod: 1, stanceMod: 1, suppressionMod: 1 },
+    };
+    const out = w.runtime.step([fire]);
+    const roeEvents = out.filter((e) => e.kind === 'roe');
+    expect(roeEvents.length).toBe(1);
+    expect(w.runtime.roeScore).toBe(97);
+  });
+
+  it('falling below fail_below loses the mission', () => {
+    const w = civWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+      civilians: { groups: [{ unit: 'm_civ', count: 4, at: [10, 9] }] },
+      roe: { enabled: true, civilian_casualty_penalty: 30, fail_below: 50 },
+      objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+    });
+    const out: MissionEvent[] = [];
+    out.push(...w.runtime.step([{ kind: 'destroyed', tick: 1, entity: 2, by: 0 }]));
+    out.push(...w.runtime.step([{ kind: 'destroyed', tick: 2, entity: 3, by: 0 }]));
+    const end = out.find((e) => e.kind === 'missionEnd');
+    expect(end?.kind === 'missionEnd' && end.result).toBe('defeat');
+    if (end?.kind === 'missionEnd') expect(end.roeRating).toBe(40);
+  });
+});
+
 describe('determinism through the runtime', () => {
   it('two identical mission runs produce identical sim hashes', () => {
     const run = (): number => {
