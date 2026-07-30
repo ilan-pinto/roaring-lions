@@ -13,6 +13,8 @@ export interface MissionView {
   campaign?: string;
   /** Live mission ROE score 0-100 — always visible (GDD §6). */
   roe?: number;
+  /** Resource line, e.g. "logistics 560 · intel 40". */
+  resources?: string;
 }
 
 const PANEL_CSS =
@@ -176,6 +178,7 @@ export class DebugOverlay {
       const color = m.roe >= 80 ? '#6B8A4A' : m.roe >= 50 ? '#E8C33A' : '#D93A2B';
       rows.push(`<span style="color:${color}"><b>ROE ${m.roe}</b></span>`);
     }
+    if (m.resources) rows.push(`<span style="color:#A9C4D1">${m.resources}</span>`);
     if (m.campaign) rows.push(`<span style="color:#8E9491">${m.campaign}</span>`);
     for (const o of m.objectives) {
       const glyph = o.status === 'complete' ? '☑' : o.status === 'failed' ? '☒' : '☐';

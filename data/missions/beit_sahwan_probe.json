@@ -279,5 +279,9 @@
         ]
       }
     ]
+  },
+  "resources": {
+    "logistics_start": 600,
+    "logistics_rate_per_min": 100
   }
 }

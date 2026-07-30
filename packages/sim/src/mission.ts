@@ -65,6 +65,12 @@ export interface MissionJson {
   ledger: { requires: readonly string[]; produces: readonly string[] };
   objectives: readonly ObjectiveJson[];
   starting_force?: readonly PlacementJson[];
+  resources?: {
+    logistics_start?: number;
+    intel_start?: number;
+    logistics_rate_per_min?: number;
+    supply_corridor?: boolean;
+  };
   civilians?: {
     groups: readonly PlacementJson[];
     refuge?: string;
@@ -101,6 +107,9 @@ export interface MissionContext {
   /** Campaign ledger read on entry (mission.ledger.requires). Absent or
    *  sparse values make the mission harder, never broken. */
   ledger?: LedgerData;
+  /** Production catalogue: cost and build time per unit id, null if the
+   *  unit cannot be built in the field. */
+  unitInfo?: (unitId: string) => { logistics: number; intel?: number; buildTimeS: number } | null;
 }
 
 export type ObjectiveStatus = 'active' | 'complete' | 'failed';
@@ -110,6 +119,7 @@ export type MissionEvent =
   | { kind: 'trigger'; tick: number; id: string }
   | { kind: 'wave'; tick: number; count: number }
   | { kind: 'roe'; tick: number; penalty: number; reason: string; score: number }
+  | { kind: 'built'; tick: number; unit: string }
   | {
       kind: 'missionEnd';
       tick: number;
@@ -167,6 +177,9 @@ export class MissionRuntime {
   private readonly zoneDeductedAt = new Map<string, number>();
   private roeScoreValue = 100;
   private roeFailed = false;
+  private logisticsValue = 0;
+  private intelValue = 0;
+  private readonly buildQueue: { unit: string; readyTick: number }[] = [];
   private readonly identified = new Set<number>();
   private readonly kills = new Map<number, number>();
   private readonly rosterPool: LedgerRosterEntry[];
@@ -191,6 +204,31 @@ export class MissionRuntime {
     this.firedTriggers = new Array(mission.triggers?.length ?? 0).fill(false);
     this.spawnedWaves = new Array(mission.enemy?.waves?.length ?? 0).fill(false);
     this.rosterPool = [...(ctx.ledger?.['roster.surviving_units'] ?? [])];
+    this.logisticsValue = mission.resources?.logistics_start ?? 0;
+    this.intelValue = mission.resources?.intel_start ?? 0;
+  }
+
+  /** Spendable logistics, floored for display. */
+  get logistics(): number {
+    return this.logisticsValue - (this.logisticsValue % 1);
+  }
+
+  get intel(): number {
+    return this.intelValue - (this.intelValue % 1);
+  }
+
+  /** Field production: spend logistics/intel, deploy at player_start after
+   *  the build time. Returns false when unaffordable or unknown. */
+  requestBuild(unitId: string): boolean {
+    if (this.ended) return false;
+    const info = this.ctx.unitInfo?.(unitId);
+    if (!info) return false;
+    if (this.logisticsValue < info.logistics || this.intelValue < (info.intel ?? 0)) return false;
+    if (!this.mission.map.player_start) return false;
+    this.logisticsValue -= info.logistics;
+    this.intelValue -= info.intel ?? 0;
+    this.buildQueue.push({ unit: unitId, readyTick: this.sim.tickCount + info.buildTimeS * TICKS_PER_SECOND });
+    return true;
   }
 
   get result(): 'ongoing' | 'victory' | 'defeat' {
@@ -257,6 +295,18 @@ export class MissionRuntime {
       if (e.kind === 'destroyed' && e.by >= 0) {
         this.kills.set(e.by, (this.kills.get(e.by) ?? 0) + 1);
       }
+    }
+
+    // Income: logistics arrive by rate; interdiction (supply_corridor) is a
+    // later slice. Fractional accrual is exact-enough JS arithmetic.
+    const rate = this.mission.resources?.logistics_rate_per_min ?? 0;
+    if (rate > 0) this.logisticsValue += rate / 1200;
+    for (let i = this.buildQueue.length - 1; i >= 0; i--) {
+      const b = this.buildQueue[i];
+      if (tick < b.readyTick) continue;
+      this.buildQueue.splice(i, 1);
+      this.spawnPlacement({ unit: b.unit, count: 1 }, 0);
+      out.push({ kind: 'built', tick, unit: b.unit });
     }
 
     this.stepRoe(simEvents, tick, out);

@@ -567,6 +567,50 @@ describe('civilians and ROE (GDD §6)', () => {
   });
 });
 
+describe('economy (GDD §3, just enough for M1)', () => {
+  const ECON_CTX: Partial<MissionContext> = {
+    unitInfo: (u) => (u === 'm_squad' ? { logistics: 300, buildTimeS: 2 } : null),
+  };
+
+  it('accrues logistics income and builds units that deploy at player_start', () => {
+    const w = makeWorld(
+      baseMission({
+        map: { file: 'none', player_start: [4, 6] },
+        starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+        resources: { logistics_start: 500, logistics_rate_per_min: 120 },
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+      }),
+      ECON_CTX
+    );
+    expect(w.runtime.logistics).toBe(500);
+    w.step(30 * TICKS_PER_SECOND); // 30 s at 120/min = +60
+    expect(w.runtime.logistics).toBe(560);
+
+    expect(w.runtime.requestBuild('m_squad')).toBe(true);
+    expect(w.runtime.logistics).toBe(260);
+    const before = w.sim.entityCount;
+    const { mission } = w.step(2 * TICKS_PER_SECOND + 2);
+    expect(mission.some((e) => e.kind === 'built')).toBe(true);
+    expect(w.sim.entityCount).toBe(before + 1);
+    const id = w.sim.entityCount - 1;
+    expect(w.sim.state.side[id]).toBe(0);
+    expect(fx.toNumber(w.sim.state.posX[id])).toBeCloseTo(4, 0);
+  });
+
+  it('rejects builds it cannot afford or does not know', () => {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+        resources: { logistics_start: 100 },
+      }),
+      ECON_CTX
+    );
+    expect(w.runtime.requestBuild('m_squad')).toBe(false); // 300 > 100
+    expect(w.runtime.requestBuild('nonsense')).toBe(false);
+    expect(w.runtime.logistics).toBe(100);
+  });
+});
+
 describe('determinism through the runtime', () => {
   it('two identical mission runs produce identical sim hashes', () => {
     const run = (): number => {

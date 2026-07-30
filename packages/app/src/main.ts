@@ -93,6 +93,8 @@ function describeMissionEvent(e: MissionEvent, mission: MissionJson): [string, s
       return [`<b>enemy reinforcements</b> — ${e.count} unit(s) inbound`, '#D93A2B'];
     case 'roe':
       return [`<b>ROE −${e.penalty}</b> (${e.reason}) → ${e.score}`, '#D93A2B'];
+    case 'built':
+      return [`<b>reinforcement deployed</b> — ${e.unit}`, '#A9C4D1'];
     case 'missionEnd':
       return [
         e.result === 'victory'
@@ -149,6 +151,14 @@ async function main(): Promise<void> {
       markers: map.markers,
       zones: map.zones,
       ledger,
+      unitInfo: (id) => {
+        const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
+        if (!u || u.faction !== 'kdf') return null;
+        return {
+          logistics: u.cost.logistics,
+          buildTimeS: 'build_time_s' in u.cost ? u.cost.build_time_s : 20,
+        };
+      },
     });
     runtime.start();
   } else {
@@ -178,6 +188,7 @@ async function main(): Promise<void> {
           result: runtime.result,
           campaign: campaignSummary(ledger),
           roe: runtime.roeScore,
+          resources: mission.resources ? `logistics ${runtime.logistics} · intel ${runtime.intel}` : undefined,
         }
       : null;
   const overlay = new DebugOverlay(document.body, sim, () => renderer.selection, getMission);
@@ -186,6 +197,33 @@ async function main(): Promise<void> {
   if (start) {
     renderer.camera.x = start[0];
     renderer.camera.y = start[1];
+  }
+
+  // Field production bar: reinforcements deploy at player_start after their
+  // build time, paid from mission logistics.
+  if (runtime && mission?.resources) {
+    const rt = runtime;
+    const bar = document.createElement('div');
+    bar.style.cssText =
+      'position:absolute;bottom:8px;left:8px;display:flex;gap:6px;' +
+      'font:11px ui-monospace,Menlo,monospace;';
+    for (const u of Object.values(units)) {
+      if (u.faction !== 'kdf') continue;
+      const btn = document.createElement('button');
+      btn.textContent = `${u.name} (${u.cost.logistics})`;
+      btn.style.cssText =
+        'background:rgba(20,21,15,0.88);color:#F2E8D5;border:1px solid #5C625F;' +
+        'border-radius:4px;padding:6px 8px;cursor:pointer;';
+      btn.addEventListener('click', () => {
+        if (rt.requestBuild(u.id)) {
+          overlay.note(`<b>building</b> ${u.name} — deploys at the start line`, '#A9C4D1');
+        } else {
+          overlay.note(`cannot build ${u.name} — insufficient logistics`, '#B8A182');
+        }
+      });
+      bar.appendChild(btn);
+    }
+    document.body.appendChild(bar);
   }
 
   // --- input ---------------------------------------------------------------
