@@ -70,7 +70,7 @@ const led1 = run('beit_sahwan_1_recon', (sim, _rt, ids, at) => {
 // II — Foothold: dig in on the assembly area, buy a squad when affordable.
 const led2 = run(
   'beit_sahwan_2_foothold',
-  (sim, rt, ids, at) => {
+  (sim, rt, _ids, at) => {
     at(1, () => {
       const all: number[] = [];
       for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0) all.push(i);

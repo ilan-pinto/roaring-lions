@@ -107,12 +107,72 @@ function describeMissionEvent(e: MissionEvent, mission: MissionJson): [string, s
   }
 }
 
+const PANEL =
+  'background:rgba(20,21,15,0.92);color:#F2E8D5;border:1px solid #5C625F;border-radius:6px;' +
+  'font:14px ui-monospace,Menlo,monospace;';
+
+/** Campaign menu: title, the three missions, the sandbox. Pure navigation. */
+function showMenu(stage: HTMLElement, ledger: LedgerData): void {
+  const div = document.createElement('div');
+  div.style.cssText =
+    'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);padding:28px 40px;' + PANEL;
+  const rows = [
+    '<div style="font-size:26px;font-weight:bold;letter-spacing:2px">ROARING LIONS</div>',
+    '<div style="color:#8E9491;margin-bottom:14px">Beit Sahwan — M1</div>',
+    `<div style="color:#A9C4D1;margin-bottom:14px">${campaignSummary(ledger)}</div>`,
+  ];
+  div.innerHTML = rows.join('');
+  const add = (label: string, href: string): void => {
+    const a = document.createElement('a');
+    a.textContent = label;
+    a.href = href;
+    a.style.cssText =
+      'display:block;margin:6px 0;padding:8px 12px;color:#F2E8D5;text-decoration:none;' +
+      'border:1px solid #5C625F;border-radius:4px;';
+    div.appendChild(a);
+  };
+  for (const [id, m] of Object.entries(missions)) add(m.name, `?mission=${id}`);
+  add('M0 sandbox (no mission)', '?sandbox=1');
+  add('reset campaign ledger', `?fresh=1`);
+  stage.appendChild(div);
+}
+
+/** Mission end screen: result, ROE, survivors, and where to next. */
+function showEndScreen(result: 'victory' | 'defeat', roe: number, survivors: number, missionId: string): void {
+  const order = Object.keys(missions);
+  const next = order[order.indexOf(missionId) + 1];
+  const div = document.createElement('div');
+  div.style.cssText =
+    'position:absolute;top:62%;left:50%;transform:translate(-50%,0);padding:16px 28px;text-align:center;' + PANEL;
+  div.innerHTML =
+    `<div style="font-weight:bold;margin-bottom:8px">${result === 'victory' ? 'town is quiet' : 'withdraw and regroup'}</div>` +
+    `<div style="color:#8E9491;margin-bottom:10px">ROE ${roe} · ${survivors} unit(s) walking out</div>`;
+  const link = (label: string, href: string): void => {
+    const a = document.createElement('a');
+    a.textContent = label;
+    a.href = href;
+    a.style.cssText = 'margin:0 8px;color:#B8FF5A;';
+    div.appendChild(a);
+  };
+  if (result === 'victory' && next) link('next mission →', `?mission=${next}`);
+  link(result === 'victory' ? 'replay' : 'try again', `?mission=${missionId}`);
+  link('menu', '?');
+  document.body.appendChild(div);
+}
+
 async function main(): Promise<void> {
   const stage = document.getElementById('stage');
   if (!stage) throw new Error('no #stage');
 
   // --- mode selection ------------------------------------------------------
   const params = new URLSearchParams(window.location.search);
+  if (params.get('fresh') !== null && params.get('mission') === null) {
+    window.localStorage.removeItem(LEDGER_KEY);
+  }
+  if (params.get('mission') === null && params.get('sandbox') === null) {
+    showMenu(stage, loadLedger());
+    return;
+  }
   const missionId = params.get('mission');
   let mission: MissionJson | undefined;
   if (missionId !== null) {
@@ -276,9 +336,12 @@ async function main(): Promise<void> {
       for (const me of runtime.step(events)) {
         const described = describeMissionEvent(me, mission);
         if (described) overlay.note(described[0], described[1]);
-        if (me.kind === 'missionEnd' && me.result === 'victory') {
-          saveLedger({ ...ledger, ...me.ledger });
-          overlay.note('<b>campaign ledger updated</b> — survivors and ROE carried forward', '#A9C4D1');
+        if (me.kind === 'missionEnd') {
+          if (me.result === 'victory') {
+            saveLedger({ ...ledger, ...me.ledger });
+            overlay.note('<b>campaign ledger updated</b> — survivors and ROE carried forward', '#A9C4D1');
+          }
+          if (missionId) showEndScreen(me.result, me.roeRating, me.survivors.length, missionId);
         }
       }
     }
