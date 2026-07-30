@@ -1,0 +1,219 @@
+{
+  "id": "beit_sahwan_1_recon",
+  "name": "Beit Sahwan I \u2014 Recon",
+  "town": "beit_sahwan",
+  "phase": "recon",
+  "target_minutes": 10,
+  "briefing": "Before anything moves on Beit Sahwan, command needs the picture. Push the drone and scout teams along the western approach and identify six garrison positions. Do not get decisively engaged: what you find here is what the brigade fights with next week.",
+  "map": {
+    "file": "beit_sahwan_outskirts",
+    "player_start": [
+      4,
+      23
+    ]
+  },
+  "ledger": {
+    "requires": [],
+    "produces": [
+      "roster.surviving_units",
+      "roe.cumulative_rating"
+    ]
+  },
+  "starting_force": [
+    {
+      "unit": "recon_drone",
+      "count": 1,
+      "at": [
+        8,
+        23
+      ]
+    },
+    {
+      "unit": "inf_squad",
+      "count": 2,
+      "at": [
+        5,
+        20
+      ]
+    },
+    {
+      "unit": "at_team",
+      "count": 1,
+      "at": [
+        5,
+        26
+      ]
+    }
+  ],
+  "objectives": [
+    {
+      "id": "picture",
+      "type": "locate",
+      "primary": true,
+      "count": 6,
+      "text": "Identify six garrison positions"
+    },
+    {
+      "id": "hvt_seen",
+      "type": "locate",
+      "primary": false,
+      "target": "hvt_atgm",
+      "text": "Fix the ATGM cell overlooking the east road"
+    }
+  ],
+  "roe": {
+    "enabled": true
+  },
+  "civilians": {
+    "refuge": "civ_refuge",
+    "groups": [
+      {
+        "unit": "civilians",
+        "count": 2,
+        "at": [
+          28.5,
+          14.5
+        ]
+      },
+      {
+        "unit": "civilians",
+        "count": 1,
+        "at": [
+          31.5,
+          22.5
+        ]
+      }
+    ]
+  },
+  "enemy": {
+    "faction": "ashwar",
+    "doctrine_profile": "urban ambush",
+    "garrison": [
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          27.5,
+          12.5
+        ],
+        "facing_deg": 180
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          33.5,
+          15.5
+        ],
+        "facing_deg": 180
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          29.5,
+          25.5
+        ],
+        "facing_deg": 180
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          25.5,
+          37.5
+        ],
+        "facing_deg": 180
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          19.5,
+          19.5
+        ],
+        "facing_deg": 180,
+        "stance": {
+          "kind": "ambush",
+          "tiles": 3
+        }
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          27.5,
+          24.5
+        ],
+        "facing_deg": 180,
+        "stance": {
+          "kind": "ambush",
+          "tiles": 3
+        }
+      },
+      {
+        "unit": "atgm_cell",
+        "count": 1,
+        "at": [
+          38.5,
+          22.5
+        ],
+        "facing_deg": 180,
+        "tag": "hvt_atgm"
+      },
+      {
+        "unit": "technical",
+        "count": 1,
+        "at": [
+          42.5,
+          14.5
+        ],
+        "group": "hunters",
+        "stance": {
+          "kind": "patrol",
+          "waypoints": [
+            [
+              42.5,
+              14.5
+            ],
+            [
+              42.5,
+              32.5
+            ]
+          ]
+        }
+      },
+      {
+        "unit": "technical",
+        "count": 1,
+        "at": [
+          42.5,
+          30.5
+        ],
+        "group": "hunters"
+      },
+      {
+        "unit": "mortar_crew",
+        "count": 1,
+        "at": [
+          44.5,
+          24.5
+        ],
+        "facing_deg": 180
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "id": "hunt_the_scouts",
+      "on": {
+        "kind": "first_contact"
+      },
+      "do": {
+        "kind": "commit",
+        "group": "hunters",
+        "to": "kdf_assembly"
+      }
+    }
+  ]
+}

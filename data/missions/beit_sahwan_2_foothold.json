@@ -1,0 +1,145 @@
+{
+  "id": "beit_sahwan_2_foothold",
+  "name": "Beit Sahwan II \u2014 Foothold",
+  "town": "beit_sahwan",
+  "phase": "foothold",
+  "target_minutes": 12,
+  "briefing": "The battalion has its foothold west of town and Ashwar knows it. Hold the western approach for five minutes while the engineers dig in behind you. The corridor delivers reinforcements \u2014 spend them well; what survives tonight clears the town tomorrow.",
+  "map": {
+    "file": "beit_sahwan_outskirts",
+    "player_start": [
+      4,
+      23
+    ]
+  },
+  "ledger": {
+    "requires": [
+      "roster.surviving_units"
+    ],
+    "produces": [
+      "roster.surviving_units",
+      "roe.cumulative_rating"
+    ]
+  },
+  "starting_force": [
+    {
+      "unit": "apc_eitan",
+      "count": 1,
+      "at": [
+        4,
+        20
+      ]
+    },
+    {
+      "unit": "ifv_namer",
+      "count": 1,
+      "at": [
+        3,
+        26
+      ]
+    },
+    {
+      "unit": "inf_squad",
+      "count": 2,
+      "at": [
+        6,
+        21
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "at_team",
+      "count": 1,
+      "at": [
+        5,
+        24
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "mortar_team",
+      "count": 1,
+      "at": [
+        2,
+        23
+      ]
+    }
+  ],
+  "resources": {
+    "logistics_start": 400,
+    "logistics_rate_per_min": 120
+  },
+  "objectives": [
+    {
+      "id": "hold_west",
+      "type": "hold_for",
+      "primary": true,
+      "target": "west_approach",
+      "seconds": 300,
+      "text": "Hold the western approach for five minutes"
+    }
+  ],
+  "roe": {
+    "enabled": true
+  },
+  "enemy": {
+    "faction": "ashwar",
+    "doctrine_profile": "harassment waves",
+    "garrison": [
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          24.5,
+          20.5
+        ],
+        "facing_deg": 180
+      }
+    ],
+    "waves": [
+      {
+        "at_seconds": 45,
+        "to": "kdf_assembly",
+        "units": [
+          {
+            "unit": "militia_cell",
+            "count": 2,
+            "from": "town_center"
+          }
+        ]
+      },
+      {
+        "at_seconds": 150,
+        "to": "kdf_assembly",
+        "units": [
+          {
+            "unit": "rpg_team",
+            "count": 1,
+            "from": "town_center"
+          },
+          {
+            "unit": "militia_cell",
+            "count": 2,
+            "from": "town_center"
+          }
+        ]
+      },
+      {
+        "at_seconds": 260,
+        "to": "kdf_assembly",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 2,
+            "from": "mortar_line"
+          },
+          {
+            "unit": "militia_cell",
+            "count": 1,
+            "from": "town_center"
+          }
+        ]
+      }
+    ]
+  }
+}

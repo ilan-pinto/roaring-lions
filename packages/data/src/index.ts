@@ -5,7 +5,9 @@
 
 import palette from '../../../data/palette.json';
 import beitSahwanOutskirts from '../../../data/maps/beit_sahwan_outskirts.json';
-import beitSahwanProbe from '../../../data/missions/beit_sahwan_probe.json';
+import beitSahwan1 from '../../../data/missions/beit_sahwan_1_recon.json';
+import beitSahwan2 from '../../../data/missions/beit_sahwan_2_foothold.json';
+import beitSahwan3 from '../../../data/missions/beit_sahwan_3_clearance.json';
 
 import mbtLavi from '../../../data/units/kdf/mbt_lavi.json';
 import ifvNamer from '../../../data/units/kdf/ifv_namer.json';
@@ -35,7 +37,9 @@ export type MapId = keyof typeof maps;
 
 /** Missions, keyed by mission id. Shapes match mission.schema.json. */
 export const missions = {
-  beit_sahwan_probe: beitSahwanProbe,
+  beit_sahwan_1_recon: beitSahwan1,
+  beit_sahwan_2_foothold: beitSahwan2,
+  beit_sahwan_3_clearance: beitSahwan3,
 } as const;
 
 export type MissionId = keyof typeof missions;
