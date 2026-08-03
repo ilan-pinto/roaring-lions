@@ -58,7 +58,7 @@
       "type": "locate",
       "primary": false,
       "target": "hvt_atgm",
-      "text": "Fix the ATGM cell overlooking the east road"
+      "text": "Find and identify the ATGM cell overlooking the east road (get eyes on until ID)"
     }
   ],
   "roe": {
