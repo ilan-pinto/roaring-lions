@@ -424,6 +424,8 @@ export class Sim {
     readonly firepowerKilled: Uint8Array;
     readonly apsAmmo: Int32Array;
     readonly veterancy: Uint8Array;
+    /** Current primary engagement target per unit, -1 when none. */
+    readonly curTarget: Int32Array;
   };
 
   private readonly seed: number;
@@ -504,6 +506,7 @@ export class Sim {
       firepowerKilled: this.firepowerKilled,
       apsAmmo: this.apsAmmo,
       veterancy: this.veterancy,
+      curTarget: this.curTarget,
     };
   }
 

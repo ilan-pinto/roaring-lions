@@ -69,6 +69,12 @@ export class PixiRenderer {
   private tracers: Tracer[] = [];
   private puffs: Puff[] = [];
   private wrecks: { x: number; y: number }[] = [];
+  private orderMarkers: { x: number; y: number; ttl: number }[] = [];
+
+  /** Drop a fading move/attack order crosshair at a world point. */
+  addOrderMarker(x: number, y: number): void {
+    this.orderMarkers.push({ x, y, ttl: 80 });
+  }
 
   constructor(sim: Sim, opts: RendererOptions) {
     this.sim = sim;
@@ -323,6 +329,43 @@ export class PixiRenderer {
       if (this.selection.includes(i)) {
         g.ellipse(sx, sy + 2, r + 7, (r + 7) / 2).stroke({ width: 2, color: '#B8FF5A' });
       }
+    }
+
+    // Engagement reticles: brackets on whatever the selected units are
+    // shooting at, with a faint line so the duel is readable at a glance.
+    for (const i of this.selection) {
+      if (st.alive[i] === 0 || st.side[i] !== 0) continue;
+      const t = st.curTarget[i];
+      if (t < 0 || st.alive[t] === 0) continue;
+      const tx = this.prevX[t] + (this.curX[t] - this.prevX[t]) * alpha;
+      const ty = this.prevY[t] + (this.curY[t] - this.prevY[t]) * alpha;
+      const rx = isoX(tx, ty);
+      const ry = isoY(tx, ty);
+      const R = 15;
+      const c = this.opts.teamColors[1];
+      for (const [mx, my] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+        g.moveTo(rx + mx * R, ry + my * (R / 2) - my * 4)
+          .lineTo(rx + mx * R, ry + my * (R / 2))
+          .lineTo(rx + mx * R - mx * 7, ry + my * (R / 2))
+          .stroke({ width: 2, color: c });
+      }
+      const sx0 = isoX(this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha, this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha);
+      const sy0 = isoY(this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha, this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha);
+      g.moveTo(sx0, sy0).lineTo(rx, ry).stroke({ width: 1, color: c, alpha: 0.35 });
+    }
+
+    // Order crosshairs fade out where the last command pointed.
+    this.orderMarkers = this.orderMarkers.filter((m) => --m.ttl > 0);
+    for (const m of this.orderMarkers) {
+      const mx = isoX(m.x, m.y);
+      const my = isoY(m.x, m.y);
+      const a = m.ttl / 80;
+      const s = 10 + (1 - a) * 6;
+      g.moveTo(mx - s, my).lineTo(mx - 4, my).stroke({ width: 2, color: '#B8FF5A', alpha: a });
+      g.moveTo(mx + 4, my).lineTo(mx + s, my).stroke({ width: 2, color: '#B8FF5A', alpha: a });
+      g.moveTo(mx, my - s / 2).lineTo(mx, my - 2).stroke({ width: 2, color: '#B8FF5A', alpha: a });
+      g.moveTo(mx, my + 2).lineTo(mx, my + s / 2).stroke({ width: 2, color: '#B8FF5A', alpha: a });
+      g.ellipse(mx, my, s + 4, (s + 4) / 2).stroke({ width: 1.5, color: '#B8FF5A', alpha: a * 0.6 });
     }
 
     // Transient FX.

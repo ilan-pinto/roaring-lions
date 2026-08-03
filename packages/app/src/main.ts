@@ -337,6 +337,7 @@ async function main(): Promise<void> {
     const mine = renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
     if (mine.length > 0) {
       sim.queueCommand({ kind: 'attackMove', ids: mine, x: fx.from(w.x), y: fx.from(w.y) });
+      renderer.addOrderMarker(w.x, w.y);
     }
   });
   const keys = new Set<string>();
