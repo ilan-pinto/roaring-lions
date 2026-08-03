@@ -6,6 +6,7 @@
 import palette from '../../../data/palette.json';
 import audioManifest from '../../../data/audio.json';
 import beitSahwanOutskirts from '../../../data/maps/beit_sahwan_outskirts.json';
+import structureCatalogue from '../../../data/structures.json';
 import beitSahwan1 from '../../../data/missions/beit_sahwan_1_recon.json';
 import beitSahwan2 from '../../../data/missions/beit_sahwan_2_foothold.json';
 import beitSahwan3 from '../../../data/missions/beit_sahwan_3_clearance.json';
@@ -17,6 +18,7 @@ import infSquad from '../../../data/units/kdf/inf_squad.json';
 import atTeam from '../../../data/units/kdf/at_team.json';
 import mortarTeam from '../../../data/units/kdf/mortar_team.json';
 import reconDrone from '../../../data/units/kdf/recon_drone.json';
+import demoSquad from '../../../data/units/kdf/demo_squad.json';
 import militiaCell from '../../../data/units/enemy/militia_cell.json';
 import rpgTeam from '../../../data/units/enemy/rpg_team.json';
 import atgmCell from '../../../data/units/enemy/atgm_cell.json';
@@ -39,6 +41,10 @@ export const maps = {
 
 export type MapId = keyof typeof maps;
 
+/** Building types, keyed by id. Shapes match structure.schema.json. */
+export const structures = structureCatalogue.types;
+export type StructureId = keyof typeof structures;
+
 /** Missions, keyed by mission id. Shapes match mission.schema.json. */
 export const missions = {
   beit_sahwan_1_recon: beitSahwan1,
@@ -57,6 +63,7 @@ export const units = {
   at_team: atTeam,
   mortar_team: mortarTeam,
   recon_drone: reconDrone,
+  demo_squad: demoSquad,
   militia_cell: militiaCell,
   rpg_team: rpgTeam,
   atgm_cell: atgmCell,

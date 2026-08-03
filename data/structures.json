@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "types": {
+    "shanty": {
+      "id": "shanty",
+      "name": "Breeze-block Shed",
+      "symbol": "s",
+      "hp_per_tile": 120,
+      "garrison_slots": 1,
+      "rubble_cover": 1,
+      "height_px": 11,
+      "color": "dust.1"
+    },
+    "house": {
+      "id": "house",
+      "name": "House",
+      "symbol": "h",
+      "hp_per_tile": 260,
+      "garrison_slots": 2,
+      "rubble_cover": 2,
+      "height_px": 16,
+      "color": "limestone.3"
+    },
+    "apartment": {
+      "id": "apartment",
+      "name": "Apartment Block",
+      "symbol": "a",
+      "hp_per_tile": 520,
+      "garrison_slots": 4,
+      "rubble_cover": 2,
+      "height_px": 30,
+      "color": "limestone.4"
+    },
+    "warehouse": {
+      "id": "warehouse",
+      "name": "Warehouse",
+      "symbol": "w",
+      "hp_per_tile": 340,
+      "garrison_slots": 3,
+      "rubble_cover": 1,
+      "height_px": 22,
+      "color": "gunmetal.1"
+    },
+    "concrete": {
+      "id": "concrete",
+      "name": "Concrete Structure",
+      "symbol": "#",
+      "hp_per_tile": 700,
+      "garrison_slots": 2,
+      "rubble_cover": 2,
+      "height_px": 20,
+      "color": "limestone.4"
+    },
+    "mosque": {
+      "id": "mosque",
+      "name": "Mosque",
+      "symbol": "m",
+      "hp_per_tile": 900,
+      "garrison_slots": 3,
+      "rubble_cover": 2,
+      "height_px": 34,
+      "color": "limestone.1"
+    }
+  }
+}

@@ -22,6 +22,8 @@ export interface RendererOptions {
   flashColor: string;
   nearMissColor: string;
   interceptColor: string;
+  /** Resolve a palette key from structure data (e.g. "limestone.4") to hex. */
+  resolveColor?: (paletteKey: string) => string;
 }
 
 export const TILE_W = 64;
@@ -78,12 +80,15 @@ export class PixiRenderer {
   private curX: Float64Array;
   private curY: Float64Array;
 
-  /** unit type id → 16 facing textures (indexed 0–15). */
-  private spriteAtlas = new Map<string, Texture[]>();
+  /** unit type id → facing textures, optionally with walk-cycle frames. */
+  private spriteAtlas = new Map<string, { textures: Texture[][]; frames: number }>();
   /** Per-entity Sprite child in spriteLayer; created on demand. */
   private entitySprites: (Sprite | null)[] = [];
+  /** Per-entity fractional walk-cycle counter (advances while moving). */
+  private entityAnimFrame: Float64Array;
 
   private frameN = 0;
+  private terrainDirty = false;
   private tracers: Tracer[] = [];
   private puffs: Puff[] = [];
   private wrecks: { x: number; y: number }[] = [];
@@ -103,6 +108,7 @@ export class PixiRenderer {
     this.curX = new Float64Array(n);
     this.curY = new Float64Array(n);
     this.unitGroup = new Uint8Array(n);
+    this.entityAnimFrame = new Float64Array(n);
   }
 
   async init(host: HTMLElement): Promise<void> {
@@ -125,19 +131,21 @@ export class PixiRenderer {
   }
 
   /**
-   * Load 16-facing sprites for a unit type. Call after init().
-   * `basePath` must end with `/` and point to the directory containing
-   * f00_000.png … f15_000.png (the render rig output).
+   * Load sprites for a unit type. `frames` is the total number of frames per
+   * facing (1 = static, >1 = frame 0 is idle + remaining are walk cycle).
    */
-  async loadSprites(unitTypeId: string, basePath: string): Promise<void> {
-    const textures: Texture[] = [];
+  async loadSprites(unitTypeId: string, basePath: string, frames = 1): Promise<void> {
+    const textures: Texture[][] = [];
     for (let f = 0; f < 16; f++) {
-      const url = `${basePath}f${f.toString().padStart(2, '0')}_000.png`;
-      const tex = await Assets.load<Texture>(url);
-      textures.push(tex);
+      const row: Texture[] = [];
+      for (let n = 0; n < frames; n++) {
+        const url = `${basePath}f${f.toString().padStart(2, '0')}_${n.toString().padStart(3, '0')}.png`;
+        const tex = await Assets.load<Texture>(url);
+        row.push(tex);
+      }
+      textures.push(row);
     }
-    this.spriteAtlas.set(unitTypeId, textures);
-    console.log(`[lions] sprites loaded for "${unitTypeId}": ${textures.length} textures, first=`, textures[0]?.width, 'x', textures[0]?.height);
+    this.spriteAtlas.set(unitTypeId, { textures, frames });
   }
 
   /** Copy positions after every sim tick; frame() lerps between the copies. */
@@ -178,6 +186,33 @@ export class PixiRenderer {
         this.puffs.push({ x: this.curX[e.target], y: this.curY[e.target], ttl: 12, color: this.opts.interceptColor, r: 10 });
       } else if (e.kind === 'impact' && e.penetrated) {
         this.puffs.push({ x: this.curX[e.target], y: this.curY[e.target], ttl: 10, color: this.opts.flashColor, r: 8 });
+      } else if (e.kind === 'structureHit') {
+        this.terrainDirty = true;
+        const s = e.structure;
+        this.puffs.push({
+          x: fx.toNumber(this.sim.structures.cx[s]),
+          y: fx.toNumber(this.sim.structures.cy[s]),
+          ttl: 12,
+          color: this.opts.nearMissColor,
+          r: 9,
+        });
+      } else if (e.kind === 'structureDestroyed') {
+        this.terrainDirty = true;
+        const s = e.structure;
+        const bx = fx.toNumber(this.sim.structures.cx[s]);
+        const by = fx.toNumber(this.sim.structures.cy[s]);
+        // A collapse throws a lot of dust.
+        for (let k = 0; k < 14; k++) {
+          const a = PixiRenderer.h2(k * 7 + s, k * 13 + s);
+          const b = PixiRenderer.h2(k * 31 + s, k * 3 + s);
+          this.puffs.push({
+            x: bx + (a - 0.5) * 3,
+            y: by + (b - 0.5) * 3,
+            ttl: 26 + Math.floor(a * 16),
+            color: this.opts.nearMissColor,
+            r: 10 + a * 10,
+          });
+        }
       } else if (e.kind === 'destroyed') {
         this.wrecks.push({ x: this.curX[e.entity], y: this.curY[e.entity] });
       }
@@ -349,15 +384,29 @@ export class PixiRenderer {
         const diamond = [cx, cy - TILE_H / 2, cx + TILE_W / 2, cy, cx, cy + TILE_H / 2, cx - TILE_W / 2, cy];
 
         if (blocked) {
-          // Building block: two shaded wall faces + a roof, so it reads as volume.
-          g.poly([cx - TILE_W / 2, cy, cx, cy + TILE_H / 2, cx, cy + TILE_H / 2 - H, cx - TILE_W / 2, cy - H])
+          // Buildings draw from their own type: taller blocks read as taller
+          // shapes, and a battered building visibly darkens as it takes hits.
+          const sIdx = this.sim.structureAt(x, y);
+          let roof = this.opts.terrainBlocked;
+          let bh = H;
+          let integrity = 1;
+          if (sIdx >= 0) {
+            const stype = this.sim.structureTypes[this.sim.structures.typeIdx[sIdx]];
+            bh = stype.heightPx;
+            roof = this.opts.resolveColor ? this.opts.resolveColor(stype.color) : roof;
+            const max = this.sim.structures.maxHp[sIdx];
+            if (max > 0) integrity = Math.max(0, this.sim.structures.hp[sIdx] / max);
+          }
+          const wear = 0.45 + 0.55 * integrity; // battered walls go dark
+          g.poly([cx - TILE_W / 2, cy, cx, cy + TILE_H / 2, cx, cy + TILE_H / 2 - bh, cx - TILE_W / 2, cy - bh])
             .fill({ color: '#1E1F1A', alpha: 0.9 });
-          g.poly([cx + TILE_W / 2, cy, cx, cy + TILE_H / 2, cx, cy + TILE_H / 2 - H, cx + TILE_W / 2, cy - H])
-            .fill({ color: '#3A3C33', alpha: 0.9 });
-          g.poly(diamond.map((v, i) => (i % 2 ? v - H : v))).fill({ color: this.opts.terrainBlocked, alpha: 1 });
-          // Roof clutter: a water tank or vent, hash-placed.
-          if (rnd > 0.4) {
-            g.circle(cx + (rnd - 0.5) * 18, cy - H + (rnd - 0.5) * 8, 3).fill({ color: '#8E9491', alpha: 0.8 });
+          g.poly([cx + TILE_W / 2, cy, cx, cy + TILE_H / 2, cx, cy + TILE_H / 2 - bh, cx + TILE_W / 2, cy - bh])
+            .fill({ color: '#3A3C33', alpha: 0.9 * wear });
+          g.poly(diamond.map((v, i) => (i % 2 ? v - bh : v))).fill({ color: roof, alpha: wear });
+          // Roof clutter: a water tank or vent, hash-placed. Shaken off as
+          // the building is chewed up.
+          if (rnd > 0.4 && integrity > 0.6) {
+            g.circle(cx + (rnd - 0.5) * 18, cy - bh + (rnd - 0.5) * 8, 3).fill({ color: '#8E9491', alpha: 0.8 });
           }
           continue;
         }
@@ -431,22 +480,32 @@ export class PixiRenderer {
 
       const facingNorm = fx.toNumber(st.facing[i]);
       const facingIdx = Math.round(facingNorm * 16) % 16;
-      const textures = this.spriteAtlas.get(type.id);
+      const atlas = this.spriteAtlas.get(type.id);
 
-      if (textures) {
+      if (atlas) {
+        const facings = atlas.textures;
+        // Walk cycle: frames 1–(N-1) loop while moving; frame 0 is idle.
+        let frame = 0;
+        if (st.moving[i] === 1 && atlas.frames > 1) {
+          this.entityAnimFrame[i] += 0.12;
+          const walkFrames = atlas.frames - 1;
+          frame = 1 + (Math.floor(this.entityAnimFrame[i]) % walkFrames);
+        } else {
+          this.entityAnimFrame[i] = 0;
+        }
         // Sprite-based rendering.
         while (this.entitySprites.length <= i) this.entitySprites.push(null);
         let spr = this.entitySprites[i];
         if (!spr) {
-          spr = new Sprite({ texture: textures[0], anchor: 0.5 });
+          spr = new Sprite({ texture: facings[0][0], anchor: 0.5 });
           this.spriteLayer.addChild(spr);
           this.entitySprites[i] = spr;
         }
-        spr.texture = textures[facingIdx];
+        spr.texture = facings[facingIdx][frame] ?? facings[facingIdx][0];
         spr.position.set(sx, sy);
         spr.alpha = bodyAlpha;
         spr.visible = true;
-        const spriteScale = (type.isSoft ? 1.0 : 1.8) * TILE_W / textures[0].width;
+        const spriteScale = ((type.isSoft ? 1.0 : 1.8) * TILE_W) / facings[0][0].width;
         spr.scale.set(spriteScale);
       } else {
         // Procedural fallback.
@@ -552,6 +611,56 @@ export class PixiRenderer {
     for (let i = 0; i < this.groupLabels.length; i++) {
       const lb = this.groupLabels[i];
       if (lb && (st.alive[i] === 0 || this.unitGroup[i] === 0)) lb.visible = false;
+    }
+
+    if (this.terrainDirty) {
+      this.terrainDirty = false;
+      this.drawTerrain();
+      this.fogDirty = true;
+    }
+
+    // Building status: an integrity bar once a building has been hit, and a
+    // pip per man inside — you should be able to see that a house is held
+    // and how close it is to coming down.
+    const str = this.sim.structures;
+    for (let s = 0; s < this.sim.structureCount; s++) {
+      if (str.alive[s] === 0) continue;
+      const bx = isoX(fx.toNumber(str.cx[s]), fx.toNumber(str.cy[s]));
+      const by = isoY(fx.toNumber(str.cx[s]), fx.toNumber(str.cy[s]));
+      const stype = this.sim.structureTypes[str.typeIdx[s]];
+      const top = by - stype.heightPx - 12;
+      const ratio = str.maxHp[s] > 0 ? str.hp[s] / str.maxHp[s] : 1;
+      if (ratio < 0.999) {
+        g.rect(bx - 16, top, 32, 4).fill({ color: '#14150F', alpha: 0.85 });
+        g.rect(bx - 16, top, 32 * Math.max(0, ratio), 4).fill(
+          ratio > 0.6 ? '#8E9491' : ratio > 0.3 ? '#E8C33A' : '#D93A2B'
+        );
+      }
+      const occ = str.occupants[s];
+      if (occ > 0) {
+        // Colour the pips by whoever is inside.
+        let side = 1;
+        for (let i = 0; i < this.sim.entityCount; i++) {
+          if (st.alive[i] === 1 && st.garrisonedIn[i] === s) {
+            side = st.side[i];
+            break;
+          }
+        }
+        for (let k = 0; k < occ; k++) {
+          g.circle(bx - 10 + k * 7, top - 7, 2.5).fill(this.opts.teamColors[side]);
+        }
+      }
+    }
+
+    // Demolition charges being set: a ring that closes as the timer runs.
+    for (let i = 0; i < this.sim.entityCount; i++) {
+      if (st.alive[i] === 0) continue;
+      const prog = this.sim.demolitionProgress(i);
+      if (prog <= 0) continue;
+      const px = isoX(this.curX[i], this.curY[i]);
+      const py = isoY(this.curX[i], this.curY[i]);
+      g.ellipse(px, py, 20, 10).stroke({ width: 2, color: '#5C625F', alpha: 0.5 });
+      g.ellipse(px, py, 20 * prog, 10 * prog).stroke({ width: 3, color: '#E8541E', alpha: 0.9 });
     }
 
     // Weapon envelopes for the selection (GDD §5.8): solid ring at effective

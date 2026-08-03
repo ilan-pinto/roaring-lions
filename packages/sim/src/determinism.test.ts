@@ -83,8 +83,9 @@ describe('determinism (1000-tick replay)', () => {
     // that is the whole claim of invariants 2 and 3. It changes ONLY when the
     // model deliberately changes (sim code or tuning constants); update it by
     // reading the new value from this failure, in the same commit, on purpose.
-    // Updated for field recovery: lastDamagedTick column + regen in upkeep.
-    expect(a.hash()).toBe(2274657041);
+    // Updated for structures: garrison/demolition/building columns, the
+    // displaced flag, and threat-scaled near-miss suppression.
+    expect(a.hash()).toBe(1610960308);
   });
 
   it('a different seed produces a different hash', () => {

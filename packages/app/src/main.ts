@@ -21,7 +21,16 @@ import {
   type MissionView,
   type AudioManifest,
 } from '@lions/render';
-import { units, maps, missions, parseMap, paletteColor, audioManifest, type MapJson } from '@lions/data';
+import {
+  units,
+  maps,
+  missions,
+  structures as structureCatalogue,
+  parseMap,
+  paletteColor,
+  audioManifest,
+  type MapJson,
+} from '@lions/data';
 
 const MS_PER_TICK = 1000 / TICKS_PER_SECOND;
 const WEST = 32768; // half turn — garrisons face the expected KDF axis
@@ -199,9 +208,19 @@ async function main(): Promise<void> {
   for (let y = 0; y < map.height; y++) {
     for (let x = 0; x < map.width; x++) {
       const t = y * map.width + x;
-      if (map.blocked[t] !== 0) sim.setBlocked(x, y, true);
       if (map.cover[t] !== 0) sim.setCover(x, y, map.cover[t]);
     }
+  }
+  // Buildings are entities, not terrain: each contiguous run of identical
+  // symbols becomes one structure with HP, a garrison and rubble.
+  const structTypeIdx = new Map<string, number>();
+  for (const [id, spec] of Object.entries(structureCatalogue)) {
+    structTypeIdx.set(id, sim.addStructureType(spec as Parameters<typeof sim.addStructureType>[0]));
+  }
+  for (const b of map.structures) {
+    const t = structTypeIdx.get(b.type);
+    if (t === undefined) throw new Error(`map references unknown structure type ${b.type}`);
+    sim.addStructure(t, b.tiles);
   }
 
   const typeOf = new Map<string, number>();
@@ -245,24 +264,25 @@ async function main(): Promise<void> {
     flashColor: paletteColor('vfx.fire'),
     nearMissColor: paletteColor('dust.0'),
     interceptColor: paletteColor('vfx.interceptor'),
+    resolveColor: paletteColor,
   };
   const renderer = new PixiRenderer(sim, opts);
   await renderer.init(stage);
 
   // Load sprite sheets for unit types that have rendered art (non-blocking).
-  const SPRITE_MAP: Record<string, string> = {
-    mbt_lavi: '/assets/sprites/TNK/',
-    inf_squad: '/assets/sprites/INF/',
-    at_team: '/assets/sprites/INF/',
-    mortar_team: '/assets/sprites/INF/',
-    militia_cell: '/assets/sprites/INF/',
-    rpg_team: '/assets/sprites/INF/',
-    atgm_cell: '/assets/sprites/INF/',
-    mortar_crew: '/assets/sprites/INF/',
+  const SPRITE_MAP: Record<string, { path: string; frames?: number }> = {
+    mbt_lavi:     { path: '/sprites/TNK/' },
+    inf_squad:    { path: '/sprites/INF/', frames: 5 },
+    at_team:      { path: '/sprites/INF/', frames: 5 },
+    mortar_team:  { path: '/sprites/INF/', frames: 5 },
+    militia_cell: { path: '/sprites/INF/', frames: 5 },
+    rpg_team:     { path: '/sprites/INF/', frames: 5 },
+    atgm_cell:    { path: '/sprites/INF/', frames: 5 },
+    mortar_crew:  { path: '/sprites/INF/', frames: 5 },
   };
-  for (const [id, path] of Object.entries(SPRITE_MAP)) {
-    renderer.loadSprites(id, path).catch((err) => {
-      console.warn(`sprites for ${id} failed to load:`, err);
+  for (const [id, { path, frames }] of Object.entries(SPRITE_MAP)) {
+    renderer.loadSprites(id, path, frames).catch((err) => {
+      console.warn(`[lions] sprites FAILED for ${id}:`, err);
     });
   }
 
@@ -407,10 +427,22 @@ async function main(): Promise<void> {
     const rect = canvas.getBoundingClientRect();
     const w = renderer.screenToWorld(ev.clientX - rect.left, ev.clientY - rect.top);
     const mine = renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
-    if (mine.length > 0) {
-      sim.queueCommand({ kind: 'attackMove', ids: mine, x: fx.from(w.x), y: fx.from(w.y) });
+    if (mine.length === 0) return;
+    // Right-clicking a building sends whoever can garrison inside it, and
+    // everyone else to attack toward it.
+    const struct = sim.structureAt(Math.floor(w.x), Math.floor(w.y));
+    if (struct >= 0) {
+      const canEnter = mine.filter((i) => sim.unitTypes[sim.state.typeIdx[i]].canGarrison);
+      const rest = mine.filter((i) => !sim.unitTypes[sim.state.typeIdx[i]].canGarrison);
+      if (canEnter.length > 0) sim.queueCommand({ kind: 'garrison', ids: canEnter, structure: struct });
+      if (rest.length > 0) {
+        sim.queueCommand({ kind: 'attackMove', ids: rest, x: fx.from(w.x), y: fx.from(w.y) });
+      }
       renderer.addOrderMarker(w.x, w.y);
+      return;
     }
+    sim.queueCommand({ kind: 'attackMove', ids: mine, x: fx.from(w.x), y: fx.from(w.y) });
+    renderer.addOrderMarker(w.x, w.y);
   });
   const keys = new Set<string>();
   // Control groups 1–9, and double-tap tracking for camera centring.

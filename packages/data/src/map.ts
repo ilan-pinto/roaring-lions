@@ -3,7 +3,10 @@
 // in a text editor — one character per tile:
 //
 //   .  open ground          1 2 3  cover levels (light / heavy / garrison)
-//   #  blocked (building)
+//   #  concrete structure    h a w s m  building types (see data/structures.json)
+//
+// Any building symbol makes a blocked tile; a contiguous run of the SAME
+// symbol becomes one structure with its own HP, garrison and rubble.
 //
 // Markers are named points missions reference (spawns, tunnel mouths, HVTs);
 // zones are named rects (objective areas, trigger regions).
@@ -20,6 +23,13 @@ export interface MapJson {
   zones?: Record<string, readonly number[]>;
 }
 
+export interface ParsedStructure {
+  /** Structure type id from data/structures.json. */
+  type: string;
+  /** Tile indices (row-major) making up the footprint. */
+  tiles: number[];
+}
+
 export interface ParsedMap {
   id: string;
   width: number;
@@ -30,15 +40,27 @@ export interface ParsedMap {
   cover: Uint8Array;
   markers: Record<string, [number, number]>;
   zones: Record<string, [number, number, number, number]>;
+  /** Buildings, one per contiguous run of identical building symbols. */
+  structures: ParsedStructure[];
 }
+
+/** Map symbol → structure type id. Terrain symbols are handled separately. */
+export const STRUCTURE_SYMBOLS: Record<string, string> = {
+  '#': 'concrete',
+  h: 'house',
+  a: 'apartment',
+  w: 'warehouse',
+  s: 'shanty',
+  m: 'mosque',
+};
 
 const LEGEND: Record<string, { blocked: number; cover: number }> = {
   '.': { blocked: 0, cover: 0 },
   '1': { blocked: 0, cover: 1 },
   '2': { blocked: 0, cover: 2 },
   '3': { blocked: 0, cover: 3 },
-  '#': { blocked: 1, cover: 0 },
 };
+for (const sym of Object.keys(STRUCTURE_SYMBOLS)) LEGEND[sym] = { blocked: 1, cover: 0 };
 
 export function parseMap(json: MapJson): ParsedMap {
   const { width, height, rows } = json;
@@ -77,5 +99,37 @@ export function parseMap(json: MapJson): ParsedMap {
     }
     zones[name] = [x, y, w, h];
   }
-  return { id: json.id, width, height, blocked, cover, markers, zones };
+  // Flood-fill contiguous same-symbol building tiles into structures, so an
+  // author draws a town in ASCII and gets buildings with HP for free.
+  const structures: ParsedStructure[] = [];
+  const seen = new Uint8Array(width * height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const t = y * width + x;
+      const sym = rows[y][x];
+      const typeId = STRUCTURE_SYMBOLS[sym];
+      if (typeId === undefined || seen[t] === 1) continue;
+      const tiles: number[] = [];
+      const stack = [t];
+      seen[t] = 1;
+      while (stack.length > 0) {
+        const cur = stack.pop() as number;
+        tiles.push(cur);
+        const cx = cur % width;
+        const cy = (cur - cx) / width;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          const nx = cx + dx;
+          const ny = cy + dy;
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+          const n = ny * width + nx;
+          if (seen[n] === 1 || rows[ny][nx] !== sym) continue;
+          seen[n] = 1;
+          stack.push(n);
+        }
+      }
+      tiles.sort((a, b) => a - b); // deterministic order
+      structures.push({ type: typeId, tiles });
+    }
+  }
+  return { id: json.id, width, height, blocked, cover, markers, zones, structures };
 }

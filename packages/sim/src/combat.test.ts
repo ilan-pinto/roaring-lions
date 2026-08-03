@@ -74,6 +74,16 @@ const MBT_APS: UnitTypeJson = {
   },
 };
 
+/** A dug-in infantry company that soaks fire without dying: soft, so
+ *  suppression applies in full, but deep enough to survive a long beating.
+ *  (HP stays well inside the Q16.16 range — 32767 is the ceiling.) */
+const DUMMY_COMPANY: UnitTypeJson = {
+  ...INF,
+  id: 'c_dummy_company',
+  hull: { hp: 20000, armor: { front: 10, side: 10, rear: 10 } },
+  weapons: [],
+};
+
 /** MBT stats without a gun — a target that shoots nothing back and (against
  *  low-pen fire) never dies, so statistics can accumulate. */
 const DUMMY_MBT: UnitTypeJson = { ...MBT, id: 'c_dummy_mbt', weapons: [] };
@@ -313,10 +323,11 @@ describe('suppression (GDD 5.5)', () => {
   it('near misses pin infantry, and suppression decays after fire lifts', () => {
     const sim = new Sim({ seed: 55, width: 32, height: 16, capacity: 16 });
     const inf = sim.addUnitType(INF);
-    const dummy = sim.addUnitType(DUMMY_MBT);
-    // Three squads pour rifle fire into a buttoned-up tank: nothing
-    // penetrates, but the crew still gets pinned — suppression is what
-    // machine guns are for (GDD 5.5).
+    const dummy = sim.addUnitType(DUMMY_COMPANY);
+    // Three squads pour rifle fire onto a dug-in position: the rounds do
+    // little, but the men stop moving — suppression is what volume of fire
+    // buys you (GDD 5.5). (Against armour it would barely register: rifle
+    // rounds cracking off a hull are noise, not a threat.)
     sim.spawn(inf, 0, fx.from(3.5), fx.from(7.5));
     sim.spawn(inf, 0, fx.from(3.5), fx.from(8.5));
     sim.spawn(inf, 0, fx.from(3.5), fx.from(9.5));

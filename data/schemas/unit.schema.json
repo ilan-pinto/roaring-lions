@@ -4,25 +4,76 @@
   "title": "Unit",
   "description": "A combat unit. All numeric values are authored as decimals and converted to Q16.16 fixed-point at load. Values feed both the simulation and the cost-curve validator, so an inaccurate stat is a balance bug, not a cosmetic one.",
   "type": "object",
-  "required": ["id", "name", "faction", "role", "cost", "hull", "mobility", "sensors"],
+  "required": [
+    "id",
+    "name",
+    "faction",
+    "role",
+    "cost",
+    "hull",
+    "mobility",
+    "sensors"
+  ],
   "additionalProperties": false,
   "properties": {
-    "id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
-    "name": { "type": "string" },
-    "faction": { "enum": ["kdf", "ashwar", "sarim", "rif", "civilian"] },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+$"
+    },
+    "name": {
+      "type": "string"
+    },
+    "faction": {
+      "enum": [
+        "kdf",
+        "ashwar",
+        "sarim",
+        "rif",
+        "civilian"
+      ]
+    },
     "role": {
-      "enum": ["recon", "mbt", "ifv", "apc", "infantry", "at_team", "engineer",
-               "eod", "artillery", "aa", "drone", "technical", "sniper", "support"]
+      "enum": [
+        "recon",
+        "mbt",
+        "ifv",
+        "apc",
+        "infantry",
+        "at_team",
+        "engineer",
+        "eod",
+        "artillery",
+        "aa",
+        "drone",
+        "technical",
+        "sniper",
+        "support"
+      ]
     },
     "cost": {
       "type": "object",
-      "required": ["logistics"],
+      "required": [
+        "logistics"
+      ],
       "additionalProperties": false,
       "properties": {
-        "logistics": { "type": "integer", "minimum": 0 },
-        "intel": { "type": "integer", "minimum": 0 },
-        "build_time_s": { "type": "number", "minimum": 0 },
-        "population": { "type": "integer", "minimum": 0, "default": 1 }
+        "logistics": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "intel": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "build_time_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "population": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 1
+        }
       }
     },
     "unlock": {
@@ -30,101 +81,271 @@
       "description": "Progression gate. roe_rating_min is the mechanism that makes restraint pay off.",
       "additionalProperties": false,
       "properties": {
-        "roe_rating_min": { "type": "integer", "minimum": 0, "maximum": 100 },
-        "after_mission": { "type": "string" }
+        "roe_rating_min": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "after_mission": {
+          "type": "string"
+        }
       }
     },
     "hull": {
       "type": "object",
-      "required": ["hp", "armor"],
+      "required": [
+        "hp",
+        "armor"
+      ],
       "additionalProperties": false,
       "properties": {
-        "hp": { "type": "number", "minimum": 1, "description": "Structural integrity. Most kills come from the component table, not HP depletion." },
+        "hp": {
+          "type": "number",
+          "minimum": 1,
+          "description": "Structural integrity. Most kills come from the component table, not HP depletion."
+        },
         "armor": {
           "type": "object",
-          "required": ["front", "side", "rear"],
+          "required": [
+            "front",
+            "side",
+            "rear"
+          ],
           "additionalProperties": false,
           "properties": {
-            "front": { "type": "number", "minimum": 0, "description": "RHA-equivalent mm. Facing arc is ±60 degrees." },
-            "side": { "type": "number", "minimum": 0 },
-            "rear": { "type": "number", "minimum": 0 },
-            "top": { "type": "number", "minimum": 0 }
+            "front": {
+              "type": "number",
+              "minimum": 0,
+              "description": "RHA-equivalent mm. Facing arc is \u00b160 degrees."
+            },
+            "side": {
+              "type": "number",
+              "minimum": 0
+            },
+            "rear": {
+              "type": "number",
+              "minimum": 0
+            },
+            "top": {
+              "type": "number",
+              "minimum": 0
+            }
           }
         },
-        "era": { "type": "boolean", "default": false },
+        "era": {
+          "type": "boolean",
+          "default": false
+        },
         "aps": {
           "type": "object",
           "description": "Trophy-class active protection. Finite magazine is what makes saturation attacks a viable enemy doctrine.",
           "additionalProperties": false,
           "properties": {
-            "base_pk": { "type": "number", "minimum": 0, "maximum": 1 },
-            "magazine": { "type": "integer", "minimum": 1 },
-            "reload_s": { "type": "number", "minimum": 0 },
+            "base_pk": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "magazine": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "reload_s": {
+              "type": "number",
+              "minimum": 0
+            },
             "ineffective_vs": {
               "type": "array",
-              "items": { "enum": ["apfsds", "kinetic", "gun_he", "small_arms"] }
+              "items": {
+                "enum": [
+                  "apfsds",
+                  "kinetic",
+                  "gun_he",
+                  "small_arms"
+                ]
+              }
             }
           }
         },
-        "crew": { "type": "integer", "minimum": 0 },
-        "suppression_resistance": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.5 }
+        "crew": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "suppression_resistance": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.5
+        }
       }
     },
     "mobility": {
       "type": "object",
-      "required": ["speed_tiles_s"],
+      "required": [
+        "speed_tiles_s"
+      ],
       "additionalProperties": false,
       "properties": {
-        "speed_tiles_s": { "type": "number", "minimum": 0 },
-        "turn_rate_deg_s": { "type": "number", "minimum": 0 },
-        "accel_tiles_s2": { "type": "number", "minimum": 0 },
+        "speed_tiles_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "turn_rate_deg_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "accel_tiles_s2": {
+          "type": "number",
+          "minimum": 0
+        },
         "terrain": {
           "type": "object",
           "description": "Speed multipliers by terrain class.",
-          "additionalProperties": { "type": "number", "minimum": 0 }
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0
+          }
         },
-        "can_crush": { "type": "boolean", "default": false },
-        "reshapes_terrain": { "type": "boolean", "default": false, "description": "D9-class. Opens assault lanes and forces flow-field recompute." }
+        "can_crush": {
+          "type": "boolean",
+          "default": false
+        },
+        "reshapes_terrain": {
+          "type": "boolean",
+          "default": false,
+          "description": "D9-class. Opens assault lanes and forces flow-field recompute."
+        }
       }
     },
     "sensors": {
       "type": "object",
-      "required": ["optics", "sight_tiles"],
+      "required": [
+        "optics",
+        "sight_tiles"
+      ],
       "additionalProperties": false,
       "properties": {
-        "optics": { "type": "number", "minimum": 0, "description": "Detection strength multiplier." },
-        "sight_tiles": { "type": "number", "minimum": 0 },
-        "thermal": { "type": "boolean", "default": false },
-        "signature": { "type": "number", "minimum": 0, "description": "How visible this unit is. Low signature is the core of enemy asymmetry." },
-        "firing_signature_mult": { "type": "number", "minimum": 1, "default": 4.0, "description": "Shooting reveals you. This number is why." }
+        "optics": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Detection strength multiplier."
+        },
+        "sight_tiles": {
+          "type": "number",
+          "minimum": 0
+        },
+        "thermal": {
+          "type": "boolean",
+          "default": false
+        },
+        "signature": {
+          "type": "number",
+          "minimum": 0,
+          "description": "How visible this unit is. Low signature is the core of enemy asymmetry."
+        },
+        "firing_signature_mult": {
+          "type": "number",
+          "minimum": 1,
+          "default": 4.0,
+          "description": "Shooting reveals you. This number is why."
+        }
       }
     },
     "weapons": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "type", "range_tiles", "accuracy"],
+        "required": [
+          "id",
+          "type",
+          "range_tiles",
+          "accuracy"
+        ],
         "additionalProperties": false,
         "properties": {
-          "id": { "type": "string" },
-          "type": { "enum": ["apfsds", "heat", "he", "atgm", "rpg", "small_arms", "hmg", "autocannon", "mortar", "rocket", "interceptor", "demolition"] },
-          "range_tiles": { "type": "number", "minimum": 0 },
-          "effective_range_tiles": { "type": "number", "minimum": 0 },
-          "accuracy": { "type": "number", "minimum": 0, "maximum": 1 },
-          "penetration": { "type": "number", "minimum": 0, "description": "RHA-equivalent mm. Compared against effective armour through a normal CDF, not a threshold." },
-          "damage": { "type": "number", "minimum": 0 },
-          "splash_tiles": { "type": "number", "minimum": 0, "default": 0 },
-          "suppression": { "type": "number", "minimum": 0, "description": "Applied on near miss. High-suppression low-damage weapons are valuable and should be." },
-          "rof_per_min": { "type": "number", "minimum": 0 },
-          "magazine": { "type": "integer", "minimum": 1 },
-          "reload_s": { "type": "number", "minimum": 0 },
-          "min_range_tiles": { "type": "number", "minimum": 0, "default": 0 },
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "apfsds",
+              "heat",
+              "he",
+              "atgm",
+              "rpg",
+              "small_arms",
+              "hmg",
+              "autocannon",
+              "mortar",
+              "rocket",
+              "interceptor",
+              "demolition"
+            ]
+          },
+          "range_tiles": {
+            "type": "number",
+            "minimum": 0
+          },
+          "effective_range_tiles": {
+            "type": "number",
+            "minimum": 0
+          },
+          "accuracy": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "penetration": {
+            "type": "number",
+            "minimum": 0,
+            "description": "RHA-equivalent mm. Compared against effective armour through a normal CDF, not a threshold."
+          },
+          "damage": {
+            "type": "number",
+            "minimum": 0
+          },
+          "splash_tiles": {
+            "type": "number",
+            "minimum": 0,
+            "default": 0
+          },
+          "suppression": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Applied on near miss. High-suppression low-damage weapons are valuable and should be."
+          },
+          "rof_per_min": {
+            "type": "number",
+            "minimum": 0
+          },
+          "magazine": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "reload_s": {
+            "type": "number",
+            "minimum": 0
+          },
+          "min_range_tiles": {
+            "type": "number",
+            "minimum": 0,
+            "default": 0
+          },
           "can_target": {
             "type": "array",
-            "items": { "enum": ["ground", "air", "structure", "subterranean"] }
+            "items": {
+              "enum": [
+                "ground",
+                "air",
+                "structure",
+                "subterranean"
+              ]
+            }
           },
           "collateral_risk": {
-            "type": "number", "minimum": 0, "maximum": 1,
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
             "description": "Feeds ROE scoring. The player must be able to see this before firing."
           }
         }
@@ -132,16 +353,46 @@
     },
     "abilities": {
       "type": "array",
-      "items": { "enum": ["smoke", "mark_target", "deploy", "garrison", "breach", "defuse", "mark_tunnel", "call_strike", "repair", "resupply", "tunnel_travel", "hidden_setup"] }
+      "items": {
+        "enum": [
+          "smoke",
+          "mark_target",
+          "deploy",
+          "garrison",
+          "breach",
+          "defuse",
+          "mark_tunnel",
+          "call_strike",
+          "repair",
+          "resupply",
+          "tunnel_travel",
+          "hidden_setup",
+          "demolish"
+        ]
+      }
     },
     "art": {
       "type": "object",
-      "required": ["sprite_dir"],
+      "required": [
+        "sprite_dir"
+      ],
       "additionalProperties": false,
       "properties": {
-        "sprite_dir": { "type": "string" },
-        "facings": { "type": "integer", "enum": [8, 16], "default": 16 },
-        "damage_states": { "type": "boolean", "default": true }
+        "sprite_dir": {
+          "type": "string"
+        },
+        "facings": {
+          "type": "integer",
+          "enum": [
+            8,
+            16
+          ],
+          "default": 16
+        },
+        "damage_states": {
+          "type": "boolean",
+          "default": true
+        }
       }
     }
   }

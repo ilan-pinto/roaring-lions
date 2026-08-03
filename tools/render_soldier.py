@@ -2,9 +2,9 @@
 Render infantry soldier sprites from the BlendSwap Human Male Soldier model.
 Credit: contmike (CC-BY 3.0, BlendSwap #40767)
 
-Same two-phase pipeline as render_tiger.py:
-  1. Open rigged blend, select first soldier, preserve armature pose, export OBJ
-  2. Import OBJ into clean scene, render 16 dimetric facings
+Renders 16 facings × 5 frames (1 idle + 4 walk cycle) = 80 PNGs.
+Walk cycle is posed programmatically via the FK bone chain.
+Output PNGs are re-encoded through Pillow to strip Blender metadata.
 """
 
 import bpy
@@ -12,26 +12,49 @@ import math
 import os
 import json
 import sys
-import tempfile
-from mathutils import Vector
 
 BLEND = os.path.abspath("art/src/human_male_soldier.blend")
-OUT = "packages/app/public/assets/sprites/INF"
+OUT = os.path.abspath("assets/sprites/INF")
 SIZE = 256
 FACINGS = 16
+FRAMES = 5  # frame 0 = idle, frames 1-4 = walk cycle
 DIMETRIC_ELEVATION = math.atan(0.5)
 
 KEEP_PARENTS = {"Man_rig", "Gun_armature"}
 SKIP_MESHES = {"floor", "switch", "switch.panel", "Plane", "Plane.001", "Plane.002"}
 
+# Walk cycle bone rotations (degrees) for the FK chain.
+# Each entry: (FKthighL, FKthighR, FKshinL, FKshinR, Arm.L, Arm.R)
+# Convention: positive = forward swing for thighs, positive = bend for shins.
+WALK_POSES = [
+    # Frame 1: right leg forward contact
+    {"FKthighR": 25, "FKthighL": -15, "FKshinR": -10, "FKshinL": -30, "Arm.L": 20, "Arm.R": -15},
+    # Frame 2: passing (both under body, slight crouch)
+    {"FKthighR": 5, "FKthighL": 5, "FKshinR": -20, "FKshinL": -20, "Arm.L": 5, "Arm.R": 5},
+    # Frame 3: left leg forward contact (mirror of frame 1)
+    {"FKthighR": -15, "FKthighL": 25, "FKshinR": -30, "FKshinL": -10, "Arm.L": -15, "Arm.R": 20},
+    # Frame 4: passing mirrored
+    {"FKthighR": 5, "FKthighL": 5, "FKshinR": -20, "FKshinL": -20, "Arm.L": -5, "Arm.R": -5},
+]
 
-def bake_and_export():
-    """Open the rigged blend, keep only the first soldier, export OBJ."""
-    bpy.ops.wm.open_mainfile(filepath=BLEND)
 
-    bpy.ops.object.select_all(action="DESELECT")
-    count = 0
-    for obj in list(bpy.data.objects):
+def reencode_png(path):
+    """Re-encode a PNG through Pillow to strip Blender metadata chunks."""
+    try:
+        from PIL import Image
+        img = Image.open(path)
+        img.save(path, "PNG", optimize=True)
+    except ImportError:
+        sys.stderr.write("WARNING: Pillow not available, skipping re-encode\n")
+
+
+def setup_scene_and_render(armature_obj):
+    """Set up camera, lights, materials and render all facings × frames."""
+    from mathutils import Vector, Euler
+
+    # Gather all mesh objects parented under our kept parents.
+    meshes = []
+    for obj in bpy.data.objects:
         if obj.type != "MESH":
             continue
         if obj.name in SKIP_MESHES:
@@ -39,51 +62,9 @@ def bake_and_export():
         parent_name = obj.parent.name if obj.parent else None
         if parent_name not in KEEP_PARENTS:
             continue
+        meshes.append(obj)
 
-        # Apply armature modifiers to bake the rest-pose vertex positions.
-        bpy.context.view_layer.objects.active = obj
-        obj.select_set(True)
-        for mod in list(obj.modifiers):
-            if mod.type == "ARMATURE":
-                try:
-                    bpy.ops.object.modifier_apply(modifier=mod.name)
-                except Exception as exc:
-                    sys.stderr.write(f"modifier_apply failed on '{obj.name}': {exc}\n")
-
-        # Clear parent but preserve the world-space position the armature gave.
-        mat = obj.matrix_world.copy()
-        obj.parent = None
-        obj.matrix_world = mat
-
-        obj.select_set(True)
-        count += 1
-        sys.stderr.write(f"Keeping '{obj.name}' ({len(obj.data.vertices)} verts)\n")
-
-    # Deselect non-kept objects.
-    for obj in bpy.data.objects:
-        if obj.type != "MESH":
-            obj.select_set(False)
-
-    obj_path = os.path.join(tempfile.gettempdir(), "soldier_baked.obj")
-    bpy.ops.wm.obj_export(
-        filepath=obj_path,
-        export_selected_objects=True,
-        apply_modifiers=False,
-        export_materials=False,
-        up_axis="Z",
-        forward_axis="NEGATIVE_Y",
-    )
-    print(f"Exported {count} meshes to {obj_path}")
-    return obj_path
-
-
-def render_from_obj(obj_path):
-    """Import OBJ into a clean scene and render with the locked rig."""
-    bpy.ops.wm.read_factory_settings(use_empty=True)
-    bpy.ops.wm.obj_import(filepath=obj_path, up_axis="Z", forward_axis="NEGATIVE_Y")
-    print(f"Imported OBJ: {len([o for o in bpy.data.objects if o.type == 'MESH'])} meshes")
-
-    # Military olive-green material — slightly lighter and more matte than tanks.
+    # Military olive-green material.
     mat = bpy.data.materials.new("SoldierOlive")
     mat.use_nodes = True
     mat.node_tree.nodes.clear()
@@ -95,31 +76,37 @@ def render_from_obj(obj_path):
     mat.node_tree.links.new(bsdf.outputs["BSDF"], out_node.inputs["Surface"])
 
     all_pts = []
-    for obj in bpy.data.objects:
-        if obj.type != "MESH":
-            continue
+    for obj in meshes:
         obj.data.materials.clear()
         obj.data.materials.append(mat)
-        for v in obj.data.vertices:
-            all_pts.append(obj.matrix_world @ v.co)
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        eval_obj = obj.evaluated_get(depsgraph)
+        eval_mesh = eval_obj.to_mesh()
+        for v in eval_mesh.vertices:
+            all_pts.append(eval_obj.matrix_world @ v.co)
+        eval_obj.to_mesh_clear()
+
+    if not all_pts:
+        sys.stderr.write("ERROR: No vertices found\n")
+        return
 
     xs = sorted(p.x for p in all_pts)
     ys = sorted(p.y for p in all_pts)
     zs = sorted(p.z for p in all_pts)
     mid = len(all_pts) // 2
     center = Vector((xs[mid], ys[mid], zs[mid]))
-
     dists = sorted((p - center).length for p in all_pts)
     radius = max(dists[int(len(dists) * 0.95)], 0.001)
-    print(f"Bounds: center={center}, radius={radius:.1f} (p95, {len(all_pts)} verts)")
+    print(f"Bounds: center={center}, radius={radius:.1f} ({len(all_pts)} verts)")
 
+    # Create a pivot empty for rotation (facings).
     pivot = bpy.data.objects.new("PIVOT", None)
     pivot.location = center
     bpy.context.collection.objects.link(pivot)
-    for obj in list(bpy.context.collection.objects):
-        if obj.type == "MESH":
-            obj.parent = pivot
-            obj.matrix_parent_inverse = pivot.matrix_world.inverted()
+
+    # Parent the armature (and everything under it) to the pivot.
+    armature_obj.parent = pivot
+    armature_obj.matrix_parent_inverse = pivot.matrix_world.inverted()
 
     sc = bpy.context.scene
     sc.render.engine = "CYCLES"
@@ -171,33 +158,87 @@ def render_from_obj(obj_path):
     )
     cam.rotation_euler = (math.pi / 2 - DIMETRIC_ELEVATION, 0, az + math.pi / 2)
     cam.data.ortho_scale = radius * 2.0 * 1.15
-    print(f"Camera ortho_scale={cam.data.ortho_scale:.1f}")
 
     os.makedirs(OUT, exist_ok=True)
     step = 2.0 * math.pi / FACINGS
     base_z = pivot.rotation_euler.z
+
     manifest = {
         "unit": "infantry_soldier",
         "facings": FACINGS,
         "size": SIZE,
-        "frames": 1,
+        "frames": FRAMES,
         "files": [],
     }
 
     for f in range(FACINGS):
         pivot.rotation_euler.z = base_z + f * step
-        bpy.context.view_layer.update()
-        name = f"f{f:02d}_000.png"
-        sc.render.filepath = os.path.join(OUT, name)
-        bpy.ops.render.render(write_still=True)
-        manifest["files"].append({"facing": f, "frame": 0, "file": name})
-        print(f"Rendered {name}")
+        for n in range(FRAMES):
+            # Pose the armature for this frame.
+            if n == 0:
+                reset_pose(armature_obj)
+            else:
+                apply_walk_pose(armature_obj, WALK_POSES[n - 1])
+
+            bpy.context.view_layer.update()
+            name = f"f{f:02d}_{n:03d}.png"
+            filepath = os.path.join(OUT, name)
+            sc.render.filepath = filepath
+            bpy.ops.render.render(write_still=True)
+            reencode_png(filepath)
+            manifest["files"].append({"facing": f, "frame": n, "file": name})
+            print(f"Rendered {name}")
 
     with open(os.path.join(OUT, "manifest.json"), "w") as fh:
         json.dump(manifest, fh, indent=2)
-    print(f"DONE {FACINGS} frames -> {OUT}")
+    print(f"DONE {FACINGS * FRAMES} frames -> {OUT}")
+
+
+def reset_pose(armature_obj):
+    """Reset all pose bones to their rest position."""
+    from mathutils import Quaternion
+    for pb in armature_obj.pose.bones:
+        pb.rotation_quaternion = Quaternion()
+        pb.rotation_euler = (0, 0, 0)
+        pb.location = (0, 0, 0)
+
+
+def apply_walk_pose(armature_obj, pose_dict):
+    """Apply walk cycle rotations to FK bones. Rotates around the local X axis."""
+    from mathutils import Euler
+    reset_pose(armature_obj)
+    for bone_name, angle_deg in pose_dict.items():
+        pb = armature_obj.pose.bones.get(bone_name)
+        if pb is None:
+            sys.stderr.write(f"WARNING: bone '{bone_name}' not found\n")
+            continue
+        # Rotate around local X axis (forward/back swing for legs and arms).
+        pb.rotation_mode = "XYZ"
+        pb.rotation_euler.x = math.radians(angle_deg)
+
+
+def main():
+    bpy.ops.wm.open_mainfile(filepath=BLEND)
+
+    # Find the Man_rig armature.
+    armature_obj = None
+    for obj in bpy.data.objects:
+        if obj.type == "ARMATURE" and obj.name == "Man_rig":
+            armature_obj = obj
+            break
+
+    if armature_obj is None:
+        sys.stderr.write("ERROR: Man_rig armature not found\n")
+        sys.exit(1)
+
+    print(f"Found armature: {armature_obj.name} with {len(armature_obj.data.bones)} bones")
+
+    # Switch armature to pose mode so we can manipulate bones.
+    bpy.context.view_layer.objects.active = armature_obj
+    bpy.ops.object.mode_set(mode="POSE")
+
+    setup_scene_and_render(armature_obj)
 
 
 if __name__ == "__main__":
-    obj_path = bake_and_export()
-    render_from_obj(obj_path)
+    main()

@@ -82,6 +82,9 @@ export const NEAR_MISS_RADIUS_SQ = 94372; // 1.2 tiles squared
 /** Incoming-suppression multiplier by cover level: entrenched troops keep
  *  their nerve. This is the asymmetry that makes clearing cost 3:1. */
 export const COVER_SUPP = new Int32Array([65536, 42598, 16384, 13107]); // 1, .65, .25, .2
+/** Suppression multiplier for fire that cannot hurt the target at all —
+ *  rifle rounds cracking off an MBT. Noise, not a threat. */
+export const HARMLESS_SUPP = 6554; // 0.1
 /** Non-penetrating hits shake the crew this many times harder than a near miss. */
 export const BOUNCE_SUPP_MULT = 2;
 export const CREW_SHAKEN_SUPP = 52429; // 0.8

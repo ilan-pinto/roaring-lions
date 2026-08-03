@@ -2,26 +2,52 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://roaringlions.dev/schemas/map.schema.json",
   "title": "Map",
-  "description": "A battlefield: a character grid plus named markers and zones. One character per tile — '.' open, '1'/'2'/'3' cover levels (light/heavy/garrison), '#' blocked building. Authorable in a text editor on purpose: maps are the scatter-prop and sightline budget of a mission, and contributors should be able to sketch one without tooling. The loader (packages/data parseMap) additionally checks that row counts and lengths match the declared dimensions and that markers/zones are in bounds.",
+  "description": "A battlefield: a character grid plus named markers and zones. One character per tile \u2014 '.' open, '1'/'2'/'3' cover levels (light/heavy/garrison), '#' blocked building. Authorable in a text editor on purpose: maps are the scatter-prop and sightline budget of a mission, and contributors should be able to sketch one without tooling. The loader (packages/data parseMap) additionally checks that row counts and lengths match the declared dimensions and that markers/zones are in bounds.",
   "type": "object",
-  "required": ["id", "name", "width", "height", "rows"],
+  "required": [
+    "id",
+    "name",
+    "width",
+    "height",
+    "rows"
+  ],
   "additionalProperties": false,
   "properties": {
-    "id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
-    "name": { "type": "string" },
-    "width": { "type": "integer", "minimum": 8, "maximum": 128 },
-    "height": { "type": "integer", "minimum": 8, "maximum": 128 },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+$"
+    },
+    "name": {
+      "type": "string"
+    },
+    "width": {
+      "type": "integer",
+      "minimum": 8,
+      "maximum": 128
+    },
+    "height": {
+      "type": "integer",
+      "minimum": 8,
+      "maximum": 128
+    },
     "rows": {
       "type": "array",
       "minItems": 8,
-      "items": { "type": "string", "pattern": "^[.123#]+$" }
+      "items": {
+        "type": "string",
+        "pattern": "^[.123#hawsm]+$",
+        "description": "One character per tile. Terrain: \".\" open, \"1\"-\"3\" cover levels. Buildings: \"#\" concrete, \"h\" house, \"a\" apartment, \"w\" warehouse, \"s\" shanty, \"m\" mosque \u2014 a contiguous run of identical building symbols is one structure (see data/structures.json)."
+      }
     },
     "markers": {
       "type": "object",
       "description": "Named points missions reference: spawn anchors, tunnel mouths, HVT positions.",
       "additionalProperties": {
         "type": "array",
-        "items": { "type": "integer", "minimum": 0 },
+        "items": {
+          "type": "integer",
+          "minimum": 0
+        },
         "minItems": 2,
         "maxItems": 2
       }
@@ -31,7 +57,10 @@
       "description": "Named rects [x, y, w, h]: objective areas, trigger regions, no-fire zones.",
       "additionalProperties": {
         "type": "array",
-        "items": { "type": "integer", "minimum": 0 },
+        "items": {
+          "type": "integer",
+          "minimum": 0
+        },
         "minItems": 4,
         "maxItems": 4
       }

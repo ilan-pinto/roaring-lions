@@ -7,10 +7,22 @@
 //   commands → detection → combat (target/face/fire) → projectiles →
 //   movement → upkeep (suppression decay, pins, cooldowns, APS reload).
 
-import { fx, ONE, type Fx } from './fixed';
+import { fx, ONE, HALF, type Fx } from './fixed';
 import { Rng } from './rng';
 import { HASH_SEED, hashArray, hashWord } from './hash';
 import { FlowField, DIR_NONE, DIR_VX, DIR_VY } from './flowfield';
+import {
+  structureTypeFromJson,
+  STRUCT_DAMAGE,
+  DEMO_TICKS,
+  DEMO_RANGE_SQ,
+  GARRISON_ENTER_RANGE_SQ,
+  COLLAPSE_SHOCK_SQ,
+  COLLAPSE_SHOCK,
+  STRUCT_BASE_ACCURACY,
+  type StructureType,
+  type StructureTypeJson,
+} from './structures';
 import {
   K_DETECT,
   CONTACT_DECAY,
@@ -47,6 +59,7 @@ import {
   SUPP_CAP,
   NEAR_MISS_RADIUS_SQ,
   COVER_SUPP,
+  HARMLESS_SUPP,
   BOUNCE_SUPP_MULT,
   CREW_SHAKEN_SUPP,
   SUPP_STAT_DIVISOR,
@@ -98,6 +111,7 @@ export interface WeaponJson {
 export interface UnitTypeJson {
   id: string;
   role?: string;
+  abilities?: readonly string[];
   hull: {
     hp: number;
     armor: { front: number; side: number; rear: number; top?: number };
@@ -164,6 +178,10 @@ export interface UnitType {
   id: string;
   /** Schema role (mbt/infantry/drone/…) — presentation uses it for silhouettes. */
   role: string;
+  /** Can fight from inside a building. */
+  canGarrison: boolean;
+  /** Can bring a building down by holding position beside it. */
+  canDemolish: boolean;
   hp: Fx;
   armorFront: Fx;
   armorSide: Fx;
@@ -231,9 +249,12 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
   const turnDeg = json.mobility.turn_rate_deg_s ?? DEFAULT_TURN_DEG_S;
   // deg/s → turns/tick: deg/360 * DT
   const turnPerTick = fx.mul(fx.div(fx.from(turnDeg), fx.fromInt(360)), DT);
+  const abilities = json.abilities ?? [];
   return {
     id: json.id,
     role: json.role ?? '',
+    canGarrison: abilities.includes('garrison'),
+    canDemolish: abilities.includes('demolish'),
     hp: fx.from(json.hull.hp),
     armorFront,
     armorSide: fx.from(json.hull.armor.side),
@@ -266,7 +287,8 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
 export type Command =
   | { kind: 'move'; ids: number[]; x: Fx; y: Fx }
   | { kind: 'attackMove'; ids: number[]; x: Fx; y: Fx }
-  | { kind: 'halt'; ids: number[] };
+  | { kind: 'halt'; ids: number[] }
+  | { kind: 'garrison'; ids: number[]; structure: number };
 
 export type ContactLevel = 'suspected' | 'identified' | 'lost';
 export type FacingArc = 'front' | 'side' | 'rear';
@@ -286,7 +308,10 @@ export type SimEvent =
       kind: 'fire';
       tick: number;
       shooter: number;
+      /** Target unit, or -1 when the round is aimed at a building. */
       target: number;
+      /** Target structure when `target` is -1. */
+      structure?: number;
       weaponId: string;
       pHit: Fx;
       roll: Fx;
@@ -317,6 +342,9 @@ export type SimEvent =
   | { kind: 'component'; tick: number; target: number; result: ComponentResult; overmatch: Fx }
   | { kind: 'nearMiss'; tick: number; shooter: number; weaponId: string; x: Fx; y: Fx }
   | { kind: 'ambushSprung'; tick: number; entity: number }
+  | { kind: 'structureHit'; tick: number; structure: number; by: number; damage: Fx; hpLeft: Fx }
+  | { kind: 'structureDestroyed'; tick: number; structure: number; by: number }
+  | { kind: 'garrison'; tick: number; entity: number; structure: number; entered: boolean }
   | { kind: 'routed'; tick: number; entity: number }
   | { kind: 'rallied'; tick: number; entity: number }
   | { kind: 'pinned'; tick: number; entity: number }
@@ -342,6 +370,7 @@ export interface DetectionDebug {
 }
 
 const PROJ_CAP = 1024;
+const MAX_STRUCTURES = 256;
 
 // ---------------------------------------------------------------------------
 
@@ -391,6 +420,34 @@ export class Sim {
   /** 0 = normal, 1 = ambush (hold fire + minimum signature until sprung). */
   private readonly stance: Uint8Array;
   private readonly ambushRadiusSq: Int32Array;
+  /** Structure this unit is fighting from, -1 when in the open. */
+  private readonly garrisonedIn: Int32Array;
+  /** Structure this unit has been ordered into but has not reached yet. */
+  private readonly garrisonGoal: Int32Array;
+  /** 1 when the unit actually changed position this tick. */
+  private readonly displaced: Uint8Array;
+  private readonly demoTicks: Int32Array;
+  private readonly demoTarget: Int32Array;
+
+  // --- structure SoA ---
+  private structureCount_ = 0;
+  readonly structureTypes: StructureType[] = [];
+  private readonly stAlive: Uint8Array;
+  private readonly stHp: Int32Array;
+  private readonly stMaxHp: Int32Array;
+  private readonly stTypeIdx: Uint16Array;
+  private readonly stOccupants: Uint8Array;
+  private readonly stCx: Int32Array;
+  private readonly stCy: Int32Array;
+  private readonly stMinX: Int32Array;
+  private readonly stMinY: Int32Array;
+  private readonly stMaxX: Int32Array;
+  private readonly stMaxY: Int32Array;
+  /** Tile index lists, one per structure. Cold data — never touched in the
+   *  hot loops, only on damage, collapse and targeting. */
+  private readonly stTiles: number[][] = [];
+  /** tile → structure index, -1 for open ground. */
+  private readonly structureOfTile: Int32Array;
   private readonly pinnedTicks: Int32Array;
   private readonly routed: Uint8Array;
   private readonly lastDamagedTick: Int32Array;
@@ -409,6 +466,8 @@ export class Sim {
   private readonly prActive: Uint8Array;
   private readonly prShooter: Int32Array;
   private readonly prTarget: Int32Array;
+  /** Structure this round is aimed at, -1 when it is aimed at a unit. */
+  private readonly prStructure: Int32Array;
   private readonly prCls: Uint8Array;
   private readonly prWillHit: Uint8Array;
   private readonly prTicksLeft: Int32Array;
@@ -442,6 +501,23 @@ export class Sim {
     /** Current primary engagement target per unit, -1 when none. */
     readonly curTarget: Int32Array;
     readonly routed: Uint8Array;
+    /** Structure the unit is fighting from, -1 when in the open. */
+    readonly garrisonedIn: Int32Array;
+  };
+
+  /** Read-only structure view for the renderer and HUD. */
+  readonly structures: {
+    readonly alive: Uint8Array;
+    readonly hp: Int32Array;
+    readonly maxHp: Int32Array;
+    readonly typeIdx: Uint16Array;
+    readonly occupants: Uint8Array;
+    readonly cx: Int32Array;
+    readonly cy: Int32Array;
+    readonly minX: Int32Array;
+    readonly minY: Int32Array;
+    readonly maxX: Int32Array;
+    readonly maxY: Int32Array;
   };
 
   private readonly seed: number;
@@ -482,6 +558,24 @@ export class Sim {
     this.pinned = new Uint8Array(n);
     this.stance = new Uint8Array(n);
     this.ambushRadiusSq = new Int32Array(n);
+    this.garrisonedIn = new Int32Array(n).fill(-1);
+    this.garrisonGoal = new Int32Array(n).fill(-1);
+    this.displaced = new Uint8Array(n);
+    this.demoTicks = new Int32Array(n);
+    this.demoTarget = new Int32Array(n).fill(-1);
+    const sc = MAX_STRUCTURES;
+    this.stAlive = new Uint8Array(sc);
+    this.stHp = new Int32Array(sc);
+    this.stMaxHp = new Int32Array(sc);
+    this.stTypeIdx = new Uint16Array(sc);
+    this.stOccupants = new Uint8Array(sc);
+    this.stCx = new Int32Array(sc);
+    this.stCy = new Int32Array(sc);
+    this.stMinX = new Int32Array(sc);
+    this.stMinY = new Int32Array(sc);
+    this.stMaxX = new Int32Array(sc);
+    this.stMaxY = new Int32Array(sc);
+    this.structureOfTile = new Int32Array(tiles).fill(-1);
     this.pinnedTicks = new Int32Array(n);
     this.routed = new Uint8Array(n);
     this.lastDamagedTick = new Int32Array(n).fill(-100000);
@@ -497,6 +591,7 @@ export class Sim {
     this.prActive = new Uint8Array(PROJ_CAP);
     this.prShooter = new Int32Array(PROJ_CAP);
     this.prTarget = new Int32Array(PROJ_CAP);
+    this.prStructure = new Int32Array(PROJ_CAP).fill(-1);
     this.prCls = new Uint8Array(PROJ_CAP);
     this.prWillHit = new Uint8Array(PROJ_CAP);
     this.prTicksLeft = new Int32Array(PROJ_CAP);
@@ -527,6 +622,20 @@ export class Sim {
       veterancy: this.veterancy,
       curTarget: this.curTarget,
       routed: this.routed,
+      garrisonedIn: this.garrisonedIn,
+    };
+    this.structures = {
+      alive: this.stAlive,
+      hp: this.stHp,
+      maxHp: this.stMaxHp,
+      typeIdx: this.stTypeIdx,
+      occupants: this.stOccupants,
+      cx: this.stCx,
+      cy: this.stCy,
+      minX: this.stMinX,
+      minY: this.stMinY,
+      maxX: this.stMaxX,
+      maxY: this.stMaxY,
     };
   }
 
@@ -541,6 +650,13 @@ export class Sim {
 
   setBlocked(x: number, y: number, b: boolean): void {
     this.blocked[y * this.width + x] = b ? 1 : 0;
+    this.recomputeFields();
+  }
+
+  /** Terrain changed (building raised or levelled): every cached flow field
+   *  is stale. Flow fields are shared per destination, so this is cheap
+   *  compared to the per-unit repathing it replaces. */
+  private recomputeFields(): void {
     for (const [goal, idx] of this.fieldByGoal) {
       const gx = goal % this.width;
       this.fields[idx].compute(this.blocked, gx, (goal - gx) / this.width);
@@ -549,6 +665,77 @@ export class Sim {
 
   setCover(x: number, y: number, c: number): void {
     this.cover[y * this.width + x] = c;
+  }
+
+  // ------------------------------------------------------------- structures
+
+  get structureCount(): number {
+    return this.structureCount_;
+  }
+
+  addStructureType(json: StructureTypeJson): number {
+    this.structureTypes.push(structureTypeFromJson(json));
+    return this.structureTypes.length - 1;
+  }
+
+  /** Raise a building over `tiles` (tile indices). Blocks until it falls. */
+  addStructure(typeIdx: number, tiles: readonly number[]): number {
+    if (this.structureCount_ >= MAX_STRUCTURES) throw new Error('too many structures');
+    const type = this.structureTypes[typeIdx];
+    if (type === undefined) throw new Error(`no structure type ${typeIdx}`);
+    if (tiles.length === 0) throw new Error('structure has no tiles');
+    const id = this.structureCount_++;
+    const w = this.width;
+    let minX = w;
+    let minY = this.height;
+    let maxX = 0;
+    let maxY = 0;
+    let sumX = 0;
+    let sumY = 0;
+    for (const t of tiles) {
+      const tx = t % w;
+      const ty = (t - tx) / w;
+      this.structureOfTile[t] = id;
+      this.blocked[t] = 1;
+      if (tx < minX) minX = tx;
+      if (ty < minY) minY = ty;
+      if (tx > maxX) maxX = tx;
+      if (ty > maxY) maxY = ty;
+      sumX += tx;
+      sumY += ty;
+    }
+    this.stTiles[id] = [...tiles];
+    this.stAlive[id] = 1;
+    this.stTypeIdx[id] = typeIdx;
+    this.stMaxHp[id] = fx.mul(type.hpPerTile, fx.fromInt(tiles.length));
+    this.stHp[id] = this.stMaxHp[id];
+    this.stOccupants[id] = 0;
+    // Centroid of the footprint, tile centres.
+    this.stCx[id] = fx.add(fx.div(fx.fromInt(sumX), fx.fromInt(tiles.length)), HALF);
+    this.stCy[id] = fx.add(fx.div(fx.fromInt(sumY), fx.fromInt(tiles.length)), HALF);
+    this.stMinX[id] = minX;
+    this.stMinY[id] = minY;
+    this.stMaxX[id] = maxX;
+    this.stMaxY[id] = maxY;
+    this.recomputeFields();
+    return id;
+  }
+
+  /** Structure occupying a tile, or -1. */
+  structureAt(x: number, y: number): number {
+    if (x < 0 || y < 0 || x >= this.width || y >= this.height) return -1;
+    const s = this.structureOfTile[y * this.width + x];
+    return s >= 0 && this.stAlive[s] === 1 ? s : -1;
+  }
+
+  /** Demolition charge progress 0..1 for the HUD. */
+  demolitionProgress(id: number): number {
+    return this.demoTicks[id] / DEMO_TICKS;
+  }
+
+  /** Dev/test hook: level a building instantly. */
+  debugDestroyStructure(id: number): void {
+    if (this.stAlive[id] === 1) this.destroyStructure(id, -1);
   }
 
   /** facing: initial hull heading in Q16.16 turns (deployment orientation —
@@ -599,6 +786,8 @@ export class Sim {
     this.stepCombat();
     this.stepProjectiles();
     this.stepMovement();
+    this.stepGarrison();
+    this.stepDemolition();
     this.stepUpkeep();
     this.tickCount++;
     const out = this.pendingEvents;
@@ -628,6 +817,8 @@ export class Sim {
         const fieldIdx = this.fieldFor(fx.toInt(cmd.x), fx.toInt(cmd.y));
         for (const id of cmd.ids) {
           if (this.alive[id] === 0 || this.routed[id] === 1) continue; // broken troops aren't listening
+          if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
+          this.garrisonGoal[id] = -1;
           this.goalX[id] = cmd.x;
           this.goalY[id] = cmd.y;
           this.fieldRef[id] = fieldIdx;
@@ -636,8 +827,30 @@ export class Sim {
           this.engaging[id] = 0;
           this.stance[id] = 0; // any order overrides a held stance
         }
+      } else if (cmd.kind === 'garrison') {
+        const s = cmd.structure;
+        if (s < 0 || s >= this.structureCount_ || this.stAlive[s] === 0) continue;
+        // Walk to the doorway; stepGarrison lets them in when they arrive
+        // and there is room. Overflow simply waits outside.
+        const [gx, gy] = [this.stCx[s], this.stCy[s]];
+        const fieldIdx = this.fieldFor(fx.toInt(gx), fx.toInt(gy));
+        for (const id of cmd.ids) {
+          if (this.alive[id] === 0 || this.routed[id] === 1) continue;
+          if (!this.unitTypes[this.typeIdx[id]].canGarrison) continue;
+          if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
+          this.garrisonGoal[id] = s;
+          this.goalX[id] = gx;
+          this.goalY[id] = gy;
+          this.fieldRef[id] = fieldIdx;
+          this.moving[id] = 1;
+          this.attackMove[id] = 0;
+          this.engaging[id] = 0;
+          this.stance[id] = 0;
+        }
       } else {
         for (const id of cmd.ids) {
+          if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
+          this.garrisonGoal[id] = -1;
           this.moving[id] = 0;
           this.fieldRef[id] = -1;
           this.engaging[id] = 0;
@@ -661,6 +874,11 @@ export class Sim {
    *  number of cover tiles crossed (endpoints excluded, capped at 8). */
   private losRay(x0: number, y0: number, x1: number, y1: number): number {
     const w = this.width;
+    // A building never blocks sight into or out of itself: men at the windows
+    // can see and be seen. Only the structures at the ends of the ray are
+    // transparent to it — everything between still blocks.
+    const sFrom = this.structureOfTile[y0 * w + x0];
+    const sTo = this.structureOfTile[y1 * w + x1];
     let dx = x1 - x0;
     let dy = y1 - y0;
     const sx = dx < 0 ? -1 : 1;
@@ -684,7 +902,10 @@ export class Sim {
       }
       if (x === x1 && y === y1) return coverCount;
       const t = y * w + x;
-      if (this.blocked[t] !== 0) return -1;
+      if (this.blocked[t] !== 0) {
+        const st = this.structureOfTile[t];
+        if (st < 0 || (st !== sFrom && st !== sTo)) return -1;
+      }
       if (this.cover[t] !== 0 && coverCount < 8) coverCount++;
     }
   }
@@ -811,6 +1032,9 @@ export class Sim {
       // Civilians (side 2) are never targets — collateral comes from
       // ordnance, not aimpoints. That asymmetry is what ROE scores.
       if (this.alive[t] === 0 || this.side[t] === sSide || this.side[t] > 1) continue;
+      // Men inside a building cannot be shot at: the building is in the way,
+      // and taking it down is the only way to reach them.
+      if (this.garrisonedIn[t] >= 0) continue;
       if (this.contact[sSide * cap + t] < IDENTIFIED_AT) continue;
       const dSq = distSqFx(fx.sub(this.posX[t], px), fx.sub(this.posY[t], py));
       if (dSq > w.rangeSq || dSq < w.minRangeSq) continue;
@@ -831,6 +1055,43 @@ export class Sim {
         bestHurts = hurts;
         bestDistSq = dSq;
       }
+    }
+    return best;
+  }
+
+  /**
+   * The nearest building holding identified enemies that this weapon can
+   * reach and hurt. Buildings are only shot at when someone hostile is
+   * inside — armies do not level a town for the sake of it, and ROE scores
+   * the difference.
+   */
+  private selectStructureTarget(shooter: number, w: WeaponStats): number {
+    const cap = this.capacity;
+    const sSide = this.side[shooter];
+    const px = this.posX[shooter];
+    const py = this.posY[shooter];
+    let best = -1;
+    let bestDistSq = 0x7fffffff;
+    for (let s = 0; s < this.structureCount_; s++) {
+      if (this.stAlive[s] === 0 || this.stOccupants[s] === 0) continue;
+      let hostileInside = false;
+      for (let t = 0; t < this.count; t++) {
+        if (this.alive[t] === 0 || this.garrisonedIn[t] !== s) continue;
+        if (this.side[t] === sSide || this.side[t] > 1) continue;
+        if (this.contact[sSide * cap + t] >= IDENTIFIED_AT) {
+          hostileInside = true;
+          break;
+        }
+      }
+      if (!hostileInside) continue;
+      const dSq = this.structDistSq(s, px, py);
+      if (dSq > w.rangeSq || dSq < w.minRangeSq || dSq >= bestDistSq) continue;
+      if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
+        const [tx, ty] = this.nearestStructTile(s, px, py);
+        if (this.losRay(px >> 16, py >> 16, tx >> 16, ty >> 16) < 0) continue;
+      }
+      best = s;
+      bestDistSq = dSq;
     }
     return best;
   }
@@ -940,6 +1201,24 @@ export class Sim {
         if (this.cooldown[i * 2 + slot] > 0) continue;
         this.fireAt(i, slot, w, target);
       }
+
+      // Nothing in the open to shoot? Then the enemy is inside a building,
+      // and the building becomes the target — if this weapon can hurt it.
+      if (this.curTarget[i] < 0) {
+        for (let slot = 0; slot < type.weapons.length && slot < 2; slot++) {
+          const w = type.weapons[slot];
+          if (STRUCT_DAMAGE[w.cls] === 0) continue;
+          const s = this.selectStructureTarget(i, w);
+          if (s < 0) continue;
+          engagedClose = true;
+          const [tx, ty] = this.nearestStructTile(s, this.posX[i], this.posY[i]);
+          if (slot === 0 && this.moving[i] === 0) {
+            this.turnToward(i, fx.atan2(fx.sub(ty, this.posY[i]), fx.sub(tx, this.posX[i])));
+          }
+          if (this.cooldown[i * 2 + slot] > 0) continue;
+          this.fireAtStructure(i, slot, w, s, tx, ty);
+        }
+      }
       this.engaging[i] = engagedClose ? 1 : 0;
     }
   }
@@ -1007,6 +1286,7 @@ export class Sim {
       this.prActive[pr] = 1;
       this.prShooter[pr] = shooter;
       this.prTarget[pr] = target;
+      this.prStructure[pr] = -1;
       this.prCls[pr] = w.cls;
       this.prWillHit[pr] = willHit ? 1 : 0;
       this.prTicksLeft[pr] = ticks;
@@ -1034,6 +1314,80 @@ export class Sim {
     });
   }
 
+  /**
+   * Put a round into a building. A house does not dodge, so there is no
+   * facing, no penetration curve and almost no miss — only the question of
+   * whether the round is the sort that hurts masonry.
+   */
+  private fireAtStructure(shooter: number, slot: number, w: WeaponStats, s: number, tx: Fx, ty: Fx): void {
+    const px = this.posX[shooter];
+    const py = this.posY[shooter];
+    const dist = fx.sqrt(distSqFx(fx.sub(tx, px), fx.sub(ty, py)));
+    const ratio = fx.div(dist, w.effectiveRange);
+    const rangeFalloff = fx.expNeg(fx.mul(FALLOFF_SCALE[w.cls], fx.mul(ratio, ratio)));
+    const suppressionMod = fx.div(ONE, fx.add(ONE, fx.mul(SUPP_K, this.suppression[shooter])));
+    let p = fx.mul(STRUCT_BASE_ACCURACY, rangeFalloff);
+    p = fx.mul(p, suppressionMod);
+    const roll = this.rng.nextU32(shooter) >>> 16;
+    const willHit = roll < p;
+
+    this.cooldown[shooter * 2 + slot] = w.ticksBetweenShots;
+    this.lastFired[shooter] = this.tickCount;
+
+    const speed = PROJ_SPEED[w.cls];
+    let ticks = 1;
+    if (speed > 0) {
+      const perTick = fx.mul(speed, DT);
+      ticks = fx.toInt(fx.ceil(fx.div(dist, perTick)));
+      if (ticks < 1) ticks = 1;
+    }
+    let pr = -1;
+    for (let k = 0; k < PROJ_CAP; k++) {
+      if (this.prActive[k] === 0) {
+        pr = k;
+        break;
+      }
+    }
+    if (pr >= 0) {
+      this.prActive[pr] = 1;
+      this.prShooter[pr] = shooter;
+      this.prTarget[pr] = -1;
+      this.prStructure[pr] = s;
+      this.prCls[pr] = w.cls;
+      this.prWillHit[pr] = willHit ? 1 : 0;
+      this.prTicksLeft[pr] = ticks;
+      this.prOriginX[pr] = px;
+      this.prOriginY[pr] = py;
+      this.prAimX[pr] = tx;
+      this.prAimY[pr] = ty;
+      this.prPen[pr] = w.penetration;
+      this.prDamage[pr] = w.damage;
+      this.prSupp[pr] = w.suppPerMiss;
+      this.prSplash[pr] = w.splash;
+      this.prWeaponIdx[pr] = ((this.typeIdx[shooter] << 1) | slot) & 0xffff;
+    }
+
+    this.pendingEvents.push({
+      kind: 'fire',
+      tick: this.tickCount,
+      shooter,
+      target: -1,
+      structure: s,
+      weaponId: w.id,
+      pHit: p,
+      roll,
+      willHit,
+      breakdown: {
+        accuracy: STRUCT_BASE_ACCURACY,
+        rangeFalloff,
+        coverMod: ONE,
+        motionMod: ONE,
+        stanceMod: ONE,
+        suppressionMod,
+      },
+    });
+  }
+
   // -------------------------------------------------------------- projectiles
 
   private weaponOf(pr: number): WeaponStats {
@@ -1052,6 +1406,19 @@ export class Sim {
   }
 
   private resolveProjectile(pr: number): void {
+    const struct = this.prStructure[pr];
+    if (struct >= 0) {
+      this.prStructure[pr] = -1;
+      if (this.stAlive[struct] === 1 && this.prWillHit[pr] === 1) {
+        // Masonry has no facing and no penetration roll: how much a round
+        // hurts a building is a property of the round (STRUCT_DAMAGE).
+        const dmg = fx.mul(this.prDamage[pr], STRUCT_DAMAGE[this.prCls[pr]]);
+        this.damageStructure(struct, dmg, this.prShooter[pr]);
+      } else {
+        this.groundImpact(pr, this.prAimX[pr], this.prAimY[pr]);
+      }
+      return;
+    }
     const target = this.prTarget[pr];
     const cls = this.prCls[pr];
     const targetAlive = this.alive[target] === 1;
@@ -1217,13 +1584,22 @@ export class Sim {
       x,
       y,
     });
-    // Near misses suppress everyone close to the impact, both sides.
+    // Near misses suppress everyone close to the impact, both sides — but
+    // only in proportion to the threat. Rifle rounds cracking off a hull do
+    // not button up a tank crew; a shell landing beside it does.
     const supp = this.prSupp[pr];
     if (supp > 0) {
+      const pen = this.prPen[pr];
+      const splash = this.prSplash[pr];
       for (let i = 0; i < this.count; i++) {
         if (this.alive[i] === 0) continue;
         const dSq = distSqFx(fx.sub(this.posX[i], x), fx.sub(this.posY[i], y));
-        if (dSq <= NEAR_MISS_RADIUS_SQ) this.applySuppression(i, supp);
+        if (dSq > NEAR_MISS_RADIUS_SQ) continue;
+        const iType = this.unitTypes[this.typeIdx[i]];
+        // Soft targets, blast weapons, and anything that could actually
+        // punch the armour suppress fully; harmless small arms barely.
+        const threatens = iType.isSoft || splash > 0 || pen >= iType.armorSide;
+        this.applySuppression(i, threatens ? supp : fx.mul(supp, HARMLESS_SUPP));
       }
     }
     if (this.prSplash[pr] > 0) this.splashAt(pr, x, y, -1);
@@ -1250,6 +1626,8 @@ export class Sim {
 
   private applyDamage(target: number, dmg: Fx, by: number): void {
     if (dmg <= 0 || this.alive[target] === 0) return;
+    // Inside a building, the walls take it. Kill the building first.
+    if (this.garrisonedIn[target] >= 0) return;
     this.hp[target] = fx.sub(this.hp[target], dmg);
     this.lastDamagedTick[target] = this.tickCount;
     if (this.hp[target] <= 0) this.destroy(target, by);
@@ -1270,6 +1648,210 @@ export class Sim {
     this.suppression[target] = fx.min(s, SUPP_CAP);
   }
 
+  // ------------------------------------------------- structures: the systems
+
+  /** Squared distance from a point to the nearest tile centre of a structure. */
+  private structDistSq(s: number, px: Fx, py: Fx): number {
+    let best = 0x7fffffff;
+    const w = this.width;
+    for (const t of this.stTiles[s]) {
+      const tx = t % w;
+      const ty = (t - tx) / w;
+      const d = distSqFx(
+        fx.sub(fx.add(fx.fromInt(tx), HALF), px),
+        fx.sub(fx.add(fx.fromInt(ty), HALF), py)
+      );
+      if (d < best) best = d;
+    }
+    return best;
+  }
+
+  /** Tile of `s` nearest to a point, as Q16.16 centre coordinates. */
+  private nearestStructTile(s: number, px: Fx, py: Fx): [Fx, Fx] {
+    let best = 0x7fffffff;
+    let bx = this.stCx[s];
+    let by = this.stCy[s];
+    const w = this.width;
+    for (const t of this.stTiles[s]) {
+      const tx = t % w;
+      const ty = (t - tx) / w;
+      const cx = fx.add(fx.fromInt(tx), HALF);
+      const cy = fx.add(fx.fromInt(ty), HALF);
+      const d = distSqFx(fx.sub(cx, px), fx.sub(cy, py));
+      if (d < best) {
+        best = d;
+        bx = cx;
+        by = cy;
+      }
+    }
+    return [bx, by];
+  }
+
+  /** First open tile beside a structure — where a garrison spills out. */
+  private exitTile(s: number): [Fx, Fx] {
+    const w = this.width;
+    for (let y = this.stMinY[s] - 1; y <= this.stMaxY[s] + 1; y++) {
+      for (let x = this.stMinX[s] - 1; x <= this.stMaxX[s] + 1; x++) {
+        if (x < 0 || y < 0 || x >= this.width || y >= this.height) continue;
+        if (this.blocked[y * w + x] === 0) {
+          return [fx.add(fx.fromInt(x), HALF), fx.add(fx.fromInt(y), HALF)];
+        }
+      }
+    }
+    return [this.stCx[s], this.stCy[s]];
+  }
+
+  private enterStructure(id: number, s: number): void {
+    this.garrisonedIn[id] = s;
+    this.garrisonGoal[id] = -1;
+    this.stOccupants[s]++;
+    this.moving[id] = 0;
+    this.fieldRef[id] = -1;
+    this.posX[id] = this.stCx[s];
+    this.posY[id] = this.stCy[s];
+    this.pendingEvents.push({
+      kind: 'garrison',
+      tick: this.tickCount,
+      entity: id,
+      structure: s,
+      entered: true,
+    });
+  }
+
+  private leaveStructure(id: number): void {
+    const s = this.garrisonedIn[id];
+    if (s < 0) return;
+    this.garrisonedIn[id] = -1;
+    if (this.stOccupants[s] > 0) this.stOccupants[s]--;
+    if (this.stAlive[s] === 1) {
+      const [ex, ey] = this.exitTile(s);
+      this.posX[id] = ex;
+      this.posY[id] = ey;
+    }
+    this.pendingEvents.push({
+      kind: 'garrison',
+      tick: this.tickCount,
+      entity: id,
+      structure: s,
+      entered: false,
+    });
+  }
+
+  private stepGarrison(): void {
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0) continue;
+      const s = this.garrisonGoal[i];
+      if (s < 0 || this.garrisonedIn[i] >= 0) continue;
+      if (this.stAlive[s] === 0) {
+        this.garrisonGoal[i] = -1;
+        continue;
+      }
+      const type = this.structureTypes[this.stTypeIdx[s]];
+      if (this.stOccupants[s] >= type.garrisonSlots) continue; // wait outside
+      if (this.structDistSq(s, this.posX[i], this.posY[i]) <= GARRISON_ENTER_RANGE_SQ) {
+        this.enterStructure(i, s);
+      }
+    }
+  }
+
+  /**
+   * Demolition: a sapper team that holds position beside a building sets
+   * charges. Moving loses the work — the tension is that the safest place to
+   * stand is exactly where the defenders are shooting.
+   */
+  private stepDemolition(): void {
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0) continue;
+      const type = this.unitTypes[this.typeIdx[i]];
+      if (!type.canDemolish) continue;
+      // Charges go in while the team is stationary — being ordered *at* a
+      // building counts, since they stop against its wall.
+      if (this.displaced[i] === 1 || this.pinned[i] === 1 || this.garrisonedIn[i] >= 0) {
+        this.demoTicks[i] = 0;
+        this.demoTarget[i] = -1;
+        continue;
+      }
+      let best = -1;
+      let bestD = DEMO_RANGE_SQ;
+      for (let s = 0; s < this.structureCount_; s++) {
+        if (this.stAlive[s] === 0) continue;
+        if (this.stOccupants[s] > 0 && this.friendlyInside(s, this.side[i])) continue;
+        const d = this.structDistSq(s, this.posX[i], this.posY[i]);
+        if (d <= bestD) {
+          bestD = d;
+          best = s;
+        }
+      }
+      if (best < 0) {
+        this.demoTicks[i] = 0;
+        this.demoTarget[i] = -1;
+        continue;
+      }
+      if (this.demoTarget[i] !== best) {
+        this.demoTarget[i] = best;
+        this.demoTicks[i] = 0;
+      }
+      if (++this.demoTicks[i] >= DEMO_TICKS) {
+        this.demoTicks[i] = 0;
+        this.demoTarget[i] = -1;
+        this.destroyStructure(best, i);
+      }
+    }
+  }
+
+  /** True when anyone from `side` is garrisoned in this building. */
+  private friendlyInside(s: number, side: number): boolean {
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 1 && this.garrisonedIn[i] === s && this.side[i] === side) return true;
+    }
+    return false;
+  }
+
+  private damageStructure(s: number, amount: Fx, by: number): void {
+    if (this.stAlive[s] === 0 || amount <= 0) return;
+    this.stHp[s] = fx.sub(this.stHp[s], amount);
+    this.pendingEvents.push({
+      kind: 'structureHit',
+      tick: this.tickCount,
+      structure: s,
+      by,
+      damage: amount,
+      hpLeft: this.stHp[s] > 0 ? this.stHp[s] : 0,
+    });
+    if (this.stHp[s] <= 0) this.destroyStructure(s, by);
+  }
+
+  /**
+   * Collapse. The garrison goes with it — which is the whole point of
+   * garrisoning: the building is the health bar, and taking it down is how
+   * you kill what is inside.
+   */
+  private destroyStructure(s: number, by: number): void {
+    if (this.stAlive[s] === 0) return;
+    this.stAlive[s] = 0;
+    this.stHp[s] = 0;
+    const rubble = this.structureTypes[this.stTypeIdx[s]].rubbleCover;
+    for (const t of this.stTiles[s]) {
+      this.blocked[t] = 0;
+      this.cover[t] = rubble;
+    }
+    this.pendingEvents.push({ kind: 'structureDestroyed', tick: this.tickCount, structure: s, by });
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0) continue;
+      if (this.garrisonedIn[i] === s) {
+        this.garrisonedIn[i] = -1;
+        this.destroy(i, by);
+        continue;
+      }
+      if (this.garrisonGoal[i] === s) this.garrisonGoal[i] = -1;
+      // Everyone nearby eats the shock of a building coming down.
+      const d = distSqFx(fx.sub(this.posX[i], this.stCx[s]), fx.sub(this.posY[i], this.stCy[s]));
+      if (d <= COLLAPSE_SHOCK_SQ) this.applySuppression(i, COLLAPSE_SHOCK, false);
+    }
+    this.stOccupants[s] = 0;
+    this.recomputeFields();
+  }
+
   private destroy(target: number, by: number): void {
     this.alive[target] = 0;
     this.hp[target] = 0;
@@ -1283,6 +1865,7 @@ export class Sim {
 
   private stepMovement(): void {
     const w = this.width;
+    this.displaced.fill(0);
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0 || this.moving[i] === 0 || this.mobilityKilled[i] === 1) continue;
       // Attack-movers halt to fight while they hold a target (stationary
@@ -1353,6 +1936,7 @@ export class Sim {
       const mvx = fx.sub(nx, px);
       const mvy = fx.sub(ny, py);
       if (mvx !== 0 || mvy !== 0) {
+        this.displaced[i] = 1;
         this.turnToward(i, fx.atan2(mvy, mvx));
       }
       this.posX[i] = nx;
@@ -1480,6 +2064,16 @@ export class Sim {
     h = hashArray(h, this.prSupp);
     h = hashArray(h, this.prSplash);
     h = hashArray(h, this.prWeaponIdx);
+    h = hashArray(h, this.prStructure);
+    h = hashArray(h, this.garrisonedIn);
+    h = hashArray(h, this.garrisonGoal);
+    h = hashArray(h, this.displaced);
+    h = hashArray(h, this.demoTicks);
+    h = hashArray(h, this.demoTarget);
+    h = hashWord(h, this.structureCount_);
+    h = hashArray(h, this.stAlive);
+    h = hashArray(h, this.stHp);
+    h = hashArray(h, this.stOccupants);
     return h >>> 0;
   }
 }
