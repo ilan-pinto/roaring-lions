@@ -179,7 +179,7 @@ export class MissionRuntime {
   private roeFailed = false;
   private logisticsValue = 0;
   private intelValue = 0;
-  private readonly buildQueue: { unit: string; readyTick: number }[] = [];
+  private readonly buildQueue: { unit: string; startTick: number; readyTick: number }[] = [];
   private readonly identified = new Set<number>();
   private readonly kills = new Map<number, number>();
   private readonly rosterPool: LedgerRosterEntry[];
@@ -227,7 +227,11 @@ export class MissionRuntime {
     if (!this.mission.map.player_start) return false;
     this.logisticsValue -= info.logistics;
     this.intelValue -= info.intel ?? 0;
-    this.buildQueue.push({ unit: unitId, readyTick: this.sim.tickCount + info.buildTimeS * TICKS_PER_SECOND });
+    this.buildQueue.push({
+      unit: unitId,
+      startTick: this.sim.tickCount,
+      readyTick: this.sim.tickCount + info.buildTimeS * TICKS_PER_SECOND,
+    });
     return true;
   }
 
@@ -238,6 +242,19 @@ export class MissionRuntime {
   /** Live ROE score 0-100 — must be visible in the HUD at all times. */
   get roeScore(): number {
     return this.roeScoreValue;
+  }
+
+  /** In-flight production for the HUD, in whole ticks — the presentation
+   *  layer turns these into a bar and a countdown (no floats in the sim). */
+  get production(): { unit: string; doneTicks: number; totalTicks: number; ticksLeft: number }[] {
+    const tick = this.sim.tickCount;
+    return this.buildQueue.map((b) => {
+      const totalTicks = b.readyTick - b.startTick;
+      const rawDone = tick - b.startTick;
+      const doneTicks = rawDone < 0 ? 0 : rawDone > totalTicks ? totalTicks : rawDone;
+      const rawLeft = b.readyTick - tick;
+      return { unit: b.unit, doneTicks, totalTicks, ticksLeft: rawLeft < 0 ? 0 : rawLeft };
+    });
   }
 
   objectiveStatus(id: string): ObjectiveStatus {

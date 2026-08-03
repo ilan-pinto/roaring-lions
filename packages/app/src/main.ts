@@ -240,6 +240,17 @@ async function main(): Promise<void> {
   };
   const renderer = new PixiRenderer(sim, opts);
   await renderer.init(stage);
+
+  // Load sprite sheets for unit types that have rendered art (non-blocking).
+  const SPRITE_MAP: Record<string, string> = {
+    mbt_lavi: '/assets/sprites/TNK/',
+  };
+  for (const [id, path] of Object.entries(SPRITE_MAP)) {
+    renderer.loadSprites(id, path).catch((err) => {
+      console.warn(`sprites for ${id} failed to load:`, err);
+    });
+  }
+
   const getMission = (): MissionView | null =>
     runtime && mission
       ? {
@@ -253,11 +264,23 @@ async function main(): Promise<void> {
       : null;
   const overlay = new DebugOverlay(document.body, sim, () => renderer.selection, getMission);
 
+  // Always-visible escape hatch back to the campaign menu.
+  const menuBtn = document.createElement('a');
+  menuBtn.textContent = '⌂ menu';
+  menuBtn.href = '?';
+  menuBtn.style.cssText =
+    'position:absolute;top:8px;left:50%;transform:translateX(-50%);padding:5px 12px;' +
+    'color:#F2E8D5;text-decoration:none;' + PANEL;
+  document.body.appendChild(menuBtn);
+
   const start = mission?.map.player_start;
   if (start) {
     renderer.camera.x = start[0];
     renderer.camera.y = start[1];
   }
+
+  // Refreshed a few times a second from the game loop when production exists.
+  let productionTick: (() => void) | null = null;
 
   // Field production bar: reinforcements deploy at player_start after their
   // build time, paid from mission logistics.
@@ -284,6 +307,37 @@ async function main(): Promise<void> {
       bar.appendChild(btn);
     }
     document.body.appendChild(bar);
+
+    // Production queue: one progress bar per unit under construction.
+    const queueUi = document.createElement('div');
+    queueUi.style.cssText =
+      'position:absolute;bottom:46px;left:8px;display:flex;flex-direction:column;gap:4px;' +
+      'font:11px ui-monospace,Menlo,monospace;color:#F2E8D5;';
+    document.body.appendChild(queueUi);
+    const nameOf = new Map(Object.values(units).map((u) => [u.id, u.name]));
+    const refreshQueue = (): void => {
+      const q = rt.production;
+      queueUi.replaceChildren();
+      for (const item of q) {
+        const row = document.createElement('div');
+        row.style.cssText =
+          'background:rgba(20,21,15,0.88);border:1px solid #5C625F;border-radius:4px;' +
+          'padding:4px 8px;width:210px;';
+        const label = document.createElement('div');
+        const secs = Math.ceil(item.ticksLeft / TICKS_PER_SECOND);
+        label.textContent = `${nameOf.get(item.unit) ?? item.unit} — ${secs}s`;
+        const pct = item.totalTicks > 0 ? (item.doneTicks / item.totalTicks) * 100 : 100;
+        const track = document.createElement('div');
+        track.style.cssText = 'margin-top:3px;height:5px;background:#14150F;border-radius:2px;';
+        const fill = document.createElement('div');
+        fill.style.cssText = `height:100%;width:${pct.toFixed(1)}%;background:#B8FF5A;border-radius:2px;`;
+        track.appendChild(fill);
+        row.appendChild(label);
+        row.appendChild(track);
+        queueUi.appendChild(row);
+      }
+    };
+    productionTick = refreshQueue;
   }
 
   const audio = new BattleAudio();
@@ -387,6 +441,7 @@ async function main(): Promise<void> {
       }
     }
     overlay.onTick(events);
+    if (productionTick && sim.tickCount % 5 === 0) productionTick();
   };
 
   // Dev hook: deterministic headless stepping from the console

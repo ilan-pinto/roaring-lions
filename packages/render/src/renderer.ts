@@ -3,7 +3,7 @@
 // back (invariant 4). The renderer interpolates 20 Hz sim states to the
 // display rate — it never advances the simulation itself (invariant 1).
 
-import { Application, Container, Graphics } from 'pixi.js';
+import { Application, Assets, Container, Graphics, Sprite, Texture } from 'pixi.js';
 import { fx, type Sim, type SimEvent } from '@lions/sim';
 
 export interface RendererOptions {
@@ -58,6 +58,7 @@ export class PixiRenderer {
   private readonly terrainG = new Graphics();
   private readonly unitsG = new Graphics();
   private readonly fxG = new Graphics();
+  private readonly spriteLayer = new Container();
   private sim: Sim;
   private opts: RendererOptions;
 
@@ -65,6 +66,11 @@ export class PixiRenderer {
   private prevY: Float64Array;
   private curX: Float64Array;
   private curY: Float64Array;
+
+  /** unit type id → 16 facing textures (indexed 0–15). */
+  private spriteAtlas = new Map<string, Texture[]>();
+  /** Per-entity Sprite child in spriteLayer; created on demand. */
+  private entitySprites: (Sprite | null)[] = [];
 
   private frameN = 0;
   private tracers: Tracer[] = [];
@@ -92,11 +98,28 @@ export class PixiRenderer {
     host.appendChild(this.app.canvas);
     this.world.addChild(this.terrainG);
     this.world.addChild(this.fxG);
+    this.world.addChild(this.spriteLayer);
     this.world.addChild(this.unitsG);
     this.app.stage.addChild(this.world);
     this.drawTerrain();
     this.snapshot();
     this.snapshot(); // prev == cur on the first frame
+  }
+
+  /**
+   * Load 16-facing sprites for a unit type. Call after init().
+   * `basePath` must end with `/` and point to the directory containing
+   * f00_000.png … f15_000.png (the render rig output).
+   */
+  async loadSprites(unitTypeId: string, basePath: string): Promise<void> {
+    const textures: Texture[] = [];
+    for (let f = 0; f < 16; f++) {
+      const url = `${basePath}f${f.toString().padStart(2, '0')}_000.png`;
+      const tex = await Assets.load<Texture>(url);
+      textures.push(tex);
+    }
+    this.spriteAtlas.set(unitTypeId, textures);
+    console.log(`[lions] sprites loaded for "${unitTypeId}": ${textures.length} textures, first=`, textures[0]?.width, 'x', textures[0]?.height);
   }
 
   /** Copy positions after every sim tick; frame() lerps between the copies. */
@@ -122,7 +145,13 @@ export class PixiRenderer {
           ttl: 9,
           side: this.sim.state.side[e.shooter],
         });
-        this.puffs.push({ x: this.curX[e.shooter], y: this.curY[e.shooter], ttl: 5, color: this.opts.flashColor, r: 5 });
+        const facingRad = fx.toNumber(this.sim.state.facing[e.shooter]) * Math.PI * 2;
+        const type = this.sim.unitTypes[this.sim.state.typeIdx[e.shooter]];
+        const barrelLen = type.isSoft ? 0.4 : 0.8;
+        const mzX = this.curX[e.shooter] + Math.cos(facingRad) * barrelLen;
+        const mzY = this.curY[e.shooter] + Math.sin(facingRad) * barrelLen;
+        const mzR = type.isSoft ? 5 : 9;
+        this.puffs.push({ x: mzX, y: mzY, ttl: 7, color: this.opts.flashColor, r: mzR });
       } else if (e.kind === 'nearMiss') {
         this.puffs.push({ x: fx.toNumber(e.x), y: fx.toNumber(e.y), ttl: 14, color: this.opts.nearMissColor, r: 7 });
       } else if (e.kind === 'aps' && e.intercepted) {
@@ -260,6 +289,11 @@ export class PixiRenderer {
       g.moveTo(sx - 7, sy + 5).lineTo(sx + 7, sy - 5).stroke({ width: 3, color: '#5C625F' });
     }
 
+    // Hide all entity sprites first; visible ones get shown below.
+    for (const spr of this.entitySprites) {
+      if (spr) spr.visible = false;
+    }
+
     for (let i = 0; i < this.sim.entityCount; i++) {
       if (st.alive[i] === 0) continue;
       const x = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
@@ -270,55 +304,70 @@ export class PixiRenderer {
       const type = this.sim.unitTypes[st.typeIdx[i]];
       const r = type.isSoft ? 7 : 11;
 
-      // Non-player units fade in with the player's contact confidence (debug
-      // view — everything stays visible, identification shows as opacity).
-      // Until identified, a faded contact could be militia or civilians:
-      // exactly the call ROE punishes getting wrong.
       let bodyAlpha = 1;
       if (side !== 0) {
         const lvl = this.sim.contactLevel(0, i);
         bodyAlpha = lvl === 2 ? 1 : lvl === 1 ? 0.65 : 0.35;
       }
 
-      g.ellipse(sx, sy + 3, r + 3, (r + 3) / 2).fill({ color: '#0A0A08', alpha: 0.35 * bodyAlpha });
-      const fc = fx.toNumber(st.facing[i]) * Math.PI * 2;
-      const cos = Math.cos(fc);
-      const sin = Math.sin(fc);
-      if (type.role === 'drone') {
-        // Quad-rotor: airborne dot with spinning cross-arms, no ground bulk.
-        const spin = this.frameN * 0.3;
-        const ah = 8; // hover height
-        for (const o of [0, Math.PI / 2] as const) {
-          g.moveTo(sx + Math.cos(spin + o) * 8, sy - ah + Math.sin(spin + o) * 4)
-            .lineTo(sx - Math.cos(spin + o) * 8, sy - ah - Math.sin(spin + o) * 4)
-            .stroke({ width: 2, color: this.opts.hullColors[side], alpha: bodyAlpha });
+      const facingNorm = fx.toNumber(st.facing[i]);
+      const facingIdx = Math.round(facingNorm * 16) % 16;
+      const textures = this.spriteAtlas.get(type.id);
+
+      if (textures) {
+        // Sprite-based rendering.
+        while (this.entitySprites.length <= i) this.entitySprites.push(null);
+        let spr = this.entitySprites[i];
+        if (!spr) {
+          spr = new Sprite({ texture: textures[0], anchor: 0.5 });
+          this.spriteLayer.addChild(spr);
+          this.entitySprites[i] = spr;
         }
-        g.circle(sx, sy - ah, 3.5).fill({ color: this.opts.hullColors[side], alpha: bodyAlpha });
-        g.circle(sx, sy - ah, 3.5).stroke({ width: 1.5, color: this.opts.teamColors[side], alpha: bodyAlpha });
-      } else if (type.isSoft) {
-        // Soft team: a figure blob with a heading tick.
-        g.circle(sx, sy, r).fill({ color: this.opts.hullColors[side], alpha: bodyAlpha });
-        g.circle(sx, sy, r).stroke({ width: 2, color: this.opts.teamColors[side], alpha: bodyAlpha });
-        const hx = x + cos * 0.4;
-        const hy = y + sin * 0.4;
-        g.moveTo(sx, sy).lineTo(isoX(hx, hy), isoY(hx, hy)).stroke({ width: 2.5, color: '#F2E8D5', alpha: bodyAlpha });
+        spr.texture = textures[facingIdx];
+        spr.position.set(sx, sy);
+        spr.alpha = bodyAlpha;
+        spr.visible = true;
+        const spriteScale = (type.isSoft ? 1.0 : 1.8) * TILE_W / textures[0].width;
+        spr.scale.set(spriteScale);
       } else {
-        // Vehicle: oriented hull quad + turret + gun barrel along the facing.
-        const HL = 0.55;
-        const HW = 0.32;
-        const pts: number[] = [];
-        for (const [a, b] of [[HL, HW], [HL, -HW], [-HL, -HW], [-HL, HW]] as const) {
-          const wx = x + a * cos - b * sin;
-          const wy = y + a * sin + b * cos;
-          pts.push(isoX(wx, wy), isoY(wx, wy));
+        // Procedural fallback.
+        g.ellipse(sx, sy + 3, r + 3, (r + 3) / 2).fill({ color: '#0A0A08', alpha: 0.35 * bodyAlpha });
+        const fc = facingNorm * Math.PI * 2;
+        const cos = Math.cos(fc);
+        const sin = Math.sin(fc);
+        if (type.role === 'drone') {
+          const spin = this.frameN * 0.3;
+          const ah = 8;
+          for (const o of [0, Math.PI / 2] as const) {
+            g.moveTo(sx + Math.cos(spin + o) * 8, sy - ah + Math.sin(spin + o) * 4)
+              .lineTo(sx - Math.cos(spin + o) * 8, sy - ah - Math.sin(spin + o) * 4)
+              .stroke({ width: 2, color: this.opts.hullColors[side], alpha: bodyAlpha });
+          }
+          g.circle(sx, sy - ah, 3.5).fill({ color: this.opts.hullColors[side], alpha: bodyAlpha });
+          g.circle(sx, sy - ah, 3.5).stroke({ width: 1.5, color: this.opts.teamColors[side], alpha: bodyAlpha });
+        } else if (type.isSoft) {
+          g.circle(sx, sy, r).fill({ color: this.opts.hullColors[side], alpha: bodyAlpha });
+          g.circle(sx, sy, r).stroke({ width: 2, color: this.opts.teamColors[side], alpha: bodyAlpha });
+          const hx = x + cos * 0.4;
+          const hy = y + sin * 0.4;
+          g.moveTo(sx, sy).lineTo(isoX(hx, hy), isoY(hx, hy)).stroke({ width: 2.5, color: '#F2E8D5', alpha: bodyAlpha });
+        } else {
+          const HL = 0.55;
+          const HW = 0.32;
+          const pts: number[] = [];
+          for (const [a, b] of [[HL, HW], [HL, -HW], [-HL, -HW], [-HL, HW]] as const) {
+            const wx = x + a * cos - b * sin;
+            const wy = y + a * sin + b * cos;
+            pts.push(isoX(wx, wy), isoY(wx, wy));
+          }
+          g.poly(pts).fill({ color: this.opts.hullColors[side], alpha: bodyAlpha });
+          g.poly(pts).stroke({ width: 1.5, color: this.opts.teamColors[side], alpha: bodyAlpha });
+          const bx = x + cos * 0.8;
+          const by = y + sin * 0.8;
+          g.moveTo(sx, sy - 2).lineTo(isoX(bx, by), isoY(bx, by) - 2).stroke({ width: 2.5, color: '#2E2F28', alpha: bodyAlpha });
+          g.circle(sx, sy - 2, 4.5).fill({ color: this.opts.hullColors[side], alpha: bodyAlpha });
+          g.circle(sx, sy - 2, 4.5).stroke({ width: 1.5, color: '#2E2F28', alpha: 0.8 * bodyAlpha });
         }
-        g.poly(pts).fill({ color: this.opts.hullColors[side], alpha: bodyAlpha });
-        g.poly(pts).stroke({ width: 1.5, color: this.opts.teamColors[side], alpha: bodyAlpha });
-        const bx = x + cos * 0.8;
-        const by = y + sin * 0.8;
-        g.moveTo(sx, sy - 2).lineTo(isoX(bx, by), isoY(bx, by) - 2).stroke({ width: 2.5, color: '#2E2F28', alpha: bodyAlpha });
-        g.circle(sx, sy - 2, 4.5).fill({ color: this.opts.hullColors[side], alpha: bodyAlpha });
-        g.circle(sx, sy - 2, 4.5).stroke({ width: 1.5, color: '#2E2F28', alpha: 0.8 * bodyAlpha });
       }
 
       // HP bar.
@@ -356,6 +405,33 @@ export class PixiRenderer {
       if (this.selection.includes(i)) {
         g.ellipse(sx, sy + 2, r + 7, (r + 7) / 2).stroke({ width: 2, color: '#B8FF5A' });
       }
+    }
+
+    // Weapon envelopes for the selection (GDD §5.8): solid ring at effective
+    // range where accuracy holds up, faint ring at maximum reach, and an
+    // inner ring for weapons with a minimum range (mortars can't shoot close).
+    // A world circle maps to an axis-aligned ellipse in 2:1 dimetric.
+    const ISO_K = Math.SQRT1_2;
+    for (const i of this.selection) {
+      if (st.alive[i] === 0) continue;
+      const type = this.sim.unitTypes[st.typeIdx[i]];
+      if (type.weapons.length === 0) continue;
+      const ux = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
+      const uy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+      const ex = isoX(ux, uy);
+      const ey = isoY(ux, uy);
+      const ring = (tiles: number, color: string, width: number, a: number): void => {
+        if (tiles <= 0) return;
+        g.ellipse(ex, ey, tiles * TILE_W * ISO_K, tiles * TILE_H * ISO_K).stroke({
+          width,
+          color,
+          alpha: a,
+        });
+      };
+      const w0 = type.weapons[0];
+      ring(fx.toNumber(w0.range), this.opts.teamColors[st.side[i]], 1, 0.28);
+      ring(fx.toNumber(w0.effectiveRange), this.opts.teamColors[st.side[i]], 1.5, 0.5);
+      ring(Math.sqrt(fx.toNumber(w0.minRangeSq)), '#D93A2B', 1, 0.35);
     }
 
     // Engagement reticles: brackets on whatever the selected units are
