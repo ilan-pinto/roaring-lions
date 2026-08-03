@@ -135,3 +135,8 @@ export const DEFAULT_TURN_DEG_S = 360;
  *  GDD 5.5's "movement halved" (shift 1) let assaults creep through
  *  defensive fire and flattened the ratio curve. */
 export const PIN_SPEED_SHIFT = 6;
+/** Soft units pinned continuously this long rout (GDD 5.5a): 10 s. */
+export const ROUT_AFTER_TICKS = 200;
+/** Routed units flee at half speed, this far from the nearest known threat. */
+export const ROUT_SPEED_SHIFT = 1;
+export const ROUT_DISTANCE = 393216; // 6 tiles

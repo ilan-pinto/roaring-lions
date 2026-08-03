@@ -62,6 +62,9 @@ import {
   VET_SUPP_BONUS,
   DEFAULT_TURN_DEG_S,
   PIN_SPEED_SHIFT,
+  ROUT_AFTER_TICKS,
+  ROUT_SPEED_SHIFT,
+  ROUT_DISTANCE,
 } from './tuning';
 
 export const TICKS_PER_SECOND = 20;
@@ -307,6 +310,8 @@ export type SimEvent =
   | { kind: 'component'; tick: number; target: number; result: ComponentResult; overmatch: Fx }
   | { kind: 'nearMiss'; tick: number; shooter: number; weaponId: string; x: Fx; y: Fx }
   | { kind: 'ambushSprung'; tick: number; entity: number }
+  | { kind: 'routed'; tick: number; entity: number }
+  | { kind: 'rallied'; tick: number; entity: number }
   | { kind: 'pinned'; tick: number; entity: number }
   | { kind: 'unpinned'; tick: number; entity: number }
   | { kind: 'destroyed'; tick: number; entity: number; by: number };
@@ -379,6 +384,8 @@ export class Sim {
   /** 0 = normal, 1 = ambush (hold fire + minimum signature until sprung). */
   private readonly stance: Uint8Array;
   private readonly ambushRadiusSq: Int32Array;
+  private readonly pinnedTicks: Int32Array;
+  private readonly routed: Uint8Array;
   /** Veterancy 0-3, from the campaign ledger. Better aim, steadier nerve. */
   private readonly veterancy: Uint8Array;
   private readonly apsAmmo: Int32Array;
@@ -426,6 +433,7 @@ export class Sim {
     readonly veterancy: Uint8Array;
     /** Current primary engagement target per unit, -1 when none. */
     readonly curTarget: Int32Array;
+    readonly routed: Uint8Array;
   };
 
   private readonly seed: number;
@@ -466,6 +474,8 @@ export class Sim {
     this.pinned = new Uint8Array(n);
     this.stance = new Uint8Array(n);
     this.ambushRadiusSq = new Int32Array(n);
+    this.pinnedTicks = new Int32Array(n);
+    this.routed = new Uint8Array(n);
     this.veterancy = new Uint8Array(n);
     this.apsAmmo = new Int32Array(n);
     this.apsReloadLeft = new Int32Array(n);
@@ -507,6 +517,7 @@ export class Sim {
       apsAmmo: this.apsAmmo,
       veterancy: this.veterancy,
       curTarget: this.curTarget,
+      routed: this.routed,
     };
   }
 
@@ -607,7 +618,7 @@ export class Sim {
       if (cmd.kind === 'move' || cmd.kind === 'attackMove') {
         const fieldIdx = this.fieldFor(fx.toInt(cmd.x), fx.toInt(cmd.y));
         for (const id of cmd.ids) {
-          if (this.alive[id] === 0) continue;
+          if (this.alive[id] === 0 || this.routed[id] === 1) continue; // broken troops aren't listening
           this.goalX[id] = cmd.x;
           this.goalY[id] = cmd.y;
           this.fieldRef[id] = fieldIdx;
@@ -828,6 +839,36 @@ export class Sim {
       if (this.losRay(px >> 16, py >> 16, this.posX[t] >> 16, this.posY[t] >> 16) >= 0) return true;
     }
     return false;
+  }
+
+  /** Flee away from the nearest threat this unit's side knows about. */
+  private startRout(i: number): void {
+    const mySide = this.side[i];
+    let nx = -ONE;
+    let ny = 0;
+    let bestSq = 0x7fffffff;
+    for (let t = 0; t < this.count; t++) {
+      if (this.alive[t] === 0 || this.side[t] === mySide || this.side[t] > 1) continue;
+      if (this.contact[mySide * this.capacity + t] < SUSPECTED_AT) continue;
+      const dx = fx.sub(this.posX[i], this.posX[t]);
+      const dy = fx.sub(this.posY[i], this.posY[t]);
+      const dSq = distSqFx(dx, dy);
+      if (dSq < bestSq) {
+        bestSq = dSq;
+        const d = fx.sqrt(fx.max(dSq, 1));
+        nx = fx.div(dx, d);
+        ny = fx.div(dy, d);
+      }
+    }
+    const gx = fx.clamp(fx.add(this.posX[i], fx.mul(nx, ROUT_DISTANCE)), ONE, (this.width - 2) * ONE);
+    const gy = fx.clamp(fx.add(this.posY[i], fx.mul(ny, ROUT_DISTANCE)), ONE, (this.height - 2) * ONE);
+    this.goalX[i] = gx;
+    this.goalY[i] = gy;
+    this.fieldRef[i] = -1; // straight-line flight; the wall guard slides them
+    this.moving[i] = 1;
+    this.attackMove[i] = 0;
+    this.engaging[i] = 0;
+    this.stance[i] = 0;
   }
 
   /** Rotate `id` toward `desired` at its turn rate. */
@@ -1246,7 +1287,11 @@ export class Sim {
       const goalTileY = this.goalY[i] >> 16;
 
       let step = type.stepPerTick;
-      if (this.pinned[i] === 1) step = step >> PIN_SPEED_SHIFT; // gone to ground
+      if (this.routed[i] === 1) {
+        step = step >> ROUT_SPEED_SHIFT; // fleeing at a crouch-run
+      } else if (this.pinned[i] === 1) {
+        step = step >> PIN_SPEED_SHIFT; // gone to ground
+      }
 
       let nx: Fx;
       let ny: Fx;
@@ -1322,6 +1367,30 @@ export class Sim {
       } else if (this.pinned[i] === 1 && this.suppression[i] < UNPIN_AT) {
         this.pinned[i] = 0;
         this.pendingEvents.push({ kind: 'unpinned', tick: this.tickCount, entity: i });
+        if (this.routed[i] === 1) {
+          // The fire lifted: rally where they stand and await orders.
+          this.routed[i] = 0;
+          this.moving[i] = 0;
+          this.fieldRef[i] = -1;
+          this.pendingEvents.push({ kind: 'rallied', tick: this.tickCount, entity: i });
+        }
+      }
+      // Breaking (GDD 5.5a): soft units pinned too long rout — abandon
+      // orders and flee the kill zone instead of dying in place.
+      if (this.pinned[i] === 1) {
+        this.pinnedTicks[i]++;
+        if (
+          this.pinnedTicks[i] === ROUT_AFTER_TICKS &&
+          this.routed[i] === 0 &&
+          this.unitTypes[this.typeIdx[i]].isSoft &&
+          this.mobilityKilled[i] === 0
+        ) {
+          this.routed[i] = 1;
+          this.startRout(i);
+          this.pendingEvents.push({ kind: 'routed', tick: this.tickCount, entity: i });
+        }
+      } else {
+        this.pinnedTicks[i] = 0;
       }
       // Weapon cooldowns.
       if (this.cooldown[i * 2] > 0) this.cooldown[i * 2]--;
@@ -1367,6 +1436,8 @@ export class Sim {
     h = hashArray(h, this.pinned);
     h = hashArray(h, this.stance);
     h = hashArray(h, this.ambushRadiusSq);
+    h = hashArray(h, this.pinnedTicks);
+    h = hashArray(h, this.routed);
     h = hashArray(h, this.veterancy);
     h = hashArray(h, this.apsAmmo);
     h = hashArray(h, this.apsReloadLeft);

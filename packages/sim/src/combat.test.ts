@@ -357,6 +357,46 @@ describe('suppression (GDD 5.5)', () => {
   });
 });
 
+describe('rout (GDD 5.5a)', () => {
+  it('soft units pinned too long break, flee the kill zone, and rally when fire lifts', () => {
+    const sim = new Sim({ seed: 77, width: 32, height: 16, capacity: 16 });
+    const inf = sim.addUnitType(INF);
+    // Soft (routs) but durable enough to survive the fire until it breaks.
+    const victim = sim.addUnitType({
+      ...DUMMY_INF,
+      id: 'c_tough_inf',
+      hull: { ...DUMMY_INF.hull, hp: 6000 },
+    });
+    sim.spawn(inf, 0, fx.from(3.5), fx.from(7.5));
+    sim.spawn(inf, 0, fx.from(3.5), fx.from(8.5));
+    sim.spawn(inf, 0, fx.from(3.5), fx.from(9.5));
+    const target = sim.spawn(victim, 1, fx.from(9.5), fx.from(8.5));
+
+    let routTick = -1;
+    for (let t = 0; t < 40 * TICKS_PER_SECOND && routTick < 0; t++) {
+      for (const e of sim.tick()) if (e.kind === 'routed' && e.entity === target) routTick = t;
+    }
+    expect(routTick).toBeGreaterThan(0);
+    expect(sim.state.routed[target]).toBe(1);
+    // Fleeing AWAY from the shooters (they are west), at speed, while pinned.
+    const xAtRout = fx.toNumber(sim.state.posX[target]);
+    for (let t = 0; t < 4 * TICKS_PER_SECOND; t++) sim.tick();
+    expect(fx.toNumber(sim.state.posX[target])).toBeGreaterThan(xAtRout + 1);
+
+    // Fire lifts: suppression decays, the unit rallies and stops.
+    sim.debugKill(0);
+    sim.debugKill(1);
+    sim.debugKill(2);
+    let rallied = false;
+    for (let t = 0; t < 30 * TICKS_PER_SECOND && !rallied; t++) {
+      for (const e of sim.tick()) if (e.kind === 'rallied' && e.entity === target) rallied = true;
+    }
+    expect(rallied).toBe(true);
+    expect(sim.state.routed[target]).toBe(0);
+    expect(sim.state.moving[target]).toBe(0);
+  });
+});
+
 describe('Trophy APS (GDD 5.6)', () => {
   it('intercepts shaped charge in the 0.6-0.9 band, never APFSDS', () => {
     let atgmShots = 0;

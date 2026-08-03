@@ -319,7 +319,11 @@ export class PixiRenderer {
       if (supp > 0.02) {
         g.rect(sx - 12, sy - r - 6, 24 * supp, 3).fill('#FFB43C');
       }
-      if (st.pinned[i] === 1) {
+      if (st.routed[i] === 1) {
+        // Broken: a white flag, running for cover.
+        g.moveTo(sx + 6, sy - r - 18).lineTo(sx + 6, sy - r - 8).stroke({ width: 1.5, color: '#F2E8D5' });
+        g.poly([sx + 6, sy - r - 18, sx + 13, sy - r - 15, sx + 6, sy - r - 12]).fill('#F2E8D5');
+      } else if (st.pinned[i] === 1) {
         g.poly([sx - 5, sy - r - 16, sx + 5, sy - r - 16, sx, sy - r - 11]).fill('#FFB43C');
       }
       // Kill-state dots: mobility (gray) and firepower (dark red).

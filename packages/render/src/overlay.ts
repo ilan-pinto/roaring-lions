@@ -156,6 +156,12 @@ export class DebugOverlay {
       case 'pinned':
         this.line(t + `${this.name(e.entity)} <b>PINNED</b> — gone to ground`, '#FFB43C');
         break;
+      case 'routed':
+        this.line(t + `${this.name(e.entity)} <b>BROKEN</b> — fleeing the kill zone`, '#D93A2B');
+        break;
+      case 'rallied':
+        this.line(t + `${this.name(e.entity)} rallied — awaiting orders`, '#8F9464');
+        break;
       case 'unpinned':
         this.line(t + `${this.name(e.entity)} back up`, '#8F9464');
         break;
