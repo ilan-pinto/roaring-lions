@@ -3,7 +3,7 @@
 // back (invariant 4). The renderer interpolates 20 Hz sim states to the
 // display rate — it never advances the simulation itself (invariant 1).
 
-import { Application, Assets, Container, Graphics, Sprite, Texture } from 'pixi.js';
+import { Application, Assets, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import { fx, type Sim, type SimEvent } from '@lions/sim';
 
 export interface RendererOptions {
@@ -56,6 +56,9 @@ export class PixiRenderer {
   readonly app = new Application();
   readonly camera = { x: 24, y: 24, zoom: 1 };
   selection: number[] = [];
+  /** Control-group number per entity (0 = ungrouped), owned by the app. */
+  readonly unitGroup: Uint8Array;
+  private readonly groupLabels: Text[] = [];
 
   private readonly world = new Container();
   private readonly terrainG = new Graphics();
@@ -99,6 +102,7 @@ export class PixiRenderer {
     this.prevY = new Float64Array(n);
     this.curX = new Float64Array(n);
     this.curY = new Float64Array(n);
+    this.unitGroup = new Uint8Array(n);
   }
 
   async init(host: HTMLElement): Promise<void> {
@@ -522,6 +526,32 @@ export class PixiRenderer {
       if (this.selection.includes(i)) {
         g.ellipse(sx, sy + 2, r + 7, (r + 7) / 2).stroke({ width: 2, color: '#B8FF5A' });
       }
+
+      // Control-group badge, so the org chart is visible on the field.
+      const grp = this.unitGroup[i];
+      if (grp > 0) {
+        let label = this.groupLabels[i];
+        if (!label) {
+          label = new Text({
+            text: '',
+            style: { fill: '#14150F', fontFamily: 'monospace', fontSize: 11, fontWeight: 'bold' },
+          });
+          label.anchor.set(0.5);
+          this.spriteLayer.addChild(label);
+          this.groupLabels[i] = label;
+        }
+        g.circle(sx - r - 4, sy - r - 4, 7).fill({ color: '#B8FF5A', alpha: 0.95 });
+        label.text = String(grp);
+        label.position.set(sx - r - 4, sy - r - 4);
+        label.visible = true;
+      } else if (this.groupLabels[i]) {
+        this.groupLabels[i].visible = false;
+      }
+    }
+    // Badges for units that went out of view this frame.
+    for (let i = 0; i < this.groupLabels.length; i++) {
+      const lb = this.groupLabels[i];
+      if (lb && (st.alive[i] === 0 || this.unitGroup[i] === 0)) lb.visible = false;
     }
 
     // Weapon envelopes for the selection (GDD §5.8): solid ring at effective

@@ -224,7 +224,8 @@ export class DebugOverlay {
         this.missionHtml() +
         this.suppressionHtml() +
         '<b>controls</b><br>click/drag: select · right-click: attack-move<br>' +
-        'h: halt · ctrl+a: select all KDF · m: mute · o: overlay · wasd/arrows: pan · wheel: zoom<br><br>' +
+        'h: halt · ctrl+a: select all KDF · m: mute · o: overlay · wasd/arrows: pan · wheel: zoom<br>' +
+        'ctrl+1–9: assign group · 1–9: recall (double-tap to centre)<br><br>' +
         '<span style="color:#8E9491">select a unit to inspect its detection maths</span>';
       return;
     }

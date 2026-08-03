@@ -396,6 +396,10 @@ async function main(): Promise<void> {
     }
   });
   const keys = new Set<string>();
+  // Control groups 1–9, and double-tap tracking for camera centring.
+  const groups = new Map<number, number[]>();
+  let lastGroupKey = -1;
+  let lastGroupAt = 0;
   window.addEventListener('blur', () => keys.clear());
   window.addEventListener('keydown', (ev) => {
     // macOS swallows keyups released under Cmd — never track modified keys,
@@ -414,6 +418,49 @@ async function main(): Promise<void> {
     }
     if (ev.key === 'o') overlay.toggle();
     if (ev.key === 'm') overlay.note(audio.toggle() ? 'audio muted' : 'audio on', '#8E9491');
+
+    // Control groups: Ctrl/Cmd+digit assigns the selection, digit recalls it,
+    // double-tap centres the camera on the group.
+    if (ev.key >= '1' && ev.key <= '9') {
+      const slot = Number(ev.key);
+      if (ev.ctrlKey || ev.metaKey) {
+        ev.preventDefault();
+        const mine = renderer.selection.filter(
+          (i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1
+        );
+        for (let g = 1; g <= 9; g++) {
+          if (g !== slot) groups.set(g, (groups.get(g) ?? []).filter((i) => !mine.includes(i)));
+        }
+        groups.set(slot, mine);
+        for (let i = 0; i < sim.capacity; i++) {
+          if (renderer.unitGroup[i] === slot) renderer.unitGroup[i] = 0;
+        }
+        for (const i of mine) renderer.unitGroup[i] = slot;
+        overlay.note(
+          mine.length ? `<b>group ${slot}</b> — ${mine.length} unit(s)` : `group ${slot} cleared`,
+          '#B8FF5A'
+        );
+      } else {
+        const members = (groups.get(slot) ?? []).filter((i) => sim.state.alive[i] === 1);
+        groups.set(slot, members);
+        if (members.length > 0) {
+          renderer.selection = members;
+          const now = performance.now();
+          if (lastGroupKey === slot && now - lastGroupAt < 400) {
+            let cx = 0;
+            let cy = 0;
+            for (const i of members) {
+              cx += fx.toNumber(sim.state.posX[i]);
+              cy += fx.toNumber(sim.state.posY[i]);
+            }
+            renderer.camera.x = cx / members.length;
+            renderer.camera.y = cy / members.length;
+          }
+          lastGroupKey = slot;
+          lastGroupAt = now;
+        }
+      }
+    }
   });
   window.addEventListener('keyup', (ev) => keys.delete(ev.key.toLowerCase()));
   canvas.addEventListener('wheel', (ev) => {
