@@ -230,6 +230,7 @@ async function main(): Promise<void> {
     background: paletteColor('shadow.1'),
     teamColors: [paletteColor('team.kedem'), paletteColor('team.hostile'), paletteColor('team.neutral')],
     hullColors: [paletteColor('olive.1'), paletteColor('dust.2'), paletteColor('limestone.1')],
+    infantryColors: [paletteColor('olive.0'), paletteColor('dust.0'), paletteColor('limestone.1')],
     terrainOpen: paletteColor('limestone.3'),
     terrainCover: [paletteColor('limestone.2'), paletteColor('dust.1'), paletteColor('dust.0')],
     terrainBlocked: paletteColor('limestone.4'),

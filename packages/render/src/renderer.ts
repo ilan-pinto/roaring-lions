@@ -10,8 +10,11 @@ export interface RendererOptions {
   background: string;
   /** Team marker colours by side index (0 player, 1 hostile, 2 neutral). */
   teamColors: [string, string, string];
-  /** Hull colours by side index. */
+  /** Vehicle hull colours by side index. */
   hullColors: [string, string, string];
+  /** Infantry/soft-unit colours by side index — a lighter tone of the same
+   *  faction ramp, so foot troops read apart from armour at gameplay zoom. */
+  infantryColors: [string, string, string];
   terrainOpen: string;
   terrainCover: [string, string, string];
   terrainBlocked: string;
@@ -346,7 +349,9 @@ export class PixiRenderer {
           g.circle(sx, sy - ah, 3.5).fill({ color: this.opts.hullColors[side], alpha: bodyAlpha });
           g.circle(sx, sy - ah, 3.5).stroke({ width: 1.5, color: this.opts.teamColors[side], alpha: bodyAlpha });
         } else if (type.isSoft) {
-          g.circle(sx, sy, r).fill({ color: this.opts.hullColors[side], alpha: bodyAlpha });
+          // Infantry wear the lighter faction tone so foot troops never read
+          // as armour at a glance.
+          g.circle(sx, sy, r).fill({ color: this.opts.infantryColors[side], alpha: bodyAlpha });
           g.circle(sx, sy, r).stroke({ width: 2, color: this.opts.teamColors[side], alpha: bodyAlpha });
           const hx = x + cos * 0.4;
           const hy = y + sin * 0.4;
