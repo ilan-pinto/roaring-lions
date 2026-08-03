@@ -58,13 +58,28 @@ function run(id: keyof typeof missions, plan: Plan, ledger: LedgerData = {}): Le
 
 const M = (x: number, y: number) => ({ x: fx.from(x), y: fx.from(y) });
 
-// I — Recon: drone tours a standoff line; scouts stay put.
+// I — Recon: scouts screen forward on the berm and observe; the drone tours
+// a standoff line and re-tours until the picture is built.
 const led1 = run('beit_sahwan_1_recon', (sim, _rt, ids, at) => {
   const drone = ids('recon_drone');
-  at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(21, 8) }));
+  const screen = [
+    ...ids('apc_eitan'),
+    ...ids('mbt_lavi'),
+    ...ids('ifv_namer'),
+    ...ids('inf_squad'),
+    ...ids('at_team'),
+  ];
+  at(0, () => {
+    sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(16, 22) });
+    sim.queueCommand({ kind: 'move', ids: drone, ...M(21, 8) });
+  });
   at(60, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(21, 30) }));
   at(150, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(26, 40) }));
-  at(260, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(30, 18) }));
+  // Recon in force: the screen advances and fights for the rest of the
+  // picture — firing multiplies signature, contacts identify fast.
+  at(240, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(22, 24) }));
+  at(300, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(30, 18) }));
+  at(480, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(27, 20) }));
 });
 
 // II — Foothold: dig in on the assembly area, buy a squad when affordable.
