@@ -59,7 +59,12 @@ export class PixiRenderer {
 
   private readonly world = new Container();
   private readonly terrainG = new Graphics();
+  private readonly fogG = new Graphics();
   private readonly unitsG = new Graphics();
+  /** Per-tile visibility: 0 unseen, 1 explored, 2 in sight. */
+  private fog!: Uint8Array;
+  private fogDirty = true;
+  private fogTick = 0;
   private readonly fxG = new Graphics();
   private readonly spriteLayer = new Container();
   private sim: Sim;
@@ -103,8 +108,14 @@ export class PixiRenderer {
     this.world.addChild(this.fxG);
     this.world.addChild(this.spriteLayer);
     this.world.addChild(this.unitsG);
+    // Fog sits above terrain and units, so unobserved ground and anything
+    // standing on it are hidden together.
+    this.world.addChild(this.fogG);
     this.app.stage.addChild(this.world);
+    this.fog = new Uint8Array(this.sim.width * this.sim.height);
     this.drawTerrain();
+    this.updateFog();
+    this.drawFog();
     this.snapshot();
     this.snapshot(); // prev == cur on the first frame
   }
@@ -127,6 +138,8 @@ export class PixiRenderer {
 
   /** Copy positions after every sim tick; frame() lerps between the copies. */
   snapshot(): void {
+    // Fog only needs to keep up with movement, not the tick rate.
+    if (this.fog && this.fogTick++ % 4 === 0) this.updateFog();
     this.prevX.set(this.curX);
     this.prevY.set(this.curY);
     const st = this.sim.state;
@@ -210,6 +223,102 @@ export class PixiRenderer {
       }
     }
     return best;
+  }
+
+  /**
+   * Fog of war (presentation only — the sim always knows everything; this is
+   * what the *player* is allowed to see). Per tile: 0 never seen, 1 explored
+   * but not currently observed, 2 in sight right now.
+   */
+  private updateFog(): void {
+    const w = this.sim.width;
+    const h = this.sim.height;
+    const st = this.sim.state;
+    const fog = this.fog;
+    // Anything currently visible decays to "explored" before we re-reveal.
+    for (let t = 0; t < fog.length; t++) if (fog[t] === 2) fog[t] = 1;
+
+    for (let i = 0; i < this.sim.entityCount; i++) {
+      if (st.alive[i] === 0 || st.side[i] !== 0) continue;
+      const type = this.sim.unitTypes[st.typeIdx[i]];
+      const sight = fx.toNumber(type.sight);
+      const ux = st.posX[i] / 65536;
+      const uy = st.posY[i] / 65536;
+      const tx = ux | 0;
+      const ty = uy | 0;
+      const r = Math.ceil(sight);
+      for (let y = ty - r; y <= ty + r; y++) {
+        if (y < 0 || y >= h) continue;
+        for (let x = tx - r; x <= tx + r; x++) {
+          if (x < 0 || x >= w) continue;
+          const t = y * w + x;
+          if (fog[t] === 2) continue;
+          const dx = x + 0.5 - ux;
+          const dy = y + 0.5 - uy;
+          if (dx * dx + dy * dy > sight * sight) continue;
+          if (this.hasSight(tx, ty, x, y)) fog[t] = 2;
+        }
+      }
+    }
+    this.fogDirty = true;
+  }
+
+  /** Bresenham LOS over the blocked grid — walls cast shadows. The wall tile
+   *  itself is visible (you can see the building you're standing next to). */
+  private hasSight(x0: number, y0: number, x1: number, y1: number): boolean {
+    const w = this.sim.width;
+    const dx = Math.abs(x1 - x0);
+    const dy = Math.abs(y1 - y0);
+    const sx = x0 < x1 ? 1 : -1;
+    const sy = y0 < y1 ? 1 : -1;
+    let err = dx - dy;
+    let x = x0;
+    let y = y0;
+    for (;;) {
+      if (x === x1 && y === y1) return true;
+      const e2 = 2 * err;
+      if (e2 > -dy) {
+        err -= dy;
+        x += sx;
+      }
+      if (e2 < dx) {
+        err += dx;
+        y += sy;
+      }
+      if (x === x1 && y === y1) return true;
+      if (this.sim.blocked[y * w + x] !== 0) return false;
+    }
+  }
+
+  /** Dark overlay for everything not currently in sight. */
+  private drawFog(): void {
+    const g = this.fogG;
+    g.clear();
+    const w = this.sim.width;
+    const h = this.sim.height;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const v = this.fog[y * w + x];
+        if (v === 2) continue;
+        const cx = isoX(x + 0.5, y + 0.5);
+        const cy = isoY(x + 0.5, y + 0.5);
+        g.poly([
+          cx, cy - TILE_H / 2 - 1,
+          cx + TILE_W / 2 + 1, cy,
+          cx, cy + TILE_H / 2 + 1,
+          cx - TILE_W / 2 - 1, cy,
+        ]).fill({ color: '#0A0A08', alpha: v === 0 ? 1 : 0.55 });
+      }
+    }
+    this.fogDirty = false;
+  }
+
+  /** True when the player can currently see this world position. */
+  isVisible(wx: number, wy: number): boolean {
+    const x = wx | 0;
+    const y = wy | 0;
+    if (x < 0 || y < 0 || x >= this.sim.width || y >= this.sim.height) return false;
+    return this.fog[y * this.sim.width + x] === 2;
   }
 
   /** Deterministic per-tile hash for ground variation — same look every run. */
@@ -301,6 +410,9 @@ export class PixiRenderer {
       if (st.alive[i] === 0) continue;
       const x = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
       const y = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+      // Anyone who isn't ours is only drawn while actually observed — fog
+      // hides them, and losing sight loses the contact.
+      if (st.side[i] !== 0 && !this.isVisible(x, y)) continue;
       const sx = isoX(x, y);
       const sy = isoY(x, y);
       const side = st.side[i];
@@ -475,6 +587,8 @@ export class PixiRenderer {
       g.moveTo(mx, my + 2).lineTo(mx, my + s / 2).stroke({ width: 2, color: '#B8FF5A', alpha: a });
       g.ellipse(mx, my, s + 4, (s + 4) / 2).stroke({ width: 1.5, color: '#B8FF5A', alpha: a * 0.6 });
     }
+
+    if (this.fogDirty) this.drawFog();
 
     // Transient FX.
     const fg = this.fxG;
