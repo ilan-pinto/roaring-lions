@@ -13,8 +13,15 @@ import {
   type MissionEvent,
   type MissionJson,
 } from '@lions/sim';
-import { PixiRenderer, DebugOverlay, BattleAudio, type RendererOptions, type MissionView } from '@lions/render';
-import { units, maps, missions, parseMap, paletteColor, type MapJson } from '@lions/data';
+import {
+  PixiRenderer,
+  DebugOverlay,
+  BattleAudio,
+  type RendererOptions,
+  type MissionView,
+  type AudioManifest,
+} from '@lions/render';
+import { units, maps, missions, parseMap, paletteColor, audioManifest, type MapJson } from '@lions/data';
 
 const MS_PER_TICK = 1000 / TICKS_PER_SECOND;
 const WEST = 32768; // half turn — garrisons face the expected KDF axis
@@ -342,6 +349,9 @@ async function main(): Promise<void> {
   }
 
   const audio = new BattleAudio();
+  // Recorded clips when they exist, procedural synth per-sound where they
+  // don't — so the library can be filled in one file at a time.
+  audio.useManifest(audioManifest as AudioManifest, 'audio/');
   audio.attach();
 
   // --- input ---------------------------------------------------------------
@@ -474,6 +484,7 @@ async function main(): Promise<void> {
     const events = sim.tick();
     renderer.snapshot();
     renderer.onEvents(events);
+    audio.setListener(renderer.camera);
     audio.onEvents(events, sim);
     if (runtime && mission) {
       for (const me of runtime.step(events)) {

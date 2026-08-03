@@ -1,0 +1,79 @@
+{
+  "$comment": "Battle audio manifest. Every file listed here MUST carry a license that permits redistribution in a public repo (CC0 or equivalent) -- see CONTRIBUTING.md. Files live in assets/audio/<set>/. Missing files are not an error: BattleAudio falls back to its procedural synth, so the game is never silent mid-development.",
+  "version": 1,
+  "master_gain": 0.9,
+  "sets": {
+    "small_arms": {
+      "event": "fire",
+      "weapon_classes": ["small_arms"],
+      "gain": 0.35,
+      "pitch_jitter": 0.12,
+      "variants": []
+    },
+    "hmg": {
+      "event": "fire",
+      "weapon_classes": ["hmg"],
+      "gain": 0.45,
+      "pitch_jitter": 0.1,
+      "variants": []
+    },
+    "autocannon": {
+      "event": "fire",
+      "weapon_classes": ["autocannon"],
+      "gain": 0.5,
+      "pitch_jitter": 0.08,
+      "variants": []
+    },
+    "tank_gun": {
+      "event": "fire",
+      "weapon_classes": ["apfsds", "heat", "he"],
+      "gain": 0.85,
+      "pitch_jitter": 0.06,
+      "variants": []
+    },
+    "atgm_launch": {
+      "event": "fire",
+      "weapon_classes": ["atgm", "rpg"],
+      "gain": 0.7,
+      "pitch_jitter": 0.08,
+      "variants": []
+    },
+    "mortar_thump": {
+      "event": "fire",
+      "weapon_classes": ["mortar", "rocket"],
+      "gain": 0.6,
+      "pitch_jitter": 0.1,
+      "variants": []
+    },
+    "impact_pen": {
+      "event": "penetration",
+      "gain": 0.7,
+      "pitch_jitter": 0.15,
+      "variants": []
+    },
+    "impact_bounce": {
+      "event": "ricochet",
+      "gain": 0.55,
+      "pitch_jitter": 0.18,
+      "variants": []
+    },
+    "near_miss": {
+      "event": "near_miss",
+      "gain": 0.3,
+      "pitch_jitter": 0.2,
+      "variants": []
+    },
+    "aps_intercept": {
+      "event": "aps_intercept",
+      "gain": 0.6,
+      "pitch_jitter": 0.05,
+      "variants": []
+    },
+    "destroyed": {
+      "event": "destroyed",
+      "gain": 1.0,
+      "pitch_jitter": 0.1,
+      "variants": []
+    }
+  }
+}

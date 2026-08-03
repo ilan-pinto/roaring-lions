@@ -30,6 +30,7 @@ jobs:
       - run: pnpm test
       - run: pnpm validate:data
       - run: pnpm validate:assets
+      - run: pnpm validate:audio
       - run: python tools/validate_balance.py --units data/units
       - run: pnpm balance
       - run: pnpm build

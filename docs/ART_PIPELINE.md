@@ -134,12 +134,25 @@ Safe: **Kenney.nl** (CC0), Quaternius, Poly Pizza, OpenGameArt filtered to CC0.
 
 ---
 
+## 7a. Audio
+
+Sound follows the same logic as sprites: mechanical gates, not taste. Emitters are triggered by sim events and must never feed back into the simulation — audio, like VFX, runs on a presentation PRNG (see §5).
+
+- **Manifest:** `data/audio.json` maps sim events to sound sets, with gain, pitch jitter, and per-file `license` + `source`. Clips live in `assets/audio/<set>/`.
+- **CI gate:** `tools/validate_audio.py` rejects any clip whose license does not permit redistribution in a public repo, any missing `source` URL, any undeclared file on disk, and anything over the size ceiling. **CC0 is the safe bar**; CC-BY is allowed but the manifest entry then requires a `credit` line.
+- **The licensing trap, stated plainly:** most commercial SFX libraries (and several "free" ones) permit *use* in a game but forbid redistributing the source files — which is exactly what committing them does. Check before, not after. Safe: Freesound filtered to CC0, Kenney.nl, OpenGameArt filtered to CC0.
+- **Format:** `.ogg` for everything plus `.m4a`/`.mp3` for Safari, mono, short, ≤512 KB. Three to four variants per set so sustained fire does not sound like a loop.
+- **Fallback:** every set with no clips falls back to a procedural synth, so the game is never silent and the library can be filled one file at a time.
+
+---
+
 ## 8. Licensing
 
 - Code: **MIT**
 - Art and data: **CC BY-SA 4.0**
 - All contributions under **DCO sign-off**
 - Source `.blend` files required alongside rendered output — no binary-only art. Without source, the asset cannot be re-rendered when the rig or palette version bumps, and it becomes dead weight.
+- Audio clips must be redistribution-safe (CC0 or equivalent) and declared in `data/audio.json` with their source.
 
 ---
 
@@ -147,6 +160,8 @@ Safe: **Kenney.nl** (CC0), Quaternius, Poly Pizza, OpenGameArt filtered to CC0.
 
 ```
 art/src/            *.blend sources (required, never optional)
+assets/audio/       battle SFX, declared in data/audio.json
+data/audio.json     audio manifest + per-clip licensing
 assets/sprites/     rendered output + manifest.json, CI-generated
 data/palette.json   locked 32-colour palette
 data/vfx/           emitter definitions

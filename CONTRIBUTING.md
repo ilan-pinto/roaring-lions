@@ -14,6 +14,8 @@ Read `docs/GDD.md` before proposing design changes, and `CLAUDE.md` before writi
 
 By contributing you confirm you have the right to license the work under these terms. **Do not submit assets from paid packs.** Most commercial packs — Synty POLYGON among them — forbid redistributing source assets in a public repository, regardless of whether you own a license. If you cannot point to explicit redistribution rights, it cannot go in.
 
+**This applies to sound exactly as it does to art.** Audio clips go in `assets/audio/` and must be declared in `data/audio.json` with a `license` and a `source` URL; `pnpm validate:audio` fails the build otherwise. CC0 is the safe bar (Freesound filtered to CC0, Kenney.nl, OpenGameArt filtered to CC0); CC-BY is accepted with a `credit` line. Libraries that permit *use* but not redistribution — Zapsplat, most commercial SFX bundles — cannot be committed here even though the game may legally play them.
+
 Safe sources: Kenney.nl (CC0), Quaternius, Poly Pizza, OpenGameArt filtered to CC0.
 
 ---

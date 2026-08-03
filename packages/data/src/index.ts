@@ -4,6 +4,7 @@
 // Python validators, and the art pipeline all reference.
 
 import palette from '../../../data/palette.json';
+import audioManifest from '../../../data/audio.json';
 import beitSahwanOutskirts from '../../../data/maps/beit_sahwan_outskirts.json';
 import beitSahwan1 from '../../../data/missions/beit_sahwan_1_recon.json';
 import beitSahwan2 from '../../../data/missions/beit_sahwan_2_foothold.json';
@@ -25,6 +26,9 @@ import civilians from '../../../data/units/civilians.json';
 
 export { palette };
 export type Palette = typeof palette;
+
+/** Battle audio manifest — clips are served from assets/audio/. */
+export { audioManifest };
 
 export { parseMap, type MapJson, type ParsedMap } from './map';
 

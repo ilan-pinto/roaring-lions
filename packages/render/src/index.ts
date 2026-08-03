@@ -5,4 +5,4 @@ export const RENDER_VERSION = 1;
 
 export { PixiRenderer, TILE_W, TILE_H, isoX, isoY, type RendererOptions } from './renderer';
 export { DebugOverlay, type MissionView } from './overlay';
-export { BattleAudio } from './audio';
+export { BattleAudio, type AudioManifest, type AudioSet, type AudioVariant } from './audio';
