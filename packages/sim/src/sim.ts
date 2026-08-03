@@ -65,6 +65,9 @@ import {
   ROUT_AFTER_TICKS,
   ROUT_SPEED_SHIFT,
   ROUT_DISTANCE,
+  REGEN_DELAY_TICKS,
+  REGEN_FRAC,
+  REGEN_CAP,
 } from './tuning';
 
 export const TICKS_PER_SECOND = 20;
@@ -386,6 +389,7 @@ export class Sim {
   private readonly ambushRadiusSq: Int32Array;
   private readonly pinnedTicks: Int32Array;
   private readonly routed: Uint8Array;
+  private readonly lastDamagedTick: Int32Array;
   /** Veterancy 0-3, from the campaign ledger. Better aim, steadier nerve. */
   private readonly veterancy: Uint8Array;
   private readonly apsAmmo: Int32Array;
@@ -476,6 +480,7 @@ export class Sim {
     this.ambushRadiusSq = new Int32Array(n);
     this.pinnedTicks = new Int32Array(n);
     this.routed = new Uint8Array(n);
+    this.lastDamagedTick = new Int32Array(n).fill(-100000);
     this.veterancy = new Uint8Array(n);
     this.apsAmmo = new Int32Array(n);
     this.apsReloadLeft = new Int32Array(n);
@@ -1242,6 +1247,7 @@ export class Sim {
   private applyDamage(target: number, dmg: Fx, by: number): void {
     if (dmg <= 0 || this.alive[target] === 0) return;
     this.hp[target] = fx.sub(this.hp[target], dmg);
+    this.lastDamagedTick[target] = this.tickCount;
     if (this.hp[target] <= 0) this.destroy(target, by);
   }
 
@@ -1392,6 +1398,15 @@ export class Sim {
       } else {
         this.pinnedTicks[i] = 0;
       }
+      // Field recovery: left alone for a while, crews patch up and wounded
+      // walk again — but only to a ceiling. Serious damage needs M2 repair.
+      if (this.tickCount - this.lastDamagedTick[i] >= REGEN_DELAY_TICKS) {
+        const type = this.unitTypes[this.typeIdx[i]];
+        const cap = fx.mul(type.hp, REGEN_CAP);
+        if (this.hp[i] < cap) {
+          this.hp[i] = fx.min(fx.add(this.hp[i], fx.mul(type.hp, REGEN_FRAC)), cap);
+        }
+      }
       // Weapon cooldowns.
       if (this.cooldown[i * 2] > 0) this.cooldown[i * 2]--;
       if (this.cooldown[i * 2 + 1] > 0) this.cooldown[i * 2 + 1]--;
@@ -1438,6 +1453,7 @@ export class Sim {
     h = hashArray(h, this.ambushRadiusSq);
     h = hashArray(h, this.pinnedTicks);
     h = hashArray(h, this.routed);
+    h = hashArray(h, this.lastDamagedTick);
     h = hashArray(h, this.veterancy);
     h = hashArray(h, this.apsAmmo);
     h = hashArray(h, this.apsReloadLeft);

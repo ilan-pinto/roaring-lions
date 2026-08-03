@@ -83,8 +83,8 @@ describe('determinism (1000-tick replay)', () => {
     // that is the whole claim of invariants 2 and 3. It changes ONLY when the
     // model deliberately changes (sim code or tuning constants); update it by
     // reading the new value from this failure, in the same commit, on purpose.
-    // Updated for the rout slice (GDD 5.5a): pinnedTicks + routed columns.
-    expect(a.hash()).toBe(703011671);
+    // Updated for field recovery: lastDamagedTick column + regen in upkeep.
+    expect(a.hash()).toBe(2274657041);
   });
 
   it('a different seed produces a different hash', () => {

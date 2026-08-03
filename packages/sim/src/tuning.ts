@@ -140,3 +140,11 @@ export const ROUT_AFTER_TICKS = 200;
 /** Routed units flee at half speed, this far from the nearest known threat. */
 export const ROUT_SPEED_SHIFT = 1;
 export const ROUT_DISTANCE = 393216; // 6 tiles
+
+// --- field recovery ---------------------------------------------------------
+/** Ticks without taking damage before a unit starts patching up (10 s). */
+export const REGEN_DELAY_TICKS = 200;
+/** Recovery per tick as a fraction of max hp (~0.5%/s). */
+export const REGEN_FRAC = 16; // 0.00024
+/** Field recovery ceiling: walking wounded mend, serious damage does not. */
+export const REGEN_CAP = 45875; // 0.7

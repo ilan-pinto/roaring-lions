@@ -347,7 +347,8 @@ async function main(): Promise<void> {
       const mine = renderer.selection.filter((i) => sim.state.side[i] === 0);
       if (mine.length) sim.queueCommand({ kind: 'halt', ids: mine });
     }
-    if (ev.key === 'a') {
+    if (ev.key.toLowerCase() === 'a' && (ev.ctrlKey || ev.metaKey)) {
+      ev.preventDefault(); // browser select-all
       renderer.selection = [];
       for (let i = 0; i < sim.entityCount; i++) {
         if (sim.state.side[i] === 0 && sim.state.alive[i] === 1) renderer.selection.push(i);
@@ -420,7 +421,7 @@ async function main(): Promise<void> {
       renderer.camera.x += panSpeed;
       renderer.camera.y += panSpeed;
     }
-    if (keys.has('a') === false && keys.has('arrowleft')) {
+    if (keys.has('a') || keys.has('arrowleft')) {
       renderer.camera.x -= panSpeed;
       renderer.camera.y += panSpeed;
     }
