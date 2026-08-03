@@ -4,7 +4,7 @@
   "town": "beit_sahwan",
   "phase": "recon",
   "target_minutes": 10,
-  "briefing": "Before anything moves on Beit Sahwan, command needs the picture. Push the drone and scout teams along the western approach and identify six garrison positions. Do not get decisively engaged: what you find here is what the brigade fights with next week.",
+  "briefing": "Before anything moves on Beit Sahwan, command needs the picture. The battalion has attached one of everything it owns \u2014 armor, an IFV, mortars, scouts and a drone \u2014 so use this approach to learn your tools. Push the drone east and identify six garrison positions; keep the heavy metal back as a screen. Do not get decisively engaged, and mind the mortar near houses: what you find and who you bring home is what the brigade fights with next week.",
   "map": {
     "file": "beit_sahwan_outskirts",
     "player_start": [
@@ -50,6 +50,30 @@
       "at": [
         3,
         22
+      ]
+    },
+    {
+      "unit": "mbt_lavi",
+      "count": 1,
+      "at": [
+        3,
+        18
+      ]
+    },
+    {
+      "unit": "ifv_namer",
+      "count": 1,
+      "at": [
+        3,
+        28
+      ]
+    },
+    {
+      "unit": "mortar_team",
+      "count": 1,
+      "at": [
+        2,
+        24
       ]
     }
   ],
