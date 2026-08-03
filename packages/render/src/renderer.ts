@@ -284,7 +284,18 @@ export class PixiRenderer {
       const fc = fx.toNumber(st.facing[i]) * Math.PI * 2;
       const cos = Math.cos(fc);
       const sin = Math.sin(fc);
-      if (type.isSoft) {
+      if (type.role === 'drone') {
+        // Quad-rotor: airborne dot with spinning cross-arms, no ground bulk.
+        const spin = this.frameN * 0.3;
+        const ah = 8; // hover height
+        for (const o of [0, Math.PI / 2] as const) {
+          g.moveTo(sx + Math.cos(spin + o) * 8, sy - ah + Math.sin(spin + o) * 4)
+            .lineTo(sx - Math.cos(spin + o) * 8, sy - ah - Math.sin(spin + o) * 4)
+            .stroke({ width: 2, color: this.opts.hullColors[side], alpha: bodyAlpha });
+        }
+        g.circle(sx, sy - ah, 3.5).fill({ color: this.opts.hullColors[side], alpha: bodyAlpha });
+        g.circle(sx, sy - ah, 3.5).stroke({ width: 1.5, color: this.opts.teamColors[side], alpha: bodyAlpha });
+      } else if (type.isSoft) {
         // Soft team: a figure blob with a heading tick.
         g.circle(sx, sy, r).fill({ color: this.opts.hullColors[side], alpha: bodyAlpha });
         g.circle(sx, sy, r).stroke({ width: 2, color: this.opts.teamColors[side], alpha: bodyAlpha });

@@ -97,6 +97,7 @@ export interface WeaponJson {
 
 export interface UnitTypeJson {
   id: string;
+  role?: string;
   hull: {
     hp: number;
     armor: { front: number; side: number; rear: number; top?: number };
@@ -161,6 +162,8 @@ export interface WeaponStats {
 
 export interface UnitType {
   id: string;
+  /** Schema role (mbt/infantry/drone/…) — presentation uses it for silhouettes. */
+  role: string;
   hp: Fx;
   armorFront: Fx;
   armorSide: Fx;
@@ -230,6 +233,7 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
   const turnPerTick = fx.mul(fx.div(fx.from(turnDeg), fx.fromInt(360)), DT);
   return {
     id: json.id,
+    role: json.role ?? '',
     hp: fx.from(json.hull.hp),
     armorFront,
     armorSide: fx.from(json.hull.armor.side),
