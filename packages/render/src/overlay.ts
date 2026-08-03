@@ -196,18 +196,36 @@ export class DebugOverlay {
     return rows.join('<br>') + '<br><br>';
   }
 
+  /** Force-wide suppression warning — visible even when the units are not. */
+  private suppressionHtml(): string {
+    const st = this.sim.state;
+    let pinnedN = 0;
+    let brokenN = 0;
+    for (let i = 0; i < this.sim.entityCount; i++) {
+      if (st.alive[i] === 0 || st.side[i] !== 0) continue;
+      if (st.routed[i] === 1) brokenN++;
+      else if (st.pinned[i] === 1) pinnedN++;
+    }
+    if (pinnedN === 0 && brokenN === 0) return '';
+    const parts: string[] = [];
+    if (pinnedN > 0) parts.push(`<span style="color:#FFB43C"><b>▼ ${pinnedN} pinned</b></span>`);
+    if (brokenN > 0) parts.push(`<span style="color:#D93A2B"><b>⚑ ${brokenN} broken</b></span>`);
+    return parts.join(' · ') + '<br>';
+  }
+
   private renderSelected(): void {
     const sel = this.getSelection();
     if (sel.length === 0) {
       this.status.innerHTML =
         this.missionHtml() +
+        this.suppressionHtml() +
         '<b>controls</b><br>click/drag: select · right-click: attack-move<br>' +
         'h: halt · a: select all KDF · m: mute · o: overlay · wasd/arrows: pan · wheel: zoom<br><br>' +
         '<span style="color:#8E9491">select a unit to inspect its detection maths</span>';
       return;
     }
     const st = this.sim.state;
-    const rows: string[] = [this.missionHtml()];
+    const rows: string[] = [this.missionHtml() + this.suppressionHtml()];
     const id = sel[0];
     const type = this.sim.unitTypes[st.typeIdx[id]];
     rows.push(`<b>${this.name(id)}</b> side${st.side[id]}${sel.length > 1 ? ` (+${sel.length - 1} more)` : ''}`);

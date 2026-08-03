@@ -66,6 +66,7 @@ export class PixiRenderer {
   private curX: Float64Array;
   private curY: Float64Array;
 
+  private frameN = 0;
   private tracers: Tracer[] = [];
   private puffs: Puff[] = [];
   private wrecks: { x: number; y: number }[] = [];
@@ -238,6 +239,7 @@ export class PixiRenderer {
   }
 
   frame(alpha: number): void {
+    this.frameN++;
     const cx = this.app.renderer.width / 2;
     const cy = this.app.renderer.height / 2;
     this.world.scale.set(this.camera.zoom);
@@ -318,6 +320,16 @@ export class PixiRenderer {
       const supp = Math.min(1, fx.toNumber(st.suppression[i]));
       if (supp > 0.02) {
         g.rect(sx - 12, sy - r - 6, 24 * supp, 3).fill('#FFB43C');
+      }
+      // Pinned/broken must be readable at a glance across the whole field:
+      // a pulsing ring in the suppression colour, not just a small glyph.
+      if (st.pinned[i] === 1 || st.routed[i] === 1) {
+        const pulse = 0.45 + 0.35 * Math.sin(this.frameN * 0.25);
+        g.ellipse(sx, sy + 2, r + 10, (r + 10) / 2).stroke({
+          width: 2.5,
+          color: st.routed[i] === 1 ? '#D93A2B' : '#FFB43C',
+          alpha: pulse,
+        });
       }
       if (st.routed[i] === 1) {
         // Broken: a white flag, running for cover.
