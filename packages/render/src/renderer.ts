@@ -137,6 +137,25 @@ export class PixiRenderer {
     return { x: sx / TILE_W + sy / TILE_H, y: sy / TILE_H - sx / TILE_W };
   }
 
+  /** Living units whose screen position falls inside a screen-space rect. */
+  unitsInScreenRect(x0: number, y0: number, x1: number, y1: number): number[] {
+    const cx = this.app.renderer.width / 2;
+    const cy = this.app.renderer.height / 2;
+    const z = this.camera.zoom;
+    const ox = cx - isoX(this.camera.x, this.camera.y) * z;
+    const oy = cy - isoY(this.camera.x, this.camera.y) * z;
+    const lo = { x: Math.min(x0, x1), y: Math.min(y0, y1) };
+    const hi = { x: Math.max(x0, x1), y: Math.max(y0, y1) };
+    const out: number[] = [];
+    for (let i = 0; i < this.sim.entityCount; i++) {
+      if (this.sim.state.alive[i] === 0) continue;
+      const sx = isoX(this.curX[i], this.curY[i]) * z + ox;
+      const sy = isoY(this.curX[i], this.curY[i]) * z + oy;
+      if (sx >= lo.x && sx <= hi.x && sy >= lo.y && sy <= hi.y) out.push(i);
+    }
+    return out;
+  }
+
   /** Nearest living unit within `radiusTiles` of a world point, or -1. */
   pickUnit(wx: number, wy: number, radiusTiles = 1.2): number {
     let best = -1;
@@ -154,35 +173,59 @@ export class PixiRenderer {
     return best;
   }
 
+  /** Deterministic per-tile hash for ground variation — same look every run. */
+  private static h2(x: number, y: number): number {
+    let h = (x * 374761393 + y * 668265263) | 0;
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  }
+
   private drawTerrain(): void {
     const g = this.terrainG;
     g.clear();
     const w = this.sim.width;
     const h = this.sim.height;
+    const H = 18; // building height in px
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const t = y * w + x;
         const blocked = this.sim.blocked[t] !== 0;
         const cover = this.sim.cover[t];
-        let color = this.opts.terrainOpen;
-        if (blocked) color = this.opts.terrainBlocked;
-        else if (cover > 0) color = this.opts.terrainCover[Math.min(cover, 3) - 1];
         const cx = isoX(x + 0.5, y + 0.5);
         const cy = isoY(x + 0.5, y + 0.5);
-        g.poly([
-          cx, cy - TILE_H / 2,
-          cx + TILE_W / 2, cy,
-          cx, cy + TILE_H / 2,
-          cx - TILE_W / 2, cy,
-        ]).fill({ color, alpha: blocked ? 1 : 0.9 });
+        const rnd = PixiRenderer.h2(x, y);
+        const diamond = [cx, cy - TILE_H / 2, cx + TILE_W / 2, cy, cx, cy + TILE_H / 2, cx - TILE_W / 2, cy];
+
         if (blocked) {
-          // A little vertical extrusion so buildings read as volume.
-          g.poly([
-            cx - TILE_W / 2, cy,
-            cx, cy + TILE_H / 2,
-            cx, cy + TILE_H / 2 - 14,
-            cx - TILE_W / 2, cy - 14,
-          ]).fill({ color, alpha: 0.6 });
+          // Building block: two shaded wall faces + a roof, so it reads as volume.
+          g.poly([cx - TILE_W / 2, cy, cx, cy + TILE_H / 2, cx, cy + TILE_H / 2 - H, cx - TILE_W / 2, cy - H])
+            .fill({ color: '#1E1F1A', alpha: 0.9 });
+          g.poly([cx + TILE_W / 2, cy, cx, cy + TILE_H / 2, cx, cy + TILE_H / 2 - H, cx + TILE_W / 2, cy - H])
+            .fill({ color: '#3A3C33', alpha: 0.9 });
+          g.poly(diamond.map((v, i) => (i % 2 ? v - H : v))).fill({ color: this.opts.terrainBlocked, alpha: 1 });
+          // Roof clutter: a water tank or vent, hash-placed.
+          if (rnd > 0.4) {
+            g.circle(cx + (rnd - 0.5) * 18, cy - H + (rnd - 0.5) * 8, 3).fill({ color: '#8E9491', alpha: 0.8 });
+          }
+          continue;
+        }
+
+        // Open ground: base wash with per-tile tonal variation.
+        g.poly(diamond).fill({ color: this.opts.terrainOpen, alpha: 0.92 + rnd * 0.08 });
+        if (rnd > 0.82 && cover === 0) {
+          // Sparse pebbles/scrub so the ground has grain.
+          g.circle(cx + (rnd - 0.9) * 40, cy + (rnd - 0.86) * 20, 1.6).fill({ color: '#8F9464', alpha: 0.5 });
+        }
+        if (cover > 0) {
+          // Cover reads as scattered rubble/sandbags, denser with level.
+          const c = this.opts.terrainCover[Math.min(cover, 3) - 1];
+          for (let k = 0; k < cover + 2; k++) {
+            const a = PixiRenderer.h2(x * 7 + k, y * 13 + k);
+            const b = PixiRenderer.h2(x * 31 + k, y * 3 + k);
+            const px = cx + (a - 0.5) * (TILE_W - 18);
+            const py = cy + (b - 0.5) * (TILE_H - 8);
+            g.rect(px, py, 4 + a * 4, 2.5).fill({ color: c, alpha: 0.9 });
+          }
         }
       }
     }
@@ -230,14 +273,34 @@ export class PixiRenderer {
       }
 
       g.ellipse(sx, sy + 3, r + 3, (r + 3) / 2).fill({ color: '#0A0A08', alpha: 0.35 * bodyAlpha });
-      g.circle(sx, sy, r).fill({ color: this.opts.hullColors[side], alpha: bodyAlpha });
-      g.circle(sx, sy, r).stroke({ width: 2, color: this.opts.teamColors[side], alpha: bodyAlpha });
-
-      // Facing tick — project the heading into iso space.
       const fc = fx.toNumber(st.facing[i]) * Math.PI * 2;
-      const hx = x + Math.cos(fc) * 0.45;
-      const hy = y + Math.sin(fc) * 0.45;
-      g.moveTo(sx, sy).lineTo(isoX(hx, hy), isoY(hx, hy)).stroke({ width: 3, color: '#F2E8D5', alpha: bodyAlpha });
+      const cos = Math.cos(fc);
+      const sin = Math.sin(fc);
+      if (type.isSoft) {
+        // Soft team: a figure blob with a heading tick.
+        g.circle(sx, sy, r).fill({ color: this.opts.hullColors[side], alpha: bodyAlpha });
+        g.circle(sx, sy, r).stroke({ width: 2, color: this.opts.teamColors[side], alpha: bodyAlpha });
+        const hx = x + cos * 0.4;
+        const hy = y + sin * 0.4;
+        g.moveTo(sx, sy).lineTo(isoX(hx, hy), isoY(hx, hy)).stroke({ width: 2.5, color: '#F2E8D5', alpha: bodyAlpha });
+      } else {
+        // Vehicle: oriented hull quad + turret + gun barrel along the facing.
+        const HL = 0.55;
+        const HW = 0.32;
+        const pts: number[] = [];
+        for (const [a, b] of [[HL, HW], [HL, -HW], [-HL, -HW], [-HL, HW]] as const) {
+          const wx = x + a * cos - b * sin;
+          const wy = y + a * sin + b * cos;
+          pts.push(isoX(wx, wy), isoY(wx, wy));
+        }
+        g.poly(pts).fill({ color: this.opts.hullColors[side], alpha: bodyAlpha });
+        g.poly(pts).stroke({ width: 1.5, color: this.opts.teamColors[side], alpha: bodyAlpha });
+        const bx = x + cos * 0.8;
+        const by = y + sin * 0.8;
+        g.moveTo(sx, sy - 2).lineTo(isoX(bx, by), isoY(bx, by) - 2).stroke({ width: 2.5, color: '#2E2F28', alpha: bodyAlpha });
+        g.circle(sx, sy - 2, 4.5).fill({ color: this.opts.hullColors[side], alpha: bodyAlpha });
+        g.circle(sx, sy - 2, 4.5).stroke({ width: 1.5, color: '#2E2F28', alpha: 0.8 * bodyAlpha });
+      }
 
       // HP bar.
       const hpRatio = Math.max(0, fx.toNumber(st.hp[i]) / fx.toNumber(type.hp));

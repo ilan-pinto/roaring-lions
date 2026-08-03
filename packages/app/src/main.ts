@@ -13,7 +13,7 @@ import {
   type MissionEvent,
   type MissionJson,
 } from '@lions/sim';
-import { PixiRenderer, DebugOverlay, type RendererOptions, type MissionView } from '@lions/render';
+import { PixiRenderer, DebugOverlay, BattleAudio, type RendererOptions, type MissionView } from '@lions/render';
 import { units, maps, missions, parseMap, paletteColor, type MapJson } from '@lions/data';
 
 const MS_PER_TICK = 1000 / TICKS_PER_SECOND;
@@ -286,15 +286,49 @@ async function main(): Promise<void> {
     document.body.appendChild(bar);
   }
 
+  const audio = new BattleAudio();
+  audio.attach();
+
   // --- input ---------------------------------------------------------------
   const canvas = renderer.app.canvas;
-  canvas.addEventListener('pointerdown', (ev) => {
+  // Left drag = box select; a short click = single select.
+  const dragBox = document.createElement('div');
+  dragBox.style.cssText =
+    'position:absolute;display:none;border:1px dashed #B8FF5A;background:rgba(184,255,90,0.08);pointer-events:none;';
+  document.body.appendChild(dragBox);
+  let dragStart: { x: number; y: number } | null = null;
+  const canvasXY = (ev: PointerEvent): { x: number; y: number } => {
     const rect = canvas.getBoundingClientRect();
-    const w = renderer.screenToWorld(ev.clientX - rect.left, ev.clientY - rect.top);
-    if (ev.button === 0) {
+    return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
+  };
+  canvas.addEventListener('pointerdown', (ev) => {
+    if (ev.button === 0) dragStart = canvasXY(ev);
+  });
+  window.addEventListener('pointermove', (ev) => {
+    if (!dragStart) return;
+    const p = canvasXY(ev);
+    const rect = canvas.getBoundingClientRect();
+    dragBox.style.display = 'block';
+    dragBox.style.left = `${rect.left + Math.min(dragStart.x, p.x)}px`;
+    dragBox.style.top = `${rect.top + Math.min(dragStart.y, p.y)}px`;
+    dragBox.style.width = `${Math.abs(p.x - dragStart.x)}px`;
+    dragBox.style.height = `${Math.abs(p.y - dragStart.y)}px`;
+  });
+  window.addEventListener('pointerup', (ev) => {
+    if (ev.button !== 0 || !dragStart) return;
+    const p = canvasXY(ev);
+    const moved = Math.hypot(p.x - dragStart.x, p.y - dragStart.y);
+    if (moved < 6) {
+      const w = renderer.screenToWorld(p.x, p.y);
       const hit = renderer.pickUnit(w.x, w.y);
       renderer.selection = hit >= 0 ? [hit] : [];
+    } else {
+      renderer.selection = renderer
+        .unitsInScreenRect(dragStart.x, dragStart.y, p.x, p.y)
+        .filter((i) => sim.state.side[i] === 0);
     }
+    dragStart = null;
+    dragBox.style.display = 'none';
   });
   canvas.addEventListener('contextmenu', (ev) => {
     ev.preventDefault();
@@ -319,6 +353,7 @@ async function main(): Promise<void> {
       }
     }
     if (ev.key === 'o') overlay.toggle();
+    if (ev.key === 'm') overlay.note(audio.toggle() ? 'audio muted' : 'audio on', '#8E9491');
   });
   window.addEventListener('keyup', (ev) => keys.delete(ev.key.toLowerCase()));
   canvas.addEventListener('wheel', (ev) => {
@@ -332,6 +367,7 @@ async function main(): Promise<void> {
     const events = sim.tick();
     renderer.snapshot();
     renderer.onEvents(events);
+    audio.onEvents(events, sim);
     if (runtime && mission) {
       for (const me of runtime.step(events)) {
         const described = describeMissionEvent(me, mission);
