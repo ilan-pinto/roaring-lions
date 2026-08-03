@@ -16,7 +16,10 @@ const MAX_VOICES_PER_TICK = 6;
 const AUDIBLE_TILES = 26;
 
 export interface AudioVariant {
+  /** Primary encoding (OGG). */
   file: string;
+  /** Same sound, alternate encoding for browsers that cannot decode `file`. */
+  alt?: string;
   license?: string;
   source?: string;
   credit?: string;
@@ -113,12 +116,18 @@ export class BattleAudio {
       if (variants.length === 0) continue;
       const buffers: AudioBuffer[] = [];
       for (const v of variants) {
-        try {
-          const res = await fetch(`${this.baseUrl}${v.file}`);
-          if (!res.ok) continue;
-          buffers.push(await ctx.decodeAudioData(await res.arrayBuffer()));
-        } catch {
-          // Unplayable or absent: the synth covers this sound.
+        // Try the primary encoding, fall back to `alt` (Safari cannot always
+        // decode OGG). One buffer per variant either way.
+        for (const url of [v.file, v.alt]) {
+          if (!url) continue;
+          try {
+            const res = await fetch(`${this.baseUrl}${url}`);
+            if (!res.ok) continue;
+            buffers.push(await ctx.decodeAudioData(await res.arrayBuffer()));
+            break;
+          } catch {
+            // Unplayable in this browser: try the alternate, else the synth.
+          }
         }
       }
       if (buffers.length > 0) {

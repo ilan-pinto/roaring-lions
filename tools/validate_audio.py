@@ -101,24 +101,29 @@ def main():
             if not v.get("source"):
                 failures.append(f"{f}: no 'source' URL -- provenance must be checkable")
 
-            ext = os.path.splitext(f)[1].lower()
-            if ext not in ALLOWED_EXT:
-                failures.append(f"{f}: extension {ext} not one of {sorted(ALLOWED_EXT)}")
-
-            path = os.path.join(AUDIO_DIR, f)
-            if not os.path.exists(path):
-                failures.append(f"{f}: declared in the manifest but missing from assets/audio/")
-            elif os.path.getsize(path) > MAX_BYTES:
-                kb = os.path.getsize(path) // 1024
-                failures.append(f"{f}: {kb} KB exceeds the {MAX_BYTES // 1024} KB ceiling")
+            # `file` is the primary encoding, `alt` the Safari fallback of the
+            # same sound — both must exist and both must be playable formats.
+            for role, rel in (("file", f), ("alt", v.get("alt"))):
+                if rel is None:
+                    continue
+                ext = os.path.splitext(rel)[1].lower()
+                if ext not in ALLOWED_EXT:
+                    failures.append(f"{rel}: extension {ext} not one of {sorted(ALLOWED_EXT)} ({role})")
+                path = os.path.join(AUDIO_DIR, rel)
+                if not os.path.exists(path):
+                    failures.append(f"{rel}: declared in the manifest but missing from assets/audio/")
+                elif os.path.getsize(path) > MAX_BYTES:
+                    kb = os.path.getsize(path) // 1024
+                    failures.append(f"{rel}: {kb} KB exceeds the {MAX_BYTES // 1024} KB ceiling")
 
     # Files on disk that nothing references are dead weight nobody will notice.
     if os.path.isdir(AUDIO_DIR):
         declared = {
-            v["file"]
+            rel
             for spec in man.get("sets", {}).values()
             for v in spec.get("variants", [])
-            if v.get("file")
+            for rel in (v.get("file"), v.get("alt"))
+            if rel
         }
         for dirpath, _, files in os.walk(AUDIO_DIR):
             for fn in files:

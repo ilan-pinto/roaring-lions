@@ -252,6 +252,13 @@ async function main(): Promise<void> {
   // Load sprite sheets for unit types that have rendered art (non-blocking).
   const SPRITE_MAP: Record<string, string> = {
     mbt_lavi: '/assets/sprites/TNK/',
+    inf_squad: '/assets/sprites/INF/',
+    at_team: '/assets/sprites/INF/',
+    mortar_team: '/assets/sprites/INF/',
+    militia_cell: '/assets/sprites/INF/',
+    rpg_team: '/assets/sprites/INF/',
+    atgm_cell: '/assets/sprites/INF/',
+    mortar_crew: '/assets/sprites/INF/',
   };
   for (const [id, path] of Object.entries(SPRITE_MAP)) {
     renderer.loadSprites(id, path).catch((err) => {
@@ -510,6 +517,7 @@ async function main(): Promise<void> {
       sim,
       renderer,
       runtime,
+      audio,
       step: (n: number) => {
         for (let i = 0; i < n; i++) runTick();
         renderer.frame(1);
