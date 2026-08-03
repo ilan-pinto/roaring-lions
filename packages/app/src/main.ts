@@ -341,8 +341,11 @@ async function main(): Promise<void> {
     }
   });
   const keys = new Set<string>();
+  window.addEventListener('blur', () => keys.clear());
   window.addEventListener('keydown', (ev) => {
-    keys.add(ev.key.toLowerCase());
+    // macOS swallows keyups released under Cmd — never track modified keys,
+    // or Cmd+A leaves 'a' stuck and the camera pans forever.
+    if (!ev.metaKey && !ev.ctrlKey) keys.add(ev.key.toLowerCase());
     if (ev.key === 'h') {
       const mine = renderer.selection.filter((i) => sim.state.side[i] === 0);
       if (mine.length) sim.queueCommand({ kind: 'halt', ids: mine });

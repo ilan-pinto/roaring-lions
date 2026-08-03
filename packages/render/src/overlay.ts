@@ -75,11 +75,15 @@ export class DebugOverlay {
     this.right.style.display = this.visible ? 'block' : 'none';
   }
 
+  private tickN = 0;
+
   onTick(events: SimEvent[]): void {
     this.updateBanner();
     if (!this.visible) return;
     for (const e of events) this.pushEvent(e);
-    this.renderSelected();
+    // The status panel is a full innerHTML rebuild — at 20 Hz it stalls the
+    // page exactly when combat floods events. 4 Hz reads identically.
+    if (this.tickN++ % 5 === 0) this.renderSelected();
   }
 
   /** Mission-level narration (objectives, triggers, waves) into the feed. */
