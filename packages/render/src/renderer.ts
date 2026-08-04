@@ -5,6 +5,7 @@
 
 import { Application, Assets, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import { fx, type Sim, type SimEvent } from '@lions/sim';
+import { SIM_HZ, advancePhase, phaseOffset, walkFps, walkFrameIndex } from './anim';
 
 export interface RendererOptions {
   background: string;
@@ -152,6 +153,8 @@ export class PixiRenderer {
     this.curY = new Float64Array(n);
     this.unitGroup = new Uint8Array(n);
     this.entityAnimFrame = new Float64Array(n);
+    this.entitySpeed = new Float64Array(n);
+    this.animSeeded = new Uint8Array(n);
     this.turretFacing = new Float64Array(n);
   }
 
@@ -223,6 +226,12 @@ export class PixiRenderer {
     for (let i = 0; i < this.sim.entityCount; i++) {
       this.curX[i] = fx.toNumber(st.posX[i]);
       this.curY[i] = fx.toNumber(st.posY[i]);
+      // Ground speed measured from the tick delta rather than read off the
+      // unit type, so cover slowdowns, pinning and mobility kills pace the
+      // gait for free.
+      const dx = this.curX[i] - this.prevX[i];
+      const dy = this.curY[i] - this.prevY[i];
+      this.entitySpeed[i] = Math.hypot(dx, dy) * SIM_HZ;
       // Seed turret facing to hull facing on first snapshot.
       if (this.turretFacing[i] === 0 && this.frameN === 0) {
         this.turretFacing[i] = fx.toNumber(st.facing[i]);
@@ -528,6 +537,7 @@ export class PixiRenderer {
   }
 
   frame(alpha: number): void {
+    const dtSeconds = Math.min(this.app.ticker.deltaMS, 100) / 1000;
     this.frameN++;
     const cx = this.app.renderer.width / 2;
     const cy = this.app.renderer.height / 2;
@@ -582,13 +592,18 @@ export class PixiRenderer {
       if (atlas) {
         const facings = atlas.textures;
         // Walk cycle: frames 1–(N-1) loop while moving; frame 0 is idle.
+        // Timing comes from ground covered, so feet track the terrain at any
+        // speed and playback no longer depends on display refresh rate.
         let frame = 0;
-        if (st.moving[i] === 1 && atlas.frames > 1) {
-          this.entityAnimFrame[i] += 0.12;
-          const walkFrames = atlas.frames - 1;
-          frame = 1 + (Math.floor(this.entityAnimFrame[i]) % walkFrames);
-        } else {
-          this.entityAnimFrame[i] = 0;
+        const walkFrames = atlas.frames - 1;
+        if (walkFrames > 0) {
+          if (this.animSeeded[i] === 0) {
+            this.entityAnimFrame[i] = phaseOffset(i, walkFrames);
+            this.animSeeded[i] = 1;
+          }
+          const fps = walkFps(this.entitySpeed[i], walkFrames);
+          this.entityAnimFrame[i] = advancePhase(this.entityAnimFrame[i], fps, dtSeconds, walkFrames);
+          frame = this.entitySpeed[i] > 0 ? walkFrameIndex(this.entityAnimFrame[i], walkFrames) : 0;
         }
         // Sprite-based rendering.
         while (this.entitySprites.length <= i) this.entitySprites.push(null);
