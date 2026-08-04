@@ -435,6 +435,23 @@ async function main(): Promise<void> {
     if (ev.button === 0) dragStart = canvasXY(ev);
   });
   window.addEventListener('pointermove', (ev) => {
+    // Track what the cursor is over so the renderer can offer the
+    // enter-building affordance before the click.
+    const hp = canvasXY(ev);
+    const hw = renderer.screenToWorld(hp.x, hp.y);
+    const hs = sim.structureAt(Math.floor(hw.x), Math.floor(hw.y));
+    renderer.hoverStructure = hs;
+    renderer.hoverCanGarrison =
+      hs >= 0 &&
+      sim.structures.occupants[hs] < sim.structureTypes[sim.structures.typeIdx[hs]].garrisonSlots &&
+      renderer.selection.some(
+        (i) =>
+          sim.state.side[i] === 0 &&
+          sim.state.alive[i] === 1 &&
+          sim.unitTypes[sim.state.typeIdx[i]].canGarrison &&
+          sim.state.garrisonedIn[i] !== hs
+      );
+
     if (!dragStart) return;
     const p = canvasXY(ev);
     const rect = canvas.getBoundingClientRect();

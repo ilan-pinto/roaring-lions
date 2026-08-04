@@ -113,6 +113,11 @@ export class PixiRenderer {
   /** Per-entity turret facing (renderer-only, 0–1 normalized). */
   private turretFacing: Float64Array;
 
+  /** Structure under the cursor, -1 when none. Set by the app. */
+  hoverStructure = -1;
+  /** True when the current selection could garrison the hovered building. */
+  hoverCanGarrison = false;
+
   private frameN = 0;
   private terrainDirty = false;
   private tracers: Tracer[] = [];
@@ -739,7 +744,8 @@ export class PixiRenderer {
       }
       const occ = str.occupants[s];
       if (occ > 0) {
-        // Colour the pips by whoever is inside.
+        // Held building: a house badge in the holder's colour, with one pip
+        // per man inside, so "who is in there and how many" reads at a glance.
         let side = 1;
         for (let i = 0; i < this.sim.entityCount; i++) {
           if (st.alive[i] === 1 && st.garrisonedIn[i] === s) {
@@ -747,9 +753,26 @@ export class PixiRenderer {
             break;
           }
         }
+        const col = this.opts.teamColors[side];
+        const by2 = top - 16;
+        g.poly([bx - 7, by2, bx, by2 - 6, bx + 7, by2]).fill({ color: col }); // roof
+        g.rect(bx - 5, by2, 10, 8).fill({ color: col }); // walls
+        g.rect(bx - 1.5, by2 + 3, 3, 5).fill({ color: '#14150F' }); // doorway
         for (let k = 0; k < occ; k++) {
-          g.circle(bx - 10 + k * 7, top - 7, 2.5).fill(this.opts.teamColors[side]);
+          g.circle(bx - (occ - 1) * 3 + k * 6, by2 + 12, 2).fill({ color: col });
         }
+      }
+
+      // Hover affordance: an arrow walking into a doorway, shown when the
+      // selection could actually move in. It answers "can I garrison this?"
+      // before the click rather than after.
+      if (s === this.hoverStructure && this.hoverCanGarrison) {
+        const pulse = 0.55 + 0.45 * Math.sin(this.frameN * 0.12);
+        const hy = top - 34;
+        g.rect(bx + 2, hy - 9, 11, 18).stroke({ width: 2, color: '#B8FF5A', alpha: pulse });
+        g.rect(bx + 2, hy - 9, 3, 18).fill({ color: '#B8FF5A', alpha: pulse }); // door jamb
+        g.moveTo(bx - 14, hy).lineTo(bx - 2, hy).stroke({ width: 2.5, color: '#B8FF5A', alpha: pulse });
+        g.poly([bx - 2, hy - 5, bx + 4, hy, bx - 2, hy + 5]).fill({ color: '#B8FF5A', alpha: pulse });
       }
     }
 
