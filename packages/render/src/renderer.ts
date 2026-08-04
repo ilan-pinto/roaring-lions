@@ -32,6 +32,24 @@ export interface RendererOptions {
 export const TILE_W = 64;
 export const TILE_H = 32;
 
+/** How long a shot's recoil takes to ease back. */
+const RECOIL_SECONDS = 0.15;
+/** How long a penetrating hit's flinch takes to settle. */
+const FLINCH_SECONDS = 0.18;
+/** Recoil travel in screen px: a main gun shoves, a rifle barely nudges. */
+const RECOIL_PX_VEHICLE = 3;
+const RECOIL_PX_SOFT = 1;
+/** Flinch travel in screen px. */
+const FLINCH_PX = 2.5;
+/** Tremble amplitude in px while pinned, backing the `down` posture. */
+const TREMBLE_PX = 0.5;
+/** Vertical bob at the top of an infantry stride. */
+const BOB_PX = 1.2;
+/** Turret traverse spring: stiffness and damping, in turns/s². Tuned so a
+ *  full traverse overshoots slightly and settles rather than snapping. */
+const TURRET_STIFFNESS = 90;
+const TURRET_DAMPING = 13;
+
 interface Tracer {
   sx: number;
   sy: number;
@@ -119,6 +137,15 @@ export class PixiRenderer {
   /** Seconds left on the one-shot fire clip. Latched by the `fire` event and
    *  drained each frame; the sheet's own frames/fps sets how long it holds. */
   private firingTimer: Float64Array;
+  /** Recoil: 1 at the moment of the shot, easing to 0. Direction in turns. */
+  private recoilT: Float64Array;
+  private recoilDir: Float64Array;
+  /** Hit flinch, same shape as recoil but driven by incoming rounds. */
+  private flinchT: Float64Array;
+  private flinchDir: Float64Array;
+  /** Turret angular velocity in turns/s, so traverse settles instead of
+   *  snapping — a turret has mass, it is not a servo. */
+  private turretVel: Float64Array;
   /** Per-entity turret facing (renderer-only, 0–1 normalized). */
   private turretFacing: Float64Array;
 
@@ -161,6 +188,11 @@ export class PixiRenderer {
     this.entitySpeed = new Float64Array(n);
     this.animSeeded = new Uint8Array(n);
     this.firingTimer = new Float64Array(n);
+    this.recoilT = new Float64Array(n);
+    this.recoilDir = new Float64Array(n);
+    this.flinchT = new Float64Array(n);
+    this.flinchDir = new Float64Array(n);
+    this.turretVel = new Float64Array(n);
     this.turretFacing = new Float64Array(n);
   }
 
@@ -287,6 +319,11 @@ export class PixiRenderer {
         const facingRad = usesTurret
           ? this.turretFacing[e.shooter] * Math.PI * 2
           : fx.toNumber(this.sim.state.facing[e.shooter]) * Math.PI * 2;
+        // Kick the shooter back along its own bearing. Without this a firing
+        // tank puts muzzle smoke next to a completely inert vehicle, and the
+        // shot never reads as having come from it.
+        this.recoilT[e.shooter] = 1;
+        this.recoilDir[e.shooter] = facingRad / (Math.PI * 2);
         const barrelLen = type.isSoft ? 0.4 : 0.8;
         const mzX = this.curX[e.shooter] + Math.cos(facingRad) * barrelLen;
         const mzY = this.curY[e.shooter] + Math.sin(facingRad) * barrelLen;
@@ -303,6 +340,14 @@ export class PixiRenderer {
         this.puffs.push({ x: this.curX[e.target], y: this.curY[e.target], ttl: 12, color: this.opts.interceptColor, r: 10 });
       } else if (e.kind === 'impact' && e.penetrated) {
         this.puffs.push({ x: this.curX[e.target], y: this.curY[e.target], ttl: 10, color: this.opts.flashColor, r: 8 });
+        // Jolt the target away from the shooter, so a penetrating hit lands
+        // on the unit rather than only in the roll feed.
+        const dx = this.curX[e.target] - this.curX[e.shooter];
+        const dy = this.curY[e.target] - this.curY[e.shooter];
+        if (dx !== 0 || dy !== 0) {
+          this.flinchT[e.target] = 1;
+          this.flinchDir[e.target] = ((Math.atan2(dy, dx) / (Math.PI * 2)) % 1 + 1) % 1;
+        }
       } else if (e.kind === 'strike') {
         const sx = fx.toNumber(e.x);
         const sy = fx.toNumber(e.y);
@@ -671,9 +716,12 @@ export class PixiRenderer {
   frame(alpha: number): void {
     const dtSeconds = Math.min(this.app.ticker.deltaMS, 100) / 1000;
     this.frameN++;
-    // Drain the one-shot fire latches before anything reads them.
+    // Drain the one-shot latches before anything reads them. Recoil and
+    // flinch decay over their own durations, framerate-independently.
     for (let i = 0; i < this.sim.entityCount; i++) {
       if (this.firingTimer[i] > 0) this.firingTimer[i] = Math.max(0, this.firingTimer[i] - dtSeconds);
+      if (this.recoilT[i] > 0) this.recoilT[i] = Math.max(0, this.recoilT[i] - dtSeconds / RECOIL_SECONDS);
+      if (this.flinchT[i] > 0) this.flinchT[i] = Math.max(0, this.flinchT[i] - dtSeconds / FLINCH_SECONDS);
     }
     const cx = this.app.renderer.width / 2;
     const cy = this.app.renderer.height / 2;
@@ -754,6 +802,34 @@ export class PixiRenderer {
           this.entityAnimFrame[i] = advancePhase(this.entityAnimFrame[i], fps, dtSeconds, nFrames);
           frame = Math.min(nFrames - 1, Math.floor(this.entityAnimFrame[i]));
         }
+        // Transform motion, applied to the sprite only — the plate, bars and
+        // glyphs stay put so legibility never jitters with the art.
+        let ox = 0;
+        let oy = 0;
+        if (this.recoilT[i] > 0) {
+          // Ease-out: hardest at the shot, settling back.
+          const k = this.recoilT[i] * this.recoilT[i];
+          const px = type.isSoft ? RECOIL_PX_SOFT : RECOIL_PX_VEHICLE;
+          const a = this.recoilDir[i] * Math.PI * 2;
+          ox -= Math.cos(a) * px * k;
+          oy -= Math.sin(a) * px * k * 0.5;
+        }
+        if (this.flinchT[i] > 0) {
+          const k = this.flinchT[i] * this.flinchT[i];
+          const a = this.flinchDir[i] * Math.PI * 2;
+          ox += Math.cos(a) * FLINCH_PX * k;
+          oy += Math.sin(a) * FLINCH_PX * k * 0.5;
+        }
+        if (st.pinned[i] === 1) {
+          // Deterministic per-entity jitter, so units do not tremble in unison.
+          ox += Math.sin(this.frameN * 0.9 + i * 2.4) * TREMBLE_PX;
+          oy += Math.cos(this.frameN * 1.1 + i * 1.7) * TREMBLE_PX;
+        }
+        if (clip === 'move' && type.isSoft) {
+          // Two footfalls per stride, so the bob runs at twice cycle rate.
+          oy -= Math.abs(Math.sin(this.entityAnimFrame[i] * Math.PI)) * BOB_PX;
+        }
+
         // Sprite-based rendering.
         while (this.entitySprites.length <= i) this.entitySprites.push(null);
         let spr = this.entitySprites[i];
@@ -764,7 +840,7 @@ export class PixiRenderer {
         }
         const hullIdx = PixiRenderer.spriteIndex(facingNorm, sheet);
         spr.texture = clipTex[hullIdx][frame] ?? idle[hullIdx][0];
-        spr.position.set(sx, sy);
+        spr.position.set(sx + ox, sy + oy);
         spr.alpha = bodyAlpha;
         spr.visible = true;
         const spriteScale = (sheet.scale * TILE_W) / idle[0][0].width;
@@ -775,22 +851,28 @@ export class PixiRenderer {
           const target = st.curTarget[i];
           const struct = st.curStructure[i];
           const aimAtStructure = target < 0 && struct >= 0 && this.sim.structures.alive[struct] === 1;
+          // With no target the turret returns to the hull's heading.
+          let goalTurn = facingNorm;
           if ((target >= 0 && st.alive[target] !== 0) || aimAtStructure) {
             const ax = aimAtStructure ? fx.toNumber(this.sim.structures.cx[struct]) : this.curX[target];
             const ay = aimAtStructure ? fx.toNumber(this.sim.structures.cy[struct]) : this.curY[target];
             const dx = ax - this.curX[i];
             const dy = ay - this.curY[i];
-            const goal = ((Math.atan2(dy, dx) / (Math.PI * 2)) % 1 + 1) % 1;
-            let delta = goal - this.turretFacing[i];
-            if (delta > 0.5) delta -= 1;
-            if (delta < -0.5) delta += 1;
-            this.turretFacing[i] += delta * 0.15;
-          } else {
-            let delta = facingNorm - this.turretFacing[i];
-            if (delta > 0.5) delta -= 1;
-            if (delta < -0.5) delta += 1;
-            this.turretFacing[i] += delta * 0.08;
+            goalTurn = ((Math.atan2(dy, dx) / (Math.PI * 2)) % 1 + 1) % 1;
           }
+          // Damped spring rather than a linear lerp, so traverse overshoots
+          // slightly and settles. A turret has mass; the old lerp read as a
+          // servo snapping to its setpoint.
+          let delta = goalTurn - this.turretFacing[i];
+          if (delta > 0.5) delta -= 1;
+          if (delta < -0.5) delta += 1;
+          // Explicit Euler diverges once damping * dt exceeds 1, which a
+          // 100ms frame hitch would reach — so the spring integrates on a
+          // bounded step even when the frame took longer.
+          const sdt = Math.min(dtSeconds, 1 / 30);
+          const accel = delta * TURRET_STIFFNESS - this.turretVel[i] * TURRET_DAMPING;
+          this.turretVel[i] += accel * sdt;
+          this.turretFacing[i] += this.turretVel[i] * sdt;
           this.turretFacing[i] = ((this.turretFacing[i] % 1) + 1) % 1;
 
           const tIdx = PixiRenderer.spriteIndex(this.turretFacing[i], atlas.turretSheet ?? sheet);
@@ -802,7 +884,8 @@ export class PixiRenderer {
             this.turretSprites[i] = tspr;
           }
           tspr.texture = atlas.turretTextures[tIdx][0];
-          tspr.position.set(sx, sy);
+          // Turret rides the hull, recoil and all.
+          tspr.position.set(sx + ox, sy + oy);
           tspr.alpha = bodyAlpha;
           tspr.visible = true;
           tspr.scale.set(spriteScale);
