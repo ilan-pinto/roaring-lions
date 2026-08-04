@@ -1,0 +1,88 @@
+{
+  "unit": "tiger_tank_turret",
+  "facings": 16,
+  "size": 256,
+  "frames": 1,
+  "files": [
+    {
+      "facing": 0,
+      "frame": 0,
+      "file": "f00_000.png"
+    },
+    {
+      "facing": 1,
+      "frame": 0,
+      "file": "f01_000.png"
+    },
+    {
+      "facing": 2,
+      "frame": 0,
+      "file": "f02_000.png"
+    },
+    {
+      "facing": 3,
+      "frame": 0,
+      "file": "f03_000.png"
+    },
+    {
+      "facing": 4,
+      "frame": 0,
+      "file": "f04_000.png"
+    },
+    {
+      "facing": 5,
+      "frame": 0,
+      "file": "f05_000.png"
+    },
+    {
+      "facing": 6,
+      "frame": 0,
+      "file": "f06_000.png"
+    },
+    {
+      "facing": 7,
+      "frame": 0,
+      "file": "f07_000.png"
+    },
+    {
+      "facing": 8,
+      "frame": 0,
+      "file": "f08_000.png"
+    },
+    {
+      "facing": 9,
+      "frame": 0,
+      "file": "f09_000.png"
+    },
+    {
+      "facing": 10,
+      "frame": 0,
+      "file": "f10_000.png"
+    },
+    {
+      "facing": 11,
+      "frame": 0,
+      "file": "f11_000.png"
+    },
+    {
+      "facing": 12,
+      "frame": 0,
+      "file": "f12_000.png"
+    },
+    {
+      "facing": 13,
+      "frame": 0,
+      "file": "f13_000.png"
+    },
+    {
+      "facing": 14,
+      "frame": 0,
+      "file": "f14_000.png"
+    },
+    {
+      "facing": 15,
+      "frame": 0,
+      "file": "f15_000.png"
+    }
+  ]
+}

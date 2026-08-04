@@ -1,0 +1,408 @@
+{
+  "unit": "infantry_soldier",
+  "facings": 16,
+  "size": 256,
+  "frames": 5,
+  "files": [
+    {
+      "facing": 0,
+      "frame": 0,
+      "file": "f00_000.png"
+    },
+    {
+      "facing": 0,
+      "frame": 1,
+      "file": "f00_001.png"
+    },
+    {
+      "facing": 0,
+      "frame": 2,
+      "file": "f00_002.png"
+    },
+    {
+      "facing": 0,
+      "frame": 3,
+      "file": "f00_003.png"
+    },
+    {
+      "facing": 0,
+      "frame": 4,
+      "file": "f00_004.png"
+    },
+    {
+      "facing": 1,
+      "frame": 0,
+      "file": "f01_000.png"
+    },
+    {
+      "facing": 1,
+      "frame": 1,
+      "file": "f01_001.png"
+    },
+    {
+      "facing": 1,
+      "frame": 2,
+      "file": "f01_002.png"
+    },
+    {
+      "facing": 1,
+      "frame": 3,
+      "file": "f01_003.png"
+    },
+    {
+      "facing": 1,
+      "frame": 4,
+      "file": "f01_004.png"
+    },
+    {
+      "facing": 2,
+      "frame": 0,
+      "file": "f02_000.png"
+    },
+    {
+      "facing": 2,
+      "frame": 1,
+      "file": "f02_001.png"
+    },
+    {
+      "facing": 2,
+      "frame": 2,
+      "file": "f02_002.png"
+    },
+    {
+      "facing": 2,
+      "frame": 3,
+      "file": "f02_003.png"
+    },
+    {
+      "facing": 2,
+      "frame": 4,
+      "file": "f02_004.png"
+    },
+    {
+      "facing": 3,
+      "frame": 0,
+      "file": "f03_000.png"
+    },
+    {
+      "facing": 3,
+      "frame": 1,
+      "file": "f03_001.png"
+    },
+    {
+      "facing": 3,
+      "frame": 2,
+      "file": "f03_002.png"
+    },
+    {
+      "facing": 3,
+      "frame": 3,
+      "file": "f03_003.png"
+    },
+    {
+      "facing": 3,
+      "frame": 4,
+      "file": "f03_004.png"
+    },
+    {
+      "facing": 4,
+      "frame": 0,
+      "file": "f04_000.png"
+    },
+    {
+      "facing": 4,
+      "frame": 1,
+      "file": "f04_001.png"
+    },
+    {
+      "facing": 4,
+      "frame": 2,
+      "file": "f04_002.png"
+    },
+    {
+      "facing": 4,
+      "frame": 3,
+      "file": "f04_003.png"
+    },
+    {
+      "facing": 4,
+      "frame": 4,
+      "file": "f04_004.png"
+    },
+    {
+      "facing": 5,
+      "frame": 0,
+      "file": "f05_000.png"
+    },
+    {
+      "facing": 5,
+      "frame": 1,
+      "file": "f05_001.png"
+    },
+    {
+      "facing": 5,
+      "frame": 2,
+      "file": "f05_002.png"
+    },
+    {
+      "facing": 5,
+      "frame": 3,
+      "file": "f05_003.png"
+    },
+    {
+      "facing": 5,
+      "frame": 4,
+      "file": "f05_004.png"
+    },
+    {
+      "facing": 6,
+      "frame": 0,
+      "file": "f06_000.png"
+    },
+    {
+      "facing": 6,
+      "frame": 1,
+      "file": "f06_001.png"
+    },
+    {
+      "facing": 6,
+      "frame": 2,
+      "file": "f06_002.png"
+    },
+    {
+      "facing": 6,
+      "frame": 3,
+      "file": "f06_003.png"
+    },
+    {
+      "facing": 6,
+      "frame": 4,
+      "file": "f06_004.png"
+    },
+    {
+      "facing": 7,
+      "frame": 0,
+      "file": "f07_000.png"
+    },
+    {
+      "facing": 7,
+      "frame": 1,
+      "file": "f07_001.png"
+    },
+    {
+      "facing": 7,
+      "frame": 2,
+      "file": "f07_002.png"
+    },
+    {
+      "facing": 7,
+      "frame": 3,
+      "file": "f07_003.png"
+    },
+    {
+      "facing": 7,
+      "frame": 4,
+      "file": "f07_004.png"
+    },
+    {
+      "facing": 8,
+      "frame": 0,
+      "file": "f08_000.png"
+    },
+    {
+      "facing": 8,
+      "frame": 1,
+      "file": "f08_001.png"
+    },
+    {
+      "facing": 8,
+      "frame": 2,
+      "file": "f08_002.png"
+    },
+    {
+      "facing": 8,
+      "frame": 3,
+      "file": "f08_003.png"
+    },
+    {
+      "facing": 8,
+      "frame": 4,
+      "file": "f08_004.png"
+    },
+    {
+      "facing": 9,
+      "frame": 0,
+      "file": "f09_000.png"
+    },
+    {
+      "facing": 9,
+      "frame": 1,
+      "file": "f09_001.png"
+    },
+    {
+      "facing": 9,
+      "frame": 2,
+      "file": "f09_002.png"
+    },
+    {
+      "facing": 9,
+      "frame": 3,
+      "file": "f09_003.png"
+    },
+    {
+      "facing": 9,
+      "frame": 4,
+      "file": "f09_004.png"
+    },
+    {
+      "facing": 10,
+      "frame": 0,
+      "file": "f10_000.png"
+    },
+    {
+      "facing": 10,
+      "frame": 1,
+      "file": "f10_001.png"
+    },
+    {
+      "facing": 10,
+      "frame": 2,
+      "file": "f10_002.png"
+    },
+    {
+      "facing": 10,
+      "frame": 3,
+      "file": "f10_003.png"
+    },
+    {
+      "facing": 10,
+      "frame": 4,
+      "file": "f10_004.png"
+    },
+    {
+      "facing": 11,
+      "frame": 0,
+      "file": "f11_000.png"
+    },
+    {
+      "facing": 11,
+      "frame": 1,
+      "file": "f11_001.png"
+    },
+    {
+      "facing": 11,
+      "frame": 2,
+      "file": "f11_002.png"
+    },
+    {
+      "facing": 11,
+      "frame": 3,
+      "file": "f11_003.png"
+    },
+    {
+      "facing": 11,
+      "frame": 4,
+      "file": "f11_004.png"
+    },
+    {
+      "facing": 12,
+      "frame": 0,
+      "file": "f12_000.png"
+    },
+    {
+      "facing": 12,
+      "frame": 1,
+      "file": "f12_001.png"
+    },
+    {
+      "facing": 12,
+      "frame": 2,
+      "file": "f12_002.png"
+    },
+    {
+      "facing": 12,
+      "frame": 3,
+      "file": "f12_003.png"
+    },
+    {
+      "facing": 12,
+      "frame": 4,
+      "file": "f12_004.png"
+    },
+    {
+      "facing": 13,
+      "frame": 0,
+      "file": "f13_000.png"
+    },
+    {
+      "facing": 13,
+      "frame": 1,
+      "file": "f13_001.png"
+    },
+    {
+      "facing": 13,
+      "frame": 2,
+      "file": "f13_002.png"
+    },
+    {
+      "facing": 13,
+      "frame": 3,
+      "file": "f13_003.png"
+    },
+    {
+      "facing": 13,
+      "frame": 4,
+      "file": "f13_004.png"
+    },
+    {
+      "facing": 14,
+      "frame": 0,
+      "file": "f14_000.png"
+    },
+    {
+      "facing": 14,
+      "frame": 1,
+      "file": "f14_001.png"
+    },
+    {
+      "facing": 14,
+      "frame": 2,
+      "file": "f14_002.png"
+    },
+    {
+      "facing": 14,
+      "frame": 3,
+      "file": "f14_003.png"
+    },
+    {
+      "facing": 14,
+      "frame": 4,
+      "file": "f14_004.png"
+    },
+    {
+      "facing": 15,
+      "frame": 0,
+      "file": "f15_000.png"
+    },
+    {
+      "facing": 15,
+      "frame": 1,
+      "file": "f15_001.png"
+    },
+    {
+      "facing": 15,
+      "frame": 2,
+      "file": "f15_002.png"
+    },
+    {
+      "facing": 15,
+      "frame": 3,
+      "file": "f15_003.png"
+    },
+    {
+      "facing": 15,
+      "frame": 4,
+      "file": "f15_004.png"
+    }
+  ]
+}
