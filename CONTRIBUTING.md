@@ -22,21 +22,29 @@ Safe sources: Kenney.nl (CC0), Quaternius, Poly Pizza, OpenGameArt filtered to C
 
 ## AI-generated content policy
 
-**Permitted:** concept art, terrain textures, UI backgrounds, and any working material that does not ship as a game asset.
+**Permitted**, including for assets that ship in the game.
 
-**Not permitted:** unit sprites, building sprites, and any asset that ships in the game.
+**Disclosure is required** in the PR description wherever generative tools were used.
 
-**Disclosure is required** in the PR description wherever generative tools were used, including for permitted categories.
+**The gates do not care where art came from.** Every sprite faces the same four CI
+checks — exact palette match, binary alpha, minimum silhouette fill, and pairwise
+silhouette distinctness — plus the redistribution-rights requirement that applies to
+any asset entering this repository (`docs/ART_PIPELINE.md` §7). Generated art that
+passes is as welcome as rendered art that passes; generated art that fails is
+rejected for the same reasons anything else would be.
 
-### Why this line
+### What to expect in practice
 
-Two reasons, and we would rather write them down than leave the rule bare.
+Unit sprites are the hard case, and it is worth knowing before you spend an evening
+on it: a unit needs 16 consistent facings of the same object plus damage states,
+all under one locked lighting rig. Generative tools tend to lose object identity
+between views — the output looks right in isolation and falls apart the moment the
+unit rotates. `tools/render_rig.py` exists because rendering a model solves that
+problem by construction. Concept art, terrain textures, and UI backgrounds have no
+such constraint.
 
-The practical one: unit sprites require 16 consistent facings of the same object, plus damage states, rendered under one locked lighting rig. Generative tools cannot currently hold an object identity stable across that many views. The output looks fine in isolation and falls apart the moment a unit rotates. This is the case where the technology genuinely does not work yet, so the ban costs us very little.
-
-The social one: a meaningful part of the open-source game art community will not contribute to projects without a clear position here. We need human artists more than we need filled gaps — the whole art pipeline depends on a small set of commissioned hero assets that everything else kitbashes from. Ambiguity on this question costs more contributors than either clear answer would.
-
-If the first reason stops being true, this policy is open to revisiting. The second is not primarily a technical question.
+Disclosure is not a warning label. It is so reviewers know which questions to ask,
+and so the licence trail stays legible.
 
 ---
 

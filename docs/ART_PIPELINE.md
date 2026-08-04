@@ -130,7 +130,7 @@ Safe: **Kenney.nl** (CC0), Quaternius, Poly Pizza, OpenGameArt filtered to CC0.
 
 **Recommended path — hero assets plus kitbash.** Commission 6–10 source models from a single artist (~$600–1,500) together with a written style bible. Then kitbash the rest from those parts in Blender: one tank chassis yields six variants, one building shell yields a district. Consistency comes free because everything descends from the same hand. This is by a wide margin the best quality-per-dollar available to a project this size.
 
-**AI-generated art:** workable for concept art, terrain textures, and UI backgrounds. Poor for unit sprites — you cannot get 16 consistent facings of the same vehicle. Note also that a meaningful part of the open-source game community will decline to contribute to a project that uses it. Take an explicit position in `CONTRIBUTING.md` either way; ambiguity here causes more friction than either answer.
+**AI-generated art:** permitted, with disclosure — see `CONTRIBUTING.md`. Worth knowing what it is good at: strong for concept art, terrain textures, and UI backgrounds; still weak for unit sprites, where 16 consistent facings of the same vehicle is the hard part and identity tends to drift between views. Whatever the source, the output faces the same four CI checks, so a sprite that survives the palette and silhouette gates is a sprite that works.
 
 ---
 

@@ -287,7 +287,7 @@ Target 300–600 simultaneous units at 60 fps. Struct-of-arrays layout over type
 - **Cost-curve validator.** Every unit's stats produce a power score; CI rejects submissions whose cost falls outside the tolerance band. Effectively an arbitrage bound on unit pricing.
 - **Headless balance sim.** New units run 10,000 battles against a benchmark roster; win rates post as a PR comment. Reviewers see evidence, not opinion.
 
-**AI-generated art policy:** permitted for concept art, terrain textures, and UI backgrounds. **Banned for unit sprites and any shipped game asset.** Disclosure required in the PR description. Unit sprites are the case where the technology genuinely fails anyway — 16 consistent facings of the same vehicle is not achievable — and a meaningful part of the open-source art community will not contribute to projects without a clear line. The reasoning lives in `CONTRIBUTING.md` alongside the rule, because stated reasoning survives contributor turnover in a way a bare policy line does not.
+**AI-generated art policy:** permitted, including for shipped assets. **Disclosure is required in the PR description** wherever generative tools were used. Everything still passes the same gates as any other art — palette, binary alpha, silhouette, and the redistribution-rights requirement in ART_PIPELINE §7 — so the standard is the output, not the tool. The reasoning lives in `CONTRIBUTING.md` alongside the rule, because stated reasoning survives contributor turnover in a way a bare policy line does not.
 
 ---
 
