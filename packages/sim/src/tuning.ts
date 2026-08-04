@@ -186,6 +186,17 @@ export const STRIKE_SCATTER = 19661; // 0.3 tiles
 /** Satellite sweep: everything hostile inside this radius is identified. */
 export const SWEEP_RADIUS_SQ = 3932160; // 60 tile^2 ≈ 7.7 tiles
 
+// --- carriers and munitions -------------------------------------------------
+/** How close a passenger must be to climb aboard: squared tiles, Q16.16. */
+export const LOAD_RANGE_SQ = 147456; // 2.25 tile^2 = 1.5 tiles
+/** A bailing squad loses this share of its strength when the vehicle brews
+ *  up: riding is fast, and being caught in the open inside it is the price. */
+export const BAILOUT_DAMAGE_FRAC = 26214; // 0.4
+/** And comes out shaken. */
+export const BAILOUT_SHOCK = 58982; // 0.9
+/** A loitering munition detonates inside this radius: squared tiles. */
+export const KAMIKAZE_STRIKE_SQ = 98304; // 1.5 tile^2 = 1.22 tiles
+
 // --- field recovery ---------------------------------------------------------
 /** Ticks without taking damage before a unit starts patching up (10 s). */
 export const REGEN_DELAY_TICKS = 200;

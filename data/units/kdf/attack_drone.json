@@ -1,0 +1,39 @@
+{
+  "id": "attack_drone",
+  "name": "Loitering Munition",
+  "faction": "kdf",
+  "role": "drone",
+  "cost": { "logistics": 300, "build_time_s": 14, "population": 0 },
+  "unlock": { "roe_rating_min": 45 },
+  "hull": {
+    "hp": 90,
+    "armor": { "front": 0, "side": 0, "rear": 0 },
+    "crew": 0,
+    "suppression_resistance": 1.0
+  },
+  "mobility": { "speed_tiles_s": 2.8, "turn_rate_deg_s": 240 },
+  "sensors": {
+    "optics": 1.4,
+    "sight_tiles": 13,
+    "thermal": true,
+    "signature": 0.3,
+    "firing_signature_mult": 1.5
+  },
+  "abilities": ["kamikaze", "mark_target"],
+  "weapons": [
+    {
+      "id": "warhead",
+      "type": "heat",
+      "range_tiles": 1.2,
+      "effective_range_tiles": 1.2,
+      "accuracy": 0.9,
+      "penetration": 480,
+      "damage": 520,
+      "splash_tiles": 1.2,
+      "suppression": 70,
+      "rof_per_min": 6,
+      "can_target": ["ground", "structure"],
+      "collateral_risk": 0.35
+    }
+  ]
+}

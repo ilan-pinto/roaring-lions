@@ -637,7 +637,18 @@ export class PixiRenderer {
         const fc = facingNorm * Math.PI * 2;
         const cos = Math.cos(fc);
         const sin = Math.sin(fc);
-        if (type.role === 'drone') {
+        if (type.isKamikaze) {
+        // A munition, not an aircraft: a dart with a warhead nose.
+        const ah = 7;
+        const nx2 = Math.cos(fc), ny2 = Math.sin(fc);
+        const tipX = isoX(x + nx2 * 0.5, y + ny2 * 0.5);
+        const tipY = isoY(x + nx2 * 0.5, y + ny2 * 0.5) - ah;
+        const tailX = isoX(x - nx2 * 0.35, y - ny2 * 0.35);
+        const tailY = isoY(x - nx2 * 0.35, y - ny2 * 0.35) - ah;
+        g.moveTo(tailX, tailY).lineTo(tipX, tipY).stroke({ width: 3, color: this.opts.hullColors[side], alpha: bodyAlpha });
+        g.circle(tipX, tipY, 3).fill({ color: '#E8541E', alpha: bodyAlpha });
+        g.ellipse(isoX(x, y), isoY(x, y) + 2, 5, 2.5).fill({ color: '#0A0A08', alpha: 0.3 * bodyAlpha });
+      } else if (type.role === 'drone') {
           const spin = this.frameN * 0.3;
           const ah = 8;
           for (const o of [0, Math.PI / 2] as const) {
@@ -647,7 +658,15 @@ export class PixiRenderer {
           }
           g.circle(sx, sy - ah, 3.5).fill({ color: this.opts.hullColors[side], alpha: bodyAlpha });
           g.circle(sx, sy - ah, 3.5).stroke({ width: 1.5, color: this.opts.teamColors[side], alpha: bodyAlpha });
-        } else if (type.isSoft) {
+        } else if (type.role === 'sniper') {
+        // Prone team with a long barrel: reads as static and far-reaching.
+        g.ellipse(sx, sy + 3, r + 2, (r + 2) / 2).fill({ color: '#0A0A08', alpha: 0.35 * bodyAlpha });
+        g.ellipse(sx, sy, r, r / 2).fill({ color: this.opts.infantryColors[side], alpha: bodyAlpha });
+        g.ellipse(sx, sy, r, r / 2).stroke({ width: 1.5, color: this.opts.teamColors[side], alpha: bodyAlpha });
+        const bx2 = x + Math.cos(fc) * 1.1;
+        const by2 = y + Math.sin(fc) * 1.1;
+        g.moveTo(sx, sy).lineTo(isoX(bx2, by2), isoY(bx2, by2)).stroke({ width: 1.5, color: '#2E2F28', alpha: bodyAlpha });
+      } else if (type.isSoft) {
           // Infantry wear the lighter faction tone so foot troops never read
           // as armour at a glance.
           g.circle(sx, sy, r).fill({ color: this.opts.infantryColors[side], alpha: bodyAlpha });
@@ -671,6 +690,17 @@ export class PixiRenderer {
           g.moveTo(sx, sy - 2).lineTo(isoX(bx, by), isoY(bx, by) - 2).stroke({ width: 2.5, color: '#2E2F28', alpha: bodyAlpha });
           g.circle(sx, sy - 2, 4.5).fill({ color: this.opts.hullColors[side], alpha: bodyAlpha });
           g.circle(sx, sy - 2, 4.5).stroke({ width: 1.5, color: '#2E2F28', alpha: 0.8 * bodyAlpha });
+        }
+      }
+
+      // Seats taken, so a loaded vehicle reads as loaded.
+      if (type.transportSlots > 0) {
+        const aboard = this.sim.passengerCount(i);
+        for (let k = 0; k < type.transportSlots; k++) {
+          g.circle(sx - (type.transportSlots - 1) * 3 + k * 6, sy + r + 6, 2).fill({
+            color: k < aboard ? this.opts.teamColors[side] : '#3A3C33',
+            alpha: bodyAlpha,
+          });
         }
       }
 

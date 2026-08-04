@@ -176,6 +176,12 @@
           "minimum": 0,
           "maximum": 1,
           "default": 0.5
+        },
+        "transport_slots": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Seats for infantry. Passengers ride at the vehicle\u2019s speed, cannot be shot at while aboard, and bail out hurt if it is destroyed."
         }
       }
     },
@@ -367,7 +373,8 @@
           "resupply",
           "tunnel_travel",
           "hidden_setup",
-          "demolish"
+          "demolish",
+          "kamikaze"
         ]
       }
     },

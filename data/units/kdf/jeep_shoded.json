@@ -1,0 +1,49 @@
+{
+  "id": "jeep_shoded",
+  "name": "Shoded Jeep",
+  "faction": "kdf",
+  "role": "apc",
+  "cost": {
+    "logistics": 317,
+    "build_time_s": 12,
+    "population": 1
+  },
+  "hull": {
+    "hp": 520,
+    "armor": {
+      "front": 14,
+      "side": 10,
+      "rear": 10
+    },
+    "crew": 2,
+    "transport_slots": 2,
+    "suppression_resistance": 0.5
+  },
+  "mobility": {
+    "speed_tiles_s": 2.9,
+    "turn_rate_deg_s": 160
+  },
+  "sensors": {
+    "optics": 1.0,
+    "sight_tiles": 10,
+    "signature": 0.75,
+    "firing_signature_mult": 3.5
+  },
+  "weapons": [
+    {
+      "id": "pintle_mg",
+      "type": "hmg",
+      "range_tiles": 8,
+      "effective_range_tiles": 6.4,
+      "accuracy": 0.58,
+      "penetration": 22,
+      "damage": 34,
+      "suppression": 50,
+      "rof_per_min": 340,
+      "can_target": [
+        "ground"
+      ],
+      "collateral_risk": 0.25
+    }
+  ]
+}

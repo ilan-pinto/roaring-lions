@@ -382,8 +382,13 @@ export class DebugOverlay {
     // Special controls: what this unit can do beyond move and shoot.
     const caps: string[] = [];
     if (type.canSmoke) caps.push('<b>f</b> smoke screen');
+    if (this.sim.state.carriedBy[id] >= 0) caps.push('<b>aboard a transport</b> — <b>u</b> to dismount');
     if (type.canGarrison) caps.push('right-click a building to garrison');
     if (type.canDemolish) caps.push('hold beside a building to demolish it');
+    if (type.isKamikaze) caps.push('<span style="color:#E8541E">one-use: dives on what your side has identified</span>');
+    if (type.transportSlots > 0) {
+      caps.push(`carries ${type.transportSlots} — <b>g</b> load · <b>u</b> unload`);
+    }
     if (type.canMarkTarget) caps.push('earns intel while stationary');
     caps.push('<b>shift</b>+right-click to add a waypoint');
     rows.push('<span style="color:#8E9491">capabilities</span>');

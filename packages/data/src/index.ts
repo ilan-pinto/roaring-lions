@@ -19,6 +19,9 @@ import atTeam from '../../../data/units/kdf/at_team.json';
 import mortarTeam from '../../../data/units/kdf/mortar_team.json';
 import reconDrone from '../../../data/units/kdf/recon_drone.json';
 import demoSquad from '../../../data/units/kdf/demo_squad.json';
+import attackDrone from '../../../data/units/kdf/attack_drone.json';
+import sniperTeam from '../../../data/units/kdf/sniper_team.json';
+import jeepShoded from '../../../data/units/kdf/jeep_shoded.json';
 import militiaCell from '../../../data/units/enemy/militia_cell.json';
 import rpgTeam from '../../../data/units/enemy/rpg_team.json';
 import atgmCell from '../../../data/units/enemy/atgm_cell.json';
@@ -64,6 +67,9 @@ export const units = {
   mortar_team: mortarTeam,
   recon_drone: reconDrone,
   demo_squad: demoSquad,
+  attack_drone: attackDrone,
+  sniper_team: sniperTeam,
+  jeep_shoded: jeepShoded,
   militia_cell: militiaCell,
   rpg_team: rpgTeam,
   atgm_cell: atgmCell,

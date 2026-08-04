@@ -80,6 +80,10 @@ import {
   ROUT_SPEED_SHIFT,
   ROUT_DISTANCE,
   SWEEP_ARRIVE_SQ,
+  LOAD_RANGE_SQ,
+  BAILOUT_DAMAGE_FRAC,
+  BAILOUT_SHOCK,
+  KAMIKAZE_STRIKE_SQ,
   SMOKE_MAX,
   SMOKE_DECAY,
   SMOKE_RADIUS,
@@ -135,6 +139,8 @@ export interface UnitTypeJson {
     era?: boolean;
     crew?: number;
     suppression_resistance?: number;
+    /** Seats for infantry. 0 = carries nobody. */
+    transport_slots?: number;
     aps?: {
       base_pk?: number;
       magazine?: number;
@@ -201,6 +207,10 @@ export interface UnitType {
   canGarrison: boolean;
   /** Can bring a building down by holding position beside it. */
   canDemolish: boolean;
+  /** Flies into its target and is spent doing it. */
+  isKamikaze: boolean;
+  /** Seats for infantry. */
+  transportSlots: number;
   /** Trained observer: earns intel while holding position (GDD §3). */
   canMarkTarget: boolean;
   /** Carries smoke: the counterplay to prepared fire. */
@@ -279,6 +289,8 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     role: json.role ?? '',
     canGarrison: abilities.includes('garrison'),
     canDemolish: abilities.includes('demolish'),
+    isKamikaze: abilities.includes('kamikaze'),
+    transportSlots: json.hull.transport_slots ?? 0,
     canMarkTarget: abilities.includes('mark_target'),
     canSmoke: abilities.includes('smoke'),
     hp: fx.from(json.hull.hp),
@@ -315,6 +327,10 @@ export type Command =
   | { kind: 'attackMove'; ids: number[]; x: Fx; y: Fx; append?: boolean }
   | { kind: 'halt'; ids: number[] }
   | { kind: 'garrison'; ids: number[]; structure: number }
+  /** Climb aboard a vehicle with seats. */
+  | { kind: 'load'; ids: number[]; carrier: number }
+  /** Put the passengers down beside the vehicle. */
+  | { kind: 'unload'; ids: number[] }
   /** Bought with intel: reveal everything hostile around a point. */
   | { kind: 'reveal'; side: number; x: Fx; y: Fx }
   /** Bought with intel: a precision strike, attributed to the caller so
@@ -381,6 +397,7 @@ export type SimEvent =
   | { kind: 'structureHit'; tick: number; structure: number; by: number; damage: Fx; hpLeft: Fx }
   | { kind: 'structureDestroyed'; tick: number; structure: number; by: number }
   | { kind: 'garrison'; tick: number; entity: number; structure: number; entered: boolean }
+  | { kind: 'transport'; tick: number; entity: number; carrier: number; loaded: boolean }
   | { kind: 'routed'; tick: number; entity: number }
   | { kind: 'rallied'; tick: number; entity: number }
   | { kind: 'pinned'; tick: number; entity: number }
@@ -477,6 +494,11 @@ export class Sim {
   private readonly wpY: Int32Array;
   private readonly wpAttack: Uint8Array;
   private readonly wpCount: Uint8Array;
+  /** Vehicle this unit is riding in, -1 when on its own feet. */
+  private readonly carriedBy: Int32Array;
+  /** Vehicle this unit has been ordered to board but has not reached. */
+  private readonly boardGoal: Int32Array;
+  private readonly passengers: Uint8Array;
   /** Called-for strikes still in the air. */
   private pendingStrikes: { x: Fx; y: Fx; by: number; readyTick: number }[] = [];
 
@@ -562,6 +584,8 @@ export class Sim {
     readonly garrisonedIn: Int32Array;
     /** Structure the unit is currently shooting at, -1 when none. */
     readonly curStructure: Int32Array;
+    /** Vehicle this unit is riding in, -1 when on foot. */
+    readonly carriedBy: Int32Array;
   };
 
   /** Read-only structure view for the renderer and HUD. */
@@ -629,6 +653,9 @@ export class Sim {
     this.wpY = new Int32Array(n * MAX_WAYPOINTS);
     this.wpAttack = new Uint8Array(n * MAX_WAYPOINTS);
     this.wpCount = new Uint8Array(n);
+    this.carriedBy = new Int32Array(n).fill(-1);
+    this.boardGoal = new Int32Array(n).fill(-1);
+    this.passengers = new Uint8Array(n);
     const sc = MAX_STRUCTURES;
     this.stAlive = new Uint8Array(sc);
     this.stHp = new Int32Array(sc);
@@ -693,6 +720,7 @@ export class Sim {
       routed: this.routed,
       garrisonedIn: this.garrisonedIn,
       curStructure: this.curStructure,
+      carriedBy: this.carriedBy,
     };
     this.structures = {
       alive: this.stAlive,
@@ -810,6 +838,11 @@ export class Sim {
     return [this.goalX[id], this.goalY[id]];
   }
 
+  /** How many infantry are riding in this vehicle. */
+  passengerCount(id: number): number {
+    return this.passengers[id];
+  }
+
   /** How many path points a unit still has queued. */
   waypointCount(id: number): number {
     return this.wpCount[id];
@@ -892,8 +925,10 @@ export class Sim {
     this.stepCombat();
     this.stepProjectiles();
     this.stepStrikes();
+    this.stepKamikaze();
     this.stepSweep();
     this.stepMovement();
+    this.stepTransport();
     this.stepSmoke();
     this.stepGarrison();
     this.stepDemolition();
@@ -944,6 +979,8 @@ export class Sim {
           }
           this.wpCount[id] = 0; // a fresh order replaces the whole path
           if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
+          if (this.carriedBy[id] >= 0) this.disembark(id, false);
+          this.boardGoal[id] = -1;
           this.garrisonGoal[id] = -1;
           this.goalX[id] = gx;
           this.goalY[id] = gy;
@@ -1019,6 +1056,30 @@ export class Sim {
             readyTick: this.tickCount + STRIKE_DELAY_TICKS,
           });
         }
+      } else if (cmd.kind === 'load') {
+        const car = cmd.carrier;
+        if (car < 0 || car >= this.count || this.alive[car] === 0) continue;
+        if (this.unitTypes[this.typeIdx[car]].transportSlots === 0) continue;
+        // Walk to the vehicle; stepTransport puts them aboard on arrival.
+        const gx = this.posX[car];
+        const gy = this.posY[car];
+        const fieldIdx = this.fieldFor(fx.toInt(gx), fx.toInt(gy));
+        for (const id of cmd.ids) {
+          if (this.alive[id] === 0 || this.routed[id] === 1 || id === car) continue;
+          if (this.unitTypes[this.typeIdx[id]].transportSlots > 0) continue; // no vehicle stacking
+          if (this.carriedBy[id] >= 0) continue;
+          if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
+          this.boardGoal[id] = car;
+          this.wpCount[id] = 0;
+          this.goalX[id] = gx;
+          this.goalY[id] = gy;
+          this.fieldRef[id] = fieldIdx;
+          this.moving[id] = 1;
+          this.attackMove[id] = 0;
+          this.stance[id] = 0;
+        }
+      } else if (cmd.kind === 'unload') {
+        for (const id of cmd.ids) this.unloadAll(id);
       } else if (cmd.kind === 'garrison') {
         const s = cmd.structure;
         if (s < 0 || s >= this.structureCount_ || this.stAlive[s] === 0) continue;
@@ -1270,7 +1331,7 @@ export class Sim {
       if (this.alive[t] === 0 || this.side[t] === sSide || this.side[t] > 1) continue;
       // Men inside a building cannot be shot at: the building is in the way,
       // and taking it down is the only way to reach them.
-      if (this.garrisonedIn[t] >= 0) continue;
+      if (this.garrisonedIn[t] >= 0 || this.carriedBy[t] >= 0) continue;
       if (this.contact[sSide * cap + t] < IDENTIFIED_AT) continue;
       const dSq = distSqFx(fx.sub(this.posX[t], px), fx.sub(this.posY[t], py));
       if (dSq > w.rangeSq || dSq < w.minRangeSq) continue;
@@ -1905,10 +1966,23 @@ export class Sim {
     }
   }
 
+  /** Splash from something that detonated in place rather than in flight. */
+  private splashDirect(x: Fx, y: Fx, splash: Fx, dmg: Fx, supp: Fx, by: number, exclude: number): void {
+    const splashSq = fx.mul(splash, splash);
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0 || i === exclude || i === by) continue;
+      const dSq = distSqFx(fx.sub(this.posX[i], x), fx.sub(this.posY[i], y));
+      if (dSq > splashSq) continue;
+      const falloff = fx.sub(ONE, fx.div(fx.sqrt(dSq), splash));
+      if (this.unitTypes[this.typeIdx[i]].isSoft) this.applyDamage(i, fx.mul(dmg, falloff), by);
+      this.applySuppression(i, fx.mul(supp, BOUNCE_SUPP_MULT));
+    }
+  }
+
   private applyDamage(target: number, dmg: Fx, by: number): void {
     if (dmg <= 0 || this.alive[target] === 0) return;
-    // Inside a building, the walls take it. Kill the building first.
-    if (this.garrisonedIn[target] >= 0) return;
+    // Inside a building or a vehicle, the hull takes it. Kill that first.
+    if (this.garrisonedIn[target] >= 0 || this.carriedBy[target] >= 0) return;
     this.hp[target] = fx.sub(this.hp[target], dmg);
     this.lastDamagedTick[target] = this.tickCount;
     if (this.hp[target] <= 0) this.destroy(target, by);
@@ -2016,6 +2090,176 @@ export class Sim {
       structure: s,
       entered: false,
     });
+  }
+
+  /** Put a passenger down beside its vehicle. */
+  private disembark(id: number, shaken: boolean): void {
+    const car = this.carriedBy[id];
+    if (car < 0) return;
+    this.carriedBy[id] = -1;
+    if (this.passengers[car] > 0) this.passengers[car]--;
+    // Step clear of the hull so they do not stack on it.
+    this.posX[id] = this.clampX(fx.add(this.posX[car], HALF));
+    this.posY[id] = this.clampY(fx.add(this.posY[car], HALF));
+    this.moving[id] = 0;
+    this.fieldRef[id] = -1;
+    if (shaken) {
+      const type = this.unitTypes[this.typeIdx[id]];
+      this.applyDamage(id, fx.mul(type.hp, BAILOUT_DAMAGE_FRAC), -1);
+      this.applySuppression(id, BAILOUT_SHOCK, false);
+    }
+    this.pendingEvents.push({
+      kind: 'transport',
+      tick: this.tickCount,
+      entity: id,
+      carrier: car,
+      loaded: false,
+    });
+  }
+
+  /** Everyone out. */
+  private unloadAll(car: number): void {
+    if (this.passengers[car] === 0) return;
+    for (let i = 0; i < this.count; i++) {
+      if (this.carriedBy[i] === car) this.disembark(i, false);
+    }
+  }
+
+  /**
+   * Riding: infantry that reach their vehicle climb in, travel at its speed,
+   * and are untouchable while aboard — the trade is that losing the vehicle
+   * costs the squad too.
+   */
+  private stepTransport(): void {
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0) continue;
+      // Passengers ride with the hull.
+      const car = this.carriedBy[i];
+      if (car >= 0) {
+        if (this.alive[car] === 0) {
+          this.disembark(i, true);
+          continue;
+        }
+        this.posX[i] = this.posX[car];
+        this.posY[i] = this.posY[car];
+        this.facing[i] = this.facing[car];
+        continue;
+      }
+      // Boarding: close enough, and there is a seat.
+      const goal = this.boardGoal[i];
+      if (goal < 0) continue;
+      if (this.alive[goal] === 0) {
+        this.boardGoal[i] = -1;
+        continue;
+      }
+      const slots = this.unitTypes[this.typeIdx[goal]].transportSlots;
+      if (this.passengers[goal] >= slots) continue; // wait for a seat
+      const d = distSqFx(fx.sub(this.posX[goal], this.posX[i]), fx.sub(this.posY[goal], this.posY[i]));
+      if (d > LOAD_RANGE_SQ) {
+        // Keep chasing a vehicle that has moved on.
+        this.goalX[i] = this.posX[goal];
+        this.goalY[i] = this.posY[goal];
+        this.moving[i] = 1;
+        continue;
+      }
+      this.carriedBy[i] = goal;
+      this.boardGoal[i] = -1;
+      this.passengers[goal]++;
+      this.moving[i] = 0;
+      this.fieldRef[i] = -1;
+      this.pendingEvents.push({
+        kind: 'transport',
+        tick: this.tickCount,
+        entity: i,
+        carrier: goal,
+        loaded: true,
+      });
+    }
+  }
+
+  /**
+   * A loitering munition has one shot and is the shot: it closes on whatever
+   * it has identified and detonates on arrival. No hit roll — it is flying
+   * into the target, not shooting at it.
+   */
+  private stepKamikaze(): void {
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0) continue;
+      const type = this.unitTypes[this.typeIdx[i]];
+      if (!type.isKamikaze || type.weapons.length === 0) continue;
+      const w = type.weapons[0];
+      // It picks its own target by sight: a warhead's "range" is the blast,
+      // not how far it can look, so normal weapon-range selection finds
+      // nothing until it is already on top of someone.
+      // Anything its SIDE has identified is fair game, not just what the
+      // munition can see itself: these are cued by recon, which is what makes
+      // the drone-and-strike loop worth paying intel for.
+      const cap = this.capacity;
+      const side = this.side[i];
+      let target = -1;
+      let bestD = 0x7fffffff;
+      for (let t = 0; t < this.count; t++) {
+        if (this.alive[t] === 0 || this.side[t] === side || this.side[t] > 1) continue;
+        if (this.garrisonedIn[t] >= 0 || this.carriedBy[t] >= 0) continue;
+        if (this.contact[side * cap + t] < IDENTIFIED_AT) continue;
+        const d = distSqFx(fx.sub(this.posX[t], this.posX[i]), fx.sub(this.posY[t], this.posY[i]));
+        if (d <= bestD) {
+          bestD = d;
+          target = t;
+        }
+      }
+      this.curTarget[i] = target;
+      if (target < 0) continue;
+
+      const dSq = distSqFx(
+        fx.sub(this.posX[target], this.posX[i]),
+        fx.sub(this.posY[target], this.posY[i])
+      );
+      if (dSq > KAMIKAZE_STRIKE_SQ) {
+        // Run in: it steers itself, no order needed.
+        this.goalX[i] = this.posX[target];
+        this.goalY[i] = this.posY[target];
+        this.fieldRef[i] = this.fieldFor(fx.toInt(this.posX[target]), fx.toInt(this.posY[target]));
+        this.moving[i] = 1;
+        this.attackMove[i] = 1;
+        continue;
+      }
+
+      // Terminal. Hit the target directly, splash the rest, and be gone.
+      const tType = this.unitTypes[this.typeIdx[target]];
+      if (tType.isSoft) {
+        this.applyDamage(target, w.damage, i);
+      } else {
+        const sigma = fx.max(fx.mul(PEN_SIGMA_MULT, w.penetration), SIGMA_MIN);
+        const z = fx.div(fx.sub(w.penetration, tType.armorSide), sigma);
+        const pPen = fx.normCdf(z);
+        const roll = this.rng.nextU32(i) >>> 16;
+        const penetrated = roll < pPen;
+        this.pendingEvents.push({
+          kind: 'impact',
+          tick: this.tickCount,
+          shooter: i,
+          target,
+          weaponId: w.id,
+          arc: 'side',
+          effectiveArmor: tType.armorSide,
+          penetration: w.penetration,
+          pPen,
+          roll,
+          penetrated,
+        });
+        if (penetrated) {
+          this.applyDamage(target, w.damage, i);
+          if (this.alive[target] === 1) this.rollComponent(target, i, z);
+        } else {
+          this.applySuppression(target, fx.mul(w.suppPerMiss, BOUNCE_SUPP_MULT));
+        }
+      }
+      if (w.splash > 0) {
+        this.splashDirect(this.posX[target], this.posY[target], w.splash, w.damage, w.suppPerMiss, i, target);
+      }
+      this.destroy(i, target);
+    }
   }
 
   private stepGarrison(): void {
@@ -2134,6 +2378,12 @@ export class Sim {
   }
 
   private destroy(target: number, by: number): void {
+    // Anyone riding in it comes out now, hurt and shaken.
+    if (this.passengers[target] > 0) {
+      for (let i = 0; i < this.count; i++) {
+        if (this.carriedBy[i] === target && this.alive[i] === 1) this.disembark(i, true);
+      }
+    }
     this.alive[target] = 0;
     for (let s = 0; s < 2; s++) this.lastSeenValid[s * this.capacity + target] = 0;
     this.hp[target] = 0;
@@ -2399,6 +2649,9 @@ export class Sim {
     h = hashArray(h, this.wpY);
     h = hashArray(h, this.wpAttack);
     h = hashArray(h, this.wpCount);
+    h = hashArray(h, this.carriedBy);
+    h = hashArray(h, this.boardGoal);
+    h = hashArray(h, this.passengers);
     h = hashArray(h, this.alive);
     h = hashArray(h, this.side);
     h = hashArray(h, this.typeIdx);

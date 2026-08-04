@@ -640,6 +640,27 @@ async function main(): Promise<void> {
       }
     }
     if (ev.key === 'o') overlay.toggle();
+    // Mount up / dismount: the selection sorts itself into riders and rides.
+    if (ev.key === 'g') {
+      const mine = renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
+      const carrier = mine.find((i) => sim.unitTypes[sim.state.typeIdx[i]].transportSlots > 0);
+      const riders = mine.filter((i) => sim.unitTypes[sim.state.typeIdx[i]].transportSlots === 0);
+      if (carrier !== undefined && riders.length > 0) {
+        sim.queueCommand({ kind: 'load', ids: riders, carrier });
+        overlay.note('<b>mount up</b> — infantry boarding', '#A9C4D1');
+      } else {
+        overlay.note('select a transport and the infantry to load', '#B8A182');
+      }
+    }
+    if (ev.key === 'u') {
+      const carriers = renderer.selection.filter(
+        (i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1 && sim.passengerCount(i) > 0
+      );
+      if (carriers.length > 0) {
+        sim.queueCommand({ kind: 'unload', ids: carriers });
+        overlay.note('<b>dismount</b> — infantry debussing', '#A9C4D1');
+      }
+    }
     if (ev.key === 'f') {
       // Screen the ground ahead: laid where the cursor is, by whoever in the
       // selection carries smoke and is off cooldown.
