@@ -1,10 +1,35 @@
 """
-Render infantry soldier sprites from the BlendSwap Human Male Soldier model.
-Credit: contmike (CC-BY 3.0, BlendSwap #40767)
+Render infantry soldier sprites from the KolosStudios soldier FBX.
 
-Renders 16 facings × 5 frames (1 idle + 4 walk cycle) = 80 PNGs.
-Walk cycle is posed programmatically via the FK bone chain.
-Output PNGs are re-encoded through Pillow to strip Blender metadata.
+Credit: KolosStudios ("Soldier"). LICENCE UNVERIFIED — the source archive
+shipped no licence or attribution file. CONTRIBUTING.md requires assets in
+this repository to permit redistribution; confirm the terms and record them
+here and in the manifest `credit` field before this is published.
+
+Renders 16 facings x 5 clips:
+
+    idle   1 frame   the model's authored Standing pose
+    move   4 frames  leg swing layered over Standing, so the rifle stays up
+    fire   1 frame   the model's authored Standing_Aim pose
+    down   1 frame   deep crouch -- gone to ground under suppression
+    wreck  1 frame   fallen, the persistent battlefield casualty
+
+Output uses the clip layout the manifest parser expects:
+
+    assets/sprites/INF/<clip>_f<facing>_<frame>.png
+
+`down` is a crouch rather than full prone deliberately: from dimetric a prone
+figure collapses into an unreadable blob, whereas the crouch keeps a
+silhouette measuring IoU 0.59 against idle at gameplay zoom.
+
+The rig carries no constraints — the FBX export baked its IK out — so pose
+bones are set directly, with none of the constraint muting the previous
+BlendSwap rig required.
+
+Cycles output is not on-palette, so `pnpm validate:assets` will reject these
+frames as rendered. Quantize before running the gate:
+
+    python3 tools/quantize_sprites.py --sprites assets/sprites
 """
 
 import bpy
@@ -12,38 +37,64 @@ import math
 import os
 import json
 import sys
+from mathutils import Vector, Quaternion
 
-BLEND = os.path.abspath("art/src/human_male_soldier.blend")
+FBX = os.path.abspath("art/src/soldier_kolos.fbx")
 OUT = os.path.abspath("assets/sprites/INF")
 SIZE = 256
 FACINGS = 16
-FRAMES = 5  # frame 0 = idle, frames 1-4 = walk cycle
+DIMETRIC_ELEVATION = math.atan(0.5)
+
 # Sheet conventions, reported to the renderer through the manifest.
 FACING_OFFSET = 5  # sprite index that looks along world +x
 FACING_REVERSE = True  # this loop rotates opposite to world bearing
 DRAW_SCALE = 1.0  # sprite width in tile widths
-DIMETRIC_ELEVATION = math.atan(0.5)
 
-KEEP_PARENTS = {"Man_rig", "Gun_armature"}
-SKIP_MESHES = {"floor", "switch", "switch.panel", "Plane", "Plane.001", "Plane.002"}
+X = (1.0, 0.0, 0.0)
+Z = (0.0, 0.0, 1.0)
 
-# Walk cycle rotations (degrees) applied directly to deformation bones.
-# The rig defaults to IK mode (FK influence=0), so we pose the deformation
-# bones directly and mute all constraints for the walk frames.
+# Walk cycle, layered on top of the authored Standing pose. Only the legs
+# swing: a soldier on the move keeps the weapon shouldered rather than
+# swinging both arms, and holding the rifle silhouette across the cycle is
+# what keeps foot troops identifiable while they are moving.
 WALK_POSES = [
-    # Frame 1: right leg forward contact
-    {"thigh.R": 25, "thigh.L": -15, "shin.R": -10, "shin.L": -30,
-     "upper_arm.L": 20, "upper_arm.R": -15},
-    # Frame 2: passing (both legs under body)
-    {"thigh.R": 5, "thigh.L": 5, "shin.R": -20, "shin.L": -20,
-     "upper_arm.L": 5, "upper_arm.R": 5},
-    # Frame 3: left leg forward contact (mirror of 1)
-    {"thigh.R": -15, "thigh.L": 25, "shin.R": -30, "shin.L": -10,
-     "upper_arm.L": -15, "upper_arm.R": 20},
-    # Frame 4: passing mirrored
-    {"thigh.R": 5, "thigh.L": 5, "shin.R": -20, "shin.L": -20,
-     "upper_arm.L": -5, "upper_arm.R": -5},
+    # Right leg forward contact
+    {"upleg.R": (X, 26), "upleg.L": (X, -16), "leg.R": (X, -12), "leg.L": (X, -30)},
+    # Passing
+    {"upleg.R": (X, 6), "upleg.L": (X, 6), "leg.R": (X, -22), "leg.L": (X, -22)},
+    # Left leg forward contact
+    {"upleg.R": (X, -16), "upleg.L": (X, 26), "leg.R": (X, -30), "leg.L": (X, -12)},
+    # Passing, mirrored
+    {"upleg.R": (X, 6), "upleg.L": (X, 6), "leg.R": (X, -22), "leg.L": (X, -22)},
 ]
+
+DOWN_POSE = {
+    "upleg.R": (X, 62), "upleg.L": (X, 62),
+    "leg.R": (X, -95), "leg.L": (X, -95),
+    "spine": (X, 22), "chest": (X, 12), "head": (X, -14),
+}
+
+WRECK_POSE = {
+    "hips": (X, -78),
+    "upleg.R": (X, 34), "upleg.L": (X, 12),
+    "leg.R": (X, -28), "leg.L": (X, -46),
+    "spine": (X, 14), "arm.R": (Z, 32), "arm.L": (Z, -28),
+}
+
+# clip -> (which authored pose it builds on, one delta per frame)
+CLIPS = {
+    "idle": ("standing", [None]),
+    "move": ("standing", WALK_POSES),
+    "fire": ("aim", [None]),
+    "down": ("standing", [DOWN_POSE]),
+    "wreck": ("standing", [WRECK_POSE]),
+}
+
+# Playback metadata. `move` is paced by measured ground speed at runtime so
+# its fps is advisory; `fire` runs on its own clock and its latch expires
+# after frames / fps.
+CLIP_FPS = {"idle": 0, "move": 10, "fire": 12, "down": 0, "wreck": 0}
+CLIP_LOOP = {"move": True}
 
 
 def reencode_png(path):
@@ -56,23 +107,35 @@ def reencode_png(path):
         sys.stderr.write("WARNING: Pillow not available, skipping re-encode\n")
 
 
-def setup_scene_and_render(armature_obj):
-    """Set up camera, lights, materials and render all facings × frames."""
-    from mathutils import Vector, Euler
+def capture_pose(arm, action_suffix):
+    """Read an authored action's frame-1 pose into a plain dict."""
+    act = next(a for a in bpy.data.actions if a.name.endswith(action_suffix))
+    arm.animation_data.action = act
+    slots = getattr(act, "slots", None)
+    if slots:
+        arm.animation_data.action_slot = slots[0]
+    bpy.context.scene.frame_set(1)
+    bpy.context.view_layer.update()
+    return {pb.name: (pb.rotation_quaternion.copy(), pb.location.copy()) for pb in arm.pose.bones}
 
-    # Gather all mesh objects parented under our kept parents.
-    meshes = []
-    for obj in bpy.data.objects:
-        if obj.type != "MESH":
-            continue
-        if obj.name in SKIP_MESHES:
-            continue
-        parent_name = obj.parent.name if obj.parent else None
-        if parent_name not in KEEP_PARENTS:
-            continue
-        meshes.append(obj)
 
-    # Military olive-green material.
+def apply_pose(arm, base, deltas=None):
+    """Restore a captured pose, then rotate named bones on top of it."""
+    for pb in arm.pose.bones:
+        q, loc = base[pb.name]
+        pb.rotation_quaternion = q.copy()
+        pb.location = loc.copy()
+    for bone, (axis, deg) in (deltas or {}).items():
+        pb = arm.pose.bones.get(bone)
+        if pb is None:
+            sys.stderr.write(f"WARNING: rig has no bone {bone!r}\n")
+            continue
+        pb.rotation_quaternion = pb.rotation_quaternion @ Quaternion(axis, math.radians(deg))
+    bpy.context.view_layer.update()
+
+
+def build_material(meshes):
+    """Flat olive, matching the rest of the roster."""
     mat = bpy.data.materials.new("SoldierOlive")
     mat.use_nodes = True
     mat.node_tree.nodes.clear()
@@ -80,42 +143,14 @@ def setup_scene_and_render(armature_obj):
     bsdf.inputs["Base Color"].default_value = (0.28, 0.30, 0.20, 1.0)
     bsdf.inputs["Roughness"].default_value = 0.85
     bsdf.inputs["Metallic"].default_value = 0.05
-    out_node = mat.node_tree.nodes.new("ShaderNodeOutputMaterial")
-    mat.node_tree.links.new(bsdf.outputs["BSDF"], out_node.inputs["Surface"])
+    out = mat.node_tree.nodes.new("ShaderNodeOutputMaterial")
+    mat.node_tree.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+    for o in meshes:
+        o.data.materials.clear()
+        o.data.materials.append(mat)
 
-    all_pts = []
-    for obj in meshes:
-        obj.data.materials.clear()
-        obj.data.materials.append(mat)
-        depsgraph = bpy.context.evaluated_depsgraph_get()
-        eval_obj = obj.evaluated_get(depsgraph)
-        eval_mesh = eval_obj.to_mesh()
-        for v in eval_mesh.vertices:
-            all_pts.append(eval_obj.matrix_world @ v.co)
-        eval_obj.to_mesh_clear()
 
-    if not all_pts:
-        sys.stderr.write("ERROR: No vertices found\n")
-        return
-
-    xs = sorted(p.x for p in all_pts)
-    ys = sorted(p.y for p in all_pts)
-    zs = sorted(p.z for p in all_pts)
-    mid = len(all_pts) // 2
-    center = Vector((xs[mid], ys[mid], zs[mid]))
-    dists = sorted((p - center).length for p in all_pts)
-    radius = max(dists[int(len(dists) * 0.95)], 0.001)
-    print(f"Bounds: center={center}, radius={radius:.1f} ({len(all_pts)} verts)")
-
-    # Create a pivot empty for rotation (facings).
-    pivot = bpy.data.objects.new("PIVOT", None)
-    pivot.location = center
-    bpy.context.collection.objects.link(pivot)
-
-    # Parent the armature (and everything under it) to the pivot.
-    armature_obj.parent = pivot
-    armature_obj.matrix_parent_inverse = pivot.matrix_world.inverted()
-
+def setup_render():
     sc = bpy.context.scene
     sc.render.engine = "CYCLES"
     sc.cycles.samples = 64
@@ -149,13 +184,57 @@ def setup_scene_and_render(armature_obj):
     fill = bpy.data.objects.new("FILL", fill_data)
     bpy.context.collection.objects.link(fill)
     fill.rotation_euler = (math.radians(35), 0, math.radians(135) + math.pi)
+    return sc
+
+
+def main():
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    # ignore_leaf_bones=False matters: with leaf bones stripped the importer
+    # silently drops both authored actions and the poses come back empty.
+    bpy.ops.import_scene.fbx(filepath=FBX, use_anim=True, ignore_leaf_bones=False)
+
+    arm = bpy.data.objects["Armature"]
+    meshes = [o for o in bpy.data.objects if o.type == "MESH"]
+    bases = {
+        "standing": capture_pose(arm, "Standing"),
+        "aim": capture_pose(arm, "Standing_Aim"),
+    }
+    arm.animation_data.action = None
+
+    build_material(meshes)
+    sc = setup_render()
+
+    # Frame once, on the idle pose, so every clip shares identical framing —
+    # a clip that reframes itself makes the unit jump when the clip changes.
+    apply_pose(arm, bases["standing"])
+    pts = []
+    dg = bpy.context.evaluated_depsgraph_get()
+    for o in meshes:
+        eo = o.evaluated_get(dg)
+        m = eo.to_mesh()
+        for v in m.vertices:
+            pts.append(eo.matrix_world @ v.co)
+        eo.to_mesh_clear()
+    xs = sorted(p.x for p in pts)
+    ys = sorted(p.y for p in pts)
+    zs = sorted(p.z for p in pts)
+    mid = len(pts) // 2
+    center = Vector((xs[mid], ys[mid], zs[mid]))
+    dists = sorted((p - center).length for p in pts)
+    radius = max(dists[int(len(dists) * 0.95)], 0.001)
+    print(f"Bounds: center={center}, radius={radius:.1f} ({len(pts)} verts)")
+
+    pivot = bpy.data.objects.new("PIVOT", None)
+    pivot.location = center
+    bpy.context.collection.objects.link(pivot)
+    arm.parent = pivot
+    arm.matrix_parent_inverse = pivot.matrix_world.inverted()
 
     cam_data = bpy.data.cameras.new("CAM")
     cam_data.type = "ORTHO"
     cam = bpy.data.objects.new("CAM", cam_data)
     bpy.context.collection.objects.link(cam)
     sc.camera = cam
-
     az = math.radians(225)
     dist = radius * 6
     horiz = math.cos(DIMETRIC_ELEVATION) * dist
@@ -165,7 +244,7 @@ def setup_scene_and_render(armature_obj):
         center.z + math.sin(DIMETRIC_ELEVATION) * dist,
     )
     cam.rotation_euler = (math.pi / 2 - DIMETRIC_ELEVATION, 0, az + math.pi / 2)
-    cam.data.ortho_scale = radius * 2.0 * 1.15
+    cam_data.ortho_scale = radius * 2.0 * 1.15
 
     os.makedirs(OUT, exist_ok=True)
     step = 2.0 * math.pi / FACINGS
@@ -173,89 +252,42 @@ def setup_scene_and_render(armature_obj):
 
     manifest = {
         "unit": "infantry_soldier",
+        "credit": "KolosStudios - Soldier. LICENCE UNVERIFIED, see tools/render_soldier.py",
         "facings": FACINGS,
         "size": SIZE,
-        "frames": FRAMES,
-        # The renderer reads its facing convention and draw scale from here
-        # rather than having them hand-measured off the images in app code.
-        # This loop advances rotation_euler.z the opposite way to world
-        # bearing, and starts with facing 5 looking east.
         "facingOffset": FACING_OFFSET,
         "facingReverse": FACING_REVERSE,
         "scale": DRAW_SCALE,
+        "clips": {
+            name: {
+                "frames": len(frames),
+                "fps": CLIP_FPS[name],
+                "loop": CLIP_LOOP.get(name, False),
+            }
+            for name, (_, frames) in CLIPS.items()
+        },
         "files": [],
     }
 
+    total = 0
     for f in range(FACINGS):
         pivot.rotation_euler.z = base_z + f * step
-        for n in range(FRAMES):
-            # Pose the armature for this frame.
-            if n == 0:
-                reset_pose(armature_obj)
-            else:
-                apply_walk_pose(armature_obj, WALK_POSES[n - 1])
-
-            bpy.context.view_layer.update()
-            name = f"f{f:02d}_{n:03d}.png"
-            filepath = os.path.join(OUT, name)
-            sc.render.filepath = filepath
-            bpy.ops.render.render(write_still=True)
-            reencode_png(filepath)
-            manifest["files"].append({"facing": f, "frame": n, "file": name})
-            print(f"Rendered {name}")
+        for clip, (base_key, frames) in CLIPS.items():
+            for n, delta in enumerate(frames):
+                apply_pose(arm, bases[base_key], delta)
+                name = f"{clip}_f{f:02d}_{n:03d}.png"
+                filepath = os.path.join(OUT, name)
+                sc.render.filepath = filepath
+                bpy.ops.render.render(write_still=True)
+                reencode_png(filepath)
+                manifest["files"].append({"clip": clip, "facing": f, "frame": n, "file": name})
+                total += 1
+                print(f"Rendered {name}")
 
     with open(os.path.join(OUT, "manifest.json"), "w") as fh:
         json.dump(manifest, fh, indent=2)
-    print(f"DONE {FACINGS * FRAMES} frames -> {OUT}")
+        fh.write("\n")
+    print(f"DONE {total} frames -> {OUT}")
 
 
-def reset_pose(armature_obj):
-    """Reset all pose bones to rest position and unmute constraints."""
-    from mathutils import Quaternion
-    for pb in armature_obj.pose.bones:
-        pb.rotation_quaternion = Quaternion()
-        pb.rotation_euler = (0, 0, 0)
-        pb.location = (0, 0, 0)
-        for c in pb.constraints:
-            c.mute = False
-
-
-def apply_walk_pose(armature_obj, pose_dict):
-    """Mute IK/FK copy-rotation constraints on target bones, then pose directly."""
-    reset_pose(armature_obj)
-    for bone_name, angle_deg in pose_dict.items():
-        pb = armature_obj.pose.bones.get(bone_name)
-        if pb is None:
-            sys.stderr.write(f"WARNING: bone '{bone_name}' not found\n")
-            continue
-        for c in pb.constraints:
-            c.mute = True
-        pb.rotation_mode = "XYZ"
-        pb.rotation_euler.x = math.radians(angle_deg)
-
-
-def main():
-    bpy.ops.wm.open_mainfile(filepath=BLEND)
-
-    # Find the Man_rig armature.
-    armature_obj = None
-    for obj in bpy.data.objects:
-        if obj.type == "ARMATURE" and obj.name == "Man_rig":
-            armature_obj = obj
-            break
-
-    if armature_obj is None:
-        sys.stderr.write("ERROR: Man_rig armature not found\n")
-        sys.exit(1)
-
-    print(f"Found armature: {armature_obj.name} with {len(armature_obj.data.bones)} bones")
-
-    # Switch armature to pose mode so we can manipulate bones.
-    bpy.context.view_layer.objects.active = armature_obj
-    bpy.ops.object.mode_set(mode="POSE")
-
-    setup_scene_and_render(armature_obj)
-
-
-if __name__ == "__main__":
-    main()
+main()

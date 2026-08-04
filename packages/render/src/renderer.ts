@@ -5,8 +5,9 @@
 
 import { Application, Assets, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import { fx, type Sim, type SimEvent } from '@lions/sim';
-import { SIM_HZ, advancePhase, phaseOffset, walkFps, walkFrameIndex } from './anim';
+import { SIM_HZ, advancePhase, phaseOffset, walkFps } from './anim';
 import { clipOrFallback, frameFileName, parseManifest, type ClipName, type SheetSpec } from './sheet';
+import { cadenceScale, resolveClip, type UnitAnimInput } from './clip';
 
 export interface RendererOptions {
   background: string;
@@ -113,6 +114,9 @@ export class PixiRenderer {
   private entitySpeed: Float64Array;
   /** Whether an entity's phase has been given its de-sync offset yet. */
   private animSeeded: Uint8Array;
+  /** Seconds left on the one-shot fire clip. Latched by the `fire` event and
+   *  drained each frame; the sheet's own frames/fps sets how long it holds. */
+  private firingTimer: Float64Array;
   /** Per-entity turret facing (renderer-only, 0–1 normalized). */
   private turretFacing: Float64Array;
 
@@ -150,6 +154,7 @@ export class PixiRenderer {
     this.entityAnimFrame = new Float64Array(n);
     this.entitySpeed = new Float64Array(n);
     this.animSeeded = new Uint8Array(n);
+    this.firingTimer = new Float64Array(n);
     this.turretFacing = new Float64Array(n);
   }
 
@@ -265,6 +270,12 @@ export class PixiRenderer {
           side: this.sim.state.side[e.shooter],
         });
         const type = this.sim.unitTypes[this.sim.state.typeIdx[e.shooter]];
+        // Latch the fire clip for its own declared duration, so a sheet
+        // controls how long its muzzle pose holds rather than the renderer.
+        const fireClip = this.spriteAtlas.get(type.id)?.sheet.clips.fire;
+        if (fireClip && fireClip.fps > 0) {
+          this.firingTimer[e.shooter] = fireClip.frames / fireClip.fps;
+        }
         const usesTurret = !type.isSoft && this.turretFacing.length > e.shooter;
         const facingRad = usesTurret
           ? this.turretFacing[e.shooter] * Math.PI * 2
@@ -548,6 +559,10 @@ export class PixiRenderer {
   frame(alpha: number): void {
     const dtSeconds = Math.min(this.app.ticker.deltaMS, 100) / 1000;
     this.frameN++;
+    // Drain the one-shot fire latches before anything reads them.
+    for (let i = 0; i < this.sim.entityCount; i++) {
+      if (this.firingTimer[i] > 0) this.firingTimer[i] = Math.max(0, this.firingTimer[i] - dtSeconds);
+    }
     const cx = this.app.renderer.width / 2;
     const cy = this.app.renderer.height / 2;
     this.world.scale.set(this.camera.zoom);
@@ -601,24 +616,37 @@ export class PixiRenderer {
       if (atlas) {
         const sheet = atlas.sheet;
         const idle = atlas.textures.idle as Texture[][];
-        // Locomotion is paced by ground covered, so feet track the terrain at
-        // any speed and playback does not depend on display refresh rate.
-        // A sheet with no move clip (the tank hull) simply stands still.
-        const walking = this.entitySpeed[i] > 0 && clipOrFallback(sheet, 'move') === 'move';
+        // Posture is a read of sim state (GDD 5.8): pinned units go to ground,
+        // broken ones run, and a sheet lacking a clip falls back to idle so
+        // un-reauthored units keep working.
+        const anim: UnitAnimInput = {
+          alive: st.alive[i],
+          routed: st.routed[i],
+          pinned: st.pinned[i],
+          speed: this.entitySpeed[i],
+          firing: this.firingTimer[i] > 0,
+        };
+        const clip = clipOrFallback(sheet, resolveClip(anim));
+        const spec = sheet.clips[clip];
+        const nFrames = spec?.frames ?? 1;
+        const clipTex = (atlas.textures[clip] ?? idle) as Texture[][];
+
         let frame = 0;
-        let clipTex = idle;
-        if (walking) {
-          const walkFrames = sheet.clips.move?.frames ?? 0;
+        if (nFrames > 1) {
           if (this.animSeeded[i] === 0) {
-            this.entityAnimFrame[i] = phaseOffset(i, walkFrames);
+            this.entityAnimFrame[i] = phaseOffset(i, nFrames);
             this.animSeeded[i] = 1;
           }
-          const fps = walkFps(this.entitySpeed[i], walkFrames);
-          this.entityAnimFrame[i] = advancePhase(this.entityAnimFrame[i], fps, dtSeconds, walkFrames);
-          // Legacy sheets number the walk cycle from 1; the clip's own frames
-          // are 0-based, so drop back to a plain cycle index here.
-          frame = walkFrameIndex(this.entityAnimFrame[i], walkFrames) - 1;
-          clipTex = atlas.textures.move as Texture[][];
+          // Locomotion is paced by ground covered, so feet track the terrain
+          // at any speed. Other multi-frame clips run on their own declared
+          // rate. Either way the advance is by elapsed time, never by frame
+          // count, so playback is independent of display refresh rate.
+          const fps =
+            clip === 'move'
+              ? walkFps(this.entitySpeed[i], nFrames) * cadenceScale(anim)
+              : spec?.fps ?? 0;
+          this.entityAnimFrame[i] = advancePhase(this.entityAnimFrame[i], fps, dtSeconds, nFrames);
+          frame = Math.min(nFrames - 1, Math.floor(this.entityAnimFrame[i]));
         }
         // Sprite-based rendering.
         while (this.entitySprites.length <= i) this.entitySprites.push(null);

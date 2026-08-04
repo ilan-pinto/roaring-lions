@@ -60,14 +60,3 @@ export function advancePhase(
   const wrapped = next % walkFrames;
   return wrapped < 0 ? wrapped + walkFrames : wrapped;
 }
-
-/**
- * Phase → sheet frame index.
- *
- * Frame 0 is reserved for idle, so the walk cycle occupies 1..walkFrames.
- */
-export function walkFrameIndex(phase: number, walkFrames: number): number {
-  if (walkFrames <= 0) return 0;
-  const i = Math.floor(phase) % walkFrames;
-  return 1 + (i < 0 ? i + walkFrames : i);
-}

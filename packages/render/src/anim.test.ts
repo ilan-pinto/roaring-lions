@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { advancePhase, phaseOffset, SIM_HZ, STRIDE_TILES, walkFps, walkFrameIndex } from './anim';
+import { advancePhase, phaseOffset, SIM_HZ, STRIDE_TILES, walkFps } from './anim';
 
 describe('walkFps', () => {
   it('paces the gait so one cycle covers STRIDE_TILES of ground', () => {
@@ -94,27 +94,6 @@ describe('advancePhase', () => {
     const p = advancePhase(0, 8, 3.7, 4);
     expect(Number.isFinite(p)).toBe(true);
     expect(p).toBeLessThan(4);
-  });
-});
-
-describe('walkFrameIndex', () => {
-  it('never returns the idle frame, which is reserved as frame 0', () => {
-    for (const phase of [0, 0.9, 1.5, 3.99, 2.0]) {
-      const f = walkFrameIndex(phase, 4);
-      expect(f).toBeGreaterThanOrEqual(1);
-      expect(f).toBeLessThanOrEqual(4);
-    }
-  });
-
-  it('steps through the cycle in order', () => {
-    expect(walkFrameIndex(0, 4)).toBe(1);
-    expect(walkFrameIndex(1, 4)).toBe(2);
-    expect(walkFrameIndex(2, 4)).toBe(3);
-    expect(walkFrameIndex(3, 4)).toBe(4);
-  });
-
-  it('falls back to the idle frame when a sheet has no walk frames', () => {
-    expect(walkFrameIndex(1.2, 0)).toBe(0);
   });
 });
 
