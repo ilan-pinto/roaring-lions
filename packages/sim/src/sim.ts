@@ -79,6 +79,7 @@ import {
   ROUT_AFTER_TICKS,
   ROUT_SPEED_SHIFT,
   ROUT_DISTANCE,
+  SWEEP_ARRIVE_SQ,
   REGEN_DELAY_TICKS,
   REGEN_FRAC,
   REGEN_CAP,
@@ -464,6 +465,12 @@ export class Sim {
   private readonly contact: Int32Array;
   private readonly contactState: Uint8Array;
   private readonly seenThisTick: Uint8Array;
+  /** Per (side, target): where that enemy was last actually observed, and
+   *  whether that memory is still worth walking to. Troops do not forget a
+   *  position the moment they lose sight of it. */
+  private readonly lastSeenX: Int32Array;
+  private readonly lastSeenY: Int32Array;
+  private readonly lastSeenValid: Uint8Array;
 
   // --- projectile SoA (ring) ---
   private readonly prActive: Uint8Array;
@@ -593,6 +600,9 @@ export class Sim {
     this.contact = new Int32Array(2 * n);
     this.contactState = new Uint8Array(2 * n);
     this.seenThisTick = new Uint8Array(2 * n);
+    this.lastSeenX = new Int32Array(2 * n);
+    this.lastSeenY = new Int32Array(2 * n);
+    this.lastSeenValid = new Uint8Array(2 * n);
 
     this.prActive = new Uint8Array(PROJ_CAP);
     this.prShooter = new Int32Array(PROJ_CAP);
@@ -781,6 +791,12 @@ export class Sim {
     this.ambushRadiusSq[id] = fx.mul(tiles, tiles);
   }
 
+  /** Dev/test hook: place a unit somewhere directly (sandbox tooling). */
+  teleport(id: number, x: Fx, y: Fx): void {
+    this.posX[id] = x;
+    this.posY[id] = y;
+  }
+
   /** Dev/test hook: remove a unit as if destroyed (sandbox tooling). */
   debugKill(id: number): void {
     if (this.alive[id] === 1) this.destroy(id, -1);
@@ -792,6 +808,7 @@ export class Sim {
     this.stepDetection();
     this.stepCombat();
     this.stepProjectiles();
+    this.stepSweep();
     this.stepMovement();
     this.stepGarrison();
     this.stepDemolition();
@@ -998,6 +1015,9 @@ export class Sim {
         if (!d.visible) continue;
         const k = oSide * cap + tgt;
         this.seenThisTick[k] = 1;
+        this.lastSeenX[k] = this.posX[tgt];
+        this.lastSeenY[k] = this.posY[tgt];
+        this.lastSeenValid[k] = 1;
         const c = this.contact[k];
         this.contact[k] = fx.add(c, fx.mul(fx.sub(ONE, c), d.p));
       }
@@ -1867,11 +1887,74 @@ export class Sim {
 
   private destroy(target: number, by: number): void {
     this.alive[target] = 0;
+    for (let s = 0; s < 2; s++) this.lastSeenValid[s * this.capacity + target] = 0;
     this.hp[target] = 0;
     this.moving[target] = 0;
     this.engaging[target] = 0;
     this.fieldRef[target] = -1;
     this.pendingEvents.push({ kind: 'destroyed', tick: this.tickCount, entity: target, by });
+  }
+
+  /**
+   * Attack-move without a contact: advance on the last place an enemy was
+   * seen rather than standing still. Without this a single hidden defender
+   * ends the fight in a staring contest that runs out the mission clock —
+   * both sides alive, neither able to find the other.
+   *
+   * A position that has been reached and searched is forgotten, so a unit
+   * works through what it knows and then stops, instead of pacing between
+   * stale memories forever.
+   */
+  private stepSweep(): void {
+    const cap = this.capacity;
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0 || this.attackMove[i] === 0) continue;
+      if (this.moving[i] === 1) continue; // already going somewhere
+      if (this.garrisonedIn[i] >= 0 || this.routed[i] === 1 || this.pinned[i] === 1) continue;
+      if (this.curTarget[i] >= 0) continue; // busy shooting something
+      const side = this.side[i];
+
+      // Anything we are standing on has been searched.
+      for (let t = 0; t < this.count; t++) {
+        const k = side * cap + t;
+        if (this.lastSeenValid[k] === 0) continue;
+        const d = distSqFx(
+          fx.sub(this.lastSeenX[k], this.posX[i]),
+          fx.sub(this.lastSeenY[k], this.posY[i])
+        );
+        if (d <= SWEEP_ARRIVE_SQ) this.lastSeenValid[k] = 0;
+      }
+
+      // Then walk to the nearest position still worth checking.
+      let best = -1;
+      let bestD = 0x7fffffff;
+      for (let t = 0; t < this.count; t++) {
+        const k = side * cap + t;
+        if (this.lastSeenValid[k] === 0) continue;
+        if (this.alive[t] === 0 || this.side[t] === side || this.side[t] > 1) {
+          this.lastSeenValid[k] = 0;
+          continue;
+        }
+        // Currently identified enemies are the combat step's problem.
+        if (this.contactState[k] === 2) continue;
+        const d = distSqFx(
+          fx.sub(this.lastSeenX[k], this.posX[i]),
+          fx.sub(this.lastSeenY[k], this.posY[i])
+        );
+        if (d < bestD) {
+          bestD = d;
+          best = k;
+        }
+      }
+      if (best < 0) continue;
+
+      const gx = this.lastSeenX[best];
+      const gy = this.lastSeenY[best];
+      this.goalX[i] = gx;
+      this.goalY[i] = gy;
+      this.fieldRef[i] = this.fieldFor(fx.toInt(gx), fx.toInt(gy));
+      this.moving[i] = 1;
+    }
   }
 
   // ----------------------------------------------------------------- movement
@@ -2063,6 +2146,9 @@ export class Sim {
     h = hashArray(h, this.apsLastTick);
     h = hashArray(h, this.contact);
     h = hashArray(h, this.contactState);
+    h = hashArray(h, this.lastSeenX);
+    h = hashArray(h, this.lastSeenY);
+    h = hashArray(h, this.lastSeenValid);
     h = hashArray(h, this.prActive);
     h = hashArray(h, this.prShooter);
     h = hashArray(h, this.prTarget);

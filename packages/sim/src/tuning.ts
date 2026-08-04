@@ -41,7 +41,12 @@ export const FALLOFF_SCALE = new Int32Array([
   65536, // demolition
 ]);
 /** Hit-chance cover modifiers by cover level 0-3 (GDD: 0.2 … 1.0). */
-export const COVER_HIT = new Int32Array([65536, 39322, 16384, 13107]); // 1, .6, .25, .2
+/** Hit-chance cover modifiers by cover level 0-3 (GDD: 0.2 … 1.0).
+ *  Retuned when attack-move learned to sweep: the old numbers passed 3:1
+ *  partly because stalled attackers ran out the mission clock, so part of
+ *  the defensive advantage was an artefact rather than the model. With
+ *  attackers pressing properly, cover has to carry it. */
+export const COVER_HIT = new Int32Array([65536, 24576, 9011, 5898]); // 1, .375, .1375, .09
 export const TARGET_MOTION_MOD = 45875; // 0.7
 export const MOVING_STANCE_MOD = 36045; // 0.55
 /** k in accuracy_mult = 1 / (1 + k * S). */
@@ -81,7 +86,9 @@ export const SUPP_CAP = 131072; // 2.0
 export const NEAR_MISS_RADIUS_SQ = 94372; // 1.2 tiles squared
 /** Incoming-suppression multiplier by cover level: entrenched troops keep
  *  their nerve. This is the asymmetry that makes clearing cost 3:1. */
-export const COVER_SUPP = new Int32Array([65536, 42598, 16384, 13107]); // 1, .65, .25, .2
+/** Incoming-suppression multiplier by cover level: entrenched troops keep
+ *  their nerve. This is the asymmetry that makes clearing cost 3:1. */
+export const COVER_SUPP = new Int32Array([65536, 31130, 9011, 5898]); // 1, .475, .1375, .09
 /** Suppression multiplier for fire that cannot hurt the target at all —
  *  rifle rounds cracking off an MBT. Noise, not a threat. */
 export const HARMLESS_SUPP = 6554; // 0.1
@@ -143,6 +150,10 @@ export const ROUT_AFTER_TICKS = 200;
 /** Routed units flee at half speed, this far from the nearest known threat. */
 export const ROUT_SPEED_SHIFT = 1;
 export const ROUT_DISTANCE = 393216; // 6 tiles
+
+// --- sweeping (attack-move without a contact) -------------------------------
+/** A swept position counts as searched inside this radius: squared tiles. */
+export const SWEEP_ARRIVE_SQ = 147456; // 2.25 tile^2 = 1.5 tiles
 
 // --- field recovery ---------------------------------------------------------
 /** Ticks without taking damage before a unit starts patching up (10 s). */
