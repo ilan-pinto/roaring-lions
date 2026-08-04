@@ -83,8 +83,8 @@ describe('determinism (1000-tick replay)', () => {
     // that is the whole claim of invariants 2 and 3. It changes ONLY when the
     // model deliberately changes (sim code or tuning constants); update it by
     // reading the new value from this failure, in the same commit, on purpose.
-    // Updated for intel sinks: pending strikes join the hashed state.
-    expect(a.hash()).toBe(2922652430);
+    // Updated for smoke: the screen grid and its cooldowns are hashed state.
+    expect(a.hash()).toBe(501048078);
   });
 
   it('a different seed produces a different hash', () => {

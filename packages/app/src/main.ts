@@ -494,6 +494,8 @@ async function main(): Promise<void> {
     'position:absolute;display:none;border:1px dashed #B8FF5A;background:rgba(184,255,90,0.08);pointer-events:none;';
   document.body.appendChild(dragBox);
   let dragStart: { x: number; y: number } | null = null;
+  /** Last cursor position over the map, for keyboard-issued orders. */
+  const lastCursor = { x: 0, y: 0 };
   const canvasXY = (ev: PointerEvent): { x: number; y: number } => {
     const rect = canvas.getBoundingClientRect();
     return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
@@ -505,6 +507,8 @@ async function main(): Promise<void> {
     // Track what the cursor is over so the renderer can offer the
     // enter-building affordance before the click.
     const hp = canvasXY(ev);
+    lastCursor.x = hp.x;
+    lastCursor.y = hp.y;
     const hw = renderer.screenToWorld(hp.x, hp.y);
     const hs = sim.structureAt(Math.floor(hw.x), Math.floor(hw.y));
     renderer.hoverStructure = hs;
@@ -605,6 +609,20 @@ async function main(): Promise<void> {
       }
     }
     if (ev.key === 'o') overlay.toggle();
+    if (ev.key === 'f') {
+      // Screen the ground ahead: laid where the cursor is, by whoever in the
+      // selection carries smoke and is off cooldown.
+      const carriers = renderer.selection.filter(
+        (i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1 && sim.unitTypes[sim.state.typeIdx[i]].canSmoke
+      );
+      if (carriers.length === 0) {
+        overlay.note('nothing selected that carries smoke', '#B8A182');
+      } else {
+        const w = renderer.screenToWorld(lastCursor.x, lastCursor.y);
+        sim.queueCommand({ kind: 'smoke', ids: carriers, x: fx.from(w.x), y: fx.from(w.y) });
+        renderer.addOrderMarker(w.x, w.y);
+      }
+    }
     if (ev.key === 'm') {
       const muted = audio.toggle();
       paintMute(muted);

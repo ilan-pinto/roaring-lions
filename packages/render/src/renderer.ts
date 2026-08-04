@@ -871,6 +871,23 @@ export class PixiRenderer {
 
     if (this.fogDirty) this.drawFog();
 
+    // Smoke screens, drawn over the ground and under the units so troops
+    // inside one still read — it obscures, it does not delete them.
+    for (let y = 0; y < this.sim.height; y++) {
+      for (let x = 0; x < this.sim.width; x++) {
+        const d = this.sim.smoke[y * this.sim.width + x];
+        if (d === 0) continue;
+        const cx = isoX(x + 0.5, y + 0.5);
+        const cy = isoY(x + 0.5, y + 0.5);
+        g.poly([
+          cx, cy - TILE_H / 2,
+          cx + TILE_W / 2, cy,
+          cx, cy + TILE_H / 2,
+          cx - TILE_W / 2, cy,
+        ]).fill({ color: '#C9CBC4', alpha: (d / 255) * 0.72 });
+      }
+    }
+
     // Transient FX.
     const fg = this.fxG;
     fg.clear();

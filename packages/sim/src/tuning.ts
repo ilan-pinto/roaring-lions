@@ -151,6 +151,25 @@ export const ROUT_AFTER_TICKS = 200;
 export const ROUT_SPEED_SHIFT = 1;
 export const ROUT_DISTANCE = 393216; // 6 tiles
 
+// --- smoke (GDD ability vocabulary) -----------------------------------------
+/** Density a fresh screen puts on each covered tile, and the per-tick burn
+ *  that lifts it. 255 at 1 per tick ≈ 13 s of concealment, thinning at the
+ *  edges sooner — long enough to cross a street, not a whole assault. */
+export const SMOKE_MAX = 255;
+export const SMOKE_DECAY = 1;
+/** Radius of a laid screen, in tiles. */
+export const SMOKE_RADIUS = 3;
+/** Total density along a sight line that stops it entirely. */
+export const SMOKE_BLOCKS_AT = 320;
+/** Each smoky tile crossed multiplies hit chance by this (0.55). */
+export const SMOKE_HIT_MULT = 36045;
+/** Floor on the smoke hit penalty: firing blind still occasionally connects. */
+export const SMOKE_HIT_FLOOR = 6554; // 0.1
+/** Ticks before a unit can lay smoke again: 45 s. */
+export const SMOKE_COOLDOWN = 900;
+/** How far from itself a unit can place a screen, squared tiles. */
+export const SMOKE_RANGE_SQ = 5242880; // 80 tile^2 ≈ 9 tiles
+
 // --- sweeping (attack-move without a contact) -------------------------------
 /** A swept position counts as searched inside this radius: squared tiles. */
 export const SWEEP_ARRIVE_SQ = 147456; // 2.25 tile^2 = 1.5 tiles

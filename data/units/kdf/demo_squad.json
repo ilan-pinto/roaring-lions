@@ -30,7 +30,8 @@
   "abilities": [
     "demolish",
     "breach",
-    "garrison"
+    "garrison",
+    "smoke"
   ],
   "weapons": [
     {

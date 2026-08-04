@@ -50,5 +50,8 @@
   ],
   "unlock": {
     "roe_rating_min": 40
-  }
+  },
+  "abilities": [
+    "smoke"
+  ]
 }

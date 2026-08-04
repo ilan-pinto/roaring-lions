@@ -80,6 +80,14 @@ import {
   ROUT_SPEED_SHIFT,
   ROUT_DISTANCE,
   SWEEP_ARRIVE_SQ,
+  SMOKE_MAX,
+  SMOKE_DECAY,
+  SMOKE_RADIUS,
+  SMOKE_BLOCKS_AT,
+  SMOKE_HIT_MULT,
+  SMOKE_HIT_FLOOR,
+  SMOKE_COOLDOWN,
+  SMOKE_RANGE_SQ,
   STRIKE_DAMAGE,
   STRIKE_SPLASH,
   STRIKE_SUPPRESSION,
@@ -192,6 +200,8 @@ export interface UnitType {
   canDemolish: boolean;
   /** Trained observer: earns intel while holding position (GDD §3). */
   canMarkTarget: boolean;
+  /** Carries smoke: the counterplay to prepared fire. */
+  canSmoke: boolean;
   hp: Fx;
   armorFront: Fx;
   armorSide: Fx;
@@ -266,6 +276,7 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     canGarrison: abilities.includes('garrison'),
     canDemolish: abilities.includes('demolish'),
     canMarkTarget: abilities.includes('mark_target'),
+    canSmoke: abilities.includes('smoke'),
     hp: fx.from(json.hull.hp),
     armorFront,
     armorSide: fx.from(json.hull.armor.side),
@@ -304,7 +315,9 @@ export type Command =
   | { kind: 'reveal'; side: number; x: Fx; y: Fx }
   /** Bought with intel: a precision strike, attributed to the caller so
    *  ROE charges it to the player who ordered it. */
-  | { kind: 'callStrike'; caller: number; x: Fx; y: Fx };
+  | { kind: 'callStrike'; caller: number; x: Fx; y: Fx }
+  /** Lay a screen: the counterplay to prepared fire. */
+  | { kind: 'smoke'; ids: number[]; x: Fx; y: Fx };
 
 export type ContactLevel = 'suspected' | 'identified' | 'lost';
 export type FacingArc = 'front' | 'side' | 'rear';
@@ -359,6 +372,7 @@ export type SimEvent =
   | { kind: 'nearMiss'; tick: number; shooter: number; weaponId: string; x: Fx; y: Fx }
   | { kind: 'ambushSprung'; tick: number; entity: number }
   | { kind: 'strike'; tick: number; by: number; x: Fx; y: Fx }
+  | { kind: 'smokeLaid'; tick: number; by: number; x: Fx; y: Fx }
   | { kind: 'revealed'; tick: number; side: number; count: number }
   | { kind: 'structureHit'; tick: number; structure: number; by: number; damage: Fx; hpLeft: Fx }
   | { kind: 'structureDestroyed'; tick: number; structure: number; by: number }
@@ -411,6 +425,8 @@ export class Sim {
 
   readonly blocked: Uint8Array;
   readonly cover: Uint8Array;
+  /** Smoke density per tile, 0-255. Presentation reads it; LOS respects it. */
+  readonly smoke: Uint8Array;
 
   // --- entity SoA ---
   private count = 0;
@@ -448,6 +464,7 @@ export class Sim {
   private readonly displaced: Uint8Array;
   private readonly demoTicks: Int32Array;
   private readonly demoTarget: Int32Array;
+  private readonly smokeCooldown: Int32Array;
   /** Called-for strikes still in the air. */
   private pendingStrikes: { x: Fx; y: Fx; by: number; readyTick: number }[] = [];
 
@@ -566,6 +583,7 @@ export class Sim {
     const tiles = config.width * config.height;
     this.blocked = new Uint8Array(tiles);
     this.cover = new Uint8Array(tiles);
+    this.smoke = new Uint8Array(tiles);
     this.alive = new Uint8Array(n);
     this.side = new Uint8Array(n);
     this.typeIdx = new Uint16Array(n);
@@ -594,6 +612,7 @@ export class Sim {
     this.displaced = new Uint8Array(n);
     this.demoTicks = new Int32Array(n);
     this.demoTarget = new Int32Array(n).fill(-1);
+    this.smokeCooldown = new Int32Array(n);
     const sc = MAX_STRUCTURES;
     this.stAlive = new Uint8Array(sc);
     this.stHp = new Int32Array(sc);
@@ -829,6 +848,7 @@ export class Sim {
     this.stepStrikes();
     this.stepSweep();
     this.stepMovement();
+    this.stepSmoke();
     this.stepGarrison();
     this.stepDemolition();
     this.stepUpkeep();
@@ -869,6 +889,31 @@ export class Sim {
           this.attackMove[id] = cmd.kind === 'attackMove' ? 1 : 0;
           this.engaging[id] = 0;
           this.stance[id] = 0; // any order overrides a held stance
+        }
+      } else if (cmd.kind === 'smoke') {
+        for (const id of cmd.ids) {
+          if (this.alive[id] === 0 || !this.unitTypes[this.typeIdx[id]].canSmoke) continue;
+          if (this.smokeCooldown[id] > 0) continue;
+          if (distSqFx(fx.sub(cmd.x, this.posX[id]), fx.sub(cmd.y, this.posY[id])) > SMOKE_RANGE_SQ) continue;
+          this.smokeCooldown[id] = SMOKE_COOLDOWN;
+          const cx = cmd.x >> 16;
+          const cy = cmd.y >> 16;
+          for (let y = cy - SMOKE_RADIUS; y <= cy + SMOKE_RADIUS; y++) {
+            for (let x = cx - SMOKE_RADIUS; x <= cx + SMOKE_RADIUS; x++) {
+              if (x < 0 || y < 0 || x >= this.width || y >= this.height) continue;
+              const ddx = x - cx;
+              const ddy = y - cy;
+              if (ddx * ddx + ddy * ddy > SMOKE_RADIUS * SMOKE_RADIUS) continue;
+              this.smoke[y * this.width + x] = SMOKE_MAX;
+            }
+          }
+          this.pendingEvents.push({
+            kind: 'smokeLaid',
+            tick: this.tickCount,
+            by: id,
+            x: cmd.x,
+            y: cmd.y,
+          });
         }
       } else if (cmd.kind === 'reveal') {
         // Certainty, purchased: contacts inside the footprint go straight to
@@ -954,15 +999,9 @@ export class Sim {
     return this.moving[i] === 1 && !(this.attackMove[i] === 1 && this.engaging[i] === 1);
   }
 
-  /** Bresenham over tiles: -1 if a blocked tile interrupts the ray, else the
-   *  number of cover tiles crossed (endpoints excluded, capped at 8). */
-  private losRay(x0: number, y0: number, x1: number, y1: number): number {
+  /** Smoke density crossed by a sight line (endpoints included). */
+  private raySmoke(x0: number, y0: number, x1: number, y1: number): number {
     const w = this.width;
-    // A building never blocks sight into or out of itself: men at the windows
-    // can see and be seen. Only the structures at the ends of the ray are
-    // transparent to it — everything between still blocks.
-    const sFrom = this.structureOfTile[y0 * w + x0];
-    const sTo = this.structureOfTile[y1 * w + x1];
     let dx = x1 - x0;
     let dy = y1 - y0;
     const sx = dx < 0 ? -1 : 1;
@@ -972,7 +1011,53 @@ export class Sim {
     let err = dx - dy;
     let x = x0;
     let y = y0;
-    let coverCount = 0;
+    let total = this.smoke[y0 * w + x0];
+    for (;;) {
+      if (x === x1 && y === y1) return total;
+      const e2 = 2 * err;
+      if (e2 > -dy) {
+        err -= dy;
+        x += sx;
+      }
+      if (e2 < dx) {
+        err += dx;
+        y += sy;
+      }
+      total += this.smoke[y * w + x];
+      if (x === x1 && y === y1) return total;
+    }
+  }
+
+  /** Smoke density on a tile, for tests and presentation. */
+  smokeAt(x: number, y: number): number {
+    if (x < 0 || y < 0 || x >= this.width || y >= this.height) return 0;
+    return this.smoke[y * this.width + x];
+  }
+
+  /** Bresenham over tiles: -1 if a blocked tile interrupts the ray, else the
+   *  number of cover tiles crossed (endpoints excluded, capped at 8). */
+  private losRay(x0: number, y0: number, x1: number, y1: number): number {
+    const w = this.width;
+    // A building never blocks sight into or out of itself: men at the windows
+    // can see and be seen. Only the structures at the ends of the ray are
+    // transparent to it — everything between still blocks.
+    const sFrom = this.structureOfTile[y0 * w + x0];
+    const sTo = this.structureOfTile[y1 * w + x1];
+    // A screen thick enough simply stops the sight line; thinner smoke
+    // counts as obscuration below.
+    const smoke = this.raySmoke(x0, y0, x1, y1);
+    if (smoke >= SMOKE_BLOCKS_AT) return -1;
+    const smokeCover = smoke > 0 ? 1 + ((smoke / SMOKE_MAX) | 0) : 0;
+    let dx = x1 - x0;
+    let dy = y1 - y0;
+    const sx = dx < 0 ? -1 : 1;
+    const sy = dy < 0 ? -1 : 1;
+    dx = dx < 0 ? -dx : dx;
+    dy = dy < 0 ? -dy : dy;
+    let err = dx - dy;
+    let x = x0;
+    let y = y0;
+    let coverCount = smokeCover;
     for (;;) {
       if (x === x1 && y === y1) return coverCount;
       const e2 = 2 * err;
@@ -1332,7 +1417,16 @@ export class Sim {
     );
     const ratio = fx.div(dist, w.effectiveRange);
     const rangeFalloff = fx.expNeg(fx.mul(FALLOFF_SCALE[w.cls], fx.mul(ratio, ratio)));
-    const coverMod = COVER_HIT[this.cover[(ty >> 16) * this.width + (tx >> 16)]];
+    let coverMod = COVER_HIT[this.cover[(ty >> 16) * this.width + (tx >> 16)]];
+    // Shooting through a screen: every tile of it degrades the shot, with a
+    // floor because blind fire still occasionally connects.
+    const smokeOnLine = this.raySmoke(px >> 16, py >> 16, tx >> 16, ty >> 16);
+    if (smokeOnLine > 0) {
+      const tiles = 1 + ((smokeOnLine / SMOKE_MAX) | 0);
+      let mult = ONE;
+      for (let k = 0; k < tiles && mult > SMOKE_HIT_FLOOR; k++) mult = fx.mul(mult, SMOKE_HIT_MULT);
+      coverMod = fx.mul(coverMod, mult < SMOKE_HIT_FLOOR ? SMOKE_HIT_FLOOR : mult);
+    }
     const motionMod = this.isEffectivelyMoving(target) ? TARGET_MOTION_MOD : ONE;
     const stanceMod = this.isEffectivelyMoving(shooter) ? MOVING_STANCE_MOD : ONE;
     const suppressionMod = fx.div(ONE, fx.add(ONE, fx.mul(SUPP_K, this.suppression[shooter])));
@@ -2136,6 +2230,18 @@ export class Sim {
 
   // ------------------------------------------------------------------- upkeep
 
+  /** Screens thin out and lift. */
+  private stepSmoke(): void {
+    const smoke = this.smoke;
+    for (let i = 0; i < smoke.length; i++) {
+      const v = smoke[i];
+      if (v !== 0) smoke[i] = v > SMOKE_DECAY ? v - SMOKE_DECAY : 0;
+    }
+    for (let i = 0; i < this.count; i++) {
+      if (this.smokeCooldown[i] > 0) this.smokeCooldown[i]--;
+    }
+  }
+
   private stepUpkeep(): void {
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0) continue;
@@ -2204,6 +2310,8 @@ export class Sim {
     h = hashArray(h, this.rng.state);
     h = hashArray(h, this.blocked);
     h = hashArray(h, this.cover);
+    h = hashArray(h, this.smoke);
+    h = hashArray(h, this.smokeCooldown);
     h = hashArray(h, this.alive);
     h = hashArray(h, this.side);
     h = hashArray(h, this.typeIdx);
