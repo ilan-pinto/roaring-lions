@@ -222,11 +222,15 @@ export class PixiRenderer {
   onEvents(events: SimEvent[]): void {
     for (const e of events) {
       if (e.kind === 'fire') {
+        // Shots at buildings carry target -1: aim the tracer at the building.
+        const atStruct = e.target < 0 && e.structure !== undefined;
+        const tx = atStruct ? fx.toNumber(this.sim.structures.cx[e.structure as number]) : this.curX[e.target];
+        const ty = atStruct ? fx.toNumber(this.sim.structures.cy[e.structure as number]) : this.curY[e.target];
         this.tracers.push({
           sx: this.curX[e.shooter],
           sy: this.curY[e.shooter],
-          tx: this.curX[e.target],
-          ty: this.curY[e.target],
+          tx,
+          ty,
           ttl: 9,
           side: this.sim.state.side[e.shooter],
         });

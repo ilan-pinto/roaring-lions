@@ -114,8 +114,18 @@ export class DebugOverlay {
   }
 
   private name(id: number): string {
+    // Shots at buildings carry target -1; anything unresolvable is labelled
+    // rather than crashing the panel mid-firefight.
+    if (id < 0 || id >= this.sim.entityCount) return '—';
     const t = this.sim.unitTypes[this.sim.state.typeIdx[id]];
-    return `#${id} ${t.id}`;
+    return t ? `#${id} ${t.id}` : `#${id} ?`;
+  }
+
+  /** Name of a structure for the feed. */
+  private structName(s: number): string {
+    if (s < 0 || s >= this.sim.structureCount) return 'a building';
+    const t = this.sim.structureTypes[this.sim.structures.typeIdx[s]];
+    return t ? `the ${t.name}` : 'a building';
   }
 
   private pushEvent(e: SimEvent): void {
@@ -125,7 +135,9 @@ export class DebugOverlay {
         const b = e.breakdown;
         this.line(
           t +
-            `${this.name(e.shooter)} → ${this.name(e.target)} <b>${e.weaponId}</b> ` +
+            `${this.name(e.shooter)} → ${
+              e.target < 0 && e.structure !== undefined ? this.structName(e.structure) : this.name(e.target)
+            } <b>${e.weaponId}</b> ` +
             `P(hit)=${pct(e.pHit)} roll=${pct(e.roll)} ${e.willHit ? '<b>HIT</b>' : 'miss'}<br>` +
             `&nbsp;&nbsp;<span style="color:#8E9491">acc ${pct(b.accuracy)} · rng ${pct(b.rangeFalloff)} · cov ${pct(
               b.coverMod
@@ -172,6 +184,21 @@ export class DebugOverlay {
         break;
       case 'destroyed':
         this.line(t + `${this.name(e.entity)} <b>DESTROYED</b>${e.by >= 0 ? ' by ' + this.name(e.by) : ''}`, '#D93A2B');
+        break;
+      case 'structureHit':
+        this.line(
+          t + `${this.structName(e.structure)} takes ${fmt(e.damage, 0)} — ${fmt(e.hpLeft, 0)} left`,
+          '#B8A182'
+        );
+        break;
+      case 'structureDestroyed':
+        this.line(t + `${this.structName(e.structure)} <b>COLLAPSES</b>`, '#E8541E');
+        break;
+      case 'garrison':
+        this.line(
+          t + `${this.name(e.entity)} ${e.entered ? 'moves into' : 'leaves'} ${this.structName(e.structure)}`,
+          '#A9C4D1'
+        );
         break;
       case 'nearMiss':
         break; // too chatty for the feed; rendered as puffs instead
