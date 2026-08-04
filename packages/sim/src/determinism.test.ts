@@ -83,9 +83,9 @@ describe('determinism (1000-tick replay)', () => {
     // that is the whole claim of invariants 2 and 3. It changes ONLY when the
     // model deliberately changes (sim code or tuning constants); update it by
     // reading the new value from this failure, in the same commit, on purpose.
-    // Updated for structures: garrison/demolition/building columns, the
-    // displaced flag, and threat-scaled near-miss suppression.
-    expect(a.hash()).toBe(1610960308);
+    // Updated for the curStructure column: units now record which building
+    // they are engaging, so turrets and reticles can track it.
+    expect(a.hash()).toBe(1832792372);
   });
 
   it('a different seed produces a different hash', () => {

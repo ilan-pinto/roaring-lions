@@ -415,6 +415,8 @@ export class Sim {
   private readonly lastFired: Int32Array;
   private readonly engaging: Uint8Array;
   private readonly curTarget: Int32Array;
+  /** Structure this unit is currently engaging, -1 when none. */
+  private readonly curStructure: Int32Array;
   private readonly mobilityKilled: Uint8Array;
   private readonly firepowerKilled: Uint8Array;
   private readonly pinned: Uint8Array;
@@ -504,6 +506,8 @@ export class Sim {
     readonly routed: Uint8Array;
     /** Structure the unit is fighting from, -1 when in the open. */
     readonly garrisonedIn: Int32Array;
+    /** Structure the unit is currently shooting at, -1 when none. */
+    readonly curStructure: Int32Array;
   };
 
   /** Read-only structure view for the renderer and HUD. */
@@ -554,6 +558,7 @@ export class Sim {
     this.lastFired = new Int32Array(n).fill(-100000);
     this.engaging = new Uint8Array(n);
     this.curTarget = new Int32Array(n).fill(-1);
+    this.curStructure = new Int32Array(n).fill(-1);
     this.mobilityKilled = new Uint8Array(n);
     this.firepowerKilled = new Uint8Array(n);
     this.pinned = new Uint8Array(n);
@@ -624,6 +629,7 @@ export class Sim {
       curTarget: this.curTarget,
       routed: this.routed,
       garrisonedIn: this.garrisonedIn,
+      curStructure: this.curStructure,
     };
     this.structures = {
       alive: this.stAlive,
@@ -1162,6 +1168,7 @@ export class Sim {
       if (this.pinned[i] === 1) {
         this.engaging[i] = 0;
         this.curTarget[i] = -1;
+        this.curStructure[i] = -1;
         continue;
       }
       // Ambush: weapons cold until a target closes to the trap range with a
@@ -1170,6 +1177,7 @@ export class Sim {
         if (!this.checkAmbushSpring(i)) {
           this.engaging[i] = 0;
           this.curTarget[i] = -1;
+          this.curStructure[i] = -1;
           continue;
         }
         this.stance[i] = 0;
@@ -1182,6 +1190,7 @@ export class Sim {
       // target is inside EFFECTIVE range — advancing units keep closing under
       // marching fire instead of stalling at maximum range to plink.
       let engagedClose = false;
+      this.curStructure[i] = -1;
       for (let slot = 0; slot < type.weapons.length && slot < 2; slot++) {
         const w = type.weapons[slot];
         const target = this.selectTarget(i, w);
@@ -1214,6 +1223,7 @@ export class Sim {
           const s = this.selectStructureTarget(i, w);
           if (s < 0) continue;
           engagedClose = true;
+          if (slot === 0) this.curStructure[i] = s;
           const [tx, ty] = this.nearestStructTile(s, this.posX[i], this.posY[i]);
           if (slot === 0 && this.moving[i] === 0) {
             this.turnToward(i, fx.atan2(fx.sub(ty, this.posY[i]), fx.sub(tx, this.posX[i])));
@@ -2037,6 +2047,7 @@ export class Sim {
     h = hashArray(h, this.lastFired);
     h = hashArray(h, this.engaging);
     h = hashArray(h, this.curTarget);
+    h = hashArray(h, this.curStructure);
     h = hashArray(h, this.mobilityKilled);
     h = hashArray(h, this.firepowerKilled);
     h = hashArray(h, this.pinned);

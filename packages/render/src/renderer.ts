@@ -80,12 +80,38 @@ export class PixiRenderer {
   private curX: Float64Array;
   private curY: Float64Array;
 
-  /** unit type id → facing textures, optionally with walk-cycle frames. */
-  private spriteAtlas = new Map<string, { textures: Texture[][]; frames: number }>();
+  /** unit type id → facing textures, optionally with walk-cycle frames and turret. */
+  private spriteAtlas = new Map<
+    string,
+    {
+      textures: Texture[][];
+      frames: number;
+      turretTextures?: Texture[][];
+      /** Sprite index that faces world +x. The render rig's start rotation
+       *  decides this; it is a property of the sheet, not of the game. */
+      facingOffset: number;
+      /** True when the rig rotated the object the other way round. */
+      facingReverse: boolean;
+    }
+  >();
+
+  /** Facing (turns) → sprite index for a given sheet's convention. */
+  private static spriteIndex(
+    facingNorm: number,
+    atlas: { facingOffset: number; facingReverse: boolean }
+  ): number {
+    const k = Math.round(facingNorm * 16) % 16;
+    const dir = atlas.facingReverse ? -k : k;
+    return ((dir + atlas.facingOffset) % 16 + 16) % 16;
+  }
   /** Per-entity Sprite child in spriteLayer; created on demand. */
   private entitySprites: (Sprite | null)[] = [];
+  /** Per-entity turret Sprite, layered above the hull sprite. */
+  private turretSprites: (Sprite | null)[] = [];
   /** Per-entity fractional walk-cycle counter (advances while moving). */
   private entityAnimFrame: Float64Array;
+  /** Per-entity turret facing (renderer-only, 0–1 normalized). */
+  private turretFacing: Float64Array;
 
   private frameN = 0;
   private terrainDirty = false;
@@ -109,6 +135,7 @@ export class PixiRenderer {
     this.curY = new Float64Array(n);
     this.unitGroup = new Uint8Array(n);
     this.entityAnimFrame = new Float64Array(n);
+    this.turretFacing = new Float64Array(n);
   }
 
   async init(host: HTMLElement): Promise<void> {
@@ -133,8 +160,15 @@ export class PixiRenderer {
   /**
    * Load sprites for a unit type. `frames` is the total number of frames per
    * facing (1 = static, >1 = frame 0 is idle + remaining are walk cycle).
+   * `turretPath` loads a separate turret sprite sheet for independent rotation.
    */
-  async loadSprites(unitTypeId: string, basePath: string, frames = 1): Promise<void> {
+  async loadSprites(
+    unitTypeId: string,
+    basePath: string,
+    opts: { frames?: number; turretPath?: string; facingOffset?: number; facingReverse?: boolean } = {}
+  ): Promise<void> {
+    const frames = opts.frames ?? 1;
+    const turretPath = opts.turretPath;
     const textures: Texture[][] = [];
     for (let f = 0; f < 16; f++) {
       const row: Texture[] = [];
@@ -145,7 +179,21 @@ export class PixiRenderer {
       }
       textures.push(row);
     }
-    this.spriteAtlas.set(unitTypeId, { textures, frames });
+    let turretTextures: Texture[][] | undefined;
+    if (turretPath) {
+      turretTextures = [];
+      for (let f = 0; f < 16; f++) {
+        const url = `${turretPath}f${f.toString().padStart(2, '0')}_000.png`;
+        turretTextures.push([await Assets.load<Texture>(url)]);
+      }
+    }
+    this.spriteAtlas.set(unitTypeId, {
+      textures,
+      frames,
+      turretTextures,
+      facingOffset: opts.facingOffset ?? 0,
+      facingReverse: opts.facingReverse ?? false,
+    });
   }
 
   /** Copy positions after every sim tick; frame() lerps between the copies. */
@@ -158,6 +206,10 @@ export class PixiRenderer {
     for (let i = 0; i < this.sim.entityCount; i++) {
       this.curX[i] = fx.toNumber(st.posX[i]);
       this.curY[i] = fx.toNumber(st.posY[i]);
+      // Seed turret facing to hull facing on first snapshot.
+      if (this.turretFacing[i] === 0 && this.frameN === 0) {
+        this.turretFacing[i] = fx.toNumber(st.facing[i]);
+      }
     }
   }
 
@@ -173,13 +225,21 @@ export class PixiRenderer {
           ttl: 9,
           side: this.sim.state.side[e.shooter],
         });
-        const facingRad = fx.toNumber(this.sim.state.facing[e.shooter]) * Math.PI * 2;
         const type = this.sim.unitTypes[this.sim.state.typeIdx[e.shooter]];
+        const usesTurret = !type.isSoft && this.turretFacing.length > e.shooter;
+        const facingRad = usesTurret
+          ? this.turretFacing[e.shooter] * Math.PI * 2
+          : fx.toNumber(this.sim.state.facing[e.shooter]) * Math.PI * 2;
         const barrelLen = type.isSoft ? 0.4 : 0.8;
         const mzX = this.curX[e.shooter] + Math.cos(facingRad) * barrelLen;
         const mzY = this.curY[e.shooter] + Math.sin(facingRad) * barrelLen;
-        const mzR = type.isSoft ? 5 : 9;
-        this.puffs.push({ x: mzX, y: mzY, ttl: 7, color: this.opts.flashColor, r: mzR });
+        if (type.isSoft) {
+          this.puffs.push({ x: mzX, y: mzY, ttl: 7, color: this.opts.flashColor, r: 5 });
+        } else {
+          this.puffs.push({ x: mzX, y: mzY, ttl: 4, color: this.opts.flashColor, r: 14 });
+          this.puffs.push({ x: mzX, y: mzY, ttl: 8, color: this.opts.flashColor, r: 10 });
+          this.puffs.push({ x: mzX, y: mzY, ttl: 18, color: '#6B6355', r: 7 });
+        }
       } else if (e.kind === 'nearMiss') {
         this.puffs.push({ x: fx.toNumber(e.x), y: fx.toNumber(e.y), ttl: 14, color: this.opts.nearMissColor, r: 7 });
       } else if (e.kind === 'aps' && e.intercepted) {
@@ -458,6 +518,9 @@ export class PixiRenderer {
     for (const spr of this.entitySprites) {
       if (spr) spr.visible = false;
     }
+    for (const spr of this.turretSprites) {
+      if (spr) spr.visible = false;
+    }
 
     for (let i = 0; i < this.sim.entityCount; i++) {
       if (st.alive[i] === 0) continue;
@@ -479,7 +542,6 @@ export class PixiRenderer {
       }
 
       const facingNorm = fx.toNumber(st.facing[i]);
-      const facingIdx = Math.round(facingNorm * 16) % 16;
       const atlas = this.spriteAtlas.get(type.id);
 
       if (atlas) {
@@ -501,12 +563,51 @@ export class PixiRenderer {
           this.spriteLayer.addChild(spr);
           this.entitySprites[i] = spr;
         }
-        spr.texture = facings[facingIdx][frame] ?? facings[facingIdx][0];
+        const hullIdx = PixiRenderer.spriteIndex(facingNorm, atlas);
+        spr.texture = facings[hullIdx][frame] ?? facings[hullIdx][0];
         spr.position.set(sx, sy);
         spr.alpha = bodyAlpha;
         spr.visible = true;
         const spriteScale = ((type.isSoft ? 1.0 : 1.8) * TILE_W) / facings[0][0].width;
         spr.scale.set(spriteScale);
+
+        // Turret: independent rotation sprite composited above the hull.
+        if (atlas.turretTextures) {
+          const target = st.curTarget[i];
+          const struct = st.curStructure[i];
+          const aimAtStructure = target < 0 && struct >= 0 && this.sim.structures.alive[struct] === 1;
+          if ((target >= 0 && st.alive[target] !== 0) || aimAtStructure) {
+            const ax = aimAtStructure ? fx.toNumber(this.sim.structures.cx[struct]) : this.curX[target];
+            const ay = aimAtStructure ? fx.toNumber(this.sim.structures.cy[struct]) : this.curY[target];
+            const dx = ax - this.curX[i];
+            const dy = ay - this.curY[i];
+            const goal = ((Math.atan2(dy, dx) / (Math.PI * 2)) % 1 + 1) % 1;
+            let delta = goal - this.turretFacing[i];
+            if (delta > 0.5) delta -= 1;
+            if (delta < -0.5) delta += 1;
+            this.turretFacing[i] += delta * 0.15;
+          } else {
+            let delta = facingNorm - this.turretFacing[i];
+            if (delta > 0.5) delta -= 1;
+            if (delta < -0.5) delta += 1;
+            this.turretFacing[i] += delta * 0.08;
+          }
+          this.turretFacing[i] = ((this.turretFacing[i] % 1) + 1) % 1;
+
+          const tIdx = PixiRenderer.spriteIndex(this.turretFacing[i], atlas);
+          while (this.turretSprites.length <= i) this.turretSprites.push(null);
+          let tspr = this.turretSprites[i];
+          if (!tspr) {
+            tspr = new Sprite({ texture: atlas.turretTextures[0][0], anchor: 0.5 });
+            this.spriteLayer.addChild(tspr);
+            this.turretSprites[i] = tspr;
+          }
+          tspr.texture = atlas.turretTextures[tIdx][0];
+          tspr.position.set(sx, sy);
+          tspr.alpha = bodyAlpha;
+          tspr.visible = true;
+          tspr.scale.set(spriteScale);
+        }
       } else {
         // Procedural fallback.
         g.ellipse(sx, sy + 3, r + 3, (r + 3) / 2).fill({ color: '#0A0A08', alpha: 0.35 * bodyAlpha });

@@ -270,18 +270,38 @@ async function main(): Promise<void> {
   await renderer.init(stage);
 
   // Load sprite sheets for unit types that have rendered art (non-blocking).
-  const SPRITE_MAP: Record<string, { path: string; frames?: number }> = {
-    mbt_lavi:     { path: '/sprites/TNK/' },
-    inf_squad:    { path: '/sprites/INF/', frames: 5 },
-    at_team:      { path: '/sprites/INF/', frames: 5 },
-    mortar_team:  { path: '/sprites/INF/', frames: 5 },
-    militia_cell: { path: '/sprites/INF/', frames: 5 },
-    rpg_team:     { path: '/sprites/INF/', frames: 5 },
-    atgm_cell:    { path: '/sprites/INF/', frames: 5 },
-    mortar_crew:  { path: '/sprites/INF/', frames: 5 },
+  // facingOffset: which sprite index looks along world +x. The render rig's
+  // start rotation decides it per sheet — calibrate by pointing a unit due
+  // east and checking the barrel agrees with the tracer.
+  type SpriteSpec = {
+    path: string;
+    frames?: number;
+    turretPath?: string;
+    facingOffset?: number;
+    facingReverse?: boolean;
   };
-  for (const [id, { path, frames }] of Object.entries(SPRITE_MAP)) {
-    renderer.loadSprites(id, path, frames).catch((err) => {
+  // Measured off the sheets themselves: world bearing ≈ (5 - k) mod 16, i.e.
+  // the rig rotates the object the other way with frame 5 looking east.
+  const TANK: SpriteSpec = {
+    path: '/sprites/TNK_HULL/',
+    turretPath: '/sprites/TNK_TURR/',
+    facingOffset: 5,
+    facingReverse: true,
+  };
+  const FOOT: SpriteSpec = { path: '/sprites/INF/', frames: 5, facingOffset: 5, facingReverse: true };
+  const SPRITE_MAP: Record<string, SpriteSpec> = {
+    mbt_lavi: TANK,
+    inf_squad: FOOT,
+    at_team: FOOT,
+    mortar_team: FOOT,
+    militia_cell: FOOT,
+    rpg_team: FOOT,
+    atgm_cell: FOOT,
+    mortar_crew: FOOT,
+  };
+  for (const [id, spec] of Object.entries(SPRITE_MAP)) {
+    const { path, ...rest } = spec;
+    renderer.loadSprites(id, path, rest).catch((err) => {
       console.warn(`[lions] sprites FAILED for ${id}:`, err);
     });
   }
