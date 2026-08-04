@@ -244,9 +244,13 @@ async function main(): Promise<void> {
       unitInfo: (id) => {
         const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
         if (!u || u.faction !== 'kdf') return null;
+        const unlock = 'unlock' in u ? (u.unlock as { roe_rating_min?: number; after_mission?: string }) : undefined;
         return {
           logistics: u.cost.logistics,
           buildTimeS: 'build_time_s' in u.cost ? u.cost.build_time_s : 20,
+          unlock: unlock
+            ? { roeMin: unlock.roe_rating_min, afterMission: unlock.after_mission }
+            : undefined,
         };
       },
     });
@@ -376,11 +380,19 @@ async function main(): Promise<void> {
     for (const u of Object.values(units)) {
       if (u.faction !== 'kdf') continue;
       const btn = document.createElement('button');
-      btn.textContent = `${u.name} (${u.cost.logistics})`;
+      const locked = rt.buildBlockedReason(u.id);
+      btn.textContent = locked ? `🔒 ${u.name}` : `${u.name} (${u.cost.logistics})`;
+      btn.title = locked ?? `${u.cost.logistics} logistics`;
       btn.style.cssText =
         'background:rgba(20,21,15,0.88);color:#F2E8D5;border:1px solid #5C625F;' +
-        'border-radius:4px;padding:6px 8px;cursor:pointer;';
+        'border-radius:4px;padding:6px 8px;cursor:pointer;' +
+        (locked ? 'opacity:0.5;' : '');
       btn.addEventListener('click', () => {
+        const why = rt.buildBlockedReason(u.id);
+        if (why !== null) {
+          overlay.note(`<b>${u.name}</b> is locked — ${why}`, '#E8C33A');
+          return;
+        }
         if (rt.requestBuild(u.id)) {
           overlay.note(`<b>building</b> ${u.name} — deploys at the start line`, '#A9C4D1');
         } else {

@@ -47,6 +47,8 @@ export interface LedgerRosterEntry {
 export interface LedgerData {
   'roster.surviving_units'?: LedgerRosterEntry[];
   'roe.cumulative_rating'?: number;
+  /** Mission ids already cleared, for `unlock.after_mission` gates. */
+  'campaign.completed_missions'?: string[];
   [key: string]: unknown;
 }
 
@@ -112,7 +114,16 @@ export interface MissionContext {
   ledger?: LedgerData;
   /** Production catalogue: cost and build time per unit id, null if the
    *  unit cannot be built in the field. */
-  unitInfo?: (unitId: string) => { logistics: number; intel?: number; buildTimeS: number } | null;
+  unitInfo?: (
+    unitId: string
+  ) => {
+    logistics: number;
+    intel?: number;
+    buildTimeS: number;
+    /** Progression gate from the unit schema (GDD §6): restraint is what
+     *  pays for the good equipment. */
+    unlock?: { roeMin?: number; afterMission?: string };
+  } | null;
 }
 
 export type ObjectiveStatus = 'active' | 'complete' | 'failed';
@@ -222,10 +233,37 @@ export class MissionRuntime {
 
   /** Field production: spend logistics/intel, deploy at player_start after
    *  the build time. Returns false when unaffordable or unknown. */
+  /**
+   * Why this unit cannot be built, or null when it can. Campaign gates only:
+   * affordability changes tick to tick and is shown as a price, but a locked
+   * unit needs to say what would unlock it (GDD §6).
+   */
+  buildBlockedReason(unitId: string): string | null {
+    const info = this.ctx.unitInfo?.(unitId);
+    if (!info) return 'not available in the field';
+    const unlock = info.unlock;
+    if (!unlock) return null;
+    if (unlock.roeMin !== undefined) {
+      const rating = this.ctx.ledger?.['roe.cumulative_rating'];
+      if (typeof rating !== 'number' || rating < unlock.roeMin) {
+        return `requires campaign ROE ${unlock.roeMin}` +
+          (typeof rating === 'number' ? ` (currently ${rating})` : ' (no rating yet)');
+      }
+    }
+    if (unlock.afterMission !== undefined) {
+      const done = this.ctx.ledger?.['campaign.completed_missions'];
+      if (!Array.isArray(done) || !done.includes(unlock.afterMission)) {
+        return `requires clearing ${unlock.afterMission}`;
+      }
+    }
+    return null;
+  }
+
   requestBuild(unitId: string): boolean {
     if (this.ended) return false;
     const info = this.ctx.unitInfo?.(unitId);
     if (!info) return false;
+    if (this.buildBlockedReason(unitId) !== null) return false;
     if (this.logisticsValue < info.logistics || this.intelValue < (info.intel ?? 0)) return false;
     if (!this.mission.map.player_start) return false;
     this.logisticsValue -= info.logistics;
@@ -682,6 +720,12 @@ export class MissionRuntime {
     for (const key of this.mission.ledger.produces) {
       if (key === 'roster.surviving_units') produced[key] = roster;
       else if (key === 'roe.cumulative_rating') produced[key] = cumulative;
+      else if (key === 'campaign.completed_missions') {
+        const prevDone = this.ctx.ledger?.['campaign.completed_missions'];
+        const done = Array.isArray(prevDone) ? [...prevDone] : [];
+        if (this.resultValue === 'victory' && !done.includes(this.mission.id)) done.push(this.mission.id);
+        produced[key] = done;
+      }
       // Unknown keys: declared for the future, produced by nothing yet.
     }
 

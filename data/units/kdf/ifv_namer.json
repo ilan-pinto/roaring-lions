@@ -47,5 +47,8 @@
       ],
       "collateral_risk": 0.35
     }
-  ]
+  ],
+  "unlock": {
+    "roe_rating_min": 40
+  }
 }

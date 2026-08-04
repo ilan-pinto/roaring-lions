@@ -32,5 +32,8 @@
   "abilities": [
     "mark_target",
     "mark_tunnel"
-  ]
+  ],
+  "unlock": {
+    "roe_rating_min": 35
+  }
 }

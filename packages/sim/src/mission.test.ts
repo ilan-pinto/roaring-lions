@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
 import { Sim, TICKS_PER_SECOND, type SimEvent, type UnitTypeJson } from './sim';
-import { MissionRuntime, type MissionContext, type MissionEvent, type MissionJson } from './mission';
+import {
+  MissionRuntime,
+  type LedgerData,
+  type MissionContext,
+  type MissionEvent,
+  type MissionJson,
+} from './mission';
 
 // Mission runtime tests: the declarative vocabulary (GDD §6) interpreted
 // deterministically. Small worlds, headless, seconds of sim time.
@@ -608,6 +614,63 @@ describe('economy (GDD §3, just enough for M1)', () => {
     expect(w.runtime.requestBuild('m_squad')).toBe(false); // 300 > 100
     expect(w.runtime.requestBuild('nonsense')).toBe(false);
     expect(w.runtime.logistics).toBe(100);
+  });
+});
+
+describe('ROE-gated unit unlocks (GDD §6)', () => {
+  const CATALOGUE: Record<string, { logistics: number; buildTimeS: number; unlock?: { roeMin?: number; afterMission?: string } }> = {
+    m_squad: { logistics: 100, buildTimeS: 1 },
+    m_tank: { logistics: 200, buildTimeS: 1, unlock: { roeMin: 60 } },
+    m_demo: { logistics: 150, buildTimeS: 1, unlock: { afterMission: 'prologue' } },
+  };
+  const ctx = (): Partial<MissionContext> => ({ unitInfo: (u) => CATALOGUE[u] ?? null });
+
+  function econWorld(ledger: LedgerData): World {
+    return makeWorld(
+      baseMission({
+        map: { file: 'none', player_start: [4, 6] },
+        starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+        resources: { logistics_start: 1000 },
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+      }),
+      { ...ctx(), ledger }
+    );
+  }
+
+  it('refuses equipment the campaign has not earned, and says why', () => {
+    const w = econWorld({ 'roe.cumulative_rating': 40 });
+    expect(w.runtime.requestBuild('m_squad')).toBe(true); // no unlock gate
+    expect(w.runtime.requestBuild('m_tank')).toBe(false); // needs ROE 60
+    expect(w.runtime.buildBlockedReason('m_tank')).toMatch(/ROE 60/);
+    expect(w.runtime.buildBlockedReason('m_squad')).toBeNull();
+  });
+
+  it('grants it once the rating is good enough', () => {
+    const w = econWorld({ 'roe.cumulative_rating': 75 });
+    expect(w.runtime.requestBuild('m_tank')).toBe(true);
+    expect(w.runtime.buildBlockedReason('m_tank')).toBeNull();
+  });
+
+  it('a fresh campaign has no rating yet, so rated equipment stays locked', () => {
+    const w = econWorld({});
+    expect(w.runtime.requestBuild('m_tank')).toBe(false);
+    expect(w.runtime.buildBlockedReason('m_tank')).toMatch(/ROE 60/);
+  });
+
+  it('honours after_mission gates from the ledger', () => {
+    const locked = econWorld({ 'roe.cumulative_rating': 90 });
+    expect(locked.runtime.requestBuild('m_demo')).toBe(false);
+    expect(locked.runtime.buildBlockedReason('m_demo')).toMatch(/prologue/);
+
+    const cleared = econWorld({ 'roe.cumulative_rating': 90, 'campaign.completed_missions': ['prologue'] });
+    expect(cleared.runtime.requestBuild('m_demo')).toBe(true);
+  });
+
+  it('a locked unit costs nothing when refused', () => {
+    const w = econWorld({ 'roe.cumulative_rating': 10 });
+    const before = w.runtime.logistics;
+    expect(w.runtime.requestBuild('m_tank')).toBe(false);
+    expect(w.runtime.logistics).toBe(before);
   });
 });
 

@@ -10,18 +10,28 @@
   },
   "hull": {
     "hp": 380,
-    "armor": { "front": 10, "side": 10, "rear": 10 },
+    "armor": {
+      "front": 10,
+      "side": 10,
+      "rear": 10
+    },
     "crew": 5,
     "suppression_resistance": 0.55
   },
-  "mobility": { "speed_tiles_s": 0.85 },
+  "mobility": {
+    "speed_tiles_s": 0.85
+  },
   "sensors": {
     "optics": 1.0,
     "sight_tiles": 8,
     "signature": 0.55,
     "firing_signature_mult": 3.0
   },
-  "abilities": ["demolish", "breach", "garrison"],
+  "abilities": [
+    "demolish",
+    "breach",
+    "garrison"
+  ],
   "weapons": [
     {
       "id": "carbines",
@@ -33,7 +43,9 @@
       "damage": 12,
       "suppression": 40,
       "rof_per_min": 260,
-      "can_target": ["ground"],
+      "can_target": [
+        "ground"
+      ],
       "collateral_risk": 0.1
     },
     {
@@ -47,8 +59,14 @@
       "splash_tiles": 1.2,
       "suppression": 60,
       "rof_per_min": 3,
-      "can_target": ["structure", "ground"],
+      "can_target": [
+        "structure",
+        "ground"
+      ],
       "collateral_risk": 0.6
     }
-  ]
+  ],
+  "unlock": {
+    "roe_rating_min": 50
+  }
 }

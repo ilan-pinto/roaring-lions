@@ -18,7 +18,8 @@
     ],
     "produces": [
       "roster.surviving_units",
-      "roe.cumulative_rating"
+      "roe.cumulative_rating",
+      "campaign.completed_missions"
     ]
   },
   "starting_force": [
