@@ -155,6 +155,18 @@ export const ROUT_DISTANCE = 393216; // 6 tiles
 /** A swept position counts as searched inside this radius: squared tiles. */
 export const SWEEP_ARRIVE_SQ = 147456; // 2.25 tile^2 = 1.5 tiles
 
+// --- fire support bought with intel (GDD §3) --------------------------------
+/** Precision strike: accurate, and heavy enough that using it near people
+ *  is a decision rather than a reflex. */
+export const STRIKE_DAMAGE = 39321600; // 600
+export const STRIKE_SPLASH = 131072; // 2.0 tiles
+export const STRIKE_SUPPRESSION = 78643; // 1.2
+export const STRIKE_DELAY_TICKS = 60; // 3 s from call to impact
+/** Miss scatter for a guided munition: tight, but not zero. */
+export const STRIKE_SCATTER = 19661; // 0.3 tiles
+/** Satellite sweep: everything hostile inside this radius is identified. */
+export const SWEEP_RADIUS_SQ = 3932160; // 60 tile^2 ≈ 7.7 tiles
+
 // --- field recovery ---------------------------------------------------------
 /** Ticks without taking damage before a unit starts patching up (10 s). */
 export const REGEN_DELAY_TICKS = 200;

@@ -191,6 +191,12 @@ export class DebugOverlay {
           '#B8A182'
         );
         break;
+      case 'strike':
+        this.line(t + `<b>PRECISION STRIKE</b> called by ${this.name(e.by)}`, '#E8541E');
+        break;
+      case 'revealed':
+        if (e.count > 0) this.line(t + `satellite sweep: ${e.count} contact(s) identified`, '#A9C4D1');
+        break;
       case 'structureDestroyed':
         this.line(t + `${this.structName(e.structure)} <b>COLLAPSES</b>`, '#E8541E');
         break;

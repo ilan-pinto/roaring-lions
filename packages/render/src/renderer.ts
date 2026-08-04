@@ -255,6 +255,20 @@ export class PixiRenderer {
         this.puffs.push({ x: this.curX[e.target], y: this.curY[e.target], ttl: 12, color: this.opts.interceptColor, r: 10 });
       } else if (e.kind === 'impact' && e.penetrated) {
         this.puffs.push({ x: this.curX[e.target], y: this.curY[e.target], ttl: 10, color: this.opts.flashColor, r: 8 });
+      } else if (e.kind === 'strike') {
+        const sx = fx.toNumber(e.x);
+        const sy = fx.toNumber(e.y);
+        for (let k = 0; k < 18; k++) {
+          const a = PixiRenderer.h2(k * 11 + e.tick, k * 17 + e.tick);
+          const b = PixiRenderer.h2(k * 23 + e.tick, k * 5 + e.tick);
+          this.puffs.push({
+            x: sx + (a - 0.5) * 4,
+            y: sy + (b - 0.5) * 4,
+            ttl: 20 + Math.floor(a * 20),
+            color: k % 3 === 0 ? this.opts.flashColor : this.opts.nearMissColor,
+            r: 10 + a * 14,
+          });
+        }
       } else if (e.kind === 'structureHit') {
         this.terrainDirty = true;
         const s = e.structure;

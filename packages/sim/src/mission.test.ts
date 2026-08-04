@@ -50,6 +50,16 @@ const TANK: UnitTypeJson = {
   ],
 };
 
+
+const DRONE: UnitTypeJson = {
+  id: 'm_drone',
+  role: 'drone',
+  hull: { hp: 120, armor: { front: 0, side: 0, rear: 0 } },
+  mobility: { speed_tiles_s: 2.2 },
+  sensors: { optics: 2, sight_tiles: 16, signature: 0.3 },
+  abilities: ['mark_target'],
+};
+
 interface World {
   sim: Sim;
   runtime: MissionRuntime;
@@ -59,7 +69,7 @@ interface World {
 function makeWorld(mission: MissionJson, ctx?: Partial<MissionContext>): World {
   const sim = new Sim({ seed: 7, width: 28, height: 12, capacity: 32 });
   const ids = new Map<string, number>();
-  for (const t of [SQUAD, AMBUSHER, RUNNER, TANK]) ids.set(t.id, sim.addUnitType(t));
+  for (const t of [SQUAD, AMBUSHER, RUNNER, TANK, DRONE, CIVILIANS]) ids.set(t.id, sim.addUnitType(t));
   const runtime = new MissionRuntime(sim, mission, {
     typeIdOf: (u) => {
       const t = ids.get(u);
@@ -671,6 +681,96 @@ describe('ROE-gated unit unlocks (GDD §6)', () => {
     const before = w.runtime.logistics;
     expect(w.runtime.requestBuild('m_tank')).toBe(false);
     expect(w.runtime.logistics).toBe(before);
+  });
+});
+
+describe('intel: earned by watching, spent on certainty (GDD §3)', () => {
+  const CATALOGUE: Record<string, { logistics: number; buildTimeS: number }> = {
+    m_squad: { logistics: 100, buildTimeS: 1 },
+  };
+
+  function intelWorld(partial: Partial<MissionJson>): World {
+    return makeWorld(
+      baseMission({
+        map: { file: 'none', player_start: [4, 6] },
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+        ...partial,
+      }),
+      { unitInfo: (u) => CATALOGUE[u] ?? null }
+    );
+  }
+
+  it('a loitering drone earns intel; a parked rifle squad earns none', () => {
+    const withDrone = intelWorld({
+      starting_force: [{ unit: 'm_drone', count: 1, at: [5, 5] }],
+      resources: { intel_start: 0 },
+    });
+    withDrone.step(60 * TICKS_PER_SECOND);
+    // GDD §3 anchor: drone loiter ~8/min.
+    expect(withDrone.runtime.intel).toBeGreaterThanOrEqual(7);
+    expect(withDrone.runtime.intel).toBeLessThanOrEqual(9);
+
+    const noDrone = intelWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [5, 5] }],
+      resources: { intel_start: 0 },
+    });
+    noDrone.step(60 * TICKS_PER_SECOND);
+    expect(noDrone.runtime.intel).toBe(0);
+  });
+
+  it('a satellite sweep buys certainty: hidden enemies become identified', () => {
+    const w = intelWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [3, 3] }],
+      // Far away and behind nothing in particular — simply unobserved.
+      enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [24, 10], facing_deg: 180 }] },
+      resources: { intel_start: 200 },
+    });
+    w.step(2 * TICKS_PER_SECOND);
+    const enemy = 1;
+    expect(w.sim.contactLevel(0, enemy)).toBe(0); // nobody has seen him
+
+    expect(w.runtime.requestSweep(fx.from(24), fx.from(10))).toBe(true);
+    expect(w.runtime.intel).toBe(50); // 200 - 150
+    w.step(2);
+    expect(w.sim.contactLevel(0, enemy)).toBe(2); // identified
+  });
+
+  it('refuses what it cannot pay for, and charges nothing', () => {
+    const w = intelWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [3, 3] }],
+      resources: { intel_start: 100 },
+    });
+    expect(w.runtime.requestSweep(fx.from(10), fx.from(10))).toBe(false);
+    expect(w.runtime.requestStrike(fx.from(10), fx.from(10))).toBe(false);
+    expect(w.runtime.intel).toBe(100);
+  });
+
+  it('a precision strike kills what it lands on', () => {
+    const w = intelWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [3, 3] }],
+      enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [20, 6], facing_deg: 180 }] },
+      resources: { intel_start: 300 },
+    });
+    const enemy = 1;
+    expect(w.runtime.requestStrike(fx.from(20.5), fx.from(6.5))).toBe(true);
+    expect(w.runtime.intel).toBe(50); // 300 - 250
+    const { sim: events } = w.step(15 * TICKS_PER_SECOND);
+    expect(events.some((e) => e.kind === 'strike')).toBe(true);
+    expect(w.sim.state.alive[enemy]).toBe(0);
+  });
+
+  it('a strike near civilians is charged against ROE — the point of the whole system', () => {
+    const w = intelWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [3, 3] }],
+      enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [20, 6], facing_deg: 180 }] },
+      civilians: { groups: [{ unit: 'm_civ', count: 2, at: [21, 6] }] },
+      resources: { intel_start: 300 },
+      roe: { enabled: true },
+    });
+    w.runtime.requestStrike(fx.from(20.5), fx.from(6.5));
+    const { mission } = w.step(15 * TICKS_PER_SECOND);
+    expect(mission.some((e) => e.kind === 'roe')).toBe(true);
+    expect(w.runtime.roeScore).toBeLessThan(100);
   });
 });
 

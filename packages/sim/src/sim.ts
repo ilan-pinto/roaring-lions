@@ -80,6 +80,12 @@ import {
   ROUT_SPEED_SHIFT,
   ROUT_DISTANCE,
   SWEEP_ARRIVE_SQ,
+  STRIKE_DAMAGE,
+  STRIKE_SPLASH,
+  STRIKE_SUPPRESSION,
+  STRIKE_DELAY_TICKS,
+  STRIKE_SCATTER,
+  SWEEP_RADIUS_SQ,
   REGEN_DELAY_TICKS,
   REGEN_FRAC,
   REGEN_CAP,
@@ -184,6 +190,8 @@ export interface UnitType {
   canGarrison: boolean;
   /** Can bring a building down by holding position beside it. */
   canDemolish: boolean;
+  /** Trained observer: earns intel while holding position (GDD §3). */
+  canMarkTarget: boolean;
   hp: Fx;
   armorFront: Fx;
   armorSide: Fx;
@@ -257,6 +265,7 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     role: json.role ?? '',
     canGarrison: abilities.includes('garrison'),
     canDemolish: abilities.includes('demolish'),
+    canMarkTarget: abilities.includes('mark_target'),
     hp: fx.from(json.hull.hp),
     armorFront,
     armorSide: fx.from(json.hull.armor.side),
@@ -290,7 +299,12 @@ export type Command =
   | { kind: 'move'; ids: number[]; x: Fx; y: Fx }
   | { kind: 'attackMove'; ids: number[]; x: Fx; y: Fx }
   | { kind: 'halt'; ids: number[] }
-  | { kind: 'garrison'; ids: number[]; structure: number };
+  | { kind: 'garrison'; ids: number[]; structure: number }
+  /** Bought with intel: reveal everything hostile around a point. */
+  | { kind: 'reveal'; side: number; x: Fx; y: Fx }
+  /** Bought with intel: a precision strike, attributed to the caller so
+   *  ROE charges it to the player who ordered it. */
+  | { kind: 'callStrike'; caller: number; x: Fx; y: Fx };
 
 export type ContactLevel = 'suspected' | 'identified' | 'lost';
 export type FacingArc = 'front' | 'side' | 'rear';
@@ -344,6 +358,8 @@ export type SimEvent =
   | { kind: 'component'; tick: number; target: number; result: ComponentResult; overmatch: Fx }
   | { kind: 'nearMiss'; tick: number; shooter: number; weaponId: string; x: Fx; y: Fx }
   | { kind: 'ambushSprung'; tick: number; entity: number }
+  | { kind: 'strike'; tick: number; by: number; x: Fx; y: Fx }
+  | { kind: 'revealed'; tick: number; side: number; count: number }
   | { kind: 'structureHit'; tick: number; structure: number; by: number; damage: Fx; hpLeft: Fx }
   | { kind: 'structureDestroyed'; tick: number; structure: number; by: number }
   | { kind: 'garrison'; tick: number; entity: number; structure: number; entered: boolean }
@@ -432,6 +448,8 @@ export class Sim {
   private readonly displaced: Uint8Array;
   private readonly demoTicks: Int32Array;
   private readonly demoTarget: Int32Array;
+  /** Called-for strikes still in the air. */
+  private pendingStrikes: { x: Fx; y: Fx; by: number; readyTick: number }[] = [];
 
   // --- structure SoA ---
   private structureCount_ = 0;
@@ -808,6 +826,7 @@ export class Sim {
     this.stepDetection();
     this.stepCombat();
     this.stepProjectiles();
+    this.stepStrikes();
     this.stepSweep();
     this.stepMovement();
     this.stepGarrison();
@@ -850,6 +869,47 @@ export class Sim {
           this.attackMove[id] = cmd.kind === 'attackMove' ? 1 : 0;
           this.engaging[id] = 0;
           this.stance[id] = 0; // any order overrides a held stance
+        }
+      } else if (cmd.kind === 'reveal') {
+        // Certainty, purchased: contacts inside the footprint go straight to
+        // identified, and are remembered so the sweep behaviour can use them.
+        const cap = this.capacity;
+        let count = 0;
+        for (let t = 0; t < this.count; t++) {
+          if (this.alive[t] === 0 || this.side[t] === cmd.side || this.side[t] > 1) continue;
+          const d = distSqFx(fx.sub(this.posX[t], cmd.x), fx.sub(this.posY[t], cmd.y));
+          if (d > SWEEP_RADIUS_SQ) continue;
+          const k = cmd.side * cap + t;
+          this.contact[k] = ONE;
+          this.lastSeenX[k] = this.posX[t];
+          this.lastSeenY[k] = this.posY[t];
+          this.lastSeenValid[k] = 1;
+          if (this.contactState[k] !== 2) {
+            this.contactState[k] = 2;
+            this.pendingEvents.push({
+              kind: 'contact',
+              tick: this.tickCount,
+              side: cmd.side,
+              target: t,
+              level: 'identified',
+              confidence: ONE,
+            });
+          }
+          count++;
+        }
+        this.pendingEvents.push({ kind: 'revealed', tick: this.tickCount, side: cmd.side, count });
+      } else if (cmd.kind === 'callStrike') {
+        if (this.alive[cmd.caller] === 1) {
+          // Guided, but not perfect: scatter is drawn from the caller's own
+          // stream so replays stay identical (invariant 3).
+          const ang = this.rng.nextU32(cmd.caller) & 0xffff;
+          const rad = (this.rng.nextU32(cmd.caller) >>> 16) % (STRIKE_SCATTER + 1);
+          this.pendingStrikes.push({
+            x: fx.add(cmd.x, fx.mul(fx.cos(ang), rad)),
+            y: fx.add(cmd.y, fx.mul(fx.sin(ang), rad)),
+            by: cmd.caller,
+            readyTick: this.tickCount + STRIKE_DELAY_TICKS,
+          });
         }
       } else if (cmd.kind === 'garrison') {
         const s = cmd.structure;
@@ -1427,6 +1487,36 @@ export class Sim {
     const packed = this.prWeaponIdx[pr];
     const type = this.unitTypes[packed >> 1];
     return type.weapons[packed & 1];
+  }
+
+  /** Ordnance called in from off the map. Damage falls off with distance,
+   *  buildings take structural damage, and everyone nearby is shaken —
+   *  including civilians, which is what ROE will charge for. */
+  private stepStrikes(): void {
+    if (this.pendingStrikes.length === 0) return;
+    const still: { x: Fx; y: Fx; by: number; readyTick: number }[] = [];
+    for (const s of this.pendingStrikes) {
+      if (this.tickCount < s.readyTick) {
+        still.push(s);
+        continue;
+      }
+      this.pendingEvents.push({ kind: 'strike', tick: this.tickCount, by: s.by, x: s.x, y: s.y });
+      const splashSq = fx.mul(STRIKE_SPLASH, STRIKE_SPLASH);
+      for (let i = 0; i < this.count; i++) {
+        if (this.alive[i] === 0) continue;
+        const dSq = distSqFx(fx.sub(this.posX[i], s.x), fx.sub(this.posY[i], s.y));
+        if (dSq > splashSq) continue;
+        const falloff = fx.sub(ONE, fx.div(fx.sqrt(dSq), STRIKE_SPLASH));
+        this.applyDamage(i, fx.mul(STRIKE_DAMAGE, falloff), s.by);
+        this.applySuppression(i, fx.mul(STRIKE_SUPPRESSION, falloff), false);
+      }
+      for (let st = 0; st < this.structureCount_; st++) {
+        if (this.stAlive[st] === 0) continue;
+        if (this.structDistSq(st, s.x, s.y) > splashSq) continue;
+        this.damageStructure(st, fx.mul(STRIKE_DAMAGE, ONE + ONE), s.by);
+      }
+    }
+    this.pendingStrikes = still;
   }
 
   private stepProjectiles(): void {
@@ -2149,6 +2239,12 @@ export class Sim {
     h = hashArray(h, this.lastSeenX);
     h = hashArray(h, this.lastSeenY);
     h = hashArray(h, this.lastSeenValid);
+    h = hashWord(h, this.pendingStrikes.length);
+    for (const s of this.pendingStrikes) {
+      h = hashWord(h, s.x);
+      h = hashWord(h, s.y);
+      h = hashWord(h, s.readyTick);
+    }
     h = hashArray(h, this.prActive);
     h = hashArray(h, this.prShooter);
     h = hashArray(h, this.prTarget);

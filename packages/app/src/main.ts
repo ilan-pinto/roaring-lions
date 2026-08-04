@@ -368,6 +368,9 @@ async function main(): Promise<void> {
 
   // Refreshed a few times a second from the game loop when production exists.
   let productionTick: (() => void) | null = null;
+  let supportRefresh: (() => void) | null = null;
+  /** Armed fire-support purchase awaiting a target, if any. */
+  let armedSupport: 'sweep' | 'strike' | null = null;
 
   // Field production bar: reinforcements deploy at player_start after their
   // build time, paid from mission logistics.
@@ -402,6 +405,48 @@ async function main(): Promise<void> {
       bar.appendChild(btn);
     }
     document.body.appendChild(bar);
+
+    // Fire support bought with intel. Arming a purchase puts the cursor into
+    // targeting mode; the next left-click on the map spends it.
+    const supportBar = document.createElement('div');
+    supportBar.style.cssText =
+      'position:absolute;bottom:78px;left:8px;display:flex;gap:6px;' +
+      'font:11px ui-monospace,Menlo,monospace;';
+    const supportBtns: { el: HTMLButtonElement; kind: 'sweep' | 'strike'; cost: number }[] = [];
+    for (const spec of [
+      { kind: 'sweep' as const, label: 'Satellite sweep', cost: rt.sweepCost },
+      { kind: 'strike' as const, label: 'Precision strike', cost: rt.strikeCost },
+    ]) {
+      const b = document.createElement('button');
+      b.textContent = `${spec.label} (${spec.cost} intel)`;
+      b.style.cssText =
+        'background:rgba(20,21,15,0.88);color:#A9C4D1;border:1px solid #5C625F;' +
+        'border-radius:4px;padding:6px 8px;cursor:pointer;';
+      b.addEventListener('click', () => {
+        if (rt.intel < spec.cost) {
+          overlay.note(`not enough intel for ${spec.label.toLowerCase()} — watch longer`, '#B8A182');
+          return;
+        }
+        armedSupport = armedSupport === spec.kind ? null : spec.kind;
+        overlay.note(
+          armedSupport
+            ? `<b>${spec.label} armed</b> — click the map to place it`
+            : 'support call cancelled',
+          '#A9C4D1'
+        );
+        b.blur();
+      });
+      supportBtns.push({ el: b, kind: spec.kind, cost: spec.cost });
+      supportBar.appendChild(b);
+    }
+    document.body.appendChild(supportBar);
+    supportRefresh = (): void => {
+      for (const { el, kind, cost } of supportBtns) {
+        const affordable = rt.intel >= cost;
+        el.style.opacity = affordable ? '1' : '0.5';
+        el.style.borderColor = armedSupport === kind ? '#B8FF5A' : '#5C625F';
+      }
+    };
 
     // Production queue: one progress bar per unit under construction.
     const queueUi = document.createElement('div');
@@ -489,6 +534,23 @@ async function main(): Promise<void> {
     const moved = Math.hypot(p.x - dragStart.x, p.y - dragStart.y);
     if (moved < 6) {
       const w = renderer.screenToWorld(p.x, p.y);
+      if (armedSupport !== null && runtime) {
+        const ok =
+          armedSupport === 'sweep'
+            ? runtime.requestSweep(fx.from(w.x), fx.from(w.y))
+            : runtime.requestStrike(fx.from(w.x), fx.from(w.y));
+        overlay.note(
+          ok
+            ? `<b>${armedSupport === 'sweep' ? 'sweep' : 'strike'} called</b> on (${w.x.toFixed(0)}, ${w.y.toFixed(0)})`
+            : 'support call refused — not enough intel',
+          ok ? '#A9C4D1' : '#B8A182'
+        );
+        if (ok) renderer.addOrderMarker(w.x, w.y);
+        armedSupport = null;
+        dragStart = null;
+        dragBox.style.display = 'none';
+        return;
+      }
       const hit = renderer.pickUnit(w.x, w.y);
       renderer.selection = hit >= 0 ? [hit] : [];
     } else {
@@ -621,6 +683,7 @@ async function main(): Promise<void> {
     }
     overlay.onTick(events);
     if (productionTick && sim.tickCount % 5 === 0) productionTick();
+    if (supportRefresh && sim.tickCount % 5 === 0) supportRefresh();
   };
 
   // Dev hook: deterministic headless stepping from the console

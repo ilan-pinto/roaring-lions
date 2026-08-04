@@ -162,6 +162,13 @@ const STRUCTURAL_COLLATERAL = 19661;
 /** One structure deduction per zone per this many ticks (10 s): damage to a
  *  protected site is assessed per incident, not per round. */
 const ZONE_DEDUCT_COOLDOWN = 200;
+/** Intel prices, GDD §3. */
+const SWEEP_COST = 150;
+const STRIKE_COST = 250;
+/** Intel earned per minute, GDD §3: a drone on station, a scout team holding
+ *  an observation post. Watching is what pays for certainty. */
+const INTEL_PER_MIN_DRONE = 8;
+const INTEL_PER_MIN_SCOUT = 5;
 
 interface ObjectiveState {
   def: ObjectiveJson;
@@ -257,6 +264,40 @@ export class MissionRuntime {
       }
     }
     return null;
+  }
+
+  /** What a satellite sweep and a precision strike cost, for the HUD. */
+  get sweepCost(): number {
+    return SWEEP_COST;
+  }
+  get strikeCost(): number {
+    return STRIKE_COST;
+  }
+
+  /**
+   * Buy certainty: everything hostile around a point becomes identified.
+   * Intel is the scarce resource, so this is the recon you did not have time
+   * to do yourself (GDD §3).
+   */
+  requestSweep(x: Fx, y: Fx): boolean {
+    if (this.ended || this.intelValue < SWEEP_COST) return false;
+    this.intelValue -= SWEEP_COST;
+    this.sim.queueCommand({ kind: 'reveal', side: 0, x, y });
+    return true;
+  }
+
+  /**
+   * Call a precision strike. Attributed to a living caller so ROE charges
+   * the consequences to the player who ordered it — a strike beside a
+   * civilian block is meant to be a decision, not a reflex.
+   */
+  requestStrike(x: Fx, y: Fx): boolean {
+    if (this.ended || this.intelValue < STRIKE_COST) return false;
+    const caller = this.playerIds.find((id) => this.sim.state.alive[id] === 1);
+    if (caller === undefined) return false;
+    this.intelValue -= STRIKE_COST;
+    this.sim.queueCommand({ kind: 'callStrike', caller, x, y });
+    return true;
   }
 
   requestBuild(unitId: string): boolean {
@@ -359,6 +400,17 @@ export class MissionRuntime {
     // later slice. Fractional accrual is exact-enough JS arithmetic.
     const rate = this.mission.resources?.logistics_rate_per_min ?? 0;
     if (rate > 0) this.logisticsValue += rate / 1200;
+    // Intel accrues from units that are actually observing: a drone on
+    // station always, a scout team only while it holds position.
+    let intelPerMin = 0;
+    const st = this.sim.state;
+    for (const id of this.playerIds) {
+      if (st.alive[id] === 0) continue;
+      const type = this.sim.unitTypes[st.typeIdx[id]];
+      if (type.role === 'drone') intelPerMin += INTEL_PER_MIN_DRONE;
+      else if (type.canMarkTarget && st.moving[id] === 0) intelPerMin += INTEL_PER_MIN_SCOUT;
+    }
+    if (intelPerMin > 0) this.intelValue += intelPerMin / 1200;
     for (let i = this.buildQueue.length - 1; i >= 0; i--) {
       const b = this.buildQueue[i];
       if (tick < b.readyTick) continue;
@@ -515,6 +567,29 @@ export class MissionRuntime {
               this.zoneDeductedAt.set(zoneName, tick);
               deduct(roe?.flagged_structure_penalty ?? 5, `fire into protected structure (${zoneName})`);
             }
+            break;
+          }
+        }
+      } else if (e.kind === 'strike' && st.side[e.by] === 0) {
+        const tx = e.x >> 16;
+        const ty = e.y >> 16;
+        for (const zoneName of roe?.flagged_zones ?? []) {
+          const z = this.zone(zoneName);
+          if (z && tx >= z[0] && tx < z[0] + z[2] && ty >= z[1] && ty < z[1] + z[3]) {
+            const last = this.zoneDeductedAt.get(zoneName);
+            if (last === undefined || tick - last >= ZONE_DEDUCT_COOLDOWN) {
+              this.zoneDeductedAt.set(zoneName, tick);
+              deduct(roe?.flagged_structure_penalty ?? 5, `strike into protected structure (${zoneName})`);
+            }
+            break;
+          }
+        }
+        for (const civ of this.civIds) {
+          if (st.alive[civ] === 0) continue;
+          const dx = (fx.sub(st.posX[civ], e.x) >> 8) | 0;
+          const dy = (fx.sub(st.posY[civ], e.y) >> 8) | 0;
+          if (dx * dx + dy * dy <= DANGER_CLOSE_SQ) {
+            deduct(roe?.disproportionate_ordnance_penalty ?? 3, 'strike called danger-close to civilians');
             break;
           }
         }
