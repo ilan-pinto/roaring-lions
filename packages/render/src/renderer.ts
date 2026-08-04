@@ -108,10 +108,22 @@ export class PixiRenderer {
   private entitySprites: (Sprite | null)[] = [];
   /** Per-entity turret Sprite, layered above the hull sprite. */
   private turretSprites: (Sprite | null)[] = [];
-  /** Per-entity fractional walk-cycle counter (advances while moving). */
+  /** Per-entity fractional walk-cycle phase, in frames. Persists while
+   *  stopped so gait resumes mid-stride rather than restarting on frame 1. */
   private entityAnimFrame: Float64Array;
+  /** Per-entity measured ground speed in tiles/s, from the last tick's
+   *  position delta. Measured rather than read off the unit type, so cover
+   *  slowdowns and mobility kills pace the gait for free. */
+  private entitySpeed: Float64Array;
+  /** Whether an entity's phase has been given its de-sync offset yet. */
+  private animSeeded: Uint8Array;
   /** Per-entity turret facing (renderer-only, 0–1 normalized). */
   private turretFacing: Float64Array;
+
+  /** Objective zone to outline: [x, y, w, h] in tiles, or null. */
+  objectiveZone: readonly number[] | null = null;
+  /** Zone outline colour cue: the hold is running, unheld, or contested. */
+  objectiveZoneState: 'held' | 'unheld' | 'contested' = 'held';
 
   /** Structure under the cursor, -1 when none. Set by the app. */
   hoverStructure = -1;
@@ -883,6 +895,31 @@ export class PixiRenderer {
       const sx0 = isoX(this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha, this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha);
       const sy0 = isoY(this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha, this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha);
       g.moveTo(sx0, sy0).lineTo(rx, ry).stroke({ width: 1, color: c, alpha: 0.35 });
+    }
+
+    // The ground the mission is actually about. Without this the player is
+    // told to 'hold the western approach' and has to guess where that is.
+    if (this.objectiveZone) {
+      const [zx, zy, zw, zh] = this.objectiveZone;
+      const color =
+        this.objectiveZoneState === 'contested'
+          ? '#D93A2B'
+          : this.objectiveZoneState === 'unheld'
+            ? '#E8C33A'
+            : '#B8FF5A';
+      const pulse = this.objectiveZoneState === 'held' ? 0.3 : 0.35 + 0.25 * Math.sin(this.frameN * 0.09);
+      const corners: [number, number][] = [
+        [zx, zy],
+        [zx + zw, zy],
+        [zx + zw, zy + zh],
+        [zx, zy + zh],
+      ];
+      const pts: number[] = [];
+      for (const [cx2, cy2] of corners) {
+        pts.push(isoX(cx2, cy2), isoY(cx2, cy2));
+      }
+      g.poly(pts).stroke({ width: 2, color, alpha: pulse + 0.25 });
+      g.poly(pts).fill({ color, alpha: 0.05 });
     }
 
     // Queued route for the selection: the path you drew, in order.

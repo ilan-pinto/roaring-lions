@@ -712,7 +712,7 @@ describe('holding ground', () => {
     );
     w.step(4 * TICKS_PER_SECOND);
     const o = w.runtime.objectiveList.find((x) => x.id === 'hold');
-    expect(o?.contested).toBe(true);
+    expect(o?.paused).toBe('contested');
   });
 });
 

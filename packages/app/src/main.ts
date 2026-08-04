@@ -378,8 +378,18 @@ async function main(): Promise<void> {
     const mm = Math.floor(secs / 60);
     const ss = (secs % 60).toString().padStart(2, '0');
     // A paused clock must say why, or it reads as a broken game.
-    clock.textContent = timed.contested ? `${mm}:${ss}  CONTESTED` : `${mm}:${ss}`;
-    clock.style.color = timed.contested ? '#D93A2B' : secs <= 60 ? '#E8C33A' : '#F2E8D5';
+    // A paused clock must say why, or it reads as a broken game.
+    const why =
+      timed.paused === 'contested' ? '  CONTESTED' : timed.paused === 'unheld' ? '  NOBODY HOLDING' : '';
+    clock.textContent = `${mm}:${ss}${why}`;
+    clock.style.color =
+      timed.paused === 'contested'
+        ? '#D93A2B'
+        : timed.paused === 'unheld'
+          ? '#E8C33A'
+          : secs <= 60
+            ? '#E8C33A'
+            : '#F2E8D5';
     clock.style.display = 'block';
   };
 
@@ -753,6 +763,14 @@ async function main(): Promise<void> {
     }
     overlay.onTick(events);
     if (productionTick && sim.tickCount % 5 === 0) productionTick();
+    // Show the ground a timed objective is about, and how it is going.
+    if (runtime && sim.tickCount % 5 === 0) {
+      const timed = runtime.objectiveList.find((o) => o.status === 'active' && o.zone !== undefined);
+      const rect = timed?.zone !== undefined ? map.zones[timed.zone] : undefined;
+      renderer.objectiveZone = rect ?? null;
+      renderer.objectiveZoneState =
+        timed?.paused === 'contested' ? 'contested' : timed?.paused === 'unheld' ? 'unheld' : 'held';
+    }
     if (supportRefresh && sim.tickCount % 5 === 0) supportRefresh();
     if (sim.tickCount % 5 === 0) refreshClock();
   };

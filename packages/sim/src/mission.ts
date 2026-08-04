@@ -179,8 +179,8 @@ interface ObjectiveState {
   def: ObjectiveJson;
   status: ObjectiveStatus;
   holdTicks: number;
-  /** Someone is disputing the ground, so the clock is not running. */
-  contested: boolean;
+  /** Why a timed hold is not counting down, if it is not. */
+  paused: 'contested' | 'unheld' | null;
 }
 
 interface PatrolState {
@@ -227,7 +227,7 @@ export class MissionRuntime {
           `mission ${mission.id}: objective type "${def.type}" is not supported by the runtime yet`
         );
       }
-      this.objectives.push({ def, status: 'active', holdTicks: 0, contested: false });
+      this.objectives.push({ def, status: 'active', holdTicks: 0, paused: null });
     }
     this.firedTriggers = new Array(mission.triggers?.length ?? 0).fill(false);
     this.spawnedWaves = new Array(mission.enemy?.waves?.length ?? 0).fill(false);
@@ -363,8 +363,10 @@ export class MissionRuntime {
      *  timed. 'Hold for five minutes' is not an order you can follow without
      *  a clock (GDD §5.8). The UI formats it; the sim stays float-free. */
     ticksLeft?: number;
-    /** The clock is paused because the ground is being fought over. */
-    contested?: boolean;
+    /** Why the clock is paused: nobody on the objective, or a fight for it. */
+    paused?: 'contested' | 'unheld';
+    /** Zone this objective is fought over, so the map can show it. */
+    zone?: string;
   }[] {
     return this.objectives.map((o) => {
       let ticksLeft: number | undefined;
@@ -389,7 +391,8 @@ export class MissionRuntime {
         primary: o.def.primary,
         status: o.status,
         ticksLeft,
-        contested: o.status === 'active' && o.contested ? true : undefined,
+        paused: o.status === 'active' && o.paused !== null ? o.paused : undefined,
+        zone: o.def.type === 'hold_for' || o.def.type === 'capture' ? o.def.target : undefined,
       };
     });
   }
@@ -809,15 +812,17 @@ export class MissionRuntime {
         complete = tick >= (d.seconds ?? 60) * TICKS_PER_SECOND;
       } else if (d.type === 'capture') {
         const z = this.zone(d.target);
-        const held = z !== undefined && this.livingIn(z, 0) > 0 && !this.contestedIn(z);
-        o.contested = z !== undefined && this.livingIn(z, 0) > 0 && !held;
+        const present = z !== undefined && this.livingIn(z, 0) > 0;
+        const held = present && z !== undefined && !this.contestedIn(z);
+        o.paused = held ? null : present ? 'contested' : 'unheld';
         if (held) o.holdTicks++;
         else o.holdTicks = 0; // taking ground has to be done in one go
         complete = o.holdTicks >= (d.seconds ?? 10) * TICKS_PER_SECOND;
       } else if (d.type === 'hold_for') {
         const z = this.zone(d.target);
-        const held = z !== undefined && this.livingIn(z, 0) > 0 && !this.contestedIn(z);
-        o.contested = z !== undefined && this.livingIn(z, 0) > 0 && !held;
+        const present = z !== undefined && this.livingIn(z, 0) > 0;
+        const held = present && z !== undefined && !this.contestedIn(z);
+        o.paused = held ? null : present ? 'contested' : 'unheld';
         if (held) o.holdTicks++;
         complete = o.holdTicks >= (d.seconds ?? 60) * TICKS_PER_SECOND;
       }

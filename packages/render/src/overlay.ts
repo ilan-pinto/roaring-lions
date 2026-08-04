@@ -13,7 +13,7 @@ export interface MissionView {
     primary: boolean;
     status: string;
     ticksLeft?: number;
-    contested?: boolean;
+    paused?: 'contested' | 'unheld';
   }[];
   result: 'ongoing' | 'victory' | 'defeat';
   /** One-line campaign summary (roster size, cumulative ROE). */
@@ -42,6 +42,7 @@ export class DebugOverlay {
   private readonly right: HTMLDivElement;
   private readonly feed: HTMLDivElement;
   private readonly status: HTMLDivElement;
+  private readonly card: HTMLDivElement;
   private visible = true;
   private feedCount = 0;
 
@@ -64,8 +65,16 @@ export class DebugOverlay {
     this.left = document.createElement('div');
     this.left.style.cssText = PANEL_CSS + 'left:8px;width:300px;';
     this.right = document.createElement('div');
-    this.right.style.cssText = PANEL_CSS + 'right:8px;width:380px;';
+    this.right.style.cssText = PANEL_CSS + 'right:8px;width:380px;max-height:52vh;';
     this.status = document.createElement('div');
+    // The unit card lives in its own frame, bottom right, so it does not
+    // push the mission briefing around every time the selection changes.
+    this.card = document.createElement('div');
+    this.card.style.cssText =
+      'position:absolute;right:8px;bottom:8px;width:360px;max-height:42vh;overflow-y:auto;display:none;' +
+      'background:rgba(20,21,15,0.92);color:#F2E8D5;font:11px ui-monospace,Menlo,monospace;' +
+      'padding:8px 10px;border:1px solid #5C625F;border-radius:4px;line-height:1.5;';
+    host.appendChild(this.card);
     this.feed = document.createElement('div');
     const feedTitle = document.createElement('div');
     feedTitle.textContent = '── roll feed (newest first) ──';
@@ -81,6 +90,7 @@ export class DebugOverlay {
     this.visible = !this.visible;
     this.left.style.display = this.visible ? 'block' : 'none';
     this.right.style.display = this.visible ? 'block' : 'none';
+    if (!this.visible) this.card.style.display = 'none';
   }
 
   private tickN = 0;
@@ -246,7 +256,8 @@ export class DebugOverlay {
         // worth watching.
         const urgent = secs <= 60 ? '#E8C33A' : '#A9C4D1';
         clock = ` <b style="color:${urgent}">${mm}:${ss.toString().padStart(2, '0')}</b>`;
-        if (o.contested) clock += ' <span style="color:#D93A2B">CONTESTED</span>';
+        if (o.paused === 'contested') clock += ' <span style="color:#D93A2B">CONTESTED</span>';
+        else if (o.paused === 'unheld') clock += ' <span style="color:#E8C33A">NOBODY HOLDING</span>';
       }
       rows.push(
         `<span style="color:${color}">${glyph} ${o.text}${clock}${o.primary ? '' : ' <span style="color:#8E9491">(secondary)</span>'}</span>`
@@ -324,8 +335,27 @@ export class DebugOverlay {
         '<span style="color:#8E9491">select a unit to inspect its detection maths</span>';
       return;
     }
+    this.status.innerHTML =
+      this.missionHtml() +
+      this.suppressionHtml() +
+      this.hoveredStructureHtml() +
+      `<span style="color:#8E9491">${sel.length} selected · unit details bottom right</span>`;
+    this.renderCard(sel);
+  }
+
+  /**
+   * Unit card, bottom right in its own frame: icon, identity, condition,
+   * armament, capabilities. Separate from the briefing so a changing
+   * selection never shuffles the mission text around.
+   */
+  private renderCard(sel: number[]): void {
+    if (sel.length === 0) {
+      this.card.style.display = 'none';
+      return;
+    }
+    this.card.style.display = 'block';
     const st = this.sim.state;
-    const rows: string[] = [this.missionHtml() + this.suppressionHtml(), this.hoveredStructureHtml()];
+    const rows: string[] = [];
     const id = sel[0];
     const type = this.sim.unitTypes[st.typeIdx[id]];
 
@@ -335,6 +365,24 @@ export class DebugOverlay {
     const hpPct = hpMax > 0 ? Math.max(0, hpNow / hpMax) : 0;
     const hpColor = hpPct > 0.5 ? '#6B8A4A' : hpPct > 0.25 ? '#E8C33A' : '#D93A2B';
     const vet = st.veterancy[id];
+    const glyph = type.isKamikaze
+      ? '✹'
+      : type.role === 'drone'
+        ? '⬡'
+        : type.role === 'sniper'
+          ? '✛'
+          : type.transportSlots > 0
+            ? '▤'
+            : type.isSoft
+              ? '▲'
+              : '■';
+    // Placeholder frame: real portraits drop in here when the art pipeline
+    // produces them (ART_PIPELINE §10), without moving anything else.
+    rows.push(
+      `<div style="float:left;width:42px;height:42px;margin:0 8px 4px 0;border:1px solid #5C625F;` +
+        `border-radius:3px;background:#14150F;display:flex;align-items:center;justify-content:center;` +
+        `font-size:20px" title="${type.id}">${glyph}</div>`
+    );
     rows.push(
       `<b style="font-size:13px">${type.name}</b>` +
         (vet > 0 ? ` <span style="color:#E8C33A">${'★'.repeat(vet)}</span>` : '') +
@@ -413,6 +461,6 @@ export class DebugOverlay {
       );
       shown++;
     }
-    this.status.innerHTML = rows.join('<br>');
+    this.card.innerHTML = rows.join('<br>');
   }
 }
