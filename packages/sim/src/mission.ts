@@ -162,6 +162,11 @@ const STRUCTURAL_COLLATERAL = 19661;
 /** One structure deduction per zone per this many ticks (10 s): damage to a
  *  protected site is assessed per incident, not per round. */
 const ZONE_DEDUCT_COOLDOWN = 200;
+/** How close an enemy must be to your troops to be contesting the ground
+ *  rather than merely standing somewhere inside a large rectangle: 6 tiles,
+ *  squared, in Q16.16. Objective zones are big — 'no enemy anywhere in the
+ *  zone' let one routed survivor in a far corner freeze a hold forever. */
+const CONTEST_RADIUS_SQ = 2359296;
 /** Intel prices, GDD §3. */
 const SWEEP_COST = 150;
 const STRIKE_COST = 250;
@@ -174,6 +179,8 @@ interface ObjectiveState {
   def: ObjectiveJson;
   status: ObjectiveStatus;
   holdTicks: number;
+  /** Someone is disputing the ground, so the clock is not running. */
+  contested: boolean;
 }
 
 interface PatrolState {
@@ -220,7 +227,7 @@ export class MissionRuntime {
           `mission ${mission.id}: objective type "${def.type}" is not supported by the runtime yet`
         );
       }
-      this.objectives.push({ def, status: 'active', holdTicks: 0 });
+      this.objectives.push({ def, status: 'active', holdTicks: 0, contested: false });
     }
     this.firedTriggers = new Array(mission.triggers?.length ?? 0).fill(false);
     this.spawnedWaves = new Array(mission.enemy?.waves?.length ?? 0).fill(false);
@@ -356,6 +363,8 @@ export class MissionRuntime {
      *  timed. 'Hold for five minutes' is not an order you can follow without
      *  a clock (GDD §5.8). The UI formats it; the sim stays float-free. */
     ticksLeft?: number;
+    /** The clock is paused because the ground is being fought over. */
+    contested?: boolean;
   }[] {
     return this.objectives.map((o) => {
       let ticksLeft: number | undefined;
@@ -380,6 +389,7 @@ export class MissionRuntime {
         primary: o.def.primary,
         status: o.status,
         ticksLeft,
+        contested: o.status === 'active' && o.contested ? true : undefined,
       };
     });
   }
@@ -680,6 +690,29 @@ export class MissionRuntime {
     }
   }
 
+  /**
+   * Is the ground being fought over? True when a living enemy stands inside
+   * the zone AND close enough to one of your units there to dispute it.
+   */
+  private contestedIn(zone: readonly number[]): boolean {
+    const st = this.sim.state;
+    const inZone = (i: number): boolean => {
+      const tx = st.posX[i] >> 16;
+      const ty = st.posY[i] >> 16;
+      return tx >= zone[0] && tx < zone[0] + zone[2] && ty >= zone[1] && ty < zone[1] + zone[3];
+    };
+    for (let e = 0; e < this.sim.entityCount; e++) {
+      if (st.alive[e] === 0 || st.side[e] !== 1 || !inZone(e)) continue;
+      for (let f = 0; f < this.sim.entityCount; f++) {
+        if (st.alive[f] === 0 || st.side[f] !== 0 || !inZone(f)) continue;
+        const dx = (fx.sub(st.posX[e], st.posX[f]) >> 8) | 0;
+        const dy = (fx.sub(st.posY[e], st.posY[f]) >> 8) | 0;
+        if (dx * dx + dy * dy <= CONTEST_RADIUS_SQ) return true;
+      }
+    }
+    return false;
+  }
+
   private livingIn(zone: readonly number[], side: number): number {
     let n = 0;
     const st = this.sim.state;
@@ -776,12 +809,16 @@ export class MissionRuntime {
         complete = tick >= (d.seconds ?? 60) * TICKS_PER_SECOND;
       } else if (d.type === 'capture') {
         const z = this.zone(d.target);
-        if (z && this.livingIn(z, 0) > 0 && this.livingIn(z, 1) === 0) o.holdTicks++;
-        else o.holdTicks = 0;
+        const held = z !== undefined && this.livingIn(z, 0) > 0 && !this.contestedIn(z);
+        o.contested = z !== undefined && this.livingIn(z, 0) > 0 && !held;
+        if (held) o.holdTicks++;
+        else o.holdTicks = 0; // taking ground has to be done in one go
         complete = o.holdTicks >= (d.seconds ?? 10) * TICKS_PER_SECOND;
       } else if (d.type === 'hold_for') {
         const z = this.zone(d.target);
-        if (z && this.livingIn(z, 0) > 0 && this.livingIn(z, 1) === 0) o.holdTicks++;
+        const held = z !== undefined && this.livingIn(z, 0) > 0 && !this.contestedIn(z);
+        o.contested = z !== undefined && this.livingIn(z, 0) > 0 && !held;
+        if (held) o.holdTicks++;
         complete = o.holdTicks >= (d.seconds ?? 60) * TICKS_PER_SECOND;
       }
       if (complete) {

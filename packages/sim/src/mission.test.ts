@@ -684,6 +684,38 @@ describe('ROE-gated unit unlocks (GDD §6)', () => {
   });
 });
 
+describe('holding ground', () => {
+  it('a straggler in the far corner does not freeze the hold', () => {
+    // The Foothold bug: hold_for demanded zero enemies anywhere inside a
+    // 17x32 zone, so one routed survivor hiding in a corner stopped the
+    // clock forever and the mission could never end.
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 2, at: [3, 5] }],
+        enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [24, 10], facing_deg: 180 }] },
+        objectives: [{ id: 'hold', type: 'hold_for', primary: true, target: 'ground', seconds: 5 }],
+      }),
+      { zones: { ground: [0, 0, 28, 12] } } // enemy is inside it, but far away
+    );
+    const { mission } = w.step(20 * TICKS_PER_SECOND);
+    expect(mission.some((e) => e.kind === 'objective' && e.id === 'hold' && e.status === 'complete')).toBe(true);
+  });
+
+  it('but an enemy fighting for the ground does contest it', () => {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+        enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [5, 5], facing_deg: 180 }] },
+        objectives: [{ id: 'hold', type: 'hold_for', primary: true, target: 'ground', seconds: 5 }],
+      }),
+      { zones: { ground: [0, 0, 28, 12] } }
+    );
+    w.step(4 * TICKS_PER_SECOND);
+    const o = w.runtime.objectiveList.find((x) => x.id === 'hold');
+    expect(o?.contested).toBe(true);
+  });
+});
+
 describe('intel: earned by watching, spent on certainty (GDD §3)', () => {
   const CATALOGUE: Record<string, { logistics: number; buildTimeS: number }> = {
     m_squad: { logistics: 100, buildTimeS: 1 },

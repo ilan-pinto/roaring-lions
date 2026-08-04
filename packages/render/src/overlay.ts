@@ -7,7 +7,14 @@ import { fx, type Sim, type SimEvent } from '@lions/sim';
 
 export interface MissionView {
   name: string;
-  objectives: { id: string; text: string; primary: boolean; status: string; ticksLeft?: number }[];
+  objectives: {
+    id: string;
+    text: string;
+    primary: boolean;
+    status: string;
+    ticksLeft?: number;
+    contested?: boolean;
+  }[];
   result: 'ongoing' | 'victory' | 'defeat';
   /** One-line campaign summary (roster size, cumulative ROE). */
   campaign?: string;
@@ -239,6 +246,7 @@ export class DebugOverlay {
         // worth watching.
         const urgent = secs <= 60 ? '#E8C33A' : '#A9C4D1';
         clock = ` <b style="color:${urgent}">${mm}:${ss.toString().padStart(2, '0')}</b>`;
+        if (o.contested) clock += ' <span style="color:#D93A2B">CONTESTED</span>';
       }
       rows.push(
         `<span style="color:${color}">${glyph} ${o.text}${clock}${o.primary ? '' : ' <span style="color:#8E9491">(secondary)</span>'}</span>`
@@ -320,26 +328,67 @@ export class DebugOverlay {
     const rows: string[] = [this.missionHtml() + this.suppressionHtml(), this.hoveredStructureHtml()];
     const id = sel[0];
     const type = this.sim.unitTypes[st.typeIdx[id]];
-    rows.push(`<b>${this.name(id)}</b> side${st.side[id]}${sel.length > 1 ? ` (+${sel.length - 1} more)` : ''}`);
+
+    // Unit card: what it is, how it is doing, what it can do.
+    const hpNow = fx.toNumber(st.hp[id]);
+    const hpMax = fx.toNumber(type.hp);
+    const hpPct = hpMax > 0 ? Math.max(0, hpNow / hpMax) : 0;
+    const hpColor = hpPct > 0.5 ? '#6B8A4A' : hpPct > 0.25 ? '#E8C33A' : '#D93A2B';
+    const vet = st.veterancy[id];
     rows.push(
-      `hp ${fmt(st.hp[id], 0)}/${fmt(type.hp, 0)} · supp ${fmt(st.suppression[id], 2)}${st.pinned[id] ? ' <b>PINNED</b>' : ''}`
+      `<b style="font-size:13px">${type.name}</b>` +
+        (vet > 0 ? ` <span style="color:#E8C33A">${'★'.repeat(vet)}</span>` : '') +
+        `<span style="color:#8E9491"> · ${type.role || 'unit'}</span>` +
+        (sel.length > 1 ? `<span style="color:#8E9491"> (+${sel.length - 1} more)</span>` : '')
     );
+    rows.push(
+      `<div style="margin:3px 0;height:7px;background:#14150F;border:1px solid #5C625F;border-radius:2px">` +
+        `<div style="height:100%;width:${(hpPct * 100).toFixed(0)}%;background:${hpColor}"></div></div>` +
+        `<span style="color:#8E9491">${hpNow.toFixed(0)} / ${hpMax.toFixed(0)} hp</span>`
+    );
+
+    // Condition: only what is actually true right now.
     const flags: string[] = [];
-    if (st.veterancy[id] > 0) flags.push('vet ' + '★'.repeat(st.veterancy[id]));
-    if (st.moving[id]) flags.push('moving');
-    if (st.mobilityKilled[id]) flags.push('M-kill');
-    if (st.firepowerKilled[id]) flags.push('F-kill');
+    if (st.routed[id] === 1) flags.push('<span style="color:#D93A2B">BROKEN</span>');
+    else if (st.pinned[id] === 1) flags.push('<span style="color:#FFB43C">PINNED</span>');
+    if (st.garrisonedIn[id] >= 0) flags.push('<span style="color:#B8FF5A">in a building</span>');
+    if (st.mobilityKilled[id] === 1) flags.push('<span style="color:#8E9491">immobilised</span>');
+    if (st.firepowerKilled[id] === 1) flags.push('<span style="color:#8B1E12">guns out</span>');
+    if (st.moving[id] === 1) flags.push('moving');
+    const supp = fx.toNumber(st.suppression[id]);
+    if (supp > 0.05) flags.push(`suppression ${(supp * 100).toFixed(0)}%`);
     if (type.hasAps) flags.push(`APS ${st.apsAmmo[id]}/${type.apsMagazine}`);
-    rows.push(flags.length ? flags.join(' · ') : 'stationary');
-    rows.push(`facing ${(fx.toNumber(st.facing[id]) * 360).toFixed(0)}°`);
-    // Pre-shot cost legibility (GDD §5.8): heavy ordnance warns before it fires.
-    for (const w of type.weapons) {
-      if (fx.toNumber(w.collateralRisk) >= 0.5) {
+    const wp = this.sim.waypointCount(id);
+    if (wp > 0) flags.push(`${wp} waypoint${wp === 1 ? '' : 's'}`);
+    rows.push(flags.length > 0 ? flags.join(' · ') : 'holding position');
+
+    // Armament, so the player can tell what this unit is for.
+    if (type.weapons.length > 0) {
+      rows.push('<span style="color:#8E9491">armament</span>');
+      for (const w of type.weapons) {
+        const pen = fx.toNumber(w.penetration);
         rows.push(
-          `<span style="color:#E8C33A">⚠ ${w.id}: collateral risk ${pct(w.collateralRisk)} — keep civilians clear of the aimpoint</span>`
+          `&nbsp;${w.id} — ${fx.toNumber(w.effectiveRange).toFixed(1)}/${fx.toNumber(w.range).toFixed(0)} tiles` +
+            (pen > 0 ? ` · ${pen.toFixed(0)}mm pen` : '') +
+            (fx.toNumber(w.collateralRisk) >= 0.5
+              ? ' <span style="color:#E8C33A">⚠ heavy</span>'
+              : '')
         );
       }
+    } else {
+      rows.push('<span style="color:#8E9491">unarmed</span>');
     }
+
+    // Special controls: what this unit can do beyond move and shoot.
+    const caps: string[] = [];
+    if (type.canSmoke) caps.push('<b>f</b> smoke screen');
+    if (type.canGarrison) caps.push('right-click a building to garrison');
+    if (type.canDemolish) caps.push('hold beside a building to demolish it');
+    if (type.canMarkTarget) caps.push('earns intel while stationary');
+    caps.push('<b>shift</b>+right-click to add a waypoint');
+    rows.push('<span style="color:#8E9491">capabilities</span>');
+    for (const c of caps) rows.push(`&nbsp;${c}`);
+
     rows.push('<br><b>detection vs hostiles</b> <span style="color:#8E9491">(P per tick / confidence)</span>');
     const mySide = st.side[id];
     let shown = 0;

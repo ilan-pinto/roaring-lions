@@ -126,6 +126,7 @@ export interface WeaponJson {
 
 export interface UnitTypeJson {
   id: string;
+  name?: string;
   role?: string;
   abilities?: readonly string[];
   hull: {
@@ -192,6 +193,8 @@ export interface WeaponStats {
 
 export interface UnitType {
   id: string;
+  /** Display name for the HUD; falls back to the id. */
+  name: string;
   /** Schema role (mbt/infantry/drone/…) — presentation uses it for silhouettes. */
   role: string;
   /** Can fight from inside a building. */
@@ -272,6 +275,7 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
   const abilities = json.abilities ?? [];
   return {
     id: json.id,
+    name: json.name ?? json.id,
     role: json.role ?? '',
     canGarrison: abilities.includes('garrison'),
     canDemolish: abilities.includes('demolish'),
@@ -307,8 +311,8 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
 // ---------------------------------------------------------------------------
 
 export type Command =
-  | { kind: 'move'; ids: number[]; x: Fx; y: Fx }
-  | { kind: 'attackMove'; ids: number[]; x: Fx; y: Fx }
+  | { kind: 'move'; ids: number[]; x: Fx; y: Fx; append?: boolean }
+  | { kind: 'attackMove'; ids: number[]; x: Fx; y: Fx; append?: boolean }
   | { kind: 'halt'; ids: number[] }
   | { kind: 'garrison'; ids: number[]; structure: number }
   /** Bought with intel: reveal everything hostile around a point. */
@@ -403,6 +407,9 @@ export interface DetectionDebug {
 
 const PROJ_CAP = 1024;
 const MAX_STRUCTURES = 256;
+/** Queued path points per unit. Enough for a route around a block; a cap
+ *  keeps the storage flat and the hash cheap. */
+const MAX_WAYPOINTS = 8;
 
 // ---------------------------------------------------------------------------
 
@@ -465,6 +472,11 @@ export class Sim {
   private readonly demoTicks: Int32Array;
   private readonly demoTarget: Int32Array;
   private readonly smokeCooldown: Int32Array;
+  /** Queued path: points a unit walks after its current goal. */
+  private readonly wpX: Int32Array;
+  private readonly wpY: Int32Array;
+  private readonly wpAttack: Uint8Array;
+  private readonly wpCount: Uint8Array;
   /** Called-for strikes still in the air. */
   private pendingStrikes: { x: Fx; y: Fx; by: number; readyTick: number }[] = [];
 
@@ -613,6 +625,10 @@ export class Sim {
     this.demoTicks = new Int32Array(n);
     this.demoTarget = new Int32Array(n).fill(-1);
     this.smokeCooldown = new Int32Array(n);
+    this.wpX = new Int32Array(n * MAX_WAYPOINTS);
+    this.wpY = new Int32Array(n * MAX_WAYPOINTS);
+    this.wpAttack = new Uint8Array(n * MAX_WAYPOINTS);
+    this.wpCount = new Uint8Array(n);
     const sc = MAX_STRUCTURES;
     this.stAlive = new Uint8Array(sc);
     this.stHp = new Int32Array(sc);
@@ -775,6 +791,36 @@ export class Sim {
     return id;
   }
 
+  /** Clamp a point to somewhere a unit can actually stand: inside the map,
+   *  a half tile off the edge. Orders past the border are common (a drag
+   *  that overshoots) and must not walk anyone off the world. */
+  private clampX(x: Fx): Fx {
+    const lo = HALF;
+    const hi = fx.sub(fx.fromInt(this.width), HALF);
+    return x < lo ? lo : x > hi ? hi : x;
+  }
+  private clampY(y: Fx): Fx {
+    const lo = HALF;
+    const hi = fx.sub(fx.fromInt(this.height), HALF);
+    return y < lo ? lo : y > hi ? hi : y;
+  }
+
+  /** Where a unit is currently headed, for drawing its route. */
+  goalOf(id: number): [Fx, Fx] {
+    return [this.goalX[id], this.goalY[id]];
+  }
+
+  /** How many path points a unit still has queued. */
+  waypointCount(id: number): number {
+    return this.wpCount[id];
+  }
+
+  /** Queued path point `i` (0 = next), for the renderer. */
+  waypointAt(id: number, i: number): [Fx, Fx] {
+    const k = id * MAX_WAYPOINTS + i;
+    return [this.wpX[k], this.wpY[k]];
+  }
+
   /** Structure occupying a tile, or -1. */
   structureAt(x: number, y: number): number {
     if (x < 0 || y < 0 || x >= this.width || y >= this.height) return -1;
@@ -877,13 +923,30 @@ export class Sim {
     for (let c = 0; c < q.length; c++) {
       const cmd = q[c];
       if (cmd.kind === 'move' || cmd.kind === 'attackMove') {
-        const fieldIdx = this.fieldFor(fx.toInt(cmd.x), fx.toInt(cmd.y));
+        const gx = this.clampX(cmd.x);
+        const gy = this.clampY(cmd.y);
+        const fieldIdx = this.fieldFor(fx.toInt(gx), fx.toInt(gy));
+        const attack = cmd.kind === 'attackMove' ? 1 : 0;
         for (const id of cmd.ids) {
           if (this.alive[id] === 0 || this.routed[id] === 1) continue; // broken troops aren't listening
+          // Appending to a unit already under way queues the point instead of
+          // overriding it: that is how a player draws a route round a block.
+          if (cmd.append === true && this.moving[id] === 1) {
+            const n = this.wpCount[id];
+            if (n < MAX_WAYPOINTS) {
+              const k = id * MAX_WAYPOINTS + n;
+              this.wpX[k] = gx;
+              this.wpY[k] = gy;
+              this.wpAttack[k] = attack;
+              this.wpCount[id] = n + 1;
+            }
+            continue;
+          }
+          this.wpCount[id] = 0; // a fresh order replaces the whole path
           if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
           this.garrisonGoal[id] = -1;
-          this.goalX[id] = cmd.x;
-          this.goalY[id] = cmd.y;
+          this.goalX[id] = gx;
+          this.goalY[id] = gy;
           this.fieldRef[id] = fieldIdx;
           this.moving[id] = 1;
           this.attackMove[id] = cmd.kind === 'attackMove' ? 1 : 0;
@@ -980,6 +1043,7 @@ export class Sim {
         for (const id of cmd.ids) {
           if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
           this.garrisonGoal[id] = -1;
+          this.wpCount[id] = 0;
           this.moving[id] = 0;
           this.fieldRef[id] = -1;
           this.engaging[id] = 0;
@@ -2200,6 +2264,8 @@ export class Sim {
         ny = fx.add(py, fx.mul(DIR_VY[d], step));
       }
 
+      nx = this.clampX(nx);
+      ny = this.clampY(ny);
       const ntx = nx >> 16;
       const nty = ny >> 16;
       if (this.blocked[nty * w + ntx] !== 0) {
@@ -2222,8 +2288,25 @@ export class Sim {
       this.posX[i] = nx;
       this.posY[i] = ny;
       if (arrived && nx === this.goalX[i] && ny === this.goalY[i]) {
-        this.moving[i] = 0;
-        this.fieldRef[i] = -1;
+        const queued = this.wpCount[i];
+        if (queued > 0) {
+          // Next leg: shift the queue down and carry straight on.
+          const base = i * MAX_WAYPOINTS;
+          this.goalX[i] = this.wpX[base];
+          this.goalY[i] = this.wpY[base];
+          this.attackMove[i] = this.wpAttack[base];
+          for (let k = 0; k < queued - 1; k++) {
+            this.wpX[base + k] = this.wpX[base + k + 1];
+            this.wpY[base + k] = this.wpY[base + k + 1];
+            this.wpAttack[base + k] = this.wpAttack[base + k + 1];
+          }
+          this.wpCount[i] = queued - 1;
+          this.fieldRef[i] = this.fieldFor(fx.toInt(this.goalX[i]), fx.toInt(this.goalY[i]));
+          this.engaging[i] = 0;
+        } else {
+          this.moving[i] = 0;
+          this.fieldRef[i] = -1;
+        }
       }
     }
   }
@@ -2312,6 +2395,10 @@ export class Sim {
     h = hashArray(h, this.cover);
     h = hashArray(h, this.smoke);
     h = hashArray(h, this.smokeCooldown);
+    h = hashArray(h, this.wpX);
+    h = hashArray(h, this.wpY);
+    h = hashArray(h, this.wpAttack);
+    h = hashArray(h, this.wpCount);
     h = hashArray(h, this.alive);
     h = hashArray(h, this.side);
     h = hashArray(h, this.typeIdx);

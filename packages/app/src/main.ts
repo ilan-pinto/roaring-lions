@@ -377,8 +377,9 @@ async function main(): Promise<void> {
     const secs = Math.ceil(timed.ticksLeft / TICKS_PER_SECOND);
     const mm = Math.floor(secs / 60);
     const ss = (secs % 60).toString().padStart(2, '0');
-    clock.textContent = `${mm}:${ss}`;
-    clock.style.color = secs <= 60 ? '#E8C33A' : '#F2E8D5';
+    // A paused clock must say why, or it reads as a broken game.
+    clock.textContent = timed.contested ? `${mm}:${ss}  CONTESTED` : `${mm}:${ss}`;
+    clock.style.color = timed.contested ? '#D93A2B' : secs <= 60 ? '#E8C33A' : '#F2E8D5';
     clock.style.display = 'block';
   };
 
@@ -606,7 +607,15 @@ async function main(): Promise<void> {
       renderer.addOrderMarker(w.x, w.y);
       return;
     }
-    sim.queueCommand({ kind: 'attackMove', ids: mine, x: fx.from(w.x), y: fx.from(w.y) });
+    // Shift queues the point onto the end of the route instead of replacing
+    // it, so a player can draw a path around a block.
+    sim.queueCommand({
+      kind: 'attackMove',
+      ids: mine,
+      x: fx.from(w.x),
+      y: fx.from(w.y),
+      append: ev.shiftKey,
+    });
     renderer.addOrderMarker(w.x, w.y);
   });
   const keys = new Set<string>();

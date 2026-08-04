@@ -855,6 +855,34 @@ export class PixiRenderer {
       g.moveTo(sx0, sy0).lineTo(rx, ry).stroke({ width: 1, color: c, alpha: 0.35 });
     }
 
+    // Queued route for the selection: the path you drew, in order.
+    for (const i of this.selection) {
+      if (st.alive[i] === 0 || st.moving[i] === 0) continue;
+      const n = this.sim.waypointCount(i);
+      let px = isoX(this.curX[i], this.curY[i]);
+      let py = isoY(this.curX[i], this.curY[i]);
+      const legs: [number, number][] = [];
+      legs.push([fx.toNumber(this.sim.state.posX[i]), fx.toNumber(this.sim.state.posY[i])]);
+      const goal = this.sim.goalOf(i);
+      legs.push([fx.toNumber(goal[0]), fx.toNumber(goal[1])]);
+      for (let k = 0; k < n; k++) {
+        const [wx, wy] = this.sim.waypointAt(i, k);
+        legs.push([fx.toNumber(wx), fx.toNumber(wy)]);
+      }
+      for (let k = 1; k < legs.length; k++) {
+        const ax = isoX(legs[k - 1][0], legs[k - 1][1]);
+        const ay = isoY(legs[k - 1][0], legs[k - 1][1]);
+        const bx = isoX(legs[k][0], legs[k][1]);
+        const by = isoY(legs[k][0], legs[k][1]);
+        g.moveTo(ax, ay).lineTo(bx, by).stroke({ width: 1.5, color: '#B8FF5A', alpha: 0.35 });
+        g.circle(bx, by, 3).fill({ color: '#B8FF5A', alpha: 0.55 });
+      }
+      px = 0;
+      py = 0;
+      void px;
+      void py;
+    }
+
     // Order crosshairs fade out where the last command pointed.
     this.orderMarkers = this.orderMarkers.filter((m) => --m.ttl > 0);
     for (const m of this.orderMarkers) {

@@ -83,8 +83,8 @@ describe('determinism (1000-tick replay)', () => {
     // that is the whole claim of invariants 2 and 3. It changes ONLY when the
     // model deliberately changes (sim code or tuning constants); update it by
     // reading the new value from this failure, in the same commit, on purpose.
-    // Updated for smoke: the screen grid and its cooldowns are hashed state.
-    expect(a.hash()).toBe(501048078);
+    // Updated for waypoints: queued path points join the hashed state.
+    expect(a.hash()).toBe(2285314830);
   });
 
   it('a different seed produces a different hash', () => {
