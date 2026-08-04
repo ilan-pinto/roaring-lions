@@ -45,7 +45,8 @@ export class DebugOverlay {
     host: HTMLElement,
     private readonly sim: Sim,
     private readonly getSelection: () => number[],
-    private readonly getMission?: () => MissionView | null
+    private readonly getMission?: () => MissionView | null,
+    private readonly hoverStructure: () => number = () => -1
   ) {
     this.banner = document.createElement('div');
     this.banner.style.cssText =
@@ -217,11 +218,50 @@ export class DebugOverlay {
     return parts.join(' · ') + '<br>';
   }
 
+  /** Building under the cursor, reported the way a unit is when selected. */
+  private hoveredStructureHtml(): string {
+    const s = this.hoverStructure();
+    if (s < 0) return '';
+    const str = this.sim.structures;
+    if (str.alive[s] === 0) return '';
+    const type = this.sim.structureTypes[str.typeIdx[s]];
+    const integrity = str.maxHp[s] > 0 ? str.hp[s] / str.maxHp[s] : 1;
+    const st = this.sim.state;
+    // Count only what side 0 can actually see: friendlies always, hostiles
+    // once identified. A building does not report its garrison to the enemy.
+    let known = 0;
+    let hostile = false;
+    for (let i = 0; i < this.sim.entityCount; i++) {
+      if (st.alive[i] === 0 || st.garrisonedIn[i] !== s) continue;
+      if (st.side[i] === 0) known++;
+      else if (this.sim.contactLevel(0, i) === 2) {
+        known++;
+        hostile = true;
+      }
+    }
+    const rows = [
+      `<b>${type.name}</b>`,
+      `integrity ${(integrity * 100).toFixed(0)}%`,
+      known > 0
+        ? `<span style="color:${hostile ? '#D93A2B' : '#B8FF5A'}">held: ${known}/${type.garrisonSlots} inside</span>`
+        : type.garrisonSlots > 0
+          ? `<span style="color:#8E9491">empty · ${type.garrisonSlots} garrison slots</span>`
+          : '<span style="color:#8E9491">not garrisonable</span>',
+    ];
+    if (type.roePenalty > 0) {
+      rows.push(
+        `<span style="color:#E8C33A">⚠ levelling this costs ROE ${type.roePenalty}</span>`
+      );
+    }
+    return rows.join('<br>') + '<br><br>';
+  }
+
   private renderSelected(): void {
     const sel = this.getSelection();
     if (sel.length === 0) {
       this.status.innerHTML =
         this.missionHtml() +
+        this.hoveredStructureHtml() +
         this.suppressionHtml() +
         '<b>controls</b><br>click/drag: select · right-click: attack-move<br>' +
         'h: halt · ctrl+a: select all KDF · m: mute · o: overlay · wasd/arrows: pan · wheel: zoom<br>' +
@@ -230,7 +270,7 @@ export class DebugOverlay {
       return;
     }
     const st = this.sim.state;
-    const rows: string[] = [this.missionHtml() + this.suppressionHtml()];
+    const rows: string[] = [this.missionHtml() + this.suppressionHtml(), this.hoveredStructureHtml()];
     const id = sel[0];
     const type = this.sim.unitTypes[st.typeIdx[id]];
     rows.push(`<b>${this.name(id)}</b> side${st.side[id]}${sel.length > 1 ? ` (+${sel.length - 1} more)` : ''}`);

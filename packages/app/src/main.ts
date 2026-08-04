@@ -317,7 +317,13 @@ async function main(): Promise<void> {
           resources: mission.resources ? `logistics ${runtime.logistics} · intel ${runtime.intel}` : undefined,
         }
       : null;
-  const overlay = new DebugOverlay(document.body, sim, () => renderer.selection, getMission);
+  const overlay = new DebugOverlay(
+    document.body,
+    sim,
+    () => renderer.selection,
+    getMission,
+    () => renderer.hoverStructure
+  );
 
   // Always-visible escape hatch back to the campaign menu.
   // Top bar: menu and audio, laid out side by side so neither can collide.

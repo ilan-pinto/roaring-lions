@@ -27,6 +27,8 @@ export interface StructureTypeJson {
 
 export interface StructureType {
   id: string;
+  /** Display name for the HUD. */
+  name: string;
   hpPerTile: Fx;
   garrisonSlots: number;
   rubbleCover: number;
@@ -39,6 +41,7 @@ export interface StructureType {
 export function structureTypeFromJson(json: StructureTypeJson): StructureType {
   return {
     id: json.id,
+    name: json.name ?? json.id,
     hpPerTile: fx.from(json.hp_per_tile),
     garrisonSlots: json.garrison_slots ?? 0,
     rubbleCover: json.rubble_cover ?? 2,
