@@ -23,18 +23,22 @@ DIMETRIC_ELEVATION = math.atan(0.5)
 KEEP_PARENTS = {"Man_rig", "Gun_armature"}
 SKIP_MESHES = {"floor", "switch", "switch.panel", "Plane", "Plane.001", "Plane.002"}
 
-# Walk cycle bone rotations (degrees) for the FK chain.
-# Each entry: (FKthighL, FKthighR, FKshinL, FKshinR, Arm.L, Arm.R)
-# Convention: positive = forward swing for thighs, positive = bend for shins.
+# Walk cycle rotations (degrees) applied directly to deformation bones.
+# The rig defaults to IK mode (FK influence=0), so we pose the deformation
+# bones directly and mute all constraints for the walk frames.
 WALK_POSES = [
     # Frame 1: right leg forward contact
-    {"FKthighR": 25, "FKthighL": -15, "FKshinR": -10, "FKshinL": -30, "Arm.L": 20, "Arm.R": -15},
-    # Frame 2: passing (both under body, slight crouch)
-    {"FKthighR": 5, "FKthighL": 5, "FKshinR": -20, "FKshinL": -20, "Arm.L": 5, "Arm.R": 5},
-    # Frame 3: left leg forward contact (mirror of frame 1)
-    {"FKthighR": -15, "FKthighL": 25, "FKshinR": -30, "FKshinL": -10, "Arm.L": -15, "Arm.R": 20},
+    {"thigh.R": 25, "thigh.L": -15, "shin.R": -10, "shin.L": -30,
+     "upper_arm.L": 20, "upper_arm.R": -15},
+    # Frame 2: passing (both legs under body)
+    {"thigh.R": 5, "thigh.L": 5, "shin.R": -20, "shin.L": -20,
+     "upper_arm.L": 5, "upper_arm.R": 5},
+    # Frame 3: left leg forward contact (mirror of 1)
+    {"thigh.R": -15, "thigh.L": 25, "shin.R": -30, "shin.L": -10,
+     "upper_arm.L": -15, "upper_arm.R": 20},
     # Frame 4: passing mirrored
-    {"FKthighR": 5, "FKthighL": 5, "FKshinR": -20, "FKshinL": -20, "Arm.L": -5, "Arm.R": -5},
+    {"thigh.R": 5, "thigh.L": 5, "shin.R": -20, "shin.L": -20,
+     "upper_arm.L": -5, "upper_arm.R": -5},
 ]
 
 
@@ -195,24 +199,26 @@ def setup_scene_and_render(armature_obj):
 
 
 def reset_pose(armature_obj):
-    """Reset all pose bones to their rest position."""
+    """Reset all pose bones to rest position and unmute constraints."""
     from mathutils import Quaternion
     for pb in armature_obj.pose.bones:
         pb.rotation_quaternion = Quaternion()
         pb.rotation_euler = (0, 0, 0)
         pb.location = (0, 0, 0)
+        for c in pb.constraints:
+            c.mute = False
 
 
 def apply_walk_pose(armature_obj, pose_dict):
-    """Apply walk cycle rotations to FK bones. Rotates around the local X axis."""
-    from mathutils import Euler
+    """Mute IK/FK copy-rotation constraints on target bones, then pose directly."""
     reset_pose(armature_obj)
     for bone_name, angle_deg in pose_dict.items():
         pb = armature_obj.pose.bones.get(bone_name)
         if pb is None:
             sys.stderr.write(f"WARNING: bone '{bone_name}' not found\n")
             continue
-        # Rotate around local X axis (forward/back swing for legs and arms).
+        for c in pb.constraints:
+            c.mute = True
         pb.rotation_mode = "XYZ"
         pb.rotation_euler.x = math.radians(angle_deg)
 

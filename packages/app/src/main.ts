@@ -300,13 +300,31 @@ async function main(): Promise<void> {
   const overlay = new DebugOverlay(document.body, sim, () => renderer.selection, getMission);
 
   // Always-visible escape hatch back to the campaign menu.
+  // Top bar: menu and audio, laid out side by side so neither can collide.
+  const topBar = document.createElement('div');
+  topBar.style.cssText =
+    'position:absolute;top:8px;left:50%;transform:translateX(-50%);display:flex;gap:8px;';
+  document.body.appendChild(topBar);
+
   const menuBtn = document.createElement('a');
   menuBtn.textContent = '⌂ menu';
   menuBtn.href = '?';
-  menuBtn.style.cssText =
-    'position:absolute;top:8px;left:50%;transform:translateX(-50%);padding:5px 12px;' +
-    'color:#F2E8D5;text-decoration:none;' + PANEL;
-  document.body.appendChild(menuBtn);
+  menuBtn.style.cssText = 'padding:5px 12px;color:#F2E8D5;text-decoration:none;' + PANEL;
+  topBar.appendChild(menuBtn);
+
+  // Audio toggle, next to the menu. Mirrors the `m` key both ways.
+  const muteBtn = document.createElement('button');
+  muteBtn.style.cssText = 'padding:5px 12px;cursor:pointer;' + PANEL;
+  const paintMute = (muted: boolean): void => {
+    muteBtn.textContent = muted ? '🔇 muted' : '🔊 sound';
+    muteBtn.style.opacity = muted ? '0.6' : '1';
+  };
+  paintMute(false);
+  muteBtn.addEventListener('click', () => {
+    paintMute(audio.toggle());
+    muteBtn.blur(); // keep the keyboard on the battlefield, not the button
+  });
+  topBar.appendChild(muteBtn);
 
   const start = mission?.map.player_start;
   if (start) {
@@ -466,7 +484,11 @@ async function main(): Promise<void> {
       }
     }
     if (ev.key === 'o') overlay.toggle();
-    if (ev.key === 'm') overlay.note(audio.toggle() ? 'audio muted' : 'audio on', '#8E9491');
+    if (ev.key === 'm') {
+      const muted = audio.toggle();
+      paintMute(muted);
+      overlay.note(muted ? 'audio muted' : 'audio on', '#8E9491');
+    }
 
     // Control groups: Ctrl/Cmd+digit assigns the selection, digit recalls it,
     // double-tap centres the camera on the group.
