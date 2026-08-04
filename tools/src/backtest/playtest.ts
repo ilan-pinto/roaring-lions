@@ -2,7 +2,7 @@
 // sensible scripted plan inside its time budget. Run: tsx src/backtest/playtest.ts
 
 import { Sim, fx, TICKS_PER_SECOND, MissionRuntime, type MissionJson, type LedgerData } from '@lions/sim';
-import { units, maps, missions, parseMap } from '@lions/data';
+import { units, maps, missions, structures as structureCatalogue, parseMap } from '@lions/data';
 
 type Plan = (sim: Sim, rt: MissionRuntime, ids: (t: string) => number[], at: (t: number, fn: () => void) => void) => void;
 
@@ -13,9 +13,18 @@ function run(id: keyof typeof missions, plan: Plan, ledger: LedgerData = {}): Le
   for (let y = 0; y < map.height; y++)
     for (let x = 0; x < map.width; x++) {
       const t = y * map.width + x;
-      if (map.blocked[t]) sim.setBlocked(x, y, true);
       if (map.cover[t]) sim.setCover(x, y, map.cover[t]);
     }
+  // Buildings are entities, exactly as the app raises them.
+  const structIdx = new Map<string, number>();
+  for (const [id, spec] of Object.entries(structureCatalogue)) {
+    structIdx.set(id, sim.addStructureType(spec as Parameters<typeof sim.addStructureType>[0]));
+  }
+  for (const b of map.structures) {
+    const ti = structIdx.get(b.type);
+    if (ti === undefined) throw new Error(`unknown structure type ${b.type}`);
+    sim.addStructure(ti, b.tiles);
+  }
   const typeOf = new Map<string, number>();
   for (const u of Object.values(units)) typeOf.set(u.id, sim.addUnitType(u));
   const rt = new MissionRuntime(sim, mission, {
@@ -105,6 +114,10 @@ run(
       const armor = [...ids('mbt_lavi'), ...ids('ifv_namer'), ...ids('apc_eitan')];
       sim.queueCommand({ kind: 'attackMove', ids: armor, ...M(30, 13) });
       sim.queueCommand({ kind: 'attackMove', ids: [...ids('inf_squad'), ...ids('at_team')], ...M(28, 26) });
+      // Engineers follow the infantry: held houses come down by charge, which
+      // costs the house and nothing else — shelling them scatters rounds into
+      // the clinic block next door.
+      sim.queueCommand({ kind: 'attackMove', ids: ids('demo_squad'), ...M(27, 25) });
     });
     at(140, () => {
       const alive: number[] = [];

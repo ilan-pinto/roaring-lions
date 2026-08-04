@@ -4,42 +4,102 @@
   "title": "Mission",
   "description": "A single short mission, 12-20 minutes. Missions are declarative data, never TypeScript. If a mission needs behaviour this schema cannot express, extend the schema rather than writing engine code -- that is what keeps missions authorable by contributors who do not know the codebase.",
   "type": "object",
-  "required": ["id", "town", "phase", "map", "objectives", "ledger"],
+  "required": [
+    "id",
+    "town",
+    "phase",
+    "map",
+    "objectives",
+    "ledger"
+  ],
   "additionalProperties": false,
   "properties": {
-    "id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
-    "name": { "type": "string" },
-    "town": { "enum": ["beit_sahwan", "khan_rafid", "deir_amun", "tel_marum", "umm_zeitoun", "wadi_halam"] },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+$"
+    },
+    "name": {
+      "type": "string"
+    },
+    "town": {
+      "enum": [
+        "beit_sahwan",
+        "khan_rafid",
+        "deir_amun",
+        "tel_marum",
+        "umm_zeitoun",
+        "wadi_halam"
+      ]
+    },
     "phase": {
-      "enum": ["recon", "foothold", "buildup", "clearance", "subterranean"],
+      "enum": [
+        "recon",
+        "foothold",
+        "buildup",
+        "clearance",
+        "subterranean"
+      ],
       "description": "The phase this mission is built around. One lead phase per mission."
     },
-    "target_minutes": { "type": "integer", "minimum": 8, "maximum": 25, "default": 15 },
-    "briefing": { "type": "string" },
+    "target_minutes": {
+      "type": "integer",
+      "minimum": 8,
+      "maximum": 25,
+      "default": 15
+    },
+    "briefing": {
+      "type": "string"
+    },
     "map": {
       "type": "object",
-      "required": ["file"],
+      "required": [
+        "file"
+      ],
       "additionalProperties": false,
       "properties": {
-        "file": { "type": "string" },
-        "time_of_day": { "enum": ["dawn", "day", "dusk", "night"], "default": "day" },
-        "player_start": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+        "file": {
+          "type": "string"
+        },
+        "time_of_day": {
+          "enum": [
+            "dawn",
+            "day",
+            "dusk",
+            "night"
+          ],
+          "default": "day"
+        },
+        "player_start": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        }
       }
     },
     "ledger": {
       "type": "object",
       "description": "The campaign carry-over contract. This is what lets a contributor author one mission without reading the whole campaign.",
-      "required": ["requires", "produces"],
+      "required": [
+        "requires",
+        "produces"
+      ],
       "additionalProperties": false,
       "properties": {
         "requires": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "Ledger keys read on entry. Missing or sparse values must degrade gracefully into a harder mission, never a broken one."
         },
         "produces": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "Ledger keys written on exit."
         }
       }
@@ -48,13 +108,32 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["unit", "count"],
+        "required": [
+          "unit",
+          "count"
+        ],
         "additionalProperties": false,
         "properties": {
-          "unit": { "type": "string" },
-          "count": { "type": "integer", "minimum": 1 },
-          "from_ledger": { "type": "boolean", "default": false, "description": "If true, draw survivors with veterancy from roster.surviving_units instead of spawning fresh." },
-          "at": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+          "unit": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "from_ledger": {
+            "type": "boolean",
+            "default": false,
+            "description": "If true, draw survivors with veterancy from roster.surviving_units instead of spawning fresh."
+          },
+          "at": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          }
         }
       }
     },
@@ -62,10 +141,23 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "logistics_start": { "type": "integer", "minimum": 0 },
-        "intel_start": { "type": "integer", "minimum": 0 },
-        "logistics_rate_per_min": { "type": "number", "minimum": 0 },
-        "supply_corridor": { "type": "boolean", "default": false, "description": "If true, logistics income can be interdicted by the enemy. Protecting the corridor becomes gameplay." }
+        "logistics_start": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "intel_start": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "logistics_rate_per_min": {
+          "type": "number",
+          "minimum": 0
+        },
+        "supply_corridor": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, logistics income can be interdicted by the enemy. Protecting the corridor becomes gameplay."
+        }
       }
     },
     "objectives": {
@@ -73,22 +165,56 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["id", "type", "primary"],
+        "required": [
+          "id",
+          "type",
+          "primary"
+        ],
         "additionalProperties": false,
         "properties": {
-          "id": { "type": "string" },
+          "id": {
+            "type": "string"
+          },
           "type": {
-            "enum": ["locate", "mark", "collapse", "escort", "hold_for", "evacuate_before",
-                     "eliminate_hvt", "capture", "survive_until", "no_collateral_above", "destroy_all"],
+            "enum": [
+              "locate",
+              "mark",
+              "collapse",
+              "escort",
+              "hold_for",
+              "evacuate_before",
+              "eliminate_hvt",
+              "capture",
+              "survive_until",
+              "no_collateral_above",
+              "destroy_all"
+            ],
             "description": "destroy_all exists but should be rare. Layered objectives are what make a level a level."
           },
-          "primary": { "type": "boolean" },
-          "text": { "type": "string" },
-          "target": { "type": "string" },
-          "count": { "type": "integer", "minimum": 1 },
-          "seconds": { "type": "integer", "minimum": 1 },
-          "threshold": { "type": "number" },
-          "unlocks_phase": { "type": "string", "description": "Gate: assault cannot begin until civilians are clear, etc." }
+          "primary": {
+            "type": "boolean"
+          },
+          "text": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "seconds": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "threshold": {
+            "type": "number"
+          },
+          "unlocks_phase": {
+            "type": "string",
+            "description": "Gate: assault cannot begin until civilians are clear, etc."
+          }
         }
       }
     },
@@ -97,58 +223,126 @@
       "description": "Rules of engagement scoring. Must be visible in the HUD at all times -- the player should always know what a shot costs before taking it.",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean", "default": true },
-        "civilian_casualty_penalty": { "type": "number", "default": 8 },
-        "flagged_structure_penalty": { "type": "number", "default": 5 },
-        "disproportionate_ordnance_penalty": { "type": "number", "default": 3 },
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "civilian_casualty_penalty": {
+          "type": "number",
+          "default": 8
+        },
+        "flagged_structure_penalty": {
+          "type": "number",
+          "default": 5
+        },
+        "disproportionate_ordnance_penalty": {
+          "type": "number",
+          "default": 3
+        },
         "flagged_zones": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "Map zone ids under protection (clinic, mosque, school). Player ordnance landing inside deducts flagged_structure_penalty per impact."
         },
-        "fail_below": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Mission failure threshold. Omit for no hard fail." }
+        "fail_below": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Mission failure threshold. Omit for no hard fail."
+        },
+        "structure_penalty_mult": {
+          "type": "number",
+          "minimum": 0,
+          "default": 1,
+          "description": "Scales each destroyed building's roe_penalty. 0 disables structure scoring for missions where the town is already rubble."
+        }
       }
     },
     "civilians": {
       "type": "object",
       "description": "Non-combatants in the area of operations. Untargetable by either side; hurt only by ordnance. They shelter in place until fire lands close, then flee to the refuge.",
       "additionalProperties": false,
-      "required": ["groups"],
+      "required": [
+        "groups"
+      ],
       "properties": {
-        "groups": { "type": "array", "items": { "$ref": "#/$defs/placement" } },
-        "refuge": { "type": "string", "description": "Marker civilians run to once spooked." }
+        "groups": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/placement"
+          }
+        },
+        "refuge": {
+          "type": "string",
+          "description": "Marker civilians run to once spooked."
+        }
       }
     },
     "enemy": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "faction": { "enum": ["ashwar", "sarim", "rif"] },
-        "doctrine_profile": { "type": "string" },
+        "faction": {
+          "enum": [
+            "ashwar",
+            "sarim",
+            "rif"
+          ]
+        },
+        "doctrine_profile": {
+          "type": "string"
+        },
         "garrison": {
           "type": "array",
-          "description": "Defenders emplaced at mission start, with the GDD §6 behaviour vocabulary: one stance per unit, declarative, never scripted.",
-          "items": { "$ref": "#/$defs/placement" }
+          "description": "Defenders emplaced at mission start, with the GDD \u00a76 behaviour vocabulary: one stance per unit, declarative, never scripted.",
+          "items": {
+            "$ref": "#/$defs/placement"
+          }
         },
         "waves": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["at_seconds", "units"],
+            "required": [
+              "at_seconds",
+              "units"
+            ],
             "additionalProperties": false,
             "properties": {
-              "at_seconds": { "type": "integer", "minimum": 0 },
-              "trigger": { "type": "string", "description": "Optional objective id; wave fires on completion instead of on the clock." },
-              "to": { "type": "string", "description": "Marker the wave attack-moves toward after spawning. Defaults to holding at the spawn." },
+              "at_seconds": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "trigger": {
+                "type": "string",
+                "description": "Optional objective id; wave fires on completion instead of on the clock."
+              },
+              "to": {
+                "type": "string",
+                "description": "Marker the wave attack-moves toward after spawning. Defaults to holding at the spawn."
+              },
               "units": {
                 "type": "array",
                 "items": {
                   "type": "object",
-                  "required": ["unit", "count"],
+                  "required": [
+                    "unit",
+                    "count"
+                  ],
                   "properties": {
-                    "unit": { "type": "string" },
-                    "count": { "type": "integer", "minimum": 1 },
-                    "from": { "type": "string", "description": "Spawn point or tunnel id. Tunnels keep producing until located and collapsed." }
+                    "unit": {
+                      "type": "string"
+                    },
+                    "count": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "from": {
+                      "type": "string",
+                      "description": "Spawn point or tunnel id. Tunnels keep producing until located and collapsed."
+                    }
                   }
                 }
               }
@@ -159,35 +353,71 @@
     },
     "triggers": {
       "type": "array",
-      "description": "Reactive behaviour (GDD §6): a condition fires an order once. A handful per mission is the budget.",
+      "description": "Reactive behaviour (GDD \u00a76): a condition fires an order once. A handful per mission is the budget.",
       "items": {
         "type": "object",
-        "required": ["on", "do"],
+        "required": [
+          "on",
+          "do"
+        ],
         "additionalProperties": false,
         "properties": {
-          "id": { "type": "string" },
+          "id": {
+            "type": "string"
+          },
           "on": {
             "type": "object",
-            "required": ["kind"],
+            "required": [
+              "kind"
+            ],
             "additionalProperties": false,
             "properties": {
-              "kind": { "enum": ["first_contact", "casualties_pct", "timer_s", "zone_entered"] },
-              "value": { "type": "number", "description": "casualties_pct: enemy losses %. timer_s: seconds." },
-              "zone": { "type": "string", "description": "zone_entered: map zone id a player unit must enter." }
+              "kind": {
+                "enum": [
+                  "first_contact",
+                  "casualties_pct",
+                  "timer_s",
+                  "zone_entered"
+                ]
+              },
+              "value": {
+                "type": "number",
+                "description": "casualties_pct: enemy losses %. timer_s: seconds."
+              },
+              "zone": {
+                "type": "string",
+                "description": "zone_entered: map zone id a player unit must enter."
+              }
             }
           },
           "do": {
             "type": "object",
-            "required": ["kind"],
+            "required": [
+              "kind"
+            ],
             "additionalProperties": false,
             "properties": {
-              "kind": { "enum": ["commit", "withdraw_to", "spawn"] },
-              "group": { "type": "string", "description": "commit/withdraw_to: which garrison group moves." },
-              "to": { "type": "string", "description": "Destination marker." },
+              "kind": {
+                "enum": [
+                  "commit",
+                  "withdraw_to",
+                  "spawn"
+                ]
+              },
+              "group": {
+                "type": "string",
+                "description": "commit/withdraw_to: which garrison group moves."
+              },
+              "to": {
+                "type": "string",
+                "description": "Destination marker."
+              },
               "units": {
                 "type": "array",
                 "description": "spawn only.",
-                "items": { "$ref": "#/$defs/placement" }
+                "items": {
+                  "$ref": "#/$defs/placement"
+                }
               }
             }
           }
@@ -198,27 +428,84 @@
   "$defs": {
     "placement": {
       "type": "object",
-      "required": ["unit", "count"],
+      "required": [
+        "unit",
+        "count"
+      ],
       "additionalProperties": false,
       "properties": {
-        "unit": { "type": "string" },
-        "count": { "type": "integer", "minimum": 1 },
-        "at": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
-        "marker": { "type": "string", "description": "Spawn at a named map marker instead of coordinates." },
-        "facing_deg": { "type": "number", "minimum": 0, "maximum": 360 },
-        "group": { "type": "string", "description": "Trigger orders address groups." },
-        "tag": { "type": "string", "description": "Objective targeting (eliminate_hvt, locate)." },
+        "unit": {
+          "type": "string"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "at": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "marker": {
+          "type": "string",
+          "description": "Spawn at a named map marker instead of coordinates."
+        },
+        "facing_deg": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 360
+        },
+        "group": {
+          "type": "string",
+          "description": "Trigger orders address groups."
+        },
+        "tag": {
+          "type": "string",
+          "description": "Objective targeting (eliminate_hvt, locate)."
+        },
         "stance": {
           "type": "object",
-          "required": ["kind"],
+          "required": [
+            "kind"
+          ],
           "additionalProperties": false,
           "properties": {
-            "kind": { "enum": ["hold_position", "ambush", "patrol"] },
-            "tiles": { "type": "number", "minimum": 1, "description": "ambush: hold fire and minimum signature until a target closes to this range." },
+            "kind": {
+              "enum": [
+                "hold_position",
+                "ambush",
+                "patrol",
+                "garrison"
+              ]
+            },
+            "tiles": {
+              "type": "number",
+              "minimum": 1,
+              "description": "ambush: hold fire and minimum signature until a target closes to this range."
+            },
             "waypoints": {
               "type": "array",
               "minItems": 2,
-              "items": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              }
+            },
+            "building": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 2,
+              "maxItems": 2,
+              "description": "garrison: tile coordinates of any tile of the building to occupy. The unit spawns outside and moves in."
             }
           }
         }

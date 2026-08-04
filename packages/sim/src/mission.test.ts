@@ -635,3 +635,120 @@ describe('determinism through the runtime', () => {
     expect(run()).toBe(run());
   });
 });
+
+describe('buildings in missions (garrison stance + structure ROE)', () => {
+  const HOUSE = { id: 'house', name: 'House', hp_per_tile: 200, garrison_slots: 2, rubble_cover: 2, roe_penalty: 6 };
+  const MOSQUE = { id: 'mosque', name: 'Mosque', hp_per_tile: 300, garrison_slots: 2, rubble_cover: 2, roe_penalty: 30 };
+
+  const HOLDER: UnitTypeJson = {
+    id: 'b_inf',
+    role: 'infantry',
+    hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
+    mobility: { speed_tiles_s: 1.5 },
+    sensors: { optics: 1, sight_tiles: 9, signature: 0.6 },
+    abilities: ['garrison'],
+    weapons: [
+      { id: 'rifles', type: 'small_arms', range_tiles: 8, effective_range_tiles: 6, accuracy: 0.6, penetration: 8, damage: 15, suppression: 50, rof_per_min: 300 },
+    ],
+  };
+
+  function buildingWorld(partial: Partial<MissionJson>): World & { house: number; mosque: number } {
+    const sim = new Sim({ seed: 3, width: 28, height: 14, capacity: 24 });
+    const ids = new Map<string, number>();
+    for (const t of [SQUAD, HOLDER]) ids.set(t.id, sim.addUnitType(t));
+    const ht = sim.addStructureType(HOUSE);
+    const mt = sim.addStructureType(MOSQUE);
+    const rect = (typeIdx: number, x: number, y: number, w: number, h: number): number => {
+      const tiles: number[] = [];
+      for (let ty = y; ty < y + h; ty++) for (let tx = x; tx < x + w; tx++) tiles.push(ty * sim.width + tx);
+      return sim.addStructure(typeIdx, tiles);
+    };
+    const house = rect(ht, 14, 6, 2, 2);
+    const mosque = rect(mt, 20, 6, 2, 2);
+    const runtime = new MissionRuntime(sim, baseMission(partial), {
+      typeIdOf: (u) => {
+        const t = ids.get(u);
+        if (t === undefined) throw new Error(`unknown unit ${u}`);
+        return t;
+      },
+      markers: {},
+      zones: {},
+    });
+    runtime.start();
+    return {
+      sim,
+      runtime,
+      house,
+      mosque,
+      step: (ticks: number) => {
+        const out: { sim: SimEvent[]; mission: MissionEvent[] } = { sim: [], mission: [] };
+        for (let i = 0; i < ticks; i++) {
+          const se = sim.tick();
+          out.sim.push(...se);
+          out.mission.push(...runtime.step(se));
+        }
+        return out;
+      },
+    };
+  }
+
+  it('a mission can post defenders inside a building', () => {
+    const w = buildingWorld({
+      enemy: {
+        garrison: [
+          {
+            unit: 'b_inf',
+            count: 2,
+            at: [13, 6],
+            facing_deg: 180,
+            stance: { kind: 'garrison', building: [14, 6] },
+          },
+        ],
+      },
+    });
+    w.step(15 * TICKS_PER_SECOND);
+    expect(w.sim.structures.occupants[w.house]).toBe(2);
+    expect(w.sim.state.garrisonedIn[0]).toBe(w.house);
+  });
+
+  it('levelling a building costs ROE, weighted by what it was', () => {
+    const w = buildingWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [3, 6] }],
+      roe: { enabled: true },
+    });
+    expect(w.runtime.roeScore).toBe(100);
+    // Player brings the house down: a modest political cost.
+    const houseDown: SimEvent = { kind: 'structureDestroyed', tick: 1, structure: w.house, by: 0 };
+    let out = w.runtime.step([houseDown]);
+    expect(out.filter((e) => e.kind === 'roe').length).toBe(1);
+    expect(w.runtime.roeScore).toBe(94);
+
+    // The mosque is a different order of mistake.
+    const mosqueDown: SimEvent = { kind: 'structureDestroyed', tick: 2, structure: w.mosque, by: 0 };
+    out = w.runtime.step([mosqueDown]);
+    expect(w.runtime.roeScore).toBe(64);
+    const ev = out.find((e) => e.kind === 'roe');
+    expect(ev?.kind === 'roe' && ev.reason).toContain('Mosque');
+  });
+
+  it('the enemy demolishing its own town is not the player\'s ROE problem', () => {
+    const w = buildingWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [3, 6] }],
+      enemy: { garrison: [{ unit: 'b_inf', count: 1, at: [24, 10] }] },
+      roe: { enabled: true },
+    });
+    const byEnemy: SimEvent = { kind: 'structureDestroyed', tick: 1, structure: w.house, by: 1 };
+    const out = w.runtime.step([byEnemy]);
+    expect(out.filter((e) => e.kind === 'roe').length).toBe(0);
+    expect(w.runtime.roeScore).toBe(100);
+  });
+
+  it('structure_penalty_mult scales the cost, and 0 turns it off', () => {
+    const w = buildingWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [3, 6] }],
+      roe: { enabled: true, structure_penalty_mult: 0 },
+    });
+    w.runtime.step([{ kind: 'structureDestroyed', tick: 1, structure: w.mosque, by: 0 }]);
+    expect(w.runtime.roeScore).toBe(100);
+  });
+});

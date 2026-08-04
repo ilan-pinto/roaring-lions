@@ -2,22 +2,36 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://roaringlions.dev/schemas/structure.schema.json",
   "title": "Structure catalogue",
-  "description": "Building types. A structure is a contiguous run of same-symbol tiles on a map: it blocks movement, absorbs fire, shelters a garrison, and leaves passable rubble when it falls. Masonry is not armour — how much a round hurts a building is a property of the round, not a penetration roll.",
+  "description": "Building types. A structure is a contiguous run of same-symbol tiles on a map: it blocks movement, absorbs fire, shelters a garrison, and leaves passable rubble when it falls. Masonry is not armour \u2014 how much a round hurts a building is a property of the round, not a penetration roll.",
   "type": "object",
-  "required": ["types"],
+  "required": [
+    "types"
+  ],
   "additionalProperties": false,
   "properties": {
-    "version": { "type": "integer", "minimum": 1 },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
     "types": {
       "type": "object",
       "minProperties": 1,
       "additionalProperties": {
         "type": "object",
-        "required": ["id", "symbol", "hp_per_tile"],
+        "required": [
+          "id",
+          "symbol",
+          "hp_per_tile"
+        ],
         "additionalProperties": false,
         "properties": {
-          "id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
-          "name": { "type": "string" },
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "name": {
+            "type": "string"
+          },
           "symbol": {
             "type": "string",
             "minLength": 1,
@@ -35,9 +49,27 @@
             "default": 0,
             "description": "How many units can fight from inside. 0 = not garrisonable."
           },
-          "rubble_cover": { "type": "integer", "minimum": 0, "maximum": 3, "default": 2 },
-          "height_px": { "type": "number", "minimum": 0, "description": "Presentation only." },
-          "color": { "type": "string", "description": "Presentation only: palette key." }
+          "rubble_cover": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3,
+            "default": 2
+          },
+          "height_px": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Presentation only."
+          },
+          "color": {
+            "type": "string",
+            "description": "Presentation only: palette key."
+          },
+          "roe_penalty": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0,
+            "description": "ROE cost when the player brings this building down. A shed is nothing; a mosque is a strategic defeat dressed as a tactical win."
+          }
         }
       }
     }

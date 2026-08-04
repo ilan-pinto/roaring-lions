@@ -21,6 +21,8 @@ export interface StructureTypeJson {
   height_px?: number;
   /** Presentation only: palette key for the walls. */
   color?: string;
+  /** ROE cost when the player levels it (GDD §6). */
+  roe_penalty?: number;
 }
 
 export interface StructureType {
@@ -30,6 +32,8 @@ export interface StructureType {
   rubbleCover: number;
   heightPx: number;
   color: string;
+  /** ROE cost when the player levels it. */
+  roePenalty: number;
 }
 
 export function structureTypeFromJson(json: StructureTypeJson): StructureType {
@@ -40,6 +44,7 @@ export function structureTypeFromJson(json: StructureTypeJson): StructureType {
     rubbleCover: json.rubble_cover ?? 2,
     heightPx: json.height_px ?? 18,
     color: json.color ?? 'limestone.4',
+    roePenalty: json.roe_penalty ?? 0,
   };
 }
 
@@ -74,5 +79,9 @@ export const GARRISON_ENTER_RANGE_SQ = 147456; // 2.25 tile^2 = 1.5 tiles
 export const COLLAPSE_SHOCK_SQ = 589824; // 3 tiles
 /** Suppression dealt to everyone near a collapse. */
 export const COLLAPSE_SHOCK = 45875; // 0.7
+/** Buildings at or above this ROE weight are protected sites: units will not
+ *  autonomously fire on them, because levelling a mosque to kill two men in
+ *  it is a decision a commander makes, not one a gunner drifts into. */
+export const PROTECTED_ROE = 20;
 /** Aimed fire at a building barely misses — it is a house, not a man. */
 export const STRUCT_BASE_ACCURACY = 62259; // 0.95

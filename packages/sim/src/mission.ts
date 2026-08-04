@@ -14,11 +14,13 @@ import { TICKS_PER_SECOND, type Sim, type SimEvent } from './sim';
 // ---------------------------------------------------------------------------
 
 export interface StanceJson {
-  /** 'hold_position' | 'ambush' | 'patrol' — string-typed so parsed JSON
-   *  assigns structurally; the schema constrains the vocabulary. */
+  /** 'hold_position' | 'ambush' | 'patrol' | 'garrison' — string-typed so
+   *  parsed JSON assigns structurally; the schema constrains the vocabulary. */
   kind: string;
   tiles?: number;
   waypoints?: readonly (readonly number[])[];
+  /** garrison: tile coordinates of any tile of the building to occupy. */
+  building?: readonly number[];
 }
 
 export interface PlacementJson {
@@ -80,6 +82,7 @@ export interface MissionJson {
     civilian_casualty_penalty?: number;
     flagged_structure_penalty?: number;
     disproportionate_ordnance_penalty?: number;
+    structure_penalty_mult?: number;
     flagged_zones?: readonly string[];
     fail_below?: number;
   };
@@ -401,7 +404,21 @@ export class MissionRuntime {
         t.push(id);
         this.tags.set(p.tag, t);
       }
-      if (p.stance?.kind === 'ambush') {
+      if (p.stance?.kind === 'garrison') {
+        const b = p.stance.building;
+        if (b === undefined) {
+          throw new Error(`mission ${this.mission.id}: garrison stance for ${p.unit} needs "building"`);
+        }
+        const s = this.sim.structureAt(b[0] | 0, b[1] | 0);
+        if (s < 0) {
+          throw new Error(
+            `mission ${this.mission.id}: no building at (${b[0]},${b[1]}) for ${p.unit} to garrison`
+          );
+        }
+        // They walk in on the first ticks; overflow waits outside, which is
+        // the honest outcome of ordering four men into a two-room house.
+        this.sim.queueCommand({ kind: 'garrison', ids: [id], structure: s });
+      } else if (p.stance?.kind === 'ambush') {
         this.sim.setAmbush(id, fx.from(p.stance.tiles ?? 3));
       } else if (p.stance?.kind === 'patrol' && p.stance.waypoints && p.stance.waypoints.length >= 2) {
         this.patrols.push({
@@ -432,7 +449,16 @@ export class MissionRuntime {
     };
 
     for (const e of simEvents) {
-      if (e.kind === 'destroyed' && this.civIds.includes(e.entity)) {
+      if (e.kind === 'structureDestroyed') {
+        // Only the player's demolitions are judged: the enemy wrecking its
+        // own town is their affair, not a mark against your restraint.
+        if (e.by < 0 || st.side[e.by] !== 0) continue;
+        const mult = roe?.structure_penalty_mult ?? 1;
+        const type = this.sim.structureTypes[this.sim.structures.typeIdx[e.structure]];
+        // Round half up without Math (invariant 2): (2v + 1) / 2 truncated.
+        const cost = ((type.roePenalty * mult * 2 + 1) / 2) | 0;
+        if (cost > 0) deduct(cost, `${type.id.charAt(0).toUpperCase()}${type.id.slice(1)} destroyed`);
+      } else if (e.kind === 'destroyed' && this.civIds.includes(e.entity)) {
         if (e.by >= 0 && st.side[e.by] === 0) {
           deduct(roe?.civilian_casualty_penalty ?? 8, 'civilian casualties');
         }
@@ -458,8 +484,20 @@ export class MissionRuntime {
         const type = this.sim.unitTypes[st.typeIdx[e.shooter]];
         const weapon = type.weapons.find((w) => w.id === e.weaponId);
         if (weapon !== undefined && weapon.collateralRisk >= HEAVY_COLLATERAL) {
-          const tx = st.posX[e.target];
-          const ty = st.posY[e.target];
+          // The aimpoint is a unit, or a building when target is -1. Reading
+          // position[-1] silently yields NaN, which coerced to distance zero
+          // and charged every shot at a building as danger-close.
+          let tx: number;
+          let ty: number;
+          if (e.target >= 0) {
+            tx = st.posX[e.target];
+            ty = st.posY[e.target];
+          } else if (e.structure !== undefined && e.structure >= 0) {
+            tx = this.sim.structures.cx[e.structure];
+            ty = this.sim.structures.cy[e.structure];
+          } else {
+            continue;
+          }
           for (const civ of this.civIds) {
             if (st.alive[civ] === 0) continue;
             const dx = (fx.sub(st.posX[civ], tx) >> 8) | 0;

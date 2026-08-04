@@ -123,6 +123,16 @@ if (schemas.unit && schemas.mission && schemas.vfx && schemas.map) {
     for (const p of mi.enemy?.garrison ?? []) {
       wantUnit(p.unit, 'garrison');
       wantMarker(p.marker, 'garrison');
+      // A garrison stance must point at an actual building on this map.
+      if (p.stance?.kind === 'garrison') {
+        const b = p.stance.building;
+        const sym = b && map.rows?.[Math.floor(b[1])]?.[Math.floor(b[0])];
+        if (!sym || !'#hawsm'.includes(sym)) {
+          failures.push(
+            `${rel(file)}: ${p.unit} garrison stance points at (${b?.join(',')}) which is not a building`
+          );
+        }
+      }
     }
     for (const w of mi.enemy?.waves ?? []) {
       wantMarker(w.to, 'wave');

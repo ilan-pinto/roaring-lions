@@ -9,7 +9,8 @@
       "garrison_slots": 1,
       "rubble_cover": 1,
       "height_px": 11,
-      "color": "dust.1"
+      "color": "dust.1",
+      "roe_penalty": 2
     },
     "house": {
       "id": "house",
@@ -19,7 +20,8 @@
       "garrison_slots": 2,
       "rubble_cover": 2,
       "height_px": 16,
-      "color": "limestone.3"
+      "color": "limestone.3",
+      "roe_penalty": 6
     },
     "apartment": {
       "id": "apartment",
@@ -29,7 +31,8 @@
       "garrison_slots": 4,
       "rubble_cover": 2,
       "height_px": 30,
-      "color": "limestone.4"
+      "color": "limestone.4",
+      "roe_penalty": 14
     },
     "warehouse": {
       "id": "warehouse",
@@ -39,7 +42,8 @@
       "garrison_slots": 3,
       "rubble_cover": 1,
       "height_px": 22,
-      "color": "gunmetal.1"
+      "color": "gunmetal.1",
+      "roe_penalty": 3
     },
     "concrete": {
       "id": "concrete",
@@ -49,7 +53,8 @@
       "garrison_slots": 2,
       "rubble_cover": 2,
       "height_px": 20,
-      "color": "limestone.4"
+      "color": "limestone.4",
+      "roe_penalty": 3
     },
     "mosque": {
       "id": "mosque",
@@ -59,7 +64,8 @@
       "garrison_slots": 3,
       "rubble_cover": 2,
       "height_px": 34,
-      "color": "limestone.1"
+      "color": "limestone.1",
+      "roe_penalty": 30
     }
   }
 }

@@ -20,6 +20,7 @@ import {
   COLLAPSE_SHOCK_SQ,
   COLLAPSE_SHOCK,
   STRUCT_BASE_ACCURACY,
+  PROTECTED_ROE,
   type StructureType,
   type StructureTypeJson,
 } from './structures';
@@ -1074,6 +1075,8 @@ export class Sim {
     let bestDistSq = 0x7fffffff;
     for (let s = 0; s < this.structureCount_; s++) {
       if (this.stAlive[s] === 0 || this.stOccupants[s] === 0) continue;
+      // Protected sites are never engaged on a gunner's initiative.
+      if (this.structureTypes[this.stTypeIdx[s]].roePenalty >= PROTECTED_ROE) continue;
       let hostileInside = false;
       for (let t = 0; t < this.count; t++) {
         if (this.alive[t] === 0 || this.garrisonedIn[t] !== s) continue;
