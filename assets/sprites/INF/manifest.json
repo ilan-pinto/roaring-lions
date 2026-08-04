@@ -3,6 +3,9 @@
   "facings": 16,
   "size": 256,
   "frames": 5,
+  "facingOffset": 5,
+  "facingReverse": true,
+  "scale": 1.0,
   "files": [
     {
       "facing": 0,

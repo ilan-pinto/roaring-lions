@@ -6,6 +6,7 @@
 import { Application, Assets, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import { fx, type Sim, type SimEvent } from '@lions/sim';
 import { SIM_HZ, advancePhase, phaseOffset, walkFps, walkFrameIndex } from './anim';
+import { clipOrFallback, frameFileName, parseManifest, type ClipName, type SheetSpec } from './sheet';
 
 export interface RendererOptions {
   background: string;
@@ -81,29 +82,23 @@ export class PixiRenderer {
   private curX: Float64Array;
   private curY: Float64Array;
 
-  /** unit type id → facing textures, optionally with walk-cycle frames and turret. */
+  /** unit type id → parsed sheet plus its textures, indexed clip → facing → frame. */
   private spriteAtlas = new Map<
     string,
     {
-      textures: Texture[][];
-      frames: number;
+      sheet: SheetSpec;
+      textures: Partial<Record<ClipName, Texture[][]>>;
+      turretSheet?: SheetSpec;
       turretTextures?: Texture[][];
-      /** Sprite index that faces world +x. The render rig's start rotation
-       *  decides this; it is a property of the sheet, not of the game. */
-      facingOffset: number;
-      /** True when the rig rotated the object the other way round. */
-      facingReverse: boolean;
     }
   >();
 
-  /** Facing (turns) → sprite index for a given sheet's convention. */
-  private static spriteIndex(
-    facingNorm: number,
-    atlas: { facingOffset: number; facingReverse: boolean }
-  ): number {
-    const k = Math.round(facingNorm * 16) % 16;
-    const dir = atlas.facingReverse ? -k : k;
-    return ((dir + atlas.facingOffset) % 16 + 16) % 16;
+  /** Facing (turns) → sprite index, in the sheet's own convention. */
+  private static spriteIndex(facingNorm: number, sheet: SheetSpec): number {
+    const n = sheet.facings;
+    const k = Math.round(facingNorm * n) % n;
+    const dir = sheet.facingReverse ? -k : k;
+    return (((dir + sheet.facingOffset) % n) + n) % n;
   }
   /** Per-entity Sprite child in spriteLayer; created on demand. */
   private entitySprites: (Sprite | null)[] = [];
@@ -177,43 +172,57 @@ export class PixiRenderer {
     this.snapshot(); // prev == cur on the first frame
   }
 
+  /** Fetch and parse a sheet's manifest. */
+  private static async loadSheet(basePath: string): Promise<SheetSpec> {
+    const res = await fetch(`${basePath}manifest.json`);
+    if (!res.ok) throw new Error(`sheet manifest ${res.status} at ${basePath}`);
+    return parseManifest(await res.json());
+  }
+
   /**
-   * Load sprites for a unit type. `frames` is the total number of frames per
-   * facing (1 = static, >1 = frame 0 is idle + remaining are walk cycle).
-   * `turretPath` loads a separate turret sprite sheet for independent rotation.
+   * Load a unit type's sprite sheet. The sheet's manifest supplies its own
+   * facing convention, draw scale and clip list, so adding a unit needs no
+   * engine change — the rig that produced the files is what reports how they
+   * are laid out.
+   *
+   * `turretPath` loads a second sheet for independent turret rotation.
    */
   async loadSprites(
     unitTypeId: string,
     basePath: string,
-    opts: { frames?: number; turretPath?: string; facingOffset?: number; facingReverse?: boolean } = {}
+    opts: { turretPath?: string } = {}
   ): Promise<void> {
-    const frames = opts.frames ?? 1;
-    const turretPath = opts.turretPath;
-    const textures: Texture[][] = [];
-    for (let f = 0; f < 16; f++) {
-      const row: Texture[] = [];
-      for (let n = 0; n < frames; n++) {
-        const url = `${basePath}f${f.toString().padStart(2, '0')}_${n.toString().padStart(3, '0')}.png`;
-        const tex = await Assets.load<Texture>(url);
-        row.push(tex);
-      }
-      textures.push(row);
+    const sheet = await PixiRenderer.loadSheet(basePath);
+    const textures: Partial<Record<ClipName, Texture[][]>> = {};
+    for (const clip of Object.keys(sheet.clips) as ClipName[]) {
+      const spec = sheet.clips[clip];
+      if (!spec) continue;
+      // Facings load in parallel; a five-clip sheet is hundreds of files and
+      // loading them one at a time is a visible stall on first mission load.
+      textures[clip] = await Promise.all(
+        Array.from({ length: sheet.facings }, (_, f) =>
+          Promise.all(
+            Array.from({ length: spec.frames }, (_, n) =>
+              Assets.load<Texture>(`${basePath}${frameFileName(sheet, clip, f, n)}`)
+            )
+          )
+        )
+      );
     }
+
+    let turretSheet: SheetSpec | undefined;
     let turretTextures: Texture[][] | undefined;
-    if (turretPath) {
-      turretTextures = [];
-      for (let f = 0; f < 16; f++) {
-        const url = `${turretPath}f${f.toString().padStart(2, '0')}_000.png`;
-        turretTextures.push([await Assets.load<Texture>(url)]);
-      }
+    if (opts.turretPath) {
+      const tp = opts.turretPath;
+      turretSheet = await PixiRenderer.loadSheet(tp);
+      turretTextures = await Promise.all(
+        Array.from({ length: turretSheet.facings }, (_, f) =>
+          Promise.all([Assets.load<Texture>(`${tp}${frameFileName(turretSheet as SheetSpec, 'idle', f, 0)}`)])
+        )
+      );
     }
-    this.spriteAtlas.set(unitTypeId, {
-      textures,
-      frames,
-      turretTextures,
-      facingOffset: opts.facingOffset ?? 0,
-      facingReverse: opts.facingReverse ?? false,
-    });
+
+    this.spriteAtlas.set(unitTypeId, { sheet, textures, turretSheet, turretTextures });
   }
 
   /** Copy positions after every sim tick; frame() lerps between the copies. */
@@ -590,35 +599,41 @@ export class PixiRenderer {
       const atlas = this.spriteAtlas.get(type.id);
 
       if (atlas) {
-        const facings = atlas.textures;
-        // Walk cycle: frames 1–(N-1) loop while moving; frame 0 is idle.
-        // Timing comes from ground covered, so feet track the terrain at any
-        // speed and playback no longer depends on display refresh rate.
+        const sheet = atlas.sheet;
+        const idle = atlas.textures.idle as Texture[][];
+        // Locomotion is paced by ground covered, so feet track the terrain at
+        // any speed and playback does not depend on display refresh rate.
+        // A sheet with no move clip (the tank hull) simply stands still.
+        const walking = this.entitySpeed[i] > 0 && clipOrFallback(sheet, 'move') === 'move';
         let frame = 0;
-        const walkFrames = atlas.frames - 1;
-        if (walkFrames > 0) {
+        let clipTex = idle;
+        if (walking) {
+          const walkFrames = sheet.clips.move?.frames ?? 0;
           if (this.animSeeded[i] === 0) {
             this.entityAnimFrame[i] = phaseOffset(i, walkFrames);
             this.animSeeded[i] = 1;
           }
           const fps = walkFps(this.entitySpeed[i], walkFrames);
           this.entityAnimFrame[i] = advancePhase(this.entityAnimFrame[i], fps, dtSeconds, walkFrames);
-          frame = this.entitySpeed[i] > 0 ? walkFrameIndex(this.entityAnimFrame[i], walkFrames) : 0;
+          // Legacy sheets number the walk cycle from 1; the clip's own frames
+          // are 0-based, so drop back to a plain cycle index here.
+          frame = walkFrameIndex(this.entityAnimFrame[i], walkFrames) - 1;
+          clipTex = atlas.textures.move as Texture[][];
         }
         // Sprite-based rendering.
         while (this.entitySprites.length <= i) this.entitySprites.push(null);
         let spr = this.entitySprites[i];
         if (!spr) {
-          spr = new Sprite({ texture: facings[0][0], anchor: 0.5 });
+          spr = new Sprite({ texture: idle[0][0], anchor: 0.5 });
           this.spriteLayer.addChild(spr);
           this.entitySprites[i] = spr;
         }
-        const hullIdx = PixiRenderer.spriteIndex(facingNorm, atlas);
-        spr.texture = facings[hullIdx][frame] ?? facings[hullIdx][0];
+        const hullIdx = PixiRenderer.spriteIndex(facingNorm, sheet);
+        spr.texture = clipTex[hullIdx][frame] ?? idle[hullIdx][0];
         spr.position.set(sx, sy);
         spr.alpha = bodyAlpha;
         spr.visible = true;
-        const spriteScale = ((type.isSoft ? 1.0 : 1.8) * TILE_W) / facings[0][0].width;
+        const spriteScale = (sheet.scale * TILE_W) / idle[0][0].width;
         spr.scale.set(spriteScale);
 
         // Turret: independent rotation sprite composited above the hull.
@@ -644,7 +659,7 @@ export class PixiRenderer {
           }
           this.turretFacing[i] = ((this.turretFacing[i] % 1) + 1) % 1;
 
-          const tIdx = PixiRenderer.spriteIndex(this.turretFacing[i], atlas);
+          const tIdx = PixiRenderer.spriteIndex(this.turretFacing[i], atlas.turretSheet ?? sheet);
           while (this.turretSprites.length <= i) this.turretSprites.push(null);
           let tspr = this.turretSprites[i];
           if (!tspr) {

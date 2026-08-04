@@ -26,6 +26,10 @@ OUT_HULL = os.path.abspath("assets/sprites/TNK_HULL")
 OUT_TURR = os.path.abspath("assets/sprites/TNK_TURR")
 SIZE = 256
 FACINGS = 16
+# Sheet conventions, reported to the renderer through the manifest.
+FACING_OFFSET = 5  # sprite index that looks along world +x
+FACING_REVERSE = True  # this loop rotates opposite to world bearing
+DRAW_SCALE = 1.8  # sprite width in tile widths
 DIMETRIC_ELEVATION = math.atan(0.5)
 
 SKIP_MESHES = {"Track_1", "Track_1.001"}
@@ -277,6 +281,13 @@ def render_pass(pivot, show_objs, hide_objs, out_dir, label):
         "facings": FACINGS,
         "size": SIZE,
         "frames": 1,
+        # The renderer reads its facing convention and draw scale from here
+        # rather than having them hand-measured off the images in app code.
+        # This loop advances rotation_euler.z the opposite way to world
+        # bearing, and starts with facing 5 looking east.
+        "facingOffset": FACING_OFFSET,
+        "facingReverse": FACING_REVERSE,
+        "scale": DRAW_SCALE,
         "files": [],
     }
 

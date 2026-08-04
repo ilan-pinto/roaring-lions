@@ -278,25 +278,15 @@ async function main(): Promise<void> {
   await renderer.init(stage);
 
   // Load sprite sheets for unit types that have rendered art (non-blocking).
-  // facingOffset: which sprite index looks along world +x. The render rig's
-  // start rotation decides it per sheet — calibrate by pointing a unit due
-  // east and checking the barrel agrees with the tracer.
-  type SpriteSpec = {
-    path: string;
-    frames?: number;
-    turretPath?: string;
-    facingOffset?: number;
-    facingReverse?: boolean;
-  };
-  // Measured off the sheets themselves: world bearing ≈ (5 - k) mod 16, i.e.
-  // the rig rotates the object the other way with frame 5 looking east.
+  // Which sheet a unit uses is the only decision left here: facing convention,
+  // frame counts, clip list and draw scale all come from the sheet's own
+  // manifest, written by the rig that produced the files.
+  type SpriteSpec = { path: string; turretPath?: string };
   const TANK: SpriteSpec = {
     path: `${BASE}sprites/TNK_HULL/`,
     turretPath: `${BASE}sprites/TNK_TURR/`,
-    facingOffset: 5,
-    facingReverse: true,
   };
-  const FOOT: SpriteSpec = { path: `${BASE}sprites/INF/`, frames: 5, facingOffset: 5, facingReverse: true };
+  const FOOT: SpriteSpec = { path: `${BASE}sprites/INF/` };
   const SPRITE_MAP: Record<string, SpriteSpec> = {
     mbt_lavi: TANK,
     inf_squad: FOOT,

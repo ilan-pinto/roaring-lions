@@ -18,6 +18,10 @@ OUT = os.path.abspath("assets/sprites/INF")
 SIZE = 256
 FACINGS = 16
 FRAMES = 5  # frame 0 = idle, frames 1-4 = walk cycle
+# Sheet conventions, reported to the renderer through the manifest.
+FACING_OFFSET = 5  # sprite index that looks along world +x
+FACING_REVERSE = True  # this loop rotates opposite to world bearing
+DRAW_SCALE = 1.0  # sprite width in tile widths
 DIMETRIC_ELEVATION = math.atan(0.5)
 
 KEEP_PARENTS = {"Man_rig", "Gun_armature"}
@@ -172,6 +176,13 @@ def setup_scene_and_render(armature_obj):
         "facings": FACINGS,
         "size": SIZE,
         "frames": FRAMES,
+        # The renderer reads its facing convention and draw scale from here
+        # rather than having them hand-measured off the images in app code.
+        # This loop advances rotation_euler.z the opposite way to world
+        # bearing, and starts with facing 5 looking east.
+        "facingOffset": FACING_OFFSET,
+        "facingReverse": FACING_REVERSE,
+        "scale": DRAW_SCALE,
         "files": [],
     }
 
