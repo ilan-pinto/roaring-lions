@@ -74,6 +74,8 @@ export class PixiRenderer {
   private fogDirty = true;
   private fogTick = 0;
   private readonly fxG = new Graphics();
+  /** Wreckage sits under the living, so troops always draw over the dead. */
+  private readonly wreckLayer = new Container();
   private readonly spriteLayer = new Container();
   private sim: Sim;
   private opts: RendererOptions;
@@ -134,7 +136,11 @@ export class PixiRenderer {
   private terrainDirty = false;
   private tracers: Tracer[] = [];
   private puffs: Puff[] = [];
-  private wrecks: { x: number; y: number }[] = [];
+  /** Units mid-collapse: still live sprites, on their way to being wreckage. */
+  private dying: { x: number; y: number; facing: number; typeId: string; t: number }[] = [];
+  /** Wreckage. Static sprites in wreckLayer, never touched again after the
+   *  fog first reveals them; `shown` latches because explored is monotonic. */
+  private wrecks: { x: number; y: number; spr: Sprite | null; shown: boolean }[] = [];
   private orderMarkers: { x: number; y: number; ttl: number }[] = [];
 
   /** Drop a fading move/attack order crosshair at a world point. */
@@ -163,6 +169,7 @@ export class PixiRenderer {
     host.appendChild(this.app.canvas);
     this.world.addChild(this.terrainG);
     this.world.addChild(this.fxG);
+    this.world.addChild(this.wreckLayer);
     this.world.addChild(this.spriteLayer);
     this.world.addChild(this.unitsG);
     // Fog sits above terrain and units, so unobserved ground and anything
@@ -338,7 +345,16 @@ export class PixiRenderer {
           });
         }
       } else if (e.kind === 'destroyed') {
-        this.wrecks.push({ x: this.curX[e.entity], y: this.curY[e.entity] });
+        // Death is a sequence, not a state: collapse first, wreckage after.
+        // Facing and type are captured now because the entity slot may be
+        // reused by a later spawn before the collapse finishes.
+        this.dying.push({
+          x: this.curX[e.entity],
+          y: this.curY[e.entity],
+          facing: fx.toNumber(this.sim.state.facing[e.entity]),
+          typeId: this.sim.unitTypes[this.sim.state.typeIdx[e.entity]].id,
+          t: 0,
+        });
       }
     }
   }
@@ -484,6 +500,102 @@ export class PixiRenderer {
     return this.fog[y * this.sim.width + x] === 2;
   }
 
+  /** True when this position has ever been seen. Never goes back to false. */
+  private isExplored(wx: number, wy: number): boolean {
+    const x = wx | 0;
+    const y = wy | 0;
+    if (x < 0 || y < 0 || x >= this.sim.width || y >= this.sim.height) return false;
+    return this.fog[y * this.sim.width + x] >= 1;
+  }
+
+  /** Seconds a unit spends collapsing before it becomes wreckage. */
+  private static readonly DEATH_SECONDS = 0.4;
+  /** Wreckage is permanent, so it needs a ceiling. Oldest is evicted. */
+  private static readonly MAX_WRECKS = 256;
+  /** Pool for the collapse animation; lives above wreckage, with the living. */
+  private dyingSprites: Sprite[] = [];
+
+  /** Sprite scale for a sheet, from its declared draw width in tiles. */
+  private static sheetScale(atlas: { sheet: SheetSpec; textures: Partial<Record<ClipName, Texture[][]>> }): number {
+    const idle = atlas.textures.idle as Texture[][];
+    return (atlas.sheet.scale * TILE_W) / idle[0][0].width;
+  }
+
+  /**
+   * Advance deaths: collapse first, then hand off to permanent wreckage.
+   *
+   * Wreckage is remembered terrain — it is drawn wherever the ground has ever
+   * been seen, not only where the player can currently see. So you never
+   * witness a kill you did not observe, but a burnt-out position you *have*
+   * seen stays on the map after the fog closes over it, and a route's history
+   * is readable.
+   */
+  private stepDeaths(dt: number, g: Graphics): void {
+    for (const wk of this.wrecks) {
+      if (!wk.shown && this.isExplored(wk.x, wk.y)) {
+        wk.shown = true;
+        if (wk.spr) wk.spr.visible = true;
+      }
+      // Unit types with no wreck art keep the old cross marker.
+      if (!wk.spr && wk.shown) {
+        const sx = isoX(wk.x, wk.y);
+        const sy = isoY(wk.x, wk.y);
+        g.moveTo(sx - 7, sy - 5).lineTo(sx + 7, sy + 5).stroke({ width: 3, color: '#5C625F' });
+        g.moveTo(sx - 7, sy + 5).lineTo(sx + 7, sy - 5).stroke({ width: 3, color: '#5C625F' });
+      }
+    }
+
+    for (const spr of this.dyingSprites) spr.visible = false;
+    let slot = 0;
+    for (let k = this.dying.length - 1; k >= 0; k--) {
+      const d = this.dying[k];
+      d.t += dt;
+      const p = Math.min(1, d.t / PixiRenderer.DEATH_SECONDS);
+      const atlas = this.spriteAtlas.get(d.typeId);
+      if (atlas && this.isExplored(d.x, d.y)) {
+        const clip = clipOrFallback(atlas.sheet, 'down');
+        const rows = (atlas.textures[clip] ?? atlas.textures.idle) as Texture[][];
+        while (this.dyingSprites.length <= slot) {
+          const s = new Sprite({ texture: rows[0][0], anchor: 0.5 });
+          this.spriteLayer.addChild(s);
+          this.dyingSprites.push(s);
+        }
+        const spr = this.dyingSprites[slot++];
+        spr.texture = rows[PixiRenderer.spriteIndex(d.facing, atlas.sheet)][0];
+        // Sink, fade and tip over — a body going down, not a sprite vanishing.
+        spr.position.set(isoX(d.x, d.y), isoY(d.x, d.y) + p * 3);
+        spr.alpha = 1 - p * 0.5;
+        spr.rotation = p * 0.14;
+        spr.scale.set(PixiRenderer.sheetScale(atlas));
+        spr.visible = true;
+      }
+      if (d.t >= PixiRenderer.DEATH_SECONDS) {
+        this.dying.splice(k, 1);
+        this.addWreck(d.x, d.y, d.facing, d.typeId);
+      }
+    }
+  }
+
+  /** Place permanent wreckage. Static after creation, so it costs nothing. */
+  private addWreck(x: number, y: number, facing: number, typeId: string): void {
+    const atlas = this.spriteAtlas.get(typeId);
+    let spr: Sprite | null = null;
+    if (atlas && clipOrFallback(atlas.sheet, 'wreck') === 'wreck') {
+      const rows = atlas.textures.wreck as Texture[][];
+      spr = new Sprite({ texture: rows[PixiRenderer.spriteIndex(facing, atlas.sheet)][0], anchor: 0.5 });
+      spr.position.set(isoX(x, y), isoY(x, y));
+      spr.scale.set(PixiRenderer.sheetScale(atlas));
+      this.wreckLayer.addChild(spr);
+    }
+    const shown = this.isExplored(x, y);
+    if (spr) spr.visible = shown;
+    this.wrecks.push({ x, y, spr, shown });
+    while (this.wrecks.length > PixiRenderer.MAX_WRECKS) {
+      const old = this.wrecks.shift();
+      if (old?.spr) this.wreckLayer.removeChild(old.spr);
+    }
+  }
+
   /** Deterministic per-tile hash for ground variation — same look every run. */
   private static h2(x: number, y: number): number {
     let h = (x * 374761393 + y * 668265263) | 0;
@@ -575,13 +687,7 @@ export class PixiRenderer {
     const g = this.unitsG;
     g.clear();
 
-    // Wrecks under everything.
-    for (const wk of this.wrecks) {
-      const sx = isoX(wk.x, wk.y);
-      const sy = isoY(wk.x, wk.y);
-      g.moveTo(sx - 7, sy - 5).lineTo(sx + 7, sy + 5).stroke({ width: 3, color: '#5C625F' });
-      g.moveTo(sx - 7, sy + 5).lineTo(sx + 7, sy - 5).stroke({ width: 3, color: '#5C625F' });
-    }
+    this.stepDeaths(dtSeconds, g);
 
     // Hide all entity sprites first; visible ones get shown below.
     for (const spr of this.entitySprites) {
