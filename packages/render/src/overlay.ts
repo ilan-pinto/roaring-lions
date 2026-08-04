@@ -7,7 +7,7 @@ import { fx, type Sim, type SimEvent } from '@lions/sim';
 
 export interface MissionView {
   name: string;
-  objectives: { id: string; text: string; primary: boolean; status: string }[];
+  objectives: { id: string; text: string; primary: boolean; status: string; ticksLeft?: number }[];
   result: 'ongoing' | 'victory' | 'defeat';
   /** One-line campaign summary (roster size, cumulative ROE). */
   campaign?: string;
@@ -230,8 +230,18 @@ export class DebugOverlay {
     for (const o of m.objectives) {
       const glyph = o.status === 'complete' ? '☑' : o.status === 'failed' ? '☒' : '☐';
       const color = o.status === 'complete' ? '#6B8A4A' : o.status === 'failed' ? '#D93A2B' : '#F2E8D5';
+      let clock = '';
+      if (o.ticksLeft !== undefined) {
+        const secs = Math.ceil(o.ticksLeft / 20);
+        const mm = Math.floor(secs / 60);
+        const ss = secs % 60;
+        // Runs amber under a minute: the last stretch of a hold is the part
+        // worth watching.
+        const urgent = secs <= 60 ? '#E8C33A' : '#A9C4D1';
+        clock = ` <b style="color:${urgent}">${mm}:${ss.toString().padStart(2, '0')}</b>`;
+      }
       rows.push(
-        `<span style="color:${color}">${glyph} ${o.text}${o.primary ? '' : ' <span style="color:#8E9491">(secondary)</span>'}</span>`
+        `<span style="color:${color}">${glyph} ${o.text}${clock}${o.primary ? '' : ' <span style="color:#8E9491">(secondary)</span>'}</span>`
       );
     }
     return rows.join('<br>') + '<br><br>';

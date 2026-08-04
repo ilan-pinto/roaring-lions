@@ -346,14 +346,42 @@ export class MissionRuntime {
   }
 
   /** Objective list for UI: id, type, text, primary, status. */
-  get objectiveList(): { id: string; type: string; text: string; primary: boolean; status: ObjectiveStatus }[] {
-    return this.objectives.map((o) => ({
-      id: o.def.id,
-      type: o.def.type,
-      text: o.def.text ?? o.def.id,
-      primary: o.def.primary,
-      status: o.status,
-    }));
+  get objectiveList(): {
+    id: string;
+    type: string;
+    text: string;
+    primary: boolean;
+    status: ObjectiveStatus;
+    /** Ticks still to run on a timed objective — undefined when it is not
+     *  timed. 'Hold for five minutes' is not an order you can follow without
+     *  a clock (GDD §5.8). The UI formats it; the sim stays float-free. */
+    ticksLeft?: number;
+  }[] {
+    return this.objectives.map((o) => {
+      let ticksLeft: number | undefined;
+      if (o.status === 'active') {
+        const secs = o.def.seconds;
+        if (secs !== undefined) {
+          if (o.def.type === 'survive_until') {
+            const left = secs * TICKS_PER_SECOND - this.sim.tickCount;
+            ticksLeft = left > 0 ? left : 0;
+          } else if (o.def.type === 'hold_for' || o.def.type === 'capture') {
+            // Capture resets its clock when the ground is contested, so this
+            // reads as 'how much longer, from where you stand now'.
+            const left = secs * TICKS_PER_SECOND - o.holdTicks;
+            ticksLeft = left > 0 ? left : 0;
+          }
+        }
+      }
+      return {
+        id: o.def.id,
+        type: o.def.type,
+        text: o.def.text ?? o.def.id,
+        primary: o.def.primary,
+        status: o.status,
+        ticksLeft,
+      };
+    });
   }
 
   /** Spawn everything the mission declares. Call once before the first tick. */
