@@ -360,6 +360,28 @@ async function main(): Promise<void> {
   });
   topBar.appendChild(muteBtn);
 
+  // Mission clock: the active timed objective, big and centred, because in a
+  // hold you are watching the clock more than anything else on screen.
+  const clock = document.createElement('div');
+  clock.style.cssText =
+    'position:absolute;top:46px;left:50%;transform:translateX(-50%);padding:4px 16px;' +
+    'display:none;font:bold 20px ui-monospace,Menlo,monospace;letter-spacing:1px;' + PANEL;
+  document.body.appendChild(clock);
+  const refreshClock = (): void => {
+    if (!runtime) return;
+    const timed = runtime.objectiveList.find((o) => o.status === 'active' && o.ticksLeft !== undefined);
+    if (!timed || timed.ticksLeft === undefined) {
+      clock.style.display = 'none';
+      return;
+    }
+    const secs = Math.ceil(timed.ticksLeft / TICKS_PER_SECOND);
+    const mm = Math.floor(secs / 60);
+    const ss = (secs % 60).toString().padStart(2, '0');
+    clock.textContent = `${mm}:${ss}`;
+    clock.style.color = secs <= 60 ? '#E8C33A' : '#F2E8D5';
+    clock.style.display = 'block';
+  };
+
   const start = mission?.map.player_start;
   if (start) {
     renderer.camera.x = start[0];
@@ -702,6 +724,7 @@ async function main(): Promise<void> {
     overlay.onTick(events);
     if (productionTick && sim.tickCount % 5 === 0) productionTick();
     if (supportRefresh && sim.tickCount % 5 === 0) supportRefresh();
+    if (sim.tickCount % 5 === 0) refreshClock();
   };
 
   // Dev hook: deterministic headless stepping from the console
