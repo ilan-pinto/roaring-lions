@@ -1,0 +1,66 @@
+# Publishes the playable build to GitHub Pages on every push to main.
+#
+# The bundle is served from https://<owner>.github.io/<repo>/, so it is built
+# with VITE_BASE set to that sub-path — every asset URL in the app is derived
+# from import.meta.env.BASE_URL, which is why the same source works locally at
+# the root and here under a prefix.
+#
+# Deploying is gated on the repo's own gates: a build that cannot pass
+# determinism and the §5.7 backtest has no business being playable.
+
+name: pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race; queue instead, and let a run in progress finish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # The gates that decide whether this build is fit to publish.
+      - run: pnpm test:determinism
+      - run: pnpm balance
+
+      - name: Build for the Pages sub-path
+        run: pnpm build
+        env:
+          VITE_BASE: /${{ github.event.repository.name }}/
+
+      # Pages serves 404.html for unknown paths; the app is a single page, so
+      # pointing 404 at index.html keeps deep links working.
+      - run: cp packages/app/dist/index.html packages/app/dist/404.html
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: packages/app/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

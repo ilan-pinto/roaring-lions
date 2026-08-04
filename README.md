@@ -17,6 +17,16 @@ The combat model is the product, and it is calibrated: the backtest harness (`pn
 
 M1 — three short missions in Beit Sahwan, campaign ledger, ROE scoring, and a playable link here — is in progress.
 
+## Play it
+
+**<https://ilan-pinto.github.io/roaring-lions/>** — the current build, deployed
+from `main` on every push (and only when `test:determinism` and the §5.7
+backtest pass).
+
+Pick a mission from the menu, or open the M0 sandbox. Left-drag selects,
+right-click orders, right-click a building garrisons the infantry that can
+enter it. Every roll the model makes is in the feed on the right; `o` hides it.
+
 ## Quickstart
 
 ```bash

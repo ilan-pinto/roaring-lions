@@ -32,6 +32,10 @@ import {
   type MapJson,
 } from '@lions/data';
 
+/** Deploy base ('/' locally, '/<repo>/' on GitHub Pages) — every asset URL
+ *  is built from it so the same bundle works in both places. */
+const BASE = import.meta.env.BASE_URL;
+
 const MS_PER_TICK = 1000 / TICKS_PER_SECOND;
 const WEST = 32768; // half turn — garrisons face the expected KDF axis
 
@@ -283,12 +287,12 @@ async function main(): Promise<void> {
   // Measured off the sheets themselves: world bearing ≈ (5 - k) mod 16, i.e.
   // the rig rotates the object the other way with frame 5 looking east.
   const TANK: SpriteSpec = {
-    path: '/sprites/TNK_HULL/',
-    turretPath: '/sprites/TNK_TURR/',
+    path: `${BASE}sprites/TNK_HULL/`,
+    turretPath: `${BASE}sprites/TNK_TURR/`,
     facingOffset: 5,
     facingReverse: true,
   };
-  const FOOT: SpriteSpec = { path: '/sprites/INF/', frames: 5, facingOffset: 5, facingReverse: true };
+  const FOOT: SpriteSpec = { path: `${BASE}sprites/INF/`, frames: 5, facingOffset: 5, facingReverse: true };
   const SPRITE_MAP: Record<string, SpriteSpec> = {
     mbt_lavi: TANK,
     inf_squad: FOOT,
@@ -422,7 +426,7 @@ async function main(): Promise<void> {
   const audio = new BattleAudio();
   // Recorded clips when they exist, procedural synth per-sound where they
   // don't — so the library can be filled in one file at a time.
-  audio.useManifest(audioManifest as AudioManifest, 'audio/');
+  audio.useManifest(audioManifest as AudioManifest, `${BASE}audio/`);
   audio.attach();
 
   // --- input ---------------------------------------------------------------
