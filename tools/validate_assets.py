@@ -30,6 +30,7 @@ import argparse
 import itertools
 import json
 import os
+import re
 import sys
 
 import numpy as np
@@ -150,16 +151,47 @@ def iou(a, b):
     return float(inter) / float(union) if union else 0.0
 
 
+# Sprite filenames are either legacy flat -- f<NN>_<FFF>.png -- or
+# clip-prefixed -- <clip>_f<NN>_<FFF>.png. The clip migration introduced the
+# second form, and this function used to recognise only the first.
+SPRITE_RE = re.compile(r"^(?:(?P<clip>[a-z_]+)_)?f(?P<facing>\d{2})_(?P<frame>\d{3})\.png$")
+
+
 def representative(sprites):
-    """One canonical facing per unit -- facing 00, frame 000."""
+    """One canonical sprite per unit -- the idle pose at facing 00, frame 000.
+
+    The silhouette check asks "do two units read as the same thing at
+    gameplay zoom", so it has to compare like with like. Comparing one unit's
+    idle against another's crouch answers a question nobody asked.
+    """
     best = {}
-    for p in sprites:
+    seen_clipped = set()
+    for p in sorted(sprites):
         unit = os.path.basename(os.path.dirname(p))
-        name = os.path.basename(p)
-        if name.startswith("f00_000") or unit not in best:
+        m = SPRITE_RE.match(os.path.basename(p))
+        if not m:
             best.setdefault(unit, p)
-            if name.startswith("f00_000"):
+            continue
+        clip = m.group("clip")
+        canonical = m.group("facing") == "00" and m.group("frame") == "000"
+        if clip:
+            seen_clipped.add(unit)
+            if clip == "idle" and canonical:
                 best[unit] = p
+                continue
+        elif canonical:
+            best[unit] = p
+            continue
+        best.setdefault(unit, p)
+
+    for unit in seen_clipped:
+        chosen = os.path.basename(best[unit])
+        if not chosen.startswith("idle_f00_000"):
+            sys.exit(
+                f"{unit}: sheet uses clip-prefixed names but has no "
+                f"idle_f00_000.png. The silhouette gate has nothing canonical "
+                f"to compare and would otherwise measure an arbitrary pose."
+            )
     return best
 
 
