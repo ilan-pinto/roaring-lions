@@ -182,6 +182,10 @@
           "minimum": 0,
           "default": 0,
           "description": "Seats for infantry. Passengers ride at the vehicle\u2019s speed, cannot be shot at while aboard, and bail out hurt if it is destroyed."
+        },
+        "can_embark": {
+          "type": "boolean",
+          "description": "Can ride inside a transport. Defaults from role: infantry, at_team, artillery, engineer, sniper and support dismount and can embark; mbt, apc, ifv, technical and drone cannot. Set explicitly only to override that."
         }
       }
     },
