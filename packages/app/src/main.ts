@@ -20,6 +20,7 @@ import {
   type RendererOptions,
   type MissionView,
   type AudioManifest,
+  type EmitterSpec,
 } from '@lions/render';
 import {
   units,
@@ -29,6 +30,7 @@ import {
   parseMap,
   paletteColor,
   audioManifest,
+  vfxEmitters,
   type MapJson,
 } from '@lions/data';
 
@@ -276,6 +278,7 @@ async function main(): Promise<void> {
   };
   const renderer = new PixiRenderer(sim, opts);
   await renderer.init(stage);
+  renderer.useEmitters(vfxEmitters as EmitterSpec[], paletteColor);
 
   // Load sprite sheets for unit types that have rendered art (non-blocking).
   // Which sheet a unit uses is the only decision left here: facing convention,

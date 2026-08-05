@@ -12,6 +12,7 @@ export interface ParticleSpec {
   speed_tiles_s?: Range;
   cone_deg?: number;
   inherit_velocity?: number;
+  direction_offset_deg?: number;
   gravity_tiles_s2?: number;
   drag?: number;
   size_px?: Range;
