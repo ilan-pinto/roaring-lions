@@ -180,6 +180,27 @@ describe('transport', () => {
     expect(sim.state.suppression[squad]).toBeGreaterThan(0);
   });
 
+  it('keeps passengers aboard when the whole selection is ordered to move', () => {
+    // A box-select still contains the infantry after they board, so the player's
+    // next right-click reaches the passengers too. That used to dismount them on
+    // the spot: the APC drove off and the squad was left standing in the road.
+    const { sim, jeep, inf } = world();
+    const car = sim.spawn(jeep, 0, fx.from(6.5), fx.from(10.5));
+    const squad = sim.spawn(inf, 0, fx.from(5.5), fx.from(10.5));
+    sim.queueCommand({ kind: 'load', ids: [squad], carrier: car });
+    run(sim, 10 * TICKS_PER_SECOND);
+    expect(sim.state.carriedBy[squad]).toBe(car);
+
+    // The order a player actually gives: everything still selected, one click.
+    sim.queueCommand({ kind: 'move', ids: [car, squad], x: fx.from(30.5), y: fx.from(10.5) });
+    run(sim, 20 * TICKS_PER_SECOND);
+
+    expect(sim.state.carriedBy[squad]).toBe(car);
+    expect(sim.passengerCount(car)).toBe(1);
+    expect(fx.toNumber(sim.state.posX[car])).toBeGreaterThan(25);
+    expect(sim.state.posX[squad]).toBe(sim.state.posX[car]);
+  });
+
   it('refuses to load a tank into a personnel carrier', () => {
     // A carrier is not a flatbed. The old rule was "anything that is not
     // itself a carrier can ride", which is true of tanks — so a box-select
