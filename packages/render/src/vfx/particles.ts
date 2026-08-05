@@ -34,6 +34,10 @@ export class ParticleSystem {
   private readonly drag: Float64Array;
   private readonly priority: Uint8Array;
   private readonly alive: Uint8Array;
+  /** Which draw layer a particle belongs to (0 = below units, 1 = above
+   *  units). One shared pool, so priority-based eviction still competes
+   *  across both layers rather than reserving capacity per layer. */
+  private readonly layerIdx: Uint8Array;
   /** Resolved hex colours per particle, one ramp step per frame of life. */
   private readonly colors: string[][] = [];
   private readonly alphaCurve: (number[] | undefined)[] = [];
@@ -56,6 +60,7 @@ export class ParticleSystem {
     this.drag = new Float64Array(capacity);
     this.priority = new Uint8Array(capacity);
     this.alive = new Uint8Array(capacity);
+    this.layerIdx = new Uint8Array(capacity);
     this.colors.length = capacity;
     this.alphaCurve.length = capacity;
     this.sizeCurve.length = capacity;
@@ -85,7 +90,9 @@ export class ParticleSystem {
   /**
    * Emit one particle layer. `magnitude` is firePower's 0..1 output: it
    * scales count and size so a 120mm reads bigger than a coax MG without
-   * needing its own emitter.
+   * needing its own emitter. `layerIdx` selects which draw call later
+   * picks this particle up — the pool itself is not split by layer, so
+   * priority-based eviction still competes globally.
    */
   spawn(
     spec: ParticleSpec,
@@ -93,7 +100,8 @@ export class ParticleSystem {
     y: number,
     dirTurns: number,
     magnitude: number,
-    priority: number
+    priority: number,
+    layerIdx: number
   ): void {
     const scale = 0.5 + magnitude * 1.5;
     const n = Math.max(1, Math.round(pick(spec.count, 1) * (0.5 + magnitude * 0.9)));
@@ -117,6 +125,7 @@ export class ParticleSystem {
       this.gravity[i] = spec.gravity_tiles_s2 ?? 0;
       this.drag[i] = spec.drag ?? 0;
       this.priority[i] = priority;
+      this.layerIdx[i] = layerIdx;
       this.alive[i] = 1;
       this.colors[i] = resolved;
       this.alphaCurve[i] = spec.alpha_over_life;
@@ -142,13 +151,17 @@ export class ParticleSystem {
     }
   }
 
+  /** Draws only particles spawned with the matching `layerIdx`, so callers
+   *  can render below-unit and above-unit effects onto separate Graphics
+   *  in the correct order relative to unit sprites. */
   draw(
     g: Graphics,
     isoX: (x: number, y: number) => number,
-    isoY: (x: number, y: number) => number
+    isoY: (x: number, y: number) => number,
+    layerIdx: number
   ): void {
     for (let i = 0; i < this.capacity; i++) {
-      if (this.alive[i] === 0) continue;
+      if (this.alive[i] === 0 || this.layerIdx[i] !== layerIdx) continue;
       const t = this.age[i] / this.life[i];
       const color = sampleStep(this.colors[i], t, '#FFFFFF');
       const alpha = sampleStep(this.alphaCurve[i], t, 1 - t);

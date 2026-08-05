@@ -51,6 +51,18 @@ const BOB_PX = 1.2;
 const TURRET_STIFFNESS = 90;
 const TURRET_DAMPING = 13;
 
+/** Particle draw layers, indexing which Graphics a spawned particle lands
+ *  on: below unit sprites (fxG) or above them (fxAboveG). */
+const FX_LAYER_BELOW = 0;
+const FX_LAYER_ABOVE = 1;
+
+/** Maps an emitter's declared `layer` (schema enum: ground_decal,
+ *  below_units, above_units, sky) to a draw-layer index. Unknown or absent
+ *  values default to below, matching the pre-emitter puff behaviour. */
+function fxLayerIndex(layer: string | undefined): number {
+  return layer === 'above_units' || layer === 'sky' ? FX_LAYER_ABOVE : FX_LAYER_BELOW;
+}
+
 interface Tracer {
   sx: number;
   sy: number;
@@ -96,6 +108,10 @@ export class PixiRenderer {
   /** Wreckage sits under the living, so troops always draw over the dead. */
   private readonly wreckLayer = new Container();
   private readonly spriteLayer = new Container();
+  /** above_units/sky particle layer: drawn over unit sprites (so a main-gun
+   *  muzzle flash isn't hidden behind the hull that fired it) but under
+   *  unitsG, so HP bars, suppression bars and selection rings stay on top. */
+  private readonly fxAboveG = new Graphics();
   private sim: Sim;
   private opts: RendererOptions;
 
@@ -209,6 +225,7 @@ export class PixiRenderer {
     this.world.addChild(this.fxG);
     this.world.addChild(this.wreckLayer);
     this.world.addChild(this.spriteLayer);
+    this.world.addChild(this.fxAboveG);
     this.world.addChild(this.unitsG);
     // Fog sits above terrain and units, so unobserved ground and anything
     // standing on it are hidden together.
@@ -352,11 +369,12 @@ export class PixiRenderer {
         if (emitter && this.particles) {
           const dirTurns = facingRad / (Math.PI * 2);
           const prio = emitter.budget_priority ?? 4;
+          const fxLayer = fxLayerIndex(emitter.layer);
           for (const layer of emitter.particles) {
             // direction_offset_deg rotates a layer off the firing bearing;
             // 180 is the backblast behind an RPG or ATGM.
             const offset = (layer.direction_offset_deg ?? 0) / 360;
-            this.particles.spawn(layer, mzX, mzY, dirTurns + offset, power, prio);
+            this.particles.spawn(layer, mzX, mzY, dirTurns + offset, power, prio, fxLayer);
           }
         } else if (type.isSoft) {
           // No emitter for this class yet: the original puffs still stand in.
@@ -1269,6 +1287,7 @@ export class PixiRenderer {
     // Transient FX.
     const fg = this.fxG;
     fg.clear();
+    this.fxAboveG.clear();
     this.tracers = this.tracers.filter((t) => --t.ttl > 0);
     for (const t of this.tracers) {
       fg.moveTo(isoX(t.sx, t.sy), isoY(t.sx, t.sy) - 4)
@@ -1282,6 +1301,9 @@ export class PixiRenderer {
         alpha: (p.ttl / 14) * 0.8,
       });
     }
-    if (this.particles) this.particles.draw(fg, isoX, isoY);
+    if (this.particles) {
+      this.particles.draw(fg, isoX, isoY, FX_LAYER_BELOW);
+      this.particles.draw(this.fxAboveG, isoX, isoY, FX_LAYER_ABOVE);
+    }
   }
 }
