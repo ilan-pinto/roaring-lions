@@ -66,6 +66,19 @@
         "decay_ms": { "type": "integer", "minimum": 0 }
       }
     },
+    "weapon_classes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "description": "Weapon classes this emitter serves, matched against WEAPON_CLASS in @lions/sim. Only meaningful when trigger is weapon_fire. Mirrors the audio manifest's weapon_classes field so presentation uses one vocabulary.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "apfsds", "heat", "he", "atgm", "rpg", "small_arms",
+          "hmg", "autocannon", "mortar", "rocket", "interceptor", "demolition"
+        ]
+      }
+    },
     "particles": {
       "type": "array",
       "minItems": 1,
