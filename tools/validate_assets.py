@@ -99,6 +99,40 @@ def check_image(path, allowed, reserved):
     return errs
 
 
+def is_layer(path):
+    """True when a sheet declares itself a composite layer, not a unit."""
+    mf = os.path.join(os.path.dirname(path), "manifest.json")
+    if not os.path.exists(mf):
+        return False
+    with open(mf) as fh:
+        return "layer" in json.load(fh)
+
+
+def check_framing(path):
+    """Opaque pixels must not touch the frame edge.
+
+    A sprite that runs off its own canvas has been cropped by the render
+    camera -- most often the model is mispositioned rather than merely large.
+    The fill and silhouette checks both miss this: a decapitated soldier still
+    fills its frame and still has a distinct outline, so nothing else in this
+    gate would notice that the head is gone.
+    """
+    im = Image.open(path).convert("RGBA")
+    a = np.array(im)[:, :, 3] > 128
+    if not a.any():
+        return ["sprite is fully transparent"]
+    errs = []
+    for edge, hit in (
+        ("top", a[0, :].any()),
+        ("bottom", a[-1, :].any()),
+        ("left", a[:, 0].any()),
+        ("right", a[:, -1].any()),
+    ):
+        if hit:
+            errs.append(f"silhouette touches the {edge} edge -- cropped by the render camera")
+    return errs
+
+
 def silhouette(path, size=GAMEPLAY_ZOOM):
     """Downsample to gameplay zoom, return a boolean occupancy mask."""
     img = Image.open(path).convert("RGBA")
@@ -147,8 +181,15 @@ def main():
     for p in sprites:
         for e in check_image(p, allowed, reserved):
             failures.append(f"{p}: {e}")
+        for e in check_framing(p):
+            failures.append(f"{p}: {e}")
 
     reps = representative(sprites)
+    # Composite layers (a turret drawn onto its hull) are not units. They are
+    # still checked for palette, alpha and framing above; the two checks below
+    # ask "does this read as a unit at gameplay zoom", which a layer never
+    # answers meaningfully.
+    reps = {u: p for u, p in reps.items() if not is_layer(p)}
     masks = {}
     for unit, p in reps.items():
         m = silhouette(p)

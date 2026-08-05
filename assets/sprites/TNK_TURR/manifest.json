@@ -6,6 +6,7 @@
   "facingOffset": 5,
   "facingReverse": true,
   "scale": 1.8,
+  "layer": "turret",
   "files": [
     {
       "facing": 0,

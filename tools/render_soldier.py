@@ -37,7 +37,7 @@ import math
 import os
 import json
 import sys
-from mathutils import Vector, Quaternion
+from mathutils import Vector, Quaternion, Matrix
 
 FBX = os.path.abspath("art/src/soldier_kolos.fbx")
 OUT = os.path.abspath("assets/sprites/INF")
@@ -48,7 +48,12 @@ DIMETRIC_ELEVATION = math.atan(0.5)
 # Sheet conventions, reported to the renderer through the manifest.
 FACING_OFFSET = 5  # sprite index that looks along world +x
 FACING_REVERSE = True  # this loop rotates opposite to world bearing
-DRAW_SCALE = 1.0  # sprite width in tile widths
+# Sprite width in tile widths. The art fills 0.73 of its frame, and the tank
+# sheet puts a ~7m hull in 1.8 tiles (~3.9 m/tile), so a 1.8m soldier wants
+# about 0.46 tiles drawn -- 0.46 / 0.73. The old 1.0 was tuned against a
+# render whose framing was broken, which made the figure look right only
+# because its head was cropped off.
+DRAW_SCALE = 0.63
 
 X = (1.0, 0.0, 0.0)
 Z = (0.0, 0.0, 1.0)
@@ -228,7 +233,12 @@ def main():
     pivot.location = center
     bpy.context.collection.objects.link(pivot)
     arm.parent = pivot
-    arm.matrix_parent_inverse = pivot.matrix_world.inverted()
+    # pivot.matrix_world is still identity here -- Blender has not evaluated
+    # the depsgraph since pivot.location was set, so inverting it would be a
+    # no-op and parenting would shift the model by +center. The pivot is a
+    # pure translation, so state its inverse directly instead of reading back
+    # a transform that does not exist yet.
+    arm.matrix_parent_inverse = Matrix.Translation(-center)
 
     cam_data = bpy.data.cameras.new("CAM")
     cam_data.type = "ORTHO"

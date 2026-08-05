@@ -5,7 +5,7 @@
   "size": 256,
   "facingOffset": 5,
   "facingReverse": true,
-  "scale": 1.0,
+  "scale": 0.63,
   "clips": {
     "idle": {
       "frames": 1,

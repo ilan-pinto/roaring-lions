@@ -19,7 +19,7 @@ import os
 import json
 import sys
 import tempfile
-from mathutils import Vector
+from mathutils import Vector, Matrix
 
 BLEND = os.path.abspath("art/src/tiger_tank_rigged.blend")
 OUT_HULL = os.path.abspath("assets/sprites/TNK_HULL")
@@ -192,7 +192,12 @@ def setup_clean_scene(obj_path, hull_names, turret_names):
     center = Vector((xs[mid], ys[mid], zs[mid]))
 
     dists = sorted((p - center).length for p in all_pts)
-    radius = max(dists[int(len(dists) * 0.95)], 0.001)
+    # True maximum, not a percentile. A percentile discards outlying vertices,
+    # and on a tank the outlier is the gun barrel -- so the barrel tip fell
+    # outside the frame at the facings where it points along a screen axis.
+    # Hull and turret share this radius and one camera, so widening it shrinks
+    # both by the same factor and the composite stays aligned.
+    radius = max(dists[-1], 0.001)
     print(f"Bounds: center={center}, radius={radius:.1f} ({len(all_pts)} verts)")
 
     # Rotation pivot.
@@ -202,7 +207,12 @@ def setup_clean_scene(obj_path, hull_names, turret_names):
 
     for obj in imported:
         obj.parent = pivot
-        obj.matrix_parent_inverse = pivot.matrix_world.inverted()
+        # pivot.matrix_world is still identity here -- Blender has not evaluated
+        # the depsgraph since pivot.location was set, so inverting it would be a
+        # no-op and parenting would shift the model by +center. The pivot is a
+        # pure translation, so state its inverse directly instead of reading back
+        # a transform that does not exist yet.
+        obj.matrix_parent_inverse = Matrix.Translation(-center)
 
     # Render settings.
     sc = bpy.context.scene
@@ -288,6 +298,12 @@ def render_pass(pivot, show_objs, hide_objs, out_dir, label):
         "facingOffset": FACING_OFFSET,
         "facingReverse": FACING_REVERSE,
         "scale": DRAW_SCALE,
+        # A turret is a layer composited onto its hull, never a unit standing
+        # on its own. The art gate reads this to skip the checks that only
+        # make sense for a whole unit -- a turret legitimately fills little of
+        # a frame sized for the whole tank, and comparing its outline against
+        # other units' asks a question with no meaning.
+        **({"layer": "turret"} if label == "turret" else {}),
         "files": [],
     }
 

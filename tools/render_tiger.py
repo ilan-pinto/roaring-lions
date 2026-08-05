@@ -19,7 +19,7 @@ import os
 import json
 import sys
 import tempfile
-from mathutils import Vector
+from mathutils import Vector, Matrix
 
 BLEND = os.path.abspath("art/src/tiger_tank_rigged.blend")
 OUT = "packages/app/public/assets/sprites/TNK"
@@ -134,7 +134,12 @@ def render_from_obj(obj_path):
     for obj in list(bpy.context.collection.objects):
         if obj.type == "MESH":
             obj.parent = pivot
-            obj.matrix_parent_inverse = pivot.matrix_world.inverted()
+            # pivot.matrix_world is still identity here -- Blender has not evaluated
+            # the depsgraph since pivot.location was set, so inverting it would be a
+            # no-op and parenting would shift the model by +center. The pivot is a
+            # pure translation, so state its inverse directly instead of reading back
+            # a transform that does not exist yet.
+            obj.matrix_parent_inverse = Matrix.Translation(-center)
 
     # Render setup
     sc = bpy.context.scene
