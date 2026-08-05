@@ -3,7 +3,7 @@
   "credit": "LPMAC military truck. LICENCE UNVERIFIED, see tools/render_eitan.py",
   "facings": 16,
   "size": 256,
-  "facingOffset": 5,
+  "facingOffset": 0,
   "facingReverse": true,
   "scale": 1.6,
   "clips": {
