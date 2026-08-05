@@ -120,8 +120,13 @@ outside clamps. `charges` earns a power value but never uses it, since
 
 Mortars rank high on splash and suppression despite negligible penetration.
 That is the point of the composite, and precisely what a penetration-only
-scalar would have got backwards — `mortar_60` would have ranked below
-`coax_mg`.
+scalar would have got backwards: it would rank `cannon_30` (penetration 120)
+and even `rpg7` (550) above `mortar_82` (35), when an 82mm mortar is far the
+louder event. The composite puts the mortar above both.
+
+Across the roster the composite reorders thirteen pairs relative to
+penetration alone. The largest movements are the mortars, which rise from
+eighth and ninth to fourth and fifth.
 
 The anti-materiel rifle sits just above the autocannon. This is defensible: a
 .50 AMR has a genuinely larger muzzle event than a single 30mm round, and it
