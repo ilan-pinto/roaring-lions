@@ -41,6 +41,12 @@ class VehicleSpec:
     credit: str
     hull_unit: str
     turret_unit: str
+    # Sprite index that faces world +x. This is a property of how the source
+    # model is oriented in its own .blend file -- not of this rig -- so it
+    # must be measured per vehicle rather than assumed to match another
+    # vehicle's source file. Defaults to 0; override only if a silhouette fit
+    # against rendered frames shows otherwise.
+    facing_offset: int = 0
     # Some source files ship a studio backdrop; rendering it fills the frame.
     backdrop_prefix: "str | None" = None
     # Remove any camera and lights the source file ships, so only this rig's
@@ -227,9 +233,13 @@ def render_clip(pivot, show, hide, out_dir, clip, files):
 def write_manifest(spec, out_dir, unit, clips, files, layer=None):
     """The manifest is the renderer's only source of truth for this sheet.
 
-    facingOffset and facingReverse describe how this rig lays frames out. They
-    are constants, emitted here rather than measured off the images by eye --
-    but they are not derived, so a change to the rig means changing them.
+    facingOffset and facingReverse describe how this rig lays frames out.
+    facingReverse is a rig constant: this loop always advances rotation the
+    same way relative to world bearing. facingOffset is per-vehicle -- it
+    depends on the source model's own orientation, not the rig -- so it comes
+    from spec.facing_offset rather than being hardcoded here. Neither is
+    derived from the images; both are emitted from what the rig (and spec)
+    already know.
 
     `layer` marks a sheet as a composite drawn onto another rather than a unit
     in its own right. The art gate reads it to skip the fill and silhouette
@@ -242,7 +252,7 @@ def write_manifest(spec, out_dir, unit, clips, files, layer=None):
         "credit": spec.credit,
         "facings": FACINGS,
         "size": SIZE,
-        "facingOffset": 5,
+        "facingOffset": spec.facing_offset,
         "facingReverse": True,
         "scale": spec.scale,
         "clips": clips,

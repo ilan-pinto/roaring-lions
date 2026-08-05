@@ -3,7 +3,7 @@
   "credit": "Mutte (CC-BY 3.0, BlendSwap #75225)",
   "facings": 16,
   "size": 256,
-  "facingOffset": 5,
+  "facingOffset": 0,
   "facingReverse": true,
   "scale": 1.7,
   "clips": {
