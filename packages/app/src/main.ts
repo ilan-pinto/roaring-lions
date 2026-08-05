@@ -293,10 +293,15 @@ async function main(): Promise<void> {
     path: `${BASE}sprites/EITAN_HULL/`,
     turretPath: `${BASE}sprites/EITAN_TURR/`,
   };
+  const NAMER: SpriteSpec = {
+    path: `${BASE}sprites/NAMER_HULL/`,
+    turretPath: `${BASE}sprites/NAMER_TURR/`,
+  };
   const FOOT: SpriteSpec = { path: `${BASE}sprites/INF/` };
   const SPRITE_MAP: Record<string, SpriteSpec> = {
     mbt_lavi: TANK,
     apc_eitan: EITAN,
+    ifv_namer: NAMER,
     inf_squad: FOOT,
     at_team: FOOT,
     mortar_team: FOOT,
