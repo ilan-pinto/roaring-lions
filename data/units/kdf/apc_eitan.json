@@ -17,6 +17,7 @@
       "top": 40
     },
     "crew": 2,
+    "transport_slots": 2,
     "suppression_resistance": 0.7
   },
   "mobility": {

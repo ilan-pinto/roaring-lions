@@ -22,6 +22,10 @@ import AjvModule from 'ajv/dist/2020.js';
 const Ajv2020 = AjvModule.default ?? AjvModule;
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
+/** Roles whose entire purpose is carrying infantry. One of these without
+ *  hull.transport_slots is a unit that cannot do the job it is named for. */
+const CARRIER_ROLES = new Set(['apc', 'ifv']);
+
 const ajv = new Ajv2020({ allErrors: true, strict: false });
 
 const failures = [];
@@ -102,6 +106,16 @@ if (schemas.unit && schemas.mission && schemas.vfx && schemas.map) {
   for (const file of jsonFilesIn(join(ROOT, 'data/units'))) {
     const u = loadJson(file);
     if (u?.id) unitIds.add(u.id);
+    // A carrier that cannot carry is a contradiction the schema cannot see.
+    // The sim, the input layer and the unit plate all support transport, so a
+    // vehicle whose whole role is carrying infantry but which declares no
+    // slots leaves the player pressing `g` at a unit that silently refuses.
+    if (u && CARRIER_ROLES.has(u.role) && !(u.hull?.transport_slots > 0)) {
+      failures.push(
+        `${rel(file)}: role "${u.role}" carries infantry but declares no ` +
+          `hull.transport_slots — the player cannot load anyone into it`
+      );
+    }
   }
   for (const file of jsonFilesIn(join(ROOT, 'data/missions'))) {
     const mi = loadJson(file);
