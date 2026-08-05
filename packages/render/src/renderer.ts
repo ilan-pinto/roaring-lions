@@ -351,11 +351,6 @@ export class PixiRenderer {
         const facingRad = usesTurret
           ? this.turretFacing[e.shooter] * Math.PI * 2
           : fx.toNumber(this.sim.state.facing[e.shooter]) * Math.PI * 2;
-        // Kick the shooter back along its own bearing. Without this a firing
-        // tank puts muzzle smoke next to a completely inert vehicle, and the
-        // shot never reads as having come from it.
-        this.recoilT[e.shooter] = 1;
-        this.recoilDir[e.shooter] = facingRad / (Math.PI * 2);
         const barrelLen = type.isSoft ? 0.4 : 0.8;
         const mzX = this.curX[e.shooter] + Math.cos(facingRad) * barrelLen;
         const mzY = this.curY[e.shooter] + Math.sin(facingRad) * barrelLen;
@@ -366,9 +361,18 @@ export class PixiRenderer {
         const cls = wp?.cls ?? WEAPON_CLASS.small_arms;
         const emitter = this.emitters.fireEmitterFor(cls);
         const power = wp ? firePower(wp) : 0;
+        // Kick the shooter back along its own bearing. Without this a firing
+        // tank puts muzzle smoke next to a completely inert vehicle, and the
+        // shot never reads as having come from it. Demolition charges are
+        // placed, not fired — a satchel charge must not make the squad lurch.
+        if (cls !== WEAPON_CLASS.demolition) {
+          this.recoilT[e.shooter] = 1;
+          this.recoilDir[e.shooter] = facingRad / (Math.PI * 2);
+          this.recoilPower[e.shooter] = power;
+        }
         if (emitter && this.particles) {
           const dirTurns = facingRad / (Math.PI * 2);
-          const prio = emitter.budget_priority ?? 4;
+          const prio = emitter.budget_priority ?? 5;
           const fxLayer = fxLayerIndex(emitter.layer);
           for (const layer of emitter.particles) {
             // direction_offset_deg rotates a layer off the firing bearing;
@@ -384,7 +388,6 @@ export class PixiRenderer {
           this.puffs.push({ x: mzX, y: mzY, ttl: 8, color: this.opts.flashColor, r: 10 });
           this.puffs.push({ x: mzX, y: mzY, ttl: 18, color: '#6B6355', r: 7 });
         }
-        this.recoilPower[e.shooter] = power;
       } else if (e.kind === 'nearMiss') {
         this.puffs.push({ x: fx.toNumber(e.x), y: fx.toNumber(e.y), ttl: 14, color: this.opts.nearMissColor, r: 7 });
       } else if (e.kind === 'aps' && e.intercepted) {

@@ -15,6 +15,21 @@ function sampleStep<T>(curve: T[] | undefined, t: number, fallback: T): T {
   return curve[i];
 }
 
+/** Sample a numeric curve with linear interpolation across its whole span.
+ *  Unlike sampleStep, this is for continuous ramps (alpha, size) rather than
+ *  palette-quantised colours: stepping those makes every 2-entry fade snap
+ *  instead of fading, and every growth curve only take effect for the
+ *  invisible second half of a particle's life. */
+function sampleLerp(curve: number[] | undefined, t: number, fallback: number): number {
+  if (!curve || curve.length === 0) return fallback;
+  if (curve.length === 1) return curve[0];
+  const clamped = t < 0 ? 0 : t > 1 ? 1 : t;
+  const span = (curve.length - 1) * clamped;
+  const i = Math.min(curve.length - 2, Math.floor(span));
+  const frac = span - i;
+  return curve[i] + (curve[i + 1] - curve[i]) * frac;
+}
+
 /**
  * Fixed-capacity particle pool in struct-of-arrays form.
  *
@@ -103,9 +118,9 @@ export class ParticleSystem {
     priority: number,
     layerIdx: number
   ): void {
-    const scale = 0.5 + magnitude * 1.5;
+    const scale = 0.75 + magnitude * 1.25;
     const n = Math.max(1, Math.round(pick(spec.count, 1) * (0.5 + magnitude * 0.9)));
-    const coneRad = ((spec.cone_deg ?? 0) * Math.PI) / 180;
+    const coneRad = ((spec.cone_deg ?? 360) * Math.PI) / 180;
     const dirRad = dirTurns * Math.PI * 2;
     const resolved = spec.color_over_life.map((k) => this.resolve(k));
 
@@ -164,8 +179,8 @@ export class ParticleSystem {
       if (this.alive[i] === 0 || this.layerIdx[i] !== layerIdx) continue;
       const t = this.age[i] / this.life[i];
       const color = sampleStep(this.colors[i], t, '#FFFFFF');
-      const alpha = sampleStep(this.alphaCurve[i], t, 1 - t);
-      const sizeMul = sampleStep(this.sizeCurve[i], t, 1);
+      const alpha = sampleLerp(this.alphaCurve[i], t, 1 - t);
+      const sizeMul = sampleLerp(this.sizeCurve[i], t, 1);
       const r = this.size[i] * sizeMul;
       if (r <= 0 || alpha <= 0) continue;
       g.circle(isoX(this.x[i], this.y[i]), isoY(this.x[i], this.y[i]) - 3, r).fill({ color, alpha });
