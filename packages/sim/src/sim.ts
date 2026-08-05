@@ -995,9 +995,16 @@ export class Sim {
             }
             continue;
           }
+          // A passenger is inside a vehicle and does not walk anywhere: the
+          // carrier decides where it goes, and `unload` is how it gets out.
+          // This used to disembark instead, which made the ordinary workflow
+          // fail — a box-select still holds the infantry after they board, so
+          // the next right-click dumped them in the road while the APC drove
+          // off. They are already untargetable while aboard; being immune to
+          // movement orders is the same idea.
+          if (this.carriedBy[id] >= 0) continue;
           this.wpCount[id] = 0; // a fresh order replaces the whole path
           if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
-          if (this.carriedBy[id] >= 0) this.disembark(id, false);
           this.boardGoal[id] = -1;
           this.garrisonGoal[id] = -1;
           this.goalX[id] = gx;
