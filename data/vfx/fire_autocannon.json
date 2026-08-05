@@ -1,0 +1,35 @@
+{
+  "id": "fire_autocannon",
+  "trigger": "weapon_fire",
+  "layer": "above_units",
+  "weapon_classes": ["autocannon"],
+  "budget_priority": 4,
+  "screen_shake": { "amplitude_px": 1.5, "duration_ms": 90, "falloff_tiles": 8 },
+  "light": { "color": "vfx.fire", "intensity": 1.2, "radius_tiles": 2.0, "decay_ms": 90 },
+  "particles": [
+    {
+      "sprite": "spark",
+      "count": [3, 5],
+      "lifetime_ms": [100, 190],
+      "speed_tiles_s": [1.5, 3.5],
+      "cone_deg": 30,
+      "size_px": [3, 5],
+      "size_over_life": [1.0, 0.3],
+      "color_over_life": ["vfx.white_hot", "vfx.fire", "vfx.ember"],
+      "alpha_over_life": [1.0, 0.0],
+      "additive": true
+    },
+    {
+      "sprite": "smoke_puff",
+      "count": [1, 2],
+      "lifetime_ms": [300, 460],
+      "speed_tiles_s": [0.3, 0.7],
+      "cone_deg": 50,
+      "drag": 0.6,
+      "size_px": [4, 7],
+      "size_over_life": [0.5, 1.5],
+      "color_over_life": ["dust.3", "dust.2"],
+      "alpha_over_life": [0.6, 0.0]
+    }
+  ]
+}

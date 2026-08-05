@@ -1,0 +1,34 @@
+{
+  "id": "fire_hmg",
+  "trigger": "weapon_fire",
+  "layer": "above_units",
+  "weapon_classes": ["hmg"],
+  "budget_priority": 2,
+  "light": { "color": "vfx.fire", "intensity": 0.6, "radius_tiles": 1.2, "decay_ms": 70 },
+  "particles": [
+    {
+      "sprite": "hard_dot",
+      "count": [2, 3],
+      "lifetime_ms": [80, 150],
+      "speed_tiles_s": [0.8, 2.0],
+      "cone_deg": 26,
+      "size_px": [2.5, 4],
+      "size_over_life": [1.0, 0.3],
+      "color_over_life": ["vfx.white_hot", "vfx.fire", "vfx.ember"],
+      "alpha_over_life": [1.0, 0.0],
+      "additive": true
+    },
+    {
+      "sprite": "smoke_puff",
+      "count": [1, 1],
+      "lifetime_ms": [220, 340],
+      "speed_tiles_s": [0.2, 0.5],
+      "cone_deg": 40,
+      "drag": 0.5,
+      "size_px": [3, 5],
+      "size_over_life": [0.6, 1.4],
+      "color_over_life": ["dust.3"],
+      "alpha_over_life": [0.5, 0.0]
+    }
+  ]
+}

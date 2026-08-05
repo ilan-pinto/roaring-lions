@@ -29,6 +29,14 @@ import technical from '../../../data/units/enemy/technical.json';
 import mortarCrew from '../../../data/units/enemy/mortar_crew.json';
 import civilians from '../../../data/units/civilians.json';
 
+import fireApfsds from '../../../data/vfx/fire_apfsds.json';
+import fireAutocannon from '../../../data/vfx/fire_autocannon.json';
+import fireHeat from '../../../data/vfx/fire_heat.json';
+import fireHmg from '../../../data/vfx/fire_hmg.json';
+import fireMissile from '../../../data/vfx/fire_missile.json';
+import fireMortar from '../../../data/vfx/fire_mortar.json';
+import fireSmallArms from '../../../data/vfx/fire_small_arms.json';
+
 export { palette };
 export type Palette = typeof palette;
 
@@ -79,6 +87,17 @@ export const units = {
 } as const;
 
 export type UnitId = keyof typeof units;
+
+/** Weapon-fire emitters, indexed by the renderer by weapon class. */
+export const vfxEmitters = [
+  fireSmallArms,
+  fireHmg,
+  fireAutocannon,
+  fireApfsds,
+  fireHeat,
+  fireMissile,
+  fireMortar,
+];
 
 /** Resolve a palette key like "vfx.fire" or "dust.2" to its hex colour. */
 export function paletteColor(key: string): string {
