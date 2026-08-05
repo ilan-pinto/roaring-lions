@@ -652,7 +652,10 @@ async function main(): Promise<void> {
     if (ev.key === 'g') {
       const mine = renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
       const carrier = mine.find((i) => sim.unitTypes[sim.state.typeIdx[i]].transportSlots > 0);
-      const riders = mine.filter((i) => sim.unitTypes[sim.state.typeIdx[i]].transportSlots === 0);
+      // Passengers are dismounted elements. Filtering on "has no seats" put
+      // tanks in the list, so a box-select over an armoured force loaded
+      // Merkavas into the APC and left the infantry behind.
+      const riders = mine.filter((i) => sim.unitTypes[sim.state.typeIdx[i]].canEmbark);
       if (carrier !== undefined && riders.length > 0) {
         sim.queueCommand({ kind: 'load', ids: riders, carrier });
         overlay.note('<b>mount up</b> — infantry boarding', '#A9C4D1');

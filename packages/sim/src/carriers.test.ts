@@ -180,6 +180,24 @@ describe('transport', () => {
     expect(sim.state.suppression[squad]).toBeGreaterThan(0);
   });
 
+  it('refuses to load a tank into a personnel carrier', () => {
+    // A carrier is not a flatbed. The old rule was "anything that is not
+    // itself a carrier can ride", which is true of tanks — so a box-select
+    // over an armoured force filled both seats with Merkavas and left the
+    // infantry standing in the road.
+    const { sim, jeep, inf, tank } = world();
+    const car = sim.spawn(jeep, 0, fx.from(10.5), fx.from(10.5));
+    const armour = sim.spawn(tank, 0, fx.from(9.5), fx.from(10.5));
+    const squad = sim.spawn(inf, 0, fx.from(9.5), fx.from(11.5));
+
+    sim.queueCommand({ kind: 'load', ids: [armour, squad], carrier: car });
+    run(sim, 20 * TICKS_PER_SECOND);
+
+    expect(sim.state.carriedBy[armour]).toBe(-1);
+    expect(sim.state.carriedBy[squad]).toBe(car);
+    expect(sim.passengerCount(car)).toBe(1);
+  });
+
   it('refuses more passengers than it has seats', () => {
     const { sim, jeep, inf } = world();
     const car = sim.spawn(jeep, 0, fx.from(10.5), fx.from(10.5));

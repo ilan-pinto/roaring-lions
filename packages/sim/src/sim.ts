@@ -141,6 +141,8 @@ export interface UnitTypeJson {
     suppression_resistance?: number;
     /** Seats for infantry. 0 = carries nobody. */
     transport_slots?: number;
+    /** Can ride inside a transport. Defaults from role — see FOOT_ROLES. */
+    can_embark?: boolean;
     aps?: {
       base_pk?: number;
       magazine?: number;
@@ -158,6 +160,19 @@ export interface UnitTypeJson {
   };
   weapons?: WeaponJson[];
 }
+
+/**
+ * Roles that dismount and can ride inside a transport.
+ *
+ * A carrier is not a flatbed. The rule used to be "anything that is not itself
+ * a carrier can be a passenger", which is true of a tank — so a box-select over
+ * an armoured force filled an APC's seats with Merkavas and left the infantry
+ * in the road. Thin armour is not the right test either: it would admit
+ * technicals and drones.
+ *
+ * A unit may override this with `hull.can_embark`.
+ */
+const FOOT_ROLES = new Set(['infantry', 'at_team', 'artillery', 'engineer', 'sniper', 'support']);
 
 /** Weapon classes as ints — string compares stay out of the hot loop. */
 export const WEAPON_CLASS: Record<string, number> = {
@@ -211,6 +226,8 @@ export interface UnitType {
   isKamikaze: boolean;
   /** Seats for infantry. */
   transportSlots: number;
+  /** Dismounted element: can ride inside a transport. */
+  canEmbark: boolean;
   /** Trained observer: earns intel while holding position (GDD §3). */
   canMarkTarget: boolean;
   /** Carries smoke: the counterplay to prepared fire. */
@@ -291,6 +308,7 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     canDemolish: abilities.includes('demolish'),
     isKamikaze: abilities.includes('kamikaze'),
     transportSlots: json.hull.transport_slots ?? 0,
+    canEmbark: json.hull.can_embark ?? FOOT_ROLES.has(json.role ?? ''),
     canMarkTarget: abilities.includes('mark_target'),
     canSmoke: abilities.includes('smoke'),
     hp: fx.from(json.hull.hp),
@@ -1066,7 +1084,9 @@ export class Sim {
         const fieldIdx = this.fieldFor(fx.toInt(gx), fx.toInt(gy));
         for (const id of cmd.ids) {
           if (this.alive[id] === 0 || this.routed[id] === 1 || id === car) continue;
-          if (this.unitTypes[this.typeIdx[id]].transportSlots > 0) continue; // no vehicle stacking
+          // Only dismounted elements ride. This also covers vehicle stacking,
+          // since no carrier is a foot role.
+          if (!this.unitTypes[this.typeIdx[id]].canEmbark) continue;
           if (this.carriedBy[id] >= 0) continue;
           if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
           this.boardGoal[id] = car;
