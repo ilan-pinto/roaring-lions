@@ -3,7 +3,7 @@
   "credit": "KolosStudios - Soldier. LICENCE UNVERIFIED, see tools/render_soldier.py",
   "facings": 16,
   "size": 256,
-  "facingOffset": 5,
+  "facingOffset": 0,
   "facingReverse": true,
   "scale": 0.63,
   "clips": {

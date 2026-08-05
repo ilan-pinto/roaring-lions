@@ -46,7 +46,7 @@ FACINGS = 16
 DIMETRIC_ELEVATION = math.atan(0.5)
 
 # Sheet conventions, reported to the renderer through the manifest.
-FACING_OFFSET = 5  # sprite index that looks along world +x
+FACING_OFFSET = 0  # sprite index that looks along world +x
 FACING_REVERSE = True  # this loop rotates opposite to world bearing
 # Sprite width in tile widths. The art fills 0.73 of its frame, and the tank
 # sheet puts a ~7m hull in 1.8 tiles (~3.9 m/tile), so a 1.8m soldier wants
