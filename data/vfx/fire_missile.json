@@ -24,7 +24,7 @@
       "lifetime_ms": [600, 1000],
       "speed_tiles_s": [1.8, 3.6],
       "cone_deg": 34,
-      "inherit_velocity": -1.0,
+      "direction_offset_deg": 180,
       "drag": 0.55,
       "size_px": [6, 11],
       "size_over_life": [0.7, 2.0],
