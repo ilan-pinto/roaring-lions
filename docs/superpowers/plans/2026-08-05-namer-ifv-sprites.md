@@ -44,7 +44,7 @@
 **Interfaces:**
 - Consumes: nothing.
 - Produces:
-  - `class VehicleSpec` with fields `src`, `out_hull`, `out_turr`, `turret_meshes` (`set[str]`), `scale` (float), `credit` (str), `hull_unit` (str), `turret_unit` (str), `backdrop_prefix` (str or `None`), `wreck_turret_yaw_deg` (float), `wreck_turret_pitch_deg` (float), `wreck_pitch_deg` (float), `wreck_sink` (float).
+  - `class VehicleSpec` with fields `src`, `out_hull`, `out_turr`, `turret_meshes` (`set[str]`), `scale` (float), `credit` (str), `hull_unit` (str), `turret_unit` (str), `backdrop_prefix` (str or `None`), `strip_source_lights` (bool, default `False`), `wreck_turret_yaw_deg` (float), `wreck_turret_pitch_deg` (float), `wreck_pitch_deg` (float), `wreck_sink` (float).
   - `def render_vehicle(spec: VehicleSpec) -> None` — does the whole job for one vehicle.
 
   Task 3 constructs a `VehicleSpec` and calls `render_vehicle`.
@@ -104,6 +104,12 @@ class VehicleSpec:
     turret_unit: str
     # Some source files ship a studio backdrop; rendering it fills the frame.
     backdrop_prefix: "str | None" = None
+    # Remove any camera and lights the source file ships, so only this rig's
+    # two lights illuminate the model. Defaults OFF: the truck source ships a
+    # Sun that contributes real light to the committed Eitan sheets, and
+    # stripping it changes 12 of its 48 frames. Turn it on per vehicle only
+    # after checking a test render actually needs it.
+    strip_source_lights: bool = False
     # How the wreck is posed: weapon station knocked askew, hull settled.
     wreck_turret_yaw_deg: float = 34.0
     wreck_turret_pitch_deg: float = 11.0
@@ -157,10 +163,13 @@ def setup(spec):
             if o.type == "MESH" and o.name.startswith(spec.backdrop_prefix):
                 o.hide_render = True
 
-    # A source file may ship its own camera and lights; this rig builds its own,
-    # and leaving theirs in place blows out the exposure.
-    for o in [o for o in bpy.data.objects if o.type in {"CAMERA", "LIGHT"}]:
-        bpy.data.objects.remove(o, do_unlink=True)
+    # A source file may ship its own camera and lights. Whether to remove them
+    # is per-vehicle: the truck's Sun contributes usefully to the Eitan sheets,
+    # so this defaults off and is opted into only where a test render shows the
+    # source lighting spoils the result.
+    if spec.strip_source_lights:
+        for o in [o for o in bpy.data.objects if o.type in {"CAMERA", "LIGHT"}]:
+            bpy.data.objects.remove(o, do_unlink=True)
 
     olive = flat_material()
     for o in meshes:
@@ -516,10 +525,13 @@ Verified by re-rendering the Eitan through the shared path and comparing all
 48 frames against the committed sheets: identical dimensions, identical binary
 alpha masks, mean pixel difference under 2/255. The extraction changed nothing.
 
-Also folded in two things a second source file needs: resolution_percentage is
-forced to 100, because a .blend can carry its own and silently halve every
-sheet, and any camera or light shipped inside the source is removed, since this
-rig builds its own and leaving theirs blows out the exposure."
+Also folded in what a second source file needs. resolution_percentage is forced
+to 100, because a .blend can carry its own and DMM08 ships 50, which would
+silently halve every sheet. Removal of a source file's own camera and lights is
+available as strip_source_lights but defaults OFF, because the truck's Sun
+contributes real light to the committed Eitan sheets: stripping it changes 12 of
+48 frames, so it is opted into per vehicle after a test render, not applied
+blanket."
 ```
 
 ---
@@ -662,6 +674,21 @@ Expected: `Hull meshes: 5, turret meshes: 5`, then progress to
 If it exits with `turret meshes not found in the model`, the mesh names differ
 from the list above — print the actual names and report **NEEDS_CONTEXT** rather
 than guessing at a mapping.
+
+- [ ] **Step 2a: Check the exposure before rendering all 48 frames**
+
+This source ships its own `Camera`, `Sun` and two `Hemi` lights. Whether they
+help or hurt is a per-model question, and `strip_source_lights` defaults to
+`False`, so the first render keeps them.
+
+Look at one rendered frame — `assets/sprites/NAMER_HULL/idle_f00_000.png` —
+before going further. If the hull is blown out, flat, or lit from an obviously
+wrong direction, set `strip_source_lights=True` in the spec, re-render, and
+compare. Keep whichever reads better and record which you chose and why in your
+report.
+
+Do not skip this by reasoning about it. The plan already got this wrong once by
+assuming source lights must be removed; the truck source proved otherwise.
 
 - [ ] **Step 3: Quantize to the palette**
 
