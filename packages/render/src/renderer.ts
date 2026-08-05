@@ -4,10 +4,11 @@
 // display rate — it never advances the simulation itself (invariant 1).
 
 import { Application, Assets, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
-import { fx, type Sim, type SimEvent } from '@lions/sim';
+import { fx, WEAPON_CLASS, type Sim, type SimEvent } from '@lions/sim';
 import { SIM_HZ, advancePhase, phaseOffset, walkFps } from './anim';
 import { clipOrFallback, frameFileName, parseManifest, type ClipName, type SheetSpec } from './sheet';
 import { cadenceScale, resolveClip, type UnitAnimInput } from './clip';
+import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec } from './vfx';
 
 export interface RendererOptions {
   background: string;
@@ -140,6 +141,8 @@ export class PixiRenderer {
   /** Recoil: 1 at the moment of the shot, easing to 0. Direction in turns. */
   private recoilT: Float64Array;
   private recoilDir: Float64Array;
+  /** Power of the shot that caused the current recoil, 0..1. */
+  private recoilPower: Float64Array;
   /** Hit flinch, same shape as recoil but driven by incoming rounds. */
   private flinchT: Float64Array;
   private flinchDir: Float64Array;
@@ -163,6 +166,8 @@ export class PixiRenderer {
   private terrainDirty = false;
   private tracers: Tracer[] = [];
   private puffs: Puff[] = [];
+  private readonly emitters = new EmitterLibrary();
+  private particles: ParticleSystem | null = null;
   /** Units mid-collapse: still live sprites, on their way to being wreckage. */
   private dying: { x: number; y: number; facing: number; typeId: string; t: number }[] = [];
   /** Wreckage. Static sprites in wreckLayer, never touched again after the
@@ -190,6 +195,7 @@ export class PixiRenderer {
     this.firingTimer = new Float64Array(n);
     this.recoilT = new Float64Array(n);
     this.recoilDir = new Float64Array(n);
+    this.recoilPower = new Float64Array(n);
     this.flinchT = new Float64Array(n);
     this.flinchDir = new Float64Array(n);
     this.turretVel = new Float64Array(n);
@@ -269,6 +275,15 @@ export class PixiRenderer {
     this.spriteAtlas.set(unitTypeId, { sheet, textures, turretSheet, turretTextures });
   }
 
+  /**
+   * Register weapon-fire emitters. The app loads the JSON and resolves
+   * palette keys, because @lions/render must not depend on @lions/data.
+   */
+  useEmitters(list: EmitterSpec[], resolve: (key: string) => string): void {
+    this.emitters.useEmitters(list);
+    this.particles = new ParticleSystem(2048, resolve);
+  }
+
   /** Copy positions after every sim tick; frame() lerps between the copies. */
   snapshot(): void {
     // Fog only needs to keep up with movement, not the tick rate.
@@ -327,13 +342,31 @@ export class PixiRenderer {
         const barrelLen = type.isSoft ? 0.4 : 0.8;
         const mzX = this.curX[e.shooter] + Math.cos(facingRad) * barrelLen;
         const mzY = this.curY[e.shooter] + Math.sin(facingRad) * barrelLen;
-        if (type.isSoft) {
+        // Which weapon fired decides the signature — not whether the shooter
+        // is soft. A tank's coax and its 120mm are the same unit and must not
+        // look the same. Lookup mirrors AudioManager's.
+        const wp = type.weapons.find((x) => x.id === e.weaponId);
+        const cls = wp?.cls ?? WEAPON_CLASS.small_arms;
+        const emitter = this.emitters.fireEmitterFor(cls);
+        const power = wp ? firePower(wp) : 0;
+        if (emitter && this.particles) {
+          const dirTurns = facingRad / (Math.PI * 2);
+          const prio = emitter.budget_priority ?? 4;
+          for (const layer of emitter.particles) {
+            // direction_offset_deg rotates a layer off the firing bearing;
+            // 180 is the backblast behind an RPG or ATGM.
+            const offset = (layer.direction_offset_deg ?? 0) / 360;
+            this.particles.spawn(layer, mzX, mzY, dirTurns + offset, power, prio);
+          }
+        } else if (type.isSoft) {
+          // No emitter for this class yet: the original puffs still stand in.
           this.puffs.push({ x: mzX, y: mzY, ttl: 7, color: this.opts.flashColor, r: 5 });
         } else {
           this.puffs.push({ x: mzX, y: mzY, ttl: 4, color: this.opts.flashColor, r: 14 });
           this.puffs.push({ x: mzX, y: mzY, ttl: 8, color: this.opts.flashColor, r: 10 });
           this.puffs.push({ x: mzX, y: mzY, ttl: 18, color: '#6B6355', r: 7 });
         }
+        this.recoilPower[e.shooter] = power;
       } else if (e.kind === 'nearMiss') {
         this.puffs.push({ x: fx.toNumber(e.x), y: fx.toNumber(e.y), ttl: 14, color: this.opts.nearMissColor, r: 7 });
       } else if (e.kind === 'aps' && e.intercepted) {
@@ -736,6 +769,7 @@ export class PixiRenderer {
     g.clear();
 
     this.stepDeaths(dtSeconds, g);
+    if (this.particles) this.particles.step(dtSeconds);
 
     // Hide all entity sprites first; visible ones get shown below.
     for (const spr of this.entitySprites) {
@@ -809,7 +843,9 @@ export class PixiRenderer {
         if (this.recoilT[i] > 0) {
           // Ease-out: hardest at the shot, settling back.
           const k = this.recoilT[i] * this.recoilT[i];
-          const px = type.isSoft ? RECOIL_PX_SOFT : RECOIL_PX_VEHICLE;
+          // Recoil now tracks the weapon, not the chassis: a tank's coax
+          // nudges, its main gun shoves.
+          const px = RECOIL_PX_SOFT + (RECOIL_PX_VEHICLE - RECOIL_PX_SOFT) * this.recoilPower[i];
           const a = this.recoilDir[i] * Math.PI * 2;
           ox -= Math.cos(a) * px * k;
           oy -= Math.sin(a) * px * k * 0.5;
@@ -1246,5 +1282,6 @@ export class PixiRenderer {
         alpha: (p.ttl / 14) * 0.8,
       });
     }
+    if (this.particles) this.particles.draw(fg, isoX, isoY);
   }
 }
