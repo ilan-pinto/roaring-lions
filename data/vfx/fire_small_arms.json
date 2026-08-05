@@ -1,0 +1,21 @@
+{
+  "id": "fire_small_arms",
+  "trigger": "weapon_fire",
+  "layer": "above_units",
+  "weapon_classes": ["small_arms"],
+  "budget_priority": 1,
+  "particles": [
+    {
+      "sprite": "hard_dot",
+      "count": [1, 1],
+      "lifetime_ms": [60, 110],
+      "speed_tiles_s": [0.5, 1.2],
+      "cone_deg": 18,
+      "size_px": [2, 3],
+      "size_over_life": [1.0, 0.4],
+      "color_over_life": ["vfx.white_hot", "vfx.fire"],
+      "alpha_over_life": [1.0, 0.0],
+      "additive": true
+    }
+  ]
+}

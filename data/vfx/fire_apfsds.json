@@ -1,0 +1,45 @@
+{
+  "id": "fire_apfsds",
+  "trigger": "weapon_fire",
+  "layer": "above_units",
+  "weapon_classes": ["apfsds"],
+  "budget_priority": 8,
+  "screen_shake": { "amplitude_px": 5, "duration_ms": 220, "falloff_tiles": 16 },
+  "light": { "color": "vfx.white_hot", "intensity": 3.0, "radius_tiles": 5.0, "decay_ms": 140 },
+  "particles": [
+    {
+      "sprite": "soft_dot",
+      "count": [5, 7],
+      "lifetime_ms": [90, 170],
+      "speed_tiles_s": [3.0, 6.5],
+      "cone_deg": 46,
+      "size_px": [8, 14],
+      "size_over_life": [1.2, 0.3],
+      "color_over_life": ["vfx.white_hot", "vfx.fire"],
+      "alpha_over_life": [1.0, 0.0],
+      "additive": true
+    },
+    {
+      "sprite": "ring",
+      "count": [1, 1],
+      "lifetime_ms": [260, 380],
+      "speed_tiles_s": [0, 0],
+      "size_px": [10, 14],
+      "size_over_life": [0.4, 2.2],
+      "color_over_life": ["dust.3"],
+      "alpha_over_life": [0.7, 0.0]
+    },
+    {
+      "sprite": "smoke_puff",
+      "count": [4, 6],
+      "lifetime_ms": [500, 850],
+      "speed_tiles_s": [0.6, 1.6],
+      "cone_deg": 70,
+      "drag": 0.7,
+      "size_px": [7, 13],
+      "size_over_life": [0.6, 1.8],
+      "color_over_life": ["dust.3", "dust.2", "gunmetal.3"],
+      "alpha_over_life": [0.75, 0.0]
+    }
+  ]
+}

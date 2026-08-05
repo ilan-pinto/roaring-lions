@@ -117,7 +117,7 @@
         },
         "speed_tiles_s": { "$ref": "#/$defs/range" },
         "cone_deg": { "type": "number", "minimum": 0, "maximum": 360, "default": 360 },
-        "inherit_velocity": { "type": "number", "minimum": 0, "maximum": 1, "default": 0 },
+        "inherit_velocity": { "type": "number", "minimum": -1, "maximum": 1, "default": 0 },
         "gravity_tiles_s2": { "type": "number", "default": 0 },
         "drag": { "type": "number", "minimum": 0, "maximum": 1, "default": 0 },
         "size_px": { "$ref": "#/$defs/range" },
