@@ -21,6 +21,7 @@ function w(penetration: number, damage: number, splash: number, suppression: num
 // The real roster, so the test fails if tuning drifts away from the design.
 const GUN_120 = w(1300, 520, 0, 40);
 const MORTAR_82 = w(35, 200, 2.0, 95);
+const CANNON_30 = w(120, 90, 0, 45);
 const COAX_MG = w(20, 35, 0, 60);
 const RIFLES = w(8, 15, 0, 50);
 const CARBINES = w(8, 12, 0, 40);
@@ -32,10 +33,11 @@ describe('firePower', () => {
     expect(firePower(COAX_MG)).toBeGreaterThan(firePower(RIFLES));
   });
 
-  it('ranks a mortar above an MG despite lower penetration', () => {
-    // The whole point of the composite: penetration alone gets this backwards.
-    expect(fx.toNumber(MORTAR_82.penetration)).toBeGreaterThan(fx.toNumber(COAX_MG.penetration));
-    expect(firePower(MORTAR_82)).toBeGreaterThan(firePower(COAX_MG));
+  it('puts a mortar above an autocannon that out-penetrates it', () => {
+    // The composite's whole purpose: penetration alone would rank these the
+    // other way round, and it would be wrong to.
+    expect(fx.toNumber(CANNON_30.penetration)).toBeGreaterThan(fx.toNumber(MORTAR_82.penetration));
+    expect(firePower(MORTAR_82)).toBeGreaterThan(firePower(CANNON_30));
   });
 
   it('spans the roster across the full 0..1 range', () => {

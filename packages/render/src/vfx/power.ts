@@ -5,9 +5,10 @@ import { fx, type WeaponStats } from '@lions/sim';
  * weapon-fire effect.
  *
  * The blend is deliberate. Penetration alone ranks by armour defeat, which
- * gets indirect fire backwards: a 60mm mortar (penetration 30) would sit
- * below a coaxial MG (penetration 20) despite being far the louder event.
- * Splash and suppression carry the weight mortars actually have.
+ * gets indirect fire backwards: a 30mm autocannon (penetration 120) would
+ * outrank an 82mm mortar (penetration 35), when the mortar is by far the
+ * louder event. Splash and suppression carry the weight mortars actually
+ * have, and the composite puts the mortar above the autocannon.
  */
 const SPLASH_WEIGHT = 300;
 /** 2 x raw suppression. WeaponStats carries suppPerMiss, which the sim has
