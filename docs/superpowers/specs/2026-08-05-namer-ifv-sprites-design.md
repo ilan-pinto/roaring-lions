@@ -28,8 +28,13 @@ build on anything undeclared. `validate_assets.py` checks art pixels —
 palette, alpha, silhouette — but never provenance. Nothing was looking when the
 soldier and the truck were committed with no terms at all.
 
-`art/src/ifv_dmm08.blend` and the licence HTML are both committed, per
-CLAUDE.md's rule that rendered sprites need their source.
+**The `.blend` is not committed.** `.gitignore` line 19 excludes
+`art/src/*.blend` — the sources are too large to track — so provenance travels
+in three places instead: the licence HTML in `art/src/`, the `CREDIT` constant
+in the render script, and the `credit` field the script writes into each
+manifest. CLAUDE.md's rule against committing sprites without their source is
+satisfied in spirit by a reproducible script plus recorded provenance, not by
+the binary.
 
 The model suits the unit. A 6×6 wheeled armoured hull with a cannon turret and
 a secondary remote station, against a `ifv_namer` that is a wheeled IFV with a
@@ -115,8 +120,16 @@ Unlike the truck, there is no ground-plane mesh to exclude.
 
 ## Wiring
 
-- Two manifests on the current clip format, carrying `credit`, `scale`, and
-  `facingOffset`/`facingReverse` written by the rig rather than measured by eye.
+- Two manifests on the current clip format, carrying `credit`, `scale` and the
+  rig's `facingOffset`/`facingReverse`. Note these two are hardcoded constants
+  in `write_manifest` (`5` and `True`) describing how this rig lays frames out;
+  they are emitted by the script rather than measured off the images by eye, but
+  they are not derived — a rig change means changing them.
+- The turret manifest must declare `layer: "turret"`. `validate_assets.py`'s
+  `is_layer()` reads that key to skip the fill and silhouette checks, which ask
+  "does this read as a unit at gameplay zoom" — a question a bare weapon station
+  cannot answer. Without it the turret sheet fails on fill, since a turret alone
+  is well under 6% of frame.
 - One entry in `SPRITE_MAP` in `packages/app/src/main.ts`:
   `ifv_namer: { path: …NAMER_HULL/, turretPath: …NAMER_TURR/ }`.
 - **No renderer changes.** Clip resolution, independent turret traverse, wreck
@@ -133,7 +146,7 @@ Measured on the preview render before committing to the work:
 
 | Check | Measured | Limit |
 |---|---|---|
-| Fill at 64px | 24.3% | ≥ 6% |
+| Fill at 64px | 22.2% | ≥ 6% |
 | IoU vs `EITAN_HULL` | 0.525 | < 0.88 |
 | IoU vs `TNK_HULL` | 0.328 | < 0.88 |
 
@@ -141,6 +154,12 @@ The two wheeled hulls were the plausible collision — a 6×6 IFV against an 8×
 APC — and 0.525 leaves ample headroom. These figures come from a preview at a
 single orientation rather than a real sheet facing, so they are indicative;
 the gate runs on the real sheets.
+
+The fill figure is measured with the production camera formula
+(`radius = dists[-1]`, the full extent), not the 97th percentile an earlier
+draft used. The distinction matters here because this model has tall antennas
+that inflate the radius and so shrink the vehicle in frame: the looser formula
+reported 24.3%.
 
 `pnpm test:determinism` must pass with an unchanged hash. Nothing here touches
 `packages/sim`.
@@ -166,9 +185,14 @@ does turn out byte-identical, that is a bonus, not the requirement.
    the Eitan into a scratch directory and compare against the committed sheets
    on the criteria under Testing. Do not overwrite the committed sheets until
    the comparison passes.
-2. Add the source blend and its licence to `art/src/`.
-3. Add `render_namer.py`; render the two sheets.
+2. Put the source blend in `art/src/` (untracked) and commit its licence HTML.
+3. Add `render_namer.py`; render the two sheets; **run
+   `tools/quantize_sprites.py`**; then `pnpm validate:assets`.
 4. Wire `SPRITE_MAP`; confirm in the running app.
+
+Step 3's quantizer pass is not optional. Cycles output is off-palette with soft
+alpha, and the art gate rejects every frame without it — the Eitan script's own
+docstring records this as the required sequence.
 
 Step 1 lands independently and is verifiable on its own, which is why it goes
 first — a refactor validated against known-good output is worth having before
