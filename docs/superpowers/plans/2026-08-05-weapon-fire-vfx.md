@@ -364,6 +364,7 @@ export interface ParticleSpec {
   speed_tiles_s?: Range;
   cone_deg?: number;
   inherit_velocity?: number;
+  direction_offset_deg?: number;
   gravity_tiles_s2?: number;
   drag?: number;
   size_px?: Range;
@@ -912,7 +913,7 @@ Create `data/vfx/fire_missile.json`:
       "lifetime_ms": [600, 1000],
       "speed_tiles_s": [1.8, 3.6],
       "cone_deg": 34,
-      "inherit_velocity": -1.0,
+      "direction_offset_deg": 180,
       "drag": 0.55,
       "size_px": [6, 11],
       "size_over_life": [0.7, 2.0],
@@ -923,7 +924,7 @@ Create `data/vfx/fire_missile.json`:
 }
 ```
 
-`inherit_velocity: -1.0` on the smoke layer is the backblast — it fires *backwards* along the bearing. It is the most diagnostic signature in the set: it identifies an AT team from its shape alone, which is what makes the GDD's Ashwar ambush target legible to a player.
+`direction_offset_deg: 180` on the smoke layer is the backblast — it fires *backwards* along the bearing. It is the most diagnostic signature in the set: it identifies an AT team from its shape alone, which is what makes the GDD's Ashwar ambush target legible to a player.
 
 - [ ] **Step 7: Author the mortar emitter**
 
@@ -1088,15 +1089,10 @@ with:
           const dirTurns = facingRad / (Math.PI * 2);
           const prio = emitter.budget_priority ?? 4;
           for (const layer of emitter.particles) {
-            const back = (layer.inherit_velocity ?? 0) < 0;
-            this.particles.spawn(
-              layer,
-              mzX,
-              mzY,
-              back ? dirTurns + 0.5 : dirTurns,
-              power,
-              prio
-            );
+            // direction_offset_deg rotates a layer off the firing bearing;
+            // 180 is the backblast behind an RPG or ATGM.
+            const offset = (layer.direction_offset_deg ?? 0) / 360;
+            this.particles.spawn(layer, mzX, mzY, dirTurns + offset, power, prio);
           }
         } else if (type.isSoft) {
           // No emitter for this class yet: the original puffs still stand in.
