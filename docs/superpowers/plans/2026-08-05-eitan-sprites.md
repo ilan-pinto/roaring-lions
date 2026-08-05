@@ -15,7 +15,7 @@
 - **Rendering is two steps.** Raw Cycles output is off-palette with soft alpha and `pnpm validate:assets` rejects it. Always follow a render with `python3 tools/quantize_sprites.py --sprites assets/sprites`.
 - **Palette keys only, never raw hex, in any data file.**
 - `pnpm validate:assets` must pass: palette conformance, binary alpha, silhouette fill ≥ 6% (`MIN_FILL`), pairwise silhouette IoU ≤ 0.88 (`IOU_LIMIT`).
-- Commit the `.blend` to `art/src/`. CLAUDE.md forbids committing rendered sprites without their source.
+- Copy the `.blend` to `art/src/` but do **not** commit it. `.gitignore:19` excludes `art/src/*.blend` deliberately: sources run to hundreds of MB and blow past GitHub's 100 MB limit. No `.blend` in this repo is tracked, including the tank's and the soldier's. CLAUDE.md's rule against committing sprites without their source is already resolved this way in practice.
 
 ## Source model facts
 
@@ -32,7 +32,7 @@ The vehicle itself is about 7.5 wide × 15.2 long × 4.5 tall.
 | File | Responsibility |
 |---|---|
 | `tools/validate_assets.py` | Modify: `representative()` picks the right canonical sprite |
-| `art/src/LPMAC_military_truck.blend` | Create: committed source for the rendered sheets |
+| `art/src/LPMAC_military_truck.blend` | Create: local source for the render, gitignored |
 | `tools/render_eitan.py` | Create: two-pass renderer, hull + turret sheets |
 | `assets/sprites/EITAN_HULL/` | Create: 32 PNGs (idle, wreck) + manifest |
 | `assets/sprites/EITAN_TURR/` | Create: 16 PNGs (idle) + manifest |
@@ -242,6 +242,8 @@ cp "/Users/ilpinto/Downloads/LPMAC_military truck.blend" art/src/LPMAC_military_
 ```
 
 The space in the original filename becomes an underscore — a space in a path is a foot-gun in shell scripts and Blender CLI invocations.
+
+This file is **not committed**: `.gitignore:19` excludes `art/src/*.blend`, and no `.blend` in the repo is tracked. It lives locally so the render script can find it.
 
 - [ ] **Step 2: Write the render script**
 
@@ -575,7 +577,7 @@ Confirm by eye: the hull has no turret on it, the turret sheet has no hull under
 - [ ] **Step 7: Commit**
 
 ```bash
-git add art/src/LPMAC_military_truck.blend tools/render_eitan.py assets/sprites/EITAN_HULL assets/sprites/EITAN_TURR
+git add tools/render_eitan.py assets/sprites/EITAN_HULL assets/sprites/EITAN_TURR
 git commit -m "feat(art): Eitan APC hull, weapon station and wreck sheets
 
 LICENCE UNVERIFIED -- source .blend was downloaded with no licence,
