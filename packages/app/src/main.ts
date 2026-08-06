@@ -140,7 +140,8 @@ function showMenu(stage: HTMLElement, ledger: LedgerData): void {
     'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);padding:28px 40px;' + PANEL;
   const rows = [
     '<div style="font-size:26px;font-weight:bold;letter-spacing:2px">ROARING LIONS</div>',
-    '<div style="color:#8E9491;margin-bottom:14px">Beit Sahwan — M1</div>',
+    `<div style="color:#8E9491">Beit Sahwan — M1</div>`,
+    `<div style="color:#8E9491;margin-bottom:14px">V ${__GAME_VERSION__}</div>`,
     `<div style="color:#A9C4D1;margin-bottom:14px">${campaignSummary(ledger)}</div>`,
   ];
   div.innerHTML = rows.join('');
@@ -334,7 +335,8 @@ async function main(): Promise<void> {
     () => renderer.selection,
     getMission,
     () => renderer.hoverStructure,
-    () => renderer.hoverEntity
+    () => renderer.hoverEntity,
+    __GAME_VERSION__
   );
 
   // Always-visible escape hatch back to the campaign menu.
