@@ -36,7 +36,6 @@ class VehicleSpec:
     src: str
     out_hull: str
     out_turr: str
-    turret_meshes: set
     scale: float
     credit: str
     hull_unit: str
@@ -47,8 +46,19 @@ class VehicleSpec:
     # vehicle's source file. Defaults to 0; override only if a silhouette fit
     # against rendered frames shows otherwise.
     facing_offset: int = 0
-    # Some source files ship a studio backdrop; rendering it fills the frame.
-    backdrop_prefix: "str | None" = None
+    # The traversing weapon station, if the model has one. A vehicle whose
+    # weapon is not modelled separately -- or not modelled at all -- leaves this
+    # empty and renders a hull sheet only. The game renderer already copes: a
+    # unit whose atlas has no turret textures simply draws the hull, which is
+    # how infantry has always worked.
+    turret_meshes: frozenset = frozenset()
+    # Meshes that are not the vehicle. A source file may ship a studio backdrop,
+    # a ground plane, or an area-light emitter plane -- the jeep has both a
+    # 153x89 Ground and an 8x8 LightSource hanging directly over the roof, which
+    # rendered as a grey slab and threw the whole vehicle into shadow. Matched
+    # by name prefix, and a tuple because one string cannot cover two unrelated
+    # names.
+    exclude_prefixes: tuple = ()
     # Remove any camera and lights the source file ships, so only this rig's
     # two lights illuminate the model. Defaults OFF: the truck source ships a
     # Sun that contributes real light to the committed Eitan sheets, and
@@ -68,7 +78,7 @@ def scene_meshes(spec):
     for o in bpy.data.objects:
         if o.type != "MESH":
             continue
-        if spec.backdrop_prefix and o.name.startswith(spec.backdrop_prefix):
+        if spec.exclude_prefixes and o.name.startswith(spec.exclude_prefixes):
             continue
         out.append(o)
     return out
@@ -103,9 +113,9 @@ def setup(spec):
     bpy.ops.wm.open_mainfile(filepath=spec.src)
 
     meshes = scene_meshes(spec)
-    if spec.backdrop_prefix:
+    if spec.exclude_prefixes:
         for o in bpy.data.objects:
-            if o.type == "MESH" and o.name.startswith(spec.backdrop_prefix):
+            if o.type == "MESH" and o.name.startswith(spec.exclude_prefixes):
                 o.hide_render = True
 
     # A source file may ship its own camera and lights. Whether to remove them
@@ -178,12 +188,19 @@ def setup(spec):
     pivot = bpy.data.objects.new("PIVOT", None)
     pivot.location = center
     bpy.context.collection.objects.link(pivot)
-    for o in meshes:
+    # Re-parent only the roots. A source file may already have a hierarchy --
+    # the jeep parents its doors, wheels, antennas and roof to the Hummer body,
+    # and a spare wheel to the trunk door. Flattening all of them onto the pivot
+    # discards each child's transform relative to its real parent and scatters
+    # the vehicle into loose panels. Children follow their root automatically.
+    roots = [o for o in meshes if o.parent is None or o.parent not in meshes]
+    for o in roots:
         o.parent = pivot
         # pivot.matrix_world is still identity -- the depsgraph has not been
         # evaluated since pivot.location was set -- so inverting it would be a
         # no-op and parenting would shift the model by +center.
         o.matrix_parent_inverse = Matrix.Translation(-center)
+    print(f"Re-parented {len(roots)} root object(s) of {len(meshes)} meshes")
 
     cam_data = bpy.data.cameras.new("Cam")
     cam_data.type = "ORTHO"
@@ -203,7 +220,7 @@ def setup(spec):
 
     turret = [o for o in meshes if o.name in spec.turret_meshes]
     hull = [o for o in meshes if o.name not in spec.turret_meshes]
-    missing = spec.turret_meshes - {o.name for o in turret}
+    missing = set(spec.turret_meshes) - {o.name for o in turret}
     if missing:
         raise SystemExit(f"turret meshes not found in the model: {sorted(missing)}")
     print(f"Hull meshes: {len(hull)}, turret meshes: {len(turret)}")
@@ -303,6 +320,14 @@ def render_vehicle(spec):
         },
         hull_files,
     )
+
+    # A vehicle with no separately modelled weapon gets a hull sheet and stops.
+    # Rendering an empty turret pass would write 16 blank frames, and the art
+    # gate would reject them on minimum fill -- correctly, since a sheet of
+    # nothing is not a layer.
+    if not turret:
+        print(f"DONE {FACINGS * 2} frames (hull only) -> {spec.out_hull}")
+        return
 
     turr_files = []
     render_clip(pivot, turret, hull, spec.out_turr, "idle", turr_files)

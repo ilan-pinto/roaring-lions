@@ -86,6 +86,7 @@ function sandboxSpawns(sim: Sim, typeOf: Map<string, number>): void {
   spawn('inf_squad', 0, 6, 28);
   spawn('at_team', 0, 5, 21);
   spawn('mortar_team', 0, 2, 25);
+  spawn('jeep_shoded', 0, 5, 26);
   spawn('recon_drone', 0, 8, 23);
   // Enemy garrison among the buildings, facing west.
   spawn('militia_cell', 1, 27, 12, WEST);
@@ -304,11 +305,15 @@ async function main(): Promise<void> {
     path: `${BASE}sprites/NAMER_HULL/`,
     turretPath: `${BASE}sprites/NAMER_TURR/`,
   };
+  // Hull only: the model carries no separately modelled weapon station, so
+  // there is no turret sheet to composite.
+  const JEEP: SpriteSpec = { path: `${BASE}sprites/JEEP_HULL/` };
   const FOOT: SpriteSpec = { path: `${BASE}sprites/INF/` };
   const SPRITE_MAP: Record<string, SpriteSpec> = {
     mbt_lavi: TANK,
     apc_eitan: EITAN,
     ifv_namer: NAMER,
+    jeep_shoded: JEEP,
     inf_squad: FOOT,
     at_team: FOOT,
     mortar_team: FOOT,

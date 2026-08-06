@@ -38,7 +38,7 @@ SPEC = VehicleSpec(
     hull_unit="eitan_apc_hull",
     turret_unit="eitan_apc_turret",
     # Studio backdrop, 134 units long. Rendering it fills the entire frame.
-    backdrop_prefix="Plane",
+    exclude_prefixes=("Plane",),
 )
 
 render_vehicle(SPEC)
