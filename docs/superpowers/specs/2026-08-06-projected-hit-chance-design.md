@@ -59,7 +59,7 @@ the split changed no behaviour. If it moves, the refactor is wrong.
 ## Eligibility — the sim's rules, not new ones
 
 `projectHit` returns `null` unless the shot is one the unit would actually take.
-Those conditions are already written down in `bestTargetFor`
+Those conditions are already written down in `selectTarget`
 (`sim.ts:1340`), and the projection reuses them rather than inventing a parallel
 set:
 
@@ -91,7 +91,7 @@ almost certainly miss" are different facts, and the panel says which. A
 
 ## The penetration trap
 
-`bestTargetFor` carries a one-line heuristic for whether a weapon can plausibly
+`selectTarget` carries a one-line heuristic for whether a weapon can plausibly
 hurt a target: `tType.isSoft || w.penetration >= tType.armorSide >> 2`.
 
 A coaxial machine gun pointed at a tank's front will project a high P(hit) and

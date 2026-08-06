@@ -21,7 +21,7 @@
 
 The spec has `projectHit` return `{...} | null`. **It returns a discriminated union instead**, because of something found while writing this plan:
 
-`contactState` latches. It is set to 2 when confidence crosses `IDENTIFIED_AT` (0.70) and only falls back when confidence drops under `LOST_AT` (0.20) — it never goes 2 → 1 (`sim.ts:1330-1340`). Meanwhile `bestTargetFor` gates on **confidence**, not level: `this.contact[...] < IDENTIFIED_AT` (`sim.ts:1362`).
+`contactState` latches. It is set to 2 when confidence crosses `IDENTIFIED_AT` (0.70) and only falls back when confidence drops under `LOST_AT` (0.20) — it never goes 2 → 1 (`sim.ts:1330-1340`). Meanwhile `selectTarget` gates on **confidence**, not level: `this.contact[...] < IDENTIFIED_AT` (`sim.ts:1362`).
 
 So across the whole 0.70 → 0.20 band, `contactLevel()` reports "identified" while the sim would refuse the shot. A panel gated on `contactLevel` would confidently show a projection for a shot that cannot happen. The union lets the panel say which of "unidentified" and "no firing solution" applies, and forces the eligibility check to use the same threshold the sim uses.
 
@@ -278,7 +278,7 @@ altered no behaviour."
 
   Task 3 calls `projectHit` and renders the result.
 
-**Background:** eligibility must match `bestTargetFor` (`sim.ts:1340` onward) exactly, or the panel will offer shots the unit refuses. Its conditions, in order:
+**Background:** eligibility must match `selectTarget` (`sim.ts:1340` onward) exactly, or the panel will offer shots the unit refuses. Its conditions, in order:
 
 1. `this.alive[t] !== 0`, `this.side[t] !== shooterSide`, `this.side[t] <= 1` (side 2 is civilians and never a target)
 2. `this.garrisonedIn[t] < 0` and `this.carriedBy[t] < 0`
@@ -286,7 +286,7 @@ altered no behaviour."
 4. `dSq <= w.rangeSq && dSq >= w.minRangeSq`
 5. line of sight — `this.losRay(...) >= 0` — unless `(INDIRECT_MASK & (1 << w.cls)) !== 0`
 
-`hurts` is `bestTargetFor`'s own heuristic: `tType.isSoft || w.penetration >= tType.armorSide >> 2`. It measures against `armorSide` whatever face is presented.
+`hurts` is `selectTarget`'s own heuristic: `tType.isSoft || w.penetration >= tType.armorSide >> 2`. It measures against `armorSide` whatever face is presented.
 
 `cap` is `this.capacity`. `IDENTIFIED_AT` and `INDIRECT_MASK` are already imported/defined in the file.
 
@@ -464,13 +464,13 @@ Add this public method next to `contactLevel`:
    * hit calculation, without taking the shot. GDD 5.8: the player should know
    * what a shot will cost before paying for it.
    *
-   * Eligibility deliberately mirrors bestTargetFor rather than inventing its
+   * Eligibility deliberately mirrors selectTarget rather than inventing its
    * own rules, so the panel can never offer a shot the unit would refuse.
    *
    * Note the identification test is on contact CONFIDENCE, not contactState.
    * contactState latches at 2 once confidence passes IDENTIFIED_AT and only
    * falls back below the much lower LOST_AT, so there is a wide band where the
-   * level claims "identified" while bestTargetFor would skip the target.
+   * level claims "identified" while selectTarget would skip the target.
    */
   projectHit(shooter: number, target: number): HitProjection {
     const cap = this.capacity;
@@ -507,7 +507,7 @@ Add this public method next to `contactLevel`:
         kind: 'shot',
         weaponId: w.id,
         pHit: factors.p,
-        // bestTargetFor's own heuristic: a quarter of side armour, whatever
+        // selectTarget's own heuristic: a quarter of side armour, whatever
         // face is presented. Soft targets always qualify.
         hurts: tType.isSoft || w.penetration >= tType.armorSide >> 2,
         factors,
@@ -548,14 +548,14 @@ git commit -m "feat(sim): projectHit answers what a shot would cost, without fir
 GDD 5.8 wants a hovered target to show projected P(hit). The numbers already
 existed; they were only ever reported after the round left the barrel.
 
-Eligibility mirrors bestTargetFor rather than inventing its own rules, so the
+Eligibility mirrors selectTarget rather than inventing its own rules, so the
 overlay can never offer a shot the unit would refuse: range band, line of sight
 unless the class is indirect, not garrisoned or aboard, and identified.
 
 The identification test is on contact confidence, not contactState. State
 latches at 2 once confidence passes IDENTIFIED_AT and only falls back below the
 much lower LOST_AT, so between 0.70 and 0.20 the level claims identified while
-bestTargetFor skips the target. Gating on the level would have shown
+selectTarget skips the target. Gating on the level would have shown
 projections for impossible shots across that whole band.
 
 Returns a three-way result rather than a nullable shot, because 'you have not
