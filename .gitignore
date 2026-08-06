@@ -30,6 +30,13 @@ art/src/*.blend
 art/src/*.blend1
 !art/src/buildings/
 !art/src/buildings/*.blend
+# Drone sources are tracked for a different reason than the buildings: they are
+# modelled from primitives in this repository, so they are both small and the
+# only sources whose licence is not in doubt. The rule above happens not to
+# match a subdirectory, but say it explicitly so tightening it to art/src/**
+# later cannot drop them silently.
+!art/src/drones/
+!art/src/drones/*.blend
 # Blender auto-backups: never wanted, anywhere.
 *.blend1
 

@@ -258,11 +258,16 @@ async function main(): Promise<void> {
   // there is no turret sheet to composite.
   const JEEP: SpriteSpec = { path: `${BASE}sprites/JEEP_HULL/` };
   const FOOT: SpriteSpec = { path: `${BASE}sprites/INF/` };
+  // The only animated sheet: four frames of hover per facing, looping. Nothing
+  // here says so -- the frame count, rate and loop flag all come from the
+  // sheet's own manifest, same as every other property of every other sheet.
+  const DRONE: SpriteSpec = { path: `${BASE}sprites/DRONE_RECON/` };
   const SPRITE_MAP: Record<string, SpriteSpec> = {
     mbt_lavi: TANK,
     apc_eitan: EITAN,
     ifv_namer: NAMER,
     jeep_shoded: JEEP,
+    recon_drone: DRONE,
     inf_squad: FOOT,
     at_team: FOOT,
     mortar_team: FOOT,

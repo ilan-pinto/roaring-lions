@@ -95,6 +95,8 @@ SPEC = VehicleSpec(
     scale=0.50,
     credit="Recon drone -- modelled from primitives for this repository, CC BY-SA 4.0",
     hull_unit="recon_drone",
+    # Also never written, for the same reason as out_turr.
+    turret_unit="recon_drone_turret_unused",
     # The model is authored nose along +x, so sprite 0 already faces +x.
     facing_offset=0,
     # Props sweep outside their rest silhouette as they yaw, and the bob moves
