@@ -125,6 +125,13 @@ export class PixiRenderer {
   private readonly spriteLayer = new Container();
   /** One Graphics per blocked tile, rebuilt only when terrain goes dirty. */
   private buildingTiles: Graphics[] = [];
+  /** Sprites for structures that have art; also rebuilt on terrain dirty. */
+  private buildingSprites: Sprite[] = [];
+  /** structure type id -> its single sprite. A building does not turn, so
+   *  there are no facings: one texture is the whole sheet. */
+  private structureAtlas = new Map<string, { texture: Texture; scale: number }>();
+  /** Structures already drawn this rebuild -- a footprint spans many tiles. */
+  private drawnStructures = new Set<number>();
   /** above_units/sky particle layer: drawn over unit sprites (so a main-gun
    *  muzzle flash isn't hidden behind the hull that fired it) but under
    *  unitsG, so HP bars, suppression bars and selection rings stay on top. */
@@ -322,6 +329,24 @@ export class PixiRenderer {
   useEmitters(list: EmitterSpec[], resolve: (key: string) => string): void {
     this.emitters.useEmitters(list);
     this.particles = new ParticleSystem(2048, resolve);
+  }
+
+  /**
+   * Load the sprite for a structure type. One frame, because a building is
+   * placed with a fixed orientation under a fixed camera and never turns.
+   *
+   * A structure type without a sheet keeps the procedural extrusion, so art can
+   * land one building at a time.
+   */
+  async loadStructureSprite(structureId: string, basePath: string): Promise<void> {
+    const manifest = (await Assets.load(`${basePath}manifest.json`)) as {
+      scale?: number;
+      files?: { file: string }[];
+    };
+    const file = manifest.files?.[0]?.file ?? 'idle_f00_000.png';
+    const texture = await Assets.load<Texture>(`${basePath}${file}`);
+    this.structureAtlas.set(structureId, { texture, scale: manifest.scale ?? 1 });
+    this.terrainDirty = true;
   }
 
   /** Copy positions after every sim tick; frame() lerps between the copies. */
@@ -733,6 +758,10 @@ export class PixiRenderer {
     // not enough -- drop the old tiles or a rebuild stacks a second copy.
     for (const t of this.buildingTiles) this.spriteLayer.removeChild(t);
     this.buildingTiles = [];
+    for (const b of this.buildingSprites) this.spriteLayer.removeChild(b);
+    this.buildingSprites = [];
+    // A structure with art is drawn once for its whole footprint, not per tile.
+    this.drawnStructures.clear();
     const w = this.sim.width;
     const h = this.sim.height;
     const H = 18; // building height in px
@@ -751,6 +780,18 @@ export class PixiRenderer {
           // display objects so they can depth-sort against units -- a soldier
           // behind a wall has to be covered by it. Drawing them into terrainG
           // would put every building under every unit unconditionally.
+          const sIdx = this.sim.structureAt(x, y);
+          const stype =
+            sIdx >= 0 ? this.sim.structureTypes[this.sim.structures.typeIdx[sIdx]] : null;
+          if (stype && this.structureAtlas.has(stype.id)) {
+            // Sprited: one sprite for the whole footprint, so a 3x3 mosque is
+            // one dome rather than nine. Drawn on first tile encountered.
+            if (!this.drawnStructures.has(sIdx)) {
+              this.drawnStructures.add(sIdx);
+              this.drawStructureSprite(sIdx, stype.id);
+            }
+            continue;
+          }
           this.drawBuildingTile(x, y, cx, cy, rnd, H, diamond);
           continue;
         }
@@ -783,6 +824,40 @@ export class PixiRenderer {
    * the integrity darkening as a building is chewed up. There is no per-frame
    * cost beyond the sort itself.
    */
+  /**
+   * One sprited structure, drawn once for its whole footprint.
+   *
+   * Depth is taken from the footprint's NEAREST corner rather than its centre.
+   * The sort key is a single number for what may be nine tiles, so some choice
+   * has to be made, and the near corner is the conservative one: a unit truly in
+   * front of the building still has a greater depth sum and draws over it, while
+   * a unit level with the building's middle is occluded. Using the centre
+   * instead would let units beside the near face incorrectly draw underneath,
+   * which reads far worse -- a soldier apparently inside a wall.
+   */
+  private drawStructureSprite(sIdx: number, structureId: string): void {
+    const art = this.structureAtlas.get(structureId);
+    if (!art) return;
+    const st = this.sim.structures;
+    const minX = st.minX[sIdx];
+    const minY = st.minY[sIdx];
+    const maxX = st.maxX[sIdx];
+    const maxY = st.maxY[sIdx];
+    // Footprint centre, in tile coords; +1 because max is an inclusive tile.
+    const fx0 = (minX + maxX + 1) / 2;
+    const fy0 = (minY + maxY + 1) / 2;
+    const spr = new Sprite({ texture: art.texture, anchor: 0.5 });
+    spr.position.set(isoX(fx0, fy0), isoY(fx0, fy0));
+    spr.scale.set((art.scale * TILE_W) / art.texture.width);
+    // Battered buildings darken, exactly as the procedural extrusion does.
+    const max = st.maxHp[sIdx];
+    const integrity = max > 0 ? Math.max(0, st.hp[sIdx] / max) : 1;
+    spr.alpha = 0.55 + 0.45 * integrity;
+    spr.zIndex = depthZ(maxX + 1, maxY + 1);
+    this.spriteLayer.addChild(spr);
+    this.buildingSprites.push(spr);
+  }
+
   private drawBuildingTile(
     x: number,
     y: number,
