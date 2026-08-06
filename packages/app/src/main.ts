@@ -561,13 +561,24 @@ async function main(): Promise<void> {
       );
 
     // Nearest living enemy within half a tile of the cursor — the same
-    // generosity the click-to-select test uses.
+    // generosity the click-to-select test uses. Restricted to side 1 (real
+    // enemies, never civilians — side 2 is never an aimpoint) and gated on
+    // renderer.isVisible so the scan can only pick up an entity that is
+    // actually drawn on screen right now. That mirrors the exact condition
+    // the renderer itself uses to decide whether to draw a non-friendly
+    // sprite at all (see PixiRenderer's entity loop) — anything the fog
+    // currently hides must not be able to surface through the hover panel
+    // either, or sweeping the cursor across unexplored ground locates every
+    // hidden defender.
     let he = -1;
     let bestD = 0.5 * 0.5;
     for (let i = 0; i < sim.entityCount; i++) {
-      if (sim.state.alive[i] === 0 || sim.state.side[i] === 0) continue;
-      const dx = fx.toNumber(sim.state.posX[i]) - hw.x;
-      const dy = fx.toNumber(sim.state.posY[i]) - hw.y;
+      if (sim.state.alive[i] === 0 || sim.state.side[i] !== 1) continue;
+      const ex = fx.toNumber(sim.state.posX[i]);
+      const ey = fx.toNumber(sim.state.posY[i]);
+      if (!renderer.isVisible(ex, ey)) continue;
+      const dx = ex - hw.x;
+      const dy = ey - hw.y;
       const d = dx * dx + dy * dy;
       if (d < bestD) {
         bestD = d;
