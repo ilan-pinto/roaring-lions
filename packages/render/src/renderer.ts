@@ -177,6 +177,8 @@ export class PixiRenderer {
   hoverStructure = -1;
   /** True when the current selection could garrison the hovered building. */
   hoverCanGarrison = false;
+  /** Entity under the cursor, -1 when none. Set by the app. */
+  hoverEntity = -1;
 
   private frameN = 0;
   private terrainDirty = false;

@@ -333,7 +333,8 @@ async function main(): Promise<void> {
     sim,
     () => renderer.selection,
     getMission,
-    () => renderer.hoverStructure
+    () => renderer.hoverStructure,
+    () => renderer.hoverEntity
   );
 
   // Always-visible escape hatch back to the campaign menu.
@@ -558,6 +559,22 @@ async function main(): Promise<void> {
           sim.unitTypes[sim.state.typeIdx[i]].canGarrison &&
           sim.state.garrisonedIn[i] !== hs
       );
+
+    // Nearest living enemy within half a tile of the cursor — the same
+    // generosity the click-to-select test uses.
+    let he = -1;
+    let bestD = 0.5 * 0.5;
+    for (let i = 0; i < sim.entityCount; i++) {
+      if (sim.state.alive[i] === 0 || sim.state.side[i] === 0) continue;
+      const dx = fx.toNumber(sim.state.posX[i]) - hw.x;
+      const dy = fx.toNumber(sim.state.posY[i]) - hw.y;
+      const d = dx * dx + dy * dy;
+      if (d < bestD) {
+        bestD = d;
+        he = i;
+      }
+    }
+    renderer.hoverEntity = he;
 
     if (!dragStart) return;
     const p = canvasXY(ev);
