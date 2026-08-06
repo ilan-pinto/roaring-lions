@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
+import { palettePlugin } from './vite-plugin-palette';
 
 // The version shown in the menu and the HUD. Root package.json is the single
 // source of truth; only major.minor is displayed, so a patch bump is invisible.
@@ -11,6 +12,9 @@ const [major, minor] = pkg.version.split('.');
 const GAME_VERSION = `${major}.${minor}`;
 
 export default defineConfig({
+  // The palette reaches CSS as --rl-* custom properties, from the same
+  // data/palette.json the renderer and the sprite pipeline read.
+  plugins: [palettePlugin(new URL('../../data/palette.json', import.meta.url))],
   // Build-time constant: no runtime fetch, and it works the same on Pages.
   define: { __GAME_VERSION__: JSON.stringify(GAME_VERSION) },
   // GitHub Pages serves the app from /<repo>/, so asset URLs need that

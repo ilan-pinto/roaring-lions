@@ -3,15 +3,28 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Roaring Lions — M0 Sandbox</title>
+    <title>Roaring Lions</title>
+    <!-- The display face is on screen before anything else is: the wordmark on
+         the menu, the mission title card on the way in. Fetching it with the
+         document rather than after the first stylesheet parse keeps the title
+         from swapping face under the player. -->
+    <link
+      rel="preload"
+      href="%BASE_URL%fonts/big-shoulders-display-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
     <style>
+      /* The --rl-* palette is injected above this block by the lions-palette
+         Vite plugin, so the ground colour is a palette value from the first
+         paint — before any module has run. */
       html,
       body {
         margin: 0;
         height: 100%;
-        background: #14150f;
-        color: #f2e8d5;
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        background: var(--rl-shadow-1);
+        color: var(--rl-limestone-0);
         overflow: hidden;
       }
       #stage {
