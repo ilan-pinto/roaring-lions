@@ -18,7 +18,6 @@ import {
   DebugOverlay,
   BattleAudio,
   type RendererOptions,
-  type MissionView,
   type AudioManifest,
   type EmitterSpec,
 } from '@lions/render';
@@ -33,6 +32,10 @@ import {
   vfxEmitters,
   type MapJson,
 } from '@lions/data';
+import './ui/theme.css';
+import { Hud, type MissionView, type Tone } from './ui/hud';
+import { showMenu, showEndScreen } from './ui/menu';
+import { ProductionBar } from './ui/production';
 
 /** Deploy base ('/' locally, '/<repo>/' on GitHub Pages) — every asset URL
  *  is built from it so the same bundle works in both places. */
@@ -101,93 +104,34 @@ function sandboxSpawns(sim: Sim, typeOf: Map<string, number>): void {
   spawn('mortar_crew', 1, 44, 24, WEST);
 }
 
-function describeMissionEvent(e: MissionEvent, mission: MissionJson): [string, string] | null {
+/** Mission narration for the HUD notice stack: what to say, and how it lands. */
+function describeMissionEvent(e: MissionEvent, mission: MissionJson): [string, Tone] | null {
   switch (e.kind) {
     case 'objective': {
       const def = mission.objectives.find((o) => o.id === e.id);
       const label = def?.text ?? e.id;
       return e.status === 'complete'
-        ? [`<b>OBJECTIVE COMPLETE</b> — ${label}`, '#6B8A4A']
-        : [`<b>OBJECTIVE ${e.status.toUpperCase()}</b> — ${label}`, '#D93A2B'];
+        ? [`<b>OBJECTIVE COMPLETE</b> — ${label}`, 'good']
+        : [`<b>OBJECTIVE ${e.status.toUpperCase()}</b> — ${label}`, 'bad'];
     }
     case 'trigger':
-      return [`<b>enemy reacts</b> (${e.id})`, '#E8C33A'];
+      return [`<b>enemy reacts</b> (${e.id})`, 'warn'];
     case 'wave':
-      return [`<b>enemy reinforcements</b> — ${e.count} unit(s) inbound`, '#D93A2B'];
+      return [`<b>enemy reinforcements</b> — ${e.count} unit(s) inbound`, 'bad'];
     case 'roe':
-      return [`<b>ROE −${e.penalty}</b> (${e.reason}) → ${e.score}`, '#D93A2B'];
+      return [`<b>ROE −${e.penalty}</b> (${e.reason}) → ${e.score}`, 'bad'];
     case 'built':
-      return [`<b>reinforcement deployed</b> — ${e.unit}`, '#A9C4D1'];
+      return [`<b>reinforcement deployed</b> — ${e.unit}`, 'info'];
     case 'missionEnd':
       return [
         e.result === 'victory'
           ? `<b>MISSION ACCOMPLISHED</b> — ROE ${e.roeRating}, ${e.survivors.length} units survive`
           : '<b>MISSION FAILED</b>',
-        e.result === 'victory' ? '#6B8A4A' : '#D93A2B',
+        e.result === 'victory' ? 'good' : 'bad',
       ];
     default:
       return null;
   }
-}
-
-const PANEL =
-  'background:rgba(20,21,15,0.92);color:#F2E8D5;border:1px solid #5C625F;border-radius:6px;' +
-  'font:14px ui-monospace,Menlo,monospace;';
-
-/** Campaign menu: title, the three missions, the sandbox. Pure navigation. */
-function showMenu(stage: HTMLElement, ledger: LedgerData): void {
-  const div = document.createElement('div');
-  div.style.cssText =
-    'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);padding:28px 40px;' + PANEL;
-  const rows = [
-    // Key art above the title. Width-constrained rather than fixed, so the
-    // panel stays usable on a narrow window; the intrinsic ratio is declared
-    // so the layout does not jump once the image loads.
-    `<img src="${BASE}ui/menu_banner.jpg" alt="" width="800" height="339"` +
-      ' style="display:block;width:100%;max-width:420px;height:auto;' +
-      'border-radius:4px;margin-bottom:12px">',
-    '<div style="font-size:26px;font-weight:bold;letter-spacing:2px">ROARING LIONS</div>',
-    `<div style="color:#8E9491">Beit Sahwan — M1</div>`,
-    `<div style="color:#8E9491;margin-bottom:14px">V ${__GAME_VERSION__}</div>`,
-    `<div style="color:#A9C4D1;margin-bottom:14px">${campaignSummary(ledger)}</div>`,
-  ];
-  div.innerHTML = rows.join('');
-  const add = (label: string, href: string): void => {
-    const a = document.createElement('a');
-    a.textContent = label;
-    a.href = href;
-    a.style.cssText =
-      'display:block;margin:6px 0;padding:8px 12px;color:#F2E8D5;text-decoration:none;' +
-      'border:1px solid #5C625F;border-radius:4px;';
-    div.appendChild(a);
-  };
-  for (const [id, m] of Object.entries(missions)) add(m.name, `?mission=${id}`);
-  add('M0 sandbox (no mission)', '?sandbox=1');
-  add('reset campaign ledger', `?fresh=1`);
-  stage.appendChild(div);
-}
-
-/** Mission end screen: result, ROE, survivors, and where to next. */
-function showEndScreen(result: 'victory' | 'defeat', roe: number, survivors: number, missionId: string): void {
-  const order = Object.keys(missions);
-  const next = order[order.indexOf(missionId) + 1];
-  const div = document.createElement('div');
-  div.style.cssText =
-    'position:absolute;top:62%;left:50%;transform:translate(-50%,0);padding:16px 28px;text-align:center;' + PANEL;
-  div.innerHTML =
-    `<div style="font-weight:bold;margin-bottom:8px">${result === 'victory' ? 'town is quiet' : 'withdraw and regroup'}</div>` +
-    `<div style="color:#8E9491;margin-bottom:10px">ROE ${roe} · ${survivors} unit(s) walking out</div>`;
-  const link = (label: string, href: string): void => {
-    const a = document.createElement('a');
-    a.textContent = label;
-    a.href = href;
-    a.style.cssText = 'margin:0 8px;color:#B8FF5A;';
-    div.appendChild(a);
-  };
-  if (result === 'victory' && next) link('next mission →', `?mission=${next}`);
-  link(result === 'victory' ? 'replay' : 'try again', `?mission=${missionId}`);
-  link('menu', '?');
-  document.body.appendChild(div);
 }
 
 async function main(): Promise<void> {
@@ -200,7 +144,12 @@ async function main(): Promise<void> {
     window.localStorage.removeItem(LEDGER_KEY);
   }
   if (params.get('mission') === null && params.get('sandbox') === null) {
-    showMenu(stage, loadLedger());
+    showMenu(stage, {
+      base: BASE,
+      version: __GAME_VERSION__,
+      missions: Object.entries(missions).map(([id, m]) => ({ id, name: m.name })),
+      campaign: campaignSummary(loadLedger()),
+    });
     return;
   }
   const missionId = params.get('mission');
@@ -352,35 +301,35 @@ async function main(): Promise<void> {
           resources: mission.resources ? `logistics ${runtime.logistics} · intel ${runtime.intel}` : undefined,
         }
       : null;
-  const overlay = new DebugOverlay(
-    document.body,
+  const hud = new Hud(document.body, {
     sim,
-    () => renderer.selection,
+    getSelection: () => renderer.selection,
     getMission,
-    () => renderer.hoverStructure,
-    () => renderer.hoverEntity,
-    __GAME_VERSION__
-  );
+    hoverStructure: () => renderer.hoverStructure,
+    hoverEntity: () => renderer.hoverEntity,
+    gameVersion: __GAME_VERSION__,
+  });
+  // The instrument, off by default now that the HUD is not built on top of it.
+  const overlay = new DebugOverlay(document.body, sim, () => renderer.selection, __GAME_VERSION__);
 
   // Always-visible escape hatch back to the campaign menu.
   // Top bar: menu and audio, laid out side by side so neither can collide.
   const topBar = document.createElement('div');
-  topBar.style.cssText =
-    'position:absolute;top:8px;left:50%;transform:translateX(-50%);display:flex;gap:8px;';
+  topBar.className = 'rl-topbar';
   document.body.appendChild(topBar);
 
   const menuBtn = document.createElement('a');
   menuBtn.textContent = '⌂ menu';
   menuBtn.href = '?';
-  menuBtn.style.cssText = 'padding:5px 12px;color:#F2E8D5;text-decoration:none;' + PANEL;
+  menuBtn.className = 'rl-btn';
   topBar.appendChild(menuBtn);
 
   // Audio toggle, next to the menu. Mirrors the `m` key both ways.
   const muteBtn = document.createElement('button');
-  muteBtn.style.cssText = 'padding:5px 12px;cursor:pointer;' + PANEL;
+  muteBtn.className = 'rl-btn';
   const paintMute = (muted: boolean): void => {
     muteBtn.textContent = muted ? '🔇 muted' : '🔊 sound';
-    muteBtn.style.opacity = muted ? '0.6' : '1';
+    muteBtn.dataset.locked = muted ? '1' : '0';
   };
   paintMute(false);
   muteBtn.addEventListener('click', () => {
@@ -389,38 +338,13 @@ async function main(): Promise<void> {
   });
   topBar.appendChild(muteBtn);
 
-  // Mission clock: the active timed objective, big and centred, because in a
-  // hold you are watching the clock more than anything else on screen.
-  const clock = document.createElement('div');
-  clock.style.cssText =
-    'position:absolute;top:46px;left:50%;transform:translateX(-50%);padding:4px 16px;' +
-    'display:none;font:bold 20px ui-monospace,Menlo,monospace;letter-spacing:1px;' + PANEL;
-  document.body.appendChild(clock);
-  const refreshClock = (): void => {
-    if (!runtime) return;
-    const timed = runtime.objectiveList.find((o) => o.status === 'active' && o.ticksLeft !== undefined);
-    if (!timed || timed.ticksLeft === undefined) {
-      clock.style.display = 'none';
-      return;
-    }
-    const secs = Math.ceil(timed.ticksLeft / TICKS_PER_SECOND);
-    const mm = Math.floor(secs / 60);
-    const ss = (secs % 60).toString().padStart(2, '0');
-    // A paused clock must say why, or it reads as a broken game.
-    // A paused clock must say why, or it reads as a broken game.
-    const why =
-      timed.paused === 'contested' ? '  CONTESTED' : timed.paused === 'unheld' ? '  NOBODY HOLDING' : '';
-    clock.textContent = `${mm}:${ss}${why}`;
-    clock.style.color =
-      timed.paused === 'contested'
-        ? '#D93A2B'
-        : timed.paused === 'unheld'
-          ? '#E8C33A'
-          : secs <= 60
-            ? '#E8C33A'
-            : '#F2E8D5';
-    clock.style.display = 'block';
-  };
+  // Mission start punctuation: the operation names itself before the first
+  // order is given. Skippable — a replay for a better ROE should not have to
+  // sit through it again.
+  if (mission) {
+    const primaries = mission.objectives.filter((o) => o.primary !== false).length;
+    hud.announce(mission.name ?? mission.id, `${primaries} primary objective(s)`);
+  }
 
   const start = mission?.map.player_start;
   if (start) {
@@ -428,118 +352,22 @@ async function main(): Promise<void> {
     renderer.camera.y = start[1];
   }
 
-  // Refreshed a few times a second from the game loop when production exists.
-  let productionTick: (() => void) | null = null;
-  let supportRefresh: (() => void) | null = null;
+  // Field production, fire support and the build queue: one panel, bottom left.
+  let production: ProductionBar | null = null;
   /** Armed fire-support purchase awaiting a target, if any. */
   let armedSupport: 'sweep' | 'strike' | null = null;
 
-  // Field production bar: reinforcements deploy at player_start after their
-  // build time, paid from mission logistics.
   if (runtime && mission?.resources) {
-    const rt = runtime;
-    const bar = document.createElement('div');
-    bar.style.cssText =
-      'position:absolute;bottom:8px;left:8px;display:flex;gap:6px;' +
-      'font:11px ui-monospace,Menlo,monospace;';
-    for (const u of Object.values(units)) {
-      if (u.faction !== 'kdf') continue;
-      const btn = document.createElement('button');
-      const locked = rt.buildBlockedReason(u.id);
-      btn.textContent = locked ? `🔒 ${u.name}` : `${u.name} (${u.cost.logistics})`;
-      btn.title = locked ?? `${u.cost.logistics} logistics`;
-      btn.style.cssText =
-        'background:rgba(20,21,15,0.88);color:#F2E8D5;border:1px solid #5C625F;' +
-        'border-radius:4px;padding:6px 8px;cursor:pointer;' +
-        (locked ? 'opacity:0.5;' : '');
-      btn.addEventListener('click', () => {
-        const why = rt.buildBlockedReason(u.id);
-        if (why !== null) {
-          overlay.note(`<b>${u.name}</b> is locked — ${why}`, '#E8C33A');
-          return;
-        }
-        if (rt.requestBuild(u.id)) {
-          overlay.note(`<b>building</b> ${u.name} — deploys at the start line`, '#A9C4D1');
-        } else {
-          overlay.note(`cannot build ${u.name} — insufficient logistics`, '#B8A182');
-        }
-      });
-      bar.appendChild(btn);
-    }
-    document.body.appendChild(bar);
-
-    // Fire support bought with intel. Arming a purchase puts the cursor into
-    // targeting mode; the next left-click on the map spends it.
-    const supportBar = document.createElement('div');
-    supportBar.style.cssText =
-      'position:absolute;bottom:78px;left:8px;display:flex;gap:6px;' +
-      'font:11px ui-monospace,Menlo,monospace;';
-    const supportBtns: { el: HTMLButtonElement; kind: 'sweep' | 'strike'; cost: number }[] = [];
-    for (const spec of [
-      { kind: 'sweep' as const, label: 'Satellite sweep', cost: rt.sweepCost },
-      { kind: 'strike' as const, label: 'Precision strike', cost: rt.strikeCost },
-    ]) {
-      const b = document.createElement('button');
-      b.textContent = `${spec.label} (${spec.cost} intel)`;
-      b.style.cssText =
-        'background:rgba(20,21,15,0.88);color:#A9C4D1;border:1px solid #5C625F;' +
-        'border-radius:4px;padding:6px 8px;cursor:pointer;';
-      b.addEventListener('click', () => {
-        if (rt.intel < spec.cost) {
-          overlay.note(`not enough intel for ${spec.label.toLowerCase()} — watch longer`, '#B8A182');
-          return;
-        }
-        armedSupport = armedSupport === spec.kind ? null : spec.kind;
-        overlay.note(
-          armedSupport
-            ? `<b>${spec.label} armed</b> — click the map to place it`
-            : 'support call cancelled',
-          '#A9C4D1'
-        );
-        b.blur();
-      });
-      supportBtns.push({ el: b, kind: spec.kind, cost: spec.cost });
-      supportBar.appendChild(b);
-    }
-    document.body.appendChild(supportBar);
-    supportRefresh = (): void => {
-      for (const { el, kind, cost } of supportBtns) {
-        const affordable = rt.intel >= cost;
-        el.style.opacity = affordable ? '1' : '0.5';
-        el.style.borderColor = armedSupport === kind ? '#B8FF5A' : '#5C625F';
-      }
-    };
-
-    // Production queue: one progress bar per unit under construction.
-    const queueUi = document.createElement('div');
-    queueUi.style.cssText =
-      'position:absolute;bottom:46px;left:8px;display:flex;flex-direction:column;gap:4px;' +
-      'font:11px ui-monospace,Menlo,monospace;color:#F2E8D5;';
-    document.body.appendChild(queueUi);
-    const nameOf = new Map(Object.values(units).map((u) => [u.id, u.name]));
-    const refreshQueue = (): void => {
-      const q = rt.production;
-      queueUi.replaceChildren();
-      for (const item of q) {
-        const row = document.createElement('div');
-        row.style.cssText =
-          'background:rgba(20,21,15,0.88);border:1px solid #5C625F;border-radius:4px;' +
-          'padding:4px 8px;width:210px;';
-        const label = document.createElement('div');
-        const secs = Math.ceil(item.ticksLeft / TICKS_PER_SECOND);
-        label.textContent = `${nameOf.get(item.unit) ?? item.unit} — ${secs}s`;
-        const pct = item.totalTicks > 0 ? (item.doneTicks / item.totalTicks) * 100 : 100;
-        const track = document.createElement('div');
-        track.style.cssText = 'margin-top:3px;height:5px;background:#14150F;border-radius:2px;';
-        const fill = document.createElement('div');
-        fill.style.cssText = `height:100%;width:${pct.toFixed(1)}%;background:#B8FF5A;border-radius:2px;`;
-        track.appendChild(fill);
-        row.appendChild(label);
-        row.appendChild(track);
-        queueUi.appendChild(row);
-      }
-    };
-    productionTick = refreshQueue;
+    production = new ProductionBar(document.body, {
+      units: Object.values(units)
+        .filter((u) => u.faction === 'kdf')
+        .map((u) => ({ id: u.id, name: u.name, logistics: u.cost.logistics })),
+      runtime,
+      note: (html, tone) => hud.note(html, tone),
+      onArm: (kind) => {
+        armedSupport = kind;
+      },
+    });
   }
 
   const audio = new BattleAudio();
@@ -552,8 +380,7 @@ async function main(): Promise<void> {
   const canvas = renderer.app.canvas;
   // Left drag = box select; a short click = single select.
   const dragBox = document.createElement('div');
-  dragBox.style.cssText =
-    'position:absolute;display:none;border:1px dashed #B8FF5A;background:rgba(184,255,90,0.08);pointer-events:none;';
+  dragBox.className = 'rl-marquee';
   document.body.appendChild(dragBox);
   let dragStart: { x: number; y: number } | null = null;
   /** Last cursor position over the map, for keyboard-issued orders. */
@@ -632,14 +459,14 @@ async function main(): Promise<void> {
           armedSupport === 'sweep'
             ? runtime.requestSweep(fx.from(w.x), fx.from(w.y))
             : runtime.requestStrike(fx.from(w.x), fx.from(w.y));
-        overlay.note(
+        hud.note(
           ok
             ? `<b>${armedSupport === 'sweep' ? 'sweep' : 'strike'} called</b> on (${w.x.toFixed(0)}, ${w.y.toFixed(0)})`
             : 'support call refused — not enough intel',
-          ok ? '#A9C4D1' : '#B8A182'
+          ok ? 'info' : 'mute'
         );
         if (ok) renderer.addOrderMarker(w.x, w.y);
-        armedSupport = null;
+        production?.setArmed(null);
         dragStart = null;
         dragBox.style.display = 'none';
         return;
@@ -716,9 +543,9 @@ async function main(): Promise<void> {
       const riders = mine.filter((i) => sim.unitTypes[sim.state.typeIdx[i]].canEmbark);
       if (carrier !== undefined && riders.length > 0) {
         sim.queueCommand({ kind: 'load', ids: riders, carrier });
-        overlay.note('<b>mount up</b> — infantry boarding', '#A9C4D1');
+        hud.note('<b>mount up</b> — infantry boarding', 'info');
       } else {
-        overlay.note('select a transport and the infantry to load', '#B8A182');
+        hud.note('select a transport and the infantry to load', 'mute');
       }
     }
     if (ev.key === 'u') {
@@ -727,7 +554,7 @@ async function main(): Promise<void> {
       );
       if (carriers.length > 0) {
         sim.queueCommand({ kind: 'unload', ids: carriers });
-        overlay.note('<b>dismount</b> — infantry debussing', '#A9C4D1');
+        hud.note('<b>dismount</b> — infantry debussing', 'info');
       }
     }
     if (ev.key === 'f') {
@@ -737,7 +564,7 @@ async function main(): Promise<void> {
         (i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1 && sim.unitTypes[sim.state.typeIdx[i]].canSmoke
       );
       if (carriers.length === 0) {
-        overlay.note('nothing selected that carries smoke', '#B8A182');
+        hud.note('nothing selected that carries smoke', 'mute');
       } else {
         const w = renderer.screenToWorld(lastCursor.x, lastCursor.y);
         sim.queueCommand({ kind: 'smoke', ids: carriers, x: fx.from(w.x), y: fx.from(w.y) });
@@ -747,7 +574,7 @@ async function main(): Promise<void> {
     if (ev.key === 'm') {
       const muted = audio.toggle();
       paintMute(muted);
-      overlay.note(muted ? 'audio muted' : 'audio on', '#8E9491');
+      hud.note(muted ? 'audio muted' : 'audio on', 'mute');
     }
 
     // Control groups: Ctrl/Cmd+digit assigns the selection, digit recalls it,
@@ -767,9 +594,9 @@ async function main(): Promise<void> {
           if (renderer.unitGroup[i] === slot) renderer.unitGroup[i] = 0;
         }
         for (const i of mine) renderer.unitGroup[i] = slot;
-        overlay.note(
+        hud.note(
           mine.length ? `<b>group ${slot}</b> — ${mine.length} unit(s)` : `group ${slot} cleared`,
-          '#B8FF5A'
+          'live'
         );
       } else {
         const members = (groups.get(slot) ?? []).filter((i) => sim.state.alive[i] === 1);
@@ -810,18 +637,28 @@ async function main(): Promise<void> {
     if (runtime && mission) {
       for (const me of runtime.step(events)) {
         const described = describeMissionEvent(me, mission);
-        if (described) overlay.note(described[0], described[1]);
+        if (described) hud.note(described[0], described[1]);
         if (me.kind === 'missionEnd') {
           if (me.result === 'victory') {
             saveLedger({ ...ledger, ...me.ledger });
-            overlay.note('<b>campaign ledger updated</b> — survivors and ROE carried forward', '#A9C4D1');
+            hud.note('<b>campaign ledger updated</b> — survivors and ROE carried forward', 'info');
           }
-          if (missionId) showEndScreen(me.result, me.roeRating, me.survivors.length, missionId);
+          if (missionId) {
+            const order = Object.keys(missions);
+            showEndScreen(document.body, {
+              result: me.result,
+              roe: me.roeRating,
+              survivors: me.survivors.length,
+              missionId,
+              nextMissionId: order[order.indexOf(missionId) + 1],
+            });
+          }
         }
       }
     }
+    hud.onTick();
     overlay.onTick(events);
-    if (productionTick && sim.tickCount % 5 === 0) productionTick();
+    if (production && sim.tickCount % 5 === 0) production.refresh();
     // Show the ground a timed objective is about, and how it is going.
     if (runtime && sim.tickCount % 5 === 0) {
       const timed = runtime.objectiveList.find((o) => o.status === 'active' && o.zone !== undefined);
@@ -830,8 +667,6 @@ async function main(): Promise<void> {
       renderer.objectiveZoneState =
         timed?.paused === 'contested' ? 'contested' : timed?.paused === 'unheld' ? 'unheld' : 'held';
     }
-    if (supportRefresh && sim.tickCount % 5 === 0) supportRefresh();
-    if (sim.tickCount % 5 === 0) refreshClock();
   };
 
   // Dev hook: deterministic headless stepping from the console
@@ -887,7 +722,7 @@ main().catch((err: unknown) => {
   const stage = document.getElementById('stage');
   if (stage) {
     const pre = document.createElement('pre');
-    pre.style.cssText = 'color:#D93A2B;padding:2rem;white-space:pre-wrap;';
+    pre.className = 'rl-boot-error';
     pre.textContent = `boot failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`;
     stage.appendChild(pre);
   }

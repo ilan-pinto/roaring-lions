@@ -1,0 +1,701 @@
+/* The interface's design system: the only file allowed to name a --rl-* palette
+ * variable. Everything else in the UI works in the semantic names below, so a
+ * palette revision is a change here and nowhere else, and tools/validate_ui_palette.mjs
+ * can reject a raw colour literal anywhere in UI source without an allowlist.
+ *
+ * Direction: field command post. Limestone ink on shadow ground, hairline
+ * gunmetal frames, accent colour spent only where it reports state. Panels are
+ * briefing documents — a stamped header band carries the title, the body sits
+ * beneath it. The band colour ranks the panel, which is what makes one panel
+ * more important than another; before this pass every panel shared one style
+ * constant and nothing on screen outranked anything else.
+ */
+
+@font-face {
+  font-family: 'Big Shoulders Display';
+  font-style: normal;
+  font-weight: 400 900; /* variable axis — one file covers the whole range */
+  font-display: swap;
+  src: url('/fonts/big-shoulders-display-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/ibm-plex-mono-latin-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/ibm-plex-mono-latin-600.woff2') format('woff2');
+}
+
+:root {
+  /* --- surfaces ------------------------------------------------------- */
+  /* color-mix rather than rgba(): translucency without a numeric literal,
+     which is what lets the palette gate run with an empty allowlist. */
+  --panel-bg: color-mix(in srgb, var(--rl-shadow-1) 92%, transparent);
+  --panel-bg-solid: var(--rl-shadow-1);
+  --panel-frame: var(--rl-gunmetal-3);
+  --panel-rule: color-mix(in srgb, var(--rl-gunmetal-3) 70%, transparent);
+  --well: var(--rl-shadow-1);
+
+  /* Band colour is the panel's rank. Olive is the briefing — the panel you
+     read for twelve minutes. Gunmetal is machinery you inspect. Dust is
+     transient and interrupts you. */
+  --band-mission: var(--rl-olive-2);
+  --band-inspect: var(--rl-gunmetal-3);
+  --band-alert: var(--rl-dust-3);
+  --band-ink: var(--rl-limestone-0);
+  --band-ink-dim: var(--rl-gunmetal-0);
+
+  /* --- ink ------------------------------------------------------------ */
+  --ink: var(--rl-limestone-0);
+  --ink-mute: var(--rl-limestone-2);
+  --ink-dim: var(--rl-gunmetal-1);
+
+  /* --- state ---------------------------------------------------------- */
+  /* Reserved bands are runtime-only in static art, but the HUD *is* runtime:
+     these are exactly the colours the battlefield uses to say the same things,
+     so a red on a panel and a red on the map mean one thing. */
+  --good: var(--rl-scrub-0);
+  --warn: var(--rl-team-neutral);
+  --bad: var(--rl-team-hostile);
+  --info: var(--rl-water-0);
+  --live: var(--rl-vfx-tracer);
+  --hot: var(--rl-vfx-fire);
+  --friendly: var(--rl-team-kedem);
+  --accent: var(--rl-dust-0);
+
+  /* --- the mark ------------------------------------------------------- */
+  /* Three chevrons, three steps down the dust ramp. Sweeping darker gives the
+     mark depth at menu size and keeps it one readable shape at 15px. */
+  --mark-1: var(--rl-dust-0);
+  --mark-2: var(--rl-dust-1);
+  --mark-3: var(--rl-dust-2);
+
+  /* --- space ---------------------------------------------------------- */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+
+  /* --- type ----------------------------------------------------------- */
+  --font-display: 'Big Shoulders Display', 'Oswald', 'Haettenschweiler', sans-serif;
+  /* The fallback is the stack the UI used before this pass: if the webfont
+     never arrives, the interface degrades to how it looked yesterday rather
+     than to a serif. */
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --t-xs: 10px;
+  --t-s: 11px;
+  --t-m: 13px;
+  --t-l: 20px;
+  --t-xl: 28px;
+  --t-hero: clamp(34px, 7vw, 52px);
+  --track-label: 0.18em; /* small caps need air to stay readable */
+  --track-title: 0.06em;
+
+  /* --- motion --------------------------------------------------------- */
+  --dur-fast: 120ms;
+  --dur: 160ms;
+  --dur-slow: 250ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+/* ====================================================================== */
+/* Panel — the stamped header                                             */
+/* ====================================================================== */
+
+.rl-panel {
+  position: absolute;
+  font-family: var(--font-mono);
+  font-size: var(--t-s);
+  line-height: 1.55;
+  color: var(--ink);
+  /* The HUD is furniture over a live battlefield: clicks that are not aimed at
+     a control belong to the map underneath. */
+  pointer-events: none;
+}
+
+.rl-panel a,
+.rl-panel button,
+.rl-panel__body {
+  pointer-events: auto;
+}
+
+.rl-panel__band {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  padding: 5px var(--s3) 4px;
+  background: var(--band-inspect);
+  font-family: var(--font-display);
+  text-transform: uppercase;
+}
+
+.rl-panel[data-rank='mission'] .rl-panel__band {
+  background: var(--band-mission);
+}
+.rl-panel[data-rank='alert'] .rl-panel__band {
+  background: var(--band-alert);
+}
+
+.rl-panel__title {
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: var(--track-title);
+  line-height: 1;
+  color: var(--band-ink);
+}
+
+/* Right-aligned slot in the band: mission code, unit count, whatever the panel
+   wants to stamp beside its name. */
+.rl-panel__tag {
+  margin-left: auto;
+  font-size: var(--t-xs);
+  font-weight: 600;
+  letter-spacing: var(--track-label);
+  color: var(--band-ink-dim);
+}
+
+.rl-panel__body {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  border-top: 0;
+  padding: var(--s2) var(--s3) var(--s3);
+  overflow-y: auto;
+}
+
+/* Section label inside a panel body — the display face doing structural work,
+   not decoration: it is what tells objectives from force status at a glance. */
+.rl-label {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  font-size: var(--t-xs);
+  font-weight: 600;
+  letter-spacing: var(--track-label);
+  color: var(--ink-dim);
+  margin: var(--s2) 0 var(--s1);
+}
+.rl-label:first-child {
+  margin-top: 0;
+}
+
+.rl-dim {
+  color: var(--ink-dim);
+}
+.rl-rule {
+  height: 1px;
+  background: var(--panel-rule);
+  margin: var(--s2) 0;
+}
+
+/* Progress track — production queue, unit health. */
+.rl-track {
+  height: 5px;
+  background: var(--well);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.rl-track > i {
+  display: block;
+  height: 100%;
+  background: var(--live);
+  transition: width var(--dur) linear;
+}
+
+/* ====================================================================== */
+/* Controls                                                               */
+/* ====================================================================== */
+
+.rl-btn {
+  font-family: var(--font-mono);
+  font-size: var(--t-s);
+  color: var(--ink);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  padding: 5px 10px;
+  cursor: pointer;
+  pointer-events: auto;
+  text-decoration: none;
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    background-color var(--dur-fast) var(--ease);
+}
+.rl-btn:hover,
+.rl-btn:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.rl-btn[data-armed='1'] {
+  border-color: var(--live);
+  color: var(--live);
+}
+.rl-btn[disabled],
+.rl-btn[data-locked='1'] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ====================================================================== */
+/* Semantic ink — the only way UI code names a colour                     */
+/* ====================================================================== */
+
+.rl-good {
+  color: var(--good);
+}
+.rl-warn {
+  color: var(--warn);
+}
+.rl-bad {
+  color: var(--bad);
+}
+.rl-info {
+  color: var(--info);
+}
+.rl-live {
+  color: var(--live);
+}
+.rl-hot {
+  color: var(--hot);
+}
+.rl-mute {
+  color: var(--ink-mute);
+}
+.rl-fill-good {
+  background: var(--good);
+}
+.rl-fill-warn {
+  background: var(--warn);
+}
+.rl-fill-bad {
+  background: var(--bad);
+}
+
+/* ====================================================================== */
+/* HUD pieces                                                             */
+/* ====================================================================== */
+
+.rl-panel__mark {
+  flex: none;
+  align-self: center;
+}
+
+/* Objectives: the glyph column is fixed so wrapped text stays aligned under
+   its own line rather than under the checkbox. */
+.rl-obj {
+  display: flex;
+  gap: 7px;
+  border-radius: 2px;
+}
+.rl-obj__g {
+  flex: none;
+  width: 11px;
+}
+
+/* ROE, given the size the thing deserves — it gates campaign progression. */
+.rl-score {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  margin-bottom: var(--s1);
+}
+.rl-score__n {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1;
+}
+.rl-score__k {
+  font-family: var(--font-display);
+  font-size: var(--t-xs);
+  font-weight: 600;
+  letter-spacing: var(--track-label);
+  color: var(--ink-dim);
+  text-transform: uppercase;
+}
+.rl-score__r {
+  margin-left: auto;
+}
+
+.rl-card__head {
+  display: flex;
+  gap: var(--s2);
+  align-items: center;
+  margin-bottom: var(--s1);
+}
+.rl-card__icon {
+  flex: none;
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--panel-frame);
+  background: var(--well);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--t-l);
+}
+.rl-card__vitals {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The clock, big and centred: in a hold you watch this more than the map. */
+.rl-clock {
+  position: absolute;
+  top: 46px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: var(--s1) var(--s4);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  font-family: var(--font-display);
+  font-size: var(--t-xl);
+  font-weight: 800;
+  letter-spacing: var(--track-title);
+  color: var(--ink);
+  pointer-events: none;
+  white-space: pre;
+}
+.rl-clock[data-tone='warn'] {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+.rl-clock[data-tone='bad'] {
+  color: var(--bad);
+  border-color: var(--bad);
+}
+
+/* Notices: punctuation, not a log. They expire so the map stays visible. */
+.rl-notices {
+  position: absolute;
+  bottom: var(--s2);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, 60vw);
+  display: flex;
+  flex-direction: column-reverse;
+  gap: var(--s1);
+  pointer-events: none;
+}
+.rl-notice {
+  font-family: var(--font-mono);
+  font-size: var(--t-s);
+  background: var(--panel-bg);
+  border-left: 2px solid currentColor;
+  padding: var(--s1) var(--s2);
+  transition: opacity var(--dur-fast) var(--ease);
+}
+
+.rl-bigbanner {
+  position: absolute;
+  top: 38%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: var(--s3) 42px;
+  background: var(--panel-bg);
+  border: 2px solid var(--panel-frame);
+  font-family: var(--font-display);
+  font-size: clamp(30px, 6vw, 44px);
+  font-weight: 800;
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  color: var(--ink);
+  pointer-events: none;
+}
+.rl-bigbanner[data-result='victory'] {
+  border-color: var(--good);
+}
+.rl-bigbanner[data-result='defeat'] {
+  border-color: var(--bad);
+}
+
+/* Mission start punctuation. */
+.rl-titlecard {
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  pointer-events: none;
+  transition: opacity var(--dur-slow) var(--ease);
+}
+.rl-titlecard__title {
+  font-family: var(--font-display);
+  font-size: var(--t-hero);
+  font-weight: 800;
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  line-height: 1;
+  color: var(--ink);
+}
+.rl-titlecard__sub {
+  font-family: var(--font-mono);
+  font-size: var(--t-m);
+  letter-spacing: var(--track-label);
+  color: var(--accent);
+  margin-top: var(--s2);
+  text-transform: uppercase;
+}
+
+.rl-topbar {
+  position: absolute;
+  top: var(--s2);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: var(--s2);
+}
+
+.rl-btnrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1);
+}
+.rl-btn--support {
+  color: var(--info);
+}
+
+.rl-queue:not(:empty) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  margin-bottom: var(--s2);
+}
+.rl-queue__row {
+  border: 1px solid var(--panel-frame);
+  padding: var(--s1) var(--s2);
+}
+
+/* Box-select marquee. Drawn in DOM over the canvas, so it is styled here with
+   everything else rather than hidden in the input code. */
+.rl-marquee {
+  position: absolute;
+  display: none;
+  border: 1px dashed var(--live);
+  background: color-mix(in srgb, var(--live) 8%, transparent);
+  pointer-events: none;
+}
+
+/* Boot failure. Reachable only after this stylesheet has loaded — the module
+   that registers the handler is the one that imports it. */
+.rl-boot-error {
+  color: var(--bad);
+  font-family: var(--font-mono);
+  font-size: var(--t-m);
+  padding: var(--s6);
+  white-space: pre-wrap;
+}
+
+/* ====================================================================== */
+/* Menu                                                                   */
+/* ====================================================================== */
+
+.rl-menu {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(460px, 92vw);
+  max-height: 96vh;
+  overflow-y: auto;
+  padding: var(--s5) var(--s6);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  font-family: var(--font-mono);
+  color: var(--ink);
+  text-align: center;
+}
+.rl-menu__banner {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-bottom: var(--s3);
+}
+.rl-wordmark__mark {
+  display: block;
+  margin: 0 auto var(--s2);
+}
+.rl-wordmark__name {
+  font-family: var(--font-display);
+  font-size: var(--t-hero);
+  font-weight: 900;
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  line-height: 0.95;
+  margin: 0;
+  color: var(--ink);
+}
+.rl-wordmark__rule {
+  height: 2px;
+  background: var(--band-mission);
+  margin: var(--s2) auto;
+  width: 78%;
+}
+.rl-wordmark__unit {
+  font-size: var(--t-xs);
+  letter-spacing: var(--track-label);
+  color: var(--ink-dim);
+  text-transform: uppercase;
+}
+.rl-wordmark__unit span {
+  letter-spacing: 0;
+}
+.rl-menu__theatre {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  font-size: var(--t-m);
+  letter-spacing: var(--track-label);
+  color: var(--ink-mute);
+  margin-top: var(--s3);
+}
+.rl-menu__campaign {
+  font-size: var(--t-s);
+  margin: var(--s1) 0 var(--s4);
+}
+.rl-menu__nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.rl-menu__item {
+  display: block;
+  padding: var(--s2) var(--s3);
+  font-family: var(--font-display);
+  font-size: var(--t-l);
+  font-weight: 600;
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  text-align: left;
+}
+/* The sandbox and the ledger reset are instruments, not missions — they should
+   not read as the fourth and fifth chapters of the campaign. */
+.rl-menu__item[data-kind='aside'] {
+  font-family: var(--font-mono);
+  font-size: var(--t-s);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-dim);
+  padding: var(--s1) var(--s3);
+}
+
+.rl-endnav {
+  display: flex;
+  gap: var(--s2);
+  justify-content: center;
+  margin-top: var(--s3);
+}
+
+/* ====================================================================== */
+/* Motion — short, interruptible, and only where it carries meaning        */
+/* ====================================================================== */
+
+@keyframes rl-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rl-enter {
+  animation: rl-enter var(--dur) var(--ease) both;
+}
+
+/* Menu entrance: children introduce themselves in sequence rather than the
+   whole screen arriving at once. --i is set per child. */
+.rl-stagger > * {
+  animation: rl-enter 200ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 60ms);
+}
+
+.rl-leave {
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+
+/* An objective completing is the only good news the HUD ever delivers. */
+@keyframes rl-complete {
+  0% {
+    background: color-mix(in srgb, var(--good) 55%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
+}
+.rl-flash-good {
+  animation: rl-complete 400ms var(--ease) 1;
+}
+
+/* ROE falling is the bad news, and it is easy to miss in a firefight. */
+@keyframes rl-drop {
+  0%,
+  100% {
+    color: var(--good);
+  }
+  40% {
+    color: var(--bad);
+    transform: scale(1.12);
+  }
+}
+.rl-flash-bad {
+  animation: rl-drop 300ms var(--ease) 1;
+  display: inline-block;
+}
+
+/* The one loop in the system: a contested hold clock. It repeats because the
+   condition repeats — it stops when the ground stops being contested. */
+@keyframes rl-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.rl-pulse {
+  animation: rl-pulse 1s var(--ease) infinite;
+}
+
+/* Mission end. Settles rather than appears — the result should land. */
+@keyframes rl-banner {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+.rl-banner-in {
+  animation: rl-banner 220ms var(--ease) both;
+}
+
+/* Motion here reports state, so under reduced-motion the report has to survive
+   without the movement: durations collapse, loops stop on their visible frame,
+   and the title card still holds for its full read. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+  .rl-pulse {
+    animation: none;
+    opacity: 1;
+  }
+}
