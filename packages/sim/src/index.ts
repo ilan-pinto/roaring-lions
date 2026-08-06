@@ -31,4 +31,5 @@ export {
   type UnitType,
   type WeaponStats,
   type HitFactors,
+  type HitProjection,
 } from './sim';
