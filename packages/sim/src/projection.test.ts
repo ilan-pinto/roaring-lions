@@ -205,7 +205,7 @@ describe('projectHit', () => {
     // coincidence as above. This test is about the jeep's own hurts
     // heuristic, not mutual combat survival, so the tank's return fire is
     // disabled the same way the firepower-killed test disables a shooter.
-    sim.state.firepowerKilled[armour] = 1;
+    sim.debugDisableFirepower(armour);
     run(sim, 8 * TICKS_PER_SECOND);
 
     const vsArmour = sim.projectHit(gunner, armour);
@@ -230,7 +230,65 @@ describe('projectHit', () => {
     const target = sim.spawn(inf, 1, fx.from(14.5), fx.from(10.5));
     run(sim, 8 * TICKS_PER_SECOND);
     expect(sim.projectHit(shooter, target).kind).toBe('shot');
-    sim.state.firepowerKilled[shooter] = 1;
+    sim.debugDisableFirepower(shooter);
     expect(sim.projectHit(shooter, target).kind).toBe('noSolution');
+  });
+});
+
+describe('projectHit — holding fire', () => {
+  it('reports holdingFire for a pinned unit, and the sim fires nothing that tick', () => {
+    // GDD 5.5: a unit gone to ground makes no aimed return fire at all —
+    // stepCombat skips it before target selection ever runs. Suppress a
+    // tough infantry squad with three attackers until it pins, then prove
+    // projectHit says so AND the sim produces no fire event from it that
+    // tick — a test that only checked the return value would not catch the
+    // two drifting apart again.
+    const { sim, inf } = tankWorld(); // `inf` here is TOUGH_RIFLES: survives the beating
+    sim.spawn(inf, 0, fx.from(3.5), fx.from(7.5));
+    sim.spawn(inf, 0, fx.from(3.5), fx.from(8.5));
+    sim.spawn(inf, 0, fx.from(3.5), fx.from(9.5));
+    const target = sim.spawn(inf, 1, fx.from(9.5), fx.from(8.5));
+    const attacker = 0;
+
+    let pinnedTick = -1;
+    for (let t = 0; t < 60 * TICKS_PER_SECOND && pinnedTick < 0; t++) {
+      for (const e of sim.tick()) {
+        if (e.kind === 'pinned' && e.entity === target) pinnedTick = t;
+      }
+    }
+    expect(pinnedTick).toBeGreaterThanOrEqual(0);
+    expect(sim.state.pinned[target]).toBe(1);
+
+    const projected = sim.projectHit(target, attacker);
+    expect(projected.kind).toBe('holdingFire');
+
+    const events = sim.tick();
+    expect(events.some((e) => e.kind === 'fire' && e.shooter === target)).toBe(false);
+  });
+
+  it('reports holdingFire for an ambush unit that has not sprung, and the sim fires nothing that tick', () => {
+    // GDD 5.5a: ambush weapons stay cold until a target closes inside the
+    // trap radius with LOS — stepCombat holds fire entirely until then.
+    // The target here sits well outside a deliberately tight trap radius, so
+    // the ambush never springs across the whole run: projectHit must say so
+    // AND the sim must never fire from the ambusher.
+    const { sim, inf } = world();
+    const shooter = sim.spawn(inf, 0, fx.from(10.5), fx.from(10.5));
+    const target = sim.spawn(inf, 1, fx.from(15.5), fx.from(10.5)); // 5 tiles: inside weapon range (8)
+    sim.setAmbush(shooter, fx.from(2)); // trap radius (2 tiles) never reached by the stationary target
+
+    let sawSprung = false;
+    let sawFire = false;
+    let lastProjection: ReturnType<typeof sim.projectHit> | null = null;
+    for (let t = 0; t < 8 * TICKS_PER_SECOND; t++) {
+      lastProjection = sim.projectHit(shooter, target);
+      for (const e of sim.tick()) {
+        if (e.kind === 'ambushSprung' && e.entity === shooter) sawSprung = true;
+        if (e.kind === 'fire' && e.shooter === shooter) sawFire = true;
+      }
+    }
+    expect(sawSprung).toBe(false);
+    expect(sawFire).toBe(false);
+    expect(lastProjection?.kind).toBe('holdingFire');
   });
 });

@@ -340,6 +340,7 @@ export class DebugOverlay {
     const rows: string[] = [];
     let cannot = 0;
     let unidentified = 0;
+    let holdingFire = 0;
     for (const s of sel) {
       const p = this.sim.projectHit(s, t);
       if (p.kind === 'unidentified') {
@@ -348,6 +349,10 @@ export class DebugOverlay {
       }
       if (p.kind === 'noSolution') {
         cannot++;
+        continue;
+      }
+      if (p.kind === 'holdingFire') {
+        holdingFire++;
         continue;
       }
       if (rows.length >= MAX_ROWS) continue;
@@ -372,16 +377,22 @@ export class DebugOverlay {
       rows.push(`<div>${name} <b>${pct}%</b> <span style="color:#8E9491">${p.weaponId}${why}</span>${bounce}</div>`);
     }
 
-    if (rows.length === 0 && unidentified > 0 && cannot === 0) {
+    if (rows.length === 0 && unidentified > 0 && cannot === 0 && holdingFire === 0) {
       return '<div style="color:#8E9491">contact not identified — no firing solution</div>';
+    }
+    // Pinned or lying in ambush is a different fact from "cannot reach" —
+    // the shot exists, the unit is choosing (or forced) not to take it.
+    if (rows.length === 0 && holdingFire > 0 && cannot === 0 && unidentified === 0) {
+      return '<div style="color:#8E9491">pinned — holding fire</div>';
     }
     if (rows.length === 0) return '<div style="color:#8E9491">no unit can engage</div>';
 
     const shown = rows.length;
-    const extra = sel.length - shown - cannot - unidentified;
+    const extra = sel.length - shown - cannot - unidentified - holdingFire;
     const tail: string[] = [];
     if (extra > 0) tail.push(`and ${extra} more`);
     if (cannot > 0) tail.push(`${cannot} cannot reach`);
+    if (holdingFire > 0) tail.push(`${holdingFire} holding fire`);
     if (unidentified > 0) tail.push(`${unidentified} unidentified`);
     const foot = tail.length > 0 ? `<div style="color:#8E9491">${tail.join(' · ')}</div>` : '';
     return `<div style="margin-top:6px"><b>projected fire</b></div>${rows.join('')}${foot}`;

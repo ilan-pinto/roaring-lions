@@ -225,14 +225,16 @@ export interface HitFactors {
 }
 
 /**
- * What the overlay can say about a hovered target. Three outcomes rather than
- * a nullable shot, because "you have not identified that" and "you cannot
- * reach that" are different facts and the player needs to know which.
+ * What the overlay can say about a hovered target. Four outcomes rather than
+ * a nullable shot, because "you have not identified that", "you cannot reach
+ * that", and "this unit has gone to ground / is lying in ambush" are
+ * different facts and the player needs to know which.
  */
 export type HitProjection =
   | { kind: 'shot'; weaponId: string; pHit: Fx; hurts: boolean; factors: HitFactors }
   | { kind: 'unidentified' }
-  | { kind: 'noSolution' };
+  | { kind: 'noSolution' }
+  | { kind: 'holdingFire' };
 
 export interface UnitType {
   id: string;
@@ -958,6 +960,12 @@ export class Sim {
     if (this.alive[id] === 1) this.destroy(id, -1);
   }
 
+  /** Dev/test hook: disable a unit's firepower as if its weapons were
+   *  knocked out (sandbox tooling). */
+  debugDisableFirepower(id: number): void {
+    this.firepowerKilled[id] = 1;
+  }
+
   /** Advance exactly one 20 Hz tick. Returns the events it produced. */
   tick(): SimEvent[] {
     this.applyCommands();
@@ -1322,6 +1330,13 @@ export class Sim {
    * Eligibility deliberately mirrors bestTargetFor rather than inventing its
    * own rules, so the panel can never offer a shot the unit would refuse.
    *
+   * bestTargetFor is not the whole gate, though: stepCombat holds fire
+   * entirely — before target selection ever runs — for a pinned unit (gone
+   * to ground, GDD 5.5) or an ambushing one that has not yet sprung (GDD
+   * 5.5a). Mirror both checks exactly, in the same order stepCombat applies
+   * them, so a suppressed or lying-in-wait unit never gets offered a shot it
+   * would refuse to take.
+   *
    * Note the identification test is on contact CONFIDENCE, not contactState.
    * contactState latches at 2 once confidence passes IDENTIFIED_AT and only
    * falls back below the much lower LOST_AT, so there is a wide band where the
@@ -1331,6 +1346,14 @@ export class Sim {
     const cap = this.capacity;
     if (this.alive[shooter] === 0 || this.alive[target] === 0) return { kind: 'noSolution' };
     if (this.firepowerKilled[shooter] === 1) return { kind: 'noSolution' };
+    // Gone to ground: no aimed return fire at all this tick (stepCombat).
+    if (this.pinned[shooter] === 1) return { kind: 'holdingFire' };
+    // Ambush: weapons stay cold until a target closes inside the trap radius
+    // with LOS (stepCombat, via checkAmbushSpring) — regardless of which
+    // enemy is being hovered.
+    if (this.stance[shooter] === 1 && !this.checkAmbushSpring(shooter)) {
+      return { kind: 'holdingFire' };
+    }
     const sSide = this.side[shooter];
     // Civilians are never aimpoints; collateral comes from ordnance.
     if (this.side[target] === sSide || this.side[target] > 1) return { kind: 'noSolution' };
