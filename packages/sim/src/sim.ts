@@ -224,6 +224,16 @@ export interface HitFactors {
   suppressionMod: Fx;
 }
 
+/**
+ * What the overlay can say about a hovered target. Three outcomes rather than
+ * a nullable shot, because "you have not identified that" and "you cannot
+ * reach that" are different facts and the player needs to know which.
+ */
+export type HitProjection =
+  | { kind: 'shot'; weaponId: string; pHit: Fx; hurts: boolean; factors: HitFactors }
+  | { kind: 'unidentified' }
+  | { kind: 'noSolution' };
+
 export interface UnitType {
   id: string;
   /** Display name for the HUD; falls back to the id. */
@@ -1302,6 +1312,63 @@ export class Sim {
   /** Contact confidence 0..ONE of `target` as known to `side`. */
   contactConfidence(side: number, target: number): Fx {
     return this.contact[side * this.capacity + target];
+  }
+
+  /**
+   * What would happen if `shooter` engaged `target` right now — the sim's own
+   * hit calculation, without taking the shot. GDD 5.8: the player should know
+   * what a shot will cost before paying for it.
+   *
+   * Eligibility deliberately mirrors bestTargetFor rather than inventing its
+   * own rules, so the panel can never offer a shot the unit would refuse.
+   *
+   * Note the identification test is on contact CONFIDENCE, not contactState.
+   * contactState latches at 2 once confidence passes IDENTIFIED_AT and only
+   * falls back below the much lower LOST_AT, so there is a wide band where the
+   * level claims "identified" while bestTargetFor would skip the target.
+   */
+  projectHit(shooter: number, target: number): HitProjection {
+    const cap = this.capacity;
+    if (this.alive[shooter] === 0 || this.alive[target] === 0) return { kind: 'noSolution' };
+    if (this.firepowerKilled[shooter] === 1) return { kind: 'noSolution' };
+    const sSide = this.side[shooter];
+    // Civilians are never aimpoints; collateral comes from ordnance.
+    if (this.side[target] === sSide || this.side[target] > 1) return { kind: 'noSolution' };
+    // Men inside a building or aboard a vehicle cannot be shot at.
+    if (this.garrisonedIn[target] >= 0 || this.carriedBy[target] >= 0) {
+      return { kind: 'noSolution' };
+    }
+    if (this.contact[sSide * cap + target] < IDENTIFIED_AT) return { kind: 'unidentified' };
+
+    const px = this.posX[shooter];
+    const py = this.posY[shooter];
+    const tx = this.posX[target];
+    const ty = this.posY[target];
+    const dSq = distSqFx(fx.sub(tx, px), fx.sub(ty, py));
+    const type = this.unitTypes[this.typeIdx[shooter]];
+    const tType = this.unitTypes[this.typeIdx[target]];
+
+    let best: HitProjection = { kind: 'noSolution' };
+    let bestP = -1;
+    for (const w of type.weapons) {
+      if (dSq > w.rangeSq || dSq < w.minRangeSq) continue;
+      if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
+        if (this.losRay(px >> 16, py >> 16, tx >> 16, ty >> 16) < 0) continue;
+      }
+      const factors = this.hitFactors(shooter, w, target);
+      if (factors.p <= bestP) continue;
+      bestP = factors.p;
+      best = {
+        kind: 'shot',
+        weaponId: w.id,
+        pHit: factors.p,
+        // bestTargetFor's own heuristic: a quarter of side armour, whatever
+        // face is presented. Soft targets always qualify.
+        hurts: tType.isSoft || w.penetration >= tType.armorSide >> 2,
+        factors,
+      };
+    }
+    return best;
   }
 
   /** Public read-only inspection for the debug overlay. */
