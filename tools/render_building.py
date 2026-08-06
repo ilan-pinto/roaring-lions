@@ -75,6 +75,22 @@ class BuildingSpec:
     # source. Recorded in the manifest so the sprite can be explained.
     offsets: dict = field(default_factory=dict)
     strip_source_lights: bool = True
+    # Coursed brick instead of a flat colour. Both tones come from one palette
+    # ramp so the pattern survives quantization.
+    brick: bool = False
+    # Coursing tones, by palette name. Defaults chosen from the key art: its two
+    # most common masonry tones map to limestone.2 and dust.0, with the mortar
+    # line a step darker so coursing reads as shadow rather than highlight.
+    course_a_key: str = "limestone.2"
+    course_b_key: str = "dust.0"
+    mortar_key: str = "limestone.3"
+    # Bricks per world unit. The mosque is ~10.8 units and draws ~230px wide, so
+    # roughly 21px per unit: a scale near 6 gives courses a few pixels deep,
+    # which is the finest that still reads.
+    brick_scale: float = 6.0
+    mortar_size: float = 0.035
+    # Name fragments that stay flat -- curved or fine parts.
+    smooth_parts: tuple = ("dome", "Dome", "finial", "Finial", "drum", "Drum")
 
 
 def _shader(name, colour, roughness):
@@ -120,6 +136,94 @@ def stone_material(colour_key):
     return _shader("BuildingStone", palette_linear(colour_key), 0.90)
 
 
+def brick_material(course_a_key, course_b_key, mortar_key, brick_scale, mortar_size):
+    """Coursed brick, projected triplanar, built from one palette ramp.
+
+    Two problems had to be solved together.
+
+    Quantization: every pixel snaps to the nearest of ~24 palette colours, so a
+    photographic texture scatters across bands unpredictably -- the same failure
+    that put 47% of the flat-shaded mosque into gunmetal. Driving the pattern
+    between two steps of the SAME ramp keeps surface tone inside it.
+
+    Projection: Blender's brick texture is 2D. Fed the default generated
+    coordinates, a vertical wall gets one brick row extruded along its depth,
+    which renders as vertical stripes -- it reads as corrugated iron, not
+    masonry. The fix is triplanar: project brick along each of the three axes and
+    blend by the absolute surface normal, so every face gets brick face-on
+    without the model needing UVs. This model has none, and unwrapping 42 objects
+    to get coursing is not a trade worth making.
+    """
+    mat = bpy.data.materials.new("BuildingBrick")
+    mat.use_nodes = True
+    nt = mat.node_tree
+    nt.nodes.clear()
+
+    # All three tones are real palette entries. An earlier attempt derived the
+    # second course arithmetically (base * 1.16), which is not a palette colour
+    # and drifted into the green olive mid-steps -- 23% of the sprite read as
+    # moss. Sampling the project's key art shows its masonry spans limestone AND
+    # dust together, with olive only in deep shadow, so the courses are drawn
+    # from those two warm ramps by name.
+    base = palette_linear(course_a_key)
+    course = palette_linear(course_b_key)
+    mortar = palette_linear(mortar_key)
+
+    coord = nt.nodes.new("ShaderNodeTexCoord")
+    geo = nt.nodes.new("ShaderNodeNewGeometry")
+    # |normal| gives the three blend weights.
+    absn = nt.nodes.new("ShaderNodeVectorMath")
+    absn.operation = "ABSOLUTE"
+    nt.links.new(geo.outputs["Normal"], absn.inputs[0])
+    split = nt.nodes.new("ShaderNodeSeparateXYZ")
+    nt.links.new(absn.outputs["Vector"], split.inputs[0])
+
+    def plane(axis_a, axis_b):
+        """One brick projection, using two of the object's three axes."""
+        sep = nt.nodes.new("ShaderNodeSeparateXYZ")
+        nt.links.new(coord.outputs["Object"], sep.inputs[0])
+        comb = nt.nodes.new("ShaderNodeCombineXYZ")
+        nt.links.new(sep.outputs[axis_a], comb.inputs[0])
+        nt.links.new(sep.outputs[axis_b], comb.inputs[1])
+        b = nt.nodes.new("ShaderNodeTexBrick")
+        b.inputs["Color1"].default_value = base
+        b.inputs["Color2"].default_value = course
+        b.inputs["Mortar"].default_value = mortar
+        b.inputs["Scale"].default_value = brick_scale
+        b.inputs["Mortar Size"].default_value = mortar_size
+        b.inputs["Mortar Smooth"].default_value = 0.15
+        b.inputs["Bias"].default_value = 0.0
+        b.inputs["Brick Width"].default_value = 0.5
+        b.inputs["Row Height"].default_value = 0.25
+        nt.links.new(comb.outputs["Vector"], b.inputs["Vector"])
+        return b
+
+    # A face whose normal is mostly X sees the YZ pattern, and so on -- so
+    # courses always run horizontally on a vertical wall.
+    bx = plane(1, 2)  # normal along X -> project YZ
+    by = plane(0, 2)  # normal along Y -> project XZ
+    bz = plane(0, 1)  # normal along Z (a roof) -> project XY
+
+    mix_xy = nt.nodes.new("ShaderNodeMix")
+    mix_xy.data_type = "RGBA"
+    nt.links.new(bx.outputs["Color"], mix_xy.inputs[6])
+    nt.links.new(by.outputs["Color"], mix_xy.inputs[7])
+    nt.links.new(split.outputs["Y"], mix_xy.inputs[0])
+
+    mix_z = nt.nodes.new("ShaderNodeMix")
+    mix_z.data_type = "RGBA"
+    nt.links.new(mix_xy.outputs[2], mix_z.inputs[6])
+    nt.links.new(bz.outputs["Color"], mix_z.inputs[7])
+    nt.links.new(split.outputs["Z"], mix_z.inputs[0])
+
+    bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
+    bsdf.inputs["Roughness"].default_value = 0.92
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    nt.links.new(mix_z.outputs[2], bsdf.inputs["Base Color"])
+    nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+    return mat
+
+
 def setup(spec):
     """Load the model, drop what is not wanted, light it, frame it."""
     bpy.ops.wm.open_mainfile(filepath=spec.src)
@@ -143,9 +247,23 @@ def setup(spec):
         o.location.z += dz
 
     stone = stone_material(spec.colour_key)
+    brick = (
+        brick_material(
+            spec.course_a_key,
+            spec.course_b_key,
+            spec.mortar_key,
+            spec.brick_scale,
+            spec.mortar_size,
+        )
+        if spec.brick
+        else None
+    )
     for o in meshes:
         o.data.materials.clear()
-        o.data.materials.append(stone)
+        # Brick is for masonry. Domes and finials stay smooth: coursing a curved
+        # surface reads as scaffolding, not stonework.
+        use_brick = brick is not None and not any(k in o.name for k in spec.smooth_parts)
+        o.data.materials.append(brick if use_brick else stone)
 
     sc = bpy.context.scene
     sc.render.engine = "CYCLES"
@@ -170,16 +288,21 @@ def setup(spec):
     # Key and ambient were swept rather than guessed, measuring which palette
     # band the quantizer actually chose. Too dark and mid-tones fall below
     # limestone.3 and snap to gunmetal; too bright and they climb into olive:
+    # Flat shading:
     #   key 2.6 / amb 0.34 -> gunmetal 47%, limestone 36%
     #   key 4.0 / amb 0.45 -> limestone 73%, olive 24%
-    #   key 5.5 / amb 0.60 -> limestone 81%, olive 12%   <- chosen
-    #   key 7.0 / amb 0.75 -> limestone 46%, olive 45%
+    #   key 5.5 / amb 0.60 -> limestone 81%, olive 12%
+    # Coursed brick sits on darker base tones and needed its own sweep, warm
+    # being limestone + dust, the two ramps the project's key art actually uses:
+    #   key 5.5 / amb 0.60 -> warm 68%, gunmetal 21%
+    #   key 7.0 / amb 0.70 -> warm 75%, gunmetal 13%
+    #   key 8.5 / amb 0.80 -> warm 88%, gunmetal  6%   <- chosen
     bg.inputs[0].default_value = (0.55, 0.50, 0.42, 1.0)
-    bg.inputs[1].default_value = 0.60
+    bg.inputs[1].default_value = 0.80
     sc.world = world
 
     key = bpy.data.lights.new("Key", type="SUN")
-    key.energy = 5.5
+    key.energy = 8.5
     key_obj = bpy.data.objects.new("Key", key)
     bpy.context.collection.objects.link(key_obj)
     key_obj.rotation_euler = (math.pi / 2 - math.radians(55), 0, math.radians(135))
@@ -286,6 +409,7 @@ MOSQUE = BuildingSpec(
     # data/maps: the mosque is a 3x3 block of 'm'.
     footprint_tiles=3,
     colour_key="limestone.1",
+    brick=True,
     # Wider than the footprint: the minaret overhangs, and cropping it would
     # remove the feature that identifies the building at a glance.
     scale=3.6,
