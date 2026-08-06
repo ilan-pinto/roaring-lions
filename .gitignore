@@ -11,12 +11,24 @@ dist/
 # and tools/quantize_sprites.py keeps them passing the art gate. Revisit when
 # sources move to LFS and the rig runs in CI.
 
-# Blender sources are NOT in git: they run to hundreds of MB each and blow
-# past GitHub's 100 MB hard limit. ART_PIPELINE.md §8 still requires sources
-# to accompany contributed art -- when the pipeline goes live they belong in
-# Git LFS, decimated and licence-checked first (§7). Keep them on disk or in
-# asset storage until then.
+# Blender sources: mostly NOT in git, but the blanket rule was overstated.
+# The tank files genuinely cannot be tracked -- tiger_tank_clean is 404 MB and
+# Tiger_Tank_Rig 240 MB, past GitHub's 100 MB hard limit. But the vehicles added
+# since are 7-52 MB, and building shells are smaller still, so "hundreds of MB"
+# was never true of them.
+#
+# ART_PIPELINE.md §8 requires sources to accompany contributed art, and CLAUDE.md
+# forbids committing rendered sprites without their .blend. Nothing has satisfied
+# that yet. Building sources are small enough to satisfy it in plain git, without
+# waiting on Git LFS (#28), so art/src/buildings/ is tracked.
+#
+# Vehicle and character sources stay out for now: several are over the hard
+# limit, and mixing tracked and untracked siblings by size would be arbitrary.
+# Their provenance travels in each render script's CREDIT string and the credit
+# field of every manifest.
 art/src/*.blend
 art/src/*.blend1
+!art/src/buildings/
+!art/src/buildings/*.blend
 # Blender auto-backups: never wanted, anywhere.
 *.blend1
