@@ -32,3 +32,6 @@ art/src/*.blend1
 !art/src/buildings/*.blend
 # Blender auto-backups: never wanted, anywhere.
 *.blend1
+
+# Brainstorming companion scratch (superpowers) — never committed.
+.superpowers/
