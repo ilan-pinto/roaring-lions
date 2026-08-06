@@ -212,6 +212,18 @@ export interface WeaponStats {
   collateralRisk: Fx;
 }
 
+/** Every multiplier behind one shot's hit probability, and their product.
+ *  GDD 5.2. Pure: computing these touches no state and no RNG. */
+export interface HitFactors {
+  p: Fx;
+  accuracy: Fx;
+  rangeFalloff: Fx;
+  coverMod: Fx;
+  motionMod: Fx;
+  stanceMod: Fx;
+  suppressionMod: Fx;
+}
+
 export interface UnitType {
   id: string;
   /** Display name for the HUD; falls back to the id. */
@@ -1553,7 +1565,15 @@ export class Sim {
     }
   }
 
-  private fireAt(shooter: number, slot: number, w: WeaponStats, target: number): void {
+  /**
+   * The hit probability for one shot, and every factor behind it.
+   *
+   * Pure by construction: it reads state and returns numbers. In particular it
+   * does NOT roll — the RNG is a seeded per-entity stream (invariant 3), and
+   * advancing it from anywhere but an actual shot would desync replays. `fireAt`
+   * rolls; `projectHit` does not.
+   */
+  private hitFactors(shooter: number, w: WeaponStats, target: number): HitFactors {
     const px = this.posX[shooter];
     const py = this.posY[shooter];
     const tx = this.posX[target];
@@ -1587,6 +1607,18 @@ export class Sim {
     p = fx.mul(p, motionMod);
     p = fx.mul(p, stanceMod);
     p = fx.mul(p, suppressionMod);
+    return { p, accuracy, rangeFalloff, coverMod, motionMod, stanceMod, suppressionMod };
+  }
+
+  private fireAt(shooter: number, slot: number, w: WeaponStats, target: number): void {
+    const px = this.posX[shooter];
+    const py = this.posY[shooter];
+    const tx = this.posX[target];
+    const ty = this.posY[target];
+    const dSq = distSqFx(fx.sub(tx, px), fx.sub(ty, py));
+    const dist = fx.sqrt(dSq);
+    const { p, accuracy, rangeFalloff, coverMod, motionMod, stanceMod, suppressionMod } =
+      this.hitFactors(shooter, w, target);
 
     const roll = this.rng.nextU32(shooter) >>> 16;
     const willHit = roll < p;
