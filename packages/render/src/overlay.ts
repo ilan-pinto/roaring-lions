@@ -55,7 +55,10 @@ export class DebugOverlay {
     private readonly getSelection: () => number[],
     private readonly getMission?: () => MissionView | null,
     private readonly hoverStructure: () => number = () => -1,
-    private readonly hoverEntity: () => number = () => -1
+    private readonly hoverEntity: () => number = () => -1,
+    /** Displayed at the top of the status pane. The app owns the value; the
+     *  render package must not read the app's build-time globals. */
+    private readonly gameVersion = ''
   ) {
     this.banner = document.createElement('div');
     this.banner.style.cssText =
@@ -398,10 +401,17 @@ export class DebugOverlay {
     return `<div style="margin-top:6px"><b>projected fire</b></div>${rows.join('')}${foot}`;
   }
 
+  /** Build identity, first line of the pane so it is unmissable in a report. */
+  private versionHtml(): string {
+    if (!this.gameVersion) return '';
+    return `<div style="color:#8E9491;margin-bottom:4px">V ${this.gameVersion}</div>`;
+  }
+
   private renderSelected(): void {
     const sel = this.getSelection();
     if (sel.length === 0) {
       this.status.innerHTML =
+        this.versionHtml() +
         this.missionHtml() +
         this.hoveredStructureHtml() +
         this.suppressionHtml() +
@@ -413,6 +423,7 @@ export class DebugOverlay {
       return;
     }
     this.status.innerHTML =
+      this.versionHtml() +
       this.missionHtml() +
       this.suppressionHtml() +
       this.hoveredStructureHtml() +
