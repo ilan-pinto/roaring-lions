@@ -139,6 +139,12 @@ function showMenu(stage: HTMLElement, ledger: LedgerData): void {
   div.style.cssText =
     'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);padding:28px 40px;' + PANEL;
   const rows = [
+    // Key art above the title. Width-constrained rather than fixed, so the
+    // panel stays usable on a narrow window; the intrinsic ratio is declared
+    // so the layout does not jump once the image loads.
+    `<img src="${BASE}ui/menu_banner.jpg" alt="" width="800" height="339"` +
+      ' style="display:block;width:100%;max-width:420px;height:auto;' +
+      'border-radius:4px;margin-bottom:12px">',
     '<div style="font-size:26px;font-weight:bold;letter-spacing:2px">ROARING LIONS</div>',
     `<div style="color:#8E9491">Beit Sahwan — M1</div>`,
     `<div style="color:#8E9491;margin-bottom:14px">V ${__GAME_VERSION__}</div>`,
