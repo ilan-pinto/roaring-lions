@@ -13,6 +13,7 @@
     "lint": "eslint .",
     "validate:data": "node tools/validate_data.mjs",
     "validate:assets": "python3 tools/validate_assets.py",
+    "validate:ui": "node tools/validate_ui_palette.mjs",
     "validate:audio": "python3 tools/validate_audio.py",
     "balance": "pnpm --filter @lions/tools balance",
     "gen:luts": "node tools/gen_luts.mjs"

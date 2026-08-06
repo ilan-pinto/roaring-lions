@@ -142,7 +142,7 @@ export class DebugOverlay {
           t + `${this.name(e.target)} APS vs ${this.name(e.shooter)}: P=${pct(e.pIntercept)} roll=${pct(e.roll)} ${
             e.intercepted ? '<b>INTERCEPT</b>' : 'LEAKER'
           }`,
-          'var(--rl-vfx-interceptor)'
+          'var(--intercept)'
         );
         break;
       case 'contact':

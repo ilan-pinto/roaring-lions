@@ -51,7 +51,7 @@ export class ProductionBar {
     this.panel = panel({
       rank: 'inspect',
       title: 'Field production',
-      place: 'left:var(--s2);bottom:var(--s2);width:min(430px,46vw)',
+      place: 'left:var(--s2);bottom:var(--s2);width:var(--rail-left)',
     });
 
     const label = (text: string): HTMLElement => {

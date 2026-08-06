@@ -49,6 +49,7 @@ pnpm test:determinism # replay 1000 ticks from seed, assert state hash
 pnpm lint
 pnpm validate:data    # JSON Schema check on all content
 pnpm validate:assets  # palette + silhouette gate
+pnpm validate:ui      # no colour literals in UI source
 pnpm balance          # headless battle sim, prints win rates
 ```
 
@@ -73,6 +74,14 @@ pnpm balance          # headless battle sim, prints win rates
 **A mission:** JSON in `data/missions/`, validated against `mission.schema.json`. Must declare its ledger contract — `requires` and `produces`. Target 12–20 minutes of play.
 
 **A VFX emitter:** JSON in `data/vfx/`, validated against `vfx_emitter.schema.json`. Palette keys only, never raw hex.
+
+**UI:** colour comes from `data/palette.json` like everything else. A Vite
+plugin publishes it as `--rl-*` custom properties; `packages/app/src/ui/theme.css`
+is the only file allowed to name one, mapping them to semantic tokens (`--ink`,
+`--bad`, `--band-mission`). Everything else uses the semantic names or the
+`.rl-good`/`.rl-bad` classes. `pnpm validate:ui` rejects a hex or `rgba()`
+literal anywhere in UI source, with no allowlist — use `color-mix()` for
+translucency. Fonts are self-hosted in `assets/fonts/`; never a CDN.
 
 **A map:** JSON in `data/maps/`, validated against `map.schema.json`. A character grid (`.` open, `1`–`3` cover, `#` building) plus named markers and zones — authorable in a text editor. The loader is `parseMap` in `@lions/data`.
 

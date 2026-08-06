@@ -85,7 +85,7 @@ export class Hud {
     this.card = panel({
       rank: 'inspect',
       title: 'Selection',
-      place: 'right:var(--s2);bottom:var(--s2);width:340px;max-height:46vh',
+      place: 'right:var(--s2);bottom:var(--s2);width:var(--rail-right);max-height:46vh',
     });
     this.card.hide();
 
@@ -104,8 +104,8 @@ export class Hud {
   }
 
   /** Mission start punctuation. */
-  announce(name: string, subtitle: string): void {
-    titleCard(this.host, name, subtitle);
+  announce(name: string, subtitle: string, holdMs?: number): void {
+    titleCard(this.host, name, subtitle, holdMs);
   }
 
   onTick(): void {

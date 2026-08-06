@@ -42,6 +42,8 @@
   --panel-frame: var(--rl-gunmetal-3);
   --panel-rule: color-mix(in srgb, var(--rl-gunmetal-3) 70%, transparent);
   --well: var(--rl-shadow-1);
+  /* For type that sits directly on the battlefield with no panel behind it. */
+  --scrim: var(--rl-shadow-2);
 
   /* Band colour is the panel's rank. Olive is the briefing — the panel you
      read for twelve minutes. Gunmetal is machinery you inspect. Dust is
@@ -67,6 +69,7 @@
   --info: var(--rl-water-0);
   --live: var(--rl-vfx-tracer);
   --hot: var(--rl-vfx-fire);
+  --intercept: var(--rl-vfx-interceptor);
   --friendly: var(--rl-team-kedem);
   --accent: var(--rl-dust-0);
 
@@ -84,6 +87,14 @@
   --s4: 16px;
   --s5: 24px;
   --s6: 32px;
+
+  /* The bottom edge is shared by three things: production on the left, the
+     unit card on the right, and the notice stack in whatever is left. Naming
+     the two rails means the stack can be told where the gap is instead of
+     being centred and hoping — and it gives #46 one place to change when the
+     rails become drawers on a small screen. */
+  --rail-left: min(430px, 46vw);
+  --rail-right: min(340px, 38vw);
 
   /* --- type ----------------------------------------------------------- */
   --font-display: 'Big Shoulders Display', 'Oswald', 'Haettenschweiler', sans-serif;
@@ -161,6 +172,9 @@
   font-weight: 600;
   letter-spacing: var(--track-label);
   color: var(--band-ink-dim);
+  /* The stamp is short by definition. Letting it wrap turns "V 0.1" into two
+     lines the moment a long mission name pushes on it. */
+  white-space: nowrap;
 }
 
 .rl-panel__body {
@@ -376,9 +390,8 @@
 .rl-notices {
   position: absolute;
   bottom: var(--s2);
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(560px, 60vw);
+  left: calc(var(--rail-left) + var(--s4));
+  right: calc(var(--rail-right) + var(--s4));
   display: flex;
   flex-direction: column-reverse;
   gap: var(--s1);
@@ -422,10 +435,16 @@
   top: 42%;
   left: 50%;
   transform: translate(-50%, -50%);
+  /* "Beit Sahwan III — Clearance" is wider than a phone at hero size. Bound it
+     and let it wrap rather than run off both edges of the screen. */
+  width: min(90vw, 900px);
   text-align: center;
   pointer-events: none;
   transition: opacity var(--dur-slow) var(--ease);
 }
+/* The title card has no panel behind it — it sits on whatever ground the
+   camera happens to be over, and sun-bleached limestone is close enough to
+   limestone ink to swallow it. The scrim is what keeps it readable there. */
 .rl-titlecard__title {
   font-family: var(--font-display);
   font-size: var(--t-hero);
@@ -434,6 +453,7 @@
   text-transform: uppercase;
   line-height: 1;
   color: var(--ink);
+  text-shadow: 0 2px 18px var(--scrim), 0 1px 3px var(--scrim);
 }
 .rl-titlecard__sub {
   font-family: var(--font-mono);
@@ -442,6 +462,7 @@
   color: var(--accent);
   margin-top: var(--s2);
   text-transform: uppercase;
+  text-shadow: 0 1px 12px var(--scrim), 0 1px 2px var(--scrim);
 }
 
 .rl-topbar {
@@ -597,14 +618,20 @@
 /* Motion — short, interruptible, and only where it carries meaning        */
 /* ====================================================================== */
 
+/* Motion uses the independent `translate` and `scale` properties, never
+ * `transform`. Several things that animate are also centred with
+ * `transform: translate(-50%, -50%)`, and an animation on `transform` with
+ * `both` fill replaces that value outright — the title card and the end screen
+ * both hung off to the right of centre until this changed. `translate` and
+ * `scale` compose with `transform` instead of overwriting it. */
 @keyframes rl-enter {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    translate: 0 6px;
   }
   to {
     opacity: 1;
-    transform: none;
+    translate: 0 0;
   }
 }
 
@@ -645,7 +672,7 @@
   }
   40% {
     color: var(--bad);
-    transform: scale(1.12);
+    scale: 1.12;
   }
 }
 .rl-flash-bad {
@@ -672,11 +699,11 @@
 @keyframes rl-banner {
   from {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(0.96);
+    scale: 0.96;
   }
   to {
     opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
+    scale: 1;
   }
 }
 .rl-banner-in {
