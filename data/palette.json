@@ -5,31 +5,71 @@
   "ramps": {
     "limestone": {
       "role": "primary terrain, masonry, concrete, sun-bleached surfaces",
-      "colors": ["#F2E8D5", "#D9C7A7", "#B8A182", "#8C7659", "#5E4E3A"]
+      "colors": [
+        "#F2E8D5",
+        "#E6D8BE",
+        "#D9C7A7",
+        "#C8B494",
+        "#B8A182",
+        "#A28C6E",
+        "#8C7659",
+        "#75624A",
+        "#5E4E3A"
+      ],
+      "note": "Interpolated to twice the original resolution. Nine warm steps across limestone+dust could not carry lit stone: quantizing a building render banded it and pushed mid-tones into gunmetal and olive. Every original entry is retained, so sprites quantized against the narrower ramp are still on-palette. Endpoints and hues are unchanged -- this is more resolution, not a new art direction."
     },
     "dust": {
       "role": "sand, dirt roads, rubble, particulate",
-      "colors": ["#E0B87A", "#C29455", "#96703C", "#6B4F29"]
+      "colors": [
+        "#E0B87A",
+        "#D1A668",
+        "#C29455",
+        "#AC8248",
+        "#96703C",
+        "#806032",
+        "#6B4F29"
+      ],
+      "note": "Interpolated to twice the original resolution. Nine warm steps across limestone+dust could not carry lit stone: quantizing a building render banded it and pushed mid-tones into gunmetal and olive. Every original entry is retained, so sprites quantized against the narrower ramp are still on-palette. Endpoints and hues are unchanged -- this is more resolution, not a new art direction."
     },
     "olive": {
       "role": "KDF vehicle hulls, uniforms, tarps",
-      "colors": ["#8F9464", "#6E7449", "#4E5433", "#333821"]
+      "colors": [
+        "#8F9464",
+        "#6E7449",
+        "#4E5433",
+        "#333821"
+      ]
     },
     "gunmetal": {
       "role": "weapons, tracks, antennae, industrial",
-      "colors": ["#C3C7C4", "#8E9491", "#5C625F", "#363B39"]
+      "colors": [
+        "#C3C7C4",
+        "#8E9491",
+        "#5C625F",
+        "#363B39"
+      ]
     },
     "shadow": {
       "role": "cast shadow, occlusion, interiors, night base",
-      "colors": ["#23241F", "#14150F", "#0A0A08"]
+      "colors": [
+        "#23241F",
+        "#14150F",
+        "#0A0A08"
+      ]
     },
     "scrub": {
       "role": "sparse vegetation, olive trees, palms",
-      "colors": ["#6B8A4A", "#3E5C2E"]
+      "colors": [
+        "#6B8A4A",
+        "#3E5C2E"
+      ]
     },
     "water": {
       "role": "sky gradient, sea, cisterns",
-      "colors": ["#A9C4D1", "#4E7186"]
+      "colors": [
+        "#A9C4D1",
+        "#4E7186"
+      ]
     }
   },
   "reserved": {

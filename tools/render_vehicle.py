@@ -65,6 +65,17 @@ class VehicleSpec:
     # stripping it changes 12 of its 48 frames. Turn it on per vehicle only
     # after checking a test render actually needs it.
     strip_source_lights: bool = False
+    # Poses to include when measuring the model, for a sheet whose clip moves
+    # parts of the model. Each is a zero-argument callable that looks its
+    # objects up in bpy.data and poses them; bounds are the union over all of
+    # them. Empty means measure the rest pose only, which is right for every
+    # sheet whose frames are all the same shape. A drone's props sweep outside
+    # their rest silhouette when they yaw, and framing to the rest pose alone
+    # crops the blade tips on some frames.
+    bounds_poses: tuple = ()
+    # Vertical travel the clip will give the pivot, included in the measurement
+    # so a bobbing model cannot walk out of its own frame.
+    bounds_z_pad: float = 0.0
     # How the wreck is posed: weapon station knocked askew, hull settled.
     wreck_turret_yaw_deg: float = 34.0
     wreck_turret_pitch_deg: float = 11.0
@@ -166,14 +177,19 @@ def setup(spec):
     fill_obj.rotation_euler = (math.radians(35), 0, math.radians(135) + math.pi)
 
     # Bounds from the vehicle only, so a backdrop cannot inflate the frame.
+    # Measured over every pose the clip will show, so a moving part cannot
+    # sweep outside a frame that was fitted to the rest pose.
     pts = []
-    dg = bpy.context.evaluated_depsgraph_get()
-    for o in meshes:
-        eo = o.evaluated_get(dg)
-        m = eo.to_mesh()
-        for v in m.vertices:
-            pts.append(eo.matrix_world @ v.co)
-        eo.to_mesh_clear()
+    for pose in spec.bounds_poses or (lambda: None,):
+        pose()
+        bpy.context.view_layer.update()
+        dg = bpy.context.evaluated_depsgraph_get()
+        for o in meshes:
+            eo = o.evaluated_get(dg)
+            m = eo.to_mesh()
+            for v in m.vertices:
+                pts.append(eo.matrix_world @ v.co)
+            eo.to_mesh_clear()
     xs = sorted(p.x for p in pts)
     ys = sorted(p.y for p in pts)
     zs = sorted(p.z for p in pts)
@@ -182,7 +198,9 @@ def setup(spec):
     dists = sorted((p - center).length for p in pts)
     # Hull and turret share this radius and one camera. Widening one alone
     # would shrink it relative to the other and break registration.
-    radius = max(dists[-1], 0.001)
+    # The pad is added rather than max'd: a vertex already at the far edge is
+    # also the one the vertical travel pushes furthest out.
+    radius = max(dists[-1] + spec.bounds_z_pad, 0.001)
     print(f"Bounds: center={center}, radius={radius:.2f} ({len(pts)} verts)")
 
     pivot = bpy.data.objects.new("PIVOT", None)
@@ -227,8 +245,17 @@ def setup(spec):
     return pivot, hull, turret, olive
 
 
-def render_clip(pivot, show, hide, out_dir, clip, files):
-    """Render one clip's 16 facings into out_dir, appending to `files`."""
+def render_clip(pivot, show, hide, out_dir, clip, files, frames=1, pose=None):
+    """Render one clip's 16 facings into out_dir, appending to `files`.
+
+    `frames` and `pose` make a clip animated. `pose(pivot, k)` is called before
+    each frame and must set absolute state, not apply a delta -- it is called
+    once per facing per frame, so deltas would accumulate 64 times over a sheet.
+
+    Both default to the single-frame behaviour every vehicle sheet in the
+    repository was rendered with: one file per facing, named `_000.png`, frame
+    index 0. A caller that passes neither gets byte-identical output.
+    """
     os.makedirs(out_dir, exist_ok=True)
     for o in show:
         o.hide_render = False
@@ -239,12 +266,17 @@ def render_clip(pivot, show, hide, out_dir, clip, files):
     sc = bpy.context.scene
     for f in range(FACINGS):
         pivot.rotation_euler.z = base_z + f * step
-        name = f"{clip}_f{f:02d}_000.png"
-        sc.render.filepath = os.path.join(out_dir, name)
-        bpy.ops.render.render(write_still=True)
-        files.append({"clip": clip, "facing": f, "frame": 0, "file": name})
+        for k in range(frames):
+            if pose:
+                pose(pivot, k)
+            name = f"{clip}_f{f:02d}_{k:03d}.png"
+            sc.render.filepath = os.path.join(out_dir, name)
+            bpy.ops.render.render(write_still=True)
+            files.append({"clip": clip, "facing": f, "frame": k, "file": name})
         print(f"  {clip} {f + 1}/{FACINGS}")
     pivot.rotation_euler.z = base_z
+    if pose:
+        pose(pivot, 0)
 
 
 def write_manifest(spec, out_dir, unit, clips, files, layer=None):

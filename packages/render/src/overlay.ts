@@ -2,32 +2,25 @@
 // the model makes is shown with its full factor breakdown: detection
 // probabilities, hit chances, penetration curves, facing, component results,
 // suppression. DOM rather than canvas: crisp text, free scrolling.
+//
+// This is a developer's instrument and nothing else. The mission briefing,
+// objectives, ROE, unit card and player narration that used to share this file
+// are now the player's HUD, in @lions/app — see packages/app/src/ui/hud.ts.
+// What is left is the roll feed and the detection table: the two views you
+// read while tuning the combat model, and neither of which belongs on screen
+// during play. Toggled with `o`.
+//
+// Colours come from the --rl-* / semantic custom properties published by the
+// app's palette plugin. Naming a variable costs no import, so the one-way
+// dependency rule (app → render → sim) is untouched.
 
 import { fx, type Sim, type SimEvent } from '@lions/sim';
 
-export interface MissionView {
-  name: string;
-  objectives: {
-    id: string;
-    text: string;
-    primary: boolean;
-    status: string;
-    ticksLeft?: number;
-    paused?: 'contested' | 'unheld';
-  }[];
-  result: 'ongoing' | 'victory' | 'defeat';
-  /** One-line campaign summary (roster size, cumulative ROE). */
-  campaign?: string;
-  /** Live mission ROE score 0-100 — always visible (GDD §6). */
-  roe?: number;
-  /** Resource line, e.g. "logistics 560 · intel 40". */
-  resources?: string;
-}
-
 const PANEL_CSS =
   'position:absolute;top:8px;max-height:calc(100vh - 16px);overflow-y:auto;' +
-  'background:rgba(20,21,15,0.88);color:#F2E8D5;font:11px ui-monospace,Menlo,monospace;' +
-  'padding:8px 10px;border:1px solid #5C625F;border-radius:4px;line-height:1.5;';
+  'background:var(--panel-bg);color:var(--ink);' +
+  'font:11px var(--font-mono);padding:8px 10px;border:1px solid var(--panel-frame);' +
+  'line-height:1.5;';
 
 function pct(v: number): string {
   return (fx.toNumber(v) * 100).toFixed(0) + '%';
@@ -42,47 +35,29 @@ export class DebugOverlay {
   private readonly right: HTMLDivElement;
   private readonly feed: HTMLDivElement;
   private readonly status: HTMLDivElement;
-  private readonly card: HTMLDivElement;
-  private visible = true;
+  /** Off by default: the instrument should be opened deliberately, not be the
+   *  thing a player sees first. `o` toggles it. */
+  private visible = false;
   private feedCount = 0;
-
-  private readonly banner: HTMLDivElement;
-  private bannerShown = false;
+  private tickN = 0;
 
   constructor(
     host: HTMLElement,
     private readonly sim: Sim,
     private readonly getSelection: () => number[],
-    private readonly getMission?: () => MissionView | null,
-    private readonly hoverStructure: () => number = () => -1,
-    private readonly hoverEntity: () => number = () => -1,
     /** Displayed at the top of the status pane. The app owns the value; the
      *  render package must not read the app's build-time globals. */
     private readonly gameVersion = ''
   ) {
-    this.banner = document.createElement('div');
-    this.banner.style.cssText =
-      'position:absolute;top:38%;left:50%;transform:translate(-50%,-50%);display:none;' +
-      'font:bold 34px ui-monospace,Menlo,monospace;color:#F2E8D5;background:rgba(20,21,15,0.92);' +
-      'padding:18px 42px;border:2px solid #5C625F;border-radius:6px;letter-spacing:2px;';
-    host.appendChild(this.banner);
     this.left = document.createElement('div');
-    this.left.style.cssText = PANEL_CSS + 'left:8px;width:300px;';
+    this.left.style.cssText = PANEL_CSS + 'left:8px;width:300px;display:none;';
     this.right = document.createElement('div');
-    this.right.style.cssText = PANEL_CSS + 'right:8px;width:380px;max-height:52vh;';
+    this.right.style.cssText = PANEL_CSS + 'right:8px;width:380px;max-height:52vh;display:none;';
     this.status = document.createElement('div');
-    // The unit card lives in its own frame, bottom right, so it does not
-    // push the mission briefing around every time the selection changes.
-    this.card = document.createElement('div');
-    this.card.style.cssText =
-      'position:absolute;right:8px;bottom:8px;width:360px;max-height:42vh;overflow-y:auto;display:none;' +
-      'background:rgba(20,21,15,0.92);color:#F2E8D5;font:11px ui-monospace,Menlo,monospace;' +
-      'padding:8px 10px;border:1px solid #5C625F;border-radius:4px;line-height:1.5;';
-    host.appendChild(this.card);
     this.feed = document.createElement('div');
     const feedTitle = document.createElement('div');
     feedTitle.textContent = '── roll feed (newest first) ──';
-    feedTitle.style.cssText = 'color:#8E9491;margin-bottom:4px;';
+    feedTitle.style.cssText = 'color:var(--ink-dim);margin-bottom:4px;';
     this.right.appendChild(feedTitle);
     this.right.appendChild(this.feed);
     this.left.appendChild(this.status);
@@ -94,13 +69,9 @@ export class DebugOverlay {
     this.visible = !this.visible;
     this.left.style.display = this.visible ? 'block' : 'none';
     this.right.style.display = this.visible ? 'block' : 'none';
-    if (!this.visible) this.card.style.display = 'none';
   }
 
-  private tickN = 0;
-
   onTick(events: SimEvent[]): void {
-    this.updateBanner();
     if (!this.visible) return;
     for (const e of events) this.pushEvent(e);
     // The status panel is a full innerHTML rebuild — at 20 Hz it stalls the
@@ -108,21 +79,7 @@ export class DebugOverlay {
     if (this.tickN++ % 5 === 0) this.renderSelected();
   }
 
-  /** Mission-level narration (objectives, triggers, waves) into the feed. */
-  note(html: string, color = '#B8FF5A'): void {
-    this.line(html, color);
-  }
-
-  private updateBanner(): void {
-    const m = this.getMission?.();
-    if (!m || m.result === 'ongoing' || this.bannerShown) return;
-    this.bannerShown = true;
-    this.banner.textContent = m.result === 'victory' ? 'MISSION ACCOMPLISHED' : 'MISSION FAILED';
-    this.banner.style.borderColor = m.result === 'victory' ? '#6B8A4A' : '#D93A2B';
-    this.banner.style.display = 'block';
-  }
-
-  private line(html: string, color = '#F2E8D5'): void {
+  private line(html: string, color = 'var(--ink)'): void {
     const div = document.createElement('div');
     div.innerHTML = html;
     div.style.color = color;
@@ -150,7 +107,7 @@ export class DebugOverlay {
   }
 
   private pushEvent(e: SimEvent): void {
-    const t = `<span style="color:#8E9491">t${e.tick}</span> `;
+    const t = `<span style="color:var(--ink-dim)">t${e.tick}</span> `;
     switch (e.kind) {
       case 'fire': {
         const b = e.breakdown;
@@ -160,10 +117,10 @@ export class DebugOverlay {
               e.target < 0 && e.structure !== undefined ? this.structName(e.structure) : this.name(e.target)
             } <b>${e.weaponId}</b> ` +
             `P(hit)=${pct(e.pHit)} roll=${pct(e.roll)} ${e.willHit ? '<b>HIT</b>' : 'miss'}<br>` +
-            `&nbsp;&nbsp;<span style="color:#8E9491">acc ${pct(b.accuracy)} · rng ${pct(b.rangeFalloff)} · cov ${pct(
+            `&nbsp;&nbsp;<span style="color:var(--ink-dim)">acc ${pct(b.accuracy)} · rng ${pct(b.rangeFalloff)} · cov ${pct(
               b.coverMod
             )} · mot ${pct(b.motionMod)} · stance ${pct(b.stanceMod)} · supp ${pct(b.suppressionMod)}</span>`,
-          e.willHit ? '#F2E8D5' : '#B8A182'
+          e.willHit ? 'var(--ink)' : 'var(--ink-mute)'
         );
         break;
       }
@@ -174,364 +131,100 @@ export class DebugOverlay {
               e.penetration,
               0
             )}mm P(pen)=${pct(e.pPen)} roll=${pct(e.roll)} ${e.penetrated ? '<b>PENETRATION</b>' : 'no pen'}`,
-          e.penetrated ? '#FFB43C' : '#A9C4D1'
+          e.penetrated ? 'var(--hot)' : 'var(--info)'
         );
         break;
       case 'component':
-        this.line(t + `${this.name(e.target)} <b>${e.result.toUpperCase()}</b> (overmatch z=${fmt(e.overmatch, 2)})`, '#E8541E');
+        this.line(t + `${this.name(e.target)} <b>${e.result.toUpperCase()}</b> (overmatch z=${fmt(e.overmatch, 2)})`, 'var(--hot)');
         break;
       case 'aps':
         this.line(
           t + `${this.name(e.target)} APS vs ${this.name(e.shooter)}: P=${pct(e.pIntercept)} roll=${pct(e.roll)} ${
             e.intercepted ? '<b>INTERCEPT</b>' : 'LEAKER'
           }`,
-          '#6FE0FF'
+          'var(--rl-vfx-interceptor)'
         );
         break;
       case 'contact':
-        this.line(t + `side${e.side} ${e.level.toUpperCase()} ${this.name(e.target)} (conf ${pct(e.confidence)})`, '#B8FF5A');
+        this.line(t + `side${e.side} ${e.level.toUpperCase()} ${this.name(e.target)} (conf ${pct(e.confidence)})`, 'var(--live)');
         break;
       case 'pinned':
-        this.line(t + `${this.name(e.entity)} <b>PINNED</b> — gone to ground`, '#FFB43C');
+        this.line(t + `${this.name(e.entity)} <b>PINNED</b> — gone to ground`, 'var(--hot)');
         break;
       case 'routed':
-        this.line(t + `${this.name(e.entity)} <b>BROKEN</b> — fleeing the kill zone`, '#D93A2B');
+        this.line(t + `${this.name(e.entity)} <b>BROKEN</b> — fleeing the kill zone`, 'var(--bad)');
         break;
       case 'rallied':
-        this.line(t + `${this.name(e.entity)} rallied — awaiting orders`, '#8F9464');
+        this.line(t + `${this.name(e.entity)} rallied — awaiting orders`, 'var(--good)');
         break;
       case 'unpinned':
-        this.line(t + `${this.name(e.entity)} back up`, '#8F9464');
+        this.line(t + `${this.name(e.entity)} back up`, 'var(--good)');
         break;
       case 'destroyed':
-        this.line(t + `${this.name(e.entity)} <b>DESTROYED</b>${e.by >= 0 ? ' by ' + this.name(e.by) : ''}`, '#D93A2B');
+        this.line(t + `${this.name(e.entity)} <b>DESTROYED</b>${e.by >= 0 ? ' by ' + this.name(e.by) : ''}`, 'var(--bad)');
         break;
       case 'structureHit':
         this.line(
           t + `${this.structName(e.structure)} takes ${fmt(e.damage, 0)} — ${fmt(e.hpLeft, 0)} left`,
-          '#B8A182'
+          'var(--ink-mute)'
         );
         break;
       case 'strike':
-        this.line(t + `<b>PRECISION STRIKE</b> called by ${this.name(e.by)}`, '#E8541E');
+        this.line(t + `<b>PRECISION STRIKE</b> called by ${this.name(e.by)}`, 'var(--hot)');
         break;
       case 'smokeLaid':
-        this.line(t + `${this.name(e.by)} lays a <b>smoke screen</b>`, '#C9CBC4');
+        this.line(t + `${this.name(e.by)} lays a <b>smoke screen</b>`, 'var(--ink-mute)');
         break;
       case 'revealed':
-        if (e.count > 0) this.line(t + `satellite sweep: ${e.count} contact(s) identified`, '#A9C4D1');
+        if (e.count > 0) this.line(t + `satellite sweep: ${e.count} contact(s) identified`, 'var(--info)');
         break;
       case 'structureDestroyed':
-        this.line(t + `${this.structName(e.structure)} <b>COLLAPSES</b>`, '#E8541E');
+        this.line(t + `${this.structName(e.structure)} <b>COLLAPSES</b>`, 'var(--hot)');
         break;
       case 'garrison':
         this.line(
           t + `${this.name(e.entity)} ${e.entered ? 'moves into' : 'leaves'} ${this.structName(e.structure)}`,
-          '#A9C4D1'
+          'var(--info)'
         );
         break;
       case 'nearMiss':
         break; // too chatty for the feed; rendered as puffs instead
       case 'spawn':
-        this.line(t + `spawn ${this.name(e.entity)} side${e.side}`, '#8E9491');
+        this.line(t + `spawn ${this.name(e.entity)} side${e.side}`, 'var(--ink-dim)');
         break;
     }
-  }
-
-  private missionHtml(): string {
-    const m = this.getMission?.();
-    if (!m) return '';
-    const rows = [`<b>${m.name}</b>`];
-    if (m.roe !== undefined) {
-      const color = m.roe >= 80 ? '#6B8A4A' : m.roe >= 50 ? '#E8C33A' : '#D93A2B';
-      rows.push(`<span style="color:${color}"><b>ROE ${m.roe}</b></span>`);
-    }
-    if (m.resources) rows.push(`<span style="color:#A9C4D1">${m.resources}</span>`);
-    if (m.campaign) rows.push(`<span style="color:#8E9491">${m.campaign}</span>`);
-    for (const o of m.objectives) {
-      const glyph = o.status === 'complete' ? '☑' : o.status === 'failed' ? '☒' : '☐';
-      const color = o.status === 'complete' ? '#6B8A4A' : o.status === 'failed' ? '#D93A2B' : '#F2E8D5';
-      let clock = '';
-      if (o.ticksLeft !== undefined) {
-        const secs = Math.ceil(o.ticksLeft / 20);
-        const mm = Math.floor(secs / 60);
-        const ss = secs % 60;
-        // Runs amber under a minute: the last stretch of a hold is the part
-        // worth watching.
-        const urgent = secs <= 60 ? '#E8C33A' : '#A9C4D1';
-        clock = ` <b style="color:${urgent}">${mm}:${ss.toString().padStart(2, '0')}</b>`;
-        if (o.paused === 'contested') clock += ' <span style="color:#D93A2B">CONTESTED</span>';
-        else if (o.paused === 'unheld') clock += ' <span style="color:#E8C33A">NOBODY HOLDING</span>';
-      }
-      rows.push(
-        `<span style="color:${color}">${glyph} ${o.text}${clock}${o.primary ? '' : ' <span style="color:#8E9491">(secondary)</span>'}</span>`
-      );
-    }
-    return rows.join('<br>') + '<br><br>';
-  }
-
-  /** Force-wide suppression warning — visible even when the units are not. */
-  private suppressionHtml(): string {
-    const st = this.sim.state;
-    let pinnedN = 0;
-    let brokenN = 0;
-    for (let i = 0; i < this.sim.entityCount; i++) {
-      if (st.alive[i] === 0 || st.side[i] !== 0) continue;
-      if (st.routed[i] === 1) brokenN++;
-      else if (st.pinned[i] === 1) pinnedN++;
-    }
-    if (pinnedN === 0 && brokenN === 0) return '';
-    const parts: string[] = [];
-    if (pinnedN > 0) parts.push(`<span style="color:#FFB43C"><b>▼ ${pinnedN} pinned</b></span>`);
-    if (brokenN > 0) parts.push(`<span style="color:#D93A2B"><b>⚑ ${brokenN} broken</b></span>`);
-    return parts.join(' · ') + '<br>';
-  }
-
-  /** Building under the cursor, reported the way a unit is when selected. */
-  private hoveredStructureHtml(): string {
-    const s = this.hoverStructure();
-    if (s < 0) return '';
-    const str = this.sim.structures;
-    if (str.alive[s] === 0) return '';
-    const type = this.sim.structureTypes[str.typeIdx[s]];
-    const integrity = str.maxHp[s] > 0 ? str.hp[s] / str.maxHp[s] : 1;
-    const st = this.sim.state;
-    // Count only what side 0 can actually see: friendlies always, hostiles
-    // once identified. A building does not report its garrison to the enemy.
-    let known = 0;
-    let hostile = false;
-    for (let i = 0; i < this.sim.entityCount; i++) {
-      if (st.alive[i] === 0 || st.garrisonedIn[i] !== s) continue;
-      if (st.side[i] === 0) known++;
-      else if (this.sim.contactLevel(0, i) === 2) {
-        known++;
-        hostile = true;
-      }
-    }
-    const rows = [
-      `<b>${type.name}</b>`,
-      `integrity ${(integrity * 100).toFixed(0)}%`,
-      known > 0
-        ? `<span style="color:${hostile ? '#D93A2B' : '#B8FF5A'}">held: ${known}/${type.garrisonSlots} inside</span>`
-        : type.garrisonSlots > 0
-          ? `<span style="color:#8E9491">empty · ${type.garrisonSlots} garrison slots</span>`
-          : '<span style="color:#8E9491">not garrisonable</span>',
-    ];
-    if (type.roePenalty > 0) {
-      rows.push(
-        `<span style="color:#E8C33A">⚠ levelling this costs ROE ${type.roePenalty}</span>`
-      );
-    }
-    return rows.join('<br>') + '<br><br>';
-  }
-
-  /**
-   * Projected P(hit) for each selected unit against the hovered enemy.
-   *
-   * GDD 5.8: the player should know what a shot costs before taking it. Rows
-   * are capped because selecting the whole force must not bury the map, and
-   * units that cannot engage are counted rather than listed — "3 cannot reach"
-   * is information, three empty rows are not.
-   */
-  private hoveredTargetHtml(): string {
-    const t = this.hoverEntity();
-    if (t < 0 || this.sim.state.alive[t] === 0) return '';
-    const sel = this.getSelection().filter((i) => this.sim.state.alive[i] === 1);
-    if (sel.length === 0) return '';
-
-    const MAX_ROWS = 6;
-    const rows: string[] = [];
-    let cannot = 0;
-    let unidentified = 0;
-    let holdingFire = 0;
-    for (const s of sel) {
-      const p = this.sim.projectHit(s, t);
-      if (p.kind === 'unidentified') {
-        unidentified++;
-        continue;
-      }
-      if (p.kind === 'noSolution') {
-        cannot++;
-        continue;
-      }
-      if (p.kind === 'holdingFire') {
-        holdingFire++;
-        continue;
-      }
-      if (rows.length >= MAX_ROWS) continue;
-      const name = this.sim.unitTypes[this.sim.state.typeIdx[s]].name;
-      const pct = Math.round(fx.toNumber(p.pHit) * 100);
-      // Name only the factors actually degrading the shot, worst first.
-      // accuracy is the weapon's baseline, not a penalty the player can act on.
-      const penalties: [string, number][] = [
-        ['range', fx.toNumber(p.factors.rangeFalloff)],
-        ['cover', fx.toNumber(p.factors.coverMod)],
-        ['target moving', fx.toNumber(p.factors.motionMod)],
-        ['firing on the move', fx.toNumber(p.factors.stanceMod)],
-        ['suppressed', fx.toNumber(p.factors.suppressionMod)],
-      ];
-      const worst = penalties
-        .filter(([, v]) => v < 0.995)
-        .sort((a, b) => a[1] - b[1])
-        .slice(0, 2)
-        .map(([label, v]) => `${label} ${Math.round(v * 100)}%`);
-      const why = worst.length > 0 ? ` · ${worst.join(' · ')}` : '';
-      const bounce = p.hurts ? '' : ' · <span style="color:#D93A2B">cannot penetrate</span>';
-      rows.push(`<div>${name} <b>${pct}%</b> <span style="color:#8E9491">${p.weaponId}${why}</span>${bounce}</div>`);
-    }
-
-    if (rows.length === 0 && unidentified > 0 && cannot === 0 && holdingFire === 0) {
-      return '<div style="color:#8E9491">contact not identified — no firing solution</div>';
-    }
-    // Pinned or lying in ambush is a different fact from "cannot reach" —
-    // the shot exists, the unit is choosing (or forced) not to take it.
-    if (rows.length === 0 && holdingFire > 0 && cannot === 0 && unidentified === 0) {
-      return '<div style="color:#8E9491">pinned — holding fire</div>';
-    }
-    if (rows.length === 0) return '<div style="color:#8E9491">no unit can engage</div>';
-
-    const shown = rows.length;
-    const extra = sel.length - shown - cannot - unidentified - holdingFire;
-    const tail: string[] = [];
-    if (extra > 0) tail.push(`and ${extra} more`);
-    if (cannot > 0) tail.push(`${cannot} cannot reach`);
-    if (holdingFire > 0) tail.push(`${holdingFire} holding fire`);
-    if (unidentified > 0) tail.push(`${unidentified} unidentified`);
-    const foot = tail.length > 0 ? `<div style="color:#8E9491">${tail.join(' · ')}</div>` : '';
-    return `<div style="margin-top:6px"><b>projected fire</b></div>${rows.join('')}${foot}`;
   }
 
   /** Build identity, first line of the pane so it is unmissable in a report. */
   private versionHtml(): string {
     if (!this.gameVersion) return '';
-    return `<div style="color:#8E9491;margin-bottom:4px">V ${this.gameVersion}</div>`;
+    return `<div style="color:var(--ink-dim);margin-bottom:4px">V ${this.gameVersion}</div>`;
   }
 
+  /**
+   * Detection maths for the selected unit against every hostile it could
+   * conceivably see: per-tick probability, signature, occlusion, and the
+   * confidence its side currently holds. This is the view that tuning §5.1
+   * is done against, which is why it survived the split into the player HUD —
+   * a player never needs it, and a developer needs nothing else.
+   */
   private renderSelected(): void {
     const sel = this.getSelection();
     if (sel.length === 0) {
       this.status.innerHTML =
         this.versionHtml() +
-        this.missionHtml() +
-        this.hoveredStructureHtml() +
-        this.suppressionHtml() +
-        '<b>controls</b><br>click/drag: select · right-click: attack-move<br>' +
-        'h: halt · f: smoke · ctrl+a: select all KDF · m: mute · o: overlay<br>' +
-        'wasd/arrows: pan · wheel: zoom<br>' +
-        'ctrl+1–9: assign group · 1–9: recall (double-tap to centre)<br><br>' +
-        '<span style="color:#8E9491">select a unit to inspect its detection maths</span>';
+        '<span style="color:var(--ink-dim)">select a unit to inspect its detection maths</span>';
       return;
     }
-    this.status.innerHTML =
-      this.versionHtml() +
-      this.missionHtml() +
-      this.suppressionHtml() +
-      this.hoveredStructureHtml() +
-      this.hoveredTargetHtml() +
-      `<span style="color:#8E9491">${sel.length} selected · unit details bottom right</span>`;
-    this.renderCard(sel);
-  }
-
-  /**
-   * Unit card, bottom right in its own frame: icon, identity, condition,
-   * armament, capabilities. Separate from the briefing so a changing
-   * selection never shuffles the mission text around.
-   */
-  private renderCard(sel: number[]): void {
-    if (sel.length === 0) {
-      this.card.style.display = 'none';
-      return;
-    }
-    this.card.style.display = 'block';
     const st = this.sim.state;
-    const rows: string[] = [];
     const id = sel[0];
     const type = this.sim.unitTypes[st.typeIdx[id]];
-
-    // Unit card: what it is, how it is doing, what it can do.
-    const hpNow = fx.toNumber(st.hp[id]);
-    const hpMax = fx.toNumber(type.hp);
-    const hpPct = hpMax > 0 ? Math.max(0, hpNow / hpMax) : 0;
-    const hpColor = hpPct > 0.5 ? '#6B8A4A' : hpPct > 0.25 ? '#E8C33A' : '#D93A2B';
-    const vet = st.veterancy[id];
-    const glyph = type.isKamikaze
-      ? '✹'
-      : type.role === 'drone'
-        ? '⬡'
-        : type.role === 'sniper'
-          ? '✛'
-          : type.transportSlots > 0
-            ? '▤'
-            : type.isSoft
-              ? '▲'
-              : '■';
-    // Placeholder frame: real portraits drop in here when the art pipeline
-    // produces them (ART_PIPELINE §10), without moving anything else.
-    rows.push(
-      `<div style="float:left;width:42px;height:42px;margin:0 8px 4px 0;border:1px solid #5C625F;` +
-        `border-radius:3px;background:#14150F;display:flex;align-items:center;justify-content:center;` +
-        `font-size:20px" title="${type.id}">${glyph}</div>`
-    );
-    rows.push(
-      `<b style="font-size:13px">${type.name}</b>` +
-        (vet > 0 ? ` <span style="color:#E8C33A">${'★'.repeat(vet)}</span>` : '') +
-        `<span style="color:#8E9491"> · ${type.role || 'unit'}</span>` +
-        (sel.length > 1 ? `<span style="color:#8E9491"> (+${sel.length - 1} more)</span>` : '')
-    );
-    rows.push(
-      `<div style="margin:3px 0;height:7px;background:#14150F;border:1px solid #5C625F;border-radius:2px">` +
-        `<div style="height:100%;width:${(hpPct * 100).toFixed(0)}%;background:${hpColor}"></div></div>` +
-        `<span style="color:#8E9491">${hpNow.toFixed(0)} / ${hpMax.toFixed(0)} hp</span>`
-    );
-
-    // Condition: only what is actually true right now.
-    const flags: string[] = [];
-    if (st.routed[id] === 1) flags.push('<span style="color:#D93A2B">BROKEN</span>');
-    else if (st.pinned[id] === 1) flags.push('<span style="color:#FFB43C">PINNED</span>');
-    if (st.garrisonedIn[id] >= 0) flags.push('<span style="color:#B8FF5A">in a building</span>');
-    if (st.mobilityKilled[id] === 1) flags.push('<span style="color:#8E9491">immobilised</span>');
-    if (st.firepowerKilled[id] === 1) flags.push('<span style="color:#8B1E12">guns out</span>');
-    if (st.moving[id] === 1) flags.push('moving');
-    const supp = fx.toNumber(st.suppression[id]);
-    if (supp > 0.05) flags.push(`suppression ${(supp * 100).toFixed(0)}%`);
-    if (type.hasAps) flags.push(`APS ${st.apsAmmo[id]}/${type.apsMagazine}`);
-    const wp = this.sim.waypointCount(id);
-    if (wp > 0) flags.push(`${wp} waypoint${wp === 1 ? '' : 's'}`);
-    rows.push(flags.length > 0 ? flags.join(' · ') : 'holding position');
-
-    // Armament, so the player can tell what this unit is for.
-    if (type.weapons.length > 0) {
-      rows.push('<span style="color:#8E9491">armament</span>');
-      for (const w of type.weapons) {
-        const pen = fx.toNumber(w.penetration);
-        rows.push(
-          `&nbsp;${w.id} — ${fx.toNumber(w.effectiveRange).toFixed(1)}/${fx.toNumber(w.range).toFixed(0)} tiles` +
-            (pen > 0 ? ` · ${pen.toFixed(0)}mm pen` : '') +
-            (fx.toNumber(w.collateralRisk) >= 0.5
-              ? ' <span style="color:#E8C33A">⚠ heavy</span>'
-              : '')
-        );
-      }
-    } else {
-      rows.push('<span style="color:#8E9491">unarmed</span>');
-    }
-
-    // Special controls: what this unit can do beyond move and shoot.
-    const caps: string[] = [];
-    if (type.canSmoke) caps.push('<b>f</b> smoke screen');
-    if (this.sim.state.carriedBy[id] >= 0) caps.push('<b>aboard a transport</b> — <b>u</b> to dismount');
-    if (type.canGarrison) caps.push('right-click a building to garrison');
-    if (type.canDemolish) caps.push('hold beside a building to demolish it');
-    if (type.isKamikaze) caps.push('<span style="color:#E8541E">one-use: dives on what your side has identified</span>');
-    if (type.transportSlots > 0) {
-      caps.push(`carries ${type.transportSlots} — <b>g</b> load · <b>u</b> unload`);
-    }
-    if (type.canMarkTarget) caps.push('earns intel while stationary');
-    caps.push('<b>shift</b>+right-click to add a waypoint');
-    rows.push('<span style="color:#8E9491">capabilities</span>');
-    for (const c of caps) rows.push(`&nbsp;${c}`);
-
-    rows.push('<br><b>detection vs hostiles</b> <span style="color:#8E9491">(P per tick / confidence)</span>');
+    const rows: string[] = [
+      this.versionHtml(),
+      `<b>${this.name(id)}</b> <span style="color:var(--ink-dim)">${type.role || 'unit'}</span>`,
+      sel.length > 1 ? `<span style="color:var(--ink-dim)">+${sel.length - 1} more selected</span>` : '',
+      '<br><b>detection vs hostiles</b> <span style="color:var(--ink-dim)">(P per tick / confidence)</span>',
+    ];
     const mySide = st.side[id];
     let shown = 0;
     for (let e = 0; e < this.sim.entityCount && shown < 14; e++) {
@@ -550,6 +243,7 @@ export class DebugOverlay {
       );
       shown++;
     }
-    this.card.innerHTML = rows.join('<br>');
+    if (shown === 0) rows.push('<span style="color:var(--ink-dim)">no hostiles in the model</span>');
+    this.status.innerHTML = rows.filter(Boolean).join('<br>');
   }
 }
