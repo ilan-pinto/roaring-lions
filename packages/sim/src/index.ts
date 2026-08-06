@@ -30,4 +30,5 @@ export {
   type WeaponJson,
   type UnitType,
   type WeaponStats,
+  type HitFactors,
 } from './sim';
