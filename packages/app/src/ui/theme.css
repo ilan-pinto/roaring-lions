@@ -50,13 +50,13 @@
      transient and interrupts you. */
   --band-mission: var(--rl-olive-2);
   --band-inspect: var(--rl-gunmetal-3);
-  --band-alert: var(--rl-dust-3);
+  --band-alert: var(--rl-dust-6);
   --band-ink: var(--rl-limestone-0);
   --band-ink-dim: var(--rl-gunmetal-0);
 
   /* --- ink ------------------------------------------------------------ */
   --ink: var(--rl-limestone-0);
-  --ink-mute: var(--rl-limestone-2);
+  --ink-mute: var(--rl-limestone-4);
   --ink-dim: var(--rl-gunmetal-1);
 
   /* --- state ---------------------------------------------------------- */
@@ -74,11 +74,13 @@
   --accent: var(--rl-dust-0);
 
   /* --- the mark ------------------------------------------------------- */
-  /* Three chevrons, three steps down the dust ramp. Sweeping darker gives the
-     mark depth at menu size and keeps it one readable shape at 15px. */
+  /* Three chevrons sweeping darker: depth at menu size, one readable shape at
+     15px. The steps are every second entry because limestone and dust were
+     widened with interpolated midpoints (39-colour palette) — adjacent indices
+     are now half-steps, and three of them in a row read as a flat blob. */
   --mark-1: var(--rl-dust-0);
-  --mark-2: var(--rl-dust-1);
-  --mark-3: var(--rl-dust-2);
+  --mark-2: var(--rl-dust-2);
+  --mark-3: var(--rl-dust-4);
 
   /* --- space ---------------------------------------------------------- */
   --s1: 4px;
