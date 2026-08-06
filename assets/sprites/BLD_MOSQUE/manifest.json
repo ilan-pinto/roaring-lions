@@ -1,0 +1,67 @@
+{
+  "unit": "mosque",
+  "credit": "Original work for Roaring Lions (CC BY-SA 4.0)",
+  "kind": "building",
+  "facings": 1,
+  "size": 256,
+  "scale": 3.6,
+  "footprintTiles": 3,
+  "clips": {
+    "idle": {
+      "frames": 1,
+      "fps": 0,
+      "loop": false
+    }
+  },
+  "files": [
+    {
+      "clip": "idle",
+      "facing": 0,
+      "frame": 0,
+      "file": "idle_f00_000.png"
+    }
+  ],
+  "dropped": [
+    "Cube",
+    "Gate_L",
+    "Gate_R",
+    "Gate_lintel",
+    "Ground",
+    "Wall_L",
+    "Wall_R",
+    "Wall_side_L",
+    "Wall_side_R"
+  ],
+  "offsets": {
+    "Minaret_base": [
+      -1.55,
+      0.6,
+      0.0
+    ],
+    "Minaret_shaft": [
+      -1.55,
+      0.6,
+      0.0
+    ],
+    "Minaret_balcony": [
+      -1.55,
+      0.6,
+      0.0
+    ],
+    "Minaret_dome": [
+      -1.55,
+      0.6,
+      0.0
+    ],
+    "Minaret_top": [
+      -1.55,
+      0.6,
+      0.0
+    ],
+    "Minaret_finial": [
+      -1.55,
+      0.6,
+      0.0
+    ]
+  }
+}

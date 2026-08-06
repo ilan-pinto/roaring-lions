@@ -322,6 +322,18 @@ async function main(): Promise<void> {
     atgm_cell: FOOT,
     mortar_crew: FOOT,
   };
+  // Structures with art. A building has one sprite, not sixteen: it is placed
+  // with a fixed orientation under a fixed camera and never turns. Types without
+  // a sheet keep the procedural extrusion, so art lands one building at a time.
+  const STRUCTURE_SPRITES: Record<string, string> = {
+    mosque: `${BASE}sprites/BLD_MOSQUE/`,
+  };
+  for (const [id, path] of Object.entries(STRUCTURE_SPRITES)) {
+    renderer.loadStructureSprite(id, path).catch((err) => {
+      console.warn(`[lions] structure sprite FAILED for ${id}:`, err);
+    });
+  }
+
   for (const [id, spec] of Object.entries(SPRITE_MAP)) {
     const { path, ...rest } = spec;
     renderer.loadSprites(id, path, rest).catch((err) => {
