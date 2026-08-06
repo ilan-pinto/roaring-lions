@@ -54,7 +54,8 @@ export class DebugOverlay {
     private readonly sim: Sim,
     private readonly getSelection: () => number[],
     private readonly getMission?: () => MissionView | null,
-    private readonly hoverStructure: () => number = () => -1
+    private readonly hoverStructure: () => number = () => -1,
+    private readonly hoverEntity: () => number = () => -1
   ) {
     this.banner = document.createElement('div');
     this.banner.style.cssText =
@@ -321,6 +322,71 @@ export class DebugOverlay {
     return rows.join('<br>') + '<br><br>';
   }
 
+  /**
+   * Projected P(hit) for each selected unit against the hovered enemy.
+   *
+   * GDD 5.8: the player should know what a shot costs before taking it. Rows
+   * are capped because selecting the whole force must not bury the map, and
+   * units that cannot engage are counted rather than listed — "3 cannot reach"
+   * is information, three empty rows are not.
+   */
+  private hoveredTargetHtml(): string {
+    const t = this.hoverEntity();
+    if (t < 0 || this.sim.state.alive[t] === 0) return '';
+    const sel = this.getSelection().filter((i) => this.sim.state.alive[i] === 1);
+    if (sel.length === 0) return '';
+
+    const MAX_ROWS = 6;
+    const rows: string[] = [];
+    let cannot = 0;
+    let unidentified = 0;
+    for (const s of sel) {
+      const p = this.sim.projectHit(s, t);
+      if (p.kind === 'unidentified') {
+        unidentified++;
+        continue;
+      }
+      if (p.kind === 'noSolution') {
+        cannot++;
+        continue;
+      }
+      if (rows.length >= MAX_ROWS) continue;
+      const name = this.sim.unitTypes[this.sim.state.typeIdx[s]].name;
+      const pct = Math.round(fx.toNumber(p.pHit) * 100);
+      // Name only the factors actually degrading the shot, worst first.
+      // accuracy is the weapon's baseline, not a penalty the player can act on.
+      const penalties: [string, number][] = [
+        ['range', fx.toNumber(p.factors.rangeFalloff)],
+        ['cover', fx.toNumber(p.factors.coverMod)],
+        ['target moving', fx.toNumber(p.factors.motionMod)],
+        ['firing on the move', fx.toNumber(p.factors.stanceMod)],
+        ['suppressed', fx.toNumber(p.factors.suppressionMod)],
+      ];
+      const worst = penalties
+        .filter(([, v]) => v < 0.995)
+        .sort((a, b) => a[1] - b[1])
+        .slice(0, 2)
+        .map(([label, v]) => `${label} ${Math.round(v * 100)}%`);
+      const why = worst.length > 0 ? ` · ${worst.join(' · ')}` : '';
+      const bounce = p.hurts ? '' : ' · <span style="color:#D93A2B">cannot penetrate</span>';
+      rows.push(`<div>${name} <b>${pct}%</b> <span style="color:#8E9491">${p.weaponId}${why}</span>${bounce}</div>`);
+    }
+
+    if (rows.length === 0 && unidentified > 0 && cannot === 0) {
+      return '<div style="color:#8E9491">contact not identified — no firing solution</div>';
+    }
+    if (rows.length === 0) return '<div style="color:#8E9491">no unit can engage</div>';
+
+    const shown = rows.length;
+    const extra = sel.length - shown - cannot - unidentified;
+    const tail: string[] = [];
+    if (extra > 0) tail.push(`and ${extra} more`);
+    if (cannot > 0) tail.push(`${cannot} cannot reach`);
+    if (unidentified > 0) tail.push(`${unidentified} unidentified`);
+    const foot = tail.length > 0 ? `<div style="color:#8E9491">${tail.join(' · ')}</div>` : '';
+    return `<div style="margin-top:6px"><b>projected fire</b></div>${rows.join('')}${foot}`;
+  }
+
   private renderSelected(): void {
     const sel = this.getSelection();
     if (sel.length === 0) {
@@ -339,6 +405,7 @@ export class DebugOverlay {
       this.missionHtml() +
       this.suppressionHtml() +
       this.hoveredStructureHtml() +
+      this.hoveredTargetHtml() +
       `<span style="color:#8E9491">${sel.length} selected · unit details bottom right</span>`;
     this.renderCard(sel);
   }
