@@ -80,6 +80,18 @@ interface Puff {
   r: number;
 }
 
+/**
+ * Depth along the dimetric view axis, as an integer zIndex.
+ *
+ * (x + y) increases toward the viewer, so a unit standing behind a building has
+ * the smaller sum, sorts first, and the building draws over it. A unit in front
+ * has the larger sum and covers the building. Scaled and rounded because Pixi
+ * sorts on a numeric field and float noise would make ties flicker.
+ */
+function depthZ(x: number, y: number): number {
+  return Math.round((x + y) * 64);
+}
+
 /** World (tile) coords → dimetric screen coords. */
 export function isoX(x: number, y: number): number {
   return ((x - y) * TILE_W) / 2;
@@ -107,7 +119,12 @@ export class PixiRenderer {
   private readonly fxG = new Graphics();
   /** Wreckage sits under the living, so troops always draw over the dead. */
   private readonly wreckLayer = new Container();
+  /** Buildings and units share this container so they can be depth-sorted
+   *  against each other. Ground stays in terrainG below: it is flat and
+   *  nothing needs to occlude it. */
   private readonly spriteLayer = new Container();
+  /** One Graphics per blocked tile, rebuilt only when terrain goes dirty. */
+  private buildingTiles: Graphics[] = [];
   /** above_units/sky particle layer: drawn over unit sprites (so a main-gun
    *  muzzle flash isn't hidden behind the hull that fired it) but under
    *  unitsG, so HP bars, suppression bars and selection rings stay on top. */
@@ -226,6 +243,10 @@ export class PixiRenderer {
     this.world.addChild(this.terrainG);
     this.world.addChild(this.fxG);
     this.world.addChild(this.wreckLayer);
+    // Depth sorting: a unit behind a building must be drawn before it, so the
+    // building covers it. Without this, buildings live in terrainG below
+    // everything and units render straight through tall walls.
+    this.spriteLayer.sortableChildren = true;
     this.world.addChild(this.spriteLayer);
     this.world.addChild(this.fxAboveG);
     this.world.addChild(this.unitsG);
@@ -668,6 +689,7 @@ export class PixiRenderer {
         spr.alpha = 1 - p * 0.5;
         spr.rotation = p * 0.14;
         spr.scale.set(PixiRenderer.sheetScale(atlas));
+        spr.zIndex = depthZ(d.x, d.y);
         spr.visible = true;
       }
       if (d.t >= PixiRenderer.DEATH_SECONDS) {
@@ -707,6 +729,10 @@ export class PixiRenderer {
   private drawTerrain(): void {
     const g = this.terrainG;
     g.clear();
+    // Buildings are separate display objects now, so clearing the Graphics is
+    // not enough -- drop the old tiles or a rebuild stacks a second copy.
+    for (const t of this.buildingTiles) this.spriteLayer.removeChild(t);
+    this.buildingTiles = [];
     const w = this.sim.width;
     const h = this.sim.height;
     const H = 18; // building height in px
@@ -721,30 +747,11 @@ export class PixiRenderer {
         const diamond = [cx, cy - TILE_H / 2, cx + TILE_W / 2, cy, cx, cy + TILE_H / 2, cx - TILE_W / 2, cy];
 
         if (blocked) {
-          // Buildings draw from their own type: taller blocks read as taller
-          // shapes, and a battered building visibly darkens as it takes hits.
-          const sIdx = this.sim.structureAt(x, y);
-          let roof = this.opts.terrainBlocked;
-          let bh = H;
-          let integrity = 1;
-          if (sIdx >= 0) {
-            const stype = this.sim.structureTypes[this.sim.structures.typeIdx[sIdx]];
-            bh = stype.heightPx;
-            roof = this.opts.resolveColor ? this.opts.resolveColor(stype.color) : roof;
-            const max = this.sim.structures.maxHp[sIdx];
-            if (max > 0) integrity = Math.max(0, this.sim.structures.hp[sIdx] / max);
-          }
-          const wear = 0.45 + 0.55 * integrity; // battered walls go dark
-          g.poly([cx - TILE_W / 2, cy, cx, cy + TILE_H / 2, cx, cy + TILE_H / 2 - bh, cx - TILE_W / 2, cy - bh])
-            .fill({ color: '#1E1F1A', alpha: 0.9 });
-          g.poly([cx + TILE_W / 2, cy, cx, cy + TILE_H / 2, cx, cy + TILE_H / 2 - bh, cx + TILE_W / 2, cy - bh])
-            .fill({ color: '#3A3C33', alpha: 0.9 * wear });
-          g.poly(diamond.map((v, i) => (i % 2 ? v - bh : v))).fill({ color: roof, alpha: wear });
-          // Roof clutter: a water tank or vent, hash-placed. Shaken off as
-          // the building is chewed up.
-          if (rnd > 0.4 && integrity > 0.6) {
-            g.circle(cx + (rnd - 0.5) * 18, cy - bh + (rnd - 0.5) * 8, 3).fill({ color: '#8E9491', alpha: 0.8 });
-          }
+          // Buildings are NOT drawn here. They go into spriteLayer as their own
+          // display objects so they can depth-sort against units -- a soldier
+          // behind a wall has to be covered by it. Drawing them into terrainG
+          // would put every building under every unit unconditionally.
+          this.drawBuildingTile(x, y, cx, cy, rnd, H, diamond);
           continue;
         }
 
@@ -767,6 +774,51 @@ export class PixiRenderer {
         }
       }
     }
+  }
+
+  /**
+   * One blocked tile, as its own Graphics in the depth-sorted sprite layer.
+   *
+   * Static: only rebuilt when terrain goes dirty, which is what already drives
+   * the integrity darkening as a building is chewed up. There is no per-frame
+   * cost beyond the sort itself.
+   */
+  private drawBuildingTile(
+    x: number,
+    y: number,
+    cx: number,
+    cy: number,
+    rnd: number,
+    fallbackHeight: number,
+    diamond: number[]
+  ): void {
+    const sIdx = this.sim.structureAt(x, y);
+    let roof = this.opts.terrainBlocked;
+    let bh = fallbackHeight;
+    let integrity = 1;
+    if (sIdx >= 0) {
+      const stype = this.sim.structureTypes[this.sim.structures.typeIdx[sIdx]];
+      bh = stype.heightPx;
+      roof = this.opts.resolveColor ? this.opts.resolveColor(stype.color) : roof;
+      const max = this.sim.structures.maxHp[sIdx];
+      if (max > 0) integrity = Math.max(0, this.sim.structures.hp[sIdx] / max);
+    }
+    const wear = 0.45 + 0.55 * integrity; // battered walls go dark
+    const g = new Graphics();
+    g.poly([cx - TILE_W / 2, cy, cx, cy + TILE_H / 2, cx, cy + TILE_H / 2 - bh, cx - TILE_W / 2, cy - bh])
+      .fill({ color: '#1E1F1A', alpha: 0.9 });
+    g.poly([cx + TILE_W / 2, cy, cx, cy + TILE_H / 2, cx, cy + TILE_H / 2 - bh, cx + TILE_W / 2, cy - bh])
+      .fill({ color: '#3A3C33', alpha: 0.9 * wear });
+    g.poly(diamond.map((v, i) => (i % 2 ? v - bh : v))).fill({ color: roof, alpha: wear });
+    // Roof clutter: a water tank or vent, hash-placed. Shaken off as the
+    // building is chewed up.
+    if (rnd > 0.4 && integrity > 0.6) {
+      g.circle(cx + (rnd - 0.5) * 18, cy - bh + (rnd - 0.5) * 8, 3).fill({ color: '#8E9491', alpha: 0.8 });
+    }
+    // Depth from the tile centre, the same point units are measured from.
+    g.zIndex = depthZ(x + 0.5, y + 0.5);
+    this.spriteLayer.addChild(g);
+    this.buildingTiles.push(g);
   }
 
   frame(alpha: number): void {
@@ -900,6 +952,9 @@ export class PixiRenderer {
         const hullIdx = PixiRenderer.spriteIndex(facingNorm, sheet);
         spr.texture = clipTex[hullIdx][frame] ?? idle[hullIdx][0];
         spr.position.set(sx + ox, sy + oy);
+        // Depth from the unit's own tile position, so it sorts against
+        // buildings by the same rule they use.
+        spr.zIndex = depthZ(x, y);
         spr.alpha = bodyAlpha;
         spr.visible = true;
         const spriteScale = (sheet.scale * TILE_W) / idle[0][0].width;
@@ -943,8 +998,11 @@ export class PixiRenderer {
             this.turretSprites[i] = tspr;
           }
           tspr.texture = atlas.turretTextures[tIdx][0];
-          // Turret rides the hull, recoil and all.
+          // Turret rides the hull, recoil and all. +1 so the sort keeps it
+          // immediately above its own hull rather than relying on the
+          // insertion order sorting has just taken away.
           tspr.position.set(sx + ox, sy + oy);
+          tspr.zIndex = depthZ(x, y) + 1;
           tspr.alpha = bodyAlpha;
           tspr.visible = true;
           tspr.scale.set(spriteScale);
@@ -1074,6 +1132,9 @@ export class PixiRenderer {
         g.circle(sx - r - 4, sy - r - 4, 7).fill({ color: '#B8FF5A', alpha: 0.95 });
         label.text = String(grp);
         label.position.set(sx - r - 4, sy - r - 4);
+        // A group badge is UI, not geometry: it must never be occluded by a
+        // building the way its unit is. Above every sorted tile and sprite.
+        label.zIndex = Number.MAX_SAFE_INTEGER;
         label.visible = true;
       } else if (this.groupLabels[i]) {
         this.groupLabels[i].visible = false;
