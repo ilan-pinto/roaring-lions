@@ -78,8 +78,11 @@ const RIFLES: UnitTypeJson = {
 };
 
 function world(): { sim: Sim; inf: number } {
-  const sim = new Sim({ seed: 7, width: 48, height: 48, unitTypes: [RIFLES] });
-  return { sim, inf: 0 };
+  // SimConfig is { seed, width, height, capacity }. Unit types are registered
+  // with addUnitType, which returns the index spawn() expects.
+  const sim = new Sim({ seed: 7, width: 48, height: 48, capacity: 16 });
+  const inf = sim.addUnitType(RIFLES);
+  return { sim, inf };
 }
 
 /** Run n ticks, returning every event produced. */
@@ -318,8 +321,11 @@ const TANK: UnitTypeJson = {
 };
 
 function tankWorld(): { sim: Sim; inf: number; tank: number; jeep: number } {
-  const sim = new Sim({ seed: 11, width: 64, height: 64, unitTypes: [RIFLES, TANK, MG_JEEP] });
-  return { sim, inf: 0, tank: 1, jeep: 2 };
+  const sim = new Sim({ seed: 11, width: 64, height: 64, capacity: 16 });
+  const inf = sim.addUnitType(RIFLES);
+  const tank = sim.addUnitType(TANK);
+  const jeep = sim.addUnitType(MG_JEEP);
+  return { sim, inf, tank, jeep };
 }
 ```
 
