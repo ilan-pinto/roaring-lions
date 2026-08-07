@@ -103,6 +103,12 @@ ROLE_PALETTE = {
     "wood": "dust.4",
     "glass": "shadow.0",
     "metal": "gunmetal.2",
+    # Rusted sheet, as distinct from galvanised. Added because the shanty's roof
+    # in `metal` came back 8.8% olive.2: gunmetal is already slightly green, and
+    # shadowed it drifts into the olive ramp -- moss on a desert shed. A warm tone
+    # cannot make that mistake, and rusted corrugated iron is what this roof
+    # actually is, which also keeps it from reading like the warehouse's grey gable.
+    "rust": "terracotta.2",
 }
 #: `wall` is deliberately absent above: it is brick or flat stone per the spec.
 WALL_ROLE = "wall"
@@ -612,9 +618,60 @@ HOUSE = BuildingSpec(
 )
 
 
+SHANTY = BuildingSpec(
+    src=os.path.abspath("art/src/buildings/shanty.blend"),
+    out_dir=os.path.abspath("assets/sprites/BLD_SHANTY"),
+    unit="shanty",
+    credit="Original work for Roaring Lions (CC BY-SA 4.0)",
+    footprint_tiles=3,
+    colour_key="dust.1",
+    # Flat, not coursed. Breeze block is not brick, and at this size the coursing
+    # would be the only thing distinguishing it from the house's masonry.
+    brick=False,
+)
+
+WAREHOUSE = BuildingSpec(
+    src=os.path.abspath("art/src/buildings/warehouse.blend"),
+    out_dir=os.path.abspath("assets/sprites/BLD_WAREHOUSE"),
+    unit="warehouse",
+    credit="Original work for Roaring Lions (CC BY-SA 4.0)",
+    footprint_tiles=4,
+    colour_key="gunmetal.1",
+    brick=False,
+)
+
+APARTMENT = BuildingSpec(
+    src=os.path.abspath("art/src/buildings/apartment.blend"),
+    out_dir=os.path.abspath("assets/sprites/BLD_APARTMENT"),
+    unit="apartment",
+    credit="Original work for Roaring Lions (CC BY-SA 4.0)",
+    footprint_tiles=5,
+    colour_key="limestone.4",
+    brick=True,
+)
+
+CONCRETE = BuildingSpec(
+    src=os.path.abspath("art/src/buildings/concrete.blend"),
+    out_dir=os.path.abspath("assets/sprites/BLD_CONCRETE"),
+    unit="concrete",
+    credit="Original work for Roaring Lions (CC BY-SA 4.0)",
+    # 2, not 3: no map places '#', so this footprint is a choice rather than a
+    # measurement. See author_concrete.py -- tall and narrow was the only
+    # silhouette niche left once the other five were authored.
+    footprint_tiles=2,
+    colour_key="limestone.4",
+    # Poured concrete, so no coursing -- and the blankness is the point.
+    brick=False,
+)
+
+
 BUILDINGS = {
     "mosque": MOSQUE,
     "house": HOUSE,
+    "shanty": SHANTY,
+    "warehouse": WAREHOUSE,
+    "apartment": APARTMENT,
+    "concrete": CONCRETE,
 }
 
 
