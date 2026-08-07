@@ -48,6 +48,31 @@ export interface SheetSpec {
   clips: Partial<Record<ClipName, ClipSpec>> & { idle: ClipSpec };
 }
 
+/**
+ * A structure sheet: one frame, because a building never turns.
+ *
+ * Deliberately not a `SheetSpec`. A building has no facings, no clips beyond
+ * idle, and no `facingOffset`, and `render_building.py` omits those fields rather
+ * than writing lies into the manifest.
+ */
+export interface StructureSpec {
+  /** Drawn width in map tiles. Derived by the render script, not authored. */
+  scale: number;
+  /**
+   * Display px from the sprite's anchor up to the top of its opaque art, or null
+   * when the sheet predates the field.
+   *
+   * The renderer places a structure's integrity bar and garrison pips with this.
+   * It used to use `heightPx` from `structures.json`, which belongs to the
+   * procedural extrusion -- 34 for the mosque, whose sprite draws far taller --
+   * and put the badge 67px inside the dome, hiding the pips that say whether a
+   * building is held.
+   */
+  badgeTopPx: number | null;
+  /** The single frame's file name. */
+  file: string;
+}
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
@@ -99,6 +124,26 @@ export function parseManifest(raw: unknown): SheetSpec {
     clips.move = { frames: total - 1, fps: 0, loop: true, fileOffset: 1 };
   }
   return { ...base, layout: 'legacy', clips: clips as SheetSpec['clips'] };
+}
+
+/**
+ * Parse a structure manifest as written by `render_building.py`.
+ *
+ * `badgeTopPx` is optional on purpose: a building sheet rendered before the field
+ * existed still loads, and the renderer falls back to `heightPx` for it rather
+ * than drawing the badge in the wrong place with false confidence.
+ */
+export function parseStructureManifest(raw: unknown): StructureSpec {
+  if (!isRecord(raw)) throw new Error('structure manifest: expected an object');
+  const files = Array.isArray(raw.files) ? raw.files : [];
+  const first = files.length > 0 && isRecord(files[0]) ? files[0] : null;
+  const file = typeof first?.file === 'string' ? first.file : 'idle_f00_000.png';
+  const badge = raw.badgeTopPx;
+  return {
+    scale: num(raw.scale, 1),
+    badgeTopPx: typeof badge === 'number' && Number.isFinite(badge) ? badge : null,
+    file,
+  };
 }
 
 /** File name for one frame of one clip, in the sheet's own layout. */
