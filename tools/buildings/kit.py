@@ -21,7 +21,7 @@ Two rules that are easy to get wrong:
     `obj.scale`.
 
   * **Every part declares `rl_role`.** render_building.py assigns materials from
-    it -- `wall`, `roof`, `trim`, `dome`, `wood`, `glass`, `metal`. A part with no
+    it -- `wall`, `roof`, `trim`, `dome`, `wood`, `glass`, `metal`, `rust`. A part with no
     role falls back to a name heuristic meant for hand-modelled sources, which is
     not what a kit part wants.
 
@@ -37,7 +37,7 @@ import bpy
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dimetric import UNITS_PER_TILE  # noqa: E402
 
-ROLES = ("wall", "roof", "trim", "dome", "wood", "glass", "metal")
+ROLES = ("wall", "roof", "trim", "dome", "wood", "glass", "metal", "rust")
 
 
 def new_scene():
