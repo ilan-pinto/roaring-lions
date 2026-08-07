@@ -30,26 +30,88 @@ followed by the quantizer or `pnpm validate:assets` rejects the frame:
 Building .blend sources ARE tracked, unlike the vehicle sources -- see
 .gitignore. Shells are small enough for plain git.
 """
+import sys
 import json
 import math
 import os
 from dataclasses import dataclass, field
 
 import bpy
+from bpy_extras.object_utils import world_to_camera_view
 from mathutils import Matrix, Vector
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-SIZE = 256
-SAMPLES = 64
-DIMETRIC_ELEVATION = math.atan(0.5)
+# Blender's --python does not put the script's own directory on sys.path.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from dimetric import (  # noqa: E402
+    ELEVATION as DIMETRIC_ELEVATION,
+    UNITS_PER_TILE,
+    badge_top_px,
+    framing_clearance,
+    ortho_scale_for,
+    tiles_across,
+)
 
-# How much frame to leave around the footprint. A building is taller than it is
-# wide in screen terms, so the margin buys headroom for domes and minarets.
-FRAME_MARGIN = 1.30
-# Push the framing up so the footprint sits at the sprite centre while the mass
-# rises into the upper half.
-FRAME_SHIFT_Y = 0.16
+# 512, not 256. A structure sprite draws at `manifest.scale * TILE_W` px, and the
+# mosque's scale of 3.6 means it displays at 230px -- so buildings are near 1:1
+# with their source, not the 64px the first building spec assumed. The apartment
+# will want ~350px, which 256 cannot supply without upscaling.
+SIZE = 512
+SAMPLES = 64
+
+# Breathing room around whatever the geometry actually reaches. Small, because
+# the frame is now sized from the real projected extremes in both axes rather
+# than from horizontal extent alone -- the margin only has to cover the
+# difference between vertex positions and the pixels Cycles puts near them.
+#
+# Raising it costs empty canvas and nothing else: tiles_across() rises with the
+# frame, so the building's size on the map does not change.
+FRAME_MARGIN = 1.06
+
+# Opaque art must clear every canvas edge by at least this many px. check_framing
+# in the art gate rejects a sprite that touches an edge; catching it here means a
+# cropped render never reaches the gate.
+MIN_EDGE_CLEARANCE_PX = 4
+
+# Palette entry per material role, by name. Never derived arithmetically: an
+# earlier attempt computed a second brick course as `base * 1.16`, which is not a
+# palette colour and drifted 23% of the mosque into moss-green.
+#
+# Any entry can be overridden for a sweep with RL_ROLE_<ROLE>, e.g.
+# RL_ROLE_ROOF=limestone.8. Tones here were chosen by measuring which band the
+# quantizer actually picked, not by eye, and a sweep is how that is redone.
+ROLE_PALETTE = {
+    # A separate roof deck, and a much darker tone than seems right. The roof used
+    # to be the top face of a wall cube, so it took the wall material and the
+    # 55-degree key hit it hardest -- 16.2% of the shipped mosque is bare
+    # limestone.0 glare. A separate object was necessary but not sufficient:
+    # swept against the house, the key multiplies a horizontal surface by roughly
+    # 2.5x and there is a cliff between limestone.5 and limestone.6.
+    #   limestone.5 -> 25.4% glare   (worse than the mosque)
+    #   limestone.6 ->  3.2% glare, roof reads limestone.2
+    #   limestone.7 ->  3.0% glare, roof reads limestone.3
+    #   dust.6      ->  3.0% glare, roof reads dust.2      <- chosen
+    # dust.6 wins on more than glare: it lands the roof in a warm sand distinct in
+    # hue from the limestone walls, which is what a packed-earth flat roof is.
+    "roof": "dust.6",
+    "trim": "terracotta.1",
+    "dome": "limestone.1",
+    # Timber sits on vertical faces, which take far less light than a roof, so a
+    # tone dark enough to read as wood on a roof goes near-black on a balcony.
+    # dust.4 rather than dust.6 for that reason.
+    "wood": "dust.4",
+    "glass": "shadow.0",
+    "metal": "gunmetal.2",
+}
+#: `wall` is deliberately absent above: it is brick or flat stone per the spec.
+WALL_ROLE = "wall"
+
+for _role in list(ROLE_PALETTE):
+    _override = os.environ.get(f"RL_ROLE_{_role.upper()}")
+    if _override:
+        ROLE_PALETTE[_role] = _override
+        print(f"  role override: {_role} -> {_override}")
 
 
 @dataclass
@@ -64,10 +126,12 @@ class BuildingSpec:
     footprint_tiles: int
     # The structure's palette entry from data/structures.json, e.g. limestone.1.
     colour_key: str
-    # How many tiles wide the sprite draws. Usually footprint_tiles, but a
-    # building whose mass overhangs its footprint -- a minaret, an eave -- wants
-    # more, or it gets cropped.
-    scale: float
+    # Where the footprint's centre sits in the model, in world units. The camera
+    # aims here and the renderer anchors the sprite here, so the two must agree or
+    # the building sits off the tiles it occupies. Kit-authored buildings are
+    # centred on the origin by construction; the model's bounding-box centre is
+    # NOT a substitute, because an overhanging stair or minaret drags it sideways.
+    footprint_centre: tuple = (0.0, 0.0)
     # Objects to leave out: ground planes, leftover primitives, parts that
     # belong in the .blend but not in this sprite.
     drop: set = field(default_factory=set)
@@ -258,12 +322,42 @@ def setup(spec):
         if spec.brick
         else None
     )
+    # One material per role, built lazily so a building that has no glass does not
+    # carry a glass material into its .blend.
+    role_mats = {}
+
+    def role_material(role):
+        if role not in role_mats:
+            key = ROLE_PALETTE[role]
+            role_mats[role] = _shader(f"Building_{role}", palette_linear(key), 0.90)
+        return role_mats[role]
+
+    roles_used = {}
     for o in meshes:
         o.data.materials.clear()
-        # Brick is for masonry. Domes and finials stay smooth: coursing a curved
-        # surface reads as scaffolding, not stonework.
-        use_brick = brick is not None and not any(k in o.name for k in spec.smooth_parts)
-        o.data.materials.append(brick if use_brick else stone)
+        # An object authored by the kit declares what it is. Objects without a
+        # role -- anything hand-modelled before roles existed, mosque.blend
+        # included -- fall through to the original name heuristic, so an untouched
+        # source renders exactly as it did before.
+        role = o.get("rl_role")
+        if role is None:
+            # Brick is for masonry. Domes and finials stay smooth: coursing a
+            # curved surface reads as scaffolding, not stonework.
+            use_brick = brick is not None and not any(k in o.name for k in spec.smooth_parts)
+            o.data.materials.append(brick if use_brick else stone)
+            roles_used["<inferred>"] = roles_used.get("<inferred>", 0) + 1
+            continue
+        if role == WALL_ROLE:
+            o.data.materials.append(brick if brick is not None else stone)
+        elif role in ROLE_PALETTE:
+            o.data.materials.append(role_material(role))
+        else:
+            raise SystemExit(
+                f"{o.name!r} declares rl_role={role!r}, which is not a known role. "
+                f"Known: {sorted([WALL_ROLE] + list(ROLE_PALETTE))}"
+            )
+        roles_used[role] = roles_used.get(role, 0) + 1
+    print("  roles: " + ", ".join(f"{k}={v}" for k, v in sorted(roles_used.items())))
 
     sc = bpy.context.scene
     sc.render.engine = "CYCLES"
@@ -333,9 +427,11 @@ def setup(spec):
         f"z={max(zs) - min(zs):.2f}, base z={min(zs):.2f}"
     )
 
-    # Ground centre of the footprint: the point the tile sits under.
-    gx = (max(xs) + min(xs)) / 2
-    gy = (max(ys) + min(ys)) / 2
+    # The point the tile sits under: the declared footprint centre at grade, NOT
+    # the bounding-box centre. The house's stair and the mosque's minaret both
+    # overhang, and taking the bbox centre would slide the anchor off the
+    # footprint -- 0.55 units for the mosque.
+    gx, gy = spec.footprint_centre
     gz = min(zs)
 
     cam_data = bpy.data.cameras.new("Cam")
@@ -353,8 +449,18 @@ def setup(spec):
         gz + math.sin(DIMETRIC_ELEVATION) * dist,
     )
     cam.rotation_euler = (math.pi / 2 - DIMETRIC_ELEVATION, 0, az + math.pi / 2)
-    cam_data.ortho_scale = extent * FRAME_MARGIN
-    cam_data.shift_y = FRAME_SHIFT_Y
+    # Sized from the real projected extremes in both axes, centred on the aim
+    # point. Horizontal extent alone is not enough: a two-storey house reaches
+    # much further in screen-vertical than in screen-horizontal, and framing it by
+    # width ran its merlons 4.5px off the top of the canvas.
+    cam_data.ortho_scale = ortho_scale_for(
+        [(p.x, p.y, p.z) for p in pts], FRAME_MARGIN, aim=(gx, gy, gz)
+    )
+    # No shift. The camera already aims at the footprint's ground centre, and
+    # drawStructureSprite anchors the sprite at 0.5 on the tile centre, so leaving
+    # the aim point at the canvas centre makes the two coincide by definition
+    # rather than by tuning. It is also what makes badgeTopPx meaningful.
+    cam_data.shift_y = 0.0
 
     pivot = bpy.data.objects.new("PIVOT", None)
     pivot.location = (gx, gy, gz)
@@ -365,12 +471,58 @@ def setup(spec):
         # since pivot.location was set -- so inverting it would be a no-op and
         # parenting would shift the model by +centre.
         o.matrix_parent_inverse = Matrix.Translation((-gx, -gy, -gz))
-    return meshes, extent
+
+    scale = tiles_across(cam_data.ortho_scale)
+    bpy.context.view_layer.update()
+    framing = check_framing(sc, cam, meshes, scale)
+    return meshes, extent, scale, framing
+
+
+def check_framing(scene, cam, meshes, scale):
+    """Where the art lands in the frame, measured through the camera.
+
+    Reading the rendered PNG would be the obvious way, but Blender ships no PIL,
+    and projecting vertices is more precise anyway: it gives the true silhouette
+    bounds rather than bounds thresholded at some alpha cut.
+
+    Returns the opaque box in px and the badge offset the renderer needs. Raises
+    if the art is closer to an edge than MIN_EDGE_CLEARANCE_PX, so a cropped
+    render never reaches the gate.
+    """
+    dg = bpy.context.evaluated_depsgraph_get()
+    us, vs = [], []
+    for o in meshes:
+        eo = o.evaluated_get(dg)
+        m = eo.to_mesh()
+        for v in m.vertices:
+            p = world_to_camera_view(scene, cam, eo.matrix_world @ v.co)
+            us.append(p.x)
+            vs.append(p.y)
+        eo.to_mesh_clear()
+    # world_to_camera_view is normalised with y up from the bottom; image rows run
+    # down from the top.
+    left = min(us) * SIZE
+    right = max(us) * SIZE
+    top = (1.0 - max(vs)) * SIZE
+    bottom = (1.0 - min(vs)) * SIZE
+    clearance = framing_clearance(top, left, bottom, right, SIZE)
+    badge = badge_top_px(top, SIZE, scale)
+    print(
+        f"  framing: rows {top:.1f}..{bottom:.1f} cols {left:.1f}..{right:.1f} "
+        f"of {SIZE}, clearance {clearance:.1f}px, badgeTopPx {badge:.1f}"
+    )
+    if clearance < MIN_EDGE_CLEARANCE_PX:
+        raise SystemExit(
+            f"art comes within {clearance:.1f}px of a frame edge (need "
+            f"{MIN_EDGE_CLEARANCE_PX}). Raise FRAME_MARGIN, currently "
+            f"{FRAME_MARGIN}, or shrink the model."
+        )
+    return {"badge_top_px": round(badge, 2), "clearance_px": round(clearance, 2)}
 
 
 def render_building(spec):
     """One building, one sprite."""
-    meshes, extent = setup(spec)
+    meshes, extent, scale, framing = setup(spec)
     os.makedirs(spec.out_dir, exist_ok=True)
     name = "idle_f00_000.png"
     bpy.context.scene.render.filepath = os.path.join(spec.out_dir, name)
@@ -386,8 +538,15 @@ def render_building(spec):
         "kind": "building",
         "facings": 1,
         "size": SIZE,
-        "scale": spec.scale,
+        # Derived, not authored: extent * FRAME_MARGIN * sqrt(2) / (2 * 3), which
+        # is "3 world units draw as one tile" solved for this field. The mosque's
+        # hand-tuned 3.6 was about 9% larger than that.
+        "scale": round(scale, 4),
         "footprintTiles": spec.footprint_tiles,
+        # Display px from the sprite anchor up to the top of the art. The renderer
+        # places integrity bars and garrison pips with this; using heightPx put
+        # them 67px inside the mosque, behind the dome.
+        "badgeTopPx": framing["badge_top_px"],
         "clips": {"idle": {"frames": 1, "fps": 0, "loop": False}},
         "files": [{"clip": "idle", "facing": 0, "frame": 0, "file": name}],
     }
@@ -398,7 +557,10 @@ def render_building(spec):
     with open(os.path.join(spec.out_dir, "manifest.json"), "w") as fh:
         json.dump(manifest, fh, indent=2)
         fh.write("\n")
-    print(f"DONE 1 frame -> {spec.out_dir} (extent {extent:.2f})")
+    print(
+        f"DONE 1 frame -> {spec.out_dir} (extent {extent:.2f}, scale {scale:.3f}, "
+        f"badgeTopPx {framing['badge_top_px']})"
+    )
 
 
 MOSQUE = BuildingSpec(
@@ -410,9 +572,6 @@ MOSQUE = BuildingSpec(
     footprint_tiles=3,
     colour_key="limestone.1",
     brick=True,
-    # Wider than the footprint: the minaret overhangs, and cropping it would
-    # remove the feature that identifies the building at a glance.
-    scale=3.6,
     drop={
         "Ground",  # 26x22 ground plane; fills the frame
         "Cube",  # leftover default cube, half below grade inside Hall
@@ -441,4 +600,36 @@ MOSQUE = BuildingSpec(
 )
 
 
-render_building(MOSQUE)
+HOUSE = BuildingSpec(
+    src=os.path.abspath("art/src/buildings/house.blend"),
+    out_dir=os.path.abspath("assets/sprites/BLD_HOUSE"),
+    unit="house",
+    credit="Original work for Roaring Lions (CC BY-SA 4.0)",
+    # data/maps: 'h' is four columns across three rows.
+    footprint_tiles=4,
+    colour_key="limestone.3",
+    brick=True,
+)
+
+
+BUILDINGS = {
+    "mosque": MOSQUE,
+    "house": HOUSE,
+}
+
+
+def main():
+    # Blender hands the script everything after `--`.
+    argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+    wanted = argv if argv else list(BUILDINGS)
+    unknown = [w for w in wanted if w not in BUILDINGS]
+    if unknown:
+        raise SystemExit(
+            f"unknown building(s) {unknown}. Known: {sorted(BUILDINGS)}"
+        )
+    for name in wanted:
+        print(f"=== {name} ===")
+        render_building(BUILDINGS[name])
+
+
+main()

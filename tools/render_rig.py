@@ -43,7 +43,9 @@ from mathutils import Vector
 
 # --- locked rig constants -------------------------------------------------
 
-DIMETRIC_ELEVATION = math.atan(0.5)      # 26.565 deg -- true 2:1
+# Blender's --python does not put the script's own directory on sys.path.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from dimetric import ELEVATION as DIMETRIC_ELEVATION  # noqa: E402
 SUN_AZIMUTH        = math.radians(135.0)
 SUN_ALTITUDE       = math.radians(55.0)
 SUN_STRENGTH       = 4.0

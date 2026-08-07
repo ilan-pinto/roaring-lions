@@ -43,7 +43,9 @@ FBX = os.path.abspath("art/src/soldier_kolos.fbx")
 OUT = os.path.abspath("assets/sprites/INF")
 SIZE = 256
 FACINGS = 16
-DIMETRIC_ELEVATION = math.atan(0.5)
+# Blender's --python does not put the script's own directory on sys.path.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from dimetric import ELEVATION as DIMETRIC_ELEVATION  # noqa: E402
 
 # Sheet conventions, reported to the renderer through the manifest.
 FACING_OFFSET = 0  # sprite index that looks along world +x

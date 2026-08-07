@@ -30,7 +30,9 @@ FACINGS = 16
 FACING_OFFSET = 5  # sprite index that looks along world +x
 FACING_REVERSE = True  # this loop rotates opposite to world bearing
 DRAW_SCALE = 1.8  # sprite width in tile widths
-DIMETRIC_ELEVATION = math.atan(0.5)
+# Blender's --python does not put the script's own directory on sys.path.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from dimetric import ELEVATION as DIMETRIC_ELEVATION  # noqa: E402
 
 SKIP_MESHES = {"Track_1", "Track_1.001"}
 MAX_DIM = 15.0
