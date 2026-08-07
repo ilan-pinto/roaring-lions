@@ -279,7 +279,14 @@ async function main(): Promise<void> {
   // Structures with art. A building has one sprite, not sixteen: it is placed
   // with a fixed orientation under a fixed camera and never turns. Types without
   // a sheet keep the procedural extrusion, so art lands one building at a time.
+  // Every type in data/structures.json has art, so nothing falls back to the
+  // procedural extrusion. `concrete` is included although no map places '#' yet.
   const STRUCTURE_SPRITES: Record<string, string> = {
+    shanty: `${BASE}sprites/BLD_SHANTY/`,
+    house: `${BASE}sprites/BLD_HOUSE/`,
+    warehouse: `${BASE}sprites/BLD_WAREHOUSE/`,
+    apartment: `${BASE}sprites/BLD_APARTMENT/`,
+    concrete: `${BASE}sprites/BLD_CONCRETE/`,
     mosque: `${BASE}sprites/BLD_MOSQUE/`,
   };
   for (const [id, path] of Object.entries(STRUCTURE_SPRITES)) {

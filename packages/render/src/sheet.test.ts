@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { clipOrFallback, frameFileName, parseManifest } from './sheet';
+import {
+  clipOrFallback,
+  frameFileName,
+  parseManifest,
+  parseStructureManifest,
+} from './sheet';
 
 /** A modern clip-layout manifest, as render_*.py will emit it. */
 const CLIP_MANIFEST = {
@@ -146,5 +151,54 @@ describe('clipOrFallback', () => {
   it('falls back for a single-frame sheet asked to walk', () => {
     const s = parseManifest({ facings: 16, frames: 1 });
     expect(clipOrFallback(s, 'move')).toBe('idle');
+  });
+});
+
+describe('parseStructureManifest', () => {
+  /** A building sheet as render_building.py emits it. */
+  const BUILDING = {
+    unit: 'house',
+    kind: 'building',
+    facings: 1,
+    size: 512,
+    scale: 4.666,
+    footprintTiles: 4,
+    badgeTopPx: 140.86,
+    clips: { idle: { frames: 1, fps: 0, loop: false } },
+    files: [{ clip: 'idle', facing: 0, frame: 0, file: 'idle_f00_000.png' }],
+  };
+
+  it('reads the derived scale and badge offset', () => {
+    const s = parseStructureManifest(BUILDING);
+    expect(s.scale).toBeCloseTo(4.666);
+    expect(s.badgeTopPx).toBeCloseTo(140.86);
+    expect(s.file).toBe('idle_f00_000.png');
+  });
+
+  it('reports a missing badgeTopPx as null rather than guessing', () => {
+    // A sheet rendered before the field existed. Returning 0 would silently draw
+    // the badge on the footprint centre; null lets the renderer fall back to
+    // heightPx, which is wrong but at least wrong in a known way.
+    const { badgeTopPx, ...older } = BUILDING;
+    expect(badgeTopPx).toBeDefined();
+    expect(parseStructureManifest(older).badgeTopPx).toBeNull();
+  });
+
+  it('rejects a non-finite badgeTopPx', () => {
+    expect(parseStructureManifest({ ...BUILDING, badgeTopPx: NaN }).badgeTopPx).toBeNull();
+  });
+
+  it('falls back to the conventional file name when files is absent', () => {
+    const { files, ...noFiles } = BUILDING;
+    expect(files).toBeDefined();
+    expect(parseStructureManifest(noFiles).file).toBe('idle_f00_000.png');
+  });
+
+  it('defaults scale to 1 rather than 0, so a bad sheet is visible not invisible', () => {
+    expect(parseStructureManifest({}).scale).toBe(1);
+  });
+
+  it('throws on a non-object', () => {
+    expect(() => parseStructureManifest(null)).toThrow(/expected an object/);
   });
 });

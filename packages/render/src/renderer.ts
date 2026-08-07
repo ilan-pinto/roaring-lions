@@ -6,7 +6,14 @@
 import { Application, Assets, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import { fx, WEAPON_CLASS, type Sim, type SimEvent } from '@lions/sim';
 import { SIM_HZ, advancePhase, phaseOffset, walkFps } from './anim';
-import { clipOrFallback, frameFileName, parseManifest, type ClipName, type SheetSpec } from './sheet';
+import {
+  clipOrFallback,
+  frameFileName,
+  parseManifest,
+  parseStructureManifest,
+  type ClipName,
+  type SheetSpec,
+} from './sheet';
 import { cadenceScale, resolveClip, type UnitAnimInput } from './clip';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec } from './vfx';
 
@@ -129,7 +136,10 @@ export class PixiRenderer {
   private buildingSprites: Sprite[] = [];
   /** structure type id -> its single sprite. A building does not turn, so
    *  there are no facings: one texture is the whole sheet. */
-  private structureAtlas = new Map<string, { texture: Texture; scale: number }>();
+  private structureAtlas = new Map<
+    string,
+    { texture: Texture; scale: number; badgeTopPx: number | null }
+  >();
   /** Structures already drawn this rebuild -- a footprint spans many tiles. */
   private drawnStructures = new Set<number>();
   /** above_units/sky particle layer: drawn over unit sprites (so a main-gun
@@ -339,13 +349,13 @@ export class PixiRenderer {
    * land one building at a time.
    */
   async loadStructureSprite(structureId: string, basePath: string): Promise<void> {
-    const manifest = (await Assets.load(`${basePath}manifest.json`)) as {
-      scale?: number;
-      files?: { file: string }[];
-    };
-    const file = manifest.files?.[0]?.file ?? 'idle_f00_000.png';
-    const texture = await Assets.load<Texture>(`${basePath}${file}`);
-    this.structureAtlas.set(structureId, { texture, scale: manifest.scale ?? 1 });
+    const spec = parseStructureManifest(await Assets.load(`${basePath}manifest.json`));
+    const texture = await Assets.load<Texture>(`${basePath}${spec.file}`);
+    this.structureAtlas.set(structureId, {
+      texture,
+      scale: spec.scale,
+      badgeTopPx: spec.badgeTopPx,
+    });
     this.terrainDirty = true;
   }
 
@@ -765,6 +775,11 @@ export class PixiRenderer {
     const w = this.sim.width;
     const h = this.sim.height;
     const H = 18; // building height in px
+    // Ground tone under a sprited building. From the palette like every other
+    // colour, resolved once rather than per tile.
+    const underBuilding = this.opts.resolveColor
+      ? this.opts.resolveColor('shadow.0')
+      : this.opts.terrainBlocked;
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const t = y * w + x;
@@ -784,6 +799,16 @@ export class PixiRenderer {
           const stype =
             sIdx >= 0 ? this.sim.structureTypes[this.sim.structures.typeIdx[sIdx]] : null;
           if (stype && this.structureAtlas.has(stype.id)) {
+            // Still paint the ground. A sprite is framed to its own geometry and
+            // never covers its footprint diamond exactly, so skipping this leaves
+            // the page background showing through as black wedges around every
+            // base. It was invisible while the mosque was the only sprited
+            // building and obvious once there were seven.
+            //
+            // Slightly darker than open ground: what is under a building is
+            // packed earth and its own shadow, not open street.
+            g.poly(diamond).fill({ color: this.opts.terrainOpen, alpha: 0.92 + rnd * 0.08 });
+            g.poly(diamond).fill({ color: underBuilding, alpha: 0.22 });
             // Sprited: one sprite for the whole footprint, so a 3x3 mosque is
             // one dome rather than nine. Drawn on first tile encountered.
             if (!this.drawnStructures.has(sIdx)) {
@@ -1236,7 +1261,13 @@ export class PixiRenderer {
       const bx = isoX(fx.toNumber(str.cx[s]), fx.toNumber(str.cy[s]));
       const by = isoY(fx.toNumber(str.cx[s]), fx.toNumber(str.cy[s]));
       const stype = this.sim.structureTypes[str.typeIdx[s]];
-      const top = by - stype.heightPx - 12;
+      // Height above the footprint centre to hang the badge from. `heightPx` is
+      // the procedural extrusion's height and is right only for a structure with
+      // no sprite: it is 34 for the mosque, whose sprite draws 250px tall, which
+      // put the badge 67px inside the dome and hid the garrison pips that tell a
+      // player whether the building is held.
+      const art = this.structureAtlas.get(stype.id);
+      const top = by - (art?.badgeTopPx ?? stype.heightPx) - 12;
       const ratio = str.maxHp[s] > 0 ? str.hp[s] / str.maxHp[s] : 1;
       if (ratio < 0.999) {
         g.rect(bx - 16, top, 32, 4).fill({ color: '#14150F', alpha: 0.85 });
