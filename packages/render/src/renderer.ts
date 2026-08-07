@@ -88,6 +88,17 @@ interface Puff {
 }
 
 /**
+ * What a tile draws over its terrain.
+ *
+ * Declared here rather than imported: `@lions/render` must not depend on
+ * `@lions/data` (the direction is app -> render -> sim, with data a leaf), and
+ * this is presentation vocabulary, which is the renderer's own business.
+ * `@lions/data` declares the same values for the map loader, and `main.ts` -- the
+ * one place importing both -- holds the two to agree.
+ */
+export const TERRAIN_DECOR = { none: 0, road: 1, grove: 2, knoll: 3 } as const;
+
+/**
  * Depth along the dimetric view axis, as an integer zIndex.
  *
  * (x + y) increases toward the viewer, so a unit standing behind a building has
@@ -132,6 +143,10 @@ export class PixiRenderer {
   private readonly spriteLayer = new Container();
   /** One Graphics per blocked tile, rebuilt only when terrain goes dirty. */
   private buildingTiles: Graphics[] = [];
+  /** Presentation-only terrain kinds, straight from the map. Never from the sim. */
+  private decor: Uint8Array | null = null;
+  /** Olive canopies: depth-sorted, so a soldier behind a tree is occluded by it. */
+  private decorSprites: Graphics[] = [];
   /** Sprites for structures that have art; also rebuilt on terrain dirty. */
   private buildingSprites: Sprite[] = [];
   /** structure type id -> its single sprite. A building does not turn, so
@@ -356,6 +371,21 @@ export class PixiRenderer {
       scale: spec.scale,
       badgeTopPx: spec.badgeTopPx,
     });
+    this.terrainDirty = true;
+  }
+
+  /**
+   * Hand the renderer the map's decor layer.
+   *
+   * This deliberately does not travel through `Sim`. Whether a tile draws a tree
+   * or a rock changes no outcome, so a sim field would widen the state the
+   * determinism hash covers for nothing, and invariant 4 exists to stop exactly
+   * that kind of presentation data leaking into simulation state. The mechanical
+   * half of the same tile -- its cover level -- does go through the sim, and the
+   * renderer reads it from there.
+   */
+  setDecor(decor: Uint8Array): void {
+    this.decor = decor;
     this.terrainDirty = true;
   }
 
@@ -770,6 +800,8 @@ export class PixiRenderer {
     this.buildingTiles = [];
     for (const b of this.buildingSprites) this.spriteLayer.removeChild(b);
     this.buildingSprites = [];
+    for (const d of this.decorSprites) this.spriteLayer.removeChild(d);
+    this.decorSprites = [];
     // A structure with art is drawn once for its whole footprint, not per tile.
     this.drawnStructures.clear();
     const w = this.sim.width;
@@ -780,6 +812,11 @@ export class PixiRenderer {
     const underBuilding = this.opts.resolveColor
       ? this.opts.resolveColor('shadow.0')
       : this.opts.terrainBlocked;
+    // Decor tones, resolved once rather than per tile. Palette keys, not literals.
+    const roadTone = this.opts.resolveColor ? this.opts.resolveColor('dust.3') : '#AC8248';
+    const rutTone = this.opts.resolveColor ? this.opts.resolveColor('dust.5') : '#806032';
+    const rockTone = this.opts.resolveColor ? this.opts.resolveColor('limestone.6') : '#8C7659';
+    const rockLit = this.opts.resolveColor ? this.opts.resolveColor('limestone.3') : '#C8B494';
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const t = y * w + x;
@@ -823,6 +860,47 @@ export class PixiRenderer {
 
         // Open ground: base wash with per-tile tonal variation.
         g.poly(diamond).fill({ color: this.opts.terrainOpen, alpha: 0.92 + rnd * 0.08 });
+
+        const kind = this.decor ? this.decor[t] : TERRAIN_DECOR.none;
+
+        if (kind === TERRAIN_DECOR.road) {
+          // A street is swept, so it gets neither pebbles nor rubble -- the
+          // absence of grain is most of what makes it read as a road.
+          g.poly(diamond).fill({ color: roadTone, alpha: 0.85 });
+          const rut = (cx + cy) % 2 === 0 ? 5 : 7;
+          g.moveTo(cx - TILE_W / 2 + 6, cy - rut).lineTo(cx + TILE_W / 2 - 6, cy - rut);
+          g.moveTo(cx - TILE_W / 2 + 6, cy + rut).lineTo(cx + TILE_W / 2 - 6, cy + rut);
+          g.stroke({ color: rutTone, alpha: 0.30, width: 1.5 });
+          continue;
+        }
+
+        if (kind === TERRAIN_DECOR.knoll) {
+          // Rock, not height. The sim has no elevation, so a knoll gives cover
+          // and nothing else; drawing it tall would promise a sight line it
+          // cannot deliver.
+          for (let k = 0; k < 4; k++) {
+            const a = PixiRenderer.h2(x * 11 + k, y * 17 + k);
+            const b = PixiRenderer.h2(x * 23 + k, y * 5 + k);
+            const px = cx + (a - 0.5) * (TILE_W - 20);
+            const py = cy + (b - 0.5) * (TILE_H - 10);
+            const r = 3 + a * 5;
+            g.ellipse(px, py, r, r * 0.62).fill({ color: rockTone, alpha: 0.95 });
+            g.ellipse(px - r * 0.2, py - r * 0.22, r * 0.6, r * 0.36).fill({
+              color: rockLit,
+              alpha: 0.8,
+            });
+          }
+          continue;
+        }
+
+        if (kind === TERRAIN_DECOR.grove) {
+          // Trunk shadow flat on the ground; the canopy is a separate,
+          // depth-sorted object so a unit behind the tree is occluded by it.
+          g.ellipse(cx, cy + 4, 11, 6).fill({ color: underBuilding, alpha: 0.18 });
+          this.drawOliveTree(x, y, cx, cy);
+          continue;
+        }
+
         if (rnd > 0.82 && cover === 0) {
           // Sparse pebbles/scrub so the ground has grain.
           g.circle(cx + (rnd - 0.9) * 40, cy + (rnd - 0.86) * 20, 1.6).fill({ color: '#8F9464', alpha: 0.5 });
@@ -840,6 +918,47 @@ export class PixiRenderer {
         }
       }
     }
+  }
+
+  /**
+   * One olive tree, as its own depth-sorted Graphics.
+   *
+   * Trees go in `spriteLayer` rather than the flat terrain graphics for the same
+   * reason buildings do: a canopy is tall enough that a soldier standing behind
+   * one must be covered by it, and terrain draws under every unit
+   * unconditionally. Static, so this is rebuilt only when terrain goes dirty --
+   * the same per-tile display-object cost `drawBuildingTile` already pays.
+   */
+  private drawOliveTree(x: number, y: number, cx: number, cy: number): void {
+    const trunk = this.opts.resolveColor ? this.opts.resolveColor('dust.6') : '#6B4F29';
+    const leafDark = this.opts.resolveColor ? this.opts.resolveColor('olive.2') : '#4E5433';
+    const leafMid = this.opts.resolveColor ? this.opts.resolveColor('scrub.1') : '#3E5C2E';
+    const leafLit = this.opts.resolveColor ? this.opts.resolveColor('olive.0') : '#8F9464';
+    const g = new Graphics();
+    // Two or three trunks per tile: an olive grove is planted, not a forest, and
+    // the irregular count keeps rows of tiles from reading as a hedge.
+    const n = 2 + (PixiRenderer.h2(x * 3, y * 7) > 0.6 ? 1 : 0);
+    for (let k = 0; k < n; k++) {
+      const a = PixiRenderer.h2(x * 13 + k * 5, y * 29 + k * 3);
+      const b = PixiRenderer.h2(x * 37 + k * 2, y * 11 + k * 7);
+      const px = cx + (a - 0.5) * (TILE_W - 26);
+      const py = cy + (b - 0.5) * (TILE_H - 12);
+      const h = 13 + a * 6;
+      g.rect(px - 1.2, py - h, 2.4, h).fill({ color: trunk, alpha: 0.95 });
+      const r = 6.5 + b * 3;
+      g.ellipse(px, py - h - r * 0.35, r, r * 0.78).fill({ color: leafDark, alpha: 0.95 });
+      g.ellipse(px - r * 0.25, py - h - r * 0.5, r * 0.7, r * 0.5).fill({
+        color: leafMid,
+        alpha: 0.9,
+      });
+      g.ellipse(px - r * 0.4, py - h - r * 0.62, r * 0.36, r * 0.26).fill({
+        color: leafLit,
+        alpha: 0.75,
+      });
+    }
+    g.zIndex = depthZ(x + 0.5, y + 0.5);
+    this.spriteLayer.addChild(g);
+    this.decorSprites.push(g);
   }
 
   /**

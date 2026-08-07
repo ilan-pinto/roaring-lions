@@ -17,6 +17,7 @@ import {
   PixiRenderer,
   DebugOverlay,
   BattleAudio,
+  TERRAIN_DECOR,
   type RendererOptions,
   type AudioManifest,
   type EmitterSpec,
@@ -27,6 +28,7 @@ import {
   missions,
   structures as structureCatalogue,
   parseMap,
+  DECOR,
   paletteColor,
   audioManifest,
   vfxEmitters,
@@ -234,6 +236,25 @@ async function main(): Promise<void> {
     resolveColor: paletteColor,
   };
   const renderer = new PixiRenderer(sim, opts);
+
+  // The map's decor layer -- road, olive grove, rocky knoll -- goes straight to
+  // the renderer. It deliberately does NOT travel through the sim: whether a tile
+  // draws a tree or a rock changes no outcome, and invariant 4 keeps presentation
+  // data out of simulation state. The mechanical half of the same tile, its cover
+  // level, went through sim.setCover above.
+  //
+  // The two enums are declared separately because @lions/render must not import
+  // @lions/data. This is the one module that imports both, so it is where they are
+  // held to agree; a silent divergence would draw roads as trees.
+  if (
+    DECOR.none !== TERRAIN_DECOR.none ||
+    DECOR.road !== TERRAIN_DECOR.road ||
+    DECOR.grove !== TERRAIN_DECOR.grove ||
+    DECOR.knoll !== TERRAIN_DECOR.knoll
+  ) {
+    throw new Error('decor enums have diverged between @lions/data and @lions/render');
+  }
+  renderer.setDecor(map.decor);
   await renderer.init(stage);
   renderer.useEmitters(vfxEmitters as EmitterSpec[], paletteColor);
 

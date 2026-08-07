@@ -3,13 +3,21 @@
 // in a text editor — one character per tile:
 //
 //   .  open ground          1 2 3  cover levels (light / heavy / garrison)
-//   #  concrete structure    h a w s m  building types (see data/structures.json)
+//   r  dirt road            o  olive grove (cover 1)   n  rocky knoll (cover 2)
+//   building symbols come from data/structures.json, NOT from this file
 //
 // Any building symbol makes a blocked tile; a contiguous run of the SAME
 // symbol becomes one structure with its own HP, garrison and rubble.
 //
 // Markers are named points missions reference (spawns, tunnel mouths, HVTs);
 // zones are named rects (objective areas, trigger regions).
+//
+// `o` and `n` deliberately reuse cover levels 1 and 2 rather than inventing
+// mechanics: the sim sees exactly what it always saw, and the only new thing is
+// that a cover tile can now say what KIND of cover it is. That "kind" is the
+// decor layer, which is presentation-only and never reaches the sim -- see DECOR.
+
+import structureCatalogue from '../../../data/structures.json';
 
 export interface MapJson {
   id: string;
@@ -30,6 +38,18 @@ export interface ParsedStructure {
   tiles: number[];
 }
 
+/**
+ * What a tile draws on top of its terrain. Presentation only.
+ *
+ * This never enters the sim. Whether a tile shows a tree or a rock changes no
+ * outcome, so a `Sim` field would widen the state the determinism hash covers and
+ * invite exactly the coupling invariant 4 exists to prevent. `main.ts` hands the
+ * array to the renderer directly; the mechanical half of the same tile travels
+ * the normal route, through `sim.setCover`.
+ */
+export const DECOR = { none: 0, road: 1, grove: 2, knoll: 3 } as const;
+export type DecorKind = (typeof DECOR)[keyof typeof DECOR];
+
 export interface ParsedMap {
   id: string;
   width: number;
@@ -38,29 +58,50 @@ export interface ParsedMap {
   blocked: Uint8Array;
   /** Cover level 0-3, row-major width*height. */
   cover: Uint8Array;
+  /** DECOR value per tile, row-major. Presentation only -- never given to Sim. */
+  decor: Uint8Array;
   markers: Record<string, [number, number]>;
   zones: Record<string, [number, number, number, number]>;
   /** Buildings, one per contiguous run of identical building symbols. */
   structures: ParsedStructure[];
 }
 
-/** Map symbol → structure type id. Terrain symbols are handled separately. */
-export const STRUCTURE_SYMBOLS: Record<string, string> = {
-  '#': 'concrete',
-  h: 'house',
-  a: 'apartment',
-  w: 'warehouse',
-  s: 'shanty',
-  m: 'mosque',
+/**
+ * Map symbol → structure type id, derived from the catalogue.
+ *
+ * This used to be a hardcoded duplicate of the `symbol` field every entry in
+ * data/structures.json already declares -- a field nothing read. Adding a
+ * structure type therefore meant editing engine code, which CLAUDE.md forbids:
+ * "adding a unit means adding JSON, never engine code". Deriving it makes a new
+ * building type pure data.
+ *
+ * The JSON is imported directly rather than through this package's index, which
+ * re-exports `parseMap` and would make the import circular.
+ */
+export const STRUCTURE_SYMBOLS: Record<string, string> = Object.fromEntries(
+  Object.entries(structureCatalogue.types).map(([id, spec]) => [spec.symbol, id])
+);
+
+/** Terrain symbols, and the blocked/cover/decor triple each one means. */
+export const TERRAIN_LEGEND: Record<
+  string,
+  { blocked: number; cover: number; decor: DecorKind }
+> = {
+  '.': { blocked: 0, cover: 0, decor: DECOR.none },
+  '1': { blocked: 0, cover: 1, decor: DECOR.none },
+  '2': { blocked: 0, cover: 2, decor: DECOR.none },
+  '3': { blocked: 0, cover: 3, decor: DECOR.none },
+  r: { blocked: 0, cover: 0, decor: DECOR.road },
+  o: { blocked: 0, cover: 1, decor: DECOR.grove },
+  n: { blocked: 0, cover: 2, decor: DECOR.knoll },
 };
 
-const LEGEND: Record<string, { blocked: number; cover: number }> = {
-  '.': { blocked: 0, cover: 0 },
-  '1': { blocked: 0, cover: 1 },
-  '2': { blocked: 0, cover: 2 },
-  '3': { blocked: 0, cover: 3 },
+const LEGEND: Record<string, { blocked: number; cover: number; decor: DecorKind }> = {
+  ...TERRAIN_LEGEND,
 };
-for (const sym of Object.keys(STRUCTURE_SYMBOLS)) LEGEND[sym] = { blocked: 1, cover: 0 };
+for (const sym of Object.keys(STRUCTURE_SYMBOLS)) {
+  LEGEND[sym] = { blocked: 1, cover: 0, decor: DECOR.none };
+}
 
 export function parseMap(json: MapJson): ParsedMap {
   const { width, height, rows } = json;
@@ -69,6 +110,7 @@ export function parseMap(json: MapJson): ParsedMap {
   }
   const blocked = new Uint8Array(width * height);
   const cover = new Uint8Array(width * height);
+  const decor = new Uint8Array(width * height);
   for (let y = 0; y < height; y++) {
     const row = rows[y];
     if (row.length !== width) {
@@ -81,6 +123,7 @@ export function parseMap(json: MapJson): ParsedMap {
       }
       blocked[y * width + x] = cell.blocked;
       cover[y * width + x] = cell.cover;
+      decor[y * width + x] = cell.decor;
     }
   }
   const markers: Record<string, [number, number]> = {};
@@ -131,5 +174,5 @@ export function parseMap(json: MapJson): ParsedMap {
       structures.push({ type: typeId, tiles });
     }
   }
-  return { id: json.id, width, height, blocked, cover, markers, zones, structures };
+  return { id: json.id, width, height, blocked, cover, decor, markers, zones, structures };
 }
