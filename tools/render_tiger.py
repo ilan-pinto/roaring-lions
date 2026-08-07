@@ -25,7 +25,9 @@ BLEND = os.path.abspath("art/src/tiger_tank_rigged.blend")
 OUT = "packages/app/public/assets/sprites/TNK"
 SIZE = 256
 FACINGS = 16
-DIMETRIC_ELEVATION = math.atan(0.5)
+# Blender's --python does not put the script's own directory on sys.path.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from dimetric import ELEVATION as DIMETRIC_ELEVATION  # noqa: E402
 
 
 SKIP_MESHES = {"Track_1", "Track_1.001"}

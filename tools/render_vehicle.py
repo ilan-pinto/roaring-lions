@@ -15,6 +15,7 @@ followed by the quantizer or `pnpm validate:assets` rejects every frame:
 vehicle script's CREDIT string and the `credit` field written into every
 manifest.
 """
+import sys
 import json
 import math
 import os
@@ -26,7 +27,9 @@ from mathutils import Matrix, Vector
 SIZE = 256
 FACINGS = 16
 SAMPLES = 64
-DIMETRIC_ELEVATION = math.atan(0.5)
+# Blender's --python does not put the script's own directory on sys.path.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from dimetric import ELEVATION as DIMETRIC_ELEVATION  # noqa: E402
 
 
 @dataclass

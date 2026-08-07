@@ -31,6 +31,15 @@
       ],
       "note": "Interpolated to twice the original resolution. Nine warm steps across limestone+dust could not carry lit stone: quantizing a building render banded it and pushed mid-tones into gunmetal and olive. Every original entry is retained, so sprites quantized against the narrower ramp are still on-palette. Endpoints and hues are unchanged -- this is more resolution, not a new art direction."
     },
+    "terracotta": {
+      "role": "fired roof tile, parapet coping, trim bands on masonry",
+      "colors": [
+        "#C1663F",
+        "#9E4F30",
+        "#7A3B24"
+      ],
+      "note": "Added for the building set. The reference architecture bands every parapet and coping in fired red, and the warm ramps could not carry it: limestone and dust are desaturated tans, and the only red-orange in the palette was vfx.ember, which is reserved and must stay contrast-safe against fire. Three steps is enough for a band, its shadow, and its underside -- a tile roof does not need a ramp as deep as a wall."
+    },
     "olive": {
       "role": "KDF vehicle hulls, uniforms, tarps",
       "colors": [
@@ -93,5 +102,5 @@
     }
   },
   "mask_key": "#FF00FF",
-  "total_colors": 39
+  "total_colors": 42
 }
