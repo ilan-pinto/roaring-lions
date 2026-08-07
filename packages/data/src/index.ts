@@ -43,7 +43,15 @@ export type Palette = typeof palette;
 /** Battle audio manifest — clips are served from assets/audio/. */
 export { audioManifest };
 
-export { parseMap, type MapJson, type ParsedMap } from './map';
+export {
+  parseMap,
+  DECOR,
+  STRUCTURE_SYMBOLS,
+  TERRAIN_LEGEND,
+  type MapJson,
+  type ParsedMap,
+  type DecorKind,
+} from './map';
 
 /** Battlefield maps, keyed by map id. Shapes match map.schema.json. */
 export const maps = {

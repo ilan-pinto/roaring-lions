@@ -179,9 +179,62 @@ if (schemas.unit && schemas.mission && schemas.vfx && schemas.map) {
 }
 
 // --- map grid + bounds checks (beyond what JSON Schema can express) ---------
+//
+// Map symbols used to be listed in map.schema.json's row pattern, which meant the
+// legal set was hardcoded in three places -- the regex, packages/data/src/map.ts,
+// and the `symbol` field in data/structures.json that nothing read. A regex cannot
+// know what the catalogue declares, so it silently accepted symbols the loader
+// would reject. This cross-checks against the catalogue instead, the same shape of
+// check already done below for vfx palette_refs.
+//
+// Terrain symbols are duplicated here on purpose: they live in map.ts's
+// TERRAIN_LEGEND, which is TypeScript this Node script does not load. The two
+// lists agreeing is asserted by packages/data/src/map.test.ts.
+const TERRAIN_SYMBOLS = new Set(['.', '1', '2', '3', 'r', 'o', 'n']);
+const structureCatalogue = loadJson(join(ROOT, 'data/structures.json'));
+const structureSymbols = new Map(
+  Object.entries(structureCatalogue?.types ?? {}).map(([id, spec]) => [spec.symbol, id])
+);
+for (const [sym, id] of structureSymbols) {
+  if (TERRAIN_SYMBOLS.has(sym)) {
+    failures.push(
+      `data/structures.json: type "${id}" claims symbol "${sym}", which is a terrain symbol`
+    );
+  }
+}
+{
+  const seen = new Map();
+  for (const [id, spec] of Object.entries(structureCatalogue?.types ?? {})) {
+    if (seen.has(spec.symbol)) {
+      failures.push(
+        `data/structures.json: "${id}" and "${seen.get(spec.symbol)}" both claim symbol "${spec.symbol}"`
+      );
+    }
+    seen.set(spec.symbol, id);
+  }
+}
+
 for (const file of jsonFilesIn(join(ROOT, 'data/maps'))) {
   const m = loadJson(file);
   if (!m) continue;
+  if (Array.isArray(m.rows)) {
+    const bad = new Map();
+    m.rows.forEach((row, y) => {
+      if (typeof row !== 'string') return;
+      for (let x = 0; x < row.length; x++) {
+        const ch = row[x];
+        if (TERRAIN_SYMBOLS.has(ch) || structureSymbols.has(ch)) continue;
+        if (!bad.has(ch)) bad.set(ch, `(${x},${y})`);
+      }
+    });
+    for (const [ch, where] of bad) {
+      failures.push(
+        `${rel(file)}: unknown symbol "${ch}" first at ${where} — not a terrain symbol ` +
+          `(${[...TERRAIN_SYMBOLS].join(' ')}) and not declared in data/structures.json ` +
+          `(${[...structureSymbols.keys()].join(' ')})`
+      );
+    }
+  }
   if (Array.isArray(m.rows)) {
     if (m.rows.length !== m.height) {
       failures.push(`${rel(file)}: ${m.rows.length} rows but declared height ${m.height}`);

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://roaringlions.dev/schemas/map.schema.json",
   "title": "Map",
-  "description": "A battlefield: a character grid plus named markers and zones. One character per tile \u2014 '.' open, '1'/'2'/'3' cover levels (light/heavy/garrison), '#' blocked building. Authorable in a text editor on purpose: maps are the scatter-prop and sightline budget of a mission, and contributors should be able to sketch one without tooling. The loader (packages/data parseMap) additionally checks that row counts and lengths match the declared dimensions and that markers/zones are in bounds.",
+  "description": "A battlefield: a character grid plus named markers and zones. One character per tile \u2014 '.' open, '1'/'2'/'3' cover levels (light/heavy/garrison), 'r' road, 'o' olive grove, 'n' rocky knoll, and any building symbol declared in data/structures.json. Authorable in a text editor on purpose: maps are the scatter-prop and sightline budget of a mission, and contributors should be able to sketch one without tooling. The loader (packages/data parseMap) additionally checks that row counts and lengths match the declared dimensions and that markers/zones are in bounds.",
   "type": "object",
   "required": [
     "id",
@@ -35,8 +35,8 @@
       "minItems": 8,
       "items": {
         "type": "string",
-        "pattern": "^[.123#hawsm]+$",
-        "description": "One character per tile. Terrain: \".\" open, \"1\"-\"3\" cover levels. Buildings: \"#\" concrete, \"h\" house, \"a\" apartment, \"w\" warehouse, \"s\" shanty, \"m\" mosque \u2014 a contiguous run of identical building symbols is one structure (see data/structures.json)."
+        "pattern": "^[.0-9A-Za-z#]+$",
+        "description": "One character per tile. Terrain: \".\" open, \"1\"-\"3\" cover levels, \"r\" dirt road, \"o\" olive grove (cover 1), \"n\" rocky knoll (cover 2). Building symbols are whatever data/structures.json declares -- a contiguous run of identical building symbols is one structure. The pattern here is deliberately permissive: listing symbols in a regex meant they were hardcoded in three places at once, and validate_data.mjs now cross-checks every symbol against the structure catalogue and the terrain legend instead, so it cannot drift."
       }
     },
     "markers": {
