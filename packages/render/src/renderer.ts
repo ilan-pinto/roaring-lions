@@ -817,6 +817,11 @@ export class PixiRenderer {
     const rutTone = this.opts.resolveColor ? this.opts.resolveColor('dust.5') : '#806032';
     const rockTone = this.opts.resolveColor ? this.opts.resolveColor('limestone.6') : '#8C7659';
     const rockLit = this.opts.resolveColor ? this.opts.resolveColor('limestone.3') : '#C8B494';
+    // Red-brown earth and grey-green scrub, both from the palette. terracotta was
+    // added for building trim but it is exactly the colour of the exposed dirt in
+    // this landscape, so it earns a second use.
+    const dirtTone = this.opts.resolveColor ? this.opts.resolveColor('terracotta.2') : '#7A3B24';
+    const bushTone = this.opts.resolveColor ? this.opts.resolveColor('olive.1') : '#6E7449';
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const t = y * w + x;
@@ -896,14 +901,55 @@ export class PixiRenderer {
         if (kind === TERRAIN_DECOR.grove) {
           // Trunk shadow flat on the ground; the canopy is a separate,
           // depth-sorted object so a unit behind the tree is occluded by it.
-          g.ellipse(cx, cy + 4, 11, 6).fill({ color: underBuilding, alpha: 0.18 });
+          g.ellipse(cx, cy + 3, 9, 4.5).fill({ color: rockTone, alpha: 0.22 });
           this.drawOliveTree(x, y, cx, cy);
           continue;
         }
 
-        if (rnd > 0.82 && cover === 0) {
-          // Sparse pebbles/scrub so the ground has grain.
-          g.circle(cx + (rnd - 0.9) * 40, cy + (rnd - 0.86) * 20, 1.6).fill({ color: '#8F9464', alpha: 0.5 });
+        // Open hillside, not a swept plain. Reference photography of this terrain
+        // is rock and dirt with sparse dry scrub: pale limestone breaking through,
+        // patches of red-brown earth, and the odd bush. Three cheap passes, all
+        // keyed off the tile hash so the ground is stable between rebuilds.
+        // Open hillside, not a swept plain. Reference photography of this terrain
+        // is rock and dirt with sparse dry scrub, and the important thing is that
+        // the variation is FINE-GRAINED. A first pass drew large soft ellipses of a
+        // near-base tone and they read as pale stains on the ground rather than as
+        // texture -- low-contrast blobs at tile scale look like a rendering fault.
+        // Small marks at high frequency read as ground; big ones do not.
+        {
+          const n = 3 + Math.floor(rnd * 5);
+          for (let k = 0; k < n; k++) {
+            const a = PixiRenderer.h2(x * 19 + k * 7, y * 23 + k * 5);
+            const b = PixiRenderer.h2(x * 41 + k * 3, y * 7 + k * 11);
+            const px = cx + (a - 0.5) * (TILE_W - 12);
+            const py = cy + (b - 0.5) * (TILE_H - 6);
+            if (b > 0.78) {
+              // Exposed earth: a small dark fleck, not a wash.
+              g.ellipse(px, py, 1.6 + a * 2.2, 1 + a * 1.2).fill({
+                color: dirtTone,
+                alpha: 0.24,
+              });
+            } else {
+              // Limestone breaking through -- the most characteristic thing about
+              // this landscape from above, and the map had none of it.
+              const r = 1.2 + a * 2.6;
+              g.ellipse(px, py, r, r * 0.62).fill({ color: rockLit, alpha: 0.4 + b * 0.35 });
+              if (a > 0.72) {
+                g.ellipse(px + r * 0.3, py + r * 0.3, r * 0.7, r * 0.42).fill({
+                  color: rockTone,
+                  alpha: 0.3,
+                });
+              }
+            }
+          }
+        }
+        if (rnd > 0.84 && cover === 0) {
+          // A dry bush. Sparse, because the reference is mostly bare ground.
+          const a = PixiRenderer.h2(x * 31, y * 3);
+          g.ellipse(cx + (a - 0.5) * 30, cy + (rnd - 0.9) * 18, 3.2 + a * 1.4, 2 + a).fill({
+            color: bushTone,
+            alpha: 0.55,
+          });
         }
         if (cover > 0) {
           // Cover reads as scattered rubble/sandbags, denser with level.
@@ -930,30 +976,61 @@ export class PixiRenderer {
    * the same per-tile display-object cost `drawBuildingTile` already pays.
    */
   private drawOliveTree(x: number, y: number, cx: number, cy: number): void {
-    const trunk = this.opts.resolveColor ? this.opts.resolveColor('dust.6') : '#6B4F29';
+    // Foliage comes from the `olive` ramp, not `scrub`. Olive leaves are silvery
+    // grey-green; scrub is a saturated leaf-green and reads as the wrong plant.
+    const trunk = this.opts.resolveColor ? this.opts.resolveColor('dust.5') : '#806032';
+    const trunkLit = this.opts.resolveColor ? this.opts.resolveColor('dust.3') : '#AC8248';
     const leafDark = this.opts.resolveColor ? this.opts.resolveColor('olive.2') : '#4E5433';
-    const leafMid = this.opts.resolveColor ? this.opts.resolveColor('scrub.1') : '#3E5C2E';
+    const leafMid = this.opts.resolveColor ? this.opts.resolveColor('olive.1') : '#6E7449';
     const leafLit = this.opts.resolveColor ? this.opts.resolveColor('olive.0') : '#8F9464';
     const g = new Graphics();
-    // Two or three trunks per tile: an olive grove is planted, not a forest, and
-    // the irregular count keeps rows of tiles from reading as a hedge.
-    const n = 2 + (PixiRenderer.h2(x * 3, y * 7) > 0.6 ? 1 : 0);
-    for (let k = 0; k < n; k++) {
+
+    // One dominant tree per tile, sometimes a second smaller one. An olive is a
+    // wide low crown on a short massive trunk -- much broader than tall -- so the
+    // canopy is drawn as a squat cluster sitting close to the ground rather than a
+    // ball on a stick. Getting this wrong made the first pass read as lollipops.
+    const twin = PixiRenderer.h2(x * 3, y * 7) > 0.62;
+    const count = twin ? 2 : 1;
+    for (let k = 0; k < count; k++) {
       const a = PixiRenderer.h2(x * 13 + k * 5, y * 29 + k * 3);
       const b = PixiRenderer.h2(x * 37 + k * 2, y * 11 + k * 7);
-      const px = cx + (a - 0.5) * (TILE_W - 26);
-      const py = cy + (b - 0.5) * (TILE_H - 12);
-      const h = 13 + a * 6;
-      g.rect(px - 1.2, py - h, 2.4, h).fill({ color: trunk, alpha: 0.95 });
-      const r = 6.5 + b * 3;
-      g.ellipse(px, py - h - r * 0.35, r, r * 0.78).fill({ color: leafDark, alpha: 0.95 });
-      g.ellipse(px - r * 0.25, py - h - r * 0.5, r * 0.7, r * 0.5).fill({
-        color: leafMid,
-        alpha: 0.9,
+      const scale = k === 0 ? 1 : 0.68;
+      const px = cx + (a - 0.5) * (TILE_W - 30) + (k === 0 ? 0 : 9);
+      const py = cy + (b - 0.5) * (TILE_H - 16) + (k === 0 ? 0 : 4);
+
+      // Short, thick, gnarled: two splayed stems from a flared base.
+      const th = (5.5 + a * 2.5) * scale;
+      const tw = 3.2 * scale;
+      g.moveTo(px - tw, py)
+        .lineTo(px - tw * 0.45, py - th)
+        .lineTo(px + tw * 0.45, py - th)
+        .lineTo(px + tw, py)
+        .closePath()
+        .fill({ color: trunk, alpha: 0.98 });
+      g.rect(px - tw * 0.15, py - th - 1, tw * 0.5, 2).fill({ color: trunkLit, alpha: 0.5 });
+
+      // Crown: wider than tall, in three overlapping lobes so the outline is
+      // broken rather than a clean ellipse.
+      const rx = (12.5 + b * 4) * scale;
+      const ry = rx * 0.52;
+      const top = py - th - ry * 0.62;
+      g.ellipse(px, top, rx, ry).fill({ color: leafDark, alpha: 0.97 });
+      g.ellipse(px - rx * 0.44, top + ry * 0.16, rx * 0.52, ry * 0.72).fill({
+        color: leafDark,
+        alpha: 0.97,
       });
-      g.ellipse(px - r * 0.4, py - h - r * 0.62, r * 0.36, r * 0.26).fill({
+      g.ellipse(px + rx * 0.44, top + ry * 0.2, rx * 0.46, ry * 0.66).fill({
+        color: leafDark,
+        alpha: 0.97,
+      });
+      // Sun on the upper-left, matching the 135-degree key the sprites use.
+      g.ellipse(px - rx * 0.22, top - ry * 0.3, rx * 0.62, ry * 0.5).fill({
+        color: leafMid,
+        alpha: 0.92,
+      });
+      g.ellipse(px - rx * 0.38, top - ry * 0.46, rx * 0.3, ry * 0.26).fill({
         color: leafLit,
-        alpha: 0.75,
+        alpha: 0.8,
       });
     }
     g.zIndex = depthZ(x + 0.5, y + 0.5);
