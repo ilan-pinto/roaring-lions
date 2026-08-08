@@ -278,7 +278,11 @@ async function main(): Promise<void> {
   // Hull only: the model carries no separately modelled weapon station, so
   // there is no turret sheet to composite.
   const JEEP: SpriteSpec = { path: `${BASE}sprites/JEEP_HULL/` };
-  const FOOT: SpriteSpec = { path: `${BASE}sprites/INF/` };
+  // No shared infantry sheet. Seven types used to point at one directory, which
+  // meant a rifle squad and an enemy militia cell were the same PNG and the
+  // silhouette gate could never compare them -- it cannot compare a file with
+  // itself. Each type now names its own sheet, so a sheet that fails to load is
+  // a visible gap rather than something masked by an alias.
   // The only animated sheet: four frames of hover per facing, looping. Nothing
   // here says so -- the frame count, rate and loop flag all come from the
   // sheet's own manifest, same as every other property of every other sheet.
@@ -289,13 +293,18 @@ async function main(): Promise<void> {
     ifv_namer: NAMER,
     jeep_shoded: JEEP,
     recon_drone: DRONE,
-    inf_squad: FOOT,
-    at_team: FOOT,
-    mortar_team: FOOT,
-    militia_cell: FOOT,
-    rpg_team: FOOT,
-    atgm_cell: FOOT,
-    mortar_crew: FOOT,
+    // One sheet per infantry type, composed from tools/units/kit.py. Each is a
+    // distinct silhouette rather than a distinct texture: posture, weapon axis
+    // and figure count are what survive downsampling to a 64px black shape.
+    inf_squad: { path: `${BASE}sprites/INF_SQUAD/` },
+    demo_squad: { path: `${BASE}sprites/INF_DEMO/` },
+    at_team: { path: `${BASE}sprites/INF_AT/` },
+    mortar_team: { path: `${BASE}sprites/INF_MORTAR/` },
+    sniper_team: { path: `${BASE}sprites/INF_SNIPER/` },
+    militia_cell: { path: `${BASE}sprites/INF_MILITIA/` },
+    rpg_team: { path: `${BASE}sprites/INF_RPG/` },
+    atgm_cell: { path: `${BASE}sprites/INF_ATGM/` },
+    mortar_crew: { path: `${BASE}sprites/INF_MORTAR_E/` },
   };
   // Structures with art. A building has one sprite, not sixteen: it is placed
   // with a fixed orientation under a fixed camera and never turns. Types without
