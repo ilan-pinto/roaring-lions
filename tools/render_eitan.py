@@ -31,9 +31,12 @@ SPEC = VehicleSpec(
     out_turr=os.path.abspath("assets/sprites/EITAN_TURR"),
     # The traversing weapon station. Everything else is hull.
     turret_meshes={"turret high", "gun high", "turret mantlet high"},
-    # How many tiles wide the sprite draws. The tank is 1.8; an Eitan is a
-    # little shorter than a Merkava.
-    scale=1.6,
+    # An Eitan is 8.5m long. `real_metres` is what the unit represents rather
+    # than what this stand-in model happens to measure -- the model is a truck
+    # and is replaced in Spec E, but the unit it stands for is an 8x8 APC, and
+    # that is what should set its size against the rest of the roster.
+    real_metres=8.5,
+    size_class="heavy_vehicle",
     credit="LPMAC military truck. LICENCE UNVERIFIED, see tools/render_eitan.py",
     hull_unit="eitan_apc_hull",
     turret_unit="eitan_apc_turret",

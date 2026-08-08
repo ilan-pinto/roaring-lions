@@ -19,11 +19,22 @@ The corollary, which is the single most important thing in this document: **at 4
 
 ## 1. Visual identity
 
-**Projection:** 2:1 dimetric, orthographic, camera elevation **26.565°** (`atan(0.5)`).
+**Projection:** 2:1 dimetric, orthographic, camera elevation **30°** (`asin(0.5)`).
 
-Not 30°. 30° is the value people eyeball and it produces a 1.73:1 tile, which will not seat on a 2:1 grid. Every sprite in the game will be subtly wrong and it is extremely annoying to diagnose after the fact.
+It is 30°, and it is derived rather than chosen. For an orthographic camera at azimuth 225°, a ground square projects with `height / width = sin(elevation)`. The renderer draws `isoX = (x − y) · TILE_W / 2` and `isoY = (x + y) · TILE_H / 2`, so the grid needs `TILE_H / TILE_W = 32 / 64 = 0.5`, and therefore `sin(elevation) = 0.5`.
 
-**Light:** hard near-noon sun, azimuth 135° / altitude 55°. Long enough shadows to read volume, short enough that adjacent units don't shadow each other on the grid.
+**Not `atan(0.5)` = 26.565°.** This document argued the opposite for months and six render scripts implemented it, each with its own `DIMETRIC_ELEVATION` constant and one with a comment calling it "the exact" 2:1 elevation. Its sine is 0.4472, so every sprite sat on a ground plane 10% too shallow for the tiles it was drawn on. Measured, by rendering a unit ground square at both angles:
+
+```
+atan(0.5) = 26.565 deg   ground square 360x162 px   height/width = 0.4500
+            30.000 deg   ground square 360x180 px   height/width = 0.5000
+```
+
+Nearly invisible on a unit, which is small and not grid-aligned. Not invisible on a building, whose base *is* a tile diamond. The constant now lives once, in `tools/dimetric.py`, and `tools/test_dimetric.py` fails if a render script grows its own copy.
+
+**Scale:** one tile is **3 world units** (`UNITS_PER_TILE`), and a unit's manifest `scale` is derived from its declared real size, never typed. Literal scale is not available at both ends of the roster — a 7.6 m tank would cover 2.5 tiles and a 0.5 m quadcopter fifteen pixels — so each unit declares a **size class**, and the compression lives in one table in `dimetric.py` rather than in a hand-tuned constant per sheet.
+
+**Light:** hard near-noon sun, azimuth 135° / altitude 55°, defined once in `tools/dimetric.py` and built by `build_lights()`. Long enough shadows to read volume, short enough that adjacent units don't shadow each other on the grid.
 
 **Mood:** sun-bleached limestone, dust ochre, olive drab. Deliberately desaturated — the desaturation is what makes VFX pop, so it is a mechanical decision, not only an aesthetic one.
 
@@ -33,7 +44,7 @@ Not 30°. 30° is the value people eyeball and it produces a 1.73:1 tile, which 
 
 ## 2. Palette — `data/palette.json`
 
-32 colors. Locked. Adding a color is a version bump and a project-lead decision, not a PR.
+42 colors. Locked. Adding a color is a version bump and a project-lead decision, not a PR.
 
 | Band | Slots | Role |
 |---|---|---|
@@ -61,13 +72,14 @@ Headless Blender. Builds camera, sun, fill, and world **in code**, so the rig ca
 blender -b -P tools/render_rig.py -- \
     --input art/src/mbt_lavi.blend \
     --out   assets/sprites/mbt_lavi \
-    --facings 16 --size 256
+    --facings 16 --size 512
 ```
 
 Invariants worth stating explicitly because breaking them is subtle:
 
 - **The object rotates; the camera and sun do not.** Rotating the camera instead is the most common sprite-pipeline mistake and it makes cast shadows swing around as a unit turns. The roster looks broken and it is hard to see why.
-- **View transform is `Standard`, not Filmic.** Quantizing to 32 colors needs a linear response or the ramps smear across bands.
+- **View transform is `Standard`, not Filmic.** Quantizing to a locked palette needs a linear response or the ramps smear across bands.
+- **Scale is declared, not tuned.** A unit declares its real size in metres and a size class; `dimetric.unit_scale` derives the manifest `scale`. A hand-typed scale is how the roster lost any relationship between a soldier and a tank.
 - **Film transparent, RGBA, binary alpha.** Soft edges fight quantization and buy nothing at gameplay zoom.
 - 16 facings at 22.5° increments. Output plus `manifest.json` per unit.
 

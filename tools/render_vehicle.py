@@ -29,7 +29,37 @@ FACINGS = 16
 SAMPLES = 64
 # Blender's --python does not put the script's own directory on sys.path.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from dimetric import ELEVATION as DIMETRIC_ELEVATION  # noqa: E402
+from dimetric import (  # noqa: E402
+    ELEVATION as DIMETRIC_ELEVATION,
+    SIZE_CLASS,
+    build_lights,
+    metres_per_unit,
+    ortho_scale_for_turning,
+    tiles_across,
+    unit_scale,
+)
+
+# Breathing room around whatever the geometry reaches, replacing the old
+# `radius * 2.0 * 1.15`. Small, because the frame is now sized from the real
+# projected extremes in both axes rather than from a bounding sphere -- a sphere
+# around a tank is mostly empty corner. Widening this costs empty canvas and
+# nothing else: the unit's on-screen size is unchanged by it (see tiles_across).
+FRAME_MARGIN = 1.06
+
+
+@dataclass
+class Framing:
+    """What the measurement produced, for the manifest to record.
+
+    Carried rather than recomputed so the numbers in the manifest are the same
+    ones the camera was built from -- a second derivation is a second chance to
+    disagree.
+    """
+
+    derived_scale: float
+    scale: float
+    metres_per_unit: float
+    frame_metres: float
 
 
 @dataclass
@@ -39,7 +69,13 @@ class VehicleSpec:
     src: str
     out_hull: str
     out_turr: str
-    scale: float
+    # The vehicle's longest real dimension, in metres, and which size class it
+    # draws at. Together these replace a hand-typed `scale`: the model's own
+    # units are arbitrary, so the manifest scale is derived from these two facts
+    # plus the measured frame. See dimetric.SIZE_CLASS for why the compression
+    # exists at all.
+    real_metres: float
+    size_class: str
     credit: str
     hull_unit: str
     turret_unit: str
@@ -165,19 +201,16 @@ def setup(spec):
     world.node_tree.nodes["Background"].inputs[1].default_value = 0.0
     sc.world = world
 
-    key = bpy.data.lights.new("Key", type="SUN")
-    key.energy = 4.0
-    key_obj = bpy.data.objects.new("Key", key)
-    bpy.context.collection.objects.link(key_obj)
-    key_obj.rotation_euler = (math.pi / 2 - math.radians(55), 0, math.radians(135))
-
-    fill = bpy.data.lights.new("Fill", type="SUN")
-    fill.energy = 0.35
-    fill.color = (0.66, 0.77, 0.82)
-    fill.angle = math.radians(60)
-    fill_obj = bpy.data.objects.new("Fill", fill)
-    bpy.context.collection.objects.link(fill_obj)
-    fill_obj.rotation_euler = (math.radians(35), 0, math.radians(135) + math.pi)
+    # The locked rig, from the one place it is defined. These values used to be
+    # literals here, in render_rig.py and in render_soldier.py -- three copies
+    # that agreed, which is how the elevation constant looked right before it
+    # turned out to be wrong in six files.
+    #
+    # One real change comes with it: the key now carries SUN_ANGLE (1.5 deg)
+    # where this script left it at Blender's default, so vehicle contact shadows
+    # soften very slightly. That is the rig's stated value and the soldier and
+    # drone sheets already render with it.
+    build_lights(bpy.context.collection)
 
     # Bounds from the vehicle only, so a backdrop cannot inflate the frame.
     # Measured over every pose the clip will show, so a moving part cannot
@@ -201,10 +234,29 @@ def setup(spec):
     dists = sorted((p - center).length for p in pts)
     # Hull and turret share this radius and one camera. Widening one alone
     # would shrink it relative to the other and break registration.
-    # The pad is added rather than max'd: a vertex already at the far edge is
-    # also the one the vertical travel pushes furthest out.
-    radius = max(dists[-1] + spec.bounds_z_pad, 0.001)
-    print(f"Bounds: center={center}, radius={radius:.2f} ({len(pts)} verts)")
+    radius = max(dists[-1], 0.001)
+
+    # The model's own longest axis, which is what `real_metres` names. Taken from
+    # the axis-aligned extent rather than the bounding radius: a radius is a
+    # diagonal and would under-report metres per unit by up to sqrt(3).
+    extent_model = max(xs[-1] - xs[0], ys[-1] - ys[0], zs[-1] - zs[0])
+    mpu = metres_per_unit(extent_model, spec.real_metres)
+
+    # Sized to hold the model at every facing, in the model's own units.
+    centred = [(p.x, p.y, p.z) for p in pts]
+    ortho_units = ortho_scale_for_turning(
+        centred, FRAME_MARGIN, aim=tuple(center), z_pad=spec.bounds_z_pad
+    )
+    derived = tiles_across(ortho_units * mpu)
+    scale = unit_scale(ortho_units * mpu, spec.size_class)
+    print(
+        f"Bounds: center={center}, radius={radius:.2f} ({len(pts)} verts)\n"
+        f"Scale:  extent {extent_model:.3f} units = {spec.real_metres} m "
+        f"({mpu:.4f} m/unit), frame {ortho_units:.3f} units = "
+        f"{ortho_units * mpu:.2f} m\n"
+        f"        derived {derived:.4f} x {SIZE_CLASS[spec.size_class]} "
+        f"({spec.size_class}) = scale {scale:.4f} -> {scale * 64:.0f}px canvas"
+    )
 
     pivot = bpy.data.objects.new("PIVOT", None)
     pivot.location = center
@@ -237,7 +289,9 @@ def setup(spec):
         center.z + math.sin(DIMETRIC_ELEVATION) * dist,
     )
     cam.rotation_euler = (math.pi / 2 - DIMETRIC_ELEVATION, 0, az + math.pi / 2)
-    cam_data.ortho_scale = radius * 2.0 * 1.15
+    # Sized for every facing, not for a bounding sphere. Hull and turret share it,
+    # so the weapon station stays registered over the hull as it traverses.
+    cam_data.ortho_scale = ortho_units
 
     turret = [o for o in meshes if o.name in spec.turret_meshes]
     hull = [o for o in meshes if o.name not in spec.turret_meshes]
@@ -245,7 +299,7 @@ def setup(spec):
     if missing:
         raise SystemExit(f"turret meshes not found in the model: {sorted(missing)}")
     print(f"Hull meshes: {len(hull)}, turret meshes: {len(turret)}")
-    return pivot, hull, turret, olive
+    return pivot, hull, turret, olive, Framing(derived, scale, mpu, ortho_units * mpu)
 
 
 def render_clip(pivot, show, hide, out_dir, clip, files, frames=1, pose=None):
@@ -282,7 +336,7 @@ def render_clip(pivot, show, hide, out_dir, clip, files, frames=1, pose=None):
         pose(pivot, 0)
 
 
-def write_manifest(spec, out_dir, unit, clips, files, layer=None):
+def write_manifest(spec, out_dir, unit, clips, files, framing, layer=None):
     """The manifest is the renderer's only source of truth for this sheet.
 
     facingOffset and facingReverse describe how this rig lays frames out.
@@ -306,7 +360,17 @@ def write_manifest(spec, out_dir, unit, clips, files, layer=None):
         "size": SIZE,
         "facingOffset": spec.facing_offset,
         "facingReverse": True,
-        "scale": spec.scale,
+        # `scale` is what the renderer draws with. The four fields beside it are
+        # the derivation, recorded so the compression is reviewable in the
+        # manifest instead of being inferred from one opaque number -- which is
+        # what the hand-typed scales it replaces were.
+        "scale": round(framing.scale, 4),
+        "derivedScale": round(framing.derived_scale, 4),
+        "sizeClass": spec.size_class,
+        "classMultiplier": SIZE_CLASS[spec.size_class],
+        "realMetres": spec.real_metres,
+        "metresPerModelUnit": round(framing.metres_per_unit, 5),
+        "frameMetres": round(framing.frame_metres, 3),
         "clips": clips,
         "files": files,
     }
@@ -318,7 +382,7 @@ def write_manifest(spec, out_dir, unit, clips, files, layer=None):
 
 def render_vehicle(spec):
     """Render one vehicle's hull (idle + wreck) and turret (idle) sheets."""
-    pivot, hull, turret, olive = setup(spec)
+    pivot, hull, turret, olive, framing = setup(spec)
 
     hull_files = []
     render_clip(pivot, hull, turret, spec.out_hull, "idle", hull_files)
@@ -354,6 +418,7 @@ def render_vehicle(spec):
             "wreck": {"frames": 1, "fps": 0, "loop": False},
         },
         hull_files,
+        framing,
     )
 
     # A vehicle with no separately modelled weapon gets a hull sheet and stops.
@@ -372,6 +437,7 @@ def render_vehicle(spec):
         spec.turret_unit,
         {"idle": {"frames": 1, "fps": 0, "loop": False}},
         turr_files,
+        framing,
         layer="turret",
     )
 

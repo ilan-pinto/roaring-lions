@@ -29,10 +29,28 @@ FACINGS = 16
 # Sheet conventions, reported to the renderer through the manifest.
 FACING_OFFSET = 5  # sprite index that looks along world +x
 FACING_REVERSE = True  # this loop rotates opposite to world bearing
-DRAW_SCALE = 1.8  # sprite width in tile widths
+# A Tiger I is 6.32m long over the hull. Declared as what the model *is*, not
+# as what mbt_lavi should be -- an MBT stand-in whose real replacement is Spec
+# E's job. Getting the stand-in's own size right is what makes the roster
+# consistent today; pretending it is a 7.6m Merkava would bake a second error on
+# top of the first.
+REAL_METRES = 6.32
+SIZE_CLASS_NAME = "heavy_vehicle"
 # Blender's --python does not put the script's own directory on sys.path.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from dimetric import ELEVATION as DIMETRIC_ELEVATION  # noqa: E402
+from dimetric import (  # noqa: E402
+    ELEVATION as DIMETRIC_ELEVATION,
+    SIZE_CLASS,
+    build_lights,
+    metres_per_unit,
+    ortho_scale_for_turning,
+    tiles_across,
+    unit_scale,
+)
+
+# See render_vehicle.FRAME_MARGIN. Small, because the frame is sized from real
+# projected extremes rather than from a bounding sphere.
+FRAME_MARGIN = 1.06
 
 SKIP_MESHES = {"Track_1", "Track_1.001"}
 MAX_DIM = 15.0
@@ -200,7 +218,30 @@ def setup_clean_scene(obj_path, hull_names, turret_names):
     # Hull and turret share this radius and one camera, so widening it shrinks
     # both by the same factor and the composite stays aligned.
     radius = max(dists[-1], 0.001)
-    print(f"Bounds: center={center}, radius={radius:.1f} ({len(all_pts)} verts)")
+
+    # Axis-aligned extent, not the bounding radius: a radius is a diagonal and
+    # would under-report metres per unit.
+    extent_model = max(xs[-1] - xs[0], ys[-1] - ys[0], zs[-1] - zs[0])
+    mpu = metres_per_unit(extent_model, REAL_METRES)
+    ortho_units = ortho_scale_for_turning(
+        [(p.x, p.y, p.z) for p in all_pts], FRAME_MARGIN, aim=tuple(center)
+    )
+    framing = {
+        "scale": round(unit_scale(ortho_units * mpu, SIZE_CLASS_NAME), 4),
+        "derivedScale": round(tiles_across(ortho_units * mpu), 4),
+        "sizeClass": SIZE_CLASS_NAME,
+        "classMultiplier": SIZE_CLASS[SIZE_CLASS_NAME],
+        "realMetres": REAL_METRES,
+        "metresPerModelUnit": round(mpu, 5),
+        "frameMetres": round(ortho_units * mpu, 3),
+    }
+    print(
+        f"Bounds: center={center}, radius={radius:.1f} ({len(all_pts)} verts)\n"
+        f"Scale:  extent {extent_model:.3f} units = {REAL_METRES} m "
+        f"({mpu:.4f} m/unit), frame {ortho_units * mpu:.2f} m\n"
+        f"        derived {framing['derivedScale']} x "
+        f"{SIZE_CLASS[SIZE_CLASS_NAME]} = scale {framing['scale']}"
+    )
 
     # Rotation pivot.
     pivot = bpy.data.objects.new("PIVOT", None)
@@ -236,22 +277,9 @@ def setup_clean_scene(obj_path, hull_names, turret_names):
     bg.inputs[1].default_value = 0.0
     sc.world = world
 
-    # Key light.
-    sun_data = bpy.data.lights.new("KEY", type="SUN")
-    sun_data.energy = 4.0
-    sun_data.angle = math.radians(1.5)
-    sun = bpy.data.objects.new("KEY", sun_data)
-    bpy.context.collection.objects.link(sun)
-    sun.rotation_euler = (math.pi / 2 - math.radians(55), 0.0, math.radians(135))
-
-    # Fill light.
-    fill_data = bpy.data.lights.new("FILL", type="SUN")
-    fill_data.energy = 0.35
-    fill_data.color = (0.66, 0.77, 0.82)
-    fill_data.angle = math.radians(60)
-    fill = bpy.data.objects.new("FILL", fill_data)
-    bpy.context.collection.objects.link(fill)
-    fill.rotation_euler = (math.radians(35), 0, math.radians(135) + math.pi)
+    # The locked rig, from the one place it is defined -- these were a fourth
+    # copy of the same six constants.
+    build_lights(bpy.context.collection)
 
     # Ortho camera.
     cam_data = bpy.data.cameras.new("CAM")
@@ -269,12 +297,12 @@ def setup_clean_scene(obj_path, hull_names, turret_names):
         center.z + math.sin(DIMETRIC_ELEVATION) * dist,
     )
     cam.rotation_euler = (math.pi / 2 - DIMETRIC_ELEVATION, 0, az + math.pi / 2)
-    cam.data.ortho_scale = radius * 2.0 * 1.15
+    cam.data.ortho_scale = ortho_units
 
-    return pivot, hull_objs, turret_objs
+    return pivot, hull_objs, turret_objs, framing
 
 
-def render_pass(pivot, show_objs, hide_objs, out_dir, label):
+def render_pass(pivot, show_objs, hide_objs, out_dir, label, framing):
     """Render 16 facings with `show_objs` visible and `hide_objs` hidden."""
     for obj in hide_objs:
         obj.hide_render = True
@@ -299,7 +327,7 @@ def render_pass(pivot, show_objs, hide_objs, out_dir, label):
         # bearing, and starts with facing 5 looking east.
         "facingOffset": FACING_OFFSET,
         "facingReverse": FACING_REVERSE,
-        "scale": DRAW_SCALE,
+        **framing,
         # A turret is a layer composited onto its hull, never a unit standing
         # on its own. The art gate reads this to skip the checks that only
         # make sense for a whole unit -- a turret legitimately fills little of
@@ -327,7 +355,9 @@ def render_pass(pivot, show_objs, hide_objs, out_dir, label):
 
 if __name__ == "__main__":
     obj_path, hull_names, turret_names = bake_and_export()
-    pivot, hull_objs, turret_objs = setup_clean_scene(obj_path, hull_names, turret_names)
+    pivot, hull_objs, turret_objs, framing = setup_clean_scene(
+        obj_path, hull_names, turret_names
+    )
 
-    render_pass(pivot, hull_objs, turret_objs, OUT_HULL, "hull")
-    render_pass(pivot, turret_objs, hull_objs, OUT_TURR, "turret")
+    render_pass(pivot, hull_objs, turret_objs, OUT_HULL, "hull", framing)
+    render_pass(pivot, turret_objs, hull_objs, OUT_TURR, "turret", framing)

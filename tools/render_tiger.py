@@ -27,7 +27,10 @@ SIZE = 256
 FACINGS = 16
 # Blender's --python does not put the script's own directory on sys.path.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from dimetric import ELEVATION as DIMETRIC_ELEVATION  # noqa: E402
+from dimetric import (  # noqa: E402
+    ELEVATION as DIMETRIC_ELEVATION,
+    build_lights,
+)
 
 
 SKIP_MESHES = {"Track_1", "Track_1.001"}
@@ -164,26 +167,8 @@ def render_from_obj(obj_path):
     bg.inputs[1].default_value = 0.0
     sc.world = world
 
-    # Key light
-    sun_data = bpy.data.lights.new("KEY", type="SUN")
-    sun_data.energy = 4.0
-    sun_data.angle = math.radians(1.5)
-    sun = bpy.data.objects.new("KEY", sun_data)
-    bpy.context.collection.objects.link(sun)
-    sun.rotation_euler = (
-        math.pi / 2 - math.radians(55),
-        0.0,
-        math.radians(135),
-    )
-
-    # Fill light
-    fill_data = bpy.data.lights.new("FILL", type="SUN")
-    fill_data.energy = 0.35
-    fill_data.color = (0.66, 0.77, 0.82)
-    fill_data.angle = math.radians(60)
-    fill = bpy.data.objects.new("FILL", fill_data)
-    bpy.context.collection.objects.link(fill)
-    fill.rotation_euler = (math.radians(35), 0, math.radians(135) + math.pi)
+    # The locked rig, from the one place it is defined.
+    build_lights(bpy.context.collection)
 
     # Ortho camera on locked dimetric vector
     cam_data = bpy.data.cameras.new("CAM")

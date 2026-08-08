@@ -82,9 +82,82 @@ check("badge_top_px at the canvas centre is zero", dm.badge_top_px(128, 256, 3.6
 check("framing_clearance on the shipped mosque", dm.framing_clearance(2, 5, 212, 249, 256), 2)
 check("framing_clearance when art touches an edge", dm.framing_clearance(0, 5, 212, 249, 256), 0)
 
-# Every render script must take the elevation from here rather than keeping its
-# own copy. Six of them had one, and all six were wrong.
+# The scale contract. A unit's manifest scale is the canvas width in tiles,
+# compressed by its size class -- no longer a hand-typed number per sheet.
+check(
+    "unit_scale is tiles_across times the class multiplier",
+    dm.unit_scale(10.0, "heavy_vehicle"),
+    dm.tiles_across(10.0) * dm.SIZE_CLASS["heavy_vehicle"],
+)
+check("infantry draws at life size", dm.SIZE_CLASS["infantry"], 1.0)
+try:
+    dm.unit_scale(10.0, "spaceship")
+    failures.append("unit_scale accepted an unknown size class")
+except KeyError:
+    pass
+
+# metres_per_unit is a conversion, not a transform: a model measuring 6.32 of its
+# own units and declared as 6.32 m is already in metres.
+check("metres_per_unit on a model already in metres", dm.metres_per_unit(6.32, 6.32), 1.0)
+check("metres_per_unit scales up a small model", dm.metres_per_unit(2.0, 8.0), 4.0)
+try:
+    dm.metres_per_unit(0.0, 8.0)
+    failures.append("metres_per_unit accepted a zero extent")
+except ValueError:
+    pass
+
+# The margin must not change a unit's size on screen. This is the property that
+# lets the frame be driven by whatever the geometry needs: on-screen width is
+# scale * TILE_W * (object / frame), and scale rises with the frame, so the frame
+# cancels. Got wrong once while designing this, hence the test.
+def on_screen_px(object_u, ortho_scale, size_class):
+    return dm.unit_scale(ortho_scale, size_class) * dm.TILE_W * (object_u / ortho_scale)
+
+
+check(
+    "a wider margin does not change on-screen size",
+    on_screen_px(4.0, 4.24, "infantry"),
+    on_screen_px(4.0, 8.48, "infantry"),
+    tol=1e-9,
+)
+
+# Frame sizing for a unit must hold at every facing, because a unit turns. A long
+# hull reaches its full length across the frame at one facing and much less at
+# another; framing one orientation crops the others.
+long_hull = [(-3.8, 0.0, 0.0), (3.8, 0.0, 0.0)]
+check(
+    "a turning frame is sized on horizontal radius, not current bearing",
+    dm.ortho_scale_for_turning(long_hull, 1.0),
+    2 * 3.8,
+)
+check(
+    "ortho_scale_for_turning is invariant to bearing",
+    dm.ortho_scale_for_turning([(0.0, 3.8, 0.0), (0.0, -3.8, 0.0)], 1.0),
+    dm.ortho_scale_for_turning(long_hull, 1.0),
+)
+# ortho_scale_for would report less for the same hull at this bearing, which is
+# exactly the cropping bug. Along x=y, |u| is 0 and only v carries the extent.
+if dm.ortho_scale_for([(3.8, 3.8, 0.0), (-3.8, -3.8, 0.0)], 1.0) >= 2 * 3.8:
+    failures.append(
+        "ortho_scale_for now covers a rotated hull, so ortho_scale_for_turning "
+        "may be redundant -- check before removing it."
+    )
+check(
+    "z_pad extends vertical reach",
+    dm.ortho_scale_for_turning([(0.0, 0.0, 0.0)], 1.0, z_pad=2.0),
+    4.0,
+)
+
+# Every render script must take the elevation and the sun from here rather than
+# keeping its own copy. Six had their own elevation and all six were wrong; four
+# had their own sun, and those agreed only by luck.
 own_constant = re.compile(r"DIMETRIC_ELEVATION\s*=\s*math\.(atan|asin|radians)")
+own_sun = re.compile(r"lights\.new\(\s*[\"'](KEY|Key|FILL|Fill|Sun|SUN)")
+# render_building.py is the one legitimate exception and says why in its own
+# header: a vehicle is mostly horizontal surface and a 55-degree key against a
+# black world works, whereas a building is mostly vertical wall and comes out
+# near-black without ambient. That is a real difference, not drift.
+SUN_EXEMPT = {"render_building.py"}
 for name in sorted(os.listdir(HERE)):
     if not (name.startswith("render_") and name.endswith(".py")):
         continue
@@ -94,6 +167,12 @@ for name in sorted(os.listdir(HERE)):
         failures.append(
             f"{name} computes its own DIMETRIC_ELEVATION. Import ELEVATION from "
             f"dimetric.py instead -- six local copies is how this got wrong."
+        )
+    if name not in SUN_EXEMPT and own_sun.search(src):
+        failures.append(
+            f"{name} builds its own sun. Call dimetric.build_lights() instead -- "
+            f"four copies of azimuth 135 / altitude 55 / key 4.0 agreed by luck, "
+            f"which is how the elevation bug hid."
         )
 
 if failures:
