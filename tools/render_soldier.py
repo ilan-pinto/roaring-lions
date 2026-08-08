@@ -45,17 +45,32 @@ SIZE = 256
 FACINGS = 16
 # Blender's --python does not put the script's own directory on sys.path.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from dimetric import ELEVATION as DIMETRIC_ELEVATION  # noqa: E402
+from dimetric import (  # noqa: E402
+    ELEVATION as DIMETRIC_ELEVATION,
+    SIZE_CLASS,
+    build_lights,
+    metres_per_unit,
+    ortho_scale_for_turning,
+    tiles_across,
+    unit_scale,
+)
+
+FRAME_MARGIN = 1.06
 
 # Sheet conventions, reported to the renderer through the manifest.
 FACING_OFFSET = 0  # sprite index that looks along world +x
 FACING_REVERSE = True  # this loop rotates opposite to world bearing
-# Sprite width in tile widths. The art fills 0.73 of its frame, and the tank
-# sheet puts a ~7m hull in 1.8 tiles (~3.9 m/tile), so a 1.8m soldier wants
-# about 0.46 tiles drawn -- 0.46 / 0.73. The old 1.0 was tuned against a
-# render whose framing was broken, which made the figure look right only
-# because its head was cropped off.
-DRAW_SCALE = 0.63
+# A soldier stands 1.8m. Declared by height rather than by plan width, which is
+# what `real_metres` means -- the longest dimension on any axis.
+#
+# This replaces DRAW_SCALE = 0.63, whose comment worked the same problem out by
+# hand: "the art fills 0.73 of its frame, and the tank sheet puts a ~7m hull in
+# 1.8 tiles (~3.9 m/tile)". That reasoning was sound and its arithmetic was
+# right; the trouble was that it derived metres-per-tile from *the tank sheet*,
+# which was itself a hand-typed number. Two hand-typed constants defining each
+# other is why no unit's size could be checked against anything.
+REAL_METRES = 1.8
+SIZE_CLASS_NAME = "infantry"
 
 X = (1.0, 0.0, 0.0)
 Z = (0.0, 0.0, 1.0)
@@ -177,20 +192,8 @@ def setup_render():
     bg.inputs[1].default_value = 0.0
     sc.world = world
 
-    sun_data = bpy.data.lights.new("KEY", type="SUN")
-    sun_data.energy = 4.0
-    sun_data.angle = math.radians(1.5)
-    sun = bpy.data.objects.new("KEY", sun_data)
-    bpy.context.collection.objects.link(sun)
-    sun.rotation_euler = (math.pi / 2 - math.radians(55), 0.0, math.radians(135))
-
-    fill_data = bpy.data.lights.new("FILL", type="SUN")
-    fill_data.energy = 0.35
-    fill_data.color = (0.66, 0.77, 0.82)
-    fill_data.angle = math.radians(60)
-    fill = bpy.data.objects.new("FILL", fill_data)
-    bpy.context.collection.objects.link(fill)
-    fill.rotation_euler = (math.radians(35), 0, math.radians(135) + math.pi)
+    # The locked rig, from the one place it is defined.
+    build_lights(bpy.context.collection)
     return sc
 
 
@@ -229,7 +232,30 @@ def main():
     center = Vector((xs[mid], ys[mid], zs[mid]))
     dists = sorted((p - center).length for p in pts)
     radius = max(dists[int(len(dists) * 0.95)], 0.001)
-    print(f"Bounds: center={center}, radius={radius:.1f} ({len(pts)} verts)")
+
+    # Axis-aligned extent: for a standing figure this is its height, which is
+    # what REAL_METRES declares.
+    extent_model = max(xs[-1] - xs[0], ys[-1] - ys[0], zs[-1] - zs[0])
+    mpu = metres_per_unit(extent_model, REAL_METRES)
+    ortho_units = ortho_scale_for_turning(
+        [(p.x, p.y, p.z) for p in pts], FRAME_MARGIN, aim=tuple(center)
+    )
+    framing = {
+        "scale": round(unit_scale(ortho_units * mpu, SIZE_CLASS_NAME), 4),
+        "derivedScale": round(tiles_across(ortho_units * mpu), 4),
+        "sizeClass": SIZE_CLASS_NAME,
+        "classMultiplier": SIZE_CLASS[SIZE_CLASS_NAME],
+        "realMetres": REAL_METRES,
+        "metresPerModelUnit": round(mpu, 5),
+        "frameMetres": round(ortho_units * mpu, 3),
+    }
+    print(
+        f"Bounds: center={center}, radius={radius:.1f} ({len(pts)} verts)\n"
+        f"Scale:  extent {extent_model:.3f} units = {REAL_METRES} m "
+        f"({mpu:.4f} m/unit), frame {ortho_units * mpu:.2f} m\n"
+        f"        derived {framing['derivedScale']} x "
+        f"{SIZE_CLASS[SIZE_CLASS_NAME]} = scale {framing['scale']}"
+    )
 
     pivot = bpy.data.objects.new("PIVOT", None)
     pivot.location = center
@@ -256,7 +282,7 @@ def main():
         center.z + math.sin(DIMETRIC_ELEVATION) * dist,
     )
     cam.rotation_euler = (math.pi / 2 - DIMETRIC_ELEVATION, 0, az + math.pi / 2)
-    cam_data.ortho_scale = radius * 2.0 * 1.15
+    cam_data.ortho_scale = ortho_units
 
     os.makedirs(OUT, exist_ok=True)
     step = 2.0 * math.pi / FACINGS
@@ -269,7 +295,7 @@ def main():
         "size": SIZE,
         "facingOffset": FACING_OFFSET,
         "facingReverse": FACING_REVERSE,
-        "scale": DRAW_SCALE,
+        **framing,
         "clips": {
             name: {
                 "frames": len(frames),

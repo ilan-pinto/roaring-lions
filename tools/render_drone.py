@@ -87,12 +87,16 @@ SPEC = VehicleSpec(
     # Never written: turret_meshes is empty, so there is no second pass. The
     # field is required by the dataclass, not used.
     out_turr=os.path.abspath("assets/sprites/DRONE_RECON_TURR_UNUSED"),
-    # Literal scale would be about 0.37: the frame spans ~1.43 world units and
-    # the tank sheet establishes ~3.9 m per tile. Drawn that small the drone is
-    # a 24px smudge the player cannot track, and tracking it is the entire
-    # mission. 0.50 is a deliberate ~35% over life size, the same legibility
-    # trade the jeep's 1.1 makes in the other direction.
-    scale=0.50,
+    # A 0.9m quadcopter across the props. Drawn at life size it is a smudge the
+    # player cannot track, and tracking it is the entire mission -- so it draws
+    # in the `air` class, whose multiplier is the largest in the table.
+    #
+    # That over-scaling used to live here, as `scale=0.50` with a comment reading
+    # "literal scale would be about 0.37". The judgement was right; keeping it in
+    # one sheet's constant was not, because nothing related it to the jeep making
+    # the opposite trade. It is now a row of dimetric.SIZE_CLASS.
+    real_metres=0.9,
+    size_class="air",
     credit="Recon drone -- modelled from primitives for this repository, CC BY-SA 4.0",
     hull_unit="recon_drone",
     # Also never written, for the same reason as out_turr.
@@ -110,7 +114,7 @@ SPEC = VehicleSpec(
 
 
 def main():
-    pivot, hull, turret, _olive = setup(SPEC)
+    pivot, hull, turret, _olive, framing = setup(SPEC)
     base_z = pivot.location.z
 
     def pose(piv, k):
@@ -128,6 +132,7 @@ def main():
         SPEC.hull_unit,
         {"idle": {"frames": FRAMES, "fps": FPS, "loop": True}},
         files,
+        framing,
     )
     print(f"DONE {len(files)} frames -> {SPEC.out_hull}")
 

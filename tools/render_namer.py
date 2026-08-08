@@ -39,9 +39,10 @@ SPEC = VehicleSpec(
         "REMOT_BODY",
         "REMOT_GUN",
     },
-    # This model is in real metres and measures 6.92m long. The tank draws at
-    # 1.8 and the Eitan at 1.6.
-    scale=1.7,
+    # A Namer is 7.5m long. This model is already in real metres and measures
+    # 6.92, so the derivation scales it up by 8% to the vehicle it represents.
+    real_metres=7.5,
+    size_class="heavy_vehicle",
     credit="Mutte (CC-BY 3.0, BlendSwap #75225)",
     hull_unit="namer_ifv_hull",
     turret_unit="namer_ifv_turret",

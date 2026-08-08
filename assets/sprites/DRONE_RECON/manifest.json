@@ -5,7 +5,13 @@
   "size": 256,
   "facingOffset": 0,
   "facingReverse": true,
-  "scale": 0.5,
+  "scale": 0.4903,
+  "derivedScale": 0.3269,
+  "sizeClass": "air",
+  "classMultiplier": 1.5,
+  "realMetres": 0.9,
+  "metresPerModelUnit": 0.9,
+  "frameMetres": 1.387,
   "clips": {
     "idle": {
       "frames": 4,

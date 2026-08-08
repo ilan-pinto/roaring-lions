@@ -45,13 +45,14 @@ from mathutils import Vector
 
 # Blender's --python does not put the script's own directory on sys.path.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from dimetric import ELEVATION as DIMETRIC_ELEVATION  # noqa: E402
-SUN_AZIMUTH        = math.radians(135.0)
-SUN_ALTITUDE       = math.radians(55.0)
-SUN_STRENGTH       = 4.0
-SUN_ANGLE          = math.radians(1.5)   # slightly soft contact shadows
-FILL_STRENGTH      = 0.35                # sky bounce, keeps shadows readable
-FILL_COLOR         = (0.66, 0.77, 0.82)  # matches palette water[0]
+# The sun and fill used to be declared here, and copied into render_vehicle.py,
+# render_tank.py and render_soldier.py. All four agreed, which is exactly how
+# DIMETRIC_ELEVATION looked before it turned out to be wrong in six files.
+from dimetric import (  # noqa: E402
+    ELEVATION as DIMETRIC_ELEVATION,
+    build_lights,
+)
+
 WORLD_COLOR        = (0.0, 0.0, 0.0, 0.0)
 SAMPLES            = 128
 MARGIN             = 1.12                # framing padding around bounds
@@ -130,24 +131,7 @@ def build_rig(size):
     bg.inputs[1].default_value = 0.0
     scene.world = world
 
-    sun_data = bpy.data.lights.new("KEY", type="SUN")
-    sun_data.energy = SUN_STRENGTH
-    sun_data.angle = SUN_ANGLE
-    sun = bpy.data.objects.new("KEY", sun_data)
-    bpy.context.collection.objects.link(sun)
-    sun.rotation_euler = (
-        math.pi / 2 - SUN_ALTITUDE,
-        0.0,
-        SUN_AZIMUTH,
-    )
-
-    fill_data = bpy.data.lights.new("FILL", type="SUN")
-    fill_data.energy = FILL_STRENGTH
-    fill_data.color = FILL_COLOR
-    fill_data.angle = math.radians(60.0)
-    fill = bpy.data.objects.new("FILL", fill_data)
-    bpy.context.collection.objects.link(fill)
-    fill.rotation_euler = (math.radians(35.0), 0.0, SUN_AZIMUTH + math.pi)
+    build_lights(bpy.context.collection)
 
     cam_data = bpy.data.cameras.new("CAM")
     cam_data.type = "ORTHO"

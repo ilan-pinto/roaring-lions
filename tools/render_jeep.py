@@ -34,9 +34,12 @@ SPEC = VehicleSpec(
     # Never written: turret_meshes is empty, so render_vehicle stops after the
     # hull sheet. The path is required by the dataclass, not used.
     out_turr=os.path.abspath("assets/sprites/JEEP_TURR_UNUSED"),
-    # The body measures about 4.6m against the Eitan's 8m at 1.6, and a jeep
-    # has to read visibly smaller than an APC at a glance.
-    scale=1.1,
+    # 4.8m, an armoured light utility. `light_vehicle` rather than `heavy`: the
+    # class multiplier is what makes it read as visibly smaller than an APC, so
+    # that judgement lives in the size-class table instead of in a tuned number
+    # here.
+    real_metres=4.8,
+    size_class="light_vehicle",
     credit="Military jeep. LICENCE UNVERIFIED, see tools/render_jeep.py",
     hull_unit="jeep_shoded_hull",
     turret_unit="jeep_shoded_turret",
