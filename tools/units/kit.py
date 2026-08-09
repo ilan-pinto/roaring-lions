@@ -44,7 +44,11 @@ from dimetric import UNITS_PER_TILE  # noqa: E402
 #: Material roles. `uniform` and `webbing` are the two body tones; a unit's
 #: faction picks which ramp they resolve to, so the same kit builds KDF olive and
 #: militia dust without a second set of parts.
-ROLES = ("uniform", "webbing", "skin", "weapon", "metal", "wood", "charge")
+#: `boot` and `face` are separate from `webbing` so footwear and faces can leave
+#: the uniform's ramp entirely -- boots are black on a real soldier and a face is
+#: the one warm note on the figure, and neither reads if it is another step of the
+#: same green.
+ROLES = ("uniform", "webbing", "boot", "face", "weapon", "metal", "wood", "charge")
 
 #: A standing figure, head to boot. Everything else is proportioned from it.
 FIGURE_H = 1.8
@@ -152,57 +156,277 @@ def tube(name, length, radius, at, yaw=0.0, pitch=0.0, sides=8, role="weapon"):
 # --- the figure ------------------------------------------------------------
 
 
-def figure(prefix, at, posture="standing", yaw=0.0, helmet=True, stride=0.0):
+def prism(name, r_bottom, r_top, height, at, sides=10, yaw=0.0, squash=1.0, role="uniform"):
+    """A tapered n-sided prism, standing on +z. The limb and torso primitive.
+
+    This exists because the first two passes built a figure entirely from
+    axis-aligned cuboids, and the result did not read as a person. Two reasons,
+    both structural rather than a matter of tuning sizes:
+
+      * **A box has parallel sides.** A thigh that is the same width at the hip
+        and the knee is a slab. Every limb on a body tapers, and the taper is
+        what the eye uses to tell a limb from a crate.
+      * **A box has four hard corners.** At any facing one of them points at the
+        camera, so the outline is a staircase of right angles. Ten sides puts the
+        outline within a pixel of a smooth curve at the size these render at.
+
+    `squash` flattens the cross-section in y, so a forearm can be oval rather
+    than round without needing a second primitive.
+    """
+    cx, cy, cz = at
+    verts, faces = [], []
+    cy_, sy_ = math.cos(yaw), math.sin(yaw)
+    for level, r in ((0.0, r_bottom), (height, r_top)):
+        for k in range(sides):
+            a = 2.0 * math.pi * k / sides + math.pi / sides
+            lx, ly = r * math.cos(a), r * math.sin(a) * squash
+            verts.append((cx + lx * cy_ - ly * sy_, cy + lx * sy_ + ly * cy_, cz + level))
+    for k in range(sides):
+        n = (k + 1) % sides
+        faces.append((k, n, sides + n, sides + k))
+    faces.append(tuple(range(sides)))
+    faces.append(tuple(range(2 * sides - 1, sides - 1, -1)))
+    return _mesh(name, verts, faces, role)
+
+
+def dome(name, radius, height, at, segments=10, rings=3, role="metal"):
+    """A faceted half-dome. The helmet, and the reason a figure reads as a person.
+
+    A cube head is the single thing that made the first pass look like stacked
+    boxes rather than soldiers: at any facing a cube shows a hard corner where a
+    head should show a curve, and a corner the width of the shoulders reads as
+    cargo. Ten segments is enough that the outline is smooth once downsampled and
+    cheap enough to build nine teams from.
+    """
+    cx, cy, cz = at
+    verts, faces = [], []
+    for r in range(rings + 1):
+        phi = (math.pi / 2.0) * r / rings
+        rr, zz = radius * math.cos(phi), height * math.sin(phi)
+        for k in range(segments):
+            a = 2.0 * math.pi * k / segments
+            verts.append((cx + rr * math.cos(a), cy + rr * math.sin(a), cz + zz))
+    for r in range(rings):
+        for k in range(segments):
+            a0, a1 = r * segments + k, r * segments + (k + 1) % segments
+            b0, b1 = a0 + segments, a1 + segments
+            faces.append((a0, a1, b1, b0))
+    faces.append(tuple(range(rings * segments, (rings + 1) * segments)))
+    faces.append(tuple(range(segments - 1, -1, -1)))
+    return _mesh(name, verts, faces, role)
+
+
+#: Body proportions for a 1.8 m figure, as fractions of height, plus limb radii in
+#: metres. Named rather than inlined because every posture reads from the same
+#: set, so a change to leg length cannot desynchronise the kneeling figure from
+#: the standing one.
+#:
+#: The radii are the important part and they are small: a real upper arm is about
+#: 0.10 m across, a thigh 0.15, a shin 0.11. The first two passes used 0.14-0.22
+#: boxes for the same parts, which is why the figures read as bulky slabs however
+#: the proportions were tuned. Bulk was never a proportion problem -- it was a
+#: cross-section problem.
+BOOT_H, SHIN_TOP, KNEE_Z, THIGH_TOP = 0.055, 0.26, 0.28, 0.50
+BELT_Z, CHEST_Z, SHOULDER_Z, HEAD_Z = 0.52, 0.62, 0.80, 0.865
+R_SHIN, R_KNEE, R_THIGH = 0.055, 0.062, 0.078
+R_WAIST, R_CHEST, R_NECK = 0.115, 0.150, 0.048
+R_UPPERARM, R_FOREARM = 0.050, 0.042
+HEAD_W = 0.115
+
+
+def figure(prefix, at, posture="standing", yaw=0.0, helmet=True, stride=0.0,
+           arms=True, leader=False):
     """One soldier, contact point at z=0 of `at`.
 
-    `stride` drives the walk cycle: the legs split fore-and-aft by that fraction
-    of a pace and the torso dips slightly. Four values around a cycle is all the
-    `move` clip needs, because a leg is about three pixels at gameplay zoom and
-    what actually reads is the whole silhouette shifting.
+    Limbs and torso are tapered prisms; only genuinely boxy kit -- pouches, boots,
+    knee pads, the carrier front -- stays a cuboid. Three passes to get here, and
+    the reasons the first two failed are worth keeping:
 
-    `helmet=False` gives a cloth-wrapped head, which is how militia read as
-    irregulars. It is worth being clear that this is nearly invisible in a black
-    silhouette -- a helmet is two pixels. It matters in colour, and the sheets
-    that need silhouette separation get it from posture and weapon axis instead.
+      * Pass one used four cuboids and read as stacked crates.
+      * Pass two added the right *parts* -- helmet dome, arms, boots, knee pads,
+        drop-leg pouch -- and still read as bulky, because every one of them was
+        an axis-aligned box. A box has parallel sides and four hard corners, so
+        limbs came out as slabs with staircase outlines no matter what sizes they
+        were given.
+      * This pass changes the primitive rather than the numbers. Tapering a thigh
+        from 0.078 to 0.062 and rounding it to ten sides is what makes it read as
+        a leg, and the cross-sections are roughly half what they were.
+
+    `stride` drives the walk cycle: legs split fore-and-aft, the torso dips, the
+    arms counter-swing. `arms=False` is for a figure whose hands are on a
+    crew-served weapon, so an arm does not float through the tube.
     """
     if posture not in POSTURE_EYE:
         raise ValueError(f"{prefix}: unknown posture {posture!r}")
     x0, y0, z0 = at
     parts = []
     c, s = math.cos(yaw), math.sin(yaw)
+    H = FIGURE_H
 
     def place(dx, dy, dz):
         """Body-local offset to world, so a figure can face any way."""
         return (x0 + dx * c - dy * s, y0 + dx * s + dy * c, z0 + dz)
 
+    def P(name, rb, rt, h, at_local, role="uniform", sides=10, squash=1.0):
+        parts.append(prism(f"{prefix}_{name}", rb, rt, h, place(*at_local),
+                           sides=sides, yaw=yaw, squash=squash, role=role))
+
+    def B(name, size, at_local, role="uniform"):
+        parts.append(rot_z(f"{prefix}_{name}", size, place(*at_local), yaw, role))
+
     if posture == "prone":
         # Long and low, and the one posture nothing else in the set can imitate.
-        parts.append(rot_z(f"{prefix}_torso", (0.95, 0.46, 0.22), place(0.0, 0.0, 0.11), yaw, "uniform"))
-        parts.append(rot_z(f"{prefix}_pack", (0.34, 0.34, 0.14), place(-0.10, 0.0, 0.29), yaw, "webbing"))
-        parts.append(rot_z(f"{prefix}_legs", (0.66, 0.34, 0.18), place(-0.78, 0.0, 0.09), yaw, "uniform"))
-        parts.append(box(f"{prefix}_head", (0.22, 0.22, 0.20), place(0.60, 0.0, 0.20),
-                         "metal" if helmet else "uniform"))
+        #
+        # Cylinders along +x, NOT prism(): prism stands on +z, and a first attempt
+        # used it here, which stood the lying body up as a scatter of vertical
+        # posts. A prone figure is the one case where every part runs horizontally,
+        # so the standing primitive cannot serve it.
+        def C(name, length, radius, at_local, role="uniform"):
+            parts.append(tube(f"{prefix}_{name}", length, radius,
+                              place(*at_local), yaw=yaw, role=role))
+
+        C("torso", 0.74, 0.125, (0.30, 0.0, 0.125))
+        B("pack", (0.32, 0.32, 0.13), (0.02, 0.0, 0.255), "webbing")
+        for sgn in (-1.0, 1.0):
+            C(f"leg{int(sgn)}", 0.66, 0.058, (-0.42, sgn * 0.085, 0.075))
+            B(f"boot{int(sgn)}", (0.15, 0.13, 0.10), (-0.80, sgn * 0.085, 0.06), "boot")
+            C(f"arm{int(sgn)}", 0.40, 0.045, (0.44, sgn * 0.165, 0.085))
+        C("neck", 0.10, R_NECK, (0.70, 0.0, 0.13))
+        if helmet:
+            parts.append(dome(f"{prefix}_helmet", HEAD_W, 0.15,
+                              place(0.80, 0.0, 0.075), role="metal"))
+            B("nvg", (0.08, 0.10, 0.055), (0.92, 0.0, 0.135), "metal")
+        else:
+            parts.append(dome(f"{prefix}_head", 0.098, 0.135,
+                              place(0.80, 0.0, 0.075), role="uniform"))
         return parts
 
+    # Vertical layout per posture. Kneeling compresses the legs and drops
+    # everything above the belt by the same amount, so the upper body is authored
+    # once.
     if posture == "kneeling":
-        hip, torso_h = 0.42, 0.62
-        parts.append(rot_z(f"{prefix}_shin", (0.52, 0.24, 0.16), place(-0.16, -0.13, 0.08), yaw, "uniform"))
-        parts.append(box(f"{prefix}_knee", (0.22, 0.24, 0.42), place(0.16, 0.14, 0.21), "uniform"))
+        drop = 0.30 * H
+        # Rear shin flat on the ground, forward knee up: the classic firing knee.
+        # A cylinder along the ground rather than a standing prism -- prism() only
+        # stands on +z, and a vertical shin is exactly what kneeling is not.
+        parts.append(tube(f"{prefix}_shin_r", 0.40, 0.057,
+                          place(-0.14, -0.11, 0.058), yaw=yaw, role="uniform"))
+        B("boot_r", (0.16, 0.14, 0.10), (0.09, -0.11, 0.055), "boot")
+        P("thigh_r", R_THIGH, R_KNEE, 0.30, (-0.13, -0.115, 0.115))
+        P("shin_f", 0.058, 0.052, 0.38, (0.15, 0.125, 0.055))
+        B("boot_f", (0.24, 0.14, 0.10), (0.19, 0.125, 0.05), "boot")
+        B("knee_f", (0.15, 0.15, 0.10), (0.16, 0.125, 0.40), "webbing")
+        P("thigh_f", R_KNEE, R_THIGH, 0.28, (0.15, 0.125, 0.44))
     else:
-        hip, torso_h = 0.86, 0.66
-        # Legs split by stride. Both stay on the ground: a figure that lifts a
-        # foot reads as floating once the shadow is a few pixels.
-        for side, sgn in (("l", -1.0), ("r", 1.0)):
-            parts.append(box(f"{prefix}_leg_{side}", (0.24, 0.22, hip),
-                             place(sgn * stride * 0.30, sgn * 0.13, hip / 2.0), "uniform"))
+        drop = 0.018 * abs(stride)
+        for sgn in (-1.0, 1.0):
+            fore = sgn * stride
+            # Boot in three parts. A single flat box read as a paving slab: a
+            # boot's shape is a dark sole wider than the upper, an ankle that
+            # tapers in, and a toe that runs forward of the shin.
+            bx = fore * 0.26
+            B(f"sole{int(sgn)}", (0.255, 0.135, 0.028), (bx, sgn * 0.115, 0.014), "boot")
+            B(f"boot{int(sgn)}", (0.165, 0.125, 0.078), (bx - 0.015, sgn * 0.115, 0.067), "boot")
+            B(f"toe{int(sgn)}", (0.10, 0.115, 0.048), (bx + 0.075, sgn * 0.115, 0.052), "boot")
+            P(f"shin{int(sgn)}", R_SHIN, R_KNEE, (SHIN_TOP - BOOT_H) * H,
+              (fore * 0.20, sgn * 0.115, BOOT_H * H), squash=0.92)
+            B(f"knee{int(sgn)}", (0.145, 0.145, 0.095),
+              (fore * 0.16, sgn * 0.115, KNEE_Z * H), "webbing")
+            P(f"thigh{int(sgn)}", R_KNEE, R_THIGH, (THIGH_TOP - KNEE_Z) * H,
+              (fore * 0.10, sgn * 0.12, KNEE_Z * H + 0.03), squash=0.92)
+        # Drop-leg pouch on one thigh only, so the legs are not mirror images.
+        B("dropleg", (0.125, 0.09, 0.20), (0.02, 0.215, 0.40 * H), "webbing")
 
-    dip = 0.02 * abs(stride)
-    chest_z = hip + torso_h / 2.0 - dip
-    parts.append(rot_z(f"{prefix}_torso", (0.36, 0.52, torso_h), place(0.0, 0.0, chest_z), yaw, "uniform"))
-    parts.append(rot_z(f"{prefix}_carrier", (0.42, 0.56, 0.34), place(0.0, 0.0, chest_z + 0.04), yaw, "webbing"))
-    head_z = hip + torso_h + 0.13 - dip
-    parts.append(box(f"{prefix}_head", (0.24, 0.24, 0.26), place(0.0, 0.0, head_z),
-                     "metal" if helmet else "uniform"))
+    def z(frac):
+        return frac * H - drop
+
+    # Hips into a torso that tapers out to the shoulders. Two prisms rather than
+    # one so the waist is genuinely the narrowest point.
+    P("hips", 0.128, R_WAIST, 0.13, (0.0, 0.0, z(BELT_Z) - 0.075), squash=0.80)
+    B("belt", (0.245, 0.255, 0.05), (0.0, 0.0, z(BELT_Z) + 0.055), "webbing")
+    P("torso", R_WAIST, R_CHEST, 0.30, (0.0, 0.0, z(BELT_Z) + 0.055), squash=0.74)
+
+    # Plate carrier: a shallow slab on the chest front plus three pouches. Kept
+    # narrower than the chest prism so it does not restore the slab silhouette the
+    # prisms were introduced to remove.
+    B("carrier", (0.135, 0.255, 0.22), (0.085, 0.0, z(CHEST_Z) + 0.035))
+    for k, py in enumerate((-0.088, 0.0, 0.088)):
+        B(f"pouch{k}", (0.10, 0.075, 0.095), (0.155, py, z(CHEST_Z) + 0.005), "webbing")
+
+    # Personal equipment. Each of these is one or two pixels at gameplay zoom and
+    # none of them is load-bearing for silhouette separation -- they are here
+    # because the figure reads as issued kit rather than a mannequin when you look
+    # closely, which is where the eye goes first at any zoom above 1x.
+    B("admin", (0.075, 0.135, 0.10), (0.14, 0.0, z(CHEST_Z) + 0.135), "webbing")
+    B("dump", (0.105, 0.085, 0.135), (-0.10, -0.155, z(BELT_Z) + 0.03), "webbing")
+    P("canteen", 0.048, 0.044, 0.125, (-0.135, 0.075, z(BELT_Z) - 0.02), "webbing", sides=8)
+    # Holster on the thigh opposite the drop-leg pouch, so the two legs carry
+    # different kit and the figure is not mirror-symmetric.
+    B("holster", (0.082, 0.058, 0.155), (0.03, -0.215, 0.40 * H - drop), "webbing")
+
+    # Shoulders as a squashed prism, so the arms grow out of a curve.
+    P("shoulders", R_CHEST, 0.128, 0.085, (0.0, 0.0, z(SHOULDER_Z) - 0.055), squash=0.72)
+
+    # Arms clear of the torso, counter-swinging on the walk. Tapered and thin:
+    # this is the pair of parts that most made the old figure look armoured.
+    if arms:
+        for sgn in (-1.0, 1.0):
+            swing = -sgn * stride
+            ay = sgn * (R_CHEST + R_UPPERARM + 0.012)
+            P(f"upperarm{int(sgn)}", R_UPPERARM, R_UPPERARM * 0.86, 0.24,
+              (swing * 0.08, ay, z(SHOULDER_Z) - 0.26), squash=0.94)
+            P(f"forearm{int(sgn)}", R_FOREARM * 0.92, R_FOREARM, 0.22,
+              (swing * 0.16, ay + sgn * 0.004, z(SHOULDER_Z) - 0.47), squash=0.94)
+            # Elbow pad, then a cuff and a fist. One box for a hand read as a
+            # stump; a wrist cuff is what makes the hand a separate thing from
+            # the forearm.
+            B(f"elbow{int(sgn)}", (0.098, 0.092, 0.062),
+              (swing * 0.13, ay + sgn * 0.006, z(SHOULDER_Z) - 0.275), "webbing")
+            P(f"cuff{int(sgn)}", R_FOREARM * 1.18, R_FOREARM * 1.05, 0.045,
+              (swing * 0.19, ay + sgn * 0.008, z(SHOULDER_Z) - 0.585), "webbing")
+            B(f"fist{int(sgn)}", (0.088, 0.078, 0.078),
+              (swing * 0.21, ay + sgn * 0.010, z(SHOULDER_Z) - 0.585), "webbing")
+            # Shoulder pad, sitting on the deltoid where the carrier strap ends.
+            B(f"pad{int(sgn)}", (0.125, 0.098, 0.055),
+              (0.0, ay * 0.92, z(SHOULDER_Z) - 0.075), "webbing")
+
+    # Radio antenna, on the team leader only. The one piece of added kit that is
+    # visible at gameplay zoom -- a thin vertical line above the shoulders, which
+    # is why it goes on exactly one figure per team rather than all of them: on
+    # every figure it would read as a picket fence, and it would compete with the
+    # mortar tube that separates two of the nine sheets.
+    if leader:
+        parts.append(tube(f"{prefix}_antenna", 0.46, 0.009,
+                          place(-0.11, -0.10, z(SHOULDER_Z) + 0.16),
+                          yaw=yaw, pitch=math.radians(84.0), sides=6, role="metal"))
+
+    # Neck, then the head. The neck is two pixels and does all the work of
+    # separating the helmet dome from the shoulders.
+    P("neck", R_NECK, R_NECK * 0.92, 0.075, (0.0, 0.0, z(HEAD_Z) - 0.115), sides=8)
+    if helmet:
+        parts.append(dome(f"{prefix}_helmet", HEAD_W, 0.165,
+                          place(0.0, 0.0, z(HEAD_Z) - 0.055), role="metal"))
+        # NVG mount stub on the brow: a small forward break in the head outline,
+        # which is the one piece of helmet detail large enough to read.
+        B("nvg", (0.085, 0.10, 0.06), (0.105, 0.0, z(HEAD_Z) + 0.045), "metal")
+        # Helmet cover rim, goggles band across the brow, chin strap under the jaw.
+        P("rim", HEAD_W * 1.06, HEAD_W * 1.02, 0.022,
+          (0.0, 0.0, z(HEAD_Z) - 0.058), "webbing")
+        B("goggles", (0.055, 0.195, 0.042), (0.075, 0.0, z(HEAD_Z) - 0.012), "metal")
+        # Balaclava, not a bare face. Two reasons and the second is the real one:
+        # the reference figure is fully covered, and a `skin` tone quantized into
+        # *terracotta* -- bright orange-red specks on the hands and face that read
+        # as blood spatter, worst on the dust-ramp enemy. No skin is exposed
+        # anywhere on the figure now, which removed the band entirely.
+        B("jaw", (0.10, 0.115, 0.075), (0.035, 0.0, z(HEAD_Z) - 0.07), "face")
+        B("chinstrap", (0.09, 0.145, 0.022), (0.02, 0.0, z(HEAD_Z) - 0.105), "webbing")
+    else:
+        # Cloth-wrapped head: a dome in the uniform tone, sitting lower with no
+        # NVG stub. Barely a silhouette cue at 25 px -- it earns its keep in
+        # colour, and outline separation comes from posture and weapon axis.
+        parts.append(dome(f"{prefix}_head", 0.098, 0.145,
+                          place(0.0, 0.0, z(HEAD_Z) - 0.055), role="uniform"))
+        B("face", (0.055, 0.095, 0.075), (0.075, 0.0, z(HEAD_Z) - 0.015), "face")
     return parts
 
 
@@ -275,9 +499,16 @@ def mortar(name, at, yaw=0.0, length=0.94, pitch=math.radians(74.0)):
     """
     x0, y0, z0 = at
     parts = [box(f"{name}_plate", (0.34, 0.34, 0.06), (x0, y0, z0 + 0.03), "metal")]
+    # The tube's centre sits half its length up its own axis from the baseplate,
+    # so the muzzle leans forward over the plate instead of the tube hanging in
+    # the air above it. The axial offset used to be multiplied by 0.0 -- a
+    # leftover that pinned the tube to the plate's x and made it read as resting
+    # on the nearest crewman's shoulder.
+    axial = length * 0.5
     parts.append(tube(name, length, 0.055,
-                      (x0 + math.cos(pitch) * length * 0.5 * math.cos(yaw) * 0.0,
-                       y0, z0 + math.sin(pitch) * length * 0.5 + 0.06),
+                      (x0 + axial * math.cos(pitch) * math.cos(yaw),
+                       y0 + axial * math.cos(pitch) * math.sin(yaw),
+                       z0 + axial * math.sin(pitch) + 0.06),
                       yaw=yaw, pitch=pitch, role="weapon"))
     for sgn in (-1.0, 1.0):
         parts.append(box(f"{name}_bipod{int(sgn)}", (0.06, 0.06, 0.54),

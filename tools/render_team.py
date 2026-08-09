@@ -67,21 +67,48 @@ SIZE_CLASS_NAME = "infantry"
 #: No team-band colour anywhere: the art gate rejects reserved bands in static
 #: art by name, and saturated colour is reserved for VFX and markers.
 #:
-#: Both bases are near the *light* end of their ramp because **a figure renders at
+#: Both bases sit at the *lightest* end of their ramp because **a figure renders at
 #: roughly half its base value.** Measured: a dust.3 (#AC8248) uniform came out
 #: lit at #563F22, which sits 28 away from dust.6 and 30 from limestone.8 -- close
-#: enough that it scattered across both ramps and read as neither. So the base has
-#: to be about twice as light as the tone actually wanted. The resulting bands:
+#: enough that it scattered across both ramps and read as neither. Aiming a base
+#: directly at the tone wanted is the mistake, and it is not visible from the
+#: palette.
 #:
-#:   kdf   olive 68%, shadow 29%
-#:   enemy dust 52-68%, limestone 21-34%
+#: Both were lifted a further step once the figure gained its personal kit. Every
+#: pouch, pad, cuff, strap and boot is the `webbing` tone, and there are now
+#: fourteen of them, so at olive.1/olive.2 nearly half the figure went dark:
 #:
-#: which is the readable faction split. Aiming a base directly at the tone wanted
-#: is the mistake here, and it is not obvious from looking at the palette.
+#:   olive.1 / olive.2   olive 47%, shadow 46%   <- half the soldier in shadow
+#:   olive.0 / olive.1   olive 61%, gunmetal 31%, shadow 7%   <- chosen
+#:
+#: and for the enemy, dust 49% / limestone 36%. The gunmetal share is grey-green
+#: and reads as shading at this size; the shadow share was reading as holes.
+#:
+#: There is no `skin` anywhere on the figure. It was a bare face and bare hands,
+#: and it quantized into *terracotta* -- orange-red specks that read as blood
+#: spatter, worst on the dust-ramp enemy. The reference figure is fully covered, so
+#: a balaclava and gloves are both more accurate and the fix.
+#: Gear leaves the uniform's ramp entirely. A second step of the same green read
+#: as shading rather than as equipment, so KDF carry grey nylon webbing against
+#: olive, and the militia wear *olive* gear over tan clothes -- scavenged and
+#: mismatched, which is what an irregular cell should look like and which keeps
+#: the two factions' dominant tones apart regardless.
 ROLE_PALETTE = {
-    "kdf": {"uniform": "olive.1", "webbing": "olive.2", "skin": "dust.2"},
-    "enemy": {"uniform": "dust.1", "webbing": "dust.3", "skin": "dust.2"},
+    "kdf": {"uniform": "olive.0", "webbing": "gunmetal.2"},
+    "enemy": {"uniform": "dust.0", "webbing": "olive.1"},
 }
+
+#: Boots and faces are the same on both sides, so they live here rather than in
+#: the faction table. Boots are `gunmetal.3` (#363B39) rather than a shadow entry:
+#: a figure renders at roughly half its base, so this lights *down* to shadow and
+#: comes out actually black, where a shadow base would go to pure black and read
+#: as a hole punched in the sprite.
+#:
+#: The palette has no skin tone -- ART_PIPELINE.md section 1 makes desaturation a
+#: mechanical decision, not an aesthetic one -- so a face is the light end of
+#: `dust`, which at this size is the correct read anyway: a warm dot under the
+#: helmet. `dust.2` was the earlier mistake, lighting into terracotta.
+BODY_PALETTE = {"boot": "gunmetal.3", "face": "dust.1"}
 
 #: Ambient, and why a figure needs it when a vehicle does not.
 #:
@@ -165,7 +192,9 @@ def apply_materials(parts, faction, casualty=False):
         if role is None:
             raise SystemExit(f"{ob.name} carries no rl_role -- kit.py must set one")
         key = CASUALTY_KEY if casualty else (
-            ROLE_PALETTE[faction].get(role) or SHARED_PALETTE.get(role)
+            ROLE_PALETTE[faction].get(role)
+            or BODY_PALETTE.get(role)
+            or SHARED_PALETTE.get(role)
         )
         if key is None:
             raise SystemExit(f"no palette key for role {role!r} (faction {faction})")
