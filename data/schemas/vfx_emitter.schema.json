@@ -4,7 +4,12 @@
   "title": "VFX Emitter",
   "description": "Data-driven particle emitter. VFX are the highest-value visual work in this project and they are pure data + code, so contributors can add them without touching the engine or shipping any art. Emitters are triggered by sim events; the emitter itself is PRESENTATION ONLY and must never feed back into the deterministic sim.",
   "type": "object",
-  "required": ["id", "trigger", "layer", "particles"],
+  "required": [
+    "id",
+    "trigger",
+    "layer",
+    "particles"
+  ],
   "additionalProperties": false,
   "properties": {
     "id": {
@@ -12,19 +17,37 @@
       "pattern": "^[a-z0-9_]+$"
     },
     "trigger": {
-      "description": "Sim event that spawns this emitter.",
+      "description": "What spawns this emitter. Every value but `ambient_idle` is a sim event. `ambient_idle` is presentation-only: the renderer spawns it on its own timer for units showing the idle clip, seeded from the presentation PRNG. It exists because idling is not an event and must not become one -- putting a cigarette in the deterministic simulation would widen the state the replay hash covers for something no outcome depends on. The renderer reads sim state and writes none, so invariant 4 holds.",
       "type": "string",
       "enum": [
-        "weapon_fire", "projectile_trail", "impact_terrain", "impact_armor",
-        "penetration", "catastrophic_kill", "mobility_kill", "vehicle_move",
-        "rotor_wash", "structure_collapse", "tunnel_collapse",
-        "interceptor_launch", "interceptor_hit", "suppression_near_miss",
-        "eod_breach", "smoke_screen", "flare"
+        "weapon_fire",
+        "projectile_trail",
+        "impact_terrain",
+        "impact_armor",
+        "penetration",
+        "catastrophic_kill",
+        "mobility_kill",
+        "vehicle_move",
+        "rotor_wash",
+        "structure_collapse",
+        "tunnel_collapse",
+        "interceptor_launch",
+        "interceptor_hit",
+        "suppression_near_miss",
+        "eod_breach",
+        "smoke_screen",
+        "flare",
+        "ambient_idle"
       ]
     },
     "layer": {
       "type": "string",
-      "enum": ["ground_decal", "below_units", "above_units", "sky"],
+      "enum": [
+        "ground_decal",
+        "below_units",
+        "above_units",
+        "sky"
+      ],
       "description": "ground_decal is persistent battlefield state -- scorch, craters, rubble. Persistence is what makes a map look fought-over instead of freshly loaded."
     },
     "persistent": {
@@ -43,9 +66,20 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "amplitude_px": { "type": "number", "minimum": 0, "maximum": 24 },
-        "duration_ms": { "type": "integer", "minimum": 0, "maximum": 1200 },
-        "falloff_tiles": { "type": "number", "minimum": 0 }
+        "amplitude_px": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 24
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1200
+        },
+        "falloff_tiles": {
+          "type": "number",
+          "minimum": 0
+        }
       }
     },
     "hit_stop_ms": {
@@ -60,10 +94,21 @@
       "description": "Transient light contribution. This is what makes muzzle flashes read at night and in thermal.",
       "additionalProperties": false,
       "properties": {
-        "color": { "$ref": "#/$defs/palette_ref" },
-        "intensity": { "type": "number", "minimum": 0 },
-        "radius_tiles": { "type": "number", "minimum": 0 },
-        "decay_ms": { "type": "integer", "minimum": 0 }
+        "color": {
+          "$ref": "#/$defs/palette_ref"
+        },
+        "intensity": {
+          "type": "number",
+          "minimum": 0
+        },
+        "radius_tiles": {
+          "type": "number",
+          "minimum": 0
+        },
+        "decay_ms": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "weapon_classes": {
@@ -74,15 +119,27 @@
       "items": {
         "type": "string",
         "enum": [
-          "apfsds", "heat", "he", "atgm", "rpg", "small_arms",
-          "hmg", "autocannon", "mortar", "rocket", "interceptor", "demolition"
+          "apfsds",
+          "heat",
+          "he",
+          "atgm",
+          "rpg",
+          "small_arms",
+          "hmg",
+          "autocannon",
+          "mortar",
+          "rocket",
+          "interceptor",
+          "demolition"
         ]
       }
     },
     "particles": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "#/$defs/particle_layer" }
+      "items": {
+        "$ref": "#/$defs/particle_layer"
+      }
     }
   },
   "$defs": {
@@ -93,53 +150,111 @@
     },
     "range": {
       "type": "array",
-      "items": { "type": "number" },
+      "items": {
+        "type": "number"
+      },
       "minItems": 2,
       "maxItems": 2,
       "description": "[min, max], sampled from the seeded presentation PRNG."
     },
     "particle_layer": {
       "type": "object",
-      "required": ["count", "lifetime_ms", "color_over_life"],
+      "required": [
+        "count",
+        "lifetime_ms",
+        "color_over_life"
+      ],
       "additionalProperties": false,
       "properties": {
         "sprite": {
           "type": "string",
           "default": "soft_dot",
-          "enum": ["soft_dot", "hard_dot", "streak", "smoke_puff", "spark", "shard", "ring"]
+          "enum": [
+            "soft_dot",
+            "hard_dot",
+            "streak",
+            "smoke_puff",
+            "spark",
+            "shard",
+            "ring"
+          ]
         },
-        "count": { "$ref": "#/$defs/range" },
-        "lifetime_ms": { "$ref": "#/$defs/range" },
+        "count": {
+          "$ref": "#/$defs/range"
+        },
+        "lifetime_ms": {
+          "$ref": "#/$defs/range"
+        },
         "emit_over_ms": {
           "type": "integer",
           "default": 0,
           "description": "0 = burst. >0 = sustained emission, for trails and fires."
         },
-        "speed_tiles_s": { "$ref": "#/$defs/range" },
-        "cone_deg": { "type": "number", "minimum": 0, "maximum": 360, "default": 360 },
-        "direction_offset_deg": { "type": "number", "minimum": -180, "maximum": 180, "default": 0, "description": "Rotates this layer's emission direction relative to the emitter's facing. 180 emits directly backwards -- an RPG or ATGM backblast, which is what identifies an AT team by the shape of its signature alone." },
-        "inherit_velocity": { "type": "number", "minimum": 0, "maximum": 1, "default": 0 },
-        "gravity_tiles_s2": { "type": "number", "default": 0 },
-        "drag": { "type": "number", "minimum": 0, "maximum": 1, "default": 0 },
-        "size_px": { "$ref": "#/$defs/range" },
+        "speed_tiles_s": {
+          "$ref": "#/$defs/range"
+        },
+        "cone_deg": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 360,
+          "default": 360
+        },
+        "direction_offset_deg": {
+          "type": "number",
+          "minimum": -180,
+          "maximum": 180,
+          "default": 0,
+          "description": "Rotates this layer's emission direction relative to the emitter's facing. 180 emits directly backwards -- an RPG or ATGM backblast, which is what identifies an AT team by the shape of its signature alone."
+        },
+        "inherit_velocity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0
+        },
+        "gravity_tiles_s2": {
+          "type": "number",
+          "default": 0
+        },
+        "drag": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0
+        },
+        "size_px": {
+          "$ref": "#/$defs/range"
+        },
         "size_over_life": {
           "type": "array",
-          "items": { "type": "number", "minimum": 0 },
+          "items": {
+            "type": "number",
+            "minimum": 0
+          },
           "minItems": 2,
           "description": "Multiplier curve sampled across lifetime."
         },
         "color_over_life": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/palette_ref" },
+          "items": {
+            "$ref": "#/$defs/palette_ref"
+          },
           "description": "Stepped, not interpolated -- interpolation would generate off-palette colours. white_hot -> fire -> ember -> dust.3 is the canonical explosion ramp."
         },
         "alpha_over_life": {
           "type": "array",
-          "items": { "type": "number", "minimum": 0, "maximum": 1 },
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
           "minItems": 2
         },
-        "additive": { "type": "boolean", "default": false },
+        "additive": {
+          "type": "boolean",
+          "default": false
+        },
         "heat_shimmer": {
           "type": "boolean",
           "default": false,

@@ -5,7 +5,7 @@
 
 import { Application, Assets, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import { fx, WEAPON_CLASS, type Sim, type SimEvent } from '@lions/sim';
-import { SIM_HZ, advancePhase, phaseOffset, walkFps } from './anim';
+import { SIM_HZ, advancePhase, phaseOffset, walkFps, ambientCue } from './anim';
 import {
   clipOrFallback,
   frameFileName,
@@ -179,6 +179,24 @@ export class PixiRenderer {
       turretTextures?: Texture[][];
     }
   >();
+
+  /** Spawn a named ambient emitter at a unit, seeded off the presentation PRNG. */
+  private spawnAmbient(id: string, sx: number, sy: number): void {
+    if (!this.particles) return;
+    const em = this.emitters.byName(id);
+    if (!em) return;
+    const prio = em.budget_priority ?? 1;
+    const fxLayer = fxLayerIndex(em.layer);
+    // At the head, not the feet: a cigarette is held at face height, and the
+    // anchor is the unit's ground contact point.
+    const hy = sy - 26;
+    for (const layer of em.particles) {
+      // Upward and slightly across, which is where exhaled smoke goes. The
+      // presentation PRNG inside spawn() scatters it per particle, so two squads
+      // idling side by side do not puff in unison.
+      this.particles.spawn(layer, sx, hy, 0.3, 0.25, prio, fxLayer);
+    }
+  }
 
   /** Facing (turns) → sprite index, in the sheet's own convention. */
   private static spriteIndex(facingNorm: number, sheet: SheetSpec): number {
@@ -1204,8 +1222,20 @@ export class PixiRenderer {
             clip === 'move'
               ? walkFps(this.entitySpeed[i], nFrames) * cadenceScale(anim)
               : spec?.fps ?? 0;
+          const before = Math.floor(this.entityAnimFrame[i]);
           this.entityAnimFrame[i] = advancePhase(this.entityAnimFrame[i], fps, dtSeconds, nFrames);
           frame = Math.min(nFrames - 1, Math.floor(this.entityAnimFrame[i]));
+          // Ambient VFX for the smoking idle. Fired off the clip phase, on the
+          // frame the hand reaches the mouth and again as it comes away, so the
+          // ember and the exhale land where the animation says they should.
+          //
+          // Nothing here touches sim state. Idling is not a sim event and must
+          // not become one -- a cigarette in the simulation would widen the state
+          // the replay hash covers for something no outcome depends on -- so the
+          // renderer owns this entirely. See vfx/emitters.ts byName().
+          const cue = ambientCue(clip, nFrames, before, frame);
+          if (cue === 'ember') this.spawnAmbient('cigarette_ember', sx, sy);
+          else if (cue === 'smoke') this.spawnAmbient('cigarette_smoke', sx, sy);
         }
         // Transform motion, applied to the sprite only — the plate, bars and
         // glyphs stay put so legibility never jitters with the art.

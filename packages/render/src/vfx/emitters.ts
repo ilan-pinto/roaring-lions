@@ -45,10 +45,13 @@ export interface EmitterSpec {
  */
 export class EmitterLibrary {
   private byFireClass = new Map<number, EmitterSpec>();
+  private byId = new Map<string, EmitterSpec>();
 
   useEmitters(list: EmitterSpec[]): void {
     this.byFireClass.clear();
+    this.byId.clear();
     for (const em of list) {
+      this.byId.set(em.id, em);
       if (em.trigger !== 'weapon_fire') continue;
       for (const name of em.weapon_classes ?? []) {
         const idx = WEAPON_CLASS[name];
@@ -62,5 +65,19 @@ export class EmitterLibrary {
   /** The emitter for a weapon class, or null to use the generic puff. */
   fireEmitterFor(cls: number): EmitterSpec | null {
     return this.byFireClass.get(cls) ?? null;
+  }
+
+  /**
+   * An emitter by id, for the ambient ones the renderer spawns itself.
+   *
+   * `ambient_idle` emitters have no sim event behind them -- idling is not an
+   * event and must not become one, since putting a cigarette in the simulation
+   * would widen the state the replay hash covers for something no outcome
+   * depends on. So the renderer looks these up by name and fires them off its
+   * own clip phase. It reads sim state and writes none, which is the direction
+   * invariant 4 allows.
+   */
+  byName(id: string): EmitterSpec | null {
+    return this.byId.get(id) ?? null;
   }
 }

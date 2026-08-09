@@ -35,6 +35,8 @@ import fireHeat from '../../../data/vfx/fire_heat.json';
 import fireHmg from '../../../data/vfx/fire_hmg.json';
 import fireMissile from '../../../data/vfx/fire_missile.json';
 import fireMortar from '../../../data/vfx/fire_mortar.json';
+import cigaretteEmber from '../../../data/vfx/cigarette_ember.json';
+import cigaretteSmoke from '../../../data/vfx/cigarette_smoke.json';
 import fireSmallArms from '../../../data/vfx/fire_small_arms.json';
 
 export { palette };
@@ -96,7 +98,11 @@ export const units = {
 
 export type UnitId = keyof typeof units;
 
-/** Weapon-fire emitters, indexed by the renderer by weapon class. */
+/** Every emitter the renderer may need.
+ *
+ * Weapon-fire ones are indexed by weapon class; the two `ambient_idle` ones are
+ * looked up by name, because idling is not a sim event and must not become one.
+ */
 export const vfxEmitters = [
   fireSmallArms,
   fireHmg,
@@ -105,6 +111,8 @@ export const vfxEmitters = [
   fireHeat,
   fireMissile,
   fireMortar,
+  cigaretteEmber,
+  cigaretteSmoke,
 ];
 
 /** Resolve a palette key like "vfx.fire" or "dust.2" to its hex colour. */

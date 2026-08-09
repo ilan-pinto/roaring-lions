@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { advancePhase, phaseOffset, SIM_HZ, STRIDE_TILES, walkFps } from './anim';
+import { advancePhase, phaseOffset, SIM_HZ, STRIDE_TILES, walkFps, ambientCue, SMOKE_EMBER_FRAME, SMOKE_EXHALE_FRAME } from './anim';
 
 describe('walkFps', () => {
   it('paces the gait so one cycle covers STRIDE_TILES of ground', () => {
@@ -102,5 +102,44 @@ describe('SIM_HZ', () => {
     // Invariant 1. Measured speed is derived from a per-tick position delta,
     // so this constant being wrong silently mis-paces every unit in the game.
     expect(SIM_HZ).toBe(20);
+  });
+});
+
+describe('ambientCue — the smoking idle beats', () => {
+  it('fires the ember only on the frame the hand reaches the mouth', () => {
+    expect(ambientCue('idle', 10, 4, SMOKE_EMBER_FRAME)).toBe('ember');
+    expect(ambientCue('idle', 10, 6, SMOKE_EXHALE_FRAME)).toBe('smoke');
+    expect(ambientCue('idle', 10, 2, 3)).toBeNull();
+  });
+
+  it('fires on entry only, never while the clip sits on the frame', () => {
+    // The bug this guards: without the edge-detect an idling squad emits once
+    // per *rendered* frame, so sixty puffs a second instead of one.
+    expect(ambientCue('idle', 10, SMOKE_EMBER_FRAME, SMOKE_EMBER_FRAME)).toBeNull();
+    expect(ambientCue('idle', 10, SMOKE_EXHALE_FRAME, SMOKE_EXHALE_FRAME)).toBeNull();
+  });
+
+  it('never fires outside the idle clip', () => {
+    for (const clip of ['move', 'fire', 'down', 'wreck']) {
+      expect(ambientCue(clip, 10, 4, SMOKE_EMBER_FRAME)).toBeNull();
+    }
+  });
+
+  it('never fires for a team with a one-frame idle', () => {
+    // The four crew-served and prone teams keep a static idle. They must not
+    // smoke, and frames <= 1 is what tells the renderer so.
+    expect(ambientCue('idle', 1, 0, 0)).toBeNull();
+  });
+
+  it('walks a whole loop and fires each beat exactly once', () => {
+    const fired: string[] = [];
+    let prev = 0;
+    for (let f = 1; f <= 10; f++) {
+      const frame = f % 10;
+      const cue = ambientCue('idle', 10, prev, frame);
+      if (cue) fired.push(`${frame}:${cue}`);
+      prev = frame;
+    }
+    expect(fired).toEqual(['5:ember', '7:smoke']);
   });
 });

@@ -14,9 +14,9 @@
   "frameMetres": 4.43,
   "clips": {
     "idle": {
-      "frames": 1,
-      "fps": 0,
-      "loop": false
+      "frames": 10,
+      "fps": 3,
+      "loop": true
     },
     "move": {
       "frames": 4,
@@ -135,6 +135,870 @@
       "facing": 15,
       "frame": 0,
       "file": "idle_f15_000.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 0,
+      "frame": 1,
+      "file": "idle_f00_001.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 1,
+      "frame": 1,
+      "file": "idle_f01_001.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 2,
+      "frame": 1,
+      "file": "idle_f02_001.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 3,
+      "frame": 1,
+      "file": "idle_f03_001.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 4,
+      "frame": 1,
+      "file": "idle_f04_001.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 5,
+      "frame": 1,
+      "file": "idle_f05_001.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 6,
+      "frame": 1,
+      "file": "idle_f06_001.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 7,
+      "frame": 1,
+      "file": "idle_f07_001.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 8,
+      "frame": 1,
+      "file": "idle_f08_001.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 9,
+      "frame": 1,
+      "file": "idle_f09_001.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 10,
+      "frame": 1,
+      "file": "idle_f10_001.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 11,
+      "frame": 1,
+      "file": "idle_f11_001.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 12,
+      "frame": 1,
+      "file": "idle_f12_001.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 13,
+      "frame": 1,
+      "file": "idle_f13_001.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 14,
+      "frame": 1,
+      "file": "idle_f14_001.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 15,
+      "frame": 1,
+      "file": "idle_f15_001.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 0,
+      "frame": 2,
+      "file": "idle_f00_002.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 1,
+      "frame": 2,
+      "file": "idle_f01_002.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 2,
+      "frame": 2,
+      "file": "idle_f02_002.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 3,
+      "frame": 2,
+      "file": "idle_f03_002.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 4,
+      "frame": 2,
+      "file": "idle_f04_002.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 5,
+      "frame": 2,
+      "file": "idle_f05_002.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 6,
+      "frame": 2,
+      "file": "idle_f06_002.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 7,
+      "frame": 2,
+      "file": "idle_f07_002.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 8,
+      "frame": 2,
+      "file": "idle_f08_002.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 9,
+      "frame": 2,
+      "file": "idle_f09_002.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 10,
+      "frame": 2,
+      "file": "idle_f10_002.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 11,
+      "frame": 2,
+      "file": "idle_f11_002.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 12,
+      "frame": 2,
+      "file": "idle_f12_002.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 13,
+      "frame": 2,
+      "file": "idle_f13_002.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 14,
+      "frame": 2,
+      "file": "idle_f14_002.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 15,
+      "frame": 2,
+      "file": "idle_f15_002.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 0,
+      "frame": 3,
+      "file": "idle_f00_003.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 1,
+      "frame": 3,
+      "file": "idle_f01_003.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 2,
+      "frame": 3,
+      "file": "idle_f02_003.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 3,
+      "frame": 3,
+      "file": "idle_f03_003.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 4,
+      "frame": 3,
+      "file": "idle_f04_003.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 5,
+      "frame": 3,
+      "file": "idle_f05_003.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 6,
+      "frame": 3,
+      "file": "idle_f06_003.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 7,
+      "frame": 3,
+      "file": "idle_f07_003.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 8,
+      "frame": 3,
+      "file": "idle_f08_003.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 9,
+      "frame": 3,
+      "file": "idle_f09_003.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 10,
+      "frame": 3,
+      "file": "idle_f10_003.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 11,
+      "frame": 3,
+      "file": "idle_f11_003.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 12,
+      "frame": 3,
+      "file": "idle_f12_003.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 13,
+      "frame": 3,
+      "file": "idle_f13_003.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 14,
+      "frame": 3,
+      "file": "idle_f14_003.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 15,
+      "frame": 3,
+      "file": "idle_f15_003.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 0,
+      "frame": 4,
+      "file": "idle_f00_004.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 1,
+      "frame": 4,
+      "file": "idle_f01_004.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 2,
+      "frame": 4,
+      "file": "idle_f02_004.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 3,
+      "frame": 4,
+      "file": "idle_f03_004.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 4,
+      "frame": 4,
+      "file": "idle_f04_004.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 5,
+      "frame": 4,
+      "file": "idle_f05_004.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 6,
+      "frame": 4,
+      "file": "idle_f06_004.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 7,
+      "frame": 4,
+      "file": "idle_f07_004.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 8,
+      "frame": 4,
+      "file": "idle_f08_004.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 9,
+      "frame": 4,
+      "file": "idle_f09_004.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 10,
+      "frame": 4,
+      "file": "idle_f10_004.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 11,
+      "frame": 4,
+      "file": "idle_f11_004.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 12,
+      "frame": 4,
+      "file": "idle_f12_004.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 13,
+      "frame": 4,
+      "file": "idle_f13_004.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 14,
+      "frame": 4,
+      "file": "idle_f14_004.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 15,
+      "frame": 4,
+      "file": "idle_f15_004.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 0,
+      "frame": 5,
+      "file": "idle_f00_005.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 1,
+      "frame": 5,
+      "file": "idle_f01_005.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 2,
+      "frame": 5,
+      "file": "idle_f02_005.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 3,
+      "frame": 5,
+      "file": "idle_f03_005.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 4,
+      "frame": 5,
+      "file": "idle_f04_005.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 5,
+      "frame": 5,
+      "file": "idle_f05_005.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 6,
+      "frame": 5,
+      "file": "idle_f06_005.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 7,
+      "frame": 5,
+      "file": "idle_f07_005.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 8,
+      "frame": 5,
+      "file": "idle_f08_005.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 9,
+      "frame": 5,
+      "file": "idle_f09_005.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 10,
+      "frame": 5,
+      "file": "idle_f10_005.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 11,
+      "frame": 5,
+      "file": "idle_f11_005.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 12,
+      "frame": 5,
+      "file": "idle_f12_005.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 13,
+      "frame": 5,
+      "file": "idle_f13_005.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 14,
+      "frame": 5,
+      "file": "idle_f14_005.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 15,
+      "frame": 5,
+      "file": "idle_f15_005.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 0,
+      "frame": 6,
+      "file": "idle_f00_006.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 1,
+      "frame": 6,
+      "file": "idle_f01_006.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 2,
+      "frame": 6,
+      "file": "idle_f02_006.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 3,
+      "frame": 6,
+      "file": "idle_f03_006.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 4,
+      "frame": 6,
+      "file": "idle_f04_006.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 5,
+      "frame": 6,
+      "file": "idle_f05_006.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 6,
+      "frame": 6,
+      "file": "idle_f06_006.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 7,
+      "frame": 6,
+      "file": "idle_f07_006.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 8,
+      "frame": 6,
+      "file": "idle_f08_006.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 9,
+      "frame": 6,
+      "file": "idle_f09_006.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 10,
+      "frame": 6,
+      "file": "idle_f10_006.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 11,
+      "frame": 6,
+      "file": "idle_f11_006.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 12,
+      "frame": 6,
+      "file": "idle_f12_006.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 13,
+      "frame": 6,
+      "file": "idle_f13_006.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 14,
+      "frame": 6,
+      "file": "idle_f14_006.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 15,
+      "frame": 6,
+      "file": "idle_f15_006.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 0,
+      "frame": 7,
+      "file": "idle_f00_007.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 1,
+      "frame": 7,
+      "file": "idle_f01_007.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 2,
+      "frame": 7,
+      "file": "idle_f02_007.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 3,
+      "frame": 7,
+      "file": "idle_f03_007.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 4,
+      "frame": 7,
+      "file": "idle_f04_007.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 5,
+      "frame": 7,
+      "file": "idle_f05_007.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 6,
+      "frame": 7,
+      "file": "idle_f06_007.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 7,
+      "frame": 7,
+      "file": "idle_f07_007.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 8,
+      "frame": 7,
+      "file": "idle_f08_007.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 9,
+      "frame": 7,
+      "file": "idle_f09_007.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 10,
+      "frame": 7,
+      "file": "idle_f10_007.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 11,
+      "frame": 7,
+      "file": "idle_f11_007.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 12,
+      "frame": 7,
+      "file": "idle_f12_007.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 13,
+      "frame": 7,
+      "file": "idle_f13_007.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 14,
+      "frame": 7,
+      "file": "idle_f14_007.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 15,
+      "frame": 7,
+      "file": "idle_f15_007.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 0,
+      "frame": 8,
+      "file": "idle_f00_008.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 1,
+      "frame": 8,
+      "file": "idle_f01_008.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 2,
+      "frame": 8,
+      "file": "idle_f02_008.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 3,
+      "frame": 8,
+      "file": "idle_f03_008.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 4,
+      "frame": 8,
+      "file": "idle_f04_008.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 5,
+      "frame": 8,
+      "file": "idle_f05_008.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 6,
+      "frame": 8,
+      "file": "idle_f06_008.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 7,
+      "frame": 8,
+      "file": "idle_f07_008.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 8,
+      "frame": 8,
+      "file": "idle_f08_008.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 9,
+      "frame": 8,
+      "file": "idle_f09_008.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 10,
+      "frame": 8,
+      "file": "idle_f10_008.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 11,
+      "frame": 8,
+      "file": "idle_f11_008.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 12,
+      "frame": 8,
+      "file": "idle_f12_008.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 13,
+      "frame": 8,
+      "file": "idle_f13_008.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 14,
+      "frame": 8,
+      "file": "idle_f14_008.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 15,
+      "frame": 8,
+      "file": "idle_f15_008.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 0,
+      "frame": 9,
+      "file": "idle_f00_009.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 1,
+      "frame": 9,
+      "file": "idle_f01_009.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 2,
+      "frame": 9,
+      "file": "idle_f02_009.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 3,
+      "frame": 9,
+      "file": "idle_f03_009.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 4,
+      "frame": 9,
+      "file": "idle_f04_009.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 5,
+      "frame": 9,
+      "file": "idle_f05_009.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 6,
+      "frame": 9,
+      "file": "idle_f06_009.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 7,
+      "frame": 9,
+      "file": "idle_f07_009.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 8,
+      "frame": 9,
+      "file": "idle_f08_009.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 9,
+      "frame": 9,
+      "file": "idle_f09_009.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 10,
+      "frame": 9,
+      "file": "idle_f10_009.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 11,
+      "frame": 9,
+      "file": "idle_f11_009.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 12,
+      "frame": 9,
+      "file": "idle_f12_009.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 13,
+      "frame": 9,
+      "file": "idle_f13_009.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 14,
+      "frame": 9,
+      "file": "idle_f14_009.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 15,
+      "frame": 9,
+      "file": "idle_f15_009.png"
     },
     {
       "clip": "move",
