@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roaringlions.dev/schemas/tutorial.schema.json",
+  "title": "Tutorial step list",
+  "description": "An ordered teaching sequence for one mission. Read by @lions/app, never by the sim: a step's gate may test player input, which the simulation deliberately does not know about. Steps advance in order and never block input -- an unsatisfied step simply does not advance.",
+  "type": "object",
+  "required": ["id", "mission", "steps"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+    "mission": {
+      "type": "string",
+      "description": "The mission id this sequence teaches. Cross-checked against data/missions/."
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/step" }
+    }
+  },
+  "$defs": {
+    "step": {
+      "type": "object",
+      "required": ["id", "title", "teach", "await"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+        "title": { "type": "string", "maxLength": 60 },
+        "teach": { "type": "string", "maxLength": 240 },
+        "await": { "$ref": "#/$defs/predicate" },
+        "focus": { "$ref": "#/$defs/focus" },
+        "nudge_after_s": { "type": "number", "minimum": 3, "maximum": 120 },
+        "nudge": { "type": "string", "maxLength": 160 }
+      },
+      "dependentRequired": { "nudge": ["nudge_after_s"], "nudge_after_s": ["nudge"] }
+    },
+    "predicate": {
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "enum": ["intent", "sim", "mission", "elapsed_s", "all_of", "any_of"] },
+        "intent": {
+          "type": "string",
+          "description": "intent only: a PlayerIntent kind. Cross-checked against INTENT_KINDS in packages/app/src/input/intents.ts."
+        },
+        "verb": { "enum": ["move", "attackMove"], "description": "intent/order only." },
+        "via": { "enum": ["click", "box", "group"], "description": "intent/select only." },
+        "action": { "enum": ["assign", "recall"], "description": "intent/group only." },
+        "event": { "type": "string", "description": "sim/mission only: a SimEvent or MissionEvent kind." },
+        "side": { "type": "integer", "minimum": 0, "maximum": 2, "description": "sim only: restrict to a side." },
+        "by_unit": {
+          "type": "string",
+          "description": "sim only: the event's `by` entity must be of this unit type. Lets 'the sniper made this kill' be a gate."
+        },
+        "loaded": { "type": "boolean", "description": "sim/transport only." },
+        "seconds": { "type": "number", "minimum": 0, "description": "elapsed_s only: seconds since the step opened." },
+        "of": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/$defs/predicate" },
+          "description": "all_of/any_of only."
+        }
+      }
+    },
+    "focus": {
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "enum": ["marker", "zone", "none"] },
+        "marker": { "type": "string" },
+        "zone": { "type": "string" }
+      }
+    }
+  }
+}

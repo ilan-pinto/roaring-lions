@@ -1,0 +1,24 @@
+{
+  "id": "beit_sahwan_0",
+  "mission": "beit_sahwan_0_tutorial",
+  "steps": [
+    {
+      "id": "take_command",
+      "title": "Take command",
+      "teach": "Click a squad to select it. Drag a box to select several. The panel on the right reads whatever you have selected.",
+      "await": { "kind": "intent", "intent": "select" },
+      "focus": { "kind": "marker", "marker": "kdf_start" },
+      "nudge_after_s": 12,
+      "nudge": "Click the squad on the left of the field."
+    },
+    {
+      "id": "move_by_bounds",
+      "title": "Move by bounds",
+      "teach": "Right-click ground to send them. Hold shift to queue a route around cover instead of straight across open ground. Press h to stop them where they stand.",
+      "await": { "kind": "intent", "intent": "order", "verb": "attackMove" },
+      "focus": { "kind": "marker", "marker": "field" },
+      "nudge_after_s": 15,
+      "nudge": "Right-click the marked ground to the east."
+    }
+  ]
+}

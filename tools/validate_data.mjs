@@ -9,6 +9,7 @@
 //   data/vfx/**      against data/schemas/vfx_emitter.schema.json
 //   data/maps/**     against data/schemas/map.schema.json, plus grid
 //                    dimensions and marker/zone bounds
+//   data/tutorial/** against data/schemas/tutorial.schema.json
 //   tools/fixtures/units/** against the unit schema (synthetic, but must parse)
 //   data/palette.json structural sanity (32 locked colours)
 //   every vfx palette_ref resolves to a real palette key — raw hex is how
@@ -74,20 +75,23 @@ const schemas = {
   mission: loadJson(join(ROOT, 'data/schemas/mission.schema.json')),
   vfx: loadJson(join(ROOT, 'data/schemas/vfx_emitter.schema.json')),
   map: loadJson(join(ROOT, 'data/schemas/map.schema.json')),
+  tutorial: loadJson(join(ROOT, 'data/schemas/tutorial.schema.json')),
 };
 
 let checked = 0;
-if (schemas.unit && schemas.mission && schemas.vfx && schemas.map) {
+if (schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tutorial) {
   const validators = {
     unit: ajv.compile(schemas.unit),
     mission: ajv.compile(schemas.mission),
     vfx: ajv.compile(schemas.vfx),
     map: ajv.compile(schemas.map),
+    tutorial: ajv.compile(schemas.tutorial),
   };
   checked += validateDir(join(ROOT, 'data/units'), validators.unit, 'unit.schema');
   checked += validateDir(join(ROOT, 'data/missions'), validators.mission, 'mission.schema');
   checked += validateDir(join(ROOT, 'data/vfx'), validators.vfx, 'vfx_emitter.schema');
   checked += validateDir(join(ROOT, 'data/maps'), validators.map, 'map.schema');
+  checked += validateDir(join(ROOT, 'data/tutorial'), validators.tutorial, 'tutorial.schema');
   checked += validateDir(join(ROOT, 'tools/fixtures/units'), validators.unit, 'unit.schema');
 } else {
   failures.push('schema files missing or unparseable — cannot validate content');

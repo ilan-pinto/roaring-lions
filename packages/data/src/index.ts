@@ -10,6 +10,7 @@ import structureCatalogue from '../../../data/structures.json';
 import beitSahwan1 from '../../../data/missions/beit_sahwan_1_recon.json';
 import beitSahwan2 from '../../../data/missions/beit_sahwan_2_foothold.json';
 import beitSahwan3 from '../../../data/missions/beit_sahwan_3_clearance.json';
+import tutorialBeitSahwan0 from '../../../data/tutorial/beit_sahwan_0.json';
 
 import mbtLavi from '../../../data/units/kdf/mbt_lavi.json';
 import ifvNamer from '../../../data/units/kdf/ifv_namer.json';
@@ -74,6 +75,18 @@ export const missions = {
 } as const;
 
 export type MissionId = keyof typeof missions;
+
+/** Tutorial step lists, keyed by id. Shapes match tutorial.schema.json.
+ *
+ *  Read by @lions/app only. A step's gate may test player input, which the sim
+ *  does not know about — putting these in the mission runtime would mean
+ *  pushing selection state into @lions/sim.
+ */
+export const tutorials = {
+  beit_sahwan_0: tutorialBeitSahwan0,
+} as const;
+
+export type TutorialId = keyof typeof tutorials;
 
 /** The full unit roster, keyed by unit id. Shapes match unit.schema.json. */
 export const units = {
