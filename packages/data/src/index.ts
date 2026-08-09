@@ -6,6 +6,7 @@
 import palette from '../../../data/palette.json';
 import audioManifest from '../../../data/audio.json';
 import beitSahwanOutskirts from '../../../data/maps/beit_sahwan_outskirts.json';
+import tutorialGround from '../../../data/maps/tutorial_ground.json';
 import structureCatalogue from '../../../data/structures.json';
 import beitSahwan1 from '../../../data/missions/beit_sahwan_1_recon.json';
 import beitSahwan2 from '../../../data/missions/beit_sahwan_2_foothold.json';
@@ -59,6 +60,7 @@ export {
 /** Battlefield maps, keyed by map id. Shapes match map.schema.json. */
 export const maps = {
   beit_sahwan_outskirts: beitSahwanOutskirts,
+  tutorial_ground: tutorialGround,
 } as const;
 
 export type MapId = keyof typeof maps;
