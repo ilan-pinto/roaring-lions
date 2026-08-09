@@ -300,6 +300,53 @@ describe('triggers and waves', () => {
   });
 });
 
+describe('reinforce', () => {
+  it('spawns on the player side when a zone is entered', () => {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [2, 5] }],
+        triggers: [
+          {
+            id: 'deliver',
+            on: { kind: 'zone_entered', zone: 'z_lesson' },
+            do: { kind: 'reinforce', units: [{ unit: 'm_squad', count: 1, at: [2, 6] }] },
+          },
+        ],
+      }),
+      { zones: { z_lesson: [10, 0, 6, 12] } }
+    );
+    const before = w.sim.entityCount;
+    // Walk the starting squad east into z_lesson. 10 tiles at squad speed
+    // needs well under 400 ticks (20 s at 20 Hz).
+    w.sim.queueCommand({ kind: 'move', ids: [0], x: fx.from(12), y: fx.from(5) });
+    const out = w.step(400);
+    expect(out.mission.some((e) => e.kind === 'trigger' && e.id === 'deliver')).toBe(true);
+    expect(w.sim.entityCount).toBe(before + 1);
+    expect(w.sim.state.side[before]).toBe(0);
+  });
+
+  it('still spawns enemies on side 1 for do: spawn', () => {
+    // Regression guard: every existing mission uses `spawn` and must not flip
+    // sides. beit_sahwan_1_recon's hunter commit depends on it.
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [2, 5] }],
+        triggers: [
+          {
+            id: 'ambush',
+            on: { kind: 'timer_s', value: 1 },
+            do: { kind: 'spawn', units: [{ unit: 'm_tank', count: 1, at: [20, 5] }] },
+          },
+        ],
+      })
+    );
+    const before = w.sim.entityCount;
+    w.step(40);
+    expect(w.sim.entityCount).toBe(before + 1);
+    expect(w.sim.state.side[before]).toBe(1);
+  });
+});
+
 describe('campaign ledger (GDD §6 carry-over)', () => {
   const LEDGER_MISSION = (fromLedger: boolean): MissionJson =>
     baseMission({
