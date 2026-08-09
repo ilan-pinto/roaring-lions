@@ -6,8 +6,14 @@
       "id": "take_command",
       "title": "Take command",
       "teach": "Click a squad to select it. Drag a box to select several. The panel on the right reads whatever you have selected.",
-      "await": { "kind": "intent", "intent": "select" },
-      "focus": { "kind": "marker", "marker": "kdf_start" },
+      "await": {
+        "kind": "intent",
+        "intent": "select"
+      },
+      "focus": {
+        "kind": "marker",
+        "marker": "kdf_start"
+      },
       "nudge_after_s": 12,
       "nudge": "Click the squad on the left of the field."
     },
@@ -15,8 +21,15 @@
       "id": "move_by_bounds",
       "title": "Move by bounds",
       "teach": "Right-click ground to send them. Hold shift to queue a route around cover instead of straight across open ground. Press h to stop them where they stand.",
-      "await": { "kind": "intent", "intent": "order", "verb": "attackMove" },
-      "focus": { "kind": "marker", "marker": "field" },
+      "await": {
+        "kind": "intent",
+        "intent": "order",
+        "verb": "attackMove"
+      },
+      "focus": {
+        "kind": "marker",
+        "marker": "field"
+      },
       "nudge_after_s": 15,
       "nudge": "Right-click the marked ground to the east."
     },
@@ -27,11 +40,20 @@
       "await": {
         "kind": "all_of",
         "of": [
-          { "kind": "sim", "event": "contact" },
-          { "kind": "intent", "intent": "overlay" }
+          {
+            "kind": "sim",
+            "event": "contact"
+          },
+          {
+            "kind": "intent",
+            "intent": "overlay"
+          }
         ]
       },
-      "focus": { "kind": "zone", "zone": "z_wall" },
+      "focus": {
+        "kind": "zone",
+        "zone": "z_wall"
+      },
       "nudge_after_s": 20,
       "nudge": "Move into the rocks, then press o. The feed fills once rounds start landing."
     },
@@ -39,8 +61,15 @@
       "id": "fire_pins",
       "title": "Fire pins. It rarely kills.",
       "teach": "A second squad has come up. Hold a squad in the rocks firing into the enclosure, and bring the APC's gun to bear; a pinned enemy cannot shoot back while the rounds keep landing.",
-      "await": { "kind": "sim", "event": "pinned", "side": 1 },
-      "focus": { "kind": "zone", "zone": "z_courtyard" },
+      "await": {
+        "kind": "sim",
+        "event": "pinned",
+        "side": 1
+      },
+      "focus": {
+        "kind": "zone",
+        "zone": "z_courtyard"
+      },
       "nudge_after_s": 25,
       "nudge": "Keep one squad firing. Suppression lasts only while fire lands."
     },
@@ -48,8 +77,14 @@
       "id": "get_inside",
       "title": "Get inside",
       "teach": "Right-click a building with infantry selected and they occupy it. Walls beat any amount of manoeuvre when you need to hold ground.",
-      "await": { "kind": "sim", "event": "garrison" },
-      "focus": { "kind": "marker", "marker": "the_house" },
+      "await": {
+        "kind": "sim",
+        "event": "garrison"
+      },
+      "focus": {
+        "kind": "marker",
+        "marker": "the_house"
+      },
       "nudge_after_s": 20,
       "nudge": "Select infantry and right-click the house."
     },
@@ -60,11 +95,21 @@
       "await": {
         "kind": "any_of",
         "of": [
-          { "kind": "sim", "event": "destroyed", "by_unit": "sniper_team" },
-          { "kind": "elapsed_s", "seconds": 90 }
+          {
+            "kind": "sim",
+            "event": "destroyed",
+            "by_unit": "sniper_team"
+          },
+          {
+            "kind": "elapsed_s",
+            "seconds": 45
+          }
         ]
       },
-      "focus": { "kind": "marker", "marker": "olive_east" },
+      "focus": {
+        "kind": "marker",
+        "marker": "olive_east"
+      },
       "nudge_after_s": 30,
       "nudge": "Move the sniper team into the olive grove and leave it stationary."
     },
@@ -75,11 +120,22 @@
       "await": {
         "kind": "all_of",
         "of": [
-          { "kind": "sim", "event": "transport", "loaded": true },
-          { "kind": "sim", "event": "transport", "loaded": false }
+          {
+            "kind": "sim",
+            "event": "transport",
+            "loaded": true
+          },
+          {
+            "kind": "sim",
+            "event": "transport",
+            "loaded": false
+          }
         ]
       },
-      "focus": { "kind": "marker", "marker": "rp_road" },
+      "focus": {
+        "kind": "marker",
+        "marker": "rp_road"
+      },
       "nudge_after_s": 25,
       "nudge": "Select the APC and a squad, press g, drive to the road's west end, then press u there."
     },
@@ -87,8 +143,14 @@
       "id": "armour_has_a_back",
       "title": "Armour has a back",
       "teach": "Reach the road's west end and the Lavi and AT team report in. The Lavi has 700mm at the front, 150 at the rear -- where it points decides whether a hit matters. Press f to lay smoke.",
-      "await": { "kind": "intent", "intent": "smoke" },
-      "focus": { "kind": "marker", "marker": "road_west" },
+      "await": {
+        "kind": "intent",
+        "intent": "smoke"
+      },
+      "focus": {
+        "kind": "marker",
+        "marker": "road_west"
+      },
       "nudge_after_s": 30,
       "nudge": "Drive the column to the road's west end for the Lavi, then select it and press f, keeping its front toward the threat."
     },
@@ -99,11 +161,21 @@
       "await": {
         "kind": "any_of",
         "of": [
-          { "kind": "sim", "event": "destroyed", "by_unit": "at_team" },
-          { "kind": "elapsed_s", "seconds": 90 }
+          {
+            "kind": "sim",
+            "event": "destroyed",
+            "by_unit": "at_team"
+          },
+          {
+            "kind": "elapsed_s",
+            "seconds": 45
+          }
         ]
       },
-      "focus": { "kind": "zone", "zone": "z_road_east" },
+      "focus": {
+        "kind": "zone",
+        "zone": "z_road_east"
+      },
       "nudge_after_s": 30,
       "nudge": "Put the AT team on the technical at the east end of the road."
     },
@@ -114,11 +186,21 @@
       "await": {
         "kind": "any_of",
         "of": [
-          { "kind": "sim", "event": "destroyed", "by_unit": "attack_drone" },
-          { "kind": "elapsed_s", "seconds": 90 }
+          {
+            "kind": "sim",
+            "event": "destroyed",
+            "by_unit": "attack_drone"
+          },
+          {
+            "kind": "elapsed_s",
+            "seconds": 45
+          }
         ]
       },
-      "focus": { "kind": "zone", "zone": "z_road_east" },
+      "focus": {
+        "kind": "zone",
+        "zone": "z_road_east"
+      },
       "nudge_after_s": 30,
       "nudge": "Scout with the recon drone, then send the attack drone at the RPG team on the road."
     },
@@ -129,20 +211,35 @@
       "await": {
         "kind": "any_of",
         "of": [
-          { "kind": "mission", "event": "roe" },
-          { "kind": "elapsed_s", "seconds": 90 }
+          {
+            "kind": "mission",
+            "event": "roe"
+          },
+          {
+            "kind": "elapsed_s",
+            "seconds": 45
+          }
         ]
       },
-      "focus": { "kind": "zone", "zone": "z_clinic" },
-      "nudge_after_s": 40,
+      "focus": {
+        "kind": "zone",
+        "zone": "z_clinic"
+      },
+      "nudge_after_s": 25,
       "nudge": "Try the mortar near the flagged house, and watch the ROE reading move."
     },
     {
       "id": "command_groups",
       "title": "Command groups",
       "teach": "Ctrl and a number binds the selection to that key; the number alone recalls it; twice centres the camera on it. Twelve units are unmanageable without this.",
-      "await": { "kind": "intent", "intent": "group", "action": "assign" },
-      "focus": { "kind": "none" },
+      "await": {
+        "kind": "intent",
+        "intent": "group",
+        "action": "assign"
+      },
+      "focus": {
+        "kind": "none"
+      },
       "nudge_after_s": 20,
       "nudge": "Select some units and press ctrl+1."
     }
