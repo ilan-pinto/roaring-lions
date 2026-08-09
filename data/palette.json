@@ -40,6 +40,14 @@
       ],
       "note": "Added for the building set. The reference architecture bands every parapet and coping in fired red, and the warm ramps could not carry it: limestone and dust are desaturated tans, and the only red-orange in the palette was vfx.ember, which is reserved and must stay contrast-safe against fire. Three steps is enough for a band, its shadow, and its underside -- a tile roof does not need a ramp as deep as a wall."
     },
+    "skin": {
+      "role": "exposed skin -- face, neck, hands",
+      "colors": [
+        "#C78773",
+        "#A87262"
+      ],
+      "note": "Added for the infantry overhaul. The art brief calls for visible skin, and no existing entry could carry it: the warm ramps are ochre rather than rosy, so a face rendered on dust.2 quantized into terracotta and read as blood spatter. Chosen by searching plausible skin HSV for maximum distance from the existing 42 -- these sit 33 from dust.2, their nearest neighbour, which is the same separation terracotta already lives with, and 41 from each other so a face has light and shadow rather than one flat patch. Two entries, not three: a face is about six pixels at gameplay zoom."
+    },
     "olive": {
       "role": "KDF vehicle hulls, uniforms, tarps",
       "colors": [
@@ -102,5 +110,5 @@
     }
   },
   "mask_key": "#FF00FF",
-  "total_colors": 42
+  "total_colors": 44
 }

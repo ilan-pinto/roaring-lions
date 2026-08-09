@@ -13,7 +13,7 @@ geometry deformed. The clip scheme:
 
     idle    the deployed arrangement
     move    four frames: standing legs split fore-and-aft, prone figures crawl
-    fire    standing figures drop to a knee -- a firing line goes to ground
+    fire    weapons up, feet planted -- never a height change, see below
     down    everyone prone, gone to ground under suppression
     wreck   prone, rendered in the casualty material
 
@@ -28,6 +28,9 @@ Two limitations, stated rather than hidden:
     roughly doubles the work for something invisible at 25 px, which is what the
     rig contract measured infantry at. render_soldier.py already made this trade,
     layering leg swing over a fixed upper body so the rifle stays up.
+  * **`fire` cannot change a figure's height.** `resolveClip` latches it per
+    shot, so a crouch made the whole team bob up and down through a firefight.
+    The clip reads from the weapon coming up instead.
   * **`sniper_team`'s `down` cannot be "go prone"** because it starts prone. It
     closes up and flattens instead, or the clip is indistinguishable from idle.
 
@@ -57,9 +60,20 @@ FACTIONS = {"kdf": "olive", "enemy": "dust"}
 
 
 def _standing_posture(clip):
-    """What an upright figure does in this clip."""
+    """What an upright figure does in this clip.
+
+    `fire` stays **standing**. It used to drop to a kneeling posture, which was
+    wrong in a way only visible in play: `resolveClip` latches `fire` per shot,
+    so a unit firing intermittently stood up and knelt down again on every burst
+    -- the whole team bobbing up and down for as long as the fight lasted. A clip
+    that changes a figure's height cannot be driven by a per-shot latch.
+
+    render_soldier.py had this right and it was not carried over: its `fire` was
+    the model's authored *Standing_Aim*, not a crouch. The read comes from the
+    weapon coming up, which costs no height change.
+    """
     if clip == "fire":
-        return "kneeling"
+        return "standing"
     if clip in ("down", "wreck"):
         return "prone"
     return "standing"
@@ -93,7 +107,7 @@ def inf_squad(clip, frame):
     for i, y in enumerate((-0.78, 0.0, 0.78)):
         x = 0.20 if i == 1 else 0.0
         out += kit.figure(f"rifle{i}", (x, y, 0.0), posture=p, stride=st, leader=(i == 1))
-        out += kit.rifle(f"rifle{i}_w", (x, y, 0.0), posture=p)
+        out += kit.rifle(f"rifle{i}_w", (x, y, 0.0), posture=p, aim=(clip == "fire"))
     return out
 
 
@@ -104,9 +118,9 @@ def militia_cell(clip, frame):
     p, st = _standing_posture(clip), _stride(clip, frame)
     out = []
     for i, (x, y) in enumerate(((0.0, -0.24), (0.12, 0.26))):
-        out += kit.figure(f"mil{i}", (x, y, 0.0), posture=p, stride=st, helmet=False,
+        out += kit.figure(f"mil{i}", (x, y, 0.0), posture=p, stride=st, headgear="keffiyeh", loadout="irregular",
                           leader=(i == 0))
-        out += kit.rifle(f"mil{i}_w", (x, y, 0.0), posture=p)
+        out += kit.rifle(f"mil{i}_w", (x, y, 0.0), posture=p, aim=(clip == "fire"))
     return out
 
 
@@ -120,7 +134,7 @@ def demo_squad(clip, frame):
         out += kit.demo_charge("demo_charge", (0.76, -0.16, 0.0))
     out += kit.figure("demo_b", (-0.36, 0.28, 0.0), posture=p, stride=st, leader=True)
     out += kit.cable_spool("demo_spool", (-0.36, 0.28, 0.0))
-    out += kit.rifle("demo_b_w", (-0.36, 0.28, 0.0), posture=p)
+    out += kit.rifle("demo_b_w", (-0.36, 0.28, 0.0), posture=p, aim=(clip == "fire"))
     return out
 
 
@@ -142,13 +156,14 @@ def rpg_team(clip, frame):
     """RPG Team, crew 3. Standing firer, tube pitched **steeply up**, plus a
     loader. Upright and diagonal against the AT team's kneeling and level."""
     p, st = _standing_posture(clip), _stride(clip, frame)
-    out = kit.figure("rpg_fire", (0.18, -0.26, 0.0), posture=p, stride=0.0, helmet=False)
+    out = kit.figure("rpg_fire", (0.18, -0.26, 0.0), posture=p, stride=0.0,
+                            headgear="keffiyeh", loadout="irregular")
     if _weapon_visible(clip):
         out += kit.launcher("rpg_tube", (0.18, -0.26, 1.46),
                             pitch=math.radians(38.0), length=1.24, radius=0.075)
-    out += kit.figure("rpg_load", (-0.30, 0.30, 0.0), posture=p, stride=st, helmet=False,
+    out += kit.figure("rpg_load", (-0.30, 0.30, 0.0), posture=p, stride=st, headgear="keffiyeh", loadout="irregular",
                       leader=True)
-    out += kit.rifle("rpg_load_w", (-0.30, 0.30, 0.0), posture=p)
+    out += kit.rifle("rpg_load_w", (-0.30, 0.30, 0.0), posture=p, aim=(clip == "fire"))
     return out
 
 
@@ -163,7 +178,7 @@ def mortar_team(clip, frame):
     for i, y in enumerate((-0.54, 0.54)):
         out += kit.figure(f"mtr_crew{i}", (-0.14, y, 0.0), posture=_crew_posture(clip))
     out += kit.figure("mtr_no3", (-0.62, 0.0, 0.0), posture=p, stride=st, leader=True)
-    out += kit.rifle("mtr_no3_w", (-0.62, 0.0, 0.0), posture=p)
+    out += kit.rifle("mtr_no3_w", (-0.62, 0.0, 0.0), posture=p, aim=(clip == "fire"))
     return out
 
 
@@ -175,8 +190,8 @@ def mortar_crew(clip, frame):
     if _weapon_visible(clip):
         out += kit.mortar("emtr_tube", (0.22, 0.0, 0.0), length=0.76)
     for i, y in enumerate((-0.40, 0.42)):
-        out += kit.figure(f"emtr_crew{i}", (-0.16, y, 0.0),
-                          posture=_crew_posture(clip), helmet=False)
+        out += kit.figure(f"emtr_crew{i}", (-0.16, y, 0.0), posture=_crew_posture(clip),
+                          headgear="keffiyeh", loadout="irregular")
     return out
 
 
@@ -202,8 +217,8 @@ def atgm_cell(clip, frame):
     if _weapon_visible(clip):
         out += kit.atgm_tripod("atgm_post", (0.24, 0.0, 0.0))
     for i, y in enumerate((-0.40, 0.44)):
-        out += kit.figure(f"atgm_crew{i}", (-0.34, y, 0.0),
-                          posture=_crew_posture(clip), helmet=False)
+        out += kit.figure(f"atgm_crew{i}", (-0.34, y, 0.0), posture=_crew_posture(clip),
+                          headgear="keffiyeh", loadout="irregular")
     return out
 
 

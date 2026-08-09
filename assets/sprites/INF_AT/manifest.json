@@ -5,13 +5,13 @@
   "size": 256,
   "facingOffset": 0,
   "facingReverse": true,
-  "scale": 0.9099,
-  "derivedScale": 0.9099,
+  "scale": 0.9051,
+  "derivedScale": 0.9051,
   "sizeClass": "infantry",
   "classMultiplier": 1.0,
-  "realMetres": 2.395,
+  "realMetres": 2.314,
   "metresPerModelUnit": 1.0,
-  "frameMetres": 3.86,
+  "frameMetres": 3.84,
   "clips": {
     "idle": {
       "frames": 1,
