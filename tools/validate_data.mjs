@@ -182,6 +182,47 @@ if (schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tut
   }
 }
 
+// --- tutorial cross-checks ---------------------------------------------------
+// A tutorial step list's `mission` must name a real mission, and every
+// focus.marker / focus.zone it points the camera at must exist on that
+// mission's map — a typo here is a tutorial step that silently points at
+// nothing, same failure shape as the mission->map check above.
+{
+  const missionsById = new Map();
+  for (const file of jsonFilesIn(join(ROOT, 'data/missions'))) {
+    const mi = loadJson(file);
+    if (mi?.id) missionsById.set(mi.id, mi);
+  }
+  const mapsById = new Map();
+  for (const file of jsonFilesIn(join(ROOT, 'data/maps'))) {
+    const m = loadJson(file);
+    if (m?.id) mapsById.set(m.id, m);
+  }
+  for (const file of jsonFilesIn(join(ROOT, 'data/tutorial'))) {
+    const tu = loadJson(file);
+    if (!tu) continue;
+    const mission = missionsById.get(tu.mission);
+    if (!mission) {
+      failures.push(`${rel(file)}: mission "${tu.mission}" is not a mission in data/missions`);
+      continue;
+    }
+    const map = mapsById.get(mission.map?.file);
+    if (!map) continue; // already reported by the mission cross-check above
+    const markerNames = new Set(Object.keys(map.markers ?? {}));
+    const zoneNames = new Set(Object.keys(map.zones ?? {}));
+    for (const step of tu.steps ?? []) {
+      const marker = step.focus?.marker;
+      if (marker && !markerNames.has(marker)) {
+        failures.push(`${rel(file)}: step "${step.id}" focus.marker "${marker}" is not a marker on "${mission.map?.file}"`);
+      }
+      const zone = step.focus?.zone;
+      if (zone && !zoneNames.has(zone)) {
+        failures.push(`${rel(file)}: step "${step.id}" focus.zone "${zone}" is not a zone on "${mission.map?.file}"`);
+      }
+    }
+  }
+}
+
 // --- map grid + bounds checks (beyond what JSON Schema can express) ---------
 //
 // Map symbols used to be listed in map.schema.json's row pattern, which meant the

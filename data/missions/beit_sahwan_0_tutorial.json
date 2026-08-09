@@ -1,0 +1,103 @@
+{
+  "id": "beit_sahwan_0_tutorial",
+  "name": "Beit Sahwan 0 — Working Up",
+  "town": "beit_sahwan",
+  "phase": "recon",
+  "target_minutes": 15,
+  "briefing": "Nothing here is contested yet. The battalion has given you a corner of the training area and one of everything it will hand you next week, delivered a piece at a time as you get to it. Learn what each of them is for. Nothing you lose here comes off the roster, and nothing you learn here is free later.",
+  "map": {
+    "file": "tutorial_ground",
+    "time_of_day": "day",
+    "player_start": [3, 16]
+  },
+  "ledger": {
+    "requires": [],
+    "produces": []
+  },
+  "starting_force": [{ "unit": "inf_squad", "count": 1, "at": [3, 16] }],
+  "objectives": [
+    {
+      "id": "work_up",
+      "type": "destroy_all",
+      "primary": true,
+      "text": "Work through the training area"
+    }
+  ],
+  "roe": {
+    "enabled": true,
+    "flagged_zones": ["z_clinic"]
+  },
+  "civilians": {
+    "refuge": "civ_refuge",
+    "groups": [{ "unit": "civilians", "count": 2, "at": [25.5, 28.5] }]
+  },
+  "enemy": {
+    "faction": "ashwar",
+    "doctrine_profile": "static targets",
+    "garrison": [
+      { "unit": "militia_cell", "count": 1, "at": [17.5, 13.5], "facing_deg": 180 },
+      { "unit": "militia_cell", "count": 1, "at": [18.5, 15.5], "facing_deg": 180 },
+      { "unit": "militia_cell", "count": 1, "at": [23.5, 4.5], "facing_deg": 180 },
+      { "unit": "rpg_team", "count": 1, "at": [24.5, 21.5], "facing_deg": 180 },
+      { "unit": "technical", "count": 1, "at": [27.5, 22.5], "facing_deg": 180 },
+      { "unit": "atgm_cell", "count": 1, "at": [30.5, 16.5], "facing_deg": 180 }
+    ]
+  },
+  "triggers": [
+    {
+      "id": "deliver_second_squad",
+      "on": { "kind": "zone_entered", "zone": "z_wall" },
+      "do": { "kind": "reinforce", "units": [{ "unit": "inf_squad", "count": 1, "marker": "rp_west" }] }
+    },
+    {
+      "id": "deliver_sniper",
+      "on": { "kind": "zone_entered", "zone": "z_house" },
+      "do": { "kind": "reinforce", "units": [{ "unit": "sniper_team", "count": 1, "marker": "rp_west" }] }
+    },
+    {
+      "id": "deliver_transports",
+      "on": { "kind": "zone_entered", "zone": "z_east_view" },
+      "do": {
+        "kind": "reinforce",
+        "units": [
+          { "unit": "apc_eitan", "count": 1, "marker": "rp_road" },
+          { "unit": "ifv_namer", "count": 1, "marker": "rp_road" },
+          { "unit": "jeep_shoded", "count": 1, "marker": "rp_road" }
+        ]
+      }
+    },
+    {
+      "id": "deliver_armour",
+      "on": { "kind": "zone_entered", "zone": "z_road_west" },
+      "do": {
+        "kind": "reinforce",
+        "units": [
+          { "unit": "mbt_lavi", "count": 1, "marker": "rp_road" },
+          { "unit": "at_team", "count": 1, "marker": "rp_road" }
+        ]
+      }
+    },
+    {
+      "id": "deliver_drones",
+      "on": { "kind": "zone_entered", "zone": "z_road_east" },
+      "do": {
+        "kind": "reinforce",
+        "units": [
+          { "unit": "recon_drone", "count": 1, "marker": "rp_road" },
+          { "unit": "attack_drone", "count": 1, "marker": "rp_road" }
+        ]
+      }
+    },
+    {
+      "id": "deliver_support",
+      "on": { "kind": "zone_entered", "zone": "z_demo" },
+      "do": {
+        "kind": "reinforce",
+        "units": [
+          { "unit": "mortar_team", "count": 1, "marker": "rp_road" },
+          { "unit": "demo_squad", "count": 1, "marker": "rp_road" }
+        ]
+      }
+    }
+  ]
+}
