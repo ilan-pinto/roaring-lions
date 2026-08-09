@@ -39,6 +39,12 @@ import kit
 #: without a visible jump: 0 -> forward -> 0 -> back.
 MOVE_STRIDE = (0.0, 1.0, 0.0, -1.0)
 
+# On `leader=True`: exactly one figure per team carries the radio antenna, and it
+# is the figure who would really carry it -- the spotter, the loader, the number
+# three, the squad's middle man. On every figure the antennas read as a picket
+# fence, and they would compete with the mortar tube that keeps two of the nine
+# sheets apart.
+
 #: Which palette ramp a faction's `uniform` and `webbing` roles resolve to.
 #: KDF olive against militia dust is a second readability channel independent of
 #: the marker ring -- and today there is no channel at all, because all seven
@@ -82,7 +88,7 @@ def inf_squad(clip, frame):
     out = []
     for i, y in enumerate((-0.78, 0.0, 0.78)):
         x = 0.20 if i == 1 else 0.0
-        out += kit.figure(f"rifle{i}", (x, y, 0.0), posture=p, stride=st)
+        out += kit.figure(f"rifle{i}", (x, y, 0.0), posture=p, stride=st, leader=(i == 1))
         out += kit.rifle(f"rifle{i}_w", (x, y, 0.0), posture=p)
     return out
 
@@ -94,7 +100,8 @@ def militia_cell(clip, frame):
     p, st = _standing_posture(clip), _stride(clip, frame)
     out = []
     for i, (x, y) in enumerate(((0.0, -0.24), (0.12, 0.26))):
-        out += kit.figure(f"mil{i}", (x, y, 0.0), posture=p, stride=st, helmet=False)
+        out += kit.figure(f"mil{i}", (x, y, 0.0), posture=p, stride=st, helmet=False,
+                          leader=(i == 0))
         out += kit.rifle(f"mil{i}_w", (x, y, 0.0), posture=p)
     return out
 
@@ -107,7 +114,7 @@ def demo_squad(clip, frame):
     out = kit.figure("demo_a", (0.34, -0.16, 0.0), posture=_crew_posture(clip), yaw=0.0)
     if _weapon_visible(clip):
         out += kit.demo_charge("demo_charge", (0.76, -0.16, 0.0))
-    out += kit.figure("demo_b", (-0.36, 0.28, 0.0), posture=p, stride=st)
+    out += kit.figure("demo_b", (-0.36, 0.28, 0.0), posture=p, stride=st, leader=True)
     out += kit.cable_spool("demo_spool", (-0.36, 0.28, 0.0))
     out += kit.rifle("demo_b_w", (-0.36, 0.28, 0.0), posture=p)
     return out
@@ -122,7 +129,7 @@ def at_team(clip, frame):
     out = kit.figure("at_fire", (0.24, -0.30, 0.0), posture=_crew_posture(clip))
     if _weapon_visible(clip):
         out += kit.launcher("at_tube", (0.24, -0.30, 1.02), pitch=0.0, length=1.16)
-    out += kit.figure("at_spot", (-0.32, 0.34, 0.0), posture=p, stride=st)
+    out += kit.figure("at_spot", (-0.32, 0.34, 0.0), posture=p, stride=st, leader=True)
     out += kit.binoculars("at_binos", (-0.32, 0.34, 0.0), posture=p)
     return out
 
@@ -135,7 +142,8 @@ def rpg_team(clip, frame):
     if _weapon_visible(clip):
         out += kit.launcher("rpg_tube", (0.18, -0.26, 1.46),
                             pitch=math.radians(38.0), length=1.24, radius=0.075)
-    out += kit.figure("rpg_load", (-0.30, 0.30, 0.0), posture=p, stride=st, helmet=False)
+    out += kit.figure("rpg_load", (-0.30, 0.30, 0.0), posture=p, stride=st, helmet=False,
+                      leader=True)
     out += kit.rifle("rpg_load_w", (-0.30, 0.30, 0.0), posture=p)
     return out
 
@@ -150,7 +158,7 @@ def mortar_team(clip, frame):
         out += kit.mortar("mtr_tube", (0.26, 0.0, 0.0), length=1.02)
     for i, y in enumerate((-0.54, 0.54)):
         out += kit.figure(f"mtr_crew{i}", (-0.14, y, 0.0), posture=_crew_posture(clip))
-    out += kit.figure("mtr_no3", (-0.62, 0.0, 0.0), posture=p, stride=st)
+    out += kit.figure("mtr_no3", (-0.62, 0.0, 0.0), posture=p, stride=st, leader=True)
     out += kit.rifle("mtr_no3_w", (-0.62, 0.0, 0.0), posture=p)
     return out
 
