@@ -59,8 +59,15 @@ export interface TutorialState {
   readonly seen: readonly boolean[];
 }
 
-export function initTutorial(steps: readonly StepJson[]): TutorialState {
-  return { steps, index: 0, done: steps.length === 0, openedAtMs: 0, nudging: false, seen: [] };
+/**
+ * `nowMs` is the caller's clock at construction time, not a hardcoded 0.
+ * Seeding `openedAtMs` at 0 while the caller measures elapsed time from
+ * `performance.now()` made step 1's nudge timer run from page load instead of
+ * from when the tutorial actually opened, so a nudge could fire before the
+ * player's first frame.
+ */
+export function initTutorial(steps: readonly StepJson[], nowMs: number): TutorialState {
+  return { steps, index: 0, done: steps.length === 0, openedAtMs: nowMs, nudging: false, seen: [] };
 }
 
 /** Does one predicate match this input? Composition is handled by the caller
