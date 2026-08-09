@@ -58,8 +58,38 @@
         "of": {
           "type": "array",
           "minItems": 2,
-          "items": { "$ref": "#/$defs/predicate" },
-          "description": "all_of/any_of only."
+          "items": { "$ref": "#/$defs/nestedPredicate" },
+          "description": "all_of/any_of only. Children come from nestedPredicate, not predicate: all_of is only ever satisfiable as a step's top-level await (see runtime.ts), so a child predicate here may not itself be all_of."
+        }
+      }
+    },
+    "nestedPredicate": {
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "description": "Same as predicate, but for use inside another predicate's `of`. `kind` excludes all_of: the reducer accumulates all_of across successive inputs only for a step's top-level await, so an all_of nested any deeper can never be satisfied and would stall the tutorial silently.",
+      "properties": {
+        "kind": { "enum": ["intent", "sim", "mission", "elapsed_s", "any_of"] },
+        "intent": {
+          "type": "string",
+          "description": "intent only: a PlayerIntent kind. Cross-checked against INTENT_KINDS in packages/app/src/input/intents.ts."
+        },
+        "verb": { "enum": ["move", "attackMove"], "description": "intent/order only." },
+        "via": { "enum": ["click", "box", "group"], "description": "intent/select only." },
+        "action": { "enum": ["assign", "recall"], "description": "intent/group only." },
+        "event": { "type": "string", "description": "sim/mission only: a SimEvent or MissionEvent kind." },
+        "side": { "type": "integer", "minimum": 0, "maximum": 2, "description": "sim only: restrict to a side." },
+        "by_unit": {
+          "type": "string",
+          "description": "sim only: the event's `by` entity must be of this unit type. Lets 'the sniper made this kill' be a gate."
+        },
+        "loaded": { "type": "boolean", "description": "sim/transport only." },
+        "seconds": { "type": "number", "minimum": 0, "description": "elapsed_s only: seconds since the step opened." },
+        "of": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/$defs/nestedPredicate" },
+          "description": "any_of only here (all_of is excluded from this definition's kind enum)."
         }
       }
     },
