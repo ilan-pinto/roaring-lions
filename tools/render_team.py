@@ -299,7 +299,7 @@ def frame_points(team_id):
     guarantee that a unit does not resize when it goes to ground.
     """
     pts = []
-    for clip, spec in teams.CLIPS.items():
+    for clip, spec in teams.clips_for(team_id).items():
         for f in range(spec["frames"]):
             parts, _ = teams.build(team_id, clip, f)
             bpy.context.view_layer.update()
@@ -375,7 +375,11 @@ def render_team(team_id, probe=False):
         f"derived {derived:.4f} -> scale {scale:.4f} ({scale * 64:.0f}px canvas)"
     )
 
-    clips = {"idle": teams.CLIPS["idle"]} if probe else teams.CLIPS
+    all_clips = teams.clips_for(team_id)
+    # A probe renders one frame of idle, not the whole smoking loop -- it exists to
+    # measure the silhouette matrix cheaply, and ten frames of one team's idle
+    # would not make that measurement better.
+    clips = {"idle": {**all_clips["idle"], "frames": 1}} if probe else all_clips
     facings = 1 if probe else FACINGS
     os.makedirs(out_dir, exist_ok=True)
     files = []

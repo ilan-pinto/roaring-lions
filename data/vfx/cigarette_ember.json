@@ -1,0 +1,50 @@
+{
+  "id": "cigarette_ember",
+  "trigger": "ambient_idle",
+  "layer": "above_units",
+  "budget_priority": 1,
+  "light": {
+    "color": "vfx.ember",
+    "intensity": 0.3,
+    "radius_tiles": 0.5,
+    "decay_ms": 420
+  },
+  "particles": [
+    {
+      "sprite": "soft_dot",
+      "count": [
+        1,
+        1
+      ],
+      "lifetime_ms": [
+        380,
+        520
+      ],
+      "speed_tiles_s": [
+        0.0,
+        0.0
+      ],
+      "cone_deg": 0,
+      "size_px": [
+        2,
+        3
+      ],
+      "size_over_life": [
+        1.0,
+        1.0,
+        0.6
+      ],
+      "color_over_life": [
+        "vfx.ember",
+        "vfx.ember",
+        "vfx.fire"
+      ],
+      "alpha_over_life": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "additive": true
+    }
+  ]
+}

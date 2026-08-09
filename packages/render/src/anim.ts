@@ -60,3 +60,38 @@ export function advancePhase(
   const wrapped = next % walkFrames;
   return wrapped < 0 ? wrapped + walkFrames : wrapped;
 }
+
+
+/** Idle frames the cigarette beats land on, tied to `teams.smoke_pose`.
+ *
+ * `smoke_pose` drives the hand with a triangle wave, so the reach peaks at the
+ * midpoint of the loop. The exhale trails the drag by two frames because that is
+ * what it does. Both are indices into the idle clip, so they move if the frame
+ * count in teams.py moves.
+ */
+export const SMOKE_EMBER_FRAME = 5;
+export const SMOKE_EXHALE_FRAME = 7;
+
+/**
+ * Which ambient emitter, if any, this frame of the idle clip should fire.
+ *
+ * Pure, and extracted from the render loop deliberately: the loop only advances
+ * under requestAnimationFrame, which does not run when the page is hidden, so the
+ * behaviour cannot be checked by driving the browser. A pure decision can be
+ * tested directly, and that is where the logic can actually go wrong -- the
+ * edge-detect on the frame index, not the spawning.
+ *
+ * Fires only on the frame the clip *enters*, never while it sits there, or an
+ * idling squad would emit once per rendered frame.
+ */
+export function ambientCue(
+  clip: string,
+  frames: number,
+  prevFrame: number,
+  frame: number
+): 'ember' | 'smoke' | null {
+  if (clip !== 'idle' || frames <= 1 || frame === prevFrame) return null;
+  if (frame === SMOKE_EMBER_FRAME) return 'ember';
+  if (frame === SMOKE_EXHALE_FRAME) return 'smoke';
+  return null;
+}

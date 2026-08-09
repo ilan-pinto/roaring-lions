@@ -479,8 +479,34 @@ HEADGEAR_BASE = 0.005      # head-centre-relative z of any headgear's lowest edg
 FACE_TOP = -0.017          # the face must stay below this, or the brim covers it
 
 
+def smoke_pose(frame, frames):
+    """Eased pose parameters for one frame of the smoking idle.
+
+    Returns `(reach, breath, sway)`, each 0..1-ish.
+
+    **The easing lives here, not in the manifest.** `advancePhase` in the renderer
+    steps frames at one constant fps per clip -- there is no per-frame hold, so a
+    timing curve cannot be expressed. What can be expressed is *pose spacing*:
+    put more frames where the motion is slow and fewer through the fast middle,
+    which is how hand-drawn sprite animation has always eased. A triangle wave
+    through a smoothstep does exactly that -- consecutive frames are close
+    together near both extremes and far apart in the middle.
+
+    So the hand appears to slow as it nears the mouth, hold, and slow again at the
+    bottom, from uniformly-timed frames.
+    """
+    t = frame / float(frames)
+    tri = 1.0 - abs(2.0 * t - 1.0)          # 0 -> 1 -> 0
+    reach = tri * tri * (3.0 - 2.0 * tri)   # smoothstep: slow at both ends
+    breath = 0.5 - 0.5 * math.cos(2.0 * math.pi * t)
+    # Sway runs at half rate and out of phase, so the weight shift never lines up
+    # with the breath -- two synchronised sines read as one mechanical bob.
+    sway = math.sin(math.pi * t + 0.9)
+    return reach, breath, sway
+
+
 def figure(prefix, at, posture="standing", yaw=0.0, headgear="helmet", stride=0.0,
-           arms=True, leader=False, mirror=False, loadout="regular"):
+           arms=True, leader=False, mirror=False, loadout="regular", smoke=None):
     """One soldier, contact point at z=0 of `at`.
 
     Fourth pass, and the first built to an organic brief rather than away from
@@ -574,12 +600,20 @@ def figure(prefix, at, posture="standing", yaw=0.0, headgear="helmet", stride=0.
         sh_tilt = -0.012 * hand
     else:
         drop = 0.018 * abs(stride)
+        if smoke is not None:
+            # Breathing lowers the whole upper body very slightly on the exhale;
+            # a rising chest alone reads as a shrug.
+            drop += 0.010 * (1.0 - smoke[1])
         # Contrapposto. The weight leg is straight and its hip rides up; the free
         # leg's knee comes forward and inward and its heel lifts. When striding
         # the weight shifts with the stride instead, or the figure looks like it
         # is limping on one side for the whole cycle.
         weight = hand if stride == 0.0 else (hand if stride > 0 else -hand)
-        hip_tilt = 0.035 * weight
+        # Weight oscillates rather than transferring. A real shift of weight from
+        # one leg to the other cannot be done smoothly in ten frames -- it reads
+        # as a twitch -- so the contrapposto breathes in depth instead of swapping
+        # sides. Stated as a limit rather than shipped badly.
+        hip_tilt = 0.035 * weight * (1.0 + 0.15 * smoke[2] if smoke else 1.0)
         sh_tilt = -0.022 * weight          # shoulders counter the pelvis
         for i, sgn in enumerate((-1.0, 1.0)):
             fore = sgn * stride
@@ -616,9 +650,10 @@ def figure(prefix, at, posture="standing", yaw=0.0, headgear="helmet", stride=0.
     lean = sh_tilt * 0.8
     L("hips", [(0.0, hip_tilt * 0.4, z(BELT_Z) - 0.09, 0.126),
                (0.0, hip_tilt * 0.5, z(BELT_Z) + 0.02, R_WAIST)], squash=0.82)
+    breathe = 1.0 + (0.030 * smoke[1] if smoke else 0.0)
     L("torso", [(0.0, hip_tilt * 0.5, z(BELT_Z) + 0.05, R_WAIST),
-                (0.005, lean * 0.5, z(CHEST_Z) + 0.02, R_CHEST * 0.96),
-                (0.0, lean, z(SHOULDER_Z) - 0.03, R_CHEST)], squash=0.74)
+                (0.005, lean * 0.5, z(CHEST_Z) + 0.02, R_CHEST * 0.96 * breathe),
+                (0.0, lean, z(SHOULDER_Z) - 0.03, R_CHEST * breathe)], squash=0.74)
     F("hem", (0.0, hip_tilt * 0.5, z(BELT_Z) + 0.10), (0.30, 0.26, 0.07))
 
     # Webbing. Straps break the shoulder line, which the brief asks for and which
@@ -673,15 +708,29 @@ def figure(prefix, at, posture="standing", yaw=0.0, headgear="helmet", stride=0.
         for i, sgn in enumerate((-1.0, 1.0)):
             lead = sgn * hand > 0                     # the weapon side
             swing = -sgn * stride
+            # Smoking: the off hand rises to the mouth on `reach`, the weapon hand
+            # hangs relaxed and a little lower. Only the off arm moves, so the
+            # weapon stays where the eye last saw it.
+            if smoke is not None and not lead:
+                reach = smoke[0]
+                fwd_s = 0.055 + 0.115 * reach
+                elbow_lift = 0.05 * reach
+                wrist_lift = 0.30 * reach
+            else:
+                fwd_s = elbow_lift = wrist_lift = None
             ay = sgn * (R_CHEST + R_UPPERARM + 0.012) + lean
-            fwd = (0.075 if lead else -0.03) + swing * 0.09
-            elbow_z = z(SHOULDER_Z) - (0.24 if lead else 0.27)
+            fwd = (fwd_s if fwd_s is not None else (0.075 if lead else -0.03)) + swing * 0.09
+            # The weapon hand drops slightly while at ease -- a relaxed one-handed
+            # carry, muzzle down, per the brief.
+            relax = 0.03 if (smoke is not None and lead) else 0.0
+            elbow_z = z(SHOULDER_Z) - (0.24 if lead else 0.27) - relax \
+                + (elbow_lift or 0.0)
             L(f"upperarm{i}", [(swing * 0.02, ay, z(SHOULDER_Z) - 0.055, R_UPPERARM),
                                (fwd * 0.5, ay + sgn * 0.006, elbow_z + 0.09, R_UPPERARM * 0.90),
                                (fwd * 0.8, ay + sgn * 0.004, elbow_z, R_UPPERARM * 0.86)])
             BL(f"elbow{i}", (fwd * 0.8, ay + sgn * 0.004, elbow_z), 0.048)
             F(f"elbowfold{i}", (fwd * 0.8, ay + sgn * 0.012, elbow_z + 0.035), (0.10, 0.09, 0.05))
-            wrist_z = elbow_z - (0.20 if lead else 0.23)
+            wrist_z = elbow_z - (0.20 if lead else 0.23) + (wrist_lift or 0.0)
             L(f"forearm{i}", [(fwd * 0.85, ay + sgn * 0.004, elbow_z - 0.01, 0.046),
                               (fwd + (0.05 if lead else 0.0), ay, wrist_z, 0.036)])
             # Hands wrap the grip rather than ending in a block: two blobs, so a
@@ -689,6 +738,10 @@ def figure(prefix, at, posture="standing", yaw=0.0, headgear="helmet", stride=0.
             BL(f"wrist{i}", (fwd + (0.05 if lead else 0.0), ay, wrist_z), 0.037, role="skin_shadow")
             BL(f"hand{i}", (fwd + (0.075 if lead else 0.01), ay + sgn * 0.008, wrist_z - 0.045),
                0.046, squash=(1.0, 0.82, 0.95), role="face")
+            if smoke is not None and not lead:
+                parts += cigarette(f"{prefix}_cig",
+                                   place(fwd + 0.055, ay + sgn * 0.008, wrist_z - 0.030),
+                                   yaw=yaw)
 
     # Neck and head, both yawed off the body axis: a head square to the shoulders
     # is the last symmetry to go and the most visible one.
@@ -735,6 +788,18 @@ def figure(prefix, at, posture="standing", yaw=0.0, headgear="helmet", stride=0.
 
 
 # --- weapons ---------------------------------------------------------------
+
+
+def cigarette(name, at, yaw=0.0, role="face"):
+    """A cigarette. Two pixels, and the only reason it earns them is the motion.
+
+    The ember is NOT here. Saturated colour lives in the reserved vfx band, which
+    the art gate rejects in static art by name -- correctly, since that band is
+    what keeps explosions readable. The glow is `data/vfx/cigarette_ember.json`,
+    spawned by the renderer.
+    """
+    x0, y0, z0 = at
+    return [tube(name, 0.055, 0.006, (x0, y0, z0), yaw=yaw, sides=5, role=role)]
 
 
 def rifle(name, at, yaw=0.0, posture="standing", aim=False):
