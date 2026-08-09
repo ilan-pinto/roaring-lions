@@ -3,7 +3,7 @@
   "credit": "Composed from tools/units/kit.py for this repository, CC BY-SA 4.0",
   "facings": 16,
   "size": 256,
-  "facingOffset": 0,
+  "facingOffset": 12,
   "facingReverse": true,
   "scale": 0.5925,
   "derivedScale": 0.5925,
