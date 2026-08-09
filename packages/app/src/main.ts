@@ -26,6 +26,7 @@ import {
   units,
   maps,
   missions,
+  tutorials,
   structures as structureCatalogue,
   parseMap,
   DECOR,
@@ -39,6 +40,8 @@ import { Hud, type MissionView, type Tone } from './ui/hud';
 import { showMenu, showEndScreen } from './ui/menu';
 import { ProductionBar } from './ui/production';
 import { applyIntent, sortMount, type PlayerIntent } from './input/intents';
+import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
+import { tutorialPanel, type TutorialPanel } from './tutorial/panel';
 
 /** Deploy base ('/' locally, '/<repo>/' on GitHub Pages) — every asset URL
  *  is built from it so the same bundle works in both places. */
@@ -50,6 +53,11 @@ const WEST = 32768; // half turn — garrisons face the expected KDF axis
 // Campaign persistence: victories merge their produced ledger keys here;
 // defeats write nothing — replaying a mission for a better ledger is free.
 const LEDGER_KEY = 'lions.campaign.ledger';
+
+/** Whether this human has been through the tutorial — a fact about the person,
+ *  not the campaign, so it survives a ledger reset. Clearing your ledger should
+ *  not re-teach you right-click. */
+const TUTORIAL_DONE_KEY = 'lions.tutorial.done';
 
 function loadLedger(): LedgerData {
   try {
@@ -147,10 +155,15 @@ async function main(): Promise<void> {
     window.localStorage.removeItem(LEDGER_KEY);
   }
   if (params.get('mission') === null && params.get('sandbox') === null) {
+    const tutorialDone = window.localStorage.getItem(TUTORIAL_DONE_KEY) !== null;
     showMenu(stage, {
       base: BASE,
       version: __GAME_VERSION__,
-      missions: Object.entries(missions).map(([id, m]) => ({ id, name: m.name })),
+      missions: Object.entries(missions).map(([id, m]) => ({
+        id,
+        name: m.name,
+        emphasis: id === 'beit_sahwan_0_tutorial' && !tutorialDone ? 'primary' : undefined,
+      })),
       campaign: campaignSummary(loadLedger()),
     });
     return;
@@ -443,6 +456,33 @@ async function main(): Promise<void> {
     applyIntent(sim, intent);
     for (const fn of intentListeners) fn(intent);
   };
+
+  // The tutorial gets read-only lookups, never the sim itself — it must not be
+  // able to queue a command (invariant 4).
+  // `tutorials` is keyed by tutorial id (e.g. "beit_sahwan_0"), not by mission
+  // id — the mission each entry teaches is its own `.mission` field, so the
+  // match has to search by that rather than index directly by `missionId`.
+  const stepList = Object.values(
+    tutorials as Record<string, { mission: string; steps: StepJson[] } | undefined>
+  ).find((t) => t?.mission === missionId);
+  let tut: TutorialState | null = null;
+  let tutPanel: TutorialPanel | null = null;
+  if (mission && stepList && window.localStorage.getItem(TUTORIAL_DONE_KEY) === null) {
+    tut = initTutorial(stepList.steps);
+    tutPanel = tutorialPanel(document.body, {
+      onSkip: () => {
+        tut = null;
+        tutPanel?.destroy();
+        tutPanel = null;
+        renderer.clearTutorialFocus();
+      },
+    });
+    intentListeners.push((intent) => {
+      if (!tut) return;
+      tut = advance(tut, { kind: 'intent', intent }, performance.now());
+    });
+  }
+
   canvas.addEventListener('pointerdown', (ev) => {
     if (ev.button === 0) dragStart = canvasXY(ev);
   });
@@ -693,6 +733,7 @@ async function main(): Promise<void> {
     audio.onEvents(events, sim);
     if (runtime && mission) {
       for (const me of runtime.step(events)) {
+        if (tut) tut = advance(tut, { kind: 'mission', event: me }, performance.now());
         const described = describeMissionEvent(me, mission);
         if (described) hud.note(described[0], described[1]);
         if (me.kind === 'missionEnd') {
@@ -710,6 +751,42 @@ async function main(): Promise<void> {
               nextMissionId: order[order.indexOf(missionId) + 1],
             });
           }
+        }
+      }
+      if (tut) {
+        const now = performance.now();
+        for (const e of events) {
+          tut = advance(
+            tut,
+            {
+              kind: 'sim',
+              event: e,
+              sideOf: (id) => sim.state.side[id],
+              typeIdOf: (id) => sim.unitTypes[sim.state.typeIdx[id]].id,
+            },
+            now
+          );
+        }
+        tut = advance(tut, { kind: 'tick' }, now);
+        tutPanel?.render(tut);
+        const step = tut.steps[tut.index];
+        const focus = step?.focus;
+        if (focus?.kind === 'marker' && focus.marker) {
+          const p = map.markers[focus.marker];
+          if (p) renderer.setTutorialFocus(p[0], p[1], 1.5);
+        } else if (focus?.kind === 'zone' && focus.zone) {
+          const z = map.zones[focus.zone];
+          if (z) renderer.setTutorialFocus(z[0] + z[2] / 2, z[1] + z[3] / 2, Math.max(z[2], z[3]) / 2);
+        } else {
+          renderer.clearTutorialFocus();
+        }
+        if (tut.done) {
+          window.localStorage.setItem(TUTORIAL_DONE_KEY, '1');
+          hud.note('<b>working up complete</b> — the town is next', 'good');
+          tut = null;
+          tutPanel?.destroy();
+          tutPanel = null;
+          renderer.clearTutorialFocus();
         }
       }
     }

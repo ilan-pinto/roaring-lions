@@ -608,6 +608,13 @@
   color: var(--ink-dim);
   padding: var(--s1) var(--s3);
 }
+/* The tutorial, while unplayed: it should be the first thing a new
+   commander's eye lands on, not just the first item in the list. */
+.rl-menu__item[data-kind='primary'] {
+  color: var(--good);
+  background: color-mix(in srgb, var(--good) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--good) 45%, transparent);
+}
 
 .rl-endnav {
   display: flex;
