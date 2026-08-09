@@ -22,7 +22,7 @@ export function tutorialPanel(host: HTMLElement, opts: { onSkip: () => void }): 
     rank: 'inspect',
     title: '',
     tag: '',
-    place: 'bottom:16px;left:50%;transform:translateX(-50%);width:min(520px,92vw)',
+    place: 'bottom:var(--s4);left:50%;transform:translateX(-50%);width:min(520px,92vw)',
   });
 
   const teach = document.createElement('div');

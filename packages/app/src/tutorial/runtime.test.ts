@@ -26,21 +26,21 @@ const STEPS: StepJson[] = [
 
 describe('advance', () => {
   it('opens on the first step', () => {
-    const s = initTutorial(STEPS);
+    const s = initTutorial(STEPS, 0);
     expect(s.index).toBe(0);
     expect(s.done).toBe(false);
     expect(s.openedAtMs).toBe(0);
   });
 
   it('advances when the awaited intent arrives', () => {
-    let s = initTutorial(STEPS);
+    let s = initTutorial(STEPS, 0);
     s = advance(s, { kind: 'intent', intent: { kind: 'select', ids: [1], via: 'click' } }, 1000);
     expect(s.index).toBe(1);
     expect(s.openedAtMs).toBe(1000);
   });
 
   it('does not advance on a different intent', () => {
-    let s = initTutorial(STEPS);
+    let s = initTutorial(STEPS, 0);
     s = advance(s, { kind: 'intent', intent: { kind: 'halt', ids: [1] } }, 500);
     expect(s.index).toBe(0);
   });
@@ -48,7 +48,7 @@ describe('advance', () => {
   it('does not advance on the right intent kind with the wrong narrowing', () => {
     // The move lesson wants an attackMove. A plain move is the same kind and
     // must not satisfy it, or the step teaches the wrong verb.
-    let s = initTutorial(STEPS);
+    let s = initTutorial(STEPS, 0);
     s = advance(s, { kind: 'intent', intent: { kind: 'select', ids: [1], via: 'click' } }, 0);
     expect(s.index).toBe(1);
     s = advance(s, { kind: 'intent', intent: { kind: 'order', verb: 'move', ids: [1], x: 0, y: 0, append: false } }, 10);
@@ -58,7 +58,7 @@ describe('advance', () => {
   });
 
   it('advances on a sim event, restricted to the named side', () => {
-    let s = { ...initTutorial(STEPS), index: 2 };
+    let s = { ...initTutorial(STEPS, 0), index: 2 };
     s = advance(s, { kind: 'sim', event: { kind: 'pinned', tick: 5, entity: 3 }, sideOf: () => 0 }, 100);
     expect(s.index).toBe(2); // our own squad pinned is not the lesson
     s = advance(s, { kind: 'sim', event: { kind: 'pinned', tick: 6, entity: 9 }, sideOf: () => 1 }, 200);
@@ -67,7 +67,7 @@ describe('advance', () => {
   });
 
   it('reports a nudge once the step has been open long enough', () => {
-    let s = initTutorial(STEPS);
+    let s = initTutorial(STEPS, 0);
     s = advance(s, { kind: 'tick' }, 11_000);
     expect(s.nudging).toBe(false);
     s = advance(s, { kind: 'tick' }, 12_001);
@@ -75,7 +75,7 @@ describe('advance', () => {
   });
 
   it('clears the nudge when the step changes', () => {
-    let s = initTutorial(STEPS);
+    let s = initTutorial(STEPS, 0);
     s = advance(s, { kind: 'tick' }, 20_000);
     expect(s.nudging).toBe(true);
     s = advance(s, { kind: 'intent', intent: { kind: 'select', ids: [1], via: 'click' } }, 20_100);
@@ -83,13 +83,13 @@ describe('advance', () => {
   });
 
   it('never nudges a step that declares no nudge', () => {
-    let s = { ...initTutorial(STEPS), index: 1, openedAtMs: 0 };
+    let s = { ...initTutorial(STEPS, 0), index: 1, openedAtMs: 0 };
     s = advance(s, { kind: 'tick' }, 600_000);
     expect(s.nudging).toBe(false);
   });
 
   it('ignores everything once done', () => {
-    const s = { ...initTutorial(STEPS), index: 3, done: true };
+    const s = { ...initTutorial(STEPS, 0), index: 3, done: true };
     const after = advance(s, { kind: 'intent', intent: { kind: 'select', ids: [1], via: 'click' } }, 999);
     expect(after).toBe(s);
   });
@@ -101,7 +101,7 @@ describe('advance', () => {
       { id: 'a', title: 'A', teach: 'a', await: { kind: 'intent', intent: 'select' } },
       { id: 'b', title: 'B', teach: 'b', await: { kind: 'intent', intent: 'select' } },
     ];
-    let s = initTutorial(twoSelects);
+    let s = initTutorial(twoSelects, 0);
     s = advance(s, { kind: 'intent', intent: { kind: 'select', ids: [1], via: 'click' } }, 0);
     expect(s.index).toBe(1);
     expect(s.done).toBe(false);
@@ -122,7 +122,7 @@ describe('advance', () => {
         },
       },
     ];
-    let s = initTutorial(steps);
+    let s = initTutorial(steps, 0);
     s = advance(s, { kind: 'intent', intent: { kind: 'overlay', on: true } }, 10);
     expect(s.index).toBe(0);
     s = advance(s, { kind: 'sim', event: { kind: 'contact', tick: 1, side: 0, target: 4, level: 'identified', confidence: 0 }, sideOf: () => 1 }, 20);
@@ -146,7 +146,7 @@ describe('advance', () => {
         },
       },
     ];
-    let s = initTutorial(steps);
+    let s = initTutorial(steps, 0);
     s = advance(s, { kind: 'sim', event: { kind: 'contact', tick: 1, side: 0, target: 4, level: 'identified', confidence: 0 }, sideOf: () => 1 }, 10);
     expect(s.index).toBe(0);
     s = advance(s, { kind: 'intent', intent: { kind: 'overlay', on: true } }, 20);
@@ -154,7 +154,7 @@ describe('advance', () => {
   });
 
   it('is done immediately for an empty step list', () => {
-    const s = initTutorial([]);
+    const s = initTutorial([], 0);
     expect(s.done).toBe(true);
   });
 
@@ -163,7 +163,7 @@ describe('advance', () => {
       { id: 'a', title: 'A', teach: 'a', await: { kind: 'intent', intent: 'select' } },
       { id: 'beat', title: 'Beat', teach: 'read this', await: { kind: 'elapsed_s', seconds: 5 } },
     ];
-    let s = initTutorial(steps);
+    let s = initTutorial(steps, 0);
     s = advance(s, { kind: 'intent', intent: { kind: 'select', ids: [1], via: 'click' } }, 30_000);
     s = advance(s, { kind: 'tick' }, 34_000);
     expect(s.index).toBe(1);

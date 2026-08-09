@@ -468,7 +468,7 @@ async function main(): Promise<void> {
   let tut: TutorialState | null = null;
   let tutPanel: TutorialPanel | null = null;
   if (mission && stepList && window.localStorage.getItem(TUTORIAL_DONE_KEY) === null) {
-    tut = initTutorial(stepList.steps);
+    tut = initTutorial(stepList.steps, performance.now());
     tutPanel = tutorialPanel(document.body, {
       onSkip: () => {
         tut = null;
@@ -737,6 +737,14 @@ async function main(): Promise<void> {
         const described = describeMissionEvent(me, mission);
         if (described) hud.note(described[0], described[1]);
         if (me.kind === 'missionEnd') {
+          // The end screen must not land over a live step panel — an early
+          // mission end (e.g. destroy_all completing before lesson 12) is not
+          // tutorial completion, so the completion flag is deliberately not
+          // set here.
+          tut = null;
+          tutPanel?.destroy();
+          tutPanel = null;
+          renderer.clearTutorialFocus();
           if (me.result === 'victory') {
             saveLedger({ ...ledger, ...me.ledger });
             hud.note('<b>campaign ledger updated</b> — survivors and ROE carried forward', 'info');
