@@ -65,7 +65,7 @@
     {
       "id": "mount_up",
       "title": "Mount up",
-      "teach": "Transports have reported in on the road. Select a carrier and the infantry, press g to load, u to dismount, then drive them west along the road, clear of the transports -- a freed seat gets filled again on the spot.",
+      "teach": "Transports have reported in on the road. Select a carrier and the infantry, press g to load, u to dismount, then drive them to the road's west end -- a freed seat gets filled again on the spot.",
       "await": {
         "kind": "all_of",
         "of": [
@@ -75,12 +75,12 @@
       },
       "focus": { "kind": "marker", "marker": "rp_road" },
       "nudge_after_s": 25,
-      "nudge": "Select the APC and a squad, press g, drive west, press u, then move the squad clear of the road."
+      "nudge": "Select the APC and a squad, press g, drive to the road's west end, then press u there."
     },
     {
       "id": "armour_has_a_back",
       "title": "Armour has a back",
-      "teach": "The Lavi has 220mm at the front and 90 at the rear. Where it is pointing decides whether a hit matters. Press f to lay smoke and break someone else's aim.",
+      "teach": "Reach the road's west end and the Lavi and AT team report in. The Lavi has 220mm at the front, 90 at the rear -- where it points decides whether a hit matters. Press f to lay smoke.",
       "await": {
         "kind": "all_of",
         "of": [
@@ -88,9 +88,9 @@
           { "kind": "sim", "event": "component" }
         ]
       },
-      "focus": { "kind": "zone", "zone": "z_road_east" },
+      "focus": { "kind": "marker", "marker": "road_west" },
       "nudge_after_s": 30,
-      "nudge": "Select the Lavi and press f to screen it, keeping its front toward the threat."
+      "nudge": "Drive the column to the road's west end for the Lavi, then select it and press f, keeping its front toward the threat."
     },
     {
       "id": "and_armour_dies",
