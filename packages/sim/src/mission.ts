@@ -101,6 +101,10 @@ export interface MissionJson {
   triggers?: readonly {
     id?: string;
     on: { kind: string; value?: number; zone?: string };
+    /** do.kind: 'commit' | 'withdraw_to' | 'spawn' | 'reinforce' — string-typed
+     *  so parsed JSON assigns structurally; the schema constrains the
+     *  vocabulary. spawn spawns on side 1 (enemy); reinforce on side 0
+     *  (player). */
     do: { kind: string; group?: string; to?: string; units?: readonly PlacementJson[] };
   }[];
 }
@@ -761,6 +765,10 @@ export class MissionRuntime {
         }
       } else if (t.do.kind === 'spawn') {
         for (const p of t.do.units ?? []) this.spawnPlacement(p, 1);
+      } else if (t.do.kind === 'reinforce') {
+        // Player-side arrival (GDD §6). `spawn` stays side-1-only so no
+        // existing mission changes behaviour.
+        for (const p of t.do.units ?? []) this.spawnPlacement(p, 0);
       }
     }
   }

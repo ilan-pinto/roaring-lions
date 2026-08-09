@@ -401,7 +401,8 @@
                 "enum": [
                   "commit",
                   "withdraw_to",
-                  "spawn"
+                  "spawn",
+                  "reinforce"
                 ]
               },
               "group": {
@@ -414,7 +415,7 @@
               },
               "units": {
                 "type": "array",
-                "description": "spawn only.",
+                "description": "spawn: enemy units. reinforce: player units.",
                 "items": {
                   "$ref": "#/$defs/placement"
                 }
