@@ -60,7 +60,7 @@
     {
       "id": "fire_pins",
       "title": "Fire pins. It rarely kills.",
-      "teach": "A second squad has come up. Hold a squad in the rocks firing into the enclosure, and bring the APC's gun to bear; a pinned enemy cannot shoot back while the rounds keep landing.",
+      "teach": "Hold in the rocks and a second squad comes up behind you. Keep one squad firing into the enclosure and bring the APC's gun to bear; a pinned enemy cannot shoot back while the rounds keep landing.",
       "await": {
         "kind": "sim",
         "event": "pinned",
@@ -116,7 +116,7 @@
     {
       "id": "mount_up",
       "title": "Mount up",
-      "teach": "More transports have reported in on the road. Select a carrier and the infantry, press g to load, u to dismount, then drive them to the road's west end -- a freed seat gets filled again on the spot.",
+      "teach": "Push east and transports report in on the road. Select a carrier and the infantry, press g to load and u to dismount, then drive to the road's west end -- a freed seat gets filled again on the spot.",
       "await": {
         "kind": "all_of",
         "of": [
@@ -137,7 +137,7 @@
         "marker": "rp_road"
       },
       "nudge_after_s": 25,
-      "nudge": "Select the APC and a squad, press g, drive to the road's west end, then press u there."
+      "nudge": "Head east for the transports, then select the APC and a squad, press g, drive west and press u."
     },
     {
       "id": "armour_has_a_back",
@@ -182,7 +182,7 @@
     {
       "id": "eyes_before_guns",
       "title": "Eyes before guns",
-      "teach": "The recon drone sees without being shot at, and what it identifies your guns can engage. The attack drone is one-use: it is ordnance, not a scout.",
+      "teach": "Reach the road's east end and the drones report in. The recon drone sees without being shot at, and what it identifies your guns can engage. The attack drone is one-use: ordnance, not a scout.",
       "await": {
         "kind": "any_of",
         "of": [
@@ -202,12 +202,12 @@
         "zone": "z_road_east"
       },
       "nudge_after_s": 30,
-      "nudge": "Scout with the recon drone, then send the attack drone at the RPG team on the road."
+      "nudge": "Get to the road's east end for the drones, then send the attack drone at the RPG team."
     },
     {
       "id": "what_a_shot_costs",
       "title": "What a shot costs",
-      "teach": "A mortar team and a demo squad have come up. The mortar does not care what is under it -- the flagged house has people in it, and the score you carry into the campaign remembers. The shed is fair game.",
+      "teach": "Swing south past the shed and a mortar team and demo squad come up. The mortar does not care what is under it -- the flagged house has people in it, and the score you carry forward remembers. The shed is fair game.",
       "await": {
         "kind": "any_of",
         "of": [
@@ -226,7 +226,7 @@
         "zone": "z_clinic"
       },
       "nudge_after_s": 25,
-      "nudge": "Try the mortar near the flagged house, and watch the ROE reading move."
+      "nudge": "Push south for the mortar, then try it near the flagged house and watch the ROE reading move."
     },
     {
       "id": "command_groups",
