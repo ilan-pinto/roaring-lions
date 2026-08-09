@@ -38,7 +38,7 @@
     {
       "id": "fire_pins",
       "title": "Fire pins. It rarely kills.",
-      "teach": "A second squad has come up. Hold a squad in the rocks firing into the enclosure; a pinned enemy cannot shoot back while the rounds keep landing.",
+      "teach": "A second squad has come up. Hold a squad in the rocks firing into the enclosure, and bring the APC's gun to bear; a pinned enemy cannot shoot back while the rounds keep landing.",
       "await": { "kind": "sim", "event": "pinned", "side": 1 },
       "focus": { "kind": "zone", "zone": "z_courtyard" },
       "nudge_after_s": 25,
@@ -57,7 +57,13 @@
       "id": "reach_and_patience",
       "title": "Reach and patience",
       "teach": "A sniper team has joined you. It outranges everything on foot and earns intel while it sits still. Put it on the grove and let it work.",
-      "await": { "kind": "sim", "event": "destroyed", "by_unit": "sniper_team" },
+      "await": {
+        "kind": "any_of",
+        "of": [
+          { "kind": "sim", "event": "destroyed", "by_unit": "sniper_team" },
+          { "kind": "elapsed_s", "seconds": 90 }
+        ]
+      },
       "focus": { "kind": "marker", "marker": "olive_east" },
       "nudge_after_s": 30,
       "nudge": "Move the sniper team into the olive grove and leave it stationary."
@@ -65,7 +71,7 @@
     {
       "id": "mount_up",
       "title": "Mount up",
-      "teach": "Transports have reported in on the road. Select a carrier and the infantry, press g to load, u to dismount, then drive them to the road's west end -- a freed seat gets filled again on the spot.",
+      "teach": "More transports have reported in on the road. Select a carrier and the infantry, press g to load, u to dismount, then drive them to the road's west end -- a freed seat gets filled again on the spot.",
       "await": {
         "kind": "all_of",
         "of": [
