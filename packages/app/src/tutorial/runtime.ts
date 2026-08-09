@@ -105,7 +105,14 @@ export function matches(
     case 'any_of':
       return (pred.of ?? []).some((p) => matches(p, input, openedAtMs, nowMs));
     case 'all_of':
-      // Accumulated in `advance` — a single input cannot satisfy every child.
+      // Accumulated in `advance` — a single input cannot satisfy every child,
+      // so this always returns false here. That makes `all_of` valid only as
+      // a step's top-level `await`: a nested `all_of` (inside another
+      // predicate's `of`) would always hit this branch and could never be
+      // satisfied, stalling the tutorial with no signal in the state pointing
+      // at the cause. The schema enforces this — `predicate.of` items are
+      // typed as `nestedPredicate`, whose `kind` enum omits `all_of` — so the
+      // unsatisfiable shape cannot be authored, not just discouraged.
       return false;
   }
 }

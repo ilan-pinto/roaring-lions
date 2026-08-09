@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { advance, initTutorial, type StepJson } from './runtime';
+import { advance, initTutorial, matches, type PredicateJson, type StepJson, type TutorialInput } from './runtime';
 
 const STEPS: StepJson[] = [
   {
@@ -91,7 +91,7 @@ describe('advance', () => {
   it('ignores everything once done', () => {
     const s = { ...initTutorial(STEPS), index: 3, done: true };
     const after = advance(s, { kind: 'intent', intent: { kind: 'select', ids: [1], via: 'click' } }, 999);
-    expect(after).toEqual(s);
+    expect(after).toBe(s);
   });
 
   it('advances at most one step per input', () => {
@@ -129,6 +129,35 @@ describe('advance', () => {
     expect(s.index).toBe(1);
   });
 
+  it('satisfies all_of in the reverse order too', () => {
+    // Order-independence is the entire justification for accumulating in
+    // `advance` rather than checking both children against one input.
+    const steps: StepJson[] = [
+      {
+        id: 'both',
+        title: 'Both',
+        teach: 'contact and overlay',
+        await: {
+          kind: 'all_of',
+          of: [
+            { kind: 'sim', event: 'contact' },
+            { kind: 'intent', intent: 'overlay' },
+          ],
+        },
+      },
+    ];
+    let s = initTutorial(steps);
+    s = advance(s, { kind: 'sim', event: { kind: 'contact', tick: 1, side: 0, target: 4, level: 'identified', confidence: 0 }, sideOf: () => 1 }, 10);
+    expect(s.index).toBe(0);
+    s = advance(s, { kind: 'intent', intent: { kind: 'overlay', on: true } }, 20);
+    expect(s.index).toBe(1);
+  });
+
+  it('is done immediately for an empty step list', () => {
+    const s = initTutorial([]);
+    expect(s.done).toBe(true);
+  });
+
   it('satisfies elapsed_s from when the step opened, not from mission start', () => {
     const steps: StepJson[] = [
       { id: 'a', title: 'A', teach: 'a', await: { kind: 'intent', intent: 'select' } },
@@ -141,4 +170,121 @@ describe('advance', () => {
     s = advance(s, { kind: 'tick' }, 35_001);
     expect(s.index).toBe(2);
   });
+});
+
+describe('matches', () => {
+  // Direct, table-driven coverage of predicate features that `advance`'s
+  // scenario tests above never exercise: narrowing fields on non-order/select
+  // intents, `by_unit`, `loaded`, `mission`, and `any_of`. Each has a positive
+  // and a negative case so a silent mismatch in the field checked cannot pass.
+  const cases: Array<{ name: string; pred: PredicateJson; input: TutorialInput; expected: boolean }> = [
+    {
+      name: 'via matches a select with the same via',
+      pred: { kind: 'intent', intent: 'select', via: 'box' },
+      input: { kind: 'intent', intent: { kind: 'select', ids: [1], via: 'box' } },
+      expected: true,
+    },
+    {
+      name: 'via rejects a select with a different via',
+      pred: { kind: 'intent', intent: 'select', via: 'box' },
+      input: { kind: 'intent', intent: { kind: 'select', ids: [1], via: 'click' } },
+      expected: false,
+    },
+    {
+      name: 'action matches a group with the same action',
+      pred: { kind: 'intent', intent: 'group', action: 'assign' },
+      input: { kind: 'intent', intent: { kind: 'group', slot: 1, action: 'assign' } },
+      expected: true,
+    },
+    {
+      name: 'action rejects a group with a different action',
+      pred: { kind: 'intent', intent: 'group', action: 'assign' },
+      input: { kind: 'intent', intent: { kind: 'group', slot: 1, action: 'recall' } },
+      expected: false,
+    },
+    {
+      name: 'by_unit matches when the killer resolves to the named type',
+      pred: { kind: 'sim', event: 'destroyed', by_unit: 'sniper' },
+      input: {
+        kind: 'sim',
+        event: { kind: 'destroyed', tick: 1, entity: 5, by: 9 },
+        sideOf: () => 0,
+        typeIdOf: (id) => (id === 9 ? 'sniper' : 'rifleman'),
+      },
+      expected: true,
+    },
+    {
+      name: 'by_unit rejects when the killer resolves to a different type',
+      pred: { kind: 'sim', event: 'destroyed', by_unit: 'sniper' },
+      input: {
+        kind: 'sim',
+        event: { kind: 'destroyed', tick: 1, entity: 5, by: 9 },
+        sideOf: () => 0,
+        typeIdOf: () => 'rifleman',
+      },
+      expected: false,
+    },
+    {
+      name: 'loaded matches a transport event with loaded true',
+      pred: { kind: 'sim', event: 'transport', loaded: true },
+      input: {
+        kind: 'sim',
+        event: { kind: 'transport', tick: 1, entity: 2, carrier: 3, loaded: true },
+        sideOf: () => 0,
+      },
+      expected: true,
+    },
+    {
+      name: 'loaded rejects a transport event with loaded false',
+      pred: { kind: 'sim', event: 'transport', loaded: true },
+      input: {
+        kind: 'sim',
+        event: { kind: 'transport', tick: 1, entity: 2, carrier: 3, loaded: false },
+        sideOf: () => 0,
+      },
+      expected: false,
+    },
+    {
+      name: 'mission matches a mission event of the named kind',
+      pred: { kind: 'mission', event: 'trigger' },
+      input: { kind: 'mission', event: { kind: 'trigger', tick: 1, id: 'x' } },
+      expected: true,
+    },
+    {
+      name: 'mission rejects a mission event of a different kind',
+      pred: { kind: 'mission', event: 'trigger' },
+      input: { kind: 'mission', event: { kind: 'objective', tick: 1, id: 'x', status: 'active' } },
+      expected: false,
+    },
+    {
+      name: 'any_of matches when one child matches',
+      pred: {
+        kind: 'any_of',
+        of: [
+          { kind: 'intent', intent: 'select' },
+          { kind: 'intent', intent: 'halt' },
+        ],
+      },
+      input: { kind: 'intent', intent: { kind: 'halt', ids: [1] } },
+      expected: true,
+    },
+    {
+      name: 'any_of rejects when no child matches',
+      pred: {
+        kind: 'any_of',
+        of: [
+          { kind: 'intent', intent: 'select' },
+          { kind: 'intent', intent: 'halt' },
+        ],
+      },
+      input: { kind: 'intent', intent: { kind: 'order', verb: 'move', ids: [1], x: 0, y: 0, append: false } },
+      expected: false,
+    },
+  ];
+
+  for (const { name, pred, input, expected } of cases) {
+    it(name, () => {
+      expect(matches(pred, input, 0, 0)).toBe(expected);
+    });
+  }
 });
