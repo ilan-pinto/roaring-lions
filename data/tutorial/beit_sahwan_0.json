@@ -36,7 +36,7 @@
     {
       "id": "cover_is_terrain",
       "title": "Cover is terrain, not a stance",
-      "teach": "The rocky ground ahead is heavy cover, and standing in it beats any order you can give. Press o for the roll feed: every shot lists its factors, and cov is the ground working for you.",
+      "teach": "Move into the rocky ground ahead -- it is heavy cover, and standing in it beats any order you can give. Then press o for the roll feed: every shot lists its factors, and cov is the ground working for you.",
       "await": {
         "kind": "all_of",
         "of": [
@@ -157,7 +157,7 @@
     {
       "id": "and_armour_dies",
       "title": "And armour dies",
-      "teach": "The AT team's missile ignores most of what makes a tank a tank. Everything on this field can be killed by the right thing; the game is bringing it.",
+      "teach": "The AT team's missile ignores most of what makes a tank a tank. Select it and right-click the technical at the road's east end -- everything out here dies to the right thing.",
       "await": {
         "kind": "any_of",
         "of": [
@@ -177,12 +177,12 @@
         "zone": "z_road_east"
       },
       "nudge_after_s": 30,
-      "nudge": "Put the AT team on the technical at the east end of the road."
+      "nudge": "Select the AT team, then right-click the technical at the east end of the road."
     },
     {
       "id": "eyes_before_guns",
       "title": "Eyes before guns",
-      "teach": "Reach the road's east end and the drones report in. The recon drone sees without being shot at, and what it identifies your guns can engage. The attack drone is one-use: ordnance, not a scout.",
+      "teach": "Reach the road's east end and the drones report in. Scout with the recon drone; it sees without being shot at. Then send the attack drone into the RPG team -- it is one-use ordnance, not a scout.",
       "await": {
         "kind": "any_of",
         "of": [
@@ -207,7 +207,7 @@
     {
       "id": "what_a_shot_costs",
       "title": "What a shot costs",
-      "teach": "Swing south past the shed and a mortar team and demo squad come up. The mortar does not care what is under it -- the flagged house has people in it, and the score you carry forward remembers. The shed is fair game.",
+      "teach": "Swing south past the shed for a mortar team and a demo squad. Fire the mortar near the flagged house and watch the ROE reading: the mortar does not care who is under it, and the score you carry forward remembers.",
       "await": {
         "kind": "any_of",
         "of": [
