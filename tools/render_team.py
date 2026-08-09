@@ -108,7 +108,37 @@ ROLE_PALETTE = {
 #: mechanical decision, not an aesthetic one -- so a face is the light end of
 #: `dust`, which at this size is the correct read anyway: a warm dot under the
 #: helmet. `dust.2` was the earlier mistake, lighting into terracotta.
-BODY_PALETTE = {"boot": "gunmetal.3", "face": "dust.1"}
+BODY_PALETTE = {
+    # Reddish-brown leather, per the brief. terracotta.2 rather than a gunmetal:
+    # black boots vanished into the figure's own shadow at the bottom of the
+    # sprite, where a boot needs to read as the contact point with the ground.
+    "boot": "terracotta.2",
+    # Skin. The base is set from the *target* rather than being the target,
+    # because a figure renders at roughly half its base value -- see the note
+    # above. `lit_target` does that arithmetic instead of it being guessed.
+    "face": "skin.0",
+    "skin_shadow": "skin.1",
+    # Resolved by checker_material rather than a flat key; present so the
+    # "no palette key for role" guard does not fire.
+    "keffiyeh": "limestone.0",
+}
+
+#: Roles whose base is derived from the tone wanted rather than set to it.
+#:
+#: The half-value rule was discovered the hard way twice, and both times the fix
+#: was "pick a lighter palette entry and hope". That works while a target has a
+#: lighter neighbour on its own ramp; skin has only two entries and the face
+#: needs the lighter one, so there is nothing above it to reach for. Scaling the
+#: base is the general form of the same fix.
+LIT_GAIN = {
+    "face": 1.95,
+    "skin_shadow": 1.85,
+    # 1.35, not 1.9. At 1.9 the leather landed on terracotta.0 and .1 -- the two
+    # brightest reds in the palette -- and the boots read as glowing orange
+    # specks at the figure's feet. That band exists for fired roof tile; a
+    # character should never reach the top of it.
+    "boot": 1.35,
+}
 
 #: Ambient, and why a figure needs it when a vehicle does not.
 #:
@@ -183,6 +213,45 @@ def _shader(name, colour, roughness=0.88):
     return mat
 
 
+def checker_material(name, light_key, dark_key, squares_per_metre=30.0):
+    """Black-and-white checked cloth, procedurally.
+
+    The keffiyeh's check is the one place a *pattern* rather than a flat tone is
+    asked for on a character, and render_building.py already established how:
+    a texture node driven by **Object** coordinates. That choice is load-bearing
+    the same way it is there -- kit.py builds every part at real vertex
+    coordinates with object scale 1, so object space is metres and the check has
+    a physical size instead of scaling with the part.
+
+    The light squares land mid-cream rather than white. limestone.0 is already
+    near the top of the palette, so there is no headroom to gain into against the
+    half-value rule -- and against this palette's stated desaturation a cream and
+    near-black check reads as the black-and-white scarf it is meant to be.
+    """
+    mat = bpy.data.materials.new(name)
+    mat.use_nodes = True
+    nt = mat.node_tree
+    nt.nodes.clear()
+    coord = nt.nodes.new("ShaderNodeTexCoord")
+    chk = nt.nodes.new("ShaderNodeTexChecker")
+    chk.inputs["Color1"].default_value = palette_linear(light_key)
+    chk.inputs["Color2"].default_value = palette_linear(dark_key)
+    chk.inputs["Scale"].default_value = squares_per_metre
+    nt.links.new(coord.outputs["Object"], chk.inputs["Vector"])
+    bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
+    bsdf.inputs["Roughness"].default_value = 0.92
+    nt.links.new(chk.outputs["Color"], bsdf.inputs["Base Color"])
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+    return mat
+
+
+#: The keffiyeh's two tones. Light is gained hard because the check has to survive
+#: a figure rendering at half its base value; dark needs none, being near-black
+#: already.
+KEFFIYEH = ("limestone.0", "shadow.0")
+
+
 def apply_materials(parts, faction, casualty=False):
     """Assign one material per role. A part with no `rl_role` is a bug in the kit,
     not something to guess at, so it raises."""
@@ -198,8 +267,26 @@ def apply_materials(parts, faction, casualty=False):
         )
         if key is None:
             raise SystemExit(f"no palette key for role {role!r} (faction {faction})")
+        if role == "keffiyeh" and not casualty:
+            if "keffiyeh" not in cache:
+                cache["keffiyeh"] = checker_material("Team_keffiyeh", *KEFFIYEH)
+            ob.data.materials.clear()
+            ob.data.materials.append(cache["keffiyeh"])
+            continue
         if key not in cache:
-            cache[key] = _shader(f"Team_{key.replace('.', '_')}", palette_linear(key))
+            gain = 1.0 if casualty else LIT_GAIN.get(role, 1.0)
+            base = palette_linear(key)
+            if gain != 1.0:
+                # Clamp the gain so no channel clips, rather than clamping the
+                # channels. Clipping one channel and scaling the others rotates
+                # the hue: skin.0's linear red is 0.571, so a 1.95 gain pinned
+                # red at 1.0 while green and blue kept climbing, and the "skin"
+                # base came out orange. Scaling the whole colour by the largest
+                # non-clipping factor keeps the hue and only loses brightness.
+                headroom = 1.0 / max(base[:3]) if max(base[:3]) > 0 else 1.0
+                g = min(gain, headroom)
+                base = tuple(ch * g for ch in base[:3]) + (1.0,)
+            cache[key] = _shader(f"Team_{key.replace('.', '_')}", base)
         ob.data.materials.clear()
         ob.data.materials.append(cache[key])
 
