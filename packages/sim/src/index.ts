@@ -9,6 +9,7 @@ export { Rng } from './rng';
 export { FlowField } from './flowfield';
 export {
   MissionRuntime,
+  MISSION_EVENT_KINDS,
   type MissionJson,
   type MissionContext,
   type MissionEvent,
@@ -16,6 +17,7 @@ export {
   type PlacementJson,
   type LedgerData,
   type LedgerRosterEntry,
+  type MissionEventKindsAreExhaustive,
 } from './mission';
 export {
   Sim,
@@ -23,6 +25,7 @@ export {
   DT,
   WEAPON_CLASS,
   unitTypeFromJson,
+  SIM_EVENT_KINDS,
   type SimConfig,
   type Command,
   type SimEvent,
@@ -32,4 +35,5 @@ export {
   type WeaponStats,
   type HitFactors,
   type HitProjection,
+  type SimEventKindsAreExhaustive,
 } from './sim';

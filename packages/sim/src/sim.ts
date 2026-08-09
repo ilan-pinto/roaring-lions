@@ -446,6 +446,29 @@ export type SimEvent =
   | { kind: 'unpinned'; tick: number; entity: number }
   | { kind: 'destroyed'; tick: number; entity: number; by: number };
 
+/** Every `SimEvent` kind, as a value.
+ *
+ *  A `type` cannot be iterated at runtime, and the tutorial validates step JSON
+ *  against this list. `satisfies` ties it to the union: adding an event kind
+ *  without adding it here fails typecheck.
+ */
+export const SIM_EVENT_KINDS = [
+  'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'ambushSprung',
+  'strike', 'smokeLaid', 'revealed', 'structureHit', 'structureDestroyed', 'garrison',
+  'transport', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
+] as const satisfies readonly SimEvent['kind'][];
+
+/** Compile-time proof the list above covers the whole union.
+ *
+ *  `satisfies` catches a name that is not a kind. This catches a kind that is
+ *  not in the list: add an event to `SimEvent` and forget this array, and
+ *  `MissingSimEventKind` stops being `never`, so the alias below fails to
+ *  compile naming the kind you forgot.
+ */
+type MissingSimEventKind = Exclude<SimEvent['kind'], (typeof SIM_EVENT_KINDS)[number]>;
+type AssertNoMissingKind<T extends never> = T;
+export type SimEventKindsAreExhaustive = AssertNoMissingKind<MissingSimEventKind>;
+
 export interface SimConfig {
   seed: number;
   width: number;
