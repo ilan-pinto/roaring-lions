@@ -23,7 +23,7 @@
     {
       "id": "cover_is_terrain",
       "title": "Cover is terrain, not a stance",
-      "teach": "The broken wall ahead is heavy cover. Standing in it is worth more than any order you can give. Press o to read what the ground is worth.",
+      "teach": "The rocky ground ahead is heavy cover, and standing in it beats any order you can give. Press o for the roll feed: every shot lists its factors, and cov is the ground working for you.",
       "await": {
         "kind": "all_of",
         "of": [
@@ -33,12 +33,12 @@
       },
       "focus": { "kind": "zone", "zone": "z_wall" },
       "nudge_after_s": 20,
-      "nudge": "Get into the wall line, then press o."
+      "nudge": "Move into the rocks, then press o. The feed fills once rounds start landing."
     },
     {
       "id": "fire_pins",
       "title": "Fire pins. It rarely kills.",
-      "teach": "A second squad has come up. Hold a squad in the wall shooting into the courtyard; a pinned enemy cannot shoot back while the rounds keep landing.",
+      "teach": "A second squad has come up. Hold a squad in the rocks firing into the enclosure; a pinned enemy cannot shoot back while the rounds keep landing.",
       "await": { "kind": "sim", "event": "pinned", "side": 1 },
       "focus": { "kind": "zone", "zone": "z_courtyard" },
       "nudge_after_s": 25,
