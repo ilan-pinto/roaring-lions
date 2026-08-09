@@ -38,6 +38,7 @@ import './ui/theme.css';
 import { Hud, type MissionView, type Tone } from './ui/hud';
 import { showMenu, showEndScreen } from './ui/menu';
 import { ProductionBar } from './ui/production';
+import { applyIntent, sortMount, type PlayerIntent } from './input/intents';
 
 /** Deploy base ('/' locally, '/<repo>/' on GitHub Pages) — every asset URL
  *  is built from it so the same bundle works in both places. */
@@ -353,6 +354,9 @@ async function main(): Promise<void> {
   });
   // The instrument, off by default now that the HUD is not built on top of it.
   const overlay = new DebugOverlay(document.body, sim, () => renderer.selection, __GAME_VERSION__);
+  // DebugOverlay does not expose its own visibility, so the intent that
+  // reports it is tracked here, kept in lockstep with every `toggle()` call.
+  let overlayOn = false;
 
   // Always-visible escape hatch back to the campaign menu.
   // Top bar: menu and audio, laid out side by side so neither can collide.
@@ -431,6 +435,14 @@ async function main(): Promise<void> {
     const rect = canvas.getBoundingClientRect();
     return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
   };
+  // Every command the player issues goes through here. The tutorial subscribes
+  // to the same stream, which is the only way it learns about selection and
+  // overlay — facts the sim does not have.
+  const intentListeners: ((intent: PlayerIntent) => void)[] = [];
+  const dispatch = (intent: PlayerIntent): void => {
+    applyIntent(sim, intent);
+    for (const fn of intentListeners) fn(intent);
+  };
   canvas.addEventListener('pointerdown', (ev) => {
     if (ev.button === 0) dragStart = canvasXY(ev);
   });
@@ -501,6 +513,7 @@ async function main(): Promise<void> {
           armedSupport === 'sweep'
             ? runtime.requestSweep(fx.from(w.x), fx.from(w.y))
             : runtime.requestStrike(fx.from(w.x), fx.from(w.y));
+        dispatch({ kind: 'support', call: armedSupport, x: w.x, y: w.y, accepted: ok });
         hud.note(
           ok
             ? `<b>${armedSupport === 'sweep' ? 'sweep' : 'strike'} called</b> on (${w.x.toFixed(0)}, ${w.y.toFixed(0)})`
@@ -515,10 +528,12 @@ async function main(): Promise<void> {
       }
       const hit = renderer.pickUnit(w.x, w.y);
       renderer.selection = hit >= 0 ? [hit] : [];
+      dispatch({ kind: 'select', ids: renderer.selection, via: 'click' });
     } else {
       renderer.selection = renderer
         .unitsInScreenRect(dragStart.x, dragStart.y, p.x, p.y)
         .filter((i) => sim.state.side[i] === 0);
+      dispatch({ kind: 'select', ids: renderer.selection, via: 'box' });
     }
     dragStart = null;
     dragBox.style.display = 'none';
@@ -535,22 +550,16 @@ async function main(): Promise<void> {
     if (struct >= 0) {
       const canEnter = mine.filter((i) => sim.unitTypes[sim.state.typeIdx[i]].canGarrison);
       const rest = mine.filter((i) => !sim.unitTypes[sim.state.typeIdx[i]].canGarrison);
-      if (canEnter.length > 0) sim.queueCommand({ kind: 'garrison', ids: canEnter, structure: struct });
+      if (canEnter.length > 0) dispatch({ kind: 'garrison', ids: canEnter, structure: struct });
       if (rest.length > 0) {
-        sim.queueCommand({ kind: 'attackMove', ids: rest, x: fx.from(w.x), y: fx.from(w.y) });
+        dispatch({ kind: 'order', verb: 'attackMove', ids: rest, x: w.x, y: w.y, append: false });
       }
       renderer.addOrderMarker(w.x, w.y);
       return;
     }
     // Shift queues the point onto the end of the route instead of replacing
     // it, so a player can draw a path around a block.
-    sim.queueCommand({
-      kind: 'attackMove',
-      ids: mine,
-      x: fx.from(w.x),
-      y: fx.from(w.y),
-      append: ev.shiftKey,
-    });
+    dispatch({ kind: 'order', verb: 'attackMove', ids: mine, x: w.x, y: w.y, append: ev.shiftKey });
     renderer.addOrderMarker(w.x, w.y);
   });
   const keys = new Set<string>();
@@ -565,7 +574,7 @@ async function main(): Promise<void> {
     if (!ev.metaKey && !ev.ctrlKey) keys.add(ev.key.toLowerCase());
     if (ev.key === 'h') {
       const mine = renderer.selection.filter((i) => sim.state.side[i] === 0);
-      if (mine.length) sim.queueCommand({ kind: 'halt', ids: mine });
+      if (mine.length) dispatch({ kind: 'halt', ids: mine });
     }
     if (ev.key.toLowerCase() === 'a' && (ev.ctrlKey || ev.metaKey)) {
       ev.preventDefault(); // browser select-all
@@ -574,17 +583,21 @@ async function main(): Promise<void> {
         if (sim.state.side[i] === 0 && sim.state.alive[i] === 1) renderer.selection.push(i);
       }
     }
-    if (ev.key === 'o') overlay.toggle();
+    if (ev.key === 'o') {
+      overlay.toggle();
+      overlayOn = !overlayOn;
+      dispatch({ kind: 'overlay', on: overlayOn });
+    }
     // Mount up / dismount: the selection sorts itself into riders and rides.
     if (ev.key === 'g') {
       const mine = renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
-      const carrier = mine.find((i) => sim.unitTypes[sim.state.typeIdx[i]].transportSlots > 0);
-      // Passengers are dismounted elements. Filtering on "has no seats" put
-      // tanks in the list, so a box-select over an armoured force loaded
-      // Merkavas into the APC and left the infantry behind.
-      const riders = mine.filter((i) => sim.unitTypes[sim.state.typeIdx[i]].canEmbark);
+      const { carrier, riders } = sortMount(
+        mine,
+        (i) => sim.unitTypes[sim.state.typeIdx[i]].transportSlots > 0,
+        (i) => sim.unitTypes[sim.state.typeIdx[i]].canEmbark
+      );
       if (carrier !== undefined && riders.length > 0) {
-        sim.queueCommand({ kind: 'load', ids: riders, carrier });
+        dispatch({ kind: 'mount', riders, carrier });
         hud.note('<b>mount up</b> — infantry boarding', 'info');
       } else {
         hud.note('select a transport and the infantry to load', 'mute');
@@ -595,7 +608,7 @@ async function main(): Promise<void> {
         (i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1 && sim.passengerCount(i) > 0
       );
       if (carriers.length > 0) {
-        sim.queueCommand({ kind: 'unload', ids: carriers });
+        dispatch({ kind: 'dismount', carriers });
         hud.note('<b>dismount</b> — infantry debussing', 'info');
       }
     }
@@ -609,7 +622,7 @@ async function main(): Promise<void> {
         hud.note('nothing selected that carries smoke', 'mute');
       } else {
         const w = renderer.screenToWorld(lastCursor.x, lastCursor.y);
-        sim.queueCommand({ kind: 'smoke', ids: carriers, x: fx.from(w.x), y: fx.from(w.y) });
+        dispatch({ kind: 'smoke', ids: carriers, x: w.x, y: w.y });
         renderer.addOrderMarker(w.x, w.y);
       }
     }
@@ -636,6 +649,7 @@ async function main(): Promise<void> {
           if (renderer.unitGroup[i] === slot) renderer.unitGroup[i] = 0;
         }
         for (const i of mine) renderer.unitGroup[i] = slot;
+        dispatch({ kind: 'group', slot, action: 'assign' });
         hud.note(
           mine.length ? `<b>group ${slot}</b> — ${mine.length} unit(s)` : `group ${slot} cleared`,
           'live'
@@ -645,6 +659,7 @@ async function main(): Promise<void> {
         groups.set(slot, members);
         if (members.length > 0) {
           renderer.selection = members;
+          dispatch({ kind: 'group', slot, action: 'recall' });
           const now = performance.now();
           if (lastGroupKey === slot && now - lastGroupAt < 400) {
             let cx = 0;
