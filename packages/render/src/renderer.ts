@@ -240,6 +240,18 @@ export class PixiRenderer {
   /** Zone outline colour cue: the hold is running, unheld, or contested. */
   objectiveZoneState: 'held' | 'unheld' | 'contested' = 'held';
 
+  /** Where the tutorial is pointing, in tiles, or null. Presentation only —
+   *  nothing here reads or writes sim state. */
+  tutorialFocus: { x: number; y: number; radius: number } | null = null;
+
+  setTutorialFocus(x: number, y: number, radius: number): void {
+    this.tutorialFocus = { x, y, radius };
+  }
+
+  clearTutorialFocus(): void {
+    this.tutorialFocus = null;
+  }
+
   /** Structure under the cursor, -1 when none. Set by the app. */
   hoverStructure = -1;
   /** True when the current selection could garrison the hovered building. */
@@ -1619,6 +1631,23 @@ export class PixiRenderer {
       }
       g.poly(pts).stroke({ width: 2, color, alpha: pulse + 0.25 });
       g.poly(pts).fill({ color, alpha: 0.05 });
+    }
+
+    // Where the tutorial is pointing. Presentation only — reads no sim state
+    // beyond the camera projection.
+    if (this.tutorialFocus) {
+      const { x: fx2, y: fy2, radius } = this.tutorialFocus;
+      const color = this.opts.resolveColor ? this.opts.resolveColor('vfx.tracer') : '#B8FF5A';
+      const pulse = 0.35 + 0.25 * Math.sin(this.frameN * 0.09);
+      const ringPts: number[] = [];
+      const segments = 24;
+      for (let k = 0; k < segments; k++) {
+        const theta = (k / segments) * Math.PI * 2;
+        const rx = fx2 + radius * Math.cos(theta);
+        const ry = fy2 + radius * Math.sin(theta);
+        ringPts.push(isoX(rx, ry), isoY(rx, ry));
+      }
+      g.poly(ringPts, true).stroke({ width: 2, color, alpha: pulse + 0.25 });
     }
 
     // Queued route for the selection: the path you drew, in order.

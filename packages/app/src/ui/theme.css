@@ -728,3 +728,16 @@
     opacity: 1;
   }
 }
+
+/* Tutorial step panel — the nudge is the same copy escalated, so it reads as
+   emphasis rather than a second instruction. */
+.rl-tutorial__nudge:empty {
+  display: none;
+}
+.rl-tutorial__nudge {
+  margin-top: 0.5em;
+  color: var(--bad);
+}
+.rl-tutorial__skip {
+  margin-top: 0.75em;
+}
