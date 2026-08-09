@@ -14,7 +14,10 @@
     "requires": [],
     "produces": []
   },
-  "starting_force": [{ "unit": "inf_squad", "count": 1, "at": [3, 16] }],
+  "starting_force": [
+    { "unit": "inf_squad", "count": 1, "at": [3, 16] },
+    { "unit": "apc_eitan", "count": 1, "at": [3, 18] }
+  ],
   "objectives": [
     {
       "id": "work_up",
@@ -69,7 +72,6 @@
       "do": {
         "kind": "reinforce",
         "units": [
-          { "unit": "apc_eitan", "count": 1, "marker": "rp_road" },
           { "unit": "ifv_namer", "count": 1, "marker": "rp_road" },
           { "unit": "jeep_shoded", "count": 1, "marker": "rp_road" }
         ]
