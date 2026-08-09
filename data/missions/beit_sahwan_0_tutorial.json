@@ -4,7 +4,7 @@
   "town": "beit_sahwan",
   "phase": "recon",
   "target_minutes": 15,
-  "briefing": "Nothing here is contested yet. The battalion has given you a corner of the training area and one of everything it will hand you next week, delivered a piece at a time as you get to it. Learn what each of them is for. Nothing you lose here comes off the roster, and nothing you learn here is free later.",
+  "briefing": "Nothing here is contested yet. The battalion has given you a corner of the training area and one of everything it will hand you next week, delivered a piece at a time as you get to it. Learn what each of them is for. Nothing you lose here comes off the roster, and nothing you learn here is free later. The exercise stays open once you have learned it all; finish clearing the ground or head back to the menu whenever you are ready.",
   "map": {
     "file": "tutorial_ground",
     "time_of_day": "day",
@@ -18,9 +18,16 @@
   "objectives": [
     {
       "id": "work_up",
-      "type": "destroy_all",
+      "type": "survive_until",
       "primary": true,
+      "seconds": 1200,
       "text": "Work through the training area"
+    },
+    {
+      "id": "clear_the_area",
+      "type": "destroy_all",
+      "primary": false,
+      "text": "Clear the training area"
     }
   ],
   "roe": {
