@@ -149,6 +149,17 @@ export type MissionEvent =
       ledger: LedgerData;
     };
 
+/** Every `MissionEvent` kind, as a value. See `SIM_EVENT_KINDS`. */
+export const MISSION_EVENT_KINDS = [
+  'objective', 'trigger', 'wave', 'roe', 'built', 'missionEnd',
+] as const satisfies readonly MissionEvent['kind'][];
+
+/** Compile-time proof the list above covers the whole union. See
+ *  `SimEventKindsAreExhaustive`. */
+type MissingMissionEventKind = Exclude<MissionEvent['kind'], (typeof MISSION_EVENT_KINDS)[number]>;
+type AssertNoMissingMissionKind<T extends never> = T;
+export type MissionEventKindsAreExhaustive = AssertNoMissingMissionKind<MissingMissionEventKind>;
+
 const SUPPORTED = new Set(['locate', 'eliminate_hvt', 'capture', 'hold_for', 'survive_until', 'destroy_all']);
 
 /** Spread for multi-unit placements: 1.25 tiles. */
