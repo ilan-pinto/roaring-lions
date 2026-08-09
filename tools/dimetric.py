@@ -177,6 +177,34 @@ def build_lights(collection):
     return key, fill
 
 
+def facing_offset(facings=16):
+    """Frames between a rig frame index and the bearing the game draws it at.
+
+    Measured, then derived, after nine infantry sheets shipped facing 270 degrees
+    away from their targets.
+
+    The rig and the game disagree about which way is up. `camera_uv` returns v
+    pointing **up**, and a PNG's row 0 is its top, so a larger v is a smaller row.
+    The renderer's `isoY = (x + y) * TILE_H / 2` grows **downward**. Both agree on
+    the horizontal, since u and isoX are both proportional to (x - y).
+
+    So image-space and game-space are reflected in the vertical axis, which maps a
+    bearing theta to 270 - theta. `facingReverse` already supplies the theta ->
+    -theta half of that, so what remains is a constant +270 degrees -- three
+    quarters of a turn, or 12 of 16 frames.
+
+    Confirmed by rendering a single rod along +x through the rig and reading its
+    tip back through the renderer's own projection: reverse plus offset 12 fits at
+    3.4 degrees mean error against the 22.5 degree frame quantum, where offset 0
+    is out by 87.
+
+    This is the *rig's* share of the offset. A model whose own forward is not +x
+    needs its own axis folded in on top -- which is what the per-vehicle
+    `facing_offset` in render_vehicle.py exists for, and why TNK carries 5.
+    """
+    return 3 * facings // 4
+
+
 def tiles_across(ortho_scale, units_per_tile=UNITS_PER_TILE):
     """The manifest `scale` a building needs: its canvas width in map tiles.
 

@@ -50,6 +50,7 @@ from dimetric import (  # noqa: E402
     ELEVATION as DIMETRIC_ELEVATION,
     SIZE_CLASS,
     build_lights,
+    facing_offset,
     ortho_scale_for_turning,
     tiles_across,
     unit_scale,
@@ -404,7 +405,10 @@ def render_team(team_id, probe=False):
         "facings": FACINGS,
         "size": SIZE,
         # The kit builds each team facing +x, so sprite 0 already looks along +x.
-        "facingOffset": 0,
+        # Derived, not 0. A kit figure's forward is +x, so it takes the rig's own
+        # offset unmodified -- see dimetric.facing_offset for why that is 12 and
+        # not 0. Shipping 0 drew every team 270 degrees from its actual facing.
+        "facingOffset": facing_offset(FACINGS),
         "facingReverse": True,
         "scale": round(scale, 4),
         "derivedScale": round(derived, 4),

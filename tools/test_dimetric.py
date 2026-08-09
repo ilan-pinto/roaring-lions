@@ -6,6 +6,7 @@ the repo's test runner is vitest, and pytest for two tools would be heavier than
 the thing it tests.
 """
 import importlib.util
+import json
 import math
 import os
 import re
@@ -174,6 +175,33 @@ for name in sorted(os.listdir(HERE)):
             f"four copies of azimuth 135 / altitude 55 / key 4.0 agreed by luck, "
             f"which is how the elevation bug hid."
         )
+
+# The facing offset, and the shipped manifests that must declare it. Nine infantry
+# sheets went out with 0, so every team was drawn a quarter-turn short of three
+# quarters -- 270 degrees off the direction the sim had it facing.
+check("facing_offset is three quarters of a turn", dm.facing_offset(16), 12)
+check("facing_offset scales with the sheet", dm.facing_offset(8), 6)
+
+_sprites = os.path.join(os.path.dirname(HERE), "assets", "sprites")
+if os.path.isdir(_sprites):
+    want = dm.facing_offset(16)
+    for name in sorted(os.listdir(_sprites)):
+        if not name.startswith("INF_"):
+            continue
+        mf = os.path.join(_sprites, name, "manifest.json")
+        if not os.path.isfile(mf):
+            continue
+        with open(mf) as fh:
+            man = json.load(fh)
+        if man.get("facings") != 16:
+            continue
+        got = man.get("facingOffset")
+        if got != want:
+            failures.append(
+                f"{name}/manifest.json declares facingOffset={got}, expected {want}. "
+                f"A kit figure's forward is +x, so it takes the rig offset unmodified; "
+                f"see dimetric.facing_offset."
+            )
 
 if failures:
     print(f"FAIL ({len(failures)})")
