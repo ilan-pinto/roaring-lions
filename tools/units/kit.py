@@ -287,10 +287,17 @@ def figure(prefix, at, posture="standing", yaw=0.0, helmet=True, stride=0.0,
 
         C("torso", 0.74, 0.125, (0.30, 0.0, 0.125))
         B("pack", (0.32, 0.32, 0.13), (0.02, 0.0, 0.255), "webbing")
+        # A prone figure crawls rather than walks, and it has to read as *some*
+        # movement: the prone branch used to ignore `stride` entirely, so
+        # sniper_team's four `move` frames rendered byte-identical -- a manifest
+        # claiming a 4-frame loop that played as a still. Opposite limbs reach
+        # forward together, which is what a low crawl looks like from above.
         for sgn in (-1.0, 1.0):
-            C(f"leg{int(sgn)}", 0.66, 0.058, (-0.42, sgn * 0.085, 0.075))
-            B(f"boot{int(sgn)}", (0.15, 0.13, 0.10), (-0.80, sgn * 0.085, 0.06), "boot")
-            C(f"arm{int(sgn)}", 0.40, 0.045, (0.44, sgn * 0.165, 0.085))
+            reach = sgn * stride
+            C(f"leg{int(sgn)}", 0.66, 0.058, (-0.42 + reach * 0.085, sgn * 0.085, 0.075))
+            B(f"boot{int(sgn)}", (0.15, 0.13, 0.10),
+              (-0.80 + reach * 0.085, sgn * 0.085, 0.06), "boot")
+            C(f"arm{int(sgn)}", 0.40, 0.045, (0.44 - reach * 0.075, sgn * 0.165, 0.085))
         C("neck", 0.10, R_NECK, (0.70, 0.0, 0.13))
         if helmet:
             parts.append(dome(f"{prefix}_helmet", HEAD_W, 0.15,

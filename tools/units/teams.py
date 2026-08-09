@@ -12,10 +12,14 @@ scene, so `move` really is different geometry from `idle` rather than the same
 geometry deformed. The clip scheme:
 
     idle    the deployed arrangement
-    move    standing figures' legs split fore-and-aft over four frames
+    move    four frames: standing legs split fore-and-aft, prone figures crawl
     fire    standing figures drop to a knee -- a firing line goes to ground
     down    everyone prone, gone to ground under suppression
     wreck   prone, rendered in the casualty material
+
+Frames 0 and 2 of `move` are deliberately identical -- the stride cycle is
+0 -> forward -> 0 -> back, so both are the contact pose. Three unique images per
+facing, not four, and that is the cycle rather than a saving.
 
 Two limitations, stated rather than hidden:
 
@@ -183,9 +187,10 @@ def sniper_team(clip, frame):
     # `down` cannot be "go prone" here. Closing up and flattening is the only
     # thing left that reads as a change.
     close = 0.12 if clip in ("down", "wreck") else 0.24
-    out = kit.figure("snp_a", (0.10, -close, 0.0), posture="prone")
+    st = _stride(clip, frame)
+    out = kit.figure("snp_a", (0.10, -close, 0.0), posture="prone", stride=st)
     out += kit.sniper_rifle("snp_rifle", (0.10, -close, 0.0))
-    out += kit.figure("snp_b", (-0.24, close, 0.0), posture="prone")
+    out += kit.figure("snp_b", (-0.24, close, 0.0), posture="prone", stride=-st)
     out += kit.binoculars("snp_binos", (-0.24, close, 0.0), posture="prone")
     return out
 
