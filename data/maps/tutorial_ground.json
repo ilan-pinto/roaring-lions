@@ -50,7 +50,7 @@
     "clinic_house": [25, 28],
     "civ_refuge": [15, 31],
     "rp_west": [3, 16],
-    "rp_road": [5, 22]
+    "rp_road": [17, 22]
   },
   "zones": {
     "z_field": [5, 13, 5, 7],
