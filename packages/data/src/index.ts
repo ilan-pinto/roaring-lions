@@ -8,6 +8,7 @@ import audioManifest from '../../../data/audio.json';
 import beitSahwanOutskirts from '../../../data/maps/beit_sahwan_outskirts.json';
 import tutorialGround from '../../../data/maps/tutorial_ground.json';
 import structureCatalogue from '../../../data/structures.json';
+import beitSahwan0 from '../../../data/missions/beit_sahwan_0_tutorial.json';
 import beitSahwan1 from '../../../data/missions/beit_sahwan_1_recon.json';
 import beitSahwan2 from '../../../data/missions/beit_sahwan_2_foothold.json';
 import beitSahwan3 from '../../../data/missions/beit_sahwan_3_clearance.json';
@@ -71,6 +72,7 @@ export type StructureId = keyof typeof structures;
 
 /** Missions, keyed by mission id. Shapes match mission.schema.json. */
 export const missions = {
+  beit_sahwan_0_tutorial: beitSahwan0,
   beit_sahwan_1_recon: beitSahwan1,
   beit_sahwan_2_foothold: beitSahwan2,
   beit_sahwan_3_clearance: beitSahwan3,
