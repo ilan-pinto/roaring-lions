@@ -19,6 +19,120 @@
       "focus": { "kind": "marker", "marker": "field" },
       "nudge_after_s": 15,
       "nudge": "Right-click the marked ground to the east."
+    },
+    {
+      "id": "cover_is_terrain",
+      "title": "Cover is terrain, not a stance",
+      "teach": "The broken wall ahead is heavy cover. Standing in it is worth more than any order you can give. Press o to read what the ground is worth.",
+      "await": {
+        "kind": "all_of",
+        "of": [
+          { "kind": "sim", "event": "contact" },
+          { "kind": "intent", "intent": "overlay" }
+        ]
+      },
+      "focus": { "kind": "zone", "zone": "z_wall" },
+      "nudge_after_s": 20,
+      "nudge": "Get into the wall line, then press o."
+    },
+    {
+      "id": "fire_pins",
+      "title": "Fire pins. It rarely kills.",
+      "teach": "A second squad has come up. Hold one in the wall shooting into the courtyard; a pinned enemy cannot shoot back while the rounds keep landing.",
+      "await": { "kind": "sim", "event": "pinned", "side": 1 },
+      "focus": { "kind": "zone", "zone": "z_courtyard" },
+      "nudge_after_s": 25,
+      "nudge": "Keep one squad firing. Suppression lasts only while fire lands."
+    },
+    {
+      "id": "get_inside",
+      "title": "Get inside",
+      "teach": "Right-click a building with infantry selected and they occupy it. Walls beat any amount of manoeuvre when you need to hold ground.",
+      "await": { "kind": "sim", "event": "garrison" },
+      "focus": { "kind": "marker", "marker": "the_house" },
+      "nudge_after_s": 20,
+      "nudge": "Select infantry and right-click the house."
+    },
+    {
+      "id": "reach_and_patience",
+      "title": "Reach and patience",
+      "teach": "A sniper team has joined you. It outranges everything on foot and earns intel while it sits still. Put it on the grove and let it work.",
+      "await": { "kind": "sim", "event": "destroyed", "by_unit": "sniper_team" },
+      "focus": { "kind": "marker", "marker": "olive_east" },
+      "nudge_after_s": 30,
+      "nudge": "Move the sniper team into the olive grove and leave it stationary."
+    },
+    {
+      "id": "mount_up",
+      "title": "Mount up",
+      "teach": "Transports have reported in on the road. Select a carrier and the infantry, press g to load, u to dismount, then drive them west along the road, clear of the transports -- a freed seat gets filled again on the spot.",
+      "await": {
+        "kind": "all_of",
+        "of": [
+          { "kind": "sim", "event": "transport", "loaded": true },
+          { "kind": "sim", "event": "transport", "loaded": false }
+        ]
+      },
+      "focus": { "kind": "marker", "marker": "rp_road" },
+      "nudge_after_s": 25,
+      "nudge": "Select the APC and a squad, press g, drive west, press u, then move the squad clear of the road."
+    },
+    {
+      "id": "armour_has_a_back",
+      "title": "Armour has a back",
+      "teach": "The Lavi has 220mm at the front and 90 at the rear. Where it is pointing decides whether a hit matters. Press f to lay smoke and break someone else's aim.",
+      "await": {
+        "kind": "all_of",
+        "of": [
+          { "kind": "intent", "intent": "smoke" },
+          { "kind": "sim", "event": "component" }
+        ]
+      },
+      "focus": { "kind": "zone", "zone": "z_road_east" },
+      "nudge_after_s": 30,
+      "nudge": "Select the Lavi and press f to screen it, keeping its front toward the threat."
+    },
+    {
+      "id": "and_armour_dies",
+      "title": "And armour dies",
+      "teach": "The AT team's missile ignores most of what makes a tank a tank. Everything on this field can be killed by the right thing; the game is bringing it.",
+      "await": { "kind": "sim", "event": "destroyed", "by_unit": "at_team" },
+      "focus": { "kind": "zone", "zone": "z_road_east" },
+      "nudge_after_s": 30,
+      "nudge": "Put the AT team on the technical at the east end of the road."
+    },
+    {
+      "id": "eyes_before_guns",
+      "title": "Eyes before guns",
+      "teach": "The recon drone sees without being shot at, and what it identifies your guns can engage. The attack drone is one-use: it is ordnance, not a scout.",
+      "await": { "kind": "sim", "event": "destroyed", "by_unit": "attack_drone" },
+      "focus": { "kind": "zone", "zone": "z_road_east" },
+      "nudge_after_s": 30,
+      "nudge": "Scout with the recon drone, then send the attack drone at the RPG team on the road."
+    },
+    {
+      "id": "what_a_shot_costs",
+      "title": "What a shot costs",
+      "teach": "The mortar does not care what is under it. The flagged house has people in it, and the score you carry into the campaign remembers. The shed is fair game.",
+      "await": {
+        "kind": "any_of",
+        "of": [
+          { "kind": "mission", "event": "roe" },
+          { "kind": "elapsed_s", "seconds": 90 }
+        ]
+      },
+      "focus": { "kind": "zone", "zone": "z_clinic" },
+      "nudge_after_s": 40,
+      "nudge": "Try the mortar near the flagged house, and watch the ROE reading move."
+    },
+    {
+      "id": "command_groups",
+      "title": "Command groups",
+      "teach": "Ctrl and a number binds the selection to that key; the number alone recalls it; twice centres the camera on it. Twelve units are unmanageable without this.",
+      "await": { "kind": "intent", "intent": "group", "action": "assign" },
+      "focus": { "kind": "none" },
+      "nudge_after_s": 20,
+      "nudge": "Select some units and press ctrl+1."
     }
   ]
 }
