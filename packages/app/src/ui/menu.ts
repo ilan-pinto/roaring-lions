@@ -7,6 +7,8 @@ import { wordmark } from './mark';
 export interface MissionEntry {
   id: string;
   name: string;
+  /** 'primary' draws the eye — used for the tutorial until it is completed. */
+  emphasis?: 'primary';
 }
 
 export interface MenuOptions {
@@ -57,7 +59,7 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): void {
     if (kind) a.dataset.kind = kind;
     nav.appendChild(a);
   };
-  for (const m of opts.missions) add(m.name, `?mission=${m.id}`);
+  for (const m of opts.missions) add(m.name, `?mission=${m.id}`, m.emphasis === 'primary' ? 'primary' : '');
   add('M0 sandbox (no mission)', '?sandbox=1', 'aside');
   add('reset campaign ledger', '?fresh=1', 'aside');
   wrap.appendChild(nav);
