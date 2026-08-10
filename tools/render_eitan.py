@@ -83,7 +83,7 @@ SPEC = VehicleSpec(
     # margin it always did. The model's extra width (5.12 units against the
     # truck's proportions) is a deliberate visual change and rides along in the
     # framing rather than in this number.
-    real_metres=6.38,
+    real_metres=6.60,
     size_class="heavy_vehicle",
     role_palette=ROLE_PALETTE,
     credit="8x8 APC -- authored from primitives for this repository, CC BY-SA 4.0",
