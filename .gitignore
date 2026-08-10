@@ -42,3 +42,17 @@ art/src/*.blend1
 
 # Brainstorming companion scratch (superpowers) — never committed.
 .superpowers/
+
+# --- showcase renders -------------------------------------------------------
+# Hero stills and the drive video regenerate from tools/showcase/ plus the
+# tracked art/showcase/apc_detail.blend, so only the source belongs in git.
+# The stills alone are 4 MB and change every time a light moves.
+art/showcase/*.png
+art/showcase/*.mp4
+*.blend1
+
+# Authored vehicle sources are tracked, same reasoning as buildings and drones
+# above: ART_PIPELINE.md §8 requires sources to accompany contributed art, and
+# these are script-authored primitives rather than downloaded geometry.
+!art/src/vehicles/
+!art/src/vehicles/*.blend
