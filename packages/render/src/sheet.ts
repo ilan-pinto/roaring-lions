@@ -92,6 +92,14 @@ export interface StructureSpec {
   /** Drawn width in map tiles. Derived by the render script, not authored. */
   scale: number;
   /**
+   * Px from the anchor up to the building's **roof plane** — the highest place
+   * something could stand — as distinct from `badgeTopPx`, which is the top of the
+   * art. For the mosque those differ by 33px, because the top of the art is the tip
+   * of the minaret. A badge wants the art; a garrison standing on the roof wants
+   * this. Null on a sheet rendered before the field existed.
+   */
+  roofTopPx: number | null;
+  /**
    * Display px from the sprite's anchor up to the top of its opaque art, or null
    * when the sheet predates the field.
    *
@@ -197,9 +205,11 @@ export function parseStructureManifest(raw: unknown): StructureSpec {
   const first = files.length > 0 && isRecord(files[0]) ? files[0] : null;
   const file = typeof first?.file === 'string' ? first.file : 'idle_f00_000.png';
   const badge = raw.badgeTopPx;
+  const roof = raw.roofTopPx;
   return {
     scale: num(raw.scale, 1),
     badgeTopPx: typeof badge === 'number' && Number.isFinite(badge) ? badge : null,
+    roofTopPx: typeof roof === 'number' && Number.isFinite(roof) ? roof : null,
     file,
   };
 }

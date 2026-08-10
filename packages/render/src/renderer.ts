@@ -107,6 +107,12 @@ export const TERRAIN_DECOR = { none: 0, road: 1, grove: 2, knoll: 3 } as const;
  * has the larger sum and covers the building. Scaled and rounded because Pixi
  * sorts on a numeric field and float noise would make ties flicker.
  */
+/** How many of a building's occupants are drawn on its roof. The pips carry the
+ *  true count; more than two figures on one roof is mush. */
+const ROOF_SLOTS = 2;
+/** Lateral spacing between roof figures, in screen px. */
+const ROOF_SPREAD_PX = 13;
+
 function depthZ(x: number, y: number): number {
   return Math.round((x + y) * 64);
 }
@@ -154,7 +160,7 @@ export class PixiRenderer {
    *  there are no facings: one texture is the whole sheet. */
   private structureAtlas = new Map<
     string,
-    { texture: Texture; scale: number; badgeTopPx: number | null }
+    { texture: Texture; scale: number; badgeTopPx: number | null; roofTopPx: number | null }
   >();
   /** Structures already drawn this rebuild -- a footprint spans many tiles. */
   private drawnStructures = new Set<number>();
@@ -199,6 +205,31 @@ export class PixiRenderer {
     }
   }
 
+  /**
+   * Where a garrisoned unit draws, and whether it draws at all.
+   *
+   * The sim parks occupants at the structure's footprint centre
+   * (`sim.ts:2237`), and a structure sprite sorts at its *far* corner, so an
+   * occupant at the centre sorts underneath its own building and is invisible.
+   * A held house therefore looked identical whatever was inside it, and whether
+   * the garrison was shooting could not be read at all.
+   *
+   * Lifting them onto the roof fixes both. `badgeTopPx` is the roof line and is
+   * already in every building manifest for the badge, so no new data is needed.
+   *
+   * Only the first `ROOF_SLOTS` occupants draw: five overlapping sprites on one
+   * roof is mush, and the pips beside them stay authoritative for the count.
+   */
+  private static roofPlacement(
+    slot: number,
+    roofPx: number,
+  ): { dx: number; dy: number } | null {
+    if (slot < 0 || slot >= ROOF_SLOTS) return null;
+    // Spread about the centre so two figures read as two.
+    const spread = (slot - (ROOF_SLOTS - 1) / 2) * ROOF_SPREAD_PX;
+    return { dx: spread, dy: -roofPx };
+  }
+
   /** Facing (turns) → sprite index, in the sheet's own convention. */
   private static spriteIndex(facingNorm: number, sheet: SheetSpec): number {
     const n = sheet.facings;
@@ -206,6 +237,9 @@ export class PixiRenderer {
     const dir = sheet.facingReverse ? -k : k;
     return (((dir + sheet.facingOffset) % n) + n) % n;
   }
+  /** Roof slot per entity, or -1: which figure this occupant is on its building's
+   *  roof this frame. Presentation only; nothing in the sim knows about it. */
+  private roofSlot = new Int8Array(0);
   /** Per-entity Sprite child in spriteLayer; created on demand. */
   private entitySprites: (Sprite | null)[] = [];
   /** Per-entity turret Sprite, layered above the hull sprite. */
@@ -287,6 +321,7 @@ export class PixiRenderer {
     this.curX = new Float64Array(n);
     this.curY = new Float64Array(n);
     this.unitGroup = new Uint8Array(n);
+    this.roofSlot = new Int8Array(n);
     this.entityAnimFrame = new Float64Array(n);
     this.entitySpeed = new Float64Array(n);
     this.animSeeded = new Uint8Array(n);
@@ -401,6 +436,7 @@ export class PixiRenderer {
       texture,
       scale: spec.scale,
       badgeTopPx: spec.badgeTopPx,
+      roofTopPx: spec.roofTopPx,
     });
     this.terrainDirty = true;
   }
@@ -1173,6 +1209,21 @@ export class PixiRenderer {
     this.stepDeaths(dtSeconds, g);
     if (this.particles) this.particles.step(dtSeconds);
 
+    // Which occupants get a roof slot, assigned once per frame in entity order so
+    // the spread is stable rather than flickering between frames.
+    this.roofSlot.fill(-1);
+    {
+      const seen = new Map<number, number>();
+      for (let i = 0; i < this.sim.entityCount; i++) {
+        if (st.alive[i] === 0) continue;
+        const inside = st.garrisonedIn[i];
+        if (inside < 0) continue;
+        const n = seen.get(inside) ?? 0;
+        seen.set(inside, n + 1);
+        this.roofSlot[i] = n;
+      }
+    }
+
     // Hide all entity sprites first; visible ones get shown below.
     for (const spr of this.entitySprites) {
       if (spr) spr.visible = false;
@@ -1188,8 +1239,32 @@ export class PixiRenderer {
       // Anyone who isn't ours is only drawn while actually observed — fog
       // hides them, and losing sight loses the contact.
       if (st.side[i] !== 0 && !this.isVisible(x, y)) continue;
-      const sx = isoX(x, y);
-      const sy = isoY(x, y);
+      // Garrisoned: lift onto the roof, or skip entirely past the slot cap.
+      const inside = st.garrisonedIn[i];
+      let roofDx = 0;
+      let roofDy = 0;
+      let roofZ = 0;
+      if (inside >= 0) {
+        const sTypeId = this.sim.structureTypes[this.sim.structures.typeIdx[inside]].id;
+        const sArt = this.structureAtlas.get(sTypeId);
+        // The roof plane, not the top of the art. badgeTopPx is the topmost opaque
+        // row, which for the mosque is the tip of its minaret -- figures placed
+        // there hovered above the dome rather than standing on it.
+        const roofPx =
+          sArt?.roofTopPx ??
+          sArt?.badgeTopPx ??
+          this.sim.structureTypes[this.sim.structures.typeIdx[inside]].heightPx;
+        const place = PixiRenderer.roofPlacement(this.roofSlot[i], roofPx);
+        if (!place) continue; // over the cap: the pips still report them
+        roofDx = place.dx;
+        roofDy = place.dy;
+        // A structure sprite sorts at its far corner, so an occupant must clear
+        // that or it draws inside its own building. +1, same trick the turret uses.
+        roofZ = depthZ(this.sim.structures.maxX[inside] + 1,
+                       this.sim.structures.maxY[inside] + 1) + 1;
+      }
+      const sx = isoX(x, y) + roofDx;
+      const sy = isoY(x, y) + roofDy;
       const side = st.side[i];
       const type = this.sim.unitTypes[st.typeIdx[i]];
       const r = type.isSoft ? 7 : 11;
@@ -1293,7 +1368,7 @@ export class PixiRenderer {
         spr.position.set(sx + ox, sy + oy);
         // Depth from the unit's own tile position, so it sorts against
         // buildings by the same rule they use.
-        spr.zIndex = depthZ(x, y);
+        spr.zIndex = roofZ !== 0 ? roofZ : depthZ(x, y);
         spr.alpha = bodyAlpha;
         spr.visible = true;
         const spriteScale = (sheet.scale * TILE_W) / idle[0][0].width;
@@ -1347,7 +1422,7 @@ export class PixiRenderer {
           // immediately above its own hull rather than relying on the
           // insertion order sorting has just taken away.
           tspr.position.set(sx + ox + axX * spriteScale, sy + oy + axY * spriteScale);
-          tspr.zIndex = depthZ(x, y) + 1;
+          tspr.zIndex = (roofZ !== 0 ? roofZ : depthZ(x, y)) + 1;
           tspr.alpha = bodyAlpha;
           tspr.visible = true;
           tspr.scale.set(spriteScale);

@@ -819,15 +819,33 @@ def rifle(name, at, yaw=0.0, posture="standing", aim=False):
     return [tube(name, 0.78, 0.045, (x0 + reach * c, y0 + reach * s, z0 + z), yaw=yaw, role="weapon")]
 
 
-def sniper_rifle(name, at, yaw=0.0):
-    """Longer than a rifle, with a bipod, lying at prone height. The length is
-    the point: it stretches an already-wide prone silhouette wider."""
+def sniper_rifle(name, at, yaw=0.0, posture="prone"):
+    """Longer than a rifle, with a bipod. The length is the point: it stretches an
+    already-wide prone silhouette wider.
+
+    `posture` exists because the weapon has to follow the man. It used to be
+    prone-only, so when the sniper team was given a standing `move` the figures
+    stood up and left the rifle lying on the ground at their feet -- which reads as
+    a dropped weapon, not as a team relocating. Carried, it rides at chest height
+    and the bipod folds away.
+    """
     x0, y0, z0 = at
     c, s = math.cos(yaw), math.sin(yaw)
-    parts = [tube(name, 1.24, 0.05, (x0 + 0.42 * c, y0 + 0.42 * s, z0 + 0.26), yaw=yaw, role="weapon")]
-    parts.append(box(f"{name}_bipod", (0.06, 0.30, 0.22),
-                     (x0 + 0.92 * c, y0 + 0.92 * s, z0 + 0.13), "metal"))
-    return parts
+    if posture == "prone":
+        return [
+            tube(name, 1.24, 0.05, (x0 + 0.42 * c, y0 + 0.42 * s, z0 + 0.26),
+                 yaw=yaw, role="weapon"),
+            box(f"{name}_bipod", (0.06, 0.30, 0.22),
+                (x0 + 0.92 * c, y0 + 0.92 * s, z0 + 0.13), "metal"),
+        ]
+    # Slung across the chest of a standing figure. Shorter reach forward, so the
+    # walking silhouette is a man carrying something long rather than a man with a
+    # pole through him.
+    carry_z = z0 + POSTURE_EYE["standing"] * 0.72
+    return [
+        tube(name, 1.24, 0.05, (x0 + 0.10 * c, y0 + 0.10 * s, carry_z),
+             yaw=yaw, role="weapon"),
+    ]
 
 
 def launcher(name, at, yaw=0.0, pitch=0.0, length=1.10, radius=0.085):

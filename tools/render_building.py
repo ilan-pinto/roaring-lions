@@ -462,6 +462,15 @@ def setup(spec):
     return meshes, extent, scale, framing
 
 
+#: Row buckets used to find the roof plane. 64 over a 512px frame is 8px a bucket
+#: -- fine enough to separate a parapet from a spire, coarse enough not to be moved
+#: by one stray vertex.
+ROOF_ROWS = 64
+#: How wide a row must be, against the widest row, to count as roof rather than
+#: spire. 0.45 skips the mosque's minaret and keeps its dome shoulder.
+ROOF_BROAD_FRAC = 0.45
+
+
 def check_framing(scene, cam, meshes, scale):
     """Where the art lands in the frame, measured through the camera.
 
@@ -491,9 +500,35 @@ def check_framing(scene, cam, meshes, scale):
     bottom = (1.0 - min(vs)) * SIZE
     clearance = framing_clearance(top, left, bottom, right, SIZE)
     badge = badge_top_px(top, SIZE, scale)
+
+    # The roof plane, which is not the same thing as the top of the art. badgeTopPx
+    # is the topmost opaque row, so for the mosque it is the tip of the *minaret* --
+    # correct for a badge floating clear of the building, and wrong for anything
+    # meant to stand on it. Garrison figures placed there hovered above the dome.
+    #
+    # So: bin the projected points into rows, and take the highest row where the
+    # silhouette is still broad. A minaret or a spire is narrow and gets skipped; a
+    # roof, a parapet or a dome shoulder is wide and does not.
+    widths = {}
+    for u, v in zip(us, vs):
+        row = int((1.0 - v) * ROOF_ROWS)
+        lo_hi = widths.get(row)
+        if lo_hi is None:
+            widths[row] = [u, u]
+        else:
+            if u < lo_hi[0]:
+                lo_hi[0] = u
+            if u > lo_hi[1]:
+                lo_hi[1] = u
+    spans = {r: (hi_ - lo_) for r, (lo_, hi_) in widths.items()}
+    broadest = max(spans.values()) if spans else 0.0
+    broad_rows = [r for r, w in spans.items() if w >= ROOF_BROAD_FRAC * broadest]
+    roof_row = (min(broad_rows) / ROOF_ROWS) * SIZE if broad_rows else top
+    roof = badge_top_px(roof_row, SIZE, scale)
     print(
         f"  framing: rows {top:.1f}..{bottom:.1f} cols {left:.1f}..{right:.1f} "
-        f"of {SIZE}, clearance {clearance:.1f}px, badgeTopPx {badge:.1f}"
+        f"of {SIZE}, clearance {clearance:.1f}px, badgeTopPx {badge:.1f}, "
+        f"roofTopPx {roof:.1f}"
     )
     if clearance < MIN_EDGE_CLEARANCE_PX:
         raise SystemExit(
@@ -501,7 +536,11 @@ def check_framing(scene, cam, meshes, scale):
             f"{MIN_EDGE_CLEARANCE_PX}). Raise FRAME_MARGIN, currently "
             f"{FRAME_MARGIN}, or shrink the model."
         )
-    return {"badge_top_px": round(badge, 2), "clearance_px": round(clearance, 2)}
+    return {
+        "badge_top_px": round(badge, 2),
+        "roof_top_px": round(roof, 2),
+        "clearance_px": round(clearance, 2),
+    }
 
 
 def render_building(spec):
@@ -531,6 +570,7 @@ def render_building(spec):
         # places integrity bars and garrison pips with this; using heightPx put
         # them 67px inside the mosque, behind the dome.
         "badgeTopPx": framing["badge_top_px"],
+        "roofTopPx": framing["roof_top_px"],
         "clips": {"idle": {"frames": 1, "fps": 0, "loop": False}},
         "files": [{"clip": "idle", "facing": 0, "frame": 0, "file": name}],
     }
@@ -543,7 +583,7 @@ def render_building(spec):
         fh.write("\n")
     print(
         f"DONE 1 frame -> {spec.out_dir} (extent {extent:.2f}, scale {scale:.3f}, "
-        f"badgeTopPx {framing['badge_top_px']})"
+        f"badgeTopPx {framing['badge_top_px']}, roofTopPx {framing['roof_top_px']})"
     )
 
 

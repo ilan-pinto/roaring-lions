@@ -226,17 +226,31 @@ def mortar_crew(clip, frame):
 
 
 def sniper_team(clip, frame):
-    """Sniper Team, crew 2. Both prone. The only prone idle in the game, which
-    makes it the one sheet with no collision risk worth naming -- a wide flat
-    smear is a shape nothing else can produce."""
-    # `down` cannot be "go prone" here. Closing up and flattening is the only
-    # thing left that reads as a change.
+    """Sniper Team, crew 2. Prone on the scope, but *upright when it relocates*.
+
+    Posture used to be prone for every clip, so the team crawled everywhere it
+    went. A sniper team moves on its feet and goes down to shoot.
+
+    The prone idle is still the only one in the game, and this file used to call
+    that "the one sheet with no collision risk worth naming". That reasoning
+    survives intact: the silhouette gate compares *only* `idle_f00_000.png` and
+    refuses to run on anything else (validate_assets.py), and `idle` is still
+    prone, so the gate sees exactly what it saw before. Standing up for `move`
+    cannot reach it.
+
+    `fire` stays prone for the reason in this module's header -- the clip is
+    latched per shot, so a posture that changes height makes the whole team bob
+    up and down through a firefight.
+    """
+    # `down` cannot be "go prone" here, since idle already is. Closing up and
+    # flattening is the only thing left that reads as a change.
     close = 0.12 if clip in ("down", "wreck") else 0.24
+    posture = "standing" if clip == "move" else "prone"
     st = _stride(clip, frame)
-    out = kit.figure("snp_a", (0.10, -close, 0.0), posture="prone", stride=st)
-    out += kit.sniper_rifle("snp_rifle", (0.10, -close, 0.0))
-    out += kit.figure("snp_b", (-0.24, close, 0.0), posture="prone", stride=-st)
-    out += kit.binoculars("snp_binos", (-0.24, close, 0.0), posture="prone")
+    out = kit.figure("snp_a", (0.10, -close, 0.0), posture=posture, stride=st)
+    out += kit.sniper_rifle("snp_rifle", (0.10, -close, 0.0), posture=posture)
+    out += kit.figure("snp_b", (-0.24, close, 0.0), posture=posture, stride=-st)
+    out += kit.binoculars("snp_binos", (-0.24, close, 0.0), posture=posture)
     return out
 
 

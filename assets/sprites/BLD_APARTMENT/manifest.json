@@ -7,6 +7,7 @@
   "scale": 7.0655,
   "footprintTiles": 5,
   "badgeTopPx": 213.3,
+  "roofTopPx": 183.7,
   "clips": {
     "idle": {
       "frames": 1,
