@@ -262,6 +262,9 @@ export class MissionRuntime {
   private readonly spawnedWaves: boolean[] = [];
   private firstContact = false;
   private ended = false;
+  /** Objectives completed from outside since the last step(), so their
+   *  events are emitted on the tick the completion takes effect. */
+  private readonly externallyCompleted: string[] = [];
   private resultValue: 'ongoing' | 'victory' | 'defeat' = 'ongoing';
 
   constructor(sim: Sim, mission: MissionJson, ctx: MissionContext) {
@@ -371,6 +374,22 @@ export class MissionRuntime {
       startTick: this.sim.tickCount,
       readyTick: this.sim.tickCount + info.buildTimeS * TICKS_PER_SECOND,
     });
+    return true;
+  }
+
+  /**
+   * Complete a declared objective from outside the runtime. The tutorial's
+   * "every lesson cleared" is a fact about player input, which the runtime
+   * deliberately cannot observe (see tutorial.schema.json) — this is the
+   * same app→runtime channel as requestStrike. The completion event and
+   * any mission end come out of the next step(), through the normal path.
+   */
+  completeObjective(id: string): boolean {
+    if (this.ended) return false;
+    const o = this.objectives.find((x) => x.def.id === id);
+    if (!o || o.status !== 'active') return false;
+    o.status = 'complete';
+    this.externallyCompleted.push(id);
     return true;
   }
 
@@ -524,6 +543,9 @@ export class MissionRuntime {
     this.stepPatrols();
     this.stepTriggers(tick, out);
     this.stepWaves(tick, out);
+    for (const id of this.externallyCompleted.splice(0)) {
+      out.push({ kind: 'objective', tick, id, status: 'complete' });
+    }
     this.stepObjectives(tick, out);
     this.checkEnd(tick, out);
     return out;

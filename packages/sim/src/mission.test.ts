@@ -1197,3 +1197,40 @@ describe('intel carry-over', () => {
   });
 });
 
+describe('external objective completion', () => {
+  it('completes an active objective and ends the mission through the normal path', () => {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+        objectives: [{ id: 'work_up', type: 'survive_until', primary: true, seconds: 600 }],
+      })
+    );
+    expect(w.runtime.completeObjective('work_up')).toBe(true);
+    const out = w.step(1);
+    expect(
+      out.mission.some((e) => e.kind === 'objective' && e.id === 'work_up' && e.status === 'complete')
+    ).toBe(true);
+    const ends = out.mission.filter(
+      (e): e is Extract<MissionEvent, { kind: 'missionEnd' }> => e.kind === 'missionEnd'
+    );
+    expect(ends).toHaveLength(1);
+    expect(ends[0].result).toBe('victory');
+    expect(ends[0].survivors).toEqual(['m_squad']);
+  });
+
+  it('rejects unknown ids, already-complete objectives, and calls after the end', () => {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+        objectives: [{ id: 'work_up', type: 'survive_until', primary: true, seconds: 600 }],
+      })
+    );
+    expect(w.runtime.completeObjective('no_such_objective')).toBe(false);
+    expect(w.runtime.completeObjective('work_up')).toBe(true);
+    expect(w.runtime.completeObjective('work_up')).toBe(false); // no longer active
+    w.step(1); // mission ends
+    expect(w.runtime.result).toBe('victory');
+    expect(w.runtime.completeObjective('work_up')).toBe(false); // ended
+  });
+});
+
