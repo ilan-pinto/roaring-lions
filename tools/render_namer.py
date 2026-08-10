@@ -41,12 +41,11 @@ SPEC = VehicleSpec(
     },
     # A Namer is 7.5m long. This model is already in real metres and measures
     # 6.92, so the derivation scales it up by 8% to the vehicle it represents.
-    # 7.30, down from 7.5. A Namer really is 7.5 m, but it was drawing at scale 2.009
-    # against the tank's 1.964 -- the largest vehicle on the field, which reads wrong
-    # for an IFV whatever the tape says. Same call already made for the Eitan, and the
-    # same trade the GDD makes when it says the §5.7 targets outrank the §5 formula
-    # text: what the player reads wins over the spec sheet.
-    real_metres=7.30,
+    # Scale declared, metres derived -- see dimetric.metres_for_scale. 1.955 keeps it
+    # just under the tank's 1.964: a Namer really is 7.5 m and was drawing as the
+    # largest vehicle on the field, which reads wrong for an IFV whatever the tape says.
+    real_metres=None,
+    target_scale=1.955,
     size_class="heavy_vehicle",
     credit="Mutte (CC-BY 3.0, BlendSwap #75225)",
     hull_unit="namer_ifv_hull",

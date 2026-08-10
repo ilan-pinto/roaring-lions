@@ -35,6 +35,7 @@ CAM_AZIMUTH = math.radians(225.0)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from dimetric import (  # noqa: E402
     ELEVATION as DIMETRIC_ELEVATION,
+    metres_for_scale,
     palette_linear,
     SIZE_CLASS,
     build_lights,
@@ -70,6 +71,8 @@ class Framing:
     #: `turretAxisPx` is.
     center: tuple = (0.0, 0.0, 0.0)
     ortho_units: float = 1.0
+    #: The metres actually used -- declared, or solved from `target_scale`.
+    real_metres: float = 0.0
 
 
 @dataclass
@@ -84,6 +87,9 @@ class VehicleSpec:
     # units are arbitrary, so the manifest scale is derived from these two facts
     # plus the measured frame. See dimetric.SIZE_CLASS for why the compression
     # exists at all.
+    # State what the unit *is*, in metres on its longest axis -- or leave it None and
+    # set `target_scale` instead, which fixes the drawn size and lets the metres
+    # follow. Exactly one of the two.
     real_metres: float
     size_class: str
     credit: str
@@ -125,6 +131,13 @@ class VehicleSpec:
     # Vertical travel the clip will give the pivot, included in the measurement
     # so a bobbing model cannot walk out of its own frame.
     bounds_z_pad: float = 0.0
+    #: The drawn scale to hit, instead of declaring metres. The rig sizes each frame
+    #: to hold the model at every facing, so any geometry change moves the drawn scale
+    #: -- the Eitan needed seven hand corrections to `real_metres` in one sitting for
+    #: exactly that reason. Declaring the scale makes the on-screen size the fixed
+    #: point and derives the metres, so a shape change cannot silently resize a
+    #: vehicle. Set this *or* `real_metres`.
+    target_scale: float = None
     #: rl_role -> palette key, for a model authored by tools/vehicles/kit.py. Left
     #: None, every part gets the one flat olive that every downloaded hull has
     #: always used, so no existing sheet changes.
@@ -307,18 +320,30 @@ def setup(spec):
     # the axis-aligned extent rather than the bounding radius: a radius is a
     # diagonal and would under-report metres per unit by up to sqrt(3).
     extent_model = max(xs[-1] - xs[0], ys[-1] - ys[0], zs[-1] - zs[0])
-    mpu = metres_per_unit(extent_model, spec.real_metres)
 
     # Sized to hold the model at every facing, in the model's own units.
     centred = [(p.x, p.y, p.z) for p in pts]
     ortho_units = ortho_scale_for_turning(
         centred, FRAME_MARGIN, aim=tuple(center), z_pad=spec.bounds_z_pad
     )
+    # Either the metres are declared and the scale follows, or the scale is declared
+    # and the metres follow. The second is what stops a shape change resizing a
+    # vehicle behind your back.
+    if (spec.target_scale is None) == (spec.real_metres is None):
+        raise SystemExit("set exactly one of real_metres or target_scale")
+    if spec.target_scale is not None:
+        real_metres = metres_for_scale(
+            spec.target_scale, extent_model, ortho_units, spec.size_class
+        )
+        print(f"Solved: target scale {spec.target_scale} -> real_metres {real_metres:.3f}")
+    else:
+        real_metres = spec.real_metres
+    mpu = metres_per_unit(extent_model, real_metres)
     derived = tiles_across(ortho_units * mpu)
     scale = unit_scale(ortho_units * mpu, spec.size_class)
     print(
         f"Bounds: center={center}, radius={radius:.2f} ({len(pts)} verts)\n"
-        f"Scale:  extent {extent_model:.3f} units = {spec.real_metres} m "
+        f"Scale:  extent {extent_model:.3f} units = {real_metres:.3f} m "
         f"({mpu:.4f} m/unit), frame {ortho_units:.3f} units = "
         f"{ortho_units * mpu:.2f} m\n"
         f"        derived {derived:.4f} x {SIZE_CLASS[spec.size_class]} "
@@ -367,7 +392,7 @@ def setup(spec):
         raise SystemExit(f"turret meshes not found in the model: {sorted(missing)}")
     print(f"Hull meshes: {len(hull)}, turret meshes: {len(turret)}")
     return pivot, hull, turret, olive, Framing(
-        derived, scale, mpu, ortho_units * mpu, tuple(center), ortho_units
+        derived, scale, mpu, ortho_units * mpu, tuple(center), ortho_units, real_metres
     )
 
 
@@ -484,7 +509,7 @@ def write_manifest(spec, out_dir, unit, clips, files, framing, layer=None, axis_
         "derivedScale": round(framing.derived_scale, 4),
         "sizeClass": spec.size_class,
         "classMultiplier": SIZE_CLASS[spec.size_class],
-        "realMetres": spec.real_metres,
+        "realMetres": round(framing.real_metres, 3),
         "metresPerModelUnit": round(framing.metres_per_unit, 5),
         "frameMetres": round(framing.frame_metres, 3),
         "clips": clips,

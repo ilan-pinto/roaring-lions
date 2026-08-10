@@ -179,6 +179,44 @@ def unit_scale(ortho_scale_metres, size_class, units_per_tile=UNITS_PER_TILE):
     return tiles_across(ortho_scale_metres, units_per_tile) * SIZE_CLASS[size_class]
 
 
+def metres_for_scale(target_scale, measured_extent, ortho_scale_units, size_class,
+                    units_per_tile=UNITS_PER_TILE):
+    """Invert `unit_scale`: what `real_metres` yields a given drawn scale?
+
+    The forward chain is
+
+        scale = real_metres * (ortho_units / extent) * sqrt(2) / (2U) * class_mult
+
+    which is linear in `real_metres`, so this is a division rather than a search.
+
+    Why it exists. `real_metres` is meant to state what a unit *is*, and a hand-typed
+    one works fine until the model changes: the rig sizes each frame to hold the model
+    at every facing, so any edit to the geometry moves `ortho_units` and therefore the
+    drawn scale. The Eitan needed seven corrections in one sitting -- 8.5, 7.2, 6.45,
+    6.38, 6.60, 7.00, 7.13 -- every one chasing a shape change somewhere else, and each
+    one an opportunity to forget and ship a vehicle that had silently grown.
+
+    Declaring the target scale instead makes the drawn size the fixed point and lets
+    the metres follow. The number written into the manifest is then derived, which is
+    honest: it says how large this model is being treated as, given the frame it needs.
+    """
+    if target_scale <= 0.0:
+        raise ValueError("target_scale must be positive")
+    if measured_extent <= 0.0:
+        raise ValueError("measured_extent must be positive")
+    if size_class not in SIZE_CLASS:
+        raise KeyError(f"unknown size class {size_class!r}; have {sorted(SIZE_CLASS)}")
+    per_metre = (
+        (ortho_scale_units / measured_extent)
+        * math.sqrt(2)
+        / (2 * units_per_tile)
+        * SIZE_CLASS[size_class]
+    )
+    if per_metre <= 0.0:
+        raise ValueError("degenerate framing; cannot solve for real_metres")
+    return target_scale / per_metre
+
+
 def build_lights(collection):
     """Link the locked key and fill into `collection`.
 
