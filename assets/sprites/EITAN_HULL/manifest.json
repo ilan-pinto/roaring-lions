@@ -5,13 +5,13 @@
   "size": 256,
   "facingOffset": 12,
   "facingReverse": true,
-  "scale": 1.9524,
-  "derivedScale": 1.9524,
+  "scale": 1.9606,
+  "derivedScale": 1.9606,
   "sizeClass": "heavy_vehicle",
   "classMultiplier": 1.0,
-  "realMetres": 6.45,
-  "metresPerModelUnit": 0.69681,
-  "frameMetres": 8.283,
+  "realMetres": 6.38,
+  "metresPerModelUnit": 0.68925,
+  "frameMetres": 8.318,
   "clips": {
     "idle": {
       "frames": 1,
