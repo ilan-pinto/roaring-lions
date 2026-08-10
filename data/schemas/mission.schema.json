@@ -402,12 +402,13 @@
                   "commit",
                   "withdraw_to",
                   "spawn",
-                  "reinforce"
+                  "reinforce",
+                  "dismount"
                 ]
               },
               "group": {
                 "type": "string",
-                "description": "commit/withdraw_to: which garrison group moves."
+                "description": "commit/withdraw_to: which garrison group moves. dismount: whose carriers unload."
               },
               "to": {
                 "type": "string",
@@ -466,6 +467,13 @@
         "tag": {
           "type": "string",
           "description": "Objective targeting (eliminate_hvt, locate)."
+        },
+        "passengers": {
+          "type": "array",
+          "description": "Infantry authored aboard this carrier, seated at spawn rather than walking in. The only way an AI-driven transport ever has passengers -- every other route is a player command. Each carrier in a count>1 placement gets the whole declared load, not a share of it. Capacity and whether a type can ride are checked by validate_data.mjs, which unlike this schema can see the carrier's transport_slots. Note `starting_force` carries its own inline copy of this object and does not accept this field; nothing player-side needs it yet.",
+          "items": {
+            "$ref": "#/$defs/placement"
+          }
         },
         "stance": {
           "type": "object",

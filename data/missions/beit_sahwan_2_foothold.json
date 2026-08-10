@@ -95,6 +95,20 @@
           20.5
         ],
         "facing_deg": 180
+      },
+      {
+        "unit": "technical",
+        "count": 1,
+        "marker": "mortar_line",
+        "facing_deg": 270,
+        "group": "flank_delivery",
+        "passengers": [
+          {
+            "unit": "rpg_team",
+            "count": 1,
+            "group": "flank_rpg"
+          }
+        ]
       }
     ],
     "waves": [
@@ -142,5 +156,30 @@
         ]
       }
     ]
-  }
+  },
+  "triggers": [
+    {
+      "id": "flank_delivery_rolls",
+      "on": {
+        "kind": "timer_s",
+        "value": 60
+      },
+      "do": {
+        "kind": "commit",
+        "group": "flank_delivery",
+        "to": "town_center"
+      }
+    },
+    {
+      "id": "flank_delivery_drops",
+      "on": {
+        "kind": "timer_s",
+        "value": 67
+      },
+      "do": {
+        "kind": "dismount",
+        "group": "flank_delivery"
+      }
+    }
+  ]
 }

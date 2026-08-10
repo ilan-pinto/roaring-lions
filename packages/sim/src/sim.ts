@@ -2324,8 +2324,7 @@ export class Sim {
         this.boardGoal[i] = -1;
         continue;
       }
-      const slots = this.unitTypes[this.typeIdx[goal]].transportSlots;
-      if (this.passengers[goal] >= slots) continue; // wait for a seat
+      if (!this.canSeat(goal, i)) continue; // no seat yet, or not eligible
       const d = distSqFx(fx.sub(this.posX[goal], this.posX[i]), fx.sub(this.posY[goal], this.posY[i]));
       if (d > LOAD_RANGE_SQ) {
         // Keep chasing a vehicle that has moved on.
@@ -2334,19 +2333,61 @@ export class Sim {
         this.moving[i] = 1;
         continue;
       }
-      this.carriedBy[i] = goal;
-      this.boardGoal[i] = -1;
-      this.passengers[goal]++;
-      this.moving[i] = 0;
-      this.fieldRef[i] = -1;
-      this.pendingEvents.push({
-        kind: 'transport',
-        tick: this.tickCount,
-        entity: i,
-        carrier: goal,
-        loaded: true,
-      });
+      this.seat(goal, i);
     }
+  }
+
+  /**
+   * May `id` take a seat in `car` right now? Seats, types and states only —
+   * distance is the caller's business, because boarding checks it and a mission
+   * that authored a passenger aboard has no distance to check.
+   */
+  private canSeat(car: number, id: number): boolean {
+    if (car < 0 || car >= this.count || this.alive[car] === 0) return false;
+    const slots = this.unitTypes[this.typeIdx[car]].transportSlots;
+    if (slots === 0 || this.passengers[car] >= slots) return false;
+    if (id === car || id < 0 || id >= this.count || this.alive[id] === 0) return false;
+    // Only dismounted elements ride. This also covers vehicle stacking, since no
+    // carrier is a foot role.
+    if (!this.unitTypes[this.typeIdx[id]].canEmbark) return false;
+    return this.carriedBy[id] < 0;
+  }
+
+  /** Put `id` in a seat. Extracted so boarding and authored-aboard share it. */
+  private seat(car: number, id: number): void {
+    this.carriedBy[id] = car;
+    this.boardGoal[id] = -1;
+    this.passengers[car]++;
+    this.moving[id] = 0;
+    this.fieldRef[id] = -1;
+    this.pendingEvents.push({
+      kind: 'transport',
+      tick: this.tickCount,
+      entity: id,
+      carrier: car,
+      loaded: true,
+    });
+  }
+
+  /**
+   * Seat a passenger immediately, for a mission that authored them aboard.
+   *
+   * Returns false when refused, which is a mission authoring error rather than
+   * something to route around: the caller reports it and the data gate is meant
+   * to have caught it first. Deliberately goes through `canSeat`, the same
+   * predicate boarding uses — a second, laxer path is how a tank ends up inside a
+   * pickup, which `carriers.test.ts` already asserts cannot happen by command.
+   */
+  embarkAtSpawn(car: number, id: number): boolean {
+    if (!this.canSeat(car, id)) return false;
+    if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
+    this.seat(car, id);
+    // Snap onto the hull, so a passenger never renders beside a vehicle it is
+    // inside for the tick before stepTransport runs.
+    this.posX[id] = this.posX[car];
+    this.posY[id] = this.posY[car];
+    this.facing[id] = this.facing[car];
+    return true;
   }
 
   /**

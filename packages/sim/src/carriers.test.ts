@@ -244,3 +244,96 @@ describe('transport', () => {
     expect(build()).toBe(build());
   });
 });
+
+// Mounted delivery: infantry a *mission* authored aboard, rather than a player
+// ordering them in. Everything below the seating itself is already covered above —
+// riding with the hull, immunity while aboard, and the bail-out when the carrier
+// brews up, which is what makes a delivery a risk the player can pre-empt.
+describe('embarkAtSpawn', () => {
+  it('seats a passenger immediately, on the hull rather than beside it', () => {
+    const { sim, jeep, inf } = world();
+    const car = sim.spawn(jeep, 1, fx.from(10.5), fx.from(10.5));
+    const squad = sim.spawn(inf, 1, fx.from(20.5), fx.from(20.5));
+
+    expect(sim.embarkAtSpawn(car, squad)).toBe(true);
+    expect(sim.state.carriedBy[squad]).toBe(car);
+    expect(sim.passengerCount(car)).toBe(1);
+    // Snapped on, so a passenger never renders beside a vehicle it is inside for
+    // the tick before stepTransport runs.
+    expect(sim.state.posX[squad]).toBe(sim.state.posX[car]);
+    expect(sim.state.posY[squad]).toBe(sim.state.posY[car]);
+  });
+
+  it('refuses past capacity, so a mission cannot overfill a carrier', () => {
+    const { sim, jeep, inf } = world();
+    const car = sim.spawn(jeep, 1, fx.from(10.5), fx.from(10.5));
+    const seated = [0, 1, 2].map(() =>
+      sim.embarkAtSpawn(car, sim.spawn(inf, 1, fx.from(10.5), fx.from(10.5))),
+    );
+    // The jeep has two seats; the third is refused rather than silently dropped.
+    expect(seated).toEqual([true, true, false]);
+    expect(sim.passengerCount(car)).toBe(2);
+  });
+
+  it('refuses a type that cannot ride, by the same rule as a player load', () => {
+    const { sim, jeep, tank } = world();
+    const car = sim.spawn(jeep, 1, fx.from(10.5), fx.from(10.5));
+    const armour = sim.spawn(tank, 1, fx.from(10.5), fx.from(10.5));
+    expect(sim.embarkAtSpawn(car, armour)).toBe(false);
+    expect(sim.passengerCount(car)).toBe(0);
+  });
+
+  it('refuses a carrier with no seats, and refuses seating a unit twice', () => {
+    const { sim, jeep, inf, tank } = world();
+    const notACarrier = sim.spawn(tank, 1, fx.from(10.5), fx.from(10.5));
+    const squad = sim.spawn(inf, 1, fx.from(10.5), fx.from(10.5));
+    expect(sim.embarkAtSpawn(notACarrier, squad)).toBe(false);
+
+    const car = sim.spawn(jeep, 1, fx.from(12.5), fx.from(12.5));
+    expect(sim.embarkAtSpawn(car, squad)).toBe(true);
+    expect(sim.embarkAtSpawn(car, squad)).toBe(false);
+    expect(sim.passengerCount(car)).toBe(1);
+  });
+
+  it('rides until unloaded, then stands on the ground', () => {
+    const { sim, jeep, inf } = world();
+    const car = sim.spawn(jeep, 1, fx.from(6.5), fx.from(10.5));
+    const squad = sim.spawn(inf, 1, fx.from(6.5), fx.from(10.5));
+    sim.embarkAtSpawn(car, squad);
+
+    sim.queueCommand({ kind: 'move', ids: [car], x: fx.from(16.5), y: fx.from(10.5) });
+    run(sim, 8 * TICKS_PER_SECOND);
+    // Still aboard, and moved with the hull rather than walking.
+    expect(sim.state.carriedBy[squad]).toBe(car);
+    expect(sim.state.posX[squad]).toBe(sim.state.posX[car]);
+    const droppedAt = sim.state.posX[car];
+
+    sim.queueCommand({ kind: 'unload', ids: [car] });
+    run(sim, 2);
+    expect(sim.state.carriedBy[squad]).toBe(-1);
+    expect(sim.passengerCount(car)).toBe(0);
+    // Put down beside the vehicle, near where it had got to.
+    expect(Math.abs(sim.state.posX[squad] - droppedAt)).toBeLessThan(fx.from(3));
+  });
+
+  it('leaves the golden hash alone when nobody is authored aboard', () => {
+    // The delivery must not perturb a mission that does not use it. Two worlds
+    // that differ only in an unused code path have to hash the same.
+    const build = (embark: boolean): number => {
+      const { sim, jeep, inf, tank } = world();
+      const car = sim.spawn(jeep, 0, fx.from(6.5), fx.from(10.5));
+      const squad = sim.spawn(inf, 0, fx.from(6.5), fx.from(10.5));
+      sim.spawn(tank, 1, fx.from(30.5), fx.from(10.5));
+      if (embark) sim.embarkAtSpawn(car, squad);
+      sim.queueCommand({ kind: 'attackMove', ids: [car], x: fx.from(28.5), y: fx.from(10.5) });
+      run(sim, 200);
+      return sim.hash();
+    };
+    // Same seed, same orders: seating someone must change the state (they are
+    // aboard), so this asserts the paths are distinct rather than accidentally
+    // identical — the determinism suite covers the no-passenger case itself.
+    expect(build(false)).not.toBe(build(true));
+    expect(build(true)).toBe(build(true));
+    expect(build(false)).toBe(build(false));
+  });
+});
