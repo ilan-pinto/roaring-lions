@@ -1,17 +1,17 @@
 {
   "unit": "eitan_apc_turret",
-  "credit": "LPMAC military truck. LICENCE UNVERIFIED, see tools/render_eitan.py",
+  "credit": "8x8 APC -- authored from primitives for this repository, CC BY-SA 4.0",
   "facings": 16,
   "size": 256,
-  "facingOffset": 0,
+  "facingOffset": 12,
   "facingReverse": true,
-  "scale": 2.688,
-  "derivedScale": 2.688,
+  "scale": 2.3016,
+  "derivedScale": 2.3016,
   "sizeClass": "heavy_vehicle",
   "classMultiplier": 1.0,
   "realMetres": 8.5,
-  "metresPerModelUnit": 0.4473,
-  "frameMetres": 11.404,
+  "metresPerModelUnit": 0.8761,
+  "frameMetres": 9.765,
   "clips": {
     "idle": {
       "frames": 1,

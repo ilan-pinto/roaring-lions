@@ -169,9 +169,9 @@ def setup(spec):
                 o.hide_render = True
 
     # A source file may ship its own camera and lights. Whether to remove them
-    # is per-vehicle: the truck's Sun contributes usefully to the Eitan sheets,
-    # so this defaults off and is opted into only where a test render shows the
-    # source lighting spoils the result.
+    # is per-vehicle, so this defaults off and is opted into only where a test
+    # render shows the source lighting spoils the result -- as it does for the
+    # Namer, whose own Sun casts a blue patch across the glacis.
     if spec.strip_source_lights:
         for o in [o for o in bpy.data.objects if o.type in {"CAMERA", "LIGHT"}]:
             bpy.data.objects.remove(o, do_unlink=True)
@@ -191,6 +191,12 @@ def setup(spec):
     # silently halve every sheet.
     sc.render.resolution_percentage = 100
     sc.render.film_transparent = True
+    # Same class of inherited-setting bug as the percentage above. A source blend
+    # that was last used for video carries `media_type = 'VIDEO'`, and the
+    # file_format enum then offers only FFMPEG -- assigning "PNG" raises rather
+    # than being ignored, which is how the hero-derived Eitan source surfaced it.
+    if hasattr(sc.render.image_settings, "media_type"):
+        sc.render.image_settings.media_type = "IMAGE"
     sc.render.image_settings.file_format = "PNG"
     sc.render.image_settings.color_mode = "RGBA"
     sc.view_settings.view_transform = "Standard"
@@ -202,9 +208,9 @@ def setup(spec):
     sc.world = world
 
     # The locked rig, from the one place it is defined. These values used to be
-    # literals here, in render_rig.py and in render_soldier.py -- three copies
-    # that agreed, which is how the elevation constant looked right before it
-    # turned out to be wrong in six files.
+    # literals here, in render_rig.py and in the retired soldier renderer -- three
+    # copies that agreed, which is how the elevation constant looked right before
+    # it turned out to be wrong in six files.
     #
     # One real change comes with it: the key now carries SUN_ANGLE (1.5 deg)
     # where this script left it at Blender's default, so vehicle contact shadows

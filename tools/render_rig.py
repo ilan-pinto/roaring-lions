@@ -46,8 +46,9 @@ from mathutils import Vector
 # Blender's --python does not put the script's own directory on sys.path.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # The sun and fill used to be declared here, and copied into render_vehicle.py,
-# render_tank.py and render_soldier.py. All four agreed, which is exactly how
-# DIMETRIC_ELEVATION looked before it turned out to be wrong in six files.
+# render_tank.py and the retired soldier renderer. All four agreed, which is
+# exactly how DIMETRIC_ELEVATION looked before it turned out to be wrong in six
+# files.
 from dimetric import (  # noqa: E402
     ELEVATION as DIMETRIC_ELEVATION,
     build_lights,

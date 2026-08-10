@@ -26,8 +26,8 @@ Two limitations, stated rather than hidden:
   * **Crew-served weapons stay deployed through `move`.** A mortar team really
     walks with the tube shouldered. Authoring a carried state per crew weapon
     roughly doubles the work for something invisible at 25 px, which is what the
-    rig contract measured infantry at. render_soldier.py already made this trade,
-    layering leg swing over a fixed upper body so the rifle stays up.
+    rig contract measured infantry at. The retired soldier renderer already made
+    this trade, layering leg swing over a fixed upper body so the rifle stays up.
   * **`fire` cannot change a figure's height.** `resolveClip` latches it per
     shot, so a crouch made the whole team bob up and down through a firefight.
     The clip reads from the weapon coming up instead.
@@ -93,9 +93,9 @@ def _standing_posture(clip):
     -- the whole team bobbing up and down for as long as the fight lasted. A clip
     that changes a figure's height cannot be driven by a per-shot latch.
 
-    render_soldier.py had this right and it was not carried over: its `fire` was
-    the model's authored *Standing_Aim*, not a crouch. The read comes from the
-    weapon coming up, which costs no height change.
+    The retired soldier renderer had this right and it was not carried over: its
+    `fire` was the model's authored *Standing_Aim*, not a crouch. The read comes
+    from the weapon coming up, which costs no height change.
     """
     if clip == "fire":
         return "standing"
