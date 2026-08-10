@@ -12,9 +12,14 @@ fused into a single dark mass and the vehicle read as having one wheel a side ra
 than four. Wheel count is the cheapest silhouette cue a wheeled hull has, and it was
 being thrown away by 2 cm.
 
-Even spacing at +-1.20 and +-3.60 gives 2.40 between axles, so 0.88 of daylight
-between tyres -- unambiguous at gameplay zoom -- and leaves ~1.18 of overhang at each
-end, which is right for an eight-wheeler.
+Even spacing at +-1.00 and +-3.00 gives 2.00 between axles, so 0.48 of daylight
+between tread rings -- about 7.6 px on screen, still clearly four wheels but grouped
+much more tightly than the 2.40 spacing that preceded it. Below roughly 1.9 spacing
+the rings start to touch again and the wheels fuse into one mass, which is the failure
+this script exists to prevent.
+
+Note the tyre *barrel* is only 0.82 across; the tread lugs reach 1.52. Measuring the
+barrel would say the wheels are comfortably apart when they are not.
 
 Fenders move with their wheels. They are matched by nearest x rather than by name,
 because their names encode the order the pivots happened to be iterated in, not their
@@ -25,8 +30,8 @@ import bpy
 SRC = "art/showcase/apc_detail.blend"
 
 #: New axle x positions, front to back. Mirrored automatically for both sides.
-AXLE_X = (3.60, 1.20, -1.20, -3.60)
-MIN_GAP = 0.40          # daylight between adjacent tyres, in model units
+AXLE_X = (3.00, 1.00, -1.00, -3.00)
+MIN_GAP = 0.30          # daylight between adjacent tread rings, in model units
 
 
 def rest_pose():
