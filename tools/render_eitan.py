@@ -50,6 +50,22 @@ def turret_mesh_names(path):
     return names
 
 
+#: rl_role -> palette key. The Eitan shipped without this and every part rendered
+#: in one flat olive, so its eight tyres were the same value as the shadowed
+#: underbody and the whole lower band read as a single dark mass -- the vehicle
+#: lost its "wheeled" cue at gameplay zoom. The wheels were never occluded: they
+#: hang 1.27 units below the lowest bodywork. They just had no contrast.
+#:
+#: Body stays olive, whose ramp role in data/palette.json is literally "KDF vehicle
+#: hulls". Only the tyres change band, which is the whole point.
+ROLE_PALETTE = {
+    "hull": "olive.1",
+    "plate": "olive.1",
+    "metal": "gunmetal.2",
+    "rubber": "shadow.0",
+    "glass": "gunmetal.3",
+}
+
 SPEC = VehicleSpec(
     src=SRC,
     out_hull=os.path.abspath("assets/sprites/EITAN_HULL"),
@@ -62,8 +78,9 @@ SPEC = VehicleSpec(
     # margin it always did. The model's extra width (5.12 units against the
     # truck's proportions) is a deliberate visual change and rides along in the
     # framing rather than in this number.
-    real_metres=8.5,
+    real_metres=7.2,
     size_class="heavy_vehicle",
+    role_palette=ROLE_PALETTE,
     credit="8x8 APC -- authored from primitives for this repository, CC BY-SA 4.0",
     hull_unit="eitan_apc_hull",
     turret_unit="eitan_apc_turret",
@@ -88,4 +105,5 @@ SPEC = VehicleSpec(
     facing_offset=12,
 )
 
-render_vehicle(SPEC)
+if __name__ == "__main__":
+    render_vehicle(SPEC)
