@@ -10,8 +10,8 @@
   "sizeClass": "heavy_vehicle",
   "classMultiplier": 1.0,
   "realMetres": 6.6,
-  "metresPerModelUnit": 0.69038,
-  "frameMetres": 8.33,
+  "metresPerModelUnit": 0.69039,
+  "frameMetres": 8.331,
   "clips": {
     "idle": {
       "frames": 1,

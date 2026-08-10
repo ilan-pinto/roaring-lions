@@ -34,16 +34,35 @@ import bpy
 
 SRC = "art/showcase/apc_detail.blend"
 
-TRACK_Y = 1.50          # wheel pivot half-track: tyre faces land at ~1.885
+# 1.65, not 1.50. At 1.50 the tyre faces landed at 1.885, *inside* the body's
+# 1.936 -- and from a 30 degree camera the hull above and the fenders outboard then
+# hid them completely. The wheels were not dark, they were absent. A wheel is only
+# visible on this rig if its outer face is at least level with the widest bodywork
+# beside it, so the tyres now sit at ~2.035, a whisker proud of the body, with the
+# fender arching above them. That is how a real wheeled AFV is arranged too: narrow
+# tub, wheels at the widest point, fender over the top.
+#
+# 1.85 rather than 1.65 for a reason proved by render, not argued: a with/without
+# mask diff showed the wheels contributing *zero* pixels across eight facings at
+# 1.65, because the fenders at 2.15 sat proud of the tyres at 2.035 and hid them.
+# At this rig's 30 degree elevation anything outboard *and* above a tyre occludes
+# it, so the tyre has to be the widest thing at its own station -- wider than the
+# body and wider than its own fender. 1.85 puts the faces at 2.235 against a 2.05
+# fender and a 1.936 body.
+TRACK_Y = 1.85
 SILL_MIN_Z = 1.64       # hull bottom, clear of the 1.557 tyre tops
-HORN_LIFT = 0.62        # how far the prow's upper band rises
+# 0.05. At 0.62 the prow finished at 3.72 against midships 4.31 and read as too
+# high -- it wants to sit clearly below the crew deck, not just under it. Both ends
+# still level with each other; this only sets how far above the *lower* of the two
+# they end up.
+HORN_LIFT = 0.05
 HORN_REACH = 0.30       # and how far forward it extends
 END_BAND = 0.55         # how much of each end counts as prow/tail
 
 WHEEL_R_OUTER = 0.95    # arch outer radius; tyre outer radius is ~0.76
 WHEEL_R_INNER = 0.80
-ARCH_Y_IN = 1.12
-ARCH_Y_OUT = 2.02
+ARCH_Y_IN = 1.20
+ARCH_Y_OUT = 2.05
 
 
 def vehicle():
@@ -219,10 +238,22 @@ def main():
     body_y = reach(lambda n: not n.startswith(("wheel_", "fender_")))
     fender_y = reach(lambda n: n.startswith("fender_"))
     print(f"         tyres |y| {wheel_y:.3f}  body {body_y:.3f}  fenders {fender_y:.3f}")
-    if wheel_y > body_y:
-        raise SystemExit("wheels still outside the body -- track is too wide")
-    if fender_y <= wheel_y:
-        raise SystemExit("fenders do not cover the tyres")
+    # This assertion used to demand the opposite -- that the tyres sit *inside* the
+    # body -- and so enforced the very fault it should have caught: wheels tucked
+    # fully under the hull are occluded from a 30 degree camera and vanish. A tyre
+    # must reach at least as far out as the widest bodywork beside it to be seen at
+    # all, and the fender must then reach past the tyre so it reads as a fender.
+    # The tyre must be the widest thing at its station, or it renders as nothing.
+    # Verified the hard way: a with/without mask diff showed 0 wheel pixels across
+    # eight facings when the fenders were the wider of the two. Both of these gates
+    # exist because both mistakes were made -- first tyres inboard of the body, then
+    # tyres inboard of their own fenders.
+    if wheel_y <= body_y:
+        raise SystemExit(f"tyres {wheel_y:.3f} not proud of body {body_y:.3f} -- "
+                         f"they will render as nothing")
+    if wheel_y <= fender_y:
+        raise SystemExit(f"tyres {wheel_y:.3f} not proud of fenders {fender_y:.3f} -- "
+                         f"the fender will hide the wheel it is meant to frame")
 
     sill = min((o.matrix_world @ v.co).z
                for o in vehicle()
