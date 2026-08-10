@@ -4,6 +4,7 @@ import {
   frameFileName,
   parseManifest,
   parseStructureManifest,
+  turretAxisOffset,
 } from './sheet';
 
 /** A modern clip-layout manifest, as render_*.py will emit it. */
@@ -200,5 +201,60 @@ describe('parseStructureManifest', () => {
 
   it('throws on a non-object', () => {
     expect(() => parseStructureManifest(null)).toThrow(/expected an object/);
+  });
+});
+
+describe('turretAxisPx', () => {
+  const axis = Array.from({ length: 16 }, (_, f) => [f * 2, f * -3]);
+  const withAxis = (turretAxisPx: unknown) =>
+    parseManifest({ ...CLIP_MANIFEST, turretAxisPx });
+
+  it('parses a full-length array of pairs', () => {
+    expect(withAxis(axis).turretAxisPx).toEqual(axis.map(([x, y]) => [x, y]));
+  });
+
+  it('is absent when the rig wrote no axis', () => {
+    expect(parseManifest(CLIP_MANIFEST).turretAxisPx).toBeUndefined();
+  });
+
+  // Dropped rather than partially honoured: offsetting some facings and not
+  // others reads as a turret that jitters only at certain headings, which is far
+  // harder to diagnose than a field that is simply not there.
+  it.each([
+    ['short', axis.slice(0, 8)],
+    ['not an array', { 0: [1, 2] }],
+    ['a triple', [...axis.slice(1), [1, 2, 3]]],
+    ['a non-number', [...axis.slice(1), ['1', 2]]],
+    ['NaN', [...axis.slice(1), [Number.NaN, 2]]],
+    ['Infinity', [...axis.slice(1), [1, Number.POSITIVE_INFINITY]]],
+  ])('drops a malformed array (%s)', (_label, bad) => {
+    expect(withAxis(bad).turretAxisPx).toBeUndefined();
+  });
+});
+
+describe('turretAxisOffset', () => {
+  const sheet = parseManifest({
+    ...CLIP_MANIFEST,
+    turretAxisPx: Array.from({ length: 16 }, (_, f) => [f * 2, f * -3]),
+  });
+
+  it('is zero when hull and turret face the same way', () => {
+    for (let f = 0; f < 16; f++) {
+      expect(turretAxisOffset(sheet, f, f)).toEqual([0, 0]);
+    }
+  });
+
+  it('is the difference between the two facings, and antisymmetric', () => {
+    expect(turretAxisOffset(sheet, 6, 2)).toEqual([8, -12]);
+    expect(turretAxisOffset(sheet, 2, 6)).toEqual([-8, 12]);
+  });
+
+  it('is zero for a sheet with no axis, so old sheets are unchanged', () => {
+    expect(turretAxisOffset(parseManifest(CLIP_MANIFEST), 6, 2)).toEqual([0, 0]);
+  });
+
+  it('is zero rather than NaN when an index is out of range', () => {
+    expect(turretAxisOffset(sheet, 99, 2)).toEqual([0, 0]);
+    expect(turretAxisOffset(sheet, 2, -1)).toEqual([0, 0]);
   });
 });

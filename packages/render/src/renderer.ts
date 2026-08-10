@@ -11,6 +11,7 @@ import {
   frameFileName,
   parseManifest,
   parseStructureManifest,
+  turretAxisOffset,
   type ClipName,
   type SheetSpec,
 } from './sheet';
@@ -1336,10 +1337,16 @@ export class PixiRenderer {
             this.turretSprites[i] = tspr;
           }
           tspr.texture = atlas.turretTextures[tIdx][0];
+          // A turret sheet is drawn at the hull's position but framed from where
+          // the weapon is aiming, so it is drawn as though the whole vehicle had
+          // turned — the station orbits the rig's pivot. Negligible for a
+          // centre-mounted weapon, wrong for one on a pickup bed. The rig records
+          // where the traverse axis lands per facing and this puts it back.
+          const [axX, axY] = turretAxisOffset(atlas.turretSheet ?? sheet, hullIdx, tIdx);
           // Turret rides the hull, recoil and all. +1 so the sort keeps it
           // immediately above its own hull rather than relying on the
           // insertion order sorting has just taken away.
-          tspr.position.set(sx + ox, sy + oy);
+          tspr.position.set(sx + ox + axX * spriteScale, sy + oy + axY * spriteScale);
           tspr.zIndex = depthZ(x, y) + 1;
           tspr.alpha = bodyAlpha;
           tspr.visible = true;

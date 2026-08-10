@@ -31,7 +31,9 @@ This module imports nothing from bpy at module level, so it is importable outsid
 Blender and its arithmetic is testable -- see tools/test_dimetric.py.
 `build_lights` imports bpy when called, which keeps that property.
 """
+import json
 import math
+import os
 
 # Must match packages/render/src/renderer.ts.
 TILE_W = 64
@@ -115,6 +117,32 @@ SIZE_CLASS = {
     "heavy_vehicle": 1.00,
     "air": 1.50,
 }
+
+
+def _srgb_to_linear(c):
+    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+
+def palette_linear(key):
+    """A palette colour as linear RGB, ready for a Blender base colour.
+
+    `key` is "<ramp>.<index>" (``"limestone.0"``) or "<band>.<name>" for a
+    reserved band. Lives here because it was copied in render_building.py and
+    render_team.py, whose own comment said to split it out when a third caller
+    appeared -- render_vehicle.py is that caller. It cannot live in either of them:
+    importing render_building runs a full building render at import time.
+    """
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "data", "palette.json")
+    with open(path) as fh:
+        pal = json.load(fh)
+    band, name = key.split(".", 1)
+    if band in pal["ramps"]:
+        hexv = pal["ramps"][band]["colors"][int(name)]
+    else:
+        hexv = pal["reserved"][band]["colors"][name]
+    r, g, b = (int(hexv[i:i + 2], 16) / 255.0 for i in (1, 3, 5))
+    return (_srgb_to_linear(r), _srgb_to_linear(g), _srgb_to_linear(b), 1.0)
 
 
 def metres_per_unit(measured_extent, real_metres):
