@@ -66,11 +66,23 @@ def main():
         # Bake the full world matrix into the vertices, then clear the transform
         # and the parent. After this the mesh is in world space and carries no
         # dependence on the rig above it.
+        # Order matters, and getting it wrong is silent. Assigning `matrix_world`
+        # while the object is still parented makes Blender solve for a *local*
+        # matrix; clearing the parent afterwards then promotes that local matrix to
+        # world, displacing the part by the inverse of its pivot -- exactly
+        # cancelling the position just baked into its vertices. Unparented parts are
+        # unaffected, so the hull looked right while all eight wheels and the entire
+        # turret collapsed onto the origin, buried inside the hull. That shipped for
+        # every Eitan sprite until now, and sent me chasing wheel colour, wheel
+        # track, fenders, arches and cage geometry for a fault that was in the export.
+        #
+        # So: bake, then unparent, then zero the *basis* -- at which point local and
+        # world are the same thing and there is nothing left to cancel.
         mw = ob.matrix_world.copy()
         ob.data.transform(mw)
-        ob.matrix_world = Matrix.Identity(4)
         ob.parent = None
         ob.matrix_parent_inverse = Matrix.Identity(4)
+        ob.matrix_basis = Matrix.Identity(4)
         ob.data.update()
         baked += 1
         if ob.name.startswith(TURRET_PREFIXES):
