@@ -21,6 +21,7 @@ export interface PredicateJson {
   verb?: 'move' | 'attackMove';
   via?: 'click' | 'box' | 'group';
   action?: 'assign' | 'recall';
+  append?: boolean;
   event?: string;
   side?: number;
   by_unit?: string;
@@ -85,6 +86,7 @@ export function matches(
       if (i.kind !== pred.intent) return false;
       if (pred.verb !== undefined && (i.kind !== 'order' || i.verb !== pred.verb)) return false;
       if (pred.via !== undefined && (i.kind !== 'select' || i.via !== pred.via)) return false;
+      if (pred.append !== undefined && (i.kind !== 'order' || i.append !== pred.append)) return false;
       if (pred.action !== undefined && (i.kind !== 'group' || i.action !== pred.action)) return false;
       return true;
     }

@@ -288,3 +288,29 @@ describe('matches', () => {
     });
   }
 });
+
+describe('append narrowing', () => {
+  const QUEUE_STEPS: StepJson[] = [
+    {
+      id: 'move_as_one',
+      title: 'Move as one',
+      teach: 'Queue waypoints with shift.',
+      await: { kind: 'intent', intent: 'order', append: true },
+    },
+  ];
+
+  it('matches only a shift-queued order', () => {
+    let s = initTutorial(QUEUE_STEPS, 0);
+    s = advance(s, { kind: 'intent', intent: { kind: 'order', verb: 'attackMove', ids: [1], x: 0, y: 0, append: false } }, 10);
+    expect(s.index).toBe(0); // a plain order must not clear the lesson
+    s = advance(s, { kind: 'intent', intent: { kind: 'order', verb: 'attackMove', ids: [1], x: 0, y: 0, append: true } }, 20);
+    expect(s.index).toBe(1);
+    expect(s.done).toBe(true);
+  });
+
+  it('rejects a non-order intent even when append is asked for', () => {
+    let s = initTutorial(QUEUE_STEPS, 0);
+    s = advance(s, { kind: 'intent', intent: { kind: 'select', ids: [1, 2], via: 'box' } }, 10);
+    expect(s.index).toBe(0);
+  });
+});
