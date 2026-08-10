@@ -12,6 +12,10 @@
       "type": "string",
       "description": "The mission id this sequence teaches. Cross-checked against data/missions/."
     },
+    "completes": {
+      "type": "string",
+      "description": "Objective id in this tutorial's mission, marked complete when the last step clears — finishing the lessons is the exercise. Cross-checked against the mission's objectives in steps.test.ts."
+    },
     "steps": {
       "type": "array",
       "minItems": 1,

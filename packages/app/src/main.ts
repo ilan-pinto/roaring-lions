@@ -471,7 +471,7 @@ async function main(): Promise<void> {
   // id — the mission each entry teaches is its own `.mission` field, so the
   // match has to search by that rather than index directly by `missionId`.
   const stepList = Object.values(
-    tutorials as Record<string, { mission: string; steps: StepJson[] } | undefined>
+    tutorials as Record<string, { mission: string; steps: StepJson[]; completes?: string } | undefined>
   ).find((t) => t?.mission === missionId);
   let tut: TutorialState | null = null;
   let tutPanel: TutorialPanel | null = null;
@@ -799,6 +799,7 @@ async function main(): Promise<void> {
         if (tut.done) {
           window.localStorage.setItem(TUTORIAL_DONE_KEY, '1');
           hud.note('<b>working up complete</b> — the town is next', 'good');
+          if (stepList?.completes !== undefined) runtime.completeObjective(stepList.completes);
           tut = null;
           tutPanel?.destroy();
           tutPanel = null;

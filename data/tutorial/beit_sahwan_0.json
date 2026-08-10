@@ -1,6 +1,7 @@
 {
   "id": "beit_sahwan_0",
   "mission": "beit_sahwan_0_tutorial",
+  "completes": "work_up",
   "steps": [
     {
       "id": "take_command",

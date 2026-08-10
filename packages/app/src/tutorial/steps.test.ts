@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { tutorials } from '@lions/data';
+import { missions, tutorials } from '@lions/data';
 import { SIM_EVENT_KINDS, MISSION_EVENT_KINDS } from '@lions/sim';
 import { INTENT_KINDS } from '../input/intents';
 import type { PredicateJson, StepJson } from './runtime';
@@ -11,7 +11,7 @@ function predicates(p: PredicateJson): PredicateJson[] {
   return [p, ...(p.of ?? []).flatMap(predicates)];
 }
 
-const all = Object.values(tutorials) as { id: string; mission: string; steps: StepJson[] }[];
+const all = Object.values(tutorials) as { id: string; mission: string; steps: StepJson[]; completes?: string }[];
 
 describe('shipped tutorial steps', () => {
   it('ships at least one sequence', () => {
@@ -106,6 +106,18 @@ describe('shipped tutorial steps', () => {
     for (const t of all) {
       const ids = t.steps.map((s) => s.id);
       expect(new Set(ids).size, `${t.id} has duplicate step ids`).toBe(ids.length);
+    }
+  });
+
+  it('completes only an objective its mission declares', () => {
+    for (const t of all) {
+      expect(t.completes, `${t.id} should declare which objective finishing it completes`).toBeDefined();
+      const m = (missions as Record<string, { objectives: { id: string }[] } | undefined>)[t.mission];
+      expect(m, `${t.id} teaches unknown mission "${t.mission}"`).toBeDefined();
+      expect(
+        m?.objectives.map((o) => o.id),
+        `${t.id} completes "${t.completes}"`
+      ).toContain(t.completes);
     }
   });
 });
