@@ -84,6 +84,12 @@ const RIDER: UnitTypeJson = {
   ],
 };
 
+/** Every slot the sim could have spawned into. `Sim.count` is private, and the
+ *  alive filter each caller applies covers the unspawned tail. */
+function allIds(sim: Sim): number[] {
+  return [...Array(sim.state.alive.length).keys()];
+}
+
 interface World {
   sim: Sim;
   runtime: MissionRuntime;
@@ -1045,12 +1051,12 @@ describe('mounted delivery', () => {
 
   it('spawns the carrier with its passengers already aboard', () => {
     const { sim } = makeWorld(delivery());
-    const tech = [...Array(sim.count).keys()].find(
+    const tech = allIds(sim).find(
       (i) => sim.state.alive[i] === 1 && sim.passengerCount(i) > 0,
     );
     expect(tech).toBeDefined();
     expect(sim.passengerCount(tech as number)).toBe(1);
-    const rider = [...Array(sim.count).keys()].find((i) => sim.state.carriedBy[i] === tech);
+    const rider = allIds(sim).find((i) => sim.state.carriedBy[i] === tech);
     expect(rider).toBeDefined();
     // Aboard, not walking to it: no boarding delay for an authored load.
     expect(sim.state.posX[rider as number]).toBe(sim.state.posX[tech as number]);
@@ -1058,12 +1064,12 @@ describe('mounted delivery', () => {
 
   it('puts them on the ground when the dismount trigger fires', () => {
     const { sim, step } = makeWorld(delivery());
-    const tech = [...Array(sim.count).keys()].find((i) => sim.passengerCount(i) > 0) as number;
+    const tech = allIds(sim).find((i) => sim.passengerCount(i) > 0) as number;
     step(3 * TICKS_PER_SECOND);
     expect(sim.passengerCount(tech)).toBe(1); // not yet
     step(3 * TICKS_PER_SECOND);
     expect(sim.passengerCount(tech)).toBe(0);
-    const rider = [...Array(sim.count).keys()].find(
+    const rider = allIds(sim).find(
       (i) => sim.state.alive[i] === 1 && sim.state.carriedBy[i] === -1 && i !== tech,
     );
     expect(rider).toBeDefined();
@@ -1073,7 +1079,7 @@ describe('mounted delivery', () => {
     // Firing twice, or after the carrier was killed on the way in, is ordinary
     // play rather than an error — and the squad has already bailed out shaken.
     const { sim, step } = makeWorld(delivery());
-    const tech = [...Array(sim.count).keys()].find((i) => sim.passengerCount(i) > 0) as number;
+    const tech = allIds(sim).find((i) => sim.passengerCount(i) > 0) as number;
     step(6 * TICKS_PER_SECOND);
     expect(sim.passengerCount(tech)).toBe(0);
     expect(() => step(3 * TICKS_PER_SECOND)).not.toThrow();

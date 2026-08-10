@@ -1,7 +1,7 @@
 /**
  * Walk a real mission headless and print the world at chosen times.
  *
- *   npx tsx tools/walk_mission.ts beit_sahwan_2_foothold 0 60 65 68 80
+ *   npx tsx tools/src/walk_mission.ts beit_sahwan_2_foothold 0 60 65 68 80
  *
  * Why this exists. Every unit test in this repository builds its own small world
  * from fixtures, so none of them sees what an *authored* mission actually does. A
@@ -15,21 +15,24 @@
  * taken the carrier onward; and the passenger was arriving by bail-out rather than
  * by delivery. The tests were green throughout.
  *
+ * Lives under tools/src so `pnpm typecheck` covers it -- which is precisely the
+ * gate that would have caught this file reaching into Sim's private `count`.
+ *
  * Read-only: no files are written, nothing is rendered.
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { parseMap } from '../packages/data/src/index';
-import { MissionRuntime } from '../packages/sim/src/mission';
-import { Sim, TICKS_PER_SECOND } from '../packages/sim/src/sim';
+import { parseMap } from '../../packages/data/src/index';
+import { MissionRuntime } from '../../packages/sim/src/mission';
+import { Sim, TICKS_PER_SECOND } from '../../packages/sim/src/sim';
 
-const ROOT = join(import.meta.dirname, '..');
+const ROOT = join(import.meta.dirname, '..', '..');
 const read = (p: string) => JSON.parse(readFileSync(p, 'utf8'));
 
 const [missionId, ...marks] = process.argv.slice(2);
 if (!missionId) {
-  console.error('usage: npx tsx tools/walk_mission.ts <mission-id> [seconds...]');
+  console.error('usage: npx tsx tools/src/walk_mission.ts <mission-id> [seconds...]');
   process.exit(1);
 }
 const seconds = (marks.length > 0 ? marks : ['0', '30', '60', '120', '240']).map(Number);
@@ -71,7 +74,7 @@ const SIDES = ['player', 'enemy', 'civilian'];
 
 function report(): void {
   const bySide: string[][] = [[], [], []];
-  for (let i = 0; i < sim.count; i++) {
+  for (let i = 0; i < sim.state.alive.length; i++) {
     if (sim.state.alive[i] !== 1) continue;
     const carried = sim.state.carriedBy[i];
     const pax = sim.passengerCount(i);
