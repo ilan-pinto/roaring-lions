@@ -27,10 +27,15 @@ from mathutils import Matrix, Vector
 SIZE = 256
 FACINGS = 16
 SAMPLES = 64
+#: Camera azimuth. Was a literal inside setup(); turret_axis_px needs the same
+#: number, and this file already carries a warning about constants kept in two
+#: places that agreed right up until they did not.
+CAM_AZIMUTH = math.radians(225.0)
 # Blender's --python does not put the script's own directory on sys.path.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from dimetric import (  # noqa: E402
     ELEVATION as DIMETRIC_ELEVATION,
+    palette_linear,
     SIZE_CLASS,
     build_lights,
     metres_per_unit,
@@ -60,6 +65,11 @@ class Framing:
     scale: float
     metres_per_unit: float
     frame_metres: float
+    #: The pivot every frame was rotated about, and the frame width in model
+    #: units. Both are needed to project a point into sheet pixels, which is what
+    #: `turretAxisPx` is.
+    center: tuple = (0.0, 0.0, 0.0)
+    ortho_units: float = 1.0
 
 
 @dataclass
@@ -115,6 +125,16 @@ class VehicleSpec:
     # Vertical travel the clip will give the pivot, included in the measurement
     # so a bobbing model cannot walk out of its own frame.
     bounds_z_pad: float = 0.0
+    #: rl_role -> palette key, for a model authored by tools/vehicles/kit.py. Left
+    #: None, every part gets the one flat olive that every downloaded hull has
+    #: always used, so no existing sheet changes.
+    role_palette: dict = None
+    #: Model-space (x, y) of the weapon's traverse axis -- the point the station
+    #: physically turns about, e.g. the centre of a pintle post. Declaring it makes
+    #: the rig emit `turretAxisPx` so the renderer can stop assuming a turret
+    #: rotates about the model's centre. Leave None for a centre-mounted station or
+    #: a hull-only vehicle; the field is then omitted and behaviour is unchanged.
+    turret_axis: tuple = None
     # How the wreck is posed: weapon station knocked askew, hull settled.
     wreck_turret_yaw_deg: float = 34.0
     wreck_turret_pitch_deg: float = 11.0
@@ -152,6 +172,44 @@ def flat_material():
     return _shader("VehicleOlive", (0.28, 0.30, 0.20, 1.0), 0.85)
 
 
+#: Roughness per role, so gunmetal and glass catch the key light differently from
+#: paint. Anything unlisted takes the paint value.
+ROLE_ROUGHNESS = {"metal": 0.55, "glass": 0.45, "rubber": 0.95}
+
+
+def role_materials(meshes, role_palette):
+    """One material per `rl_role`, each an exact palette entry.
+
+    Vehicles were the last renderer flattening a whole model to one olive, while
+    render_team.py and render_building.py had already grown this. Olive is right
+    for the KDF -- the ramp's declared role is literally "KDF vehicle hulls" -- and
+    wrong for anything else: a captured pickup painted olive loses the faction read
+    that its sun-bleached limestone body is there to carry.
+
+    A part with no `rl_role`, or a role with no palette key, raises. Guessing would
+    put an off-palette colour into a sheet and the art gate would reject the frame
+    with no hint as to which part caused it.
+    """
+    cache = {}
+    for ob in meshes:
+        role = ob.get("rl_role")
+        if role is None:
+            raise SystemExit(f"{ob.name} carries no rl_role -- the kit must set one")
+        key = role_palette.get(role)
+        if key is None:
+            raise SystemExit(f"no palette key for rl_role {role!r} on {ob.name}")
+        if key not in cache:
+            cache[key] = _shader(
+                f"Vehicle_{key.replace('.', '_')}",
+                palette_linear(key),
+                ROLE_ROUGHNESS.get(role, 0.85),
+            )
+        ob.data.materials.clear()
+        ob.data.materials.append(cache[key])
+    print(f"Materials: {len(cache)} palette colour(s) across {len(meshes)} part(s)")
+    return cache
+
+
 def burnt_material():
     """Wreckage: the same hull, burnt out. Dark enough to read as destroyed at
     64px without leaving the palette's gunmetal band."""
@@ -177,9 +235,12 @@ def setup(spec):
             bpy.data.objects.remove(o, do_unlink=True)
 
     olive = flat_material()
-    for o in meshes:
-        o.data.materials.clear()
-        o.data.materials.append(olive)
+    if spec.role_palette:
+        role_materials(meshes, spec.role_palette)
+    else:
+        for o in meshes:
+            o.data.materials.clear()
+            o.data.materials.append(olive)
 
     sc = bpy.context.scene
     sc.render.engine = "CYCLES"
@@ -286,7 +347,7 @@ def setup(spec):
     cam = bpy.data.objects.new("Cam", cam_data)
     bpy.context.collection.objects.link(cam)
     sc.camera = cam
-    az = math.radians(225)
+    az = CAM_AZIMUTH
     dist = radius * 6
     horiz = math.cos(DIMETRIC_ELEVATION) * dist
     cam.location = (
@@ -305,7 +366,9 @@ def setup(spec):
     if missing:
         raise SystemExit(f"turret meshes not found in the model: {sorted(missing)}")
     print(f"Hull meshes: {len(hull)}, turret meshes: {len(turret)}")
-    return pivot, hull, turret, olive, Framing(derived, scale, mpu, ortho_units * mpu)
+    return pivot, hull, turret, olive, Framing(
+        derived, scale, mpu, ortho_units * mpu, tuple(center), ortho_units
+    )
 
 
 def render_clip(pivot, show, hide, out_dir, clip, files, frames=1, pose=None):
@@ -342,7 +405,54 @@ def render_clip(pivot, show, hide, out_dir, clip, files, frames=1, pose=None):
         pose(pivot, 0)
 
 
-def write_manifest(spec, out_dir, unit, clips, files, framing, layer=None):
+def turret_axis_px(spec, framing):
+    """Where the weapon's traverse axis lands, in sheet pixels, for each facing.
+
+    The renderer composites a turret sheet at the *hull's* screen position while
+    choosing its frame independently, so a turret is drawn as though the whole
+    vehicle had turned to the turret's heading -- it orbits the rig's pivot. That
+    pivot is the model's median vertex, so a weapon anywhere else swings.
+
+    Nobody noticed while the only turrets were centre-mounted: the Eitan's station
+    sits 4.2% of hull length from its pivot, about 4 px drawn. A pintle gun on a
+    pickup bed measured 16.2%, and a long barrel built from 14-segment cylinders
+    makes it *worse* by dragging the median forward -- the better the gun, the
+    worse the pivot, which is the incentive running backwards.
+
+    So the rig records the truth instead: for facing f, the pixel the axis appears
+    at within frame f. The renderer offsets the turret sprite by
+    `axis[hullFacing] - axis[turretFacing]`, which is zero when they agree and
+    exactly the correction when they do not. Emitted only when a spec declares
+    `turret_axis`; without it the manifest omits the field and the renderer keeps
+    its previous behaviour, so no existing sheet moves a pixel.
+    """
+    if spec.turret_axis is None:
+        return None
+    ax, ay = spec.turret_axis
+    cx, cy, cz = framing.center
+    ppu = SIZE / framing.ortho_units
+    right = (-math.sin(CAM_AZIMUTH), math.cos(CAM_AZIMUTH), 0.0)
+    up = (
+        -math.sin(DIMETRIC_ELEVATION) * math.cos(CAM_AZIMUTH),
+        -math.sin(DIMETRIC_ELEVATION) * math.sin(CAM_AZIMUTH),
+        math.cos(DIMETRIC_ELEVATION),
+    )
+    out = []
+    for f in range(FACINGS):
+        th = f * 2.0 * math.pi / FACINGS
+        # The axis rides the pivot's rotation, exactly as render_clip turned it.
+        dx = ax - cx
+        dy = ay - cy
+        rx = dx * math.cos(th) - dy * math.sin(th)
+        ry = dx * math.sin(th) + dy * math.cos(th)
+        sx = (rx * right[0] + ry * right[1]) * ppu
+        sy = (rx * up[0] + ry * up[1]) * ppu
+        # Sheet pixels: x rightward, y downward, from the frame centre.
+        out.append([round(sx, 2), round(-sy, 2)])
+    return out
+
+
+def write_manifest(spec, out_dir, unit, clips, files, framing, layer=None, axis_px=None):
     """The manifest is the renderer's only source of truth for this sheet.
 
     facingOffset and facingReverse describe how this rig lays frames out.
@@ -382,6 +492,8 @@ def write_manifest(spec, out_dir, unit, clips, files, framing, layer=None):
     }
     if layer:
         manifest["layer"] = layer
+    if axis_px:
+        manifest["turretAxisPx"] = axis_px
     with open(os.path.join(out_dir, "manifest.json"), "w") as fh:
         json.dump(manifest, fh, indent=2)
 
@@ -411,9 +523,15 @@ def render_vehicle(spec):
     for o in turret:
         o.rotation_euler.z -= math.radians(spec.wreck_turret_yaw_deg)
         o.rotation_euler.x -= math.radians(spec.wreck_turret_pitch_deg)
-    for o in hull + turret:
-        o.data.materials.clear()
-        o.data.materials.append(olive)
+    # Restore. A role-painted model must go back to its roles, not to olive --
+    # otherwise the turret sheet renders olive after the wreck pass and the two
+    # sheets of one vehicle disagree on colour.
+    if spec.role_palette:
+        role_materials(hull + turret, spec.role_palette)
+    else:
+        for o in hull + turret:
+            o.data.materials.clear()
+            o.data.materials.append(olive)
 
     write_manifest(
         spec,
@@ -445,6 +563,7 @@ def render_vehicle(spec):
         turr_files,
         framing,
         layer="turret",
+        axis_px=turret_axis_px(spec, framing),
     )
 
     print(f"DONE {FACINGS * 3} frames -> {spec.out_hull}, {spec.out_turr}")

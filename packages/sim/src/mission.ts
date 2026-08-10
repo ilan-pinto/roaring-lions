@@ -36,6 +36,21 @@ export interface PlacementJson {
    *  spawning fresh. Sparse rosters degrade gracefully: fewer units, and a
    *  single fresh remnant when the roster has none of this type. */
   from_ledger?: boolean;
+  /**
+   * Infantry authored *aboard* this carrier, seated at spawn rather than walking
+   * in. The only way an AI-driven transport ever has passengers: every other
+   * route into `passengers[]` is a player command.
+   *
+   * Nested rather than a `mounted_in` field on a separate placement, because a
+   * carrier and its load are one authored fact and splitting them invites a
+   * mission where one exists without the other.
+   *
+   * `count` on the carrier does not divide the load -- each carrier gets the
+   * declared passengers, since that is what "these two technicals each bring an
+   * RPG team" means. Capacity is therefore per carrier, and checked by
+   * validate_data.mjs, which unlike JSON Schema can see transport_slots.
+   */
+  passengers?: readonly PlacementJson[];
 }
 
 /** Campaign carry-over: the ledger keys this runtime understands today.
@@ -497,10 +512,47 @@ export class MissionRuntime {
     return name ? this.ctx.zones[name] : undefined;
   }
 
-  private spawnPlacement(p: PlacementJson, side: number): number[] {
+  /**
+   * Spawn a carrier's authored passengers and seat them.
+   *
+   * A refusal is a mission authoring error -- over capacity, or a type that cannot
+   * ride -- and throws rather than leaving a half-loaded truck, because a mission
+   * that quietly delivers two of three squads is a bug that only shows up in
+   * playtesting. `pnpm validate:data` is meant to catch all of these first; this
+   * is the backstop that makes sure it did.
+   */
+  private embarkPassengers(
+    carrier: number,
+    passengers: readonly PlacementJson[],
+    side: number,
+  ): void {
+    const at: readonly [Fx, Fx] = [this.sim.state.posX[carrier], this.sim.state.posY[carrier]];
+    for (const q of passengers) {
+      if (q.passengers) {
+        throw new Error(
+          `mission ${this.mission.id}: ${q.unit} is a passenger and cannot carry passengers itself`,
+        );
+      }
+      for (const pid of this.spawnPlacement(q, side, at)) {
+        if (!this.sim.embarkAtSpawn(carrier, pid)) {
+          throw new Error(
+            `mission ${this.mission.id}: cannot seat ${q.unit} in ${this.mission.id}'s carrier ` +
+              `-- out of seats, or the type cannot ride`,
+          );
+        }
+      }
+    }
+  }
+
+  private spawnPlacement(p: PlacementJson, side: number, origin?: readonly [Fx, Fx]): number[] {
     let bx: Fx;
     let by: Fx;
-    if (p.marker !== undefined) {
+    if (origin !== undefined) {
+      // A passenger spawns on its carrier. Position hardly matters -- embarkAtSpawn
+      // snaps it onto the hull -- but taking it from the carrier keeps a passenger
+      // placement from needing an `at` or a `marker` of its own.
+      [bx, by] = origin;
+    } else if (p.marker !== undefined) {
       [bx, by] = this.markerPos(p.marker);
     } else if (p.at !== undefined) {
       bx = fx.from(p.at[0]);
@@ -539,6 +591,8 @@ export class MissionRuntime {
       const oy = ((k - (k % 3)) / 3) * SPREAD;
       const id = this.sim.spawn(typeIdx, side, fx.add(bx, ox), fx.add(by, oy), facing, veterancies[k]);
       ids.push(id);
+      // Each carrier gets the declared load, not a share of it.
+      if (p.passengers) this.embarkPassengers(id, p.passengers, side);
       (side === 0 ? this.playerIds : side === 1 ? this.enemyIds : this.civIds).push(id);
       if (p.group) {
         const g = this.groups.get(p.group) ?? [];
@@ -780,6 +834,18 @@ export class MissionRuntime {
         // Player-side arrival (GDD §6). `spawn` stays side-1-only so no
         // existing mission changes behaviour.
         for (const p of t.do.units ?? []) this.spawnPlacement(p, 0);
+      } else if (t.do.kind === 'dismount') {
+        // Everyone out of every carrier in the group. Queued as a command rather
+        // than reaching into sim state, same as commit and withdraw_to.
+        //
+        // Silently does nothing when the group is empty, its carriers are dead,
+        // or nobody is aboard. A trigger whose carrier was killed on the way in
+        // is ordinary play, not an error -- and the squad has already bailed out
+        // shaken, which is the interesting outcome.
+        const ids = (this.groups.get(t.do.group ?? '') ?? []).filter(
+          (id) => this.sim.state.alive[id] === 1,
+        );
+        if (ids.length > 0) this.sim.queueCommand({ kind: 'unload', ids });
       }
     }
   }

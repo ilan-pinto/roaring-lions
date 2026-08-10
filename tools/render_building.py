@@ -45,6 +45,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Blender's --python does not put the script's own directory on sys.path.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from dimetric import (  # noqa: E402
+    palette_linear,
     ELEVATION as DIMETRIC_ELEVATION,
     UNITS_PER_TILE,
     badge_top_px,
@@ -175,29 +176,6 @@ def _shader(name, colour, roughness):
     return mat
 
 
-def _srgb_to_linear(c):
-    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
-
-
-def palette_linear(key):
-    """A palette colour as linear RGB, ready for a Blender base colour.
-
-    The render has to aim at the ramp the structure declares, not at a guessed
-    sand. Getting this wrong is not subtle: a first pass lit with a blue ambient
-    put 47% of the mosque into gunmetal and 16% into olive, because the quantizer
-    snaps to whatever is nearest and blue-grey shadow is nearest gunmetal.
-    """
-    with open(os.path.join(REPO, "data", "palette.json")) as fh:
-        pal = json.load(fh)
-    band, name = key.split(".", 1)
-    if band in pal["ramps"]:
-        hexv = pal["ramps"][band]["colors"][int(name)]
-    else:
-        hexv = pal["reserved"][band]["colors"][name]
-    r = int(hexv[1:3], 16) / 255.0
-    g = int(hexv[3:5], 16) / 255.0
-    b = int(hexv[5:7], 16) / 255.0
-    return (_srgb_to_linear(r), _srgb_to_linear(g), _srgb_to_linear(b), 1.0)
 
 
 def stone_material(colour_key):

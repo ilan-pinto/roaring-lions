@@ -292,6 +292,13 @@ async function main(): Promise<void> {
   // Hull only: the model carries no separately modelled weapon station, so
   // there is no turret sheet to composite.
   const JEEP: SpriteSpec = { path: `${BASE}sprites/JEEP_HULL/` };
+  // The enemy's armed pickup. Its turret manifest carries `turretAxisPx`, which
+  // no other sheet does: a pintle gun on a bed sits well off the model's centre,
+  // and without that the renderer would swing it off the truck while tracking.
+  const TECHNICAL: SpriteSpec = {
+    path: `${BASE}sprites/TECH_HULL/`,
+    turretPath: `${BASE}sprites/TECH_TURR/`,
+  };
   // No shared infantry sheet. Seven types used to point at one directory, which
   // meant a rifle squad and an enemy militia cell were the same PNG and the
   // silhouette gate could never compare them -- it cannot compare a file with
@@ -306,6 +313,7 @@ async function main(): Promise<void> {
     apc_eitan: EITAN,
     ifv_namer: NAMER,
     jeep_shoded: JEEP,
+    technical: TECHNICAL,
     recon_drone: DRONE,
     // One sheet per infantry type, composed from tools/units/kit.py. Each is a
     // distinct silhouette rather than a distinct texture: posture, weapon axis

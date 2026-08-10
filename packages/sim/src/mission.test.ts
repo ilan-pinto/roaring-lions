@@ -60,6 +60,36 @@ const DRONE: UnitTypeJson = {
   abilities: ['mark_target'],
 };
 
+// A real carrier and a real rider. The existing fixtures cannot stand in: m_tech
+// declares no transport_slots, and m_rpg has no `role`, so `can_embark` defaults
+// false. Adding either to those would change what other tests in this file are
+// exercising.
+const CARRIER: UnitTypeJson = {
+  id: 'm_carrier',
+  role: 'apc',
+  hull: { hp: 900, armor: { front: 20, side: 15, rear: 10 }, transport_slots: 2 },
+  mobility: { speed_tiles_s: 2.2, turn_rate_deg_s: 160 },
+  sensors: { optics: 1.0, sight_tiles: 9, signature: 0.8 },
+  weapons: [],
+};
+
+const RIDER: UnitTypeJson = {
+  id: 'm_rider',
+  role: 'at_team',
+  hull: { hp: 320, armor: { front: 10, side: 10, rear: 10 } },
+  mobility: { speed_tiles_s: 0.9 },
+  sensors: { optics: 1.0, sight_tiles: 8, signature: 0.45 },
+  weapons: [
+    { id: 'rpg', type: 'rpg', range_tiles: 5, effective_range_tiles: 3.5, accuracy: 0.6, penetration: 550, damage: 300, suppression: 20, rof_per_min: 6 },
+  ],
+};
+
+/** Every slot the sim could have spawned into. `Sim.count` is private, and the
+ *  alive filter each caller applies covers the unspawned tail. */
+function allIds(sim: Sim): number[] {
+  return [...Array(sim.state.alive.length).keys()];
+}
+
 interface World {
   sim: Sim;
   runtime: MissionRuntime;
@@ -69,7 +99,8 @@ interface World {
 function makeWorld(mission: MissionJson, ctx?: Partial<MissionContext>): World {
   const sim = new Sim({ seed: 7, width: 28, height: 12, capacity: 32 });
   const ids = new Map<string, number>();
-  for (const t of [SQUAD, AMBUSHER, RUNNER, TANK, DRONE, CIVILIANS]) ids.set(t.id, sim.addUnitType(t));
+  for (const t of [SQUAD, AMBUSHER, RUNNER, TANK, DRONE, CIVILIANS, CARRIER, RIDER])
+    ids.set(t.id, sim.addUnitType(t));
   const runtime = new MissionRuntime(sim, mission, {
     typeIdOf: (u) => {
       const t = ids.get(u);
@@ -992,5 +1023,72 @@ describe('buildings in missions (garrison stance + structure ROE)', () => {
     });
     w.runtime.step([{ kind: 'structureDestroyed', tick: 1, structure: w.mosque, by: 0 }]);
     expect(w.runtime.roeScore).toBe(100);
+  });
+});
+
+// Mounted delivery (GDD §6). The mission is the only way an AI-driven transport
+// ever has passengers: every other route into `passengers[]` is a player command.
+describe('mounted delivery', () => {
+  const delivery = (over = false): MissionJson =>
+    baseMission({
+      enemy: {
+        garrison: [
+          {
+            unit: 'm_carrier',
+            count: 1,
+            at: [20.5, 6.5],
+            group: 'flankers',
+            passengers: over
+              ? [{ unit: 'm_rider', count: 3 }]
+              : [{ unit: 'm_rider', count: 1, group: 'flank_rpg' }],
+          },
+        ],
+      },
+      triggers: [
+        { id: 'drop', on: { kind: 'timer_s', value: 4 }, do: { kind: 'dismount', group: 'flankers' } },
+      ],
+    });
+
+  it('spawns the carrier with its passengers already aboard', () => {
+    const { sim } = makeWorld(delivery());
+    const tech = allIds(sim).find(
+      (i) => sim.state.alive[i] === 1 && sim.passengerCount(i) > 0,
+    );
+    expect(tech).toBeDefined();
+    expect(sim.passengerCount(tech as number)).toBe(1);
+    const rider = allIds(sim).find((i) => sim.state.carriedBy[i] === tech);
+    expect(rider).toBeDefined();
+    // Aboard, not walking to it: no boarding delay for an authored load.
+    expect(sim.state.posX[rider as number]).toBe(sim.state.posX[tech as number]);
+  });
+
+  it('puts them on the ground when the dismount trigger fires', () => {
+    const { sim, step } = makeWorld(delivery());
+    const tech = allIds(sim).find((i) => sim.passengerCount(i) > 0) as number;
+    step(3 * TICKS_PER_SECOND);
+    expect(sim.passengerCount(tech)).toBe(1); // not yet
+    step(3 * TICKS_PER_SECOND);
+    expect(sim.passengerCount(tech)).toBe(0);
+    const rider = allIds(sim).find(
+      (i) => sim.state.alive[i] === 1 && sim.state.carriedBy[i] === -1 && i !== tech,
+    );
+    expect(rider).toBeDefined();
+  });
+
+  it('dismount fires harmlessly when nobody is aboard', () => {
+    // Firing twice, or after the carrier was killed on the way in, is ordinary
+    // play rather than an error — and the squad has already bailed out shaken.
+    const { sim, step } = makeWorld(delivery());
+    const tech = allIds(sim).find((i) => sim.passengerCount(i) > 0) as number;
+    step(6 * TICKS_PER_SECOND);
+    expect(sim.passengerCount(tech)).toBe(0);
+    expect(() => step(3 * TICKS_PER_SECOND)).not.toThrow();
+  });
+
+  it('throws on an over-capacity load rather than half-filling the truck', () => {
+    // A mission that quietly delivers two of three squads is a bug that only
+    // shows up in playtesting. validate:data is meant to catch this first; this is
+    // the backstop proving it has to.
+    expect(() => makeWorld(delivery(true))).toThrow(/seat/i);
   });
 });

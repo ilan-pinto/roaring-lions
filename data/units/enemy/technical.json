@@ -16,6 +16,7 @@
       "rear": 10
     },
     "crew": 3,
+    "transport_slots": 3,
     "suppression_resistance": 0.45
   },
   "mobility": {

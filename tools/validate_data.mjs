@@ -26,6 +26,11 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 /** Roles whose entire purpose is carrying infantry. One of these without
  *  hull.transport_slots is a unit that cannot do the job it is named for. */
 const CARRIER_ROLES = new Set(['apc', 'ifv']);
+// Mirrors FOOT_ROLES in packages/sim/src/sim.ts, which is what `can_embark`
+// defaults from. Duplicated because the gate is plain node with no build step and
+// cannot import from the sim package; if the sim's list changes, this must too,
+// and the `passengers` check below is what would start disagreeing.
+const FOOT_ROLES = new Set(['infantry', 'at_team', 'artillery', 'engineer', 'sniper', 'support']);
 
 const ajv = new Ajv2020({ allErrors: true, strict: false });
 
@@ -107,9 +112,13 @@ if (schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tut
     if (m?.id) mapsById.set(m.id, m);
   }
   const unitIds = new Set();
+  const unitsById = new Map();
   for (const file of jsonFilesIn(join(ROOT, 'data/units'))) {
     const u = loadJson(file);
-    if (u?.id) unitIds.add(u.id);
+    if (u?.id) {
+      unitIds.add(u.id);
+      unitsById.set(u.id, u);
+    }
     // A carrier that cannot carry is a contradiction the schema cannot see.
     // The sim, the input layer and the unit plate all support transport, so a
     // vehicle whose whole role is carrying infantry but which declares no
@@ -178,6 +187,65 @@ if (schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tut
     wantMarker(mi.civilians?.refuge, 'civilians.refuge');
     for (const z of mi.roe?.flagged_zones ?? []) {
       if (!zoneNames.has(z)) failures.push(`${rel(file)}: roe.flagged_zones references unknown zone "${z}"`);
+    }
+
+    // Mounted delivery. JSON Schema cannot do any of this: capacity needs the
+    // carrier's transport_slots from unit data, and whether a passenger can ride
+    // needs its role. Left to runtime these throw mid-mission, which means the
+    // failure surfaces in a playtest rather than in CI.
+    const declaredGroups = new Set();
+    const walkPlacements = (node, visit) => {
+      if (Array.isArray(node)) {
+        for (const v of node) walkPlacements(v, visit);
+      } else if (node && typeof node === 'object') {
+        if (typeof node.unit === 'string') visit(node);
+        for (const v of Object.values(node)) walkPlacements(v, visit);
+      }
+    };
+    walkPlacements(mi, (pl) => {
+      if (pl.group) declaredGroups.add(pl.group);
+      if (!pl.passengers) return;
+      const carrier = unitsById.get(pl.unit);
+      const slots = carrier?.hull?.transport_slots ?? 0;
+      let seats = 0;
+      for (const q of pl.passengers) {
+        seats += q.count ?? 1;
+        if (q.passengers) {
+          failures.push(
+            `${rel(file)}: "${q.unit}" is a passenger and cannot carry passengers itself`
+          );
+        }
+        const pu = unitsById.get(q.unit);
+        if (!pu) continue; // the unknown-unit check above already reports this
+        const canEmbark = pu.hull?.can_embark ?? FOOT_ROLES.has(pu.role ?? '');
+        if (!canEmbark) {
+          failures.push(
+            `${rel(file)}: "${q.unit}" (role "${pu.role}") cannot ride in "${pl.unit}" — ` +
+              `only dismounted elements embark`
+          );
+        }
+      }
+      if (slots === 0) {
+        failures.push(
+          `${rel(file)}: "${pl.unit}" is given passengers but declares no ` +
+            `hull.transport_slots`
+        );
+      } else if (seats > slots) {
+        failures.push(
+          `${rel(file)}: "${pl.unit}" carries ${seats} passenger(s) into ${slots} seat(s) — ` +
+            `each carrier in a count>1 placement gets the whole load, not a share`
+        );
+      }
+    });
+    for (const t of mi.triggers ?? []) {
+      if (t.do?.kind !== 'dismount') continue;
+      if (!t.do.group) {
+        failures.push(`${rel(file)}: a dismount trigger needs "group"`);
+      } else if (!declaredGroups.has(t.do.group)) {
+        failures.push(
+          `${rel(file)}: dismount names group "${t.do.group}", which no placement declares`
+        );
+      }
     }
   }
 }

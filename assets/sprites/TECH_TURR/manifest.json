@@ -1,0 +1,187 @@
+{
+  "unit": "technical_turret",
+  "credit": "Armed technical -- authored from primitives for this repository, CC BY-SA 4.0",
+  "facings": 16,
+  "size": 256,
+  "facingOffset": 12,
+  "facingReverse": true,
+  "scale": 1.3853,
+  "derivedScale": 1.3853,
+  "sizeClass": "light_vehicle",
+  "classMultiplier": 1.0,
+  "realMetres": 5.0,
+  "metresPerModelUnit": 0.99602,
+  "frameMetres": 5.878,
+  "clips": {
+    "idle": {
+      "frames": 1,
+      "fps": 0,
+      "loop": false
+    }
+  },
+  "files": [
+    {
+      "clip": "idle",
+      "facing": 0,
+      "frame": 0,
+      "file": "idle_f00_000.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 1,
+      "frame": 0,
+      "file": "idle_f01_000.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 2,
+      "frame": 0,
+      "file": "idle_f02_000.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 3,
+      "frame": 0,
+      "file": "idle_f03_000.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 4,
+      "frame": 0,
+      "file": "idle_f04_000.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 5,
+      "frame": 0,
+      "file": "idle_f05_000.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 6,
+      "frame": 0,
+      "file": "idle_f06_000.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 7,
+      "frame": 0,
+      "file": "idle_f07_000.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 8,
+      "frame": 0,
+      "file": "idle_f08_000.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 9,
+      "frame": 0,
+      "file": "idle_f09_000.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 10,
+      "frame": 0,
+      "file": "idle_f10_000.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 11,
+      "frame": 0,
+      "file": "idle_f11_000.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 12,
+      "frame": 0,
+      "file": "idle_f12_000.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 13,
+      "frame": 0,
+      "file": "idle_f13_000.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 14,
+      "frame": 0,
+      "file": "idle_f14_000.png"
+    },
+    {
+      "clip": "idle",
+      "facing": 15,
+      "frame": 0,
+      "file": "idle_f15_000.png"
+    }
+  ],
+  "layer": "turret",
+  "turretAxisPx": [
+    [
+      -12.2,
+      6.78
+    ],
+    [
+      -6.08,
+      8.6
+    ],
+    [
+      0.96,
+      9.11
+    ],
+    [
+      7.86,
+      8.23
+    ],
+    [
+      13.56,
+      6.1
+    ],
+    [
+      17.2,
+      3.04
+    ],
+    [
+      18.22,
+      -0.48
+    ],
+    [
+      16.47,
+      -3.93
+    ],
+    [
+      12.2,
+      -6.78
+    ],
+    [
+      6.08,
+      -8.6
+    ],
+    [
+      -0.96,
+      -9.11
+    ],
+    [
+      -7.86,
+      -8.23
+    ],
+    [
+      -13.56,
+      -6.1
+    ],
+    [
+      -17.2,
+      -3.04
+    ],
+    [
+      -18.22,
+      0.48
+    ],
+    [
+      -16.47,
+      3.93
+    ]
+  ]
+}

@@ -46,6 +46,7 @@ sys.path.insert(0, os.path.join(HERE, "units"))
 
 import teams  # noqa: E402
 from dimetric import (  # noqa: E402
+    palette_linear,
     AZIMUTH,
     ELEVATION as DIMETRIC_ELEVATION,
     SIZE_CLASS,
@@ -180,26 +181,6 @@ SHARED_PALETTE = {
 CASUALTY_KEY = "shadow.1"
 
 
-def _srgb_to_linear(c):
-    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
-
-
-def palette_linear(key):
-    """A palette colour as linear RGB, ready for a Blender base colour.
-
-    Same shape as render_building.palette_linear. Duplicated rather than imported
-    because that module runs a full building render at import time; splitting it
-    out is worth doing when a third caller appears.
-    """
-    with open(os.path.join(REPO, "data", "palette.json")) as fh:
-        pal = json.load(fh)
-    band, name = key.split(".", 1)
-    if band in pal["ramps"]:
-        hexv = pal["ramps"][band]["colors"][int(name)]
-    else:
-        hexv = pal["reserved"][band]["colors"][name]
-    r, g, b = (int(hexv[i:i + 2], 16) / 255.0 for i in (1, 3, 5))
-    return (_srgb_to_linear(r), _srgb_to_linear(g), _srgb_to_linear(b), 1.0)
 
 
 def _shader(name, colour, roughness=0.88):

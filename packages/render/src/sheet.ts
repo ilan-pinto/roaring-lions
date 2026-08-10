@@ -46,6 +46,39 @@ export interface SheetSpec {
   scale: number;
   layout: SheetLayout;
   clips: Partial<Record<ClipName, ClipSpec>> & { idle: ClipSpec };
+  /**
+   * Where the weapon's traverse axis lands, in sheet pixels from the frame
+   * centre, one entry per facing. Present only on turret sheets whose rig
+   * declared a `turret_axis`.
+   *
+   * A turret sheet is composited at the hull's screen position while its frame
+   * is chosen from where the weapon is aiming, so the turret is drawn as though
+   * the whole vehicle had turned — it orbits the rig's pivot, the model's median
+   * vertex. Harmless for a centre-mounted station (the Eitan measures 4.2% of
+   * hull length, ~4px drawn) and plainly wrong for a pintle gun on a pickup bed
+   * (16.2%). This is the correction; see `turretAxisOffset`.
+   */
+  turretAxisPx?: readonly (readonly [number, number])[];
+}
+
+/**
+ * How far to shift a turret sprite so its traverse axis stays on the hull.
+ *
+ * Zero when the turret and hull face the same way, which is every frame of a
+ * unit that is not currently tracking something off its heading, and zero for
+ * any sheet whose rig did not declare an axis.
+ */
+export function turretAxisOffset(
+  sheet: SheetSpec,
+  hullIndex: number,
+  turretIndex: number,
+): readonly [number, number] {
+  const axis = sheet.turretAxisPx;
+  if (!axis) return [0, 0];
+  const h = axis[hullIndex];
+  const t = axis[turretIndex];
+  if (!h || !t) return [0, 0];
+  return [h[0] - t[0], h[1] - t[1]];
 }
 
 /**
@@ -88,6 +121,30 @@ function num(v: unknown, fallback: number): number {
  * The legacy path is load-bearing rather than politeness: it lets units be
  * re-authored one at a time without the un-migrated ones breaking.
  */
+/**
+ * `turretAxisPx` if the rig wrote a usable one, nothing otherwise.
+ *
+ * Validated rather than trusted: a short or malformed array would silently
+ * offset some facings and not others, which reads as a turret that jitters only
+ * at certain headings — far harder to diagnose than a field that is simply
+ * absent. Anything that is not `facings` pairs of finite numbers is dropped.
+ */
+function parseAxis(
+  raw: unknown,
+  facings: number,
+): { turretAxisPx?: readonly (readonly [number, number])[] } {
+  if (!Array.isArray(raw) || raw.length !== facings) return {};
+  const out: [number, number][] = [];
+  for (const entry of raw) {
+    if (!Array.isArray(entry) || entry.length !== 2) return {};
+    const [x, y] = entry;
+    if (typeof x !== 'number' || !Number.isFinite(x)) return {};
+    if (typeof y !== 'number' || !Number.isFinite(y)) return {};
+    out.push([x, y]);
+  }
+  return { turretAxisPx: out };
+}
+
 export function parseManifest(raw: unknown): SheetSpec {
   if (!isRecord(raw)) throw new Error('sheet manifest: expected an object');
 
@@ -99,6 +156,7 @@ export function parseManifest(raw: unknown): SheetSpec {
     facingOffset: num(raw.facingOffset, 0),
     facingReverse: raw.facingReverse === true,
     scale: num(raw.scale, 1),
+    ...parseAxis(raw.turretAxisPx, facings),
   };
 
   if (isRecord(raw.clips)) {
