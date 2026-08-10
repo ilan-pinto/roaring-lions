@@ -144,13 +144,35 @@ this class of thing by eye already failed three times in one sitting.
 
 ## Sequencing
 
-This is piece 1 of 4. The others, in order, each getting its own spec:
+This is piece 1 of 4, and the sequence now follows the arc in
+[#65](https://github.com/ilan-pinto/roaring-lions/issues/65) rather than treating towns
+as interchangeable.
 
-2. **Beit Sahwan completed** — the build-up and subterranean phases, so one town is five
-   missions and becomes the template. After this piece, because phase 5's whole premise
-   is reading what phase 1 marked.
-3. **The campaign shell** — mission graph, unlocks, town progression, and the ledger's
-   lifetime across a town boundary.
-4. **Sur and Naharin** — the two remaining doctrines. Last, because the GDD's reason for
-   three doctrines is to give contributors three templates to pattern-match, which needs
-   one complete template first.
+That issue's shape is **catastrophe → regroup → foothold → grinding clearance → the
+tunnels underneath**: the campaign opens with the player *losing* a perimeter, and
+everything after is the phased reconquest of the Marj. Its mission 2, *Cold Ground*, is
+recon over ground that is now hostile and "marks tunnel mouths and civilian-occupied
+structures for the whole rest of the campaign" — which is this spec, and is why the spine
+comes first.
+
+The pieces, each getting its own spec:
+
+1. **This one.** `intel.marked_positions`, produced from tagged placements and consumed as
+   pre-reveal and ambush-disarm, wired through Beit Sahwan I → II → III.
+2. **The Marj arc** — eight missions across *three* towns (Beit Sahwan, Khan Rafid, Deir
+   Amun), not one town padded to five. This supersedes an earlier plan to "finish Beit
+   Sahwan to five missions", which treated towns as parallel and gave the campaign no
+   shape. Absorbs #19 and #65's missions 2–8, and needs the build-up and subterranean
+   phases, which nothing has exercised.
+3. **The campaign shell** — #22 and #36: mission graph, unlocks, town progression, and the
+   ledger's lifetime across a town boundary.
+4. **Sur and Naharin** — #20, #21, #15, #16. Last, because the GDD wants three doctrines to
+   give contributors three templates to pattern-match, which needs one complete arc first.
+
+### One decision this does not make
+
+#65's opening mission fits **none** of GDD §4's five phases, because all five assume the
+player is advancing. It offers a sixth `breach` phase in the schema's enum, reusable by
+any doctrine opening on the back foot, or a Foothold variant with the corridor pre-cut and
+reinforcement disabled. Either is a GDD §4 change and wants deciding before mission 1 is
+authored — it is out of scope here, and nothing in this spec depends on the answer.
