@@ -59,8 +59,13 @@ def turret_mesh_names(path):
 #: Body stays olive, whose ramp role in data/palette.json is literally "KDF vehicle
 #: hulls". Only the tyres change band, which is the whole point.
 ROLE_PALETTE = {
-    "hull": "olive.1",
-    "plate": "olive.1",
+    # olive.0, the lightest step, not olive.1. With the key light overhead the
+    # olive only lands on upward faces and every vertical side crushes toward black,
+    # which is what left the hull reading as a dark mass with a green lid. Starting
+    # a step lighter keeps the shaded flanks inside the olive band instead of
+    # falling out of it -- the same reason the technical's limestone body reads.
+    "hull": "olive.0",
+    "plate": "olive.0",
     "metal": "gunmetal.2",
     "rubber": "shadow.0",
     "glass": "gunmetal.3",
@@ -78,7 +83,7 @@ SPEC = VehicleSpec(
     # margin it always did. The model's extra width (5.12 units against the
     # truck's proportions) is a deliberate visual change and rides along in the
     # framing rather than in this number.
-    real_metres=7.2,
+    real_metres=6.45,
     size_class="heavy_vehicle",
     role_palette=ROLE_PALETTE,
     credit="8x8 APC -- authored from primitives for this repository, CC BY-SA 4.0",
