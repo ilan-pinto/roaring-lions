@@ -20,7 +20,7 @@
     {
       "id": "move_by_bounds",
       "title": "Move by bounds",
-      "teach": "Right-click ground to send them. Hold shift to queue a route around cover instead of straight across open ground. Press h to stop them where they stand.",
+      "teach": "Right-click ground to send them. Press h to stop them where they stand.",
       "await": {
         "kind": "intent",
         "intent": "order",
@@ -32,6 +32,21 @@
       },
       "nudge_after_s": 15,
       "nudge": "Right-click the marked ground to the east."
+    },
+    {
+      "id": "move_as_one",
+      "title": "Move as one",
+      "teach": "Drag a box around the squad and the APC, then hold shift and right-click two points. They walk the route together, around the open ground instead of straight across it.",
+      "await": {
+        "kind": "all_of",
+        "of": [
+          { "kind": "intent", "intent": "select", "via": "box" },
+          { "kind": "intent", "intent": "order", "append": true }
+        ]
+      },
+      "focus": { "kind": "marker", "marker": "field" },
+      "nudge_after_s": 15,
+      "nudge": "Drag a box around both units, then shift-right-click two waypoints."
     },
     {
       "id": "cover_is_terrain",

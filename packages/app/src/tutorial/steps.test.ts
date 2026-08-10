@@ -67,7 +67,7 @@ describe('shipped tutorial steps', () => {
     // author believed they had constrained the gate and they had not. The schema
     // cannot catch this without per-kind subschemas; this can.
     const allowed: Record<string, string[]> = {
-      intent: ['kind', 'intent', 'verb', 'via', 'action'],
+      intent: ['kind', 'intent', 'verb', 'via', 'action', 'append'],
       sim: ['kind', 'event', 'side', 'by_unit', 'loaded'],
       mission: ['kind', 'event'],
       elapsed_s: ['kind', 'seconds'],
