@@ -53,6 +53,10 @@ art/showcase/*.mp4
 
 # Authored vehicle sources are tracked, same reasoning as buildings and drones
 # above: ART_PIPELINE.md §8 requires sources to accompany contributed art, and
-# these are script-authored primitives rather than downloaded geometry.
+# these are authored in this repository rather than downloaded geometry. Note the
+# difference from buildings and drones, where the script *is* the source:
+# eitan_apc.blend is flattened from a hero asset refined by eye, so the .blend is
+# the authority and tools/vehicles/ is its starting point. art/showcase/README.md
+# says why.
 !art/src/vehicles/
 !art/src/vehicles/*.blend
