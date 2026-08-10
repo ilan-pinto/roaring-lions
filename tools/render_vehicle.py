@@ -208,9 +208,9 @@ def setup(spec):
     sc.world = world
 
     # The locked rig, from the one place it is defined. These values used to be
-    # literals here, in render_rig.py and in render_soldier.py -- three copies
-    # that agreed, which is how the elevation constant looked right before it
-    # turned out to be wrong in six files.
+    # literals here, in render_rig.py and in the retired soldier renderer -- three
+    # copies that agreed, which is how the elevation constant looked right before
+    # it turned out to be wrong in six files.
     #
     # One real change comes with it: the key now carries SUN_ANGLE (1.5 deg)
     # where this script left it at Blender's default, so vehicle contact shadows
