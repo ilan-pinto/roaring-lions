@@ -18,17 +18,15 @@
  * Lives under tools/src so `pnpm typecheck` covers it -- which is precisely the
  * gate that would have caught this file reaching into Sim's private `count`.
  *
+ * The world comes from walk_world.ts, shared with walk_carryover.ts. It has to be
+ * shared: an earlier private copy here left out cover and buildings, which makes any
+ * mission with a `garrison` stance die on start and look like a content bug.
+ *
  * Read-only: no files are written, nothing is rendered.
  */
-import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
-
-import { parseMap } from '../../packages/data/src/index';
-import { MissionRuntime } from '../../packages/sim/src/mission';
-import { Sim, TICKS_PER_SECOND } from '../../packages/sim/src/sim';
-
-const ROOT = join(import.meta.dirname, '..', '..');
-const read = (p: string) => JSON.parse(readFileSync(p, 'utf8'));
+import { fx } from '../../packages/sim/src/fixed';
+import { TICKS_PER_SECOND } from '../../packages/sim/src/sim';
+import { makeWorld } from './walk_world';
 
 const [missionId, ...marks] = process.argv.slice(2);
 if (!missionId) {
@@ -37,39 +35,9 @@ if (!missionId) {
 }
 const seconds = (marks.length > 0 ? marks : ['0', '30', '60', '120', '240']).map(Number);
 
-const mission = read(join(ROOT, `data/missions/${missionId}.json`));
-const map = parseMap(read(join(ROOT, `data/maps/${mission.map.file}.json`)));
+const { sim, runtime, nameOf } = makeWorld(missionId);
 
-const units: Record<string, unknown> = {};
-const collect = (dir: string): void => {
-  for (const e of readdirSync(dir, { withFileTypes: true })) {
-    if (e.isDirectory()) collect(join(dir, e.name));
-    else if (e.name.endsWith('.json')) {
-      const u = read(join(dir, e.name));
-      if (u.id) units[u.id] = u;
-    }
-  }
-};
-collect(join(ROOT, 'data/units'));
-
-const sim = new Sim({ seed: 11, width: map.width, height: map.height, capacity: 256 });
-const typeIds = new Map<string, number>();
-for (const [id, u] of Object.entries(units)) typeIds.set(id, sim.addUnitType(u as never));
-const nameOf = new Map<number, string>([...typeIds].map(([id, t]) => [t, id]));
-
-const runtime = new MissionRuntime(sim, mission, {
-  typeIdOf: (u: string) => {
-    const t = typeIds.get(u);
-    if (t === undefined) throw new Error(`unknown unit ${u}`);
-    return t;
-  },
-  markers: map.markers as never,
-  zones: map.zones as never,
-  unitInfo: (u: string) => (units[u] ?? null) as never,
-});
-runtime.start();
-
-const T = (v: number) => (v / 65536).toFixed(1);
+const T = (v: number) => fx.toNumber(v).toFixed(1);
 const SIDES = ['player', 'enemy', 'civilian'];
 
 function report(): void {

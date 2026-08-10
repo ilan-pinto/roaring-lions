@@ -1096,28 +1096,12 @@ export class Sim {
       } else if (cmd.kind === 'reveal') {
         // Certainty, purchased: contacts inside the footprint go straight to
         // identified, and are remembered so the sweep behaviour can use them.
-        const cap = this.capacity;
         let count = 0;
         for (let t = 0; t < this.count; t++) {
           if (this.alive[t] === 0 || this.side[t] === cmd.side || this.side[t] > 1) continue;
           const d = distSqFx(fx.sub(this.posX[t], cmd.x), fx.sub(this.posY[t], cmd.y));
           if (d > SWEEP_RADIUS_SQ) continue;
-          const k = cmd.side * cap + t;
-          this.contact[k] = ONE;
-          this.lastSeenX[k] = this.posX[t];
-          this.lastSeenY[k] = this.posY[t];
-          this.lastSeenValid[k] = 1;
-          if (this.contactState[k] !== 2) {
-            this.contactState[k] = 2;
-            this.pendingEvents.push({
-              kind: 'contact',
-              tick: this.tickCount,
-              side: cmd.side,
-              target: t,
-              level: 'identified',
-              confidence: ONE,
-            });
-          }
+          this.identifyTo(cmd.side, t);
           count++;
         }
         this.pendingEvents.push({ kind: 'revealed', tick: this.tickCount, side: cmd.side, count });
@@ -1338,6 +1322,33 @@ export class Sim {
    *  2 identified. Read-only accessor for the renderer/overlay. */
   contactLevel(side: number, target: number): number {
     return this.contactState[side * this.capacity + target];
+  }
+
+  /**
+   * Put `target` at full identified contact for `side`, as if it had been seen this
+   * tick. Used by the `reveal` command and by mission start, where campaign intel
+   * hands the player emplacements a previous mission's recon marked.
+   *
+   * Not exempt from decay: an unobserved contact fades from here like any other, so
+   * intel tells you where they were, not where they are. That is the honest behaviour
+   * and it needs no special case.
+   */
+  identifyTo(side: number, target: number): void {
+    const k = side * this.capacity + target;
+    this.contact[k] = ONE;
+    this.lastSeenX[k] = this.posX[target];
+    this.lastSeenY[k] = this.posY[target];
+    this.lastSeenValid[k] = 1;
+    if (this.contactState[k] === 2) return;
+    this.contactState[k] = 2;
+    this.pendingEvents.push({
+      kind: 'contact',
+      tick: this.tickCount,
+      side,
+      target,
+      level: 'identified',
+      confidence: ONE,
+    });
   }
 
   /** Contact confidence 0..ONE of `target` as known to `side`. */

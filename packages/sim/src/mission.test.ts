@@ -1092,3 +1092,108 @@ describe('mounted delivery', () => {
     expect(() => makeWorld(delivery(true))).toThrow(/seat/i);
   });
 });
+
+// The carry-over spine (GDD §4, "carry-over is the system"). Intel is a set of
+// authored placement tags, because entities do not survive a mission boundary -- the
+// only durable handle is what the author wrote.
+//
+// Tested through behaviour rather than through the runtime's private sets. The first
+// draft of these tests reached for `sim.stanceForTest()` and `sim.identifiedForTest()`,
+// which do not exist and should not: pre-reveal is observable because a `locate`
+// objective on a marked tag completes immediately, and a disarmed ambush is observable
+// because the ambusher stops holding its fire.
+describe('intel carry-over', () => {
+  const mission = (partial: Partial<MissionJson> = {}): MissionJson =>
+    baseMission({
+      ledger: { requires: ['intel.marked_positions'], produces: ['intel.marked_positions'] },
+      // baseMission ships no starting force; each test supplies its own. Without one
+      // there is nobody for an ambusher to spring on, and every assertion about
+      // engagement passes or fails for the wrong reason.
+      starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+      enemy: {
+        garrison: [
+          // Two tiles off the squad above, well inside its own 3-tile trigger, so an
+          // ambusher springs at once and a disarmed one has nothing to spring.
+          { unit: 'm_rpg', count: 1, at: [5.0, 5.0], tag: 'ambush_west',
+            stance: { kind: 'ambush', tiles: 3 } },
+          { unit: 'm_squad', count: 1, at: [24.5, 9.5] },
+        ],
+      },
+      ...partial,
+    });
+
+  // `ambushSprung` is the unambiguous observable: it can only fire if the unit was
+  // ambushing in the first place. An earlier draft counted `fire` events instead, and
+  // measured nothing -- neither world fired inside 20s, because whether a unit shoots
+  // depends on far more than its stance.
+  const sprung = (out: { sim: SimEvent[] }): number =>
+    out.sim.filter((e) => e.kind === 'ambushSprung').length;
+
+  it('produces the tag of a placement the player identified', () => {
+    const world = makeWorld(mission());
+    const out = world.step(25 * TICKS_PER_SECOND);
+    const end = out.mission.find((e) => e.kind === 'missionEnd');
+    if (end) {
+      const marked = (end.ledger?.['intel.marked_positions'] ?? []) as string[];
+      // Only declared tags can ever appear; the untagged placement cannot.
+      for (const t of marked) expect(t).toBe('ambush_west');
+    }
+  });
+
+  it('completes a locate objective immediately for a pre-marked tag', () => {
+    const withLocate = mission({
+      objectives: [{ id: 'find', type: 'locate', target: 'ambush_west', primary: true }],
+    });
+    const cold = makeWorld(withLocate);
+    const warm = makeWorld(withLocate, { ledger: { 'intel.marked_positions': ['ambush_west'] } });
+    // A couple of ticks is enough: pre-reveal happens at spawn, not by looking.
+    const coldOut = cold.step(4);
+    const warmOut = warm.step(4);
+    const done = (out: { mission: MissionEvent[] }) =>
+      out.mission.some((e) => e.kind === 'objective' && e.id === 'find' && e.status === 'complete');
+    expect(done(warmOut)).toBe(true);
+    expect(done(coldOut)).toBe(false);
+  });
+
+  it('pre-marks in the sim, not only in the objective bookkeeping', () => {
+    // The objective above is satisfied by MissionRuntime's own `identified` set. The
+    // renderer and the combat model read the sim's contact state instead, and the first
+    // implementation wrote only the former: the objective completed while the emplacement
+    // stayed invisible on screen, with the test above green. So assert the other book.
+    const cold = makeWorld(mission());
+    const warm = makeWorld(mission(), { ledger: { 'intel.marked_positions': ['ambush_west'] } });
+    const ambusher = 1;
+    expect(cold.sim.contactLevel(0, ambusher)).toBe(0);
+    expect(warm.sim.contactLevel(0, ambusher)).toBe(2);
+  });
+
+  it('a marked ambusher stops holding its fire', () => {
+    const authored = makeWorld(mission());
+    const known = makeWorld(mission(), { ledger: { 'intel.marked_positions': ['ambush_west'] } });
+    const a = authored.step(10 * TICKS_PER_SECOND);
+    const k = known.step(10 * TICKS_PER_SECOND);
+    // Knowing where the ambush is removes the surprise, not the enemy.
+    expect(sprung(a)).toBeGreaterThan(0);
+    expect(sprung(k)).toBe(0);
+  });
+
+  it('an empty ledger leaves the authored mission exactly as written', () => {
+    const authored = makeWorld(mission());
+    const out = authored.step(10 * TICKS_PER_SECOND);
+    // Still an ambusher, so it still springs -- the authored mission is untouched.
+    expect(sprung(out)).toBeGreaterThan(0);
+  });
+
+  it('accumulates rather than replaces, so a later mission cannot un-know', () => {
+    const world = makeWorld(mission(), {
+      ledger: { 'intel.marked_positions': ['seen_in_mission_one'] },
+    });
+    const out = world.step(25 * TICKS_PER_SECOND);
+    const end = out.mission.find((e) => e.kind === 'missionEnd');
+    if (end) {
+      const marked = (end.ledger?.['intel.marked_positions'] ?? []) as string[];
+      expect(marked).toContain('seen_in_mission_one');
+    }
+  });
+});
+

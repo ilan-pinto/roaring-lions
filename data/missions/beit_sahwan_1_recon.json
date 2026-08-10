@@ -17,7 +17,8 @@
     "produces": [
       "roster.surviving_units",
       "roe.cumulative_rating",
-      "campaign.completed_missions"
+      "campaign.completed_missions",
+      "intel.marked_positions"
     ]
   },
   "starting_force": [
@@ -90,7 +91,7 @@
       "id": "hvt_seen",
       "type": "locate",
       "primary": false,
-      "target": "hvt_atgm",
+      "target": "bs_hvt_atgm",
       "text": "Find and identify the ATGM cell overlooking the east road (get eyes on until ID)"
     }
   ],
@@ -129,7 +130,8 @@
           27.5,
           12.5
         ],
-        "facing_deg": 180
+        "facing_deg": 180,
+        "tag": "bs_cell_north_block"
       },
       {
         "unit": "militia_cell",
@@ -138,7 +140,8 @@
           33.5,
           15.5
         ],
-        "facing_deg": 180
+        "facing_deg": 180,
+        "tag": "bs_cell_north_east"
       },
       {
         "unit": "militia_cell",
@@ -147,7 +150,8 @@
           29.5,
           25.5
         ],
-        "facing_deg": 180
+        "facing_deg": 180,
+        "tag": "bs_cell_centre"
       },
       {
         "unit": "militia_cell",
@@ -156,7 +160,8 @@
           25.5,
           37.5
         ],
-        "facing_deg": 180
+        "facing_deg": 180,
+        "tag": "bs_cell_south"
       },
       {
         "unit": "rpg_team",
@@ -169,7 +174,8 @@
         "stance": {
           "kind": "ambush",
           "tiles": 3
-        }
+        },
+        "tag": "bs_ambush_west_alley"
       },
       {
         "unit": "rpg_team",
@@ -182,7 +188,8 @@
         "stance": {
           "kind": "ambush",
           "tiles": 3
-        }
+        },
+        "tag": "bs_ambush_market_lane"
       },
       {
         "unit": "atgm_cell",
@@ -192,7 +199,7 @@
           22.5
         ],
         "facing_deg": 180,
-        "tag": "hvt_atgm"
+        "tag": "bs_hvt_atgm"
       },
       {
         "unit": "technical",
@@ -214,7 +221,8 @@
               32.5
             ]
           ]
-        }
+        },
+        "tag": "bs_technical_patrol"
       },
       {
         "unit": "technical",
@@ -232,7 +240,8 @@
           44.5,
           24.5
         ],
-        "facing_deg": 180
+        "facing_deg": 180,
+        "tag": "bs_mortar_pit"
       }
     ]
   },

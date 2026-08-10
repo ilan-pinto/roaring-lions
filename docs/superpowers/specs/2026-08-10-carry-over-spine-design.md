@@ -1,7 +1,8 @@
 # The carry-over spine — design
 
 **Date:** 2026-08-10
-**Status:** approved, not built
+**Status:** built. Five corrections to what is written below are recorded in
+*As built*, at the end.
 **Part of:** campaign structure, piece 1 of 4 (see *Sequencing* at the end)
 
 ## The problem
@@ -176,3 +177,86 @@ player is advancing. It offers a sixth `breach` phase in the schema's enum, reus
 any doctrine opening on the back foot, or a Foothold variant with the corridor pre-cut and
 reinforcement disabled. Either is a GDD §4 change and wants deciding before mission 1 is
 authored — it is out of scope here, and nothing in this spec depends on the answer.
+
+---
+
+## As built
+
+Five things above are wrong or incomplete. The design holds; these are the corrections.
+
+**1. The spine runs I → III, not I → II.** The plan said "wired through Beit Sahwan
+I → II → III". Mission II is a `hold_for` on different ground with two enemies at
+positions mission I never contains, so tagging it would create requirements no mission
+can satisfy — the exact dead requirement the new data gate exists to catch. Missions I
+and III were already authored over the *same* emplacements at the same coordinates, which
+is the GDD's canonical example sitting in the repository waiting to be connected. So the
+tags key on position and the pair is I → III.
+
+Mission II does not need to relay the key: `main.ts` saves with
+`saveLedger({ ...ledger, ...produced })`, a merge rather than a replace, so a key
+survives any mission that ignores it. Worth knowing before piece 3 designs the campaign
+graph — carry-over is currently additive and permanent, and nothing can un-know a thing.
+
+**2. Pre-reveal needed a sim change after all.** The claim was that consumption "only
+alters spawn state" and needs nothing new. It needs `Sim.identifyTo(side, target)`.
+
+`MissionRuntime.identified` and the sim's contact state are two different books.
+The first is the runtime's own bookkeeping, which is what `locate` objectives read; the
+second is what the renderer draws and the combat model shoots at. Writing only the first
+gave a pre-marked emplacement that satisfied its objective and stayed invisible on
+screen, with the test green — because the test asked the runtime, which was the half that
+worked. `identifyTo` is the per-entity body of the existing `reveal` command, extracted so
+there is one definition of "this side has identified that", and the runtime now writes
+both books.
+
+Contact decay is deliberately not special-cased: an unobserved pre-revealed contact fades
+like any other, so intel tells you where they *were*.
+
+**3. Tag names are campaign-global, so they carry a town prefix.** The ledger is one flat
+list that accumulates across towns. An unprefixed `ambush_west_alley` reused in Khan
+Rafid would arrive already disarmed because Beit Sahwan marked a different alley of the
+same name. All nine tags are `bs_*`, including the pre-existing `hvt_atgm`, whose
+`locate` and `eliminate_hvt` targets moved with it. **Every tag added from here must
+carry its town's prefix.**
+
+**4. Intel is cumulative; contact is not.** The produced list means "identified at some
+point", taken from the runtime's set, not "currently visible". Sampling live contact at
+the end of a sweep under-reports badly — 1 tag against the 5 actually earned, because
+contact decays every tick a target is unobserved.
+
+**5. The walk tools were building a world with no cover and no buildings.** Both omitted
+`setCover` and `addStructure`, so any mission with a `garrison` stance died on start with
+`no building at (28,12)` — and the house is right there in the map rows. The tool reported
+`beit_sahwan_3_clearance` as broken content when the tool was what was broken. Setup now
+lives in `tools/src/walk_world.ts`, shared, mirroring `main.ts`. A walk tool is only worth
+trusting if its world matches the one the game loads.
+
+### What the walk shows
+
+`npx tsx tools/src/walk_carryover.ts` plays the real recon and feeds its real ledger to
+the real clearance mission:
+
+```
+mission ended t=78s: victory, produced 5 tag(s)
+marked 5 of 9 authored tags
+  tag                       fresh  carried
+  bs_ambush_market_lane     0      2
+  bs_ambush_west_alley      0      2
+  bs_cell_centre            0      0
+  ...
+ambushes: 2 authored, 2 disarmed by this ledger
+OK: 9 tagged emplacements; fresh all unknown, carried match the 5 marked
+```
+
+Partial credit is real and falls out of the sweep, as designed: four positions stay hidden
+because that recon never looked at them.
+
+### One thing found and not fixed
+
+**Mission I is winnable in 78 seconds** against a 12–20 minute target. Its only primary
+objective is `locate` with `count: 6`, and `identified.size >= 6` counts every enemy seen
+anywhere — with ten placements on the map, a force that pushes east satisfies it before
+reconnoitring most of the town. Pre-existing, unrelated to this spec, and now visible
+because the walk plays the mission for real. It belongs with the Marj arc in piece 2,
+where the recon mission is redesigned as *Cold Ground*; the honest fix is probably that a
+recon objective should count *tagged* positions, which is a change to `locate`.

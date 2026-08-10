@@ -194,6 +194,7 @@ if (schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tut
     // needs its role. Left to runtime these throw mid-mission, which means the
     // failure surfaces in a playtest rather than in CI.
     const declaredGroups = new Set();
+    const declaredTags = new Set();
     const walkPlacements = (node, visit) => {
       if (Array.isArray(node)) {
         for (const v of node) walkPlacements(v, visit);
@@ -204,6 +205,7 @@ if (schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tut
     };
     walkPlacements(mi, (pl) => {
       if (pl.group) declaredGroups.add(pl.group);
+      if (pl.tag) declaredTags.add(pl.tag);
       if (!pl.passengers) return;
       const carrier = unitsById.get(pl.unit);
       const slots = carrier?.hull?.transport_slots ?? 0;
@@ -237,6 +239,18 @@ if (schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tut
         );
       }
     });
+    // A mission that declares it consumes intel but tags nothing is a no-op: the
+    // requirement reads a list that can never match anything it spawns. Invisible in
+    // play, which is the whole failure the carry-over spine exists to remove.
+    const consumesIntel = (mi.ledger?.requires ?? []).includes('intel.marked_positions');
+    const producesIntel = (mi.ledger?.produces ?? []).includes('intel.marked_positions');
+    if ((consumesIntel || producesIntel) && declaredTags.size === 0) {
+      failures.push(
+        `${rel(file)}: declares intel.marked_positions in its ledger contract but no ` +
+          `placement carries a "tag" — nothing can be marked or matched`
+      );
+    }
+
     for (const t of mi.triggers ?? []) {
       if (t.do?.kind !== 'dismount') continue;
       if (!t.do.group) {

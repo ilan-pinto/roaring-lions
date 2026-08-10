@@ -62,6 +62,19 @@ export interface LedgerRosterEntry {
 export interface LedgerData {
   'roster.surviving_units'?: LedgerRosterEntry[];
   'roe.cumulative_rating'?: number;
+  /**
+   * Placement tags whose units recon resolved to *identified*. This is the
+   * campaign's carry-over spine (GDD §4, "carry-over is the system"): what a recon
+   * mission saw, in a form a later mission can act on.
+   *
+   * Tags, not entity ids, because entities do not survive a mission boundary --
+   * mission II spawns its own. The only durable handle is what the author wrote.
+   *
+   * Named for positions rather than tunnel mouths, unlike the GDD's example: there
+   * are no tunnels in the sim yet, and a ledger key naming something unbuildable
+   * would be a lie in the save file. Tags cost nothing to extend when tunnels land.
+   */
+  'intel.marked_positions'?: string[];
   /** Mission ids already cleared, for `unlock.after_mission` gates. */
   'campaign.completed_missions'?: string[];
   [key: string]: unknown;
@@ -239,6 +252,10 @@ export class MissionRuntime {
   private intelValue = 0;
   private readonly buildQueue: { unit: string; startTick: number; readyTick: number }[] = [];
   private readonly identified = new Set<number>();
+  /** Tags marked by a previous mission, read from the incoming ledger. */
+  private readonly marked: Set<string>;
+  /** Tags whose units were identified *this* mission, for the outgoing ledger. */
+  private readonly markedThisMission = new Set<string>();
   private readonly kills = new Map<number, number>();
   private readonly rosterPool: LedgerRosterEntry[];
   private readonly firedTriggers: boolean[] = [];
@@ -262,6 +279,9 @@ export class MissionRuntime {
     this.firedTriggers = new Array(mission.triggers?.length ?? 0).fill(false);
     this.spawnedWaves = new Array(mission.enemy?.waves?.length ?? 0).fill(false);
     this.rosterPool = [...(ctx.ledger?.['roster.surviving_units'] ?? [])];
+    // What recon marked last mission. A tag in here spawns pre-revealed and gives up
+    // its ambush; everything else spawns exactly as authored.
+    this.marked = new Set(ctx.ledger?.['intel.marked_positions'] ?? []);
     this.logisticsValue = mission.resources?.logistics_start ?? 0;
     this.intelValue = mission.resources?.intel_start ?? 0;
   }
@@ -461,6 +481,15 @@ export class MissionRuntime {
       if (e.kind === 'contact' && e.level === 'identified') {
         this.firstContact = true;
         if (e.side === 0 && this.sim.state.side[e.target] === 1) this.identified.add(e.target);
+        // Carry-over, produced. The tag joins the ledger the moment any unit of that
+        // placement is identified -- no separate mark verb, and no objective needed:
+        // intel is what recon *saw*. Partial credit falls out, because sweeping half
+        // the ground marks half the tags and the list length is the grade.
+        for (const [tag, ids] of this.tags) {
+          if (!this.markedThisMission.has(tag) && ids.includes(e.target)) {
+            this.markedThisMission.add(tag);
+          }
+        }
       }
       if (e.kind === 'destroyed' && e.by >= 0) {
         this.kills.set(e.by, (this.kills.get(e.by) ?? 0) + 1);
@@ -604,6 +633,20 @@ export class MissionRuntime {
         t.push(id);
         this.tags.set(p.tag, t);
       }
+      // Carry-over, consumed. A placement recon marked last mission is already known:
+      // it spawns visible, and it does not get to spring an ambush. This is what makes
+      // a thorough recon worth doing -- and why one mission file plays differently by
+      // ledger, with no per-outcome variants to author.
+      const preMarked = p.tag !== undefined && this.marked.has(p.tag);
+      if (preMarked && side === 1) {
+        // Two different books. `identified` is this runtime's own, which is what
+        // `locate` objectives read; the sim's contact state is what the renderer draws
+        // and what the combat model may shoot at. Writing only the first is how a
+        // pre-marked ambusher satisfied its objective while staying invisible on
+        // screen -- green tests, nothing on the map.
+        this.identified.add(id);
+        this.sim.identifyTo(0, id);
+      }
       if (p.stance?.kind === 'garrison') {
         const b = p.stance.building;
         if (b === undefined) {
@@ -619,7 +662,11 @@ export class MissionRuntime {
         // the honest outcome of ordering four men into a two-room house.
         this.sim.queueCommand({ kind: 'garrison', ids: [id], structure: s });
       } else if (p.stance?.kind === 'ambush') {
-        this.sim.setAmbush(id, fx.from(p.stance.tiles ?? 3));
+        // Knowing where an ambush is removes the surprise, not the enemy: a marked
+        // ambusher simply holds position instead. The GDD calls `ambush` "the entire
+        // reason recon quality matters by Phase 4", so this is that sentence made
+        // mechanical.
+        if (!preMarked) this.sim.setAmbush(id, fx.from(p.stance.tiles ?? 3));
       } else if (p.stance?.kind === 'patrol' && p.stance.waypoints && p.stance.waypoints.length >= 2) {
         this.patrols.push({
           id,
@@ -955,6 +1002,13 @@ export class MissionRuntime {
         const done = Array.isArray(prevDone) ? [...prevDone] : [];
         if (this.resultValue === 'victory' && !done.includes(this.mission.id)) done.push(this.mission.id);
         produced[key] = done;
+      }
+      else if (key === 'intel.marked_positions') {
+        // Union with what came in: intel accumulates across a campaign rather than
+        // being replaced, so a later mission cannot un-know what an earlier one saw.
+        // Sorted so the ledger is stable rather than insertion-ordered.
+        const merged = new Set([...this.marked, ...this.markedThisMission]);
+        produced[key] = [...merged].sort();
       }
       // Unknown keys: declared for the future, produced by nothing yet.
     }
