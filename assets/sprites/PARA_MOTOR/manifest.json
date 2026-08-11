@@ -9,8 +9,8 @@
   "derivedScale": 1.0,
   "sizeClass": "air",
   "classMultiplier": 1.5,
-  "realMetres": 2.993,
-  "metresPerModelUnit": 0.30481,
+  "realMetres": 2.976,
+  "metresPerModelUnit": 0.29149,
   "frameMetres": 4.243,
   "clips": {
     "idle": {

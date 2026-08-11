@@ -11,8 +11,15 @@ kits in a live Blender session for this repository, CC BY-SA 4.0.
 Three clips:
 
     idle   4 frames -- airframe bob, canopy sway, propeller spin
-    down   the landed state: canopy collapsed behind the trike
-    wreck  burnt, canopy crumpled
+    down   hit and spilling air: still flying, canopy stalled, cart swung
+    wreck  burnt, canopy crumpled on the ground
+
+**`down` is not the landed state**, though it was authored as one first. The
+renderer resolves `down` for a *pinned or routed* unit, not a landed one, so a
+merely suppressed paramotor rendered as parked in mid-air. A suppressed
+aircraft does not land -- it spills air and dives away. The landed geometry
+(CANOPY_DOWN) stays in the .blend, unused, for the land-and-dismount behaviour
+that does not exist yet.
 
 **No `fire` clip, deliberately.** The gunner's machine gun is part of him and
 never stows, so firing changes no geometry. `clipOrFallback` resolves a missing
@@ -62,6 +69,13 @@ SWAY = 0.16
 BLADES = 3
 SPIN_DEG = (360.0 / BLADES) / FRAMES
 
+#: The `down` pose: hit and spilling air. Large enough to read at 96 px as
+#: "this one is in trouble" without leaving the frame the idle loop sized.
+DOWN_CANOPY_SWING = 0.55
+DOWN_CANOPY_DROP = 0.42
+DOWN_PITCH_DEG = 13.0
+DOWN_SINK = 0.30
+
 ROLE_PALETTE = {
     # airframe
     "hull": "dust.0",       # canopy
@@ -104,6 +118,15 @@ def _sway(k):
     ob.location.y = SWAY * math.sin(2.0 * math.pi * k / FRAMES + math.pi / 2.0)
 
 
+def _down_pose():
+    """The stalled-canopy pose, included when the frame is measured -- it swings
+    further off-centre than any frame of the idle loop."""
+    ob = bpy.data.objects.get("CANOPY_FLY")
+    if ob is None:
+        raise SystemExit("CANOPY_FLY missing from the source file")
+    ob.location = (0.0, DOWN_CANOPY_SWING, -DOWN_CANOPY_DROP)
+
+
 def _bounds_pose(k):
     def go():
         _spin(k)
@@ -130,8 +153,8 @@ SPEC = VehicleSpec(
     # The canopy swings and the blades sweep, both outside their rest
     # silhouette. Framing to the rest pose alone crops a wingtip on half the
     # frames -- render_drone.py hit exactly this with its props.
-    bounds_poses=tuple(_bounds_pose(k) for k in range(FRAMES)),
-    bounds_z_pad=BOB,
+    bounds_poses=tuple(_bounds_pose(k) for k in range(FRAMES)) + (_down_pose,),
+    bounds_z_pad=BOB + DOWN_SINK,
 )
 
 
@@ -181,7 +204,16 @@ def main():
     _spin(0)
     bpy.data.objects["CANOPY_FLY"].location.y = 0.0
 
-    render_clip(pivot, body + down, fly, SPEC.out_hull, "down", files)
+    # `down` = hit, not landed. The canopy stalls (swung hard to one side and
+    # dropped) and the cart yaws under it, while the whole thing stays airborne.
+    canopy = bpy.data.objects["CANOPY_FLY"]
+    canopy.location = (0.0, DOWN_CANOPY_SWING, -DOWN_CANOPY_DROP)
+    pivot.rotation_euler.y = math.radians(DOWN_PITCH_DEG)
+    pivot.location.z = base_z - DOWN_SINK
+    render_clip(pivot, body + fly, down, SPEC.out_hull, "down", files)
+    canopy.location = (0.0, 0.0, 0.0)
+    pivot.rotation_euler.y = 0.0
+    pivot.location.z = base_z
 
     burnt = burnt_material()
     for o in body + down:

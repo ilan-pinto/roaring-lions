@@ -15,7 +15,7 @@ import {
   type ClipName,
   type SheetSpec,
 } from './sheet';
-import { cadenceScale, resolveClip, type UnitAnimInput } from './clip';
+import { cadenceScale, resolveClip, resolveTurretClip, type UnitAnimInput } from './clip';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec } from './vfx';
 
 export interface RendererOptions {
@@ -193,7 +193,10 @@ export class PixiRenderer {
       sheet: SheetSpec;
       textures: Partial<Record<ClipName, Texture[][]>>;
       turretSheet?: SheetSpec;
+      /** The turret's idle set. Kept as the "has a turret" test. */
       turretTextures?: Texture[][];
+      /** Every clip the turret sheet declares, keyed the same way as `textures`. */
+      turretClips?: Partial<Record<ClipName, Texture[][]>>;
     }
   >();
 
@@ -410,17 +413,41 @@ export class PixiRenderer {
 
     let turretSheet: SheetSpec | undefined;
     let turretTextures: Texture[][] | undefined;
+    let turretClips: Partial<Record<ClipName, Texture[][]>> | undefined;
     if (opts.turretPath) {
       const tp = opts.turretPath;
-      turretSheet = await PixiRenderer.loadSheet(tp);
-      turretTextures = await Promise.all(
-        Array.from({ length: turretSheet.facings }, (_, f) =>
-          Promise.all([Assets.load<Texture>(`${tp}${frameFileName(turretSheet as SheetSpec, 'idle', f, 0)}`)])
-        )
-      );
+      const ts = await PixiRenderer.loadSheet(tp);
+      turretSheet = ts;
+      // Every clip the turret sheet declares, not just idle. This used to load
+      // `idle` frame 0 and nothing else, which silently made any other turret
+      // clip dead art: the gun truck ships 16 frames of recoiled barrels that
+      // could never be drawn.
+      turretClips = {};
+      for (const clip of Object.keys(ts.clips) as ClipName[]) {
+        const spec = ts.clips[clip];
+        if (!spec) continue;
+        turretClips[clip] = await Promise.all(
+          Array.from({ length: ts.facings }, (_, f) =>
+            Promise.all(
+              Array.from({ length: spec.frames }, (_, n) =>
+                Assets.load<Texture>(`${tp}${frameFileName(ts, clip, f, n)}`)
+              )
+            )
+          )
+        );
+      }
+      // `turretTextures` stays the idle set so existing callers and the
+      // "has a turret at all" check are unchanged.
+      turretTextures = turretClips.idle;
     }
 
-    this.spriteAtlas.set(unitTypeId, { sheet, textures, turretSheet, turretTextures });
+    this.spriteAtlas.set(unitTypeId, {
+      sheet,
+      textures,
+      turretSheet,
+      turretTextures,
+      turretClips,
+    });
   }
 
   /**
@@ -1439,7 +1466,14 @@ export class PixiRenderer {
             this.spriteLayer.addChild(tspr);
             this.turretSprites[i] = tspr;
           }
-          tspr.texture = atlas.turretTextures[tIdx][0];
+          // A weapon station recoils when it fires, and only then. The hull's
+          // clip is the wrong source — a truck that is driving plays `move`,
+          // which a turret sheet does not have — so this asks for `fire` only,
+          // and falls back to idle whenever the sheet has no such clip.
+          const tclip = resolveTurretClip(clip, atlas.turretClips);
+          const tset = atlas.turretClips?.[tclip] ?? atlas.turretTextures;
+          const tframes = tset[tIdx] ?? atlas.turretTextures[tIdx];
+          tspr.texture = tframes[Math.min(frame, tframes.length - 1)] ?? tframes[0];
           // A turret sheet is drawn at the hull's position but framed from where
           // the weapon is aiming, so it is drawn as though the whole vehicle had
           // turned — the station orbits the rig's pivot. Negligible for a

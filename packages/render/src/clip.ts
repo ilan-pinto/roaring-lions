@@ -57,3 +57,26 @@ export function resolveClip(u: UnitAnimInput): ClipName {
 export function cadenceScale(u: UnitAnimInput): number {
   return resolveClip(u) === 'move' && u.routed === 1 ? ROUT_CADENCE : 1;
 }
+
+/**
+ * Which clip a *turret* sheet should show, given the hull's resolved clip.
+ *
+ * Separate from `resolveClip` because a weapon station has a much smaller
+ * vocabulary than the vehicle carrying it: a truck that is driving plays
+ * `move`, and no turret sheet has a `move`. Asking the hull's clip of the
+ * turret directly would miss every time and silently fall back.
+ *
+ * So only `fire` transfers, and only when the sheet actually declares it.
+ * Everything else is idle — which is what a gun does when it is not shooting.
+ *
+ * Pure and exported so the choice is testable: this lived inline in the draw
+ * loop as "always idle", which made the gun truck's 16 recoil frames dead art
+ * that nothing could ever display.
+ */
+export function resolveTurretClip(
+  hullClip: ClipName,
+  available: Partial<Record<ClipName, unknown>> | undefined
+): ClipName {
+  if (hullClip === 'fire' && available?.fire) return 'fire';
+  return 'idle';
+}
