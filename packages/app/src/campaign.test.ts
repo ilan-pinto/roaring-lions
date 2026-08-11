@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import worldJson from '../../../data/campaign/world.json';
 import type { LedgerData } from '@lions/sim';
-import { campaignRoe, nextMissionOf, parseWorld, regionProgress, townProgress } from './campaign';
+import { campaignRoe, nextMissionAfter, nextMissionOf, parseWorld, regionProgress, townProgress } from './campaign';
 
 const world = parseWorld(worldJson);
 const marj = world.regions[0]!;
@@ -90,6 +90,31 @@ describe('nextMissionOf', () => {
 
   it('is null for a town with no missions authored yet', () => {
     expect(nextMissionOf(sur.towns[0]!, {})).toBe(null);
+  });
+});
+
+describe('nextMissionAfter', () => {
+  it('resolves through the owning town for a mission that is on the map', () => {
+    const done = { 'campaign.completed_missions': [ALL_BS[0]!, ALL_BS[1]!] };
+    expect(nextMissionAfter(world, ALL_BS[1]!, done)).toBe(ALL_BS[2]);
+  });
+
+  it('hands off to the current front when no town owns the finished mission', () => {
+    // beit_sahwan_0_tutorial is deliberately not listed under any town -- it teaches
+    // the mouse, not the war -- so this exercises the fallback, not the owning-town path.
+    expect(nextMissionAfter(world, 'beit_sahwan_0_tutorial', {})).toBe(ALL_BS[0]);
+  });
+
+  it('is undefined for the last mission of the last authored town, not a wrap-around', () => {
+    const done = { 'campaign.completed_missions': [...ALL_BS] };
+    expect(nextMissionAfter(world, ALL_BS[ALL_BS.length - 1]!, done)).toBeUndefined();
+  });
+
+  it('still returns the following mission when the ledger already records the one that just finished', () => {
+    // This is the shape main.ts actually calls it with -- updatedLedger already has the
+    // just-finished mission merged in before nextMissionAfter ever sees it.
+    const done = { 'campaign.completed_missions': [ALL_BS[0]!] };
+    expect(nextMissionAfter(world, ALL_BS[0]!, done)).toBe(ALL_BS[1]);
   });
 });
 

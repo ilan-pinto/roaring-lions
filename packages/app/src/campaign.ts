@@ -140,6 +140,32 @@ export function nextMissionOf(town: WorldTown, ledger: LedgerData | undefined): 
 }
 
 /**
+ * The mission that should follow the one that just ended, for the end screen's "next
+ * mission" link.
+ *
+ * Tries the mission's owning town first: the mission that just ended belongs to some
+ * town's authored order, and the next mission in that order is the obvious answer. A
+ * mission off the map -- the tutorial is deliberately not listed under any town, since
+ * it teaches the mouse rather than the war -- has no owning town to ask "what's next".
+ * Hand off to wherever the campaign currently is instead: the first live region's first
+ * town with something left to play. This is what carries a new player from the tutorial
+ * into the campaign, rather than stranding them on an end screen offering only "replay"
+ * and "menu".
+ */
+export function nextMissionAfter(
+  world: ParsedWorld,
+  missionId: string,
+  ledger: LedgerData | undefined
+): string | undefined {
+  let owner = world.regions.flatMap((r) => r.towns).find((t) => t.missions.includes(missionId));
+  if (!owner) {
+    const front = world.regions.find((r) => regionProgress(r, ledger).status === 'live');
+    owner = front?.towns.find((t) => nextMissionOf(t, ledger) !== null);
+  }
+  return owner ? (nextMissionOf(owner, ledger) ?? undefined) : undefined;
+}
+
+/**
  * The campaign ROE figure for display, and the mission dragging it down.
  *
  * The mean is computed here rather than in the sim on purpose: `@lions/sim` bans floating
