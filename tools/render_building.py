@@ -566,10 +566,17 @@ def check_framing(scene, cam, meshes, scale):
 #: differ across the footprint.
 COLLAPSE_KEEP_MIN = 0.12
 COLLAPSE_KEEP_VAR = 0.30
-#: Chunk size for the spatial hash, as a fraction of height. Vertices in one
-#: cell move together, so masonry falls in slabs rather than dissolving into
-#: noise -- a building comes apart in pieces, not into sand.
-COLLAPSE_CHUNK = 0.24
+#: Chunk size for the spatial hash, as a fraction of the building's **plan**.
+#: Vertices in one cell move together, so masonry falls in slabs rather than
+#: dissolving into noise -- a building comes apart in pieces, not into sand.
+#:
+#: Derived from the plan and not from the height, which was a real bug: the
+#: hash is over (x, y), and the mosque's height is dominated by its minaret, so
+#: a height-derived chunk came out nearly twice the width it should be. Its
+#: roof was then one or two cells across and collapsed as a single tilted
+#: sheet -- a sail, not rubble. Every other building hid it because their
+#: height and plan are close.
+COLLAPSE_CHUNK = 0.16
 #: What survives of the height above a chunk's break line. Low: anything above
 #: the break has to land *near* the break, or the roof still floats.
 COLLAPSE_CRUSH = 0.10
@@ -577,6 +584,68 @@ COLLAPSE_CRUSH = 0.10
 COLLAPSE_SPILL = 0.13
 #: Lean of the standing stubs.
 COLLAPSE_LEAN = 0.10
+#: Fraction of wall chunks blown clean out, leaving holes. Ragged tops alone
+#: still read as a wall that merely lost its roof; a wall reads as *broken*
+#: when you can see through it.
+COLLAPSE_HOLES = 0.30
+#: Holes are never punched below this fraction of height, so a wreck keeps a
+#: continuous base and does not float in pieces.
+COLLAPSE_HOLE_FLOOR = 0.16
+
+#: Rubble is grey. A destroyed building rendered in its own limestone and
+#: ochre still reads as a building -- colour is most of what says "house" at
+#: gameplay zoom, and the eye reads intact-but-damaged rather than destroyed.
+#: Ash also separates a wreck from the terrain it sits on, which is the same
+#: limestone ramp.
+#:
+#: Mapped by luminance rather than flattened to one tone: a single grey turns
+#: the wreck into a silhouette with no internal form, and the whole point of
+#: partial collapse is that you can still read walls, openings and heaps.
+#: Measured, not chosen. A building renders *brighter* than its base under this
+#: rig -- it carries ambient and is mostly vertical surface -- so the first pass
+#: (gunmetal.1 at the top) put 15.7% of the wreck on limestone.0/.1, bright
+#: cream patches that read as snow, and 17.3% on the olive ramp, because
+#: gunmetal is faintly green and shading walks it into olive. Everything is one
+#: step darker so the lit end lands *inside* gunmetal instead of overshooting
+#: past it.
+#:
+#: Going a further step darker was tried and is worse: gunmetal.3 lit lands on
+#: olive.2/.3, taking the olive share from 34% to 53%. The palette has only
+#: four greys, all faintly green, and the dark olives sit exactly where a lit
+#: grey falls -- so "more grey" is not reachable by darkening. What the palette
+#: actually offers for burnt masonry is dark olive-grey over shadow, and that
+#: is what this is.
+ASH_BY_LUMINANCE = (
+    (0.62, "gunmetal.2"),
+    (0.34, "gunmetal.3"),
+    (0.14, "shadow.0"),
+    (0.00, "shadow.1"),
+)
+
+
+def ash_materials(meshes):
+    """Repaint a collapsed building in ash, preserving its tonal structure."""
+    cache = {}
+    for ob in meshes:
+        mats = list(ob.data.materials)
+        if not mats:
+            ob.data.materials.append(_shader("Ash", palette_linear("gunmetal.2"), 0.95))
+            continue
+        for i, m in enumerate(mats):
+            lum = 0.5
+            if m and m.use_nodes:
+                for n in m.node_tree.nodes:
+                    if n.type == "BSDF_PRINCIPLED":
+                        c = n.inputs["Base Color"].default_value
+                        # Rec. 709 luma on the linear base colour.
+                        lum = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+                        break
+            key = next(k for lo, k in ASH_BY_LUMINANCE if lum >= lo)
+            if key not in cache:
+                cache[key] = _shader(f"Ash_{key.replace('.', '_')}",
+                                     palette_linear(key), 0.95)
+            ob.data.materials[i] = cache[key]
+    print(f"  ash: {len(cache)} grey tone(s)")
 
 
 def _hash01(*ints):
@@ -619,6 +688,36 @@ def _dice(meshes, target):
         ob.data.update()
 
 
+def _punch(meshes, chunk, base_z, height):
+    """Blow chunks out of the standing walls, so they read as broken.
+
+    Ragged tops were not enough on their own: a wall with a jagged crest still
+    reads as a wall that lost its roof. Being able to *see through* it is what
+    says the building was hit.
+    """
+    import bmesh
+    removed = 0
+    for ob in meshes:
+        bm = bmesh.new()
+        bm.from_mesh(ob.data)
+        mw = ob.matrix_world
+        doomed = []
+        for f in bm.faces:
+            c = mw @ f.calc_center_median()
+            if (c.z - base_z) < height * COLLAPSE_HOLE_FLOOR:
+                continue
+            cx, cy, cz = (int(math.floor(v / chunk)) for v in (c.x, c.y, c.z))
+            if _hash01(cx * 7, cy * 13, cz * 3) < COLLAPSE_HOLES:
+                doomed.append(f)
+        if doomed:
+            bmesh.ops.delete(bm, geom=doomed, context="FACES")
+            removed += len(doomed)
+        bm.to_mesh(ob.data)
+        bm.free()
+        ob.data.update()
+    print(f"  punched {removed} face(s)")
+
+
 def collapse(meshes, base_z, top_z):
     """Bring a building down in place, partially.
 
@@ -638,9 +737,15 @@ def collapse(meshes, base_z, top_z):
     measures geometry and never an object transform.
     """
     height = max(top_z - base_z, 1e-4)
-    chunk = max(height * COLLAPSE_CHUNK, 1e-3)
+    plan_pts = [o.matrix_world @ v.co for o in meshes for v in o.data.vertices]
+    plan = max(
+        max(p.x for p in plan_pts) - min(p.x for p in plan_pts),
+        max(p.y for p in plan_pts) - min(p.y for p in plan_pts),
+    )
+    chunk = max(plan * COLLAPSE_CHUNK, 1e-3)
     # Dice first: without it the chunking below has nothing to bite on.
     _dice(meshes, chunk * 0.9)
+    _punch(meshes, chunk, base_z, height)
     # Fallen material is clamped to the intact building's own plan. Two reasons,
     # and the first is a bug this caught: the frame is sized to the *intact*
     # model, so spill beyond it is cropped by the render camera -- the warehouse
@@ -696,6 +801,7 @@ def render_building(spec):
         (o.matrix_world @ v.co).z for o in meshes for v in o.data.vertices
     ]
     collapse(meshes, min(zs_all), max(zs_all))
+    ash_materials(meshes)
     bpy.context.view_layer.update()
     wreck_name = "wreck_f00_000.png"
     bpy.context.scene.render.filepath = os.path.join(spec.out_dir, wreck_name)
