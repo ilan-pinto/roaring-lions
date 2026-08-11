@@ -1212,21 +1212,33 @@ In `packages/app/src/ui/theme.css` — the only file allowed to name `--rl-*` �
   /* Campaign map. Three region states that must be told apart at a glance.
      Dim by dropping texture and saturation, not brightness: laying shadow over a
      finished region turned it nearly black and cost every label inside it. */
-  --map-sea: var(--rl-water-6);
+  --map-sea: var(--rl-water-1);
   --map-land: var(--rl-limestone-2);
   --map-home: var(--rl-limestone-1);
   --map-live: var(--rl-dust-1);
   --map-spent: var(--rl-limestone-4);
   --map-locked: var(--rl-limestone-5);
-  --map-urban: var(--rl-terracotta-2);
-  --map-urban-line: var(--rl-terracotta-4);
-  --map-rock: var(--rl-gunmetal-5);
-  --map-scrub: var(--rl-scrub-2);
+  /* Light end for the hatch field, dark for its lines. The mockup generator asked for
+     terracotta-4, which does not exist -- python clamped it to the last entry, so both
+     ended up the same colour and the hatch was a flat block. CSS does not clamp; it
+     resolves to nothing. Ramps are short, so check the index exists. */
+  --map-urban: var(--rl-terracotta-0);
+  --map-urban-line: var(--rl-terracotta-2);
+  --map-rock: var(--rl-gunmetal-3);
+  --map-scrub: var(--rl-scrub-1);
   --map-dune: var(--rl-dust-3);
   --map-dune-line: var(--rl-dust-5);
+  /* The map's own line work. Not --panel-frame: borrowing a panel token means restyling
+     UI chrome silently restyles the coastline. */
+  --map-ink: var(--rl-shadow-1);
 ```
 
-Confirm each `--rl-*` name exists: the Vite palette plugin publishes them from `data/palette.json` as `--rl-<ramp>-<index>`. Cross-check against `packages/app/vite-plugin-palette.ts` and fix any name that does not resolve.
+Confirm each `--rl-*` name exists: the Vite palette plugin publishes them from
+`data/palette.json` as `--rl-<ramp>-<index>`. **The ramps are short** — `water` and `scrub`
+have two entries, `terracotta` three, `gunmetal` four — so an index like `-5` is past the end
+on most of them. Python's mockup generator clamped out-of-range indices silently; CSS
+resolves a missing variable to nothing at all. Cross-check every one against
+`data/palette.json` and fix any that does not resolve.
 
 - [ ] **Step 2: Author the SVG**
 
