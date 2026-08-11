@@ -1250,6 +1250,14 @@ Requirements, all load-bearing:
 - one element per region carrying **exactly** `id="region-marj"`, `id="region-sur"`, `id="region-naharin"`. Task 1's gate greps for these strings
 - each region element is a `<g>` wrapping its outline and terrain, so Task 6 can restyle a whole region by setting one attribute
 - **no `<text>` anywhere.** Names, doctrines and unlock text are `world.json`'s, so they stay translatable and cannot drift from the data
+- **state-neutral.** Every region is drawn in its *live* appearance — the Marj hatched, Sur
+  and Naharin with the same ordinary ink outline. The mockup is a single snapshot showing
+  three different states at once, because that was how it demonstrated the state language;
+  copying it literally bakes "complete" into the Marj, "live" into Sur's gold border and
+  "locked" into Naharin's opacity, so the CSS then compounds on top of a baked look instead
+  of replacing it, and the first region reads as finished at campaign start
+- each region's boundary path carries `class="region-outline"`, the hook the live-state rule
+  needs to restyle a border without depending on child order
 - every `fill` and `stroke` names a token: `fill="var(--map-land)"`, never `fill="#E6D8BE"`
 - pattern definitions (urban hatch, dunes) also use tokens
 - no `width`/`height` attributes on the root `<svg>`; the container sizes it
@@ -1614,7 +1622,9 @@ Add to `packages/app/src/ui/theme.css`, following the file's existing `.rl-menu_
 .rl-world__board { position: relative; width: 100%; max-width: 1140px; margin-inline: auto; }
 .rl-world__board svg { display: block; width: 100%; height: auto; }
 
-/* Three states, told apart by texture and saturation rather than brightness. */
+/* Three states, told apart by texture and saturation rather than brightness. State lives
+   here and never in the asset, which ships every region in its live appearance. */
+[data-status='live'] .region-outline { stroke: var(--map-live); stroke-width: 4; }
 [data-status='complete'] { filter: saturate(0.25); opacity: 0.75; }
 [data-status='locked'] { filter: saturate(0.4); opacity: 0.45; }
 
