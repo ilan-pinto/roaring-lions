@@ -1154,10 +1154,12 @@ Match the file's existing style. Export **only** the JSON — no parser, no type
 - [ ] **Step 6: Confirm `data` is still a leaf**
 
 ```bash
-grep -rn "@lions/" packages/data/src/ | grep -v "\.test\.ts"
+grep -rnE "^\s*(import|export).*@lions/" packages/data/src/ | grep -v "\.test\.ts"
 ```
 
-Expected: **no output.** `packages/data/package.json` declares no dependencies, and this is the invariant CLAUDE.md states. Any hit means campaign logic drifted into `data`; move it to `packages/app/src/campaign.ts` rather than adding a dependency.
+Expected: **no output.** Match import and export statements specifically — a bare
+`grep "@lions/"` also hits the words in existing comment prose, which is not a violation and
+makes the check cry wolf. `packages/data/package.json` declares no dependencies, and this is the invariant CLAUDE.md states. Any hit means campaign logic drifted into `data`; move it to `packages/app/src/campaign.ts` rather than adding a dependency.
 
 - [ ] **Step 7: Run the gates**
 
