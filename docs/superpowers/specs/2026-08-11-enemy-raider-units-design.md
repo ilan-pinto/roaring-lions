@@ -1,10 +1,13 @@
 # Enemy raider units — five sheets, design
 
 **Date:** 2026-08-11
-**Status:** **built and shipped.** Six sheets on disk; art gate green at 2630
-sprites / 26 units. The design below is preserved as approved; **"What the build
-changed" at the end is the authoritative record** of where it turned out to be
-wrong. Read that section before trusting a number in this one.
+**Status:** **built, wired and playing.** Six sprite sheets, five units with
+stats on the cost curve, a flight model, and placements across all three Beit
+Sahwan missions. Art gate green at 2630 sprites / 26 units; 323 tests;
+determinism 4/4 with the hash unmoved. The design below is preserved as
+approved; **"What the build changed" at the end is the authoritative record**
+of where it turned out to be wrong. Read that section before trusting a number
+in this one.
 **Depends on:** `2026-08-07-unit-rig-contract-design.md` (rig contract),
 `2026-08-08-unit-kit-infantry-design.md` (figure kit, posture-as-composition),
 `2026-08-10-enemy-technical-design.md` (vehicle kit conventions, per-role
@@ -331,9 +334,57 @@ and camera before saving.
 Two candidate uniform tones for the paramotor pilot looked identical; hiding the
 figure entirely settled it at 11.9% of pixels changed.
 
-## Still not done
+## The split did not hold, and that was the right outcome
 
-The split this spec declared holds: **no unit JSON, no stats, no `SPRITE_MAP`
-wiring, no sim behaviour.** Six sheets are on disk that nothing in the game
-references yet. They are art assets awaiting the balance and sim specs —
-detonate-on-proximity, airborne movement, land-and-dismount.
+This spec deferred stats, wiring and sim behaviour to later specs. All of it
+landed in the same session instead, because the deferral rested on an
+assumption that turned out to be false.
+
+**`kamikaze` was already implemented.** `stepKamikaze` steers to the nearest
+side-identified enemy and detonates on arrival. The suicide squad and the
+loitering munition needed no sim work at all — only stats. Checking the sim
+beat trusting the spec that had just been written about it.
+
+**Costs were solved, not chosen.** The cost curve refits from the current
+roster on every run, so pricing five units moves it for everyone: the first
+pass knocked `attack_drone` and `demo_squad` — both pre-existing and passing —
+out of band. Verified against a baseline roster to confirm the cause, then
+iterated to a fixed point. Six rounds, all 21 units inside ±18%.
+
+**Wiring is two registries, not one.** Every gate passed while the sandbox
+refused to boot with `unknown unit gun_truck`: `data/units/*.json` is content,
+`packages/data/src/index.ts` is what the app actually loads. No static check
+covers the gap between them. Only running the game found it.
+
+### Flight
+
+Built here rather than deferred, and deliberately small: **two rules, no
+altitude value.** An air unit ignores terrain blocking, and is engageable only
+by weapons whose `can_target` includes `air`. Height is presentation — a 14 px
+sprite lift and a shadow on the tile the sim really uses. A z axis would add a
+term to every distance check in the hot loop and change no outcome.
+
+The balance consequence had to be settled before the code was worth writing:
+**only two weapons in the roster could reach air**, so naive flight would have
+made drones near-invulnerable and broken all three missions. Small arms, HMGs,
+autocannon and the AMR now declare `air`; ATGMs, RPGs, mortars, tank guns and
+warheads deliberately do not.
+
+`can_target` had been in the schema and parsed into `WeaponJson` since before
+this work, and never reached `WeaponStats`. **Absent means ground only** —
+defaulting to "everything" would have handed every rifle an anti-air capability
+the moment flight landed.
+
+The determinism hash did not move, and that is a result rather than luck: the
+canary builds synthetic types declaring neither field, so both defaults
+reproduce the previous behaviour exactly.
+
+### Still not done
+
+- **Land-and-dismount.** The paramotor's `down` clip is authored for it; no sim
+  support exists. It is the one behaviour this session did not close.
+- **`can_target: air` on the gun truck is real now**, but nothing else about the
+  `aa` role is — there is no altitude band, no engagement envelope, no reason a
+  dedicated AA gun beats a rifle squad at the job beyond raw stats.
+- **Air units still path on the ground plane.** They ignore blocking, but they
+  do not fly *over* units, and two aircraft on the same tile still collide.
