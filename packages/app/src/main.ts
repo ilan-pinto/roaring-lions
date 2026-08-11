@@ -43,7 +43,7 @@ import { ProductionBar } from './ui/production';
 import { applyIntent, sortMount, type PlayerIntent } from './input/intents';
 import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
 import { tutorialPanel, type TutorialPanel } from './tutorial/panel';
-import { parseWorld, nextMissionOf } from './campaign';
+import { parseWorld, nextMissionOf, regionProgress } from './campaign';
 
 /** Deploy base ('/' locally, '/<repo>/' on GitHub Pages) — every asset URL
  *  is built from it so the same bundle works in both places. */
@@ -781,8 +781,18 @@ async function main(): Promise<void> {
             // Campaign order lives in world.json, not in the order data/missions files
             // happen to be imported.
             const w = parseWorld(world);
-            const town = w.regions.flatMap((r) => r.towns).find((t) => t.missions.includes(missionId));
-            const nextMissionId = town ? (nextMissionOf(town, updatedLedger) ?? undefined) : undefined;
+            let owner = w.regions.flatMap((r) => r.towns).find((t) => t.missions.includes(missionId));
+            if (!owner) {
+              // A mission off the map -- the tutorial is deliberately not listed under any
+              // town, since it teaches the mouse rather than the war -- has no owning town to
+              // ask "what's next". Hand off to wherever the campaign currently is instead:
+              // the first live region's first town with something left to play. This is what
+              // carries a new player from the tutorial into the campaign, rather than
+              // stranding them on an end screen offering only "replay" and "menu".
+              const front = w.regions.find((r) => regionProgress(r, updatedLedger).status === 'live');
+              owner = front?.towns.find((t) => nextMissionOf(t, updatedLedger) !== null);
+            }
+            const nextMissionId = owner ? (nextMissionOf(owner, updatedLedger) ?? undefined) : undefined;
             showEndScreen(document.body, {
               result: me.result,
               roe: me.roeRating,
