@@ -113,6 +113,14 @@ function sandboxSpawns(sim: Sim, typeOf: Map<string, number>): void {
   spawn('technical', 1, 42, 14, WEST);
   spawn('technical', 1, 42, 32, WEST);
   spawn('mortar_crew', 1, 44, 24, WEST);
+  // The raider set. The sandbox is the only place these appear -- no mission
+  // places them yet -- so this is what makes their art reachable in play at
+  // all, and what the art was verified against.
+  spawn('gun_truck', 1, 45, 19, WEST);
+  spawn('moto_rpg', 1, 40, 27, WEST);
+  spawn('charge_squad', 1, 31, 20, WEST);
+  spawn('paramotor', 1, 46, 29, WEST);
+  spawn('loiter_drone', 1, 47, 22, WEST);
 }
 
 /** Mission narration for the HUD notice stack: what to say, and how it lands. */
@@ -153,6 +161,11 @@ async function main(): Promise<void> {
   const params = new URLSearchParams(window.location.search);
   if (params.get('fresh') !== null && params.get('mission') === null) {
     window.localStorage.removeItem(LEDGER_KEY);
+    // Starting the campaign over restores the lessons with it. Without this
+    // the flag is a one-way door: finish the tutorial once and Beit Sahwan 0
+    // replays with no step panel at all, which reads as the tutorial being
+    // broken rather than already learned.
+    window.localStorage.removeItem(TUTORIAL_DONE_KEY);
   }
   if (params.get('mission') === null && params.get('sandbox') === null) {
     const tutorialDone = window.localStorage.getItem(TUTORIAL_DONE_KEY) !== null;
@@ -327,6 +340,22 @@ async function main(): Promise<void> {
     rpg_team: { path: `${BASE}sprites/INF_RPG/` },
     atgm_cell: { path: `${BASE}sprites/INF_ATGM/` },
     mortar_crew: { path: `${BASE}sprites/INF_MORTAR_E/` },
+    // The raider set. Like the technical, the gun truck's turret manifest
+    // carries `turretAxisPx`: its cannon sits 1.65 m behind the model centre,
+    // so without the correction the renderer swings it off the bed while
+    // tracking.
+    gun_truck: {
+      path: `${BASE}sprites/GUNTRUCK_HULL/`,
+      turretPath: `${BASE}sprites/GUNTRUCK_TURR/`,
+    },
+    charge_squad: { path: `${BASE}sprites/INF_CHARGE/` },
+    moto_rpg: { path: `${BASE}sprites/MOTO_RPG/` },
+    // Two air sheets whose flight is presentational: the sim has no altitude,
+    // so these move on the ground plane like anything else. The paramotor's
+    // `down` clip is its landed state, authored against a land-and-dismount
+    // behaviour that does not exist yet.
+    paramotor: { path: `${BASE}sprites/PARA_MOTOR/` },
+    loiter_drone: { path: `${BASE}sprites/DRONE_LOITER/` },
   };
   // Structures with art. A building has one sprite, not sixteen: it is placed
   // with a fixed orientation under a fixed camera and never turns. Types without

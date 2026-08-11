@@ -1,0 +1,50 @@
+{
+  "id": "gun_truck",
+  "name": "AA Gun Truck",
+  "faction": "rif",
+  "role": "aa",
+  "cost": {
+    "logistics": 324,
+    "build_time_s": 13,
+    "population": 1
+  },
+  "hull": {
+    "hp": 640,
+    "armor": {
+      "front": 12,
+      "side": 8,
+      "rear": 8
+    },
+    "crew": 4,
+    "suppression_resistance": 0.4
+  },
+  "mobility": {
+    "speed_tiles_s": 2.0,
+    "turn_rate_deg_s": 90
+  },
+  "sensors": {
+    "optics": 1.1,
+    "sight_tiles": 10,
+    "signature": 1.0,
+    "firing_signature_mult": 4.0
+  },
+  "weapons": [
+    {
+      "id": "zu23_twin",
+      "type": "autocannon",
+      "range_tiles": 11,
+      "effective_range_tiles": 8.5,
+      "accuracy": 0.55,
+      "penetration": 40,
+      "damage": 85,
+      "suppression": 80,
+      "rof_per_min": 800,
+      "can_target": [
+        "ground",
+        "air",
+        "structure"
+      ],
+      "collateral_risk": 0.55
+    }
+  ]
+}

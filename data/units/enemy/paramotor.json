@@ -1,0 +1,48 @@
+{
+  "id": "paramotor",
+  "name": "Powered Parachute",
+  "faction": "ashwar",
+  "role": "support",
+  "cost": {
+    "logistics": 275,
+    "build_time_s": 11,
+    "population": 1
+  },
+  "hull": {
+    "hp": 130,
+    "armor": {
+      "front": 0,
+      "side": 0,
+      "rear": 0
+    },
+    "crew": 2,
+    "suppression_resistance": 0.55
+  },
+  "mobility": {
+    "speed_tiles_s": 2.8,
+    "turn_rate_deg_s": 70
+  },
+  "sensors": {
+    "optics": 1.6,
+    "sight_tiles": 14,
+    "signature": 0.7,
+    "firing_signature_mult": 2.0
+  },
+  "weapons": [
+    {
+      "id": "pkm",
+      "type": "hmg",
+      "range_tiles": 7,
+      "effective_range_tiles": 5.2,
+      "accuracy": 0.4,
+      "penetration": 14,
+      "damage": 30,
+      "suppression": 60,
+      "rof_per_min": 600,
+      "can_target": [
+        "ground"
+      ],
+      "collateral_risk": 0.5
+    }
+  ]
+}

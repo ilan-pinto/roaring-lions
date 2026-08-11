@@ -1,0 +1,53 @@
+{
+  "id": "charge_squad",
+  "name": "Suicide Squad",
+  "faction": "ashwar",
+  "role": "infantry",
+  "cost": {
+    "logistics": 267,
+    "build_time_s": 6,
+    "population": 1
+  },
+  "hull": {
+    "hp": 190,
+    "armor": {
+      "front": 0,
+      "side": 0,
+      "rear": 0
+    },
+    "crew": 2,
+    "suppression_resistance": 0.85
+  },
+  "mobility": {
+    "speed_tiles_s": 1.9,
+    "turn_rate_deg_s": 200
+  },
+  "sensors": {
+    "optics": 0.8,
+    "sight_tiles": 7,
+    "signature": 0.5,
+    "firing_signature_mult": 1.0
+  },
+  "abilities": [
+    "kamikaze"
+  ],
+  "weapons": [
+    {
+      "id": "vest",
+      "type": "demolition",
+      "range_tiles": 1.1,
+      "effective_range_tiles": 1.1,
+      "accuracy": 0.95,
+      "penetration": 120,
+      "damage": 420,
+      "splash_tiles": 1.6,
+      "suppression": 90,
+      "rof_per_min": 60,
+      "can_target": [
+        "ground",
+        "structure"
+      ],
+      "collateral_risk": 0.85
+    }
+  ]
+}
