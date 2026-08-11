@@ -63,7 +63,7 @@ Content and validation first, so every later task has a coherent world to read a
 **Interfaces:**
 - Consumes: nothing.
 - Produces: `data/campaign/world.json` with this exact shape, which Tasks 4, 6 and 7 read:
-  `{ id: string, art: string, regions: Region[] }` where
+  `{ id: string, name: string, art: string, regions: Region[] }` where
   `Region = { id: string, name: string, faction: string, doctrine: string, blurb?: string, unlock?: { after_mission?: string, roe_rating_min?: number }, towns: Town[] }` and
   `Town = { id: string, name: string, at: [number, number], missions: string[] }`.
   `at` is in the SVG's `viewBox` coordinate space, which is `0 0 1140 790`.
