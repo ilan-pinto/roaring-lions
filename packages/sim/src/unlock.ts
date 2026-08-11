@@ -20,10 +20,16 @@ export interface UnlockGate {
 export function unlockReason(unlock: UnlockGate | undefined, ledger: LedgerData | undefined): string | null {
   if (!unlock) return null;
   if (unlock.roeMin !== undefined && !roeAtLeast(ledger, unlock.roeMin)) {
-    const rated = ratedCount(ledger);
-    return (
-      `requires campaign ROE ${unlock.roeMin}` + (rated === 0 ? ' (no missions rated yet)' : '')
-    );
+    // Three cases, because two of them are not the same sentence: rated and short,
+    // never rated, and an old save whose only record is a single number. Telling a
+    // player with a low rating that they have none sends them to do the wrong thing.
+    const map = ratings(ledger);
+    const rated = Object.keys(map ?? {}).length;
+    const legacy = ledger?.['roe.cumulative_rating'];
+    let detail = '';
+    if (rated === 0 && typeof legacy === 'number') detail = ` (currently ${legacy})`;
+    else if (rated === 0) detail = ' (no missions rated yet)';
+    return `requires campaign ROE ${unlock.roeMin}${detail}`;
   }
   if (unlock.afterMission !== undefined) {
     const done = ledger?.['campaign.completed_missions'];
@@ -38,8 +44,6 @@ const ratings = (ledger: LedgerData | undefined): Record<string, number> | null 
   const r = ledger?.['roe.mission_ratings'];
   return r !== null && typeof r === 'object' ? (r as Record<string, number>) : null;
 };
-
-const ratedCount = (ledger: LedgerData | undefined): number => Object.keys(ratings(ledger) ?? {}).length;
 
 /**
  * Whether the campaign's average ROE is at least `floor`, decided without dividing.

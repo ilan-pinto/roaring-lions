@@ -35,6 +35,19 @@ describe('unlockReason', () => {
     expect(unlockReason({ roeMin: 45 }, { 'roe.cumulative_rating': 31 })).not.toBe(null);
   });
 
+  it('names the actual figure on a legacy save that is below the floor', () => {
+    const why = unlockReason({ roeMin: 45 }, { 'roe.cumulative_rating': 31 });
+    expect(why).toContain('45');
+    expect(why).toContain('31');
+    expect(why).not.toContain('no missions rated yet');
+  });
+
+  it('says nothing about a figure once per-mission ratings exist, since the shell shows it', () => {
+    const why = unlockReason({ roeMin: 45 }, { 'roe.mission_ratings': { a: 20 } });
+    expect(why).toContain('45');
+    expect(why).not.toContain('no missions rated yet');
+  });
+
   it('names the mission that has not been cleared', () => {
     const why = unlockReason({ afterMission: 'beit_sahwan_3_clearance' }, {});
     expect(why).toContain('beit_sahwan_3_clearance');
