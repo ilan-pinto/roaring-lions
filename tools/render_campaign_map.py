@@ -23,8 +23,10 @@ Coordinates: 1 SVG unit = 1 Blender unit, X east, Y north. SVG y grows downward,
 flipped. The frame is exactly the 1140x790 viewBox, which is the box `worldmap.ts`
 positions town markers as percentages of.
 """
+import json
 import math
 import os
+import pathlib
 import re
 import sys
 
@@ -422,7 +424,36 @@ def build_marj():
     return n
 
 
-def scatter_ridges(poly, seed, rock, cap, spacing=22.0, density=0.95, edge=13.0):
+def settlement_near(points, seed, mats, radius=44.0, spacing=13.0, density=0.5, ring=None):
+    """Low buildings clustered around given town positions, at the Marj's own footprint.
+
+    Sur was rendered with ridges and nothing else, so its two towns were labels on bare
+    rock while Beit Sahwan sat in visible settlement -- the same world at two different
+    levels of detail. Footprint and height here are deliberately identical to
+    scatter_low_buildings: a house in the mountains is the same size as a house on the
+    coast, and anything else makes the regions read as different zoom levels.
+    """
+    rnd = rng_from(seed)
+    made = 0
+    for tx, ty in points:
+        y = ty - radius
+        while y < ty + radius:
+            x = tx - radius
+            while x < tx + radius:
+                if math.dist((x, y), (tx, ty)) <= radius and rnd() < density:
+                    w = 6.0 + rnd() * 6.0
+                    d = 6.0 + rnd() * 6.0
+                    h = 3.0 + rnd() * 3.5
+                    quad = [(x, y), (x + w, y), (x + w, y + d), (x, y + d)]
+                    if ring is None or all(point_in_poly(qx, qy, ring) for qx, qy in quad):
+                        polygon_slab(f"twn_{made:04d}", quad, 4.4, 4.4 + h, mats[int(rnd() * len(mats)) % len(mats)])
+                        made += 1
+                x += spacing
+            y += spacing
+    return made
+
+
+def scatter_ridges(poly, seed, rock, cap, spacing=13.0, density=0.9, edge=11.0):
     """Mountain ridges: tall, elongated, roughly parallel mounds with lit crests.
 
     Sur's whole identity is a wall you cannot climb, and from near-vertical a wall reads
@@ -441,12 +472,12 @@ def scatter_ridges(poly, seed, rock, cap, spacing=22.0, density=0.95, edge=13.0)
             if rnd() < density:
                 # Long and overlapping at a shared bearing, so neighbours merge into ranges.
                 # Discrete stubby mounds read as scattered boulders, not as a wall.
-                rx = 24.0 + rnd() * 22.0
-                ry = rx * (0.20 + rnd() * 0.14)
+                rx = 11.0 + rnd() * 9.0
+                ry = rx * (0.26 + rnd() * 0.18)
                 # A shared bearing with only a little scatter: a range, not a rash.
                 rot = math.radians(-14.0) + (rnd() - 0.5) * 0.5
                 cx, cy = x + rnd() * spacing, y + rnd() * spacing
-                h = 13.0 + rnd() * 15.0
+                h = 7.0 + rnd() * 7.0
 
                 def ellipse(fx, fy):
                     out = []
@@ -500,7 +531,15 @@ def build_sur():
     polygon_slab("sur_plinth", poly, 0.0, 4.4, stone)
     n = scatter_ridges(poly, seed=0x5124, rock=rock, cap=cap)
     scrub = scatter_scrub(poly, seed=0x5125, material=scrub_mat, spacing=30.0, density=0.18)
-    print(f"sur: {n} ridges, {scrub} scrub")
+    # Read the town positions from world.json rather than repeating them, so settlement
+    # cannot drift away from the markers the shell draws on top of it.
+    towns = [tuple(t["at"]) for r in json.loads(pathlib.Path(
+        os.path.join(ROOT, "data", "campaign", "world.json")).read_text())["regions"]
+        if r["id"] == "sur" for t in r["towns"]]
+    walls = [flat("sur_wall_a", "limestone.2"), flat("sur_wall_b", "limestone.3"),
+             flat("sur_wall_c", "limestone.4"), flat("sur_roof", "terracotta.0")]
+    b = settlement_near(towns, seed=0x5126, mats=walls, ring=poly)
+    print(f"sur: {n} ridges, {scrub} scrub, {b} buildings at {len(towns)} towns")
     return n
 
 
@@ -538,6 +577,20 @@ def build_base():
 
 BUILDERS = {"marj": build_marj, "sur": build_sur, "naharin": build_naharin, "base": build_base}
 
+#: Which palette ramps each layer may be snapped to.
+#:
+#: Not a formality. Snapping to the nearest entry across the whole palette assumes the
+#: palette covers the render's tones densely enough to preserve hue, and it does not: the
+#: neutral greys are four `gunmetal` entries while the greens sit closer in RGB distance,
+#: so Sur's lit rock snapped to `scrub.0` and the mountains came out bright green over
+#: 92k pixels. Each layer therefore declares the ramps its subject is made of.
+ALLOW = {
+    "marj": ["dust", "limestone", "terracotta", "scrub", "shadow"],
+    "sur": ["gunmetal", "limestone", "terracotta", "shadow"],
+    "naharin": ["dust", "limestone", "water", "shadow"],
+    "base": ["limestone", "water", "olive", "scrub", "shadow"],
+}
+
 
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
@@ -555,6 +608,12 @@ def main():
     bpy.context.scene.render.image_settings.color_mode = "RGBA"
     bpy.ops.render.render(write_still=True)
     print(f"wrote {out} at {RES_X}x{RES_Y}")
+
+    # Quantizing cannot happen in here: Blender's bundled Python has no Pillow. So print
+    # the exact follow-up rather than leaving the right --allow set to memory -- getting it
+    # wrong is not a small error, it is green mountains.
+    print(f"NEXT: python3 tools/quantize_sprites.py --file {out} "
+          f"--allow {','.join(ALLOW[which])}")
 
     blend = os.path.join(ROOT, "art", "src", "campaign", "sahar_basin.blend")
     os.makedirs(os.path.dirname(blend), exist_ok=True)
