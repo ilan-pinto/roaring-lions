@@ -1,0 +1,447 @@
+"""Render the Sahar Basin campaign map as layered, near-vertical satellite art.
+
+    /Applications/Blender.app/Contents/MacOS/Blender --background \
+        --python tools/render_campaign_map.py -- marj
+
+Renders one region per invocation to `assets/campaign/layer_<region>.png`, plus
+`layer_base.png` for the sea, Kedem and the borders. Every layer is rendered with the
+**same camera framing the whole basin**, so the PNGs are full-canvas with transparency
+outside their own region and stack with no per-layer offsets. Getting that wrong is the
+easy way to have a map that is subtly misregistered at one zoom and fine at another.
+
+Why layers at all. The campaign screen's whole state language is CSS restyling a
+per-region element -- live, complete, locked -- and a single flat image cannot be
+desaturated one region at a time. Layers keep `worldmap.ts`, its tests and the town
+anchoring exactly as they are; only what sits inside each wrapper changes.
+
+Geometry is read from `assets/campaign/sahar_basin.svg` rather than duplicated here. The
+SVG stays the authority on shape: it is what the data gate checks, what the town `at`
+coordinates in world.json are expressed against, and what the live-border rule strokes.
+A second copy of the coastline would drift from it within a week.
+
+Coordinates: 1 SVG unit = 1 Blender unit, X east, Y north. SVG y grows downward, so it is
+flipped. The frame is exactly the 1140x790 viewBox, which is the box `worldmap.ts`
+positions town markers as percentages of.
+"""
+import math
+import os
+import re
+import sys
+
+import bpy
+from mathutils import Vector
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from dimetric import palette_linear  # noqa: E402
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SVG = os.path.join(ROOT, "assets", "campaign", "sahar_basin.svg")
+OUT_DIR = os.path.join(ROOT, "assets", "campaign")
+
+#: The layout box. Must equal the SVG's viewBox and worldmap.ts's VIEW_W/VIEW_H.
+VIEW_W, VIEW_H = 1140.0, 790.0
+#: 2x the layout box, so the map stays crisp on a high-density display.
+RES_X, RES_Y = 2280, 1580
+
+#: Near-vertical: 8 degrees off straight down. Enough parallax for relief to read as
+#: height rather than as texture, not enough for anything to occlude anything else.
+CAM_TILT_DEG = 8.0
+#: (No camera azimuth: a top-down map keeps world axes aligned to screen axes.)
+#: Sun low enough to model relief, high enough that shadows do not swallow the ground.
+SUN_ELEV_DEG = 38.0
+SUN_AZIMUTH_DEG = 145.0
+
+SAMPLES = 96
+
+
+# ---------------------------------------------------------------- svg geometry
+
+def _svg_text():
+    with open(SVG) as fh:
+        return fh.read()
+
+
+def region_polygon(region_id):
+    """The boundary ring of `region-<id>`, as [(x, y), ...] in SVG units.
+
+    Reads the first path inside the region's group. The groups are authored
+    outline-first, and `class="region-outline"` marks it, so prefer that when present.
+    """
+    text = _svg_text()
+    m = re.search(rf'<g id="region-{region_id}"[^>]*>(.*?)</g>', text, re.S)
+    if not m:
+        raise SystemExit(f"no group id=region-{region_id} in {SVG}")
+    body = m.group(1)
+    paths = re.findall(r'<path[^>]*\bd="([^"]+)"[^>]*>', body)
+    outlined = re.findall(r'<path[^>]*class="region-outline"[^>]*\bd="([^"]+)"[^>]*>', body)
+    d = (outlined or paths)[0]
+    pts = []
+    for xs, ys in re.findall(r'([-\d.]+),([-\d.]+)', d):
+        pts.append((float(xs), float(ys)))
+    if len(pts) < 3:
+        raise SystemExit(f"region-{region_id}: parsed only {len(pts)} points from {d[:60]}")
+    return pts
+
+
+def to_world(x, y):
+    """SVG (x, y) -> Blender (X, Y). Y flips because SVG grows downward."""
+    return (x - VIEW_W / 2.0, (VIEW_H / 2.0) - y)
+
+
+def point_in_poly(px, py, poly):
+    inside = False
+    n = len(poly)
+    for i in range(n):
+        x1, y1 = poly[i]
+        x2, y2 = poly[(i + 1) % n]
+        if (y1 > py) != (y2 > py):
+            xint = x1 + (py - y1) * (x2 - x1) / (y2 - y1)
+            if px < xint:
+                inside = not inside
+    return inside
+
+
+# ------------------------------------------------------------------- materials
+
+def flat(name, colour_key, roughness=0.85):
+    mat = bpy.data.materials.new(name)
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes["Principled BSDF"]
+    bsdf.inputs["Base Color"].default_value = palette_linear(colour_key)
+    bsdf.inputs["Roughness"].default_value = roughness
+    if "Specular IOR Level" in bsdf.inputs:
+        bsdf.inputs["Specular IOR Level"].default_value = 0.2
+    return mat
+
+
+# --------------------------------------------------------------------- geometry
+
+def polygon_slab(name, poly, z0, z1, material):
+    """A closed polygon extruded between two heights, as one mesh."""
+    verts = [Vector((*to_world(x, y), z0)) for x, y in poly]
+    verts += [Vector((*to_world(x, y), z1)) for x, y in poly]
+    n = len(poly)
+    faces = [list(range(n, 2 * n))]                       # top
+    faces.append(list(reversed(range(n))))                # bottom
+    for i in range(n):
+        j = (i + 1) % n
+        faces.append([i, j, j + n, i + n])                # walls
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata([tuple(v) for v in verts], [], faces)
+    mesh.validate()
+    ob = bpy.data.objects.new(name, mesh)
+    ob.data.materials.append(material)
+    bpy.context.collection.objects.link(ob)
+    return ob
+
+
+def rng_from(seed):
+    """A tiny deterministic stream, so a re-render is byte-identical.
+
+    Same reasoning as the sim's seeded per-entity PRNG: art that shuffles between renders
+    makes every diff unreviewable.
+    """
+    state = seed & 0xFFFFFFFF
+
+    def rnd():
+        nonlocal state
+        state = (1103515245 * state + 12345) & 0x7FFFFFFF
+        return state / float(0x7FFFFFFF)
+
+    return rnd
+
+
+def inset(poly, d):
+    """Shrink a polygon by pulling every vertex `d` toward its centroid.
+
+    Crude but sufficient for a convex-ish coastline, and its purpose is narrow: keep the
+    undulating floor away from the region's edge so the floor's own blocky boundary never
+    becomes the silhouette.
+    """
+    cx = sum(x for x, _ in poly) / len(poly)
+    cy = sum(y for _, y in poly) / len(poly)
+    out = []
+    for x, y in poly:
+        vx, vy = x - cx, y - cy
+        L = math.hypot(vx, vy) or 1.0
+        out.append((x - vx / L * d, y - vy / L * d))
+    return out
+
+
+def desert_ground(name, poly, seed, material, step=6.0, relief=1.4, floor_z=4.4, edge=9.0):
+    """The region's floor as undulating desert rather than a flat slab.
+
+    A grid over the polygon's bounding box, each vertex lifted by summed sines, keeping
+    only the quads whose centre falls inside the polygon. At 8 degrees off vertical the
+    height itself is nearly invisible -- what reads is the shading across the slopes, which
+    is why the ground needs relief at all rather than being one flat tone.
+    """
+    # The floor is laid inside an inset ring, so the flat plinth shows as a thin shore and
+    # the floor's stepped boundary sits away from the coastline. At 2.6 units of relief its
+    # edge was a visible cliff with its own shadow; 1.4 plus the inset makes it disappear.
+    poly = inset(poly, edge)
+    xs = [p[0] for p in poly]
+    ys = [p[1] for p in poly]
+    x0, x1 = min(xs), max(xs)
+    y0, y1 = min(ys), max(ys)
+    nx = max(2, int((x1 - x0) / step) + 1)
+    ny = max(2, int((y1 - y0) / step) + 1)
+    rnd = rng_from(seed)
+    ph = [rnd() * 6.28 for _ in range(6)]
+
+    def height(x, y):
+        return (
+            relief * 0.55 * math.sin(x * 0.055 + ph[0]) * math.cos(y * 0.048 + ph[1])
+            + relief * 0.30 * math.sin(x * 0.130 + ph[2]) * math.cos(y * 0.115 + ph[3])
+            + relief * 0.15 * math.sin(x * 0.290 + ph[4]) * math.cos(y * 0.260 + ph[5])
+        )
+
+    verts, index = [], {}
+    for j in range(ny + 1):
+        for i in range(nx + 1):
+            x = x0 + i * step
+            y = y0 + j * step
+            index[(i, j)] = len(verts)
+            wx, wy = to_world(x, y)
+            # + relief keeps the minimum at floor_z, so the plinth never shows through.
+            verts.append((wx, wy, floor_z + relief + height(x, y)))
+
+    faces = []
+    for j in range(ny):
+        for i in range(nx):
+            # All four corners, not the centre: a centre test leaves half-quads hanging
+            # over the coast and the region's edge stair-steps at 6-unit intervals, which
+            # reads as a pixelated coastline. Strictly-inside quads let the plinth's clean
+            # polygon rim form the silhouette instead.
+            gx, gy = x0 + i * step, y0 + j * step
+            if not all(point_in_poly(cx, cy, poly) for cx, cy in
+                       ((gx, gy), (gx + step, gy), (gx, gy + step), (gx + step, gy + step))):
+                continue
+            faces.append([index[(i, j)], index[(i + 1, j)], index[(i + 1, j + 1)], index[(i, j + 1)]])
+
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata(verts, [], faces)
+    mesh.validate()
+    ob = bpy.data.objects.new(name, mesh)
+    ob.data.materials.append(material)
+    bpy.context.collection.objects.link(ob)
+    return len(faces)
+
+
+def scatter_low_buildings(poly, seed, mats, spacing=26.0, density=0.42):
+    """Sparse, low, irregular structures on the desert floor.
+
+    Deliberately not a packed grid. `spacing` sets the lattice, `density` how many cells
+    are actually built on, and each footprint is jittered off its cell and varied in size,
+    so no two rows line up. Heights are low -- one to two storeys against a 26-unit
+    lattice -- because what should read from above is desert with settlement on it, not a
+    city that happens to be beige.
+    """
+    xs = [p[0] for p in poly]
+    ys = [p[1] for p in poly]
+    rnd = rng_from(seed)
+    made = 0
+    y = min(ys)
+    while y < max(ys):
+        x = min(xs)
+        while x < max(xs):
+            if rnd() < density:
+                w = 6.0 + rnd() * 6.0
+                d = 6.0 + rnd() * 6.0
+                jx = x + rnd() * (spacing - w)
+                jy = y + rnd() * (spacing - d)
+                corners = [(jx, jy), (jx + w, jy), (jx, jy + d), (jx + w, jy + d)]
+                if all(point_in_poly(cx, cy, poly) for cx, cy in corners):
+                    h = 3.0 + rnd() * 3.5
+                    mat = mats[int(rnd() * len(mats)) % len(mats)]
+                    quad = [(jx, jy), (jx + w, jy), (jx + w, jy + d), (jx, jy + d)]
+                    polygon_slab(f"bld_{made:04d}", quad, 4.4, 4.4 + h, mat)
+                    made += 1
+            x += spacing
+        y += spacing
+    return made
+
+
+def scatter_dunes(poly, seed, material, spacing=17.0, density=0.55, edge=11.0):
+    """Low dune mounds as interior islands, never touching the region's edge.
+
+    This replaced a raised undulating floor grid. That grid gave the desert its relief but
+    also gave it a *boundary*, stepped at the grid pitch, which sat a couple of units above
+    the surrounding plinth and drew a stair-stepped shadow line down the coast -- visible
+    even at the 170px the region occupies on the page. Insetting it and flattening the
+    relief reduced the line without removing it, because the cliff is inherent to having an
+    edge at all. Islands have no edge to catch the light.
+    """
+    ring_poly = inset(poly, edge)
+    xs, ys = [p[0] for p in ring_poly], [p[1] for p in ring_poly]
+    rnd = rng_from(seed)
+    made = 0
+    y = min(ys)
+    while y < max(ys):
+        x = min(xs)
+        while x < max(xs):
+            if rnd() < density:
+                # Elongated and rotated, so they read as wind-blown rather than as blobs.
+                rx = 5.0 + rnd() * 7.0
+                ry = rx * (0.42 + rnd() * 0.4)
+                rot = rnd() * math.pi
+                cx, cy = x + rnd() * spacing, y + rnd() * spacing
+                ring = []
+                for k in range(8):
+                    a = k * math.pi / 4.0
+                    px_ = rx * math.cos(a)
+                    py_ = ry * math.sin(a)
+                    ring.append((cx + px_ * math.cos(rot) - py_ * math.sin(rot),
+                                 cy + px_ * math.sin(rot) + py_ * math.cos(rot)))
+                if all(point_in_poly(qx, qy, ring_poly) for qx, qy in ring):
+                    # Deliberately shallow. At 1.1-2.7 units each mound threw a hard crescent of
+                    # shadow and the field read as fish scales; at 0.4-1.1 the same mounds read
+                    # as wind ripples, which is what desert seen from above actually looks like.
+                    polygon_slab(f"dune_{made:04d}", ring, 4.4, 4.4 + 0.4 + rnd() * 0.7, material)
+                    made += 1
+            x += spacing
+        y += spacing
+    return made
+
+
+def scatter_scrub(poly, seed, material, spacing=22.0, density=0.26):
+    """Low desert scrub: flat pads, no height. Breaks the ground's tonal uniformity."""
+    xs, ys = [p[0] for p in poly], [p[1] for p in poly]
+    rnd = rng_from(seed)
+    made = 0
+    y = min(ys)
+    while y < max(ys):
+        x = min(xs)
+        while x < max(xs):
+            if rnd() < density:
+                r = 2.2 + rnd() * 2.6
+                cx, cy = x + rnd() * spacing, y + rnd() * spacing
+                if point_in_poly(cx, cy, poly):
+                    ring = [(cx + r * math.cos(a * math.pi / 3.0), cy + r * math.sin(a * math.pi / 3.0))
+                            for a in range(6)]
+                    polygon_slab(f"scrub_{made:04d}", ring, 4.4, 4.85, material)
+                    made += 1
+            x += spacing
+        y += spacing
+    return made
+
+
+# ----------------------------------------------------------------------- scene
+
+def clear():
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+
+
+def camera_and_light():
+    sc = bpy.context.scene
+    sc.render.engine = "CYCLES"
+    sc.cycles.samples = SAMPLES
+    sc.render.resolution_x = RES_X
+    sc.render.resolution_y = RES_Y
+    sc.render.resolution_percentage = 100
+    sc.render.film_transparent = True
+    sc.view_settings.view_transform = "Standard"
+
+    cam_data = bpy.data.cameras.new("Cam")
+    cam_data.type = "ORTHO"
+    # Frame the long axis exactly; the sensor fit keeps the short axis proportional.
+    cam_data.ortho_scale = VIEW_W
+    # The camera stands 2000 units off to keep the projection clean, and Blender's default
+    # far clip is 100 -- so without this every polygon sits beyond the clip plane and the
+    # render comes out fully transparent with no error of any kind.
+    cam_data.clip_start = 1.0
+    cam_data.clip_end = 6000.0
+    cam = bpy.data.objects.new("Cam", cam_data)
+    bpy.context.collection.objects.link(cam)
+    sc.camera = cam
+
+    # A camera at euler (0,0,0) looks straight down -Z with +Y up, which is exactly the
+    # mapping this map wants: world +X to screen right, world +Y to screen up. Tilting
+    # about X alone preserves it. Deriving the orientation by "look at the origin" instead
+    # -- which the first version did -- leaves the roll unconstrained, so the world axes
+    # arrive on screen rotated and the whole basin lands somewhere unintended.
+    tilt = math.radians(CAM_TILT_DEG)
+    height = 2000.0
+    cam.location = (0.0, -height * math.tan(tilt), height)
+    cam.rotation_euler = (tilt, 0.0, 0.0)
+    # Tilting foreshortens the north-south axis by cos(tilt); at 8 degrees that is 0.99,
+    # which is under a pixel over the whole frame and is why the towns still register.
+
+
+    sun_data = bpy.data.lights.new("Sun", type="SUN")
+    sun_data.energy = 3.1
+    sun_data.angle = math.radians(2.0)
+    sun = bpy.data.objects.new("Sun", sun_data)
+    bpy.context.collection.objects.link(sun)
+    se, sa = math.radians(SUN_ELEV_DEG), math.radians(SUN_AZIMUTH_DEG)
+    sun.location = (900 * math.cos(se) * math.cos(sa), 900 * math.cos(se) * math.sin(sa), 900 * math.sin(se))
+    sun.rotation_euler = (Vector((0, 0, 0)) - Vector(sun.location)).to_track_quat("-Z", "Y").to_euler()
+
+    world = bpy.data.worlds.new("W")
+    world.use_nodes = True
+    bg = world.node_tree.nodes["Background"]
+    bg.inputs["Color"].default_value = palette_linear("water.0")
+    bg.inputs["Strength"].default_value = 0.35
+    bpy.context.scene.world = world
+    return cam
+
+
+# ---------------------------------------------------------------------- layers
+
+def build_marj():
+    """The Marj Strip: low settlement scattered over coastal desert.
+
+    Ground first and buildings second, by area and by intent. An earlier pass packed 163
+    tall blocks edge to edge and read as a checkerboard rather than a place -- at the size
+    this occupies on screen, roughly 50 by 200 pixels, dense uniform detail collapses into
+    noise while open terrain with sparse relief still reads.
+    """
+    poly = region_polygon("marj")
+    sand = flat("marj_sand", "dust.2", roughness=0.96)
+    walls = [
+        flat("wall_a", "limestone.2"),
+        flat("wall_b", "limestone.3"),
+        flat("wall_c", "limestone.4"),
+        flat("wall_d", "dust.1"),
+        flat("roof_terracotta", "terracotta.0"),
+    ]
+    scrub_mat = flat("marj_scrub", "scrub.1", roughness=0.98)
+
+    # A thin plinth so the coastline still reads as a hard edge against the sea, with the
+    # undulating desert floor laid over it.
+    polygon_slab("marj_plinth", poly, 0.0, 4.4, sand)
+    dunes = scatter_dunes(poly, seed=0x0DE5, material=sand)
+    scrub = scatter_scrub(poly, seed=0x5C2B, material=scrub_mat)
+    n = scatter_low_buildings(poly, seed=0x5A4A, mats=walls)
+    print(f"marj: {dunes} dunes, {scrub} scrub, {n} low buildings")
+    return n
+
+
+BUILDERS = {"marj": build_marj}
+
+
+def main():
+    argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+    which = argv[0] if argv else "marj"
+    if which not in BUILDERS:
+        raise SystemExit(f"unknown layer {which!r}; have {sorted(BUILDERS)}")
+
+    clear()
+    camera_and_light()
+    BUILDERS[which]()
+
+    out = os.path.join(OUT_DIR, f"layer_{which}.png")
+    bpy.context.scene.render.filepath = out
+    bpy.context.scene.render.image_settings.file_format = "PNG"
+    bpy.context.scene.render.image_settings.color_mode = "RGBA"
+    bpy.ops.render.render(write_still=True)
+    print(f"wrote {out} at {RES_X}x{RES_Y}")
+
+    blend = os.path.join(ROOT, "art", "src", "campaign", "sahar_basin.blend")
+    os.makedirs(os.path.dirname(blend), exist_ok=True)
+    bpy.ops.wm.save_as_mainfile(filepath=blend)
+    print(f"saved {blend}")
+
+
+if __name__ == "__main__":
+    main()

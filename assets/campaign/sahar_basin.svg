@@ -56,7 +56,8 @@
        built-up ground, so its default fill is the urban hatch, not a flat
        "complete" tone; state is CSS's job, not the asset's. -->
   <g id="region-marj">
-    <path class="region-outline" d="M 104,296 L 156,264 L 200,298 L 212,372 L 200,470 L 172,558 L 124,592 L 88,540 L 78,434 Z" fill="url(#urban)" stroke="var(--map-ink)" stroke-width="1.6"/>
+    <image href="campaign/layer_marj.png" x="0" y="0" width="1140" height="790" preserveAspectRatio="none"/>
+    <path class="region-outline" d="M 104,296 L 156,264 L 200,298 L 212,372 L 200,470 L 172,558 L 124,592 L 88,540 L 78,434 Z" fill="none" stroke="var(--map-ink)" stroke-width="1.6"/>
   </g>
 
   <!-- 2. Sur: behind the mountain wall. Outline ships in its neutral ink,
