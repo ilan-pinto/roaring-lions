@@ -54,6 +54,22 @@
   --band-ink: var(--rl-limestone-0);
   --band-ink-dim: var(--rl-gunmetal-0);
 
+  /* Campaign map. Three region states that must be told apart at a glance.
+     Dim by dropping texture and saturation, not brightness: laying shadow over a
+     finished region turned it nearly black and cost every label inside it. */
+  --map-sea: var(--rl-water-1);
+  --map-land: var(--rl-limestone-2);
+  --map-home: var(--rl-limestone-1);
+  --map-live: var(--rl-dust-1);
+  --map-spent: var(--rl-limestone-4);
+  --map-locked: var(--rl-limestone-5);
+  --map-urban: var(--rl-terracotta-2);
+  --map-urban-line: var(--rl-terracotta-2);
+  --map-rock: var(--rl-gunmetal-3);
+  --map-scrub: var(--rl-scrub-1);
+  --map-dune: var(--rl-dust-3);
+  --map-dune-line: var(--rl-dust-5);
+
   /* --- ink ------------------------------------------------------------ */
   --ink: var(--rl-limestone-0);
   --ink-mute: var(--rl-limestone-4);

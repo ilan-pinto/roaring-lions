@@ -1,11 +1,86 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1140 790">
-  <!-- Stub. Task 5 replaces this geometry with the authored Sahar Basin map.
-       It exists from Task 1 so world.json is coherent and the data gate's
-       region-id check has something real to check. The three ids are the
-       contract: validate_data.mjs greps for them, and the shell sets
-       data-status on them. viewBox is 1140x790 -- the coordinate space
-       world.json's town `at` values are expressed in. -->
-  <g id="region-marj"/>
-  <g id="region-sur"/>
-  <g id="region-naharin"/>
+  <!-- The Sahar Basin campaign map. Geometry ported from the approved mockup at
+       docs/superpowers/specs/assets/2026-08-10-sahar-basin-mockup.svg; every
+       colour is now a semantic token and every label is gone, because names,
+       doctrines and unlock text belong to data/campaign/world.json and would
+       otherwise drift from it. Region ids (region-marj, region-sur,
+       region-naharin) are the contract validate_data.mjs greps for, and the
+       handle the shell uses to restyle a region by setting data-status on it.
+       Town markers are not drawn here; a later task positions them from
+       world.json's `at` coordinates, expressed in this exact 1140x790 viewBox. -->
+  <defs>
+    <!-- Built-up hatch: density is the whole point of the Marj. -->
+    <pattern id="urban" width="6" height="6" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+      <rect width="6" height="6" fill="var(--map-urban)"/>
+      <line x1="0" y1="0" x2="0" y2="6" stroke="var(--map-urban-line)" stroke-width="2.5"/>
+    </pattern>
+    <pattern id="dunes" width="15" height="9" patternUnits="userSpaceOnUse">
+      <rect width="15" height="9" fill="var(--map-dune)"/>
+      <path d="M0,7 q3.75,-4.5 7.5,0 q3.75,4.5 7.5,0" fill="none" stroke="var(--map-dune-line)" stroke-width="1.1" opacity="0.55"/>
+    </pattern>
+    <linearGradient id="seag" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="var(--map-sea)"/>
+      <stop offset="1" stop-color="var(--map-sea)"/>
+    </linearGradient>
+  </defs>
+
+  <!-- No full-canvas background rect: the container this gets inlined into
+       sizes and grounds it (see the no-width/height rule below), so a
+       hardcoded backdrop here would only fight whatever frame Task 6 puts
+       around the map. -->
+
+  <!-- The coast follows the Marj's western edge, so the sea is a shoreline
+       rather than a rectangle ending mid-region. -->
+  <path d="M 0,0 L 104,0 L 92,120 L 104,296 L 78,434 L 88,540 L 124,592 L 108,700 L 96,790 L 0,790 Z" fill="url(#seag)"/>
+  <path d="M 0,0 L 104,0 L 92,120 L 104,296 L 78,434 L 88,540 L 124,592 L 108,700 L 96,790 L 0,790 Z" fill="none" stroke="var(--map-sea)" stroke-width="1.5" opacity="0.5"/>
+
+  <!-- Kedem: the home coastal plain. Not a campaign region, so it is always
+       present, never locked or spent, and carries no region-* id. -->
+  <g id="kedem">
+    <path d="M 212,372 L 200,298 L 156,264 L 182,204 L 272,168 L 404,148 L 564,156 L 704,194 L 790,266 L 816,368 L 796,470 L 724,556 L 600,606 L 444,614 L 304,590 L 200,470 Z" fill="var(--map-home)" stroke="var(--panel-frame)" stroke-width="2"/>
+    <ellipse cx="334" cy="302" rx="17" ry="11" fill="var(--map-scrub)" opacity="0.28"/>
+    <ellipse cx="304" cy="332" rx="17" ry="11" fill="var(--map-scrub)" opacity="0.28"/>
+    <ellipse cx="364" cy="342" rx="17" ry="11" fill="var(--map-scrub)" opacity="0.28"/>
+    <ellipse cx="474" cy="252" rx="17" ry="11" fill="var(--map-scrub)" opacity="0.28"/>
+    <ellipse cx="524" cy="302" rx="17" ry="11" fill="var(--map-scrub)" opacity="0.28"/>
+    <ellipse cx="624" cy="382" rx="17" ry="11" fill="var(--map-scrub)" opacity="0.28"/>
+    <ellipse cx="424" cy="432" rx="17" ry="11" fill="var(--map-scrub)" opacity="0.28"/>
+    <ellipse cx="524" cy="472" rx="17" ry="11" fill="var(--map-scrub)" opacity="0.28"/>
+    <ellipse cx="354" cy="472" rx="17" ry="11" fill="var(--map-scrub)" opacity="0.28"/>
+    <ellipse cx="624" cy="252" rx="17" ry="11" fill="var(--map-scrub)" opacity="0.28"/>
+    <ellipse cx="704" cy="332" rx="17" ry="11" fill="var(--map-scrub)" opacity="0.28"/>
+    <ellipse cx="564" cy="552" rx="17" ry="11" fill="var(--map-scrub)" opacity="0.28"/>
+  </g>
+
+  <!-- 1. The Marj Strip: dense coastal enclave, no depth. -->
+  <g id="region-marj">
+    <path d="M 104,296 L 156,264 L 200,298 L 212,372 L 200,470 L 172,558 L 124,592 L 88,540 L 78,434 Z" fill="var(--map-spent)" stroke="var(--panel-frame)" stroke-width="1.6" opacity="0.85"/>
+  </g>
+
+  <!-- 2. Sur: behind the mountain wall. -->
+  <g id="region-sur">
+    <path d="M 182,204 L 238,116 L 356,66 L 524,56 L 668,86 L 764,148 L 790,266 L 704,194 L 564,156 L 404,148 L 272,168 Z" fill="var(--map-land)" stroke="var(--map-live)" stroke-width="4"/>
+    <path d="M 261.775,188.5 L 286,160 L 310.225,188.5 Z" fill="var(--map-rock)" stroke="var(--panel-frame)" stroke-width="1.2"/>
+    <path d="M 277.45,170.26 L 286,160 L 294.55,170.26 Z" fill="var(--map-home)" opacity="0.8"/>
+    <path d="M 314.85,177.0 L 348,138 L 381.15,177.0 Z" fill="var(--map-rock)" stroke="var(--panel-frame)" stroke-width="1.2"/>
+    <path d="M 336.3,152.04 L 348,138 L 359.7,152.04 Z" fill="var(--map-home)" opacity="0.8"/>
+    <path d="M 434.3,166.0 L 470,124 L 505.7,166.0 Z" fill="var(--map-rock)" stroke="var(--panel-frame)" stroke-width="1.2"/>
+    <path d="M 457.4,139.12 L 470,124 L 482.6,139.12 Z" fill="var(--map-home)" opacity="0.8"/>
+    <path d="M 570.675,166.5 L 600,132 L 629.325,166.5 Z" fill="var(--map-rock)" stroke="var(--panel-frame)" stroke-width="1.2"/>
+    <path d="M 589.65,144.42 L 600,132 L 610.35,144.42 Z" fill="var(--map-home)" opacity="0.8"/>
+    <path d="M 633.4,188.0 L 664,152 L 694.6,188.0 Z" fill="var(--map-rock)" stroke="var(--panel-frame)" stroke-width="1.2"/>
+    <path d="M 653.2,164.96 L 664,152 L 674.8,164.96 Z" fill="var(--map-home)" opacity="0.8"/>
+    <path d="M 693.05,199.0 L 716,172 L 738.95,199.0 Z" fill="var(--map-rock)" stroke="var(--panel-frame)" stroke-width="1.2"/>
+    <path d="M 707.9,181.72 L 716,172 L 724.1,181.72 Z" fill="var(--map-home)" opacity="0.8"/>
+    <path d="M 219.6,206.0 L 240,182 L 260.4,206.0 Z" fill="var(--map-rock)" stroke="var(--panel-frame)" stroke-width="1.2"/>
+    <path d="M 232.8,190.64 L 240,182 L 247.2,190.64 Z" fill="var(--map-home)" opacity="0.8"/>
+  </g>
+
+  <!-- 3. Naharin: locked, across the river. -->
+  <g id="region-naharin" opacity="0.45">
+    <path d="M 816,368 L 904,298 L 1016,298 L 1058,382 L 1044,504 L 976,588 L 860,604 L 724,556 L 796,470 Z" fill="url(#dunes)" stroke="var(--panel-frame)" stroke-width="1.6"/>
+  </g>
+  <!-- The river: shared boundary geography feeding both Sur's rockets and the
+       Marj's tunnels, so it stays legible independent of Naharin's lock-dim. -->
+  <path d="M 816,368 C 842,414 838,462 796,470 C 826,522 800,548 724,556" fill="none" stroke="var(--map-sea)" stroke-width="6" opacity="0.55"/>
 </svg>
