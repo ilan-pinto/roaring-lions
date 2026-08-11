@@ -141,6 +141,15 @@
 }
 
 /* ====================================================================== */
+/* Campaign map — state styling                                          */
+/* ====================================================================== */
+
+/* State lives here, not in the asset: the SVG ships every region in its live
+   appearance and these three rules restyle it. Baking a state into the art means
+   the CSS compounds on top of it rather than replacing it. */
+[data-status='live'] .region-outline { stroke: var(--map-live); stroke-width: 4; }
+
+/* ====================================================================== */
 /* Panel — the stamped header                                             */
 /* ====================================================================== */
 

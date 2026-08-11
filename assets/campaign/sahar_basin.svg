@@ -52,14 +52,18 @@
     <ellipse cx="564" cy="552" rx="17" ry="11" fill="var(--map-scrub)" opacity="0.28"/>
   </g>
 
-  <!-- 1. The Marj Strip: dense coastal enclave, no depth. -->
+  <!-- 1. The Marj Strip: dense coastal enclave, no depth. Live identity is
+       built-up ground, so its default fill is the urban hatch, not a flat
+       "complete" tone; state is CSS's job, not the asset's. -->
   <g id="region-marj">
-    <path d="M 104,296 L 156,264 L 200,298 L 212,372 L 200,470 L 172,558 L 124,592 L 88,540 L 78,434 Z" fill="var(--map-spent)" stroke="var(--map-ink)" stroke-width="1.6" opacity="0.85"/>
+    <path class="region-outline" d="M 104,296 L 156,264 L 200,298 L 212,372 L 200,470 L 172,558 L 124,592 L 88,540 L 78,434 Z" fill="url(#urban)" stroke="var(--map-ink)" stroke-width="1.6"/>
   </g>
 
-  <!-- 2. Sur: behind the mountain wall. -->
+  <!-- 2. Sur: behind the mountain wall. Outline ships in its neutral ink,
+       same as every other region; the live gold border is a CSS rule
+       keyed on data-status, not a colour baked in here. -->
   <g id="region-sur">
-    <path d="M 182,204 L 238,116 L 356,66 L 524,56 L 668,86 L 764,148 L 790,266 L 704,194 L 564,156 L 404,148 L 272,168 Z" fill="var(--map-land)" stroke="var(--map-live)" stroke-width="4"/>
+    <path class="region-outline" d="M 182,204 L 238,116 L 356,66 L 524,56 L 668,86 L 764,148 L 790,266 L 704,194 L 564,156 L 404,148 L 272,168 Z" fill="var(--map-land)" stroke="var(--map-ink)" stroke-width="1.6"/>
     <path d="M 261.775,188.5 L 286,160 L 310.225,188.5 Z" fill="var(--map-rock)" stroke="var(--map-ink)" stroke-width="1.2"/>
     <path d="M 277.45,170.26 L 286,160 L 294.55,170.26 Z" fill="var(--map-home)" opacity="0.8"/>
     <path d="M 314.85,177.0 L 348,138 L 381.15,177.0 Z" fill="var(--map-rock)" stroke="var(--map-ink)" stroke-width="1.2"/>
@@ -76,9 +80,12 @@
     <path d="M 232.8,190.64 L 240,182 L 247.2,190.64 Z" fill="var(--map-home)" opacity="0.8"/>
   </g>
 
-  <!-- 3. Naharin: locked, across the river. -->
-  <g id="region-naharin" opacity="0.45">
-    <path d="M 816,368 L 904,298 L 1016,298 L 1058,382 L 1044,504 L 976,588 L 860,604 L 724,556 L 796,470 Z" fill="url(#dunes)" stroke="var(--map-ink)" stroke-width="1.6"/>
+  <!-- 3. Naharin: across the river, feeding both fronts. Ships undimmed;
+       the locked look (opacity drop) is CSS's job so it lifts cleanly the
+       moment the region unlocks, instead of a baked dimming CSS has to
+       fight. -->
+  <g id="region-naharin">
+    <path class="region-outline" d="M 816,368 L 904,298 L 1016,298 L 1058,382 L 1044,504 L 976,588 L 860,604 L 724,556 L 796,470 Z" fill="url(#dunes)" stroke="var(--map-ink)" stroke-width="1.6"/>
   </g>
   <!-- The river: shared boundary geography feeding both Sur's rockets and the
        Marj's tunnels, so it stays legible independent of Naharin's lock-dim. -->
