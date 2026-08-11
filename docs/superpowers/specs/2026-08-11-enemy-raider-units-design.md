@@ -1,7 +1,10 @@
 # Enemy raider units — five sheets, design
 
 **Date:** 2026-08-11
-**Status:** approved, ready for implementation
+**Status:** **built and shipped.** Six sheets on disk; art gate green at 2630
+sprites / 26 units. The design below is preserved as approved; **"What the build
+changed" at the end is the authoritative record** of where it turned out to be
+wrong. Read that section before trusting a number in this one.
 **Depends on:** `2026-08-07-unit-rig-contract-design.md` (rig contract),
 `2026-08-08-unit-kit-infantry-design.md` (figure kit, posture-as-composition),
 `2026-08-10-enemy-technical-design.md` (vehicle kit conventions, per-role
@@ -198,3 +201,139 @@ then do the full renders run.
 - `SPRITE_MAP` wiring — lands with the JSON.
 - Damage states beyond `wreck`, carried-vs-deployed states — same reasoning
   as the infantry kit.
+
+---
+
+# What the build changed
+
+Written after the fact, from a live Blender session. Every item here is a place
+the design above was wrong, with the evidence that settled it. The pattern worth
+naming: **almost every correction came from measuring something rather than
+looking at it**, and three of them were invisible at full size.
+
+## Construction
+
+**The gun truck is a chassis-rail flatbed, not slab flanks with arch cut-outs.**
+The spec carried the technical's pickup construction over. Built, it buried the
+running gear — the body ran to 0.55 the whole length and the tyres showed only as
+bumps below it — and the "arch cut-outs" notched *downward*, adding a skirt over
+each wheel instead of opening one. A flatbed gun truck rides on a visible rail
+with the wheels open beneath. Cab plus bonnet also went from 30% of the body to
+45%, the same "reads as a flatbed" failure the technical's spec already records.
+
+**Every part carries a bevel, width scaled per part.** Not in the spec at all.
+The older scripts use one global 0.010; this file has a 2.35 m cab and 0.10 m
+barrels in it, and a flat width is nearly half a barrel's diameter. Each bevel
+clamps to 22% of its own part's smallest dimension, at 3 segments — at 2 a wide
+bevel is a chamfer, one flat cut, and segments are what make it read curved.
+Organic parts (figures, canopies, prop blades) are excluded; they already curve.
+
+**The paramotor is a tandem with a two-man crew.** The spec had a single pilot
+built from boxes. Both crew are now infantry-kit figures — `kit.figure` has no
+seated posture, so they compose the same limb/blob/keffiyeh parts into one, which
+is the kit's own stated contract. The gunner sits **forward**: behind the pilot
+his machine gun fires straight through him.
+
+## Geometry that had to be solved, not chosen
+
+**The cannon is at 28°, on a mount raised 0.80 m.** The spec's 15° puts a 2.0 m
+barrel through the cab at z≈2.07 against a 2.50 roof — the technical's first
+recorded failure, verbatim. A turret sheet traverses independently of its hull,
+so the barrels point forward on some facings and posing cannot dodge it. Mount
+height was solved by sweep for the first offset giving ≥0.10 m of clearance on
+the barrel *surface*: perpendicular radius projects into z as `r / cos(pitch)`,
+so the jacket eats about half the axis figure. Result 0.119 m. The axis-only
+number would have been 0.24 m and would have shipped a gun clipping the cab.
+
+**The loitering munition's prop sits on a raised pylon, blades canted 40°/220°.**
+At wing height the blades hid behind the wing from every downward-looking facing,
+which is every facing; and a vertical two-blade disc is edge-on to a camera at
+30° elevation. Its warhead is `gunmetal`, not `shadow` — 0.30 m of near-black on
+a 1.4 m airframe read as a brick glued to the nose.
+
+## Scale — the correction that mattered most
+
+`scale` is proportional to the measured frame, and **neither size class restrains
+it**: `light_vehicle` and `heavy_vehicle` are both multiplier 1.0. So a tall
+protrusion silently inflates a unit, and two of the three vehicles needed
+`target_scale` — the field that exists precisely so "a shape change cannot
+silently resize a vehicle".
+
+| unit | declared metres would give | shipped | why |
+|---|---|---|---|
+| gun truck | **158 px** — larger than the tank (126) and the 8×8 APC (126) | `target_scale` 1.84 → **118 px** | the frame must hold the elevated gun at every facing |
+| paramotor | **296 px** — mosque-sized, 2.4× a tank, for one soldier | `target_scale` 1.5 → **96 px** | the `air` multiplier exists to rescue a 0.9 m quadcopter; on a 9.5 m canopy it inflates what is already large |
+| loitering munition | 46 px | honest `real_metres` 1.62 | sits correctly between the recon drone's 31 px and the infantry band — nothing to fix |
+
+Consequence worth stating plainly: **`realMetres` in the paramotor and gun truck
+manifests is a drawing decision, not a physical claim.** The canopy really spans
+9.5 m; the manifest says 2.99.
+
+The gun truck's inflation was only caught by compositing the roster at true
+relative scale. The manifest number alone did not look alarming.
+
+## Clips
+
+- **The paramotor has no `fire` clip.** The gunner's MG never stows, so firing
+  changes no geometry. `clipOrFallback` resolves the miss back to `idle`, and
+  muzzle flash is VFX — which `ART_PIPELINE.md` §5 says is where the firing read
+  belongs anyway.
+- **`MOTO_RPG` has no `down`.** A bike cannot go prone. `TEAM_CLIP_DROP` makes
+  the omission explicit rather than accidental.
+- **`INF_CHARGE`'s `down` is prone, not the crouch the spec described** — all
+  nine existing sheets go prone, and a tenth that crouched would read as a bug.
+
+## One tooling change
+
+`VehicleSpec` gained **`lit_gain`**. `render_team.py` measured that a figure
+lights to roughly half its palette base and carries a gain table; the vehicle rig
+is darker still — black world, no ambient, tuned for hulls, which are mostly
+horizontal surface — so the paramotor's crew rendered as silhouettes. Defaults to
+`None`, so no existing sheet moves. The material cache is now keyed on
+`(palette key, role)` rather than key alone: two roles sharing an entry could
+otherwise hand each other a brightened material.
+
+## Verification, as measured
+
+Art gate **2630 sprites / 26 units**; 316 tests; determinism 4/4 with the hash
+unmoved; lint, `validate:data` and the dimetric sun guard all clean.
+
+| sheet | frames | fill | worst IoU (limit 0.88) |
+|---|---|---|---|
+| `GUNTRUCK_HULL` + `_TURR` | 32 + 32 | 12.3% | 0.513 vs `TNK_HULL` |
+| `PARA_MOTOR` | 96 | 8.5% | 0.316 — most distinct on the roster |
+| `DRONE_LOITER` | 80 | 16.3% | 0.590 vs `JEEP_HULL`; 0.343 vs `DRONE_RECON` |
+| `INF_CHARGE` | 128 | 8.2% | 0.457 vs `INF_MORTAR` |
+| `MOTO_RPG` | 112 | 7.0% | 0.394 vs `INF_CHARGE` |
+
+Two predictions from the design were wrong in opposite directions:
+
+- **`DRONE_LOITER` was the named MIN_FILL risk and came in at 16.3%** — a delta
+  seen from 30° elevation is mostly planform.
+- **`MOTO_RPG` was not flagged and failed at 5.96%.** `render_team` frames from
+  the union over every clip, so the wreck's sprawled riders sized a frame that
+  `idle` then under-filled. Riders brought in close recovered 6.08%; panniers and
+  a bedroll took it to 7.01%. Lateral mass was the only lever — more length or a
+  taller tube makes the ratio worse.
+
+`INF_CHARGE` vs `INF_MILITIA`, the collision the design worried most about, does
+not appear in its top five. The sprint lean did the work.
+
+## Two hazards found the hard way
+
+**Leftover preview geometry participates in later passes.** A 60 m ground plane
+left in the scene reported the model's extent as 60 m and would have sized the
+render frame to the plane. The same class of bug as the import-time re-render
+`render_technical.py` records. Every preview here now strips its ground, lights
+and camera before saving.
+
+**A/B comparison by eye can be inconclusive where a difference test is not.**
+Two candidate uniform tones for the paramotor pilot looked identical; hiding the
+figure entirely settled it at 11.9% of pixels changed.
+
+## Still not done
+
+The split this spec declared holds: **no unit JSON, no stats, no `SPRITE_MAP`
+wiring, no sim behaviour.** Six sheets are on disk that nothing in the game
+references yet. They are art assets awaiting the balance and sim specs —
+detonate-on-proximity, airborne movement, land-and-dismount.
