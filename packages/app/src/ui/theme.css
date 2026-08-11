@@ -635,10 +635,6 @@
   color: var(--ink-mute);
   margin-top: var(--s3);
 }
-.rl-menu__campaign {
-  font-size: var(--t-s);
-  margin: var(--s1) 0 var(--s4);
-}
 .rl-menu__nav {
   display: flex;
   flex-direction: column;
@@ -667,7 +663,8 @@
 }
 /* The tutorial, while unplayed: it should be the first thing a new
    commander's eye lands on, not just the first item in the list. */
-.rl-menu__item[data-kind='primary'] {
+.rl-menu__item[data-kind='primary'],
+.rl-menu__item[data-kind='tutorial'] {
   color: var(--good);
   background: color-mix(in srgb, var(--good) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--good) 45%, transparent);
