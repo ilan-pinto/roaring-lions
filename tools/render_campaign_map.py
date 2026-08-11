@@ -304,7 +304,8 @@ def scatter_dunes(poly, seed, material, spacing=17.0, density=0.55, edge=11.0):
     return made
 
 
-def scatter_scrub(poly, seed, material, spacing=22.0, density=0.26):
+def scatter_scrub(poly, seed, material, spacing=22.0, density=0.26, rmin=2.2, rspan=2.6,
+                  sides=6):
     """Low desert scrub: flat pads, no height. Breaks the ground's tonal uniformity."""
     xs, ys = [p[0] for p in poly], [p[1] for p in poly]
     rnd = rng_from(seed)
@@ -314,11 +315,15 @@ def scatter_scrub(poly, seed, material, spacing=22.0, density=0.26):
         x = min(xs)
         while x < max(xs):
             if rnd() < density:
-                r = 2.2 + rnd() * 2.6
+                r = rmin + rnd() * rspan
                 cx, cy = x + rnd() * spacing, y + rnd() * spacing
                 if point_in_poly(cx, cy, poly):
-                    ring = [(cx + r * math.cos(a * math.pi / 3.0), cy + r * math.sin(a * math.pi / 3.0))
-                            for a in range(6)]
+                    # Side count matters with size: a hexagon reads as a dot at radius 2
+                    # and unmistakably as a hexagon at radius 18, which is what Kedem's
+                    # groves looked like on the first pass.
+                    ring = [(cx + r * math.cos(2.0 * math.pi * k / sides),
+                             cy + r * math.sin(2.0 * math.pi * k / sides))
+                            for k in range(sides)]
                     polygon_slab(f"scrub_{made:04d}", ring, 4.4, 4.85, material)
                     made += 1
             x += spacing
@@ -417,7 +422,121 @@ def build_marj():
     return n
 
 
-BUILDERS = {"marj": build_marj}
+def scatter_ridges(poly, seed, rock, cap, spacing=22.0, density=0.95, edge=13.0):
+    """Mountain ridges: tall, elongated, roughly parallel mounds with lit crests.
+
+    Sur's whole identity is a wall you cannot climb, and from near-vertical a wall reads
+    only through its shadow. So these are much taller than the Marj's dunes (18-34 against
+    0.4-1.1) and share a common bearing, so the shadows line up into ranges instead of
+    scattering into lumps. A second, smaller cap slab sits on each crest to catch the sun.
+    """
+    ring = inset(poly, edge)
+    xs, ys = [p[0] for p in ring], [p[1] for p in ring]
+    rnd = rng_from(seed)
+    made = 0
+    y = min(ys)
+    while y < max(ys):
+        x = min(xs)
+        while x < max(xs):
+            if rnd() < density:
+                # Long and overlapping at a shared bearing, so neighbours merge into ranges.
+                # Discrete stubby mounds read as scattered boulders, not as a wall.
+                rx = 24.0 + rnd() * 22.0
+                ry = rx * (0.20 + rnd() * 0.14)
+                # A shared bearing with only a little scatter: a range, not a rash.
+                rot = math.radians(-14.0) + (rnd() - 0.5) * 0.5
+                cx, cy = x + rnd() * spacing, y + rnd() * spacing
+                h = 13.0 + rnd() * 15.0
+
+                def ellipse(fx, fy):
+                    out = []
+                    for k in range(10):
+                        a = k * math.pi / 5.0
+                        ex, ey = rx * fx * math.cos(a), ry * fy * math.sin(a)
+                        out.append((cx + ex * math.cos(rot) - ey * math.sin(rot),
+                                    cy + ex * math.sin(rot) + ey * math.cos(rot)))
+                    return out
+
+                base = ellipse(1.0, 1.0)
+                # Centre-only test: requiring every vertex inside kept ridges away from the
+                # boundary and left the range floating in the middle of the region.
+                if point_in_poly(cx, cy, ring):
+                    polygon_slab(f"ridge_{made:04d}", base, 4.4, 4.4 + h, rock)
+                    # No lit crest slab. At 8 degrees off vertical a small pale cap on a dark
+                    # mound renders as a white dot, and thirteen of them read as insects. The
+                    # sun on the ridge's own flank does this job properly.
+                    made += 1
+            x += spacing
+        y += spacing
+    return made
+
+
+def river_channel(seed, material):
+    """The river along the Kedem/Naharin border, as a low water ribbon.
+
+    Traced from the same curve the SVG draws so the two cannot disagree, sampled into a
+    quad strip. It reads at this scale because water is the only cool tone on the map.
+    """
+    pts = [(816, 368), (842, 414), (838, 462), (796, 470), (826, 522), (800, 558), (724, 556)]
+    made = 0
+    for i in range(len(pts) - 1):
+        (x1, y1), (x2, y2) = pts[i], pts[i + 1]
+        dx, dy = x2 - x1, y2 - y1
+        L = math.hypot(dx, dy) or 1.0
+        nx, ny = -dy / L * 4.5, dx / L * 4.5
+        quad = [(x1 + nx, y1 + ny), (x2 + nx, y2 + ny), (x2 - nx, y2 - ny), (x1 - nx, y1 - ny)]
+        polygon_slab(f"river_{i:02d}", quad, 4.4, 4.9, material)
+        made += 1
+    return made
+
+
+def build_sur():
+    """Sur: a mountain wall, with the two towns tucked among the ridges."""
+    poly = region_polygon("sur")
+    stone = flat("sur_stone", "limestone.4", roughness=0.92)
+    rock = flat("sur_rock", "gunmetal.1", roughness=0.86)
+    cap = flat("sur_cap", "limestone.0", roughness=0.7)
+    scrub_mat = flat("sur_scrub", "scrub.1", roughness=0.98)
+    polygon_slab("sur_plinth", poly, 0.0, 4.4, stone)
+    n = scatter_ridges(poly, seed=0x5124, rock=rock, cap=cap)
+    scrub = scatter_scrub(poly, seed=0x5125, material=scrub_mat, spacing=30.0, density=0.18)
+    print(f"sur: {n} ridges, {scrub} scrub")
+    return n
+
+
+def build_naharin():
+    """Naharin: open dune desert across the river, coarser-grained than the Marj."""
+    poly = region_polygon("naharin")
+    sand = flat("nah_sand", "dust.3", roughness=0.96)
+    pale = flat("nah_pale", "dust.2", roughness=0.96)
+    water = flat("nah_water", "water.0", roughness=0.15)
+    polygon_slab("nah_plinth", poly, 0.0, 4.4, sand)
+    # Bigger, sparser dunes than the Marj's: open desert rather than a settled shelf.
+    dunes = scatter_dunes(poly, seed=0x4A17, material=pale, spacing=30.0, density=0.7, edge=13.0)
+    riv = river_channel(0x4A18, water)
+    print(f"naharin: {dunes} dunes, {riv} river segments")
+    return dunes
+
+
+def build_base():
+    """Sea, Kedem's plain, and the groves on it. Everything not owned by a region."""
+    sea = flat("sea", "water.1", roughness=0.12)
+    plain = flat("kedem_plain", "limestone.1", roughness=0.94)
+    grove = flat("kedem_grove", "olive.1", roughness=0.97)
+    coast = [(0, 0), (104, 0), (92, 120), (104, 296), (78, 434), (88, 540), (124, 592),
+             (108, 700), (96, 790), (0, 790)]
+    polygon_slab("sea", coast, 0.0, 3.9, sea)
+    kedem = [(212, 372), (200, 298), (156, 264), (182, 204), (272, 168), (404, 148), (564, 156),
+             (704, 194), (790, 266), (816, 368), (796, 470), (724, 556), (600, 606), (444, 614),
+             (304, 590), (200, 470)]
+    polygon_slab("kedem", kedem, 0.0, 4.4, plain)
+    groves = scatter_scrub(kedem, seed=0x6EDE, material=grove, spacing=74.0,
+                           density=0.5, rmin=9.0, rspan=9.0, sides=14)
+    print(f"base: sea + kedem plain + {groves} groves")
+    return groves
+
+
+BUILDERS = {"marj": build_marj, "sur": build_sur, "naharin": build_naharin, "base": build_base}
 
 
 def main():
