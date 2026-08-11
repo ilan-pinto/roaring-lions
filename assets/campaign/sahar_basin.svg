@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1140 790">
+  <!-- Stub. Task 5 replaces this geometry with the authored Sahar Basin map.
+       It exists from Task 1 so world.json is coherent and the data gate's
+       region-id check has something real to check. The three ids are the
+       contract: validate_data.mjs greps for them, and the shell sets
+       data-status on them. viewBox is 1140x790 -- the coordinate space
+       world.json's town `at` values are expressed in. -->
+  <g id="region-marj"/>
+  <g id="region-sur"/>
+  <g id="region-naharin"/>
+</svg>

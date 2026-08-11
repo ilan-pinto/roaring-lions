@@ -36,6 +36,22 @@ All geography, factions, and place names are **fictional**. Enemy forces are def
 
 **Towns:** Beit Sahwan, Khan Rafid, Deir Amun (Marj) · Tel Marum, Umm Zeitoun (Sur) · Wadi Halam (Naharin).
 
+**Layout.** Kedem sits in the centre of the basin with all three fronts on its borders,
+and the geography sets the order of the war: **proximity, then standoff, then source.**
+
+- **The Marj Strip — west, coastal.** Pressed between the sea and Kedem's most populous
+  coastal plain, with no mountain, no river and no depth between them. An attack out of
+  the Marj is inside Kedem's cities in minutes, which is why the war opens here and why
+  it opens with a perimeter being lost rather than a push.
+- **Sur — north, mountains.** Rockets range onto Kedem's north from behind a mountain
+  wall. Second by sequencing rather than choice: you cannot climb into mountains with
+  something at your throat on the coast.
+- **Naharin — east, river desert.** The smuggling corridor that supplied the Marj's
+  tunnels and Sur's rocket stocks. Last, because cutting supply is only decisive once the
+  fronts it feeds are contained.
+
+Every region is defined by terrain and doctrine, never by a people — see `CONTRIBUTING.md`.
+
 ---
 
 ## 3. Core loop

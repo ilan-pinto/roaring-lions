@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roaringlions.dev/schemas/world.schema.json",
+  "title": "Campaign world",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "name", "art", "regions"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+    "name": { "type": "string", "minLength": 1 },
+    "art": { "type": "string", "pattern": "\\.svg$" },
+    "regions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "faction", "doctrine", "towns"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+          "name": { "type": "string", "minLength": 1 },
+          "faction": { "type": "string", "minLength": 1 },
+          "doctrine": { "type": "string", "minLength": 1 },
+          "blurb": { "type": "string" },
+          "unlock": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "after_mission": { "type": "string" },
+              "roe_rating_min": { "type": "integer", "minimum": 0, "maximum": 100 }
+            }
+          },
+          "towns": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "name", "at", "missions"],
+              "properties": {
+                "id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+                "name": { "type": "string", "minLength": 1 },
+                "at": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "items": { "type": "number", "minimum": 0 }
+                },
+                "missions": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
