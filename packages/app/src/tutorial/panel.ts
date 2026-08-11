@@ -22,10 +22,20 @@ export function tutorialPanel(host: HTMLElement, opts: { onSkip: () => void }): 
     rank: 'inspect',
     title: '',
     tag: '',
-    place: 'bottom:var(--s4);left:50%;transform:translateX(-50%);width:min(520px,92vw)',
+    // Under the clock rather than along the bottom edge, where 11px of mono
+    // went unread. Centred on the clock, so the width is capped at whatever
+    // clears the briefing on the left — 648px is twice the briefing's right
+    // edge (8 + 300) plus a gutter. A floor here would be a floor on how far
+    // it may cover the objectives list, so there is none: on a narrow window
+    // the lesson gets thin rather than covering what it is teaching about.
+    place:
+      'top:100px;left:50%;transform:translateX(-50%);' +
+      'width:min(620px,calc(100vw - 648px))',
   });
+  p.el.classList.add('rl-tutorial');
 
   const teach = document.createElement('div');
+  teach.className = 'rl-tutorial__teach';
   p.body.appendChild(teach);
 
   const nudge = document.createElement('div');

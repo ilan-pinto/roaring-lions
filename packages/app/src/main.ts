@@ -153,6 +153,11 @@ async function main(): Promise<void> {
   const params = new URLSearchParams(window.location.search);
   if (params.get('fresh') !== null && params.get('mission') === null) {
     window.localStorage.removeItem(LEDGER_KEY);
+    // Starting the campaign over restores the lessons with it. Without this
+    // the flag is a one-way door: finish the tutorial once and Beit Sahwan 0
+    // replays with no step panel at all, which reads as the tutorial being
+    // broken rather than already learned.
+    window.localStorage.removeItem(TUTORIAL_DONE_KEY);
   }
   if (params.get('mission') === null && params.get('sandbox') === null) {
     const tutorialDone = window.localStorage.getItem(TUTORIAL_DONE_KEY) !== null;
