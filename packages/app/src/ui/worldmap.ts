@@ -74,7 +74,13 @@ export function worldMap(opts: WorldMapOptions): HTMLElement {
       const tp = townProgress(town, opts.ledger);
       const marker = el('div', 'rl-world__town');
       marker.dataset.town = town.id;
-      marker.dataset.status = p.status;
+      // The town's own state, not the region's: a region can be 'live' while
+      // most of its towns have nothing authored yet, and stamping every town
+      // with the region status is what made an empty town read as struck
+      // through -- the same false-completion signal regionProgress's
+      // total === 0 guard exists to prevent, just leaking in one level down.
+      marker.dataset.status =
+        tp.total > 0 && tp.done === tp.total ? 'done' : tp.total === 0 ? 'empty' : p.status;
       // Percentages, so the markers track the SVG as it scales.
       marker.style.left = `${((town.at[0] / VIEW_W) * 100).toFixed(3)}%`;
       marker.style.top = `${((town.at[1] / VIEW_H) * 100).toFixed(3)}%`;

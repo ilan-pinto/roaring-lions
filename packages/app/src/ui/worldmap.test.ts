@@ -64,6 +64,29 @@ describe('worldMap', () => {
     expect(render({}).querySelector('[data-town="tel_marum"] a')).toBe(null);
   });
 
+  it('marks a finished town done, not the region status, so it is struck through', () => {
+    const el = render({ 'campaign.completed_missions': [...ALL_BS] });
+    const marker = el.querySelector('[data-town="beit_sahwan"]') as HTMLElement;
+    expect(marker.dataset.status).toBe('done');
+  });
+
+  it('marks a town with nothing authored empty, not live -- it must not read as finished', () => {
+    // marj is a live region (fresh ledger), but khan_rafid has missions: [] in
+    // world.json. Stamping it with the region's 'live' status is the bug: CSS
+    // struck through every non-link townname that wasn't 'locked', so an
+    // unauthored town read as complete.
+    const el = render({});
+    const marker = el.querySelector('[data-town="khan_rafid"]') as HTMLElement;
+    expect(marker.dataset.status).toBe('empty');
+  });
+
+  it('leaves a mid-progress town at the region status, not done', () => {
+    const el = render({ 'campaign.completed_missions': [ALL_BS[0]!] });
+    const marker = el.querySelector('[data-town="beit_sahwan"]') as HTMLElement;
+    expect(marker.dataset.status).toBe('live');
+    expect(marker.dataset.status).not.toBe('done');
+  });
+
   it('says why a locked region is locked, naming the condition', () => {
     const panel = render({}).querySelector('[data-region-card="sur"]') as HTMLElement;
     expect(panel.textContent).toContain('beit_sahwan_3_clearance');

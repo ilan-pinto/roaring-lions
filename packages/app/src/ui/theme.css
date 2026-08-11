@@ -63,6 +63,11 @@
   --map-live: var(--rl-dust-1);
   --map-spent: var(--rl-limestone-4);
   --map-locked: var(--rl-limestone-5);
+  /* Locked dims harder than spent (below) -- enough that --map-locked, tuned
+     for a card border on a panel, converges with a dimmed dune or urban fill
+     and the coastline disappears into the land. This is for the map outline
+     only; --map-locked still names the card/badge accent untouched by it. */
+  --map-locked-line: var(--rl-limestone-0);
   --map-urban: var(--rl-terracotta-0);
   --map-urban-line: var(--rl-terracotta-2);
   --map-rock: var(--rl-gunmetal-3);
@@ -148,11 +153,21 @@
    appearance and these three rules restyle it. Baking a state into the art means
    the CSS compounds on top of it rather than replacing it. */
 [data-status='live'] .region-outline { stroke: var(--map-live); stroke-width: 4; }
-/* complete/locked are told apart from live by texture and saturation rather than
-   brightness: dropping brightness on a filled region turned it nearly black and
-   cost every label inside it. */
-[data-status='complete'] { filter: saturate(0.25); opacity: 0.75; }
-[data-status='locked'] { filter: saturate(0.4); opacity: 0.45; }
+/* complete/locked are told apart from live by texture and saturation, never by
+   fading the whole group toward the page ground. opacity composites the region
+   against the page background to make it "dimmer" -- and the ground here is
+   near-black, so that mixing is indistinguishable from painting the region
+   black, the exact failure this rule exists to avoid. filter transforms the
+   region's own pixels instead: the page behind it never enters the maths, so a
+   light fill stays visibly a light fill, just drained of colour, however dark
+   the ground underneath is. Full opacity throughout is what keeps the interior
+   legible; the stroke override on each state is what keeps the coastline
+   legible, since the default outline ink is drawn nearly the same near-black
+   as the ground and only ever meant to read against a bright live fill. */
+[data-status='complete'] { filter: grayscale(0.55) saturate(0.55); }
+[data-status='complete'] .region-outline { stroke: var(--map-spent); stroke-width: 2.5; }
+[data-status='locked'] { filter: grayscale(0.9) brightness(0.7) contrast(1.05); }
+[data-status='locked'] .region-outline { stroke: var(--map-locked-line); stroke-width: 2; }
 
 /* ====================================================================== */
 /* World map — the campaign screen                                        */
@@ -164,7 +179,11 @@
 
 .rl-world__town { position: absolute; transform: translate(-50%, -50%); white-space: nowrap; }
 .rl-world__townlink { color: var(--ink); font-weight: 600; }
-.rl-world__townname { color: var(--ink-mute); text-decoration: line-through; }
+/* Struck through only once a town is actually finished. An 'empty' town (no
+   missions authored) or a mid-progress 'live' one is quiet, plain text --
+   not a false completion signal. */
+.rl-world__townname { color: var(--ink-mute); }
+.rl-world__town[data-status='done'] .rl-world__townname { text-decoration: line-through; }
 .rl-world__town[data-status='locked'] .rl-world__townname { text-decoration: none; }
 
 .rl-world__cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--s2); }
@@ -578,11 +597,17 @@
 /* ====================================================================== */
 
 .rl-menu {
+  /* The button-list column width. 460px reads well as text and stays inside
+     thumb's reach on mobile -- everything in the menu was designed against
+     this measure until the world map arrived and needed real width. Named
+     so the exception below and the narrow children can both refer to the
+     same figure instead of repeating it. */
+  --menu-col: min(460px, 92vw);
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: min(460px, 92vw);
+  width: var(--menu-col);
   max-height: 96vh;
   overflow-y: auto;
   padding: var(--s5) var(--s6);
@@ -591,6 +616,28 @@
   font-family: var(--font-mono);
   color: var(--ink);
   text-align: center;
+}
+/* The one documented exception to the column: a menu holding the campaign
+   map needs real width, or the map is squeezed to a fraction of its
+   1140px design and its town labels collide. :has() scopes the wider frame
+   to exactly that case rather than widening every menu screen. The vw term
+   subtracts the menu's own horizontal padding and border so the *box*,
+   not just its content, stays inside the viewport at narrow widths -- the
+   plain vw budget above does not account for that and was never exercised
+   at a width where it mattered. */
+.rl-menu:has(.rl-world) {
+  width: min(1200px, calc(98vw - 2 * var(--s6) - 2px));
+}
+/* The banner, wordmark and nav were laid out for the narrow column; letting
+   them stretch to the map's width would blow the banner image up and turn
+   the nav into an oversized bar. They keep reading as the original centred
+   column inside the wider frame instead. */
+.rl-menu__banner,
+.rl-wordmark,
+.rl-menu__theatre,
+.rl-menu__nav {
+  max-width: var(--menu-col);
+  margin-inline: auto;
 }
 .rl-menu__banner {
   display: block;
