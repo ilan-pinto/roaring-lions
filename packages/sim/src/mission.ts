@@ -78,7 +78,9 @@ export interface LedgerData {
    * Deliberately not averaged here. An average is division, this package bans floating
    * point, and `| 0` on a float quotient is the "just this one calculation" the invariant
    * exists to refuse. `campaignRoe` in the app averages for display; `unlockReason` gates
-   * with `sum >= floor * count`, which needs no division and is exact at the boundary.
+   * with `sum >= floor * count`, which needs no division and changes no verdict for an
+   * integer floor versus a truncated mean -- the two only diverge for a fractional
+   * `roeMin`, which nothing authors.
    * `roe.cumulative_rating` stays on this interface, read as a fallback for saves written
    * before this key existed, and written by nothing.
    */
