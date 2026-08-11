@@ -120,6 +120,29 @@ def _weapon_visible(clip):
     return clip not in ("down", "wreck")
 
 
+def _lean_forward(parts, deg, at_x=0.0):
+    """Rotate finished parts forward about the ground line at x=at_x.
+
+    A sprint lean, applied to vertex data rather than to object rotation -- the
+    render rig reads vertex positions to size the frame, so an unapplied object
+    rotation would report the unleaned figure. Same rule kit.rot_z exists for.
+    """
+    c, s = math.cos(math.radians(deg)), math.sin(math.radians(deg))
+    for ob in parts:
+        for v in ob.data.vertices:
+            x, z = v.co.x - at_x, v.co.z
+            v.co.x = at_x + x * c + z * s
+            v.co.z = -x * s + z * c
+        ob.data.update()
+    return parts
+
+
+#: Clips a team's sheet deliberately omits. `clipOrFallback` resolves a missing
+#: clip back to idle in the renderer, so omission is a behaviour rather than a
+#: hole -- a motorcycle cannot go prone, and drawing it doing so reads as a bug.
+TEAM_CLIP_DROP = {"moto_rpg": ("down",)}
+
+
 # --- the nine --------------------------------------------------------------
 
 
@@ -266,6 +289,158 @@ def atgm_cell(clip, frame):
     return out
 
 
+def charge_squad(clip, frame):
+    """Suicide Squad, crew 2. Two figures at a full sprint, single file.
+
+    The collision risk is `militia_cell` -- also two standing dust figures -- so
+    posture and spacing carry the separation. Nothing else in the set runs, and
+    a 20 degree forward lean is a shape no upright team can imitate.
+
+    **No weapon parts at all.** Every other infantry sheet draws a rifle line or
+    a tube; the absence is itself a silhouette lever, and it is what the unit
+    actually is. The vest bulk front and back is the only kit.
+    """
+    p, st = _standing_posture(clip), _stride(clip, frame)
+    lean = 24.0 if clip == "fire" else 20.0
+    out = []
+    for i, (x, y) in enumerate(((0.46, -0.06), (-0.46, 0.10))):
+        fig = kit.figure(f"chg{i}", (x, y, 0.0), posture=p, stride=st,
+                         headgear="keffiyeh", loadout="irregular", mirror=(i == 1))
+        if p == "standing":
+            fig.append(kit.rot_z(f"chg{i}_vest_f", (0.10, 0.26, 0.32),
+                                 (x + 0.16, y, 0.60), 0.0, "charge"))
+            fig.append(kit.rot_z(f"chg{i}_vest_b", (0.09, 0.26, 0.28),
+                                 (x - 0.15, y, 0.62), 0.0, "charge"))
+            if i == 1:
+                fig.append(kit.box("chg_satchel", (0.26, 0.18, 0.20),
+                                   (x - 0.12, y + 0.19, 0.74), "charge"))
+            _lean_forward(fig, lean, at_x=x)
+        out += fig
+    return out
+
+
+def _motorcycle(prefix, z=0.0, dip=0.0):
+    """The machine: 2.2 m long, wheels as 14-segment cylinders.
+
+    Tyres take the `weapon` role rather than a shadow entry -- gunmetal.3 is the
+    darkest non-shadow tone, and a shadow base lights down to pure black, which
+    reads as a hole punched in the sprite. render_team.py records the same
+    finding for boots.
+    """
+    parts = []
+    for i, wx in enumerate((0.78, -0.72)):
+        parts.append(kit.tube(f"{prefix}_wheel{i}", 0.07, 0.30, (wx, 0.0, 0.30 + z),
+                              yaw=math.radians(90.0), sides=14, role="weapon"))
+        parts.append(kit.rot_z(f"{prefix}_guard{i}", (0.44, 0.11, 0.05),
+                               (wx, 0.0, 0.67 + z), 0.0, "metal"))
+    parts.append(kit.tube(f"{prefix}_spine", 1.05, 0.06, (0.05, 0.0, 0.62 + z),
+                          pitch=math.radians(8.0), sides=8, role="metal"))
+    parts.append(kit.box(f"{prefix}_tank", (0.36, 0.21, 0.17), (0.28, 0.0, 0.75 + z), "metal"))
+    parts.append(kit.box(f"{prefix}_seat", (0.48, 0.23, 0.09), (-0.22, 0.0, 0.77 + z), "webbing"))
+    parts.append(kit.tube(f"{prefix}_forks", 0.56, 0.035, (0.68, 0.0, 0.56 + z),
+                          pitch=math.radians(62.0), sides=6, role="metal"))
+    parts.append(kit.tube(f"{prefix}_bars", 0.58, 0.03, (0.57, 0.0, 0.97 + z),
+                          yaw=math.radians(90.0), sides=6, role="metal"))
+    parts.append(kit.box(f"{prefix}_lamp", (0.11, 0.14, 0.14), (0.75, 0.0, 0.83 + z), "metal"))
+    parts.append(kit.tube(f"{prefix}_exhaust", 0.72, 0.045, (-0.34, 0.17, 0.38 + z),
+                          sides=6, role="metal"))
+    # Panniers and a bedroll. Raider kit, and load-bearing for the art gate: a
+    # motorcycle is long and thin, and the frame is square and sized to its
+    # longest extent, so the idle filled only 6.08% of a 6.00% floor. Lateral
+    # mass is the only lever that adds silhouette area without extending the
+    # frame -- more length or a taller tube would make the ratio worse, not
+    # better.
+    for i, sgn in enumerate((-1.0, 1.0)):
+        parts.append(kit.rot_z(f"{prefix}_pannier{i}", (0.34, 0.17, 0.30),
+                               (-0.60, sgn * 0.27, 0.56 + z), 0.0, "webbing"))
+    parts.append(kit.tube(f"{prefix}_bedroll", 0.62, 0.10, (-0.62, 0.0, 0.86 + z),
+                          yaw=math.radians(90.0), sides=8, role="webbing"))
+    if dip:
+        _lean_forward(parts, dip)
+    return parts
+
+
+def _rider(prefix, x, z=0.0, mirror=False, hands_fwd=0.28):
+    """A seated figure, composed rather than posed.
+
+    kit.figure offers standing, kneeling and prone -- no seated -- so this
+    arranges the same limb and blob primitives into a rider. At the 25 px the
+    rig contract measured infantry at, a rider is a torso, a head and two
+    angled legs, and that is the whole budget.
+    """
+    hand = -1.0 if mirror else 1.0
+    parts = [
+        kit.limb(f"{prefix}_torso", [(x, 0.0, 0.77 + z, 0.13),
+                                     (x + 0.02, 0.01 * hand, 1.06 + z, 0.155),
+                                     (x + 0.05, 0.0, 1.29 + z, 0.145)], squash=0.75),
+    ]
+    for i, sgn in enumerate((-1.0, 1.0)):
+        parts.append(kit.limb(f"{prefix}_leg{i}", [(x + 0.02, sgn * 0.14, 0.80 + z, 0.075),
+                                                   (x + 0.22, sgn * 0.18, 0.55 + z, 0.060),
+                                                   (x + 0.25, sgn * 0.17, 0.36 + z, 0.050)]))
+        parts.append(kit.blob(f"{prefix}_boot{i}", (x + 0.28, sgn * 0.17, 0.33 + z), 0.07,
+                              role="boot"))
+        parts.append(kit.limb(f"{prefix}_arm{i}", [(x + 0.04, sgn * 0.17, 1.25 + z, 0.050),
+                                                   (x + hands_fwd, sgn * 0.15, 1.05 + z, 0.042)]))
+    parts.append(kit.blob(f"{prefix}_head", (x + 0.07, 0.0, 1.43 + z), 0.082,
+                          squash=(1.0, 0.94, 1.05), role="face"))
+    parts += kit.keffiyeh(f"{prefix}_kef", (x + 0.07, 0.0, 1.46 + z), radius=0.104)
+    return parts
+
+
+def moto_rpg(clip, frame):
+    """Armed Motorcycle, crew 2. Rider on the bars, pillion with an RPG.
+
+    The tube rides over the passenger's shoulder angled up and rearward -- the
+    tallest point, breaking the roofline the way the technical's pintle gun
+    does. Total height ~1.9 m against 2.2 m of length: taller than it is long is
+    what keeps it off the low-car read at gameplay zoom, and the wheel base line
+    is a shape no infantry sheet has.
+
+    No `down` clip -- see TEAM_CLIP_DROP.
+    """
+    if clip == "wreck":
+        out = _motorcycle("mw")
+        # On its side: roll every vertex 80 degrees about the x axis, then lift
+        # the lot back onto the ground. Vertex data, not object rotation, for
+        # the reason _lean_forward records.
+        c, s = math.cos(math.radians(80.0)), math.sin(math.radians(80.0))
+        for ob in out:
+            for v in ob.data.vertices:
+                y, z = v.co.y, v.co.z
+                v.co.y = y * c - z * s
+                v.co.z = y * s + z * c
+            ob.data.update()
+        lift = -min(v.co.z for ob in out for v in ob.data.vertices)
+        for ob in out:
+            for v in ob.data.vertices:
+                v.co.z += lift
+            ob.data.update()
+        # Riders thrown close to the machine, not sprawled away from it. This is
+        # a framing decision as much as a staging one: render_team frames from
+        # the union over every clip, so a wide wreck sizes the frame that `idle`
+        # is then measured for fill inside. At +/-0.55 the wreck spanned 2.89 m
+        # against idle's 2.33 and dragged idle's fill to 5.96%, under the art
+        # gate's 6% floor.
+        out += kit.figure("mw_a", (0.30, -0.42, 0.0), posture="prone",
+                          headgear="keffiyeh", loadout="irregular")
+        out += kit.figure("mw_b", (-0.32, 0.46, 0.0), posture="prone", mirror=True,
+                          headgear="keffiyeh", loadout="irregular")
+        return out
+
+    bob = (0.0, 0.02, 0.0, -0.02)[frame % 4] if clip == "move" else 0.0
+    dip = (0.0, 1.6, 0.0, -1.6)[frame % 4] if clip == "move" else 0.0
+    out = _motorcycle("m", z=bob, dip=dip)
+    out += _rider("rid", 0.18, z=bob, hands_fwd=0.34)
+    out += _rider("pas", -0.42, z=bob, mirror=True, hands_fwd=0.18)
+    # Level for `fire`, angled up otherwise. Angle is the silhouette lever that
+    # keeps this apart from the RPG team, exactly as kit.launcher's docstring says.
+    pitch = math.radians(0.0 if clip == "fire" else 30.0)
+    out += kit.launcher("pas_rpg", (-0.50, -0.17, 1.44 + bob),
+                        yaw=math.pi, pitch=pitch, length=1.18, radius=0.075)
+    return out
+
+
 #: id -> (builder, faction, sprite directory). The sheet name follows the unit id
 #: so a missing sheet is obvious in main.ts rather than hidden behind an alias --
 #: which is exactly how seven types came to share one directory.
@@ -279,6 +454,8 @@ TEAMS = {
     "rpg_team": (rpg_team, "enemy", "INF_RPG"),
     "atgm_cell": (atgm_cell, "enemy", "INF_ATGM"),
     "mortar_crew": (mortar_crew, "enemy", "INF_MORTAR_E"),
+    "charge_squad": (charge_squad, "enemy", "INF_CHARGE"),
+    "moto_rpg": (moto_rpg, "enemy", "MOTO_RPG"),
 }
 
 #: Clips that are the same for every team. `idle` is not among them any more --
@@ -299,7 +476,10 @@ def clips_for(team):
     """
     n = idle_frames(team)
     idle = {"frames": n, "fps": 3 if n > 1 else 0, "loop": n > 1}
-    return {"idle": idle, **BASE_CLIPS}
+    table = {"idle": idle, **BASE_CLIPS}
+    for clip in TEAM_CLIP_DROP.get(team, ()):
+        table.pop(clip, None)
+    return table
 
 
 def build(team_id, clip, frame):
