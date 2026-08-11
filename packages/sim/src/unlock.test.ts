@@ -25,7 +25,7 @@ describe('unlockReason', () => {
 
   it('rejects one point below the floor, where a truncating mean would have passed it', () => {
     // 44 + 45 = 89 < 90. A `(89/2)|0` mean is 44, so both agree here -- but 45+46=91
-    // averages to 45 exactly and must pass.
+    // averages to 45.5 and must pass.
     expect(unlockReason({ roeMin: 45 }, { 'roe.mission_ratings': { a: 44, b: 45 } })).not.toBe(null);
     expect(unlockReason({ roeMin: 45 }, { 'roe.mission_ratings': { a: 45, b: 46 } })).toBe(null);
   });

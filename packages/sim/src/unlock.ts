@@ -42,7 +42,7 @@ export function unlockReason(unlock: UnlockGate | undefined, ledger: LedgerData 
 
 const ratings = (ledger: LedgerData | undefined): Record<string, number> | null => {
   const r = ledger?.['roe.mission_ratings'];
-  return r !== null && typeof r === 'object' ? (r as Record<string, number>) : null;
+  return r !== null && typeof r === 'object' ? r : null;
 };
 
 /**
@@ -50,8 +50,9 @@ const ratings = (ledger: LedgerData | undefined): Record<string, number> | null 
  *
  * `sum >= floor * count` is the same predicate as `sum / count >= floor` for positive
  * counts, using only integer multiplication -- so this package keeps its no-floating-point
- * invariant, and the test is *exact* where a truncated mean would wrongly reject a campaign
- * sitting right on the boundary.
+ * invariant. For an integer `floor` it changes no verdict versus a truncated mean: truncating
+ * `sum / count` down to an integer is still `>= floor` exactly when `sum / count >= floor`
+ * itself. The two forms only diverge for a fractional `roeMin`, which nothing authors.
  *
  * The message a locked thing shows names only the floor. The player's current figure is
  * rendered beside it by the shell, which may divide freely.
