@@ -63,12 +63,16 @@
   --map-live: var(--rl-dust-1);
   --map-spent: var(--rl-limestone-4);
   --map-locked: var(--rl-limestone-5);
-  --map-urban: var(--rl-terracotta-2);
+  --map-urban: var(--rl-terracotta-0);
   --map-urban-line: var(--rl-terracotta-2);
   --map-rock: var(--rl-gunmetal-3);
   --map-scrub: var(--rl-scrub-1);
   --map-dune: var(--rl-dust-3);
   --map-dune-line: var(--rl-dust-5);
+  /* Map ink: outline/line-work only. Its own token rather than borrowing
+     --panel-frame, so restyling UI panels can never silently restyle the
+     map's geography. */
+  --map-ink: var(--rl-shadow-1);
 
   /* --- ink ------------------------------------------------------------ */
   --ink: var(--rl-limestone-0);
