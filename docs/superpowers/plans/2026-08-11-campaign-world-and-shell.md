@@ -1343,7 +1343,13 @@ allowlist. assets/campaign is now a scan root, verified by watching a deliberate
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `packages/app/src/ui/worldmap.test.ts`. Check whether the repo already has a DOM-based test to copy the environment setup from — if vitest is not configured with `environment: 'jsdom'` for this package, add `// @vitest-environment jsdom` as the first line of the file.
+Create `packages/app/src/ui/worldmap.test.ts`. **This is the repository's first DOM-based
+test**, so there is no existing setup to copy and `jsdom` is not installed — it appears in the
+lockfile only as one of vitest's optional peer dependencies, which does not make it
+resolvable. The `// @vitest-environment jsdom` pragma selects an environment; it does not
+vendor the package. So: add `jsdom` as a root devDependency in its own commit first, confirm
+with a throwaway probe test that the environment actually loads, and only then write the real
+tests with the pragma as the file's first line.
 
 ```ts
 // @vitest-environment jsdom
@@ -1640,7 +1646,9 @@ Add to `packages/app/src/ui/theme.css`, following the file's existing `.rl-menu_
   padding: var(--s2);
 }
 .rl-world__card[data-status='live'] { border-left-color: var(--map-live); }
-.rl-world__card[data-status='locked'] { opacity: 0.6; }
+/* Locked gets its own border, not the completed one: finished and not-yet-available mean
+   opposite things and should not differ only by opacity. */
+.rl-world__card[data-status='locked'] { border-left-color: var(--map-locked); opacity: 0.6; }
 .rl-world__badge { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-dim); }
 ```
 
