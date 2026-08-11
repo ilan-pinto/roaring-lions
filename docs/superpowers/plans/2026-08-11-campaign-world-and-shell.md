@@ -671,7 +671,9 @@ In `packages/sim/src/mission.ts`, inside `interface LedgerData`, after `'roe.cum
    * Deliberately not averaged here. An average is division, this package bans floating
    * point, and `| 0` on a float quotient is the "just this one calculation" the invariant
    * exists to refuse. `campaignRoe` in the app averages for display; `unlockReason` gates
-   * with `sum >= floor * count`, which needs no division and is exact at the boundary.
+   * with `sum >= floor * count`, which needs no division. That integer form is for the
+   * invariant, not for accuracy: for an integer floor it returns the same verdict a
+   * truncated mean would, diverging only for a fractional roeMin that nothing authors.
    * `roe.cumulative_rating` stays on this interface, read as a fallback for saves written
    * before this key existed, and written by nothing.
    */
@@ -693,15 +695,19 @@ with:
     // Best-of per mission. Storage only -- no averaging here, because an average is
     // division and this package bans floating point. See LedgerData['roe.mission_ratings'].
     const prevRatings = this.ctx.ledger?.['roe.mission_ratings'];
-    const ratings: Record<string, number> = {};
+    const merged: Record<string, number> = {};
     if (prevRatings !== null && typeof prevRatings === 'object') {
-      // Rebuilt in sorted key order so the saved object is stable rather than
-      // insertion-ordered, matching how intel.marked_positions is sorted below.
       const prior = prevRatings as Record<string, number>;
-      for (const k of Object.keys(prior).sort()) ratings[k] = prior[k]!;
+      for (const k of Object.keys(prior)) merged[k] = prior[k];
     }
-    const best = ratings[this.mission.id];
-    if (typeof best !== 'number' || roeRating > best) ratings[this.mission.id] = roeRating;
+    const best = merged[this.mission.id];
+    if (typeof best !== 'number' || roeRating > best) merged[this.mission.id] = roeRating;
+    // Sorted AFTER this mission's entry is merged in, not before. Sorting the prior keys
+    // and then inserting leaves the new key last in insertion order, so the saved JSON
+    // differs by the order missions were played -- which is exactly what the
+    // order-independence test below exists to catch.
+    const ratings: Record<string, number> = {};
+    for (const k of Object.keys(merged).sort()) ratings[k] = merged[k];
 ```
 
 `Object.keys(...).sort()` keeps the iteration order stable rather than insertion-ordered, matching how `intel.marked_positions` is sorted a few lines below. Integer division via `| 0` keeps the value an integer, as `unlockReason`'s comparison expects.
