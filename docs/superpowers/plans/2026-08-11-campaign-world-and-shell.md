@@ -39,7 +39,7 @@
 | `packages/sim/src/mission.ts` | **modify** — delegate to `unlockReason`; `roe.mission_ratings` |
 | `packages/data/src/index.ts` | **modify** — import and export the raw `world` JSON, exactly as it does `missions` |
 | `packages/app/src/campaign.ts` | **create** — world types, `parseWorld`, `regionProgress`, `townProgress`, `nextMissionOf`. All of it in `app`, which is the only package that may import both `data` and `sim` |
-| `assets/campaign/sahar_basin.svg` | **create** — region outlines, `id` per region, token fills, no text |
+| `assets/campaign/sahar_basin.svg` | Task 1 **creates a stub** with the three region ids; Task 5 **replaces its geometry** — region outlines, token fills, no text |
 | `packages/app/src/ui/theme.css` | **modify** — map state tokens |
 | `packages/app/src/ui/worldmap.ts` | **create** — the screen: inline the SVG, apply state, place towns, status panel |
 | `packages/app/src/ui/menu.ts` | **modify** — mount the world map in place of the flat list |
@@ -302,7 +302,9 @@ A validation check that has never failed is not known to work. For each of these
 4. Set `marj.unlock.after_mission` to `"beit_sahwan_1_recon"` → expect `is not earlier`
 5. Change `art` to `campaign/nope.svg` → expect `not found at assets/`
 
-Check 5's SVG-id branch cannot fail yet because the SVG does not exist; it is verified in Task 5, Step 5.
+All five branches are verifiable in this task, because Step 1's stub SVG gives the region-id
+check something real to read. Rename `id="region-sur"` to `id="region-soor"` for check 5's
+second branch and confirm `no element with id="region-sur" for region "Sur"`.
 
 - [ ] **Step 7: Confirm the gate passes on the real world**
 
@@ -1179,7 +1181,7 @@ up already greyed out, which reads as a bug rather than as a plan."
 ### Task 5: The map art, its tokens, and bringing it under the palette gate
 
 **Files:**
-- Create: `assets/campaign/sahar_basin.svg`
+- Modify: `assets/campaign/sahar_basin.svg` — **replace** the stub Task 1 created. The file already exists holding three empty `<g id="region-*">` elements and the `viewBox`; keep those ids and that `viewBox`, and fill in the geometry
 - Modify: `packages/app/src/ui/theme.css`
 - Modify: `tools/validate_ui_palette.mjs`
 
@@ -1213,7 +1215,7 @@ Confirm each `--rl-*` name exists: the Vite palette plugin publishes them from `
 
 - [ ] **Step 2: Author the SVG**
 
-Create `assets/campaign/sahar_basin.svg`. Start from the approved mockup at `docs/superpowers/specs/assets/2026-08-10-sahar-basin-mockup.svg` — the geometry is settled; what changes is that every hex becomes a token and every text element is removed, because labels come from `world.json`.
+Replace the stub at `assets/campaign/sahar_basin.svg`. Start from the approved mockup at `docs/superpowers/specs/assets/2026-08-10-sahar-basin-mockup.svg` — the geometry is settled; what changes is that every hex becomes a token and every text element is removed, because labels come from `world.json`.
 
 Requirements, all load-bearing:
 
@@ -1244,9 +1246,10 @@ Temporarily put `fill="#ff0000"` on any shape in the SVG.
 Run: `pnpm validate:ui`
 Expected: FAIL, naming `assets/campaign/sahar_basin.svg` and the literal. Then remove it and re-run — expect PASS. If the deliberate hex passes, the root or the extension filter is not working and the rest of this task is unprotected.
 
-- [ ] **Step 5: Prove the data gate's SVG-id check works**
+- [ ] **Step 5: Prove the region ids survived the rewrite**
 
-This is the branch Task 1 could not exercise. Rename `id="region-sur"` to `id="region-soor"`.
+Task 1 already verified this check fires; what matters here is that replacing the geometry did
+not drop or rename an id. Rename `id="region-sur"` to `id="region-soor"`.
 
 Run: `pnpm validate:data`
 Expected: FAIL — `no element with id="region-sur" for region "Sur"`. Restore the id and re-run — expect PASS.
