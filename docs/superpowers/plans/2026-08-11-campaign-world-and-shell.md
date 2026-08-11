@@ -380,9 +380,10 @@ describe('unlockReason', () => {
     expect(unlockReason({ roeMin: 45 }, { 'roe.mission_ratings': { a: 40, b: 50 } })).toBe(null);
   });
 
-  it('rejects one point below the floor, where a truncating mean would have passed it', () => {
-    // 44 + 45 = 89 < 90. A `(89/2)|0` mean is 44, so both agree here -- but 45+46=91
-    // averages to 45 exactly and must pass.
+  it('rejects just below the floor and accepts just at it', () => {
+    // 44 + 45 = 89 < 45*2, so short. 45 + 46 = 91 >= 90, so it passes -- the mean there is
+    // 45.5, comfortably over. Both agree with a truncated mean; the integer form is used for
+    // the invariant, not because it changes any verdict.
     expect(unlockReason({ roeMin: 45 }, { 'roe.mission_ratings': { a: 44, b: 45 } })).not.toBe(null);
     expect(unlockReason({ roeMin: 45 }, { 'roe.mission_ratings': { a: 45, b: 46 } })).toBe(null);
   });
@@ -477,10 +478,12 @@ const ratings = (ledger: LedgerData | undefined): Record<string, number> | null 
 /**
  * Whether the campaign's average ROE is at least `floor`, decided without dividing.
  *
- * `sum >= floor * count` is the same predicate as `sum / count >= floor` for positive
- * counts, using only integer multiplication -- so this package keeps its no-floating-point
- * invariant, and the test is *exact* where a truncated mean would wrongly reject a campaign
- * sitting right on the boundary.
+ * `sum >= floor * count` is the same predicate as `sum / count >= floor` for any positive
+ * count, using only integer multiplication -- so this package keeps its no-floating-point
+ * invariant. That is the whole reason. It is *not* a correctness fix over a truncated mean:
+ * for an integer floor, floor(x) >= n exactly when x >= n, so `(sum/count)|0` would agree on
+ * every campaign anyone can author. The two diverge only for a fractional `roeMin`, which
+ * the type permits and no content uses.
  *
  * The message a locked thing shows names only the floor. The player's current figure is
  * rendered beside it by the shell, which may divide freely.
@@ -1947,7 +1950,7 @@ EOF
 
 *A duplicated type.* An earlier draft split the campaign module so the parser could live in `@lions/data`, which forced the unlock type to be declared once per package as a verbatim copy. Trading a layering nicety for duplicated types is not a trade worth making. `@lions/data` now exports only the raw `world` JSON — exactly as it already does for `missions` — and the whole module is one file in `app` with one definition of everything. Task 4 Step 6 greps to prove `data` stayed a leaf.
 
-*Division inside `@lions/sim`.* An earlier draft computed the ROE mean as `(total / values.length) | 0` in the mission runtime, matching a line already in that file. Matching existing code is not the same as being right, and "just this one calculation" is the exact phrasing CLAUDE.md tells you to refuse. The sim now stores per-mission bests and performs no arithmetic; `campaignRoe` averages for display in `app`, and `unlockReason` gates with `sum >= floor * count`. That comparison is not merely invariant-safe, it is *more* correct: a truncated mean rejects a campaign averaging exactly the floor.
+*Division inside `@lions/sim`.* An earlier draft computed the ROE mean as `(total / values.length) | 0` in the mission runtime, matching a line already in that file. Matching existing code is not the same as being right, and "just this one calculation" is the exact phrasing CLAUDE.md tells you to refuse. The sim now stores per-mission bests and performs no arithmetic; `campaignRoe` averages for display in `app`, and `unlockReason` gates with `sum >= floor * count`. The Task 2 review checked my first justification for that and found it overstated — for an integer floor a truncated mean gives the same verdict on every authorable campaign, so the integer form buys the invariant, not accuracy. Kept for the invariant alone, which is reason enough.
 
 *`innerHTML` for the map.* The asset is our own build-time file, so assigning it was not a live vulnerability — but `innerHTML` on a string that arrived over the network is indistinguishable, at a glance and to a scanner, from the version of that line that would be a hole. Task 6 parses with `DOMParser` and adopts the node, which cannot execute script, so the safe reading is the only reading.
 
