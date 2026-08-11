@@ -13,6 +13,11 @@
       "frames": 1,
       "fps": 0,
       "loop": false
+    },
+    "wreck": {
+      "frames": 1,
+      "fps": 0,
+      "loop": false
     }
   },
   "files": [
@@ -21,6 +26,12 @@
       "facing": 0,
       "frame": 0,
       "file": "idle_f00_000.png"
+    },
+    {
+      "clip": "wreck",
+      "facing": 0,
+      "frame": 0,
+      "file": "wreck_f00_000.png"
     }
   ],
   "dropped": [

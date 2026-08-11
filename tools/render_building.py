@@ -543,6 +543,140 @@ def check_framing(scene, cam, meshes, scale):
     }
 
 
+
+# --- collapse ---------------------------------------------------------------
+#
+# A destroyed building used to simply vanish: the sim clears `blocked` on its
+# tiles, so the renderer's terrain loop stopped reaching the sprite branch and
+# drew open ground. A mosque disappearing mid-battle is the single worst thing
+# the building set does, and ART_PIPELINE.md section 5 already ranks persistent
+# rubble third on the payoff list -- "the difference between a map and a
+# battlefield".
+#
+# Rubble is *derived* from each building rather than authored per building.
+# One transform, six sheets, and a collapsed mosque automatically keeps the
+# mosque's footprint, materials and palette roles while a collapsed shanty
+# stays shanty-sized.
+
+#: The break line, as a fraction of the building's own height, and how much it
+#: varies between chunks. A *uniform* line was the first attempt and it failed
+#: in a way worth recording: the roof descended as an intact slab and the wall
+#: tops stayed level, so a wrecked house read as a house that had merely sunk.
+#: Rubble needs a ragged skyline, and a ragged skyline needs the break height to
+#: differ across the footprint.
+COLLAPSE_KEEP_MIN = 0.12
+COLLAPSE_KEEP_VAR = 0.30
+#: Chunk size for the spatial hash, as a fraction of height. Vertices in one
+#: cell move together, so masonry falls in slabs rather than dissolving into
+#: noise -- a building comes apart in pieces, not into sand.
+COLLAPSE_CHUNK = 0.24
+#: What survives of the height above a chunk's break line. Low: anything above
+#: the break has to land *near* the break, or the roof still floats.
+COLLAPSE_CRUSH = 0.10
+#: Outward spill of fallen material, as a fraction of height.
+COLLAPSE_SPILL = 0.13
+#: Lean of the standing stubs.
+COLLAPSE_LEAN = 0.10
+
+
+def _hash01(*ints):
+    """Deterministic 0..1 from integers.
+
+    No `random` anywhere in this pipeline: a sprite must re-render identically
+    or the art gate and the reviewer disagree for no reason.
+    """
+    h = 2166136261
+    for v in ints:
+        h ^= (int(v) & 0xFFFFFFFF)
+        h = (h * 16777619) & 0xFFFFFFFF
+        h ^= h >> 13
+    return (h & 0xFFFFFFFF) / 4294967295.0
+
+
+def _dice(meshes, target):
+    """Subdivide every mesh until no edge is much longer than `target`.
+
+    Load-bearing, and the reason the first two collapse attempts failed. These
+    buildings are low-poly by design: a roof is often a single quad, and a quad
+    has four corners, so displacing its vertices can only *tilt* it. It cannot
+    break. The wrecked house came out looking like a house that had sagged.
+
+    Dicing first gives the collapse enough vertices to fragment with. Done with
+    bmesh rather than an operator so it needs no mode switching and no active
+    object, and so the cut count is derived per edge instead of guessed.
+    """
+    import bmesh
+    for ob in meshes:
+        bm = bmesh.new()
+        bm.from_mesh(ob.data)
+        for _ in range(4):
+            long_edges = [e for e in bm.edges if e.calc_length() > target]
+            if not long_edges:
+                break
+            bmesh.ops.subdivide_edges(bm, edges=long_edges, cuts=2, use_grid_fill=True)
+        bm.to_mesh(ob.data)
+        bm.free()
+        ob.data.update()
+
+
+def collapse(meshes, base_z, top_z):
+    """Bring a building down in place, partially.
+
+    Partial rather than flat, deliberately. The sim leaves `cover` = 1..2 on a
+    destroyed footprint, so the tile still gives real cover and the art has to
+    say so -- a flat heap would read as open ground the player then gets shot
+    across. Standing stubs also keep the street legible: a levelled 3x3 mosque
+    is an anonymous mound and the block stops being navigable by eye.
+
+    The building is diced into columns by a spatial hash on (x, y). Each column
+    gets its own break height, so wall tops come out ragged and the roof breaks
+    into pieces that land at different levels instead of descending as a slab.
+    Everything above a column's break line is crushed down onto it and spilled
+    outward, which is where a heap at the base comes from.
+
+    Vertex work at real coordinates, matching the kits' rule that the rig
+    measures geometry and never an object transform.
+    """
+    height = max(top_z - base_z, 1e-4)
+    chunk = max(height * COLLAPSE_CHUNK, 1e-3)
+    # Dice first: without it the chunking below has nothing to bite on.
+    _dice(meshes, chunk * 0.9)
+    # Fallen material is clamped to the intact building's own plan. Two reasons,
+    # and the first is a bug this caught: the frame is sized to the *intact*
+    # model, so spill beyond it is cropped by the render camera -- the warehouse
+    # wreck failed the art gate on exactly that. The second is gameplay: rubble
+    # belongs on the footprint the sim marked as cover, not on its neighbours'
+    # tiles.
+    pts = [o.matrix_world @ v.co for o in meshes for v in o.data.vertices]
+    lo_x, hi_x = min(p.x for p in pts), max(p.x for p in pts)
+    lo_y, hi_y = min(p.y for p in pts), max(p.y for p in pts)
+    for mi, ob in enumerate(meshes):
+        me = ob.data
+        mw = ob.matrix_world
+        for v in me.vertices:
+            w = mw @ v.co
+            cx, cy = int(math.floor(w.x / chunk)), int(math.floor(w.y / chunk))
+            r1 = _hash01(cx, cy)
+            r2 = _hash01(cy * 31, cx * 17 + 5)
+            keep = base_z + height * (COLLAPSE_KEEP_MIN + COLLAPSE_KEEP_VAR * r1)
+            if w.z <= keep:
+                # Standing stub: leans and slumps a little, so it does not read
+                # as an intact wall that simply lost its roof.
+                t = (w.z - base_z) / height
+                v.co.x += COLLAPSE_LEAN * t * height * (r1 - 0.5)
+                v.co.y += COLLAPSE_LEAN * t * height * (r2 - 0.5)
+                v.co.z -= height * 0.05 * t
+            else:
+                # Fallen: down onto its own break line, and outward into a heap.
+                over = w.z - keep
+                v.co.z = keep + over * COLLAPSE_CRUSH + height * 0.05 * r2 - (w.z - v.co.z)
+                nx = w.x + COLLAPSE_SPILL * height * (r1 - 0.5) * 2.0
+                ny = w.y + COLLAPSE_SPILL * height * (r2 - 0.5) * 2.0
+                v.co.x += min(max(nx, lo_x), hi_x) - w.x
+                v.co.y += min(max(ny, lo_y), hi_y) - w.y
+        me.update()
+
+
 def render_building(spec):
     """One building, one sprite."""
     meshes, extent, scale, framing = setup(spec)
@@ -551,6 +685,22 @@ def render_building(spec):
     bpy.context.scene.render.filepath = os.path.join(spec.out_dir, name)
     bpy.ops.render.render(write_still=True)
     print(f"  rendered {name}")
+
+    # The wreck, from the same camera. Framing is deliberately NOT recomputed:
+    # a collapsed building is much shorter, so re-framing it would zoom the
+    # rubble up to fill the canvas and the footprint would jump the moment the
+    # building came down. Sharing the intact frame keeps the anchor and the
+    # scale fixed, which is the same union-framing rule render_team.py applies
+    # across clips.
+    zs_all = [
+        (o.matrix_world @ v.co).z for o in meshes for v in o.data.vertices
+    ]
+    collapse(meshes, min(zs_all), max(zs_all))
+    bpy.context.view_layer.update()
+    wreck_name = "wreck_f00_000.png"
+    bpy.context.scene.render.filepath = os.path.join(spec.out_dir, wreck_name)
+    bpy.ops.render.render(write_still=True)
+    print(f"  rendered {wreck_name}")
 
     manifest = {
         "unit": spec.unit,
@@ -571,8 +721,14 @@ def render_building(spec):
         # them 67px inside the mosque, behind the dome.
         "badgeTopPx": framing["badge_top_px"],
         "roofTopPx": framing["roof_top_px"],
-        "clips": {"idle": {"frames": 1, "fps": 0, "loop": False}},
-        "files": [{"clip": "idle", "facing": 0, "frame": 0, "file": name}],
+        "clips": {
+            "idle": {"frames": 1, "fps": 0, "loop": False},
+            "wreck": {"frames": 1, "fps": 0, "loop": False},
+        },
+        "files": [
+            {"clip": "idle", "facing": 0, "frame": 0, "file": name},
+            {"clip": "wreck", "facing": 0, "frame": 0, "file": wreck_name},
+        ],
     }
     if spec.drop:
         manifest["dropped"] = sorted(spec.drop)

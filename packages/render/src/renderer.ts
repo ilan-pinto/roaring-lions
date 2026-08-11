@@ -170,7 +170,14 @@ export class PixiRenderer {
    *  there are no facings: one texture is the whole sheet. */
   private structureAtlas = new Map<
     string,
-    { texture: Texture; scale: number; badgeTopPx: number | null; roofTopPx: number | null }
+    {
+      texture: Texture;
+      scale: number;
+      badgeTopPx: number | null;
+      roofTopPx: number | null;
+      /** Rubble, for a structure the sim has killed. Null on an older sheet. */
+      wreckTexture?: Texture;
+    }
   >();
   /** Structures already drawn this rebuild -- a footprint spans many tiles. */
   private drawnStructures = new Set<number>();
@@ -469,11 +476,15 @@ export class PixiRenderer {
   async loadStructureSprite(structureId: string, basePath: string): Promise<void> {
     const spec = parseStructureManifest(await Assets.load(`${basePath}manifest.json`));
     const texture = await Assets.load<Texture>(`${basePath}${spec.file}`);
+    const wreckTexture = spec.wreckFile
+      ? await Assets.load<Texture>(`${basePath}${spec.wreckFile}`)
+      : undefined;
     this.structureAtlas.set(structureId, {
       texture,
       scale: spec.scale,
       badgeTopPx: spec.badgeTopPx,
       roofTopPx: spec.roofTopPx,
+      wreckTexture,
     });
     this.terrainDirty = true;
   }
@@ -1068,6 +1079,11 @@ export class PixiRenderer {
         }
       }
     }
+
+    // Rubble last, after every live building has been drawn: a destroyed
+    // structure is not reachable from the tile loop above, because its tiles
+    // are no longer blocked.
+    this.drawWreckedStructures();
   }
 
   /**
@@ -1160,6 +1176,34 @@ export class PixiRenderer {
    * instead would let units beside the near face incorrectly draw underneath,
    * which reads far worse -- a soldier apparently inside a wall.
    */
+  /**
+   * Rubble for every structure the sim has killed.
+   *
+   * Its own pass, because the terrain loop only reaches the sprite branch on a
+   * *blocked* tile and `destroyStructure` unblocks the whole footprint. That is
+   * why a destroyed building used to vanish outright rather than merely lose
+   * its art -- there was no code path left that could draw it.
+   */
+  private drawWreckedStructures(): void {
+    const st = this.sim.structures;
+    for (let s = 0; s < this.sim.structureCount; s++) {
+      if (st.alive[s] !== 0) continue;
+      const stype = this.sim.structureTypes[st.typeIdx[s]];
+      const art = this.structureAtlas.get(stype.id);
+      if (!art?.wreckTexture) continue;
+      const fx0 = (st.minX[s] + st.maxX[s] + 1) / 2;
+      const fy0 = (st.minY[s] + st.maxY[s] + 1) / 2;
+      const spr = new Sprite({ texture: art.wreckTexture, anchor: 0.5 });
+      spr.position.set(isoX(fx0, fy0), isoY(fx0, fy0));
+      // The rig framed the wreck from the *intact* model, so it shares the
+      // anchor and the scale and the footprint does not jump on collapse.
+      spr.scale.set((art.scale * TILE_W) / art.wreckTexture.width);
+      spr.zIndex = depthZ(st.maxX[s] + 1, st.maxY[s] + 1);
+      this.spriteLayer.addChild(spr);
+      this.buildingSprites.push(spr);
+    }
+  }
+
   private drawStructureSprite(sIdx: number, structureId: string): void {
     const art = this.structureAtlas.get(structureId);
     if (!art) return;
