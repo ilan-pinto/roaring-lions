@@ -64,6 +64,26 @@ export interface LedgerData {
   'roster.surviving_units'?: LedgerRosterEntry[];
   'roe.cumulative_rating'?: number;
   /**
+   * Best ROE rating each mission has earned, keyed by mission id.
+   *
+   * This replaces `roe.cumulative_rating`, which was `(previous + this mission) / 2` -- an
+   * exponential moving average with three faults: replaying your best mission walked the
+   * campaign rating upward without playing anything new, replaying a mission you did badly
+   * could never replace the bad sample, and the number depended on the order missions were
+   * played in. #22 asks for replay to have a clear effect, and none of those three allow it.
+   *
+   * Best-of rather than latest, so a replay can only ever help -- which is what makes going
+   * back to a mission you scored badly on worth doing.
+   *
+   * Deliberately not averaged here. An average is division, this package bans floating
+   * point, and `| 0` on a float quotient is the "just this one calculation" the invariant
+   * exists to refuse. `campaignRoe` in the app averages for display; `unlockReason` gates
+   * with `sum >= floor * count`, which needs no division and is exact at the boundary.
+   * `roe.cumulative_rating` stays on this interface, read as a fallback for saves written
+   * before this key existed, and written by nothing.
+   */
+  'roe.mission_ratings'?: Record<string, number>;
+  /**
    * Placement tags whose units recon resolved to *identified*. This is the
    * campaign's carry-over spine (GDD §4, "carry-over is the system"): what a recon
    * mission saw, in a form a later mission can act on.
@@ -998,13 +1018,28 @@ export class MissionRuntime {
       if ((this.kills.get(id) ?? 0) > 0 && vet < 3) vet++;
       roster.push({ type: typeId, veterancy: vet });
     }
-    const prev = this.ctx.ledger?.['roe.cumulative_rating'];
-    const cumulative = typeof prev === 'number' ? ((prev + roeRating) / 2) | 0 : roeRating;
+    // Best-of per mission. Storage only -- no averaging here, because an average is
+    // division and this package bans floating point. See LedgerData['roe.mission_ratings'].
+    const prevRatings = this.ctx.ledger?.['roe.mission_ratings'];
+    const merged: Record<string, number> = {};
+    if (prevRatings !== null && typeof prevRatings === 'object') {
+      const prior = prevRatings as Record<string, number>;
+      for (const k of Object.keys(prior)) merged[k] = prior[k];
+    }
+    const best = merged[this.mission.id];
+    if (typeof best !== 'number' || roeRating > best) merged[this.mission.id] = roeRating;
+    // Rebuilt in sorted key order -- after this mission's entry is merged in, not
+    // before -- so the saved object is stable rather than insertion-ordered regardless
+    // of which mission was just played. Matches how intel.marked_positions is sorted
+    // below. (Sorting only the incoming prior keys and appending the current mission's
+    // key afterward leaves *that* key out of order, which is the bug this guards.)
+    const ratings: Record<string, number> = {};
+    for (const k of Object.keys(merged).sort()) ratings[k] = merged[k];
 
     const produced: LedgerData = {};
     for (const key of this.mission.ledger.produces) {
       if (key === 'roster.surviving_units') produced[key] = roster;
-      else if (key === 'roe.cumulative_rating') produced[key] = cumulative;
+      else if (key === 'roe.mission_ratings') produced[key] = ratings;
       else if (key === 'campaign.completed_missions') {
         const prevDone = this.ctx.ledger?.['campaign.completed_missions'];
         const done = Array.isArray(prevDone) ? [...prevDone] : [];
