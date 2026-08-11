@@ -148,6 +148,34 @@
    appearance and these three rules restyle it. Baking a state into the art means
    the CSS compounds on top of it rather than replacing it. */
 [data-status='live'] .region-outline { stroke: var(--map-live); stroke-width: 4; }
+/* complete/locked are told apart from live by texture and saturation rather than
+   brightness: dropping brightness on a filled region turned it nearly black and
+   cost every label inside it. */
+[data-status='complete'] { filter: saturate(0.25); opacity: 0.75; }
+[data-status='locked'] { filter: saturate(0.4); opacity: 0.45; }
+
+/* ====================================================================== */
+/* World map — the campaign screen                                        */
+/* ====================================================================== */
+
+.rl-world { display: grid; gap: var(--s3); }
+.rl-world__board { position: relative; width: 100%; max-width: 1140px; margin-inline: auto; }
+.rl-world__board svg { display: block; width: 100%; height: auto; }
+
+.rl-world__town { position: absolute; transform: translate(-50%, -50%); white-space: nowrap; }
+.rl-world__townlink { color: var(--ink); font-weight: 600; }
+.rl-world__townname { color: var(--ink-mute); text-decoration: line-through; }
+.rl-world__town[data-status='locked'] .rl-world__townname { text-decoration: none; }
+
+.rl-world__cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--s2); }
+.rl-world__card {
+  border: 1px solid var(--panel-frame);
+  border-left: 4px solid var(--map-spent);
+  padding: var(--s2);
+}
+.rl-world__card[data-status='live'] { border-left-color: var(--map-live); }
+.rl-world__card[data-status='locked'] { opacity: 0.6; }
+.rl-world__badge { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-dim); }
 
 /* ====================================================================== */
 /* Panel — the stamped header                                             */
