@@ -142,6 +142,18 @@ class VehicleSpec:
     #: None, every part gets the one flat olive that every downloaded hull has
     #: always used, so no existing sheet changes.
     role_palette: dict = None
+    #: rl_role -> brightness multiplier on the palette base, for roles that light
+    #: far darker than their entry suggests.
+    #:
+    #: render_team.py measured that **a figure renders at roughly half its base
+    #: value** and carries its own LIT_GAIN table for skin and leather. This rig is
+    #: darker still -- a black world with no ambient, tuned for vehicles, which are
+    #: mostly horizontal surface -- so a crew figure on a vehicle comes out as a
+    #: silhouette. The paramotor is the first sheet here to carry human figures and
+    #: the first to need this.
+    #:
+    #: Left None, nothing is gained and every existing sheet is byte-identical.
+    lit_gain: dict = None
     #: Model-space (x, y) of the weapon's traverse axis -- the point the station
     #: physically turns about, e.g. the centre of a pintle post. Declaring it makes
     #: the rig emit `turretAxisPx` so the renderer can stop assuming a turret
@@ -190,7 +202,24 @@ def flat_material():
 ROLE_ROUGHNESS = {"metal": 0.55, "glass": 0.45, "rubber": 0.95}
 
 
-def role_materials(meshes, role_palette):
+def _gained(base, gain):
+    """Scale a linear colour toward white without rotating its hue.
+
+    Clamp the *gain*, not the channels. render_team.py recorded the failure:
+    skin.0's linear red is 0.571, so a 1.95 gain pinned red at 1.0 while green
+    and blue kept climbing, and the result came out orange. Scaling the whole
+    colour by the largest non-clipping factor keeps the hue and only gives up
+    brightness.
+    """
+    if gain == 1.0:
+        return base
+    peak = max(base[:3])
+    headroom = 1.0 / peak if peak > 0 else 1.0
+    g = min(gain, headroom)
+    return tuple(c * g for c in base[:3]) + (1.0,)
+
+
+def role_materials(meshes, role_palette, lit_gain=None):
     """One material per `rl_role`, each an exact palette entry.
 
     Vehicles were the last renderer flattening a whole model to one olive, while
@@ -204,6 +233,7 @@ def role_materials(meshes, role_palette):
     with no hint as to which part caused it.
     """
     cache = {}
+    gains = lit_gain or {}
     for ob in meshes:
         role = ob.get("rl_role")
         if role is None:
@@ -211,14 +241,18 @@ def role_materials(meshes, role_palette):
         key = role_palette.get(role)
         if key is None:
             raise SystemExit(f"no palette key for rl_role {role!r} on {ob.name}")
-        if key not in cache:
-            cache[key] = _shader(
-                f"Vehicle_{key.replace('.', '_')}",
-                palette_linear(key),
+        # Keyed on (key, role), not key alone: two roles may share a palette
+        # entry while only one of them is gained, and a key-only cache would
+        # hand the second role the first one's brightened material.
+        ck = (key, role)
+        if ck not in cache:
+            cache[ck] = _shader(
+                f"Vehicle_{key.replace('.', '_')}_{role}",
+                _gained(palette_linear(key), gains.get(role, 1.0)),
                 ROLE_ROUGHNESS.get(role, 0.85),
             )
         ob.data.materials.clear()
-        ob.data.materials.append(cache[key])
+        ob.data.materials.append(cache[ck])
     print(f"Materials: {len(cache)} palette colour(s) across {len(meshes)} part(s)")
     return cache
 
@@ -249,7 +283,7 @@ def setup(spec):
 
     olive = flat_material()
     if spec.role_palette:
-        role_materials(meshes, spec.role_palette)
+        role_materials(meshes, spec.role_palette, spec.lit_gain)
     else:
         for o in meshes:
             o.data.materials.clear()
@@ -552,7 +586,7 @@ def render_vehicle(spec):
     # otherwise the turret sheet renders olive after the wreck pass and the two
     # sheets of one vehicle disagree on colour.
     if spec.role_palette:
-        role_materials(hull + turret, spec.role_palette)
+        role_materials(hull + turret, spec.role_palette, spec.lit_gain)
     else:
         for o in hull + turret:
             o.data.materials.clear()
