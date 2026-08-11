@@ -5,6 +5,7 @@
 
 import palette from '../../../data/palette.json';
 import audioManifest from '../../../data/audio.json';
+import worldJson from '../../../data/campaign/world.json';
 import beitSahwanOutskirts from '../../../data/maps/beit_sahwan_outskirts.json';
 import tutorialGround from '../../../data/maps/tutorial_ground.json';
 import structureCatalogue from '../../../data/structures.json';
@@ -77,6 +78,9 @@ export const missions = {
   beit_sahwan_2_foothold: beitSahwan2,
   beit_sahwan_3_clearance: beitSahwan3,
 } as const;
+
+/** The campaign world. Shape matches world.schema.json; parsed by app/src/campaign.ts. */
+export const world = worldJson;
 
 export type MissionId = keyof typeof missions;
 
