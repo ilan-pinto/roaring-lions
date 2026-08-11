@@ -2,7 +2,15 @@ import { describe, expect, it } from 'vitest';
 
 import worldJson from '../../../data/campaign/world.json';
 import type { LedgerData } from '@lions/sim';
-import { campaignRoe, nextMissionAfter, nextMissionOf, parseWorld, regionProgress, townProgress } from './campaign';
+import {
+  campaignRoe,
+  nextMissionAfter,
+  nextMissionOf,
+  parseWorld,
+  regionProgress,
+  townProgress,
+  type ParsedWorld,
+} from './campaign';
 
 const world = parseWorld(worldJson);
 const marj = world.regions[0]!;
@@ -115,6 +123,38 @@ describe('nextMissionAfter', () => {
     // just-finished mission merged in before nextMissionAfter ever sees it.
     const done = { 'campaign.completed_missions': [ALL_BS[0]!] };
     expect(nextMissionAfter(world, ALL_BS[0]!, done)).toBe(ALL_BS[1]);
+  });
+
+  it('resolves through the owning town, not the fallback, when both are live and disagree', () => {
+    // Synthetic, not world.json: in the real fixture, beit_sahwan is both the only
+    // authored town and the current front, so the owning-town path and the fallback
+    // always land on the same mission and no real input can tell them apart. This world
+    // gives two live regions with different available missions, and lists the *other*
+    // one (B) first, specifically so the two paths disagree -- if the owning-town lookup
+    // were skipped, the fallback would reach B before it ever got to A.
+    const synthetic: ParsedWorld = {
+      id: 'synthetic',
+      name: 'Synthetic Theatre',
+      art: 'synthetic.svg',
+      regions: [
+        {
+          id: 'region_b',
+          name: 'Region B',
+          faction: 'b-faction',
+          doctrine: 'b-doctrine',
+          towns: [{ id: 'town_b', name: 'Town B', at: [0, 0], missions: ['b1'] }],
+        },
+        {
+          id: 'region_a',
+          name: 'Region A',
+          faction: 'a-faction',
+          doctrine: 'a-doctrine',
+          towns: [{ id: 'town_a', name: 'Town A', at: [0, 0], missions: ['a1', 'a2'] }],
+        },
+      ],
+    };
+    const ledger = { 'campaign.completed_missions': ['a1'] };
+    expect(nextMissionAfter(synthetic, 'a1', ledger)).toBe('a2');
   });
 });
 
