@@ -379,10 +379,40 @@ The determinism hash did not move, and that is a result rather than luck: the
 canary builds synthetic types declaring neither field, so both defaults
 reproduce the previous behaviour exactly.
 
+### Mission difficulty, measured
+
+Eight enemy units went into three missions. Scored with the cost curve's own
+power function:
+
+| mission | enemy before | after | delta | player:enemy after |
+|---|---|---|---|---|
+| Recon | 8.7 | 9.7 | +11% | 3.03 (was 3.37) |
+| Foothold | 2.3 | 3.0 | +32% | 4.49 (was 5.83) |
+| Clearance | 7.4 | 10.7 | +45% | 3.44 (was 4.96) |
+
+The +45% looks alarming and is not: Clearance was the *loosest* of the three
+by force ratio and is now level with Recon, which is what a final mission
+should be. The ordering is arguably still wrong — Recon remains the tightest.
+
+**What this measurement does not do**, stated because it bounds the claim: it
+ignores ambush positions, garrisoned buildings, objectives, the clock and ROE
+— everything that actually makes a mission hard. It rules out a gross mistake.
+It does not establish the missions are winnable or still 10–12 minutes. That
+needs a human playing them.
+
+The GDD §5.7 backtest still passes all four targets, which matters here
+because adding `air` to nine weapons could have perturbed ground matchups.
+
 ### Still not done
 
-- **Land-and-dismount.** The paramotor's `down` clip is authored for it; no sim
-  support exists. It is the one behaviour this session did not close.
+- **Land-and-dismount.** No sim support. The landed geometry sits unused in the
+  .blend — `down` was re-authored as *hit and spilling air*, because the
+  renderer plays `down` for a pinned unit and a suppressed aircraft that
+  rendered as parked mid-air was simply wrong.
+- **Mission winnability is unplayed.** The force-ratio numbers above are the
+  only evidence, and they are crude.
+- **`attack_drone` has no sprite sheet** — the last unit on the procedural
+  fallback, and it now flies as a coloured polygon.
 - **`can_target: air` on the gun truck is real now**, but nothing else about the
   `aa` role is — there is no altitude band, no engagement envelope, no reason a
   dedicated AA gun beats a rifle squad at the job beyond raw stats.
