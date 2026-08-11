@@ -85,6 +85,17 @@ export function worldMap(opts: WorldMapOptions): HTMLElement {
       marker.style.left = `${((town.at[0] / VIEW_W) * 100).toFixed(3)}%`;
       marker.style.top = `${((town.at[1] / VIEW_H) * 100).toFixed(3)}%`;
 
+      // Hovering a town glows its region's edge, so it is obvious which ground the town
+      // belongs to before you click. The region group is a sibling of this marker rather
+      // than its ancestor, so this is wired in JS: a pure-CSS :has() version would need a
+      // selector per region id, generated from the data.
+      if (g) {
+        marker.addEventListener('mouseenter', () => g.setAttribute('data-hover', '1'));
+        marker.addEventListener('mouseleave', () => g.removeAttribute('data-hover'));
+        marker.addEventListener('focusin', () => g.setAttribute('data-hover', '1'));
+        marker.addEventListener('focusout', () => g.removeAttribute('data-hover'));
+      }
+
       const label = `${town.name}${tp.total > 0 ? ` ${tp.done}/${tp.total}` : ''}`;
       if (next !== null && p.status !== 'locked') {
         const a = document.createElement('a');

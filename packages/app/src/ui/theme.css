@@ -153,6 +153,17 @@
    appearance and these three rules restyle it. Baking a state into the art means
    the CSS compounds on top of it rather than replacing it. */
 [data-status='live'] .region-outline { stroke: var(--map-live); stroke-width: 4; }
+
+/* Hovering a town glows the edge of its region. The glow is the outline redrawn brighter
+   and thicker plus a drop-shadow of the same colour, which is what makes it read as light
+   coming off the edge rather than just a fatter line. */
+[data-hover='1'] .region-outline {
+  stroke: var(--map-live);
+  stroke-width: 6;
+  filter: drop-shadow(0 0 5px var(--map-live)) drop-shadow(0 0 12px var(--map-live));
+}
+.rl-world__town { transition: transform 120ms ease-out; }
+.rl-world__town:hover { transform: translate(-50%, -50%) scale(1.08); }
 /* complete/locked are told apart from live by texture and saturation, never by
    fading the whole group toward the page ground. opacity composites the region
    against the page background to make it "dimmer" -- and the ground here is

@@ -13,11 +13,34 @@
         {
           "id": "beit_sahwan",
           "name": "Beit Sahwan",
-          "at": [150, 372],
-          "missions": ["beit_sahwan_1_recon", "beit_sahwan_2_foothold", "beit_sahwan_3_clearance"]
+          "at": [
+            186.0,
+            324.0
+          ],
+          "missions": [
+            "beit_sahwan_1_recon",
+            "beit_sahwan_2_foothold",
+            "beit_sahwan_3_clearance"
+          ]
         },
-        { "id": "khan_rafid", "name": "Khan Rafid", "at": [142, 452], "missions": [] },
-        { "id": "deir_amun", "name": "Deir Amun", "at": [148, 528], "missions": [] }
+        {
+          "id": "khan_rafid",
+          "name": "Khan Rafid",
+          "at": [
+            194.0,
+            388.0
+          ],
+          "missions": []
+        },
+        {
+          "id": "deir_amun",
+          "name": "Deir Amun",
+          "at": [
+            186.0,
+            452.0
+          ],
+          "missions": []
+        }
       ]
     },
     {
@@ -26,10 +49,28 @@
       "faction": "Sarim Brigades",
       "doctrine": "rockets, ATGMs, standoff",
       "blurb": "Rockets range onto Kedem's north from behind a mountain wall.",
-      "unlock": { "after_mission": "beit_sahwan_3_clearance" },
+      "unlock": {
+        "after_mission": "beit_sahwan_3_clearance"
+      },
       "towns": [
-        { "id": "tel_marum", "name": "Tel Marum", "at": [410, 168], "missions": [] },
-        { "id": "umm_zeitoun", "name": "Umm Zeitoun", "at": [540, 172], "missions": [] }
+        {
+          "id": "tel_marum",
+          "name": "Tel Marum",
+          "at": [
+            638.0,
+            160.0
+          ],
+          "missions": []
+        },
+        {
+          "id": "umm_zeitoun",
+          "name": "Umm Zeitoun",
+          "at": [
+            726.0,
+            196.0
+          ],
+          "missions": []
+        }
       ]
     },
     {
@@ -38,8 +79,20 @@
       "faction": "Rif Cells",
       "doctrine": "technicals, raids, smuggling, mobility",
       "blurb": "The corridor that supplied the Marj's tunnels and Sur's rocket stocks.",
-      "unlock": { "after_mission": "umm_zeitoun_1" },
-      "towns": [{ "id": "wadi_halam", "name": "Wadi Halam", "at": [956, 440], "missions": [] }]
+      "unlock": {
+        "after_mission": "umm_zeitoun_1"
+      },
+      "towns": [
+        {
+          "id": "wadi_halam",
+          "name": "Wadi Halam",
+          "at": [
+            752.0,
+            542.0
+          ],
+          "missions": []
+        }
+      ]
     }
   ]
 }
