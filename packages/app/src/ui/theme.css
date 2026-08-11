@@ -174,7 +174,7 @@
   padding: var(--s2);
 }
 .rl-world__card[data-status='live'] { border-left-color: var(--map-live); }
-.rl-world__card[data-status='locked'] { opacity: 0.6; }
+.rl-world__card[data-status='locked'] { border-left-color: var(--map-locked); opacity: 0.6; }
 .rl-world__badge { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-dim); }
 
 /* ====================================================================== */
