@@ -54,6 +54,16 @@ const FLINCH_PX = 2.5;
 const TREMBLE_PX = 0.5;
 /** Vertical bob at the top of an infantry stride. */
 const BOB_PX = 1.2;
+/**
+ * How far an airborne unit is lifted off its own tile, in screen px.
+ *
+ * Presentation only — the sim has no altitude (see UnitType.isAir). 14 px is
+ * about half a tile height at 1x zoom: far enough that the gap to the shadow
+ * reads as height, close enough that the unit still obviously belongs to the
+ * tile it occupies, which matters because that tile is what every range and
+ * targeting check in the sim actually uses.
+ */
+const AIR_LIFT_PX = 14;
 /** Turret traverse spring: stiffness and damping, in turns/s². Tuned so a
  *  full traverse overshoots slightly and settles rather than snapping. */
 const TURRET_STIFFNESS = 90;
@@ -1353,6 +1363,24 @@ export class PixiRenderer {
         if (clip === 'move' && type.isSoft) {
           // Two footfalls per stride, so the bob runs at twice cycle rate.
           oy -= Math.abs(Math.sin(this.entityAnimFrame[i] * Math.PI)) * BOB_PX;
+        }
+        // Altitude is presentation only -- the sim has no z. Lifting the
+        // sprite is what makes flight legible: without it an aircraft and a
+        // jeep occupy the same pixels and the player cannot tell why their
+        // RPGs will not engage it. The shadow stays on the ground below (drawn
+        // with the other markers), and the gap between the two is the whole
+        // read.
+        const airLift = type.isAir ? AIR_LIFT_PX : 0;
+        oy -= airLift;
+
+        // An airborne unit gets a shadow on the tile it actually occupies.
+        // Without it the lift above just reads as a sprite drawn in the wrong
+        // place; with it, the gap is the altitude and the shadow says which
+        // tile the sim is really using. Drawn into the same Graphics as the
+        // procedural units, so it costs no new display object.
+        if (airLift > 0) {
+          g.ellipse(sx, sy + 3, r * 0.7 + 2, (r * 0.7 + 2) / 2)
+            .fill({ color: '#0A0A08', alpha: 0.28 * bodyAlpha });
         }
 
         // Sprite-based rendering.

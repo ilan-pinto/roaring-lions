@@ -3,15 +3,27 @@
   "name": "Sniper Team",
   "faction": "kdf",
   "role": "sniper",
-  "cost": { "logistics": 260, "build_time_s": 20, "population": 1 },
-  "unlock": { "roe_rating_min": 60 },
+  "cost": {
+    "logistics": 260,
+    "build_time_s": 20,
+    "population": 1
+  },
+  "unlock": {
+    "roe_rating_min": 60
+  },
   "hull": {
     "hp": 300,
-    "armor": { "front": 10, "side": 10, "rear": 10 },
+    "armor": {
+      "front": 10,
+      "side": 10,
+      "rear": 10
+    },
     "crew": 2,
     "suppression_resistance": 0.6
   },
-  "mobility": { "speed_tiles_s": 0.45 },
+  "mobility": {
+    "speed_tiles_s": 0.45
+  },
   "sensors": {
     "optics": 1.6,
     "sight_tiles": 16,
@@ -19,7 +31,11 @@
     "signature": 0.25,
     "firing_signature_mult": 6.0
   },
-  "abilities": ["hidden_setup", "mark_target", "garrison"],
+  "abilities": [
+    "hidden_setup",
+    "mark_target",
+    "garrison"
+  ],
   "weapons": [
     {
       "id": "amr",
@@ -32,7 +48,10 @@
       "suppression": 30,
       "rof_per_min": 10,
       "min_range_tiles": 2,
-      "can_target": ["ground"],
+      "can_target": [
+        "ground",
+        "air"
+      ],
       "collateral_risk": 0.05
     }
   ]

@@ -43,7 +43,8 @@
       "suppression": 45,
       "rof_per_min": 320,
       "can_target": [
-        "ground"
+        "ground",
+        "air"
       ],
       "collateral_risk": 0.1
     }

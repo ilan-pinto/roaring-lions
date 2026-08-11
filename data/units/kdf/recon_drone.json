@@ -20,7 +20,8 @@
   },
   "mobility": {
     "speed_tiles_s": 2.2,
-    "turn_rate_deg_s": 180
+    "turn_rate_deg_s": 180,
+    "domain": "air"
   },
   "sensors": {
     "optics": 2.0,

@@ -20,7 +20,8 @@
   },
   "mobility": {
     "speed_tiles_s": 2.8,
-    "turn_rate_deg_s": 70
+    "turn_rate_deg_s": 70,
+    "domain": "air"
   },
   "sensors": {
     "optics": 1.6,
@@ -40,7 +41,8 @@
       "suppression": 60,
       "rof_per_min": 600,
       "can_target": [
-        "ground"
+        "ground",
+        "air"
       ],
       "collateral_risk": 0.5
     }
