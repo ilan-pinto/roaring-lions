@@ -10,6 +10,7 @@
 
 import { fx, HALF, type Fx } from './fixed';
 import { TICKS_PER_SECOND, type Sim, type SimEvent } from './sim';
+import { unlockReason, type UnlockGate } from './unlock';
 
 // ---------------------------------------------------------------------------
 
@@ -308,22 +309,7 @@ export class MissionRuntime {
   buildBlockedReason(unitId: string): string | null {
     const info = this.ctx.unitInfo?.(unitId);
     if (!info) return 'not available in the field';
-    const unlock = info.unlock;
-    if (!unlock) return null;
-    if (unlock.roeMin !== undefined) {
-      const rating = this.ctx.ledger?.['roe.cumulative_rating'];
-      if (typeof rating !== 'number' || rating < unlock.roeMin) {
-        return `requires campaign ROE ${unlock.roeMin}` +
-          (typeof rating === 'number' ? ` (currently ${rating})` : ' (no rating yet)');
-      }
-    }
-    if (unlock.afterMission !== undefined) {
-      const done = this.ctx.ledger?.['campaign.completed_missions'];
-      if (!Array.isArray(done) || !done.includes(unlock.afterMission)) {
-        return `requires clearing ${unlock.afterMission}`;
-      }
-    }
-    return null;
+    return unlockReason(info.unlock as UnlockGate | undefined, this.ctx.ledger);
   }
 
   /** What a satellite sweep and a precision strike cost, for the HUD. */
