@@ -1,23 +1,22 @@
 // Campaign menu and mission end screen. Pure navigation — no sim, no state.
 
+import type { LedgerData } from '@lions/sim';
+import type { ParsedWorld } from '../campaign';
 import { panel } from './panel';
 import { stagger } from './motion';
 import { wordmark } from './mark';
-
-export interface MissionEntry {
-  id: string;
-  name: string;
-  /** 'primary' draws the eye — used for the tutorial until it is completed. */
-  emphasis?: 'primary';
-}
+import { worldMap } from './worldmap';
 
 export interface MenuOptions {
   /** Deploy base ('/' locally, '/<repo>/' on Pages). */
   base: string;
   version: string;
-  missions: MissionEntry[];
-  /** One-line campaign state — roster size, cumulative ROE. */
-  campaign: string;
+  world: ParsedWorld;
+  ledger: LedgerData;
+  /** Campaign art source, inlined so its token fills resolve. '' if it failed to load. */
+  svg: string;
+  /** The tutorial is not on the map — it teaches the mouse, not the war. */
+  tutorial: { id: string; name: string; done: boolean };
 }
 
 export function showMenu(stage: HTMLElement, opts: MenuOptions): void {
@@ -41,13 +40,8 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): void {
 
   const theatre = document.createElement('div');
   theatre.className = 'rl-menu__theatre';
-  theatre.textContent = 'Beit Sahwan — M1';
+  theatre.textContent = opts.world.name;
   wrap.appendChild(theatre);
-
-  const campaign = document.createElement('div');
-  campaign.className = 'rl-menu__campaign rl-info';
-  campaign.textContent = opts.campaign;
-  wrap.appendChild(campaign);
 
   const nav = document.createElement('nav');
   nav.className = 'rl-menu__nav';
@@ -59,10 +53,32 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): void {
     if (kind) a.dataset.kind = kind;
     nav.appendChild(a);
   };
-  for (const m of opts.missions) add(m.name, `?mission=${m.id}`, m.emphasis === 'primary' ? 'primary' : '');
-  add('M0 sandbox (no mission)', '?sandbox=1', 'aside');
-  add('reset campaign ledger', '?fresh=1', 'aside');
+  if (!opts.tutorial.done) add(opts.tutorial.name, `?mission=${opts.tutorial.id}`, 'tutorial');
   wrap.appendChild(nav);
+
+  wrap.appendChild(
+    worldMap({
+      base: opts.base,
+      world: opts.world,
+      ledger: opts.ledger,
+      svg: opts.svg,
+      href: (id) => `?mission=${id}`,
+    })
+  );
+
+  const aside = document.createElement('nav');
+  aside.className = 'rl-menu__nav';
+  const addAside = (label: string, href: string): void => {
+    const a = document.createElement('a');
+    a.textContent = label;
+    a.href = href;
+    a.className = 'rl-btn rl-menu__item';
+    a.dataset.kind = 'aside';
+    aside.appendChild(a);
+  };
+  addAside('M0 sandbox (no mission)', '?sandbox=1');
+  addAside('reset campaign ledger', '?fresh=1');
+  wrap.appendChild(aside);
 
   // The menu introduces itself rather than simply existing.
   stagger(wrap);

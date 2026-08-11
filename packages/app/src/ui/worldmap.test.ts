@@ -5,6 +5,7 @@ import worldJson from '../../../../data/campaign/world.json';
 import type { LedgerData } from '@lions/sim';
 import { parseWorld } from '../campaign';
 import { worldMap } from './worldmap';
+import { showMenu } from './menu';
 
 const world = parseWorld(worldJson);
 const SVG = '<svg viewBox="0 0 1140 790"><g id="region-marj"/><g id="region-sur"/><g id="region-naharin"/></svg>';
@@ -94,5 +95,37 @@ describe('worldMap', () => {
     const before = window.localStorage.length;
     render({});
     expect(window.localStorage.length).toBe(before);
+  });
+});
+
+describe('showMenu', () => {
+  it('mounts the world map and keeps the tutorial off it', () => {
+    const stage = document.createElement('div');
+    showMenu(stage, {
+      base: '/',
+      version: 'test',
+      world,
+      ledger: {},
+      svg: SVG,
+      tutorial: { id: 'beit_sahwan_0_tutorial', name: 'Tutorial', done: false },
+    });
+    expect(stage.querySelector('.rl-world')).not.toBe(null);
+    // The tutorial teaches the mouse, not the war, so it sits above the map.
+    const tut = stage.querySelector('[data-kind="tutorial"]') as HTMLAnchorElement;
+    expect(tut.getAttribute('href')).toBe('?mission=beit_sahwan_0_tutorial');
+    expect(stage.querySelector('[data-town="beit_sahwan"]')).not.toBe(null);
+  });
+
+  it('drops the tutorial entry once it has been done', () => {
+    const stage = document.createElement('div');
+    showMenu(stage, {
+      base: '/',
+      version: 'test',
+      world,
+      ledger: {},
+      svg: SVG,
+      tutorial: { id: 'beit_sahwan_0_tutorial', name: 'Tutorial', done: true },
+    });
+    expect(stage.querySelector('[data-kind="tutorial"]')).toBe(null);
   });
 });
