@@ -1901,9 +1901,23 @@ The whole feature is a screen, so the only honest verification is driving it. Co
 
 **Files:** none created. Fixes land in the file that is wrong.
 
-- [ ] **Step 1: Start the preview**
+- [ ] **Step 1: Start the preview — and mind which tree it serves**
 
-Use `preview_start` with the dev server from `.claude/launch.json` (create the entry if absent, using `pnpm dev` and its port). Do **not** run the dev server through Bash.
+`preview_start {name}` launches the dev server from `.claude/launch.json` **in the launch
+directory**, which is the main checkout, not this worktree. Using it here would serve the
+wrong tree and every check below would be measuring code that is not on this branch — a
+failure that looks exactly like a broken feature.
+
+So do it in two steps, which sidesteps the pinning entirely:
+
+1. Start the dev server **in this worktree** with Bash, in the background:
+   `pnpm dev` — note the port it prints.
+2. Open a browser tab at that URL with `preview_start {url: "http://localhost:<port>"}`.
+   The `url` form only opens a tab; it launches nothing and is not directory-pinned.
+
+Confirm you are looking at the right tree before trusting anything else: the menu must show
+the campaign map. If it shows the old flat mission list, you are on the main checkout — stop
+and fix that first.
 
 - [ ] **Step 2: A fresh campaign**
 
