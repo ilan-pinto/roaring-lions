@@ -1686,6 +1686,7 @@ a view over the ledger and must stay one."
 **Files:**
 - Modify: `packages/app/src/ui/menu.ts`
 - Modify: `packages/app/src/main.ts` (menu branch around line 155–169; end-screen next-mission around line 761)
+- Modify: `packages/app/src/ui/theme.css` — extend the `[data-kind='primary']` emphasis selector to cover `[data-kind='tutorial']`, and delete the now-dead `.rl-menu__campaign` rule whose element this task removes
 
 **Interfaces:**
 - Consumes: `worldMap` from Task 6, `parseWorld`/`nextMissionOf` from Task 4, `world` from `@lions/data`.
@@ -1772,6 +1773,9 @@ Replace the theatre line and the mission loop:
     if (kind) a.dataset.kind = kind;
     nav.appendChild(a);
   };
+  // 'tutorial' rather than 'primary' because it names what the entry is, not how it looks --
+  // but theme.css styles emphasis off this attribute, so widen that selector to cover both
+  // or a new player's single most important call to action loses its emphasis.
   if (!opts.tutorial.done) add(opts.tutorial.name, `?mission=${opts.tutorial.id}`, 'tutorial');
   wrap.appendChild(nav);
 
