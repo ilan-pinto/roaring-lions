@@ -1868,11 +1868,28 @@ Around line 761, `const order = Object.keys(missions)` uses import order as camp
           // Campaign order lives in world.json, not in the order data/missions files
           // happen to be imported.
           const w = parseWorld(world);
-          const town = w.regions.flatMap((r) => r.towns).find((t) => t.missions.includes(me.missionId));
-          const nextMissionId = town ? (nextMissionOf(town, saved) ?? undefined) : undefined;
+          const town = w.regions.flatMap((r) => r.towns).find((t) => t.missions.includes(missionId));
+          let nextMissionId = town ? (nextMissionOf(town, updatedLedger) ?? undefined) : undefined;
+          if (town === undefined) {
+            // A mission that is not on the map -- the tutorial -- hands off to wherever the
+            // campaign currently is. Without this the first victory screen a new player ever
+            // sees offers no way onward, because world.json deliberately does not list the
+            // tutorial. The old Object.keys(missions) order covered this by accident.
+            for (const region of w.regions) {
+              if (regionProgress(region, updatedLedger).status !== 'live') continue;
+              for (const t of region.towns) {
+                const next = nextMissionOf(t, updatedLedger);
+                if (next !== null) { nextMissionId = next; break; }
+              }
+              if (nextMissionId !== undefined) break;
+            }
+          }
 ```
 
-Read the surrounding code first and match its variable names — `me` and the saved-ledger variable may be named differently. Import `nextMissionOf` and `parseWorld` from `./campaign`.
+Read the surrounding code first and match its variable names — the mission id and the
+post-mission ledger may be named differently in the real file, and the ledger you pass must be
+the **post**-mission one so the mission that just finished counts as completed. Import
+`nextMissionOf`, `parseWorld` and `regionProgress` from `./campaign`.
 
 - [ ] **Step 7: Run the gates**
 
