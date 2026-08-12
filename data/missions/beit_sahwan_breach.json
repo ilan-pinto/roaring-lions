@@ -50,9 +50,9 @@
       "type": "evacuate_before",
       "primary": false,
       "target": "refuge_zone",
-      "count": 5,
+      "count": 6,
       "seconds": 480,
-      "text": "Get five families clear through the eastern yard"
+      "text": "Get six families clear through the eastern yard"
     }
   ],
   "roe": {
@@ -63,7 +63,7 @@
     "refuge": "civ_refuge",
     "groups": [
       { "unit": "civilians", "count": 3, "at": [24.5, 15.5] },
-      { "unit": "civilians", "count": 3, "at": [27.5, 17.5] },
+      { "unit": "civilians", "count": 3, "at": [27.5, 18.5] },
       { "unit": "civilians", "count": 3, "at": [25.5, 33.5] },
       { "unit": "civilians", "count": 2, "at": [29.5, 36.5] }
     ]
@@ -91,7 +91,7 @@
       {
         "unit": "militia_cell",
         "count": 2,
-        "marker": "tunnel_south",
+        "at": [27, 33],
         "facing_deg": 270,
         "stance": { "kind": "ambush", "tiles": 4 },
         "group": "south_infiltrators"
