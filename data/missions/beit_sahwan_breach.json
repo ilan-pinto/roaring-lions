@@ -124,6 +124,19 @@
       ] },
       { "at_seconds": 410, "to": "strongpoint_centre", "units": [
         { "unit": "militia_cell", "count": 5, "from": "ashwar_centre" }
+      ] },
+      { "at_seconds": 500, "to": "strongpoint_centre", "units": [
+        { "unit": "militia_cell", "count": 4, "from": "ashwar_north" },
+        { "unit": "rpg_team", "count": 1, "from": "ashwar_north" }
+      ] },
+      { "at_seconds": 590, "to": "strongpoint_centre", "units": [
+        { "unit": "technical", "count": 1, "from": "ashwar_centre" },
+        { "unit": "militia_cell", "count": 3, "from": "ashwar_centre" },
+        { "unit": "atgm_cell", "count": 1, "from": "ashwar_centre" }
+      ] },
+      { "at_seconds": 680, "to": "strongpoint_centre", "units": [
+        { "unit": "militia_cell", "count": 4, "from": "ashwar_south" },
+        { "unit": "rpg_team", "count": 2, "from": "ashwar_south" }
       ] }
     ]
   },

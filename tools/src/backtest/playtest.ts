@@ -6,7 +6,13 @@ import { units, maps, missions, structures as structureCatalogue, parseMap } fro
 
 type Plan = (sim: Sim, rt: MissionRuntime, ids: (t: string) => number[], at: (t: number, fn: () => void) => void) => void;
 
-function run(id: keyof typeof missions, plan: Plan, ledger: LedgerData = {}): LedgerData {
+function run(
+  id: keyof typeof missions,
+  plan: Plan,
+  ledger: LedgerData = {},
+  expect: 'victory' | 'defeat' = 'victory',
+  label: string = id
+): LedgerData {
   const mission = missions[id] as unknown as MissionJson;
   const map = parseMap(maps[mission.map.file as keyof typeof maps]);
   const sim = new Sim({ seed: 424242, width: map.width, height: map.height, capacity: 128 });
@@ -57,11 +63,14 @@ function run(id: keyof typeof missions, plan: Plan, ledger: LedgerData = {}): Le
   }
   const mins = (t / TICKS_PER_SECOND / 60).toFixed(1);
   console.log(
-    `${id}: ${rt.result.toUpperCase()} in ${mins} min, ROE ${rt.roeScore}, ` +
+    `${label}: ${rt.result.toUpperCase()} in ${mins} min, ROE ${rt.roeScore}, ` +
       `objectives ${rt.objectiveList.map((o) => `${o.id}=${o.status[0]}`).join(' ')}, ` +
       `roster out ${(produced['roster.surviving_units'] ?? []).length}`
   );
-  if (rt.result !== 'victory') process.exitCode = 1;
+  if (rt.result !== expect) {
+    console.error(`${label}: FAILED — expected ${expect.toUpperCase()}, got ${rt.result.toUpperCase()}`);
+    process.exitCode = 1;
+  }
   return produced;
 }
 
@@ -89,6 +98,13 @@ const M = (x: number, y: number) => ({ x: fx.from(x), y: fx.from(y) });
 //   wave-1 militia drifting off the now-empty perimeter with nothing else to
 //   shoot at -- the jeep's speed is what gets it in and out before that
 //   drift arrives, not numbers.
+// Control: the premise is catastrophe. A player who gives no orders at all
+// must LOSE this mission — if the perimeter holds itself for thirteen minutes,
+// the breach is not a breach. This is the passive twin of the winnable-plan
+// check below, and it pins the mission's premise the same way the plan pins
+// its feasibility.
+run('beit_sahwan_breach', () => {}, {}, 'defeat', 'beit_sahwan_breach (passive control)');
+
 const led0 = run('beit_sahwan_breach', (sim, _rt, ids, at) => {
   const shepherds = ids('jeep_shoded');
   const holders = [...ids('at_team'), ...ids('sniper_team'), ...ids('apc_eitan'), ...ids('inf_squad')];
