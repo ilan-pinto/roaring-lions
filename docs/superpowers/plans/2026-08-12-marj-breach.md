@@ -4,7 +4,7 @@
 
 **Goal:** Ship the campaign's opening mission — a defence the player is meant to nearly lose — plus the two capabilities it needs: a `breach` phase and the `evacuate_before` objective.
 
-**Architecture:** Four layers, bottom-up. The schema and GDD gain a sixth phase (metadata only — nothing reads `mission.phase`). The sim's `MissionRuntime` gains civilian *shepherding* (proximity to a player unit sends a civilian to the refuge) and the `evacuate_before` objective that counts arrivals against a deadline. Then the content: a new 48×48 map and the mission JSON, both declarative. Finally the campaign wiring, so the breach's cost carries into recon.
+**Architecture:** Four layers, bottom-up. The schema and GDD gain a sixth phase (metadata only — nothing reads `mission.phase`). The sim's `MissionRuntime` gains civilian *shepherding* (proximity to a player unit sends a civilian to the refuge) and the `evacuate_before` objective that counts arrivals against a deadline. Then a new structure type — a wall you cannot fight from, drawn per tile because a wall run is any length — with its sprite. Then the content: a new 48×48 map and the mission JSON, both declarative. Finally the campaign wiring, so the breach's cost carries into recon.
 
 **Tech Stack:** TypeScript strict, Vitest, Q16.16 fixed-point sim (`packages/sim`), JSON content validated by AJV (`tools/validate_data.mjs`), headless harnesses in `tools/src`.
 
@@ -14,9 +14,9 @@
 - **Squared-distance idiom:** shift Q16.16 deltas right by 8, multiply as integers. `D` tiles squared is `D * D * 65536` (see `DANGER_CLOSE_SQ = 262144` for 2 tiles, `CONTEST_RADIUS_SQ = 2359296` for 6).
 - **Missions are data, never TypeScript.** Behaviour comes from the GDD §6 vocabulary: one stance per unit, a handful of triggers per mission.
 - **Civilians are never commandable or targetable.** They are side 2, hurt only by ordnance.
-- **No colour literals in UI source** (`pnpm validate:ui`). This plan touches no UI.
+- **No colour literals in UI source** (`pnpm validate:ui`). Colours come from palette keys in data; the renderer resolves them.
 - **Unit ids available.** KDF: `inf_squad`, `at_team`, `sniper_team`, `demo_squad`, `apc_eitan`, `ifv_namer`, `mbt_lavi`, `mortar_team`, `jeep_shoded`, `recon_drone`, `attack_drone`. Enemy: `militia_cell`, `rpg_team`, `atgm_cell`, `technical`, `mortar_crew`. Civilians: `civilians`. **No other enemy units exist** — mass comes from counts, not new types.
-- **Map symbols:** terrain `.` open, `1`/`2`/`3` cover, `r`/`o`/`n`; structures `s` shanty, `h` house, `a` apartment, `w` warehouse, `#` concrete, `m` mosque.
+- **Map symbols:** terrain `.` open, `1`/`2`/`3` cover, `r`/`o`/`n`; structures `s` shanty, `h` house, `a` apartment, `w` warehouse, `#` concrete, `m` mosque, `=` wall (added by Task 4).
 - **Gates that must pass before any commit is final:** `pnpm test`, `pnpm validate:data`, `pnpm lint`, `pnpm test:determinism`.
 
 ## Two corrections to the spec
@@ -34,6 +34,11 @@ The spec was written before I read every signature. Both corrections make the wo
 | `docs/GDD.md` | §4 becomes six phases |
 | `packages/sim/src/mission.ts` | Shepherding + `evacuate_before` evaluation and its deadline in `view()` |
 | `packages/sim/src/mission.test.ts` | Tests for both |
+| `data/structures.json` | The `wall` structure type |
+| `data/schemas/structure.schema.json` | The `per_tile` flag |
+| `packages/render/src/renderer.ts` | Draw a `per_tile` structure's sprite once per tile |
+| `tools/buildings/author_wall.py` | The wall .blend source |
+| `tools/render_building.py` | Wall entry in `BUILDINGS` |
 | `data/maps/marj_perimeter.json` | The map: staging, perimeter, settlements, strongpoint, refuge |
 | `data/missions/beit_sahwan_breach.json` | The mission |
 | `packages/data/src/index.ts` | Register the map and mission |
@@ -51,7 +56,7 @@ The spec was written before I read every signature. Both corrections make the wo
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: the string `"breach"` as a legal `mission.phase` value, used by Task 5.
+- Produces: the string `"breach"` as a legal `mission.phase` value, used by Task 7.
 
 - [ ] **Step 1: Add the enum value**
 
@@ -262,7 +267,7 @@ one-order latch as fleeing."
 
 **Interfaces:**
 - Consumes: shepherding from Task 2; `this.zone(name): readonly number[] | undefined`; `this.civIds`; the objective loop's `complete` flag pattern.
-- Produces: `evacuate_before` as a runtime-supported objective type, used by Task 5. Semantics: `target` is a **zone** id, `count` is a number of **civilian entities**, `seconds` is the deadline. Completes when `count` have arrived; latches `'failed'` at the deadline. Arrival is permanent.
+- Produces: `evacuate_before` as a runtime-supported objective type, used by Task 7. Semantics: `target` is a **zone** id, `count` is a number of **civilian entities**, `seconds` is the deadline. Completes when `count` have arrived; latches `'failed'` at the deadline. Arrival is permanent.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -477,7 +482,263 @@ must be a real zone."
 
 ---
 
-### Task 4: The map — `marj_perimeter`
+### Task 4: The `wall` structure type, and per-tile sprite drawing
+
+**Files:**
+- Modify: `data/schemas/structure.schema.json` (add a `per_tile` property)
+- Modify: `data/structures.json` (add the `wall` type)
+- Modify: `packages/render/src/renderer.ts` (`rebuildTerrain`'s sprited-structure branch at line ~923, and `drawStructureSprite` at line ~1126)
+
+**Interfaces:**
+- Consumes: nothing from earlier tasks.
+- Produces: map symbol `=` for walls, and the rule that a structure type with `per_tile: true` draws its sprite once per occupied tile instead of once per footprint. Task 5 renders the sprite this consumes; Task 6's map places `=`.
+
+**Why a wall cannot be `concrete`.** Every existing structure has `garrison_slots` of 1 or more — `concrete` has 2. A perimeter built from concrete would hand attackers two fighting positions inside the wall itself, which silently changes the mission's balance. A wall is the first structure in this game you cannot fight from.
+
+**Why `per_tile` exists.** `parseMap` groups contiguous same-symbol tiles into ONE structure, and `drawStructureSprite` draws one sprite at the footprint's centre at a fixed scale from the manifest. That is right for a compact building and wrong for a linear run: a 20-tile perimeter would render as a single wall sprite floating at the midpoint with 19 tiles invisible. The procedural extrusion already draws per tile, which is why walls look correct without art today.
+
+- [ ] **Step 1: Add the schema flag**
+
+In `data/schemas/structure.schema.json`, inside the `types` `additionalProperties.properties` object, add after the `height_px` property:
+
+```json
+     "per_tile": {
+      "type": "boolean",
+      "default": false,
+      "description": "Draw this type's sprite once per occupied tile rather than once for the whole footprint. For linear structures -- walls, fences -- whose runs are of arbitrary length. A compact building leaves this false."
+     },
+```
+
+- [ ] **Step 2: Add the wall type**
+
+In `data/structures.json`, add to `types` after the `concrete` entry:
+
+```json
+    "wall": {
+      "id": "wall",
+      "name": "Compound Wall",
+      "symbol": "=",
+      "hp_per_tile": 90,
+      "garrison_slots": 0,
+      "rubble_cover": 1,
+      "height_px": 7,
+      "color": "limestone.5",
+      "roe_penalty": 0,
+      "per_tile": true
+    }
+```
+
+Every number here is a decision, not a default: 90 hp is weaker than a breeze-block shed (120) so the enemy genuinely breaches rather than routing around; 0 garrison slots is the point of the type; `roe_penalty` 0 because flattening a wall is not a war crime; `rubble_cover` 1 leaves something to crouch behind.
+
+- [ ] **Step 3: Verify the symbol collides with nothing**
+
+Run: `pnpm validate:data`
+Expected: passes. The gate already checks that structure symbols do not collide with terrain symbols (`. 1 2 3 r o n`) and that no two structures share one, so a collision fails here by name.
+
+Then confirm the catalogue parses with the new entry:
+
+Run: `python3 -c "import json;t=json.load(open('data/structures.json'))['types'];print({k:v['symbol'] for k,v in t.items()});print('wall garrison:',t['wall']['garrison_slots'],'hp:',t['wall']['hp_per_tile'],'per_tile:',t['wall']['per_tile'])"`
+Expected: the symbol map includes `'wall': '='`, and `wall garrison: 0 hp: 90 per_tile: True`.
+
+- [ ] **Step 4: Teach the renderer to draw per-tile types once per tile**
+
+Read `packages/render/src/renderer.ts` around line 915-930. The sprited-structure branch currently reads, inside the per-tile loop over the terrain:
+
+```ts
+            if (!this.drawnStructures.has(sIdx)) {
+              this.drawnStructures.add(sIdx);
+              this.drawStructureSprite(sIdx, stype.id);
+            }
+```
+
+The `drawnStructures` set is what makes a footprint draw once. A `per_tile` type must bypass it and draw at the current tile instead. Change that block to:
+
+```ts
+            if (stype.perTile === true) {
+              // A linear structure -- a wall -- is a run of arbitrary length, so
+              // its sprite belongs on every tile it occupies. The footprint-centre
+              // draw below would put one sprite at the middle of a 20-tile
+              // perimeter and leave the rest of it invisible.
+              this.drawStructureTileSprite(x, y, stype.id);
+            } else if (!this.drawnStructures.has(sIdx)) {
+              this.drawnStructures.add(sIdx);
+              this.drawStructureSprite(sIdx, stype.id);
+            }
+```
+
+Confirm the loop variables holding the current tile really are named `x` and `y` at that point, and use whatever they are actually called.
+
+- [ ] **Step 5: Add the per-tile draw**
+
+Add this method directly after `drawStructureSprite` in `packages/render/src/renderer.ts`:
+
+```ts
+  /**
+   * One tile of a per-tile structure. Same art and scale as a footprint draw,
+   * but anchored on this tile's centre and depth-sorted on this tile alone --
+   * a wall's far end must not sort as though it stood at the near end.
+   */
+  private drawStructureTileSprite(x: number, y: number, structureId: string): void {
+    const art = this.structureAtlas.get(structureId);
+    if (!art) return;
+    const cx = x + 0.5;
+    const cy = y + 0.5;
+    const spr = new Sprite({ texture: art.texture, anchor: 0.5 });
+    spr.position.set(isoX(cx, cy), isoY(cx, cy));
+    spr.scale.set((art.scale * TILE_W) / art.texture.width);
+    spr.zIndex = depthZ(x + 1, y + 1);
+    this.spriteLayer.addChild(spr);
+    this.buildingSprites.push(spr);
+  }
+```
+
+Note this draw deliberately omits the integrity-based alpha that `drawStructureSprite` applies: hp lives on the whole run, so fading every tile of a long wall because one section was shelled reads as the entire perimeter dissolving. The procedural per-tile path already darkens individual tiles, which is the behaviour to match if a future task wants damage feedback on sprited walls.
+
+- [ ] **Step 6: Confirm `perTile` reaches the renderer**
+
+The renderer reads `stype.perTile`, so the structure type the sim holds must carry it. Check how `structureTypes` entries are built — `sim.addStructureType` in `packages/sim/src/sim.ts` and the call site in `packages/app/src/main.ts` that passes `data/structures.json` entries through. If the field is dropped on the way, add it, following exactly how `heightPx` and `color` are carried (the same snake_case-to-camelCase step).
+
+Run: `pnpm typecheck`
+Expected: clean. If `perTile` is not a known property, that is this step's work — do not cast it away with `as` or `any`.
+
+- [ ] **Step 7: Prove nothing regressed**
+
+Run: `pnpm test && pnpm validate:data && pnpm lint && pnpm typecheck`
+Expected: all clean. No wall sprite exists yet, so every existing map still renders exactly as before: a type with no sheet keeps the procedural extrusion (`renderer.ts:429`).
+
+This repo has no renderer test harness, by design — CLAUDE.md states combat maths requires tests and rendering does not. The per-tile path is therefore verified visually in Task 6, once a map actually places `=`. Say so in your report rather than inventing a harness.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add data/schemas/structure.schema.json data/structures.json packages/render/src/renderer.ts
+git commit -m "feat(data): a wall you cannot fight from, drawn per tile
+
+Every structure so far has garrison slots -- concrete has two -- so a
+perimeter built from concrete would hand attackers fighting positions inside
+the wall. The wall type has none, 90 hp a tile so it breaches under fire, and
+no ROE cost for knocking it down.
+
+Sprited structures draw once per footprint, which is right for a building and
+wrong for a run of arbitrary length: per_tile draws the sprite on every tile
+it occupies instead."
+```
+
+---
+
+### Task 5: The wall sprite
+
+**Files:**
+- Create: `tools/buildings/author_wall.py`
+- Create: `art/src/buildings/wall.blend` (written by that script)
+- Modify: `tools/render_building.py` (the `BUILDINGS` dict at line ~686)
+- Create: `assets/sprites/BLD_WALL/` (render output plus `manifest.json`)
+
+**Interfaces:**
+- Consumes: the `wall` type and its `per_tile: true` from Task 4; the renderer's per-tile draw from Task 4.
+- Produces: `assets/sprites/BLD_WALL/idle_f00_000.png` and its manifest, loaded by the same `loadStructureSprite` path every other building uses. Task 6's map is where it first appears in play.
+
+**The art spec, decided before rendering.** A render costs fifteen minutes; a spec costs a line.
+
+- **Square in plan, one tile across.** `kit.tiles(1)` is 3.0 world units (`UNITS_PER_TILE = 3.0`). The segment is authored 3.0 × 3.0 so consecutive tiles abut with no seam, and **square** so one sprite serves a run going either direction — in dimetric an east-west wall and a north-south wall are different shapes, and a square segment is the only honest way for a single sprite to read as both.
+- **Low.** Body 1.55 units under a coping band 0.20 high overhanging 0.12 a side, so about 1.75 total against a 7.60-unit concrete tower. It must read as something troops fight *over*, not through.
+- **Two tones.** Body `limestone.5` matching the catalogue's `color`; coping `limestone.3` one step lighter, so the top edge catches a highlight line and the segment does not render as a flat slab.
+- **No openings.** Gates are authored as gaps in the map's run, not modelled — a doorway baked into the sprite would appear on every tile of every wall.
+
+- [ ] **Step 1: Write the author script**
+
+Create `tools/buildings/author_wall.py`, following the shape of `tools/buildings/author_concrete.py` (read it first — it documents the kit and the silhouette budget):
+
+```python
+"""Author art/src/buildings/wall.blend.
+
+    /Applications/Blender.app/Contents/MacOS/Blender --background \
+        --python tools/buildings/author_wall.py
+
+The compound wall: 90 HP a tile, no garrison slots, no ROE cost. The first
+structure in the set you cannot fight from, and the first drawn per tile
+rather than per footprint -- a wall run is any length, so one sprite has to
+serve every tile of it.
+
+Square in plan on purpose. In dimetric an east-west wall and a north-south
+wall are different shapes, so a single sprite can only serve both if the
+segment has no long axis. Authored a full tile across (3.0 units) so
+consecutive tiles abut with no seam.
+
+Silhouette: nothing else in the set is a low flat bar. The five authored
+buildings occupy 0.28 (shanty), 0.41 (warehouse), 0.45 (house), 0.66
+(apartment) and ~0.85 (concrete) against their nearest neighbour; a segment
+1.75 units tall on a 3.0-unit base is far below all of them, so the IoU gate
+has room. The coping is the only feature, and it is what stops this reading
+as an untextured block.
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import kit  # noqa: E402
+
+W = kit.tiles(1)          # 3.0 -- full tile, so runs abut
+D = kit.tiles(1)          # 3.0 -- square, so one sprite reads in both directions
+BODY = 1.55
+COPING_H = 0.20
+COPING_OVER = 0.12
+
+kit.new_scene()
+kit.box("wall_body", (W, D, BODY), (0.0, 0.0, BODY / 2.0), role="wall")
+kit.box(
+    "wall_coping",
+    (W + COPING_OVER * 2.0, D + COPING_OVER * 2.0, COPING_H),
+    (0.0, 0.0, BODY + COPING_H / 2.0),
+    role="trim",
+)
+kit.save(os.path.join(kit.REPO if hasattr(kit, "REPO") else "", "art/src/buildings/wall.blend"))
+```
+
+Before running it, read `tools/buildings/kit.py` and confirm the real signatures of `new_scene`, `box`, `tiles` and `save` — in particular whether `save` takes a repo-relative path or an absolute one, and what the `role` values are named. Match the existing author scripts exactly rather than trusting the sketch above.
+
+- [ ] **Step 2: Author the .blend**
+
+Run: `/Applications/Blender.app/Contents/MacOS/Blender --background --python tools/buildings/author_wall.py`
+Expected: no traceback, and `art/src/buildings/wall.blend` exists afterwards.
+
+- [ ] **Step 3: Register it for rendering**
+
+In `tools/render_building.py`, add an entry to the `BUILDINGS` dict following the existing entries exactly. It needs `src` pointing at `art/src/buildings/wall.blend`, `out_dir` `assets/sprites/BLD_WALL`, `unit` `wall`, the same `credit` string the others use, `footprint_tiles` 1, and `colour_key` `limestone.5` to match `data/structures.json`.
+
+- [ ] **Step 4: Render, quantize, and gate**
+
+Run: `/Applications/Blender.app/Contents/MacOS/Blender --background --python tools/render_building.py`
+Then: `python3 tools/quantize_sprites.py --sprites assets/sprites`
+Then: `pnpm validate:assets`
+
+Expected: the render writes `assets/sprites/BLD_WALL/idle_f00_000.png` plus `manifest.json`; the quantizer reports the frame rewritten onto the palette; `validate:assets` passes, including the silhouette IoU check against the other buildings. Cycles output is off-palette with soft alpha, so skipping the quantizer makes the gate reject the frame — that ordering is not optional.
+
+If the IoU check fails, the wall is too similar in outline to an existing building. Do not tune the gate. Make the segment lower or the coping more pronounced, re-author, and re-render, recording what you changed and the resulting number.
+
+- [ ] **Step 5: Look at it**
+
+Run: `python3 -c "from PIL import Image; im=Image.open('assets/sprites/BLD_WALL/idle_f00_000.png'); print(im.size, im.mode); bb=im.getbbox(); print('ink bbox', bb, 'fill', round(100*(bb[2]-bb[0])*(bb[3]-bb[1])/(im.size[0]*im.size[1]),1), '%')"`
+Expected: a 512×512 RGBA frame whose ink occupies a wide, short band low in the canvas — a tall bbox would mean the segment came out as a tower, which is the failure this step exists to catch.
+
+- [ ] **Step 6: Commit**
+
+Building `.blend` sources ARE tracked in this repo, unlike vehicle sources — `tools/render_building.py` says so explicitly. Commit the source with its sprite.
+
+```bash
+git add tools/buildings/author_wall.py art/src/buildings/wall.blend tools/render_building.py assets/sprites/BLD_WALL
+git commit -m "feat(art): the compound wall sprite
+
+Square in plan and a full tile across, so one sprite serves a run in either
+direction and consecutive tiles abut with no seam -- in dimetric an east-west
+wall and a north-south wall are different shapes, and a per-tile linear
+structure gets exactly one sprite. Coping band in a lighter tone so the top
+edge reads as masonry rather than a slab."
+```
+
+---
+
+### Task 6: The map — `marj_perimeter`
 
 **Files:**
 - Create: `data/maps/marj_perimeter.json`
@@ -485,7 +746,7 @@ must be a real zone."
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: map id `marj_perimeter`, 48×48. Markers `kdf_line`, `ashwar_north`, `ashwar_centre`, `ashwar_south`, `tunnel_north`, `tunnel_south`, `strongpoint_centre`, `civ_refuge`. Zones `strongpoint`, `refuge_zone`, `clinic`, `settlements`. Task 5 references all of these by name.
+- Produces: map id `marj_perimeter`, 48×48. Markers `kdf_line`, `ashwar_north`, `ashwar_centre`, `ashwar_south`, `tunnel_north`, `tunnel_south`, `strongpoint_centre`, `civ_refuge`. Zones `strongpoint`, `refuge_zone`, `clinic`, `settlements`. Task 7 references all of these by name.
 
 Geography, west to east — the Marj lies west of Kedem on the campaign map, so the enemy breaks *eastward* and everything behind the KDF line is Kedem's own ground:
 
@@ -650,7 +911,7 @@ clinic and two tunnel exits, the strongpoint compound, and the refuge."
 
 ---
 
-### Task 5: The mission — First Light
+### Task 7: The mission — First Light
 
 **Files:**
 - Create: `data/missions/beit_sahwan_breach.json`
@@ -658,8 +919,8 @@ clinic and two tunnel exits, the strongpoint compound, and the refuge."
 - Modify: `data/campaign/world.json` (campaign order)
 
 **Interfaces:**
-- Consumes: phase `breach` (Task 1), `evacuate_before` (Task 3), the map's markers and zones (Task 4).
-- Produces: mission id `beit_sahwan_breach`, producing ledger keys `roster.surviving_units`, `roe.mission_ratings`, `campaign.completed_missions`, `civ.settlements_evacuated`. Task 6 consumes the roster.
+- Consumes: phase `breach` (Task 1), `evacuate_before` (Task 3), the map's markers and zones (Task 6).
+- Produces: mission id `beit_sahwan_breach`, producing ledger keys `roster.surviving_units`, `roe.mission_ratings`, `campaign.completed_missions`, `civ.settlements_evacuated`. Task 8 consumes the roster.
 
 **Why the id has no numeral:** renaming `beit_sahwan_1_recon` and its siblings would invalidate `campaign.completed_missions` in every saved ledger and break Sur's `unlock.after_mission` gate. Campaign order lives in `world.json`'s array, so the breach goes first there and the existing ids stay untouched.
 
@@ -894,7 +1155,7 @@ order lives in world.json's array."
 
 ---
 
-### Task 6: The breach's cost carries into recon
+### Task 8: The breach's cost carries into recon
 
 **Files:**
 - Modify: `data/missions/beit_sahwan_1_recon.json` (`ledger.requires`, and `from_ledger` on the scout placements)
@@ -992,7 +1253,7 @@ strength, so recon standalone is unchanged."
 
 ---
 
-### Task 7: Prove it is winnable, not merely survivable-looking
+### Task 9: Prove it is winnable, not merely survivable-looking
 
 **Files:**
 - Modify: `tools/src/backtest/playtest.ts` (add a plan before the existing `beit_sahwan_1_recon` plan at line ~72)
@@ -1083,12 +1344,12 @@ Beit Sahwan chain is exercised in one run."
 
 ## Self-Review
 
-**Spec coverage.** Every section of the spec maps to a task: the `breach` phase → Task 1; shepherding → Task 2; `evacuate_before`, its `failed` status and the visible deadline → Task 3; the map → Task 4; the mission, its objectives, enemy, ROE and ledger contract → Task 5; downstream consumption and graceful degradation → Task 6; the playtest and the difficulty question → Task 7. The spec's two risks (accumulating `hold_for`, tutorial adjacency) are recorded, not implemented — correct, they are accepted and deferred.
+**Spec coverage.** Every section of the spec maps to a task: the `breach` phase → Task 1; shepherding → Task 2; `evacuate_before`, its `failed` status and the visible deadline → Task 3; the map → Task 8; the mission, its objectives, enemy, ROE and ledger contract → Task 7; downstream consumption and graceful degradation → Task 8; the playtest and the difficulty question → Task 9. The spec's two risks (accumulating `hold_for`, tutorial adjacency) are recorded, not implemented — correct, they are accepted and deferred.
 
 **Corrections carried in.** The spec's claims that the status union and HUD need `failed`, and that the determinism hash moves, are both wrong; the plan states the correction up front and Tasks 2 and 3 assert the hash is unchanged rather than updating it. Fix the spec to match when convenient.
 
-**Type consistency.** `SHEPHERD_RADIUS_SQ` (Task 2) is used only in Task 2. `civEvacuated` (Task 3) is declared and used in Task 3 only. `objectiveList` is used in Tasks 3 and 7 and must be verified against the real accessor name in `mission.ts` at Task 3 Step 1. Zone and marker names are declared in Task 4 and consumed by name in Task 5; the four zones (`strongpoint`, `refuge_zone`, `clinic`, `settlements`) and eight markers match exactly between the two tasks. `led0` is produced in Task 7 Step 1 and consumed in Step 2.
+**Type consistency.** `SHEPHERD_RADIUS_SQ` (Task 2) is used only in Task 2. `civEvacuated` (Task 3) is declared and used in Task 3 only. `objectiveList` is used in Tasks 3 and 9 and must be verified against the real accessor name in `mission.ts` at Task 3 Step 1. Zone and marker names are declared in Task 4 and consumed by name in Task 5; the four zones (`strongpoint`, `refuge_zone`, `clinic`, `settlements`) and eight markers match exactly between the two tasks. `led0` is produced in Task 9 Step 1 and consumed in Step 2.
 
-**Names verified against source, not assumed.** All three doubtful references were checked and are now stated as fact rather than left as homework: `$defs/placement` allows exactly `unit`, `count`, `at`, `marker`, `facing_deg`, `group`, `tag`, `stance`, `passengers` — and `stance` is an object, which corrected a genuine bug in Task 5's first draft (it had `"stance": "ambush"` with a sibling `ambush_tiles`, both of which `additionalProperties: false` would have rejected). `objectiveList` is a getter at `mission.ts:433`. `packages/sim/package.json` maps `exports["."]` to `./src/index.ts`, so Task 6's script imports resolve.
+**Names verified against source, not assumed.** All three doubtful references were checked and are now stated as fact rather than left as homework: `$defs/placement` allows exactly `unit`, `count`, `at`, `marker`, `facing_deg`, `group`, `tag`, `stance`, `passengers` — and `stance` is an object, which corrected a genuine bug in Task 5's first draft (it had `"stance": "ambush"` with a sibling `ambush_tiles`, both of which `additionalProperties: false` would have rejected). `objectiveList` is a getter at `mission.ts:433`. `packages/sim/package.json` maps `exports["."]` to `./src/index.ts`, so Task 8's script imports resolve.
 
-**Map coordinates are the one thing this plan cannot prove on paper.** The zones, markers and starting positions in Tasks 4 and 5 are internally consistent (every marker and zone Task 5 names is created in Task 4, and no starting position sits inside a structure band), but whether the strongpoint is *holdable* and the shepherding route *walkable* in the time allowed is an empirical question. Task 5 Step 5's `walk_mission` run and Task 7's playtest are where that gets settled, and Task 7 Step 4 gives the tuning order.
+**Map coordinates are the one thing this plan cannot prove on paper.** The zones, markers and starting positions in Tasks 6 and 7 are internally consistent (every marker and zone Task 7 names is created in Task 4, and no starting position sits inside a structure band), but whether the strongpoint is *holdable* and the shepherding route *walkable* in the time allowed is an empirical question. Task 7 Step 5's `walk_mission` run and Task 9's playtest are where that gets settled, and Task 9 Step 4 gives the tuning order.
