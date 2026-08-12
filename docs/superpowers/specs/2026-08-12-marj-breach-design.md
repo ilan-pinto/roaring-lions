@@ -80,10 +80,15 @@ where "out" is.
 
 ### The `failed` status
 
-Objectives are `active | complete` today. `evacuate_before` is the first type that
-can *expire*, so the status union, the `objective` mission event, and the HUD's
-objective list all gain `failed`. GDD §5.8 requires the model be shown, not hidden:
-a deadline the player cannot see expire is a hidden model.
+`evacuate_before` is the first objective type that can *expire*. The plumbing for
+that already exists and has never been used: `ObjectiveStatus` is
+`'active' | 'complete' | 'failed'`, and the HUD already draws `failed` as `☒` in a
+`bad` tone with a change-flash (`hud.ts:177`, `:205-206`). Nothing has ever set it.
+
+So there is **no type change and no UI work** — `evacuate_before` simply becomes the
+first producer of a status the game could always display. GDD §5.8 requires the model
+be shown, not hidden: a deadline the player cannot see expire is a hidden model, and
+the display side is already honest.
 
 ### Failing the evacuation does not lose the mission
 
@@ -212,8 +217,11 @@ recon standalone is unchanged.
 - **`playtest.ts`**: a scripted plan proving First Light winnable inside 14 minutes —
   the issue's "difficulty honesty" requirement. Not tuned against the normal
   cost-curve expectations; being outnumbered is the point.
-- **`pnpm test:determinism`**: the sim changes, so the golden hash moves. Updated in
-  the same commit, with the reason stated.
+- **`pnpm test:determinism`**: must pass with the golden hash **unchanged**.
+  `determinism.test.ts` imports only `fx`, `Sim` and `UnitTypeJson` — it never builds
+  a `MissionRuntime` — and this work touches mission-runtime code only. If the hash
+  moves, something in the sim's core was changed by accident; that is a bug to
+  investigate, not a constant to update.
 - **Gates:** `pnpm validate:data`, `pnpm lint`, `pnpm test`.
 
 ## Risks, recorded
