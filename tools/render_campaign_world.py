@@ -888,11 +888,11 @@ def build_flag(zid, at):
     """The country's flag, planted beside its capital hamlet."""
     orient, keys = FLAG_DESIGNS[zid]
     pole_add, pole_commit = _batched_mesh(f"flag{zid}_pole", flat(f"flag{zid}_pole_m", "gunmetal.1"))
-    _block(pole_add, at[0], at[1], 1.6, 1.6, 16.0)
+    _block(pole_add, at[0], at[1], 2.0, 2.0, 18.0)
     pole_commit()
     z0, _ = terrain(*at)
-    zb = z0 + 15.0
-    fx, fy, fw, fh = at[0] + 1.2, at[1] - 6.0, 18.0, 12.0
+    zb = z0 + 17.0
+    fx, fy, fw, fh = at[0] + 1.4, at[1] - 9.0, 27.0, 18.0
     if orient == "canton":
         field, canton = keys
         add, commit = _batched_mesh(f"flag{zid}_f", flat(f"flag{zid}_fm", field, roughness=0.6))
@@ -910,10 +910,13 @@ def build_flag(zid, at):
             else:
                 _plate(add, fx + fw * i / n, fy, fx + fw * (i + 1) / n, fy + fh, zb)
             commit()
+    # Emblems are authored in the original 18x12 banner space; scale with it.
+    kx, ky = fw / 18.0, fh / 12.0
     emblem_key, rects = EMBLEMS[zid]
     add, commit = _batched_mesh(f"flag{zid}_e", flat(f"flag{zid}_em", emblem_key, roughness=0.6))
     for dx, dy, w, h in rects:
-        _plate(add, fx + dx, fy + dy, fx + dx + w, fy + dy + h, zb + 0.55)
+        _plate(add, fx + dx * kx, fy + dy * ky,
+               fx + (dx + w) * kx, fy + (dy + h) * ky, zb + 0.55)
     commit()
 
 
