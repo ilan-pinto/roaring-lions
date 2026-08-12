@@ -505,6 +505,25 @@ export class MissionRuntime {
       ) {
         throw new Error(`mission ${this.mission.id}: objective "${o.def.id}" needs a valid zone`);
       }
+      if (o.def.type === 'evacuate_before') {
+        const refuge = this.mission.civilians?.refuge;
+        // Nobody to walk to: an evacuation with no declared refuge marker can never
+        // complete, the same class of broken mission as a hold_for with no zone or
+        // an eliminate_hvt with no garrisoned tag.
+        if (!refuge) {
+          throw new Error(`mission ${this.mission.id}: evacuate_before "${o.def.id}" needs civilians.refuge`);
+        }
+        const z = this.zone(o.def.target);
+        const [mx, my] = this.markerPos(refuge);
+        const tx = mx >> 16;
+        const ty = my >> 16;
+        if (z && !(tx >= z[0] && tx < z[0] + z[2] && ty >= z[1] && ty < z[1] + z[3])) {
+          throw new Error(
+            `mission ${this.mission.id}: evacuate_before "${o.def.id}" refuge marker "${refuge}" ` +
+              `is outside zone "${o.def.target}"`
+          );
+        }
+      }
     }
   }
 

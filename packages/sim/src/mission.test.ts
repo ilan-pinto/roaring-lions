@@ -781,6 +781,37 @@ describe('civilians and ROE (GDD §6)', () => {
       )
     ).toThrow(/needs a valid zone/);
   });
+
+  it('refuses an evacuate_before whose refuge marker lies outside the target zone', () => {
+    // The default refuge marker (from civWorld's ctx) is [2, 10]; "clinic" is
+    // [20, 2, 4, 4], nowhere near it, so nobody sent there could ever land in
+    // the objective's zone.
+    expect(() =>
+      civWorld(
+        {
+          civilians: { groups: [{ unit: 'm_civ', count: 1, at: [20, 6] }], refuge: 'refuge' },
+          objectives: [
+            { id: 'evac', type: 'evacuate_before', primary: false, target: 'clinic', count: 1, seconds: 60 },
+          ],
+        },
+        REFUGE_CTX
+      )
+    ).toThrow(/is outside zone/);
+  });
+
+  it('refuses an evacuate_before when the mission declares no refuge for civilians', () => {
+    expect(() =>
+      civWorld(
+        {
+          civilians: { groups: [{ unit: 'm_civ', count: 1, at: [20, 6] }] }, // no `refuge` marker set
+          objectives: [
+            { id: 'evac', type: 'evacuate_before', primary: false, target: 'refuge_zone', count: 1, seconds: 60 },
+          ],
+        },
+        REFUGE_CTX
+      )
+    ).toThrow(/needs civilians\.refuge/);
+  });
 });
 
 describe('economy (GDD §3, just enough for M1)', () => {
