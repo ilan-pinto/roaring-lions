@@ -751,6 +751,25 @@ describe('civilians and ROE (GDD §6)', () => {
     expect(w.runtime.result).toBe('ongoing');
   });
 
+  it('a failed primary evacuation loses the mission outright', () => {
+    // Without this, a mission whose primary can fail would soft-lock: victory
+    // needs every primary complete, and defeat was wipe-or-ROE only.
+    const w = civWorld(
+      {
+        starting_force: [{ unit: 'm_squad', count: 1, at: [24, 2] }],
+        civilians: { groups: [{ unit: 'm_civ', count: 1, at: [20, 6] }], refuge: 'refuge' },
+        objectives: [
+          { id: 'evac', type: 'evacuate_before', primary: true, target: 'refuge_zone', count: 1, seconds: 5 },
+        ],
+      },
+      REFUGE_CTX
+    );
+    const evs = w.step(5 * TICKS_PER_SECOND + 2);
+    const end = evs.mission.find((e) => e.kind === 'missionEnd');
+    expect(end?.kind === 'missionEnd' && end.result).toBe('defeat');
+    expect(w.runtime.result).toBe('defeat');
+  });
+
   it('victory produces civ.settlements_evacuated when the mission declares it', () => {
     const w = civWorld(
       {

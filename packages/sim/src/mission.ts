@@ -1077,8 +1077,14 @@ export class MissionRuntime {
     const won = primaries.length > 0 && primaries.every((o) => o.status === 'complete');
     const wiped =
       this.playerIds.length > 0 && this.playerIds.every((id) => this.sim.state.alive[id] === 0);
-    // An ROE collapse loses the mission even with objectives in hand.
-    const lost = wiped || this.roeFailed;
+    // An ROE collapse loses the mission even with objectives in hand — and so
+    // does a failed primary. `evacuate_before` is the first objective type
+    // that can become 'failed'; without this, a mission that marks one
+    // primary and misses its deadline can never end: victory needs every
+    // primary complete, defeat was wipe-or-ROE only, and the player is left
+    // in a mission that is unwinnable and unlosable at once.
+    const failedPrimary = primaries.some((o) => o.status === 'failed');
+    const lost = wiped || this.roeFailed || failedPrimary;
     if (!lost && !won) return;
 
     this.ended = true;
