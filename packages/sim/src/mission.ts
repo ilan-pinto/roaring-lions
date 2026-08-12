@@ -497,6 +497,16 @@ export class MissionRuntime {
     for (const [tag, ids] of this.tags) {
       if (ids.length === 0) throw new Error(`mission ${this.mission.id}: tag "${tag}" has no units`);
     }
+    // Waves spawn minutes in, so a wave aimed into a wall would throw in the
+    // middle of a firefight. Their markers are known now, so check them now:
+    // a broken wave should fail at mission load, not at t=180s.
+    for (const w of this.mission.enemy?.waves ?? []) {
+      for (const u of w.units) {
+        if (!u.from) continue; // spawnPlacement reports the missing marker itself
+        const [wx, wy] = this.markerPos(u.from);
+        this.assertGroundClear(u.unit, wx, wy, u.count);
+      }
+    }
     for (const o of this.objectives) {
       if (o.def.type === 'eliminate_hvt') {
         const tag = o.def.target;
@@ -598,6 +608,47 @@ export class MissionRuntime {
 
   // ------------------------------------------------------------------ spawns
 
+  /**
+   * Refuse to spawn anyone inside a building.
+   *
+   * A placement's `count` does not stack bodies on one tile: `spawnPlacement`
+   * spreads them `SPREAD` apart, so a `count: 3` group occupies its declared
+   * tile *plus* two more to the east, and a fourth body starts a second row to
+   * the south. That is why checking the declared coordinate proves nothing —
+   * a civilian group whose `at` was open street put its middle body inside a
+   * mosque, where it could never path out: a family scored against the player
+   * that was impossible to rescue. It survived a hand audit and a code review,
+   * because both looked only at `at`, and only playing the mission found it.
+   *
+   * So the engine checks every body, and says which one.
+   *
+   * Garrison stances are the one exemption, and the caller applies it: a unit
+   * ordered into a building is entering it, not trapped in it, and posting a
+   * squad at the doorway so it walks in is normal authoring — the spread of a
+   * `count: 2` at the door legitimately puts the second body on the building's
+   * own tile. Residual risk accepted: an overflowing garrison waits outside,
+   * and nothing checks that the tile it waits on is passable.
+   */
+  private assertGroundClear(unitId: string, bx: Fx, by: Fx, count: number): void {
+    for (let k = 0; k < count; k++) {
+      const tx = fx.add(bx, (k % 3) * SPREAD) >> 16;
+      const ty = fx.add(by, ((k - (k % 3)) / 3) * SPREAD) >> 16;
+      if (tx < 0 || ty < 0 || tx >= this.sim.width || ty >= this.sim.height) {
+        throw new Error(
+          `mission ${this.mission.id}: ${unitId} body ${k + 1} of ${count} spawns at ` +
+            `(${tx},${ty}), off the ${this.sim.width}x${this.sim.height} map`
+        );
+      }
+      if (this.sim.blocked[ty * this.sim.width + tx] === 1) {
+        throw new Error(
+          `mission ${this.mission.id}: ${unitId} body ${k + 1} of ${count} spawns at ` +
+            `(${tx},${ty}), which is blocked. A placement spreads its bodies 1.25 tiles ` +
+            `apart, so a clear declared position does not mean clear ground`
+        );
+      }
+    }
+  }
+
   private markerPos(name: string): [Fx, Fx] {
     const m = this.ctx.markers[name];
     if (!m) throw new Error(`mission ${this.mission.id}: unknown marker "${name}"`);
@@ -679,6 +730,13 @@ export class MissionRuntime {
       if (veterancies.length === 0) veterancies = [0];
     } else {
       veterancies = new Array(p.count).fill(0);
+    }
+
+    // A garrisoning placement is exempt: it is ordered into a building and walks
+    // in on the first ticks, so standing on its tile at spawn is the job, not a
+    // trap. Everything else must land on ground it can move off.
+    if (p.stance?.kind !== 'garrison') {
+      this.assertGroundClear(p.unit, bx, by, veterancies.length);
     }
 
     const ids: number[] = [];

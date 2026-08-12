@@ -1542,3 +1542,85 @@ describe('ROE ratings per mission', () => {
 
 });
 
+
+describe('placements cannot spawn inside a building', () => {
+  /** A world with one 2x2 building at (10,5)-(11,6), and a mission that has not
+   *  started yet — so a test can choose where to put a placement relative to it. */
+  function walledWorld(mission: MissionJson, ctx?: Partial<MissionContext>) {
+    const sim = new Sim({ seed: 3, width: 28, height: 12, capacity: 32 });
+    const ids = new Map<string, number>();
+    for (const t of [SQUAD, CIVILIANS]) ids.set(t.id, sim.addUnitType(t));
+    const wall = sim.addStructureType({ id: 'wall', hp_per_tile: 90, garrison_slots: 0 });
+    // Tile indices for (10,5), (11,5), (10,6), (11,6).
+    sim.addStructure(wall, [5 * 28 + 10, 5 * 28 + 11, 6 * 28 + 10, 6 * 28 + 11]);
+    const runtime = new MissionRuntime(sim, mission, {
+      typeIdOf: (u) => {
+        const t = ids.get(u);
+        if (t === undefined) throw new Error(`unknown unit ${u}`);
+        return t;
+      },
+      markers: {},
+      zones: {},
+      ...ctx,
+    });
+    return { sim, runtime };
+  }
+
+  it('refuses a placement whose own tile is a building', () => {
+    const w = walledWorld(
+      baseMission({ starting_force: [{ unit: 'm_squad', count: 1, at: [10, 5] }] })
+    );
+    expect(() => w.runtime.start()).toThrow(/m_squad/);
+    expect(() => w.runtime.start()).toThrow(/\(10,5\)/);
+  });
+
+  it('refuses a placement whose SPREAD sibling lands in a building, though its own tile is clear', () => {
+    // count 3 spreads to +0, +1.25 and +2.5 tiles east. Declared at (8,5): the
+    // third body lands on (10,5), which is the building. This is the exact shape
+    // of the bug that trapped a civilian in a mosque -- the declared tile is fine.
+    const w = walledWorld(
+      baseMission({ starting_force: [{ unit: 'm_squad', count: 3, at: [8, 5] }] })
+    );
+    expect(() => w.runtime.start()).toThrow(/m_squad/);
+    // The message must name the offending body, not just the placement.
+    expect(() => w.runtime.start()).toThrow(/\(10,5\)/);
+  });
+
+  it('allows a placement whose whole spread is clear ground', () => {
+    const w = walledWorld(
+      baseMission({ starting_force: [{ unit: 'm_squad', count: 3, at: [2, 2] }] })
+    );
+    expect(() => w.runtime.start()).not.toThrow();
+  });
+
+  it('exempts a garrisoning placement — it is entering the building, not trapped in it', () => {
+    // Posting a squad at the doorway is normal authoring, and a count-2 spread
+    // legitimately puts the second body on the building's own tile. The unit
+    // walks in on the first ticks, so this must stay allowed.
+    const w = walledWorld(
+      baseMission({
+        enemy: {
+          garrison: [
+            {
+              unit: 'm_squad',
+              count: 2,
+              at: [9, 5],
+              stance: { kind: 'garrison', building: [10, 5] },
+            },
+          ],
+        },
+      })
+    );
+    expect(() => w.runtime.start()).not.toThrow();
+  });
+
+  it('checks civilians too — they are the ones who get trapped', () => {
+    const w = walledWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [2, 2] }],
+        civilians: { groups: [{ unit: 'm_civ', count: 1, at: [11, 6] }] },
+      })
+    );
+    expect(() => w.runtime.start()).toThrow(/m_civ/);
+  });
+});
