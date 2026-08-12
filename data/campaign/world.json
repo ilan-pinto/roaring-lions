@@ -14,8 +14,8 @@
           "id": "beit_sahwan",
           "name": "Beit Sahwan",
           "at": [
-            192.0,
-            336.0
+            195.0,
+            372.0
           ],
           "missions": [
             "beit_sahwan_1_recon",
@@ -36,8 +36,8 @@
           "id": "deir_amun",
           "name": "Deir Amun",
           "at": [
-            186.0,
-            456.0
+            192.0,
+            420.0
           ],
           "missions": []
         }
@@ -57,8 +57,8 @@
           "id": "tel_marum",
           "name": "Tel Marum",
           "at": [
-            609.0,
-            185.0
+            570.0,
+            164.0
           ],
           "missions": []
         },
