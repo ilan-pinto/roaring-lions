@@ -81,13 +81,14 @@ The cost curve prices units against each other; these anchors tie it to time. Al
 
 ## 4. Phase system
 
-Five phases. Each is normally the spine of its own **short mission** (see §6), and each writes to the campaign ledger that later phases read.
+Six phases. Each is normally the spine of its own **short mission** (see §6), and each writes to the campaign ledger that later phases read.
 
-1. **Recon** — drones, scout teams, snipers. Mark tunnel mouths, weapon caches, civilian-occupied structures. Low force, high stealth, heavy Intel generation.
-2. **Foothold** — establish the FOB under harassment. Engineering, supply corridor, Iron Dome battery. Defensive, time-pressured.
-3. **Build-up** — production and force composition. The one phase where the player has breathing room; Intel is spent here on the coming assault.
-4. **Clearance** — block-by-block combined arms. The main combat phase. ROE pressure peaks.
-5. **Subterranean** — escort the EOD squad to shafts and the command bunker while the enemy commits everything remaining.
+1. **Breach** — the enemy attacks and the player is the one holding. Outnumbered, no corridor, no reinforcements: survive, get civilians clear, and still hold a position when relief arrives. Losing ground is the design, not a failure state. Any doctrine can open on the back foot.
+2. **Recon** — drones, scout teams, snipers. Mark tunnel mouths, weapon caches, civilian-occupied structures. Low force, high stealth, heavy Intel generation.
+3. **Foothold** — establish the FOB under harassment. Engineering, supply corridor, Iron Dome battery. Defensive, time-pressured.
+4. **Build-up** — production and force composition. The one phase where the player has breathing room; Intel is spent here on the coming assault.
+5. **Clearance** — block-by-block combined arms. The main combat phase. ROE pressure peaks.
+6. **Subterranean** — escort the EOD squad to shafts and the command bunker while the enemy commits everything remaining.
 
 ### Carry-over is the system
 
@@ -96,7 +97,7 @@ Phases are not independent set-pieces. Recon quality propagates:
 - Thorough recon → tunnel mouths pre-marked, civilian zones flagged, ambush sites known before Phase 5
 - Rushed recon → shafts found under fire, ROE penalties stacking, casualties from unmarked IEDs
 
-This is one system expressed five ways, not five minigames.
+This is one system expressed six ways, not six minigames.
 
 ---
 
