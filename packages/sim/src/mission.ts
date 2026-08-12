@@ -211,7 +211,9 @@ type MissingMissionEventKind = Exclude<MissionEvent['kind'], (typeof MISSION_EVE
 type AssertNoMissingMissionKind<T extends never> = T;
 export type MissionEventKindsAreExhaustive = AssertNoMissingMissionKind<MissingMissionEventKind>;
 
-const SUPPORTED = new Set(['locate', 'eliminate_hvt', 'capture', 'hold_for', 'survive_until', 'destroy_all']);
+const SUPPORTED = new Set([
+  'locate', 'eliminate_hvt', 'capture', 'hold_for', 'survive_until', 'destroy_all', 'evacuate_before',
+]);
 
 /** Spread for multi-unit placements: 1.25 tiles. */
 const SPREAD = 81920;
@@ -273,6 +275,9 @@ export class MissionRuntime {
   private readonly enemyIds: number[] = [];
   private readonly civIds: number[] = [];
   private readonly civFled = new Set<number>();
+  /** Civilians who reached the refuge zone. Latched: getting people out is not
+   *  undone by what happens afterwards. */
+  private readonly civEvacuated = new Set<number>();
   private readonly zoneDeductedAt = new Map<string, number>();
   private roeScoreValue = 100;
   private roeFailed = false;
@@ -455,7 +460,7 @@ export class MissionRuntime {
       if (o.status === 'active') {
         const secs = o.def.seconds;
         if (secs !== undefined) {
-          if (o.def.type === 'survive_until') {
+          if (o.def.type === 'survive_until' || o.def.type === 'evacuate_before') {
             const left = secs * TICKS_PER_SECOND - this.sim.tickCount;
             ticksLeft = left > 0 ? left : 0;
           } else if (o.def.type === 'hold_for' || o.def.type === 'capture') {
@@ -494,7 +499,10 @@ export class MissionRuntime {
           throw new Error(`mission ${this.mission.id}: eliminate_hvt "${o.def.id}" needs a garrisoned tag`);
         }
       }
-      if ((o.def.type === 'capture' || o.def.type === 'hold_for') && !this.zone(o.def.target)) {
+      if (
+        (o.def.type === 'capture' || o.def.type === 'hold_for' || o.def.type === 'evacuate_before') &&
+        !this.zone(o.def.target)
+      ) {
         throw new Error(`mission ${this.mission.id}: objective "${o.def.id}" needs a valid zone`);
       }
     }
@@ -981,6 +989,7 @@ export class MissionRuntime {
       if (o.status !== 'active') continue;
       const d = o.def;
       let complete = false;
+      let failed = false;
       if (d.type === 'destroy_all') {
         complete = this.enemyIds.length > 0 && this.enemyIds.every((id) => this.sim.state.alive[id] === 0);
       } else if (d.type === 'eliminate_hvt') {
@@ -1010,10 +1019,31 @@ export class MissionRuntime {
         o.paused = held ? null : present ? 'contested' : 'unheld';
         if (held) o.holdTicks++;
         complete = o.holdTicks >= (d.seconds ?? 60) * TICKS_PER_SECOND;
+      } else if (d.type === 'evacuate_before') {
+        const z = this.zone(d.target);
+        if (z !== undefined) {
+          const st = this.sim.state;
+          for (const civ of this.civIds) {
+            if (this.civEvacuated.has(civ) || st.alive[civ] === 0) continue;
+            const tx = st.posX[civ] >> 16;
+            const ty = st.posY[civ] >> 16;
+            if (tx >= z[0] && tx < z[0] + z[2] && ty >= z[1] && ty < z[1] + z[3]) {
+              this.civEvacuated.add(civ);
+            }
+          }
+        }
+        complete = this.civEvacuated.size >= (d.count ?? 1);
+        // The deadline is the whole point: a clock the player cannot see expire
+        // is a hidden model (GDD §5.8), which is why this latches a status the
+        // HUD already draws rather than failing silently.
+        failed = !complete && tick >= (d.seconds ?? 300) * TICKS_PER_SECOND;
       }
       if (complete) {
         o.status = 'complete';
         out.push({ kind: 'objective', tick, id: d.id, status: 'complete' });
+      } else if (failed) {
+        o.status = 'failed';
+        out.push({ kind: 'objective', tick, id: d.id, status: 'failed' });
       }
     }
   }

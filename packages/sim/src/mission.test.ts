@@ -696,6 +696,91 @@ describe('civilians and ROE (GDD §6)', () => {
     // Still travelling toward the refuge, not pinned in place by re-issued orders.
     expect(w.sim.state.posX[civ]).toBeLessThan(x1);
   });
+
+  const REFUGE_CTX = { zones: { clinic: [20, 2, 4, 4], refuge_zone: [0, 8, 6, 4] } };
+
+  it('counts civilians who reach the refuge zone and completes at the count', () => {
+    const w = civWorld(
+      {
+        starting_force: [{ unit: 'm_squad', count: 1, at: [11, 6] }],
+        civilians: { groups: [{ unit: 'm_civ', count: 1, at: [12, 6] }], refuge: 'refuge' },
+        objectives: [
+          { id: 'evac', type: 'evacuate_before', primary: false, target: 'refuge_zone', count: 1, seconds: 600 },
+          { id: 'clock', type: 'survive_until', primary: true, seconds: 600 },
+        ],
+      },
+      REFUGE_CTX
+    );
+    const evs = w.step(600);
+    const done = evs.mission.filter((m) => m.kind === 'objective' && m.id === 'evac' && m.status === 'complete');
+    expect(done).toHaveLength(1);
+  });
+
+  it('marks the evacuation failed when the deadline passes short of the count', () => {
+    const w = civWorld(
+      {
+        // No soldier near the civilian: nobody is coming for them.
+        starting_force: [{ unit: 'm_squad', count: 1, at: [24, 2] }],
+        civilians: { groups: [{ unit: 'm_civ', count: 1, at: [20, 6] }], refuge: 'refuge' },
+        objectives: [
+          { id: 'evac', type: 'evacuate_before', primary: false, target: 'refuge_zone', count: 1, seconds: 5 },
+          { id: 'clock', type: 'survive_until', primary: true, seconds: 600 },
+        ],
+      },
+      REFUGE_CTX
+    );
+    const evs = w.step(5 * TICKS_PER_SECOND + 2);
+    const failed = evs.mission.filter((m) => m.kind === 'objective' && m.id === 'evac' && m.status === 'failed');
+    expect(failed).toHaveLength(1);
+    expect(w.runtime.objectiveList.find((o) => o.id === 'evac')?.status).toBe('failed');
+  });
+
+  it('a failed secondary evacuation does not lose the mission', () => {
+    const w = civWorld(
+      {
+        starting_force: [{ unit: 'm_squad', count: 1, at: [24, 2] }],
+        civilians: { groups: [{ unit: 'm_civ', count: 1, at: [20, 6] }], refuge: 'refuge' },
+        objectives: [
+          { id: 'evac', type: 'evacuate_before', primary: false, target: 'refuge_zone', count: 1, seconds: 5 },
+          { id: 'clock', type: 'survive_until', primary: true, seconds: 600 },
+        ],
+      },
+      REFUGE_CTX
+    );
+    w.step(5 * TICKS_PER_SECOND + 2);
+    expect(w.runtime.result).toBe('ongoing');
+  });
+
+  it('shows the evacuation deadline as a countdown, so an expiring clock is visible', () => {
+    const w = civWorld(
+      {
+        starting_force: [{ unit: 'm_squad', count: 1, at: [24, 2] }],
+        civilians: { groups: [{ unit: 'm_civ', count: 1, at: [20, 6] }], refuge: 'refuge' },
+        objectives: [
+          { id: 'evac', type: 'evacuate_before', primary: false, target: 'refuge_zone', count: 1, seconds: 60 },
+          { id: 'clock', type: 'survive_until', primary: true, seconds: 600 },
+        ],
+      },
+      REFUGE_CTX
+    );
+    w.step(20);
+    const view = w.runtime.objectiveList.find((o) => o.id === 'evac');
+    expect(view?.ticksLeft).toBe(60 * TICKS_PER_SECOND - 20);
+  });
+
+  it('refuses an evacuate_before whose target is not a zone', () => {
+    expect(() =>
+      civWorld(
+        {
+          civilians: { groups: [{ unit: 'm_civ', count: 1, at: [20, 6] }], refuge: 'refuge' },
+          objectives: [
+            { id: 'evac', type: 'evacuate_before', primary: false, target: 'not_a_zone', count: 1, seconds: 60 },
+          ],
+        },
+        REFUGE_CTX
+      )
+    ).toThrow(/needs a valid zone/);
+  });
 });
 
 describe('economy (GDD §3, just enough for M1)', () => {
