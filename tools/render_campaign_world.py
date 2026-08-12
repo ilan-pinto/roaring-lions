@@ -1,39 +1,42 @@
 """Generate the campaign world as ONE continuous terrain mesh, true top-down.
 
     /Applications/Blender.app/Contents/MacOS/Blender --background \
-        --python tools/render_campaign_world.py -- [progress]
+        --python tools/render_campaign_world.py
 
-`progress` is the campaign completion fraction 0..1 (default 0.35) and drives how much
-of the troops' road is drawn -- see `set_campaign_progress` at the bottom.
-
-This is the v2 map candidate, replacing the per-region layered approach with the brief:
+This is the v2 map candidate, replacing the per-region layered approach:
 
   * One high-density grid mesh covering the whole 1140x790 board. No gaps, no voids --
     countries are zones of the same surface, separated by raised ridges or sunken river
     valleys where the terrain itself changes, never by empty space.
-  * Nine countries: Kedem (home) dead centre, eight placeholder enemies around it,
-    their terrain all grey until each gets an art pass.
-  * Kedem carries three terrain bands: desert at the bottom (with Beit Sahwan),
-    urban in the middle, woodland at the top.
-  * Zones come from a domain-warped Voronoi over nine seeds -- warp makes the borders
-    organic instead of straight cell walls.
-  * Colour is a node material per zone: world-Z through a CONSTANT ColorRamp whose
+  * Nine countries on a jittered 3x3 lattice: each one a convex quad -- "random
+    rectangles", the way political borders read as surveyed lines rather than
+    coastlines -- with Kedem (home) dead centre and eight grey placeholder enemies
+    around it. The cell polygons are printed as JSON at build time so the shell can
+    position its own per-country overlays.
+  * Campaign progress is NOT baked into the render: the shell overlays the brigade
+    lion flag on completed countries. (The bezier-road bevel_factor_end dial from
+    the first cut is gone with it.)
+  * Kedem carries three terrain bands -- desert at the bottom, urban middle, woodland
+    top -- blended over ~32-unit transitions: heights are weight-mixed and the band
+    materials dither into each other, so the seams read as ecotones, not stripes.
+  * Beit Sahwan, the campaign's start point, sits at the bottom of Kedem: a tight
+    settlement cluster inside a terracotta ring marker, so the origin carries its
+    own visual weight.
+  * Colour is a node material per band: world-Z through a CONSTANT ColorRamp whose
     stops are palette keys. Deep water sits at the lowest heights, plains above,
     rock at ridge height. CONSTANT stops keep the output close to the locked
     32-colour palette so the post-render quantise barely has to move anything.
-  * A Bezier road winds from Beit Sahwan north through Kedem into enemy ground.
-    Its `bevel_factor_end` is the progress dial: 0 = no road, 1 = full road. The
-    shell re-renders headless with the fraction as the CLI arg after `--`.
 
 Self-contained except for `data/palette.json`: repo palette discipline outranks
 asset purity, every colour in the render must trace to a ramp key.
 
 Everything random is drawn from `rng_from` (same LCG as the layered script) or from
-Perlin noise at fixed offsets, so a re-render is byte-identical.
+the hash-based value noise below, so a re-render is byte-identical.
 
 Coordinates: SVG units, 1 unit = 1 layout px, X east; SVG y grows downward and is
 flipped into Blender Y by `to_world`. "Bottom of Kedem" = large SVG y = screen south.
 """
+import json
 import math
 import os
 import sys
@@ -69,13 +72,7 @@ SEA_Z = 0.0
 #: ridge crests top out near +42.
 Z_MIN, Z_MAX = -16.0, 44.0
 
-KEDEM = 4  # centre seed of the 3x3
-#: Kedem's three bands, in SVG y. The centre Voronoi cell nominally spans y 263..527;
-#: thirds of that, so each band is a readable stripe rather than a sliver.
-FOREST_MAX_Y = 351.0   # forest: y < this (screen top of Kedem)
-URBAN_MAX_Y = 439.0    # urban: FOREST_MAX_Y <= y < this; desert below (screen bottom)
-
-DEFAULT_PROGRESS = 0.35
+KEDEM = 4  # centre cell of the 3x3
 
 
 def rng_from(seed):
@@ -134,26 +131,75 @@ def fbm(x, y, salt=0, octaves=4):
     return total / norm
 
 
+def smoothstep(x, e0, e1):
+    t = max(0.0, min(1.0, (x - e0) / (e1 - e0)))
+    return t * t * (3.0 - 2.0 * t)
+
+
 # ----------------------------------------------------------------------- zones
 
-def _seeds():
-    """Nine country seeds on a jittered 3x3. Kedem's stays exactly central --
-    the whole point of the layout is the home country in the middle."""
-    rnd = rng_from(0xC4A9)
-    xs = (VIEW_W / 6.0, VIEW_W / 2.0, 5.0 * VIEW_W / 6.0)
-    ys = (VIEW_H / 6.0, VIEW_H / 2.0, 5.0 * VIEW_H / 6.0)
-    pts = []
-    for iy in range(3):
-        for ix in range(3):
-            jx = (rnd() - 0.5) * 76.0
-            jy = (rnd() - 0.5) * 76.0
-            if iy == 1 and ix == 1:
-                jx = jy = 0.0
-            pts.append((xs[ix] + jx, ys[iy] + jy))
-    return pts
+def _lattice():
+    """A 4x4 grid of border corners, jittered so no two countries are congruent.
+
+    Interior nodes wander in both axes; rim nodes only slide along their board edge
+    and the four corners stay pinned, so the nine quads tile the whole board with
+    no slivers by construction. Jitter is under half a cell in each axis, which
+    keeps every quad convex.
+    """
+    rnd = rng_from(0x1A77)
+    xs = (0.0, VIEW_W / 3.0, 2.0 * VIEW_W / 3.0, VIEW_W)
+    ys = (0.0, VIEW_H / 3.0, 2.0 * VIEW_H / 3.0, VIEW_H)
+    nodes = {}
+    for j in range(4):
+        for i in range(4):
+            jx = (rnd() - 0.5) * 110.0
+            jy = (rnd() - 0.5) * 110.0
+            if i in (0, 3):
+                jx = 0.0
+            if j in (0, 3):
+                jy = 0.0
+            nodes[(i, j)] = (xs[i] + jx, ys[j] + jy)
+    return nodes
 
 
-SEEDS = _seeds()
+_NODES = _lattice()
+#: Country polygons, id = row*3 + col, corners clockwise from the top-left.
+CELLS = [
+    [_NODES[(cx, cy)], _NODES[(cx + 1, cy)], _NODES[(cx + 1, cy + 1)], _NODES[(cx, cy + 1)]]
+    for cy in range(3) for cx in range(3)
+]
+_CENTROIDS = [(sum(x for x, _ in c) / 4.0, sum(y for _, y in c) / 4.0) for c in CELLS]
+
+#: Kedem's three bands, in SVG y: thirds of the ACTUAL centre cell, not of nominal
+#: constants -- the lattice jitter moves the cell, and the bands must move with it.
+_K_TOP = (CELLS[KEDEM][0][1] + CELLS[KEDEM][1][1]) / 2.0
+_K_BOT = (CELLS[KEDEM][2][1] + CELLS[KEDEM][3][1]) / 2.0
+FOREST_MAX_Y = _K_TOP + (_K_BOT - _K_TOP) / 3.0
+URBAN_MAX_Y = _K_TOP + 2.0 * (_K_BOT - _K_TOP) / 3.0
+#: Half-width of the ecotone where two bands weight-mix and dither together.
+BAND_BLEND = 16.0
+
+
+def point_in_poly(px, py, poly):
+    inside = False
+    n = len(poly)
+    for i in range(n):
+        x1, y1 = poly[i]
+        x2, y2 = poly[(i + 1) % n]
+        if (y1 > py) != (y2 > py):
+            xint = x1 + (py - y1) * (x2 - x1) / (y2 - y1)
+            if px < xint:
+                inside = not inside
+    return inside
+
+
+def _seg_dist(px, py, a, b):
+    ax, ay = a
+    bx, by = b
+    vx, vy = bx - ax, by - ay
+    t = max(0.0, min(1.0, ((px - ax) * vx + (py - ay) * vy) / (vx * vx + vy * vy)))
+    return math.hypot(px - (ax + vx * t), py - (ay + vy * t))
+
 
 #: Border style per country pair. A hash, not a hand list: any pair not named here
 #: gets a deterministic mix of mountain ridges and river valleys.
@@ -165,60 +211,65 @@ def _border_style(a, b):
 def zone_at(sx, sy):
     """(zone id, ridge factor 0..1, valley factor 0..1) at an SVG point.
 
-    Domain-warped nearest-seed: the warp is what turns straight Voronoi walls into
-    coastline-looking borders.
-
-    Border influence is accumulated from EVERY neighbour, not just the second-nearest.
-    The second-nearest-only version flipped ridge/valley per sample wherever two
-    different neighbours traded second place -- every triple junction grew a sawtooth
-    of alternating bumps and cuts. Taking max ridge and max valley influence
-    separately lets both features coexist smoothly where three countries meet.
+    The zone is whichever quad contains the point; border influence comes from the
+    distance to each of the quad's edges, so the features hug the straight surveyed
+    lines. A small wobble on the distance keeps the ranges from reading sterile
+    without bending the borders themselves. Edges on the board rim get no feature.
     """
-    wx = vnoise(sx * 0.004 + 11.0, sy * 0.004 + 5.0, salt=1)
-    wy = vnoise(sx * 0.004 + 11.0, sy * 0.004 + 5.0, salt=2)
-    px, py = sx + wx * 60.0, sy + wy * 60.0
-    dists = [math.hypot(px - cx, py - cy) for cx, cy in SEEDS]
-    zid = min(range(len(SEEDS)), key=lambda i: dists[i])
+    zid = -1
+    for i, poly in enumerate(CELLS):
+        if point_in_poly(sx, sy, poly):
+            zid = i
+            break
+    if zid < 0:  # exactly on a shared edge: nearest centroid owns it
+        zid = min(range(9), key=lambda i: (sx - _CENTROIDS[i][0]) ** 2 + (sy - _CENTROIDS[i][1]) ** 2)
+    poly = CELLS[zid]
+    cx, cy = zid % 3, zid // 3
+    neighbours = ((cx, cy - 1), (cx + 1, cy), (cx, cy + 1), (cx - 1, cy))
+    wob = 5.0 * vnoise(sx * 0.02, sy * 0.02, salt=10)
     ridge_t = valley_t = 0.0
-    for j, dj in enumerate(dists):
-        if j == zid:
+    for k, (nx, ny) in enumerate(neighbours):
+        if not (0 <= nx < 3 and 0 <= ny < 3):
             continue
-        e = dj - dists[zid]
-        # A mountain range on a 1140-unit map needs to be ~1/12th of a country
-        # across; the first render's 55-wide ridges read as hairline cracks.
-        if _border_style(zid, j) == "ridge":
-            ridge_t = max(ridge_t, 1.0 - e / 95.0)
+        d = _seg_dist(sx, sy, poly[k], poly[(k + 1) % 4]) + wob
+        # 70 wide: at 95 the rock ramp splattered across the gentle flanks and the
+        # ranges read as stains; narrower + taller = steeper = real shading.
+        if _border_style(zid, ny * 3 + nx) == "ridge":
+            ridge_t = max(ridge_t, 1.0 - d / 70.0)
         else:
-            valley_t = max(valley_t, 1.0 - e / 65.0)
+            valley_t = max(valley_t, 1.0 - d / 65.0)
     return zid, max(0.0, ridge_t), max(0.0, valley_t)
 
 
 def terrain(sx, sy):
     """(height, material band) at an SVG point. The single source of truth for the
-    surface -- the mesh displaces with it AND the road samples it, which is how the
-    road stays glued to the ground without any raycasting."""
+    surface -- the mesh displaces with it AND every set piece samples it, which is
+    how towns and trees sit on the ground without any raycasting."""
     zid, ridge_t, valley_t = zone_at(sx, sy)
 
     # Base relief, per terrain character; relief 0..1.
     relief = 0.5 * (fbm(sx * 0.006 + 7.3, sy * 0.006 + 2.1, salt=3) + 1.0)
-    # Kedem's bands meet on noise-wavy lines, not ruler-straight y thresholds.
-    band_y = sy + 18.0 * vnoise(sx * 0.012, 4.4, salt=5)
     if zid != KEDEM:
         # Placeholders stay CALM as well as grey: taller relief grew lit patches
         # that quantised olive, and a placeholder should not compete for the eye.
         z = 8.0 + 3.0 * relief
         band = 0  # grey placeholder
-    elif band_y >= URBAN_MAX_Y:
+    else:
+        # Kedem's bands meet on noise-wavy lines, and BLEND across them: the three
+        # height profiles are weight-mixed through the ecotone, and the material
+        # pick dithers in proportion to the same weights -- a hard threshold drew
+        # ruler stripes across the country.
+        band_y = sy + 18.0 * vnoise(sx * 0.012, 4.4, salt=5)
+        w_forest = 1.0 - smoothstep(band_y, FOREST_MAX_Y - BAND_BLEND, FOREST_MAX_Y + BAND_BLEND)
+        w_desert = smoothstep(band_y, URBAN_MAX_Y - BAND_BLEND, URBAN_MAX_Y + BAND_BLEND)
+        w_urban = max(0.0, 1.0 - w_forest - w_desert)
         # Desert: shallow anisotropic ripple reads as wind rows, not fish scales.
         ripple = vnoise(sx * 0.05, sy * 0.012, salt=4)
-        z = 8.0 + 3.0 * relief + 1.6 * ripple
-        band = 1
-    elif band_y >= FOREST_MAX_Y:
-        z = 9.0 + 1.2 * relief  # urban: near-flat, buildings carry the texture
-        band = 2
-    else:
-        z = 8.0 + 6.0 * relief  # woodland: rolling
-        band = 3
+        z = (w_desert * (8.0 + 3.0 * relief + 1.6 * ripple)
+             + w_urban * (9.0 + 1.2 * relief)
+             + w_forest * (8.0 + 6.0 * relief))
+        pick = 0.5 * (vnoise(sx * 0.31, sy * 0.31, salt=9) + 1.0)
+        band = 1 if pick < w_desert else (3 if pick > 1.0 - w_forest else 2)
 
     # Border features: what actually separates the countries. The crest multiplier
     # varies along the range so peaks alternate with saddles, and a finer corrugation
@@ -230,8 +281,8 @@ def terrain(sx, sy):
         edge = min(sx, VIEW_W - sx, sy, VIEW_H - sy)
         fade = max(0.0, min(1.0, edge / 50.0))
         rocky = 0.75 + 0.55 * vnoise(sx * 0.03, sy * 0.03, salt=6)
-        spurs = 14.0 * ridge_t * vnoise(sx * 0.055, sy * 0.055, salt=7)
-        z += (38.0 * (ridge_t ** 3) * rocky + spurs) * fade
+        spurs = 8.0 * ridge_t * vnoise(sx * 0.055, sy * 0.055, salt=7)
+        z += (48.0 * (ridge_t ** 3) * rocky + spurs) * fade
     if valley_t > 0.0:
         # Blend toward the truncation instead of min()-capping outright: the hard cap
         # guillotined any ridge entering a valley's influence and left cliff walls.
@@ -309,7 +360,7 @@ def flat(name, colour_key, roughness=0.85):
 #: border they are. Warm limestone rock, not gunmetal: sunlit gunmetal under the warm
 #: sun quantises into the olive ramp, which smeared the first render's ridges green.
 WATER = [(Z_MIN, "water.0"), (-5.0, "water.1")]
-ROCK = [(18.0, "dust.5"), (27.0, "limestone.6"), (36.0, "limestone.7")]
+ROCK = [(20.0, "dust.5"), (30.0, "limestone.6"), (40.0, "limestone.7")]
 
 BAND_STOPS = [
     WATER + [(1.2, "gunmetal.1")] + ROCK,                                          # 0 grey
@@ -431,20 +482,28 @@ def _canopy(add, sx, sy, r, h, sides=12):
     add(verts, faces)
 
 
-def scatter_city(road_pts):
-    """Kedem's urban band: a jittered grid of low blocks, parted around the road so
-    the campaign path visibly threads the capital rather than being painted over."""
+def _kedem_x_span():
+    xs = [x for x, _ in CELLS[KEDEM]]
+    return min(xs) + 10.0, max(xs) - 10.0
+
+
+def scatter_city(clear_at=None, clear_r=44.0):
+    """Kedem's urban band: a jittered grid of low blocks. The band gate is the
+    dithered pick from `terrain`, so the city thins out THROUGH the ecotones --
+    stray blocks reach into the desert and under the treeline instead of stopping
+    on a line. `clear_at` keeps open ground around the start-point marker."""
     walls = [flat("wall_a", "limestone.2"), flat("wall_b", "limestone.3"),
              flat("wall_c", "limestone.4")]
     batches = [_batched_mesh(f"city_{i}", m) for i, m in enumerate(walls)]
     rnd = rng_from(0x0B71)
     placed = 0
-    # The loop overshoots both band edges by the wave amplitude; the band check on
+    kx0, kx1 = _kedem_x_span()
+    # The loop overshoots both band edges by the blend width; the band check on
     # each candidate is what actually gates placement.
-    sy = FOREST_MAX_Y - 14.0
-    while sy < URBAN_MAX_Y + 14.0:
-        sx = SEEDS[KEDEM][0] - 175.0
-        while sx < SEEDS[KEDEM][0] + 175.0:
+    sy = FOREST_MAX_Y - BAND_BLEND - 6.0
+    while sy < URBAN_MAX_Y + BAND_BLEND + 6.0:
+        sx = kx0
+        while sx < kx1:
             jx, jy = sx + (rnd() - 0.5) * 8.0, sy + (rnd() - 0.5) * 8.0
             # District mask: low-frequency noise clumps the blocks into quarters
             # with open ground between. A uniform scatter reads as confetti; the
@@ -453,8 +512,8 @@ def scatter_city(road_pts):
             keep = district and rnd() < 0.88
             zid, ridge_t, valley_t = zone_at(jx, jy)
             z, band = terrain(jx, jy)
-            near_road = any((jx - rx) ** 2 + (jy - ry) ** 2 < 100.0 for rx, ry in road_pts)
-            if keep and zid == KEDEM and band == 2 and z < 16.0 and not near_road:
+            near_start = clear_at and (jx - clear_at[0]) ** 2 + (jy - clear_at[1]) ** 2 < clear_r ** 2
+            if keep and zid == KEDEM and band == 2 and z < 16.0 and not near_start:
                 add, _ = batches[int(rnd() * 3) % 3]
                 _block(add, jx, jy, 5.0 + rnd() * 4.0, 5.0 + rnd() * 4.0, 3.0 + rnd() * 4.0)
                 placed += 1
@@ -472,10 +531,11 @@ def scatter_forest():
     batches = [_batched_mesh(f"forest_{i}", m) for i, m in enumerate(greens)]
     rnd = rng_from(0xF03E)
     placed = 0
-    sy = 256.0
-    while sy < FOREST_MAX_Y + 14.0:
-        sx = SEEDS[KEDEM][0] - 180.0
-        while sx < SEEDS[KEDEM][0] + 180.0:
+    kx0, kx1 = _kedem_x_span()
+    sy = _K_TOP + 4.0
+    while sy < FOREST_MAX_Y + BAND_BLEND + 6.0:
+        sx = kx0
+        while sx < kx1:
             jx, jy = sx + (rnd() - 0.5) * 7.0, sy + (rnd() - 0.5) * 7.0
             keep = rnd() < 0.85
             zid, ridge_t, valley_t = zone_at(jx, jy)
@@ -492,97 +552,55 @@ def scatter_forest():
 
 
 def find_beit_sahwan():
-    """Bottom of Kedem: walk north from the southern border until we are inside
-    Kedem's desert band and off the border ridge. Searched, not hand-placed --
-    the warp moves the border, and a hand constant ends up in the wrong country."""
-    sx = SEEDS[KEDEM][0]
-    sy = 526.0
-    while sy > URBAN_MAX_Y + 10.0:
+    """Bottom of Kedem: walk north from the southern border until we are on solid
+    desert, clear of the border features AND of the ecotone. Searched, not
+    hand-placed -- the lattice jitter moves the cell, and a hand constant ends up
+    in the wrong country."""
+    sx = _CENTROIDS[KEDEM][0]
+    sy = _K_BOT - 4.0
+    while sy > URBAN_MAX_Y + BAND_BLEND:
         zid, ridge_t, valley_t = zone_at(sx, sy)
-        if zid == KEDEM and max(ridge_t, valley_t) < 0.15:
-            return (sx, sy - 10.0)
+        band_y = sy + 18.0 * vnoise(sx * 0.012, 4.4, salt=5)
+        if zid == KEDEM and max(ridge_t, valley_t) < 0.12 and band_y >= URBAN_MAX_Y + BAND_BLEND:
+            return (sx, sy - 12.0)
         sy -= 4.0
     raise SystemExit("no spot for Beit Sahwan inside Kedem's desert band")
 
 
 def build_beit_sahwan(at):
-    """A tight settlement cluster plus a named Empty so the town is addressable
-    from the GUI and from any later registration script."""
+    """The campaign's start point, and drawn as one: a tight settlement cluster
+    inside a terracotta ring baked into the ground. With the road gone (progress
+    is the shell's flag overlay), the origin has to carry its own visual weight.
+    A named Empty keeps the town addressable from the GUI."""
     walls = [flat("bs_a", "limestone.3"), flat("bs_b", "limestone.4"), flat("bs_c", "dust.5")]
     batches = [_batched_mesh(f"beit_sahwan_{i}", m) for i, m in enumerate(walls)]
     rnd = rng_from(0xBE17)
-    for _ in range(24):
-        a, r = rnd() * 2.0 * math.pi, rnd() * 18.0
-        jx, jy = at[0] + r * math.cos(a), at[1] + r * math.sin(a) * 0.7
+    for _ in range(30):
+        a, r = rnd() * 2.0 * math.pi, 2.0 + rnd() * 18.0
+        jx, jy = at[0] + r * math.cos(a), at[1] + r * math.sin(a) * 0.75
         add, _ = batches[int(rnd() * 3) % 3]
-        _block(add, jx, jy, 4.0 + rnd() * 3.0, 4.0 + rnd() * 3.0, 3.0 + rnd() * 3.0)
+        _block(add, jx, jy, 4.0 + rnd() * 3.5, 4.0 + rnd() * 3.5, 3.0 + rnd() * 3.5)
     for _, commit in batches:
         commit()
+
+    ring_add, ring_commit = _batched_mesh("bs_ring", flat("bs_ring", "terracotta.2", roughness=0.8))
+    seg, r0, r1 = 32, 30.0, 37.0
+    for i in range(seg):
+        a0 = 2.0 * math.pi * i / seg
+        a1 = 2.0 * math.pi * (i + 1) / seg
+        quad = []
+        for (a, r) in ((a0, r0), (a1, r0), (a1, r1), (a0, r1)):
+            px, py = at[0] + r * math.cos(a), at[1] + r * math.sin(a) * 0.8
+            z, _ = terrain(px, py)
+            quad.append((*to_world(px, py), z + 1.2))
+        ring_add(quad, [(0, 1, 2, 3)])
+    ring_commit()
+
     marker = bpy.data.objects.new("beit_sahwan", None)
     z, _ = terrain(*at)
     marker.location = (*to_world(*at), z + 6.0)
     marker.empty_display_size = 12.0
     bpy.context.collection.objects.link(marker)
-
-
-# --------------------------------------------------------------------- the road
-
-def road_points(start):
-    """The troops' path: Beit Sahwan north through the capital and the woods, over
-    the northern border into enemy ground. Sampled densely (every ~20 units) so the
-    AUTO bezier handles hug the terrain over the border ridge instead of tunnelling."""
-    end_y = 95.0
-    pts = []
-    # Dense: at 22 samples the AUTO handles cut inside the sharpened border crest and
-    # the road visibly tunnelled where it crossed the range. ~9 units per sample hugs it.
-    n = 46
-    for i in range(n + 1):
-        f = i / n
-        sy = start[1] + (end_y - start[1]) * f
-        sx = start[0] + 60.0 * math.sin(f * 2.2 * math.pi + 0.6) * (1.0 - 0.25 * f)
-        pts.append((sx, sy))
-    return pts
-
-
-def build_road(pts, progress):
-    curve = bpy.data.curves.new("campaign_road", type="CURVE")
-    curve.dimensions = "3D"
-    spline = curve.splines.new("BEZIER")
-    spline.bezier_points.add(len(pts) - 1)
-    for bp, (sx, sy) in zip(spline.bezier_points, pts):
-        z, _ = terrain(sx, sy)
-        bp.co = Vector((*to_world(sx, sy), z + 2.6))
-        bp.handle_left_type = bp.handle_right_type = "AUTO"
-
-    # The progress dial. bevel_factor_end grows the swept ribbon from the spline's
-    # start; SPLINE mapping makes the fraction proportional to arc position, so 0.5
-    # is visually half the journey, not half the control points.
-    curve.bevel_depth = 2.6
-    curve.bevel_resolution = 2
-    curve.use_fill_caps = True
-    curve.bevel_factor_mapping_start = "SPLINE"
-    curve.bevel_factor_mapping_end = "SPLINE"
-    curve.bevel_factor_start = 0.0
-    curve.bevel_factor_end = max(0.0, min(1.0, progress))
-
-    curve.materials.append(flat("road", "terracotta.1", roughness=0.7))
-    ob = bpy.data.objects.new("campaign_road", curve)
-    bpy.context.collection.objects.link(ob)
-    return ob
-
-
-def set_campaign_progress(fraction):
-    """The hook the render rig calls: 0.0 = no road, 1.0 = road reaches the far end.
-
-    Headless usage from the shell's tooling:
-
-        Blender --background art/src/campaign/kedem_world.blend \
-            --python-expr "import bpy; \
-                bpy.data.curves['campaign_road'].bevel_factor_end = 0.62; \
-                bpy.context.scene.render.filepath = 'assets/campaign/world_map.png'; \
-                bpy.ops.render.render(write_still=True)"
-    """
-    bpy.data.curves["campaign_road"].bevel_factor_end = max(0.0, min(1.0, fraction))
 
 
 # ------------------------------------------------------------------ scene rig
@@ -639,12 +657,6 @@ def camera_and_light():
 # ------------------------------------------------------------------------ main
 
 def main():
-    progress = DEFAULT_PROGRESS
-    if "--" in sys.argv:
-        rest = sys.argv[sys.argv.index("--") + 1:]
-        if rest:
-            progress = float(rest[0])
-
     bpy.ops.wm.read_factory_settings(use_empty=True)  # no default cube, light, camera
     camera_and_light()
 
@@ -653,10 +665,13 @@ def main():
     bs = find_beit_sahwan()
     print(f"beit sahwan at SVG ({bs[0]:.0f}, {bs[1]:.0f})")
     build_beit_sahwan(bs)
-    pts = road_points(bs)
-    scatter_city(pts)
+    scatter_city(clear_at=bs)
     scatter_forest()
-    build_road(pts, progress)
+
+    # The shell overlays per-country state (the brigade lion flag on completed
+    # countries) on top of this render; these polygons are its geometry contract.
+    print("country polygons:", json.dumps(
+        [[[round(x, 1), round(y, 1)] for x, y in poly] for poly in CELLS]))
 
     os.makedirs(os.path.dirname(OUT_BLEND), exist_ok=True)
     bpy.ops.wm.save_as_mainfile(filepath=OUT_BLEND)
@@ -665,7 +680,7 @@ def main():
     bpy.context.scene.render.image_settings.file_format = "PNG"
     bpy.context.scene.render.image_settings.color_mode = "RGBA"
     bpy.ops.render.render(write_still=True)
-    print(f"wrote {OUT_PNG} (progress={progress})")
+    print(f"wrote {OUT_PNG}")
     print(f"NEXT: python3 tools/quantize_sprites.py --file {OUT_PNG} to lock it to the palette")
 
 
