@@ -15,6 +15,11 @@ function w(penetration: number, damage: number, splash: number, suppression: num
     suppPerMiss: fx.div(fx.from(suppression), fx.fromInt(700)),
     ticksBetweenShots: 1,
     collateralRisk: 0,
+    // This helper scores a weapon's VFX power, which does not care what the
+    // weapon may shoot at. Ground-only matches the sim's default for a weapon
+    // that declares no can_target.
+    canTargetGround: true,
+    canTargetAir: false,
   };
 }
 

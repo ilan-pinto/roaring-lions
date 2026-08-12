@@ -224,6 +224,15 @@
           "type": "boolean",
           "default": false,
           "description": "D9-class. Opens assault lanes and forces flow-field recompute."
+        },
+        "domain": {
+          "type": "string",
+          "enum": [
+            "ground",
+            "air"
+          ],
+          "default": "ground",
+          "description": "Where the unit moves. `air` flies: it ignores terrain blocking and is engageable only by weapons whose can_target includes \"air\". Absent means ground, so every existing unit is unchanged."
         }
       }
     },

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cadenceScale, resolveClip, ROUT_CADENCE, type UnitAnimInput } from './clip';
+import { cadenceScale, resolveClip, resolveTurretClip, ROUT_CADENCE, type UnitAnimInput } from './clip';
 
 const alive: UnitAnimInput = { alive: 1, routed: 0, pinned: 0, speed: 0, firing: false };
 
@@ -88,5 +88,29 @@ describe('cadenceScale', () => {
 
   it('does not speed up a routed unit that is down', () => {
     expect(cadenceScale({ ...alive, routed: 1, pinned: 1, speed: 0 })).toBe(1);
+  });
+});
+
+describe('resolveTurretClip — a station has a smaller vocabulary than its hull', () => {
+  const both = { idle: 1, fire: 1 };
+  const idleOnly = { idle: 1 };
+
+  it('recoils only while the hull is firing', () => {
+    expect(resolveTurretClip('fire', both)).toBe('fire');
+    expect(resolveTurretClip('idle', both)).toBe('idle');
+  });
+
+  it('never asks for a clip the sheet does not declare', () => {
+    // Every turret sheet but the gun truck's is idle-only. Asking for `fire`
+    // there would fall through to a missing texture set.
+    expect(resolveTurretClip('fire', idleOnly)).toBe('idle');
+    expect(resolveTurretClip('fire', undefined)).toBe('idle');
+  });
+
+  it('does not pass hull-only clips through', () => {
+    // `move`, `down` and `wreck` exist on hull sheets and on no turret sheet.
+    for (const c of ['move', 'down', 'wreck'] as const) {
+      expect(resolveTurretClip(c, both)).toBe('idle');
+    }
   });
 });

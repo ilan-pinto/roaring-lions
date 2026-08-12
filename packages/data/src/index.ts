@@ -30,6 +30,11 @@ import rpgTeam from '../../../data/units/enemy/rpg_team.json';
 import atgmCell from '../../../data/units/enemy/atgm_cell.json';
 import technical from '../../../data/units/enemy/technical.json';
 import mortarCrew from '../../../data/units/enemy/mortar_crew.json';
+import gunTruck from '../../../data/units/enemy/gun_truck.json';
+import motoRpg from '../../../data/units/enemy/moto_rpg.json';
+import chargeSquad from '../../../data/units/enemy/charge_squad.json';
+import paramotor from '../../../data/units/enemy/paramotor.json';
+import loiterDrone from '../../../data/units/enemy/loiter_drone.json';
 import civilians from '../../../data/units/civilians.json';
 
 import fireApfsds from '../../../data/vfx/fire_apfsds.json';
@@ -110,6 +115,11 @@ export const units = {
   atgm_cell: atgmCell,
   technical: technical,
   mortar_crew: mortarCrew,
+  gun_truck: gunTruck,
+  moto_rpg: motoRpg,
+  charge_squad: chargeSquad,
+  paramotor: paramotor,
+  loiter_drone: loiterDrone,
   civilians: civilians,
 } as const;
 

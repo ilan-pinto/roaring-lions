@@ -92,6 +92,14 @@ export interface StructureSpec {
   /** Drawn width in map tiles. Derived by the render script, not authored. */
   scale: number;
   /**
+   * The rubble frame, or null on a sheet rendered before wrecks existed.
+   *
+   * A destroyed building used to draw nothing at all: the sim unblocks its
+   * tiles, so the terrain loop stopped reaching the sprite branch and a mosque
+   * simply vanished mid-battle.
+   */
+  wreckFile: string | null;
+  /**
    * Px from the anchor up to the building's **roof plane** — the highest place
    * something could stand — as distinct from `badgeTopPx`, which is the top of the
    * art. For the mosque those differ by 33px, because the top of the art is the tip
@@ -202,8 +210,21 @@ export function parseManifest(raw: unknown): SheetSpec {
 export function parseStructureManifest(raw: unknown): StructureSpec {
   if (!isRecord(raw)) throw new Error('structure manifest: expected an object');
   const files = Array.isArray(raw.files) ? raw.files : [];
-  const first = files.length > 0 && isRecord(files[0]) ? files[0] : null;
-  const file = typeof first?.file === 'string' ? first.file : 'idle_f00_000.png';
+  // Found by clip, not by position. files[0] happened to be idle while a
+  // building sheet had exactly one frame; now that wrecks exist, relying on
+  // order would be one reordering away from drawing rubble on a live building.
+  const pick = (clip: string): string | null => {
+    for (const f of files) {
+      if (isRecord(f) && f.clip === clip && typeof f.file === 'string') return f.file;
+    }
+    return null;
+  };
+  const firstFile =
+    files.length > 0 && isRecord(files[0]) && typeof files[0].file === 'string'
+      ? files[0].file
+      : 'idle_f00_000.png';
+  const file = pick('idle') ?? firstFile;
+  const wreckFile = pick('wreck');
   const badge = raw.badgeTopPx;
   const roof = raw.roofTopPx;
   return {
@@ -211,6 +232,7 @@ export function parseStructureManifest(raw: unknown): StructureSpec {
     badgeTopPx: typeof badge === 'number' && Number.isFinite(badge) ? badge : null,
     roofTopPx: typeof roof === 'number' && Number.isFinite(roof) ? roof : null,
     file,
+    wreckFile,
   };
 }
 

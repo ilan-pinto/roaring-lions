@@ -113,6 +113,21 @@ function sandboxSpawns(sim: Sim, typeOf: Map<string, number>): void {
   spawn('technical', 1, 42, 14, WEST);
   spawn('technical', 1, 42, 32, WEST);
   spawn('mortar_crew', 1, 44, 24, WEST);
+  // The raider set. The sandbox is the only place these appear -- no mission
+  // places them yet -- so this is what makes their art reachable in play at
+  // all, and what the art was verified against.
+  //
+  // They sit in the militia band (x 26-33), not out on the east edge where they
+  // were first placed. A hostile draws no sprite at all until a KDF unit sees
+  // its tile, so anything parked at x 45 is invisible for the whole opening --
+  // and scouting it with the drone does not work either, since the gun truck is
+  // an AA platform and kills the drone before the fog lifts. Placed here, the
+  // first push east reveals them.
+  spawn('gun_truck', 1, 32, 17, WEST);
+  spawn('charge_squad', 1, 31, 20, WEST);
+  spawn('loiter_drone', 1, 30, 22, WEST);
+  spawn('moto_rpg', 1, 26, 28, WEST);
+  spawn('paramotor', 1, 33, 29, WEST);
 }
 
 /** Mission narration for the HUD notice stack: what to say, and how it lands. */
@@ -332,6 +347,22 @@ async function main(): Promise<void> {
     rpg_team: { path: `${BASE}sprites/INF_RPG/` },
     atgm_cell: { path: `${BASE}sprites/INF_ATGM/` },
     mortar_crew: { path: `${BASE}sprites/INF_MORTAR_E/` },
+    // The raider set. Like the technical, the gun truck's turret manifest
+    // carries `turretAxisPx`: its cannon sits 1.65 m behind the model centre,
+    // so without the correction the renderer swings it off the bed while
+    // tracking.
+    gun_truck: {
+      path: `${BASE}sprites/GUNTRUCK_HULL/`,
+      turretPath: `${BASE}sprites/GUNTRUCK_TURR/`,
+    },
+    charge_squad: { path: `${BASE}sprites/INF_CHARGE/` },
+    moto_rpg: { path: `${BASE}sprites/MOTO_RPG/` },
+    // Two air sheets whose flight is presentational: the sim has no altitude,
+    // so these move on the ground plane like anything else. The paramotor's
+    // `down` clip is its landed state, authored against a land-and-dismount
+    // behaviour that does not exist yet.
+    paramotor: { path: `${BASE}sprites/PARA_MOTOR/` },
+    loiter_drone: { path: `${BASE}sprites/DRONE_LOITER/` },
   };
   // Structures with art. A building has one sprite, not sixteen: it is placed
   // with a fixed orientation under a fixed camera and never turns. Types without

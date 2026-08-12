@@ -15,7 +15,7 @@ import {
   type ClipName,
   type SheetSpec,
 } from './sheet';
-import { cadenceScale, resolveClip, type UnitAnimInput } from './clip';
+import { cadenceScale, resolveClip, resolveTurretClip, type UnitAnimInput } from './clip';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec } from './vfx';
 
 export interface RendererOptions {
@@ -54,6 +54,16 @@ const FLINCH_PX = 2.5;
 const TREMBLE_PX = 0.5;
 /** Vertical bob at the top of an infantry stride. */
 const BOB_PX = 1.2;
+/**
+ * How far an airborne unit is lifted off its own tile, in screen px.
+ *
+ * Presentation only — the sim has no altitude (see UnitType.isAir). 14 px is
+ * about half a tile height at 1x zoom: far enough that the gap to the shadow
+ * reads as height, close enough that the unit still obviously belongs to the
+ * tile it occupies, which matters because that tile is what every range and
+ * targeting check in the sim actually uses.
+ */
+const AIR_LIFT_PX = 14;
 /** Turret traverse spring: stiffness and damping, in turns/s². Tuned so a
  *  full traverse overshoots slightly and settles rather than snapping. */
 const TURRET_STIFFNESS = 90;
@@ -160,7 +170,14 @@ export class PixiRenderer {
    *  there are no facings: one texture is the whole sheet. */
   private structureAtlas = new Map<
     string,
-    { texture: Texture; scale: number; badgeTopPx: number | null; roofTopPx: number | null }
+    {
+      texture: Texture;
+      scale: number;
+      badgeTopPx: number | null;
+      roofTopPx: number | null;
+      /** Rubble, for a structure the sim has killed. Null on an older sheet. */
+      wreckTexture?: Texture;
+    }
   >();
   /** Structures already drawn this rebuild -- a footprint spans many tiles. */
   private drawnStructures = new Set<number>();
@@ -183,7 +200,10 @@ export class PixiRenderer {
       sheet: SheetSpec;
       textures: Partial<Record<ClipName, Texture[][]>>;
       turretSheet?: SheetSpec;
+      /** The turret's idle set. Kept as the "has a turret" test. */
       turretTextures?: Texture[][];
+      /** Every clip the turret sheet declares, keyed the same way as `textures`. */
+      turretClips?: Partial<Record<ClipName, Texture[][]>>;
     }
   >();
 
@@ -400,17 +420,41 @@ export class PixiRenderer {
 
     let turretSheet: SheetSpec | undefined;
     let turretTextures: Texture[][] | undefined;
+    let turretClips: Partial<Record<ClipName, Texture[][]>> | undefined;
     if (opts.turretPath) {
       const tp = opts.turretPath;
-      turretSheet = await PixiRenderer.loadSheet(tp);
-      turretTextures = await Promise.all(
-        Array.from({ length: turretSheet.facings }, (_, f) =>
-          Promise.all([Assets.load<Texture>(`${tp}${frameFileName(turretSheet as SheetSpec, 'idle', f, 0)}`)])
-        )
-      );
+      const ts = await PixiRenderer.loadSheet(tp);
+      turretSheet = ts;
+      // Every clip the turret sheet declares, not just idle. This used to load
+      // `idle` frame 0 and nothing else, which silently made any other turret
+      // clip dead art: the gun truck ships 16 frames of recoiled barrels that
+      // could never be drawn.
+      turretClips = {};
+      for (const clip of Object.keys(ts.clips) as ClipName[]) {
+        const spec = ts.clips[clip];
+        if (!spec) continue;
+        turretClips[clip] = await Promise.all(
+          Array.from({ length: ts.facings }, (_, f) =>
+            Promise.all(
+              Array.from({ length: spec.frames }, (_, n) =>
+                Assets.load<Texture>(`${tp}${frameFileName(ts, clip, f, n)}`)
+              )
+            )
+          )
+        );
+      }
+      // `turretTextures` stays the idle set so existing callers and the
+      // "has a turret at all" check are unchanged.
+      turretTextures = turretClips.idle;
     }
 
-    this.spriteAtlas.set(unitTypeId, { sheet, textures, turretSheet, turretTextures });
+    this.spriteAtlas.set(unitTypeId, {
+      sheet,
+      textures,
+      turretSheet,
+      turretTextures,
+      turretClips,
+    });
   }
 
   /**
@@ -432,11 +476,15 @@ export class PixiRenderer {
   async loadStructureSprite(structureId: string, basePath: string): Promise<void> {
     const spec = parseStructureManifest(await Assets.load(`${basePath}manifest.json`));
     const texture = await Assets.load<Texture>(`${basePath}${spec.file}`);
+    const wreckTexture = spec.wreckFile
+      ? await Assets.load<Texture>(`${basePath}${spec.wreckFile}`)
+      : undefined;
     this.structureAtlas.set(structureId, {
       texture,
       scale: spec.scale,
       badgeTopPx: spec.badgeTopPx,
       roofTopPx: spec.roofTopPx,
+      wreckTexture,
     });
     this.terrainDirty = true;
   }
@@ -1031,6 +1079,11 @@ export class PixiRenderer {
         }
       }
     }
+
+    // Rubble last, after every live building has been drawn: a destroyed
+    // structure is not reachable from the tile loop above, because its tiles
+    // are no longer blocked.
+    this.drawWreckedStructures();
   }
 
   /**
@@ -1123,6 +1176,34 @@ export class PixiRenderer {
    * instead would let units beside the near face incorrectly draw underneath,
    * which reads far worse -- a soldier apparently inside a wall.
    */
+  /**
+   * Rubble for every structure the sim has killed.
+   *
+   * Its own pass, because the terrain loop only reaches the sprite branch on a
+   * *blocked* tile and `destroyStructure` unblocks the whole footprint. That is
+   * why a destroyed building used to vanish outright rather than merely lose
+   * its art -- there was no code path left that could draw it.
+   */
+  private drawWreckedStructures(): void {
+    const st = this.sim.structures;
+    for (let s = 0; s < this.sim.structureCount; s++) {
+      if (st.alive[s] !== 0) continue;
+      const stype = this.sim.structureTypes[st.typeIdx[s]];
+      const art = this.structureAtlas.get(stype.id);
+      if (!art?.wreckTexture) continue;
+      const fx0 = (st.minX[s] + st.maxX[s] + 1) / 2;
+      const fy0 = (st.minY[s] + st.maxY[s] + 1) / 2;
+      const spr = new Sprite({ texture: art.wreckTexture, anchor: 0.5 });
+      spr.position.set(isoX(fx0, fy0), isoY(fx0, fy0));
+      // The rig framed the wreck from the *intact* model, so it shares the
+      // anchor and the scale and the footprint does not jump on collapse.
+      spr.scale.set((art.scale * TILE_W) / art.wreckTexture.width);
+      spr.zIndex = depthZ(st.maxX[s] + 1, st.maxY[s] + 1);
+      this.spriteLayer.addChild(spr);
+      this.buildingSprites.push(spr);
+    }
+  }
+
   private drawStructureSprite(sIdx: number, structureId: string): void {
     const art = this.structureAtlas.get(structureId);
     if (!art) return;
@@ -1354,6 +1435,24 @@ export class PixiRenderer {
           // Two footfalls per stride, so the bob runs at twice cycle rate.
           oy -= Math.abs(Math.sin(this.entityAnimFrame[i] * Math.PI)) * BOB_PX;
         }
+        // Altitude is presentation only -- the sim has no z. Lifting the
+        // sprite is what makes flight legible: without it an aircraft and a
+        // jeep occupy the same pixels and the player cannot tell why their
+        // RPGs will not engage it. The shadow stays on the ground below (drawn
+        // with the other markers), and the gap between the two is the whole
+        // read.
+        const airLift = type.isAir ? AIR_LIFT_PX : 0;
+        oy -= airLift;
+
+        // An airborne unit gets a shadow on the tile it actually occupies.
+        // Without it the lift above just reads as a sprite drawn in the wrong
+        // place; with it, the gap is the altitude and the shadow says which
+        // tile the sim is really using. Drawn into the same Graphics as the
+        // procedural units, so it costs no new display object.
+        if (airLift > 0) {
+          g.ellipse(sx, sy + 3, r * 0.7 + 2, (r * 0.7 + 2) / 2)
+            .fill({ color: '#0A0A08', alpha: 0.28 * bodyAlpha });
+        }
 
         // Sprite-based rendering.
         while (this.entitySprites.length <= i) this.entitySprites.push(null);
@@ -1411,7 +1510,14 @@ export class PixiRenderer {
             this.spriteLayer.addChild(tspr);
             this.turretSprites[i] = tspr;
           }
-          tspr.texture = atlas.turretTextures[tIdx][0];
+          // A weapon station recoils when it fires, and only then. The hull's
+          // clip is the wrong source — a truck that is driving plays `move`,
+          // which a turret sheet does not have — so this asks for `fire` only,
+          // and falls back to idle whenever the sheet has no such clip.
+          const tclip = resolveTurretClip(clip, atlas.turretClips);
+          const tset = atlas.turretClips?.[tclip] ?? atlas.turretTextures;
+          const tframes = tset[tIdx] ?? atlas.turretTextures[tIdx];
+          tspr.texture = tframes[Math.min(frame, tframes.length - 1)] ?? tframes[0];
           // A turret sheet is drawn at the hull's position but framed from where
           // the weapon is aiming, so it is drawn as though the whole vehicle had
           // turned — the station orbits the rig's pivot. Negligible for a

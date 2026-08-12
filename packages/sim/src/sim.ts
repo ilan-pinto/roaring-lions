@@ -150,7 +150,7 @@ export interface UnitTypeJson {
       ineffective_vs?: string[];
     };
   };
-  mobility: { speed_tiles_s: number; turn_rate_deg_s?: number };
+  mobility: { speed_tiles_s: number; turn_rate_deg_s?: number; domain?: string };
   sensors: {
     optics: number;
     sight_tiles: number;
@@ -210,6 +210,17 @@ export interface WeaponStats {
   suppPerMiss: Fx;
   ticksBetweenShots: number;
   collateralRisk: Fx;
+  /**
+   * What this weapon may engage, from `can_target`.
+   *
+   * **Absent means ground only.** Every weapon in the game predates the field,
+   * so defaulting to "everything" would hand every rifle an anti-air
+   * capability the moment flight landed. Defaulting to ground keeps the
+   * roster's behaviour exactly as authored and makes reaching air an explicit
+   * declaration.
+   */
+  canTargetGround: boolean;
+  canTargetAir: boolean;
 }
 
 /** Every multiplier behind one shot's hit probability, and their product.
@@ -248,6 +259,17 @@ export interface UnitType {
   canDemolish: boolean;
   /** Flies into its target and is spent doing it. */
   isKamikaze: boolean;
+  /**
+   * Airborne: ignores terrain blocking, and is only engageable by weapons
+   * whose `can_target` includes "air".
+   *
+   * There is deliberately **no altitude value**. Height is presentation — the
+   * renderer lifts the sprite and draws a shadow under it. A z axis in the sim
+   * would add a third term to every distance check in the hot loop and change
+   * no outcome, because the two rules above are the whole of what flight
+   * means mechanically.
+   */
+  isAir: boolean;
   /** Seats for infantry. */
   transportSlots: number;
   /** Dismounted element: can ride inside a transport. */
@@ -303,6 +325,9 @@ function weaponFromJson(w: WeaponJson): WeaponStats {
     suppPerMiss: fx.div(fx.from(w.suppression ?? 0), fx.fromInt(SUPP_STAT_DIVISOR)),
     ticksBetweenShots: tbs > 0 ? tbs : 1,
     collateralRisk: fx.from(w.collateral_risk ?? 0),
+    // Absent -> ground only. See the field comment on WeaponStats.
+    canTargetGround: w.can_target === undefined || w.can_target.includes('ground'),
+    canTargetAir: w.can_target?.includes('air') ?? false,
   };
 }
 
@@ -331,6 +356,7 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     canGarrison: abilities.includes('garrison'),
     canDemolish: abilities.includes('demolish'),
     isKamikaze: abilities.includes('kamikaze'),
+    isAir: json.mobility.domain === 'air',
     transportSlots: json.hull.transport_slots ?? 0,
     canEmbark: json.hull.can_embark ?? FOOT_ROLES.has(json.role ?? ''),
     canMarkTarget: abilities.includes('mark_target'),
@@ -1496,6 +1522,11 @@ export class Sim {
       // and taking it down is the only way to reach them.
       if (this.garrisonedIn[t] >= 0 || this.carriedBy[t] >= 0) continue;
       if (this.contact[sSide * cap + t] < IDENTIFIED_AT) continue;
+      // A weapon that cannot elevate does not get to pick a target it could
+      // never hit. Filtered here rather than at the hit roll so the shooter
+      // keeps looking and engages something it *can* hurt, instead of locking
+      // on to an aircraft and firing into the sky for the rest of the fight.
+      if (this.unitTypes[this.typeIdx[t]].isAir ? !w.canTargetAir : !w.canTargetGround) continue;
       const dSq = distSqFx(fx.sub(this.posX[t], px), fx.sub(this.posY[t], py));
       if (dSq > w.rangeSq || dSq < w.minRangeSq) continue;
       if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
@@ -2426,6 +2457,10 @@ export class Sim {
         if (this.alive[t] === 0 || this.side[t] === side || this.side[t] > 1) continue;
         if (this.garrisonedIn[t] >= 0 || this.carriedBy[t] >= 0) continue;
         if (this.contact[side * cap + t] < IDENTIFIED_AT) continue;
+        // A munition picks its own target, so the can_target rule has to be
+        // applied here too -- selectTarget is never consulted on this path. A
+        // ground-attack warhead chasing an aircraft would fly at it forever.
+        if (this.unitTypes[this.typeIdx[t]].isAir ? !w.canTargetAir : !w.canTargetGround) continue;
         const d = distSqFx(fx.sub(this.posX[t], this.posX[i]), fx.sub(this.posY[t], this.posY[i]));
         if (d <= bestD) {
           bestD = d;
@@ -2742,7 +2777,10 @@ export class Sim {
       ny = this.clampY(ny);
       const ntx = nx >> 16;
       const nty = ny >> 16;
-      if (this.blocked[nty * w + ntx] !== 0) {
+      // Air flies over everything: walls, buildings, rubble. The map edge
+      // still holds, because clampX/clampY ran above -- an aircraft leaving
+      // the play area is a bug, not a feature.
+      if (!type.isAir && this.blocked[nty * w + ntx] !== 0) {
         if (this.blocked[tileY * w + ntx] === 0) {
           ny = py;
         } else if (this.blocked[nty * w + tileX] === 0) {

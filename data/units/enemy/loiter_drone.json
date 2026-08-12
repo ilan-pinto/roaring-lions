@@ -1,0 +1,54 @@
+{
+  "id": "loiter_drone",
+  "name": "Loitering Munition",
+  "faction": "sarim",
+  "role": "drone",
+  "cost": {
+    "logistics": 292,
+    "build_time_s": 9,
+    "population": 0
+  },
+  "hull": {
+    "hp": 70,
+    "armor": {
+      "front": 0,
+      "side": 0,
+      "rear": 0
+    },
+    "crew": 0,
+    "suppression_resistance": 1.0
+  },
+  "mobility": {
+    "speed_tiles_s": 3.1,
+    "turn_rate_deg_s": 200,
+    "domain": "air"
+  },
+  "sensors": {
+    "optics": 1.3,
+    "sight_tiles": 13,
+    "signature": 0.25,
+    "firing_signature_mult": 1.0
+  },
+  "abilities": [
+    "kamikaze"
+  ],
+  "weapons": [
+    {
+      "id": "warhead",
+      "type": "heat",
+      "range_tiles": 1.2,
+      "effective_range_tiles": 1.2,
+      "accuracy": 0.9,
+      "penetration": 380,
+      "damage": 520,
+      "splash_tiles": 1.3,
+      "suppression": 70,
+      "rof_per_min": 60,
+      "can_target": [
+        "ground",
+        "structure"
+      ],
+      "collateral_risk": 0.4
+    }
+  ]
+}

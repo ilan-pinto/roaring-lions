@@ -1,0 +1,50 @@
+{
+  "id": "moto_rpg",
+  "name": "Armed Motorcycle",
+  "faction": "rif",
+  "role": "technical",
+  "cost": {
+    "logistics": 244,
+    "build_time_s": 7,
+    "population": 1
+  },
+  "hull": {
+    "hp": 150,
+    "armor": {
+      "front": 0,
+      "side": 0,
+      "rear": 0
+    },
+    "crew": 2,
+    "suppression_resistance": 0.3
+  },
+  "mobility": {
+    "speed_tiles_s": 3.4,
+    "turn_rate_deg_s": 220
+  },
+  "sensors": {
+    "optics": 1.0,
+    "sight_tiles": 8,
+    "signature": 0.55,
+    "firing_signature_mult": 2.5
+  },
+  "weapons": [
+    {
+      "id": "rpg",
+      "type": "rpg",
+      "range_tiles": 5.5,
+      "effective_range_tiles": 3.6,
+      "accuracy": 0.42,
+      "penetration": 300,
+      "damage": 340,
+      "splash_tiles": 0.9,
+      "suppression": 45,
+      "rof_per_min": 12,
+      "can_target": [
+        "ground",
+        "structure"
+      ],
+      "collateral_risk": 0.35
+    }
+  ]
+}
