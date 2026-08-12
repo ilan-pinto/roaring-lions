@@ -21,8 +21,14 @@ This is the v2 map candidate, replacing the per-region layered approach:
     (PEAKS/VALLEYS), a few settlements, and a watchtower on its Kedem-facing
     approach; boulders and tors gather at range feet and summits, riparian trees
     line every watercourse, the farmland grows orchard rows, and the erg keeps
-    an oasis. Locked/complete state is NOT baked here -- the shell overlays
-    grey for locked countries and the brigade lion flag for completed ones.
+    an oasis. Every enemy country flies a fictional flag at its capital (banner
+    laid FLAT -- a vertical flag from straight above is a line) and keeps one
+    unique monument: stone circle, ziggurat, forest shrine, caravanserai,
+    step-well, twin obelisks, great pyramid, salt-labyrinth geoglyph. Organic
+    scatter runs through `patchiness`, so cover clumps and voids asymmetrically
+    instead of sitting at one synthetic density. Locked/complete state is NOT
+    baked here -- the shell overlays grey for locked countries and the brigade
+    lion flag for completed ones.
   * Campaign progress is NOT baked into the render: the shell overlays the brigade
     lion flag on completed countries. (The bezier-road bevel_factor_end dial from
     the first cut is gone with it.)
@@ -670,8 +676,8 @@ def scatter_forest():
     while sy < FOREST_MAX_Y + BAND_BLEND + 6.0:
         sx = kx0
         while sx < kx1:
-            jx, jy = sx + (rnd() - 0.5) * 7.0, sy + (rnd() - 0.5) * 7.0
-            keep = rnd() < 0.85
+            jx, jy = sx + (rnd() - 0.5) * 8.0, sy + (rnd() - 0.5) * 8.0
+            keep = rnd() < 0.9 * patchiness(jx, jy, 31, floor=0.3)
             zid, ridge_t, valley_t = zone_at(jx, jy)
             z, band = terrain(jx, jy)
             if keep and zid == KEDEM and band == 3 and z < 16.0:
@@ -720,8 +726,10 @@ def scatter_rocks():
             zid, ridge_t, valley_t = zone_at(jx, jy)
             z, band = terrain(jx, jy)
             rocky_land = zid in (1, 6)  # highlands, badlands
+            # Geology stays where geology is (range feet, summits); only the
+            # loose interior rock fields get the patchy, asymmetric density.
             gate = (0.25 < ridge_t < 0.55 and z < 19.0) or z > 19.0
-            gate = gate or (rocky_land and roll < 0.12)
+            gate = gate or (rocky_land and roll < 0.12 * patchiness(jx, jy, 32, floor=0.2))
             keep = roll < (0.5 if rocky_land else 0.3)
             if gate and keep and band != 2 and valley_t < 0.3:
                 add, _ = batches[int(rnd() * 3) % 3]
@@ -751,8 +759,8 @@ def scatter_riverbanks():
     while sy < VIEW_H - 6.0:
         sx = 6.0
         while sx < VIEW_W - 6.0:
-            jx, jy = sx + (rnd() - 0.5) * 7.0, sy + (rnd() - 0.5) * 7.0
-            keep = rnd() < 0.5
+            jx, jy = sx + (rnd() - 0.5) * 9.0, sy + (rnd() - 0.5) * 9.0
+            keep = rnd() < 0.62 * patchiness(jx, jy, 33, floor=0.25)
             zid, ridge_t, valley_t = zone_at(jx, jy)
             z, band = terrain(jx, jy)
             # 2 < z < 14: above the shallow fringe, below any range shoulder.
@@ -829,6 +837,162 @@ def build_oasis(at):
     print("oasis at S hamlet")
 
 
+def _plate(add, sx0, sy0, sx1, sy1, z):
+    """A flat upward-facing quad given SVG-coord corners (sx0<sx1, sy0<sy1)."""
+    wx0, wy1 = to_world(sx0, sy0)   # SVG y flips: smaller sy = larger world y
+    wx1, wy0 = to_world(sx1, sy1)
+    add([(wx0, wy0, z), (wx1, wy0, z), (wx1, wy1, z), (wx0, wy1, z)], [(0, 1, 2, 3)])
+
+
+#: One fictional flag per enemy country: 2-3 palette fields, horizontal bands,
+#: vertical bands, or a canton. The banner lies FLAT at the pole top -- a vertical
+#: flag seen from straight above is a line, and this is a top-down map.
+FLAG_DESIGNS = {
+    0: ("h", ["olive.0", "dust.1"]),
+    1: ("v", ["gunmetal.1", "limestone.2"]),
+    2: ("h", ["olive.2", "limestone.1", "olive.2"]),
+    3: ("h", ["dust.1", "water.1"]),
+    5: ("v", ["scrub.0", "limestone.0", "scrub.0"]),
+    6: ("h", ["terracotta.1", "dust.0"]),
+    7: ("canton", ["dust.0", "terracotta.2"]),
+    8: ("h", ["limestone.0", "water.0"]),
+}
+
+
+def build_flag(zid, at):
+    """The country's flag, planted beside its capital hamlet."""
+    orient, keys = FLAG_DESIGNS[zid]
+    pole_add, pole_commit = _batched_mesh(f"flag{zid}_pole", flat(f"flag{zid}_pole_m", "gunmetal.1"))
+    _block(pole_add, at[0], at[1], 1.6, 1.6, 16.0)
+    pole_commit()
+    z0, _ = terrain(*at)
+    zb = z0 + 15.0
+    fx, fy, fw, fh = at[0] + 1.2, at[1] - 6.0, 18.0, 12.0
+    if orient == "canton":
+        field, canton = keys
+        add, commit = _batched_mesh(f"flag{zid}_f", flat(f"flag{zid}_fm", field, roughness=0.6))
+        _plate(add, fx, fy, fx + fw, fy + fh, zb)
+        commit()
+        add, commit = _batched_mesh(f"flag{zid}_c", flat(f"flag{zid}_cm", canton, roughness=0.6))
+        _plate(add, fx, fy, fx + fw * 0.45, fy + fh * 0.5, zb + 0.35)
+        commit()
+        return
+    n = len(keys)
+    for i, key in enumerate(keys):
+        add, commit = _batched_mesh(f"flag{zid}_p{i}", flat(f"flag{zid}_pm{i}", key, roughness=0.6))
+        if orient == "h":
+            _plate(add, fx, fy + fh * i / n, fx + fw, fy + fh * (i + 1) / n, zb)
+        else:
+            _plate(add, fx + fw * i / n, fy, fx + fw * (i + 1) / n, fy + fh, zb)
+        commit()
+
+
+def find_monument_sites():
+    """One interior landmark site per enemy country, searched like everything
+    else: fixed candidate offsets from the centroid, gated to solid home ground."""
+    sites = {}
+    offsets = [(55.0, -40.0), (-60.0, 35.0), (40.0, 60.0), (-45.0, -55.0),
+               (75.0, 20.0), (0.0, -75.0), (-80.0, -10.0), (20.0, 80.0)]
+    for zid in range(9):
+        if zid == KEDEM:
+            continue
+        cx, cy = _CENTROIDS[zid]
+        # The relaxed pass also accepts high ground: the highlands and badlands
+        # have no low interior, and a ziggurat on a summit is the point of one.
+        for pass_gate, z_max in ((0.15, 14.0), (0.28, 21.0)):
+            for dx, dy in offsets:
+                px, py = cx + dx, cy + dy
+                z_id, ridge_t, valley_t = zone_at(px, py)
+                z, _band = terrain(px, py)
+                if z_id == zid and max(ridge_t, valley_t) < pass_gate and z < z_max:
+                    sites[zid] = (px, py)
+                    break
+            if zid in sites:
+                break
+        if zid not in sites:
+            print(f"monument: no site in zone {zid}")
+    return sites
+
+
+def build_monuments(sites):
+    """A unique monument per enemy country, all from primitives:
+    stone circle, ziggurat, forest shrine, caravanserai, step-well,
+    twin obelisks, great pyramid, salt-labyrinth geoglyph."""
+    rnd = rng_from(0x303B)
+
+    def batched(tag, key, rough=0.8):
+        return _batched_mesh(tag, flat(f"{tag}_m", key, roughness=rough))
+
+    if 0 in sites:  # NW steppe: stone circle
+        sx, sy = sites[0]
+        add, commit = batched("mon_circle", "limestone.2")
+        for i in range(9):
+            a = 2.0 * math.pi * i / 9.0
+            _rock(add, sx + 13.0 * math.cos(a), sy + 13.0 * math.sin(a) * 0.85,
+                  2.2, 6.0 + rnd() * 3.0, rnd, sides=5)
+        commit()
+    if 1 in sites:  # N highlands: ziggurat
+        sx, sy = sites[1]
+        for i, (side, key) in enumerate(((20.0, "limestone.3"), (13.0, "limestone.2"), (7.0, "limestone.1"))):
+            add, commit = batched(f"mon_zig{i}", key)
+            _block(add, sx, sy, side, side, 3.5, lift=3.5 * i)
+            commit()
+    if 2 in sites:  # NE forest: white shrine in a clearing
+        sx, sy = sites[2]
+        add, commit = batched("mon_shrine", "limestone.0")
+        _block(add, sx, sy, 9.0, 9.0, 5.0)
+        _block(add, sx, sy, 5.0, 5.0, 3.0, lift=5.0)
+        commit()
+    if 3 in sites:  # W coastal desert: caravanserai (hollow walled square)
+        sx, sy = sites[3]
+        add, commit = batched("mon_serai", "limestone.3")
+        _block(add, sx, sy - 10.0, 22.0, 3.0, 5.0)
+        _block(add, sx, sy + 10.0, 22.0, 3.0, 5.0)
+        _block(add, sx - 10.0, sy, 3.0, 18.0, 5.0)
+        _block(add, sx + 10.0, sy, 3.0, 18.0, 5.0)
+        commit()
+    if 5 in sites:  # E lowlands: step-well
+        sx, sy = sites[5]
+        add, commit = batched("mon_well_rim", "limestone.1")
+        _block(add, sx, sy - 7.0, 16.0, 2.0, 2.0)
+        _block(add, sx, sy + 7.0, 16.0, 2.0, 2.0)
+        _block(add, sx - 7.0, sy, 2.0, 12.0, 2.0)
+        _block(add, sx + 7.0, sy, 2.0, 12.0, 2.0)
+        commit()
+        z0, _ = terrain(sx, sy)
+        add, commit = batched("mon_well_water", "water.1", rough=0.3)
+        _plate(add, sx - 5.5, sy - 5.5, sx + 5.5, sy + 5.5, z0 + 0.5)
+        commit()
+    if 6 in sites:  # SW badlands: twin obelisks
+        sx, sy = sites[6]
+        add, commit = batched("mon_obelisks", "gunmetal.0")
+        _block(add, sx - 5.0, sy, 3.0, 3.0, 16.0)
+        _block(add, sx + 5.0, sy, 3.0, 3.0, 16.0)
+        commit()
+    if 7 in sites:  # S erg: great pyramid
+        sx, sy = sites[7]
+        z0, _ = terrain(sx, sy)
+        wx, wy = to_world(sx, sy)
+        add, commit = batched("mon_pyramid", "dust.0")
+        s = 11.0
+        base = [(wx - s, wy - s, z0 - 1.0), (wx + s, wy - s, z0 - 1.0),
+                (wx + s, wy + s, z0 - 1.0), (wx - s, wy + s, z0 - 1.0)]
+        verts = base + [(wx, wy, z0 + 13.0)]
+        faces = [(3, 2, 1, 0)] + [(i, (i + 1) % 4, 4) for i in range(4)]
+        add(verts, faces)
+        commit()
+    if 8 in sites:  # SE salt flats: labyrinth geoglyph (nested square outlines)
+        sx, sy = sites[8]
+        add, commit = batched("mon_glyph", "shadow.1", rough=0.95)
+        for half in (18.0, 12.0, 6.0):
+            _block(add, sx, sy - half, 2.0 * half + 3.5, 3.5, 1.0)
+            _block(add, sx, sy + half, 2.0 * half + 3.5, 3.5, 1.0)
+            _block(add, sx - half, sy, 3.5, 2.0 * half - 3.5, 1.0)
+            _block(add, sx + half, sy, 3.5, 2.0 * half - 3.5, 1.0)
+        commit()
+    print(f"monuments: {len(sites)}")
+
+
 def _zone_span(zid):
     """The zone's search box: unwarped quad bbox padded by the warp's reach,
     clamped to the board. Candidates are gated by `zone_at`, not by this box."""
@@ -838,9 +1002,18 @@ def _zone_span(zid):
             max(0.0, min(ys) - 46.0), min(VIEW_H, max(ys) + 46.0))
 
 
-def scatter_zone_canopies(zid, label, seed, spacing, keep_p, r0, r1, h0, h1):
+def patchiness(jx, jy, salt, floor=0.12):
+    """Real cover is patchy and asymmetric: forests have glades and dense hearts,
+    scrub gathers in tracts, rock fields thin out. A large soft noise modulates
+    scatter density so nothing sits at one even, synthetic-looking density."""
+    return floor + (1.0 - floor) * max(0.0, vnoise(jx * 0.011, jy * 0.011, salt=salt)) ** 0.7
+
+
+def scatter_zone_canopies(zid, label, seed, spacing, keep_p, r0, r1, h0, h1,
+                          patch_salt=30, patch_floor=0.12, clear_at=None, clear_r=16.0):
     """Vegetation cover for a whole enemy country -- NE's forest canopy, or the
-    NW steppe's sparse scrub dots, depending on the numbers."""
+    NW steppe's sparse scrub dots, depending on the numbers. `clear_at` keeps a
+    monument's ground open."""
     greens = [flat(f"{label}_a", "olive.1"), flat(f"{label}_b", "olive.2"),
               flat(f"{label}_c", "scrub.1")]
     batches = [_batched_mesh(f"{label}_{i}", m) for i, m in enumerate(greens)]
@@ -851,11 +1024,13 @@ def scatter_zone_canopies(zid, label, seed, spacing, keep_p, r0, r1, h0, h1):
     while sy < y1:
         sx = x0
         while sx < x1:
-            jx, jy = sx + (rnd() - 0.5) * 7.0, sy + (rnd() - 0.5) * 7.0
-            keep = rnd() < keep_p
+            jx = sx + (rnd() - 0.5) * spacing
+            jy = sy + (rnd() - 0.5) * spacing
+            keep = rnd() < keep_p * patchiness(jx, jy, patch_salt, floor=patch_floor)
             z_id, ridge_t, valley_t = zone_at(jx, jy)
             z, _band = terrain(jx, jy)
-            if keep and z_id == zid and z < 16.0:
+            cleared = clear_at and (jx - clear_at[0]) ** 2 + (jy - clear_at[1]) ** 2 < clear_r ** 2
+            if keep and z_id == zid and z < 16.0 and not cleared:
                 add, _ = batches[int(rnd() * 3) % 3]
                 _canopy(add, jx, jy, r0 + rnd() * (r1 - r0), h0 + rnd() * (h1 - h0))
                 placed += 1
@@ -1055,24 +1230,34 @@ def main():
     build_beit_sahwan(bs)
     scatter_city(clear_at=bs)
     scatter_forest()
-    scatter_zone_canopies(2, "ne_forest", 0x2F0A, spacing=11.0, keep_p=0.7,
-                          r0=2.6, r1=4.8, h0=1.8, h1=3.6)
-    scatter_zone_canopies(0, "nw_scrub", 0x0F0B, spacing=24.0, keep_p=0.55,
-                          r0=1.6, r1=3.2, h0=1.0, h1=2.2)
-    build_hamlets(3, "w_hamlets", 3, 0x77A1)
-    build_hamlets(5, "e_hamlets", 2, 0x77A2)
-    build_hamlets(0, "nw_hamlets", 2, 0x77A3)
-    build_hamlets(1, "n_hamlets", 2, 0x77A4)
-    build_hamlets(2, "ne_hamlets", 2, 0x77A5)
-    build_hamlets(6, "sw_hamlets", 2, 0x77A6)
-    s_sites = build_hamlets(7, "s_hamlets", 1, 0x77A7)
-    build_hamlets(8, "se_hamlets", 1, 0x77A8)
+    mon_sites = find_monument_sites()
+    scatter_zone_canopies(2, "ne_forest", 0x2F0A, spacing=11.0, keep_p=0.85,
+                          r0=2.6, r1=4.8, h0=1.8, h1=3.6, patch_salt=34,
+                          patch_floor=0.3, clear_at=mon_sites.get(2), clear_r=17.0)
+    scatter_zone_canopies(0, "nw_scrub", 0x0F0B, spacing=24.0, keep_p=0.7,
+                          r0=1.6, r1=3.2, h0=1.0, h1=2.2, patch_salt=35)
+    capitals = {}
+    capitals[3] = build_hamlets(3, "w_hamlets", 3, 0x77A1)
+    capitals[5] = build_hamlets(5, "e_hamlets", 2, 0x77A2)
+    capitals[0] = build_hamlets(0, "nw_hamlets", 2, 0x77A3)
+    capitals[1] = build_hamlets(1, "n_hamlets", 2, 0x77A4)
+    capitals[2] = build_hamlets(2, "ne_hamlets", 2, 0x77A5)
+    capitals[6] = build_hamlets(6, "sw_hamlets", 2, 0x77A6)
+    capitals[7] = build_hamlets(7, "s_hamlets", 1, 0x77A7)
+    capitals[8] = build_hamlets(8, "se_hamlets", 1, 0x77A8)
     build_towers()
     scatter_rocks()
     scatter_riverbanks()
     scatter_orchards()
-    if s_sites:
-        build_oasis(s_sites[0])
+    if capitals.get(7):
+        build_oasis(capitals[7][0])
+    build_monuments(mon_sites)
+    # The flag flies at the capital -- the first hamlet -- or failing that at the
+    # monument, so every country shows its colours somewhere sensible.
+    for zid in FLAG_DESIGNS:
+        spot = (capitals.get(zid) or [mon_sites.get(zid)])[0]
+        if spot:
+            build_flag(zid, (spot[0] + 11.0, spot[1] - 9.0))
 
     # The shell overlays per-country state (the brigade lion flag on completed
     # countries) on top of this render; these outlines are its geometry contract.
