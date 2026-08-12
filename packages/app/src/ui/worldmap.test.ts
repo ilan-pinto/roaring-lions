@@ -2,17 +2,18 @@
 import { describe, expect, it } from 'vitest';
 
 import worldJson from '../../../../data/campaign/world.json';
+import countriesJson from '../../../../data/campaign/countries.json';
 import type { LedgerData } from '@lions/sim';
-import { parseWorld } from '../campaign';
+import { parseCountries, parseWorld } from '../campaign';
 import { worldMap } from './worldmap';
 import { showMenu } from './menu';
 
 const world = parseWorld(worldJson);
-const SVG = '<svg viewBox="0 0 1140 790"><g id="region-marj"/><g id="region-sur"/><g id="region-naharin"/></svg>';
+const countries = parseCountries(countriesJson);
 const ALL_BS = world.regions[0]!.towns[0]!.missions;
 
 const render = (ledger: LedgerData): HTMLElement =>
-  worldMap({ base: '/', world, ledger, svg: SVG, href: (id) => `?mission=${id}` });
+  worldMap({ base: '/', world, countries, ledger, href: (id) => `?mission=${id}` });
 
 const statusOf = (el: HTMLElement, region: string): string | null =>
   el.querySelector(`#region-${region}`)?.getAttribute('data-status') ?? null;
@@ -108,10 +109,33 @@ describe('worldMap', () => {
     expect(el.textContent).toContain('40'); // the mean of 20 and 60, computed here not in the sim
   });
 
-  it('renders the cards even when the map failed to load', () => {
-    // The caller passes '' when the fetch fails. Degrade, do not disappear.
-    const el = worldMap({ base: '/', world, ledger: {}, svg: '', href: (id) => `?mission=${id}` });
-    expect(el.querySelector('[data-region-card="marj"]')).not.toBe(null);
+  it('locks every country that has no region authored for it', () => {
+    const el = render({});
+    for (const c of countries) {
+      if (c.home || world.regions.some((r) => r.id === c.id)) continue;
+      expect(statusOf(el, c.id), c.id).toBe('locked');
+    }
+  });
+
+  it('gives the homeland no overlay at all — Kedem carries no campaign state', () => {
+    expect(render({}).querySelector('#region-kedem')).toBe(null);
+  });
+
+  it('flies the brigade flag over a completed country, anchored to it', () => {
+    const el = render({ 'campaign.completed_missions': [...ALL_BS] });
+    const flag = el.querySelector('#region-marj .country-flag');
+    expect(flag).not.toBe(null);
+    expect(flag?.getAttribute('href')).toBe('/campaign/flag_brigade.png');
+    // And none on a merely live or locked country.
+    expect(el.querySelector('#region-sur .country-flag')).toBe(null);
+  });
+
+  it('draws a veil polygon for every non-home country, so states have a surface', () => {
+    const el = render({});
+    for (const c of countries) {
+      if (c.home) continue;
+      expect(el.querySelector(`#region-${c.id} .country-fill`), c.id).not.toBe(null);
+    }
   });
 
   it('does not write to localStorage — the map is a view, not a save', () => {
@@ -128,8 +152,8 @@ describe('showMenu', () => {
       base: '/',
       version: 'test',
       world,
+      countries,
       ledger: {},
-      svg: SVG,
       tutorial: { id: 'beit_sahwan_0_tutorial', name: 'Tutorial', done: false },
     });
     expect(stage.querySelector('.rl-world')).not.toBe(null);
@@ -145,8 +169,8 @@ describe('showMenu', () => {
       base: '/',
       version: 'test',
       world,
+      countries,
       ledger: {},
-      svg: SVG,
       tutorial: { id: 'beit_sahwan_0_tutorial', name: 'Tutorial', done: true },
     });
     expect(stage.querySelector('[data-kind="tutorial"]')).toBe(null);

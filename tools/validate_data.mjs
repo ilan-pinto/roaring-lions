@@ -74,6 +74,20 @@ function validateDir(dir, validate, schemaName) {
   return files.length;
 }
 
+function validateFile(file, validate, schemaName) {
+  if (!existsSync(file)) {
+    failures.push(`${rel(file)}: missing [${schemaName}]`);
+    return 0;
+  }
+  const doc = loadJson(file);
+  if (doc !== null && !validate(doc)) {
+    for (const err of validate.errors ?? []) {
+      failures.push(`${rel(file)}: ${err.instancePath || '/'} ${err.message} [${schemaName}]`);
+    }
+  }
+  return 1;
+}
+
 // --- schema validation ------------------------------------------------------
 const schemas = {
   unit: loadJson(join(ROOT, 'data/schemas/unit.schema.json')),
@@ -82,10 +96,11 @@ const schemas = {
   map: loadJson(join(ROOT, 'data/schemas/map.schema.json')),
   tutorial: loadJson(join(ROOT, 'data/schemas/tutorial.schema.json')),
   world: loadJson(join(ROOT, 'data/schemas/world.schema.json')),
+  countries: loadJson(join(ROOT, 'data/schemas/countries.schema.json')),
 };
 
 let checked = 0;
-if (schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tutorial && schemas.world) {
+if (schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tutorial && schemas.world && schemas.countries) {
   const validators = {
     unit: ajv.compile(schemas.unit),
     mission: ajv.compile(schemas.mission),
@@ -93,6 +108,7 @@ if (schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tut
     map: ajv.compile(schemas.map),
     tutorial: ajv.compile(schemas.tutorial),
     world: ajv.compile(schemas.world),
+    countries: ajv.compile(schemas.countries),
   };
   checked += validateDir(join(ROOT, 'data/units'), validators.unit, 'unit.schema');
   checked += validateDir(join(ROOT, 'data/missions'), validators.mission, 'mission.schema');
@@ -100,7 +116,10 @@ if (schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tut
   checked += validateDir(join(ROOT, 'data/maps'), validators.map, 'map.schema');
   checked += validateDir(join(ROOT, 'data/tutorial'), validators.tutorial, 'tutorial.schema');
   checked += validateDir(join(ROOT, 'tools/fixtures/units'), validators.unit, 'unit.schema');
-  checked += validateDir(join(ROOT, 'data/campaign'), validators.world, 'world.schema');
+  // data/campaign is a mixed directory: world.json is hand-authored, countries.json
+  // is generated geometry. Each gets its own schema.
+  checked += validateFile(join(ROOT, 'data/campaign/world.json'), validators.world, 'world.schema');
+  checked += validateFile(join(ROOT, 'data/campaign/countries.json'), validators.countries, 'countries.schema');
 } else {
   failures.push('schema files missing or unparseable — cannot validate content');
 }
@@ -363,16 +382,41 @@ if (schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tut
       }
     }
 
-    // A region with no shape in the art is an invisible region, and nothing else
-    // would catch it.
+    // The art must exist, every region must have a country shape in the generated
+    // geometry, and every town must actually sit INSIDE its region's country --
+    // a containment check the old SVG art could not express. A town outside its
+    // outline hovers the wrong ground and glows the wrong border.
     const artPath = join(ROOT, 'assets', world.art);
     if (!existsSync(artPath)) {
       failures.push(`data/campaign/world.json: art "${world.art}" not found at assets/${world.art}`);
-    } else {
-      const svg = readFileSync(artPath, 'utf8');
+    }
+    const countriesDoc = loadJson(join(ROOT, 'data/campaign/countries.json'));
+    if (countriesDoc) {
+      const byId = new Map(countriesDoc.countries.map((c) => [c.id, c]));
+      const inside = (x, y, poly) => {
+        let odd = false;
+        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+          const [xi, yi] = poly[i];
+          const [xj, yj] = poly[j];
+          if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) odd = !odd;
+        }
+        return odd;
+      };
+      if (![...byId.values()].some((c) => c.home)) {
+        failures.push('data/campaign/countries.json: no home country');
+      }
       for (const region of world.regions) {
-        if (!svg.includes(`id="region-${region.id}"`)) {
-          failures.push(`assets/${world.art}: no element with id="region-${region.id}" for region "${region.name}"`);
+        const country = byId.get(region.id);
+        if (!country) {
+          failures.push(`data/campaign/countries.json: no country with id "${region.id}" for region "${region.name}"`);
+          continue;
+        }
+        for (const town of region.towns) {
+          if (!inside(town.at[0], town.at[1], country.outline)) {
+            failures.push(
+              `data/campaign/world.json: town "${town.id}" at [${town.at}] is outside country "${region.id}"'s outline`
+            );
+          }
         }
       }
     }

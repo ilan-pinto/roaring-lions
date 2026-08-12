@@ -1,12 +1,15 @@
-// The campaign world: the Sahar Basin, its three regions, and which of them are
-// still asking for you. Replaces the flat mission list.
+// The campaign world: Kedem at the centre, the fronts and placeholder countries
+// around it, and which of them are still asking for you.
 //
 // A view over the ledger and nothing more. Region status is derived by @lions/data
 // from campaign.completed_missions, so this file persists nothing and cannot disagree
 // with what was played.
 //
-// The map SVG is *inlined* rather than loaded through <img> on purpose: its fills name
-// palette tokens, and an <img>-loaded SVG cannot see the page's custom properties.
+// The board is the flat world render (one PNG) under an SVG overlay built here from
+// countries.json -- the geometry the render generator wrote, so the overlay cannot
+// drift from the art. Per-country state is CSS on the overlay: a translucent veil on
+// locked countries, the brigade lion flag on completed ones, a stroked border on the
+// live front.
 
 import type { LedgerData } from '@lions/sim';
 
@@ -16,15 +19,16 @@ import {
   regionProgress,
   townProgress,
   type ParsedWorld,
+  type WorldCountry,
   type WorldRegion,
 } from '../campaign';
 
 export interface WorldMapOptions {
   base: string;
   world: ParsedWorld;
+  /** Generated country geometry; ids join with world.regions ids. */
+  countries: readonly WorldCountry[];
   ledger: LedgerData;
-  /** The campaign art's source, inlined by the caller. */
-  svg: string;
   href: (missionId: string) => string;
 }
 
@@ -39,35 +43,76 @@ const el = (tag: string, cls?: string, text?: string): HTMLElement => {
   return n;
 };
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+const svgEl = (tag: string, attrs: Record<string, string>): SVGElement => {
+  const n = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+  return n;
+};
+
+/** The brigade lion flying over a completed country, centred on its anchor.
+ *  66x44 keeps the banner asset's 3:2 and reads at board scale. */
+const FLAG_W = 66;
+const FLAG_H = 44;
+
 export function worldMap(opts: WorldMapOptions): HTMLElement {
   const wrap = el('div', 'rl-world');
 
   // --- the map itself ------------------------------------------------------
   const board = el('div', 'rl-world__board');
-  // Parsed as XML and adopted, rather than assigned to innerHTML. The asset is our own
-  // build-time file, so this is not an injection fix -- it is that innerHTML on a string
-  // that arrived over the network is indistinguishable, at a glance and to a scanner, from
-  // the version of this line that would be a hole. DOMParser cannot execute script, so the
-  // safe reading is the only reading.
-  const parsed = new DOMParser().parseFromString(opts.svg, 'image/svg+xml');
-  const svg = parsed.documentElement;
-  const ok = svg.nodeName === 'svg' && parsed.querySelector('parsererror') === null;
-  if (ok) {
-    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-    board.appendChild(document.importNode(svg, true));
-  } else if (opts.svg !== '') {
-    // An empty string is the caller's documented "fetch failed"; anything else that fails
-    // to parse is a corrupt asset and worth saying so.
-    console.error('campaign map did not parse as SVG; drawing the cards without it');
+  const svg = svgEl('svg', {
+    viewBox: `0 0 ${VIEW_W} ${VIEW_H}`,
+    preserveAspectRatio: 'xMidYMid meet',
+  });
+  svg.appendChild(
+    svgEl('image', {
+      href: `${opts.base}${opts.world.art}`,
+      x: '0',
+      y: '0',
+      width: String(VIEW_W),
+      height: String(VIEW_H),
+    })
+  );
+  const regionIds = new Set(opts.world.regions.map((r) => r.id));
+  for (const c of opts.countries) {
+    // The homeland carries no campaign state: no veil, no border, no flag.
+    if (c.home) continue;
+    const points = c.outline.map(([x, y]) => `${x},${y}`).join(' ');
+    const g = svgEl('g', { id: `region-${c.id}` });
+    g.appendChild(svgEl('polygon', { class: 'country-fill', points }));
+    g.appendChild(svgEl('polygon', { class: 'region-outline', points, fill: 'none' }));
+    // A country with no region in world.json has no campaign authored at all:
+    // locked, permanently, until data exists for it.
+    if (!regionIds.has(c.id)) g.setAttribute('data-status', 'locked');
+    svg.appendChild(g);
   }
+  board.appendChild(svg);
 
   for (const region of opts.world.regions) {
     const p = regionProgress(region, opts.ledger);
     const g = board.querySelector(`#region-${region.id}`);
-    // A region with no shape in the art is caught by validate:data, so a miss here means
-    // either the SVG was edited without running the gate or the fetch failed. Either way
-    // the cards below still render, which is why this is a skip and not a throw.
-    if (g) g.setAttribute('data-status', p.status);
+    // A region with no country shape is caught by validate:data, so a miss here
+    // means the generated geometry was edited without running the gate. The cards
+    // below still render, which is why this is a skip and not a throw.
+    if (g) {
+      g.setAttribute('data-status', p.status);
+      if (p.status === 'complete') {
+        const country = opts.countries.find((c) => c.id === region.id);
+        if (country) {
+          g.appendChild(
+            svgEl('image', {
+              class: 'country-flag',
+              href: `${opts.base}campaign/flag_brigade.png`,
+              x: String(country.anchor[0] - FLAG_W / 2),
+              y: String(country.anchor[1] - FLAG_H / 2),
+              width: String(FLAG_W),
+              height: String(FLAG_H),
+            })
+          );
+        }
+      }
+    }
 
     for (const town of region.towns) {
       const next = nextMissionOf(town, opts.ledger);

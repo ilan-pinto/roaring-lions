@@ -28,6 +28,7 @@ import {
   missions,
   tutorials,
   world,
+  countries,
   structures as structureCatalogue,
   parseMap,
   DECOR,
@@ -43,7 +44,7 @@ import { ProductionBar } from './ui/production';
 import { applyIntent, sortMount, type PlayerIntent } from './input/intents';
 import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
 import { tutorialPanel, type TutorialPanel } from './tutorial/panel';
-import { parseWorld, nextMissionAfter } from './campaign';
+import { parseWorld, parseCountries, nextMissionAfter } from './campaign';
 
 /** Deploy base ('/' locally, '/<repo>/' on GitHub Pages) — every asset URL
  *  is built from it so the same bundle works in both places. */
@@ -162,23 +163,17 @@ async function main(): Promise<void> {
     window.localStorage.removeItem(TUTORIAL_DONE_KEY);
   }
   if (params.get('mission') === null && params.get('sandbox') === null) {
-    // publicDir is the repo-root assets/ dir (vite.config.ts), so the map is served
-    // rather than bundled. Inlined rather than used as an <img> because its fills name
-    // palette tokens, and an <img>-loaded SVG cannot see the page's custom properties.
+    // publicDir is the repo-root assets/ dir (vite.config.ts), so the world render is
+    // served rather than bundled; the per-country overlay is built by worldMap from
+    // the generated geometry in countries.json.
     const worldData = parseWorld(world);
-    const svg = await fetch(`${BASE}${worldData.art}`)
-      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`${r.status}`))))
-      .catch((err: unknown) => {
-        console.error(`campaign map ${worldData.art} failed to load:`, err);
-        return '';
-      });
     const tutorialDone = window.localStorage.getItem(TUTORIAL_DONE_KEY) !== null;
     showMenu(stage, {
       base: BASE,
       version: __GAME_VERSION__,
       world: worldData,
+      countries: parseCountries(countries),
       ledger: loadLedger(),
-      svg,
       tutorial: {
         id: 'beit_sahwan_0_tutorial',
         name: missions.beit_sahwan_0_tutorial.name ?? 'Tutorial',

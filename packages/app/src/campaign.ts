@@ -41,6 +41,33 @@ export interface ParsedWorld {
 
 export type RegionStatus = 'live' | 'complete' | 'locked';
 
+/** One country on the world render: generated geometry from countries.json.
+ *  The three campaign fronts share ids with world.json regions; the rest are
+ *  placeholder countries the shell shows locked. */
+export interface WorldCountry {
+  id: string;
+  name: string;
+  home: boolean;
+  anchor: readonly [number, number];
+  outline: readonly (readonly [number, number])[];
+}
+
+interface CountriesJson {
+  countries: { id: string; name: string; home: boolean; anchor: number[]; outline: number[][] }[];
+}
+
+export function parseCountries(json: unknown): WorldCountry[] {
+  const c = json as CountriesJson;
+  if (!c || !Array.isArray(c.countries)) throw new Error('countries: expected an object with a countries array');
+  return c.countries.map((k) => ({
+    id: k.id,
+    name: k.name,
+    home: k.home,
+    anchor: [k.anchor[0] ?? 0, k.anchor[1] ?? 0] as const,
+    outline: k.outline.map((p) => [p[0] ?? 0, p[1] ?? 0] as const),
+  }));
+}
+
 export interface RegionProgress {
   status: RegionStatus;
   done: number;

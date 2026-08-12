@@ -1,7 +1,7 @@
 {
   "id": "sahar_basin",
   "name": "The Sahar Basin",
-  "art": "campaign/sahar_basin.svg",
+  "art": "campaign/world_map.png",
   "regions": [
     {
       "id": "marj",
@@ -14,8 +14,8 @@
           "id": "beit_sahwan",
           "name": "Beit Sahwan",
           "at": [
-            195.0,
-            372.0
+            42.6,
+            467.6
           ],
           "missions": [
             "beit_sahwan_1_recon",
@@ -27,8 +27,8 @@
           "id": "khan_rafid",
           "name": "Khan Rafid",
           "at": [
-            195.0,
-            396.0
+            113.7,
+            385.5
           ],
           "missions": []
         },
@@ -36,8 +36,8 @@
           "id": "deir_amun",
           "name": "Deir Amun",
           "at": [
-            192.0,
-            420.0
+            281.4,
+            480.9
           ],
           "missions": []
         }
@@ -57,8 +57,8 @@
           "id": "tel_marum",
           "name": "Tel Marum",
           "at": [
-            570.0,
-            164.0
+            421.4,
+            55.9
           ],
           "missions": []
         },
@@ -66,8 +66,8 @@
           "id": "umm_zeitoun",
           "name": "Umm Zeitoun",
           "at": [
-            549.0,
-            188.0
+            674.4,
+            153.3
           ],
           "missions": []
         }
@@ -87,8 +87,8 @@
           "id": "wadi_halam",
           "name": "Wadi Halam",
           "at": [
-            751.0,
-            541.0
+            804.0,
+            401.7
           ],
           "missions": []
         }

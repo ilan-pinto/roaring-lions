@@ -152,6 +152,12 @@
 /* State lives here, not in the asset: the SVG ships every region in its live
    appearance and these three rules restyle it. Baking a state into the art means
    the CSS compounds on top of it rather than replacing it. */
+/* Country overlays sit above the flat world render. The fill is invisible until
+   a state needs it; pointer-events stay off so towns underneath keep the hover. */
+.country-fill { fill: none; pointer-events: none; }
+[data-status='locked'] .country-fill {
+  fill: color-mix(in srgb, var(--map-locked) 52%, transparent);
+}
 [data-status='live'] .region-outline { stroke: var(--map-live); stroke-width: 4; }
 
 /* Hovering a town glows the edge of its region. The glow is the outline redrawn brighter

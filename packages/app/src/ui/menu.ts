@@ -1,7 +1,7 @@
 // Campaign menu and mission end screen. Pure navigation — no sim, no state.
 
 import type { LedgerData } from '@lions/sim';
-import type { ParsedWorld } from '../campaign';
+import type { ParsedWorld, WorldCountry } from '../campaign';
 import { panel } from './panel';
 import { stagger } from './motion';
 import { wordmark } from './mark';
@@ -12,9 +12,9 @@ export interface MenuOptions {
   base: string;
   version: string;
   world: ParsedWorld;
+  /** Generated country geometry for the world render's overlay. */
+  countries: readonly WorldCountry[];
   ledger: LedgerData;
-  /** Campaign art source, inlined so its token fills resolve. '' if it failed to load. */
-  svg: string;
   /** The tutorial is not on the map — it teaches the mouse, not the war. */
   tutorial: { id: string; name: string; done: boolean };
 }
@@ -60,8 +60,8 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): void {
     worldMap({
       base: opts.base,
       world: opts.world,
+      countries: opts.countries,
       ledger: opts.ledger,
-      svg: opts.svg,
       href: (id) => `?mission=${id}`,
     })
   );

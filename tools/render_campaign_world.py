@@ -1297,7 +1297,53 @@ def camera_and_light():
 
 # ------------------------------------------------------------------------ main
 
+#: Country identities for the shell: lattice cell -> (id, display name). The three
+#: campaign fronts keep their region ids (marj/sur/naharin) so world.json regions
+#: and countries.json entries join on id with no mapping table.
+COUNTRIES = [
+    (0, "amar", "Amar Steppe"),
+    (1, "sur", "Sur"),
+    (2, "rimon", "Rimon Hills"),
+    (3, "marj", "The Marj Strip"),
+    (4, "kedem", "Kedem"),
+    (5, "naharin", "Naharin"),
+    (6, "kharat", "Kharat Badlands"),
+    (7, "zol", "Zol Erg"),
+    (8, "milh", "Milh Flats"),
+]
+
+
+def write_countries():
+    """The shell's geometry contract, as checked-in data: every country's warped
+    outline and anchor, in the 1140x790 board space. Written by the generator so
+    it can never drift from what the render actually drew."""
+    entries = []
+    for cell, cid, name in COUNTRIES:
+        outline = [[round(x, 1), round(y, 1)] for x, y in country_outline(cell)]
+        ax = sum(p[0] for p in outline) / len(outline)
+        ay = sum(p[1] for p in outline) / len(outline)
+        entries.append({
+            "id": cid,
+            "name": name,
+            "cell": cell,
+            "home": cid == "kedem",
+            "anchor": [round(ax, 1), round(ay, 1)],
+            "outline": outline,
+        })
+    path = os.path.join(ROOT, "data", "campaign", "countries.json")
+    with open(path, "w") as fh:
+        json.dump({"board": [VIEW_W, VIEW_H], "art": "campaign/world_map.png",
+                   "countries": entries}, fh, indent=2)
+        fh.write("\n")
+    print(f"wrote {path}")
+
+
 def main():
+    args = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+    write_countries()
+    if "outlines" in args:
+        return  # geometry only -- no scene, no render
+
     bpy.ops.wm.read_factory_settings(use_empty=True)  # no default cube, light, camera
     camera_and_light()
 
@@ -1336,11 +1382,6 @@ def main():
         spot = (capitals.get(zid) or [mon_sites.get(zid)])[0]
         if spot:
             build_flag(zid, (spot[0] + 11.0, spot[1] - 9.0))
-
-    # The shell overlays per-country state (the brigade lion flag on completed
-    # countries) on top of this render; these outlines are its geometry contract.
-    print("country polygons:", json.dumps(
-        [[[round(x, 1), round(y, 1)] for x, y in country_outline(zid)] for zid in range(9)]))
 
     os.makedirs(os.path.dirname(OUT_BLEND), exist_ok=True)
     bpy.ops.wm.save_as_mainfile(filepath=OUT_BLEND)

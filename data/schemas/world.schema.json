@@ -4,30 +4,70 @@
   "title": "Campaign world",
   "type": "object",
   "additionalProperties": false,
-  "required": ["id", "name", "art", "regions"],
+  "required": [
+    "id",
+    "name",
+    "art",
+    "regions"
+  ],
   "properties": {
-    "id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
-    "name": { "type": "string", "minLength": 1 },
-    "art": { "type": "string", "pattern": "\\.svg$" },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "art": {
+      "type": "string",
+      "pattern": "\\.(svg|png)$"
+    },
     "regions": {
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "name", "faction", "doctrine", "towns"],
+        "required": [
+          "id",
+          "name",
+          "faction",
+          "doctrine",
+          "towns"
+        ],
         "properties": {
-          "id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
-          "name": { "type": "string", "minLength": 1 },
-          "faction": { "type": "string", "minLength": 1 },
-          "doctrine": { "type": "string", "minLength": 1 },
-          "blurb": { "type": "string" },
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "faction": {
+            "type": "string",
+            "minLength": 1
+          },
+          "doctrine": {
+            "type": "string",
+            "minLength": 1
+          },
+          "blurb": {
+            "type": "string"
+          },
           "unlock": {
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "after_mission": { "type": "string" },
-              "roe_rating_min": { "type": "integer", "minimum": 0, "maximum": 100 }
+              "after_mission": {
+                "type": "string"
+              },
+              "roe_rating_min": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              }
             }
           },
           "towns": {
@@ -36,17 +76,36 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["id", "name", "at", "missions"],
+              "required": [
+                "id",
+                "name",
+                "at",
+                "missions"
+              ],
               "properties": {
-                "id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
-                "name": { "type": "string", "minLength": 1 },
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9_]+$"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
                 "at": {
                   "type": "array",
                   "minItems": 2,
                   "maxItems": 2,
-                  "items": { "type": "number", "minimum": 0 }
+                  "items": {
+                    "type": "number",
+                    "minimum": 0
+                  }
                 },
-                "missions": { "type": "array", "items": { "type": "string" } }
+                "missions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
               }
             }
           }
