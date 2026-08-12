@@ -67,6 +67,41 @@ function run(id: keyof typeof missions, plan: Plan, ledger: LedgerData = {}): Le
 
 const M = (x: number, y: number) => ({ x: fx.from(x), y: fx.from(y) });
 
+// 0 — First Light: give up the perimeter on purpose, walk the north village
+// out with the jeep alone, and hold the compound with everything else.
+//
+// This deviates from the obvious "attackMove everyone to the compound, walk
+// both villages" sketch in two ways the playtest itself forced:
+//
+// - `move`, not `attackMove`, for the fallback. attackMove halts a unit the
+//   moment anything is in effective range, so under fire from the moment
+//   contact starts, it never resumes toward the compound -- the APC took
+//   root at the abandoned perimeter and fought there for the entire mission
+//   (never reaching cover), and the sniper team got dragged out of the
+//   strongpoint the same way. `move` still returns fire on the way in but
+//   does not stop for it, so the whole line reaches the walled compound.
+// - The jeep sweeps the north village only (two waypoints, no escort). The
+//   south village's civilians are guarded by an ambushed RPG team sitting
+//   almost on top of them (`south_infiltrators`, tunnel_south) -- walking a
+//   light escort in there is a needless second firefight. The north pair
+//   alone yields enough evacuees for the (tuned) objective count, and a
+//   dedicated infantry escort tried alongside the jeep still died to the
+//   wave-1 militia drifting off the now-empty perimeter with nothing else to
+//   shoot at -- the jeep's speed is what gets it in and out before that
+//   drift arrives, not numbers.
+const led0 = run('beit_sahwan_breach', (sim, _rt, ids, at) => {
+  const shepherds = ids('jeep_shoded');
+  const holders = [...ids('at_team'), ...ids('sniper_team'), ...ids('apc_eitan'), ...ids('inf_squad')];
+  // The perimeter is indefensible and not an objective: fall back at once.
+  at(0, () => {
+    sim.queueCommand({ kind: 'move', ids: holders, ...M(34, 24) });
+    sim.queueCommand({ kind: 'move', ids: shepherds, ...M(24, 13) });
+  });
+  // Trigger both north-village family groups, then run back to the compound.
+  at(20, () => sim.queueCommand({ kind: 'move', ids: shepherds, ...M(28, 17) }));
+  at(45, () => sim.queueCommand({ kind: 'move', ids: shepherds, ...M(34, 24) }));
+});
+
 // I — Recon: scouts screen forward on the berm and observe; the drone tours
 // a standoff line and re-tours until the picture is built.
 const led1 = run('beit_sahwan_1_recon', (sim, _rt, ids, at) => {
@@ -89,7 +124,7 @@ const led1 = run('beit_sahwan_1_recon', (sim, _rt, ids, at) => {
   at(240, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(22, 24) }));
   at(300, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(30, 18) }));
   at(480, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(27, 20) }));
-});
+}, led0);
 
 // II — Foothold: dig in on the assembly area, buy a squad when affordable.
 const led2 = run(

@@ -19,8 +19,7 @@
     ]
   },
   "starting_force": [
-    { "unit": "inf_squad", "count": 2, "at": [16, 14] },
-    { "unit": "inf_squad", "count": 1, "at": [16, 34] },
+    { "unit": "inf_squad", "count": 1, "at": [16, 14] },
     { "unit": "at_team", "count": 1, "at": [16, 21] },
     { "unit": "sniper_team", "count": 1, "at": [16, 27] },
     { "unit": "apc_eitan", "count": 1, "at": [18, 23] },
@@ -51,9 +50,9 @@
       "type": "evacuate_before",
       "primary": false,
       "target": "refuge_zone",
-      "count": 6,
+      "count": 5,
       "seconds": 480,
-      "text": "Get six families clear through the eastern yard"
+      "text": "Get five families clear through the eastern yard"
     }
   ],
   "roe": {
@@ -100,31 +99,31 @@
     ],
     "waves": [
       { "at_seconds": 20, "to": "kdf_line", "units": [
-        { "unit": "militia_cell", "count": 3, "from": "ashwar_centre" },
+        { "unit": "militia_cell", "count": 4, "from": "ashwar_centre" },
         { "unit": "militia_cell", "count": 2, "from": "ashwar_north" }
       ] },
-      { "at_seconds": 90, "to": "kdf_line", "units": [
-        { "unit": "militia_cell", "count": 3, "from": "ashwar_south" },
+      { "at_seconds": 60, "to": "kdf_line", "units": [
+        { "unit": "militia_cell", "count": 4, "from": "ashwar_south" },
         { "unit": "rpg_team", "count": 1, "from": "ashwar_centre" }
       ] },
-      { "at_seconds": 180, "to": "strongpoint_centre", "units": [
+      { "at_seconds": 110, "to": "strongpoint_centre", "units": [
         { "unit": "technical", "count": 2, "from": "ashwar_centre" },
-        { "unit": "militia_cell", "count": 2, "from": "ashwar_north" }
+        { "unit": "militia_cell", "count": 3, "from": "ashwar_north" }
       ] },
-      { "at_seconds": 300, "to": "strongpoint_centre", "units": [
-        { "unit": "militia_cell", "count": 3, "from": "ashwar_south" },
+      { "at_seconds": 170, "to": "strongpoint_centre", "units": [
+        { "unit": "militia_cell", "count": 4, "from": "ashwar_south" },
         { "unit": "atgm_cell", "count": 1, "from": "ashwar_centre" }
       ] },
-      { "at_seconds": 430, "to": "strongpoint_centre", "units": [
+      { "at_seconds": 240, "to": "strongpoint_centre", "units": [
         { "unit": "mortar_crew", "count": 1, "from": "ashwar_north" },
-        { "unit": "militia_cell", "count": 3, "from": "ashwar_centre" }
+        { "unit": "militia_cell", "count": 4, "from": "ashwar_centre" }
       ] },
-      { "at_seconds": 560, "to": "strongpoint_centre", "units": [
+      { "at_seconds": 320, "to": "strongpoint_centre", "units": [
         { "unit": "technical", "count": 2, "from": "ashwar_south" },
         { "unit": "rpg_team", "count": 2, "from": "ashwar_centre" }
       ] },
-      { "at_seconds": 690, "to": "strongpoint_centre", "units": [
-        { "unit": "militia_cell", "count": 4, "from": "ashwar_centre" }
+      { "at_seconds": 410, "to": "strongpoint_centre", "units": [
+        { "unit": "militia_cell", "count": 5, "from": "ashwar_centre" }
       ] }
     ]
   },
