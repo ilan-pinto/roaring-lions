@@ -660,6 +660,42 @@ describe('civilians and ROE (GDD §6)', () => {
     expect(end?.kind === 'missionEnd' && end.result).toBe('defeat');
     if (end?.kind === 'missionEnd') expect(end.roeRating).toBe(40);
   });
+
+  it('a civilian walks out when a soldier comes within shepherding range', () => {
+    const w = civWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [11, 6] }],
+      civilians: { groups: [{ unit: 'm_civ', count: 1, at: [12, 6] }], refuge: 'refuge' },
+    });
+    const civ = w.sim.entityCount - 1;
+    const startX = w.sim.state.posX[civ];
+    w.step(40);
+    // Heading for the refuge at [2, 10]: west and south of where it started.
+    expect(w.sim.state.posX[civ]).toBeLessThan(startX);
+  });
+
+  it('a civilian with no soldier near it stays put', () => {
+    const w = civWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [2, 2] }],
+      civilians: { groups: [{ unit: 'm_civ', count: 1, at: [20, 6] }], refuge: 'refuge' },
+    });
+    const civ = w.sim.entityCount - 1;
+    const startX = w.sim.state.posX[civ];
+    w.step(40);
+    expect(w.sim.state.posX[civ]).toBe(startX);
+  });
+
+  it('shepherding is issued once, so a soldier standing there does not re-order every tick', () => {
+    const w = civWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [11, 6] }],
+      civilians: { groups: [{ unit: 'm_civ', count: 1, at: [12, 6] }], refuge: 'refuge' },
+    });
+    const civ = w.sim.entityCount - 1;
+    w.step(120);
+    const x1 = w.sim.state.posX[civ];
+    w.step(120);
+    // Still travelling toward the refuge, not pinned in place by re-issued orders.
+    expect(w.sim.state.posX[civ]).toBeLessThan(x1);
+  });
 });
 
 describe('economy (GDD §3, just enough for M1)', () => {

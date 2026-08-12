@@ -217,6 +217,11 @@ const SUPPORTED = new Set(['locate', 'eliminate_hvt', 'capture', 'hold_for', 'su
 const SPREAD = 81920;
 /** Civilians break for the refuge above this suppression (0.3). */
 const CIV_FLEE_AT = 19661;
+/** A soldier this close is walking these people out: 4 tiles, squared, in the
+ *  Q8.8 form the other radius checks use. Civilians move for exactly one other
+ *  reason -- fear -- and an evacuation objective built on fear alone would
+ *  reward shooting near them to herd them. */
+const SHEPHERD_RADIUS_SQ = 1048576;
 /** "Danger close": civilians within this of an aimpoint make heavy ordnance
  *  disproportionate (2 tiles, squared, Q16.16). */
 const DANGER_CLOSE_SQ = 262144;
@@ -816,13 +821,31 @@ export class MissionRuntime {
   }
 
   /** Civilians shelter in place until fire lands close, then break for the
-   *  refuge — once, in fear, not as a controlled unit. */
+   *  refuge — once, in fear, not as a controlled unit. They also go when a
+   *  soldier reaches them: that is the player evacuating them, and it is the
+   *  only way `evacuate_before` can be satisfied without shooting at them. */
   private stepCivilians(): void {
     const refuge = this.mission.civilians?.refuge;
     if (refuge === undefined) return;
+    const st = this.sim.state;
     for (const civ of this.civIds) {
-      if (this.sim.state.alive[civ] === 0 || this.civFled.has(civ)) continue;
-      if (this.sim.state.suppression[civ] <= CIV_FLEE_AT) continue;
+      if (st.alive[civ] === 0 || this.civFled.has(civ)) continue;
+      let leaving = st.suppression[civ] > CIV_FLEE_AT;
+      if (!leaving) {
+        for (const p of this.playerIds) {
+          if (st.alive[p] === 0) continue;
+          const dx = (fx.sub(st.posX[civ], st.posX[p]) >> 8) | 0;
+          const dy = (fx.sub(st.posY[civ], st.posY[p]) >> 8) | 0;
+          if (dx * dx + dy * dy <= SHEPHERD_RADIUS_SQ) {
+            leaving = true;
+            break;
+          }
+        }
+      }
+      if (!leaving) continue;
+      // The same latch as fleeing: one order per person. A civilian already
+      // running cannot be re-shepherded, and one being walked out cannot be
+      // re-panicked into a second, conflicting order.
       this.civFled.add(civ);
       const [rx, ry] = this.markerPos(refuge);
       this.sim.queueCommand({ kind: 'move', ids: [civ], x: rx, y: ry });
