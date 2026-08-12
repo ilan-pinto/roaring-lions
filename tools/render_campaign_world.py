@@ -8,11 +8,12 @@ This is the v2 map candidate, replacing the per-region layered approach:
   * One high-density grid mesh covering the whole 1140x790 board. No gaps, no voids --
     countries are zones of the same surface, separated by raised ridges or sunken river
     valleys where the terrain itself changes, never by empty space.
-  * Nine countries on a jittered 3x3 lattice: each one a convex quad -- "random
-    rectangles", the way political borders read as surveyed lines rather than
-    coastlines -- with Kedem (home) dead centre and eight grey placeholder enemies
-    around it. The cell polygons are printed as JSON at build time so the shell can
-    position its own per-country overlays.
+  * Nine countries on a jittered 3x3 lattice, then the whole border field is bent
+    by two octaves of noise: every border wiggles at two scales like a real one --
+    no straight lines, no symmetric shapes -- while the lattice still guarantees
+    the board tiles completely and Kedem (home) stays dead centre among its eight
+    grey placeholder enemies. The real-space country outlines are printed as JSON
+    at build time so the shell can position its own per-country overlays.
   * Campaign progress is NOT baked into the render: the shell overlays the brigade
     lion flag on completed countries. (The bezier-road bevel_factor_end dial from
     the first cut is gone with it.)
@@ -208,30 +209,65 @@ def _border_style(a, b):
     return "valley" if (lo * 31 + hi * 17) % 3 == 2 else "ridge"
 
 
+def _warp(sx, sy):
+    """The border warp: the lattice is queried through this displacement, so its
+    straight edges land in real space as irregular curves. Two octaves = wiggle at
+    two scales, the fractal look real borders have; straight survey lines read as
+    CAD. One shared field for everything means both sides of a border agree on it.
+    """
+    wx = (34.0 * vnoise(sx * 0.0045 + 3.1, sy * 0.0045 + 8.2, salt=11)
+          + 11.0 * vnoise(sx * 0.02 + 1.7, sy * 0.02 + 6.4, salt=12))
+    wy = (34.0 * vnoise(sx * 0.0045 + 9.6, sy * 0.0045 + 2.8, salt=13)
+          + 11.0 * vnoise(sx * 0.02 + 5.2, sy * 0.02 + 0.9, salt=14))
+    return wx, wy
+
+
+def country_outline(zid, samples_per_edge=24):
+    """The country's REAL-space outline, for the shell's overlays: the quad's
+    border, sampled and pulled back through the warp (first-order inverse -- the
+    warp varies slowly, so q - w(q) lands within a pixel or two). Rim edges stay
+    on the board frame."""
+    poly = CELLS[zid]
+    out = []
+    for k in range(4):
+        a, b = poly[k], poly[(k + 1) % 4]
+        rim = (a[0] == b[0] == 0.0 or a[0] == b[0] == VIEW_W
+               or a[1] == b[1] == 0.0 or a[1] == b[1] == VIEW_H)
+        for i in range(samples_per_edge):
+            f = i / samples_per_edge
+            qx, qy = a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f
+            if not rim:
+                wx, wy = _warp(qx, qy)
+                qx, qy = qx - wx, qy - wy
+            out.append((min(VIEW_W, max(0.0, qx)), min(VIEW_H, max(0.0, qy))))
+    return out
+
+
 def zone_at(sx, sy):
     """(zone id, ridge factor 0..1, valley factor 0..1) at an SVG point.
 
-    The zone is whichever quad contains the point; border influence comes from the
-    distance to each of the quad's edges, so the features hug the straight surveyed
-    lines. A small wobble on the distance keeps the ranges from reading sterile
-    without bending the borders themselves. Edges on the board rim get no feature.
+    The point is pushed through the warp and located in the quad lattice, so the
+    countries' real borders are the warped images of the lattice edges. Border
+    influence is the warped point's distance to the quad's edges; edges on the
+    board rim get no feature.
     """
+    wx, wy = _warp(sx, sy)
+    px, py = sx + wx, sy + wy
     zid = -1
     for i, poly in enumerate(CELLS):
-        if point_in_poly(sx, sy, poly):
+        if point_in_poly(px, py, poly):
             zid = i
             break
-    if zid < 0:  # exactly on a shared edge: nearest centroid owns it
-        zid = min(range(9), key=lambda i: (sx - _CENTROIDS[i][0]) ** 2 + (sy - _CENTROIDS[i][1]) ** 2)
+    if zid < 0:  # warped outside the frame (near the rim): nearest centroid owns it
+        zid = min(range(9), key=lambda i: (px - _CENTROIDS[i][0]) ** 2 + (py - _CENTROIDS[i][1]) ** 2)
     poly = CELLS[zid]
     cx, cy = zid % 3, zid // 3
     neighbours = ((cx, cy - 1), (cx + 1, cy), (cx, cy + 1), (cx - 1, cy))
-    wob = 5.0 * vnoise(sx * 0.02, sy * 0.02, salt=10)
     ridge_t = valley_t = 0.0
     for k, (nx, ny) in enumerate(neighbours):
         if not (0 <= nx < 3 and 0 <= ny < 3):
             continue
-        d = _seg_dist(sx, sy, poly[k], poly[(k + 1) % 4]) + wob
+        d = _seg_dist(px, py, poly[k], poly[(k + 1) % 4])
         # 70 wide: at 95 the rock ramp splattered across the gentle flanks and the
         # ranges read as stains; narrower + taller = steeper = real shading.
         if _border_style(zid, ny * 3 + nx) == "ridge":
@@ -483,8 +519,10 @@ def _canopy(add, sx, sy, r, h, sides=12):
 
 
 def _kedem_x_span():
+    # Overshoot the unwarped quad by the warp's reach; the zone gate on each
+    # candidate is what actually clips to the real border.
     xs = [x for x, _ in CELLS[KEDEM]]
-    return min(xs) + 10.0, max(xs) - 10.0
+    return min(xs) - 46.0, max(xs) + 46.0
 
 
 def scatter_city(clear_at=None, clear_r=44.0):
@@ -532,7 +570,7 @@ def scatter_forest():
     rnd = rng_from(0xF03E)
     placed = 0
     kx0, kx1 = _kedem_x_span()
-    sy = _K_TOP + 4.0
+    sy = _K_TOP - 46.0
     while sy < FOREST_MAX_Y + BAND_BLEND + 6.0:
         sx = kx0
         while sx < kx1:
@@ -557,7 +595,7 @@ def find_beit_sahwan():
     hand-placed -- the lattice jitter moves the cell, and a hand constant ends up
     in the wrong country."""
     sx = _CENTROIDS[KEDEM][0]
-    sy = _K_BOT - 4.0
+    sy = _K_BOT + 44.0
     while sy > URBAN_MAX_Y + BAND_BLEND:
         zid, ridge_t, valley_t = zone_at(sx, sy)
         band_y = sy + 18.0 * vnoise(sx * 0.012, 4.4, salt=5)
@@ -669,9 +707,9 @@ def main():
     scatter_forest()
 
     # The shell overlays per-country state (the brigade lion flag on completed
-    # countries) on top of this render; these polygons are its geometry contract.
+    # countries) on top of this render; these outlines are its geometry contract.
     print("country polygons:", json.dumps(
-        [[[round(x, 1), round(y, 1)] for x, y in poly] for poly in CELLS]))
+        [[[round(x, 1), round(y, 1)] for x, y in country_outline(zid)] for zid in range(9)]))
 
     os.makedirs(os.path.dirname(OUT_BLEND), exist_ok=True)
     bpy.ops.wm.save_as_mainfile(filepath=OUT_BLEND)
