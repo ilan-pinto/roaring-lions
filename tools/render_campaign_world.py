@@ -858,6 +858,31 @@ FLAG_DESIGNS = {
     8: ("h", ["limestone.0", "water.0"]),
 }
 
+#: The animal on each flag, as axis-aligned rects (dx, dy, w, h) in banner-local
+#: units (origin top-left, y down), stamped just above the fields. Pixel-art
+#: heraldry: at 36x24 rendered pixels only a bold silhouette survives, so every
+#: beast is built from a handful of rectangles.
+EMBLEMS = {
+    0: ("shadow.1", [(5, 3, 1.6, 4.5), (11.4, 3, 1.6, 4.5), (5, 7, 8, 1.6)]),          # bull horns
+    1: ("shadow.1", [(8, 3, 2, 5.5), (3, 4.5, 5, 1.6), (10, 4.5, 5, 1.6),
+                     (4, 3.2, 3, 1.3), (11, 3.2, 3, 1.3)]),                            # eagle
+    2: ("shadow.1", [(8, 7, 2, 2.4), (6, 2.5, 1.3, 5), (10.7, 2.5, 1.3, 5),
+                     (4, 3, 2, 1.2), (4, 5.2, 2, 1.2), (12, 3, 2, 1.2),
+                     (12, 5.2, 2, 1.2)]),                                              # stag antlers
+    3: ("limestone.0", [(5, 4.5, 5.5, 3), (10.5, 3.5, 2, 5), (6.5, 3.6, 2.5, 1)]),     # fish
+    5: ("olive.3", [(4, 8.5, 2.6, 1.5), (6, 7, 2.6, 1.5), (8, 5.5, 2.6, 1.5),
+                    (10, 4, 2.6, 1.5), (12, 2.5, 3, 2)]),                              # river serpent
+    6: ("shadow.1", [(8, 3, 2, 6), (8.4, 1.8, 1.3, 1.4), (5.8, 3.6, 2.2, 1.2),
+                     (10, 3.6, 2.2, 1.2), (5.8, 6.6, 2.2, 1.2), (10, 6.6, 2.2, 1.2),
+                     (8.6, 9, 0.9, 2)]),                                               # lizard
+    7: ("terracotta.2", [(10.2, 4.8, 3.6, 2), (8.8, 3.8, 1.8, 1.4), (8.8, 6.6, 1.8, 1.4),
+                         (13.8, 3.8, 1.4, 1.2), (14.8, 2.6, 1.4, 1.2),
+                         (13.9, 1.5, 1.5, 1.1)]),                                      # scorpion
+    8: ("olive.2", [(6.5, 4, 5, 4), (8.4, 2.6, 1.4, 1.4), (5.4, 3.6, 1.2, 1.2),
+                    (11.4, 3.6, 1.2, 1.2), (5.4, 7.2, 1.2, 1.2), (11.4, 7.2, 1.2, 1.2),
+                    (8.6, 8.2, 1, 1.2)]),                                              # turtle
+}
+
 
 def build_flag(zid, at):
     """The country's flag, planted beside its capital hamlet."""
@@ -876,15 +901,20 @@ def build_flag(zid, at):
         add, commit = _batched_mesh(f"flag{zid}_c", flat(f"flag{zid}_cm", canton, roughness=0.6))
         _plate(add, fx, fy, fx + fw * 0.45, fy + fh * 0.5, zb + 0.35)
         commit()
-        return
-    n = len(keys)
-    for i, key in enumerate(keys):
-        add, commit = _batched_mesh(f"flag{zid}_p{i}", flat(f"flag{zid}_pm{i}", key, roughness=0.6))
-        if orient == "h":
-            _plate(add, fx, fy + fh * i / n, fx + fw, fy + fh * (i + 1) / n, zb)
-        else:
-            _plate(add, fx + fw * i / n, fy, fx + fw * (i + 1) / n, fy + fh, zb)
-        commit()
+    else:
+        n = len(keys)
+        for i, key in enumerate(keys):
+            add, commit = _batched_mesh(f"flag{zid}_p{i}", flat(f"flag{zid}_pm{i}", key, roughness=0.6))
+            if orient == "h":
+                _plate(add, fx, fy + fh * i / n, fx + fw, fy + fh * (i + 1) / n, zb)
+            else:
+                _plate(add, fx + fw * i / n, fy, fx + fw * (i + 1) / n, fy + fh, zb)
+            commit()
+    emblem_key, rects = EMBLEMS[zid]
+    add, commit = _batched_mesh(f"flag{zid}_e", flat(f"flag{zid}_em", emblem_key, roughness=0.6))
+    for dx, dy, w, h in rects:
+        _plate(add, fx + dx, fy + dy, fx + dx + w, fy + dy + h, zb + 0.55)
+    commit()
 
 
 def find_monument_sites():
@@ -923,72 +953,114 @@ def build_monuments(sites):
     def batched(tag, key, rough=0.8):
         return _batched_mesh(tag, flat(f"{tag}_m", key, roughness=rough))
 
-    if 0 in sites:  # NW steppe: stone circle
+    if 0 in sites:  # NW steppe: great stone circle with a central trilithon
         sx, sy = sites[0]
         add, commit = batched("mon_circle", "limestone.2")
-        for i in range(9):
-            a = 2.0 * math.pi * i / 9.0
-            _rock(add, sx + 13.0 * math.cos(a), sy + 13.0 * math.sin(a) * 0.85,
-                  2.2, 6.0 + rnd() * 3.0, rnd, sides=5)
+        for i in range(12):
+            a = 2.0 * math.pi * i / 12.0
+            _rock(add, sx + 19.0 * math.cos(a), sy + 19.0 * math.sin(a) * 0.85,
+                  2.6, 8.0 + rnd() * 5.0, rnd, sides=5)
+        _block(add, sx - 3.2, sy, 2.6, 2.6, 11.0)
+        _block(add, sx + 3.2, sy, 2.6, 2.6, 11.0)
+        _block(add, sx, sy, 10.0, 3.2, 2.2, lift=11.0)  # lintel
         commit()
-    if 1 in sites:  # N highlands: ziggurat
+    if 1 in sites:  # N highlands: five-tier ziggurat, shrine on the crown
         sx, sy = sites[1]
-        for i, (side, key) in enumerate(((20.0, "limestone.3"), (13.0, "limestone.2"), (7.0, "limestone.1"))):
+        tiers = ((27.0, "limestone.3"), (21.0, "limestone.2"), (15.5, "limestone.3"),
+                 (10.5, "limestone.2"), (6.0, "limestone.1"))
+        for i, (side, key) in enumerate(tiers):
             add, commit = batched(f"mon_zig{i}", key)
-            _block(add, sx, sy, side, side, 3.5, lift=3.5 * i)
+            _block(add, sx, sy, side, side, 3.2, lift=3.2 * i)
             commit()
-    if 2 in sites:  # NE forest: white shrine in a clearing
-        sx, sy = sites[2]
-        add, commit = batched("mon_shrine", "limestone.0")
-        _block(add, sx, sy, 9.0, 9.0, 5.0)
-        _block(add, sx, sy, 5.0, 5.0, 3.0, lift=5.0)
+        add, commit = batched("mon_zig_stair", "limestone.1")
+        _block(add, sx, sy + 15.0, 4.0, 8.0, 2.4)  # processional ramp, south face
         commit()
-    if 3 in sites:  # W coastal desert: caravanserai (hollow walled square)
+        add, commit = batched("mon_zig_crown", "terracotta.1")
+        _block(add, sx, sy, 3.4, 3.4, 3.0, lift=16.0)
+        commit()
+    if 2 in sites:  # NE forest: colonnaded white temple in its clearing
+        sx, sy = sites[2]
+        add, commit = batched("mon_temple_base", "limestone.1")
+        _block(add, sx, sy, 16.0, 13.0, 2.0)
+        commit()
+        add, commit = batched("mon_temple", "limestone.0")
+        for px in (-6.0, -2.0, 2.0, 6.0):
+            _block(add, sx + px, sy - 4.8, 1.6, 1.6, 6.0, lift=2.0)
+            _block(add, sx + px, sy + 4.8, 1.6, 1.6, 6.0, lift=2.0)
+        _block(add, sx, sy, 8.0, 6.0, 5.0, lift=2.0)   # cella
+        _block(add, sx, sy, 11.0, 8.5, 1.6, lift=8.0)  # roof slab over the colonnade
+        commit()
+    if 3 in sites:  # W coastal desert: caravanserai with corner towers and a gate
         sx, sy = sites[3]
         add, commit = batched("mon_serai", "limestone.3")
-        _block(add, sx, sy - 10.0, 22.0, 3.0, 5.0)
-        _block(add, sx, sy + 10.0, 22.0, 3.0, 5.0)
-        _block(add, sx - 10.0, sy, 3.0, 18.0, 5.0)
-        _block(add, sx + 10.0, sy, 3.0, 18.0, 5.0)
+        _block(add, sx - 5.5, sy - 13.0, 15.0, 3.0, 6.5)   # north wall, gate gap east
+        _block(add, sx + 11.0, sy - 13.0, 4.0, 3.0, 6.5)
+        _block(add, sx, sy + 13.0, 26.0, 3.0, 6.5)
+        _block(add, sx - 13.0, sy, 3.0, 23.0, 6.5)
+        _block(add, sx + 13.0, sy, 3.0, 23.0, 6.5)
         commit()
-    if 5 in sites:  # E lowlands: step-well
+        add, commit = batched("mon_serai_towers", "limestone.2")
+        for dx, dy in ((-13.0, -13.0), (13.0, -13.0), (-13.0, 13.0), (13.0, 13.0)):
+            _block(add, sx + dx, sy + dy, 6.0, 6.0, 9.5)
+        _block(add, sx, sy, 5.0, 5.0, 3.0)  # courtyard cistern house
+        commit()
+    if 5 in sites:  # E lowlands: terraced step-well descending to water
         sx, sy = sites[5]
         add, commit = batched("mon_well_rim", "limestone.1")
-        _block(add, sx, sy - 7.0, 16.0, 2.0, 2.0)
-        _block(add, sx, sy + 7.0, 16.0, 2.0, 2.0)
-        _block(add, sx - 7.0, sy, 2.0, 12.0, 2.0)
-        _block(add, sx + 7.0, sy, 2.0, 12.0, 2.0)
+        for half, h in ((11.0, 3.0), (7.5, 1.8)):
+            _block(add, sx, sy - half, 2.0 * half + 2.0, 2.0, h)
+            _block(add, sx, sy + half, 2.0 * half + 2.0, 2.0, h)
+            _block(add, sx - half, sy, 2.0, 2.0 * half - 2.0, h)
+            _block(add, sx + half, sy, 2.0, 2.0 * half - 2.0, h)
+        commit()
+        add, commit = batched("mon_well_stair", "limestone.2")
+        _block(add, sx, sy - 9.2, 3.0, 7.0, 1.2)  # entry stair cutting the terraces
         commit()
         z0, _ = terrain(sx, sy)
         add, commit = batched("mon_well_water", "water.1", rough=0.3)
         _plate(add, sx - 5.5, sy - 5.5, sx + 5.5, sy + 5.5, z0 + 0.5)
         commit()
-    if 6 in sites:  # SW badlands: twin obelisks
+    if 6 in sites:  # SW badlands: obelisk gateway on a paved plaza
         sx, sy = sites[6]
-        add, commit = batched("mon_obelisks", "gunmetal.0")
-        _block(add, sx - 5.0, sy, 3.0, 3.0, 16.0)
-        _block(add, sx + 5.0, sy, 3.0, 3.0, 16.0)
+        add, commit = batched("mon_plaza", "limestone.5")
+        _plate_z = terrain(sx, sy)[0] + 0.4
+        _plate(add, sx - 11.0, sy - 5.5, sx + 11.0, sy + 5.5, _plate_z)
         commit()
-    if 7 in sites:  # S erg: great pyramid
+        add, commit = batched("mon_obelisks", "gunmetal.0")
+        for dx in (-6.5, 6.5):
+            _block(add, sx + dx, sy, 6.0, 6.0, 2.2)            # plinth
+            _block(add, sx + dx, sy, 3.4, 3.4, 22.0, lift=2.2)  # shaft
+        commit()
+    if 7 in sites:  # S erg: pyramid complex -- great pyramid, satellite, causeway
         sx, sy = sites[7]
         z0, _ = terrain(sx, sy)
         wx, wy = to_world(sx, sy)
         add, commit = batched("mon_pyramid", "dust.0")
-        s = 11.0
+        s = 16.0
         base = [(wx - s, wy - s, z0 - 1.0), (wx + s, wy - s, z0 - 1.0),
                 (wx + s, wy + s, z0 - 1.0), (wx - s, wy + s, z0 - 1.0)]
-        verts = base + [(wx, wy, z0 + 13.0)]
-        faces = [(3, 2, 1, 0)] + [(i, (i + 1) % 4, 4) for i in range(4)]
-        add(verts, faces)
+        add(base + [(wx, wy, z0 + 20.0)],
+            [(3, 2, 1, 0)] + [(i, (i + 1) % 4, 4) for i in range(4)])
+        s2, ox, oy = 6.0, 15.0, 13.0
+        wx2, wy2 = to_world(sx + ox, sy + oy)
+        z2, _ = terrain(sx + ox, sy + oy)
+        base2 = [(wx2 - s2, wy2 - s2, z2 - 1.0), (wx2 + s2, wy2 - s2, z2 - 1.0),
+                 (wx2 + s2, wy2 + s2, z2 - 1.0), (wx2 - s2, wy2 + s2, z2 - 1.0)]
+        add(base2 + [(wx2, wy2, z2 + 8.0)],
+            [(3, 2, 1, 0)] + [(i, (i + 1) % 4, 4) for i in range(4)])
         commit()
-    if 8 in sites:  # SE salt flats: labyrinth geoglyph (nested square outlines)
+        add, commit = batched("mon_causeway", "limestone.0")
+        _plate(add, sx + s, sy - 1.5, sx + s + 26.0, sy + 1.5, z0 + 0.4)
+        commit()
+    if 8 in sites:  # SE salt flats: labyrinth geoglyph, bolder and centred
         sx, sy = sites[8]
         add, commit = batched("mon_glyph", "shadow.1", rough=0.95)
-        for half in (18.0, 12.0, 6.0):
-            _block(add, sx, sy - half, 2.0 * half + 3.5, 3.5, 1.0)
-            _block(add, sx, sy + half, 2.0 * half + 3.5, 3.5, 1.0)
-            _block(add, sx - half, sy, 3.5, 2.0 * half - 3.5, 1.0)
-            _block(add, sx + half, sy, 3.5, 2.0 * half - 3.5, 1.0)
+        for half in (26.0, 17.0, 9.0):
+            _block(add, sx, sy - half, 2.0 * half + 4.5, 4.5, 1.0)
+            _block(add, sx, sy + half, 2.0 * half + 4.5, 4.5, 1.0)
+            _block(add, sx - half, sy, 4.5, 2.0 * half - 4.5, 1.0)
+            _block(add, sx + half, sy, 4.5, 2.0 * half - 4.5, 1.0)
+        _block(add, sx, sy, 5.0, 5.0, 1.4)
         commit()
     print(f"monuments: {len(sites)}")
 
@@ -1058,7 +1130,10 @@ def build_hamlets(zid, label, count, seed):
         py = y0 + rnd() * (y1 - y0)
         z_id, ridge_t, valley_t = zone_at(px, py)
         z, _band = terrain(px, py)
-        if z_id != zid or max(ridge_t, valley_t) > 0.15 or z > 14.0:
+        # The board edge is not a border: a capital at x=4 renders half a hamlet
+        # and hangs its flag off the map.
+        on_board = 24.0 < px < VIEW_W - 24.0 and 24.0 < py < VIEW_H - 24.0
+        if z_id != zid or max(ridge_t, valley_t) > 0.15 or z > 14.0 or not on_board:
             continue
         for _ in range(5 + int(rnd() * 4)):
             a, r = rnd() * 2.0 * math.pi, 1.5 + rnd() * 11.0
