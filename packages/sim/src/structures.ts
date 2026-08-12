@@ -23,6 +23,10 @@ export interface StructureTypeJson {
   color?: string;
   /** ROE cost when the player levels it (GDD §6). */
   roe_penalty?: number;
+  /** Presentation only: draw the sprite once per occupied tile rather than
+   *  once for the whole footprint. For linear runs of arbitrary length --
+   *  walls, fences. */
+  per_tile?: boolean;
 }
 
 export interface StructureType {
@@ -36,6 +40,9 @@ export interface StructureType {
   color: string;
   /** ROE cost when the player levels it. */
   roePenalty: number;
+  /** Draw the sprite once per occupied tile rather than once for the whole
+   *  footprint. For linear runs of arbitrary length -- walls, fences. */
+  perTile: boolean;
 }
 
 export function structureTypeFromJson(json: StructureTypeJson): StructureType {
@@ -48,6 +55,7 @@ export function structureTypeFromJson(json: StructureTypeJson): StructureType {
     heightPx: json.height_px ?? 18,
     color: json.color ?? 'limestone.4',
     roePenalty: json.roe_penalty ?? 0,
+    perTile: json.per_tile ?? false,
   };
 }
 

@@ -60,6 +60,11 @@
             "minimum": 0,
             "description": "Presentation only."
           },
+          "per_tile": {
+            "type": "boolean",
+            "default": false,
+            "description": "Draw this type's sprite once per occupied tile rather than once for the whole footprint. For linear structures -- walls, fences -- whose runs are of arbitrary length. A compact building leaves this false."
+          },
           "color": {
             "type": "string",
             "description": "Presentation only: palette key."

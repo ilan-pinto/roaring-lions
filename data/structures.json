@@ -56,6 +56,18 @@
       "color": "limestone.4",
       "roe_penalty": 3
     },
+    "wall": {
+      "id": "wall",
+      "name": "Compound Wall",
+      "symbol": "=",
+      "hp_per_tile": 90,
+      "garrison_slots": 0,
+      "rubble_cover": 1,
+      "height_px": 7,
+      "color": "limestone.5",
+      "roe_penalty": 0,
+      "per_tile": true
+    },
     "mosque": {
       "id": "mosque",
       "name": "Mosque",
