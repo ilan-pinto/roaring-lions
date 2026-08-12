@@ -138,6 +138,27 @@ describe('worldMap', () => {
     }
   });
 
+  it('makes a live country itself the link to its next mission', () => {
+    const hit = render({}).querySelector('#region-marj a.country-hit');
+    expect(hit).not.toBe(null);
+    expect(hit?.getAttribute('href')).toBe(`?mission=${ALL_BS[0]}`);
+  });
+
+  it('gives a locked country no link — its ground is not playable', () => {
+    const el = render({});
+    expect(el.querySelector('#region-sur a.country-hit')).toBe(null);
+    expect(el.querySelector('#region-amar a.country-hit')).toBe(null);
+  });
+
+  it('glows the border from anywhere inside the country, not only its labels', () => {
+    const el = render({});
+    const g = el.querySelector('#region-marj') as SVGGElement;
+    g.dispatchEvent(new Event('mouseenter'));
+    expect(g.getAttribute('data-hover')).toBe('1');
+    g.dispatchEvent(new Event('mouseleave'));
+    expect(g.getAttribute('data-hover')).toBe(null);
+  });
+
   it('does not write to localStorage — the map is a view, not a save', () => {
     const before = window.localStorage.length;
     render({});

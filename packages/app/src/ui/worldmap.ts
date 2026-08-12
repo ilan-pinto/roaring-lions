@@ -74,17 +74,59 @@ export function worldMap(opts: WorldMapOptions): HTMLElement {
       height: String(VIEW_H),
     })
   );
-  const regionIds = new Set(opts.world.regions.map((r) => r.id));
+  // The first town, in authored order, still asking for a mission: what a click
+  // on the country's ground should start.
+  const nextMissionOfRegion = (region: WorldRegion): string | null => {
+    for (const town of region.towns) {
+      const next = nextMissionOf(town, opts.ledger);
+      if (next !== null) return next;
+    }
+    return null;
+  };
+
+  const regionById = new Map(opts.world.regions.map((r) => [r.id, r]));
   for (const c of opts.countries) {
     // The homeland carries no campaign state: no veil, no border, no flag.
     if (c.home) continue;
-    const points = c.outline.map(([x, y]) => `${x},${y}`).join(' ');
-    const g = svgEl('g', { id: `region-${c.id}` });
-    g.appendChild(svgEl('polygon', { class: 'country-fill', points }));
-    g.appendChild(svgEl('polygon', { class: 'region-outline', points, fill: 'none' }));
+    const region = regionById.get(c.id);
     // A country with no region in world.json has no campaign authored at all:
     // locked, permanently, until data exists for it.
-    if (!regionIds.has(c.id)) g.setAttribute('data-status', 'locked');
+    const p = region ? regionProgress(region, opts.ledger) : null;
+    const points = c.outline.map(([x, y]) => `${x},${y}`).join(' ');
+    const g = svgEl('g', { id: `region-${c.id}` });
+    g.setAttribute('data-status', p?.status ?? 'locked');
+
+    // The whole country is the control, not just its town labels: its interior
+    // takes the hover (pointer-events: fill in the stylesheet), and a live
+    // country is a real link into its next mission -- an SVG <a>, so middle
+    // click and keyboard focus behave like every other link.
+    const fill = svgEl('polygon', { class: 'country-fill', points });
+    const line = svgEl('polygon', { class: 'region-outline', points, fill: 'none' });
+    const next = region && p?.status === 'live' ? nextMissionOfRegion(region) : null;
+    if (next !== null) {
+      const hit = svgEl('a', { class: 'country-hit', href: opts.href(next) });
+      hit.append(fill, line);
+      g.appendChild(hit);
+    } else {
+      g.append(fill, line);
+    }
+    if (p?.status === 'complete') {
+      g.appendChild(
+        svgEl('image', {
+          class: 'country-flag',
+          href: `${opts.base}campaign/flag_brigade.png`,
+          x: String(c.anchor[0] - FLAG_W / 2),
+          y: String(c.anchor[1] - FLAG_H / 2),
+          width: String(FLAG_W),
+          height: String(FLAG_H),
+        })
+      );
+    }
+    // Same glow contract the town markers use, from the country's own ground.
+    g.addEventListener('mouseenter', () => g.setAttribute('data-hover', '1'));
+    g.addEventListener('mouseleave', () => g.removeAttribute('data-hover'));
+    g.addEventListener('focusin', () => g.setAttribute('data-hover', '1'));
+    g.addEventListener('focusout', () => g.removeAttribute('data-hover'));
     svg.appendChild(g);
   }
   board.appendChild(svg);
@@ -92,27 +134,6 @@ export function worldMap(opts: WorldMapOptions): HTMLElement {
   for (const region of opts.world.regions) {
     const p = regionProgress(region, opts.ledger);
     const g = board.querySelector(`#region-${region.id}`);
-    // A region with no country shape is caught by validate:data, so a miss here
-    // means the generated geometry was edited without running the gate. The cards
-    // below still render, which is why this is a skip and not a throw.
-    if (g) {
-      g.setAttribute('data-status', p.status);
-      if (p.status === 'complete') {
-        const country = opts.countries.find((c) => c.id === region.id);
-        if (country) {
-          g.appendChild(
-            svgEl('image', {
-              class: 'country-flag',
-              href: `${opts.base}campaign/flag_brigade.png`,
-              x: String(country.anchor[0] - FLAG_W / 2),
-              y: String(country.anchor[1] - FLAG_H / 2),
-              width: String(FLAG_W),
-              height: String(FLAG_H),
-            })
-          );
-        }
-      }
-    }
 
     for (const town of region.towns) {
       const next = nextMissionOf(town, opts.ledger);

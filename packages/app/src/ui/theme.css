@@ -153,8 +153,12 @@
    appearance and these three rules restyle it. Baking a state into the art means
    the CSS compounds on top of it rather than replacing it. */
 /* Country overlays sit above the flat world render. The fill is invisible until
-   a state needs it; pointer-events stay off so towns underneath keep the hover. */
-.country-fill { fill: none; pointer-events: none; }
+   a state needs it, but its INTERIOR is the country's pointer target
+   (pointer-events: fill hits the region even when no fill is painted) -- hovering
+   anywhere inside glows the border, and a live country is a click into its next
+   mission. Town markers are DOM above the SVG, so they still win the pointer. */
+.country-fill { fill: none; pointer-events: fill; }
+.country-hit { cursor: pointer; outline: none; }
 [data-status='locked'] .country-fill {
   fill: color-mix(in srgb, var(--map-locked) 52%, transparent);
 }
