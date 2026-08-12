@@ -100,6 +100,11 @@ export interface LedgerData {
   'intel.marked_positions'?: string[];
   /** Mission ids already cleared, for `unlock.after_mission` gates. */
   'campaign.completed_missions'?: string[];
+  /** How many civilian units got out — reached the refuge zone, latched, so
+   *  dying afterwards does not un-count them. Written by missions whose
+   *  premise includes an evacuation (the breach), read by later missions
+   *  that want to know who made it. */
+  'civ.settlements_evacuated'?: number;
   [key: string]: unknown;
 }
 
@@ -1120,6 +1125,7 @@ export class MissionRuntime {
         if (this.resultValue === 'victory' && !done.includes(this.mission.id)) done.push(this.mission.id);
         produced[key] = done;
       }
+      else if (key === 'civ.settlements_evacuated') produced[key] = this.civEvacuated.size;
       else if (key === 'intel.marked_positions') {
         // Union with what came in: intel accumulates across a campaign rather than
         // being replaced, so a later mission cannot un-know what an earlier one saw.

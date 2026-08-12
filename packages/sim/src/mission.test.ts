@@ -751,6 +751,30 @@ describe('civilians and ROE (GDD §6)', () => {
     expect(w.runtime.result).toBe('ongoing');
   });
 
+  it('victory produces civ.settlements_evacuated when the mission declares it', () => {
+    const w = civWorld(
+      {
+        ledger: {
+          requires: [],
+          produces: ['civ.settlements_evacuated'],
+        },
+        starting_force: [{ unit: 'm_squad', count: 1, at: [11, 6] }],
+        civilians: { groups: [{ unit: 'm_civ', count: 1, at: [12, 6] }], refuge: 'refuge' },
+        objectives: [
+          { id: 'evac', type: 'evacuate_before', primary: false, target: 'refuge_zone', count: 1, seconds: 600 },
+          { id: 'clock', type: 'survive_until', primary: true, seconds: 40 },
+        ],
+      },
+      REFUGE_CTX
+    );
+    const evs = w.step(40 * TICKS_PER_SECOND + 2);
+    const end = evs.mission.find((e) => e.kind === 'missionEnd');
+    expect(end?.kind === 'missionEnd' && end.result).toBe('victory');
+    if (end?.kind === 'missionEnd') {
+      expect(end.ledger['civ.settlements_evacuated']).toBe(1);
+    }
+  });
+
   it('shows the evacuation deadline as a countdown, so an expiring clock is visible', () => {
     const w = civWorld(
       {
