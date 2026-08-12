@@ -19,7 +19,9 @@ This is the v2 map candidate, replacing the per-region layered approach:
     river lowlands E (farm mottle, hamlets), stepped badlands SW, dune erg S,
     salt flats SE. Each also carries interior mountains and a valley or wadi
     (PEAKS/VALLEYS), a few settlements, and a watchtower on its Kedem-facing
-    approach. Locked/complete state is NOT baked here -- the shell overlays
+    approach; boulders and tors gather at range feet and summits, riparian trees
+    line every watercourse, the farmland grows orchard rows, and the erg keeps
+    an oasis. Locked/complete state is NOT baked here -- the shell overlays
     grey for locked countries and the brigade lion flag for completed ones.
   * Campaign progress is NOT baked into the render: the shell overlays the brigade
     lion flag on completed countries. (The bezier-road bevel_factor_end dial from
@@ -683,6 +685,150 @@ def scatter_forest():
     print(f"forest: {placed} canopies")
 
 
+def _rock(add, sx, sy, r, h, rnd, sides=6):
+    """An irregular rock: jittered base ring pinched to an off-centre apex.
+    Reads as a boulder at small sizes and a tor at large ones."""
+    z0, _ = terrain(sx, sy)
+    wx, wy = to_world(sx, sy)
+    base = []
+    for i in range(sides):
+        a = 2.0 * math.pi * i / sides
+        rr = r * (0.7 + 0.6 * rnd())
+        base.append((wx + rr * math.cos(a), wy + rr * math.sin(a), z0 - 1.0))
+    verts = base + [(wx + (rnd() - 0.5) * r * 0.5, wy + (rnd() - 0.5) * r * 0.5, z0 + h)]
+    faces = [tuple(reversed(range(sides)))]
+    faces += [(i, (i + 1) % sides, sides) for i in range(sides)]
+    add(verts, faces)
+
+
+def scatter_rocks():
+    """Boulders and tors, one pass over the whole board: at the feet of the border
+    ranges (mid ridge influence), on peak summits (by height), and denser and
+    larger in the two countries whose identity IS rock -- highlands and badlands."""
+    mats = [flat("rock_a", "limestone.5"), flat("rock_b", "limestone.6"),
+            flat("rock_c", "gunmetal.1")]
+    batches = [_batched_mesh(f"rocks_{i}", m) for i, m in enumerate(mats)]
+    rnd = rng_from(0x50CC)
+    placed = 0
+    sy = 6.0
+    while sy < VIEW_H - 6.0:
+        sx = 6.0
+        while sx < VIEW_W - 6.0:
+            jx, jy = sx + (rnd() - 0.5) * 9.0, sy + (rnd() - 0.5) * 9.0
+            roll = rnd()
+            size = rnd()
+            zid, ridge_t, valley_t = zone_at(jx, jy)
+            z, band = terrain(jx, jy)
+            rocky_land = zid in (1, 6)  # highlands, badlands
+            gate = (0.25 < ridge_t < 0.55 and z < 19.0) or z > 19.0
+            gate = gate or (rocky_land and roll < 0.12)
+            keep = roll < (0.5 if rocky_land else 0.3)
+            if gate and keep and band != 2 and valley_t < 0.3:
+                add, _ = batches[int(rnd() * 3) % 3]
+                if rocky_land:
+                    _rock(add, jx, jy, 3.5 + size * 4.0, 4.0 + size * 6.0, rnd)
+                else:
+                    _rock(add, jx, jy, 2.5 + size * 2.5, 3.0 + size * 3.0, rnd)
+                placed += 1
+            sx += 13.0
+        sy += 13.0
+    for _, commit in batches:
+        commit()
+    print(f"rocks: {placed}")
+
+
+def scatter_riverbanks():
+    """Riparian green: trees hugging every watercourse -- border rivers and
+    interior valleys both, since each is just valley influence in `zone_at` or
+    `VALLEYS` depth in `terrain`. The strip of life along the water is what sells
+    a river in a desert."""
+    greens = [flat("bank_a", "olive.1"), flat("bank_b", "scrub.0"),
+              flat("bank_c", "olive.2")]
+    batches = [_batched_mesh(f"banks_{i}", m) for i, m in enumerate(greens)]
+    rnd = rng_from(0xBA9C)
+    placed = 0
+    sy = 6.0
+    while sy < VIEW_H - 6.0:
+        sx = 6.0
+        while sx < VIEW_W - 6.0:
+            jx, jy = sx + (rnd() - 0.5) * 7.0, sy + (rnd() - 0.5) * 7.0
+            keep = rnd() < 0.5
+            zid, ridge_t, valley_t = zone_at(jx, jy)
+            z, band = terrain(jx, jy)
+            # 2 < z < 14: above the shallow fringe, below any range shoulder.
+            on_bank = (0.30 < valley_t < 0.62 or (zid in VALLEYS and 1.0 < z < 6.0))
+            if keep and on_bank and 2.0 < z < 14.0 and band != 2 and ridge_t < 0.3:
+                add, _ = batches[int(rnd() * 3) % 3]
+                _canopy(add, jx, jy, 2.0 + rnd() * 2.0, 1.5 + rnd() * 1.8)
+                placed += 1
+            sx += 9.0
+        sy += 9.0
+    for _, commit in batches:
+        commit()
+    print(f"riverbank trees: {placed}")
+
+
+def scatter_orchards():
+    """Cultivation you can see: straight planted rows of trees in the eastern
+    farmland. Rows are the one deliberately regular thing on the map -- crops are
+    the only place regularity is honest."""
+    greens = [flat("orch_a", "scrub.0"), flat("orch_b", "olive.1")]
+    batches = [_batched_mesh(f"orchard_{i}", m) for i, m in enumerate(greens)]
+    rnd = rng_from(0x04C4)
+    x0, x1, y0, y1 = _zone_span(5)
+    rows = 0
+    attempts = 0
+    while rows < 8 and attempts < 120:
+        attempts += 1
+        ax = x0 + rnd() * (x1 - x0)
+        ay = y0 + rnd() * (y1 - y0)
+        ang = rnd() * math.pi
+        n = 5 + int(rnd() * 5)
+        pts = [(ax + math.cos(ang) * 7.0 * i, ay + math.sin(ang) * 7.0 * i) for i in range(n)]
+        ok = True
+        for px, py in pts:
+            zid, ridge_t, valley_t = zone_at(px, py)
+            z, _band = terrain(px, py)
+            if zid != 5 or max(ridge_t, valley_t) > 0.2 or not 6.0 < z < 14.0:
+                ok = False
+                break
+        if not ok:
+            continue
+        add, _ = batches[rows % 2]
+        for px, py in pts:
+            _canopy(add, px, py, 2.1 + rnd() * 0.6, 1.6 + rnd() * 0.8)
+        rows += 1
+    for _, commit in batches:
+        commit()
+    print(f"orchards: {rows} rows")
+
+
+def build_oasis(at):
+    """The erg settlement is an oasis: a pond disc ringed by palms. The one patch
+    of standing water and fresh green in the whole southern desert."""
+    pond_add, pond_commit = _batched_mesh("oasis_pond", flat("pond", "water.1", roughness=0.3))
+    z0, _ = terrain(*at)
+    wx, wy = to_world(*at)
+    sides = 14
+    ring = [(wx + 7.5 * math.cos(2.0 * math.pi * i / sides),
+             wy + 6.0 * math.sin(2.0 * math.pi * i / sides), z0 + 0.4) for i in range(sides)]
+    pond_add(ring, [tuple(range(sides))])
+    pond_commit()
+
+    palms = [flat("palm_a", "scrub.0"), flat("palm_b", "olive.1")]
+    batches = [_batched_mesh(f"palms_{i}", m) for i, m in enumerate(palms)]
+    rnd = rng_from(0x0A51)
+    for i in range(10):
+        a = 2.0 * math.pi * i / 10.0 + rnd() * 0.4
+        r = 10.0 + rnd() * 6.0
+        add, _ = batches[i % 2]
+        _canopy(add, at[0] + r * math.cos(a), at[1] + r * math.sin(a) * 0.85,
+                2.2 + rnd() * 1.0, 2.5 + rnd() * 1.5)
+    for _, commit in batches:
+        commit()
+    print("oasis at S hamlet")
+
+
 def _zone_span(zid):
     """The zone's search box: unwarped quad bbox padded by the warp's reach,
     clamped to the board. Candidates are gated by `zone_at`, not by this box."""
@@ -729,9 +875,9 @@ def build_hamlets(zid, label, count, seed):
     batches = [_batched_mesh(f"{label}_{i}", m) for i, m in enumerate(walls)]
     rnd = rng_from(seed)
     x0, x1, y0, y1 = _zone_span(zid)
-    placed = 0
+    sites = []
     attempts = 0
-    while placed < count and attempts < 400:
+    while len(sites) < count and attempts < 400:
         attempts += 1
         px = x0 + rnd() * (x1 - x0)
         py = y0 + rnd() * (y1 - y0)
@@ -744,10 +890,11 @@ def build_hamlets(zid, label, count, seed):
             add, _ = batches[int(rnd() * 3) % 3]
             _block(add, px + r * math.cos(a), py + r * math.sin(a) * 0.75,
                    3.5 + rnd() * 2.5, 3.5 + rnd() * 2.5, 2.5 + rnd() * 2.5)
-        placed += 1
+        sites.append((px, py))
     for _, commit in batches:
         commit()
-    print(f"{label}: {placed} hamlets")
+    print(f"{label}: {len(sites)} hamlets")
+    return sites
 
 
 def build_towers():
@@ -918,9 +1065,14 @@ def main():
     build_hamlets(1, "n_hamlets", 2, 0x77A4)
     build_hamlets(2, "ne_hamlets", 2, 0x77A5)
     build_hamlets(6, "sw_hamlets", 2, 0x77A6)
-    build_hamlets(7, "s_hamlets", 1, 0x77A7)
+    s_sites = build_hamlets(7, "s_hamlets", 1, 0x77A7)
     build_hamlets(8, "se_hamlets", 1, 0x77A8)
     build_towers()
+    scatter_rocks()
+    scatter_riverbanks()
+    scatter_orchards()
+    if s_sites:
+        build_oasis(s_sites[0])
 
     # The shell overlays per-country state (the brigade lion flag on completed
     # countries) on top of this render; these outlines are its geometry contract.
