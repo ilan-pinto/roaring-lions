@@ -47,12 +47,27 @@ def hex_to_rgb(h):
     return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
 
 
-def load_targets(path):
-    """Palette entries legal in static art: the ramps, never the reserved bands."""
+def load_targets(path, allow=None):
+    """Palette entries legal in static art: the ramps, never the reserved bands.
+
+    `allow` narrows the set to named ramps. Snapping to the nearest entry across the whole
+    palette assumes the palette covers the render's tones densely enough that "nearest"
+    preserves hue. It does not, everywhere: the neutral greys are four `gunmetal` entries
+    while the greens sit closer in RGB distance, so a lit grey rock face snapped to
+    `scrub.0` and the campaign map's mountains came out bright green -- 92k pixels of
+    foliage where the render asked for stone. Naming the ramps a piece of art is allowed to
+    use turns that from a silent hue shift into an impossibility.
+    """
     with open(path) as fh:
         pal = json.load(fh)
+    ramps = pal["ramps"]
+    if allow:
+        missing = [r for r in allow if r not in ramps]
+        if missing:
+            raise SystemExit(f"unknown ramp(s) in --allow: {', '.join(missing)}")
+        ramps = {k: v for k, v in ramps.items() if k in allow}
     targets, names = [], []
-    for ramp, spec in pal["ramps"].items():
+    for ramp, spec in ramps.items():
         for i, hexcode in enumerate(spec["colors"]):
             targets.append(hex_to_rgb(hexcode))
             names.append(f"{ramp}.{i}")
@@ -91,13 +106,33 @@ def main():
     ap.add_argument("--palette", default="data/palette.json")
     ap.add_argument("--sprites", default="assets/sprites")
     ap.add_argument(
+        "--file",
+        default="",
+        help="quantize a single image instead of walking --sprites. Campaign map layers are "
+             "quantized one at a time because each declares its own --allow set.",
+    )
+    ap.add_argument(
+        "--allow",
+        default="",
+        help="comma-separated ramp names this art may use, e.g. limestone,gunmetal,shadow. "
+             "Empty means the whole palette, which can shift hue where the palette is sparse.",
+    )
+    ap.add_argument(
         "--check",
         action="store_true",
         help="report what would change and exit nonzero, without writing",
     )
     args = ap.parse_args()
 
-    targets, _ = load_targets(args.palette)
+    allow = [r.strip() for r in args.allow.split(',') if r.strip()]
+    targets, _ = load_targets(args.palette, allow or None)
+    if args.file:
+        files = [args.file]
+        changed = [f for f in files if quantize(f, targets, args.check)]
+        print(f"{len(changed)}/1 image(s) {'would be rewritten' if args.check else 'rewritten'} "
+              f"onto {'the whole palette' if not allow else ', '.join(allow)}")
+        return 1 if (args.check and changed) else 0
+
     files = []
     for dirpath, _, names in os.walk(args.sprites):
         for n in sorted(names):

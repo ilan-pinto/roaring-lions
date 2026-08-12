@@ -33,9 +33,9 @@ const PALETTE = 'data/palette.json';
 // arrive as RendererOptions resolved from the palette by the app — a different
 // mechanism with a different fix, so holding it to a CSS-shaped rule here would
 // only teach people to silence the gate.
-const ROOTS = ['packages/app/src'];
+const ROOTS = ['packages/app/src', 'assets/campaign'];
 const EXTRA = ['packages/app/index.html', 'packages/render/src/overlay.ts'];
-const EXTS = ['.ts', '.css', '.html'];
+const EXTS = ['.ts', '.css', '.html', '.svg'];
 
 function walk(dir, out = []) {
   for (const entry of readdirSync(dir)) {

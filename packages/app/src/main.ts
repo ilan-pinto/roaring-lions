@@ -27,6 +27,8 @@ import {
   maps,
   missions,
   tutorials,
+  world,
+  countries,
   structures as structureCatalogue,
   parseMap,
   DECOR,
@@ -37,11 +39,12 @@ import {
 } from '@lions/data';
 import './ui/theme.css';
 import { Hud, type MissionView, type Tone } from './ui/hud';
-import { showMenu, showEndScreen } from './ui/menu';
+import { showMenu, showCampaign, showEndScreen } from './ui/menu';
 import { ProductionBar } from './ui/production';
 import { applyIntent, sortMount, type PlayerIntent } from './input/intents';
 import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
 import { tutorialPanel, type TutorialPanel } from './tutorial/panel';
+import { parseWorld, parseCountries, nextMissionAfter } from './campaign';
 
 /** Deploy base ('/' locally, '/<repo>/' on GitHub Pages) — every asset URL
  *  is built from it so the same bundle works in both places. */
@@ -160,16 +163,29 @@ async function main(): Promise<void> {
     window.localStorage.removeItem(TUTORIAL_DONE_KEY);
   }
   if (params.get('mission') === null && params.get('sandbox') === null) {
+    const worldData = parseWorld(world);
+    if (params.get('campaign') !== null) {
+      // The map page. publicDir is the repo-root assets/ dir (vite.config.ts), so
+      // the world render is served rather than bundled; the per-country overlay is
+      // built by worldMap from the generated geometry in countries.json.
+      showCampaign(stage, {
+        base: BASE,
+        world: worldData,
+        countries: parseCountries(countries),
+        ledger: loadLedger(),
+      });
+      return;
+    }
     const tutorialDone = window.localStorage.getItem(TUTORIAL_DONE_KEY) !== null;
     showMenu(stage, {
       base: BASE,
       version: __GAME_VERSION__,
-      missions: Object.entries(missions).map(([id, m]) => ({
-        id,
-        name: m.name,
-        emphasis: id === 'beit_sahwan_0_tutorial' && !tutorialDone ? 'primary' : undefined,
-      })),
-      campaign: campaignSummary(loadLedger()),
+      world: worldData,
+      tutorial: {
+        id: 'beit_sahwan_0_tutorial',
+        name: missions.beit_sahwan_0_tutorial.name ?? 'Tutorial',
+        done: tutorialDone,
+      },
     });
     return;
   }
@@ -758,18 +774,21 @@ async function main(): Promise<void> {
           tutPanel?.destroy();
           tutPanel = null;
           renderer.clearTutorialFocus();
+          const updatedLedger = { ...ledger, ...me.ledger };
           if (me.result === 'victory') {
-            saveLedger({ ...ledger, ...me.ledger });
+            saveLedger(updatedLedger);
             hud.note('<b>campaign ledger updated</b> — survivors and ROE carried forward', 'info');
           }
           if (missionId) {
-            const order = Object.keys(missions);
+            // Campaign order lives in world.json, not in the order data/missions files
+            // happen to be imported.
+            const nextMissionId = nextMissionAfter(parseWorld(world), missionId, updatedLedger);
             showEndScreen(document.body, {
               result: me.result,
               roe: me.roeRating,
               survivors: me.survivors.length,
               missionId,
-              nextMissionId: order[order.indexOf(missionId) + 1],
+              nextMissionId,
             });
           }
         }

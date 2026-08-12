@@ -19,6 +19,7 @@ export {
   type LedgerRosterEntry,
   type MissionEventKindsAreExhaustive,
 } from './mission';
+export { unlockReason, type UnlockGate } from './unlock';
 export {
   Sim,
   TICKS_PER_SECOND,

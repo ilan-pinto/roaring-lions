@@ -417,14 +417,15 @@ describe('campaign ledger (GDD §6 carry-over)', () => {
     expect(gutted.sim.state.veterancy[guttedPlayers[0]]).toBe(0);
   });
 
-  it('victory produces the declared keys: updated roster and cumulative ROE', () => {
+  it('victory produces the declared keys: updated roster and per-mission ROE', () => {
     const w = makeWorld(
       baseMission({
         starting_force: [{ unit: 'm_tank', count: 1, at: [4, 5] }],
         enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [11, 5], facing_deg: 180 }] },
-        ledger: { requires: [], produces: ['roster.surviving_units', 'roe.cumulative_rating'] },
+        ledger: { requires: [], produces: ['roster.surviving_units', 'roe.mission_ratings'] },
       }),
-      { ledger: { 'roe.cumulative_rating': 60 } }
+      // test_mission is baseMission's default id (unmodified above).
+      { ledger: { 'roe.mission_ratings': { test_mission: 60 } } }
     );
     const { mission } = w.step(90 * TICKS_PER_SECOND);
     const end = mission.find((e) => e.kind === 'missionEnd');
@@ -438,8 +439,8 @@ describe('campaign ledger (GDD §6 carry-over)', () => {
       // The tank got the kill: veterancy 0 -> 1.
       expect(roster[0]).toEqual({ type: 'm_tank', veterancy: 1 });
     }
-    // Cumulative ROE averages prior (60) with this mission's rating (100).
-    expect(end.ledger['roe.cumulative_rating']).toBe(80);
+    // This mission's rating (100) beats the seeded prior best (60), so best-of keeps it.
+    expect((end.ledger['roe.mission_ratings'] as Record<string, number>).test_mission).toBe(100);
   });
 
   it('emits only the keys the mission contract declares', () => {
@@ -447,13 +448,13 @@ describe('campaign ledger (GDD §6 carry-over)', () => {
       baseMission({
         starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
         objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 2 }],
-        ledger: { requires: [], produces: ['roe.cumulative_rating'] },
+        ledger: { requires: [], produces: ['roe.mission_ratings'] },
       })
     );
     const { mission } = w.step(4 * TICKS_PER_SECOND);
     const end = mission.find((e) => e.kind === 'missionEnd');
     if (end?.kind !== 'missionEnd') throw new Error('no end');
-    expect(end.ledger['roe.cumulative_rating']).toBe(100);
+    expect((end.ledger['roe.mission_ratings'] as Record<string, number>).test_mission).toBe(100);
     expect('roster.surviving_units' in end.ledger).toBe(false);
   });
 });
@@ -1232,5 +1233,74 @@ describe('external objective completion', () => {
     expect(w.runtime.result).toBe('victory');
     expect(w.runtime.completeObjective('work_up')).toBe(false); // ended
   });
+});
+
+describe('ROE ratings per mission', () => {
+  const roeMission = (id: string): MissionJson =>
+    baseMission({
+      id,
+      ledger: { requires: [], produces: ['roe.mission_ratings', 'campaign.completed_missions'] },
+      starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+      objectives: [{ id: 'win', type: 'survive_until', seconds: 1, primary: true }],
+    });
+
+  const finish = (id: string, ledger: LedgerData): LedgerData => {
+    const w = makeWorld(roeMission(id), { ledger });
+    for (let t = 0; t < 5 * TICKS_PER_SECOND; t++) {
+      const out = w.step(1);
+      for (const e of out.mission) if (e.kind === 'missionEnd') return e.ledger;
+    }
+    throw new Error(`mission ${id} never ended`);
+  };
+
+  it('records a rating per mission, keyed by mission id', () => {
+    const out = finish('m_one', {});
+    expect(out['roe.mission_ratings']).toBeDefined();
+    expect(Object.keys(out['roe.mission_ratings'] as Record<string, number>)).toEqual(['m_one']);
+  });
+
+  it('accumulates an entry per mission played', () => {
+    const both = finish('m_two', finish('m_one', {}));
+    const ratings = both['roe.mission_ratings'] as Record<string, number>;
+    expect(Object.keys(ratings).sort()).toEqual(['m_one', 'm_two']);
+  });
+
+  it('does not average in the sim at all -- no cumulative key is produced', () => {
+    // An average is division, and @lions/sim bans floating point. campaignRoe does this
+    // for display; unlockReason gates on it by integer comparison.
+    expect(finish('m_one', {})['roe.cumulative_rating']).toBeUndefined();
+  });
+
+  it('leaves a legacy cumulative rating in the incoming ledger untouched', () => {
+    // Saves written before this change carry the old key. The sim neither reads nor
+    // rewrites it, and both readers fall back to it.
+    const out = finish('m_one', { 'roe.cumulative_rating': 64 });
+    expect(out['roe.mission_ratings']).toBeDefined();
+  });
+
+  it('keeps the better rating when a mission is replayed, never the newer one', () => {
+    // Seed a rating this run cannot beat, then replay: the entry must not fall.
+    const seeded: LedgerData = { 'roe.mission_ratings': { m_one: 100 } };
+    const out = finish('m_one', seeded);
+    expect((out['roe.mission_ratings'] as Record<string, number>).m_one).toBe(100);
+  });
+
+  it('cannot be farmed: replaying one mission leaves every other entry alone', () => {
+    const seeded: LedgerData = { 'roe.mission_ratings': { m_one: 20, m_two: 90 } };
+    const out = finish('m_one', seeded);
+    const ratings = out['roe.mission_ratings'] as Record<string, number>;
+    expect(ratings.m_two).toBe(90);
+    expect(Object.keys(ratings).sort()).toEqual(['m_one', 'm_two']);
+  });
+
+  it('is order-independent, so the same campaign always reads the same', () => {
+    const ab = finish('m_two', finish('m_one', {}))['roe.mission_ratings'];
+    const ba = finish('m_one', finish('m_two', {}))['roe.mission_ratings'];
+    // Same keys AND same serialisation: the object is rebuilt in sorted key order, so a
+    // save file cannot differ by play order.
+    expect(JSON.stringify(ab)).toBe(JSON.stringify(ba));
+  });
+
+
 });
 

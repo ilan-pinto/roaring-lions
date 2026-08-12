@@ -1,0 +1,98 @@
+{
+  "id": "sahar_basin",
+  "name": "The Sahar Basin",
+  "art": "campaign/world_map.png",
+  "regions": [
+    {
+      "id": "marj",
+      "name": "The Marj Strip",
+      "faction": "Ashwar Front",
+      "doctrine": "tunnels, IEDs, ambush, human terrain",
+      "blurb": "A dense enclave between the sea and Kedem's coastal plain. No mountain, no river, no depth.",
+      "towns": [
+        {
+          "id": "beit_sahwan",
+          "name": "Beit Sahwan",
+          "at": [
+            42.6,
+            467.6
+          ],
+          "missions": [
+            "beit_sahwan_1_recon",
+            "beit_sahwan_2_foothold",
+            "beit_sahwan_3_clearance"
+          ]
+        },
+        {
+          "id": "khan_rafid",
+          "name": "Khan Rafid",
+          "at": [
+            113.7,
+            385.5
+          ],
+          "missions": []
+        },
+        {
+          "id": "deir_amun",
+          "name": "Deir Amun",
+          "at": [
+            281.4,
+            480.9
+          ],
+          "missions": []
+        }
+      ]
+    },
+    {
+      "id": "sur",
+      "name": "Sur",
+      "faction": "Sarim Brigades",
+      "doctrine": "rockets, ATGMs, standoff",
+      "blurb": "Rockets range onto Kedem's north from behind a mountain wall.",
+      "unlock": {
+        "after_mission": "beit_sahwan_3_clearance"
+      },
+      "towns": [
+        {
+          "id": "tel_marum",
+          "name": "Tel Marum",
+          "at": [
+            421.4,
+            55.9
+          ],
+          "missions": []
+        },
+        {
+          "id": "umm_zeitoun",
+          "name": "Umm Zeitoun",
+          "at": [
+            674.4,
+            153.3
+          ],
+          "missions": []
+        }
+      ]
+    },
+    {
+      "id": "naharin",
+      "name": "Naharin",
+      "faction": "Rif Cells",
+      "doctrine": "technicals, raids, smuggling, mobility",
+      "blurb": "The corridor that supplied the Marj's tunnels and Sur's rocket stocks.",
+      "unlock": {
+        "after_mission": "umm_zeitoun_1"
+      },
+      "towns": [
+        {
+          "id": "wadi_halam",
+          "name": "Wadi Halam",
+          "at": [
+            804.0,
+            401.7
+          ],
+          "missions": []
+        }
+      ]
+    }
+  ]
+}

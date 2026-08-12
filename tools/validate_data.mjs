@@ -74,6 +74,20 @@ function validateDir(dir, validate, schemaName) {
   return files.length;
 }
 
+function validateFile(file, validate, schemaName) {
+  if (!existsSync(file)) {
+    failures.push(`${rel(file)}: missing [${schemaName}]`);
+    return 0;
+  }
+  const doc = loadJson(file);
+  if (doc !== null && !validate(doc)) {
+    for (const err of validate.errors ?? []) {
+      failures.push(`${rel(file)}: ${err.instancePath || '/'} ${err.message} [${schemaName}]`);
+    }
+  }
+  return 1;
+}
+
 // --- schema validation ------------------------------------------------------
 const schemas = {
   unit: loadJson(join(ROOT, 'data/schemas/unit.schema.json')),
@@ -81,16 +95,20 @@ const schemas = {
   vfx: loadJson(join(ROOT, 'data/schemas/vfx_emitter.schema.json')),
   map: loadJson(join(ROOT, 'data/schemas/map.schema.json')),
   tutorial: loadJson(join(ROOT, 'data/schemas/tutorial.schema.json')),
+  world: loadJson(join(ROOT, 'data/schemas/world.schema.json')),
+  countries: loadJson(join(ROOT, 'data/schemas/countries.schema.json')),
 };
 
 let checked = 0;
-if (schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tutorial) {
+if (schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tutorial && schemas.world && schemas.countries) {
   const validators = {
     unit: ajv.compile(schemas.unit),
     mission: ajv.compile(schemas.mission),
     vfx: ajv.compile(schemas.vfx),
     map: ajv.compile(schemas.map),
     tutorial: ajv.compile(schemas.tutorial),
+    world: ajv.compile(schemas.world),
+    countries: ajv.compile(schemas.countries),
   };
   checked += validateDir(join(ROOT, 'data/units'), validators.unit, 'unit.schema');
   checked += validateDir(join(ROOT, 'data/missions'), validators.mission, 'mission.schema');
@@ -98,6 +116,10 @@ if (schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tut
   checked += validateDir(join(ROOT, 'data/maps'), validators.map, 'map.schema');
   checked += validateDir(join(ROOT, 'data/tutorial'), validators.tutorial, 'tutorial.schema');
   checked += validateDir(join(ROOT, 'tools/fixtures/units'), validators.unit, 'unit.schema');
+  // data/campaign is a mixed directory: world.json is hand-authored, countries.json
+  // is generated geometry. Each gets its own schema.
+  checked += validateFile(join(ROOT, 'data/campaign/world.json'), validators.world, 'world.schema');
+  checked += validateFile(join(ROOT, 'data/campaign/countries.json'), validators.countries, 'countries.schema');
 } else {
   failures.push('schema files missing or unparseable — cannot validate content');
 }
@@ -300,6 +322,102 @@ if (schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tut
       const zone = step.focus?.zone;
       if (zone && !zoneNames.has(zone)) {
         failures.push(`${rel(file)}: step "${step.id}" focus.zone "${zone}" is not a zone on "${mission.map?.file}"`);
+      }
+    }
+  }
+}
+
+// --- the campaign world -----------------------------------------------------
+// JSON Schema validates world.json's shape; these four checks are the cross-file
+// facts it cannot see. Each one is a failure that would otherwise be invisible:
+// a menu entry that starts nothing, a mission nothing can reach, a progression
+// that locks itself, or a region with no shape on the map.
+{
+  const worldPath = join(ROOT, 'data/campaign/world.json');
+  const world = loadJson(worldPath);
+  if (world) {
+    const missionIds = new Set(
+      readdirSync(join(ROOT, 'data/missions')).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5))
+    );
+    const listed = new Map();          // mission id -> town that lists it
+    const regionOrder = [];            // region ids, in campaign order
+    for (const region of world.regions) {
+      regionOrder.push(region.id);
+      for (const town of region.towns) {
+        for (const m of town.missions) {
+          if (!missionIds.has(m)) {
+            failures.push(`data/campaign/world.json: town "${town.id}" lists mission "${m}", which has no file in data/missions/`);
+          }
+          const already = listed.get(m);
+          if (already !== undefined) {
+            failures.push(`data/campaign/world.json: mission "${m}" is listed by both "${already}" and "${town.id}" — a mission belongs to exactly one town`);
+          }
+          listed.set(m, town.id);
+        }
+      }
+    }
+
+    // Every mission must be reachable from the map, or it is unplayable content. The
+    // tutorial is the one exception: it is deliberately not on the map, because it
+    // teaches the mouse rather than the war.
+    const OFF_MAP = new Set(['beit_sahwan_0_tutorial']);
+    for (const m of missionIds) {
+      if (!listed.has(m) && !OFF_MAP.has(m)) {
+        failures.push(`data/missions/${m}.json: no town in world.json lists it, so nothing can start it`);
+      }
+    }
+
+    // An unlock may name an unauthored mission -- the campaign is authored front to
+    // back -- but if that mission exists it must sit in an EARLIER region, or the
+    // progression contains a cycle and locks itself permanently.
+    for (let i = 0; i < world.regions.length; i++) {
+      const after = world.regions[i].unlock?.after_mission;
+      if (after === undefined || !listed.has(after)) continue;
+      const ownerRegion = world.regions.findIndex((r) => r.towns.some((t) => t.missions.includes(after)));
+      if (ownerRegion >= i) {
+        failures.push(
+          `data/campaign/world.json: region "${world.regions[i].id}" unlocks after "${after}", which is in ` +
+            `"${world.regions[ownerRegion].id}" — that region is not earlier, so the progression cannot advance`
+        );
+      }
+    }
+
+    // The art must exist, every region must have a country shape in the generated
+    // geometry, and every town must actually sit INSIDE its region's country --
+    // a containment check the old SVG art could not express. A town outside its
+    // outline hovers the wrong ground and glows the wrong border.
+    const artPath = join(ROOT, 'assets', world.art);
+    if (!existsSync(artPath)) {
+      failures.push(`data/campaign/world.json: art "${world.art}" not found at assets/${world.art}`);
+    }
+    const countriesDoc = loadJson(join(ROOT, 'data/campaign/countries.json'));
+    if (countriesDoc) {
+      const byId = new Map(countriesDoc.countries.map((c) => [c.id, c]));
+      const inside = (x, y, poly) => {
+        let odd = false;
+        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+          const [xi, yi] = poly[i];
+          const [xj, yj] = poly[j];
+          if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) odd = !odd;
+        }
+        return odd;
+      };
+      if (![...byId.values()].some((c) => c.home)) {
+        failures.push('data/campaign/countries.json: no home country');
+      }
+      for (const region of world.regions) {
+        const country = byId.get(region.id);
+        if (!country) {
+          failures.push(`data/campaign/countries.json: no country with id "${region.id}" for region "${region.name}"`);
+          continue;
+        }
+        for (const town of region.towns) {
+          if (!inside(town.at[0], town.at[1], country.outline)) {
+            failures.push(
+              `data/campaign/world.json: town "${town.id}" at [${town.at}] is outside country "${region.id}"'s outline`
+            );
+          }
+        }
       }
     }
   }
