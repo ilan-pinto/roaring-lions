@@ -190,6 +190,18 @@
 /* World map — the campaign screen                                        */
 /* ====================================================================== */
 
+/* The mid-mission way back to the map page. Bottom-left, under the brief's
+   column, small enough to never compete with the fight. */
+.rl-return {
+  position: fixed;
+  left: var(--s2);
+  bottom: var(--s2);
+  z-index: 5;
+  font-size: 0.8rem;
+  color: var(--ink-mute);
+}
+.rl-return:hover { color: var(--ink); }
+
 .rl-world { display: grid; gap: var(--s3); }
 .rl-world__board { position: relative; width: 100%; max-width: 1140px; margin-inline: auto; }
 .rl-world__board svg { display: block; width: 100%; height: auto; }

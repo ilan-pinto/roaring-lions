@@ -39,7 +39,7 @@ import {
 } from '@lions/data';
 import './ui/theme.css';
 import { Hud, type MissionView, type Tone } from './ui/hud';
-import { showMenu, showEndScreen } from './ui/menu';
+import { showMenu, showCampaign, showEndScreen } from './ui/menu';
 import { ProductionBar } from './ui/production';
 import { applyIntent, sortMount, type PlayerIntent } from './input/intents';
 import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
@@ -163,17 +163,24 @@ async function main(): Promise<void> {
     window.localStorage.removeItem(TUTORIAL_DONE_KEY);
   }
   if (params.get('mission') === null && params.get('sandbox') === null) {
-    // publicDir is the repo-root assets/ dir (vite.config.ts), so the world render is
-    // served rather than bundled; the per-country overlay is built by worldMap from
-    // the generated geometry in countries.json.
     const worldData = parseWorld(world);
+    if (params.get('campaign') !== null) {
+      // The map page. publicDir is the repo-root assets/ dir (vite.config.ts), so
+      // the world render is served rather than bundled; the per-country overlay is
+      // built by worldMap from the generated geometry in countries.json.
+      showCampaign(stage, {
+        base: BASE,
+        world: worldData,
+        countries: parseCountries(countries),
+        ledger: loadLedger(),
+      });
+      return;
+    }
     const tutorialDone = window.localStorage.getItem(TUTORIAL_DONE_KEY) !== null;
     showMenu(stage, {
       base: BASE,
       version: __GAME_VERSION__,
       world: worldData,
-      countries: parseCountries(countries),
-      ledger: loadLedger(),
       tutorial: {
         id: 'beit_sahwan_0_tutorial',
         name: missions.beit_sahwan_0_tutorial.name ?? 'Tutorial',

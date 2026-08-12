@@ -6,7 +6,7 @@ import countriesJson from '../../../../data/campaign/countries.json';
 import type { LedgerData } from '@lions/sim';
 import { parseCountries, parseWorld } from '../campaign';
 import { worldMap } from './worldmap';
-import { showMenu } from './menu';
+import { showCampaign, showMenu } from './menu';
 
 const world = parseWorld(worldJson);
 const countries = parseCountries(countriesJson);
@@ -146,33 +146,39 @@ describe('worldMap', () => {
 });
 
 describe('showMenu', () => {
-  it('mounts the world map and keeps the tutorial off it', () => {
+  const mount = (done: boolean): HTMLElement => {
     const stage = document.createElement('div');
     showMenu(stage, {
       base: '/',
       version: 'test',
       world,
-      countries,
-      ledger: {},
-      tutorial: { id: 'beit_sahwan_0_tutorial', name: 'Tutorial', done: false },
+      tutorial: { id: 'beit_sahwan_0_tutorial', name: 'Tutorial', done },
     });
-    expect(stage.querySelector('.rl-world')).not.toBe(null);
-    // The tutorial teaches the mouse, not the war, so it sits above the map.
+    return stage;
+  };
+
+  it('is a landing, not the map: Campaign leads to the map page', () => {
+    const stage = mount(false);
+    expect(stage.querySelector('.rl-world')).toBe(null);
+    const campaign = stage.querySelector('[data-kind="campaign"]') as HTMLAnchorElement;
+    expect(campaign.getAttribute('href')).toBe('?campaign');
+    // The tutorial teaches the mouse, not the war, so it sits beside Campaign.
     const tut = stage.querySelector('[data-kind="tutorial"]') as HTMLAnchorElement;
     expect(tut.getAttribute('href')).toBe('?mission=beit_sahwan_0_tutorial');
-    expect(stage.querySelector('[data-town="beit_sahwan"]')).not.toBe(null);
   });
 
   it('drops the tutorial entry once it has been done', () => {
+    expect(mount(true).querySelector('[data-kind="tutorial"]')).toBe(null);
+  });
+});
+
+describe('showCampaign', () => {
+  it('mounts the world map with a way back to the menu', () => {
     const stage = document.createElement('div');
-    showMenu(stage, {
-      base: '/',
-      version: 'test',
-      world,
-      countries,
-      ledger: {},
-      tutorial: { id: 'beit_sahwan_0_tutorial', name: 'Tutorial', done: true },
-    });
-    expect(stage.querySelector('[data-kind="tutorial"]')).toBe(null);
+    showCampaign(stage, { base: '/', world, countries, ledger: {} });
+    expect(stage.querySelector('.rl-world')).not.toBe(null);
+    expect(stage.querySelector('[data-town="beit_sahwan"]')).not.toBe(null);
+    const back = stage.querySelector('[data-kind="back"]') as HTMLAnchorElement;
+    expect(back.getAttribute('href')).toBe('?');
   });
 });
