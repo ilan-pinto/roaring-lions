@@ -274,12 +274,25 @@ if (schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tut
     }
 
     for (const t of mi.triggers ?? []) {
-      if (t.do?.kind !== 'dismount') continue;
+      const kind = t.do?.kind;
+      const name = t.id ?? '(unnamed)';
+      // A commit or withdraw_to with no destination is a silent no-op: the
+      // runtime only queues the order when `to` is present, so the trigger
+      // fires, latches, and moves nobody. Verified in play — the breach's
+      // infiltrators sat at their tunnels all mission. Fail here, by name.
+      if ((kind === 'commit' || kind === 'withdraw_to') && !t.do.to) {
+        failures.push(
+          `${rel(file)}: ${kind} trigger "${name}" has no "to" — it would fire and move nobody`
+        );
+      }
+      // Same silent-no-op family: these three act on a group, and a group no
+      // placement declares filters to an empty id list at runtime.
+      if (kind !== 'commit' && kind !== 'withdraw_to' && kind !== 'dismount') continue;
       if (!t.do.group) {
-        failures.push(`${rel(file)}: a dismount trigger needs "group"`);
+        failures.push(`${rel(file)}: a ${kind} trigger needs "group"`);
       } else if (!declaredGroups.has(t.do.group)) {
         failures.push(
-          `${rel(file)}: dismount names group "${t.do.group}", which no placement declares`
+          `${rel(file)}: ${kind} trigger "${name}" names group "${t.do.group}", which no placement declares`
         );
       }
     }
