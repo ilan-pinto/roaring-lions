@@ -94,7 +94,7 @@ Six phases. Each is normally the spine of its own **short mission** (see §6), a
 
 Phases are not independent set-pieces. Recon quality propagates:
 
-- Thorough recon → tunnel mouths pre-marked, civilian zones flagged, ambush sites known before Phase 5
+- Thorough recon → tunnel mouths pre-marked, civilian zones flagged, ambush sites known before Phase 6
 - Rushed recon → shafts found under fire, ROE penalties stacking, casualties from unmarked IEDs
 
 This is one system expressed six ways, not six minigames.
@@ -246,7 +246,7 @@ Missions stay declarative, so behaviour must be declarative too. A mission's gar
 
 One stance per unit and a handful of triggers per mission is the budget. If a mission needs behaviour this vocabulary cannot express, extend the vocabulary — never script the mission.
 
-`ambush` is Ashwar doctrine made mechanical: an unspotted RPG team holding fire until 3 tiles is the entire reason recon quality matters by Phase 4.
+`ambush` is Ashwar doctrine made mechanical: an unspotted RPG team holding fire until 3 tiles is the entire reason recon quality matters by Phase 5.
 
 ### ROE scoring
 
