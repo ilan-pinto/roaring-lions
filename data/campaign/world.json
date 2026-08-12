@@ -14,8 +14,8 @@
           "id": "beit_sahwan",
           "name": "Beit Sahwan",
           "at": [
-            186.0,
-            324.0
+            192.0,
+            336.0
           ],
           "missions": [
             "beit_sahwan_1_recon",
@@ -27,8 +27,8 @@
           "id": "khan_rafid",
           "name": "Khan Rafid",
           "at": [
-            194.0,
-            388.0
+            195.0,
+            396.0
           ],
           "missions": []
         },
@@ -37,7 +37,7 @@
           "name": "Deir Amun",
           "at": [
             186.0,
-            452.0
+            456.0
           ],
           "missions": []
         }
@@ -57,8 +57,8 @@
           "id": "tel_marum",
           "name": "Tel Marum",
           "at": [
-            638.0,
-            160.0
+            609.0,
+            185.0
           ],
           "missions": []
         },
@@ -66,8 +66,8 @@
           "id": "umm_zeitoun",
           "name": "Umm Zeitoun",
           "at": [
-            726.0,
-            196.0
+            549.0,
+            188.0
           ],
           "missions": []
         }
@@ -87,8 +87,8 @@
           "id": "wadi_halam",
           "name": "Wadi Halam",
           "at": [
-            752.0,
-            542.0
+            751.0,
+            541.0
           ],
           "missions": []
         }

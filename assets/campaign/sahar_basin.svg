@@ -27,7 +27,7 @@
   <g id="region-sur">
     <image href="campaign/layer_sur.png" x="0" y="0" width="1140" height="790"
            preserveAspectRatio="none"/>
-    <path class="region-outline" d="M 182,204 L 238,116 L 356,66 L 524,56 L 668,86 L 764,148 L 790,266 L 704,194 L 564,156 L 404,148 L 272,168 Z" fill="none" stroke="none"/>
+    <path class="region-outline" d="M 360,160 L 410,100 L 520,74 L 645,92 L 690,150 L 620,200 L 450,205 Z" fill="none" stroke="none"/>
   </g>
   <g id="region-naharin">
     <image href="campaign/layer_naharin.png" x="0" y="0" width="1140" height="790"

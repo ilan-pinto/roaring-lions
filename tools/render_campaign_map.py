@@ -106,6 +106,18 @@ def point_in_poly(px, py, poly):
 # ------------------------------------------------------------------- materials
 
 def flat(name, colour_key, roughness=0.85):
+    # palette_linear indexes a ramp's list directly, and the ramps are short and uneven --
+    # scrub and water have two entries, terracotta three, gunmetal and olive four. Reaching
+    # past the end throws an IndexError from inside Blender with no hint which key was
+    # wrong, which has now cost two debugging rounds. Say which key, and say the length.
+    band, _, idx = colour_key.partition(".")
+    with open(os.path.join(ROOT, "data", "palette.json")) as fh:
+        ramps = json.load(fh)["ramps"]
+    if band in ramps and idx.isdigit() and int(idx) >= len(ramps[band]["colors"]):
+        raise SystemExit(
+            f"{colour_key!r}: ramp {band!r} has {len(ramps[band]['colors'])} entries "
+            f"(0..{len(ramps[band]['colors']) - 1})"
+        )
     mat = bpy.data.materials.new(name)
     mat.use_nodes = True
     bsdf = mat.node_tree.nodes["Principled BSDF"]
@@ -387,8 +399,8 @@ def camera_and_light():
     world = bpy.data.worlds.new("W")
     world.use_nodes = True
     bg = world.node_tree.nodes["Background"]
-    bg.inputs["Color"].default_value = palette_linear("water.0")
-    bg.inputs["Strength"].default_value = 0.35
+    bg.inputs["Color"].default_value = palette_linear("limestone.1")
+    bg.inputs["Strength"].default_value = 0.42
     bpy.context.scene.world = world
     return cam
 
@@ -453,7 +465,7 @@ def settlement_near(points, seed, mats, radius=44.0, spacing=13.0, density=0.5, 
     return made
 
 
-def scatter_ridges(poly, seed, rock, cap, spacing=13.0, density=0.9, edge=11.0):
+def scatter_ridges(poly, seed, rock, cap, spacing=46.0, density=0.92, edge=8.0):
     """Mountain ridges: tall, elongated, roughly parallel mounds with lit crests.
 
     Sur's whole identity is a wall you cannot climb, and from near-vertical a wall reads
@@ -472,8 +484,11 @@ def scatter_ridges(poly, seed, rock, cap, spacing=13.0, density=0.9, edge=11.0):
             if rnd() < density:
                 # Long and overlapping at a shared bearing, so neighbours merge into ranges.
                 # Discrete stubby mounds read as scattered boulders, not as a wall.
-                rx = 11.0 + rnd() * 9.0
-                ry = rx * (0.26 + rnd() * 0.18)
+                # Ridge size has to scale with the region. Sur is now a third of its former
+                # area, and ridges sized for the old footprint packed into it as overlapping
+                # cobbles rather than a range.
+                rx = 44.0 + rnd() * 30.0
+                ry = rx * (0.26 + rnd() * 0.16)
                 # A shared bearing with only a little scatter: a range, not a rash.
                 rot = math.radians(-14.0) + (rnd() - 0.5) * 0.5
                 cx, cy = x + rnd() * spacing, y + rnd() * spacing
@@ -557,22 +572,108 @@ def build_naharin():
     return dunes
 
 
+def river_run(pts, material, half=5.5, z0=4.4, z1=4.95, tag="kriver"):
+    """A water ribbon through a polyline, as a quad strip."""
+    for i in range(len(pts) - 1):
+        (x1, y1), (x2, y2) = pts[i], pts[i + 1]
+        dx, dy = x2 - x1, y2 - y1
+        L = math.hypot(dx, dy) or 1.0
+        nx, ny = -dy / L * half, dx / L * half
+        polygon_slab(f"{tag}_{i:02d}", [(x1 + nx, y1 + ny), (x2 + nx, y2 + ny),
+                                       (x2 - nx, y2 - ny), (x1 - nx, y1 - ny)], z0, z1, material)
+    return len(pts) - 1
+
+
+def forest(poly, seed, canopies, spacing=13.0, density=0.72, edge=12.0,
+           keep_clear=(), clear_r=21.0):
+    """Tree canopies packed densely enough to read as woodland rather than as dots.
+
+    Two things make a forest out of scattered blobs: enough of them that the gaps read as
+    clearings instead of as background, and a mix of tones so the mass has grain. Canopies
+    are 12-sided -- an earlier pass used 6 and at this radius the hexagons were unmistakable.
+    """
+    ring = inset(poly, edge)
+    xs, ys = [q[0] for q in ring], [q[1] for q in ring]
+    rnd = rng_from(seed)
+    made = 0
+    y = min(ys)
+    while y < max(ys):
+        x = min(xs)
+        while x < max(xs):
+            if rnd() < density:
+                r = 5.0 + rnd() * 5.0
+                cx, cy = x + rnd() * spacing, y + rnd() * spacing
+                near_water = any(math.dist((cx, cy), w) < clear_r for w in keep_clear)
+                if point_in_poly(cx, cy, ring) and not near_water:
+                    ring12 = [(cx + r * math.cos(2 * math.pi * k / 12),
+                               cy + r * math.sin(2 * math.pi * k / 12)) for k in range(12)]
+                    mat = canopies[int(rnd() * len(canopies)) % len(canopies)]
+                    polygon_slab(f"tree_{made:04d}", ring12, 4.4, 4.4 + 3.4 + rnd() * 3.6, mat)
+                    made += 1
+            x += spacing
+        y += spacing
+    return made
+
+
 def build_base():
-    """Sea, Kedem's plain, and the groves on it. Everything not owned by a region."""
+    """Sea, and Kedem as wooded country: forest, a river off the mountains, hamlets.
+
+    Kedem was a pale limestone plain dotted with groves, which read as a bare tableland --
+    and at this scale the groves read as pips on it. Woodland with a river through it gives
+    the middle of the map something to be, and makes the three fronts around it read as
+    edges of somewhere rather than as three textures meeting a blank.
+    """
     sea = flat("sea", "water.1", roughness=0.12)
-    plain = flat("kedem_plain", "limestone.1", roughness=0.94)
-    grove = flat("kedem_grove", "olive.1", roughness=0.97)
+    ground = flat("kedem_ground", "olive.0", roughness=0.95)
+    canopies = [flat("canopy_a", "scrub.0", 0.97), flat("canopy_b", "scrub.1", 0.97),
+                flat("canopy_c", "olive.1", 0.97), flat("canopy_d", "olive.2", 0.97)]
+    water = flat("kedem_water", "water.0", roughness=0.14)
+    wall = flat("hamlet_wall", "limestone.2", 0.9)
+    roof = flat("hamlet_roof", "terracotta.0", 0.85)
+
     coast = [(0, 0), (104, 0), (92, 120), (104, 296), (78, 434), (88, 540), (124, 592),
              (108, 700), (96, 790), (0, 790)]
     polygon_slab("sea", coast, 0.0, 3.9, sea)
-    kedem = [(212, 372), (200, 298), (156, 264), (182, 204), (272, 168), (404, 148), (564, 156),
-             (704, 194), (790, 266), (816, 368), (796, 470), (724, 556), (600, 606), (444, 614),
-             (304, 590), (200, 470)]
-    polygon_slab("kedem", kedem, 0.0, 4.4, plain)
-    groves = scatter_scrub(kedem, seed=0x6EDE, material=grove, spacing=74.0,
-                           density=0.5, rmin=9.0, rspan=9.0, sides=14)
-    print(f"base: sea + kedem plain + {groves} groves")
-    return groves
+
+    # North edge is Sur's former outer arc: Sur is now a small wedge *inside* this ground
+    # rather than a region abutting it, so shrinking Sur leaves no gap to show through.
+    kedem = [(212, 372), (200, 298), (156, 264), (182, 204), (238, 116), (356, 66), (524, 56),
+             (668, 86), (764, 148), (790, 266), (816, 368), (796, 470), (724, 556), (600, 606),
+             (444, 614), (304, 590), (200, 470)]
+    polygon_slab("kedem", kedem, 0.0, 4.4, ground)
+
+    # The river rises in Sur's mountains and runs south-west to the sea, which is why the
+    # coastal plain is worth holding and why the Marj sits where it does.
+    course = [(516, 196), (505, 268), (470, 330), (430, 392), (372, 452), (300, 500),
+              (238, 536), (170, 560), (120, 578)]
+    # Densely sampled so the tree-free corridor follows the whole course, not just its
+    # vertices -- at 21 units of clearance, gaps between vertices would close over.
+    banks = []
+    for i in range(len(course) - 1):
+        (x1, y1), (x2, y2) = course[i], course[i + 1]
+        steps = int(math.dist((x1, y1), (x2, y2)) / 8.0) + 1
+        banks += [(x1 + (x2 - x1) * k / steps, y1 + (y2 - y1) * k / steps) for k in range(steps + 1)]
+
+    trees = forest(kedem, seed=0x6EDE, canopies=canopies, keep_clear=banks)
+    segs = river_run(course, water, half=7.0)
+
+    # Hamlets along the water. Small and few: the middle of the map is countryside, and a
+    # dozen roofs say that better than a town would.
+    rnd = rng_from(0x4A11)
+    houses = 0
+    for i in range(1, len(course) - 1, 2):
+        cx, cy = course[i]
+        for _ in range(3):
+            w = 5.0 + rnd() * 4.0
+            hx = cx + (rnd() - 0.5) * 74.0
+            hy = cy + (rnd() - 0.5) * 60.0
+            quad = [(hx, hy), (hx + w, hy), (hx + w, hy + w * 0.8), (hx, hy + w * 0.8)]
+            if all(point_in_poly(qx, qy, kedem) for qx, qy in quad):
+                polygon_slab(f"hut_{houses:03d}", quad, 4.4, 4.4 + 3.0 + rnd() * 2.0,
+                             roof if rnd() < 0.45 else wall)
+                houses += 1
+    print(f"base: sea + kedem woodland, {trees} canopies, {segs} river segments, {houses} houses")
+    return trees
 
 
 BUILDERS = {"marj": build_marj, "sur": build_sur, "naharin": build_naharin, "base": build_base}
