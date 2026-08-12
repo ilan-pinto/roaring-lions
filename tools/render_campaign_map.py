@@ -635,16 +635,25 @@ def build_base():
              (108, 700), (96, 790), (0, 790)]
     polygon_slab("sea", coast, 0.0, 3.9, sea)
 
-    # North edge is Sur's former outer arc: Sur is now a small wedge *inside* this ground
-    # rather than a region abutting it, so shrinking Sur leaves no gap to show through.
-    kedem = [(212, 372), (200, 298), (156, 264), (182, 204), (238, 116), (356, 66), (524, 56),
-             (668, 86), (764, 148), (790, 266), (816, 368), (796, 470), (724, 556), (600, 606),
-             (444, 614), (304, 590), (200, 470)]
+    # Kedem is the home country and sits in the middle, with all three fronts on its
+    # borders rather than inside it. Every edge it shares is copied vertex-for-vertex from
+    # the neighbour that owns it, so the four polygons tile with no seam to show the page
+    # background through:
+    #
+    #   west   (212,372) and (200,298)/(200,470)  <- the Marj's eastern edge
+    #   north  (690,150) (620,200) (450,205) (360,160)  <- Sur's southern edge, reversed
+    #   east   (816,368) (796,470) (724,556)      <- Naharin's western edge
+    #
+    # An earlier version swallowed Sur's whole footprint and left Sur floating inside it,
+    # which made the north front part of the homeland rather than a border on it.
+    kedem = [(200, 298), (240, 220), (360, 160), (450, 205), (620, 200), (690, 150),
+             (770, 240), (816, 368), (796, 470), (724, 556), (600, 606),
+             (444, 614), (304, 590), (200, 470), (212, 372)]
     polygon_slab("kedem", kedem, 0.0, 4.4, ground)
 
     # The river rises in Sur's mountains and runs south-west to the sea, which is why the
     # coastal plain is worth holding and why the Marj sits where it does.
-    course = [(516, 196), (505, 268), (470, 330), (430, 392), (372, 452), (300, 500),
+    course = [(520, 210), (505, 268), (470, 330), (430, 392), (372, 452), (300, 500),
               (238, 536), (170, 560), (120, 578)]
     # Densely sampled so the tree-free corridor follows the whole course, not just its
     # vertices -- at 21 units of clearance, gaps between vertices would close over.
