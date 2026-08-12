@@ -11,9 +11,16 @@ This is the v2 map candidate, replacing the per-region layered approach:
   * Nine countries on a jittered 3x3 lattice, then the whole border field is bent
     by two octaves of noise: every border wiggles at two scales like a real one --
     no straight lines, no symmetric shapes -- while the lattice still guarantees
-    the board tiles completely and Kedem (home) stays dead centre among its eight
-    grey placeholder enemies. The real-space country outlines are printed as JSON
-    at build time so the shell can position its own per-country overlays.
+    the board tiles completely and Kedem (home) stays dead centre. The real-space
+    country outlines are printed as JSON at build time so the shell can position
+    its own per-country overlays.
+  * Every enemy country is DESIGNED, one terrain identity per compass position:
+    steppe NW, rocky highlands N, forested hills NE, coastal desert W (hamlets),
+    river lowlands E (farm mottle, hamlets), stepped badlands SW, dune erg S,
+    salt flats SE. Each also carries interior mountains and a valley or wadi
+    (PEAKS/VALLEYS), a few settlements, and a watchtower on its Kedem-facing
+    approach. Locked/complete state is NOT baked here -- the shell overlays
+    grey for locked countries and the brigade lion flag for completed ones.
   * Campaign progress is NOT baked into the render: the shell overlays the brigade
     lion flag on completed countries. (The bezier-road bevel_factor_end dial from
     the first cut is gone with it.)
@@ -171,6 +178,29 @@ CELLS = [
 ]
 _CENTROIDS = [(sum(x for x, _ in c) / 4.0, sum(y for _, y in c) / 4.0) for c in CELLS]
 
+#: Interior mountains per enemy country: (dx, dy from the cell centroid, radius,
+#: height). Offsets are centroid-relative so the lattice jitter can never strand
+#: a peak on a border; radii stay under half the distance to the nearest edge.
+PEAKS = {
+    0: [(-50.0, -35.0, 46.0, 13.0)],
+    1: [(-30.0, -20.0, 62.0, 22.0), (55.0, 30.0, 48.0, 16.0)],
+    2: [(35.0, -25.0, 52.0, 15.0)],
+    3: [(-40.0, 30.0, 42.0, 12.0)],
+    6: [(30.0, 40.0, 42.0, 15.0)],
+    7: [(-45.0, -20.0, 44.0, 14.0)],
+    8: [(40.0, -30.0, 40.0, 12.0)],
+}
+
+#: Interior valleys per enemy country: (centroid-relative polyline, half-width,
+#: depth). Deep cuts drop below the water plane and read as rivers; shallow ones
+#: stay dry and read as wadis.
+VALLEYS = {
+    2: ([(-130.0, 90.0), (0.0, 20.0), (120.0, -60.0)], 16.0, 24.0),   # forest stream
+    3: ([(-120.0, -80.0), (-10.0, -10.0), (110.0, 60.0)], 18.0, 8.0),  # dry wadi
+    5: ([(-150.0, -120.0), (-40.0, -30.0), (60.0, 40.0), (160.0, 130.0)], 26.0, 30.0),  # river
+    7: ([(-140.0, 60.0), (-30.0, 10.0), (90.0, -40.0)], 20.0, 9.0),    # dry wadi
+}
+
 #: Kedem's three bands, in SVG y: thirds of the ACTUAL centre cell, not of nominal
 #: constants -- the lattice jitter moves the cell, and the bands must move with it.
 _K_TOP = (CELLS[KEDEM][0][1] + CELLS[KEDEM][1][1]) / 2.0
@@ -286,10 +316,32 @@ def terrain(sx, sy):
     # Base relief, per terrain character; relief 0..1.
     relief = 0.5 * (fbm(sx * 0.006 + 7.3, sy * 0.006 + 2.1, salt=3) + 1.0)
     if zid != KEDEM:
-        # Placeholders stay CALM as well as grey: taller relief grew lit patches
-        # that quantised olive, and a placeholder should not compete for the eye.
-        z = 8.0 + 3.0 * relief
-        band = 0  # grey placeholder
+        # Eight countries, eight terrain identities -- the height profile does the
+        # character work and the band ramp colours it. Locked/complete states are
+        # the shell's overlays, so nothing here is a placeholder any more.
+        band = ZONE_BAND[zid]
+        if zid == 0:      # NW steppe: low rolls, dust ground breaking into scrub
+            z = 7.5 + 4.0 * relief
+        elif zid == 1:    # N highlands: the tallest interior relief on the board,
+            # with a fine roughness so the slopes shade as rock, not as a slab
+            z = 9.0 + 15.0 * relief + 1.2 * vnoise(sx * 0.06, sy * 0.06, salt=18)
+        elif zid == 2:    # NE forested hills: rolling, canopied by scatter
+            z = 8.0 + 8.0 * relief
+        elif zid == 3:    # W coastal desert: flat with wind-row ripple
+            ripple = vnoise(sx * 0.045, sy * 0.011, salt=4)
+            z = 7.5 + 3.0 * relief + 1.8 * ripple
+        elif zid == 5:    # E river lowlands: field mottle crossing the ramp stops
+            # (base sits mid-ramp: at 6.5 most of the zone fell into the dark
+            # scrub stop and the whole country read as night marsh)
+            z = 8.2 + 2.5 * relief + 2.2 * vnoise(sx * 0.03, sy * 0.03, salt=15)
+        elif zid == 6:    # SW badlands: relief quantised into mesa tiers
+            raw = 8.0 + 12.0 * relief
+            z = round(raw / 6.0) * 6.0 + 0.8 * vnoise(sx * 0.08, sy * 0.08, salt=16)
+        elif zid == 7:    # S erg: long dune bands, ripple deep enough to cross stops
+            ripple = vnoise(sx * 0.028, sy * 0.008, salt=17)
+            z = 8.0 + 2.0 * relief + 3.2 * ripple
+        else:             # SE salt flats: near-dead-flat playa
+            z = 6.0 + 2.2 * relief
     else:
         # Kedem's bands meet on noise-wavy lines, and BLEND across them: the three
         # height profiles are weight-mixed through the ecotone, and the material
@@ -306,6 +358,29 @@ def terrain(sx, sy):
              + w_forest * (8.0 + 6.0 * relief))
         pick = 0.5 * (vnoise(sx * 0.31, sy * 0.31, salt=9) + 1.0)
         band = 1 if pick < w_desert else (3 if pick > 1.0 - w_forest else 2)
+
+    # Interior features first: each enemy country's own mountains and valleys.
+    if zid in PEAKS:
+        ccx, ccy = _CENTROIDS[zid]
+        for dx, dy, pr, ph in PEAKS[zid]:
+            d = math.hypot(sx - (ccx + dx), sy - (ccy + dy))
+            if d < pr:
+                z += ph * (1.0 - smoothstep(d, pr * 0.25, pr))
+    if zid in VALLEYS:
+        ccx, ccy = _CENTROIDS[zid]
+        pts, half_w, depth = VALLEYS[zid]
+        dmin = 1e18
+        for a, b in zip(pts, pts[1:]):
+            dmin = min(dmin, _seg_dist(sx, sy, (ccx + a[0], ccy + a[1]),
+                                       (ccx + b[0], ccy + b[1])))
+        # The same rule as the country borders: a river drawn on a ruler reads as
+        # a canal. Wobbling the distance field bends the banks, not the endpoints.
+        dmin += 7.0 * vnoise(sx * 0.03, sy * 0.03, salt=19)
+        if dmin < half_w:
+            t = 1.0 - dmin / half_w
+            blend = min(1.0, t * 2.5)
+            z = z * (1.0 - blend) + min(z, 8.0) * blend
+            z -= depth * t * t
 
     # Border features: what actually separates the countries. The crest multiplier
     # varies along the range so peaks alternate with saddles, and a finer corrugation
@@ -371,6 +446,10 @@ def terrain_material(name, stops, roughness=0.92):
 
     ramp.color_ramp.interpolation = "CONSTANT"
     elems = ramp.color_ramp.elements
+    # A ColorRamp is born with TWO stops; the factory white one at pos 1.0 was never
+    # removed and contaminated the highest terrain. Strip down to one before building.
+    while len(elems) > 1:
+        elems.remove(elems[-1])
     for i, (z_from, key) in enumerate(stops):
         pos = (z_from - Z_MIN) / (Z_MAX - Z_MIN)
         el = elems[0] if i == 0 else elems.new(pos)
@@ -395,15 +474,30 @@ def flat(name, colour_key, roughness=0.85):
 #: out in the same rock, so ridge crests read as one mountain range no matter whose
 #: border they are. Warm limestone rock, not gunmetal: sunlit gunmetal under the warm
 #: sun quantises into the olive ramp, which smeared the first render's ridges green.
-WATER = [(Z_MIN, "water.0"), (-5.0, "water.1")]
-ROCK = [(20.0, "dust.5"), (30.0, "limestone.6"), (40.0, "limestone.7")]
+# Ramp indices DESCEND in brightness (measured, not assumed: limestone.0 L233 ..
+# limestone.8 L80, olive.0 L143 .. olive.3 L53). Deep water is the dark water.1
+# with a pale shallow fringe; rock gets PALER with altitude, like bare limestone.
+WATER = [(Z_MIN, "water.1"), (-5.0, "water.0")]
+ROCK = [(20.0, "dust.4"), (30.0, "limestone.5"), (40.0, "limestone.3")]
 
 BAND_STOPS = [
-    WATER + [(1.2, "gunmetal.1")] + ROCK,                                          # 0 grey
-    WATER + [(1.2, "dust.3"), (8.0, "dust.4"), (13.0, "dust.5")] + ROCK,           # 1 desert
-    WATER + [(1.2, "limestone.3"), (10.0, "limestone.4")] + ROCK,                  # 2 urban
-    WATER + [(1.2, "olive.0"), (8.0, "olive.1"), (14.0, "olive.2")] + ROCK,        # 3 forest
+    WATER + [(1.2, "dust.2"), (8.5, "olive.0"), (11.0, "olive.1")] + ROCK,         # 0 steppe NW
+    WATER + [(1.2, "dust.3"), (8.0, "dust.4"), (13.0, "dust.5")] + ROCK,           # 1 kedem desert
+    WATER + [(1.2, "limestone.3"), (10.0, "limestone.4")] + ROCK,                  # 2 kedem urban
+    WATER + [(1.2, "olive.0"), (8.0, "olive.1"), (14.0, "olive.2")] + ROCK,        # 3 forest (Kedem + NE)
+    WATER + [(1.2, "limestone.3"), (11.0, "limestone.4"), (16.0, "limestone.5")] + ROCK,  # 4 highlands N
+    WATER + [(1.2, "dust.2"), (8.0, "dust.3"), (11.5, "dust.4")] + ROCK,           # 5 coastal desert W
+    # Farmland is a LIGHT mosaic from above: pale fallow fields between green ones.
+    # (First cut used high olive indices believing they were lighter -- they are the
+    # DARKEST, and the whole country rendered as night marsh, twice.)
+    WATER + [(1.2, "olive.1"), (7.4, "scrub.0"), (9.2, "dust.2"), (11.0, "olive.0")] + ROCK,  # 6 lowlands E
+    WATER + [(1.2, "terracotta.0"), (8.0, "terracotta.1"), (13.0, "dust.5")] + ROCK,  # 7 badlands SW
+    WATER + [(1.2, "dust.3"), (9.0, "dust.4"), (12.0, "dust.5")] + ROCK,           # 8 erg S
+    WATER + [(1.2, "limestone.5"), (7.5, "dust.3"), (10.0, "dust.4")] + ROCK,      # 9 salt flats SE
 ]
+
+#: zone id (lattice cell) -> material band, for the eight enemy countries.
+ZONE_BAND = {0: 0, 1: 4, 2: 3, 3: 5, 5: 6, 6: 7, 7: 8, 8: 9}
 
 
 # -------------------------------------------------------------------- the mesh
@@ -489,9 +583,9 @@ def _batched_mesh(name, material):
     return add, commit
 
 
-def _block(add, sx, sy, w, d, h):
+def _block(add, sx, sy, w, d, h, lift=0.0):
     z0, _ = terrain(sx, sy)
-    z0 -= 1.0
+    z0 += lift - 1.0
     wx, wy = to_world(sx, sy)
     x0, x1, y0, y1 = wx - w / 2, wx + w / 2, wy - d / 2, wy + d / 2
     z1 = z0 + h
@@ -587,6 +681,115 @@ def scatter_forest():
     for _, commit in batches:
         commit()
     print(f"forest: {placed} canopies")
+
+
+def _zone_span(zid):
+    """The zone's search box: unwarped quad bbox padded by the warp's reach,
+    clamped to the board. Candidates are gated by `zone_at`, not by this box."""
+    xs = [x for x, _ in CELLS[zid]]
+    ys = [y for _, y in CELLS[zid]]
+    return (max(0.0, min(xs) - 46.0), min(VIEW_W, max(xs) + 46.0),
+            max(0.0, min(ys) - 46.0), min(VIEW_H, max(ys) + 46.0))
+
+
+def scatter_zone_canopies(zid, label, seed, spacing, keep_p, r0, r1, h0, h1):
+    """Vegetation cover for a whole enemy country -- NE's forest canopy, or the
+    NW steppe's sparse scrub dots, depending on the numbers."""
+    greens = [flat(f"{label}_a", "olive.1"), flat(f"{label}_b", "olive.2"),
+              flat(f"{label}_c", "scrub.1")]
+    batches = [_batched_mesh(f"{label}_{i}", m) for i, m in enumerate(greens)]
+    rnd = rng_from(seed)
+    placed = 0
+    x0, x1, y0, y1 = _zone_span(zid)
+    sy = y0
+    while sy < y1:
+        sx = x0
+        while sx < x1:
+            jx, jy = sx + (rnd() - 0.5) * 7.0, sy + (rnd() - 0.5) * 7.0
+            keep = rnd() < keep_p
+            z_id, ridge_t, valley_t = zone_at(jx, jy)
+            z, _band = terrain(jx, jy)
+            if keep and z_id == zid and z < 16.0:
+                add, _ = batches[int(rnd() * 3) % 3]
+                _canopy(add, jx, jy, r0 + rnd() * (r1 - r0), h0 + rnd() * (h1 - h0))
+                placed += 1
+            sx += spacing
+        sy += spacing
+    for _, commit in batches:
+        commit()
+    print(f"{label}: {placed} canopies")
+
+
+def build_hamlets(zid, label, count, seed):
+    """A few small settlements for the inhabited enemy countries. Sites are drawn
+    from the zone's box and gated to solid interior ground, so the warp can never
+    strand a hamlet in the wrong country or on a mountain range."""
+    walls = [flat(f"{label}_a", "limestone.3"), flat(f"{label}_b", "limestone.4"),
+             flat(f"{label}_c", "dust.5")]
+    batches = [_batched_mesh(f"{label}_{i}", m) for i, m in enumerate(walls)]
+    rnd = rng_from(seed)
+    x0, x1, y0, y1 = _zone_span(zid)
+    placed = 0
+    attempts = 0
+    while placed < count and attempts < 400:
+        attempts += 1
+        px = x0 + rnd() * (x1 - x0)
+        py = y0 + rnd() * (y1 - y0)
+        z_id, ridge_t, valley_t = zone_at(px, py)
+        z, _band = terrain(px, py)
+        if z_id != zid or max(ridge_t, valley_t) > 0.15 or z > 14.0:
+            continue
+        for _ in range(5 + int(rnd() * 4)):
+            a, r = rnd() * 2.0 * math.pi, 1.5 + rnd() * 11.0
+            add, _ = batches[int(rnd() * 3) % 3]
+            _block(add, px + r * math.cos(a), py + r * math.sin(a) * 0.75,
+                   3.5 + rnd() * 2.5, 3.5 + rnd() * 2.5, 2.5 + rnd() * 2.5)
+        placed += 1
+    for _, commit in batches:
+        commit()
+    print(f"{label}: {placed} hamlets")
+
+
+def build_towers():
+    """A watchtower on each enemy country's Kedem-facing approach: walk from the
+    country's centroid toward Kedem's and keep the last solid interior point
+    before the border zone begins. Plinth, tall shaft, wider dark cap -- a thin
+    vertical silhouette nothing else on the map has."""
+    b_add, b_commit = _batched_mesh("towers", flat("tower_body", "limestone.4"))
+    c_add, c_commit = _batched_mesh("tower_caps", flat("tower_cap", "gunmetal.2"))
+    kx, ky = _CENTROIDS[KEDEM]
+    for zid in range(9):
+        if zid == KEDEM:
+            continue
+        cx, cy = _CENTROIDS[zid]
+        dx, dy = kx - cx, ky - cy
+        step = 6.0 / math.hypot(dx, dy)
+        best = None
+        # Two passes: strict, then relaxed -- badlands mesas can leave no point
+        # that clears the strict height gate on the whole approach line.
+        for t_max, z_max in ((0.18, 16.0), (0.32, 22.0)):
+            t = 0.0
+            while t < 1.0:
+                px, py = cx + dx * t, cy + dy * t
+                z_id, ridge_t, valley_t = zone_at(px, py)
+                if z_id != zid:
+                    break
+                z, _band = terrain(px, py)
+                if max(ridge_t, valley_t) < t_max and z < z_max:
+                    best = (px, py)
+                t += step
+            if best is not None:
+                break
+        if best is None:
+            print(f"tower: no ground on zone {zid}'s approach")
+            continue
+        px, py = best
+        _block(b_add, px, py, 6.0, 6.0, 2.5)            # plinth
+        _block(b_add, px, py, 3.4, 3.4, 15.0)           # shaft
+        _block(c_add, px, py, 5.2, 5.2, 1.6, lift=15.0)  # lookout cap
+    b_commit()
+    c_commit()
+    print("towers: one per enemy country")
 
 
 def find_beit_sahwan():
@@ -705,6 +908,19 @@ def main():
     build_beit_sahwan(bs)
     scatter_city(clear_at=bs)
     scatter_forest()
+    scatter_zone_canopies(2, "ne_forest", 0x2F0A, spacing=11.0, keep_p=0.7,
+                          r0=2.6, r1=4.8, h0=1.8, h1=3.6)
+    scatter_zone_canopies(0, "nw_scrub", 0x0F0B, spacing=24.0, keep_p=0.55,
+                          r0=1.6, r1=3.2, h0=1.0, h1=2.2)
+    build_hamlets(3, "w_hamlets", 3, 0x77A1)
+    build_hamlets(5, "e_hamlets", 2, 0x77A2)
+    build_hamlets(0, "nw_hamlets", 2, 0x77A3)
+    build_hamlets(1, "n_hamlets", 2, 0x77A4)
+    build_hamlets(2, "ne_hamlets", 2, 0x77A5)
+    build_hamlets(6, "sw_hamlets", 2, 0x77A6)
+    build_hamlets(7, "s_hamlets", 1, 0x77A7)
+    build_hamlets(8, "se_hamlets", 1, 0x77A8)
+    build_towers()
 
     # The shell overlays per-country state (the brigade lion flag on completed
     # countries) on top of this render; these outlines are its geometry contract.
