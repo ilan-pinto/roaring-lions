@@ -155,6 +155,12 @@ class BuildingSpec:
     course_a_key: str = "limestone.2"
     course_b_key: str = "dust.0"
     mortar_key: str = "limestone.3"
+    # Per-role palette overrides, for THIS building only. ROLE_PALETTE is one
+    # fixed colour per role shared by every building -- right for `trim` as an
+    # accent course, wrong for the wall's coping, which is a second masonry
+    # tone from the wall's own ramp rather than an accent. Empty for every
+    # existing spec, so this changes nothing for them.
+    role_overrides: dict = field(default_factory=dict)
     # Bricks per world unit. The mosque is ~10.8 units and draws ~230px wide, so
     # roughly 21px per unit: a scale near 6 gives courses a few pixels deep,
     # which is the finest that still reads.
@@ -312,7 +318,7 @@ def setup(spec):
 
     def role_material(role):
         if role not in role_mats:
-            key = ROLE_PALETTE[role]
+            key = spec.role_overrides.get(role, ROLE_PALETTE[role])
             role_mats[role] = _shader(f"Building_{role}", palette_linear(key), 0.90)
         return role_mats[role]
 
@@ -683,6 +689,24 @@ CONCRETE = BuildingSpec(
 )
 
 
+WALL = BuildingSpec(
+    src=os.path.abspath("art/src/buildings/wall.blend"),
+    out_dir=os.path.abspath("assets/sprites/BLD_WALL"),
+    unit="wall",
+    credit="Original work for Roaring Lions (CC BY-SA 4.0)",
+    # data/structures.json: per_tile, one tile square, so a run of any length
+    # is drawn one sprite per occupied tile.
+    footprint_tiles=1,
+    colour_key="limestone.5",
+    brick=False,
+    # The coping is `trim`-flagged for the highlight line the role exists to
+    # give, but the wall's coping is limestone.3 -- one step lighter than the
+    # limestone.5 body -- not the terracotta.1 every other building's trim
+    # course uses. See role_overrides on BuildingSpec.
+    role_overrides={"trim": "limestone.3"},
+)
+
+
 BUILDINGS = {
     "mosque": MOSQUE,
     "house": HOUSE,
@@ -690,6 +714,7 @@ BUILDINGS = {
     "warehouse": WAREHOUSE,
     "apartment": APARTMENT,
     "concrete": CONCRETE,
+    "wall": WALL,
 }
 
 

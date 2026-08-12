@@ -1,0 +1,26 @@
+{
+  "unit": "wall",
+  "credit": "Original work for Roaring Lions (CC BY-SA 4.0)",
+  "kind": "building",
+  "facings": 1,
+  "size": 512,
+  "scale": 1.3297,
+  "footprintTiles": 1,
+  "badgeTopPx": 40.14,
+  "roofTopPx": 23.93,
+  "clips": {
+    "idle": {
+      "frames": 1,
+      "fps": 0,
+      "loop": false
+    }
+  },
+  "files": [
+    {
+      "clip": "idle",
+      "facing": 0,
+      "frame": 0,
+      "file": "idle_f00_000.png"
+    }
+  ]
+}
