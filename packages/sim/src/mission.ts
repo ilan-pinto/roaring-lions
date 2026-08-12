@@ -731,7 +731,7 @@ export class MissionRuntime {
       } else if (p.stance?.kind === 'ambush') {
         // Knowing where an ambush is removes the surprise, not the enemy: a marked
         // ambusher simply holds position instead. The GDD calls `ambush` "the entire
-        // reason recon quality matters by Phase 4", so this is that sentence made
+        // reason recon quality matters by Phase 5", so this is that sentence made
         // mechanical.
         if (!preMarked) this.sim.setAmbush(id, fx.from(p.stance.tiles ?? 3));
       } else if (p.stance?.kind === 'patrol' && p.stance.waypoints && p.stance.waypoints.length >= 2) {

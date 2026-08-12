@@ -770,6 +770,49 @@ describe('civilians and ROE (GDD §6)', () => {
     expect(w.runtime.result).toBe('defeat');
   });
 
+  it('a civilian who reached the refuge and then died still counts: arrival is latched', () => {
+    // Two civilians, both shepherded at once; the nearer one arrives first,
+    // dies, and the objective still completes when the second walks in.
+    const w = civWorld(
+      {
+        starting_force: [{ unit: 'm_squad', count: 1, at: [11, 6] }],
+        civilians: {
+          groups: [
+            { unit: 'm_civ', count: 1, at: [12, 6] },
+            { unit: 'm_civ', count: 1, at: [14, 7] },
+          ],
+          refuge: 'refuge',
+        },
+        objectives: [
+          { id: 'evac', type: 'evacuate_before', primary: false, target: 'refuge_zone', count: 2, seconds: 600 },
+          { id: 'clock', type: 'survive_until', primary: true, seconds: 600 },
+        ],
+      },
+      REFUGE_CTX
+    );
+    const [civA, civB] = [1, 2]; // spawn order: soldier, then the two groups
+    const zone = REFUGE_CTX.zones.refuge_zone;
+    const inZone = (id: number): boolean => {
+      const tx = w.sim.state.posX[id] >> 16;
+      const ty = w.sim.state.posY[id] >> 16;
+      return tx >= zone[0] && tx < zone[0] + zone[2] && ty >= zone[1] && ty < zone[1] + zone[3];
+    };
+    // Walk until the nearer civilian is in the zone and the farther is not.
+    let ticks = 0;
+    while (!(inZone(civA) && !inZone(civB)) && ticks < 3000) {
+      w.step(1);
+      ticks++;
+    }
+    expect(inZone(civA)).toBe(true);
+    expect(inZone(civB)).toBe(false);
+    w.sim.debugKill(civA);
+    expect(w.sim.state.alive[civA]).toBe(0);
+    // The second arrival must complete the count of two, dead first included.
+    const evs = w.step(3000);
+    const done = evs.mission.filter((m) => m.kind === 'objective' && m.id === 'evac' && m.status === 'complete');
+    expect(done).toHaveLength(1);
+  });
+
   it('victory produces civ.settlements_evacuated when the mission declares it', () => {
     const w = civWorld(
       {
