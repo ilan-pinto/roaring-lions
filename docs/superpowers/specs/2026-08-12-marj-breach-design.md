@@ -146,13 +146,18 @@ no `logistics_rate_per_min`. The corridor is cut; what you have is what you get.
 
 | id | type | primary | shape |
 |---|---|---|---|
-| `hold_strongpoint` | `hold_for` | yes | 300s accumulated in the compound |
-| `survive_relief` | `survive_until` | yes | 780s — the relief clock |
+| `survive_relief` | `survive_until` | **yes — the only one** | 780s — the relief clock |
+| `hold_strongpoint` | `hold_for` | no | 300s accumulated in the compound |
 | `evac_settlements` | `evacuate_before` | no | 6 civilian groups by 480s |
 
-`target_minutes: 14`. The relief clock is the binding one: the hold banks its 300s
-well before it, so the mission ends when `survive_until` fires at 13 minutes, inside
-GDD §6's 12–20 window with a minute of slack for the end screen. The evacuation
+Survival is the sole primary because `checkEnd` wins only when every primary
+completes and loses only on wipe-out or ROE collapse: a mandatory hold would leave a
+player who is alive but has not banked the compound in a mission that never ends.
+This is also issue #65's own framing — *the win condition is survival, not
+territory*. The hold and the evacuation score, show in the HUD, and carry.
+
+`target_minutes: 14`. The relief clock is the only thing that ends the mission, at 13
+minutes — inside GDD §6's 12–20 window with a minute of slack for the end screen. The evacuation
 deadline lands at 8 minutes — early enough that the last third is pure defence, so
 the two pressures do not compete for the whole mission.
 

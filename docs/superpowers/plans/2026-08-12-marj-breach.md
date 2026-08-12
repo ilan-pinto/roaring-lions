@@ -665,6 +665,8 @@ clinic and two tunnel exits, the strongpoint compound, and the refuge."
 
 **Why there is no retreat trigger:** the perimeter is not an objective. The player starts spread along it, it is longer than the force can hold, and abandoning it costs nothing mechanically. The geometry does what a script would otherwise fake — and GDD §6 forbids the script.
 
+**Why survival is the only primary.** `checkEnd` wins only when *every* primary is complete and loses only on wipe-out or ROE collapse. If the compound hold were also primary, a player alive at 780s who never banked 300s in the compound would sit in a mission that never ends — no victory, no defeat. Making `survive_until` the sole primary bounds the mission at thirteen minutes and matches issue #65's own framing: *the win condition is survival, not territory*. The hold and the evacuation are secondary — they score, they show in the HUD, and they carry through ROE and the ledger.
+
 - [ ] **Step 1: Write the mission**
 
 Create `data/missions/beit_sahwan_breach.json`:
@@ -704,19 +706,19 @@ Create `data/missions/beit_sahwan_breach.json`:
   },
   "objectives": [
     {
-      "id": "hold_strongpoint",
-      "type": "hold_for",
-      "primary": true,
-      "target": "strongpoint",
-      "seconds": 300,
-      "text": "Hold the compound for five minutes"
-    },
-    {
       "id": "survive_relief",
       "type": "survive_until",
       "primary": true,
       "seconds": 780,
       "text": "Still be standing when the relief column arrives"
+    },
+    {
+      "id": "hold_strongpoint",
+      "type": "hold_for",
+      "primary": false,
+      "target": "strongpoint",
+      "seconds": 300,
+      "text": "Hold the compound for five minutes"
     },
     {
       "id": "evac_settlements",
@@ -1042,7 +1044,9 @@ const led1 = run('beit_sahwan_1_recon', (sim, _rt, ids, at) => {
 - [ ] **Step 3: Run it**
 
 Run: `cd tools && npx tsx src/backtest/playtest.ts; cd ..`
-Expected: a line beginning `beit_sahwan_breach: VICTORY in <=13.0 min`, with `hold_strongpoint=c survive_relief=c`, and all three later missions still VICTORY. The harness sets a non-zero exit code on any non-victory.
+Expected: a line beginning `beit_sahwan_breach: VICTORY in 13.0 min` (survival is the only primary, so victory lands exactly on the relief clock), and all three later missions still VICTORY. The harness sets a non-zero exit code on any non-victory.
+
+Also read the objective letters on that line. `survive_relief=c` is the win. `hold_strongpoint` and `evac_settlements` are secondary, so `f` on either does **not** fail the run — but both showing `c` is the target, because a plan that survives while abandoning the compound and the villages proves the mission is too easy to be about anything.
 
 - [ ] **Step 4: Tune if it fails, and say what you changed**
 
