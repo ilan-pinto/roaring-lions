@@ -18,6 +18,7 @@
             467.6
           ],
           "missions": [
+            "beit_sahwan_breach",
             "beit_sahwan_1_recon",
             "beit_sahwan_2_foothold",
             "beit_sahwan_3_clearance"

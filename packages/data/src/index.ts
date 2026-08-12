@@ -11,6 +11,7 @@ import beitSahwanOutskirts from '../../../data/maps/beit_sahwan_outskirts.json';
 import marjPerimeter from '../../../data/maps/marj_perimeter.json';
 import tutorialGround from '../../../data/maps/tutorial_ground.json';
 import structureCatalogue from '../../../data/structures.json';
+import beitSahwanBreach from '../../../data/missions/beit_sahwan_breach.json';
 import beitSahwan0 from '../../../data/missions/beit_sahwan_0_tutorial.json';
 import beitSahwan1 from '../../../data/missions/beit_sahwan_1_recon.json';
 import beitSahwan2 from '../../../data/missions/beit_sahwan_2_foothold.json';
@@ -76,6 +77,7 @@ export type StructureId = keyof typeof structures;
 
 /** Missions, keyed by mission id. Shapes match mission.schema.json. */
 export const missions = {
+  beit_sahwan_breach: beitSahwanBreach,
   beit_sahwan_0_tutorial: beitSahwan0,
   beit_sahwan_1_recon: beitSahwan1,
   beit_sahwan_2_foothold: beitSahwan2,
