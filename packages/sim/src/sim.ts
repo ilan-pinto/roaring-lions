@@ -14,7 +14,7 @@ import { FlowField, DIR_NONE, DIR_VX, DIR_VY } from './flowfield';
 import {
   structureTypeFromJson,
   STRUCT_DAMAGE,
-  DEMO_TICKS,
+  DEMO_SECONDS,
   DEMO_RANGE_SQ,
   GARRISON_ENTER_RANGE_SQ,
   COLLAPSE_SHOCK_SQ,
@@ -133,6 +133,8 @@ export interface UnitTypeJson {
   name?: string;
   role?: string;
   abilities?: readonly string[];
+  /** Seconds of held station to bring a building down. Absent = DEMO_SECONDS. */
+  demolition_time_s?: number;
   hull: {
     hp: number;
     armor: { front: number; side: number; rear: number; top?: number };
@@ -257,6 +259,8 @@ export interface UnitType {
   canGarrison: boolean;
   /** Can bring a building down by holding position beside it. */
   canDemolish: boolean;
+  /** Ticks of held station to bring a building down. Per unit since the D9. */
+  demolitionTicks: number;
   /** Flies into its target and is spent doing it. */
   isKamikaze: boolean;
   /**
@@ -355,6 +359,9 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     role: json.role ?? '',
     canGarrison: abilities.includes('garrison'),
     canDemolish: abilities.includes('demolish'),
+    demolitionTicks: fx.toInt(
+      fx.mul(fx.from(json.demolition_time_s ?? DEMO_SECONDS), fx.fromInt(TICKS_PER_SECOND)),
+    ),
     isKamikaze: abilities.includes('kamikaze'),
     isAir: json.mobility.domain === 'air',
     transportSlots: json.hull.transport_slots ?? 0,
@@ -954,7 +961,7 @@ export class Sim {
 
   /** Demolition charge progress 0..1 for the HUD. */
   demolitionProgress(id: number): number {
-    return this.demoTicks[id] / DEMO_TICKS;
+    return this.demoTicks[id] / this.unitTypes[this.typeIdx[id]].demolitionTicks;
   }
 
   /** Dev/test hook: level a building instantly. */
@@ -2575,7 +2582,7 @@ export class Sim {
         this.demoTarget[i] = best;
         this.demoTicks[i] = 0;
       }
-      if (++this.demoTicks[i] >= DEMO_TICKS) {
+      if (++this.demoTicks[i] >= type.demolitionTicks) {
         this.demoTicks[i] = 0;
         this.demoTarget[i] = -1;
         this.destroyStructure(best, i);

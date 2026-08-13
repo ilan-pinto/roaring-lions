@@ -391,6 +391,12 @@
         ]
       }
     },
+    "demolition_time_s": {
+      "type": "number",
+      "minimum": 0.5,
+      "default": 5.0,
+      "description": "Seconds a `demolish` unit must hold station to bring a building down. Absent means 5.0, which is what every demolisher did before the field existed."
+    },
     "art": {
       "type": "object",
       "required": [

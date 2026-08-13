@@ -74,6 +74,9 @@ export const STRUCT_DAMAGE = new Int32Array([
 
 /** Ticks a demolition team must hold position beside a building: 5 s. */
 export const DEMO_TICKS = 100;
+/** The same default expressed in seconds, for `demolition_time_s`. Data is
+ *  authored in real units and must not know the tick rate. */
+export const DEMO_SECONDS = 5;
 /** How close the team must be to a structure tile: squared tiles, Q16.16. */
 export const DEMO_RANGE_SQ = 262144; // 4.0 tile^2 = 2 tiles
 /** How close a unit must be to walk in the door: squared tiles, Q16.16. */
