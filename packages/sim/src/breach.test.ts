@@ -164,6 +164,38 @@ describe('a defender does not cut his own wire', () => {
   });
 });
 
+describe('the long way round counts as blocked', () => {
+  it('cuts the blind face rather than walking three sides to reach the gate', () => {
+    // The regression this exists for: gating the breach on "tried to move and
+    // did not" reads as the safe choice and quietly guts the feature, because a
+    // man who can walk all the way round a compound to its one gate is never
+    // stuck -- he just takes a minute and a half and arrives where the defence
+    // is already looking. Nothing ever cuts a wall, and the siege is a queue.
+    const sim = new Sim({ seed: 3, width: 32, height: 24, capacity: 32 });
+    const wallType = sim.addStructureType(FENCE);
+    const walls: number[] = [];
+    const X0 = 8, X1 = 24, Y0 = 6, Y1 = 18;
+    for (let x = X0; x <= X1; x++) {
+      walls.push(sim.addStructure(wallType, [Y0 * sim.width + x]));
+      walls.push(sim.addStructure(wallType, [Y1 * sim.width + x]));
+    }
+    for (let y = Y0 + 1; y < Y1; y++) {
+      if (y !== 12 && y !== 13) walls.push(sim.addStructure(wallType, [y * sim.width + X0]));
+      walls.push(sim.addStructure(wallType, [y * sim.width + X1]));
+    }
+
+    const rpg = sim.addUnitType(RPG);
+    const u = sim.spawn(rpg, 1, fx.from(16.5), fx.from(4.5)); // north face, gate is west
+    sim.queueCommand({ kind: 'attackMove', ids: [u], x: fx.from(16.5), y: fx.from(12.5) });
+
+    const events = run(sim, 120 * TICKS_PER_SECOND);
+    expect(events.some((e) => e.kind === 'structureDestroyed')).toBe(true);
+    // Through the hole it made, not round through the gate.
+    expect(fx.toNumber(sim.state.posY[u])).toBeGreaterThan(6);
+    expect(fx.toNumber(sim.state.posX[u])).toBeGreaterThan(12);
+  });
+});
+
 describe('gates stay the main event', () => {
   it('an attacker with an open gate walks through it rather than cutting', () => {
     const sim = new Sim({ seed: 3, width: 32, height: 16, capacity: 32 });

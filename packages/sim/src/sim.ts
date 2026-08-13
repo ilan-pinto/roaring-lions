@@ -1665,17 +1665,20 @@ export class Sim {
    *   his own compound has no goal and so never fires on his own fence — there
    *   is no notion of who owns a structure for him to appeal to, and this is
    *   what stands in for it.
-   * - it did not move last tick. `displaced` is cleared at the top of
-   *   stepMovement and set when a unit actually advances, and stepCombat runs
-   *   first, so this reads last tick's answer: "I tried to walk and I did not".
-   *   A unit walking the length of a perimeter toward an open gate is displaced
-   *   the whole way and never even evaluates a breach.
    * - going through would actually help. The flow field already knows the true
    *   cost of walking to the goal around every wall on the map; compare it to
-   *   the straight line and the difference is the detour. Under the slack there
-   *   is a gate worth using, so use it.
+   *   the straight line and the surplus is the detour the terrain imposes.
+   *   Under the slack there is an opening worth using, so use it.
    * - and the thing is within arm's reach, ungarrisonable, and not a protected
    *   site — the same carve-out selectStructureTarget makes for a mosque.
+   *
+   * Note what is deliberately NOT required: that the unit be stuck. Gating on
+   * "tried to walk and did not move" sounds safer and quietly guts the feature,
+   * because a man who can walk three-quarters of the way round a compound to
+   * reach its gate is never stuck — he just takes ninety seconds and arrives
+   * somewhere the defence is already looking. The detour test is the honest
+   * form of the same question, and it is the one that makes a blind wall get
+   * cut while a gate twenty feet away still gets used.
    */
   private selectBreachTarget(i: number): number {
     // The player never cuts a wall by accident. The conditions below already
@@ -1684,27 +1687,34 @@ export class Sim {
     // and there is no notion of who owns a structure to appeal to. Breaching on
     // our side is a decision, and there is a `demolish` order to make it with.
     if (this.side[i] === 0) return -1;
-    if (this.moving[i] !== 1 || this.displaced[i] !== 0) return -1;
-    const fRef = this.fieldRef[i];
-    if (fRef < 0) return -1; // routed: broken men do not demolish masonry
     const w = this.width;
     const ux = this.posX[i] >> 16;
     const uy = this.posY[i] >> 16;
     const gx = this.goalX[i] >> 16;
     const gy = this.goalY[i] >> 16;
 
-    const field = this.fields[fRef];
-    const myTile = uy * w + ux;
-    if (field.dirs[myTile] !== DIR_NONE) {
-      let dx = gx - ux;
-      if (dx < 0) dx = -dx;
-      let dy = gy - uy;
-      if (dy < 0) dy = -dy;
-      const lo = dx < dy ? dx : dy;
-      const hi = dx < dy ? dy : dx;
-      const straight = COST_DIAG * lo + COST_ORTH * (hi - lo);
-      if (field.costAt(myTile) <= straight + BREACH_DETOUR_SLACK) return -1;
+    if (this.moving[i] === 1) {
+      const fRef = this.fieldRef[i];
+      if (fRef < 0) return -1; // routed: broken men do not demolish masonry
+      const field = this.fields[fRef];
+      const myTile = uy * w + ux;
+      if (field.dirs[myTile] !== DIR_NONE) {
+        let dx = gx - ux;
+        if (dx < 0) dx = -dx;
+        let dy = gy - uy;
+        if (dy < 0) dy = -dy;
+        const lo = dx < dy ? dx : dy;
+        const hi = dx < dy ? dy : dx;
+        const straight = COST_DIAG * lo + COST_ORTH * (hi - lo);
+        if (field.costAt(myTile) <= straight + BREACH_DETOUR_SLACK) return -1;
+      }
     }
+    // Standing still is not a reason to stop. A unit that has arrived where it
+    // was sent has no field left to consult, and an attacker sent to a blind
+    // face is standing in front of it precisely because somebody wants it
+    // opened. This is the half that makes the wall a battle rather than a
+    // boundary: routed to a goal, the field always finds the long way round, so
+    // an assault that only ever reacts to being stuck never cuts anything.
 
     let best = -1;
     let bestKey = 0x7fffffff;
