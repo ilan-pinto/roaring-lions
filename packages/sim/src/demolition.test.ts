@@ -16,6 +16,8 @@ const SAPPER: UnitTypeJson = {
 const DOZER: UnitTypeJson = { ...SAPPER, id: 'test_dozer', demolition_time_s: 2.0 };
 
 const SHACK: StructureTypeJson = { id: 'test_shack', hp_per_tile: 100 };
+/** roe_penalty at PROTECTED_ROE. A mosque is 30; the threshold is 20. */
+const SHRINE: StructureTypeJson = { id: 'test_shrine', hp_per_tile: 100, roe_penalty: 30 };
 
 /** Park a demolisher beside a one-tile building and tick until it falls. */
 function ticksToLevel(unit: UnitTypeJson): number {
@@ -71,5 +73,34 @@ describe('per-unit demolition time', () => {
     // building must still never be *shooting* at one.
     expect(sim.state.curTarget[id]).toBe(-1);
     expect(sim.state.curStructure[id]).toBe(-1);
+  });
+
+  // selectStructureTarget already refuses protected sites "on a gunner's
+  // initiative" (sim.ts). Demolition is the same kind of unordered act by the
+  // same unit, and was the one path that never got the rule: a dozer halted
+  // beside a mosque levelled it with no order given, for -30 ROE.
+  it('does not demolish a protected site on its own initiative', () => {
+    const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 8 });
+    const shrine = sim.addStructureType(SHRINE);
+    sim.addStructure(shrine, [10 * 32 + 10]);
+    const t = sim.addUnitType(DOZER);
+    sim.spawn(t, 0, fx.from(11.5), fx.from(10.5));
+    for (let n = 0; n < 400; n++) sim.tick();
+    expect(sim.structureAt(10, 10)).toBeGreaterThanOrEqual(0);
+  });
+
+  // The guard must be about the ROE flag, not about demolition being broken.
+  it('still demolishes an unprotected building beside the protected one', () => {
+    const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 8 });
+    const shrine = sim.addStructureType(SHRINE);
+    const shack = sim.addStructureType(SHACK);
+    sim.addStructure(shrine, [10 * 32 + 10]);
+    sim.addStructure(shack, [10 * 32 + 12]);
+    const t = sim.addUnitType(DOZER);
+    // Equidistant from both: the shrine must be skipped and the shack taken.
+    sim.spawn(t, 0, fx.from(11.5), fx.from(10.5));
+    for (let n = 0; n < 400; n++) sim.tick();
+    expect(sim.structureAt(10, 10)).toBeGreaterThanOrEqual(0); // shrine stands
+    expect(sim.structureAt(12, 10)).toBe(-1); // shack levelled
   });
 });

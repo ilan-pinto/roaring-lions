@@ -2566,6 +2566,12 @@ export class Sim {
       let bestD = DEMO_RANGE_SQ;
       for (let s = 0; s < this.structureCount_; s++) {
         if (this.stAlive[s] === 0) continue;
+        // Protected sites are never levelled on a sapper's initiative, for the
+        // same reason selectStructureTarget will not fire on one: charges go in
+        // whenever a demolisher merely holds station, so without this a dozer
+        // halted beside a mosque to let its escort catch up brings the mosque
+        // down two seconds later and costs the player 30 ROE they never spent.
+        if (this.structureTypes[this.stTypeIdx[s]].roePenalty >= PROTECTED_ROE) continue;
         if (this.stOccupants[s] > 0 && this.friendlyInside(s, this.side[i])) continue;
         const d = this.structDistSq(s, this.posX[i], this.posY[i]);
         if (d <= bestD) {
