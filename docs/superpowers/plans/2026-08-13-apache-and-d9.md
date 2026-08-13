@@ -571,7 +571,7 @@ $B --background --python tools/vehicles/author_d9.py
 $B --background --python tools/vehicles/author_apache.py
 ```
 
-Expected: `saved .../d9.blend` with 32 objects (26 + 6) and `saved .../apache.blend` with 51 objects (44 + 7).
+Expected: `saved .../d9.blend` with **33** objects (26 + 7 — the wreck adds two `WRECK_track_*` in a loop, so seven parts, not six) and `saved .../apache.blend` with 51 objects (44 + 7).
 
 - [ ] **Step 4: Look at both before committing**
 
