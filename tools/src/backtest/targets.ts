@@ -226,51 +226,79 @@ export function lanchester(seeds = 20): TargetResult {
 }
 
 // ---------------------------------------------------------------------------
-// 5. Air is contested, not free
-//    A gunship over an AA-covered position must be in a real fight. The whole
-//    of the Apache's counterplay design is the Hellfire's 9.0 effective range
-//    against the gun truck's 8.5 effective / 11 reach: the helicopter can open
-//    from beyond the ZU-23's useful range, but never from outside its reach, so
-//    the exchange turns on who fires first rather than on who outranges whom.
+// 5. Air is contested by weight of AA, not by any single gun
+//    This target exists because nothing else here measures air at all: the
+//    other four scenarios spawn only inf_squad and militia_cell, so the whole
+//    domain could not move a number in `pnpm balance`.
 //
-//    This target exists because nothing else here measures air at all. The
-//    other four scenarios spawn only inf_squad and militia_cell, so before this
-//    the whole domain -- and both units that use it -- could not move a single
-//    number in `pnpm balance`. A gunship that always wins means the AA is
-//    decoration; one that always dies means the airframe is not worth its cost.
+//    Its FIRST version measured the wrong thing, and the mistake is worth
+//    recording because it is easy to repeat. It parked a gunship at a fixed
+//    standoff with no orders and let it hover for ninety seconds, on the theory
+//    -- taken from the design spec -- that the Hellfire's 9.0 effective range
+//    against the ZU-23's 8.5 makes the exchange turn on who fires first. It
+//    reported 0% and looked like a damning result about the unit.
+//
+//    It is a true measurement of a tactic nobody would use. Two numbers decide
+//    the real engagement instead:
+//
+//    - **Rate of fire.** The Hellfire is 6/min, the ZU-23 is 800/min. A
+//      standoff missile duel is 133x slower on one side; half a tile of range
+//      advantage decides nothing. The gunship's actual weapon is the 625/min
+//      chain gun, whose 120 penetration guts the truck's 12 mm -- but its
+//      effective range is 6.0, inside the ZU-23's envelope.
+//    - **Time on station.** ZU-23 penetration is 40 against 45 mm of frontal
+//      armour, so nose-on most rounds bounce. Over a ninety-second hover it
+//      throws ~1200 of them and enough penetration rolls land anyway. Over a
+//      four-second firing pass it throws ten and none do.
+//
+//    So the question is not "can a helicopter out-range a gun truck" but "how
+//    much AA does it take to punish a pass". That is what this measures.
 // ---------------------------------------------------------------------------
-function gunshipDuel(seed: number, standoffTiles: number): boolean {
-  const sim = new Sim({ seed, width: 32, height: 12, capacity: 4 });
-  const heli = sim.addUnitType(units.heli_peten);
-  const aa = sim.addUnitType(units.gun_truck);
-  // Both start nose-on and aware-capable; the standoff is the variable.
-  sim.spawn(heli, 0, fx.from(4.5), fx.from(6.5));
-  sim.spawn(aa, 1, fx.from(4.5 + standoffTiles), fx.from(6.5), WEST);
-  const { alive } = runBattle(sim, 90 * TICKS_PER_SECOND);
-  return alive[0] > 0 && alive[1] === 0; // gunship won outright
+interface RunOutcome {
+  /** The gunship came home. */
+  survived: boolean;
+  /** Every AA piece on the position is dead. */
+  cleared: boolean;
 }
 
-export function airContested(seedsPerRange = 40): TargetResult {
-  // Inside the ZU-23's effective range, at the Hellfire's effective range, and
-  // at the edge of the ZU-23's reach.
-  const ranges = [6, 9, 11];
-  const rates: Record<string, number> = {};
-  for (const r of ranges) {
-    let wins = 0;
-    for (let s = 0; s < seedsPerRange; s++) if (gunshipDuel(88000 + r * 1000 + s, r)) wins++;
-    rates[`${r}t`] = wins / seedsPerRange;
+function gunshipRun(seed: number, aaCount: number): RunOutcome {
+  const sim = new Sim({ seed, width: 40, height: 20, capacity: 8 });
+  const heli = sim.addUnitType(units.heli_peten);
+  const aa = sim.addUnitType(units.gun_truck);
+  const id = sim.spawn(heli, 0, fx.from(4.5), fx.from(10.5));
+  // The battery sits together on the objective, as it would in a mission.
+  for (let n = 0; n < aaCount; n++) {
+    sim.spawn(aa, 1, fx.from(24.5 + (n % 2) * 2), fx.from(8.5 + n * 2), WEST);
   }
-  const detail = Object.entries(rates)
+  // The order is the point: a gunship makes a firing pass, it does not hover
+  // at range trading missiles. Without this the scenario measures loitering.
+  sim.queueCommand({ kind: 'attackMove', ids: [id], x: fx.from(26), y: fx.from(10.5) });
+  const { alive } = runBattle(sim, 90 * TICKS_PER_SECOND);
+  return { survived: alive[0] > 0, cleared: alive[1] === 0 };
+}
+
+export function airContested(seedsPerCase = 30): TargetResult {
+  const cases = [1, 2, 3];
+  const survival: Record<string, number> = {};
+  for (const n of cases) {
+    let lived = 0;
+    for (let s = 0; s < seedsPerCase; s++) if (gunshipRun(91000 + n * 1000 + s, n).survived) lived++;
+    survival[`${n}aa`] = lived / seedsPerCase;
+  }
+  const detail = Object.entries(survival)
     .map(([k, v]) => `${k}=${(v * 100).toFixed(0)}%`)
     .join(' ');
-  const at9 = rates['9t'];
-  // Contested at the design range: neither a free kill nor a free loss.
-  const pass = at9 >= 0.25 && at9 <= 0.85 && rates['6t'] <= rates['9t'];
+  // One gun truck should be a fight a good pass wins; a battery should not be.
+  // The load-bearing property is the *slope* — if survival does not fall as AA
+  // accumulates, then weight of anti-air buys the enemy nothing and the domain
+  // is unanswerable however the single-gun case happens to land.
+  const falls = survival['1aa'] > survival['3aa'];
+  const pass = survival['1aa'] >= 0.5 && survival['3aa'] <= 0.5 && falls;
   return {
     name: 'Air is contested by AA',
-    detail: `gunship win rate vs one ZU-23 truck by standoff — ${detail}`,
-    measured: `9 tiles → ${(at9 * 100).toFixed(0)}%`,
-    target: 'contested at the Hellfire\'s 9t (25–85%), and worse when closer',
+    detail: `gunship survives a firing pass vs N gun trucks — ${detail}`,
+    measured: `1 truck → ${(survival['1aa'] * 100).toFixed(0)}%, 3 → ${(survival['3aa'] * 100).toFixed(0)}%`,
+    target: 'a pass beats one gun (≥50%) and a battery punishes it (≤50%)',
     pass,
   };
 }
