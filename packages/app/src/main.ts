@@ -340,6 +340,8 @@ async function main(): Promise<void> {
     jeep_shoded: JEEP,
     technical: TECHNICAL,
     recon_drone: DRONE,
+    dozer_d9: { path: `${BASE}sprites/D9_HULL/` },
+    heli_peten: { path: `${BASE}sprites/APACHE_HULL/` },
     // One sheet per infantry type, composed from tools/units/kit.py. Each is a
     // distinct silhouette rather than a distinct texture: posture, weapon axis
     // and figure count are what survive downsampling to a 64px black shape.
