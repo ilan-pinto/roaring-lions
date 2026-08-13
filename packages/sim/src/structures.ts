@@ -72,9 +72,8 @@ export const STRUCT_DAMAGE = new Int32Array([
   524288, // demolition 8.0
 ]);
 
-/** Ticks a demolition team must hold position beside a building: 5 s. */
-export const DEMO_TICKS = 100;
-/** The same default expressed in seconds, for `demolition_time_s`. Data is
+/** Default seconds a demolition team holds station beside a building before
+ *  it collapses, used when a unit's data omits `demolition_time_s`. Data is
  *  authored in real units and must not know the tick rate. */
 export const DEMO_SECONDS = 5;
 /** How close the team must be to a structure tile: squared tiles, Q16.16. */

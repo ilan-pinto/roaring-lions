@@ -102,9 +102,12 @@ function sandboxSpawns(sim: Sim, typeOf: Map<string, number>): void {
   spawn('mortar_team', 0, 2, 25);
   spawn('jeep_shoded', 0, 5, 26);
   spawn('recon_drone', 0, 8, 23);
-  // Engineering assets sit behind the line of contact -- both are slow and
-  // one is unarmed, so spawning them forward would just feed them to the
-  // militia before the player has seen them.
+  // The D9 and the Apache both spawn behind the line of contact, for
+  // different reasons: the D9 is slow and unarmed, so sending it forward
+  // would just feed it to the militia before it has done any work. The
+  // Apache is fast enough to reach the front on its own, so holding it back
+  // instead gives the player a beat to notice their most powerful asset
+  // before committing it.
   spawn('dozer_d9', 0, 3, 20);
   spawn('heli_peten', 0, 6, 31);
   // Enemy garrison among the buildings, facing west.
