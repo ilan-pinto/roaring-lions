@@ -127,8 +127,12 @@ describe('per-unit demolition time', () => {
     expect(() => {
       for (let n = 0; n < 60; n++) sim.tick();
     }).not.toThrow();
+    // `engaging` is internal; `state` exposes curTarget and curStructure.
+    // curStructure is the sharper assertion anyway: demolition plants charges,
+    // it never routes through fireAtStructure, so an unarmed dozer levelling a
+    // building must still never be *shooting* at one.
     expect(sim.state.curTarget[id]).toBe(-1);
-    expect(sim.state.engaging[id]).toBe(0);
+    expect(sim.state.curStructure[id]).toBe(-1);
   });
 });
 ```
