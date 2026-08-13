@@ -102,6 +102,10 @@ function sandboxSpawns(sim: Sim, typeOf: Map<string, number>): void {
   spawn('mortar_team', 0, 2, 25);
   spawn('jeep_shoded', 0, 5, 26);
   spawn('recon_drone', 0, 8, 23);
+  // Engineering assets sit behind the line of contact -- both are slow and
+  // one is unarmed, so spawning them forward would just feed them to the
+  // militia before the player has seen them.
+  spawn('dozer_d9', 0, 3, 20);
   // Enemy garrison among the buildings, facing west.
   spawn('militia_cell', 1, 27, 12, WEST);
   spawn('militia_cell', 1, 33, 15, WEST);

@@ -25,6 +25,7 @@ import demoSquad from '../../../data/units/kdf/demo_squad.json';
 import attackDrone from '../../../data/units/kdf/attack_drone.json';
 import sniperTeam from '../../../data/units/kdf/sniper_team.json';
 import jeepShoded from '../../../data/units/kdf/jeep_shoded.json';
+import dozerD9 from '../../../data/units/kdf/dozer_d9.json';
 import militiaCell from '../../../data/units/enemy/militia_cell.json';
 import rpgTeam from '../../../data/units/enemy/rpg_team.json';
 import atgmCell from '../../../data/units/enemy/atgm_cell.json';
@@ -110,6 +111,7 @@ export const units = {
   attack_drone: attackDrone,
   sniper_team: sniperTeam,
   jeep_shoded: jeepShoded,
+  dozer_d9: dozerD9,
   militia_cell: militiaCell,
   rpg_team: rpgTeam,
   atgm_cell: atgmCell,

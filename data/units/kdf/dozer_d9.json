@@ -1,0 +1,19 @@
+{
+  "id": "dozer_d9",
+  "name": "D9 Dov",
+  "faction": "kdf",
+  "role": "engineer",
+  "cost": { "logistics": 430, "build_time_s": 26, "population": 1 },
+  "unlock": { "roe_rating_min": 60 },
+  "hull": {
+    "hp": 2400,
+    "armor": { "front": 240, "side": 170, "rear": 110 },
+    "crew": 2,
+    "suppression_resistance": 0.75,
+    "can_embark": false
+  },
+  "mobility": { "speed_tiles_s": 0.6, "turn_rate_deg_s": 45 },
+  "sensors": { "optics": 0.8, "sight_tiles": 7, "signature": 1.15, "firing_signature_mult": 1.0 },
+  "abilities": ["demolish"],
+  "demolition_time_s": 2.0
+}
