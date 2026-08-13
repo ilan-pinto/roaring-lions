@@ -60,3 +60,12 @@ art/showcase/*.mp4
 # says why.
 !art/src/vehicles/
 !art/src/vehicles/*.blend
+
+# Aircraft sources: same reasoning as vehicles above -- the Apache is authored
+# in this repository, not downloaded geometry. art/src/aircraft/ is new; the
+# blanket art/src/*.blend rule above does not recurse into subdirectories
+# today, but say the negation explicitly so a future tightening to
+# art/src/**/*.blend cannot drop it silently, the way it would have for the
+# drones and vehicles negations above.
+!art/src/aircraft/
+!art/src/aircraft/*.blend
