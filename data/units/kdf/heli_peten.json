@@ -3,7 +3,7 @@
   "name": "AH-64 Peten",
   "faction": "kdf",
   "role": "gunship",
-  "cost": { "logistics": 880, "build_time_s": 42, "population": 2 },
+  "cost": { "logistics": 402, "build_time_s": 42, "population": 2 },
   "unlock": { "roe_rating_min": 65 },
   "hull": {
     "hp": 640,
