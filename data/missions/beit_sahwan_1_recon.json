@@ -242,6 +242,33 @@
         ],
         "facing_deg": 180,
         "tag": "bs_mortar_pit"
+      },
+      {
+        "unit": "paramotor",
+        "count": 1,
+        "at": [
+          43.5,
+          13.5
+        ],
+        "facing_deg": 180,
+        "stance": {
+          "kind": "patrol",
+          "waypoints": [
+            [
+              43.5,
+              13.5
+            ],
+            [
+              38.5,
+              26.5
+            ],
+            [
+              43.5,
+              36.5
+            ]
+          ]
+        },
+        "tag": "bs_observer_aloft"
       }
     ]
   },
