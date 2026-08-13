@@ -13,8 +13,9 @@ export const DIR_NONE = 255;
 export const DIR_VX = new Int32Array([65536, 46341, 0, -46341, -65536, -46341, 0, 46341]);
 export const DIR_VY = new Int32Array([0, 46341, 65536, 46341, 0, -46341, -65536, -46341]);
 
-const COST_ORTH = 10;
-const COST_DIAG = 14;
+/** Step costs, in tenths of a tile: a diagonal is sqrt(2) rounded to 1.4. */
+export const COST_ORTH = 10;
+export const COST_DIAG = 14;
 const INF = 0x7fffffff;
 
 export class FlowField {
@@ -37,6 +38,16 @@ export class FlowField {
     // Worst-case heap occupancy: every tile pushed a handful of times.
     this.heapTile = new Int32Array(width * height * 8);
     this.heapCost = new Int32Array(width * height * 8);
+  }
+
+  /**
+   * What it actually costs to walk from `tile` to the goal, in COST_ORTH units,
+   * given every wall on the map. Compare it against the straight-line distance
+   * and the difference is the detour the terrain imposes — which is how a unit
+   * can tell "there is a gate just there" from "this wall is in my way".
+   */
+  costAt(tile: number): number {
+    return this.cost[tile];
   }
 
   /**

@@ -116,3 +116,15 @@ export const COLLAPSE_SHOCK = 45875; // 0.7
 export const PROTECTED_ROE = 20;
 /** Aimed fire at a building barely misses — it is a house, not a man. */
 export const STRUCT_BASE_ACCURACY = 62259; // 0.95
+
+/** How close a unit must be pressed against an obstacle before it starts
+ *  cutting: squared tiles, Q16.16. Deliberately short — the decision can only
+ *  be reached after walking right up to the thing. */
+export const BREACH_RANGE_SQ = 409600; // 6.25 tile² = 2.5 tiles
+/** Tile-window radius for the local obstacle scan, matching BREACH_RANGE_SQ. */
+export const BREACH_TILES = 3;
+/** How much extra walking a standing gate is worth, in COST_ORTH units — ten
+ *  tiles. Under this, going round is cheap and the unit goes round; over it,
+ *  the wall is genuinely in the way and gets cut. This is the knob that keeps
+ *  gates the main event and breaches the pressure valve. */
+export const BREACH_DETOUR_SLACK = 100;
