@@ -106,6 +106,7 @@ function sandboxSpawns(sim: Sim, typeOf: Map<string, number>): void {
   // one is unarmed, so spawning them forward would just feed them to the
   // militia before the player has seen them.
   spawn('dozer_d9', 0, 3, 20);
+  spawn('heli_peten', 0, 6, 31);
   // Enemy garrison among the buildings, facing west.
   spawn('militia_cell', 1, 27, 12, WEST);
   spawn('militia_cell', 1, 33, 15, WEST);
