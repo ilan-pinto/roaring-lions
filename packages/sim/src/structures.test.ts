@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
 import { Sim, TICKS_PER_SECOND, type SimEvent, type UnitTypeJson } from './sim';
+import { COVER_HIT } from './tuning';
 
 // Buildings as first-class sim objects: they have HP, they block until they
 // fall, infantry fight from inside them, and engineers bring them down.
@@ -64,6 +65,74 @@ function run(sim: Sim, ticks: number): SimEvent[] {
   for (let i = 0; i < ticks; i++) out.push(...sim.tick());
   return out;
 }
+
+describe('a low wall is cover, not a screen', () => {
+  // The two types differ in exactly one field, which is what makes this a proof
+  // rather than a coincidence.
+  const FENCE = {
+    id: 'fence',
+    name: 'Fence',
+    hp_per_tile: 200,
+    garrison_slots: 0,
+    rubble_cover: 1,
+    low_profile: true,
+    standing_cover: 2,
+  };
+  const SOLID = { id: 'solid', name: 'Solid', hp_per_tile: 200, garrison_slots: 0, rubble_cover: 1 };
+
+  /** A north-south wall at x=12, edge to edge so there is no way round it, with
+   *  a rifleman either side. */
+  function facing(spec: typeof FENCE | typeof SOLID, targetX: number) {
+    const sim = new Sim({ seed: 4, width: 32, height: 16, capacity: 16 });
+    const wallType = sim.addStructureType(spec);
+    for (let y = 0; y < sim.height; y++) sim.addStructure(wallType, [y * sim.width + 12]);
+    const inf = sim.addUnitType(RIFLES);
+    const a = sim.spawn(inf, 0, fx.from(9.5), fx.from(8.5));
+    const b = sim.spawn(inf, 1, fx.from(targetX), fx.from(8.5));
+    return { sim, a, b };
+  }
+
+  it('lets a defender shoot over it', () => {
+    const { sim, a, b } = facing(FENCE, 15.5);
+    const events = run(sim, 40 * TICKS_PER_SECOND);
+    expect(events.some((e) => e.kind === 'fire' && e.shooter === a && e.target === b)).toBe(true);
+  });
+
+  it('but a solid wall of the same height still stops the sight line dead', () => {
+    const { sim } = facing(SOLID, 15.5);
+    const events = run(sim, 40 * TICKS_PER_SECOND);
+    expect(events.some((e) => e.kind === 'fire')).toBe(false);
+    expect(events.some((e) => e.kind === 'contact')).toBe(false);
+  });
+
+  it('still blocks movement — you shoot over it, you do not walk through it', () => {
+    const { sim, a } = facing(FENCE, 15.5);
+    const W = sim.width;
+    sim.queueCommand({ kind: 'move', ids: [a], x: fx.from(15.5), y: fx.from(8.5) });
+    for (let t = 0; t < 40 * TICKS_PER_SECOND; t++) {
+      sim.tick();
+      const tx = sim.state.posX[a] >> 16;
+      const ty = sim.state.posY[a] >> 16;
+      expect(sim.blocked[ty * W + tx]).toBe(0);
+    }
+    expect(sim.blocked[8 * W + 12]).toBe(1);
+    expect(fx.toNumber(sim.state.posX[a])).toBeLessThan(12);
+  });
+
+  it('shields the man hugging it, and nobody standing clear of it', () => {
+    const coverModOf = (targetX: number): number => {
+      const events = run(facing(FENCE, targetX).sim, 40 * TICKS_PER_SECOND);
+      const shot = events.find((e) => e.kind === 'fire' && e.shooter === 0);
+      if (shot === undefined || shot.kind !== 'fire') throw new Error('nobody fired');
+      return shot.breakdown.coverMod;
+    };
+    // Adjacent to the wall on the shooter's side: fighting from behind it.
+    expect(coverModOf(13.5)).toBe(COVER_HIT[2]);
+    // Three tiles clear of it: the same wall protects him not at all. Without
+    // this half, "cover" could just be a constant applied to every shot.
+    expect(coverModOf(16.5)).toBe(COVER_HIT[0]);
+  });
+});
 
 describe('a wall breaks tile by tile', () => {
   // What the map loader now produces for a `per_tile` type: one structure per

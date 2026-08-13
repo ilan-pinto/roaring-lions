@@ -775,8 +775,17 @@ export class PixiRenderer {
         y += sy;
       }
       if (x === x1 && y === y1) return true;
-      if (this.sim.blocked[y * w + x] !== 0) return false;
+      if (this.sim.blocked[y * w + x] !== 0 && !this.isLowProfile(x, y)) return false;
     }
+  }
+
+  /** A chest-high wall casts no fog shadow, because the sim lets sight and fire
+   *  cross it. Without this the compound's own garrison would be shooting at
+   *  men the fog swears they cannot see. */
+  private isLowProfile(x: number, y: number): boolean {
+    const s = this.sim.structureAt(x, y);
+    if (s < 0) return false;
+    return this.sim.structureTypes[this.sim.structures.typeIdx[s]].lowProfile;
   }
 
   /** Dark overlay for everything not currently in sight. */

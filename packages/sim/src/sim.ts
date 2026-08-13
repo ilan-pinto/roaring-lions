@@ -1343,7 +1343,14 @@ export class Sim {
       const t = y * w + x;
       if (this.blocked[t] !== 0) {
         const st = this.structureOfTile[t];
-        if (st < 0 || (st !== sFrom && st !== sTo)) return -1;
+        // A fence costs you concealment on the way past, not the sight line:
+        // you shoot over it. Everything taller than chest height still stops
+        // the ray dead unless it is one of the two structures at its ends.
+        if (st >= 0 && this.structureTypes[this.stTypeIdx[st]].lowProfile) {
+          if (coverCount < 8) coverCount++;
+        } else if (st < 0 || (st !== sFrom && st !== sTo)) {
+          return -1;
+        }
       }
       if (this.cover[t] !== 0 && coverCount < 8) coverCount++;
     }
@@ -1799,7 +1806,13 @@ export class Sim {
     );
     const ratio = fx.div(dist, w.effectiveRange);
     const rangeFalloff = fx.expNeg(fx.mul(FALLOFF_SCALE[w.cls], fx.mul(ratio, ratio)));
-    let coverMod = COVER_HIT[this.cover[(ty >> 16) * this.width + (tx >> 16)]];
+    // Cover is the target's own tile, or the parapet he is fighting from
+    // behind, whichever is better. Taking the max rather than stacking them
+    // keeps the level inside 0-3, which is all three cover tables are indexed
+    // for, and makes a wall irrelevant to a man already in heavy cover.
+    const tileCover = this.cover[(ty >> 16) * this.width + (tx >> 16)];
+    const parapet = this.parapetCover(tx, ty, px, py);
+    let coverMod = COVER_HIT[parapet > tileCover ? parapet : tileCover];
     // Shooting through a screen: every tile of it degrades the shot, with a
     // floor because blind fire still occasionally connects.
     const smokeOnLine = this.raySmoke(px >> 16, py >> 16, tx >> 16, ty >> 16);
@@ -2275,6 +2288,45 @@ export class Sim {
   // ------------------------------------------------- structures: the systems
 
   /** Squared distance from a point to the nearest tile centre of a structure. */
+  /**
+   * Cover from a low wall the target is fighting from behind, or 0.
+   *
+   * Anchored on the target and on the shooter's side of him, which is what
+   * "behind a wall" means and what makes it symmetric: the defender hugging the
+   * inside of his compound and the attacker hugging the outside both benefit,
+   * and neither gets anything from a fence sitting halfway down a long shot.
+   * Counting any low structure on the ray instead would protect both parties in
+   * an exchange forty tiles apart across a fence in the middle of it.
+   *
+   * Three tile lookups at worst: the two orthogonal neighbours toward the
+   * shooter, and the diagonal between them.
+   */
+  private parapetCover(tx: Fx, ty: Fx, px: Fx, py: Fx): number {
+    const ux = tx >> 16;
+    const uy = ty >> 16;
+    const sx = px > tx ? 1 : px < tx ? -1 : 0;
+    const sy = py > ty ? 1 : py < ty ? -1 : 0;
+    let best = 0;
+    for (let k = 0; k < 3; k++) {
+      // (sx,0), (0,sy), (sx,sy) — skipping the degenerate ones when the shooter
+      // is square on an axis, where sx or sy is 0 and the tile is the target's.
+      const dx = k === 1 ? 0 : sx;
+      const dy = k === 0 ? 0 : sy;
+      if (dx === 0 && dy === 0) continue;
+      const nx = ux + dx;
+      const ny = uy + dy;
+      if (nx < 0 || ny < 0 || nx >= this.width || ny >= this.height) continue;
+      const t = ny * this.width + nx;
+      if (this.blocked[t] === 0) continue;
+      const s = this.structureOfTile[t];
+      if (s < 0 || this.stAlive[s] === 0) continue;
+      const type = this.structureTypes[this.stTypeIdx[s]];
+      if (!type.lowProfile) continue;
+      if (type.standingCover > best) best = type.standingCover;
+    }
+    return best;
+  }
+
   private structDistSq(s: number, px: Fx, py: Fx): number {
     let best = 0x7fffffff;
     const w = this.width;

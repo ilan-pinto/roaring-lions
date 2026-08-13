@@ -121,20 +121,17 @@ describe('STRUCTURE_SYMBOLS', () => {
 describe('structure grouping', () => {
   // Symbols chosen by behaviour from the catalogue rather than spelled out, so
   // this suite follows a retyped building instead of quietly testing nothing.
-  const grouped = Object.entries(structures).find(
-    ([, s]) => (s as { per_tile?: boolean }).per_tile !== true
-  );
-  const perTile = Object.entries(structures).find(
-    ([, s]) => (s as { per_tile?: boolean }).per_tile === true
-  );
-
-  it('has both kinds in the catalogue to test', () => {
-    expect(grouped).toBeDefined();
-    expect(perTile).toBeDefined();
-  });
-
-  const G = (grouped![1] as { symbol: string }).symbol;
-  const W = (perTile![1] as { symbol: string }).symbol;
+  const byKind = (wantPerTile: boolean): { id: string; symbol: string } => {
+    for (const [id, spec] of Object.entries(structures)) {
+      const s = spec as { symbol: string; per_tile?: boolean };
+      if ((s.per_tile === true) === wantPerTile) return { id, symbol: s.symbol };
+    }
+    throw new Error(`the catalogue has no ${wantPerTile ? 'per-tile' : 'grouped'} type to test`);
+  };
+  const grouped = byKind(false);
+  const perTile = byKind(true);
+  const G = grouped.symbol;
+  const W = perTile.symbol;
 
   it('derives PER_TILE_SYMBOLS from the catalogue rather than hardcoding it', () => {
     for (const [, spec] of Object.entries(structures)) {
@@ -193,7 +190,7 @@ describe('structure grouping', () => {
     });
     const byType: Record<string, number> = {};
     for (const s of m.structures) byType[s.type] = (byType[s.type] ?? 0) + 1;
-    expect(byType[grouped![0]]).toBe(1);
-    expect(byType[perTile![0]]).toBe(2);
+    expect(byType[grouped.id]).toBe(1);
+    expect(byType[perTile.id]).toBe(2);
   });
 });

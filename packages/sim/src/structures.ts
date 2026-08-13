@@ -23,6 +23,15 @@ export interface StructureTypeJson {
   color?: string;
   /** ROE cost when the player levels it (GDD §6). */
   roe_penalty?: number;
+  /** Chest-high: blocks movement and shields whoever is hugging it, but you
+   *  shoot over it rather than at it. A compound built from sight-blocking
+   *  masonry is a blind box -- its garrison cannot fire out, so the wall
+   *  protects the besieger. Default false: everything else is a building. */
+  low_profile?: boolean;
+  /** Cover level 0-3 this gives to a unit fighting from immediately behind it,
+   *  while it still stands. The companion to rubble_cover, which is what is
+   *  left once it does not. Only consulted for a low_profile type. */
+  standing_cover?: number;
   /** A linear run of arbitrary length -- a wall, a fence -- whose tiles each
    *  stand alone: the map loader gives every tile its own structure and its own
    *  HP, and the renderer stamps a sprite per tile. Length is exactly what makes
@@ -43,6 +52,10 @@ export interface StructureType {
   color: string;
   /** ROE cost when the player levels it. */
   roePenalty: number;
+  /** Shoot over it, not through it. See StructureTypeJson.low_profile. */
+  lowProfile: boolean;
+  /** Cover for whoever fights from behind it while it stands. */
+  standingCover: number;
   /** A linear run whose tiles are each their own structure -- walls, fences.
    *  See StructureTypeJson.per_tile. */
   perTile: boolean;
@@ -59,6 +72,8 @@ export function structureTypeFromJson(json: StructureTypeJson): StructureType {
     color: json.color ?? 'limestone.4',
     roePenalty: json.roe_penalty ?? 0,
     perTile: json.per_tile ?? false,
+    lowProfile: json.low_profile ?? false,
+    standingCover: json.standing_cover ?? 2,
   };
 }
 
