@@ -385,13 +385,15 @@ export class Hud {
       ? '✹'
       : type.role === 'drone'
         ? '⬡'
-        : type.role === 'sniper'
-          ? '✛'
-          : type.transportSlots > 0
-            ? '▤'
-            : type.isSoft
-              ? '▲'
-              : '■';
+        : type.role === 'gunship'
+          ? '✈'
+          : type.role === 'sniper'
+            ? '✛'
+            : type.transportSlots > 0
+              ? '▤'
+              : type.isSoft
+                ? '▲'
+                : '■';
 
     this.card.setTitle(type.name);
     this.card.setTag(sel.length > 1 ? `+${sel.length - 1} more` : (type.role ?? 'unit'));
