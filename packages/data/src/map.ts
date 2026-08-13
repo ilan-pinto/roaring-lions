@@ -7,7 +7,10 @@
 //   building symbols come from data/structures.json, NOT from this file
 //
 // Any building symbol makes a blocked tile; a contiguous run of the SAME
-// symbol becomes one structure with its own HP, garrison and rubble.
+// symbol becomes one structure with its own HP, garrison and rubble — unless
+// its type is `per_tile`, in which case every tile is its own structure. A
+// fence is not one object forty tiles long: it is forty objects, so a breach
+// is a one-tile hole rather than a vanished perimeter.
 //
 // Markers are named points missions reference (spawns, tunnel mouths, HVTs);
 // zones are named rects (objective areas, trigger regions).
@@ -62,7 +65,8 @@ export interface ParsedMap {
   decor: Uint8Array;
   markers: Record<string, [number, number]>;
   zones: Record<string, [number, number, number, number]>;
-  /** Buildings, one per contiguous run of identical building symbols. */
+  /** Buildings: one per contiguous run of identical building symbols, or one
+   *  per tile for a `per_tile` type. */
   structures: ParsedStructure[];
 }
 
@@ -80,6 +84,25 @@ export interface ParsedMap {
  */
 export const STRUCTURE_SYMBOLS: Record<string, string> = Object.fromEntries(
   Object.entries(structureCatalogue.types).map(([id, spec]) => [spec.symbol, id])
+);
+
+/**
+ * Symbols whose type is `per_tile`: every tile stands alone as its own structure.
+ *
+ * A `per_tile` type is one the author draws as a linear run of arbitrary length —
+ * a wall, a fence — and length is exactly what makes footprint-wide HP wrong for
+ * it. Flood-filled, a perimeter is a single object whose whole ring unblocks the
+ * instant it dies, so an attacker who "breaches" it deletes the compound. Split,
+ * each tile carries its own HP and a breach is the one-tile hole it should be.
+ *
+ * Derived from the catalogue for the same reason STRUCTURE_SYMBOLS is: a new
+ * building type stays pure data. The cast is needed because `Object.values`
+ * collapses the entries into a union and only some of them declare the field.
+ */
+export const PER_TILE_SYMBOLS: ReadonlySet<string> = new Set(
+  Object.values(structureCatalogue.types)
+    .filter((spec) => (spec as { per_tile?: boolean }).per_tile === true)
+    .map((spec) => spec.symbol)
 );
 
 /** Terrain symbols, and the blocked/cover/decor triple each one means. */
@@ -152,6 +175,13 @@ export function parseMap(json: MapJson): ParsedMap {
       const sym = rows[y][x];
       const typeId = STRUCTURE_SYMBOLS[sym];
       if (typeId === undefined || seen[t] === 1) continue;
+      if (PER_TILE_SYMBOLS.has(sym)) {
+        // No fill: this tile is the whole structure. The scan is row-major, so
+        // these come out in ascending tile order without needing the sort below.
+        seen[t] = 1;
+        structures.push({ type: typeId, tiles: [t] });
+        continue;
+      }
       const tiles: number[] = [];
       const stack = [t];
       seen[t] = 1;

@@ -65,6 +65,59 @@ function run(sim: Sim, ticks: number): SimEvent[] {
   return out;
 }
 
+describe('a wall breaks tile by tile', () => {
+  // What the map loader now produces for a `per_tile` type: one structure per
+  // tile, each with its own HP. The bug this pins is the opposite -- a perimeter
+  // flood-filled into a single object, where killing it unblocked the whole ring
+  // at once and "breaching" one panel deleted the compound.
+  const WALL = { id: 'wall', name: 'Wall', hp_per_tile: 90, garrison_slots: 0, rubble_cover: 1 };
+
+  function walled(): { sim: Sim; walls: number[] } {
+    const sim = new Sim({ seed: 9, width: 32, height: 16, capacity: 32 });
+    const wallType = sim.addStructureType(WALL);
+    const walls: number[] = [];
+    for (let x = 10; x <= 14; x++) walls.push(sim.addStructure(wallType, [8 * sim.width + x]));
+    return { sim, walls };
+  }
+
+  it('gives every tile its own hp, rather than the run its length in hp', () => {
+    const { sim, walls } = walled();
+    for (const w of walls) {
+      expect(sim.structures.maxHp[w]).toBe(fx.from(90));
+      expect(sim.structures.hp[w]).toBe(fx.from(90));
+    }
+  });
+
+  it('leaves a one-tile hole and standing neighbours', () => {
+    const { sim, walls } = walled();
+    const W = sim.width;
+    sim.debugDestroyStructure(walls[2]); // the panel at x=12
+
+    expect(sim.blocked[8 * W + 12]).toBe(0); // the hole
+    expect(sim.blocked[8 * W + 11]).toBe(1); // and only the hole
+    expect(sim.blocked[8 * W + 13]).toBe(1);
+    expect(sim.cover[8 * W + 12]).toBe(WALL.rubble_cover);
+    expect(sim.structures.alive[walls[1]]).toBe(1);
+    expect(sim.structures.alive[walls[3]]).toBe(1);
+  });
+
+  it('makes the hole walkable and the rest of the wall not', () => {
+    const { sim, walls } = walled();
+    const W = sim.width;
+    sim.debugDestroyStructure(walls[2]);
+    const inf = sim.addUnitType(RIFLES);
+    const u = sim.spawn(inf, 0, fx.from(6.5), fx.from(8.5));
+    sim.queueCommand({ kind: 'move', ids: [u], x: fx.from(20.5), y: fx.from(8.5) });
+    for (let t = 0; t < 60 * TICKS_PER_SECOND; t++) {
+      sim.tick();
+      const tx = sim.state.posX[u] >> 16;
+      const ty = sim.state.posY[u] >> 16;
+      expect(sim.blocked[ty * W + tx]).toBe(0); // never ends a tick inside masonry
+    }
+    expect(fx.toNumber(sim.state.posX[u])).toBeGreaterThan(14);
+  });
+});
+
 describe('structures exist, block, and fall', () => {
   it('occupies its tiles and blocks movement while it stands', () => {
     const { sim, house } = world();

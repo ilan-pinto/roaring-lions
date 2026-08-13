@@ -23,9 +23,12 @@ export interface StructureTypeJson {
   color?: string;
   /** ROE cost when the player levels it (GDD §6). */
   roe_penalty?: number;
-  /** Presentation only: draw the sprite once per occupied tile rather than
-   *  once for the whole footprint. For linear runs of arbitrary length --
-   *  walls, fences. */
+  /** A linear run of arbitrary length -- a wall, a fence -- whose tiles each
+   *  stand alone: the map loader gives every tile its own structure and its own
+   *  HP, and the renderer stamps a sprite per tile. Length is exactly what makes
+   *  footprint-wide HP wrong here. Flood-filled, a perimeter would be one object
+   *  whose entire ring unblocks the instant it dies, so breaching one panel
+   *  would delete the whole compound. */
   per_tile?: boolean;
 }
 
@@ -40,8 +43,8 @@ export interface StructureType {
   color: string;
   /** ROE cost when the player levels it. */
   roePenalty: number;
-  /** Draw the sprite once per occupied tile rather than once for the whole
-   *  footprint. For linear runs of arbitrary length -- walls, fences. */
+  /** A linear run whose tiles are each their own structure -- walls, fences.
+   *  See StructureTypeJson.per_tile. */
   perTile: boolean;
 }
 

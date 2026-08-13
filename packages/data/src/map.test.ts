@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DECOR,
+  PER_TILE_SYMBOLS,
   STRUCTURE_SYMBOLS,
   TERRAIN_LEGEND,
   parseMap,
@@ -114,5 +115,85 @@ describe('STRUCTURE_SYMBOLS', () => {
     const m = parseMap({ id: 'b', name: 'B', width: 2, height: 2, rows: [`${sym}.`, '..'] });
     expect(m.blocked[0]).toBe(1);
     expect(m.decor[0]).toBe(DECOR.none);
+  });
+});
+
+describe('structure grouping', () => {
+  // Symbols chosen by behaviour from the catalogue rather than spelled out, so
+  // this suite follows a retyped building instead of quietly testing nothing.
+  const grouped = Object.entries(structures).find(
+    ([, s]) => (s as { per_tile?: boolean }).per_tile !== true
+  );
+  const perTile = Object.entries(structures).find(
+    ([, s]) => (s as { per_tile?: boolean }).per_tile === true
+  );
+
+  it('has both kinds in the catalogue to test', () => {
+    expect(grouped).toBeDefined();
+    expect(perTile).toBeDefined();
+  });
+
+  const G = (grouped![1] as { symbol: string }).symbol;
+  const W = (perTile![1] as { symbol: string }).symbol;
+
+  it('derives PER_TILE_SYMBOLS from the catalogue rather than hardcoding it', () => {
+    for (const [, spec] of Object.entries(structures)) {
+      const s = spec as { symbol: string; per_tile?: boolean };
+      expect(PER_TILE_SYMBOLS.has(s.symbol)).toBe(s.per_tile === true);
+    }
+  });
+
+  it('flood-fills a compact building into one structure', () => {
+    const m = parseMap({
+      id: 'g',
+      name: 'G',
+      width: 4,
+      height: 3,
+      rows: [`.${G}${G}.`, `.${G}${G}.`, '....'],
+    });
+    expect(m.structures).toHaveLength(1);
+    expect(m.structures[0].tiles).toEqual([1, 2, 5, 6]);
+  });
+
+  it('splits a per-tile run into one structure per tile', () => {
+    // The whole point. Flood-filled, this row is a single object whose four
+    // tiles unblock together, so breaching one panel opens the entire wall.
+    // Split, a breach is the one-tile hole it should be.
+    const m = parseMap({
+      id: 'w',
+      name: 'W',
+      width: 6,
+      height: 1,
+      rows: [`.${W}${W}${W}${W}.`],
+    });
+    expect(m.structures).toHaveLength(4);
+    for (const s of m.structures) expect(s.tiles).toHaveLength(1);
+    expect(m.structures.map((s) => s.tiles[0])).toEqual([1, 2, 3, 4]);
+  });
+
+  it('splits a per-tile corner, where a flood fill would join the two arms', () => {
+    const m = parseMap({
+      id: 'l',
+      name: 'L',
+      width: 3,
+      height: 3,
+      rows: [`${W}${W}${W}`, `${W}..`, `${W}..`],
+    });
+    expect(m.structures).toHaveLength(5);
+    for (const s of m.structures) expect(s.tiles).toHaveLength(1);
+  });
+
+  it('keeps the two kinds separate on one map', () => {
+    const m = parseMap({
+      id: 'mix',
+      name: 'Mix',
+      width: 4,
+      height: 2,
+      rows: [`${G}${G}${W}${W}`, `${G}${G}..`],
+    });
+    const byType: Record<string, number> = {};
+    for (const s of m.structures) byType[s.type] = (byType[s.type] ?? 0) + 1;
+    expect(byType[grouped![0]]).toBe(1);
+    expect(byType[perTile![0]]).toBe(2);
   });
 });
