@@ -412,7 +412,14 @@ export type Command =
    *  ROE charges it to the player who ordered it. */
   | { kind: 'callStrike'; caller: number; x: Fx; y: Fx }
   /** Lay a screen: the counterplay to prepared fire. */
-  | { kind: 'smoke'; ids: number[]; x: Fx; y: Fx };
+  | { kind: 'smoke'; ids: number[]; x: Fx; y: Fx }
+  /**
+   * Bring a named building down. Charges otherwise go in automatically
+   * wherever a demolisher happens to halt, which is fine for a shed and not
+   * fine for a mosque: designating the structure is how the player takes
+   * responsibility for a protected site, and the ROE bill that follows.
+   */
+  | { kind: 'demolish'; ids: number[]; structure: number };
 
 export type ContactLevel = 'suspected' | 'identified' | 'lost';
 export type FacingArc = 'front' | 'side' | 'rear';
@@ -586,6 +593,14 @@ export class Sim {
   private readonly displaced: Uint8Array;
   private readonly demoTicks: Int32Array;
   private readonly demoTarget: Int32Array;
+  /**
+   * Structure the player explicitly designated for demolition, -1 when none.
+   *
+   * Distinct from `demoTarget`, which is whatever the sapper drifted next to.
+   * The difference is the whole point: charges go in automatically, so a
+   * protected site can only be levelled on an order somebody actually gave.
+   */
+  private readonly demolishOrder: Int32Array;
   private readonly smokeCooldown: Int32Array;
   /** Queued path: points a unit walks after its current goal. */
   private readonly wpX: Int32Array;
@@ -746,6 +761,7 @@ export class Sim {
     this.displaced = new Uint8Array(n);
     this.demoTicks = new Int32Array(n);
     this.demoTarget = new Int32Array(n).fill(-1);
+    this.demolishOrder = new Int32Array(n).fill(-1);
     this.smokeCooldown = new Int32Array(n);
     this.wpX = new Int32Array(n * MAX_WAYPOINTS);
     this.wpY = new Int32Array(n * MAX_WAYPOINTS);
@@ -1093,6 +1109,10 @@ export class Sim {
           if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
           this.boardGoal[id] = -1;
           this.garrisonGoal[id] = -1;
+          // Sending the unit somewhere cancels a demolition it was told to do:
+          // otherwise the designation survives the player changing their mind
+          // and fires again the moment the unit next halts near that building.
+          this.demolishOrder[id] = -1;
           this.goalX[id] = gx;
           this.goalY[id] = gy;
           this.fieldRef[id] = fieldIdx;
@@ -1177,6 +1197,34 @@ export class Sim {
         }
       } else if (cmd.kind === 'unload') {
         for (const id of cmd.ids) this.unloadAll(id);
+      } else if (cmd.kind === 'demolish') {
+        const s = cmd.structure;
+        if (s < 0 || s >= this.structureCount_ || this.stAlive[s] === 0) continue;
+        // Walk to the building; stepDemolition sets the charges on arrival.
+        // Same shape as `garrison` — the player picks the structure, the unit
+        // makes its own way there.
+        const [gx, gy] = [this.stCx[s], this.stCy[s]];
+        const fieldIdx = this.fieldFor(fx.toInt(gx), fx.toInt(gy));
+        for (const id of cmd.ids) {
+          if (this.alive[id] === 0 || this.routed[id] === 1) continue;
+          if (!this.unitTypes[this.typeIdx[id]].canDemolish) continue;
+          if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
+          this.demolishOrder[id] = s;
+          // A fresh designation restarts the clock: charges laid against the
+          // last building do not carry over to this one.
+          this.demoTicks[id] = 0;
+          this.demoTarget[id] = -1;
+          this.wpCount[id] = 0;
+          this.boardGoal[id] = -1;
+          this.garrisonGoal[id] = -1;
+          this.goalX[id] = gx;
+          this.goalY[id] = gy;
+          this.fieldRef[id] = fieldIdx;
+          this.moving[id] = 1;
+          this.attackMove[id] = 0;
+          this.engaging[id] = 0;
+          this.stance[id] = 0;
+        }
       } else if (cmd.kind === 'garrison') {
         const s = cmd.structure;
         if (s < 0 || s >= this.structureCount_ || this.stAlive[s] === 0) continue;
@@ -2562,21 +2610,40 @@ export class Sim {
         this.demoTarget[i] = -1;
         continue;
       }
+      // A designation outlives arrival but not the building: once it is rubble
+      // the order has been carried out and must not latch onto a neighbour.
+      const ordered = this.demolishOrder[i];
+      if (ordered >= 0 && this.stAlive[ordered] === 0) this.demolishOrder[i] = -1;
+
       let best = -1;
-      let bestD = DEMO_RANGE_SQ;
-      for (let s = 0; s < this.structureCount_; s++) {
-        if (this.stAlive[s] === 0) continue;
-        // Protected sites are never levelled on a sapper's initiative, for the
-        // same reason selectStructureTarget will not fire on one: charges go in
-        // whenever a demolisher merely holds station, so without this a dozer
-        // halted beside a mosque to let its escort catch up brings the mosque
-        // down two seconds later and costs the player 30 ROE they never spent.
-        if (this.structureTypes[this.stTypeIdx[s]].roePenalty >= PROTECTED_ROE) continue;
-        if (this.stOccupants[s] > 0 && this.friendlyInside(s, this.side[i])) continue;
-        const d = this.structDistSq(s, this.posX[i], this.posY[i]);
-        if (d <= bestD) {
-          bestD = d;
+      if (this.demolishOrder[i] >= 0) {
+        // Explicitly designated: the protected-site rule below does not apply,
+        // because somebody gave the order and the ROE bill lands on them. Note
+        // there is no fallback to the automatic search — a unit under orders
+        // for one building must not quietly demolish another on the way past,
+        // so if it is still walking, `best` simply stays -1.
+        const s = this.demolishOrder[i];
+        const blocked = this.stOccupants[s] > 0 && this.friendlyInside(s, this.side[i]);
+        if (!blocked && this.structDistSq(s, this.posX[i], this.posY[i]) <= DEMO_RANGE_SQ) {
           best = s;
+        }
+      } else {
+        let bestD = DEMO_RANGE_SQ;
+        for (let s = 0; s < this.structureCount_; s++) {
+          if (this.stAlive[s] === 0) continue;
+          // Protected sites are never levelled on a sapper's initiative, for
+          // the same reason selectStructureTarget will not fire on one: charges
+          // go in whenever a demolisher merely holds station, so without this a
+          // dozer halted beside a mosque to let its escort catch up brings the
+          // mosque down two seconds later and costs the player 30 ROE they
+          // never spent. A `demolish` order is how you level one on purpose.
+          if (this.structureTypes[this.stTypeIdx[s]].roePenalty >= PROTECTED_ROE) continue;
+          if (this.stOccupants[s] > 0 && this.friendlyInside(s, this.side[i])) continue;
+          const d = this.structDistSq(s, this.posX[i], this.posY[i]);
+          if (d <= bestD) {
+            bestD = d;
+            best = s;
+          }
         }
       }
       if (best < 0) {
@@ -2989,6 +3056,7 @@ export class Sim {
     h = hashArray(h, this.displaced);
     h = hashArray(h, this.demoTicks);
     h = hashArray(h, this.demoTarget);
+    h = hashArray(h, this.demolishOrder);
     h = hashWord(h, this.structureCount_);
     h = hashArray(h, this.stAlive);
     h = hashArray(h, this.stHp);

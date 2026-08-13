@@ -103,4 +103,54 @@ describe('per-unit demolition time', () => {
     expect(sim.structureAt(10, 10)).toBeGreaterThanOrEqual(0); // shrine stands
     expect(sim.structureAt(12, 10)).toBe(-1); // shack levelled
   });
+
+  // The guard stops accidents, not intent. Without this the protected site
+  // would be undemolishable by anything, forever — there is no other way to
+  // ask for it.
+  it('demolishes a protected site when the player designates it', () => {
+    const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 8 });
+    const shrine = sim.addStructureType(SHRINE);
+    const s = sim.addStructure(shrine, [10 * 32 + 10]);
+    const t = sim.addUnitType(DOZER);
+    const id = sim.spawn(t, 0, fx.from(11.5), fx.from(10.5));
+    sim.queueCommand({ kind: 'demolish', ids: [id], structure: s });
+    let fell = -1;
+    for (let n = 1; n <= 400; n++) {
+      sim.tick();
+      if (sim.structureAt(10, 10) < 0) {
+        fell = n;
+        break;
+      }
+    }
+    expect(fell).toBeGreaterThan(0);
+  });
+
+  it('a later move order cancels the designation', () => {
+    const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 8 });
+    const shrine = sim.addStructureType(SHRINE);
+    const s = sim.addStructure(shrine, [10 * 32 + 10]);
+    const t = sim.addUnitType(DOZER);
+    const id = sim.spawn(t, 0, fx.from(11.5), fx.from(10.5));
+    sim.queueCommand({ kind: 'demolish', ids: [id], structure: s });
+    sim.tick();
+    // Player changes their mind and sends it back where it came from.
+    sim.queueCommand({ kind: 'move', ids: [id], x: fx.from(11.5), y: fx.from(10.5) });
+    for (let n = 0; n < 400; n++) sim.tick();
+    expect(sim.structureAt(10, 10)).toBeGreaterThanOrEqual(0);
+  });
+
+  // A designated unit walking past a shed must not stop and flatten the shed.
+  it('under orders it ignores other buildings on the way', () => {
+    const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 8 });
+    const shrine = sim.addStructureType(SHRINE);
+    const shack = sim.addStructureType(SHACK);
+    const target = sim.addStructure(shrine, [10 * 32 + 24]);
+    sim.addStructure(shack, [10 * 32 + 12]);
+    const t = sim.addUnitType(DOZER);
+    // Spawned in range of the shack, ordered to the distant shrine.
+    const id = sim.spawn(t, 0, fx.from(11.5), fx.from(10.5));
+    sim.queueCommand({ kind: 'demolish', ids: [id], structure: target });
+    for (let n = 0; n < 60; n++) sim.tick();
+    expect(sim.structureAt(12, 10)).toBeGreaterThanOrEqual(0); // shack untouched
+  });
 });

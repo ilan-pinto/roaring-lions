@@ -638,12 +638,30 @@ async function main(): Promise<void> {
     const w = renderer.screenToWorld(ev.clientX - rect.left, ev.clientY - rect.top);
     const mine = renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
     if (mine.length === 0) return;
-    // Right-clicking a building sends whoever can garrison inside it, and
-    // everyone else to attack toward it.
+    // Right-clicking a building sends whoever can garrison inside it, tells
+    // demolishers to bring it down, and everyone else to attack toward it.
+    //
+    // Demolition is checked before garrison because a unit that can do both is
+    // a sapper, and a sapper sent at a building is being sent to demolish it —
+    // Combat Engineers carry `garrison` too, and reading it the other way makes
+    // the D9 the only unit in the game that can be ordered to demolish.
+    // Designating is also the *only* way to level a protected site: charges go
+    // in automatically elsewhere, so the sim refuses a mosque unless somebody
+    // asked for it by name.
     const struct = sim.structureAt(Math.floor(w.x), Math.floor(w.y));
     if (struct >= 0) {
-      const canEnter = mine.filter((i) => sim.unitTypes[sim.state.typeIdx[i]].canGarrison);
-      const rest = mine.filter((i) => !sim.unitTypes[sim.state.typeIdx[i]].canGarrison);
+      const canRaze = mine.filter((i) => sim.unitTypes[sim.state.typeIdx[i]].canDemolish);
+      const canEnter = mine.filter(
+        (i) =>
+          sim.unitTypes[sim.state.typeIdx[i]].canGarrison &&
+          !sim.unitTypes[sim.state.typeIdx[i]].canDemolish
+      );
+      const rest = mine.filter(
+        (i) =>
+          !sim.unitTypes[sim.state.typeIdx[i]].canGarrison &&
+          !sim.unitTypes[sim.state.typeIdx[i]].canDemolish
+      );
+      if (canRaze.length > 0) dispatch({ kind: 'demolish', ids: canRaze, structure: struct });
       if (canEnter.length > 0) dispatch({ kind: 'garrison', ids: canEnter, structure: struct });
       if (rest.length > 0) {
         dispatch({ kind: 'order', verb: 'attackMove', ids: rest, x: w.x, y: w.y, append: false });

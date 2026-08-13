@@ -446,7 +446,11 @@ export class Hud {
     if (type.canSmoke) caps.push('<b>f</b> smoke screen');
     if (st.carriedBy[id] >= 0) caps.push('<b>aboard a transport</b> — <b>u</b> to dismount');
     if (type.canGarrison) caps.push('right-click a building to garrison');
-    if (type.canDemolish) caps.push('hold beside a building to demolish it');
+    // Two sentences because there are now two rules: charges go in wherever the
+    // unit halts, except at a protected site, which takes an order by name.
+    // Saying only the first left the player with a dozer that silently refused
+    // to touch a mosque and no hint that right-clicking it would work.
+    if (type.canDemolish) caps.push('hold beside a building to demolish it · right-click a protected site to order it');
     if (type.isKamikaze) {
       caps.push('<span class="rl-hot">one-use: dives on what your side has identified</span>');
     }

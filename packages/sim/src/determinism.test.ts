@@ -84,7 +84,11 @@ describe('determinism (1000-tick replay)', () => {
     // model deliberately changes (sim code or tuning constants); update it by
     // reading the new value from this failure, in the same commit, on purpose.
     // Updated for carriers: passenger, boarding and seat columns are state.
-    expect(a.hash()).toBe(484379662);
+    // Updated for the `demolish` order: the designated structure is per-entity
+    // state and joins the hash. No unit's *behaviour* moved here — every entry
+    // is -1 across this replay, which has no demolisher — but the column is
+    // hashed, so the pin does.
+    expect(a.hash()).toBe(4029834894);
   });
 
   it('a different seed produces a different hash', () => {
