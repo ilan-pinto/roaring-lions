@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1140 790">
+  <!-- The Sahar Basin campaign map.
+
+       Structure only. Every visible surface is a Blender render from
+       art/src/campaign/sahar_basin.blend, produced by tools/render_campaign_map.py,
+       one layer per region plus a base plate for the sea and Kedem. All four are
+       rendered with the same camera framing this viewBox, so each is full-canvas
+       with transparency outside its own ground and needs no offset.
+
+       What stays vector, and why: the three region groups and their boundary paths.
+       The ids are a contract the data gate greps for and worldmap.ts stamps
+       data-status on; the paths are the geometry the renderer reads and the shape the
+       live and hover rules stroke. Their fill is none because the render carries it.
+
+       No text: names, doctrines and unlock conditions all live in
+       data/campaign/world.json so they stay translatable.
+
+       viewBox is 1140x790, the space world.json town coordinates are in and the box
+       worldmap.ts positions markers as percentages of. Changing it moves every town. -->
+  <image href="campaign/layer_base.png" x="0" y="0" width="1140" height="790"
+         preserveAspectRatio="none"/>
+  <g id="region-marj">
+    <image href="campaign/layer_marj.png" x="0" y="0" width="1140" height="790"
+           preserveAspectRatio="none"/>
+    <path class="region-outline" d="M 104,296 L 156,264 L 200,298 L 212,372 L 200,470 L 172,558 L 124,592 L 88,540 L 78,434 Z" fill="none" stroke="none"/>
+  </g>
+  <g id="region-sur">
+    <image href="campaign/layer_sur.png" x="0" y="0" width="1140" height="790"
+           preserveAspectRatio="none"/>
+    <path class="region-outline" d="M 360,160 L 410,100 L 520,74 L 645,92 L 690,150 L 620,200 L 450,205 Z" fill="none" stroke="none"/>
+  </g>
+  <g id="region-naharin">
+    <image href="campaign/layer_naharin.png" x="0" y="0" width="1140" height="790"
+           preserveAspectRatio="none"/>
+    <path class="region-outline" d="M 816,368 L 904,298 L 1016,298 L 1058,382 L 1044,504 L 976,588 L 860,604 L 724,556 L 796,470 Z" fill="none" stroke="none"/>
+  </g>
+</svg>

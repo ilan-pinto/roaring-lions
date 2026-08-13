@@ -13,10 +13,10 @@
     ]
   },
   "ledger": {
-    "requires": [],
+    "requires": ["roster.surviving_units"],
     "produces": [
       "roster.surviving_units",
-      "roe.cumulative_rating",
+      "roe.mission_ratings",
       "campaign.completed_missions",
       "intel.marked_positions"
     ]
@@ -36,7 +36,8 @@
       "at": [
         5,
         20
-      ]
+      ],
+      "from_ledger": true
     },
     {
       "unit": "at_team",
@@ -44,7 +45,8 @@
       "at": [
         5,
         26
-      ]
+      ],
+      "from_ledger": true
     },
     {
       "unit": "apc_eitan",

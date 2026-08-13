@@ -968,7 +968,13 @@ export class PixiRenderer {
             g.poly(diamond).fill({ color: underBuilding, alpha: 0.22 });
             // Sprited: one sprite for the whole footprint, so a 3x3 mosque is
             // one dome rather than nine. Drawn on first tile encountered.
-            if (!this.drawnStructures.has(sIdx)) {
+            if (stype.perTile === true) {
+              // A linear structure -- a wall -- is a run of arbitrary length, so
+              // its sprite belongs on every tile it occupies. The footprint-centre
+              // draw below would put one sprite at the middle of a 20-tile
+              // perimeter and leave the rest of it invisible.
+              this.drawStructureTileSprite(x, y, stype.id);
+            } else if (!this.drawnStructures.has(sIdx)) {
               this.drawnStructures.add(sIdx);
               this.drawStructureSprite(sIdx, stype.id);
             }
@@ -1223,6 +1229,24 @@ export class PixiRenderer {
     const integrity = max > 0 ? Math.max(0, st.hp[sIdx] / max) : 1;
     spr.alpha = 0.55 + 0.45 * integrity;
     spr.zIndex = depthZ(maxX + 1, maxY + 1);
+    this.spriteLayer.addChild(spr);
+    this.buildingSprites.push(spr);
+  }
+
+  /**
+   * One tile of a per-tile structure. Same art and scale as a footprint draw,
+   * but anchored on this tile's centre and depth-sorted on this tile alone --
+   * a wall's far end must not sort as though it stood at the near end.
+   */
+  private drawStructureTileSprite(x: number, y: number, structureId: string): void {
+    const art = this.structureAtlas.get(structureId);
+    if (!art) return;
+    const cx = x + 0.5;
+    const cy = y + 0.5;
+    const spr = new Sprite({ texture: art.texture, anchor: 0.5 });
+    spr.position.set(isoX(cx, cy), isoY(cx, cy));
+    spr.scale.set((art.scale * TILE_W) / art.texture.width);
+    spr.zIndex = depthZ(x + 1, y + 1);
     this.spriteLayer.addChild(spr);
     this.buildingSprites.push(spr);
   }

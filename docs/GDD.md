@@ -36,6 +36,22 @@ All geography, factions, and place names are **fictional**. Enemy forces are def
 
 **Towns:** Beit Sahwan, Khan Rafid, Deir Amun (Marj) · Tel Marum, Umm Zeitoun (Sur) · Wadi Halam (Naharin).
 
+**Layout.** Kedem sits in the centre of the basin with all three fronts on its borders,
+and the geography sets the order of the war: **proximity, then standoff, then source.**
+
+- **The Marj Strip — west, coastal.** Pressed between the sea and Kedem's most populous
+  coastal plain, with no mountain, no river and no depth between them. An attack out of
+  the Marj is inside Kedem's cities in minutes, which is why the war opens here and why
+  it opens with a perimeter being lost rather than a push.
+- **Sur — north, mountains.** Rockets range onto Kedem's north from behind a mountain
+  wall. Second by sequencing rather than choice: you cannot climb into mountains with
+  something at your throat on the coast.
+- **Naharin — east, river desert.** The smuggling corridor that supplied the Marj's
+  tunnels and Sur's rocket stocks. Last, because cutting supply is only decisive once the
+  fronts it feeds are contained.
+
+Every region is defined by terrain and doctrine, never by a people — see `CONTRIBUTING.md`.
+
 ---
 
 ## 3. Core loop
@@ -65,22 +81,23 @@ The cost curve prices units against each other; these anchors tie it to time. Al
 
 ## 4. Phase system
 
-Five phases. Each is normally the spine of its own **short mission** (see §6), and each writes to the campaign ledger that later phases read.
+Six phases. Each is normally the spine of its own **short mission** (see §6), and each writes to the campaign ledger that later phases read.
 
-1. **Recon** — drones, scout teams, snipers. Mark tunnel mouths, weapon caches, civilian-occupied structures. Low force, high stealth, heavy Intel generation.
-2. **Foothold** — establish the FOB under harassment. Engineering, supply corridor, Iron Dome battery. Defensive, time-pressured.
-3. **Build-up** — production and force composition. The one phase where the player has breathing room; Intel is spent here on the coming assault.
-4. **Clearance** — block-by-block combined arms. The main combat phase. ROE pressure peaks.
-5. **Subterranean** — escort the EOD squad to shafts and the command bunker while the enemy commits everything remaining.
+1. **Breach** — the enemy attacks and the player is the one holding. Outnumbered, no corridor, no reinforcements: survive, get civilians clear, and still hold a position when relief arrives. Losing ground is the design, not a failure state. Any doctrine can open on the back foot.
+2. **Recon** — drones, scout teams, snipers. Mark tunnel mouths, weapon caches, civilian-occupied structures. Low force, high stealth, heavy Intel generation.
+3. **Foothold** — establish the FOB under harassment. Engineering, supply corridor, Iron Dome battery. Defensive, time-pressured.
+4. **Build-up** — production and force composition. The one phase where the player has breathing room; Intel is spent here on the coming assault.
+5. **Clearance** — block-by-block combined arms. The main combat phase. ROE pressure peaks.
+6. **Subterranean** — escort the EOD squad to shafts and the command bunker while the enemy commits everything remaining.
 
 ### Carry-over is the system
 
 Phases are not independent set-pieces. Recon quality propagates:
 
-- Thorough recon → tunnel mouths pre-marked, civilian zones flagged, ambush sites known before Phase 5
+- Thorough recon → tunnel mouths pre-marked, civilian zones flagged, ambush sites known before Phase 6
 - Rushed recon → shafts found under fire, ROE penalties stacking, casualties from unmarked IEDs
 
-This is one system expressed five ways, not five minigames.
+This is one system expressed six ways, not six minigames.
 
 ---
 
@@ -229,7 +246,7 @@ Missions stay declarative, so behaviour must be declarative too. A mission's gar
 
 One stance per unit and a handful of triggers per mission is the budget. If a mission needs behaviour this vocabulary cannot express, extend the vocabulary — never script the mission.
 
-`ambush` is Ashwar doctrine made mechanical: an unspotted RPG team holding fire until 3 tiles is the entire reason recon quality matters by Phase 4.
+`ambush` is Ashwar doctrine made mechanical: an unspotted RPG team holding fire until 3 tiles is the entire reason recon quality matters by Phase 5.
 
 ### ROE scoring
 

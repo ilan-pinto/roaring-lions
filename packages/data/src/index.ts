@@ -5,9 +5,13 @@
 
 import palette from '../../../data/palette.json';
 import audioManifest from '../../../data/audio.json';
+import worldJson from '../../../data/campaign/world.json';
+import countriesJson from '../../../data/campaign/countries.json';
 import beitSahwanOutskirts from '../../../data/maps/beit_sahwan_outskirts.json';
+import marjPerimeter from '../../../data/maps/marj_perimeter.json';
 import tutorialGround from '../../../data/maps/tutorial_ground.json';
 import structureCatalogue from '../../../data/structures.json';
+import beitSahwanBreach from '../../../data/missions/beit_sahwan_breach.json';
 import beitSahwan0 from '../../../data/missions/beit_sahwan_0_tutorial.json';
 import beitSahwan1 from '../../../data/missions/beit_sahwan_1_recon.json';
 import beitSahwan2 from '../../../data/missions/beit_sahwan_2_foothold.json';
@@ -68,6 +72,7 @@ export {
 /** Battlefield maps, keyed by map id. Shapes match map.schema.json. */
 export const maps = {
   beit_sahwan_outskirts: beitSahwanOutskirts,
+  marj_perimeter: marjPerimeter,
   tutorial_ground: tutorialGround,
 } as const;
 
@@ -79,11 +84,19 @@ export type StructureId = keyof typeof structures;
 
 /** Missions, keyed by mission id. Shapes match mission.schema.json. */
 export const missions = {
+  beit_sahwan_breach: beitSahwanBreach,
   beit_sahwan_0_tutorial: beitSahwan0,
   beit_sahwan_1_recon: beitSahwan1,
   beit_sahwan_2_foothold: beitSahwan2,
   beit_sahwan_3_clearance: beitSahwan3,
 } as const;
+
+/** The campaign world. Shape matches world.schema.json; parsed by app/src/campaign.ts. */
+export const world = worldJson;
+
+/** Generated country geometry for the world render. Shape matches
+ *  countries.schema.json; parsed by app/src/campaign.ts. */
+export const countries = countriesJson;
 
 export type MissionId = keyof typeof missions;
 

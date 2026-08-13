@@ -1,23 +1,27 @@
 // Campaign menu and mission end screen. Pure navigation — no sim, no state.
 
+import type { LedgerData } from '@lions/sim';
+import type { ParsedWorld, WorldCountry } from '../campaign';
 import { panel } from './panel';
 import { stagger } from './motion';
 import { wordmark } from './mark';
-
-export interface MissionEntry {
-  id: string;
-  name: string;
-  /** 'primary' draws the eye — used for the tutorial until it is completed. */
-  emphasis?: 'primary';
-}
+import { worldMap } from './worldmap';
 
 export interface MenuOptions {
   /** Deploy base ('/' locally, '/<repo>/' on Pages). */
   base: string;
   version: string;
-  missions: MissionEntry[];
-  /** One-line campaign state — roster size, cumulative ROE. */
-  campaign: string;
+  world: ParsedWorld;
+  /** The tutorial is not on the map — it teaches the mouse, not the war. */
+  tutorial: { id: string; name: string; done: boolean };
+}
+
+export interface CampaignOptions {
+  base: string;
+  world: ParsedWorld;
+  /** Generated country geometry for the world render's overlay. */
+  countries: readonly WorldCountry[];
+  ledger: LedgerData;
 }
 
 export function showMenu(stage: HTMLElement, opts: MenuOptions): void {
@@ -41,13 +45,8 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): void {
 
   const theatre = document.createElement('div');
   theatre.className = 'rl-menu__theatre';
-  theatre.textContent = 'Beit Sahwan — M1';
+  theatre.textContent = opts.world.name;
   wrap.appendChild(theatre);
-
-  const campaign = document.createElement('div');
-  campaign.className = 'rl-menu__campaign rl-info';
-  campaign.textContent = opts.campaign;
-  wrap.appendChild(campaign);
 
   const nav = document.createElement('nav');
   nav.className = 'rl-menu__nav';
@@ -59,12 +58,67 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): void {
     if (kind) a.dataset.kind = kind;
     nav.appendChild(a);
   };
-  for (const m of opts.missions) add(m.name, `?mission=${m.id}`, m.emphasis === 'primary' ? 'primary' : '');
-  add('M0 sandbox (no mission)', '?sandbox=1', 'aside');
-  add('reset campaign ledger', '?fresh=1', 'aside');
+  if (!opts.tutorial.done) add(opts.tutorial.name, `?mission=${opts.tutorial.id}`, 'tutorial');
+  // The war itself lives on its own page: the menu stays a landing, the map a
+  // destination you can always come back to.
+  add('Campaign', '?campaign', 'campaign');
   wrap.appendChild(nav);
 
+  const aside = document.createElement('nav');
+  aside.className = 'rl-menu__nav';
+  const addAside = (label: string, href: string): void => {
+    const a = document.createElement('a');
+    a.textContent = label;
+    a.href = href;
+    a.className = 'rl-btn rl-menu__item';
+    a.dataset.kind = 'aside';
+    aside.appendChild(a);
+  };
+  addAside('M0 sandbox (no mission)', '?sandbox=1');
+  addAside('reset campaign ledger', '?fresh=1');
+  wrap.appendChild(aside);
+
   // The menu introduces itself rather than simply existing.
+  stagger(wrap);
+  stage.appendChild(wrap);
+}
+
+/** The campaign map page: the world, its states, and a way back. Reached from the
+ *  menu's Campaign entry, from every mission's return link, and from the end
+ *  screen -- the map is the place the player can always come back to. */
+export function showCampaign(stage: HTMLElement, opts: CampaignOptions): void {
+  const wrap = document.createElement('div');
+  wrap.className = 'rl-menu';
+
+  const lockup = document.createElement('div');
+  lockup.innerHTML = wordmark('');
+  wrap.appendChild(lockup.firstElementChild as HTMLElement);
+
+  const theatre = document.createElement('div');
+  theatre.className = 'rl-menu__theatre';
+  theatre.textContent = opts.world.name;
+  wrap.appendChild(theatre);
+
+  wrap.appendChild(
+    worldMap({
+      base: opts.base,
+      world: opts.world,
+      countries: opts.countries,
+      ledger: opts.ledger,
+      href: (id) => `?mission=${id}`,
+    })
+  );
+
+  const nav = document.createElement('nav');
+  nav.className = 'rl-menu__nav';
+  const back = document.createElement('a');
+  back.textContent = '← main menu';
+  back.href = '?';
+  back.className = 'rl-btn rl-menu__item';
+  back.dataset.kind = 'back';
+  nav.appendChild(back);
+  wrap.appendChild(nav);
+
   stagger(wrap);
   stage.appendChild(wrap);
 }
@@ -104,6 +158,7 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): void {
   };
   if (won && opts.nextMissionId) link('next mission →', `?mission=${opts.nextMissionId}`);
   link(won ? 'replay' : 'try again', `?mission=${opts.missionId}`);
+  link('campaign map', '?campaign');
   link('menu', '?');
   p.body.appendChild(nav);
 

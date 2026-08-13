@@ -39,7 +39,7 @@
 | `packages/sim/src/mission.ts` | **modify** — delegate to `unlockReason`; `roe.mission_ratings` |
 | `packages/data/src/index.ts` | **modify** — import and export the raw `world` JSON, exactly as it does `missions` |
 | `packages/app/src/campaign.ts` | **create** — world types, `parseWorld`, `regionProgress`, `townProgress`, `nextMissionOf`. All of it in `app`, which is the only package that may import both `data` and `sim` |
-| `assets/campaign/sahar_basin.svg` | **create** — region outlines, `id` per region, token fills, no text |
+| `assets/campaign/sahar_basin.svg` | Task 1 **creates a stub** with the three region ids; Task 5 **replaces its geometry** — region outlines, token fills, no text |
 | `packages/app/src/ui/theme.css` | **modify** — map state tokens |
 | `packages/app/src/ui/worldmap.ts` | **create** — the screen: inline the SVG, apply state, place towns, status panel |
 | `packages/app/src/ui/menu.ts` | **modify** — mount the world map in place of the flat list |
@@ -63,7 +63,7 @@ Content and validation first, so every later task has a coherent world to read a
 **Interfaces:**
 - Consumes: nothing.
 - Produces: `data/campaign/world.json` with this exact shape, which Tasks 4, 6 and 7 read:
-  `{ id: string, art: string, regions: Region[] }` where
+  `{ id: string, name: string, art: string, regions: Region[] }` where
   `Region = { id: string, name: string, faction: string, doctrine: string, blurb?: string, unlock?: { after_mission?: string, roe_rating_min?: number }, towns: Town[] }` and
   `Town = { id: string, name: string, at: [number, number], missions: string[] }`.
   `at` is in the SVG's `viewBox` coordinate space, which is `0 0 1140 790`.
@@ -302,7 +302,9 @@ A validation check that has never failed is not known to work. For each of these
 4. Set `marj.unlock.after_mission` to `"beit_sahwan_1_recon"` → expect `is not earlier`
 5. Change `art` to `campaign/nope.svg` → expect `not found at assets/`
 
-Check 5's SVG-id branch cannot fail yet because the SVG does not exist; it is verified in Task 5, Step 5.
+All five branches are verifiable in this task, because Step 1's stub SVG gives the region-id
+check something real to read. Rename `id="region-sur"` to `id="region-soor"` for check 5's
+second branch and confirm `no element with id="region-sur" for region "Sur"`.
 
 - [ ] **Step 7: Confirm the gate passes on the real world**
 
@@ -378,9 +380,10 @@ describe('unlockReason', () => {
     expect(unlockReason({ roeMin: 45 }, { 'roe.mission_ratings': { a: 40, b: 50 } })).toBe(null);
   });
 
-  it('rejects one point below the floor, where a truncating mean would have passed it', () => {
-    // 44 + 45 = 89 < 90. A `(89/2)|0` mean is 44, so both agree here -- but 45+46=91
-    // averages to 45 exactly and must pass.
+  it('rejects just below the floor and accepts just at it', () => {
+    // 44 + 45 = 89 < 45*2, so short. 45 + 46 = 91 >= 90, so it passes -- the mean there is
+    // 45.5, comfortably over. Both agree with a truncated mean; the integer form is used for
+    // the invariant, not because it changes any verdict.
     expect(unlockReason({ roeMin: 45 }, { 'roe.mission_ratings': { a: 44, b: 45 } })).not.toBe(null);
     expect(unlockReason({ roeMin: 45 }, { 'roe.mission_ratings': { a: 45, b: 46 } })).toBe(null);
   });
@@ -447,10 +450,16 @@ export interface UnlockGate {
 export function unlockReason(unlock: UnlockGate | undefined, ledger: LedgerData | undefined): string | null {
   if (!unlock) return null;
   if (unlock.roeMin !== undefined && !roeAtLeast(ledger, unlock.roeMin)) {
-    const rated = ratedCount(ledger);
-    return (
-      `requires campaign ROE ${unlock.roeMin}` + (rated === 0 ? ' (no missions rated yet)' : '')
-    );
+    // Three cases, because two of them are not the same sentence: rated and short, never
+    // rated, and an old save whose only record is a single number. Telling a player with a
+    // low rating that they have none sends them off to do the wrong thing.
+    const map = ratings(ledger);
+    const rated = Object.keys(map ?? {}).length;
+    const legacy = ledger?.['roe.cumulative_rating'];
+    let detail = '';
+    if (rated === 0 && typeof legacy === 'number') detail = ` (currently ${legacy})`;
+    else if (rated === 0) detail = ' (no missions rated yet)';
+    return `requires campaign ROE ${unlock.roeMin}${detail}`;
   }
   if (unlock.afterMission !== undefined) {
     const done = ledger?.['campaign.completed_missions'];
@@ -466,15 +475,15 @@ const ratings = (ledger: LedgerData | undefined): Record<string, number> | null 
   return r !== null && typeof r === 'object' ? (r as Record<string, number>) : null;
 };
 
-const ratedCount = (ledger: LedgerData | undefined): number => Object.keys(ratings(ledger) ?? {}).length;
-
 /**
  * Whether the campaign's average ROE is at least `floor`, decided without dividing.
  *
- * `sum >= floor * count` is the same predicate as `sum / count >= floor` for positive
- * counts, using only integer multiplication -- so this package keeps its no-floating-point
- * invariant, and the test is *exact* where a truncated mean would wrongly reject a campaign
- * sitting right on the boundary.
+ * `sum >= floor * count` is the same predicate as `sum / count >= floor` for any positive
+ * count, using only integer multiplication -- so this package keeps its no-floating-point
+ * invariant. That is the whole reason. It is *not* a correctness fix over a truncated mean:
+ * for an integer floor, floor(x) >= n exactly when x >= n, so `(sum/count)|0` would agree on
+ * every campaign anyone can author. The two diverge only for a fractional `roeMin`, which
+ * the type permits and no content uses.
  *
  * The message a locked thing shows names only the floor. The player's current figure is
  * rendered beside it by the shell, which may divide freely.
@@ -498,7 +507,7 @@ function roeAtLeast(ledger: LedgerData | undefined, floor: number): boolean {
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run packages/sim/src/unlock.test.ts`
-Expected: PASS, 8 tests.
+Expected: PASS, every `it` block in the snippet above.
 
 - [ ] **Step 5: Make the runtime delegate rather than duplicate**
 
@@ -662,7 +671,9 @@ In `packages/sim/src/mission.ts`, inside `interface LedgerData`, after `'roe.cum
    * Deliberately not averaged here. An average is division, this package bans floating
    * point, and `| 0` on a float quotient is the "just this one calculation" the invariant
    * exists to refuse. `campaignRoe` in the app averages for display; `unlockReason` gates
-   * with `sum >= floor * count`, which needs no division and is exact at the boundary.
+   * with `sum >= floor * count`, which needs no division. That integer form is for the
+   * invariant, not for accuracy: for an integer floor it returns the same verdict a
+   * truncated mean would, diverging only for a fractional roeMin that nothing authors.
    * `roe.cumulative_rating` stays on this interface, read as a fallback for saves written
    * before this key existed, and written by nothing.
    */
@@ -684,15 +695,19 @@ with:
     // Best-of per mission. Storage only -- no averaging here, because an average is
     // division and this package bans floating point. See LedgerData['roe.mission_ratings'].
     const prevRatings = this.ctx.ledger?.['roe.mission_ratings'];
-    const ratings: Record<string, number> = {};
+    const merged: Record<string, number> = {};
     if (prevRatings !== null && typeof prevRatings === 'object') {
-      // Rebuilt in sorted key order so the saved object is stable rather than
-      // insertion-ordered, matching how intel.marked_positions is sorted below.
       const prior = prevRatings as Record<string, number>;
-      for (const k of Object.keys(prior).sort()) ratings[k] = prior[k]!;
+      for (const k of Object.keys(prior)) merged[k] = prior[k];
     }
-    const best = ratings[this.mission.id];
-    if (typeof best !== 'number' || roeRating > best) ratings[this.mission.id] = roeRating;
+    const best = merged[this.mission.id];
+    if (typeof best !== 'number' || roeRating > best) merged[this.mission.id] = roeRating;
+    // Sorted AFTER this mission's entry is merged in, not before. Sorting the prior keys
+    // and then inserting leaves the new key last in insertion order, so the saved JSON
+    // differs by the order missions were played -- which is exactly what the
+    // order-independence test below exists to catch.
+    const ratings: Record<string, number> = {};
+    for (const k of Object.keys(merged).sort()) ratings[k] = merged[k];
 ```
 
 `Object.keys(...).sort()` keeps the iteration order stable rather than insertion-ordered, matching how `intel.marked_positions` is sorted a few lines below. Integer division via `| 0` keeps the value an integer, as `unlockReason`'s comparison expects.
@@ -1139,10 +1154,12 @@ Match the file's existing style. Export **only** the JSON — no parser, no type
 - [ ] **Step 6: Confirm `data` is still a leaf**
 
 ```bash
-grep -rn "@lions/" packages/data/src/ | grep -v "\.test\.ts"
+grep -rnE "^\s*(import|export).*@lions/" packages/data/src/ | grep -v "\.test\.ts"
 ```
 
-Expected: **no output.** `packages/data/package.json` declares no dependencies, and this is the invariant CLAUDE.md states. Any hit means campaign logic drifted into `data`; move it to `packages/app/src/campaign.ts` rather than adding a dependency.
+Expected: **no output.** Match import and export statements specifically — a bare
+`grep "@lions/"` also hits the words in existing comment prose, which is not a violation and
+makes the check cry wolf. `packages/data/package.json` declares no dependencies, and this is the invariant CLAUDE.md states. Any hit means campaign logic drifted into `data`; move it to `packages/app/src/campaign.ts` rather than adding a dependency.
 
 - [ ] **Step 7: Run the gates**
 
@@ -1179,7 +1196,7 @@ up already greyed out, which reads as a bug rather than as a plan."
 ### Task 5: The map art, its tokens, and bringing it under the palette gate
 
 **Files:**
-- Create: `assets/campaign/sahar_basin.svg`
+- Modify: `assets/campaign/sahar_basin.svg` — **replace** the stub Task 1 created. The file already exists holding three empty `<g id="region-*">` elements and the `viewBox`; keep those ids and that `viewBox`, and fill in the geometry
 - Modify: `packages/app/src/ui/theme.css`
 - Modify: `tools/validate_ui_palette.mjs`
 
@@ -1195,25 +1212,37 @@ In `packages/app/src/ui/theme.css` — the only file allowed to name `--rl-*` �
   /* Campaign map. Three region states that must be told apart at a glance.
      Dim by dropping texture and saturation, not brightness: laying shadow over a
      finished region turned it nearly black and cost every label inside it. */
-  --map-sea: var(--rl-water-6);
+  --map-sea: var(--rl-water-1);
   --map-land: var(--rl-limestone-2);
   --map-home: var(--rl-limestone-1);
   --map-live: var(--rl-dust-1);
   --map-spent: var(--rl-limestone-4);
   --map-locked: var(--rl-limestone-5);
-  --map-urban: var(--rl-terracotta-2);
-  --map-urban-line: var(--rl-terracotta-4);
-  --map-rock: var(--rl-gunmetal-5);
-  --map-scrub: var(--rl-scrub-2);
+  /* Light end for the hatch field, dark for its lines. The mockup generator asked for
+     terracotta-4, which does not exist -- python clamped it to the last entry, so both
+     ended up the same colour and the hatch was a flat block. CSS does not clamp; it
+     resolves to nothing. Ramps are short, so check the index exists. */
+  --map-urban: var(--rl-terracotta-0);
+  --map-urban-line: var(--rl-terracotta-2);
+  --map-rock: var(--rl-gunmetal-3);
+  --map-scrub: var(--rl-scrub-1);
   --map-dune: var(--rl-dust-3);
   --map-dune-line: var(--rl-dust-5);
+  /* The map's own line work. Not --panel-frame: borrowing a panel token means restyling
+     UI chrome silently restyles the coastline. */
+  --map-ink: var(--rl-shadow-1);
 ```
 
-Confirm each `--rl-*` name exists: the Vite palette plugin publishes them from `data/palette.json` as `--rl-<ramp>-<index>`. Cross-check against `packages/app/vite-plugin-palette.ts` and fix any name that does not resolve.
+Confirm each `--rl-*` name exists: the Vite palette plugin publishes them from
+`data/palette.json` as `--rl-<ramp>-<index>`. **The ramps are short** — `water` and `scrub`
+have two entries, `terracotta` three, `gunmetal` four — so an index like `-5` is past the end
+on most of them. Python's mockup generator clamped out-of-range indices silently; CSS
+resolves a missing variable to nothing at all. Cross-check every one against
+`data/palette.json` and fix any that does not resolve.
 
 - [ ] **Step 2: Author the SVG**
 
-Create `assets/campaign/sahar_basin.svg`. Start from the approved mockup at `docs/superpowers/specs/assets/2026-08-10-sahar-basin-mockup.svg` — the geometry is settled; what changes is that every hex becomes a token and every text element is removed, because labels come from `world.json`.
+Replace the stub at `assets/campaign/sahar_basin.svg`. Start from the approved mockup at `docs/superpowers/specs/assets/2026-08-10-sahar-basin-mockup.svg` — the geometry is settled; what changes is that every hex becomes a token and every text element is removed, because labels come from `world.json`.
 
 Requirements, all load-bearing:
 
@@ -1221,6 +1250,14 @@ Requirements, all load-bearing:
 - one element per region carrying **exactly** `id="region-marj"`, `id="region-sur"`, `id="region-naharin"`. Task 1's gate greps for these strings
 - each region element is a `<g>` wrapping its outline and terrain, so Task 6 can restyle a whole region by setting one attribute
 - **no `<text>` anywhere.** Names, doctrines and unlock text are `world.json`'s, so they stay translatable and cannot drift from the data
+- **state-neutral.** Every region is drawn in its *live* appearance — the Marj hatched, Sur
+  and Naharin with the same ordinary ink outline. The mockup is a single snapshot showing
+  three different states at once, because that was how it demonstrated the state language;
+  copying it literally bakes "complete" into the Marj, "live" into Sur's gold border and
+  "locked" into Naharin's opacity, so the CSS then compounds on top of a baked look instead
+  of replacing it, and the first region reads as finished at campaign start
+- each region's boundary path carries `class="region-outline"`, the hook the live-state rule
+  needs to restyle a border without depending on child order
 - every `fill` and `stroke` names a token: `fill="var(--map-land)"`, never `fill="#E6D8BE"`
 - pattern definitions (urban hatch, dunes) also use tokens
 - no `width`/`height` attributes on the root `<svg>`; the container sizes it
@@ -1244,9 +1281,10 @@ Temporarily put `fill="#ff0000"` on any shape in the SVG.
 Run: `pnpm validate:ui`
 Expected: FAIL, naming `assets/campaign/sahar_basin.svg` and the literal. Then remove it and re-run — expect PASS. If the deliberate hex passes, the root or the extension filter is not working and the rest of this task is unprotected.
 
-- [ ] **Step 5: Prove the data gate's SVG-id check works**
+- [ ] **Step 5: Prove the region ids survived the rewrite**
 
-This is the branch Task 1 could not exercise. Rename `id="region-sur"` to `id="region-soor"`.
+Task 1 already verified this check fires; what matters here is that replacing the geometry did
+not drop or rename an id. Rename `id="region-sur"` to `id="region-soor"`.
 
 Run: `pnpm validate:data`
 Expected: FAIL — `no element with id="region-sur" for region "Sur"`. Restore the id and re-run — expect PASS.
@@ -1305,7 +1343,13 @@ allowlist. assets/campaign is now a scan root, verified by watching a deliberate
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `packages/app/src/ui/worldmap.test.ts`. Check whether the repo already has a DOM-based test to copy the environment setup from — if vitest is not configured with `environment: 'jsdom'` for this package, add `// @vitest-environment jsdom` as the first line of the file.
+Create `packages/app/src/ui/worldmap.test.ts`. **This is the repository's first DOM-based
+test**, so there is no existing setup to copy and `jsdom` is not installed — it appears in the
+lockfile only as one of vitest's optional peer dependencies, which does not make it
+resolvable. The `// @vitest-environment jsdom` pragma selects an environment; it does not
+vendor the package. So: add `jsdom` as a root devDependency in its own commit first, confirm
+with a throwaway probe test that the environment actually loads, and only then write the real
+tests with the pragma as the file's first line.
 
 ```ts
 // @vitest-environment jsdom
@@ -1584,7 +1628,9 @@ Add to `packages/app/src/ui/theme.css`, following the file's existing `.rl-menu_
 .rl-world__board { position: relative; width: 100%; max-width: 1140px; margin-inline: auto; }
 .rl-world__board svg { display: block; width: 100%; height: auto; }
 
-/* Three states, told apart by texture and saturation rather than brightness. */
+/* Three states, told apart by texture and saturation rather than brightness. State lives
+   here and never in the asset, which ships every region in its live appearance. */
+[data-status='live'] .region-outline { stroke: var(--map-live); stroke-width: 4; }
 [data-status='complete'] { filter: saturate(0.25); opacity: 0.75; }
 [data-status='locked'] { filter: saturate(0.4); opacity: 0.45; }
 
@@ -1600,7 +1646,9 @@ Add to `packages/app/src/ui/theme.css`, following the file's existing `.rl-menu_
   padding: var(--s2);
 }
 .rl-world__card[data-status='live'] { border-left-color: var(--map-live); }
-.rl-world__card[data-status='locked'] { opacity: 0.6; }
+/* Locked gets its own border, not the completed one: finished and not-yet-available mean
+   opposite things and should not differ only by opacity. */
+.rl-world__card[data-status='locked'] { border-left-color: var(--map-locked); opacity: 0.6; }
 .rl-world__badge { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-dim); }
 ```
 
@@ -1638,6 +1686,7 @@ a view over the ledger and must stay one."
 **Files:**
 - Modify: `packages/app/src/ui/menu.ts`
 - Modify: `packages/app/src/main.ts` (menu branch around line 155–169; end-screen next-mission around line 761)
+- Modify: `packages/app/src/ui/theme.css` — extend the `[data-kind='primary']` emphasis selector to cover `[data-kind='tutorial']`, and delete the now-dead `.rl-menu__campaign` rule whose element this task removes
 
 **Interfaces:**
 - Consumes: `worldMap` from Task 6, `parseWorld`/`nextMissionOf` from Task 4, `world` from `@lions/data`.
@@ -1724,6 +1773,9 @@ Replace the theatre line and the mission loop:
     if (kind) a.dataset.kind = kind;
     nav.appendChild(a);
   };
+  // 'tutorial' rather than 'primary' because it names what the entry is, not how it looks --
+  // but theme.css styles emphasis off this attribute, so widen that selector to cover both
+  // or a new player's single most important call to action loses its emphasis.
   if (!opts.tutorial.done) add(opts.tutorial.name, `?mission=${opts.tutorial.id}`, 'tutorial');
   wrap.appendChild(nav);
 
@@ -1816,11 +1868,28 @@ Around line 761, `const order = Object.keys(missions)` uses import order as camp
           // Campaign order lives in world.json, not in the order data/missions files
           // happen to be imported.
           const w = parseWorld(world);
-          const town = w.regions.flatMap((r) => r.towns).find((t) => t.missions.includes(me.missionId));
-          const nextMissionId = town ? (nextMissionOf(town, saved) ?? undefined) : undefined;
+          const town = w.regions.flatMap((r) => r.towns).find((t) => t.missions.includes(missionId));
+          let nextMissionId = town ? (nextMissionOf(town, updatedLedger) ?? undefined) : undefined;
+          if (town === undefined) {
+            // A mission that is not on the map -- the tutorial -- hands off to wherever the
+            // campaign currently is. Without this the first victory screen a new player ever
+            // sees offers no way onward, because world.json deliberately does not list the
+            // tutorial. The old Object.keys(missions) order covered this by accident.
+            for (const region of w.regions) {
+              if (regionProgress(region, updatedLedger).status !== 'live') continue;
+              for (const t of region.towns) {
+                const next = nextMissionOf(t, updatedLedger);
+                if (next !== null) { nextMissionId = next; break; }
+              }
+              if (nextMissionId !== undefined) break;
+            }
+          }
 ```
 
-Read the surrounding code first and match its variable names — `me` and the saved-ledger variable may be named differently. Import `nextMissionOf` and `parseWorld` from `./campaign`.
+Read the surrounding code first and match its variable names — the mission id and the
+post-mission ledger may be named differently in the real file, and the ledger you pass must be
+the **post**-mission one so the mission that just finished counts as completed. Import
+`nextMissionOf`, `parseWorld` and `regionProgress` from `./campaign`.
 
 - [ ] **Step 7: Run the gates**
 
@@ -1849,9 +1918,23 @@ The whole feature is a screen, so the only honest verification is driving it. Co
 
 **Files:** none created. Fixes land in the file that is wrong.
 
-- [ ] **Step 1: Start the preview**
+- [ ] **Step 1: Start the preview — and mind which tree it serves**
 
-Use `preview_start` with the dev server from `.claude/launch.json` (create the entry if absent, using `pnpm dev` and its port). Do **not** run the dev server through Bash.
+`preview_start {name}` launches the dev server from `.claude/launch.json` **in the launch
+directory**, which is the main checkout, not this worktree. Using it here would serve the
+wrong tree and every check below would be measuring code that is not on this branch — a
+failure that looks exactly like a broken feature.
+
+So do it in two steps, which sidesteps the pinning entirely:
+
+1. Start the dev server **in this worktree** with Bash, in the background:
+   `pnpm dev` — note the port it prints.
+2. Open a browser tab at that URL with `preview_start {url: "http://localhost:<port>"}`.
+   The `url` form only opens a tab; it launches nothing and is not directory-pinned.
+
+Confirm you are looking at the right tree before trusting anything else: the menu must show
+the campaign map. If it shows the old flat mission list, you are on the main checkout — stop
+and fix that first.
 
 - [ ] **Step 2: A fresh campaign**
 
@@ -1940,7 +2023,7 @@ EOF
 
 *A duplicated type.* An earlier draft split the campaign module so the parser could live in `@lions/data`, which forced the unlock type to be declared once per package as a verbatim copy. Trading a layering nicety for duplicated types is not a trade worth making. `@lions/data` now exports only the raw `world` JSON — exactly as it already does for `missions` — and the whole module is one file in `app` with one definition of everything. Task 4 Step 6 greps to prove `data` stayed a leaf.
 
-*Division inside `@lions/sim`.* An earlier draft computed the ROE mean as `(total / values.length) | 0` in the mission runtime, matching a line already in that file. Matching existing code is not the same as being right, and "just this one calculation" is the exact phrasing CLAUDE.md tells you to refuse. The sim now stores per-mission bests and performs no arithmetic; `campaignRoe` averages for display in `app`, and `unlockReason` gates with `sum >= floor * count`. That comparison is not merely invariant-safe, it is *more* correct: a truncated mean rejects a campaign averaging exactly the floor.
+*Division inside `@lions/sim`.* An earlier draft computed the ROE mean as `(total / values.length) | 0` in the mission runtime, matching a line already in that file. Matching existing code is not the same as being right, and "just this one calculation" is the exact phrasing CLAUDE.md tells you to refuse. The sim now stores per-mission bests and performs no arithmetic; `campaignRoe` averages for display in `app`, and `unlockReason` gates with `sum >= floor * count`. The Task 2 review checked my first justification for that and found it overstated — for an integer floor a truncated mean gives the same verdict on every authorable campaign, so the integer form buys the invariant, not accuracy. Kept for the invariant alone, which is reason enough.
 
 *`innerHTML` for the map.* The asset is our own build-time file, so assigning it was not a live vulnerability — but `innerHTML` on a string that arrived over the network is indistinguishable, at a glance and to a scanner, from the version of that line that would be a hole. Task 6 parses with `DOMParser` and adopts the node, which cannot execute script, so the safe reading is the only reading.
 

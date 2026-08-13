@@ -1,0 +1,155 @@
+{
+  "id": "beit_sahwan_breach",
+  "name": "Beit Sahwan — First Light",
+  "town": "beit_sahwan",
+  "phase": "breach",
+  "target_minutes": 14,
+  "briefing": "They came at dawn, across the whole front, and the corridor is cut behind us. There is no relief for thirteen minutes and nothing coming before it. Get the villages out through the eastern yard, put what is left of the company in the compound, and still be standing when the column arrives.",
+  "map": {
+    "file": "marj_perimeter",
+    "player_start": [16, 23]
+  },
+  "ledger": {
+    "requires": [],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions",
+      "civ.settlements_evacuated"
+    ]
+  },
+  "starting_force": [
+    { "unit": "inf_squad", "count": 1, "at": [16, 14] },
+    { "unit": "at_team", "count": 1, "at": [16, 21] },
+    { "unit": "sniper_team", "count": 1, "at": [16, 27] },
+    { "unit": "apc_eitan", "count": 1, "at": [18, 23] },
+    { "unit": "jeep_shoded", "count": 1, "at": [19, 24] }
+  ],
+  "resources": {
+    "logistics_start": 150,
+    "supply_corridor": false
+  },
+  "objectives": [
+    {
+      "id": "survive_relief",
+      "type": "survive_until",
+      "primary": true,
+      "seconds": 780,
+      "text": "Still be standing when the relief column arrives"
+    },
+    {
+      "id": "hold_strongpoint",
+      "type": "hold_for",
+      "primary": false,
+      "target": "strongpoint",
+      "seconds": 300,
+      "text": "Hold the compound for five minutes"
+    },
+    {
+      "id": "evac_settlements",
+      "type": "evacuate_before",
+      "primary": false,
+      "target": "refuge_zone",
+      "count": 6,
+      "seconds": 480,
+      "text": "Get six families clear through the eastern yard"
+    }
+  ],
+  "roe": {
+    "enabled": true,
+    "flagged_zones": ["clinic"]
+  },
+  "civilians": {
+    "refuge": "civ_refuge",
+    "groups": [
+      { "unit": "civilians", "count": 3, "at": [24.5, 15.5] },
+      { "unit": "civilians", "count": 3, "at": [27.5, 18.5] },
+      { "unit": "civilians", "count": 3, "at": [25.5, 33.5] },
+      { "unit": "civilians", "count": 2, "at": [29.5, 36.5] }
+    ]
+  },
+  "enemy": {
+    "faction": "ashwar",
+    "doctrine_profile": "mass infiltration across a wide front",
+    "garrison": [
+      {
+        "unit": "militia_cell",
+        "count": 2,
+        "marker": "tunnel_north",
+        "facing_deg": 270,
+        "stance": { "kind": "ambush", "tiles": 4 },
+        "group": "north_infiltrators"
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "marker": "tunnel_south",
+        "facing_deg": 270,
+        "stance": { "kind": "ambush", "tiles": 3 },
+        "group": "south_infiltrators"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 2,
+        "at": [27, 33],
+        "facing_deg": 270,
+        "stance": { "kind": "ambush", "tiles": 4 },
+        "group": "south_infiltrators"
+      }
+    ],
+    "waves": [
+      { "at_seconds": 20, "to": "kdf_line", "units": [
+        { "unit": "militia_cell", "count": 4, "from": "ashwar_centre" },
+        { "unit": "militia_cell", "count": 2, "from": "ashwar_north" }
+      ] },
+      { "at_seconds": 60, "to": "kdf_line", "units": [
+        { "unit": "militia_cell", "count": 4, "from": "ashwar_south" },
+        { "unit": "rpg_team", "count": 1, "from": "ashwar_centre" }
+      ] },
+      { "at_seconds": 110, "to": "strongpoint_centre", "units": [
+        { "unit": "technical", "count": 2, "from": "ashwar_centre" },
+        { "unit": "militia_cell", "count": 3, "from": "ashwar_north" }
+      ] },
+      { "at_seconds": 170, "to": "strongpoint_centre", "units": [
+        { "unit": "militia_cell", "count": 4, "from": "ashwar_south" },
+        { "unit": "atgm_cell", "count": 1, "from": "ashwar_centre" }
+      ] },
+      { "at_seconds": 240, "to": "strongpoint_centre", "units": [
+        { "unit": "mortar_crew", "count": 1, "from": "ashwar_north" },
+        { "unit": "militia_cell", "count": 4, "from": "ashwar_centre" }
+      ] },
+      { "at_seconds": 320, "to": "strongpoint_centre", "units": [
+        { "unit": "technical", "count": 2, "from": "ashwar_south" },
+        { "unit": "rpg_team", "count": 2, "from": "ashwar_centre" }
+      ] },
+      { "at_seconds": 410, "to": "strongpoint_centre", "units": [
+        { "unit": "militia_cell", "count": 5, "from": "ashwar_centre" }
+      ] },
+      { "at_seconds": 500, "to": "strongpoint_centre", "units": [
+        { "unit": "militia_cell", "count": 4, "from": "ashwar_north" },
+        { "unit": "rpg_team", "count": 1, "from": "ashwar_north" }
+      ] },
+      { "at_seconds": 590, "to": "strongpoint_centre", "units": [
+        { "unit": "technical", "count": 1, "from": "ashwar_centre" },
+        { "unit": "militia_cell", "count": 3, "from": "ashwar_centre" },
+        { "unit": "atgm_cell", "count": 1, "from": "ashwar_centre" }
+      ] },
+      { "at_seconds": 680, "to": "strongpoint_centre", "units": [
+        { "unit": "militia_cell", "count": 4, "from": "ashwar_south" },
+        { "unit": "rpg_team", "count": 2, "from": "ashwar_south" }
+      ] }
+    ]
+  },
+  "triggers": [
+    {
+      "id": "villages_rise",
+      "on": { "kind": "first_contact" },
+      "do": { "kind": "commit", "group": "north_infiltrators", "to": "strongpoint_centre" }
+    },
+    {
+      "id": "south_rises",
+      "on": { "kind": "timer_s", "value": 240 },
+      "do": { "kind": "commit", "group": "south_infiltrators", "to": "strongpoint_centre" }
+    }
+  ]
+}

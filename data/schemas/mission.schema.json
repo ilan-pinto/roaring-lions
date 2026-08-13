@@ -33,6 +33,7 @@
     },
     "phase": {
       "enum": [
+        "breach",
         "recon",
         "foothold",
         "buildup",

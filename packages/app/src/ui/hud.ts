@@ -100,7 +100,14 @@ export class Hud {
     this.banner.className = 'rl-bigbanner';
     this.banner.style.display = 'none';
 
-    host.append(this.brief.el, this.card.el, this.clock, this.notices, this.banner);
+    // The map page is always one click away, mid-mission included. A plain
+    // navigation, so leaving a fight costs the attempt -- deliberately.
+    const ret = document.createElement('a');
+    ret.className = 'rl-return';
+    ret.href = '?campaign';
+    ret.textContent = '⤺ campaign map';
+
+    host.append(this.brief.el, this.card.el, this.clock, this.notices, this.banner, ret);
   }
 
   /** Mission start punctuation. */

@@ -10,6 +10,7 @@
 
 import { fx, HALF, type Fx } from './fixed';
 import { TICKS_PER_SECOND, type Sim, type SimEvent } from './sim';
+import { unlockReason, type UnlockGate } from './unlock';
 
 // ---------------------------------------------------------------------------
 
@@ -63,6 +64,28 @@ export interface LedgerData {
   'roster.surviving_units'?: LedgerRosterEntry[];
   'roe.cumulative_rating'?: number;
   /**
+   * Best ROE rating each mission has earned, keyed by mission id.
+   *
+   * This replaces `roe.cumulative_rating`, which was `(previous + this mission) / 2` -- an
+   * exponential moving average with three faults: replaying your best mission walked the
+   * campaign rating upward without playing anything new, replaying a mission you did badly
+   * could never replace the bad sample, and the number depended on the order missions were
+   * played in. #22 asks for replay to have a clear effect, and none of those three allow it.
+   *
+   * Best-of rather than latest, so a replay can only ever help -- which is what makes going
+   * back to a mission you scored badly on worth doing.
+   *
+   * Deliberately not averaged here. An average is division, this package bans floating
+   * point, and `| 0` on a float quotient is the "just this one calculation" the invariant
+   * exists to refuse. `campaignRoe` in the app averages for display; `unlockReason` gates
+   * with `sum >= floor * count`, which needs no division and changes no verdict for an
+   * integer floor versus a truncated mean -- the two only diverge for a fractional
+   * `roeMin`, which nothing authors.
+   * `roe.cumulative_rating` stays on this interface, read as a fallback for saves written
+   * before this key existed, and written by nothing.
+   */
+  'roe.mission_ratings'?: Record<string, number>;
+  /**
    * Placement tags whose units recon resolved to *identified*. This is the
    * campaign's carry-over spine (GDD §4, "carry-over is the system"): what a recon
    * mission saw, in a form a later mission can act on.
@@ -77,6 +100,11 @@ export interface LedgerData {
   'intel.marked_positions'?: string[];
   /** Mission ids already cleared, for `unlock.after_mission` gates. */
   'campaign.completed_missions'?: string[];
+  /** How many civilian units got out — reached the refuge zone, latched, so
+   *  dying afterwards does not un-count them. Written by missions whose
+   *  premise includes an evacuation (the breach), read by later missions
+   *  that want to know who made it. */
+  'civ.settlements_evacuated'?: number;
   [key: string]: unknown;
 }
 
@@ -188,12 +216,19 @@ type MissingMissionEventKind = Exclude<MissionEvent['kind'], (typeof MISSION_EVE
 type AssertNoMissingMissionKind<T extends never> = T;
 export type MissionEventKindsAreExhaustive = AssertNoMissingMissionKind<MissingMissionEventKind>;
 
-const SUPPORTED = new Set(['locate', 'eliminate_hvt', 'capture', 'hold_for', 'survive_until', 'destroy_all']);
+const SUPPORTED = new Set([
+  'locate', 'eliminate_hvt', 'capture', 'hold_for', 'survive_until', 'destroy_all', 'evacuate_before',
+]);
 
 /** Spread for multi-unit placements: 1.25 tiles. */
 const SPREAD = 81920;
 /** Civilians break for the refuge above this suppression (0.3). */
 const CIV_FLEE_AT = 19661;
+/** A soldier this close is walking these people out: 4 tiles, squared, in the
+ *  Q8.8 form the other radius checks use. Civilians move for exactly one other
+ *  reason -- fear -- and an evacuation objective built on fear alone would
+ *  reward shooting near them to herd them. */
+const SHEPHERD_RADIUS_SQ = 1048576;
 /** "Danger close": civilians within this of an aimpoint make heavy ordnance
  *  disproportionate (2 tiles, squared, Q16.16). */
 const DANGER_CLOSE_SQ = 262144;
@@ -245,6 +280,9 @@ export class MissionRuntime {
   private readonly enemyIds: number[] = [];
   private readonly civIds: number[] = [];
   private readonly civFled = new Set<number>();
+  /** Civilians who reached the refuge zone. Latched: getting people out is not
+   *  undone by what happens afterwards. */
+  private readonly civEvacuated = new Set<number>();
   private readonly zoneDeductedAt = new Map<string, number>();
   private roeScoreValue = 100;
   private roeFailed = false;
@@ -308,22 +346,7 @@ export class MissionRuntime {
   buildBlockedReason(unitId: string): string | null {
     const info = this.ctx.unitInfo?.(unitId);
     if (!info) return 'not available in the field';
-    const unlock = info.unlock;
-    if (!unlock) return null;
-    if (unlock.roeMin !== undefined) {
-      const rating = this.ctx.ledger?.['roe.cumulative_rating'];
-      if (typeof rating !== 'number' || rating < unlock.roeMin) {
-        return `requires campaign ROE ${unlock.roeMin}` +
-          (typeof rating === 'number' ? ` (currently ${rating})` : ' (no rating yet)');
-      }
-    }
-    if (unlock.afterMission !== undefined) {
-      const done = this.ctx.ledger?.['campaign.completed_missions'];
-      if (!Array.isArray(done) || !done.includes(unlock.afterMission)) {
-        return `requires clearing ${unlock.afterMission}`;
-      }
-    }
-    return null;
+    return unlockReason(info.unlock as UnlockGate | undefined, this.ctx.ledger);
   }
 
   /** What a satellite sweep and a precision strike cost, for the HUD. */
@@ -442,7 +465,7 @@ export class MissionRuntime {
       if (o.status === 'active') {
         const secs = o.def.seconds;
         if (secs !== undefined) {
-          if (o.def.type === 'survive_until') {
+          if (o.def.type === 'survive_until' || o.def.type === 'evacuate_before') {
             const left = secs * TICKS_PER_SECOND - this.sim.tickCount;
             ticksLeft = left > 0 ? left : 0;
           } else if (o.def.type === 'hold_for' || o.def.type === 'capture') {
@@ -474,6 +497,16 @@ export class MissionRuntime {
     for (const [tag, ids] of this.tags) {
       if (ids.length === 0) throw new Error(`mission ${this.mission.id}: tag "${tag}" has no units`);
     }
+    // Waves spawn minutes in, so a wave aimed into a wall would throw in the
+    // middle of a firefight. Their markers are known now, so check them now:
+    // a broken wave should fail at mission load, not at t=180s.
+    for (const w of this.mission.enemy?.waves ?? []) {
+      for (const u of w.units) {
+        if (!u.from) continue; // spawnPlacement reports the missing marker itself
+        const [wx, wy] = this.markerPos(u.from);
+        this.assertGroundClear(u.unit, wx, wy, u.count);
+      }
+    }
     for (const o of this.objectives) {
       if (o.def.type === 'eliminate_hvt') {
         const tag = o.def.target;
@@ -481,8 +514,30 @@ export class MissionRuntime {
           throw new Error(`mission ${this.mission.id}: eliminate_hvt "${o.def.id}" needs a garrisoned tag`);
         }
       }
-      if ((o.def.type === 'capture' || o.def.type === 'hold_for') && !this.zone(o.def.target)) {
+      if (
+        (o.def.type === 'capture' || o.def.type === 'hold_for' || o.def.type === 'evacuate_before') &&
+        !this.zone(o.def.target)
+      ) {
         throw new Error(`mission ${this.mission.id}: objective "${o.def.id}" needs a valid zone`);
+      }
+      if (o.def.type === 'evacuate_before') {
+        const refuge = this.mission.civilians?.refuge;
+        // Nobody to walk to: an evacuation with no declared refuge marker can never
+        // complete, the same class of broken mission as a hold_for with no zone or
+        // an eliminate_hvt with no garrisoned tag.
+        if (!refuge) {
+          throw new Error(`mission ${this.mission.id}: evacuate_before "${o.def.id}" needs civilians.refuge`);
+        }
+        const z = this.zone(o.def.target);
+        const [mx, my] = this.markerPos(refuge);
+        const tx = mx >> 16;
+        const ty = my >> 16;
+        if (z && !(tx >= z[0] && tx < z[0] + z[2] && ty >= z[1] && ty < z[1] + z[3])) {
+          throw new Error(
+            `mission ${this.mission.id}: evacuate_before "${o.def.id}" refuge marker "${refuge}" ` +
+              `is outside zone "${o.def.target}"`
+          );
+        }
       }
     }
   }
@@ -552,6 +607,47 @@ export class MissionRuntime {
   }
 
   // ------------------------------------------------------------------ spawns
+
+  /**
+   * Refuse to spawn anyone inside a building.
+   *
+   * A placement's `count` does not stack bodies on one tile: `spawnPlacement`
+   * spreads them `SPREAD` apart, so a `count: 3` group occupies its declared
+   * tile *plus* two more to the east, and a fourth body starts a second row to
+   * the south. That is why checking the declared coordinate proves nothing —
+   * a civilian group whose `at` was open street put its middle body inside a
+   * mosque, where it could never path out: a family scored against the player
+   * that was impossible to rescue. It survived a hand audit and a code review,
+   * because both looked only at `at`, and only playing the mission found it.
+   *
+   * So the engine checks every body, and says which one.
+   *
+   * Garrison stances are the one exemption, and the caller applies it: a unit
+   * ordered into a building is entering it, not trapped in it, and posting a
+   * squad at the doorway so it walks in is normal authoring — the spread of a
+   * `count: 2` at the door legitimately puts the second body on the building's
+   * own tile. Residual risk accepted: an overflowing garrison waits outside,
+   * and nothing checks that the tile it waits on is passable.
+   */
+  private assertGroundClear(unitId: string, bx: Fx, by: Fx, count: number): void {
+    for (let k = 0; k < count; k++) {
+      const tx = fx.add(bx, (k % 3) * SPREAD) >> 16;
+      const ty = fx.add(by, ((k - (k % 3)) / 3) * SPREAD) >> 16;
+      if (tx < 0 || ty < 0 || tx >= this.sim.width || ty >= this.sim.height) {
+        throw new Error(
+          `mission ${this.mission.id}: ${unitId} body ${k + 1} of ${count} spawns at ` +
+            `(${tx},${ty}), off the ${this.sim.width}x${this.sim.height} map`
+        );
+      }
+      if (this.sim.blocked[ty * this.sim.width + tx] === 1) {
+        throw new Error(
+          `mission ${this.mission.id}: ${unitId} body ${k + 1} of ${count} spawns at ` +
+            `(${tx},${ty}), which is blocked. A placement spreads its bodies 1.25 tiles ` +
+            `apart, so a clear declared position does not mean clear ground`
+        );
+      }
+    }
+  }
 
   private markerPos(name: string): [Fx, Fx] {
     const m = this.ctx.markers[name];
@@ -636,6 +732,13 @@ export class MissionRuntime {
       veterancies = new Array(p.count).fill(0);
     }
 
+    // A garrisoning placement is exempt: it is ordered into a building and walks
+    // in on the first ticks, so standing on its tile at spawn is the job, not a
+    // trap. Everything else must land on ground it can move off.
+    if (p.stance?.kind !== 'garrison') {
+      this.assertGroundClear(p.unit, bx, by, veterancies.length);
+    }
+
     const ids: number[] = [];
     for (let k = 0; k < veterancies.length; k++) {
       const ox = (k % 3) * SPREAD;
@@ -686,7 +789,7 @@ export class MissionRuntime {
       } else if (p.stance?.kind === 'ambush') {
         // Knowing where an ambush is removes the surprise, not the enemy: a marked
         // ambusher simply holds position instead. The GDD calls `ambush` "the entire
-        // reason recon quality matters by Phase 4", so this is that sentence made
+        // reason recon quality matters by Phase 5", so this is that sentence made
         // mechanical.
         if (!preMarked) this.sim.setAmbush(id, fx.from(p.stance.tiles ?? 3));
       } else if (p.stance?.kind === 'patrol' && p.stance.waypoints && p.stance.waypoints.length >= 2) {
@@ -808,13 +911,31 @@ export class MissionRuntime {
   }
 
   /** Civilians shelter in place until fire lands close, then break for the
-   *  refuge — once, in fear, not as a controlled unit. */
+   *  refuge — once, in fear, not as a controlled unit. They also go when a
+   *  soldier reaches them: that is the player evacuating them, and it is the
+   *  only way `evacuate_before` can be satisfied without shooting at them. */
   private stepCivilians(): void {
     const refuge = this.mission.civilians?.refuge;
     if (refuge === undefined) return;
+    const st = this.sim.state;
     for (const civ of this.civIds) {
-      if (this.sim.state.alive[civ] === 0 || this.civFled.has(civ)) continue;
-      if (this.sim.state.suppression[civ] <= CIV_FLEE_AT) continue;
+      if (st.alive[civ] === 0 || this.civFled.has(civ)) continue;
+      let leaving = st.suppression[civ] > CIV_FLEE_AT;
+      if (!leaving) {
+        for (const p of this.playerIds) {
+          if (st.alive[p] === 0) continue;
+          const dx = (fx.sub(st.posX[civ], st.posX[p]) >> 8) | 0;
+          const dy = (fx.sub(st.posY[civ], st.posY[p]) >> 8) | 0;
+          if (dx * dx + dy * dy <= SHEPHERD_RADIUS_SQ) {
+            leaving = true;
+            break;
+          }
+        }
+      }
+      if (!leaving) continue;
+      // The same latch as fleeing: one order per person. A civilian already
+      // running cannot be re-shepherded, and one being walked out cannot be
+      // re-panicked into a second, conflicting order.
       this.civFled.add(civ);
       const [rx, ry] = this.markerPos(refuge);
       this.sim.queueCommand({ kind: 'move', ids: [civ], x: rx, y: ry });
@@ -950,6 +1071,7 @@ export class MissionRuntime {
       if (o.status !== 'active') continue;
       const d = o.def;
       let complete = false;
+      let failed = false;
       if (d.type === 'destroy_all') {
         complete = this.enemyIds.length > 0 && this.enemyIds.every((id) => this.sim.state.alive[id] === 0);
       } else if (d.type === 'eliminate_hvt') {
@@ -979,10 +1101,31 @@ export class MissionRuntime {
         o.paused = held ? null : present ? 'contested' : 'unheld';
         if (held) o.holdTicks++;
         complete = o.holdTicks >= (d.seconds ?? 60) * TICKS_PER_SECOND;
+      } else if (d.type === 'evacuate_before') {
+        const z = this.zone(d.target);
+        if (z !== undefined) {
+          const st = this.sim.state;
+          for (const civ of this.civIds) {
+            if (this.civEvacuated.has(civ) || st.alive[civ] === 0) continue;
+            const tx = st.posX[civ] >> 16;
+            const ty = st.posY[civ] >> 16;
+            if (tx >= z[0] && tx < z[0] + z[2] && ty >= z[1] && ty < z[1] + z[3]) {
+              this.civEvacuated.add(civ);
+            }
+          }
+        }
+        complete = this.civEvacuated.size >= (d.count ?? 1);
+        // The deadline is the whole point: a clock the player cannot see expire
+        // is a hidden model (GDD §5.8), which is why this latches a status the
+        // HUD already draws rather than failing silently.
+        failed = !complete && tick >= (d.seconds ?? 300) * TICKS_PER_SECOND;
       }
       if (complete) {
         o.status = 'complete';
         out.push({ kind: 'objective', tick, id: d.id, status: 'complete' });
+      } else if (failed) {
+        o.status = 'failed';
+        out.push({ kind: 'objective', tick, id: d.id, status: 'failed' });
       }
     }
   }
@@ -992,8 +1135,14 @@ export class MissionRuntime {
     const won = primaries.length > 0 && primaries.every((o) => o.status === 'complete');
     const wiped =
       this.playerIds.length > 0 && this.playerIds.every((id) => this.sim.state.alive[id] === 0);
-    // An ROE collapse loses the mission even with objectives in hand.
-    const lost = wiped || this.roeFailed;
+    // An ROE collapse loses the mission even with objectives in hand — and so
+    // does a failed primary. `evacuate_before` is the first objective type
+    // that can become 'failed'; without this, a mission that marks one
+    // primary and misses its deadline can never end: victory needs every
+    // primary complete, defeat was wipe-or-ROE only, and the player is left
+    // in a mission that is unwinnable and unlosable at once.
+    const failedPrimary = primaries.some((o) => o.status === 'failed');
+    const lost = wiped || this.roeFailed || failedPrimary;
     if (!lost && !won) return;
 
     this.ended = true;
@@ -1012,19 +1161,35 @@ export class MissionRuntime {
       if ((this.kills.get(id) ?? 0) > 0 && vet < 3) vet++;
       roster.push({ type: typeId, veterancy: vet });
     }
-    const prev = this.ctx.ledger?.['roe.cumulative_rating'];
-    const cumulative = typeof prev === 'number' ? ((prev + roeRating) / 2) | 0 : roeRating;
+    // Best-of per mission. Storage only -- no averaging here, because an average is
+    // division and this package bans floating point. See LedgerData['roe.mission_ratings'].
+    const prevRatings = this.ctx.ledger?.['roe.mission_ratings'];
+    const merged: Record<string, number> = {};
+    if (prevRatings !== null && typeof prevRatings === 'object') {
+      const prior = prevRatings as Record<string, number>;
+      for (const k of Object.keys(prior)) merged[k] = prior[k];
+    }
+    const best = merged[this.mission.id];
+    if (typeof best !== 'number' || roeRating > best) merged[this.mission.id] = roeRating;
+    // Rebuilt in sorted key order -- after this mission's entry is merged in, not
+    // before -- so the saved object is stable rather than insertion-ordered regardless
+    // of which mission was just played. Matches how intel.marked_positions is sorted
+    // below. (Sorting only the incoming prior keys and appending the current mission's
+    // key afterward leaves *that* key out of order, which is the bug this guards.)
+    const ratings: Record<string, number> = {};
+    for (const k of Object.keys(merged).sort()) ratings[k] = merged[k];
 
     const produced: LedgerData = {};
     for (const key of this.mission.ledger.produces) {
       if (key === 'roster.surviving_units') produced[key] = roster;
-      else if (key === 'roe.cumulative_rating') produced[key] = cumulative;
+      else if (key === 'roe.mission_ratings') produced[key] = ratings;
       else if (key === 'campaign.completed_missions') {
         const prevDone = this.ctx.ledger?.['campaign.completed_missions'];
         const done = Array.isArray(prevDone) ? [...prevDone] : [];
         if (this.resultValue === 'victory' && !done.includes(this.mission.id)) done.push(this.mission.id);
         produced[key] = done;
       }
+      else if (key === 'civ.settlements_evacuated') produced[key] = this.civEvacuated.size;
       else if (key === 'intel.marked_positions') {
         // Union with what came in: intel accumulates across a campaign rather than
         // being replaced, so a later mission cannot un-know what an earlier one saw.

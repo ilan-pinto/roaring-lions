@@ -417,14 +417,15 @@ describe('campaign ledger (GDD §6 carry-over)', () => {
     expect(gutted.sim.state.veterancy[guttedPlayers[0]]).toBe(0);
   });
 
-  it('victory produces the declared keys: updated roster and cumulative ROE', () => {
+  it('victory produces the declared keys: updated roster and per-mission ROE', () => {
     const w = makeWorld(
       baseMission({
         starting_force: [{ unit: 'm_tank', count: 1, at: [4, 5] }],
         enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [11, 5], facing_deg: 180 }] },
-        ledger: { requires: [], produces: ['roster.surviving_units', 'roe.cumulative_rating'] },
+        ledger: { requires: [], produces: ['roster.surviving_units', 'roe.mission_ratings'] },
       }),
-      { ledger: { 'roe.cumulative_rating': 60 } }
+      // test_mission is baseMission's default id (unmodified above).
+      { ledger: { 'roe.mission_ratings': { test_mission: 60 } } }
     );
     const { mission } = w.step(90 * TICKS_PER_SECOND);
     const end = mission.find((e) => e.kind === 'missionEnd');
@@ -438,8 +439,8 @@ describe('campaign ledger (GDD §6 carry-over)', () => {
       // The tank got the kill: veterancy 0 -> 1.
       expect(roster[0]).toEqual({ type: 'm_tank', veterancy: 1 });
     }
-    // Cumulative ROE averages prior (60) with this mission's rating (100).
-    expect(end.ledger['roe.cumulative_rating']).toBe(80);
+    // This mission's rating (100) beats the seeded prior best (60), so best-of keeps it.
+    expect((end.ledger['roe.mission_ratings'] as Record<string, number>).test_mission).toBe(100);
   });
 
   it('emits only the keys the mission contract declares', () => {
@@ -447,13 +448,13 @@ describe('campaign ledger (GDD §6 carry-over)', () => {
       baseMission({
         starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
         objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 2 }],
-        ledger: { requires: [], produces: ['roe.cumulative_rating'] },
+        ledger: { requires: [], produces: ['roe.mission_ratings'] },
       })
     );
     const { mission } = w.step(4 * TICKS_PER_SECOND);
     const end = mission.find((e) => e.kind === 'missionEnd');
     if (end?.kind !== 'missionEnd') throw new Error('no end');
-    expect(end.ledger['roe.cumulative_rating']).toBe(100);
+    expect((end.ledger['roe.mission_ratings'] as Record<string, number>).test_mission).toBe(100);
     expect('roster.surviving_units' in end.ledger).toBe(false);
   });
 });
@@ -658,6 +659,244 @@ describe('civilians and ROE (GDD §6)', () => {
     const end = out.find((e) => e.kind === 'missionEnd');
     expect(end?.kind === 'missionEnd' && end.result).toBe('defeat');
     if (end?.kind === 'missionEnd') expect(end.roeRating).toBe(40);
+  });
+
+  it('a civilian walks out when a soldier comes within shepherding range', () => {
+    const w = civWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [11, 6] }],
+      civilians: { groups: [{ unit: 'm_civ', count: 1, at: [12, 6] }], refuge: 'refuge' },
+    });
+    const civ = w.sim.entityCount - 1;
+    const startX = w.sim.state.posX[civ];
+    w.step(40);
+    // Heading for the refuge at [2, 10]: west and south of where it started.
+    expect(w.sim.state.posX[civ]).toBeLessThan(startX);
+  });
+
+  it('a civilian with no soldier near it stays put', () => {
+    const w = civWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [2, 2] }],
+      civilians: { groups: [{ unit: 'm_civ', count: 1, at: [20, 6] }], refuge: 'refuge' },
+    });
+    const civ = w.sim.entityCount - 1;
+    const startX = w.sim.state.posX[civ];
+    w.step(40);
+    expect(w.sim.state.posX[civ]).toBe(startX);
+  });
+
+  it('shepherding is issued once, so a soldier standing there does not re-order every tick', () => {
+    const w = civWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [11, 6] }],
+      civilians: { groups: [{ unit: 'm_civ', count: 1, at: [12, 6] }], refuge: 'refuge' },
+    });
+    const civ = w.sim.entityCount - 1;
+    w.step(120);
+    const x1 = w.sim.state.posX[civ];
+    w.step(120);
+    // Still travelling toward the refuge, not pinned in place by re-issued orders.
+    expect(w.sim.state.posX[civ]).toBeLessThan(x1);
+  });
+
+  const REFUGE_CTX = { zones: { clinic: [20, 2, 4, 4], refuge_zone: [0, 8, 6, 4] } };
+
+  it('counts civilians who reach the refuge zone and completes at the count', () => {
+    const w = civWorld(
+      {
+        starting_force: [{ unit: 'm_squad', count: 1, at: [11, 6] }],
+        civilians: { groups: [{ unit: 'm_civ', count: 1, at: [12, 6] }], refuge: 'refuge' },
+        objectives: [
+          { id: 'evac', type: 'evacuate_before', primary: false, target: 'refuge_zone', count: 1, seconds: 600 },
+          { id: 'clock', type: 'survive_until', primary: true, seconds: 600 },
+        ],
+      },
+      REFUGE_CTX
+    );
+    const evs = w.step(600);
+    const done = evs.mission.filter((m) => m.kind === 'objective' && m.id === 'evac' && m.status === 'complete');
+    expect(done).toHaveLength(1);
+  });
+
+  it('marks the evacuation failed when the deadline passes short of the count', () => {
+    const w = civWorld(
+      {
+        // No soldier near the civilian: nobody is coming for them.
+        starting_force: [{ unit: 'm_squad', count: 1, at: [24, 2] }],
+        civilians: { groups: [{ unit: 'm_civ', count: 1, at: [20, 6] }], refuge: 'refuge' },
+        objectives: [
+          { id: 'evac', type: 'evacuate_before', primary: false, target: 'refuge_zone', count: 1, seconds: 5 },
+          { id: 'clock', type: 'survive_until', primary: true, seconds: 600 },
+        ],
+      },
+      REFUGE_CTX
+    );
+    const evs = w.step(5 * TICKS_PER_SECOND + 2);
+    const failed = evs.mission.filter((m) => m.kind === 'objective' && m.id === 'evac' && m.status === 'failed');
+    expect(failed).toHaveLength(1);
+    expect(w.runtime.objectiveList.find((o) => o.id === 'evac')?.status).toBe('failed');
+  });
+
+  it('a failed secondary evacuation does not lose the mission', () => {
+    const w = civWorld(
+      {
+        starting_force: [{ unit: 'm_squad', count: 1, at: [24, 2] }],
+        civilians: { groups: [{ unit: 'm_civ', count: 1, at: [20, 6] }], refuge: 'refuge' },
+        objectives: [
+          { id: 'evac', type: 'evacuate_before', primary: false, target: 'refuge_zone', count: 1, seconds: 5 },
+          { id: 'clock', type: 'survive_until', primary: true, seconds: 600 },
+        ],
+      },
+      REFUGE_CTX
+    );
+    w.step(5 * TICKS_PER_SECOND + 2);
+    expect(w.runtime.result).toBe('ongoing');
+  });
+
+  it('a failed primary evacuation loses the mission outright', () => {
+    // Without this, a mission whose primary can fail would soft-lock: victory
+    // needs every primary complete, and defeat was wipe-or-ROE only.
+    const w = civWorld(
+      {
+        starting_force: [{ unit: 'm_squad', count: 1, at: [24, 2] }],
+        civilians: { groups: [{ unit: 'm_civ', count: 1, at: [20, 6] }], refuge: 'refuge' },
+        objectives: [
+          { id: 'evac', type: 'evacuate_before', primary: true, target: 'refuge_zone', count: 1, seconds: 5 },
+        ],
+      },
+      REFUGE_CTX
+    );
+    const evs = w.step(5 * TICKS_PER_SECOND + 2);
+    const end = evs.mission.find((e) => e.kind === 'missionEnd');
+    expect(end?.kind === 'missionEnd' && end.result).toBe('defeat');
+    expect(w.runtime.result).toBe('defeat');
+  });
+
+  it('a civilian who reached the refuge and then died still counts: arrival is latched', () => {
+    // Two civilians, both shepherded at once; the nearer one arrives first,
+    // dies, and the objective still completes when the second walks in.
+    const w = civWorld(
+      {
+        starting_force: [{ unit: 'm_squad', count: 1, at: [11, 6] }],
+        civilians: {
+          groups: [
+            { unit: 'm_civ', count: 1, at: [12, 6] },
+            { unit: 'm_civ', count: 1, at: [14, 7] },
+          ],
+          refuge: 'refuge',
+        },
+        objectives: [
+          { id: 'evac', type: 'evacuate_before', primary: false, target: 'refuge_zone', count: 2, seconds: 600 },
+          { id: 'clock', type: 'survive_until', primary: true, seconds: 600 },
+        ],
+      },
+      REFUGE_CTX
+    );
+    const [civA, civB] = [1, 2]; // spawn order: soldier, then the two groups
+    const zone = REFUGE_CTX.zones.refuge_zone;
+    const inZone = (id: number): boolean => {
+      const tx = w.sim.state.posX[id] >> 16;
+      const ty = w.sim.state.posY[id] >> 16;
+      return tx >= zone[0] && tx < zone[0] + zone[2] && ty >= zone[1] && ty < zone[1] + zone[3];
+    };
+    // Walk until the nearer civilian is in the zone and the farther is not.
+    let ticks = 0;
+    while (!(inZone(civA) && !inZone(civB)) && ticks < 3000) {
+      w.step(1);
+      ticks++;
+    }
+    expect(inZone(civA)).toBe(true);
+    expect(inZone(civB)).toBe(false);
+    w.sim.debugKill(civA);
+    expect(w.sim.state.alive[civA]).toBe(0);
+    // The second arrival must complete the count of two, dead first included.
+    const evs = w.step(3000);
+    const done = evs.mission.filter((m) => m.kind === 'objective' && m.id === 'evac' && m.status === 'complete');
+    expect(done).toHaveLength(1);
+  });
+
+  it('victory produces civ.settlements_evacuated when the mission declares it', () => {
+    const w = civWorld(
+      {
+        ledger: {
+          requires: [],
+          produces: ['civ.settlements_evacuated'],
+        },
+        starting_force: [{ unit: 'm_squad', count: 1, at: [11, 6] }],
+        civilians: { groups: [{ unit: 'm_civ', count: 1, at: [12, 6] }], refuge: 'refuge' },
+        objectives: [
+          { id: 'evac', type: 'evacuate_before', primary: false, target: 'refuge_zone', count: 1, seconds: 600 },
+          { id: 'clock', type: 'survive_until', primary: true, seconds: 40 },
+        ],
+      },
+      REFUGE_CTX
+    );
+    const evs = w.step(40 * TICKS_PER_SECOND + 2);
+    const end = evs.mission.find((e) => e.kind === 'missionEnd');
+    expect(end?.kind === 'missionEnd' && end.result).toBe('victory');
+    if (end?.kind === 'missionEnd') {
+      expect(end.ledger['civ.settlements_evacuated']).toBe(1);
+    }
+  });
+
+  it('shows the evacuation deadline as a countdown, so an expiring clock is visible', () => {
+    const w = civWorld(
+      {
+        starting_force: [{ unit: 'm_squad', count: 1, at: [24, 2] }],
+        civilians: { groups: [{ unit: 'm_civ', count: 1, at: [20, 6] }], refuge: 'refuge' },
+        objectives: [
+          { id: 'evac', type: 'evacuate_before', primary: false, target: 'refuge_zone', count: 1, seconds: 60 },
+          { id: 'clock', type: 'survive_until', primary: true, seconds: 600 },
+        ],
+      },
+      REFUGE_CTX
+    );
+    w.step(20);
+    const view = w.runtime.objectiveList.find((o) => o.id === 'evac');
+    expect(view?.ticksLeft).toBe(60 * TICKS_PER_SECOND - 20);
+  });
+
+  it('refuses an evacuate_before whose target is not a zone', () => {
+    expect(() =>
+      civWorld(
+        {
+          civilians: { groups: [{ unit: 'm_civ', count: 1, at: [20, 6] }], refuge: 'refuge' },
+          objectives: [
+            { id: 'evac', type: 'evacuate_before', primary: false, target: 'not_a_zone', count: 1, seconds: 60 },
+          ],
+        },
+        REFUGE_CTX
+      )
+    ).toThrow(/needs a valid zone/);
+  });
+
+  it('refuses an evacuate_before whose refuge marker lies outside the target zone', () => {
+    // The default refuge marker (from civWorld's ctx) is [2, 10]; "clinic" is
+    // [20, 2, 4, 4], nowhere near it, so nobody sent there could ever land in
+    // the objective's zone.
+    expect(() =>
+      civWorld(
+        {
+          civilians: { groups: [{ unit: 'm_civ', count: 1, at: [20, 6] }], refuge: 'refuge' },
+          objectives: [
+            { id: 'evac', type: 'evacuate_before', primary: false, target: 'clinic', count: 1, seconds: 60 },
+          ],
+        },
+        REFUGE_CTX
+      )
+    ).toThrow(/is outside zone/);
+  });
+
+  it('refuses an evacuate_before when the mission declares no refuge for civilians', () => {
+    expect(() =>
+      civWorld(
+        {
+          civilians: { groups: [{ unit: 'm_civ', count: 1, at: [20, 6] }] }, // no `refuge` marker set
+          objectives: [
+            { id: 'evac', type: 'evacuate_before', primary: false, target: 'refuge_zone', count: 1, seconds: 60 },
+          ],
+        },
+        REFUGE_CTX
+      )
+    ).toThrow(/needs civilians\.refuge/);
   });
 });
 
@@ -1234,3 +1473,154 @@ describe('external objective completion', () => {
   });
 });
 
+describe('ROE ratings per mission', () => {
+  const roeMission = (id: string): MissionJson =>
+    baseMission({
+      id,
+      ledger: { requires: [], produces: ['roe.mission_ratings', 'campaign.completed_missions'] },
+      starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+      objectives: [{ id: 'win', type: 'survive_until', seconds: 1, primary: true }],
+    });
+
+  const finish = (id: string, ledger: LedgerData): LedgerData => {
+    const w = makeWorld(roeMission(id), { ledger });
+    for (let t = 0; t < 5 * TICKS_PER_SECOND; t++) {
+      const out = w.step(1);
+      for (const e of out.mission) if (e.kind === 'missionEnd') return e.ledger;
+    }
+    throw new Error(`mission ${id} never ended`);
+  };
+
+  it('records a rating per mission, keyed by mission id', () => {
+    const out = finish('m_one', {});
+    expect(out['roe.mission_ratings']).toBeDefined();
+    expect(Object.keys(out['roe.mission_ratings'] as Record<string, number>)).toEqual(['m_one']);
+  });
+
+  it('accumulates an entry per mission played', () => {
+    const both = finish('m_two', finish('m_one', {}));
+    const ratings = both['roe.mission_ratings'] as Record<string, number>;
+    expect(Object.keys(ratings).sort()).toEqual(['m_one', 'm_two']);
+  });
+
+  it('does not average in the sim at all -- no cumulative key is produced', () => {
+    // An average is division, and @lions/sim bans floating point. campaignRoe does this
+    // for display; unlockReason gates on it by integer comparison.
+    expect(finish('m_one', {})['roe.cumulative_rating']).toBeUndefined();
+  });
+
+  it('leaves a legacy cumulative rating in the incoming ledger untouched', () => {
+    // Saves written before this change carry the old key. The sim neither reads nor
+    // rewrites it, and both readers fall back to it.
+    const out = finish('m_one', { 'roe.cumulative_rating': 64 });
+    expect(out['roe.mission_ratings']).toBeDefined();
+  });
+
+  it('keeps the better rating when a mission is replayed, never the newer one', () => {
+    // Seed a rating this run cannot beat, then replay: the entry must not fall.
+    const seeded: LedgerData = { 'roe.mission_ratings': { m_one: 100 } };
+    const out = finish('m_one', seeded);
+    expect((out['roe.mission_ratings'] as Record<string, number>).m_one).toBe(100);
+  });
+
+  it('cannot be farmed: replaying one mission leaves every other entry alone', () => {
+    const seeded: LedgerData = { 'roe.mission_ratings': { m_one: 20, m_two: 90 } };
+    const out = finish('m_one', seeded);
+    const ratings = out['roe.mission_ratings'] as Record<string, number>;
+    expect(ratings.m_two).toBe(90);
+    expect(Object.keys(ratings).sort()).toEqual(['m_one', 'm_two']);
+  });
+
+  it('is order-independent, so the same campaign always reads the same', () => {
+    const ab = finish('m_two', finish('m_one', {}))['roe.mission_ratings'];
+    const ba = finish('m_one', finish('m_two', {}))['roe.mission_ratings'];
+    // Same keys AND same serialisation: the object is rebuilt in sorted key order, so a
+    // save file cannot differ by play order.
+    expect(JSON.stringify(ab)).toBe(JSON.stringify(ba));
+  });
+
+
+});
+
+
+describe('placements cannot spawn inside a building', () => {
+  /** A world with one 2x2 building at (10,5)-(11,6), and a mission that has not
+   *  started yet — so a test can choose where to put a placement relative to it. */
+  function walledWorld(mission: MissionJson, ctx?: Partial<MissionContext>) {
+    const sim = new Sim({ seed: 3, width: 28, height: 12, capacity: 32 });
+    const ids = new Map<string, number>();
+    for (const t of [SQUAD, CIVILIANS]) ids.set(t.id, sim.addUnitType(t));
+    const wall = sim.addStructureType({ id: 'wall', hp_per_tile: 90, garrison_slots: 0 });
+    // Tile indices for (10,5), (11,5), (10,6), (11,6).
+    sim.addStructure(wall, [5 * 28 + 10, 5 * 28 + 11, 6 * 28 + 10, 6 * 28 + 11]);
+    const runtime = new MissionRuntime(sim, mission, {
+      typeIdOf: (u) => {
+        const t = ids.get(u);
+        if (t === undefined) throw new Error(`unknown unit ${u}`);
+        return t;
+      },
+      markers: {},
+      zones: {},
+      ...ctx,
+    });
+    return { sim, runtime };
+  }
+
+  it('refuses a placement whose own tile is a building', () => {
+    const w = walledWorld(
+      baseMission({ starting_force: [{ unit: 'm_squad', count: 1, at: [10, 5] }] })
+    );
+    expect(() => w.runtime.start()).toThrow(/m_squad/);
+    expect(() => w.runtime.start()).toThrow(/\(10,5\)/);
+  });
+
+  it('refuses a placement whose SPREAD sibling lands in a building, though its own tile is clear', () => {
+    // count 3 spreads to +0, +1.25 and +2.5 tiles east. Declared at (8,5): the
+    // third body lands on (10,5), which is the building. This is the exact shape
+    // of the bug that trapped a civilian in a mosque -- the declared tile is fine.
+    const w = walledWorld(
+      baseMission({ starting_force: [{ unit: 'm_squad', count: 3, at: [8, 5] }] })
+    );
+    expect(() => w.runtime.start()).toThrow(/m_squad/);
+    // The message must name the offending body, not just the placement.
+    expect(() => w.runtime.start()).toThrow(/\(10,5\)/);
+  });
+
+  it('allows a placement whose whole spread is clear ground', () => {
+    const w = walledWorld(
+      baseMission({ starting_force: [{ unit: 'm_squad', count: 3, at: [2, 2] }] })
+    );
+    expect(() => w.runtime.start()).not.toThrow();
+  });
+
+  it('exempts a garrisoning placement — it is entering the building, not trapped in it', () => {
+    // Posting a squad at the doorway is normal authoring, and a count-2 spread
+    // legitimately puts the second body on the building's own tile. The unit
+    // walks in on the first ticks, so this must stay allowed.
+    const w = walledWorld(
+      baseMission({
+        enemy: {
+          garrison: [
+            {
+              unit: 'm_squad',
+              count: 2,
+              at: [9, 5],
+              stance: { kind: 'garrison', building: [10, 5] },
+            },
+          ],
+        },
+      })
+    );
+    expect(() => w.runtime.start()).not.toThrow();
+  });
+
+  it('checks civilians too — they are the ones who get trapped', () => {
+    const w = walledWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [2, 2] }],
+        civilians: { groups: [{ unit: 'm_civ', count: 1, at: [11, 6] }] },
+      })
+    );
+    expect(() => w.runtime.start()).toThrow(/m_civ/);
+  });
+});
