@@ -83,7 +83,7 @@ The cost curve prices units against each other; these anchors tie it to time. Al
 
 Six phases. Each is normally the spine of its own **short mission** (see §6), and each writes to the campaign ledger that later phases read.
 
-1. **Breach** — the enemy attacks and the player is the one holding. Outnumbered, no corridor, no reinforcements: survive, get civilians clear, and still hold a position when relief arrives. Losing ground is the design, not a failure state. Any doctrine can open on the back foot.
+1. **Breach** — the enemy attacks and the player is the one holding. Outnumbered and converged on from every approach, holding a walled perimeter with the road still open behind it: survive, get the families inside the wire, and still hold the ground when relief arrives. The corridor is what separates a player who spends from one who does nothing — logistics accrues, and banking it is the losing move. Losing ground is the design, not a failure state. Any doctrine can open on the back foot.
 2. **Recon** — drones, scout teams, snipers. Mark tunnel mouths, weapon caches, civilian-occupied structures. Low force, high stealth, heavy Intel generation.
 3. **Foothold** — establish the FOB under harassment. Engineering, supply corridor, Iron Dome battery. Defensive, time-pressured.
 4. **Build-up** — production and force composition. The one phase where the player has breathing room; Intel is spent here on the coming assault.

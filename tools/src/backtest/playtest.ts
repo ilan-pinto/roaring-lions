@@ -15,7 +15,9 @@ function run(
 ): LedgerData {
   const mission = missions[id] as unknown as MissionJson;
   const map = parseMap(maps[mission.map.file as keyof typeof maps]);
-  const sim = new Sim({ seed: 424242, width: map.width, height: map.height, capacity: 128 });
+  // Matches the app. `spawn` never reuses a dead slot, so this is a budget for
+  // everyone who ever appears, not for how many stand at once.
+  const sim = new Sim({ seed: 424242, width: map.width, height: map.height, capacity: 256 });
   for (let y = 0; y < map.height; y++)
     for (let x = 0; x < map.width; x++) {
       const t = y * map.width + x;
@@ -76,46 +78,54 @@ function run(
 
 const M = (x: number, y: number) => ({ x: fx.from(x), y: fx.from(y) });
 
-// 0 — First Light: give up the perimeter on purpose, walk the north village
-// out with the jeep alone, and hold the compound with everything else.
+// 0 — First Light: hold the compound, run the villages in with the jeep, and
+// spend the corridor as it arrives.
 //
-// This deviates from the obvious "attackMove everyone to the compound, walk
-// both villages" sketch in two ways the playtest itself forced:
+// The compound is at the middle of the map with a gate on each face, and 104
+// attackers converge on it from all eight edges over thirteen minutes. Three
+// things this plan does deliberately:
 //
-// - `move`, not `attackMove`, for the fallback. attackMove halts a unit the
-//   moment anything is in effective range, so under fire from the moment
-//   contact starts, it never resumes toward the compound -- the APC took
-//   root at the abandoned perimeter and fought there for the entire mission
-//   (never reaching cover), and the sniper team got dragged out of the
-//   strongpoint the same way. `move` still returns fire on the way in but
-//   does not stop for it, so the whole line reaches the walled compound.
-// - The jeep sweeps the north village only (two waypoints, no escort). The
-//   south village's civilians are guarded by an ambushed RPG team sitting
-//   almost on top of them (`south_infiltrators`, tunnel_south) -- walking a
-//   light escort in there is a needless second firefight. The north pair
-//   alone yields enough evacuees for the (tuned) objective count, and a
-//   dedicated infantry escort tried alongside the jeep still died to the
-//   wave-1 militia drifting off the now-empty perimeter with nothing else to
-//   shoot at -- the jeep's speed is what gets it in and out before that
-//   drift arrives, not numbers.
-// Control: the premise is catastrophe. A player who gives no orders at all
-// must LOSE this mission — if the perimeter holds itself for thirteen minutes,
-// the breach is not a breach. This is the passive twin of the winnable-plan
-// check below, and it pins the mission's premise the same way the plan pins
-// its feasibility.
+// - the defenders stay where they are. They start spread across the yard with
+//   firing positions covering each gate, and a wall they can shoot over, so
+//   there is nothing to reposition toward -- and a unit under orders is a unit
+//   that might walk into its own gateway and cork it.
+// - the jeep does two runs, north village then south, and nothing escorts it.
+//   Shepherding is a four-tile proximity brush rather than an escort: the
+//   families walk themselves in once touched, so speed is the whole trick and
+//   numbers only add casualties.
+// - logistics is spent, not banked. 400 up front and 120/min means a purchase
+//   roughly every two minutes, and an unspent purse at the end is the GDD's own
+//   definition of income set too high.
+//
+// Control: the premise is catastrophe. A player who gives no orders at all must
+// LOSE -- if the compound holds itself for thirteen minutes, the breach is not
+// a breach. This pins the mission's premise the way the plan pins feasibility.
 run('beit_sahwan_breach', () => {}, {}, 'defeat', 'beit_sahwan_breach (passive control)');
 
-const led0 = run('beit_sahwan_breach', (sim, _rt, ids, at) => {
+const led0 = run('beit_sahwan_breach', (sim, rt, ids, at) => {
   const shepherds = ids('jeep_shoded');
-  const holders = [...ids('at_team'), ...ids('sniper_team'), ...ids('apc_eitan'), ...ids('inf_squad')];
-  // The perimeter is indefensible and not an objective: fall back at once.
-  at(0, () => {
-    sim.queueCommand({ kind: 'move', ids: holders, ...M(34, 24) });
-    sim.queueCommand({ kind: 'move', ids: shepherds, ...M(24, 13) });
+  // Both western villages, out and back through the west gate, before the
+  // south-west and west spawns build up. Six families is the objective and the
+  // two western pairs are six between them, so there is no reason to cross the
+  // map for the eastern ones and every reason not to.
+  const armour = ids('apc_eitan');
+  at(5, () => {
+    sim.queueCommand({ kind: 'move', ids: shepherds, ...M(13, 19) });
+    sim.queueCommand({ kind: 'move', ids: armour, ...M(13, 28) });
   });
-  // Trigger both north-village family groups, then run back to the compound.
-  at(20, () => sim.queueCommand({ kind: 'move', ids: shepherds, ...M(28, 17) }));
-  at(45, () => sim.queueCommand({ kind: 'move', ids: shepherds, ...M(34, 24) }));
+  at(45, () => {
+    sim.queueCommand({ kind: 'move', ids: shepherds, ...M(20, 21) });
+    sim.queueCommand({ kind: 'move', ids: armour, ...M(20, 26) });
+  });
+  // Spend it as it lands. Banking is the losing move here: an unspent purse is
+  // a squad that was not on the wall when the wire came down, and the run that
+  // bought on a six-purchase schedule died ninety seconds sooner than the one
+  // that bought whenever it could afford to.
+  for (let when = 20; when <= 700; when += 25) {
+    at(when, () => {
+      if (!rt.requestBuild('inf_squad')) rt.requestBuild('mortar_team');
+    });
+  }
 });
 
 // I — Recon: scouts screen forward on the berm and observe; the drone tours

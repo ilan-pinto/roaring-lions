@@ -60,13 +60,15 @@
       "id": "wall",
       "name": "Compound Wall",
       "symbol": "=",
-      "hp_per_tile": 90,
+      "hp_per_tile": 200,
       "garrison_slots": 0,
       "rubble_cover": 1,
       "height_px": 7,
       "color": "limestone.5",
       "roe_penalty": 0,
-      "per_tile": true
+      "per_tile": true,
+      "low_profile": true,
+      "standing_cover": 2
     },
     "mosque": {
       "id": "mosque",

@@ -10,7 +10,7 @@
 import { fx, ONE, HALF, type Fx } from './fixed';
 import { Rng } from './rng';
 import { HASH_SEED, hashArray, hashWord } from './hash';
-import { FlowField, DIR_NONE, DIR_VX, DIR_VY } from './flowfield';
+import { FlowField, DIR_NONE, DIR_VX, DIR_VY, COST_ORTH, COST_DIAG } from './flowfield';
 import {
   structureTypeFromJson,
   STRUCT_DAMAGE,
@@ -21,6 +21,9 @@ import {
   COLLAPSE_SHOCK,
   STRUCT_BASE_ACCURACY,
   PROTECTED_ROE,
+  BREACH_RANGE_SQ,
+  BREACH_TILES,
+  BREACH_DETOUR_SLACK,
   type StructureType,
   type StructureTypeJson,
 } from './structures';
@@ -1343,7 +1346,14 @@ export class Sim {
       const t = y * w + x;
       if (this.blocked[t] !== 0) {
         const st = this.structureOfTile[t];
-        if (st < 0 || (st !== sFrom && st !== sTo)) return -1;
+        // A fence costs you concealment on the way past, not the sight line:
+        // you shoot over it. Everything taller than chest height still stops
+        // the ray dead unless it is one of the two structures at its ends.
+        if (st >= 0 && this.structureTypes[this.stTypeIdx[st]].lowProfile) {
+          if (coverCount < 8) coverCount++;
+        } else if (st < 0 || (st !== sFrom && st !== sTo)) {
+          return -1;
+        }
       }
       if (this.cover[t] !== 0 && coverCount < 8) coverCount++;
     }
@@ -1644,6 +1654,139 @@ export class Sim {
     return best;
   }
 
+  /**
+   * The wall in the way, or -1.
+   *
+   * A unit with somewhere to be, pressed against something it can neither
+   * garrison nor walk around, cuts through it. Four conditions, and each one is
+   * carrying weight:
+   *
+   * - it is going somewhere (`moving` with a live field). A defender holding
+   *   his own compound has no goal and so never fires on his own fence — there
+   *   is no notion of who owns a structure for him to appeal to, and this is
+   *   what stands in for it.
+   * - going through would actually help. The flow field already knows the true
+   *   cost of walking to the goal around every wall on the map; compare it to
+   *   the straight line and the surplus is the detour the terrain imposes.
+   *   Under the slack there is an opening worth using, so use it.
+   * - and the thing is within arm's reach, ungarrisonable, and not a protected
+   *   site — the same carve-out selectStructureTarget makes for a mosque.
+   *
+   * Note what is deliberately NOT required: that the unit be stuck. Gating on
+   * "tried to walk and did not move" sounds safer and quietly guts the feature,
+   * because a man who can walk three-quarters of the way round a compound to
+   * reach its gate is never stuck — he just takes ninety seconds and arrives
+   * somewhere the defence is already looking. The detour test is the honest
+   * form of the same question, and it is the one that makes a blind wall get
+   * cut while a gate twenty feet away still gets used.
+   */
+  private selectBreachTarget(i: number): number {
+    // The player never cuts a wall by accident. The conditions below already
+    // spare a garrison holding its own compound, but a unit ordered out through
+    // a gate on the far side satisfies every one of them against its own wire,
+    // and there is no notion of who owns a structure to appeal to. Breaching on
+    // our side is a decision, and there is a `demolish` order to make it with.
+    if (this.side[i] === 0) return -1;
+    const w = this.width;
+    const ux = this.posX[i] >> 16;
+    const uy = this.posY[i] >> 16;
+    const gx = this.goalX[i] >> 16;
+    const gy = this.goalY[i] >> 16;
+
+    if (this.moving[i] === 1) {
+      const fRef = this.fieldRef[i];
+      if (fRef < 0) return -1; // routed: broken men do not demolish masonry
+      const field = this.fields[fRef];
+      const myTile = uy * w + ux;
+      if (field.dirs[myTile] !== DIR_NONE) {
+        let dx = gx - ux;
+        if (dx < 0) dx = -dx;
+        let dy = gy - uy;
+        if (dy < 0) dy = -dy;
+        const lo = dx < dy ? dx : dy;
+        const hi = dx < dy ? dy : dx;
+        const straight = COST_DIAG * lo + COST_ORTH * (hi - lo);
+        if (field.costAt(myTile) <= straight + BREACH_DETOUR_SLACK) return -1;
+      }
+    }
+    // Standing still is not a reason to stop. A unit that has arrived where it
+    // was sent has no field left to consult, and an attacker sent to a blind
+    // face is standing in front of it precisely because somebody wants it
+    // opened. This is the half that makes the wall a battle rather than a
+    // boundary: routed to a goal, the field always finds the long way round, so
+    // an assault that only ever reacts to being stuck never cuts anything.
+
+    let best = -1;
+    let bestKey = 0x7fffffff;
+    for (let y = uy - BREACH_TILES; y <= uy + BREACH_TILES; y++) {
+      if (y < 0 || y >= this.height) continue;
+      for (let x = ux - BREACH_TILES; x <= ux + BREACH_TILES; x++) {
+        if (x < 0 || x >= w) continue;
+        const t = y * w + x;
+        if (this.blocked[t] === 0) continue;
+        const s = this.structureOfTile[t];
+        if (s < 0 || this.stAlive[s] === 0) continue;
+        const type = this.structureTypes[this.stTypeIdx[s]];
+        if (type.garrisonSlots !== 0 || type.roePenalty >= PROTECTED_ROE) continue;
+        if (this.stOccupants[s] !== 0) continue;
+        if (this.structDistSq(s, this.posX[i], this.posY[i]) > BREACH_RANGE_SQ) continue;
+        // Cut the panel nearest the goal, ties by tile index so the choice does
+        // not depend on scan order drifting.
+        let ddx = gx - x;
+        if (ddx < 0) ddx = -ddx;
+        let ddy = gy - y;
+        if (ddy < 0) ddy = -ddy;
+        const key = (ddx < ddy ? ddy : ddx) * 4096 + (t & 4095);
+        if (key < bestKey) {
+          bestKey = key;
+          best = s;
+        }
+      }
+    }
+    return best;
+  }
+
+  /**
+   * True when a low wall stands between these two tiles.
+   *
+   * Needed because letting a garrison shoot over its own wall hands the
+   * attackers a target through it, and a unit with a target does not breach —
+   * so the siege would settle into a firefight across a fence that neither side
+   * ever crosses, and the wall would make the compound stronger than before it
+   * could be shot over at all. A man on the far side of the wire is not the
+   * objective; the hole is.
+   */
+  private rayCrossesLowStructure(x0: number, y0: number, x1: number, y1: number): boolean {
+    const w = this.width;
+    let dx = x1 - x0;
+    let dy = y1 - y0;
+    const sx = dx < 0 ? -1 : 1;
+    const sy = dy < 0 ? -1 : 1;
+    dx = dx < 0 ? -dx : dx;
+    dy = dy < 0 ? -dy : dy;
+    let err = dx - dy;
+    let x = x0;
+    let y = y0;
+    for (;;) {
+      if (x === x1 && y === y1) return false;
+      const e2 = 2 * err;
+      if (e2 > -dy) {
+        err -= dy;
+        x += sx;
+      }
+      if (e2 < dx) {
+        err += dx;
+        y += sy;
+      }
+      if (x === x1 && y === y1) return false;
+      const t = y * w + x;
+      if (this.blocked[t] !== 0) {
+        const s = this.structureOfTile[t];
+        if (s >= 0 && this.structureTypes[this.stTypeIdx[s]].lowProfile) return true;
+      }
+    }
+  }
+
   /** True when any living enemy is inside the ambush radius with LOS. */
   private checkAmbushSpring(i: number): boolean {
     const mySide = this.side[i];
@@ -1771,6 +1914,42 @@ export class Sim {
           this.fireAtStructure(i, slot, w, s, tx, ty);
         }
       }
+
+      // Still nothing worth shooting, and stopped dead against a wall on the
+      // way somewhere? Then the wall is the enemy. A target on the far side of
+      // a fence does not count as something worth shooting — it is unreachable,
+      // and stopping to trade fire with it is how a siege turns into two lines
+      // staring at each other over the wire forever.
+      if (this.curStructure[i] < 0) {
+        const tgt = this.curTarget[i];
+        const distracted =
+          tgt >= 0 &&
+          !this.rayCrossesLowStructure(
+            this.posX[i] >> 16,
+            this.posY[i] >> 16,
+            this.posX[tgt] >> 16,
+            this.posY[tgt] >> 16
+          );
+        if (!distracted) {
+          const s = this.selectBreachTarget(i);
+          if (s >= 0) {
+            const [tx, ty] = this.nearestStructTile(s, this.posX[i], this.posY[i]);
+            for (let slot = 0; slot < type.weapons.length && slot < 2; slot++) {
+              const w = type.weapons[slot];
+              if (STRUCT_DAMAGE[w.cls] === 0) continue;
+              const dSq = this.structDistSq(s, this.posX[i], this.posY[i]);
+              if (dSq > w.rangeSq || dSq < w.minRangeSq) continue;
+              engagedClose = true;
+              if (slot === 0) this.curStructure[i] = s;
+              if (slot === 0 && this.moving[i] === 0) {
+                this.turnToward(i, fx.atan2(fx.sub(ty, this.posY[i]), fx.sub(tx, this.posX[i])));
+              }
+              if (this.cooldown[i * 2 + slot] > 0) continue;
+              this.fireAtStructure(i, slot, w, s, tx, ty);
+            }
+          }
+        }
+      }
       this.engaging[i] = engagedClose ? 1 : 0;
     }
   }
@@ -1799,7 +1978,13 @@ export class Sim {
     );
     const ratio = fx.div(dist, w.effectiveRange);
     const rangeFalloff = fx.expNeg(fx.mul(FALLOFF_SCALE[w.cls], fx.mul(ratio, ratio)));
-    let coverMod = COVER_HIT[this.cover[(ty >> 16) * this.width + (tx >> 16)]];
+    // Cover is the target's own tile, or the parapet he is fighting from
+    // behind, whichever is better. Taking the max rather than stacking them
+    // keeps the level inside 0-3, which is all three cover tables are indexed
+    // for, and makes a wall irrelevant to a man already in heavy cover.
+    const tileCover = this.cover[(ty >> 16) * this.width + (tx >> 16)];
+    const parapet = this.parapetCover(tx, ty, px, py);
+    let coverMod = COVER_HIT[parapet > tileCover ? parapet : tileCover];
     // Shooting through a screen: every tile of it degrades the shot, with a
     // floor because blind fire still occasionally connects.
     const smokeOnLine = this.raySmoke(px >> 16, py >> 16, tx >> 16, ty >> 16);
@@ -2275,6 +2460,45 @@ export class Sim {
   // ------------------------------------------------- structures: the systems
 
   /** Squared distance from a point to the nearest tile centre of a structure. */
+  /**
+   * Cover from a low wall the target is fighting from behind, or 0.
+   *
+   * Anchored on the target and on the shooter's side of him, which is what
+   * "behind a wall" means and what makes it symmetric: the defender hugging the
+   * inside of his compound and the attacker hugging the outside both benefit,
+   * and neither gets anything from a fence sitting halfway down a long shot.
+   * Counting any low structure on the ray instead would protect both parties in
+   * an exchange forty tiles apart across a fence in the middle of it.
+   *
+   * Three tile lookups at worst: the two orthogonal neighbours toward the
+   * shooter, and the diagonal between them.
+   */
+  private parapetCover(tx: Fx, ty: Fx, px: Fx, py: Fx): number {
+    const ux = tx >> 16;
+    const uy = ty >> 16;
+    const sx = px > tx ? 1 : px < tx ? -1 : 0;
+    const sy = py > ty ? 1 : py < ty ? -1 : 0;
+    let best = 0;
+    for (let k = 0; k < 3; k++) {
+      // (sx,0), (0,sy), (sx,sy) — skipping the degenerate ones when the shooter
+      // is square on an axis, where sx or sy is 0 and the tile is the target's.
+      const dx = k === 1 ? 0 : sx;
+      const dy = k === 0 ? 0 : sy;
+      if (dx === 0 && dy === 0) continue;
+      const nx = ux + dx;
+      const ny = uy + dy;
+      if (nx < 0 || ny < 0 || nx >= this.width || ny >= this.height) continue;
+      const t = ny * this.width + nx;
+      if (this.blocked[t] === 0) continue;
+      const s = this.structureOfTile[t];
+      if (s < 0 || this.stAlive[s] === 0) continue;
+      const type = this.structureTypes[this.stTypeIdx[s]];
+      if (!type.lowProfile) continue;
+      if (type.standingCover > best) best = type.standingCover;
+    }
+    return best;
+  }
+
   private structDistSq(s: number, px: Fx, py: Fx): number {
     let best = 0x7fffffff;
     const w = this.width;
@@ -2638,6 +2862,11 @@ export class Sim {
           // mosque down two seconds later and costs the player 30 ROE they
           // never spent. A `demolish` order is how you level one on purpose.
           if (this.structureTypes[this.stTypeIdx[s]].roePenalty >= PROTECTED_ROE) continue;
+          // Nor a fence, for a plainer reason: a sapper or a dozer halted inside
+          // its own compound would quietly eat the perimeter it is defending,
+          // one panel every few seconds, and the player would never see why the
+          // wall was falling down. Cutting your own wire is an order.
+          if (this.structureTypes[this.stTypeIdx[s]].lowProfile) continue;
           if (this.stOccupants[s] > 0 && this.friendlyInside(s, this.side[i])) continue;
           const d = this.structDistSq(s, this.posX[i], this.posY[i]);
           if (d <= bestD) {

@@ -316,6 +316,9 @@ export class PixiRenderer {
 
   private frameN = 0;
   private terrainDirty = false;
+  /** Per-structure damage step, so a hit only redraws terrain when the shading
+   *  actually moves. Grown lazily; 0xff means "not seen yet". */
+  private structureWear: Uint8Array | null = null;
   private tracers: Tracer[] = [];
   private puffs: Puff[] = [];
   private readonly emitters = new EmitterLibrary();
@@ -620,7 +623,12 @@ export class PixiRenderer {
           });
         }
       } else if (e.kind === 'structureHit') {
-        this.terrainDirty = true;
+        // A hit only *looks* different when the damage shading moves a step, so
+        // redraw on a step and not on a round. The whole terrain layer -- every
+        // tile, every building -- is rebuilt when this flag is set, which was
+        // free while nothing ever shot a wall and is a per-frame rebuild once a
+        // siege has forty panels being chewed at once.
+        if (this.bumpStructureWear(e.structure)) this.terrainDirty = true;
         const s = e.structure;
         this.puffs.push({
           x: fx.toNumber(this.sim.structures.cx[s]),
@@ -767,8 +775,17 @@ export class PixiRenderer {
         y += sy;
       }
       if (x === x1 && y === y1) return true;
-      if (this.sim.blocked[y * w + x] !== 0) return false;
+      if (this.sim.blocked[y * w + x] !== 0 && !this.isLowProfile(x, y)) return false;
     }
+  }
+
+  /** A chest-high wall casts no fog shadow, because the sim lets sight and fire
+   *  cross it. Without this the compound's own garrison would be shooting at
+   *  men the fog swears they cannot see. */
+  private isLowProfile(x: number, y: number): boolean {
+    const s = this.sim.structureAt(x, y);
+    if (s < 0) return false;
+    return this.sim.structureTypes[this.sim.structures.typeIdx[s]].lowProfile;
   }
 
   /** Dark overlay for everything not currently in sight. */
@@ -968,13 +985,12 @@ export class PixiRenderer {
             g.poly(diamond).fill({ color: underBuilding, alpha: 0.22 });
             // Sprited: one sprite for the whole footprint, so a 3x3 mosque is
             // one dome rather than nine. Drawn on first tile encountered.
-            if (stype.perTile === true) {
-              // A linear structure -- a wall -- is a run of arbitrary length, so
-              // its sprite belongs on every tile it occupies. The footprint-centre
-              // draw below would put one sprite at the middle of a 20-tile
-              // perimeter and leave the rest of it invisible.
-              this.drawStructureTileSprite(x, y, stype.id);
-            } else if (!this.drawnStructures.has(sIdx)) {
+            //
+            // A per-tile type needs no special case here: the loader already
+            // gave every one of its tiles its own structure, so the footprint
+            // centre IS the tile centre and each panel of a wall draws, sorts
+            // and darkens on its own damage.
+            if (!this.drawnStructures.has(sIdx)) {
               this.drawnStructures.add(sIdx);
               this.drawStructureSprite(sIdx, stype.id);
             }
@@ -1210,6 +1226,29 @@ export class PixiRenderer {
     }
   }
 
+  /**
+   * Note this structure's damage step, and say whether it changed.
+   *
+   * Eight steps across the `0.55 + 0.45 * integrity` alpha ramp -- finer than
+   * the eye resolves on a battered wall, coarse enough that a rifle plinking a
+   * 200 HP panel triggers a handful of redraws rather than one per round.
+   */
+  private bumpStructureWear(sIdx: number): boolean {
+    const st = this.sim.structures;
+    if (!this.structureWear || this.structureWear.length < this.sim.structureCount) {
+      const next = new Uint8Array(this.sim.structureCount);
+      next.fill(0xff);
+      if (this.structureWear) next.set(this.structureWear);
+      this.structureWear = next;
+    }
+    const max = st.maxHp[sIdx];
+    const hp = st.hp[sIdx];
+    const step = max > 0 ? Math.max(0, Math.min(8, Math.ceil((hp * 8) / max))) : 8;
+    if (this.structureWear[sIdx] === step) return false;
+    this.structureWear[sIdx] = step;
+    return true;
+  }
+
   private drawStructureSprite(sIdx: number, structureId: string): void {
     const art = this.structureAtlas.get(structureId);
     if (!art) return;
@@ -1229,24 +1268,6 @@ export class PixiRenderer {
     const integrity = max > 0 ? Math.max(0, st.hp[sIdx] / max) : 1;
     spr.alpha = 0.55 + 0.45 * integrity;
     spr.zIndex = depthZ(maxX + 1, maxY + 1);
-    this.spriteLayer.addChild(spr);
-    this.buildingSprites.push(spr);
-  }
-
-  /**
-   * One tile of a per-tile structure. Same art and scale as a footprint draw,
-   * but anchored on this tile's centre and depth-sorted on this tile alone --
-   * a wall's far end must not sort as though it stood at the near end.
-   */
-  private drawStructureTileSprite(x: number, y: number, structureId: string): void {
-    const art = this.structureAtlas.get(structureId);
-    if (!art) return;
-    const cx = x + 0.5;
-    const cy = y + 0.5;
-    const spr = new Sprite({ texture: art.texture, anchor: 0.5 });
-    spr.position.set(isoX(cx, cy), isoY(cx, cy));
-    spr.scale.set((art.scale * TILE_W) / art.texture.width);
-    spr.zIndex = depthZ(x + 1, y + 1);
     this.spriteLayer.addChild(spr);
     this.buildingSprites.push(spr);
   }
@@ -1592,7 +1613,14 @@ export class PixiRenderer {
         const bx2 = x + Math.cos(fc) * 1.1;
         const by2 = y + Math.sin(fc) * 1.1;
         g.moveTo(sx, sy).lineTo(isoX(bx2, by2), isoY(bx2, by2)).stroke({ width: 1.5, color: '#2E2F28', alpha: bodyAlpha });
-      } else if (type.isSoft) {
+      } else if (side === 2 && type.weapons.length === 0) {
+          // Civilians: same circle silhouette as infantry so they read as
+          // people, but limestone fill (not olive) and no weapon barrel.
+          const civFill = this.opts.resolveColor ? this.opts.resolveColor('limestone.1') : '#E6D8BE';
+          const civStroke = this.opts.resolveColor ? this.opts.resolveColor('dust.2') : '#C29455';
+          g.circle(sx, sy, r).fill({ color: civFill, alpha: bodyAlpha });
+          g.circle(sx, sy, r).stroke({ width: 2, color: civStroke, alpha: bodyAlpha });
+        } else if (type.isSoft) {
           // Infantry wear the lighter faction tone so foot troops never read
           // as armour at a glance.
           g.circle(sx, sy, r).fill({ color: this.opts.infantryColors[side], alpha: bodyAlpha });
@@ -1795,6 +1823,29 @@ export class PixiRenderer {
       ring(fx.toNumber(w0.range), this.opts.teamColors[st.side[i]], 1, 0.28);
       ring(fx.toNumber(w0.effectiveRange), this.opts.teamColors[st.side[i]], 1.5, 0.5);
       ring(Math.sqrt(fx.toNumber(w0.minRangeSq)), '#D93A2B', 1, 0.35);
+    }
+
+    // Shepherd radius: when a player unit is selected, highlight nearby
+    // civilians that can still be evacuated. A pulsing ring on each civilian
+    // tells the player "drive here to rescue them."
+    const SHEPHERD_TILES = 4;
+    if (this.selection.length > 0) {
+      for (let ci = 0; ci < this.sim.entityCount; ci++) {
+        if (st.alive[ci] === 0 || st.side[ci] !== 2) continue;
+        const ctype = this.sim.unitTypes[st.typeIdx[ci]];
+        if (ctype.weapons.length > 0) continue;
+        if (st.moving[ci] === 1) continue;
+        const cx = this.prevX[ci] + (this.curX[ci] - this.prevX[ci]) * alpha;
+        const cy = this.prevY[ci] + (this.curY[ci] - this.prevY[ci]) * alpha;
+        const csx = isoX(cx, cy);
+        const csy = isoY(cx, cy);
+        const pulse = 0.35 + 0.2 * Math.sin(this.frameN * 0.12);
+        g.ellipse(csx, csy, SHEPHERD_TILES * TILE_W * ISO_K, SHEPHERD_TILES * TILE_H * ISO_K).stroke({
+          width: 1.5,
+          color: '#B8FF5A',
+          alpha: pulse * 0.4,
+        });
+      }
     }
 
     // Engagement reticles: brackets on whatever the selected units are

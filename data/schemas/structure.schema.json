@@ -63,7 +63,7 @@
           "per_tile": {
             "type": "boolean",
             "default": false,
-            "description": "Draw this type's sprite once per occupied tile rather than once for the whole footprint. For linear structures -- walls, fences -- whose runs are of arbitrary length. A compact building leaves this false."
+            "description": "Every tile of this type is its own structure, with its own HP and its own sprite. For linear structures -- walls, fences -- whose runs are of arbitrary length, and where a breach must be a one-tile hole rather than a whole vanished perimeter. Note this makes roe_penalty a per-tile charge. A compact building leaves this false."
           },
           "color": {
             "type": "string",
@@ -73,7 +73,19 @@
             "type": "integer",
             "minimum": 0,
             "default": 0,
-            "description": "ROE cost when the player brings this building down. A shed is nothing; a mosque is a strategic defeat dressed as a tactical win."
+            "description": "ROE cost when the player brings this building down. A shed is nothing; a mosque is a strategic defeat dressed as a tactical win. Note that a per_tile type is charged per tile."
+          },
+          "low_profile": {
+            "type": "boolean",
+            "default": false,
+            "description": "Chest-high: blocks movement and shields whoever is hugging it, but sight and fire pass over it. For fences and perimeter walls. A compound built from sight-blocking masonry is a blind box whose garrison cannot shoot out, so the wall ends up protecting the besieger."
+          },
+          "standing_cover": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3,
+            "default": 2,
+            "description": "Cover level for a unit fighting from immediately behind this while it stands -- the companion to rubble_cover, which is what remains once it does not. Only consulted for a low_profile type."
           }
         }
       }

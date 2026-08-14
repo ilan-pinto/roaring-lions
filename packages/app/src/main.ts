@@ -227,7 +227,12 @@ async function main(): Promise<void> {
     (maps as Record<string, MapJson | undefined>)[mission?.map.file ?? 'beit_sahwan_outskirts'] ??
     maps.beit_sahwan_outskirts;
   const map = parseMap(mapJson);
-  const sim = new Sim({ seed: 20260727, width: map.width, height: map.height, capacity: 128 });
+  // 256, not 128: `spawn` never reuses a dead unit's slot, so capacity is a
+  // budget for everyone who ever draws breath in a mission rather than for how
+  // many stand at once. First Light puts 104 attackers, 7 defenders and 11
+  // civilians through it before the player buys anything, and running out is a
+  // thrown error mid-mission, not a graceful cap.
+  const sim = new Sim({ seed: 20260727, width: map.width, height: map.height, capacity: 256 });
   for (let y = 0; y < map.height; y++) {
     for (let x = 0; x < map.width; x++) {
       const t = y * map.width + x;

@@ -4,10 +4,14 @@
   "town": "beit_sahwan",
   "phase": "breach",
   "target_minutes": 14,
-  "briefing": "They came at dawn, across the whole front, and the corridor is cut behind us. There is no relief for thirteen minutes and nothing coming before it. Get the villages out through the eastern yard, put what is left of the company in the compound, and still be standing when the column arrives.",
+  "briefing": "They came at dawn, out of the Marj, across every approach at once. What is left of the company is inside the compound on the Beit Sahwan road, and the road is still open behind us — supply is coming forward, so spend it as it arrives rather than banking it. Two gates, both on the road, and two blind faces they will cut straight through rather than walk round. The villages are outside the wire and the families in them have nowhere else to go. Bring them in, hold the yard, and still be standing when the column reaches us.",
   "map": {
     "file": "marj_perimeter",
-    "player_start": [16, 23]
+    "player_start": [
+      24,
+      23
+    ],
+    "time_of_day": "dawn"
   },
   "ledger": {
     "requires": [],
@@ -19,15 +23,100 @@
     ]
   },
   "starting_force": [
-    { "unit": "inf_squad", "count": 1, "at": [16, 14] },
-    { "unit": "at_team", "count": 1, "at": [16, 21] },
-    { "unit": "sniper_team", "count": 1, "at": [16, 27] },
-    { "unit": "apc_eitan", "count": 1, "at": [18, 23] },
-    { "unit": "jeep_shoded", "count": 1, "at": [19, 24] }
+    {
+      "unit": "inf_squad",
+      "count": 1,
+      "at": [
+        21,
+        18
+      ]
+    },
+    {
+      "unit": "inf_squad",
+      "count": 1,
+      "at": [
+        27,
+        18
+      ]
+    },
+    {
+      "unit": "inf_squad",
+      "count": 1,
+      "at": [
+        21,
+        28
+      ]
+    },
+    {
+      "unit": "inf_squad",
+      "count": 1,
+      "at": [
+        27,
+        28
+      ]
+    },
+    {
+      "unit": "at_team",
+      "count": 1,
+      "at": [
+        22,
+        23
+      ]
+    },
+    {
+      "unit": "at_team",
+      "count": 1,
+      "at": [
+        27,
+        23
+      ]
+    },
+    {
+      "unit": "sniper_team",
+      "count": 1,
+      "at": [
+        24,
+        21
+      ]
+    },
+    {
+      "unit": "mortar_team",
+      "count": 1,
+      "at": [
+        24,
+        25
+      ]
+    },
+    {
+      "unit": "demo_squad",
+      "count": 1,
+      "at": [
+        26,
+        26
+      ]
+    },
+    {
+      "unit": "apc_eitan",
+      "count": 1,
+      "at": [
+        22,
+        26
+      ]
+    },
+    {
+      "unit": "jeep_shoded",
+      "count": 1,
+      "at": [
+        25,
+        23
+      ]
+    }
   ],
   "resources": {
-    "logistics_start": 150,
-    "supply_corridor": false
+    "logistics_start": 400,
+    "logistics_rate_per_min": 200,
+    "intel_start": 60,
+    "supply_corridor": true
   },
   "objectives": [
     {
@@ -38,10 +127,10 @@
       "text": "Still be standing when the relief column arrives"
     },
     {
-      "id": "hold_strongpoint",
+      "id": "hold_compound",
       "type": "hold_for",
       "primary": false,
-      "target": "strongpoint",
+      "target": "compound",
       "seconds": 300,
       "text": "Hold the compound for five minutes"
     },
@@ -49,107 +138,472 @@
       "id": "evac_settlements",
       "type": "evacuate_before",
       "primary": false,
-      "target": "refuge_zone",
+      "target": "compound",
       "count": 6,
       "seconds": 480,
-      "text": "Get six families clear through the eastern yard"
+      "text": "Get six families inside the wire"
     }
   ],
   "roe": {
     "enabled": true,
-    "flagged_zones": ["clinic"]
+    "flagged_zones": [
+      "clinic"
+    ]
   },
   "civilians": {
     "refuge": "civ_refuge",
     "groups": [
-      { "unit": "civilians", "count": 3, "at": [24.5, 15.5] },
-      { "unit": "civilians", "count": 3, "at": [27.5, 18.5] },
-      { "unit": "civilians", "count": 3, "at": [25.5, 33.5] },
-      { "unit": "civilians", "count": 2, "at": [29.5, 36.5] }
+      {
+        "unit": "civilians",
+        "count": 3,
+        "at": [
+          12.5,
+          18.5
+        ]
+      },
+      {
+        "unit": "civilians",
+        "count": 3,
+        "at": [
+          35.5,
+          18.5
+        ]
+      },
+      {
+        "unit": "civilians",
+        "count": 3,
+        "at": [
+          12.5,
+          27.5
+        ]
+      },
+      {
+        "unit": "civilians",
+        "count": 2,
+        "at": [
+          35.5,
+          27.5
+        ]
+      }
     ]
   },
   "enemy": {
     "faction": "ashwar",
-    "doctrine_profile": "mass infiltration across a wide front",
+    "doctrine_profile": "converging raid on a fixed position, all approaches at once",
     "garrison": [
       {
         "unit": "militia_cell",
         "count": 2,
-        "marker": "tunnel_north",
-        "facing_deg": 270,
-        "stance": { "kind": "ambush", "tiles": 4 },
+        "at": [
+          6,
+          8
+        ],
+        "facing_deg": 180,
+        "stance": {
+          "kind": "ambush",
+          "tiles": 4
+        },
+        "group": "north_infiltrators"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 2,
+        "at": [
+          37,
+          8
+        ],
+        "facing_deg": 180,
+        "stance": {
+          "kind": "ambush",
+          "tiles": 4
+        },
         "group": "north_infiltrators"
       },
       {
         "unit": "rpg_team",
         "count": 1,
-        "marker": "tunnel_south",
-        "facing_deg": 270,
-        "stance": { "kind": "ambush", "tiles": 3 },
+        "at": [
+          38,
+          39
+        ],
+        "facing_deg": 180,
+        "stance": {
+          "kind": "ambush",
+          "tiles": 3
+        },
         "group": "south_infiltrators"
       },
       {
         "unit": "militia_cell",
         "count": 2,
-        "at": [27, 33],
-        "facing_deg": 270,
-        "stance": { "kind": "ambush", "tiles": 4 },
+        "at": [
+          6,
+          39
+        ],
+        "facing_deg": 180,
+        "stance": {
+          "kind": "ambush",
+          "tiles": 4
+        },
         "group": "south_infiltrators"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 3,
+        "at": [
+          2,
+          8
+        ],
+        "facing_deg": 180,
+        "stance": {
+          "kind": "hold_position"
+        },
+        "group": "reserve"
+      },
+      {
+        "unit": "rpg_team",
+        "count": 2,
+        "at": [
+          2,
+          38
+        ],
+        "facing_deg": 180,
+        "stance": {
+          "kind": "hold_position"
+        },
+        "group": "reserve"
+      },
+      {
+        "unit": "technical",
+        "count": 1,
+        "at": [
+          45,
+          8
+        ],
+        "facing_deg": 180,
+        "stance": {
+          "kind": "hold_position"
+        },
+        "group": "reserve"
       }
     ],
     "waves": [
-      { "at_seconds": 20, "to": "kdf_line", "units": [
-        { "unit": "militia_cell", "count": 4, "from": "ashwar_centre" },
-        { "unit": "militia_cell", "count": 2, "from": "ashwar_north" }
-      ] },
-      { "at_seconds": 60, "to": "kdf_line", "units": [
-        { "unit": "militia_cell", "count": 4, "from": "ashwar_south" },
-        { "unit": "rpg_team", "count": 1, "from": "ashwar_centre" }
-      ] },
-      { "at_seconds": 110, "to": "strongpoint_centre", "units": [
-        { "unit": "technical", "count": 2, "from": "ashwar_centre" },
-        { "unit": "militia_cell", "count": 3, "from": "ashwar_north" }
-      ] },
-      { "at_seconds": 170, "to": "strongpoint_centre", "units": [
-        { "unit": "militia_cell", "count": 4, "from": "ashwar_south" },
-        { "unit": "atgm_cell", "count": 1, "from": "ashwar_centre" }
-      ] },
-      { "at_seconds": 240, "to": "strongpoint_centre", "units": [
-        { "unit": "mortar_crew", "count": 1, "from": "ashwar_north" },
-        { "unit": "militia_cell", "count": 4, "from": "ashwar_centre" }
-      ] },
-      { "at_seconds": 320, "to": "strongpoint_centre", "units": [
-        { "unit": "technical", "count": 2, "from": "ashwar_south" },
-        { "unit": "rpg_team", "count": 2, "from": "ashwar_centre" }
-      ] },
-      { "at_seconds": 410, "to": "strongpoint_centre", "units": [
-        { "unit": "militia_cell", "count": 5, "from": "ashwar_centre" }
-      ] },
-      { "at_seconds": 500, "to": "strongpoint_centre", "units": [
-        { "unit": "militia_cell", "count": 4, "from": "ashwar_north" },
-        { "unit": "rpg_team", "count": 1, "from": "ashwar_north" }
-      ] },
-      { "at_seconds": 590, "to": "strongpoint_centre", "units": [
-        { "unit": "technical", "count": 1, "from": "ashwar_centre" },
-        { "unit": "militia_cell", "count": 3, "from": "ashwar_centre" },
-        { "unit": "atgm_cell", "count": 1, "from": "ashwar_centre" }
-      ] },
-      { "at_seconds": 680, "to": "strongpoint_centre", "units": [
-        { "unit": "militia_cell", "count": 4, "from": "ashwar_south" },
-        { "unit": "rpg_team", "count": 2, "from": "ashwar_south" }
-      ] }
+      {
+        "at_seconds": 20,
+        "to": "compound_centre",
+        "units": [
+          {
+            "unit": "militia_cell",
+            "count": 4,
+            "from": "raid_w"
+          },
+          {
+            "unit": "militia_cell",
+            "count": 3,
+            "from": "raid_nw"
+          }
+        ]
+      },
+      {
+        "at_seconds": 55,
+        "to": "compound_centre",
+        "units": [
+          {
+            "unit": "militia_cell",
+            "count": 4,
+            "from": "raid_s"
+          },
+          {
+            "unit": "moto_rpg",
+            "count": 2,
+            "from": "raid_e"
+          }
+        ]
+      },
+      {
+        "at_seconds": 95,
+        "to": "assault_nw",
+        "units": [
+          {
+            "unit": "rpg_team",
+            "count": 2,
+            "from": "raid_n"
+          },
+          {
+            "unit": "militia_cell",
+            "count": 4,
+            "from": "raid_ne"
+          }
+        ]
+      },
+      {
+        "at_seconds": 140,
+        "to": "compound_centre",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 2,
+            "from": "raid_w"
+          },
+          {
+            "unit": "rpg_team",
+            "count": 2,
+            "from": "raid_sw"
+          }
+        ]
+      },
+      {
+        "at_seconds": 190,
+        "to": "assault_se",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 3,
+            "from": "raid_se"
+          },
+          {
+            "unit": "militia_cell",
+            "count": 4,
+            "from": "raid_s"
+          }
+        ]
+      },
+      {
+        "at_seconds": 245,
+        "to": "compound_centre",
+        "units": [
+          {
+            "unit": "paramotor",
+            "count": 2,
+            "from": "raid_n"
+          },
+          {
+            "unit": "militia_cell",
+            "count": 4,
+            "from": "raid_e"
+          }
+        ]
+      },
+      {
+        "at_seconds": 300,
+        "to": "assault_ne",
+        "units": [
+          {
+            "unit": "rpg_team",
+            "count": 2,
+            "from": "raid_ne"
+          },
+          {
+            "unit": "charge_squad",
+            "count": 2,
+            "from": "raid_n"
+          },
+          {
+            "unit": "militia_cell",
+            "count": 4,
+            "from": "raid_nw"
+          }
+        ]
+      },
+      {
+        "at_seconds": 355,
+        "to": "compound_centre",
+        "units": [
+          {
+            "unit": "gun_truck",
+            "count": 1,
+            "from": "raid_e"
+          },
+          {
+            "unit": "technical",
+            "count": 2,
+            "from": "raid_ne"
+          },
+          {
+            "unit": "militia_cell",
+            "count": 4,
+            "from": "raid_s"
+          }
+        ]
+      },
+      {
+        "at_seconds": 410,
+        "to": "assault_sw",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 3,
+            "from": "raid_w"
+          },
+          {
+            "unit": "charge_squad",
+            "count": 2,
+            "from": "raid_sw"
+          },
+          {
+            "unit": "militia_cell",
+            "count": 4,
+            "from": "raid_sw"
+          }
+        ]
+      },
+      {
+        "at_seconds": 465,
+        "to": "compound_centre",
+        "units": [
+          {
+            "unit": "loiter_drone",
+            "count": 2,
+            "from": "raid_n"
+          },
+          {
+            "unit": "atgm_cell",
+            "count": 1,
+            "from": "raid_e"
+          },
+          {
+            "unit": "militia_cell",
+            "count": 4,
+            "from": "raid_se"
+          },
+          {
+            "unit": "technical",
+            "count": 2,
+            "from": "raid_s"
+          }
+        ]
+      },
+      {
+        "at_seconds": 520,
+        "to": "assault_nw",
+        "units": [
+          {
+            "unit": "mortar_crew",
+            "count": 1,
+            "from": "raid_nw"
+          },
+          {
+            "unit": "rpg_team",
+            "count": 2,
+            "from": "raid_n"
+          },
+          {
+            "unit": "charge_squad",
+            "count": 2,
+            "from": "raid_ne"
+          },
+          {
+            "unit": "militia_cell",
+            "count": 4,
+            "from": "raid_e"
+          }
+        ]
+      },
+      {
+        "at_seconds": 575,
+        "to": "compound_centre",
+        "units": [
+          {
+            "unit": "charge_squad",
+            "count": 2,
+            "from": "raid_w"
+          },
+          {
+            "unit": "technical",
+            "count": 2,
+            "from": "raid_se"
+          },
+          {
+            "unit": "militia_cell",
+            "count": 4,
+            "from": "raid_w"
+          }
+        ]
+      },
+      {
+        "at_seconds": 630,
+        "to": "assault_se",
+        "units": [
+          {
+            "unit": "paramotor",
+            "count": 2,
+            "from": "raid_s"
+          },
+          {
+            "unit": "moto_rpg",
+            "count": 3,
+            "from": "raid_se"
+          },
+          {
+            "unit": "militia_cell",
+            "count": 4,
+            "from": "raid_nw"
+          }
+        ]
+      },
+      {
+        "at_seconds": 690,
+        "to": "compound_centre",
+        "units": [
+          {
+            "unit": "atgm_cell",
+            "count": 1,
+            "from": "raid_e"
+          },
+          {
+            "unit": "rpg_team",
+            "count": 2,
+            "from": "raid_n"
+          },
+          {
+            "unit": "charge_squad",
+            "count": 2,
+            "from": "raid_sw"
+          },
+          {
+            "unit": "militia_cell",
+            "count": 5,
+            "from": "raid_s"
+          }
+        ]
+      }
     ]
   },
   "triggers": [
     {
       "id": "villages_rise",
-      "on": { "kind": "first_contact" },
-      "do": { "kind": "commit", "group": "north_infiltrators", "to": "strongpoint_centre" }
+      "on": {
+        "kind": "first_contact"
+      },
+      "do": {
+        "kind": "commit",
+        "group": "north_infiltrators",
+        "to": "compound_centre"
+      }
     },
     {
       "id": "south_rises",
-      "on": { "kind": "timer_s", "value": 240 },
-      "do": { "kind": "commit", "group": "south_infiltrators", "to": "strongpoint_centre" }
+      "on": {
+        "kind": "timer_s",
+        "value": 300
+      },
+      "do": {
+        "kind": "commit",
+        "group": "south_infiltrators",
+        "to": "compound_centre"
+      }
+    },
+    {
+      "id": "reserve_committed",
+      "on": {
+        "kind": "timer_s",
+        "value": 480
+      },
+      "do": {
+        "kind": "commit",
+        "group": "reserve",
+        "to": "compound_centre"
+      }
     }
   ]
 }
