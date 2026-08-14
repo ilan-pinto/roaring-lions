@@ -1613,7 +1613,16 @@ export class PixiRenderer {
         const bx2 = x + Math.cos(fc) * 1.1;
         const by2 = y + Math.sin(fc) * 1.1;
         g.moveTo(sx, sy).lineTo(isoX(bx2, by2), isoY(bx2, by2)).stroke({ width: 1.5, color: '#2E2F28', alpha: bodyAlpha });
-      } else if (type.isSoft) {
+      } else if (side === 2 && type.weapons.length === 0) {
+          // Civilians: a small huddle of figures, no weapon barrel, warm
+          // skin tone so they read as people rather than combatants.
+          const skinFill = this.opts.resolveColor ? this.opts.resolveColor('skin.0') : '#C78773';
+          const skinStroke = this.opts.resolveColor ? this.opts.resolveColor('terracotta.0') : '#C1663F';
+          for (const [dx2, dy2] of [[-3, -1], [3, -1], [0, 2]] as const) {
+            g.circle(sx + dx2, sy + dy2, 4).fill({ color: skinFill, alpha: bodyAlpha });
+            g.circle(sx + dx2, sy + dy2, 4).stroke({ width: 1.5, color: skinStroke, alpha: bodyAlpha });
+          }
+        } else if (type.isSoft) {
           // Infantry wear the lighter faction tone so foot troops never read
           // as armour at a glance.
           g.circle(sx, sy, r).fill({ color: this.opts.infantryColors[side], alpha: bodyAlpha });
@@ -1816,6 +1825,29 @@ export class PixiRenderer {
       ring(fx.toNumber(w0.range), this.opts.teamColors[st.side[i]], 1, 0.28);
       ring(fx.toNumber(w0.effectiveRange), this.opts.teamColors[st.side[i]], 1.5, 0.5);
       ring(Math.sqrt(fx.toNumber(w0.minRangeSq)), '#D93A2B', 1, 0.35);
+    }
+
+    // Shepherd radius: when a player unit is selected, highlight nearby
+    // civilians that can still be evacuated. A pulsing ring on each civilian
+    // tells the player "drive here to rescue them."
+    const SHEPHERD_TILES = 4;
+    if (this.selection.length > 0) {
+      for (let ci = 0; ci < this.sim.entityCount; ci++) {
+        if (st.alive[ci] === 0 || st.side[ci] !== 2) continue;
+        const ctype = this.sim.unitTypes[st.typeIdx[ci]];
+        if (ctype.weapons.length > 0) continue;
+        if (st.moving[ci] === 1) continue;
+        const cx = this.prevX[ci] + (this.curX[ci] - this.prevX[ci]) * alpha;
+        const cy = this.prevY[ci] + (this.curY[ci] - this.prevY[ci]) * alpha;
+        const csx = isoX(cx, cy);
+        const csy = isoY(cx, cy);
+        const pulse = 0.35 + 0.2 * Math.sin(this.frameN * 0.12);
+        g.ellipse(csx, csy, SHEPHERD_TILES * TILE_W * ISO_K, SHEPHERD_TILES * TILE_H * ISO_K).stroke({
+          width: 1.5,
+          color: '#B8FF5A',
+          alpha: pulse * 0.4,
+        });
+      }
     }
 
     // Engagement reticles: brackets on whatever the selected units are
