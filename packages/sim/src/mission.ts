@@ -933,12 +933,28 @@ export class MissionRuntime {
         }
       }
       if (!leaving) continue;
-      // The same latch as fleeing: one order per person. A civilian already
-      // running cannot be re-shepherded, and one being walked out cannot be
-      // re-panicked into a second, conflicting order.
       this.civFled.add(civ);
-      const [rx, ry] = this.markerPos(refuge);
-      this.sim.queueCommand({ kind: 'move', ids: [civ], x: rx, y: ry });
+
+      // Prefer boarding a nearby transport with free slots — civilians
+      // ride to the compound instead of walking.
+      let boarded = false;
+      for (const p of this.playerIds) {
+        if (st.alive[p] === 0) continue;
+        const ptype = this.sim.unitTypes[st.typeIdx[p]];
+        if (ptype.transportSlots === 0) continue;
+        if (this.sim.passengerCount(p) >= ptype.transportSlots) continue;
+        const dx2 = (fx.sub(st.posX[civ], st.posX[p]) >> 8) | 0;
+        const dy2 = (fx.sub(st.posY[civ], st.posY[p]) >> 8) | 0;
+        if (dx2 * dx2 + dy2 * dy2 <= SHEPHERD_RADIUS_SQ) {
+          this.sim.queueCommand({ kind: 'load', ids: [civ], carrier: p });
+          boarded = true;
+          break;
+        }
+      }
+      if (!boarded) {
+        const [rx, ry] = this.markerPos(refuge);
+        this.sim.queueCommand({ kind: 'move', ids: [civ], x: rx, y: ry });
+      }
     }
   }
 
@@ -1111,6 +1127,7 @@ export class MissionRuntime {
             const ty = st.posY[civ] >> 16;
             if (tx >= z[0] && tx < z[0] + z[2] && ty >= z[1] && ty < z[1] + z[3]) {
               this.civEvacuated.add(civ);
+              st.alive[civ] = 0;
             }
           }
         }

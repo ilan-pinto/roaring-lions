@@ -1614,17 +1614,12 @@ export class PixiRenderer {
         const by2 = y + Math.sin(fc) * 1.1;
         g.moveTo(sx, sy).lineTo(isoX(bx2, by2), isoY(bx2, by2)).stroke({ width: 1.5, color: '#2E2F28', alpha: bodyAlpha });
       } else if (side === 2 && type.weapons.length === 0) {
-          // Civilians: a standing figure seen from dimetric top-down —
-          // body oval, head circle, ground shadow. No weapon barrel, warm
-          // tones so they read as a person rather than a combatant.
-          const clothFill = this.opts.resolveColor ? this.opts.resolveColor('limestone.1') : '#E6D8BE';
-          const clothStroke = this.opts.resolveColor ? this.opts.resolveColor('dust.2') : '#C29455';
-          const headFill = this.opts.resolveColor ? this.opts.resolveColor('skin.0') : '#C78773';
-          g.ellipse(sx, sy + 3, 6, 3).fill({ color: '#0A0A08', alpha: 0.3 * bodyAlpha });
-          g.ellipse(sx, sy, 5, 6).fill({ color: clothFill, alpha: bodyAlpha });
-          g.ellipse(sx, sy, 5, 6).stroke({ width: 1.5, color: clothStroke, alpha: bodyAlpha });
-          g.circle(sx, sy - 5, 3).fill({ color: headFill, alpha: bodyAlpha });
-          g.circle(sx, sy - 5, 3).stroke({ width: 1, color: clothStroke, alpha: bodyAlpha });
+          // Civilians: same circle silhouette as infantry so they read as
+          // people, but limestone fill (not olive) and no weapon barrel.
+          const civFill = this.opts.resolveColor ? this.opts.resolveColor('limestone.1') : '#E6D8BE';
+          const civStroke = this.opts.resolveColor ? this.opts.resolveColor('dust.2') : '#C29455';
+          g.circle(sx, sy, r).fill({ color: civFill, alpha: bodyAlpha });
+          g.circle(sx, sy, r).stroke({ width: 2, color: civStroke, alpha: bodyAlpha });
         } else if (type.isSoft) {
           // Infantry wear the lighter faction tone so foot troops never read
           // as armour at a glance.
