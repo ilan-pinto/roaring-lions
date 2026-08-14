@@ -1614,14 +1614,17 @@ export class PixiRenderer {
         const by2 = y + Math.sin(fc) * 1.1;
         g.moveTo(sx, sy).lineTo(isoX(bx2, by2), isoY(bx2, by2)).stroke({ width: 1.5, color: '#2E2F28', alpha: bodyAlpha });
       } else if (side === 2 && type.weapons.length === 0) {
-          // Civilians: a small huddle of figures, no weapon barrel, warm
-          // skin tone so they read as people rather than combatants.
-          const skinFill = this.opts.resolveColor ? this.opts.resolveColor('skin.0') : '#C78773';
-          const skinStroke = this.opts.resolveColor ? this.opts.resolveColor('terracotta.0') : '#C1663F';
-          for (const [dx2, dy2] of [[-3, -1], [3, -1], [0, 2]] as const) {
-            g.circle(sx + dx2, sy + dy2, 4).fill({ color: skinFill, alpha: bodyAlpha });
-            g.circle(sx + dx2, sy + dy2, 4).stroke({ width: 1.5, color: skinStroke, alpha: bodyAlpha });
-          }
+          // Civilians: a standing figure seen from dimetric top-down —
+          // body oval, head circle, ground shadow. No weapon barrel, warm
+          // tones so they read as a person rather than a combatant.
+          const clothFill = this.opts.resolveColor ? this.opts.resolveColor('limestone.1') : '#E6D8BE';
+          const clothStroke = this.opts.resolveColor ? this.opts.resolveColor('dust.2') : '#C29455';
+          const headFill = this.opts.resolveColor ? this.opts.resolveColor('skin.0') : '#C78773';
+          g.ellipse(sx, sy + 3, 6, 3).fill({ color: '#0A0A08', alpha: 0.3 * bodyAlpha });
+          g.ellipse(sx, sy, 5, 6).fill({ color: clothFill, alpha: bodyAlpha });
+          g.ellipse(sx, sy, 5, 6).stroke({ width: 1.5, color: clothStroke, alpha: bodyAlpha });
+          g.circle(sx, sy - 5, 3).fill({ color: headFill, alpha: bodyAlpha });
+          g.circle(sx, sy - 5, 3).stroke({ width: 1, color: clothStroke, alpha: bodyAlpha });
         } else if (type.isSoft) {
           // Infantry wear the lighter faction tone so foot troops never read
           // as armour at a glance.
