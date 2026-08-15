@@ -138,8 +138,10 @@ export interface UnitTypeJson {
   abilities?: readonly string[];
   /** Seconds of held station to bring a building down. Absent = DEMO_SECONDS. */
   demolition_time_s?: number;
-  /** How this unit takes a building apart. Absent means `charges`. */
-  demolition_method?: 'charges' | 'blade';
+  /** How this unit takes a building apart. Absent means `charges`.
+   *  Schema-constrained to charges|blade; typed loosely because JSON module
+   *  imports widen string literals — same reason as `mobility.domain`. */
+  demolition_method?: string;
   hull: {
     hp: number;
     armor: { front: number; side: number; rear: number; top?: number };
@@ -992,7 +994,8 @@ export class Sim {
     return s >= 0 && this.stAlive[s] === 1 ? s : -1;
   }
 
-  /** Demolition charge progress 0..1 for the HUD. */
+  /** Demolition progress 0..1 for the HUD — a charges unit's timer, a blade's
+   *  damage to its target. */
   demolitionProgress(id: number): number {
     const type = this.unitTypes[this.typeIdx[id]];
     if (type.bladeDemolition) {

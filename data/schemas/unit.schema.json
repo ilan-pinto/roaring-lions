@@ -399,6 +399,7 @@
       "description": "Seconds a `demolish` unit must hold station to bring a building down. Absent means 5.0, which is what every demolisher did before the field existed."
     },
     "demolition_method": {
+      "type": "string",
       "enum": ["charges", "blade"],
       "default": "charges",
       "description": "How this unit takes a building apart. `charges` sets satchels and the building goes down at once when the timer expires. `blade` grinds: it drains structural HP every tick, so the building crumbles as it works and damage it has already taken counts. Absent means `charges`, which is what every demolisher did before the field existed."

@@ -15,6 +15,7 @@
 // dependency rule (app → render → sim) is untouched.
 
 import { fx, type Sim, type SimEvent } from '@lions/sim';
+import { isGrindingHit, structureHpBand } from './grind';
 
 const PANEL_CSS =
   'position:absolute;top:8px;max-height:calc(100vh - 16px);overflow-y:auto;' +
@@ -173,7 +174,7 @@ export class DebugOverlay {
       case 'structureHit': {
         // Shellfire keeps a line per hit: this panel exists to show every
         // roll. Only a blade, which hits at tick rate, gets coalesced.
-        const grinding = e.by >= 0 && this.sim.state.demoTarget[e.by] === e.structure;
+        const grinding = isGrindingHit(this.sim, e.by, e.structure);
         if (!grinding) {
           this.line(
             t + `${this.structName(e.structure)} takes ${fmt(e.damage, 0)} — ${fmt(e.hpLeft, 0)} left`,
@@ -181,8 +182,7 @@ export class DebugOverlay {
           );
           break;
         }
-        const max = fx.toNumber(this.sim.structures.maxHp[e.structure]);
-        const band = max > 0 ? Math.floor((fx.toNumber(e.hpLeft) / max) * 8) : 0;
+        const band = structureHpBand(e.hpLeft, this.sim.structures.maxHp[e.structure]);
         const acc = this.grind.get(e.structure) ?? { dmg: 0, band: 8 };
         acc.dmg += fx.toNumber(e.damage);
         if (band !== acc.band) {

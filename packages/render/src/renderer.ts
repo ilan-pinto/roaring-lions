@@ -17,6 +17,7 @@ import {
 } from './sheet';
 import { cadenceScale, resolveClip, resolveTurretClip, type UnitAnimInput } from './clip';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec } from './vfx';
+import { isGrindingHit, structureHpBand } from './grind';
 
 export interface RendererOptions {
   background: string;
@@ -639,7 +640,7 @@ export class PixiRenderer {
         const s = e.structure;
         // A blade throws dust where it is cutting; a shell throws it off the
         // roof. The sim says which without knowing anything about dust.
-        const grinding = e.by >= 0 && this.sim.state.demoTarget[e.by] === s;
+        const grinding = isGrindingHit(this.sim, e.by, s);
         if (!grinding) {
           this.puffs.push({
             x: fx.toNumber(this.sim.structures.cx[s]),
@@ -653,9 +654,10 @@ export class PixiRenderer {
           // is counted per structure so two dozers do not double the dust.
           this.structPuffTick.set(s, e.tick);
           const a = PixiRenderer.h2(e.tick, s);
+          const b = PixiRenderer.h2(s, e.tick);
           this.puffs.push({
-            x: this.curX[e.by] + (a - 0.5) * 6,
-            y: this.curY[e.by] + (a - 0.5) * 3,
+            x: this.curX[e.by] + (a - 0.5) * 0.35,
+            y: this.curY[e.by] + (b - 0.5) * 0.35,
             ttl: 14,
             color: this.opts.nearMissColor,
             r: 7,
@@ -1268,7 +1270,7 @@ export class PixiRenderer {
     }
     const max = st.maxHp[sIdx];
     const hp = st.hp[sIdx];
-    const step = max > 0 ? Math.max(0, Math.min(8, Math.ceil((hp * 8) / max))) : 8;
+    const step = structureHpBand(hp, max);
     if (this.structureWear[sIdx] === step) return false;
     this.structureWear[sIdx] = step;
     return true;
