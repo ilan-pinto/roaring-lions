@@ -28,7 +28,8 @@
     "firing_signature_mult": 5.0
   },
   "abilities": [
-    "hidden_setup"
+    "hidden_setup",
+    "garrison"
   ],
   "weapons": [
     {

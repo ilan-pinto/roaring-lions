@@ -27,6 +27,9 @@
     "signature": 0.6,
     "firing_signature_mult": 4.5
   },
+  "abilities": [
+    "garrison"
+  ],
   "weapons": [
     {
       "id": "mortar_60",

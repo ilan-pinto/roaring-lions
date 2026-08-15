@@ -121,4 +121,4 @@ The combat model is the product. Everything else is scaffolding around it.
 ## Known scaling debts
 
 - Detection is O(N²) pairs per tick — stagger evaluation before unit counts pass ~150.
-- `garrison`/`tunnel_travel` exist in unit data but not the sim; tunnels are a real subsystem the Marj missions need.
+- `tunnel_travel` exists in unit data but not the sim; tunnels are a real subsystem the Marj missions need. (`garrison` is fully implemented in both sim and UI.)
