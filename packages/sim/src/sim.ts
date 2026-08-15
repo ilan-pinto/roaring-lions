@@ -138,6 +138,8 @@ export interface UnitTypeJson {
   abilities?: readonly string[];
   /** Seconds of held station to bring a building down. Absent = DEMO_SECONDS. */
   demolition_time_s?: number;
+  /** How this unit takes a building apart. Absent means `charges`. */
+  demolition_method?: 'charges' | 'blade';
   hull: {
     hp: number;
     armor: { front: number; side: number; rear: number; top?: number };
@@ -264,6 +266,14 @@ export interface UnitType {
   canDemolish: boolean;
   /** Ticks of held station to bring a building down. Per unit since the D9. */
   demolitionTicks: number;
+  /**
+   * Grinds rather than setting charges: drains the building's structural HP
+   * every tick it works, so the building crumbles as it goes and damage it has
+   * already taken counts toward bringing it down. A satchel charge does not
+   * work that way, which is why this is a property of the unit and not of the
+   * ability.
+   */
+  bladeDemolition: boolean;
   /** Flies into its target and is spent doing it. */
   isKamikaze: boolean;
   /**
@@ -365,6 +375,7 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     demolitionTicks: fx.toInt(
       fx.mul(fx.from(json.demolition_time_s ?? DEMO_SECONDS), fx.fromInt(TICKS_PER_SECOND)),
     ),
+    bladeDemolition: json.demolition_method === 'blade',
     isKamikaze: abilities.includes('kamikaze'),
     isAir: json.mobility.domain === 'air',
     transportSlots: json.hull.transport_slots ?? 0,

@@ -19,6 +19,23 @@ const SHACK: StructureTypeJson = { id: 'test_shack', hp_per_tile: 100 };
 /** roe_penalty at PROTECTED_ROE. A mosque is 30; the threshold is 20. */
 const SHRINE: StructureTypeJson = { id: 'test_shrine', hp_per_tile: 100, roe_penalty: 30 };
 
+/** The D9: same 2 s timer as DOZER, but it grinds rather than setting charges. */
+const BLADE: UnitTypeJson = { ...SAPPER, id: 'test_blade', demolition_time_s: 2.0, demolition_method: 'blade' };
+
+describe('demolition_method', () => {
+  it('defaults to charges when the field is absent', () => {
+    const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 8 });
+    const t = sim.addUnitType(SAPPER);
+    expect(sim.unitTypes[t].bladeDemolition).toBe(false);
+  });
+
+  it('reads blade from the unit data', () => {
+    const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 8 });
+    const t = sim.addUnitType(BLADE);
+    expect(sim.unitTypes[t].bladeDemolition).toBe(true);
+  });
+});
+
 /** Park a demolisher beside a one-tile building and tick until it falls. */
 function ticksToLevel(unit: UnitTypeJson): number {
   const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 8 });
