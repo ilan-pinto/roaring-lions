@@ -276,4 +276,32 @@ describe('the blade crumbles a building as it works', () => {
     // so it must still be billed to the dozer — the ROE penalty depends on it.
     if (down?.kind === 'structureDestroyed') expect(down.by).toBe(id);
   });
+
+  it('reports progress against the building, not the timer', () => {
+    const { sim, s, id } = world(BLADE);
+    // Grind to half, drive off, come back: the timer restarts at zero while
+    // the building is already half gone. This is the only state in which the
+    // two candidate implementations disagree.
+    for (let n = 0; n < 20; n++) sim.tick();
+    sim.queueCommand({ kind: 'move', ids: [id], x: fx.from(20.5), y: fx.from(10.5) });
+    for (let n = 0; n < 60; n++) sim.tick();
+    expect(sim.structures.hp[s]).toBe(sim.structures.maxHp[s] / 2);
+
+    sim.queueCommand({ kind: 'demolish', ids: [id], structure: s });
+    // Tick until it is back in range and has landed at least one bite.
+    for (let n = 0; n < 80 && sim.structures.hp[s] === sim.structures.maxHp[s] / 2; n++) {
+      sim.tick();
+    }
+    expect(sim.structures.alive[s]).toBe(1);
+    // The timer says roughly 1/40. The building says just over half.
+    expect(sim.demolitionProgress(id)).toBeGreaterThan(0.5);
+  });
+
+  it('reports zero for a blade that is not working on anything', () => {
+    const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 8 });
+    const t = sim.addUnitType(BLADE);
+    const id = sim.spawn(t, 0, fx.from(2.5), fx.from(2.5)); // no building near
+    for (let n = 0; n < 10; n++) sim.tick();
+    expect(sim.demolitionProgress(id)).toBe(0);
+  });
 });

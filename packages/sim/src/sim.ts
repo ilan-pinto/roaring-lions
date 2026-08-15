@@ -991,7 +991,18 @@ export class Sim {
 
   /** Demolition charge progress 0..1 for the HUD. */
   demolitionProgress(id: number): number {
-    return this.demoTicks[id] / this.unitTypes[this.typeIdx[id]].demolitionTicks;
+    const type = this.unitTypes[this.typeIdx[id]];
+    if (type.bladeDemolition) {
+      // A blade's bar predicts collapse, and what causes collapse is the
+      // building running out of HP — not this unit's timer, which knows
+      // nothing about damage the building took before the dozer arrived.
+      const s = this.demoTarget[id];
+      if (s < 0 || this.stAlive[s] === 0) return 0;
+      const max = this.stMaxHp[s];
+      if (max <= 0) return 0;
+      return 1 - this.stHp[s] / max;
+    }
+    return this.demoTicks[id] / type.demolitionTicks;
   }
 
   /** Dev/test hook: level a building instantly. */
