@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
-import { Sim, type UnitTypeJson } from './sim';
+import { Sim, type SimEvent, type UnitTypeJson } from './sim';
 import type { StructureTypeJson } from './structures';
 
 const SAPPER: UnitTypeJson = {
@@ -235,5 +235,40 @@ describe('the blade crumbles a building as it works', () => {
     for (let n = 0; n < 400; n++) sim.tick();
     expect(sim.structures.alive[s]).toBe(1);
     expect(sim.structures.hp[s]).toBe(sim.structures.maxHp[s]);
+  });
+
+  it('leaves the damage behind when it drives off, and finishes faster on return', () => {
+    const { sim, s, id } = world(BLADE);
+    for (let n = 0; n < 20; n++) sim.tick();
+    const half = sim.structures.hp[s];
+    expect(half).toBe(sim.structures.maxHp[s] / 2);
+
+    // Ordered away: out of DEMO_RANGE_SQ (2 tiles) so the timer resets.
+    sim.queueCommand({ kind: 'move', ids: [id], x: fx.from(20.5), y: fx.from(10.5) });
+    for (let n = 0; n < 60; n++) sim.tick();
+    expect(sim.structures.alive[s]).toBe(1);
+    expect(sim.structures.hp[s]).toBe(half); // the work is not undone
+    expect(sim.demolitionProgress(id)).toBe(0); // but the timer is
+
+    // Sent back. Half a building takes half the time.
+    sim.queueCommand({ kind: 'demolish', ids: [id], structure: s });
+    let ticksBack = 0;
+    let down: SimEvent | undefined;
+    for (let n = 1; n <= 400; n++) {
+      const events = sim.tick();
+      down = events.find((e) => e.kind === 'structureDestroyed' && e.structure === s);
+      if (down) {
+        ticksBack = n;
+        break;
+      }
+    }
+    expect(ticksBack).toBeGreaterThan(0);
+    // The walk back plus 20 ticks of grinding — never a fresh 40 of grinding.
+    const walkTicks = ticksBack - 20;
+    expect(walkTicks).toBeGreaterThan(0);
+    expect(sim.structures.alive[s]).toBe(0);
+    // The early collapse comes through damageStructure rather than the timer,
+    // so it must still be billed to the dozer — the ROE penalty depends on it.
+    if (down?.kind === 'structureDestroyed') expect(down.by).toBe(id);
   });
 });
