@@ -253,9 +253,12 @@ describe('the blade crumbles a building as it works', () => {
     // Sent back. Half a building takes half the time.
     sim.queueCommand({ kind: 'demolish', ids: [id], structure: s });
     let ticksBack = 0;
+    let grindStart = 0;
     let down: SimEvent | undefined;
     for (let n = 1; n <= 400; n++) {
       const events = sim.tick();
+      // The tick the blade bites again, after walking back into range.
+      if (grindStart === 0 && sim.structures.hp[s] < half) grindStart = n;
       down = events.find((e) => e.kind === 'structureDestroyed' && e.structure === s);
       if (down) {
         ticksBack = n;
@@ -263,9 +266,11 @@ describe('the blade crumbles a building as it works', () => {
       }
     }
     expect(ticksBack).toBeGreaterThan(0);
-    // The walk back plus 20 ticks of grinding — never a fresh 40 of grinding.
-    const walkTicks = ticksBack - 20;
-    expect(walkTicks).toBeGreaterThan(0);
+    expect(grindStart).toBeGreaterThan(0);
+    // Twenty bites finish a half-eaten building — not a fresh forty. Measured
+    // from the tick grinding actually resumed, so the walk back cannot mask a
+    // regression that restarted the work from scratch.
+    expect(ticksBack - grindStart + 1).toBe(20);
     expect(sim.structures.alive[s]).toBe(0);
     // The early collapse comes through damageStructure rather than the timer,
     // so it must still be billed to the dozer — the ROE penalty depends on it.
