@@ -893,3 +893,68 @@
 .rl-tutorial__skip {
   margin-top: 0.75em;
 }
+
+/* ====================================================================== */
+/* Loading screen                                                         */
+/* ====================================================================== */
+
+/* Full-bleed rather than a centred panel like .rl-menu: the canvas behind it
+   is already drawing terrain and half-loaded units, and a panel would frame
+   exactly the placeholder art this screen exists to hide. */
+.rl-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Opaque, not translucent — see above; there is nothing behind here worth
+     showing through. */
+  background: var(--panel-bg-solid);
+  font-family: var(--font-mono);
+  color: var(--ink);
+}
+.rl-loading__box {
+  width: min(420px, 82vw);
+  text-align: center;
+}
+.rl-loading__label {
+  font-size: var(--t-xs);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.rl-loading__name {
+  margin-top: var(--s2);
+  font-family: var(--font-display);
+  font-size: var(--t-xl);
+  letter-spacing: var(--track-title);
+  line-height: 1.1;
+}
+.rl-loading__track {
+  margin-top: var(--s4);
+  height: 3px;
+  background: var(--panel-rule);
+}
+.rl-loading__fill {
+  width: 0;
+  height: 100%;
+  background: var(--band-mission);
+  /* Eased so a burst of sheets resolving together reads as a bar filling
+     rather than as a jump. Matches the duration the rest of the UI moves at. */
+  transition: width var(--dur) var(--ease);
+}
+.rl-loading__count {
+  margin-top: var(--s2);
+  font-size: var(--t-xs);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+/* A player who has asked for less motion still gets the fill, just without
+   the interpolation between counts. */
+@media (prefers-reduced-motion: reduce) {
+  .rl-loading__fill {
+    transition: none;
+  }
+}

@@ -40,6 +40,7 @@ import {
 import './ui/theme.css';
 import { Hud, type MissionView, type Tone } from './ui/hud';
 import { showMenu, showCampaign, showEndScreen } from './ui/menu';
+import { showLoading } from './ui/loading';
 import { ProductionBar } from './ui/production';
 import { applyIntent, sortMount, type PlayerIntent } from './input/intents';
 import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
@@ -329,6 +330,10 @@ async function main(): Promise<void> {
     throw new Error('decor enums have diverged between @lions/data and @lions/render');
   }
   renderer.setDecor(map.decor);
+  // Up before the canvas exists, so the player never sees the terrain draw
+  // itself in or the units stand around as procedural boxes waiting for their
+  // sheets. It comes down once the art gate below has settled.
+  const loading = showLoading(stage, mission?.name ?? mission?.id ?? 'M0 sandbox');
   await renderer.init(stage);
   renderer.useEmitters(vfxEmitters as EmitterSpec[], paletteColor);
 
@@ -421,18 +426,46 @@ async function main(): Promise<void> {
     mosque: `${BASE}sprites/BLD_MOSQUE/`,
     wall: `${BASE}sprites/BLD_WALL/`,
   };
+  // Every sheet is fetched in parallel, but the mission does not start until
+  // all of them have settled — see the gate below.
+  const artJobs: Promise<unknown>[] = [];
+  loading.total(Object.keys(STRUCTURE_SPRITES).length + Object.keys(SPRITE_MAP).length);
+
   for (const [id, path] of Object.entries(STRUCTURE_SPRITES)) {
-    renderer.loadStructureSprite(id, path).catch((err) => {
-      console.warn(`[lions] structure sprite FAILED for ${id}:`, err);
-    });
+    artJobs.push(
+      renderer
+        .loadStructureSprite(id, path)
+        .catch((err) => {
+          console.warn(`[lions] structure sprite FAILED for ${id}:`, err);
+        })
+        .then(() => loading.step())
+    );
   }
 
   for (const [id, spec] of Object.entries(SPRITE_MAP)) {
     const { path, ...rest } = spec;
-    renderer.loadSprites(id, path, rest).catch((err) => {
-      console.warn(`[lions] sprites FAILED for ${id}:`, err);
-    });
+    artJobs.push(
+      renderer
+        .loadSprites(id, path, rest)
+        .catch((err) => {
+          console.warn(`[lions] sprites FAILED for ${id}:`, err);
+        })
+        .then(() => loading.step())
+    );
   }
+
+  // The art gate. Nothing below this line — the HUD, the mission title card,
+  // the first tick — happens until the sheets are in, so the opening seconds
+  // of a mission are the real art rather than the procedural fallback that
+  // stands in for units whose sheets were never authored.
+  //
+  // Each job swallows its own rejection above, so this waits for every fetch
+  // to be *decided*, not to succeed. A sheet that 404s still lets the player
+  // in — that unit falls back to its placeholder, which is the pre-existing
+  // behaviour for un-authored art and is far better than a permanent loading
+  // screen.
+  await Promise.all(artJobs);
+  loading.done();
 
   const getMission = (): MissionView | null =>
     runtime && mission
