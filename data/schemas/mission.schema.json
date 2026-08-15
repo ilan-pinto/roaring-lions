@@ -44,7 +44,7 @@
     },
     "target_minutes": {
       "type": "integer",
-      "minimum": 8,
+      "minimum": 5,
       "maximum": 25,
       "default": 15
     },

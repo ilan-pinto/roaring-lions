@@ -3,8 +3,8 @@
   "name": "Beit Sahwan — First Light",
   "town": "beit_sahwan",
   "phase": "breach",
-  "target_minutes": 14,
-  "briefing": "They came at dawn, out of the Marj, across every approach at once. What is left of the company is inside the compound on the Beit Sahwan road, and the road is still open behind us — supply is coming forward, so spend it as it arrives rather than banking it. Two gates, both on the road, and two blind faces they will cut straight through rather than walk round. The villages are outside the wire and the families in them have nowhere else to go. Bring them in, hold the yard, and still be standing when the column reaches us.",
+  "target_minutes": 5,
+  "briefing": "They came at dawn, out of the Marj, across every approach at once. What is left of the company is inside the compound on the Beit Sahwan road, and the road is still open behind us — supply is coming forward, so spend it as it arrives rather than banking it. Two gates, both on the road, and two blind faces they will cut straight through rather than walk round. The villages are outside the wire and the families in them have nowhere else to go. Hold the yard, and still be standing when the column reaches us.",
   "map": {
     "file": "marj_perimeter",
     "player_start": [
@@ -18,8 +18,7 @@
     "produces": [
       "roster.surviving_units",
       "roe.mission_ratings",
-      "campaign.completed_missions",
-      "civ.settlements_evacuated"
+      "campaign.completed_missions"
     ]
   },
   "starting_force": [
@@ -123,7 +122,7 @@
       "id": "survive_relief",
       "type": "survive_until",
       "primary": true,
-      "seconds": 780,
+      "seconds": 300,
       "text": "Still be standing when the relief column arrives"
     },
     {
@@ -131,17 +130,8 @@
       "type": "hold_for",
       "primary": false,
       "target": "compound",
-      "seconds": 300,
-      "text": "Hold the compound for five minutes"
-    },
-    {
-      "id": "evac_settlements",
-      "type": "evacuate_before",
-      "primary": false,
-      "target": "compound",
-      "count": 6,
-      "seconds": 480,
-      "text": "Get six families inside the wire"
+      "seconds": 180,
+      "text": "Hold the compound for three minutes"
     }
   ],
   "roe": {
@@ -246,45 +236,6 @@
           "tiles": 4
         },
         "group": "south_infiltrators"
-      },
-      {
-        "unit": "militia_cell",
-        "count": 3,
-        "at": [
-          2,
-          8
-        ],
-        "facing_deg": 180,
-        "stance": {
-          "kind": "hold_position"
-        },
-        "group": "reserve"
-      },
-      {
-        "unit": "rpg_team",
-        "count": 2,
-        "at": [
-          2,
-          38
-        ],
-        "facing_deg": 180,
-        "stance": {
-          "kind": "hold_position"
-        },
-        "group": "reserve"
-      },
-      {
-        "unit": "technical",
-        "count": 1,
-        "at": [
-          45,
-          8
-        ],
-        "facing_deg": 180,
-        "stance": {
-          "kind": "hold_position"
-        },
-        "group": "reserve"
       }
     ],
     "waves": [
@@ -383,189 +334,6 @@
             "from": "raid_e"
           }
         ]
-      },
-      {
-        "at_seconds": 300,
-        "to": "assault_ne",
-        "units": [
-          {
-            "unit": "rpg_team",
-            "count": 2,
-            "from": "raid_ne"
-          },
-          {
-            "unit": "charge_squad",
-            "count": 2,
-            "from": "raid_n"
-          },
-          {
-            "unit": "militia_cell",
-            "count": 4,
-            "from": "raid_nw"
-          }
-        ]
-      },
-      {
-        "at_seconds": 355,
-        "to": "compound_centre",
-        "units": [
-          {
-            "unit": "gun_truck",
-            "count": 1,
-            "from": "raid_e"
-          },
-          {
-            "unit": "technical",
-            "count": 2,
-            "from": "raid_ne"
-          },
-          {
-            "unit": "militia_cell",
-            "count": 4,
-            "from": "raid_s"
-          }
-        ]
-      },
-      {
-        "at_seconds": 410,
-        "to": "assault_sw",
-        "units": [
-          {
-            "unit": "moto_rpg",
-            "count": 3,
-            "from": "raid_w"
-          },
-          {
-            "unit": "charge_squad",
-            "count": 2,
-            "from": "raid_sw"
-          },
-          {
-            "unit": "militia_cell",
-            "count": 4,
-            "from": "raid_sw"
-          }
-        ]
-      },
-      {
-        "at_seconds": 465,
-        "to": "compound_centre",
-        "units": [
-          {
-            "unit": "loiter_drone",
-            "count": 2,
-            "from": "raid_n"
-          },
-          {
-            "unit": "atgm_cell",
-            "count": 1,
-            "from": "raid_e"
-          },
-          {
-            "unit": "militia_cell",
-            "count": 4,
-            "from": "raid_se"
-          },
-          {
-            "unit": "technical",
-            "count": 2,
-            "from": "raid_s"
-          }
-        ]
-      },
-      {
-        "at_seconds": 520,
-        "to": "assault_nw",
-        "units": [
-          {
-            "unit": "mortar_crew",
-            "count": 1,
-            "from": "raid_nw"
-          },
-          {
-            "unit": "rpg_team",
-            "count": 2,
-            "from": "raid_n"
-          },
-          {
-            "unit": "charge_squad",
-            "count": 2,
-            "from": "raid_ne"
-          },
-          {
-            "unit": "militia_cell",
-            "count": 4,
-            "from": "raid_e"
-          }
-        ]
-      },
-      {
-        "at_seconds": 575,
-        "to": "compound_centre",
-        "units": [
-          {
-            "unit": "charge_squad",
-            "count": 2,
-            "from": "raid_w"
-          },
-          {
-            "unit": "technical",
-            "count": 2,
-            "from": "raid_se"
-          },
-          {
-            "unit": "militia_cell",
-            "count": 4,
-            "from": "raid_w"
-          }
-        ]
-      },
-      {
-        "at_seconds": 630,
-        "to": "assault_se",
-        "units": [
-          {
-            "unit": "paramotor",
-            "count": 2,
-            "from": "raid_s"
-          },
-          {
-            "unit": "moto_rpg",
-            "count": 3,
-            "from": "raid_se"
-          },
-          {
-            "unit": "militia_cell",
-            "count": 4,
-            "from": "raid_nw"
-          }
-        ]
-      },
-      {
-        "at_seconds": 690,
-        "to": "compound_centre",
-        "units": [
-          {
-            "unit": "atgm_cell",
-            "count": 1,
-            "from": "raid_e"
-          },
-          {
-            "unit": "rpg_team",
-            "count": 2,
-            "from": "raid_n"
-          },
-          {
-            "unit": "charge_squad",
-            "count": 2,
-            "from": "raid_sw"
-          },
-          {
-            "unit": "militia_cell",
-            "count": 5,
-            "from": "raid_s"
-          }
-        ]
       }
     ]
   },
@@ -585,23 +353,11 @@
       "id": "south_rises",
       "on": {
         "kind": "timer_s",
-        "value": 300
+        "value": 240
       },
       "do": {
         "kind": "commit",
         "group": "south_infiltrators",
-        "to": "compound_centre"
-      }
-    },
-    {
-      "id": "reserve_committed",
-      "on": {
-        "kind": "timer_s",
-        "value": 480
-      },
-      "do": {
-        "kind": "commit",
-        "group": "reserve",
         "to": "compound_centre"
       }
     }
