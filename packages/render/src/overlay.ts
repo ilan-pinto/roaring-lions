@@ -205,10 +205,17 @@ export class DebugOverlay {
       case 'revealed':
         if (e.count > 0) this.line(t + `satellite sweep: ${e.count} contact(s) identified`, 'var(--info)');
         break;
-      case 'structureDestroyed':
+      case 'structureDestroyed': {
+        const acc = this.grind.get(e.structure);
         this.grind.delete(e.structure);
-        this.line(t + `${this.structName(e.structure)} <b>COLLAPSES</b>`, 'var(--hot)');
+        // Band 0 is terminal: once a building is under an eighth the crossing
+        // check never fires again, so whatever the blade took off inside that
+        // last band has not been reported yet. Say it here rather than dropping
+        // it — this panel exists so that no damage goes unshown.
+        const tail = acc && acc.dmg > 0 ? ` — ground down a final ${acc.dmg.toFixed(0)}` : '';
+        this.line(t + `${this.structName(e.structure)} <b>COLLAPSES</b>${tail}`, 'var(--hot)');
         break;
+      }
       case 'garrison':
         this.line(
           t + `${this.name(e.entity)} ${e.entered ? 'moves into' : 'leaves'} ${this.structName(e.structure)}`,
