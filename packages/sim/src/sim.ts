@@ -2899,6 +2899,22 @@ export class Sim {
         this.demoTicks[i] = 0;
         this.demoTarget[i] = -1;
         this.destroyStructure(best, i);
+      } else if (type.bladeDemolition) {
+        // A blade takes a bite of the building every tick it works, so the
+        // thing visibly comes apart and damage it has already taken counts.
+        // Scaled to maxHp rather than remaining HP: a fresh building still
+        // falls in exactly demolition_time_s, and one already shot to 40%
+        // falls at tick 16 of 40 through damageStructure's own zero check.
+        //
+        // The bite deliberately does NOT run on the final tick. fx.div
+        // truncates, so 39 bites always sum to less than maxHp and the
+        // building always survives to the timer — which is what pins the
+        // tick count exactly rather than letting rounding drift it.
+        this.damageStructure(
+          best,
+          fx.div(this.stMaxHp[best], fx.fromInt(type.demolitionTicks)),
+          i,
+        );
       }
     }
   }

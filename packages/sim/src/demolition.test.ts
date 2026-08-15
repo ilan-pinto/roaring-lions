@@ -171,3 +171,69 @@ describe('per-unit demolition time', () => {
     expect(sim.structureAt(12, 10)).toBeGreaterThanOrEqual(0); // shack untouched
   });
 });
+
+describe('the blade crumbles a building as it works', () => {
+  /** A one-tile shack at (10,10) with a demolisher of `unit` parked beside it. */
+  function world(unit: UnitTypeJson) {
+    const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 8 });
+    const st = sim.addStructureType(SHACK);
+    const s = sim.addStructure(st, [10 * 32 + 10]);
+    const t = sim.addUnitType(unit);
+    const id = sim.spawn(t, 0, fx.from(11.5), fx.from(10.5));
+    return { sim, s, id };
+  }
+
+  it('still levels a fresh building in exactly 40 ticks', () => {
+    expect(ticksToLevel(BLADE)).toBe(40);
+  });
+
+  it('drains structural HP monotonically while it works', () => {
+    const { sim, s } = world(BLADE);
+    let prev = sim.structures.hp[s];
+    expect(prev).toBe(sim.structures.maxHp[s]);
+    for (let n = 1; n <= 39; n++) {
+      sim.tick();
+      expect(sim.structures.hp[s]).toBeLessThan(prev);
+      prev = sim.structures.hp[s];
+    }
+    // 39 bites of maxHp/40 leave the building standing but nearly gone.
+    expect(sim.structures.alive[s]).toBe(1);
+    expect(prev).toBeLessThan(sim.structures.maxHp[s] / 10);
+  });
+
+  it('reports each bite as a structureHit attributed to the dozer', () => {
+    const { sim, s, id } = world(BLADE);
+    const events = sim.tick();
+    const hit = events.find((e) => e.kind === 'structureHit' && e.structure === s);
+    expect(hit).toBeDefined();
+    if (hit?.kind === 'structureHit') {
+      expect(hit.by).toBe(id);
+      expect(hit.damage).toBeGreaterThan(0);
+      expect(hit.hpLeft).toBe(sim.structures.hp[s]);
+    }
+  });
+
+  // The regression guard on the split. Without it, a later refactor that
+  // unified the two paths would pass every other test in this file.
+  it('charges leave the building at full HP until the moment it collapses', () => {
+    const { sim, s } = world(DOZER);
+    for (let n = 0; n < 39; n++) {
+      sim.tick();
+      expect(sim.structures.hp[s]).toBe(sim.structures.maxHp[s]);
+    }
+    sim.tick();
+    expect(sim.structures.alive[s]).toBe(0);
+  });
+
+  // The blade inherits every guard that sits above target selection.
+  it('does not grind a protected site on its own initiative', () => {
+    const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 8 });
+    const shrine = sim.addStructureType(SHRINE);
+    const s = sim.addStructure(shrine, [10 * 32 + 10]);
+    const t = sim.addUnitType(BLADE);
+    sim.spawn(t, 0, fx.from(11.5), fx.from(10.5));
+    for (let n = 0; n < 400; n++) sim.tick();
+    expect(sim.structures.alive[s]).toBe(1);
+    expect(sim.structures.hp[s]).toBe(sim.structures.maxHp[s]);
+  });
+});
