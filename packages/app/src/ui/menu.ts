@@ -58,6 +58,11 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): void {
     if (kind) a.dataset.kind = kind;
     nav.appendChild(a);
   };
+  // Listed first until it is done, then demoted to the aside below rather than
+  // removed. Taking it off the menu entirely made the tutorial unreachable for
+  // good: the flag that hides it also suppresses the step panel, so the only
+  // way back in was ?fresh=1, which pays for a replay with the whole campaign
+  // ledger.
   if (!opts.tutorial.done) add(opts.tutorial.name, `?mission=${opts.tutorial.id}`, 'tutorial');
   // The war itself lives on its own page: the menu stays a landing, the map a
   // destination you can always come back to.
@@ -74,6 +79,13 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): void {
     a.dataset.kind = 'aside';
     aside.appendChild(a);
   };
+  // `tutorial=1` asks for the lesson explicitly. Without it a finished player
+  // replaying this mission gets it as a plain fight, which is the right default
+  // when they reach it from the campaign — the flag should stop the tutorial
+  // being pushed at them, not stop them asking for it.
+  if (opts.tutorial.done) {
+    addAside('replay the tutorial', `?mission=${opts.tutorial.id}&tutorial=1`);
+  }
   addAside('M0 sandbox (no mission)', '?sandbox=1');
   addAside('reset campaign ledger', '?fresh=1');
   wrap.appendChild(aside);

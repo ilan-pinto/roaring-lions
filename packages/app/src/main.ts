@@ -588,7 +588,15 @@ async function main(): Promise<void> {
   ).find((t) => t?.mission === missionId);
   let tut: TutorialState | null = null;
   let tutPanel: TutorialPanel | null = null;
-  if (mission && stepList && window.localStorage.getItem(TUTORIAL_DONE_KEY) === null) {
+  // Two ways to be taught: you have not been yet, or you asked to be again.
+  // Without the second, the done flag is a one-way door — the lesson is gone
+  // for good and only ?fresh=1 brings it back, at the cost of the campaign.
+  const tutorialReplay = params.get('tutorial') !== null;
+  if (
+    mission &&
+    stepList &&
+    (tutorialReplay || window.localStorage.getItem(TUTORIAL_DONE_KEY) === null)
+  ) {
     tut = initTutorial(stepList.steps, performance.now());
     tutPanel = tutorialPanel(document.body, {
       onSkip: () => {
