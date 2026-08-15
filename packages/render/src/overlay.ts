@@ -38,6 +38,13 @@ export class DebugOverlay {
   /** Off by default: the instrument should be opened deliberately, not be the
    *  thing a player sees first. `o` toggles it. */
   private visible = false;
+  /**
+   * Damage summed since the last feed line, per structure, with the integrity
+   * band we were in when we last spoke. A blade lands a hit every tick; one
+   * line per eighth of the building is enough to follow, and forty lines in
+   * two seconds is not.
+   */
+  private readonly grind = new Map<number, { dmg: number; band: number }>();
   private feedCount = 0;
   private tickN = 0;
 
@@ -163,12 +170,32 @@ export class DebugOverlay {
       case 'destroyed':
         this.line(t + `${this.name(e.entity)} <b>DESTROYED</b>${e.by >= 0 ? ' by ' + this.name(e.by) : ''}`, 'var(--bad)');
         break;
-      case 'structureHit':
-        this.line(
-          t + `${this.structName(e.structure)} takes ${fmt(e.damage, 0)} — ${fmt(e.hpLeft, 0)} left`,
-          'var(--ink-mute)'
-        );
+      case 'structureHit': {
+        // Shellfire keeps a line per hit: this panel exists to show every
+        // roll. Only a blade, which hits at tick rate, gets coalesced.
+        const grinding = e.by >= 0 && this.sim.state.demoTarget[e.by] === e.structure;
+        if (!grinding) {
+          this.line(
+            t + `${this.structName(e.structure)} takes ${fmt(e.damage, 0)} — ${fmt(e.hpLeft, 0)} left`,
+            'var(--ink-mute)'
+          );
+          break;
+        }
+        const max = fx.toNumber(this.sim.structures.maxHp[e.structure]);
+        const band = max > 0 ? Math.floor((fx.toNumber(e.hpLeft) / max) * 8) : 0;
+        const acc = this.grind.get(e.structure) ?? { dmg: 0, band: 8 };
+        acc.dmg += fx.toNumber(e.damage);
+        if (band !== acc.band) {
+          this.line(
+            t + `${this.structName(e.structure)} ground down ${acc.dmg.toFixed(0)} — ${fmt(e.hpLeft, 0)} left`,
+            'var(--ink-mute)'
+          );
+          acc.dmg = 0;
+          acc.band = band;
+        }
+        this.grind.set(e.structure, acc);
         break;
+      }
       case 'strike':
         this.line(t + `<b>PRECISION STRIKE</b> called by ${this.name(e.by)}`, 'var(--hot)');
         break;
@@ -179,6 +206,7 @@ export class DebugOverlay {
         if (e.count > 0) this.line(t + `satellite sweep: ${e.count} contact(s) identified`, 'var(--info)');
         break;
       case 'structureDestroyed':
+        this.grind.delete(e.structure);
         this.line(t + `${this.structName(e.structure)} <b>COLLAPSES</b>`, 'var(--hot)');
         break;
       case 'garrison':
