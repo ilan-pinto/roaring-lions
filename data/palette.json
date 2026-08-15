@@ -107,8 +107,23 @@
         "hostile": "#D93A2B",
         "neutral": "#E8C33A"
       }
+    },
+    "group": {
+      "role": "RUNTIME ONLY. Control-group badge and selection ring, indexed by group slot 1-9. Never appears in static art.",
+      "note": "Nine hues separated around the wheel and held light enough that the badge's #14150F numeral stays legible at gameplay zoom. g1 keeps the lime the badge always used, so existing muscle memory survives. Deliberately avoids team.hostile, vfx.fire and team.neutral at close range: those already mean enemy, suppression and neutral on the same unit, and a badge that borrows them reads as state rather than membership.",
+      "colors": {
+        "g1": "#B8FF5A",
+        "g2": "#6FE0FF",
+        "g3": "#FFCE5A",
+        "g4": "#FF8AD8",
+        "g5": "#B79BFF",
+        "g6": "#FF9A73",
+        "g7": "#7BF0C0",
+        "g8": "#7FB4FF",
+        "g9": "#FFF6D0"
+      }
     }
   },
   "mask_key": "#FF00FF",
-  "total_colors": 44
+  "total_colors": 53
 }

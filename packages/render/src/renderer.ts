@@ -27,6 +27,10 @@ export interface RendererOptions {
   /** Infantry/soft-unit colours by side index — a lighter tone of the same
    *  faction ramp, so foot troops read apart from armour at gameplay zoom. */
   infantryColors: [string, string, string];
+  /** Control-group colours, indexed by slot 1-9 minus one. Colours the group
+   *  badge and the selection ring, so a group reads as a group on the field
+   *  and not merely as "something is selected". */
+  groupColors: string[];
   terrainOpen: string;
   terrainCover: [string, string, string];
   terrainBlocked: string;
@@ -1690,12 +1694,22 @@ export class PixiRenderer {
       if (st.mobilityKilled[i] === 1) g.circle(sx - r, sy + r - 2, 3).fill('#8E9491');
       if (st.firepowerKilled[i] === 1) g.circle(sx + r, sy + r - 2, 3).fill('#8B1E12');
 
+      // Control-group colour. The badge and the selection ring share it, so a
+      // group reads as one formation instead of as a loose selection.
+      const grp = this.unitGroup[i];
+      const groupColor =
+        grp > 0 && this.opts.groupColors.length > 0
+          ? this.opts.groupColors[(grp - 1) % this.opts.groupColors.length]
+          : '';
+
       if (this.selection.includes(i)) {
-        g.ellipse(sx, sy + 2, r + 7, (r + 7) / 2).stroke({ width: 2, color: '#B8FF5A' });
+        g.ellipse(sx, sy + 2, r + 7, (r + 7) / 2).stroke({
+          width: 2,
+          color: groupColor || '#B8FF5A',
+        });
       }
 
       // Control-group badge, so the org chart is visible on the field.
-      const grp = this.unitGroup[i];
       if (grp > 0) {
         let label = this.groupLabels[i];
         if (!label) {
@@ -1707,7 +1721,7 @@ export class PixiRenderer {
           this.spriteLayer.addChild(label);
           this.groupLabels[i] = label;
         }
-        g.circle(sx - r - 4, sy - r - 4, 7).fill({ color: '#B8FF5A', alpha: 0.95 });
+        g.circle(sx - r - 4, sy - r - 4, 7).fill({ color: groupColor || '#B8FF5A', alpha: 0.95 });
         label.text = String(grp);
         label.position.set(sx - r - 4, sy - r - 4);
         // A group badge is UI, not geometry: it must never be occluded by a
