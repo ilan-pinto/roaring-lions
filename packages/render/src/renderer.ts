@@ -323,6 +323,9 @@ export class PixiRenderer {
   /** Per-structure damage step, so a hit only redraws terrain when the shading
    *  actually moves. Grown lazily; 0xff means "not seen yet". */
   private structureWear: Uint8Array | null = null;
+  /** Tick of the last dust puff per structure, so two dozers on one building
+   *  do not double the dust. */
+  private readonly structPuffTick = new Map<number, number>();
   private tracers: Tracer[] = [];
   private puffs: Puff[] = [];
   private readonly emitters = new EmitterLibrary();
@@ -634,16 +637,34 @@ export class PixiRenderer {
         // siege has forty panels being chewed at once.
         if (this.bumpStructureWear(e.structure)) this.terrainDirty = true;
         const s = e.structure;
-        this.puffs.push({
-          x: fx.toNumber(this.sim.structures.cx[s]),
-          y: fx.toNumber(this.sim.structures.cy[s]),
-          ttl: 12,
-          color: this.opts.nearMissColor,
-          r: 9,
-        });
+        // A blade throws dust where it is cutting; a shell throws it off the
+        // roof. The sim says which without knowing anything about dust.
+        const grinding = e.by >= 0 && this.sim.state.demoTarget[e.by] === s;
+        if (!grinding) {
+          this.puffs.push({
+            x: fx.toNumber(this.sim.structures.cx[s]),
+            y: fx.toNumber(this.sim.structures.cy[s]),
+            ttl: 12,
+            color: this.opts.nearMissColor,
+            r: 9,
+          });
+        } else if (e.tick - (this.structPuffTick.get(s) ?? -99) >= 4) {
+          // A blade lands a hit every tick; one puff in four is plenty, and it
+          // is counted per structure so two dozers do not double the dust.
+          this.structPuffTick.set(s, e.tick);
+          const a = PixiRenderer.h2(e.tick, s);
+          this.puffs.push({
+            x: this.curX[e.by] + (a - 0.5) * 6,
+            y: this.curY[e.by] + (a - 0.5) * 3,
+            ttl: 14,
+            color: this.opts.nearMissColor,
+            r: 7,
+          });
+        }
       } else if (e.kind === 'structureDestroyed') {
         this.terrainDirty = true;
         const s = e.structure;
+        this.structPuffTick.delete(s);
         const bx = fx.toNumber(this.sim.structures.cx[s]);
         const by = fx.toNumber(this.sim.structures.cy[s]);
         // A collapse throws a lot of dust.

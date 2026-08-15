@@ -711,6 +711,8 @@ export class Sim {
     readonly garrisonedIn: Int32Array;
     /** Structure the unit is currently shooting at, -1 when none. */
     readonly curStructure: Int32Array;
+    /** Structure the unit is currently demolishing, -1 when none. */
+    readonly demoTarget: Int32Array;
     /** Vehicle this unit is riding in, -1 when on foot. */
     readonly carriedBy: Int32Array;
   };
@@ -848,6 +850,7 @@ export class Sim {
       routed: this.routed,
       garrisonedIn: this.garrisonedIn,
       curStructure: this.curStructure,
+      demoTarget: this.demoTarget,
       carriedBy: this.carriedBy,
     };
     this.structures = {
