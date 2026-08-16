@@ -1624,3 +1624,146 @@ describe('placements cannot spawn inside a building', () => {
     expect(() => w.runtime.start()).toThrow(/m_civ/);
   });
 });
+
+// `raze`: "level every building in this zone." Exercised through the real
+// command path (queueCommand({ kind: 'demolish', ... })) rather than by
+// poking sim internals -- destroyStructure/damageStructure are private, and
+// the whole point of the objective is to observe what that command produces.
+describe('raze objective', () => {
+  const RAZE_DEMO: UnitTypeJson = {
+    id: 'raze_demo',
+    role: 'engineer',
+    hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
+    mobility: { speed_tiles_s: 1.2 },
+    sensors: { optics: 1.0, sight_tiles: 8, signature: 0.6 },
+    abilities: ['demolish'],
+    demolition_time_s: 1.0, // 20 ticks once in range
+    weapons: [],
+  };
+  const RAZE_SHED = { id: 'raze_shed', hp_per_tile: 100 };
+
+  /** x, y, w, h in tiles: covers (10,10)-(13,13). */
+  const DEPOT_ZONE = [10, 10, 4, 4] as const;
+
+  /** Depot zone holding two one-tile structures (ids 0, 1), plus whatever the
+   *  options ask for. Structures and their would-be demolishers are placed so
+   *  none of their footprints or spawn tiles overlap.
+   *
+   *  - `outsider`: a third structure well outside the zone.
+   *  - `straddle`: a third, two-tile structure with exactly one tile inside
+   *    the zone and one outside -- the boundary case for "the zone's tile
+   *    scan finds a structure by any one of its tiles."
+   *  - `zone`: point the objective's `target` at this (unregistered) zone
+   *    name instead of 'depot'.
+   *  - `empty`: skip the two normal structures, so the zone holds nothing. */
+  function razeWorld(opts: { outsider?: boolean; straddle?: boolean; zone?: string; empty?: boolean } = {}) {
+    const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 16 });
+    const st = sim.addStructureType(RAZE_SHED);
+    const demo = sim.addUnitType(RAZE_DEMO);
+
+    const structs: { id: number; spawnX: number; spawnY: number }[] = [];
+    if (!opts.empty) {
+      // (11,11) and (12,12): both inside the depot zone, spaced so a
+      // demolisher parked beside one is never adjacent to the other.
+      structs.push({ id: sim.addStructure(st, [11 * sim.width + 11]), spawnX: 12.5, spawnY: 11.5 });
+      structs.push({ id: sim.addStructure(st, [12 * sim.width + 12]), spawnX: 13.5, spawnY: 12.5 });
+    }
+    if (opts.outsider) {
+      structs.push({ id: sim.addStructure(st, [25 * sim.width + 25]), spawnX: 26.5, spawnY: 25.5 });
+    }
+    if (opts.straddle) {
+      // Tile x=13 is inside the zone (x in [10,14)); x=14 is not.
+      const tiles = [10 * sim.width + 13, 10 * sim.width + 14];
+      structs.push({ id: sim.addStructure(st, tiles), spawnX: 15.5, spawnY: 10.5 });
+    }
+
+    const mission: MissionJson = {
+      id: 'raze_test',
+      map: { file: 'none' },
+      ledger: { requires: [], produces: [] },
+      objectives: [{ id: 'win', type: 'raze', primary: true, target: opts.zone ?? 'depot' }],
+    };
+    const rt = new MissionRuntime(sim, mission, {
+      typeIdOf: (u) => {
+        if (u !== RAZE_DEMO.id) throw new Error(`unknown unit ${u}`);
+        return demo;
+      },
+      markers: {},
+      zones: { depot: DEPOT_ZONE },
+    });
+    rt.start();
+
+    /** Spawn a demolisher beside structure `i` (in placement order above) and
+     *  order it to demolish, then tick until the structure falls or the
+     *  budget runs out. */
+    const raze = (i: number): void => {
+      const target = structs[i];
+      const id = sim.spawn(demo, 0, fx.from(target.spawnX), fx.from(target.spawnY));
+      sim.queueCommand({ kind: 'demolish', ids: [id], structure: target.id });
+      for (let n = 0; n < 200 && sim.structures.alive[target.id] === 1; n++) sim.tick();
+    };
+
+    return { sim, rt, raze, structs };
+  }
+
+  it('completes when every structure in the zone is dead', () => {
+    const { sim, rt, raze } = razeWorld(); // depot zone holds 2 structures
+    expect(rt.objectiveList[0].status).toBe('active');
+    raze(0);
+    rt.step([]);
+    expect(rt.objectiveList[0].status).toBe('active'); // one still standing
+    raze(1);
+    rt.step([]);
+    expect(rt.objectiveList[0].status).toBe('complete');
+    expect(sim.structures.alive[0]).toBe(0);
+    expect(sim.structures.alive[1]).toBe(0);
+  });
+
+  it('is not completed by a structure outside the zone', () => {
+    const { rt, raze } = razeWorld({ outsider: true });
+    raze(0);
+    raze(1);
+    rt.step([]);
+    expect(rt.objectiveList[0].status).toBe('complete'); // outsider irrelevant
+  });
+
+  // The brief's original version of this test destroyed nothing and asserted
+  // 'active', which holds no matter what the code does. This version proves
+  // the straddler is actually in the target set: the zone's two normal
+  // structures going down first must NOT complete the objective, and only
+  // razing the straddler on top of that does.
+  it('counts a structure with only one tile inside the zone', () => {
+    const { rt, raze } = razeWorld({ straddle: true });
+    raze(0);
+    raze(1);
+    rt.step([]);
+    expect(rt.objectiveList[0].status).toBe('active'); // the straddler still stands
+    raze(2);
+    rt.step([]);
+    expect(rt.objectiveList[0].status).toBe('complete'); // now every tile-owner is down
+  });
+
+  it('counts a structure destroyed by the enemy', () => {
+    // The objective asks whether the depot is down, not who dropped it. An
+    // enemy demolisher works exactly like a player one; only the spawn side differs.
+    const { sim, rt } = razeWorld();
+    const enemyDemo = sim.addUnitType({ ...RAZE_DEMO, id: 'raze_demo_enemy' });
+    const a = sim.spawn(enemyDemo, 1, fx.from(12.5), fx.from(11.5));
+    const b = sim.spawn(enemyDemo, 1, fx.from(13.5), fx.from(12.5));
+    sim.queueCommand({ kind: 'demolish', ids: [a], structure: 0 });
+    sim.queueCommand({ kind: 'demolish', ids: [b], structure: 1 });
+    for (let n = 0; n < 200 && (sim.structures.alive[0] === 1 || sim.structures.alive[1] === 1); n++) {
+      sim.tick();
+    }
+    rt.step([]);
+    expect(rt.objectiveList[0].status).toBe('complete');
+  });
+
+  it('throws when the zone does not resolve', () => {
+    expect(() => razeWorld({ zone: 'nowhere' })).toThrow(/needs a valid zone/);
+  });
+
+  it('throws when the zone holds no structures', () => {
+    expect(() => razeWorld({ empty: true })).toThrow(/would complete on the first tick/);
+  });
+});

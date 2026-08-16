@@ -233,7 +233,7 @@ Beit Sahwan III reads `tunnel_mouths_marked`. If Mission I went badly the list i
 
 ### Objective vocabulary
 
-Missions are declarative trigger/objective JSON, never scripted code. Available objective types: `locate`, `mark`, `collapse`, `escort`, `hold_for`, `evacuate_before`, `eliminate_hvt`, `capture`, `survive_until`, `no_collateral_above`.
+Missions are declarative trigger/objective JSON, never scripted code. Available objective types: `locate`, `mark`, `collapse`, `escort`, `hold_for`, `evacuate_before`, `eliminate_hvt`, `capture`, `survive_until`, `no_collateral_above`, `raze`.
 
 "Destroy all enemies" is available and should be used rarely.
 
