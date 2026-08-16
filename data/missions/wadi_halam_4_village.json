@@ -1,0 +1,226 @@
+{
+  "id": "wadi_halam_4_village",
+  "name": "Wadi Halam IV — Wadi Halam",
+  "town": "wadi_halam",
+  "phase": "clearance",
+  "target_minutes": 7,
+  "briefing": "The village is inhabited and the mosque is under protection — heavy ordnance reaches further across open ground than it does between walls, so mind what you call in. A cache guard and three cells hold the houses; a pair of technicals waiting at the south hide will run for the village the moment you make contact. Clear and hold the village, kill or capture whoever is guarding the cache, and get the families out to the refuge before the fighting closes the road.",
+  "map": {
+    "file": "wadi_halam_basin",
+    "player_start": [
+      9,
+      21
+    ]
+  },
+  "ledger": {
+    "requires": [
+      "roster.surviving_units",
+      "intel.marked_positions"
+    ],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions",
+      "civ.settlements_evacuated"
+    ]
+  },
+  "starting_force": [
+    {
+      "unit": "apc_eitan",
+      "count": 1,
+      "at": [
+        7,
+        20
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "ifv_namer",
+      "count": 1,
+      "at": [
+        7,
+        24
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "inf_squad",
+      "count": 3,
+      "at": [
+        9,
+        21
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "at_team",
+      "count": 1,
+      "at": [
+        9,
+        23
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "jeep_shoded",
+      "count": 1,
+      "at": [
+        8,
+        22
+      ]
+    }
+  ],
+  "objectives": [
+    {
+      "id": "take_village",
+      "type": "capture",
+      "primary": true,
+      "target": "village",
+      "seconds": 20,
+      "text": "Clear and hold the village for 20 seconds"
+    },
+    {
+      "id": "kill_cache_guard",
+      "type": "eliminate_hvt",
+      "primary": true,
+      "target": "wh_hvt_cache",
+      "text": "Kill or capture whoever is guarding the cache"
+    },
+    {
+      "id": "evac_families",
+      "type": "evacuate_before",
+      "primary": false,
+      "target": "refuge",
+      "count": 3,
+      "seconds": 300,
+      "text": "Shepherd the families to the refuge before the road closes"
+    }
+  ],
+  "roe": {
+    "enabled": true,
+    "flagged_zones": [
+      "mosque_block"
+    ],
+    "fail_below": 40,
+    "structure_penalty_mult": 1
+  },
+  "civilians": {
+    "refuge": "civ_refuge",
+    "groups": [
+      {
+        "unit": "civilians",
+        "count": 2,
+        "at": [
+          28.5,
+          20.5
+        ]
+      },
+      {
+        "unit": "civilians",
+        "count": 1,
+        "at": [
+          29.5,
+          28.5
+        ]
+      }
+    ]
+  },
+  "enemy": {
+    "faction": "rif",
+    "doctrine_profile": "dug in among houses, reserve commits on contact",
+    "garrison": [
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          26.5,
+          19.5
+        ],
+        "facing_deg": 0,
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            26,
+            17
+          ]
+        },
+        "tag": "wh_cell_nw"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          31.5,
+          19.5
+        ],
+        "facing_deg": 0,
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            31,
+            17
+          ]
+        },
+        "tag": "wh_cell_ne"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          26.5,
+          30.5
+        ],
+        "facing_deg": 0,
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            26,
+            28
+          ]
+        },
+        "tag": "wh_cell_sw"
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          31.5,
+          30.5
+        ],
+        "facing_deg": 0,
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            31,
+            28
+          ]
+        },
+        "tag": "wh_hvt_cache"
+      },
+      {
+        "unit": "technical",
+        "count": 2,
+        "marker": "hide_south",
+        "facing_deg": 0,
+        "group": "reserve",
+        "stance": {
+          "kind": "hold_position"
+        },
+        "tag": "wh_village_reserve"
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "id": "reserve_commits",
+      "on": {
+        "kind": "first_contact"
+      },
+      "do": {
+        "kind": "commit",
+        "group": "reserve",
+        "to": "village_center"
+      }
+    }
+  ]
+}
