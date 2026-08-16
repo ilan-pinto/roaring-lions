@@ -69,6 +69,14 @@
       ]
     },
     {
+      "unit": "demo_squad",
+      "count": 1,
+      "at": [
+        15,
+        24
+      ]
+    },
+    {
       "unit": "jeep_shoded",
       "count": 1,
       "at": [
