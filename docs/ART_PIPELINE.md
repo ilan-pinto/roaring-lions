@@ -175,7 +175,7 @@ art/src/            *.blend sources (required, never optional)
 assets/audio/       battle SFX, declared in data/audio.json
 data/audio.json     audio manifest + per-clip licensing
 assets/sprites/     rendered output + manifest.json, CI-generated
-data/palette.json   locked 32-colour palette
+data/palette.json   locked 36-colour palette
 data/vfx/           emitter definitions
 data/schemas/       JSON Schema for all data-driven content
 tools/render_rig.py

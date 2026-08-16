@@ -1,7 +1,7 @@
 {
   "name": "Sahar Basin",
   "version": 1,
-  "notes": "Locked 32-color palette. All rendered sprites are quantized to this set in CI. Ramps are ordered light -> dark. Reserved bands MUST NOT appear in unit/building/terrain diffuse art; they are applied at runtime by the VFX and team-color systems only.",
+  "notes": "Locked palette: 36 ramp colours, which is the set all rendered sprites are quantized to in CI. Ramps are ordered light -> dark. Reserved bands MUST NOT appear in unit/building/terrain diffuse art; they are applied at runtime by the VFX and team-color systems only.",
   "ramps": {
     "limestone": {
       "role": "primary terrain, masonry, concrete, sun-bleached surfaces",
