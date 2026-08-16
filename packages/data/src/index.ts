@@ -68,6 +68,7 @@ export {
   type MapJson,
   type ParsedMap,
   type DecorKind,
+  type TerrainTheme,
 } from './map';
 
 /** Battlefield maps, keyed by map id. Shapes match map.schema.json. */
