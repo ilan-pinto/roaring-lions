@@ -495,7 +495,10 @@ export class MissionRuntime {
         status: o.status,
         ticksLeft,
         paused: o.status === 'active' && o.paused !== null ? o.paused : undefined,
-        zone: o.def.type === 'hold_for' || o.def.type === 'capture' ? o.def.target : undefined,
+        zone:
+          o.def.type === 'hold_for' || o.def.type === 'capture' || o.def.type === 'raze'
+            ? o.def.target
+            : undefined,
       };
     });
   }

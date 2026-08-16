@@ -1655,7 +1655,20 @@ describe('raze objective', () => {
    *    scan finds a structure by any one of its tiles."
    *  - `zone`: point the objective's `target` at this (unregistered) zone
    *    name instead of 'depot'.
-   *  - `empty`: skip the two normal structures, so the zone holds nothing. */
+   *  - `empty`: skip the two normal structures, so the zone holds nothing.
+   *
+   *  Note on adjacency: these structures sit well inside `DEMO_RANGE_SQ` (4.0
+   *  tile^2, structures.ts) of one another. A demolisher whose designated
+   *  target has already fallen does not despawn -- `demolishOrder` resets to
+   *  -1 (sim.ts) and it falls into the automatic nearest-structure search
+   *  (sim.ts), so it *will* pick up a neighbour with no order given. Spacing
+   *  does not guard against this; nothing here does. What actually keeps
+   *  `raze()` calls independent is that no `sim.tick()` runs between one
+   *  `raze()` returning and the next assertion -- the leftover demolisher
+   *  only acts on ticks a *later* `raze()` call or `step()` supplies, by
+   *  which point the test has already read the state it cares about. Adding
+   *  a bare `sim.tick()` before an assertion would let a leftover demolisher
+   *  finish off a structure no test asked it to touch. */
   function razeWorld(opts: { outsider?: boolean; straddle?: boolean; zone?: string; empty?: boolean } = {}) {
     const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 16 });
     const st = sim.addStructureType(RAZE_SHED);
@@ -1663,8 +1676,6 @@ describe('raze objective', () => {
 
     const structs: { id: number; spawnX: number; spawnY: number }[] = [];
     if (!opts.empty) {
-      // (11,11) and (12,12): both inside the depot zone, spaced so a
-      // demolisher parked beside one is never adjacent to the other.
       structs.push({ id: sim.addStructure(st, [11 * sim.width + 11]), spawnX: 12.5, spawnY: 11.5 });
       structs.push({ id: sim.addStructure(st, [12 * sim.width + 12]), spawnX: 13.5, spawnY: 12.5 });
     }
@@ -1720,7 +1731,8 @@ describe('raze objective', () => {
   });
 
   it('is not completed by a structure outside the zone', () => {
-    const { rt, raze } = razeWorld({ outsider: true });
+    const { sim, rt, raze, structs } = razeWorld({ outsider: true });
+    expect(sim.structures.alive[structs[2].id]).toBe(1); // premise: outsider stands untouched
     raze(0);
     raze(1);
     rt.step([]);
