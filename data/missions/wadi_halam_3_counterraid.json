@@ -8,8 +8,8 @@
   "map": {
     "file": "wadi_halam_basin",
     "player_start": [
-      17,
-      20
+      9,
+      21
     ]
   },
   "ledger": {
@@ -29,8 +29,8 @@
       "unit": "apc_eitan",
       "count": 1,
       "at": [
-        16,
-        19
+        7,
+        20
       ],
       "from_ledger": true
     },
@@ -38,8 +38,8 @@
       "unit": "ifv_namer",
       "count": 1,
       "at": [
-        16,
-        23
+        7,
+        24
       ],
       "from_ledger": true
     },
@@ -47,8 +47,8 @@
       "unit": "inf_squad",
       "count": 2,
       "at": [
-        18,
-        19
+        9,
+        21
       ],
       "from_ledger": true
     },
@@ -56,7 +56,7 @@
       "unit": "at_team",
       "count": 1,
       "at": [
-        18,
+        9,
         23
       ],
       "from_ledger": true
@@ -65,8 +65,8 @@
       "unit": "jeep_shoded",
       "count": 1,
       "at": [
-        14,
-        20
+        8,
+        22
       ]
     }
   ],
