@@ -4,7 +4,7 @@
   "town": "wadi_halam",
   "phase": "foothold",
   "target_minutes": 7,
-  "briefing": "Push through to the pasture and dig in while the engineers lay the crossing behind you. Nothing here fights from cover — the ground is open on both sides, and the Rif know it as well as you do. Technicals will come at the pump house and the south ford in waves, engage, and pull back rather than trade themselves for ground. Accumulate three minutes of uncontested pasture and the corridor is yours.",
+  "briefing": "Push through to the pasture and dig in while the engineers lay the crossing behind you. Nothing here fights from cover — the ground is open on both sides, and the Rif know it as well as you do. Technicals and motorcycles will come at the pump house from every direction in waves, engage, and pull back rather than trade themselves for ground once their losses mount. Accumulate three minutes of uncontested pasture and the corridor is yours.",
   "map": {
     "file": "wadi_halam_basin",
     "player_start": [
@@ -14,8 +14,7 @@
   },
   "ledger": {
     "requires": [
-      "roster.surviving_units",
-      "intel.marked_positions"
+      "roster.surviving_units"
     ],
     "produces": [
       "roster.surviving_units",
@@ -30,7 +29,8 @@
       "at": [
         3,
         19
-      ]
+      ],
+      "from_ledger": true
     },
     {
       "unit": "ifv_namer",
@@ -38,7 +38,8 @@
       "at": [
         2,
         23
-      ]
+      ],
+      "from_ledger": true
     },
     {
       "unit": "inf_squad",
@@ -102,60 +103,152 @@
         },
         "tag": "wh_aa_east"
       }
-    ],
-    "waves": [
-      {
-        "at_seconds": 60,
-        "to": "pump_house",
+    ]
+  },
+  "triggers": [
+    {
+      "id": "wave_1",
+      "on": {
+        "kind": "timer_s",
+        "value": 60
+      },
+      "do": {
+        "kind": "spawn",
         "units": [
           {
             "unit": "technical",
             "count": 2,
-            "from": "rif_north"
+            "marker": "rif_north",
+            "group": "raiders",
+            "stance": {
+              "kind": "patrol",
+              "waypoints": [
+                [
+                  44.5,
+                  9.5
+                ],
+                [
+                  17.5,
+                  20.5
+                ]
+              ]
+            }
           }
         ]
+      }
+    },
+    {
+      "id": "wave_2",
+      "on": {
+        "kind": "timer_s",
+        "value": 150
       },
-      {
-        "at_seconds": 150,
-        "to": "ford_south",
+      "do": {
+        "kind": "spawn",
         "units": [
           {
             "unit": "moto_rpg",
             "count": 2,
-            "from": "rif_south"
+            "marker": "rif_south",
+            "group": "raiders",
+            "stance": {
+              "kind": "patrol",
+              "waypoints": [
+                [
+                  44.5,
+                  39.5
+                ],
+                [
+                  17.5,
+                  20.5
+                ]
+              ]
+            }
           },
           {
             "unit": "technical",
             "count": 1,
-            "from": "rif_south"
+            "marker": "rif_south",
+            "group": "raiders",
+            "stance": {
+              "kind": "patrol",
+              "waypoints": [
+                [
+                  44.5,
+                  39.5
+                ],
+                [
+                  17.5,
+                  20.5
+                ]
+              ]
+            }
           }
         ]
+      }
+    },
+    {
+      "id": "wave_3",
+      "on": {
+        "kind": "timer_s",
+        "value": 240
       },
-      {
-        "at_seconds": 240,
-        "to": "pump_house",
+      "do": {
+        "kind": "spawn",
         "units": [
           {
             "unit": "technical",
             "count": 2,
-            "from": "rif_east"
+            "marker": "rif_east",
+            "group": "raiders",
+            "stance": {
+              "kind": "patrol",
+              "waypoints": [
+                [
+                  44.5,
+                  24.5
+                ],
+                [
+                  17.5,
+                  20.5
+                ]
+              ]
+            }
           }
         ]
+      }
+    },
+    {
+      "id": "wave_4",
+      "on": {
+        "kind": "timer_s",
+        "value": 330
       },
-      {
-        "at_seconds": 330,
-        "to": "ford_south",
+      "do": {
+        "kind": "spawn",
         "units": [
           {
             "unit": "moto_rpg",
             "count": 3,
-            "from": "rif_south"
+            "marker": "rif_south",
+            "group": "raiders",
+            "stance": {
+              "kind": "patrol",
+              "waypoints": [
+                [
+                  44.5,
+                  39.5
+                ],
+                [
+                  17.5,
+                  20.5
+                ]
+              ]
+            }
           }
         ]
       }
-    ]
-  },
-  "triggers": [
+    },
     {
       "id": "picket_withdraws",
       "on": {
