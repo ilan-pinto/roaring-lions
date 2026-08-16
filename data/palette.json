@@ -81,6 +81,17 @@
         "#3E5C2E"
       ]
     },
+    "grass": {
+      "role": "procedural terrain only -- open sward, hedgerow, pasture. NOT for sprite art.",
+      "colors": [
+        "#D9E294",
+        "#C0CE7E",
+        "#A6BC66",
+        "#8AB04E",
+        "#6E9E33"
+      ],
+      "note": "Added for the Naharin green basin. Neither existing green could carry open ground: olive is a desaturated grey-green for hulls and tarps, and scrub is two entries whose declared role is sparse vegetation. Five steps of 39-43 RGB distance, coarser than limestone's ~31 because five entries span what nine limestone steps span. The ramp stops at grass.4 (#6E9E33) rather than continuing down, because scrub.0 (#6B8A4A) is 31 away and already owns that band -- extending further produced duplicates, not steps. Vegetation is therefore seven steps across two ramps: grass.0-4 then scrub.0 then scrub.1. grass.2 is the open-ground wash: its luminance (177) sits within 5 of limestone.3 (182), which every unit silhouette was tuned for figure-ground against, so the change is hue and not value."
+    },
     "water": {
       "role": "sky gradient, sea, cisterns",
       "colors": [
@@ -125,5 +136,5 @@
     }
   },
   "mask_key": "#FF00FF",
-  "total_colors": 53
+  "total_colors": 58
 }
