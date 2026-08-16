@@ -121,6 +121,43 @@ describe('per-unit demolition time', () => {
     expect(sim.structureAt(12, 10)).toBe(-1); // shack levelled
   });
 
+  // Every designated-demolition test above spawns the unit square on one of
+  // the structure's axes, where the wall-slide happens to resolve to a dead
+  // stop. Approaching at an angle is the normal case in play, and it is the
+  // one that hangs: the order aims the unit at the building's *centre*, which
+  // is inside the blocked footprint, so it can never arrive and never clears
+  // `moving`. The slide then freezes the blocked axis while still stepping the
+  // free one by a share that shrinks toward zero without reaching it -- so the
+  // unit is `displaced` every tick forever, and stepDemolition drops the
+  // charges every tick forever. The building stands until the player halts the
+  // unit by hand.
+  it('demolishes a designated building promptly when it stops off-axis', () => {
+    const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 8 });
+    const st = sim.addStructureType(SHACK);
+    // Three by three: with a single tile the unit closes on the centre from
+    // both axes at once and happens to stop dead, which is why every existing
+    // test here passes.
+    const tiles: number[] = [];
+    for (let y = 10; y <= 12; y++) for (let x = 10; x <= 12; x++) tiles.push(y * 32 + x);
+    const s = sim.addStructure(st, tiles);
+    const t = sim.addUnitType(DOZER);
+    // A tile west of the wall and a tenth of a tile off the centre row, so the
+    // final leg has a large dx it can never satisfy and a small dy it can only
+    // approach. One tile of walking plus 40 ticks of charges is about 65.
+    const id = sim.spawn(t, 0, fx.from(9.0), fx.from(11.4));
+    sim.queueCommand({ kind: 'demolish', ids: [id], structure: s });
+    let fell = -1;
+    for (let n = 1; n <= 600; n++) {
+      sim.tick();
+      if (sim.structureAt(11, 11) < 0) {
+        fell = n;
+        break;
+      }
+    }
+    expect(fell).toBeGreaterThan(0);
+    expect(fell).toBeLessThan(120);
+  });
+
   // The guard stops accidents, not intent. Without this the protected site
   // would be undemolishable by anything, forever — there is no other way to
   // ask for it.

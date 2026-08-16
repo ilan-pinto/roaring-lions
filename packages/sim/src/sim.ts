@@ -2855,6 +2855,28 @@ export class Sim {
       if (this.alive[i] === 0) continue;
       const type = this.unitTypes[this.typeIdx[i]];
       if (!type.canDemolish) continue;
+      // Arrival, for a unit under orders. A `demolish` order aims the unit at
+      // the building's centre, which is inside its own footprint and so can
+      // never be stood on: `moving` never clears on its own. The wall-slide
+      // then freezes the blocked axis while still stepping the free one by a
+      // share that decays toward zero without reaching it, so the unit counts
+      // as displaced for hundreds of ticks and the charges below are thrown
+      // away every one of them. Left alone it does start eventually — once the
+      // residual step underflows the fixed-point grid — which read as a dozer
+      // parked against a wall doing nothing for the better part of a minute.
+      //
+      // Being in range IS arrival for this purpose, so stop. Garrison has the
+      // same unreachable goal and answers it the same way: stepGarrison acts on
+      // distance, and entering halts the unit.
+      if (
+        this.moving[i] === 1 &&
+        this.demolishOrder[i] >= 0 &&
+        this.stAlive[this.demolishOrder[i]] === 1 &&
+        this.structDistSq(this.demolishOrder[i], this.posX[i], this.posY[i]) <= DEMO_RANGE_SQ
+      ) {
+        this.moving[i] = 0;
+        this.fieldRef[i] = -1;
+      }
       // Charges go in while the team is stationary — being ordered *at* a
       // building counts, since they stop against its wall.
       if (this.displaced[i] === 1 || this.pinned[i] === 1 || this.garrisonedIn[i] >= 0) {
