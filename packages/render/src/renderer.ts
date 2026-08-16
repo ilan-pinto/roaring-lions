@@ -50,6 +50,13 @@ export const TILE_H = 32;
 const RECOIL_SECONDS = 0.15;
 /** How long a penetrating hit's flinch takes to settle. */
 const FLINCH_SECONDS = 0.18;
+/** How long a building takes to come down onto its own rubble. */
+const COLLAPSE_SECONDS = 0.6;
+/** How far the roof line settles over that fall, as a fraction of the sprite's
+ *  height. Not all the way to nothing: the wreck sprite underneath stands a
+ *  little proud of the ground, and a roof sinking past it reads as the
+ *  building falling through the floor. */
+const COLLAPSE_SQUASH = 0.8;
 /** Recoil travel in screen px: a main gun shoves, a rifle barely nudges. */
 const RECOIL_PX_VEHICLE = 3;
 const RECOIL_PX_SOFT = 1;
@@ -212,6 +219,82 @@ export class PixiRenderer {
     }
   >();
 
+  /**
+   * Start a building falling.
+   *
+   * The wreck is already going down underneath on this rebuild, so all this
+   * adds is the intact sprite on top, anchored at its *base* rather than its
+   * centre. Anchored at the base, shrinking `scale.y` brings the roof line
+   * down while the footprint stays put -- which is the whole effect. A
+   * separate downward slide on top of that would only bury it in the ground.
+   */
+  private beginCollapse(s: number): void {
+    const st = this.sim.structures;
+    const stype = this.sim.structureTypes[st.typeIdx[s]];
+    const art = this.structureAtlas.get(stype.id);
+    // Structures drawn by the procedural extrusion have no sprite to fell.
+    if (!art) return;
+    const fx0 = (st.minX[s] + st.maxX[s] + 1) / 2;
+    const fy0 = (st.minY[s] + st.maxY[s] + 1) / 2;
+    const scale = (art.scale * TILE_W) / art.texture.width;
+    const spr = new Sprite({ texture: art.texture, anchor: { x: 0.5, y: 1 } });
+    spr.scale.set(scale);
+    // drawStructureSprite centres the sprite; anchoring at the base instead
+    // means dropping the position by half a sprite to cover the same ground.
+    spr.position.set(isoX(fx0, fy0), isoY(fx0, fy0) + (art.texture.height * scale) / 2);
+    spr.zIndex = depthZ(st.maxX[s] + 1, st.maxY[s] + 1);
+    // Continue from the wear band the building was last drawn at, not from
+    // full: it has been darkening as it was chewed and must not flash back.
+    //
+    // `structureWear` fills with 0xff for slots it has never drawn, so a
+    // building that dies without ever being damaged -- a demolition charge, a
+    // scripted collapse -- arrives here as 255, not 8. Clamping is what keeps
+    // that from becoming an alpha of 14.9, which Pixi pins at 1 and then holds
+    // opaque for the whole fall before snapping out at the very end.
+    const band = Math.min(8, this.structureWear?.[s] ?? 8);
+    const alpha0 = 0.55 + 0.45 * (band / 8);
+    spr.alpha = alpha0;
+    this.spriteLayer.addChild(spr);
+    this.collapsing.push({ spr, t: 0, scaleY0: scale, alpha0 });
+  }
+
+  /**
+   * Bring the falling buildings down one frame.
+   *
+   * Squared easing, because a building accelerates as it goes: a linear fall
+   * reads as a lift lowering rather than a structure failing.
+   */
+  private stepCollapses(dtSeconds: number): void {
+    for (let i = this.collapsing.length - 1; i >= 0; i--) {
+      const c = this.collapsing[i];
+      c.t += dtSeconds;
+      const p = Math.min(1, c.t / COLLAPSE_SECONDS);
+      const e = p * p;
+      c.spr.scale.y = c.scaleY0 * (1 - COLLAPSE_SQUASH * e);
+      c.spr.alpha = c.alpha0 * (1 - e);
+      if (p >= 1) {
+        this.spriteLayer.removeChild(c.spr);
+        c.spr.destroy();
+        this.collapsing.splice(i, 1);
+      }
+    }
+  }
+
+  /** The collapse debris and dust bloom. False when no emitter set is loaded. */
+  private spawnCollapseFx(bx: number, by: number): boolean {
+    if (!this.particles) return false;
+    const em = this.emitters.byName('structure_collapse');
+    if (!em) return false;
+    const prio = em.budget_priority ?? 1;
+    const fxLayer = fxLayerIndex(em.layer);
+    for (const layer of em.particles) {
+      // Straight up from the footprint centre; the spec's 360-degree cone and
+      // the presentation PRNG inside spawn() do the scattering.
+      this.particles.spawn(layer, bx, by, 0.25, 1, prio, fxLayer);
+    }
+    return true;
+  }
+
   /** Spawn a named ambient emitter at a unit, seeded off the presentation PRNG. */
   private spawnAmbient(id: string, sx: number, sy: number): void {
     if (!this.particles) return;
@@ -327,6 +410,26 @@ export class PixiRenderer {
   /** Tick of the last dust puff per structure, so two dozers on one building
    *  do not double the dust. */
   private readonly structPuffTick = new Map<number, number>();
+  /**
+   * Buildings on their way down: the intact sprite still settling onto the
+   * wreck that `drawWreckedStructures` has already laid underneath it.
+   *
+   * Deliberately NOT in `buildingSprites`. `drawTerrain` clears that array on
+   * every rebuild, and a terrain rebuild lands on the very tick a building
+   * dies -- so an animation parked there would be deleted on its first frame.
+   * These sprites are owned here, driven from `frame`, and removed when the
+   * fall finishes.
+   */
+  private readonly collapsing: {
+    spr: Sprite;
+    /** Seconds elapsed. */
+    t: number;
+    /** Vertical scale at rest, before the squash. */
+    scaleY0: number;
+    /** Alpha the building was last drawn at, so the fall continues from what
+     *  the player is already looking at rather than flashing back to full. */
+    alpha0: number;
+  }[] = [];
   private tracers: Tracer[] = [];
   private puffs: Puff[] = [];
   private readonly emitters = new EmitterLibrary();
@@ -669,17 +772,22 @@ export class PixiRenderer {
         this.structPuffTick.delete(s);
         const bx = fx.toNumber(this.sim.structures.cx[s]);
         const by = fx.toNumber(this.sim.structures.cy[s]);
-        // A collapse throws a lot of dust.
-        for (let k = 0; k < 14; k++) {
-          const a = PixiRenderer.h2(k * 7 + s, k * 13 + s);
-          const b = PixiRenderer.h2(k * 31 + s, k * 3 + s);
-          this.puffs.push({
-            x: bx + (a - 0.5) * 3,
-            y: by + (b - 0.5) * 3,
-            ttl: 26 + Math.floor(a * 16),
-            color: this.opts.nearMissColor,
-            r: 10 + a * 10,
-          });
+        this.beginCollapse(s);
+        // Masonry and a dust bloom, authored in data/vfx/structure_collapse.json.
+        // Falls back to the flat puffs when no emitter set is loaded, the same
+        // way weapon fire falls back to its generic puff.
+        if (!this.spawnCollapseFx(bx, by)) {
+          for (let k = 0; k < 14; k++) {
+            const a = PixiRenderer.h2(k * 7 + s, k * 13 + s);
+            const b = PixiRenderer.h2(k * 31 + s, k * 3 + s);
+            this.puffs.push({
+              x: bx + (a - 0.5) * 3,
+              y: by + (b - 0.5) * 3,
+              ttl: 26 + Math.floor(a * 16),
+              color: this.opts.nearMissColor,
+              r: 10 + a * 10,
+            });
+          }
         }
       } else if (e.kind === 'destroyed') {
         // Death is a sequence, not a state: collapse first, wreckage after.
@@ -1361,6 +1469,7 @@ export class PixiRenderer {
 
     this.stepDeaths(dtSeconds, g);
     if (this.particles) this.particles.step(dtSeconds);
+    this.stepCollapses(dtSeconds);
 
     // Which occupants get a roof slot, assigned once per frame in entity order so
     // the spread is stable rather than flickering between frames.

@@ -52,6 +52,7 @@ import fireMortar from '../../../data/vfx/fire_mortar.json';
 import cigaretteEmber from '../../../data/vfx/cigarette_ember.json';
 import cigaretteSmoke from '../../../data/vfx/cigarette_smoke.json';
 import fireSmallArms from '../../../data/vfx/fire_small_arms.json';
+import structureCollapse from '../../../data/vfx/structure_collapse.json';
 
 export { palette };
 export type Palette = typeof palette;
@@ -146,6 +147,9 @@ export type UnitId = keyof typeof units;
  *
  * Weapon-fire ones are indexed by weapon class; the two `ambient_idle` ones are
  * looked up by name, because idling is not a sim event and must not become one.
+ * `structure_collapse` is looked up by name too, off the `structureDestroyed`
+ * event — the sim says a building fell, the renderer decides what that looks
+ * like.
  */
 export const vfxEmitters = [
   fireSmallArms,
@@ -157,6 +161,7 @@ export const vfxEmitters = [
   fireMortar,
   cigaretteEmber,
   cigaretteSmoke,
+  structureCollapse,
 ];
 
 /** Resolve a palette key like "vfx.fire" or "dust.2" to its hex colour. */
