@@ -21,6 +21,7 @@ import {
   type RendererOptions,
   type AudioManifest,
   type EmitterSpec,
+  type TerrainTones,
 } from '@lions/render';
 import {
   units,
@@ -36,6 +37,7 @@ import {
   audioManifest,
   vfxEmitters,
   type MapJson,
+  type TerrainTheme,
 } from '@lions/data';
 import './ui/theme.css';
 import { Hud, type MissionView, type Tone } from './ui/hud';
@@ -285,6 +287,62 @@ async function main(): Promise<void> {
   }
 
   // --- renderer + overlay --------------------------------------------------
+  // Terrain tones by theme. The arid bundle is byte-identical to the values that
+  // were hardcoded in drawTerrain -- drawTerrain has no tests, so "Beit Sahwan
+  // renders unchanged" is proven by these numbers not moving and by looking at it.
+  // Typing this as a Record makes a missing theme a compile error, not a test.
+  const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
+    arid: {
+      open: paletteColor('limestone.3'),
+      cover: [paletteColor('limestone.2'), paletteColor('dust.1'), paletteColor('dust.0')],
+      blocked: paletteColor('limestone.4'),
+      underBuilding: paletteColor('shadow.0'),
+      road: paletteColor('dust.3'),
+      rut: paletteColor('dust.5'),
+      rock: paletteColor('limestone.6'),
+      rockLit: paletteColor('limestone.3'),
+      earth: paletteColor('terracotta.2'),
+      low: paletteColor('olive.1'),
+      trunk: paletteColor('dust.5'),
+      trunkLit: paletteColor('dust.3'),
+      leafDark: paletteColor('olive.2'),
+      leafMid: paletteColor('olive.1'),
+      leafLit: paletteColor('olive.0'),
+      // The stone branch never reads these; the type is total, so it needs values.
+      bladeLit: paletteColor('limestone.2'),
+      bladeShade: paletteColor('limestone.5'),
+      crownRatio: 0.52,
+      scatter: 'stone',
+    },
+    green: {
+      open: paletteColor('grass.2'),
+      // grass.3 is the blade-shade tone; a hedgerow in that same colour would not
+      // separate from the ground it sits on.
+      cover: [paletteColor('grass.4'), paletteColor('scrub.0'), paletteColor('scrub.1')],
+      // Buildings stay limestone. Stone in a green valley is correct, not a
+      // compromise, and it ties the village to the dry-stone terrace walls.
+      blocked: paletteColor('limestone.4'),
+      underBuilding: paletteColor('shadow.0'),
+      road: paletteColor('dust.4'),
+      rut: paletteColor('dust.6'),
+      // A knoll in the basin is a dry-stone terrace wall, so it stays limestone
+      // in both themes rather than becoming a green rock.
+      rock: paletteColor('limestone.6'),
+      rockLit: paletteColor('limestone.3'),
+      earth: paletteColor('dust.5'),
+      low: paletteColor('scrub.0'),
+      trunk: paletteColor('dust.5'),
+      trunkLit: paletteColor('dust.3'),
+      leafDark: paletteColor('scrub.1'),
+      leafMid: paletteColor('grass.4'),
+      leafLit: paletteColor('grass.2'),
+      bladeLit: paletteColor('grass.0'),
+      bladeShade: paletteColor('grass.3'),
+      // A poplar is a tall narrow crown where an olive is wide and squat.
+      crownRatio: 0.95,
+      scatter: 'sward',
+    },
+  };
   const opts: RendererOptions = {
     background: paletteColor('shadow.1'),
     teamColors: [paletteColor('team.kedem'), paletteColor('team.hostile'), paletteColor('team.neutral')],
@@ -301,9 +359,7 @@ async function main(): Promise<void> {
       paletteColor('group.g8'),
       paletteColor('group.g9'),
     ],
-    terrainOpen: paletteColor('limestone.3'),
-    terrainCover: [paletteColor('limestone.2'), paletteColor('dust.1'), paletteColor('dust.0')],
-    terrainBlocked: paletteColor('limestone.4'),
+    terrainTones: TERRAIN_THEMES[map.terrain],
     tracerColors: [paletteColor('vfx.tracer'), paletteColor('vfx.ember')],
     flashColor: paletteColor('vfx.fire'),
     nearMissColor: paletteColor('dust.0'),

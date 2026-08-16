@@ -10,7 +10,7 @@ function run(
   id: keyof typeof missions,
   plan: Plan,
   ledger: LedgerData = {},
-  expect: 'victory' | 'defeat' = 'victory',
+  expect: 'victory' | 'defeat' | 'ongoing' = 'victory',
   label: string = id
 ): LedgerData {
   const mission = missions[id] as unknown as MissionJson;
@@ -41,8 +41,23 @@ function run(
     zones: map.zones,
     ledger,
     unitInfo: (u) => {
-      const d = (units as Record<string, { faction: string; cost: { logistics: number; build_time_s?: number } } | undefined>)[u];
-      return d && d.faction === 'kdf' ? { logistics: d.cost.logistics, buildTimeS: d.cost.build_time_s ?? 20 } : null;
+      const d = (units as Record<
+        string,
+        | {
+            faction: string;
+            unlock?: { roe_rating_min?: number; after_mission?: string };
+            cost: { logistics: number; build_time_s?: number };
+          }
+        | undefined
+      >)[u];
+      if (!d || d.faction !== 'kdf') return null;
+      return {
+        logistics: d.cost.logistics,
+        buildTimeS: d.cost.build_time_s ?? 20,
+        unlock: d.unlock
+          ? { roeMin: d.unlock.roe_rating_min, afterMission: d.unlock.after_mission }
+          : undefined,
+      };
     },
   });
   rt.start();
@@ -190,3 +205,259 @@ run(
   },
   led2
 );
+
+// --- Naharin: Wadi Halam ------------------------------------------------------
+
+// I — The Fords: push the screen into the tree line, clear both gallery
+// ambushes for the picture, and hold the ford watch uncontested for 20s.
+// The drone tours the bank/bund/hide side of the wadi so the picture comes
+// from four *different* enemies rather than two ambushes seen twice.
+// `take_ford` is a four-minute hold, contested by three waves out of the
+// east (90s, 210s, 225s) -- so the screen has to actually stand on the
+// ford watch and fight, not merely visit it for twenty seconds. Re-anchors
+// on the same schedule as II and III, for the same reason: a wave that
+// breaks and runs pulls a pursuing force past the zone edge and the hold
+// clock does not resume until something brings them back.
+const wh1 = run('wadi_halam_1_fords', (sim, rt, ids, at) => {
+  const drone = ids('recon_drone');
+  const screen = [...ids('apc_eitan'), ...ids('inf_squad'), ...ids('at_team')];
+  const jeep = ids('jeep_shoded');
+  at(0, () => {
+    // North first: the near gallery ambush is 4 tiles off the axis, and
+    // going in under attackMove springs and kills it instead of walking past.
+    sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(9, 15) });
+    sim.queueCommand({ kind: 'move', ids: jeep, ...M(9, 20) });
+    sim.queueCommand({ kind: 'move', ids: drone, ...M(20, 17) });
+  });
+  at(45, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(20, 30) }));
+  // South gallery next -- the second identified contact the picture needs
+  // beyond the bank/bund pair the drone is already turning up.
+  at(60, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(9, 31) }));
+  // Settle on the ford watch itself.
+  at(110, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(10, 24) }));
+  for (let when = 130; when <= 320; when += 45) {
+    at(when, () => {
+      const cur: number[] = [];
+      for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1) cur.push(i);
+      sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(10, 24) });
+    });
+  }
+  void rt;
+});
+
+// II — Grazing Ground: dig the whole force in on the pump house corner of
+// the pasture and take every wave as it arrives; nothing here rewards
+// manoeuvre, the ground is open on both sides. Buy inf_squad on a loose
+// schedule once logistics allow.
+//
+// attackMove does not mean "stand here": a picket that breaks and runs pulls
+// a force that killed it a good way past the zone edge chasing the retreat,
+// and hold_for's clock only counts ticks where a living player unit is
+// actually inside the zone. Left to a single order at t=1, the whole force
+// wanders off after the first withdraw and the hold never resumes -- so this
+// re-anchors on the pump house corner periodically, sweeping in whatever
+// spawned since the last order too.
+const wh2 = run(
+  'wadi_halam_2_laager',
+  (sim, rt, _ids, at) => {
+    const anchor = (): void => {
+      const all: number[] = [];
+      for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1) all.push(i);
+      sim.queueCommand({ kind: 'attackMove', ids: all, ...M(18, 21) });
+    };
+    at(1, anchor);
+    for (let when = 45; when <= 700; when += 45) at(when, anchor);
+    for (let when = 90; when <= 700; when += 60) {
+      at(when, () => void rt.requestBuild('inf_squad'));
+    }
+  },
+  wh1
+);
+
+// III — The Cattle Track: a fast, armoured pair (jeep + APC) runs the
+// commander down at the north hide -- enough firepower to drop him before
+// the withdraw trigger matters, and enough armour on the jeep's wing that
+// losing it to the technical's dshk isn't the likely outcome. The rest holds
+// the bunds against the two-wave counter-raid; the hold re-anchors on the
+// same schedule as II, for the same reason (a wave that breaks and runs
+// pulls a pursuing force out past the zone edge).
+const wh3 = run(
+  'wadi_halam_3_counterraid',
+  (sim, _rt, ids, at) => {
+    const chase = [...ids('jeep_shoded'), ...ids('apc_eitan')];
+    const anchor = (): void => {
+      const cur: number[] = [];
+      for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1) cur.push(i);
+      sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(18, 21) });
+    };
+    at(0, () => {
+      sim.queueCommand({ kind: 'attackMove', ids: chase, ...M(22, 10) });
+      sim.queueCommand({
+        kind: 'attackMove',
+        ids: [...ids('ifv_namer'), ...ids('inf_squad'), ...ids('at_team')],
+        ...M(18, 21),
+      });
+    });
+    for (let when = 60; when <= 700; when += 45) at(when, anchor);
+  },
+  wh2
+);
+
+// IV — Wadi Halam (the village): clear the four corner cells, kill the cache
+// guard in the SE house, and get the families out. Mind the mosque block --
+// nothing in this force fires ordnance heavy enough to charge it, so the
+// only ROE discipline needed is not parking a gun on top of it.
+//
+// The north corners first, deliberately: any garrisoned house that comes
+// within a weapon's max range makes itself the target and an attack-mover
+// halts to trade fire with it rather than closing the distance -- so a goal
+// picked equidistant between the north and south clusters brings the south
+// cell into range while the force is still eight tiles from the actual
+// objective, and it sits there sniping a single rifleman through a wall for
+// minutes. Clearing north to south in two bounds keeps only one cluster in
+// range at a time.
+// IV's shepherd is the IFV, not the jeep. Front armour 420 and side 220
+// against every gun in this mission's roster (dshk, penetration 25) means
+// nothing here can put a scratch on it, so it can drive straight through
+// contested ground and pick every family up without the risk a lighter
+// vehicle runs of dying mid-transport and stranding its passengers for
+// good -- which is exactly what killed the jeep-shepherd version of this
+// plan before it evacuated anyone. Five transport slots covers all four
+// civilians in one circuit. The APC alone (plus the infantry) is enough
+// to clear the north side without the IFV's cannon.
+const wh4 = run(
+  'wadi_halam_4_village',
+  (sim, _rt, ids, at) => {
+    const apc = ids('apc_eitan');
+    const ifv = ids('ifv_namer');
+    const infantry = [...ids('inf_squad'), ...ids('at_team')];
+    at(0, () => {
+      sim.queueCommand({ kind: 'attackMove', ids: apc, ...M(27, 18) });
+      sim.queueCommand({ kind: 'attackMove', ids: infantry, ...M(27, 18) });
+      sim.queueCommand({ kind: 'move', ids: ifv, ...M(28, 21) });
+    });
+    at(20, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(25, 23) }));
+    at(40, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(29, 28) }));
+    at(60, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(22, 36) }));
+    // South corner and the cache guard once the north side is down.
+    at(70, () => sim.queueCommand({ kind: 'attackMove', ids: [...apc, ...infantry], ...M(29, 28) }));
+    // Settle on the village centre and hold it clear for the capture clock.
+    // The IFV rejoins once its circuit is done.
+    at(160, () => sim.queueCommand({ kind: 'attackMove', ids: [...apc, ...ifv, ...infantry], ...M(29, 26) }));
+  },
+  wh3
+);
+
+// V — Break the Depot: bring the D9 and the combat engineers in behind the
+// screen from the start to level all seven structures by explicit order,
+// then hold the rubble. Every demolish order names its structure -- nothing
+// here is left to the automatic search, which would be perfectly happy to
+// park a stationary demolisher beside a village house on the way in and
+// spend ROE nobody meant to spend.
+//
+// What sets this mission's length is `hold_depot` (data, not the plan): a
+// 240s hold_for on the depot zone, primary, gated the same way II's
+// hold_pasture is. The razed structure tiles unblock as they fall, so the
+// column can stand in the compound once it is down. An earlier version of
+// this plan parked the demolishers at the start line for over four minutes
+// to manufacture a slow mission -- invisible to anyone reading the mission
+// JSON, which at the time gated on nothing but raze and the gate HVT, and
+// left the 160s/220s waves and `no_bleed` (300s) structurally unreachable
+// in any competent run. That park is gone: the demolishers move
+// immediately, the same as a player who is not deliberately stalling
+// would send them. The raze itself is fast (D9: 2400 HP, nothing in this
+// mission's roster can penetrate it, blade demolition 2s/structure) -- the
+// four escalated waves and three interior defenders now matter for the
+// *hold*, not for slowing the demolition down.
+//
+// The demolish orders are issued straight from the start -- no staging move
+// to the gate first, no polling for arrival. `Sim.applyCommands` now snaps a
+// blocked goal tile (a structure's centroid always is one) to the nearest
+// open tile before building the flow field, so the D9 and the engineers
+// route themselves through the one-tile gate on their own, the same as any
+// other `move` order would.
+run(
+  'wadi_halam_5_depot',
+  (sim, _rt, ids, at) => {
+    const screen = [...ids('apc_eitan'), ...ids('ifv_namer'), ...ids('inf_squad'), ...ids('at_team')];
+    const dozer = ids('dozer_d9');
+    const engineers = ids('demo_squad');
+    const jeep = ids('jeep_shoded');
+    // The seven structures inside the wire, by one tile each inside their
+    // footprint -- see the map's depot zone. One shared pool rather than a
+    // fixed split: the combat engineers (HP 380, no armour worth the name)
+    // are the softest thing in the column, and the harassment this mission
+    // throws at the gate can plausibly kill them before they clear their
+    // share. A demolisher pulls the next live target off the shared list
+    // rather than a list assigned to it specifically, so if the engineers
+    // go down the D9 (slower alone, but unkillable by anything in this
+    // mission's roster) picks up what is left instead of three buildings
+    // simply never coming down.
+    const targets: [number, number][] = [
+      [36, 18],
+      [40, 18],
+      [36, 21],
+      [40, 21],
+      [36, 24],
+      [39, 24],
+      [37, 27],
+    ];
+    // Checked against the live structure table so a target already down is
+    // skipped. Scanned from opposite ends of the shared list so that, when
+    // both demolishers are free in the same tick, they claim different
+    // structures instead of doubling up on the first one.
+    const orderNext = (unit: number[], forward: boolean): void => {
+      const order = forward ? targets : [...targets].reverse();
+      for (const [tx, ty] of order) {
+        const s = sim.structureAt(tx, ty);
+        if (s >= 0) {
+          sim.queueCommand({ kind: 'demolish', ids: unit, structure: s });
+          return;
+        }
+      }
+    };
+    at(0, () => {
+      sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(34, 24) });
+      sim.queueCommand({ kind: 'move', ids: jeep, ...M(30, 24) });
+      orderNext(dozer, true);
+      orderNext(engineers, false);
+    });
+    // Reissue cadence: 15s, comfortably longer than either demolisher's own
+    // timer (D9 2s, engineers 5s), so this only ever catches a demolisher
+    // that has actually finished and gone idle -- it does not interrupt one
+    // still working (a fresh demolish order resets its charge timer).
+    for (let when = 15; when <= 200; when += 15) {
+      at(when, () => {
+        orderNext(dozer, true);
+        orderNext(engineers, false);
+      });
+    }
+    // Once the column has a foothold, the screen advances into the compound
+    // and holds there for hold_depot's clock -- re-anchored periodically for
+    // the same reason II and III need it: attackMove does not mean "stand
+    // here", and a wave that breaks and runs pulls a pursuing force out past
+    // the zone edge.
+    at(40, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(38, 22) }));
+    for (let when = 85; when <= 400; when += 45) {
+      at(when, () => {
+        const cur: number[] = [];
+        for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1) cur.push(i);
+        sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(38, 22) });
+      });
+    }
+  },
+  wh4
+);
+
+// A player who gives no orders must not WIN the depot. This is the executable
+// falsification of raze's worst failure mode: if the target set is ever empty,
+// or `every()` degenerates on an empty array, this turns VICTORY and the harness
+// fails.
+//
+// `ongoing` rather than `defeat`: a passive force here is neither wiped nor
+// victorious, it simply runs out the 20-minute cap. This does NOT prove the
+// D9's automatic demolition search leaves the depot alone in general -- the
+// nearest structure is roughly twenty tiles from the passive start and the
+// auto-search radius is two, so nothing here was ever close enough to test
+// that. It proves only the empty-target-set case above.
+run('wadi_halam_5_depot', () => {}, wh4, 'ongoing', 'wadi_halam_5_depot (no orders)');

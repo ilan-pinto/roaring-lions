@@ -39,6 +39,12 @@
         "description": "One character per tile. Terrain: \".\" open, \"1\"-\"3\" cover levels, \"r\" dirt road, \"o\" olive grove (cover 1), \"n\" rocky knoll (cover 2). Building symbols are whatever data/structures.json declares -- a contiguous run of identical building symbols is one structure. The pattern here is deliberately permissive: listing symbols in a regex meant they were hardcoded in three places at once, and validate_data.mjs now cross-checks every symbol against the structure catalogue and the terrain legend instead, so it cannot drift. A prior version of this pattern still hardcoded an alphanumeric-plus-# allowlist, which silently excluded punctuation symbols like the wall type's \"=\" -- the same drift the refactor was meant to prevent. Any single non-whitespace character is legal here; the catalogue and terrain legend are the only real authority on which ones mean something."
       }
     },
+    "terrain": {
+      "type": "string",
+      "enum": ["arid", "green"],
+      "default": "arid",
+      "description": "Terrain theme: which tone bundle and ground texture the renderer draws this map with. Presentation only -- it never reaches the sim, exactly like the decor layer. 'arid' is the Sahar limestone-and-dust look every map before Naharin uses; 'green' is the Naharin river basin. Adding a theme is a renderer change; adding a map that uses one is not."
+    },
     "markers": {
       "type": "object",
       "description": "Named points missions reference: spawn anchors, tunnel mouths, HVT positions.",

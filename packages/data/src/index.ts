@@ -10,12 +10,18 @@ import countriesJson from '../../../data/campaign/countries.json';
 import beitSahwanOutskirts from '../../../data/maps/beit_sahwan_outskirts.json';
 import marjPerimeter from '../../../data/maps/marj_perimeter.json';
 import tutorialGround from '../../../data/maps/tutorial_ground.json';
+import wadiHalamBasin from '../../../data/maps/wadi_halam_basin.json';
 import structureCatalogue from '../../../data/structures.json';
 import beitSahwanBreach from '../../../data/missions/beit_sahwan_breach.json';
 import beitSahwan0 from '../../../data/missions/beit_sahwan_0_tutorial.json';
 import beitSahwan1 from '../../../data/missions/beit_sahwan_1_recon.json';
 import beitSahwan2 from '../../../data/missions/beit_sahwan_2_foothold.json';
 import beitSahwan3 from '../../../data/missions/beit_sahwan_3_clearance.json';
+import wadiHalam1Fords from '../../../data/missions/wadi_halam_1_fords.json';
+import wadiHalam2Laager from '../../../data/missions/wadi_halam_2_laager.json';
+import wadiHalam3Counterraid from '../../../data/missions/wadi_halam_3_counterraid.json';
+import wadiHalam4Village from '../../../data/missions/wadi_halam_4_village.json';
+import wadiHalam5Depot from '../../../data/missions/wadi_halam_5_depot.json';
 import tutorialBeitSahwan0 from '../../../data/tutorial/beit_sahwan_0.json';
 
 import mbtLavi from '../../../data/units/kdf/mbt_lavi.json';
@@ -68,6 +74,7 @@ export {
   type MapJson,
   type ParsedMap,
   type DecorKind,
+  type TerrainTheme,
 } from './map';
 
 /** Battlefield maps, keyed by map id. Shapes match map.schema.json. */
@@ -75,6 +82,7 @@ export const maps = {
   beit_sahwan_outskirts: beitSahwanOutskirts,
   marj_perimeter: marjPerimeter,
   tutorial_ground: tutorialGround,
+  wadi_halam_basin: wadiHalamBasin,
 } as const;
 
 export type MapId = keyof typeof maps;
@@ -90,6 +98,11 @@ export const missions = {
   beit_sahwan_1_recon: beitSahwan1,
   beit_sahwan_2_foothold: beitSahwan2,
   beit_sahwan_3_clearance: beitSahwan3,
+  wadi_halam_1_fords: wadiHalam1Fords,
+  wadi_halam_2_laager: wadiHalam2Laager,
+  wadi_halam_3_counterraid: wadiHalam3Counterraid,
+  wadi_halam_4_village: wadiHalam4Village,
+  wadi_halam_5_depot: wadiHalam5Depot,
 } as const;
 
 /** The campaign world. Shape matches world.schema.json; parsed by app/src/campaign.ts. */

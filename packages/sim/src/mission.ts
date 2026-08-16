@@ -217,7 +217,8 @@ type AssertNoMissingMissionKind<T extends never> = T;
 export type MissionEventKindsAreExhaustive = AssertNoMissingMissionKind<MissingMissionEventKind>;
 
 const SUPPORTED = new Set([
-  'locate', 'eliminate_hvt', 'capture', 'hold_for', 'survive_until', 'destroy_all', 'evacuate_before',
+  'locate', 'eliminate_hvt', 'capture', 'hold_for', 'survive_until', 'destroy_all',
+  'evacuate_before', 'raze',
 ]);
 
 /** Spread for multi-unit placements: 1.25 tiles. */
@@ -284,6 +285,16 @@ export class MissionRuntime {
    *  undone by what happens afterwards. */
   private readonly civEvacuated = new Set<number>();
   private readonly zoneDeductedAt = new Map<string, number>();
+  /** Objective id -> the structure indices its zone held at mission start.
+   *
+   *  Snapshotted, not rescanned. `structureAt` returns -1 once a structure is
+   *  dead and `destroyStructure` clears `blocked` on its tiles, so a per-tick
+   *  rescan would find fewer structures each time one fell and would report
+   *  "all zero are destroyed" the moment the last one dropped -- the right
+   *  answer for the wrong reason, and a silent completion at t=0 for a zone
+   *  that never held anything. Sorted, because an insertion-ordered array whose
+   *  order depends on a scan is a latent determinism question. */
+  private readonly razeTargets = new Map<string, readonly number[]>();
   private roeScoreValue = 100;
   private roeFailed = false;
   private logisticsValue = 0;
@@ -484,7 +495,10 @@ export class MissionRuntime {
         status: o.status,
         ticksLeft,
         paused: o.status === 'active' && o.paused !== null ? o.paused : undefined,
-        zone: o.def.type === 'hold_for' || o.def.type === 'capture' ? o.def.target : undefined,
+        zone:
+          o.def.type === 'hold_for' || o.def.type === 'capture' || o.def.type === 'raze'
+            ? o.def.target
+            : undefined,
       };
     });
   }
@@ -538,6 +552,26 @@ export class MissionRuntime {
               `is outside zone "${o.def.target}"`
           );
         }
+      }
+      if (o.def.type === 'raze') {
+        const z = this.zone(o.def.target);
+        if (!z) {
+          throw new Error(`mission ${this.mission.id}: objective "${o.def.id}" needs a valid zone`);
+        }
+        const found = new Set<number>();
+        for (let y = z[1]; y < z[1] + z[3]; y++) {
+          for (let x = z[0]; x < z[0] + z[2]; x++) {
+            const s = this.sim.structureAt(x, y);
+            if (s >= 0) found.add(s);
+          }
+        }
+        if (found.size === 0) {
+          throw new Error(
+            `mission ${this.mission.id}: raze "${o.def.id}" zone "${o.def.target}" contains ` +
+              `no structures, so it would complete on the first tick`
+          );
+        }
+        this.razeTargets.set(o.def.id, [...found].sort((a, b) => a - b));
       }
     }
   }
@@ -1090,6 +1124,10 @@ export class MissionRuntime {
       let failed = false;
       if (d.type === 'destroy_all') {
         complete = this.enemyIds.length > 0 && this.enemyIds.every((id) => this.sim.state.alive[id] === 0);
+      } else if (d.type === 'raze') {
+        const targets = this.razeTargets.get(d.id) ?? [];
+        complete =
+          targets.length > 0 && targets.every((s) => this.sim.structures.alive[s] === 0);
       } else if (d.type === 'eliminate_hvt') {
         const ids = this.tags.get(d.target ?? '') ?? [];
         complete = ids.length > 0 && ids.every((id) => this.sim.state.alive[id] === 0);

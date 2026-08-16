@@ -11,6 +11,8 @@ export {
   isoX,
   isoY,
   type RendererOptions,
+  type TerrainTones,
+  type TerrainScatter,
 } from './renderer';
 export { DebugOverlay } from './overlay';
 export { BattleAudio, type AudioManifest, type AudioSet, type AudioVariant } from './audio';

@@ -1,0 +1,290 @@
+{
+  "id": "wadi_halam_5_depot",
+  "name": "Wadi Halam V — Break the Depot",
+  "town": "wadi_halam",
+  "phase": "clearance",
+  "target_minutes": 6,
+  "briefing": "Seven structures inside the walled depot, one unarmed bulldozer, and a choice of route. The D9 cannot defend itself and it is the slowest thing on the map — escort it, do not race it. An RPG team holds the gate gap and three gun trucks sit inside the wire; a second RPG team is dug in dead centre of the depot. The gun trucks cannot scratch the D9's armour, but either RPG team will put a rocket straight through its blade if it works unescorted. Motorcycles are staged to the east and will come down on the column the moment you push that way, and more will keep arriving from the east and south the whole time the charges are going in. Levelling the depot is not the end of it — the Rif want the ground back, and the column has to hold the rubble for four minutes against everything still coming. Raze the depot, kill or capture whoever is holding the gate, hold what is left, and keep the column intact.",
+  "map": {
+    "file": "wadi_halam_basin",
+    "player_start": [
+      13,
+      24
+    ]
+  },
+  "ledger": {
+    "requires": [
+      "roster.surviving_units"
+    ],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions"
+    ]
+  },
+  "starting_force": [
+    {
+      "unit": "apc_eitan",
+      "count": 1,
+      "at": [
+        12,
+        23
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "ifv_namer",
+      "count": 1,
+      "at": [
+        12,
+        25
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "inf_squad",
+      "count": 2,
+      "at": [
+        13,
+        24
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "at_team",
+      "count": 1,
+      "at": [
+        14,
+        23
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "dozer_d9",
+      "count": 1,
+      "at": [
+        13,
+        25
+      ]
+    },
+    {
+      "unit": "demo_squad",
+      "count": 1,
+      "at": [
+        15,
+        24
+      ]
+    },
+    {
+      "unit": "jeep_shoded",
+      "count": 1,
+      "at": [
+        14,
+        25
+      ]
+    }
+  ],
+  "objectives": [
+    {
+      "id": "raze_depot",
+      "type": "raze",
+      "primary": true,
+      "target": "depot",
+      "text": "Raze the depot"
+    },
+    {
+      "id": "kill_gate_rpg",
+      "type": "eliminate_hvt",
+      "primary": true,
+      "target": "wh_gate_rpg",
+      "text": "Kill or capture whoever is holding the gate"
+    },
+    {
+      "id": "hold_depot",
+      "type": "hold_for",
+      "primary": true,
+      "target": "depot",
+      "seconds": 240,
+      "text": "Hold the depot for four minutes once it is down"
+    },
+    {
+      "id": "no_bleed",
+      "type": "survive_until",
+      "primary": false,
+      "seconds": 300,
+      "text": "Stay in the field for the first five minutes"
+    }
+  ],
+  "roe": {
+    "enabled": true,
+    "fail_below": 40,
+    "structure_penalty_mult": 1
+  },
+  "resources": {
+    "logistics_start": 400,
+    "logistics_rate_per_min": 80
+  },
+  "enemy": {
+    "faction": "rif",
+    "doctrine_profile": "gate ambush, harass from the flank",
+    "garrison": [
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "marker": "depot_gate",
+        "facing_deg": 270,
+        "stance": {
+          "kind": "ambush",
+          "tiles": 3
+        },
+        "tag": "wh_gate_rpg"
+      },
+      {
+        "unit": "gun_truck",
+        "count": 1,
+        "at": [
+          39,
+          20
+        ],
+        "facing_deg": 270,
+        "stance": {
+          "kind": "hold_position"
+        },
+        "tag": "wh_depot_gun_truck"
+      },
+      {
+        "unit": "gun_truck",
+        "count": 1,
+        "at": [
+          41,
+          20
+        ],
+        "facing_deg": 180,
+        "stance": {
+          "kind": "hold_position"
+        },
+        "tag": "wh_depot_interior_ne"
+      },
+      {
+        "unit": "gun_truck",
+        "count": 1,
+        "at": [
+          41,
+          27
+        ],
+        "facing_deg": 180,
+        "stance": {
+          "kind": "hold_position"
+        },
+        "tag": "wh_depot_interior_se"
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          38,
+          24
+        ],
+        "facing_deg": 270,
+        "stance": {
+          "kind": "ambush",
+          "tiles": 3
+        },
+        "tag": "wh_depot_interior_center"
+      },
+      {
+        "unit": "moto_rpg",
+        "count": 3,
+        "at": [
+          44,
+          20
+        ],
+        "facing_deg": 250,
+        "group": "harass",
+        "stance": {
+          "kind": "hold_position"
+        },
+        "tag": "wh_harass_east"
+      }
+    ],
+    "waves": [
+      {
+        "at_seconds": 45,
+        "to": "depot_gate",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 1,
+            "from": "rif_south"
+          },
+          {
+            "unit": "moto_rpg",
+            "count": 1,
+            "from": "rif_south"
+          }
+        ]
+      },
+      {
+        "at_seconds": 100,
+        "to": "depot_gate",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 1,
+            "from": "rif_east"
+          },
+          {
+            "unit": "moto_rpg",
+            "count": 2,
+            "from": "rif_east"
+          }
+        ]
+      },
+      {
+        "at_seconds": 160,
+        "to": "depot_gate",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 1,
+            "from": "rif_south"
+          },
+          {
+            "unit": "moto_rpg",
+            "count": 3,
+            "from": "rif_south"
+          }
+        ]
+      },
+      {
+        "at_seconds": 220,
+        "to": "depot_gate",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 1,
+            "from": "rif_south"
+          },
+          {
+            "unit": "moto_rpg",
+            "count": 2,
+            "from": "rif_south"
+          }
+        ]
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "id": "harass_commits",
+      "on": {
+        "kind": "first_contact"
+      },
+      "do": {
+        "kind": "commit",
+        "group": "harass",
+        "to": "depot_gate"
+      }
+    }
+  ]
+}

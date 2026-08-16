@@ -31,6 +31,11 @@ const CARRIER_ROLES = new Set(['apc', 'ifv']);
 // cannot import from the sim package; if the sim's list changes, this must too,
 // and the `passengers` check below is what would start disagreeing.
 const FOOT_ROLES = new Set(['infantry', 'at_team', 'artillery', 'engineer', 'sniper', 'support']);
+// Mirrors PROTECTED_ROE in packages/sim/src/structures.ts — the roe_penalty
+// threshold at or above which a demolisher will not level a structure on its
+// own initiative. Duplicated for the same reason FOOT_ROLES is: this is plain
+// node with no build step and cannot import from the sim package.
+const PROTECTED_ROE = 20;
 
 const ajv = new Ajv2020({ allErrors: true, strict: false });
 
@@ -124,6 +129,15 @@ if (schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tut
   failures.push('schema files missing or unparseable — cannot validate content');
 }
 
+// Hoisted above the mission cross-check block below, which needs the symbol ->
+// structure-type lookup for the `raze` check. The map-symbol block further
+// down (data/structures.json sanity, map row legality) also uses these — do
+// not re-declare them there.
+const structureCatalogue = loadJson(join(ROOT, 'data/structures.json'));
+const structureSymbols = new Map(
+  Object.entries(structureCatalogue?.types ?? {}).map(([id, spec]) => [spec.symbol, id])
+);
+
 // --- mission cross-checks ----------------------------------------------------
 // A mission's map.file must be a real map, and its markers/zones/units must
 // resolve — a typo here is a broken mission a contributor ships blind.
@@ -200,6 +214,58 @@ if (schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tut
     for (const o of mi.objectives ?? []) {
       if ((o.type === 'capture' || o.type === 'hold_for') && o.target && !zoneNames.has(o.target)) {
         failures.push(`${rel(file)}: objective "${o.id}" references unknown zone "${o.target}"`);
+      }
+      // stepDemolition (sim.ts:2914-2919) consults `roePenalty` and `lowProfile` only
+      // when a demolisher is picking a target on its own initiative -- `per_tile`
+      // appears nowhere in sim.ts. The two are independent booleans in
+      // structure.schema.json and only coincide today because `wall` happens to be
+      // both, so each is checked here separately rather than merged into one test.
+      // `per_tile` is checked too, but for an unrelated reason: it is not a refusal
+      // at all, just a click-count trap (every tile is its own structure).
+      if (o.type === 'raze') {
+        const rect = map.zones?.[o.target];
+        if (!rect) {
+          failures.push(
+            `${rel(file)}: raze "${o.id}" names zone "${o.target}", which map "${mi.map.file}" does not declare`
+          );
+        } else {
+          const [zx, zy, zw, zh] = rect;
+          // Keyed by "typeId:reason" so a type that trips more than one reason (today
+          // only `wall`, which is both low_profile and per_tile) gets a message for
+          // each reason instead of the first reason found silently winning.
+          const bad = new Map();
+          for (let y = zy; y < zy + zh; y++) {
+            for (let x = zx; x < zx + zw; x++) {
+              const sym = map.rows?.[y]?.[x];
+              const typeId = structureSymbols.get(sym);
+              if (!typeId) continue;
+              const spec = structureCatalogue.types[typeId];
+              if (spec.low_profile && !bad.has(`${typeId}:low_profile`)) {
+                bad.set(
+                  `${typeId}:low_profile`,
+                  `${rel(file)}: raze "${o.id}" zone "${o.target}" contains "${typeId}" -- low_profile ` +
+                    `at (${x},${y}). A demolisher will not level it unattended.`
+                );
+              }
+              if ((spec.roe_penalty ?? 0) >= PROTECTED_ROE && !bad.has(`${typeId}:protected`)) {
+                bad.set(
+                  `${typeId}:protected`,
+                  `${rel(file)}: raze "${o.id}" zone "${o.target}" contains "${typeId}" -- protected ` +
+                    `(roe_penalty ${spec.roe_penalty}) at (${x},${y}). A demolisher will not level it unattended.`
+                );
+              }
+              if (spec.per_tile && !bad.has(`${typeId}:per_tile`)) {
+                bad.set(
+                  `${typeId}:per_tile`,
+                  `${rel(file)}: raze "${o.id}" zone "${o.target}" contains "${typeId}" -- per_tile ` +
+                    `at (${x},${y}): every tile is its own structure, so this raze zone is N separate ` +
+                    `demolish orders, not one.`
+                );
+              }
+            }
+          }
+          for (const msg of bad.values()) failures.push(msg);
+        }
       }
     }
     for (const p of mi.civilians?.groups ?? []) {
@@ -449,10 +515,6 @@ if (schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tut
 // TERRAIN_LEGEND, which is TypeScript this Node script does not load. The two
 // lists agreeing is asserted by packages/data/src/map.test.ts.
 const TERRAIN_SYMBOLS = new Set(['.', '1', '2', '3', 'r', 'o', 'n']);
-const structureCatalogue = loadJson(join(ROOT, 'data/structures.json'));
-const structureSymbols = new Map(
-  Object.entries(structureCatalogue?.types ?? {}).map(([id, spec]) => [spec.symbol, id])
-);
 for (const [sym, id] of structureSymbols) {
   if (TERRAIN_SYMBOLS.has(sym)) {
     failures.push(

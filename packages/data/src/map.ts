@@ -22,6 +22,18 @@
 
 import structureCatalogue from '../../../data/structures.json';
 
+/**
+ * Which palette and ground texture a map is drawn with.
+ *
+ * Presentation only, exactly like `decor`: the sim never sees it, because
+ * whether a tile is grass or gravel changes no outcome. What it changes is the
+ * tone bundle `main.ts` hands the renderer and the shape of the open-ground
+ * scatter. Adding a theme is a renderer change; adding a MAP is not.
+ */
+export type TerrainTheme = 'arid' | 'green';
+
+const TERRAIN_THEMES: ReadonlySet<string> = new Set<TerrainTheme>(['arid', 'green']);
+
 export interface MapJson {
   id: string;
   name: string;
@@ -32,6 +44,8 @@ export interface MapJson {
   // strict tuples.
   markers?: Record<string, readonly number[]>;
   zones?: Record<string, readonly number[]>;
+  /** Terrain theme. Absent means 'arid', which is every map authored before Naharin. */
+  terrain?: string;
 }
 
 export interface ParsedStructure {
@@ -57,6 +71,8 @@ export interface ParsedMap {
   id: string;
   width: number;
   height: number;
+  /** Terrain theme. Presentation only -- never given to Sim. */
+  terrain: TerrainTheme;
   /** 1 = impassable building tile, row-major width*height. */
   blocked: Uint8Array;
   /** Cover level 0-3, row-major width*height. */
@@ -128,6 +144,12 @@ for (const sym of Object.keys(STRUCTURE_SYMBOLS)) {
 
 export function parseMap(json: MapJson): ParsedMap {
   const { width, height, rows } = json;
+  const terrain = json.terrain ?? 'arid';
+  if (!TERRAIN_THEMES.has(terrain)) {
+    throw new Error(
+      `map ${json.id}: unknown terrain theme "${terrain}" (known: arid, green)`
+    );
+  }
   if (rows.length !== height) {
     throw new Error(`map ${json.id}: ${rows.length} rows, declared height ${height}`);
   }
@@ -204,5 +226,5 @@ export function parseMap(json: MapJson): ParsedMap {
       structures.push({ type: typeId, tiles });
     }
   }
-  return { id: json.id, width, height, blocked, cover, decor, markers, zones, structures };
+  return { id: json.id, width, height, terrain: terrain as TerrainTheme, blocked, cover, decor, markers, zones, structures };
 }

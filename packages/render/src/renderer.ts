@@ -19,6 +19,41 @@ import { cadenceScale, resolveClip, resolveTurretClip, type UnitAnimInput } from
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec } from './vfx';
 import { isGrindingHit, structureHpBand } from './grind';
 
+/** How open ground is grained. Tones are data; mark shape is drawing code. */
+export type TerrainScatter = 'stone' | 'sward';
+
+/**
+ * Every tone `drawTerrain` needs, already resolved to hex by the app.
+ *
+ * These used to be twelve `resolveColor('dust.3')` calls scattered through
+ * `drawTerrain` and `drawCanopy`, which put "what does this region look like"
+ * inside the engine. The app owns the palette; the renderer owns the marks.
+ */
+export interface TerrainTones {
+  open: string;
+  cover: [string, string, string];
+  blocked: string;
+  underBuilding: string;
+  road: string;
+  rut: string;
+  rock: string;
+  rockLit: string;
+  earth: string;
+  /** The sparse low plant on open ground: dry bush, or tussock. */
+  low: string;
+  trunk: string;
+  trunkLit: string;
+  leafDark: string;
+  leafMid: string;
+  leafLit: string;
+  /** The blade tick used by the `sward` scatter — distinct from canopy tones. */
+  bladeLit: string;
+  bladeShade: string;
+  /** Crown aspect: olive is wide and squat (0.52), poplar is tall (0.95). */
+  crownRatio: number;
+  scatter: TerrainScatter;
+}
+
 export interface RendererOptions {
   background: string;
   /** Team marker colours by side index (0 player, 1 hostile, 2 neutral). */
@@ -32,9 +67,8 @@ export interface RendererOptions {
    *  badge and the selection ring, so a group reads as a group on the field
    *  and not merely as "something is selected". */
   groupColors: string[];
-  terrainOpen: string;
-  terrainCover: [string, string, string];
-  terrainBlocked: string;
+  /** Terrain tones and grain for this map's theme. */
+  terrainTones: TerrainTones;
   tracerColors: [string, string];
   flashColor: string;
   nearMissColor: string;
@@ -1063,7 +1097,7 @@ export class PixiRenderer {
     g.clear();
     // Buildings are separate display objects now, so clearing the Graphics is
     // not enough -- drop the old tiles or a rebuild stacks a second copy.
-    for (const t of this.buildingTiles) this.spriteLayer.removeChild(t);
+    for (const tile of this.buildingTiles) this.spriteLayer.removeChild(tile);
     this.buildingTiles = [];
     for (const b of this.buildingSprites) this.spriteLayer.removeChild(b);
     this.buildingSprites = [];
@@ -1074,26 +1108,12 @@ export class PixiRenderer {
     const w = this.sim.width;
     const h = this.sim.height;
     const H = 18; // building height in px
-    // Ground tone under a sprited building. From the palette like every other
-    // colour, resolved once rather than per tile.
-    const underBuilding = this.opts.resolveColor
-      ? this.opts.resolveColor('shadow.0')
-      : this.opts.terrainBlocked;
-    // Decor tones, resolved once rather than per tile. Palette keys, not literals.
-    const roadTone = this.opts.resolveColor ? this.opts.resolveColor('dust.3') : '#AC8248';
-    const rutTone = this.opts.resolveColor ? this.opts.resolveColor('dust.5') : '#806032';
-    const rockTone = this.opts.resolveColor ? this.opts.resolveColor('limestone.6') : '#8C7659';
-    const rockLit = this.opts.resolveColor ? this.opts.resolveColor('limestone.3') : '#C8B494';
-    // Red-brown earth and grey-green scrub, both from the palette. terracotta was
-    // added for building trim but it is exactly the colour of the exposed dirt in
-    // this landscape, so it earns a second use.
-    const dirtTone = this.opts.resolveColor ? this.opts.resolveColor('terracotta.2') : '#7A3B24';
-    const bushTone = this.opts.resolveColor ? this.opts.resolveColor('olive.1') : '#6E7449';
+    const t = this.opts.terrainTones;
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
-        const t = y * w + x;
-        const blocked = this.sim.blocked[t] !== 0;
-        const cover = this.sim.cover[t];
+        const ti = y * w + x;
+        const blocked = this.sim.blocked[ti] !== 0;
+        const cover = this.sim.cover[ti];
         const cx = isoX(x + 0.5, y + 0.5);
         const cy = isoY(x + 0.5, y + 0.5);
         const rnd = PixiRenderer.h2(x, y);
@@ -1116,8 +1136,8 @@ export class PixiRenderer {
             //
             // Slightly darker than open ground: what is under a building is
             // packed earth and its own shadow, not open street.
-            g.poly(diamond).fill({ color: this.opts.terrainOpen, alpha: 0.92 + rnd * 0.08 });
-            g.poly(diamond).fill({ color: underBuilding, alpha: 0.22 });
+            g.poly(diamond).fill({ color: t.open, alpha: 0.92 + rnd * 0.08 });
+            g.poly(diamond).fill({ color: t.underBuilding, alpha: 0.22 });
             // Sprited: one sprite for the whole footprint, so a 3x3 mosque is
             // one dome rather than nine. Drawn on first tile encountered.
             //
@@ -1136,18 +1156,18 @@ export class PixiRenderer {
         }
 
         // Open ground: base wash with per-tile tonal variation.
-        g.poly(diamond).fill({ color: this.opts.terrainOpen, alpha: 0.92 + rnd * 0.08 });
+        g.poly(diamond).fill({ color: t.open, alpha: 0.92 + rnd * 0.08 });
 
-        const kind = this.decor ? this.decor[t] : TERRAIN_DECOR.none;
+        const kind = this.decor ? this.decor[ti] : TERRAIN_DECOR.none;
 
         if (kind === TERRAIN_DECOR.road) {
           // A street is swept, so it gets neither pebbles nor rubble -- the
           // absence of grain is most of what makes it read as a road.
-          g.poly(diamond).fill({ color: roadTone, alpha: 0.85 });
+          g.poly(diamond).fill({ color: t.road, alpha: 0.85 });
           const rut = (cx + cy) % 2 === 0 ? 5 : 7;
           g.moveTo(cx - TILE_W / 2 + 6, cy - rut).lineTo(cx + TILE_W / 2 - 6, cy - rut);
           g.moveTo(cx - TILE_W / 2 + 6, cy + rut).lineTo(cx + TILE_W / 2 - 6, cy + rut);
-          g.stroke({ color: rutTone, alpha: 0.30, width: 1.5 });
+          g.stroke({ color: t.rut, alpha: 0.30, width: 1.5 });
           continue;
         }
 
@@ -1161,9 +1181,9 @@ export class PixiRenderer {
             const px = cx + (a - 0.5) * (TILE_W - 20);
             const py = cy + (b - 0.5) * (TILE_H - 10);
             const r = 3 + a * 5;
-            g.ellipse(px, py, r, r * 0.62).fill({ color: rockTone, alpha: 0.95 });
+            g.ellipse(px, py, r, r * 0.62).fill({ color: t.rock, alpha: 0.95 });
             g.ellipse(px - r * 0.2, py - r * 0.22, r * 0.6, r * 0.36).fill({
-              color: rockLit,
+              color: t.rockLit,
               alpha: 0.8,
             });
           }
@@ -1173,8 +1193,8 @@ export class PixiRenderer {
         if (kind === TERRAIN_DECOR.grove) {
           // Trunk shadow flat on the ground; the canopy is a separate,
           // depth-sorted object so a unit behind the tree is occluded by it.
-          g.ellipse(cx, cy + 3, 9, 4.5).fill({ color: rockTone, alpha: 0.22 });
-          this.drawOliveTree(x, y, cx, cy);
+          g.ellipse(cx, cy + 3, 9, 4.5).fill({ color: t.rock, alpha: 0.22 });
+          this.drawCanopy(x, y, cx, cy);
           continue;
         }
 
@@ -1188,7 +1208,43 @@ export class PixiRenderer {
         // near-base tone and they read as pale stains on the ground rather than as
         // texture -- low-contrast blobs at tile scale look like a rendering fault.
         // Small marks at high frequency read as ground; big ones do not.
-        {
+        if (t.scatter === 'sward') {
+          // Grass is denser than gravel and its mark is a blade, not a pebble.
+          // Ellipses recoloured green read as green rocks; short vertical strokes
+          // at high frequency read as sward. Same tile hash as the stone pass, so
+          // the ground is stable between rebuilds.
+          const n = 8 + Math.floor(rnd * 7);
+          for (let k = 0; k < n; k++) {
+            const a = PixiRenderer.h2(x * 19 + k * 7, y * 23 + k * 5);
+            const b = PixiRenderer.h2(x * 41 + k * 3, y * 7 + k * 11);
+            const px = cx + (a - 0.5) * (TILE_W - 12);
+            const py = cy + (b - 0.5) * (TILE_H - 6);
+            const bh = 2 + a * 1.2;
+            g.moveTo(px, py).lineTo(px, py - bh);
+            g.stroke({ color: b > 0.4 ? t.bladeLit : t.bladeShade, alpha: 0.45 + a * 0.3, width: 1 });
+          }
+          if (rnd > 0.9) {
+            // Bare earth: cool and rare. Some exposed ground keeps a green map
+            // from reading as a billiard table, but red laterite is not what a
+            // river basin's stock paths look like.
+            const a = PixiRenderer.h2(x * 19, y * 23);
+            g.ellipse(cx + (a - 0.5) * 22, cy, 3 + a * 2.4, 1.6 + a * 1.2).fill({
+              color: t.earth,
+              alpha: 0.22,
+            });
+          }
+          if (rnd > 0.84 && cover === 0) {
+            // A tussock, drawn as three strokes fanning from a point rather than
+            // one blob -- the mark that separates a clump of grass from a bush.
+            const a = PixiRenderer.h2(x * 31, y * 3);
+            const bx = cx + (a - 0.5) * 30;
+            const by = cy + (rnd - 0.9) * 18;
+            for (let k = -1; k <= 1; k++) {
+              g.moveTo(bx, by).lineTo(bx + k * 2.6, by - 4.2 - a * 1.6);
+            }
+            g.stroke({ color: t.low, alpha: 0.8, width: 1.2 });
+          }
+        } else {
           const n = 3 + Math.floor(rnd * 5);
           for (let k = 0; k < n; k++) {
             const a = PixiRenderer.h2(x * 19 + k * 7, y * 23 + k * 5);
@@ -1198,34 +1254,34 @@ export class PixiRenderer {
             if (b > 0.78) {
               // Exposed earth: a small dark fleck, not a wash.
               g.ellipse(px, py, 1.6 + a * 2.2, 1 + a * 1.2).fill({
-                color: dirtTone,
+                color: t.earth,
                 alpha: 0.24,
               });
             } else {
               // Limestone breaking through -- the most characteristic thing about
               // this landscape from above, and the map had none of it.
               const r = 1.2 + a * 2.6;
-              g.ellipse(px, py, r, r * 0.62).fill({ color: rockLit, alpha: 0.4 + b * 0.35 });
+              g.ellipse(px, py, r, r * 0.62).fill({ color: t.rockLit, alpha: 0.4 + b * 0.35 });
               if (a > 0.72) {
                 g.ellipse(px + r * 0.3, py + r * 0.3, r * 0.7, r * 0.42).fill({
-                  color: rockTone,
+                  color: t.rock,
                   alpha: 0.3,
                 });
               }
             }
           }
-        }
-        if (rnd > 0.84 && cover === 0) {
-          // A dry bush. Sparse, because the reference is mostly bare ground.
-          const a = PixiRenderer.h2(x * 31, y * 3);
-          g.ellipse(cx + (a - 0.5) * 30, cy + (rnd - 0.9) * 18, 3.2 + a * 1.4, 2 + a).fill({
-            color: bushTone,
-            alpha: 0.55,
-          });
+          if (rnd > 0.84 && cover === 0) {
+            // A dry bush. Sparse, because the reference is mostly bare ground.
+            const a = PixiRenderer.h2(x * 31, y * 3);
+            g.ellipse(cx + (a - 0.5) * 30, cy + (rnd - 0.9) * 18, 3.2 + a * 1.4, 2 + a).fill({
+              color: t.low,
+              alpha: 0.55,
+            });
+          }
         }
         if (cover > 0) {
           // Cover reads as scattered rubble/sandbags, denser with level.
-          const c = this.opts.terrainCover[Math.min(cover, 3) - 1];
+          const c = t.cover[Math.min(cover, 3) - 1];
           for (let k = 0; k < cover + 2; k++) {
             const a = PixiRenderer.h2(x * 7 + k, y * 13 + k);
             const b = PixiRenderer.h2(x * 31 + k, y * 3 + k);
@@ -1244,7 +1300,7 @@ export class PixiRenderer {
   }
 
   /**
-   * One olive tree, as its own depth-sorted Graphics.
+   * One tree canopy, as its own depth-sorted Graphics.
    *
    * Trees go in `spriteLayer` rather than the flat terrain graphics for the same
    * reason buildings do: a canopy is tall enough that a soldier standing behind
@@ -1252,14 +1308,9 @@ export class PixiRenderer {
    * unconditionally. Static, so this is rebuilt only when terrain goes dirty --
    * the same per-tile display-object cost `drawBuildingTile` already pays.
    */
-  private drawOliveTree(x: number, y: number, cx: number, cy: number): void {
-    // Foliage comes from the `olive` ramp, not `scrub`. Olive leaves are silvery
-    // grey-green; scrub is a saturated leaf-green and reads as the wrong plant.
-    const trunk = this.opts.resolveColor ? this.opts.resolveColor('dust.5') : '#806032';
-    const trunkLit = this.opts.resolveColor ? this.opts.resolveColor('dust.3') : '#AC8248';
-    const leafDark = this.opts.resolveColor ? this.opts.resolveColor('olive.2') : '#4E5433';
-    const leafMid = this.opts.resolveColor ? this.opts.resolveColor('olive.1') : '#6E7449';
-    const leafLit = this.opts.resolveColor ? this.opts.resolveColor('olive.0') : '#8F9464';
+  private drawCanopy(x: number, y: number, cx: number, cy: number): void {
+    const t = this.opts.terrainTones;
+    const { trunk, trunkLit, leafDark, leafMid, leafLit } = t;
     const g = new Graphics();
 
     // One dominant tree per tile, sometimes a second smaller one. An olive is a
@@ -1289,7 +1340,7 @@ export class PixiRenderer {
       // Crown: wider than tall, in three overlapping lobes so the outline is
       // broken rather than a clean ellipse.
       const rx = (12.5 + b * 4) * scale;
-      const ry = rx * 0.52;
+      const ry = rx * t.crownRatio;
       const top = py - th - ry * 0.62;
       g.ellipse(px, top, rx, ry).fill({ color: leafDark, alpha: 0.97 });
       g.ellipse(px - rx * 0.44, top + ry * 0.16, rx * 0.52, ry * 0.72).fill({
@@ -1417,7 +1468,7 @@ export class PixiRenderer {
     diamond: number[]
   ): void {
     const sIdx = this.sim.structureAt(x, y);
-    let roof = this.opts.terrainBlocked;
+    let roof = this.opts.terrainTones.blocked;
     let bh = fallbackHeight;
     let integrity = 1;
     if (sIdx >= 0) {

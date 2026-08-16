@@ -188,9 +188,10 @@
               "capture",
               "survive_until",
               "no_collateral_above",
-              "destroy_all"
+              "destroy_all",
+              "raze"
             ],
-            "description": "destroy_all exists but should be rare. Layered objectives are what make a level a level."
+            "description": "destroy_all exists but should be rare. Layered objectives are what make a level a level. raze: every structure inside the zone named by `target` is destroyed. The set is snapshotted at mission start, so a zone holding no structures is an authoring error rather than an instant win."
           },
           "primary": {
             "type": "boolean"

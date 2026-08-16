@@ -79,9 +79,9 @@
       "name": "Naharin",
       "faction": "Rif Cells",
       "doctrine": "technicals, raids, smuggling, mobility",
-      "blurb": "The corridor that supplied the Marj's tunnels and Sur's rocket stocks.",
+      "blurb": "A green river basin of terraced pasture and cultivation. The corridor that supplied the Marj's tunnels and Sur's rocket stocks.",
       "unlock": {
-        "after_mission": "umm_zeitoun_1"
+        "after_mission": "beit_sahwan_3_clearance"
       },
       "towns": [
         {
@@ -91,7 +91,13 @@
             804.0,
             401.7
           ],
-          "missions": []
+          "missions": [
+            "wadi_halam_1_fords",
+            "wadi_halam_2_laager",
+            "wadi_halam_3_counterraid",
+            "wadi_halam_4_village",
+            "wadi_halam_5_depot"
+          ]
         }
       ]
     }

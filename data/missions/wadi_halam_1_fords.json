@@ -1,0 +1,255 @@
+{
+  "id": "wadi_halam_1_fords",
+  "name": "Wadi Halam I — The Fords",
+  "town": "wadi_halam",
+  "phase": "recon",
+  "target_minutes": 6,
+  "briefing": "Naharin opens at the wadi. Two fords cross it, and the Rif who work this corridor disperse the moment they are seen — so the job tonight is to see them first. Push a screen across the tree line, build the picture, and hold the ford watch for four minutes while the column crosses behind you — riders will keep coming at the crossing out of the east the whole time you sit on it. Do not chase what runs.",
+  "map": {
+    "file": "wadi_halam_basin",
+    "player_start": [
+      3,
+      24
+    ]
+  },
+  "ledger": {
+    "requires": [
+      "roster.surviving_units"
+    ],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions",
+      "intel.marked_positions"
+    ]
+  },
+  "starting_force": [
+    {
+      "unit": "recon_drone",
+      "count": 1,
+      "at": [
+        3,
+        22
+      ]
+    },
+    {
+      "unit": "jeep_shoded",
+      "count": 1,
+      "at": [
+        2,
+        24
+      ]
+    },
+    {
+      "unit": "apc_eitan",
+      "count": 1,
+      "at": [
+        1,
+        26
+      ]
+    },
+    {
+      "unit": "inf_squad",
+      "count": 2,
+      "at": [
+        2,
+        22
+      ]
+    },
+    {
+      "unit": "at_team",
+      "count": 1,
+      "at": [
+        1,
+        20
+      ]
+    }
+  ],
+  "objectives": [
+    {
+      "id": "picture",
+      "type": "locate",
+      "primary": true,
+      "count": 4,
+      "text": "Identify four dispersal sites"
+    },
+    {
+      "id": "take_ford",
+      "type": "hold_for",
+      "primary": true,
+      "target": "ford_watch",
+      "seconds": 240,
+      "text": "Hold the ford watch for four minutes"
+    },
+    {
+      "id": "screen_out",
+      "type": "survive_until",
+      "primary": false,
+      "seconds": 200,
+      "text": "Stay in the field for the first three minutes twenty"
+    }
+  ],
+  "roe": {
+    "enabled": true
+  },
+  "enemy": {
+    "faction": "rif",
+    "doctrine_profile": "disperse on contact",
+    "garrison": [
+      {
+        "unit": "moto_rpg",
+        "count": 1,
+        "at": [
+          9.5,
+          13.5
+        ],
+        "facing_deg": 90,
+        "stance": {
+          "kind": "ambush",
+          "tiles": 4
+        },
+        "tag": "wh_gallery_north"
+      },
+      {
+        "unit": "moto_rpg",
+        "count": 1,
+        "at": [
+          9.5,
+          31.5
+        ],
+        "facing_deg": 90,
+        "stance": {
+          "kind": "ambush",
+          "tiles": 4
+        },
+        "tag": "wh_gallery_south"
+      },
+      {
+        "unit": "technical",
+        "count": 1,
+        "at": [
+          20.5,
+          16.5
+        ],
+        "facing_deg": 180,
+        "group": "bank",
+        "stance": {
+          "kind": "patrol",
+          "waypoints": [
+            [
+              20.5,
+              16.5
+            ],
+            [
+              20.5,
+              23.5
+            ]
+          ]
+        },
+        "tag": "wh_bank_patrol"
+      },
+      {
+        "unit": "technical",
+        "count": 1,
+        "at": [
+          20.5,
+          26.5
+        ],
+        "facing_deg": 180,
+        "group": "bank",
+        "stance": {
+          "kind": "patrol",
+          "waypoints": [
+            [
+              20.5,
+              26.5
+            ],
+            [
+              20.5,
+              33.5
+            ]
+          ]
+        },
+        "tag": "wh_bank_patrol"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          18.5,
+          20.5
+        ],
+        "facing_deg": 270,
+        "tag": "wh_bund_cell"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          21.5,
+          35.5
+        ],
+        "facing_deg": 0,
+        "stance": {
+          "kind": "ambush",
+          "tiles": 3
+        },
+        "tag": "wh_hide_south"
+      }
+    ],
+    "waves": [
+      {
+        "at_seconds": 90,
+        "to": "ford_south",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 2,
+            "from": "rif_south"
+          }
+        ]
+      },
+      {
+        "at_seconds": 210,
+        "to": "ford_north",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 2,
+            "from": "rif_east"
+          }
+        ]
+      },
+      {
+        "at_seconds": 225,
+        "to": "ford_south",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 1,
+            "from": "rif_south"
+          },
+          {
+            "unit": "moto_rpg",
+            "count": 1,
+            "from": "rif_south"
+          }
+        ]
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "id": "bank_reacts",
+      "on": {
+        "kind": "zone_entered",
+        "zone": "ford_watch"
+      },
+      "do": {
+        "kind": "commit",
+        "group": "bank",
+        "to": "ford_north"
+      }
+    }
+  ]
+}

@@ -32,7 +32,7 @@ All geography, factions, and place names are **fictional**. Enemy forces are def
 |---|---|---|---|
 | **The Marj Strip** | dense coastal urban enclave | Ashwar Front | tunnels, IEDs, ambush, human terrain |
 | **Sur** | northern mountains | Sarim Brigades | rockets, ATGMs, best-trained, standoff |
-| **Naharin** | eastern river desert | Rif Cells | technicals, raids, smuggling, mobility |
+| **Naharin** | eastern river basin — irrigated green highland | Rif Cells | technicals, raids, smuggling, mobility |
 
 **Towns:** Beit Sahwan, Khan Rafid, Deir Amun (Marj) · Tel Marum, Umm Zeitoun (Sur) · Wadi Halam (Naharin).
 
@@ -46,9 +46,10 @@ and the geography sets the order of the war: **proximity, then standoff, then so
 - **Sur — north, mountains.** Rockets range onto Kedem's north from behind a mountain
   wall. Second by sequencing rather than choice: you cannot climb into mountains with
   something at your throat on the coast.
-- **Naharin — east, river desert.** The smuggling corridor that supplied the Marj's
-  tunnels and Sur's rocket stocks. Last, because cutting supply is only decisive once the
-  fronts it feeds are contained.
+- **Naharin — east, river basin.** Green highland: terraced pasture, cultivation and
+  poplar galleries along the water, with the smuggling corridor that supplied the
+  Marj's tunnels and Sur's rocket stocks running through it. Last, because cutting
+  supply is only decisive once the fronts it feeds are contained.
 
 Every region is defined by terrain and doctrine, never by a people — see `CONTRIBUTING.md`.
 
@@ -233,7 +234,7 @@ Beit Sahwan III reads `tunnel_mouths_marked`. If Mission I went badly the list i
 
 ### Objective vocabulary
 
-Missions are declarative trigger/objective JSON, never scripted code. Available objective types: `locate`, `mark`, `collapse`, `escort`, `hold_for`, `evacuate_before`, `eliminate_hvt`, `capture`, `survive_until`, `no_collateral_above`.
+Missions are declarative trigger/objective JSON, never scripted code. Available objective types: `locate`, `mark`, `collapse`, `escort`, `hold_for`, `evacuate_before`, `eliminate_hvt`, `capture`, `survive_until`, `no_collateral_above`, `raze`.
 
 "Destroy all enemies" is available and should be used rarely.
 

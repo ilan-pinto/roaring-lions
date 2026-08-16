@@ -1,0 +1,265 @@
+{
+  "id": "wadi_halam_2_laager",
+  "name": "Wadi Halam II — Grazing Ground",
+  "town": "wadi_halam",
+  "phase": "foothold",
+  "target_minutes": 7,
+  "briefing": "Push through to the pasture and dig in while the engineers lay the crossing behind you. The ground is terraced — bunds run across the pasture in bands, real cover if you hold it, and the Rif know the ground as well as you do. Technicals and motorcycles will come at the pump house from every direction in waves. Accumulate five minutes of uncontested pasture and the corridor is yours.",
+  "map": {
+    "file": "wadi_halam_basin",
+    "player_start": [
+      3,
+      24
+    ]
+  },
+  "ledger": {
+    "requires": [
+      "roster.surviving_units"
+    ],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions"
+    ]
+  },
+  "starting_force": [
+    {
+      "unit": "apc_eitan",
+      "count": 1,
+      "at": [
+        3,
+        19
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "ifv_namer",
+      "count": 1,
+      "at": [
+        2,
+        23
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "inf_squad",
+      "count": 2,
+      "at": [
+        4,
+        20
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "at_team",
+      "count": 1,
+      "at": [
+        3,
+        17
+      ],
+      "from_ledger": true
+    }
+  ],
+  "resources": {
+    "logistics_start": 400,
+    "logistics_rate_per_min": 120
+  },
+  "objectives": [
+    {
+      "id": "hold_pasture",
+      "type": "hold_for",
+      "primary": true,
+      "target": "pasture",
+      "seconds": 300,
+      "text": "Hold the pasture for five minutes"
+    },
+    {
+      "id": "keep_ford",
+      "type": "capture",
+      "primary": false,
+      "target": "ford_watch",
+      "seconds": 15,
+      "text": "Keep the ford watch clear"
+    }
+  ],
+  "roe": {
+    "enabled": true
+  },
+  "enemy": {
+    "faction": "rif",
+    "doctrine_profile": "engage and disengage",
+    "garrison": [
+      {
+        "unit": "gun_truck",
+        "count": 1,
+        "at": [
+          44.5,
+          20.5
+        ],
+        "facing_deg": 270,
+        "group": "raiders",
+        "stance": {
+          "kind": "hold_position"
+        },
+        "tag": "wh_aa_east"
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "id": "wave_1",
+      "on": {
+        "kind": "timer_s",
+        "value": 60
+      },
+      "do": {
+        "kind": "spawn",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 2,
+            "marker": "rif_north",
+            "group": "raiders",
+            "stance": {
+              "kind": "patrol",
+              "waypoints": [
+                [
+                  44.5,
+                  9.5
+                ],
+                [
+                  17.5,
+                  20.5
+                ]
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wave_2",
+      "on": {
+        "kind": "timer_s",
+        "value": 150
+      },
+      "do": {
+        "kind": "spawn",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 2,
+            "marker": "rif_south",
+            "group": "raiders",
+            "stance": {
+              "kind": "patrol",
+              "waypoints": [
+                [
+                  44.5,
+                  39.5
+                ],
+                [
+                  17.5,
+                  20.5
+                ]
+              ]
+            }
+          },
+          {
+            "unit": "technical",
+            "count": 1,
+            "marker": "rif_south",
+            "group": "raiders",
+            "stance": {
+              "kind": "patrol",
+              "waypoints": [
+                [
+                  44.5,
+                  39.5
+                ],
+                [
+                  17.5,
+                  20.5
+                ]
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wave_3",
+      "on": {
+        "kind": "timer_s",
+        "value": 240
+      },
+      "do": {
+        "kind": "spawn",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 2,
+            "marker": "rif_east",
+            "group": "raiders",
+            "stance": {
+              "kind": "patrol",
+              "waypoints": [
+                [
+                  44.5,
+                  24.5
+                ],
+                [
+                  17.5,
+                  20.5
+                ]
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wave_4",
+      "on": {
+        "kind": "timer_s",
+        "value": 330
+      },
+      "do": {
+        "kind": "spawn",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 3,
+            "marker": "rif_south",
+            "group": "raiders",
+            "stance": {
+              "kind": "patrol",
+              "waypoints": [
+                [
+                  44.5,
+                  39.5
+                ],
+                [
+                  17.5,
+                  20.5
+                ]
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "picket_withdraws",
+      "on": {
+        "kind": "casualties_pct",
+        "value": 60
+      },
+      "do": {
+        "kind": "withdraw_to",
+        "group": "raiders",
+        "to": "rif_east"
+      }
+    }
+  ]
+}

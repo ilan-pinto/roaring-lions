@@ -52,6 +52,24 @@ describe('parseMap', () => {
     expect(() => parseMap({ ...TINY, markers: { bad: [4, 0] } })).toThrow(/marker/);
     expect(() => parseMap({ ...TINY, zones: { bad: [3, 2, 2, 2] } })).toThrow(/zone/);
   });
+
+  it('defaults the terrain theme to arid', () => {
+    expect(parseMap(TINY).terrain).toBe('arid');
+  });
+
+  it('carries a declared green terrain theme', () => {
+    expect(parseMap({ ...TINY, terrain: 'green' }).terrain).toBe('green');
+  });
+
+  it('throws on an unknown terrain theme', () => {
+    expect(() => parseMap({ ...TINY, terrain: 'lunar' })).toThrow(/unknown terrain theme/);
+  });
+
+  it('still decodes exactly seven terrain symbols', () => {
+    // The green basin is a look, not new mechanics. If this count moves, a
+    // symbol was added and validate_data.mjs's TERRAIN_SYMBOLS must move with it.
+    expect(Object.keys(TERRAIN_LEGEND).sort()).toEqual(['.', '1', '2', '3', 'n', 'o', 'r']);
+  });
 });
 
 describe('terrain symbols and the decor layer', () => {
