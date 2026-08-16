@@ -212,8 +212,8 @@ run(
 // ambushes for the picture, and hold the ford watch uncontested for 20s.
 // The drone tours the bank/bund/hide side of the wadi so the picture comes
 // from four *different* enemies rather than two ambushes seen twice.
-// `take_ford` is a four-minute hold, contested by three waves off both
-// banks (90s, 210s, 280s) -- so the screen has to actually stand on the
+// `take_ford` is a four-minute hold, contested by three waves out of the
+// east (90s, 210s, 225s) -- so the screen has to actually stand on the
 // ford watch and fight, not merely visit it for twenty seconds. Re-anchors
 // on the same schedule as II and III, for the same reason: a wave that
 // breaks and runs pulls a pursuing force past the zone edge and the hold

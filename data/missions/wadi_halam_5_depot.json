@@ -4,7 +4,7 @@
   "town": "wadi_halam",
   "phase": "clearance",
   "target_minutes": 6,
-  "briefing": "Seven structures inside the walled depot, one unarmed bulldozer, and a choice of route. The D9 cannot defend itself and it is the slowest thing on the map — escort it, do not race it. An RPG team holds the gate gap and a gun truck sits inside the wire; two more RPG teams are dug in deeper, covering the north and south blocks, and their rockets will go straight through the D9's blade if it works unescorted. Motorcycles are staged to the east and will come down on the column the moment you push that way, and more will keep arriving from the east and south the whole time the charges are going in. Levelling the depot is not the end of it — the Rif want the ground back, and the column has to hold the rubble for four minutes against everything still coming. Raze the depot, kill or capture whoever is holding the gate, hold what is left, and keep the column intact.",
+  "briefing": "Seven structures inside the walled depot, one unarmed bulldozer, and a choice of route. The D9 cannot defend itself and it is the slowest thing on the map — escort it, do not race it. An RPG team holds the gate gap and three gun trucks sit inside the wire; a second RPG team is dug in dead centre of the depot. The gun trucks cannot scratch the D9's armour, but either RPG team will put a rocket straight through its blade if it works unescorted. Motorcycles are staged to the east and will come down on the column the moment you push that way, and more will keep arriving from the east and south the whole time the charges are going in. Levelling the depot is not the end of it — the Rif want the ground back, and the column has to hold the rubble for four minutes against everything still coming. Raze the depot, kill or capture whoever is holding the gate, hold what is left, and keep the column intact.",
   "map": {
     "file": "wadi_halam_basin",
     "player_start": [
@@ -14,8 +14,7 @@
   },
   "ledger": {
     "requires": [
-      "roster.surviving_units",
-      "roe.mission_ratings"
+      "roster.surviving_units"
     ],
     "produces": [
       "roster.surviving_units",
@@ -113,7 +112,7 @@
       "type": "survive_until",
       "primary": false,
       "seconds": 300,
-      "text": "Keep the column intact"
+      "text": "Stay in the field for the first five minutes"
     }
   ],
   "roe": {

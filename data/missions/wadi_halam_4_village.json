@@ -14,8 +14,7 @@
   },
   "ledger": {
     "requires": [
-      "roster.surviving_units",
-      "intel.marked_positions"
+      "roster.surviving_units"
     ],
     "produces": [
       "roster.surviving_units",

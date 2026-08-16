@@ -1,7 +1,7 @@
 {
   "name": "Sahar Basin",
   "version": 1,
-  "notes": "Locked palette: 36 ramp colours, which is the set all rendered sprites are quantized to in CI. Ramps are ordered light -> dark. Reserved bands MUST NOT appear in unit/building/terrain diffuse art; they are applied at runtime by the VFX and team-color systems only.",
+  "notes": "Locked palette: 41 ramp colours, which is the set all rendered sprites are quantized to in CI. Ramps are ordered light -> dark. Reserved bands MUST NOT appear in unit/building/terrain diffuse art; they are applied at runtime by the VFX and team-color systems only.",
   "ramps": {
     "limestone": {
       "role": "primary terrain, masonry, concrete, sun-bleached surfaces",
@@ -82,7 +82,7 @@
       ]
     },
     "grass": {
-      "role": "procedural terrain only -- open sward, hedgerow, pasture. NOT for sprite art.",
+      "role": "intended for procedural terrain -- open sward, hedgerow, pasture. Not curated for sprite art; validate_assets.py does not exclude it, so nothing currently stops it appearing there.",
       "colors": [
         "#D9E294",
         "#C0CE7E",
