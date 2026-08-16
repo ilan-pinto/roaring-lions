@@ -46,7 +46,7 @@
       "type": "integer",
       "minimum": 5,
       "maximum": 25,
-      "default": 15
+      "default": 6
     },
     "briefing": {
       "type": "string"

@@ -212,7 +212,7 @@ If a fight feels broken, the UI has failed before the model has.
 
 ## 6. Missions
 
-**Unit of content: one short mission, 12–20 minutes.** Three to five missions per town. Each mission is led by one phase.
+**Unit of content: one short mission, 5–7 minutes.** Three to five missions per town. Each mission is led by one phase.
 
 This is deliberate. A 45-minute five-phase mission makes balance iteration prohibitive — nobody re-plays 40 minutes to verify a tuning change, least of all a volunteer. Short missions are testable in isolation and authorable by a contributor who does not understand the whole campaign.
 

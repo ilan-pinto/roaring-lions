@@ -71,7 +71,7 @@ pnpm balance          # headless battle sim, prints win rates
 
 **A unit:** JSON in `data/units/`, validated against `unit.schema.json`, must pass `pnpm balance` within the cost-curve tolerance band, and needs a `.blend` in `art/src/` that survives `pnpm validate:assets` (including the silhouette IoU check).
 
-**A mission:** JSON in `data/missions/`, validated against `mission.schema.json`. Must declare its ledger contract — `requires` and `produces`. Target 12–20 minutes of play.
+**A mission:** JSON in `data/missions/`, validated against `mission.schema.json`. Must declare its ledger contract — `requires` and `produces`. Target 5–7 minutes of play. The schema's `maximum` is still 25 rather than 7: the four Beit Sahwan missions authored against the old 12–20 target are being brought into range one at a time, and the ceiling tightens once they are.
 
 **A VFX emitter:** JSON in `data/vfx/`, validated against `vfx_emitter.schema.json`. Palette keys only, never raw hex.
 
