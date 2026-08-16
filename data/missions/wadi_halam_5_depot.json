@@ -1,0 +1,201 @@
+{
+  "id": "wadi_halam_5_depot",
+  "name": "Wadi Halam V — Break the Depot",
+  "town": "wadi_halam",
+  "phase": "clearance",
+  "target_minutes": 6,
+  "briefing": "Seven structures inside the walled depot, one unarmed bulldozer, and a choice of route. The D9 cannot defend itself and it is the slowest thing on the map — escort it, do not race it. An RPG team holds the gate gap and a gun truck sits inside the wire; motorcycles are staged to the east and will come down on the blades the moment you push that way. Raze the depot, kill or capture whoever is holding the gate, and keep the column intact.",
+  "map": {
+    "file": "wadi_halam_basin",
+    "player_start": [
+      13,
+      24
+    ]
+  },
+  "ledger": {
+    "requires": [
+      "roster.surviving_units",
+      "roe.mission_ratings"
+    ],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions"
+    ]
+  },
+  "starting_force": [
+    {
+      "unit": "apc_eitan",
+      "count": 1,
+      "at": [
+        12,
+        23
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "ifv_namer",
+      "count": 1,
+      "at": [
+        12,
+        25
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "inf_squad",
+      "count": 2,
+      "at": [
+        13,
+        24
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "at_team",
+      "count": 1,
+      "at": [
+        14,
+        23
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "dozer_d9",
+      "count": 1,
+      "at": [
+        13,
+        25
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "jeep_shoded",
+      "count": 1,
+      "at": [
+        14,
+        25
+      ]
+    }
+  ],
+  "objectives": [
+    {
+      "id": "raze_depot",
+      "type": "raze",
+      "primary": true,
+      "target": "depot",
+      "text": "Raze the depot"
+    },
+    {
+      "id": "kill_gate_rpg",
+      "type": "eliminate_hvt",
+      "primary": true,
+      "target": "wh_gate_rpg",
+      "text": "Kill or capture whoever is holding the gate"
+    },
+    {
+      "id": "no_bleed",
+      "type": "survive_until",
+      "primary": false,
+      "seconds": 300,
+      "text": "Keep the column intact"
+    }
+  ],
+  "roe": {
+    "enabled": true,
+    "fail_below": 40,
+    "structure_penalty_mult": 1
+  },
+  "enemy": {
+    "faction": "rif",
+    "doctrine_profile": "gate ambush, harass from the flank",
+    "garrison": [
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "marker": "depot_gate",
+        "facing_deg": 270,
+        "stance": {
+          "kind": "ambush",
+          "tiles": 3
+        },
+        "tag": "wh_gate_rpg"
+      },
+      {
+        "unit": "gun_truck",
+        "count": 1,
+        "at": [
+          39,
+          20
+        ],
+        "facing_deg": 270,
+        "stance": {
+          "kind": "hold_position"
+        },
+        "tag": "wh_depot_gun_truck"
+      },
+      {
+        "unit": "moto_rpg",
+        "count": 2,
+        "at": [
+          44,
+          20
+        ],
+        "facing_deg": 250,
+        "group": "harass",
+        "stance": {
+          "kind": "hold_position"
+        },
+        "tag": "wh_harass_east"
+      }
+    ],
+    "waves": [
+      {
+        "at_seconds": 90,
+        "to": "depot_gate",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 1,
+            "from": "rif_east"
+          },
+          {
+            "unit": "moto_rpg",
+            "count": 1,
+            "from": "rif_east"
+          }
+        ]
+      },
+      {
+        "at_seconds": 200,
+        "to": "depot_gate",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 1,
+            "from": "rif_south"
+          },
+          {
+            "unit": "moto_rpg",
+            "count": 2,
+            "from": "rif_south"
+          }
+        ]
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "id": "harass_commits",
+      "on": {
+        "kind": "zone_entered",
+        "zone": "east_road"
+      },
+      "do": {
+        "kind": "commit",
+        "group": "harass",
+        "to": "depot_gate"
+      }
+    }
+  ]
+}

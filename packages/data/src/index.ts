@@ -21,6 +21,7 @@ import wadiHalam1Fords from '../../../data/missions/wadi_halam_1_fords.json';
 import wadiHalam2Laager from '../../../data/missions/wadi_halam_2_laager.json';
 import wadiHalam3Counterraid from '../../../data/missions/wadi_halam_3_counterraid.json';
 import wadiHalam4Village from '../../../data/missions/wadi_halam_4_village.json';
+import wadiHalam5Depot from '../../../data/missions/wadi_halam_5_depot.json';
 import tutorialBeitSahwan0 from '../../../data/tutorial/beit_sahwan_0.json';
 
 import mbtLavi from '../../../data/units/kdf/mbt_lavi.json';
@@ -101,6 +102,7 @@ export const missions = {
   wadi_halam_2_laager: wadiHalam2Laager,
   wadi_halam_3_counterraid: wadiHalam3Counterraid,
   wadi_halam_4_village: wadiHalam4Village,
+  wadi_halam_5_depot: wadiHalam5Depot,
 } as const;
 
 /** The campaign world. Shape matches world.schema.json; parsed by app/src/campaign.ts. */
