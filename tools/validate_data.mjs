@@ -215,11 +215,13 @@ const structureSymbols = new Map(
       if ((o.type === 'capture' || o.type === 'hold_for') && o.target && !zoneNames.has(o.target)) {
         failures.push(`${rel(file)}: objective "${o.id}" references unknown zone "${o.target}"`);
       }
-      // A demolisher working on its own initiative skips two classes of structure:
-      // `per_tile`/low-profile types (a wall run is N separate structures, each
-      // needing its own click) and types at or above the protected ROE threshold
-      // (the mosque). A raze zone containing either is a mission that demands forty
-      // clicks or feels quietly impossible, and neither shows up until playtest.
+      // stepDemolition (sim.ts:2914-2919) consults `roePenalty` and `lowProfile` only
+      // when a demolisher is picking a target on its own initiative -- `per_tile`
+      // appears nowhere in sim.ts. The two are independent booleans in
+      // structure.schema.json and only coincide today because `wall` happens to be
+      // both, so each is checked here separately rather than merged into one test.
+      // `per_tile` is checked too, but for an unrelated reason: it is not a refusal
+      // at all, just a click-count trap (every tile is its own structure).
       if (o.type === 'raze') {
         const rect = map.zones?.[o.target];
         if (!rect) {
@@ -228,6 +230,9 @@ const structureSymbols = new Map(
           );
         } else {
           const [zx, zy, zw, zh] = rect;
+          // Keyed by "typeId:reason" so a type that trips more than one reason (today
+          // only `wall`, which is both low_profile and per_tile) gets a message for
+          // each reason instead of the first reason found silently winning.
           const bad = new Map();
           for (let y = zy; y < zy + zh; y++) {
             for (let x = zx; x < zx + zw; x++) {
@@ -235,18 +240,31 @@ const structureSymbols = new Map(
               const typeId = structureSymbols.get(sym);
               if (!typeId) continue;
               const spec = structureCatalogue.types[typeId];
-              if (spec.per_tile) bad.set(typeId, `per_tile at (${x},${y})`);
-              else if ((spec.roe_penalty ?? 0) >= PROTECTED_ROE) {
-                bad.set(typeId, `protected (roe_penalty ${spec.roe_penalty}) at (${x},${y})`);
+              if (spec.low_profile && !bad.has(`${typeId}:low_profile`)) {
+                bad.set(
+                  `${typeId}:low_profile`,
+                  `${rel(file)}: raze "${o.id}" zone "${o.target}" contains "${typeId}" -- low_profile ` +
+                    `at (${x},${y}). A demolisher will not level it unattended.`
+                );
+              }
+              if ((spec.roe_penalty ?? 0) >= PROTECTED_ROE && !bad.has(`${typeId}:protected`)) {
+                bad.set(
+                  `${typeId}:protected`,
+                  `${rel(file)}: raze "${o.id}" zone "${o.target}" contains "${typeId}" -- protected ` +
+                    `(roe_penalty ${spec.roe_penalty}) at (${x},${y}). A demolisher will not level it unattended.`
+                );
+              }
+              if (spec.per_tile && !bad.has(`${typeId}:per_tile`)) {
+                bad.set(
+                  `${typeId}:per_tile`,
+                  `${rel(file)}: raze "${o.id}" zone "${o.target}" contains "${typeId}" -- per_tile ` +
+                    `at (${x},${y}): every tile is its own structure, so this raze zone is N separate ` +
+                    `demolish orders, not one.`
+                );
               }
             }
           }
-          for (const [typeId, why] of bad) {
-            failures.push(
-              `${rel(file)}: raze "${o.id}" zone "${o.target}" contains "${typeId}" -- ${why}. ` +
-                `A demolisher will not level it unattended.`
-            );
-          }
+          for (const msg of bad.values()) failures.push(msg);
         }
       }
     }
