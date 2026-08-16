@@ -79,9 +79,9 @@
       "name": "Naharin",
       "faction": "Rif Cells",
       "doctrine": "technicals, raids, smuggling, mobility",
-      "blurb": "The corridor that supplied the Marj's tunnels and Sur's rocket stocks.",
+      "blurb": "A green river basin of terraced pasture and cultivation. The corridor that supplied the Marj's tunnels and Sur's rocket stocks.",
       "unlock": {
-        "after_mission": "umm_zeitoun_1"
+        "after_mission": "beit_sahwan_3_clearance"
       },
       "towns": [
         {

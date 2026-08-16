@@ -10,6 +10,7 @@ import countriesJson from '../../../data/campaign/countries.json';
 import beitSahwanOutskirts from '../../../data/maps/beit_sahwan_outskirts.json';
 import marjPerimeter from '../../../data/maps/marj_perimeter.json';
 import tutorialGround from '../../../data/maps/tutorial_ground.json';
+import wadiHalamBasin from '../../../data/maps/wadi_halam_basin.json';
 import structureCatalogue from '../../../data/structures.json';
 import beitSahwanBreach from '../../../data/missions/beit_sahwan_breach.json';
 import beitSahwan0 from '../../../data/missions/beit_sahwan_0_tutorial.json';
@@ -76,6 +77,7 @@ export const maps = {
   beit_sahwan_outskirts: beitSahwanOutskirts,
   marj_perimeter: marjPerimeter,
   tutorial_ground: tutorialGround,
+  wadi_halam_basin: wadiHalamBasin,
 } as const;
 
 export type MapId = keyof typeof maps;
