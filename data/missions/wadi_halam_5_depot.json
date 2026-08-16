@@ -66,8 +66,7 @@
       "at": [
         13,
         25
-      ],
-      "from_ledger": true
+      ]
     },
     {
       "unit": "jeep_shoded",
@@ -105,6 +104,10 @@
     "enabled": true,
     "fail_below": 40,
     "structure_penalty_mult": 1
+  },
+  "resources": {
+    "logistics_start": 400,
+    "logistics_rate_per_min": 80
   },
   "enemy": {
     "faction": "rif",
@@ -188,8 +191,7 @@
     {
       "id": "harass_commits",
       "on": {
-        "kind": "zone_entered",
-        "zone": "east_road"
+        "kind": "first_contact"
       },
       "do": {
         "kind": "commit",
