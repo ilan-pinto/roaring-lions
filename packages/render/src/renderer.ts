@@ -1208,7 +1208,43 @@ export class PixiRenderer {
         // near-base tone and they read as pale stains on the ground rather than as
         // texture -- low-contrast blobs at tile scale look like a rendering fault.
         // Small marks at high frequency read as ground; big ones do not.
-        {
+        if (t.scatter === 'sward') {
+          // Grass is denser than gravel and its mark is a blade, not a pebble.
+          // Ellipses recoloured green read as green rocks; short vertical strokes
+          // at high frequency read as sward. Same tile hash as the stone pass, so
+          // the ground is stable between rebuilds.
+          const n = 8 + Math.floor(rnd * 7);
+          for (let k = 0; k < n; k++) {
+            const a = PixiRenderer.h2(x * 19 + k * 7, y * 23 + k * 5);
+            const b = PixiRenderer.h2(x * 41 + k * 3, y * 7 + k * 11);
+            const px = cx + (a - 0.5) * (TILE_W - 12);
+            const py = cy + (b - 0.5) * (TILE_H - 6);
+            const bh = 2 + a * 1.2;
+            g.moveTo(px, py).lineTo(px, py - bh);
+            g.stroke({ color: b > 0.4 ? t.bladeLit : t.bladeShade, alpha: 0.45 + a * 0.3 });
+          }
+          if (rnd > 0.9) {
+            // Bare earth: cool and rare. Some exposed ground keeps a green map
+            // from reading as a billiard table, but red laterite is not what a
+            // river basin's stock paths look like.
+            const a = PixiRenderer.h2(x * 19, y * 23);
+            g.ellipse(cx + (a - 0.5) * 22, cy, 3 + a * 2.4, 1.6 + a * 1.2).fill({
+              color: t.earth,
+              alpha: 0.22,
+            });
+          }
+          if (rnd > 0.84 && cover === 0) {
+            // A tussock, drawn as three strokes fanning from a point rather than
+            // one blob -- the mark that separates a clump of grass from a bush.
+            const a = PixiRenderer.h2(x * 31, y * 3);
+            const bx = cx + (a - 0.5) * 30;
+            const by = cy + (rnd - 0.9) * 18;
+            for (let k = -1; k <= 1; k++) {
+              g.moveTo(bx, by).lineTo(bx + k * 2.6, by - 4.2 - a * 1.6);
+            }
+            g.stroke({ color: t.low, alpha: 0.8, width: 1.2 });
+          }
+        } else {
           const n = 3 + Math.floor(rnd * 5);
           for (let k = 0; k < n; k++) {
             const a = PixiRenderer.h2(x * 19 + k * 7, y * 23 + k * 5);
@@ -1234,14 +1270,14 @@ export class PixiRenderer {
               }
             }
           }
-        }
-        if (rnd > 0.84 && cover === 0) {
-          // A dry bush. Sparse, because the reference is mostly bare ground.
-          const a = PixiRenderer.h2(x * 31, y * 3);
-          g.ellipse(cx + (a - 0.5) * 30, cy + (rnd - 0.9) * 18, 3.2 + a * 1.4, 2 + a).fill({
-            color: t.low,
-            alpha: 0.55,
-          });
+          if (rnd > 0.84 && cover === 0) {
+            // A dry bush. Sparse, because the reference is mostly bare ground.
+            const a = PixiRenderer.h2(x * 31, y * 3);
+            g.ellipse(cx + (a - 0.5) * 30, cy + (rnd - 0.9) * 18, 3.2 + a * 1.4, 2 + a).fill({
+              color: t.low,
+              alpha: 0.55,
+            });
+          }
         }
         if (cover > 0) {
           // Cover reads as scattered rubble/sandbags, denser with level.
