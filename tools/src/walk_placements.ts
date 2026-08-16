@@ -11,6 +11,24 @@
  * street putting its middle body inside a mosque, and that survived a hand audit
  * and a code review.
  *
+ * Two things this tool must mirror exactly, or it checks the wrong tile or the
+ * wrong placements:
+ *
+ * - `markerPos` (mission.ts:686-690) adds a +0.5 tile-centre offset to a marker
+ *   before spreading bodies from it. The `at` path (mission.ts:738-740) does not --
+ *   an authored `at` is used exactly as written. A marker- or `from`-resolved
+ *   placement therefore spreads from a different fractional origin than an
+ *   `at`-resolved one, and a body landing on a `.5` fraction (k ≡ 2 mod 3, or the
+ *   third row at count >= 7) checks a different tile depending on which path it
+ *   came from.
+ * - A garrison stance is exempt from the clearance check entirely
+ *   (`spawnPlacement`, mission.ts:769-774): the unit is ordered into the building
+ *   and walks in on its first ticks, so standing on the building's tile at spawn
+ *   is the job, not a trap (mission.ts:659-665). This tool skips the
+ *   blocked/off-map check for those bodies too, but still marks them on the grid
+ *   (`g`) so they read as "present but deliberately unchecked" rather than
+ *   silently absent or falsely failed.
+ *
  * Lives under tools/src so `pnpm typecheck` covers it. Read-only: nothing is
  * written, nothing is rendered.
  */
@@ -23,12 +41,14 @@ interface Placement {
   count?: number;
   at?: readonly [number, number];
   marker?: string;
+  stance?: { kind?: string };
 }
 
 /** Wave units use `from` instead of `marker` for their spawn point (mission.schema.json).
  *  mission.ts's spawnWave resolves it the same way spawnPlacement resolves `marker` --
  *  markerPos(u.from) feeds the very assertGroundClear this tool exists to pre-check --
- *  so a wave's `from` must be walked exactly like everyone else's `marker`. */
+ *  so a wave's `from` must be walked exactly like everyone else's `marker`, offset
+ *  included. */
 interface WavePlacement extends Placement {
   from?: string;
 }
@@ -76,20 +96,39 @@ for (const [, [mx, my]] of Object.entries(map.markers ?? {})) {
 let bad = 0;
 function place(p: Placement | WavePlacement, label: string): void {
   const markerName = p.marker ?? ('from' in p ? p.from : undefined);
-  const at = p.at ?? (markerName ? map.markers?.[markerName] : undefined);
-  if (!at) {
+  // `at` is used exactly as authored (mission.ts:738-740). A marker/`from` name
+  // resolves through markerPos, which adds a +0.5 tile-centre offset
+  // (mission.ts:686-690) before spreading -- so only the marker path gets it.
+  let origin: readonly [number, number] | undefined;
+  if (p.at !== undefined) {
+    origin = p.at;
+  } else if (markerName !== undefined) {
+    const m = map.markers?.[markerName];
+    origin = m ? [m[0] + 0.5, m[1] + 0.5] : undefined;
+  }
+  if (!origin) {
     console.error(`  ${label} ${p.unit}: neither at nor a resolvable marker`);
     bad++;
     return;
   }
+  // spawnPlacement never calls assertGroundClear for a garrison stance
+  // (mission.ts:769-774) -- overlapping the building it enters is intended, not
+  // a bug. Mirror that: no BLOCKED/OFF-MAP verdict for these bodies, just a
+  // distinct mark so the grid shows them instead of hiding them.
+  const garrison = p.stance?.kind === 'garrison';
   const n = p.count ?? 1;
   for (let k = 0; k < n; k++) {
-    const bx = Math.floor(at[0] + (k % 3) * 1.25);
-    const by = Math.floor(at[1] + Math.floor(k / 3) * 1.25);
+    const bx = Math.floor(origin[0] + (k % 3) * 1.25);
+    const by = Math.floor(origin[1] + Math.floor(k / 3) * 1.25);
+    if (garrison) {
+      const cellRow = cell[by];
+      if (bx >= 0 && bx < W && cellRow) cellRow[bx] = 'g';
+      continue;
+    }
     if (bx < 0 || bx >= W || by < 0 || by >= H) {
       console.error(`  ${label} ${p.unit} body ${k}: OFF-MAP at (${bx},${by})`);
-      const ax = Math.floor(at[0]);
-      const ay = Math.floor(at[1]);
+      const ax = Math.floor(origin[0]);
+      const ay = Math.floor(origin[1]);
       if (cell[ay]?.[ax] !== undefined) cell[ay][ax] = '!';
       bad++;
       continue;
