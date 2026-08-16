@@ -1505,7 +1505,9 @@ export class PixiRenderer {
       const inside = st.garrisonedIn[i];
       let roofDx = 0;
       let roofDy = 0;
-      let roofZ = 0;
+      /** Depth override for a unit that has to clear a building sprite rather
+       *  than sort behind it. 0 means "sort on your own tile, as usual". */
+      let clearZ = 0;
       if (inside >= 0) {
         const sTypeId = this.sim.structureTypes[this.sim.structures.typeIdx[inside]].id;
         const sArt = this.structureAtlas.get(sTypeId);
@@ -1522,8 +1524,21 @@ export class PixiRenderer {
         roofDy = place.dy;
         // A structure sprite sorts at its far corner, so an occupant must clear
         // that or it draws inside its own building. +1, same trick the turret uses.
-        roofZ = depthZ(this.sim.structures.maxX[inside] + 1,
-                       this.sim.structures.maxY[inside] + 1) + 1;
+        clearZ = depthZ(this.sim.structures.maxX[inside] + 1,
+                        this.sim.structures.maxY[inside] + 1) + 1;
+      } else {
+        // A demolisher works whichever face it happened to reach, and a
+        // building sorts at its near corner -- so one that came at the north or
+        // west side is drawn *behind* the thing it is destroying. The building
+        // then sheds dust and falls with nothing visibly touching it, which
+        // reads as the demolition being broken rather than merely hidden.
+        // Lift it clear for as long as it is working: the same trick as the
+        // garrison branch above, for the same reason.
+        const razing = st.demoTarget[i];
+        if (razing >= 0 && this.sim.structures.alive[razing] === 1) {
+          clearZ = depthZ(this.sim.structures.maxX[razing] + 1,
+                          this.sim.structures.maxY[razing] + 1) + 1;
+        }
       }
       const sx = isoX(x, y) + roofDx;
       const sy = isoY(x, y) + roofDy;
@@ -1648,7 +1663,7 @@ export class PixiRenderer {
         spr.position.set(sx + ox, sy + oy);
         // Depth from the unit's own tile position, so it sorts against
         // buildings by the same rule they use.
-        spr.zIndex = roofZ !== 0 ? roofZ : depthZ(x, y);
+        spr.zIndex = clearZ !== 0 ? clearZ : depthZ(x, y);
         spr.alpha = bodyAlpha;
         spr.visible = true;
         const spriteScale = (sheet.scale * TILE_W) / idle[0][0].width;
@@ -1709,7 +1724,7 @@ export class PixiRenderer {
           // immediately above its own hull rather than relying on the
           // insertion order sorting has just taken away.
           tspr.position.set(sx + ox + axX * spriteScale, sy + oy + axY * spriteScale);
-          tspr.zIndex = (roofZ !== 0 ? roofZ : depthZ(x, y)) + 1;
+          tspr.zIndex = (clearZ !== 0 ? clearZ : depthZ(x, y)) + 1;
           tspr.alpha = bodyAlpha;
           tspr.visible = true;
           tspr.scale.set(spriteScale);
