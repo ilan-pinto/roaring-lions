@@ -181,6 +181,20 @@
         ],
         "facing_deg": 270,
         "tag": "wh_bund_cell"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          21.5,
+          35.5
+        ],
+        "facing_deg": 0,
+        "stance": {
+          "kind": "ambush",
+          "tiles": 3
+        },
+        "tag": "wh_hide_south"
       }
     ],
     "waves": [
