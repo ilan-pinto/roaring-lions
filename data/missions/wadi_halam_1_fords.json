@@ -4,7 +4,7 @@
   "town": "wadi_halam",
   "phase": "recon",
   "target_minutes": 6,
-  "briefing": "Naharin opens at the wadi. Two fords cross it, and the Rif who work this corridor disperse the moment they are seen — so the job tonight is to see them first. Push a screen across the tree line, build the picture, and hold the crossing long enough for the column behind you to come over. Do not chase what runs.",
+  "briefing": "Naharin opens at the wadi. Two fords cross it, and the Rif who work this corridor disperse the moment they are seen — so the job tonight is to see them first. Push a screen across the tree line, build the picture, and hold the ford watch for four minutes while the column crosses behind you — riders will keep coming at the crossing from both banks the whole time you sit on it. Do not chase what runs.",
   "map": {
     "file": "wadi_halam_basin",
     "player_start": [
@@ -75,17 +75,17 @@
     },
     {
       "id": "take_ford",
-      "type": "capture",
+      "type": "hold_for",
       "primary": true,
       "target": "ford_watch",
-      "seconds": 20,
-      "text": "Hold the ford watch for 20 seconds"
+      "seconds": 240,
+      "text": "Hold the ford watch for four minutes"
     },
     {
       "id": "screen_out",
       "type": "survive_until",
       "primary": false,
-      "seconds": 300,
+      "seconds": 200,
       "text": "Keep the screen up while the column crosses"
     }
   ],
@@ -199,6 +199,17 @@
     ],
     "waves": [
       {
+        "at_seconds": 90,
+        "to": "ford_south",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 2,
+            "from": "rif_south"
+          }
+        ]
+      },
+      {
         "at_seconds": 210,
         "to": "ford_north",
         "units": [
@@ -206,6 +217,22 @@
             "unit": "moto_rpg",
             "count": 2,
             "from": "rif_east"
+          }
+        ]
+      },
+      {
+        "at_seconds": 225,
+        "to": "ford_south",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 1,
+            "from": "rif_south"
+          },
+          {
+            "unit": "moto_rpg",
+            "count": 1,
+            "from": "rif_south"
           }
         ]
       }

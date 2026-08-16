@@ -209,6 +209,108 @@ describe('per-unit demolition time', () => {
   });
 });
 
+const WALL: StructureTypeJson = { id: 'test_wall', hp_per_tile: 500 };
+
+describe('a demolish order can find its own way through a gate', () => {
+  // Regression guard for the walled-compound pathing bug: `demolish` aims
+  // the unit at the target structure's centroid, which sits inside the
+  // structure's own footprint and is therefore always blocked.
+  // `FlowField.compute` bails to an all-DIR_NONE field the moment its goal
+  // tile is blocked, and stepMovement's fallback for "the field has nothing
+  // to say" is to walk a straight line at the (unreachable) goal -- which
+  // pins the unit against whichever wall face that line meets first. Fine
+  // for an isolated shack; fatal for a target sitting behind a compound
+  // wall whose only gate is nowhere near the straight line. `Sim` now
+  // routes the field through `nearestOpenTile` instead of the raw centroid.
+  //
+  // A ring of wall tiles around the target, one gap left open on the west
+  // face, and the demolisher spawned due north -- so the straight line from
+  // spawn to the target's centroid runs straight into the *north* wall,
+  // nowhere near the gate on the west side. Pre-fix, this is exactly the
+  // shape that hangs forever.
+  it('routes around the wall to the gate instead of pinning against it', () => {
+    const sim = new Sim({ seed: 7, width: 24, height: 24, capacity: 8 });
+    const wallType = sim.addStructureType(WALL);
+    const wallTiles: number[] = [];
+    for (let x = 8; x <= 16; x++) {
+      for (let y = 8; y <= 16; y++) {
+        const onRing = x === 8 || x === 16 || y === 8 || y === 16;
+        if (!onRing) continue;
+        if (x === 8 && y === 12) continue; // the one gate, on the west face
+        wallTiles.push(y * 24 + x);
+      }
+    }
+    sim.addStructure(wallType, wallTiles);
+    const shackType = sim.addStructureType(SHACK);
+    const target = sim.addStructure(shackType, [12 * 24 + 12]); // dead centre
+
+    const t = sim.addUnitType(DOZER);
+    // Due north of the ring, well outside it: the straight line to (12,12)
+    // runs down through (12, 8), the north wall face -- the gate is on the
+    // opposite side of the compound.
+    const id = sim.spawn(t, 0, fx.from(12.5), fx.from(2.5));
+    sim.queueCommand({ kind: 'demolish', ids: [id], structure: target });
+
+    let enteredInterior = -1;
+    let fell = -1;
+    for (let n = 1; n <= 800; n++) {
+      sim.tick();
+      const tx = sim.state.posX[id] >> 16;
+      const ty = sim.state.posY[id] >> 16;
+      // Inside the ring's open interior (x/y 9-15), which is only reachable
+      // through the gate at (8,12) -- the straight line from spawn crosses
+      // the blocked north face at y=8 well before it, so landing here at
+      // all is proof the field actually routed around, not through.
+      if (enteredInterior < 0 && tx >= 9 && tx <= 15 && ty >= 9 && ty <= 15) enteredInterior = n;
+      if (sim.structures.alive[target] === 0) {
+        fell = n;
+        break;
+      }
+    }
+    // Pre-fix, neither of these happens inside any tick budget: the field
+    // is all DIR_NONE, the straight-line fallback drives the unit into the
+    // north wall face at (12,8), and the wall-slide clamp pins it there --
+    // never inside the ring, never in demolition range, building standing
+    // forever.
+    expect(enteredInterior).toBeGreaterThan(0);
+    expect(fell).toBeGreaterThan(0);
+    expect(sim.structures.alive[target]).toBe(0);
+  });
+
+  // Same fix, same shape, for `garrison`: the doorway is inside the target's
+  // own footprint too.
+  it('garrison finds the same gate for the same reason', () => {
+    const sim = new Sim({ seed: 7, width: 24, height: 24, capacity: 8 });
+    const wallType = sim.addStructureType(WALL);
+    const wallTiles: number[] = [];
+    for (let x = 8; x <= 16; x++) {
+      for (let y = 8; y <= 16; y++) {
+        const onRing = x === 8 || x === 16 || y === 8 || y === 16;
+        if (!onRing) continue;
+        if (x === 8 && y === 12) continue;
+        wallTiles.push(y * 24 + x);
+      }
+    }
+    sim.addStructure(wallType, wallTiles);
+    const houseType = sim.addStructureType({ id: 'test_house', hp_per_tile: 200, garrison_slots: 4 });
+    const target = sim.addStructure(houseType, [12 * 24 + 12]);
+
+    const infType = sim.addUnitType({ ...SAPPER, id: 'test_infantry', abilities: ['garrison'] });
+    const id = sim.spawn(infType, 0, fx.from(12.5), fx.from(2.5));
+    sim.queueCommand({ kind: 'garrison', ids: [id], structure: target });
+
+    let entered = -1;
+    for (let n = 1; n <= 800; n++) {
+      sim.tick();
+      if (sim.state.garrisonedIn[id] === target) {
+        entered = n;
+        break;
+      }
+    }
+    expect(entered).toBeGreaterThan(0);
+  });
+});
+
 describe('the blade crumbles a building as it works', () => {
   /** A one-tile shack at (10,10) with a demolisher of `unit` parked beside it. */
   function world(unit: UnitTypeJson) {

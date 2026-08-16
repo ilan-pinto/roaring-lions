@@ -4,7 +4,7 @@
   "town": "wadi_halam",
   "phase": "foothold",
   "target_minutes": 7,
-  "briefing": "Push through to the pasture and dig in while the engineers lay the crossing behind you. Nothing here fights from cover — the ground is open on both sides, and the Rif know it as well as you do. Technicals and motorcycles will come at the pump house from every direction in waves, engage, and pull back rather than trade themselves for ground once their losses mount. Accumulate three minutes of uncontested pasture and the corridor is yours.",
+  "briefing": "Push through to the pasture and dig in while the engineers lay the crossing behind you. Nothing here fights from cover — the ground is open on both sides, and the Rif know it as well as you do. Technicals and motorcycles will come at the pump house from every direction in waves, engage, and pull back rather than trade themselves for ground once their losses mount. Accumulate five minutes of uncontested pasture and the corridor is yours.",
   "map": {
     "file": "wadi_halam_basin",
     "player_start": [
@@ -70,8 +70,8 @@
       "type": "hold_for",
       "primary": true,
       "target": "pasture",
-      "seconds": 180,
-      "text": "Hold the pasture for three minutes"
+      "seconds": 300,
+      "text": "Hold the pasture for five minutes"
     },
     {
       "id": "keep_ford",

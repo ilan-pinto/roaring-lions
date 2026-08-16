@@ -4,7 +4,7 @@
   "town": "wadi_halam",
   "phase": "clearance",
   "target_minutes": 6,
-  "briefing": "Seven structures inside the walled depot, one unarmed bulldozer, and a choice of route. The D9 cannot defend itself and it is the slowest thing on the map — escort it, do not race it. An RPG team holds the gate gap and a gun truck sits inside the wire; motorcycles are staged to the east and will come down on the blades the moment you push that way. Raze the depot, kill or capture whoever is holding the gate, and keep the column intact.",
+  "briefing": "Seven structures inside the walled depot, one unarmed bulldozer, and a choice of route. The D9 cannot defend itself and it is the slowest thing on the map — escort it, do not race it. An RPG team holds the gate gap and a gun truck sits inside the wire; two more RPG teams are dug in deeper, covering the north and south blocks, and their rockets will go straight through the D9's blade if it works unescorted. Motorcycles are staged to the east and will come down on the column the moment you push that way, and more will keep arriving from the east and south the whole time the charges are going in. Levelling the depot is not the end of it — the Rif want the ground back, and the column has to hold the rubble for four minutes against everything still coming. Raze the depot, kill or capture whoever is holding the gate, hold what is left, and keep the column intact.",
   "map": {
     "file": "wadi_halam_basin",
     "player_start": [
@@ -101,6 +101,14 @@
       "text": "Kill or capture whoever is holding the gate"
     },
     {
+      "id": "hold_depot",
+      "type": "hold_for",
+      "primary": true,
+      "target": "depot",
+      "seconds": 240,
+      "text": "Hold the depot for four minutes once it is down"
+    },
+    {
       "id": "no_bleed",
       "type": "survive_until",
       "primary": false,
@@ -146,8 +154,48 @@
         "tag": "wh_depot_gun_truck"
       },
       {
+        "unit": "gun_truck",
+        "count": 1,
+        "at": [
+          41,
+          20
+        ],
+        "facing_deg": 180,
+        "stance": {
+          "kind": "hold_position"
+        },
+        "tag": "wh_depot_interior_ne"
+      },
+      {
+        "unit": "gun_truck",
+        "count": 1,
+        "at": [
+          41,
+          27
+        ],
+        "facing_deg": 180,
+        "stance": {
+          "kind": "hold_position"
+        },
+        "tag": "wh_depot_interior_se"
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          38,
+          24
+        ],
+        "facing_deg": 270,
+        "stance": {
+          "kind": "ambush",
+          "tiles": 3
+        },
+        "tag": "wh_depot_interior_center"
+      },
+      {
         "unit": "moto_rpg",
-        "count": 2,
+        "count": 3,
         "at": [
           44,
           20
@@ -162,7 +210,23 @@
     ],
     "waves": [
       {
-        "at_seconds": 90,
+        "at_seconds": 45,
+        "to": "depot_gate",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 1,
+            "from": "rif_south"
+          },
+          {
+            "unit": "moto_rpg",
+            "count": 1,
+            "from": "rif_south"
+          }
+        ]
+      },
+      {
+        "at_seconds": 100,
         "to": "depot_gate",
         "units": [
           {
@@ -172,13 +236,29 @@
           },
           {
             "unit": "moto_rpg",
-            "count": 1,
+            "count": 2,
             "from": "rif_east"
           }
         ]
       },
       {
-        "at_seconds": 200,
+        "at_seconds": 160,
+        "to": "depot_gate",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 1,
+            "from": "rif_south"
+          },
+          {
+            "unit": "moto_rpg",
+            "count": 3,
+            "from": "rif_south"
+          }
+        ]
+      },
+      {
+        "at_seconds": 220,
         "to": "depot_gate",
         "units": [
           {

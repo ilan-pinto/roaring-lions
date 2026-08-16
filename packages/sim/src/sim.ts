@@ -1104,6 +1104,49 @@ export class Sim {
     return idx;
   }
 
+  /**
+   * The nearest open tile to (gx, gy), or (gx, gy) itself if it is already
+   * open. `FlowField.compute` bails to an all-`DIR_NONE` field the instant
+   * its goal tile is blocked -- and a structure's centroid, which `demolish`
+   * and `garrison` both aim at, always is. Left unfixed, `stepMovement`'s
+   * final-leg fallback (used whenever the field has nothing to say) walks a
+   * unit in a straight line at that unreachable point and the wall-slide
+   * clamp pins it against whichever face it meets first, forever, if that
+   * face is nowhere near the compound's one working entrance.
+   *
+   * Searched by expanding Chebyshev rings so the result is the *actual*
+   * nearest tile, not merely a nearby one, and scanned in a fixed row-major
+   * order within each ring so two runs from the same seed pick the same tile
+   * -- required by invariant 3, and unrelated to any RNG stream.
+   */
+  private nearestOpenTile(gx: number, gy: number): [number, number] {
+    const w = this.width;
+    const h = this.height;
+    if (gx < 0 || gy < 0 || gx >= w || gy >= h) return [gx, gy];
+    if (this.blocked[gy * w + gx] === 0) return [gx, gy];
+    const maxR = w > h ? w : h;
+    for (let r = 1; r <= maxR; r++) {
+      const x0 = gx - r < 0 ? 0 : gx - r;
+      const x1 = gx + r >= w ? w - 1 : gx + r;
+      const y0 = gy - r < 0 ? 0 : gy - r;
+      const y1 = gy + r >= h ? h - 1 : gy + r;
+      for (let y = y0; y <= y1; y++) {
+        for (let x = x0; x <= x1; x++) {
+          // Only the boundary of this ring -- the interior was already
+          // checked at a smaller r.
+          const ddx = x - gx < 0 ? gx - x : x - gx;
+          const ddy = y - gy < 0 ? gy - y : y - gy;
+          const cheb = ddx > ddy ? ddx : ddy;
+          if (cheb !== r) continue;
+          if (this.blocked[y * w + x] === 0) return [x, y];
+        }
+      }
+    }
+    // No open tile anywhere on the map -- cannot happen on any map that has
+    // a player on it, but a caller still needs a value.
+    return [gx, gy];
+  }
+
   private applyCommands(): void {
     const q = this.commandQueue;
     for (let c = 0; c < q.length; c++) {
@@ -1235,7 +1278,16 @@ export class Sim {
         // Same shape as `garrison` — the player picks the structure, the unit
         // makes its own way there.
         const [gx, gy] = [this.stCx[s], this.stCy[s]];
-        const fieldIdx = this.fieldFor(fx.toInt(gx), fx.toInt(gy));
+        // The centroid is inside the structure's own footprint and so is
+        // always blocked -- routing the field at it directly leaves every
+        // tile DIR_NONE (see nearestOpenTile), which reads as "just walk
+        // straight there" and pins the unit against whichever wall face it
+        // meets first. The field routes to the nearest open tile instead;
+        // `goalX`/`goalY` stay the true centroid so the final approach (and
+        // demolition/garrison range checks, both comfortably inside one tile
+        // of an adjacent-open-tile arrival) still aim at the real target.
+        const [fgx, fgy] = this.nearestOpenTile(fx.toInt(gx), fx.toInt(gy));
+        const fieldIdx = this.fieldFor(fgx, fgy);
         for (const id of cmd.ids) {
           if (this.alive[id] === 0 || this.routed[id] === 1) continue;
           if (!this.unitTypes[this.typeIdx[id]].canDemolish) continue;
@@ -1262,7 +1314,11 @@ export class Sim {
         // Walk to the doorway; stepGarrison lets them in when they arrive
         // and there is room. Overflow simply waits outside.
         const [gx, gy] = [this.stCx[s], this.stCy[s]];
-        const fieldIdx = this.fieldFor(fx.toInt(gx), fx.toInt(gy));
+        // Same fix as `demolish` above, for the same reason: the centroid is
+        // always blocked, so the field routes to the nearest open tile and
+        // goalX/goalY keep the true centroid for the final approach.
+        const [fgx, fgy] = this.nearestOpenTile(fx.toInt(gx), fx.toInt(gy));
+        const fieldIdx = this.fieldFor(fgx, fgy);
         for (const id of cmd.ids) {
           if (this.alive[id] === 0 || this.routed[id] === 1) continue;
           if (!this.unitTypes[this.typeIdx[id]].canGarrison) continue;
