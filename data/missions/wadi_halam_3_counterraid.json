@@ -1,0 +1,209 @@
+{
+  "id": "wadi_halam_3_counterraid",
+  "name": "Wadi Halam III — The Cattle Track",
+  "town": "wadi_halam",
+  "phase": "buildup",
+  "target_minutes": 6,
+  "briefing": "The pasture is ours; now we raid back. Intel puts the local commander at the north hide, riding a technical he will not hesitate to run in if he has to. A second position dug in to the south covers the cattle track. Kill the commander, hold the bunds, and get eyes on the southern hide — but the moment he starts taking losses, he runs, and catching him is a mobility problem, not a firepower one.",
+  "map": {
+    "file": "wadi_halam_basin",
+    "player_start": [
+      17,
+      20
+    ]
+  },
+  "ledger": {
+    "requires": [
+      "roster.surviving_units",
+      "intel.marked_positions"
+    ],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions",
+      "intel.marked_positions"
+    ]
+  },
+  "starting_force": [
+    {
+      "unit": "apc_eitan",
+      "count": 1,
+      "at": [
+        16,
+        19
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "ifv_namer",
+      "count": 1,
+      "at": [
+        16,
+        23
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "inf_squad",
+      "count": 2,
+      "at": [
+        18,
+        19
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "at_team",
+      "count": 1,
+      "at": [
+        18,
+        23
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "jeep_shoded",
+      "count": 1,
+      "at": [
+        14,
+        20
+      ]
+    }
+  ],
+  "objectives": [
+    {
+      "id": "kill_amir",
+      "type": "eliminate_hvt",
+      "primary": true,
+      "target": "wh_hvt_amir",
+      "text": "Kill or capture the local commander"
+    },
+    {
+      "id": "hold_bunds",
+      "type": "capture",
+      "primary": true,
+      "target": "pasture",
+      "seconds": 20,
+      "text": "Clear and hold the bunds for 20 seconds"
+    },
+    {
+      "id": "mark_hides",
+      "type": "locate",
+      "primary": false,
+      "target": "wh_hide_south",
+      "text": "Get eyes on the southern hide"
+    }
+  ],
+  "roe": {
+    "enabled": true
+  },
+  "enemy": {
+    "faction": "rif",
+    "doctrine_profile": "commander runs under pressure",
+    "garrison": [
+      {
+        "unit": "technical",
+        "count": 1,
+        "marker": "hide_north",
+        "facing_deg": 180,
+        "group": "amir",
+        "stance": {
+          "kind": "hold_position"
+        },
+        "passengers": [
+          {
+            "unit": "militia_cell",
+            "count": 1,
+            "tag": "wh_hvt_amir"
+          }
+        ]
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          21.5,
+          38.5
+        ],
+        "facing_deg": 0,
+        "stance": {
+          "kind": "ambush",
+          "tiles": 3
+        },
+        "tag": "wh_hide_south"
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          23.5,
+          38.5
+        ],
+        "facing_deg": 0,
+        "stance": {
+          "kind": "ambush",
+          "tiles": 3
+        },
+        "tag": "wh_hide_south"
+      },
+      {
+        "unit": "moto_rpg",
+        "count": 1,
+        "at": [
+          20.5,
+          16.5
+        ],
+        "facing_deg": 200,
+        "stance": {
+          "kind": "patrol",
+          "waypoints": [
+            [
+              20.5,
+              16.5
+            ],
+            [
+              20.5,
+              19.5
+            ]
+          ]
+        }
+      },
+      {
+        "unit": "moto_rpg",
+        "count": 1,
+        "at": [
+          20.5,
+          29.5
+        ],
+        "facing_deg": 160,
+        "stance": {
+          "kind": "patrol",
+          "waypoints": [
+            [
+              20.5,
+              29.5
+            ],
+            [
+              20.5,
+              32.5
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "id": "amir_runs",
+      "on": {
+        "kind": "casualties_pct",
+        "value": 40
+      },
+      "do": {
+        "kind": "withdraw_to",
+        "group": "amir",
+        "to": "rif_east"
+      }
+    }
+  ]
+}
