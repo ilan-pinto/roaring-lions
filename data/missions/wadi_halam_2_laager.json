@@ -1,0 +1,172 @@
+{
+  "id": "wadi_halam_2_laager",
+  "name": "Wadi Halam II — Grazing Ground",
+  "town": "wadi_halam",
+  "phase": "foothold",
+  "target_minutes": 7,
+  "briefing": "Push through to the pasture and dig in while the engineers lay the crossing behind you. Nothing here fights from cover — the ground is open on both sides, and the Rif know it as well as you do. Technicals will come at the pump house and the south ford in waves, engage, and pull back rather than trade themselves for ground. Accumulate three minutes of uncontested pasture and the corridor is yours.",
+  "map": {
+    "file": "wadi_halam_basin",
+    "player_start": [
+      3,
+      24
+    ]
+  },
+  "ledger": {
+    "requires": [
+      "roster.surviving_units",
+      "intel.marked_positions"
+    ],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions"
+    ]
+  },
+  "starting_force": [
+    {
+      "unit": "apc_eitan",
+      "count": 1,
+      "at": [
+        3,
+        19
+      ]
+    },
+    {
+      "unit": "ifv_namer",
+      "count": 1,
+      "at": [
+        2,
+        23
+      ]
+    },
+    {
+      "unit": "inf_squad",
+      "count": 2,
+      "at": [
+        4,
+        20
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "at_team",
+      "count": 1,
+      "at": [
+        3,
+        17
+      ],
+      "from_ledger": true
+    }
+  ],
+  "resources": {
+    "logistics_start": 400,
+    "logistics_rate_per_min": 120
+  },
+  "objectives": [
+    {
+      "id": "hold_pasture",
+      "type": "hold_for",
+      "primary": true,
+      "target": "pasture",
+      "seconds": 180,
+      "text": "Hold the pasture for three minutes"
+    },
+    {
+      "id": "keep_ford",
+      "type": "capture",
+      "primary": false,
+      "target": "ford_watch",
+      "seconds": 15,
+      "text": "Keep the ford watch clear"
+    }
+  ],
+  "roe": {
+    "enabled": true
+  },
+  "enemy": {
+    "faction": "rif",
+    "doctrine_profile": "engage and disengage",
+    "garrison": [
+      {
+        "unit": "gun_truck",
+        "count": 1,
+        "at": [
+          44.5,
+          20.5
+        ],
+        "facing_deg": 270,
+        "group": "raiders",
+        "stance": {
+          "kind": "hold_position"
+        },
+        "tag": "wh_aa_east"
+      }
+    ],
+    "waves": [
+      {
+        "at_seconds": 60,
+        "to": "pump_house",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 2,
+            "from": "rif_north"
+          }
+        ]
+      },
+      {
+        "at_seconds": 150,
+        "to": "ford_south",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 2,
+            "from": "rif_south"
+          },
+          {
+            "unit": "technical",
+            "count": 1,
+            "from": "rif_south"
+          }
+        ]
+      },
+      {
+        "at_seconds": 240,
+        "to": "pump_house",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 2,
+            "from": "rif_east"
+          }
+        ]
+      },
+      {
+        "at_seconds": 330,
+        "to": "ford_south",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 3,
+            "from": "rif_south"
+          }
+        ]
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "id": "picket_withdraws",
+      "on": {
+        "kind": "casualties_pct",
+        "value": 60
+      },
+      "do": {
+        "kind": "withdraw_to",
+        "group": "raiders",
+        "to": "rif_east"
+      }
+    }
+  ]
+}

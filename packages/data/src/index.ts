@@ -18,6 +18,7 @@ import beitSahwan1 from '../../../data/missions/beit_sahwan_1_recon.json';
 import beitSahwan2 from '../../../data/missions/beit_sahwan_2_foothold.json';
 import beitSahwan3 from '../../../data/missions/beit_sahwan_3_clearance.json';
 import wadiHalam1Fords from '../../../data/missions/wadi_halam_1_fords.json';
+import wadiHalam2Laager from '../../../data/missions/wadi_halam_2_laager.json';
 import tutorialBeitSahwan0 from '../../../data/tutorial/beit_sahwan_0.json';
 
 import mbtLavi from '../../../data/units/kdf/mbt_lavi.json';
@@ -95,6 +96,7 @@ export const missions = {
   beit_sahwan_2_foothold: beitSahwan2,
   beit_sahwan_3_clearance: beitSahwan3,
   wadi_halam_1_fords: wadiHalam1Fords,
+  wadi_halam_2_laager: wadiHalam2Laager,
 } as const;
 
 /** The campaign world. Shape matches world.schema.json; parsed by app/src/campaign.ts. */
