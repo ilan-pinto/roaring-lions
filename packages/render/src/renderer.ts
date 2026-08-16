@@ -1097,7 +1097,7 @@ export class PixiRenderer {
     g.clear();
     // Buildings are separate display objects now, so clearing the Graphics is
     // not enough -- drop the old tiles or a rebuild stacks a second copy.
-    for (const t of this.buildingTiles) this.spriteLayer.removeChild(t);
+    for (const tile of this.buildingTiles) this.spriteLayer.removeChild(tile);
     this.buildingTiles = [];
     for (const b of this.buildingSprites) this.spriteLayer.removeChild(b);
     this.buildingSprites = [];
@@ -1221,7 +1221,7 @@ export class PixiRenderer {
             const py = cy + (b - 0.5) * (TILE_H - 6);
             const bh = 2 + a * 1.2;
             g.moveTo(px, py).lineTo(px, py - bh);
-            g.stroke({ color: b > 0.4 ? t.bladeLit : t.bladeShade, alpha: 0.45 + a * 0.3 });
+            g.stroke({ color: b > 0.4 ? t.bladeLit : t.bladeShade, alpha: 0.45 + a * 0.3, width: 1 });
           }
           if (rnd > 0.9) {
             // Bare earth: cool and rare. Some exposed ground keeps a green map
