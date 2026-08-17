@@ -208,6 +208,75 @@ describe('spawning and stances', () => {
     expect(reachedEast).toBe(true);
     expect(backWest).toBe(true);
   });
+
+  it('a trigger order cancels a standing patrol instead of being undone by it', () => {
+    // Issue #88. stepPatrols re-issues the next waypoint the instant a unit
+    // stops moving, and nothing removed a unit from `patrols` when a trigger
+    // commanded it -- so a withdraw_to completed and the patrol walked the unit
+    // straight back into the fight. Silent, and it defeated the trigger.
+    const w = makeWorld(
+      baseMission({
+        enemy: {
+          garrison: [
+            {
+              unit: 'm_tech',
+              count: 1,
+              at: [4, 2],
+              group: 'screen',
+              stance: { kind: 'patrol', waypoints: [[4, 2], [20, 2]] },
+            },
+          ],
+        },
+        triggers: [
+          { id: 'pull_back', on: { kind: 'timer_s', value: 2 }, do: { kind: 'withdraw_to', group: 'screen', to: 'rally' } },
+        ],
+      }),
+      { markers: { rally: [25, 9] } }
+    );
+    // Let the withdrawal fire and complete, then keep ticking well past it: a
+    // patrol that survived the order would have resumed by now.
+    for (let t = 0; t < 90 * TICKS_PER_SECOND; t++) w.runtime.step(w.sim.tick());
+    const x = fx.toNumber(w.sim.state.posX[0]);
+    const y = fx.toNumber(w.sim.state.posY[0]);
+    // Parked on the rally marker, not back on a waypoint at x=4 or x=20.
+    expect(Math.abs(x - 25.5)).toBeLessThan(2.0);
+    expect(Math.abs(y - 9.5)).toBeLessThan(2.0);
+  });
+
+  it('casualties_pct measures the force that was there at the start, not the running total', () => {
+    // Issue #88. The denominator was `enemyIds.length` read at trigger time, and
+    // enemyIds grows with every wave and trigger spawn -- so a threshold written
+    // against a starting garrison silently re-based itself the moment
+    // reinforcements landed. Two garrison units and a 50% trigger: one death is
+    // the threshold, and a wave arriving before it must not change that.
+    const w = makeWorld(
+      baseMission({
+        enemy: {
+          garrison: [
+            { unit: 'm_tech', count: 1, at: [4, 2], tag: 'first' },
+            { unit: 'm_tech', count: 1, at: [4, 8], tag: 'second' },
+          ],
+          waves: [{ at_seconds: 1, to: 'rally', units: [{ unit: 'm_tech', count: 3, from: 'rally' }] }],
+        },
+        triggers: [
+          { id: 'half_down', on: { kind: 'casualties_pct', value: 50 }, do: { kind: 'commit', group: 'none', to: 'rally' } },
+        ],
+      }),
+      { markers: { rally: [20, 8] } }
+    );
+    // The wave lands at t=1s, taking the running enemy total from 2 to 5. With
+    // the old denominator, 50% would now need three deaths instead of one.
+    const fired = (evs: MissionEvent[]): boolean => evs.some((e) => e.kind === 'trigger' && e.id === 'half_down');
+    let seen = false;
+    for (let t = 0; t < 4 * TICKS_PER_SECOND; t++) seen = seen || fired(w.runtime.step(w.sim.tick()));
+    expect(seen).toBe(false); // nobody has died yet
+    // Kill exactly one of the two that were there at the start. Garrison
+    // spawns first in this world, so it holds ids 0 and 1 -- the same
+    // convention the patrol tests above use.
+    w.sim.debugKill(0);
+    for (let t = 0; t < 2 * TICKS_PER_SECOND; t++) seen = seen || fired(w.runtime.step(w.sim.tick()));
+    expect(seen).toBe(true);
+  });
 });
 
 describe('objectives and mission end', () => {

@@ -279,6 +279,22 @@ export class MissionRuntime {
   private readonly patrols: PatrolState[] = [];
   private readonly playerIds: number[] = [];
   private readonly enemyIds: number[] = [];
+  /**
+   * The enemy force that was on the ground when the player arrived.
+   *
+   * `casualties_pct` needs this and `enemyIds` will not do, because `enemyIds`
+   * grows with every wave and trigger spawn: a trigger authored against a
+   * starting garrison of five silently re-based itself on eight the moment
+   * reinforcements landed, so the percentage the author wrote was not the
+   * percentage that fired. Both halves of the fraction are scoped to this list,
+   * so the reading is "n% of the force that was here when you arrived is down"
+   * — a number an author can count off the mission file, and one reinforcements
+   * cannot move in either direction.
+   *
+   * `enemyIds` keeps growing, and `destroy_all` still reads it: "destroy all
+   * enemies" genuinely should include everyone who turns up later.
+   */
+  private readonly enemyAtStart: number[] = [];
   private readonly civIds: number[] = [];
   private readonly civFled = new Set<number>();
   /** Civilians who reached the refuge zone. Latched: getting people out is not
@@ -508,6 +524,9 @@ export class MissionRuntime {
     for (const p of this.mission.starting_force ?? []) this.spawnPlacement(p, 0);
     for (const p of this.mission.enemy?.garrison ?? []) this.spawnPlacement(p, 1);
     for (const p of this.mission.civilians?.groups ?? []) this.spawnPlacement(p, 2);
+    // Snapshot the garrison before any wave or trigger can add to it. See
+    // `enemyAtStart`.
+    this.enemyAtStart.push(...this.enemyIds);
     for (const [tag, ids] of this.tags) {
       if (ids.length === 0) throw new Error(`mission ${this.mission.id}: tag "${tag}" has no units`);
     }
@@ -1048,10 +1067,10 @@ export class MissionRuntime {
       } else if (t.on.kind === 'timer_s') {
         fire = tick >= (t.on.value ?? 0) * TICKS_PER_SECOND;
       } else if (t.on.kind === 'casualties_pct') {
-        const initial = this.enemyIds.length;
+        const initial = this.enemyAtStart.length;
         if (initial > 0) {
           let dead = 0;
-          for (const id of this.enemyIds) if (this.sim.state.alive[id] === 0) dead++;
+          for (const id of this.enemyAtStart) if (this.sim.state.alive[id] === 0) dead++;
           fire = dead * 100 >= (t.on.value ?? 100) * initial;
         }
       } else if (t.on.kind === 'zone_entered') {
@@ -1067,6 +1086,16 @@ export class MissionRuntime {
         if (ids.length > 0 && t.do.to) {
           const [x, y] = this.markerPos(t.do.to);
           this.sim.queueCommand({ kind: t.do.kind === 'commit' ? 'attackMove' : 'move', ids, x, y });
+          // A trigger order overrides the standing stance, and for a patrol it
+          // has to say so out loud. `stepPatrols` re-issues the next waypoint
+          // the instant a unit stops moving, so without this the ordered move
+          // completes and the patrol immediately walks the unit back the way it
+          // came -- a `withdraw_to` that returns to the fight, and a `commit`
+          // that wanders off it. Silent, and it defeated the trigger entirely.
+          const ordered = new Set(ids);
+          for (let k = this.patrols.length - 1; k >= 0; k--) {
+            if (ordered.has(this.patrols[k].id)) this.patrols.splice(k, 1);
+          }
         }
       } else if (t.do.kind === 'spawn') {
         for (const p of t.do.units ?? []) this.spawnPlacement(p, 1);
