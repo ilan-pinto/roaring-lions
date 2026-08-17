@@ -1128,6 +1128,21 @@ export class MissionRuntime {
         const targets = this.razeTargets.get(d.id) ?? [];
         complete =
           targets.length > 0 && targets.every((s) => this.sim.structures.alive[s] === 0);
+        // A deadline, for the same reason `evacuate_before` has one, and it is
+        // load-bearing rather than flavour. The only way a player levels an
+        // unoccupied building is the `demolish` order: no command aims gunfire
+        // at a structure, the automatic structure-fire path needs a hostile
+        // inside it, breaching is refused for side 0 on purpose, and a called
+        // strike costs intel a mission need not grant. So losing every unit
+        // with the ability makes a raze primary permanently impossible — and
+        // without a way to fail it, `checkEnd` has no end condition to reach
+        // and the mission becomes unwinnable and unlosable at once. That is the
+        // exact trap the comment in `checkEnd` describes.
+        //
+        // `validate_data.mjs` requires `seconds` on any PRIMARY raze objective,
+        // because a primary is what creates the trap; a secondary that quietly
+        // never completes costs the player nothing.
+        failed = !complete && d.seconds !== undefined && tick >= d.seconds * TICKS_PER_SECOND;
       } else if (d.type === 'eliminate_hvt') {
         const ids = this.tags.get(d.target ?? '') ?? [];
         complete = ids.length > 0 && ids.every((id) => this.sim.state.alive[id] === 0);

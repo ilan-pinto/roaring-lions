@@ -223,6 +223,20 @@ const structureSymbols = new Map(
       // `per_tile` is checked too, but for an unrelated reason: it is not a refusal
       // at all, just a click-count trap (every tile is its own structure).
       if (o.type === 'raze') {
+        // A primary raze with no deadline is a softlock generator. The only way a
+        // player levels an unoccupied building is the `demolish` order, so losing
+        // every unit with the ability makes the objective permanently impossible --
+        // and with no way to fail it, `checkEnd` reaches no end condition and the
+        // mission is unwinnable and unlosable at once. `seconds` gives the runtime
+        // something to fail on. A secondary needs none: one that quietly never
+        // completes costs the player nothing.
+        if (o.primary && o.seconds === undefined) {
+          failures.push(
+            `${rel(file)}: raze "${o.id}" is primary but declares no "seconds" deadline. ` +
+              `Losing every demolisher would make it impossible with no way to fail it, ` +
+              `leaving the mission unwinnable and unlosable at once.`
+          );
+        }
         const rect = map.zones?.[o.target];
         if (!rect) {
           failures.push(

@@ -90,7 +90,8 @@
       "type": "raze",
       "primary": true,
       "target": "depot",
-      "text": "Raze the depot"
+      "seconds": 300,
+      "text": "Raze the depot inside five minutes"
     },
     {
       "id": "kill_gate_rpg",

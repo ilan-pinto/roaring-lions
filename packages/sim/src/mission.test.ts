@@ -1779,3 +1779,84 @@ describe('raze objective', () => {
     expect(() => razeWorld({ empty: true })).toThrow(/would complete on the first tick/);
   });
 });
+
+// Issue #87. `raze` sets `complete` and never `failed`, and `checkEnd` ends a
+// mission only on a player wipe, an ROE collapse, or a FAILED primary. So a raze
+// primary that can no longer be completed leaves the player alive, the ROE fine,
+// the objective unreachable, and no end condition at all -- unwinnable and
+// unlosable at the same time.
+//
+// It is reachable because the routes to an UNOCCUPIED structure are narrow, and
+// every one of these was read off sim.ts rather than assumed: no command orders
+// gunfire at a structure (`demolish` is the only structure-targeting command);
+// the automatic structure-fire path needs a hostile inside, because
+// selectStructureTarget gates on stOccupants; selectBreachTarget returns -1 for
+// side 0 by design ("breaching on our side is a decision"); and a called strike
+// costs intel a mission need not grant -- wadi_halam_5_depot grants none. That
+// leaves the `demolish` order, which needs a unit that has the ability.
+describe('a raze objective that has become impossible', () => {
+  const SHED = { id: 'stall_shed', hp_per_tile: 100 };
+  const ZONE = [10, 10, 4, 4] as const;
+  /** No `demolish` in its abilities: it cannot ever satisfy a raze objective. */
+  const RIFLEMAN: UnitTypeJson = {
+    id: 'stall_rifles',
+    role: 'infantry',
+    hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
+    mobility: { speed_tiles_s: 1.2 },
+    sensors: { optics: 1.0, sight_tiles: 8, signature: 0.6 },
+    weapons: [],
+  };
+
+  function stalled() {
+    const sim = new Sim({ seed: 11, width: 32, height: 32, capacity: 16 });
+    const st = sim.addStructureType(SHED);
+    const rifles = sim.addUnitType(RIFLEMAN);
+    const shed = sim.addStructure(st, [11 * sim.width + 11]);
+    const mission: MissionJson = {
+      id: 'stall_test',
+      map: { file: 'none' },
+      ledger: { requires: [], produces: [] },
+      // A deadline, which validate_data.mjs requires on any primary raze.
+      objectives: [{ id: 'level_it', type: 'raze', primary: true, target: 'depot', seconds: 60 }],
+    };
+    const rt = new MissionRuntime(sim, mission, {
+      typeIdOf: (u) => {
+        if (u !== RIFLEMAN.id) throw new Error(`unknown unit ${u}`);
+        return rifles;
+      },
+      markers: {},
+      zones: { depot: ZONE },
+    });
+    rt.start();
+    // A survivor with no way to bring anything down. The player is not wiped,
+    // so `checkEnd` will not defeat them; the shed cannot fall, so the primary
+    // cannot complete.
+    sim.spawn(rifles, 0, fx.from(2.5), fx.from(2.5));
+    return { sim, rt, shed };
+  }
+
+  it('ends the mission instead of running for ever', () => {
+    const { sim, rt, shed } = stalled();
+    for (let t = 0; t < 90 * TICKS_PER_SECOND; t++) {
+      sim.tick();
+      rt.step([]);
+    }
+    // The shed is still standing, so the objective cannot have completed.
+    expect(sim.structures.alive[shed]).toBe(1);
+    expect(rt.objectiveList[0].status).toBe('failed');
+    expect(rt.result).toBe('defeat');
+  });
+
+  it('but a deadline met in time does not fail the objective', () => {
+    // The guard must be `!complete && past the deadline`, not just the clock:
+    // a raze finished at t=10 must still read complete at t=90.
+    const { sim, rt, shed } = stalled();
+    sim.debugDestroyStructure(shed);
+    for (let t = 0; t < 90 * TICKS_PER_SECOND; t++) {
+      sim.tick();
+      rt.step([]);
+    }
+    expect(rt.objectiveList[0].status).toBe('complete');
+    expect(rt.result).toBe('victory');
+  });
+});

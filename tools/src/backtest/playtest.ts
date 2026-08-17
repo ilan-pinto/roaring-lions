@@ -461,10 +461,17 @@ run(
 // or `every()` degenerates on an empty array, this turns VICTORY and the harness
 // fails.
 //
-// `ongoing` rather than `defeat`: a passive force here is neither wiped nor
-// victorious, it simply runs out the 20-minute cap. This does NOT prove the
-// D9's automatic demolition search leaves the depot alone in general -- the
-// nearest structure is roughly twenty tiles from the passive start and the
-// auto-search radius is two, so nothing here was ever close enough to test
-// that. It proves only the empty-target-set case above.
-run('wadi_halam_5_depot', () => {}, wh4, 'ongoing', 'wadi_halam_5_depot (no orders)');
+// `defeat`, and it used to be `ongoing`. A passive force is neither wiped nor
+// victorious, so before `raze_depot` had a deadline this run simply burned the
+// 20-minute cap -- which is the softlock #87 describes, visible right here in
+// the harness and mistaken for a control passing. Now the deadline expires at
+// 300s and the mission ends. `defeat` still falsifies the empty-target-set bug
+// exactly as `ongoing` did: a `raze` that wrongly completed would report
+// VICTORY, not DEFEAT. It is a stronger control than before, because it also
+// proves the deadline fires.
+//
+// It does NOT prove the D9's automatic demolition search leaves the depot alone
+// in general -- the nearest structure is roughly twenty tiles from the passive
+// start and the auto-search radius is two, so nothing here was ever close
+// enough to test that.
+run('wadi_halam_5_depot', () => {}, wh4, 'defeat', 'wadi_halam_5_depot (no orders)');
