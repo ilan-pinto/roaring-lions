@@ -8,6 +8,11 @@ import { Sim, type UnitTypeJson } from './sim';
 
 const RIFLES: UnitTypeJson = {
   id: 'd_rifles',
+  // `garrison` is required for the garrison order below to be accepted at all;
+  // without it the order is silently refused and the shed stays empty, which is
+  // how a first pass at this ended up hashing structure columns that no
+  // building ever travelled through.
+  abilities: ['garrison'],
   hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
   mobility: { speed_tiles_s: 0.9 },
   sensors: { optics: 1.0, sight_tiles: 8, signature: 0.6 },
@@ -47,6 +52,20 @@ const TANK: UnitTypeJson = {
   ],
 };
 
+/** Carries `demolish`, so the replay exercises the structure paths at all. */
+const SAPPER: UnitTypeJson = {
+  id: 'd_sapper',
+  role: 'engineer',
+  hull: { hp: 380, armor: { front: 10, side: 10, rear: 10 } },
+  mobility: { speed_tiles_s: 1.4 },
+  sensors: { optics: 1.0, sight_tiles: 8, signature: 0.5 },
+  abilities: ['demolish'],
+  demolition_time_s: 2.0,
+  weapons: [],
+};
+
+const SHED = { id: 'd_shed', name: 'Shed', hp_per_tile: 100, garrison_slots: 2, rubble_cover: 1 };
+
 /** A full little battle: walls, mixed forces, mid-run orders both sides. */
 function run(seed: number, ticks: number, extraIdleUnit = false): Sim {
   const sim = new Sim({ seed, width: 48, height: 48, capacity: 128 });
@@ -63,12 +82,36 @@ function run(seed: number, ticks: number, extraIdleUnit = false): Sim {
   for (let n = 0; n < 8; n++) east.push(sim.spawn(rifles, 1, fx.fromInt(44), fx.fromInt(8 + n * 3)));
   east.push(sim.spawn(tank, 1, fx.fromInt(46), fx.fromInt(24)));
 
+  // Buildings, a garrison, and a demolition. None of this was in the replay
+  // before: `addStructure`, `destroyStructure`, `recomputeFields`,
+  // `stepGarrison`, `stepDemolition`, `selectStructureTarget` and the blocked-
+  // goal snap in `applyCommands` were all outside the golden hash, which is how
+  // two separate structure-path changes could be made without it moving. The
+  // shed is off the y=24 corridor so it is a second front rather than a
+  // rewrite of the first.
+  const shedType = sim.addStructureType(SHED);
+  const shed = sim.addStructure(shedType, [
+    30 * sim.width + 34,
+    30 * sim.width + 35,
+    31 * sim.width + 34,
+    31 * sim.width + 35,
+  ]);
+  const holder = sim.spawn(rifles, 1, fx.fromInt(33), fx.fromInt(30));
+  // Close in: the man inside shoots out of the windows, and a sapper with no
+  // weapons has to survive the approach to reach the wall.
+  const sapper = sim.spawn(sim.addUnitType(SAPPER), 0, fx.fromInt(32), fx.fromInt(33));
+
   if (extraIdleUnit) sim.spawn(rifles, 0, fx.fromInt(1), fx.fromInt(1));
 
   for (let t = 0; t < ticks; t++) {
     if (t === 10) sim.queueCommand({ kind: 'attackMove', ids: west, x: fx.fromInt(40), y: fx.fromInt(24) });
     if (t === 200) sim.queueCommand({ kind: 'attackMove', ids: east, x: fx.fromInt(8), y: fx.fromInt(24) });
     if (t === 600) sim.queueCommand({ kind: 'halt', ids: [west[0]] });
+    // The defender goes inside, then the shed is brought down on top of him:
+    // garrison entry, structure HP drain, collapse, and the flow-field
+    // recompute a falling building triggers all land inside the replay.
+    if (t === 30) sim.queueCommand({ kind: 'garrison', ids: [holder], structure: shed });
+    if (t === 60) sim.queueCommand({ kind: 'demolish', ids: [sapper], structure: shed });
     sim.tick();
   }
   return sim;
@@ -88,7 +131,36 @@ describe('determinism (1000-tick replay)', () => {
     // state and joins the hash. No unit's *behaviour* moved here — every entry
     // is -1 across this replay, which has no demolisher — but the column is
     // hashed, so the pin does.
-    expect(a.hash()).toBe(4029834894);
+    //
+    // Updated again to put buildings in the replay at all. That earlier note is
+    // the admission: the pin covered the demolish *column* while the replay had
+    // nothing to demolish, so `addStructure`, `destroyStructure`,
+    // `recomputeFields`, `stepGarrison`, `stepDemolition`,
+    // `selectStructureTarget` and the blocked-goal snap in `applyCommands` were
+    // all outside it. Two separate structure-path changes were made without this
+    // number moving, and neither was wrong — but neither was measured here
+    // either. The shed, its garrison and its demolition close that.
+    expect(a.hash()).toBe(3430293446);
+  });
+
+  it('the replay actually exercises the structure paths', () => {
+    // A hash that covers the structure columns but never puts a building
+    // through them is coverage in name only. This asserts the replay really
+    // does garrison a defender and then bring the shed down on him, so nobody
+    // can quietly delete the shed and leave the pin looking healthy.
+    // Mid-replay: the defender is inside, so `stepGarrison` ran and the shed
+    // is occupied. Aggregate rather than an entity id, so spawn order can move
+    // without silently turning this into a no-op.
+    const mid = run(0x1310_0001, 90);
+    expect(mid.structureCount).toBe(1);
+    expect(mid.structures.occupants[0]).toBe(1);
+    expect(mid.structures.alive[0]).toBe(1);
+
+    // End of replay: the shed came down on him, so the damage, collapse and
+    // flow-field recompute ran too.
+    const end = run(0x1310_0001, 1000);
+    expect(end.structures.alive[0]).toBe(0);
+    expect(end.structures.hp[0]).toBeLessThanOrEqual(0);
   });
 
   it('a different seed produces a different hash', () => {
