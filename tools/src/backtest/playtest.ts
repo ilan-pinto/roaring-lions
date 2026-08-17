@@ -331,19 +331,26 @@ const wh4 = run(
     const apc = ids('apc_eitan');
     const ifv = ids('ifv_namer');
     const infantry = [...ids('inf_squad'), ...ids('at_team')];
+    // One building at a time, and everything that can hurt masonry aimed at the
+    // same one. All four cells are garrisoned, and a garrisoned man cannot be
+    // shot -- his house has to come down -- so clearing the village is four
+    // sequential demolitions by gunfire, and splitting the force across two
+    // corners halves the rate on both.
+    const guns = [...apc, ...infantry];
     at(0, () => {
-      sim.queueCommand({ kind: 'attackMove', ids: apc, ...M(27, 18) });
-      sim.queueCommand({ kind: 'attackMove', ids: infantry, ...M(27, 18) });
+      sim.queueCommand({ kind: 'attackMove', ids: guns, ...M(27, 19) });
       sim.queueCommand({ kind: 'move', ids: ifv, ...M(28, 21) });
     });
     at(20, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(25, 23) }));
     at(40, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(29, 28) }));
     at(60, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(22, 36) }));
-    // South corner and the cache guard once the north side is down.
-    at(70, () => sim.queueCommand({ kind: 'attackMove', ids: [...apc, ...infantry], ...M(29, 28) }));
-    // Settle on the village centre and hold it clear for the capture clock.
-    // The IFV rejoins once its circuit is done.
-    at(160, () => sim.queueCommand({ kind: 'attackMove', ids: [...apc, ...ifv, ...infantry], ...M(29, 26) }));
+    // The IFV's autocannon is the heaviest thing here, so it joins the sweep
+    // the moment its circuit is done rather than parking on the objective.
+    at(105, () => sim.queueCommand({ kind: 'attackMove', ids: [...guns, ...ifv], ...M(32, 19) }));
+    at(210, () => sim.queueCommand({ kind: 'attackMove', ids: [...guns, ...ifv], ...M(27, 30) }));
+    at(300, () => sim.queueCommand({ kind: 'attackMove', ids: [...guns, ...ifv], ...M(32, 30) }));
+    // Consolidate on the centre for the capture clock once the corners are down.
+    at(390, () => sim.queueCommand({ kind: 'attackMove', ids: [...guns, ...ifv], ...M(29, 26) }));
   },
   wh3
 );

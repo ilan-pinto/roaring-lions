@@ -348,3 +348,72 @@ describe('determinism with structures', () => {
     expect(a.sim.hash()).not.toBe(b.sim.hash());
   });
 });
+
+describe('an attack-mover closes on a garrisoned building', () => {
+  // Issue #86. sim.ts states the rule this must follow: `engaging` — which halts
+  // an attack-mover — "only latches once the primary target is inside EFFECTIVE
+  // range, [so] advancing units keep closing under marching fire instead of
+  // stalling at maximum range to plink." The unit-vs-unit path checks
+  // `dSq <= w.effectiveRangeSq` before latching. The structure path latched on
+  // target *selection*, and selectStructureTarget selects out to MAXIMUM range.
+  //
+  // Reproducing it needs the garrison identified while the attacker is still in
+  // the band between effective and maximum range. That is the normal case in a
+  // real mission -- `contact[]` is per-SIDE, so a drone, a forward squad, or a
+  // tag carried in `intel.marked_positions` identifies the defender long before
+  // the armour arrives -- but a lone tank closing at 1.1 tiles/s crosses the
+  // 12-to-10 band in under two seconds and never shows the defect. Hence the
+  // spotter.
+  //
+  // GUNS: range 12, effective 10. structDistSq measures to the nearest footprint
+  // tile centre, (14.5, 6.5) for a tank approaching along y=6.5.
+  const DIST_TO_HOUSE = 14.5;
+
+  function approach(): { sim: Sim; tank: number; house: number } {
+    const { sim, house } = world();
+    const inf = sim.addUnitType(RIFLES);
+    const gunType = sim.addUnitType(GUNS);
+    const held = sim.spawn(inf, 1, fx.from(13.0), fx.from(6.5));
+    sim.queueCommand({ kind: 'garrison', ids: [held], structure: house });
+    // The spotter. Close enough to identify the man inside; far enough south
+    // that it is not the thing doing the shooting.
+    sim.spawn(inf, 0, fx.from(11.5), fx.from(10.5));
+    const tank = sim.spawn(gunType, 0, fx.from(1.5), fx.from(6.5));
+    // Let contact build before the tank is given its order.
+    run(sim, 12 * TICKS_PER_SECOND);
+    sim.queueCommand({ kind: 'attackMove', ids: [tank], x: fx.from(12.5), y: fx.from(6.5) });
+    return { sim, tank, house };
+  }
+
+  /** Closest the tank got to the house while the house was its target. */
+  function closestWhileEngaging(sim: Sim, tank: number, seconds: number): number {
+    let closest = Infinity;
+    for (let s = 0; s < seconds * TICKS_PER_SECOND; s++) {
+      sim.tick();
+      if (sim.state.curStructure[tank] < 0) continue;
+      const d = DIST_TO_HOUSE - fx.toNumber(sim.state.posX[tank]);
+      if (d < closest) closest = d;
+    }
+    return closest;
+  }
+
+  it('closes to effective range instead of shelling from maximum range', () => {
+    const { sim, tank } = approach();
+    // Effective range is 10. Stalling on selection freezes it just inside
+    // maximum range, at about 11.96 tiles, and it never gets closer.
+    expect(closestWhileEngaging(sim, tank, 30)).toBeLessThan(10.5);
+  });
+
+  it('and holds there rather than driving on to its ordered destination', () => {
+    const { sim, tank } = approach();
+    run(sim, 12 * TICKS_PER_SECOND);
+    // Still fighting the building, and stopped: an attack-mover halts to fight,
+    // so its position must not change while it holds a structure target.
+    expect(sim.state.curStructure[tank]).toBeGreaterThanOrEqual(0);
+    const before = fx.toNumber(sim.state.posX[tank]);
+    run(sim, 3 * TICKS_PER_SECOND);
+    expect(fx.toNumber(sim.state.posX[tank])).toBeCloseTo(before, 2);
+    // And it stopped short of the destination it was ordered to.
+    expect(fx.toNumber(sim.state.posX[tank])).toBeLessThan(12.0);
+  });
+});

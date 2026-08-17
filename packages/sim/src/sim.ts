@@ -1988,7 +1988,15 @@ export class Sim {
           if (STRUCT_DAMAGE[w.cls] === 0) continue;
           const s = this.selectStructureTarget(i, w);
           if (s < 0) continue;
-          engagedClose = true;
+          // Same test the unit path makes above, for the same reason: selection
+          // reaches to MAXIMUM range, and latching `engaging` on selection stalls
+          // an attack-mover the moment a garrisoned building comes into range at
+          // all, to shell it from outside its own effective range. Measured to
+          // the nearest footprint tile, which is what selectStructureTarget
+          // ranged against.
+          if (this.structDistSq(s, this.posX[i], this.posY[i]) <= w.effectiveRangeSq) {
+            engagedClose = true;
+          }
           if (slot === 0) this.curStructure[i] = s;
           const [tx, ty] = this.nearestStructTile(s, this.posX[i], this.posY[i]);
           if (slot === 0 && this.moving[i] === 0) {
