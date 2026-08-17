@@ -1156,7 +1156,14 @@ export class PixiRenderer {
         }
 
         // Open ground: base wash with per-tile tonal variation.
-        g.poly(diamond).fill({ color: t.open, alpha: 0.92 + rnd * 0.08 });
+        //
+        // The jitter is narrower on sward. Arid's dense limestone flecking breaks
+        // the tile up and hides the seams; grass has far less high-frequency mark,
+        // so the same 8% swing reads as a visible checkerboard along tile edges.
+        g.poly(diamond).fill({
+          color: t.open,
+          alpha: t.scatter === 'sward' ? 0.96 + rnd * 0.04 : 0.92 + rnd * 0.08,
+        });
 
         const kind = this.decor ? this.decor[ti] : TERRAIN_DECOR.none;
 
@@ -1219,9 +1226,14 @@ export class PixiRenderer {
             const b = PixiRenderer.h2(x * 41 + k * 3, y * 7 + k * 11);
             const px = cx + (a - 0.5) * (TILE_W - 12);
             const py = cy + (b - 0.5) * (TILE_H - 6);
-            const bh = 2 + a * 1.2;
+            // Taller and more opaque than the first pass, which was measured
+            // against Beit Sahwan and lost: arid ground shows obvious limestone
+            // flecking at gameplay zoom while the basin read as a flat wash with
+            // a few dark dots. A 2px mark at 45% alpha is below the threshold
+            // where the eye resolves it as texture rather than as noise.
+            const bh = 2.6 + a * 1.8;
             g.moveTo(px, py).lineTo(px, py - bh);
-            g.stroke({ color: b > 0.4 ? t.bladeLit : t.bladeShade, alpha: 0.45 + a * 0.3, width: 1 });
+            g.stroke({ color: b > 0.4 ? t.bladeLit : t.bladeShade, alpha: 0.6 + a * 0.3, width: 1 });
           }
           if (rnd > 0.9) {
             // Bare earth: cool and rare. Some exposed ground keeps a green map

@@ -337,9 +337,17 @@ async function main(): Promise<void> {
       leafMid: paletteColor('grass.4'),
       leafLit: paletteColor('grass.2'),
       bladeLit: paletteColor('grass.0'),
-      bladeShade: paletteColor('grass.3'),
-      // A poplar is a tall narrow crown where an olive is wide and squat.
-      crownRatio: 0.95,
+      // grass.4, not grass.3. The shade blade sits on a grass.2 wash, and
+      // grass.3 is only 16 luma below it -- close enough that half the marks
+      // vanished and the sward read as a flat field with a few light flecks.
+      // grass.4 is 37 below, which is the same order of separation the arid
+      // pass gets from limestone.6 against limestone.3.
+      bladeShade: paletteColor('grass.4'),
+      // Taller than wide. drawCanopy computes ry = rx * crownRatio, so ANY
+      // value below 1 is a squat crown -- 0.95 drew near-perfect circles and
+      // the poplar gallery read as a bramble thicket. The olive's 0.52 is
+      // correct for what it is; a poplar needs the ratio the other side of 1.
+      crownRatio: 1.5,
       scatter: 'sward',
     },
   };
