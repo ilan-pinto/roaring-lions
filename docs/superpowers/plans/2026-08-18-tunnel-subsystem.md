@@ -976,19 +976,33 @@ describe('a unit underground is contained', () => {
     const { sim, hidden } = belowGround();
     const hpBefore = sim.state.hp[hidden];
     // A shell landing directly on top of the tunnel.
-    sim.splashDirect(fx.from(4.5), fx.from(6.5), fx.from(4), fx.from(500), fx.from(1), -1, -1);
+    sim.debugSplash(fx.from(4.5), fx.from(6.5), fx.from(4), fx.from(500), fx.from(1), -1, -1);
     expect(sim.state.hp[hidden]).toBe(hpBefore);
   });
 
   it('cannot be suppressed', () => {
     const { sim, hidden } = belowGround();
-    sim.applySuppressionPublic(hidden, fx.from(1.5));
+    sim.debugSuppress(hidden, fx.from(1.5));
     expect(sim.state.suppression[hidden]).toBe(0);
   });
 });
 ```
 
-Expose `putInTunnel(id, routeIdx)` and, if `splashDirect`/`applySuppression` are private, a narrow test-only accessor following whatever pattern `combat.test.ts` already uses to reach private members — do not widen the public API beyond what the tests need.
+`putInTunnel(id, routeIdx)` already exists (Task 3). `splashDirect` and `applySuppression` are private; the tests reach them through two new test hooks named to match the existing `debugKill` / `debugDestroyStructure` / `debugDisableFirepower` family:
+
+```typescript
+  /** Suppress a unit directly. Tests and the sandbox only. */
+  debugSuppress(id: number, amount: Fx): void {
+    this.applySuppression(id, amount, false);
+  }
+
+  /** Detonate a bare splash at a point. Tests and the sandbox only. */
+  debugSplash(x: Fx, y: Fx, radius: Fx, dmg: Fx, supp: Fx, by: number, exclude: number): void {
+    this.splashDirect(x, y, radius, dmg, supp, by, exclude);
+  }
+```
+
+Place them beside `debugKill`. Do not widen the public API beyond these two hooks.
 
 - [ ] **Step 2: Run them and watch all three fail**
 
@@ -1075,7 +1089,7 @@ describe('surfacing', () => {
         if (e.kind === 'surfaced' && e.entity === hidden) surfacedAt = t;
       }
       if (surfacedAt >= 0 && t === surfacedAt + 1) {
-        sim.applySuppressionPublic(hidden, fx.from(2)); // well past PIN_AT
+        sim.debugSuppress(hidden, fx.from(2)); // well past PIN_AT
       }
       if (surfacedAt >= 0 && t < surfacedAt + SURFACE_SECONDS * TICKS_PER_SECOND) {
         expect(sim.state.tunnelIn[hidden]).toBe(-1); // still exposed
@@ -1298,7 +1312,7 @@ describe('collapsing a route', () => {
     sim.queueCommand({ kind: 'chargeTunnel', ids: [yahalom], tunnel: idx });
     for (let t = 0; t < 40; t++) sim.tick();
     expect(sim.chargeTicks[yahalom]).toBeGreaterThan(0);
-    sim.applySuppressionPublic(yahalom, fx.from(2)); // over PIN_AT
+    sim.debugSuppress(yahalom, fx.from(2)); // over PIN_AT
     sim.tick();
     expect(sim.chargeTicks[yahalom]).toBe(0);
   });
