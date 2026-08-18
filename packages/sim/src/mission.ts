@@ -39,8 +39,9 @@ export interface PlacementJson {
    *  single fresh remnant when the roster has none of this type. */
   from_ledger?: boolean;
   /** Route id (map `tunnels[].id`) this placement starts inside. The bodies
-   *  spawn underground in that route rather than standing on their tile —
-   *  how an author stocks a pre-dug route with a garrison. An unknown id
+   *  spawn underground in that route rather than standing on their tile, and
+   *  stay below until the route is dug through and vents — or die with it if
+   *  it is collapsed first (authored routes start undug). An unknown id
    *  throws at load. */
   in_tunnel?: string;
   /**
@@ -640,10 +641,11 @@ export class MissionRuntime {
             found.push(r);
           }
         }
-        // Unlike raze, an empty set does not throw here: validate_data.mjs
-        // rejects a mouthless collapse zone at authoring time, and the
-        // evaluation's length guard keeps this one from reading as an
-        // instant win — it sits active until its `seconds` deadline fails it.
+        // Unlike raze, an empty set does not throw here. Task 12 adds the
+        // validate_data.mjs check that rejects a mouthless collapse zone at
+        // authoring time; until it lands, the evaluation's length guard is
+        // all that keeps this from reading as an instant win — the objective
+        // sits active until its `seconds` deadline fails it.
         this.collapseTargets.set(o.def.id, found);
       }
     }
@@ -1118,8 +1120,14 @@ export class MissionRuntime {
     };
     for (let e = 0; e < this.sim.entityCount; e++) {
       if (st.alive[e] === 0 || st.side[e] !== 1 || !inZone(e)) continue;
+      // A buried unit contests nothing and anchors no contest — either side.
+      // Without this, a stocked route whose spawn point sits inside the zone
+      // holds a capture hostage from underground, with nothing on the map
+      // for the player to shoot.
+      if (st.tunnelIn[e] >= 0) continue;
       for (let f = 0; f < this.sim.entityCount; f++) {
         if (st.alive[f] === 0 || st.side[f] !== 0 || !inZone(f)) continue;
+        if (st.tunnelIn[f] >= 0) continue;
         const dx = (fx.sub(st.posX[e], st.posX[f]) >> 8) | 0;
         const dy = (fx.sub(st.posY[e], st.posY[f]) >> 8) | 0;
         if (dx * dx + dy * dy <= CONTEST_RADIUS_SQ) return true;
@@ -1133,6 +1141,9 @@ export class MissionRuntime {
     const st = this.sim.state;
     for (let i = 0; i < this.sim.entityCount; i++) {
       if (st.alive[i] === 0 || st.side[i] !== side) continue;
+      // A buried unit holds no ground: its body coordinates name a tile it
+      // is not standing on.
+      if (st.tunnelIn[i] >= 0) continue;
       const tx = st.posX[i] >> 16;
       const ty = st.posY[i] >> 16;
       if (tx >= zone[0] && tx < zone[0] + zone[2] && ty >= zone[1] && ty < zone[1] + zone[3]) n++;
@@ -1259,9 +1270,9 @@ export class MissionRuntime {
       } else if (d.type === 'collapse') {
         const targets = this.collapseTargets.get(d.id) ?? [];
         // `targets.length > 0` for the same reason raze has it: an empty zone
-        // must not read as an instant win. Unlike raze, validate_data.mjs also
-        // rejects the empty zone at authoring time, so this guard is the
-        // backstop rather than the only line of defence.
+        // must not read as an instant win. Today this guard is the only line
+        // of defence; the validate_data.mjs check that will refuse the empty
+        // zone at authoring time arrives with Task 12.
         complete = targets.length > 0 && targets.every((r) => this.sim.tnAlive[r] === 0);
         // And the same deadline, for the same trap: the only way a route
         // comes down is a charge worked by a unit with the ability, so losing

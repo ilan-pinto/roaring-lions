@@ -2058,7 +2058,17 @@ describe('collapse objective', () => {
 describe('in_tunnel placements', () => {
   const ROUTE: TunnelRouteJson = { id: 'tn_a', points: [[3, 3], [12, 3]], dig_tiles_per_s: 1 };
 
-  function tunnelWorld(garrison: PlacementJson, opts: { houseAtMouth?: boolean } = {}) {
+  function tunnelWorld(
+    garrison: PlacementJson,
+    opts: {
+      houseAtMouth?: boolean;
+      /** Replace the default destroy_all primary (and provide its zones). */
+      objectives?: MissionJson['objectives'];
+      zones?: Record<string, readonly number[]>;
+      /** Replace the default surface squad. */
+      force?: readonly PlacementJson[];
+    } = {}
+  ) {
     const sim = new Sim({ seed: 7, width: 24, height: 16, capacity: 16 });
     const types = new Map<string, number>();
     for (const t of [SQUAD, AMBUSHER]) types.set(t.id, sim.addUnitType(t));
@@ -2073,8 +2083,8 @@ describe('in_tunnel placements', () => {
       id: 'in_tunnel_test',
       map: { file: 'none' },
       ledger: { requires: [], produces: [] },
-      starting_force: [{ unit: SQUAD.id, count: 1, at: [21, 13] }],
-      objectives: [{ id: 'win', type: 'destroy_all', primary: true }],
+      starting_force: opts.force ?? [{ unit: SQUAD.id, count: 1, at: [21, 13] }],
+      objectives: opts.objectives ?? [{ id: 'win', type: 'destroy_all', primary: true }],
       enemy: { garrison: [garrison] },
     };
     const rt = new MissionRuntime(sim, mission, {
@@ -2084,7 +2094,7 @@ describe('in_tunnel placements', () => {
         return t;
       },
       markers: {},
-      zones: {},
+      zones: opts.zones ?? {},
       tunnels: [ROUTE],
     });
     rt.start();
@@ -2125,15 +2135,13 @@ describe('in_tunnel placements', () => {
     expect(sim.state.tunnelIn[enemies[0]]).toBe(0);
   });
 
-  // Carried from Task 8's review: applyCommands and stepMovement have no
-  // tunnelIn guard, and in_tunnel placements are the first thing that can put
-  // a unit underground at mission start. This pins what happens TODAY, so the
-  // hole is documented rather than silent: a buried unit accepts an
-  // attack-move (the exact command a trigger's `commit` issues for its group)
-  // and walks while below ground — invisible, untargetable, and mobile — with
-  // `tunnelIn` still set the whole way. When the guard lands (wiring task or
-  // follow-up), this test should flip to assert the refusal.
-  it('a buried unit still accepts a move order and walks underground (known hole, pinned)', () => {
+  // The hole Task 8's review carried here, now closed: applyCommands refuses
+  // a surface move order for a buried unit — an attack-move is the exact
+  // command a trigger's `commit` issues for its group — and putInTunnel
+  // clears kinematics, so an order a unit was already walking when it went
+  // down cannot keep its body moving below ground either. The earth decides
+  // where a buried unit goes, exactly as a vehicle does for its passenger.
+  it('a buried unit refuses a move order: the earth holds it still', () => {
     const { sim, enemies } = tunnelWorld({
       unit: AMBUSHER.id,
       count: 1,
@@ -2144,7 +2152,48 @@ describe('in_tunnel placements', () => {
     const before = sim.state.posX[id];
     sim.queueCommand({ kind: 'attackMove', ids: [id], x: fx.from(8.5), y: fx.from(3.5) });
     for (let t = 0; t < 60; t++) sim.tick();
-    expect(sim.state.tunnelIn[id]).toBe(0); // still "inside" the route...
-    expect(sim.state.posX[id] - before).toBeGreaterThan(fx.fromInt(1)); // ...and yet it walked
+    expect(sim.state.tunnelIn[id]).toBe(0); // still inside the route
+    expect(sim.state.posX[id]).toBe(before); // and exactly where it was buried
+  });
+
+  // The reviewer's corollary to the move-order hole, and it needs no order at
+  // all: contestedIn filtered by alive and side only, so a stocked route
+  // whose spawn point sat inside a capture zone contested it from
+  // underground — the player walks in, nothing on the map to shoot, and the
+  // clock never starts.
+  it('a buried enemy does not contest ground: capture completes over it', () => {
+    const { sim, rt } = tunnelWorld(
+      // The authored spawn point sits inside the zone, a tile from the squad.
+      { unit: AMBUSHER.id, count: 1, at: [20, 12], in_tunnel: 'tn_a' },
+      {
+        objectives: [{ id: 'take', type: 'capture', primary: true, target: 'obj', seconds: 3 }],
+        zones: { obj: [18, 10, 6, 6] },
+      }
+    );
+    for (let t = 0; t < 5 * TICKS_PER_SECOND; t++) {
+      sim.tick();
+      rt.step([]);
+    }
+    expect(rt.objectiveStatus('take')).toBe('complete');
+  });
+
+  // And the same rule read from the other side: livingIn must not count a
+  // buried friendly as presence, or a zone could be captured with nobody on
+  // the ground.
+  it('a buried friendly holds no ground either: capture stays unheld', () => {
+    const { sim, rt } = tunnelWorld(
+      { unit: AMBUSHER.id, count: 1, at: [3, 3], in_tunnel: 'tn_a' }, // far from the zone
+      {
+        force: [{ unit: SQUAD.id, count: 1, at: [21, 13], in_tunnel: 'tn_a' }],
+        objectives: [{ id: 'take', type: 'capture', primary: true, target: 'obj', seconds: 3 }],
+        zones: { obj: [18, 10, 6, 6] },
+      }
+    );
+    for (let t = 0; t < 5 * TICKS_PER_SECOND; t++) {
+      sim.tick();
+      rt.step([]);
+    }
+    expect(rt.objectiveStatus('take')).toBe('active');
+    expect(rt.objectiveList[0].paused).toBe('unheld');
   });
 });

@@ -1101,6 +1101,14 @@ export class Sim {
     if (this.tunnelIn[unitId] === routeIdx) return;
     this.tunnelIn[unitId] = routeIdx;
     this.tnOccupants[routeIdx]++;
+    // The earth cancels kinematics: no goal, no path, no field. applyCommands
+    // refuses new surface orders while buried; this covers the order a unit
+    // was already walking when it went down, which a refusal cannot.
+    this.moving[unitId] = 0;
+    this.wpCount[unitId] = 0;
+    this.goalX[unitId] = this.posX[unitId];
+    this.goalY[unitId] = this.posY[unitId];
+    this.fieldRef[unitId] = -1;
   }
 
   /** Tile centre of a route's vent — where a surfacing unit stands up. */
@@ -1364,6 +1372,11 @@ export class Sim {
           // off. They are already untargetable while aboard; being immune to
           // movement orders is the same idea.
           if (this.carriedBy[id] >= 0) continue;
+          // A buried unit does not walk anywhere either: the earth decides
+          // where it goes, exactly as the vehicle does for its passenger. It
+          // comes back up at the vent (stepSurfacing) or dies with the route
+          // (collapseTunnel) — never by strolling off below ground.
+          if (this.tunnelIn[id] >= 0) continue;
           this.wpCount[id] = 0; // a fresh order replaces the whole path
           if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
           this.boardGoal[id] = -1;

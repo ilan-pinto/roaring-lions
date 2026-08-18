@@ -720,3 +720,24 @@ describe('collapsing a route', () => {
     expect(sim.state.tunnelIn[occupant]).toBe(-1);
   });
 });
+
+describe('putInTunnel kinematics', () => {
+  it('burying a walking unit cancels its order: the earth holds it still', () => {
+    // The half of the containment rule a command-time refusal cannot cover:
+    // this unit was ordered while on the surface and is mid-walk when it goes
+    // down. putInTunnel owns the buried invariant, so it clears the goal,
+    // path and field along with setting tunnelIn.
+    const sim = new Sim({ seed: 5, width: 16, height: 16, capacity: 4 });
+    const digger = sim.addUnitType(DIGGER_TYPE);
+    const idx = sim.addTunnel({ id: 'tn', points: [[2, 2], [10, 2]] as const, dig_tiles_per_s: 1 });
+    const i = sim.spawn(digger, 1, fx.from(2.5), fx.from(2.5));
+    sim.queueCommand({ kind: 'move', ids: [i], x: fx.from(12.5), y: fx.from(2.5) });
+    for (let n = 0; n < 20; n++) sim.tick();
+    expect(sim.state.moving[i]).toBe(1); // premise: it is under way
+    sim.putInTunnel(i, idx);
+    const at = sim.state.posX[i];
+    for (let n = 0; n < 20; n++) sim.tick();
+    expect(sim.state.moving[i]).toBe(0); // the order died at the mouth
+    expect(sim.state.posX[i]).toBe(at); // it did not keep walking below ground
+  });
+});
