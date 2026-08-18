@@ -1173,6 +1173,16 @@ export class Sim {
     this.firepowerKilled[id] = 1;
   }
 
+  /** Suppress a unit directly. Tests and the sandbox only. */
+  debugSuppress(id: number, amount: Fx): void {
+    this.applySuppression(id, amount, false);
+  }
+
+  /** Detonate a bare splash at a point. Tests and the sandbox only. */
+  debugSplash(x: Fx, y: Fx, radius: Fx, dmg: Fx, supp: Fx, by: number, exclude: number): void {
+    this.splashDirect(x, y, radius, dmg, supp, by, exclude);
+  }
+
   /** Advance exactly one 20 Hz tick. Returns the events it produced. */
   tick(): SimEvent[] {
     this.applyCommands();
@@ -1893,8 +1903,9 @@ export class Sim {
       // ordnance, not aimpoints. That asymmetry is what ROE scores.
       if (this.alive[t] === 0 || this.side[t] === sSide || this.side[t] > 1) continue;
       // Men inside a building cannot be shot at: the building is in the way,
-      // and taking it down is the only way to reach them.
-      if (this.garrisonedIn[t] >= 0 || this.carriedBy[t] >= 0) continue;
+      // and taking it down is the only way to reach them. A tunnel is the same
+      // idea a third time — the earth is in the way, and Yahalom is the way in.
+      if (this.garrisonedIn[t] >= 0 || this.carriedBy[t] >= 0 || this.tunnelIn[t] >= 0) continue;
       if (this.contact[sSide * cap + t] < IDENTIFIED_AT) continue;
       // A weapon that cannot elevate does not get to pick a target it could
       // never hit. Filtered here rather than at the hit roll so the shooter
@@ -2725,6 +2736,7 @@ export class Sim {
     const shooter = this.prShooter[pr];
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0 || i === excludeId) continue;
+      if (this.tunnelIn[i] >= 0) continue; // three metres of earth
       const dSq = distSqFx(fx.sub(this.posX[i], x), fx.sub(this.posY[i], y));
       if (dSq > splashSq) continue;
       const falloff = fx.sub(ONE, fx.div(fx.sqrt(dSq), splash));
@@ -2742,6 +2754,7 @@ export class Sim {
     const splashSq = fx.mul(splash, splash);
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0 || i === exclude || i === by) continue;
+      if (this.tunnelIn[i] >= 0) continue; // three metres of earth
       const dSq = distSqFx(fx.sub(this.posX[i], x), fx.sub(this.posY[i], y));
       if (dSq > splashSq) continue;
       const falloff = fx.sub(ONE, fx.div(fx.sqrt(dSq), splash));
@@ -2762,6 +2775,10 @@ export class Sim {
   /** coverProtects: fire arriving from outside is muffled by entrenchment;
    *  a penetration's crew shock (crew_shaken) is not. */
   private applySuppression(target: number, amount: Fx, coverProtects = true): void {
+    // You cannot pin someone who is underground. Without this, a mortar
+    // barrage over a trail routs the occupants and the counter-unit is
+    // decorative.
+    if (this.tunnelIn[target] >= 0) return;
     const type = this.unitTypes[this.typeIdx[target]];
     let a = fx.mul(amount, type.suppResFactor);
     const vet = this.veterancy[target];

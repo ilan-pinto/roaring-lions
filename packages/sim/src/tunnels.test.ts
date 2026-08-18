@@ -226,3 +226,61 @@ describe('finding a route', () => {
     expect(sim.tunnelContactLevel(1, idx)).toBe(0); // one side only
   });
 });
+
+/** Armed infantry whose duel settles nothing: a working rifle (the shooter
+ *  genuinely hunts, which is what makes "cannot be selected" meaningful) on
+ *  a deep hull with zero weapon suppression, so 200 ticks of mutual fire
+ *  kill and pin nobody. The containment assertions then read the leak
+ *  itself — curTarget, hp, suppression — rather than the outcome of a
+ *  coin-flip firefight between two identical units. */
+const RIFLE_TYPE: UnitTypeJson = {
+  id: 'tn_rifle',
+  hull: { hp: 20000, armor: { front: 10, side: 10, rear: 10 } },
+  mobility: { speed_tiles_s: 0.9 },
+  sensors: { optics: 1.0, sight_tiles: 8, signature: 0.6 },
+  weapons: [
+    {
+      id: 'tn_rifle_w',
+      type: 'small_arms',
+      range_tiles: 8,
+      effective_range_tiles: 6.4,
+      accuracy: 0.6,
+      penetration: 8,
+      damage: 15,
+      rof_per_min: 300,
+    },
+  ],
+};
+
+describe('a unit underground is contained', () => {
+  function belowGround() {
+    const sim = new Sim({ seed: 11, width: 24, height: 12, capacity: 8 });
+    const idx = sim.addTunnel({ id: 'tn', points: [[4, 6], [12, 6]] as const, dig_tiles_per_s: 1 });
+    const rifle = sim.addUnitType(RIFLE_TYPE);
+    const hidden = sim.spawn(rifle, 1, fx.from(4.5), fx.from(6.5));
+    const shooter = sim.spawn(rifle, 0, fx.from(6.5), fx.from(6.5));
+    sim.putInTunnel(hidden, idx);
+    return { sim, hidden, shooter, idx };
+  }
+
+  it('cannot be selected as a target', () => {
+    const { sim, hidden, shooter } = belowGround();
+    for (let t = 0; t < 200; t++) sim.tick();
+    expect(sim.state.alive[hidden]).toBe(1);
+    expect(sim.state.curTarget[shooter]).not.toBe(hidden);
+  });
+
+  it('cannot be reached by splash', () => {
+    const { sim, hidden } = belowGround();
+    const hpBefore = sim.state.hp[hidden];
+    // A shell landing directly on top of the tunnel.
+    sim.debugSplash(fx.from(4.5), fx.from(6.5), fx.from(4), fx.from(500), fx.from(1), -1, -1);
+    expect(sim.state.hp[hidden]).toBe(hpBefore);
+  });
+
+  it('cannot be suppressed', () => {
+    const { sim, hidden } = belowGround();
+    sim.debugSuppress(hidden, fx.from(1.5));
+    expect(sim.state.suppression[hidden]).toBe(0);
+  });
+});
