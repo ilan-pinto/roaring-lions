@@ -228,12 +228,14 @@ describe('finding a route', () => {
   });
 });
 
-/** Armed infantry whose duel settles nothing: a working rifle (the shooter
- *  genuinely hunts, which is what makes "cannot be selected" meaningful) on
- *  a deep hull with zero weapon suppression, so 200 ticks of mutual fire
- *  kill and pin nobody. The containment assertions then read the leak
- *  itself — curTarget, hp, suppression — rather than the outcome of a
- *  coin-flip firefight between two identical units. */
+/** Armed infantry whose duel settles nothing: working rifles on both sides
+ *  (the surface shooter genuinely hunts, which is what makes "cannot be
+ *  selected" meaningful; the underground rifle is what proves the earth
+ *  keeps fire and sight in as well as out) on a deep hull with zero weapon
+ *  suppression, so the firefights the surfacing tests do allow kill and pin
+ *  nobody. The containment assertions then read any leak directly —
+ *  curTarget, fire events, hp, suppression, contact — rather than the
+ *  outcome of a coin-flip firefight between two identical units. */
 const RIFLE_TYPE: UnitTypeJson = {
   id: 'tn_rifle',
   hull: { hp: 20000, armor: { front: 10, side: 10, rear: 10 } },
@@ -283,6 +285,33 @@ describe('a unit underground is contained', () => {
     const { sim, hidden } = belowGround();
     sim.debugSuppress(hidden, fx.from(1.5));
     expect(sim.state.suppression[hidden]).toBe(0);
+  });
+
+  it('does not fire from underground even at an identified enemy', () => {
+    const { sim, hidden, shooter } = belowGround();
+    // Identified contacts both ways: the exact state where, without the
+    // outbound guard, stepCombat lets the man below ground shoot
+    // untargetable rounds out of bare dirt at a two-tile contact.
+    sim.identifyTo(0, hidden);
+    sim.identifyTo(1, shooter);
+    const hpBefore = sim.state.hp[shooter];
+    let firesFromBelow = 0;
+    for (let t = 0; t < 200; t++) {
+      for (const e of sim.tick()) {
+        if (e.kind === 'fire' && e.shooter === hidden) firesFromBelow++;
+      }
+    }
+    expect(firesFromBelow).toBe(0);
+    expect(sim.state.hp[shooter]).toBe(hpBefore);
+  });
+
+  it('does not spot for its side while underground', () => {
+    const { sim, shooter } = belowGround();
+    // The surface enemy stands two tiles from the tunnel, in the open; the
+    // underground rifle is the only unit its side has. If the earth blocks
+    // sight outbound, the side's contact on that enemy never climbs.
+    for (let t = 0; t < 200; t++) sim.tick();
+    expect(sim.contactLevel(1, shooter)).toBe(0);
   });
 });
 

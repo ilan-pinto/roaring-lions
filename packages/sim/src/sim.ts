@@ -1875,6 +1875,12 @@ export class Sim {
       if (this.alive[obs] === 0) continue;
       const oSide = this.side[obs];
       if (oSide > 1) continue; // civilians (side 2) observe nothing
+      // Underground observes nothing: the earth blocks sight outbound as well
+      // as inbound, so a contained unit must not feed its side's contact
+      // array. Surfacing is unaffected — hasTargetFrom deliberately reads
+      // ground truth for the spring decision, not contacts, so the ambush
+      // still springs; only the first aimed shot waits on a real observation.
+      if (this.tunnelIn[obs] >= 0) continue;
       for (let tgt = 0; tgt < this.count; tgt++) {
         if (this.alive[tgt] === 0 || this.side[tgt] === oSide) continue;
         // Underground is unseen: not observed this tick, so an existing
@@ -2278,6 +2284,17 @@ export class Sim {
   private stepCombat(): void {
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0 || this.firepowerKilled[i] === 1) continue;
+      // The outbound half of containment — the inbound half is Task 7's
+      // selectTarget/splash/suppression guards. The earth stops fire in both
+      // directions: without this, a unit below ground with a live contact
+      // shoots untargetable rounds out of bare dirt. Surfacing (stepSurfacing)
+      // is how a tunnel fighter gets to shoot at all.
+      if (this.tunnelIn[i] >= 0) {
+        this.engaging[i] = 0;
+        this.curTarget[i] = -1;
+        this.curStructure[i] = -1;
+        continue;
+      }
       // Gone to ground (GDD 5.5): heads down, no aimed return fire. This is
       // the threshold that makes fire superiority — and the 3:1 rule — real:
       // enough volume silences a defense, not-enough leaves it lethal.
