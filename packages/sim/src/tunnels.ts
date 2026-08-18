@@ -42,9 +42,11 @@ export const SURFACE_SECONDS = 3;
 /** Shots committed per surfacing. A unit comes up to do something specific
  *  and goes back down; it does not fight a battle from the hole. */
 export const SURFACE_VOLLEY = 2;
-/** Suppression dealt to everyone near a collapsing route, and its radius². */
-export const COLLAPSE_SHOCK = 39322; // 0.6
-export const COLLAPSE_SHOCK_RADIUS = 131072; // 2 tiles — splashDirect squares it
+/** Suppression dealt to everyone near a collapsing route, and its radius².
+ *  0.6 — named apart from structures.ts's COLLAPSE_SHOCK (0.7), which sim.ts
+ *  already imports unaliased. See Finding 1 in the task 2 review. */
+export const TUNNEL_COLLAPSE_SHOCK = 39322; // 0.6
+export const TUNNEL_COLLAPSE_RADIUS = 131072; // 2 tiles — splashDirect squares it
 
 /** Total length of a polyline, in Q16.16 tiles. */
 export function routeLength(points: readonly (readonly [number, number])[]): Fx {
@@ -56,8 +58,8 @@ export function routeLength(points: readonly (readonly [number, number])[]): Fx 
 }
 
 function legLength(a: readonly [number, number], b: readonly [number, number]): Fx {
-  const dx = fx.from(b[0] - a[0]);
-  const dy = fx.from(b[1] - a[1]);
+  const dx = fx.sub(fx.from(b[0]), fx.from(a[0]));
+  const dy = fx.sub(fx.from(b[1]), fx.from(a[1]));
   return fx.sqrt(fx.add(fx.mul(dx, dx), fx.mul(dy, dy)));
 }
 

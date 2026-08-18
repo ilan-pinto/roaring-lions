@@ -4,6 +4,7 @@ import { pointAtDistance, routeLength } from './tunnels';
 
 const STRAIGHT: [number, number][] = [[0, 0], [3, 0]];
 const ELBOW: [number, number][] = [[0, 0], [3, 0], [3, 4]];
+const DEGENERATE: [number, number][] = [[0, 0], [3, 0], [3, 0], [3, 4]];
 
 describe('route geometry', () => {
   it('measures a straight run', () => {
@@ -37,5 +38,21 @@ describe('route geometry', () => {
     const [x, y] = pointAtDistance(ELBOW, fx.from(-5));
     expect(fx.toNumber(x)).toBeCloseTo(0, 2);
     expect(fx.toNumber(y)).toBeCloseTo(0, 2);
+  });
+
+  it('skips zero-length legs (degenerate points)', () => {
+    // DEGENERATE has a repeated point at [3, 0] — a zero-length leg that should be skipped.
+    // Total length should be 3 + 4 = 7 (same as ELBOW, which has no degenerate point).
+    expect(fx.toNumber(routeLength(DEGENERATE))).toBeCloseTo(7, 2);
+
+    // Walking partway into the first real leg should work.
+    const [x1, y1] = pointAtDistance(DEGENERATE, fx.from(1.5));
+    expect(fx.toNumber(x1)).toBeCloseTo(1.5, 2);
+    expect(fx.toNumber(y1)).toBeCloseTo(0, 2);
+
+    // Walking past the degenerate point into the final leg should work.
+    const [x2, y2] = pointAtDistance(DEGENERATE, fx.from(5));
+    expect(fx.toNumber(x2)).toBeCloseTo(3, 2);
+    expect(fx.toNumber(y2)).toBeCloseTo(2, 2);
   });
 });
