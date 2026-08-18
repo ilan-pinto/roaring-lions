@@ -1681,8 +1681,9 @@ export class Sim {
     const sSide = this.side[shooter];
     // Civilians are never aimpoints; collateral comes from ordnance.
     if (this.side[target] === sSide || this.side[target] > 1) return { kind: 'noSolution' };
-    // Men inside a building or aboard a vehicle cannot be shot at.
-    if (this.garrisonedIn[target] >= 0 || this.carriedBy[target] >= 0) {
+    // Men inside a building, aboard a vehicle, or under the earth cannot be
+    // shot at — the same containment skip selectTarget makes.
+    if (this.garrisonedIn[target] >= 0 || this.carriedBy[target] >= 0 || this.tunnelIn[target] >= 0) {
       return { kind: 'noSolution' };
     }
     if (this.contact[sSide * cap + target] < IDENTIFIED_AT) return { kind: 'unidentified' };

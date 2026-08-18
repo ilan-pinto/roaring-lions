@@ -357,6 +357,14 @@ describe('containment holds against strikes, drones, sight and shells in flight'
     expect(sim.state.curTarget[drone]).toBe(-1);
   });
 
+  it('projectHit never offers a shot the earth refuses', () => {
+    const { sim, hidden, shooter } = belowGround();
+    // Fresh, fully identified contact — the exact window where, without the
+    // guard, the panel would offer a shot selectTarget now refuses.
+    sim.identifyTo(0, hidden);
+    expect(sim.projectHit(shooter, hidden).kind).toBe('noSolution');
+  });
+
   it('an underground unit is unseen, and stale contact decays to lost', () => {
     const { sim, hidden } = belowGround();
     sim.identifyTo(0, hidden);
@@ -380,9 +388,18 @@ describe('containment holds against strikes, drones, sight and shells in flight'
     expect(launched).toBe(true);
     sim.putInTunnel(victim, idx);
     const hpBelow = sim.state.hp[victim];
+    const vx = sim.state.posX[victim];
+    const vy = sim.state.posY[victim];
+    // Count only the redirected round: a ground impact at EXACTLY the
+    // victim's position. A scattered would-miss lands at least SCATTER_BASE
+    // (0.5 tiles) off the target, so it can never satisfy this. The hp and
+    // alive equalities below carry the containment proof on their own; this
+    // pins that the round became a ground impact rather than vanishing.
     let groundImpacts = 0;
     for (let t = 0; t < 60; t++) {
-      for (const e of sim.tick()) if (e.kind === 'nearMiss') groundImpacts++;
+      for (const e of sim.tick()) {
+        if (e.kind === 'nearMiss' && e.x === vx && e.y === vy) groundImpacts++;
+      }
     }
     expect(sim.state.alive[victim]).toBe(1);
     expect(sim.state.hp[victim]).toBe(hpBelow);
