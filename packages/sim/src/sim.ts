@@ -30,6 +30,7 @@ import {
 import {
   pointAtDistance,
   routeLength,
+  CHARGE_SECONDS,
   SURFACE_SECONDS,
   SURFACE_VOLLEY,
   TRAIL_DECAY,
@@ -153,6 +154,8 @@ export interface UnitTypeJson {
    *  Schema-constrained to charges|blade; typed loosely because JSON module
    *  imports widen string literals — same reason as `mobility.domain`. */
   demolition_method?: string;
+  /** Seconds of held station to set a tunnel collapse charge. Absent = CHARGE_SECONDS. */
+  tunnel_charge_time_s?: number;
   hull: {
     hp: number;
     armor: { front: number; side: number; rear: number; top?: number };
@@ -287,6 +290,12 @@ export interface UnitType {
    * ability.
    */
   bladeDemolition: boolean;
+  /** Can sink a shaft and dig a tunnel route from it. */
+  canDig: boolean;
+  /** Can set a collapse charge over a revealed tunnel. */
+  canTunnelCharge: boolean;
+  /** Ticks of held station to set a tunnel collapse charge. */
+  tunnelChargeTicks: number;
   /** Flies into its target and is spent doing it. */
   isKamikaze: boolean;
   /**
@@ -389,6 +398,11 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
       fx.mul(fx.from(json.demolition_time_s ?? DEMO_SECONDS), fx.fromInt(TICKS_PER_SECOND)),
     ),
     bladeDemolition: json.demolition_method === 'blade',
+    canDig: abilities.includes('dig_tunnel'),
+    canTunnelCharge: abilities.includes('tunnel_charge'),
+    tunnelChargeTicks: fx.toInt(
+      fx.mul(fx.from(json.tunnel_charge_time_s ?? CHARGE_SECONDS), fx.fromInt(TICKS_PER_SECOND)),
+    ),
     isKamikaze: abilities.includes('kamikaze'),
     isAir: json.mobility.domain === 'air',
     transportSlots: json.hull.transport_slots ?? 0,

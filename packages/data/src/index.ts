@@ -37,6 +37,7 @@ import sniperTeam from '../../../data/units/kdf/sniper_team.json';
 import jeepShoded from '../../../data/units/kdf/jeep_shoded.json';
 import dozerD9 from '../../../data/units/kdf/dozer_d9.json';
 import heliPeten from '../../../data/units/kdf/heli_peten.json';
+import yahalomSquad from '../../../data/units/kdf/yahalom_squad.json';
 import militiaCell from '../../../data/units/enemy/militia_cell.json';
 import rpgTeam from '../../../data/units/enemy/rpg_team.json';
 import atgmCell from '../../../data/units/enemy/atgm_cell.json';
@@ -47,6 +48,7 @@ import motoRpg from '../../../data/units/enemy/moto_rpg.json';
 import chargeSquad from '../../../data/units/enemy/charge_squad.json';
 import paramotor from '../../../data/units/enemy/paramotor.json';
 import loiterDrone from '../../../data/units/enemy/loiter_drone.json';
+import diggerCrew from '../../../data/units/enemy/digger_crew.json';
 import civilians from '../../../data/units/civilians.json';
 
 import fireApfsds from '../../../data/vfx/fire_apfsds.json';
@@ -141,6 +143,7 @@ export const units = {
   jeep_shoded: jeepShoded,
   dozer_d9: dozerD9,
   heli_peten: heliPeten,
+  yahalom_squad: yahalomSquad,
   militia_cell: militiaCell,
   rpg_team: rpgTeam,
   atgm_cell: atgmCell,
@@ -151,6 +154,7 @@ export const units = {
   charge_squad: chargeSquad,
   paramotor: paramotor,
   loiter_drone: loiterDrone,
+  digger_crew: diggerCrew,
   civilians: civilians,
 } as const;
 

@@ -1,0 +1,58 @@
+{
+  "id": "yahalom_squad",
+  "name": "Yahalom Engineers",
+  "faction": "kdf",
+  "role": "engineer",
+  "cost": {
+    "logistics": 260,
+    "build_time_s": 20,
+    "population": 1
+  },
+  "hull": {
+    "hp": 380,
+    "armor": {
+      "front": 10,
+      "side": 10,
+      "rear": 10
+    },
+    "crew": 5,
+    "suppression_resistance": 0.55
+  },
+  "mobility": {
+    "speed_tiles_s": 0.85
+  },
+  "sensors": {
+    "optics": 1.0,
+    "sight_tiles": 8,
+    "signature": 0.55,
+    "firing_signature_mult": 3.0
+  },
+  "abilities": [
+    "tunnel_charge",
+    "mark_tunnel",
+    "garrison",
+    "smoke"
+  ],
+  "tunnel_charge_time_s": 8,
+  "weapons": [
+    {
+      "id": "carbines",
+      "type": "small_arms",
+      "range_tiles": 6,
+      "effective_range_tiles": 5,
+      "accuracy": 0.55,
+      "penetration": 8,
+      "damage": 12,
+      "suppression": 40,
+      "rof_per_min": 260,
+      "can_target": [
+        "ground",
+        "air"
+      ],
+      "collateral_risk": 0.1
+    }
+  ],
+  "unlock": {
+    "roe_rating_min": 55
+  }
+}

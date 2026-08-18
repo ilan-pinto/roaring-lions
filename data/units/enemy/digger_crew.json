@@ -1,0 +1,35 @@
+{
+  "id": "digger_crew",
+  "name": "Digger Crew",
+  "faction": "ashwar",
+  "role": "engineer",
+  "cost": {
+    "logistics": 186,
+    "build_time_s": 15,
+    "population": 1
+  },
+  "hull": {
+    "hp": 330,
+    "armor": {
+      "front": 10,
+      "side": 10,
+      "rear": 10
+    },
+    "crew": 3,
+    "suppression_resistance": 0.4
+  },
+  "mobility": {
+    "speed_tiles_s": 0.5
+  },
+  "sensors": {
+    "optics": 0.85,
+    "sight_tiles": 6,
+    "signature": 0.5,
+    "firing_signature_mult": 4.5
+  },
+  "abilities": [
+    "dig_tunnel",
+    "tunnel_travel"
+  ],
+  "weapons": []
+}
