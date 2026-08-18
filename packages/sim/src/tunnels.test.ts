@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
 import { pointAtDistance, routeLength, SURFACE_SECONDS, TRAIL_DECAY, TRAIL_MAX } from './tunnels';
 import { STRIKE_DELAY_TICKS } from './tuning';
-import type { UnitTypeJson } from './sim';
+import type { SimEvent, UnitTypeJson } from './sim';
 
 const STRAIGHT: [number, number][] = [[0, 0], [3, 0]];
 const ELBOW: [number, number][] = [[0, 0], [3, 0], [3, 4]];
@@ -545,5 +545,114 @@ describe('surfacing', () => {
     }
     expect(submerged).toBe(true);
     expect(sim.state.tunnelIn[hidden]).toBeGreaterThanOrEqual(0);
+  });
+});
+
+/** Charge team: `tunnel_charge` on a deep, unarmed hull — and blind. Sight 0
+ *  matters: a team with working optics parked on fresh spoil identifies the
+ *  route through ordinary detection mid-test, and the "will not charge an
+ *  unidentified route" case silently stops testing the gate. trailStrengthFor
+ *  scans ceil(sight) tiles and MIN_DETECT_DIST_SQ skips the tile the unit
+ *  stands on, so sight 0 sees no spoil, ever. */
+const YAHALOM_TYPE: UnitTypeJson = {
+  id: 'tn_yahalom',
+  hull: { hp: 20000, armor: { front: 10, side: 10, rear: 10 } },
+  mobility: { speed_tiles_s: 0.9 },
+  sensors: { optics: 1.0, sight_tiles: 0, signature: 0.6 },
+  abilities: ['tunnel_charge'],
+  weapons: [],
+};
+
+/** The man below: RIFLE_TYPE's deep hull behind a one-round-a-minute rifle.
+ *  Slow on purpose. A surfaced occupant is held up by stepSurfacing's
+ *  level-triggered submerge until its volley is spent, and at rof 1 the
+ *  second round is ~1200 ticks out — so it is still above ground when the
+ *  charge completes ~170 ticks in. RIFLE_TYPE's 300 rpm finishes the volley
+ *  and takes the unit back down at ~tick 70, straight into the collapse the
+ *  surfaced test needs it to survive. */
+const MOLE_TYPE: UnitTypeJson = {
+  id: 'tn_mole',
+  hull: { hp: 20000, armor: { front: 10, side: 10, rear: 10 } },
+  mobility: { speed_tiles_s: 0.9 },
+  sensors: { optics: 1.0, sight_tiles: 8, signature: 0.6 },
+  weapons: [
+    {
+      id: 'tn_mole_w',
+      type: 'small_arms',
+      range_tiles: 8,
+      effective_range_tiles: 6.4,
+      accuracy: 0.6,
+      penetration: 8,
+      damage: 15,
+      rof_per_min: 1,
+    },
+  ],
+};
+
+/** A route with visible spoil near its vent end, a charge team half a tile
+ *  from it, and an occupant below — the shape every collapse test starts
+ *  from. The trail is stamped directly on tiles (10,6) and (11,6): spoil
+ *  EXISTS and the team is in reach in every variant, so when `revealed` is
+ *  false the identified gate is the only thing between the team and the
+ *  charge — the case would otherwise pass by never finding a trail tile,
+ *  proving the wrong gate. `revealed` hands side 0 the identification via
+ *  identifyTunnelTo, mark_tunnel's own path. `surfaced` opens the vent
+ *  (readyToVent's fast-forward) so the occupant pops up at the charge team
+ *  and is above ground when the route comes down. */
+function chargeScenario(opts: { revealed: boolean; surfaced?: boolean }) {
+  const sim = new Sim({ seed: 11, width: 24, height: 12, capacity: 8 });
+  const idx = sim.addTunnel({ id: 'tn', points: [[4, 6], [12, 6]] as const, dig_tiles_per_s: 1 });
+  const yahalom = sim.spawn(sim.addUnitType(YAHALOM_TYPE), 0, fx.from(11.5), fx.from(7.0));
+  const occupant = sim.spawn(sim.addUnitType(MOLE_TYPE), 1, fx.from(4.5), fx.from(6.5));
+  sim.putInTunnel(occupant, idx);
+  sim.trail[6 * sim.width + 10] = TRAIL_MAX;
+  sim.trail[6 * sim.width + 11] = TRAIL_MAX;
+  if (opts.surfaced === true) {
+    sim.tnProgress[idx] = sim.tnLength[idx];
+    sim.tnVentOpen[idx] = 1;
+  }
+  if (opts.revealed) sim.identifyTunnelTo(0, idx);
+  return { sim, idx, yahalom, occupant };
+}
+
+describe('collapsing a route', () => {
+  it('will not charge a route the side has not identified', () => {
+    const { sim, idx, yahalom } = chargeScenario({ revealed: false });
+    sim.queueCommand({ kind: 'chargeTunnel', ids: [yahalom], tunnel: idx });
+    for (let t = 0; t < 400; t++) sim.tick();
+    expect(sim.tnAlive[idx]).toBe(1);
+  });
+
+  it('collapses after the full charge time and kills the occupants', () => {
+    const { sim, idx, yahalom, occupant } = chargeScenario({ revealed: true });
+    sim.queueCommand({ kind: 'chargeTunnel', ids: [yahalom], tunnel: idx });
+    let collapsed: Extract<SimEvent, { kind: 'tunnelCollapsed' }> | null = null;
+    for (let t = 0; t < 400 && !collapsed; t++) {
+      for (const e of sim.tick()) if (e.kind === 'tunnelCollapsed') collapsed = e;
+    }
+    expect(collapsed).not.toBeNull();
+    expect(collapsed?.tunnel).toBe(idx);
+    expect(collapsed?.by).toBe(yahalom);
+    expect(sim.tnAlive[idx]).toBe(0);
+    expect(sim.state.alive[occupant]).toBe(0);
+  });
+
+  it('resets progress when the team is pinned', () => {
+    const { sim, idx, yahalom } = chargeScenario({ revealed: true });
+    sim.queueCommand({ kind: 'chargeTunnel', ids: [yahalom], tunnel: idx });
+    for (let t = 0; t < 40; t++) sim.tick();
+    expect(sim.chargeTicks[yahalom]).toBeGreaterThan(0);
+    sim.debugSuppress(yahalom, fx.from(2)); // over PIN_AT
+    sim.tick();
+    expect(sim.chargeTicks[yahalom]).toBe(0);
+  });
+
+  it('a unit surfaced from a route that collapses under it survives on the surface', () => {
+    const { sim, idx, yahalom, occupant } = chargeScenario({ revealed: true, surfaced: true });
+    sim.queueCommand({ kind: 'chargeTunnel', ids: [yahalom], tunnel: idx });
+    for (let t = 0; t < 400; t++) sim.tick();
+    expect(sim.tnAlive[idx]).toBe(0);
+    expect(sim.state.alive[occupant]).toBe(1); // it was above ground
+    expect(sim.state.tunnelIn[occupant]).toBe(-1);
   });
 });

@@ -7,7 +7,7 @@
 //   commands → detection → combat (target/face/fire) → projectiles →
 //   movement → upkeep (suppression decay, pins, cooldowns, APS reload).
 
-import { fx, ONE, HALF, type Fx } from './fixed';
+import { fx, ONE, HALF, FX_MAX, type Fx } from './fixed';
 import { Rng } from './rng';
 import { HASH_SEED, hashArray, hashWord } from './hash';
 import { FlowField, DIR_NONE, DIR_VX, DIR_VY, COST_ORTH, COST_DIAG } from './flowfield';
@@ -30,6 +30,7 @@ import {
 import {
   pointAtDistance,
   routeLength,
+  CHARGE_RANGE_SQ,
   CHARGE_SECONDS,
   SURFACE_SECONDS,
   SURFACE_VOLLEY,
@@ -37,6 +38,8 @@ import {
   TRAIL_DECAY_EVERY,
   TRAIL_MAX,
   TRAIL_SIGNATURE,
+  TUNNEL_COLLAPSE_RADIUS,
+  TUNNEL_COLLAPSE_SHOCK,
   type TunnelRouteJson,
 } from './tunnels';
 import {
@@ -460,7 +463,14 @@ export type Command =
    * fine for a mosque: designating the structure is how the player takes
    * responsibility for a protected site, and the ROE bill that follows.
    */
-  | { kind: 'demolish'; ids: number[]; structure: number };
+  | { kind: 'demolish'; ids: number[]; structure: number }
+  /**
+   * Set a collapse charge on a tunnel route. The team walks to the nearest
+   * spoil still showing on the surface and works there; the route must be
+   * identified by the team's own side before the clock runs (suspected is a
+   * blip, not a firing solution), and the collapse kills everyone below.
+   */
+  | { kind: 'chargeTunnel'; ids: number[]; tunnel: number };
 
 export type ContactLevel = 'suspected' | 'identified' | 'lost';
 export type FacingArc = 'front' | 'side' | 'rear';
@@ -525,6 +535,7 @@ export type SimEvent =
   | { kind: 'tunnelContact'; tick: number; side: number; tunnel: number; level: ContactLevel }
   | { kind: 'surfaced'; tick: number; entity: number; tunnel: number }
   | { kind: 'submerged'; tick: number; entity: number; tunnel: number }
+  | { kind: 'tunnelCollapsed'; tick: number; tunnel: number; by: number }
   | { kind: 'routed'; tick: number; entity: number }
   | { kind: 'rallied'; tick: number; entity: number }
   | { kind: 'pinned'; tick: number; entity: number }
@@ -540,7 +551,7 @@ export type SimEvent =
 export const SIM_EVENT_KINDS = [
   'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'ambushSprung',
   'strike', 'smokeLaid', 'revealed', 'structureHit', 'structureDestroyed', 'garrison',
-  'transport', 'ventOpened', 'tunnelContact', 'surfaced', 'submerged', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
+  'transport', 'ventOpened', 'tunnelContact', 'surfaced', 'submerged', 'tunnelCollapsed', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
 ] as const satisfies readonly SimEvent['kind'][];
 
 /** Compile-time proof the list above covers the whole union.
@@ -649,6 +660,14 @@ export class Sim {
    * protected site can only be levelled on an order somebody actually gave.
    */
   private readonly demolishOrder: Int32Array;
+  /** Route the player designated for a collapse charge, -1 when none. Same
+   *  contract as demolishOrder: an explicit order, never a team's initiative
+   *  — there is no automatic-search arm, because a collapse only happens on
+   *  a designation somebody gave. */
+  private readonly chargeOrder: Int32Array;
+  /** Ticks of held station beside revealed spoil. Public like tnProgress:
+   *  the HUD's charge bar reads it. */
+  readonly chargeTicks: Int32Array;
   private readonly smokeCooldown: Int32Array;
   /** Queued path: points a unit walks after its current goal. */
   private readonly wpX: Int32Array;
@@ -857,6 +876,8 @@ export class Sim {
     this.demoTicks = new Int32Array(n);
     this.demoTarget = new Int32Array(n).fill(-1);
     this.demolishOrder = new Int32Array(n).fill(-1);
+    this.chargeOrder = new Int32Array(n).fill(-1);
+    this.chargeTicks = new Int32Array(n);
     this.smokeCooldown = new Int32Array(n);
     this.wpX = new Int32Array(n * MAX_WAYPOINTS);
     this.wpY = new Int32Array(n * MAX_WAYPOINTS);
@@ -1156,6 +1177,13 @@ export class Sim {
     if (this.stAlive[id] === 1) this.destroyStructure(id, -1);
   }
 
+  /** Bring a route down without a charge. Tests and the sandbox only.
+   *  destroy(i, -1) is the killed-by-nobody convention, and splashDirect
+   *  takes -1 for an unattributed source. */
+  debugCollapseTunnel(r: number): void {
+    if (this.tnAlive[r] === 1) this.collapseTunnel(r, -1);
+  }
+
   /** facing: initial hull heading in Q16.16 turns (deployment orientation —
    *  defenders face the expected threat axis). veterancy: 0-3 from the
    *  campaign ledger. */
@@ -1236,6 +1264,11 @@ export class Sim {
     this.stepGarrison();
     this.stepDemolition();
     this.stepUpkeep();
+    // After upkeep rather than beside stepDemolition: the pin flag latches
+    // in stepUpkeep, and a charge must abort on the very tick the team is
+    // pinned — one slot earlier in the order and the interruption lands a
+    // tick late, which is the difference the pinned test measures.
+    this.stepTunnelCharge();
     this.tickCount++;
     const out = this.pendingEvents;
     this.pendingEvents = [];
@@ -1339,6 +1372,11 @@ export class Sim {
           // otherwise the designation survives the player changing their mind
           // and fires again the moment the unit next halts near that building.
           this.demolishOrder[id] = -1;
+          // A charge designation dies with the same change of mind, or the
+          // team quietly resumes the countdown the next time it halts within
+          // reach of that route's spoil.
+          this.chargeOrder[id] = -1;
+          this.chargeTicks[id] = 0;
           this.goalX[id] = gx;
           this.goalY[id] = gy;
           this.fieldRef[id] = fieldIdx;
@@ -1479,6 +1517,41 @@ export class Sim {
           this.goalX[id] = gx;
           this.goalY[id] = gy;
           this.fieldRef[id] = fieldIdx;
+          this.moving[id] = 1;
+          this.attackMove[id] = 0;
+          this.engaging[id] = 0;
+          this.stance[id] = 0;
+        }
+      } else if (cmd.kind === 'chargeTunnel') {
+        const r = cmd.tunnel;
+        if (r < 0 || r >= this.tunnelCount_ || this.tnAlive[r] === 0) continue;
+        for (const id of cmd.ids) {
+          if (this.alive[id] === 0 || this.routed[id] === 1) continue;
+          // Only a charge-capable team takes the order. A rifle squad handed
+          // it is authoring noise, filtered the way demolish filters on
+          // canDemolish — the rest of the selection keeps its current orders.
+          if (!this.unitTypes[this.typeIdx[id]].canTunnelCharge) continue;
+          if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
+          this.chargeOrder[id] = r;
+          // A fresh designation restarts the clock, demolish's rule.
+          this.chargeTicks[id] = 0;
+          this.demolishOrder[id] = -1;
+          // Walk to the nearest spoil still showing. A route has no centroid
+          // to aim at the way a building does, so each team heads for the
+          // closest tile of the route with visible trail. A fully weathered
+          // route offers nowhere to stand: the order latches but no walk is
+          // queued and the charge can never start — by design, the surface
+          // sign is gone (see nearestTrailDistSq).
+          const t = this.nearestTrailTile(r, this.posX[id], this.posY[id]);
+          if (t < 0) continue;
+          const tx = t % this.width;
+          const ty = (t - tx) / this.width;
+          this.wpCount[id] = 0;
+          this.boardGoal[id] = -1;
+          this.garrisonGoal[id] = -1;
+          this.goalX[id] = fx.add(fx.fromInt(tx), HALF);
+          this.goalY[id] = fx.add(fx.fromInt(ty), HALF);
+          this.fieldRef[id] = this.fieldFor(tx, ty);
           this.moving[id] = 1;
           this.attackMove[id] = 0;
           this.engaging[id] = 0;
@@ -3425,6 +3498,117 @@ export class Sim {
         );
       }
     }
+  }
+
+  /**
+   * The tunnel counter: a charge team ordered onto an identified route holds
+   * station beside its revealed spoil, and after tunnelChargeTicks of
+   * uninterrupted work brings the whole route down. Modelled on
+   * stepDemolition — same stationary/unshaken conditions, same
+   * being-in-range-is-arrival stop — with one addition: the identified gate,
+   * because you cannot dig a charge down to a void you have not found.
+   */
+  private stepTunnelCharge(): void {
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0) continue;
+      const type = this.unitTypes[this.typeIdx[i]];
+      if (!type.canTunnelCharge) continue;
+      const r = this.chargeOrder[i];
+      if (r < 0 || this.tnAlive[r] === 0) {
+        this.chargeOrder[i] = -1;
+        this.chargeTicks[i] = 0;
+        continue;
+      }
+      // A route nobody has found cannot be charged: they would be digging at
+      // random ground. Suspected is a blip, not a firing solution.
+      if (this.tunnelContactLevel(this.side[i], r) !== 2) {
+        this.chargeTicks[i] = 0;
+        continue;
+      }
+      // Same conditions as a demolition charge: stationary, unshaken, in reach.
+      if (this.displaced[i] === 1 || this.pinned[i] === 1 || this.tunnelIn[i] >= 0) {
+        this.chargeTicks[i] = 0;
+        continue;
+      }
+      if (this.nearestTrailDistSq(r, i) > CHARGE_RANGE_SQ) {
+        this.chargeTicks[i] = 0;
+        continue;
+      }
+      // Arrival is being in range, for the reason stepDemolition documents: an
+      // order aimed at a route has no single tile to stand on, so `moving`
+      // would never clear on its own.
+      if (this.moving[i] === 1) {
+        this.moving[i] = 0;
+        this.fieldRef[i] = -1;
+      }
+      if (++this.chargeTicks[i] >= type.tunnelChargeTicks) {
+        this.collapseTunnel(r, i);
+        this.chargeOrder[i] = -1;
+        this.chargeTicks[i] = 0;
+      }
+    }
+  }
+
+  private collapseTunnel(r: number, by: number): void {
+    this.tnAlive[r] = 0;
+    this.tnVentOpen[r] = 0;
+    // Everyone below dies. A bailing crew has somewhere to bail to; this does
+    // not. Attributed to `by` so kill credit and ROE resolve the normal way.
+    // Killed via destroy(), never applyDamage — the earth-is-the-armour guard
+    // there would refuse the very ordnance that is the earth coming down.
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 1 && this.tunnelIn[i] === r) {
+        this.tunnelIn[i] = -1;
+        this.destroy(i, by);
+      }
+      // Anyone currently up from this route simply loses their hole.
+      if (this.homeTunnel[i] === r) this.homeTunnel[i] = -1;
+    }
+    this.tnOccupants[r] = 0;
+    const [cx, cy] = this.ventPos(r);
+    this.splashDirect(cx, cy, TUNNEL_COLLAPSE_RADIUS, 0, TUNNEL_COLLAPSE_SHOCK, by, -1);
+    this.pendingEvents.push({ kind: 'tunnelCollapsed', tick: this.tickCount, tunnel: r, by });
+  }
+
+  /** Squared distance from unit `i` to the closest tile of route `r` that
+   *  still shows spoil. Infinity-ish when the trail has fully weathered —
+   *  a route whose surface sign is gone cannot be worked on. */
+  private nearestTrailDistSq(r: number, i: number): Fx {
+    let best = FX_MAX;
+    for (const t of this.tnTiles[r]) {
+      if (this.trail[t] === 0) continue;
+      const tx = t % this.width;
+      const ty = (t - tx) / this.width;
+      const d = distSqFx(
+        fx.sub(fx.add(fx.from(tx), HALF), this.posX[i]),
+        fx.sub(fx.add(fx.from(ty), HALF), this.posY[i])
+      );
+      if (d < best) best = d;
+    }
+    return best;
+  }
+
+  /** Tile index of route `r`'s closest still-visible spoil to a point, or -1
+   *  when the trail has fully weathered. Command-time only — the per-tick
+   *  range check is nearestTrailDistSq, which needs the distance, not the
+   *  tile. */
+  private nearestTrailTile(r: number, x: Fx, y: Fx): number {
+    let best = -1;
+    let bestD = FX_MAX;
+    for (const t of this.tnTiles[r]) {
+      if (this.trail[t] === 0) continue;
+      const tx = t % this.width;
+      const ty = (t - tx) / this.width;
+      const d = distSqFx(
+        fx.sub(fx.add(fx.fromInt(tx), HALF), x),
+        fx.sub(fx.add(fx.fromInt(ty), HALF), y)
+      );
+      if (d < bestD) {
+        bestD = d;
+        best = t;
+      }
+    }
+    return best;
   }
 
   /** True when anyone from `side` is garrisoned in this building. */
