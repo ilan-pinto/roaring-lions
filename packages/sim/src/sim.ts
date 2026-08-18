@@ -30,6 +30,8 @@ import {
 import {
   pointAtDistance,
   routeLength,
+  SURFACE_SECONDS,
+  SURFACE_VOLLEY,
   TRAIL_DECAY,
   TRAIL_DECAY_EVERY,
   TRAIL_MAX,
@@ -507,6 +509,8 @@ export type SimEvent =
   | { kind: 'transport'; tick: number; entity: number; carrier: number; loaded: boolean }
   | { kind: 'ventOpened'; tick: number; tunnel: number }
   | { kind: 'tunnelContact'; tick: number; side: number; tunnel: number; level: ContactLevel }
+  | { kind: 'surfaced'; tick: number; entity: number; tunnel: number }
+  | { kind: 'submerged'; tick: number; entity: number; tunnel: number }
   | { kind: 'routed'; tick: number; entity: number }
   | { kind: 'rallied'; tick: number; entity: number }
   | { kind: 'pinned'; tick: number; entity: number }
@@ -522,7 +526,7 @@ export type SimEvent =
 export const SIM_EVENT_KINDS = [
   'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'ambushSprung',
   'strike', 'smokeLaid', 'revealed', 'structureHit', 'structureDestroyed', 'garrison',
-  'transport', 'ventOpened', 'tunnelContact', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
+  'transport', 'ventOpened', 'tunnelContact', 'surfaced', 'submerged', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
 ] as const satisfies readonly SimEvent['kind'][];
 
 /** Compile-time proof the list above covers the whole union.
@@ -645,6 +649,16 @@ export class Sim {
   /** Route this unit is inside, or -1 on the surface. The third containment
    *  index, after garrisonedIn and carriedBy. */
   private readonly tunnelIn: Int32Array;
+  /** Ticks of guaranteed exposure left after surfacing; 0 when not up. */
+  private readonly surfaceTicks: Int32Array;
+  /** Shots left in the burst a surfacing committed to; meaningful while
+   *  `homeTunnel` is set. */
+  private readonly volleyLeft: Int32Array;
+  /** Route a surfaced unit goes back down into, -1 when it has none. Kept
+   *  distinct from `tunnelIn` on purpose: `tunnelIn` is where I am,
+   *  `homeTunnel` is where I go back to — a unit that is up has `tunnelIn`
+   *  -1 and `homeTunnel` set, and is hit by the ordinary surface rules. */
+  private readonly homeTunnel: Int32Array;
   /** Called-for strikes still in the air. */
   private pendingStrikes: { x: Fx; y: Fx; by: number; readyTick: number }[] = [];
 
@@ -838,6 +852,9 @@ export class Sim {
     this.boardGoal = new Int32Array(n).fill(-1);
     this.passengers = new Uint8Array(n);
     this.tunnelIn = new Int32Array(n).fill(-1);
+    this.surfaceTicks = new Int32Array(n);
+    this.volleyLeft = new Int32Array(n);
+    this.homeTunnel = new Int32Array(n).fill(-1);
     const sc = MAX_STRUCTURES;
     this.stAlive = new Uint8Array(sc);
     this.stHp = new Int32Array(sc);
@@ -1051,6 +1068,11 @@ export class Sim {
     this.tnOccupants[routeIdx]++;
   }
 
+  /** Tile centre of a route's vent — where a surfacing unit stands up. */
+  private ventPos(r: number): [Fx, Fx] {
+    return [this.tnVentX[r], this.tnVentY[r]];
+  }
+
   /** Put a digger on a route. One digger per route; assigning replaces. */
   assignDigger(routeIdx: number, unitId: number): void {
     this.tnDigger[routeIdx] = unitId;
@@ -1188,6 +1210,7 @@ export class Sim {
     this.applyCommands();
     this.stepDigging();
     this.stepDetection();
+    this.stepSurfacing();
     this.stepCombat();
     this.stepProjectiles();
     this.stepStrikes();
@@ -1761,6 +1784,88 @@ export class Sim {
     if (etx >= 0 && ety >= 0 && etx < this.width && ety < this.height) {
       this.trail[ety * this.width + etx] = TRAIL_MAX;
     }
+  }
+
+  private stepSurfacing(): void {
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0) continue;
+
+      // Already up: run the exposure clock down, then go back under. The
+      // volley AND the window both have to be spent — suppression does not
+      // shorten it. A unit caught in the open is caught in the open, and that
+      // guaranteed window is the player's whole answer to this mechanic.
+      if (this.surfaceTicks[i] > 0) {
+        this.surfaceTicks[i]--;
+        if (this.surfaceTicks[i] === 0 && this.volleyLeft[i] <= 0) {
+          this.submerge(i);
+        }
+        continue;
+      }
+      if (this.homeTunnel[i] >= 0) {
+        // Window elapsed but the burst is unfinished: hold until it is, and
+        // go back down the tick it finishes. Level-triggered on purpose — the
+        // window-end check above fires on one tick only, and a burst that
+        // outlives the window (a slow weapon, a pin across the window's end)
+        // finishes later, in ordinary combat. An edge check alone strands the
+        // unit on the surface forever, homeTunnel latched, silently.
+        if (this.volleyLeft[i] > 0) continue;
+        this.submerge(i);
+        continue;
+      }
+
+      const r = this.tunnelIn[i];
+      if (r < 0 || this.tnAlive[r] === 0 || this.tnVentOpen[r] === 0) continue;
+      const type = this.unitTypes[this.typeIdx[i]];
+      if (type.weapons.length === 0) continue;
+      const [vx, vy] = this.ventPos(r);
+      if (!this.hasTargetFrom(i, vx, vy)) continue;
+
+      this.tunnelIn[i] = -1;
+      this.homeTunnel[i] = r;
+      this.tnOccupants[r]--;
+      this.posX[i] = vx;
+      this.posY[i] = vy;
+      this.surfaceTicks[i] = SURFACE_SECONDS * TICKS_PER_SECOND;
+      this.volleyLeft[i] = SURFACE_VOLLEY;
+      this.pendingEvents.push({ kind: 'surfaced', tick: this.tickCount, entity: i, tunnel: r });
+    }
+  }
+
+  private submerge(i: number): void {
+    const r = this.homeTunnel[i];
+    if (r < 0 || this.tnAlive[r] === 0) {
+      // The route died while they were up. They are simply on the surface now.
+      this.homeTunnel[i] = -1;
+      return;
+    }
+    // Through putInTunnel rather than writing tunnelIn/tnOccupants here: it
+    // already owns that invariant, and two code paths mutating the same
+    // occupant count is how counts drift.
+    this.putInTunnel(i, r);
+    this.homeTunnel[i] = -1;
+    this.suppression[i] = 0; // out of the fire
+    this.pendingEvents.push({ kind: 'submerged', tick: this.tickCount, entity: i, tunnel: r });
+  }
+
+  /** Is there a hostile this unit could engage FROM the vent tile? Evaluated
+   *  from the vent rather than the unit's current position, because that is
+   *  where it will be standing. Without the sight-line half, a unit surfaces
+   *  facing a wall and burns its whole window achieving nothing. */
+  private hasTargetFrom(i: number, vx: Fx, vy: Fx): boolean {
+    const type = this.unitTypes[this.typeIdx[i]];
+    const w = type.weapons[0];
+    const sSide = this.side[i];
+    const gx = vx >> 16;
+    const gy = vy >> 16;
+    for (let t = 0; t < this.count; t++) {
+      if (this.alive[t] === 0 || this.side[t] === sSide || this.side[t] > 1) continue;
+      if (this.garrisonedIn[t] >= 0 || this.carriedBy[t] >= 0 || this.tunnelIn[t] >= 0) continue;
+      const dSq = distSqFx(fx.sub(this.posX[t], vx), fx.sub(this.posY[t], vy));
+      if (dSq > w.effectiveRangeSq) continue;
+      if (this.losRay(gx, gy, this.posX[t] >> 16, this.posY[t] >> 16) < 0) continue;
+      return true;
+    }
+    return false;
   }
 
   private stepDetection(): void {
@@ -2357,6 +2462,10 @@ export class Sim {
 
     this.cooldown[shooter * 2 + slot] = w.ticksBetweenShots;
     this.lastFired[shooter] = this.tickCount;
+    // A shot is definitely being taken. Meter the surfacing burst — only a
+    // unit up from a route has one; an ordinary surface unit never carries
+    // volley bookkeeping.
+    if (this.homeTunnel[shooter] >= 0) this.volleyLeft[shooter]--;
 
     // Aim point: the target now, or a scatter point nearby on a miss.
     let aimX = tx;

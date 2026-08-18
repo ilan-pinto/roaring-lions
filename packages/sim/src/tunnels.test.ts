@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
-import { pointAtDistance, routeLength, TRAIL_DECAY, TRAIL_MAX } from './tunnels';
+import { pointAtDistance, routeLength, SURFACE_SECONDS, TRAIL_DECAY, TRAIL_MAX } from './tunnels';
 import { STRIKE_DELAY_TICKS } from './tuning';
 import type { UnitTypeJson } from './sim';
 
@@ -82,7 +82,7 @@ describe('route geometry', () => {
   });
 });
 
-import { Sim } from './sim';
+import { Sim, TICKS_PER_SECOND } from './sim';
 
 const ROUTE = { id: 'tn_a', points: [[2, 2], [8, 2]] as const, dig_tiles_per_s: 1 };
 
@@ -404,5 +404,117 @@ describe('containment holds against strikes, drones, sight and shells in flight'
     expect(sim.state.alive[victim]).toBe(1);
     expect(sim.state.hp[victim]).toBe(hpBelow);
     expect(groundImpacts).toBeGreaterThan(0); // the round landed on the dirt above
+  });
+});
+
+/** A live route with an open vent (unless `dug: false`), a rifle team below,
+ *  and an enemy rifle squad three tiles east of the vent — the shape every
+ *  surfacing test starts from. `dug: true` fast-forwards the dig by writing
+ *  the head's progress and the vent flag directly, exactly what simWithRoute's
+ *  digger would have left behind after ~160 ticks. `wallAcrossVent` raises
+ *  terrain between vent and target, so the vent tile has no shot at anything.
+ *  `unit` swaps the rifle for a variant when a test needs a different ROF. */
+function readyToVent(opts: { dug: boolean; wallAcrossVent?: boolean; unit?: UnitTypeJson }) {
+  const sim = new Sim({ seed: 11, width: 24, height: 12, capacity: 8 });
+  const idx = sim.addTunnel({ id: 'tn', points: [[4, 6], [12, 6]] as const, dig_tiles_per_s: 1 });
+  const ventX = 12;
+  const ventY = 6;
+  const rifle = sim.addUnitType(opts.unit ?? RIFLE_TYPE);
+  const target = sim.spawn(rifle, 0, fx.from(15.5), fx.from(6.5)); // 3 tiles from the vent
+  const hidden = sim.spawn(rifle, 1, fx.from(4.5), fx.from(6.5));
+  sim.putInTunnel(hidden, idx);
+  if (opts.dug) {
+    sim.tnProgress[idx] = sim.tnLength[idx];
+    sim.tnVentOpen[idx] = 1;
+  }
+  if (opts.wallAcrossVent) {
+    sim.setBlocked(13, 6, true);
+    sim.setBlocked(14, 6, true);
+  }
+  return { sim, idx, hidden, target, ventX, ventY };
+}
+
+describe('surfacing', () => {
+  it('does not surface while the vent is still closed', () => {
+    const { sim, hidden } = readyToVent({ dug: false });
+    for (let t = 0; t < 200; t++) sim.tick();
+    expect(sim.state.tunnelIn[hidden]).toBeGreaterThanOrEqual(0);
+  });
+
+  it('surfaces at the vent when a target is in range and in sight of it', () => {
+    const { sim, hidden, ventX, ventY } = readyToVent({ dug: true });
+    let surfaced = false;
+    for (let t = 0; t < 200 && !surfaced; t++) {
+      for (const e of sim.tick()) if (e.kind === 'surfaced' && e.entity === hidden) surfaced = true;
+    }
+    expect(surfaced).toBe(true);
+    expect(sim.state.tunnelIn[hidden]).toBe(-1);
+    expect(fx.toNumber(sim.state.posX[hidden])).toBeCloseTo(ventX + 0.5, 1);
+    expect(fx.toNumber(sim.state.posY[hidden])).toBeCloseTo(ventY + 0.5, 1);
+  });
+
+  it('stays up for the full window even under fire that would pin it', () => {
+    const { sim, hidden } = readyToVent({ dug: true });
+    let surfacedAt = -1;
+    for (let t = 0; t < 400; t++) {
+      for (const e of sim.tick()) {
+        if (e.kind === 'surfaced' && e.entity === hidden) surfacedAt = t;
+      }
+      if (surfacedAt >= 0 && t === surfacedAt + 1) {
+        sim.debugSuppress(hidden, fx.from(2)); // well past PIN_AT
+      }
+      if (surfacedAt >= 0 && t < surfacedAt + SURFACE_SECONDS * TICKS_PER_SECOND) {
+        expect(sim.state.tunnelIn[hidden]).toBe(-1); // still exposed
+      }
+    }
+    expect(surfacedAt).toBeGreaterThanOrEqual(0);
+  });
+
+  it('submerges once the volley is spent and the window has elapsed', () => {
+    const { sim, hidden } = readyToVent({ dug: true });
+    let submerged = false;
+    for (let t = 0; t < 600 && !submerged; t++) {
+      for (const e of sim.tick()) if (e.kind === 'submerged' && e.entity === hidden) submerged = true;
+    }
+    expect(submerged).toBe(true);
+    expect(sim.state.tunnelIn[hidden]).toBeGreaterThanOrEqual(0);
+  });
+
+  it('does not surface into a wall it cannot shoot past', () => {
+    const { sim, hidden } = readyToVent({ dug: true, wallAcrossVent: true });
+    for (let t = 0; t < 300; t++) sim.tick();
+    expect(sim.state.tunnelIn[hidden]).toBeGreaterThanOrEqual(0);
+  });
+
+  it('a burst that outlives the window still brings the unit home', () => {
+    // One shot every 60 ticks — exactly the window. The second shot always
+    // lands after the exposure clock has run out, so the submerge decision
+    // cannot be an edge check on the window-end tick alone: that tick sees a
+    // half-finished burst, and the finish happens later, in ordinary combat.
+    // Left edge-triggered, the unit is stranded on the surface forever with
+    // homeTunnel latched, silently — nothing fails, it just never goes home.
+    const slow: UnitTypeJson = {
+      ...RIFLE_TYPE,
+      id: 'tn_rifle_slow',
+      weapons: [
+        {
+          id: 'tn_rifle_slow_w',
+          type: 'small_arms',
+          range_tiles: 8,
+          effective_range_tiles: 6.4,
+          accuracy: 0.6,
+          penetration: 8,
+          damage: 15,
+          rof_per_min: 20,
+        },
+      ],
+    };
+    const { sim, hidden } = readyToVent({ dug: true, unit: slow });
+    let submerged = false;
+    for (let t = 0; t < 400 && !submerged; t++) {
+      for (const e of sim.tick()) if (e.kind === 'submerged' && e.entity === hidden) submerged = true;
+    }
+    expect(submerged).toBe(true);
+    expect(sim.state.tunnelIn[hidden]).toBeGreaterThanOrEqual(0);
   });
 });
