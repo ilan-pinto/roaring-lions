@@ -27,7 +27,14 @@ import {
   type StructureType,
   type StructureTypeJson,
 } from './structures';
-import { pointAtDistance, routeLength, TRAIL_MAX, type TunnelRouteJson } from './tunnels';
+import {
+  pointAtDistance,
+  routeLength,
+  TRAIL_DECAY,
+  TRAIL_DECAY_EVERY,
+  TRAIL_MAX,
+  type TunnelRouteJson,
+} from './tunnels';
 import {
   K_DETECT,
   CONTACT_DECAY,
@@ -1172,7 +1179,7 @@ export class Sim {
     this.stepSweep();
     this.stepMovement();
     this.stepTransport();
-    this.stepSmoke();
+    this.stepFields();
     this.stepGarrison();
     this.stepDemolition();
     this.stepUpkeep();
@@ -3393,8 +3400,8 @@ export class Sim {
 
   // ------------------------------------------------------------------- upkeep
 
-  /** Screens thin out and lift. */
-  private stepSmoke(): void {
+  /** Field grids weather: screens thin out and lift, surface spoil erodes. */
+  private stepFields(): void {
     const smoke = this.smoke;
     for (let i = 0; i < smoke.length; i++) {
       const v = smoke[i];
@@ -3402,6 +3409,17 @@ export class Sim {
     }
     for (let i = 0; i < this.count; i++) {
       if (this.smokeCooldown[i] > 0) this.smokeCooldown[i]--;
+    }
+    // Spoil weathers more slowly than smoke lifts, so it is only touched every
+    // TRAIL_DECAY_EVERY ticks. Integer, like smoke — a fractional decay here
+    // would be the "just this one calculation" the fixed-point invariant exists
+    // to refuse.
+    if (this.tickCount % TRAIL_DECAY_EVERY === 0) {
+      const trail = this.trail;
+      for (let i = 0; i < trail.length; i++) {
+        const v = trail[i];
+        if (v !== 0) trail[i] = v > TRAIL_DECAY ? v - TRAIL_DECAY : 0;
+      }
     }
   }
 

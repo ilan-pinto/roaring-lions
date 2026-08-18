@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
-import { pointAtDistance, routeLength, TRAIL_MAX } from './tunnels';
+import { pointAtDistance, routeLength, TRAIL_DECAY, TRAIL_MAX } from './tunnels';
 import type { UnitTypeJson } from './sim';
 
 const STRAIGHT: [number, number][] = [[0, 0], [3, 0]];
@@ -154,7 +154,12 @@ describe('digging', () => {
     // interior loop's half-tile step, so the loop body never runs on the
     // first tick — the mouth tile is only marked by the trailing endpoint
     // stamp. If that stamp were ever dropped, tick one would dig nothing.
-    expect(sim.trail[2 * sim.width + 2]).toBe(TRAIL_MAX); // mouth tile (2,2)
+    // One decay step is already gone: stepFields runs late in the same tick,
+    // after stepDigging's stamp, and tickCount 0 is a multiple of
+    // TRAIL_DECAY_EVERY, so the fresh stamp weathers once before tick()
+    // returns. That ordering is deliberate — decay sits where smoke decay
+    // always has — so the expectation moved, not the decay.
+    expect(sim.trail[2 * sim.width + 2]).toBe(TRAIL_MAX - TRAIL_DECAY); // mouth tile (2,2)
 
     for (let t = 1; t < 20; t++) sim.tick(); // 20 ticks total: progress crosses 1 tile
     expect(sim.trail[2 * sim.width + 2]).toBe(TRAIL_MAX); // still dug
@@ -162,5 +167,24 @@ describe('digging', () => {
 
     expect(sim.trail[2 * sim.width + 4]).toBe(0); // ahead of the head: undug
     expect(sim.trail[10 * sim.width + 10]).toBe(0); // nowhere near the route
+  });
+});
+
+describe('trail decay', () => {
+  it('weathers spoil toward zero without going negative', () => {
+    const { sim, idx } = simWithRoute();
+    const digger = sim.addUnitType(DIGGER_TYPE);
+    sim.assignDigger(idx, sim.spawn(digger, 1, fx.from(2.5), fx.from(2.5)));
+    for (let t = 0; t < 40; t++) sim.tick();
+    const tile = 2 * 16 + 2;
+    const fresh = sim.trail[tile];
+    expect(fresh).toBeGreaterThan(0);
+
+    sim.debugKill(sim.tnDigger[idx]); // stop new spoil
+    for (let t = 0; t < 400; t++) sim.tick();
+    expect(sim.trail[tile]).toBeLessThan(fresh);
+
+    for (let t = 0; t < 4000; t++) sim.tick();
+    expect(sim.trail[tile]).toBe(0); // floors, never wraps
   });
 });
