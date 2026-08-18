@@ -57,3 +57,37 @@ describe('route geometry', () => {
     expect(fx.toNumber(y2)).toBeCloseTo(2, 2);
   });
 });
+
+import { Sim } from './sim';
+
+const ROUTE = { id: 'tn_a', points: [[2, 2], [8, 2]] as const, dig_tiles_per_s: 1 };
+
+function simWithRoute() {
+  const sim = new Sim({ seed: 7, width: 16, height: 16, capacity: 8 });
+  const idx = sim.addTunnel(ROUTE);
+  return { sim, idx };
+}
+
+describe('tunnel state', () => {
+  it('registers a route with its measured length and no progress', () => {
+    const { sim, idx } = simWithRoute();
+    expect(idx).toBe(0);
+    expect(sim.tunnelCount).toBe(1);
+    expect(sim.tnAlive[idx]).toBe(1);
+    expect(sim.tnProgress[idx]).toBe(0);
+    expect(fx.toNumber(sim.tnLength[idx])).toBeCloseTo(6, 2);
+    expect(sim.tnVentOpen[idx]).toBe(0);
+  });
+
+  it('starts every unit on the surface', () => {
+    const { sim } = simWithRoute();
+    expect(sim.state.tunnelIn[0]).toBe(-1);
+  });
+
+  it('refuses a route with fewer than two points', () => {
+    const sim = new Sim({ seed: 7, width: 16, height: 16, capacity: 8 });
+    expect(() => sim.addTunnel({ id: 'bad', points: [[1, 1]], dig_tiles_per_s: 1 })).toThrow(
+      /at least two points/
+    );
+  });
+});

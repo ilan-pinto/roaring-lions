@@ -27,6 +27,7 @@ import {
   type StructureType,
   type StructureTypeJson,
 } from './structures';
+import { pointAtDistance, routeLength, type TunnelRouteJson } from './tunnels';
 import {
   K_DETECT,
   CONTACT_DECAY,
@@ -548,6 +549,9 @@ const MAX_STRUCTURES = 256;
 /** Queued path points per unit. Enough for a route around a block; a cap
  *  keeps the storage flat and the hash cheap. */
 const MAX_WAYPOINTS = 8;
+/** Routes per mission. Small on purpose: a mission with more than a handful of
+ *  tunnels is a mission whose player cannot reason about any of them. */
+const MAX_TUNNELS = 16;
 
 // ---------------------------------------------------------------------------
 
@@ -628,6 +632,9 @@ export class Sim {
   /** Vehicle this unit has been ordered to board but has not reached. */
   private readonly boardGoal: Int32Array;
   private readonly passengers: Uint8Array;
+  /** Route this unit is inside, or -1 on the surface. The third containment
+   *  index, after garrisonedIn and carriedBy. */
+  private readonly tunnelIn: Int32Array;
   /** Called-for strikes still in the air. */
   private pendingStrikes: { x: Fx; y: Fx; by: number; readyTick: number }[] = [];
 
@@ -669,6 +676,29 @@ export class Sim {
   private readonly lastSeenX: Int32Array;
   private readonly lastSeenY: Int32Array;
   private readonly lastSeenValid: Uint8Array;
+
+  // --- tunnel SoA ---
+  readonly tnAlive = new Uint8Array(MAX_TUNNELS);
+  /** Tiles dug along the route, Q16.16. */
+  readonly tnProgress = new Int32Array(MAX_TUNNELS);
+  readonly tnLength = new Int32Array(MAX_TUNNELS);
+  readonly tnVentOpen = new Uint8Array(MAX_TUNNELS);
+  readonly tnOccupants = new Int32Array(MAX_TUNNELS);
+  /** Per-tick dig advance, Q16.16 tiles: dig_tiles_per_s * DT, precomputed so
+   *  the step function does no conversion. */
+  readonly tnDigRate = new Int32Array(MAX_TUNNELS);
+  /** Route polylines, indexed by route. Read-only after addTunnel. */
+  private readonly tnPoints: (readonly (readonly [number, number])[])[] = [];
+  /** Tile centre of each route's vent, precomputed. */
+  private readonly tnVentX = new Int32Array(MAX_TUNNELS);
+  private readonly tnVentY = new Int32Array(MAX_TUNNELS);
+  /** Tiles each route passes under. Built once in addTunnel — a Set here is a
+   *  load-time allocation, not a per-tick one, so the hot-loop rule holds. */
+  private readonly tnTiles: Set<number>[] = [];
+  private tunnelCount_ = 0;
+  /** Surface spoil density per tile, 0-255. Presentation reads it; detection
+   *  uses it to place the tunnel's signature. Same shape as the smoke grid. */
+  readonly trail: Uint8Array;
 
   // --- projectile SoA (ring) ---
   private readonly prActive: Uint8Array;
@@ -717,6 +747,8 @@ export class Sim {
     readonly demoTarget: Int32Array;
     /** Vehicle this unit is riding in, -1 when on foot. */
     readonly carriedBy: Int32Array;
+    /** Route this unit is inside, or -1 on the surface. */
+    readonly tunnelIn: Int32Array;
   };
 
   /** Read-only structure view for the renderer and HUD. */
@@ -751,6 +783,7 @@ export class Sim {
     this.blocked = new Uint8Array(tiles);
     this.cover = new Uint8Array(tiles);
     this.smoke = new Uint8Array(tiles);
+    this.trail = new Uint8Array(tiles);
     this.alive = new Uint8Array(n);
     this.side = new Uint8Array(n);
     this.typeIdx = new Uint16Array(n);
@@ -788,6 +821,7 @@ export class Sim {
     this.carriedBy = new Int32Array(n).fill(-1);
     this.boardGoal = new Int32Array(n).fill(-1);
     this.passengers = new Uint8Array(n);
+    this.tunnelIn = new Int32Array(n).fill(-1);
     const sc = MAX_STRUCTURES;
     this.stAlive = new Uint8Array(sc);
     this.stHp = new Int32Array(sc);
@@ -854,6 +888,7 @@ export class Sim {
       curStructure: this.curStructure,
       demoTarget: this.demoTarget,
       carriedBy: this.carriedBy,
+      tunnelIn: this.tunnelIn,
     };
     this.structures = {
       alive: this.stAlive,
@@ -950,6 +985,53 @@ export class Sim {
     this.stMaxY[id] = maxY;
     this.recomputeFields();
     return id;
+  }
+
+  get tunnelCount(): number {
+    return this.tunnelCount_;
+  }
+
+  /** Register an authored route. Returns its index. */
+  addTunnel(route: TunnelRouteJson): number {
+    if (this.tunnelCount_ >= MAX_TUNNELS) throw new Error('too many tunnels');
+    if (route.points.length < 2) {
+      throw new Error(`tunnel ${route.id}: a route needs at least two points`);
+    }
+    const id = this.tunnelCount_++;
+    this.tnPoints.push(route.points);
+    this.tnAlive[id] = 1;
+    this.tnProgress[id] = 0;
+    this.tnLength[id] = routeLength(route.points);
+    this.tnVentOpen[id] = 0;
+    this.tnOccupants[id] = 0;
+    this.tnDigRate[id] = fx.mul(fx.from(route.dig_tiles_per_s), DT);
+    const vent = route.points[route.points.length - 1];
+    this.tnVentX[id] = fx.add(fx.from(vent[0]), HALF);
+    this.tnVentY[id] = fx.add(fx.from(vent[1]), HALF);
+    // Tile set for the route, walked at the same half-tile step stampTrail
+    // uses. Allocated once at load, never in the tick loop.
+    const tiles = new Set<number>();
+    for (let d = 0; d <= this.tnLength[id]; d = fx.add(d, HALF)) {
+      const [px, py] = pointAtDistance(route.points, d);
+      const tx = px >> 16;
+      const ty = py >> 16;
+      if (tx >= 0 && ty >= 0 && tx < this.width && ty < this.height) {
+        tiles.add(ty * this.width + tx);
+      }
+    }
+    this.tnTiles.push(tiles);
+    return id;
+  }
+
+  /** Place a unit inside a route. Used by mission placements that start a
+   *  garrison underground, and by `submerge` when a fighter goes back down. */
+  putInTunnel(unitId: number, routeIdx: number): void {
+    if (routeIdx < 0 || routeIdx >= this.tunnelCount_) {
+      throw new Error(`no tunnel ${routeIdx}`);
+    }
+    if (this.tunnelIn[unitId] === routeIdx) return;
+    this.tunnelIn[unitId] = routeIdx;
+    this.tnOccupants[routeIdx]++;
   }
 
   /** Clamp a point to somewhere a unit can actually stand: inside the map,
