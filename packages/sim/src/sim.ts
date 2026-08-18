@@ -1771,6 +1771,14 @@ export class Sim {
       if (oSide > 1) continue; // civilians (side 2) observe nothing
       for (let tgt = 0; tgt < this.count; tgt++) {
         if (this.alive[tgt] === 0 || this.side[tgt] === oSide) continue;
+        // Underground is unseen: not observed this tick, so an existing
+        // contact decays through the normal ladder to `lost`. This
+        // deliberately DIVERGES from the garrison precedent — a garrisoned
+        // unit stays detectable, which is how selectStructureTarget finds an
+        // occupied building — because earth blocks sight and the trail
+        // contact ladder (tnContact) is meant to be the ONLY channel for
+        // knowing about a tunnel. Do not "fix" the asymmetry.
+        if (this.tunnelIn[tgt] >= 0) continue;
         const d = this.detectionPair(obs, tgt);
         if (!d.visible) continue;
         const k = oSide * cap + tgt;
@@ -2579,6 +2587,15 @@ export class Sim {
     }
 
     if (this.prWillHit[pr] === 1 && targetAlive) {
+      // The target went below while the round was in flight: nothing is at
+      // the aim point but dirt, so the round lands on it where the target
+      // stood. The ground impact's splash and suppression are already
+      // contained by the tunnelIn guards, so the earth stays honest all the
+      // way down.
+      if (this.tunnelIn[target] >= 0) {
+        this.groundImpact(pr, this.posX[target], this.posY[target]);
+        return;
+      }
       this.resolveHit(pr, target);
     } else {
       // Miss (or the target died in flight): ordnance lands at the aim point.
@@ -2766,7 +2783,10 @@ export class Sim {
   private applyDamage(target: number, dmg: Fx, by: number): void {
     if (dmg <= 0 || this.alive[target] === 0) return;
     // Inside a building or a vehicle, the hull takes it. Kill that first.
-    if (this.garrisonedIn[target] >= 0 || this.carriedBy[target] >= 0) return;
+    // Underground there is no hull to kill: the earth itself is the armour,
+    // and a tunnel collapse — which kills via destroy(), never through here —
+    // is the only way ordnance gets to the occupants.
+    if (this.garrisonedIn[target] >= 0 || this.carriedBy[target] >= 0 || this.tunnelIn[target] >= 0) return;
     this.hp[target] = fx.sub(this.hp[target], dmg);
     this.lastDamagedTick[target] = this.tickCount;
     if (this.hp[target] <= 0) this.destroy(target, by);
@@ -3068,7 +3088,9 @@ export class Sim {
       let bestD = 0x7fffffff;
       for (let t = 0; t < this.count; t++) {
         if (this.alive[t] === 0 || this.side[t] === side || this.side[t] > 1) continue;
-        if (this.garrisonedIn[t] >= 0 || this.carriedBy[t] >= 0) continue;
+        // Same containment skip as selectTarget: a one-shot munition must not
+        // spend itself diving at three metres of dirt.
+        if (this.garrisonedIn[t] >= 0 || this.carriedBy[t] >= 0 || this.tunnelIn[t] >= 0) continue;
         if (this.contact[side * cap + t] < IDENTIFIED_AT) continue;
         // A munition picks its own target, so the can_target rule has to be
         // applied here too -- selectTarget is never consulted on this path. A

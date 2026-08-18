@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
 import { pointAtDistance, routeLength, TRAIL_DECAY, TRAIL_MAX } from './tunnels';
+import { STRIKE_DELAY_TICKS } from './tuning';
 import type { UnitTypeJson } from './sim';
 
 const STRAIGHT: [number, number][] = [[0, 0], [3, 0]];
@@ -252,17 +253,17 @@ const RIFLE_TYPE: UnitTypeJson = {
   ],
 };
 
-describe('a unit underground is contained', () => {
-  function belowGround() {
-    const sim = new Sim({ seed: 11, width: 24, height: 12, capacity: 8 });
-    const idx = sim.addTunnel({ id: 'tn', points: [[4, 6], [12, 6]] as const, dig_tiles_per_s: 1 });
-    const rifle = sim.addUnitType(RIFLE_TYPE);
-    const hidden = sim.spawn(rifle, 1, fx.from(4.5), fx.from(6.5));
-    const shooter = sim.spawn(rifle, 0, fx.from(6.5), fx.from(6.5));
-    sim.putInTunnel(hidden, idx);
-    return { sim, hidden, shooter, idx };
-  }
+function belowGround() {
+  const sim = new Sim({ seed: 11, width: 24, height: 12, capacity: 8 });
+  const idx = sim.addTunnel({ id: 'tn', points: [[4, 6], [12, 6]] as const, dig_tiles_per_s: 1 });
+  const rifle = sim.addUnitType(RIFLE_TYPE);
+  const hidden = sim.spawn(rifle, 1, fx.from(4.5), fx.from(6.5));
+  const shooter = sim.spawn(rifle, 0, fx.from(6.5), fx.from(6.5));
+  sim.putInTunnel(hidden, idx);
+  return { sim, hidden, shooter, idx };
+}
 
+describe('a unit underground is contained', () => {
   it('cannot be selected as a target', () => {
     const { sim, hidden, shooter } = belowGround();
     for (let t = 0; t < 200; t++) sim.tick();
@@ -282,5 +283,109 @@ describe('a unit underground is contained', () => {
     const { sim, hidden } = belowGround();
     sim.debugSuppress(hidden, fx.from(1.5));
     expect(sim.state.suppression[hidden]).toBe(0);
+  });
+});
+
+/** AT team with a slow guided missile: ATGM flight is 4 tiles/s, so a 6-tile
+ *  shot spends 30 ticks in the air — a wide window to submerge the target
+ *  mid-flight. No suppression stat, for the same reason RIFLE_TYPE's rifle
+ *  carries none. */
+const ATGM_TYPE: UnitTypeJson = {
+  id: 'tn_at',
+  hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
+  mobility: { speed_tiles_s: 0.7 },
+  sensors: { optics: 1.0, sight_tiles: 9, signature: 0.5 },
+  weapons: [
+    {
+      id: 'tn_atgm',
+      type: 'atgm',
+      range_tiles: 9,
+      effective_range_tiles: 7.2,
+      accuracy: 0.9,
+      penetration: 900,
+      damage: 400,
+      rof_per_min: 3,
+    },
+  ],
+};
+
+/** Loitering munition, carriers.test.ts's shape: one warhead, one dive. */
+const DRONE_TYPE: UnitTypeJson = {
+  id: 'tn_loiter',
+  role: 'drone',
+  hull: { hp: 90, armor: { front: 0, side: 0, rear: 0 }, suppression_resistance: 1 },
+  mobility: { speed_tiles_s: 3.0, turn_rate_deg_s: 240 },
+  sensors: { optics: 1.4, sight_tiles: 14, signature: 0.3 },
+  abilities: ['kamikaze'],
+  weapons: [
+    {
+      id: 'tn_warhead',
+      type: 'heat',
+      range_tiles: 1.2,
+      effective_range_tiles: 1.2,
+      accuracy: 0.9,
+      penetration: 500,
+      damage: 600,
+      splash_tiles: 1.2,
+      suppression: 70,
+      rof_per_min: 60,
+    },
+  ],
+};
+
+describe('containment holds against strikes, drones, sight and shells in flight', () => {
+  it('an off-map strike does not kill through the earth', () => {
+    const { sim, hidden, shooter } = belowGround();
+    const hpBefore = sim.state.hp[hidden];
+    sim.queueCommand({ kind: 'callStrike', caller: shooter, x: fx.from(4.5), y: fx.from(6.5) });
+    for (let t = 0; t < STRIKE_DELAY_TICKS + 5; t++) sim.tick();
+    expect(sim.state.alive[hidden]).toBe(1);
+    expect(sim.state.hp[hidden]).toBe(hpBefore);
+    expect(sim.state.suppression[hidden]).toBe(0);
+  });
+
+  it('a loitering munition does not dive at three metres of dirt', () => {
+    const sim = new Sim({ seed: 11, width: 24, height: 12, capacity: 8 });
+    const idx = sim.addTunnel({ id: 'tn', points: [[4, 6], [12, 6]] as const, dig_tiles_per_s: 1 });
+    const drone = sim.spawn(sim.addUnitType(DRONE_TYPE), 0, fx.from(6.5), fx.from(6.5));
+    const hidden = sim.spawn(sim.addUnitType(SCOUT_TYPE), 1, fx.from(4.5), fx.from(6.5));
+    sim.putInTunnel(hidden, idx);
+    sim.identifyTo(0, hidden); // recon cue: the side knows, the earth still protects
+    for (let t = 0; t < 100; t++) sim.tick();
+    expect(sim.state.alive[hidden]).toBe(1); // not killed through the roof
+    expect(sim.state.alive[drone]).toBe(1); // did not waste itself on dirt
+    expect(sim.state.curTarget[drone]).toBe(-1);
+  });
+
+  it('an underground unit is unseen, and stale contact decays to lost', () => {
+    const { sim, hidden } = belowGround();
+    sim.identifyTo(0, hidden);
+    expect(sim.contactLevel(0, hidden)).toBe(2);
+    // From full confidence, CONTACT_DECAY crosses LOST_AT in ~322 ticks.
+    for (let t = 0; t < 400; t++) sim.tick();
+    expect(sim.contactLevel(0, hidden)).toBe(0);
+  });
+
+  it('a shell already in flight lands on the dirt when its target submerges', () => {
+    const sim = new Sim({ seed: 11, width: 24, height: 12, capacity: 8 });
+    const idx = sim.addTunnel({ id: 'tn', points: [[4, 6], [12, 6]] as const, dig_tiles_per_s: 1 });
+    sim.spawn(sim.addUnitType(ATGM_TYPE), 0, fx.from(10.5), fx.from(6.5));
+    const victim = sim.spawn(sim.addUnitType(SCOUT_TYPE), 1, fx.from(4.5), fx.from(6.5));
+    // Let the AT team find and launch at the victim ON the surface; submerge
+    // only once a would-hit round is actually in the air.
+    let launched = false;
+    for (let t = 0; t < 900 && !launched; t++) {
+      for (const e of sim.tick()) if (e.kind === 'fire' && e.willHit) launched = true;
+    }
+    expect(launched).toBe(true);
+    sim.putInTunnel(victim, idx);
+    const hpBelow = sim.state.hp[victim];
+    let groundImpacts = 0;
+    for (let t = 0; t < 60; t++) {
+      for (const e of sim.tick()) if (e.kind === 'nearMiss') groundImpacts++;
+    }
+    expect(sim.state.alive[victim]).toBe(1);
+    expect(sim.state.hp[victim]).toBe(hpBelow);
+    expect(groundImpacts).toBeGreaterThan(0); // the round landed on the dirt above
   });
 });
