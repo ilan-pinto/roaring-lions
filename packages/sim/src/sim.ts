@@ -27,7 +27,7 @@ import {
   type StructureType,
   type StructureTypeJson,
 } from './structures';
-import { pointAtDistance, routeLength, type TunnelRouteJson } from './tunnels';
+import { pointAtDistance, routeLength, TRAIL_MAX, type TunnelRouteJson } from './tunnels';
 import {
   K_DETECT,
   CONTACT_DECAY,
@@ -497,6 +497,7 @@ export type SimEvent =
   | { kind: 'structureDestroyed'; tick: number; structure: number; by: number }
   | { kind: 'garrison'; tick: number; entity: number; structure: number; entered: boolean }
   | { kind: 'transport'; tick: number; entity: number; carrier: number; loaded: boolean }
+  | { kind: 'ventOpened'; tick: number; tunnel: number }
   | { kind: 'routed'; tick: number; entity: number }
   | { kind: 'rallied'; tick: number; entity: number }
   | { kind: 'pinned'; tick: number; entity: number }
@@ -512,7 +513,7 @@ export type SimEvent =
 export const SIM_EVENT_KINDS = [
   'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'ambushSprung',
   'strike', 'smokeLaid', 'revealed', 'structureHit', 'structureDestroyed', 'garrison',
-  'transport', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
+  'transport', 'ventOpened', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
 ] as const satisfies readonly SimEvent['kind'][];
 
 /** Compile-time proof the list above covers the whole union.
@@ -687,6 +688,8 @@ export class Sim {
   /** Per-tick dig advance, Q16.16 tiles: dig_tiles_per_s * DT, precomputed so
    *  the step function does no conversion. */
   readonly tnDigRate = new Int32Array(MAX_TUNNELS);
+  /** Unit currently digging this route, -1 when none. One digger per route. */
+  readonly tnDigger = new Int32Array(MAX_TUNNELS).fill(-1);
   /** Route polylines, indexed by route. Read-only after addTunnel. */
   private readonly tnPoints: (readonly (readonly [number, number])[])[] = [];
   /** Tile centre of each route's vent, precomputed. */
@@ -1005,6 +1008,7 @@ export class Sim {
     this.tnVentOpen[id] = 0;
     this.tnOccupants[id] = 0;
     this.tnDigRate[id] = fx.mul(fx.from(route.dig_tiles_per_s), DT);
+    this.tnDigger[id] = -1;
     const vent = route.points[route.points.length - 1];
     this.tnVentX[id] = fx.add(fx.from(vent[0]), HALF);
     this.tnVentY[id] = fx.add(fx.from(vent[1]), HALF);
@@ -1032,6 +1036,11 @@ export class Sim {
     if (this.tunnelIn[unitId] === routeIdx) return;
     this.tunnelIn[unitId] = routeIdx;
     this.tnOccupants[routeIdx]++;
+  }
+
+  /** Put a digger on a route. One digger per route; assigning replaces. */
+  assignDigger(routeIdx: number, unitId: number): void {
+    this.tnDigger[routeIdx] = unitId;
   }
 
   /** Clamp a point to somewhere a unit can actually stand: inside the map,
@@ -1154,6 +1163,7 @@ export class Sim {
   /** Advance exactly one 20 Hz tick. Returns the events it produced. */
   tick(): SimEvent[] {
     this.applyCommands();
+    this.stepDigging();
     this.stepDetection();
     this.stepCombat();
     this.stepProjectiles();
@@ -1690,6 +1700,43 @@ export class Sim {
     if (this.alive[obs] === 0 || this.alive[tgt] === 0) return null;
     if (this.side[obs] === this.side[tgt]) return null;
     return this.detectionPair(obs, tgt);
+  }
+
+  private stepDigging(): void {
+    for (let r = 0; r < this.tunnelCount_; r++) {
+      if (this.tnAlive[r] === 0 || this.tnVentOpen[r] === 1) continue;
+      const digger = this.tnDigger[r];
+      if (digger < 0 || this.alive[digger] === 0) continue;
+      const before = this.tnProgress[r];
+      const after = fx.min(fx.add(before, this.tnDigRate[r]), this.tnLength[r]);
+      this.tnProgress[r] = after;
+      this.stampTrail(r, before, after);
+      if (after >= this.tnLength[r]) {
+        this.tnVentOpen[r] = 1;
+        this.pendingEvents.push({ kind: 'ventOpened', tick: this.tickCount, tunnel: r });
+      }
+    }
+  }
+
+  /** Mark every tile the head passed under between two progress values.
+   *  Sampled at half-tile steps: coarser skips tiles on a diagonal leg and
+   *  leaves a dotted trail the player reads as two tunnels. */
+  private stampTrail(r: number, from: Fx, to: Fx): void {
+    const points = this.tnPoints[r];
+    for (let d = from; d < to; d = fx.add(d, HALF)) {
+      const [x, y] = pointAtDistance(points, d);
+      const tx = x >> 16;
+      const ty = y >> 16;
+      if (tx >= 0 && ty >= 0 && tx < this.width && ty < this.height) {
+        this.trail[ty * this.width + tx] = TRAIL_MAX;
+      }
+    }
+    const [ex, ey] = pointAtDistance(points, to);
+    const etx = ex >> 16;
+    const ety = ey >> 16;
+    if (etx >= 0 && ety >= 0 && etx < this.width && ety < this.height) {
+      this.trail[ety * this.width + etx] = TRAIL_MAX;
+    }
   }
 
   private stepDetection(): void {

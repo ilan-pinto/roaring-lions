@@ -1,10 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
 import { pointAtDistance, routeLength } from './tunnels';
+import type { UnitTypeJson } from './sim';
 
 const STRAIGHT: [number, number][] = [[0, 0], [3, 0]];
 const ELBOW: [number, number][] = [[0, 0], [3, 0], [3, 4]];
 const DEGENERATE: [number, number][] = [[0, 0], [3, 0], [3, 0], [3, 4]];
+
+/** Minimal unarmed unit that can dig — same shape as combat.test.ts's INF,
+ *  zeroed of weapons, with the ability that makes assignDigger meaningful. */
+const DIGGER_TYPE: UnitTypeJson = {
+  id: 'tn_digger',
+  hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
+  mobility: { speed_tiles_s: 0.9 },
+  sensors: { optics: 1.0, sight_tiles: 8, signature: 0.6 },
+  abilities: ['dig_tunnel'],
+  weapons: [],
+};
 
 describe('route geometry', () => {
   it('measures a straight run', () => {
@@ -89,5 +101,45 @@ describe('tunnel state', () => {
     expect(() => sim.addTunnel({ id: 'bad', points: [[1, 1]], dig_tiles_per_s: 1 })).toThrow(
       /at least two points/
     );
+  });
+});
+
+describe('digging', () => {
+  it('advances progress only while a living digger is assigned', () => {
+    const { sim, idx } = simWithRoute();
+    for (let t = 0; t < 20; t++) sim.tick();
+    expect(sim.tnProgress[idx]).toBe(0); // no digger, no dig
+
+    const digger = sim.addUnitType(DIGGER_TYPE);
+    const id = sim.spawn(digger, 1, fx.from(2.5), fx.from(2.5));
+    sim.assignDigger(idx, id);
+    for (let t = 0; t < 20; t++) sim.tick();
+    expect(fx.toNumber(sim.tnProgress[idx])).toBeCloseTo(1, 1); // 1 tile/s for 1 s
+  });
+
+  it('opens the vent and emits once when the head reaches the end', () => {
+    const { sim, idx } = simWithRoute();
+    const digger = sim.addUnitType(DIGGER_TYPE);
+    sim.assignDigger(idx, sim.spawn(digger, 1, fx.from(2.5), fx.from(2.5)));
+    const opened = [];
+    for (let t = 0; t < 200; t++) {
+      for (const e of sim.tick()) if (e.kind === 'ventOpened') opened.push(e);
+    }
+    expect(sim.tnVentOpen[idx]).toBe(1);
+    expect(opened).toHaveLength(1);
+    expect(opened[0].tunnel).toBe(idx);
+  });
+
+  it('stops advancing when the digger dies but leaves the route standing', () => {
+    const { sim, idx } = simWithRoute();
+    const digger = sim.addUnitType(DIGGER_TYPE);
+    const id = sim.spawn(digger, 1, fx.from(2.5), fx.from(2.5));
+    sim.assignDigger(idx, id);
+    for (let t = 0; t < 20; t++) sim.tick();
+    const halted = sim.tnProgress[idx];
+    sim.debugKill(id);
+    for (let t = 0; t < 20; t++) sim.tick();
+    expect(sim.tnProgress[idx]).toBe(halted);
+    expect(sim.tnAlive[idx]).toBe(1); // the tunnel that exists still exists
   });
 });
