@@ -304,8 +304,9 @@ export const SURFACE_SECONDS = 3;
  *  and goes back down; it does not fight a battle from the hole. */
 export const SURFACE_VOLLEY = 2;
 /** Suppression dealt to everyone near a collapsing route, and its radius². */
-export const COLLAPSE_SHOCK = 39322; // 0.6
-export const COLLAPSE_SHOCK_RADIUS = 131072; // 2 tiles — splashDirect squares it
+export const TUNNEL_COLLAPSE_SHOCK = 39322; // 0.6 — named apart from structures.ts's
+// COLLAPSE_SHOCK (0.7), which sim.ts already imports unaliased.
+export const TUNNEL_COLLAPSE_RADIUS = 131072; // 2 tiles — splashDirect squares it
 
 /** Total length of a polyline, in Q16.16 tiles. */
 export function routeLength(points: readonly (readonly [number, number])[]): Fx {
@@ -436,7 +437,7 @@ Expected: FAIL — `sim.addTunnel is not a function`.
 In `packages/sim/src/sim.ts`, import from `./tunnels`:
 
 ```typescript
-import { routeLength, TRAIL_MAX, type TunnelRouteJson } from './tunnels';
+import { pointAtDistance, routeLength, TRAIL_MAX, type TunnelRouteJson } from './tunnels';
 ```
 
 Add a cap beside `MAX_STRUCTURES`:
@@ -1377,7 +1378,7 @@ Expected: 4 FAIL.
     }
     this.tnOccupants[r] = 0;
     const [cx, cy] = this.ventPos(r);
-    this.splashDirect(cx, cy, COLLAPSE_SHOCK_RADIUS, 0, COLLAPSE_SHOCK, by, -1);
+    this.splashDirect(cx, cy, TUNNEL_COLLAPSE_RADIUS, 0, TUNNEL_COLLAPSE_SHOCK, by, -1);
     this.pendingEvents.push({ kind: 'tunnelCollapsed', tick: this.tickCount, tunnel: r, by });
   }
 ```
