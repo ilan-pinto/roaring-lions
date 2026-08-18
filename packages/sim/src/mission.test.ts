@@ -7,7 +7,10 @@ import {
   type MissionContext,
   type MissionEvent,
   type MissionJson,
+  type ObjectiveJson,
+  type PlacementJson,
 } from './mission';
+import type { TunnelRouteJson } from './tunnels';
 
 // Mission runtime tests: the declarative vocabulary (GDD §6) interpreted
 // deterministically. Small worlds, headless, seconds of sim time.
@@ -343,9 +346,12 @@ describe('objectives and mission end', () => {
   });
 
   it('rejects objective types the runtime does not support yet', () => {
+    // The example was `collapse` until that type gained a runtime; `escort`
+    // is the schema's next still-unimplemented type. When it graduates too,
+    // move to another — the guard under test is SUPPORTED, not the example.
     expect(() =>
-      makeWorld(baseMission({ objectives: [{ id: 'x', type: 'collapse', primary: true }] }))
-    ).toThrow(/collapse/);
+      makeWorld(baseMission({ objectives: [{ id: 'x', type: 'escort', primary: true }] }))
+    ).toThrow(/escort/);
   });
 });
 
@@ -1927,5 +1933,218 @@ describe('a raze objective that has become impossible', () => {
     }
     expect(rt.objectiveList[0].status).toBe('complete');
     expect(rt.result).toBe('victory');
+  });
+});
+
+// `collapse`: "bring down every tunnel route whose mouth opens inside this
+// zone." Mirrors `raze` deliberately: zone-scoped target, set snapshotted at
+// mission start, a length guard so an empty set can never read as an instant
+// win, and a `seconds` deadline so an impossible collapse loses the mission
+// rather than hanging it. Routes come down via debugCollapseTunnel for the
+// same reason the raze tests use debugDestroyStructure: the objective observes
+// the outcome, not the charge that causes it (tunnels.test.ts owns the charge
+// mechanics).
+describe('collapse objective', () => {
+  /** Mouths (points[0]) of tn_a and tn_b sit inside `district`; tn_far's does
+   *  not. The zone rule is the whole point of the objective, so the fixture
+   *  has to be able to tell a route in the zone from one that merely exists. */
+  const ROUTES: readonly TunnelRouteJson[] = [
+    { id: 'tn_a', points: [[3, 3], [12, 3]], dig_tiles_per_s: 1 },
+    { id: 'tn_b', points: [[4, 6], [12, 6]], dig_tiles_per_s: 1 },
+    { id: 'tn_far', points: [[18, 3], [20, 3]], dig_tiles_per_s: 1 },
+  ];
+  /** x, y, w, h in tiles: covers (2,2)-(9,9). */
+  const DISTRICT = [2, 2, 8, 8] as const;
+  /** Open ground holding no mouths at all. */
+  const BARE = [14, 10, 2, 2] as const;
+
+  function collapseWorld(over: Partial<ObjectiveJson> = {}) {
+    const sim = new Sim({ seed: 7, width: 24, height: 16, capacity: 16 });
+    const squad = sim.addUnitType(SQUAD);
+    for (const r of ROUTES) sim.addTunnel(r);
+    const mission: MissionJson = {
+      id: 'collapse_test',
+      map: { file: 'none' },
+      ledger: { requires: [], produces: [] },
+      // One living unit with no charge ability: the player is never wiped
+      // (checkEnd would end the mission before any deadline could), and
+      // nothing on the roster can ever bring a route down.
+      starting_force: [{ unit: SQUAD.id, count: 1, at: [21, 13] }],
+      objectives: [
+        { id: 'o_collapse', type: 'collapse', primary: true, target: 'district', seconds: 300, ...over },
+      ],
+    };
+    const rt = new MissionRuntime(sim, mission, {
+      typeIdOf: (u) => {
+        if (u !== SQUAD.id) throw new Error(`unknown unit ${u}`);
+        return squad;
+      },
+      markers: {},
+      zones: { district: DISTRICT, bare: BARE },
+      tunnels: ROUTES,
+    });
+    rt.start();
+    return { sim, rt };
+  }
+
+  it('completes when every route whose mouth is in the zone is down', () => {
+    const { sim, rt } = collapseWorld();
+    expect(rt.objectiveStatus('o_collapse')).toBe('active');
+    sim.debugCollapseTunnel(0); // tn_a
+    rt.step([]);
+    expect(rt.objectiveStatus('o_collapse')).toBe('active'); // tn_b still stands
+    sim.debugCollapseTunnel(1); // tn_b
+    const events = rt.step([]);
+    expect(events).toContainEqual(
+      expect.objectContaining({ kind: 'objective', id: 'o_collapse', status: 'complete' })
+    );
+    expect(rt.objectiveStatus('o_collapse')).toBe('complete');
+  });
+
+  it('does not complete while one route in the zone still stands', () => {
+    const { sim, rt } = collapseWorld();
+    sim.debugCollapseTunnel(0); // only tn_a
+    for (let t = 0; t < 200; t++) {
+      sim.tick();
+      rt.step([]);
+    }
+    expect(rt.objectiveStatus('o_collapse')).toBe('active');
+  });
+
+  it('ignores a route whose mouth is outside the zone', () => {
+    const { sim, rt } = collapseWorld();
+    sim.debugCollapseTunnel(0);
+    sim.debugCollapseTunnel(1);
+    expect(sim.tnAlive[2]).toBe(1); // premise: tn_far stands untouched
+    rt.step([]);
+    // tn_far must not hold the objective open.
+    expect(rt.objectiveStatus('o_collapse')).toBe('complete');
+  });
+
+  // The same trap the impossible-raze suite pins (issue #87): no unit on the
+  // roster can work a charge, so without the deadline the mission would be
+  // unwinnable and unlosable at once.
+  it('fails at its deadline when no unit can carry a charge', () => {
+    const { sim, rt } = collapseWorld({ seconds: 5 });
+    let failed = false;
+    for (let t = 0; t < 5 * TICKS_PER_SECOND + 20; t++) {
+      sim.tick();
+      for (const e of rt.step([])) {
+        if (e.kind === 'objective' && e.id === 'o_collapse' && e.status === 'failed') failed = true;
+      }
+    }
+    expect(failed).toBe(true);
+    expect(rt.objectiveStatus('o_collapse')).toBe('failed');
+    expect(rt.result).toBe('defeat'); // a failed primary ends the mission
+  });
+
+  it('never completes for a zone with no mouths, rather than completing instantly', () => {
+    const { sim, rt } = collapseWorld({ target: 'bare' });
+    for (let t = 0; t < 200; t++) {
+      sim.tick();
+      rt.step([]);
+    }
+    expect(rt.objectiveStatus('o_collapse')).toBe('active');
+  });
+
+  it('throws when the zone does not resolve', () => {
+    expect(() => collapseWorld({ target: 'nowhere' })).toThrow(/needs a valid zone/);
+  });
+});
+
+// `in_tunnel` on a placement: the bodies spawn inside a route instead of
+// standing on their tile — how an author stocks a pre-dug route with a
+// garrison that is underground from tick zero.
+describe('in_tunnel placements', () => {
+  const ROUTE: TunnelRouteJson = { id: 'tn_a', points: [[3, 3], [12, 3]], dig_tiles_per_s: 1 };
+
+  function tunnelWorld(garrison: PlacementJson, opts: { houseAtMouth?: boolean } = {}) {
+    const sim = new Sim({ seed: 7, width: 24, height: 16, capacity: 16 });
+    const types = new Map<string, number>();
+    for (const t of [SQUAD, AMBUSHER]) types.set(t.id, sim.addUnitType(t));
+    if (opts.houseAtMouth) {
+      // A building over the mouth tile (3,3), to prove a buried placement is
+      // exempt from the ground-clear check the way a garrison stance is.
+      const st = sim.addStructureType({ id: 'tn_house', hp_per_tile: 100 });
+      sim.addStructure(st, [3 * sim.width + 3]);
+    }
+    sim.addTunnel(ROUTE);
+    const mission: MissionJson = {
+      id: 'in_tunnel_test',
+      map: { file: 'none' },
+      ledger: { requires: [], produces: [] },
+      starting_force: [{ unit: SQUAD.id, count: 1, at: [21, 13] }],
+      objectives: [{ id: 'win', type: 'destroy_all', primary: true }],
+      enemy: { garrison: [garrison] },
+    };
+    const rt = new MissionRuntime(sim, mission, {
+      typeIdOf: (u) => {
+        const t = types.get(u);
+        if (t === undefined) throw new Error(`unknown unit ${u}`);
+        return t;
+      },
+      markers: {},
+      zones: {},
+      tunnels: [ROUTE],
+    });
+    rt.start();
+    const enemies = allIds(sim).filter(
+      (i) => sim.state.alive[i] === 1 && sim.state.side[i] === 1
+    );
+    return { sim, rt, enemies };
+  }
+
+  it('starts every body of the placement underground', () => {
+    const { sim, enemies } = tunnelWorld({
+      unit: AMBUSHER.id,
+      count: 2,
+      at: [3, 3],
+      in_tunnel: 'tn_a',
+    });
+    expect(enemies.length).toBe(2);
+    for (const id of enemies) expect(sim.state.tunnelIn[id]).toBe(0); // route index 0
+    expect(sim.tnOccupants[0]).toBe(2);
+  });
+
+  it('throws, naming the route, when a placement names an unknown one', () => {
+    expect(() =>
+      tunnelWorld({ unit: AMBUSHER.id, count: 1, at: [3, 3], in_tunnel: 'tn_zz' })
+    ).toThrow(/tn_zz/);
+  });
+
+  it('is exempt from the ground-clear check: a buried body does not stand on its tile', () => {
+    // The mouth tile is inside a building. A surface placement there would
+    // throw from assertGroundClear; a buried one occupies the route, not the
+    // tile, and comes back up at the vent — so surface clearance at `at`
+    // proves nothing and must not be demanded.
+    const { sim, enemies } = tunnelWorld(
+      { unit: AMBUSHER.id, count: 1, at: [3, 3], in_tunnel: 'tn_a' },
+      { houseAtMouth: true }
+    );
+    expect(enemies.length).toBe(1);
+    expect(sim.state.tunnelIn[enemies[0]]).toBe(0);
+  });
+
+  // Carried from Task 8's review: applyCommands and stepMovement have no
+  // tunnelIn guard, and in_tunnel placements are the first thing that can put
+  // a unit underground at mission start. This pins what happens TODAY, so the
+  // hole is documented rather than silent: a buried unit accepts an
+  // attack-move (the exact command a trigger's `commit` issues for its group)
+  // and walks while below ground — invisible, untargetable, and mobile — with
+  // `tunnelIn` still set the whole way. When the guard lands (wiring task or
+  // follow-up), this test should flip to assert the refusal.
+  it('a buried unit still accepts a move order and walks underground (known hole, pinned)', () => {
+    const { sim, enemies } = tunnelWorld({
+      unit: AMBUSHER.id,
+      count: 1,
+      at: [3, 3],
+      in_tunnel: 'tn_a',
+    });
+    const id = enemies[0];
+    const before = sim.state.posX[id];
+    sim.queueCommand({ kind: 'attackMove', ids: [id], x: fx.from(8.5), y: fx.from(3.5) });
+    for (let t = 0; t < 60; t++) sim.tick();
+    expect(sim.state.tunnelIn[id]).toBe(0); // still "inside" the route...
+    expect(sim.state.posX[id] - before).toBeGreaterThan(fx.fromInt(1)); // ...and yet it walked
   });
 });

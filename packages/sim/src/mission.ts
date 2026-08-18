@@ -10,6 +10,7 @@
 
 import { fx, HALF, type Fx } from './fixed';
 import { TICKS_PER_SECOND, type Sim, type SimEvent } from './sim';
+import type { TunnelRouteJson } from './tunnels';
 import { unlockReason, type UnlockGate } from './unlock';
 
 // ---------------------------------------------------------------------------
@@ -37,6 +38,11 @@ export interface PlacementJson {
    *  spawning fresh. Sparse rosters degrade gracefully: fewer units, and a
    *  single fresh remnant when the roster has none of this type. */
   from_ledger?: boolean;
+  /** Route id (map `tunnels[].id`) this placement starts inside. The bodies
+   *  spawn underground in that route rather than standing on their tile —
+   *  how an author stocks a pre-dug route with a garrison. An unknown id
+   *  throws at load. */
+  in_tunnel?: string;
   /**
    * Infantry authored *aboard* this carrier, seated at spawn rather than walking
    * in. The only way an AI-driven transport ever has passengers: every other
@@ -169,6 +175,12 @@ export interface MissionContext {
   typeIdOf: (unitId: string) => number;
   markers: Record<string, readonly number[]>;
   zones: Record<string, readonly number[]>;
+  /** Authored tunnel routes, in the order they were registered with
+   *  `sim.addTunnel`: the position in this array IS the sim's route index.
+   *  The runtime needs the id (placements name routes by string) and the
+   *  mouth — `points[0]`, for `collapse` zone membership; the sim keeps the
+   *  live state. Absent when the map has no tunnels. */
+  tunnels?: readonly TunnelRouteJson[];
   /** Campaign ledger read on entry (mission.ledger.requires). Absent or
    *  sparse values make the mission harder, never broken. */
   ledger?: LedgerData;
@@ -218,7 +230,7 @@ export type MissionEventKindsAreExhaustive = AssertNoMissingMissionKind<MissingM
 
 const SUPPORTED = new Set([
   'locate', 'eliminate_hvt', 'capture', 'hold_for', 'survive_until', 'destroy_all',
-  'evacuate_before', 'raze',
+  'evacuate_before', 'raze', 'collapse',
 ]);
 
 /** Spread for multi-unit placements: 1.25 tiles. */
@@ -311,6 +323,13 @@ export class MissionRuntime {
    *  that never held anything. Sorted, because an insertion-ordered array whose
    *  order depends on a scan is a latent determinism question. */
   private readonly razeTargets = new Map<string, readonly number[]>();
+  /** Objective id -> the route indices whose mouths its zone held at mission
+   *  start. Mirrors razeTargets, though for a different reason: ctx.tunnels
+   *  is static so a rescan could not shrink, but snapshotting at start() is
+   *  what makes a mis-wired route set throw at load rather than read as
+   *  "already down" on the first evaluation, and it keeps the per-tick work
+   *  an index walk instead of a zone test. */
+  private readonly collapseTargets = new Map<string, readonly number[]>();
   private roeScoreValue = 100;
   private roeFailed = false;
   private logisticsValue = 0;
@@ -512,7 +531,10 @@ export class MissionRuntime {
         ticksLeft,
         paused: o.status === 'active' && o.paused !== null ? o.paused : undefined,
         zone:
-          o.def.type === 'hold_for' || o.def.type === 'capture' || o.def.type === 'raze'
+          o.def.type === 'hold_for' ||
+          o.def.type === 'capture' ||
+          o.def.type === 'raze' ||
+          o.def.type === 'collapse'
             ? o.def.target
             : undefined,
       };
@@ -591,6 +613,38 @@ export class MissionRuntime {
           );
         }
         this.razeTargets.set(o.def.id, [...found].sort((a, b) => a - b));
+      }
+      if (o.def.type === 'collapse') {
+        const z = this.zone(o.def.target);
+        if (!z) {
+          throw new Error(`mission ${this.mission.id}: objective "${o.def.id}" needs a valid zone`);
+        }
+        // A route belongs to the objective when its MOUTH — points[0] as
+        // authored in the map — lies inside the zone. The rest of the line
+        // does not count: a route that merely passes under the district is
+        // someone else's problem; one that opens into it is this mission's.
+        const routes = this.ctx.tunnels ?? [];
+        const found: number[] = [];
+        for (let r = 0; r < routes.length; r++) {
+          const [mx, my] = routes[r].points[0];
+          if (mx >= z[0] && mx < z[0] + z[2] && my >= z[1] && my < z[1] + z[3]) {
+            // ctx.tunnels claims to mirror sim registration order. A route
+            // the sim never registered would read tnAlive 0 — "already
+            // down" — and hand out the win, so refuse the mismatch at load.
+            if (r >= this.sim.tunnelCount) {
+              throw new Error(
+                `mission ${this.mission.id}: collapse "${o.def.id}" targets tunnel ` +
+                  `"${routes[r].id}", which was never registered with the sim`
+              );
+            }
+            found.push(r);
+          }
+        }
+        // Unlike raze, an empty set does not throw here: validate_data.mjs
+        // rejects a mouthless collapse zone at authoring time, and the
+        // evaluation's length guard keeps this one from reading as an
+        // instant win — it sits active until its `seconds` deadline fails it.
+        this.collapseTargets.set(o.def.id, found);
       }
     }
   }
@@ -712,6 +766,26 @@ export class MissionRuntime {
     return name ? this.ctx.zones[name] : undefined;
   }
 
+  /** Sim route index for an authored tunnel id. `ctx.tunnels` is positional:
+   *  entry r describes the route `addTunnel` registered as index r. Throws
+   *  on an unknown id, and on an id the sim never registered — both are
+   *  load-time wiring faults that must not spawn half a placement. */
+  private tunnelIndex(id: string): number {
+    const routes = this.ctx.tunnels ?? [];
+    for (let r = 0; r < routes.length; r++) {
+      if (routes[r].id === id) {
+        if (r >= this.sim.tunnelCount) {
+          throw new Error(
+            `mission ${this.mission.id}: tunnel "${id}" is in the map data but was ` +
+              `never registered with the sim`
+          );
+        }
+        return r;
+      }
+    }
+    throw new Error(`mission ${this.mission.id}: unknown tunnel "${id}"`);
+  }
+
   /**
    * Spawn a carrier's authored passengers and seat them.
    *
@@ -785,10 +859,17 @@ export class MissionRuntime {
       veterancies = new Array(p.count).fill(0);
     }
 
+    // Resolved before any body spawns: a bad route id is an authoring error
+    // and must not leave half a placement standing.
+    const tunnelIdx = p.in_tunnel !== undefined ? this.tunnelIndex(p.in_tunnel) : -1;
+
     // A garrisoning placement is exempt: it is ordered into a building and walks
     // in on the first ticks, so standing on its tile at spawn is the job, not a
-    // trap. Everything else must land on ground it can move off.
-    if (p.stance?.kind !== 'garrison') {
+    // trap. A buried placement is exempt too: its bodies occupy the route, not
+    // the declared tile, and they come back up at the vent — surface clearance
+    // where they were authored proves nothing. Everything else must land on
+    // ground it can move off.
+    if (p.stance?.kind !== 'garrison' && tunnelIdx < 0) {
       this.assertGroundClear(p.unit, bx, by, veterancies.length);
     }
 
@@ -811,6 +892,9 @@ export class MissionRuntime {
         t.push(id);
         this.tags.set(p.tag, t);
       }
+      // Below ground from tick zero. putInTunnel owns the tunnelIn/occupant
+      // invariant; the spawn position above is cosmetic for a buried body.
+      if (tunnelIdx >= 0) this.sim.putInTunnel(id, tunnelIdx);
       // Carry-over, consumed. A placement recon marked last mission is already known:
       // it spawns visible, and it does not get to spring an ambush. This is what makes
       // a thorough recon worth doing -- and why one mission file plays differently by
@@ -1171,6 +1255,17 @@ export class MissionRuntime {
         // `validate_data.mjs` requires `seconds` on any PRIMARY raze objective,
         // because a primary is what creates the trap; a secondary that quietly
         // never completes costs the player nothing.
+        failed = !complete && d.seconds !== undefined && tick >= d.seconds * TICKS_PER_SECOND;
+      } else if (d.type === 'collapse') {
+        const targets = this.collapseTargets.get(d.id) ?? [];
+        // `targets.length > 0` for the same reason raze has it: an empty zone
+        // must not read as an instant win. Unlike raze, validate_data.mjs also
+        // rejects the empty zone at authoring time, so this guard is the
+        // backstop rather than the only line of defence.
+        complete = targets.length > 0 && targets.every((r) => this.sim.tnAlive[r] === 0);
+        // And the same deadline, for the same trap: the only way a route
+        // comes down is a charge worked by a unit with the ability, so losing
+        // every such unit makes a collapse primary permanently impossible.
         failed = !complete && d.seconds !== undefined && tick >= d.seconds * TICKS_PER_SECOND;
       } else if (d.type === 'eliminate_hvt') {
         const ids = this.tags.get(d.target ?? '') ?? [];
