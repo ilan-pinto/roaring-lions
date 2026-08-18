@@ -1770,3 +1770,53 @@ git commit -m "test(sim): put a tunnel in the determinism replay, and re-pin"
 **One addition beyond the spec:** trail rendering (Task 13, Step 2). The spec never says how the trail is drawn, and without it the feature cannot be played. Flagged rather than smuggled.
 
 **One risk the plan cannot remove.** Task 6 adds a per-observer tile scan for trail detection, which is O(units × sight²) per tick on top of detection that CLAUDE.md already records as O(N²) needing staggering before ~150 units. At the authored mission scale (65 units at the largest) this is fine. It should not ship to a 300-unit mission without staggering, and the note belongs in *Known scaling debts* when this lands.
+
+---
+
+### Task 15: The `tunnel_collapse` VFX emitter
+
+**Files:**
+- Create: `data/vfx/tunnel_collapse.json`
+- Modify: `packages/data/src/index.ts` (register it in `vfxEmitters`)
+- Modify: `packages/render/src/renderer.ts` (bind the `tunnelCollapsed` sim event to the emitter)
+
+**Interfaces:**
+- Consumes: the `tunnelCollapsed` event (Task 10) and the renderer's event subscription (Task 13).
+- Produces: nothing later tasks depend on.
+
+**Why this task exists:** the spec's content surface lists this emitter, and the original 14-task plan omitted it — a spec-coverage miss caught late. `vfx_emitter.schema.json` has carried a `tunnel_collapse` trigger with no JSON behind it since before this work began; this is its first author.
+
+**Scope discipline:** this is *data*, not art. No Blender, no sprites, no `.blend` — M1 excludes art-pipeline activation, and this task must not become its thin end. Particle sprites come from the schema's existing set (`soft_dot`, `hard_dot`, `streak`, `smoke_puff`, `spark`, `shard`, `ring`); colours are palette keys only, never hex.
+
+- [ ] **Step 1: Author the emitter**
+
+Model it on `data/vfx/structure_collapse.json`, which is the closest existing sibling — but the event is different and the emitter should read differently. A building collapsing throws masonry outward and upward; a tunnel collapsing is the ground *falling in*. So:
+
+- a `shard` burst with **low** `speed_tiles_s` and positive `gravity_tiles_s2` — spoil dropping, not flung
+- a `smoke_puff` layer in the `dust` ramp, `cone_deg: 360`, slight negative gravity so the dust column lifts after the drop
+- `layer: "ground_decal"` or `"below_units"` — the collapse happens at ground level, and drawing it over units would read as an airburst
+
+Note the palette convention: **ramp index 0 is the lightest**, so a `color_over_life` that darkens counts *up* (`["dust.1", "dust.5"]`), not down. Getting this backwards inverts the effect.
+
+- [ ] **Step 2: Validate the JSON**
+
+Run: `pnpm validate:data`
+Expected: PASS, with the file count up by one. The schema gate checks the trigger name, the sprite names, and that every colour resolves to a real palette key — a hex literal or an unknown ramp index fails here.
+
+- [ ] **Step 3: Register and bind**
+
+Add the import and array entry in `packages/data/src/index.ts` beside `structureCollapse`. In the renderer, bind `tunnelCollapsed` to the emitter the same way `structureDestroyed` binds to `structure_collapse` — by name, off the event, with the sim unaware any of it happened (invariant 4).
+
+- [ ] **Step 4: Verify in the browser, not the console**
+
+With a mission containing a tunnel, collapse a route and watch it. Console shortcuts skip the code that breaks.
+
+Run: `pnpm test && pnpm validate:data && pnpm typecheck`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add data/vfx/tunnel_collapse.json packages/data/src/index.ts packages/render/src/renderer.ts
+git commit -m "feat(data): the ground falls in, and it looks like it"
+```
