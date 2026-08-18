@@ -33,6 +33,7 @@ import {
   TRAIL_DECAY,
   TRAIL_DECAY_EVERY,
   TRAIL_MAX,
+  TRAIL_SIGNATURE,
   type TunnelRouteJson,
 } from './tunnels';
 import {
@@ -505,6 +506,7 @@ export type SimEvent =
   | { kind: 'garrison'; tick: number; entity: number; structure: number; entered: boolean }
   | { kind: 'transport'; tick: number; entity: number; carrier: number; loaded: boolean }
   | { kind: 'ventOpened'; tick: number; tunnel: number }
+  | { kind: 'tunnelContact'; tick: number; side: number; tunnel: number; level: ContactLevel }
   | { kind: 'routed'; tick: number; entity: number }
   | { kind: 'rallied'; tick: number; entity: number }
   | { kind: 'pinned'; tick: number; entity: number }
@@ -520,7 +522,7 @@ export type SimEvent =
 export const SIM_EVENT_KINDS = [
   'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'ambushSprung',
   'strike', 'smokeLaid', 'revealed', 'structureHit', 'structureDestroyed', 'garrison',
-  'transport', 'ventOpened', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
+  'transport', 'ventOpened', 'tunnelContact', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
 ] as const satisfies readonly SimEvent['kind'][];
 
 /** Compile-time proof the list above covers the whole union.
@@ -705,6 +707,10 @@ export class Sim {
   /** Tiles each route passes under. Built once in addTunnel — a Set here is a
    *  load-time allocation, not a per-tick one, so the hot-loop rule holds. */
   private readonly tnTiles: Set<number>[] = [];
+  /** Contact confidence and state per (side, route): index side*MAX_TUNNELS+r.
+   *  Same Q16.16 confidence and the same latched ladder as the unit pair. */
+  private readonly tnContact = new Int32Array(2 * MAX_TUNNELS);
+  private readonly tnContactState = new Uint8Array(2 * MAX_TUNNELS);
   private tunnelCount_ = 0;
   /** Surface spoil density per tile, 0-255. Presentation reads it; detection
    *  uses it to place the tunnel's signature. Same shape as the smoke grid. */
@@ -1786,6 +1792,89 @@ export class Sim {
           this.pendingEvents.push({ kind: 'contact', tick: this.tickCount, side: s, target: tgt, level: 'lost', confidence: c });
         }
       }
+    }
+    // A route is found through the spoil it leaves, not by seeing the tunnel.
+    // Confidence accrues against the ROUTE rather than per trail tile: a second
+    // per-tile contact array would cost width*height*2 for a fact the player
+    // reads as one binary ("do I know where this tunnel is").
+    for (let r = 0; r < this.tunnelCount_; r++) {
+      if (this.tnAlive[r] === 0) continue;
+      for (let s = 0; s < 2; s++) {
+        const k = s * MAX_TUNNELS + r;
+        const strength = this.trailStrengthFor(s, r);
+        if (strength > 0) {
+          const p = fx.sub(ONE, fx.expNeg(fx.mul(K_DETECT, fx.mul(strength, DT))));
+          const c = this.tnContact[k];
+          this.tnContact[k] = fx.add(c, fx.mul(fx.sub(ONE, c), p));
+        } else {
+          this.tnContact[k] = fx.mul(this.tnContact[k], CONTACT_DECAY);
+        }
+        const c = this.tnContact[k];
+        const st = this.tnContactState[k];
+        if (st < 2 && c >= IDENTIFIED_AT) {
+          this.tnContactState[k] = 2;
+          this.pendingEvents.push({ kind: 'tunnelContact', tick: this.tickCount, side: s, tunnel: r, level: 'identified' });
+        } else if (st < 1 && c >= SUSPECTED_AT) {
+          this.tnContactState[k] = 1;
+          this.pendingEvents.push({ kind: 'tunnelContact', tick: this.tickCount, side: s, tunnel: r, level: 'suspected' });
+        } else if (st > 0 && c < LOST_AT) {
+          this.tnContactState[k] = 0;
+          this.pendingEvents.push({ kind: 'tunnelContact', tick: this.tickCount, side: s, tunnel: r, level: 'lost' });
+        }
+      }
+    }
+  }
+
+  /** Best observation any unit of `side` has on route `r` this tick: the
+   *  strongest single trail tile it can see. Zero when nobody sees any spoil. */
+  private trailStrengthFor(side: number, r: number): Fx {
+    let best = 0;
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0 || this.side[i] !== side || this.tunnelIn[i] >= 0) continue;
+      const type = this.unitTypes[this.typeIdx[i]];
+      const px = this.posX[i] >> 16;
+      const py = this.posY[i] >> 16;
+      // `sight` is Fx tiles on UnitType (there is no integer form); the scan
+      // window wants whole tiles, so round up to avoid clipping the last ring.
+      const reach = fx.toInt(fx.ceil(type.sight));
+      for (let ty = py - reach; ty <= py + reach; ty++) {
+        for (let tx = px - reach; tx <= px + reach; tx++) {
+          if (tx < 0 || ty < 0 || tx >= this.width || ty >= this.height) continue;
+          const density = this.trail[ty * this.width + tx];
+          if (density === 0) continue;
+          if (this.tunnelOfTile(r, tx, ty) === 0) continue;
+          const dSq = distSqFx(
+            fx.sub(fx.add(fx.fromInt(tx), HALF), this.posX[i]),
+            fx.sub(fx.add(fx.fromInt(ty), HALF), this.posY[i])
+          );
+          if (dSq < MIN_DETECT_DIST_SQ) continue;
+          if (this.losRay(px, py, tx, ty) < 0) continue;
+          const sig = fx.mul(TRAIL_SIGNATURE, fx.div(fx.fromInt(density), fx.fromInt(TRAIL_MAX)));
+          const strength = fx.div(fx.mul(type.optics, sig), dSq);
+          if (strength > best) best = strength;
+        }
+      }
+    }
+    return best;
+  }
+
+  /** Does route `r` pass under this tile? */
+  private tunnelOfTile(r: number, tx: number, ty: number): number {
+    return this.tnTiles[r].has(ty * this.width + tx) ? 1 : 0;
+  }
+
+  /** Which of the three contact states `side` holds on route `r`. */
+  tunnelContactLevel(side: number, r: number): 0 | 1 | 2 {
+    return this.tnContactState[side * MAX_TUNNELS + r] as 0 | 1 | 2;
+  }
+
+  /** `mark_tunnel`: recon hands a route over identified, no dwell required. */
+  identifyTunnelTo(side: number, r: number): void {
+    const k = side * MAX_TUNNELS + r;
+    this.tnContact[k] = ONE;
+    if (this.tnContactState[k] !== 2) {
+      this.tnContactState[k] = 2;
+      this.pendingEvents.push({ kind: 'tunnelContact', tick: this.tickCount, side, tunnel: r, level: 'identified' });
     }
   }
 

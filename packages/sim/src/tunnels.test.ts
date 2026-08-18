@@ -18,6 +18,17 @@ const DIGGER_TYPE: UnitTypeJson = {
   weapons: [],
 };
 
+/** Plain infantry that goes looking — DIGGER_TYPE without the shovel.
+ *  Optics 1.0 a couple of tiles from fresh spoil identifies the route well
+ *  inside the 400-tick budget the finding tests allow. */
+const SCOUT_TYPE: UnitTypeJson = {
+  id: 'tn_scout',
+  hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
+  mobility: { speed_tiles_s: 0.9 },
+  sensors: { optics: 1.0, sight_tiles: 8, signature: 0.6 },
+  weapons: [],
+};
+
 describe('route geometry', () => {
   it('measures a straight run', () => {
     expect(fx.toNumber(routeLength(STRAIGHT))).toBeCloseTo(3, 2);
@@ -186,5 +197,32 @@ describe('trail decay', () => {
 
     for (let t = 0; t < 4000; t++) sim.tick();
     expect(sim.trail[tile]).toBe(0); // floors, never wraps
+  });
+});
+
+describe('finding a route', () => {
+  it('a unit with line of sight to fresh spoil eventually identifies the route', () => {
+    const { sim, idx } = simWithRoute();
+    const digger = sim.addUnitType(DIGGER_TYPE);
+    sim.assignDigger(idx, sim.spawn(digger, 1, fx.from(2.5), fx.from(2.5)));
+    const scout = sim.addUnitType(SCOUT_TYPE);
+    sim.spawn(scout, 0, fx.from(4.5), fx.from(4.5));
+    for (let t = 0; t < 400; t++) sim.tick();
+    expect(sim.tunnelContactLevel(0, idx)).toBe(2);
+  });
+
+  it('stays unknown to a side with nobody near it', () => {
+    const { sim, idx } = simWithRoute();
+    const digger = sim.addUnitType(DIGGER_TYPE);
+    sim.assignDigger(idx, sim.spawn(digger, 1, fx.from(2.5), fx.from(2.5)));
+    for (let t = 0; t < 400; t++) sim.tick();
+    expect(sim.tunnelContactLevel(0, idx)).toBe(0);
+  });
+
+  it('mark_tunnel identifies it outright', () => {
+    const { sim, idx } = simWithRoute();
+    sim.identifyTunnelTo(0, idx);
+    expect(sim.tunnelContactLevel(0, idx)).toBe(2);
+    expect(sim.tunnelContactLevel(1, idx)).toBe(0); // one side only
   });
 });
