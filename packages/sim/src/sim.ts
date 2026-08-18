@@ -1546,12 +1546,21 @@ export class Sim {
           if (t < 0) continue;
           const tx = t % this.width;
           const ty = (t - tx) / this.width;
+          // stampTrail marks tiles under buildings too, and a blocked goal
+          // bails the flow field to all-DIR_NONE (see nearestOpenTile) — the
+          // final-leg beeline then grinds the team against the wall while
+          // `displaced` holds the countdown at zero. Unlike demolish, the
+          // GOAL moves to the open tile along with the field: demolish's
+          // in-range stop precedes its displaced gate and rescues the slide,
+          // ours does not — and spoil is a surface sign, not a footprint, so
+          // any open ground beside it is a place to work.
+          const [fgx, fgy] = this.nearestOpenTile(tx, ty);
           this.wpCount[id] = 0;
           this.boardGoal[id] = -1;
           this.garrisonGoal[id] = -1;
-          this.goalX[id] = fx.add(fx.fromInt(tx), HALF);
-          this.goalY[id] = fx.add(fx.fromInt(ty), HALF);
-          this.fieldRef[id] = this.fieldFor(tx, ty);
+          this.goalX[id] = fx.add(fx.fromInt(fgx), HALF);
+          this.goalY[id] = fx.add(fx.fromInt(fgy), HALF);
+          this.fieldRef[id] = this.fieldFor(fgx, fgy);
           this.moving[id] = 1;
           this.attackMove[id] = 0;
           this.engaging[id] = 0;
@@ -3525,8 +3534,20 @@ export class Sim {
         this.chargeTicks[i] = 0;
         continue;
       }
-      // Same conditions as a demolition charge: stationary, unshaken, in reach.
-      if (this.displaced[i] === 1 || this.pinned[i] === 1 || this.tunnelIn[i] >= 0) {
+      // Same conditions as a demolition charge — stationary, unshaken, not
+      // garrisoned — plus one this system adds: not underground. The
+      // garrison clause is load-bearing, not hygiene: yahalom_squad can
+      // garrison, and a team working the charge from inside a building would
+      // be immune to fire (applyDamage kills the hull first), deleting the
+      // escort loop the unit exists for. Yahalom stands in the open, beside
+      // a tunnel that can vent shooters at it. The tunnel clause is the
+      // plainer one: a team below ground cannot work a charge on the surface.
+      if (
+        this.displaced[i] === 1 ||
+        this.pinned[i] === 1 ||
+        this.garrisonedIn[i] >= 0 ||
+        this.tunnelIn[i] >= 0
+      ) {
         this.chargeTicks[i] = 0;
         continue;
       }

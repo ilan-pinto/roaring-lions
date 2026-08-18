@@ -647,6 +647,70 @@ describe('collapsing a route', () => {
     expect(sim.chargeTicks[yahalom]).toBe(0);
   });
 
+  it('does not charge from inside a garrison', () => {
+    // yahalom_squad can garrison, the garrison branch keeps a chargeOrder,
+    // and applyDamage will not touch a garrisoned target — so without the
+    // garrisonedIn clause a team charges from hard cover, immune to fire,
+    // and the escort loop the unit exists for is deleted. The house centroid
+    // is one tile from the spoil: garrisoned there the team is stationary,
+    // identified and comfortably in range, so the roof over its head must be
+    // the only thing stopping the countdown.
+    const sim = new Sim({ seed: 11, width: 24, height: 12, capacity: 8 });
+    const idx = sim.addTunnel({ id: 'tn', points: [[4, 6], [12, 6]] as const, dig_tiles_per_s: 1 });
+    sim.trail[6 * sim.width + 10] = TRAIL_MAX;
+    sim.trail[6 * sim.width + 11] = TRAIL_MAX;
+    sim.identifyTunnelTo(0, idx);
+    const houseType = sim.addStructureType({ id: 'tn_house', name: 'House', hp_per_tile: 260, garrison_slots: 2, rubble_cover: 2 });
+    const house = sim.addStructure(houseType, [7 * sim.width + 11]);
+    const team = sim.spawn(
+      sim.addUnitType({ ...YAHALOM_TYPE, id: 'tn_yahalom_g', abilities: ['tunnel_charge', 'garrison'] }),
+      0, fx.from(11.5), fx.from(9.5)
+    );
+    sim.queueCommand({ kind: 'chargeTunnel', ids: [team], tunnel: idx });
+    sim.queueCommand({ kind: 'garrison', ids: [team], structure: house });
+    let maxCharge = 0;
+    for (let t = 0; t < 400; t++) {
+      sim.tick();
+      if (sim.chargeTicks[team] > maxCharge) maxCharge = sim.chargeTicks[team];
+    }
+    expect(sim.state.garrisonedIn[team]).toBe(house); // the exploit setup actually happened
+    expect(sim.tnAlive[idx]).toBe(1);
+    expect(maxCharge).toBe(0); // the countdown never ran, not merely never finished
+  });
+
+  it('walks to open ground when the nearest spoil lies under a building', () => {
+    // stampTrail marks tiles under structures too. Aimed straight at a
+    // blocked trail tile, the flow field bails to all-DIR_NONE, the
+    // final-leg beeline wall-slides, and `displaced` holds the countdown at
+    // zero for the whole grind — measured at ~250 ticks before the first
+    // charge tick in this geometry. Routed through nearestOpenTile the walk
+    // is ~105 ticks and the collapse lands at ~265; the 340 budget splits
+    // the two outcomes with ~70 ticks of margin on each side.
+    const sim = new Sim({ seed: 11, width: 24, height: 12, capacity: 8 });
+    const idx = sim.addTunnel({ id: 'tn', points: [[4, 6], [12, 6]] as const, dig_tiles_per_s: 1 });
+    sim.setBlocked(11, 6, true); // the building over the route
+    sim.setBlocked(11, 7, true);
+    sim.trail[6 * sim.width + 11] = TRAIL_MAX; // buried spoil — the team's nearest
+    sim.trail[6 * sim.width + 5] = TRAIL_MAX; // open spoil far west, for the spotter
+    sim.identifyTunnelTo(0, idx);
+    // A handed-over identification decays to lost in ~322 ticks unless
+    // somebody keeps eyes on spoil, and the walk-plus-charge must not race
+    // that clock — so a scout watches the open western tile throughout.
+    sim.spawn(sim.addUnitType(SCOUT_TYPE), 0, fx.from(4.5), fx.from(4.5));
+    const team = sim.spawn(sim.addUnitType(YAHALOM_TYPE), 0, fx.from(11.8), fx.from(9.5));
+    sim.queueCommand({ kind: 'chargeTunnel', ids: [team], tunnel: idx });
+    let collapsedAt = -1;
+    for (let t = 0; t < 500 && collapsedAt < 0; t++) {
+      for (const e of sim.tick()) if (e.kind === 'tunnelCollapsed') collapsedAt = t;
+    }
+    expect(collapsedAt).toBeGreaterThanOrEqual(0);
+    expect(collapsedAt).toBeLessThanOrEqual(340);
+    // And it worked from passable ground, not from inside the footprint.
+    const tx = fx.toInt(sim.state.posX[team]);
+    const ty = fx.toInt(sim.state.posY[team]);
+    expect(tx === 11 && (ty === 6 || ty === 7)).toBe(false);
+  });
+
   it('a unit surfaced from a route that collapses under it survives on the surface', () => {
     const { sim, idx, yahalom, occupant } = chargeScenario({ revealed: true, surfaced: true });
     sim.queueCommand({ kind: 'chargeTunnel', ids: [yahalom], tunnel: idx });
