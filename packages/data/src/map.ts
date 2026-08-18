@@ -34,6 +34,14 @@ export type TerrainTheme = 'arid' | 'green';
 
 const TERRAIN_THEMES: ReadonlySet<string> = new Set<TerrainTheme>(['arid', 'green']);
 
+export interface TunnelJson {
+  id: string;
+  mouth: readonly number[];
+  waypoints?: readonly (readonly number[])[];
+  vent: readonly number[];
+  dig_tiles_per_s?: number;
+}
+
 export interface MapJson {
   id: string;
   name: string;
@@ -46,6 +54,7 @@ export interface MapJson {
   zones?: Record<string, readonly number[]>;
   /** Terrain theme. Absent means 'arid', which is every map authored before Naharin. */
   terrain?: string;
+  tunnels?: readonly TunnelJson[];
 }
 
 export interface ParsedStructure {
@@ -53,6 +62,21 @@ export interface ParsedStructure {
   type: string;
   /** Tile indices (row-major) making up the footprint. */
   tiles: number[];
+}
+
+/**
+ * An authored underground route, flattened to a single polyline.
+ *
+ * Mouth and vent are separate fields in JSON because that is how an author
+ * thinks about a tunnel — it starts somewhere and comes up somewhere — but
+ * every consumer walks the whole line, so keeping three fields would mean
+ * every consumer re-concatenating them.
+ */
+export interface ParsedTunnel {
+  id: string;
+  /** Mouth first, waypoints in order, vent last. Always at least 2 points. */
+  points: [number, number][];
+  digTilesPerS: number;
 }
 
 /**
@@ -84,6 +108,7 @@ export interface ParsedMap {
   /** Buildings: one per contiguous run of identical building symbols, or one
    *  per tile for a `per_tile` type. */
   structures: ParsedStructure[];
+  tunnels: ParsedTunnel[];
 }
 
 /**
@@ -187,6 +212,27 @@ export function parseMap(json: MapJson): ParsedMap {
     }
     zones[name] = [x, y, w, h];
   }
+  const tunnels: ParsedTunnel[] = [];
+  const tunnelIds = new Set<string>();
+  for (const t of json.tunnels ?? []) {
+    if (tunnelIds.has(t.id)) {
+      throw new Error(`map ${json.id}: duplicate tunnel id "${t.id}"`);
+    }
+    tunnelIds.add(t.id);
+    const raw = [t.mouth, ...(t.waypoints ?? []), t.vent];
+    const points: [number, number][] = [];
+    for (let i = 0; i < raw.length; i++) {
+      const p = raw[i];
+      const [x, y] = p;
+      if (p.length !== 2 || x < 0 || y < 0 || x >= width || y >= height) {
+        throw new Error(
+          `map ${json.id}: tunnel "${t.id}" point ${i} (${p.join(',')}) is out of bounds`
+        );
+      }
+      points.push([x, y]);
+    }
+    tunnels.push({ id: t.id, points, digTilesPerS: t.dig_tiles_per_s ?? 0.15 });
+  }
   // Flood-fill contiguous same-symbol building tiles into structures, so an
   // author draws a town in ASCII and gets buildings with HP for free.
   const structures: ParsedStructure[] = [];
@@ -226,5 +272,5 @@ export function parseMap(json: MapJson): ParsedMap {
       structures.push({ type: typeId, tiles });
     }
   }
-  return { id: json.id, width, height, terrain: terrain as TerrainTheme, blocked, cover, decor, markers, zones, structures };
+  return { id: json.id, width, height, terrain: terrain as TerrainTheme, blocked, cover, decor, markers, zones, structures, tunnels };
 }
