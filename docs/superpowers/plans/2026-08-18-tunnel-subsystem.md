@@ -1820,3 +1820,61 @@ Expected: PASS.
 git add data/vfx/tunnel_collapse.json packages/data/src/index.ts packages/render/src/renderer.ts
 git commit -m "feat(data): the ground falls in, and it looks like it"
 ```
+
+---
+
+### Task 16: Containment, structurally
+
+**Files:**
+- Modify: `packages/sim/src/sim.ts` (`applyCommands`, `putInTunnel`, and the non-command leaks)
+- Modify: `packages/sim/src/mission.ts` (the runtime predicates)
+- Test: `packages/sim/src/tunnels.test.ts`, `packages/sim/src/mission.test.ts`
+
+**Interfaces:** consumes everything Tasks 3–11 built; produces no new API.
+
+**Why this task exists:** the containment rule — *earth is in the way, in both directions* — has needed new enforcement in four separate tasks, each time found by a reviewer rather than by design, each time "one more place". Tasks 7 and 8 sealed fire, splash, suppression, damage, drones, sight, shells in flight, and the outbound halves. Task 11 sealed movement orders and zone-holding. A sweep then found 31 more candidate sites. Guard-by-guard has demonstrably not converged; this task replaces enumeration with structure.
+
+**The two structural fixes** (a reviewer's recommendation, and the sweep's own evidence supports it):
+
+1. **One eligibility check where `applyCommands` expands `cmd.ids`**, so every surface command refuses buried units *by construction*. Per-command enumeration fails silently on the next command kind someone adds — and the sweep found eight branches already missing it (`load`, `garrison`, `demolish`, `chargeTunnel`, `smoke`, `callStrike`, `unload`, `halt`, plus the move/attackMove *append fast-path* which returns before the existing guard).
+2. **`putInTunnel` clears the full order bundle** the move branch enumerates — `attackMove`, `boardGoal`, `garrisonGoal`, `demolishOrder`, `chargeOrder` — not just `moving`/`wpCount`/goals/`fieldRef`. `stepSweep`, `stepTransport` and kamikaze steering set `moving = 1` with **no command at all**, so a command-layer guard alone cannot contain them. This is the hole that reopened after Task 11's first fix.
+
+**The candidate list** lives at `.superpowers/sdd/2026-08-18-tunnel-subsystem/containment-findings.md` — 31 entries with claimed reachability and consequence. They are **unverified**: three of six sweep lenses completed and no adversarial verification ran. Verify each against the real code before fixing. Expect some to be already guarded one level down, and some to be the design.
+
+**The distinction that will trip you up:** `tunnelIn >= 0` means *underground, contained*. `homeTunnel >= 0` with `tunnelIn === -1` means *currently surfaced from a route* — an ordinary surface unit that must **not** be contained. A fix that confuses them breaks the whole combat loop while every containment test still passes.
+
+**Reachable today, without any schema change** (these three are not theoretical — `stepSurfacing`/`submerge` bury units at runtime):
+- the satellite sweep (`reveal`) identifies a submerged fighter through earth, via the shipped HUD path
+- APS intercepts a round while its carrier is underground — and **draws from the per-entity RNG stream** doing it, which is determinism-relevant
+- `checkAmbushSpring` springs a surface ambusher on a buried enemy
+
+Everything else is gated behind the `in_tunnel` schema key, which **Task 12 adds** — so Task 12 opens the door on the remainder at once. This task must land before or with Task 12.
+
+- [ ] **Step 1: Triage the candidate list**
+
+Read `containment-findings.md`. For each entry, read the real code and classify: REAL / ALREADY-GUARDED / BY-DESIGN. Write the triage into your report before changing anything — a fix list that skips triage will "fix" things that are already correct and miss the ones that are not.
+
+- [ ] **Step 2: Write the failing tests**
+
+Start with the three reachable-today cases, which need no authored `in_tunnel`: surface a fighter, submerge it, then (a) call a sweep over it and assert it is not identified, (b) resolve a shaped-charge round at it and assert no `aps` event and no RNG draw, (c) place an ambusher in radius and assert it does not spring. Then a test per REAL finding from the triage.
+
+Run them and confirm each fails for its own reason.
+
+- [ ] **Step 3: Implement the two structural fixes, then the residue**
+
+Structural fixes first; re-run the tests and see how many now pass without further work. That number belongs in your report — it is the measure of whether the structure was the right call. Then fix whatever remains individually.
+
+- [ ] **Step 4: Verify**
+
+```bash
+npx vitest run packages/sim/src/ && pnpm lint && pnpm typecheck && pnpm validate:data && pnpm test:determinism && pnpm balance
+```
+
+The determinism hash must be unchanged and `pnpm balance` must hold all five §5.7 figures. The APS fix in particular removes an RNG draw from a path that could previously reach it — confirm the replay world never reached that path, or the hash moves and the change is not what you think it is.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/sim/src/sim.ts packages/sim/src/mission.ts packages/sim/src/tunnels.test.ts packages/sim/src/mission.test.ts
+git commit -m "fix(sim): containment is a rule, not a list of places that remembered it"
+```
