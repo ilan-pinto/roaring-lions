@@ -40,9 +40,10 @@ describe('route geometry', () => {
     expect(fx.toNumber(y)).toBeCloseTo(0, 2);
   });
 
-  it('skips zero-length legs (degenerate points)', () => {
-    // DEGENERATE has a repeated point at [3, 0] — a zero-length leg that should be skipped.
-    // Total length should be 3 + 4 = 7 (same as ELBOW, which has no degenerate point).
+  it('handles routes with repeated points (degenerate legs)', () => {
+    // DEGENERATE has a repeated point at [3, 0], creating a zero-length leg.
+    // Verify pointAtDistance treats it correctly: the zero-length leg is skipped,
+    // and distances map to the same positions as a route without it.
     expect(fx.toNumber(routeLength(DEGENERATE))).toBeCloseTo(7, 2);
 
     // Walking partway into the first real leg should work.

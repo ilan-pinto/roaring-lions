@@ -82,6 +82,9 @@ export function pointAtDistance(
     const a = points[i - 1];
     const b = points[i];
     const leg = legLength(a, b);
+    // Structurally unreachable: d > walked on entry (from failed `d <= next` on prior iteration or pre-loop check),
+    // so a zero-length leg makes `d <= walked === next` false. Kept as defensive belt-and-braces against
+    // future changes to walked/next accumulation introducing a zero divisor in fx.div below.
     if (leg === 0) continue;
     const next = fx.add(walked, leg);
     if (d <= next) {
