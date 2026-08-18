@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
-import { pointAtDistance, routeLength } from './tunnels';
+import { pointAtDistance, routeLength, TRAIL_MAX } from './tunnels';
 import type { UnitTypeJson } from './sim';
 
 const STRAIGHT: [number, number][] = [[0, 0], [3, 0]];
@@ -141,5 +141,26 @@ describe('digging', () => {
     for (let t = 0; t < 20; t++) sim.tick();
     expect(sim.tnProgress[idx]).toBe(halted);
     expect(sim.tnAlive[idx]).toBe(1); // the tunnel that exists still exists
+  });
+
+  it('stamps surface spoil on the tiles the head passes under, and only those', () => {
+    const { sim, idx } = simWithRoute(); // ROUTE runs (2,2) -> (8,2)
+    const digger = sim.addUnitType(DIGGER_TYPE);
+    const id = sim.spawn(digger, 1, fx.from(2.5), fx.from(2.5));
+    sim.assignDigger(idx, id);
+
+    sim.tick();
+    // A single tick's advance (~0.05 tile at 1 tile/s) is far under the
+    // interior loop's half-tile step, so the loop body never runs on the
+    // first tick — the mouth tile is only marked by the trailing endpoint
+    // stamp. If that stamp were ever dropped, tick one would dig nothing.
+    expect(sim.trail[2 * sim.width + 2]).toBe(TRAIL_MAX); // mouth tile (2,2)
+
+    for (let t = 1; t < 20; t++) sim.tick(); // 20 ticks total: progress crosses 1 tile
+    expect(sim.trail[2 * sim.width + 2]).toBe(TRAIL_MAX); // still dug
+    expect(sim.trail[2 * sim.width + 3]).toBe(TRAIL_MAX); // one tile in: dug
+
+    expect(sim.trail[2 * sim.width + 4]).toBe(0); // ahead of the head: undug
+    expect(sim.trail[10 * sim.width + 10]).toBe(0); // nowhere near the route
   });
 });

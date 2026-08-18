@@ -1723,7 +1723,7 @@ export class Sim {
    *  leaves a dotted trail the player reads as two tunnels. */
   private stampTrail(r: number, from: Fx, to: Fx): void {
     const points = this.tnPoints[r];
-    for (let d = from; d < to; d = fx.add(d, HALF)) {
+    for (let d = fx.add(from, HALF); d < to; d = fx.add(d, HALF)) {
       const [x, y] = pointAtDistance(points, d);
       const tx = x >> 16;
       const ty = y >> 16;
