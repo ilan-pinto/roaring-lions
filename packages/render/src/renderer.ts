@@ -49,6 +49,8 @@ export interface TerrainTones {
   /** The blade tick used by the `sward` scatter — distinct from canopy tones. */
   bladeLit: string;
   bladeShade: string;
+  /** Freshly turned earth: the tunnel dig's surface spoil trail. */
+  spoil: string;
   /** Crown aspect: olive is wide and squat (0.52), poplar is tall (0.95). */
   crownRatio: number;
   scatter: TerrainScatter;
@@ -191,6 +193,10 @@ export class PixiRenderer {
 
   private readonly world = new Container();
   private readonly terrainG = new Graphics();
+  /** Tunnel spoil, tinted over the ground. Its own layer rather than part of
+   *  terrainG because the trail changes every few ticks (stamp + decay)
+   *  while the terrain redraws only on demolition. */
+  private readonly trailG = new Graphics();
   private readonly fogG = new Graphics();
   private readonly unitsG = new Graphics();
   /** Per-tile visibility: 0 unseen, 1 explored, 2 in sight. */
@@ -507,6 +513,7 @@ export class PixiRenderer {
     await this.app.init({ background: this.opts.background, resizeTo: host, antialias: true });
     host.appendChild(this.app.canvas);
     this.world.addChild(this.terrainG);
+    this.world.addChild(this.trailG);
     this.world.addChild(this.fxG);
     this.world.addChild(this.wreckLayer);
     // Depth sorting: a unit behind a building must be drawn before it, so the
@@ -654,8 +661,11 @@ export class PixiRenderer {
 
   /** Copy positions after every sim tick; frame() lerps between the copies. */
   snapshot(): void {
-    // Fog only needs to keep up with movement, not the tick rate.
-    if (this.fog && this.fogTick++ % 4 === 0) this.updateFog();
+    // Fog only needs to keep up with movement, not the tick rate — and the
+    // trail rides the same cadence, since its stamp/decay clock is slower still.
+    const refresh = this.fogTick++ % 4 === 0;
+    if (this.fog && refresh) this.updateFog();
+    if (refresh) this.drawTrail();
     this.prevX.set(this.curX);
     this.prevY.set(this.curY);
     const st = this.sim.state;
@@ -872,6 +882,10 @@ export class PixiRenderer {
     let bestD = radiusTiles * radiusTiles;
     for (let i = 0; i < this.sim.entityCount; i++) {
       if (this.sim.state.alive[i] === 0) continue;
+      // A buried unit has no body on the surface to click. Every command
+      // already refuses one, so this was only a ghost selection — a ring
+      // around empty ground where the mouth happens to be.
+      if (this.sim.state.tunnelIn[i] >= 0) continue;
       const dx = this.curX[i] - wx;
       const dy = this.curY[i] - wy;
       const d = dx * dx + dy * dy;
@@ -955,6 +969,57 @@ export class PixiRenderer {
     const s = this.sim.structureAt(x, y);
     if (s < 0) return false;
     return this.sim.structureTypes[this.sim.structures.typeIdx[s]].lowProfile;
+  }
+
+  /**
+   * Tunnel spoil, tinted over the ground where the dig head has passed.
+   *
+   * Two gates, both read-only against the sim (invariant 4): the tile must
+   * still show spoil (`sim.trail` decays it), and the route it belongs to
+   * must be at least *suspected* by the player side — the sim's own contact
+   * ladder is the single authority on what the player has found, so the
+   * renderer cannot leak a dig the sim says nobody noticed. Alpha scales
+   * with density: a fresh trail is a scar, a weathering one a smudge.
+   */
+  private drawTrail(): void {
+    const g = this.trailG;
+    const sim = this.sim;
+    const n = sim.tunnelCount;
+    if (n === 0) return;
+    g.clear();
+    const show: boolean[] = [];
+    let any = false;
+    for (let r = 0; r < n; r++) {
+      show[r] = sim.tunnelContactLevel(0, r) >= 1;
+      any = any || show[r];
+    }
+    if (!any) return;
+    const w = sim.width;
+    const h = sim.height;
+    const trail = sim.trail;
+    const tone = this.opts.terrainTones.spoil;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const d = trail[y * w + x];
+        if (d === 0) continue;
+        let shown = false;
+        for (let r = 0; r < n; r++) {
+          if (show[r] && sim.tunnelUnderTile(r, x, y)) {
+            shown = true;
+            break;
+          }
+        }
+        if (!shown) continue;
+        const cx = isoX(x + 0.5, y + 0.5);
+        const cy = isoY(x + 0.5, y + 0.5);
+        g.poly([
+          cx, cy - TILE_H / 2,
+          cx + TILE_W / 2, cy,
+          cx, cy + TILE_H / 2,
+          cx - TILE_W / 2, cy,
+        ]).fill({ color: tone, alpha: 0.14 + 0.5 * (d / 255) });
+      }
+    }
   }
 
   /** Dark overlay for everything not currently in sight. */

@@ -12,6 +12,7 @@ import {
   type LedgerData,
   type MissionEvent,
   type MissionJson,
+  type TunnelRouteJson,
 } from '@lions/sim';
 import {
   PixiRenderer,
@@ -254,6 +255,25 @@ async function main(): Promise<void> {
     sim.addStructure(t, b.tiles);
   }
 
+  // Tunnels: registered from ONE array in ONE loop, and that same array is
+  // what the mission context receives. `ctx.tunnels` is positional — entry r
+  // IS the sim's route index — and a count guard alone cannot catch an
+  // equal-count permutation, which would silently bury units in the wrong
+  // route. Asserting `addTunnel(route) === i` on the single shared array is
+  // what makes the positional contract impossible to violate from here.
+  const tunnelRoutes: TunnelRouteJson[] = map.tunnels.map((t) => ({
+    id: t.id,
+    points: t.points,
+    dig_tiles_per_s: t.digTilesPerS,
+    pre_dug: t.preDug,
+  }));
+  for (let i = 0; i < tunnelRoutes.length; i++) {
+    const got = sim.addTunnel(tunnelRoutes[i]);
+    if (got !== i) {
+      throw new Error(`tunnel "${tunnelRoutes[i].id}" registered as route ${got}, expected ${i}`);
+    }
+  }
+
   const typeOf = new Map<string, number>();
   for (const u of Object.values(units)) typeOf.set(u.id, sim.addUnitType(u));
 
@@ -267,6 +287,7 @@ async function main(): Promise<void> {
       },
       markers: map.markers,
       zones: map.zones,
+      tunnels: tunnelRoutes,
       ledger,
       unitInfo: (id) => {
         const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
@@ -311,6 +332,9 @@ async function main(): Promise<void> {
       // The stone branch never reads these; the type is total, so it needs values.
       bladeLit: paletteColor('limestone.2'),
       bladeShade: paletteColor('limestone.5'),
+      // Spoil: freshly turned subsoil, redder and darker than anything the
+      // limestone surface shows, so a dig line reads as a wound in the ground.
+      spoil: paletteColor('terracotta.1'),
       crownRatio: 0.52,
       scatter: 'stone',
     },
@@ -343,6 +367,9 @@ async function main(): Promise<void> {
       // grass.4 is 37 below, which is the same order of separation the arid
       // pass gets from limestone.6 against limestone.3.
       bladeShade: paletteColor('grass.4'),
+      // Spoil on sward is dark loam, not laterite: dust.5 sits well below the
+      // grass.2 wash in value, which is what makes the line legible.
+      spoil: paletteColor('dust.5'),
       // Taller than wide. drawCanopy computes ry = rx * crownRatio, so ANY
       // value below 1 is a squat crown -- 0.95 drew near-perfect circles and
       // the poplar gallery read as a bramble thicket. The olive's 0.52 is

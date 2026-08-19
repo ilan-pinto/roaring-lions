@@ -2190,6 +2190,14 @@ export class Sim {
     return this.tnContactState[side * MAX_TUNNELS + r] as 0 | 1 | 2;
   }
 
+  /** Does route `r` pass under tile (tx, ty)? Presentation read: the renderer
+   *  uses it to decide which spoil tiles a suspected-route tint may claim.
+   *  Read-only over load-time data — nothing here can influence an outcome. */
+  tunnelUnderTile(r: number, tx: number, ty: number): boolean {
+    if (r < 0 || r >= this.tunnelCount_) return false;
+    return this.tnTiles[r].has(ty * this.width + tx);
+  }
+
   /** `mark_tunnel`: recon hands a route over identified, no dwell required. */
   identifyTunnelTo(side: number, r: number): void {
     const k = side * MAX_TUNNELS + r;
