@@ -4197,6 +4197,17 @@ export class Sim {
     h = hashArray(h, this.stAlive);
     h = hashArray(h, this.stHp);
     h = hashArray(h, this.stOccupants);
+    // Tunnel columns. NOT the trail grid: it is width*height bytes of derived
+    // state that tnProgress already determines, and hashing it would turn
+    // every trail-decay tuning change into a hash change for no added
+    // coverage. Divergence in unhashed tunnel state (trail, contact ladder,
+    // charge clocks) still reaches these columns and the unit columns above
+    // within a few ticks — surfacing moves posX/posY, a collapse kills.
+    h = hashArray(h, this.tunnelIn);
+    h = hashArray(h, this.tnAlive);
+    h = hashArray(h, this.tnProgress);
+    h = hashArray(h, this.tnVentOpen);
+    h = hashArray(h, this.tnOccupants);
     return h >>> 0;
   }
 }
