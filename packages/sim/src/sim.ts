@@ -1153,6 +1153,13 @@ export class Sim {
     return [this.tnVentX[r], this.tnVentY[r]];
   }
 
+  /** Tile centre of a route's vent, Q16.16 — the point `collapseTunnel`
+   *  centres its surface splash on. Read by presentation to place the
+   *  collapse effect at the same spot; a pure read, so invariant 4 holds. */
+  tunnelVent(r: number): readonly [Fx, Fx] {
+    return this.ventPos(r);
+  }
+
   /** Put a digger on a route. One digger per route; assigning replaces. */
   assignDigger(routeIdx: number, unitId: number): void {
     this.tnDigger[routeIdx] = unitId;

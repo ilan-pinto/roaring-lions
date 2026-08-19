@@ -61,6 +61,7 @@ import cigaretteEmber from '../../../data/vfx/cigarette_ember.json';
 import cigaretteSmoke from '../../../data/vfx/cigarette_smoke.json';
 import fireSmallArms from '../../../data/vfx/fire_small_arms.json';
 import structureCollapse from '../../../data/vfx/structure_collapse.json';
+import tunnelCollapse from '../../../data/vfx/tunnel_collapse.json';
 
 export { palette };
 export type Palette = typeof palette;
@@ -166,7 +167,8 @@ export type UnitId = keyof typeof units;
  * looked up by name, because idling is not a sim event and must not become one.
  * `structure_collapse` is looked up by name too, off the `structureDestroyed`
  * event — the sim says a building fell, the renderer decides what that looks
- * like.
+ * like. `tunnel_collapse` follows the same arrangement off `tunnelCollapsed`,
+ * aimed at the route's vent.
  */
 export const vfxEmitters = [
   fireSmallArms,
@@ -179,6 +181,7 @@ export const vfxEmitters = [
   cigaretteEmber,
   cigaretteSmoke,
   structureCollapse,
+  tunnelCollapse,
 ];
 
 /** Resolve a palette key like "vfx.fire" or "dust.2" to its hex colour. */

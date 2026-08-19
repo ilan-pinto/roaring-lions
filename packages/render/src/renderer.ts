@@ -320,10 +320,12 @@ export class PixiRenderer {
     }
   }
 
-  /** The collapse debris and dust bloom. False when no emitter set is loaded. */
-  private spawnCollapseFx(bx: number, by: number): boolean {
+  /** A collapse's debris and dust bloom — `structure_collapse` for a
+   *  building, `tunnel_collapse` for a route's vent. False when no emitter
+   *  set is loaded. */
+  private spawnCollapseFx(id: string, bx: number, by: number): boolean {
     if (!this.particles) return false;
-    const em = this.emitters.byName('structure_collapse');
+    const em = this.emitters.byName(id);
     if (!em) return false;
     const prio = em.budget_priority ?? 1;
     const fxLayer = fxLayerIndex(em.layer);
@@ -820,7 +822,7 @@ export class PixiRenderer {
         // Masonry and a dust bloom, authored in data/vfx/structure_collapse.json.
         // Falls back to the flat puffs when no emitter set is loaded, the same
         // way weapon fire falls back to its generic puff.
-        if (!this.spawnCollapseFx(bx, by)) {
+        if (!this.spawnCollapseFx('structure_collapse', bx, by)) {
           for (let k = 0; k < 14; k++) {
             const a = PixiRenderer.h2(k * 7 + s, k * 13 + s);
             const b = PixiRenderer.h2(k * 31 + s, k * 3 + s);
@@ -830,6 +832,27 @@ export class PixiRenderer {
               ttl: 26 + Math.floor(a * 16),
               color: this.opts.nearMissColor,
               r: 10 + a * 10,
+            });
+          }
+        }
+      } else if (e.kind === 'tunnelCollapsed') {
+        // The ground falls in at the vent — the same point the sim centred
+        // its collapse splash on. Spoil drop and a lifting dust column,
+        // authored in data/vfx/tunnel_collapse.json; same flat-puff fallback
+        // as the structure collapse when no emitter set is loaded.
+        const [vx, vy] = this.sim.tunnelVent(e.tunnel);
+        const tx = fx.toNumber(vx);
+        const ty = fx.toNumber(vy);
+        if (!this.spawnCollapseFx('tunnel_collapse', tx, ty)) {
+          for (let k = 0; k < 10; k++) {
+            const a = PixiRenderer.h2(k * 7 + e.tunnel, k * 13 + e.tick);
+            const b = PixiRenderer.h2(k * 31 + e.tick, k * 3 + e.tunnel);
+            this.puffs.push({
+              x: tx + (a - 0.5) * 2,
+              y: ty + (b - 0.5) * 2,
+              ttl: 22 + Math.floor(a * 12),
+              color: this.opts.nearMissColor,
+              r: 8 + a * 8,
             });
           }
         }
