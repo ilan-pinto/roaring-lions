@@ -35,8 +35,6 @@ export const TRAIL_DECAY_EVERY = 4;
 /** Base signature of spoil on the surface. Well below a unit's: it is a scar
  *  in the dirt, not a man. This is the number that makes recon worth having. */
 export const TRAIL_SIGNATURE = 13107; // 0.2
-/** How close the dig head must be to the vent for it to open: squared tiles. */
-export const VENT_OPEN_SQ = 6554; // 0.1 tile²
 /** Seconds a Yahalom team works before the charge blows, when unit data omits
  *  `tunnel_charge_time_s`. Longer than a building demolition: they are digging
  *  down to the void first. */
@@ -53,8 +51,9 @@ export const SURFACE_SECONDS = 3;
  *  and goes back down; it does not fight a battle from the hole. */
 export const SURFACE_VOLLEY = 2;
 /** Suppression dealt to everyone near a collapsing route, and its radius².
- *  0.6 — named apart from structures.ts's COLLAPSE_SHOCK (0.7), which sim.ts
- *  already imports unaliased. See Finding 1 in the task 2 review. */
+ *  0.6 — held apart from structures.ts's COLLAPSE_SHOCK (0.7), which sim.ts
+ *  already imports unaliased: a different value for a different event, not
+ *  a duplicate to fold together. */
 export const TUNNEL_COLLAPSE_SHOCK = 39322; // 0.6
 export const TUNNEL_COLLAPSE_RADIUS = 131072; // 2 tiles — splashDirect squares it
 

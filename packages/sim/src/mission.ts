@@ -646,11 +646,12 @@ export class MissionRuntime {
             found.push(r);
           }
         }
-        // Unlike raze, an empty set does not throw here. Task 12 adds the
-        // validate_data.mjs check that rejects a mouthless collapse zone at
-        // authoring time; until it lands, the evaluation's length guard is
-        // all that keeps this from reading as an instant win — the objective
-        // sits active until its `seconds` deadline fails it.
+        // Unlike raze, an empty set does not throw here. validate_data.mjs
+        // rejects a collapse zone containing no tunnel mouths at authoring
+        // time (membership by mouth, matching this loop), and for content
+        // that skipped the validator the evaluation's length guard keeps
+        // this from reading as an instant win — the objective sits active
+        // until its `seconds` deadline fails it.
         this.collapseTargets.set(o.def.id, found);
       }
     }
@@ -1327,9 +1328,9 @@ export class MissionRuntime {
       } else if (d.type === 'collapse') {
         const targets = this.collapseTargets.get(d.id) ?? [];
         // `targets.length > 0` for the same reason raze has it: an empty zone
-        // must not read as an instant win. Today this guard is the only line
-        // of defence; the validate_data.mjs check that will refuse the empty
-        // zone at authoring time arrives with Task 12.
+        // must not read as an instant win. validate_data.mjs refuses a zone
+        // containing no tunnel mouths at authoring time; this guard is the
+        // runtime backstop for content that skipped the validator.
         complete = targets.length > 0 && targets.every((r) => this.sim.tnAlive[r] === 0);
         // And the same deadline, for the same trap: the only way a route
         // comes down is a charge worked by a unit with the ability, so losing

@@ -87,9 +87,11 @@ describe('shipped tutorial steps', () => {
   });
 
   it('never teaches an ability the sim does not implement', () => {
-    // hidden_setup, breach, mark_tunnel and tunnel_travel are unit data only —
-    // zero sim references. A step mentioning one instructs the player to do
-    // something that cannot happen.
+    // hidden_setup, breach and tunnel_travel are unit data only — zero sim
+    // references. mark_tunnel's sim primitive exists (identifyTunnelTo), but
+    // no production code calls it, so the ability is just as unteachable. A
+    // step mentioning one instructs the player to do something that cannot
+    // happen.
     const absent = ['hidden_setup', 'breach', 'mark_tunnel', 'tunnel_travel'];
     for (const t of all) {
       for (const s of t.steps) {

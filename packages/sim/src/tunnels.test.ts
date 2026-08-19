@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
 import { pointAtDistance, routeLength, SURFACE_SECONDS, TRAIL_DECAY, TRAIL_MAX } from './tunnels';
 import { STRIKE_DELAY_TICKS } from './tuning';
-import type { SimEvent, UnitTypeJson } from './sim';
+import { Sim, TICKS_PER_SECOND, type SimEvent, type UnitTypeJson } from './sim';
 
 const STRAIGHT: [number, number][] = [[0, 0], [3, 0]];
 const ELBOW: [number, number][] = [[0, 0], [3, 0], [3, 4]];
@@ -81,8 +81,6 @@ describe('route geometry', () => {
     expect(fx.toNumber(y2)).toBeCloseTo(2, 2);
   });
 });
-
-import { Sim, TICKS_PER_SECOND } from './sim';
 
 const ROUTE = { id: 'tn_a', points: [[2, 2], [8, 2]] as const, dig_tiles_per_s: 1 };
 
@@ -943,7 +941,7 @@ const CARRIER_TYPE: UnitTypeJson = {
   weapons: [],
 };
 
-describe('containment is structural (Task 16)', () => {
+describe('containment is structural: no step or command reaches a buried unit', () => {
   it('a satellite sweep does not identify a submerged fighter through the earth', () => {
     const { sim, hidden } = belowGround();
     let revealedCount = -1;

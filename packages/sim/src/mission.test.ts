@@ -2204,7 +2204,7 @@ describe('in_tunnel placements', () => {
 // predicate that reads a body's surface coordinates must first ask whether
 // the body is standing on them.
 // ---------------------------------------------------------------------------
-describe('containment is structural (Task 16)', () => {
+describe('containment is structural: mission predicates ignore buried bodies', () => {
   const ROUTE16: TunnelRouteJson = { id: 'tn_a', points: [[3, 3], [12, 3]], dig_tiles_per_s: 1 };
   const SURVIVE: ObjectiveJson = { id: 'hold', type: 'survive_until', primary: true, seconds: 600 };
 

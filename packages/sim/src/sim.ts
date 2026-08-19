@@ -4,8 +4,11 @@
 // Event payloads (a handful per tick) are the one sanctioned allocation.
 //
 // Tick order is part of the contract (replays depend on it):
-//   commands → detection → combat (target/face/fire) → projectiles →
-//   movement → upkeep (suppression decay, pins, cooldowns, APS reload).
+//   commands → digging → detection → surfacing → combat (target/face/fire) →
+//   projectiles → strikes → kamikaze → sweep → movement → transport →
+//   fields → garrison → demolition → upkeep (suppression decay, pins,
+//   cooldowns, APS reload) → tunnel charge (last, so the pin latched in
+//   upkeep aborts a charge on the tick it lands).
 
 import { fx, ONE, HALF, FX_MAX, type Fx } from './fixed';
 import { Rng } from './rng';
@@ -3666,9 +3669,11 @@ export class Sim {
    * The tunnel counter: a charge team ordered onto an identified route holds
    * station beside its revealed spoil, and after tunnelChargeTicks of
    * uninterrupted work brings the whole route down. Modelled on
-   * stepDemolition — same stationary/unshaken conditions, same
-   * being-in-range-is-arrival stop — with one addition: the identified gate,
-   * because you cannot dig a charge down to a void you have not found.
+   * stepDemolition — same stationary/unshaken/ungarrisoned conditions, same
+   * being-in-range-is-arrival stop — with two additions: the identified
+   * gate, because you cannot dig a charge down to a void you have not found,
+   * and a not-underground clause, because a team below ground cannot work a
+   * charge on the surface.
    */
   private stepTunnelCharge(): void {
     for (let i = 0; i < this.count; i++) {

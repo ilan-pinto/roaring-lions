@@ -1,6 +1,6 @@
-// Map format: a character grid plus named markers and zones. Maps are
-// content (data/maps/*.json, validated against map.schema.json), authorable
-// in a text editor — one character per tile:
+// Map format: a character grid plus named markers, zones and tunnel routes.
+// Maps are content (data/maps/*.json, validated against map.schema.json),
+// authorable in a text editor — one character per tile:
 //
 //   .  open ground          1 2 3  cover levels (light / heavy / garrison)
 //   r  dirt road            o  olive grove (cover 1)   n  rocky knoll (cover 2)
@@ -13,7 +13,9 @@
 // is a one-tile hole rather than a vanished perimeter.
 //
 // Markers are named points missions reference (spawns, tunnel mouths, HVTs);
-// zones are named rects (objective areas, trigger regions).
+// zones are named rects (objective areas, trigger regions). Tunnel routes are
+// underground polylines — mouth, optional waypoints, vent — that never mark
+// the grid: the surface above a tunnel is whatever the characters say it is.
 //
 // `o` and `n` deliberately reuse cover levels 1 and 2 rather than inventing
 // mechanics: the sim sees exactly what it always saw, and the only new thing is
