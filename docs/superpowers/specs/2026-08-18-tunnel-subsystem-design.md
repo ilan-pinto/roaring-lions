@@ -1,7 +1,9 @@
 # The tunnel subsystem — design
 
 **Date:** 2026-08-18
-**Status:** designed, not built.
+**Status:** built, with corrections. The design below is what was specified; where
+the build diverged, *As built* at the end records what shipped and why. Read that
+section before trusting any specific claim in this one.
 **Part of:** subterranean warfare, piece 1 of 2. The mission that uses it is
 tracked separately (see *Sequencing*).
 
@@ -286,3 +288,90 @@ Four slices, each independently testable, risk front-loaded:
    missions, GDD §6's stated ceiling.
 
 Slices 1–3 are this spec. Slice 4 depends on all three.
+
+---
+
+## As built
+
+Sixteen tasks, 35 commits. Every gate green: 567 tests, determinism pinned at
+`3003042083`, all five §5.7 backtest figures unmoved, the cost curve holding 25 units in
+band. What follows is where the built subsystem departs from the design above, because a
+spec that quietly disagrees with its own implementation is worse than no spec.
+
+### "Being untargetable, honestly" undercounted itself badly
+
+The design says containment needs enforcing in *three* places — target selection, splash,
+suppression. That was wrong by an order of magnitude, and the way it was wrong is the most
+useful thing this document can pass on.
+
+The real count is roughly two dozen. They arrived in four waves, each found by a review
+rather than by design: the briefed three; then strikes, kamikaze dives, sight, and shells
+already in flight; then movement orders and zone-holding; then a sweep that turned up
+another twenty-two, of which twenty were gated only by the `in_tunnel` schema key not yet
+existing. Writing the tests found two more the sweep had missed.
+
+The lesson is not "we forgot some places". It is that **the enumeration was the wrong
+shape of answer**. Containment finally converged only when it stopped being a list:
+
+- one eligibility check where `applyCommands` expands `cmd.ids`, so every surface command
+  refuses a buried unit by construction rather than by remembering
+- `putInTunnel` clearing the *whole* order bundle, because `stepSweep`, `stepTransport` and
+  kamikaze steering set `moving = 1` with no command at all
+- a belt in `stepMovement` itself, so the next autonomous mover inherits containment for free
+
+Worth recording honestly: those structural fixes closed only 8 of the 22 leaks. The
+majority lived in mission-runtime *state readers* — predicates counting a buried unit as
+present, endangered, evacuable or intel-generating — and each needed its own guard. The
+diagnosis "leaks are writers" was half wrong, and the half that was wrong was the bigger half.
+
+### Rules that changed during the build
+
+- **An identified route's contact no longer decays.** Decay exists because units move; a
+  tunnel is fixed geography. Observed live: a `mark_tunnel` handover expiring mid-charge at
+  117 of 160 ticks, which made the ability defeat itself. Suspected contacts still decay.
+  Consequence: `lost` is structurally unreachable at level 2.
+- **Surfacing is level-triggered, not edge-triggered.** The design's literal reading
+  stranded any unit whose burst outlived its exposure window — a slow rate of fire, or a
+  pin across the window's end — permanently on the surface.
+- **A charge keys on route geometry, not on a revealed trail tile.** A `pre_dug` route has
+  no spoil, so trail-keyed charging made the counter-unit unusable against exactly the
+  routes a mission is most likely to author.
+- **`stepTunnelCharge` runs after upkeep**, and its in-range stop precedes its displaced
+  gate, matching `stepDemolition`. Without the hoist a team walking to a route under a
+  building grinds against the wall forever instead of charging.
+- **`pre_dug` was invented during the build** and does not appear above. Routes start
+  unfinished, so an `in_tunnel` garrison could never surface unless something dug the
+  route — and whether a digger will dig a given route is not determinable from mission
+  data. The validator could not express the check, so the schema grew the concept instead.
+- **`volleyLeft` is a constant** (`SURFACE_VOLLEY`), not the weapon's burst.
+- **Four per-unit columns**, not three: `homeTunnel` joined `tunnelIn`, `surfaceTicks` and
+  `volleyLeft`, and the distinction between the first two is load-bearing — `tunnelIn >= 0`
+  is *contained*, `homeTunnel >= 0` with `tunnelIn === -1` is *an ordinary surface unit*.
+- **All map routes register unconditionally.** The design says a route a mission does not
+  reference does not exist that mission; in fact unreferenced routes are inert but still
+  count when a `collapse` objective tallies mouths in a zone.
+
+### What is built but not yet reachable from content
+
+The engine is complete; two content keys are not in the ignition. `assignDigger` and
+`identifyTunnelTo` have **no production callers** — no declarative form assigns a digger to
+a route, and nothing wires the `mark_tunnel` ability to the primitive that would honour it.
+
+The chain matters: no authored dig means no spoil, and spoil is the only authorable
+identification channel, so **no authored mission can currently identify a route** — which
+means `chargeTunnel` and any `collapse` objective are completable today only through debug
+APIs. The one playable shape this branch enables is a `pre_dug` route with an `in_tunnel`
+garrison venting an ambush, counterable by shooting surfacers but never by collapsing the
+tunnel.
+
+Nothing shipped is broken, because no mission uses tunnels yet. But the first `collapse`
+mission an author writes will validate green and fail at its deadline every time, and the
+validator cannot warn about it. Wiring both is a prerequisite for the mission tracked in
+issue #91 — not a nice-to-have.
+
+### Still open
+
+`walk_mission` prints route progress, vent state, occupants and contact, but not the trail
+extent the design asked for. Collapsing a route leaves its contact state frozen rather than
+cleared; that is inert only because every consumer checks `tnAlive` first, and fixing it
+moves the determinism pin, so it wants its own deliberate commit.
