@@ -1627,13 +1627,15 @@ export class Sim {
           // A fresh designation restarts the clock, demolish's rule.
           this.chargeTicks[id] = 0;
           this.demolishOrder[id] = -1;
-          // Walk to the nearest spoil still showing. A route has no centroid
-          // to aim at the way a building does, so each team heads for the
-          // closest tile of the route with visible trail. A fully weathered
-          // route offers nowhere to stand: the order latches but no walk is
-          // queued and the charge can never start — by design, the surface
-          // sign is gone (see nearestTrailDistSq).
-          const t = this.nearestTrailTile(r, this.posX[id], this.posY[id]);
+          // Walk to the nearest tile of the route itself. A route has no
+          // centroid to aim at the way a building does, so each team heads
+          // for the closest tile of the line. Geometry, not spoil: an
+          // identified route stays workable after its trail weathers, and a
+          // pre_dug route — which never had spoil — is workable the moment
+          // something identifies it. Finding the route is the gate
+          // (stepTunnelCharge holds the clock at zero below contact level
+          // 2); standing at it must not require the dirt to still show.
+          const t = this.nearestRouteTile(r, this.posX[id], this.posY[id]);
           if (t < 0) continue;
           const tx = t % this.width;
           const ty = (t - tx) / this.width;
@@ -3678,7 +3680,7 @@ export class Sim {
         this.chargeTicks[i] = 0;
         continue;
       }
-      if (this.nearestTrailDistSq(r, i) > CHARGE_RANGE_SQ) {
+      if (this.nearestRouteTileDistSq(r, i) > CHARGE_RANGE_SQ) {
         this.chargeTicks[i] = 0;
         continue;
       }
@@ -3718,13 +3720,17 @@ export class Sim {
     this.pendingEvents.push({ kind: 'tunnelCollapsed', tick: this.tickCount, tunnel: r, by });
   }
 
-  /** Squared distance from unit `i` to the closest tile of route `r` that
-   *  still shows spoil. Infinity-ish when the trail has fully weathered —
-   *  a route whose surface sign is gone cannot be worked on. */
-  private nearestTrailDistSq(r: number, i: number): Fx {
+  /** Squared distance from unit `i` to the closest tile of route `r`.
+   *
+   *  The route's own geometry, NOT current spoil density: this check used to
+   *  skip tiles whose trail had weathered, which made an identified route
+   *  unworkable once its spoil faded — and a pre_dug route, which never has
+   *  spoil, indestructible outright. Identification is the "you found it"
+   *  gate and stepTunnelCharge already enforces it; this is only "you are
+   *  standing at it", and the earth does not move when the dirt blows away. */
+  private nearestRouteTileDistSq(r: number, i: number): Fx {
     let best = FX_MAX;
     for (const t of this.tnTiles[r]) {
-      if (this.trail[t] === 0) continue;
       const tx = t % this.width;
       const ty = (t - tx) / this.width;
       const d = distSqFx(
@@ -3736,15 +3742,14 @@ export class Sim {
     return best;
   }
 
-  /** Tile index of route `r`'s closest still-visible spoil to a point, or -1
-   *  when the trail has fully weathered. Command-time only — the per-tick
-   *  range check is nearestTrailDistSq, which needs the distance, not the
-   *  tile. */
-  private nearestTrailTile(r: number, x: Fx, y: Fx): number {
+  /** Tile index of route `r`'s tile closest to a point. Command-time only —
+   *  the per-tick range check is nearestRouteTileDistSq, which needs the
+   *  distance, not the tile. Route geometry, not spoil, for the same reason
+   *  as the range check: the walk goal must not evaporate with the trail. */
+  private nearestRouteTile(r: number, x: Fx, y: Fx): number {
     let best = -1;
     let bestD = FX_MAX;
     for (const t of this.tnTiles[r]) {
-      if (this.trail[t] === 0) continue;
       const tx = t % this.width;
       const ty = (t - tx) / this.width;
       const d = distSqFx(

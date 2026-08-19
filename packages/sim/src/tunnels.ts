@@ -41,7 +41,10 @@ export const VENT_OPEN_SQ = 6554; // 0.1 tile²
  *  `tunnel_charge_time_s`. Longer than a building demolition: they are digging
  *  down to the void first. */
 export const CHARGE_SECONDS = 8;
-/** How close the team must be to a revealed trail tile: squared tiles, Q16.16. */
+/** How close the team must be to the nearest tile of the route: squared
+ *  tiles, Q16.16. The route's geometry, not its spoil — identification is
+ *  what gates the charge, and it would be absurd for a found route to become
+ *  indestructible because the dirt blew away (or, pre_dug, never showed). */
 export const CHARGE_RANGE_SQ = 262144; // 4.0 tile² = 2 tiles
 /** Minimum seconds a unit stays exposed once it surfaces, on top of its volley.
  *  This is the player's guaranteed reaction slot — see spec, "stepSurfacing". */

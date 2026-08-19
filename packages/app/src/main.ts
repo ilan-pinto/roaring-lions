@@ -835,6 +835,38 @@ async function main(): Promise<void> {
       renderer.addOrderMarker(w.x, w.y);
       return;
     }
+    // Right-clicking a tile of an IDENTIFIED tunnel sends charge teams to
+    // work it and everyone else to attack toward the point — demolish's
+    // split, for the underground target. Identified only, matching the sim
+    // gate (stepTunnelCharge holds the clock at zero below contact level 2):
+    // the player is never offered an order the sim will refuse, the same
+    // §5.8 legibility rule that made projectHit honour containment. On a
+    // suspected route the click stays an ordinary attack-move — a blip is
+    // something to investigate, not a firing solution.
+    const route = (() => {
+      const tx = Math.floor(w.x);
+      const ty = Math.floor(w.y);
+      for (let r = 0; r < sim.tunnelCount; r++) {
+        if (sim.tnAlive[r] === 1 && sim.tunnelContactLevel(0, r) === 2 && sim.tunnelUnderTile(r, tx, ty)) {
+          return r;
+        }
+      }
+      return -1;
+    })();
+    if (route >= 0) {
+      const canCharge = mine.filter((i) => sim.unitTypes[sim.state.typeIdx[i]].canTunnelCharge);
+      if (canCharge.length > 0) {
+        dispatch({ kind: 'chargeTunnel', ids: canCharge, tunnel: route });
+        const rest = mine.filter((i) => !sim.unitTypes[sim.state.typeIdx[i]].canTunnelCharge);
+        if (rest.length > 0) {
+          dispatch({ kind: 'order', verb: 'attackMove', ids: rest, x: w.x, y: w.y, append: false });
+        }
+        hud.note('<b>tunnel charge</b> — team moving to the route', 'info');
+        renderer.addOrderMarker(w.x, w.y);
+        return;
+      }
+      // No charge-capable unit selected: fall through to the ordinary order.
+    }
     // Shift queues the point onto the end of the route instead of replacing
     // it, so a player can draw a path around a block.
     dispatch({ kind: 'order', verb: 'attackMove', ids: mine, x: w.x, y: w.y, append: ev.shiftKey });

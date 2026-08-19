@@ -972,14 +972,19 @@ export class PixiRenderer {
   }
 
   /**
-   * Tunnel spoil, tinted over the ground where the dig head has passed.
+   * Tunnel marks, tinted over the ground. Read-only against the sim
+   * (invariant 4); the sim's contact ladder is the single authority on what
+   * the player has found, so the renderer cannot leak a dig the sim says
+   * nobody noticed. Two marks, matching the ladder's two rungs:
    *
-   * Two gates, both read-only against the sim (invariant 4): the tile must
-   * still show spoil (`sim.trail` decays it), and the route it belongs to
-   * must be at least *suspected* by the player side — the sim's own contact
-   * ladder is the single authority on what the player has found, so the
-   * renderer cannot leak a dig the sim says nobody noticed. Alpha scales
-   * with density: a fresh trail is a scar, a weathering one a smudge.
+   * - suspected (level 1): only tiles still showing spoil draw, alpha scaled
+   *   by `sim.trail` density — a fresh trail is a scar, a weathering one a
+   *   smudge, and a weathered one is gone. A blip, not a map.
+   * - identified (level 2): the route's whole line draws at a floor alpha,
+   *   spoil or none. Identification is what earns the charge order, and the
+   *   order is a right-click on the line — an identified route with no
+   *   visible line (every pre_dug route, and any dug one after ~51 s of
+   *   decay) would be an order the player can never discover.
    */
   private drawTrail(): void {
     const g = this.trailG;
@@ -987,11 +992,14 @@ export class PixiRenderer {
     const n = sim.tunnelCount;
     if (n === 0) return;
     g.clear();
-    const show: boolean[] = [];
+    const level: number[] = [];
     let any = false;
     for (let r = 0; r < n; r++) {
-      show[r] = sim.tunnelContactLevel(0, r) >= 1;
-      any = any || show[r];
+      // A collapsed route keeps drawing its residual spoil (the dirt is
+      // real) but never the identified line — there is nothing left to work.
+      const lv = sim.tunnelContactLevel(0, r);
+      level[r] = sim.tnAlive[r] === 0 && lv === 2 ? 1 : lv;
+      any = any || level[r] > 0;
     }
     if (!any) return;
     const w = sim.width;
@@ -1001,15 +1009,13 @@ export class PixiRenderer {
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const d = trail[y * w + x];
-        if (d === 0) continue;
-        let shown = false;
+        let alpha = 0;
         for (let r = 0; r < n; r++) {
-          if (show[r] && sim.tunnelUnderTile(r, x, y)) {
-            shown = true;
-            break;
-          }
+          if (level[r] === 0 || !sim.tunnelUnderTile(r, x, y)) continue;
+          if (level[r] === 2) alpha = Math.max(alpha, 0.18);
+          if (d > 0) alpha = Math.max(alpha, 0.14 + 0.5 * (d / 255));
         }
-        if (!shown) continue;
+        if (alpha === 0) continue;
         const cx = isoX(x + 0.5, y + 0.5);
         const cy = isoY(x + 0.5, y + 0.5);
         g.poly([
@@ -1017,7 +1023,7 @@ export class PixiRenderer {
           cx + TILE_W / 2, cy,
           cx, cy + TILE_H / 2,
           cx - TILE_W / 2, cy,
-        ]).fill({ color: tone, alpha: 0.14 + 0.5 * (d / 255) });
+        ]).fill({ color: tone, alpha });
       }
     }
   }

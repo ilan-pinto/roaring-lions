@@ -591,11 +591,11 @@ const MOLE_TYPE: UnitTypeJson = {
 
 /** A route with visible spoil near its vent end, a charge team half a tile
  *  from it, and an occupant below — the shape every collapse test starts
- *  from. The trail is stamped directly on tiles (10,6) and (11,6): spoil
- *  EXISTS and the team is in reach in every variant, so when `revealed` is
- *  false the identified gate is the only thing between the team and the
- *  charge — the case would otherwise pass by never finding a trail tile,
- *  proving the wrong gate. `revealed` hands side 0 the identification via
+ *  from. The trail is stamped directly on tiles (10,6) and (11,6) so the
+ *  scenario carries a dug route's real surface state; the charge itself no
+ *  longer keys on spoil (nearestRouteTileDistSq measures to the route's own
+ *  tiles), so in every variant the identified gate is the only thing between
+ *  the team and the charge. `revealed` hands side 0 the identification via
  *  identifyTunnelTo, mark_tunnel's own path. `surfaced` opens the vent
  *  (readyToVent's fast-forward) so the occupant pops up at the charge team
  *  and is above ground when the route comes down. */
@@ -718,6 +718,45 @@ describe('collapsing a route', () => {
     expect(sim.tnAlive[idx]).toBe(0);
     expect(sim.state.alive[occupant]).toBe(1); // it was above ground
     expect(sim.state.tunnelIn[occupant]).toBe(-1);
+  });
+
+  // The counter-unit's reach must match pre_dug's stealth. A pre_dug route
+  // never stamps spoil — correctly, its digging predates the mission — so
+  // while the charge keyed on visible trail it was indestructible: no tile
+  // ever counted as "at the route" and the objective it anchors was
+  // unwinnable. Identification (here via identifyTunnelTo, mark_tunnel's
+  // path, since there is no spoil to observe and dwell on) is the gate that
+  // earns the charge; geometry is what the team works against.
+  it('a pre_dug route, identified, is chargeable and collapses — no spoil ever existed', () => {
+    const sim = new Sim({ seed: 11, width: 24, height: 12, capacity: 8 });
+    const idx = sim.addTunnel({
+      id: 'tn_pd',
+      points: [[4, 6], [12, 6]] as const,
+      dig_tiles_per_s: 1,
+      pre_dug: true,
+    });
+    const yahalom = sim.spawn(sim.addUnitType(YAHALOM_TYPE), 0, fx.from(11.5), fx.from(7.0));
+    // Weaponless occupant: a pre_dug vent is OPEN, and an armed one would
+    // surface at the charge team (stepSurfacing) and ride out the collapse
+    // above ground — the surfaced variant already covers that. This test
+    // wants the earth to close over somebody.
+    const occupant = sim.spawn(sim.addUnitType(SCOUT_TYPE), 1, fx.from(4.5), fx.from(6.5));
+    sim.putInTunnel(occupant, idx);
+    expect(Array.from(sim.trail).every((v) => v === 0)).toBe(true); // truly no spoil
+    sim.identifyTunnelTo(0, idx);
+    sim.queueCommand({ kind: 'chargeTunnel', ids: [yahalom], tunnel: idx });
+    let collapsed: Extract<SimEvent, { kind: 'tunnelCollapsed' }> | null = null;
+    // The identified hand-over decays to lost in ~322 ticks with no spoil to
+    // keep eyes on, so the collapse must land inside that window — it does,
+    // at walk ~0 + charge 160, with half the window to spare.
+    for (let t = 0; t < 300 && !collapsed; t++) {
+      for (const e of sim.tick()) if (e.kind === 'tunnelCollapsed') collapsed = e;
+    }
+    expect(collapsed).not.toBeNull();
+    expect(collapsed?.by).toBe(yahalom);
+    expect(sim.tnAlive[idx]).toBe(0);
+    expect(sim.state.alive[occupant]).toBe(0); // the ambush died in its hole
+    expect(Array.from(sim.trail).every((v) => v === 0)).toBe(true); // and nothing conjured spoil
   });
 });
 
