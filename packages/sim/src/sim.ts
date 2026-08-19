@@ -3881,6 +3881,16 @@ export class Sim {
     this.displaced.fill(0);
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0 || this.moving[i] === 0 || this.mobilityKilled[i] === 1) continue;
+      // The belt, not a duplicate. Every autonomous setter of `moving` is
+      // individually guarded (stepSweep, stepTransport, stepKamikaze,
+      // startRout via suppression refusal) and applyCommands refuses buried
+      // ids — those are the braces. This line is what makes movement
+      // containment structural rather than an enumeration of setters: the
+      // next system that sets `moving = 1` gets it for free instead of by
+      // remembering. Safe by construction — no system legitimately moves a
+      // buried body: stepDigging never touches posX, and surfacing writes
+      // the vent position directly rather than walking there.
+      if (this.tunnelIn[i] >= 0) continue;
       // Attack-movers halt to fight while they hold a target (stationary
       // stance emerges from this — no scripted bonus needed).
       if (this.attackMove[i] === 1 && this.engaging[i] === 1) continue;

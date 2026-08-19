@@ -965,6 +965,24 @@ describe('containment is structural (Task 16)', () => {
     expect(sim.embarkAtSpawn(car2, rider2)).toBe(false);
   });
 
+  it('the belt: even a unit some future system leaves moving does not walk below ground', () => {
+    // Every autonomous moving-setter is individually guarded today (the
+    // braces); this pins the belt in stepMovement itself. Simulate the next
+    // unguarded setter by burying a mid-walk unit through the raw state
+    // array — tunnelIn set, order bundle deliberately left intact — which is
+    // exactly the state a forgotten guard would produce.
+    const sim = new Sim({ seed: 11, width: 24, height: 12, capacity: 8 });
+    const idx = sim.addTunnel({ id: 'tn', points: [[4, 6], [12, 6]] as const, dig_tiles_per_s: 1 });
+    const u = sim.spawn(sim.addUnitType(SCOUT_TYPE), 1, fx.from(4.5), fx.from(6.5));
+    sim.queueCommand({ kind: 'move', ids: [u], x: fx.from(20.5), y: fx.from(6.5) });
+    for (let t = 0; t < 10; t++) sim.tick();
+    expect(sim.state.moving[u]).toBe(1); // premise: mid-walk, order live
+    sim.state.tunnelIn[u] = idx; // the hypothetical unguarded setter
+    const at = sim.state.posX[u];
+    for (let t = 0; t < 20; t++) sim.tick();
+    expect(sim.state.posX[u]).toBe(at); // the earth held it anyway
+  });
+
   it('a unit SURFACED from a route is ordinary: it takes orders like anyone else', () => {
     // The distinction that must survive every containment fix: homeTunnel >= 0
     // with tunnelIn === -1 is the combat loop of the subsystem, not a
