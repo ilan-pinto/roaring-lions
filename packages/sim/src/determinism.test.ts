@@ -302,11 +302,15 @@ describe('determinism (1000-tick replay)', () => {
     let ventOpened = false;
     let surfacedCount = 0;
     let submergedCount = 0;
+    const surfacers = new Set<number>();
     const collapses: { tick: number; by: number }[] = [];
     const destroyed: { tick: number; by: number }[] = [];
     const end = run(0x1310_0001, 1000, false, (e) => {
       if (e.kind === 'ventOpened') ventOpened = true;
-      if (e.kind === 'surfaced') surfacedCount++;
+      if (e.kind === 'surfaced') {
+        surfacedCount++;
+        surfacers.add(e.entity);
+      }
       if (e.kind === 'submerged') submergedCount++;
       if (e.kind === 'tunnelCollapsed') collapses.push({ tick: e.tick, by: e.by });
       if (e.kind === 'destroyed') destroyed.push({ tick: e.tick, by: e.by });
@@ -347,6 +351,12 @@ describe('determinism (1000-tick replay)', () => {
     // instead, these fail loudly rather than silently dropping the branch.
     expect(killedByCollapse).toBe(1);
     expect(surfacedCount).toBe(submergedCount + 1);
+    // ...and the surfacer itself is alive at the end. Without this, a mole
+    // shot dead ON the surface before the collapse would satisfy both checks
+    // above by accident (surfaced still leads by one, the collapse still
+    // kills exactly the one below). Ids come from the events, not spawn order.
+    expect(surfacers.size).toBeGreaterThan(0);
+    for (const s of surfacers) expect(end.state.alive[s], `surfacer ${s} alive at end`).toBe(1);
     expect(end.tnProgress[0]).toBe(end.tnLength[0]);
     expect(end.tnAlive[0]).toBe(0);
     expect(end.tnOccupants[0]).toBe(0);

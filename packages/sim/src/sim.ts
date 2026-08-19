@@ -1640,13 +1640,16 @@ export class Sim {
           const tx = t % this.width;
           const ty = (t - tx) / this.width;
           // stampTrail marks tiles under buildings too, and a blocked goal
-          // bails the flow field to all-DIR_NONE (see nearestOpenTile) — the
-          // final-leg beeline then grinds the team against the wall while
-          // `displaced` holds the countdown at zero. Unlike demolish, the
-          // GOAL moves to the open tile along with the field: demolish's
-          // in-range stop precedes its displaced gate and rescues the slide,
-          // ours does not — and spoil is a surface sign, not a footprint, so
-          // any open ground beside it is a place to work.
+          // bails the flow field to all-DIR_NONE (see nearestOpenTile) — so
+          // the GOAL moves to the open tile along with the field, on its own
+          // merits: spoil is a surface sign, not a footprint, and any
+          // reachable open ground beside it is a place to stand and work.
+          // The retarget is not compensating for a missing stop: since the
+          // hoist, stepTunnelCharge's in-range stop precedes its displaced
+          // gate exactly as demolish's does, and rescues the one case this
+          // retarget cannot — a goal that is open but sealed off (a route
+          // venting inside a walled compound), where the beeline grinds the
+          // team along the wall inside charge range.
           const [fgx, fgy] = this.nearestOpenTile(tx, ty);
           this.wpCount[id] = 0;
           this.boardGoal[id] = -1;
