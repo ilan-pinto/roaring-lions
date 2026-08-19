@@ -43,9 +43,8 @@ export interface TunnelJson {
   vent: readonly number[];
   dig_tiles_per_s?: number;
   /** The route starts fully excavated: dig progress at full length, vent
-   *  open. The only way authored data can promise a stocked route will ever
-   *  surface -- digger assignment is runtime behaviour with no declarative
-   *  form. */
+   *  open. One of the two ways authored data opens a route -- the other is a
+   *  mission placement whose `digs` names it, excavating live. */
   pre_dug?: boolean;
 }
 

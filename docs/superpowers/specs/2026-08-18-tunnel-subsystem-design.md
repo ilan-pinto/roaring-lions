@@ -293,7 +293,7 @@ Slices 1–3 are this spec. Slice 4 depends on all three.
 
 ## As built
 
-Sixteen tasks, 35 commits. Every gate green: 567 tests, determinism pinned at
+Seventeen tasks, 37 commits. Every gate green: 576 tests, determinism pinned at
 `3003042083`, all five §5.7 backtest figures unmoved, the cost curve holding 25 units in
 band. What follows is where the built subsystem departs from the design above, because a
 spec that quietly disagrees with its own implementation is worse than no spec.
@@ -351,23 +351,34 @@ diagnosis "leaks are writers" was half wrong, and the half that was wrong was th
   reference does not exist that mission; in fact unreferenced routes are inert but still
   count when a `collapse` objective tallies mouths in a zone.
 
-### What is built but not yet reachable from content
+### What is built but not yet reachable from content — closed by task 17
 
-The engine is complete; two content keys are not in the ignition. `assignDigger` and
-`identifyTunnelTo` have **no production callers** — no declarative form assigns a digger to
-a route, and nothing wires the `mark_tunnel` ability to the primitive that would honour it.
+As first shipped, two content keys were not in the ignition: `assignDigger` and
+`identifyTunnelTo` had **no production callers** — no declarative form assigned a digger
+to a route, and nothing wired the `mark_tunnel` ability to the primitive built to honour
+it. The chain made that expensive: no authored dig meant no spoil, spoil was the only
+authorable identification channel, so no authored mission could identify a route, and
+`chargeTunnel` plus every `collapse` objective were reachable only through debug APIs.
 
-The chain matters: no authored dig means no spoil, and spoil is the only authorable
-identification channel, so **no authored mission can currently identify a route** — which
-means `chargeTunnel` and any `collapse` objective are completable today only through debug
-APIs. The one playable shape this branch enables is a `pre_dug` route with an `in_tunnel`
-garrison venting an ambush, counterable by shooting surfacers but never by collapsing the
-tunnel.
+Task 17 wired both, each as the smallest declarative form that closes the chain:
 
-Nothing shipped is broken, because no mission uses tunnels yet. But the first `collapse`
-mission an author writes will validate green and fail at its deadline every time, and the
-validator cannot warn about it. Wiring both is a prerequisite for the mission tracked in
-issue #91 — not a nice-to-have.
+- **`digs` on a placement** — `{ "unit": "digger_crew", "count": 1, "at": [29, 4],
+  "digs": "td_north" }` — assigns the spawned body as the route's digger at mission
+  start, mirroring `in_tunnel`'s resolution and its load-time throw on an unknown id.
+  `validate_data.mjs` refuses what the runtime would swallow silently: a unit without
+  `dig_tunnel`, a `count` other than 1, two placements digging one route, a `pre_dug`
+  route (nothing left to excavate), and a route the map does not declare.
+- **`mark_tunnel` senses the route itself** — `stepDetection` hands a side the route
+  identified the moment a living carrier of the ability holds a clear sight line to any
+  tile the route passes under, inside its own sight radius. It runs before, and instead
+  of, trail-strength accrual: no spoil, no dwell, no new tuning constant, which is what
+  makes it work on the `pre_dug` routes that never stamp trail.
+
+The mission runtime's tests carry the ignition proof: one mission whose JSON alone digs
+a route through to venting, leaving spoil the player then finds; and one whose JSON
+alone marks a spoilless `pre_dug` route so a charge completes a `collapse` objective —
+no debug call anywhere in either. The determinism pin and all five §5.7 figures did not
+move. Issue #91 now needs authoring, not engine work.
 
 ### Still open
 

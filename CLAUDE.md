@@ -123,13 +123,17 @@ The combat model is the product. Everything else is scaffolding around it.
 - Detection is O(N²) pairs per tick — stagger evaluation before unit counts pass ~150.
 - Tunnels are implemented (`feat/tunnel-subsystem`): routes are map data, a digger
   advances one and leaves surface spoil, stocked fighters surface at the vent to fire a
-  volley and submerge, and a `yahalom_squad` charge collapses a route. Two content keys
-  are **not** wired: `assignDigger` and `identifyTunnelTo` have no production callers, so
-  no authored mission can dig or mark a route yet — the only playable shape today is a
-  `pre_dug` route with an `in_tunnel` garrison. Wiring both is a prerequisite for the
-  Beit Sahwan subterranean mission (#91). `tunnel_travel` remains unit data only.
+  volley and submerge, and a `yahalom_squad` charge collapses a route. Both content keys
+  are wired: a placement's `digs` assigns its body as a route's digger, and a
+  `mark_tunnel` unit with a sight line to a route identifies it — spoil or no spoil —
+  so an authored mission can dig, find, and collapse a route end to end (the mission
+  runtime tests prove the chain from JSON alone). What the Beit Sahwan subterranean
+  mission (#91) still needs is authoring, not engine work. `tunnel_travel` remains
+  unit data only.
 - The trail-detection scan is O(routes × living units × sight²) per tick
-  (`trailStrengthFor`), on top of detection's existing O(N²). At the largest authored
+  (`trailStrengthFor`), on top of detection's existing O(N²) — and `markerSeesRoute`
+  is the same shape again for `mark_tunnel` carriers, though it stops scanning a
+  route once identified. At the largest authored
   mission (65 units) that is ~10⁵ extra array probes a tick — immaterial now, real at the
   GDD's 300-unit target, and it wants staggering at the same time detection does.
   `drawTrail` is O(width × height × routes) at 5 Hz and belongs in the same sweep.
