@@ -16,6 +16,13 @@ export interface TunnelRouteJson {
   /** Mouth first, vent last, in tiles. At least two points. */
   points: readonly (readonly [number, number])[];
   dig_tiles_per_s: number;
+  /** The route starts fully excavated: progress at full length, vent open.
+   *  This is the only way authored data can promise that a stocked route will
+   *  ever surface — digger assignment is runtime behaviour with no
+   *  declarative form, so a mission cannot arrange for the digging itself.
+   *  No trail is stamped at load: spoil is what digging leaves behind, and a
+   *  route finished before the mission began has weathered. */
+  pre_dug?: boolean;
 }
 
 /** Trail density stamped on a tile the moment the dig head passes under it. */

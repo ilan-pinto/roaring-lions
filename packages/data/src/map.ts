@@ -40,6 +40,11 @@ export interface TunnelJson {
   waypoints?: readonly (readonly number[])[];
   vent: readonly number[];
   dig_tiles_per_s?: number;
+  /** The route starts fully excavated: dig progress at full length, vent
+   *  open. The only way authored data can promise a stocked route will ever
+   *  surface -- digger assignment is runtime behaviour with no declarative
+   *  form. */
+  pre_dug?: boolean;
 }
 
 export interface MapJson {
@@ -77,6 +82,8 @@ export interface ParsedTunnel {
   /** Mouth first, waypoints in order, vent last. Always at least 2 points. */
   points: [number, number][];
   digTilesPerS: number;
+  /** Fully excavated at mission start: progress at length, vent open. */
+  preDug: boolean;
 }
 
 /**
@@ -231,7 +238,7 @@ export function parseMap(json: MapJson): ParsedMap {
       }
       points.push([x, y]);
     }
-    tunnels.push({ id: t.id, points, digTilesPerS: t.dig_tiles_per_s ?? 0.15 });
+    tunnels.push({ id: t.id, points, digTilesPerS: t.dig_tiles_per_s ?? 0.15, preDug: t.pre_dug ?? false });
   }
   // Flood-fill contiguous same-symbol building tiles into structures, so an
   // author draws a town in ASCII and gets buildings with HP for free.

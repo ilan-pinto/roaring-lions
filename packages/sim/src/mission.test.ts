@@ -2449,3 +2449,83 @@ describe('containment is structural (Task 16)', () => {
     expect(w.runtime.objectiveStatus('win')).toBe('complete'); // and the earth coming down reaches it
   });
 });
+
+// `pre_dug` end to end: the flag is the only way authored data can promise a
+// stocked route will ever surface, because digger assignment has no
+// declarative form. Until this test existed, a mission authored with
+// `in_tunnel` on a pre_dug route validated green and then never vented — the
+// exact silent-playtest failure the validator exists to prevent.
+describe('pre_dug routes', () => {
+  function ambushWorld(preDug: boolean) {
+    const route: TunnelRouteJson = {
+      id: 'tn_pd',
+      points: [[3, 3], [12, 3]],
+      dig_tiles_per_s: 1,
+      ...(preDug ? { pre_dug: true } : {}),
+    };
+    const sim = new Sim({ seed: 7, width: 24, height: 16, capacity: 16 });
+    const types = new Map<string, number>();
+    for (const t of [SQUAD, AMBUSHER]) types.set(t.id, sim.addUnitType(t));
+    sim.addTunnel(route);
+    const mission: MissionJson = {
+      id: 'pre_dug_test',
+      map: { file: 'none' },
+      ledger: { requires: [], produces: [] },
+      // Standing two tiles from the vent (12.5, 3.5): inside the ambusher's
+      // 3.5-tile effective range, so hasTargetFrom is satisfied from tick one
+      // and the ONLY thing deciding whether the ambush springs is the vent.
+      starting_force: [{ unit: SQUAD.id, count: 1, at: [14, 3] }],
+      objectives: [{ id: 'win', type: 'destroy_all', primary: true }],
+      enemy: { garrison: [{ unit: AMBUSHER.id, count: 1, at: [3, 3], in_tunnel: 'tn_pd' }] },
+    };
+    const rt = new MissionRuntime(sim, mission, {
+      typeIdOf: (u) => {
+        const t = types.get(u);
+        if (t === undefined) throw new Error(`unknown unit ${u}`);
+        return t;
+      },
+      markers: {},
+      zones: {},
+      tunnels: [route],
+    });
+    rt.start();
+    const buried = allIds(sim).find((i) => sim.state.side[i] === 1);
+    return { sim, rt, buried: buried ?? -1 };
+  }
+
+  it('loads complete: progress at full length, vent open, nothing to dig', () => {
+    const { sim } = ambushWorld(true);
+    expect(sim.tnProgress[0]).toBe(sim.tnLength[0]);
+    expect(sim.tnVentOpen[0]).toBe(1);
+    // stepDigging must skip it: no digger exists, and ticking must not move
+    // progress or stamp trail.
+    for (let t = 0; t < 40; t++) sim.tick();
+    expect(sim.tnProgress[0]).toBe(sim.tnLength[0]);
+  });
+
+  it('stamps no trail at load: a route dug before the mission has weathered', () => {
+    const { sim } = ambushWorld(true);
+    expect(sim.trail.every((v) => v === 0)).toBe(true);
+  });
+
+  it('vents its in_tunnel garrison with no digger present', () => {
+    const { sim, buried } = ambushWorld(true);
+    expect(sim.state.tunnelIn[buried]).toBe(0);
+    const events: SimEvent[] = [];
+    for (let t = 0; t < 40; t++) events.push(...sim.tick());
+    const up = events.find((e) => e.kind === 'surfaced');
+    expect(up).toBeDefined();
+    expect(up && 'entity' in up ? up.entity : -1).toBe(buried);
+  });
+
+  it('a non-pre_dug route does not: the garrison stays buried forever', () => {
+    const { sim, buried } = ambushWorld(false);
+    expect(sim.tnProgress[0]).toBe(0);
+    expect(sim.tnVentOpen[0]).toBe(0);
+    const events: SimEvent[] = [];
+    for (let t = 0; t < 400; t++) events.push(...sim.tick()); // 20 s
+    expect(events.some((e) => e.kind === 'surfaced')).toBe(false);
+    expect(sim.state.tunnelIn[buried]).toBe(0); // still in the route
+    expect(sim.tnVentOpen[0]).toBe(0);
+  });
+});

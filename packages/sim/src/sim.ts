@@ -1074,9 +1074,17 @@ export class Sim {
     const id = this.tunnelCount_++;
     this.tnPoints.push(route.points);
     this.tnAlive[id] = 1;
-    this.tnProgress[id] = 0;
     this.tnLength[id] = routeLength(route.points);
-    this.tnVentOpen[id] = 0;
+    // pre_dug: the route was finished before the mission began, so it loads
+    // complete with its vent open — stepDigging skips it and an in_tunnel
+    // garrison can surface with no digger ever assigned. The trail is NOT
+    // stamped: spoil is what digging leaves behind, and at TRAIL_DECAY's
+    // rate anything dug before tick zero weathered away long ago. Revealing
+    // a pre_dug route is the author's job (`mark_tunnel`, or the ledger).
+    // No ventOpened event either — load-time state precedes any subscriber,
+    // and an event claiming it happened "now" would be a lie in the log.
+    this.tnProgress[id] = route.pre_dug === true ? this.tnLength[id] : 0;
+    this.tnVentOpen[id] = route.pre_dug === true ? 1 : 0;
     this.tnOccupants[id] = 0;
     this.tnDigRate[id] = fx.mul(fx.from(route.dig_tiles_per_s), DT);
     this.tnDigger[id] = -1;

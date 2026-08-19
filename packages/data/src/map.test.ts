@@ -137,6 +137,18 @@ describe('tunnels', () => {
     expect(m.tunnels[0].points).toEqual([[0, 0], [2, 2]]);
   });
 
+  it('carries pre_dug through as preDug', () => {
+    const m = parseMap({
+      ...TINY,
+      tunnels: [{ id: 'tn_c', mouth: [0, 0], vent: [2, 2], pre_dug: true }],
+    });
+    expect(m.tunnels[0].preDug).toBe(true);
+  });
+
+  it('defaults preDug to false when the author says nothing', () => {
+    expect(parseMap(WITH_TUNNEL).tunnels[0].preDug).toBe(false);
+  });
+
   it('rejects an out-of-bounds point, naming which one', () => {
     expect(() =>
       parseMap({ ...TINY, tunnels: [{ id: 'tn_c', mouth: [0, 0], vent: [99, 0] }] })
