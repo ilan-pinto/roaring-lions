@@ -2130,7 +2130,21 @@ export class Sim {
           const p = fx.sub(ONE, fx.expNeg(fx.mul(K_DETECT, fx.mul(strength, DT))));
           const c = this.tnContact[k];
           this.tnContact[k] = fx.add(c, fx.mul(fx.sub(ONE, c), p));
-        } else {
+        } else if (this.tnContactState[k] < 2) {
+          // An unobserved SUSPECTED blip decays like any other contact — the
+          // fact was never established, so it fades. IDENTIFIED does not:
+          // contact decay exists because units move and may no longer be
+          // where they were seen, and a tunnel is fixed geography — once a
+          // side has established where a route runs, that knowledge cannot
+          // go stale. This is the design's own position, not a preference:
+          // the campaign ledger carries tunnel marks BETWEEN missions
+          // (intel.marked_positions), which a mark expiring in ~16 s WITHIN
+          // one mission would contradict, and mark_tunnel exists to hand a
+          // route to a team that then has to walk to it — under decay that
+          // handover expired mid-walk (a charge was watched dying at
+          // 117/160 ticks). Freezing confidence, not just state, keeps the
+          // ladder's `lost` transition structurally unreachable at state 2:
+          // c sits at or above IDENTIFIED_AT and nothing lowers it.
           this.tnContact[k] = fx.mul(this.tnContact[k], CONTACT_DECAY);
         }
         const c = this.tnContact[k];

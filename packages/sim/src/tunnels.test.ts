@@ -228,6 +228,66 @@ describe('finding a route', () => {
   });
 });
 
+// Identified route knowledge is permanent; a suspected blip is not. Contact
+// decay exists because units move — a tunnel is fixed geography, so once a
+// side has established where a route runs the fact cannot go stale. The
+// ledger already carries tunnel marks BETWEEN missions; a mark expiring in
+// ~16 s within one mission contradicted that, and it made mark_tunnel
+// self-defeating: the handover expired before the charge team finished
+// walking (observed live as a charge dying at 117/160 ticks).
+describe('identified persistence', () => {
+  it('an identified route stays identified through 450 unobserved ticks, and a late charge completes', () => {
+    // chargeScenario has no observer at all: the yahalom's sight is 0 by
+    // fixture design and the occupant is underground, so from the moment of
+    // the handover nothing ever refreshes the contact. Under decay this hit
+    // `lost` at ~322 ticks; the charge below then started late enough to be
+    // impossible.
+    const { sim, idx, yahalom } = chargeScenario({ revealed: true });
+    const events: SimEvent[] = [];
+    for (let t = 0; t < 450; t++) events.push(...sim.tick());
+    expect(sim.tunnelContactLevel(0, idx)).toBe(2);
+    sim.queueCommand({ kind: 'chargeTunnel', ids: [yahalom], tunnel: idx });
+    let collapsed = false;
+    for (let t = 0; t < 400 && !collapsed; t++) {
+      for (const e of sim.tick()) {
+        events.push(e);
+        if (e.kind === 'tunnelCollapsed') collapsed = true;
+      }
+    }
+    expect(collapsed).toBe(true);
+    // And the ladder never emitted `lost` for it — the transition is
+    // structurally unreachable at identified, not merely un-hit.
+    expect(events.some((e) => e.kind === 'tunnelContact' && e.level === 'lost')).toBe(false);
+  });
+
+  it('a suspected route still decays to lost with nobody watching', () => {
+    // This is the assertion that proves the fix did not simply switch decay
+    // off: an unconfirmed blip fading is correct, because the fact was
+    // never established. A scout far enough from one spoil tile climbs
+    // slowly; the loop stops the tick suspicion registers, the spoil is
+    // then wiped (weathered), and with strength zero the blip must fade
+    // through `lost` back to unknown.
+    const { sim, idx } = simWithRoute();
+    const scout = sim.addUnitType(SCOUT_TYPE);
+    sim.spawn(scout, 0, fx.from(7.5), fx.from(7.5));
+    sim.trail[2 * 16 + 2] = TRAIL_MAX; // one spoil tile at the mouth (2,2)
+    let level: number = 0;
+    for (let t = 0; t < 600 && level < 1; t++) {
+      sim.tick();
+      sim.trail[2 * 16 + 2] = TRAIL_MAX; // hold the spoil fresh while watched
+      level = sim.tunnelContactLevel(0, idx);
+    }
+    expect(level).toBe(1); // suspected, and never identified in one leap
+    sim.trail.fill(0); // the trail weathers away
+    const events: SimEvent[] = [];
+    for (let t = 0; t < 600; t++) events.push(...sim.tick());
+    expect(sim.tunnelContactLevel(0, idx)).toBe(0);
+    expect(
+      events.some((e) => e.kind === 'tunnelContact' && e.level === 'lost' && e.side === 0)
+    ).toBe(true);
+  });
+});
+
 /** Armed infantry whose duel settles nothing: working rifles on both sides
  *  (the surface shooter genuinely hunts, which is what makes "cannot be
  *  selected" meaningful; the underground rifle is what proves the earth
@@ -693,9 +753,10 @@ describe('collapsing a route', () => {
     sim.trail[6 * sim.width + 11] = TRAIL_MAX; // buried spoil — the team's nearest
     sim.trail[6 * sim.width + 5] = TRAIL_MAX; // open spoil far west, for the spotter
     sim.identifyTunnelTo(0, idx);
-    // A handed-over identification decays to lost in ~322 ticks unless
-    // somebody keeps eyes on spoil, and the walk-plus-charge must not race
-    // that clock — so a scout watches the open western tile throughout.
+    // The scout predates the identified-persistence rule: identification no
+    // longer decays, so nothing races a clock any more. It stays because
+    // this test is about the walk geometry around the building, and an
+    // observer standing in the scene changes none of that.
     sim.spawn(sim.addUnitType(SCOUT_TYPE), 0, fx.from(4.5), fx.from(4.5));
     const team = sim.spawn(sim.addUnitType(YAHALOM_TYPE), 0, fx.from(11.8), fx.from(9.5));
     sim.queueCommand({ kind: 'chargeTunnel', ids: [team], tunnel: idx });
@@ -746,9 +807,8 @@ describe('collapsing a route', () => {
     sim.identifyTunnelTo(0, idx);
     sim.queueCommand({ kind: 'chargeTunnel', ids: [yahalom], tunnel: idx });
     let collapsed: Extract<SimEvent, { kind: 'tunnelCollapsed' }> | null = null;
-    // The identified hand-over decays to lost in ~322 ticks with no spoil to
-    // keep eyes on, so the collapse must land inside that window — it does,
-    // at walk ~0 + charge 160, with half the window to spare.
+    // 300 ticks is walk ~0 + charge 160 with margin. Identification no
+    // longer decays, so no window is being raced here.
     for (let t = 0; t < 300 && !collapsed; t++) {
       for (const e of sim.tick()) if (e.kind === 'tunnelCollapsed') collapsed = e;
     }
