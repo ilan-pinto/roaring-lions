@@ -226,6 +226,83 @@ describe('finding a route', () => {
   });
 });
 
+// The `mark_tunnel` ability senses the ROUTE, not its spoil. A pre_dug route
+// never stamps trail — excavation finished before the mission began — so the
+// spoil channel above can never find one, and pre_dug is exactly the shape a
+// mission is most likely to author. A living unit with the ability that holds
+// a clear sight line to any tile the route passes under, inside its own sight
+// radius, hands its side the route identified outright: no dwell, no spoil,
+// no new tuning constant.
+describe('mark_tunnel senses the route itself', () => {
+  /** SCOUT_TYPE with the ability under test. */
+  const MARKER_TYPE: UnitTypeJson = {
+    id: 'tn_marker',
+    hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
+    mobility: { speed_tiles_s: 0.9 },
+    sensors: { optics: 1.0, sight_tiles: 8, signature: 0.6 },
+    abilities: ['mark_tunnel'],
+    weapons: [],
+  };
+
+  /** ROUTE, finished before the mission began: vent open, and — the premise
+   *  every test here leans on — not one tile of trail, ever. */
+  function preDugWorld() {
+    const sim = new Sim({ seed: 7, width: 16, height: 16, capacity: 8 });
+    const idx = sim.addTunnel({ ...ROUTE, pre_dug: true });
+    return { sim, idx, marker: sim.addUnitType(MARKER_TYPE) };
+  }
+
+  it('identifies a spoilless pre_dug route in one look', () => {
+    const { sim, idx, marker } = preDugWorld();
+    sim.spawn(marker, 0, fx.from(4.5), fx.from(4.5)); // 2 tiles off the route at y=2
+    const events = sim.tick();
+    expect(sim.trail.every((d) => d === 0)).toBe(true); // premise: no spoil anywhere
+    expect(sim.tunnelContactLevel(0, idx)).toBe(2);
+    expect(sim.tunnelContactLevel(1, idx)).toBe(0); // the other side learned nothing
+    expect(events).toContainEqual(
+      expect.objectContaining({ kind: 'tunnelContact', side: 0, tunnel: idx, level: 'identified' })
+    );
+  });
+
+  it('a unit without the ability learns nothing from a spoilless route', () => {
+    const { sim, idx } = preDugWorld();
+    sim.spawn(sim.addUnitType(SCOUT_TYPE), 0, fx.from(4.5), fx.from(4.5));
+    for (let t = 0; t < 400; t++) sim.tick();
+    expect(sim.tunnelContactLevel(0, idx)).toBe(0);
+  });
+
+  it('needs a sight line: a wall between marker and route keeps it unknown', () => {
+    const { sim, idx, marker } = preDugWorld();
+    // A solid row between the marker at y=5 and the route at y=2. Every ray
+    // down must land on a tile of it — Bresenham never skips a row.
+    for (let x = 0; x < 16; x++) sim.setBlocked(x, 3, true);
+    sim.spawn(marker, 0, fx.from(4.5), fx.from(5.5));
+    for (let t = 0; t < 100; t++) sim.tick();
+    expect(sim.tunnelContactLevel(0, idx)).toBe(0);
+  });
+
+  it('respects the sight radius: a route beyond it stays unknown', () => {
+    const { sim, idx } = preDugWorld();
+    const short = sim.addUnitType({
+      ...MARKER_TYPE,
+      id: 'tn_marker_short',
+      sensors: { ...MARKER_TYPE.sensors, sight_tiles: 3 },
+    });
+    // Nearest route tile is 4 tiles up — one past what these eyes can reach.
+    sim.spawn(short, 0, fx.from(5.5), fx.from(6.5));
+    for (let t = 0; t < 100; t++) sim.tick();
+    expect(sim.tunnelContactLevel(0, idx)).toBe(0);
+  });
+
+  it('a buried marker marks nothing: the earth blocks sight out as well as in', () => {
+    const { sim, idx, marker } = preDugWorld();
+    const id = sim.spawn(marker, 0, fx.from(4.5), fx.from(4.5));
+    sim.putInTunnel(id, idx);
+    for (let t = 0; t < 100; t++) sim.tick();
+    expect(sim.tunnelContactLevel(0, idx)).toBe(0);
+  });
+});
+
 // Identified route knowledge is permanent; a suspected blip is not. Contact
 // decay exists because units move — a tunnel is fixed geography, so once a
 // side has established where a route runs the fact cannot go stale. The

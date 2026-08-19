@@ -321,6 +321,11 @@ export interface UnitType {
   canEmbark: boolean;
   /** Trained observer: earns intel while holding position (GDD §3). */
   canMarkTarget: boolean;
+  /** Reads the ground for what runs under it: a clear sight line to any tile
+   *  of a tunnel route identifies the route outright (stepDetection). The
+   *  only authorable identification that works on a `pre_dug` route, which
+   *  never had spoil to find. */
+  canMarkTunnel: boolean;
   /** Carries smoke: the counterplay to prepared fire. */
   canSmoke: boolean;
   hp: Fx;
@@ -414,6 +419,7 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     transportSlots: json.hull.transport_slots ?? 0,
     canEmbark: json.hull.can_embark ?? FOOT_ROLES.has(json.role ?? ''),
     canMarkTarget: abilities.includes('mark_target'),
+    canMarkTunnel: abilities.includes('mark_tunnel'),
     canSmoke: abilities.includes('smoke'),
     hp: fx.from(json.hull.hp),
     armorFront,
@@ -2138,6 +2144,19 @@ export class Sim {
       if (this.tnAlive[r] === 0) continue;
       for (let s = 0; s < 2; s++) {
         const k = s * MAX_TUNNELS + r;
+        // `mark_tunnel` senses the ROUTE, not its spoil: a trained eye with a
+        // clear sight line to any tile the route runs under hands its side
+        // the route identified outright — no dwell, no spoil, no tuning
+        // constant. This is the only authorable identification that reaches
+        // a pre_dug route, which never stamps trail; without it, spoil is
+        // the sole channel and no authored mission could ever identify
+        // exactly the routes missions are most likely to author. Skipped
+        // once identified: state 2 is frozen (below), so the scan would only
+        // redo settled work.
+        if (this.tnContactState[k] < 2 && this.markerSeesRoute(s, r)) {
+          this.identifyTunnelTo(s, r);
+          continue;
+        }
         const strength = this.trailStrengthFor(s, r);
         if (strength > 0) {
           const p = fx.sub(ONE, fx.expNeg(fx.mul(K_DETECT, fx.mul(strength, DT))));
@@ -2207,6 +2226,42 @@ export class Sim {
       }
     }
     return best;
+  }
+
+  /** Can any living `mark_tunnel` unit of `side` see route `r` ITSELF — a
+   *  clear sight line to any tile the route passes under, inside the unit's
+   *  own sight radius? Trail density plays no part: this is the channel that
+   *  finds a pre_dug route, which never had any. First hit wins. Same scan
+   *  shape as trailStrengthFor above, and like it allocates nothing. */
+  private markerSeesRoute(side: number, r: number): boolean {
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0 || this.side[i] !== side || this.tunnelIn[i] >= 0) continue;
+      const type = this.unitTypes[this.typeIdx[i]];
+      if (!type.canMarkTunnel) continue;
+      const px = this.posX[i] >> 16;
+      const py = this.posY[i] >> 16;
+      // Whole-tile scan window, rounded up so the last ring is not clipped —
+      // trailStrengthFor's rule.
+      const reach = fx.toInt(fx.ceil(type.sight));
+      for (let ty = py - reach; ty <= py + reach; ty++) {
+        for (let tx = px - reach; tx <= px + reach; tx++) {
+          if (tx < 0 || ty < 0 || tx >= this.width || ty >= this.height) continue;
+          if (this.tunnelOfTile(r, tx, ty) === 0) continue;
+          const dSq = distSqFx(
+            fx.sub(fx.add(fx.fromInt(tx), HALF), this.posX[i]),
+            fx.sub(fx.add(fx.fromInt(ty), HALF), this.posY[i])
+          );
+          // The window is square; sight is round. No MIN_DETECT floor here:
+          // that guard exists to cap the 1/dSq division trailStrengthFor
+          // performs, this predicate divides by nothing, and standing over
+          // the route is the best look at it there is.
+          if (dSq > type.sightSq) continue;
+          if (this.losRay(px, py, tx, ty) < 0) continue;
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   /** Does route `r` pass under this tile? */

@@ -202,14 +202,64 @@ const structureSymbols = new Map(
     }
     flatten(mi.civilians?.groups, civPlacements);
 
-    // Digger assignment has no declarative form -- no schema field, no trigger
-    // kind, nothing calls sim.assignDigger from mission data -- so "will this
-    // route be dug" cannot be answered per route. What IS visible is whether
-    // the mission fields any unit that could ever dig at all; when it fields
-    // none and the route is not authored pre_dug, burial is provably a grave.
-    const anyoneCanDig = [...enemyPlacements, ...playerPlacements, ...civPlacements].some((p) =>
-      hasAbility(p.unit, 'dig_tunnel')
-    );
+    // Digger assignment HAS a declarative form: a placement's `digs` names the
+    // route it excavates, and spawnPlacement's assignDigger call on it is the
+    // only production path to a dig. Four rules keep the key honest, each one
+    // an error the runtime would swallow silently -- assignDigger is
+    // unit-blind, replaces without complaint, and a finished route just skips
+    // stepDigging, so every one of these ships as a mission that quietly
+    // never starts.
+    const allPlacements = [...enemyPlacements, ...playerPlacements, ...civPlacements];
+    const digsByRoute = new Map(); // route id -> the placements that dig it
+    for (const p of allPlacements) {
+      if (p.digs === undefined) continue;
+      const list = digsByRoute.get(p.digs) ?? [];
+      list.push(p);
+      digsByRoute.set(p.digs, list);
+      const route = tunnelsById.get(p.digs);
+      if (!route) {
+        failures.push(
+          `${rel(file)}: placement "${p.unit}" declares digs "${p.digs}", ` +
+            `which map "${mi.map.file}" does not declare`
+        );
+      } else if (route.pre_dug === true) {
+        failures.push(
+          `${rel(file)}: "${p.unit}" digs "${p.digs}", but that route is pre_dug — ` +
+            `there is nothing left to excavate, so the assignment does nothing`
+        );
+      }
+      if (!hasAbility(p.unit, 'dig_tunnel')) {
+        failures.push(
+          `${rel(file)}: "${p.unit}" declares digs "${p.digs}" without the dig_tunnel ` +
+            `ability — assignDigger is unit-blind at runtime, so the ability list is ` +
+            `the only place "digger" means anything`
+        );
+      }
+      if (p.count !== 1) {
+        failures.push(
+          `${rel(file)}: "${p.unit}" digs "${p.digs}" with count ${p.count} — one digger ` +
+            `works one route, and every body past the first silently displaces the ` +
+            `previous assignment`
+        );
+      }
+    }
+    for (const [routeId, list] of digsByRoute) {
+      if (list.length > 1) {
+        failures.push(
+          `${rel(file)}: route "${routeId}" is dug by ${list.length} placements ` +
+            `(${list.map((p) => `"${p.unit}"`).join(', ')}) — one digger works one route, ` +
+            `and the runtime keeps only the last assignment`
+        );
+      }
+    }
+
+    // The burial check below stays coarser than `digs` could now make it: it
+    // refuses in_tunnel only when NOTHING fielded could ever dig, the provable
+    // grave. A garrison buried in an undug route somebody digs elsewhere is
+    // left alone -- tightening to "pre_dug or dug by some placement" is a
+    // deliberate decision not yet taken, because with mark_tunnel wired such
+    // a garrison is at least reachable (identify, charge, entomb).
+    const anyoneCanDig = allPlacements.some((p) => hasAbility(p.unit, 'dig_tunnel'));
 
     // Can the player ever field a unit that works a tunnel charge? Fielded
     // units are visible; a mission with an economy (resources + player_start)
@@ -468,16 +518,17 @@ const structureSymbols = new Map(
               `a placement is either in_tunnel or loaded, never both`
           );
         }
-        // Authored routes start undug with the vent shut, and digger assignment
-        // is runtime AI with no declarative form. So unless the route is
-        // authored pre_dug or the mission fields something able to dig, these
-        // bodies can never surface, never be seen, and never be reached -- not
-        // even by a collapse, since an undug route stamps no trail to charge.
+        // Authored routes start undug with the vent shut. Unless the route is
+        // authored pre_dug or the mission fields something able to dig at
+        // all, the vent can never open: the bodies never surface, never
+        // fight, and are reachable only by the player entombing them -- a
+        // grave, not an ambush. (See the digsByRoute note above for why this
+        // stays coarser than per-route.)
         if (route && route.pre_dug !== true && !anyoneCanDig) {
           failures.push(
             `${rel(file)}: "${pl.unit}" is in_tunnel "${pl.in_tunnel}", but the route is not ` +
-              `pre_dug and nothing in this mission has the dig_tunnel ability — the bodies ` +
-              `can never surface or be reached, so the placement can never enter play`
+              `pre_dug and nothing in this mission has the dig_tunnel ability — the vent ` +
+              `can never open, so the garrison can never surface or fight`
           );
         }
       }

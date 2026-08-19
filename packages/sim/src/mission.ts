@@ -44,6 +44,14 @@ export interface PlacementJson {
    *  it is collapsed first (authored routes start undug). An unknown id
    *  throws at load. */
   in_tunnel?: string;
+  /** Route id (map `tunnels[].id`) whose digger this placement is. The
+   *  spawned body is assigned to the route at mission start and the dig
+   *  advances from the first tick — the declarative form of `assignDigger`,
+   *  exactly as `in_tunnel` is of `putInTunnel`. One digger, one route:
+   *  validate_data.mjs requires the unit to carry `dig_tunnel`, `count` to
+   *  be 1, at most one placement per route, and never a `pre_dug` route
+   *  (nothing left to excavate). An unknown id throws at load. */
+  digs?: string;
   /**
    * Infantry authored *aboard* this carrier, seated at spawn rather than walking
    * in. The only way an AI-driven transport ever has passengers: every other
@@ -874,6 +882,8 @@ export class MissionRuntime {
     // Resolved before any body spawns: a bad route id is an authoring error
     // and must not leave half a placement standing.
     const tunnelIdx = p.in_tunnel !== undefined ? this.tunnelIndex(p.in_tunnel) : -1;
+    // Same rule, same reason, for the route this placement digs.
+    const digsIdx = p.digs !== undefined ? this.tunnelIndex(p.digs) : -1;
 
     // Buried and loaded cannot coexist: the hull fits the shaft, the riders
     // do not, and every containment guard keys on the rider's own tunnelIn —
@@ -919,6 +929,10 @@ export class MissionRuntime {
       // Below ground from tick zero. putInTunnel owns the tunnelIn/occupant
       // invariant; the spawn position above is cosmetic for a buried body.
       if (tunnelIdx >= 0) this.sim.putInTunnel(id, tunnelIdx);
+      // The route's digger from tick zero. assignDigger keeps one digger per
+      // route, so on an unvalidated count > 1 the last body silently wins —
+      // validate_data.mjs refuses such a placement before it ships.
+      if (digsIdx >= 0) this.sim.assignDigger(digsIdx, id);
       // Carry-over, consumed. A placement recon marked last mission is already known:
       // it spawns visible, and it does not get to spring an ambush. This is what makes
       // a thorough recon worth doing -- and why one mission file plays differently by

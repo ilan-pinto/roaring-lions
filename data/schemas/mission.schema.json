@@ -475,6 +475,10 @@
           "type": "string",
           "description": "Route id (map tunnels[].id) this placement starts inside. The bodies spawn underground in that route rather than standing on their tile, and stay below until the route is dug through and vents -- or die with it if it is collapsed first. Enemy and civilian placements only; player-side burial is refused (see starting_force). Mutually exclusive with a garrison stance, a tag, and passengers, and the route must exist on the mission's map -- all enforced by validate_data.mjs, which also rejects a burial in a route nothing in the mission can ever dig open."
         },
+        "digs": {
+          "type": "string",
+          "description": "Route id (map tunnels[].id) whose digger this placement is: the spawned body is assigned to the route at mission start and the dig advances from the first tick -- the declarative form of digger assignment, exactly as in_tunnel is of stocking a route. One digger, one route: the unit must carry the dig_tunnel ability, count must be 1, no two placements may dig the same route, and a pre_dug route is refused (nothing left to excavate) -- all enforced by validate_data.mjs, which also rejects a digs naming a route the map does not declare; the runtime throws on the same unknown id before any body spawns."
+        },
         "passengers": {
           "type": "array",
           "description": "Infantry authored aboard this carrier, seated at spawn rather than walking in. The only way an AI-driven transport ever has passengers -- every other route is a player command. Each carrier in a count>1 placement gets the whole declared load, not a share of it. Capacity and whether a type can ride are checked by validate_data.mjs, which unlike this schema can see the carrier's transport_slots. Note `starting_force` carries its own inline copy of this object and does not accept this field; nothing player-side needs it yet.",
