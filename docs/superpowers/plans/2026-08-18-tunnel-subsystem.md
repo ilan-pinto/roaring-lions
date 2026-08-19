@@ -1666,10 +1666,30 @@ git commit -m "feat(tools): a collapse objective is checked before it reaches a 
 - Modify: `packages/app/src/main.ts:232-254`
 - Modify: `packages/render/src/renderer.ts`
 - Modify: `tools/src/walk_mission.ts`
+- Modify: `packages/data/src/map.ts` (and its test) — `pre_dug`
+- Modify: `packages/sim/src/sim.ts` — `pre_dug`
 
 **Interfaces:**
 - Consumes: `ParsedMap.tunnels` (Task 1), `sim.addTunnel` (Task 3), `sim.trail` (Task 5), `sim.tunnelContactLevel` (Task 6).
 - Produces: a playable, visible feature.
+
+**BLOCKING REQUIREMENT — `pre_dug` is inert and CI currently blesses it.**
+
+Task 12 added `pre_dug` to the map's tunnel schema, as the answer to a real problem: authored routes start at `tnProgress` 0 with the vent shut, so an `in_tunnel` garrison can never surface unless something digs that route — and whether a digger will dig a given route is not determinable from mission data (`assignDigger` has no declarative form). `pre_dug` says "this route already exists when the mission starts".
+
+It does nothing. A mission authored today with `in_tunnel` on a `pre_dug: true` route **passes `pnpm validate:data`** and then never vents in play — precisely the silent-playtest failure the validator task existed to prevent, now with CI's blessing. Closing that is this task's first job, not an afterthought:
+
+1. `packages/data/src/map.ts` — parse `pre_dug` into `ParsedTunnel` (default `false`), with a test.
+2. `packages/sim/src/tunnels.ts` — add it to `TunnelRouteJson`.
+3. `packages/sim/src/sim.ts` — `addTunnel` honours it: set `tnProgress = tnLength` and `tnVentOpen = 1` at load. Do **not** stamp the trail at load — spoil is what the digging *left*, and a route dug before the mission began has weathered; the mission author reveals it through `mark_tunnel` or the ledger. Say in your report whether you agree with that reasoning after reading `stampTrail`.
+4. `packages/app/src/main.ts` — pass it through the conversion.
+5. A test proving end-to-end that a `pre_dug` route vents an `in_tunnel` garrison **without any digger**, and that a non-`pre_dug` route does not.
+
+Until step 5 passes, the feature is a lie in a schema file.
+
+**Also carried here** — `ctx.tunnels` is positional (array index must equal the sim's route index) and its count guard catches only truncation; an equal-count permutation would silently bury units in the wrong route. Register and pass from **one** array in **one** loop, and assert `sim.addTunnel(route) === i`.
+
+**And one minor** from Task 16's review: `renderer.pickUnit` filters on `alive` only, so a buried unit is still selectable — harmless now that every command refuses them, but a ghost-selection oddity. Fix if cheap; say so if not.
 
 **Note — this task goes slightly beyond the spec.** The spec covers the sim and the content but never says how the trail is drawn, and an invisible trail makes the whole feature unplayable. A minimal tile tint is the smallest thing that discharges that, and it is deliberately not VFX polish, which M1 excludes.
 
