@@ -86,7 +86,12 @@
             "items": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 }
           },
           "vent": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 },
-          "dig_tiles_per_s": { "type": "number", "exclusiveMinimum": 0, "default": 0.15 }
+          "dig_tiles_per_s": { "type": "number", "exclusiveMinimum": 0, "default": 0.15 },
+          "pre_dug": {
+            "type": "boolean",
+            "default": false,
+            "description": "The route starts fully excavated: dig progress at full length, vent open. This is the only way authored data can promise that a stocked route will ever surface -- digger assignment is runtime behaviour with no declarative form, so a validator cannot see it. NOTE: the sim does not consume this flag yet (addTunnel always starts at progress 0); wire it through ParsedTunnel and sim.addTunnel before any content relies on it."
+          }
         }
       }
     }
