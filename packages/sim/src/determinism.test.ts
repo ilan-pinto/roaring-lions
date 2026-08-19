@@ -255,11 +255,21 @@ describe('determinism (1000-tick replay)', () => {
     // subsystem (stepDigging, trail stamping and detection, stepSurfacing,
     // stepTunnelCharge, collapseTunnel) sat outside the canary. The south-west
     // corner now digs a route to an open vent, cycles a fighter up and down
-    // through nine volleys, and brings the route down on the occupant still
-    // below; hash() gained the tunnel columns (tunnelIn, tnAlive, tnProgress,
-    // tnVentOpen, tnOccupants) in the same change. The hash covers the tunnel
-    // subsystem for the first time, so it moves.
-    expect(a.hash()).toBe(1327951939);
+    // through its volleys, and brings the route down on the occupant still
+    // below; hash() gained the tunnel columns in the same change. The hash
+    // covers the tunnel subsystem for the first time, so it moves.
+    //
+    // Updated once more, two reasons in one deliberate move. First, hash()
+    // now folds EVERY mutable tunnel column — homeTunnel, surfaceTicks,
+    // volleyLeft, chargeOrder, chargeTicks, tnContact, tnContactState joined
+    // the original five — because the contact pair gates chargeTunnel and
+    // freezes once identified, so a sub-threshold divergence could sit
+    // dormant past the pin. Second, stepTunnelCharge's in-range stop moved
+    // above its displaced gate (stepDemolition's ordering, and its wall-grind
+    // reasoning), which starts this replay's charge 23 ticks sooner: the
+    // collapse lands at tick 660 instead of 683. Behaviour and coverage both
+    // changed on purpose; the pin moves with them.
+    expect(a.hash()).toBe(3003042083);
   });
 
   it('the replay actually exercises the structure paths', () => {
@@ -290,14 +300,14 @@ describe('determinism (1000-tick replay)', () => {
     // this is the test that refuses that. Aggregates and event flags rather
     // than entity ids, so spawn order can move without a silent no-op.
     let ventOpened = false;
-    let surfaced = false;
-    let submerged = false;
+    let surfacedCount = 0;
+    let submergedCount = 0;
     const collapses: { tick: number; by: number }[] = [];
     const destroyed: { tick: number; by: number }[] = [];
     const end = run(0x1310_0001, 1000, false, (e) => {
       if (e.kind === 'ventOpened') ventOpened = true;
-      if (e.kind === 'surfaced') surfaced = true;
-      if (e.kind === 'submerged') submerged = true;
+      if (e.kind === 'surfaced') surfacedCount++;
+      if (e.kind === 'submerged') submergedCount++;
       if (e.kind === 'tunnelCollapsed') collapses.push({ tick: e.tick, by: e.by });
       if (e.kind === 'destroyed') destroyed.push({ tick: e.tick, by: e.by });
     });
@@ -326,10 +336,17 @@ describe('determinism (1000-tick replay)', () => {
     // down on the unarmed occupant still below (the collapse kill loop
     // killed someone on the collapse tick).
     expect(ventOpened).toBe(true);
-    expect(surfaced).toBe(true);
-    expect(submerged).toBe(true);
+    expect(surfacedCount).toBeGreaterThan(1); // cycles, not one pop-up
+    expect(submergedCount).toBeGreaterThan(0);
     expect(collapses).toHaveLength(1);
-    expect(killedByCollapse).toBeGreaterThanOrEqual(1);
+    // The surfaced-survivor branch, pinned: exactly ONE death in the collapse
+    // (the unarmed occupant below — were the mole below too, this would be
+    // 2), and one more surfacing than submerging (the mole was up when the
+    // route came down and never went back — collapseTunnel cleared its
+    // homeTunnel). If timing drift ever puts the mole below at the collapse
+    // instead, these fail loudly rather than silently dropping the branch.
+    expect(killedByCollapse).toBe(1);
+    expect(surfacedCount).toBe(submergedCount + 1);
     expect(end.tnProgress[0]).toBe(end.tnLength[0]);
     expect(end.tnAlive[0]).toBe(0);
     expect(end.tnOccupants[0]).toBe(0);

@@ -3677,6 +3677,21 @@ export class Sim {
         this.chargeTicks[i] = 0;
         continue;
       }
+      // Arrival is being in range, for the reason stepDemolition documents: an
+      // order aimed at a route has no single tile to stand on, so `moving`
+      // would never clear on its own. Evaluated BEFORE the displaced gate, and
+      // that ordering is load-bearing, not tidiness: a team beelining at an
+      // unreachable goal — a route venting inside a sealed compound, where
+      // nearestOpenTile hands the courtyard back verbatim — wall-slides with
+      // `displaced` at 1 for hundreds of ticks while the slide's free-axis
+      // share decays toward zero, and a stop sequenced after that gate can
+      // never fire for it. stepDemolition runs its stop before its displaced
+      // gate for exactly this pathology; the grinding-team test in
+      // tunnels.test.ts fails if this is ever "tidied" back down.
+      if (this.moving[i] === 1 && this.nearestRouteTileDistSq(r, i) <= CHARGE_RANGE_SQ) {
+        this.moving[i] = 0;
+        this.fieldRef[i] = -1;
+      }
       // Same conditions as a demolition charge — stationary, unshaken, not
       // garrisoned — plus one this system adds: not underground. The
       // garrison clause is load-bearing, not hygiene: yahalom_squad can
@@ -3697,13 +3712,6 @@ export class Sim {
       if (this.nearestRouteTileDistSq(r, i) > CHARGE_RANGE_SQ) {
         this.chargeTicks[i] = 0;
         continue;
-      }
-      // Arrival is being in range, for the reason stepDemolition documents: an
-      // order aimed at a route has no single tile to stand on, so `moving`
-      // would never clear on its own.
-      if (this.moving[i] === 1) {
-        this.moving[i] = 0;
-        this.fieldRef[i] = -1;
       }
       if (++this.chargeTicks[i] >= type.tunnelChargeTicks) {
         this.collapseTunnel(r, i);
@@ -4197,17 +4205,28 @@ export class Sim {
     h = hashArray(h, this.stAlive);
     h = hashArray(h, this.stHp);
     h = hashArray(h, this.stOccupants);
-    // Tunnel columns. NOT the trail grid: it is width*height bytes of derived
-    // state that tnProgress already determines, and hashing it would turn
-    // every trail-decay tuning change into a hash change for no added
-    // coverage. Divergence in unhashed tunnel state (trail, contact ladder,
-    // charge clocks) still reaches these columns and the unit columns above
-    // within a few ticks — surfacing moves posX/posY, a collapse kills.
+    // Tunnel columns — every mutable one, matching how the demolition and
+    // contact state above is folded in. The contact pair matters most: it
+    // gates chargeTunnel acceptance and, once identified, freezes forever, so
+    // a sub-threshold divergence could otherwise sit dormant until an order
+    // happens to be issued. NOT hashed, deliberately: the trail grid
+    // (width*height bytes of derived state that tnProgress already
+    // determines — hashing it would turn every trail-decay tuning change
+    // into a hash change for no added coverage), tnLength/tnDigRate/
+    // tnVentX/tnVentY/tnPoints/tnTiles (immutable after addTunnel), and
+    // tnDigger (set once by assignDigger; stepDigging re-checks `alive`).
     h = hashArray(h, this.tunnelIn);
+    h = hashArray(h, this.homeTunnel);
+    h = hashArray(h, this.surfaceTicks);
+    h = hashArray(h, this.volleyLeft);
+    h = hashArray(h, this.chargeOrder);
+    h = hashArray(h, this.chargeTicks);
     h = hashArray(h, this.tnAlive);
     h = hashArray(h, this.tnProgress);
     h = hashArray(h, this.tnVentOpen);
     h = hashArray(h, this.tnOccupants);
+    h = hashArray(h, this.tnContact);
+    h = hashArray(h, this.tnContactState);
     return h >>> 0;
   }
 }

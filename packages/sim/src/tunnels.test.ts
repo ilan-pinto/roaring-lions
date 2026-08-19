@@ -772,6 +772,40 @@ describe('collapsing a route', () => {
     expect(tx === 11 && (ty === 6 || ty === 7)).toBe(false);
   });
 
+  it('a charge team grinding at a compound wall still sets the charge: in range IS arrival', () => {
+    // The case nearestOpenTile cannot rescue. The route ends in a sealed
+    // courtyard, so the nearest route tile to the team is the courtyard
+    // itself — open, therefore handed back verbatim as the walk goal, and
+    // unreachable. The flow field floods only the courtyard, the final-leg
+    // beeline wall-slides along the compound's south face, and the slide's
+    // free-axis share decays asymptotically (stepDemolition's comment
+    // documents the same pathology), holding `displaced` for hundreds of
+    // ticks. The whole slide happens INSIDE charge range: with the in-range
+    // stop sequenced before the displaced gate — demolition's ordering — the
+    // team halts on the first in-range tick and the collapse lands at ~250.
+    // With the stop after the gate it can never fire while sliding, and the
+    // clock is still near zero at tick 400. A route venting inside a walled
+    // compound is not an edge case; it is what tunnels are for.
+    const sim = new Sim({ seed: 11, width: 24, height: 12, capacity: 8 });
+    // Ring x=9..11, y=4..6, sealed 1-tile courtyard at (10,5).
+    for (let y = 4; y <= 6; y++) {
+      for (let x = 9; x <= 11; x++) {
+        if (x === 10 && y === 5) continue;
+        sim.setBlocked(x, y, true);
+      }
+    }
+    const idx = sim.addTunnel({ id: 'tn_yard', points: [[4, 5], [10, 5]] as const, dig_tiles_per_s: 1 });
+    sim.identifyTunnelTo(0, idx);
+    const team = sim.spawn(sim.addUnitType(YAHALOM_TYPE), 0, fx.from(13.5), fx.from(8.5));
+    sim.queueCommand({ kind: 'chargeTunnel', ids: [team], tunnel: idx });
+    let collapsedAt = -1;
+    for (let t = 0; t < 400 && collapsedAt < 0; t++) {
+      for (const e of sim.tick()) if (e.kind === 'tunnelCollapsed') collapsedAt = t;
+    }
+    expect(collapsedAt).toBeGreaterThanOrEqual(0);
+    expect(sim.tnAlive[idx]).toBe(0);
+  });
+
   it('a unit surfaced from a route that collapses under it survives on the surface', () => {
     const { sim, idx, yahalom, occupant } = chargeScenario({ revealed: true, surfaced: true });
     sim.queueCommand({ kind: 'chargeTunnel', ids: [yahalom], tunnel: idx });
