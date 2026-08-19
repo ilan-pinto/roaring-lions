@@ -472,6 +472,12 @@ export type Command =
    */
   | { kind: 'chargeTunnel'; ids: number[]; tunnel: number };
 
+/** The same command aimed at fewer units. A generic copy rather than an
+ *  in-place splice, because the queued object belongs to the sender. */
+function withIds<T extends { ids: number[] }>(cmd: T, ids: number[]): T {
+  return { ...cmd, ids };
+}
+
 export type ContactLevel = 'suspected' | 'identified' | 'lost';
 export type FacingArc = 'front' | 'side' | 'rear';
 export type ComponentResult =
@@ -1099,16 +1105,39 @@ export class Sim {
       throw new Error(`no tunnel ${routeIdx}`);
     }
     if (this.tunnelIn[unitId] === routeIdx) return;
+    // A carrier goes below alone: the hull fits the shaft, the riders do
+    // not. They are set down where it went under — at the vent, on the
+    // runtime path, since submerge is the only way a loaded carrier reaches
+    // here (a placement authored both buried and loaded is refused at
+    // spawn). Without this, collapseTunnel's "everyone below dies" misses
+    // them, `unload` teleports them out of the earth, and every containment
+    // guard keyed on tunnelIn skips them while stepTransport pins them to a
+    // buried hull.
+    if (this.passengers[unitId] > 0) this.unloadAll(unitId);
     this.tunnelIn[unitId] = routeIdx;
     this.tnOccupants[routeIdx]++;
-    // The earth cancels kinematics: no goal, no path, no field. applyCommands
-    // refuses new surface orders while buried; this covers the order a unit
-    // was already walking when it went down, which a refusal cannot.
+    // The earth cancels the WHOLE order bundle, not just kinematics.
+    // applyCommands refuses new surface orders while buried; this covers
+    // every order the unit already held when it went down — which a refusal
+    // cannot, because stepSweep (attackMove), stepTransport (boardGoal),
+    // stepGarrison (garrisonGoal), stepDemolition (demolishOrder) and
+    // stepTunnelCharge (chargeOrder) all re-set `moving` from a latched
+    // order with no command in sight. Clearing four of these and not the
+    // fifth is the exact hole that reopened after Task 11.
     this.moving[unitId] = 0;
     this.wpCount[unitId] = 0;
     this.goalX[unitId] = this.posX[unitId];
     this.goalY[unitId] = this.posY[unitId];
     this.fieldRef[unitId] = -1;
+    this.attackMove[unitId] = 0;
+    this.engaging[unitId] = 0;
+    this.boardGoal[unitId] = -1;
+    this.garrisonGoal[unitId] = -1;
+    this.demolishOrder[unitId] = -1;
+    this.demoTicks[unitId] = 0;
+    this.demoTarget[unitId] = -1;
+    this.chargeOrder[unitId] = -1;
+    this.chargeTicks[unitId] = 0;
   }
 
   /** Tile centre of a route's vent — where a surfacing unit stands up. */
@@ -1343,7 +1372,37 @@ export class Sim {
   private applyCommands(): void {
     const q = this.commandQueue;
     for (let c = 0; c < q.length; c++) {
-      const cmd = q[c];
+      let cmd = q[c];
+      // Containment is a rule, not a list of places that remembered it: every
+      // surface command refuses a buried unit HERE, at the single point where
+      // its ids expand, before any branch sees them. The earth decides where
+      // a buried unit goes, exactly as a vehicle does for its passenger — it
+      // comes back up at the vent (stepSurfacing) or dies with the route
+      // (collapseTunnel), never by taking an order below ground. Sitting
+      // above the branches also covers move's append fast-path, which
+      // `continue`d before the old per-branch guard could run. A SURFACED
+      // unit (homeTunnel >= 0, tunnelIn === -1) is ordinary and passes.
+      // One scan first: the common case — nobody buried — allocates nothing.
+      if ('ids' in cmd) {
+        let anyBuried = false;
+        for (const id of cmd.ids) {
+          if (this.tunnelIn[id] >= 0) {
+            anyBuried = true;
+            break;
+          }
+        }
+        if (anyBuried) {
+          const kept: number[] = [];
+          for (const id of cmd.ids) {
+            if (this.tunnelIn[id] < 0) kept.push(id);
+          }
+          if (kept.length === 0) continue;
+          // A copy, not a splice: the queued object belongs to whoever sent
+          // the command (invariant 4 — commands flow IN), and mutating it is
+          // observable outside the sim.
+          cmd = withIds(cmd, kept);
+        }
+      }
       if (cmd.kind === 'move' || cmd.kind === 'attackMove') {
         const gx = this.clampX(cmd.x);
         const gy = this.clampY(cmd.y);
@@ -1372,11 +1431,8 @@ export class Sim {
           // off. They are already untargetable while aboard; being immune to
           // movement orders is the same idea.
           if (this.carriedBy[id] >= 0) continue;
-          // A buried unit does not walk anywhere either: the earth decides
-          // where it goes, exactly as the vehicle does for its passenger. It
-          // comes back up at the vent (stepSurfacing) or dies with the route
-          // (collapseTunnel) — never by strolling off below ground.
-          if (this.tunnelIn[id] >= 0) continue;
+          // (Buried units were already dropped where the ids expanded, above
+          // the append fast-path — the earth's refusal is not per-branch.)
           this.wpCount[id] = 0; // a fresh order replaces the whole path
           if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
           this.boardGoal[id] = -1;
@@ -1429,6 +1485,11 @@ export class Sim {
         let count = 0;
         for (let t = 0; t < this.count; t++) {
           if (this.alive[t] === 0 || this.side[t] === cmd.side || this.side[t] > 1) continue;
+          // Purchased certainty does not see through earth: this is the
+          // target-side twin of stepDetection's guard. The trail contact
+          // ladder (tnContact) is the ONLY channel for knowing about a
+          // tunnel, and a sweep reveals the trail's route, not its occupants.
+          if (this.tunnelIn[t] >= 0) continue;
           const d = distSqFx(fx.sub(this.posX[t], cmd.x), fx.sub(this.posY[t], cmd.y));
           if (d > SWEEP_RADIUS_SQ) continue;
           this.identifyTo(cmd.side, t);
@@ -1436,7 +1497,11 @@ export class Sim {
         }
         this.pendingEvents.push({ kind: 'revealed', tick: this.tickCount, side: cmd.side, count });
       } else if (cmd.kind === 'callStrike') {
-        if (this.alive[cmd.caller] === 1) {
+        // `caller` is not in an ids array, so the expansion filter above
+        // cannot see it — the same rule is applied by hand: a unit that
+        // cannot observe the surface does not direct fires onto it, and its
+        // RNG stream is not consumed from below ground.
+        if (this.alive[cmd.caller] === 1 && this.tunnelIn[cmd.caller] < 0) {
           // Guided, but not perfect: scatter is drawn from the caller's own
           // stream so replays stay identical (invariant 3).
           const ang = this.rng.nextU32(cmd.caller) & 0xffff;
@@ -1452,6 +1517,11 @@ export class Sim {
         const car = cmd.carrier;
         if (car < 0 || car >= this.count || this.alive[car] === 0) continue;
         if (this.unitTypes[this.typeIdx[car]].transportSlots === 0) continue;
+        // The ids filter above covers the riders; the carrier arrives by a
+        // different field and gets the same rule — nobody walks to a hull
+        // that is under three metres of earth. (canSeat refuses it too, but
+        // the walk order must die here, not at the kerb.)
+        if (this.tunnelIn[car] >= 0) continue;
         // Walk to the vehicle; stepTransport puts them aboard on arrival.
         const gx = this.posX[car];
         const gy = this.posY[car];
@@ -1756,6 +1826,11 @@ export class Sim {
    * and it needs no special case.
    */
   identifyTo(side: number, target: number): void {
+    // An authority primitive: it writes whatever it is told, including
+    // contact on a buried unit — which is legitimate state (a contact formed
+    // before a submerge decays through the normal ladder). Containment is
+    // the CALLER's job: the `reveal` handler and the mission's pre-marked
+    // spawn both refuse buried targets before calling here.
     const k = side * this.capacity + target;
     this.contact[k] = ONE;
     this.lastSeenX[k] = this.posX[target];
@@ -2344,6 +2419,12 @@ export class Sim {
     const rSq = this.ambushRadiusSq[i];
     for (let t = 0; t < this.count; t++) {
       if (this.alive[t] === 0 || this.side[t] === mySide || this.side[t] > 1) continue;
+      // The third sight test, and the one that reads ground truth rather
+      // than the contact array — so no contact guard protects it. A buried
+      // enemy's coordinates name a tile it is not standing on; springing on
+      // one spends the trap on nothing, because selectTarget then correctly
+      // refuses the shot. A SURFACED enemy (tunnelIn === -1) still springs it.
+      if (this.tunnelIn[t] >= 0) continue;
       const dSq = distSqFx(fx.sub(this.posX[t], px), fx.sub(this.posY[t], py));
       if (dSq > rSq) continue;
       if (this.losRay(px >> 16, py >> 16, this.posX[t] >> 16, this.posY[t] >> 16) >= 0) return true;
@@ -2792,8 +2873,12 @@ export class Sim {
     const targetAlive = this.alive[target] === 1;
 
     // Trophy-class APS engages any inbound shaped charge, hit or miss —
-    // the defender cannot know which is which (GDD 5.6).
-    if (targetAlive && (APS_INTERCEPTABLE_MASK & (1 << cls)) !== 0) {
+    // the defender cannot know which is which (GDD 5.6). Unless the carrier
+    // went below while the round was in flight: the earth is the interceptor
+    // then, and the block must not run — it draws from the target's
+    // per-entity RNG stream, so an intercept happening down there would tie
+    // the replay hash to an action the rule says cannot happen at all.
+    if (targetAlive && this.tunnelIn[target] < 0 && (APS_INTERCEPTABLE_MASK & (1 << cls)) !== 0) {
       const tType = this.unitTypes[this.typeIdx[target]];
       if (tType.hasAps && (tType.apsIneffectiveMask & (1 << cls)) === 0 && this.apsAmmo[target] > 0) {
         let pI = fx.mul(tType.apsPk, APS_VEL_F[cls]);
@@ -3261,6 +3346,10 @@ export class Sim {
     // Only dismounted elements ride. This also covers vehicle stacking, since no
     // carrier is a foot role.
     if (!this.unitTypes[this.typeIdx[id]].canEmbark) return false;
+    // Neither party may be underground: a buried rider cannot reach a seat,
+    // and a buried hull is not a place a surface unit can climb into. The
+    // deepest gate — embarkAtSpawn and boarding both pass through here.
+    if (this.tunnelIn[id] >= 0 || this.tunnelIn[car] >= 0) return false;
     return this.carriedBy[id] < 0;
   }
 
@@ -3309,6 +3398,10 @@ export class Sim {
   private stepKamikaze(): void {
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0) continue;
+      // A munition steers itself off its side's contacts, with no order to
+      // clear and no command to refuse — the outbound guard has to live in
+      // the step system itself, the way stepCombat's does.
+      if (this.tunnelIn[i] >= 0) continue;
       const type = this.unitTypes[this.typeIdx[i]];
       if (!type.isKamikaze || type.weapons.length === 0) continue;
       const w = type.weapons[0];
@@ -3417,6 +3510,11 @@ export class Sim {
   private stepDemolition(): void {
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0) continue;
+      // The automatic branch below sets charges wherever a demolisher merely
+      // holds station — no order, so neither the command filter nor
+      // putInTunnel's bundle clear can reach it. A buried team is stationary
+      // by definition and would quietly raze the shed above its route.
+      if (this.tunnelIn[i] >= 0) continue;
       const type = this.unitTypes[this.typeIdx[i]];
       if (!type.canDemolish) continue;
       // Arrival, for a unit under orders. A `demolish` order aims the unit at

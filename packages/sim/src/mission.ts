@@ -423,7 +423,12 @@ export class MissionRuntime {
    */
   requestStrike(x: Fx, y: Fx): boolean {
     if (this.ended || this.intelValue < STRIKE_COST) return false;
-    const caller = this.playerIds.find((id) => this.sim.state.alive[id] === 1);
+    // Living AND on the surface: a buried unit can neither observe the
+    // strike nor own its ROE bill, and drawing scatter from its RNG stream
+    // would consume a stream the containment rule says is idle down there.
+    const caller = this.playerIds.find(
+      (id) => this.sim.state.alive[id] === 1 && this.sim.state.tunnelIn[id] < 0,
+    );
     if (caller === undefined) return false;
     this.intelValue -= STRIKE_COST;
     this.sim.queueCommand({ kind: 'callStrike', caller, x, y });
@@ -689,6 +694,10 @@ export class MissionRuntime {
     const st = this.sim.state;
     for (const id of this.playerIds) {
       if (st.alive[id] === 0) continue;
+      // Underground observes nothing and earns nothing. On the loop, not a
+      // branch, so the drone half and the stationary-scout half — a buried
+      // unit is stationary by definition — are covered by the same line.
+      if (st.tunnelIn[id] >= 0) continue;
       const type = this.sim.unitTypes[st.typeIdx[id]];
       if (type.role === 'drone') intelPerMin += INTEL_PER_MIN_DRONE;
       else if (type.canMarkTarget && st.moving[id] === 0) intelPerMin += INTEL_PER_MIN_SCOUT;
@@ -865,6 +874,18 @@ export class MissionRuntime {
     // and must not leave half a placement standing.
     const tunnelIdx = p.in_tunnel !== undefined ? this.tunnelIndex(p.in_tunnel) : -1;
 
+    // Buried and loaded cannot coexist: the hull fits the shaft, the riders
+    // do not, and every containment guard keys on the rider's own tunnelIn —
+    // which would stay -1 while stepTransport pinned it to a buried hull.
+    // Refused rather than silently unloaded, because the unload would put
+    // the squad on a cosmetic tile that was never ground-checked.
+    if (tunnelIdx >= 0 && p.passengers) {
+      throw new Error(
+        `mission ${this.mission.id}: ${p.unit} cannot carry passengers into a tunnel -- ` +
+          `a placement is either in_tunnel or loaded, never both`,
+      );
+    }
+
     // A garrisoning placement is exempt: it is ordered into a building and walks
     // in on the first ticks, so standing on its tile at spawn is the job, not a
     // trap. A buried placement is exempt too: its bodies occupy the route, not
@@ -902,7 +923,12 @@ export class MissionRuntime {
       // a thorough recon worth doing -- and why one mission file plays differently by
       // ledger, with no per-outcome variants to author.
       const preMarked = p.tag !== undefined && this.marked.has(p.tag);
-      if (preMarked && side === 1) {
+      // A buried placement is exempt from BOTH books: last mission's recon
+      // saw where the route ran, not who is inside it today, and identifying
+      // a body through three metres of earth would complete a `locate` at
+      // t=0 against a unit nobody can see or reach. The tunnel contact
+      // ladder is the only channel for knowing about a tunnel.
+      if (preMarked && side === 1 && tunnelIdx < 0) {
         // Two different books. `identified` is this runtime's own, which is what
         // `locate` objectives read; the sim's contact state is what the renderer draws
         // and what the combat model may shoot at. Writing only the first is how a
@@ -1006,7 +1032,12 @@ export class MissionRuntime {
           }
         }
         for (const civ of this.civIds) {
-          if (st.alive[civ] === 0) continue;
+          // A civilian underground cannot be endangered by surface ordnance:
+          // applyDamage and applySuppression both refuse them, so charging
+          // the player for their safety would bill restraint the combat
+          // model just proved unnecessary. Their coordinates name a tile
+          // they are not standing on.
+          if (st.alive[civ] === 0 || st.tunnelIn[civ] >= 0) continue;
           const dx = (fx.sub(st.posX[civ], e.x) >> 8) | 0;
           const dy = (fx.sub(st.posY[civ], e.y) >> 8) | 0;
           if (dx * dx + dy * dy <= DANGER_CLOSE_SQ) {
@@ -1033,7 +1064,10 @@ export class MissionRuntime {
             continue;
           }
           for (const civ of this.civIds) {
-            if (st.alive[civ] === 0) continue;
+            // Same rule as the strike loop above, and it needs its own line:
+            // this branch runs per SHOT with no cooldown, so a buried family
+            // under a firefight would walk the score to zero on its own.
+            if (st.alive[civ] === 0 || st.tunnelIn[civ] >= 0) continue;
             const dx = (fx.sub(st.posX[civ], tx) >> 8) | 0;
             const dy = (fx.sub(st.posY[civ], ty) >> 8) | 0;
             if (dx * dx + dy * dy <= DANGER_CLOSE_SQ) {
@@ -1059,10 +1093,17 @@ export class MissionRuntime {
     const st = this.sim.state;
     for (const civ of this.civIds) {
       if (st.alive[civ] === 0 || this.civFled.has(civ)) continue;
+      // A buried civilian cannot be reached, shepherded, or moved — and
+      // civFled latches before the order is confirmed, so evaluating one
+      // here would freeze it out of `evacuate_before` forever (the same
+      // latch-before-confirm shape as the dead-transport debt).
+      if (st.tunnelIn[civ] >= 0) continue;
       let leaving = st.suppression[civ] > CIV_FLEE_AT;
       if (!leaving) {
         for (const p of this.playerIds) {
-          if (st.alive[p] === 0) continue;
+          // A buried soldier reaches nobody: his coordinates name a tile he
+          // is not standing on.
+          if (st.alive[p] === 0 || st.tunnelIn[p] >= 0) continue;
           const dx = (fx.sub(st.posX[civ], st.posX[p]) >> 8) | 0;
           const dy = (fx.sub(st.posY[civ], st.posY[p]) >> 8) | 0;
           if (dx * dx + dy * dy <= SHEPHERD_RADIUS_SQ) {
@@ -1078,7 +1119,8 @@ export class MissionRuntime {
       // ride to the compound instead of walking.
       let boarded = false;
       for (const p of this.playerIds) {
-        if (st.alive[p] === 0) continue;
+        // Nor does anyone board a hull that is under the earth.
+        if (st.alive[p] === 0 || st.tunnelIn[p] >= 0) continue;
         const ptype = this.sim.unitTypes[st.typeIdx[p]];
         if (ptype.transportSlots === 0) continue;
         if (this.sim.passengerCount(p) >= ptype.transportSlots) continue;
@@ -1100,6 +1142,11 @@ export class MissionRuntime {
   private stepPatrols(): void {
     for (const p of this.patrols) {
       if (this.sim.state.alive[p.id] === 0) continue;
+      // A buried patroller holds its place in the cycle: without this the
+      // waypoint index advances at 20 Hz against orders the sim refuses, so
+      // the patrol resumed from an arbitrary leg when the route vented — and
+      // queued one dead command per tick for the whole mission meanwhile.
+      if (this.sim.state.tunnelIn[p.id] >= 0) continue;
       if (this.sim.state.moving[p.id] === 1) continue;
       const [wx, wy] = p.waypoints[p.idx];
       p.idx = (p.idx + 1) % p.waypoints.length;
@@ -1177,7 +1224,14 @@ export class MissionRuntime {
       out.push({ kind: 'trigger', tick, id: t.id ?? `trigger_${i}` });
 
       if (t.do.kind === 'commit' || t.do.kind === 'withdraw_to') {
-        const ids = (this.groups.get(t.do.group ?? '') ?? []).filter((id) => this.sim.state.alive[id] === 1);
+        // Living AND on the surface: the sim would refuse the buried ids
+        // anyway, but filtering here keeps the patrol-splice below honest —
+        // a patroller must not lose its beat on the strength of an order it
+        // never received. A fully buried group consumes the trigger and
+        // commands nothing, which the mission log already records.
+        const ids = (this.groups.get(t.do.group ?? '') ?? []).filter(
+          (id) => this.sim.state.alive[id] === 1 && this.sim.state.tunnelIn[id] < 0,
+        );
         if (ids.length > 0 && t.do.to) {
           const [x, y] = this.markerPos(t.do.to);
           this.sim.queueCommand({ kind: t.do.kind === 'commit' ? 'attackMove' : 'move', ids, x, y });
@@ -1207,7 +1261,10 @@ export class MissionRuntime {
         // is ordinary play, not an error -- and the squad has already bailed out
         // shaken, which is the interesting outcome.
         const ids = (this.groups.get(t.do.group ?? '') ?? []).filter(
-          (id) => this.sim.state.alive[id] === 1,
+          // A buried carrier does not open its doors: nobody dismounts into
+          // solid earth. (The sim refuses the id too; this keeps the
+          // `ids.length > 0` gate honest.)
+          (id) => this.sim.state.alive[id] === 1 && this.sim.state.tunnelIn[id] < 0,
         );
         if (ids.length > 0) this.sim.queueCommand({ kind: 'unload', ids });
       }
@@ -1311,6 +1368,11 @@ export class MissionRuntime {
           const st = this.sim.state;
           for (const civ of this.civIds) {
             if (this.civEvacuated.has(civ) || st.alive[civ] === 0) continue;
+            // The same rule livingIn and contestedIn were fixed for: a
+            // buried body's coordinates name a tile it is not standing on.
+            // Counting one here evacuates a family that never moved, deletes
+            // it, and writes the fabricated rescue into the ledger.
+            if (st.tunnelIn[civ] >= 0) continue;
             const tx = st.posX[civ] >> 16;
             const ty = st.posY[civ] >> 16;
             if (tx >= z[0] && tx < z[0] + z[2] && ty >= z[1] && ty < z[1] + z[3]) {

@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fx } from './fixed';
 import { Sim, TICKS_PER_SECOND, type SimEvent, type UnitTypeJson } from './sim';
+import { STRIKE_DELAY_TICKS } from './tuning';
 import {
   MissionRuntime,
   type LedgerData,
@@ -2195,5 +2196,256 @@ describe('in_tunnel placements', () => {
     }
     expect(rt.objectiveStatus('take')).toBe('active');
     expect(rt.objectiveList[0].paused).toBe('unheld');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 16: the mission runtime's half of structural containment. Every
+// predicate that reads a body's surface coordinates must first ask whether
+// the body is standing on them.
+// ---------------------------------------------------------------------------
+describe('containment is structural (Task 16)', () => {
+  const ROUTE16: TunnelRouteJson = { id: 'tn_a', points: [[3, 3], [12, 3]], dig_tiles_per_s: 1 };
+  const SURVIVE: ObjectiveJson = { id: 'hold', type: 'survive_until', primary: true, seconds: 600 };
+
+  function world16(partial: Partial<MissionJson>, ctx?: Partial<MissionContext>): World {
+    const sim = new Sim({ seed: 13, width: 28, height: 12, capacity: 32 });
+    const ids = new Map<string, number>();
+    for (const t of [SQUAD, AMBUSHER, RUNNER, TANK, DRONE, CIVILIANS, CARRIER, RIDER, MORTAR])
+      ids.set(t.id, sim.addUnitType(t));
+    sim.addTunnel(ROUTE16);
+    const runtime = new MissionRuntime(sim, baseMission(partial), {
+      typeIdOf: (u) => {
+        const t = ids.get(u);
+        if (t === undefined) throw new Error(`unknown unit ${u}`);
+        return t;
+      },
+      markers: { refuge: [2, 4], rally: [20, 10] },
+      zones: {},
+      tunnels: [ROUTE16],
+      ...ctx,
+    });
+    runtime.start();
+    return {
+      sim,
+      runtime,
+      step: (ticks: number) => {
+        const out: { sim: SimEvent[]; mission: MissionEvent[] } = { sim: [], mission: [] };
+        for (let i = 0; i < ticks; i++) {
+          const se = sim.tick();
+          out.sim.push(...se);
+          out.mission.push(...runtime.step(se));
+        }
+        return out;
+      },
+    };
+  }
+
+  it('refuses a placement that is both buried and loaded: the two states cannot coexist', () => {
+    expect(() =>
+      world16({
+        objectives: [SURVIVE],
+        enemy: {
+          garrison: [
+            {
+              unit: 'm_carrier',
+              count: 1,
+              at: [3, 3],
+              in_tunnel: 'tn_a',
+              passengers: [{ unit: 'm_rider', count: 1 }],
+            },
+          ],
+        },
+      })
+    ).toThrow(/in_tunnel|passenger/);
+  });
+
+  it('a pre-marked placement spawned underground is not identified through the earth', () => {
+    const w = world16(
+      {
+        starting_force: [{ unit: 'm_squad', count: 1, at: [24, 8] }],
+        objectives: [SURVIVE, { id: 'find', type: 'locate', target: 't1', primary: false }],
+        enemy: {
+          garrison: [{ unit: 'm_rpg', count: 1, at: [3, 3], tag: 't1', in_tunnel: 'tn_a' }],
+        },
+      },
+      { ledger: { 'intel.marked_positions': ['t1'] } }
+    );
+    const enemy = allIds(w.sim).find(
+      (i) => w.sim.state.alive[i] === 1 && w.sim.state.side[i] === 1
+    );
+    expect(enemy).toBeDefined();
+    w.step(3);
+    expect(w.sim.contactLevel(0, enemy ?? -1)).toBe(0); // not drawn on the map
+    expect(w.runtime.objectiveStatus('find')).toBe('active'); // not located at t=0
+  });
+
+  it('a sweep bought off the HUD does not locate a buried garrison', () => {
+    const w = world16({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [24, 8] }],
+      objectives: [SURVIVE, { id: 'find', type: 'locate', count: 1, primary: false }],
+      enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [3, 3], in_tunnel: 'tn_a' }] },
+      resources: { intel_start: 150 },
+    });
+    const enemy = allIds(w.sim).find(
+      (i) => w.sim.state.alive[i] === 1 && w.sim.state.side[i] === 1
+    );
+    expect(w.runtime.requestSweep(fx.from(3.5), fx.from(3.5))).toBe(true);
+    w.step(3);
+    expect(w.sim.contactLevel(0, enemy ?? -1)).toBe(0);
+    expect(w.runtime.objectiveStatus('find')).toBe('active');
+  });
+
+  it('evacuate_before does not count a civilian who is underground inside the refuge zone', () => {
+    const w = world16(
+      {
+        starting_force: [{ unit: 'm_squad', count: 1, at: [26, 2] }],
+        objectives: [
+          SURVIVE,
+          { id: 'evac', type: 'evacuate_before', target: 'rz', count: 1, seconds: 5, primary: false },
+        ],
+        civilians: { groups: [{ unit: 'm_civ', count: 1, at: [3, 3], in_tunnel: 'tn_a' }], refuge: 'refuge' },
+      },
+      { zones: { rz: [0, 0, 8, 8] } }
+    );
+    const civ = allIds(w.sim).find((i) => w.sim.state.alive[i] === 1 && w.sim.state.side[i] === 2);
+    expect(civ).toBeDefined();
+    w.step(3);
+    expect(w.runtime.objectiveStatus('evac')).toBe('active'); // nobody was rescued by authoring
+    expect(w.sim.state.alive[civ ?? -1]).toBe(1); // and the body was not deleted
+    expect(w.sim.state.tunnelIn[civ ?? -1]).toBe(0);
+  });
+
+  it('ROE does not charge danger-close for civilians the earth already protects', () => {
+    const w = world16({
+      starting_force: [{ unit: 'm_mortar', count: 1, at: [3, 8] }],
+      objectives: [SURVIVE],
+      enemy: { garrison: [{ unit: 'm_squad', count: 1, at: [20, 5] }] },
+      civilians: { groups: [{ unit: 'm_civ', count: 1, at: [21, 5], in_tunnel: 'tn_a' }] },
+      roe: { enabled: true, disproportionate_ordnance_penalty: 3 },
+    });
+    const strike: SimEvent = { kind: 'strike', tick: 1, by: 0, x: fx.from(21.5), y: fx.from(5.5) };
+    const fire: SimEvent = {
+      kind: 'fire',
+      tick: 1,
+      shooter: 0,
+      target: 1,
+      weaponId: 'tube',
+      pHit: 1000,
+      roll: 1,
+      willHit: false,
+      breakdown: { accuracy: 1, rangeFalloff: 1, coverMod: 1, motionMod: 1, stanceMod: 1, suppressionMod: 1 },
+    };
+    const out = [...w.runtime.step([strike]), ...w.runtime.step([fire])];
+    expect(out.filter((e) => e.kind === 'roe').length).toBe(0);
+    expect(w.runtime.roeScore).toBe(100);
+  });
+
+  it('a buried civilian is not shepherded: no latch, no order', () => {
+    const w = world16({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [4, 4] }],
+      objectives: [SURVIVE],
+      civilians: { groups: [{ unit: 'm_civ', count: 1, at: [3, 3], in_tunnel: 'tn_a' }], refuge: 'refuge' },
+    });
+    const civ = allIds(w.sim).find((i) => w.sim.state.alive[i] === 1 && w.sim.state.side[i] === 2);
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    w.step(30);
+    const ordered = spy.mock.calls.some(
+      ([cmd]) => 'ids' in cmd && cmd.ids.includes(civ ?? -1)
+    );
+    expect(ordered).toBe(false);
+  });
+
+  it('a buried soldier shepherds nobody: the civilian above stays put', () => {
+    const w = world16({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [12, 6], in_tunnel: 'tn_a' }],
+      objectives: [SURVIVE],
+      civilians: { groups: [{ unit: 'm_civ', count: 1, at: [13, 6] }], refuge: 'refuge' },
+    });
+    const civ = allIds(w.sim).find((i) => w.sim.state.alive[i] === 1 && w.sim.state.side[i] === 2);
+    const at = w.sim.state.posX[civ ?? -1];
+    w.step(60);
+    expect(w.sim.state.posX[civ ?? -1]).toBe(at); // nobody reached them
+  });
+
+  it('a buried patroller does not walk its beat, and no dead order is queued for it', () => {
+    const w = world16({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [24, 8] }],
+      objectives: [SURVIVE],
+      enemy: {
+        garrison: [
+          {
+            unit: 'm_rpg',
+            count: 1,
+            at: [3, 3],
+            in_tunnel: 'tn_a',
+            stance: { kind: 'patrol', waypoints: [[3, 3], [8, 3]] },
+          },
+        ],
+      },
+    });
+    const enemy = allIds(w.sim).find(
+      (i) => w.sim.state.alive[i] === 1 && w.sim.state.side[i] === 1
+    );
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    w.step(30);
+    const ordered = spy.mock.calls.some(
+      ([cmd]) => 'ids' in cmd && cmd.ids.includes(enemy ?? -1)
+    );
+    expect(ordered).toBe(false);
+  });
+
+  it('a commit trigger aimed at a buried group commands nothing', () => {
+    const w = world16({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [24, 8] }],
+      objectives: [SURVIVE],
+      enemy: {
+        garrison: [{ unit: 'm_rpg', count: 1, at: [3, 3], group: 'g1', in_tunnel: 'tn_a' }],
+      },
+      triggers: [{ id: 'go', on: { kind: 'timer_s', value: 0 }, do: { kind: 'commit', group: 'g1', to: 'rally' } }],
+    });
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    const out = w.step(3);
+    expect(out.mission.some((e) => e.kind === 'trigger' && e.id === 'go')).toBe(true);
+    const attackMoves = spy.mock.calls.filter(([cmd]) => cmd.kind === 'attackMove');
+    expect(attackMoves.length).toBe(0);
+  });
+
+  it('a strike is called by the first LIVING SURFACE unit, never a buried one', () => {
+    const w = world16({
+      starting_force: [
+        { unit: 'm_squad', count: 1, at: [3, 3], in_tunnel: 'tn_a' }, // playerIds[0], buried
+        { unit: 'm_squad', count: 1, at: [10, 5] },
+      ],
+      objectives: [SURVIVE],
+      resources: { intel_start: 250 },
+    });
+    expect(w.runtime.requestStrike(fx.from(20.5), fx.from(5.5))).toBe(true);
+    const out = w.step(STRIKE_DELAY_TICKS + 3);
+    const strike = out.sim.find((e) => e.kind === 'strike');
+    expect(strike).toBeDefined();
+    expect(strike?.kind === 'strike' && strike.by).toBe(1); // the surface unit owns it
+  });
+
+  it('a buried drone observes nothing and earns nothing', () => {
+    const w = world16({
+      starting_force: [{ unit: 'm_drone', count: 1, at: [3, 3], in_tunnel: 'tn_a' }],
+      objectives: [SURVIVE],
+    });
+    w.step(300); // 15s: a surface drone would have banked 2 intel by now
+    expect(w.runtime.intel).toBe(0);
+  });
+
+  it('BY-DESIGN pin: destroy_all counts a buried garrison as alive, because collapse can reach it', () => {
+    const w = world16({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [24, 8] }],
+      objectives: [{ id: 'win', type: 'destroy_all', primary: true }],
+      enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [3, 3], in_tunnel: 'tn_a' }] },
+    });
+    w.step(5);
+    expect(w.runtime.objectiveStatus('win')).toBe('active'); // alive below is alive
+    w.sim.debugCollapseTunnel(0);
+    w.step(2);
+    expect(w.runtime.objectiveStatus('win')).toBe('complete'); // and the earth coming down reaches it
   });
 });

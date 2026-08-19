@@ -741,3 +741,242 @@ describe('putInTunnel kinematics', () => {
     expect(sim.state.posX[i]).toBe(at); // it did not keep walking below ground
   });
 });
+
+// ---------------------------------------------------------------------------
+// Task 16: containment is a rule, not a list of places that remembered it.
+// The three leaks below the schema line are reachable TODAY through runtime
+// burial (stepSurfacing/submerge produce exactly the state putInTunnel does);
+// the rest lock in the two structural fixes — one eligibility check where
+// applyCommands expands cmd.ids, and putInTunnel cancelling the whole order
+// bundle — plus the step systems that move units with no command at all.
+// ---------------------------------------------------------------------------
+
+/** RIFLE_TYPE's deep hull carrying a Trophy-class APS and no weapons: the
+ *  test reads the APS decision directly, not the outcome of a firefight. */
+const APS_MOLE_TYPE: UnitTypeJson = {
+  id: 'tn_aps_mole',
+  hull: {
+    hp: 20000,
+    armor: { front: 300, side: 300, rear: 150 },
+    aps: { base_pk: 0.9, magazine: 3, reload_s: 8 },
+  },
+  mobility: { speed_tiles_s: 0.9 },
+  sensors: { optics: 1.0, sight_tiles: 8, signature: 0.6 },
+  weapons: [],
+};
+
+/** One-shot loitering munition: steers itself with no command at all, which
+ *  is why a command-layer guard alone cannot contain it. */
+const KAM_TYPE: UnitTypeJson = {
+  id: 'tn_kam',
+  hull: { hp: 120, armor: { front: 0, side: 0, rear: 0 } },
+  mobility: { speed_tiles_s: 2.2 },
+  sensors: { optics: 1.0, sight_tiles: 10, signature: 0.3 },
+  abilities: ['kamikaze'],
+  weapons: [
+    {
+      id: 'tn_kam_w',
+      type: 'rpg',
+      range_tiles: 1,
+      accuracy: 1.0,
+      penetration: 600,
+      damage: 400,
+      splash_tiles: 1.0,
+      rof_per_min: 6,
+    },
+  ],
+};
+
+/** Foot team that can take every surface order the command layer knows:
+ *  garrison, demolish, smoke, load (at_team can embark), chargeTunnel. */
+const MULTI_TYPE: UnitTypeJson = {
+  id: 'tn_multi',
+  role: 'at_team',
+  hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
+  mobility: { speed_tiles_s: 0.9 },
+  sensors: { optics: 1.0, sight_tiles: 8, signature: 0.6 },
+  abilities: ['garrison', 'demolish', 'smoke', 'tunnel_charge'],
+  demolition_time_s: 1,
+  tunnel_charge_time_s: 1,
+  weapons: [],
+};
+
+const CARRIER_TYPE: UnitTypeJson = {
+  id: 'tn_carrier',
+  role: 'apc',
+  hull: { hp: 900, armor: { front: 20, side: 15, rear: 10 }, transport_slots: 2 },
+  mobility: { speed_tiles_s: 2.0 },
+  sensors: { optics: 1.0, sight_tiles: 9, signature: 0.8 },
+  weapons: [],
+};
+
+describe('containment is structural (Task 16)', () => {
+  it('a satellite sweep does not identify a submerged fighter through the earth', () => {
+    const { sim, hidden } = belowGround();
+    let revealedCount = -1;
+    sim.queueCommand({ kind: 'reveal', side: 0, x: fx.from(4.5), y: fx.from(6.5) });
+    for (const e of sim.tick()) {
+      if (e.kind === 'revealed') revealedCount = e.count;
+    }
+    expect(sim.contactLevel(0, hidden)).toBe(0); // the earth stopped the sweep
+    expect(revealedCount).toBe(0); // and the HUD is not told otherwise
+  });
+
+  it('APS stays cold while its carrier is underground — no intercept, no RNG draw', () => {
+    // The determinism-relevant one: the aps event and the rng.nextU32 draw sit
+    // in the same block, so "no aps event" proves the stream was not touched.
+    const sim = new Sim({ seed: 11, width: 24, height: 12, capacity: 8 });
+    const idx = sim.addTunnel({ id: 'tn', points: [[4, 6], [12, 6]] as const, dig_tiles_per_s: 1 });
+    sim.spawn(sim.addUnitType(ATGM_TYPE), 0, fx.from(10.5), fx.from(6.5));
+    const victim = sim.spawn(sim.addUnitType(APS_MOLE_TYPE), 1, fx.from(4.5), fx.from(6.5));
+    // Launch at the victim ON the surface; go below only with the round in the air.
+    let launched = false;
+    for (let t = 0; t < 900 && !launched; t++) {
+      for (const e of sim.tick()) if (e.kind === 'fire' && e.target === victim) launched = true;
+    }
+    expect(launched).toBe(true);
+    sim.putInTunnel(victim, idx);
+    let apsEvents = 0;
+    for (let t = 0; t < 60; t++) {
+      for (const e of sim.tick()) if (e.kind === 'aps') apsEvents++;
+    }
+    expect(apsEvents).toBe(0); // three metres of earth is the interceptor
+    expect(sim.state.apsAmmo[victim]).toBe(3); // magazine untouched
+  });
+
+  it('an ambush does not spring on a buried enemy', () => {
+    const sim = new Sim({ seed: 11, width: 24, height: 12, capacity: 8 });
+    const idx = sim.addTunnel({ id: 'tn', points: [[4, 6], [12, 6]] as const, dig_tiles_per_s: 1 });
+    const ambusher = sim.spawn(sim.addUnitType(RIFLE_TYPE), 0, fx.from(6.5), fx.from(6.5));
+    const buried = sim.spawn(sim.addUnitType(SCOUT_TYPE), 1, fx.from(4.5), fx.from(6.5));
+    sim.putInTunnel(buried, idx);
+    sim.setAmbush(ambusher, fx.from(3));
+    let sprung = 0;
+    for (let t = 0; t < 100; t++) {
+      for (const e of sim.tick()) if (e.kind === 'ambushSprung') sprung++;
+    }
+    expect(sprung).toBe(0); // the trap is not spent on a man it cannot see
+  });
+
+  it('the same ambush DOES spring on a surface enemy: the guard reads tunnelIn, not proximity', () => {
+    const sim = new Sim({ seed: 11, width: 24, height: 12, capacity: 8 });
+    sim.addTunnel({ id: 'tn', points: [[4, 6], [12, 6]] as const, dig_tiles_per_s: 1 });
+    const ambusher = sim.spawn(sim.addUnitType(RIFLE_TYPE), 0, fx.from(6.5), fx.from(6.5));
+    sim.spawn(sim.addUnitType(SCOUT_TYPE), 1, fx.from(4.5), fx.from(6.5));
+    sim.setAmbush(ambusher, fx.from(3));
+    let sprung = 0;
+    for (let t = 0; t < 100; t++) {
+      for (const e of sim.tick()) if (e.kind === 'ambushSprung') sprung++;
+    }
+    expect(sprung).toBe(1);
+  });
+
+  it('a buried unit refuses every surface order by construction, append fast-path included', () => {
+    const sim = new Sim({ seed: 11, width: 24, height: 12, capacity: 8 });
+    const idx = sim.addTunnel({ id: 'tn', points: [[4, 6], [12, 6]] as const, dig_tiles_per_s: 1 });
+    const st = sim.addStructureType({ id: 'tn_house', hp_per_tile: 100, garrison_slots: 4 });
+    const house = sim.addStructure(st, [6 * sim.width + 6]);
+    const u = sim.spawn(sim.addUnitType(MULTI_TYPE), 0, fx.from(4.5), fx.from(6.5));
+    const car = sim.spawn(sim.addUnitType(CARRIER_TYPE), 0, fx.from(8.5), fx.from(8.5));
+    sim.putInTunnel(u, idx);
+    // Spoil on the surface and the route identified, so only containment can
+    // refuse the charge order rather than the trail or the identified gate.
+    sim.trail[6 * sim.width + 10] = TRAIL_MAX;
+    sim.identifyTunnelTo(0, idx);
+    const at = sim.state.posX[u];
+    sim.queueCommand({ kind: 'garrison', ids: [u], structure: house });
+    // The old hole: garrison set moving=1, and the append fast-path then took
+    // a waypoint BEFORE the move branch's guard could refuse it.
+    sim.queueCommand({ kind: 'move', ids: [u], x: fx.from(20.5), y: fx.from(6.5), append: true });
+    sim.queueCommand({ kind: 'demolish', ids: [u], structure: house });
+    sim.queueCommand({ kind: 'load', ids: [u], carrier: car });
+    sim.queueCommand({ kind: 'smoke', ids: [u], x: fx.from(5.5), y: fx.from(6.5) });
+    sim.queueCommand({ kind: 'chargeTunnel', ids: [u], tunnel: idx });
+    let smokeLaid = 0;
+    for (let t = 0; t < 100; t++) {
+      for (const e of sim.tick()) if (e.kind === 'smokeLaid') smokeLaid++;
+    }
+    expect(sim.state.posX[u]).toBe(at); // never walked, above or below ground
+    expect(sim.state.moving[u]).toBe(0);
+    expect(sim.structures.alive[house]).toBe(1); // no demolition through the roof
+    expect(sim.structures.occupants[house]).toBe(0); // no garrison from below
+    expect(sim.state.carriedBy[u]).toBe(-1); // no boarding from below
+    expect(smokeLaid).toBe(0); // no screen laid out of bare dirt
+    expect(sim.tnAlive[idx]).toBe(1); // no charge worked from inside the route
+  });
+
+  it('burial cancels a latched demolition order — and the automatic charge too', () => {
+    const sim = new Sim({ seed: 11, width: 24, height: 12, capacity: 8 });
+    const idx = sim.addTunnel({ id: 'tn', points: [[4, 6], [12, 6]] as const, dig_tiles_per_s: 1 });
+    const st = sim.addStructureType({ id: 'tn_shed', hp_per_tile: 100 });
+    const shed = sim.addStructure(st, [6 * sim.width + 6]);
+    const u = sim.spawn(sim.addUnitType(MULTI_TYPE), 0, fx.from(5.5), fx.from(6.5));
+    // Order taken ON the surface, in range — the state a command refusal
+    // cannot reach. stepDemolition's automatic branch would also raze a shed
+    // beside a halted demolisher with no order at all, so the building
+    // standing proves both the cleared bundle and the step-system guard.
+    sim.queueCommand({ kind: 'demolish', ids: [u], structure: shed });
+    sim.tick();
+    sim.putInTunnel(u, idx);
+    for (let t = 0; t < 100; t++) sim.tick();
+    expect(sim.structures.alive[shed]).toBe(1);
+    expect(sim.state.demoTarget[u]).toBe(-1);
+  });
+
+  it('a buried loitering munition does not steer at a cued target, let alone dive', () => {
+    const sim = new Sim({ seed: 11, width: 24, height: 12, capacity: 8 });
+    const idx = sim.addTunnel({ id: 'tn', points: [[4, 6], [12, 6]] as const, dig_tiles_per_s: 1 });
+    const kam = sim.spawn(sim.addUnitType(KAM_TYPE), 0, fx.from(6.5), fx.from(6.5));
+    const enemy = sim.spawn(sim.addUnitType(SCOUT_TYPE), 1, fx.from(7.5), fx.from(6.5));
+    sim.putInTunnel(kam, idx);
+    sim.identifyTo(0, enemy); // the cue is live; the earth still contains
+    const at = sim.state.posX[kam];
+    const hpBefore = sim.state.hp[enemy];
+    for (let t = 0; t < 50; t++) sim.tick();
+    expect(sim.state.alive[kam]).toBe(1); // did not spend itself from below
+    expect(sim.state.posX[kam]).toBe(at);
+    expect(sim.state.hp[enemy]).toBe(hpBefore);
+  });
+
+  it('a carrier goes below alone: riders are set down, and a collapse does not kill them', () => {
+    const { sim, idx } = simWithRoute();
+    const car = sim.spawn(sim.addUnitType(CARRIER_TYPE), 1, fx.from(2.5), fx.from(2.5));
+    const rider = sim.spawn(sim.addUnitType(MULTI_TYPE), 1, fx.from(2.5), fx.from(2.5));
+    expect(sim.embarkAtSpawn(car, rider)).toBe(true);
+    sim.putInTunnel(car, idx);
+    expect(sim.state.tunnelIn[car]).toBe(idx);
+    expect(sim.state.carriedBy[rider]).toBe(-1); // the hull fits the shaft; the squad does not
+    expect(sim.state.tunnelIn[rider]).toBe(-1);
+    expect(sim.tnOccupants[idx]).toBe(1);
+    sim.debugCollapseTunnel(idx);
+    expect(sim.state.alive[car]).toBe(0); // everyone below dies
+    expect(sim.state.alive[rider]).toBe(1); // and nobody who was not below does
+  });
+
+  it('seating refuses both a buried rider and a buried carrier', () => {
+    const { sim, idx } = simWithRoute();
+    const car = sim.spawn(sim.addUnitType(CARRIER_TYPE), 1, fx.from(2.5), fx.from(2.5));
+    const rider = sim.spawn(sim.addUnitType(MULTI_TYPE), 1, fx.from(2.5), fx.from(2.5));
+    sim.putInTunnel(rider, idx);
+    expect(sim.embarkAtSpawn(car, rider)).toBe(false);
+    const car2 = sim.spawn(sim.addUnitType(CARRIER_TYPE), 1, fx.from(3.5), fx.from(2.5));
+    const rider2 = sim.spawn(sim.addUnitType(MULTI_TYPE), 1, fx.from(3.5), fx.from(2.5));
+    sim.putInTunnel(car2, idx);
+    expect(sim.embarkAtSpawn(car2, rider2)).toBe(false);
+  });
+
+  it('a unit SURFACED from a route is ordinary: it takes orders like anyone else', () => {
+    // The distinction that must survive every containment fix: homeTunnel >= 0
+    // with tunnelIn === -1 is the combat loop of the subsystem, not a
+    // contained state.
+    const { sim, hidden } = readyToVent({ dug: true });
+    let surfaced = false;
+    for (let t = 0; t < 200 && !surfaced; t++) {
+      for (const e of sim.tick()) if (e.kind === 'surfaced' && e.entity === hidden) surfaced = true;
+    }
+    expect(surfaced).toBe(true);
+    sim.queueCommand({ kind: 'move', ids: [hidden], x: fx.from(10.5), y: fx.from(6.5) });
+    sim.tick();
+    expect(sim.state.moving[hidden]).toBe(1); // the order was accepted
+  });
+});
