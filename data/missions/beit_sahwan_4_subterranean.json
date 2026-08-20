@@ -96,6 +96,14 @@
         "digs": "bs_tn_west",
         "tag": "bs4_digger"
       },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [31.5, 23.5],
+        "facing_deg": 270,
+        "stance": { "kind": "ambush", "tiles": 4 },
+        "tag": "bs4_ambush_mouth_west"
+      },
       { "unit": "rpg_team", "count": 2, "at": [27.5, 13.5], "in_tunnel": "bs_tn_north" },
       { "unit": "militia_cell", "count": 2, "at": [22.5, 29.5], "in_tunnel": "bs_tn_souk" },
       { "unit": "rpg_team", "count": 1, "at": [35.5, 26.5], "in_tunnel": "bs_tn_clinic" },
