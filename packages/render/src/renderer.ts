@@ -18,6 +18,7 @@ import {
 import { cadenceScale, resolveClip, resolveTurretClip, type UnitAnimInput } from './clip';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec } from './vfx';
 import { isGrindingHit, structureHpBand } from './grind';
+import { trailTileAlpha } from './trail';
 
 /** How open ground is grained. Tones are data; mark shape is drawing code. */
 export type TerrainScatter = 'stone' | 'sward';
@@ -1019,17 +1020,24 @@ export class PixiRenderer {
    *   or none. Identification is what earns the charge order, and the order
    *   is a right-click on the line.
    *
-   * Both rungs are then gated by the live rule (sim.markerSeesTile): a tile
-   * only draws while a living side-0 `mark_tunnel` carrier can currently
-   * see it, so sweeping a drone or a Yahalom lights the spoil up around
-   * them and it fades behind — the trace is the detector's read of the
-   * ground, not the side's memory. In the common case this cannot hide a
-   * chargeable route: the contact itself is held identified by the same
-   * carriers-in-sight condition, so wherever the order would be accepted,
-   * a carrier is lighting the line around itself. The two exceptions — a
-   * route held identified purely by spoil-watching with no carrier
-   * anywhere, and the ~16 s decay window after the last carrier leaves —
-   * draw nothing, deliberately: no detector, no picture.
+   * Each rung is then gated live by the eyes that can serve it — the split
+   * lives in trailTileAlpha, pure and tested:
+   *
+   * - spoil draws where ANY living side-0 unit currently sees the tile
+   *   (sim.sideSeesTile — trailStrengthFor's own observer set). Anyone can
+   *   see disturbed earth, and these are exactly the eyes that drive the
+   *   contact ladder up, so the "dirt over there, send the drone" cue is
+   *   never invisible while the sim is sensing it.
+   * - the identified line draws only where a living side-0 `mark_tunnel`
+   *   carrier sees the tile (sim.markerSeesTile). Only a detector tells
+   *   you what the dirt MEANS — a tunnel, and where it runs — so sweeping
+   *   a drone or a Yahalom lights the route up around them and it fades
+   *   behind. That asymmetry is what makes the drone worth flying.
+   *
+   * A route identified but currently unseen by any carrier still shows its
+   * spoil to ordinary eyes; only the line waits for a detector. And the
+   * renderer still cannot leak a dig the sim says nobody noticed: both
+   * rungs sit behind the ladder's own contact state.
    */
   private drawTrail(): void {
     const g = this.trailG;
@@ -1054,17 +1062,19 @@ export class PixiRenderer {
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const d = trail[y * w + x];
-        let alpha = 0;
+        let lv: 0 | 1 | 2 = 0;
         for (let r = 0; r < n; r++) {
           if (level[r] === 0 || !sim.tunnelUnderTile(r, x, y)) continue;
-          if (level[r] === 2) alpha = Math.max(alpha, 0.18);
-          if (d > 0) alpha = Math.max(alpha, 0.14 + 0.5 * (d / 255));
+          if (level[r] > lv) lv = level[r] as 1 | 2;
         }
+        if (lv === 0) continue;
+        // The live gates, evaluated only for tiles the ladder already knows
+        // about (they are the costliest tests), and each rung asks only the
+        // eyes that can serve it — the split trailTileAlpha documents.
+        const seenByCarrier = lv === 2 && sim.markerSeesTile(0, x, y);
+        const seenByAnyone = d > 0 && sim.sideSeesTile(0, x, y);
+        const alpha = trailTileAlpha(lv, d, seenByAnyone, seenByCarrier);
         if (alpha === 0) continue;
-        // The live gate, checked last because it is the costliest test and
-        // most tiles never get here: no detector currently looking at this
-        // tile, no mark on the ground.
-        if (!sim.markerSeesTile(0, x, y)) continue;
         const cx = isoX(x + 0.5, y + 0.5);
         const cy = isoY(x + 0.5, y + 0.5);
         g.poly([

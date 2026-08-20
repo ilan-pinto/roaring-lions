@@ -1341,6 +1341,35 @@ describe('presentation reads', () => {
     expect(sim.markerSeesTile(0, 4, 2)).toBe(false); // the dead hold nothing
   });
 
+  it('sideSeesTile: ordinary eyes count for spoil — sight and a clear line required, mark_tunnel not', () => {
+    // The spoil rung's read. trailStrengthFor's observer set has no
+    // canMarkTunnel filter — a plain rifle squad watching dirt drives the
+    // contact ladder up — so the renderer must be able to ask "can ANY of
+    // this side's eyes see this tile" or the suspicion those eyes create
+    // would be invisible on screen (found in review: the send-the-drone
+    // cue drew nothing without a detector already present).
+    const sim = new Sim({ seed: 7, width: 16, height: 16, capacity: 8 });
+    const idx = sim.addTunnel(ROUTE); // (2,2) -> (8,2)
+    const scout = sim.spawn(sim.addUnitType(SCOUT_TYPE), 0, fx.from(4.5), fx.from(4.5)); // no mark_tunnel
+    sim.trail[2 * 16 + 4] = TRAIL_MAX; // fresh spoil two tiles up (the caller brings the dirt; this read is pure sight)
+
+    expect(sim.sideSeesTile(0, 4, 2)).toBe(true); // the squad sees the dirt...
+    expect(sim.markerSeesTile(0, 4, 2)).toBe(false); // ...but is no detector
+    expect(sim.sideSeesTile(1, 4, 2)).toBe(false); // the other side has no eyes here
+    expect(sim.sideSeesTile(0, 13, 2)).toBe(false); // beyond sight 8
+    expect(sim.sideSeesTile(0, -1, 2)).toBe(false); // off the map is never seen
+
+    for (let x = 0; x < 16; x++) sim.setBlocked(x, 3, true);
+    expect(sim.sideSeesTile(0, 4, 2)).toBe(false); // a wall kills the line
+    for (let x = 0; x < 16; x++) sim.setBlocked(x, 3, false);
+
+    sim.putInTunnel(scout, idx);
+    expect(sim.sideSeesTile(0, 4, 2)).toBe(false); // buried eyes see nothing
+    sim.state.tunnelIn[scout] = -1; // surface again (test-only shortcut)
+    sim.debugKill(scout);
+    expect(sim.sideSeesTile(0, 4, 2)).toBe(false); // the dead see nothing
+  });
+
   it('tunnelPointAt walks the route geometry from mouth to vent', () => {
     const { sim, idx } = simWithRoute(); // (2,2) -> (8,2), length 6
     const [mx, my] = sim.tunnelPointAt(idx, 0);

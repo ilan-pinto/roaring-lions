@@ -2206,14 +2206,17 @@ export class Sim {
           //
           // The failure the frozen rule was added for — a mark_tunnel
           // handover expiring mid-CHARGE, watched killing a charge at 117 of
-          // 160 ticks — cannot recur: a charging team stands within
-          // CHARGE_RANGE (2 tiles) of a route tile, and yahalom_squad
-          // carries mark_tunnel with sight 8, so its own eyes hold its own
-          // target identified for the entire charge (stepDetection runs
-          // before stepTunnelCharge inside a tick, and tunnels.test.ts's
-          // "live visibility" suite pins the lone-team charge). A handover
-          // CAN now lapse mid-walk — accepted: the team re-finds the route
-          // itself as it closes to within its own sight of it.
+          // 160 ticks — cannot recur WHILE the charging team holds a clear
+          // sight line to some route tile within its sight: the normal
+          // case, since it stands within CHARGE_RANGE (2 tiles) in the open
+          // and yahalom_squad carries mark_tunnel with sight 8
+          // (stepDetection runs before stepTunnelCharge inside a tick, and
+          // tunnels.test.ts's "live visibility" suite pins the lone-team
+          // charge). A carrier with EVERY line to its route blocked is not
+          // covered by a test and would stall — clock held below
+          // identified — rather than complete, with no player cue yet. A
+          // handover CAN also lapse mid-walk — accepted: the team re-finds
+          // the route itself as it closes to within its own sight of it.
           this.tnContact[k] = fx.mul(this.tnContact[k], CONTACT_DECAY);
         }
         const c = this.tnContact[k];
@@ -2319,21 +2322,38 @@ export class Sim {
     return this.tnTiles[r].has(ty * this.width + tx);
   }
 
-  /** Can any living `mark_tunnel` unit of `side` currently see tile
-   *  (tx, ty) — inside its own sight radius, with a clear line of sight?
-   *  Presentation read, tunnelUnderTile's sibling: the renderer draws a
-   *  route's trace only where a detector is actually looking, so the trace
+  /** Can any living surface unit of `side` currently see tile (tx, ty) —
+   *  inside its own sight radius, with a clear line of sight? The observer
+   *  set is trailStrengthFor's — alive, of the side, above ground, ANY
+   *  unit type — because this is the read the renderer draws the SPOIL
+   *  rung with, and the dirt is driven up the contact ladder by exactly
+   *  these eyes: anyone can see disturbed earth. Presentation read,
+   *  tunnelUnderTile's sibling; pure over current state (invariant 4). */
+  sideSeesTile(side: number, tx: number, ty: number): boolean {
+    return this.seesTile(side, tx, ty, false);
+  }
+
+  /** sideSeesTile restricted to `mark_tunnel` carriers — the eyes that
+   *  read the ROUTE, not just its dirt (markerSeesRoute's per-unit
+   *  filters). The renderer draws the identified line with it, so the line
    *  lights up around a sweeping drone or Yahalom and fades behind them —
-   *  the same live rule stepDetection applies to the contact itself
-   *  (markerSeesRoute above, whose per-unit filters this mirrors). Pure
-   *  read over current state; nothing here can influence an outcome
+   *  only a detector tells you what the dirt means. Pure read
    *  (invariant 4). */
   markerSeesTile(side: number, tx: number, ty: number): boolean {
+    return this.seesTile(side, tx, ty, true);
+  }
+
+  /** Shared body of the two tile-sight reads above. Round sight rather
+   *  than trailStrengthFor's square scan window, and no MIN_DETECT floor,
+   *  both per markerSeesRoute's own reasoning: the floor exists to cap a
+   *  1/dSq division no predicate here performs — a unit standing on the
+   *  dirt sees the dirt, even though its accrual skips that tile. */
+  private seesTile(side: number, tx: number, ty: number, carriersOnly: boolean): boolean {
     if (tx < 0 || ty < 0 || tx >= this.width || ty >= this.height) return false;
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0 || this.side[i] !== side || this.tunnelIn[i] >= 0) continue;
       const type = this.unitTypes[this.typeIdx[i]];
-      if (!type.canMarkTunnel) continue;
+      if (carriersOnly && !type.canMarkTunnel) continue;
       const dSq = distSqFx(
         fx.sub(fx.add(fx.fromInt(tx), HALF), this.posX[i]),
         fx.sub(fx.add(fx.fromInt(ty), HALF), this.posY[i])

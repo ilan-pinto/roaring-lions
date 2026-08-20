@@ -399,12 +399,18 @@ contact decays down the ordinary ladder and the route is unknown again: the Yaha
 the recon drone work like detectors, not cartographers, and `lost` is reachable at level 2
 after all.
 
-The mid-charge expiry that justified the freeze cannot recur: a charging team stands
-within charge range (2 tiles) of a route tile, and `yahalom_squad` carries `mark_tunnel`
-with sight 8, so its own eyes hold its own target identified for the whole charge —
-`tunnels.test.ts`'s lone-charger test pins exactly that. What CAN now lapse is a handover
-mid-walk; accepted, because the team re-finds the route with its own sight as it closes.
+The mid-charge expiry that justified the freeze cannot recur **while the charging team
+holds a clear sight line to some route tile within its sight** — the normal case, and the
+tested one: the team stands within charge range (2 tiles) in the open, `yahalom_squad`
+carries `mark_tunnel` with sight 8, and `tunnels.test.ts`'s lone-charger test pins that
+charge completing. A carrier whose every line to its route is blocked mid-charge is not
+covered by any test; it would stall silently — the clock holds below identified — rather
+than complete, and there is no player cue for the stall yet. What CAN also lapse is a
+handover mid-walk; accepted, because the team re-finds the route with its own sight as it
+closes.
 The determinism replay gained the decay path (a walk-by marker abandoning a `pre_dug`
 route) alongside a production-parity mark on its charge team, and the pin moved with the
-rule. The renderer follows suit: the trace draws only where a living side-0 carrier can
-currently see it.
+rule. The renderer follows suit, per rung: spoil draws where any living side-0 unit can
+currently see it (the same eyes that drive the ladder up), while the identified line
+draws only where a `mark_tunnel` carrier can — anyone can see dirt, only a detector
+reads the route.
