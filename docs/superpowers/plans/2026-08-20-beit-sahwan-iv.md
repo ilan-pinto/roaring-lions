@@ -689,7 +689,43 @@ Add a second bullet in the same section:
   contract through the surface ambushers instead.
 ```
 
-- [ ] **Step 3: Correct the spec's start-position paragraph**
+- [ ] **Step 3: Record that the playtest harness was silently broken, and how**
+
+This is the most valuable thing this branch found, and it is invisible from the code. Add a third bullet to **Known scaling debts**:
+
+```markdown
+- `tools/src/backtest/playtest.ts` was crashing on `main` from `d46b926` until
+  `b604032` and nobody noticed. Its `run()` never registered the map's tunnels with
+  the `Sim`, so the moment Beit Sahwan II gained a `digs`/`in_tunnel` placement the
+  whole chain died at that mission with `unknown tunnel "bs_tn_west"`, taking every
+  mission below it with it. The gate is a manual `npx tsx` script wired into neither
+  `pnpm test` nor CI, which is why "all gates green" could be said truthfully about
+  the tunnel subsystem while this one was red. Two consequences outlived the fix and
+  are still open: `beit_sahwan_breach (passive control)` returns VICTORY where its own
+  comment demands DEFEAT — a passive force now holds the compound for the full five
+  minutes, so First Light's premise has broken — and `beit_sahwan_3_clearance`
+  returns DEFEAT, visible for the first time because the harness could not reach it
+  before. Both are balance questions of their own, and until they are answered the
+  script exits non-zero, so "the playtest passes" cannot be claimed for anything.
+```
+
+- [ ] **Step 4: Record that a scripted playtest does not measure mission length**
+
+Add a fourth bullet to **Known scaling debts**. This one exists because this plan got it wrong first and had to be corrected mid-flight:
+
+```markdown
+- A scripted plan in `playtest.ts` proves a mission WINNABLE; it does not measure how
+  long the mission takes. The plans are optimal-play proofs and sit far under every
+  declared `target_minutes`: `beit_sahwan_1_recon` declares 10 and its plan wins in
+  0.7, `beit_sahwan_4_subterranean` declares 6 and its plan wins in 1.1. Tuning enemy
+  volume until the scripted clock reaches `target_minutes` would produce missions no
+  real player could finish. #84's method — stepping the real runtime and reading
+  `runtime.result` and `objectiveList` — remains the only instrument that measures
+  duration, and there is nothing headless between the optimal-play proof and a
+  fully-passive walk.
+```
+
+- [ ] **Step 5: Correct the spec's start-position paragraph**
 
 The spec claims something the built mission does not do. In `docs/superpowers/specs/2026-08-20-beit-sahwan-iv-design.md`, find the section **"Where the player starts, and why it matters"** and append this paragraph to the end of it, after the sentence ending "so **no route is identified for free** and finding is work the player does.":
 
@@ -714,7 +750,7 @@ too thin, the lever is re-siting the `pre_dug` mouths deeper into the district, 
 is map data and cheap.
 ```
 
-- [ ] **Step 4: Run the gates one last time**
+- [ ] **Step 6: Run the gates one last time**
 
 ```bash
 pnpm validate:data && pnpm typecheck && pnpm lint && pnpm test && pnpm test:determinism
@@ -724,7 +760,7 @@ pnpm balance
 
 Expected: everything green.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add CLAUDE.md docs/superpowers/specs/2026-08-20-beit-sahwan-iv-design.md
@@ -740,7 +776,7 @@ is not literal today, and the issue that assumed it was is #91.
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 6: Report what #91's checklist still does not cover**
+- [ ] **Step 8: Report what #91's checklist still does not cover**
 
 #91's definition of done has five boxes. Four are closed by Tasks 1–4: the spec, the mission passing `validate:data`, the winnable/no-orders harness pair, and the measurement against the target. The fifth — *"`walk_mission` shows the tunnels dug, found and collapsed across a full run"* — is only half closed, because `walk_mission` gives no orders and a collapse needs a player command. The dig, the spoil and the contact ladder are visible there; the charge and the collapse are proven in `playtest.ts` instead.
 
