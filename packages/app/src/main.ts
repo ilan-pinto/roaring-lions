@@ -481,6 +481,9 @@ async function main(): Promise<void> {
     at_team: { path: `${BASE}sprites/INF_AT/` },
     mortar_team: { path: `${BASE}sprites/INF_MORTAR/` },
     sniper_team: { path: `${BASE}sprites/INF_SNIPER/` },
+    // The Yahalom sheet is the one carrying a `work` clip — what resolveClip
+    // shows for the whole of a tunnel charge.
+    yahalom_squad: { path: `${BASE}sprites/INF_YAHALOM/` },
     militia_cell: { path: `${BASE}sprites/INF_MILITIA/` },
     rpg_team: { path: `${BASE}sprites/INF_RPG/` },
     atgm_cell: { path: `${BASE}sprites/INF_ATGM/` },
@@ -495,6 +498,7 @@ async function main(): Promise<void> {
     },
     charge_squad: { path: `${BASE}sprites/INF_CHARGE/` },
     moto_rpg: { path: `${BASE}sprites/MOTO_RPG/` },
+    digger_crew: { path: `${BASE}sprites/INF_DIGGER/` },
     // Two air sheets whose flight is presentational: the sim has no altitude,
     // so these move on the ground plane like anything else. The paramotor's
     // `down` clip is its landed state, authored against a land-and-dismount

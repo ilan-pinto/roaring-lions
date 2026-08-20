@@ -1760,6 +1760,10 @@ export class PixiRenderer {
           pinned: st.pinned[i],
           speed: this.entitySpeed[i],
           firing: this.firingTimer[i] > 0,
+          // The same presentation read the charge-progress ring makes: > 0
+          // exactly while a tunnel charge is actually being worked, 0 the
+          // moment the sim's own clock resets it (pinned, displaced, done).
+          working: this.sim.tunnelChargeProgress(i) > 0,
         };
         const clip = clipOrFallback(sheet, resolveClip(anim));
         const spec = sheet.clips[clip];

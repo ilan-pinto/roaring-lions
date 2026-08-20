@@ -11,8 +11,10 @@
  * Pure parsing: no Pixi, no I/O, no sim state.
  */
 
-/** Canonical clip names. A sheet need not contain all of them. */
-export type ClipName = 'idle' | 'move' | 'fire' | 'down' | 'wreck';
+/** Canonical clip names. A sheet need not contain all of them — `work` in
+ *  particular exists only on sheets whose unit can work a tunnel charge, and
+ *  `clipOrFallback` resolves it to idle everywhere else. */
+export type ClipName = 'idle' | 'move' | 'fire' | 'down' | 'wreck' | 'work';
 
 export interface ClipSpec {
   /** Number of frames in this clip. */
