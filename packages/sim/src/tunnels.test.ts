@@ -303,45 +303,103 @@ describe('mark_tunnel senses the route itself', () => {
   });
 });
 
-// Identified route knowledge is permanent; a suspected blip is not. Contact
-// decay exists because units move — a tunnel is fixed geography, so once a
-// side has established where a route runs the fact cannot go stale. The
-// ledger already carries tunnel marks BETWEEN missions; a mark expiring in
-// ~16 s within one mission contradicted that, and it made mark_tunnel
-// self-defeating: the handover expired before the charge team finished
-// walking (observed live as a charge dying at 117/160 ticks).
-describe('identified persistence', () => {
-  it('an identified route stays identified through 450 unobserved ticks, and a late charge completes', () => {
-    // chargeScenario has no observer at all: the yahalom's sight is 0 by
-    // fixture design and the occupant is underground, so from the moment of
-    // the handover nothing ever refreshes the contact. Under decay this hit
-    // `lost` at ~322 ticks; the charge below then started late enough to be
-    // impossible.
-    const { sim, idx, yahalom } = chargeScenario({ revealed: true });
+// Tunnel visibility is LIVE, not latched (owner's playtest call, reversing
+// the identified-persistence rule that preceded it). A side knows a route is
+// there only while something of its own is currently sensing it — a living
+// `mark_tunnel` carrier holding a clear sight line to the route inside its
+// own sight radius, or any unit watching its spoil. The moment nothing does,
+// the contact decays down the ordinary ladder and the route is unknown
+// again: the Yahalom and the recon drone work like DETECTORS, not
+// cartographers. The failure the old latch was added for — a mark_tunnel
+// handover expiring mid-charge, killing a charge at 117 of 160 ticks — is
+// pinned below by the lone-charger test: a charging team now holds its own
+// target identified with its own eyes (production yahalom_squad carries
+// mark_tunnel and sight 8, and stands within CHARGE_RANGE = 2 tiles).
+describe('live visibility', () => {
+  /** yahalom_squad's production shape where it matters here: tunnel_charge
+   *  AND mark_tunnel, sight 8. The sightless YAHALOM_TYPE further down is
+   *  for tests that must not self-identify; this is for the ones that must. */
+  const LIVE_YAHALOM: UnitTypeJson = {
+    id: 'tn_live_yahalom',
+    hull: { hp: 20000, armor: { front: 10, side: 10, rear: 10 } },
+    mobility: { speed_tiles_s: 0.9 },
+    sensors: { optics: 1.0, sight_tiles: 8, signature: 0.6 },
+    abilities: ['tunnel_charge', 'mark_tunnel'],
+    weapons: [],
+  };
+
+  it('an identified route fades back to unknown once nothing senses it', () => {
+    // The reversal itself. This scenario — identified by handover, then 450
+    // ticks with no watcher of any kind — used to assert the contact was
+    // STILL identified and that a late-started charge still completed. The
+    // rule changed: with no living mark_tunnel carrier in sight of the route
+    // and no spoil in anyone's view, the contact now decays from full
+    // confidence through the ladder's `lost` transition (~322 ticks at
+    // CONTACT_DECAY) back to unknown, exactly as a unit contact would.
+    const { sim, idx } = simWithRoute();
+    sim.identifyTunnelTo(0, idx);
+    expect(sim.tunnelContactLevel(0, idx)).toBe(2);
     const events: SimEvent[] = [];
     for (let t = 0; t < 450; t++) events.push(...sim.tick());
-    expect(sim.tunnelContactLevel(0, idx)).toBe(2);
-    sim.queueCommand({ kind: 'chargeTunnel', ids: [yahalom], tunnel: idx });
-    let collapsed = false;
+    expect(sim.tunnelContactLevel(0, idx)).toBe(0);
+    expect(
+      events.some((e) => e.kind === 'tunnelContact' && e.level === 'lost' && e.side === 0)
+    ).toBe(true);
+  });
+
+  it('a mark_tunnel carrier in sight holds the route identified; the fade starts when it dies', () => {
+    // The "while watched" half: identification is re-asserted every tick the
+    // carrier holds its sight line, so 450 ticks — deep past the ~322-tick
+    // unwatched decay — change nothing. Kill the carrier and the same clock
+    // that was being held at full starts to run.
+    const { sim, idx } = simWithRoute(); // route (2,2) -> (8,2)
+    const marker = sim.spawn(sim.addUnitType(LIVE_YAHALOM), 0, fx.from(4.5), fx.from(4.5));
+    for (let t = 0; t < 450; t++) sim.tick();
+    expect(sim.tunnelContactLevel(0, idx)).toBe(2); // held, not remembered
+    sim.debugKill(marker);
+    for (let t = 0; t < 450; t++) sim.tick();
+    expect(sim.tunnelContactLevel(0, idx)).toBe(0); // nobody sensing it, nobody knows
+  });
+
+  it('a lone charging team keeps its own target identified for the whole charge', () => {
+    // THE regression this reversal must not reintroduce, re-proved under the
+    // new rule: the old latch existed because a handover once expired at 117
+    // of 160 charge ticks. Here there is no handover and no other friendly
+    // unit anywhere — identification comes from the team's own mark_tunnel,
+    // and its own sight 8 from within CHARGE_RANGE holds the route
+    // identified while the charge runs. If this fails, live visibility has
+    // re-broken the charge; fix the rule, not the test.
+    const sim = new Sim({ seed: 11, width: 24, height: 12, capacity: 8 });
+    const idx = sim.addTunnel({ id: 'tn', points: [[4, 6], [12, 6]] as const, dig_tiles_per_s: 1 });
+    const team = sim.spawn(sim.addUnitType(LIVE_YAHALOM), 0, fx.from(11.5), fx.from(7.0));
+    const occupant = sim.spawn(sim.addUnitType(SCOUT_TYPE), 1, fx.from(4.5), fx.from(6.5));
+    sim.putInTunnel(occupant, idx);
+    sim.tick();
+    expect(sim.tunnelContactLevel(0, idx)).toBe(2); // found with its own eyes
+    sim.queueCommand({ kind: 'chargeTunnel', ids: [team], tunnel: idx });
+    const events: SimEvent[] = [];
+    let collapsed: Extract<SimEvent, { kind: 'tunnelCollapsed' }> | null = null;
     for (let t = 0; t < 400 && !collapsed; t++) {
       for (const e of sim.tick()) {
         events.push(e);
-        if (e.kind === 'tunnelCollapsed') collapsed = true;
+        if (e.kind === 'tunnelCollapsed') collapsed = e;
       }
     }
-    expect(collapsed).toBe(true);
-    // And the ladder never emitted `lost` for it — the transition is
-    // structurally unreachable at identified, not merely un-hit.
+    expect(collapsed).not.toBeNull();
+    expect(collapsed?.by).toBe(team);
+    expect(sim.tnAlive[idx]).toBe(0);
+    expect(sim.state.alive[occupant]).toBe(0); // the route came down on the garrison
+    // And the watch never lapsed: the ladder never emitted `lost` on the way.
     expect(events.some((e) => e.kind === 'tunnelContact' && e.level === 'lost')).toBe(false);
   });
 
   it('a suspected route still decays to lost with nobody watching', () => {
-    // This is the assertion that proves the fix did not simply switch decay
-    // off: an unconfirmed blip fading is correct, because the fact was
-    // never established. A scout far enough from one spoil tile climbs
-    // slowly; the loop stops the tick suspicion registers, the spoil is
-    // then wiped (weathered), and with strength zero the blip must fade
-    // through `lost` back to unknown.
+    // The suspected rung always decayed — an unconfirmed blip fading is
+    // correct because the fact was never established — and live visibility
+    // keeps that. A scout far enough from one spoil tile climbs slowly; the
+    // loop stops the tick suspicion registers, the spoil is then wiped
+    // (weathered), and with strength zero the blip must fade through `lost`
+    // back to unknown.
     const { sim, idx } = simWithRoute();
     const scout = sim.addUnitType(SCOUT_TYPE);
     sim.spawn(scout, 0, fx.from(7.5), fx.from(7.5));
@@ -688,7 +746,12 @@ describe('surfacing', () => {
  *  route through ordinary detection mid-test, and the "will not charge an
  *  unidentified route" case silently stops testing the gate. trailStrengthFor
  *  scans ceil(sight) tiles and MIN_DETECT_DIST_SQ skips the tile the unit
- *  stands on, so sight 0 sees no spoil, ever. */
+ *  stands on, so sight 0 sees no spoil, ever. Under live visibility sight 0
+ *  also means this fixture cannot HOLD a route identified: tests built on an
+ *  identifyTunnelTo handover are racing its ~322-tick decay to `lost`, which
+ *  every immediate charge here beats (~161 ticks) — the production unit does
+ *  not race at all, since its own mark_tunnel holds its target (see the
+ *  "live visibility" suite's lone-charger test and LIVE_YAHALOM). */
 const YAHALOM_TYPE: UnitTypeJson = {
   id: 'tn_yahalom',
   hull: { hp: 20000, armor: { front: 10, side: 10, rear: 10 } },
@@ -731,7 +794,10 @@ const MOLE_TYPE: UnitTypeJson = {
  *  longer keys on spoil (nearestRouteTileDistSq measures to the route's own
  *  tiles), so in every variant the identified gate is the only thing between
  *  the team and the charge. `revealed` hands side 0 the identification via
- *  identifyTunnelTo, mark_tunnel's own path. `surfaced` opens the vent
+ *  identifyTunnelTo, mark_tunnel's own path — a handover that now DECAYS
+ *  (live visibility: lost at ~322 unwatched ticks from full confidence),
+ *  which every scenario built on it comfortably beats: an immediate charge
+ *  lands at ~161. `surfaced` opens the vent
  *  (readyToVent's fast-forward) so the occupant pops up at the charge team
  *  and is above ground when the route comes down. */
 function chargeScenario(opts: { revealed: boolean; surfaced?: boolean }) {
@@ -828,10 +894,11 @@ describe('collapsing a route', () => {
     sim.trail[6 * sim.width + 11] = TRAIL_MAX; // buried spoil — the team's nearest
     sim.trail[6 * sim.width + 5] = TRAIL_MAX; // open spoil far west, for the spotter
     sim.identifyTunnelTo(0, idx);
-    // The scout predates the identified-persistence rule: identification no
-    // longer decays, so nothing races a clock any more. It stays because
-    // this test is about the walk geometry around the building, and an
-    // observer standing in the scene changes none of that.
+    // The scout is the watch: under live visibility its view of the open
+    // spoil at (5,6) holds the contact while the team takes the long way
+    // round. (Even unwatched, the t0 handover only hits `lost` at ~322
+    // ticks — past the ~265-tick collapse — but this test is about walk
+    // geometry, and the scout keeps it from being a race at all.)
     sim.spawn(sim.addUnitType(SCOUT_TYPE), 0, fx.from(4.5), fx.from(4.5));
     const team = sim.spawn(sim.addUnitType(YAHALOM_TYPE), 0, fx.from(11.8), fx.from(9.5));
     sim.queueCommand({ kind: 'chargeTunnel', ids: [team], tunnel: idx });
@@ -860,7 +927,10 @@ describe('collapsing a route', () => {
     // team halts on the first in-range tick and the collapse lands at ~250.
     // With the stop after the gate it can never fire while sliding, and the
     // clock is still near zero at tick 400. A route venting inside a walled
-    // compound is not an edge case; it is what tunnels are for.
+    // compound is not an edge case; it is what tunnels are for. (Live
+    // visibility: the sightless team is racing the t0 handover's ~322-tick
+    // decay, and the ~250-tick collapse is the tightest fit in this file —
+    // if the walk or the slide ever slows, the decay is the first suspect.)
     const sim = new Sim({ seed: 11, width: 24, height: 12, capacity: 8 });
     // Ring x=9..11, y=4..6, sealed 1-tile courtyard at (10,5).
     for (let y = 4; y <= 6; y++) {
@@ -916,8 +986,10 @@ describe('collapsing a route', () => {
     sim.identifyTunnelTo(0, idx);
     sim.queueCommand({ kind: 'chargeTunnel', ids: [yahalom], tunnel: idx });
     let collapsed: Extract<SimEvent, { kind: 'tunnelCollapsed' }> | null = null;
-    // 300 ticks is walk ~0 + charge 160 with margin. Identification no
-    // longer decays, so no window is being raced here.
+    // 300 ticks is walk ~0 + charge 160 with margin. Live visibility makes
+    // the handover above decay (lost at ~322 unwatched ticks) and the
+    // sightless fixture cannot hold it — the collapse at ~161 fitting
+    // inside that window is part of what this asserts.
     for (let t = 0; t < 300 && !collapsed; t++) {
       for (const e of sim.tick()) if (e.kind === 'tunnelCollapsed') collapsed = e;
     }

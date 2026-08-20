@@ -329,7 +329,8 @@ diagnosis "leaks are writers" was half wrong, and the half that was wrong was th
 - **An identified route's contact no longer decays.** Decay exists because units move; a
   tunnel is fixed geography. Observed live: a `mark_tunnel` handover expiring mid-charge at
   117 of 160 ticks, which made the ability defeat itself. Suspected contacts still decay.
-  Consequence: `lost` is structurally unreachable at level 2.
+  Consequence: `lost` is structurally unreachable at level 2. *(Reversed after playtest —
+  see "Changed after playtest" below.)*
 - **Surfacing is level-triggered, not edge-triggered.** The design's literal reading
   stranded any unit whose burst outlived its exposure window — a slow rate of fire, or a
   pin across the window's end — permanently on the surface.
@@ -386,3 +387,24 @@ move. Issue #91 now needs authoring, not engine work.
 extent the design asked for. Collapsing a route leaves its contact state frozen rather than
 cleared; that is inert only because every consumer checks `tnAlive` first, and fixing it
 moves the determinism pin, so it wants its own deliberate commit.
+
+### Changed after playtest
+
+**The identified-persistence rule above is reversed.** The owner played the subsystem and
+overruled the freeze: tunnel visibility is now **live** — a route is identified for a side
+only while a living `mark_tunnel` carrier of that side holds a clear sight line to a tile
+of the route inside its own sight radius (the existing `markerSeesRoute` check, now run
+every tick to *hold* the contact), or while someone is watching its spoil. Unwatched, the
+contact decays down the ordinary ladder and the route is unknown again: the Yahalom and
+the recon drone work like detectors, not cartographers, and `lost` is reachable at level 2
+after all.
+
+The mid-charge expiry that justified the freeze cannot recur: a charging team stands
+within charge range (2 tiles) of a route tile, and `yahalom_squad` carries `mark_tunnel`
+with sight 8, so its own eyes hold its own target identified for the whole charge —
+`tunnels.test.ts`'s lone-charger test pins exactly that. What CAN now lapse is a handover
+mid-walk; accepted, because the team re-finds the route with its own sight as it closes.
+The determinism replay gained the decay path (a walk-by marker abandoning a `pre_dug`
+route) alongside a production-parity mark on its charge team, and the pin moved with the
+rule. The renderer follows suit: the trace draws only where a living side-0 carrier can
+currently see it.

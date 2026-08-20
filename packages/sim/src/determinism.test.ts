@@ -112,18 +112,48 @@ const MOLE: UnitTypeJson = {
   ],
 };
 
-/** Charge team — yahalom_squad's hull and `tunnel_charge`, minus the
- *  carbines: it stands 3 tiles from a digger it must not shoot (a dead
- *  digger means no vent and no surfacing). Sighted, so it identifies the
- *  route through ordinary trail detection — the same ladder a player's
- *  units use — rather than a debug hand-over. */
+/** Charge team — yahalom_squad's hull, `tunnel_charge` AND `mark_tunnel`
+ *  (production parity), minus the carbines: it stands 3 tiles from a digger
+ *  it must not shoot (a dead digger means no vent and no surfacing). Under
+ *  live visibility the mark is load-bearing: its own sight line to the
+ *  route is what holds the route identified for side 0 from first sight to
+ *  collapse — the hold half of the live rule, inside the pin. (Side 1 still
+ *  identifies the same route through ordinary trail accrual — the digger
+ *  watches its own spoil — so the ladder path stays covered too.) */
 const YAHALOM: UnitTypeJson = {
   id: 'd_yahalom',
   hull: { hp: 380, armor: { front: 10, side: 10, rear: 10 } },
   mobility: { speed_tiles_s: 0.85 },
   sensors: { optics: 1.0, sight_tiles: 8, signature: 0.55 },
-  abilities: ['tunnel_charge'],
+  abilities: ['tunnel_charge', 'mark_tunnel'],
   tunnel_charge_time_s: 8,
+  weapons: [],
+};
+
+/** The second route: pre_dug in the south-east corner, unoccupied, no digger
+ *  — it exists to put live visibility's OTHER half inside the pin. The
+ *  walk-by scout below marks it in passing and keeps walking; the identified
+ *  contact, unwatched once the scout is out of sight (~tick 250), decays
+ *  through `lost` (~tick 570) and keeps decaying to the end of the replay.
+ *  Under the old latched rule this contact froze at full confidence forever,
+ *  so this corner is what moves the golden hash for the live-visibility
+ *  change — and what fails first if the decay is ever quietly re-frozen. */
+const ROUTE_SE = {
+  id: 'd_route_se',
+  points: [[38, 45], [44, 45]] as const,
+  dig_tiles_per_s: 1,
+  pre_dug: true,
+};
+
+/** The walk-by scout: `mark_tunnel`, no weapons, no other job. Far enough
+ *  south that nothing from the corridor, shed or first tunnel front ever
+ *  sees it or is seen by it — its entire contribution is the mark-and-leave. */
+const SCOUT: UnitTypeJson = {
+  id: 'd_scout',
+  hull: { hp: 330, armor: { front: 10, side: 10, rear: 10 } },
+  mobility: { speed_tiles_s: 0.9 },
+  sensors: { optics: 1.0, sight_tiles: 8, signature: 0.5 },
+  abilities: ['mark_tunnel'],
   weapons: [],
 };
 
@@ -203,6 +233,12 @@ function run(seed: number, ticks: number, extraIdleUnit = false, onEvent?: (e: S
   const yahalom = sim.spawn(sim.addUnitType(YAHALOM), 0, fx.from(6.5), fx.from(44.5));
   sim.spawn(sim.addUnitType(VENT_GUARD), 0, fx.from(12.5), fx.from(45.5));
 
+  // The south-east corner: live visibility's decay half (see ROUTE_SE). The
+  // scout spawns standing on the pre_dug route, marks it on the first tick,
+  // and is ordered away below.
+  sim.addTunnel(ROUTE_SE);
+  const scout = sim.spawn(sim.addUnitType(SCOUT), 0, fx.from(41.5), fx.from(45.5));
+
   if (extraIdleUnit) sim.spawn(rifles, 0, fx.fromInt(1), fx.fromInt(1));
 
   for (let t = 0; t < ticks; t++) {
@@ -219,6 +255,10 @@ function run(seed: number, ticks: number, extraIdleUnit = false, onEvent?: (e: S
     // enough that the 160-tick charge brings the route down mid-run with
     // hundreds of ticks of post-collapse state still ahead of the pin.
     if (t === 500) sim.queueCommand({ kind: 'chargeTunnel', ids: [yahalom], tunnel });
+    // The scout walks west along the map's bottom edge, out of sight of the
+    // route it just marked (beyond sight 8 of tile (38,45) once x < 30.5):
+    // from there the identified contact is unwatched and decays live.
+    if (t === 5) sim.queueCommand({ kind: 'move', ids: [scout], x: fx.from(27.5), y: fx.from(45.5) });
     const events = sim.tick();
     if (onEvent) for (const e of events) onEvent(e);
   }
@@ -269,7 +309,19 @@ describe('determinism (1000-tick replay)', () => {
     // reasoning), which starts this replay's charge 23 ticks sooner: the
     // collapse lands at tick 660 instead of 683. Behaviour and coverage both
     // changed on purpose; the pin moves with them.
-    expect(a.hash()).toBe(3003042083);
+    //
+    // Updated for live-gated tunnel visibility (playtest reversal of the
+    // identified-persistence rule): an identified route now stays identified
+    // only while something is currently sensing it — a `mark_tunnel` sight
+    // line, or spoil in view — and decays down the ladder once nothing is.
+    // The old replay never ran the changed write (its one route was watched
+    // continuously until its collapse), so the front grew: the charge team
+    // carries mark_tunnel (production parity) and holds its own route to
+    // collapse, and a walk-by scout marks a new pre_dug south-east route and
+    // abandons it, leaving that contact to decay through `lost` inside the
+    // pin. tnContact now moves every unwatched tick where the latch froze
+    // it; the pin moves with the rule.
+    expect(a.hash()).toBe(1147898451);
   });
 
   it('the replay actually exercises the structure paths', () => {
@@ -305,6 +357,7 @@ describe('determinism (1000-tick replay)', () => {
     const surfacers = new Set<number>();
     const collapses: { tick: number; by: number }[] = [];
     const destroyed: { tick: number; by: number }[] = [];
+    const contacts: { side: number; tunnel: number; level: string }[] = [];
     const end = run(0x1310_0001, 1000, false, (e) => {
       if (e.kind === 'ventOpened') ventOpened = true;
       if (e.kind === 'surfaced') {
@@ -314,6 +367,7 @@ describe('determinism (1000-tick replay)', () => {
       if (e.kind === 'submerged') submergedCount++;
       if (e.kind === 'tunnelCollapsed') collapses.push({ tick: e.tick, by: e.by });
       if (e.kind === 'destroyed') destroyed.push({ tick: e.tick, by: e.by });
+      if (e.kind === 'tunnelContact') contacts.push({ side: e.side, tunnel: e.tunnel, level: e.level });
     });
     // The collapse's kill loop pushes its `destroyed` events BEFORE the
     // `tunnelCollapsed` event on the same tick, so this is matched after the
@@ -328,11 +382,15 @@ describe('determinism (1000-tick replay)', () => {
     // zero but not reached the end, the vent is still shut, and both
     // occupants are below. Present-but-idle (or pre_dug) would fail here.
     const mid = run(0x1310_0001, 60);
-    expect(mid.tunnelCount).toBe(1);
+    expect(mid.tunnelCount).toBe(2);
     expect(mid.tnProgress[0]).toBeGreaterThan(0);
     expect(mid.tnProgress[0]).toBeLessThan(mid.tnLength[0]);
     expect(mid.tnVentOpen[0]).toBe(0);
     expect(mid.tnOccupants[0]).toBe(2);
+    // The south-east route really is pre_dug and empty: vent open from load,
+    // nothing below, nothing digging — its only job is the visibility decay.
+    expect(mid.tnVentOpen[1]).toBe(1);
+    expect(mid.tnOccupants[1]).toBe(0);
 
     // Across the full run: the head reached the end and the vent opened, the
     // mole came up at it, spent its volley and went back down — the whole
@@ -360,6 +418,18 @@ describe('determinism (1000-tick replay)', () => {
     expect(end.tnProgress[0]).toBe(end.tnLength[0]);
     expect(end.tnAlive[0]).toBe(0);
     expect(end.tnOccupants[0]).toBe(0);
+
+    // Live visibility, both halves, genuinely inside the pin. The walk-by
+    // scout marked the pre_dug south-east route and its contact then decayed
+    // to `lost` once the scout walked on — the write the old latched rule
+    // suppressed. Meanwhile the charge team's own mark held the first route
+    // identified from first sight to collapse, so side 0 never lost it:
+    // the reversal must not cost a lone team its charge.
+    expect(contacts.some((c) => c.side === 0 && c.tunnel === 1 && c.level === 'identified')).toBe(true);
+    expect(contacts.some((c) => c.side === 0 && c.tunnel === 1 && c.level === 'lost')).toBe(true);
+    expect(contacts.some((c) => c.side === 0 && c.tunnel === 0 && c.level === 'lost')).toBe(false);
+    expect(end.tunnelContactLevel(0, 1)).toBe(0); // unknown again by the end
+    expect(end.tnAlive[1]).toBe(1); // and never charged — decay is why it faded
   });
 
   it('a different seed produces a different hash', () => {

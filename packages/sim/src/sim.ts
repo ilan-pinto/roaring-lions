@@ -322,9 +322,10 @@ export interface UnitType {
   /** Trained observer: earns intel while holding position (GDD §3). */
   canMarkTarget: boolean;
   /** Reads the ground for what runs under it: a clear sight line to any tile
-   *  of a tunnel route identifies the route outright (stepDetection). The
-   *  only authorable identification that works on a `pre_dug` route, which
-   *  never had spoil to find. */
+   *  of a tunnel route identifies the route outright, and HOLDS it
+   *  identified for as long as the look lasts (stepDetection) — a detector,
+   *  not a cartographer. The only authorable identification that works on a
+   *  `pre_dug` route, which never had spoil to find. */
   canMarkTunnel: boolean;
   /** Carries smoke: the counterplay to prepared fire. */
   canSmoke: boolean;
@@ -2150,10 +2151,12 @@ export class Sim {
         // constant. This is the only authorable identification that reaches
         // a pre_dug route, which never stamps trail; without it, spoil is
         // the sole channel and no authored mission could ever identify
-        // exactly the routes missions are most likely to author. Skipped
-        // once identified: state 2 is frozen (below), so the scan would only
-        // redo settled work.
-        if (this.tnContactState[k] < 2 && this.markerSeesRoute(s, r)) {
+        // exactly the routes missions are most likely to author. Run every
+        // tick, identified or not: the carrier standing in range is what
+        // HOLDS the contact at identified. mark_tunnel is a detector, not a
+        // cartographer — the moment nobody who can sense the route is near
+        // it, the knowledge starts to fade (the decay branch below).
+        if (this.markerSeesRoute(s, r)) {
           this.identifyTunnelTo(s, r);
           continue;
         }
@@ -2162,21 +2165,28 @@ export class Sim {
           const p = fx.sub(ONE, fx.expNeg(fx.mul(K_DETECT, fx.mul(strength, DT))));
           const c = this.tnContact[k];
           this.tnContact[k] = fx.add(c, fx.mul(fx.sub(ONE, c), p));
-        } else if (this.tnContactState[k] < 2) {
-          // An unobserved SUSPECTED blip decays like any other contact — the
-          // fact was never established, so it fades. IDENTIFIED does not:
-          // contact decay exists because units move and may no longer be
-          // where they were seen, and a tunnel is fixed geography — once a
-          // side has established where a route runs, that knowledge cannot
-          // go stale. This is the design's own position, not a preference:
-          // the campaign ledger carries tunnel marks BETWEEN missions
-          // (intel.marked_positions), which a mark expiring in ~16 s WITHIN
-          // one mission would contradict, and mark_tunnel exists to hand a
-          // route to a team that then has to walk to it — under decay that
-          // handover expired mid-walk (a charge was watched dying at
-          // 117/160 ticks). Freezing confidence, not just state, keeps the
-          // ladder's `lost` transition structurally unreachable at state 2:
-          // c sits at or above IDENTIFIED_AT and nothing lowers it.
+        } else {
+          // Unwatched contact decays — IDENTIFIED included. This deliberately
+          // REVERSES an earlier rule that froze identified contact forever
+          // ("a tunnel is fixed geography"): playtest overruled it. Tunnel
+          // visibility is live, detector-shaped — a side knows a route is
+          // there only while a living `mark_tunnel` carrier holds a sight
+          // line to it (the branch above) or someone is watching its spoil
+          // (the accrual branch) — so an identified route nobody senses any
+          // more fades down the same ladder every unit contact uses: c drops
+          // below LOST_AT (~322 ticks from full confidence), the ladder
+          // emits `lost`, and the route is unknown again.
+          //
+          // The failure the frozen rule was added for — a mark_tunnel
+          // handover expiring mid-CHARGE, watched killing a charge at 117 of
+          // 160 ticks — cannot recur: a charging team stands within
+          // CHARGE_RANGE (2 tiles) of a route tile, and yahalom_squad
+          // carries mark_tunnel with sight 8, so its own eyes hold its own
+          // target identified for the entire charge (stepDetection runs
+          // before stepTunnelCharge inside a tick, and tunnels.test.ts's
+          // "live visibility" suite pins the lone-team charge). A handover
+          // CAN now lapse mid-walk — accepted: the team re-finds the route
+          // itself as it closes to within its own sight of it.
           this.tnContact[k] = fx.mul(this.tnContact[k], CONTACT_DECAY);
         }
         const c = this.tnContact[k];
@@ -2282,7 +2292,10 @@ export class Sim {
     return this.tnTiles[r].has(ty * this.width + tx);
   }
 
-  /** `mark_tunnel`: recon hands a route over identified, no dwell required. */
+  /** `mark_tunnel`: recon hands a route over identified, no dwell required.
+   *  Held, not latched: stepDetection re-calls this every tick some carrier
+   *  keeps the route in sight, and once nothing does, the contact decays
+   *  back down the ladder like any other — visibility is live. */
   identifyTunnelTo(side: number, r: number): void {
     const k = side * MAX_TUNNELS + r;
     this.tnContact[k] = ONE;
@@ -4277,9 +4290,10 @@ export class Sim {
     h = hashArray(h, this.stOccupants);
     // Tunnel columns — every mutable one, matching how the demolition and
     // contact state above is folded in. The contact pair matters most: it
-    // gates chargeTunnel acceptance and, once identified, freezes forever, so
-    // a sub-threshold divergence could otherwise sit dormant until an order
-    // happens to be issued. NOT hashed, deliberately: the trail grid
+    // gates the charge clock, and under live-gated visibility it moves every
+    // tick a route is being watched or forgotten — a sub-threshold
+    // divergence there would otherwise sit dormant until an order happened
+    // to be issued. NOT hashed, deliberately: the trail grid
     // (width*height bytes of derived state that tnProgress already
     // determines — hashing it would turn every trail-decay tuning change
     // into a hash change for no added coverage), tnLength/tnDigRate/
