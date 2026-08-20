@@ -49,8 +49,10 @@ export interface PlacementJson {
    *  advances from the first tick — the declarative form of `assignDigger`,
    *  exactly as `in_tunnel` is of `putInTunnel`. One digger, one route:
    *  validate_data.mjs requires the unit to carry `dig_tunnel`, `count` to
-   *  be 1, at most one placement per route, and never a `pre_dug` route
-   *  (nothing left to excavate). An unknown id throws at load. */
+   *  be 1, at most one placement per route, never a `pre_dug` route (nothing
+   *  left to excavate), and never on a placement that is itself `in_tunnel`
+   *  (the runtime would let a buried body work the dig). An unknown id
+   *  throws at load. */
   digs?: string;
   /**
    * Infantry authored *aboard* this carrier, seated at spawn rather than walking

@@ -204,11 +204,12 @@ const structureSymbols = new Map(
 
     // Digger assignment HAS a declarative form: a placement's `digs` names the
     // route it excavates, and spawnPlacement's assignDigger call on it is the
-    // only production path to a dig. Four rules keep the key honest, each one
-    // an error the runtime would swallow silently -- assignDigger is
-    // unit-blind, replaces without complaint, and a finished route just skips
-    // stepDigging, so every one of these ships as a mission that quietly
-    // never starts.
+    // only production path to a dig. The rules here keep the key honest --
+    // a fifth, digs on an in_tunnel placement, lives with the other burial
+    // exclusivity checks below -- and each one is an error the runtime would
+    // swallow silently: assignDigger is unit-blind, replaces without
+    // complaint, and a finished route just skips stepDigging, so every one
+    // of these ships as a mission that quietly never starts.
     const allPlacements = [...enemyPlacements, ...playerPlacements, ...civPlacements];
     const digsByRoute = new Map(); // route id -> the placements that dig it
     for (const p of allPlacements) {
@@ -253,13 +254,6 @@ const structureSymbols = new Map(
       }
     }
 
-    // The burial check below stays coarser than `digs` could now make it: it
-    // refuses in_tunnel only when NOTHING fielded could ever dig, the provable
-    // grave. A garrison buried in an undug route somebody digs elsewhere is
-    // left alone -- tightening to "pre_dug or dug by some placement" is a
-    // deliberate decision not yet taken, because with mark_tunnel wired such
-    // a garrison is at least reachable (identify, charge, entomb).
-    const anyoneCanDig = allPlacements.some((p) => hasAbility(p.unit, 'dig_tunnel'));
 
     // Can the player ever field a unit that works a tunnel charge? Fielded
     // units are visible; a mission with an economy (resources + player_start)
@@ -518,17 +512,35 @@ const structureSymbols = new Map(
               `a placement is either in_tunnel or loaded, never both`
           );
         }
-        // Authored routes start undug with the vent shut. Unless the route is
-        // authored pre_dug or the mission fields something able to dig at
-        // all, the vent can never open: the bodies never surface, never
-        // fight, and are reachable only by the player entombing them -- a
-        // grave, not an ambush. (See the digsByRoute note above for why this
-        // stays coarser than per-route.)
-        if (route && route.pre_dug !== true && !anyoneCanDig) {
+        // Both roles at once. The runtime honours both keys without complaint
+        // -- putInTunnel buries the body, assignDigger makes it the digger --
+        // and stepDigging never asks where the digger is standing, so a unit
+        // would work a surface dig site from underground, possibly on a route
+        // other than the one entombing it.
+        if (pl.digs !== undefined) {
           failures.push(
-            `${rel(file)}: "${pl.unit}" is in_tunnel "${pl.in_tunnel}", but the route is not ` +
-              `pre_dug and nothing in this mission has the dig_tunnel ability — the vent ` +
-              `can never open, so the garrison can never surface or fight`
+            `${rel(file)}: "${pl.unit}" declares digs "${pl.digs}" AND in_tunnel ` +
+              `"${pl.in_tunnel}" — the runtime would bury the body and make it a digger ` +
+              `at once, working the dig from below ground; a placement is either the ` +
+              `digger or the buried garrison, never both`
+          );
+        }
+        // Authored routes start undug with the vent shut, and a placement's
+        // `digs` is the only production path to a dig. So the named route
+        // must be openable from this mission's own data: authored pre_dug,
+        // or dug by a `digs` placement in this same file. Anything else --
+        // most often a mistyped route id -- is a garrison that sits
+        // underground forever: findable (mark_tunnel) and collapsible (a
+        // charge needs the route identified, not dug), but never surfacing
+        // and never fighting. If entombed collapse-fodder is ever wanted on
+        // purpose, it should cost an explicit schema key, not survive as an
+        // accident of validator coarseness.
+        if (route && route.pre_dug !== true && !digsByRoute.has(pl.in_tunnel)) {
+          failures.push(
+            `${rel(file)}: "${pl.unit}" is in_tunnel "${pl.in_tunnel}", but that route is ` +
+              `not pre_dug and no placement digs it, so its vent can never open and the ` +
+              `garrison can never surface or fight — author the route pre_dug, or give ` +
+              `this mission a digs placement naming it`
           );
         }
       }
