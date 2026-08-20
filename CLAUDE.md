@@ -127,9 +127,10 @@ The combat model is the product. Everything else is scaffolding around it.
   are wired: a placement's `digs` assigns its body as a route's digger, and a
   `mark_tunnel` unit with a sight line to a route identifies it — spoil or no spoil —
   so an authored mission can dig, find, and collapse a route end to end (the mission
-  runtime tests prove the chain from JSON alone). What the Beit Sahwan subterranean
-  mission (#91) still needs is authoring, not engine work. `tunnel_travel` remains
-  unit data only.
+  runtime tests prove the chain from JSON alone). The Beit Sahwan subterranean
+  mission (#91) now exists — `data/missions/beit_sahwan_4_subterranean.json`, the
+  first content to use the `subterranean` phase. `tunnel_travel` remains unit data
+  only.
 - The trail-detection scan is O(routes × living units × sight²) per tick
   (`trailStrengthFor`), on top of detection's existing O(N²) — and `markerSeesRoute`
   is the same shape again for `mark_tunnel` carriers, though it stops scanning a
@@ -160,18 +161,30 @@ The combat model is the product. Everything else is scaffolding around it.
   `pnpm test` nor CI, which is why "all gates green" could be said truthfully about
   the tunnel subsystem while this one was red. Two consequences outlived the fix and
   are still open: `beit_sahwan_breach (passive control)` returns VICTORY where its own
-  comment demands DEFEAT — a passive force now holds the compound for the full five
-  minutes, so First Light's premise has broken — and `beit_sahwan_3_clearance`
-  returns DEFEAT, visible for the first time because the harness could not reach it
-  before. Both are balance questions of their own, and until they are answered the
-  script exits non-zero, so "the playtest passes" cannot be claimed for anything.
+  comment demands DEFEAT, and `beit_sahwan_3_clearance` returns DEFEAT. Neither is a
+  tunnel-era regression — checking out `066445f` (main before any tunnel code) and
+  running the harness there reproduces both failures byte-identically, so the crash
+  merely hid `beit_sahwan_3_clearance` for about two days, no more. The likely origin
+  of the First Light control's failure is `3122340 feat(data): First Light runs five
+  minutes`: that control's own comment still reasons about a thirteen-minute fight
+  against a mission that now ends at 5.0. Both are balance questions of their own,
+  and until they are answered the script exits non-zero, so "the playtest passes"
+  cannot be claimed for anything.
 - A scripted plan in `playtest.ts` proves a mission WINNABLE; it does not measure how
-  long the mission takes. The plans are optimal-play proofs and sit far under every
-  declared `target_minutes`: `beit_sahwan_1_recon` declares 10 and its plan wins in
-  0.7, `beit_sahwan_4_subterranean` declares 6 and its plan wins in 1.1. Tuning enemy
-  volume until the scripted clock reaches `target_minutes` would produce missions no
-  real player could finish. #84's method — stepping the real runtime and reading
-  `runtime.result` and `objectiveList` — remains the only instrument that measures
-  duration, and there is nothing headless between the optimal-play proof and a
-  fully-passive walk. Beit Sahwan IV's own `target_minutes: 6` stands unverified for
-  this reason and belongs to #84's set of unresolved predecessors.
+  long the mission takes. The plans are optimal-play proofs, and tuning enemy volume
+  until the scripted clock reaches `target_minutes` would produce missions no real
+  player could finish. Measured against every mission's declared `target_minutes`,
+  eight of nine plans land close to it — between 0.51 and 1.00 of target — and only
+  one is a real outlier: `beit_sahwan_1_recon` declares 10 and its plan wins in 0.7
+  (ratio 0.07). `beit_sahwan_4_subterranean` declares 6 and its plan wins in 1.1
+  (ratio 0.18) — the second-largest gap, and the only *combat* mission where the
+  scripted clock and the target diverge this far; the other seven combat missions
+  (`beit_sahwan_breach` 1.00, `wadi_halam_5_depot` 0.98, `wadi_halam_3_counterraid`
+  0.93, `wadi_halam_4_village` 0.87, `wadi_halam_1_fords` 0.80, `wadi_halam_2_laager`
+  0.80, `beit_sahwan_2_foothold` 0.51) all sit inside that 0.51–1.00 band.
+  `beit_sahwan_1_recon` is a recon mission, not a fight, and behaves differently by
+  nature. #84's method — stepping the real runtime and reading `runtime.result` and
+  `objectiveList` — remains the only instrument that measures duration, and there is
+  nothing headless between the optimal-play proof and a fully-passive walk. Beit
+  Sahwan IV's own `target_minutes: 6` stands unverified for this reason and belongs
+  to #84's set of unresolved predecessors.

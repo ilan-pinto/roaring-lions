@@ -4,7 +4,7 @@
   "town": "beit_sahwan",
   "phase": "subterranean",
   "target_minutes": 6,
-  "briefing": "The town is ours and the fighting has not stopped. Rounds come from empty ground, the shooters are gone before the echo, and the reason is under your feet: Ashwar mined this district long before we reached it. Four routes run beneath it. One they are digging again right now — you will see the spoil creeping west along the main road, and disturbed earth is something any soldier can read. The other three were finished years ago and left no dirt at all; only the drone or the engineers themselves can tell you where they run, and only while somebody is looking. Bring all four down. Yahalom must stand still in the open beside a route to set the charge, so whether they live is a decision you make with everything else you have.",
+  "briefing": "The town is ours and the fighting has not stopped. Rounds come from empty ground, the shooters are gone before the echo, and the reason is under your feet: Ashwar mined this district long before we reached it. Four routes run beneath it. One they are digging again right now — you will see the spoil creeping west along the main road, and disturbed earth is something any soldier can read. The other three were finished years ago and left no dirt at all; only the drone or the engineers themselves can tell you where they run, and only while somebody is looking. They also have men waiting close in with charges of their own, fast enough to reach your line before you have finished forming it — put something else in front to meet them, not the engineers. Bring all four down. Yahalom must stand still in the open beside a route to set the charge, so whether they live is a decision you make with everything else you have.",
   "map": {
     "file": "beit_sahwan_outskirts",
     "player_start": [26, 34]
@@ -43,8 +43,8 @@
       "id": "read_the_ground",
       "type": "locate",
       "primary": false,
-      "count": 3,
-      "text": "Identify three positions holding the network open"
+      "target": "bs4_digger",
+      "text": "Find the crew reopening the western route"
     }
   ],
   "roe": {

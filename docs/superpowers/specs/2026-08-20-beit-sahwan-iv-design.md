@@ -71,12 +71,14 @@ y 9–39), every mouth on open ground rather than under a footprint.
 | Route | Mouth | Waypoint | Vent | State in this mission |
 |---|---|---|---|---|
 | `bs_tn_west` *(exists)* | `[30,22]` | `[24,22]`, `[18,22]` | `[7,22]` | re-dug live by a `digger_crew` |
-| `bs_tn_north` *(new)* | `[27,13]` | `[30,17]` | `[33,21]` | `pre_dug`, stocked |
-| `bs_tn_souk` *(new)* | `[22,29]` | `[24,26]` | `[27,23]` | `pre_dug`, stocked |
+| `bs_tn_north` *(new)* | `[27,13]` | `[29,15]` | `[32,17]` | `pre_dug`, stocked |
+| `bs_tn_souk` *(new)* | `[22,29]` | `[24,27]` | `[26,24]` | `pre_dug`, stocked |
 | `bs_tn_clinic` *(new)* | `[35,26]` | `[33,23]` | `[31,21]` | `pre_dug`, stocked |
 
-Coordinates are indicative. The exact tiles get settled against `walk_mission`
-during implementation; what is load-bearing is the shape — mouths at the district's
+These are the settled values, taken from `data/maps/beit_sahwan_outskirts.json` as
+shipped — `bs_tn_north` and `bs_tn_souk` moved from the first draft's waypoints and
+vents during implementation; this table now records what actually shipped rather
+than what was proposed. What is load-bearing is the shape — mouths at the district's
 edges, vents on the axes the player must cross, and no polyline running under a
 large building footprint, because a trail tile under one can park a charge team just
 out of range where it latches without ever completing.
@@ -134,10 +136,12 @@ work the player does.
 weighs a charge team's sight of 8 against the shanty block's line of sight, and
 forgets the other detector in the force: `recon_drone` has `sight_tiles: 16`,
 `domain: air`, `optics: 2.0` and thermal. From its spawn at `[24, 36]` it reaches
-`bs_tn_souk`'s mouth at about 7 tiles and `bs_tn_clinic` at about 15, and a passive
-walk with no orders at all shows both routes identified — `bs_tn_clinic` by t=30s,
-`bs_tn_souk` by t=60s — and held there for the rest of the run. Only `bs_tn_north`,
-deep in the house block, stays hidden.
+`bs_tn_souk`'s mouth at about 7 tiles, `bs_tn_clinic` at about 15, and `bs_tn_west`'s
+nearest tile at `(24,22)` at exactly 14 — all inside sight 16 — and a passive walk
+with no orders at all (`npx tsx tools/src/walk_mission.ts beit_sahwan_4_subterranean
+0 15 30 45 60`) shows all three identified: `bs_tn_west` and `bs_tn_clinic` already
+within the first 15 seconds, `bs_tn_souk` by t=60s, all three held identified for the
+rest of the run. Only `bs_tn_north`, deep in the house block, stays hidden.
 
 This is accepted as built rather than fixed. The force list above already calls the
 drone "the detector that makes finding cheap if flown well", so cheap finding was
@@ -190,7 +194,18 @@ the charge is still owed. Counterplay, not a shortcut.
 | id | type | primary | target | notes |
 |---|---|---|---|---|
 | `bring_it_down` | `collapse` | yes | `town` | deadline set by measurement, ~300s |
-| `read_the_ground` | `locate` | no | — | count 3 |
+| `read_the_ground` | `locate` | no | `bs4_digger` | targeted, not counted — see below |
+
+`read_the_ground` was originally authored as an untargeted `locate` with `count: 3`.
+An untargeted `locate` completes as soon as `this.identified.size >= count`, counting
+ANY identified enemy, not specifically the tagged garrison this objective meant to
+reward finding. The `recon_drone`'s free identifications (see above) put it over
+that bar with no player orders at all — the no-orders control's own line prints
+`read_the_ground=c`, a secondary objective completing passively. Retargeting it at
+`bs4_digger` fixes this: a targeted `locate` completes only when every placement
+carrying that tag is identified, and `bs4_digger` sits at `[26.5, 10.5]`, about 25.6
+tiles from the drone's spawn — outside its sight of 16 — so satisfying it requires
+the player to actually push north.
 
 One primary. Wadi Halam V carries three at once, two of them serial, and #93 is the
 measurement of what that does to a time budget. A primary `collapse` must declare
@@ -210,12 +225,30 @@ and the garrison is the reason crossing the district costs something:
 - `rpg_team` in `ambush` on the main road
 - `charge_squad` in `ambush` at the crossroads — their engineers against yours
 - `digger_crew` with `digs: bs_tn_west`, behind the north block
+- `rpg_team` (`bs4_ambush_mouth_west`) in `ambush` at `[31.5,23.5]`, covering the
+  town-centre approach to `bs_tn_west`'s mouth — added after this document's first
+  draft; see the note below on what it does and does not contest
 
 Stocked below, via `in_tunnel`: RPG and militia in the three `pre_dug` routes,
 surfacing at their vents as the player crosses their axis. Buried placements take no
 tag, so they never count toward `locate` — the runtime exempts them from both books
 deliberately, and identifying a body through three metres of earth would complete an
 objective against a unit nobody can see or reach.
+
+**What `bs4_ambush_mouth_west` actually contests.** `chargeTunnel`
+(`packages/sim/src/sim.ts`, the `chargeTunnel` branch of `applyCommands`) walks a
+charge team to the NEAREST tile of the route's own polyline, not to the mouth.
+`bs_tn_west` runs a straight 24-tile line along y=22 from its mouth at `x=30` west to
+its vent at `x=7`. `bs4_ambush_mouth_west` sits at `[31.5,23.5]`, in `ambush` with a
+4-tile trigger radius, which reaches the mouth end of that line and the town-centre
+approach to it — genuinely contested ground. It does not, and cannot, contest a
+charge staged from the west or south: a team ordered to charge this route from
+anywhere near the vent or mid-line resolves its goal tile far outside a 4-tile
+ambush radius from `[31.5,23.5]` and the ambusher never triggers. This mission's own
+scripted plan demonstrates exactly that — its west team charges `bs_tn_west` from
+near `bs_tn_souk`'s mouth, and the ambush never fires. Contesting the full line would
+need coverage along the polyline rather than a single placement at one end, and that
+is follow-up work this mission does not attempt.
 
 Two waves, at 150s and 240s. Sized against #90's finding that Wadi Halam's holds run
 two thirds of their length with no contact at all, rather than copied from them.
@@ -268,6 +301,10 @@ required, that is a finding to raise rather than a task to absorb.
   pin is a bug in this work.
 - Beit Sahwan II re-walked after its `collapse` retarget, confirming its secondary
   still resolves against exactly one route.
+- `76bb9ba`'s commit message claims `bs4_ambush_mouth_west` sits "exactly where a
+  charge team must stand to take it down" — this overstates what the placement does.
+  It contests the mouth/town-centre approach only; see the note under Enemy above for
+  what a reader of `git log` should actually believe.
 
 ## Scope
 
