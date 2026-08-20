@@ -1164,10 +1164,23 @@ export class Sim {
   }
 
   /** Tile centre of a route's vent, Q16.16 — the point `collapseTunnel`
-   *  centres its surface splash on. Read by presentation to place the
-   *  collapse effect at the same spot; a pure read, so invariant 4 holds. */
+   *  centres its surface splash on. A pure read (invariant 4). The collapse
+   *  VFX used to be placed here alone; it now samples the whole line via
+   *  tunnelPointAt below, whose final sample is this same spot, so this
+   *  remains the canonical "where is the exit" read for tools and the
+   *  sandbox. */
   tunnelVent(r: number): readonly [Fx, Fx] {
     return this.ventPos(r);
+  }
+
+  /** The surface point `d` Q16.16 tiles along route `r` from its mouth,
+   *  clamped to both ends — raw polyline coordinates, not tile centres.
+   *  Presentation read, tunnelVent's sibling: the collapse effect samples
+   *  the route's full length with it, so the ground visibly goes down from
+   *  mouth to vent rather than only at the exit. Pure read over load-time
+   *  geometry (invariant 4). */
+  tunnelPointAt(r: number, d: Fx): readonly [Fx, Fx] {
+    return pointAtDistance(this.tnPoints[r], d);
   }
 
   /** Put a digger on a route. One digger per route; assigning replaces. */
@@ -1232,6 +1245,20 @@ export class Sim {
       return 1 - this.stHp[s] / max;
     }
     return this.demoTicks[id] / type.demolitionTicks;
+  }
+
+  /** Fraction of a tunnel charge set, 0..1 — ticks worked over ticks needed,
+   *  0 while no charge is being worked (walking to the route, pinned,
+   *  displaced and interrupted all read 0, because chargeTicks itself
+   *  resets). demolitionProgress's twin, and like it a presentation read:
+   *  eight seconds standing still in the open is exactly when the player
+   *  wants to know how long is LEFT, so the renderer draws progress, not
+   *  presence. */
+  tunnelChargeProgress(id: number): number {
+    if (this.chargeOrder[id] < 0) return 0;
+    const type = this.unitTypes[this.typeIdx[id]];
+    if (!type.canTunnelCharge || type.tunnelChargeTicks <= 0) return 0;
+    return this.chargeTicks[id] / type.tunnelChargeTicks;
   }
 
   /** Dev/test hook: level a building instantly. */
@@ -2290,6 +2317,32 @@ export class Sim {
   tunnelUnderTile(r: number, tx: number, ty: number): boolean {
     if (r < 0 || r >= this.tunnelCount_) return false;
     return this.tnTiles[r].has(ty * this.width + tx);
+  }
+
+  /** Can any living `mark_tunnel` unit of `side` currently see tile
+   *  (tx, ty) — inside its own sight radius, with a clear line of sight?
+   *  Presentation read, tunnelUnderTile's sibling: the renderer draws a
+   *  route's trace only where a detector is actually looking, so the trace
+   *  lights up around a sweeping drone or Yahalom and fades behind them —
+   *  the same live rule stepDetection applies to the contact itself
+   *  (markerSeesRoute above, whose per-unit filters this mirrors). Pure
+   *  read over current state; nothing here can influence an outcome
+   *  (invariant 4). */
+  markerSeesTile(side: number, tx: number, ty: number): boolean {
+    if (tx < 0 || ty < 0 || tx >= this.width || ty >= this.height) return false;
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0 || this.side[i] !== side || this.tunnelIn[i] >= 0) continue;
+      const type = this.unitTypes[this.typeIdx[i]];
+      if (!type.canMarkTunnel) continue;
+      const dSq = distSqFx(
+        fx.sub(fx.add(fx.fromInt(tx), HALF), this.posX[i]),
+        fx.sub(fx.add(fx.fromInt(ty), HALF), this.posY[i])
+      );
+      if (dSq > type.sightSq) continue;
+      if (this.losRay(this.posX[i] >> 16, this.posY[i] >> 16, tx, ty) < 0) continue;
+      return true;
+    }
+    return false;
   }
 
   /** `mark_tunnel`: recon hands a route over identified, no dwell required.

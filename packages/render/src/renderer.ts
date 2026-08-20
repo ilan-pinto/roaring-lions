@@ -836,24 +836,36 @@ export class PixiRenderer {
           }
         }
       } else if (e.kind === 'tunnelCollapsed') {
-        // The ground falls in at the vent — the same point the sim centred
-        // its collapse splash on. Spoil drop and a lifting dust column,
-        // authored in data/vfx/tunnel_collapse.json; same flat-puff fallback
-        // as the structure collapse when no emitter set is loaded.
-        const [vx, vy] = this.sim.tunnelVent(e.tunnel);
-        const tx = fx.toNumber(vx);
-        const ty = fx.toNumber(vy);
-        if (!this.spawnCollapseFx('tunnel_collapse', tx, ty)) {
-          for (let k = 0; k < 10; k++) {
-            const a = PixiRenderer.h2(k * 7 + e.tunnel, k * 13 + e.tick);
-            const b = PixiRenderer.h2(k * 31 + e.tick, k * 3 + e.tunnel);
-            this.puffs.push({
-              x: tx + (a - 0.5) * 2,
-              y: ty + (b - 0.5) * 2,
-              ttl: 22 + Math.floor(a * 12),
-              color: this.opts.nearMissColor,
-              r: 8 + a * 8,
-            });
+        // The whole route caves in, mouth to vent — the charge brings down
+        // the tunnel, not just its exit, so the dust rises along the full
+        // line (the sim's splash still centres on the vent; this is purely
+        // what the ground looks like doing it). A handful of points sampled
+        // along the route's length at ~2.5-tile spacing, both ends always
+        // in, capped well short of one-per-tile: M1 restraint. Spoil drop
+        // and a lifting dust column per point, authored in
+        // data/vfx/tunnel_collapse.json; same flat-puff fallback as the
+        // structure collapse when no emitter set is loaded. The +0.5 puts
+        // each sample on the tile centres the trail draws on — and leaves
+        // the vent-end sample exactly where the single-point effect was.
+        const len = fx.toNumber(this.sim.tnLength[e.tunnel]);
+        const samples = Math.max(2, Math.min(6, 1 + Math.round(len / 2.5)));
+        for (let s = 0; s < samples; s++) {
+          const d = fx.from((len * s) / (samples - 1));
+          const [px, py] = this.sim.tunnelPointAt(e.tunnel, d);
+          const tx = fx.toNumber(px) + 0.5;
+          const ty = fx.toNumber(py) + 0.5;
+          if (!this.spawnCollapseFx('tunnel_collapse', tx, ty)) {
+            for (let k = 0; k < 4; k++) {
+              const a = PixiRenderer.h2(k * 7 + e.tunnel + s * 5, k * 13 + e.tick);
+              const b = PixiRenderer.h2(k * 31 + e.tick + s * 17, k * 3 + e.tunnel);
+              this.puffs.push({
+                x: tx + (a - 0.5) * 2,
+                y: ty + (b - 0.5) * 2,
+                ttl: 22 + Math.floor(a * 12),
+                color: this.opts.nearMissColor,
+                r: 8 + a * 8,
+              });
+            }
           }
         }
       } else if (e.kind === 'destroyed') {
@@ -1003,11 +1015,21 @@ export class PixiRenderer {
    * - suspected (level 1): only tiles still showing spoil draw, alpha scaled
    *   by `sim.trail` density — a fresh trail is a scar, a weathering one a
    *   smudge, and a weathered one is gone. A blip, not a map.
-   * - identified (level 2): the route's whole line draws at a floor alpha,
-   *   spoil or none. Identification is what earns the charge order, and the
-   *   order is a right-click on the line — an identified route with no
-   *   visible line (every pre_dug route, and any dug one after ~51 s of
-   *   decay) would be an order the player can never discover.
+   * - identified (level 2): the route's line draws at a floor alpha, spoil
+   *   or none. Identification is what earns the charge order, and the order
+   *   is a right-click on the line.
+   *
+   * Both rungs are then gated by the live rule (sim.markerSeesTile): a tile
+   * only draws while a living side-0 `mark_tunnel` carrier can currently
+   * see it, so sweeping a drone or a Yahalom lights the spoil up around
+   * them and it fades behind — the trace is the detector's read of the
+   * ground, not the side's memory. In the common case this cannot hide a
+   * chargeable route: the contact itself is held identified by the same
+   * carriers-in-sight condition, so wherever the order would be accepted,
+   * a carrier is lighting the line around itself. The two exceptions — a
+   * route held identified purely by spoil-watching with no carrier
+   * anywhere, and the ~16 s decay window after the last carrier leaves —
+   * draw nothing, deliberately: no detector, no picture.
    */
   private drawTrail(): void {
     const g = this.trailG;
@@ -1039,6 +1061,10 @@ export class PixiRenderer {
           if (d > 0) alpha = Math.max(alpha, 0.14 + 0.5 * (d / 255));
         }
         if (alpha === 0) continue;
+        // The live gate, checked last because it is the costliest test and
+        // most tiles never get here: no detector currently looking at this
+        // tile, no mark on the ground.
+        if (!sim.markerSeesTile(0, x, y)) continue;
         const cx = isoX(x + 0.5, y + 0.5);
         const cy = isoY(x + 0.5, y + 0.5);
         g.poly([
@@ -2105,15 +2131,27 @@ export class PixiRenderer {
       }
     }
 
-    // Demolition charges being set: a ring that closes as the timer runs.
+    // Charges being set — demolition against a building, a tunnel charge
+    // against a route: a ring that grows as the timer runs. Progress, not
+    // presence: eight seconds standing still in the open (tunnel_charge's
+    // default) is exactly when the player wants to know how long is LEFT,
+    // and an interrupted charge honestly restarts the arc because the sim's
+    // own clock resets. Demolition reads first: no production unit carries
+    // both abilities, and if one ever does, a deliberate priority beats an
+    // arbitrary one. The tones come from the palette through the same
+    // resolver every renderer colour uses (gunmetal.2 track, vfx.ember
+    // fill — the values this ring always had).
+    const ringTrack = this.opts.resolveColor ? this.opts.resolveColor('gunmetal.2') : '#5C625F';
+    const ringFill = this.opts.resolveColor ? this.opts.resolveColor('vfx.ember') : '#E8541E';
     for (let i = 0; i < this.sim.entityCount; i++) {
       if (st.alive[i] === 0) continue;
-      const prog = this.sim.demolitionProgress(i);
+      const demo = this.sim.demolitionProgress(i);
+      const prog = demo > 0 ? demo : this.sim.tunnelChargeProgress(i);
       if (prog <= 0) continue;
       const px = isoX(this.curX[i], this.curY[i]);
       const py = isoY(this.curX[i], this.curY[i]);
-      g.ellipse(px, py, 20, 10).stroke({ width: 2, color: '#5C625F', alpha: 0.5 });
-      g.ellipse(px, py, 20 * prog, 10 * prog).stroke({ width: 3, color: '#E8541E', alpha: 0.9 });
+      g.ellipse(px, py, 20, 10).stroke({ width: 2, color: ringTrack, alpha: 0.5 });
+      g.ellipse(px, py, 20 * prog, 10 * prog).stroke({ width: 3, color: ringFill, alpha: 0.9 });
     }
 
     // Weapon envelopes for the selection (GDD §5.8): solid ring at effective

@@ -1278,3 +1278,79 @@ describe('containment is structural: no step or command reaches a buried unit', 
     expect(sim.state.moving[hidden]).toBe(1); // the order was accepted
   });
 });
+
+// ---------------------------------------------------------------------------
+// Presentation reads: pure accessors the renderer draws from, colocated with
+// the subsystem they read. Each is invariant 4 in miniature — the renderer
+// asks, the sim answers, nothing writes — and each exists because a playtest
+// asked for something the screen could not show: charge progress (not just
+// presence), a trace drawn only where a detector is actually looking, and a
+// collapse that visibly runs the route's whole length.
+// ---------------------------------------------------------------------------
+describe('presentation reads', () => {
+  it('tunnelChargeProgress reports the working fraction, and 0 when interrupted or idle', () => {
+    const { sim, idx, yahalom } = chargeScenario({ revealed: true });
+    expect(sim.tunnelChargeProgress(yahalom)).toBe(0); // no order yet
+    sim.queueCommand({ kind: 'chargeTunnel', ids: [yahalom], tunnel: idx });
+    for (let t = 0; t < 40; t++) sim.tick();
+    const early = sim.tunnelChargeProgress(yahalom);
+    expect(early).toBeGreaterThan(0);
+    expect(early).toBeLessThan(1);
+    for (let t = 0; t < 40; t++) sim.tick();
+    // Progress, not presence: the number itself climbs as the timer runs.
+    expect(sim.tunnelChargeProgress(yahalom)).toBeGreaterThan(early);
+    // Pinned resets the clock (stepTunnelCharge), so the ring honestly
+    // shows the restart rather than freezing mid-arc.
+    sim.debugSuppress(yahalom, fx.from(2)); // over PIN_AT
+    sim.tick();
+    expect(sim.tunnelChargeProgress(yahalom)).toBe(0);
+  });
+
+  it('markerSeesTile answers only for a living mark_tunnel carrier with a clear line inside its sight', () => {
+    const MARKER: UnitTypeJson = {
+      id: 'tn_pr_marker',
+      hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
+      mobility: { speed_tiles_s: 0.9 },
+      sensors: { optics: 1.0, sight_tiles: 4, signature: 0.6 },
+      abilities: ['mark_tunnel'],
+      weapons: [],
+    };
+    const sim = new Sim({ seed: 7, width: 16, height: 16, capacity: 8 });
+    const idx = sim.addTunnel(ROUTE); // (2,2) -> (8,2); irrelevant to the read itself
+    const marker = sim.spawn(sim.addUnitType(MARKER), 0, fx.from(4.5), fx.from(4.5));
+    sim.spawn(sim.addUnitType(SCOUT_TYPE), 0, fx.from(10.5), fx.from(10.5)); // eyes, no mark
+
+    expect(sim.markerSeesTile(0, 4, 2)).toBe(true); // 2 tiles up, clear line
+    expect(sim.markerSeesTile(1, 4, 2)).toBe(false); // wrong side
+    expect(sim.markerSeesTile(0, 4, 12)).toBe(false); // inside the scout's sight only: no mark, no read
+    expect(sim.markerSeesTile(0, 13, 4)).toBe(false); // beyond sight 4
+    expect(sim.markerSeesTile(0, -1, 2)).toBe(false); // off the map is never seen
+
+    // A wall between marker and tile kills the line (Bresenham never skips
+    // a row, so the solid row is always crossed).
+    for (let x = 0; x < 16; x++) sim.setBlocked(x, 3, true);
+    expect(sim.markerSeesTile(0, 4, 2)).toBe(false);
+    for (let x = 0; x < 16; x++) sim.setBlocked(x, 3, false);
+
+    // Buried, the same carrier reads nothing: earth blocks sight out.
+    sim.putInTunnel(marker, idx);
+    expect(sim.markerSeesTile(0, 4, 2)).toBe(false);
+    sim.state.tunnelIn[marker] = -1; // surface it again (test-only shortcut)
+    expect(sim.markerSeesTile(0, 4, 2)).toBe(true);
+    sim.debugKill(marker);
+    expect(sim.markerSeesTile(0, 4, 2)).toBe(false); // the dead hold nothing
+  });
+
+  it('tunnelPointAt walks the route geometry from mouth to vent', () => {
+    const { sim, idx } = simWithRoute(); // (2,2) -> (8,2), length 6
+    const [mx, my] = sim.tunnelPointAt(idx, 0);
+    expect(fx.toNumber(mx)).toBeCloseTo(2, 2);
+    expect(fx.toNumber(my)).toBeCloseTo(2, 2);
+    const [hx, hy] = sim.tunnelPointAt(idx, fx.from(3));
+    expect(fx.toNumber(hx)).toBeCloseTo(5, 2);
+    expect(fx.toNumber(hy)).toBeCloseTo(2, 2);
+    const [vx, vy] = sim.tunnelPointAt(idx, sim.tnLength[idx]);
+    expect(fx.toNumber(vx)).toBeCloseTo(8, 2);
+    expect(fx.toNumber(vy)).toBeCloseTo(2, 2);
+  });
+});
