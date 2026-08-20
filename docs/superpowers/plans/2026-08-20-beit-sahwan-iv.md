@@ -624,6 +624,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 **Files:**
 - Modify: `CLAUDE.md` (**Known scaling debts** section)
+- Modify: `docs/superpowers/specs/2026-08-20-beit-sahwan-iv-design.md` (the "Where the player starts, and why it matters" section)
 - No code change
 
 **Interfaces:**
@@ -657,7 +658,32 @@ Add a second bullet in the same section:
   contract through the surface ambushers instead.
 ```
 
-- [ ] **Step 3: Run the gates one last time**
+- [ ] **Step 3: Correct the spec's start-position paragraph**
+
+The spec claims something the built mission does not do. In `docs/superpowers/specs/2026-08-20-beit-sahwan-iv-design.md`, find the section **"Where the player starts, and why it matters"** and append this paragraph to the end of it, after the sentence ending "so **no route is identified for free** and finding is work the player does.":
+
+```markdown
+**As measured, that last claim is only true of the Yahalom.** The reasoning above
+weighs a charge team's sight of 8 against the shanty block's line of sight, and
+forgets the other detector in the force: `recon_drone` has `sight_tiles: 16`,
+`domain: air`, `optics: 2.0` and thermal. From its spawn at `[24, 36]` it reaches
+`bs_tn_souk`'s mouth at about 7 tiles and `bs_tn_clinic` at about 15, and a passive
+walk with no orders at all shows both routes identified — `bs_tn_clinic` by t=30s,
+`bs_tn_souk` by t=60s — and held there for the rest of the run. Only `bs_tn_north`,
+deep in the house block, stays hidden.
+
+This is accepted as built rather than fixed. The force list above already calls the
+drone "the detector that makes finding cheap if flown well", so cheap finding was
+the intent; what was wrong was this section's claim that *nothing* is free, which
+reasoned about the wrong unit. The mission's difficulty was never the search — it is
+keeping a slow engineer alive next to holes that shoot back — and moving the drone's
+spawn would be cosmetic, since the player relocates it within seconds. The honest
+correction is to the sentence, not to the content. If the search phase later proves
+too thin, the lever is re-siting the `pre_dug` mouths deeper into the district, which
+is map data and cheap.
+```
+
+- [ ] **Step 4: Run the gates one last time**
 
 ```bash
 pnpm validate:data && pnpm typecheck && pnpm lint && pnpm test && pnpm test:determinism
@@ -667,10 +693,10 @@ pnpm balance
 
 Expected: everything green.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add CLAUDE.md
+git add CLAUDE.md docs/superpowers/specs/2026-08-20-beit-sahwan-iv-design.md
 git commit -m "docs: two tunnel promises the schema makes and the runtime does not keep
 
 Found while authoring Beit Sahwan IV. Wave \`from\` advertises tunnel ids
@@ -683,7 +709,7 @@ is not literal today, and the issue that assumed it was is #91.
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 5: Report what #91's checklist still does not cover**
+- [ ] **Step 6: Report what #91's checklist still does not cover**
 
 #91's definition of done has five boxes. Four are closed by Tasks 1–4: the spec, the mission passing `validate:data`, the winnable/no-orders harness pair, and the measurement against the target. The fifth — *"`walk_mission` shows the tunnels dug, found and collapsed across a full run"* — is only half closed, because `walk_mission` gives no orders and a collapse needs a player command. The dig, the spoil and the contact ladder are visible there; the charge and the collapse are proven in `playtest.ts` instead.
 
