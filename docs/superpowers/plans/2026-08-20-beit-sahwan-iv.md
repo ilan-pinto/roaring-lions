@@ -557,50 +557,81 @@ The other four Beit Sahwan missions are 10–12 minutes against a 5–7 target (
 - Consumes: the passing pair from Task 3.
 - Produces: a measured completion time and a `seconds` deadline set from it. Nothing downstream depends on the numbers.
 
-- [ ] **Step 1: Read the measured completion time**
+- [ ] **Step 1: Understand what the playtest number is, and is not**
 
-```bash
-npx tsx tools/src/backtest/playtest.ts 2>&1 | grep beit_sahwan_4
+The plan originally told you to read the scripted run's `VICTORY in N.N min` as the mission's length. **That is wrong, and acting on it would ruin the mission.** The scripted plans in `playtest.ts` are optimal-play proofs of winnability, not representative playthroughs, and they land far below every mission's declared target:
+
+| Mission | `target_minutes` | scripted playtest time |
+|---|---|---|
+| `beit_sahwan_1_recon` | 10 | **0.7 min** |
+| `beit_sahwan_4_subterranean` | 6 | **1.1 min** |
+
+Mission I is fourteen times under its target and nobody considers it broken. Beit Sahwan IV at 1.1 against 6 is proportionally *less* extreme. So do **not** inflate the enemy until the scripted plan takes six minutes — that would produce a mission a real player cannot finish.
+
+Record this table in your report. It is the reason the rest of this task looks the way it does.
+
+- [ ] **Step 2: Fix the one structural gap that is real whatever the instrument**
+
+Task 3's review found something that is a defect independent of any timing measurement: **`bs_tn_west` has no stocked occupants**, so one of the four routes the primary objective tallies is an entirely uncontested collapse. Its vent at `[7, 22]` is far out in the west approach where the player never goes, so stocking the route cannot fix it — a garrison there would surface at nobody.
+
+Contest the *mouth* instead. The mouth sits at `[30, 22]`, on the main road at the town centre, which is exactly where a charge team must stand. Add one surface placement covering it to `enemy.garrison` in `data/missions/beit_sahwan_4_subterranean.json`:
+
+```json
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [31.5, 23.5],
+        "facing_deg": 270,
+        "stance": { "kind": "ambush", "tiles": 4 },
+        "tag": "bs4_ambush_mouth_west"
+      },
 ```
 
-The scripted run's `VICTORY in N.N min` is the number. Target is 6.0, band is 5–7.
+Before you add it, verify `[31, 23]` and its neighbouring tiles are unblocked by indexing the row strings of `data/maps/beit_sahwan_outskirts.json` yourself. Row 23 reads `..........................rr.222222.............` — index it and confirm rather than trusting this sentence.
 
-- [ ] **Step 2: Sample the fight for dead air**
+- [ ] **Step 3: Sample the pressure profile for dead air**
 
 ```bash
 npx tsx tools/src/walk_mission.ts beit_sahwan_4_subterranean 0 30 60 90 120 150 180 210 240 270 300 330 360
 ```
 
-Count player HP across the samples. #90 measured Wadi Halam's holds running two thirds of their length with no contact at all; the same reading applied here means checking there is no window longer than ~45s where player HP is flat and no route is changing state.
+This runs passively, so it shows what the mission throws at a force that stays put — which is exactly the reading #90 used to find that Wadi Halam's holds run two thirds of their length with no contact at all.
 
-- [ ] **Step 3: Adjust, in this order**
+What you are looking for: a window longer than about 45 seconds in which nothing changes — no route changing contact state, no vent opening, no wave arriving, no player HP moving. Record the profile in your report as a table of sample time against what was happening.
 
-If the run finishes well under 5 minutes, it is too easy: add a body to a stocked route or bring a wave forward. If it runs past 7, it is too long: the dominant cost is Yahalom walking at 0.85 tiles/s between four routes, so shorten that before touching enemy volume — the routes' vent positions are the lever.
+- [ ] **Step 4: Adjust wave timing only if the profile shows a real gap**
 
-If a window of dead air shows up, move a wave rather than enlarging it. #90's finding was that the gaps hurt more than the wave sizes.
+The waves are at 150s and 240s. If Step 3 shows a long opening gap, move a wave earlier rather than making it bigger — #90's finding was that the gaps hurt more than the wave sizes did. If the profile is already busy, change nothing and say so.
 
-Re-run the playtest after every change. Change one thing at a time.
+Do not add enemy volume to chase the playtest clock. See Step 1.
 
-- [ ] **Step 4: Set the deadline from the measurement**
+- [ ] **Step 5: Decide the deadline, and justify it**
 
-Set `bring_it_down`'s `seconds` to roughly the measured completion time plus 20%, rounded to a round number. It must be tight enough that a passive or badly-handled run fails on it, and loose enough that a competent run is not racing the clock — the deadline exists to make the mission losable, not to be the mission.
+`bring_it_down` currently declares `"seconds": 300`. The deadline exists to make the mission *losable*, not to be the mission. Two facts bound it:
 
-- [ ] **Step 5: Re-run every gate**
+- the passive no-orders control must keep failing on it (it currently reports `DEFEAT in 5.0 min` with `bring_it_down=f`, which is the deadline firing at exactly 300s)
+- it must sit far enough above a competent run that a player is not racing a clock they cannot see
+
+Keep 300s unless Step 3 or Step 4 gives you a concrete reason to move it, and write the reason down either way. "I did not change it, because X" is a perfectly good outcome for this step.
+
+- [ ] **Step 6: Re-run every gate**
 
 ```bash
 pnpm validate:data && pnpm typecheck && pnpm test && pnpm test:determinism
-npx tsx tools/src/backtest/playtest.ts 2>&1 | tail -20
-```
-
-Expected: all green, both Beit Sahwan IV lines reporting their expected results, and the whole Beit Sahwan and Wadi Halam chain above them unchanged.
-
-- [ ] **Step 6: Run the balance backtest**
-
-```bash
 pnpm balance
 ```
 
-Expected: all five §5.7 targets unmoved. Nothing here touches the combat model or the unit catalogue, so any movement is a bug in this work.
+Then, from the `tools/` directory:
+
+```bash
+npx tsx src/backtest/playtest.ts
+```
+
+Expected: the four `pnpm` gates green, and all five §5.7 balance targets unmoved — nothing here touches the combat model or the unit catalogue, so any movement is a bug in this work.
+
+For the playtest, expect **both** Beit Sahwan IV lines to report as before: the no-orders control `DEFEAT` and the scripted run `VICTORY`. Two failures above your lines are known and are NOT yours to fix — `beit_sahwan_breach (passive control)` reporting VICTORY where DEFEAT is expected, and `beit_sahwan_3_clearance` reporting DEFEAT. They predate this branch. Leave them alone; the script will exit non-zero because of them, and that is expected.
+
+If your Step 2 change makes the scripted run *lose*, that is information, not failure: report it rather than deleting the placement, and say which link broke.
 
 - [ ] **Step 7: Commit**
 
