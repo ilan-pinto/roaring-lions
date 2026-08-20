@@ -130,6 +130,25 @@ nothing. From the south the shanty block at x 22–24, y 30–32 breaks the sigh
 to the nearest route tile, so **no route is identified for free** and finding is
 work the player does.
 
+**As measured, that last claim is only true of the Yahalom.** The reasoning above
+weighs a charge team's sight of 8 against the shanty block's line of sight, and
+forgets the other detector in the force: `recon_drone` has `sight_tiles: 16`,
+`domain: air`, `optics: 2.0` and thermal. From its spawn at `[24, 36]` it reaches
+`bs_tn_souk`'s mouth at about 7 tiles and `bs_tn_clinic` at about 15, and a passive
+walk with no orders at all shows both routes identified — `bs_tn_clinic` by t=30s,
+`bs_tn_souk` by t=60s — and held there for the rest of the run. Only `bs_tn_north`,
+deep in the house block, stays hidden.
+
+This is accepted as built rather than fixed. The force list above already calls the
+drone "the detector that makes finding cheap if flown well", so cheap finding was
+the intent; what was wrong was this section's claim that *nothing* is free, which
+reasoned about the wrong unit. The mission's difficulty was never the search — it is
+keeping a slow engineer alive next to holes that shoot back — and moving the drone's
+spawn would be cosmetic, since the player relocates it within seconds. The honest
+correction is to the sentence, not to the content. If the search phase later proves
+too thin, the lever is re-siting the `pre_dug` mouths deeper into the district, which
+is map data and cheap.
+
 ### Starting force
 
 | Unit | Count | Notes |
@@ -238,10 +257,13 @@ required, that is a finding to raise rather than a task to absorb.
 - `tools/src/backtest/playtest.ts` gains a scripted plan proving the mission winnable
   inside its budget **and** a no-orders control proving a passive force does not win
   it — the pair `c5e91dd` established for the Wadi Halam arc.
-- Measured against 6 minutes, and the `seconds` deadline set from the measurement.
-  Mission difficulty must be measured; the other four Beit Sahwan missions are 10–12
-  against a 5–7 target (#84) precisely because `target_minutes` was a claim rather
-  than a number anyone checked.
+- `target_minutes: 6` remains unverified. The scripted plan proves winnability in 1.1
+  minutes; the no-orders control fails on the 300s deadline. Neither measures how
+  long a real, non-optimal player takes — which is what `target_minutes` claims and
+  what #84 demands for the four Beit Sahwan siblings. The `seconds` deadline was
+  confirmed against plausible bounds rather than derived from measurement. Closing
+  this gap requires #84's runtime-stepping method, and the mission stands today in
+  the same unverified state that plan criticises its four predecessors for.
 - `pnpm test:determinism` unmoved. Nothing here is sim code, so any movement in the
   pin is a bug in this work.
 - Beit Sahwan II re-walked after its `collapse` retarget, confirming its secondary
