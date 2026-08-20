@@ -251,18 +251,18 @@ Create `data/missions/beit_sahwan_4_subterranean.json` with exactly this content
       {
         "unit": "militia_cell",
         "count": 1,
-        "at": [29.5, 11.5],
+        "at": [27.5, 12.5],
         "facing_deg": 180,
-        "stance": { "kind": "garrison", "building": [29, 11] },
-        "tag": "bs4_cell_north"
+        "stance": { "kind": "garrison", "building": [28, 12] },
+        "tag": "bs_cell_north_block"
       },
       {
         "unit": "rpg_team",
         "count": 1,
-        "at": [28.5, 20.5],
+        "at": [27.5, 24.5],
         "facing_deg": 180,
-        "stance": { "kind": "ambush", "tiles": 4 },
-        "tag": "bs4_ambush_road"
+        "stance": { "kind": "ambush", "tiles": 3 },
+        "tag": "bs_ambush_market_lane"
       },
       {
         "unit": "charge_squad",
@@ -275,7 +275,7 @@ Create `data/missions/beit_sahwan_4_subterranean.json` with exactly this content
       {
         "unit": "digger_crew",
         "count": 1,
-        "at": [26.5, 12.5],
+        "at": [26.5, 10.5],
         "digs": "bs_tn_west",
         "tag": "bs4_digger"
       },
@@ -316,7 +316,8 @@ Things in there that are load-bearing rather than taste:
 - **The buried placements carry no `tag`.** `in_tunnel` is mutually exclusive with `tag`, and the runtime exempts buried bodies from the `locate` book anyway — identifying a body through three metres of earth would complete an objective against a unit nobody can see or reach.
 - **`bs_tn_west` is dug but not stocked.** Its vent is at `[7, 22]`, far out in the west approach where the player never goes, so a garrison below it would surface at nothing. Its job is the spoil: the one route in this mission that any unit can find by looking at the ground.
 - **The digger stands at `[26.5, 12.5]`, not at the mouth.** `stepDigging` (`sim.ts:1993`) checks only that the assigned digger is alive, never where it stands, so it sits deep in the north block behind `bs4_cell_north`. Killing it stops the dig; it does not collapse the route, and the charge is still owed.
-- **`locate` with `count: 3` against five tagged surface placements.** Enough slack that a dead tag does not strand the secondary.
+- **Two of the five tags are borrowed, not invented.** `bs_cell_north_block` and `bs_ambush_market_lane` are the *same positions* Beit Sahwan I's recon marks and Beit Sahwan III inherits — I and III share nine tags between them, and that sharing is the entire carry-over mechanism. A fresh `bs4_*` namespace for all five would make this mission's `requires: intel.marked_positions` match nothing, ever, and the spec's carry-over resolution would be decorative. So the north-block militia sits where Beit Sahwan I says it sits (`[27.5, 12.5]`, garrisoning building `[28, 12]`) and the market-lane RPG team keeps its position and its `tiles: 3` ambush range. The digger moved to `[26.5, 10.5]` to clear the militia's tile. The other three positions are genuinely new ground and take new tags.
+- **`locate` with `count: 3` against five tagged surface placements.** Enough slack that a dead tag does not strand the secondary. Note that a player arriving with a full ledger starts at 2/3, because a pre-marked placement is added to the runtime's `identified` set at spawn — that is the carry-over payoff, not a bug.
 
 - [ ] **Step 2: Run the data gate and watch it pass**
 
@@ -412,13 +413,27 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ### Task 3: Prove it winnable, and prove doing nothing is not
 
 **Files:**
-- Modify: `tools/src/backtest/playtest.ts` (append two `run(...)` calls at the end of the file)
+- Modify: `tools/src/backtest/playtest.ts` (capture Beit Sahwan III's ledger; append two `run(...)` calls at the end of the file)
 
 **Interfaces:**
-- Consumes: mission id `beit_sahwan_4_subterranean` from Task 2. The harness's `run(id, plan, ledger, expect, label)` signature and its `plan(sim, rt, ids, at)` callback, both already defined at the top of the file. `ids(t)` returns living player entity ids of unit type `t`; `at(seconds, fn)` schedules; `M(x, y)` builds a fixed-point move target.
+- Consumes: mission id `beit_sahwan_4_subterranean` from Task 2. The harness's `run(id, plan, ledger, expect, label)` signature and its `plan(sim, rt, ids, at)` callback, both already defined at the top of the file. `ids(t)` returns living player entity ids of unit type `t`; `at(seconds, fn)` schedules; `M(x, y)` builds a fixed-point move target. The existing `led1` and `led2` bindings, plus a new `led3` this task creates.
+- Produces: `led3`, the Beit Sahwan III ledger, and `led4In`, the merged arc ledger. Nothing later consumes them.
 - Produces: two console lines and a non-zero exit code on mismatch. Task 4 reads the reported minutes and objective statuses.
 
-- [ ] **Step 1: Write the failing pair**
+- [ ] **Step 1: Capture Beit Sahwan III's ledger so the arc chains**
+
+Beit Sahwan IV declares `requires: ["roster.surviving_units", "intel.marked_positions"]`, and two of its tagged positions are the ones Beit Sahwan I's recon marks. None of that is exercised if the run starts from `{}`.
+
+In `tools/src/backtest/playtest.ts`, find the Beit Sahwan III run — it begins `run(\n  'beit_sahwan_3_clearance',` at about line 184 and currently discards its return value. Change that one line to capture it:
+
+```ts
+const led3 = run(
+  'beit_sahwan_3_clearance',
+```
+
+Change nothing else about that call. It already receives `led2` as its ledger and keeps doing so.
+
+- [ ] **Step 2: Write the failing pair**
 
 Append to the end of `tools/src/backtest/playtest.ts`:
 
@@ -436,6 +451,16 @@ Append to the end of `tools/src/backtest/playtest.ts`:
 // takes bs_tn_clinic then bs_tn_north. Serialising them on one team is what
 // blows the budget.
 run('beit_sahwan_4_subterranean', () => {}, {}, 'defeat', 'beit_sahwan_4_subterranean (no orders)');
+
+// The scripted run inherits the arc, the control does not. `run` returns only the
+// keys a mission DECLARES in `produces`, while the app merges each mission's output
+// into one persistent ledger (main.ts:1022) -- so chaining led1 -> led2 -> led3 by
+// hand drops `intel.marked_positions` at Beit Sahwan II, which does not declare it.
+// Merging the three here is what the app actually does, and it is the only way this
+// mission's two inherited tags (bs_cell_north_block, bs_ambush_market_lane) arrive
+// pre-revealed the way the design says they should. The no-orders control keeps `{}`:
+// a passive run should not double as a carry-over test.
+const led4In = { ...led1, ...led2, ...led3 };
 
 run('beit_sahwan_4_subterranean', (sim, _rt, ids, at) => {
   const teams = ids('yahalom_squad');
@@ -460,10 +485,10 @@ run('beit_sahwan_4_subterranean', (sim, _rt, ids, at) => {
   // The escort moves with them and stays between the teams and the vents.
   at(2, () => sim.queueCommand({ kind: 'move', ids: escort, ...M(27, 25) }));
   at(80, () => sim.queueCommand({ kind: 'move', ids: escort, ...M(30, 21) }));
-});
+}, led4In);
 ```
 
-- [ ] **Step 2: Run it and expect the scripted run to fail**
+- [ ] **Step 3: Run it and expect the scripted run to fail**
 
 ```bash
 npx tsx tools/src/backtest/playtest.ts 2>&1 | tail -20
@@ -471,7 +496,7 @@ npx tsx tools/src/backtest/playtest.ts 2>&1 | tail -20
 
 Expected: the `(no orders)` control reports `DEFEAT` (the primary fails at its deadline with nothing collapsed) and passes. The scripted run almost certainly reports `DEFEAT` or `ONGOING` on the first attempt and prints `FAILED — expected VICTORY`. That is the starting point, not a problem: the move targets are guesses at where a charge team must stand.
 
-- [ ] **Step 3: Diagnose with the walker, not by guessing**
+- [ ] **Step 4: Diagnose with the walker, not by guessing**
 
 For each route the scripted run failed to collapse, find out which link broke:
 
@@ -484,7 +509,7 @@ Read the `tunnels:` block per route:
 - `contact=identified` but never `COLLAPSED` — the team is identifying but not charging. It must be stationary, unpinned, undisplaced, and within charge range (2 tiles) of a route tile. Move the target onto a tile the polyline actually passes under.
 - occupants killing the team — the vent is venting onto it. Put the escort between them, or take the route from a tile the vent has no line to.
 
-- [ ] **Step 4: Adjust the plan's move targets and re-run until VICTORY**
+- [ ] **Step 5: Adjust the plan's move targets and re-run until VICTORY**
 
 Change only the `M(x, y)` targets and the `at(...)` times in the scripted run. Do **not** change the mission file to make the plan work — a plan that needs the mission softened is telling you the mission is too hard, and that is Task 4's question, decided by measurement.
 
@@ -494,11 +519,11 @@ npx tsx tools/src/backtest/playtest.ts 2>&1 | tail -20
 
 Expected, eventually: `beit_sahwan_4_subterranean: VICTORY in N.N min, ROE ..., objectives bring_it_down=c read_the_ground=... , roster out ...`
 
-- [ ] **Step 5: Confirm the control still fails for the right reason**
+- [ ] **Step 6: Confirm the control still fails for the right reason**
 
 The `(no orders)` line must still say `DEFEAT`. If it says `ONGOING`, the primary is not failing at its deadline — check that `seconds` is still on the objective. If it says `VICTORY`, something is collapsing routes with no orders given, which would be a sim bug worth stopping for.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add tools/src/backtest/playtest.ts
