@@ -12,6 +12,7 @@ import {
   type LedgerData,
   type MissionEvent,
   type MissionJson,
+  type TunnelRouteJson,
 } from '@lions/sim';
 import {
   PixiRenderer,
@@ -254,6 +255,25 @@ async function main(): Promise<void> {
     sim.addStructure(t, b.tiles);
   }
 
+  // Tunnels: registered from ONE array in ONE loop, and that same array is
+  // what the mission context receives. `ctx.tunnels` is positional — entry r
+  // IS the sim's route index — and a count guard alone cannot catch an
+  // equal-count permutation, which would silently bury units in the wrong
+  // route. Asserting `addTunnel(route) === i` on the single shared array is
+  // what makes the positional contract impossible to violate from here.
+  const tunnelRoutes: TunnelRouteJson[] = map.tunnels.map((t) => ({
+    id: t.id,
+    points: t.points,
+    dig_tiles_per_s: t.digTilesPerS,
+    pre_dug: t.preDug,
+  }));
+  for (let i = 0; i < tunnelRoutes.length; i++) {
+    const got = sim.addTunnel(tunnelRoutes[i]);
+    if (got !== i) {
+      throw new Error(`tunnel "${tunnelRoutes[i].id}" registered as route ${got}, expected ${i}`);
+    }
+  }
+
   const typeOf = new Map<string, number>();
   for (const u of Object.values(units)) typeOf.set(u.id, sim.addUnitType(u));
 
@@ -267,6 +287,7 @@ async function main(): Promise<void> {
       },
       markers: map.markers,
       zones: map.zones,
+      tunnels: tunnelRoutes,
       ledger,
       unitInfo: (id) => {
         const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
@@ -311,6 +332,9 @@ async function main(): Promise<void> {
       // The stone branch never reads these; the type is total, so it needs values.
       bladeLit: paletteColor('limestone.2'),
       bladeShade: paletteColor('limestone.5'),
+      // Spoil: freshly turned subsoil, redder and darker than anything the
+      // limestone surface shows, so a dig line reads as a wound in the ground.
+      spoil: paletteColor('terracotta.1'),
       crownRatio: 0.52,
       scatter: 'stone',
     },
@@ -343,6 +367,9 @@ async function main(): Promise<void> {
       // grass.4 is 37 below, which is the same order of separation the arid
       // pass gets from limestone.6 against limestone.3.
       bladeShade: paletteColor('grass.4'),
+      // Spoil on sward is dark loam, not laterite: dust.5 sits well below the
+      // grass.2 wash in value, which is what makes the line legible.
+      spoil: paletteColor('dust.5'),
       // Taller than wide. drawCanopy computes ry = rx * crownRatio, so ANY
       // value below 1 is a squat crown -- 0.95 drew near-perfect circles and
       // the poplar gallery read as a bramble thicket. The olive's 0.52 is
@@ -454,6 +481,9 @@ async function main(): Promise<void> {
     at_team: { path: `${BASE}sprites/INF_AT/` },
     mortar_team: { path: `${BASE}sprites/INF_MORTAR/` },
     sniper_team: { path: `${BASE}sprites/INF_SNIPER/` },
+    // The Yahalom sheet is the one carrying a `work` clip — what resolveClip
+    // shows for the whole of a tunnel charge.
+    yahalom_squad: { path: `${BASE}sprites/INF_YAHALOM/` },
     militia_cell: { path: `${BASE}sprites/INF_MILITIA/` },
     rpg_team: { path: `${BASE}sprites/INF_RPG/` },
     atgm_cell: { path: `${BASE}sprites/INF_ATGM/` },
@@ -468,6 +498,7 @@ async function main(): Promise<void> {
     },
     charge_squad: { path: `${BASE}sprites/INF_CHARGE/` },
     moto_rpg: { path: `${BASE}sprites/MOTO_RPG/` },
+    digger_crew: { path: `${BASE}sprites/INF_DIGGER/` },
     // Two air sheets whose flight is presentational: the sim has no altitude,
     // so these move on the ground plane like anything else. The paramotor's
     // `down` clip is its landed state, authored against a land-and-dismount
@@ -807,6 +838,38 @@ async function main(): Promise<void> {
       }
       renderer.addOrderMarker(w.x, w.y);
       return;
+    }
+    // Right-clicking a tile of an IDENTIFIED tunnel sends charge teams to
+    // work it and everyone else to attack toward the point — demolish's
+    // split, for the underground target. Identified only, matching the sim
+    // gate (stepTunnelCharge holds the clock at zero below contact level 2):
+    // the player is never offered an order the sim will refuse, the same
+    // §5.8 legibility rule that made projectHit honour containment. On a
+    // suspected route the click stays an ordinary attack-move — a blip is
+    // something to investigate, not a firing solution.
+    const route = (() => {
+      const tx = Math.floor(w.x);
+      const ty = Math.floor(w.y);
+      for (let r = 0; r < sim.tunnelCount; r++) {
+        if (sim.tnAlive[r] === 1 && sim.tunnelContactLevel(0, r) === 2 && sim.tunnelUnderTile(r, tx, ty)) {
+          return r;
+        }
+      }
+      return -1;
+    })();
+    if (route >= 0) {
+      const canCharge = mine.filter((i) => sim.unitTypes[sim.state.typeIdx[i]].canTunnelCharge);
+      if (canCharge.length > 0) {
+        dispatch({ kind: 'chargeTunnel', ids: canCharge, tunnel: route });
+        const rest = mine.filter((i) => !sim.unitTypes[sim.state.typeIdx[i]].canTunnelCharge);
+        if (rest.length > 0) {
+          dispatch({ kind: 'order', verb: 'attackMove', ids: rest, x: w.x, y: w.y, append: false });
+        }
+        hud.note('<b>tunnel charge</b> — team moving to the route', 'info');
+        renderer.addOrderMarker(w.x, w.y);
+        return;
+      }
+      // No charge-capable unit selected: fall through to the ordinary order.
     }
     // Shift queues the point onto the end of the route instead of replacing
     // it, so a player can draw a path around a block.

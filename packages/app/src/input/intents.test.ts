@@ -65,9 +65,17 @@ describe('INTENT_KINDS', () => {
     // Task 5's step cross-check validates tutorial JSON against this list, so
     // a kind missing here becomes a step nobody can complete.
     const kinds: PlayerIntent['kind'][] = [
-      'select', 'order', 'garrison', 'demolish', 'mount', 'dismount',
+      'select', 'order', 'garrison', 'demolish', 'chargeTunnel', 'mount', 'dismount',
       'smoke', 'halt', 'group', 'overlay', 'support',
     ];
     expect([...INTENT_KINDS].sort()).toEqual([...kinds].sort());
+  });
+});
+
+describe('chargeTunnel intent', () => {
+  it('turns a tunnel-charge designation into one chargeTunnel command', () => {
+    const s = sink();
+    applyIntent(s, { kind: 'chargeTunnel', ids: [4], tunnel: 1 });
+    expect(s.out).toEqual([{ kind: 'chargeTunnel', ids: [4], tunnel: 1 }]);
   });
 });

@@ -10,6 +10,7 @@
 
 import { fx, HALF, type Fx } from './fixed';
 import { TICKS_PER_SECOND, type Sim, type SimEvent } from './sim';
+import type { TunnelRouteJson } from './tunnels';
 import { unlockReason, type UnlockGate } from './unlock';
 
 // ---------------------------------------------------------------------------
@@ -37,6 +38,22 @@ export interface PlacementJson {
    *  spawning fresh. Sparse rosters degrade gracefully: fewer units, and a
    *  single fresh remnant when the roster has none of this type. */
   from_ledger?: boolean;
+  /** Route id (map `tunnels[].id`) this placement starts inside. The bodies
+   *  spawn underground in that route rather than standing on their tile, and
+   *  stay below until the route is dug through and vents — or die with it if
+   *  it is collapsed first (authored routes start undug). An unknown id
+   *  throws at load. */
+  in_tunnel?: string;
+  /** Route id (map `tunnels[].id`) whose digger this placement is. The
+   *  spawned body is assigned to the route at mission start and the dig
+   *  advances from the first tick — the declarative form of `assignDigger`,
+   *  exactly as `in_tunnel` is of `putInTunnel`. One digger, one route:
+   *  validate_data.mjs requires the unit to carry `dig_tunnel`, `count` to
+   *  be 1, at most one placement per route, never a `pre_dug` route (nothing
+   *  left to excavate), and never on a placement that is itself `in_tunnel`
+   *  (the runtime would let a buried body work the dig). An unknown id
+   *  throws at load. */
+  digs?: string;
   /**
    * Infantry authored *aboard* this carrier, seated at spawn rather than walking
    * in. The only way an AI-driven transport ever has passengers: every other
@@ -169,6 +186,12 @@ export interface MissionContext {
   typeIdOf: (unitId: string) => number;
   markers: Record<string, readonly number[]>;
   zones: Record<string, readonly number[]>;
+  /** Authored tunnel routes, in the order they were registered with
+   *  `sim.addTunnel`: the position in this array IS the sim's route index.
+   *  The runtime needs the id (placements name routes by string) and the
+   *  mouth — `points[0]`, for `collapse` zone membership; the sim keeps the
+   *  live state. Absent when the map has no tunnels. */
+  tunnels?: readonly TunnelRouteJson[];
   /** Campaign ledger read on entry (mission.ledger.requires). Absent or
    *  sparse values make the mission harder, never broken. */
   ledger?: LedgerData;
@@ -218,7 +241,7 @@ export type MissionEventKindsAreExhaustive = AssertNoMissingMissionKind<MissingM
 
 const SUPPORTED = new Set([
   'locate', 'eliminate_hvt', 'capture', 'hold_for', 'survive_until', 'destroy_all',
-  'evacuate_before', 'raze',
+  'evacuate_before', 'raze', 'collapse',
 ]);
 
 /** Spread for multi-unit placements: 1.25 tiles. */
@@ -311,6 +334,13 @@ export class MissionRuntime {
    *  that never held anything. Sorted, because an insertion-ordered array whose
    *  order depends on a scan is a latent determinism question. */
   private readonly razeTargets = new Map<string, readonly number[]>();
+  /** Objective id -> the route indices whose mouths its zone held at mission
+   *  start. Mirrors razeTargets, though for a different reason: ctx.tunnels
+   *  is static so a rescan could not shrink, but snapshotting at start() is
+   *  what makes a mis-wired route set throw at load rather than read as
+   *  "already down" on the first evaluation, and it keeps the per-tick work
+   *  an index walk instead of a zone test. */
+  private readonly collapseTargets = new Map<string, readonly number[]>();
   private roeScoreValue = 100;
   private roeFailed = false;
   private logisticsValue = 0;
@@ -403,7 +433,12 @@ export class MissionRuntime {
    */
   requestStrike(x: Fx, y: Fx): boolean {
     if (this.ended || this.intelValue < STRIKE_COST) return false;
-    const caller = this.playerIds.find((id) => this.sim.state.alive[id] === 1);
+    // Living AND on the surface: a buried unit can neither observe the
+    // strike nor own its ROE bill, and drawing scatter from its RNG stream
+    // would consume a stream the containment rule says is idle down there.
+    const caller = this.playerIds.find(
+      (id) => this.sim.state.alive[id] === 1 && this.sim.state.tunnelIn[id] < 0,
+    );
     if (caller === undefined) return false;
     this.intelValue -= STRIKE_COST;
     this.sim.queueCommand({ kind: 'callStrike', caller, x, y });
@@ -512,7 +547,10 @@ export class MissionRuntime {
         ticksLeft,
         paused: o.status === 'active' && o.paused !== null ? o.paused : undefined,
         zone:
-          o.def.type === 'hold_for' || o.def.type === 'capture' || o.def.type === 'raze'
+          o.def.type === 'hold_for' ||
+          o.def.type === 'capture' ||
+          o.def.type === 'raze' ||
+          o.def.type === 'collapse'
             ? o.def.target
             : undefined,
       };
@@ -592,6 +630,40 @@ export class MissionRuntime {
         }
         this.razeTargets.set(o.def.id, [...found].sort((a, b) => a - b));
       }
+      if (o.def.type === 'collapse') {
+        const z = this.zone(o.def.target);
+        if (!z) {
+          throw new Error(`mission ${this.mission.id}: objective "${o.def.id}" needs a valid zone`);
+        }
+        // A route belongs to the objective when its MOUTH — points[0] as
+        // authored in the map — lies inside the zone. The rest of the line
+        // does not count: a route that merely passes under the district is
+        // someone else's problem; one that opens into it is this mission's.
+        const routes = this.ctx.tunnels ?? [];
+        const found: number[] = [];
+        for (let r = 0; r < routes.length; r++) {
+          const [mx, my] = routes[r].points[0];
+          if (mx >= z[0] && mx < z[0] + z[2] && my >= z[1] && my < z[1] + z[3]) {
+            // ctx.tunnels claims to mirror sim registration order. A route
+            // the sim never registered would read tnAlive 0 — "already
+            // down" — and hand out the win, so refuse the mismatch at load.
+            if (r >= this.sim.tunnelCount) {
+              throw new Error(
+                `mission ${this.mission.id}: collapse "${o.def.id}" targets tunnel ` +
+                  `"${routes[r].id}", which was never registered with the sim`
+              );
+            }
+            found.push(r);
+          }
+        }
+        // Unlike raze, an empty set does not throw here. validate_data.mjs
+        // rejects a collapse zone containing no tunnel mouths at authoring
+        // time (membership by mouth, matching this loop), and for content
+        // that skipped the validator the evaluation's length guard keeps
+        // this from reading as an instant win — the objective sits active
+        // until its `seconds` deadline fails it.
+        this.collapseTargets.set(o.def.id, found);
+      }
     }
   }
 
@@ -633,6 +705,10 @@ export class MissionRuntime {
     const st = this.sim.state;
     for (const id of this.playerIds) {
       if (st.alive[id] === 0) continue;
+      // Underground observes nothing and earns nothing. On the loop, not a
+      // branch, so the drone half and the stationary-scout half — a buried
+      // unit is stationary by definition — are covered by the same line.
+      if (st.tunnelIn[id] >= 0) continue;
       const type = this.sim.unitTypes[st.typeIdx[id]];
       if (type.role === 'drone') intelPerMin += INTEL_PER_MIN_DRONE;
       else if (type.canMarkTarget && st.moving[id] === 0) intelPerMin += INTEL_PER_MIN_SCOUT;
@@ -712,6 +788,26 @@ export class MissionRuntime {
     return name ? this.ctx.zones[name] : undefined;
   }
 
+  /** Sim route index for an authored tunnel id. `ctx.tunnels` is positional:
+   *  entry r describes the route `addTunnel` registered as index r. Throws
+   *  on an unknown id, and on an id the sim never registered — both are
+   *  load-time wiring faults that must not spawn half a placement. */
+  private tunnelIndex(id: string): number {
+    const routes = this.ctx.tunnels ?? [];
+    for (let r = 0; r < routes.length; r++) {
+      if (routes[r].id === id) {
+        if (r >= this.sim.tunnelCount) {
+          throw new Error(
+            `mission ${this.mission.id}: tunnel "${id}" is in the map data but was ` +
+              `never registered with the sim`
+          );
+        }
+        return r;
+      }
+    }
+    throw new Error(`mission ${this.mission.id}: unknown tunnel "${id}"`);
+  }
+
   /**
    * Spawn a carrier's authored passengers and seat them.
    *
@@ -785,10 +881,31 @@ export class MissionRuntime {
       veterancies = new Array(p.count).fill(0);
     }
 
+    // Resolved before any body spawns: a bad route id is an authoring error
+    // and must not leave half a placement standing.
+    const tunnelIdx = p.in_tunnel !== undefined ? this.tunnelIndex(p.in_tunnel) : -1;
+    // Same rule, same reason, for the route this placement digs.
+    const digsIdx = p.digs !== undefined ? this.tunnelIndex(p.digs) : -1;
+
+    // Buried and loaded cannot coexist: the hull fits the shaft, the riders
+    // do not, and every containment guard keys on the rider's own tunnelIn —
+    // which would stay -1 while stepTransport pinned it to a buried hull.
+    // Refused rather than silently unloaded, because the unload would put
+    // the squad on a cosmetic tile that was never ground-checked.
+    if (tunnelIdx >= 0 && p.passengers) {
+      throw new Error(
+        `mission ${this.mission.id}: ${p.unit} cannot carry passengers into a tunnel -- ` +
+          `a placement is either in_tunnel or loaded, never both`,
+      );
+    }
+
     // A garrisoning placement is exempt: it is ordered into a building and walks
     // in on the first ticks, so standing on its tile at spawn is the job, not a
-    // trap. Everything else must land on ground it can move off.
-    if (p.stance?.kind !== 'garrison') {
+    // trap. A buried placement is exempt too: its bodies occupy the route, not
+    // the declared tile, and they come back up at the vent — surface clearance
+    // where they were authored proves nothing. Everything else must land on
+    // ground it can move off.
+    if (p.stance?.kind !== 'garrison' && tunnelIdx < 0) {
       this.assertGroundClear(p.unit, bx, by, veterancies.length);
     }
 
@@ -811,12 +928,24 @@ export class MissionRuntime {
         t.push(id);
         this.tags.set(p.tag, t);
       }
+      // Below ground from tick zero. putInTunnel owns the tunnelIn/occupant
+      // invariant; the spawn position above is cosmetic for a buried body.
+      if (tunnelIdx >= 0) this.sim.putInTunnel(id, tunnelIdx);
+      // The route's digger from tick zero. assignDigger keeps one digger per
+      // route, so on an unvalidated count > 1 the last body silently wins —
+      // validate_data.mjs refuses such a placement before it ships.
+      if (digsIdx >= 0) this.sim.assignDigger(digsIdx, id);
       // Carry-over, consumed. A placement recon marked last mission is already known:
       // it spawns visible, and it does not get to spring an ambush. This is what makes
       // a thorough recon worth doing -- and why one mission file plays differently by
       // ledger, with no per-outcome variants to author.
       const preMarked = p.tag !== undefined && this.marked.has(p.tag);
-      if (preMarked && side === 1) {
+      // A buried placement is exempt from BOTH books: last mission's recon
+      // saw where the route ran, not who is inside it today, and identifying
+      // a body through three metres of earth would complete a `locate` at
+      // t=0 against a unit nobody can see or reach. The tunnel contact
+      // ladder is the only channel for knowing about a tunnel.
+      if (preMarked && side === 1 && tunnelIdx < 0) {
         // Two different books. `identified` is this runtime's own, which is what
         // `locate` objectives read; the sim's contact state is what the renderer draws
         // and what the combat model may shoot at. Writing only the first is how a
@@ -920,7 +1049,12 @@ export class MissionRuntime {
           }
         }
         for (const civ of this.civIds) {
-          if (st.alive[civ] === 0) continue;
+          // A civilian underground cannot be endangered by surface ordnance:
+          // applyDamage and applySuppression both refuse them, so charging
+          // the player for their safety would bill restraint the combat
+          // model just proved unnecessary. Their coordinates name a tile
+          // they are not standing on.
+          if (st.alive[civ] === 0 || st.tunnelIn[civ] >= 0) continue;
           const dx = (fx.sub(st.posX[civ], e.x) >> 8) | 0;
           const dy = (fx.sub(st.posY[civ], e.y) >> 8) | 0;
           if (dx * dx + dy * dy <= DANGER_CLOSE_SQ) {
@@ -947,7 +1081,10 @@ export class MissionRuntime {
             continue;
           }
           for (const civ of this.civIds) {
-            if (st.alive[civ] === 0) continue;
+            // Same rule as the strike loop above, and it needs its own line:
+            // this branch runs per SHOT with no cooldown, so a buried family
+            // under a firefight would walk the score to zero on its own.
+            if (st.alive[civ] === 0 || st.tunnelIn[civ] >= 0) continue;
             const dx = (fx.sub(st.posX[civ], tx) >> 8) | 0;
             const dy = (fx.sub(st.posY[civ], ty) >> 8) | 0;
             if (dx * dx + dy * dy <= DANGER_CLOSE_SQ) {
@@ -973,10 +1110,17 @@ export class MissionRuntime {
     const st = this.sim.state;
     for (const civ of this.civIds) {
       if (st.alive[civ] === 0 || this.civFled.has(civ)) continue;
+      // A buried civilian cannot be reached, shepherded, or moved — and
+      // civFled latches before the order is confirmed, so evaluating one
+      // here would freeze it out of `evacuate_before` forever (the same
+      // latch-before-confirm shape as the dead-transport debt).
+      if (st.tunnelIn[civ] >= 0) continue;
       let leaving = st.suppression[civ] > CIV_FLEE_AT;
       if (!leaving) {
         for (const p of this.playerIds) {
-          if (st.alive[p] === 0) continue;
+          // A buried soldier reaches nobody: his coordinates name a tile he
+          // is not standing on.
+          if (st.alive[p] === 0 || st.tunnelIn[p] >= 0) continue;
           const dx = (fx.sub(st.posX[civ], st.posX[p]) >> 8) | 0;
           const dy = (fx.sub(st.posY[civ], st.posY[p]) >> 8) | 0;
           if (dx * dx + dy * dy <= SHEPHERD_RADIUS_SQ) {
@@ -992,7 +1136,8 @@ export class MissionRuntime {
       // ride to the compound instead of walking.
       let boarded = false;
       for (const p of this.playerIds) {
-        if (st.alive[p] === 0) continue;
+        // Nor does anyone board a hull that is under the earth.
+        if (st.alive[p] === 0 || st.tunnelIn[p] >= 0) continue;
         const ptype = this.sim.unitTypes[st.typeIdx[p]];
         if (ptype.transportSlots === 0) continue;
         if (this.sim.passengerCount(p) >= ptype.transportSlots) continue;
@@ -1014,6 +1159,11 @@ export class MissionRuntime {
   private stepPatrols(): void {
     for (const p of this.patrols) {
       if (this.sim.state.alive[p.id] === 0) continue;
+      // A buried patroller holds its place in the cycle: without this the
+      // waypoint index advances at 20 Hz against orders the sim refuses, so
+      // the patrol resumed from an arbitrary leg when the route vented — and
+      // queued one dead command per tick for the whole mission meanwhile.
+      if (this.sim.state.tunnelIn[p.id] >= 0) continue;
       if (this.sim.state.moving[p.id] === 1) continue;
       const [wx, wy] = p.waypoints[p.idx];
       p.idx = (p.idx + 1) % p.waypoints.length;
@@ -1034,8 +1184,14 @@ export class MissionRuntime {
     };
     for (let e = 0; e < this.sim.entityCount; e++) {
       if (st.alive[e] === 0 || st.side[e] !== 1 || !inZone(e)) continue;
+      // A buried unit contests nothing and anchors no contest — either side.
+      // Without this, a stocked route whose spawn point sits inside the zone
+      // holds a capture hostage from underground, with nothing on the map
+      // for the player to shoot.
+      if (st.tunnelIn[e] >= 0) continue;
       for (let f = 0; f < this.sim.entityCount; f++) {
         if (st.alive[f] === 0 || st.side[f] !== 0 || !inZone(f)) continue;
+        if (st.tunnelIn[f] >= 0) continue;
         const dx = (fx.sub(st.posX[e], st.posX[f]) >> 8) | 0;
         const dy = (fx.sub(st.posY[e], st.posY[f]) >> 8) | 0;
         if (dx * dx + dy * dy <= CONTEST_RADIUS_SQ) return true;
@@ -1049,6 +1205,9 @@ export class MissionRuntime {
     const st = this.sim.state;
     for (let i = 0; i < this.sim.entityCount; i++) {
       if (st.alive[i] === 0 || st.side[i] !== side) continue;
+      // A buried unit holds no ground: its body coordinates name a tile it
+      // is not standing on.
+      if (st.tunnelIn[i] >= 0) continue;
       const tx = st.posX[i] >> 16;
       const ty = st.posY[i] >> 16;
       if (tx >= zone[0] && tx < zone[0] + zone[2] && ty >= zone[1] && ty < zone[1] + zone[3]) n++;
@@ -1082,7 +1241,14 @@ export class MissionRuntime {
       out.push({ kind: 'trigger', tick, id: t.id ?? `trigger_${i}` });
 
       if (t.do.kind === 'commit' || t.do.kind === 'withdraw_to') {
-        const ids = (this.groups.get(t.do.group ?? '') ?? []).filter((id) => this.sim.state.alive[id] === 1);
+        // Living AND on the surface: the sim would refuse the buried ids
+        // anyway, but filtering here keeps the patrol-splice below honest —
+        // a patroller must not lose its beat on the strength of an order it
+        // never received. A fully buried group consumes the trigger and
+        // commands nothing, which the mission log already records.
+        const ids = (this.groups.get(t.do.group ?? '') ?? []).filter(
+          (id) => this.sim.state.alive[id] === 1 && this.sim.state.tunnelIn[id] < 0,
+        );
         if (ids.length > 0 && t.do.to) {
           const [x, y] = this.markerPos(t.do.to);
           this.sim.queueCommand({ kind: t.do.kind === 'commit' ? 'attackMove' : 'move', ids, x, y });
@@ -1112,7 +1278,10 @@ export class MissionRuntime {
         // is ordinary play, not an error -- and the squad has already bailed out
         // shaken, which is the interesting outcome.
         const ids = (this.groups.get(t.do.group ?? '') ?? []).filter(
-          (id) => this.sim.state.alive[id] === 1,
+          // A buried carrier does not open its doors: nobody dismounts into
+          // solid earth. (The sim refuses the id too; this keeps the
+          // `ids.length > 0` gate honest.)
+          (id) => this.sim.state.alive[id] === 1 && this.sim.state.tunnelIn[id] < 0,
         );
         if (ids.length > 0) this.sim.queueCommand({ kind: 'unload', ids });
       }
@@ -1172,6 +1341,17 @@ export class MissionRuntime {
         // because a primary is what creates the trap; a secondary that quietly
         // never completes costs the player nothing.
         failed = !complete && d.seconds !== undefined && tick >= d.seconds * TICKS_PER_SECOND;
+      } else if (d.type === 'collapse') {
+        const targets = this.collapseTargets.get(d.id) ?? [];
+        // `targets.length > 0` for the same reason raze has it: an empty zone
+        // must not read as an instant win. validate_data.mjs refuses a zone
+        // containing no tunnel mouths at authoring time; this guard is the
+        // runtime backstop for content that skipped the validator.
+        complete = targets.length > 0 && targets.every((r) => this.sim.tnAlive[r] === 0);
+        // And the same deadline, for the same trap: the only way a route
+        // comes down is a charge worked by a unit with the ability, so losing
+        // every such unit makes a collapse primary permanently impossible.
+        failed = !complete && d.seconds !== undefined && tick >= d.seconds * TICKS_PER_SECOND;
       } else if (d.type === 'eliminate_hvt') {
         const ids = this.tags.get(d.target ?? '') ?? [];
         complete = ids.length > 0 && ids.every((id) => this.sim.state.alive[id] === 0);
@@ -1205,6 +1385,11 @@ export class MissionRuntime {
           const st = this.sim.state;
           for (const civ of this.civIds) {
             if (this.civEvacuated.has(civ) || st.alive[civ] === 0) continue;
+            // The same rule livingIn and contestedIn were fixed for: a
+            // buried body's coordinates name a tile it is not standing on.
+            // Counting one here evacuates a family that never moved, deletes
+            // it, and writes the fabricated rescue into the ledger.
+            if (st.tunnelIn[civ] >= 0) continue;
             const tx = st.posX[civ] >> 16;
             const ty = st.posY[civ] >> 16;
             if (tx >= z[0] && tx < z[0] + z[2] && ty >= z[1] && ty < z[1] + z[3]) {

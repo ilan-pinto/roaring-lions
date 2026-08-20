@@ -18,6 +18,7 @@ import { join } from 'node:path';
 import { parseMap, structures as structureCatalogue } from '../../packages/data/src/index';
 import { MissionRuntime, type LedgerData } from '../../packages/sim/src/mission';
 import { Sim } from '../../packages/sim/src/sim';
+import type { TunnelRouteJson } from '../../packages/sim/src/tunnels';
 
 export const ROOT = join(import.meta.dirname, '..', '..');
 export const read = (p: string) => JSON.parse(readFileSync(p, 'utf8'));
@@ -59,6 +60,8 @@ export interface World {
   mission: MissionLike;
   /** Unit id by type index, for printing. */
   nameOf: Map<number, string>;
+  /** Registered routes, positional: entry r is the sim's route index r. */
+  tunnels: readonly TunnelRouteJson[];
 }
 
 /** Load a mission and start its runtime, with the map's cover and buildings in place. */
@@ -91,6 +94,20 @@ export function makeWorld(
     sim.addStructure(t, b.tiles);
   }
 
+  // Tunnels: one array, one loop, and the same array goes into the mission
+  // context — ctx.tunnels is positional, so this mirrors main.ts exactly
+  // (an equal-count permutation would silently bury units in the wrong route).
+  const tunnels: TunnelRouteJson[] = map.tunnels.map((t) => ({
+    id: t.id,
+    points: t.points,
+    dig_tiles_per_s: t.digTilesPerS,
+    pre_dug: t.preDug,
+  }));
+  for (let i = 0; i < tunnels.length; i++) {
+    const got = sim.addTunnel(tunnels[i]);
+    if (got !== i) throw new Error(`tunnel "${tunnels[i].id}" registered as route ${got}, expected ${i}`);
+  }
+
   const typeIds = new Map<string, number>();
   for (const [id, u] of Object.entries(units)) typeIds.set(id, sim.addUnitType(u as never));
   const nameOf = new Map<number, string>([...typeIds].map(([id, t]) => [t, id]));
@@ -103,11 +120,12 @@ export function makeWorld(
     },
     markers: map.markers as never,
     zones: map.zones as never,
+    tunnels,
     unitInfo: (u: string) => (units[u] ?? null) as never,
     ...(opts.ledger !== undefined ? { ledger: opts.ledger } : {}),
   });
   runtime.start();
-  return { sim, runtime, mission, nameOf };
+  return { sim, runtime, mission, nameOf, tunnels };
 }
 
 /** Live entity ids on a side. */

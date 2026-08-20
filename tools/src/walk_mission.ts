@@ -35,10 +35,11 @@ if (!missionId) {
 }
 const seconds = (marks.length > 0 ? marks : ['0', '30', '60', '120', '240']).map(Number);
 
-const { sim, runtime, nameOf } = makeWorld(missionId);
+const { sim, runtime, nameOf, tunnels } = makeWorld(missionId);
 
 const T = (v: number) => fx.toNumber(v).toFixed(1);
 const SIDES = ['player', 'enemy', 'civilian'];
+const CONTACT = ['unknown', 'suspected', 'identified'];
 
 function report(): void {
   const bySide: string[][] = [[], [], []];
@@ -56,6 +57,29 @@ function report(): void {
     if (bySide[s].length === 0) continue;
     console.log(`  ${SIDES[s]}:`);
     for (const row of bySide[s]) console.log(`    ${row}`);
+  }
+  // Tunnels. This is the only instrument that sees an authored world: a
+  // trigger that never fires, a route nothing digs, or a pre_dug flag that
+  // fails to open its vent is invisible without it.
+  if (sim.tunnelCount > 0) {
+    console.log('  tunnels:');
+    for (let r = 0; r < sim.tunnelCount; r++) {
+      const id = tunnels[r]?.id ?? '?';
+      if (sim.tnAlive[r] === 0) {
+        console.log(`    ${id}[${r}] COLLAPSED`);
+        continue;
+      }
+      const len = sim.tnLength[r];
+      const pct = len > 0 ? Math.round((100 * sim.tnProgress[r]) / len) : 100;
+      const bits = [
+        `${id}[${r}]`,
+        `progress=${pct}%`,
+        `vent=${sim.tnVentOpen[r] === 1 ? 'open' : 'shut'}`,
+        `occupants=${sim.tnOccupants[r]}`,
+        `contact=${CONTACT[sim.tunnelContactLevel(0, r)]}`,
+      ];
+      console.log(`    ${bits.join(' ')}`);
+    }
   }
 }
 

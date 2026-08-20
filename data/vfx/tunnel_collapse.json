@@ -1,0 +1,34 @@
+{
+  "id": "tunnel_collapse",
+  "trigger": "tunnel_collapse",
+  "layer": "below_units",
+  "budget_priority": 8,
+  "particles": [
+    {
+      "sprite": "shard",
+      "count": [10, 16],
+      "lifetime_ms": [350, 700],
+      "speed_tiles_s": [0.4, 1.2],
+      "cone_deg": 360,
+      "gravity_tiles_s2": 3.0,
+      "drag": 0.2,
+      "size_px": [3, 7],
+      "size_over_life": [1.0, 0.75],
+      "color_over_life": ["dust.2", "dust.5"],
+      "alpha_over_life": [1.0, 0.0]
+    },
+    {
+      "sprite": "smoke_puff",
+      "count": [14, 22],
+      "lifetime_ms": [1100, 1900],
+      "speed_tiles_s": [0.3, 1.0],
+      "cone_deg": 360,
+      "gravity_tiles_s2": -0.25,
+      "drag": 0.75,
+      "size_px": [10, 20],
+      "size_over_life": [0.7, 2.4],
+      "color_over_life": ["dust.1", "dust.4"],
+      "alpha_over_life": [0.7, 0.0]
+    }
+  ]
+}

@@ -70,6 +70,30 @@
         "minItems": 4,
         "maxItems": 4
       }
+    },
+    "tunnels": {
+      "type": "array",
+      "description": "Underground routes. Geometry lives here because it is terrain; a mission activates a route and stocks it, and a route no mission references does not exist that mission.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "mouth", "vent"],
+        "properties": {
+          "id": { "type": "string" },
+          "mouth": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 },
+          "waypoints": {
+            "type": "array",
+            "items": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 }
+          },
+          "vent": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 },
+          "dig_tiles_per_s": { "type": "number", "exclusiveMinimum": 0, "default": 0.15 },
+          "pre_dug": {
+            "type": "boolean",
+            "default": false,
+            "description": "The route starts fully excavated: dig progress at full length, vent open. One of the two ways authored data opens a route -- the other is a mission placement whose digs field names it, excavating live and leaving spoil. No trail is stamped at load: spoil is what digging leaves behind, and a route finished before the mission began has weathered -- reveal it with mark_tunnel or the ledger."
+          }
+        }
+      }
     }
   }
 }

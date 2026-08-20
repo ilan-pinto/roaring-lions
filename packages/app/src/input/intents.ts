@@ -23,6 +23,7 @@ export type PlayerIntent =
   | { kind: 'order'; verb: 'move' | 'attackMove'; ids: number[]; x: number; y: number; append: boolean }
   | { kind: 'garrison'; ids: number[]; structure: number }
   | { kind: 'demolish'; ids: number[]; structure: number }
+  | { kind: 'chargeTunnel'; ids: number[]; tunnel: number }
   | { kind: 'mount'; riders: number[]; carrier: number }
   | { kind: 'dismount'; carriers: number[] }
   | { kind: 'smoke'; ids: number[]; x: number; y: number }
@@ -34,7 +35,7 @@ export type PlayerIntent =
 /** Every kind in the union. Kept as a value so data can be validated against
  *  it — a `type` alone cannot be iterated at runtime. */
 export const INTENT_KINDS = [
-  'select', 'order', 'garrison', 'demolish', 'mount', 'dismount',
+  'select', 'order', 'garrison', 'demolish', 'chargeTunnel', 'mount', 'dismount',
   'smoke', 'halt', 'group', 'overlay', 'support',
 ] as const satisfies readonly PlayerIntent['kind'][];
 
@@ -61,6 +62,9 @@ export function applyIntent(sink: CommandSink, intent: PlayerIntent): void {
       return;
     case 'demolish':
       sink.queueCommand({ kind: 'demolish', ids: intent.ids, structure: intent.structure });
+      return;
+    case 'chargeTunnel':
+      sink.queueCommand({ kind: 'chargeTunnel', ids: intent.ids, tunnel: intent.tunnel });
       return;
     case 'mount':
       sink.queueCommand({ kind: 'load', ids: intent.riders, carrier: intent.carrier });

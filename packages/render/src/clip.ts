@@ -20,6 +20,12 @@ export interface UnitAnimInput {
   speed: number;
   /** True while the one-shot fire clip is still latched. */
   firing: boolean;
+  /**
+   * True while the sim reports a tunnel charge actually being worked
+   * (`tunnelChargeProgress > 0`) — a continuous state, not a latch: the sim's
+   * own clock resets it the moment the work is interrupted.
+   */
+  working: boolean;
 }
 
 /**
@@ -41,14 +47,25 @@ export const ROUT_CADENCE = 1.6;
  *   2. routed    — rout is what pinning escalates into, so showing `down`
  *                  here would hide the more important state
  *   3. pinned    — the suppression read (GDD 5.5)
- *   4. firing    — loses to pinned: being suppressed interrupts the shot
- *   5. moving    — measured speed, so a blocked unit does not walk on the spot
- *   6. idle
+ *   4. working   — below the three above (a pinned, broken or dead man is not
+ *                  working) and ABOVE fire — see the comment in the body
+ *   5. firing    — loses to pinned: being suppressed interrupts the shot
+ *   6. moving    — measured speed, so a blocked unit does not walk on the spot
+ *   7. idle
  */
 export function resolveClip(u: UnitAnimInput): ClipName {
   if (u.alive === 0) return 'down';
   if (u.routed === 1) return u.speed > 0 ? 'move' : 'down';
   if (u.pinned === 1) return 'down';
+  // `work` outranking `fire` is load-bearing, not tidiness — do not reorder.
+  // `fire` latches per shot, and `work` is the one clip allowed to change a
+  // figure's height (the Yahalom lead kneels). If fire won, every burst from a
+  // charging team would stand the kneeling man up and drop him again — the
+  // exact whole-team bob that teams.py's `_standing_posture` docstring records
+  // having to fix once already by forbidding `fire` any height change. So a
+  // charging team holds the work pose continuously, and its covering fire
+  // reads through muzzle VFX rather than a pose change.
+  if (u.working) return 'work';
   if (u.firing) return 'fire';
   return u.speed > 0 ? 'move' : 'idle';
 }

@@ -112,6 +112,55 @@ describe('terrain symbols and the decor layer', () => {
   });
 });
 
+describe('tunnels', () => {
+  const WITH_TUNNEL = {
+    ...TINY,
+    tunnels: [
+      { id: 'tn_a', mouth: [0, 0], waypoints: [[1, 1]], vent: [2, 2], dig_tiles_per_s: 0.2 },
+    ],
+  };
+
+  it('flattens mouth, waypoints and vent into one polyline', () => {
+    const m = parseMap(WITH_TUNNEL);
+    expect(m.tunnels).toHaveLength(1);
+    expect(m.tunnels[0].id).toBe('tn_a');
+    expect(m.tunnels[0].points).toEqual([[0, 0], [1, 1], [2, 2]]);
+    expect(m.tunnels[0].digTilesPerS).toBe(0.2);
+  });
+
+  it('defaults to no tunnels', () => {
+    expect(parseMap(TINY).tunnels).toEqual([]);
+  });
+
+  it('allows a route with no waypoints', () => {
+    const m = parseMap({ ...TINY, tunnels: [{ id: 'tn_b', mouth: [0, 0], vent: [2, 2] }] });
+    expect(m.tunnels[0].points).toEqual([[0, 0], [2, 2]]);
+  });
+
+  it('carries pre_dug through as preDug', () => {
+    const m = parseMap({
+      ...TINY,
+      tunnels: [{ id: 'tn_c', mouth: [0, 0], vent: [2, 2], pre_dug: true }],
+    });
+    expect(m.tunnels[0].preDug).toBe(true);
+  });
+
+  it('defaults preDug to false when the author says nothing', () => {
+    expect(parseMap(WITH_TUNNEL).tunnels[0].preDug).toBe(false);
+  });
+
+  it('rejects an out-of-bounds point, naming which one', () => {
+    expect(() =>
+      parseMap({ ...TINY, tunnels: [{ id: 'tn_c', mouth: [0, 0], vent: [99, 0] }] })
+    ).toThrow(/tn_c/);
+  });
+
+  it('rejects a duplicate route id', () => {
+    const dup = { id: 'tn_a', mouth: [0, 0], vent: [1, 1] };
+    expect(() => parseMap({ ...TINY, tunnels: [dup, dup] })).toThrow(/tn_a/);
+  });
+});
+
 describe('STRUCTURE_SYMBOLS', () => {
   it('is derived from the catalogue, not hardcoded', () => {
     // The catalogue is the single source of truth: adding a building type must be

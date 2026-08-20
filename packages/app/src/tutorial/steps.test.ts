@@ -87,10 +87,12 @@ describe('shipped tutorial steps', () => {
   });
 
   it('never teaches an ability the sim does not implement', () => {
-    // hidden_setup, breach, mark_tunnel and tunnel_travel are unit data only —
-    // zero sim references. A step mentioning one instructs the player to do
-    // something that cannot happen.
-    const absent = ['hidden_setup', 'breach', 'mark_tunnel', 'tunnel_travel'];
+    // hidden_setup, breach and tunnel_travel are unit data only — zero sim
+    // references. A step mentioning one instructs the player to do something
+    // that cannot happen. mark_tunnel left this list when stepDetection
+    // started honouring it: a unit carrying it now identifies any tunnel
+    // route it can see, so teaching it would be legitimate.
+    const absent = ['hidden_setup', 'breach', 'tunnel_travel'];
     for (const t of all) {
       for (const s of t.steps) {
         const prose = `${s.title} ${s.teach} ${s.nudge ?? ''}`.toLowerCase();

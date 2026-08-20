@@ -1,7 +1,9 @@
 # The tunnel subsystem — design
 
 **Date:** 2026-08-18
-**Status:** designed, not built.
+**Status:** built, with corrections. The design below is what was specified; where
+the build diverged, *As built* at the end records what shipped and why. Read that
+section before trusting any specific claim in this one.
 **Part of:** subterranean warfare, piece 1 of 2. The mission that uses it is
 tracked separately (see *Sequencing*).
 
@@ -286,3 +288,129 @@ Four slices, each independently testable, risk front-loaded:
    missions, GDD §6's stated ceiling.
 
 Slices 1–3 are this spec. Slice 4 depends on all three.
+
+---
+
+## As built
+
+Seventeen tasks, 37 commits. Every gate green: 576 tests, determinism pinned at
+`3003042083`, all five §5.7 backtest figures unmoved, the cost curve holding 25 units in
+band. What follows is where the built subsystem departs from the design above, because a
+spec that quietly disagrees with its own implementation is worse than no spec.
+
+### "Being untargetable, honestly" undercounted itself badly
+
+The design says containment needs enforcing in *three* places — target selection, splash,
+suppression. That was wrong by an order of magnitude, and the way it was wrong is the most
+useful thing this document can pass on.
+
+The real count is roughly two dozen. They arrived in four waves, each found by a review
+rather than by design: the briefed three; then strikes, kamikaze dives, sight, and shells
+already in flight; then movement orders and zone-holding; then a sweep that turned up
+another twenty-two, of which twenty were gated only by the `in_tunnel` schema key not yet
+existing. Writing the tests found two more the sweep had missed.
+
+The lesson is not "we forgot some places". It is that **the enumeration was the wrong
+shape of answer**. Containment finally converged only when it stopped being a list:
+
+- one eligibility check where `applyCommands` expands `cmd.ids`, so every surface command
+  refuses a buried unit by construction rather than by remembering
+- `putInTunnel` clearing the *whole* order bundle, because `stepSweep`, `stepTransport` and
+  kamikaze steering set `moving = 1` with no command at all
+- a belt in `stepMovement` itself, so the next autonomous mover inherits containment for free
+
+Worth recording honestly: those structural fixes closed only 8 of the 22 leaks. The
+majority lived in mission-runtime *state readers* — predicates counting a buried unit as
+present, endangered, evacuable or intel-generating — and each needed its own guard. The
+diagnosis "leaks are writers" was half wrong, and the half that was wrong was the bigger half.
+
+### Rules that changed during the build
+
+- **An identified route's contact no longer decays.** Decay exists because units move; a
+  tunnel is fixed geography. Observed live: a `mark_tunnel` handover expiring mid-charge at
+  117 of 160 ticks, which made the ability defeat itself. Suspected contacts still decay.
+  Consequence: `lost` is structurally unreachable at level 2. *(Reversed after playtest —
+  see "Changed after playtest" below.)*
+- **Surfacing is level-triggered, not edge-triggered.** The design's literal reading
+  stranded any unit whose burst outlived its exposure window — a slow rate of fire, or a
+  pin across the window's end — permanently on the surface.
+- **A charge keys on route geometry, not on a revealed trail tile.** A `pre_dug` route has
+  no spoil, so trail-keyed charging made the counter-unit unusable against exactly the
+  routes a mission is most likely to author.
+- **`stepTunnelCharge` runs after upkeep**, and its in-range stop precedes its displaced
+  gate, matching `stepDemolition`. Without the hoist a team walking to a route under a
+  building grinds against the wall forever instead of charging.
+- **`pre_dug` was invented during the build** and does not appear above. Routes start
+  unfinished, so an `in_tunnel` garrison could never surface unless something dug the
+  route — and whether a digger will dig a given route is not determinable from mission
+  data. The validator could not express the check, so the schema grew the concept instead.
+- **`volleyLeft` is a constant** (`SURFACE_VOLLEY`), not the weapon's burst.
+- **Four per-unit columns**, not three: `homeTunnel` joined `tunnelIn`, `surfaceTicks` and
+  `volleyLeft`, and the distinction between the first two is load-bearing — `tunnelIn >= 0`
+  is *contained*, `homeTunnel >= 0` with `tunnelIn === -1` is *an ordinary surface unit*.
+- **All map routes register unconditionally.** The design says a route a mission does not
+  reference does not exist that mission; in fact unreferenced routes are inert but still
+  count when a `collapse` objective tallies mouths in a zone.
+
+### What is built but not yet reachable from content — closed by task 17
+
+As first shipped, two content keys were not in the ignition: `assignDigger` and
+`identifyTunnelTo` had **no production callers** — no declarative form assigned a digger
+to a route, and nothing wired the `mark_tunnel` ability to the primitive built to honour
+it. The chain made that expensive: no authored dig meant no spoil, spoil was the only
+authorable identification channel, so no authored mission could identify a route, and
+`chargeTunnel` plus every `collapse` objective were reachable only through debug APIs.
+
+Task 17 wired both, each as the smallest declarative form that closes the chain:
+
+- **`digs` on a placement** — `{ "unit": "digger_crew", "count": 1, "at": [29, 4],
+  "digs": "td_north" }` — assigns the spawned body as the route's digger at mission
+  start, mirroring `in_tunnel`'s resolution and its load-time throw on an unknown id.
+  `validate_data.mjs` refuses what the runtime would swallow silently: a unit without
+  `dig_tunnel`, a `count` other than 1, two placements digging one route, a `pre_dug`
+  route (nothing left to excavate), and a route the map does not declare.
+- **`mark_tunnel` senses the route itself** — `stepDetection` hands a side the route
+  identified the moment a living carrier of the ability holds a clear sight line to any
+  tile the route passes under, inside its own sight radius. It runs before, and instead
+  of, trail-strength accrual: no spoil, no dwell, no new tuning constant, which is what
+  makes it work on the `pre_dug` routes that never stamp trail.
+
+The mission runtime's tests carry the ignition proof: one mission whose JSON alone digs
+a route through to venting, leaving spoil the player then finds; and one whose JSON
+alone marks a spoilless `pre_dug` route so a charge completes a `collapse` objective —
+no debug call anywhere in either. The determinism pin and all five §5.7 figures did not
+move. Issue #91 now needs authoring, not engine work.
+
+### Still open
+
+`walk_mission` prints route progress, vent state, occupants and contact, but not the trail
+extent the design asked for. Collapsing a route leaves its contact state frozen rather than
+cleared; that is inert only because every consumer checks `tnAlive` first, and fixing it
+moves the determinism pin, so it wants its own deliberate commit.
+
+### Changed after playtest
+
+**The identified-persistence rule above is reversed.** The owner played the subsystem and
+overruled the freeze: tunnel visibility is now **live** — a route is identified for a side
+only while a living `mark_tunnel` carrier of that side holds a clear sight line to a tile
+of the route inside its own sight radius (the existing `markerSeesRoute` check, now run
+every tick to *hold* the contact), or while someone is watching its spoil. Unwatched, the
+contact decays down the ordinary ladder and the route is unknown again: the Yahalom and
+the recon drone work like detectors, not cartographers, and `lost` is reachable at level 2
+after all.
+
+The mid-charge expiry that justified the freeze cannot recur **while the charging team
+holds a clear sight line to some route tile within its sight** — the normal case, and the
+tested one: the team stands within charge range (2 tiles) in the open, `yahalom_squad`
+carries `mark_tunnel` with sight 8, and `tunnels.test.ts`'s lone-charger test pins that
+charge completing. A carrier whose every line to its route is blocked mid-charge is not
+covered by any test; it would stall silently — the clock holds below identified — rather
+than complete, and there is no player cue for the stall yet. What CAN also lapse is a
+handover mid-walk; accepted, because the team re-finds the route with its own sight as it
+closes.
+The determinism replay gained the decay path (a walk-by marker abandoning a `pre_dug`
+route) alongside a production-parity mark on its charge team, and the pin moved with the
+rule. The renderer follows suit, per rung: spoil draws where any living side-0 unit can
+currently see it (the same eyes that drive the ladder up), while the identified line
+draws only where a `mark_tunnel` carrier can — anyone can see dirt, only a detector
+reads the route.

@@ -176,6 +176,140 @@ const structureSymbols = new Map(
     }
     const markerNames = new Set(Object.keys(map.markers ?? {}));
     const zoneNames = new Set(Object.keys(map.zones ?? {}));
+    const tunnelsById = new Map((map.tunnels ?? []).map((t) => [t.id, t]));
+    const hasAbility = (unitId, ability) =>
+      (unitsById.get(unitId)?.abilities ?? []).includes(ability);
+
+    // Side-aware placement lists. The walkPlacements sweep further down sees
+    // every placement but not whose it is; the tunnel checks need to know who
+    // fields what -- burial is enemy/civilian-only, and whether anything can
+    // ever dig or charge a route decides whether buried bodies can enter play.
+    const flatten = (list, out) => {
+      for (const p of list ?? []) {
+        out.push(p);
+        flatten(p.passengers, out);
+      }
+    };
+    const enemyPlacements = [];
+    const playerPlacements = [];
+    const civPlacements = [];
+    flatten(mi.enemy?.garrison, enemyPlacements);
+    for (const w of mi.enemy?.waves ?? []) flatten(w.units, enemyPlacements);
+    flatten(mi.starting_force, playerPlacements);
+    for (const t of mi.triggers ?? []) {
+      if (t.do?.kind === 'spawn') flatten(t.do.units, enemyPlacements);
+      if (t.do?.kind === 'reinforce') flatten(t.do.units, playerPlacements);
+    }
+    flatten(mi.civilians?.groups, civPlacements);
+
+    // Digger assignment HAS a declarative form: a placement's `digs` names the
+    // route it excavates, and spawnPlacement's assignDigger call on it is the
+    // only production path to a dig. The rules here keep the key honest --
+    // a fifth, digs on an in_tunnel placement, lives with the other burial
+    // exclusivity checks below -- and each one is an error the runtime would
+    // swallow silently: assignDigger is unit-blind, replaces without
+    // complaint, and a finished route just skips stepDigging, so every one
+    // of these ships as a mission that quietly never starts.
+    const allPlacements = [...enemyPlacements, ...playerPlacements, ...civPlacements];
+    const digsByRoute = new Map(); // route id -> the placements that dig it
+    for (const p of allPlacements) {
+      if (p.digs === undefined) continue;
+      const list = digsByRoute.get(p.digs) ?? [];
+      list.push(p);
+      digsByRoute.set(p.digs, list);
+      const route = tunnelsById.get(p.digs);
+      if (!route) {
+        failures.push(
+          `${rel(file)}: placement "${p.unit}" declares digs "${p.digs}", ` +
+            `which map "${mi.map.file}" does not declare`
+        );
+      } else if (route.pre_dug === true) {
+        failures.push(
+          `${rel(file)}: "${p.unit}" digs "${p.digs}", but that route is pre_dug — ` +
+            `there is nothing left to excavate, so the assignment does nothing`
+        );
+      }
+      if (!hasAbility(p.unit, 'dig_tunnel')) {
+        failures.push(
+          `${rel(file)}: "${p.unit}" declares digs "${p.digs}" without the dig_tunnel ` +
+            `ability — assignDigger is unit-blind at runtime, so the ability list is ` +
+            `the only place "digger" means anything`
+        );
+      }
+      if (p.count !== 1) {
+        failures.push(
+          `${rel(file)}: "${p.unit}" digs "${p.digs}" with count ${p.count} — one digger ` +
+            `works one route, and every body past the first silently displaces the ` +
+            `previous assignment`
+        );
+      }
+    }
+    for (const [routeId, list] of digsByRoute) {
+      if (list.length > 1) {
+        failures.push(
+          `${rel(file)}: route "${routeId}" is dug by ${list.length} placements ` +
+            `(${list.map((p) => `"${p.unit}"`).join(', ')}) — one digger works one route, ` +
+            `and the runtime keeps only the last assignment`
+        );
+      }
+    }
+
+
+    // Can the player ever field a unit that works a tunnel charge? Fielded
+    // units are visible; a mission with an economy (resources + player_start)
+    // can also BUILD -- the production bar offers every kdf unit, gated only
+    // by campaign unlock state the validator cannot see, so an economy counts
+    // as capability rather than false-failing missions a veteran can win.
+    let chargeCapable = playerPlacements.some((p) => hasAbility(p.unit, 'tunnel_charge'));
+    if (!chargeCapable && mi.resources && mi.map?.player_start) {
+      chargeCapable = [...unitsById.values()].some(
+        (u) => u.faction === 'kdf' && (u.abilities ?? []).includes('tunnel_charge')
+      );
+    }
+
+    // Player-side burial is refused outright. starting_force's inline schema
+    // already rejects the key; reinforce triggers use the shared placement
+    // $def, so this is the check that closes the other player-side spawn path.
+    // A buried player unit can never be ordered or surface, and its living
+    // body holds off the wipe-loss check -- an unlosable, unplayable state.
+    for (const p of playerPlacements) {
+      if (p.in_tunnel !== undefined) {
+        failures.push(
+          `${rel(file)}: "${p.unit}" is player-side and declares in_tunnel "${p.in_tunnel}" — ` +
+            `a buried player unit can never be ordered or surface, and its living body ` +
+            `blocks the wipe-loss check`
+        );
+      }
+    }
+
+    // A buried enemy is alive, untargetable, and reachable only by collapsing
+    // its route. destroy_all counts it; eliminate_hvt counts it when it carries
+    // the objective's tag. Neither objective type can fail, so if the player
+    // can never field a charge the mission is unwinnable and unlosable at once
+    // -- the same checkEnd trap the raze deadline exists to close, except these
+    // types have no deadline mechanism, so the lever has to be authoring-time.
+    const buriedEnemy = enemyPlacements.filter((p) => p.in_tunnel !== undefined);
+    if (buriedEnemy.length > 0 && !chargeCapable) {
+      for (const o of mi.objectives ?? []) {
+        if (!o.primary) continue;
+        if (o.type === 'destroy_all') {
+          failures.push(
+            `${rel(file)}: destroy_all "${o.id}" is primary, the enemy fields ` +
+              `${buriedEnemy.length} in_tunnel placement(s), and no player unit can work a ` +
+              `tunnel charge — buried units count as alive and only a collapse reaches them, ` +
+              `so the mission would be unwinnable and unlosable at once`
+          );
+        }
+        if (o.type === 'eliminate_hvt' && buriedEnemy.some((p) => p.tag === o.target)) {
+          failures.push(
+            `${rel(file)}: eliminate_hvt "${o.id}" targets tag "${o.target}" on an in_tunnel ` +
+              `placement, and no player unit can work a tunnel charge — the HVT is alive ` +
+              `underground and only a collapse reaches it, so the mission would be ` +
+              `unwinnable and unlosable at once`
+          );
+        }
+      }
+    }
     const wantMarker = (name, where) => {
       if (name && !markerNames.has(name)) failures.push(`${rel(file)}: ${where} references unknown marker "${name}"`);
     };
@@ -281,6 +415,41 @@ const structureSymbols = new Map(
           for (const msg of bad.values()) failures.push(msg);
         }
       }
+      if (o.type === 'collapse') {
+        // A primary collapse needs a deadline for the same reason a primary
+        // raze does (see above): the only way a route comes down is a charge
+        // worked by a unit with the ability, so losing every such unit makes
+        // it permanently impossible -- and with no way to fail it, checkEnd
+        // reaches no end condition and the mission is unwinnable and
+        // unlosable at once.
+        if (o.primary && o.seconds === undefined) {
+          failures.push(
+            `${rel(file)}: collapse "${o.id}" is primary but declares no "seconds" deadline. ` +
+              `Losing every unit that can work a tunnel charge would make it impossible ` +
+              `with no way to fail it, leaving the mission unwinnable and unlosable at once.`
+          );
+        }
+        const rect = map.zones?.[o.target];
+        if (!rect) {
+          failures.push(
+            `${rel(file)}: collapse "${o.id}" names zone "${o.target}", which map "${mi.map.file}" does not declare`
+          );
+        } else {
+          const [zx, zy, zw, zh] = rect;
+          // Membership is by MOUTH, matching the runtime: a route that merely
+          // passes under the zone belongs to someone else's mission.
+          const inZone = (map.tunnels ?? []).filter(
+            (t) => t.mouth[0] >= zx && t.mouth[0] < zx + zw && t.mouth[1] >= zy && t.mouth[1] < zy + zh
+          );
+          if (inZone.length === 0) {
+            failures.push(
+              `${rel(file)}: collapse "${o.id}" zone "${o.target}" contains no tunnel mouths, ` +
+                `so it can never complete. The runtime's targets.length guard keeps an empty ` +
+                `set from instant-winning, so this would sit active until its deadline fails it.`
+            );
+          }
+        }
+      }
     }
     for (const p of mi.civilians?.groups ?? []) {
       wantUnit(p.unit, 'civilians');
@@ -308,6 +477,73 @@ const structureSymbols = new Map(
     walkPlacements(mi, (pl) => {
       if (pl.group) declaredGroups.add(pl.group);
       if (pl.tag) declaredTags.add(pl.tag);
+      if (pl.in_tunnel !== undefined) {
+        const route = tunnelsById.get(pl.in_tunnel);
+        if (!route) {
+          failures.push(
+            `${rel(file)}: placement "${pl.unit}" declares in_tunnel "${pl.in_tunnel}", ` +
+              `which map "${mi.map.file}" does not declare`
+          );
+        }
+        // A unit cannot be underground and in a building at once. The runtime
+        // does not throw: the command filter silently swallows the garrison
+        // walk-in, so the authored intent evaporates without a trace.
+        if (pl.stance?.kind === 'garrison') {
+          failures.push(
+            `${rel(file)}: "${pl.unit}" declares in_tunnel "${pl.in_tunnel}" AND a garrison ` +
+              `stance — a unit cannot be underground and garrisoned at once, and the runtime ` +
+              `silently drops the stance`
+          );
+        }
+        // A tag on a buried body is intent the runtime must ignore: pre-marked
+        // recon carry-over would identify a unit through three metres of earth,
+        // and locate/eliminate_hvt would act on a unit nobody can see or reach.
+        if (pl.tag !== undefined) {
+          failures.push(
+            `${rel(file)}: "${pl.unit}" declares in_tunnel "${pl.in_tunnel}" AND tag ` +
+              `"${pl.tag}" — a tag on a buried unit is either silently ignored (recon ` +
+              `pre-marking) or acts through the earth (locate/eliminate_hvt)`
+          );
+        }
+        // Mirrors the runtime's load-time throw, so it fails in CI instead.
+        if (pl.passengers) {
+          failures.push(
+            `${rel(file)}: "${pl.unit}" declares in_tunnel "${pl.in_tunnel}" AND passengers — ` +
+              `a placement is either in_tunnel or loaded, never both`
+          );
+        }
+        // Both roles at once. The runtime honours both keys without complaint
+        // -- putInTunnel buries the body, assignDigger makes it the digger --
+        // and stepDigging never asks where the digger is standing, so a unit
+        // would work a surface dig site from underground, possibly on a route
+        // other than the one entombing it.
+        if (pl.digs !== undefined) {
+          failures.push(
+            `${rel(file)}: "${pl.unit}" declares digs "${pl.digs}" AND in_tunnel ` +
+              `"${pl.in_tunnel}" — the runtime would bury the body and make it a digger ` +
+              `at once, working the dig from below ground; a placement is either the ` +
+              `digger or the buried garrison, never both`
+          );
+        }
+        // Authored routes start undug with the vent shut, and a placement's
+        // `digs` is the only production path to a dig. So the named route
+        // must be openable from this mission's own data: authored pre_dug,
+        // or dug by a `digs` placement in this same file. Anything else --
+        // most often a mistyped route id -- is a garrison that sits
+        // underground forever: findable (mark_tunnel) and collapsible (a
+        // charge needs the route identified, not dug), but never surfacing
+        // and never fighting. If entombed collapse-fodder is ever wanted on
+        // purpose, it should cost an explicit schema key, not survive as an
+        // accident of validator coarseness.
+        if (route && route.pre_dug !== true && !digsByRoute.has(pl.in_tunnel)) {
+          failures.push(
+            `${rel(file)}: "${pl.unit}" is in_tunnel "${pl.in_tunnel}", but that route is ` +
+              `not pre_dug and no placement digs it, so its vent can never open and the ` +
+              `garrison can never surface or fight — author the route pre_dug, or give ` +
+              `this mission a digs placement naming it`
+          );
+        }
+      }
       if (!pl.passengers) return;
       const carrier = unitsById.get(pl.unit);
       const slots = carrier?.hull?.transport_slots ?? 0;
@@ -317,6 +553,14 @@ const structureSymbols = new Map(
         if (q.passengers) {
           failures.push(
             `${rel(file)}: "${q.unit}" is a passenger and cannot carry passengers itself`
+          );
+        }
+        // Aboard and underground at once: spawnPlacement would bury the body,
+        // then embarkAtSpawn would seat it — two containers, one unit.
+        if (q.in_tunnel !== undefined) {
+          failures.push(
+            `${rel(file)}: "${q.unit}" is a passenger and cannot also start in_tunnel ` +
+              `"${q.in_tunnel}" — aboard and underground at once`
           );
         }
         const pu = unitsById.get(q.unit);

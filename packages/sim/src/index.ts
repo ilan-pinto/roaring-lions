@@ -21,6 +21,12 @@ export {
 } from './mission';
 export { unlockReason, type UnlockGate } from './unlock';
 export {
+  routeLength,
+  pointAtDistance,
+  TRAIL_MAX,
+  type TunnelRouteJson,
+} from './tunnels';
+export {
   Sim,
   TICKS_PER_SECOND,
   DT,

@@ -4,10 +4,13 @@
 // Event payloads (a handful per tick) are the one sanctioned allocation.
 //
 // Tick order is part of the contract (replays depend on it):
-//   commands → detection → combat (target/face/fire) → projectiles →
-//   movement → upkeep (suppression decay, pins, cooldowns, APS reload).
+//   commands → digging → detection → surfacing → combat (target/face/fire) →
+//   projectiles → strikes → kamikaze → sweep → movement → transport →
+//   fields → garrison → demolition → upkeep (suppression decay, pins,
+//   cooldowns, APS reload) → tunnel charge (last, so the pin latched in
+//   upkeep aborts a charge on the tick it lands).
 
-import { fx, ONE, HALF, type Fx } from './fixed';
+import { fx, ONE, HALF, FX_MAX, type Fx } from './fixed';
 import { Rng } from './rng';
 import { HASH_SEED, hashArray, hashWord } from './hash';
 import { FlowField, DIR_NONE, DIR_VX, DIR_VY, COST_ORTH, COST_DIAG } from './flowfield';
@@ -27,6 +30,21 @@ import {
   type StructureType,
   type StructureTypeJson,
 } from './structures';
+import {
+  pointAtDistance,
+  routeLength,
+  CHARGE_RANGE_SQ,
+  CHARGE_SECONDS,
+  SURFACE_SECONDS,
+  SURFACE_VOLLEY,
+  TRAIL_DECAY,
+  TRAIL_DECAY_EVERY,
+  TRAIL_MAX,
+  TRAIL_SIGNATURE,
+  TUNNEL_COLLAPSE_RADIUS,
+  TUNNEL_COLLAPSE_SHOCK,
+  type TunnelRouteJson,
+} from './tunnels';
 import {
   K_DETECT,
   CONTACT_DECAY,
@@ -142,6 +160,8 @@ export interface UnitTypeJson {
    *  Schema-constrained to charges|blade; typed loosely because JSON module
    *  imports widen string literals — same reason as `mobility.domain`. */
   demolition_method?: string;
+  /** Seconds of held station to set a tunnel collapse charge. Absent = CHARGE_SECONDS. */
+  tunnel_charge_time_s?: number;
   hull: {
     hp: number;
     armor: { front: number; side: number; rear: number; top?: number };
@@ -276,6 +296,12 @@ export interface UnitType {
    * ability.
    */
   bladeDemolition: boolean;
+  /** Can sink a shaft and dig a tunnel route from it. */
+  canDig: boolean;
+  /** Can set a collapse charge over a revealed tunnel. */
+  canTunnelCharge: boolean;
+  /** Ticks of held station to set a tunnel collapse charge. */
+  tunnelChargeTicks: number;
   /** Flies into its target and is spent doing it. */
   isKamikaze: boolean;
   /**
@@ -295,6 +321,12 @@ export interface UnitType {
   canEmbark: boolean;
   /** Trained observer: earns intel while holding position (GDD §3). */
   canMarkTarget: boolean;
+  /** Reads the ground for what runs under it: a clear sight line to any tile
+   *  of a tunnel route identifies the route outright, and HOLDS it
+   *  identified for as long as the look lasts (stepDetection) — a detector,
+   *  not a cartographer. The only authorable identification that works on a
+   *  `pre_dug` route, which never had spoil to find. */
+  canMarkTunnel: boolean;
   /** Carries smoke: the counterplay to prepared fire. */
   canSmoke: boolean;
   hp: Fx;
@@ -378,11 +410,17 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
       fx.mul(fx.from(json.demolition_time_s ?? DEMO_SECONDS), fx.fromInt(TICKS_PER_SECOND)),
     ),
     bladeDemolition: json.demolition_method === 'blade',
+    canDig: abilities.includes('dig_tunnel'),
+    canTunnelCharge: abilities.includes('tunnel_charge'),
+    tunnelChargeTicks: fx.toInt(
+      fx.mul(fx.from(json.tunnel_charge_time_s ?? CHARGE_SECONDS), fx.fromInt(TICKS_PER_SECOND)),
+    ),
     isKamikaze: abilities.includes('kamikaze'),
     isAir: json.mobility.domain === 'air',
     transportSlots: json.hull.transport_slots ?? 0,
     canEmbark: json.hull.can_embark ?? FOOT_ROLES.has(json.role ?? ''),
     canMarkTarget: abilities.includes('mark_target'),
+    canMarkTunnel: abilities.includes('mark_tunnel'),
     canSmoke: abilities.includes('smoke'),
     hp: fx.from(json.hull.hp),
     armorFront,
@@ -435,7 +473,20 @@ export type Command =
    * fine for a mosque: designating the structure is how the player takes
    * responsibility for a protected site, and the ROE bill that follows.
    */
-  | { kind: 'demolish'; ids: number[]; structure: number };
+  | { kind: 'demolish'; ids: number[]; structure: number }
+  /**
+   * Set a collapse charge on a tunnel route. The team walks to the nearest
+   * spoil still showing on the surface and works there; the route must be
+   * identified by the team's own side before the clock runs (suspected is a
+   * blip, not a firing solution), and the collapse kills everyone below.
+   */
+  | { kind: 'chargeTunnel'; ids: number[]; tunnel: number };
+
+/** The same command aimed at fewer units. A generic copy rather than an
+ *  in-place splice, because the queued object belongs to the sender. */
+function withIds<T extends { ids: number[] }>(cmd: T, ids: number[]): T {
+  return { ...cmd, ids };
+}
 
 export type ContactLevel = 'suspected' | 'identified' | 'lost';
 export type FacingArc = 'front' | 'side' | 'rear';
@@ -496,6 +547,11 @@ export type SimEvent =
   | { kind: 'structureDestroyed'; tick: number; structure: number; by: number }
   | { kind: 'garrison'; tick: number; entity: number; structure: number; entered: boolean }
   | { kind: 'transport'; tick: number; entity: number; carrier: number; loaded: boolean }
+  | { kind: 'ventOpened'; tick: number; tunnel: number }
+  | { kind: 'tunnelContact'; tick: number; side: number; tunnel: number; level: ContactLevel }
+  | { kind: 'surfaced'; tick: number; entity: number; tunnel: number }
+  | { kind: 'submerged'; tick: number; entity: number; tunnel: number }
+  | { kind: 'tunnelCollapsed'; tick: number; tunnel: number; by: number }
   | { kind: 'routed'; tick: number; entity: number }
   | { kind: 'rallied'; tick: number; entity: number }
   | { kind: 'pinned'; tick: number; entity: number }
@@ -511,7 +567,7 @@ export type SimEvent =
 export const SIM_EVENT_KINDS = [
   'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'ambushSprung',
   'strike', 'smokeLaid', 'revealed', 'structureHit', 'structureDestroyed', 'garrison',
-  'transport', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
+  'transport', 'ventOpened', 'tunnelContact', 'surfaced', 'submerged', 'tunnelCollapsed', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
 ] as const satisfies readonly SimEvent['kind'][];
 
 /** Compile-time proof the list above covers the whole union.
@@ -548,6 +604,9 @@ const MAX_STRUCTURES = 256;
 /** Queued path points per unit. Enough for a route around a block; a cap
  *  keeps the storage flat and the hash cheap. */
 const MAX_WAYPOINTS = 8;
+/** Routes per mission. Small on purpose: a mission with more than a handful of
+ *  tunnels is a mission whose player cannot reason about any of them. */
+const MAX_TUNNELS = 16;
 
 // ---------------------------------------------------------------------------
 
@@ -617,6 +676,14 @@ export class Sim {
    * protected site can only be levelled on an order somebody actually gave.
    */
   private readonly demolishOrder: Int32Array;
+  /** Route the player designated for a collapse charge, -1 when none. Same
+   *  contract as demolishOrder: an explicit order, never a team's initiative
+   *  — there is no automatic-search arm, because a collapse only happens on
+   *  a designation somebody gave. */
+  private readonly chargeOrder: Int32Array;
+  /** Ticks of held station beside revealed spoil. Public like tnProgress:
+   *  the HUD's charge bar reads it. */
+  readonly chargeTicks: Int32Array;
   private readonly smokeCooldown: Int32Array;
   /** Queued path: points a unit walks after its current goal. */
   private readonly wpX: Int32Array;
@@ -628,6 +695,19 @@ export class Sim {
   /** Vehicle this unit has been ordered to board but has not reached. */
   private readonly boardGoal: Int32Array;
   private readonly passengers: Uint8Array;
+  /** Route this unit is inside, or -1 on the surface. The third containment
+   *  index, after garrisonedIn and carriedBy. */
+  private readonly tunnelIn: Int32Array;
+  /** Ticks of guaranteed exposure left after surfacing; 0 when not up. */
+  private readonly surfaceTicks: Int32Array;
+  /** Shots left in the burst a surfacing committed to; meaningful while
+   *  `homeTunnel` is set. */
+  private readonly volleyLeft: Int32Array;
+  /** Route a surfaced unit goes back down into, -1 when it has none. Kept
+   *  distinct from `tunnelIn` on purpose: `tunnelIn` is where I am,
+   *  `homeTunnel` is where I go back to — a unit that is up has `tunnelIn`
+   *  -1 and `homeTunnel` set, and is hit by the ordinary surface rules. */
+  private readonly homeTunnel: Int32Array;
   /** Called-for strikes still in the air. */
   private pendingStrikes: { x: Fx; y: Fx; by: number; readyTick: number }[] = [];
 
@@ -669,6 +749,35 @@ export class Sim {
   private readonly lastSeenX: Int32Array;
   private readonly lastSeenY: Int32Array;
   private readonly lastSeenValid: Uint8Array;
+
+  // --- tunnel SoA ---
+  readonly tnAlive = new Uint8Array(MAX_TUNNELS);
+  /** Tiles dug along the route, Q16.16. */
+  readonly tnProgress = new Int32Array(MAX_TUNNELS);
+  readonly tnLength = new Int32Array(MAX_TUNNELS);
+  readonly tnVentOpen = new Uint8Array(MAX_TUNNELS);
+  readonly tnOccupants = new Int32Array(MAX_TUNNELS);
+  /** Per-tick dig advance, Q16.16 tiles: dig_tiles_per_s * DT, precomputed so
+   *  the step function does no conversion. */
+  readonly tnDigRate = new Int32Array(MAX_TUNNELS);
+  /** Unit currently digging this route, -1 when none. One digger per route. */
+  readonly tnDigger = new Int32Array(MAX_TUNNELS).fill(-1);
+  /** Route polylines, indexed by route. Read-only after addTunnel. */
+  private readonly tnPoints: (readonly (readonly [number, number])[])[] = [];
+  /** Tile centre of each route's vent, precomputed. */
+  private readonly tnVentX = new Int32Array(MAX_TUNNELS);
+  private readonly tnVentY = new Int32Array(MAX_TUNNELS);
+  /** Tiles each route passes under. Built once in addTunnel — a Set here is a
+   *  load-time allocation, not a per-tick one, so the hot-loop rule holds. */
+  private readonly tnTiles: Set<number>[] = [];
+  /** Contact confidence and state per (side, route): index side*MAX_TUNNELS+r.
+   *  Same Q16.16 confidence and the same latched ladder as the unit pair. */
+  private readonly tnContact = new Int32Array(2 * MAX_TUNNELS);
+  private readonly tnContactState = new Uint8Array(2 * MAX_TUNNELS);
+  private tunnelCount_ = 0;
+  /** Surface spoil density per tile, 0-255. Presentation reads it; detection
+   *  uses it to place the tunnel's signature. Same shape as the smoke grid. */
+  readonly trail: Uint8Array;
 
   // --- projectile SoA (ring) ---
   private readonly prActive: Uint8Array;
@@ -717,6 +826,8 @@ export class Sim {
     readonly demoTarget: Int32Array;
     /** Vehicle this unit is riding in, -1 when on foot. */
     readonly carriedBy: Int32Array;
+    /** Route this unit is inside, or -1 on the surface. */
+    readonly tunnelIn: Int32Array;
   };
 
   /** Read-only structure view for the renderer and HUD. */
@@ -751,6 +862,7 @@ export class Sim {
     this.blocked = new Uint8Array(tiles);
     this.cover = new Uint8Array(tiles);
     this.smoke = new Uint8Array(tiles);
+    this.trail = new Uint8Array(tiles);
     this.alive = new Uint8Array(n);
     this.side = new Uint8Array(n);
     this.typeIdx = new Uint16Array(n);
@@ -780,6 +892,8 @@ export class Sim {
     this.demoTicks = new Int32Array(n);
     this.demoTarget = new Int32Array(n).fill(-1);
     this.demolishOrder = new Int32Array(n).fill(-1);
+    this.chargeOrder = new Int32Array(n).fill(-1);
+    this.chargeTicks = new Int32Array(n);
     this.smokeCooldown = new Int32Array(n);
     this.wpX = new Int32Array(n * MAX_WAYPOINTS);
     this.wpY = new Int32Array(n * MAX_WAYPOINTS);
@@ -788,6 +902,10 @@ export class Sim {
     this.carriedBy = new Int32Array(n).fill(-1);
     this.boardGoal = new Int32Array(n).fill(-1);
     this.passengers = new Uint8Array(n);
+    this.tunnelIn = new Int32Array(n).fill(-1);
+    this.surfaceTicks = new Int32Array(n);
+    this.volleyLeft = new Int32Array(n);
+    this.homeTunnel = new Int32Array(n).fill(-1);
     const sc = MAX_STRUCTURES;
     this.stAlive = new Uint8Array(sc);
     this.stHp = new Int32Array(sc);
@@ -854,6 +972,7 @@ export class Sim {
       curStructure: this.curStructure,
       demoTarget: this.demoTarget,
       carriedBy: this.carriedBy,
+      tunnelIn: this.tunnelIn,
     };
     this.structures = {
       alive: this.stAlive,
@@ -952,6 +1071,123 @@ export class Sim {
     return id;
   }
 
+  get tunnelCount(): number {
+    return this.tunnelCount_;
+  }
+
+  /** Register an authored route. Returns its index. */
+  addTunnel(route: TunnelRouteJson): number {
+    if (this.tunnelCount_ >= MAX_TUNNELS) throw new Error('too many tunnels');
+    if (route.points.length < 2) {
+      throw new Error(`tunnel ${route.id}: a route needs at least two points`);
+    }
+    const id = this.tunnelCount_++;
+    this.tnPoints.push(route.points);
+    this.tnAlive[id] = 1;
+    this.tnLength[id] = routeLength(route.points);
+    // pre_dug: the route was finished before the mission began, so it loads
+    // complete with its vent open — stepDigging skips it and an in_tunnel
+    // garrison can surface with no digger ever assigned. The trail is NOT
+    // stamped: spoil is what digging leaves behind, and at TRAIL_DECAY's
+    // rate anything dug before tick zero weathered away long ago. Revealing
+    // a pre_dug route is the author's job (`mark_tunnel`, or the ledger).
+    // No ventOpened event either — load-time state precedes any subscriber,
+    // and an event claiming it happened "now" would be a lie in the log.
+    this.tnProgress[id] = route.pre_dug === true ? this.tnLength[id] : 0;
+    this.tnVentOpen[id] = route.pre_dug === true ? 1 : 0;
+    this.tnOccupants[id] = 0;
+    this.tnDigRate[id] = fx.mul(fx.from(route.dig_tiles_per_s), DT);
+    this.tnDigger[id] = -1;
+    const vent = route.points[route.points.length - 1];
+    this.tnVentX[id] = fx.add(fx.from(vent[0]), HALF);
+    this.tnVentY[id] = fx.add(fx.from(vent[1]), HALF);
+    // Tile set for the route, walked at the same half-tile step stampTrail
+    // uses. Allocated once at load, never in the tick loop.
+    const tiles = new Set<number>();
+    for (let d = 0; d <= this.tnLength[id]; d = fx.add(d, HALF)) {
+      const [px, py] = pointAtDistance(route.points, d);
+      const tx = px >> 16;
+      const ty = py >> 16;
+      if (tx >= 0 && ty >= 0 && tx < this.width && ty < this.height) {
+        tiles.add(ty * this.width + tx);
+      }
+    }
+    this.tnTiles.push(tiles);
+    return id;
+  }
+
+  /** Place a unit inside a route. Used by mission placements that start a
+   *  garrison underground, and by `submerge` when a fighter goes back down. */
+  putInTunnel(unitId: number, routeIdx: number): void {
+    if (routeIdx < 0 || routeIdx >= this.tunnelCount_) {
+      throw new Error(`no tunnel ${routeIdx}`);
+    }
+    if (this.tunnelIn[unitId] === routeIdx) return;
+    // A carrier goes below alone: the hull fits the shaft, the riders do
+    // not. They are set down where it went under — at the vent, on the
+    // runtime path, since submerge is the only way a loaded carrier reaches
+    // here (a placement authored both buried and loaded is refused at
+    // spawn). Without this, collapseTunnel's "everyone below dies" misses
+    // them, `unload` teleports them out of the earth, and every containment
+    // guard keyed on tunnelIn skips them while stepTransport pins them to a
+    // buried hull.
+    if (this.passengers[unitId] > 0) this.unloadAll(unitId);
+    this.tunnelIn[unitId] = routeIdx;
+    this.tnOccupants[routeIdx]++;
+    // The earth cancels the WHOLE order bundle, not just kinematics.
+    // applyCommands refuses new surface orders while buried; this covers
+    // every order the unit already held when it went down — which a refusal
+    // cannot, because stepSweep (attackMove), stepTransport (boardGoal),
+    // stepGarrison (garrisonGoal), stepDemolition (demolishOrder) and
+    // stepTunnelCharge (chargeOrder) all re-set `moving` from a latched
+    // order with no command in sight. Clearing four of these and not the
+    // fifth is the exact hole that reopened after Task 11.
+    this.moving[unitId] = 0;
+    this.wpCount[unitId] = 0;
+    this.goalX[unitId] = this.posX[unitId];
+    this.goalY[unitId] = this.posY[unitId];
+    this.fieldRef[unitId] = -1;
+    this.attackMove[unitId] = 0;
+    this.engaging[unitId] = 0;
+    this.boardGoal[unitId] = -1;
+    this.garrisonGoal[unitId] = -1;
+    this.demolishOrder[unitId] = -1;
+    this.demoTicks[unitId] = 0;
+    this.demoTarget[unitId] = -1;
+    this.chargeOrder[unitId] = -1;
+    this.chargeTicks[unitId] = 0;
+  }
+
+  /** Tile centre of a route's vent — where a surfacing unit stands up. */
+  private ventPos(r: number): [Fx, Fx] {
+    return [this.tnVentX[r], this.tnVentY[r]];
+  }
+
+  /** Tile centre of a route's vent, Q16.16 — the point `collapseTunnel`
+   *  centres its surface splash on. A pure read (invariant 4). The collapse
+   *  VFX used to be placed here alone; it now samples the whole line via
+   *  tunnelPointAt below, whose final sample is this same spot, so this
+   *  remains the canonical "where is the exit" read for tools and the
+   *  sandbox. */
+  tunnelVent(r: number): readonly [Fx, Fx] {
+    return this.ventPos(r);
+  }
+
+  /** The surface point `d` Q16.16 tiles along route `r` from its mouth,
+   *  clamped to both ends — raw polyline coordinates, not tile centres.
+   *  Presentation read, tunnelVent's sibling: the collapse effect samples
+   *  the route's full length with it, so the ground visibly goes down from
+   *  mouth to vent rather than only at the exit. Pure read over load-time
+   *  geometry (invariant 4). */
+  tunnelPointAt(r: number, d: Fx): readonly [Fx, Fx] {
+    return pointAtDistance(this.tnPoints[r], d);
+  }
+
+  /** Put a digger on a route. One digger per route; assigning replaces. */
+  assignDigger(routeIdx: number, unitId: number): void {
+    this.tnDigger[routeIdx] = unitId;
+  }
+
   /** Clamp a point to somewhere a unit can actually stand: inside the map,
    *  a half tile off the edge. Orders past the border are common (a drag
    *  that overshoots) and must not walk anyone off the world. */
@@ -1011,9 +1247,30 @@ export class Sim {
     return this.demoTicks[id] / type.demolitionTicks;
   }
 
+  /** Fraction of a tunnel charge set, 0..1 — ticks worked over ticks needed,
+   *  0 while no charge is being worked (walking to the route, pinned,
+   *  displaced and interrupted all read 0, because chargeTicks itself
+   *  resets). demolitionProgress's twin, and like it a presentation read:
+   *  eight seconds standing still in the open is exactly when the player
+   *  wants to know how long is LEFT, so the renderer draws progress, not
+   *  presence. */
+  tunnelChargeProgress(id: number): number {
+    if (this.chargeOrder[id] < 0) return 0;
+    const type = this.unitTypes[this.typeIdx[id]];
+    if (!type.canTunnelCharge || type.tunnelChargeTicks <= 0) return 0;
+    return this.chargeTicks[id] / type.tunnelChargeTicks;
+  }
+
   /** Dev/test hook: level a building instantly. */
   debugDestroyStructure(id: number): void {
     if (this.stAlive[id] === 1) this.destroyStructure(id, -1);
+  }
+
+  /** Bring a route down without a charge. Tests and the sandbox only.
+   *  destroy(i, -1) is the killed-by-nobody convention, and splashDirect
+   *  takes -1 for an unattributed source. */
+  debugCollapseTunnel(r: number): void {
+    if (this.tnAlive[r] === 1) this.collapseTunnel(r, -1);
   }
 
   /** facing: initial hull heading in Q16.16 turns (deployment orientation —
@@ -1069,10 +1326,22 @@ export class Sim {
     this.firepowerKilled[id] = 1;
   }
 
+  /** Suppress a unit directly. Tests and the sandbox only. */
+  debugSuppress(id: number, amount: Fx): void {
+    this.applySuppression(id, amount, false);
+  }
+
+  /** Detonate a bare splash at a point. Tests and the sandbox only. */
+  debugSplash(x: Fx, y: Fx, radius: Fx, dmg: Fx, supp: Fx, by: number, exclude: number): void {
+    this.splashDirect(x, y, radius, dmg, supp, by, exclude);
+  }
+
   /** Advance exactly one 20 Hz tick. Returns the events it produced. */
   tick(): SimEvent[] {
     this.applyCommands();
+    this.stepDigging();
     this.stepDetection();
+    this.stepSurfacing();
     this.stepCombat();
     this.stepProjectiles();
     this.stepStrikes();
@@ -1080,10 +1349,15 @@ export class Sim {
     this.stepSweep();
     this.stepMovement();
     this.stepTransport();
-    this.stepSmoke();
+    this.stepFields();
     this.stepGarrison();
     this.stepDemolition();
     this.stepUpkeep();
+    // After upkeep rather than beside stepDemolition: the pin flag latches
+    // in stepUpkeep, and a charge must abort on the very tick the team is
+    // pinned — one slot earlier in the order and the interruption lands a
+    // tick late, which is the difference the pinned test measures.
+    this.stepTunnelCharge();
     this.tickCount++;
     const out = this.pendingEvents;
     this.pendingEvents = [];
@@ -1150,7 +1424,37 @@ export class Sim {
   private applyCommands(): void {
     const q = this.commandQueue;
     for (let c = 0; c < q.length; c++) {
-      const cmd = q[c];
+      let cmd = q[c];
+      // Containment is a rule, not a list of places that remembered it: every
+      // surface command refuses a buried unit HERE, at the single point where
+      // its ids expand, before any branch sees them. The earth decides where
+      // a buried unit goes, exactly as a vehicle does for its passenger — it
+      // comes back up at the vent (stepSurfacing) or dies with the route
+      // (collapseTunnel), never by taking an order below ground. Sitting
+      // above the branches also covers move's append fast-path, which
+      // `continue`d before the old per-branch guard could run. A SURFACED
+      // unit (homeTunnel >= 0, tunnelIn === -1) is ordinary and passes.
+      // One scan first: the common case — nobody buried — allocates nothing.
+      if ('ids' in cmd) {
+        let anyBuried = false;
+        for (const id of cmd.ids) {
+          if (this.tunnelIn[id] >= 0) {
+            anyBuried = true;
+            break;
+          }
+        }
+        if (anyBuried) {
+          const kept: number[] = [];
+          for (const id of cmd.ids) {
+            if (this.tunnelIn[id] < 0) kept.push(id);
+          }
+          if (kept.length === 0) continue;
+          // A copy, not a splice: the queued object belongs to whoever sent
+          // the command (invariant 4 — commands flow IN), and mutating it is
+          // observable outside the sim.
+          cmd = withIds(cmd, kept);
+        }
+      }
       if (cmd.kind === 'move' || cmd.kind === 'attackMove') {
         const gx = this.clampX(cmd.x);
         const gy = this.clampY(cmd.y);
@@ -1179,6 +1483,8 @@ export class Sim {
           // off. They are already untargetable while aboard; being immune to
           // movement orders is the same idea.
           if (this.carriedBy[id] >= 0) continue;
+          // (Buried units were already dropped where the ids expanded, above
+          // the append fast-path — the earth's refusal is not per-branch.)
           this.wpCount[id] = 0; // a fresh order replaces the whole path
           if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
           this.boardGoal[id] = -1;
@@ -1187,6 +1493,11 @@ export class Sim {
           // otherwise the designation survives the player changing their mind
           // and fires again the moment the unit next halts near that building.
           this.demolishOrder[id] = -1;
+          // A charge designation dies with the same change of mind, or the
+          // team quietly resumes the countdown the next time it halts within
+          // reach of that route's spoil.
+          this.chargeOrder[id] = -1;
+          this.chargeTicks[id] = 0;
           this.goalX[id] = gx;
           this.goalY[id] = gy;
           this.fieldRef[id] = fieldIdx;
@@ -1226,6 +1537,11 @@ export class Sim {
         let count = 0;
         for (let t = 0; t < this.count; t++) {
           if (this.alive[t] === 0 || this.side[t] === cmd.side || this.side[t] > 1) continue;
+          // Purchased certainty does not see through earth: this is the
+          // target-side twin of stepDetection's guard. The trail contact
+          // ladder (tnContact) is the ONLY channel for knowing about a
+          // tunnel, and a sweep reveals the trail's route, not its occupants.
+          if (this.tunnelIn[t] >= 0) continue;
           const d = distSqFx(fx.sub(this.posX[t], cmd.x), fx.sub(this.posY[t], cmd.y));
           if (d > SWEEP_RADIUS_SQ) continue;
           this.identifyTo(cmd.side, t);
@@ -1233,7 +1549,11 @@ export class Sim {
         }
         this.pendingEvents.push({ kind: 'revealed', tick: this.tickCount, side: cmd.side, count });
       } else if (cmd.kind === 'callStrike') {
-        if (this.alive[cmd.caller] === 1) {
+        // `caller` is not in an ids array, so the expansion filter above
+        // cannot see it — the same rule is applied by hand: a unit that
+        // cannot observe the surface does not direct fires onto it, and its
+        // RNG stream is not consumed from below ground.
+        if (this.alive[cmd.caller] === 1 && this.tunnelIn[cmd.caller] < 0) {
           // Guided, but not perfect: scatter is drawn from the caller's own
           // stream so replays stay identical (invariant 3).
           const ang = this.rng.nextU32(cmd.caller) & 0xffff;
@@ -1249,6 +1569,11 @@ export class Sim {
         const car = cmd.carrier;
         if (car < 0 || car >= this.count || this.alive[car] === 0) continue;
         if (this.unitTypes[this.typeIdx[car]].transportSlots === 0) continue;
+        // The ids filter above covers the riders; the carrier arrives by a
+        // different field and gets the same rule — nobody walks to a hull
+        // that is under three metres of earth. (canSeat refuses it too, but
+        // the walk order must die here, not at the kerb.)
+        if (this.tunnelIn[car] >= 0) continue;
         // Walk to the vehicle; stepTransport puts them aboard on arrival.
         const gx = this.posX[car];
         const gy = this.posY[car];
@@ -1327,6 +1652,55 @@ export class Sim {
           this.goalX[id] = gx;
           this.goalY[id] = gy;
           this.fieldRef[id] = fieldIdx;
+          this.moving[id] = 1;
+          this.attackMove[id] = 0;
+          this.engaging[id] = 0;
+          this.stance[id] = 0;
+        }
+      } else if (cmd.kind === 'chargeTunnel') {
+        const r = cmd.tunnel;
+        if (r < 0 || r >= this.tunnelCount_ || this.tnAlive[r] === 0) continue;
+        for (const id of cmd.ids) {
+          if (this.alive[id] === 0 || this.routed[id] === 1) continue;
+          // Only a charge-capable team takes the order. A rifle squad handed
+          // it is authoring noise, filtered the way demolish filters on
+          // canDemolish — the rest of the selection keeps its current orders.
+          if (!this.unitTypes[this.typeIdx[id]].canTunnelCharge) continue;
+          if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
+          this.chargeOrder[id] = r;
+          // A fresh designation restarts the clock, demolish's rule.
+          this.chargeTicks[id] = 0;
+          this.demolishOrder[id] = -1;
+          // Walk to the nearest tile of the route itself. A route has no
+          // centroid to aim at the way a building does, so each team heads
+          // for the closest tile of the line. Geometry, not spoil: an
+          // identified route stays workable after its trail weathers, and a
+          // pre_dug route — which never had spoil — is workable the moment
+          // something identifies it. Finding the route is the gate
+          // (stepTunnelCharge holds the clock at zero below contact level
+          // 2); standing at it must not require the dirt to still show.
+          const t = this.nearestRouteTile(r, this.posX[id], this.posY[id]);
+          if (t < 0) continue;
+          const tx = t % this.width;
+          const ty = (t - tx) / this.width;
+          // stampTrail marks tiles under buildings too, and a blocked goal
+          // bails the flow field to all-DIR_NONE (see nearestOpenTile) — so
+          // the GOAL moves to the open tile along with the field, on its own
+          // merits: spoil is a surface sign, not a footprint, and any
+          // reachable open ground beside it is a place to stand and work.
+          // The retarget is not compensating for a missing stop: since the
+          // hoist, stepTunnelCharge's in-range stop precedes its displaced
+          // gate exactly as demolish's does, and rescues the one case this
+          // retarget cannot — a goal that is open but sealed off (a route
+          // venting inside a walled compound), where the beeline grinds the
+          // team along the wall inside charge range.
+          const [fgx, fgy] = this.nearestOpenTile(tx, ty);
+          this.wpCount[id] = 0;
+          this.boardGoal[id] = -1;
+          this.garrisonGoal[id] = -1;
+          this.goalX[id] = fx.add(fx.fromInt(fgx), HALF);
+          this.goalY[id] = fx.add(fx.fromInt(fgy), HALF);
+          this.fieldRef[id] = this.fieldFor(fgx, fgy);
           this.moving[id] = 1;
           this.attackMove[id] = 0;
           this.engaging[id] = 0;
@@ -1509,6 +1883,11 @@ export class Sim {
    * and it needs no special case.
    */
   identifyTo(side: number, target: number): void {
+    // An authority primitive: it writes whatever it is told, including
+    // contact on a buried unit — which is legitimate state (a contact formed
+    // before a submerge decays through the normal ladder). Containment is
+    // the CALLER's job: the `reveal` handler and the mission's pre-marked
+    // spawn both refuse buried targets before calling here.
     const k = side * this.capacity + target;
     this.contact[k] = ONE;
     this.lastSeenX[k] = this.posX[target];
@@ -1566,8 +1945,9 @@ export class Sim {
     const sSide = this.side[shooter];
     // Civilians are never aimpoints; collateral comes from ordnance.
     if (this.side[target] === sSide || this.side[target] > 1) return { kind: 'noSolution' };
-    // Men inside a building or aboard a vehicle cannot be shot at.
-    if (this.garrisonedIn[target] >= 0 || this.carriedBy[target] >= 0) {
+    // Men inside a building, aboard a vehicle, or under the earth cannot be
+    // shot at — the same containment skip selectTarget makes.
+    if (this.garrisonedIn[target] >= 0 || this.carriedBy[target] >= 0 || this.tunnelIn[target] >= 0) {
       return { kind: 'noSolution' };
     }
     if (this.contact[sSide * cap + target] < IDENTIFIED_AT) return { kind: 'unidentified' };
@@ -1610,6 +1990,125 @@ export class Sim {
     return this.detectionPair(obs, tgt);
   }
 
+  private stepDigging(): void {
+    for (let r = 0; r < this.tunnelCount_; r++) {
+      if (this.tnAlive[r] === 0 || this.tnVentOpen[r] === 1) continue;
+      const digger = this.tnDigger[r];
+      if (digger < 0 || this.alive[digger] === 0) continue;
+      const before = this.tnProgress[r];
+      const after = fx.min(fx.add(before, this.tnDigRate[r]), this.tnLength[r]);
+      this.tnProgress[r] = after;
+      this.stampTrail(r, before, after);
+      if (after >= this.tnLength[r]) {
+        this.tnVentOpen[r] = 1;
+        this.pendingEvents.push({ kind: 'ventOpened', tick: this.tickCount, tunnel: r });
+      }
+    }
+  }
+
+  /** Mark every tile the head passed under between two progress values.
+   *  Sampled at half-tile steps: coarser skips tiles on a diagonal leg and
+   *  leaves a dotted trail the player reads as two tunnels. */
+  private stampTrail(r: number, from: Fx, to: Fx): void {
+    const points = this.tnPoints[r];
+    for (let d = fx.add(from, HALF); d < to; d = fx.add(d, HALF)) {
+      const [x, y] = pointAtDistance(points, d);
+      const tx = x >> 16;
+      const ty = y >> 16;
+      if (tx >= 0 && ty >= 0 && tx < this.width && ty < this.height) {
+        this.trail[ty * this.width + tx] = TRAIL_MAX;
+      }
+    }
+    const [ex, ey] = pointAtDistance(points, to);
+    const etx = ex >> 16;
+    const ety = ey >> 16;
+    if (etx >= 0 && ety >= 0 && etx < this.width && ety < this.height) {
+      this.trail[ety * this.width + etx] = TRAIL_MAX;
+    }
+  }
+
+  private stepSurfacing(): void {
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0) continue;
+
+      // Already up: run the exposure clock down, then go back under. The
+      // volley AND the window both have to be spent — suppression does not
+      // shorten it. A unit caught in the open is caught in the open, and that
+      // guaranteed window is the player's whole answer to this mechanic.
+      if (this.surfaceTicks[i] > 0) {
+        this.surfaceTicks[i]--;
+        if (this.surfaceTicks[i] === 0 && this.volleyLeft[i] <= 0) {
+          this.submerge(i);
+        }
+        continue;
+      }
+      if (this.homeTunnel[i] >= 0) {
+        // Window elapsed but the burst is unfinished: hold until it is, and
+        // go back down the tick it finishes. Level-triggered on purpose — the
+        // window-end check above fires on one tick only, and a burst that
+        // outlives the window (a slow weapon, a pin across the window's end)
+        // finishes later, in ordinary combat. An edge check alone strands the
+        // unit on the surface forever, homeTunnel latched, silently.
+        if (this.volleyLeft[i] > 0) continue;
+        this.submerge(i);
+        continue;
+      }
+
+      const r = this.tunnelIn[i];
+      if (r < 0 || this.tnAlive[r] === 0 || this.tnVentOpen[r] === 0) continue;
+      const type = this.unitTypes[this.typeIdx[i]];
+      if (type.weapons.length === 0) continue;
+      const [vx, vy] = this.ventPos(r);
+      if (!this.hasTargetFrom(i, vx, vy)) continue;
+
+      this.tunnelIn[i] = -1;
+      this.homeTunnel[i] = r;
+      this.tnOccupants[r]--;
+      this.posX[i] = vx;
+      this.posY[i] = vy;
+      this.surfaceTicks[i] = SURFACE_SECONDS * TICKS_PER_SECOND;
+      this.volleyLeft[i] = SURFACE_VOLLEY;
+      this.pendingEvents.push({ kind: 'surfaced', tick: this.tickCount, entity: i, tunnel: r });
+    }
+  }
+
+  private submerge(i: number): void {
+    const r = this.homeTunnel[i];
+    if (r < 0 || this.tnAlive[r] === 0) {
+      // The route died while they were up. They are simply on the surface now.
+      this.homeTunnel[i] = -1;
+      return;
+    }
+    // Through putInTunnel rather than writing tunnelIn/tnOccupants here: it
+    // already owns that invariant, and two code paths mutating the same
+    // occupant count is how counts drift.
+    this.putInTunnel(i, r);
+    this.homeTunnel[i] = -1;
+    this.suppression[i] = 0; // out of the fire
+    this.pendingEvents.push({ kind: 'submerged', tick: this.tickCount, entity: i, tunnel: r });
+  }
+
+  /** Is there a hostile this unit could engage FROM the vent tile? Evaluated
+   *  from the vent rather than the unit's current position, because that is
+   *  where it will be standing. Without the sight-line half, a unit surfaces
+   *  facing a wall and burns its whole window achieving nothing. */
+  private hasTargetFrom(i: number, vx: Fx, vy: Fx): boolean {
+    const type = this.unitTypes[this.typeIdx[i]];
+    const w = type.weapons[0];
+    const sSide = this.side[i];
+    const gx = vx >> 16;
+    const gy = vy >> 16;
+    for (let t = 0; t < this.count; t++) {
+      if (this.alive[t] === 0 || this.side[t] === sSide || this.side[t] > 1) continue;
+      if (this.garrisonedIn[t] >= 0 || this.carriedBy[t] >= 0 || this.tunnelIn[t] >= 0) continue;
+      const dSq = distSqFx(fx.sub(this.posX[t], vx), fx.sub(this.posY[t], vy));
+      if (dSq > w.effectiveRangeSq) continue;
+      if (this.losRay(gx, gy, this.posX[t] >> 16, this.posY[t] >> 16) < 0) continue;
+      return true;
+    }
+    return false;
+  }
+
   private stepDetection(): void {
     const cap = this.capacity;
     this.seenThisTick.fill(0);
@@ -1617,8 +2116,22 @@ export class Sim {
       if (this.alive[obs] === 0) continue;
       const oSide = this.side[obs];
       if (oSide > 1) continue; // civilians (side 2) observe nothing
+      // Underground observes nothing: the earth blocks sight outbound as well
+      // as inbound, so a contained unit must not feed its side's contact
+      // array. Surfacing is unaffected — hasTargetFrom deliberately reads
+      // ground truth for the spring decision, not contacts, so the ambush
+      // still springs; only the first aimed shot waits on a real observation.
+      if (this.tunnelIn[obs] >= 0) continue;
       for (let tgt = 0; tgt < this.count; tgt++) {
         if (this.alive[tgt] === 0 || this.side[tgt] === oSide) continue;
+        // Underground is unseen: not observed this tick, so an existing
+        // contact decays through the normal ladder to `lost`. This
+        // deliberately DIVERGES from the garrison precedent — a garrisoned
+        // unit stays detectable, which is how selectStructureTarget finds an
+        // occupied building — because earth blocks sight and the trail
+        // contact ladder (tnContact) is meant to be the ONLY channel for
+        // knowing about a tunnel. Do not "fix" the asymmetry.
+        if (this.tunnelIn[tgt] >= 0) continue;
         const d = this.detectionPair(obs, tgt);
         if (!d.visible) continue;
         const k = oSide * cap + tgt;
@@ -1651,6 +2164,218 @@ export class Sim {
         }
       }
     }
+    // A route is found through the spoil it leaves, not by seeing the tunnel.
+    // Confidence accrues against the ROUTE rather than per trail tile: a second
+    // per-tile contact array would cost width*height*2 for a fact the player
+    // reads as one binary ("do I know where this tunnel is").
+    for (let r = 0; r < this.tunnelCount_; r++) {
+      if (this.tnAlive[r] === 0) continue;
+      for (let s = 0; s < 2; s++) {
+        const k = s * MAX_TUNNELS + r;
+        // `mark_tunnel` senses the ROUTE, not its spoil: a trained eye with a
+        // clear sight line to any tile the route runs under hands its side
+        // the route identified outright — no dwell, no spoil, no tuning
+        // constant. This is the only authorable identification that reaches
+        // a pre_dug route, which never stamps trail; without it, spoil is
+        // the sole channel and no authored mission could ever identify
+        // exactly the routes missions are most likely to author. Run every
+        // tick, identified or not: the carrier standing in range is what
+        // HOLDS the contact at identified. mark_tunnel is a detector, not a
+        // cartographer — the moment nobody who can sense the route is near
+        // it, the knowledge starts to fade (the decay branch below).
+        if (this.markerSeesRoute(s, r)) {
+          this.identifyTunnelTo(s, r);
+          continue;
+        }
+        const strength = this.trailStrengthFor(s, r);
+        if (strength > 0) {
+          const p = fx.sub(ONE, fx.expNeg(fx.mul(K_DETECT, fx.mul(strength, DT))));
+          const c = this.tnContact[k];
+          this.tnContact[k] = fx.add(c, fx.mul(fx.sub(ONE, c), p));
+        } else {
+          // Unwatched contact decays — IDENTIFIED included. This deliberately
+          // REVERSES an earlier rule that froze identified contact forever
+          // ("a tunnel is fixed geography"): playtest overruled it. Tunnel
+          // visibility is live, detector-shaped — a side knows a route is
+          // there only while a living `mark_tunnel` carrier holds a sight
+          // line to it (the branch above) or someone is watching its spoil
+          // (the accrual branch) — so an identified route nobody senses any
+          // more fades down the same ladder every unit contact uses: c drops
+          // below LOST_AT (~322 ticks from full confidence), the ladder
+          // emits `lost`, and the route is unknown again.
+          //
+          // The failure the frozen rule was added for — a mark_tunnel
+          // handover expiring mid-CHARGE, watched killing a charge at 117 of
+          // 160 ticks — cannot recur WHILE the charging team holds a clear
+          // sight line to some route tile within its sight: the normal
+          // case, since it stands within CHARGE_RANGE (2 tiles) in the open
+          // and yahalom_squad carries mark_tunnel with sight 8
+          // (stepDetection runs before stepTunnelCharge inside a tick, and
+          // tunnels.test.ts's "live visibility" suite pins the lone-team
+          // charge). A carrier with EVERY line to its route blocked is not
+          // covered by a test and would stall — clock held below
+          // identified — rather than complete, with no player cue yet. A
+          // handover CAN also lapse mid-walk — accepted: the team re-finds
+          // the route itself as it closes to within its own sight of it.
+          this.tnContact[k] = fx.mul(this.tnContact[k], CONTACT_DECAY);
+        }
+        const c = this.tnContact[k];
+        const st = this.tnContactState[k];
+        if (st < 2 && c >= IDENTIFIED_AT) {
+          this.tnContactState[k] = 2;
+          this.pendingEvents.push({ kind: 'tunnelContact', tick: this.tickCount, side: s, tunnel: r, level: 'identified' });
+        } else if (st < 1 && c >= SUSPECTED_AT) {
+          this.tnContactState[k] = 1;
+          this.pendingEvents.push({ kind: 'tunnelContact', tick: this.tickCount, side: s, tunnel: r, level: 'suspected' });
+        } else if (st > 0 && c < LOST_AT) {
+          this.tnContactState[k] = 0;
+          this.pendingEvents.push({ kind: 'tunnelContact', tick: this.tickCount, side: s, tunnel: r, level: 'lost' });
+        }
+      }
+    }
+  }
+
+  /** Best observation any unit of `side` has on route `r` this tick: the
+   *  strongest single trail tile it can see. Zero when nobody sees any spoil. */
+  private trailStrengthFor(side: number, r: number): Fx {
+    let best = 0;
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0 || this.side[i] !== side || this.tunnelIn[i] >= 0) continue;
+      const type = this.unitTypes[this.typeIdx[i]];
+      const px = this.posX[i] >> 16;
+      const py = this.posY[i] >> 16;
+      // `sight` is Fx tiles on UnitType (there is no integer form); the scan
+      // window wants whole tiles, so round up to avoid clipping the last ring.
+      const reach = fx.toInt(fx.ceil(type.sight));
+      for (let ty = py - reach; ty <= py + reach; ty++) {
+        for (let tx = px - reach; tx <= px + reach; tx++) {
+          if (tx < 0 || ty < 0 || tx >= this.width || ty >= this.height) continue;
+          const density = this.trail[ty * this.width + tx];
+          if (density === 0) continue;
+          if (this.tunnelOfTile(r, tx, ty) === 0) continue;
+          const dSq = distSqFx(
+            fx.sub(fx.add(fx.fromInt(tx), HALF), this.posX[i]),
+            fx.sub(fx.add(fx.fromInt(ty), HALF), this.posY[i])
+          );
+          if (dSq < MIN_DETECT_DIST_SQ) continue;
+          if (this.losRay(px, py, tx, ty) < 0) continue;
+          const sig = fx.mul(TRAIL_SIGNATURE, fx.div(fx.fromInt(density), fx.fromInt(TRAIL_MAX)));
+          const strength = fx.div(fx.mul(type.optics, sig), dSq);
+          if (strength > best) best = strength;
+        }
+      }
+    }
+    return best;
+  }
+
+  /** Can any living `mark_tunnel` unit of `side` see route `r` ITSELF — a
+   *  clear sight line to any tile the route passes under, inside the unit's
+   *  own sight radius? Trail density plays no part: this is the channel that
+   *  finds a pre_dug route, which never had any. First hit wins. Same scan
+   *  shape as trailStrengthFor above, and like it allocates nothing. */
+  private markerSeesRoute(side: number, r: number): boolean {
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0 || this.side[i] !== side || this.tunnelIn[i] >= 0) continue;
+      const type = this.unitTypes[this.typeIdx[i]];
+      if (!type.canMarkTunnel) continue;
+      const px = this.posX[i] >> 16;
+      const py = this.posY[i] >> 16;
+      // Whole-tile scan window, rounded up so the last ring is not clipped —
+      // trailStrengthFor's rule.
+      const reach = fx.toInt(fx.ceil(type.sight));
+      for (let ty = py - reach; ty <= py + reach; ty++) {
+        for (let tx = px - reach; tx <= px + reach; tx++) {
+          if (tx < 0 || ty < 0 || tx >= this.width || ty >= this.height) continue;
+          if (this.tunnelOfTile(r, tx, ty) === 0) continue;
+          const dSq = distSqFx(
+            fx.sub(fx.add(fx.fromInt(tx), HALF), this.posX[i]),
+            fx.sub(fx.add(fx.fromInt(ty), HALF), this.posY[i])
+          );
+          // The window is square; sight is round. No MIN_DETECT floor here:
+          // that guard exists to cap the 1/dSq division trailStrengthFor
+          // performs, this predicate divides by nothing, and standing over
+          // the route is the best look at it there is.
+          if (dSq > type.sightSq) continue;
+          if (this.losRay(px, py, tx, ty) < 0) continue;
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /** Does route `r` pass under this tile? */
+  private tunnelOfTile(r: number, tx: number, ty: number): number {
+    return this.tnTiles[r].has(ty * this.width + tx) ? 1 : 0;
+  }
+
+  /** Which of the three contact states `side` holds on route `r`. */
+  tunnelContactLevel(side: number, r: number): 0 | 1 | 2 {
+    return this.tnContactState[side * MAX_TUNNELS + r] as 0 | 1 | 2;
+  }
+
+  /** Does route `r` pass under tile (tx, ty)? Presentation read: the renderer
+   *  uses it to decide which spoil tiles a suspected-route tint may claim.
+   *  Read-only over load-time data — nothing here can influence an outcome. */
+  tunnelUnderTile(r: number, tx: number, ty: number): boolean {
+    if (r < 0 || r >= this.tunnelCount_) return false;
+    return this.tnTiles[r].has(ty * this.width + tx);
+  }
+
+  /** Can any living surface unit of `side` currently see tile (tx, ty) —
+   *  inside its own sight radius, with a clear line of sight? The observer
+   *  set is trailStrengthFor's — alive, of the side, above ground, ANY
+   *  unit type — because this is the read the renderer draws the SPOIL
+   *  rung with, and the dirt is driven up the contact ladder by exactly
+   *  these eyes: anyone can see disturbed earth. Presentation read,
+   *  tunnelUnderTile's sibling; pure over current state (invariant 4). */
+  sideSeesTile(side: number, tx: number, ty: number): boolean {
+    return this.seesTile(side, tx, ty, false);
+  }
+
+  /** sideSeesTile restricted to `mark_tunnel` carriers — the eyes that
+   *  read the ROUTE, not just its dirt (markerSeesRoute's per-unit
+   *  filters). The renderer draws the identified line with it, so the line
+   *  lights up around a sweeping drone or Yahalom and fades behind them —
+   *  only a detector tells you what the dirt means. Pure read
+   *  (invariant 4). */
+  markerSeesTile(side: number, tx: number, ty: number): boolean {
+    return this.seesTile(side, tx, ty, true);
+  }
+
+  /** Shared body of the two tile-sight reads above. Round sight rather
+   *  than trailStrengthFor's square scan window, and no MIN_DETECT floor,
+   *  both per markerSeesRoute's own reasoning: the floor exists to cap a
+   *  1/dSq division no predicate here performs — a unit standing on the
+   *  dirt sees the dirt, even though its accrual skips that tile. */
+  private seesTile(side: number, tx: number, ty: number, carriersOnly: boolean): boolean {
+    if (tx < 0 || ty < 0 || tx >= this.width || ty >= this.height) return false;
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0 || this.side[i] !== side || this.tunnelIn[i] >= 0) continue;
+      const type = this.unitTypes[this.typeIdx[i]];
+      if (carriersOnly && !type.canMarkTunnel) continue;
+      const dSq = distSqFx(
+        fx.sub(fx.add(fx.fromInt(tx), HALF), this.posX[i]),
+        fx.sub(fx.add(fx.fromInt(ty), HALF), this.posY[i])
+      );
+      if (dSq > type.sightSq) continue;
+      if (this.losRay(this.posX[i] >> 16, this.posY[i] >> 16, tx, ty) < 0) continue;
+      return true;
+    }
+    return false;
+  }
+
+  /** `mark_tunnel`: recon hands a route over identified, no dwell required.
+   *  Held, not latched: stepDetection re-calls this every tick some carrier
+   *  keeps the route in sight, and once nothing does, the contact decays
+   *  back down the ladder like any other — visibility is live. */
+  identifyTunnelTo(side: number, r: number): void {
+    const k = side * MAX_TUNNELS + r;
+    this.tnContact[k] = ONE;
+    if (this.tnContactState[k] !== 2) {
+      this.tnContactState[k] = 2;
+      this.pendingEvents.push({ kind: 'tunnelContact', tick: this.tickCount, side, tunnel: r, level: 'identified' });
+    }
   }
 
   // ------------------------------------------------------------------- combat
@@ -1668,8 +2393,9 @@ export class Sim {
       // ordnance, not aimpoints. That asymmetry is what ROE scores.
       if (this.alive[t] === 0 || this.side[t] === sSide || this.side[t] > 1) continue;
       // Men inside a building cannot be shot at: the building is in the way,
-      // and taking it down is the only way to reach them.
-      if (this.garrisonedIn[t] >= 0 || this.carriedBy[t] >= 0) continue;
+      // and taking it down is the only way to reach them. A tunnel is the same
+      // idea a third time — the earth is in the way, and Yahalom is the way in.
+      if (this.garrisonedIn[t] >= 0 || this.carriedBy[t] >= 0 || this.tunnelIn[t] >= 0) continue;
       if (this.contact[sSide * cap + t] < IDENTIFIED_AT) continue;
       // A weapon that cannot elevate does not get to pick a target it could
       // never hit. Filtered here rather than at the hit roll so the shooter
@@ -1879,6 +2605,12 @@ export class Sim {
     const rSq = this.ambushRadiusSq[i];
     for (let t = 0; t < this.count; t++) {
       if (this.alive[t] === 0 || this.side[t] === mySide || this.side[t] > 1) continue;
+      // The third sight test, and the one that reads ground truth rather
+      // than the contact array — so no contact guard protects it. A buried
+      // enemy's coordinates name a tile it is not standing on; springing on
+      // one spends the trap on nothing, because selectTarget then correctly
+      // refuses the shot. A SURFACED enemy (tunnelIn === -1) still springs it.
+      if (this.tunnelIn[t] >= 0) continue;
       const dSq = distSqFx(fx.sub(this.posX[t], px), fx.sub(this.posY[t], py));
       if (dSq > rSq) continue;
       if (this.losRay(px >> 16, py >> 16, this.posX[t] >> 16, this.posY[t] >> 16) >= 0) return true;
@@ -1928,6 +2660,17 @@ export class Sim {
   private stepCombat(): void {
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0 || this.firepowerKilled[i] === 1) continue;
+      // The outbound half of containment — the inbound half is Task 7's
+      // selectTarget/splash/suppression guards. The earth stops fire in both
+      // directions: without this, a unit below ground with a live contact
+      // shoots untargetable rounds out of bare dirt. Surfacing (stepSurfacing)
+      // is how a tunnel fighter gets to shoot at all.
+      if (this.tunnelIn[i] >= 0) {
+        this.engaging[i] = 0;
+        this.curTarget[i] = -1;
+        this.curStructure[i] = -1;
+        continue;
+      }
       // Gone to ground (GDD 5.5): heads down, no aimed return fire. This is
       // the threshold that makes fire superiority — and the 3:1 rule — real:
       // enough volume silences a defense, not-enough leaves it lethal.
@@ -2112,6 +2855,10 @@ export class Sim {
 
     this.cooldown[shooter * 2 + slot] = w.ticksBetweenShots;
     this.lastFired[shooter] = this.tickCount;
+    // A shot is definitely being taken. Meter the surfacing burst — only a
+    // unit up from a route has one; an ordinary surface unit never carries
+    // volley bookkeeping.
+    if (this.homeTunnel[shooter] >= 0) this.volleyLeft[shooter]--;
 
     // Aim point: the target now, or a scatter point nearby on a miss.
     let aimX = tx;
@@ -2312,8 +3059,12 @@ export class Sim {
     const targetAlive = this.alive[target] === 1;
 
     // Trophy-class APS engages any inbound shaped charge, hit or miss —
-    // the defender cannot know which is which (GDD 5.6).
-    if (targetAlive && (APS_INTERCEPTABLE_MASK & (1 << cls)) !== 0) {
+    // the defender cannot know which is which (GDD 5.6). Unless the carrier
+    // went below while the round was in flight: the earth is the interceptor
+    // then, and the block must not run — it draws from the target's
+    // per-entity RNG stream, so an intercept happening down there would tie
+    // the replay hash to an action the rule says cannot happen at all.
+    if (targetAlive && this.tunnelIn[target] < 0 && (APS_INTERCEPTABLE_MASK & (1 << cls)) !== 0) {
       const tType = this.unitTypes[this.typeIdx[target]];
       if (tType.hasAps && (tType.apsIneffectiveMask & (1 << cls)) === 0 && this.apsAmmo[target] > 0) {
         let pI = fx.mul(tType.apsPk, APS_VEL_F[cls]);
@@ -2343,6 +3094,15 @@ export class Sim {
     }
 
     if (this.prWillHit[pr] === 1 && targetAlive) {
+      // The target went below while the round was in flight: nothing is at
+      // the aim point but dirt, so the round lands on it where the target
+      // stood. The ground impact's splash and suppression are already
+      // contained by the tunnelIn guards, so the earth stays honest all the
+      // way down.
+      if (this.tunnelIn[target] >= 0) {
+        this.groundImpact(pr, this.posX[target], this.posY[target]);
+        return;
+      }
       this.resolveHit(pr, target);
     } else {
       // Miss (or the target died in flight): ordnance lands at the aim point.
@@ -2500,6 +3260,7 @@ export class Sim {
     const shooter = this.prShooter[pr];
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0 || i === excludeId) continue;
+      if (this.tunnelIn[i] >= 0) continue; // three metres of earth
       const dSq = distSqFx(fx.sub(this.posX[i], x), fx.sub(this.posY[i], y));
       if (dSq > splashSq) continue;
       const falloff = fx.sub(ONE, fx.div(fx.sqrt(dSq), splash));
@@ -2517,6 +3278,7 @@ export class Sim {
     const splashSq = fx.mul(splash, splash);
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0 || i === exclude || i === by) continue;
+      if (this.tunnelIn[i] >= 0) continue; // three metres of earth
       const dSq = distSqFx(fx.sub(this.posX[i], x), fx.sub(this.posY[i], y));
       if (dSq > splashSq) continue;
       const falloff = fx.sub(ONE, fx.div(fx.sqrt(dSq), splash));
@@ -2528,7 +3290,10 @@ export class Sim {
   private applyDamage(target: number, dmg: Fx, by: number): void {
     if (dmg <= 0 || this.alive[target] === 0) return;
     // Inside a building or a vehicle, the hull takes it. Kill that first.
-    if (this.garrisonedIn[target] >= 0 || this.carriedBy[target] >= 0) return;
+    // Underground there is no hull to kill: the earth itself is the armour,
+    // and a tunnel collapse — which kills via destroy(), never through here —
+    // is the only way ordnance gets to the occupants.
+    if (this.garrisonedIn[target] >= 0 || this.carriedBy[target] >= 0 || this.tunnelIn[target] >= 0) return;
     this.hp[target] = fx.sub(this.hp[target], dmg);
     this.lastDamagedTick[target] = this.tickCount;
     if (this.hp[target] <= 0) this.destroy(target, by);
@@ -2537,6 +3302,10 @@ export class Sim {
   /** coverProtects: fire arriving from outside is muffled by entrenchment;
    *  a penetration's crew shock (crew_shaken) is not. */
   private applySuppression(target: number, amount: Fx, coverProtects = true): void {
+    // You cannot pin someone who is underground. Without this, a mortar
+    // barrage over a trail routs the occupants and the counter-unit is
+    // decorative.
+    if (this.tunnelIn[target] >= 0) return;
     const type = this.unitTypes[this.typeIdx[target]];
     let a = fx.mul(amount, type.suppResFactor);
     const vet = this.veterancy[target];
@@ -2763,6 +3532,10 @@ export class Sim {
     // Only dismounted elements ride. This also covers vehicle stacking, since no
     // carrier is a foot role.
     if (!this.unitTypes[this.typeIdx[id]].canEmbark) return false;
+    // Neither party may be underground: a buried rider cannot reach a seat,
+    // and a buried hull is not a place a surface unit can climb into. The
+    // deepest gate — embarkAtSpawn and boarding both pass through here.
+    if (this.tunnelIn[id] >= 0 || this.tunnelIn[car] >= 0) return false;
     return this.carriedBy[id] < 0;
   }
 
@@ -2811,6 +3584,10 @@ export class Sim {
   private stepKamikaze(): void {
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0) continue;
+      // A munition steers itself off its side's contacts, with no order to
+      // clear and no command to refuse — the outbound guard has to live in
+      // the step system itself, the way stepCombat's does.
+      if (this.tunnelIn[i] >= 0) continue;
       const type = this.unitTypes[this.typeIdx[i]];
       if (!type.isKamikaze || type.weapons.length === 0) continue;
       const w = type.weapons[0];
@@ -2826,7 +3603,9 @@ export class Sim {
       let bestD = 0x7fffffff;
       for (let t = 0; t < this.count; t++) {
         if (this.alive[t] === 0 || this.side[t] === side || this.side[t] > 1) continue;
-        if (this.garrisonedIn[t] >= 0 || this.carriedBy[t] >= 0) continue;
+        // Same containment skip as selectTarget: a one-shot munition must not
+        // spend itself diving at three metres of dirt.
+        if (this.garrisonedIn[t] >= 0 || this.carriedBy[t] >= 0 || this.tunnelIn[t] >= 0) continue;
         if (this.contact[side * cap + t] < IDENTIFIED_AT) continue;
         // A munition picks its own target, so the can_target rule has to be
         // applied here too -- selectTarget is never consulted on this path. A
@@ -2917,6 +3696,11 @@ export class Sim {
   private stepDemolition(): void {
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0) continue;
+      // The automatic branch below sets charges wherever a demolisher merely
+      // holds station — no order, so neither the command filter nor
+      // putInTunnel's bundle clear can reach it. A buried team is stationary
+      // by definition and would quietly raze the shed above its route.
+      if (this.tunnelIn[i] >= 0) continue;
       const type = this.unitTypes[this.typeIdx[i]];
       if (!type.canDemolish) continue;
       // Arrival, for a unit under orders. A `demolish` order aims the unit at
@@ -3020,6 +3804,142 @@ export class Sim {
         );
       }
     }
+  }
+
+  /**
+   * The tunnel counter: a charge team ordered onto an identified route holds
+   * station beside its revealed spoil, and after tunnelChargeTicks of
+   * uninterrupted work brings the whole route down. Modelled on
+   * stepDemolition — same stationary/unshaken/ungarrisoned conditions, same
+   * being-in-range-is-arrival stop — with two additions: the identified
+   * gate, because you cannot dig a charge down to a void you have not found,
+   * and a not-underground clause, because a team below ground cannot work a
+   * charge on the surface.
+   */
+  private stepTunnelCharge(): void {
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0) continue;
+      const type = this.unitTypes[this.typeIdx[i]];
+      if (!type.canTunnelCharge) continue;
+      const r = this.chargeOrder[i];
+      if (r < 0 || this.tnAlive[r] === 0) {
+        this.chargeOrder[i] = -1;
+        this.chargeTicks[i] = 0;
+        continue;
+      }
+      // A route nobody has found cannot be charged: they would be digging at
+      // random ground. Suspected is a blip, not a firing solution.
+      if (this.tunnelContactLevel(this.side[i], r) !== 2) {
+        this.chargeTicks[i] = 0;
+        continue;
+      }
+      // Arrival is being in range, for the reason stepDemolition documents: an
+      // order aimed at a route has no single tile to stand on, so `moving`
+      // would never clear on its own. Evaluated BEFORE the displaced gate, and
+      // that ordering is load-bearing, not tidiness: a team beelining at an
+      // unreachable goal — a route venting inside a sealed compound, where
+      // nearestOpenTile hands the courtyard back verbatim — wall-slides with
+      // `displaced` at 1 for hundreds of ticks while the slide's free-axis
+      // share decays toward zero, and a stop sequenced after that gate can
+      // never fire for it. stepDemolition runs its stop before its displaced
+      // gate for exactly this pathology; the grinding-team test in
+      // tunnels.test.ts fails if this is ever "tidied" back down.
+      if (this.moving[i] === 1 && this.nearestRouteTileDistSq(r, i) <= CHARGE_RANGE_SQ) {
+        this.moving[i] = 0;
+        this.fieldRef[i] = -1;
+      }
+      // Same conditions as a demolition charge — stationary, unshaken, not
+      // garrisoned — plus one this system adds: not underground. The
+      // garrison clause is load-bearing, not hygiene: yahalom_squad can
+      // garrison, and a team working the charge from inside a building would
+      // be immune to fire (applyDamage kills the hull first), deleting the
+      // escort loop the unit exists for. Yahalom stands in the open, beside
+      // a tunnel that can vent shooters at it. The tunnel clause is the
+      // plainer one: a team below ground cannot work a charge on the surface.
+      if (
+        this.displaced[i] === 1 ||
+        this.pinned[i] === 1 ||
+        this.garrisonedIn[i] >= 0 ||
+        this.tunnelIn[i] >= 0
+      ) {
+        this.chargeTicks[i] = 0;
+        continue;
+      }
+      if (this.nearestRouteTileDistSq(r, i) > CHARGE_RANGE_SQ) {
+        this.chargeTicks[i] = 0;
+        continue;
+      }
+      if (++this.chargeTicks[i] >= type.tunnelChargeTicks) {
+        this.collapseTunnel(r, i);
+        this.chargeOrder[i] = -1;
+        this.chargeTicks[i] = 0;
+      }
+    }
+  }
+
+  private collapseTunnel(r: number, by: number): void {
+    this.tnAlive[r] = 0;
+    this.tnVentOpen[r] = 0;
+    // Everyone below dies. A bailing crew has somewhere to bail to; this does
+    // not. Attributed to `by` so kill credit and ROE resolve the normal way.
+    // Killed via destroy(), never applyDamage — the earth-is-the-armour guard
+    // there would refuse the very ordnance that is the earth coming down.
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 1 && this.tunnelIn[i] === r) {
+        this.tunnelIn[i] = -1;
+        this.destroy(i, by);
+      }
+      // Anyone currently up from this route simply loses their hole.
+      if (this.homeTunnel[i] === r) this.homeTunnel[i] = -1;
+    }
+    this.tnOccupants[r] = 0;
+    const [cx, cy] = this.ventPos(r);
+    this.splashDirect(cx, cy, TUNNEL_COLLAPSE_RADIUS, 0, TUNNEL_COLLAPSE_SHOCK, by, -1);
+    this.pendingEvents.push({ kind: 'tunnelCollapsed', tick: this.tickCount, tunnel: r, by });
+  }
+
+  /** Squared distance from unit `i` to the closest tile of route `r`.
+   *
+   *  The route's own geometry, NOT current spoil density: this check used to
+   *  skip tiles whose trail had weathered, which made an identified route
+   *  unworkable once its spoil faded — and a pre_dug route, which never has
+   *  spoil, indestructible outright. Identification is the "you found it"
+   *  gate and stepTunnelCharge already enforces it; this is only "you are
+   *  standing at it", and the earth does not move when the dirt blows away. */
+  private nearestRouteTileDistSq(r: number, i: number): Fx {
+    let best = FX_MAX;
+    for (const t of this.tnTiles[r]) {
+      const tx = t % this.width;
+      const ty = (t - tx) / this.width;
+      const d = distSqFx(
+        fx.sub(fx.add(fx.from(tx), HALF), this.posX[i]),
+        fx.sub(fx.add(fx.from(ty), HALF), this.posY[i])
+      );
+      if (d < best) best = d;
+    }
+    return best;
+  }
+
+  /** Tile index of route `r`'s tile closest to a point. Command-time only —
+   *  the per-tick range check is nearestRouteTileDistSq, which needs the
+   *  distance, not the tile. Route geometry, not spoil, for the same reason
+   *  as the range check: the walk goal must not evaporate with the trail. */
+  private nearestRouteTile(r: number, x: Fx, y: Fx): number {
+    let best = -1;
+    let bestD = FX_MAX;
+    for (const t of this.tnTiles[r]) {
+      const tx = t % this.width;
+      const ty = (t - tx) / this.width;
+      const d = distSqFx(
+        fx.sub(fx.add(fx.fromInt(tx), HALF), x),
+        fx.sub(fx.add(fx.fromInt(ty), HALF), y)
+      );
+      if (d < bestD) {
+        bestD = d;
+        best = t;
+      }
+    }
+    return best;
   }
 
   /** True when anyone from `side` is garrisoned in this building. */
@@ -3160,6 +4080,16 @@ export class Sim {
     this.displaced.fill(0);
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0 || this.moving[i] === 0 || this.mobilityKilled[i] === 1) continue;
+      // The belt, not a duplicate. Every autonomous setter of `moving` is
+      // individually guarded (stepSweep, stepTransport, stepKamikaze,
+      // startRout via suppression refusal) and applyCommands refuses buried
+      // ids — those are the braces. This line is what makes movement
+      // containment structural rather than an enumeration of setters: the
+      // next system that sets `moving = 1` gets it for free instead of by
+      // remembering. Safe by construction — no system legitimately moves a
+      // buried body: stepDigging never touches posX, and surfacing writes
+      // the vent position directly rather than walking there.
+      if (this.tunnelIn[i] >= 0) continue;
       // Attack-movers halt to fight while they hold a target (stationary
       // stance emerges from this — no scripted bonus needed).
       if (this.attackMove[i] === 1 && this.engaging[i] === 1) continue;
@@ -3264,8 +4194,8 @@ export class Sim {
 
   // ------------------------------------------------------------------- upkeep
 
-  /** Screens thin out and lift. */
-  private stepSmoke(): void {
+  /** Field grids weather: screens thin out and lift, surface spoil erodes. */
+  private stepFields(): void {
     const smoke = this.smoke;
     for (let i = 0; i < smoke.length; i++) {
       const v = smoke[i];
@@ -3273,6 +4203,17 @@ export class Sim {
     }
     for (let i = 0; i < this.count; i++) {
       if (this.smokeCooldown[i] > 0) this.smokeCooldown[i]--;
+    }
+    // Spoil weathers more slowly than smoke lifts, so it is only touched every
+    // TRAIL_DECAY_EVERY ticks. Integer, like smoke — a fractional decay here
+    // would be the "just this one calculation" the fixed-point invariant exists
+    // to refuse.
+    if (this.tickCount % TRAIL_DECAY_EVERY === 0) {
+      const trail = this.trail;
+      for (let i = 0; i < trail.length; i++) {
+        const v = trail[i];
+        if (v !== 0) trail[i] = v > TRAIL_DECAY ? v - TRAIL_DECAY : 0;
+      }
     }
   }
 
@@ -3420,6 +4361,29 @@ export class Sim {
     h = hashArray(h, this.stAlive);
     h = hashArray(h, this.stHp);
     h = hashArray(h, this.stOccupants);
+    // Tunnel columns — every mutable one, matching how the demolition and
+    // contact state above is folded in. The contact pair matters most: it
+    // gates the charge clock, and under live-gated visibility it moves every
+    // tick a route is being watched or forgotten — a sub-threshold
+    // divergence there would otherwise sit dormant until an order happened
+    // to be issued. NOT hashed, deliberately: the trail grid
+    // (width*height bytes of derived state that tnProgress already
+    // determines — hashing it would turn every trail-decay tuning change
+    // into a hash change for no added coverage), tnLength/tnDigRate/
+    // tnVentX/tnVentY/tnPoints/tnTiles (immutable after addTunnel), and
+    // tnDigger (set once by assignDigger; stepDigging re-checks `alive`).
+    h = hashArray(h, this.tunnelIn);
+    h = hashArray(h, this.homeTunnel);
+    h = hashArray(h, this.surfaceTicks);
+    h = hashArray(h, this.volleyLeft);
+    h = hashArray(h, this.chargeOrder);
+    h = hashArray(h, this.chargeTicks);
+    h = hashArray(h, this.tnAlive);
+    h = hashArray(h, this.tnProgress);
+    h = hashArray(h, this.tnVentOpen);
+    h = hashArray(h, this.tnOccupants);
+    h = hashArray(h, this.tnContact);
+    h = hashArray(h, this.tnContactState);
     return h >>> 0;
   }
 }

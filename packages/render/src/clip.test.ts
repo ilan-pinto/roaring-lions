@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { cadenceScale, resolveClip, resolveTurretClip, ROUT_CADENCE, type UnitAnimInput } from './clip';
 
-const alive: UnitAnimInput = { alive: 1, routed: 0, pinned: 0, speed: 0, firing: false };
+const alive: UnitAnimInput = {
+  alive: 1,
+  routed: 0,
+  pinned: 0,
+  speed: 0,
+  firing: false,
+  working: false,
+};
 
 describe('resolveClip — precedence', () => {
   it('stands still by default', () => {
@@ -40,6 +47,44 @@ describe('resolveClip — precedence', () => {
 
   it('keeps firing while moving — firing outranks locomotion', () => {
     expect(resolveClip({ ...alive, firing: true, speed: 0.9 })).toBe('fire');
+  });
+});
+
+describe('resolveClip — work', () => {
+  it('shows work while a tunnel charge is being worked', () => {
+    expect(resolveClip({ ...alive, working: true })).toBe('work');
+  });
+
+  it('outranks fire — the ordering that prevents the per-burst bob', () => {
+    // `fire` latches per shot and `work` kneels the lead figure. If fire won,
+    // each burst would stand him up and kneel him back down — the same
+    // whole-team bob the fire clip itself was once rebuilt to eliminate
+    // (teams.py _standing_posture). The charge pose holds; muzzle VFX carry
+    // the shooting.
+    expect(resolveClip({ ...alive, working: true, firing: true })).toBe('work');
+  });
+
+  it('outranks locomotion — a working team is planted, whatever speed says', () => {
+    // The sim resets charge progress on displacement, so speed here is a
+    // stale tick delta at most; without this a working unit could flicker
+    // into a walk for a frame.
+    expect(resolveClip({ ...alive, working: true, speed: 0.9 })).toBe('work');
+  });
+
+  it('goes down rather than working when pinned — a pinned man is not working', () => {
+    expect(resolveClip({ ...alive, working: true, pinned: 1 })).toBe('down');
+  });
+
+  it('runs rather than working when routed', () => {
+    expect(resolveClip({ ...alive, working: true, routed: 1, speed: 1.2 })).toBe('move');
+  });
+
+  it('a dead unit never works', () => {
+    expect(resolveClip({ ...alive, working: true, alive: 0 })).toBe('down');
+  });
+
+  it('does not scale cadence — work runs at its authored fps', () => {
+    expect(cadenceScale({ ...alive, working: true })).toBe(1);
   });
 });
 

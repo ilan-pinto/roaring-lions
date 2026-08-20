@@ -1,13 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fx } from './fixed';
 import { Sim, TICKS_PER_SECOND, type SimEvent, type UnitTypeJson } from './sim';
+import { STRIKE_DELAY_TICKS } from './tuning';
 import {
   MissionRuntime,
   type LedgerData,
   type MissionContext,
   type MissionEvent,
   type MissionJson,
+  type ObjectiveJson,
+  type PlacementJson,
 } from './mission';
+import type { TunnelRouteJson } from './tunnels';
 
 // Mission runtime tests: the declarative vocabulary (GDD §6) interpreted
 // deterministically. Small worlds, headless, seconds of sim time.
@@ -343,9 +347,12 @@ describe('objectives and mission end', () => {
   });
 
   it('rejects objective types the runtime does not support yet', () => {
+    // The example was `collapse` until that type gained a runtime; `escort`
+    // is the schema's next still-unimplemented type. When it graduates too,
+    // move to another — the guard under test is SUPPORTED, not the example.
     expect(() =>
-      makeWorld(baseMission({ objectives: [{ id: 'x', type: 'collapse', primary: true }] }))
-    ).toThrow(/collapse/);
+      makeWorld(baseMission({ objectives: [{ id: 'x', type: 'escort', primary: true }] }))
+    ).toThrow(/escort/);
   });
 });
 
@@ -1927,5 +1934,786 @@ describe('a raze objective that has become impossible', () => {
     }
     expect(rt.objectiveList[0].status).toBe('complete');
     expect(rt.result).toBe('victory');
+  });
+});
+
+// `collapse`: "bring down every tunnel route whose mouth opens inside this
+// zone." Mirrors `raze` deliberately: zone-scoped target, set snapshotted at
+// mission start, a length guard so an empty set can never read as an instant
+// win, and a `seconds` deadline so an impossible collapse loses the mission
+// rather than hanging it. Routes come down via debugCollapseTunnel for the
+// same reason the raze tests use debugDestroyStructure: the objective observes
+// the outcome, not the charge that causes it (tunnels.test.ts owns the charge
+// mechanics).
+describe('collapse objective', () => {
+  /** Mouths (points[0]) of tn_a and tn_b sit inside `district`; tn_far's does
+   *  not. The zone rule is the whole point of the objective, so the fixture
+   *  has to be able to tell a route in the zone from one that merely exists. */
+  const ROUTES: readonly TunnelRouteJson[] = [
+    { id: 'tn_a', points: [[3, 3], [12, 3]], dig_tiles_per_s: 1 },
+    { id: 'tn_b', points: [[4, 6], [12, 6]], dig_tiles_per_s: 1 },
+    { id: 'tn_far', points: [[18, 3], [20, 3]], dig_tiles_per_s: 1 },
+  ];
+  /** x, y, w, h in tiles: covers (2,2)-(9,9). */
+  const DISTRICT = [2, 2, 8, 8] as const;
+  /** Open ground holding no mouths at all. */
+  const BARE = [14, 10, 2, 2] as const;
+
+  function collapseWorld(over: Partial<ObjectiveJson> = {}) {
+    const sim = new Sim({ seed: 7, width: 24, height: 16, capacity: 16 });
+    const squad = sim.addUnitType(SQUAD);
+    for (const r of ROUTES) sim.addTunnel(r);
+    const mission: MissionJson = {
+      id: 'collapse_test',
+      map: { file: 'none' },
+      ledger: { requires: [], produces: [] },
+      // One living unit with no charge ability: the player is never wiped
+      // (checkEnd would end the mission before any deadline could), and
+      // nothing on the roster can ever bring a route down.
+      starting_force: [{ unit: SQUAD.id, count: 1, at: [21, 13] }],
+      objectives: [
+        { id: 'o_collapse', type: 'collapse', primary: true, target: 'district', seconds: 300, ...over },
+      ],
+    };
+    const rt = new MissionRuntime(sim, mission, {
+      typeIdOf: (u) => {
+        if (u !== SQUAD.id) throw new Error(`unknown unit ${u}`);
+        return squad;
+      },
+      markers: {},
+      zones: { district: DISTRICT, bare: BARE },
+      tunnels: ROUTES,
+    });
+    rt.start();
+    return { sim, rt };
+  }
+
+  it('completes when every route whose mouth is in the zone is down', () => {
+    const { sim, rt } = collapseWorld();
+    expect(rt.objectiveStatus('o_collapse')).toBe('active');
+    sim.debugCollapseTunnel(0); // tn_a
+    rt.step([]);
+    expect(rt.objectiveStatus('o_collapse')).toBe('active'); // tn_b still stands
+    sim.debugCollapseTunnel(1); // tn_b
+    const events = rt.step([]);
+    expect(events).toContainEqual(
+      expect.objectContaining({ kind: 'objective', id: 'o_collapse', status: 'complete' })
+    );
+    expect(rt.objectiveStatus('o_collapse')).toBe('complete');
+  });
+
+  it('does not complete while one route in the zone still stands', () => {
+    const { sim, rt } = collapseWorld();
+    sim.debugCollapseTunnel(0); // only tn_a
+    for (let t = 0; t < 200; t++) {
+      sim.tick();
+      rt.step([]);
+    }
+    expect(rt.objectiveStatus('o_collapse')).toBe('active');
+  });
+
+  it('ignores a route whose mouth is outside the zone', () => {
+    const { sim, rt } = collapseWorld();
+    sim.debugCollapseTunnel(0);
+    sim.debugCollapseTunnel(1);
+    expect(sim.tnAlive[2]).toBe(1); // premise: tn_far stands untouched
+    rt.step([]);
+    // tn_far must not hold the objective open.
+    expect(rt.objectiveStatus('o_collapse')).toBe('complete');
+  });
+
+  // The same trap the impossible-raze suite pins (issue #87): no unit on the
+  // roster can work a charge, so without the deadline the mission would be
+  // unwinnable and unlosable at once.
+  it('fails at its deadline when no unit can carry a charge', () => {
+    const { sim, rt } = collapseWorld({ seconds: 5 });
+    let failed = false;
+    for (let t = 0; t < 5 * TICKS_PER_SECOND + 20; t++) {
+      sim.tick();
+      for (const e of rt.step([])) {
+        if (e.kind === 'objective' && e.id === 'o_collapse' && e.status === 'failed') failed = true;
+      }
+    }
+    expect(failed).toBe(true);
+    expect(rt.objectiveStatus('o_collapse')).toBe('failed');
+    expect(rt.result).toBe('defeat'); // a failed primary ends the mission
+  });
+
+  it('never completes for a zone with no mouths, rather than completing instantly', () => {
+    const { sim, rt } = collapseWorld({ target: 'bare' });
+    for (let t = 0; t < 200; t++) {
+      sim.tick();
+      rt.step([]);
+    }
+    expect(rt.objectiveStatus('o_collapse')).toBe('active');
+  });
+
+  it('throws when the zone does not resolve', () => {
+    expect(() => collapseWorld({ target: 'nowhere' })).toThrow(/needs a valid zone/);
+  });
+});
+
+// `in_tunnel` on a placement: the bodies spawn inside a route instead of
+// standing on their tile — how an author stocks a pre-dug route with a
+// garrison that is underground from tick zero.
+describe('in_tunnel placements', () => {
+  const ROUTE: TunnelRouteJson = { id: 'tn_a', points: [[3, 3], [12, 3]], dig_tiles_per_s: 1 };
+
+  function tunnelWorld(
+    garrison: PlacementJson,
+    opts: {
+      houseAtMouth?: boolean;
+      /** Replace the default destroy_all primary (and provide its zones). */
+      objectives?: MissionJson['objectives'];
+      zones?: Record<string, readonly number[]>;
+      /** Replace the default surface squad. */
+      force?: readonly PlacementJson[];
+    } = {}
+  ) {
+    const sim = new Sim({ seed: 7, width: 24, height: 16, capacity: 16 });
+    const types = new Map<string, number>();
+    for (const t of [SQUAD, AMBUSHER]) types.set(t.id, sim.addUnitType(t));
+    if (opts.houseAtMouth) {
+      // A building over the mouth tile (3,3), to prove a buried placement is
+      // exempt from the ground-clear check the way a garrison stance is.
+      const st = sim.addStructureType({ id: 'tn_house', hp_per_tile: 100 });
+      sim.addStructure(st, [3 * sim.width + 3]);
+    }
+    sim.addTunnel(ROUTE);
+    const mission: MissionJson = {
+      id: 'in_tunnel_test',
+      map: { file: 'none' },
+      ledger: { requires: [], produces: [] },
+      starting_force: opts.force ?? [{ unit: SQUAD.id, count: 1, at: [21, 13] }],
+      objectives: opts.objectives ?? [{ id: 'win', type: 'destroy_all', primary: true }],
+      enemy: { garrison: [garrison] },
+    };
+    const rt = new MissionRuntime(sim, mission, {
+      typeIdOf: (u) => {
+        const t = types.get(u);
+        if (t === undefined) throw new Error(`unknown unit ${u}`);
+        return t;
+      },
+      markers: {},
+      zones: opts.zones ?? {},
+      tunnels: [ROUTE],
+    });
+    rt.start();
+    const enemies = allIds(sim).filter(
+      (i) => sim.state.alive[i] === 1 && sim.state.side[i] === 1
+    );
+    return { sim, rt, enemies };
+  }
+
+  it('starts every body of the placement underground', () => {
+    const { sim, enemies } = tunnelWorld({
+      unit: AMBUSHER.id,
+      count: 2,
+      at: [3, 3],
+      in_tunnel: 'tn_a',
+    });
+    expect(enemies.length).toBe(2);
+    for (const id of enemies) expect(sim.state.tunnelIn[id]).toBe(0); // route index 0
+    expect(sim.tnOccupants[0]).toBe(2);
+  });
+
+  it('throws, naming the route, when a placement names an unknown one', () => {
+    expect(() =>
+      tunnelWorld({ unit: AMBUSHER.id, count: 1, at: [3, 3], in_tunnel: 'tn_zz' })
+    ).toThrow(/tn_zz/);
+  });
+
+  it('is exempt from the ground-clear check: a buried body does not stand on its tile', () => {
+    // The mouth tile is inside a building. A surface placement there would
+    // throw from assertGroundClear; a buried one occupies the route, not the
+    // tile, and comes back up at the vent — so surface clearance at `at`
+    // proves nothing and must not be demanded.
+    const { sim, enemies } = tunnelWorld(
+      { unit: AMBUSHER.id, count: 1, at: [3, 3], in_tunnel: 'tn_a' },
+      { houseAtMouth: true }
+    );
+    expect(enemies.length).toBe(1);
+    expect(sim.state.tunnelIn[enemies[0]]).toBe(0);
+  });
+
+  // The hole Task 8's review carried here, now closed: applyCommands refuses
+  // a surface move order for a buried unit — an attack-move is the exact
+  // command a trigger's `commit` issues for its group — and putInTunnel
+  // clears kinematics, so an order a unit was already walking when it went
+  // down cannot keep its body moving below ground either. The earth decides
+  // where a buried unit goes, exactly as a vehicle does for its passenger.
+  it('a buried unit refuses a move order: the earth holds it still', () => {
+    const { sim, enemies } = tunnelWorld({
+      unit: AMBUSHER.id,
+      count: 1,
+      at: [3, 3],
+      in_tunnel: 'tn_a',
+    });
+    const id = enemies[0];
+    const before = sim.state.posX[id];
+    sim.queueCommand({ kind: 'attackMove', ids: [id], x: fx.from(8.5), y: fx.from(3.5) });
+    for (let t = 0; t < 60; t++) sim.tick();
+    expect(sim.state.tunnelIn[id]).toBe(0); // still inside the route
+    expect(sim.state.posX[id]).toBe(before); // and exactly where it was buried
+  });
+
+  // The reviewer's corollary to the move-order hole, and it needs no order at
+  // all: contestedIn filtered by alive and side only, so a stocked route
+  // whose spawn point sat inside a capture zone contested it from
+  // underground — the player walks in, nothing on the map to shoot, and the
+  // clock never starts.
+  it('a buried enemy does not contest ground: capture completes over it', () => {
+    const { sim, rt } = tunnelWorld(
+      // The authored spawn point sits inside the zone, a tile from the squad.
+      { unit: AMBUSHER.id, count: 1, at: [20, 12], in_tunnel: 'tn_a' },
+      {
+        objectives: [{ id: 'take', type: 'capture', primary: true, target: 'obj', seconds: 3 }],
+        zones: { obj: [18, 10, 6, 6] },
+      }
+    );
+    for (let t = 0; t < 5 * TICKS_PER_SECOND; t++) {
+      sim.tick();
+      rt.step([]);
+    }
+    expect(rt.objectiveStatus('take')).toBe('complete');
+  });
+
+  // And the same rule read from the other side: livingIn must not count a
+  // buried friendly as presence, or a zone could be captured with nobody on
+  // the ground.
+  it('a buried friendly holds no ground either: capture stays unheld', () => {
+    const { sim, rt } = tunnelWorld(
+      { unit: AMBUSHER.id, count: 1, at: [3, 3], in_tunnel: 'tn_a' }, // far from the zone
+      {
+        force: [{ unit: SQUAD.id, count: 1, at: [21, 13], in_tunnel: 'tn_a' }],
+        objectives: [{ id: 'take', type: 'capture', primary: true, target: 'obj', seconds: 3 }],
+        zones: { obj: [18, 10, 6, 6] },
+      }
+    );
+    for (let t = 0; t < 5 * TICKS_PER_SECOND; t++) {
+      sim.tick();
+      rt.step([]);
+    }
+    expect(rt.objectiveStatus('take')).toBe('active');
+    expect(rt.objectiveList[0].paused).toBe('unheld');
+  });
+});
+
+// Fixtures for the two describes below. digger_crew's numbers with the shovel;
+// recon's mark_tunnel on unarmed eyes; yahalom's charge with a short fuse so
+// the collapse lands inside a test-sized tick budget. New types rather than
+// edits to SQUAD/AMBUSHER for the reason CARRIER states: adding abilities to
+// the shared fixtures would change what every other test here exercises.
+const M_DIGGER: UnitTypeJson = {
+  id: 'm_digger',
+  hull: { hp: 330, armor: { front: 10, side: 10, rear: 10 } },
+  mobility: { speed_tiles_s: 0.5 },
+  sensors: { optics: 0.85, sight_tiles: 6, signature: 0.5 },
+  abilities: ['dig_tunnel'],
+  weapons: [],
+};
+const M_MARKER: UnitTypeJson = {
+  id: 'm_marker',
+  hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
+  mobility: { speed_tiles_s: 0.9 },
+  sensors: { optics: 1.0, sight_tiles: 8, signature: 0.6 },
+  abilities: ['mark_tunnel'],
+  weapons: [],
+};
+const M_CHARGER: UnitTypeJson = {
+  id: 'm_charger',
+  hull: { hp: 380, armor: { front: 10, side: 10, rear: 10 } },
+  mobility: { speed_tiles_s: 0.85 },
+  sensors: { optics: 1.0, sight_tiles: 8, signature: 0.55 },
+  abilities: ['tunnel_charge'],
+  tunnel_charge_time_s: 2,
+  weapons: [],
+};
+
+// `digs` on a placement: the spawned body is the route's digger from mission
+// start — the declarative form of sim.assignDigger, exactly as `in_tunnel` is
+// of putInTunnel. The authoring rules (dig_tunnel ability, count 1, one
+// placement per route, never a pre_dug route) live in validate_data.mjs; the
+// runtime enforces the one it must, an unknown route id throwing before any
+// body spawns.
+describe('digs placements', () => {
+  const DIG_ROUTE: TunnelRouteJson = { id: 'tn_dig', points: [[3, 3], [12, 3]], dig_tiles_per_s: 1 };
+
+  function digWorld(digs: string) {
+    const sim = new Sim({ seed: 7, width: 24, height: 16, capacity: 16 });
+    const types = new Map<string, number>();
+    for (const t of [SQUAD, M_DIGGER]) types.set(t.id, sim.addUnitType(t));
+    sim.addTunnel(DIG_ROUTE);
+    const mission: MissionJson = {
+      id: 'digs_test',
+      map: { file: 'none' },
+      ledger: { requires: [], produces: [] },
+      starting_force: [{ unit: SQUAD.id, count: 1, at: [21, 13] }],
+      objectives: [{ id: 'win', type: 'destroy_all', primary: true }],
+      enemy: { garrison: [{ unit: M_DIGGER.id, count: 1, at: [3, 3], digs }] },
+    };
+    const rt = new MissionRuntime(sim, mission, {
+      typeIdOf: (u) => {
+        const t = types.get(u);
+        if (t === undefined) throw new Error(`unknown unit ${u}`);
+        return t;
+      },
+      markers: {},
+      zones: {},
+      tunnels: [DIG_ROUTE],
+    });
+    rt.start();
+    return { sim, rt };
+  }
+
+  it('assigns the spawned body as the route digger, and the dig advances', () => {
+    const { sim } = digWorld('tn_dig');
+    const digger = allIds(sim).filter((i) => sim.state.alive[i] === 1 && sim.state.side[i] === 1);
+    expect(digger.length).toBe(1);
+    expect(sim.tnDigger[0]).toBe(digger[0]); // assigned at start, before any tick
+    for (let t = 0; t < 40; t++) sim.tick();
+    expect(sim.tnProgress[0]).toBeGreaterThan(0); // and the route is actually being dug
+  });
+
+  it('throws, naming the route, when digs names an unknown one', () => {
+    expect(() => digWorld('tn_ghost')).toThrow(/unknown tunnel "tn_ghost"/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The ignition tests: mission JSON alone drives the whole subsystem, with not
+// one debug or test-only call. Everything else in this file proves a piece;
+// these two prove the chain — an authored `digs` excavates a route whose
+// spoil the player then finds, and an authored mark_tunnel unit identifies a
+// spoilless pre_dug route so a charge can be ordered and a `collapse`
+// objective, unreachable from content until now, actually completes.
+// ---------------------------------------------------------------------------
+describe('the authored chain: mission JSON alone drives the subsystem', () => {
+  it('a digs placement excavates its route, and the spoil is how the player finds it', () => {
+    const sim = new Sim({ seed: 7, width: 24, height: 16, capacity: 16 });
+    const types = new Map<string, number>();
+    for (const t of [SQUAD, M_DIGGER]) types.set(t.id, sim.addUnitType(t));
+    const route: TunnelRouteJson = { id: 'tn_dig', points: [[3, 3], [12, 3]], dig_tiles_per_s: 1 };
+    sim.addTunnel(route);
+    const mission: MissionJson = {
+      id: 'chain_dig',
+      map: { file: 'none' },
+      ledger: { requires: [], produces: [] },
+      // The scout stands over the route's tail: too far to see (or shoot) the
+      // digger at the mouth, close enough that the head's spoil crosses into
+      // its sight as the dig passes underneath.
+      starting_force: [{ unit: SQUAD.id, count: 1, at: [12, 7] }],
+      objectives: [{ id: 'win', type: 'destroy_all', primary: true }],
+      enemy: { garrison: [{ unit: M_DIGGER.id, count: 1, at: [3, 3], digs: 'tn_dig' }] },
+    };
+    const rt = new MissionRuntime(sim, mission, {
+      typeIdOf: (u) => {
+        const t = types.get(u);
+        if (t === undefined) throw new Error(`unknown unit ${u}`);
+        return t;
+      },
+      markers: {},
+      zones: {},
+      tunnels: [route],
+    });
+    rt.start();
+    let vented = false;
+    for (let t = 0; t < 600; t++) {
+      for (const e of sim.tick()) if (e.kind === 'ventOpened') vented = true;
+      rt.step([]);
+    }
+    expect(vented).toBe(true); // the route was dug through…
+    expect(sim.trail.some((d) => d > 0)).toBe(true); // …leaving surface spoil…
+    expect(sim.tunnelContactLevel(0, 0)).toBe(2); // …which is how the player found it
+  });
+
+  it('a mark_tunnel unit finds a spoilless route, and the charge it enables completes a collapse objective', () => {
+    const sim = new Sim({ seed: 7, width: 24, height: 16, capacity: 16 });
+    const types = new Map<string, number>();
+    for (const t of [AMBUSHER, M_MARKER, M_CHARGER]) types.set(t.id, sim.addUnitType(t));
+    const route: TunnelRouteJson = {
+      id: 'tn_pre',
+      points: [[3, 3], [12, 3]],
+      dig_tiles_per_s: 1,
+      pre_dug: true, // finished before the mission began: never any spoil
+    };
+    sim.addTunnel(route);
+    const mission: MissionJson = {
+      id: 'chain_mark',
+      map: { file: 'none' },
+      ledger: { requires: [], produces: [] },
+      // Both player units stand off the vent at (12,3) — outside the buried
+      // RPG's effective range, so the ambush never springs and the garrison
+      // dies with its route, exactly the entombment a collapse mission wants.
+      starting_force: [
+        { unit: M_MARKER.id, count: 1, at: [7, 7] },
+        { unit: M_CHARGER.id, count: 1, at: [6, 5] },
+      ],
+      objectives: [
+        { id: 'seal', type: 'collapse', primary: true, target: 'district', seconds: 120 },
+      ],
+      enemy: { garrison: [{ unit: AMBUSHER.id, count: 1, at: [3, 3], in_tunnel: 'tn_pre' }] },
+    };
+    const rt = new MissionRuntime(sim, mission, {
+      typeIdOf: (u) => {
+        const t = types.get(u);
+        if (t === undefined) throw new Error(`unknown unit ${u}`);
+        return t;
+      },
+      markers: {},
+      zones: { district: [2, 2, 4, 4] }, // holds the mouth at (3,3)
+      tunnels: [route],
+    });
+    rt.start();
+    // Spawn order is placement order: marker, then charger, then the enemy.
+    const charger = 1;
+    sim.tick();
+    rt.step([]);
+    expect(sim.trail.every((d) => d === 0)).toBe(true); // premise: nothing to find by spoil
+    expect(sim.tunnelContactLevel(0, 0)).toBe(2); // one look, identified
+    // The charge goes through the same command channel the app dispatches.
+    sim.queueCommand({ kind: 'chargeTunnel', ids: [charger], tunnel: 0 });
+    let collapsed = false;
+    for (let t = 0; t < 200 && !collapsed; t++) {
+      for (const e of sim.tick()) if (e.kind === 'tunnelCollapsed') collapsed = true;
+      rt.step([]);
+    }
+    expect(collapsed).toBe(true);
+    expect(rt.objectiveStatus('seal')).toBe('complete');
+    expect(rt.result).toBe('victory');
+    // The buried garrison died with its route, through the normal path.
+    const enemies = allIds(sim).filter((i) => sim.state.side[i] === 1);
+    expect(enemies.some((i) => sim.state.alive[i] === 1)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 16: the mission runtime's half of structural containment. Every
+// predicate that reads a body's surface coordinates must first ask whether
+// the body is standing on them.
+// ---------------------------------------------------------------------------
+describe('containment is structural: mission predicates ignore buried bodies', () => {
+  const ROUTE16: TunnelRouteJson = { id: 'tn_a', points: [[3, 3], [12, 3]], dig_tiles_per_s: 1 };
+  const SURVIVE: ObjectiveJson = { id: 'hold', type: 'survive_until', primary: true, seconds: 600 };
+
+  function world16(partial: Partial<MissionJson>, ctx?: Partial<MissionContext>): World {
+    const sim = new Sim({ seed: 13, width: 28, height: 12, capacity: 32 });
+    const ids = new Map<string, number>();
+    for (const t of [SQUAD, AMBUSHER, RUNNER, TANK, DRONE, CIVILIANS, CARRIER, RIDER, MORTAR])
+      ids.set(t.id, sim.addUnitType(t));
+    sim.addTunnel(ROUTE16);
+    const runtime = new MissionRuntime(sim, baseMission(partial), {
+      typeIdOf: (u) => {
+        const t = ids.get(u);
+        if (t === undefined) throw new Error(`unknown unit ${u}`);
+        return t;
+      },
+      markers: { refuge: [2, 4], rally: [20, 10] },
+      zones: {},
+      tunnels: [ROUTE16],
+      ...ctx,
+    });
+    runtime.start();
+    return {
+      sim,
+      runtime,
+      step: (ticks: number) => {
+        const out: { sim: SimEvent[]; mission: MissionEvent[] } = { sim: [], mission: [] };
+        for (let i = 0; i < ticks; i++) {
+          const se = sim.tick();
+          out.sim.push(...se);
+          out.mission.push(...runtime.step(se));
+        }
+        return out;
+      },
+    };
+  }
+
+  it('refuses a placement that is both buried and loaded: the two states cannot coexist', () => {
+    expect(() =>
+      world16({
+        objectives: [SURVIVE],
+        enemy: {
+          garrison: [
+            {
+              unit: 'm_carrier',
+              count: 1,
+              at: [3, 3],
+              in_tunnel: 'tn_a',
+              passengers: [{ unit: 'm_rider', count: 1 }],
+            },
+          ],
+        },
+      })
+    ).toThrow(/in_tunnel|passenger/);
+  });
+
+  it('a pre-marked placement spawned underground is not identified through the earth', () => {
+    const w = world16(
+      {
+        starting_force: [{ unit: 'm_squad', count: 1, at: [24, 8] }],
+        objectives: [SURVIVE, { id: 'find', type: 'locate', target: 't1', primary: false }],
+        enemy: {
+          garrison: [{ unit: 'm_rpg', count: 1, at: [3, 3], tag: 't1', in_tunnel: 'tn_a' }],
+        },
+      },
+      { ledger: { 'intel.marked_positions': ['t1'] } }
+    );
+    const enemy = allIds(w.sim).find(
+      (i) => w.sim.state.alive[i] === 1 && w.sim.state.side[i] === 1
+    );
+    expect(enemy).toBeDefined();
+    w.step(3);
+    expect(w.sim.contactLevel(0, enemy ?? -1)).toBe(0); // not drawn on the map
+    expect(w.runtime.objectiveStatus('find')).toBe('active'); // not located at t=0
+  });
+
+  it('a sweep bought off the HUD does not locate a buried garrison', () => {
+    const w = world16({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [24, 8] }],
+      objectives: [SURVIVE, { id: 'find', type: 'locate', count: 1, primary: false }],
+      enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [3, 3], in_tunnel: 'tn_a' }] },
+      resources: { intel_start: 150 },
+    });
+    const enemy = allIds(w.sim).find(
+      (i) => w.sim.state.alive[i] === 1 && w.sim.state.side[i] === 1
+    );
+    expect(w.runtime.requestSweep(fx.from(3.5), fx.from(3.5))).toBe(true);
+    w.step(3);
+    expect(w.sim.contactLevel(0, enemy ?? -1)).toBe(0);
+    expect(w.runtime.objectiveStatus('find')).toBe('active');
+  });
+
+  it('evacuate_before does not count a civilian who is underground inside the refuge zone', () => {
+    const w = world16(
+      {
+        starting_force: [{ unit: 'm_squad', count: 1, at: [26, 2] }],
+        objectives: [
+          SURVIVE,
+          { id: 'evac', type: 'evacuate_before', target: 'rz', count: 1, seconds: 5, primary: false },
+        ],
+        civilians: { groups: [{ unit: 'm_civ', count: 1, at: [3, 3], in_tunnel: 'tn_a' }], refuge: 'refuge' },
+      },
+      { zones: { rz: [0, 0, 8, 8] } }
+    );
+    const civ = allIds(w.sim).find((i) => w.sim.state.alive[i] === 1 && w.sim.state.side[i] === 2);
+    expect(civ).toBeDefined();
+    w.step(3);
+    expect(w.runtime.objectiveStatus('evac')).toBe('active'); // nobody was rescued by authoring
+    expect(w.sim.state.alive[civ ?? -1]).toBe(1); // and the body was not deleted
+    expect(w.sim.state.tunnelIn[civ ?? -1]).toBe(0);
+  });
+
+  it('ROE does not charge danger-close for civilians the earth already protects', () => {
+    const w = world16({
+      starting_force: [{ unit: 'm_mortar', count: 1, at: [3, 8] }],
+      objectives: [SURVIVE],
+      enemy: { garrison: [{ unit: 'm_squad', count: 1, at: [20, 5] }] },
+      civilians: { groups: [{ unit: 'm_civ', count: 1, at: [21, 5], in_tunnel: 'tn_a' }] },
+      roe: { enabled: true, disproportionate_ordnance_penalty: 3 },
+    });
+    const strike: SimEvent = { kind: 'strike', tick: 1, by: 0, x: fx.from(21.5), y: fx.from(5.5) };
+    const fire: SimEvent = {
+      kind: 'fire',
+      tick: 1,
+      shooter: 0,
+      target: 1,
+      weaponId: 'tube',
+      pHit: 1000,
+      roll: 1,
+      willHit: false,
+      breakdown: { accuracy: 1, rangeFalloff: 1, coverMod: 1, motionMod: 1, stanceMod: 1, suppressionMod: 1 },
+    };
+    const out = [...w.runtime.step([strike]), ...w.runtime.step([fire])];
+    expect(out.filter((e) => e.kind === 'roe').length).toBe(0);
+    expect(w.runtime.roeScore).toBe(100);
+  });
+
+  it('a buried civilian is not shepherded: no latch, no order', () => {
+    const w = world16({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [4, 4] }],
+      objectives: [SURVIVE],
+      civilians: { groups: [{ unit: 'm_civ', count: 1, at: [3, 3], in_tunnel: 'tn_a' }], refuge: 'refuge' },
+    });
+    const civ = allIds(w.sim).find((i) => w.sim.state.alive[i] === 1 && w.sim.state.side[i] === 2);
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    w.step(30);
+    const ordered = spy.mock.calls.some(
+      ([cmd]) => 'ids' in cmd && cmd.ids.includes(civ ?? -1)
+    );
+    expect(ordered).toBe(false);
+  });
+
+  it('a buried soldier shepherds nobody: the civilian above stays put', () => {
+    const w = world16({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [12, 6], in_tunnel: 'tn_a' }],
+      objectives: [SURVIVE],
+      civilians: { groups: [{ unit: 'm_civ', count: 1, at: [13, 6] }], refuge: 'refuge' },
+    });
+    const civ = allIds(w.sim).find((i) => w.sim.state.alive[i] === 1 && w.sim.state.side[i] === 2);
+    const at = w.sim.state.posX[civ ?? -1];
+    w.step(60);
+    expect(w.sim.state.posX[civ ?? -1]).toBe(at); // nobody reached them
+  });
+
+  it('a buried patroller does not walk its beat, and no dead order is queued for it', () => {
+    const w = world16({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [24, 8] }],
+      objectives: [SURVIVE],
+      enemy: {
+        garrison: [
+          {
+            unit: 'm_rpg',
+            count: 1,
+            at: [3, 3],
+            in_tunnel: 'tn_a',
+            stance: { kind: 'patrol', waypoints: [[3, 3], [8, 3]] },
+          },
+        ],
+      },
+    });
+    const enemy = allIds(w.sim).find(
+      (i) => w.sim.state.alive[i] === 1 && w.sim.state.side[i] === 1
+    );
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    w.step(30);
+    const ordered = spy.mock.calls.some(
+      ([cmd]) => 'ids' in cmd && cmd.ids.includes(enemy ?? -1)
+    );
+    expect(ordered).toBe(false);
+  });
+
+  it('a commit trigger aimed at a buried group commands nothing', () => {
+    const w = world16({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [24, 8] }],
+      objectives: [SURVIVE],
+      enemy: {
+        garrison: [{ unit: 'm_rpg', count: 1, at: [3, 3], group: 'g1', in_tunnel: 'tn_a' }],
+      },
+      triggers: [{ id: 'go', on: { kind: 'timer_s', value: 0 }, do: { kind: 'commit', group: 'g1', to: 'rally' } }],
+    });
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    const out = w.step(3);
+    expect(out.mission.some((e) => e.kind === 'trigger' && e.id === 'go')).toBe(true);
+    const attackMoves = spy.mock.calls.filter(([cmd]) => cmd.kind === 'attackMove');
+    expect(attackMoves.length).toBe(0);
+  });
+
+  it('a strike is called by the first LIVING SURFACE unit, never a buried one', () => {
+    const w = world16({
+      starting_force: [
+        { unit: 'm_squad', count: 1, at: [3, 3], in_tunnel: 'tn_a' }, // playerIds[0], buried
+        { unit: 'm_squad', count: 1, at: [10, 5] },
+      ],
+      objectives: [SURVIVE],
+      resources: { intel_start: 250 },
+    });
+    expect(w.runtime.requestStrike(fx.from(20.5), fx.from(5.5))).toBe(true);
+    const out = w.step(STRIKE_DELAY_TICKS + 3);
+    const strike = out.sim.find((e) => e.kind === 'strike');
+    expect(strike).toBeDefined();
+    expect(strike?.kind === 'strike' && strike.by).toBe(1); // the surface unit owns it
+  });
+
+  it('a buried drone observes nothing and earns nothing', () => {
+    const w = world16({
+      starting_force: [{ unit: 'm_drone', count: 1, at: [3, 3], in_tunnel: 'tn_a' }],
+      objectives: [SURVIVE],
+    });
+    w.step(300); // 15s: a surface drone would have banked 2 intel by now
+    expect(w.runtime.intel).toBe(0);
+  });
+
+  it('BY-DESIGN pin: destroy_all counts a buried garrison as alive, because collapse can reach it', () => {
+    const w = world16({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [24, 8] }],
+      objectives: [{ id: 'win', type: 'destroy_all', primary: true }],
+      enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [3, 3], in_tunnel: 'tn_a' }] },
+    });
+    w.step(5);
+    expect(w.runtime.objectiveStatus('win')).toBe('active'); // alive below is alive
+    w.sim.debugCollapseTunnel(0);
+    w.step(2);
+    expect(w.runtime.objectiveStatus('win')).toBe('complete'); // and the earth coming down reaches it
+  });
+});
+
+// `pre_dug` end to end: the flag is the only way authored data can promise a
+// stocked route will ever surface, because digger assignment has no
+// declarative form. Until this test existed, a mission authored with
+// `in_tunnel` on a pre_dug route validated green and then never vented — the
+// exact silent-playtest failure the validator exists to prevent.
+describe('pre_dug routes', () => {
+  function ambushWorld(preDug: boolean) {
+    const route: TunnelRouteJson = {
+      id: 'tn_pd',
+      points: [[3, 3], [12, 3]],
+      dig_tiles_per_s: 1,
+      ...(preDug ? { pre_dug: true } : {}),
+    };
+    const sim = new Sim({ seed: 7, width: 24, height: 16, capacity: 16 });
+    const types = new Map<string, number>();
+    for (const t of [SQUAD, AMBUSHER]) types.set(t.id, sim.addUnitType(t));
+    sim.addTunnel(route);
+    const mission: MissionJson = {
+      id: 'pre_dug_test',
+      map: { file: 'none' },
+      ledger: { requires: [], produces: [] },
+      // Standing two tiles from the vent (12.5, 3.5): inside the ambusher's
+      // 3.5-tile effective range, so hasTargetFrom is satisfied from tick one
+      // and the ONLY thing deciding whether the ambush springs is the vent.
+      starting_force: [{ unit: SQUAD.id, count: 1, at: [14, 3] }],
+      objectives: [{ id: 'win', type: 'destroy_all', primary: true }],
+      enemy: { garrison: [{ unit: AMBUSHER.id, count: 1, at: [3, 3], in_tunnel: 'tn_pd' }] },
+    };
+    const rt = new MissionRuntime(sim, mission, {
+      typeIdOf: (u) => {
+        const t = types.get(u);
+        if (t === undefined) throw new Error(`unknown unit ${u}`);
+        return t;
+      },
+      markers: {},
+      zones: {},
+      tunnels: [route],
+    });
+    rt.start();
+    const buried = allIds(sim).find((i) => sim.state.side[i] === 1);
+    return { sim, rt, buried: buried ?? -1 };
+  }
+
+  it('loads complete: progress at full length, vent open, nothing to dig', () => {
+    const { sim } = ambushWorld(true);
+    expect(sim.tnProgress[0]).toBe(sim.tnLength[0]);
+    expect(sim.tnVentOpen[0]).toBe(1);
+    // stepDigging must skip it: no digger exists, and ticking must not move
+    // progress or stamp trail.
+    for (let t = 0; t < 40; t++) sim.tick();
+    expect(sim.tnProgress[0]).toBe(sim.tnLength[0]);
+  });
+
+  it('stamps no trail at load: a route dug before the mission has weathered', () => {
+    const { sim } = ambushWorld(true);
+    expect(sim.trail.every((v) => v === 0)).toBe(true);
+  });
+
+  it('vents its in_tunnel garrison with no digger present', () => {
+    const { sim, buried } = ambushWorld(true);
+    expect(sim.state.tunnelIn[buried]).toBe(0);
+    const events: SimEvent[] = [];
+    for (let t = 0; t < 40; t++) events.push(...sim.tick());
+    const up = events.find((e) => e.kind === 'surfaced');
+    expect(up).toBeDefined();
+    expect(up && 'entity' in up ? up.entity : -1).toBe(buried);
+  });
+
+  it('a non-pre_dug route does not: the garrison stays buried forever', () => {
+    const { sim, buried } = ambushWorld(false);
+    expect(sim.tnProgress[0]).toBe(0);
+    expect(sim.tnVentOpen[0]).toBe(0);
+    const events: SimEvent[] = [];
+    for (let t = 0; t < 400; t++) events.push(...sim.tick()); // 20 s
+    expect(events.some((e) => e.kind === 'surfaced')).toBe(false);
+    expect(sim.state.tunnelIn[buried]).toBe(0); // still in the route
+    expect(sim.tnVentOpen[0]).toBe(0);
   });
 });

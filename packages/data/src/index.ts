@@ -37,6 +37,7 @@ import sniperTeam from '../../../data/units/kdf/sniper_team.json';
 import jeepShoded from '../../../data/units/kdf/jeep_shoded.json';
 import dozerD9 from '../../../data/units/kdf/dozer_d9.json';
 import heliPeten from '../../../data/units/kdf/heli_peten.json';
+import yahalomSquad from '../../../data/units/kdf/yahalom_squad.json';
 import militiaCell from '../../../data/units/enemy/militia_cell.json';
 import rpgTeam from '../../../data/units/enemy/rpg_team.json';
 import atgmCell from '../../../data/units/enemy/atgm_cell.json';
@@ -47,6 +48,7 @@ import motoRpg from '../../../data/units/enemy/moto_rpg.json';
 import chargeSquad from '../../../data/units/enemy/charge_squad.json';
 import paramotor from '../../../data/units/enemy/paramotor.json';
 import loiterDrone from '../../../data/units/enemy/loiter_drone.json';
+import diggerCrew from '../../../data/units/enemy/digger_crew.json';
 import civilians from '../../../data/units/civilians.json';
 
 import fireApfsds from '../../../data/vfx/fire_apfsds.json';
@@ -59,6 +61,7 @@ import cigaretteEmber from '../../../data/vfx/cigarette_ember.json';
 import cigaretteSmoke from '../../../data/vfx/cigarette_smoke.json';
 import fireSmallArms from '../../../data/vfx/fire_small_arms.json';
 import structureCollapse from '../../../data/vfx/structure_collapse.json';
+import tunnelCollapse from '../../../data/vfx/tunnel_collapse.json';
 
 export { palette };
 export type Palette = typeof palette;
@@ -141,6 +144,7 @@ export const units = {
   jeep_shoded: jeepShoded,
   dozer_d9: dozerD9,
   heli_peten: heliPeten,
+  yahalom_squad: yahalomSquad,
   militia_cell: militiaCell,
   rpg_team: rpgTeam,
   atgm_cell: atgmCell,
@@ -151,6 +155,7 @@ export const units = {
   charge_squad: chargeSquad,
   paramotor: paramotor,
   loiter_drone: loiterDrone,
+  digger_crew: diggerCrew,
   civilians: civilians,
 } as const;
 
@@ -162,7 +167,8 @@ export type UnitId = keyof typeof units;
  * looked up by name, because idling is not a sim event and must not become one.
  * `structure_collapse` is looked up by name too, off the `structureDestroyed`
  * event — the sim says a building fell, the renderer decides what that looks
- * like.
+ * like. `tunnel_collapse` follows the same arrangement off `tunnelCollapsed`,
+ * aimed at the route's vent.
  */
 export const vfxEmitters = [
   fireSmallArms,
@@ -175,6 +181,7 @@ export const vfxEmitters = [
   cigaretteEmber,
   cigaretteSmoke,
   structureCollapse,
+  tunnelCollapse,
 ];
 
 /** Resolve a palette key like "vfx.fire" or "dust.2" to its hex colour. */

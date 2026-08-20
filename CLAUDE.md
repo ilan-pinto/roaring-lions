@@ -121,6 +121,21 @@ The combat model is the product. Everything else is scaffolding around it.
 ## Known scaling debts
 
 - Detection is O(N²) pairs per tick — stagger evaluation before unit counts pass ~150.
-- `tunnel_travel` exists in unit data but not the sim; tunnels are a real subsystem the Marj missions need. (`garrison` is fully implemented in both sim and UI.)
+- Tunnels are implemented (`feat/tunnel-subsystem`): routes are map data, a digger
+  advances one and leaves surface spoil, stocked fighters surface at the vent to fire a
+  volley and submerge, and a `yahalom_squad` charge collapses a route. Both content keys
+  are wired: a placement's `digs` assigns its body as a route's digger, and a
+  `mark_tunnel` unit with a sight line to a route identifies it — spoil or no spoil —
+  so an authored mission can dig, find, and collapse a route end to end (the mission
+  runtime tests prove the chain from JSON alone). What the Beit Sahwan subterranean
+  mission (#91) still needs is authoring, not engine work. `tunnel_travel` remains
+  unit data only.
+- The trail-detection scan is O(routes × living units × sight²) per tick
+  (`trailStrengthFor`), on top of detection's existing O(N²) — and `markerSeesRoute`
+  is the same shape again for `mark_tunnel` carriers, though it stops scanning a
+  route once identified. At the largest authored
+  mission (65 units) that is ~10⁵ extra array probes a tick — immaterial now, real at the
+  GDD's 300-unit target, and it wants staggering at the same time detection does.
+  `drawTrail` is O(width × height × routes) at 5 Hz and belongs in the same sweep.
 - A civilian who boards a transport (`mission.ts:970`) and whose transport then dies before reaching the refuge is stranded forever: `stepCivilians` latches `civFled` on boarding and only queues the walk-to-refuge order on the non-boarded branch (`:988-991`), so a civilian dropped by a dead carrier is never re-evaluated and can never satisfy `evacuate_before`. Silent — no error, the objective just never completes. Avoidable at the mission-authoring/plan level today (escort civilians with something nothing on the relevant roster can kill), but the underlying latch is wrong.
 - `starting_force` never consults a unit's `unlock` gate — `spawnPlacement` has no equivalent of the `buildBlockedReason` check `requestBuild` makes. Missions rely on this: Wadi Halam V hands out a `dozer_d9` (ROE 60) and a `demo_squad` (ROE 50) unconditionally, and Wadi Halam I–V all field a `recon_drone` (35) or an `ifv_namer` (40) a fresh campaign has not earned. Whether that is a feature or a hole is undecided; what matters is that resolving it in the obvious direction would silently strip Wadi Halam V of both demolishers, so the `seconds` deadline on its `raze` primary is what keeps that a lost mission rather than a stuck one.

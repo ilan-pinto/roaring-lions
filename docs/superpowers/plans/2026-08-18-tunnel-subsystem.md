@@ -304,8 +304,9 @@ export const SURFACE_SECONDS = 3;
  *  and goes back down; it does not fight a battle from the hole. */
 export const SURFACE_VOLLEY = 2;
 /** Suppression dealt to everyone near a collapsing route, and its radius². */
-export const COLLAPSE_SHOCK = 39322; // 0.6
-export const COLLAPSE_SHOCK_RADIUS = 131072; // 2 tiles — splashDirect squares it
+export const TUNNEL_COLLAPSE_SHOCK = 39322; // 0.6 — named apart from structures.ts's
+// COLLAPSE_SHOCK (0.7), which sim.ts already imports unaliased.
+export const TUNNEL_COLLAPSE_RADIUS = 131072; // 2 tiles — splashDirect squares it
 
 /** Total length of a polyline, in Q16.16 tiles. */
 export function routeLength(points: readonly (readonly [number, number])[]): Fx {
@@ -436,7 +437,7 @@ Expected: FAIL — `sim.addTunnel is not a function`.
 In `packages/sim/src/sim.ts`, import from `./tunnels`:
 
 ```typescript
-import { routeLength, TRAIL_MAX, type TunnelRouteJson } from './tunnels';
+import { pointAtDistance, routeLength, TRAIL_MAX, type TunnelRouteJson } from './tunnels';
 ```
 
 Add a cap beside `MAX_STRUCTURES`:
@@ -975,19 +976,33 @@ describe('a unit underground is contained', () => {
     const { sim, hidden } = belowGround();
     const hpBefore = sim.state.hp[hidden];
     // A shell landing directly on top of the tunnel.
-    sim.splashDirect(fx.from(4.5), fx.from(6.5), fx.from(4), fx.from(500), fx.from(1), -1, -1);
+    sim.debugSplash(fx.from(4.5), fx.from(6.5), fx.from(4), fx.from(500), fx.from(1), -1, -1);
     expect(sim.state.hp[hidden]).toBe(hpBefore);
   });
 
   it('cannot be suppressed', () => {
     const { sim, hidden } = belowGround();
-    sim.applySuppressionPublic(hidden, fx.from(1.5));
+    sim.debugSuppress(hidden, fx.from(1.5));
     expect(sim.state.suppression[hidden]).toBe(0);
   });
 });
 ```
 
-Expose `putInTunnel(id, routeIdx)` and, if `splashDirect`/`applySuppression` are private, a narrow test-only accessor following whatever pattern `combat.test.ts` already uses to reach private members — do not widen the public API beyond what the tests need.
+`putInTunnel(id, routeIdx)` already exists (Task 3). `splashDirect` and `applySuppression` are private; the tests reach them through two new test hooks named to match the existing `debugKill` / `debugDestroyStructure` / `debugDisableFirepower` family:
+
+```typescript
+  /** Suppress a unit directly. Tests and the sandbox only. */
+  debugSuppress(id: number, amount: Fx): void {
+    this.applySuppression(id, amount, false);
+  }
+
+  /** Detonate a bare splash at a point. Tests and the sandbox only. */
+  debugSplash(x: Fx, y: Fx, radius: Fx, dmg: Fx, supp: Fx, by: number, exclude: number): void {
+    this.splashDirect(x, y, radius, dmg, supp, by, exclude);
+  }
+```
+
+Place them beside `debugKill`. Do not widen the public API beyond these two hooks.
 
 - [ ] **Step 2: Run them and watch all three fail**
 
@@ -1074,7 +1089,7 @@ describe('surfacing', () => {
         if (e.kind === 'surfaced' && e.entity === hidden) surfacedAt = t;
       }
       if (surfacedAt >= 0 && t === surfacedAt + 1) {
-        sim.applySuppressionPublic(hidden, fx.from(2)); // well past PIN_AT
+        sim.debugSuppress(hidden, fx.from(2)); // well past PIN_AT
       }
       if (surfacedAt >= 0 && t < surfacedAt + SURFACE_SECONDS * TICKS_PER_SECOND) {
         expect(sim.state.tunnelIn[hidden]).toBe(-1); // still exposed
@@ -1297,7 +1312,7 @@ describe('collapsing a route', () => {
     sim.queueCommand({ kind: 'chargeTunnel', ids: [yahalom], tunnel: idx });
     for (let t = 0; t < 40; t++) sim.tick();
     expect(sim.chargeTicks[yahalom]).toBeGreaterThan(0);
-    sim.applySuppressionPublic(yahalom, fx.from(2)); // over PIN_AT
+    sim.debugSuppress(yahalom, fx.from(2)); // over PIN_AT
     sim.tick();
     expect(sim.chargeTicks[yahalom]).toBe(0);
   });
@@ -1377,7 +1392,7 @@ Expected: 4 FAIL.
     }
     this.tnOccupants[r] = 0;
     const [cx, cy] = this.ventPos(r);
-    this.splashDirect(cx, cy, COLLAPSE_SHOCK_RADIUS, 0, COLLAPSE_SHOCK, by, -1);
+    this.splashDirect(cx, cy, TUNNEL_COLLAPSE_RADIUS, 0, TUNNEL_COLLAPSE_SHOCK, by, -1);
     this.pendingEvents.push({ kind: 'tunnelCollapsed', tick: this.tickCount, tunnel: r, by });
   }
 ```
@@ -1651,10 +1666,30 @@ git commit -m "feat(tools): a collapse objective is checked before it reaches a 
 - Modify: `packages/app/src/main.ts:232-254`
 - Modify: `packages/render/src/renderer.ts`
 - Modify: `tools/src/walk_mission.ts`
+- Modify: `packages/data/src/map.ts` (and its test) — `pre_dug`
+- Modify: `packages/sim/src/sim.ts` — `pre_dug`
 
 **Interfaces:**
 - Consumes: `ParsedMap.tunnels` (Task 1), `sim.addTunnel` (Task 3), `sim.trail` (Task 5), `sim.tunnelContactLevel` (Task 6).
 - Produces: a playable, visible feature.
+
+**BLOCKING REQUIREMENT — `pre_dug` is inert and CI currently blesses it.**
+
+Task 12 added `pre_dug` to the map's tunnel schema, as the answer to a real problem: authored routes start at `tnProgress` 0 with the vent shut, so an `in_tunnel` garrison can never surface unless something digs that route — and whether a digger will dig a given route is not determinable from mission data (`assignDigger` has no declarative form). `pre_dug` says "this route already exists when the mission starts".
+
+It does nothing. A mission authored today with `in_tunnel` on a `pre_dug: true` route **passes `pnpm validate:data`** and then never vents in play — precisely the silent-playtest failure the validator task existed to prevent, now with CI's blessing. Closing that is this task's first job, not an afterthought:
+
+1. `packages/data/src/map.ts` — parse `pre_dug` into `ParsedTunnel` (default `false`), with a test.
+2. `packages/sim/src/tunnels.ts` — add it to `TunnelRouteJson`.
+3. `packages/sim/src/sim.ts` — `addTunnel` honours it: set `tnProgress = tnLength` and `tnVentOpen = 1` at load. Do **not** stamp the trail at load — spoil is what the digging *left*, and a route dug before the mission began has weathered; the mission author reveals it through `mark_tunnel` or the ledger. Say in your report whether you agree with that reasoning after reading `stampTrail`.
+4. `packages/app/src/main.ts` — pass it through the conversion.
+5. A test proving end-to-end that a `pre_dug` route vents an `in_tunnel` garrison **without any digger**, and that a non-`pre_dug` route does not.
+
+Until step 5 passes, the feature is a lie in a schema file.
+
+**Also carried here** — `ctx.tunnels` is positional (array index must equal the sim's route index) and its count guard catches only truncation; an equal-count permutation would silently bury units in the wrong route. Register and pass from **one** array in **one** loop, and assert `sim.addTunnel(route) === i`.
+
+**And one minor** from Task 16's review: `renderer.pickUnit` filters on `alive` only, so a buried unit is still selectable — harmless now that every command refuses them, but a ghost-selection oddity. Fix if cheap; say so if not.
 
 **Note — this task goes slightly beyond the spec.** The spec covers the sim and the content but never says how the trail is drawn, and an invisible trail makes the whole feature unplayable. A minimal tile tint is the smallest thing that discharges that, and it is deliberately not VFX polish, which M1 excludes.
 
@@ -1755,3 +1790,111 @@ git commit -m "test(sim): put a tunnel in the determinism replay, and re-pin"
 **One addition beyond the spec:** trail rendering (Task 13, Step 2). The spec never says how the trail is drawn, and without it the feature cannot be played. Flagged rather than smuggled.
 
 **One risk the plan cannot remove.** Task 6 adds a per-observer tile scan for trail detection, which is O(units × sight²) per tick on top of detection that CLAUDE.md already records as O(N²) needing staggering before ~150 units. At the authored mission scale (65 units at the largest) this is fine. It should not ship to a 300-unit mission without staggering, and the note belongs in *Known scaling debts* when this lands.
+
+---
+
+### Task 15: The `tunnel_collapse` VFX emitter
+
+**Files:**
+- Create: `data/vfx/tunnel_collapse.json`
+- Modify: `packages/data/src/index.ts` (register it in `vfxEmitters`)
+- Modify: `packages/render/src/renderer.ts` (bind the `tunnelCollapsed` sim event to the emitter)
+
+**Interfaces:**
+- Consumes: the `tunnelCollapsed` event (Task 10) and the renderer's event subscription (Task 13).
+- Produces: nothing later tasks depend on.
+
+**Why this task exists:** the spec's content surface lists this emitter, and the original 14-task plan omitted it — a spec-coverage miss caught late. `vfx_emitter.schema.json` has carried a `tunnel_collapse` trigger with no JSON behind it since before this work began; this is its first author.
+
+**Scope discipline:** this is *data*, not art. No Blender, no sprites, no `.blend` — M1 excludes art-pipeline activation, and this task must not become its thin end. Particle sprites come from the schema's existing set (`soft_dot`, `hard_dot`, `streak`, `smoke_puff`, `spark`, `shard`, `ring`); colours are palette keys only, never hex.
+
+- [ ] **Step 1: Author the emitter**
+
+Model it on `data/vfx/structure_collapse.json`, which is the closest existing sibling — but the event is different and the emitter should read differently. A building collapsing throws masonry outward and upward; a tunnel collapsing is the ground *falling in*. So:
+
+- a `shard` burst with **low** `speed_tiles_s` and positive `gravity_tiles_s2` — spoil dropping, not flung
+- a `smoke_puff` layer in the `dust` ramp, `cone_deg: 360`, slight negative gravity so the dust column lifts after the drop
+- `layer: "ground_decal"` or `"below_units"` — the collapse happens at ground level, and drawing it over units would read as an airburst
+
+Note the palette convention: **ramp index 0 is the lightest**, so a `color_over_life` that darkens counts *up* (`["dust.1", "dust.5"]`), not down. Getting this backwards inverts the effect.
+
+- [ ] **Step 2: Validate the JSON**
+
+Run: `pnpm validate:data`
+Expected: PASS, with the file count up by one. The schema gate checks the trigger name, the sprite names, and that every colour resolves to a real palette key — a hex literal or an unknown ramp index fails here.
+
+- [ ] **Step 3: Register and bind**
+
+Add the import and array entry in `packages/data/src/index.ts` beside `structureCollapse`. In the renderer, bind `tunnelCollapsed` to the emitter the same way `structureDestroyed` binds to `structure_collapse` — by name, off the event, with the sim unaware any of it happened (invariant 4).
+
+- [ ] **Step 4: Verify in the browser, not the console**
+
+With a mission containing a tunnel, collapse a route and watch it. Console shortcuts skip the code that breaks.
+
+Run: `pnpm test && pnpm validate:data && pnpm typecheck`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add data/vfx/tunnel_collapse.json packages/data/src/index.ts packages/render/src/renderer.ts
+git commit -m "feat(data): the ground falls in, and it looks like it"
+```
+
+---
+
+### Task 16: Containment, structurally
+
+**Files:**
+- Modify: `packages/sim/src/sim.ts` (`applyCommands`, `putInTunnel`, and the non-command leaks)
+- Modify: `packages/sim/src/mission.ts` (the runtime predicates)
+- Test: `packages/sim/src/tunnels.test.ts`, `packages/sim/src/mission.test.ts`
+
+**Interfaces:** consumes everything Tasks 3–11 built; produces no new API.
+
+**Why this task exists:** the containment rule — *earth is in the way, in both directions* — has needed new enforcement in four separate tasks, each time found by a reviewer rather than by design, each time "one more place". Tasks 7 and 8 sealed fire, splash, suppression, damage, drones, sight, shells in flight, and the outbound halves. Task 11 sealed movement orders and zone-holding. A sweep then found 31 more candidate sites. Guard-by-guard has demonstrably not converged; this task replaces enumeration with structure.
+
+**The two structural fixes** (a reviewer's recommendation, and the sweep's own evidence supports it):
+
+1. **One eligibility check where `applyCommands` expands `cmd.ids`**, so every surface command refuses buried units *by construction*. Per-command enumeration fails silently on the next command kind someone adds — and the sweep found eight branches already missing it (`load`, `garrison`, `demolish`, `chargeTunnel`, `smoke`, `callStrike`, `unload`, `halt`, plus the move/attackMove *append fast-path* which returns before the existing guard).
+2. **`putInTunnel` clears the full order bundle** the move branch enumerates — `attackMove`, `boardGoal`, `garrisonGoal`, `demolishOrder`, `chargeOrder` — not just `moving`/`wpCount`/goals/`fieldRef`. `stepSweep`, `stepTransport` and kamikaze steering set `moving = 1` with **no command at all**, so a command-layer guard alone cannot contain them. This is the hole that reopened after Task 11's first fix.
+
+**The candidate list** lives at `.superpowers/sdd/2026-08-18-tunnel-subsystem/containment-findings.md` — 31 entries with claimed reachability and consequence. They are **unverified**: three of six sweep lenses completed and no adversarial verification ran. Verify each against the real code before fixing. Expect some to be already guarded one level down, and some to be the design.
+
+**The distinction that will trip you up:** `tunnelIn >= 0` means *underground, contained*. `homeTunnel >= 0` with `tunnelIn === -1` means *currently surfaced from a route* — an ordinary surface unit that must **not** be contained. A fix that confuses them breaks the whole combat loop while every containment test still passes.
+
+**Reachable today, without any schema change** (these three are not theoretical — `stepSurfacing`/`submerge` bury units at runtime):
+- the satellite sweep (`reveal`) identifies a submerged fighter through earth, via the shipped HUD path
+- APS intercepts a round while its carrier is underground — and **draws from the per-entity RNG stream** doing it, which is determinism-relevant
+- `checkAmbushSpring` springs a surface ambusher on a buried enemy
+
+Everything else is gated behind the `in_tunnel` schema key, which **Task 12 adds** — so Task 12 opens the door on the remainder at once. This task must land before or with Task 12.
+
+- [ ] **Step 1: Triage the candidate list**
+
+Read `containment-findings.md`. For each entry, read the real code and classify: REAL / ALREADY-GUARDED / BY-DESIGN. Write the triage into your report before changing anything — a fix list that skips triage will "fix" things that are already correct and miss the ones that are not.
+
+- [ ] **Step 2: Write the failing tests**
+
+Start with the three reachable-today cases, which need no authored `in_tunnel`: surface a fighter, submerge it, then (a) call a sweep over it and assert it is not identified, (b) resolve a shaped-charge round at it and assert no `aps` event and no RNG draw, (c) place an ambusher in radius and assert it does not spring. Then a test per REAL finding from the triage.
+
+Run them and confirm each fails for its own reason.
+
+- [ ] **Step 3: Implement the two structural fixes, then the residue**
+
+Structural fixes first; re-run the tests and see how many now pass without further work. That number belongs in your report — it is the measure of whether the structure was the right call. Then fix whatever remains individually.
+
+- [ ] **Step 4: Verify**
+
+```bash
+npx vitest run packages/sim/src/ && pnpm lint && pnpm typecheck && pnpm validate:data && pnpm test:determinism && pnpm balance
+```
+
+The determinism hash must be unchanged and `pnpm balance` must hold all five §5.7 figures. The APS fix in particular removes an RNG draw from a path that could previously reach it — confirm the replay world never reached that path, or the hash moves and the change is not what you think it is.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/sim/src/sim.ts packages/sim/src/mission.ts packages/sim/src/tunnels.test.ts packages/sim/src/mission.test.ts
+git commit -m "fix(sim): containment is a rule, not a list of places that remembered it"
+```

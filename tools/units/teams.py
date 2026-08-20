@@ -16,6 +16,9 @@ geometry deformed. The clip scheme:
     fire    weapons up, feet planted -- never a height change, see below
     down    everyone prone, gone to ground under suppression
     wreck   prone, rendered in the casualty material
+    work    one team's own clip, not base vocabulary (TEAM_CLIP_ADD): the
+            Yahalom lead kneels and drives the mast into the ground, looping
+            for as long as the sim reports a tunnel charge being worked
 
 Frames 0 and 2 of `move` are deliberately identical -- the stride cycle is
 0 -> forward -> 0 -> back, so both are the contact pose. Three unique images per
@@ -141,6 +144,15 @@ def _lean_forward(parts, deg, at_x=0.0):
 #: clip back to idle in the renderer, so omission is a behaviour rather than a
 #: hole -- a motorcycle cannot go prone, and drawing it doing so reads as a bug.
 TEAM_CLIP_DROP = {"moto_rpg": ("down",)}
+
+#: Clips one team's sheet carries beyond the base vocabulary -- TEAM_CLIP_DROP's
+#: mirror, and for the mirrored reason: a clip added to BASE_CLIPS would grow an
+#: unused copy on every existing sheet, while `clipOrFallback` already resolves
+#: an unauthored clip back to idle, so only the team that can actually play one
+#: should pay to render it. `work` is what a Yahalom shows for the whole of a
+#: tunnel charge: six frames at 6 fps, looping -- a slow press-and-lift cycle,
+#: sized so one loop reads about once a second rather than as a twitch.
+TEAM_CLIP_ADD = {"yahalom_squad": {"work": {"frames": 6, "fps": 6, "loop": True}}}
 
 
 # --- the nine --------------------------------------------------------------
@@ -441,6 +453,112 @@ def moto_rpg(clip, frame):
     return out
 
 
+#: The pair of large square packs both Yahalom figures wear, and the one
+#: adjustment the owner asked for after the live preview: at (-0.24, z 1.05) the
+#: packs read as detached slabs floating behind the figures, so they sit 0.06
+#: closer to the body and 0.10 lower -- the box now overlaps the torso's back
+#: face instead of clearing it, which is what "against the back" needs at any
+#: zoom. A kneeling figure's torso drops by 0.30 * FIGURE_H (kit.figure), and
+#: the pack rides the torso, so it drops the same 0.54.
+YAH_PACK_SIZE = (0.30, 0.44, 0.46)
+
+
+def _yah_pack(name, at, kneel=False):
+    drop = 0.54 if kneel else 0.0
+    return kit.box(name, YAH_PACK_SIZE, (at[0] - 0.18, at[1], 0.95 - drop), role="webbing")
+
+
+def yahalom_squad(clip, frame):
+    """Yahalom Engineers, crew 5. Two upright figures: the lead sweeps a 1.45 m
+    ground-penetrating mast held out level at hip height, and both wear large
+    square packs riding high on the back. Three independent tells, so no single
+    lever carries the sheet: the horizontal spike (no other weapon in the set
+    draws a long flat bar across the figure's front), the boxy over-shoulder
+    mass, and the two-figure count.
+
+    `work` is this team's own sixth clip (TEAM_CLIP_ADD): the lead kneels and
+    drives the mast tip-first into the ground while the second stands over him
+    -- what plays for the whole of a tunnel charge. The sensor head box exists
+    only in the other clips, because in `work` it is the part in the ground.
+    """
+    p, st = _standing_posture(clip), _stride(clip, frame)
+    # Keyed on "demo_squad" deliberately: it borrows the smoking cycle's frame-0
+    # rest pose (asymmetric hands, weight shifted) for this team's single idle
+    # frame without enrolling it in SMOKING_TEAMS, which would cost a ten-frame
+    # loop. Previewed and approved in exactly this form.
+    sm = _smoke("demo_squad", clip, frame)
+    A, B = (0.30, -0.20, 0.0), (-0.34, 0.26, 0.0)
+    if clip == "work":
+        out = kit.figure("yah_a", A, posture="kneeling", leader=True)
+        out += [_yah_pack("yah_pack_a", A, kneel=True)]
+        # The mast pivots about a fixed ground contact and sinks. Pose spacing
+        # does the easing exactly as kit.smoke_pose describes: the triangle
+        # through a smoothstep crowds frames at both ends of the stroke, so the
+        # press appears to slow, hold and lift from uniformly-timed frames.
+        t = frame / 6.0
+        tri = 1.0 - abs(2.0 * t - 1.0)
+        ease = tri * tri * (3.0 - 2.0 * tri)
+        vis = 0.98 - 0.18 * ease         # visible length; the rest is in the ground
+        pitch = math.radians(40.0)
+        gx, gz = 1.02, 0.01              # where the mast enters the ground
+        out += [kit.tube("yah_mast", vis, 0.030,
+                         (gx - 0.5 * vis * math.cos(pitch), A[1],
+                          gz + 0.5 * vis * math.sin(pitch)),
+                         yaw=0.0, pitch=-pitch)]
+        out += kit.figure("yah_b", B, posture="standing")
+        out += [_yah_pack("yah_pack_b", B)]
+        out += kit.rifle("yah_b_w", B, posture="standing")
+        return out
+    out = kit.figure("yah_a", A, posture=p, stride=st, smoke=sm, leader=True)
+    if p == "standing":
+        # Prone figures mould their own pack (kit.figure's prone branch), so the
+        # high packs exist only while the torso they ride is upright -- the same
+        # gate charge_squad puts on its vests.
+        out += [_yah_pack("yah_pack_a", A)]
+    if _weapon_visible(clip):
+        out += [kit.tube("yah_mast", 1.45, 0.030, (0.62, -0.20, 0.74), yaw=0.0, pitch=0.0)]
+        out += [kit.box("yah_head", (0.16, 0.10, 0.04), (1.30, -0.20, 0.74))]
+    out += kit.figure("yah_b", B, posture=p, stride=st)
+    if p == "standing":
+        out += [_yah_pack("yah_pack_b", B)]
+    out += kit.rifle("yah_b_w", B, posture=p, aim=(clip == "fire"))
+    return out
+
+
+def digger_crew(clip, frame):
+    """Digger Crew, crew 3. One figure bent over a low spoil heap, unarmed.
+
+    Nothing else in the enemy set is a lone kneeling figure with a mound, and
+    the missing weapon line is itself a lever (charge_squad's finding): every
+    other kneeling sheet pairs its crew with a tube. The unit's threat is what
+    the route delivers, not its rifle, so the sprite promises exactly that.
+
+    Standing for `move` on the sniper team's precedent: the silhouette gate
+    reads only `idle_f00_000`, and a crew that kneels its way across the map
+    reads as a bug rather than as labour.
+    """
+    posture = "standing" if clip == "move" else _crew_posture(clip)
+    st = _stride(clip, frame)
+    out = kit.figure("dig", (-0.34, 0.04, 0.0), posture=posture, stride=st,
+                     headgear="keffiyeh", loadout="irregular")
+    # The heap is ground, not kit: it stays through every clip, because spoil
+    # does not go prone when the digger does. role="wood" names dust.4 -- the
+    # dark turned-earth tone -- not a material. Sized up from a first probe
+    # that filled 6.4% of frame against the art gate's 6% floor: the mound is
+    # the unit's tell, so it is also the right part to carry the fill margin,
+    # and the frame is set by the standing move figure so a wider heap costs
+    # no canvas.
+    out += [
+        kit.blob("dig_heap", (0.36, -0.06, 0.14), 0.45,
+                 squash=(1.0, 0.85, 0.62), wobble=0.12, role="wood"),
+        kit.blob("dig_heap_b", (0.52, 0.26, 0.08), 0.28,
+                 squash=(1.0, 0.9, 0.62), wobble=0.10, role="wood"),
+        kit.blob("dig_heap_c", (0.14, 0.30, 0.06), 0.20,
+                 squash=(0.9, 1.0, 0.6), wobble=0.10, role="wood"),
+    ]
+    return out
+
+
 #: id -> (builder, faction, sprite directory). The sheet name follows the unit id
 #: so a missing sheet is obvious in main.ts rather than hidden behind an alias --
 #: which is exactly how seven types came to share one directory.
@@ -450,12 +568,14 @@ TEAMS = {
     "at_team": (at_team, "kdf", "INF_AT"),
     "mortar_team": (mortar_team, "kdf", "INF_MORTAR"),
     "sniper_team": (sniper_team, "kdf", "INF_SNIPER"),
+    "yahalom_squad": (yahalom_squad, "kdf", "INF_YAHALOM"),
     "militia_cell": (militia_cell, "enemy", "INF_MILITIA"),
     "rpg_team": (rpg_team, "enemy", "INF_RPG"),
     "atgm_cell": (atgm_cell, "enemy", "INF_ATGM"),
     "mortar_crew": (mortar_crew, "enemy", "INF_MORTAR_E"),
     "charge_squad": (charge_squad, "enemy", "INF_CHARGE"),
     "moto_rpg": (moto_rpg, "enemy", "MOTO_RPG"),
+    "digger_crew": (digger_crew, "enemy", "INF_DIGGER"),
 }
 
 #: Clips that are the same for every team. `idle` is not among them any more --
@@ -469,7 +589,8 @@ BASE_CLIPS = {
 
 
 def clips_for(team):
-    """This team's clip table. Idle is per-team, everything else is shared.
+    """This team's clip table: per-team idle, the shared base vocabulary, plus
+    TEAM_CLIP_ADD's extras and minus TEAM_CLIP_DROP's omissions.
 
     A smoking team's idle loops at 3 fps; a team without one keeps a single
     still frame with fps 0, which is what the renderer already treats as static.
@@ -477,6 +598,7 @@ def clips_for(team):
     n = idle_frames(team)
     idle = {"frames": n, "fps": 3 if n > 1 else 0, "loop": n > 1}
     table = {"idle": idle, **BASE_CLIPS}
+    table.update(TEAM_CLIP_ADD.get(team, {}))
     for clip in TEAM_CLIP_DROP.get(team, ()):
         table.pop(clip, None)
     return table

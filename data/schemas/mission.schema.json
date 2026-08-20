@@ -109,6 +109,7 @@
       "type": "array",
       "items": {
         "type": "object",
+        "description": "Player deployment. Deliberately NOT the shared placement $def, and deliberately without `in_tunnel`: the runtime would accept a buried player unit, but nothing player-side can dig a route open, every command to a buried body is refused, and its living corpse would hold off the wipe-loss check -- an unlosable, unplayable start. additionalProperties:false is the gate that keeps that state unauthorable; validate_data.mjs refuses the same key on reinforce triggers, the other player-side spawn path.",
         "required": [
           "unit",
           "count"
@@ -191,7 +192,7 @@
               "destroy_all",
               "raze"
             ],
-            "description": "destroy_all exists but should be rare. Layered objectives are what make a level a level. raze: every structure inside the zone named by `target` is destroyed. The set is snapshotted at mission start, so a zone holding no structures is an authoring error rather than an instant win."
+            "description": "destroy_all exists but should be rare. Layered objectives are what make a level a level. raze: every structure inside the zone named by `target` is destroyed. The set is snapshotted at mission start, so a zone holding no structures is an authoring error rather than an instant win. collapse: every tunnel route whose MOUTH lies inside the zone named by `target` is brought down; a route that merely passes under the zone does not count. The set is snapshotted at mission start, so a zone holding no mouths can never complete and is an authoring error. A primary collapse must declare `seconds`, for the same reason a primary raze must: losing every unit that can work a charge makes it permanently impossible, and without a deadline to fail on the mission is unwinnable and unlosable at once."
           },
           "primary": {
             "type": "boolean"
@@ -469,6 +470,14 @@
         "tag": {
           "type": "string",
           "description": "Objective targeting (eliminate_hvt, locate)."
+        },
+        "in_tunnel": {
+          "type": "string",
+          "description": "Route id (map tunnels[].id) this placement starts inside. The bodies spawn underground in that route rather than standing on their tile, and stay below until the route is dug through and vents -- or die with it if it is collapsed first. Enemy and civilian placements only; player-side burial is refused (see starting_force). Mutually exclusive with a garrison stance, a tag, passengers, and digs, and the route must exist on the mission's map -- all enforced by validate_data.mjs, which also rejects a burial in a route this mission leaves unopenable: the route must be pre_dug, or dug by a digs placement in the same mission, or the garrison could never surface."
+        },
+        "digs": {
+          "type": "string",
+          "description": "Route id (map tunnels[].id) whose digger this placement is: the spawned body is assigned to the route at mission start and the dig advances from the first tick -- the declarative form of digger assignment, exactly as in_tunnel is of stocking a route. One digger, one route: the unit must carry the dig_tunnel ability, count must be 1, no two placements may dig the same route, a pre_dug route is refused (nothing left to excavate), and a placement cannot be in_tunnel and dig at once -- all enforced by validate_data.mjs, which also rejects a digs naming a route the map does not declare; the runtime throws on the same unknown id before any body spawns."
         },
         "passengers": {
           "type": "array",
