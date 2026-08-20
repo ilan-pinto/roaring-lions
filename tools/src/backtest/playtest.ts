@@ -1,7 +1,7 @@
 // Headless mission playtests: each Beit Sahwan mission must be winnable by a
 // sensible scripted plan inside its time budget. Run: tsx src/backtest/playtest.ts
 
-import { Sim, fx, TICKS_PER_SECOND, MissionRuntime, type MissionJson, type LedgerData } from '@lions/sim';
+import { Sim, fx, TICKS_PER_SECOND, MissionRuntime, type MissionJson, type LedgerData, type TunnelRouteJson } from '@lions/sim';
 import { units, maps, missions, structures as structureCatalogue, parseMap } from '@lions/data';
 
 type Plan = (sim: Sim, rt: MissionRuntime, ids: (t: string) => number[], at: (t: number, fn: () => void) => void) => void;
@@ -33,12 +33,27 @@ function run(
     if (ti === undefined) throw new Error(`unknown structure type ${b.type}`);
     sim.addStructure(ti, b.tiles);
   }
+  // Tunnels: registered from ONE array in ONE loop, and that same array is what
+  // the mission context receives. `ctx.tunnels` is positional -- entry r IS the
+  // sim's route index -- mirroring main.ts exactly (an equal-count permutation
+  // would silently bury units in the wrong route).
+  const tunnelRoutes: TunnelRouteJson[] = map.tunnels.map((t) => ({
+    id: t.id,
+    points: t.points,
+    dig_tiles_per_s: t.digTilesPerS,
+    pre_dug: t.preDug,
+  }));
+  for (let i = 0; i < tunnelRoutes.length; i++) {
+    const got = sim.addTunnel(tunnelRoutes[i]);
+    if (got !== i) throw new Error(`tunnel "${tunnelRoutes[i].id}" registered as route ${got}, expected ${i}`);
+  }
   const typeOf = new Map<string, number>();
   for (const u of Object.values(units)) typeOf.set(u.id, sim.addUnitType(u));
   const rt = new MissionRuntime(sim, mission, {
     typeIdOf: (u) => typeOf.get(u) as number,
     markers: map.markers,
     zones: map.zones,
+    tunnels: tunnelRoutes,
     ledger,
     unitInfo: (u) => {
       const d = (units as Record<
@@ -182,7 +197,7 @@ const led2 = run(
 );
 
 // III — Clearance: the proven combined-arms plan; mortar stays home.
-run(
+const led3 = run(
   'beit_sahwan_3_clearance',
   (sim, _rt, ids, at) => {
     at(1, () => {
@@ -475,3 +490,89 @@ run(
 // start and the auto-search radius is two, so nothing here was ever close
 // enough to test that.
 run('wadi_halam_5_depot', () => {}, wh4, 'defeat', 'wadi_halam_5_depot (no orders)');
+
+// --- Beit Sahwan IV: Subterranean --------------------------------------------
+
+// IV — Subterranean: tour the district with both charge teams, and let the
+// drone walk ahead of them.
+//
+// A route can only be charged while it is identified, and identification is
+// live: a mark_tunnel carrier has to hold a sight line to it. Both Yahalom
+// carry the ability themselves at sight 8, so a team that walks onto a route
+// finds it and holds it for its own charge; the drone's job is to shorten the
+// walk by finding the next one while the current charge runs.
+//
+// The two teams split. South-west takes bs_tn_souk then bs_tn_west; north-east
+// takes bs_tn_clinic then bs_tn_north. Serialising them on one team is what
+// blows the budget.
+run('beit_sahwan_4_subterranean', () => {}, {}, 'defeat', 'beit_sahwan_4_subterranean (no orders)');
+
+// The scripted run inherits the arc, the control does not. `run` returns only the
+// keys a mission DECLARES in `produces`, while the app merges each mission's output
+// into one persistent ledger (main.ts:1022) -- so chaining led1 -> led2 -> led3 by
+// hand drops `intel.marked_positions` at Beit Sahwan II, which does not declare it.
+// Merging the three here is what the app actually does, and it is the only way this
+// mission's two inherited tags (bs_cell_north_block, bs_ambush_market_lane) arrive
+// pre-revealed the way the design says they should. The no-orders control keeps `{}`:
+// a passive run should not double as a carry-over test.
+const led4In = { ...led1, ...led2, ...led3 };
+
+// Diagnosis (walk_mission.ts + a scratch instrumented run) turned up something
+// the guessed plan above could not have worked around: a plain `move` parked
+// beside a route never charges it. `chargeOrder` is set in exactly one place,
+// Sim.applyCommands's `kind: 'chargeTunnel'` branch -- the same command
+// main.ts's HUD dispatches on a right-click over an identified route. It also
+// walks the team to the nearest tile on the route's OWN polyline itself, so
+// there is no tile to guess -- the plan only has to say which route and when.
+// Route indices are positional, in the map's own `tunnels` array order:
+// bs_tn_west=0, bs_tn_north=1, bs_tn_souk=2, bs_tn_clinic=3.
+run('beit_sahwan_4_subterranean', (sim, _rt, ids, at) => {
+  const teams = ids('yahalom_squad');
+  const west = teams.slice(0, 1);
+  const east = teams.slice(1, 2);
+  const drone = ids('recon_drone');
+  const escort = [...ids('inf_squad'), ...ids('ifv_namer'), ...ids('apc_eitan')];
+
+  // The escort goes out FIRST and alone. bs4_charge_crossroads -- a kamikaze
+  // charge_squad, not one of the two tags this mission inherits pre-revealed
+  // -- sits directly on the ground south of the district and rushes whoever
+  // reaches it first. Sending the escort ahead means an inf_squad trades with
+  // it instead of a Yahalom team: a rifle squad is replaceable, a charge team
+  // eaten by one kamikaze hit (420 damage against 380 HP) is not. The same
+  // attackMove clears bs_ambush_market_lane (already identified from the
+  // inherited ledger) on the same pass.
+  at(0, () => sim.queueCommand({ kind: 'attackMove', ids: escort, ...M(27, 25) }));
+
+  // The drone scouts toward bs_tn_north -- the one route nothing has found
+  // yet, its mouth over 20 tiles from every player spawn -- from a stand-off
+  // point outside any occupant's weapon range of the vent, so it does not
+  // trigger a surfacing volley by walking up on its own.
+  at(2, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(28, 20) }));
+
+  // West waits for the escort to clear the crossroads, then charges
+  // bs_tn_souk. Ordered while the team is still at its spawn: the nearest
+  // tile on souk's own polyline from there is on the MOUTH side (~7 tiles),
+  // not the vent (~11) -- so the team never comes within the stocked
+  // militia_cell pair's weapon range of the vent, and the charge collapses
+  // both of them still buried, no fight needed.
+  at(12, () => sim.queueCommand({ kind: 'chargeTunnel', ids: west, tunnel: 2 }));
+
+  // East charges bs_tn_clinic immediately. Its stocked rpg_team + militia_cell
+  // pair does surface -- clinic's line runs through contested ground either
+  // way -- but Yahalom's own carbines are enough to drop both before the
+  // charge completes.
+  at(2, () => sim.queueCommand({ kind: 'chargeTunnel', ids: east, tunnel: 3 }));
+
+  // Once each team's first route is down, retarget to the second.
+  // bs_tn_west has no stocked occupants at all -- the digger_crew reworking
+  // it live is 20 tiles north, out of this fight -- so west's second charge
+  // is uncontested.
+  at(45, () => sim.queueCommand({ kind: 'chargeTunnel', ids: west, tunnel: 0 }));
+
+  // bs_tn_north is the hardest of the four: two rpg_team occupants (300
+  // damage, penetration 550) plus a garrisoned militia_cell dug in at the
+  // mouth. East cannot solo this the way it solo'd clinic, so the escort
+  // follows it up once the crossroads/market lane fight is won.
+  at(45, () => sim.queueCommand({ kind: 'chargeTunnel', ids: east, tunnel: 1 }));
+  at(50, () => sim.queueCommand({ kind: 'attackMove', ids: escort, ...M(30, 17) }));
+}, led4In);
