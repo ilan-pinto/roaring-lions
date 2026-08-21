@@ -20,6 +20,10 @@ export {
   type MissionEventKindsAreExhaustive,
 } from './mission';
 export { unlockReason, type UnlockGate } from './unlock';
+// The mosque threshold. The sim keeps units from levelling a protected site on
+// their own initiative; the app needs the same number to keep an ambiguous
+// right-click from manufacturing the explicit order that bypasses that rule.
+export { PROTECTED_ROE } from './structures';
 export {
   routeLength,
   pointAtDistance,

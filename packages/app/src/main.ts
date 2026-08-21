@@ -9,6 +9,7 @@ import {
   fx,
   TICKS_PER_SECOND,
   MissionRuntime,
+  PROTECTED_ROE,
   type LedgerData,
   type MissionEvent,
   type MissionJson,
@@ -45,7 +46,7 @@ import { Hud, type MissionView, type Tone } from './ui/hud';
 import { showMenu, showCampaign, showEndScreen } from './ui/menu';
 import { showLoading } from './ui/loading';
 import { ProductionBar } from './ui/production';
-import { applyIntent, sortMount, type PlayerIntent } from './input/intents';
+import { applyIntent, sortMount, sortStructureOrder, type PlayerIntent } from './input/intents';
 import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
 import { tutorialPanel, type TutorialPanel } from './tutorial/panel';
 import { parseWorld, parseCountries, nextMissionAfter } from './campaign';
@@ -820,16 +821,16 @@ async function main(): Promise<void> {
     // asked for it by name.
     const struct = sim.structureAt(Math.floor(w.x), Math.floor(w.y));
     if (struct >= 0) {
-      const canRaze = mine.filter((i) => sim.unitTypes[sim.state.typeIdx[i]].canDemolish);
-      const canEnter = mine.filter(
-        (i) =>
-          sim.unitTypes[sim.state.typeIdx[i]].canGarrison &&
-          !sim.unitTypes[sim.state.typeIdx[i]].canDemolish
-      );
-      const rest = mine.filter(
-        (i) =>
-          !sim.unitTypes[sim.state.typeIdx[i]].canGarrison &&
-          !sim.unitTypes[sim.state.typeIdx[i]].canDemolish
+      // A protected site is only ordered down by a selection that is nothing
+      // but demolishers -- isolating the engineers IS the act of taking
+      // responsibility for the ROE bill. See sortStructureOrder.
+      const isProtected =
+        sim.structureTypes[sim.structures.typeIdx[struct]].roePenalty >= PROTECTED_ROE;
+      const { razers: canRaze, enterers: canEnter, rest } = sortStructureOrder(
+        mine,
+        (i) => sim.unitTypes[sim.state.typeIdx[i]].canDemolish,
+        (i) => sim.unitTypes[sim.state.typeIdx[i]].canGarrison,
+        isProtected
       );
       if (canRaze.length > 0) dispatch({ kind: 'demolish', ids: canRaze, structure: struct });
       if (canEnter.length > 0) dispatch({ kind: 'garrison', ids: canEnter, structure: struct });
