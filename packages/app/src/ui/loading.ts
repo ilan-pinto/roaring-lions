@@ -29,6 +29,42 @@ export function briefingHoldsDeployment(briefing: string | undefined): boolean {
   return briefing !== undefined && briefing.trim().length > 0;
 }
 
+/** Roughly two sentences to a beat, and never more than this many characters —
+ *  whichever comes first. Two long sentences are a wall, not a beat. */
+const BEAT_SENTENCES = 2;
+const BEAT_CHARS = 240;
+
+/**
+ * Break a briefing into the beats a commander delivers it in.
+ *
+ * Sentence boundaries are the seam. That is safe for the eleven authored
+ * briefings specifically because none of them contains a decimal or an
+ * abbreviation — checked rather than assumed, and the reason this splits at
+ * runtime instead of the schema growing a `beats` array nobody would keep
+ * consistent with the prose above it.
+ *
+ * Text with no sentence end at all yields one beat rather than none: a brief
+ * the player cannot read is worse than one delivered in a single breath.
+ */
+export function briefingBeats(text: string): string[] {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return [];
+  const sentences = trimmed.split(/(?<=[.!?])\s+/).filter((s) => s.trim().length > 0);
+  const beats: string[] = [];
+  let held: string[] = [];
+  const flush = (): void => {
+    if (held.length > 0) beats.push(held.join(' '));
+    held = [];
+  };
+  for (const sentence of sentences) {
+    const wouldBe = [...held, sentence].join(' ');
+    if (held.length > 0 && (held.length >= BEAT_SENTENCES || wouldBe.length > BEAT_CHARS)) flush();
+    held.push(sentence);
+  }
+  flush();
+  return beats;
+}
+
 export interface LoadingScreen {
   /** How many assets the gate is waiting on. Drives the bar's denominator. */
   total(n: number): void;
