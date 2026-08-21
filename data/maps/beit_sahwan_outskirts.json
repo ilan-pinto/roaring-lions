@@ -89,7 +89,8 @@
       23,
       6,
       6
-    ]
+    ],
+    "tunnel_mouth_west": [29, 21, 3, 3]
   },
   "tunnels": [
     {
@@ -113,6 +114,27 @@
         22
       ],
       "dig_tiles_per_s": 0.16
+    },
+    {
+      "id": "bs_tn_north",
+      "mouth": [27, 13],
+      "waypoints": [[29, 15]],
+      "vent": [32, 17],
+      "pre_dug": true
+    },
+    {
+      "id": "bs_tn_souk",
+      "mouth": [22, 29],
+      "waypoints": [[24, 27]],
+      "vent": [26, 24],
+      "pre_dug": true
+    },
+    {
+      "id": "bs_tn_clinic",
+      "mouth": [35, 26],
+      "waypoints": [[33, 23]],
+      "vent": [31, 21],
+      "pre_dug": true
     }
   ]
 }

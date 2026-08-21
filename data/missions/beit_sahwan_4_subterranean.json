@@ -1,0 +1,135 @@
+{
+  "id": "beit_sahwan_4_subterranean",
+  "name": "Beit Sahwan IV — Subterranean",
+  "town": "beit_sahwan",
+  "phase": "subterranean",
+  "target_minutes": 6,
+  "briefing": "The town is ours and the fighting has not stopped. Rounds come from empty ground, the shooters are gone before the echo, and the reason is under your feet: Ashwar mined this district long before we reached it. Four routes run beneath it. One they are digging again right now — you will see the spoil creeping west along the main road, and disturbed earth is something any soldier can read. The other three were finished years ago and left no dirt at all; only the drone or the engineers themselves can tell you where they run, and only while somebody is looking. They also have men waiting close in with charges of their own, fast enough to reach your line before you have finished forming it — put something else in front to meet them, not the engineers. Bring all four down. Yahalom must stand still in the open beside a route to set the charge, so whether they live is a decision you make with everything else you have.",
+  "map": {
+    "file": "beit_sahwan_outskirts",
+    "player_start": [26, 34]
+  },
+  "ledger": {
+    "requires": ["roster.surviving_units", "intel.marked_positions"],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions",
+      "intel.marked_positions"
+    ]
+  },
+  "starting_force": [
+    { "unit": "yahalom_squad", "count": 1, "at": [25, 35] },
+    { "unit": "yahalom_squad", "count": 1, "at": [27, 35] },
+    { "unit": "recon_drone", "count": 1, "at": [24, 36] },
+    { "unit": "inf_squad", "count": 3, "at": [24, 34], "from_ledger": true },
+    { "unit": "ifv_namer", "count": 1, "at": [28, 34], "from_ledger": true },
+    { "unit": "apc_eitan", "count": 1, "at": [26, 35] }
+  ],
+  "resources": {
+    "logistics_start": 500,
+    "logistics_rate_per_min": 90
+  },
+  "objectives": [
+    {
+      "id": "bring_it_down",
+      "type": "collapse",
+      "primary": true,
+      "target": "town",
+      "seconds": 300,
+      "text": "Collapse every route under the district"
+    },
+    {
+      "id": "read_the_ground",
+      "type": "locate",
+      "primary": false,
+      "target": "bs4_digger",
+      "text": "Find the crew reopening the western route"
+    }
+  ],
+  "roe": {
+    "enabled": true,
+    "flagged_zones": ["clinic"],
+    "fail_below": 40,
+    "structure_penalty_mult": 1
+  },
+  "enemy": {
+    "faction": "ashwar",
+    "doctrine_profile": "the network beneath",
+    "garrison": [
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [23.5, 31.5],
+        "facing_deg": 180,
+        "stance": { "kind": "garrison", "building": [23, 31] },
+        "tag": "bs4_cell_souk"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [27.5, 12.5],
+        "facing_deg": 180,
+        "stance": { "kind": "garrison", "building": [28, 12] },
+        "tag": "bs_cell_north_block"
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [27.5, 24.5],
+        "facing_deg": 180,
+        "stance": { "kind": "ambush", "tiles": 3 },
+        "tag": "bs_ambush_market_lane"
+      },
+      {
+        "unit": "charge_squad",
+        "count": 1,
+        "at": [25.5, 25.5],
+        "facing_deg": 180,
+        "stance": { "kind": "ambush", "tiles": 4 },
+        "tag": "bs4_charge_crossroads"
+      },
+      {
+        "unit": "digger_crew",
+        "count": 1,
+        "at": [26.5, 10.5],
+        "digs": "bs_tn_west",
+        "tag": "bs4_digger"
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [31.5, 23.5],
+        "facing_deg": 270,
+        "stance": { "kind": "ambush", "tiles": 4 },
+        "tag": "bs4_ambush_mouth_west"
+      },
+      { "unit": "rpg_team", "count": 2, "at": [27.5, 13.5], "in_tunnel": "bs_tn_north" },
+      { "unit": "militia_cell", "count": 2, "at": [22.5, 29.5], "in_tunnel": "bs_tn_souk" },
+      { "unit": "rpg_team", "count": 1, "at": [35.5, 26.5], "in_tunnel": "bs_tn_clinic" },
+      { "unit": "militia_cell", "count": 1, "at": [35.5, 26.5], "in_tunnel": "bs_tn_clinic" }
+    ],
+    "waves": [
+      {
+        "at_seconds": 150,
+        "to": "town_center",
+        "units": [{ "unit": "militia_cell", "count": 2, "from": "mortar_line" }]
+      },
+      {
+        "at_seconds": 240,
+        "to": "town_center",
+        "units": [
+          { "unit": "rpg_team", "count": 1, "from": "mortar_line" },
+          { "unit": "technical", "count": 1, "from": "mortar_line" }
+        ]
+      }
+    ]
+  },
+  "civilians": {
+    "refuge": "civ_refuge",
+    "groups": [
+      { "unit": "civilians", "count": 2, "at": [28.5, 14.5] },
+      { "unit": "civilians", "count": 2, "at": [24.5, 33.5] }
+    ]
+  }
+}

@@ -127,9 +127,10 @@ The combat model is the product. Everything else is scaffolding around it.
   are wired: a placement's `digs` assigns its body as a route's digger, and a
   `mark_tunnel` unit with a sight line to a route identifies it — spoil or no spoil —
   so an authored mission can dig, find, and collapse a route end to end (the mission
-  runtime tests prove the chain from JSON alone). What the Beit Sahwan subterranean
-  mission (#91) still needs is authoring, not engine work. `tunnel_travel` remains
-  unit data only.
+  runtime tests prove the chain from JSON alone). The Beit Sahwan subterranean
+  mission (#91) now exists — `data/missions/beit_sahwan_4_subterranean.json`, the
+  first content to use the `subterranean` phase. `tunnel_travel` remains unit data
+  only.
 - The trail-detection scan is O(routes × living units × sight²) per tick
   (`trailStrengthFor`), on top of detection's existing O(N²) — and `markerSeesRoute`
   is the same shape again for `mark_tunnel` carriers, though it stops scanning a
@@ -139,3 +140,51 @@ The combat model is the product. Everything else is scaffolding around it.
   `drawTrail` is O(width × height × routes) at 5 Hz and belongs in the same sweep.
 - A civilian who boards a transport (`mission.ts:970`) and whose transport then dies before reaching the refuge is stranded forever: `stepCivilians` latches `civFled` on boarding and only queues the walk-to-refuge order on the non-boarded branch (`:988-991`), so a civilian dropped by a dead carrier is never re-evaluated and can never satisfy `evacuate_before`. Silent — no error, the objective just never completes. Avoidable at the mission-authoring/plan level today (escort civilians with something nothing on the relevant roster can kill), but the underlying latch is wrong.
 - `starting_force` never consults a unit's `unlock` gate — `spawnPlacement` has no equivalent of the `buildBlockedReason` check `requestBuild` makes. Missions rely on this: Wadi Halam V hands out a `dozer_d9` (ROE 60) and a `demo_squad` (ROE 50) unconditionally, and Wadi Halam I–V all field a `recon_drone` (35) or an `ifv_namer` (40) a fresh campaign has not earned. Whether that is a feature or a hole is undecided; what matters is that resolving it in the obvious direction would silently strip Wadi Halam V of both demolishers, so the `seconds` deadline on its `raze` primary is what keeps that a lost mission rather than a stuck one.
+- `mission.schema.json`'s wave `from` promises "Spawn point or tunnel id. Tunnels
+  keep producing until located and collapsed", but `mission.ts:1307` resolves `from`
+  through `markerPos` only — a tunnel id there is an unknown marker. Tunnel-sourced
+  reinforcement waves do not exist. Beit Sahwan IV works around it with `in_tunnel`
+  garrisons that vent, which is the loop the subsystem was built around; the schema
+  text should either be corrected or the feature built.
+- `intel.marked_positions` cannot pre-reveal a tunnel route, and after the
+  subsystem's playtest it should not: it reveals units by tag (`mission.ts:942`),
+  exempts buried placements deliberately, and tunnel visibility is live — a route is
+  identified only while a `mark_tunnel` carrier holds a sight line, so anything
+  revealed at t=0 decays to unknown unwatched. GDD §4's "thorough recon → tunnel
+  mouths pre-marked" is therefore not literal, and Beit Sahwan IV honours the
+  contract through the surface ambushers instead.
+- `tools/src/backtest/playtest.ts` was crashing on `main` from `d46b926` until
+  `b604032` and nobody noticed. Its `run()` never registered the map's tunnels with
+  the `Sim`, so the moment Beit Sahwan II gained a `digs`/`in_tunnel` placement the
+  whole chain died at that mission with `unknown tunnel "bs_tn_west"`, taking every
+  mission below it with it. The gate is a manual `npx tsx` script wired into neither
+  `pnpm test` nor CI, which is why "all gates green" could be said truthfully about
+  the tunnel subsystem while this one was red. Two consequences outlived the fix and
+  are still open: `beit_sahwan_breach (passive control)` returns VICTORY where its own
+  comment demands DEFEAT, and `beit_sahwan_3_clearance` returns DEFEAT. Neither is a
+  tunnel-era regression — checking out `066445f` (main before any tunnel code) and
+  running the harness there reproduces both failures byte-identically, so the crash
+  merely hid `beit_sahwan_3_clearance` for about two days, no more. The likely origin
+  of the First Light control's failure is `3122340 feat(data): First Light runs five
+  minutes`: that control's own comment still reasons about a thirteen-minute fight
+  against a mission that now ends at 5.0. Both are balance questions of their own,
+  and until they are answered the script exits non-zero, so "the playtest passes"
+  cannot be claimed for anything.
+- A scripted plan in `playtest.ts` proves a mission WINNABLE; it does not measure how
+  long the mission takes. The plans are optimal-play proofs, and tuning enemy volume
+  until the scripted clock reaches `target_minutes` would produce missions no real
+  player could finish. Measured against every mission's declared `target_minutes`,
+  eight of nine plans land close to it — between 0.51 and 1.00 of target — and only
+  one is a real outlier: `beit_sahwan_1_recon` declares 10 and its plan wins in 0.7
+  (ratio 0.07). `beit_sahwan_4_subterranean` declares 6 and its plan wins in 1.1
+  (ratio 0.18) — the second-largest gap, and the only *combat* mission where the
+  scripted clock and the target diverge this far; the other seven combat missions
+  (`beit_sahwan_breach` 1.00, `wadi_halam_5_depot` 0.98, `wadi_halam_3_counterraid`
+  0.93, `wadi_halam_4_village` 0.87, `wadi_halam_1_fords` 0.80, `wadi_halam_2_laager`
+  0.80, `beit_sahwan_2_foothold` 0.51) all sit inside that 0.51–1.00 band.
+  `beit_sahwan_1_recon` is a recon mission, not a fight, and behaves differently by
+  nature. #84's method — stepping the real runtime and reading `runtime.result` and
+  `objectiveList` — remains the only instrument that measures duration, and there is
+  nothing headless between the optimal-play proof and a fully-passive walk. Beit
+  Sahwan IV's own `target_minutes: 6` stands unverified for this reason and belongs
+  to #84's set of unresolved predecessors.

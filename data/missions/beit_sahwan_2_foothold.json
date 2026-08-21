@@ -91,7 +91,7 @@
       "id": "collapse_tunnel",
       "type": "collapse",
       "primary": false,
-      "target": "town",
+      "target": "tunnel_mouth_west",
       "text": "Collapse the tunnel Ashwar is digging under the approach"
     }
   ],
