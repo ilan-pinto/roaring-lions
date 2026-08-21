@@ -951,6 +951,36 @@
   text-transform: uppercase;
   color: var(--ink-dim);
 }
+/* With orders to read the screen stops being a progress indicator and becomes
+   the briefing: wider, and left-aligned so the eye has one margin to return to
+   rather than a ragged centre. */
+.rl-loading__box--brief {
+  width: min(680px, 88vw);
+  text-align: left;
+}
+.rl-loading__brief {
+  margin-top: var(--s4);
+  font-size: var(--t-m);
+  line-height: 1.55;
+  color: var(--ink);
+}
+.rl-loading__deploy {
+  margin-top: var(--s5);
+  padding: var(--s2) var(--s5);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--band-mission);
+  cursor: pointer;
+}
+.rl-loading__deploy:hover,
+.rl-loading__deploy:focus-visible {
+  background: color-mix(in srgb, var(--band-mission) 22%, transparent);
+}
+
 /* A player who has asked for less motion still gets the fill, just without
    the interpolation between counts. */
 @media (prefers-reduced-motion: reduce) {
