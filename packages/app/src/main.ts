@@ -425,7 +425,7 @@ async function main(): Promise<void> {
   // Up before the canvas exists, so the player never sees the terrain draw
   // itself in or the units stand around as procedural boxes waiting for their
   // sheets. It comes down once the art gate below has settled.
-  const loading = showLoading(stage, mission?.name ?? mission?.id ?? 'M0 sandbox');
+  const loading = showLoading(stage, mission?.name ?? mission?.id ?? 'M0 sandbox', mission?.briefing);
   await renderer.init(stage);
   renderer.useEmitters(vfxEmitters as EmitterSpec[], paletteColor);
 
@@ -561,7 +561,9 @@ async function main(): Promise<void> {
   // behaviour for un-authored art and is far better than a permanent loading
   // screen.
   await Promise.all(artJobs);
-  loading.done();
+  // Waits for the player when there are orders to read; resolves at once when
+  // there are none, which is every sandbox and the tutorial.
+  await loading.done();
 
   const getMission = (): MissionView | null =>
     runtime && mission

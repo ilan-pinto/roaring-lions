@@ -138,6 +138,11 @@ export interface ObjectiveJson {
 export interface MissionJson {
   id: string;
   name?: string;
+  /** The orders, shown on the deploying screen before the mission starts.
+   *  Undeclared until 2026-08-21, which is why nothing rendered it: every
+   *  mission has carried one since the format was written, and no call site
+   *  could reach a field the type did not describe. */
+  briefing?: string;
   map: { file: string; player_start?: readonly number[] };
   ledger: { requires: readonly string[]; produces: readonly string[] };
   objectives: readonly ObjectiveJson[];
