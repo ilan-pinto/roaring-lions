@@ -78,9 +78,20 @@ Register, to fix the voice:
 - *Wadi Halam I* — "Eight hundred kilometres east, and for the first time you arrive before they do."
 - *Break the Depot*, `aftermath` — "The corridor is cut. In the north, Sur's rockets range on regardless. The war does not end here; it changes shape."
 
-### Briefings are not touched
+### Briefings are not touched — and are currently invisible
 
-An earlier draft had them gaining continuity openers. They should not. The briefings are the strongest prose in the project precisely because they are clipped tactical orders, and mixing narrative into a fire plan weakens both. `dispatch` is the story voice; `briefing` stays the orders voice.
+An earlier draft had them gaining continuity openers. They should not. `dispatch` is the story voice; `briefing` stays the orders voice, and mixing narrative into a fire plan weakens both.
+
+**Correction, found while planning this.** That draft also argued briefings were "the surface a player actually dwells on". They are not a surface at all: **nothing in the codebase reads `mission.briefing`.**
+
+```
+$ grep -rn "\.briefing" packages/ tools/
+[nothing]
+```
+
+Every reference in the app is CSS or a comment about the mission-rank *panel*, which renders objectives, ROE, resources and suppression; `MissionView` has no briefing field, and the panel's name is vestigial. Ten missions carry authored briefings that no player has ever seen — including the Wadi Halam V mosque warning added in #98, which is therefore inert.
+
+**This spec depends on a prerequisite it did not originally name:** the briefing needs a surface. The deploying screen (#82) is the natural one — long text, dismissible, and currently holding nothing worth waiting for. That is being done first, as its own fix, and this plan builds on it.
 
 ### #82 is a dependency, not a neighbour
 
