@@ -121,24 +121,30 @@ export function showLoading(
         wrap.remove();
         return Promise.resolve();
       }
-      // Reading time is the player's to spend. Any of the three exits works —
-      // the button says so, and click-anywhere and any-key match how the
-      // mission title card already lets you past. The art gate has already
-      // settled by the time this is called, so nothing is being waited on here
-      // except the reader.
+      // Reading time is the player's to spend, and the ways out are the button,
+      // a click anywhere, and Escape.
+      //
+      // Deliberately NOT any-key, which is how titleCard works and would be
+      // wrong here: a briefing long enough to scroll is a briefing the player
+      // scrolls, and Down or Page-Down would deploy them mid-sentence. The
+      // button is focused on mount, so Enter and Space still work through its
+      // own activation rather than through a global listener.
       return new Promise<void>((resolve) => {
         let gone = false;
+        const onKey = (e: KeyboardEvent): void => {
+          if (e.key === 'Escape') dismiss();
+        };
         const dismiss = (): void => {
           if (gone) return;
           gone = true;
           window.removeEventListener('pointerdown', dismiss);
-          window.removeEventListener('keydown', dismiss);
+          window.removeEventListener('keydown', onKey);
           wrap.remove();
           resolve();
         };
         deploy.addEventListener('click', dismiss);
         window.addEventListener('pointerdown', dismiss);
-        window.addEventListener('keydown', dismiss);
+        window.addEventListener('keydown', onKey);
         deploy.focus();
       });
     },

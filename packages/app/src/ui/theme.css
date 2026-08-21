@@ -963,6 +963,15 @@
   font-size: var(--t-m);
   line-height: 1.55;
   color: var(--ink);
+  /* The longest authored briefing is ~1,225 characters. Unbounded, it grows the
+     centred box past a short viewport and takes the deploy control off the
+     bottom of the screen with it -- the one thing the player has to be able to
+     reach. The prose scrolls inside its own block instead, so the button never
+     moves no matter how long the orders are. */
+  max-height: min(42vh, 340px);
+  overflow-y: auto;
+  /* Scrolled text needs a margin to breathe against the scrollbar. */
+  padding-right: var(--s2);
 }
 .rl-loading__deploy {
   margin-top: var(--s5);

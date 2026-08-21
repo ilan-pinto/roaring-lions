@@ -69,3 +69,32 @@ describe('showLoading with orders to read', () => {
     expect(el.querySelector('.rl-loading')).toBeNull();
   });
 });
+
+// A briefing long enough to scroll is a briefing the player scrolls, and the
+// keys they scroll with must not deploy them into the mission mid-sentence.
+// Wadi Halam V's is 1,225 characters; this is not hypothetical.
+describe('reading a long briefing', () => {
+  it('does not deploy when the player presses a key to scroll', async () => {
+    const el = document.createElement('div');
+    const screen = showLoading(el, 'Break the Depot', 'Seven structures. '.repeat(80));
+    let handed = false;
+    void screen.done().then(() => {
+      handed = true;
+    });
+    for (const key of ['ArrowDown', 'PageDown', 'ArrowUp', 'Home', 'End']) {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+    }
+    await Promise.resolve();
+    expect(handed).toBe(false);
+    expect(el.querySelector('.rl-loading')).not.toBeNull();
+  });
+
+  it('still deploys on Escape, for a player who wants out of the text', async () => {
+    const el = document.createElement('div');
+    const screen = showLoading(el, 'Break the Depot', 'Seven structures.');
+    const done = screen.done();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await done;
+    expect(el.querySelector('.rl-loading')).toBeNull();
+  });
+});
