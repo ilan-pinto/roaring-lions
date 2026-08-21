@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { fx, type Command } from '@lions/sim';
-import { applyIntent, sortMount, INTENT_KINDS, type CommandSink, type PlayerIntent } from './intents';
+import {
+  applyIntent,
+  sortMount,
+  sortStructureOrder,
+  INTENT_KINDS,
+  type CommandSink,
+  type PlayerIntent,
+} from './intents';
 
 /** Recording sink — `applyIntent` must not need a real Sim to be testable. */
 function sink(): CommandSink & { out: Command[] } {
@@ -77,5 +84,58 @@ describe('chargeTunnel intent', () => {
     const s = sink();
     applyIntent(s, { kind: 'chargeTunnel', ids: [4], tunnel: 1 });
     expect(s.out).toEqual([{ kind: 'chargeTunnel', ids: [4], tunnel: 1 }]);
+  });
+});
+
+// Right-clicking a building splits the selection three ways: demolishers level
+// it, garrisoners enter it, everyone else attack-moves at it. That is fine for
+// a shed and catastrophic for a mosque.
+//
+// The sim already refuses to level a protected site on a unit's own initiative
+// (`PROTECTED_ROE`, and the carve-outs in selectStructureTarget, the demolition
+// auto-search, and selectBreachTarget). What it cannot refuse is an explicit
+// `demolish` order, because an explicit order means the player accepted the
+// bill. The trap was that the app manufactured that order out of an ambiguous
+// click: select the whole force, right-click east past a mosque to advance, and
+// the D9 in the selection quietly took a demolish order worth 30 ROE while
+// everything else attack-moved and it looked like a move.
+//
+// So a protected site is only ever ordered down by a selection that is nothing
+// but demolishers -- isolating the engineers IS the act of taking
+// responsibility. Anything else, and the click is a move.
+describe('sortStructureOrder', () => {
+  const DEMOLISHERS = new Set([10, 11]);
+  const GARRISONERS = new Set([20, 21]);
+  const canDemolish = (id: number) => DEMOLISHERS.has(id);
+  const canGarrison = (id: number) => GARRISONERS.has(id);
+
+  it('sends demolishers at an ordinary building even in a mixed selection', () => {
+    const got = sortStructureOrder([10, 20, 30], canDemolish, canGarrison, false);
+    expect(got).toEqual({ razers: [10], enterers: [20], rest: [30] });
+  });
+
+  it('refuses to level a protected site when the selection is not all demolishers', () => {
+    const got = sortStructureOrder([10, 20, 30], canDemolish, canGarrison, true);
+    expect(got.razers).toEqual([]);
+  });
+
+  it('attack-moves the demolisher instead, so the click reads as the move it was', () => {
+    const got = sortStructureOrder([10, 30], canDemolish, canGarrison, true);
+    expect(got).toEqual({ razers: [], enterers: [], rest: [10, 30] });
+  });
+
+  it('still lets garrisoners enter a protected site — going in harms nothing', () => {
+    const got = sortStructureOrder([20, 30], canDemolish, canGarrison, true);
+    expect(got).toEqual({ razers: [], enterers: [20], rest: [30] });
+  });
+
+  it('levels a protected site when every selected unit is a demolisher', () => {
+    const got = sortStructureOrder([10, 11], canDemolish, canGarrison, true);
+    expect(got).toEqual({ razers: [10, 11], enterers: [], rest: [] });
+  });
+
+  it('treats an empty selection as nothing to order', () => {
+    const got = sortStructureOrder([], canDemolish, canGarrison, true);
+    expect(got).toEqual({ razers: [], enterers: [], rest: [] });
   });
 });

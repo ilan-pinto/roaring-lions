@@ -103,3 +103,48 @@ export function sortMount(
     riders: ids.filter(canEmbark),
   };
 }
+
+/**
+ * Sort a selection for a right-click on a building: who levels it, who enters
+ * it, and who merely attacks toward it.
+ *
+ * Demolition is tested before garrison because a unit that can do both is a
+ * sapper, and a sapper sent at a building is being sent to demolish it —
+ * main.ts's rule, kept here so the split is one stated fact rather than three
+ * filters that have to agree.
+ *
+ * `isProtected` is the mosque case (`roePenalty >= PROTECTED_ROE`), and it is
+ * the whole reason this function exists. The sim already refuses to level a
+ * protected site on a unit's own initiative; what it cannot refuse is an
+ * explicit `demolish` order, because an explicit order is how the player takes
+ * responsibility for the ROE bill. The bug was that an ambiguous click
+ * manufactured that order — select the force, right-click east past a mosque to
+ * advance, and the D9 in the selection took a 30-point demolish order while
+ * everything else attack-moved, so it read as a move and cost a third of the
+ * mission's ROE budget.
+ *
+ * So a protected site comes down only for a selection that is nothing but
+ * demolishers. Isolating the engineers IS the act of taking responsibility, and
+ * it needs no modifier key to say so. Any other selection and the demolishers
+ * fall in with `rest`: the click becomes the move it looked like.
+ */
+export function sortStructureOrder(
+  ids: number[],
+  canDemolish: (id: number) => boolean,
+  canGarrison: (id: number) => boolean,
+  isProtected: boolean
+): { razers: number[]; enterers: number[]; rest: number[] } {
+  // Deliberate: every selected body can work a charge. An empty selection is
+  // not deliberate — there is nobody to have decided anything.
+  const deliberate = ids.length > 0 && ids.every((id) => canDemolish(id));
+  const razeAllowed = !isProtected || deliberate;
+  const razers: number[] = [];
+  const enterers: number[] = [];
+  const rest: number[] = [];
+  for (const id of ids) {
+    if (canDemolish(id)) (razeAllowed ? razers : rest).push(id);
+    else if (canGarrison(id)) enterers.push(id);
+    else rest.push(id);
+  }
+  return { razers, enterers, rest };
+}
