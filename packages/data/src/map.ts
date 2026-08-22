@@ -4,6 +4,7 @@
 //
 //   .  open ground          1 2 3  cover levels (light / heavy / garrison)
 //   r  dirt road            o  olive grove (cover 1)   n  rocky knoll (cover 2)
+//   ^  rock ridge: impassable and blocks sight, the only non-building blocked tile
 //   building symbols come from data/structures.json, NOT from this file
 //
 // Any building symbol makes a blocked tile; a contiguous run of the SAME
@@ -96,7 +97,7 @@ export interface ParsedTunnel {
  * array to the renderer directly; the mechanical half of the same tile travels
  * the normal route, through `sim.setCover`.
  */
-export const DECOR = { none: 0, road: 1, grove: 2, knoll: 3 } as const;
+export const DECOR = { none: 0, road: 1, grove: 2, knoll: 3, ridge: 4 } as const;
 export type DecorKind = (typeof DECOR)[keyof typeof DECOR];
 
 export interface ParsedMap {
@@ -166,6 +167,7 @@ export const TERRAIN_LEGEND: Record<
   r: { blocked: 0, cover: 0, decor: DECOR.road },
   o: { blocked: 0, cover: 1, decor: DECOR.grove },
   n: { blocked: 0, cover: 2, decor: DECOR.knoll },
+  '^': { blocked: 1, cover: 0, decor: DECOR.ridge },
 };
 
 const LEGEND: Record<string, { blocked: number; cover: number; decor: DecorKind }> = {

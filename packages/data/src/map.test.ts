@@ -65,10 +65,12 @@ describe('parseMap', () => {
     expect(() => parseMap({ ...TINY, terrain: 'lunar' })).toThrow(/unknown terrain theme/);
   });
 
-  it('still decodes exactly seven terrain symbols', () => {
-    // The green basin is a look, not new mechanics. If this count moves, a
-    // symbol was added and validate_data.mjs's TERRAIN_SYMBOLS must move with it.
-    expect(Object.keys(TERRAIN_LEGEND).sort()).toEqual(['.', '1', '2', '3', 'n', 'o', 'r']);
+  it('still decodes exactly eight terrain symbols', () => {
+    // If this count moves, a symbol was added and validate_data.mjs's
+    // TERRAIN_SYMBOLS must move with it. That used to be the whole guard --
+    // a comment asking the next author to remember. tools/src/terrain_symbols.test.ts
+    // now checks the validator's actual source, so forgetting fails a test.
+    expect(Object.keys(TERRAIN_LEGEND).sort()).toEqual(['.', '1', '2', '3', '^', 'n', 'o', 'r']);
   });
 });
 
@@ -259,5 +261,41 @@ describe('structure grouping', () => {
     for (const s of m.structures) byType[s.type] = (byType[s.type] ?? 0) + 1;
     expect(byType[grouped.id]).toBe(1);
     expect(byType[perTile.id]).toBe(2);
+  });
+});
+
+// Rock is the first blocked tile in the game that is not a building, which is
+// the entire point: a ridge built from concrete would be destructible,
+// garrisonable and ROE-scored, and a mountain is none of those. losRay already
+// returns -1 for a structureless blocked tile, so the mechanic needs no sim
+// code -- only a way to author it.
+describe('rock ridge', () => {
+  const RIDGE: MapJson = {
+    id: 'ridge',
+    name: 'Ridge',
+    width: 4,
+    height: 3,
+    rows: ['.^^.', '..^.', '....'],
+  };
+
+  it('is impassable, carries no cover, and draws as ridge decor', () => {
+    const m = parseMap(RIDGE);
+    expect(Array.from(m.blocked.slice(0, 4))).toEqual([0, 1, 1, 0]);
+    expect(Array.from(m.cover.slice(0, 4))).toEqual([0, 0, 0, 0]);
+    expect(Array.from(m.decor.slice(0, 4))).toEqual([
+      DECOR.none,
+      DECOR.ridge,
+      DECOR.ridge,
+      DECOR.none,
+    ]);
+  });
+
+  it('produces no structure, so it has no HP, no garrison and no ROE penalty', () => {
+    // The whole reason rock is terrain rather than a building.
+    expect(parseMap(RIDGE).structures).toEqual([]);
+  });
+
+  it('is not claimed by any building symbol', () => {
+    expect(STRUCTURE_SYMBOLS['^']).toBeUndefined();
   });
 });
