@@ -64,7 +64,25 @@ describe('a rock ridge authored as `^`', () => {
   });
 
   it('leaves the ridge tiles with no cover, so nothing gains concealment from it', () => {
-    const { sim } = watch('^');
-    for (let y = 0; y < 5; y++) expect(sim.cover[y * 16 + 8]).toBe(0);
+    // A bare "cover is 0" assertion on its own cannot fail for the right reason:
+    // `^` is defined as cover 0, applyTerrain only calls setCover when cover is
+    // non-zero, so for rock setCover is never invoked at all -- sim.cover is a
+    // zero-initialised Uint8Array either way. Put a genuine cover tile (`2`,
+    // heavy cover) in the same map and assert both, so a broken setCover call
+    // would leave column 4 at 0 too and this test would catch it.
+    const row = (): string => `....2...^.......`;
+    const map = parseMap({
+      id: 'corridor_cover_and_rock',
+      name: 'Corridor',
+      width: 16,
+      height: 5,
+      rows: [row(), row(), row(), row(), row()],
+    });
+    const sim = new Sim({ seed: 7, width: map.width, height: map.height, capacity: 8 });
+    applyTerrain(map, sim);
+    for (let y = 0; y < 5; y++) {
+      expect(sim.cover[y * 16 + 8]).toBe(0);
+      expect(sim.cover[y * 16 + 4]).toBe(2);
+    }
   });
 });
