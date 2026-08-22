@@ -1250,6 +1250,39 @@ export class PixiRenderer {
         const diamond = [cx, cy - TILE_H / 2, cx + TILE_W / 2, cy, cx, cy + TILE_H / 2, cx - TILE_W / 2, cy];
 
         if (blocked) {
+          // Rock is the first blocked tile that is NOT a building. Every other
+          // blocked tile has a structure behind it -- that's what the
+          // structureAt lookup below is for -- but a ridge has none, so it has
+          // to be intercepted here, before that lookup runs, or it falls
+          // through to drawBuildingTile and renders as a generic wall box.
+          const kindHere = this.decor ? this.decor[ti] : TERRAIN_DECOR.none;
+          if (kindHere === TERRAIN_DECOR.ridge) {
+            // The knoll's rock, scaled up until it reads as impassable. A
+            // knoll is scatter you walk over; a ridge is the reason the
+            // valley has two ways through, and the difference has to be
+            // legible at a glance or the player will path into it and
+            // wonder why they stopped.
+            //
+            // Still flat, for the same reason the knoll is: the sim has no
+            // elevation. Drawing a ridge tall would promise dead ground
+            // behind it that the sight model does not actually grant --
+            // what it grants is a broken line THROUGH the tile, which is
+            // what covering the whole tile says.
+            g.poly(diamond).fill({ color: t.rock, alpha: 0.92 });
+            for (let k = 0; k < 5; k++) {
+              const a = PixiRenderer.h2(x * 13 + k, y * 29 + k);
+              const b = PixiRenderer.h2(x * 7 + k, y * 19 + k);
+              const px = cx + (a - 0.5) * (TILE_W - 8);
+              const py = cy + (b - 0.5) * (TILE_H - 4);
+              const r = 6 + a * 7;
+              g.ellipse(px, py, r, r * 0.7).fill({ color: t.rock, alpha: 0.95 });
+              g.ellipse(px - r * 0.24, py - r * 0.26, r * 0.55, r * 0.32).fill({
+                color: t.rockLit,
+                alpha: 0.9,
+              });
+            }
+            continue;
+          }
           // Buildings are NOT drawn here. They go into spriteLayer as their own
           // display objects so they can depth-sort against units -- a soldier
           // behind a wall has to be covered by it. Drawing them into terrainG
@@ -1322,33 +1355,6 @@ export class PixiRenderer {
             g.ellipse(px - r * 0.2, py - r * 0.22, r * 0.6, r * 0.36).fill({
               color: t.rockLit,
               alpha: 0.8,
-            });
-          }
-          continue;
-        }
-
-        if (kind === TERRAIN_DECOR.ridge) {
-          // The knoll's rock, scaled up until it reads as impassable. A knoll
-          // is scatter you walk over; a ridge is the reason the valley has two
-          // ways through, and the difference has to be legible at a glance or
-          // the player will path into it and wonder why they stopped.
-          //
-          // Still flat, for the same reason the knoll is: the sim has no
-          // elevation. Drawing a ridge tall would promise dead ground behind
-          // it that the sight model does not actually grant -- what it grants
-          // is a broken line THROUGH the tile, which is what covering the
-          // whole tile says.
-          g.poly(diamond).fill({ color: t.rock, alpha: 0.92 });
-          for (let k = 0; k < 5; k++) {
-            const a = PixiRenderer.h2(x * 13 + k, y * 29 + k);
-            const b = PixiRenderer.h2(x * 7 + k, y * 19 + k);
-            const px = cx + (a - 0.5) * (TILE_W - 8);
-            const py = cy + (b - 0.5) * (TILE_H - 4);
-            const r = 6 + a * 7;
-            g.ellipse(px, py, r, r * 0.7).fill({ color: t.rock, alpha: 0.95 });
-            g.ellipse(px - r * 0.24, py - r * 0.26, r * 0.55, r * 0.32).fill({
-              color: t.rockLit,
-              alpha: 0.9,
             });
           }
           continue;
