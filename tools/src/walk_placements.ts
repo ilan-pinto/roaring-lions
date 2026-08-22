@@ -34,6 +34,7 @@
  */
 import { join } from 'node:path';
 
+import { TERRAIN_LEGEND } from '../../packages/data/src/index';
 import { ROOT, makeWorld, read } from './walk_world';
 
 interface Placement {
@@ -85,7 +86,20 @@ const cell: string[][] = [];
 for (let y = 0; y < H; y++) {
   const row: string[] = [];
   for (let x = 0; x < W; x++) {
-    row.push(sim.blocked[y * W + x] ? '#' : sim.cover[y * W + x] ? String(sim.cover[y * W + x]) : '.');
+    const ch = map.rows[y][x];
+    // Rock is the first blocked tile that is NOT a building, so '#' -- the
+    // building glyph -- would print a ridge as a house nobody placed. Any
+    // blocked tile whose character is in the terrain legend is terrain, so
+    // print the authored character itself: the grid round-trips with the map
+    // source, and a future blocked terrain symbol needs no edit here.
+    const blockedGlyph = TERRAIN_LEGEND[ch] !== undefined ? ch : '#';
+    row.push(
+      sim.blocked[y * W + x]
+        ? blockedGlyph
+        : sim.cover[y * W + x]
+          ? String(sim.cover[y * W + x])
+          : '.'
+    );
   }
   cell.push(row);
 }

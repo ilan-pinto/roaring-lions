@@ -1272,9 +1272,15 @@ export class PixiRenderer {
             for (let k = 0; k < 5; k++) {
               const a = PixiRenderer.h2(x * 13 + k, y * 29 + k);
               const b = PixiRenderer.h2(x * 7 + k, y * 19 + k);
-              const px = cx + (a - 0.5) * (TILE_W - 8);
-              const py = cy + (b - 0.5) * (TILE_H - 4);
-              const r = 6 + a * 7;
+              // Contained inside the tile diamond (half-width 32, half-height 16),
+              // same convention as the knoll branch below. Worst case:
+              // horizontal offset 20 + radius 11 = 31 <= 32; vertical offset 7 +
+              // (radius 11 * 0.7 = 7.7) = 14.7 <= 16. Still noticeably bigger than
+              // the knoll's blobs (radius 3-8) so the ridge keeps reading as
+              // heavier -- only the spread was reined in, not the size.
+              const px = cx + (a - 0.5) * (TILE_W - 24);
+              const py = cy + (b - 0.5) * (TILE_H - 18);
+              const r = 6 + a * 5;
               g.ellipse(px, py, r, r * 0.7).fill({ color: t.rock, alpha: 0.95 });
               g.ellipse(px - r * 0.24, py - r * 0.26, r * 0.55, r * 0.32).fill({
                 color: t.rockLit,
