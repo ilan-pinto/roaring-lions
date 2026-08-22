@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { briefingHoldsDeployment, showLoading } from './loading';
+import { briefingBeats, briefingHoldsDeployment, showLoading } from './loading';
 
 // Whether the deploying screen waits for the player is the whole of #82, and it
 // is decidable without a DOM: a screen that tears itself down the instant the
@@ -96,5 +96,42 @@ describe('reading a long briefing', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await done;
     expect(el.querySelector('.rl-loading')).toBeNull();
+  });
+});
+
+// A brief is delivered a beat at a time, so the prose has to come apart into
+// beats. Sentence boundaries are the natural seam, and the eleven authored
+// briefings contain no decimals and no abbreviations to trip on — checked, not
+// assumed — so a plain end-of-sentence split is safe here.
+describe('briefingBeats', () => {
+  it('keeps a short brief in one beat', () => {
+    expect(briefingBeats('Hold the compound. Relief is four minutes out.')).toEqual([
+      'Hold the compound. Relief is four minutes out.',
+    ]);
+  });
+
+  it('breaks a longer brief into beats, keeping the punctuation', () => {
+    expect(briefingBeats('One. Two. Three. Four.')).toEqual(['One. Two.', 'Three. Four.']);
+  });
+
+  it('gives a brief with no sentence end exactly one beat, not none', () => {
+    expect(briefingBeats('no full stop anywhere in this line')).toEqual([
+      'no full stop anywhere in this line',
+    ]);
+  });
+
+  it('has no beats for nothing to say', () => {
+    expect(briefingBeats('   ')).toEqual([]);
+  });
+
+  it('splits on a character budget, so two long sentences are not one wall', () => {
+    const long = `${'a'.repeat(200)}. ${'b'.repeat(200)}.`;
+    expect(briefingBeats(long)).toHaveLength(2);
+  });
+
+  it('never emits an empty beat', () => {
+    for (const beat of briefingBeats('One.  Two.   Three.    Four. Five.')) {
+      expect(beat.trim().length).toBeGreaterThan(0);
+    }
   });
 });
