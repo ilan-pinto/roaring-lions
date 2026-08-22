@@ -416,7 +416,8 @@ async function main(): Promise<void> {
     DECOR.none !== TERRAIN_DECOR.none ||
     DECOR.road !== TERRAIN_DECOR.road ||
     DECOR.grove !== TERRAIN_DECOR.grove ||
-    DECOR.knoll !== TERRAIN_DECOR.knoll
+    DECOR.knoll !== TERRAIN_DECOR.knoll ||
+    DECOR.ridge !== TERRAIN_DECOR.ridge
   ) {
     throw new Error('decor enums have diverged between @lions/data and @lions/render');
   }

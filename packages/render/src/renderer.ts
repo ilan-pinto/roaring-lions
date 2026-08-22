@@ -156,7 +156,7 @@ interface Puff {
  * `@lions/data` declares the same values for the map loader, and `main.ts` -- the
  * one place importing both -- holds the two to agree.
  */
-export const TERRAIN_DECOR = { none: 0, road: 1, grove: 2, knoll: 3 } as const;
+export const TERRAIN_DECOR = { none: 0, road: 1, grove: 2, knoll: 3, ridge: 4 } as const;
 
 /**
  * Depth along the dimetric view axis, as an integer zIndex.
@@ -1322,6 +1322,33 @@ export class PixiRenderer {
             g.ellipse(px - r * 0.2, py - r * 0.22, r * 0.6, r * 0.36).fill({
               color: t.rockLit,
               alpha: 0.8,
+            });
+          }
+          continue;
+        }
+
+        if (kind === TERRAIN_DECOR.ridge) {
+          // The knoll's rock, scaled up until it reads as impassable. A knoll
+          // is scatter you walk over; a ridge is the reason the valley has two
+          // ways through, and the difference has to be legible at a glance or
+          // the player will path into it and wonder why they stopped.
+          //
+          // Still flat, for the same reason the knoll is: the sim has no
+          // elevation. Drawing a ridge tall would promise dead ground behind
+          // it that the sight model does not actually grant -- what it grants
+          // is a broken line THROUGH the tile, which is what covering the
+          // whole tile says.
+          g.poly(diamond).fill({ color: t.rock, alpha: 0.92 });
+          for (let k = 0; k < 5; k++) {
+            const a = PixiRenderer.h2(x * 13 + k, y * 29 + k);
+            const b = PixiRenderer.h2(x * 7 + k, y * 19 + k);
+            const px = cx + (a - 0.5) * (TILE_W - 8);
+            const py = cy + (b - 0.5) * (TILE_H - 4);
+            const r = 6 + a * 7;
+            g.ellipse(px, py, r, r * 0.7).fill({ color: t.rock, alpha: 0.95 });
+            g.ellipse(px - r * 0.24, py - r * 0.26, r * 0.55, r * 0.32).fill({
+              color: t.rockLit,
+              alpha: 0.9,
             });
           }
           continue;
