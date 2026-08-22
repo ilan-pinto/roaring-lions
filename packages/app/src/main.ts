@@ -34,6 +34,7 @@ import {
   countries,
   structures as structureCatalogue,
   parseMap,
+  applyTerrain,
   DECOR,
   paletteColor,
   audioManifest,
@@ -238,12 +239,10 @@ async function main(): Promise<void> {
   // civilians through it before the player buys anything, and running out is a
   // thrown error mid-mission, not a graceful cap.
   const sim = new Sim({ seed: 20260727, width: map.width, height: map.height, capacity: 256 });
-  for (let y = 0; y < map.height; y++) {
-    for (let x = 0; x < map.width; x++) {
-      const t = y * map.width + x;
-      if (map.cover[t] !== 0) sim.setCover(x, y, map.cover[t]);
-    }
-  }
+  // Cover AND blocked terrain, through the one function all three world
+  // builders share. Rock ridges arrive here; before this existed, `map.blocked`
+  // was filled by parseMap and read by nobody.
+  applyTerrain(map, sim);
   // Buildings are entities, not terrain: each contiguous run of identical
   // symbols becomes one structure with HP, a garrison and rubble.
   const structTypeIdx = new Map<string, number>();

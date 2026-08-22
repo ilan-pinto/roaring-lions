@@ -2,7 +2,7 @@
 // sensible scripted plan inside its time budget. Run: tsx src/backtest/playtest.ts
 
 import { Sim, fx, TICKS_PER_SECOND, MissionRuntime, type MissionJson, type LedgerData, type TunnelRouteJson } from '@lions/sim';
-import { units, maps, missions, structures as structureCatalogue, parseMap } from '@lions/data';
+import { units, maps, missions, structures as structureCatalogue, parseMap, applyTerrain } from '@lions/data';
 
 type Plan = (sim: Sim, rt: MissionRuntime, ids: (t: string) => number[], at: (t: number, fn: () => void) => void) => void;
 
@@ -18,11 +18,7 @@ function run(
   // Matches the app. `spawn` never reuses a dead slot, so this is a budget for
   // everyone who ever appears, not for how many stand at once.
   const sim = new Sim({ seed: 424242, width: map.width, height: map.height, capacity: 256 });
-  for (let y = 0; y < map.height; y++)
-    for (let x = 0; x < map.width; x++) {
-      const t = y * map.width + x;
-      if (map.cover[t]) sim.setCover(x, y, map.cover[t]);
-    }
+  applyTerrain(map, sim);
   // Buildings are entities, exactly as the app raises them.
   const structIdx = new Map<string, number>();
   for (const [id, spec] of Object.entries(structureCatalogue)) {

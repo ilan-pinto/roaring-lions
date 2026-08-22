@@ -4,8 +4,10 @@ import {
   PER_TILE_SYMBOLS,
   STRUCTURE_SYMBOLS,
   TERRAIN_LEGEND,
+  applyTerrain,
   parseMap,
   type MapJson,
+  type TerrainSink,
 } from './map';
 import structureCatalogue from '../../../data/structures.json';
 
@@ -297,5 +299,62 @@ describe('rock ridge', () => {
 
   it('is not claimed by any building symbol', () => {
     expect(STRUCTURE_SYMBOLS['^']).toBeUndefined();
+  });
+});
+
+// The map's mechanical layer reaching the sim. This used to be a loop written
+// out three times -- main.ts, walk_world.ts and playtest.ts -- none of which
+// consumed `blocked` at all. The sink is structurally typed so @lions/data
+// imports nothing and stays a leaf; Sim satisfies it without knowing it exists.
+describe('applyTerrain', () => {
+  interface Call {
+    x: number;
+    y: number;
+    v: number | boolean;
+  }
+
+  function sink(): { blocks: Call[]; covers: Call[] } & TerrainSink {
+    const blocks: Call[] = [];
+    const covers: Call[] = [];
+    return {
+      blocks,
+      covers,
+      setBlocked: (x, y, v) => blocks.push({ x, y, v }),
+      setCover: (x, y, v) => covers.push({ x, y, v }),
+    };
+  }
+
+  it('blocks ridge tiles and nothing else on open ground', () => {
+    const s = sink();
+    applyTerrain(parseMap({ id: 'r', name: 'R', width: 3, height: 2, rows: ['.^.', '...'] }), s);
+    expect(s.blocks).toEqual([{ x: 1, y: 0, v: true }]);
+    expect(s.covers).toEqual([]);
+  });
+
+  it('passes cover levels through, including grove and knoll', () => {
+    const s = sink();
+    applyTerrain(parseMap({ id: 'c', name: 'C', width: 4, height: 2, rows: ['.12o', 'n3..'] }), s);
+    expect(s.covers).toEqual([
+      { x: 1, y: 0, v: 1 },
+      { x: 2, y: 0, v: 2 },
+      { x: 3, y: 0, v: 1 },
+      { x: 0, y: 1, v: 2 },
+      { x: 1, y: 1, v: 3 },
+    ]);
+    expect(s.blocks).toEqual([]);
+  });
+
+  it('blocks building tiles too, which is harmless and keeps it idempotent', () => {
+    // addStructure sets the same bit in the same array and demolish clears it,
+    // so order against the structure loop does not matter.
+    const s = sink();
+    applyTerrain(parseMap({ id: 'b', name: 'B', width: 3, height: 2, rows: ['.#.', '...'] }), s);
+    expect(s.blocks).toEqual([{ x: 1, y: 0, v: true }]);
+  });
+
+  it('never unblocks a tile, so it cannot undo a structure', () => {
+    const s = sink();
+    applyTerrain(parseMap({ id: 'o', name: 'O', width: 3, height: 2, rows: ['...', '...'] }), s);
+    expect(s.blocks).toEqual([]);
   });
 });

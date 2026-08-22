@@ -72,12 +72,14 @@ export { audioManifest };
 
 export {
   parseMap,
+  applyTerrain,
   DECOR,
   STRUCTURE_SYMBOLS,
   TERRAIN_LEGEND,
   type MapJson,
   type ParsedMap,
   type DecorKind,
+  type TerrainSink,
   type TerrainTheme,
 } from './map';
 
