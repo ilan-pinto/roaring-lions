@@ -11,7 +11,12 @@ const TIME_MSG =
 
 export default tseslint.config(
   {
-    ignores: ['**/node_modules/**', '**/dist/**', '**/*.d.ts'],
+    // `.claude/worktrees/` holds throwaway checkouts of this same repository.
+    // Without this, eslint walks into them and lints a second copy of the tree
+    // whose env is never resolved -- 45 no-undef errors on `console`/`process`
+    // in files that are already clean here. A red gate made entirely of false
+    // positives is worse than no gate, because people learn to skip it.
+    ignores: ['**/node_modules/**', '**/dist/**', '**/*.d.ts', '.claude/worktrees/**'],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,

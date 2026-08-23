@@ -69,3 +69,9 @@ art/showcase/*.mp4
 # drones and vehicles negations above.
 !art/src/aircraft/
 !art/src/aircraft/*.blend
+
+# Throwaway worktrees created by the superpowers workflow. They are checkouts
+# of this repository, so leaving them untracked means a `git add -A` in a
+# shared working tree can sweep a whole second copy into a commit.
+# `.claude/agents/` and the rest of `.claude/` stay tracked on purpose.
+.claude/worktrees/
