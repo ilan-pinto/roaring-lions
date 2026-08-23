@@ -422,6 +422,7 @@ async function main(): Promise<void> {
     throw new Error('decor enums have diverged between @lions/data and @lions/render');
   }
   renderer.setDecor(map.decor);
+  renderer.setElevation(map.elevation);
   // Up before the canvas exists, so the player never sees the terrain draw
   // itself in or the units stand around as procedural boxes waiting for their
   // sheets. It comes down once the art gate below has settled.

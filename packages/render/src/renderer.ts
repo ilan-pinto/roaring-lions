@@ -83,6 +83,14 @@ export interface RendererOptions {
 export const TILE_W = 64;
 export const TILE_H = 32;
 
+/** Screen pixels per elevation level.
+ *
+ * 10 px means a 4-level ridge stands 40 px against TILE_H's 32 and a building's
+ * 18 -- clearly taller than a building without dwarfing the units on it. The
+ * number is a judgement nobody had seen rendered when it was chosen, and it is
+ * one line to change. */
+export const ELEV_STEP = 10;
+
 /** How long a shot's recoil takes to ease back. */
 const RECOIL_SECONDS = 0.15;
 /** How long a penetrating hit's flinch takes to settle. */
@@ -215,6 +223,7 @@ export class PixiRenderer {
   private buildingTiles: Graphics[] = [];
   /** Presentation-only terrain kinds, straight from the map. Never from the sim. */
   private decor: Uint8Array | null = null;
+  private elevation: Uint8Array | null = null;
   /** Olive canopies: depth-sorted, so a soldier behind a tree is occluded by it. */
   private decorSprites: Graphics[] = [];
   /** Sprites for structures that have art; also rebuilt on terrain dirty. */
@@ -659,6 +668,18 @@ export class PixiRenderer {
    */
   setDecor(decor: Uint8Array): void {
     this.decor = decor;
+    this.terrainDirty = true;
+  }
+
+  /**
+   * Hand the renderer the map's elevation layer.
+   *
+   * Presentation only in E1 -- the sim stores the same numbers and reads none
+   * of them. When E2 gives elevation to `losRay`, this stays the renderer's
+   * copy: the renderer must never ask the sim what to draw tile by tile.
+   */
+  setElevation(elevation: Uint8Array): void {
+    this.elevation = elevation;
     this.terrainDirty = true;
   }
 
@@ -1246,8 +1267,10 @@ export class PixiRenderer {
         const cover = this.sim.cover[ti];
         const cx = isoX(x + 0.5, y + 0.5);
         const cy = isoY(x + 0.5, y + 0.5);
+        const lift = this.elevation ? this.elevation[ti] * ELEV_STEP : 0;
+        const cyG = cy - lift;
         const rnd = PixiRenderer.h2(x, y);
-        const diamond = [cx, cy - TILE_H / 2, cx + TILE_W / 2, cy, cx, cy + TILE_H / 2, cx - TILE_W / 2, cy];
+        const diamond = [cx, cyG - TILE_H / 2, cx + TILE_W / 2, cyG, cx, cyG + TILE_H / 2, cx - TILE_W / 2, cyG];
 
         if (blocked) {
           // Rock is the first blocked tile that is NOT a building. Every other
@@ -1279,7 +1302,7 @@ export class PixiRenderer {
               // the knoll's blobs (radius 3-8) so the ridge keeps reading as
               // heavier -- only the spread was reined in, not the size.
               const px = cx + (a - 0.5) * (TILE_W - 24);
-              const py = cy + (b - 0.5) * (TILE_H - 18);
+              const py = cyG + (b - 0.5) * (TILE_H - 18);
               const r = 6 + a * 5;
               g.ellipse(px, py, r, r * 0.7).fill({ color: t.rock, alpha: 0.95 });
               g.ellipse(px - r * 0.24, py - r * 0.26, r * 0.55, r * 0.32).fill({
@@ -1320,8 +1343,21 @@ export class PixiRenderer {
             }
             continue;
           }
-          this.drawBuildingTile(x, y, cx, cy, rnd, H, diamond);
+          this.drawBuildingTile(x, y, cx, cyG, rnd, H, diamond);
           continue;
+        }
+
+        if (lift > 0) {
+          // The two faces an isometric viewer can see: south-west and
+          // south-east. Drawn darker than the top, and darker still with
+          // depth, so a tall ridge reads as mass rather than as a tall flat
+          // shape. Palette tones only -- validate:ui rejects a literal.
+          const w2 = TILE_W / 2;
+          const h2 = TILE_H / 2;
+          g.poly([cx - w2, cyG, cx, cyG + h2, cx, cyG + h2 + lift, cx - w2, cyG + lift])
+            .fill({ color: t.rock, alpha: 0.85 });
+          g.poly([cx + w2, cyG, cx, cyG + h2, cx, cyG + h2 + lift, cx + w2, cyG + lift])
+            .fill({ color: t.rock, alpha: 0.7 });
         }
 
         // Open ground: base wash with per-tile tonal variation.
@@ -1340,9 +1376,9 @@ export class PixiRenderer {
           // A street is swept, so it gets neither pebbles nor rubble -- the
           // absence of grain is most of what makes it read as a road.
           g.poly(diamond).fill({ color: t.road, alpha: 0.85 });
-          const rut = (cx + cy) % 2 === 0 ? 5 : 7;
-          g.moveTo(cx - TILE_W / 2 + 6, cy - rut).lineTo(cx + TILE_W / 2 - 6, cy - rut);
-          g.moveTo(cx - TILE_W / 2 + 6, cy + rut).lineTo(cx + TILE_W / 2 - 6, cy + rut);
+          const rut = (cx + cyG) % 2 === 0 ? 5 : 7;
+          g.moveTo(cx - TILE_W / 2 + 6, cyG - rut).lineTo(cx + TILE_W / 2 - 6, cyG - rut);
+          g.moveTo(cx - TILE_W / 2 + 6, cyG + rut).lineTo(cx + TILE_W / 2 - 6, cyG + rut);
           g.stroke({ color: t.rut, alpha: 0.30, width: 1.5 });
           continue;
         }
@@ -1355,7 +1391,7 @@ export class PixiRenderer {
             const a = PixiRenderer.h2(x * 11 + k, y * 17 + k);
             const b = PixiRenderer.h2(x * 23 + k, y * 5 + k);
             const px = cx + (a - 0.5) * (TILE_W - 20);
-            const py = cy + (b - 0.5) * (TILE_H - 10);
+            const py = cyG + (b - 0.5) * (TILE_H - 10);
             const r = 3 + a * 5;
             g.ellipse(px, py, r, r * 0.62).fill({ color: t.rock, alpha: 0.95 });
             g.ellipse(px - r * 0.2, py - r * 0.22, r * 0.6, r * 0.36).fill({
@@ -1369,8 +1405,8 @@ export class PixiRenderer {
         if (kind === TERRAIN_DECOR.grove) {
           // Trunk shadow flat on the ground; the canopy is a separate,
           // depth-sorted object so a unit behind the tree is occluded by it.
-          g.ellipse(cx, cy + 3, 9, 4.5).fill({ color: t.rock, alpha: 0.22 });
-          this.drawCanopy(x, y, cx, cy);
+          g.ellipse(cx, cyG + 3, 9, 4.5).fill({ color: t.rock, alpha: 0.22 });
+          this.drawCanopy(x, y, cx, cyG);
           continue;
         }
 
@@ -1394,7 +1430,7 @@ export class PixiRenderer {
             const a = PixiRenderer.h2(x * 19 + k * 7, y * 23 + k * 5);
             const b = PixiRenderer.h2(x * 41 + k * 3, y * 7 + k * 11);
             const px = cx + (a - 0.5) * (TILE_W - 12);
-            const py = cy + (b - 0.5) * (TILE_H - 6);
+            const py = cyG + (b - 0.5) * (TILE_H - 6);
             // Taller and more opaque than the first pass, which was measured
             // against Beit Sahwan and lost: arid ground shows obvious limestone
             // flecking at gameplay zoom while the basin read as a flat wash with
@@ -1409,7 +1445,7 @@ export class PixiRenderer {
             // from reading as a billiard table, but red laterite is not what a
             // river basin's stock paths look like.
             const a = PixiRenderer.h2(x * 19, y * 23);
-            g.ellipse(cx + (a - 0.5) * 22, cy, 3 + a * 2.4, 1.6 + a * 1.2).fill({
+            g.ellipse(cx + (a - 0.5) * 22, cyG, 3 + a * 2.4, 1.6 + a * 1.2).fill({
               color: t.earth,
               alpha: 0.22,
             });
@@ -1419,7 +1455,7 @@ export class PixiRenderer {
             // one blob -- the mark that separates a clump of grass from a bush.
             const a = PixiRenderer.h2(x * 31, y * 3);
             const bx = cx + (a - 0.5) * 30;
-            const by = cy + (rnd - 0.9) * 18;
+            const by = cyG + (rnd - 0.9) * 18;
             for (let k = -1; k <= 1; k++) {
               g.moveTo(bx, by).lineTo(bx + k * 2.6, by - 4.2 - a * 1.6);
             }
@@ -1431,7 +1467,7 @@ export class PixiRenderer {
             const a = PixiRenderer.h2(x * 19 + k * 7, y * 23 + k * 5);
             const b = PixiRenderer.h2(x * 41 + k * 3, y * 7 + k * 11);
             const px = cx + (a - 0.5) * (TILE_W - 12);
-            const py = cy + (b - 0.5) * (TILE_H - 6);
+            const py = cyG + (b - 0.5) * (TILE_H - 6);
             if (b > 0.78) {
               // Exposed earth: a small dark fleck, not a wash.
               g.ellipse(px, py, 1.6 + a * 2.2, 1 + a * 1.2).fill({
@@ -1454,7 +1490,7 @@ export class PixiRenderer {
           if (rnd > 0.84 && cover === 0) {
             // A dry bush. Sparse, because the reference is mostly bare ground.
             const a = PixiRenderer.h2(x * 31, y * 3);
-            g.ellipse(cx + (a - 0.5) * 30, cy + (rnd - 0.9) * 18, 3.2 + a * 1.4, 2 + a).fill({
+            g.ellipse(cx + (a - 0.5) * 30, cyG + (rnd - 0.9) * 18, 3.2 + a * 1.4, 2 + a).fill({
               color: t.low,
               alpha: 0.55,
             });
@@ -1467,7 +1503,7 @@ export class PixiRenderer {
             const a = PixiRenderer.h2(x * 7 + k, y * 13 + k);
             const b = PixiRenderer.h2(x * 31 + k, y * 3 + k);
             const px = cx + (a - 0.5) * (TILE_W - 18);
-            const py = cy + (b - 0.5) * (TILE_H - 8);
+            const py = cyG + (b - 0.5) * (TILE_H - 8);
             g.rect(px, py, 4 + a * 4, 2.5).fill({ color: c, alpha: 0.9 });
           }
         }
