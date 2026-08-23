@@ -1,0 +1,36 @@
+{
+  "id": "manpad_team",
+  "name": "MANPAD Team",
+  "faction": "sarim",
+  "role": "aa",
+  "cost": { "logistics": 210, "build_time_s": 18, "population": 1 },
+  "hull": {
+    "hp": 320,
+    "armor": { "front": 10, "side": 10, "rear": 10 },
+    "crew": 2,
+    "suppression_resistance": 0.5
+  },
+  "mobility": { "speed_tiles_s": 0.75 },
+  "sensors": {
+    "optics": 1.2,
+    "sight_tiles": 12,
+    "signature": 0.4,
+    "firing_signature_mult": 5.0
+  },
+  "weapons": [
+    {
+      "id": "manpad",
+      "type": "atgm",
+      "range_tiles": 13,
+      "effective_range_tiles": 11,
+      "accuracy": 0.7,
+      "penetration": 60,
+      "damage": 300,
+      "suppression": 15,
+      "rof_per_min": 3,
+      "min_range_tiles": 2,
+      "can_target": ["air"],
+      "collateral_risk": 0.1
+    }
+  ]
+}

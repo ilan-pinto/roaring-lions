@@ -50,6 +50,10 @@ import chargeSquad from '../../../data/units/enemy/charge_squad.json';
 import paramotor from '../../../data/units/enemy/paramotor.json';
 import loiterDrone from '../../../data/units/enemy/loiter_drone.json';
 import diggerCrew from '../../../data/units/enemy/digger_crew.json';
+import rocketBattery from '../../../data/units/enemy/rocket_battery.json';
+import sarimRifles from '../../../data/units/enemy/sarim_rifles.json';
+import manpadTeam from '../../../data/units/enemy/manpad_team.json';
+import recoillessTeam from '../../../data/units/enemy/recoilless_team.json';
 import civilians from '../../../data/units/civilians.json';
 
 import fireApfsds from '../../../data/vfx/fire_apfsds.json';
@@ -160,6 +164,10 @@ export const units = {
   paramotor: paramotor,
   loiter_drone: loiterDrone,
   digger_crew: diggerCrew,
+  rocket_battery: rocketBattery,
+  sarim_rifles: sarimRifles,
+  manpad_team: manpadTeam,
+  recoilless_team: recoillessTeam,
   civilians: civilians,
 } as const;
 

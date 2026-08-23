@@ -1,0 +1,30 @@
+{
+  "id": "recoilless_team",
+  "name": "Recoilless Team",
+  "faction": "sarim",
+  "role": "at_team",
+  "cost": { "logistics": 205, "build_time_s": 16, "population": 1 },
+  "hull": {
+    "hp": 340,
+    "armor": { "front": 10, "side": 10, "rear": 10 },
+    "crew": 3,
+    "suppression_resistance": 0.45
+  },
+  "mobility": { "speed_tiles_s": 0.85 },
+  "sensors": { "optics": 1.0, "sight_tiles": 8, "signature": 0.45 },
+  "weapons": [
+    {
+      "id": "spg9",
+      "type": "rpg",
+      "range_tiles": 7,
+      "effective_range_tiles": 5.5,
+      "accuracy": 0.6,
+      "penetration": 650,
+      "damage": 320,
+      "suppression": 25,
+      "rof_per_min": 4,
+      "can_target": ["ground"],
+      "collateral_risk": 0.3
+    }
+  ]
+}
