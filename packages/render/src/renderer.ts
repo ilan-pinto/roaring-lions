@@ -1272,6 +1272,19 @@ export class PixiRenderer {
         const rnd = PixiRenderer.h2(x, y);
         const diamond = [cx, cyG - TILE_H / 2, cx + TILE_W / 2, cyG, cx, cyG + TILE_H / 2, cx - TILE_W / 2, cyG];
 
+        if (lift > 0) {
+          // The two faces an isometric viewer can see: south-west and
+          // south-east. Drawn darker than the top, and darker still with
+          // depth, so a tall ridge reads as mass rather than as a tall flat
+          // shape. Palette tones only -- validate:ui rejects a literal.
+          const w2 = TILE_W / 2;
+          const h2 = TILE_H / 2;
+          g.poly([cx - w2, cyG, cx, cyG + h2, cx, cyG + h2 + lift, cx - w2, cyG + lift])
+            .fill({ color: t.rock, alpha: 0.85 });
+          g.poly([cx + w2, cyG, cx, cyG + h2, cx, cyG + h2 + lift, cx + w2, cyG + lift])
+            .fill({ color: t.rock, alpha: 0.7 });
+        }
+
         if (blocked) {
           // Rock is the first blocked tile that is NOT a building. Every other
           // blocked tile has a structure behind it -- that's what the
@@ -1345,19 +1358,6 @@ export class PixiRenderer {
           }
           this.drawBuildingTile(x, y, cx, cyG, rnd, H, diamond);
           continue;
-        }
-
-        if (lift > 0) {
-          // The two faces an isometric viewer can see: south-west and
-          // south-east. Drawn darker than the top, and darker still with
-          // depth, so a tall ridge reads as mass rather than as a tall flat
-          // shape. Palette tones only -- validate:ui rejects a literal.
-          const w2 = TILE_W / 2;
-          const h2 = TILE_H / 2;
-          g.poly([cx - w2, cyG, cx, cyG + h2, cx, cyG + h2 + lift, cx - w2, cyG + lift])
-            .fill({ color: t.rock, alpha: 0.85 });
-          g.poly([cx + w2, cyG, cx, cyG + h2, cx, cyG + h2 + lift, cx + w2, cyG + lift])
-            .fill({ color: t.rock, alpha: 0.7 });
         }
 
         // Open ground: base wash with per-tile tonal variation.
