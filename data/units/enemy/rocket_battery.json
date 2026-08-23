@@ -1,0 +1,37 @@
+{
+  "id": "rocket_battery",
+  "name": "Rocket Battery",
+  "faction": "sarim",
+  "role": "artillery",
+  "cost": { "logistics": 201, "build_time_s": 40, "population": 3 },
+  "hull": {
+    "hp": 320,
+    "armor": { "front": 10, "side": 10, "rear": 10 },
+    "crew": 4,
+    "suppression_resistance": 0.35
+  },
+  "mobility": { "speed_tiles_s": 0.5 },
+  "sensors": {
+    "optics": 0.9,
+    "sight_tiles": 6,
+    "signature": 0.6,
+    "firing_signature_mult": 6.0
+  },
+  "weapons": [
+    {
+      "id": "grad_122",
+      "type": "rocket",
+      "range_tiles": 20,
+      "effective_range_tiles": 15,
+      "accuracy": 0.4,
+      "penetration": 40,
+      "damage": 240,
+      "splash_tiles": 3.0,
+      "suppression": 110,
+      "rof_per_min": 2,
+      "min_range_tiles": 4,
+      "can_target": ["ground", "structure"],
+      "collateral_risk": 0.7
+    }
+  ]
+}

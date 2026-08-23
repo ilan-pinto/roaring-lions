@@ -1,0 +1,30 @@
+{
+  "id": "sarim_rifles",
+  "name": "Sarim Rifles",
+  "faction": "sarim",
+  "role": "infantry",
+  "cost": { "logistics": 340, "build_time_s": 26, "population": 2 },
+  "hull": {
+    "hp": 420,
+    "armor": { "front": 10, "side": 10, "rear": 10 },
+    "crew": 8,
+    "suppression_resistance": 0.72
+  },
+  "mobility": { "speed_tiles_s": 0.9 },
+  "sensors": { "optics": 1.15, "sight_tiles": 9, "signature": 0.5 },
+  "weapons": [
+    {
+      "id": "rifles",
+      "type": "small_arms",
+      "range_tiles": 8,
+      "effective_range_tiles": 6.5,
+      "accuracy": 0.68,
+      "penetration": 10,
+      "damage": 18,
+      "suppression": 55,
+      "rof_per_min": 320,
+      "can_target": ["ground", "air"],
+      "collateral_risk": 0.15
+    }
+  ]
+}
