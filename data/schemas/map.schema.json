@@ -45,6 +45,11 @@
       "default": "arid",
       "description": "Terrain theme: which tone bundle and ground texture the renderer draws this map with. Presentation only -- it never reaches the sim, exactly like the decor layer. 'arid' is the Sahar limestone-and-dust look every map before Naharin uses; 'green' is the Naharin river basin. Adding a theme is a renderer change; adding a map that uses one is not."
     },
+    "elevation": {
+      "type": "array",
+      "description": "Per-tile elevation, one digit 0-9 per tile, with the same dimensions as rows. Absent means every tile is height 0. Deliberately orthogonal to the terrain symbol: a symbol table can express ridges but not valleys, and elevation needs both. 0-4 is the practical authoring range -- deeper relief reads as a wall rather than as terrain -- but 0-9 is legal so a dramatic peak needs no format change.",
+      "items": { "type": "string", "pattern": "^[0-9]+$" }
+    },
     "markers": {
       "type": "object",
       "description": "Named points missions reference: spawn anchors, tunnel mouths, HVT positions.",

@@ -358,3 +358,59 @@ describe('applyTerrain', () => {
     expect(s.blocks).toEqual([]);
   });
 });
+
+// Elevation is authored as a parallel character grid, one digit per tile, and
+// is ORTHOGONAL to the terrain symbol rather than derived from it. That is what
+// makes valleys possible: open ground can sit high or low, and `^` rock is only
+// a mountain because the author put it on high ground. Deriving height from the
+// symbol would give ridges and nothing else.
+//
+// The field is `elevation`, not `height`: ParsedMap.height is already the map's
+// row count, and applyTerrain destructures it.
+describe('elevation', () => {
+  const RELIEF: MapJson = {
+    id: 'relief',
+    name: 'Relief',
+    width: 4,
+    height: 3,
+    rows: ['....', '..^.', '....'],
+    elevation: ['0000', '0330', '0110'],
+  };
+
+  it('parses one digit per tile, row-major', () => {
+    const m = parseMap(RELIEF);
+    expect(Array.from(m.elevation)).toEqual([0, 0, 0, 0, 0, 3, 3, 0, 0, 1, 1, 0]);
+  });
+
+  it('defaults every tile to zero when the field is absent', () => {
+    const flat = parseMap({ id: 'f', name: 'F', width: 4, height: 3, rows: ['....', '....', '....'] });
+    expect(Array.from(flat.elevation)).toEqual(new Array(12).fill(0));
+  });
+
+  it('is independent of the terrain symbol', () => {
+    // Rock at height 0 and open ground at height 3 both parse. Odd-looking, and
+    // the author's business -- the same way a mosque in a field is.
+    const m = parseMap({ ...RELIEF, elevation: ['0033', '0000', '0000'] });
+    expect(m.elevation[2]).toBe(3);
+    expect(m.elevation[6]).toBe(0); // the `^` tile
+    expect(m.blocked[6]).toBe(1); // still blocked, height changes nothing
+  });
+
+  it('rejects a row count that does not match the map', () => {
+    expect(() => parseMap({ ...RELIEF, elevation: ['0000', '0330'] })).toThrow(
+      /elevation has 2 rows, declared height 3/
+    );
+  });
+
+  it('rejects a row whose width does not match', () => {
+    expect(() => parseMap({ ...RELIEF, elevation: ['0000', '033', '0110'] })).toThrow(
+      /elevation row 1 has 3 tiles, declared width 4/
+    );
+  });
+
+  it('rejects a non-digit', () => {
+    expect(() => parseMap({ ...RELIEF, elevation: ['0000', '0x30', '0110'] })).toThrow(
+      /unknown elevation "x" at \(1,1\)/
+    );
+  });
+});

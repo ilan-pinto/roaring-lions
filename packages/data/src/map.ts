@@ -61,6 +61,11 @@ export interface MapJson {
   zones?: Record<string, readonly number[]>;
   /** Terrain theme. Absent means 'arid', which is every map authored before Naharin. */
   terrain?: string;
+  /** Per-tile elevation, one digit 0-9 per tile, same dimensions as `rows`.
+   *  Absent means every tile is height 0, which is every map authored before
+   *  the elevation milestone. Orthogonal to the terrain symbol on purpose:
+   *  deriving height from the symbol would give ridges and no valleys. */
+  elevation?: string[];
   tunnels?: readonly TunnelJson[];
 }
 
@@ -112,6 +117,9 @@ export interface ParsedMap {
   cover: Uint8Array;
   /** DECOR value per tile, row-major. Presentation only -- never given to Sim. */
   decor: Uint8Array;
+  /** Elevation level 0-9 per tile, row-major. E1 stores and draws it; nothing
+   *  reads it for line of sight, sight range or pathing yet. */
+  elevation: Uint8Array;
   markers: Record<string, [number, number]>;
   zones: Record<string, [number, number, number, number]>;
   /** Buildings: one per contiguous run of identical building symbols, or one
@@ -206,6 +214,29 @@ export function parseMap(json: MapJson): ParsedMap {
       decor[y * width + x] = cell.decor;
     }
   }
+  const elevation = new Uint8Array(width * height);
+  if (json.elevation !== undefined) {
+    if (json.elevation.length !== height) {
+      throw new Error(
+        `map ${json.id}: elevation has ${json.elevation.length} rows, declared height ${height}`
+      );
+    }
+    for (let y = 0; y < height; y++) {
+      const row = json.elevation[y];
+      if (row.length !== width) {
+        throw new Error(
+          `map ${json.id}: elevation row ${y} has ${row.length} tiles, declared width ${width}`
+        );
+      }
+      for (let x = 0; x < width; x++) {
+        const ch = row[x];
+        if (ch < '0' || ch > '9') {
+          throw new Error(`map ${json.id}: unknown elevation "${ch}" at (${x},${y})`);
+        }
+        elevation[y * width + x] = ch.charCodeAt(0) - 48;
+      }
+    }
+  }
   const markers: Record<string, [number, number]> = {};
   for (const [name, pt] of Object.entries(json.markers ?? {})) {
     const [x, y] = pt;
@@ -282,7 +313,7 @@ export function parseMap(json: MapJson): ParsedMap {
       structures.push({ type: typeId, tiles });
     }
   }
-  return { id: json.id, width, height, terrain: terrain as TerrainTheme, blocked, cover, decor, markers, zones, structures, tunnels };
+  return { id: json.id, width, height, terrain: terrain as TerrainTheme, blocked, cover, decor, elevation, markers, zones, structures, tunnels };
 }
 
 /**
