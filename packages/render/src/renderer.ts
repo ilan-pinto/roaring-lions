@@ -291,7 +291,10 @@ export class PixiRenderer {
     spr.scale.set(scale);
     // drawStructureSprite centres the sprite; anchoring at the base instead
     // means dropping the position by half a sprite to cover the same ground.
-    spr.position.set(isoX(fx0, fy0), isoY(fx0, fy0) + (art.texture.height * scale) / 2);
+    spr.position.set(
+      isoX(fx0, fy0),
+      isoY(fx0, fy0) + (art.texture.height * scale) / 2 - this.groundOffset(fx0, fy0)
+    );
     spr.zIndex = depthZ(st.maxX[s] + 1, st.maxY[s] + 1);
     // Continue from the wear band the building was last drawn at, not from
     // full: it has been darkening as it was chewed and must not flash back.
@@ -681,6 +684,23 @@ export class PixiRenderer {
   setElevation(elevation: Uint8Array): void {
     this.elevation = elevation;
     this.terrainDirty = true;
+  }
+
+  /**
+   * Screen-space lift, in pixels, for a world position standing on the ground.
+   *
+   * Sampled at the containing tile rather than interpolated across the four
+   * corners: a unit crossing a terrace steps up rather than ramping. That is
+   * cheaper, it is stable under the renderer's 60 fps interpolation, and at 10
+   * px a step it is barely perceptible. Interpolation is a change to make if it
+   * looks wrong, not a thing to build before anyone has looked.
+   */
+  private groundOffset(x: number, y: number): number {
+    if (!this.elevation) return 0;
+    const tx = x | 0;
+    const ty = y | 0;
+    if (tx < 0 || ty < 0 || tx >= this.sim.width || ty >= this.sim.height) return 0;
+    return this.elevation[ty * this.sim.width + tx] * ELEV_STEP;
   }
 
   /** Copy positions after every sim tick; frame() lerps between the copies. */
@@ -1097,7 +1117,7 @@ export class PixiRenderer {
         const alpha = trailTileAlpha(lv, d, seenByAnyone, seenByCarrier);
         if (alpha === 0) continue;
         const cx = isoX(x + 0.5, y + 0.5);
-        const cy = isoY(x + 0.5, y + 0.5);
+        const cy = isoY(x + 0.5, y + 0.5) - this.groundOffset(x + 0.5, y + 0.5);
         g.poly([
           cx, cy - TILE_H / 2,
           cx + TILE_W / 2, cy,
@@ -1119,7 +1139,7 @@ export class PixiRenderer {
         const v = this.fog[y * w + x];
         if (v === 2) continue;
         const cx = isoX(x + 0.5, y + 0.5);
-        const cy = isoY(x + 0.5, y + 0.5);
+        const cy = isoY(x + 0.5, y + 0.5) - this.groundOffset(x + 0.5, y + 0.5);
         g.poly([
           cx, cy - TILE_H / 2 - 1,
           cx + TILE_W / 2 + 1, cy,
@@ -1178,7 +1198,7 @@ export class PixiRenderer {
       // Unit types with no wreck art keep the old cross marker.
       if (!wk.spr && wk.shown) {
         const sx = isoX(wk.x, wk.y);
-        const sy = isoY(wk.x, wk.y);
+        const sy = isoY(wk.x, wk.y) - this.groundOffset(wk.x, wk.y);
         g.moveTo(sx - 7, sy - 5).lineTo(sx + 7, sy + 5).stroke({ width: 3, color: '#5C625F' });
         g.moveTo(sx - 7, sy + 5).lineTo(sx + 7, sy - 5).stroke({ width: 3, color: '#5C625F' });
       }
@@ -1202,7 +1222,7 @@ export class PixiRenderer {
         const spr = this.dyingSprites[slot++];
         spr.texture = rows[PixiRenderer.spriteIndex(d.facing, atlas.sheet)][0];
         // Sink, fade and tip over — a body going down, not a sprite vanishing.
-        spr.position.set(isoX(d.x, d.y), isoY(d.x, d.y) + p * 3);
+        spr.position.set(isoX(d.x, d.y), isoY(d.x, d.y) + p * 3 - this.groundOffset(d.x, d.y));
         spr.alpha = 1 - p * 0.5;
         spr.rotation = p * 0.14;
         spr.scale.set(PixiRenderer.sheetScale(atlas));
@@ -1223,7 +1243,7 @@ export class PixiRenderer {
     if (atlas && clipOrFallback(atlas.sheet, 'wreck') === 'wreck') {
       const rows = atlas.textures.wreck as Texture[][];
       spr = new Sprite({ texture: rows[PixiRenderer.spriteIndex(facing, atlas.sheet)][0], anchor: 0.5 });
-      spr.position.set(isoX(x, y), isoY(x, y));
+      spr.position.set(isoX(x, y), isoY(x, y) - this.groundOffset(x, y));
       spr.scale.set(PixiRenderer.sheetScale(atlas));
       this.wreckLayer.addChild(spr);
     }
@@ -1645,7 +1665,7 @@ export class PixiRenderer {
       const fx0 = (st.minX[s] + st.maxX[s] + 1) / 2;
       const fy0 = (st.minY[s] + st.maxY[s] + 1) / 2;
       const spr = new Sprite({ texture: art.wreckTexture, anchor: 0.5 });
-      spr.position.set(isoX(fx0, fy0), isoY(fx0, fy0));
+      spr.position.set(isoX(fx0, fy0), isoY(fx0, fy0) - this.groundOffset(fx0, fy0));
       // The rig framed the wreck from the *intact* model, so it shares the
       // anchor and the scale and the footprint does not jump on collapse.
       spr.scale.set((art.scale * TILE_W) / art.wreckTexture.width);
@@ -1690,7 +1710,7 @@ export class PixiRenderer {
     const fx0 = (minX + maxX + 1) / 2;
     const fy0 = (minY + maxY + 1) / 2;
     const spr = new Sprite({ texture: art.texture, anchor: 0.5 });
-    spr.position.set(isoX(fx0, fy0), isoY(fx0, fy0));
+    spr.position.set(isoX(fx0, fy0), isoY(fx0, fy0) - this.groundOffset(fx0, fy0));
     spr.scale.set((art.scale * TILE_W) / art.texture.width);
     // Battered buildings darken, exactly as the procedural extrusion does.
     const max = st.maxHp[sIdx];
@@ -1834,8 +1854,12 @@ export class PixiRenderer {
                           this.sim.structures.maxY[razing] + 1) + 1;
         }
       }
+      // Ground lift for this unit's own tile. Applied once here so every
+      // downstream draw for this entity -- hull, turret, bars, rings, badge,
+      // and the procedural-fallback body below -- inherits it for free.
+      const lift = this.groundOffset(x, y);
       const sx = isoX(x, y) + roofDx;
-      const sy = isoY(x, y) + roofDy;
+      const sy = isoY(x, y) + roofDy - lift;
       const side = st.side[i];
       const type = this.sim.unitTypes[st.typeIdx[i]];
       const r = type.isSoft ? 7 : 11;
@@ -2038,12 +2062,12 @@ export class PixiRenderer {
         const ah = 7;
         const nx2 = Math.cos(fc), ny2 = Math.sin(fc);
         const tipX = isoX(x + nx2 * 0.5, y + ny2 * 0.5);
-        const tipY = isoY(x + nx2 * 0.5, y + ny2 * 0.5) - ah;
+        const tipY = isoY(x + nx2 * 0.5, y + ny2 * 0.5) - ah - lift;
         const tailX = isoX(x - nx2 * 0.35, y - ny2 * 0.35);
-        const tailY = isoY(x - nx2 * 0.35, y - ny2 * 0.35) - ah;
+        const tailY = isoY(x - nx2 * 0.35, y - ny2 * 0.35) - ah - lift;
         g.moveTo(tailX, tailY).lineTo(tipX, tipY).stroke({ width: 3, color: this.opts.hullColors[side], alpha: bodyAlpha });
         g.circle(tipX, tipY, 3).fill({ color: '#E8541E', alpha: bodyAlpha });
-        g.ellipse(isoX(x, y), isoY(x, y) + 2, 5, 2.5).fill({ color: '#0A0A08', alpha: 0.3 * bodyAlpha });
+        g.ellipse(isoX(x, y), isoY(x, y) + 2 - lift, 5, 2.5).fill({ color: '#0A0A08', alpha: 0.3 * bodyAlpha });
       } else if (type.role === 'drone') {
           const spin = this.frameN * 0.3;
           const ah = 8;
@@ -2061,7 +2085,7 @@ export class PixiRenderer {
         g.ellipse(sx, sy, r, r / 2).stroke({ width: 1.5, color: this.opts.teamColors[side], alpha: bodyAlpha });
         const bx2 = x + Math.cos(fc) * 1.1;
         const by2 = y + Math.sin(fc) * 1.1;
-        g.moveTo(sx, sy).lineTo(isoX(bx2, by2), isoY(bx2, by2)).stroke({ width: 1.5, color: '#2E2F28', alpha: bodyAlpha });
+        g.moveTo(sx, sy).lineTo(isoX(bx2, by2), isoY(bx2, by2) - lift).stroke({ width: 1.5, color: '#2E2F28', alpha: bodyAlpha });
       } else if (side === 2 && type.weapons.length === 0) {
           // Civilians: same circle silhouette as infantry so they read as
           // people, but limestone fill (not olive) and no weapon barrel.
@@ -2076,7 +2100,7 @@ export class PixiRenderer {
           g.circle(sx, sy, r).stroke({ width: 2, color: this.opts.teamColors[side], alpha: bodyAlpha });
           const hx = x + cos * 0.4;
           const hy = y + sin * 0.4;
-          g.moveTo(sx, sy).lineTo(isoX(hx, hy), isoY(hx, hy)).stroke({ width: 2.5, color: '#F2E8D5', alpha: bodyAlpha });
+          g.moveTo(sx, sy).lineTo(isoX(hx, hy), isoY(hx, hy) - lift).stroke({ width: 2.5, color: '#F2E8D5', alpha: bodyAlpha });
         } else {
           const HL = 0.55;
           const HW = 0.32;
@@ -2084,13 +2108,13 @@ export class PixiRenderer {
           for (const [a, b] of [[HL, HW], [HL, -HW], [-HL, -HW], [-HL, HW]] as const) {
             const wx = x + a * cos - b * sin;
             const wy = y + a * sin + b * cos;
-            pts.push(isoX(wx, wy), isoY(wx, wy));
+            pts.push(isoX(wx, wy), isoY(wx, wy) - lift);
           }
           g.poly(pts).fill({ color: this.opts.hullColors[side], alpha: bodyAlpha });
           g.poly(pts).stroke({ width: 1.5, color: this.opts.teamColors[side], alpha: bodyAlpha });
           const bx = x + cos * 0.8;
           const by = y + sin * 0.8;
-          g.moveTo(sx, sy - 2).lineTo(isoX(bx, by), isoY(bx, by) - 2).stroke({ width: 2.5, color: '#2E2F28', alpha: bodyAlpha });
+          g.moveTo(sx, sy - 2).lineTo(isoX(bx, by), isoY(bx, by) - 2 - lift).stroke({ width: 2.5, color: '#2E2F28', alpha: bodyAlpha });
           g.circle(sx, sy - 2, 4.5).fill({ color: this.opts.hullColors[side], alpha: bodyAlpha });
           g.circle(sx, sy - 2, 4.5).stroke({ width: 1.5, color: '#2E2F28', alpha: 0.8 * bodyAlpha });
         }
@@ -2195,8 +2219,10 @@ export class PixiRenderer {
     const str = this.sim.structures;
     for (let s = 0; s < this.sim.structureCount; s++) {
       if (str.alive[s] === 0) continue;
-      const bx = isoX(fx.toNumber(str.cx[s]), fx.toNumber(str.cy[s]));
-      const by = isoY(fx.toNumber(str.cx[s]), fx.toNumber(str.cy[s]));
+      const scx = fx.toNumber(str.cx[s]);
+      const scy = fx.toNumber(str.cy[s]);
+      const bx = isoX(scx, scy);
+      const by = isoY(scx, scy) - this.groundOffset(scx, scy);
       const stype = this.sim.structureTypes[str.typeIdx[s]];
       // Height above the footprint centre to hang the badge from. `heightPx` is
       // the procedural extrusion's height and is right only for a structure with
@@ -2264,7 +2290,7 @@ export class PixiRenderer {
       const prog = demo > 0 ? demo : this.sim.tunnelChargeProgress(i);
       if (prog <= 0) continue;
       const px = isoX(this.curX[i], this.curY[i]);
-      const py = isoY(this.curX[i], this.curY[i]);
+      const py = isoY(this.curX[i], this.curY[i]) - this.groundOffset(this.curX[i], this.curY[i]);
       g.ellipse(px, py, 20, 10).stroke({ width: 2, color: ringTrack, alpha: 0.5 });
       g.ellipse(px, py, 20 * prog, 10 * prog).stroke({ width: 3, color: ringFill, alpha: 0.9 });
     }
@@ -2281,7 +2307,7 @@ export class PixiRenderer {
       const ux = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
       const uy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
       const ex = isoX(ux, uy);
-      const ey = isoY(ux, uy);
+      const ey = isoY(ux, uy) - this.groundOffset(ux, uy);
       const ring = (tiles: number, color: string, width: number, a: number): void => {
         if (tiles <= 0) return;
         g.ellipse(ex, ey, tiles * TILE_W * ISO_K, tiles * TILE_H * ISO_K).stroke({
@@ -2309,7 +2335,7 @@ export class PixiRenderer {
         const cx = this.prevX[ci] + (this.curX[ci] - this.prevX[ci]) * alpha;
         const cy = this.prevY[ci] + (this.curY[ci] - this.prevY[ci]) * alpha;
         const csx = isoX(cx, cy);
-        const csy = isoY(cx, cy);
+        const csy = isoY(cx, cy) - this.groundOffset(cx, cy);
         const pulse = 0.35 + 0.2 * Math.sin(this.frameN * 0.12);
         g.ellipse(csx, csy, SHEPHERD_TILES * TILE_W * ISO_K, SHEPHERD_TILES * TILE_H * ISO_K).stroke({
           width: 1.5,
@@ -2328,7 +2354,7 @@ export class PixiRenderer {
       const tx = this.prevX[t] + (this.curX[t] - this.prevX[t]) * alpha;
       const ty = this.prevY[t] + (this.curY[t] - this.prevY[t]) * alpha;
       const rx = isoX(tx, ty);
-      const ry = isoY(tx, ty);
+      const ry = isoY(tx, ty) - this.groundOffset(tx, ty);
       const R = 15;
       const c = this.opts.teamColors[1];
       for (const [mx, my] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
@@ -2337,8 +2363,10 @@ export class PixiRenderer {
           .lineTo(rx + mx * R - mx * 7, ry + my * (R / 2))
           .stroke({ width: 2, color: c });
       }
-      const sx0 = isoX(this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha, this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha);
-      const sy0 = isoY(this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha, this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha);
+      const shx = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
+      const shy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+      const sx0 = isoX(shx, shy);
+      const sy0 = isoY(shx, shy) - this.groundOffset(shx, shy);
       g.moveTo(sx0, sy0).lineTo(rx, ry).stroke({ width: 1, color: c, alpha: 0.35 });
     }
 
@@ -2361,7 +2389,7 @@ export class PixiRenderer {
       ];
       const pts: number[] = [];
       for (const [cx2, cy2] of corners) {
-        pts.push(isoX(cx2, cy2), isoY(cx2, cy2));
+        pts.push(isoX(cx2, cy2), isoY(cx2, cy2) - this.groundOffset(cx2, cy2));
       }
       g.poly(pts).stroke({ width: 2, color, alpha: pulse + 0.25 });
       g.poly(pts).fill({ color, alpha: 0.05 });
@@ -2379,7 +2407,7 @@ export class PixiRenderer {
         const theta = (k / segments) * Math.PI * 2;
         const rx = fx2 + radius * Math.cos(theta);
         const ry = fy2 + radius * Math.sin(theta);
-        ringPts.push(isoX(rx, ry), isoY(rx, ry));
+        ringPts.push(isoX(rx, ry), isoY(rx, ry) - this.groundOffset(rx, ry));
       }
       g.poly(ringPts, true).stroke({ width: 2, color, alpha: pulse + 0.25 });
     }
@@ -2400,9 +2428,9 @@ export class PixiRenderer {
       }
       for (let k = 1; k < legs.length; k++) {
         const ax = isoX(legs[k - 1][0], legs[k - 1][1]);
-        const ay = isoY(legs[k - 1][0], legs[k - 1][1]);
+        const ay = isoY(legs[k - 1][0], legs[k - 1][1]) - this.groundOffset(legs[k - 1][0], legs[k - 1][1]);
         const bx = isoX(legs[k][0], legs[k][1]);
-        const by = isoY(legs[k][0], legs[k][1]);
+        const by = isoY(legs[k][0], legs[k][1]) - this.groundOffset(legs[k][0], legs[k][1]);
         g.moveTo(ax, ay).lineTo(bx, by).stroke({ width: 1.5, color: '#B8FF5A', alpha: 0.35 });
         g.circle(bx, by, 3).fill({ color: '#B8FF5A', alpha: 0.55 });
       }
@@ -2416,7 +2444,7 @@ export class PixiRenderer {
     this.orderMarkers = this.orderMarkers.filter((m) => --m.ttl > 0);
     for (const m of this.orderMarkers) {
       const mx = isoX(m.x, m.y);
-      const my = isoY(m.x, m.y);
+      const my = isoY(m.x, m.y) - this.groundOffset(m.x, m.y);
       const a = m.ttl / 80;
       const s = 10 + (1 - a) * 6;
       g.moveTo(mx - s, my).lineTo(mx - 4, my).stroke({ width: 2, color: '#B8FF5A', alpha: a });
@@ -2435,7 +2463,7 @@ export class PixiRenderer {
         const d = this.sim.smoke[y * this.sim.width + x];
         if (d === 0) continue;
         const cx = isoX(x + 0.5, y + 0.5);
-        const cy = isoY(x + 0.5, y + 0.5);
+        const cy = isoY(x + 0.5, y + 0.5) - this.groundOffset(x + 0.5, y + 0.5);
         g.poly([
           cx, cy - TILE_H / 2,
           cx + TILE_W / 2, cy,
