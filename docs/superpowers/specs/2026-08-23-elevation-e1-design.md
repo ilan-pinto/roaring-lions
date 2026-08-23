@@ -75,9 +75,11 @@ There are **61 `isoX`/`isoY` call sites** in the renderer. They are not all grou
 
 ### Picking is approximate, and says so
 
-`screenToWorld` (`renderer.ts:887`) inverts the isometric transform with no height term. With elevation, a single screen point can correspond to several world tiles at different heights — the general solution is a raycast down the height field.
+`screenToWorld` (`renderer.ts:928`) inverts the isometric transform with no height term. With elevation, a single screen point can correspond to several world tiles at different heights — the general solution is a raycast down the height field.
 
 E1 does not do that. It projects flat, reads the height at that tile, and corrects once. This is accurate on flat and gently sloped ground and drifts on steep relief. It is documented as approximate in the function's own comment rather than presented as exact, and it is revisited if it proves annoying in play. Guessing wrong about how annoying is cheap; building a raycast nobody needed is not.
+
+`unitsInScreenRect` (drag-select) received the same elevation correction during execution, but the two pickers now behave differently: it walks every living unit and projects each one forward with its own true lift (`isoY(x, y) - groundOffset(x, y)`), so drag-select is exact regardless of relief. `screenToWorld` (click-select) still inverts a single screen point with one sampled correction, so it stays the approximate one. That asymmetry is intentional — a rect test can afford to visit every candidate unit, a click cannot invert to one — but it means the two selection paths no longer share one accuracy story.
 
 ## Verification
 

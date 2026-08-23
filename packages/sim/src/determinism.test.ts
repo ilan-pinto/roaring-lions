@@ -324,7 +324,17 @@ describe('determinism (1000-tick replay)', () => {
     // Moved for the elevation milestone (E1): Sim.elevation joined the hash.
     // Every shipped map is flat, so no OUTCOME changed -- the hash covers one
     // more array whose every value is zero. `pnpm balance` and `pnpm playtest`
-    // are the evidence: five figures and two known failures, all unmoved.
+    // are NOT the evidence for that: `pnpm balance` builds its scenarios
+    // directly and never calls parseMap or applyTerrain, and while `pnpm
+    // playtest` does call applyTerrain, every shipped map is flat, so
+    // `elevation[t] !== 0` is false everywhere and setElevation is never
+    // invoked either way -- neither run can falsify an elevation leak. The
+    // actual evidence is a static check -- `elevation` appears in sim.ts
+    // exactly four times (the field, its two constructor/hash sites, and
+    // setElevation) and nothing reads it for behaviour -- plus, now, the
+    // differential test in `elevation.test.ts`, which runs one short replay
+    // flat and once with every tile raised and asserts every observable but
+    // the hash (positions, HP, alive counts, the event stream) is identical.
     expect(a.hash()).toBe(1639983699);
   });
 

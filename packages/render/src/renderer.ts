@@ -1362,11 +1362,14 @@ export class PixiRenderer {
             // legible at a glance or the player will path into it and
             // wonder why they stopped.
             //
-            // Still flat, for the same reason the knoll is: the sim has no
-            // elevation. Drawing a ridge tall would promise dead ground
-            // behind it that the sight model does not actually grant --
-            // what it grants is a broken line THROUGH the tile, which is
-            // what covering the whole tile says.
+            // Flat within its own tile, for the same reason the knoll is:
+            // rock scatter, not an extruded shape. The sim does now carry
+            // elevation, and this diamond is drawn at the lifted cyG, so a
+            // ridge on raised ground stands taller than one on flat ground --
+            // but that lift is drawn only, not read. Nothing grants dead
+            // ground behind it: what the sight model grants today is a
+            // broken line THROUGH the tile, which is what covering the whole
+            // tile says. Line-of-sight elevation is E2's job, not this one's.
             g.poly(diamond).fill({ color: t.rock, alpha: 0.92 });
             for (let k = 0; k < 5; k++) {
               const a = PixiRenderer.h2(x * 13 + k, y * 29 + k);
