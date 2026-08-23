@@ -62,7 +62,7 @@ pnpm balance          # headless battle sim, prints win rates
 - TypeScript strict mode. No `any`. No non-null assertions in sim code.
 - **Struct-of-arrays over typed arrays in the sim hot loop.** No per-entity object allocation per tick — GC pauses are visible at 400 units.
 - Systems are pure functions over component arrays: `(state, dt) => events`.
-- Content is JSON validated against `packages/data/schemas/`. Adding a unit means adding JSON, never engine code. If a new unit requires an engine change, that is a signal the data model is missing a concept — extend the schema.
+- Content is JSON validated against `data/schemas/`. Adding a unit means adding JSON, never engine code. If a new unit requires an engine change, that is a signal the data model is missing a concept — extend the schema.
 - Tests colocate as `*.test.ts`. Combat maths requires tests; rendering does not.
 
 ---
@@ -95,7 +95,12 @@ translucency. Fonts are self-hosted in `assets/fonts/`; never a CDN.
 - Do not write mission logic as TypeScript. Missions are declarative data; if a mission needs a behaviour the schema cannot express, extend the schema.
 - Do not use per-unit A* pathfinding. Flow fields only.
 - Do not commit rendered sprites without their `.blend` source.
-- Do not generate unit sprites with AI. See `CONTRIBUTING.md`.
+- Do not commit assets from paid packs (Synty included, even if you own a licence),
+  or anything you cannot point to explicit redistribution rights for. This applies to
+  audio exactly as it does to art.
+- Do not ship AI-generated art without disclosing it in the PR description. Generative
+  tools *are* permitted, including for assets that ship; the four `validate:assets`
+  gates apply identically regardless of origin. See `CONTRIBUTING.md`.
 
 ---
 
@@ -138,7 +143,7 @@ The combat model is the product. Everything else is scaffolding around it.
   mission (65 units) that is ~10⁵ extra array probes a tick — immaterial now, real at the
   GDD's 300-unit target, and it wants staggering at the same time detection does.
   `drawTrail` is O(width × height × routes) at 5 Hz and belongs in the same sweep.
-- A civilian who boards a transport (`mission.ts:970`) and whose transport then dies before reaching the refuge is stranded forever: `stepCivilians` latches `civFled` on boarding and only queues the walk-to-refuge order on the non-boarded branch (`:988-991`), so a civilian dropped by a dead carrier is never re-evaluated and can never satisfy `evacuate_before`. Silent — no error, the objective just never completes. Avoidable at the mission-authoring/plan level today (escort civilians with something nothing on the relevant roster can kill), but the underlying latch is wrong.
+- A civilian who boards a transport and whose transport then dies before reaching the refuge is stranded forever: `stepCivilians` (`mission.ts:1112`) latches `civFled` at `:1138` — before boarding is attempted — and only queues the walk-to-refuge order on the non-boarded branch, so a civilian dropped by a dead carrier is never re-evaluated and can never satisfy `evacuate_before`. Silent — no error, the objective just never completes. Avoidable at the mission-authoring/plan level today (escort civilians with something nothing on the relevant roster can kill), but the underlying latch is wrong.
 - `starting_force` never consults a unit's `unlock` gate — `spawnPlacement` has no equivalent of the `buildBlockedReason` check `requestBuild` makes. Missions rely on this: Wadi Halam V hands out a `dozer_d9` (ROE 60) and a `demo_squad` (ROE 50) unconditionally, and Wadi Halam I–V all field a `recon_drone` (35) or an `ifv_namer` (40) a fresh campaign has not earned. Whether that is a feature or a hole is undecided; what matters is that resolving it in the obvious direction would silently strip Wadi Halam V of both demolishers, so the `seconds` deadline on its `raze` primary is what keeps that a lost mission rather than a stuck one.
 - `mission.schema.json`'s wave `from` promises "Spawn point or tunnel id. Tunnels
   keep producing until located and collapsed", but `mission.ts:1307` resolves `from`
