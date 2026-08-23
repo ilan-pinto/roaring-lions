@@ -83,7 +83,7 @@ is the only file allowed to name one, mapping them to semantic tokens (`--ink`,
 literal anywhere in UI source, with no allowlist — use `color-mix()` for
 translucency. Fonts are self-hosted in `assets/fonts/`; never a CDN.
 
-**A map:** JSON in `data/maps/`, validated against `map.schema.json`. A character grid (`.` open, `1`–`3` cover, `#` building) plus named markers and zones — authorable in a text editor. The loader is `parseMap` in `@lions/data`.
+**A map:** JSON in `data/maps/`, validated against `map.schema.json`. A character grid (`.` open, `1`–`3` cover, `#` building, `^` rock ridge) plus named markers and zones — authorable in a text editor. The loader is `parseMap` in `@lions/data`, and `applyTerrain(map, sim)` is the one way its mechanical layer reaches a `Sim` — use it rather than writing a fourth cover loop. `^` is the only blocked tile that is not a building: impassable, sight-blocking, and with no HP, garrison or ROE penalty.
 
 ---
 

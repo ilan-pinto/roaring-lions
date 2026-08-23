@@ -15,7 +15,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { parseMap, structures as structureCatalogue } from '../../packages/data/src/index';
+import { applyTerrain, parseMap, structures as structureCatalogue } from '../../packages/data/src/index';
 import { MissionRuntime, type LedgerData } from '../../packages/sim/src/mission';
 import { Sim } from '../../packages/sim/src/sim';
 import type { TunnelRouteJson } from '../../packages/sim/src/tunnels';
@@ -74,13 +74,7 @@ export function makeWorld(
   const map = parseMap(read(join(ROOT, `data/maps/${mission.map.file}.json`)));
   const sim = new Sim({ seed: opts.seed ?? 11, width: map.width, height: map.height, capacity: 256 });
 
-  for (let y = 0; y < map.height; y++) {
-    for (let x = 0; x < map.width; x++) {
-      const t = y * map.width + x;
-      const c = map.cover[t];
-      if (c !== undefined && c !== 0) sim.setCover(x, y, c);
-    }
-  }
+  applyTerrain(map, sim);
 
   // Buildings are entities, not terrain -- and `garrison` stances resolve through
   // sim.structureAt, so a world without them cannot start half the missions.

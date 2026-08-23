@@ -4,8 +4,10 @@ import {
   PER_TILE_SYMBOLS,
   STRUCTURE_SYMBOLS,
   TERRAIN_LEGEND,
+  applyTerrain,
   parseMap,
   type MapJson,
+  type TerrainSink,
 } from './map';
 import structureCatalogue from '../../../data/structures.json';
 
@@ -65,10 +67,12 @@ describe('parseMap', () => {
     expect(() => parseMap({ ...TINY, terrain: 'lunar' })).toThrow(/unknown terrain theme/);
   });
 
-  it('still decodes exactly seven terrain symbols', () => {
-    // The green basin is a look, not new mechanics. If this count moves, a
-    // symbol was added and validate_data.mjs's TERRAIN_SYMBOLS must move with it.
-    expect(Object.keys(TERRAIN_LEGEND).sort()).toEqual(['.', '1', '2', '3', 'n', 'o', 'r']);
+  it('still decodes exactly eight terrain symbols', () => {
+    // If this count moves, a symbol was added and validate_data.mjs's
+    // TERRAIN_SYMBOLS must move with it. That used to be the whole guard --
+    // a comment asking the next author to remember. tools/src/terrain_symbols.test.ts
+    // now checks the validator's actual source, so forgetting fails a test.
+    expect(Object.keys(TERRAIN_LEGEND).sort()).toEqual(['.', '1', '2', '3', '^', 'n', 'o', 'r']);
   });
 });
 
@@ -259,5 +263,98 @@ describe('structure grouping', () => {
     for (const s of m.structures) byType[s.type] = (byType[s.type] ?? 0) + 1;
     expect(byType[grouped.id]).toBe(1);
     expect(byType[perTile.id]).toBe(2);
+  });
+});
+
+// Rock is the first blocked tile in the game that is not a building, which is
+// the entire point: a ridge built from concrete would be destructible,
+// garrisonable and ROE-scored, and a mountain is none of those. losRay already
+// returns -1 for a structureless blocked tile, so the mechanic needs no sim
+// code -- only a way to author it.
+describe('rock ridge', () => {
+  const RIDGE: MapJson = {
+    id: 'ridge',
+    name: 'Ridge',
+    width: 4,
+    height: 3,
+    rows: ['.^^.', '..^.', '....'],
+  };
+
+  it('is impassable, carries no cover, and draws as ridge decor', () => {
+    const m = parseMap(RIDGE);
+    expect(Array.from(m.blocked.slice(0, 4))).toEqual([0, 1, 1, 0]);
+    expect(Array.from(m.cover.slice(0, 4))).toEqual([0, 0, 0, 0]);
+    expect(Array.from(m.decor.slice(0, 4))).toEqual([
+      DECOR.none,
+      DECOR.ridge,
+      DECOR.ridge,
+      DECOR.none,
+    ]);
+  });
+
+  it('produces no structure, so it has no HP, no garrison and no ROE penalty', () => {
+    // The whole reason rock is terrain rather than a building.
+    expect(parseMap(RIDGE).structures).toEqual([]);
+  });
+
+  it('is not claimed by any building symbol', () => {
+    expect(STRUCTURE_SYMBOLS['^']).toBeUndefined();
+  });
+});
+
+// The map's mechanical layer reaching the sim. This used to be a loop written
+// out three times -- main.ts, walk_world.ts and playtest.ts -- none of which
+// consumed `blocked` at all. The sink is structurally typed so @lions/data
+// imports nothing and stays a leaf; Sim satisfies it without knowing it exists.
+describe('applyTerrain', () => {
+  interface Call {
+    x: number;
+    y: number;
+    v: number | boolean;
+  }
+
+  function sink(): { blocks: Call[]; covers: Call[] } & TerrainSink {
+    const blocks: Call[] = [];
+    const covers: Call[] = [];
+    return {
+      blocks,
+      covers,
+      setBlocked: (x, y, v) => blocks.push({ x, y, v }),
+      setCover: (x, y, v) => covers.push({ x, y, v }),
+    };
+  }
+
+  it('blocks ridge tiles and nothing else on open ground', () => {
+    const s = sink();
+    applyTerrain(parseMap({ id: 'r', name: 'R', width: 3, height: 2, rows: ['.^.', '...'] }), s);
+    expect(s.blocks).toEqual([{ x: 1, y: 0, v: true }]);
+    expect(s.covers).toEqual([]);
+  });
+
+  it('passes cover levels through, including grove and knoll', () => {
+    const s = sink();
+    applyTerrain(parseMap({ id: 'c', name: 'C', width: 4, height: 2, rows: ['.12o', 'n3..'] }), s);
+    expect(s.covers).toEqual([
+      { x: 1, y: 0, v: 1 },
+      { x: 2, y: 0, v: 2 },
+      { x: 3, y: 0, v: 1 },
+      { x: 0, y: 1, v: 2 },
+      { x: 1, y: 1, v: 3 },
+    ]);
+    expect(s.blocks).toEqual([]);
+  });
+
+  it('blocks building tiles too, which is harmless and keeps it idempotent', () => {
+    // addStructure sets the same bit in the same array and demolish clears it,
+    // so order against the structure loop does not matter.
+    const s = sink();
+    applyTerrain(parseMap({ id: 'b', name: 'B', width: 3, height: 2, rows: ['.#.', '...'] }), s);
+    expect(s.blocks).toEqual([{ x: 1, y: 0, v: true }]);
+  });
+
+  it('never unblocks a tile, so it cannot undo a structure', () => {
+    const s = sink();
+    applyTerrain(parseMap({ id: 'o', name: 'O', width: 3, height: 2, rows: ['...', '...'] }), s);
+    expect(s.blocks).toEqual([]);
   });
 });

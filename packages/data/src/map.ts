@@ -4,6 +4,7 @@
 //
 //   .  open ground          1 2 3  cover levels (light / heavy / garrison)
 //   r  dirt road            o  olive grove (cover 1)   n  rocky knoll (cover 2)
+//   ^  rock ridge: impassable and blocks sight, the only non-building blocked tile
 //   building symbols come from data/structures.json, NOT from this file
 //
 // Any building symbol makes a blocked tile; a contiguous run of the SAME
@@ -96,7 +97,7 @@ export interface ParsedTunnel {
  * array to the renderer directly; the mechanical half of the same tile travels
  * the normal route, through `sim.setCover`.
  */
-export const DECOR = { none: 0, road: 1, grove: 2, knoll: 3 } as const;
+export const DECOR = { none: 0, road: 1, grove: 2, knoll: 3, ridge: 4 } as const;
 export type DecorKind = (typeof DECOR)[keyof typeof DECOR];
 
 export interface ParsedMap {
@@ -166,6 +167,7 @@ export const TERRAIN_LEGEND: Record<
   r: { blocked: 0, cover: 0, decor: DECOR.road },
   o: { blocked: 0, cover: 1, decor: DECOR.grove },
   n: { blocked: 0, cover: 2, decor: DECOR.knoll },
+  '^': { blocked: 1, cover: 0, decor: DECOR.ridge },
 };
 
 const LEGEND: Record<string, { blocked: number; cover: number; decor: DecorKind }> = {
@@ -281,4 +283,45 @@ export function parseMap(json: MapJson): ParsedMap {
     }
   }
   return { id: json.id, width, height, terrain: terrain as TerrainTheme, blocked, cover, decor, markers, zones, structures, tunnels };
+}
+
+/**
+ * What `applyTerrain` writes into. Structural on purpose.
+ *
+ * `@lions/data` is a leaf and imports nothing, so it cannot name `Sim` — and it
+ * does not need to. `Sim` satisfies this shape already, which is the entire
+ * mechanism: the dependency direction holds and the duplication still dies.
+ */
+export interface TerrainSink {
+  setBlocked(x: number, y: number, b: boolean): void;
+  setCover(x: number, y: number, c: number): void;
+}
+
+/**
+ * Hand a parsed map's mechanical layer to a sim.
+ *
+ * This existed three times before it existed once: main.ts, walk_world.ts and
+ * backtest/playtest.ts each wrote their own cover loop, and none of them
+ * consumed `blocked` at all -- so `parseMap` filled an array nobody read, and
+ * rock terrain had nowhere to arrive.
+ *
+ * Three copies of one idea is how tunnel registration went missing from
+ * playtest.ts: the harness died at Beit Sahwan II for two days with every test
+ * green, because a tool had drifted from the app and nothing compared them.
+ * One function is the fix, and the next terrain concept edits one file.
+ *
+ * Only ever sets blocked TRUE. Structure tiles are blocked in `map.blocked`
+ * too, so this marks them as well -- harmless and idempotent, since
+ * `addStructure` sets the same bit in the same array and `demolish` clears it.
+ * Never unblocking means calling this after the structure loop cannot undo it.
+ */
+export function applyTerrain(map: ParsedMap, sink: TerrainSink): void {
+  const { width, height, blocked, cover } = map;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const t = y * width + x;
+      if (blocked[t] !== 0) sink.setBlocked(x, y, true);
+      if (cover[t] !== 0) sink.setCover(x, y, cover[t]);
+    }
+  }
 }

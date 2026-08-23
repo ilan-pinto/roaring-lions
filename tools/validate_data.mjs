@@ -771,8 +771,10 @@ const structureSymbols = new Map(
 //
 // Terrain symbols are duplicated here on purpose: they live in map.ts's
 // TERRAIN_LEGEND, which is TypeScript this Node script does not load. The two
-// lists agreeing is asserted by packages/data/src/map.test.ts.
-const TERRAIN_SYMBOLS = new Set(['.', '1', '2', '3', 'r', 'o', 'n']);
+// lists agreeing is asserted by tools/src/terrain_symbols.test.ts, which reads
+// this file's source text and regexes out the TERRAIN_SYMBOLS literal below,
+// rather than trusting a comment to keep them in sync.
+const TERRAIN_SYMBOLS = new Set(['.', '1', '2', '3', 'r', 'o', 'n', '^']);
 for (const [sym, id] of structureSymbols) {
   if (TERRAIN_SYMBOLS.has(sym)) {
     failures.push(
