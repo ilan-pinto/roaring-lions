@@ -1272,17 +1272,43 @@ export class PixiRenderer {
         const rnd = PixiRenderer.h2(x, y);
         const diamond = [cx, cyG - TILE_H / 2, cx + TILE_W / 2, cyG, cx, cyG + TILE_H / 2, cx - TILE_W / 2, cyG];
 
-        if (lift > 0) {
-          // The two faces an isometric viewer can see: south-west and
-          // south-east. Drawn darker than the top, and darker still with
-          // depth, so a tall ridge reads as mass rather than as a tall flat
-          // shape. Palette tones only -- validate:ui rejects a literal.
-          const w2 = TILE_W / 2;
-          const h2 = TILE_H / 2;
-          g.poly([cx - w2, cyG, cx, cyG + h2, cx, cyG + h2 + lift, cx - w2, cyG + lift])
-            .fill({ color: t.rock, alpha: 0.85 });
-          g.poly([cx + w2, cyG, cx, cyG + h2, cx, cyG + h2 + lift, cx + w2, cyG + lift])
-            .fill({ color: t.rock, alpha: 0.7 });
+        if (this.elevation) {
+          const elevHere = this.elevation[ti];
+          if (elevHere > 0) {
+            // The two faces an isometric viewer can see: south-west and
+            // south-east. Drawn darker than the top, and darker still with
+            // depth, so a tall ridge reads as mass rather than as a tall flat
+            // shape. Palette tones only -- validate:ui rejects a literal.
+            //
+            // Each face is sized to the DROP to that neighbour, not this
+            // tile's own height: two tiles raised to the same level share an
+            // internal edge with nothing to show there, and sizing off
+            // absolute height drew a full wall along it that abutted the
+            // neighbour's matching wall, both staying visible as a spurious
+            // crack across what should read as one continuous slope. Off the
+            // map edge there is no neighbour to compare against, so it reads
+            // as elevation 0 and a raised rim tile still shows its full face.
+            const w2 = TILE_W / 2;
+            const h2 = TILE_H / 2;
+            // South-east: isoX/isoY both increase with x, so the tile whose
+            // top-left edge coincides with this tile's south-east edge is
+            // the neighbour at x + 1 (same row).
+            const elevEast = x + 1 < w ? this.elevation[ti + 1] : 0;
+            const dropSE = elevHere - elevEast;
+            if (dropSE > 0) {
+              const faceH = dropSE * ELEV_STEP;
+              g.poly([cx + w2, cyG, cx, cyG + h2, cx, cyG + h2 + faceH, cx + w2, cyG + faceH])
+                .fill({ color: t.rock, alpha: 0.7 });
+            }
+            // South-west: symmetrically, the neighbour at y + 1 (same column).
+            const elevSouth = y + 1 < h ? this.elevation[ti + w] : 0;
+            const dropSW = elevHere - elevSouth;
+            if (dropSW > 0) {
+              const faceH = dropSW * ELEV_STEP;
+              g.poly([cx - w2, cyG, cx, cyG + h2, cx, cyG + h2 + faceH, cx - w2, cyG + faceH])
+                .fill({ color: t.rock, alpha: 0.85 });
+            }
+          }
         }
 
         if (blocked) {
