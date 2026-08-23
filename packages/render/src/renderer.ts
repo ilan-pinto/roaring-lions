@@ -697,8 +697,8 @@ export class PixiRenderer {
    */
   private groundOffset(x: number, y: number): number {
     if (!this.elevation) return 0;
-    const tx = x | 0;
-    const ty = y | 0;
+    const tx = Math.floor(x);
+    const ty = Math.floor(y);
     if (tx < 0 || ty < 0 || tx >= this.sim.width || ty >= this.sim.height) return 0;
     return this.elevation[ty * this.sim.width + tx] * ELEV_STEP;
   }
@@ -931,7 +931,22 @@ export class PixiRenderer {
     const z = this.camera.zoom;
     const sx = (px - cx) / z + isoX(this.camera.x, this.camera.y);
     const sy = (py - cy) / z + isoY(this.camera.x, this.camera.y);
-    return { x: sx / TILE_W + sy / TILE_H, y: sy / TILE_H - sx / TILE_W };
+    const flat = { x: sx / TILE_W + sy / TILE_H, y: sy / TILE_H - sx / TILE_W };
+    // Approximate, and deliberately so. Terrain lifts a tile on screen, so a
+    // click lands on the tile BEHIND a raised one -- further off the taller the
+    // ground. Exactly inverting that needs a raycast down the height field,
+    // because one screen point can correspond to several tiles at different
+    // heights.
+    //
+    // Instead: read the height where the flat projection lands, undo that much
+    // lift, and project again. Accurate on flat and gently sloped ground, and
+    // it drifts on steep relief. That is a real limitation, not a rounding
+    // error -- worth replacing with the raycast if it proves annoying in play,
+    // and not worth building before anyone has found it annoying.
+    const lift = this.groundOffset(flat.x, flat.y);
+    if (lift === 0) return flat;
+    const ly = sy + lift;
+    return { x: sx / TILE_W + ly / TILE_H, y: ly / TILE_H - sx / TILE_W };
   }
 
   /** Living units whose screen position falls inside a screen-space rect. */
@@ -946,8 +961,10 @@ export class PixiRenderer {
     const out: number[] = [];
     for (let i = 0; i < this.sim.entityCount; i++) {
       if (this.sim.state.alive[i] === 0) continue;
-      const sx = isoX(this.curX[i], this.curY[i]) * z + ox;
-      const sy = isoY(this.curX[i], this.curY[i]) * z + oy;
+      const x = this.curX[i];
+      const y = this.curY[i];
+      const sx = isoX(x, y) * z + ox;
+      const sy = (isoY(x, y) - this.groundOffset(x, y)) * z + oy;
       if (sx >= lo.x && sx <= hi.x && sy >= lo.y && sy <= hi.y) out.push(i);
     }
     return out;
