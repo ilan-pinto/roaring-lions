@@ -321,7 +321,11 @@ describe('determinism (1000-tick replay)', () => {
     // abandons it, leaving that contact to decay through `lost` inside the
     // pin. tnContact now moves every unwatched tick where the latch froze
     // it; the pin moves with the rule.
-    expect(a.hash()).toBe(1147898451);
+    // Moved for the elevation milestone (E1): Sim.elevation joined the hash.
+    // Every shipped map is flat, so no OUTCOME changed -- the hash covers one
+    // more array whose every value is zero. `pnpm balance` and `pnpm playtest`
+    // are the evidence: five figures and two known failures, all unmoved.
+    expect(a.hash()).toBe(1639983699);
   });
 
   it('the replay actually exercises the structure paths', () => {

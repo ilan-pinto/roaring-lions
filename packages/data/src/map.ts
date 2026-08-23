@@ -326,6 +326,7 @@ export function parseMap(json: MapJson): ParsedMap {
 export interface TerrainSink {
   setBlocked(x: number, y: number, b: boolean): void;
   setCover(x: number, y: number, c: number): void;
+  setElevation(x: number, y: number, h: number): void;
 }
 
 /**
@@ -347,12 +348,13 @@ export interface TerrainSink {
  * Never unblocking means calling this after the structure loop cannot undo it.
  */
 export function applyTerrain(map: ParsedMap, sink: TerrainSink): void {
-  const { width, height, blocked, cover } = map;
+  const { width, height, blocked, cover, elevation } = map;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const t = y * width + x;
       if (blocked[t] !== 0) sink.setBlocked(x, y, true);
       if (cover[t] !== 0) sink.setCover(x, y, cover[t]);
+      if (elevation[t] !== 0) sink.setElevation(x, y, elevation[t]);
     }
   }
 }

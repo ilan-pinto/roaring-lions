@@ -313,14 +313,17 @@ describe('applyTerrain', () => {
     v: number | boolean;
   }
 
-  function sink(): { blocks: Call[]; covers: Call[] } & TerrainSink {
+  function sink(): { blocks: Call[]; covers: Call[]; elevs: Call[] } & TerrainSink {
     const blocks: Call[] = [];
     const covers: Call[] = [];
+    const elevs: Call[] = [];
     return {
       blocks,
       covers,
+      elevs,
       setBlocked: (x, y, v) => blocks.push({ x, y, v }),
       setCover: (x, y, v) => covers.push({ x, y, v }),
+      setElevation: (x, y, v) => elevs.push({ x, y, v }),
     };
   }
 
@@ -357,6 +360,25 @@ describe('applyTerrain', () => {
     applyTerrain(parseMap({ id: 'o', name: 'O', width: 3, height: 2, rows: ['...', '...'] }), s);
     expect(s.blocks).toEqual([]);
   });
+
+  it('passes elevation through for raised tiles only', () => {
+    const s = sink();
+    applyTerrain(
+      parseMap({ id: 'e', name: 'E', width: 3, height: 2, rows: ['...', '...'],
+                 elevation: ['030', '001'] }),
+      s
+    );
+    expect(s.elevs).toEqual([
+      { x: 1, y: 0, v: 3 },
+      { x: 2, y: 1, v: 1 },
+    ]);
+  });
+
+  it('says nothing about elevation on a flat map', () => {
+    const s = sink();
+    applyTerrain(parseMap({ id: 'f', name: 'F', width: 3, height: 2, rows: ['...', '...'] }), s);
+    expect(s.elevs).toEqual([]);
+  });
 });
 
 // Elevation is authored as a parallel character grid, one digit per tile, and
@@ -382,9 +404,20 @@ describe('elevation', () => {
     expect(Array.from(m.elevation)).toEqual([0, 0, 0, 0, 0, 3, 3, 0, 0, 1, 1, 0]);
   });
 
-  it('defaults every tile to zero when the field is absent', () => {
-    const flat = parseMap({ id: 'f', name: 'F', width: 4, height: 3, rows: ['....', '....', '....'] });
+  // Both halves live in one test on purpose. Uint8Array is zero-initialised,
+  // so "all zero when absent" alone passes even with the whole
+  // `if (json.elevation !== undefined)` parsing block deleted -- it proves
+  // nothing about parsing. Pairing it with the same map WITH a non-zero
+  // elevation field, asserted in the same test, means deleting that block
+  // breaks this test: the second half can only pass if parsing actually ran.
+  // Splitting them back into two tests would silently restore the tautology.
+  it('defaults every tile to zero when the field is absent, and parses it when present', () => {
+    const base = { id: 'f', name: 'F', width: 4, height: 3, rows: ['....', '....', '....'] };
+    const flat = parseMap(base);
     expect(Array.from(flat.elevation)).toEqual(new Array(12).fill(0));
+
+    const raised = parseMap({ ...base, elevation: ['0000', '0520', '0000'] });
+    expect(Array.from(raised.elevation)).toEqual([0, 0, 0, 0, 0, 5, 2, 0, 0, 0, 0, 0]);
   });
 
   it('is independent of the terrain symbol', () => {
