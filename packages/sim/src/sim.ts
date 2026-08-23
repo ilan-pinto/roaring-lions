@@ -629,6 +629,11 @@ export class Sim {
 
   readonly blocked: Uint8Array;
   readonly cover: Uint8Array;
+  /** Elevation level 0-9 per tile, row-major. Stored and hashed; nothing reads
+   *  it for line of sight, sight range or pathing yet -- that is E2 and E3. It
+   *  is hashed anyway, because a replay that ignored terrain the renderer draws
+   *  would be a replay of a different battlefield. */
+  readonly elevation: Uint8Array;
   /** Smoke density per tile, 0-255. Presentation reads it; LOS respects it. */
   readonly smoke: Uint8Array;
 
@@ -861,6 +866,7 @@ export class Sim {
     const tiles = config.width * config.height;
     this.blocked = new Uint8Array(tiles);
     this.cover = new Uint8Array(tiles);
+    this.elevation = new Uint8Array(tiles);
     this.smoke = new Uint8Array(tiles);
     this.trail = new Uint8Array(tiles);
     this.alive = new Uint8Array(n);
@@ -1015,6 +1021,10 @@ export class Sim {
 
   setCover(x: number, y: number, c: number): void {
     this.cover[y * this.width + x] = c;
+  }
+
+  setElevation(x: number, y: number, h: number): void {
+    this.elevation[y * this.width + x] = h;
   }
 
   // ------------------------------------------------------------- structures
@@ -4285,6 +4295,7 @@ export class Sim {
     h = hashArray(h, this.rng.state);
     h = hashArray(h, this.blocked);
     h = hashArray(h, this.cover);
+    h = hashArray(h, this.elevation);
     h = hashArray(h, this.smoke);
     h = hashArray(h, this.smokeCooldown);
     h = hashArray(h, this.wpX);
