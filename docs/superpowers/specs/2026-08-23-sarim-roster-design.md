@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-23
 **Slice:** 2 of 5 in [the Sur front](./2026-08-22-sur-front-design.md)
-**Closes:** [#15](https://github.com/ilan-pinto/roaring-lions/issues/15)
+**Advances:** [#15](https://github.com/ilan-pinto/roaring-lions/issues/15) — does not close it. Two of #15's three acceptance boxes are met: the roster (four units, replacing "an ATGM cell and a loitering drone") and "doctrine profile expressed through the §6 behaviour vocabulary, not new engine code." The third — *"the standoff backtest target passes"* — is not: the target was written, measured twice, and failed both times (see "What the standoff target measured," below). It was reverted rather than shipped failing, so #15 stays open on that box alone.
 **Status:** approved, pending implementation plan.
 
 ## The problem
@@ -45,18 +45,22 @@ Shapes, not final numbers. Exact costs are fitted to the curve during implementa
 
 | unit | role | shape | anchored against |
 |---|---|---|---|
-| `rocket_battery` | `artillery` | ~20 tiles, `splash_tiles` ~3, `rof_per_min` ~2, slow, fragile, the roster's most expensive | `mortar_team` (18 tiles, splash 1.8, rof 4, 209) and `mortar_crew` (16, 2.0, rof 3, 198) |
+| `rocket_battery` | `artillery` | ~20 tiles, `splash_tiles` ~3, `rof_per_min` ~2, slow, fragile, fitted at 201 — the *cheapest* of the four, not the most expensive | `mortar_team` (18 tiles, splash 1.8, rof 4, 209) and `mortar_crew` (16, 2.0, rof 3, 198) |
 | `sarim_rifles` | `infantry` | ~8 tiles, `suppression_resistance` ~0.7, accuracy ~0.68, expensive | `inf_squad` (0.5 / 0.6 / 292) and `militia_cell` (0.4 / 0.5 / 280) |
 | `manpad_team` | `aa` | `atgm` missile, `can_target: ["air"]` only, ~13 tiles | `gun_truck` (autocannon, 11 tiles, ground+air, 324) |
-| `recoilless_team` | `at_team` | `rpg` type, ~7 tiles, penetration ~650, clearly under the Kornet cell | `rpg_team` (5 tiles, pen 550, 210) and `atgm_cell` (10, 900, 235) |
+| `recoilless_team` | `at_team` | `rpg` type, ~7 tiles, penetration ~650, clearly under the Kornet cell on penetration and range — though not on every axis; see below | `rpg_team` (5 tiles, pen 550, 210) and `atgm_cell` (10, 900, 235) |
 
 Three notes on the shapes:
 
 **The battery is the longest weapon in the game** — past `mortar_team`'s 18. That is deliberate and it is the front's signature. It is also fragile and slow, so reaching it is a mission rather than a duel.
 
+This document originally described `rocket_battery` as "the roster's most expensive," written against a pre-fit estimate of 290. After the cost curve fitted the shipped unit, it came out at **201** — the *cheapest* of the four, and cheaper than both existing artillery pieces it was anchored against (`mortar_team` 209, `mortar_crew` 198). Why: `tools/validate_balance.py`'s offense score never credits `splash_tiles` — there is no area-of-effect term in its cost model at all — so the battery's `rof_per_min: 2` is crushed against `mortar_team`'s 4 despite the battery's higher damage, bigger splash and longer range. It matters less than it looks, though: `cost.logistics` gates only `requestBuild`, i.e. player production. Enemy placement (`spawnPlacement`, serving `starting_force`, `garrison`, `spawn` and `reinforce`) never consults cost at all. So the battery's identity in a mission is carried by its stats and by how many a mission places, not by its price tag.
+
 **`sarim_rifles` is "best-trained" made mechanical.** Where Ashwar's militia melts under fire, these hold, so ground must be *taken* rather than shocked. Suppression resistance is the stat that says so.
 
 **`manpad_team` carries no ground weapon.** It is helpless against infantry, exactly like `recon_drone` is. That is the doctrine, not an oversight: a Sarim position is a combined-arms problem, and the MANPAD is the piece that must be escorted. The cost curve prices pure specialists correctly — its scoring is additive precisely so that "recon drones, EOD teams and engineers" are not valued at zero.
+
+**`recoilless_team` is "clearly under the Kornet cell" on penetration and range, not on every axis.** Its `rof_per_min` (4 vs 3), `suppression` (25 vs 10), `speed_tiles_s` (0.85 vs 0.7) and `signature` (0.45 vs 0.5, i.e. stealthier) are all better than `atgm_cell`'s. "Under" describes the anti-armour punch that defines the role, not a strict domination — the recoilless team is faster, quieter, and fires more often; it just cannot punch as hard or as far as the Kornet.
 
 ## What makes them Sarim is not range
 
@@ -91,16 +95,39 @@ The four new units are therefore priced to sit near the fitted curve so the refi
 
 **`standoffExchange()` expresses it as an equal-spend exchange**, which is what a cost exchange means: roughly four `atgm_cell` (940 logistics) against one `mbt_lavi` (906), opening at ≥8 tiles. Twelve missiles against an APS magazine of three — **saturation is the mechanism**, and saturation is the doctrine. It tests the front rather than a single unit's stat line, and it requires no shipped unit to be retuned.
 
+## What the standoff target measured
+
+`standoffExchange()` was written, wired into `pnpm balance`, and measured twice. Both measurements failed the bar, and it was not committed.
+
+**Stand-up fight** — 4x `atgm_cell` (940 logistics) vs 1x `mbt_lavi` (906), opening at 8 tiles, both sides visible from tick 0 (inside both the Lavi's 12-tile gun range and the Kornet's 10-tile range):
+
+- **23%** of engagements won on cost.
+- Mean **2.6 of 4** cells lost.
+- The tank died in **7 of 30** engagements (23%) — and in every one of those 7, the cost-win condition also held. There was no case of the tank dying at excess cost; the failure mode is that the tank usually doesn't die at all.
+
+**Concealed ambush** — the doctrinally correct expression: the same 4x `atgm_cell` vs 1x `mbt_lavi`, cells in `ambush` stance and sprung at 10 tiles (the Kornet's full reach), tank starting beyond that radius and advancing in on a plain `move` order rather than starting pre-engaged:
+
+- **13%** of engagements won on cost — *worse* than the stand-up fight, not better.
+- Mean **3.5 of 4** cells lost — also worse.
+
+The bar was **≥60%** of engagements won on cost. The win condition was **tank dead AND at most 3 cells lost** — 4 cells lost is 940 logistics spent to destroy 906, a loss on cost however the fight looked on the field. Neither `atgm_cell` nor `mbt_lavi` was retuned at any point across either measurement, and neither the threshold nor the roster (4 cells / 1 tank) was touched.
+
+The ambush version mattered because it is the one the front's own doctrine claims should work — concealed, sprung at the Kornet's full range, exactly the "ambush sprung at ten tiles" stance this document names above as one of the three things that make Sarim's doctrine range-independent. It measured worse, not better: concealment plus saturation, as currently modeled, does not recover the cells' cost efficiency against the Lavi at these stats.
+
+The target was **not committed**. `.github/workflows/ci.yml:36` and `pages.yml:42` both run `pnpm balance`, so a red target there blocks CI and the Pages deploy for every future change, including work with nothing to do with Sarim. This repository already had one red gate — `pnpm playtest`, failing on `beit_sahwan_breach (passive control)` and `beit_sahwan_3_clearance` — rot unnoticed for two days while the rest of the suite stayed green; a second permanently red gate was judged worse than an honestly open acceptance box. `standoffExchange()` was written and measured, then removed from `targets.ts` and `cli.ts` rather than left wired in but excluded from the results array, which would have been dead code of exactly the kind this project keeps getting bitten by (`hidden_setup`, `tunnel_travel`, `breach`, weapon `magazine`/`reload_s`).
+
+**#15's standoff acceptance box therefore stays open.** The doctrine was tested twice, at the stand-up-fight configuration #15 states literally and at the ambush configuration the front design actually recommends, and both came up well short of the bar. That is the finding this slice produced, not a gap in the work.
+
 ## Verification
 
 - `python3 tools/validate_balance.py --units data/units` at ±18%, with the deviation of every **pre-existing** unit reported, not just pass/fail.
-- `pnpm balance`: the original five figures **unmoved**, and the sixth passing.
+- `pnpm balance`: five targets, all passing. The sixth (`standoffExchange`) was written, measured, and reverted — see "What the standoff target measured," above — so it is not part of the shipped gate.
 - `pnpm validate:data` against `unit.schema.json`.
 - `pnpm test:determinism` **unmoved** — this slice touches no sim code, so movement is a bug in the work.
 
 ## Scope
 
-**In:** four unit JSON files, the sixth backtest target, and the docs naming them.
+**In:** four unit JSON files and the docs naming them. The sixth backtest target was attempted — see "What the standoff target measured," above — but not shipped: it failed its bar twice and was reverted rather than committed failing.
 
 **Out, deliberately:**
 
