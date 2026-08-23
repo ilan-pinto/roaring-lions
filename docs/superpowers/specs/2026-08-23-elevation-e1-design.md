@@ -23,11 +23,13 @@ What that document got right, and what survives: sight-blocking terrain does mos
 A parallel character grid, in the same text-editor spirit as `rows`:
 
 ```json
-"rows":    ["....", "..^.", "...."],
-"heights": ["0000", "0330", "0110"]
+"rows":      ["....", "..^.", "...."],
+"elevation": ["0000", "0330", "0110"]
 ```
 
 One digit per tile, `0`–`9`, dimensions matching `rows` exactly. The field is **optional**; absent means every tile is height 0, which is every map that exists today.
+
+**The field is named `elevation`, not `heights` as an earlier draft of this spec had it.** `ParsedMap.height` already names the map's row count, and `applyTerrain` is the one function that destructures both the grid dimensions and the per-tile array in the same scope — parsing `heights` into a `height` array would have shadowed the dimension right there. `elevation` avoids the collision, so that is the name in `MapJson`, `ParsedMap`, `TerrainSink.setElevation` and `Sim.elevation` alike.
 
 **Height is orthogonal to terrain symbol, not derived from it.** This is the load-bearing design decision and it is what makes valleys possible: open ground can sit high or low, a road can climb, and `^` rock is only a mountain because the author put it on high ground. Deriving height from the symbol would give you ridges and nothing else — no basins, no terraces, no valley floor.
 
@@ -35,11 +37,11 @@ The cost of orthogonality is that an author can write a ridge at height 0, which
 
 ## Into the sim
 
-`ParsedMap` gains `height: Uint8Array`, row-major, alongside `blocked` and `cover`.
+`ParsedMap` gains `elevation: Uint8Array`, row-major, alongside `blocked` and `cover`.
 
-`TerrainSink` gains `setHeight(x, y, h)`, and `applyTerrain` carries it. The function that replaced three hand-copied cover loops in the previous slice is now the single door terrain data walks through, and it pays for itself a second time: three call sites gain elevation without any of them being edited twice.
+`TerrainSink` gains `setElevation(x, y, h)`, and `applyTerrain` carries it. The function that replaced three hand-copied cover loops in the previous slice is now the single door terrain data walks through, and it pays for itself a second time: three call sites gain elevation without any of them being edited twice.
 
-`Sim` gains `readonly height: Uint8Array` beside `blocked` and `cover`, and **includes it in the determinism hash**.
+`Sim` gains `readonly elevation: Uint8Array` beside `blocked` and `cover`, and **includes it in the determinism hash**.
 
 ### Nothing reads it
 
@@ -81,15 +83,22 @@ E1 does not do that. It projects flat, reads the height at that tile, and correc
 
 - **A mission replays identically** — full end state, not just the hash. This is the gate that matters.
 - `pnpm test:determinism` — pin moves **once**, updated in the same commit, reason stated.
-- `pnpm balance` — five §5.7 targets unmoved.
-- `pnpm playtest` — still red on exactly #96 and #97, its known baseline. No new failure.
-- `pnpm validate:data` on all maps; the new `heights` field validates and its absence stays legal.
+- `pnpm validate:data` on all maps; the new `elevation` field validates and its absence stays legal.
 - `pnpm validate:ui`, `typecheck`, `lint`, `build`.
 - A map authored with relief, looked at by eye. **Nobody has seen extruded terrain in this game**, and no test will tell us whether 10 px per level reads correctly.
 
+**What actually proves "nothing reads it" is a static check, not `pnpm balance` or `pnpm playtest`.** `elevation` appears in `packages/sim/src/sim.ts` exactly four times: the field declaration, its allocation, the setter's write, and the hash. Nothing else reads it. That grep is the evidence for the claim in "Nothing reads it" above.
+
+`pnpm balance` and `pnpm playtest` are worth running and are still part of the gate sweep, but neither is capable of falsifying a leak here, so they are demoted to a weaker, complementary signal rather than cited as proof:
+
+- `pnpm balance` never calls `parseMap` or `applyTerrain` — it builds synthetic scenarios directly. It is evidence unrelated combat maths did not regress, not evidence about elevation.
+- `pnpm playtest` does route through `applyTerrain`, but every shipped map is flat, so `elevation[t] !== 0` is false for every tile and `setElevation` is never invoked. A leak of exactly the shape being guarded against — code that reads elevation and branches on it — would produce byte-identical output on an all-zero input either way. Passing tells you nothing distinguishes "nothing reads elevation" from "something reads it but every current map makes the read a no-op."
+
+So: `pnpm balance` five §5.7 targets unmoved, and `pnpm playtest` still red on exactly #96 and #97 with no new failure, remain expected results worth checking — just not the thing that proves this slice changed no outcome. The static check does that.
+
 ## Scope
 
-**In:** the `heights` map field and its schema entry, `ParsedMap.height`, `TerrainSink.setHeight` and `applyTerrain`, `Sim.height` and its hashing, the extruded terrain draw, `groundOffset` and the ground-positioned draws it serves, and the approximate picking correction.
+**In:** the `elevation` map field and its schema entry, `ParsedMap.elevation`, `TerrainSink.setElevation` and `applyTerrain`, `Sim.elevation` and its hashing, the extruded terrain draw, `groundOffset` and the ground-positioned draws it serves, and the approximate picking correction.
 
 **Out, deliberately:**
 
@@ -99,3 +108,5 @@ E1 does not do that. It projects flat, reads the height at that tile, and correc
 - **Exact picking.** A raycast down the height field, if the approximation proves annoying.
 - **Terrain art beyond extrusion.** No new symbols, no third theme, no rendered rock faces from Blender. `^` already exists and now simply has somewhere to stand.
 - **Tel Marum.** Its design waits for elevation, because authoring a 48×48 map against flat terrain and then re-authoring it is the one clearly wasteful order. It becomes the first map that uses relief, which is a better mission than the flat one it would otherwise have been.
+
+**A warning for E2 and E3, recorded here because it follows directly from the previous section:** the moment elevation is actually read — for line of sight or for sight range — a flat test corpus proves nothing. Every read is a no-op on flat ground, the same way `setElevation` is a no-op against every map shipped today. E2 must author a map with real relief into the playtest harness *before* any "unmoved" gate result on that slice means anything. Skipping that step ships E2 behind a green gate that tested nothing, exactly the failure mode this slice had to reason its way around in the Verification section above.
