@@ -1321,6 +1321,62 @@ export class PixiRenderer {
     return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
   }
 
+  /**
+   * Slope-face dressing shared by the SE and SW drop quads (mirror images
+   * of the same shape). `(top0x, top0y)`-`(top1x, top1y)` is the face's top
+   * edge -- the line it shares with the tile's own top diamond, taken
+   * straight from that quad's first two vertices -- and `faceH` is the
+   * full drop in px, so the bottom edge is the top edge shifted down by
+   * `faceH`. `faceTag` (0 = SE, 1 = SW) salts the scree hash so the two
+   * faces of one tile do not scatter identically.
+   *
+   * Geometry only. Never touches the fill of the quad itself -- that stays
+   * exactly as it was, drawn by the caller before this runs.
+   */
+  private drawSlopeFace(
+    g: Graphics,
+    t: TerrainTones,
+    x: number,
+    y: number,
+    faceTag: number,
+    top0x: number,
+    top0y: number,
+    top1x: number,
+    top1y: number,
+    drop: number,
+    faceH: number,
+  ): void {
+    // 1. Strata banding: one line per internal level boundary, so a player
+    // can count a cliff's height instead of guessing it. A drop of 1 has
+    // no internal boundary -- the loop is simply empty.
+    for (let i = 1; i < drop; i++) {
+      const dy = i * ELEV_STEP;
+      g.moveTo(top0x, top0y + dy).lineTo(top1x, top1y + dy);
+    }
+    if (drop > 1) g.stroke({ color: t.blocked, alpha: 0.35, width: 1 });
+
+    // 2. Lit top edge: at gameplay zoom a ridge face dissolves into its own
+    // top without one.
+    g.moveTo(top0x, top0y).lineTo(top1x, top1y).stroke({ color: t.rockLit, alpha: 0.45, width: 1 });
+
+    // 3. Scree at the foot, drops of 2+ only -- a single-level step reads
+    // fine as a bare edge; a taller face wants debris rooting it to the
+    // ground. Same blob-plus-highlight idiom as the knoll and ridge scatter
+    // above, scattered along the 1-D bottom edge rather than a tile's area.
+    if (drop < 2) return;
+    const hCount = PixiRenderer.h2(x * 29 + faceTag * 101 + drop, y * 31 + faceTag * 103);
+    const n = 3 + (Math.floor(hCount * 1000) & 1);
+    for (let k = 0; k < n; k++) {
+      const a = PixiRenderer.h2(x * 37 + faceTag * 107 + k * 7, y * 41 + faceTag * 109 + k * 5);
+      const bits = PixiRenderer.h2(x * 43 + faceTag * 113 + k * 3, y * 47 + faceTag * 127 + k * 11);
+      const r = 2 + bits * 1.5;
+      const px = top0x + (top1x - top0x) * a;
+      const py = top0y + (top1y - top0y) * a + faceH;
+      g.ellipse(px, py, r, r * 0.6).fill({ color: t.rock, alpha: 0.9 });
+      g.ellipse(px - r * 0.4, py - r * 0.4, r * 0.5, r * 0.3).fill({ color: t.rockLit, alpha: 0.5 });
+    }
+  }
+
   private drawTerrain(): void {
     const flat = this.terrainG;
     flat.clear();
@@ -1385,6 +1441,9 @@ export class PixiRenderer {
               const faceH = dropSE * ELEV_STEP;
               g.poly([cx + w2, cyG, cx, cyG + h2, cx, cyG + h2 + faceH, cx + w2, cyG + faceH])
                 .fill({ color: t.rock, alpha: 0.7 });
+              // top0/top1 are the quad's first two vertices above -- the edge
+              // shared with the tile's own top diamond.
+              this.drawSlopeFace(g, t, x, y, 0, cx + w2, cyG, cx, cyG + h2, dropSE, faceH);
             }
             // South-west: symmetrically, the neighbour at y + 1 (same column).
             const elevSouth = y + 1 < h ? this.elevation[ti + w] : 0;
@@ -1393,6 +1452,7 @@ export class PixiRenderer {
               const faceH = dropSW * ELEV_STEP;
               g.poly([cx - w2, cyG, cx, cyG + h2, cx, cyG + h2 + faceH, cx - w2, cyG + faceH])
                 .fill({ color: t.rock, alpha: 0.85 });
+              this.drawSlopeFace(g, t, x, y, 1, cx - w2, cyG, cx, cyG + h2, dropSW, faceH);
             }
           }
         }
