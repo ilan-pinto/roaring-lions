@@ -9,7 +9,6 @@ import {
   fx,
   TICKS_PER_SECOND,
   MissionRuntime,
-  PROTECTED_ROE,
   type LedgerData,
   type MissionEvent,
   type MissionJson,
@@ -47,7 +46,7 @@ import { Hud, type MissionView, type Tone } from './ui/hud';
 import { showMenu, showCampaign, showEndScreen } from './ui/menu';
 import { showLoading } from './ui/loading';
 import { ProductionBar } from './ui/production';
-import { applyIntent, sortMount, sortStructureOrder, type PlayerIntent } from './input/intents';
+import { applyIntent, sortMount, resolvePointer, type PlayerIntent, type IntentWorld } from './input/intents';
 import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
 import { tutorialPanel, type TutorialPanel } from './tutorial/panel';
 import { parseWorld, parseCountries, nextMissionAfter } from './campaign';
@@ -806,79 +805,34 @@ async function main(): Promise<void> {
     dragStart = null;
     dragBox.style.display = 'none';
   });
+  // The resolver's view of the world. One adapter, so the click and (in slice
+  // 2) the hover cursor ask the same object the same questions.
+  //
+  // Both structureAt and tunnelAt take integer tile coordinates; screenToWorld
+  // returns fractional world coordinates, so both calls floor here rather
+  // than in the sim (Math is banned in packages/sim/src — invariant 2).
+  const intentWorld: IntentWorld = {
+    structureAt: (x, y) => sim.structureAt(Math.floor(x), Math.floor(y)),
+    tunnelAt: (x, y) => sim.tunnelAt(Math.floor(x), Math.floor(y)),
+    isProtected: (s) => sim.isProtected(s),
+    structureRoePenalty: (s) => sim.structureRoePenalty(s),
+    garrisonFree: (s) => sim.garrisonFree(s),
+    canDemolish: (i) => sim.unitTypes[sim.state.typeIdx[i]].canDemolish,
+    canGarrison: (i) => sim.unitTypes[sim.state.typeIdx[i]].canGarrison,
+    canTunnelCharge: (i) => sim.unitTypes[sim.state.typeIdx[i]].canTunnelCharge,
+    // Slice 2 wires this to the mission's roe.flagged_zones. Until then the
+    // tier comes from the structure alone, which is what ships today.
+    inFlaggedZone: () => false,
+  };
   canvas.addEventListener('contextmenu', (ev) => {
     ev.preventDefault();
     const rect = canvas.getBoundingClientRect();
     const w = renderer.screenToWorld(ev.clientX - rect.left, ev.clientY - rect.top);
     const mine = renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
-    if (mine.length === 0) return;
-    // Right-clicking a building sends whoever can garrison inside it, tells
-    // demolishers to bring it down, and everyone else to attack toward it.
-    //
-    // Demolition is checked before garrison because a unit that can do both is
-    // a sapper, and a sapper sent at a building is being sent to demolish it —
-    // Combat Engineers carry `garrison` too, and reading it the other way makes
-    // the D9 the only unit in the game that can be ordered to demolish.
-    // Designating is also the *only* way to level a protected site: charges go
-    // in automatically elsewhere, so the sim refuses a mosque unless somebody
-    // asked for it by name.
-    const struct = sim.structureAt(Math.floor(w.x), Math.floor(w.y));
-    if (struct >= 0) {
-      // A protected site is only ordered down by a selection that is nothing
-      // but demolishers -- isolating the engineers IS the act of taking
-      // responsibility for the ROE bill. See sortStructureOrder.
-      const isProtected =
-        sim.structureTypes[sim.structures.typeIdx[struct]].roePenalty >= PROTECTED_ROE;
-      const { razers: canRaze, enterers: canEnter, rest } = sortStructureOrder(
-        mine,
-        (i) => sim.unitTypes[sim.state.typeIdx[i]].canDemolish,
-        (i) => sim.unitTypes[sim.state.typeIdx[i]].canGarrison,
-        isProtected
-      );
-      if (canRaze.length > 0) dispatch({ kind: 'demolish', ids: canRaze, structure: struct });
-      if (canEnter.length > 0) dispatch({ kind: 'garrison', ids: canEnter, structure: struct });
-      if (rest.length > 0) {
-        dispatch({ kind: 'order', verb: 'attackMove', ids: rest, x: w.x, y: w.y, append: false });
-      }
-      renderer.addOrderMarker(w.x, w.y);
-      return;
-    }
-    // Right-clicking a tile of an IDENTIFIED tunnel sends charge teams to
-    // work it and everyone else to attack toward the point — demolish's
-    // split, for the underground target. Identified only, matching the sim
-    // gate (stepTunnelCharge holds the clock at zero below contact level 2):
-    // the player is never offered an order the sim will refuse, the same
-    // §5.8 legibility rule that made projectHit honour containment. On a
-    // suspected route the click stays an ordinary attack-move — a blip is
-    // something to investigate, not a firing solution.
-    const route = (() => {
-      const tx = Math.floor(w.x);
-      const ty = Math.floor(w.y);
-      for (let r = 0; r < sim.tunnelCount; r++) {
-        if (sim.tnAlive[r] === 1 && sim.tunnelContactLevel(0, r) === 2 && sim.tunnelUnderTile(r, tx, ty)) {
-          return r;
-        }
-      }
-      return -1;
-    })();
-    if (route >= 0) {
-      const canCharge = mine.filter((i) => sim.unitTypes[sim.state.typeIdx[i]].canTunnelCharge);
-      if (canCharge.length > 0) {
-        dispatch({ kind: 'chargeTunnel', ids: canCharge, tunnel: route });
-        const rest = mine.filter((i) => !sim.unitTypes[sim.state.typeIdx[i]].canTunnelCharge);
-        if (rest.length > 0) {
-          dispatch({ kind: 'order', verb: 'attackMove', ids: rest, x: w.x, y: w.y, append: false });
-        }
-        hud.note('<b>tunnel charge</b> — team moving to the route', 'info');
-        renderer.addOrderMarker(w.x, w.y);
-        return;
-      }
-      // No charge-capable unit selected: fall through to the ordinary order.
-    }
-    // Shift queues the point onto the end of the route instead of replacing
-    // it, so a player can draw a path around a block.
-    dispatch({ kind: 'order', verb: 'attackMove', ids: mine, x: w.x, y: w.y, append: ev.shiftKey });
-    renderer.addOrderMarker(w.x, w.y);
+    const res = resolvePointer(intentWorld, { ids: mine, x: w.x, y: w.y, append: ev.shiftKey });
+    for (const intent of res.intents) dispatch(intent);
+    if (res.note) hud.note(res.note.text, res.note.tone);
+    if (res.marker) renderer.addOrderMarker(w.x, w.y);
   });
   const keys = new Set<string>();
   // Control groups 1–9, and double-tap tracking for camera centring.
