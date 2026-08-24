@@ -148,3 +148,113 @@ export function sortStructureOrder(
   }
   return { razers, enterers, rest };
 }
+
+/** How much a click here costs against the rules of engagement. Three tiers,
+ *  because the data supports three: a mosque (30) is protected, an apartment
+ *  (14) is costly, a wall (0) is free. */
+export type RoeTier = 'free' | 'costly' | 'protected';
+
+/** The narrow slice of the world the resolver needs — so a test can describe
+ *  a situation instead of building a Sim, exactly as CommandSink does for
+ *  applyIntent. No Sim import: intents.ts has no sim dependency and must not
+ *  gain one. */
+export interface IntentWorld {
+  structureAt(x: number, y: number): number;
+  tunnelAt(x: number, y: number): number;
+  isProtected(structIdx: number): boolean;
+  structureRoePenalty(structIdx: number): number;
+  garrisonFree(structIdx: number): number;
+  canDemolish(id: number): boolean;
+  canGarrison(id: number): boolean;
+  canTunnelCharge(id: number): boolean;
+  /** Mission-declared no-fire zone. Wired in slice 2; false until then. */
+  inFlaggedZone(x: number, y: number): boolean;
+}
+
+export interface PointerContext {
+  /** Already filtered to living units on side 0 by the caller. */
+  ids: number[];
+  x: number;
+  y: number;
+  append: boolean;
+}
+
+/** Everything the click does, as data: the intents to dispatch in order, the
+ *  ROE tier of what is under the pointer, whether to drop an order marker,
+ *  and any HUD note. */
+export interface Resolution {
+  intents: PlayerIntent[];
+  roe: RoeTier;
+  marker: boolean;
+  note?: { text: string; tone: 'info' | 'mute' };
+}
+
+/**
+ * What a right-click here means.
+ *
+ * Lifted verbatim from main.ts's contextmenu handler so that one decision can
+ * serve two callers: the click dispatches the result, and slice 2's cursor
+ * draws it. Written as two code paths they would drift, and the failure mode
+ * is a cursor that confidently promises an order the click does not issue.
+ *
+ * Order matters and is preserved: structure, then identified tunnel, then
+ * ordinary attack-move. A structure wins a tile it shares with a tunnel
+ * because the structure branch returns first.
+ */
+export function resolvePointer(world: IntentWorld, ctx: PointerContext): Resolution {
+  const { ids, x, y, append } = ctx;
+  const roe = roeTierAt(world, x, y);
+  if (ids.length === 0) return { intents: [], roe, marker: false };
+
+  const struct = world.structureAt(x, y);
+  if (struct >= 0) {
+    const { razers, enterers, rest } = sortStructureOrder(
+      ids,
+      (i) => world.canDemolish(i),
+      (i) => world.canGarrison(i),
+      world.isProtected(struct)
+    );
+    const intents: PlayerIntent[] = [];
+    if (razers.length > 0) intents.push({ kind: 'demolish', ids: razers, structure: struct });
+    if (enterers.length > 0) intents.push({ kind: 'garrison', ids: enterers, structure: struct });
+    if (rest.length > 0) {
+      intents.push({ kind: 'order', verb: 'attackMove', ids: rest, x, y, append: false });
+    }
+    return { intents, roe, marker: true };
+  }
+
+  const route = world.tunnelAt(x, y);
+  if (route >= 0) {
+    const chargers = ids.filter((i) => world.canTunnelCharge(i));
+    if (chargers.length > 0) {
+      const rest = ids.filter((i) => !world.canTunnelCharge(i));
+      const intents: PlayerIntent[] = [{ kind: 'chargeTunnel', ids: chargers, tunnel: route }];
+      if (rest.length > 0) {
+        intents.push({ kind: 'order', verb: 'attackMove', ids: rest, x, y, append: false });
+      }
+      return {
+        intents,
+        roe,
+        marker: true,
+        note: { text: '<b>tunnel charge</b> — team moving to the route', tone: 'info' },
+      };
+    }
+    // Nobody can charge: fall through to the ordinary order, as main.ts does.
+  }
+
+  return {
+    intents: [{ kind: 'order', verb: 'attackMove', ids, x, y, append }],
+    roe,
+    marker: true,
+  };
+}
+
+/** The tier of whatever is under the pointer. A mission-flagged zone is
+ *  protected regardless of what stands on it. */
+function roeTierAt(world: IntentWorld, x: number, y: number): RoeTier {
+  if (world.inFlaggedZone(x, y)) return 'protected';
+  const struct = world.structureAt(x, y);
+  if (struct < 0) return 'free';
+  if (world.isProtected(struct)) return 'protected';
+  return world.structureRoePenalty(struct) > 0 ? 'costly' : 'free';
+}
