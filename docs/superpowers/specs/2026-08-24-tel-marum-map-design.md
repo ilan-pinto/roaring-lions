@@ -221,3 +221,21 @@ used to walk the ground and deleted before merge.
 Tel Marum's three missions: recon, foothold, clearance. They inherit a map whose sight lines are
 already asserted, and they will need bespoke `playtest.ts` plans — three of them, plus three
 no-orders controls proving each mission is losable, which is the harness's existing convention.
+
+**The first thing that slice must reckon with: the two saddles are unequal by more than design
+intended.** Driving the real `Sim` from all eighteen overwatch tiles found that the narrow
+saddle is not merely slower than the wide one — it is free. A force can go hollow → west flank
+→ narrow saddle → battery without ever standing on a tile that either overwatch pocket can both
+see *and* reach at the `atgm_cell`'s Kornet range of 10 tiles. The whole cost of taking the
+narrow route over the wide one is +9 tiles: 38 against 47. Nine tiles is not a price, and unless
+a mission slices the cost some other way, the doctrine this map was built to enforce never
+fires — every player takes the free path and nothing ever shoots at them.
+
+This is not a terrain defect. The ground is correct, two independent reviews validated the sight
+lines, and re-cutting it now would invalidate the fourteen assertions above to fix a problem
+that only exists once missions exist to expose it — it is a constraint the missions slice
+inherits, not a bug in this one. Whichever mission first uses the narrow saddle needs to charge
+for it some other way: a reinforcement wave timed to arrive while the force is strung out on the
+west flank, an objective timer that penalizes the slower route on its own terms, or a spotter
+placed on the west flank so the narrow saddle is watched even though neither overwatch pocket
+reaches it.

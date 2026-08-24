@@ -217,3 +217,10 @@ The combat model is the product. Everything else is scaffolding around it.
   than none, since `wreckLayer` sprites (`addWreck`, `renderer.ts`) carry no
   `zIndex` at all and would sort behind every band on the map, not merely their
   own tile's, if moved into `spriteLayer` naively.
+- Tel Marum's two saddles are supposed to be unequal — narrow costs time, wide costs vehicles —
+  but driving the real `Sim` from all eighteen overwatch tiles found the narrow saddle costs
+  neither: a hollow → west flank → narrow saddle → battery route never crosses a tile either
+  overwatch pocket can both see and reach at the `atgm_cell`'s 10-tile Kornet range, for a total
+  cost of +9 tiles (38 vs 47). Not a terrain bug — the ground is correct and stays as authored —
+  but the doctrine never fires until a Tel Marum mission charges for that route some other way:
+  a reinforcement wave, an objective timer, or a west-flank spotter.
