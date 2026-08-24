@@ -608,6 +608,19 @@ const MAX_WAYPOINTS = 8;
  *  tunnels is a mission whose player cannot reason about any of them. */
 const MAX_TUNNELS = 16;
 
+/** How far a blocked tile — rock or building — stands above its own ground,
+ *  in elevation levels.
+ *
+ *  2 is what the renderer already draws: a building at H = 18 px against E1's
+ *  ELEV_STEP of 10, and rock scatter that sits proud of its own tile. Sight
+ *  and drawing agreeing is the whole point of the elevation milestone.
+ *
+ *  It also has to be non-zero for a reason found while designing: with rock's
+ *  sight height being its bare elevation, two units on a plateau at elevation
+ *  3 would see through rock also at elevation 3, because `3 > 3` is false. A
+ *  solid, impassable ridge would go transparent. */
+const BLOCK_RISE = 2;
+
 // ---------------------------------------------------------------------------
 
 /** distance² in Q16.16 tile² without overflow: (d>>8)² == d²>>16 exactly
@@ -629,8 +642,8 @@ export class Sim {
 
   readonly blocked: Uint8Array;
   readonly cover: Uint8Array;
-  /** Elevation level 0-9 per tile, row-major. Stored and hashed; nothing reads
-   *  it for line of sight, sight range or pathing yet -- that is E2 and E3. It
+  /** Elevation level 0-9 per tile, row-major. Stored and hashed; line of sight
+   *  reads it (E2) but sight range and pathing do not yet -- that is E3. It
    *  is hashed anyway, because a replay that ignored terrain the renderer draws
    *  would be a replay of a different battlefield. */
   readonly elevation: Uint8Array;
@@ -1795,6 +1808,19 @@ export class Sim {
     const sy = dy < 0 ? -1 : 1;
     dx = dx < 0 ? -dx : dx;
     dy = dy < 0 ? -dy : dy;
+    // Endpoint sight heights, and the ray's step count.
+    //
+    // `total` is the iteration count: this is classical two-branch Bresenham,
+    // so the major axis advances exactly once per iteration. It is zero only
+    // when both endpoints are the same tile, and such a ray returns from the
+    // equality check at the top of the loop before reaching the comparison
+    // below. The cross-multiply assumes `total > 0` and is protected by that
+    // early return rather than by a guard of its own -- a refactor that moved
+    // the early return would divide this assumption out from under it.
+    const h0 = this.elevation[y0 * w + x0];
+    const h1 = this.elevation[y1 * w + x1];
+    const total = dx > dy ? dx : dy;
+    let k = 0;
     let err = dx - dy;
     let x = x0;
     let y = y0;
@@ -1812,6 +1838,23 @@ export class Sim {
       }
       if (x === x1 && y === y1) return coverCount;
       const t = y * w + x;
+      k++;
+      // Terrain against the sight line, cross-multiplied so this stays in
+      // plain integers -- no division, no fixed point. Elevations are 0-9,
+      // BLOCK_RISE adds 2, and maps are at most 128 wide, so every term here
+      // is under about 1,400.
+      //
+      // On flat ground h0, h1 and every elevation are 0, so the right-hand
+      // side is 0: open ground can never block, and a blocked tile's
+      // `0 + 2 > 0` blocks exactly as it did before elevation existed.
+      const lineH = h0 * total + (h1 - h0) * k;
+      // `rise` is what the obstacle itself adds on top of bare ground -- zero
+      // for open ground and for anything the ray sees straight through (a
+      // fence, or the structure at either end of the ray), BLOCK_RISE for
+      // everything else. The comparison below then runs once for every tile,
+      // so a transparent obstacle can never make the ground it stands on
+      // transparent too: a wall on a rise still has the rise beneath it.
+      let rise = 0;
       if (this.blocked[t] !== 0) {
         const st = this.structureOfTile[t];
         // A fence costs you concealment on the way past, not the sight line:
@@ -1820,9 +1863,10 @@ export class Sim {
         if (st >= 0 && this.structureTypes[this.stTypeIdx[st]].lowProfile) {
           if (coverCount < 8) coverCount++;
         } else if (st < 0 || (st !== sFrom && st !== sTo)) {
-          return -1;
+          rise = BLOCK_RISE;
         }
       }
+      if ((this.elevation[t] + rise) * total > lineH) return -1;
       if (this.cover[t] !== 0 && coverCount < 8) coverCount++;
     }
   }
