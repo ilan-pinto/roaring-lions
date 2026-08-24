@@ -193,3 +193,16 @@ The combat model is the product. Everything else is scaffolding around it.
   nothing headless between the optimal-play proof and a fully-passive walk. Beit
   Sahwan IV's own `target_minutes: 6` stands unverified for this reason and belongs
   to #84's set of unresolved predecessors.
+- The elevation milestone (E1–E3) closes with three things left inert, every one of
+  them dormant only because every shipped map is flat and every one of them first
+  reachable the moment a map authors relief. `raySmoke` (`packages/sim/src/sim.ts:1771`)
+  never reads elevation, and `losRay` calls it at `:1816` before any height reasoning
+  runs — so smoke pooled in a valley will block a ray passing six levels above it, and
+  smoke sitting on a peak will not blanket the valley below. E1 left three relief gaps
+  of its own: VFX are not lifted to terrain height, extruded terrain cannot occlude
+  units, and picking is untested mid-slope. And slope movement cost and downhill cover
+  were both deliberately cut from E3's scope — slope cost in particular touches
+  `FlowField.compute`, the pathing core every unit uses every tick, which is why it
+  wants its own slice rather than a tuck-in. The next map to author relief — Tel
+  Marum — is the first thing that meets all of these, and will read as broken rather
+  than as known unless this bullet is read first.

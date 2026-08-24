@@ -1859,7 +1859,7 @@ export class Sim {
       // BLOCK_RISE adds 2, and maps are at most 128 wide, so every term here
       // is under about 1,400.
       //
-      // On flat ground h0 = h1 = EYE_HEIGHT, so the (h1 - h0) * k term above
+      // On flat ground h0 = h1 = EYE_HEIGHT, so the (h1 - h0) * k term below
       // vanishes and lineH = EYE_HEIGHT * total at every step -- the
       // comparison below reduces to `rise > EYE_HEIGHT`. Open ground and
       // transparent tiles have rise 0, so they can never block; a blocked

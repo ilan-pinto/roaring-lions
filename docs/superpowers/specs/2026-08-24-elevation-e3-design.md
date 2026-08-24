@@ -55,7 +55,9 @@ Every path lands where it lands today. **A moved pin means E3 changed flat-groun
 
 The pin is a live guard rather than a formality here: E2 established that setting `BLOCK_RISE = 0` makes `test:determinism` fail, so the replay genuinely walks this comparison.
 
-The four rows above are really one fact, stated more strongly than the table lets on. On flat ground `h0 = h1 = EYE_HEIGHT`, so the `(h1 - h0) * k` term in `lineH` vanishes and `lineH = EYE_HEIGHT × total` at every step — the comparison reduces to `rise > EYE_HEIGHT`, independent of `total` and `k`. Since `rise` is either 0 (open ground, endpoint structures, fences) or `BLOCK_RISE` (opaque blocked tiles), flat-ground behaviour is provably identical for *any* `EYE_HEIGHT` strictly below `BLOCK_RISE` — not merely for `EYE_HEIGHT = 1`, the value this slice happens to ship. The table above is a sample of that guarantee, not the whole of it.
+The four rows above are really one fact, stated more strongly than the table lets on. On flat ground `h0 = h1 = EYE_HEIGHT`, so the `(h1 - h0) * k` term in `lineH` vanishes and `lineH = EYE_HEIGHT × total` at every step — the comparison reduces to `rise > EYE_HEIGHT`, independent of `total` and `k`. Since `rise` is either 0 (open ground, endpoint structures, fences) or `BLOCK_RISE` (opaque blocked tiles), flat-ground behaviour is provably identical for *any* `EYE_HEIGHT` in `0 ≤ EYE_HEIGHT < BLOCK_RISE` — not merely for `EYE_HEIGHT = 1`, the value this slice happens to ship. The table above is a sample of that guarantee, not the whole of it.
+
+The lower bound is real rather than decorative: at a negative eye height the same reduction makes `0 > EYE_HEIGHT` true, and **open ground blocks**. The shipped test asserts only the upper bound, deliberately — that is the end a tuning pass could plausibly walk into, where nothing would ever write a negative one.
 
 ## What follows for authoring
 
@@ -109,6 +111,17 @@ No new performance measurement. E3 adds one addition to two values computed once
 - **An `isAir` exemption.** Closed above, with reasoning.
 - **Slope movement cost.** Still the most invasive piece of elevation and still the least of what it is for. It changes `FlowField.compute`, the pathing core every unit uses every tick.
 - **Downhill cover.** Being above someone ought to reduce what a low wall hides from you. A real question, and not this milestone's.
+- **Eye height on endpoints that are not bodies.** `losRay` has nine call sites, and four of
+  them target something with no body at all: a trail tile (`sim.ts:2333`), route tiles
+  (`:2371`, `:2434`), and a building tile (`:2531`). Each now receives `+EYE_HEIGHT` anyway,
+  because the constant is applied to both endpoints unconditionally. Inert on flat ground, so
+  this slice ships nothing from it. On relief it produces a mild asymmetry: a route sitting in
+  a hollow becomes slightly easier to spot, and a building is one level tall to a ray that
+  targets it but two to any ray that merely passes it. Whether a route mouth or a building
+  deserves a body's eye height is a question about what those rays *mean*, it changes relief
+  behaviour, and it wants the measurement the rest of this milestone got rather than a
+  same-day fix. Recorded here as a stated property — which is exactly how E2 handled the
+  absence of eye height, one slice before E3 fixed it.
 - **`raySmoke`'s elevation-blindness.** Smoke pooled in a valley blocks a ray passing six levels above it. Recorded in E2; still deferred.
 - **E1's three relief gaps:** VFX are not lifted, extruded terrain cannot occlude units, and picking is untested mid-slope. All inert on flat maps, all recorded in E1's spec, and all first reachable when Tel Marum authors relief.
 
