@@ -214,5 +214,6 @@ The combat model is the product. Everything else is scaffolding around it.
   missions and nothing fights in front of relief yet; and a correct fix means
   depth-sorting wrecks and VFX against terrain, which is the same already-deferred
   "VFX are not lifted to terrain height" gap above — a partial fix would be worse
-  than none, since wreck sprites carry `zIndex = depthZ(x, y)` and would sort below
-  their own tile's band and vanish if moved into `spriteLayer` naively.
+  than none, since `wreckLayer` sprites (`addWreck`, `renderer.ts`) carry no
+  `zIndex` at all and would sort behind every band on the map, not merely their
+  own tile's, if moved into `spriteLayer` naively.
