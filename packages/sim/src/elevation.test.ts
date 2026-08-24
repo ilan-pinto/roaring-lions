@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
-import { Sim, TICKS_PER_SECOND, type SimEvent, type UnitTypeJson } from './sim';
+import { BLOCK_RISE, EYE_HEIGHT, Sim, TICKS_PER_SECOND, type SimEvent, type UnitTypeJson } from './sim';
 
 // Sim.setElevation is executed zero times across `pnpm test`, `pnpm balance`,
 // `pnpm playtest` and every shipped mission: applyTerrain only calls it when
@@ -222,5 +222,73 @@ describe('elevation and line of sight', () => {
       6
     );
     expect(sim.debugDetection(a, b)?.visible).toBe(true);
+  });
+
+  // Elevation E3: an observer's eyes are not on the dirt.
+  //
+  // E2 modelled a unit as a point at ground level, which made a one-level rise
+  // an absolute sight wall even for someone standing at that same height: the
+  // line descended from 1 to 0 and clipped the rise's far shoulder. On a
+  // terraced map a unit saw nothing off its own terrace until adjacent to the
+  // drop.
+  describe('eye height', () => {
+    it('a unit level with a one-level rise now sees over it', () => {
+      // The case E2's final review measured as broken. Observer on elevation 1,
+      // target on the flat beyond a single raised column, also elevation 1.
+      const { sim, a, b } = watch(
+        (sim) => {
+          for (let y = 0; y < 12; y++) sim.setElevation(8, y, 1);
+          for (let y = 0; y < 12; y++) sim.setElevation(4, y, 1);
+        },
+        4,
+        6,
+        14,
+        6
+      );
+      expect(sim.debugDetection(a, b)?.visible).toBe(true);
+    });
+
+    it('but two levels of rise still block them', () => {
+      // The authoring rule this creates: one level is cosmetic, two is tactical.
+      const { sim, a, b } = watch(ridge(2), 4, 6, 14, 6);
+      expect(sim.debugDetection(a, b)?.visible).toBe(false);
+    });
+
+    it('a one-level rise no longer blocks two units on the flat', () => {
+      // Follows from eye height 1: the rise sits exactly at eye level, so the
+      // comparison is `1 * total > 1 * total`, which is false. Stated in the
+      // spec as an authoring consequence rather than discovered later on a map.
+      const { sim, a, b } = watch(ridge(1), 4, 6, 14, 6);
+      expect(sim.debugDetection(a, b)?.visible).toBe(true);
+    });
+
+    it('buildings still block on flat ground, which is what bounds EYE_HEIGHT', () => {
+      // The guard that matters. If EYE_HEIGHT ever reaches BLOCK_RISE, a
+      // flat-ground building becomes `2 * total > 2 * total` -- false -- and
+      // every shipped mission loses its walls at once. This asserts the
+      // behaviour; the next test asserts the relationship that produces it.
+      const { sim, a, b } = watch(
+        (sim) => {
+          for (let y = 0; y < 12; y++) sim.setBlocked(8, y, true);
+        },
+        4,
+        6,
+        14,
+        6
+      );
+      expect(sim.debugDetection(a, b)?.visible).toBe(false);
+    });
+
+    it('EYE_HEIGHT stays below BLOCK_RISE, or walls stop being walls', () => {
+      // Not a behavioural test -- an assertion about two constants that sit in
+      // sim.ts as unrelated numbers a tuning pass could move independently.
+      //
+      // If EYE_HEIGHT ever reaches BLOCK_RISE, a flat-ground building computes
+      // `(0 + BLOCK_RISE) * total > EYE_HEIGHT * total`, which stops being true,
+      // and every building on every shipped map stops blocking sight. The failure
+      // would surface as eleven missions changing at once, with nothing pointing
+      // at the cause.
+      expect(EYE_HEIGHT).toBeLessThan(BLOCK_RISE);
+    });
   });
 });

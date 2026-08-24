@@ -619,7 +619,21 @@ const MAX_TUNNELS = 16;
  *  sight height being its bare elevation, two units on a plateau at elevation
  *  3 would see through rock also at elevation 3, because `3 > 3` is false. A
  *  solid, impassable ridge would go transparent. */
-const BLOCK_RISE = 2;
+export const BLOCK_RISE = 2;
+
+/** How far above its own tile a unit's eyes sit, in elevation levels.
+ *
+ *  Without this a unit is a point on the dirt, and a one-level rise is an
+ *  absolute sight wall even for someone standing at that same height -- the
+ *  line descends from 1 to 0 and clips the rise's far shoulder. Measured on a
+ *  terraced map, a unit saw nothing off its own terrace until adjacent to the
+ *  drop.
+ *
+ *  MUST STAY STRICTLY BELOW BLOCK_RISE. At 2 a flat-ground building becomes
+ *  `(0 + 2) * total > 2 * total` -- false -- and buildings stop blocking sight
+ *  on every shipped map at once. The two constants are coupled and the coupling
+ *  is invisible here, so elevation.test.ts asserts it. */
+export const EYE_HEIGHT = 1;
 
 // ---------------------------------------------------------------------------
 
@@ -1817,8 +1831,9 @@ export class Sim {
     // below. The cross-multiply assumes `total > 0` and is protected by that
     // early return rather than by a guard of its own -- a refactor that moved
     // the early return would divide this assumption out from under it.
-    const h0 = this.elevation[y0 * w + x0];
-    const h1 = this.elevation[y1 * w + x1];
+    // Both ends, symmetrically: you see a body, and a body has height.
+    const h0 = this.elevation[y0 * w + x0] + EYE_HEIGHT;
+    const h1 = this.elevation[y1 * w + x1] + EYE_HEIGHT;
     const total = dx > dy ? dx : dy;
     let k = 0;
     let err = dx - dy;
