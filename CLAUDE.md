@@ -205,4 +205,14 @@ The combat model is the product. Everything else is scaffolding around it.
   `FlowField.compute`, the pathing core every unit uses every tick, which is why it
   wants its own slice rather than a tuck-in. The next map to author relief — Tel
   Marum — is the first thing that meets all of these, and will read as broken rather
-  than as known unless this bullet is read first.
+  than as known unless this bullet is read first. Moving raised terrain into
+  `spriteLayer` (so it can occlude units) opened a new gap the same way: `trailG`,
+  `fxG`, and `wreckLayer` still sit below `spriteLayer` unconditionally, so a wreck
+  or tracer on ground in front of a ridge — geometry that should cover the ridge —
+  is covered by it instead. Deliberately unfixed: it is cosmetic only, with no
+  effect on sim truth or fog; it is unreachable today because Tel Marum has no
+  missions and nothing fights in front of relief yet; and a correct fix means
+  depth-sorting wrecks and VFX against terrain, which is the same already-deferred
+  "VFX are not lifted to terrain height" gap above — a partial fix would be worse
+  than none, since wreck sprites carry `zIndex = depthZ(x, y)` and would sort below
+  their own tile's band and vanish if moved into `spriteLayer` naively.

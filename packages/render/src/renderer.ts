@@ -197,6 +197,15 @@ export function unitZ(x: number, y: number): number {
   return depthZ(x + 0.5, y + 0.5);
 }
 
+/** The Map key `bandFor` buckets a raised tile under: every tile on the same
+ *  view diagonal shares one band Graphics. If this stops being `x + y`, each
+ *  raised tile gets its own Graphics again -- one per tile instead of one per
+ *  diagonal, the exact ~2300-vs-~95 blowup bands exist to avoid. Exported so
+ *  the bucketing itself, not just the zIndex arithmetic, is under test. */
+export function bandKey(x: number, y: number): number {
+  return x + y;
+}
+
 /** World (tile) coords → dimetric screen coords. */
 export function isoX(x: number, y: number): number {
   return ((x - y) * TILE_W) / 2;
@@ -724,7 +733,7 @@ export class PixiRenderer {
    *  Every tile with the same (x + y) shares one object -- that's what keeps
    *  this to ~95 objects on a 48x48 map instead of one per raised tile. */
   private bandFor(x: number, y: number): Graphics {
-    const key = x + y;
+    const key = bandKey(x, y);
     let band = this.elevBands.get(key);
     if (!band) {
       band = new Graphics();

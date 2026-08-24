@@ -4,7 +4,7 @@
 // rendering: three numbers whose ORDER is the whole feature, and an off-by-one
 // puts a unit in front of the hill it is standing behind.
 import { describe, expect, it } from 'vitest';
-import { bandZ, unitZ } from './renderer';
+import { bandKey, bandZ, unitZ } from './renderer';
 
 describe('elevated terrain against the units around it', () => {
   const x = 10, y = 20;
@@ -28,5 +28,19 @@ describe('elevated terrain against the units around it', () => {
     // The bucketing is what keeps this to ~95 objects instead of ~2300.
     expect(bandZ(12, 18)).toBe(bandZ(10, 20));
     expect(bandZ(11, 20)).toBeGreaterThan(bandZ(10, 20));
+  });
+
+  it('buckets every tile on a diagonal under the same key', () => {
+    // This is the property bandZ alone does not guard: bandZ ties two tiles
+    // together via depthZ, but bandFor's Map is keyed by bandKey directly.
+    // If bandKey stops being x + y, bandFor stops merging same-diagonal
+    // tiles into one Graphics -- one object per raised tile again, the exact
+    // blowup bands exist to avoid -- while bandZ's own arithmetic keeps
+    // passing untouched.
+    expect(bandKey(12, 18)).toBe(bandKey(10, 20));
+  });
+
+  it('gives a tile on the next diagonal a different key', () => {
+    expect(bandKey(11, 20)).not.toBe(bandKey(10, 20));
   });
 });
