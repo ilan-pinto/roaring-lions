@@ -10,6 +10,7 @@ import {
   type TerrainSink,
 } from './map';
 import structureCatalogue from '../../../data/structures.json';
+import { maps } from './index';
 
 const structures = structureCatalogue.types;
 
@@ -445,5 +446,43 @@ describe('elevation', () => {
     expect(() => parseMap({ ...RELIEF, elevation: ['0000', '0x30', '0110'] })).toThrow(
       /unknown elevation "x" at \(1,1\)/
     );
+  });
+});
+
+describe('tel_marum, the first shipped map with relief', () => {
+  const map = parseMap(maps.tel_marum as MapJson);
+
+  it('parses at its declared size with an elevation grid', () => {
+    expect(map.width).toBe(48);
+    expect(map.height).toBe(48);
+    expect(map.elevation).toHaveLength(48 * 48);
+  });
+
+  it('puts the valley floor at 0 and the ridge line above it', () => {
+    const at = (x: number, y: number): number => map.elevation[y * 48 + x];
+    expect(at(24, 44)).toBe(0); // start line
+    expect(at(24, 29)).toBe(0); // the hollow
+    expect(at(24, 26)).toBe(2); // the lip — two levels, deliberately
+    expect(at(24, 14)).toBe(2); // wide saddle
+    expect(at(10, 14)).toBe(3); // narrow saddle
+    expect(at(28, 16)).toBe(3); // east shoulder
+    expect(at(8, 14)).toBe(4);  // ridge line
+  });
+
+  it('leaves both saddles passable and the ridge between them not', () => {
+    const blocked = (x: number, y: number): number => map.blocked[y * 48 + x];
+    expect(blocked(24, 14)).toBe(0); // wide saddle
+    expect(blocked(10, 14)).toBe(0); // narrow saddle
+    expect(blocked(16, 14)).toBe(1); // ridge between them
+    expect(blocked(35, 14)).toBe(1); // ridge east of the wide saddle
+  });
+
+  it('places every marker on ground a unit can stand on', () => {
+    // A marker on a blocked tile cannot spawn a unit and cannot be walked to.
+    // The battery position in particular sits NEXT TO the town buildings, not
+    // on them.
+    for (const [name, [x, y]] of Object.entries(maps.tel_marum.markers)) {
+      expect(`${name}:${map.blocked[y * 48 + x]}`).toBe(`${name}:0`);
+    }
   });
 });
