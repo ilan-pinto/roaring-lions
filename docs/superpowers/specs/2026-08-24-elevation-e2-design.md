@@ -115,5 +115,18 @@ Dead ground becomes real. A force forms up in a valley unseen; a unit on a ridge
 - **Slope movement cost.** Still the most invasive piece and still the least of what elevation is for.
 - **An `isAir` exemption.** Decided above; revisit in E3.
 - **Cover behaving differently when shooting downhill.** A real question — being above someone ought to reduce what a low wall hides — and not this slice's.
+- **`raySmoke` reading height.** Smoke is checked before the height comparison and is itself elevation-blind: smoke pooled on a valley floor blocks a sight line passing six levels above it, and smoke sitting on a peak does not blanket the valley below it. Real, and not this slice's.
 - **The deferred E1 items:** VFX are not lifted, extruded terrain cannot occlude units, and picking is untested mid-slope. All inert until relief ships and all recorded in E1's spec.
+
+## There is no eye height
+
+`h0` and `h1` in `losRay` are bare ground elevations — an observer's eyes sit at ground level, not some fraction of a tile above it. Measured directly:
+
+- Two units at elevation 0, fourteen tiles apart, flat ground: **visible.**
+- Insert one column of elevation 1 between them: **invisible.**
+- Raise the observer to elevation 1 as well, level with that column: **still invisible** — the line now descends from 1 to 0, and it clips the rise's far shoulder on the way down.
+
+So on a terraced map a unit standing on its own terrace sees nothing on the terrace below until it walks up to the drop and looks over the edge. That is the geometrically correct consequence of a zero-height observer, and it reads as considerably harsher than "high ground sees over a rise" suggests — the schema's own authoring guidance of a 0–4 elevation range will produce this constantly, not as an edge case.
+
+This is a stated property of E2, not a defect in it. Giving observers a nonzero eye height is a balance change, and it belongs with E3 — where sight range is on the table too — measured against a real authored map rather than the synthetic fixtures here. Whoever authors Tel Marum should meet the terrace behaviour above as a known rule, not as a surprise to debug.
 - **Any map authoring.** Tel Marum comes after E3.

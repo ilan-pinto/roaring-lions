@@ -52,12 +52,17 @@ describe('elevation', () => {
     expect(a.hash()).not.toBe(b.hash());
   });
 
-  // The point of the file: elevation is drawn but not yet read by any sim
-  // system (E2/E3 are the milestones that change this). A short, deterministic
-  // firefight run twice from the same seed -- once flat, once with every tile
-  // raised -- must be identical in every observable except the hash. If this
-  // ever fails, something started reading elevation for behaviour.
-  it('changes the hash and nothing else: same seed, flat vs. raised, identical outcome', () => {
+  // E2 made losRay read elevation, so this no longer proves elevation is
+  // inert -- it proves a *uniform* raise is baseline-neutral. Every tile
+  // shares the same height, so h0 === h1 === elevation[t] everywhere along
+  // any ray: the cross-multiplied comparison degenerates to `e*total >
+  // e*total`, always false, and the rule that lets high ground see over a
+  // rise has nothing to bite on. A short, deterministic firefight run twice
+  // from the same seed -- once flat, once with every tile raised by the same
+  // amount -- must still be identical in every observable except the hash.
+  // If this ever fails, either a uniform plateau stopped being degenerate, or
+  // something started reading elevation off the uniform-raise path too.
+  it('a uniform plateau changes the hash and nothing else: same seed, flat vs. raised, identical outcome', () => {
     function scenario(raised: boolean): { sim: Sim; events: SimEvent[] } {
       const sim = new Sim({ seed: 42, width: 12, height: 7, capacity: 4 });
       if (raised) {
@@ -139,6 +144,32 @@ describe('elevation and line of sight', () => {
   it('and the same ground flat does not — the control', () => {
     const { sim, a, b } = watch(() => {}, 4, 6, 14, 6);
     expect(sim.debugDetection(a, b)?.visible).toBe(true);
+  });
+
+  it('a low-profile structure on a blocking ridge does not make the ridge transparent', () => {
+    // A fence is see-through, not the rise it stands on. Planting one along
+    // the same blocking ridge as the first test must not reopen the sight
+    // line -- an obstacle can add cover, never subtract terrain.
+    const { sim, a, b } = watch(
+      (sim) => {
+        ridge(3)(sim);
+        const fence = sim.addStructureType({
+          id: 'fence',
+          name: 'Fence',
+          hp_per_tile: 200,
+          garrison_slots: 0,
+          rubble_cover: 1,
+          low_profile: true,
+          standing_cover: 2,
+        });
+        for (let y = 0; y < 12; y++) sim.addStructure(fence, [y * sim.width + 8]);
+      },
+      4,
+      6,
+      14,
+      6
+    );
+    expect(sim.debugDetection(a, b)?.visible).toBe(false);
   });
 
   it('a unit on high ground sees over a lower rise', () => {

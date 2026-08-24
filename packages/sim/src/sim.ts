@@ -642,8 +642,8 @@ export class Sim {
 
   readonly blocked: Uint8Array;
   readonly cover: Uint8Array;
-  /** Elevation level 0-9 per tile, row-major. Stored and hashed; nothing reads
-   *  it for line of sight, sight range or pathing yet -- that is E2 and E3. It
+  /** Elevation level 0-9 per tile, row-major. Stored and hashed; line of sight
+   *  reads it (E2) but sight range and pathing do not yet -- that is E3. It
    *  is hashed anyway, because a replay that ignored terrain the renderer draws
    *  would be a replay of a different battlefield. */
   readonly elevation: Uint8Array;
@@ -1848,6 +1848,13 @@ export class Sim {
       // side is 0: open ground can never block, and a blocked tile's
       // `0 + 2 > 0` blocks exactly as it did before elevation existed.
       const lineH = h0 * total + (h1 - h0) * k;
+      // `rise` is what the obstacle itself adds on top of bare ground -- zero
+      // for open ground and for anything the ray sees straight through (a
+      // fence, or the structure at either end of the ray), BLOCK_RISE for
+      // everything else. The comparison below then runs once for every tile,
+      // so a transparent obstacle can never make the ground it stands on
+      // transparent too: a wall on a rise still has the rise beneath it.
+      let rise = 0;
       if (this.blocked[t] !== 0) {
         const st = this.structureOfTile[t];
         // A fence costs you concealment on the way past, not the sight line:
@@ -1856,11 +1863,10 @@ export class Sim {
         if (st >= 0 && this.structureTypes[this.stTypeIdx[st]].lowProfile) {
           if (coverCount < 8) coverCount++;
         } else if (st < 0 || (st !== sFrom && st !== sTo)) {
-          if ((this.elevation[t] + BLOCK_RISE) * total > lineH) return -1;
+          rise = BLOCK_RISE;
         }
-      } else if (this.elevation[t] * total > lineH) {
-        return -1;
       }
+      if ((this.elevation[t] + rise) * total > lineH) return -1;
       if (this.cover[t] !== 0 && coverCount < 8) coverCount++;
     }
   }
