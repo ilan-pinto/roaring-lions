@@ -70,21 +70,32 @@ describe('tunnelAt', () => {
   });
 
   it('rejects an out-of-bounds tile even when flat-index arithmetic would alias it onto a real route tile', () => {
-    // On this 24-wide map, -19 + 6*24 === 5 + 5*24 === 125: the same flat
-    // index tnTiles keys tunnelUnderTile with. Without a bounds guard,
-    // tunnelAt(-19, 6) would return the route identified at (5, 5) instead
-    // of -1. The caller in practice is screenToWorld off a mouse position,
-    // which produces negative/out-of-range tile coordinates the instant the
+    // tnTiles keys a Set by flat index (ty * width + tx). Derived, not
+    // hard-coded, so the collision holds however wide bare()'s map becomes:
+    // anchor on a real route tile (rx, ry), then walk one row down (ry + 1)
+    // and back exactly one map-width in x. Same flat index, guaranteed by
+    // construction rather than by a literal that would quietly stop
+    // aliasing — and quietly stop testing anything — the moment the
+    // fixture's width changes. Without a bounds guard, tunnelAt(ax, ay)
+    // would return the route identified at (rx, ry) instead of -1. The
+    // caller in practice is screenToWorld off a mouse position, which
+    // produces negative/out-of-range tile coordinates the instant the
     // cursor is dragged past the map edge — an off-map right-click must
     // never resolve to "there is a tunnel here."
     const sim = bare();
     const r = sim.addTunnel(ROUTE);
+    const [rx, ry] = ROUTE.points[0];
+    const ax = rx - sim.width;
+    const ay = ry + 1;
+    // The important assertion: prove the collision is real before trusting
+    // that tunnelAt rejecting it means anything.
+    expect(ax + ay * sim.width).toBe(rx + ry * sim.width);
     const scout = sim.spawn(sim.addUnitType(SCOUT), 0, fx.from(7.5), fx.from(6.5));
     expect(scout).toBeGreaterThanOrEqual(0);
     for (let i = 0; i < 20 * TICKS_PER_SECOND && sim.tunnelContactLevel(0, r) < 2; i++) sim.tick();
     expect(sim.tunnelContactLevel(0, r)).toBe(2);
-    expect(sim.tunnelAt(-19, 6)).toBe(-1);
-    expect(sim.tunnelAt(5, 5)).toBe(r);
+    expect(sim.tunnelAt(ax, ay)).toBe(-1);
+    expect(sim.tunnelAt(rx, ry)).toBe(r);
   });
 });
 
