@@ -184,6 +184,19 @@ function depthZ(x: number, y: number): number {
   return Math.round((x + y) * 64);
 }
 
+/** The zIndex an elevated tile's band takes: one above the unit behind it, so
+ *  a ridge covers what is standing on its far side. Buildings use the same +1
+ *  for the same reason. */
+export function bandZ(x: number, y: number): number {
+  return depthZ(x, y) + 1;
+}
+
+/** The zIndex a unit standing on tile (x, y) takes. Mirrors the call in
+ *  drawUnits; exported so the ordering can be asserted without a canvas. */
+export function unitZ(x: number, y: number): number {
+  return depthZ(x + 0.5, y + 0.5);
+}
+
 /** World (tile) coords → dimetric screen coords. */
 export function isoX(x: number, y: number): number {
   return ((x - y) * TILE_W) / 2;
@@ -228,6 +241,10 @@ export class PixiRenderer {
   private decorSprites: Graphics[] = [];
   /** Sprites for structures that have art; also rebuilt on terrain dirty. */
   private buildingSprites: Sprite[] = [];
+  /** One Graphics per view diagonal, holding every raised tile on it. Flat
+   *  ground stays in terrainG: it cannot occlude anything, so sorting it would
+   *  cost objects and buy nothing. */
+  private elevBands = new Map<number, Graphics>();
   /** structure type id -> its single sprite. A building does not turn, so
    *  there are no facings: one texture is the whole sheet. */
   private structureAtlas = new Map<
@@ -701,6 +718,21 @@ export class PixiRenderer {
     const ty = Math.floor(y);
     if (tx < 0 || ty < 0 || tx >= this.sim.width || ty >= this.sim.height) return 0;
     return this.elevation[ty * this.sim.width + tx] * ELEV_STEP;
+  }
+
+  /** The band Graphics for a raised tile's view diagonal, created on first use.
+   *  Every tile with the same (x + y) shares one object -- that's what keeps
+   *  this to ~95 objects on a 48x48 map instead of one per raised tile. */
+  private bandFor(x: number, y: number): Graphics {
+    const key = x + y;
+    let band = this.elevBands.get(key);
+    if (!band) {
+      band = new Graphics();
+      band.zIndex = bandZ(x, y);
+      this.spriteLayer.addChild(band);
+      this.elevBands.set(key, band);
+    }
+    return band;
   }
 
   /** Copy positions after every sim tick; frame() lerps between the copies. */
@@ -1281,8 +1313,8 @@ export class PixiRenderer {
   }
 
   private drawTerrain(): void {
-    const g = this.terrainG;
-    g.clear();
+    const flat = this.terrainG;
+    flat.clear();
     // Buildings are separate display objects now, so clearing the Graphics is
     // not enough -- drop the old tiles or a rebuild stacks a second copy.
     for (const tile of this.buildingTiles) this.spriteLayer.removeChild(tile);
@@ -1291,6 +1323,8 @@ export class PixiRenderer {
     this.buildingSprites = [];
     for (const d of this.decorSprites) this.spriteLayer.removeChild(d);
     this.decorSprites = [];
+    for (const band of this.elevBands.values()) this.spriteLayer.removeChild(band);
+    this.elevBands.clear();
     // A structure with art is drawn once for its whole footprint, not per tile.
     this.drawnStructures.clear();
     const w = this.sim.width;
@@ -1308,6 +1342,12 @@ export class PixiRenderer {
         const cyG = cy - lift;
         const rnd = PixiRenderer.h2(x, y);
         const diamond = [cx, cyG - TILE_H / 2, cx + TILE_W / 2, cyG, cx, cyG + TILE_H / 2, cx - TILE_W / 2, cyG];
+
+        // A raised tile draws into its diagonal's band inside the sorted layer,
+        // so units behind it are covered. Flat ground stays batched in
+        // terrainG, which keeps the draw cost on the four flat shipped maps
+        // exactly where it was.
+        const g = lift > 0 ? this.bandFor(x, y) : flat;
 
         if (this.elevation) {
           const elevHere = this.elevation[ti];
