@@ -94,7 +94,16 @@ Dead ground becomes real. A force forms up in a valley unseen; a unit on a ridge
 - `pnpm playtest` — red on exactly #96 and #97, its known baseline.
 - New tests proving both directions of the rule on authored relief.
 - `pnpm validate:data`, `validate:ui`, `typecheck`, `lint`, `build`.
-- **A profile routed to perf-analyst alongside merge.** `losRay` is called from ten sites including `detectionPair`, inside a detection loop the project's own notes flag as O(N²) per tick. One integer multiply-and-compare per tile is a constant factor rather than a new order of growth, but the GDD's 300-unit target is unvalidated, so the measurement belongs with this change rather than after it.
+- **Measured cost.** `losRay` is called from ten sites including `detectionPair`, inside a detection loop the project's own notes flag as O(N²) per tick.
+  - **300 units:** 4.8613 ms/tick with the height check, 4.7826 without → **+1.65%**
+  - **65 units** (the largest authored mission's size): 0.19235 vs 0.1877 ms/tick → **+2.48%**
+  - **Verdict: noise.** Both deltas are smaller than the observed run-to-run spread — about ±5% at 300 units and ±15–20% at 65. No action.
+
+  Three qualifications, because a number without its conditions is not a measurement:
+
+  1. **The comparison is clean, and here is why it is.** The "without" reading was taken by commenting out the height checks. On a flat map `lineH` is 0 and the open-ground condition reduces to `0 > 0`, which is always false — so the check never returns early there, and both configurations walk exactly the same tile sequence. The only difference measured is the added multiply-and-compare.
+  2. **On relief the cost should fall, not rise.** Once maps carry elevation, the check *can* return early, letting the walk skip tiles it would otherwise cross. That narrows the gap rather than widening it. Note also that no shipped map has an `elevation` field today, so the flat scenario is fully representative of current content.
+  3. **A weakness worth stating.** The two configurations were separate process launches with no interleaving, so systematic drift between passes — thermal, background load — is mitigated by wide measurement windows but not ruled out. The machine was shared and unquiet.
 
 ## Scope
 
