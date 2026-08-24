@@ -1267,6 +1267,45 @@ export class Sim {
     return s >= 0 && this.stAlive[s] === 1 ? s : -1;
   }
 
+  /** Living, player-identified tunnel route under a tile, or -1.
+   *
+   *  The identification gate lives here on purpose. The app used to test
+   *  alive + contact level + tile membership as three separate conditions at
+   *  the call site, which is three chances to forget one. Contact level 2 is
+   *  the same gate stepTunnelCharge enforces, so the player is never offered
+   *  an order the sim would refuse.
+   *
+   *  Takes integer tile coordinates, same convention as structureAt: Math is
+   *  banned in packages/sim/src (invariant 2, lint-enforced), so flooring a
+   *  fractional world position happens at the call site, not in here. */
+  tunnelAt(tx: number, ty: number): number {
+    for (let r = 0; r < this.tunnelCount_; r++) {
+      if (this.tnAlive[r] === 1 && this.tunnelContactLevel(0, r) === 2 && this.tunnelUnderTile(r, tx, ty)) {
+        return r;
+      }
+    }
+    return -1;
+  }
+
+  /** ROE cost of levelling this structure. Exposed as a number, not just a
+   *  boolean, because the cursor needs three tiers: protected, costly, free. */
+  structureRoePenalty(structIdx: number): number {
+    return this.structureTypes[this.stTypeIdx[structIdx]].roePenalty;
+  }
+
+  /** A protected site — the mosque case. Kept as its own query so the app
+   *  does not import PROTECTED_ROE to ask a sim question. */
+  isProtected(structIdx: number): boolean {
+    return this.structureRoePenalty(structIdx) >= PROTECTED_ROE;
+  }
+
+  /** Free garrison slots, 0 for anything that cannot be garrisoned. */
+  garrisonFree(structIdx: number): number {
+    const slots = this.structureTypes[this.stTypeIdx[structIdx]].garrisonSlots;
+    const used = this.stOccupants[structIdx];
+    return slots > used ? slots - used : 0;
+  }
+
   /** Demolition progress 0..1 for the HUD — a charges unit's timer, a blade's
    *  damage to its target. */
   demolitionProgress(id: number): number {
