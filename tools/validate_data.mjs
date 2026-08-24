@@ -19,6 +19,7 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import AjvModule from 'ajv/dist/2020.js';
+import { elevationFailures } from './validate_map_grid.mjs';
 
 const Ajv2020 = AjvModule.default ?? AjvModule;
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -825,6 +826,7 @@ for (const file of jsonFilesIn(join(ROOT, 'data/maps'))) {
       }
     });
   }
+  failures.push(...elevationFailures(m, rel(file)));
   for (const [name, pt] of Object.entries(m.markers ?? {})) {
     if (pt[0] >= m.width || pt[1] >= m.height) {
       failures.push(`${rel(file)}: marker "${name}" (${pt[0]},${pt[1]}) out of bounds`);
