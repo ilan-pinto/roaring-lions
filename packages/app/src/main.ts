@@ -46,7 +46,13 @@ import { Hud, type MissionView, type Tone } from './ui/hud';
 import { showMenu, showCampaign, showEndScreen } from './ui/menu';
 import { showLoading } from './ui/loading';
 import { ProductionBar } from './ui/production';
-import { applyIntent, sortMount, resolvePointer, type PlayerIntent, type IntentWorld } from './input/intents';
+import {
+  applyIntent,
+  resolvePointer,
+  resolveKeyVerb,
+  type PlayerIntent,
+  type IntentWorld,
+} from './input/intents';
 import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
 import { tutorialPanel, type TutorialPanel } from './tutorial/panel';
 import { parseWorld, parseCountries, nextMissionAfter } from './campaign';
@@ -860,43 +866,54 @@ async function main(): Promise<void> {
       overlayOn = !overlayOn;
       dispatch({ kind: 'overlay', on: overlayOn });
     }
-    // Mount up / dismount: the selection sorts itself into riders and rides.
+    // Mount up / dismount / smoke: the same resolver the right-click uses,
+    // asked with a KeyContext instead of a PointerContext. The keys are
+    // unchanged; what moved is where the eligibility rules live.
     if (ev.key === 'g') {
       const mine = renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
-      const { carrier, riders } = sortMount(
-        mine,
-        (i) => sim.unitTypes[sim.state.typeIdx[i]].transportSlots > 0,
-        (i) => sim.unitTypes[sim.state.typeIdx[i]].canEmbark
-      );
-      if (carrier !== undefined && riders.length > 0) {
-        dispatch({ kind: 'mount', riders, carrier });
-        hud.note('<b>mount up</b> — infantry boarding', 'info');
-      } else {
-        hud.note('select a transport and the infantry to load', 'mute');
-      }
+      const res = resolveKeyVerb(intentWorld, 'mount', {
+        ids: mine,
+        x: 0,
+        y: 0,
+        isCarrier: (i) => sim.unitTypes[sim.state.typeIdx[i]].transportSlots > 0,
+        canEmbark: (i) => sim.unitTypes[sim.state.typeIdx[i]].canEmbark,
+        canSmoke: () => false,
+        passengerCount: () => 0,
+      });
+      for (const intent of res.intents) dispatch(intent);
+      if (res.note) hud.note(res.note.text, res.note.tone);
     }
     if (ev.key === 'u') {
-      const carriers = renderer.selection.filter(
-        (i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1 && sim.passengerCount(i) > 0
-      );
-      if (carriers.length > 0) {
-        dispatch({ kind: 'dismount', carriers });
-        hud.note('<b>dismount</b> — infantry debussing', 'info');
-      }
+      const mine = renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
+      const res = resolveKeyVerb(intentWorld, 'dismount', {
+        ids: mine,
+        x: 0,
+        y: 0,
+        isCarrier: () => false,
+        canEmbark: () => false,
+        canSmoke: () => false,
+        passengerCount: (i) => sim.passengerCount(i),
+      });
+      for (const intent of res.intents) dispatch(intent);
+      if (res.note) hud.note(res.note.text, res.note.tone);
     }
     if (ev.key === 'f') {
       // Screen the ground ahead: laid where the cursor is, by whoever in the
       // selection carries smoke and is off cooldown.
-      const carriers = renderer.selection.filter(
-        (i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1 && sim.unitTypes[sim.state.typeIdx[i]].canSmoke
-      );
-      if (carriers.length === 0) {
-        hud.note('nothing selected that carries smoke', 'mute');
-      } else {
-        const w = renderer.screenToWorld(lastCursor.x, lastCursor.y);
-        dispatch({ kind: 'smoke', ids: carriers, x: w.x, y: w.y });
-        renderer.addOrderMarker(w.x, w.y);
-      }
+      const mine = renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
+      const w = renderer.screenToWorld(lastCursor.x, lastCursor.y);
+      const res = resolveKeyVerb(intentWorld, 'smoke', {
+        ids: mine,
+        x: w.x,
+        y: w.y,
+        isCarrier: () => false,
+        canEmbark: () => false,
+        canSmoke: (i) => sim.unitTypes[sim.state.typeIdx[i]].canSmoke,
+        passengerCount: () => 0,
+      });
+      for (const intent of res.intents) dispatch(intent);
+      if (res.note) hud.note(res.note.text, res.note.tone);
+      if (res.marker) renderer.addOrderMarker(w.x, w.y);
     }
     if (ev.key === 'm') {
       const muted = audio.toggle();

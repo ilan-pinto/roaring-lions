@@ -249,6 +249,72 @@ export function resolvePointer(world: IntentWorld, ctx: PointerContext): Resolut
   };
 }
 
+export interface KeyContext {
+  ids: number[];
+  /** Where the cursor is, for smoke. Ignored by mount and dismount. */
+  x: number;
+  y: number;
+  isCarrier(id: number): boolean;
+  canEmbark(id: number): boolean;
+  canSmoke(id: number): boolean;
+  passengerCount(id: number): number;
+}
+
+/**
+ * The three verbs the keyboard owns, resolved through the same door as the
+ * mouse. Their bindings are unchanged — g, u and f still trigger them. What
+ * moves is the decision, so that slice 2's cursor can ask what `g` would do
+ * right now instead of re-deriving the eligibility rules a second time.
+ */
+export function resolveKeyVerb(
+  _world: IntentWorld,
+  verb: 'mount' | 'dismount' | 'smoke',
+  ctx: KeyContext
+): Resolution {
+  const free: RoeTier = 'free';
+  if (verb === 'mount') {
+    const { carrier, riders } = sortMount(ctx.ids, ctx.isCarrier, ctx.canEmbark);
+    if (carrier === undefined || riders.length === 0) {
+      return {
+        intents: [],
+        roe: free,
+        marker: false,
+        note: { text: 'select a transport and the infantry to load', tone: 'mute' },
+      };
+    }
+    return {
+      intents: [{ kind: 'mount', riders, carrier }],
+      roe: free,
+      marker: false,
+      note: { text: '<b>mount up</b> — infantry boarding', tone: 'info' },
+    };
+  }
+  if (verb === 'dismount') {
+    const carriers = ctx.ids.filter((i) => ctx.passengerCount(i) > 0);
+    if (carriers.length === 0) return { intents: [], roe: free, marker: false };
+    return {
+      intents: [{ kind: 'dismount', carriers }],
+      roe: free,
+      marker: false,
+      note: { text: '<b>dismount</b> — infantry debussing', tone: 'info' },
+    };
+  }
+  const smokers = ctx.ids.filter((i) => ctx.canSmoke(i));
+  if (smokers.length === 0) {
+    return {
+      intents: [],
+      roe: free,
+      marker: false,
+      note: { text: 'nothing selected that carries smoke', tone: 'mute' },
+    };
+  }
+  return {
+    intents: [{ kind: 'smoke', ids: smokers, x: ctx.x, y: ctx.y }],
+    roe: free,
+    marker: true,
+  };
+}
+
 /** The tier of whatever is under the pointer. A mission-flagged zone is
  *  protected regardless of what stands on it. */
 function roeTierAt(world: IntentWorld, x: number, y: number): RoeTier {

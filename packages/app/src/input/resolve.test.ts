@@ -5,7 +5,7 @@
 // do" and get the same answer the click gives -- two code paths would drift,
 // and the failure mode is a cursor that promises what the click will not do.
 import { describe, expect, it } from 'vitest';
-import { resolvePointer, type IntentWorld } from './intents';
+import { resolvePointer, resolveKeyVerb, type IntentWorld } from './intents';
 
 /** A world where nothing exists unless a test says it does. */
 function emptyWorld(over: Partial<IntentWorld> = {}): IntentWorld {
@@ -167,5 +167,63 @@ describe('the ROE tier', () => {
       ids: [1], x: 1.5, y: 1.5, append: false,
     });
     expect(r.roe).toBe('protected');
+  });
+});
+
+describe('the keyboard verbs, resolved the same way', () => {
+  const world = (over: Partial<IntentWorld> = {}): IntentWorld =>
+    emptyWorld({ ...over }) as IntentWorld;
+
+  it('mounts riders into the one carrier', () => {
+    const r = resolveKeyVerb(world(), 'mount', {
+      ids: [1, 2, 3],
+      x: 0, y: 0,
+      isCarrier: (i) => i === 1,
+      canEmbark: (i) => i !== 1,
+      canSmoke: () => false,
+      passengerCount: () => 0,
+    });
+    expect(r.intents).toEqual([{ kind: 'mount', riders: [2, 3], carrier: 1 }]);
+    expect(r.note?.tone).toBe('info');
+  });
+
+  it('explains itself when there is no carrier', () => {
+    const r = resolveKeyVerb(world(), 'mount', {
+      ids: [2, 3], x: 0, y: 0,
+      isCarrier: () => false, canEmbark: () => true,
+      canSmoke: () => false, passengerCount: () => 0,
+    });
+    expect(r.intents).toEqual([]);
+    expect(r.note?.tone).toBe('mute');
+  });
+
+  it('dismounts only carriers that hold somebody', () => {
+    const r = resolveKeyVerb(world(), 'dismount', {
+      ids: [1, 2], x: 0, y: 0,
+      isCarrier: () => true, canEmbark: () => false,
+      canSmoke: () => false, passengerCount: (i) => (i === 1 ? 2 : 0),
+    });
+    expect(r.intents).toEqual([{ kind: 'dismount', carriers: [1] }]);
+  });
+
+  it('lays smoke at the point, from whoever carries it', () => {
+    const r = resolveKeyVerb(world(), 'smoke', {
+      ids: [4, 5], x: 9.5, y: 2.5,
+      isCarrier: () => false, canEmbark: () => false,
+      canSmoke: (i) => i === 4, passengerCount: () => 0,
+    });
+    expect(r.intents).toEqual([{ kind: 'smoke', ids: [4], x: 9.5, y: 2.5 }]);
+    expect(r.marker).toBe(true);
+  });
+
+  it('says so when nothing selected carries smoke', () => {
+    const r = resolveKeyVerb(world(), 'smoke', {
+      ids: [5], x: 9.5, y: 2.5,
+      isCarrier: () => false, canEmbark: () => false,
+      canSmoke: () => false, passengerCount: () => 0,
+    });
+    expect(r.intents).toEqual([]);
+    expect(r.marker).toBe(false);
+    expect(r.note?.tone).toBe('mute');
   });
 });
