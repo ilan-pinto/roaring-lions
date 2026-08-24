@@ -92,3 +92,104 @@ describe('elevation', () => {
     expect(raised.events).toEqual(flat.events);
   });
 });
+
+// Elevation E2: losRay reads height. Each case authors relief, because on
+// flat ground the new comparison can never fire -- every elevation is 0, so
+// `0 > 0` is false for open ground and the rule is untestable there.
+//
+// The pairing is the point. "Cannot see" alone passes for a broken spawn, a
+// too-short sight range, or too few ticks; each case below is paired with the
+// arrangement that SHOULD see, so the assertions discriminate.
+describe('elevation and line of sight', () => {
+  const SCOUT: UnitTypeJson = {
+    id: 'e_scout',
+    role: 'infantry',
+    hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
+    mobility: { speed_tiles_s: 1.0 },
+    sensors: { optics: 1, sight_tiles: 16, signature: 0.6 },
+  };
+
+  /** Two scouts on opposing sides at the given tiles, after detection settles. */
+  function watch(
+    build: (sim: Sim) => void,
+    ax: number,
+    ay: number,
+    bx: number,
+    by: number
+  ): { sim: Sim; a: number; b: number } {
+    const sim = new Sim({ seed: 9, width: 24, height: 12, capacity: 8 });
+    build(sim);
+    const t = sim.addUnitType(SCOUT);
+    const a = sim.spawn(t, 0, fx.from(ax + 0.5), fx.from(ay + 0.5));
+    const b = sim.spawn(t, 1, fx.from(bx + 0.5), fx.from(by + 0.5));
+    for (let i = 0; i < 12 * TICKS_PER_SECOND; i++) sim.tick();
+    return { sim, a, b };
+  }
+
+  /** A wall of raised open ground down column 8, `h` levels high. */
+  const ridge = (h: number) => (sim: Sim): void => {
+    for (let y = 0; y < 12; y++) sim.setElevation(8, y, h);
+  };
+
+  it('a rise between two units on the valley floor blocks them', () => {
+    const { sim, a, b } = watch(ridge(3), 4, 6, 14, 6);
+    expect(sim.debugDetection(a, b)?.visible).toBe(false);
+  });
+
+  it('and the same ground flat does not — the control', () => {
+    const { sim, a, b } = watch(() => {}, 4, 6, 14, 6);
+    expect(sim.debugDetection(a, b)?.visible).toBe(true);
+  });
+
+  it('a unit on high ground sees over a lower rise', () => {
+    // Observer level with the ridge top, target beyond it. The sight line
+    // runs from 3 down to 0, passing above the ridge's own 3 at its start.
+    const { sim, a, b } = watch(
+      (sim) => {
+        ridge(2)(sim);
+        for (let y = 0; y < 12; y++) sim.setElevation(4, y, 4);
+      },
+      4,
+      6,
+      14,
+      6
+    );
+    expect(sim.debugDetection(a, b)?.visible).toBe(true);
+  });
+
+  it('rock blocks two units standing at its own elevation', () => {
+    // The case that falsified the first draft of the rule. With rock's sight
+    // height being its bare elevation, `3 > 3` is false and a solid ridge
+    // goes transparent. BLOCK_RISE is what makes this block.
+    const { sim, a, b } = watch(
+      (sim) => {
+        for (let y = 0; y < 12; y++) {
+          for (let x = 0; x < 24; x++) sim.setElevation(x, y, 3);
+        }
+        for (let y = 0; y < 12; y++) sim.setBlocked(8, y, true);
+      },
+      4,
+      6,
+      14,
+      6
+    );
+    expect(sim.debugDetection(a, b)?.visible).toBe(false);
+  });
+
+  it('a plateau with no obstruction does not block, however high', () => {
+    // Guards the opposite error: raising everything equally must change
+    // nothing, or the rule is comparing against the wrong baseline.
+    const { sim, a, b } = watch(
+      (sim) => {
+        for (let y = 0; y < 12; y++) {
+          for (let x = 0; x < 24; x++) sim.setElevation(x, y, 5);
+        }
+      },
+      4,
+      6,
+      14,
+      6
+    );
+    expect(sim.debugDetection(a, b)?.visible).toBe(true);
+  });
+});
