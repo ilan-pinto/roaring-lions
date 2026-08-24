@@ -52,7 +52,7 @@ Terrain blocks air observers exactly as it blocks ground ones. No `isAir` branch
 
 This is consistent with the Sur front's existing decision that rock blocks everyone, and with its reasoning: recon into Sur should mean crossing the ridge into MANPAD range rather than standing off behind it. Realism is the cost — a drone at altitude would see over a ridge — and the doctrine leans on the player *not* having looked.
 
-Revisit in E3, which already touches sight and elevation, and by then Tel Marum exists to measure whether the drone is dead weight or merely repositioned.
+E3 has decided this, permanently: no exemption. An exemption is not pin-neutral — for aircraft to clear a building their altitude must exceed `BLOCK_RISE`, which changes flat-ground sight on all four shipped maps, moves the determinism pin, and requires a `pnpm balance` re-run. It would also be evaluated on maps that today have no relief. Reopening it later is a deliberate new change with its own measurement, not an unfinished piece of this milestone.
 
 ## Flat ground comes out bit-identical, and that is the gate
 

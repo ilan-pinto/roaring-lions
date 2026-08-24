@@ -1859,9 +1859,12 @@ export class Sim {
       // BLOCK_RISE adds 2, and maps are at most 128 wide, so every term here
       // is under about 1,400.
       //
-      // On flat ground h0, h1 and every elevation are 0, so the right-hand
-      // side is 0: open ground can never block, and a blocked tile's
-      // `0 + 2 > 0` blocks exactly as it did before elevation existed.
+      // On flat ground h0 = h1 = EYE_HEIGHT, so the (h1 - h0) * k term above
+      // vanishes and lineH = EYE_HEIGHT * total at every step -- the
+      // comparison below reduces to `rise > EYE_HEIGHT`. Open ground and
+      // transparent tiles have rise 0, so they can never block; a blocked
+      // tile has rise BLOCK_RISE, and EYE_HEIGHT < BLOCK_RISE (asserted by
+      // test) keeps it blocking exactly as it did before elevation existed.
       const lineH = h0 * total + (h1 - h0) * k;
       // `rise` is what the obstacle itself adds on top of bare ground -- zero
       // for open ground and for anything the ray sees straight through (a

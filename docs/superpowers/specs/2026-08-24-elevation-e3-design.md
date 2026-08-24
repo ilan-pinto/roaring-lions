@@ -55,6 +55,8 @@ Every path lands where it lands today. **A moved pin means E3 changed flat-groun
 
 The pin is a live guard rather than a formality here: E2 established that setting `BLOCK_RISE = 0` makes `test:determinism` fail, so the replay genuinely walks this comparison.
 
+The four rows above are really one fact, stated more strongly than the table lets on. On flat ground `h0 = h1 = EYE_HEIGHT`, so the `(h1 - h0) * k` term in `lineH` vanishes and `lineH = EYE_HEIGHT × total` at every step — the comparison reduces to `rise > EYE_HEIGHT`, independent of `total` and `k`. Since `rise` is either 0 (open ground, endpoint structures, fences) or `BLOCK_RISE` (opaque blocked tiles), flat-ground behaviour is provably identical for *any* `EYE_HEIGHT` strictly below `BLOCK_RISE` — not merely for `EYE_HEIGHT = 1`, the value this slice happens to ship. The table above is a sample of that guarantee, not the whole of it.
+
 ## What follows for authoring
 
 A consequence worth stating plainly, because Tel Marum will be built against it:
