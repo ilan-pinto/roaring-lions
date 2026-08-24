@@ -54,4 +54,27 @@ describe('the data gate on an elevation grid', () => {
     const bad = { ...good, elevation: ['012', '000', '432'] };
     expect(elevationFailures(bad, 'bad.json')).toHaveLength(3);
   });
+
+  it('reports only the length failure for a row that is both wrong length and dirty', () => {
+    // Row 1 is both short (3 vs width 4) and contains a non-digit ('x'). The
+    // first `return` inside the forEach stops at the length check, before the
+    // character loop ever runs -- so the bad character never gets its own
+    // failure. Delete that `return` and this row produces two failures
+    // instead of one.
+    const bad = { ...good, elevation: ['0123', '0x1', '4321'] };
+    const out = elevationFailures(bad, 'bad.json');
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain('elevation row 1 has 3 tiles but declared width 4');
+  });
+
+  it('reports only the first bad character in a row, not every one', () => {
+    // Row 1 is the right length (4) but has two non-digit characters, 'x' at
+    // (1,1) and 'y' at (2,1). The second `return` inside the character loop
+    // stops at the first one. Delete that `return` and this row produces two
+    // failures instead of one.
+    const bad = { ...good, elevation: ['0123', '0xy0', '4321'] };
+    const out = elevationFailures(bad, 'bad.json');
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain('elevation "x" at (1,1) is not a digit 0-9');
+  });
 });
