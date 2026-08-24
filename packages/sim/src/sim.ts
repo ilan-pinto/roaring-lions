@@ -1277,8 +1277,17 @@ export class Sim {
    *
    *  Takes integer tile coordinates, same convention as structureAt: Math is
    *  banned in packages/sim/src (invariant 2, lint-enforced), so flooring a
-   *  fractional world position happens at the call site, not in here. */
+   *  fractional world position happens at the call site, not in here.
+   *
+   *  Bounds-checked like structureAt, unlike tunnelUnderTile: tnTiles keys a
+   *  Set by flat index `ty * width + tx`, so an out-of-range tx can alias a
+   *  negative coordinate onto a real in-bounds tile (e.g. on a 24-wide map,
+   *  tx=-19, ty=6 produces the same flat index as a legitimate tile). The
+   *  caller here is screenToWorld off a mouse position, which goes off-map
+   *  the instant the cursor passes the map edge — routine, not theoretical —
+   *  so this guard must reject that before the route loop ever runs. */
   tunnelAt(tx: number, ty: number): number {
+    if (tx < 0 || ty < 0 || tx >= this.width || ty >= this.height) return -1;
     for (let r = 0; r < this.tunnelCount_; r++) {
       if (this.tnAlive[r] === 1 && this.tunnelContactLevel(0, r) === 2 && this.tunnelUnderTile(r, tx, ty)) {
         return r;

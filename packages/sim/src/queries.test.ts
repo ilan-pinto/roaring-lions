@@ -68,6 +68,24 @@ describe('tunnelAt', () => {
     expect(sim.tunnelAt(5, 5)).toBe(r);
     expect(sim.tunnelAt(20, 20)).toBe(-1);
   });
+
+  it('rejects an out-of-bounds tile even when flat-index arithmetic would alias it onto a real route tile', () => {
+    // On this 24-wide map, -19 + 6*24 === 5 + 5*24 === 125: the same flat
+    // index tnTiles keys tunnelUnderTile with. Without a bounds guard,
+    // tunnelAt(-19, 6) would return the route identified at (5, 5) instead
+    // of -1. The caller in practice is screenToWorld off a mouse position,
+    // which produces negative/out-of-range tile coordinates the instant the
+    // cursor is dragged past the map edge — an off-map right-click must
+    // never resolve to "there is a tunnel here."
+    const sim = bare();
+    const r = sim.addTunnel(ROUTE);
+    const scout = sim.spawn(sim.addUnitType(SCOUT), 0, fx.from(7.5), fx.from(6.5));
+    expect(scout).toBeGreaterThanOrEqual(0);
+    for (let i = 0; i < 20 * TICKS_PER_SECOND && sim.tunnelContactLevel(0, r) < 2; i++) sim.tick();
+    expect(sim.tunnelContactLevel(0, r)).toBe(2);
+    expect(sim.tunnelAt(-19, 6)).toBe(-1);
+    expect(sim.tunnelAt(5, 5)).toBe(r);
+  });
 });
 
 describe('structure queries', () => {
