@@ -61,7 +61,7 @@ Features are applied **in order**, each overwriting what came before:
 | 8 | west shoulder | 19, 15, 21, 17 | `.` | 3 |
 | 9 | east shoulder | 27, 15, 29, 17 | `.` | 3 |
 | 10 | spur | 13, 10, 17, 16 | `^` | 4 |
-| 11 | centre outcrop | 23, 21, 25, 22 | `^` | 1 |
+| 11 | centre outcrop | 23, 20, 25, 21 | `^` | 1 |
 | 12 | the lip | 18, 25, 30, 26 | `.` | 2 |
 | 13 | town buildings | 24, 3, 26, 4 | `#` | 1 |
 
@@ -301,7 +301,7 @@ rect(10, 12, 11, 17, '.', 3); // narrow saddle
 rect(19, 15, 21, 17, '.', 3); // west shoulder
 rect(27, 15, 29, 17, '.', 3); // east shoulder
 rect(13, 10, 17, 16, '^', 4); // spur
-rect(23, 21, 25, 22, '^', 1); // centre outcrop
+rect(23, 20, 25, 21, '^', 1); // centre outcrop
 rect(18, 25, 30, 26, '.', 2); // the lip
 rect(24, 3, 26, 4, '#', 1);   // town buildings
 
@@ -587,12 +587,7 @@ describe('the battery is behind the pass, which is the point of taking it', () =
 Run: `pnpm vitest run tools/src/tel_marum_sight.test.ts`
 Expected: **all 12 cases pass on the first run.** This is not TDD — the map from Task 2 was authored against this arithmetic, and the test is checking that the authoring is faithful.
 
-**If a case fails, the map is wrong, not the test.** The assertions encode the design; the grid is the thing that is allowed to move. Adjust `data/maps/tel_marum.json` (re-run the composer with an edited feature table — do not hand-edit the grid), and record in your report exactly which feature you changed and why. Two changes are pre-authorised because the arithmetic sits close to its threshold:
-
-- **the lip may go to elevation 3** if either shoulder can see the hollow;
-- **the centre outcrop may grow by a row** (to `23, 20, 25, 22`) if the pass is visible from the start line.
-
-Anything else, report it before changing it.
+**If a case fails, the map is wrong, not the test.** The assertions encode the design; the grid is the thing that is allowed to move. Adjust `data/maps/tel_marum.json` (re-run the composer with an edited feature table — do not hand-edit the grid), and record in your report exactly which feature you changed and why. Report any map change before making it, rather than treating any fix as pre-authorised: an earlier draft of this plan pre-authorised two specific changes ("the lip may go to elevation 3 if either shoulder can see the hollow" and "the centre outcrop may grow by a row to `23, 20, 25, 22` if the pass is visible from the start line") on the theory that their arithmetic sat close enough to its threshold to trust blind. Round 2 review proved both unsound: the lip-to-3 change flips the start-line control and one more case, and the outcrop-grows change (which only ever extended it northward, never narrowed it) blinds both shoulders to the killing ground. Neither survives; there is no standing pre-authorisation left.
 
 - [ ] **Step 3: Run the whole suite**
 
