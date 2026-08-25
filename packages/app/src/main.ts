@@ -54,7 +54,8 @@ import {
   type PlayerIntent,
   type IntentWorld,
 } from './input/intents';
-import { cursorFor, type CursorName } from './input/cursor';
+import { cursorFor, cursorKey, badgeFor, type BadgeHints } from './input/cursor';
+import { roleBucket } from './ui/role';
 import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
 import { tutorialPanel, type TutorialPanel } from './tutorial/panel';
 import { parseWorld, parseCountries, nextMissionAfter } from './campaign';
@@ -676,9 +677,12 @@ async function main(): Promise<void> {
    *  directly instead, since the event's own state is authoritative at the
    *  moment of the click. */
   let altHeld = false;
-  /** The cursor name last written to the DOM, so the per-frame ticker only
-   *  touches `canvas.dataset.cursor` when it actually changes. */
-  let lastCursorName: CursorName | null = null;
+  /** The cursor key last written to the DOM, so the per-frame ticker only
+   *  touches `canvas.dataset.cursor` when it actually changes. Compares the
+   *  composite key (name plus badge), not the base name -- two badges over
+   *  the same name would otherwise look unchanged and the write would be
+   *  suppressed. */
+  let lastCursorKey: string | null = null;
   const canvasXY = (ev: PointerEvent): { x: number; y: number } => {
     const rect = canvas.getBoundingClientRect();
     return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
@@ -1183,15 +1187,20 @@ async function main(): Promise<void> {
     const tx = Math.floor(hw.x);
     const ty = Math.floor(hw.y);
     const inBounds = tx >= 0 && ty >= 0 && tx < sim.width && ty < sim.height;
-    const name = cursorFor(res, {
+    const hints = {
       hostile: renderer.hoverEntity >= 0,
       blocked: inBounds && sim.blocked[ty * sim.width + tx] !== 0,
-    });
+    };
+    const badges: BadgeHints = {
+      bucketOf: (id) => roleBucket(sim.unitTypes[sim.state.typeIdx[id]]),
+    };
+    const name = cursorFor(res, hints);
+    const key = cursorKey(name, badgeFor(res, hints, badges));
     // Guard the write: a dataset attribute set every frame forces needless
     // style invalidation even when the cursor hasn't changed.
-    if (name !== lastCursorName) {
-      canvas.dataset.cursor = name;
-      lastCursorName = name;
+    if (key !== lastCursorKey) {
+      canvas.dataset.cursor = key;
+      lastCursorKey = key;
     }
   });
 }
