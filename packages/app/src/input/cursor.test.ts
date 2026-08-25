@@ -49,6 +49,18 @@ describe('cursorFor', () => {
     );
   });
 
+  it('puts costly above blocked', () => {
+    expect(cursorFor(moving({ roe: 'costly' }), { hostile: false, blocked: true })).toBe(
+      'costly'
+    );
+  });
+
+  it('puts costly above attack', () => {
+    expect(cursorFor(moving({ roe: 'costly' }), { hostile: true, blocked: false })).toBe(
+      'costly'
+    );
+  });
+
   it('is default when nothing is selected', () => {
     expect(cursorFor({ intents: [], roe: 'free', marker: false }, NONE)).toBe('default');
   });
