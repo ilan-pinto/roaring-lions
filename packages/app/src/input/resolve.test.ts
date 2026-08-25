@@ -342,6 +342,10 @@ describe('attacking a protected structure needs a deliberate confirm', () => {
     expect(r.roe).toBe('protected');
     expect(r.note?.tone).toBe('mute');
     expect(r.marker).toBe(false);
+    // The cursor's protected rung reads this flag, not empty intents -- see
+    // cursor.ts. Without it, a refused click and "nothing selected" are the
+    // same shape and the X cannot tell them apart.
+    expect(r.refused).toBe(true);
   });
 
   it('issues exactly the same order with it', () => {
@@ -352,6 +356,8 @@ describe('attacking a protected structure needs a deliberate confirm', () => {
       { kind: 'order', verb: 'attackMove', ids: [1, 2], x: 3.5, y: 3.5, append: false },
     ]);
     expect(r.marker).toBe(true);
+    // Alt lifted the gate -- nothing was refused.
+    expect(r.refused).toBeUndefined();
   });
 
   it('never gates demolition — selection purity already governs that', () => {
@@ -383,6 +389,9 @@ describe('attacking a protected structure needs a deliberate confirm', () => {
     expect(r.intents).toEqual([
       { kind: 'order', verb: 'attackMove', ids: [1], x: 9.5, y: 9.5, append: false },
     ]);
+    // Nothing was refused -- movement into a flagged zone is allowed, so the
+    // cursor's refused rung must not fire here.
+    expect(r.refused).toBeUndefined();
   });
 
   it('still notes the drop when a garrisoner survives it — the note follows the drop, not the empty result', () => {
@@ -397,5 +406,6 @@ describe('attacking a protected structure needs a deliberate confirm', () => {
     );
     expect(r.intents).toEqual([{ kind: 'garrison', ids: [2], structure: 7 }]);
     expect(r.note?.tone).toBe('mute');
+    expect(r.refused).toBe(true);
   });
 });

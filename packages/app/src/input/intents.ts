@@ -211,6 +211,14 @@ export interface Resolution {
    * note from it.
    */
   armed?: 'strike' | 'sweep';
+  /**
+   * Set when a protected structure gated part of the selection's click and
+   * the player did not hold Alt to override it -- i.e. `suppressed` below.
+   * `intents` alone cannot carry this: an empty `intents` array already means
+   * "nothing selected" (the `ids.length === 0` branch above), so the cursor
+   * needs an explicit signal to tell "nothing to do" apart from "refused."
+   */
+  refused?: boolean;
 }
 
 /**
@@ -265,7 +273,10 @@ export function resolvePointer(world: IntentWorld, ctx: PointerContext): Resolut
       roe,
       marker: intents.length > 0,
       ...(suppressed
-        ? { note: { text: 'protected site — hold Alt to order fire on it', tone: 'mute' as const } }
+        ? {
+            refused: true,
+            note: { text: 'protected site — hold Alt to order fire on it', tone: 'mute' as const },
+          }
         : {}),
     };
   }

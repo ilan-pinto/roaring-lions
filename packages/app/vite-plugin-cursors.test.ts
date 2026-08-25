@@ -3,9 +3,30 @@
 // Colour comes from data/palette.json at inject time, so nothing on disk under
 // a validate:ui root ever holds a literal -- the same reason vite-plugin-
 // palette.ts injects rather than emitting a stylesheet.
+//
+// This file runs in the project's default `environment: 'node'` (see
+// vitest.config.ts) -- switching the whole file to `environment: 'jsdom'` via
+// the `@vitest-environment` docblock was tried and rejected: jsdom installs
+// its own `URL` as the global, and `readFileSync(paletteUrl)` a few tests
+// below (real `data/palette.json` on disk) then throws "The URL must be of
+// scheme file", because Node's `fs` does not recognise jsdom's URL instance.
+// Rather than touch the global config or route every URL through
+// `fileURLToPath`, the one test below that needs a DOM builds its own via
+// the `jsdom` package directly and never touches the global environment.
 import { readFileSync } from 'node:fs';
+import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'vitest';
-import { cursorRules, resolvePalette } from './vite-plugin-cursors';
+import { CENTER, cursorRules, resolvePalette } from './vite-plugin-cursors';
+
+/** Pulls the selector text for one cursor's rule out of the generated CSS,
+ *  so tests can assert on the selector's real matching behaviour instead of
+ *  on its spelling. */
+function selectorFor(css: string, name: string): string {
+  const rule = css.split('\n').find((l) => l.includes(`data-cursor='${name}'`));
+  if (!rule) throw new Error(`no rule found for ${name}`);
+  const brace = rule.indexOf('{');
+  return rule.slice(0, brace).trim();
+}
 
 const PALETTE = {
   ramps: { limestone: { colors: ['#EEE', '#DDD', '#CCC', '#BBB', '#AAA', '#999', '#888'] } },
@@ -22,14 +43,43 @@ describe('cursorRules', () => {
     }
   });
 
-  it('gives every rule a hotspot rather than defaulting to the top-left', () => {
+  it('gives every rule a hotspot at the shape\'s actual centre, not the top-left', () => {
     // `url(...) auto` with no coordinates points from 0,0, which is wrong for
-    // every shape here and invisible in a screenshot.
+    // every shape here and invisible in a screenshot. Matching against `\d+`
+    // alone would accept "0 0" -- the exact wrong value this test is named
+    // to reject -- so this asserts the hotspot equals CENTER on both axes,
+    // the shape's real geometric middle.
     const rules = css.split('\n').filter((l) => l.includes('url('));
     expect(rules.length).toBeGreaterThan(0);
     for (const rule of rules) {
-      expect(rule).toMatch(/\)\s+\d+\s+\d+\s*,\s*auto/);
+      expect(rule).toMatch(new RegExp(`\\)\\s+${CENTER}\\s+${CENTER}\\s*,\\s*auto`));
     }
+  });
+
+  it('declares the shape as the CSS cursor property, not some other property', () => {
+    // A rule that draws the right picture under the wrong declaration (e.g.
+    // `outline:` instead of `cursor:`) would leave the OS arrow on screen
+    // just as surely as a dead selector would.
+    for (const name of ['move', 'attack', 'blocked', 'costly', 'protected', 'support']) {
+      const rule = css.split('\n').find((l) => l.includes(`data-cursor='${name}'`));
+      expect(rule).toMatch(/\{\s*cursor:\s*url\(/);
+    }
+  });
+
+  it('matches the real canvas element the app writes data-cursor onto', () => {
+    // main.ts sets `canvas.dataset.cursor = name` on the <canvas> itself,
+    // inside `#stage`. A descendant-combinator selector like
+    // `[data-cursor='move'] canvas` asks for a canvas *inside* the
+    // attribute-carrying element and can never match that shape -- this
+    // builds the real structure and proves the emitted selector matches it.
+    const dom = new JSDOM('<div id="stage"><canvas></canvas></div>');
+    const { document } = dom.window;
+    const canvas = document.querySelector('canvas')!;
+    canvas.dataset.cursor = 'move';
+
+    const selector = selectorFor(css, 'move');
+    expect(canvas.matches(selector)).toBe(true);
+    expect(document.querySelectorAll(selector).length).toBe(1);
   });
 
   it('takes its colours from the palette it is given', () => {

@@ -26,8 +26,8 @@ interface Palette {
 // its 32x32 canvas, with no off-centre tip the way an arrow has. So the
 // hotspot for every one of them is simply half the canvas size on each axis
 // -- derived from the shape's own symmetry, not eyeballed.
-const SIZE = 32;
-const CENTER = SIZE / 2;
+export const SIZE = 32;
+export const CENTER = SIZE / 2;
 
 /** Lowercased so the encoded output is deterministic regardless of how the
  *  source palette capitalises its hex strings. */
@@ -134,7 +134,7 @@ export function cursorRules(palette: Palette): string {
     .map(([name, markup]) => {
       const encoded = encodeURIComponent(markup);
       return (
-        `[data-cursor='${name}'] canvas { ` +
+        `canvas[data-cursor='${name}'] { ` +
         `cursor: url("data:image/svg+xml,${encoded}") ${CENTER} ${CENTER}, auto; }`
       );
     })

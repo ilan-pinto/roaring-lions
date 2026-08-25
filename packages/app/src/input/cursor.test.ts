@@ -66,8 +66,41 @@ describe('cursorFor', () => {
   });
 
   it('stays default over a protected target when nothing is selected', () => {
-    // A click that cannot issue an order must not warn about one.
-    expect(cursorFor({ intents: [], roe: 'protected', marker: false }, NONE)).toBe('default');
+    // A click that cannot issue an order must not warn about one. This is the
+    // true "nothing selected" shape resolvePointer returns from its
+    // ids.length === 0 branch: refused is absent (not merely false), which is
+    // what tells it apart from the gated-and-refused case below -- the two
+    // shapes both have empty intents, and only `refused` distinguishes them.
+    expect(
+      cursorFor({ intents: [], roe: 'protected', marker: false, refused: undefined }, NONE)
+    ).toBe('default');
+  });
+
+  it('shows protected when a selection is refused over a protected structure with no Alt', () => {
+    // The gated case: the whole selection was suppressed by the protected-
+    // structure check and the player has not held Alt. `intents` is empty
+    // here too -- same as "nothing selected" -- but `refused` is set, and
+    // that must win over the empty-intents rung or the warning never shows
+    // on the one click it exists to warn about.
+    expect(
+      cursorFor(
+        {
+          intents: [],
+          roe: 'protected',
+          marker: false,
+          refused: true,
+          note: { text: 'protected site — hold Alt to order fire on it', tone: 'mute' },
+        },
+        NONE
+      )
+    ).toBe('protected');
+  });
+
+  it('shows protected when a selection is allowed over a protected structure with Alt held', () => {
+    // Alt lifts the gate: resolvePointer no longer sets refused and the
+    // attack-move intent survives, so this rung is not reached -- it falls
+    // through to the roe === 'protected' rung below instead. Still 'protected'.
+    expect(cursorFor(moving({ roe: 'protected' }), NONE)).toBe('protected');
   });
 
   it('is support whenever a call is armed', () => {
