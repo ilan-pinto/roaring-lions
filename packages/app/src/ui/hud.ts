@@ -13,6 +13,7 @@
 import { fx, TICKS_PER_SECOND, type Sim } from '@lions/sim';
 import { panel, type Panel } from './panel';
 import { flash, leave, titleCard } from './motion';
+import { ROLE_GLYPH, roleBucket } from './role';
 
 export interface ObjectiveView {
   id: string;
@@ -388,19 +389,7 @@ export class Hud {
     const hpPct = hpMax > 0 ? Math.max(0, hpNow / hpMax) : 0;
     const hpTone = hpPct > 0.5 ? 'good' : hpPct > 0.25 ? 'warn' : 'bad';
     const vet = st.veterancy[id];
-    const glyph = type.isKamikaze
-      ? '✹'
-      : type.role === 'drone'
-        ? '⬡'
-        : type.role === 'gunship'
-          ? '✈'
-          : type.role === 'sniper'
-            ? '✛'
-            : type.transportSlots > 0
-              ? '▤'
-              : type.isSoft
-                ? '▲'
-                : '■';
+    const glyph = ROLE_GLYPH[roleBucket(type)];
 
     this.card.setTitle(type.name);
     this.card.setTag(sel.length > 1 ? `+${sel.length - 1} more` : (type.role ?? 'unit'));
