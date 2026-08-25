@@ -164,6 +164,20 @@ describe('the cursor names the verb', () => {
     expect(cursorFor(both, NONE)).toBe('charge');
   });
 
+  it('puts charge above attack when a hostile stands on the identified tunnel', () => {
+    // Not a synthetic pairing: resolvePointer's tunnel branch emits chargeTunnel
+    // for whoever can charge plus an order for whoever cannot, and if an enemy
+    // is on or near the route, hints.hostile is true at the same moment. A
+    // yahalom_squad and a rifle squad selected, an identified tunnel under the
+    // pointer, a hostile on it -- both rungs are live, and this pins which one
+    // the cursor shows.
+    const both = res([
+      at('chargeTunnel', { tunnel: 1 }),
+      at('order', { verb: 'attackMove' }),
+    ]);
+    expect(cursorFor(both, { hostile: true, blocked: false })).toBe('charge');
+  });
+
   it('puts attack above garrison, since firing outranks entering', () => {
     const both = res([at('garrison', { structure: 3 }), at('order', { verb: 'attackMove' })]);
     expect(cursorFor(both, { hostile: true, blocked: false })).toBe('attack');
