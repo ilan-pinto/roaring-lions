@@ -792,6 +792,7 @@ async function main(): Promise<void> {
         y: w.y,
         append: false,
         armed: armedSupport,
+        confirm: ev.altKey,
       });
       if (res.armed && runtime) {
         const call = res.armed;
@@ -853,7 +854,19 @@ async function main(): Promise<void> {
     // can do that. Passing anything else would let a right-click made while
     // a call is armed silently consume it instead of giving the move it
     // looks like.
-    const res = resolvePointer(intentWorld, { ids: mine, x: w.x, y: w.y, append: ev.shiftKey, armed: null });
+    // Alt held means the player is deliberately confirming fire on a
+    // protected structure. Ctrl is not it: on macOS, Ctrl+left-click fires
+    // this same contextmenu with ctrlKey true, and ctrl-click is the
+    // standard Mac idiom for opening a context menu — that click already
+    // means "confirmed attack," not "let me reconsider."
+    const res = resolvePointer(intentWorld, {
+      ids: mine,
+      x: w.x,
+      y: w.y,
+      append: ev.shiftKey,
+      armed: null,
+      confirm: ev.altKey,
+    });
     for (const intent of res.intents) dispatch(intent);
     if (res.note) hud.note(res.note.text, res.note.tone);
     if (res.marker) renderer.addOrderMarker(w.x, w.y);

@@ -25,7 +25,9 @@ function emptyWorld(over: Partial<IntentWorld> = {}): IntentWorld {
 
 describe('right-clicking open ground', () => {
   it('is one attack-move for the whole selection', () => {
-    const r = resolvePointer(emptyWorld(), { ids: [1, 2], x: 4.5, y: 6.5, append: false, armed: null });
+    const r = resolvePointer(emptyWorld(), {
+      ids: [1, 2], x: 4.5, y: 6.5, append: false, armed: null, confirm: false,
+    });
     expect(r.intents).toEqual([
       { kind: 'order', verb: 'attackMove', ids: [1, 2], x: 4.5, y: 6.5, append: false },
     ]);
@@ -34,12 +36,16 @@ describe('right-clicking open ground', () => {
   });
 
   it('passes Shift through as append — the waypoint rule', () => {
-    const r = resolvePointer(emptyWorld(), { ids: [1], x: 1.5, y: 1.5, append: true, armed: null });
+    const r = resolvePointer(emptyWorld(), {
+      ids: [1], x: 1.5, y: 1.5, append: true, armed: null, confirm: false,
+    });
     expect(r.intents[0]).toMatchObject({ kind: 'order', append: true });
   });
 
   it('does nothing at all with an empty selection', () => {
-    const r = resolvePointer(emptyWorld(), { ids: [], x: 1.5, y: 1.5, append: false, armed: null });
+    const r = resolvePointer(emptyWorld(), {
+      ids: [], x: 1.5, y: 1.5, append: false, armed: null, confirm: false,
+    });
     expect(r.intents).toEqual([]);
     expect(r.marker).toBe(false);
   });
@@ -52,7 +58,7 @@ describe('right-clicking a building', () => {
   it('splits a mixed selection three ways, in order', () => {
     const r = resolvePointer(
       world({ canDemolish: (i) => i === 1, canGarrison: (i) => i === 2 }),
-      { ids: [1, 2, 3], x: 3.5, y: 3.5, append: false, armed: null }
+      { ids: [1, 2, 3], x: 3.5, y: 3.5, append: false, armed: null, confirm: false }
     );
     expect(r.intents).toEqual([
       { kind: 'demolish', ids: [1], structure: 7 },
@@ -69,6 +75,7 @@ describe('right-clicking a building', () => {
       y: 3.5,
       append: false,
       armed: null,
+      confirm: false,
     });
     expect(r.intents).toEqual([{ kind: 'garrison', ids: [2], structure: 7 }]);
   });
@@ -79,7 +86,7 @@ describe('right-clicking a building', () => {
     // into the rest-group order.
     const r = resolvePointer(
       world({ canDemolish: (i) => i === 1 }),
-      { ids: [1, 2], x: 3.5, y: 3.5, append: true, armed: null }
+      { ids: [1, 2], x: 3.5, y: 3.5, append: true, armed: null, confirm: false }
     );
     expect(r.intents).toEqual([
       { kind: 'demolish', ids: [1], structure: 7 },
@@ -90,7 +97,7 @@ describe('right-clicking a building', () => {
   it('levels a protected site only for a selection that is all demolishers', () => {
     const pure = resolvePointer(
       world({ isProtected: () => true, structureRoePenalty: () => 30, canDemolish: () => true }),
-      { ids: [1, 2], x: 3.5, y: 3.5, append: false, armed: null }
+      { ids: [1, 2], x: 3.5, y: 3.5, append: false, armed: null, confirm: false }
     );
     expect(pure.intents).toEqual([{ kind: 'demolish', ids: [1, 2], structure: 7 }]);
     expect(pure.roe).toBe('protected');
@@ -99,9 +106,13 @@ describe('right-clicking a building', () => {
   it('and turns the same click into a move when anything else is selected', () => {
     // The mosque bug: an ambiguous click past a protected site used to give
     // the D9 a 30-point demolish order while everything else attack-moved.
+    // confirm: true here on purpose -- this test is about sortStructureOrder's
+    // selection-purity rule, not the Alt gate, and it is deliberately proven
+    // orthogonal: even with the modifier held, a non-pure selection still
+    // degrades to a uniform move rather than a partial demolish.
     const mixed = resolvePointer(
       world({ isProtected: () => true, structureRoePenalty: () => 30, canDemolish: (i) => i === 1 }),
-      { ids: [1, 2], x: 3.5, y: 3.5, append: false, armed: null }
+      { ids: [1, 2], x: 3.5, y: 3.5, append: false, armed: null, confirm: true }
     );
     expect(mixed.intents).toEqual([
       { kind: 'order', verb: 'attackMove', ids: [1, 2], x: 3.5, y: 3.5, append: false },
@@ -120,6 +131,7 @@ describe('right-clicking an identified tunnel', () => {
       y: 2.5,
       append: false,
       armed: null,
+      confirm: false,
     });
     expect(r.intents).toEqual([
       { kind: 'chargeTunnel', ids: [9], tunnel: 3 },
@@ -137,7 +149,7 @@ describe('right-clicking an identified tunnel', () => {
     // agree, not one shared one.
     const r = resolvePointer(
       tunnelWorld({ canTunnelCharge: (i) => i === 9 }),
-      { ids: [9, 4], x: 8.5, y: 2.5, append: true, armed: null }
+      { ids: [9, 4], x: 8.5, y: 2.5, append: true, armed: null, confirm: false }
     );
     expect(r.intents).toEqual([
       { kind: 'chargeTunnel', ids: [9], tunnel: 3 },
@@ -146,7 +158,9 @@ describe('right-clicking an identified tunnel', () => {
   });
 
   it('falls through to an ordinary order when nobody can charge', () => {
-    const r = resolvePointer(tunnelWorld(), { ids: [4], x: 8.5, y: 2.5, append: false, armed: null });
+    const r = resolvePointer(tunnelWorld(), {
+      ids: [4], x: 8.5, y: 2.5, append: false, armed: null, confirm: false,
+    });
     expect(r.intents).toEqual([
       { kind: 'order', verb: 'attackMove', ids: [4], x: 8.5, y: 2.5, append: false },
     ]);
@@ -158,7 +172,7 @@ describe('right-clicking an identified tunnel', () => {
     // reached. Pinned because it is invisible in the source.
     const r = resolvePointer(
       tunnelWorld({ structureAt: () => 7, canTunnelCharge: () => true, canGarrison: () => true }),
-      { ids: [9], x: 8.5, y: 2.5, append: false, armed: null }
+      { ids: [9], x: 8.5, y: 2.5, append: false, armed: null, confirm: false }
     );
     expect(r.intents[0]?.kind).toBe('garrison');
   });
@@ -167,11 +181,13 @@ describe('right-clicking an identified tunnel', () => {
 describe('the ROE tier', () => {
   it('is free over open ground and over a zero-penalty structure', () => {
     expect(
-      resolvePointer(emptyWorld(), { ids: [1], x: 1.5, y: 1.5, append: false, armed: null }).roe
+      resolvePointer(emptyWorld(), {
+        ids: [1], x: 1.5, y: 1.5, append: false, armed: null, confirm: false,
+      }).roe
     ).toBe('free');
     expect(
       resolvePointer(emptyWorld({ structureAt: () => 7, structureRoePenalty: () => 0 }), {
-        ids: [1], x: 1.5, y: 1.5, append: false, armed: null,
+        ids: [1], x: 1.5, y: 1.5, append: false, armed: null, confirm: false,
       }).roe
     ).toBe('free');
   });
@@ -179,14 +195,14 @@ describe('the ROE tier', () => {
   it('is costly for a penalty below the protected threshold', () => {
     const r = resolvePointer(
       emptyWorld({ structureAt: () => 7, structureRoePenalty: () => 14 }),
-      { ids: [1], x: 1.5, y: 1.5, append: false, armed: null }
+      { ids: [1], x: 1.5, y: 1.5, append: false, armed: null, confirm: false }
     );
     expect(r.roe).toBe('costly');
   });
 
   it('is protected inside a flagged zone even on open ground', () => {
     const r = resolvePointer(emptyWorld({ inFlaggedZone: () => true }), {
-      ids: [1], x: 1.5, y: 1.5, append: false, armed: null,
+      ids: [1], x: 1.5, y: 1.5, append: false, armed: null, confirm: false,
     });
     expect(r.roe).toBe('protected');
   });
@@ -207,6 +223,7 @@ describe('an armed support call', () => {
       y: 3.5,
       append: false,
       armed: 'sweep',
+      confirm: false,
     });
     expect(r.intents).toEqual([]);
     expect(r.marker).toBe(false);
@@ -225,6 +242,7 @@ describe('an armed support call', () => {
       y: 3.5,
       append: false,
       armed: 'strike',
+      confirm: false,
     });
     expect(r.armed).toBe('strike');
   });
@@ -236,6 +254,7 @@ describe('an armed support call', () => {
       y: 3.5,
       append: false,
       armed: null,
+      confirm: false,
     });
     expect(r.intents).toEqual([{ kind: 'garrison', ids: [1, 2], structure: 7 }]);
     expect(r.armed).toBeUndefined();
@@ -302,5 +321,67 @@ describe('the keyboard verbs, resolved the same way', () => {
     expect(r.marker).toBe(false);
     expect(r.note?.tone).toBe('mute');
     expect(r.note?.text).toBe('nothing selected that carries smoke');
+  });
+});
+
+describe('attacking a protected structure needs a deliberate confirm', () => {
+  const mosque = (over: Partial<IntentWorld> = {}): IntentWorld =>
+    emptyWorld({
+      structureAt: () => 7,
+      isProtected: () => true,
+      structureRoePenalty: () => 30,
+      garrisonFree: () => 2,
+      ...over,
+    });
+
+  it('drops the attack-move and says why, without the modifier', () => {
+    const r = resolvePointer(mosque(), {
+      ids: [1, 2], x: 3.5, y: 3.5, append: false, armed: null, confirm: false,
+    });
+    expect(r.intents).toEqual([]);
+    expect(r.roe).toBe('protected');
+    expect(r.note?.tone).toBe('mute');
+    expect(r.marker).toBe(false);
+  });
+
+  it('issues exactly the same order with it', () => {
+    const r = resolvePointer(mosque(), {
+      ids: [1, 2], x: 3.5, y: 3.5, append: false, armed: null, confirm: true,
+    });
+    expect(r.intents).toEqual([
+      { kind: 'order', verb: 'attackMove', ids: [1, 2], x: 3.5, y: 3.5, append: false },
+    ]);
+    expect(r.marker).toBe(true);
+  });
+
+  it('never gates demolition — selection purity already governs that', () => {
+    // sortStructureOrder lets a pure demolisher selection level a protected
+    // site with no modifier, because isolating the engineers IS the act of
+    // taking responsibility. That rule fixed a real bug and is not this
+    // slice's to revisit.
+    const r = resolvePointer(mosque({ canDemolish: () => true }), {
+      ids: [1, 2], x: 3.5, y: 3.5, append: false, armed: null, confirm: false,
+    });
+    expect(r.intents).toEqual([{ kind: 'demolish', ids: [1, 2], structure: 7 }]);
+  });
+
+  it('never gates garrisoning', () => {
+    const r = resolvePointer(mosque({ canGarrison: () => true }), {
+      ids: [2], x: 3.5, y: 3.5, append: false, armed: null, confirm: false,
+    });
+    expect(r.intents).toEqual([{ kind: 'garrison', ids: [2], structure: 7 }]);
+  });
+
+  it('does not gate movement into a flagged zone — a clinic is not a wall', () => {
+    // The zone raises the tier, so the cursor still warns. It does not refuse
+    // the order: walking into a zone is not an attack, and stepRoe already
+    // charges the player for firing there.
+    const r = resolvePointer(emptyWorld({ inFlaggedZone: () => true }), {
+      ids: [1], x: 9.5, y: 9.5, append: false, armed: null, confirm: false,
+    });
+    expect(r.roe).toBe('protected');
+    expect(r.intents).toEqual([
+      { kind: 'order', verb: 'attackMove', ids: [1], x: 9.5, y: 9.5, append: false },
+    ]);
   });
 });

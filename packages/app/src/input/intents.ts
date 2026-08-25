@@ -188,6 +188,10 @@ export interface PointerContext {
    * it looks like.
    */
   armed: 'strike' | 'sweep' | null;
+  /** Alt is held. Only a protected STRUCTURE is gated on it; a flagged zone
+   *  raises the tier without refusing the order. Required rather than
+   *  optional so typecheck names every call site when it changes. */
+  confirm: boolean;
 }
 
 /** Everything the click does, as data: the intents to dispatch in order, the
@@ -238,10 +242,22 @@ export function resolvePointer(world: IntentWorld, ctx: PointerContext): Resolut
       (i) => world.canGarrison(i),
       world.isProtected(struct)
     );
+    // Attacking a protected site is refused unless the player says so with a
+    // modifier. Demolition is NOT gated here -- sortStructureOrder already
+    // governs it through selection purity, and garrisoning is not an attack.
+    const gated = world.isProtected(struct) && !ctx.confirm;
+    if (gated && razers.length === 0 && enterers.length === 0) {
+      return {
+        intents: [],
+        roe,
+        marker: false,
+        note: { text: 'protected site — hold Alt to order fire on it', tone: 'mute' },
+      };
+    }
     const intents: PlayerIntent[] = [];
     if (razers.length > 0) intents.push({ kind: 'demolish', ids: razers, structure: struct });
     if (enterers.length > 0) intents.push({ kind: 'garrison', ids: enterers, structure: struct });
-    if (rest.length > 0) {
+    if (!gated && rest.length > 0) {
       intents.push({ kind: 'order', verb: 'attackMove', ids: rest, x, y, append: false });
     }
     return { intents, roe, marker: true };
