@@ -66,7 +66,11 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
+      # contents to push the bump and the tag; actions to dispatch pages
+      # afterwards. Without the second the final step fails with a 403 that
+      # reads as a broken build when the release itself already landed.
       contents: write
+      actions: write
     steps:
       # The whole history and every tag: the rule reads the range since the
       # last release, which a shallow clone cannot see.
@@ -106,8 +110,14 @@ jobs:
           # it the bump would trigger a run that finds no new commits since the
           # tag, cuts nothing, and still costs a full matrix.
           git commit -m "chore(release): v${NEXT} [skip ci]"
-          git tag "v${NEXT}"
-          git push origin HEAD:main --follow-tags
+          # ANNOTATED, and pushed by name. --follow-tags ignores lightweight
+          # tags, so the first live run pushed the bump commit and silently
+          # dropped the tag — which matters more than it sounds: the rule
+          # reads "commits since the last tag", so a missing tag makes the
+          # next merge rescan the whole history and bump again, forever.
+          git tag -a "v${NEXT}" -m "v${NEXT}"
+          git push origin HEAD:main
+          git push origin "refs/tags/v${NEXT}"
 
       # The push above is invisible to Actions, so the Pages deploy running
       # for the merge that triggered this job would publish the PRE-bump
