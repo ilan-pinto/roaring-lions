@@ -245,22 +245,29 @@ export function resolvePointer(world: IntentWorld, ctx: PointerContext): Resolut
     // Attacking a protected site is refused unless the player says so with a
     // modifier. Demolition is NOT gated here -- sortStructureOrder already
     // governs it through selection purity, and garrisoning is not an attack.
+    //
+    // The note follows the drop itself, not the empty-result shape: a mixed
+    // selection can still have a demolisher or garrisoner survive while the
+    // rest group's attack-move is suppressed, and the player still needs to
+    // learn why part of the click did nothing. Only the fully-empty case
+    // (nothing survives) also drops the marker -- an order marker implies
+    // something was ordered, and here nothing was.
     const gated = world.isProtected(struct) && !ctx.confirm;
-    if (gated && razers.length === 0 && enterers.length === 0) {
-      return {
-        intents: [],
-        roe,
-        marker: false,
-        note: { text: 'protected site — hold Alt to order fire on it', tone: 'mute' },
-      };
-    }
+    const suppressed = gated && rest.length > 0;
     const intents: PlayerIntent[] = [];
     if (razers.length > 0) intents.push({ kind: 'demolish', ids: razers, structure: struct });
     if (enterers.length > 0) intents.push({ kind: 'garrison', ids: enterers, structure: struct });
     if (!gated && rest.length > 0) {
       intents.push({ kind: 'order', verb: 'attackMove', ids: rest, x, y, append: false });
     }
-    return { intents, roe, marker: true };
+    return {
+      intents,
+      roe,
+      marker: intents.length > 0,
+      ...(suppressed
+        ? { note: { text: 'protected site — hold Alt to order fire on it', tone: 'mute' as const } }
+        : {}),
+    };
   }
 
   const route = world.tunnelAt(x, y);

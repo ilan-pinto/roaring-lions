@@ -384,4 +384,18 @@ describe('attacking a protected structure needs a deliberate confirm', () => {
       { kind: 'order', verb: 'attackMove', ids: [1], x: 9.5, y: 9.5, append: false },
     ]);
   });
+
+  it('still notes the drop when a garrisoner survives it — the note follows the drop, not the empty result', () => {
+    // A demolisher and a garrisoner over a protected site, no confirm: the
+    // demolisher isn't a pure demolisher selection (sortStructureOrder), so
+    // it falls into rest and its attack-move is gated away, while the
+    // garrisoner's order is untouched. The garrison surviving must not
+    // swallow the note that explains why the rest of the click did nothing.
+    const r = resolvePointer(
+      mosque({ canDemolish: (i) => i === 1, canGarrison: (i) => i === 2 }),
+      { ids: [1, 2], x: 3.5, y: 3.5, append: false, armed: null, confirm: false }
+    );
+    expect(r.intents).toEqual([{ kind: 'garrison', ids: [2], structure: 7 }]);
+    expect(r.note?.tone).toBe('mute');
+  });
 });
