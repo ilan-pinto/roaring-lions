@@ -5,8 +5,9 @@
 // selection outranks the ROE marks because a click that cannot fire must not
 // warn about firing.
 import { describe, expect, it } from 'vitest';
-import { cursorFor, type CursorHints } from './cursor';
+import { cursorFor, badgeFor, cursorKey, type CursorHints, type BadgeHints } from './cursor';
 import type { Resolution } from './intents';
+import type { RoleBucket } from '../ui/role';
 
 const NONE: CursorHints = { hostile: false, blocked: false };
 
@@ -208,5 +209,69 @@ describe('the cursor names the verb', () => {
     // mattering with nothing to catch it.
     const r = res([], { armed: 'sweep', refused: true });
     expect(cursorFor(r, NONE)).toBe('support');
+  });
+});
+
+describe('the badge says who is doing it', () => {
+  const buckets = (map: Record<number, RoleBucket>): BadgeHints => ({
+    bucketOf: (id) => map[id] ?? 'armour',
+  });
+
+  const res = (intents: Resolution['intents'], over: Partial<Resolution> = {}): Resolution => ({
+    intents, roe: 'free', marker: true, ...over,
+  });
+
+  it('badges the winning group when it is one kind', () => {
+    const r = res([{ kind: 'demolish', ids: [1, 2], structure: 3 }] as Resolution['intents']);
+    expect(badgeFor(r, NONE, buckets({ 1: 'soft', 2: 'soft' }))).toBe('soft');
+  });
+
+  it('says nothing when the winning group spans two kinds', () => {
+    // An apc_eitan and a demo_squad both lay smoke; they are transport and
+    // soft. A badge would have to pick one and would be lying about the other.
+    const r = res([{ kind: 'smoke', ids: [1, 2], x: 1, y: 1 }] as Resolution['intents']);
+    expect(badgeFor(r, NONE, buckets({ 1: 'transport', 2: 'soft' }))).toBeNull();
+  });
+
+  it('badges the WINNING group, not the whole selection', () => {
+    // The D9 demolishes and the infantry garrisons. demolish wins, so the
+    // badge is the D9's -- the infantry's bucket must not leak into it.
+    const r = res([
+      { kind: 'demolish', ids: [1], structure: 3 },
+      { kind: 'garrison', ids: [2], structure: 3 },
+    ] as Resolution['intents']);
+    expect(badgeFor(r, NONE, buckets({ 1: 'armour', 2: 'soft' }))).toBe('armour');
+  });
+
+  it('badges the winner even when it is not first in the array', () => {
+    // resolvePointer's real order happens to put demolish before garrison,
+    // so the previous case would still pass a `res.intents[0]` bug. Here the
+    // array is garrison-then-demolish -- demolish still outranks garrison and
+    // wins, but a naive "first intent" implementation would badge the
+    // garrisoning infantry (soft) instead of the demolishing D9 (armour).
+    const r = res([
+      { kind: 'garrison', ids: [2], structure: 3 },
+      { kind: 'demolish', ids: [1], structure: 3 },
+    ] as Resolution['intents']);
+    expect(badgeFor(r, NONE, buckets({ 1: 'armour', 2: 'soft' }))).toBe('armour');
+  });
+
+  it('gives no badge when there is no verb', () => {
+    expect(badgeFor(res([]), NONE, buckets({}))).toBeNull();
+  });
+
+  it('gives no badge for an armed support call', () => {
+    const r = res([], { armed: 'strike' });
+    expect(badgeFor(r, NONE, buckets({ 1: 'soft' }))).toBeNull();
+  });
+});
+
+describe('cursorKey', () => {
+  it('joins a name and a badge', () => {
+    expect(cursorKey('demolish', 'armour')).toBe('demolish-armour');
+  });
+
+  it('is the bare name when there is no badge', () => {
+    expect(cursorKey('blocked', null)).toBe('blocked');
   });
 });

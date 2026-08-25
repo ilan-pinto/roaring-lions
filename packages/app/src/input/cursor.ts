@@ -8,7 +8,8 @@
  *
  * No DOM here: this module is pure and its tests run in environment: 'node'.
  */
-import type { Resolution } from './intents';
+import type { PlayerIntent, Resolution } from './intents';
+import type { RoleBucket } from '../ui/role';
 
 export type CursorName =
   | 'default'
@@ -82,4 +83,87 @@ export function cursorFor(res: Resolution, hints: CursorHints): CursorName {
   // kept anyway, because an unranked future intent kind would otherwise fall
   // through to 'move' over a hostile.
   return hints.hostile ? 'attack' : 'move';
+}
+
+/** Whichever id field this intent's kind carries. Written explicitly rather
+ *  than cast, because the variants genuinely differ -- `ids` for most kinds,
+ *  `riders` for mount, `carriers` for dismount -- and a cast would silently
+ *  return undefined for the two that don't have `ids`. */
+function idsOf(intent: PlayerIntent): number[] {
+  switch (intent.kind) {
+    case 'select':
+    case 'order':
+    case 'garrison':
+    case 'demolish':
+    case 'chargeTunnel':
+    case 'smoke':
+    case 'halt':
+      return intent.ids;
+    case 'mount':
+      return intent.riders;
+    case 'dismount':
+      return intent.carriers;
+    case 'group':
+    case 'overlay':
+    case 'support':
+      return [];
+  }
+}
+
+/** The ranked name for one intent, mirroring winningVerb's mapping -- same
+ *  kinds, same 'order' -> attack-when-hostile rule -- but for a single
+ *  intent rather than "does the resolution contain one of these anywhere." */
+function intentVerb(intent: PlayerIntent, hints: CursorHints): CursorName | null {
+  switch (intent.kind) {
+    case 'demolish':
+      return 'demolish';
+    case 'chargeTunnel':
+      return 'charge';
+    case 'order':
+      return hints.hostile ? 'attack' : 'move';
+    case 'garrison':
+      return 'garrison';
+    case 'mount':
+      return 'mount';
+    case 'dismount':
+      return 'dismount';
+    case 'smoke':
+      return 'smoke';
+    default:
+      return null;
+  }
+}
+
+/** How the caller turns a unit id into its display bucket. A port, so this
+ *  module needs no sim import and a test can describe a selection. */
+export interface BadgeHints {
+  bucketOf(id: number): RoleBucket;
+}
+
+/** The bucket of the group doing the winning verb, or null.
+ *
+ *  Null when there is no verb, when a support call is armed, or -- the case
+ *  that matters -- when the winning group spans buckets. A badge asserts
+ *  "this kind of unit is doing this"; when it is not one kind, saying nothing
+ *  beats picking one. */
+export function badgeFor(
+  res: Resolution,
+  hints: CursorHints,
+  badges: BadgeHints
+): RoleBucket | null {
+  if (res.armed) return null;
+  const verb = winningVerb(res, hints);
+  if (!verb) return null;
+  const winner = res.intents.find((i) => intentVerb(i, hints) === verb);
+  const ids = winner ? idsOf(winner) : [];
+  if (ids.length === 0) return null;
+  const first = badges.bucketOf(ids[0]);
+  return ids.every((id) => badges.bucketOf(id) === first) ? first : null;
+}
+
+/** `name` alone, or `name-badge`. The plugin generates a rule per key, and a
+ *  test asserts both sides agree -- a mismatch here is silent, which is how
+ *  slice 2 shipped a cursor that could never appear. */
+export function cursorKey(name: CursorName, badge: RoleBucket | null): string {
+  return badge ? `${name}-${badge}` : name;
 }
