@@ -58,6 +58,7 @@ import { cursorFor, cursorKey, badgeFor, type BadgeHints } from './input/cursor'
 import { roleBucket } from './ui/role';
 import { sandboxAnchors, type SandboxAnchors } from './sandbox-anchors';
 import { sandboxFlaggedZones, sandboxTunnelRoute } from './sandbox-extras';
+import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
 import { tutorialPanel, type TutorialPanel } from './tutorial/panel';
 import { parseWorld, parseCountries, nextMissionAfter } from './campaign';
@@ -328,15 +329,36 @@ async function main(): Promise<void> {
     );
   }
   // Opt-in extras, so the default sandbox stays exactly what it has always
-  // been and a check for one subsystem is not buried under three others:
-  //   &roe     a no-fire zone, the only way to reach the protected X on a map
-  //            without a mosque -- four of the five shipped maps
-  //   &tunnel  a pre-dug route plus the units to find and collapse it
-  //   &sur     the Sarim roster, which no mission fields yet
-  const wantRoe = params.get('roe') !== null;
-  const wantTunnel = params.get('tunnel') !== null;
-  const wantSur = params.get('sur') !== null;
+  // been and a check for one subsystem is not buried under three others.
+  // Parsed from SANDBOX_FLAGS rather than named here, so the banner below
+  // cannot document a different set than this line reads.
+  const flags = readFlags(params);
+  const wantRoe = flags.roe;
+  const wantTunnel = flags.tunnel;
+  const wantSur = flags.sur;
+  // A misspelled flag (`&tunel`) otherwise does nothing at all, silently,
+  // which reads as a broken feature rather than as a typo.
+  const strays = unknownParams(params);
+  if (strays.length > 0) {
+    console.warn(
+      `[lions] ignoring unknown URL parameter(s): ${strays.join(', ')} — ` +
+        `see __lions.help() for what this build reads`
+    );
+  }
   const mapId = mission?.map.file ?? (sandboxMap && sandboxMap in maps ? sandboxMap : 'beit_sahwan_outskirts');
+  /** The boot banner and the body of `__lions.help()` — one text, so what a
+   *  sandbox prints on load and what the console answers can never disagree. */
+  const helpText = (): string =>
+    sandboxHelp({
+      mapId,
+      mapIds: Object.keys(maps),
+      on: Object.entries(flags)
+        .filter(([, on]) => on)
+        .map(([name]) => name),
+    });
+  // Printed only in the sandbox: a mission brings its own zones and tunnels,
+  // and none of these flags apply to it.
+  if (!mission) console.info(`[lions] ${helpText()}`);
   const mapJson =
     (maps as Record<string, MapJson | undefined>)[mapId] ?? maps.beit_sahwan_outskirts;
   const map = parseMap(mapJson);
@@ -1214,6 +1236,14 @@ async function main(): Promise<void> {
       renderer,
       runtime,
       audio,
+
+      /** What this build reads off the URL, and what the console offers.
+       *  The three sandbox flags used to be reachable only by reading
+       *  CLAUDE.md, which is a poor place for an instrument you reach for
+       *  from the URL bar. */
+      help: () => {
+        console.info(`[lions] ${helpText()}`);
+      },
       step: (n: number) => {
         for (let i = 0; i < n; i++) runTick();
         renderer.frame(1);

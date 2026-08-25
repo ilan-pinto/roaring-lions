@@ -127,6 +127,15 @@ The combat model is the product. Everything else is scaffolding around it.
   is a DOM read rather than a recomputation on purpose — the failure worth catching
   is a cursor whose logic is right and whose wiring is not, and recomputing would
   agree with the logic and tell you nothing.
+- **The sandbox documents itself** — `__lions.help()`, and the same text prints to
+  the console on every sandbox boot: the map that loaded, which flags are on, every
+  flag available, every shipped map id, and the console API. An unrecognised URL
+  parameter warns by name, which is the case that matters: `&tunel` otherwise does
+  nothing at all, silently, and reads as a broken feature rather than a typo. The
+  flag table (`packages/app/src/sandbox-help.ts`) is the single source for all
+  three callers — `readFlags` parses from it, `sandboxHelp` prints from it,
+  `unknownParams` checks against it — so a flag parsed but undocumented, or
+  documented but unparsed, is not expressible. Prefer this over grepping this file.
 - Three opt-in sandbox flags, each adding only what it names, so a check for one
   subsystem is not buried under three others: `&roe` supplies flagged ground (the
   map's own `clinic`/`mosque`/`refuge` zone where it has one, otherwise a 4×4
