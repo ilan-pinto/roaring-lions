@@ -781,15 +781,28 @@ async function main(): Promise<void> {
     const moved = Math.hypot(p.x - dragStart.x, p.y - dragStart.y);
     if (moved < 6) {
       const w = renderer.screenToWorld(p.x, p.y);
-      if (armedSupport !== null && runtime) {
+      // Ask the resolver what this click means, rather than reading
+      // armedSupport directly — the same question slice 2's cursor will ask.
+      // The resolver only names the call (it cannot know whether the
+      // runtime will accept it), so pointerup still owns making the call,
+      // dispatching the real outcome, and choosing the note from it.
+      const res = resolvePointer(intentWorld, {
+        ids: [],
+        x: w.x,
+        y: w.y,
+        append: false,
+        armed: armedSupport,
+      });
+      if (res.armed && runtime) {
+        const call = res.armed;
         const ok =
-          armedSupport === 'sweep'
+          call === 'sweep'
             ? runtime.requestSweep(fx.from(w.x), fx.from(w.y))
             : runtime.requestStrike(fx.from(w.x), fx.from(w.y));
-        dispatch({ kind: 'support', call: armedSupport, x: w.x, y: w.y, accepted: ok });
+        dispatch({ kind: 'support', call, x: w.x, y: w.y, accepted: ok });
         hud.note(
           ok
-            ? `<b>${armedSupport === 'sweep' ? 'sweep' : 'strike'} called</b> on (${w.x.toFixed(0)}, ${w.y.toFixed(0)})`
+            ? `<b>${call === 'sweep' ? 'sweep' : 'strike'} called</b> on (${w.x.toFixed(0)}, ${w.y.toFixed(0)})`
             : 'support call refused — not enough intel',
           ok ? 'info' : 'mute'
         );
@@ -835,7 +848,12 @@ async function main(): Promise<void> {
     const rect = canvas.getBoundingClientRect();
     const w = renderer.screenToWorld(ev.clientX - rect.left, ev.clientY - rect.top);
     const mine = renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
-    const res = resolvePointer(intentWorld, { ids: mine, x: w.x, y: w.y, append: ev.shiftKey });
+    // armed is always null here: a right-click issues an ordinary order and
+    // must never spend an armed support call — only pointerup's left-click
+    // can do that. Passing anything else would let a right-click made while
+    // a call is armed silently consume it instead of giving the move it
+    // looks like.
+    const res = resolvePointer(intentWorld, { ids: mine, x: w.x, y: w.y, append: ev.shiftKey, armed: null });
     for (const intent of res.intents) dispatch(intent);
     if (res.note) hud.note(res.note.text, res.note.tone);
     if (res.marker) renderer.addOrderMarker(w.x, w.y);

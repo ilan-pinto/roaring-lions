@@ -177,6 +177,17 @@ export interface PointerContext {
   x: number;
   y: number;
   append: boolean;
+  /**
+   * The support call currently armed via the production bar, or null.
+   * Required rather than optional on purpose: a caller must say what it
+   * means, one way or the other, rather than inherit a default. Only
+   * pointerup's left-click may pass a non-null value — it is the only click
+   * that can spend an armed call. The right-click path (contextmenu) must
+   * always pass null explicitly, or a right-click made while a call is
+   * armed would silently consume it instead of issuing the ordinary order
+   * it looks like.
+   */
+  armed: 'strike' | 'sweep' | null;
 }
 
 /** Everything the click does, as data: the intents to dispatch in order, the
@@ -187,6 +198,15 @@ export interface Resolution {
   roe: RoeTier;
   marker: boolean;
   note?: { text: string; tone: 'info' | 'mute' };
+  /**
+   * Set when `ctx.armed` was non-null: the pointer means "call for support
+   * here." resolvePointer stops there rather than issuing an order, because
+   * whether the runtime accepts the call is not knowable inside a pure
+   * function — the caller (pointerup) still owns making the runtime call,
+   * dispatching the `support` intent with the real outcome, and choosing the
+   * note from it.
+   */
+  armed?: 'strike' | 'sweep';
 }
 
 /**
@@ -199,11 +219,15 @@ export interface Resolution {
  *
  * Order matters and is preserved: structure, then identified tunnel, then
  * ordinary attack-move. A structure wins a tile it shares with a tunnel
- * because the structure branch returns first.
+ * because the structure branch returns first. An armed support call outranks
+ * all of it — checked before the empty-selection and structure branches, so
+ * that a click over a building or with nothing selected still reports the
+ * call rather than falling into either of those shapes.
  */
 export function resolvePointer(world: IntentWorld, ctx: PointerContext): Resolution {
-  const { ids, x, y, append } = ctx;
+  const { ids, x, y, append, armed } = ctx;
   const roe = roeTierAt(world, x, y);
+  if (armed) return { intents: [], roe, marker: false, armed };
   if (ids.length === 0) return { intents: [], roe, marker: false };
 
   const struct = world.structureAt(x, y);
