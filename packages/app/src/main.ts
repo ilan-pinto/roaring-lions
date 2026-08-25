@@ -9,6 +9,7 @@ import {
   fx,
   TICKS_PER_SECOND,
   MissionRuntime,
+  zoneContains,
   type LedgerData,
   type MissionEvent,
   type MissionJson,
@@ -53,6 +54,7 @@ import {
   type PlayerIntent,
   type IntentWorld,
 } from './input/intents';
+import { cursorFor, type CursorName } from './input/cursor';
 import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
 import { tutorialPanel, type TutorialPanel } from './tutorial/panel';
 import { parseWorld, parseCountries, nextMissionAfter } from './campaign';
@@ -669,6 +671,14 @@ async function main(): Promise<void> {
   let dragStart: { x: number; y: number } | null = null;
   /** Last cursor position over the map, for keyboard-issued orders. */
   const lastCursor = { x: 0, y: 0 };
+  /** Alt/Option state as of the last pointer event — the resolver's `confirm`
+   *  for the per-frame hover cursor. The click handlers read `ev.altKey`
+   *  directly instead, since the event's own state is authoritative at the
+   *  moment of the click. */
+  let altHeld = false;
+  /** The cursor name last written to the DOM, so the per-frame ticker only
+   *  touches `canvas.dataset.cursor` when it actually changes. */
+  let lastCursorName: CursorName | null = null;
   const canvasXY = (ev: PointerEvent): { x: number; y: number } => {
     const rect = canvas.getBoundingClientRect();
     return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
@@ -720,51 +730,15 @@ async function main(): Promise<void> {
     if (ev.button === 0) dragStart = canvasXY(ev);
   });
   window.addEventListener('pointermove', (ev) => {
-    // Track what the cursor is over so the renderer can offer the
-    // enter-building affordance before the click.
+    // Position and modifier state only. The hover work this used to do
+    // inline — screenToWorld, structureAt, the garrison check, and the O(N)
+    // entity scan — moved to the ticker (below), which runs it once per
+    // frame instead of once per raw pointer event. lastCursor still has to
+    // update here: the 'f' smoke key reads it for the live pointer position.
     const hp = canvasXY(ev);
     lastCursor.x = hp.x;
     lastCursor.y = hp.y;
-    const hw = renderer.screenToWorld(hp.x, hp.y);
-    const hs = sim.structureAt(Math.floor(hw.x), Math.floor(hw.y));
-    renderer.hoverStructure = hs;
-    renderer.hoverCanGarrison =
-      hs >= 0 &&
-      sim.structures.occupants[hs] < sim.structureTypes[sim.structures.typeIdx[hs]].garrisonSlots &&
-      renderer.selection.some(
-        (i) =>
-          sim.state.side[i] === 0 &&
-          sim.state.alive[i] === 1 &&
-          sim.unitTypes[sim.state.typeIdx[i]].canGarrison &&
-          sim.state.garrisonedIn[i] !== hs
-      );
-
-    // Nearest living enemy within half a tile of the cursor — the same
-    // generosity the click-to-select test uses. Restricted to side 1 (real
-    // enemies, never civilians — side 2 is never an aimpoint) and gated on
-    // renderer.isVisible so the scan can only pick up an entity that is
-    // actually drawn on screen right now. That mirrors the exact condition
-    // the renderer itself uses to decide whether to draw a non-friendly
-    // sprite at all (see PixiRenderer's entity loop) — anything the fog
-    // currently hides must not be able to surface through the hover panel
-    // either, or sweeping the cursor across unexplored ground locates every
-    // hidden defender.
-    let he = -1;
-    let bestD = 0.5 * 0.5;
-    for (let i = 0; i < sim.entityCount; i++) {
-      if (sim.state.alive[i] === 0 || sim.state.side[i] !== 1) continue;
-      const ex = fx.toNumber(sim.state.posX[i]);
-      const ey = fx.toNumber(sim.state.posY[i]);
-      if (!renderer.isVisible(ex, ey)) continue;
-      const dx = ex - hw.x;
-      const dy = ey - hw.y;
-      const d = dx * dx + dy * dy;
-      if (d < bestD) {
-        bestD = d;
-        he = i;
-      }
-    }
-    renderer.hoverEntity = he;
+    altHeld = ev.altKey;
 
     if (!dragStart) return;
     const p = canvasXY(ev);
@@ -840,9 +814,16 @@ async function main(): Promise<void> {
     canDemolish: (i) => sim.unitTypes[sim.state.typeIdx[i]].canDemolish,
     canGarrison: (i) => sim.unitTypes[sim.state.typeIdx[i]].canGarrison,
     canTunnelCharge: (i) => sim.unitTypes[sim.state.typeIdx[i]].canTunnelCharge,
-    // Slice 2 wires this to the mission's roe.flagged_zones. Until then the
-    // tier comes from the structure alone, which is what ships today.
-    inFlaggedZone: () => false,
+    // zoneContains is shared with stepRoe's fire/strike branches (task 1) so
+    // the warning here and the ROE penalty in the sim cannot drift by a tile.
+    inFlaggedZone: (x, y) => {
+      const tx = Math.floor(x);
+      const ty = Math.floor(y);
+      for (const name of mission?.roe?.flagged_zones ?? []) {
+        if (zoneContains(map.zones[name], tx, ty)) return true;
+      }
+      return false;
+    },
   };
   canvas.addEventListener('contextmenu', (ev) => {
     ev.preventDefault();
@@ -1140,6 +1121,78 @@ async function main(): Promise<void> {
       renderer.camera.y -= panSpeed;
     }
     renderer.frame(acc / MS_PER_TICK);
+
+    // Hover work runs once per frame rather than once per pointer event. A
+    // high-poll mouse fires several moves a frame, and this loop includes an
+    // O(N) scan over every entity, so this is strictly cheaper than before.
+    const hw = renderer.screenToWorld(lastCursor.x, lastCursor.y);
+    const hs = sim.structureAt(Math.floor(hw.x), Math.floor(hw.y));
+    renderer.hoverStructure = hs;
+    renderer.hoverCanGarrison =
+      hs >= 0 &&
+      sim.structures.occupants[hs] < sim.structureTypes[sim.structures.typeIdx[hs]].garrisonSlots &&
+      renderer.selection.some(
+        (i) =>
+          sim.state.side[i] === 0 &&
+          sim.state.alive[i] === 1 &&
+          sim.unitTypes[sim.state.typeIdx[i]].canGarrison &&
+          sim.state.garrisonedIn[i] !== hs
+      );
+
+    // Nearest living enemy within half a tile of the cursor — the same
+    // generosity the click-to-select test uses. Restricted to side 1 (real
+    // enemies, never civilians — side 2 is never an aimpoint) and gated on
+    // renderer.isVisible so the scan can only pick up an entity that is
+    // actually drawn on screen right now. That mirrors the exact condition
+    // the renderer itself uses to decide whether to draw a non-friendly
+    // sprite at all (see PixiRenderer's entity loop) — anything the fog
+    // currently hides must not be able to surface through the hover panel
+    // either, or sweeping the cursor across unexplored ground locates every
+    // hidden defender.
+    let he = -1;
+    let bestD = 0.5 * 0.5;
+    for (let i = 0; i < sim.entityCount; i++) {
+      if (sim.state.alive[i] === 0 || sim.state.side[i] !== 1) continue;
+      const ex = fx.toNumber(sim.state.posX[i]);
+      const ey = fx.toNumber(sim.state.posY[i]);
+      if (!renderer.isVisible(ex, ey)) continue;
+      const dx = ex - hw.x;
+      const dy = ey - hw.y;
+      const d = dx * dx + dy * dy;
+      if (d < bestD) {
+        bestD = d;
+        he = i;
+      }
+    }
+    renderer.hoverEntity = he;
+
+    // The hover cursor asks the same resolver the click uses, with the same
+    // adapter (intentWorld) — one object, so the click and the cursor that
+    // predicts it can never give different answers. append is always false:
+    // the hover cursor does not depend on Shift, and passing the live Shift
+    // state would make the cursor flicker while a player queues waypoints.
+    const mine = renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
+    const res = resolvePointer(intentWorld, {
+      ids: mine,
+      x: hw.x,
+      y: hw.y,
+      append: false,
+      armed: armedSupport,
+      confirm: altHeld,
+    });
+    const tx = Math.floor(hw.x);
+    const ty = Math.floor(hw.y);
+    const inBounds = tx >= 0 && ty >= 0 && tx < sim.width && ty < sim.height;
+    const name = cursorFor(res, {
+      hostile: renderer.hoverEntity >= 0,
+      blocked: inBounds && sim.blocked[ty * sim.width + tx] !== 0,
+    });
+    // Guard the write: a dataset attribute set every frame forces needless
+    // style invalidation even when the cursor hasn't changed.
+    if (name !== lastCursorName) {
+      canvas.dataset.cursor = name;
+      lastCursorName = name;
+    }
   });
 }
 
