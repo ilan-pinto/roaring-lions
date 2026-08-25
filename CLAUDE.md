@@ -117,6 +117,20 @@ The combat model is the product. Everything else is scaffolding around it.
 ## Dev instruments
 
 - Browser sandbox: `window.__lions.step(n)` fast-forwards n deterministic ticks; `__lions.sim` and `__lions.renderer` are exposed.
+- `?sandbox=<map id>` walks **any** shipped map with a full task force placed from
+  that map's own markers — no mission needed. Bare `?sandbox` still loads
+  `beit_sahwan_outskirts` unchanged. Before this, checking anything visual on a new
+  map meant authoring a throwaway mission and deleting it, which is how Tel Marum's
+  terrain was walked. Also on `__lions`: `goto('hollow')` jumps the camera to a
+  marker, `units()` lists living units with their ids and tiles, `sel([id])` sets the
+  selection, and `cursorKey()` **reads back** `canvas.dataset.cursor`. That last one
+  is a DOM read rather than a recomputation on purpose — the failure worth catching
+  is a cursor whose logic is right and whose wiring is not, and recomputing would
+  agree with the logic and tell you nothing.
+- Two ROE facts a visual check needs: **only `wadi_halam_basin` contains a mosque**,
+  so the protected-target X is unreachable anywhere else unless a mission declares
+  `roe.flagged_zones`. Tel Marum's town buildings are `#` (`concrete`, penalty 3), so
+  they read as the *costly* tier, not protected.
 - `pnpm balance` runs the §5.7 backtest; `tools/src/backtest/urban-only.ts` is the fast urban-ratio calibration loop.
 - The determinism golden hash lives in `packages/sim/src/determinism.test.ts`. It changes only when sim code or tuning changes deliberately — update it in the same commit and say why.
 - Combat tuning lives in `packages/sim/src/tuning.ts`. §5.7 targets outrank §5 formula text.

@@ -56,6 +56,7 @@ import {
 } from './input/intents';
 import { cursorFor, cursorKey, badgeFor, type BadgeHints } from './input/cursor';
 import { roleBucket } from './ui/role';
+import { sandboxAnchors, type SandboxAnchors } from './sandbox-anchors';
 import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
 import { tutorialPanel, type TutorialPanel } from './tutorial/panel';
 import { parseWorld, parseCountries, nextMissionAfter } from './campaign';
@@ -65,7 +66,6 @@ import { parseWorld, parseCountries, nextMissionAfter } from './campaign';
 const BASE = import.meta.env.BASE_URL;
 
 const MS_PER_TICK = 1000 / TICKS_PER_SECOND;
-const WEST = 32768; // half turn — garrisons face the expected KDF axis
 
 // Campaign persistence: victories merge their produced ledger keys here;
 // defeats write nothing — replaying a mission for a better ledger is free.
@@ -100,59 +100,103 @@ function campaignSummary(ledger: LedgerData): string {
   return parts.length > 0 ? `campaign: ${parts.join(' · ')}` : 'campaign: fresh start';
 }
 
-function sandboxSpawns(sim: Sim, typeOf: Map<string, number>): void {
+/** The task force, as offsets from the friendly anchor. */
+const SANDBOX_KDF: readonly (readonly [string, number, number])[] = [
+  ['mbt_lavi', 0, -3],
+  ['mbt_lavi', 0, 3],
+  ['ifv_namer', -1, -7],
+  ['ifv_namer', -1, 7],
+  ['apc_eitan', -2, 0],
+  ['inf_squad', 2, -5],
+  ['inf_squad', 2, 0],
+  ['inf_squad', 2, 5],
+  ['at_team', 1, -2],
+  ['mortar_team', -2, 2],
+  ['jeep_shoded', 1, 3],
+  ['recon_drone', 4, 0],
+  // The D9 and the Apache both sit behind the line of contact, for different
+  // reasons: the D9 is slow and unarmed, so sending it forward would just feed
+  // it to the militia before it has done any work. The Apache is fast enough
+  // to reach the front on its own, so holding it back gives the player a beat
+  // to notice their most powerful asset before committing it.
+  ['dozer_d9', -1, -3],
+  ['heli_peten', 2, 8],
+];
+
+/** The opposition, as offsets from the hostile anchor. */
+const SANDBOX_ENEMY: readonly (readonly [string, number, number])[] = [
+  ['militia_cell', -4, -10],
+  ['militia_cell', 2, -7],
+  ['militia_cell', -2, 3],
+  ['militia_cell', -6, 15],
+  ['rpg_team', -4, 2],
+  ['rpg_team', -12, -3],
+  ['atgm_cell', 7, 0],
+  ['technical', 11, -8],
+  ['technical', 11, 10],
+  ['mortar_crew', 13, 2],
+  // The raider set. The sandbox is the only place these appear — no mission
+  // places them yet — so this is what makes their art reachable in play at
+  // all, and what the art was verified against. They sit inside the band
+  // rather than beyond it: a hostile draws no sprite until a friendly unit
+  // sees its tile, so anything parked past the opposition is invisible for
+  // the whole opening, and scouting it with the drone does not work either
+  // since the gun truck kills the drone before the fog lifts.
+  ['gun_truck', 1, -5],
+  ['charge_squad', 0, -2],
+  ['loiter_drone', -1, 0],
+  ['moto_rpg', -5, 6],
+  ['paramotor', 2, 7],
+];
+
+/**
+ * The sandbox force, placed relative to the map's own anchors.
+ *
+ * The offsets are the coordinates the hardcoded version used, expressed
+ * against beit_sahwan_outskirts' `kdf_assembly` and `town_center` — so that
+ * map's sandbox is unchanged, and every other map gets the same formation
+ * translated onto its own ground.
+ */
+function sandboxSpawns(sim: Sim, typeOf: Map<string, number>, anchors: SandboxAnchors): void {
+  // Terrain the formation knows nothing about: an offset that lands in rock
+  // or a wall would strand a unit inside it, and Tel Marum's ridge sits right
+  // where the opposition's band falls. Spiral out to the nearest open tile.
+  const open = (x: number, y: number): [number, number] => {
+    const cx = Math.min(Math.max(Math.round(x), 0), sim.width - 1);
+    const cy = Math.min(Math.max(Math.round(y), 0), sim.height - 1);
+    for (let r = 0; r <= 6; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const tx = cx + dx;
+          const ty = cy + dy;
+          if (tx < 0 || ty < 0 || tx >= sim.width || ty >= sim.height) continue;
+          if (sim.blocked[ty * sim.width + tx] === 0) return [tx, ty];
+        }
+      }
+    }
+    return [cx, cy];
+  };
+
   const spawn = (id: string, side: number, x: number, y: number, facing = 0): number => {
     const t = typeOf.get(id);
     if (t === undefined) throw new Error(`unknown unit ${id}`);
-    return sim.spawn(t, side, fx.from(x + 0.5), fx.from(y + 0.5), facing);
+    const [ox, oy] = open(x, y);
+    return sim.spawn(t, side, fx.from(ox + 0.5), fx.from(oy + 0.5), facing);
   };
-  // KDF task force, west edge, facing east.
-  spawn('mbt_lavi', 0, 4, 20);
-  spawn('mbt_lavi', 0, 4, 26);
-  spawn('ifv_namer', 0, 3, 16);
-  spawn('ifv_namer', 0, 3, 30);
-  spawn('apc_eitan', 0, 2, 23);
-  spawn('inf_squad', 0, 6, 18);
-  spawn('inf_squad', 0, 6, 23);
-  spawn('inf_squad', 0, 6, 28);
-  spawn('at_team', 0, 5, 21);
-  spawn('mortar_team', 0, 2, 25);
-  spawn('jeep_shoded', 0, 5, 26);
-  spawn('recon_drone', 0, 8, 23);
-  // The D9 and the Apache both spawn behind the line of contact, for
-  // different reasons: the D9 is slow and unarmed, so sending it forward
-  // would just feed it to the militia before it has done any work. The
-  // Apache is fast enough to reach the front on its own, so holding it back
-  // instead gives the player a beat to notice their most powerful asset
-  // before committing it.
-  spawn('dozer_d9', 0, 3, 20);
-  spawn('heli_peten', 0, 6, 31);
-  // Enemy garrison among the buildings, facing west.
-  spawn('militia_cell', 1, 27, 12, WEST);
-  spawn('militia_cell', 1, 33, 15, WEST);
-  spawn('militia_cell', 1, 29, 25, WEST);
-  spawn('militia_cell', 1, 25, 37, WEST);
-  spawn('rpg_team', 1, 27, 24, WEST);
-  spawn('rpg_team', 1, 19, 19, WEST);
-  spawn('atgm_cell', 1, 38, 22, WEST);
-  spawn('technical', 1, 42, 14, WEST);
-  spawn('technical', 1, 42, 32, WEST);
-  spawn('mortar_crew', 1, 44, 24, WEST);
-  // The raider set. The sandbox is the only place these appear -- no mission
-  // places them yet -- so this is what makes their art reachable in play at
-  // all, and what the art was verified against.
-  //
-  // They sit in the militia band (x 26-33), not out on the east edge where they
-  // were first placed. A hostile draws no sprite at all until a KDF unit sees
-  // its tile, so anything parked at x 45 is invisible for the whole opening --
-  // and scouting it with the drone does not work either, since the gun truck is
-  // an AA platform and kills the drone before the fog lifts. Placed here, the
-  // first push east reveals them.
-  spawn('gun_truck', 1, 32, 17, WEST);
-  spawn('charge_squad', 1, 31, 20, WEST);
-  spawn('loiter_drone', 1, 30, 22, WEST);
-  spawn('moto_rpg', 1, 26, 28, WEST);
-  spawn('paramotor', 1, 33, 29, WEST);
+
+  const [fxA, fyA] = anchors.friendly;
+  const [hxA, hyA] = anchors.hostile;
+  // Hostiles face the friendly anchor rather than a fixed compass direction:
+  // "west" was right for one map and is meaningless on any other. A full turn
+  // is 1.0 in this fixed-point angle (WEST, a half turn, is 32768), so the
+  // radians are converted to turns and normalised into [0, 1) before the
+  // conversion rather than relying on a negative angle wrapping.
+  const turns = Math.atan2(fyA - hyA, fxA - hxA) / (Math.PI * 2);
+  const facing = fx.from(turns - Math.floor(turns));
+
+  for (const [id, dx, dy] of SANDBOX_KDF) spawn(id, 0, fxA + dx, fyA + dy);
+  for (const [id, dx, dy] of SANDBOX_ENEMY) spawn(id, 1, hxA + dx, hyA + dy, facing);
 }
 
 /** Mission narration for the HUD notice stack: what to say, and how it lands. */
@@ -237,9 +281,23 @@ async function main(): Promise<void> {
   const ledger: LedgerData = params.get('fresh') !== null ? {} : loadLedger();
 
   // --- world ---------------------------------------------------------------
+  // `?sandbox=<map id>` walks any shipped map. Bare `?sandbox` keeps loading
+  // beit_sahwan_outskirts, so the M0 sandbox is unchanged.
+  //
+  // This exists because verifying anything visual on a new map used to mean
+  // authoring a throwaway mission and deleting it afterwards — Tel Marum's
+  // terrain was walked exactly that way. An unknown id falls back rather than
+  // failing, and names what it did: a typo in a dev URL should not look like
+  // a broken build.
+  const sandboxMap = params.get('sandbox');
+  if (sandboxMap && !(sandboxMap in maps)) {
+    console.warn(
+      `unknown sandbox map "${sandboxMap}" — available: ${Object.keys(maps).join(', ')}`
+    );
+  }
+  const mapId = mission?.map.file ?? (sandboxMap && sandboxMap in maps ? sandboxMap : 'beit_sahwan_outskirts');
   const mapJson =
-    (maps as Record<string, MapJson | undefined>)[mission?.map.file ?? 'beit_sahwan_outskirts'] ??
-    maps.beit_sahwan_outskirts;
+    (maps as Record<string, MapJson | undefined>)[mapId] ?? maps.beit_sahwan_outskirts;
   const map = parseMap(mapJson);
   // 256, not 128: `spawn` never reuses a dead unit's slot, so capacity is a
   // budget for everyone who ever draws breath in a mission rather than for how
@@ -312,7 +370,7 @@ async function main(): Promise<void> {
     });
     runtime.start();
   } else {
-    sandboxSpawns(sim, typeOf);
+    sandboxSpawns(sim, typeOf, sandboxAnchors(mapJson));
   }
 
   // --- renderer + overlay --------------------------------------------------
@@ -1093,6 +1151,60 @@ async function main(): Promise<void> {
         renderer.frame(1);
         return sim.tickCount;
       },
+
+      /** Jump the camera to a named marker, or to a tile. Walking to the far
+       *  corner of a 48×48 map to look at one ridge is most of the cost of
+       *  checking anything visual. */
+      goto: (where: string | number, y?: number) => {
+        if (typeof where === 'number') {
+          renderer.camera.x = where;
+          renderer.camera.y = y ?? where;
+          return [renderer.camera.x, renderer.camera.y];
+        }
+        const markers = (mapJson.markers ?? {}) as Record<string, readonly number[] | undefined>;
+        const p = markers[where];
+        if (!p) {
+          console.warn(
+            `unknown marker "${where}" — this map has: ${Object.keys(markers).join(', ') || '(none)'}`
+          );
+          return null;
+        }
+        renderer.camera.x = p[0];
+        renderer.camera.y = p[1];
+        return [p[0], p[1]];
+      },
+
+      /** Set the selection, so a specific unit can be put under the pointer
+       *  without hunting for it. Ids come from `sim`, or from `units()` below. */
+      sel: (ids: number[]) => {
+        renderer.selection = ids.filter((i) => sim.state.alive[i] === 1);
+        return renderer.selection;
+      },
+
+      /** Living units with their type id and tile, for finding something to
+       *  select. Side 0 unless asked otherwise. */
+      units: (side = 0) => {
+        const out: { id: number; type: string; x: number; y: number }[] = [];
+        for (let i = 0; i < sim.entityCount; i++) {
+          if (sim.state.alive[i] !== 1 || sim.state.side[i] !== side) continue;
+          out.push({
+            id: i,
+            type: sim.unitTypes[sim.state.typeIdx[i]].id,
+            x: Math.floor(fx.toNumber(sim.state.posX[i])),
+            y: Math.floor(fx.toNumber(sim.state.posY[i])),
+          });
+        }
+        return out;
+      },
+
+      /** What cursor is actually applied right now.
+       *
+       *  Deliberately a READ of the DOM attribute rather than a recomputation:
+       *  the whole failure this exists to catch is a cursor whose logic is
+       *  right and whose wiring is not. Recomputing would agree with the logic
+       *  and tell you nothing. A previous slice shipped a selector that could
+       *  never match, behind a fully green suite. */
+      cursorKey: () => canvas.dataset.cursor ?? '(unset)',
     },
   });
 
