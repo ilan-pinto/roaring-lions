@@ -297,14 +297,25 @@ function badgeMark(bucket: RoleBucket, colour: string): string {
  *  `attack` are reachable by all seven; the other six verbs are gated to the
  *  subset of buckets whose units can actually issue them. A verb absent here
  *  keeps only its bare (unbadged) rule -- `blocked`, `costly`, `protected`
- *  and `support` describe the target, not the actor, and never earn a badge. */
-const BADGED_VERBS: { [K in Exclude<CursorName, 'default'>]?: RoleBucket[] } = {
+ *  and `support` describe the target, not the actor, and never earn a badge.
+ *
+ *  `mount` and `dismount` look symmetric but are not: `cursor.ts`'s `idsOf`
+ *  returns `riders` for a mount (the units boarding) and `carriers` for a
+ *  dismount (the transport doing the dismounting). Every embarkable unit in
+ *  data/units/kdf/ buckets to `soft` or `sniper` -- no carrier has
+ *  `can_embark` -- so `mount` is reachable by riders, never by the
+ *  `transport` bucket itself. `dismount` is the mirror image: only a
+ *  `transport`-bucket carrier ever issues one. Exported so a test can derive
+ *  this table from the roster and assert the two never drift apart -- see
+ *  the "BADGED_VERBS reachability is derived from the roster" describe in
+ *  vite-plugin-cursors.test.ts. */
+export const BADGED_VERBS: { [K in Exclude<CursorName, 'default'>]?: RoleBucket[] } = {
   move: ['kamikaze', 'drone', 'gunship', 'sniper', 'transport', 'soft', 'armour'],
   attack: ['kamikaze', 'drone', 'gunship', 'sniper', 'transport', 'soft', 'armour'],
   garrison: ['soft', 'sniper'],
   demolish: ['soft', 'armour'],
   charge: ['soft'],
-  mount: ['transport'],
+  mount: ['soft', 'sniper'],
   dismount: ['transport'],
   smoke: ['transport', 'soft', 'armour'],
 };

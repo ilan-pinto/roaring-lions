@@ -13,11 +13,14 @@
 // Rather than touch the global config or route every URL through
 // `fileURLToPath`, the one test below that needs a DOM builds its own via
 // the `jsdom` package directly and never touches the global environment.
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
+import { unitTypeFromJson, type UnitTypeJson } from '@lions/sim';
 import { describe, expect, it } from 'vitest';
 import { cursorKey } from './src/input/cursor';
-import { CENTER, cursorRules, deriveUiBand, resolvePalette } from './vite-plugin-cursors';
+import { roleBucket, type RoleBucket } from './src/ui/role';
+import { BADGED_VERBS, CENTER, cursorRules, deriveUiBand, resolvePalette } from './vite-plugin-cursors';
 
 // Same relative path vite.config.ts uses from this same directory. Hoisted
 // here (rather than inside a single describe) so both the real-palette
@@ -137,7 +140,7 @@ describe('badged rules', () => {
 
   it('emits a rule for every reachable name-badge key', () => {
     for (const key of ['demolish-soft', 'demolish-armour', 'charge-soft', 'garrison-soft',
-                       'mount-transport', 'dismount-transport', 'smoke-armour', 'move-drone',
+                       'mount-soft', 'dismount-transport', 'smoke-armour', 'move-drone',
                        'attack-gunship']) {
       expect(css).toContain(`canvas[data-cursor='${key}']`);
     }
@@ -145,9 +148,12 @@ describe('badged rules', () => {
 
   it('emits no rule for a badge that bucket can never earn', () => {
     // A gunship cannot garrison and a drone cannot demolish. A rule for it
-    // would be dead bytes shipped on every page load.
+    // would be dead bytes shipped on every page load. `mount-transport` is
+    // the one this exact review caught: idsOf returns `riders` for a mount,
+    // never the carrier itself, so no transport-bucket unit ever issues one.
     expect(css).not.toContain("data-cursor='garrison-gunship'");
     expect(css).not.toContain("data-cursor='demolish-drone'");
+    expect(css).not.toContain("data-cursor='mount-transport'");
   });
 
   it('leaves the target-describing states unbadged', () => {
@@ -178,5 +184,58 @@ describe('badged rules', () => {
     // silently falls back to the OS arrow, which is what happened in slice 2.
     expect(css).toContain(`canvas[data-cursor='${cursorKey('demolish', 'soft')}']`);
     expect(css).toContain(`canvas[data-cursor='${cursorKey('move', null)}']`);
+  });
+});
+
+// BADGED_VERBS is hand-written, and a hand-written table drifts: the reachable
+// buckets for `mount` and `dismount` look symmetric but are not (idsOf returns
+// `riders` for a mount and `carriers` for a dismount -- see BADGED_VERBS's own
+// comment), and that exact asymmetry was inverted here until a review caught
+// it. This derives the reachable set straight from the roster, mirroring the
+// same fields unitTypeFromJson reads and cursor.ts's winningVerb/intentVerb
+// dispatch on, and asserts it against BADGED_VERBS in both directions -- a
+// verb the table claims reachable but no unit can produce (a dead rule, like
+// the `mount-transport` this review found) and a verb/bucket a unit can
+// produce that the table lacks (a badge that silently falls back to the OS
+// arrow) are the same class of bug, and this one test catches both.
+describe('BADGED_VERBS reachability is derived from the roster', () => {
+  const unitsDir = fileURLToPath(new URL('../../data/units/kdf/', import.meta.url));
+  const types = readdirSync(unitsDir)
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => unitTypeFromJson(JSON.parse(readFileSync(`${unitsDir}${f}`, 'utf8')) as UnitTypeJson));
+
+  /** Which verbs a unit type can actually produce. `move` and `attack` are
+   *  universal; the rest gate on the same ability/hull flags
+   *  unitTypeFromJson exposes -- canGarrison, canDemolish, canTunnelCharge,
+   *  canEmbark (a rider boarding, i.e. `mount`), transportSlots > 0 (a
+   *  carrier's own `dismount`), and canSmoke. */
+  function verbsOf(type: ReturnType<typeof unitTypeFromJson>): (keyof typeof BADGED_VERBS)[] {
+    const verbs: (keyof typeof BADGED_VERBS)[] = ['move', 'attack'];
+    if (type.canGarrison) verbs.push('garrison');
+    if (type.canDemolish) verbs.push('demolish');
+    if (type.canTunnelCharge) verbs.push('charge');
+    if (type.canEmbark) verbs.push('mount');
+    if (type.transportSlots > 0) verbs.push('dismount');
+    if (type.canSmoke) verbs.push('smoke');
+    return verbs;
+  }
+
+  const derived = new Map<keyof typeof BADGED_VERBS, Set<RoleBucket>>();
+  for (const type of types) {
+    const bucket = roleBucket(type);
+    for (const verb of verbsOf(type)) {
+      if (!derived.has(verb)) derived.set(verb, new Set());
+      derived.get(verb)!.add(bucket);
+    }
+  }
+
+  it('matches BADGED_VERBS exactly, in both directions', () => {
+    expect(types.length).toBeGreaterThan(0);
+    const verbKeys = new Set<string>([...Object.keys(BADGED_VERBS), ...derived.keys()]);
+    for (const verb of verbKeys) {
+      const table = [...(BADGED_VERBS[verb as keyof typeof BADGED_VERBS] ?? [])].sort();
+      const roster = [...(derived.get(verb as keyof typeof BADGED_VERBS) ?? [])].sort();
+      expect({ verb, table }).toEqual({ verb, table: roster });
+    }
   });
 });
