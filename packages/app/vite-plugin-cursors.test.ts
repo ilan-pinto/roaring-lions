@@ -16,7 +16,16 @@
 import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'vitest';
-import { CENTER, cursorRules, resolvePalette } from './vite-plugin-cursors';
+import { cursorKey } from './src/input/cursor';
+import { CENTER, cursorRules, deriveUiBand, resolvePalette } from './vite-plugin-cursors';
+
+// Same relative path vite.config.ts uses from this same directory. Hoisted
+// here (rather than inside a single describe) so both the real-palette
+// describe below and the badged-rules describe can read the same `raw`
+// fixture instead of each parsing the file a second time.
+const paletteUrl = new URL('../../data/palette.json', import.meta.url);
+const raw = JSON.parse(readFileSync(paletteUrl, 'utf8'));
+const resolved = resolvePalette(paletteUrl);
 
 /** Pulls the selector text for one cursor's rule out of the generated CSS,
  *  so tests can assert on the selector's real matching behaviour instead of
@@ -111,11 +120,6 @@ describe('cursorRules', () => {
 // at build time (or worse, silently emit `undefined` as a colour). This
 // closes that seam by running the real translation against the real file.
 describe('deriveUiBand against the real data/palette.json', () => {
-  // Same relative path vite.config.ts uses from this same directory.
-  const paletteUrl = new URL('../../data/palette.json', import.meta.url);
-  const raw = JSON.parse(readFileSync(paletteUrl, 'utf8'));
-  const resolved = resolvePalette(paletteUrl);
-
   it("derives ui.bad and ui.good from the real palette's team.hostile and scrub[0]", () => {
     expect(resolved.reserved.ui.colors.bad).toBe(raw.reserved.team.colors.hostile);
     expect(resolved.reserved.ui.colors.good).toBe(raw.ramps.scrub.colors[0]);
@@ -125,5 +129,54 @@ describe('deriveUiBand against the real data/palette.json', () => {
     const css = cursorRules(resolved);
     expect(css).toContain(encodeURIComponent(raw.reserved.team.colors.hostile.toLowerCase()));
     expect(css).toContain(encodeURIComponent(raw.ramps.scrub.colors[0].toLowerCase()));
+  });
+});
+
+describe('badged rules', () => {
+  const css = cursorRules(deriveUiBand(raw));
+
+  it('emits a rule for every reachable name-badge key', () => {
+    for (const key of ['demolish-soft', 'demolish-armour', 'charge-soft', 'garrison-soft',
+                       'mount-transport', 'dismount-transport', 'smoke-armour', 'move-drone',
+                       'attack-gunship']) {
+      expect(css).toContain(`canvas[data-cursor='${key}']`);
+    }
+  });
+
+  it('emits no rule for a badge that bucket can never earn', () => {
+    // A gunship cannot garrison and a drone cannot demolish. A rule for it
+    // would be dead bytes shipped on every page load.
+    expect(css).not.toContain("data-cursor='garrison-gunship'");
+    expect(css).not.toContain("data-cursor='demolish-drone'");
+  });
+
+  it('leaves the target-describing states unbadged', () => {
+    for (const key of ['blocked', 'costly', 'protected', 'support']) {
+      expect(css).toContain(`canvas[data-cursor='${key}']`);
+      expect(css).not.toContain(`data-cursor='${key}-`);
+    }
+  });
+
+  it('every generated selector matches a real canvas node', () => {
+    // The check slice 2 lacked, which is why the cursor could never appear:
+    // the selector was `[data-cursor='x'] canvas` while the attribute was set
+    // ON the canvas. A string assertion cannot see that; a DOM node can.
+    // (JSDOM is already imported statically at the top of this file, so this
+    // reuses that import rather than requiring the package a second time.)
+    const dom = new JSDOM('<div id="stage"><canvas></canvas></div>');
+    const canvas = dom.window.document.querySelector('canvas')!;
+    const selectors = [...css.matchAll(/canvas\[data-cursor='([^']+)'\]/g)].map((m) => m[1]);
+    expect(selectors.length).toBeGreaterThan(20);
+    for (const key of selectors) {
+      canvas.setAttribute('data-cursor', key);
+      expect(`${key}:${canvas.matches(`canvas[data-cursor='${key}']`)}`).toBe(`${key}:true`);
+    }
+  });
+
+  it('agrees with cursorKey about how a key is spelled', () => {
+    // The contract nothing typechecks. If these two ever disagree the cursor
+    // silently falls back to the OS arrow, which is what happened in slice 2.
+    expect(css).toContain(`canvas[data-cursor='${cursorKey('demolish', 'soft')}']`);
+    expect(css).toContain(`canvas[data-cursor='${cursorKey('move', null)}']`);
   });
 });
