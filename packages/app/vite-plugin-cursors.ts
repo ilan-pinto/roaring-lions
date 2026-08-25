@@ -141,30 +141,39 @@ export function cursorRules(palette: Palette): string {
     .join('\n');
 }
 
-export function cursorsPlugin(paletteUrl: URL): Plugin {
-  const path = paletteUrl.pathname;
-
-  // The real data/palette.json has no `ui` reserved band -- cursor colour
-  // reuses the same two values theme.css already aliases as --bad and --good
-  // (team.hostile and scrub's lightest step), so a cursor and the HUD text it
-  // sits next to always agree on what "bad" and "good" look like. This reads
-  // those values out of the real palette at plugin-run time; it never writes
-  // a literal.
-  const read = (): Palette => {
-    const raw = JSON.parse(readFileSync(paletteUrl, 'utf8')) as Palette;
-    return {
-      ...raw,
-      reserved: {
-        ...raw.reserved,
-        ui: {
-          colors: {
-            bad: raw.reserved.team.colors.hostile,
-            good: raw.ramps.scrub.colors[0],
-          },
+// The real data/palette.json has no `ui` reserved band -- cursor colour
+// reuses the same two values theme.css already aliases as --bad and --good
+// (team.hostile and scrub's lightest step), so a cursor and the HUD text it
+// sits next to always agree on what "bad" and "good" look like. Exported (not
+// inlined into cursorsPlugin) so a test can run this exact translation
+// against the real file on disk: cursorRules is tested as a pure function
+// over an already-shaped Palette, and that shape never occurs on disk, only
+// here -- so this is the one seam a rename or removal of team.hostile /
+// scrub[0] would otherwise slip past.
+export function deriveUiBand(raw: Palette): Palette {
+  return {
+    ...raw,
+    reserved: {
+      ...raw.reserved,
+      ui: {
+        colors: {
+          bad: raw.reserved.team.colors.hostile,
+          good: raw.ramps.scrub.colors[0],
         },
       },
-    };
+    },
   };
+}
+
+/** Reads and shapes the palette exactly as `cursorsPlugin` does at request
+ *  time -- factored out so a test can point it at the real data/palette.json. */
+export function resolvePalette(paletteUrl: URL): Palette {
+  const raw = JSON.parse(readFileSync(paletteUrl, 'utf8')) as Palette;
+  return deriveUiBand(raw);
+}
+
+export function cursorsPlugin(paletteUrl: URL): Plugin {
+  const path = paletteUrl.pathname;
 
   return {
     name: 'lions-cursors',
@@ -181,7 +190,7 @@ export function cursorsPlugin(paletteUrl: URL): Plugin {
         {
           tag: 'style',
           attrs: { 'data-cursor-rules': 'data/palette.json' },
-          children: cursorRules(read()),
+          children: cursorRules(resolvePalette(paletteUrl)),
           injectTo: 'head-prepend',
         },
       ];
