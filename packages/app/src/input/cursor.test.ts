@@ -29,10 +29,14 @@ describe('cursorFor', () => {
     expect(cursorFor(moving(), { hostile: true, blocked: false })).toBe('attack');
   });
 
-  it('is blocked over impassable ground, even with a hostile hint', () => {
-    // Rock is impassable and can hide a unit behind it; the ground is still
-    // the thing you cannot stand on.
-    expect(cursorFor(moving(), { hostile: true, blocked: true })).toBe('blocked');
+  it('is attack over impassable ground with a hostile hint, now that the verb outranks blocked', () => {
+    // Slice 3 moved THE VERB rung above roe costly and, with it, blocked:
+    // winningVerb folds a hostile plain order in as 'attack' (ordering
+    // decision 2), and that check now runs before hints.blocked is ever
+    // consulted. Before this task blocked won here; the reorder is
+    // deliberate and documented in cursor.ts, not a regression this test
+    // failed to notice.
+    expect(cursorFor(moving(), { hostile: true, blocked: true })).toBe('attack');
   });
 
   it('is costly over a structure that scores against you', () => {
@@ -55,9 +59,12 @@ describe('cursorFor', () => {
     );
   });
 
-  it('puts costly above attack', () => {
+  it('puts attack above costly, now that the verb outranks costly', () => {
+    // Same reorder as the blocked case above: THE VERB rung sits above roe
+    // costly, and winningVerb resolves a hostile plain order to 'attack'
+    // before roe === 'costly' is ever reached.
     expect(cursorFor(moving({ roe: 'costly' }), { hostile: true, blocked: false })).toBe(
-      'costly'
+      'attack'
     );
   });
 
@@ -116,5 +123,71 @@ describe('cursorFor', () => {
     expect(
       cursorFor({ intents: [], roe: 'protected', marker: false, armed: 'strike' }, NONE)
     ).toBe('support');
+  });
+});
+
+describe('the cursor names the verb', () => {
+  const at = (kind: string, extra: Record<string, unknown> = {}) =>
+    ({ kind, ids: [1], ...extra }) as unknown as Resolution['intents'][number];
+
+  const res = (intents: Resolution['intents'], over: Partial<Resolution> = {}): Resolution => ({
+    intents, roe: 'free', marker: true, ...over,
+  });
+
+  it('says demolish, charge, garrison, mount, dismount and smoke', () => {
+    expect(cursorFor(res([at('demolish', { structure: 3 })]), NONE)).toBe('demolish');
+    expect(cursorFor(res([at('chargeTunnel', { tunnel: 1 })]), NONE)).toBe('charge');
+    expect(cursorFor(res([at('garrison', { structure: 3 })]), NONE)).toBe('garrison');
+    expect(cursorFor(res([at('mount', { carrier: 2, riders: [1] })]), NONE)).toBe('mount');
+    expect(cursorFor(res([at('dismount', { carriers: [1] })]), NONE)).toBe('dismount');
+    expect(cursorFor(res([at('smoke', { x: 1, y: 1 })]), NONE)).toBe('smoke');
+  });
+
+  it('ranks a mixed click by what it destroys, heaviest first', () => {
+    // sortStructureOrder can emit all three at once. One cursor, so it names
+    // the worst thing the click will cause.
+    const all = res([
+      at('demolish', { structure: 3 }),
+      at('garrison', { structure: 3 }),
+      at('order', { verb: 'attackMove', x: 1, y: 1, append: false }),
+    ]);
+    expect(cursorFor(all, NONE)).toBe('demolish');
+  });
+
+  it('puts charge above garrison when a tunnel click splits', () => {
+    const both = res([at('chargeTunnel', { tunnel: 1 }), at('garrison', { structure: 3 })]);
+    expect(cursorFor(both, NONE)).toBe('charge');
+  });
+
+  it('puts attack above garrison, since firing outranks entering', () => {
+    const both = res([at('garrison', { structure: 3 }), at('order', { verb: 'attackMove' })]);
+    expect(cursorFor(both, { hostile: true, blocked: false })).toBe('attack');
+  });
+
+  it('is the verb over a costly building, not the warning', () => {
+    // A house is a blocked tile with a non-zero roe_penalty, so without the
+    // verb outranking costly a D9 over a house would read "costly" -- true,
+    // milder, and useless next to "you are about to level this".
+    const r = res([at('demolish', { structure: 3 })], { roe: 'costly' });
+    expect(cursorFor(r, { hostile: false, blocked: true })).toBe('demolish');
+  });
+
+  it('but still says protected over a mosque, whatever the verb', () => {
+    const r = res([at('demolish', { structure: 3 })], { roe: 'protected' });
+    expect(cursorFor(r, NONE)).toBe('protected');
+  });
+
+  it('falls back to costly when no special verb applies', () => {
+    const r = res([at('order', { verb: 'attackMove' })], { roe: 'costly' });
+    expect(cursorFor(r, NONE)).toBe('costly');
+  });
+
+  it('keeps armed above refused — the gap slice 2 left open', () => {
+    // Unreachable through resolvePointer today, because armed early-returns
+    // before the structure branch can set refused. That is an implementation
+    // invariant, not a type one: change the resolver and the order starts
+    // mattering with nothing to catch it.
+    const r = res([], { armed: 'sweep', refused: true });
+    expect(cursorFor(r, NONE)).toBe('support');
   });
 });
