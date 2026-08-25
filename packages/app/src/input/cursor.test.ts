@@ -233,6 +233,17 @@ describe('the badge says who is doing it', () => {
     expect(badgeFor(r, NONE, buckets({ 1: 'transport', 2: 'soft' }))).toBeNull();
   });
 
+  it('says nothing when only the third id in the group differs', () => {
+    // An inf_squad, a mortar_team and a sniper_team can all garrison the same
+    // building -- soft, soft, sniper. The first two buckets agree; a
+    // "compare only the first two ids" check would miss the third and badge
+    // the whole trio "soft" while a sniper is standing among them.
+    const r = res([{ kind: 'garrison', ids: [1, 2, 3], structure: 3 }] as Resolution['intents']);
+    expect(
+      badgeFor(r, NONE, buckets({ 1: 'soft', 2: 'soft', 3: 'sniper' }))
+    ).toBeNull();
+  });
+
   it('badges the WINNING group, not the whole selection', () => {
     // The D9 demolishes and the infantry garrisons. demolish wins, so the
     // badge is the D9's -- the infantry's bucket must not leak into it.
