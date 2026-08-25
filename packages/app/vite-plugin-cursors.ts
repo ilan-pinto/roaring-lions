@@ -97,6 +97,16 @@ function protectedShape(bad: string): string {
   );
 }
 
+// PLACEHOLDER for the six verb cursors (garrison, demolish, charge, mount,
+// dismount, smoke) Task 2 introduced. A plain bordered square with no
+// meaning of its own -- Task 4 replaces every one of these with real art
+// and badges. It exists only so shapesFor stays a total Record and the
+// branch typechecks between here and Task 4 landing.
+function placeholderShape(mid: string): string {
+  const c = hex(mid);
+  return svg(`<rect x="7" y="7" width="18" height="18" fill="none" stroke="${c}" stroke-width="2"/>`);
+}
+
 // Four corner brackets and a centre dot -- a target frame, not a weapon.
 function supportShape(good: string): string {
   const c = hex(good);
@@ -123,6 +133,14 @@ function shapesFor(palette: Palette): Record<Exclude<CursorName, 'default'>, str
     costly: costlyShape(bad, light),
     protected: protectedShape(bad),
     support: supportShape(good),
+    // PLACEHOLDER: Task 4 owns the real shape for each of these six --
+    // see placeholderShape's own comment.
+    garrison: placeholderShape(mid),
+    demolish: placeholderShape(mid),
+    charge: placeholderShape(mid),
+    mount: placeholderShape(mid),
+    dismount: placeholderShape(mid),
+    smoke: placeholderShape(mid),
   };
 }
 

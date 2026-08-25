@@ -33,9 +33,12 @@ describe('cursorFor', () => {
     // Slice 3 moved THE VERB rung above roe costly and, with it, blocked:
     // winningVerb folds a hostile plain order in as 'attack' (ordering
     // decision 2), and that check now runs before hints.blocked is ever
-    // consulted. Before this task blocked won here; the reorder is
-    // deliberate and documented in cursor.ts, not a regression this test
-    // failed to notice.
+    // consulted. This is a deliberate, ruled-on change, not a regression
+    // this test failed to notice: attack is a verb in the destructiveness
+    // ranking like the other six, and a hostile under the pointer now
+    // outranks the collateral tier (costly/blocked) the same way demolish
+    // does -- "here is what you would hit" beats "here is what it costs or
+    // blocks." Before this task blocked won here.
     expect(cursorFor(moving(), { hostile: true, blocked: true })).toBe('attack');
   });
 
@@ -62,7 +65,9 @@ describe('cursorFor', () => {
   it('puts attack above costly, now that the verb outranks costly', () => {
     // Same reorder as the blocked case above: THE VERB rung sits above roe
     // costly, and winningVerb resolves a hostile plain order to 'attack'
-    // before roe === 'costly' is ever reached.
+    // before roe === 'costly' is ever reached. Deliberate: a hostile under
+    // the pointer now outranks the collateral tier, so the cursor names
+    // what the click does (attack) over what it merely costs (costly).
     expect(cursorFor(moving({ roe: 'costly' }), { hostile: true, blocked: false })).toBe(
       'attack'
     );
