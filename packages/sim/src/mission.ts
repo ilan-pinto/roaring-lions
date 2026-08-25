@@ -296,6 +296,21 @@ interface PatrolState {
   idx: number;
 }
 
+/** Is a tile inside an `[x, y, w, h]` zone rectangle? Upper bound exclusive.
+ *
+ *  Exported because three callers must agree: stepRoe's fire branch, its
+ *  strike branch, and the app's cursor, which tells the player whether firing
+ *  here will cost them. A private copy in any of the three is a chance for the
+ *  warning and the penalty to disagree by a tile. */
+export function zoneContains(
+  zone: readonly number[] | undefined,
+  tx: number,
+  ty: number
+): boolean {
+  if (!zone) return false;
+  return tx >= zone[0] && tx < zone[0] + zone[2] && ty >= zone[1] && ty < zone[1] + zone[3];
+}
+
 export class MissionRuntime {
   private readonly sim: Sim;
   private readonly mission: MissionJson;
@@ -1029,8 +1044,7 @@ export class MissionRuntime {
         const tx = e.x >> 16;
         const ty = e.y >> 16;
         for (const zoneName of roe?.flagged_zones ?? []) {
-          const z = this.zone(zoneName);
-          if (z && tx >= z[0] && tx < z[0] + z[2] && ty >= z[1] && ty < z[1] + z[3]) {
+          if (zoneContains(this.zone(zoneName), tx, ty)) {
             const last = this.zoneDeductedAt.get(zoneName);
             if (last === undefined || tick - last >= ZONE_DEDUCT_COOLDOWN) {
               this.zoneDeductedAt.set(zoneName, tick);
@@ -1043,8 +1057,7 @@ export class MissionRuntime {
         const tx = e.x >> 16;
         const ty = e.y >> 16;
         for (const zoneName of roe?.flagged_zones ?? []) {
-          const z = this.zone(zoneName);
-          if (z && tx >= z[0] && tx < z[0] + z[2] && ty >= z[1] && ty < z[1] + z[3]) {
+          if (zoneContains(this.zone(zoneName), tx, ty)) {
             const last = this.zoneDeductedAt.get(zoneName);
             if (last === undefined || tick - last >= ZONE_DEDUCT_COOLDOWN) {
               this.zoneDeductedAt.set(zoneName, tick);
