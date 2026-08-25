@@ -127,10 +127,22 @@ The combat model is the product. Everything else is scaffolding around it.
   is a DOM read rather than a recomputation on purpose — the failure worth catching
   is a cursor whose logic is right and whose wiring is not, and recomputing would
   agree with the logic and tell you nothing.
+- Three opt-in sandbox flags, each adding only what it names, so a check for one
+  subsystem is not buried under three others: `&roe` supplies flagged ground (the
+  map's own `clinic`/`mosque`/`refuge` zone where it has one, otherwise a 4×4
+  synthesised midway between the two anchors); `&tunnel` appends a pre-dug route
+  from the hostile side toward the friendly one and adds two `yahalom_squad`;
+  `&sur` adds the four Sarim units no mission fields (`sarim_rifles` ×2,
+  `recoilless_team`, `manpad_team`, `rocket_battery`). Combine them —
+  `?sandbox=tel_marum&tunnel&sur&roe` is the everything build, on the only map with
+  relief. All three are sandbox-only: a mission brings its own zones and tunnels,
+  and a dev flag must never change how a real mission scores. The synthesised route
+  is NOT identified by construction — a `mark_tunnel` carrier still has to see it,
+  which is the mechanic the charge cursor depends on.
 - Two ROE facts a visual check needs: **only `wadi_halam_basin` contains a mosque**,
   so the protected-target X is unreachable anywhere else unless a mission declares
-  `roe.flagged_zones`. Tel Marum's town buildings are `#` (`concrete`, penalty 3), so
-  they read as the *costly* tier, not protected.
+  `roe.flagged_zones` or `&roe` supplies one. Tel Marum's town buildings are `#`
+  (`concrete`, penalty 3), so they read as the *costly* tier, not protected.
 - `pnpm balance` runs the §5.7 backtest; `tools/src/backtest/urban-only.ts` is the fast urban-ratio calibration loop.
 - The determinism golden hash lives in `packages/sim/src/determinism.test.ts`. It changes only when sim code or tuning changes deliberately — update it in the same commit and say why.
 - Combat tuning lives in `packages/sim/src/tuning.ts`. §5.7 targets outrank §5 formula text.

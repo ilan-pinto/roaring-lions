@@ -57,6 +57,7 @@ import {
 import { cursorFor, cursorKey, badgeFor, type BadgeHints } from './input/cursor';
 import { roleBucket } from './ui/role';
 import { sandboxAnchors, type SandboxAnchors } from './sandbox-anchors';
+import { sandboxFlaggedZones, sandboxTunnelRoute } from './sandbox-extras';
 import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
 import { tutorialPanel, type TutorialPanel } from './tutorial/panel';
 import { parseWorld, parseCountries, nextMissionAfter } from './campaign';
@@ -157,7 +158,32 @@ const SANDBOX_ENEMY: readonly (readonly [string, number, number])[] = [
  * map's sandbox is unchanged, and every other map gets the same formation
  * translated onto its own ground.
  */
-function sandboxSpawns(sim: Sim, typeOf: Map<string, number>, anchors: SandboxAnchors): void {
+/** The Sarim roster, as offsets from the hostile anchor. `atgm_cell` and
+ *  `loiter_drone` are already in the base set, so only the four the sandbox
+ *  could not otherwise reach are here. No mission fields any of them yet. */
+const SANDBOX_SUR: readonly (readonly [string, number, number])[] = [
+  ['sarim_rifles', -3, -4],
+  ['sarim_rifles', -3, 4],
+  ['recoilless_team', 3, -3],
+  ['manpad_team', 5, 4],
+  ['rocket_battery', 9, 1],
+];
+
+/** What `&tunnel` adds to the player's side: something that can find a route,
+ *  and something that can bring it down. The base force already carries a
+ *  `recon_drone`, which marks tunnels — the yahalom is what makes the charge
+ *  cursor reachable at all. */
+const SANDBOX_TUNNEL_KDF: readonly (readonly [string, number, number])[] = [
+  ['yahalom_squad', 3, -1],
+  ['yahalom_squad', 3, 1],
+];
+
+function sandboxSpawns(
+  sim: Sim,
+  typeOf: Map<string, number>,
+  anchors: SandboxAnchors,
+  extras: { tunnel: boolean; sur: boolean } = { tunnel: false, sur: false }
+): void {
   // Terrain the formation knows nothing about: an offset that lands in rock
   // or a wall would strand a unit inside it, and Tel Marum's ridge sits right
   // where the opposition's band falls. Spiral out to the nearest open tile.
@@ -196,7 +222,13 @@ function sandboxSpawns(sim: Sim, typeOf: Map<string, number>, anchors: SandboxAn
   const facing = fx.from(turns - Math.floor(turns));
 
   for (const [id, dx, dy] of SANDBOX_KDF) spawn(id, 0, fxA + dx, fyA + dy);
+  if (extras.tunnel) {
+    for (const [id, dx, dy] of SANDBOX_TUNNEL_KDF) spawn(id, 0, fxA + dx, fyA + dy);
+  }
   for (const [id, dx, dy] of SANDBOX_ENEMY) spawn(id, 1, hxA + dx, hyA + dy, facing);
+  if (extras.sur) {
+    for (const [id, dx, dy] of SANDBOX_SUR) spawn(id, 1, hxA + dx, hyA + dy, facing);
+  }
 }
 
 /** Mission narration for the HUD notice stack: what to say, and how it lands. */
@@ -295,6 +327,15 @@ async function main(): Promise<void> {
       `unknown sandbox map "${sandboxMap}" — available: ${Object.keys(maps).join(', ')}`
     );
   }
+  // Opt-in extras, so the default sandbox stays exactly what it has always
+  // been and a check for one subsystem is not buried under three others:
+  //   &roe     a no-fire zone, the only way to reach the protected X on a map
+  //            without a mosque -- four of the five shipped maps
+  //   &tunnel  a pre-dug route plus the units to find and collapse it
+  //   &sur     the Sarim roster, which no mission fields yet
+  const wantRoe = params.get('roe') !== null;
+  const wantTunnel = params.get('tunnel') !== null;
+  const wantSur = params.get('sur') !== null;
   const mapId = mission?.map.file ?? (sandboxMap && sandboxMap in maps ? sandboxMap : 'beit_sahwan_outskirts');
   const mapJson =
     (maps as Record<string, MapJson | undefined>)[mapId] ?? maps.beit_sahwan_outskirts;
@@ -327,12 +368,32 @@ async function main(): Promise<void> {
   // equal-count permutation, which would silently bury units in the wrong
   // route. Asserting `addTunnel(route) === i` on the single shared array is
   // what makes the positional contract impossible to violate from here.
+  const anchors = sandboxAnchors(mapJson);
+  // Only ever non-empty in the sandbox: a mission brings its own flagged
+  // zones, and mixing the two would let a dev flag quietly change how a
+  // real mission scores.
+  const sandboxZones: readonly number[][] = !mission && wantRoe
+    ? sandboxFlaggedZones(mapJson, anchors)
+    : [];
+
   const tunnelRoutes: TunnelRouteJson[] = map.tunnels.map((t) => ({
     id: t.id,
     points: t.points,
     dig_tiles_per_s: t.digTilesPerS,
     pre_dug: t.preDug,
   }));
+  // A synthesised route goes on the END of the array, so every route the map
+  // declared keeps its index -- the positional contract asserted below is
+  // what stops a unit being buried in the wrong tunnel.
+  if (!mission && wantTunnel) {
+    const r = sandboxTunnelRoute(mapJson, anchors);
+    tunnelRoutes.push({
+      id: r.id,
+      points: r.points.map((p) => [p[0], p[1]] as [number, number]),
+      dig_tiles_per_s: r.dig_tiles_per_s,
+      pre_dug: r.pre_dug,
+    });
+  }
   for (let i = 0; i < tunnelRoutes.length; i++) {
     const got = sim.addTunnel(tunnelRoutes[i]);
     if (got !== i) {
@@ -370,7 +431,7 @@ async function main(): Promise<void> {
     });
     runtime.start();
   } else {
-    sandboxSpawns(sim, typeOf, sandboxAnchors(mapJson));
+    sandboxSpawns(sim, typeOf, anchors, { tunnel: wantTunnel, sur: wantSur });
   }
 
   // --- renderer + overlay --------------------------------------------------
@@ -883,6 +944,13 @@ async function main(): Promise<void> {
       const ty = Math.floor(y);
       for (const name of mission?.roe?.flagged_zones ?? []) {
         if (zoneContains(map.zones[name], tx, ty)) return true;
+      }
+      // The sandbox has no mission and therefore no declared no-fire ground,
+      // so `?sandbox=<map>&roe` supplies some. Without it the protected X is
+      // unreachable on four of the five shipped maps -- only
+      // wadi_halam_basin contains a mosque.
+      for (const z of sandboxZones) {
+        if (zoneContains(z, tx, ty)) return true;
       }
       return false;
     },
