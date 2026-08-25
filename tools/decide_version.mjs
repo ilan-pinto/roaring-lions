@@ -30,10 +30,36 @@ function lastTag() {
   }
 }
 
+/**
+ * The last release commit, as a fallback boundary when no tag is reachable.
+ *
+ * The first live run of this job pushed the bump commit and silently dropped
+ * the tag — `--follow-tags` ignores lightweight tags. That left the repo in a
+ * state where "commits since the last tag" meant the whole history, so every
+ * subsequent merge would rescan it, find a feat, and bump the minor again.
+ *
+ * The bump commit is a boundary the job creates itself and cannot lose, so
+ * reading it makes the rule self-healing: a tag push that fails costs a tag,
+ * not a runaway version. The tag is still preferred when present.
+ */
+function lastReleaseCommit() {
+  try {
+    const sha = execFileSync(
+      'git',
+      ['log', '-1', '--format=%H', '--grep', '^chore(release): v'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+    ).trim();
+    return sha || null;
+  } catch {
+    return null;
+  }
+}
+
 const tag = lastTag();
-// Without a tag there is no "since", so the range is the whole history. That
-// happens once, on the first run against a repo with no releases.
-const range = tag ? `${tag}..HEAD` : 'HEAD';
+const boundary = tag ?? lastReleaseCommit();
+// With neither a tag nor a release commit the range is the whole history —
+// which is correct exactly once, on a repo that has never cut a release.
+const range = boundary ? `${boundary}..HEAD` : 'HEAD';
 const subjects = git('log', '--no-merges', '--format=%s', range).split('\n').filter(Boolean);
 
 const current = JSON.parse(readFileSync('package.json', 'utf8')).version;
@@ -41,8 +67,8 @@ const next = nextVersion(current, subjects);
 
 // Stderr so it lands in the run log without polluting GITHUB_OUTPUT.
 console.error(
-  `last tag: ${tag ?? '(none)'} · commits in range: ${subjects.length} · ` +
-    `current: ${current} · next: ${next ?? '(no release)'}`
+  `boundary: ${tag ? `tag ${tag}` : boundary ? `release commit ${boundary.slice(0, 7)}` : '(whole history)'}` +
+    ` · commits in range: ${subjects.length} · current: ${current} · next: ${next ?? '(no release)'}`
 );
 
 process.stdout.write(`next=${next ?? ''}\n`);
