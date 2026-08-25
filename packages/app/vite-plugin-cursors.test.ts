@@ -18,7 +18,8 @@ import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
 import { unitTypeFromJson, type UnitTypeJson } from '@lions/sim';
 import { describe, expect, it } from 'vitest';
-import { cursorKey } from './src/input/cursor';
+import { badgeFor, cursorFor, cursorKey, type BadgeHints, type CursorHints } from './src/input/cursor';
+import { resolvePointer, type IntentWorld } from './src/input/intents';
 import { roleBucket, type RoleBucket } from './src/ui/role';
 import { BADGED_VERBS, CENTER, cursorRules, deriveUiBand, resolvePalette } from './vite-plugin-cursors';
 
@@ -29,6 +30,15 @@ import { BADGED_VERBS, CENTER, cursorRules, deriveUiBand, resolvePalette } from 
 const paletteUrl = new URL('../../data/palette.json', import.meta.url);
 const raw = JSON.parse(readFileSync(paletteUrl, 'utf8'));
 const resolved = resolvePalette(paletteUrl);
+
+// The real roster, read once and shared by the reachability describe below
+// and the composer/selector census after it -- both need "every unit type
+// data/units/kdf actually has," and reading it twice would risk the two
+// describes drifting on which units exist.
+const unitsDir = fileURLToPath(new URL('../../data/units/kdf/', import.meta.url));
+const unitTypes = readdirSync(unitsDir)
+  .filter((f) => f.endsWith('.json'))
+  .map((f) => unitTypeFromJson(JSON.parse(readFileSync(`${unitsDir}${f}`, 'utf8')) as UnitTypeJson));
 
 /** Pulls the selector text for one cursor's rule out of the generated CSS,
  *  so tests can assert on the selector's real matching behaviour instead of
@@ -140,20 +150,38 @@ describe('badged rules', () => {
 
   it('emits a rule for every reachable name-badge key', () => {
     for (const key of ['demolish-soft', 'demolish-armour', 'charge-soft', 'garrison-soft',
-                       'mount-soft', 'dismount-transport', 'smoke-armour', 'move-drone',
-                       'attack-gunship']) {
+                       'move-drone', 'attack-gunship']) {
       expect(css).toContain(`canvas[data-cursor='${key}']`);
     }
   });
 
   it('emits no rule for a badge that bucket can never earn', () => {
     // A gunship cannot garrison and a drone cannot demolish. A rule for it
-    // would be dead bytes shipped on every page load. `mount-transport` is
-    // the one this exact review caught: idsOf returns `riders` for a mount,
-    // never the carrier itself, so no transport-bucket unit ever issues one.
+    // would be dead bytes shipped on every page load.
     expect(css).not.toContain("data-cursor='garrison-gunship'");
     expect(css).not.toContain("data-cursor='demolish-drone'");
-    expect(css).not.toContain("data-cursor='mount-transport'");
+  });
+
+  it('emits no rule at all for mount, dismount or smoke -- Important 1', () => {
+    // The hover ticker feeds only resolvePointer, which never emits a mount,
+    // dismount or smoke intent -- those come solely from the keyboard path
+    // (resolveKeyVerb), whose result never reaches the cursor. A rule for
+    // them, bare or badged, would be dead bytes shipped on every page load:
+    // `mount-soft`, `mount-sniper`, `dismount-transport`, `smoke-transport`,
+    // `smoke-soft` and `smoke-armour` used to be nine such rules with the
+    // three bare ones.
+    for (const key of ['mount', 'dismount', 'smoke']) {
+      expect(css).not.toContain(`data-cursor='${key}'`);
+      expect(css).not.toContain(`data-cursor='${key}-`);
+    }
+  });
+
+  it('emits no bare rule for charge -- Minor 2', () => {
+    // yahalom_squad is the only unit with canTunnelCharge, so a charging
+    // group is always uniformly `soft` and the bare `charge` key can never
+    // compose -- only `charge-soft` is reachable.
+    expect(css).not.toContain("data-cursor='charge']");
+    expect(css).toContain("data-cursor='charge-soft']");
   });
 
   it('leaves the target-describing states unbadged', () => {
@@ -199,29 +227,27 @@ describe('badged rules', () => {
 // produce that the table lacks (a badge that silently falls back to the OS
 // arrow) are the same class of bug, and this one test catches both.
 describe('BADGED_VERBS reachability is derived from the roster', () => {
-  const unitsDir = fileURLToPath(new URL('../../data/units/kdf/', import.meta.url));
-  const types = readdirSync(unitsDir)
-    .filter((f) => f.endsWith('.json'))
-    .map((f) => unitTypeFromJson(JSON.parse(readFileSync(`${unitsDir}${f}`, 'utf8')) as UnitTypeJson));
-
-  /** Which verbs a unit type can actually produce. `move` and `attack` are
-   *  universal; the rest gate on the same ability/hull flags
-   *  unitTypeFromJson exposes -- canGarrison, canDemolish, canTunnelCharge,
-   *  canEmbark (a rider boarding, i.e. `mount`), transportSlots > 0 (a
-   *  carrier's own `dismount`), and canSmoke. */
+  /** Which verbs a unit type can actually produce, restricted to the ones
+   *  BADGED_VERBS tracks. `move` and `attack` are universal; `garrison`,
+   *  `demolish` and `charge` gate on the same ability flags
+   *  unitTypeFromJson exposes -- canGarrison, canDemolish, canTunnelCharge.
+   *  Deliberately does NOT push 'mount', 'dismount' or 'smoke' even though
+   *  canEmbark, transportSlots > 0 and canSmoke are real roster flags: those
+   *  three verbs are reachable from the data but not from the pointer feed
+   *  the cursor uses (Important 1), so BADGED_VERBS has no entry for them
+   *  and this derivation must not invent one either, or this "both
+   *  directions" check would flag a mismatch against a table that is
+   *  correct on purpose. */
   function verbsOf(type: ReturnType<typeof unitTypeFromJson>): (keyof typeof BADGED_VERBS)[] {
     const verbs: (keyof typeof BADGED_VERBS)[] = ['move', 'attack'];
     if (type.canGarrison) verbs.push('garrison');
     if (type.canDemolish) verbs.push('demolish');
     if (type.canTunnelCharge) verbs.push('charge');
-    if (type.canEmbark) verbs.push('mount');
-    if (type.transportSlots > 0) verbs.push('dismount');
-    if (type.canSmoke) verbs.push('smoke');
     return verbs;
   }
 
   const derived = new Map<keyof typeof BADGED_VERBS, Set<RoleBucket>>();
-  for (const type of types) {
+  for (const type of unitTypes) {
     const bucket = roleBucket(type);
     for (const verb of verbsOf(type)) {
       if (!derived.has(verb)) derived.set(verb, new Set());
@@ -230,12 +256,155 @@ describe('BADGED_VERBS reachability is derived from the roster', () => {
   }
 
   it('matches BADGED_VERBS exactly, in both directions', () => {
-    expect(types.length).toBeGreaterThan(0);
+    expect(unitTypes.length).toBeGreaterThan(0);
     const verbKeys = new Set<string>([...Object.keys(BADGED_VERBS), ...derived.keys()]);
     for (const verb of verbKeys) {
       const table = [...(BADGED_VERBS[verb as keyof typeof BADGED_VERBS] ?? [])].sort();
       const roster = [...(derived.get(verb as keyof typeof BADGED_VERBS) ?? [])].sort();
       expect({ verb, table }).toEqual({ verb, table: roster });
     }
+  });
+
+  it('has real mount/dismount/smoke capability that this table deliberately does not track', () => {
+    // Provenance for Important 1: these three verbs ARE reachable from the
+    // roster -- units really can embark, carry passengers, and smoke -- so
+    // their absence from BADGED_VERBS is a wiring decision, not an accident
+    // of "no unit happens to have it".
+    expect(unitTypes.some((t) => t.canEmbark)).toBe(true);
+    expect(unitTypes.some((t) => t.transportSlots > 0)).toBe(true);
+    expect(unitTypes.some((t) => t.canSmoke)).toBe(true);
+    expect(Object.keys(BADGED_VERBS)).not.toContain('mount');
+    expect(Object.keys(BADGED_VERBS)).not.toContain('dismount');
+    expect(Object.keys(BADGED_VERBS)).not.toContain('smoke');
+  });
+});
+
+// Reachability-from-data (the describe above) and reachability-from-code are
+// different questions. The describe above never asks what cursorFor and
+// badgeFor actually COMPOSE -- and that is exactly where Critical 1
+// (`protected-armour`, a key the composer produced with no rule) and
+// Critical 2 (`move-gunship`, a key the plugin generated with no way to
+// compose it) both lived, invisible to a roster-vs-table comparison because
+// neither cursorFor nor badgeFor was in the loop.
+//
+// This drives the real resolvePointer -- the only feed the app's hover
+// ticker has -- over the real roster (every single unit, every pair, so a
+// mixed-bucket group can null out a badge) and a spread of real click
+// situations (open ground, a costly building, a protected mosque with and
+// without Alt, a flagged no-fire zone with no structure, an identified
+// tunnel open and inside a flagged zone, plus an armed support call), each
+// under all four hostile/blocked hint combinations. Not a re-derived table:
+// every key comes from calling cursorFor and badgeFor themselves.
+describe('the composer and the plugin agree on every key -- Important 2', () => {
+  function fakeWorld(over: Partial<IntentWorld>): IntentWorld {
+    return {
+      structureAt: () => -1,
+      tunnelAt: () => -1,
+      isProtected: () => false,
+      structureRoePenalty: () => 0,
+      garrisonFree: () => 99,
+      canDemolish: (id) => unitTypes[id].canDemolish,
+      canGarrison: (id) => unitTypes[id].canGarrison,
+      canTunnelCharge: (id) => unitTypes[id].canTunnelCharge,
+      inFlaggedZone: () => false,
+      ...over,
+    };
+  }
+
+  const SCENARIOS: { world: IntentWorld; confirms: boolean[] }[] = [
+    { world: fakeWorld({}), confirms: [false] },
+    { world: fakeWorld({ structureAt: () => 0, structureRoePenalty: () => 5 }), confirms: [false, true] },
+    {
+      world: fakeWorld({ structureAt: () => 0, isProtected: () => true, structureRoePenalty: () => 30 }),
+      confirms: [false, true],
+    },
+    { world: fakeWorld({ inFlaggedZone: () => true }), confirms: [false] },
+    { world: fakeWorld({ tunnelAt: () => 0 }), confirms: [false] },
+    { world: fakeWorld({ tunnelAt: () => 0, inFlaggedZone: () => true }), confirms: [false] },
+  ];
+
+  const HINT_COMBOS: CursorHints[] = [
+    { hostile: false, blocked: false },
+    { hostile: true, blocked: false },
+    { hostile: false, blocked: true },
+    { hostile: true, blocked: true },
+  ];
+
+  function allPairs(n: number): [number, number][] {
+    const pairs: [number, number][] = [];
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) pairs.push([i, j]);
+    }
+    return pairs;
+  }
+
+  const selections: number[][] = [
+    [],
+    ...unitTypes.map((_, i) => [i]),
+    ...allPairs(unitTypes.length),
+  ];
+
+  const badges: BadgeHints = { bucketOf: (id) => roleBucket(unitTypes[id]) };
+
+  /** Every key the real cursorFor + badgeFor can produce, over the scenario
+   *  matrix above plus the armed-support call (the one Resolution shape
+   *  the scenario loop can't reach, since ctx.armed is null there). */
+  function composedKeys(): Set<string> {
+    const keys = new Set<string>();
+    for (const { world, confirms } of SCENARIOS) {
+      for (const confirm of confirms) {
+        for (const ids of selections) {
+          const res = resolvePointer(world, { ids, x: 5, y: 5, append: false, armed: null, confirm });
+          for (const hints of HINT_COMBOS) {
+            const name = cursorFor(res, hints);
+            keys.add(cursorKey(name, badgeFor(res, hints, badges, name)));
+          }
+        }
+      }
+    }
+    const openGround = SCENARIOS[0].world;
+    for (const armed of ['strike', 'sweep'] as const) {
+      const res = resolvePointer(openGround, { ids: [], x: 5, y: 5, append: false, armed, confirm: false });
+      for (const hints of HINT_COMBOS) {
+        const name = cursorFor(res, hints);
+        keys.add(cursorKey(name, badgeFor(res, hints, badges, name)));
+      }
+    }
+    return keys;
+  }
+
+  const css = cursorRules(deriveUiBand(raw));
+  const generated = new Set(
+    [...css.matchAll(/canvas\[data-cursor='([^']+)'\]/g)].map((m) => m[1])
+  );
+  const produced = composedKeys();
+  // 'default' is the one name that deliberately has no rule at all (the OS
+  // arrow) -- exclude it from the "must have a rule" side, the same way
+  // cursorRules itself never emits one for it.
+  const producedWithRules = new Set([...produced].filter((k) => k !== 'default'));
+
+  it('emits a rule for every key the real cursorFor/badgeFor can compose', () => {
+    // Reddens on Critical 1: 'protected-armour', 'protected-soft' and
+    // friends used to be produced here with no matching rule.
+    const missing = [...producedWithRules].filter((k) => !generated.has(k));
+    expect(missing).toEqual([]);
+  });
+
+  it('generates no rule the real cursorFor/badgeFor can never compose', () => {
+    // Reddens on Critical 2 (every move-<bucket> rule was generated but
+    // unreachable) and would redden on Important 1 if a mount/dismount/smoke
+    // rule ever came back without resolveKeyVerb being wired into the
+    // ticker.
+    const dead = [...generated].filter((k) => !producedWithRules.has(k));
+    expect(dead).toEqual([]);
+  });
+
+  it('actually produces move and attack badges for every bucket -- the coverage this milestone exists for', () => {
+    // Guards against a vacuously-passing set-equality check (an empty
+    // `produced` set trivially satisfies both directions above).
+    const moveAndAttackBadges = [...producedWithRules].filter(
+      (k) => k.startsWith('move-') || k.startsWith('attack-')
+    );
+    expect(moveAndAttackBadges.length).toBeGreaterThanOrEqual(14); // 7 buckets x {move, attack}
   });
 });

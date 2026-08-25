@@ -1195,7 +1195,7 @@ async function main(): Promise<void> {
       bucketOf: (id) => roleBucket(sim.unitTypes[sim.state.typeIdx[id]]),
     };
     const name = cursorFor(res, hints);
-    const key = cursorKey(name, badgeFor(res, hints, badges));
+    const key = cursorKey(name, badgeFor(res, hints, badges, name));
     // Guard the write: a dataset attribute set every frame forces needless
     // style invalidation even when the cursor hasn't changed.
     if (key !== lastCursorKey) {

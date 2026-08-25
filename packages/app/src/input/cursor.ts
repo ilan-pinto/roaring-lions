@@ -33,12 +33,39 @@ export interface CursorHints {
   blocked: boolean;
 }
 
+/** Names that describe the target or the mode, never the actor: nothing
+ *  "wins" a badge for these, because a badge would be answering a question
+ *  nobody asked. Shared by three callers so they cannot drift the way
+ *  `protected-soft` did (Critical 1, final cursor-slice-3 review) --
+ *  `badgeFor` refuses to compute a badge for them, `cursorKey` refuses to
+ *  compose one even if a caller passes one anyway, and the plugin's
+ *  `BADGED_VERBS` is typed so one of these can never appear as a key at
+ *  all. One rule, several callers -- the same pattern this milestone
+ *  already uses for `zoneContains`, `roleBucket` and `cursorKey` itself. */
+export type UnbadgedName = 'default' | 'blocked' | 'costly' | 'protected' | 'support';
+
+export const UNBADGED_NAMES: ReadonlySet<CursorName> = new Set<UnbadgedName>([
+  'default',
+  'blocked',
+  'costly',
+  'protected',
+  'support',
+]);
+
 /** The heaviest thing this click will cause, or null if it is a plain order.
  *
  *  One click can emit demolish, garrison and attack-move at once -- there is
  *  one cursor, so it names the worst outcome. The cost, stated: it hides that
  *  the other two groups are also acting. Ranking by the resolver's dispatch
- *  order instead would key the cursor to an implementation detail. */
+ *  order instead would key the cursor to an implementation detail.
+ *
+ *  Deliberately has no `move` rung: a bare order must never win this
+ *  ranking, or cursorFor's `costly` and `blocked` checks below it would
+ *  never be reached for a hostile-free plain move. cursorFor names `move`
+ *  itself, in its own final fallback -- and badgeFor no longer asks this
+ *  function what the verb is at all; it matches the name cursorFor already
+ *  chose against `intentVerb` instead, which does know about `move`. See
+ *  that function's comment for why the two no longer share one ranking. */
 export function winningVerb(res: Resolution, hints: CursorHints): CursorName | null {
   const has = (kind: string): boolean => res.intents.some((i) => i.kind === kind);
   if (has('demolish')) return 'demolish';
@@ -110,9 +137,14 @@ function idsOf(intent: PlayerIntent): number[] {
   }
 }
 
-/** The ranked name for one intent, mirroring winningVerb's mapping -- same
- *  kinds, same 'order' -> attack-when-hostile rule -- but for a single
- *  intent rather than "does the resolution contain one of these anywhere." */
+/** The name one intent alone would earn. Used by badgeFor to find which
+ *  intent produced the name cursorFor already resolved -- including
+ *  'move', which winningVerb deliberately has no rung for. The two
+ *  functions now serve different jobs rather than mirroring one mapping:
+ *  winningVerb ranks *across* intents, to decide what cursorFor's ranking
+ *  shows; intentVerb names *one* intent, to decide which group badgeFor
+ *  badges. 'move' only needs the latter -- a badge still has to find the
+ *  mover even though winningVerb never lets 'move' win the ranking. */
 function intentVerb(intent: PlayerIntent, hints: CursorHints): CursorName | null {
   switch (intent.kind) {
     case 'demolish':
@@ -140,21 +172,36 @@ export interface BadgeHints {
   bucketOf(id: number): RoleBucket;
 }
 
-/** The bucket of the group doing the winning verb, or null.
+/** The bucket of the group behind `name` -- the CursorName `cursorFor`
+ *  already resolved, not a second, independent guess. Two functions each
+ *  computing "what verb is this" is how Critical 1 and Critical 2 shipped:
+ *  `cursorFor` decided `protected` (the roe rung fires before the verb
+ *  rung), while a second, independent `winningVerb` call still found a
+ *  demolish intent underneath and badged it -- composing `protected-armour`,
+ *  a key the plugin never generates a rule for, so the ROE warning silently
+ *  fell back to the OS arrow. And `winningVerb` has no `move` rung at all
+ *  (see its own comment), so a badge for a plain move was impossible by
+ *  construction, even though the spec's whole coverage argument for
+ *  ability-less units depends on one. There is now one decision, made once
+ *  by `cursorFor`, and badgeFor only asks which intent produced it.
  *
- *  Null when there is no verb, when a support call is armed, or -- the case
- *  that matters -- when the winning group spans buckets. A badge asserts
- *  "this kind of unit is doing this"; when it is not one kind, saying nothing
- *  beats picking one. */
+ *  Null for the unbadged set (`UNBADGED_NAMES`) -- those describe the
+ *  target or the mode, not the actor -- and null when no intent's
+ *  `intentVerb` matches `name`, when the matched intent has no ids, or when
+ *  the matched group spans buckets. A badge asserts "this kind of unit is
+ *  doing this"; when it is not one kind, saying nothing beats picking one. */
 export function badgeFor(
   res: Resolution,
   hints: CursorHints,
-  badges: BadgeHints
+  badges: BadgeHints,
+  name: CursorName
 ): RoleBucket | null {
+  // Armed support always vetoes a badge on its own account -- not merely
+  // because 'support' is in UNBADGED_NAMES below, but so this stays true
+  // even if a future caller passes a name that disagrees with res.armed.
   if (res.armed) return null;
-  const verb = winningVerb(res, hints);
-  if (!verb) return null;
-  const winner = res.intents.find((i) => intentVerb(i, hints) === verb);
+  if (UNBADGED_NAMES.has(name)) return null;
+  const winner = res.intents.find((i) => intentVerb(i, hints) === name);
   const ids = winner ? idsOf(winner) : [];
   if (ids.length === 0) return null;
   const first = badges.bucketOf(ids[0]);
@@ -163,7 +210,10 @@ export function badgeFor(
 
 /** `name` alone, or `name-badge`. The plugin generates a rule per key, and a
  *  test asserts both sides agree -- a mismatch here is silent, which is how
- *  slice 2 shipped a cursor that could never appear. */
+ *  slice 2 shipped a cursor that could never appear. Suppresses a badge on
+ *  `UNBADGED_NAMES` even if a caller passes one anyway -- the same
+ *  one-rule-two-callers guard `badgeFor` applies, kept here too because
+ *  this is the last stop before a key reaches the DOM. */
 export function cursorKey(name: CursorName, badge: RoleBucket | null): string {
-  return badge ? `${name}-${badge}` : name;
+  return badge && !UNBADGED_NAMES.has(name) ? `${name}-${badge}` : name;
 }

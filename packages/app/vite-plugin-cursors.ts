@@ -16,7 +16,7 @@
 
 import { readFileSync } from 'node:fs';
 import type { Plugin } from 'vite';
-import { cursorKey, type CursorName } from './src/input/cursor';
+import { cursorKey, type CursorName, type UnbadgedName } from './src/input/cursor';
 import type { RoleBucket } from './src/ui/role';
 
 interface Palette {
@@ -24,13 +24,17 @@ interface Palette {
   reserved: Record<string, { colors: Record<string, string> }>;
 }
 
-// The twelve drawn cursors (thirteen names in CursorName, minus 'default')
+// The eight drawn bare cursors (thirteen names in CursorName, minus
+// 'default', 'mount', 'dismount', 'smoke' and 'charge' -- see BareCursorName
+// and BADGED_VERBS below for why those five never get a rule of their own)
 // all share one hotspot: dead centre, at half the canvas size on each axis.
-// Six of them are still plain symmetric reticles built around that centre
-// with no off-centre tip. The other six (the verb cursors) can additionally
-// carry a role badge riding the lower-right corner, which *is* off-centre --
-// but the hotspot itself never moves for it, because the badge decorates the
-// cursor, it does not aim it.
+// Four of them (blocked, costly, protected, support) are plain symmetric
+// reticles built around that centre with no off-centre tip. The other four
+// (move, attack, garrison, demolish) can additionally carry a role badge
+// riding the lower-right corner, which *is* off-centre -- but the hotspot
+// itself never moves for it, because the badge decorates the cursor, it
+// does not aim it. `charge` is badge-only: it draws no bare rule at all, but
+// still contributes a base body to the badged `charge-soft` rule below.
 export const SIZE = 32;
 export const CENTER = SIZE / 2;
 
@@ -167,49 +171,38 @@ function demolishShape(bad: string): string {
   return svg(demolishBody(bad));
 }
 
-// A filled diamond -- a breaching charge set at a point.
+// A filled diamond -- a breaching charge set at a point. Used only by
+// bodyFor below, for the badged `charge-soft` rule -- see BareCursorName's
+// comment for why `charge` never gets a bare rule of its own.
 function chargeBody(bad: string): string {
   const c = hex(bad);
   return `<path d="M${CENTER},6 L${CENTER + 10},${CENTER} L${CENTER},26 L${CENTER - 10},${CENTER} Z" fill="${c}"/>`;
 }
-function chargeShape(bad: string): string {
-  return svg(chargeBody(bad));
-}
 
-// An upward chevron -- boarding a carrier.
-function mountBody(mid: string): string {
-  const c = hex(mid);
-  return `<path d="M${CENTER - 8},20 L${CENTER},10 L${CENTER + 8},20" fill="none" stroke="${c}" stroke-width="2"/>`;
-}
-function mountShape(mid: string): string {
-  return svg(mountBody(mid));
-}
+// mount, dismount and smoke had shapes here once (an upward chevron, a
+// downward chevron, three overlapping puffs). They drew rules this plugin no
+// longer emits -- see BareCursorName and BADGED_VERBS's comments -- and with
+// no caller left, keeping the drawing code would just be a second copy of
+// the same dead-bytes problem this fix removes. Re-add them if a keyboard-
+// verb preview ever wires resolveKeyVerb's result into the cursor.
 
-// A downward chevron -- leaving a carrier.
-function dismountBody(mid: string): string {
-  const c = hex(mid);
-  return `<path d="M${CENTER - 8},12 L${CENTER},22 L${CENTER + 8},12" fill="none" stroke="${c}" stroke-width="2"/>`;
-}
-function dismountShape(mid: string): string {
-  return svg(dismountBody(mid));
-}
+type BareCursorName = Exclude<CursorName, 'default' | 'mount' | 'dismount' | 'smoke' | 'charge'>;
 
-// Three overlapping puffs -- a smoke screen.
-function smokeBody(mid: string): string {
-  const c = hex(mid);
-  return (
-    `<circle cx="${CENTER - 6}" cy="${CENTER + 4}" r="5" fill="none" stroke="${c}" stroke-width="2"/>` +
-    `<circle cx="${CENTER}" cy="${CENTER - 2}" r="6" fill="none" stroke="${c}" stroke-width="2"/>` +
-    `<circle cx="${CENTER + 6}" cy="${CENTER + 4}" r="5" fill="none" stroke="${c}" stroke-width="2"/>`
-  );
-}
-function smokeShape(mid: string): string {
-  return svg(smokeBody(mid));
-}
-
-/** Every drawn cursor, in the order they read best as a legend. `default` is
- *  intentionally absent: it resolves to no rule and the OS arrow shows. */
-function shapesFor(palette: Palette): Record<Exclude<CursorName, 'default'>, string> {
+/** The bare (unbadged) reticles that actually get a rule.
+ *
+ *  `mount`, `dismount` and `smoke` stay out for a wiring reason: the hover
+ *  ticker feeds only `resolvePointer`, which never emits those intents --
+ *  they come solely from the keyboard path (`resolveKeyVerb`), whose result
+ *  never reaches the cursor. A rule for them would be dead bytes shipped on
+ *  every page load (Important 1, final cursor-slice-3 review). They stay in
+ *  `CursorName` and `winningVerb`'s rungs are untouched, so a later feature
+ *  can still preview them -- only the generated rule is withheld.
+ *
+ *  `charge` stays out for a different, structural reason: `yahalom_squad` is
+ *  the only unit with `canTunnelCharge` (BADGED_VERBS.charge below), so a
+ *  charging group is always uniformly `soft` and the bare `charge` key can
+ *  never compose -- it is always `charge-soft` (Minor 2, same review). */
+function shapesFor(palette: Palette): Record<BareCursorName, string> {
   const { light, mid, bad, good } = paletteColors(palette);
   return {
     move: moveShape(light),
@@ -220,10 +213,6 @@ function shapesFor(palette: Palette): Record<Exclude<CursorName, 'default'>, str
     support: supportShape(good),
     garrison: garrisonShape(mid),
     demolish: demolishShape(bad),
-    charge: chargeShape(bad),
-    mount: mountShape(mid),
-    dismount: dismountShape(mid),
-    smoke: smokeShape(mid),
   };
 }
 
@@ -294,35 +283,44 @@ function badgeMark(bucket: RoleBucket, colour: string): string {
 }
 
 /** Which buckets can actually reach each verb -- from the roster. `move` and
- *  `attack` are reachable by all seven; the other six verbs are gated to the
- *  subset of buckets whose units can actually issue them. A verb absent here
- *  keeps only its bare (unbadged) rule -- `blocked`, `costly`, `protected`
- *  and `support` describe the target, not the actor, and never earn a badge.
+ *  `attack` are reachable by all seven; `garrison`, `demolish` and `charge`
+ *  are gated to the subset of buckets whose units can actually issue them.
+ *  Typed over `Exclude<CursorName, UnbadgedName>` rather than
+ *  `Exclude<CursorName, 'default'>` so `blocked`, `costly`, `protected` and
+ *  `support` -- which describe the target or the mode, not the actor, and
+ *  never earn a badge -- cannot even be added here by mistake; see
+ *  `UNBADGED_NAMES` in cursor.ts, which this type derives from.
  *
- *  `mount` and `dismount` look symmetric but are not: `cursor.ts`'s `idsOf`
- *  returns `riders` for a mount (the units boarding) and `carriers` for a
- *  dismount (the transport doing the dismounting). Every embarkable unit in
- *  data/units/kdf/ buckets to `soft` or `sniper` -- no carrier has
- *  `can_embark` -- so `mount` is reachable by riders, never by the
- *  `transport` bucket itself. `dismount` is the mirror image: only a
- *  `transport`-bucket carrier ever issues one. Exported so a test can derive
- *  this table from the roster and assert the two never drift apart -- see
- *  the "BADGED_VERBS reachability is derived from the roster" describe in
+ *  `mount`, `dismount` and `smoke` are real abilities units in
+ *  data/units/kdf/ have (`canEmbark`, `transportSlots > 0`, `canSmoke`), but
+ *  earn no entry here: the hover ticker feeds only `resolvePointer`, which
+ *  never emits those intents, so a badge rule for them could never compose
+ *  and would be dead bytes (Important 1, final cursor-slice-3 review).
+ *  `winningVerb` still ranks them, for the day a keyboard-driven preview is
+ *  wired in; only the generated rule is withheld.
+ *
+ *  A verb absent here keeps only its bare (unbadged) rule, except `charge`:
+ *  `yahalom_squad` is the only unit with `canTunnelCharge`, so a charging
+ *  group is always uniformly `soft` and the bare `charge` key can never
+ *  compose (Minor 2, same review) -- `shapesFor`'s `BareCursorName` excludes
+ *  it for that reason. Exported so a test can derive this table from the
+ *  roster and assert the two never drift apart -- see the "BADGED_VERBS
+ *  reachability is derived from the roster" describe in
  *  vite-plugin-cursors.test.ts. */
-export const BADGED_VERBS: { [K in Exclude<CursorName, 'default'>]?: RoleBucket[] } = {
+export const BADGED_VERBS: { [K in Exclude<CursorName, UnbadgedName>]?: RoleBucket[] } = {
   move: ['kamikaze', 'drone', 'gunship', 'sniper', 'transport', 'soft', 'armour'],
   attack: ['kamikaze', 'drone', 'gunship', 'sniper', 'transport', 'soft', 'armour'],
   garrison: ['soft', 'sniper'],
   demolish: ['soft', 'armour'],
   charge: ['soft'],
-  mount: ['soft', 'sniper'],
-  dismount: ['transport'],
-  smoke: ['transport', 'soft', 'armour'],
 };
 
 /** The same base body used for a verb's bare rule, so a badged rule is
  *  always exactly that body plus a badge mark -- never a second drawing that
- *  could drift from the first. */
+ *  could drift from the first. `mount`, `dismount` and `smoke` fall to the
+ *  default branch: they remain valid keys of the type (BADGED_VERBS is
+ *  typed over the full `Exclude<CursorName, UnbadgedName>`) but never occur
+ *  as actual entries, so this is never called for them. */
 function bodyFor(name: keyof typeof BADGED_VERBS, palette: Palette): string {
   const { light, mid, bad } = paletteColors(palette);
   switch (name) {
@@ -336,12 +334,6 @@ function bodyFor(name: keyof typeof BADGED_VERBS, palette: Palette): string {
       return demolishBody(bad);
     case 'charge':
       return chargeBody(bad);
-    case 'mount':
-      return mountBody(mid);
-    case 'dismount':
-      return dismountBody(mid);
-    case 'smoke':
-      return smokeBody(mid);
     default:
       return '';
   }
@@ -373,7 +365,7 @@ export function cursorRules(palette: Palette): string {
   const colors = paletteColors(palette);
   const rules: string[] = [];
 
-  for (const [name, markup] of Object.entries(shapes) as [Exclude<CursorName, 'default'>, string][]) {
+  for (const [name, markup] of Object.entries(shapes) as [BareCursorName, string][]) {
     rules.push(ruleFor(cursorKey(name, null), markup));
   }
 

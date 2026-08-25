@@ -223,14 +223,18 @@ describe('the badge says who is doing it', () => {
 
   it('badges the winning group when it is one kind', () => {
     const r = res([{ kind: 'demolish', ids: [1, 2], structure: 3 }] as Resolution['intents']);
-    expect(badgeFor(r, NONE, buckets({ 1: 'soft', 2: 'soft' }))).toBe('soft');
+    const name = cursorFor(r, NONE);
+    expect(badgeFor(r, NONE, buckets({ 1: 'soft', 2: 'soft' }), name)).toBe('soft');
   });
 
   it('says nothing when the winning group spans two kinds', () => {
-    // An apc_eitan and a demo_squad both lay smoke; they are transport and
-    // soft. A badge would have to pick one and would be lying about the other.
-    const r = res([{ kind: 'smoke', ids: [1, 2], x: 1, y: 1 }] as Resolution['intents']);
-    expect(badgeFor(r, NONE, buckets({ 1: 'transport', 2: 'soft' }))).toBeNull();
+    // A mixed mbt_lavi + apc_eitan pair both attack-move into a hostile:
+    // armour and transport. A badge would have to pick one and would be
+    // lying about the other.
+    const r = res([{ kind: 'order', verb: 'attackMove', ids: [1, 2], x: 1, y: 1, append: false }]);
+    const name = cursorFor(r, { hostile: true, blocked: false });
+    expect(name).toBe('attack');
+    expect(badgeFor(r, { hostile: true, blocked: false }, buckets({ 1: 'transport', 2: 'soft' }), name)).toBeNull();
   });
 
   it('says nothing when only the third id in the group differs', () => {
@@ -239,8 +243,9 @@ describe('the badge says who is doing it', () => {
     // "compare only the first two ids" check would miss the third and badge
     // the whole trio "soft" while a sniper is standing among them.
     const r = res([{ kind: 'garrison', ids: [1, 2, 3], structure: 3 }] as Resolution['intents']);
+    const name = cursorFor(r, NONE);
     expect(
-      badgeFor(r, NONE, buckets({ 1: 'soft', 2: 'soft', 3: 'sniper' }))
+      badgeFor(r, NONE, buckets({ 1: 'soft', 2: 'soft', 3: 'sniper' }), name)
     ).toBeNull();
   });
 
@@ -251,7 +256,9 @@ describe('the badge says who is doing it', () => {
       { kind: 'demolish', ids: [1], structure: 3 },
       { kind: 'garrison', ids: [2], structure: 3 },
     ] as Resolution['intents']);
-    expect(badgeFor(r, NONE, buckets({ 1: 'armour', 2: 'soft' }))).toBe('armour');
+    const name = cursorFor(r, NONE);
+    expect(name).toBe('demolish');
+    expect(badgeFor(r, NONE, buckets({ 1: 'armour', 2: 'soft' }), name)).toBe('armour');
   });
 
   it('badges the winner even when it is not first in the array', () => {
@@ -264,16 +271,68 @@ describe('the badge says who is doing it', () => {
       { kind: 'garrison', ids: [2], structure: 3 },
       { kind: 'demolish', ids: [1], structure: 3 },
     ] as Resolution['intents']);
-    expect(badgeFor(r, NONE, buckets({ 1: 'armour', 2: 'soft' }))).toBe('armour');
+    const name = cursorFor(r, NONE);
+    expect(badgeFor(r, NONE, buckets({ 1: 'armour', 2: 'soft' }), name)).toBe('armour');
+  });
+
+  it('badges a plain move by the mover -- closing Critical 2', () => {
+    // heli_peten (gunship), recon_drone (drone) and attack_drone (kamikaze)
+    // have no click-triggerable ability: ordered over open ground, no ranked
+    // verb wins, so cursorFor falls through to its own `hints.hostile ?
+    // 'attack' : 'move'` default. The old badgeFor asked a second,
+    // independent `winningVerb` for the verb, and winningVerb has no `move`
+    // rung at all -- so a move cursor could never carry a badge, and the
+    // spec's own example ("a heli_peten ordered to move shows a move cursor
+    // wearing a gunship badge") was false. badgeFor now matches the name it
+    // was given via intentVerb, which does know about `move`.
+    const r = res([{ kind: 'order', verb: 'attackMove', ids: [1], x: 2, y: 2, append: false }]);
+    const name = cursorFor(r, NONE);
+    expect(name).toBe('move');
+    expect(badgeFor(r, NONE, buckets({ 1: 'gunship' }), name)).toBe('gunship');
+  });
+
+  it('gives no badge when the resolved name is protected, even though a demolish intent survived -- closing Critical 1', () => {
+    // The exact composition bug: a lone demolisher razing a mosque produces
+    // intents:[demolish] AND roe:'protected' (sortStructureOrder lets a pure-
+    // demolisher selection through even without Alt), so cursorFor names it
+    // 'protected' -- the roe rung fires before the verb rung. The old
+    // badgeFor asked winningVerb a second time, found the demolish intent
+    // regardless of what cursorFor had decided, and badged it anyway,
+    // composing 'protected-armour': a key cursorRules never emits, so the
+    // ROE X silently fell back to the OS arrow. badgeFor must badge the name
+    // it was GIVEN, not one it re-derives.
+    const r = res([{ kind: 'demolish', ids: [1], structure: 3 }] as Resolution['intents'], {
+      roe: 'protected',
+    });
+    const name = cursorFor(r, NONE);
+    expect(name).toBe('protected');
+    expect(badgeFor(r, NONE, buckets({ 1: 'armour' }), name)).toBeNull();
   });
 
   it('gives no badge when there is no verb', () => {
-    expect(badgeFor(res([]), NONE, buckets({}))).toBeNull();
+    const empty = res([]);
+    const name = cursorFor(empty, NONE);
+    expect(badgeFor(empty, NONE, buckets({}), name)).toBeNull();
   });
 
   it('gives no badge for an armed support call', () => {
     const r = res([], { armed: 'strike' });
-    expect(badgeFor(r, NONE, buckets({ 1: 'soft' }))).toBeNull();
+    const name = cursorFor(r, NONE);
+    expect(name).toBe('support');
+    expect(badgeFor(r, NONE, buckets({ 1: 'soft' }), name)).toBeNull();
+  });
+
+  it('gives no badge for an armed call even if a mismatched name is passed -- Minor 1', () => {
+    // A defensive second gate: cursorFor never passes a name other than
+    // 'support' when res.armed is set, so UNBADGED_NAMES alone would already
+    // suppress the real call path. This proves the `res.armed` check inside
+    // badgeFor still matters on its own account -- pass 'demolish', with a
+    // real demolish intent underneath that would otherwise badge, and armed
+    // must still win.
+    const r = res([{ kind: 'demolish', ids: [1], structure: 3 }] as Resolution['intents'], {
+      armed: 'strike',
+    });
+    expect(badgeFor(r, NONE, buckets({ 1: 'armour' }), 'demolish')).toBeNull();
   });
 });
 
@@ -284,5 +343,14 @@ describe('cursorKey', () => {
 
   it('is the bare name when there is no badge', () => {
     expect(cursorKey('blocked', null)).toBe('blocked');
+  });
+
+  it('suppresses a badge on an unbadged name even if a caller passes one', () => {
+    // The same guard badgeFor applies (UNBADGED_NAMES), kept here too
+    // because this is the last stop before a key reaches the DOM -- a
+    // caller that (wrongly) hands cursorKey a badge alongside 'protected'
+    // must not compose 'protected-soft', a key cursorRules never emits.
+    expect(cursorKey('protected', 'soft')).toBe('protected');
+    expect(cursorKey('support', 'armour')).toBe('support');
   });
 });
