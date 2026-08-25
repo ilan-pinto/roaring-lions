@@ -51,3 +51,70 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:determinism
+
+  # Cuts a version from the commits since the last tag, but only for a commit
+  # that already passed every gate on all three platforms — `needs` is what
+  # makes that true. A version that cannot survive the determinism matrix is
+  # not a version anyone should be able to point at.
+  #
+  # The rule lives in tools/next_version.mjs and is tested: any feat is a
+  # minor, any fix is a patch, and docs/test/refactor alone cut NOTHING. That
+  # last case is the common one here — a spec, a plan and a ledger correction
+  # are a normal merge, and they change nothing a player can see.
+  version:
+    needs: [gates, determinism]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # The whole history and every tag: the rule reads the range since the
+      # last release, which a shallow clone cannot see.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - id: decide
+        name: Decide the next version
+        run: node tools/decide_version.mjs >> "$GITHUB_OUTPUT"
+
+      # Everything below is skipped when the range holds no feat and no fix.
+      - name: Write, commit and tag
+        if: steps.decide.outputs.next != ''
+        env:
+          NEXT: ${{ steps.decide.outputs.next }}
+        run: |
+          set -euo pipefail
+          node -e '
+            const fs = require("node:fs");
+            const p = "package.json";
+            const raw = fs.readFileSync(p, "utf8");
+            // Rewrite the one line rather than reserialising: JSON.stringify
+            // would reorder nothing but would reformat everything, and this
+            // file is hand-maintained.
+            const out = raw.replace(/^(\s*"version":\s*")[^"]+(")/m, `$1${process.env.NEXT}$2`);
+            if (out === raw) throw new Error("version line not found in package.json");
+            fs.writeFileSync(p, out);
+          '
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          # [skip ci] is what stops this push retriggering ci and pages. Without
+          # it the bump would trigger a run that finds no new commits since the
+          # tag, cuts nothing, and still costs a full matrix.
+          git commit -m "chore(release): v${NEXT} [skip ci]"
+          git tag "v${NEXT}"
+          git push origin HEAD:main --follow-tags
+
+      # The push above is invisible to Actions, so the Pages deploy running
+      # for the merge that triggered this job would publish the PRE-bump
+      # version. Dispatching it again is what keeps the number the app shows
+      # in step with the tag that was just cut.
+      - name: Redeploy Pages at the new version
+        if: steps.decide.outputs.next != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run pages.yml --ref main
