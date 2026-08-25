@@ -59,6 +59,7 @@ describe('right-clicking a building', () => {
       { kind: 'garrison', ids: [2], structure: 7 },
       { kind: 'order', verb: 'attackMove', ids: [3], x: 3.5, y: 3.5, append: false },
     ]);
+    expect(r.marker).toBe(true);
   });
 
   it('omits an empty group rather than dispatching it', () => {
@@ -125,6 +126,23 @@ describe('right-clicking an identified tunnel', () => {
       { kind: 'order', verb: 'attackMove', ids: [4], x: 8.5, y: 2.5, append: false },
     ]);
     expect(r.note?.tone).toBe('info');
+    expect(r.note?.text).toBe('<b>tunnel charge</b> — team moving to the route');
+    expect(r.marker).toBe(true);
+  });
+
+  it('ignores Shift for the rest-group order here too — append is always false', () => {
+    // Mirrors the structure-branch case above: the tunnel branch has the same
+    // hardcoded append: false for the non-charger rest group, and it needs
+    // its own pin — the two branches are separate code paths that happen to
+    // agree, not one shared one.
+    const r = resolvePointer(
+      tunnelWorld({ canTunnelCharge: (i) => i === 9 }),
+      { ids: [9, 4], x: 8.5, y: 2.5, append: true, armed: null }
+    );
+    expect(r.intents).toEqual([
+      { kind: 'chargeTunnel', ids: [9], tunnel: 3 },
+      { kind: 'order', verb: 'attackMove', ids: [4], x: 8.5, y: 2.5, append: false },
+    ]);
   });
 
   it('falls through to an ordinary order when nobody can charge', () => {
@@ -195,6 +213,22 @@ describe('an armed support call', () => {
     expect(r.armed).toBe('sweep');
   });
 
+  it('outranks the empty-selection return too — pointerup\'s real call shape', () => {
+    // pointerup always passes ids: [] alongside armed, since an armed call
+    // does not require a selection. If the armed check ever moved below the
+    // empty-selection early return, armed support would stop working
+    // entirely and nothing above would notice: every other armed case here
+    // uses a non-empty selection.
+    const r = resolvePointer(emptyWorld(), {
+      ids: [],
+      x: 3.5,
+      y: 3.5,
+      append: false,
+      armed: 'strike',
+    });
+    expect(r.armed).toBe('strike');
+  });
+
   it('the same building, unarmed, still gives the ordinary structure split', () => {
     const r = resolvePointer(buildingWorld(), {
       ids: [1, 2],
@@ -223,6 +257,7 @@ describe('the keyboard verbs, resolved the same way', () => {
     });
     expect(r.intents).toEqual([{ kind: 'mount', riders: [2, 3], carrier: 1 }]);
     expect(r.note?.tone).toBe('info');
+    expect(r.note?.text).toBe('<b>mount up</b> — infantry boarding');
   });
 
   it('explains itself when there is no carrier', () => {
@@ -233,6 +268,7 @@ describe('the keyboard verbs, resolved the same way', () => {
     });
     expect(r.intents).toEqual([]);
     expect(r.note?.tone).toBe('mute');
+    expect(r.note?.text).toBe('select a transport and the infantry to load');
   });
 
   it('dismounts only carriers that hold somebody', () => {
@@ -242,6 +278,8 @@ describe('the keyboard verbs, resolved the same way', () => {
       canSmoke: () => false, passengerCount: (i) => (i === 1 ? 2 : 0),
     });
     expect(r.intents).toEqual([{ kind: 'dismount', carriers: [1] }]);
+    expect(r.note?.tone).toBe('info');
+    expect(r.note?.text).toBe('<b>dismount</b> — infantry debussing');
   });
 
   it('lays smoke at the point, from whoever carries it', () => {
@@ -263,5 +301,6 @@ describe('the keyboard verbs, resolved the same way', () => {
     expect(r.intents).toEqual([]);
     expect(r.marker).toBe(false);
     expect(r.note?.tone).toBe('mute');
+    expect(r.note?.text).toBe('nothing selected that carries smoke');
   });
 });
