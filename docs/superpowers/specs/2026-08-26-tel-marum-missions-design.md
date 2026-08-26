@@ -78,6 +78,27 @@ flank prices itself in rocket exposure, using terrain and roster exactly as ship
 hollow and start line fall outside the envelope, so the southern valley floor reads as
 *form up here* — which is what the front spec's dead-ground note asks the map to say.
 
+## Measured, not assumed
+
+Range is arithmetic; sight is not. Every sight line this design rests on was driven
+through the real `Sim` with `debugDetection`, not sketched on the grid. Three results
+changed the design, and the first killed the version of mission II that was approved:
+
+- **Nothing north of the wall can see the hollow.** 841 open tiles see [24,29]; **zero**
+  of them sit at y ≤ 17. The wall denies the hollow to every possible Sarim observer, so
+  a spotter could never give the battery eyes on it. The first draft of mission II held
+  the hollow under rocket fire, which is not merely misplaced — it is impossible.
+- **`overwatch_west` cannot see the hollow** (13.6 tiles) but **can see the approach**
+  (8.9 tiles). Mission II therefore holds the approach. The hollow keeps its role as
+  dead ground: out of range at 23 tiles *and* unobservable, which is a stronger claim
+  than the design originally made for it.
+- **A spotter at the narrow saddle's mouth [8,9] cannot see into the corridor** (false at
+  5.4 tiles). The corridor is observed from the northern valley instead; [12,4] sees
+  y13, y15 and y17.
+
+A ray drawn by eye agreed with none of these. This is the reason the map is walked with
+the runtime rather than read.
+
 ## The arc
 
 The through-line is the spotter→battery relationship. Each mission teaches one more of
@@ -110,15 +131,19 @@ The geography of the 20-tile circle is the teaching, not a scripted silence.
 **Force.** Carried infantry and AT; fresh `apc_eitan` ×2, `mbt_lavi` ×1, `mortar_team` ×1.
 
 **Objectives.**
-- primary `hold_for` → `hollow` zone, 240s
+- primary `hold_for` → `approach` zone, 240s
 - primary `eliminate_hvt` → `tm_spotter_west`
 - secondary `no_collateral_above`
 
-**The lesson.** `tm_spotter_west` in `overwatch_west` has line of sight to the hollow —
-13.6 tiles, the ray passing just west of the knoll at x23–25/y20–21. The moment it
-identifies the player, the Grad ranges a zone the player is *required to stand in*.
-Killing the spotter stops the fire. This is the mission that teaches the rule: indirect
-fire is not weather, it is a person on a hill.
+**The lesson.** `tm_spotter_west` in `overwatch_west` [20,16] sees the approach at 8.9
+tiles. The moment it identifies the player, the Grad ranges a zone the player is
+*required to stand in*. Killing the spotter stops the fire. This is the mission that
+teaches the rule: indirect fire is not weather, it is a person on a hill.
+
+The zone is a gradient rather than a kill box. Of its 35 tiles, 24 are visible to the
+spotter and 29 are inside the battery's envelope, but only **18 are both** — battery
+distance runs 16.0 to 20.4 across the zone. Holding it is therefore a choice about which
+corner to bleed in, not a flat endurance check.
 
 ### III · Clearance
 
@@ -133,7 +158,9 @@ fire is not weather, it is a person on a hill.
 - secondary `no_collateral_above`
 
 **The charge.** Two spotters now: `tm_spotter_west` in the pocket, and
-`tm_spotter_narrow` — `sarim_rifles` at [8,9], the narrow saddle's north mouth. The wide
+`tm_spotter_narrow` — `sarim_rifles` at [12,4] in the northern valley, which sees the
+whole narrow corridor (y13, y15 and y17 all visible) and sits 13.2 tiles from the
+battery, so a player who takes the flank emerges on top of the thing pricing it. The wide
 saddle costs vehicles to the Kornet pockets. The narrow saddle costs rockets at 17 tiles,
 **but only while its spotter lives**. The +9-tile flank is priced in mission data by a
 rule taught in II, and a player who kills the narrow spotter first has earned the cheap
@@ -163,8 +190,8 @@ broken one."*
 `data/maps/tel_marum.json`, additive only. The character grid and the elevation grid are
 untouched.
 
-- new zone `hollow`: `[21,27,7,5]` — x21–27, y27–31, open ground, contains the `hollow`
-  marker. `hold_for` targets zones rather than markers (`ford_watch` in
+- new zone `approach`: `[21,22,7,5]` — x21–27, y22–26, all 35 tiles open, containing the
+  `approach` marker. `hold_for` targets zones rather than markers (`ford_watch` in
   `wadi_halam_basin` is the precedent), and Tel Marum had no zone south of the wall.
 - new marker `sarim_west`: `[8,4]` — open ground behind the narrow saddle, the wave
   source for III.
