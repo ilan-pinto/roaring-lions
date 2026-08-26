@@ -18,9 +18,10 @@ import {
 import { cadenceScale, resolveClip, resolveTurretClip, type UnitAnimInput } from './clip';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec } from './vfx';
 import { isGrindingHit, structureHpBand } from './grind';
-import { TILE_W, TILE_H, isoX, isoY, screenToWorldFlat } from './project';
+import { TILE_W, TILE_H, isoX, isoY, screenToWorldFlat, worldToScreen as projectWorldToScreen } from './project';
 import { trailTileAlpha } from './trail';
 import { releaseCursorToCss } from './cursor-ownership';
+import type { Renderer } from './api';
 
 export { TILE_W, TILE_H, isoX, isoY, worldToScreen, screenToWorldFlat } from './project';
 export type { Camera, Viewport } from './project';
@@ -208,10 +209,29 @@ export function bandKey(x: number, y: number): number {
   return x + y;
 }
 
-export class PixiRenderer {
+export class PixiRenderer implements Renderer {
   readonly app = new Application();
   readonly camera = { x: 24, y: 24, zoom: 1 };
   selection: number[] = [];
+
+  /** The canvas, without making callers name the backend to reach it. */
+  get canvas(): HTMLCanvasElement {
+    return this.app.canvas as HTMLCanvasElement;
+  }
+
+  get width(): number {
+    return this.app.renderer.width;
+  }
+
+  get height(): number {
+    return this.app.renderer.height;
+  }
+
+  /** Forward projection. `lift` defaults to 0, which is the flat answer the
+   *  cursor readout wants -- see project.ts's note on why that is honest. */
+  worldToScreen(wx: number, wy: number, lift = 0): { x: number; y: number } {
+    return projectWorldToScreen(wx, wy, this.camera, { width: this.width, height: this.height }, lift);
+  }
   /** Control-group number per entity (0 = ungrouped), owned by the app. */
   readonly unitGroup: Uint8Array;
   private readonly groupLabels: Text[] = [];

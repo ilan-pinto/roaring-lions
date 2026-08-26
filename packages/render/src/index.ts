@@ -17,3 +17,5 @@ export {
 export { DebugOverlay } from './overlay';
 export { BattleAudio, type AudioManifest, type AudioSet, type AudioVariant } from './audio';
 export { type EmitterSpec } from './vfx';
+export type { Renderer } from './api';
+export { worldToScreen, screenToWorldFlat, type Camera, type Viewport } from './project';
