@@ -9,6 +9,15 @@
 // Every negative is paired with a positive on the same geometry. A test that
 // only asserts "cannot see" passes when the spawn is broken, when sight range
 // is too short, or when detection never ran.
+//
+// What this file proves and what it does not: OBSERVER below has
+// sight_tiles: 48, far past anything on this map, so every `sees()` result
+// here is a TERRAIN-AND-LOS fact -- "nothing solid blocks this ray" -- not a
+// claim about what any unit actually posted on the map can see. The garrison
+// unit standing at these positions, `sarim_rifles`, has sight_tiles: 9
+// (data/units/enemy/sarim_rifles.json), which is well short of several rays
+// this file proves are geometrically clear. Do not read a `sees()` result
+// here as "the roster sees this" without checking the poster's own sight.
 import { describe, expect, it } from 'vitest';
 import { applyTerrain, maps, parseMap, type MapJson } from '@lions/data';
 import { fx } from '../../packages/sim/src/fixed';
@@ -76,8 +85,10 @@ describe("the Grad battery's envelope", () => {
   });
 
   it('reaches the narrow saddle that the Kornet pockets cannot', () => {
-    // The whole point of the flank's price: 17.0 for the battery, and the
-    // pocket is both out of range and behind rock (asserted below).
+    // What makes the flank chargeable at all: 17.0 for the battery, and the
+    // pocket is both out of range and behind rock (asserted below). Whether
+    // the flank is actually priced in the shipped mission is a separate,
+    // disproved question -- see the Tel Marum saddle bullet in CLAUDE.md.
     expect(dist(BATTERY, SADDLE_NARROW)).toBeCloseTo(17.0, 1);
     expect(dist(BATTERY, SADDLE_NARROW)).toBeLessThanOrEqual(GRAD_RANGE);
   });
@@ -99,15 +110,25 @@ describe('the west pocket', () => {
     expect(sees(OVERWATCH_W, HOLLOW)).toBe(false);
   });
 
-  it('cannot see the narrow saddle — the debt this front was left with', () => {
+  it('cannot see the narrow saddle — terrain, not a diagnosed fix', () => {
     // Not a near miss on range: x=12..18 at y=15..17 is solid rock between
     // them. Paired with the positive above so a broken spawn cannot pass.
+    // This is why the west pocket can never give the battery eyes on the
+    // corridor -- it does not re-diagnose why the narrow spotter's own kill
+    // fails to price the flank; that is a target-selection question, not a
+    // west-pocket one (see the Tel Marum saddle bullet in CLAUDE.md).
     expect(sees(OVERWATCH_W, SADDLE_NARROW)).toBe(false);
   });
 });
 
 describe('the narrow corridor', () => {
-  it('is watched from the northern valley along its whole length', () => {
+  it('has an unobstructed line of sight from the northern valley along its whole length', () => {
+    // Terrain/LOS fact only, per the header note above: this is what OBSERVER
+    // (sight 48) can see, not what `tm_spotter_narrow` can. That unit is
+    // sarim_rifles, sight 9 -- it sees only the corridor's north exit row,
+    // (11,12) at 8.06 tiles, and none of y=13 (9.22), y=15 (11.18) or y=17
+    // (13.15). "Watched along its whole length" describes the ground, not
+    // the roster posted on it.
     for (const y of [13, 15, 17]) {
       expect(sees(SPOTTER_NARROW, [10, y] as Pt)).toBe(true);
     }
@@ -122,7 +143,10 @@ describe('the narrow corridor', () => {
   });
 
   it('leaves its watcher inside the battery envelope', () => {
-    // So taking the flank puts the player on top of the thing pricing it.
+    // A range fact about the ground, not a claim that killing this spotter
+    // prices the flank -- measurement showed it does not (narrow-with-spotter
+    // -alive and narrow-with-spotter-dead land the same, per the Tel Marum
+    // saddle bullet in CLAUDE.md).
     expect(dist(SPOTTER_NARROW, BATTERY)).toBeLessThanOrEqual(GRAD_RANGE);
   });
 });

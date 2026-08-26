@@ -718,11 +718,17 @@ run(
 
 // Tel Marum II — the start line, and the man who calls the fire.
 //
-// The approach is 35 tiles and only 18 of them are both visible to the west
-// pocket and inside the Grad's reach. The plan takes the southern edge of the
-// zone, which counts for the hold and is the cheapest ground in it, then sends
-// infantry up the west side of the bay to kill the observer. Once he is dead
-// the battery has no eyes and the remaining hold is uncontested.
+// The approach is 35 tiles. The design doc's 18-of-35 figure came from the
+// doctrine test's 48-sight OBSERVER, walking terrain, not from the garrison
+// unit actually posted there: `tm_spotter_west` is sarim_rifles, sight 9. At
+// that sight the real count is smaller, roughly 15 — approximate, not
+// re-measured through the real Sim here. The plan takes the southern edge of
+// the zone, which counts for the hold and is the cheapest ground in it, then
+// sends infantry up the west side of the bay to kill the observer. Killing
+// him removes one contact feeding the battery, but `sim.ts:2073` identifies
+// per side, not per unit — other garrison Sarim can still hand the Grad eyes
+// on the zone, so the hold is not proven uncontested by this kill alone (see
+// mission II's own briefing, which already carries this caveat).
 //
 // Control: a player who gives no orders never enters the approach, so
 // hold_for never starts and kill_spotter never fires. Neither primary can
@@ -734,6 +740,9 @@ run(
 // (out of its 20-tile reach) behind a standoff garrison that will not come
 // to it, so it is never wiped either. Observed, not assumed: this control
 // stays ONGOING for the full 20-minute cap, exactly as Task 2's did.
+// Unlike mission I's control, no wave-volume wipe was attempted for this
+// mission -- the 'ongoing' ruling here is inherited from I's method, not
+// backed by its own 24-stall/28-wipe-style measurement.
 run('tel_marum_2_foothold', () => {}, {}, 'ongoing', 'tel_marum_2_foothold (passive control)');
 
 run(
@@ -773,11 +782,13 @@ run(
 // Tel Marum III — the pass, taken the expensive way on purpose.
 //
 // The plan takes the WIDE saddle. That is the costly route and it is chosen
-// deliberately: the narrow saddle is nine tiles longer and its price is the
-// Grad, which means the flank only pays once its observer at [12,4] is dead —
-// and reaching him means going through the corridor the rockets already cover.
-// A scripted proof should demonstrate the mission is winnable by the obvious
-// line, not by the clever one.
+// deliberately: the narrow saddle is nine tiles longer, and while the Grad
+// reaches it at 17 tiles, measurement showed the observer at [12,4] does not
+// change that price -- narrow-with-spotter-alive (5.2 min) and
+// narrow-with-spotter-dead (5.1 min) are the same run (see the Tel Marum
+// saddle bullet in CLAUDE.md). The narrow route's real cost is
+// force-splitting, not this observer. A scripted proof should demonstrate
+// the mission is winnable by the obvious line, not by the clever one.
 //
 // Mortars kill the west pocket's observer from the hollow first, because every
 // tile of the wide saddle is inside the Grad's reach and being seen there is
@@ -792,6 +803,9 @@ run(
 // the battery (out of its 20-tile reach) behind a standoff garrison that will
 // not come to it, so it is never wiped either. Observed, not assumed: this
 // control stays ONGOING for the full 20-minute cap, exactly as Task 2's did.
+// As with II, no wave-volume wipe was attempted for this mission -- the
+// 'ongoing' ruling is inherited from I's method, not backed by its own
+// 24-stall/28-wipe-style measurement.
 run('tel_marum_3_clearance', () => {}, {}, 'ongoing', 'tel_marum_3_clearance (passive control)');
 
 run(

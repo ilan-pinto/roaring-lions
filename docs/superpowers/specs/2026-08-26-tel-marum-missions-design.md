@@ -162,13 +162,22 @@ corner to bleed in, not a flat endurance check.
 - `roe.flagged_zones: ["town_block"]`, `fail_below: 45`
 
 **The charge.** Two spotters now: `tm_spotter_west` in the pocket, and
-`tm_spotter_narrow` — `sarim_rifles` at [12,4] in the northern valley, which sees the
-whole narrow corridor (y13, y15 and y17 all visible) and sits 13.2 tiles from the
-battery, so a player who takes the flank emerges on top of the thing pricing it. The wide
-saddle costs vehicles to the Kornet pockets. The narrow saddle costs rockets at 17 tiles,
-**but only while its spotter lives**. The +9-tile flank is priced in mission data by a
-rule taught in II, and a player who kills the narrow spotter first has earned the cheap
-route rather than stumbled onto it.
+`tm_spotter_narrow` — `sarim_rifles` at [12,4] in the northern valley, which sits 13.2
+tiles from the battery, so a player who takes the flank emerges near the thing pricing
+it. The wide saddle costs vehicles to the Kornet pockets. The narrow saddle costs rockets
+at 17 tiles, **but only while its spotter lives**. The +9-tile flank is priced in mission
+data by a rule taught in II, and a player who kills the narrow spotter first has earned
+the cheap route rather than stumbled onto it.
+
+> **This section's original conclusion was wrong, and the implementation disproved it.**
+> "sees the whole narrow corridor (y13, y15 and y17 all visible)" describes the 48-sight
+> `OBSERVER` the doctrine test uses to walk the terrain, not `sarim_rifles` (sight 9),
+> which is what `tm_spotter_narrow` actually is. At sight 9 it sees only the corridor's
+> north exit row — (11,12) at 8.06 tiles — and nothing at y=13 (9.22), the saddle itself
+> (10.20), y=15 (11.18) or y=17 (13.15). Measured narrow-with-spotter-alive (5.2 min) and
+> narrow-with-spotter-dead (5.1 min) are the same run: killing him buys nothing. See
+> **The flank is still free** below. The terrain and range figures stand; "but only while
+> its spotter lives" does not.
 
 ## The battery
 

@@ -4,7 +4,7 @@
   "town": "tel_marum",
   "phase": "clearance",
   "target_minutes": 7,
-  "briefing": "Two ways through the wall and neither is free. The wide saddle is covered by both Kornet pockets and will cost you vehicles. The narrow one costs nine extra tiles and no missiles — but the Grad reaches it, and there is a second observer in the northern valley who will call it down on you. Whichever way you go, deal with the eyes first. Take the pass, and put the battery out of the war.",
+  "briefing": "Two ways through the wall and neither is free. The wide saddle is covered by both Kornet pockets and will cost you vehicles. The narrow saddle is nine tiles longer, but no missile reaches it — the Grad can, at 17 tiles, though it holds the north exit rather than the whole corridor. An observer in the northern valley sits over the corridor's north exit; he does not watch the length of it. The town block north of the pass sits two tiles from the battery you are ordered to destroy — the one place heavy ordnance is guaranteed to land, so mind what you call in against it. Take the pass, and put the battery out of the war.",
   "map": {
     "file": "tel_marum",
     "player_start": [24, 44]

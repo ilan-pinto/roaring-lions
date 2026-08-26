@@ -22,7 +22,7 @@
     { "unit": "recon_drone", "count": 1, "at": [24, 42] },
     { "unit": "jeep_shoded", "count": 1, "at": [22, 43] },
     { "unit": "inf_squad", "count": 3, "at": [24, 44], "from_ledger": true },
-    { "unit": "at_team", "count": 1, "at": [26, 44], "from_ledger": true },
+    { "unit": "at_team", "count": 1, "at": [27, 44], "from_ledger": true },
     { "unit": "apc_eitan", "count": 1, "at": [22, 45] }
   ],
   "objectives": [

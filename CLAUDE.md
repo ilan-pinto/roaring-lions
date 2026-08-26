@@ -279,16 +279,20 @@ The combat model is the product. Everything else is scaffolding around it.
   let the Grad at `battery_position` charge for it, since it reaches the corridor at 17
   tiles and `rocket` is in `INDIRECT_MASK` (`sim.ts:223`) so it needs no sight of its own,
   while `sim.ts:2073` gates each shot on **per-side** identification — was authored into
-  `tel_marum_3_clearance` with a spotter at [12,4] that watches the corridor's whole
-  length, and then measured. **It does not work.** Three runs: wide 3.5 min / roster 9,
-  narrow with the spotter alive 5.2 / 6, narrow with the spotter killed at t=0 5.1 / 6.
-  The last two are the same run. A trace of the battery's `fire` events shows six shots
-  and not one at the flanking force — `selectTarget` prefers the nearest target it can
-  hurt, and that is always the holding force at the pass. The narrow route's real cost is
-  force-splitting, which a player who commits everything to the flank simply does not pay.
-  So this is a **target-selection** problem, not a range or sight one, and pricing the
-  flank needs the corridor to become the battery's *preferred* target while a fight is on
-  elsewhere: a trigger that retasks it, a contact that outranks proximity, or the
+  `tel_marum_3_clearance` with a spotter at [12,4]. That spotter is `sarim_rifles`, sight
+  9, not the 48-sight observer the doctrine test uses to walk the terrain — and the
+  corridor tiles sit 9.2 to 13.2 tiles away. So it sees only the corridor's north exit row
+  (11,12), not the length of it, and then measured. **It does not work.** Three runs: wide
+  3.5 min / roster 9, narrow with the spotter alive 5.2 / 6, narrow with the spotter killed
+  at t=0 5.1 / 6. The last two are the same run. A trace of the battery's `fire` events
+  shows six shots and not one at the flanking force — but with the spotter blind past the
+  exit row, that trace does not prove `selectTarget` preferred the holding force over the
+  flankers; it may never have had the flankers as candidates at all. The narrow route's
+  real cost is force-splitting, which a player who commits everything to the flank simply
+  does not pay. **Target-selection preference is the leading explanation, not a proven
+  one** — anyone attempting a fix must first put eyes on the corridor that can actually
+  see it (sight 9 does not reach past the north exit row), then re-measure before touching
+  `selectTarget`: a trigger that retasks it, a contact that outranks proximity, or the
   admission that indirect fire here will always shoot at whatever is nearest and softest.
   Two sight facts worth keeping regardless: **nothing north of the wall can see the
   hollow** — 841 open tiles see [24,29] and not one is at y ≤ 17 — so the hollow is dead
