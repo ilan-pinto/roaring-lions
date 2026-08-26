@@ -20,6 +20,8 @@ import {
   DebugOverlay,
   BattleAudio,
   TERRAIN_DECOR,
+  isoX,
+  isoY,
   type RendererOptions,
   type AudioManifest,
   type EmitterSpec,
@@ -1303,8 +1305,127 @@ async function main(): Promise<void> {
        *  and tell you nothing. A previous slice shipped a selector that could
        *  never match, behind a fully green suite. */
       cursorKey: () => canvas.dataset.cursor ?? '(unset)',
+
+      /** Put the pointer somewhere and run the REAL hover read, returning the
+       *  cursor key it produced.
+       *
+       *  Takes WORLD tiles, not screen pixels, so a check reads the way a map
+       *  is authored. The hover path used to be reachable only through Pixi's
+       *  ticker, which is rAF-backed and therefore dead in a hidden tab --
+       *  every automated look at the cursor saw `(unset)` and concluded the
+       *  feature was broken. This calls the same `updateHover` the ticker
+       *  does, so what it reports is what a frame would have written. */
+      hover: (wx: number, wy: number) => {
+        // Forward projection, the inverse of screenToWorld's flat path. It
+        // does NOT undo terrain lift -- screenToWorld only approximates that
+        // itself (see its comment), so rather than pretend, this reports the
+        // tile it actually landed on and lets the caller see any drift.
+        const cx = renderer.app.renderer.width / 2;
+        const cy = renderer.app.renderer.height / 2;
+        const z = renderer.camera.zoom;
+        lastCursor.x = (isoX(wx, wy) - isoX(renderer.camera.x, renderer.camera.y)) * z + cx;
+        lastCursor.y = (isoY(wx, wy) - isoY(renderer.camera.x, renderer.camera.y)) * z + cy;
+        updateHover();
+        const landed = renderer.screenToWorld(lastCursor.x, lastCursor.y);
+        return {
+          cursor: canvas.dataset.cursor ?? '(unset)',
+          asked: [wx, wy] as [number, number],
+          landed: [Math.floor(landed.x), Math.floor(landed.y)] as [number, number],
+        };
+      },
     },
   });
+
+  /** The hover read: pointer position -> resolver -> cursor name -> DOM.
+   *
+   *  Extracted from the rAF callback so it is reachable without one. It ran
+   *  ONLY inside requestAnimationFrame, and Chrome runs rAF zero times in a
+   *  hidden tab -- so every headless or automated check of the cursor found
+   *  `dataset.cursor` absent and the sim at tick 0, which reads as a broken
+   *  cursor and is not one. That is why three slices of cursor work shipped
+   *  without anything ever having looked at them.
+   *
+   *  `__lions.hover(x, y)` below calls THIS function, not a copy of it: the
+   *  instrument and the loop share one body, so a check cannot pass against
+   *  code the real frame does not run. */
+  const updateHover = (): void => {
+  // Hover work runs once per frame rather than once per pointer event. A
+  // high-poll mouse fires several moves a frame, and this loop includes an
+  // O(N) scan over every entity, so this is strictly cheaper than before.
+  const hw = renderer.screenToWorld(lastCursor.x, lastCursor.y);
+  const hs = sim.structureAt(Math.floor(hw.x), Math.floor(hw.y));
+  renderer.hoverStructure = hs;
+  renderer.hoverCanGarrison =
+    hs >= 0 &&
+    sim.structures.occupants[hs] < sim.structureTypes[sim.structures.typeIdx[hs]].garrisonSlots &&
+    renderer.selection.some(
+      (i) =>
+        sim.state.side[i] === 0 &&
+        sim.state.alive[i] === 1 &&
+        sim.unitTypes[sim.state.typeIdx[i]].canGarrison &&
+        sim.state.garrisonedIn[i] !== hs
+    );
+
+  // Nearest living enemy within half a tile of the cursor — the same
+  // generosity the click-to-select test uses. Restricted to side 1 (real
+  // enemies, never civilians — side 2 is never an aimpoint) and gated on
+  // renderer.isVisible so the scan can only pick up an entity that is
+  // actually drawn on screen right now. That mirrors the exact condition
+  // the renderer itself uses to decide whether to draw a non-friendly
+  // sprite at all (see PixiRenderer's entity loop) — anything the fog
+  // currently hides must not be able to surface through the hover panel
+  // either, or sweeping the cursor across unexplored ground locates every
+  // hidden defender.
+  let he = -1;
+  let bestD = 0.5 * 0.5;
+  for (let i = 0; i < sim.entityCount; i++) {
+    if (sim.state.alive[i] === 0 || sim.state.side[i] !== 1) continue;
+    const ex = fx.toNumber(sim.state.posX[i]);
+    const ey = fx.toNumber(sim.state.posY[i]);
+    if (!renderer.isVisible(ex, ey)) continue;
+    const dx = ex - hw.x;
+    const dy = ey - hw.y;
+    const d = dx * dx + dy * dy;
+    if (d < bestD) {
+      bestD = d;
+      he = i;
+    }
+  }
+  renderer.hoverEntity = he;
+
+  // The hover cursor asks the same resolver the click uses, with the same
+  // adapter (intentWorld) — one object, so the click and the cursor that
+  // predicts it can never give different answers. append is always false:
+  // the hover cursor does not depend on Shift, and passing the live Shift
+  // state would make the cursor flicker while a player queues waypoints.
+  const mine = renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
+  const res = resolvePointer(intentWorld, {
+    ids: mine,
+    x: hw.x,
+    y: hw.y,
+    append: false,
+    armed: armedSupport,
+    confirm: altHeld,
+  });
+  const tx = Math.floor(hw.x);
+  const ty = Math.floor(hw.y);
+  const inBounds = tx >= 0 && ty >= 0 && tx < sim.width && ty < sim.height;
+  const hints = {
+    hostile: renderer.hoverEntity >= 0,
+    blocked: inBounds && sim.blocked[ty * sim.width + tx] !== 0,
+  };
+  const badges: BadgeHints = {
+    bucketOf: (id) => roleBucket(sim.unitTypes[sim.state.typeIdx[id]]),
+  };
+  const name = cursorFor(res, hints);
+  const key = cursorKey(name, badgeFor(res, hints, badges, name));
+  // Guard the write: a dataset attribute set every frame forces needless
+  // style invalidation even when the cursor hasn't changed.
+  if (key !== lastCursorKey) {
+    canvas.dataset.cursor = key;
+    lastCursorKey = key;
+  }
+  };
 
   let last = performance.now();
   let acc = 0;
@@ -1336,82 +1457,7 @@ async function main(): Promise<void> {
     }
     renderer.frame(acc / MS_PER_TICK);
 
-    // Hover work runs once per frame rather than once per pointer event. A
-    // high-poll mouse fires several moves a frame, and this loop includes an
-    // O(N) scan over every entity, so this is strictly cheaper than before.
-    const hw = renderer.screenToWorld(lastCursor.x, lastCursor.y);
-    const hs = sim.structureAt(Math.floor(hw.x), Math.floor(hw.y));
-    renderer.hoverStructure = hs;
-    renderer.hoverCanGarrison =
-      hs >= 0 &&
-      sim.structures.occupants[hs] < sim.structureTypes[sim.structures.typeIdx[hs]].garrisonSlots &&
-      renderer.selection.some(
-        (i) =>
-          sim.state.side[i] === 0 &&
-          sim.state.alive[i] === 1 &&
-          sim.unitTypes[sim.state.typeIdx[i]].canGarrison &&
-          sim.state.garrisonedIn[i] !== hs
-      );
-
-    // Nearest living enemy within half a tile of the cursor — the same
-    // generosity the click-to-select test uses. Restricted to side 1 (real
-    // enemies, never civilians — side 2 is never an aimpoint) and gated on
-    // renderer.isVisible so the scan can only pick up an entity that is
-    // actually drawn on screen right now. That mirrors the exact condition
-    // the renderer itself uses to decide whether to draw a non-friendly
-    // sprite at all (see PixiRenderer's entity loop) — anything the fog
-    // currently hides must not be able to surface through the hover panel
-    // either, or sweeping the cursor across unexplored ground locates every
-    // hidden defender.
-    let he = -1;
-    let bestD = 0.5 * 0.5;
-    for (let i = 0; i < sim.entityCount; i++) {
-      if (sim.state.alive[i] === 0 || sim.state.side[i] !== 1) continue;
-      const ex = fx.toNumber(sim.state.posX[i]);
-      const ey = fx.toNumber(sim.state.posY[i]);
-      if (!renderer.isVisible(ex, ey)) continue;
-      const dx = ex - hw.x;
-      const dy = ey - hw.y;
-      const d = dx * dx + dy * dy;
-      if (d < bestD) {
-        bestD = d;
-        he = i;
-      }
-    }
-    renderer.hoverEntity = he;
-
-    // The hover cursor asks the same resolver the click uses, with the same
-    // adapter (intentWorld) — one object, so the click and the cursor that
-    // predicts it can never give different answers. append is always false:
-    // the hover cursor does not depend on Shift, and passing the live Shift
-    // state would make the cursor flicker while a player queues waypoints.
-    const mine = renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
-    const res = resolvePointer(intentWorld, {
-      ids: mine,
-      x: hw.x,
-      y: hw.y,
-      append: false,
-      armed: armedSupport,
-      confirm: altHeld,
-    });
-    const tx = Math.floor(hw.x);
-    const ty = Math.floor(hw.y);
-    const inBounds = tx >= 0 && ty >= 0 && tx < sim.width && ty < sim.height;
-    const hints = {
-      hostile: renderer.hoverEntity >= 0,
-      blocked: inBounds && sim.blocked[ty * sim.width + tx] !== 0,
-    };
-    const badges: BadgeHints = {
-      bucketOf: (id) => roleBucket(sim.unitTypes[sim.state.typeIdx[id]]),
-    };
-    const name = cursorFor(res, hints);
-    const key = cursorKey(name, badgeFor(res, hints, badges, name));
-    // Guard the write: a dataset attribute set every frame forces needless
-    // style invalidation even when the cursor hasn't changed.
-    if (key !== lastCursorKey) {
-      canvas.dataset.cursor = key;
-      lastCursorKey = key;
-    }
+    updateHover();
   });
 }
 
