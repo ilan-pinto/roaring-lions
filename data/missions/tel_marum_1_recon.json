@@ -27,16 +27,30 @@
   ],
   "objectives": [
     {
-      "id": "picture",
+      "id": "find_pocket_east",
       "type": "locate",
       "primary": true,
-      "count": 5,
-      "text": "Identify five firing positions"
+      "target": "tm_pocket_east",
+      "text": "Identify the eastern ATGM pocket"
+    },
+    {
+      "id": "find_pocket_west",
+      "type": "locate",
+      "primary": true,
+      "target": "tm_pocket_west",
+      "text": "Identify the western ATGM pocket"
+    },
+    {
+      "id": "find_spotter",
+      "type": "locate",
+      "primary": true,
+      "target": "tm_spotter_west",
+      "text": "Identify whoever is spotting for the battery"
     },
     {
       "id": "find_battery",
       "type": "locate",
-      "primary": false,
+      "primary": true,
       "target": "tm_hvt_battery",
       "text": "Find the Grad section behind the wall"
     },

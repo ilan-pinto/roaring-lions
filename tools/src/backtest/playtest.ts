@@ -621,47 +621,62 @@ run('beit_sahwan_4_subterranean', (sim, _rt, ids, at) => {
 
 // Tel Marum I — the picture, taken from dead ground.
 //
-// The mission is a recon and the whole trick is that the hollow at [24,29] is
-// 23 tiles from the battery and the approach at [24,24] is 18. The drone goes
-// forward alone; everything with a crew stays south of the hollow. Five
-// positions is the objective and the drone can see four of six from the
-// approach without stopping there -- the fifth costs it the sweep.
+// Round 1 shipped `picture` as an untargeted `locate` (count N of ANY
+// identified hostile). That was the actual bug: it let the pursuit waves
+// below feed the same objective they were meant to punish passivity for
+// dodging, so a heavy wave produced a free VICTORY for a player who gave no
+// orders, and a light one produced a stalemate no wave volume could break.
+// The primary is now four separately TARGETED `locate`s -- one per named
+// garrison tag (tm_pocket_east, tm_pocket_west, tm_spotter_west,
+// tm_hvt_battery) -- exactly the shape `beit_sahwan_1_recon`'s `hvt_seen`
+// already ships. A wave unit carries no such tag, so it is structurally
+// unable to complete any of the four; only genuine recon of the wall and
+// the battery can.
 //
-// Control: a player who gives no orders never moves the drone, so the picture
-// is never built and the primary cannot complete. `locate` itself has no
-// deadline (unlike raze, collapse and evacuate_before, `stepObjectives`'s
-// `locate` branch only ever sets `complete`), and this mission's "standoff
-// overwatch" garrison never advances on its own -- so a passive force sitting
-// 30+ tiles south is never found and never wiped by the garrison alone.
+// The approach at (24,25) still gives three of the four for free (sight 16
+// reaches both ATGM pockets and the spotter from there, ~9-10 tiles out).
+// `find_battery` costs the sweep: the battery sits 18.6 tiles from the
+// approach, past sight 16, and the straight route north runs through the
+// wide pass at x=22-26 -- exactly what tm_picket_wide (sarim_rifles, weapon
+// range 8) is posted to cover, which is what killed the drone at 44.5s in
+// an earlier attempt that went straight up the middle. The shipped route
+// goes around instead: south and west off the wall's engagement envelope
+// entirely, up the narrow saddle at x=11 (nothing in this garrison reaches
+// that column), then east to a standoff point that sees the battery at
+// range 10.6 -- outside both rifle squads' weapon range and sight the whole
+// way, checked leg by leg, not just at the endpoints.
 //
-// The `waves` below exist to give the control a premise -- three pursuit
-// elements out of town_edge -- but they cannot make it LOSE, and a bigger
-// wave makes it WIN instead, which is worse. `picture` has no `target`, so
-// `identified.size >= count` counts ANY identified hostile, wave arrivals
-// included. `recon_drone` (sight 16, thermal) sits stationary two tiles
-// behind player_start, and the valley south of the hollow is dead flat with
-// no cover at all (map row dump confirms it), so every wave unit is spotted
-// from ~13-16 tiles out -- 6-12 tiles before it ever reaches its own weapon
-// range (7-10) of the defenders. `selectTarget` requires a shooter to have
-// already identified its target, so a wave literally cannot deal damage
-// before the player has identified it. Measured directly: a heavier wave (3
-// atgm_cell + 2 recoilless_team, twice) gets `picture` to `complete` at
-// 302.6s with the defending roster having taken zero casualties -- a free
-// VICTORY, not a DEFEAT. The three light waves actually shipped total 4
-// units, one under `picture`'s count of 5, so they can never trip that
-// side-channel on their own; measured directly, that keeps the control at
-// `ongoing` for the full 20-minute cap (`picture=active`, defenders
-// untouched) -- the honest result, given this mission's very solid starting
-// force (Eitan APC, Spike AT team, three rifle squads) plus this map's
-// total lack of cover on the approach make actually wiping it in the field's
-// remaining time implausible at any wave size that stays under the
-// threshold. Fixing this for real needs either a deadline on `locate` in
-// packages/sim/src/mission.ts (sim code, out of scope) or restricting
-// `picture` to a specific target set immune to reinforcement sightings (a
-// different objective shape than the brief specifies) -- see the task-2
-// report for the full trace. `ongoing` is the outcome this mission's content
-// actually produces; asserting `defeat` here would be asserting something
-// false.
+// Control: a player who gives no orders never moves the drone, so none of
+// the four primaries can complete on their own -- and now, unlike round 1,
+// nothing a wave carries can complete them either (a wave unit has no
+// tm_pocket_east/tm_pocket_west/tm_spotter_west/tm_hvt_battery tag, so it is
+// structurally unable to satisfy a targeted `locate`). That closes the
+// round-1 exploit: this control cannot WIN, which is a real assertion --
+// round 1's untargeted `picture` could be won by a passive player for free.
+//
+// It still cannot LOSE either, and BOUNDED FALLBACK authorised: this was
+// tried honestly before falling back. Wiping this mission's starting force
+// (Eitan APC 1600 hp/220 front armour, Spike AT team, three rifle squads,
+// jeep_shoded) takes real volume -- both AT-capable types in this garrison
+// are ground-only (`can_target: ["ground"]`), so a wave built from them
+// alone can kill every crewed unit and still never touch `recon_drone`
+// (air): confirmed directly, an all-AT-team wave series left the drone the
+// sole survivor, unkillable, for the rest of the 20 minutes, so every wave
+// below needs a sarim_rifles (the garrison's only air-capable weapon)
+// alongside the anti-armour pair. With that fixed, volume is what's left to
+// tune, and it does not scale gently: 6 waves of 4 (24 attackers, every 90s
+// to 600s) leaves ONE player unit alive and unreachable for the rest of the
+// cap; 7 waves of 4 (28 attackers, to 690s) wipes the defenders cleanly at
+// 742.6s (12.4 min). There is no gradual middle -- below the threshold the
+// mission gets permanently stuck, not gracefully close. 28 attackers in
+// sustained pursuit for 10+ minutes is a stand-up battle, not a pursuit
+// response to a recon patrol that "brings back the picture, not
+// casualties" -- so per the bounded fallback, the light 3-wave/4-unit
+// pursuit below ships instead (thematically real, and harmless to the
+// scripted run, which resolves at 0.9 min, before the first wave even
+// spawns at 150s), and the control's expectation stays `ongoing`: unable to
+// WIN (closed exploit, verified) and, at a volume this mission can still
+// call a recon, unable to LOSE either.
 run('tel_marum_1_recon', () => {}, {}, 'ongoing', 'tel_marum_1_recon (passive control)');
 
 run(
@@ -674,24 +689,27 @@ run(
       // Screen forward to the hollow and stop there — out of the envelope.
       sim.queueCommand({ kind: 'move', ids: screen, ...M(24, 30) });
       sim.queueCommand({ kind: 'move', ids: foot, ...M(23, 31) });
-      // The drone alone goes into the envelope.
+      // The drone alone goes into the envelope. From the approach alone,
+      // sight 16 already reaches both ATGM pockets and the spotter (all
+      // three complete by ~t=16s, well before the next order below fires).
       sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 25) });
     });
-    at(40, () => {
-      // Sweep west then east along the wall to pick up both pockets and the
-      // picket without loitering on any one of them.
-      sim.queueCommand({ kind: 'move', ids: drone, ...M(19, 19) });
-    });
-    at(75, () => {
-      sim.queueCommand({ kind: 'move', ids: drone, ...M(28, 19) });
-    });
-    at(110, () => {
-      // Far enough north to raise the battery, then straight back out.
-      sim.queueCommand({ kind: 'move', ids: drone, ...M(25, 17) });
-    });
-    at(140, () => {
-      sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 31) });
-    });
+    // find_battery is the one the approach cannot give for free: the battery
+    // sits 18.6 tiles out from there, past sight 16. The straight route north
+    // runs through the wide pass at x=22-26, which is exactly what
+    // tm_picket_wide (sarim_rifles, weapon range 8) is posted to cover --
+    // closing on it is what killed the drone at 44.5s in the round-2 replay.
+    // So the drone goes around: south and west off the wall's engagement
+    // envelope entirely, up the UNGUARDED narrow saddle at x=11 (nothing in
+    // this garrison can reach that column), then east to a standoff point
+    // north of the wall that sees the battery at range 10.6 -- outside both
+    // rifle squads' weapon range (8) and sight (9) throughout, by margins of
+    // 1-7.5 tiles at every leg (checked against both tm_picket_wide and
+    // tm_spotter_west along the full path, not just the endpoints).
+    at(20, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(16, 27) }));
+    at(28, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(11, 22) }));
+    at(35, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(11, 12) }));
+    at(44, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(15, 8) }));
   },
   {},
   'victory',
