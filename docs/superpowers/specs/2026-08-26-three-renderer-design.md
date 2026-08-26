@@ -106,7 +106,7 @@ Four leaks must close first. All four are worth closing regardless of this proje
 | today | becomes | why |
 |---|---|---|
 | `renderer.app.canvas` | `renderer.canvas` | `app` should not name the backend |
-| `renderer.app.renderer.width` / `.height` | `renderer.width` / `.height` | these already exist; the reach-through is redundant today |
+| `renderer.app.renderer.width` / `.height` | `renderer.width` / `.height` (**new members**) | viewport size is only reachable through the backend today |
 | `renderer.app.ticker.add(cb)` | `app` drives its own `requestAnimationFrame` loop | Pixi's ticker is backend-specific |
 | exported `isoX(wx,wy)` / `isoY(wx,wy)` | `renderer.worldToScreen(wx, wy)` | see below |
 
