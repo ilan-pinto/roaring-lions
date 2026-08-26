@@ -1,7 +1,8 @@
 /**
- * The three.js backend. Phase B1: it exists, it sizes itself, it follows the
- * window, and its camera agrees with PixiRenderer's projection. It draws
- * nothing but the clear colour.
+ * The three.js backend. Phase B1 got it on screen with nothing but the clear
+ * colour; Phase B2.4 adds the first drawn geometry -- terrain, built lazily
+ * from `buildGround` (see `rebuildTerrain` below) and uploaded once per
+ * change via `toGeometry`/`terrainMaterial`.
  *
  * Three kinds of not-yet-implemented member, and the line between them is the
  * whole discipline of this phase: *inventing an answer* is forbidden;
@@ -39,6 +40,9 @@ import type { Camera } from '../project';
 import type { EmitterSpec } from '../vfx';
 import { dimetricCamera, worldToScreenThree, screenToWorldThree } from './camera';
 import { applyPalettePipeline } from './palette-material';
+import { buildGround } from './terrain/ground';
+import { toGeometry, terrainMaterial } from './terrain/mesh';
+import type { TerrainInput } from './terrain/types';
 
 function notYet(member: string): never {
   throw new Error(
@@ -69,14 +73,13 @@ export class ThreeRenderer implements Renderer {
   private resizeObserver: ResizeObserver | null = null;
 
   /**
-   * World data the app has already handed over and B1 does not draw.
+   * World data the app has already handed over, some of which is now drawn.
    *
-   * One bag rather than seven fields on purpose: the whole of it is "kept for
-   * the sub-plan that will consume it", so it is worth being able to see at a
-   * glance what B2/B3 inherit and that nothing else reads any of it yet.
-   * Terrain (`decor`, `elevation`) is B2's; the emitter list and its palette
-   * resolver are VFX, which is B4's; the two sheet maps and the tutorial focus
-   * ring are B3's.
+   * One bag rather than seven fields on purpose: it keeps what B2/B3/B4
+   * inherit visible at a glance. Terrain (`decor`, `elevation`) is read by
+   * `rebuildTerrain` below whenever `terrainDirty` is set; the emitter list
+   * and its palette resolver are VFX, which is B4's; the two sheet maps and
+   * the tutorial focus ring are B3's -- still retained only, not drawn.
    */
   private readonly retained = {
     decor: null as Uint8Array | null,
@@ -87,6 +90,24 @@ export class ThreeRenderer implements Renderer {
     structureSheets: new Map<string, string>(),
     tutorialFocus: null as { x: number; y: number; radius: number } | null,
   };
+
+  /**
+   * Set by `setElevation`/`setDecor`, cleared by `rebuildTerrain`. Starts
+   * `true` so a map that arrives with elevation/decor already retained (or
+   * with neither -- an all-flat, decor-less map is still valid input to
+   * `buildGround`) still gets a first build on the first `frame()`.
+   *
+   * Deliberately not built inside the setters themselves: both are called
+   * during boot, in an order this class does not control (`main.ts` calls
+   * `setDecor` then `setElevation`, but nothing enforces that), so building
+   * on the first one to fire would build from half the data -- silently,
+   * since a mesh built from a null elevation is valid, just flat.
+   */
+  private terrainDirty = true;
+  private terrainMesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material> | null = null;
+  /** Reused across rebuilds -- one unlit, vertex-coloured material carries no
+   *  per-terrain state, so there is nothing a fresh instance would buy. */
+  private readonly terrainMat: THREE.Material = terrainMaterial();
 
   constructor(
     private readonly sim: Sim,
@@ -104,10 +125,6 @@ export class ThreeRenderer implements Renderer {
     // which is exactly why this is a single call rather than two lines a
     // future edit could reorder.
     applyPalettePipeline(this.renderer, this.opts.background);
-    // `sim` has nothing to read yet -- terrain and units arrive in B2/B3.
-    // Read once so tsc's noUnusedLocals does not flag a field kept for a
-    // later sub-plan rather than dead code.
-    void this.sim;
   }
 
   get canvas(): HTMLCanvasElement {
@@ -169,9 +186,12 @@ export class ThreeRenderer implements Renderer {
   }
 
   /** `alpha`/`dtMs` (interpolation, presentation animation) go unread until
-   *  B2/B3 draw anything they could apply to. */
+   *  B3 draws anything they could apply to -- terrain has none. */
   frame(): void {
-    // B1 draws only the clear colour. B2 adds terrain.
+    if (this.terrainDirty) {
+      this.rebuildTerrain();
+      this.terrainDirty = false;
+    }
     this.renderer.render(this.scene, this.threeCamera());
   }
 
@@ -213,12 +233,15 @@ export class ThreeRenderer implements Renderer {
     return notYet('unitsInScreenRect');
   }
 
-  // --- world data pushed in: retained for the sub-plan that will draw it.
+  // --- world data pushed in. Decor/elevation are now drawn (terrain);
+  //     the rest stays retained only, for B3/B4.
   setElevation(elevation: Uint8Array): void {
     this.retained.elevation = elevation;
+    this.terrainDirty = true;
   }
   setDecor(decor: Uint8Array): void {
     this.retained.decor = decor;
+    this.terrainDirty = true;
   }
   useEmitters(list: EmitterSpec[], resolve: (key: string) => string): void {
     this.retained.emitters = list;
@@ -274,5 +297,38 @@ export class ThreeRenderer implements Renderer {
 
   private threeCamera(): THREE.OrthographicCamera {
     return dimetricCamera(this.camera, { width: this.width, height: this.height });
+  }
+
+  /**
+   * (Re)builds the ground mesh from the sim's static layout (`width`,
+   * `height`, `blocked`, `cover`) plus whatever `setElevation`/`setDecor`
+   * have retained, and swaps it into the scene in place of the previous one.
+   *
+   * Only ever called from `frame()`, guarded by `terrainDirty` -- see that
+   * field's doc comment for why building here, and not inside the setters,
+   * is load-bearing rather than a style choice.
+   *
+   * Disposes the outgoing geometry before dropping the reference to it: a
+   * rebuilt terrain that leaks its predecessor is invisible until a mission
+   * rebuilds terrain a few hundred times, and then it is a memory bug nobody
+   * can attribute. The material is not disposed -- `terrainMat` is reused
+   * across rebuilds, not replaced.
+   */
+  private rebuildTerrain(): void {
+    if (this.terrainMesh) {
+      this.scene.remove(this.terrainMesh);
+      this.terrainMesh.geometry.dispose();
+    }
+    const input: TerrainInput = {
+      width: this.sim.width,
+      height: this.sim.height,
+      decor: this.retained.decor,
+      elevation: this.retained.elevation,
+      blocked: this.sim.blocked,
+      cover: this.sim.cover,
+    };
+    const data = buildGround(input, this.opts.terrainTones, this.opts.background);
+    this.terrainMesh = new THREE.Mesh(toGeometry(data), this.terrainMat);
+    this.scene.add(this.terrainMesh);
   }
 }
