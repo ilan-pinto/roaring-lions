@@ -178,12 +178,25 @@ export class ThreeRenderer implements Renderer {
     return screenToWorldThree(px, py, this.camera, { width: this.width, height: this.height });
   }
 
-  // --- queries: no honest answer exists yet, so none is given.
+  // --- queries. The line is between *inventing* an answer and *reporting the
+  //     current state truthfully*, not between "implemented" and "not".
   pickUnit(): number {
     return notYet('pickUnit');
   }
+  /**
+   * True, always -- and this is the correct answer, not a placeholder.
+   *
+   * Fog is B4. This backend has no fog system, so nothing is hidden, so every
+   * world point is visible. B4 replaces this with a real visibility query
+   * against the fog it introduces.
+   *
+   * It matters that this does not throw: `updateHover()` calls it once per
+   * living hostile every rAF iteration, so a throw here was a 60 Hz stream of
+   * expected errors -- which drowns the diagnostics B2 will need and trains
+   * everyone to stop reading the console.
+   */
   isVisible(): boolean {
-    return notYet('isVisible');
+    return true;
   }
   unitsInScreenRect(): number[] {
     return notYet('unitsInScreenRect');
