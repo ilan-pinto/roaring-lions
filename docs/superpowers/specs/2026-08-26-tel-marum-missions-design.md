@@ -133,7 +133,6 @@ The geography of the 20-tile circle is the teaching, not a scripted silence.
 **Objectives.**
 - primary `hold_for` → `approach` zone, 240s
 - primary `eliminate_hvt` → `tm_spotter_west`
-- secondary `no_collateral_above`
 
 **The lesson.** `tm_spotter_west` in `overwatch_west` [20,16] sees the approach at 8.9
 tiles. The moment it identifies the player, the Grad ranges a zone the player is
@@ -153,9 +152,9 @@ corner to bleed in, not a flat endurance check.
 `mortar_team` ×1.
 
 **Objectives.**
-- primary `capture` → `pass` zone
+- primary `capture` → `pass` zone, 20s
 - primary `eliminate_hvt` → `tm_hvt_battery`
-- secondary `no_collateral_above`
+- `roe.flagged_zones: ["town_block"]`, `fail_below: 45`
 
 **The charge.** Two spotters now: `tm_spotter_west` in the pocket, and
 `tm_spotter_narrow` — `sarim_rifles` at [12,4] in the northern valley, which sees the
@@ -193,10 +192,30 @@ untouched.
 - new zone `approach`: `[21,22,7,5]` — x21–27, y22–26, all 35 tiles open, containing the
   `approach` marker. `hold_for` targets zones rather than markers (`ford_watch` in
   `wadi_halam_basin` is the precedent), and Tel Marum had no zone south of the wall.
+- new zone `town_block`: `[24,3,3,2]` — the map's only six `#` tiles, two from the
+  battery. Flagged by III so shelling the Grad is a decision rather than a formality.
 - new marker `sarim_west`: `[8,4]` — open ground behind the narrow saddle, the wave
   source for III.
 
 `pass` `[22,12,5,6]` already exists and serves III's `capture` unchanged.
+
+## Objective types that do not exist
+
+`mission.schema.json` lists twelve objective types. The runtime implements nine:
+`locate`, `hold_for`, `capture`, `survive_until`, `eliminate_hvt`, `evacuate_before`,
+`raze`, `collapse`, `destroy_all`. **`mark`, `escort` and `no_collateral_above` appear in
+the enum and nowhere in `packages/` or `tools/`** — authoring one produces an objective
+that validates, ships, and silently never evaluates.
+
+The first draft of this design gave II and III a `no_collateral_above` secondary. It
+would have passed `validate:data` and done nothing. ROE reaches these missions through
+the shipped mechanism instead: `roe.enabled` everywhere, and in III a `flagged_zones`
+entry over `town_block` with `fail_below: 45`. Without a flagged zone Tel Marum's ROE
+score cannot move — the map fields no civilians — so the flag is what makes the HUD mean
+anything here.
+
+Whether to build the three missing types, or cut them from the enum, is a separate
+question this slice does not answer.
 
 ## Campaign wiring
 
