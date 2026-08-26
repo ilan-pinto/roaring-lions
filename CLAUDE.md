@@ -255,17 +255,47 @@ The combat model is the product. Everything else is scaffolding around it.
   `fxG`, and `wreckLayer` still sit below `spriteLayer` unconditionally, so a wreck
   or tracer on ground in front of a ridge — geometry that should cover the ridge —
   is covered by it instead. Deliberately unfixed: it is cosmetic only, with no
-  effect on sim truth or fog; it is unreachable today because Tel Marum has no
-  missions and nothing fights in front of relief yet; and a correct fix means
+  effect on sim truth or fog. It is no longer unreachable — Tel Marum shipped three
+  missions (`tel_marum_1_recon`, `tel_marum_2_foothold`, `tel_marum_3_clearance`) and
+  relief is fought over in them, not merely walked: `tel_marum_2_foothold`'s
+  `approach` zone [21,22,7,5] sits astride the elevation-2 band at rows 25–26, and a
+  browser walk of that mission with the task force standing in the zone showed the
+  Grad's indirect fire landing there — dust-cloud impacts and a visible tracer inside
+  the zone's outline — with no occlusion glitch in what was on screen at the time.
+  That is not proof the sorting gap is fixed or absent; it means the condition this
+  bullet describes (a wreck or tracer in front of a ridge, from the camera angles and
+  moments actually checked) was not caught in the act, not that it cannot happen —
+  the gap above is unchanged and the fix described there still applies whenever it
+  is taken up; and a correct fix means
   depth-sorting wrecks and VFX against terrain, which is the same already-deferred
   "VFX are not lifted to terrain height" gap above — a partial fix would be worse
   than none, since `wreckLayer` sprites (`addWreck`, `renderer.ts`) carry no
   `zIndex` at all and would sort behind every band on the map, not merely their
   own tile's, if moved into `spriteLayer` naively.
-- Tel Marum's two saddles are supposed to be unequal — narrow costs time, wide costs vehicles —
-  but driving the real `Sim` from all eighteen overwatch tiles found the narrow saddle costs
-  neither: a hollow → west flank → narrow saddle → battery route never crosses a tile either
-  overwatch pocket can both see and reach at the `atgm_cell`'s 10-tile Kornet range, for a total
-  cost of +9 tiles (38 vs 47). Not a terrain bug — the ground is correct and stays as authored —
-  but the doctrine never fires until a Tel Marum mission charges for that route some other way:
-  a reinforcement wave, an objective timer, or a west-flank spotter.
+- Tel Marum's narrow saddle is still free, and the reason is not the one this bullet used
+  to give. A hollow → west flank → narrow saddle → battery route is +9 tiles (38 vs 47)
+  and crosses no tile either overwatch pocket can both see and reach at the `atgm_cell`'s
+  10-tile Kornet range. The ground is correct and stays as authored. The obvious fix —
+  let the Grad at `battery_position` charge for it, since it reaches the corridor at 17
+  tiles and `rocket` is in `INDIRECT_MASK` (`sim.ts:223`) so it needs no sight of its own,
+  while `sim.ts:2073` gates each shot on **per-side** identification — was authored into
+  `tel_marum_3_clearance` with a spotter at [12,4] that watches the corridor's whole
+  length, and then measured. **It does not work.** Three runs: wide 3.5 min / roster 9,
+  narrow with the spotter alive 5.2 / 6, narrow with the spotter killed at t=0 5.1 / 6.
+  The last two are the same run. A trace of the battery's `fire` events shows six shots
+  and not one at the flanking force — `selectTarget` prefers the nearest target it can
+  hurt, and that is always the holding force at the pass. The narrow route's real cost is
+  force-splitting, which a player who commits everything to the flank simply does not pay.
+  So this is a **target-selection** problem, not a range or sight one, and pricing the
+  flank needs the corridor to become the battery's *preferred* target while a fight is on
+  elsewhere: a trigger that retasks it, a contact that outranks proximity, or the
+  admission that indirect fire here will always shoot at whatever is nearest and softest.
+  Two sight facts worth keeping regardless: **nothing north of the wall can see the
+  hollow** — 841 open tiles see [24,29] and not one is at y ≤ 17 — so the hollow is dead
+  ground twice over, out of range and unobservable; and the corridor is **not** watchable
+  from its own mouth at [8,9]. Both were drawn wrong by eye first.
+  `tools/src/tel_marum_doctrine.test.ts` pins all of it.
+  Two traps for anyone re-running this: isolating a unit by removing its garrison entry
+  corrupts every later unit's RNG stream — kill it at t=0 via `applyDamage` instead; and
+  rerouting only `mbt_lavi` or only `ifv_namer` reproduces the wide result exactly,
+  because either wins the pass fight alone.
