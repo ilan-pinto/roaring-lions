@@ -38,7 +38,13 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
   { name: 'campaign', blurb: 'open the campaign shell' },
   { name: 'fresh', blurb: 'ignore the saved ledger' },
   { name: 'tutorial', blurb: 'replay the tutorial' },
-  { name: 'renderer', blurb: 'pixi (default) | three — which backend draws' },
+  {
+    name: 'renderer',
+    // `three` boots and projects, but through Phase B1 it draws only the clear
+    // colour — terrain is B2, units B3, fog B4. Said here because the previous
+    // wording read as a finished second backend.
+    blurb: 'pixi (default) | three — which backend draws (three: clear colour only, Phase B1)',
+  },
   ...SANDBOX_FLAGS,
 ];
 

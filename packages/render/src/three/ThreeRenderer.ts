@@ -1,16 +1,33 @@
 /**
- * The three.js backend. Phase B1: it exists, it sizes itself, and its camera
- * agrees with PixiRenderer's projection. It draws nothing yet.
+ * The three.js backend. Phase B1: it exists, it sizes itself, it follows the
+ * window, and its camera agrees with PixiRenderer's projection. It draws
+ * nothing but the clear colour.
  *
- * Unimplemented members throw rather than no-op on purpose. A no-op renderer
- * looks like a working renderer drawing an empty world, and the failure would
- * surface as "the map is blank" three sub-plans later instead of as a stack
- * trace naming the method.
+ * Two kinds of unimplemented member, and the difference is deliberate:
+ *
+ *  - **Data pushed in** (`setDecor`, `setElevation`, `useEmitters`, the two
+ *    sprite loaders) *retain* their argument and return. The app's boot path
+ *    calls all five before the first frame, and the data is genuinely
+ *    correct -- it has arrived, it simply is not drawn until B2/B3. Throwing
+ *    here made `?renderer=three` unreachable: the boot threw at `setDecor`
+ *    before `init` ever appended the canvas, so the one thing B1 does draw
+ *    could not be seen through the shipped path at all.
+ *  - **Queries** (`pickUnit`, `isVisible`, `unitsInScreenRect`) still throw.
+ *    There is no honest answer to "which unit is under this point" in a
+ *    backend that has drawn no units, and a plausible-looking fake -- `-1`,
+ *    `false`, `[]` -- would read as "nothing is there" and be believed. A
+ *    stack trace naming the method is the better failure.
+ *
+ * Presentation commands the app drives (`addOrderMarker`, the tutorial focus
+ * pair) also still throw: they are not world data, nothing in the boot path
+ * reaches them, and each is a drawing instruction whose whole content is the
+ * drawing.
  */
 import * as THREE from 'three';
 import type { Sim } from '@lions/sim';
 import type { Renderer, RendererOptions } from '../api'; // both, after Step 2
 import type { Camera } from '../project';
+import type { EmitterSpec } from '../vfx';
 import { dimetricCamera, worldToScreenThree, screenToWorldThree } from './camera';
 import { applyPalettePipeline } from './palette-material';
 
@@ -19,6 +36,12 @@ function notYet(member: string): never {
     `ThreeRenderer.${member} is not implemented until a later Phase B sub-plan. ` +
       `Use ?renderer=pixi (the default) for anything that needs it.`
   );
+}
+
+/** Where a unit type's sheets live, as the app named them. */
+interface SpriteSheetRequest {
+  basePath: string;
+  turretPath?: string;
 }
 
 export class ThreeRenderer implements Renderer {
@@ -34,6 +57,25 @@ export class ThreeRenderer implements Renderer {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
   private host: HTMLElement | null = null;
+  private resizeObserver: ResizeObserver | null = null;
+
+  /**
+   * World data the app has already handed over and B1 does not draw.
+   *
+   * One bag rather than six fields on purpose: the whole of it is "kept for
+   * the sub-plan that will consume it", so it is worth being able to see at a
+   * glance what B2/B3 inherit and that nothing else reads any of it yet.
+   * Terrain (`decor`, `elevation`) is B2's; the emitter list and its palette
+   * resolver are VFX, which is B4's; the two sheet maps are B3's.
+   */
+  private readonly retained = {
+    decor: null as Uint8Array | null,
+    elevation: null as Uint8Array | null,
+    emitters: [] as EmitterSpec[],
+    resolveColor: null as ((key: string) => string) | null,
+    unitSheets: new Map<string, SpriteSheetRequest>(),
+    structureSheets: new Map<string, string>(),
+  };
 
   constructor(
     private readonly sim: Sim,
@@ -70,12 +112,49 @@ export class ThreeRenderer implements Renderer {
   async init(host: HTMLElement): Promise<void> {
     this.host = host;
     this.renderer.setPixelRatio(1);
-    this.renderer.setSize(host.clientWidth, host.clientHeight);
+    this.fitToHost();
     host.appendChild(this.renderer.domElement);
+    // PixiRenderer gets this from `resizeTo: host` (renderer.ts). Without an
+    // equivalent the three canvas would stay at boot size while `width`/
+    // `height` -- which `worldToScreen`/`screenToWorld` both read off the
+    // canvas -- kept reporting it, so the two backends would disagree by
+    // exactly the resize delta and every pointer read would land on the
+    // wrong tile.
+    //
+    // A ResizeObserver on the host rather than a window `resize` listener:
+    // it covers the window case and also the ones a window listener misses
+    // (a sidebar opening, the host's own layout changing, devtools docking),
+    // and it is scoped to the element this renderer actually fills.
+    this.resizeObserver = new ResizeObserver(() => {
+      this.fitToHost();
+    });
+    this.resizeObserver.observe(host);
     await Promise.resolve();
-    // Stored for a later sub-plan (resize handling); read once so
-    // tsc's noUnusedLocals does not flag it as dead.
-    void this.host;
+  }
+
+  /**
+   * Release the GPU context and stop observing the host.
+   *
+   * Nothing calls this today: `main()` has no shutdown path -- see the `void
+   * rafId` note at the end of it -- so there is no sensible place to hang
+   * teardown off. It exists so the observer has a documented owner rather
+   * than being a listener with no way to remove it, and so a future teardown
+   * has one call to make instead of having to learn this class's internals.
+   */
+  dispose(): void {
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
+    this.renderer.dispose();
+    this.host = null;
+  }
+
+  /** Size the drawing buffer to the host element, exactly as Pixi's
+   *  `resizeTo` does: `clientWidth`/`clientHeight`, at resolution 1. No clamp
+   *  to a minimum -- a zero-sized host produces a zero-sized canvas on both
+   *  backends, and inventing a 1x1 floor here would make them disagree. */
+  private fitToHost(): void {
+    if (!this.host) return;
+    this.renderer.setSize(this.host.clientWidth, this.host.clientHeight);
   }
 
   /** `alpha`/`dtMs` (interpolation, presentation animation) go unread until
@@ -99,6 +178,7 @@ export class ThreeRenderer implements Renderer {
     return screenToWorldThree(px, py, this.camera, { width: this.width, height: this.height });
   }
 
+  // --- queries: no honest answer exists yet, so none is given.
   pickUnit(): number {
     return notYet('pickUnit');
   }
@@ -108,21 +188,33 @@ export class ThreeRenderer implements Renderer {
   unitsInScreenRect(): number[] {
     return notYet('unitsInScreenRect');
   }
-  setElevation(): void {
-    return notYet('setElevation');
+
+  // --- world data pushed in: retained for the sub-plan that will draw it.
+  setElevation(elevation: Uint8Array): void {
+    this.retained.elevation = elevation;
   }
-  setDecor(): void {
-    return notYet('setDecor');
+  setDecor(decor: Uint8Array): void {
+    this.retained.decor = decor;
   }
-  useEmitters(): void {
-    return notYet('useEmitters');
+  useEmitters(list: EmitterSpec[], resolve: (key: string) => string): void {
+    this.retained.emitters = list;
+    this.retained.resolveColor = resolve;
   }
-  async loadSprites(): Promise<void> {
-    return notYet('loadSprites');
+  async loadSprites(
+    unitTypeId: string,
+    basePath: string,
+    opts?: { turretPath?: string }
+  ): Promise<void> {
+    this.retained.unitSheets.set(unitTypeId, { basePath, turretPath: opts?.turretPath });
+    await Promise.resolve();
   }
-  async loadStructureSprite(): Promise<void> {
-    return notYet('loadStructureSprite');
+  async loadStructureSprite(structureId: string, basePath: string): Promise<void> {
+    this.retained.structureSheets.set(structureId, basePath);
+    await Promise.resolve();
   }
+
+  // --- presentation commands: the instruction IS the drawing, so there is
+  //     nothing to retain and nothing honest to do with one yet.
   addOrderMarker(): void {
     return notYet('addOrderMarker');
   }
