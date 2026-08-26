@@ -65,9 +65,14 @@ describe('regionProgress', () => {
   });
 
   it('is not complete when it has no missions authored yet, however open it is', () => {
-    // Sur's towns are empty until piece 2 authors them. total 0 must not read as
-    // "finished", or an unwritten region would show up already greyed out.
-    const p = regionProgress(sur, { 'campaign.completed_missions': ['beit_sahwan_3_clearance'] });
+    // Umm Zeitoun is still empty pending its own mission slice. total 0 must not
+    // read as "finished", or an unwritten town would show up already greyed out.
+    // (Tel Marum, sur.towns[0], now carries tel_marum_1_recon and no longer fits
+    // this case -- this asserts on umm_zeitoun instead, which still has none.)
+    const surWithOneAuthoredTown = { ...sur, towns: [sur.towns[1]!] };
+    const p = regionProgress(surWithOneAuthoredTown, {
+      'campaign.completed_missions': ['beit_sahwan_3_clearance'],
+    });
     expect(p.total).toBe(0);
     expect(p.status).toBe('live');
   });
@@ -97,7 +102,9 @@ describe('nextMissionOf', () => {
   });
 
   it('is null for a town with no missions authored yet', () => {
-    expect(nextMissionOf(sur.towns[0]!, {})).toBe(null);
+    // Umm Zeitoun (sur.towns[1]) still has none; Tel Marum (sur.towns[0]) now
+    // carries tel_marum_1_recon, so it no longer fits this case.
+    expect(nextMissionOf(sur.towns[1]!, {})).toBe(null);
   });
 });
 

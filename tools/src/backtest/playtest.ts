@@ -616,3 +616,67 @@ run('beit_sahwan_4_subterranean', (sim, _rt, ids, at) => {
   at(45, () => sim.queueCommand({ kind: 'chargeTunnel', ids: east, tunnel: 1 }));
   at(50, () => sim.queueCommand({ kind: 'attackMove', ids: escort, ...M(30, 17) }));
 }, led4In);
+
+// --- Sur: Tel Marum -----------------------------------------------------------
+
+// Tel Marum I — the picture, taken from dead ground.
+//
+// The mission is a recon and the whole trick is that the hollow at [24,29] is
+// 23 tiles from the battery and the approach at [24,24] is 18. The drone goes
+// forward alone; everything with a crew stays south of the hollow. Four
+// positions is the objective and the drone can see all four from the approach
+// without stopping there.
+//
+// Control: a player who gives no orders never moves the drone, so the picture
+// is never built and the primary cannot complete.
+//
+// It does NOT lose. `locate` (unlike raze, collapse and evacuate_before) has
+// no `seconds`/deadline field the runtime reads -- `stepObjectives`'s `locate`
+// branch only ever sets `complete`, never `failed` -- and this mission's
+// "standoff overwatch" garrison sits 30+ tiles from player_start, inside
+// nobody's sight or weapon range, so a stationary force is never engaged and
+// never wiped either. An instrumented 19-minute run of this exact control
+// (ledger {}, zero orders) confirms it: playerAlive and enemyAlive never move
+// off 7/6 and ROE never leaves 100. There is no in-bounds, content-only way to
+// make a `locate` primary losable -- every existing passive-control DEFEAT in
+// this file (beit_sahwan_breach, wadi_halam_5_depot, beit_sahwan_4_subterranean)
+// goes through a primary type that supports `failed`, and none of those three
+// fit a recon with no civilians, no structures and no tunnels. Fixing this
+// properly means giving `locate` (or the mission as a whole) a deadline in
+// packages/sim/src/mission.ts, which is sim code and out of scope here. So the
+// honest expectation is `ongoing` at the harness's time cap, not `defeat`.
+run('tel_marum_1_recon', () => {}, {}, 'ongoing', 'tel_marum_1_recon (passive control)');
+
+run(
+  'tel_marum_1_recon',
+  (sim, _rt, ids, at) => {
+    const drone = ids('recon_drone');
+    const screen = ids('apc_eitan');
+    const foot = ids('inf_squad');
+    at(4, () => {
+      // Screen forward to the hollow and stop there — out of the envelope.
+      sim.queueCommand({ kind: 'move', ids: screen, ...M(24, 30) });
+      sim.queueCommand({ kind: 'move', ids: foot, ...M(23, 31) });
+      // The drone alone goes into the envelope.
+      sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 25) });
+    });
+    at(40, () => {
+      // Sweep west then east along the wall to pick up both pockets and the
+      // picket without loitering on any one of them.
+      sim.queueCommand({ kind: 'move', ids: drone, ...M(19, 19) });
+    });
+    at(75, () => {
+      sim.queueCommand({ kind: 'move', ids: drone, ...M(28, 19) });
+    });
+    at(110, () => {
+      // Far enough north to raise the battery, then straight back out.
+      sim.queueCommand({ kind: 'move', ids: drone, ...M(25, 17) });
+    });
+    at(140, () => {
+      sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 31) });
+    });
+  },
+  {},
+  'victory',
+  'tel_marum_1_recon'
+);
