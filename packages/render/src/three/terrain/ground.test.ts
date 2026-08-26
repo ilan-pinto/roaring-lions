@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildGround, WORLD_PER_LEVEL } from './ground';
 import { PALETTE_HEXES } from './tones';
+import { VIEW_DIRECTION } from '../camera';
 import type { TerrainInput } from './types';
 
 const TONES = {
@@ -72,14 +73,18 @@ describe('buildGround', () => {
   it('maps game (x, y) to three (x, height, y)', () => {
     // The world-space convention every later sub-plan depends on. If this
     // flips, terrain and units disagree about which way south is.
-    const input = flat(2, 2);
+    //
+    // A square grid cannot catch a transposed axis -- maxX and maxZ come out
+    // 2 either way, swapped or not. width != height so a [y, topY, x] swap
+    // is visible as a swapped bound, not silently absorbed by symmetry.
+    const input = flat(3, 2);
     const m = buildGround(input, TONES, '#14150F');
     let maxX = -Infinity, maxZ = -Infinity;
     for (let i = 0; i < m.positions.length; i += 3) {
       maxX = Math.max(maxX, m.positions[i]);
       maxZ = Math.max(maxZ, m.positions[i + 2]);
     }
-    expect(maxX).toBeCloseTo(2, 10);
+    expect(maxX).toBeCloseTo(3, 10);
     expect(maxZ).toBeCloseTo(2, 10);
   });
 
@@ -119,8 +124,101 @@ describe('buildGround', () => {
   });
 
   it('is deterministic', () => {
-    const a = buildGround(flat(6, 6), TONES, '#14150F');
-    const b = buildGround(flat(6, 6), TONES, '#14150F');
+    // Flat ground alone never emits a side face, so comparing colors only
+    // on flat(6, 6) never exercises positions, indices, or a single face
+    // quad. A stair-step grid puts all three quad types, and their vertex
+    // counts, in scope.
+    const stair = (): TerrainInput => {
+      const input = flat(6, 6);
+      input.elevation = new Uint8Array(6 * 6).map((_, ti) => ((ti % 6) + Math.floor(ti / 6)) % 5);
+      return input;
+    };
+    const a = buildGround(stair(), TONES, '#14150F');
+    const b = buildGround(stair(), TONES, '#14150F');
+    expect(Array.from(a.positions)).toEqual(Array.from(b.positions));
     expect(Array.from(a.colors)).toEqual(Array.from(b.colors));
+    expect(Array.from(a.indices)).toEqual(Array.from(b.indices));
+  });
+
+  it('every triangle winds toward the camera', () => {
+    // MeshBasicMaterial defaults to FrontSide, so a wrong winding does not
+    // render dark -- it renders as nothing, a hole in the map that reads as
+    // missing geometry rather than a lighting bug. VIEW_DIRECTION (target
+    // -> camera) is fixed and always points +X/+Y/+Z, so every triangle's
+    // (b - a) x (c - a) must have a positive dot with it, tile top, east
+    // face, and south face alike. Purely a MeshData property -- no THREE.Mesh,
+    // no GL context, exactly what makes terrain testable under
+    // environment: 'node' at all.
+    const input = flat(6, 6);
+    input.elevation = new Uint8Array(6 * 6).map((_, ti) => ((ti % 6) + Math.floor(ti / 6)) % 5);
+    const m = buildGround(input, TONES, '#14150F');
+    const at = (i: number): [number, number, number] => [
+      m.positions[i * 3], m.positions[i * 3 + 1], m.positions[i * 3 + 2],
+    ];
+    const sub = (u: [number, number, number], v: [number, number, number]): [number, number, number] => [
+      u[0] - v[0], u[1] - v[1], u[2] - v[2],
+    ];
+    const cross = (u: [number, number, number], v: [number, number, number]): [number, number, number] => [
+      u[1] * v[2] - u[2] * v[1],
+      u[2] * v[0] - u[0] * v[2],
+      u[0] * v[1] - u[1] * v[0],
+    ];
+    const dot = (u: [number, number, number], v: [number, number, number]): number =>
+      u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+    // Classified from the triangle's own vertices, not from buildGround's
+    // internals: a tile top has all three vertices at the same world Y: an
+    // east face, the same world X; a south face, the same world Z. Purely
+    // so a failure names which of the three quad kinds broke, rather than
+    // just an index into a flat array.
+    const kindOf = (a: [number, number, number], b: [number, number, number], c: [number, number, number]): string => {
+      if (a[1] === b[1] && b[1] === c[1]) return 'tile top';
+      if (a[0] === b[0] && b[0] === c[0]) return 'east face';
+      if (a[2] === b[2] && b[2] === c[2]) return 'south face';
+      return 'unrecognised quad';
+    };
+    for (let i = 0; i < m.indices.length; i += 3) {
+      const a = at(m.indices[i]);
+      const b = at(m.indices[i + 1]);
+      const c = at(m.indices[i + 2]);
+      const normal = cross(sub(b, a), sub(c, a));
+      const d = dot(normal, [VIEW_DIRECTION.x, VIEW_DIRECTION.y, VIEW_DIRECTION.z]);
+      expect(d, `${kindOf(a, b, c)} at triangle ${i / 3} (indices ${i}-${i + 2}) winds away from the camera`).toBeGreaterThan(0);
+    }
+  });
+
+  it('reaches every groundTone branch: open, road, cover, blocked, ridge', () => {
+    // tones.test.ts has no groundTone cases at all, and the palette test
+    // above uses blocked/cover all zero with decor: null -- only the open
+    // branch. Every branch ends in one quantise() call so the risk is low,
+    // but "low risk because I read the code" is exactly the shape of the
+    // last two holes.
+    //
+    // groundTone (tones.ts) does not currently branch on `cover` at all --
+    // read to confirm before writing this -- so the cover tile below routes
+    // through the same open-ground branch as an uncovered one. It stays in
+    // the map anyway: TerrainInput.cover is real per-tile game data
+    // (packages/data's cover levels), and this is the map buildGround gets
+    // handed in practice, not a hand-trimmed one that happens to dodge an
+    // unused field.
+    const w = 5, h = 1;
+    const input: TerrainInput = {
+      width: w,
+      height: h,
+      decor: new Uint8Array([0, 1, 0, 0, 4]), // open, road, open(cover), open, ridge
+      elevation: null,
+      blocked: new Uint8Array([0, 0, 0, 1, 1]), // ..., blocked(no decor), blocked+ridge
+      cover: new Uint8Array([0, 0, 1, 0, 0]),
+    };
+    const m = buildGround(input, TONES, '#14150F');
+    const entries = new Set(PALETTE_HEXES.map((h2) => h2.toUpperCase()));
+    for (let i = 0; i < m.colors.length; i += 3) {
+      const hex =
+        '#' +
+        [0, 1, 2]
+          .map((k) => Math.round(m.colors[i + k] * 255).toString(16).padStart(2, '0'))
+          .join('')
+          .toUpperCase();
+      expect(entries).toContain(hex);
+    }
   });
 });

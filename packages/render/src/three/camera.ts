@@ -59,7 +59,7 @@ const CAMERA_DISTANCE = 10_000;
 
 /** Unit view direction from the camera's target toward the camera, fixed by
  *  the 45-degree azimuth and the solved elevation angle. */
-const VIEW_DIRECTION = new THREE.Vector3(
+export const VIEW_DIRECTION = new THREE.Vector3(
   Math.cos(ELEVATION) * AZIMUTH,
   SIN_EL,
   Math.cos(ELEVATION) * AZIMUTH
