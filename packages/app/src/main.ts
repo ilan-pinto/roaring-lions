@@ -24,6 +24,7 @@ import {
   type AudioManifest,
   type EmitterSpec,
   type TerrainTones,
+  type Renderer,
 } from '@lions/render';
 import {
   units,
@@ -565,7 +566,7 @@ async function main(): Promise<void> {
     interceptColor: paletteColor('vfx.interceptor'),
     resolveColor: paletteColor,
   };
-  const renderer = new PixiRenderer(sim, opts);
+  const renderer: Renderer = new PixiRenderer(sim, opts);
 
   // The map's decor layer -- road, olive grove, rocky knoll -- goes straight to
   // the renderer. It deliberately does NOT travel through the sim: whether a tile

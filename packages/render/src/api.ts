@@ -2,8 +2,8 @@
  * What `packages/app` is allowed to know about a renderer.
  *
  * Extracted so a second backend is possible. The surface is small for a
- * 5,000-line implementation -- thirteen methods and ten properties -- and that
- * smallness is the whole reason replacing the backend is tractable.
+ * 5,000-line implementation -- seventeen methods and eleven properties -- and
+ * that smallness is the whole reason replacing the backend is tractable.
  *
  * Types only. No implementation, no imports from Pixi or three.
  */
@@ -36,11 +36,19 @@ export interface Renderer {
   // --- queries
   pickUnit(wx: number, wy: number, radiusTiles?: number): number;
   isVisible(wx: number, wy: number): boolean;
+  /** Living units whose screen position falls inside a screen-space rect.
+   *  Box-select is a projection question, so only the renderer can answer it. */
+  unitsInScreenRect(x0: number, y0: number, x1: number, y1: number): number[];
 
   // --- world data pushed in
   setElevation(elevation: Uint8Array): void;
   setDecor(decor: Uint8Array): void;
   useEmitters(list: EmitterSpec[], resolve: (key: string) => string): void;
+
+  // --- art. Paths and ids only: what a sheet becomes -- textures, materials,
+  //     meshes -- is the backend's business, and the app never sees it.
+  loadSprites(unitTypeId: string, basePath: string, opts?: { turretPath?: string }): Promise<void>;
+  loadStructureSprite(structureId: string, basePath: string): Promise<void>;
 
   // --- presentation state the app drives
   readonly camera: Camera;
