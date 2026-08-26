@@ -18,8 +18,12 @@ import {
 import { cadenceScale, resolveClip, resolveTurretClip, type UnitAnimInput } from './clip';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec } from './vfx';
 import { isGrindingHit, structureHpBand } from './grind';
+import { TILE_W, TILE_H, isoX, isoY, screenToWorldFlat } from './project';
 import { trailTileAlpha } from './trail';
 import { releaseCursorToCss } from './cursor-ownership';
+
+export { TILE_W, TILE_H, isoX, isoY, worldToScreen, screenToWorldFlat } from './project';
+export type { Camera, Viewport } from './project';
 
 /** How open ground is grained. Tones are data; mark shape is drawing code. */
 export type TerrainScatter = 'stone' | 'sward';
@@ -80,9 +84,6 @@ export interface RendererOptions {
   /** Resolve a palette key from structure data (e.g. "limestone.4") to hex. */
   resolveColor?: (paletteKey: string) => string;
 }
-
-export const TILE_W = 64;
-export const TILE_H = 32;
 
 /** Screen pixels per elevation level.
  *
@@ -205,14 +206,6 @@ export function unitZ(x: number, y: number): number {
  *  the bucketing itself, not just the zIndex arithmetic, is under test. */
 export function bandKey(x: number, y: number): number {
   return x + y;
-}
-
-/** World (tile) coords → dimetric screen coords. */
-export function isoX(x: number, y: number): number {
-  return ((x - y) * TILE_W) / 2;
-}
-export function isoY(x: number, y: number): number {
-  return ((x + y) * TILE_H) / 2;
 }
 
 export class PixiRenderer {
@@ -973,12 +966,8 @@ export class PixiRenderer {
   }
 
   screenToWorld(px: number, py: number): { x: number; y: number } {
-    const cx = this.app.renderer.width / 2;
-    const cy = this.app.renderer.height / 2;
-    const z = this.camera.zoom;
-    const sx = (px - cx) / z + isoX(this.camera.x, this.camera.y);
-    const sy = (py - cy) / z + isoY(this.camera.x, this.camera.y);
-    const flat = { x: sx / TILE_W + sy / TILE_H, y: sy / TILE_H - sx / TILE_W };
+    const vp = { width: this.app.renderer.width, height: this.app.renderer.height };
+    const flat = screenToWorldFlat(px, py, this.camera, vp);
     // Approximate, and deliberately so. Terrain lifts a tile on screen, so a
     // click lands on the tile BEHIND a raised one -- further off the taller the
     // ground. Exactly inverting that needs a raycast down the height field,
@@ -992,8 +981,10 @@ export class PixiRenderer {
     // and not worth building before anyone has found it annoying.
     const lift = this.groundOffset(flat.x, flat.y);
     if (lift === 0) return flat;
-    const ly = sy + lift;
-    return { x: sx / TILE_W + ly / TILE_H, y: ly / TILE_H - sx / TILE_W };
+    const z = this.camera.zoom;
+    const sy = (py - vp.height / 2) / z + isoY(this.camera.x, this.camera.y) + lift;
+    const sx = (px - vp.width / 2) / z + isoX(this.camera.x, this.camera.y);
+    return { x: sx / TILE_W + sy / TILE_H, y: sy / TILE_H - sx / TILE_W };
   }
 
   /** Living units whose screen position falls inside a screen-space rect. */
