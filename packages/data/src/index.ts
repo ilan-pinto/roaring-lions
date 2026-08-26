@@ -21,6 +21,7 @@ import beitSahwan3 from '../../../data/missions/beit_sahwan_3_clearance.json';
 import beitSahwan4 from '../../../data/missions/beit_sahwan_4_subterranean.json';
 import telMarum1Recon from '../../../data/missions/tel_marum_1_recon.json';
 import telMarum2Foothold from '../../../data/missions/tel_marum_2_foothold.json';
+import telMarum3Clearance from '../../../data/missions/tel_marum_3_clearance.json';
 import wadiHalam1Fords from '../../../data/missions/wadi_halam_1_fords.json';
 import wadiHalam2Laager from '../../../data/missions/wadi_halam_2_laager.json';
 import wadiHalam3Counterraid from '../../../data/missions/wadi_halam_3_counterraid.json';
@@ -115,6 +116,7 @@ export const missions = {
   beit_sahwan_4_subterranean: beitSahwan4,
   tel_marum_1_recon: telMarum1Recon,
   tel_marum_2_foothold: telMarum2Foothold,
+  tel_marum_3_clearance: telMarum3Clearance,
   wadi_halam_1_fords: wadiHalam1Fords,
   wadi_halam_2_laager: wadiHalam2Laager,
   wadi_halam_3_counterraid: wadiHalam3Counterraid,

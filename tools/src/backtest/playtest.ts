@@ -769,3 +769,74 @@ run(
   'victory',
   'tel_marum_2_foothold'
 );
+
+// Tel Marum III — the pass, taken the expensive way on purpose.
+//
+// The plan takes the WIDE saddle. That is the costly route and it is chosen
+// deliberately: the narrow saddle is nine tiles longer and its price is the
+// Grad, which means the flank only pays once its observer at [12,4] is dead —
+// and reaching him means going through the corridor the rockets already cover.
+// A scripted proof should demonstrate the mission is winnable by the obvious
+// line, not by the clever one.
+//
+// Mortars kill the west pocket's observer from the hollow first, because every
+// tile of the wide saddle is inside the Grad's reach and being seen there is
+// what makes it lethal rather than merely defended.
+//
+// Control: primaries are `capture` (take_pass) and `eliminate_hvt`
+// (kill_battery), and neither is among the three objective types `checkEnd`
+// can ever fail (only `raze`, `collapse`, both seconds-gated, and
+// `evacuate_before` -- mission.ts:1361/1372/1423), so a passive run cannot
+// lose on an objective going 'failed'. checkEnd otherwise loses only on a
+// wipe or an ROE collapse. The passive force sits at [24,44], 38 tiles from
+// the battery (out of its 20-tile reach) behind a standoff garrison that will
+// not come to it, so it is never wiped either. Observed, not assumed: this
+// control stays ONGOING for the full 20-minute cap, exactly as Task 2's did.
+run('tel_marum_3_clearance', () => {}, {}, 'ongoing', 'tel_marum_3_clearance (passive control)');
+
+run(
+  'tel_marum_3_clearance',
+  (sim, _rt, ids, at) => {
+    const tanks = ids('mbt_lavi');
+    const namer = ids('ifv_namer');
+    const armour = ids('apc_eitan');
+    const foot = ids('inf_squad');
+    const at_ = ids('at_team');
+    const mortar = ids('mortar_team');
+    at(3, () => {
+      // Mortar into the hollow — 18 tiles of reach onto the wall, out of the
+      // Grad's 20-tile circle at 23.
+      sim.queueCommand({ kind: 'move', ids: mortar, ...M(24, 29) });
+      sim.queueCommand({ kind: 'move', ids: at_, ...M(25, 28) });
+      sim.queueCommand({ kind: 'move', ids: foot, ...M(23, 27) });
+    });
+    at(30, () => {
+      // Kill the west observer before anything crosses the approach.
+      sim.queueCommand({ kind: 'attackMove', ids: mortar, ...M(20, 16) });
+    });
+    at(85, () => {
+      // Armour forward through the approach to the wide saddle mouth.
+      sim.queueCommand({ kind: 'move', ids: armour, ...M(23, 22) });
+      sim.queueCommand({ kind: 'move', ids: tanks, ...M(25, 22) });
+      sim.queueCommand({ kind: 'move', ids: namer, ...M(24, 23) });
+    });
+    at(130, () => {
+      sim.queueCommand({ kind: 'attackMove', ids: tanks, ...M(28, 16) });
+      sim.queueCommand({ kind: 'attackMove', ids: namer, ...M(20, 16) });
+    });
+    at(190, () => {
+      sim.queueCommand({ kind: 'move', ids: tanks, ...M(24, 13) });
+      sim.queueCommand({ kind: 'move', ids: armour, ...M(24, 14) });
+      sim.queueCommand({ kind: 'move', ids: foot, ...M(24, 15) });
+    });
+    at(240, () => {
+      // Into the pass zone, then the battery beyond it.
+      sim.queueCommand({ kind: 'move', ids: foot, ...M(24, 12) });
+      sim.queueCommand({ kind: 'move', ids: armour, ...M(23, 12) });
+      sim.queueCommand({ kind: 'attackMove', ids: tanks, ...M(25, 6) });
+    });
+  },
+  {},
+  'victory',
+  'tel_marum_3_clearance'
+);
