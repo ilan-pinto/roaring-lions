@@ -1,0 +1,176 @@
+/**
+ * The colour pipeline that keeps the three.js backend inside `data/palette.json`.
+ *
+ * Phase 0 (`docs/superpowers/specs/2026-08-26-phase-0-verdict.md`) measured the
+ * obvious setup -- `Color.convertSRGBToLinear()` plus three.js's default
+ * `outputColorSpace` -- at ZERO of 65 colours in palette. The linear/sRGB round
+ * trip moves every value off its palette entry, and it fails silently: the
+ * render looks fine, it is merely not the palette. Getting to zero-off-palette
+ * needs three settings, all here:
+ *
+ *   1. LUT colours built with `setStyle(hex, LinearSRGBColorSpace)` -- no
+ *      conversion (`paletteColorNoConvert`).
+ *   2. `renderer.outputColorSpace = LinearSRGBColorSpace` -- pass-through, no
+ *      output transform (`applyPalettePipeline`).
+ *   3. The clear colour given the same treatment, or the background alone
+ *      lands off-palette -- it read `#93744C` instead of `#C8B494` until
+ *      fixed (`setPaletteClearColor`).
+ *
+ * Antialiasing is the fourth requirement and lives at the `WebGLRenderer`
+ * call site in `ThreeRenderer`, not here: a blended edge pixel is by
+ * definition not a palette colour, and the sprite pipeline quantizes rather
+ * than blends.
+ */
+import * as THREE from 'three';
+
+/**
+ * three.js's automatic sRGB<->linear conversion is what Phase 0 measured at
+ * zero-of-65: `Color.getHex()`/`getHexString()` default to re-encoding
+ * through `SRGBColorSpace` regardless of what colour space a value was
+ * written in, so even a value stored with no intended conversion comes back
+ * out gamma-shifted unless read with the same explicit space it was written
+ * with. This module wants LUT colours to be *bytes*, not colourimetry: a
+ * value written from a palette hex must come back as that exact hex with no
+ * dependency on which explicit colour-space argument a caller remembers to
+ * pass. Disabling colour management globally is what makes that true
+ * unconditionally, on both the CPU `Color` API used here and by extension
+ * anything else this backend constructs from a palette hex -- it is a
+ * one-time decision for the whole three.js subsystem, not a per-call one.
+ * It does not affect the GPU output pass `applyPalettePipeline` configures
+ * below: `renderer.outputColorSpace`'s texel-encoding shader chunk is a pure
+ * function of the colour space value, not of this flag.
+ */
+THREE.ColorManagement.enabled = false;
+
+/** The longest ramp in `data/palette.json` (limestone, 9 steps) and the
+ *  shader's `uRamp` array length. Every shorter ramp is padded up to this so
+ *  three.js always uploads a fixed-size `vec3[RAMP_MAX]` uniform. */
+export const RAMP_MAX = 9;
+
+/**
+ * A palette colour whose bytes survive to the framebuffer.
+ *
+ * `new THREE.Color(hex)` (or `.set(hex)`) treats the string as sRGB and
+ * converts it to three.js's working linear space -- correct for lit,
+ * continuously-shaded geometry, wrong for a colour meant to come back out
+ * byte-identical. `setStyle(hex, LinearSRGBColorSpace)` tells three.js the
+ * string is *already* in the working space, so no conversion happens in
+ * either direction.
+ */
+export function paletteColorNoConvert(hex: string): THREE.Color {
+  return new THREE.Color().setStyle(hex, THREE.LinearSRGBColorSpace);
+}
+
+/**
+ * The renderer-mutating half of the pipeline, typed as the narrow structural
+ * shape it actually touches rather than `THREE.WebGLRenderer` itself.
+ *
+ * `THREE.WebGLRenderer` cannot be constructed in the headless `node` test
+ * environment this package runs its tests under (no WebGL, no DOM) -- see
+ * `palette-material.test.ts`. `outputColorSpace` is a plain data property,
+ * so a structural type lets a plain object stand in for the renderer in
+ * tests while a real `THREE.WebGLRenderer` still satisfies it at the
+ * `ThreeRenderer` call site unchanged.
+ *
+ * Typed as `string` rather than `THREE.ColorSpace`: the installed
+ * `@types/three` (0.170) types `WebGLRenderer#outputColorSpace` as `string`,
+ * not the narrower `ColorSpace` union, and a mutable property must match
+ * exactly for a real renderer to satisfy this structurally -- `ColorSpace`
+ * here would make `THREE.WebGLRenderer` itself fail to typecheck against
+ * this interface, defeating the point.
+ */
+export interface PaletteTarget {
+  outputColorSpace: string;
+}
+
+/** Sets the renderer's output colour space to pass-through so a LUT colour
+ *  written by a fragment shader reaches the framebuffer unconverted. */
+export function applyPalettePipeline(renderer: PaletteTarget): void {
+  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+}
+
+/**
+ * The clear colour, structurally: the one `setClearColor` call the pipeline
+ * needs to route through `paletteColorNoConvert`, typed narrowly for the
+ * same headless-testing reason as `PaletteTarget`.
+ */
+export interface ClearColorTarget {
+  setClearColor(color: THREE.Color): void;
+}
+
+/** Sets the clear colour from a palette hex without the sRGB round trip --
+ *  applied straight, `opts.background` lands at `#93744C` instead of its
+ *  actual entry `#C8B494` (Phase 0's measurement). */
+export function setPaletteClearColor(renderer: ClearColorTarget, hex: string): void {
+  renderer.setClearColor(paletteColorNoConvert(hex));
+}
+
+/**
+ * A toon-shaded material that quantizes `N·L` into `uSteps` bands and reads
+ * the fragment colour out of `uRamp` -- never computed. A shaded fragment
+ * cannot emit an off-palette colour because the only values it can write are
+ * the ones read out of the ramp (Phase 0's "stronger guarantee than
+ * `validate:assets`" finding).
+ *
+ * Index 0 of every ramp in `data/palette.json` is the LIGHTEST step, so
+ * brighter light means a LOWER index -- the shader below quantizes
+ * `max(N·L, 0)` from 1 down to 0 across `uSteps` bands for exactly that
+ * reason. Getting this backwards inverts every unit's shading, which reads
+ * as "the art looks wrong" rather than as a bug.
+ */
+export function toonRampMaterial(rampHexes: readonly string[]): THREE.ShaderMaterial {
+  if (rampHexes.length === 0) {
+    throw new Error('toonRampMaterial: ramp must have at least one colour');
+  }
+  if (rampHexes.length > RAMP_MAX) {
+    throw new Error(
+      `toonRampMaterial: ramp has ${rampHexes.length} colours, longer than RAMP_MAX (${RAMP_MAX})`
+    );
+  }
+
+  const padded: THREE.Color[] = rampHexes.map((hex) => paletteColorNoConvert(hex));
+  // Pad to RAMP_MAX with the ramp's own darkest (last) entry so three.js can
+  // upload a fixed-size vec3[RAMP_MAX] uniform regardless of the ramp's true
+  // length -- reading past the true length in the shader (guarded by
+  // uSteps) never reaches the padding, but the array must still be full
+  // length or three.js errors uploading it.
+  const last = padded[padded.length - 1] as THREE.Color;
+  while (padded.length < RAMP_MAX) {
+    padded.push(last.clone());
+  }
+
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uRamp: { value: padded },
+      uSteps: { value: rampHexes.length },
+      uLightDir: { value: new THREE.Vector3(0.5, 1, 0.3).normalize() },
+    },
+    vertexShader: /* glsl */ `
+      varying vec3 vNormal;
+      void main() {
+        vNormal = normalize(normalMatrix * normal);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uRamp[${RAMP_MAX}];
+      uniform int uSteps;
+      uniform vec3 uLightDir;
+      varying vec3 vNormal;
+
+      void main() {
+        float nl = max(dot(normalize(vNormal), normalize(uLightDir)), 0.0);
+        // Quantize into uSteps bands, brightest band -> index 0.
+        int band = int(floor((1.0 - nl) * float(uSteps)));
+        band = min(band, uSteps - 1);
+        vec3 outColor = uRamp[0];
+        for (int i = 0; i < ${RAMP_MAX}; i++) {
+          if (i == band) {
+            outColor = uRamp[i];
+          }
+        }
+        gl_FragColor = vec4(outColor, 1.0);
+      }
+    `,
+  });
+}

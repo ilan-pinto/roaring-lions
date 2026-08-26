@@ -12,6 +12,7 @@ import type { Sim } from '@lions/sim';
 import type { Renderer, RendererOptions } from '../api'; // both, after Step 2
 import type { Camera } from '../project';
 import { dimetricCamera, worldToScreenThree, screenToWorldThree } from './camera';
+import { applyPalettePipeline, setPaletteClearColor } from './palette-material';
 
 function notYet(member: string): never {
   throw new Error(
@@ -39,9 +40,21 @@ export class ThreeRenderer implements Renderer {
     private readonly opts: RendererOptions
   ) {
     this.unitGroup = new Uint8Array(sim.capacity);
+    // antialias stays off deliberately (Phase 0 verdict, "Antialiasing must
+    // be off, or accounted for"): a blended edge pixel is by definition not
+    // a palette colour, and this backend's sprite/toon pipeline quantizes
+    // rather than blends. Do not re-enable it without accounting for edges.
     this.renderer = new THREE.WebGLRenderer({ antialias: false });
-    // "frame() draws only the clear colour" (below) means this, honestly.
-    this.renderer.setClearColor(this.opts.background);
+    // Pass-through output colour space before the clear colour is set, so
+    // neither is left assuming the other's default: applyPalettePipeline
+    // configures the renderer's own colour-space state (also touching the
+    // canvas's drawingBufferColorspace via the outputColorSpace setter),
+    // and the clear colour must be built through the same no-convert path
+    // or it lands off-palette on its own -- Phase 0 measured the naive
+    // `setClearColor(hex)` background at #93744C instead of its actual
+    // palette entry #C8B494.
+    applyPalettePipeline(this.renderer);
+    setPaletteClearColor(this.renderer, this.opts.background);
     // `sim` has nothing to read yet -- terrain and units arrive in B2/B3.
     // Read once so tsc's noUnusedLocals does not flag a field kept for a
     // later sub-plan rather than dead code.
