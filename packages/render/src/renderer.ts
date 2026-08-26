@@ -23,9 +23,6 @@ import { trailTileAlpha } from './trail';
 import { releaseCursorToCss } from './cursor-ownership';
 import type { Renderer } from './api';
 
-export { TILE_W, TILE_H, isoX, isoY, worldToScreen, screenToWorldFlat } from './project';
-export type { Camera, Viewport } from './project';
-
 /** How open ground is grained. Tones are data; mark shape is drawing code. */
 export type TerrainScatter = 'stone' | 'sward';
 
