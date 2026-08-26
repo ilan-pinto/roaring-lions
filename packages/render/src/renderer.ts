@@ -18,7 +18,16 @@ import {
 import { cadenceScale, resolveClip, resolveTurretClip, type UnitAnimInput } from './clip';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec } from './vfx';
 import { isGrindingHit, structureHpBand } from './grind';
-import { TILE_W, TILE_H, isoX, isoY, screenToWorldFlat, worldToScreen as projectWorldToScreen } from './project';
+import {
+  TILE_W,
+  TILE_H,
+  ELEV_STEP,
+  isoX,
+  isoY,
+  screenToWorldFlat,
+  worldToScreen as projectWorldToScreen,
+} from './project';
+import { tileHash } from './tile-hash';
 import { trailTileAlpha } from './trail';
 import { releaseCursorToCss } from './cursor-ownership';
 import type { Renderer, RendererOptions, TerrainTones } from './api';
@@ -29,13 +38,12 @@ import type { Renderer, RendererOptions, TerrainTones } from './api';
 // importer of renderer.ts is unaffected.
 export type { RendererOptions, TerrainTones, TerrainScatter } from './api';
 
-/** Screen pixels per elevation level.
- *
- * 10 px means a 4-level ridge stands 40 px against TILE_H's 32 and a building's
- * 18 -- clearly taller than a building without dwarfing the units on it. The
- * number is a judgement nobody had seen rendered when it was chosen, and it is
- * one line to change. */
-export const ELEV_STEP = 10;
+// ELEV_STEP lives in project.ts now — it has no imports at all, and
+// renderer.ts importing pixi.js at module level would otherwise drag Pixi
+// into anything that only wants this constant. Re-exported here so every
+// existing importer of renderer.ts is unaffected; imported (above) so
+// drawTerrain and groundOffset below still have it in scope.
+export { ELEV_STEP } from './project';
 
 /** How long a shot's recoil takes to ease back. */
 const RECOIL_SECONDS = 0.15;
@@ -1288,9 +1296,7 @@ export class PixiRenderer implements Renderer {
 
   /** Deterministic per-tile hash for ground variation — same look every run. */
   private static h2(x: number, y: number): number {
-    let h = (x * 374761393 + y * 668265263) | 0;
-    h = Math.imul(h ^ (h >>> 13), 1274126177);
-    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+    return tileHash(x, y);
   }
 
   /**

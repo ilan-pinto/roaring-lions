@@ -17,6 +17,14 @@
 export const TILE_W = 64;
 export const TILE_H = 32;
 
+/** Screen pixels per elevation level.
+ *
+ * 10 px means a 4-level ridge stands 40 px against TILE_H's 32 and a building's
+ * 18 -- clearly taller than a building without dwarfing the units on it. The
+ * number is a judgement nobody had seen rendered when it was chosen, and it is
+ * one line to change. */
+export const ELEV_STEP = 10;
+
 export interface Camera {
   x: number;
   y: number;
