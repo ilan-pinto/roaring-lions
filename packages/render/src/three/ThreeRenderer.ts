@@ -41,6 +41,7 @@ import type { EmitterSpec } from '../vfx';
 import { dimetricCamera, worldToScreenThree, screenToWorldThree } from './camera';
 import { applyPalettePipeline } from './palette-material';
 import { buildGround } from './terrain/ground';
+import { buildScatter } from './terrain/scatter';
 import { toGeometry, terrainMaterial } from './terrain/mesh';
 import type { TerrainInput } from './terrain/types';
 
@@ -105,6 +106,12 @@ export class ThreeRenderer implements Renderer {
    */
   private terrainDirty = true;
   private terrainMesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material> | null = null;
+  /** The grain -- flecks, blades, bushes, cover rubble, knolls, ridges,
+   *  ruts, slope-face dressing -- as a second mesh sharing the ground's own
+   *  material and rebuild path, not a modification of the ground mesh
+   *  itself (`buildGround` and `buildScatter` are two independent builders
+   *  over the same `TerrainInput`). */
+  private scatterMesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material> | null = null;
   /** Reused across rebuilds -- one unlit, vertex-coloured material carries no
    *  per-terrain state, so there is nothing a fresh instance would buy. */
   private readonly terrainMat: THREE.Material = terrainMaterial();
@@ -168,10 +175,20 @@ export class ThreeRenderer implements Renderer {
    * teardown off. It exists so the observer has a documented owner rather
    * than being a listener with no way to remove it, and so a future teardown
    * has one call to make instead of having to learn this class's internals.
+   *
+   * Disposes both terrain geometries and the shared material. B2.4 left this
+   * out for the ground mesh alone -- harmless while `WebGLRenderer.dispose()`
+   * forces context loss regardless and nothing called `dispose()` at all --
+   * but B2.5 adds a second geometry sharing the same material, and letting
+   * that omission double rather than fixing it here would be the wrong
+   * direction to grow it in.
    */
   dispose(): void {
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
+    this.terrainMesh?.geometry.dispose();
+    this.scatterMesh?.geometry.dispose();
+    this.terrainMat.dispose();
     this.renderer.dispose();
     this.host = null;
   }
@@ -300,24 +317,45 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
-   * (Re)builds the ground mesh from the sim's static layout (`width`,
-   * `height`, `blocked`, `cover`) plus whatever `setElevation`/`setDecor`
-   * have retained, and swaps it into the scene in place of the previous one.
+   * (Re)builds the ground mesh and its scatter (grain) mesh from the sim's
+   * static layout (`width`, `height`, `blocked`, `cover`) plus whatever
+   * `setElevation`/`setDecor` have retained, and swaps both into the scene
+   * in place of the previous pair. The two are independent builders over the
+   * identical `TerrainInput` -- `buildScatter` does not read `buildGround`'s
+   * output -- sharing only the material, so a mismatch between the ground's
+   * palette tone and a mark's alpha-composited tone would be a bug in one of
+   * the two builders, not in how this method wires them together.
    *
    * Only ever called from `frame()`, guarded by `terrainDirty` -- see that
    * field's doc comment for why building here, and not inside the setters,
    * is load-bearing rather than a style choice.
    *
-   * Disposes the outgoing geometry before dropping the reference to it: a
+   * Disposes each outgoing geometry before dropping the reference to it: a
    * rebuilt terrain that leaks its predecessor is invisible until a mission
    * rebuilds terrain a few hundred times, and then it is a memory bug nobody
    * can attribute. The material is not disposed -- `terrainMat` is reused
-   * across rebuilds, not replaced.
+   * across rebuilds, not replaced (both meshes share it).
+   *
+   * A gap this does not close: Pixi sets `terrainDirty` from `onEvents` on
+   * `structureDestroyed` (`renderer.ts:881`), so a destroyed building's tile
+   * repaints from blocked/`underBuilding` back to open ground there.
+   * `ThreeRenderer.onEvents()` is still a B3 stub (events are not drawn
+   * until units arrive), so nothing here ever re-fires this rebuild for that
+   * reason -- the three.js ground keeps showing a destroyed structure's
+   * footprint as still-blocked. Correctly out of B2's scope (there is
+   * nothing yet to react to `onEvents` with), but left undocumented before
+   * this comment, which is exactly the shape of gap that reads as a bug to
+   * the next person who destroys a building on `?renderer=three` and
+   * watches the ground not change.
    */
   private rebuildTerrain(): void {
     if (this.terrainMesh) {
       this.scene.remove(this.terrainMesh);
       this.terrainMesh.geometry.dispose();
+    }
+    if (this.scatterMesh) {
+      this.scene.remove(this.scatterMesh);
+      this.scatterMesh.geometry.dispose();
     }
     const input: TerrainInput = {
       width: this.sim.width,
@@ -327,8 +365,12 @@ export class ThreeRenderer implements Renderer {
       blocked: this.sim.blocked,
       cover: this.sim.cover,
     };
-    const data = buildGround(input, this.opts.terrainTones, this.opts.background);
-    this.terrainMesh = new THREE.Mesh(toGeometry(data), this.terrainMat);
+    const groundData = buildGround(input, this.opts.terrainTones, this.opts.background);
+    this.terrainMesh = new THREE.Mesh(toGeometry(groundData), this.terrainMat);
     this.scene.add(this.terrainMesh);
+
+    const scatterData = buildScatter(input, this.opts.terrainTones, this.opts.background);
+    this.scatterMesh = new THREE.Mesh(toGeometry(scatterData), this.terrainMat);
+    this.scene.add(this.scatterMesh);
   }
 }

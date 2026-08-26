@@ -40,10 +40,13 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
   { name: 'tutorial', blurb: 'replay the tutorial' },
   {
     name: 'renderer',
-    // `three` boots and projects, but through Phase B1 it draws only the clear
-    // colour — terrain is B2, units B3, fog B4. Said here because the previous
-    // wording read as a finished second backend.
-    blurb: 'pixi (default) | three — which backend draws (three: clear colour only, Phase B1)',
+    // `three` now draws terrain — ground, elevation, decor, grain — as real
+    // geometry (Phase B2); units, fog and VFX are still B3/B4. Said here
+    // because the previous wording ("clear colour only, Phase B1") went
+    // stale the moment terrain landed and would otherwise read as a finished
+    // second backend one phase too early, or an unfinished one one phase too
+    // late.
+    blurb: 'pixi (default) | three — which backend draws (three: terrain only, Phase B2; no units/fog yet)',
   },
   ...SANDBOX_FLAGS,
 ];
