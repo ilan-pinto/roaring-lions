@@ -199,17 +199,27 @@ The combat model is the product. Everything else is scaffolding around it.
   whole chain died at that mission with `unknown tunnel "bs_tn_west"`, taking every
   mission below it with it. The gate is a manual `npx tsx` script wired into neither
   `pnpm test` nor CI, which is why "all gates green" could be said truthfully about
-  the tunnel subsystem while this one was red. Two consequences outlived the fix and
-  are still open: `beit_sahwan_breach (passive control)` returns VICTORY where its own
-  comment demands DEFEAT, and `beit_sahwan_3_clearance` returns DEFEAT. Neither is a
-  tunnel-era regression — checking out `066445f` (main before any tunnel code) and
+  the tunnel subsystem while this one was red. Two consequences outlived the fix and have
+  SINCE BEEN RESOLVED (see below): `beit_sahwan_breach (passive control)` returned
+  VICTORY where its own comment demands DEFEAT, and `beit_sahwan_3_clearance` returned
+  DEFEAT. Neither was a tunnel-era regression — checking out `066445f` (main before any tunnel code) and
   running the harness there reproduces both failures byte-identically, so the crash
-  merely hid `beit_sahwan_3_clearance` for about two days, no more. The likely origin
-  of the First Light control's failure is `3122340 feat(data): First Light runs five
-  minutes`: that control's own comment still reasons about a thirteen-minute fight
-  against a mission that now ends at 5.0. Both are balance questions of their own,
-  and until they are answered the script exits non-zero, so "the playtest passes"
-  cannot be claimed for anything.
+  merely hid `beit_sahwan_3_clearance` for about two days, no more.
+  Both are now fixed. The clearance mission lost 55 of
+  its 61 points to eleven deductions for firing into the clinic -- 107 rounds of the
+  Namers' `cannon_30`, which arms the zone penalty at `collateral_risk >= 0.3` where
+  rifles, `coax_mg` and the Eitan's `rws_50` do not; the plan was careless, not the
+  floor, and keeping the armour off the zone takes it to ROE 94. First Light's control
+  did NOT fail because the mission had gone soft: scaling the waves from 36 attackers
+  to 131 walked the passive run's survivors from 9 to 2 and no further while killing
+  the scripted plan outright, because `survive_until` completes if anything is alive
+  and sitting still is the correct answer to a siege. `3122340` had dropped
+  `evac_settlements` -- the only objective requiring anyone to leave the compound --
+  while leaving all eleven civilians on the map; restoring it as a primary
+  (`checkEnd` reads only primaries, and `evacuate_before` is the one type that can
+  reach 'failed') makes passivity lose again. **`playtest.ts` now exits 0.** It is
+  still wired into neither `pnpm test` nor CI, so it still has to be run by hand --
+  which is the part of this debt that has not been paid.
 - A scripted plan in `playtest.ts` proves a mission WINNABLE; it does not measure how
   long the mission takes. The plans are optimal-play proofs, and tuning enemy volume
   until the scripted clock reaches `target_minutes` would produce missions no real

@@ -4,7 +4,7 @@
   "town": "beit_sahwan",
   "phase": "breach",
   "target_minutes": 5,
-  "briefing": "They came at dawn, out of the Marj, across every approach at once. What is left of the company is inside the compound on the Beit Sahwan road, and the road is still open behind us — supply is coming forward, so spend it as it arrives rather than banking it. Two gates, both on the road, and two blind faces they will cut straight through rather than walk round. The villages are outside the wire and the families in them have nowhere else to go. Hold the yard, and still be standing when the column reaches us.",
+  "briefing": "They came at dawn, out of the Marj, across every approach at once. What is left of the company is inside the compound on the Beit Sahwan road, and the road is still open behind us — supply is coming forward, so spend it as it arrives rather than banking it. Two gates, both on the road, and two blind faces they will cut straight through rather than walk round. The villages are outside the wire and the families in them have nowhere else to go: get at least two inside before the ring closes, because nobody is coming back for them afterwards. Take something fast, brush them, and let them walk themselves in. Hold the yard, and still be standing when the column reaches us.",
   "map": {
     "file": "marj_perimeter",
     "player_start": [
@@ -132,6 +132,15 @@
       "target": "compound",
       "seconds": 180,
       "text": "Hold the compound for three minutes"
+    },
+    {
+      "id": "evac_settlements",
+      "type": "evacuate_before",
+      "primary": true,
+      "target": "compound",
+      "count": 2,
+      "seconds": 270,
+      "text": "Get two families inside the wire before the ring closes"
     }
   ],
   "roe": {

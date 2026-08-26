@@ -58,6 +58,7 @@ import {
 } from './input/intents';
 import { cursorFor, cursorKey, badgeFor, type BadgeHints } from './input/cursor';
 import { roleBucket } from './ui/role';
+import { roeNotice } from './ui/roe-notice';
 import { sandboxAnchors, type SandboxAnchors } from './sandbox-anchors';
 import { sandboxFlaggedZones, sandboxTunnelRoute } from './sandbox-extras';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
@@ -235,7 +236,14 @@ function sandboxSpawns(
 }
 
 /** Mission narration for the HUD notice stack: what to say, and how it lands. */
-function describeMissionEvent(e: MissionEvent, mission: MissionJson): [string, Tone] | null {
+function describeMissionEvent(
+  e: MissionEvent,
+  mission: MissionJson,
+  /** Reasons already narrated this mission, so the ROE advice is offered once
+   *  rather than every time the zone cooldown expires. Owned by the caller
+   *  because `describeMissionEvent` is otherwise a pure translation. */
+  narratedRoeReasons: Set<string> = new Set()
+): [string, Tone] | null {
   switch (e.kind) {
     case 'objective': {
       const def = mission.objectives.find((o) => o.id === e.id);
@@ -248,8 +256,11 @@ function describeMissionEvent(e: MissionEvent, mission: MissionJson): [string, T
       return [`<b>enemy reacts</b> (${e.id})`, 'warn'];
     case 'wave':
       return [`<b>enemy reinforcements</b> — ${e.count} unit(s) inbound`, 'bad'];
-    case 'roe':
-      return [`<b>ROE −${e.penalty}</b> (${e.reason}) → ${e.score}`, 'bad'];
+    case 'roe': {
+      const first = !narratedRoeReasons.has(e.reason);
+      narratedRoeReasons.add(e.reason);
+      return roeNotice(e.penalty, e.reason, e.score, mission.roe?.fail_below, first);
+    }
     case 'built':
       return [`<b>reinforcement deployed</b> — ${e.unit}`, 'info'];
     case 'missionEnd':
@@ -428,6 +439,10 @@ async function main(): Promise<void> {
   const typeOf = new Map<string, number>();
   for (const u of Object.values(units)) typeOf.set(u.id, sim.addUnitType(u));
 
+  // Which ROE reasons have already been narrated, so the advice attached to a
+  // protected-zone violation is offered once rather than on every cooldown
+  // expiry. One mission, one set — it lives as long as the runtime does.
+  const narratedRoeReasons = new Set<string>();
   let runtime: MissionRuntime | null = null;
   if (mission) {
     runtime = new MissionRuntime(sim, mission, {
@@ -1149,7 +1164,7 @@ async function main(): Promise<void> {
     if (runtime && mission) {
       for (const me of runtime.step(events)) {
         if (tut) tut = advance(tut, { kind: 'mission', event: me }, performance.now());
-        const described = describeMissionEvent(me, mission);
+        const described = describeMissionEvent(me, mission, narratedRoeReasons);
         if (described) hud.note(described[0], described[1]);
         if (me.kind === 'missionEnd') {
           // The end screen must not land over a live step panel — an early
