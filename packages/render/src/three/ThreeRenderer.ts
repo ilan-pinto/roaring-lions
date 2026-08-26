@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import type { Sim } from '@lions/sim';
 import type { Renderer, RendererOptions } from '../api'; // both, after Step 2
 import type { Camera } from '../project';
+import { dimetricCamera, worldToScreenThree, screenToWorldThree } from './camera';
 
 function notYet(member: string): never {
   throw new Error(
@@ -82,11 +83,11 @@ export class ThreeRenderer implements Renderer {
     /* B3 */
   }
 
-  worldToScreen(): { x: number; y: number } {
-    return notYet('worldToScreen'); // Task B1.2
+  worldToScreen(wx: number, wy: number): { x: number; y: number } {
+    return worldToScreenThree(wx, wy, this.camera, { width: this.width, height: this.height });
   }
-  screenToWorld(): { x: number; y: number } {
-    return notYet('screenToWorld'); // Task B1.2
+  screenToWorld(px: number, py: number): { x: number; y: number } {
+    return screenToWorldThree(px, py, this.camera, { width: this.width, height: this.height });
   }
 
   pickUnit(): number {
@@ -124,6 +125,6 @@ export class ThreeRenderer implements Renderer {
   }
 
   private threeCamera(): THREE.OrthographicCamera {
-    return notYet('threeCamera'); // Task B1.2
+    return dimetricCamera(this.camera, { width: this.width, height: this.height });
   }
 }
