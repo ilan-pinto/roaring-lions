@@ -11,7 +11,14 @@ export {
   type TerrainScatter,
 } from './renderer';
 export { DebugOverlay } from './overlay';
-export { ThreeRenderer } from './three/ThreeRenderer';
+// ThreeRenderer is deliberately NOT re-exported here. It lives behind its own
+// entry point, `@lions/render/three`, so that `import '@lions/render'` does
+// not drag three.js in: while it was on this barrel, Rollup could not
+// tree-shake it and every player on the Pixi default downloaded ~700 kB of a
+// second renderer in the main chunk. main.ts loads it with a dynamic import,
+// which only resolves when `?renderer=three` asks for it. (This reverses Task
+// B1.1's brief, which specified the re-export; the brief could not anticipate
+// the bundling consequence.)
 export { BattleAudio, type AudioManifest, type AudioSet, type AudioVariant } from './audio';
 export { type EmitterSpec } from './vfx';
 export type { Renderer } from './api';

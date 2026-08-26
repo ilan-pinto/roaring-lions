@@ -5,7 +5,8 @@
   "type": "module",
   "description": "PixiJS renderer and VFX. Imports @lions/sim types read-only; subscribes to sim events and never writes back.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./three": "./src/three/ThreeRenderer.ts"
   },
   "dependencies": {
     "@lions/sim": "workspace:*",

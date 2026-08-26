@@ -17,7 +17,6 @@ import {
 } from '@lions/sim';
 import {
   PixiRenderer,
-  ThreeRenderer,
   DebugOverlay,
   BattleAudio,
   TERRAIN_DECOR,
@@ -569,9 +568,22 @@ async function main(): Promise<void> {
   };
   // Pixi is the default and stays the default until the three.js backend
   // reaches parity (spec, Phase D). The annotation is what makes this a real
-  // choice: both sides must satisfy `Renderer` or this does not compile.
-  const renderer: Renderer =
-    params.get('renderer') === 'three' ? new ThreeRenderer(sim, opts) : new PixiRenderer(sim, opts);
+  // choice: both branches must satisfy `Renderer` or this does not compile.
+  //
+  // The three backend arrives by dynamic import, from its own entry point.
+  // A static `import { ThreeRenderer } from '@lions/render'` used in a live
+  // ternary is not tree-shakeable, and it put three.js's whole runtime into
+  // the main chunk -- 1,081 kB -- for every player who never passes the flag.
+  // The separate entry point is the other half of that: `@lions/render`'s
+  // barrel no longer names ThreeRenderer, so importing the barrel (which this
+  // file does, for PixiRenderer) cannot pull three.js in either.
+  let renderer: Renderer;
+  if (params.get('renderer') === 'three') {
+    const { ThreeRenderer } = await import('@lions/render/three');
+    renderer = new ThreeRenderer(sim, opts);
+  } else {
+    renderer = new PixiRenderer(sim, opts);
+  }
 
   // The map's decor layer -- road, olive grove, rocky knoll -- goes straight to
   // the renderer. It deliberately does NOT travel through the sim: whether a tile
