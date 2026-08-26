@@ -45,14 +45,18 @@ export class ThreeRenderer implements Renderer {
     // a palette colour, and this backend's sprite/toon pipeline quantizes
     // rather than blends. Do not re-enable it without accounting for edges.
     this.renderer = new THREE.WebGLRenderer({ antialias: false });
-    // Pass-through output colour space before the clear colour is set, so
-    // neither is left assuming the other's default: applyPalettePipeline
-    // configures the renderer's own colour-space state (also touching the
-    // canvas's drawingBufferColorspace via the outputColorSpace setter),
-    // and the clear colour must be built through the same no-convert path
-    // or it lands off-palette on its own -- Phase 0 measured the naive
-    // `setClearColor(hex)` background at #93744C instead of its actual
-    // palette entry #C8B494.
+    // Order is load-bearing, not cosmetic: three.js's WebGLBackground.setClear
+    // converts the stored clear colour via `color.getRGB(_rgb,
+    // getUnlitUniformColorSpace(renderer))`, and for the default render
+    // target that resolves to `renderer.outputColorSpace` -- read
+    // SYNCHRONOUSLY, at the moment `renderer.setClearColor()` is called, not
+    // lazily at frame time. Calling applyPalettePipeline first means that
+    // read sees the pass-through LinearSRGBColorSpace this pipeline requires;
+    // calling it after would bake in a conversion against three.js's default
+    // outputColorSpace (SRGBColorSpace) instead. setPaletteClearColor must
+    // also build the colour through the same no-convert path, or it lands
+    // off-palette on its own -- Phase 0 measured the naive `setClearColor(hex)`
+    // background at #93744C instead of its actual palette entry #C8B494.
     applyPalettePipeline(this.renderer);
     setPaletteClearColor(this.renderer, this.opts.background);
     // `sim` has nothing to read yet -- terrain and units arrive in B2/B3.

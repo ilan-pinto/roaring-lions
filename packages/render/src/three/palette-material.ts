@@ -23,25 +23,6 @@
  */
 import * as THREE from 'three';
 
-/**
- * three.js's automatic sRGB<->linear conversion is what Phase 0 measured at
- * zero-of-65: `Color.getHex()`/`getHexString()` default to re-encoding
- * through `SRGBColorSpace` regardless of what colour space a value was
- * written in, so even a value stored with no intended conversion comes back
- * out gamma-shifted unless read with the same explicit space it was written
- * with. This module wants LUT colours to be *bytes*, not colourimetry: a
- * value written from a palette hex must come back as that exact hex with no
- * dependency on which explicit colour-space argument a caller remembers to
- * pass. Disabling colour management globally is what makes that true
- * unconditionally, on both the CPU `Color` API used here and by extension
- * anything else this backend constructs from a palette hex -- it is a
- * one-time decision for the whole three.js subsystem, not a per-call one.
- * It does not affect the GPU output pass `applyPalettePipeline` configures
- * below: `renderer.outputColorSpace`'s texel-encoding shader chunk is a pure
- * function of the colour space value, not of this flag.
- */
-THREE.ColorManagement.enabled = false;
-
 /** The longest ramp in `data/palette.json` (limestone, 9 steps) and the
  *  shader's `uRamp` array length. Every shorter ramp is padded up to this so
  *  three.js always uploads a fixed-size `vec3[RAMP_MAX]` uniform. */
@@ -55,7 +36,17 @@ export const RAMP_MAX = 9;
  * continuously-shaded geometry, wrong for a colour meant to come back out
  * byte-identical. `setStyle(hex, LinearSRGBColorSpace)` tells three.js the
  * string is *already* in the working space, so no conversion happens in
- * either direction.
+ * either direction at write time.
+ *
+ * Reading it back is a separate operation with its own default: `Color#getHex`/
+ * `getHexString` default their `colorSpace` argument to `SRGBColorSpace`
+ * regardless of how the value was written, so a bare `c.getHexString()` on a
+ * colour built here re-encodes it and will NOT reproduce the original hex --
+ * pass `THREE.LinearSRGBColorSpace` explicitly to read the exact bytes back
+ * (`palette-material.test.ts` does this). `ColorManagement` stays enabled
+ * (its default): disabling it globally would make this function's output
+ * indistinguishable from the naive `new THREE.Color(hex)` path it exists to
+ * replace, erasing the exact bug class this module guards against.
  */
 export function paletteColorNoConvert(hex: string): THREE.Color {
   return new THREE.Color().setStyle(hex, THREE.LinearSRGBColorSpace);
@@ -134,7 +125,7 @@ export function toonRampMaterial(rampHexes: readonly string[]): THREE.ShaderMate
   // length -- reading past the true length in the shader (guarded by
   // uSteps) never reaches the padding, but the array must still be full
   // length or three.js errors uploading it.
-  const last = padded[padded.length - 1] as THREE.Color;
+  const last = padded[padded.length - 1];
   while (padded.length < RAMP_MAX) {
     padded.push(last.clone());
   }

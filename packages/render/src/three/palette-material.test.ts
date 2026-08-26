@@ -23,9 +23,19 @@ const OLIVE = ['#8F9464', '#6E7449', '#4E5433', '#333821'];
 
 describe('paletteColorNoConvert', () => {
   it('preserves the exact bytes of the palette entry', () => {
+    // Read with the same explicit space it was written in. A bare
+    // c.getHexString() defaults its read-side colour space to SRGBColorSpace
+    // regardless of how the value was written, and does NOT round-trip --
+    // that default-read gap is exactly what this pipeline exists to route
+    // around at the renderer/clear-colour call sites, not to paper over here
+    // with a global ColorManagement.enabled = false (which would make this
+    // function indistinguishable from the naive `new THREE.Color(hex)` path
+    // it replaces).
     for (const hex of OLIVE) {
       const c = paletteColorNoConvert(hex);
-      expect('#' + c.getHexString().toUpperCase()).toBe(hex.toUpperCase());
+      expect('#' + c.getHexString(THREE.LinearSRGBColorSpace).toUpperCase()).toBe(
+        hex.toUpperCase()
+      );
     }
   });
 
@@ -53,8 +63,9 @@ describe('toonRampMaterial', () => {
 
   it('carries the ramp colours unconverted', () => {
     const m = toonRampMaterial(OLIVE);
-    const first = m.uniforms.uRamp.value[0] as THREE.Color;
-    expect('#' + first.getHexString().toUpperCase()).toBe(OLIVE[0]);
+    const first = m.uniforms.uRamp.value[0];
+    // Same explicit-read-space reasoning as paletteColorNoConvert's own test.
+    expect('#' + first.getHexString(THREE.LinearSRGBColorSpace).toUpperCase()).toBe(OLIVE[0]);
   });
 
   it('handles the shortest ramp in the palette without padding past the end', () => {
@@ -93,6 +104,11 @@ describe('setPaletteClearColor', () => {
     };
     setPaletteClearColor(target, BACKGROUND);
     expect(received).toBeDefined();
-    expect('#' + (received as THREE.Color).getHexString().toUpperCase()).toBe(BACKGROUND);
+    // Same explicit-read-space reasoning as paletteColorNoConvert's own test:
+    // a bare getHexString() re-encodes through SRGBColorSpace and would not
+    // reproduce BACKGROUND even though the clear colour is correct.
+    expect(
+      '#' + (received as THREE.Color).getHexString(THREE.LinearSRGBColorSpace).toUpperCase()
+    ).toBe(BACKGROUND);
   });
 });
