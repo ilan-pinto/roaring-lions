@@ -20,8 +20,6 @@ import {
   DebugOverlay,
   BattleAudio,
   TERRAIN_DECOR,
-  isoX,
-  isoY,
   type RendererOptions,
   type AudioManifest,
   type EmitterSpec,
@@ -822,7 +820,7 @@ async function main(): Promise<void> {
   audio.attach();
 
   // --- input ---------------------------------------------------------------
-  const canvas = renderer.app.canvas;
+  const canvas = renderer.canvas;
   // Left drag = box select; a short click = single select.
   const dragBox = document.createElement('div');
   dragBox.className = 'rl-marquee';
@@ -1335,11 +1333,13 @@ async function main(): Promise<void> {
         // does NOT undo terrain lift -- screenToWorld only approximates that
         // itself (see its comment), so rather than pretend, this reports the
         // tile it actually landed on and lets the caller see any drift.
-        const cx = renderer.app.renderer.width / 2;
-        const cy = renderer.app.renderer.height / 2;
-        const z = renderer.camera.zoom;
-        lastCursor.x = (isoX(wx, wy) - isoX(renderer.camera.x, renderer.camera.y)) * z + cx;
-        lastCursor.y = (isoY(wx, wy) - isoY(renderer.camera.x, renderer.camera.y)) * z + cy;
+        //
+        // Asked of the renderer rather than recomputed here: in a 3D backend
+        // the projection is the camera, and a second copy of the arithmetic
+        // would drift from it silently.
+        const p = renderer.worldToScreen(wx, wy);
+        lastCursor.x = p.x;
+        lastCursor.y = p.y;
         updateHover();
         const landed = renderer.screenToWorld(lastCursor.x, lastCursor.y);
         return {
