@@ -214,11 +214,18 @@ that currently fake it.
 
 ## Testing
 
-**A conformance suite against the interface, run twice** — once per implementation.
-`screenToWorld` / `worldToScreen` round-trips, `pickUnit` at known tiles, `isVisible`
-against fog, and picking mid-slope, which `CLAUDE.md` records as untested today.
-Written in Phase A against `PixiRenderer`, so it describes behaviour that already
-works rather than behaviour hoped for.
+**A conformance suite against the interface, run once per implementation.** Phase A
+delivers the half of it that needs no GPU: the `screenToWorld` / `worldToScreen`
+round-trips, plus viewport and camera-centring. Those run against a minimal
+stand-in, **not** against `PixiRenderer` — `environment: 'node'` cannot construct
+one, since that needs a WebGL context — so what Phase A pins is the arithmetic of
+the contract rather than a constructed renderer's behaviour.
+
+The rest of the suite — `pickUnit` at known tiles, `isVisible` against fog, and
+picking mid-slope, which `CLAUDE.md` records as untested today — needs a
+constructed renderer and therefore belongs to Phase B, alongside the golden-image
+harness that has to stand a renderer up anyway. Phase B's plan must pick them up;
+they are deferred, not dropped.
 
 **Golden-image diff between the two renderers** on the same map and the same sim
 state, through Phases B and C. This makes "parity" a measurement rather than a

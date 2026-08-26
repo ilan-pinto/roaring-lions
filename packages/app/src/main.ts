@@ -1495,10 +1495,11 @@ async function main(): Promise<void> {
     updateHover();
   };
   rafId = requestAnimationFrame(loop);
-  // main() has no shutdown path today, so rafId is never read past this
-  // point. Keep the handle in scope (rather than a bare
-  // requestAnimationFrame(loop) call) so a future teardown path can
-  // cancelAnimationFrame it without restructuring the loop.
+  // `rafId` is a local of main(), and main() has no shutdown path, so nothing
+  // ever reads it -- a teardown would have to lift the handle out of this
+  // scope anyway, which is a restructuring this line does not save anyone.
+  // It exists so the loop's self-re-request has somewhere to land, and is
+  // voided so lint does not report a variable that is only ever written.
   void rafId;
 }
 

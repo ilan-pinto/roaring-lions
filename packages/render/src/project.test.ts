@@ -37,11 +37,22 @@ describe('worldToScreen', () => {
     expect(two.x - VP.width / 2).toBeCloseTo((one.x - VP.width / 2) * 2);
   });
 
-  it('lifts a raised tile UP the screen, and by zoom-scaled amount', () => {
+  it('lifts a raised tile UP the screen', () => {
     const flat = worldToScreen(CAM.x + 2, CAM.y + 2, CAM, VP, 0);
     const high = worldToScreen(CAM.x + 2, CAM.y + 2, CAM, VP, 30);
     expect(high.y).toBeLessThan(flat.y);
     expect(flat.y - high.y).toBeCloseTo(30);
+  });
+
+  // The load-bearing detail project.ts calls out: lift is subtracted BEFORE the
+  // zoom multiply, matching the draw path, so a raised tile and the sprite
+  // standing on it move together at every zoom. At zoom 1 the two orderings are
+  // indistinguishable, which is why this case exists.
+  it('subtracts lift before the zoom multiply, so the raise scales with zoom', () => {
+    const cam: Camera = { ...CAM, zoom: 2.5 };
+    const flat = worldToScreen(CAM.x + 2, CAM.y + 2, cam, VP, 0);
+    const high = worldToScreen(CAM.x + 2, CAM.y + 2, cam, VP, 30);
+    expect(flat.y - high.y).toBeCloseTo(30 * 2.5);
   });
 });
 

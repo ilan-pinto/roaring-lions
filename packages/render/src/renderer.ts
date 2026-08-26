@@ -213,7 +213,7 @@ export class PixiRenderer implements Renderer {
 
   /** The canvas, without making callers name the backend to reach it. */
   get canvas(): HTMLCanvasElement {
-    return this.app.canvas as HTMLCanvasElement;
+    return this.app.canvas;
   }
 
   get width(): number {
