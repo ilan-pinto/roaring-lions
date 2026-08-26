@@ -20,24 +20,34 @@ import { TILE_W, TILE_H, type Camera, type Viewport } from '../project';
  * Pitch (from horizontal) for a 45-degree-azimuth camera whose ground
  * diagonal projects at the game's 2:1 dimetric slope, `TILE_H / TILE_W`.
  *
- * Derivation: fix the camera at 45-degree azimuth (equal `|x|`/`|z|`
- * contribution -- the symmetry the last test below checks). That azimuth
- * alone fixes the camera's local "right" axis at `(1/sqrt2, 0, -1/sqrt2)`
- * regardless of pitch, so a pure x-tile step always contributes `1/sqrt2` of
- * view-space-X per tile; sizing the frustum's horizontal half-extent turns
- * that into `TILE_W/2` screen pixels per tile at zoom 1.
+ * Fixing the camera at 45-degree azimuth (equal `|x|`/`|z|` contribution --
+ * the symmetry the last test below checks) fixes the local "right" axis at
+ * `(1/sqrt2, 0, -1/sqrt2)` regardless of pitch, and the local up axis at
+ * `(-sin(EL)/sqrt2, cos(EL), -sin(EL)/sqrt2)`.
  *
- * The same x-tile step also has a component along the camera's local up
- * axis, `(-sin(EL)/sqrt2, cos(EL), -sin(EL)/sqrt2)`. Sizing the frustum's
- * vertical half-extent to turn that up-axis contribution into `TILE_H/2`
- * pixels, then separately projecting a pure elevation step `(0, 1, 0)`
- * through that same up axis and vertical extent, gives an
- * elevation-pixel-coefficient that equals the horizontal one, `TILE_W /
- * sqrt2`, exactly when `tan(EL) = TILE_H / TILE_W` -- verified against the
- * test file's exact-pixel assertions, not assumed. `WORLD_Y_PER_LIFT_PIXEL`
- * below is the reciprocal of that coefficient.
+ * Matching Pixi's ground projection ALONE does not pin `EL`: `sin(EL)`
+ * appears in both the up axis's ground-plane component and in
+ * `halfHeight` below, and cancels between them for any `EL > 0` --
+ * `halfHeight` is solved so the frustum reproduces `TILE_H/2` pixels per
+ * ground tile whatever `EL` is. A wrong `EL` here still passes every
+ * ground-projection test in `camera.test.ts`; only the frustum-aspect test
+ * ("agrees with square pixels") constrains it, because it is the only
+ * assertion that is not itself solved for by `halfHeight`.
+ *
+ * What actually pins `EL` is demanding *square pixels*: the same
+ * screen-pixels-per-view-space-unit scale on both frustum axes, so a
+ * three.js mesh (terrain in B2, units in B3) renders at the correct
+ * proportions instead of being vertically stretched or squashed relative to
+ * the ground plane. Px-per-view-X is fixed at `(TILE_W/2)/(1/sqrt2)`
+ * regardless of `EL` (from the right axis above); requiring
+ * px-per-view-Y -- `(TILE_H/2)/(sin(EL)/sqrt2)` -- to equal that same value
+ * gives `sin(EL) = TILE_H / TILE_W`, i.e. `EL = 30 degrees` for this game's
+ * 2:1 ratio. (`atan(TILE_H/TILE_W)` =~ 26.565 degrees is a different, wrong
+ * angle that also happens to pass every ground-only test above -- it does
+ * not produce square pixels, so the frustum aspect ends up ~1.12x the
+ * viewport's.)
  */
-const ELEVATION = Math.atan(TILE_H / TILE_W);
+const ELEVATION = Math.asin(TILE_H / TILE_W);
 const SIN_EL = Math.sin(ELEVATION);
 
 /** Both ground axes contribute equally at a 45-degree azimuth. */
@@ -57,13 +67,14 @@ const VIEW_DIRECTION = new THREE.Vector3(
 
 /**
  * A raw `lift` pixel (see `project.worldToScreen`'s doc comment) converts to
- * this many three.js world-Y units. Chosen so that, after the frustum is
- * sized to put `TILE_W/2` pixels under one ground tile, one world-Y unit
- * projects to exactly one screen pixel at zoom 1 -- see `ELEVATION`'s
- * derivation for why that conversion is a plain constant, independent of
- * `cam`/`vp`/zoom.
+ * this many three.js world-Y units. A world-Y offset of `dh` contributes
+ * `dh * cos(EL)` to view-space-Y, projecting (at the square-pixel scale
+ * above) to `dh * cos(EL) * TILE_W/sqrt2` screen pixels at zoom 1. Setting
+ * that equal to the desired `1` pixel per raw `lift` pixel and solving for
+ * `dh` gives this constant -- independent of `cam`/`vp`/zoom, like `wx`/`wy`
+ * themselves.
  */
-const WORLD_Y_PER_LIFT_PIXEL = Math.SQRT2 / TILE_W;
+const WORLD_Y_PER_LIFT_PIXEL = (Math.SQRT2 * Math.tan(ELEVATION)) / TILE_H;
 
 /**
  * The three.js orthographic camera reproducing `project.worldToScreen`'s
@@ -139,8 +150,13 @@ export function screenToWorldThree(
   raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
 
   const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-  const hit = new THREE.Vector3();
-  raycaster.ray.intersectPlane(groundPlane, hit);
+  const hit = raycaster.ray.intersectPlane(groundPlane, new THREE.Vector3());
+  // Unreachable with this camera -- its ray is never parallel to y = 0 --
+  // but `intersectPlane` returns null rather than lying, so this must too
+  // rather than silently reporting tile (0, 0).
+  if (!hit) {
+    throw new Error('screenToWorldThree: camera ray does not intersect the ground plane');
+  }
 
   return { x: hit.x, y: hit.z };
 }

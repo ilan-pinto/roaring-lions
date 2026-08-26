@@ -58,6 +58,16 @@ describe('the three.js camera reproduces the dimetric projection', () => {
     }
   });
 
+  it('round-trips its own screenToWorld under zoom and a panned camera', () => {
+    const cam: Camera = { x: -8, y: 60, zoom: 1.75 };
+    for (const [wx, wy] of POINTS) {
+      const s = worldToScreenThree(wx, wy, cam, VP);
+      const back = screenToWorldThree(s.x, s.y, cam, VP);
+      expect(back.x).toBeCloseTo(wx, 3);
+      expect(back.y).toBeCloseTo(wy, 3);
+    }
+  });
+
   it('agrees with project.screenToWorldFlat on the inverse too', () => {
     for (const [px, py] of [[400, 300], [0, 0], [799, 599], [123, 456]]) {
       const pixi = screenToWorldFlat(px, py, CAM, VP);
@@ -67,14 +77,28 @@ describe('the three.js camera reproduces the dimetric projection', () => {
     }
   });
 
+  it('agrees with project.screenToWorldFlat on the inverse under zoom and a panned camera', () => {
+    const cam: Camera = { x: -8, y: 60, zoom: 1.75 };
+    for (const [px, py] of [[400, 300], [0, 0], [799, 599], [123, 456]]) {
+      const pixi = screenToWorldFlat(px, py, cam, VP);
+      const three = screenToWorldThree(px, py, cam, VP);
+      expect(three.x).toBeCloseTo(pixi.x, 3);
+      expect(three.y).toBeCloseTo(pixi.y, 3);
+    }
+  });
+
   it('puts higher ground higher on screen, and by the same amount Pixi does', () => {
     // Elevation is three.js +Y. The dimetric projection turns a unit of height
     // into a fixed number of screen pixels; whatever that number is, it must
-    // match what project.worldToScreen's `lift` parameter does.
+    // match what project.worldToScreen's `lift` parameter does -- checked
+    // against Pixi's own answer rather than a hand-computed pixel count, so
+    // this stays correct even if `lift`'s pixel-per-unit rate ever changes.
     const flat = worldToScreenThree(30, 30, CAM, VP, 0);
     const high = worldToScreenThree(30, 30, CAM, VP, 24);
+    const pixiHigh = worldToScreen(30, 30, CAM, VP, 24);
     expect(high.y).toBeLessThan(flat.y);
-    expect(flat.y - high.y).toBeCloseTo(24, 3);
+    expect(high.x).toBeCloseTo(pixiHigh.x, 3);
+    expect(high.y).toBeCloseTo(pixiHigh.y, 3);
   });
 
   it('builds a camera that is orthographic and looks along the dimetric axis', () => {
@@ -83,5 +107,25 @@ describe('the three.js camera reproduces the dimetric projection', () => {
     // 45 degrees around: equal contribution from the two ground axes.
     expect(Math.abs(c.position.x)).toBeCloseTo(Math.abs(c.position.z), 6);
     expect(c.position.y).toBeGreaterThan(0);
+  });
+
+  it('projects with square pixels: the frustum aspect matches the viewport', () => {
+    // The load-bearing test for the elevation angle. Every assertion above
+    // is a *ground-plane* match, and the ground projection alone cannot
+    // constrain the elevation angle: `halfHeight` (camera.ts) is solved to
+    // reproduce Pixi's ground pixels for whatever elevation angle is chosen,
+    // so a wrong angle still passes all of them. What pins the angle at 30
+    // degrees is requiring the SAME screen-pixels-per-view-space-unit scale
+    // on both frustum axes ("square pixels") -- otherwise a three.js mesh
+    // (terrain in B2, units in B3) renders vertically stretched relative to
+    // the ground plane, even though every 2D screen coordinate above still
+    // agrees with Pixi.
+    for (const vp of [VP, { width: 1280, height: 400 }, { width: 600, height: 900 }]) {
+      for (const cam of [CAM, { x: 10, y: 30, zoom: 2.5 }]) {
+        const c = dimetricCamera(cam, vp);
+        const frustumAspect = (c.right - c.left) / (c.top - c.bottom);
+        expect(frustumAspect).toBeCloseTo(vp.width / vp.height, 6);
+      }
+    }
   });
 });
