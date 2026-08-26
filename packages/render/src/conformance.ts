@@ -9,7 +9,7 @@
  * is *right*: it only proves they have not drifted apart. If both made the
  * same mistake, agreement would stay green.
  *
- * This file is the other half: five properties any correct dimetric
+ * This file is the other half: six properties any correct dimetric
  * projection must satisfy, asserted independently against each
  * implementation via `runProjectionConformance`. Written against only one
  * implementation this would be indistinguishable from a implementation test;
@@ -19,7 +19,7 @@
  * never existed.
  */
 import { describe, it, expect } from 'vitest';
-import type { Camera, Viewport } from './project';
+import { TILE_W, TILE_H, type Camera, type Viewport } from './project';
 
 /** Decimal places for float comparisons -- matches camera.test.ts's own bar
  *  for cross-implementation numeric agreement. */
@@ -121,23 +121,51 @@ export function runProjectionConformance(name: string, project: ProjectionUnderT
       }
     });
 
-    it('lift moves a point up the screen by the lift amount, unscaled by zoom', () => {
-      // Zoom fixed at 1 deliberately: this property is about the raw,
-      // unscaled relationship between lift pixels and screen pixels. How
-      // lift interacts with zoom is a separate, implementation-specific
-      // detail already pinned elsewhere (project.test.ts's "subtracts lift
-      // before the zoom multiply" and camera.test.ts's "same amount Pixi
-      // does" at zoom 1) and is not part of this shared contract.
-      const cam: Camera = { x: 24, y: 24, zoom: 1 };
-      for (const vp of [VP, WIDE_VP]) {
-        for (const [wx, wy] of POINTS) {
-          for (const lift of [0, 12, 30, 100]) {
-            const flat = project.worldToScreen(wx, wy, cam, vp, 0);
-            const lifted = project.worldToScreen(wx, wy, cam, vp, lift);
-            expect(lifted.x).toBeCloseTo(flat.x, PRECISION);
-            expect(flat.y - lifted.y).toBeCloseTo(lift, PRECISION);
+    it('lift is given in unscaled pixels and applied before zoom, moving a point up the screen by lift x zoom', () => {
+      // `lift`'s doc comment (project.ts) calls the argument itself
+      // "unscaled pixels" -- but it is subtracted before the zoom multiply
+      // (project.worldToScreen, project.ts:61), so its effect on the screen
+      // is scaled by zoom just like wx/wy are. Asserting only at zoom 1 (as
+      // an earlier version of this suite did) cannot distinguish "applied
+      // before zoom" from "applied after zoom" -- they agree there and only
+      // there. Checking zoom != 1 too is what actually pins the ordering.
+      for (const cam of [
+        { x: 24, y: 24, zoom: 1 },
+        { x: -8, y: 60, zoom: 1.75 },
+      ] satisfies Camera[]) {
+        for (const vp of [VP, WIDE_VP]) {
+          for (const [wx, wy] of POINTS) {
+            for (const lift of [0, 12, 30, 100]) {
+              const flat = project.worldToScreen(wx, wy, cam, vp, 0);
+              const lifted = project.worldToScreen(wx, wy, cam, vp, lift);
+              expect(lifted.x).toBeCloseTo(flat.x, PRECISION);
+              expect(flat.y - lifted.y).toBeCloseTo(lift * cam.zoom, PRECISION);
+            }
           }
         }
+      }
+    });
+
+    it('one tile of world displacement produces the documented pixel displacement, at any zoom', () => {
+      // Properties 1-5 are all shape/ratio checks, invariant to a uniform
+      // per-axis rescaling of screen space -- a frustum sized wrong on one
+      // axis by a constant factor satisfies every one of them. This is the
+      // property that anchors absolute scale on both screen axes against the
+      // documented tile footprint (TILE_W x TILE_H, project.ts), independent
+      // of any other implementation to compare against.
+      for (const cam of [
+        { x: 24, y: 24, zoom: 1 },
+        { x: -8, y: 60, zoom: 1.75 },
+      ] satisfies Camera[]) {
+        const origin = project.worldToScreen(cam.x, cam.y, cam, VP);
+
+        const east = project.worldToScreen(cam.x + 1, cam.y, cam, VP);
+        expect(east.x - origin.x).toBeCloseTo((TILE_W / 2) * cam.zoom, PRECISION);
+        expect(east.y - origin.y).toBeCloseTo((TILE_H / 2) * cam.zoom, PRECISION);
+
+        const south = project.worldToScreen(cam.x, cam.y + 1, cam, VP);
+        expect(south.x - origin.x).toBeCloseTo((-TILE_W / 2) * cam.zoom, PRECISION);
+        expect(south.y - origin.y).toBeCloseTo((TILE_H / 2) * cam.zoom, PRECISION);
       }
     });
   });
