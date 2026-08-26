@@ -9,6 +9,10 @@
   },
   "dependencies": {
     "@lions/sim": "workspace:*",
-    "pixi.js": "^8.6.6"
+    "pixi.js": "^8.6.6",
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.170.0"
   }
 }

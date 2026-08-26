@@ -38,6 +38,7 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
   { name: 'campaign', blurb: 'open the campaign shell' },
   { name: 'fresh', blurb: 'ignore the saved ledger' },
   { name: 'tutorial', blurb: 'replay the tutorial' },
+  { name: 'renderer', blurb: 'pixi (default) | three — which backend draws' },
   ...SANDBOX_FLAGS,
 ];
 

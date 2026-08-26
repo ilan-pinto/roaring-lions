@@ -21,67 +21,13 @@ import { isGrindingHit, structureHpBand } from './grind';
 import { TILE_W, TILE_H, isoX, isoY, screenToWorldFlat, worldToScreen as projectWorldToScreen } from './project';
 import { trailTileAlpha } from './trail';
 import { releaseCursorToCss } from './cursor-ownership';
-import type { Renderer } from './api';
+import type { Renderer, RendererOptions, TerrainTones } from './api';
 
-/** How open ground is grained. Tones are data; mark shape is drawing code. */
-export type TerrainScatter = 'stone' | 'sward';
-
-/**
- * Every tone `drawTerrain` needs, already resolved to hex by the app.
- *
- * These used to be twelve `resolveColor('dust.3')` calls scattered through
- * `drawTerrain` and `drawCanopy`, which put "what does this region look like"
- * inside the engine. The app owns the palette; the renderer owns the marks.
- */
-export interface TerrainTones {
-  open: string;
-  cover: [string, string, string];
-  blocked: string;
-  underBuilding: string;
-  road: string;
-  rut: string;
-  rock: string;
-  rockLit: string;
-  earth: string;
-  /** The sparse low plant on open ground: dry bush, or tussock. */
-  low: string;
-  trunk: string;
-  trunkLit: string;
-  leafDark: string;
-  leafMid: string;
-  leafLit: string;
-  /** The blade tick used by the `sward` scatter — distinct from canopy tones. */
-  bladeLit: string;
-  bladeShade: string;
-  /** Freshly turned earth: the tunnel dig's surface spoil trail. */
-  spoil: string;
-  /** Crown aspect: olive is wide and squat (0.52), poplar is tall (0.95). */
-  crownRatio: number;
-  scatter: TerrainScatter;
-}
-
-export interface RendererOptions {
-  background: string;
-  /** Team marker colours by side index (0 player, 1 hostile, 2 neutral). */
-  teamColors: [string, string, string];
-  /** Vehicle hull colours by side index. */
-  hullColors: [string, string, string];
-  /** Infantry/soft-unit colours by side index — a lighter tone of the same
-   *  faction ramp, so foot troops read apart from armour at gameplay zoom. */
-  infantryColors: [string, string, string];
-  /** Control-group colours, indexed by slot 1-9 minus one. Colours the group
-   *  badge and the selection ring, so a group reads as a group on the field
-   *  and not merely as "something is selected". */
-  groupColors: string[];
-  /** Terrain tones and grain for this map's theme. */
-  terrainTones: TerrainTones;
-  tracerColors: [string, string];
-  flashColor: string;
-  nearMissColor: string;
-  interceptColor: string;
-  /** Resolve a palette key from structure data (e.g. "limestone.4") to hex. */
-  resolveColor?: (paletteKey: string) => string;
-}
+// RendererOptions, TerrainTones and TerrainScatter live in api.ts now — the
+// contract both backends are constructed with belongs beside the interface,
+// not inside the Pixi implementation. Re-exported here so every existing
+// importer of renderer.ts is unaffected.
+export type { RendererOptions, TerrainTones, TerrainScatter } from './api';
 
 /** Screen pixels per elevation level.
  *

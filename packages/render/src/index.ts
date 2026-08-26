@@ -11,6 +11,7 @@ export {
   type TerrainScatter,
 } from './renderer';
 export { DebugOverlay } from './overlay';
+export { ThreeRenderer } from './three/ThreeRenderer';
 export { BattleAudio, type AudioManifest, type AudioSet, type AudioVariant } from './audio';
 export { type EmitterSpec } from './vfx';
 export type { Renderer } from './api';

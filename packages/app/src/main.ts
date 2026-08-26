@@ -17,6 +17,7 @@ import {
 } from '@lions/sim';
 import {
   PixiRenderer,
+  ThreeRenderer,
   DebugOverlay,
   BattleAudio,
   TERRAIN_DECOR,
@@ -566,7 +567,11 @@ async function main(): Promise<void> {
     interceptColor: paletteColor('vfx.interceptor'),
     resolveColor: paletteColor,
   };
-  const renderer: Renderer = new PixiRenderer(sim, opts);
+  // Pixi is the default and stays the default until the three.js backend
+  // reaches parity (spec, Phase D). The annotation is what makes this a real
+  // choice: both sides must satisfy `Renderer` or this does not compile.
+  const renderer: Renderer =
+    params.get('renderer') === 'three' ? new ThreeRenderer(sim, opts) : new PixiRenderer(sim, opts);
 
   // The map's decor layer -- road, olive grove, rocky knoll -- goes straight to
   // the renderer. It deliberately does NOT travel through the sim: whether a tile
