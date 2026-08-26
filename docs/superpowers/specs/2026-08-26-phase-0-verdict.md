@@ -18,6 +18,8 @@ by construction rather than by care.
 
 Three panels, all at the sprite's own draw size (`size 256 × scale 0.9307 = 238 px`),
 under an orthographic camera at `atan(0.5)` elevation / 45° azimuth, on limestone[3]
+(that angle is **wrong** — see the note at the end of this file; it does not affect this
+verdict, which measured colour)
 ground, framed so the 3D soldiers occupy the same share of the frame as the sprite's do:
 
 1. the shipped `INF_SQUAD` `idle_f00_000.png`, untouched
@@ -106,3 +108,21 @@ written down, or every mesh fails it on edges alone.
 Phase A is already complete and merged-ready on this branch, independent of this verdict.
 This result unblocks Phases B through G as designed. The two findings above belong in
 Phase B's plan as explicit tasks rather than as discovered surprises.
+
+
+---
+
+## Correction, 2026-08-27
+
+The camera elevation used by this spike, `atan(0.5)` ≈ 26.565°, is not the right angle
+for 2:1 dimetric tiles. The correct one is `asin(TILE_H / TILE_W)` = 30°, which is what
+makes the camera's pixels square; at `atan(0.5)` they are anisotropic by √5/2 ≈ 1.118.
+
+**This does not change the verdict.** The measurement here was a colour census — which
+distinct colours a shaded fragment can emit, and whether each is a palette entry. That
+is independent of the camera's elevation: the same geometry under the same light through
+the same LUT emits the same ten colours at either angle. The finding stands, and so do
+the two requirements it produced for Phase B.
+
+It is recorded because Phase B1 inherited the wrong angle from this document and shipped
+it, and seven passing tests could not see it. See `2026-08-26-phase-b1-outcome.md`.

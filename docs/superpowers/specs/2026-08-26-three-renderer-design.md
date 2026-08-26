@@ -76,7 +76,8 @@ real-time shading. Phase 0 exists to settle this before anything else is built.
 - `data/` — no content changes.
 - `theme.css`, the HUD, and the DOM UI. The campaign world map is a PNG under an
   SVG overlay with CSS state; it never touched Pixi.
-- The 863 existing tests, which stay green throughout and act as the regression net
+- The existing test suite (863 at the time of writing; 901 as of Phase B1), which
+  stays green throughout and acts as the regression net
   for everything outside `render`.
 
 ---
@@ -146,8 +147,16 @@ exists.
 ### Phase B — `ThreeRenderer`, billboards
 
 Terrain, elevation, buildings, and units drawn as camera-facing quads using the
-**existing sprites**. Orthographic camera at `atan(0.5)` elevation and 45° azimuth,
-matching `TILE_W`/`TILE_H`. Real depth buffer. Behind the flag; Pixi stays default.
+**existing sprites**. Orthographic camera at `asin(TILE_H / TILE_W)` = 30° elevation
+and 45° azimuth. Real depth buffer. Behind the flag; Pixi stays default.
+
+> **Corrected 2026-08-27.** This line read `atan(0.5)` (26.565°) and that is wrong;
+> Phase B1 shipped it, and seven passing tests could not see it. A ground-plane
+> projection match leaves the elevation angle *free* — `sin(EL)` cancels between the
+> camera's up axis and its frustum half-height, so every angle reproduces the iso
+> formula exactly. What pins it is square pixels, giving `asin(TILE_H / TILE_W)` = 30°.
+> At `atan(0.5)` the pixels are anisotropic by √5/2 ≈ 1.118 and everything drawn in
+> world space renders 11.8% too tall. See `2026-08-26-phase-b1-outcome.md`.
 
 Billboards first is deliberate: it reaches visual parity quickly, fixes depth and
 occlusion immediately, and the game never looks worse than it does today. Art
@@ -227,11 +236,21 @@ constructed renderer and therefore belongs to Phase B, alongside the golden-imag
 harness that has to stand a renderer up anyway. Phase B's plan must pick them up;
 they are deferred, not dropped.
 
+> **Amended 2026-08-27, after Phase B1.** "Belongs to Phase B" cannot mean "runs in
+> `pnpm test`": `ThreeRenderer` constructs a `WebGLRenderer` in its constructor, which
+> needs real WebGL2 and fails under both `node` and `jsdom`. So these tests reach CI
+> only if the logic under them is extracted into pure functions that do not need a
+> renderer, or the renderer is injected. Phase B2 must make that choice explicitly and
+> up front — retrofitting it after mesh code exists is far worse. Anything genuinely
+> requiring a live GL context stays a browser-driven check outside `pnpm test`, the
+> same status `playtest.ts` has.
+
 **Golden-image diff between the two renderers** on the same map and the same sim
 state, through Phases B and C. This makes "parity" a measurement rather than a
 judgement call, and it is the gate for Phase D.
 
-**The 863 existing tests** stay green and cover everything outside `render`.
+**The existing test suite** stays green and covers everything outside `render` —
+863 when this was written, 901 after Phase B1.
 
 ---
 
