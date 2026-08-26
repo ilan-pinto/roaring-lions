@@ -13,10 +13,8 @@ import {
   paletteColorNoConvert,
   toonRampMaterial,
   applyPalettePipeline,
-  setPaletteClearColor,
   RAMP_MAX,
   type PaletteTarget,
-  type ClearColorTarget,
 } from './palette-material';
 
 const OLIVE = ['#8F9464', '#6E7449', '#4E5433', '#333821'];
@@ -77,36 +75,44 @@ describe('toonRampMaterial', () => {
 });
 
 // `THREE.WebGLRenderer` cannot be constructed in this suite's headless
-// `environment: 'node'` (no WebGL, no DOM) -- see vitest.config.ts. Both
-// functions below are typed as the narrow structural shape they actually
-// mutate (`PaletteTarget`/`ClearColorTarget`), so a plain object stands in
-// for the renderer here. A real `THREE.WebGLRenderer` still satisfies both
-// shapes unchanged at the `ThreeRenderer` call site -- `outputColorSpace` is
-// a plain data property and `setClearColor` is a real method on it.
+// `environment: 'node'` (no WebGL, no DOM) -- see vitest.config.ts.
+// `applyPalettePipeline` is typed as the narrow structural shape it actually
+// mutates (`PaletteTarget`: `outputColorSpace` plus `setClearColor`), so a
+// plain object stands in for the renderer here. A real `THREE.WebGLRenderer`
+// still satisfies that shape unchanged at the `ThreeRenderer` call site.
+//
+// What this stub does NOT prove: real `WebGLRenderer#setClearColor` reads
+// `renderer.outputColorSpace` synchronously, inside its own call
+// (`WebGLBackground.setClear` -> `color.getRGB(_rgb,
+// getUnlitUniformColorSpace(renderer))`), to convert the stored `Color` into
+// the final RGB that reaches `gl.clearColor`. This stub's `setClearColor`
+// only records the `Color` object it was handed -- it does not perform that
+// conversion, so it cannot observe whether `outputColorSpace` was set
+// correctly or in time, only whether `applyPalettePipeline` handed
+// `paletteColorNoConvert`'s output to `setClearColor` at all. The
+// conversion -- and therefore the actual on-screen byte -- is exercised only
+// by a real browser readback (done for this task; not part of `pnpm test`,
+// since `WebGLRenderer` cannot construct here and rasterization is
+// out-of-suite by design, same as `playtest.ts`).
 describe('applyPalettePipeline', () => {
-  it('sets outputColorSpace to pass-through', () => {
-    const target: PaletteTarget = { outputColorSpace: THREE.SRGBColorSpace };
-    applyPalettePipeline(target);
-    expect(target.outputColorSpace).toBe(THREE.LinearSRGBColorSpace);
-  });
-});
-
-describe('setPaletteClearColor', () => {
-  it('sets the clear colour through paletteColorNoConvert, not the naive sRGB path', () => {
-    // The verdict's own example: the background hex reads #93744C through
-    // the naive path instead of its actual palette entry #C8B494.
+  it('sets outputColorSpace to pass-through and the clear colour to the palette hex', () => {
+    // Not a test of call order -- applyPalettePipeline is now the only
+    // place that sequence exists, so there is no pair of lines outside it
+    // left to get wrong. This just checks both of its effects landed.
     const BACKGROUND = '#C8B494';
     let received: THREE.Color | undefined;
-    const target: ClearColorTarget = {
+    const target: PaletteTarget = {
+      outputColorSpace: THREE.SRGBColorSpace,
       setClearColor(color) {
         received = color;
       },
     };
-    setPaletteClearColor(target, BACKGROUND);
+
+    applyPalettePipeline(target, BACKGROUND);
+
+    expect(target.outputColorSpace).toBe(THREE.LinearSRGBColorSpace);
     expect(received).toBeDefined();
-    // Same explicit-read-space reasoning as paletteColorNoConvert's own test:
-    // a bare getHexString() re-encodes through SRGBColorSpace and would not
-    // reproduce BACKGROUND even though the clear colour is correct.
+    // Same explicit-read-space reasoning as paletteColorNoConvert's own test.
     expect(
       '#' + (received as THREE.Color).getHexString(THREE.LinearSRGBColorSpace).toUpperCase()
     ).toBe(BACKGROUND);

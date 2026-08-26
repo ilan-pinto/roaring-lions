@@ -11,10 +11,22 @@
  *   1. LUT colours built with `setStyle(hex, LinearSRGBColorSpace)` -- no
  *      conversion (`paletteColorNoConvert`).
  *   2. `renderer.outputColorSpace = LinearSRGBColorSpace` -- pass-through, no
- *      output transform (`applyPalettePipeline`).
+ *      output transform.
  *   3. The clear colour given the same treatment, or the background alone
  *      lands off-palette -- it read `#93744C` instead of `#C8B494` until
- *      fixed (`setPaletteClearColor`).
+ *      fixed.
+ *
+ * Settings 2 and 3 are one function, `applyPalettePipeline`, not two: three.js
+ * reads `renderer.outputColorSpace` SYNCHRONOUSLY, at the moment
+ * `setClearColor()` is called (`WebGLBackground.setClear` ->
+ * `color.getRGB(_rgb, getUnlitUniformColorSpace(renderer))`), so a caller that
+ * sets the clear colour before setting `outputColorSpace` bakes in a
+ * conversion against three.js's default instead of this pipeline's
+ * pass-through -- silently, since nothing about that ordering fails to
+ * compile or fails a headless test. Two separate exported functions leave
+ * that ordering to every call site to get right by memory; one function that
+ * does both, in the correct order, internally, makes the wrong order
+ * unrepresentable rather than merely documented.
  *
  * Antialiasing is the fourth requirement and lives at the `WebGLRenderer`
  * call site in `ThreeRenderer`, not here: a blended edge pixel is by
@@ -58,42 +70,33 @@ export function paletteColorNoConvert(hex: string): THREE.Color {
  *
  * `THREE.WebGLRenderer` cannot be constructed in the headless `node` test
  * environment this package runs its tests under (no WebGL, no DOM) -- see
- * `palette-material.test.ts`. `outputColorSpace` is a plain data property,
- * so a structural type lets a plain object stand in for the renderer in
- * tests while a real `THREE.WebGLRenderer` still satisfies it at the
- * `ThreeRenderer` call site unchanged.
+ * `palette-material.test.ts`. `outputColorSpace` is a plain data property and
+ * `setClearColor` a real method, so a structural type lets a plain object
+ * stand in for the renderer in tests while a real `THREE.WebGLRenderer`
+ * still satisfies it at the `ThreeRenderer` call site unchanged.
  *
- * Typed as `string` rather than `THREE.ColorSpace`: the installed
- * `@types/three` (0.170) types `WebGLRenderer#outputColorSpace` as `string`,
- * not the narrower `ColorSpace` union, and a mutable property must match
- * exactly for a real renderer to satisfy this structurally -- `ColorSpace`
- * here would make `THREE.WebGLRenderer` itself fail to typecheck against
- * this interface, defeating the point.
+ * `outputColorSpace` is typed as `string` rather than `THREE.ColorSpace`: the
+ * installed `@types/three` (0.170) types `WebGLRenderer#outputColorSpace` as
+ * `string`, not the narrower `ColorSpace` union, and a mutable property must
+ * match exactly for a real renderer to satisfy this structurally --
+ * `ColorSpace` here would make `THREE.WebGLRenderer` itself fail to
+ * typecheck against this interface, defeating the point.
  */
 export interface PaletteTarget {
   outputColorSpace: string;
-}
-
-/** Sets the renderer's output colour space to pass-through so a LUT colour
- *  written by a fragment shader reaches the framebuffer unconverted. */
-export function applyPalettePipeline(renderer: PaletteTarget): void {
-  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
-}
-
-/**
- * The clear colour, structurally: the one `setClearColor` call the pipeline
- * needs to route through `paletteColorNoConvert`, typed narrowly for the
- * same headless-testing reason as `PaletteTarget`.
- */
-export interface ClearColorTarget {
   setClearColor(color: THREE.Color): void;
 }
 
-/** Sets the clear colour from a palette hex without the sRGB round trip --
- *  applied straight, `opts.background` lands at `#93744C` instead of its
- *  actual entry `#C8B494` (Phase 0's measurement). */
-export function setPaletteClearColor(renderer: ClearColorTarget, hex: string): void {
-  renderer.setClearColor(paletteColorNoConvert(hex));
+/**
+ * Sets the renderer's output colour space to pass-through, then sets the
+ * clear colour from `background` through `paletteColorNoConvert` -- in that
+ * order, always, as one call. See the module doc comment for why the order
+ * is load-bearing rather than cosmetic, and why this is one function instead
+ * of two a call site could sequence wrong.
+ */
+export function applyPalettePipeline(renderer: PaletteTarget, background: string): void {
+  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+  renderer.setClearColor(paletteColorNoConvert(background));
 }
 
 /**
