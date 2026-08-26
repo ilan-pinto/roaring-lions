@@ -74,7 +74,7 @@ const VIEW_DIRECTION = new THREE.Vector3(
  * `dh` gives this constant -- independent of `cam`/`vp`/zoom, like `wx`/`wy`
  * themselves.
  */
-const WORLD_Y_PER_LIFT_PIXEL = (Math.SQRT2 * Math.tan(ELEVATION)) / TILE_H;
+export const WORLD_Y_PER_LIFT_PIXEL = (Math.SQRT2 * Math.tan(ELEVATION)) / TILE_H;
 
 /**
  * The three.js orthographic camera reproducing `project.worldToScreen`'s
