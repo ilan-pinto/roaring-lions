@@ -62,7 +62,7 @@
             421.4,
             55.9
           ],
-          "missions": ["tel_marum_1_recon"]
+          "missions": ["tel_marum_1_recon", "tel_marum_2_foothold"]
         },
         {
           "id": "umm_zeitoun",

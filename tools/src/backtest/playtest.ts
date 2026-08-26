@@ -715,3 +715,57 @@ run(
   'victory',
   'tel_marum_1_recon'
 );
+
+// Tel Marum II — the start line, and the man who calls the fire.
+//
+// The approach is 35 tiles and only 18 of them are both visible to the west
+// pocket and inside the Grad's reach. The plan takes the southern edge of the
+// zone, which counts for the hold and is the cheapest ground in it, then sends
+// infantry up the west side of the bay to kill the observer. Once he is dead
+// the battery has no eyes and the remaining hold is uncontested.
+//
+// Control: a player who gives no orders never enters the approach, so
+// hold_for never starts and kill_spotter never fires. Neither primary can
+// go to 'failed', though: `hold_for` and `eliminate_hvt` are not among the
+// three objective types `checkEnd` can ever fail (only `raze`, `collapse`,
+// both seconds-gated, and `evacuate_before` can -- mission.ts:1361/1372/1423),
+// and `checkEnd` (mission.ts:1434+) otherwise loses only on a wipe or an ROE
+// collapse. The passive force sits at [24,44], 38 tiles from the battery
+// (out of its 20-tile reach) behind a standoff garrison that will not come
+// to it, so it is never wiped either. Observed, not assumed: this control
+// stays ONGOING for the full 20-minute cap, exactly as Task 2's did.
+run('tel_marum_2_foothold', () => {}, {}, 'ongoing', 'tel_marum_2_foothold (passive control)');
+
+run(
+  'tel_marum_2_foothold',
+  (sim, _rt, ids, at) => {
+    const armour = ids('apc_eitan');
+    const tank = ids('mbt_lavi');
+    const foot = ids('inf_squad');
+    const at_ = ids('at_team');
+    const mortar = ids('mortar_team');
+    at(3, () => {
+      // Into the southern edge of the approach zone — inside it for the hold,
+      // furthest from the battery.
+      sim.queueCommand({ kind: 'move', ids: armour, ...M(23, 26) });
+      sim.queueCommand({ kind: 'move', ids: tank, ...M(26, 26) });
+      sim.queueCommand({ kind: 'move', ids: at_, ...M(25, 26) });
+      // Mortar stays in the hollow: 18 tiles of reach covers the bay lip from
+      // ground the Grad cannot touch.
+      sim.queueCommand({ kind: 'move', ids: mortar, ...M(24, 29) });
+    });
+    at(20, () => {
+      // Infantry up the west side toward the pocket.
+      sim.queueCommand({ kind: 'move', ids: foot, ...M(20, 22) });
+    });
+    at(70, () => {
+      sim.queueCommand({ kind: 'move', ids: foot, ...M(20, 17) });
+    });
+    at(110, () => {
+      sim.queueCommand({ kind: 'attackMove', ids: foot, ...M(20, 16) });
+    });
+  },
+  {},
+  'victory',
+  'tel_marum_2_foothold'
+);
