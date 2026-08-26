@@ -1,0 +1,146 @@
+/**
+ * Terrain tones, composited the way Pixi composites them, then quantised to
+ * the palette.
+ *
+ * Pixi tints the ground by layering alpha fills over its own clear colour:
+ * open ground at `0.92 + rnd * 0.08` (or `0.96 + rnd * 0.04` on sward), a road
+ * tone at `0.85` over that, `underBuilding` at `0.22` over that. The composite
+ * of two palette entries is NOT a palette entry -- reproducing that blending
+ * faithfully would put off-palette colour across most of the screen, exactly
+ * what Phase 0 measured and Phase B1 installed a pipeline to prevent.
+ *
+ * So: composite in plain sRGB byte space, the way Pixi's alpha fill does --
+ * no linear conversion here, that is the GPU-side pipeline's job -- then snap
+ * the result to the nearest `data/palette.json` entry. The look survives, and
+ * the palette guarantee survives with it.
+ */
+import { tileHash } from '../../tile-hash';
+import type { TerrainTones } from '../../api';
+import type { TerrainInput } from './types';
+
+// `data/palette.json` imported directly, not through `@lions/data`: CLAUDE.md
+// and renderer.ts:116-120/640 both establish that `@lions/render` must not
+// depend on `@lions/data` (TERRAIN_DECOR is redeclared there for the same
+// reason). This is the same JSON file `@lions/data`'s `palette` export reads
+// -- no second parser, no transcribed copy -- just read directly rather than
+// through the package boundary render is not allowed to cross.
+import paletteJson from '../../../../../data/palette.json';
+
+/**
+ * DECOR values this module reads. Mirrors `TERRAIN_DECOR` in renderer.ts and
+ * `DECOR` in `@lions/data`'s map.ts. Redeclared rather than imported: renderer.ts
+ * pulls in pixi.js at module scope (poisoning the lazy three.js chunk), and
+ * `@lions/render` must not depend on `@lions/data` (see the palette import
+ * above).
+ */
+const DECOR_ROAD = 1;
+const DECOR_RIDGE = 4;
+
+/** Every colour in `data/palette.json`, flattened. Derived, not transcribed:
+ *  a hand-copied list goes stale silently the first time the palette changes,
+ *  and `quantise` would start snapping to a partial palette without a single
+ *  failing test pointing at why. */
+const ramps = paletteJson.ramps as Record<string, { colors: string[] }>;
+const reserved = paletteJson.reserved as Record<string, { colors: Record<string, string> }>;
+
+export const PALETTE_HEXES: readonly string[] = [
+  ...Object.values(ramps).flatMap((ramp) => ramp.colors),
+  ...Object.values(reserved).flatMap((band) => Object.values(band.colors)),
+];
+
+function hexToRgb(hex: string): [number, number, number] {
+  const h = hex.charAt(0) === '#' ? hex.slice(1) : hex;
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  const byte = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0');
+  return `#${byte(r)}${byte(g)}${byte(b)}`.toUpperCase();
+}
+
+/**
+ * sRGB-space alpha composite, hex in, hex out -- the same arithmetic Pixi's
+ * `Graphics.fill({ color, alpha })` performs against whatever is already on
+ * screen. Deliberately not linear: the goal is to reproduce the byte value
+ * Pixi produces, then quantise it, not to relight it.
+ */
+export function composite(base: string, over: string, alpha: number): string {
+  const [br, bg, bb] = hexToRgb(base);
+  const [or, og, ob] = hexToRgb(over);
+  return rgbToHex(br * (1 - alpha) + or * alpha, bg * (1 - alpha) + og * alpha, bb * (1 - alpha) + ob * alpha);
+}
+
+/**
+ * Nearest palette entry to `hex`, by squared Euclidean distance in RGB. Not
+ * perceptually ideal, and it does not need to be: every input reaching this
+ * function is a near-miss of a palette entry by construction (a composite of
+ * palette colours), so the nearest entry is unambiguous.
+ *
+ * Total over its input: `palette` is never empty in practice (it is always
+ * `PALETTE_HEXES`, which the last test in tones.test.ts asserts has more than
+ * 40 entries), so this always returns one of `palette`'s own entries -- no
+ * hex, known or not, can produce an off-palette output.
+ */
+export function quantise(hex: string, palette: readonly string[]): string {
+  const [r, g, b] = hexToRgb(hex);
+  let best = palette[0];
+  let bestDist = Infinity;
+  for (const candidate of palette) {
+    const [cr, cg, cb] = hexToRgb(candidate);
+    const dist = (r - cr) ** 2 + (g - cg) ** 2 + (b - cb) ** 2;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = candidate;
+    }
+  }
+  return best;
+}
+
+/**
+ * Pixi's per-tile ground-tone decision (`drawTerrain`), reproduced in the
+ * same order and quantised once at the end:
+ *
+ * | tile                        | Pixi source          | composite |
+ * |------------------------------|----------------------|-----------|
+ * | open, stone scatter          | renderer.ts:1514-1518| `open` at `0.92 + rnd * 0.08` |
+ * | open, sward scatter          | same                  | `open` at `0.96 + rnd * 0.04` |
+ * | road                         | renderer.ts:1522-1525| open wash, then `road` at `0.85` |
+ * | under a (sprited) structure  | renderer.ts:1489-1491| `open` at `0.92 + rnd * 0.08`, then `underBuilding` at `0.22` |
+ * | blocked, ridge decor         | renderer.ts:1439-1452| `rock` at `0.92` |
+ *
+ * `rnd` is `tileHash(x, y)` -- the same per-tile hash Pixi's `h2` produces,
+ * extracted verbatim in Task B2.1. `background` is the base beneath the
+ * first fill on every tile: Pixi never clears `terrainG` to anything else,
+ * so the canvas's own clear colour (`RendererOptions.background`) is what a
+ * `< 1` alpha reveals underneath. It is a parameter here rather than an
+ * import so this module stays a pure function of its inputs.
+ */
+export function groundTone(
+  input: TerrainInput,
+  tones: TerrainTones,
+  ti: number,
+  palette: readonly string[],
+  background: string
+): string {
+  const x = ti % input.width;
+  const y = Math.floor(ti / input.width);
+  const rnd = tileHash(x, y);
+  const decorHere = input.decor ? input.decor[ti] : 0;
+
+  if (input.blocked[ti] !== 0) {
+    if (decorHere === DECOR_RIDGE) {
+      return quantise(composite(background, tones.rock, 0.92), palette);
+    }
+    const openWash = composite(background, tones.open, 0.92 + rnd * 0.08);
+    return quantise(composite(openWash, tones.underBuilding, 0.22), palette);
+  }
+
+  const openAlpha = tones.scatter === 'sward' ? 0.96 + rnd * 0.04 : 0.92 + rnd * 0.08;
+  const openWash = composite(background, tones.open, openAlpha);
+
+  if (decorHere === DECOR_ROAD) {
+    return quantise(composite(openWash, tones.road, 0.85), palette);
+  }
+
+  return quantise(openWash, palette);
+}
