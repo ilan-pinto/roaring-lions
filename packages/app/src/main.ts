@@ -1444,7 +1444,15 @@ async function main(): Promise<void> {
 
   let last = performance.now();
   let acc = 0;
-  renderer.app.ticker.add(() => {
+  // The app owns the frame loop, not the renderer.
+  //
+  // Pixi's ticker is backend-specific, and a renderer that schedules the
+  // application's work is the wrong way round: the app decides when a frame
+  // happens and asks the renderer to draw it. A three.js backend has no
+  // ticker to offer at all.
+  let rafId = 0;
+  const loop = (): void => {
+    rafId = requestAnimationFrame(loop);
     const now = performance.now();
     acc += now - last;
     last = now;
@@ -1473,7 +1481,13 @@ async function main(): Promise<void> {
     renderer.frame(acc / MS_PER_TICK);
 
     updateHover();
-  });
+  };
+  rafId = requestAnimationFrame(loop);
+  // main() has no shutdown path today, so rafId is never read past this
+  // point. Keep the handle in scope (rather than a bare
+  // requestAnimationFrame(loop) call) so a future teardown path can
+  // cancelAnimationFrame it without restructuring the loop.
+  void rafId;
 }
 
 main().catch((err: unknown) => {
