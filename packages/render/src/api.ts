@@ -14,8 +14,17 @@ import type { EmitterSpec } from './vfx';
 export interface Renderer {
   // --- lifecycle
   init(host: HTMLElement): Promise<void>;
-  /** Draw one frame. `alpha` is the 0..1 interpolation between sim ticks. */
-  frame(alpha: number): void;
+  /**
+   * Draw one frame and present it.
+   *
+   * `alpha` is the 0..1 interpolation between sim ticks. `dtMs` is wall-clock
+   * milliseconds since the previous frame, driving presentation-only animation
+   * -- recoil decay, particles, death fades. The caller owns the clock and
+   * passes it in: a backend that reads its own would make a frame depend on
+   * when it happened to be drawn, which the Phase B golden-image diff cannot
+   * work with.
+   */
+  frame(alpha: number, dtMs: number): void;
   /** Latch current sim positions as the previous frame's, before the next tick. */
   snapshot(): void;
   onEvents(events: SimEvent[]): void;

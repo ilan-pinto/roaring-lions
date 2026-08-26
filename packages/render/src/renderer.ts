@@ -565,7 +565,19 @@ export class PixiRenderer implements Renderer {
   }
 
   async init(host: HTMLElement): Promise<void> {
-    await this.app.init({ background: this.opts.background, resizeTo: host, antialias: true });
+    // `autoStart: false` keeps Pixi's ticker stopped. Pixi would otherwise
+    // register `app.render` at UPDATE_PRIORITY.LOW on its own rAF loop, which
+    // -- since that loop is created first, during init -- runs BEFORE the
+    // app's loop each frame. Every presented frame would then show the scene
+    // graph left by the previous `frame()` call: a frame of added latency and
+    // two rAF loops where there should be one. The app owns the loop; `frame`
+    // presents at the end of its own work, so the order stays update->render.
+    await this.app.init({
+      background: this.opts.background,
+      resizeTo: host,
+      antialias: true,
+      autoStart: false,
+    });
     // Pixi's event system claims `canvas.style.cursor` on the first pointer
     // interaction and writes `'inherit'` into it, which outranks the app's
     // `canvas[data-cursor=...]` rules and kills every contextual cursor for the
@@ -1905,8 +1917,18 @@ export class PixiRenderer implements Renderer {
     this.buildingTiles.push(g);
   }
 
-  frame(alpha: number): void {
-    const dtSeconds = Math.min(this.app.ticker.deltaMS, 100) / 1000;
+  /**
+   * Draw one frame and present it.
+   *
+   * `dtMs` is passed in rather than read off Pixi's ticker: the ticker is
+   * stopped (see `init`), so `ticker.deltaMS` would sit frozen at its
+   * constructed 16.66 ms forever and every time-based animation would run at a
+   * fixed, wrong rate. The app owns the clock. 100 ms is the same ceiling
+   * Pixi's ticker applied via `maxElapsedMS`, so a returning background tab
+   * still catches up in one bounded step instead of jumping.
+   */
+  frame(alpha: number, dtMs: number): void {
+    const dtSeconds = Math.min(dtMs, 100) / 1000;
     this.frameN++;
     // Drain the one-shot latches before anything reads them. Recoil and
     // flinch decay over their own durations, framerate-independently.
@@ -2640,5 +2662,9 @@ export class PixiRenderer implements Renderer {
       this.particles.draw(fg, isoX, isoY, FX_LAYER_BELOW);
       this.particles.draw(this.fxAboveG, isoX, isoY, FX_LAYER_ABOVE);
     }
+
+    // Present. Last statement, after every mutation above -- this is the half
+    // of the frame Pixi's stopped ticker used to perform for us.
+    this.app.render();
   }
 }

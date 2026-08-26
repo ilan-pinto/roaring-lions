@@ -1244,6 +1244,12 @@ async function main(): Promise<void> {
     }
   };
 
+  // How long the last presented frame took, in ms. The renderer needs it for
+  // presentation-only animation and no longer has a ticker of its own to ask.
+  // Seeded with a nominal 60 fps frame, which is exactly what Pixi's ticker
+  // reported before its first update.
+  let lastFrameMs = 1000 / 60;
+
   // Dev hook: deterministic headless stepping from the console
   // (`__lions.step(1200)` fast-forwards a minute of battle).
   Object.assign(window as unknown as Record<string, unknown>, {
@@ -1262,7 +1268,7 @@ async function main(): Promise<void> {
       },
       step: (n: number) => {
         for (let i = 0; i < n; i++) runTick();
-        renderer.frame(1);
+        renderer.frame(1, lastFrameMs);
         return sim.tickCount;
       },
 
@@ -1451,11 +1457,16 @@ async function main(): Promise<void> {
   // application's work is the wrong way round: the app decides when a frame
   // happens and asks the renderer to draw it. A three.js backend has no
   // ticker to offer at all.
+  //
+  // This is the only rAF loop in the app. The renderer's backend is
+  // constructed with its own scheduler stopped, and `frame` presents before it
+  // returns, so the order within a frame is still tick -> draw -> present.
   let rafId = 0;
   const loop = (): void => {
     rafId = requestAnimationFrame(loop);
     const now = performance.now();
-    acc += now - last;
+    lastFrameMs = now - last;
+    acc += lastFrameMs;
     last = now;
     if (acc > 250) acc = 250; // don't spiral after a background tab
     while (acc >= MS_PER_TICK) {
@@ -1479,7 +1490,7 @@ async function main(): Promise<void> {
       renderer.camera.x += panSpeed;
       renderer.camera.y -= panSpeed;
     }
-    renderer.frame(acc / MS_PER_TICK);
+    renderer.frame(acc / MS_PER_TICK, lastFrameMs);
 
     updateHover();
   };
