@@ -28,7 +28,9 @@ If a task appears to require breaking one of these, stop and raise it rather tha
 ```
 packages/
   sim/      deterministic core — imports NOTHING
-  render/   Pixi renderer, VFX — imports sim types read-only
+  render/   renderer + VFX — imports sim types read-only. `app` holds the
+            `Renderer` interface (api.ts), never `PixiRenderer` directly, so a
+            second backend is a new implementation rather than a rewrite.
   data/     unit/building/mission/vfx JSON + schemas
   app/      shell, input, UI, campaign ledger
 tools/      render rig, asset validator, balance sim
@@ -155,6 +157,11 @@ The combat model is the product. Everything else is scaffolding around it.
 - `pnpm balance` runs the §5.7 backtest; `tools/src/backtest/urban-only.ts` is the fast urban-ratio calibration loop.
 - The determinism golden hash lives in `packages/sim/src/determinism.test.ts`. It changes only when sim code or tuning changes deliberately — update it in the same commit and say why.
 - Combat tuning lives in `packages/sim/src/tuning.ts`. §5.7 targets outrank §5 formula text.
+- The renderer is behind an interface (`packages/render/src/api.ts`). `app` may
+  use only what that interface declares — `grep 'renderer\.app' packages/app/src`
+  must stay empty, and projection is asked for (`renderer.worldToScreen`) rather
+  than recomputed from `isoX`/`isoY`. The projection arithmetic itself is pure and
+  tested in `project.ts`; `renderer.ts` re-exports its names for compatibility.
 
 ---
 
