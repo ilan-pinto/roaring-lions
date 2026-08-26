@@ -192,26 +192,70 @@ const led2 = run(
   led1
 );
 
-// III — Clearance: the proven combined-arms plan; mortar stays home.
+// III — Clearance: combined arms, with the armour held off the clinic.
+//
+// The clinic zone is [29,23,6,6] — tiles x29-34, y23-28 — and three things
+// about this map put it directly in the way of the primary objective:
+// `town_center` is the marker at [31,22], right on its northern edge, and the
+// `bs_cell_centre` militia sit at (29.5,25.5), which is INSIDE the zone and in
+// the open. Clearing the town means killing something standing in the clinic.
+//
+// A unit does not choose which of its weapons it fires — only where it stands.
+// The zone penalty arms at collateral_risk >= 0.3, which catches the Namer's
+// cannon_30 (0.35) and the Lavi's gun_120 (0.55) but not rifles (0.1), the
+// Lavi's coax_mg (0.2) or the Eitan's rws_50 (0.25). So the whole mission is
+// decided by which units are given a line into that box.
+//
+// The previous plan attack-moved everything alive to (38,22) at t=140, which
+// walked both Namers into range of the cell in the clinic: 107 rounds of 30mm
+// landed inside the zone, plus 7 of 120mm and 6 Spike. The 10s cooldown
+// compressed those into 11 deductions of 5 — a 55-point loss, on top of 6 for
+// one house — and the mission ended at ROE 39 against its own fail_below of 40.
+// It lost to its own supporting fire, not to the Ashwar Front (#121).
+//
+// So: the centre is taken by rifles and the Eitan's RWS, both under the
+// threshold, while the armour works the north block and swings east along
+// y=16 to the ATGM rather than across the clinic. Same objectives, and it
+// finishes faster and with more of the roster alive than the shelling did.
 const led3 = run(
   'beit_sahwan_3_clearance',
   (sim, _rt, ids, at) => {
     at(1, () => {
       sim.queueCommand({ kind: 'move', ids: ids('recon_drone'), ...M(32, 18) });
-      const armor = [...ids('mbt_lavi'), ...ids('ifv_namer'), ...ids('apc_eitan')];
-      sim.queueCommand({ kind: 'attackMove', ids: armor, ...M(30, 13) });
-      sim.queueCommand({ kind: 'attackMove', ids: [...ids('inf_squad'), ...ids('at_team')], ...M(28, 26) });
+      // North block only. Nothing above the collateral threshold is given a
+      // reason to look south into the clinic.
+      const armor = [...ids('mbt_lavi'), ...ids('ifv_namer')];
+      sim.queueCommand({ kind: 'attackMove', ids: armor, ...M(30, 12) });
+      // The Eitan goes with the infantry rather than with the armour: its RWS
+      // is under the threshold, so it is the one vehicle that can support a
+      // fight inside the zone without being charged for it.
+      sim.queueCommand({
+        kind: 'attackMove',
+        ids: [...ids('inf_squad'), ...ids('apc_eitan')],
+        ...M(28, 26),
+      });
       // Engineers follow the infantry: held houses come down by charge, which
       // costs the house and nothing else — shelling them scatters rounds into
       // the clinic block next door.
       sim.queueCommand({ kind: 'attackMove', ids: ids('demo_squad'), ...M(27, 25) });
+      // The AT team stays north with the armour. Spike also arms the zone
+      // penalty, and its business is the technical and the gun truck anyway.
+      sim.queueCommand({ kind: 'attackMove', ids: ids('at_team'), ...M(30, 14) });
     });
     at(140, () => {
-      const alive: number[] = [];
-      for (let i = 0; i < sim.entityCount; i++)
-        if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && sim.unitTypes[sim.state.typeIdx[i]].id !== 'mortar_team')
-          alive.push(i);
-      sim.queueCommand({ kind: 'attackMove', ids: alive, ...M(38, 22) });
+      // East along the northern edge to the ATGM at (38.5,22.5) — approaching
+      // on y=16 keeps the gun line clear of the clinic the whole way.
+      const armor = [...ids('mbt_lavi'), ...ids('ifv_namer')];
+      sim.queueCommand({ kind: 'attackMove', ids: armor, ...M(38, 16) });
+      sim.queueCommand({
+        kind: 'attackMove',
+        ids: [...ids('inf_squad'), ...ids('apc_eitan')],
+        ...M(31, 22),
+      });
+    });
+    at(260, () => {
+      const armor = [...ids('mbt_lavi'), ...ids('ifv_namer')];
+      sim.queueCommand({ kind: 'attackMove', ids: armor, ...M(38, 22) });
     });
   },
   led2
