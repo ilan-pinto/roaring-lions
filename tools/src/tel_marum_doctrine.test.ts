@@ -103,6 +103,9 @@ describe('the narrow corridor', () => {
   });
 
   it('is not watched from its own mouth', () => {
+    // Same-target pair: prove [10,14] is a live, detectable target before
+    // asserting that the corridor's own mouth cannot see it.
+    expect(sees(SPOTTER_NARROW, SADDLE_NARROW)).toBe(true);
     // [8,9] sits at the corridor's north mouth and sees nothing down it.
     expect(sees([8, 9] as Pt, SADDLE_NARROW)).toBe(false);
   });
