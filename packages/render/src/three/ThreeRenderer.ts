@@ -3,25 +3,34 @@
  * window, and its camera agrees with PixiRenderer's projection. It draws
  * nothing but the clear colour.
  *
- * Two kinds of unimplemented member, and the difference is deliberate:
+ * Three kinds of not-yet-implemented member, and the line between them is the
+ * whole discipline of this phase: *inventing an answer* is forbidden;
+ * *reporting the current state truthfully* is not.
  *
- *  - **Data pushed in** (`setDecor`, `setElevation`, `useEmitters`, the two
- *    sprite loaders) *retain* their argument and return. The app's boot path
- *    calls all five before the first frame, and the data is genuinely
- *    correct -- it has arrived, it simply is not drawn until B2/B3. Throwing
- *    here made `?renderer=three` unreachable: the boot threw at `setDecor`
- *    before `init` ever appended the canvas, so the one thing B1 does draw
- *    could not be seen through the shipped path at all.
- *  - **Queries** (`pickUnit`, `isVisible`, `unitsInScreenRect`) still throw.
- *    There is no honest answer to "which unit is under this point" in a
- *    backend that has drawn no units, and a plausible-looking fake -- `-1`,
- *    `false`, `[]` -- would read as "nothing is there" and be believed. A
- *    stack trace naming the method is the better failure.
+ *  - **Data pushed in** *retains* its argument and returns: `setDecor`,
+ *    `setElevation`, `useEmitters`, the two sprite loaders, and
+ *    `setTutorialFocus`/`clearTutorialFocus` (a focus ring is state, not a
+ *    one-shot). The data has arrived and is correct; it simply is not drawn
+ *    until B2/B3/B4. Throwing here made `?renderer=three` unreachable in the
+ *    first place -- the boot threw at `setDecor` before `init` ever appended
+ *    the canvas, so the one thing B1 draws could not be seen at all.
+ *  - **Truthful no-ops**, where "nothing to do" is the honest answer rather
+ *    than a dodge: `snapshot` (nothing to latch), `onEvents` (nothing draws
+ *    yet), `addOrderMarker` (a one-shot with no state worth keeping), and
+ *    `isVisible`, which returns `true` because fog is B4 and a backend with no
+ *    fog hides nothing.
+ *  - **Throws**: `pickUnit` and `unitsInScreenRect`, the only two members that
+ *    would have to *fabricate*. `-1` and `[]` both mean "you clicked empty
+ *    ground", the player acts on that, and it would be believed. A stack trace
+ *    naming the method is the better failure -- accepted even though a throw
+ *    at `main.ts:968` leaves the drag box on screen, because neither is
+ *    reached from a loop and silent wrongness in a *selection* is worse.
  *
- * Presentation commands the app drives (`addOrderMarker`, the tutorial focus
- * pair) also still throw: they are not world data, nothing in the boot path
- * reaches them, and each is a drawing instruction whose whole content is the
- * drawing.
+ * The rule that catches these: any member reached from the 60 Hz frame loop,
+ * the 20 Hz tick loop, or a block whose tail matters must not throw unless
+ * fabricating is the only alternative. Two rounds of review found members that
+ * broke it -- `isVisible` in the frame loop, the tutorial focus pair in the
+ * tick loop -- so weigh that before adding a `notYet` to anything new.
  */
 import * as THREE from 'three';
 import type { Sim } from '@lions/sim';
@@ -62,11 +71,12 @@ export class ThreeRenderer implements Renderer {
   /**
    * World data the app has already handed over and B1 does not draw.
    *
-   * One bag rather than six fields on purpose: the whole of it is "kept for
+   * One bag rather than seven fields on purpose: the whole of it is "kept for
    * the sub-plan that will consume it", so it is worth being able to see at a
    * glance what B2/B3 inherit and that nothing else reads any of it yet.
    * Terrain (`decor`, `elevation`) is B2's; the emitter list and its palette
-   * resolver are VFX, which is B4's; the two sheet maps are B3's.
+   * resolver are VFX, which is B4's; the two sheet maps and the tutorial focus
+   * ring are B3's.
    */
   private readonly retained = {
     decor: null as Uint8Array | null,
@@ -75,6 +85,7 @@ export class ThreeRenderer implements Renderer {
     resolveColor: null as ((key: string) => string) | null,
     unitSheets: new Map<string, SpriteSheetRequest>(),
     structureSheets: new Map<string, string>(),
+    tutorialFocus: null as { x: number; y: number; radius: number } | null,
   };
 
   constructor(
@@ -226,16 +237,39 @@ export class ThreeRenderer implements Renderer {
     await Promise.resolve();
   }
 
-  // --- presentation commands: the instruction IS the drawing, so there is
-  //     nothing to retain and nothing honest to do with one yet.
+  /**
+   * A one-shot: a marker blooms at the ordered point and fades. There is no
+   * state to retain -- replaying a queue of stale blooms when B3 arrives would
+   * be wrong, not helpful -- and nothing to fabricate, so the honest answer is
+   * that a backend with no marker layer has nothing to do with it. Exactly the
+   * shape of `onEvents` above, which also receives real input and draws none
+   * of it yet.
+   *
+   * Reached from the pointer handler, never from a loop -- but at `main.ts:962`
+   * it is NOT the last statement: a throw there skipped `production.setArmed`
+   * and left the drag box stuck on screen.
+   */
   addOrderMarker(): void {
-    return notYet('addOrderMarker');
+    /* B3 draws the marker */
   }
-  setTutorialFocus(): void {
-    return notYet('setTutorialFocus');
+
+  /**
+   * The tutorial focus ring is *state*, not a one-shot: set it and it stands
+   * until cleared. So it retains, like its siblings above, rather than no-ops.
+   *
+   * Both halves run inside the 20 Hz tick loop (`main.ts:1233`/`:1238`)
+   * whenever a tutorial is active -- which is every fresh-`localStorage` boot
+   * of the first mission. Throwing there was the `updateHover` failure again:
+   * 20 errors a second, and the tail of that block -- `tut.done`, the
+   * completion flag, `runtime.completeObjective` -- never ran, so the tutorial
+   * could not finish.
+   */
+  setTutorialFocus(x: number, y: number, radius: number): void {
+    this.retained.tutorialFocus = { x, y, radius };
   }
+  /** Truthfully: there is no ring drawn, and now none recorded either. */
   clearTutorialFocus(): void {
-    return notYet('clearTutorialFocus');
+    this.retained.tutorialFocus = null;
   }
 
   private threeCamera(): THREE.OrthographicCamera {
