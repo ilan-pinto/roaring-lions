@@ -19,6 +19,7 @@ import { cadenceScale, resolveClip, resolveTurretClip, type UnitAnimInput } from
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec } from './vfx';
 import { isGrindingHit, structureHpBand } from './grind';
 import { trailTileAlpha } from './trail';
+import { releaseCursorToCss } from './cursor-ownership';
 
 /** How open ground is grained. Tones are data; mark shape is drawing code. */
 export type TerrainScatter = 'stone' | 'sward';
@@ -552,6 +553,11 @@ export class PixiRenderer {
 
   async init(host: HTMLElement): Promise<void> {
     await this.app.init({ background: this.opts.background, resizeTo: host, antialias: true });
+    // Pixi's event system claims `canvas.style.cursor` on the first pointer
+    // interaction and writes `'inherit'` into it, which outranks the app's
+    // `canvas[data-cursor=...]` rules and kills every contextual cursor for the
+    // rest of the session. Hand it back before any event can fire.
+    releaseCursorToCss(this.app.renderer.events);
     host.appendChild(this.app.canvas);
     this.world.addChild(this.terrainG);
     this.world.addChild(this.trailG);
