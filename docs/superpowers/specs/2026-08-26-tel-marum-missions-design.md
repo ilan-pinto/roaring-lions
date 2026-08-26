@@ -73,10 +73,15 @@ accuracy 0.4, 2 rpm) from `battery_position` [25,6]:
 | `hollow` [24,29] | 23.0 | no |
 | `start_line` [24,44] | 38.0 | no |
 
-The battery reaches the narrow saddle even though the Kornet pockets do not. The free
-flank prices itself in rocket exposure, using terrain and roster exactly as shipped. The
+The battery reaches the narrow saddle even though the Kornet pockets do not. The
 hollow and start line fall outside the envelope, so the southern valley floor reads as
 *form up here* — which is what the front spec's dead-ground note asks the map to say.
+
+> **This section's original conclusion was wrong, and the implementation disproved it.**
+> It read: *"The free flank prices itself in rocket exposure, using terrain and roster
+> exactly as shipped."* That is true about range and false about behaviour. See
+> **The flank is still free** below. The range table stands; the inference from it
+> did not.
 
 ## Measured, not assumed
 
@@ -248,6 +253,46 @@ Ledger contracts:
 | `playtest.ts` | three scripted plans → `victory`, three no-orders controls → `defeat` |
 | Duration | scripted clock against declared `target_minutes`, aiming inside the 0.51–1.00 band the other eight missions hold |
 | Browser | `?sandbox=tel_marum` for terrain, then each mission driven in the real UI |
+
+## The flank is still free
+
+Implementation measured what this design assumed, and the assumption did not survive.
+
+Three runs of `tel_marum_3_clearance` through the real runtime:
+
+| Route | Result | Minutes | Roster out |
+|---|---|---|---|
+| Wide saddle (shipped plan) | victory | 3.5 | 9 |
+| Narrow saddle, spotter alive | victory | 5.2 | 6 |
+| Narrow saddle, spotter killed at t=0 | victory | 5.1 | 6 |
+
+The last two are indistinguishable. A direct trace of the battery's `fire` events shows
+the Grad fired six times during the narrow run and **never once targeted the flanking
+force**: `selectTarget`'s nearest-target-it-can-hurt heuristic always preferred the
+softer, closer holding force at the pass. The battery *can* reach the corridor at 17
+tiles. It never *chooses* to.
+
+So the narrow route's real cost — +1.7 minutes and three more dead — is **force-splitting**:
+dividing the task force weakens whoever is left fighting at the pass. That is a genuine
+tactical cost, but it is a property of the plan's shape, not of the ground. A player who
+commits everything to the flank pays none of it.
+
+**The debt is not closed.** What changed is the diagnosis. It was never a range problem
+and never a sight problem: `overwatch_west` cannot see the corridor and the Grad does not
+need to. It is a **target-selection** problem. Any future attempt to price this flank has
+to make the corridor the battery's *preferred* target while a fight is on at the pass —
+which means either a trigger that retasks the battery, a spotter whose contact outranks
+proximity in `selectTarget`, or accepting that indirect fire in this engine will always
+shoot at whatever is nearest and softest.
+
+Two method notes worth keeping, both learned the expensive way:
+
+- Isolating a unit by **removing its garrison entry corrupts every later unit's RNG
+  stream** and invalidates the comparison. Kill it at t=0 through `applyDamage` instead,
+  so entity ids and per-entity streams are preserved.
+- Rerouting only `mbt_lavi`, or only `ifv_namer`, reproduces the wide-route result
+  exactly, because either can win the pass fight alone. A route comparison on this
+  mission has to move both.
 
 ## Known limits
 

@@ -1060,9 +1060,13 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 5: Retire the resolved debt and walk it in the browser
+### Task 5: Sharpen the saddle debt, and walk the missions in the browser
 
-The saddle debt in `CLAUDE.md` says the doctrine "never fires until a Tel Marum mission charges for that route some other way". Task 4 is that mission. The bullet now describes solved ground and must not outlive it.
+**This task was rewritten mid-execution.** It originally said the saddle debt was resolved and told you to retire the bullet. Task 4's measurement disproved that. Do not retire the bullet — replace it with a sharper diagnosis.
+
+What Task 4 found: the Grad **can** reach the narrow saddle at 17 tiles and **never chooses to shoot into it**. Three runs of `tel_marum_3_clearance` — wide (3.5 min, roster 9), narrow with the spotter alive (5.2 min, roster 6), narrow with the spotter killed at t=0 (5.1 min, roster 6) — put the last two within noise of each other, and a direct trace of the battery's `fire` events shows it fired six times and never once at the flanking force. `selectTarget`'s nearest-target-it-can-hurt heuristic always preferred the softer, closer holding force at the pass.
+
+So the narrow route's measured cost is force-splitting, which is a property of the plan's shape rather than of the ground. A player who commits everything to the flank pays none of it. The debt stands; what changed is that it is no longer a range or sight problem, it is a **target-selection** problem.
 
 **Files:**
 - Modify: `CLAUDE.md` (the final "Known scaling debts" bullet)
@@ -1086,20 +1090,33 @@ Note anything cosmetic that looks wrong — Tel Marum is the first map with reli
 In `CLAUDE.md`, replace the final bullet of "Known scaling debts" (the one beginning *"Tel Marum's two saddles are supposed to be unequal"*) with:
 
 ```markdown
-- Tel Marum's two saddles are unequal, and the pricing lives in the missions rather than
-  the ground. A hollow → west flank → narrow saddle → battery route is +9 tiles (38 vs
-  47) and crosses no tile either overwatch pocket can both see and reach at the
-  `atgm_cell`'s 10-tile Kornet range — that part of the terrain is unchanged and correct.
-  What charges for it is the Grad at `battery_position`, which reaches the narrow saddle
-  at 17 tiles, but only while a spotter feeds it: `rocket` is in `INDIRECT_MASK`
-  (`sim.ts:223`) so it needs no sight of its own, and `sim.ts:2073` gates every shot on
-  **per-side** identification. `tel_marum_3_clearance` places that spotter at [12,4], the
-  one ground in the northern valley that watches the corridor's whole length.
-  Two sight facts worth keeping: **nothing north of the wall can see the hollow** — 841
-  open tiles see [24,29] and not one is at y ≤ 17 — so the hollow is dead ground twice
-  over, out of range and unobservable; and the corridor is **not** watchable from its own
-  mouth at [8,9]. Both were drawn wrong by eye first. `tools/src/tel_marum_doctrine.test.ts`
-  pins all of it.
+- Tel Marum's narrow saddle is still free, and the reason is not the one this bullet used
+  to give. A hollow → west flank → narrow saddle → battery route is +9 tiles (38 vs 47)
+  and crosses no tile either overwatch pocket can both see and reach at the `atgm_cell`'s
+  10-tile Kornet range. The ground is correct and stays as authored. The obvious fix —
+  let the Grad at `battery_position` charge for it, since it reaches the corridor at 17
+  tiles and `rocket` is in `INDIRECT_MASK` (`sim.ts:223`) so it needs no sight of its own,
+  while `sim.ts:2073` gates each shot on **per-side** identification — was authored into
+  `tel_marum_3_clearance` with a spotter at [12,4] that watches the corridor's whole
+  length, and then measured. **It does not work.** Three runs: wide 3.5 min / roster 9,
+  narrow with the spotter alive 5.2 / 6, narrow with the spotter killed at t=0 5.1 / 6.
+  The last two are the same run. A trace of the battery's `fire` events shows six shots
+  and not one at the flanking force — `selectTarget` prefers the nearest target it can
+  hurt, and that is always the holding force at the pass. The narrow route's real cost is
+  force-splitting, which a player who commits everything to the flank simply does not pay.
+  So this is a **target-selection** problem, not a range or sight one, and pricing the
+  flank needs the corridor to become the battery's *preferred* target while a fight is on
+  elsewhere: a trigger that retasks it, a contact that outranks proximity, or the
+  admission that indirect fire here will always shoot at whatever is nearest and softest.
+  Two sight facts worth keeping regardless: **nothing north of the wall can see the
+  hollow** — 841 open tiles see [24,29] and not one is at y ≤ 17 — so the hollow is dead
+  ground twice over, out of range and unobservable; and the corridor is **not** watchable
+  from its own mouth at [8,9]. Both were drawn wrong by eye first.
+  `tools/src/tel_marum_doctrine.test.ts` pins all of it.
+  Two traps for anyone re-running this: isolating a unit by removing its garrison entry
+  corrupts every later unit's RNG stream — kill it at t=0 via `applyDamage` instead; and
+  rerouting only `mbt_lavi` or only `ifv_namer` reproduces the wide result exactly,
+  because either wins the pass fight alone.
 ```
 
 - [ ] **Step 3: Confirm nothing else in CLAUDE.md went stale**
@@ -1119,13 +1136,20 @@ Expected: everything PASS, determinism hash unmoved, harness exits 0 with twelve
 
 ```bash
 git add CLAUDE.md
-git commit -m "docs: the saddle debt is paid, and by a mission
+git commit -m "docs: the saddle is still free, and now we know why
 
-The narrow saddle now costs the Grad's attention rather than nothing.
-Records the two sight facts that a ray drawn by eye got wrong — the
-hollow is unobservable from every tile north of the wall, and the narrow
-corridor is not watchable from its own mouth — and points at the test
-that pins them.
+The plan was to have the Grad charge for the narrow flank: it reaches
+the corridor at 17 tiles where the Kornet pockets cannot at 10, and
+indirect fire needs no sight of its own. Authored, measured, and it
+does not work. Six shots in the narrow run, none at the flanking force
+— selectTarget prefers the nearest thing it can hurt, which is always
+the holding force at the pass. Killing the corridor's spotter at t=0
+changes nothing (5.1 min vs 5.2, same roster).
+
+So the debt stands, but it is a target-selection problem rather than a
+range or sight one, which is a much better place to start from. Also
+records the two sight facts a ray drawn by eye got wrong, and the two
+traps that invalidate a re-run.
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
