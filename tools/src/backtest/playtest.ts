@@ -623,28 +623,45 @@ run('beit_sahwan_4_subterranean', (sim, _rt, ids, at) => {
 //
 // The mission is a recon and the whole trick is that the hollow at [24,29] is
 // 23 tiles from the battery and the approach at [24,24] is 18. The drone goes
-// forward alone; everything with a crew stays south of the hollow. Four
-// positions is the objective and the drone can see all four from the approach
-// without stopping there.
+// forward alone; everything with a crew stays south of the hollow. Five
+// positions is the objective and the drone can see four of six from the
+// approach without stopping there -- the fifth costs it the sweep.
 //
 // Control: a player who gives no orders never moves the drone, so the picture
-// is never built and the primary cannot complete.
+// is never built and the primary cannot complete. `locate` itself has no
+// deadline (unlike raze, collapse and evacuate_before, `stepObjectives`'s
+// `locate` branch only ever sets `complete`), and this mission's "standoff
+// overwatch" garrison never advances on its own -- so a passive force sitting
+// 30+ tiles south is never found and never wiped by the garrison alone.
 //
-// It does NOT lose. `locate` (unlike raze, collapse and evacuate_before) has
-// no `seconds`/deadline field the runtime reads -- `stepObjectives`'s `locate`
-// branch only ever sets `complete`, never `failed` -- and this mission's
-// "standoff overwatch" garrison sits 30+ tiles from player_start, inside
-// nobody's sight or weapon range, so a stationary force is never engaged and
-// never wiped either. An instrumented 19-minute run of this exact control
-// (ledger {}, zero orders) confirms it: playerAlive and enemyAlive never move
-// off 7/6 and ROE never leaves 100. There is no in-bounds, content-only way to
-// make a `locate` primary losable -- every existing passive-control DEFEAT in
-// this file (beit_sahwan_breach, wadi_halam_5_depot, beit_sahwan_4_subterranean)
-// goes through a primary type that supports `failed`, and none of those three
-// fit a recon with no civilians, no structures and no tunnels. Fixing this
-// properly means giving `locate` (or the mission as a whole) a deadline in
-// packages/sim/src/mission.ts, which is sim code and out of scope here. So the
-// honest expectation is `ongoing` at the harness's time cap, not `defeat`.
+// The `waves` below exist to give the control a premise -- three pursuit
+// elements out of town_edge -- but they cannot make it LOSE, and a bigger
+// wave makes it WIN instead, which is worse. `picture` has no `target`, so
+// `identified.size >= count` counts ANY identified hostile, wave arrivals
+// included. `recon_drone` (sight 16, thermal) sits stationary two tiles
+// behind player_start, and the valley south of the hollow is dead flat with
+// no cover at all (map row dump confirms it), so every wave unit is spotted
+// from ~13-16 tiles out -- 6-12 tiles before it ever reaches its own weapon
+// range (7-10) of the defenders. `selectTarget` requires a shooter to have
+// already identified its target, so a wave literally cannot deal damage
+// before the player has identified it. Measured directly: a heavier wave (3
+// atgm_cell + 2 recoilless_team, twice) gets `picture` to `complete` at
+// 302.6s with the defending roster having taken zero casualties -- a free
+// VICTORY, not a DEFEAT. The three light waves actually shipped total 4
+// units, one under `picture`'s count of 5, so they can never trip that
+// side-channel on their own; measured directly, that keeps the control at
+// `ongoing` for the full 20-minute cap (`picture=active`, defenders
+// untouched) -- the honest result, given this mission's very solid starting
+// force (Eitan APC, Spike AT team, three rifle squads) plus this map's
+// total lack of cover on the approach make actually wiping it in the field's
+// remaining time implausible at any wave size that stays under the
+// threshold. Fixing this for real needs either a deadline on `locate` in
+// packages/sim/src/mission.ts (sim code, out of scope) or restricting
+// `picture` to a specific target set immune to reinforcement sightings (a
+// different objective shape than the brief specifies) -- see the task-2
+// report for the full trace. `ongoing` is the outcome this mission's content
+// actually produces; asserting `defeat` here would be asserting something
+// false.
 run('tel_marum_1_recon', () => {}, {}, 'ongoing', 'tel_marum_1_recon (passive control)');
 
 run(

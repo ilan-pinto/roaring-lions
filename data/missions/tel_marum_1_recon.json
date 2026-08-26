@@ -30,8 +30,8 @@
       "id": "picture",
       "type": "locate",
       "primary": true,
-      "count": 4,
-      "text": "Identify four firing positions"
+      "count": 5,
+      "text": "Identify five firing positions"
     },
     {
       "id": "find_battery",
@@ -97,6 +97,23 @@
         "at": [25.5, 6.5],
         "facing_deg": 180,
         "tag": "tm_hvt_battery"
+      }
+    ],
+    "waves": [
+      {
+        "at_seconds": 150,
+        "to": "hollow",
+        "units": [{ "unit": "sarim_rifles", "count": 1, "from": "town_edge" }]
+      },
+      {
+        "at_seconds": 260,
+        "to": "start_line",
+        "units": [{ "unit": "sarim_rifles", "count": 2, "from": "town_edge" }]
+      },
+      {
+        "at_seconds": 380,
+        "to": "start_line",
+        "units": [{ "unit": "recoilless_team", "count": 1, "from": "town_edge" }]
       }
     ]
   },

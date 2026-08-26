@@ -41,6 +41,17 @@ function sees(a: Pt, b: Pt): boolean {
 
 const dist = (a: Pt, b: Pt) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 
+/** Look up a named marker on the Tel Marum map, or throw. Mirrors the `zone()`
+ *  helper below -- a missing (or malformed) marker should read as a named
+ *  error, not a silent `undefined` destructure past `noUncheckedIndexedAccess`. */
+function marker(name: string): Pt {
+  const raw = (maps.tel_marum as MapJson).markers?.[name];
+  if (!raw || raw.length < 2 || raw[0] === undefined || raw[1] === undefined) {
+    throw new Error(`map has no "${name}" marker`);
+  }
+  return [raw[0], raw[1]];
+}
+
 /** grad_122, from data/units/enemy/rocket_battery.json. */
 const GRAD_RANGE = 20;
 const GRAD_MIN_RANGE = 4;
@@ -143,7 +154,7 @@ describe('the approach zone', () => {
 
   it('contains the approach marker', () => {
     const [x, y, w, h] = zone();
-    const [mx, my] = (maps.tel_marum as MapJson).markers.approach;
+    const [mx, my] = marker('approach');
     expect(mx).toBeGreaterThanOrEqual(x);
     expect(mx).toBeLessThan(x + w);
     expect(my).toBeGreaterThanOrEqual(y);
@@ -153,7 +164,7 @@ describe('the approach zone', () => {
 
 describe('the western wave source', () => {
   it('stands on open ground behind the narrow saddle', () => {
-    const [x, y] = (maps.tel_marum as MapJson).markers.sarim_west;
+    const [x, y] = marker('sarim_west');
     expect((maps.tel_marum as MapJson).rows[y][x]).toBe('.');
     expect(y).toBeLessThan(12); // north of the wall
   });
