@@ -2,10 +2,17 @@
  * The seam's contract, tested where it can be tested without a GPU.
  *
  * `PixiRenderer` cannot be constructed under environment: 'node' -- it needs a
- * WebGL context -- so this suite does NOT instantiate it. What it pins is the
- * part of the contract that is arithmetic: that a renderer's worldToScreen and
- * screenToWorld are inverses of each other on flat ground, expressed against a
- * minimal stand-in. When ThreeRenderer arrives it runs this same suite.
+ * WebGL context -- so this suite does NOT instantiate it. What remains here is
+ * the one check that is about the `Renderer` interface itself rather than
+ * about projection arithmetic: that `width`/`height` report the constructed
+ * viewport instead of making callers recompute it. The `Pick<Renderer, ...>`
+ * annotation on `stubRenderer` is the interface's own signature check -- it
+ * fails to typecheck if `worldToScreen`/`screenToWorld`/`camera` drift from
+ * `Renderer`'s declared shape.
+ *
+ * The projection behaviour itself -- worldToScreen/screenToWorld inverting,
+ * the camera centring, and the rest of the contract -- is asserted once,
+ * against every implementation, in conformance.ts/conformance.test.ts.
  */
 import { describe, it, expect } from 'vitest';
 import { worldToScreen, screenToWorldFlat, type Camera, type Viewport } from './project';
@@ -25,23 +32,8 @@ function stubRenderer(cam: Camera, vp: Viewport): Pick<Renderer, 'worldToScreen'
 describe('Renderer projection contract', () => {
   const r = stubRenderer({ x: 24, y: 24, zoom: 1 }, { width: 800, height: 600 });
 
-  it('worldToScreen and screenToWorld are inverses on flat ground', () => {
-    for (const [wx, wy] of [[24, 24], [10, 40], [47.5, 2.25]]) {
-      const s = r.worldToScreen(wx, wy);
-      const back = r.screenToWorld(s.x, s.y);
-      expect(back.x).toBeCloseTo(wx);
-      expect(back.y).toBeCloseTo(wy);
-    }
-  });
-
   it('reports its own viewport rather than making callers find it', () => {
     expect(r.width).toBe(800);
     expect(r.height).toBe(600);
-  });
-
-  it('centres the camera in the viewport', () => {
-    const s = r.worldToScreen(r.camera.x, r.camera.y);
-    expect(s.x).toBeCloseTo(r.width / 2);
-    expect(s.y).toBeCloseTo(r.height / 2);
   });
 });

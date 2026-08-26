@@ -49,24 +49,10 @@ describe('the three.js camera reproduces the dimetric projection', () => {
     }
   });
 
-  it('round-trips its own screenToWorld', () => {
-    for (const [wx, wy] of POINTS) {
-      const s = worldToScreenThree(wx, wy, CAM, VP);
-      const back = screenToWorldThree(s.x, s.y, CAM, VP);
-      expect(back.x).toBeCloseTo(wx, 3);
-      expect(back.y).toBeCloseTo(wy, 3);
-    }
-  });
-
-  it('round-trips its own screenToWorld under zoom and a panned camera', () => {
-    const cam: Camera = { x: -8, y: 60, zoom: 1.75 };
-    for (const [wx, wy] of POINTS) {
-      const s = worldToScreenThree(wx, wy, cam, VP);
-      const back = screenToWorldThree(s.x, s.y, cam, VP);
-      expect(back.x).toBeCloseTo(wx, 3);
-      expect(back.y).toBeCloseTo(wy, 3);
-    }
-  });
+  // The pure self-round-trip ("round-trips its own screenToWorld[...]") moved
+  // to conformance.ts's "worldToScreen and screenToWorld are inverses on flat
+  // ground" -- that property now runs against this implementation too, so it
+  // is asserted once rather than duplicated here.
 
   it('agrees with project.screenToWorldFlat on the inverse too', () => {
     for (const [px, py] of [[400, 300], [0, 0], [799, 599], [123, 456]]) {
