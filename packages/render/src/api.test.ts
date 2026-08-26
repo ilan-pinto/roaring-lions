@@ -17,7 +17,7 @@ function stubRenderer(cam: Camera, vp: Viewport): Pick<Renderer, 'worldToScreen'
     camera: cam,
     width: vp.width,
     height: vp.height,
-    worldToScreen: (wx, wy, lift = 0) => worldToScreen(wx, wy, cam, vp, lift),
+    worldToScreen: (wx, wy) => worldToScreen(wx, wy, cam, vp),
     screenToWorld: (px, py) => screenToWorldFlat(px, py, cam, vp),
   };
 }

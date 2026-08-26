@@ -39,7 +39,13 @@ export interface Renderer {
   // --- projection. Both directions belong to the renderer because in a 3D
   //     backend the projection IS the camera, and a caller that recomputes it
   //     becomes a second source of truth that drifts.
-  worldToScreen(wx: number, wy: number, lift?: number): { x: number; y: number };
+  //
+  //     Deliberately no `lift` parameter. "Unscaled screen pixels of terrain
+  //     raise" is a 2D-sprite idea; in three.js elevation is world-space, and
+  //     honouring it would force every backend to reproduce Pixi's
+  //     PX_PER_LEVEL convention. A backend may keep its own `lift` argument
+  //     for internal use -- PixiRenderer does -- but the seam does not name it.
+  worldToScreen(wx: number, wy: number): { x: number; y: number };
   screenToWorld(px: number, py: number): { x: number; y: number };
 
   // --- queries
