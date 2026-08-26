@@ -1,7 +1,15 @@
 // Headless mission playtests: each Beit Sahwan mission must be winnable by a
 // sensible scripted plan inside its time budget. Run: tsx src/backtest/playtest.ts
 
-import { Sim, fx, TICKS_PER_SECOND, MissionRuntime, type MissionJson, type LedgerData } from '@lions/sim';
+import {
+  Sim,
+  fx,
+  TICKS_PER_SECOND,
+  MissionRuntime,
+  type MissionJson,
+  type LedgerData,
+  type TunnelRouteJson,
+} from '@lions/sim';
 import { units, maps, missions, structures as structureCatalogue, parseMap } from '@lions/data';
 
 type Plan = (sim: Sim, rt: MissionRuntime, ids: (t: string) => number[], at: (t: number, fn: () => void) => void) => void;
@@ -33,12 +41,31 @@ function run(
     if (ti === undefined) throw new Error(`unknown structure type ${b.type}`);
     sim.addStructure(ti, b.tiles);
   }
+  // Tunnels, wired exactly as packages/app/src/main.ts does: ONE array,
+  // registered in ONE loop, and that same array handed to the runtime.
+  // `ctx.tunnels` is positional — entry r IS the sim's route index — so the
+  // `=== i` assertion is what makes the contract impossible to violate here.
+  // Without this the runtime sees no routes at all and a mission carrying a
+  // `digs` or `in_tunnel` placement throws "unknown tunnel" out of start().
+  const tunnelRoutes: TunnelRouteJson[] = map.tunnels.map((t) => ({
+    id: t.id,
+    points: t.points,
+    dig_tiles_per_s: t.digTilesPerS,
+    pre_dug: t.preDug,
+  }));
+  for (let i = 0; i < tunnelRoutes.length; i++) {
+    const got = sim.addTunnel(tunnelRoutes[i]);
+    if (got !== i) {
+      throw new Error(`tunnel "${tunnelRoutes[i].id}" registered as route ${got}, expected ${i}`);
+    }
+  }
   const typeOf = new Map<string, number>();
   for (const u of Object.values(units)) typeOf.set(u.id, sim.addUnitType(u));
   const rt = new MissionRuntime(sim, mission, {
     typeIdOf: (u) => typeOf.get(u) as number,
     markers: map.markers,
     zones: map.zones,
+    tunnels: tunnelRoutes,
     ledger,
     unitInfo: (u) => {
       const d = (units as Record<
