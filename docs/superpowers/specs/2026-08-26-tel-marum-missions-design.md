@@ -98,11 +98,27 @@ changed the design, and the first killed the version of mission II that was appr
   dead ground: out of range at 23 tiles *and* unobservable, which is a stronger claim
   than the design originally made for it.
 - **A spotter at the narrow saddle's mouth [8,9] cannot see into the corridor** (false at
-  5.4 tiles). The corridor is observed from the northern valley instead; [12,4] sees
-  y13, y15 and y17.
+  5.4 tiles). From [12,4] in the northern valley the corridor's y13, y15 and y17 are
+  reachable by an unobstructed ray — **but see the correction below, because that is a
+  fact about the ground and not about the unit posted on it.**
 
 A ray drawn by eye agreed with none of these. This is the reason the map is walked with
 the runtime rather than read.
+
+> **Correction — terrain facts are not roster facts.** Every measurement in this section
+> used a synthetic observer with `sight_tiles: 48`, so each result says *"no terrain
+> blocks this ray"* and nothing more. `sarim_rifles`, the unit actually posted as
+> `tm_spotter_narrow`, has `sight_tiles: 9`, and `detectionPair` hard-gates on range at
+> `sim.ts:1958`. From [12.5,4.5] the corridor lies at 9.22 (y13), 10.20 (y14) and 13.15
+> (y17) tiles — all beyond its reach. It watches the corridor's **north exit row only**,
+> at 8.06 tiles.
+>
+> This ran through the whole design before anyone caught it, and it undercuts the
+> target-selection conclusion below: the battery is proven to have *preferred* nearer
+> targets, but it may never have *had* the flanking force as a candidate, because
+> nothing Sarim could see it. Anyone attempting to price this flank has to put eyes on
+> the corridor that can actually see it, and re-measure, before concluding anything
+> about `selectTarget`.
 
 ## The arc
 
