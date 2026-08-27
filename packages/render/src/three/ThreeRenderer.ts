@@ -736,6 +736,16 @@ export class ThreeRenderer implements Renderer {
     this.particleInstancerBelow.dispose();
     this.particleInstancerAbove.dispose();
     this.tracerBatch.dispose();
+    // Final-review fix: FogMesh owns a full-map `InstancedMesh` (geometry,
+    // material, instance buffers) and this call was missing entirely --
+    // `FogMesh.dispose()` existed but nothing called it. No `scene.remove`
+    // needed, matching every other "added once in the constructor, left for
+    // the life of the renderer" mesh above (terrain, particles, tracers):
+    // this dispose() sequence never removes those from `scene` either,
+    // relying on `renderer.dispose()` forcing context loss below. Only the
+    // `collapsing` loop above calls `scene.remove`, because those meshes are
+    // dynamically added and removed one at a time outside of dispose().
+    this.fogMesh.dispose();
     this.renderer.dispose();
     this.host = null;
   }
