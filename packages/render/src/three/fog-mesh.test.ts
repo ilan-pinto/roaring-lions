@@ -16,6 +16,7 @@
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import { groundWorldY } from './ground-height';
+import { hexToUnit } from './terrain/shared';
 import { FOG_RENDER_ORDER, FX_RENDER_ORDER_ABOVE } from './units/render-order';
 import {
   FOG_COLOR,
@@ -193,6 +194,26 @@ describe('FogMesh construction', () => {
     expect(m.depthWrite).toBe(false);
   });
 
+  // Final whole-branch review (Fix 3a): FOG_COLOR's own describe block above
+  // asserts the exported STRING, but nothing asserted the `uColor` uniform
+  // the shader actually reads -- the B4.2 reviewer proved the gap by
+  // swapping `hexToUnit(FOG_COLOR)` for `hexToUnit('#FFFFFF')` inside
+  // `createFogMaterial` and finding every test still green. Fog's colour is
+  // a palette-exactness claim this whole migration rests on
+  // (`fog-mesh.ts`'s own top comment, "Ruling 1, restated for this file"),
+  // and it was unguarded end to end until this assertion. Verified by hand:
+  // making that exact swap fails this test's `uColor` assertions while
+  // leaving `FOG_COLOR`'s own string test (above) green, then reverted.
+  it('the uColor uniform holds exactly hexToUnit(FOG_COLOR), component-wise -- the value the shader actually reads', () => {
+    const mesh = new FogMesh(W, H);
+    const material = mesh.mesh.material as THREE.ShaderMaterial;
+    const uColor = material.uniforms.uColor.value as THREE.Vector3;
+    const [r, g, b] = hexToUnit(FOG_COLOR);
+    expect(uColor.x).toBeCloseTo(r, 6);
+    expect(uColor.y).toBeCloseTo(g, 6);
+    expect(uColor.z).toBeCloseTo(b, 6);
+  });
+
   it('draws in the FOG band, above the above-tier FX band', () => {
     const mesh = new FogMesh(W, H);
     expect(mesh.mesh.renderOrder).toBe(FOG_RENDER_ORDER);
@@ -218,6 +239,49 @@ describe('FogMesh construction', () => {
     expect(pos.x).toBeCloseTo(3, 5);
     expect(pos.y).toBeCloseTo(0, 5);
     expect(pos.z).toBeCloseTo(2, 5);
-    expect(scale.x).toBeCloseTo(1, 5);
+    // NOTE: this used to also assert `expect(scale.x).toBeCloseTo(1, 5)`.
+    // Final whole-branch review (Fix 3b): that assertion can never fail --
+    // `Matrix4.makeTranslation` (what `FogMesh.update` builds this matrix
+    // with) always yields unit scale, so the assertion tested a property of
+    // three.js's own `makeTranslation`, not of any code in this file. Removed
+    // rather than kept as dead weight; the test below replaces it with real,
+    // previously-missing coverage instead (fog quads lifting with terrain,
+    // through this exact instance-matrix path).
+  });
+
+  // Final whole-branch review (Fix 3b): `writeFogInstances`'s own elevation
+  // test above ("on raised ground, the fog quad follows...") proves the PURE
+  // half -- the position `writeFogInstances` computes. It never proved the
+  // other half: that `FogMesh.update` actually carries that Y into the
+  // `InstancedMesh`'s own instance matrix, the thing three.js draws from.
+  // Verified by hand: replacing `writeFogInstances`'s
+  // `groundWorldY(elevation, width, height, x, y)` call with a flat `0`
+  // (the same break `writeFogInstances`'s own elevation test above is
+  // built to catch) fails this test too, since `update` calls
+  // `writeFogInstances` to fill the buffer it then reads into the matrix --
+  // proving this test is sensitive to the same regression through the
+  // instance-matrix path specifically, not merely re-testing the pure
+  // function directly.
+  it('fog quads lift with terrain: FogMesh.update carries a raised tile\'s own elevation into its instance matrix', () => {
+    const mesh = new FogMesh(W, H);
+    // Same 4x4, level-3-at-(1,1) fixture writeFogInstances's own elevation
+    // test and units/fx.test.ts's ground-lift suite both use.
+    const elevation = new Uint8Array([0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const fog = visibleFog();
+    fog[1 * W + 1] = 0; // the raised tile, never seen -- the only instance written
+    mesh.update(fog, elevation, W, H);
+    const m = new THREE.Matrix4();
+    mesh.mesh.getMatrixAt(0, m);
+    const pos = new THREE.Vector3();
+    const quat = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    m.decompose(pos, quat, scale);
+    expect(pos.x).toBeCloseTo(1, 5);
+    expect(pos.z).toBeCloseTo(1, 5);
+    expect(pos.y).toBeGreaterThan(0);
+    // Cross-checked against the exact function units/particles use for the
+    // same job, not merely against a hand-derived number -- same discipline
+    // as writeFogInstances's own elevation test.
+    expect(pos.y).toBeCloseTo(groundWorldY(elevation, W, H, 1, 1), 5);
   });
 });
