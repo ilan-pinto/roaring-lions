@@ -37,11 +37,20 @@ function everyTriple(sheet: SheetSpec): Array<[ClipName, number, number]> {
   return out;
 }
 
-/** Real rectangle intersection on the same layer -- not merely "are these
- *  layer numbers different". `atlas.ts`'s `FrameRegion` carries a full
- *  rect precisely so this check exercises geometry, and the break-check
- *  below (temporarily colliding two frames onto one layer) is what proves
- *  it actually catches something rather than vacuously passing. */
+/**
+ * Real rectangle intersection, not a layer-number comparison in disguise.
+ * With `packSheet`'s current output -- every region `{layer, 0, 0, 256,
+ * 256}`, one whole layer per frame -- this reduces exactly to `a.layer ===
+ * b.layer`, so it cannot disagree with the "distinct layer" assertion in the
+ * test above it; it is not a stronger check today, just a genuinely general
+ * one, in the same spirit `FrameRegion` itself is kept general (see its own
+ * comment) rather than collapsed to a bare layer index. Worth keeping as
+ * real geometry anyway: if `packSheet` ever needs to place more than one
+ * frame per layer (a 2D atlas page per layer), this is the check that would
+ * start doing useful work without needing to be rewritten. The break-check
+ * (temporarily colliding two frames onto one layer) confirms it does catch
+ * a real collision today, not merely pass vacuously.
+ */
 function regionsOverlap(a: FrameRegion, b: FrameRegion): boolean {
   if (a.layer !== b.layer) return false;
   return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
@@ -102,9 +111,12 @@ describe('packSheet', () => {
     expect(() => packing.regionFor('fire', 0, 5)).toThrow(/no packed region/);
   });
 
-  it('fails loudly, before packing anything, when a sheet needs more layers than the budget holds', () => {
+  it('fails loudly, before packing anything, when a sheet needs more layers than the default budget holds', () => {
     // Synthetic on purpose -- no shipped sheet is anywhere close to this
     // large. 64 facings x 40 idle frames = 2560 > MAX_ARRAY_LAYERS (2048).
+    // Proves the *default* (no maxLayers argument) is really 2048, not
+    // Infinity -- the parameterised tests below prove the general throw
+    // behaviour more cheaply, against real INF_SQUAD data.
     const tooBig = parseManifest({
       facings: 64,
       clips: { idle: { frames: 40, fps: 4, loop: true } },
@@ -113,9 +125,9 @@ describe('packSheet', () => {
     expect(() => packSheet(tooBig)).toThrow(new RegExp(String(MAX_ARRAY_LAYERS)));
   });
 
-  it('does not silently overlap right at the capacity boundary', () => {
+  it('does not silently overlap right at the default capacity boundary', () => {
     // Exactly MAX_ARRAY_LAYERS frames must still pack cleanly -- the throw
-    // above is a ">", not a "off by one" masquerading as a safety check.
+    // above is a ">", not an off-by-one masquerading as a safety check.
     const exact = parseManifest({
       facings: 64,
       clips: { idle: { frames: 32, fps: 4, loop: true } }, // 64 * 32 = 2048
@@ -124,5 +136,27 @@ describe('packSheet', () => {
     expect(packing.layers).toBe(MAX_ARRAY_LAYERS);
     const layers = new Set(packing.entries.map((e) => e.region.layer));
     expect(layers.size).toBe(MAX_ARRAY_LAYERS);
+  });
+
+  it('accepts a caller-supplied layer budget, failing loudly one layer under what the real sheet needs', () => {
+    // INF_SQUAD needs 272 layers -- a caller (buildUnitTexture, querying an
+    // actual device) that found only 271 must get a named, numeric refusal,
+    // not a partial pack.
+    expect(() => packSheet(infSquad, 271)).toThrow(/272/);
+    expect(() => packSheet(infSquad, 271)).toThrow(/271/);
+  });
+
+  it('packs cleanly exactly at a caller-supplied budget (no off-by-one)', () => {
+    const packing = packSheet(infSquad, 272);
+    expect(packing.layers).toBe(272);
+    const layers = new Set(packing.entries.map((e) => e.region.layer));
+    expect(layers.size).toBe(272);
+  });
+
+  it('omitting maxLayers is identical to passing MAX_ARRAY_LAYERS explicitly', () => {
+    const a = packSheet(infSquad);
+    const b = packSheet(infSquad, MAX_ARRAY_LAYERS);
+    expect(a.layers).toBe(b.layers);
+    expect(a.entries).toEqual(b.entries);
   });
 });

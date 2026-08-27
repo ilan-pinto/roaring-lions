@@ -31,20 +31,45 @@
  * object regardless of frame count, so "one texture per unit type" stays
  * literally true rather than becoming "one texture, unless it's the big one."
  *
- * ## The capacity check is real, not decorative
+ * ## The capacity check is real, not decorative -- and not frozen to one machine
  *
  * WebGL2 requires `MAX_ARRAY_TEXTURE_LAYERS >= 256` -- a real floor some
- * conformant GPU could sit at, and 272 does not clear it. Measured directly
- * against this dev machine (Chrome/ANGLE, ANGLE Metal Renderer: Apple M3
- * Pro) rather than assumed: `gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS)`
- * returns 2048, which is the number virtually every real WebGL2
- * implementation converges on (`MAX_ARRAY_TEXTURE_LAYERS` is tied to
- * `MAX_3D_TEXTURE_SIZE`, which the same query reports as 2048 here too).
- * `MAX_ARRAY_LAYERS` below is pinned to that measured, realistic number, and
- * `packSheet` throws rather than silently overlapping two frames onto one
- * layer if a sheet ever needs more -- see `packSheet`'s own comment. The
- * spec-floor risk (a hypothetical GPU at exactly 256) is not eliminated by
- * this choice; it is a known, reported limitation, not a silent one.
+ * conformant GPU could sit at, and 272 does not clear it. `MAX_ARRAY_LAYERS`
+ * below (2048) is not a guess: it was measured directly against this dev
+ * machine (Chrome/ANGLE, ANGLE Metal Renderer: Apple M3 Pro) via
+ * `gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS)`, and 2048 is the number
+ * virtually every real WebGL2 implementation converges on (the limit is tied
+ * to `MAX_3D_TEXTURE_SIZE`, which the same query reports as 2048 here too).
+ * But it is still one machine's number baked into source, and `packSheet`
+ * cannot do better than that on its own -- it is pure, by design, and has no
+ * GPU to ask. So the budget is a `packSheet` *parameter*, defaulting to
+ * `MAX_ARRAY_LAYERS` so every existing caller (and every test) gets that
+ * measured baseline for free, while `buildUnitTexture` -- the one function
+ * in this file that runs somewhere a GL context actually exists -- queries
+ * the real device's `MAX_ARRAY_TEXTURE_LAYERS` and fails loudly, by sheet and
+ * by number, if the packing it was handed needs more layers than the actual
+ * hardware under the player offers. That closes the gap between "measured on
+ * my machine" and "true on theirs" without asking `packSheet` to stop being
+ * pure and testable.
+ *
+ * `packSheet` still throws before packing a single frame if a sheet exceeds
+ * whatever budget it was given -- wrapping the layer counter instead would
+ * make two unrelated frames decode into the same layer, silent data
+ * corruption dressed as success. See `packSheet`'s own comment.
+ *
+ * **What happens if the diagnostic ever actually fires, on real hardware at
+ * the 256-layer floor:** *not* splitting one unit type's frames across two
+ * `DataArrayTexture`s, and *not* shrinking `FRAME_PX`. A device that sits at
+ * WebGL2's bare floor is an old Android ES3 part, and that hardware cannot
+ * hold a multi-hundred-megabyte sprite working set regardless of how it is
+ * packed -- VRAM binds before layer count does. Splitting into two textures
+ * saves zero bytes (same pixels, same count) and only reduces descriptor
+ * count, while forfeiting the one-draw-call-per-unit-type this whole module
+ * exists for. The documented mitigation, if this ever needs one: load only
+ * the clips a mission's roster actually uses (already possible -- `packSheet`
+ * is per-clip already, and every shipped sheet's *idle-only* frame count is
+ * far under 256). Not built here -- nothing in this task's scope, or any
+ * shipped mission, needs it yet.
  *
  * ## VRAM: parity with Pixi, not a regression
  *
@@ -66,19 +91,32 @@ import * as THREE from 'three';
 import { frameFileName, type ClipName, type SheetSpec } from '../../sheet';
 
 /**
- * Every shipped sprite frame is 256px square (`assets/sprites/**\/manifest.json`
- * -> `"size": 256`, and CLAUDE.md's own measurement: "3,101 PNGs at 256 px").
- * `SheetSpec` (deliberately) does not carry this -- it is a property of the
- * files, and `frameFileName` needs no pixel size to resolve a name. This
- * module needs one to reason about capacity and to validate what it decodes,
- * so it is a constant here rather than a fourth reimplementation of "256".
+ * Frame size for a *unit* sheet -- `SheetSpec`, the only shape this module
+ * accepts. Every unit sheet ships 256px square (checked directly across
+ * every `assets/sprites/*\/manifest.json` with a `facings` field; also
+ * CLAUDE.md's own measurement, "3,101 PNGs at 256 px"). That is NOT
+ * universal across everything this game ships: seven `BLD_*` structure
+ * sheets declare `"size": 512` in their own manifest. Structures are out of
+ * reach for this module regardless -- they parse to `StructureSpec` via
+ * `parseStructureManifest`, a single-frame shape `packSheet` cannot accept,
+ * and no code path here or elsewhere hands one to it. `SheetSpec`
+ * (deliberately) does not carry a size field at all: it is a property of the
+ * files, `parseManifest` drops the manifest's own `"size"` rather than
+ * threading it through, and `frameFileName` needs no pixel size to resolve a
+ * name. So 256 is a constant here for the shapes this module actually
+ * handles, not a reimplementation of something `SheetSpec` could report
+ * instead -- and `buildUnitTexture` still validates every decoded bitmap
+ * against it, throwing loudly on a mismatch rather than mis-packing a
+ * wrong-sized frame into a 256-sized layer.
  */
 export const FRAME_PX = 256;
 
 /**
- * `DataArrayTexture` layer budget. See this file's top comment for how this
- * number was measured rather than assumed, and its risk (WebGL2's spec floor
- * is 256, not 2048).
+ * `packSheet`'s default `DataArrayTexture` layer budget, and the number
+ * `buildUnitTexture` falls back to if it cannot reach a WebGL2 context at
+ * all. See this file's top comment for how it was measured, why it is a
+ * default rather than a hard ceiling, and the risk it does not eliminate
+ * (WebGL2's spec floor is 256, not 2048).
  */
 export const MAX_ARRAY_LAYERS = 2048;
 
@@ -161,24 +199,32 @@ function totalFrames(sheet: SheetSpec): number {
  * ascending facing then ascending frame, so the mapping is a pure function
  * of the sheet's own declared shape and nothing external (no `Math.random`,
  * no clock, no incidental object-key order -- see `CLIP_ORDER`'s comment).
- * Calling this twice on an equal `sheet` produces byte-identical output.
+ * Calling this twice on an equal `sheet` (and equal `maxLayers`) produces
+ * byte-identical output.
+ *
+ * `maxLayers` defaults to `MAX_ARRAY_LAYERS` -- a real measurement (see the
+ * top-of-file comment), but one machine's, and `packSheet` has no GPU to ask
+ * for a better one; it stays a parameter rather than a hardcoded constant so
+ * a caller that *can* ask (`buildUnitTexture`, or any future caller with a
+ * live GL context) is able to hand this the real device limit instead.
  *
  * Throws before packing a single frame if the sheet needs more layers than
- * `MAX_ARRAY_LAYERS` holds. The alternative -- wrapping the layer counter --
- * would make two unrelated frames decode into the same layer, which is
- * silent data corruption dressed as success: the sheet would "load" and one
- * unit type would render a stranger's frame over its own. Throwing turns
- * that into a load-time error pointing at the sheet that needs it, instead
- * of a rendering bug reported days later as "the militia sometimes looks
- * like the RPG team."
+ * `maxLayers` holds. The alternative -- wrapping the layer counter -- would
+ * make two unrelated frames decode into the same layer, which is silent data
+ * corruption dressed as success: the sheet would "load" and one unit type
+ * would render a stranger's frame over its own. Throwing turns that into a
+ * load-time error naming the sheet's own frame count and the budget it
+ * missed, instead of a rendering bug reported days later as "the militia
+ * sometimes looks like the RPG team."
  */
-export function packSheet(sheet: SheetSpec): FramePacking {
+export function packSheet(sheet: SheetSpec, maxLayers: number = MAX_ARRAY_LAYERS): FramePacking {
   const total = totalFrames(sheet);
-  if (total > MAX_ARRAY_LAYERS) {
+  if (total > maxLayers) {
     throw new Error(
       `packSheet: sheet needs ${total} frames (${sheet.facings} facings x ` +
-        `${Object.keys(sheet.clips).length} clips), which exceeds the ${MAX_ARRAY_LAYERS}-layer ` +
-        'DataArrayTexture budget (see atlas.ts for how that budget was measured).'
+        `${Object.keys(sheet.clips).length} clips), which exceeds the ${maxLayers}-layer ` +
+        'DataArrayTexture budget (see atlas.ts for how that budget was measured, and the ' +
+        'documented mitigation if this is a real device limit rather than a test).'
     );
   }
 
@@ -222,6 +268,28 @@ export function packSheet(sheet: SheetSpec): FramePacking {
 // for: the decision is arithmetic and tested; the decode is I/O and is not.
 // ---------------------------------------------------------------------------
 
+/**
+ * This device's real `DataArrayTexture` layer budget, or `null` if no WebGL2
+ * context can be reached at all. `MAX_ARRAY_LAYERS` is one machine's
+ * measurement baked into source; this is the actual number for whatever GPU
+ * is under the browser the game is running in, gathered the only place this
+ * module can reach a GL context to ask. A throwaway canvas is enough --
+ * querying a driver limit does not need `ThreeRenderer`'s own context, and
+ * this module has no access to that context anyway (its exports take
+ * `basePath`/`sheet`/`packing`, not a renderer). Cached after the first call
+ * so loading a mission's dozen unit types does not open a dozen contexts to
+ * ask the same driver the same question.
+ */
+let deviceArrayLayerLimit: number | null | undefined;
+function queryArrayLayerLimit(): number | null {
+  if (deviceArrayLayerLimit === undefined) {
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl2');
+    deviceArrayLayerLimit = gl ? (gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS) as number) : null;
+  }
+  return deviceArrayLayerLimit;
+}
+
 /** Fetch one frame's PNG and decode it to a bitmap. Separated out so the
  *  parallel `Promise.all` in `buildUnitTexture` reads as "decode every file
  *  concurrently" rather than an inline `fetch`/`blob`/`createImageBitmap`
@@ -248,6 +316,15 @@ async function decodeFrame(url: string): Promise<ImageBitmap> {
  * passed in), and decoding 272 files only to write them into a
  * differently-shaped layout would fail confusingly, deep inside the pixel
  * copy, instead of immediately and by name.
+ *
+ * The real device's `MAX_ARRAY_TEXTURE_LAYERS` (`queryArrayLayerLimit`) is
+ * checked here too, before any decode work starts: `packing` may have been
+ * built with `packSheet`'s default budget (one machine's measurement), and
+ * this is the first place in the pipeline that can ask the *actual* GPU
+ * whether it can hold that many layers. Failing here, by `basePath` and by
+ * number, turns "silently broken on unknown hardware" into a loud,
+ * attributable error instead of a texture that fails to upload three steps
+ * later with no indication which sheet was responsible.
  */
 export async function buildUnitTexture(
   basePath: string,
@@ -259,6 +336,15 @@ export async function buildUnitTexture(
     throw new Error(
       `buildUnitTexture: packing has ${packing.entries.length} frames but sheet declares ${expected} -- ` +
         'this packing was not built from this sheet (pass the same SheetSpec to both packSheet and buildUnitTexture).'
+    );
+  }
+
+  const deviceLimit = queryArrayLayerLimit();
+  if (deviceLimit !== null && packing.layers > deviceLimit) {
+    throw new Error(
+      `buildUnitTexture: ${basePath} needs ${packing.layers} DataArrayTexture layers, which exceeds this ` +
+        `device's real MAX_ARRAY_TEXTURE_LAYERS of ${deviceLimit}. See atlas.ts's top comment for the ` +
+        'documented mitigation (load only the clips this mission actually uses) -- not built here.'
     );
   }
 
