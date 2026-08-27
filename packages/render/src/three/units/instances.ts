@@ -156,6 +156,7 @@ import { screenOffsetToWorld } from '../terrain/shared';
 import { turretAxisOffset, type SheetSpec } from '../../sheet';
 import { FRAME_PX, type FramePacking } from './atlas';
 import type { EntityFrame } from './frame-state';
+import { HULL_RENDER_ORDER, TURRET_RENDER_ORDER } from './render-order';
 
 // ---------------------------------------------------------------------------
 // Pure: geometry and per-instance attribute arithmetic. No THREE.* GPU
@@ -456,19 +457,26 @@ export function writeTurretInstances(
 const ALPHA_PADDING_DISCARD = 0.02;
 
 /**
- * Task B3.6: explicit `Object3D.renderOrder` values for a hull mesh and its
- * turret mesh. `HULL_RENDER_ORDER` is three.js's own default (0) named here
- * rather than left implicit, so the pairing reads as a deliberate decision
- * at both call sites, not an accident of only one of the two ever being set.
+ * `Object3D.renderOrder` values for a hull mesh and its turret mesh, Task
+ * B3.6. `HULL_RENDER_ORDER` is three.js's own default (0) named here rather
+ * than left implicit, so the pairing reads as a deliberate decision at both
+ * call sites, not an accident of only one of the two ever being set.
  * `TURRET_RENDER_ORDER` being strictly greater is what guarantees a turret
  * mesh draws on top of its hull at every co-located, identical-depth
  * instance (every shipped sheet WITHOUT a `turretAxisPx` correction --
  * mbt_lavi, apc_eitan, ifv_namer) regardless of scene-graph insertion order,
  * construction order, or `Object3D.id` -- see `UnitInstancer`'s own
  * constructor doc comment for why relying on any of those was the hazard.
+ *
+ * Re-exported from `./render-order`, not declared here: that module is now
+ * the single source of truth for every band this backend uses, INCLUDING
+ * `units/fx.ts`'s `FX_RENDER_ORDER`/`FX_RENDER_ORDER_ABOVE` -- see its own
+ * doc comment for the collision this fixed (`TURRET_RENDER_ORDER` and the
+ * old, module-local `FX_RENDER_ORDER` were both `1`) and the full band
+ * table. Re-exported here, not merely imported, so every existing importer
+ * of this module (`ThreeRenderer.ts`, `instances.test.ts`) is unaffected.
  */
-export const HULL_RENDER_ORDER = 0;
-export const TURRET_RENDER_ORDER = 1;
+export { HULL_RENDER_ORDER, TURRET_RENDER_ORDER };
 
 /**
  * The unit material: samples one layer of a `DataArrayTexture` per instance,

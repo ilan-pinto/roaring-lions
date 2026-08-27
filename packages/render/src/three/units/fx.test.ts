@@ -19,7 +19,7 @@ import { hexToUnit, screenOffsetToWorld, WORLD_PER_LEVEL } from '../terrain/shar
 import { groundWorldY } from '../ground-height';
 import type { SheetSpec } from '../../sheet';
 import { packSheet } from './atlas';
-import { UnitInstancer } from './instances';
+import { UnitInstancer, HULL_RENDER_ORDER, TURRET_RENDER_ORDER } from './instances';
 import { spawnTracer, type TracerModel } from './tracers';
 import {
   PARTICLE_CAPACITY,
@@ -27,6 +27,8 @@ import {
   TRACER_CAPACITY,
   TRACER_LIFT_PX,
   TRACER_WIDTH_PX,
+  FX_RENDER_ORDER,
+  FX_RENDER_ORDER_ABOVE,
   ParticleInstancer,
   TracerBatch,
   particleBillboardGeometry,
@@ -39,9 +41,9 @@ import {
 } from './fx';
 
 /** A tiny, easy-to-hand-check sheet, matching `instances.test.ts`'s own --
- *  used ONLY for the cross-module renderOrder invariant test below, which
- *  needs a real `UnitInstancer` to assert against, not for anything about
- *  units themselves. */
+ *  used ONLY for the cross-module renderOrder invariant tests below, which
+ *  need a real `UnitInstancer` (hull and turret both) to assert against, not
+ *  for anything about units themselves. */
 const tinySheet: SheetSpec = {
   facings: 4,
   facingOffset: 0,
@@ -516,6 +518,48 @@ describe('ParticleInstancer construction', () => {
     expect(below.mesh.renderOrder).toBeGreaterThan(units.mesh.renderOrder);
     expect(above.mesh.renderOrder).toBeGreaterThan(units.mesh.renderOrder);
     expect(tracers.mesh.renderOrder).toBeGreaterThan(units.mesh.renderOrder);
+  });
+
+  it('CROSS-MODULE INVARIANT: every FX mesh also outranks a TURRET instancer, not merely a hull one', () => {
+    // The bug this guards: instances.ts's TURRET_RENDER_ORDER and this
+    // file's own FX_RENDER_ORDER were both `1` until the band-collision fix
+    // -- the test above (against a HULL instancer, renderOrder 0) could not
+    // have caught that, because a hull instancer never exercises the band a
+    // turret actually occupies. Reaching across both modules' real exported
+    // constants (not hand-typed literals, so a future edit to either file
+    // fails THIS test rather than silently drifting again) is what this
+    // suite could not do before FX_RENDER_ORDER was exported.
+    const sheet = tinySheet;
+    const packing = packSheet(sheet);
+    const hull = new UnitInstancer(sheet, new THREE.DataArrayTexture(), packing, 4);
+    const turret = new UnitInstancer(sheet, new THREE.DataArrayTexture(), packing, 4, TURRET_RENDER_ORDER);
+    const below = new ParticleInstancer(4, 0, true);
+    const above = new ParticleInstancer(4, 1, false);
+    const tracers = new TracerBatch(4);
+
+    // The full band table, asserted as a strict ascending chain rather than
+    // pairwise against zero -- HULL < TURRET < FX < FX_ABOVE, with no two
+    // bands equal. This is the exact shape of assertion the old collision
+    // (TURRET_RENDER_ORDER === FX_RENDER_ORDER, both 1) would fail.
+    const bands = [
+      HULL_RENDER_ORDER,
+      TURRET_RENDER_ORDER,
+      FX_RENDER_ORDER,
+      FX_RENDER_ORDER_ABOVE,
+    ];
+    for (let i = 1; i < bands.length; i++) {
+      expect(bands[i]).toBeGreaterThan(bands[i - 1]);
+    }
+
+    // And against the real, constructed mesh objects -- not merely the
+    // constants in isolation -- so a mesh that stopped reading its own
+    // module's constant would also fail this.
+    expect(hull.mesh.renderOrder).toBe(HULL_RENDER_ORDER);
+    expect(turret.mesh.renderOrder).toBe(TURRET_RENDER_ORDER);
+    expect(turret.mesh.renderOrder).toBeGreaterThan(hull.mesh.renderOrder);
+    expect(below.mesh.renderOrder).toBeGreaterThan(turret.mesh.renderOrder);
+    expect(tracers.mesh.renderOrder).toBeGreaterThan(turret.mesh.renderOrder);
+    expect(above.mesh.renderOrder).toBeGreaterThan(below.mesh.renderOrder);
   });
 
   it('writes correct per-instance position and scale into the instance matrix, not merely the right count', () => {

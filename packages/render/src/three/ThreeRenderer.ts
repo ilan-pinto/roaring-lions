@@ -1620,9 +1620,10 @@ export class ThreeRenderer implements Renderer {
    * `renderOrder` then insertion `id`). It does not matter because
    * `units/fx.ts`'s three FX meshes (Task B3.14 split the former two-mesh
    * pair into three -- see its own top comment, "The `above_units` split")
-   * are each given an explicit `renderOrder` strictly above every unit's
-   * default -- a declared choice ("FX draws after every unit"), not a
-   * rediscovery of depth. `units/fx.ts`'s own top comment has the full
+   * are each given an explicit `renderOrder` strictly above every unit
+   * mesh -- hull AND turret alike, per the band table in `units/
+   * render-order.ts` -- a declared choice ("FX draws after every unit"), not
+   * a rediscovery of depth. `units/fx.ts`'s own top comment has the full
    * account, including the fix this replaced: without that explicit
    * `renderOrder`, FX-vs-unit draw order was an ACCIDENT of which class's
    * constructor three.js happened to run first, not a design. Occlusion

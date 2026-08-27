@@ -60,8 +60,17 @@
  * than "let the depth buffer sort it out" -- every FX mesh here
  * (`TracerBatch.mesh`, and both `ParticleInstancer` meshes -- see "The
  * `above_units` split (B3.14)" below for why there are now two) sets
- * `renderOrder` strictly above every `UnitInstancer.mesh`'s default (0,
- * never set explicitly). three.js sorts its transparent render list by
+ * `renderOrder` strictly above every `UnitInstancer.mesh` -- hull's default
+ * (0) AND turret's own explicit, non-default value (Task B3.6,
+ * `instances.ts`'s `TURRET_RENDER_ORDER`) alike. (Bugfix note: this
+ * parenthetical used to read "0, never set explicitly" -- true when B3.13
+ * wrote it, false from the moment B3.6's turret task gave `UnitInstancer` a
+ * SECOND, non-default `renderOrder`, and nothing caught the drift because
+ * `FX_RENDER_ORDER` was not exported and no test could compare the two
+ * modules' constants. `TURRET_RENDER_ORDER` and this file's own
+ * `FX_RENDER_ORDER` were both `1` as a result -- see `./render-order`'s doc
+ * comment, now the single source of truth both files import from, for the
+ * full account and the fix.) three.js sorts its transparent render list by
  * `renderOrder` ascending BEFORE it ever reaches a `z`/`id` tiebreak, which
  * settles FX-vs-FX blend order deterministically (no more "whichever mesh's
  * constructor happened to run first", the accident the next subsection
@@ -354,6 +363,7 @@ import { WORLD_Y_PER_LIFT_PIXEL, isoX, isoY } from '../../project';
 import { screenOffsetToWorld, hexToUnit } from '../terrain/shared';
 import { groundWorldY } from '../ground-height';
 import { tracerAlpha, type TracerModel } from './tracers';
+import { FX_RENDER_ORDER, FX_RENDER_ORDER_ABOVE } from './render-order';
 
 // ---------------------------------------------------------------------------
 // Pure: geometry and per-instance attribute arithmetic. No THREE.* GPU
@@ -415,25 +425,33 @@ export const TRACER_WIDTH_PX = 1.5;
 
 /**
  * `renderOrder` for the tracer mesh and the BELOW-tier particle mesh,
- * strictly above every `UnitInstancer.mesh`'s default (0, never set
- * explicitly there). See this file's top comment ("FX-vs-UNIT ordering is a
- * DIFFERENT question") for the full reasoning -- in short, `depthWrite:
- * false` on FX's materials means the depth buffer no longer arbitrates
- * FX-vs-FX blend order (though `depthTest: true` on this tier still
- * arbitrates genuine FX-vs-unit and FX-vs-terrain occlusion), so this is the
- * explicit replacement for what used to be an accident of construction
- * order.
+ * strictly above every `UnitInstancer.mesh` -- hull's default (0) AND
+ * turret's explicit value alike (see `./render-order`'s own doc comment for
+ * the collision this fixed: this constant and `instances.ts`'s
+ * `TURRET_RENDER_ORDER` used to both be `1`, tying a tracer or a below-tier
+ * particle against a turret at the exact instant it passed in front of one).
+ * See this file's top comment ("FX-vs-UNIT ordering is a DIFFERENT
+ * question") for the ordering reasoning -- in short, `depthWrite: false` on
+ * FX's materials means the depth buffer no longer arbitrates FX-vs-FX blend
+ * order (though `depthTest: true` on this tier still arbitrates genuine
+ * FX-vs-unit and FX-vs-terrain occlusion), so this is the explicit
+ * replacement for what used to be an accident of construction order.
+ *
+ * `FX_RENDER_ORDER_ABOVE` (the ABOVE-tier particle mesh, `above_units`-tagged
+ * emitters) is one higher again, so it also wins any submission-order tie
+ * against this tier and against tracers, on top of its own `depthTest:
+ * false` already guaranteeing it is never hidden behind a unit -- see "The
+ * `above_units` split (B3.14)", this file's top comment, for the full
+ * reasoning.
+ *
+ * Both are re-exported from `./render-order`, the single source of truth for
+ * every band this backend uses -- not declared here, so a future band can
+ * never collide with `instances.ts`'s bands without both living in, and
+ * being checked against, the same file. Exported (unlike before this fix) so
+ * `fx.test.ts`'s cross-module invariant suite can assert the relationship
+ * directly, rather than being unable to reach this value at all.
  */
-const FX_RENDER_ORDER = 1;
-/**
- * `renderOrder` for the ABOVE-tier particle mesh (`above_units`-tagged
- * emitters) -- one higher than `FX_RENDER_ORDER`, so it also wins any
- * submission-order tie against the below-tier mesh and against tracers, on
- * top of its own `depthTest: false` already guaranteeing it is never hidden
- * behind a unit. See "The `above_units` split (B3.14)", this file's top
- * comment, for the full reasoning.
- */
-const FX_RENDER_ORDER_ABOVE = 2;
+export { FX_RENDER_ORDER, FX_RENDER_ORDER_ABOVE };
 
 /** Plain-array quad geometry for the particle billboard every particle
  *  instance shares, in "per one screen pixel of radius" units -- an
