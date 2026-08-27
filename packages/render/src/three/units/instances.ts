@@ -68,7 +68,7 @@
  * position, matching `groundWorldY`'s own contract ("a unit standing on a
  * tile lands exactly on that tile's own top face").
  *
- * ## The unit-vs-tree tie
+ * ## The unit-vs-tree tie, and what actually resolves it
  *
  * A unit standing at a grove tile's own tree anchor is a genuine, reachable
  * depth tie, not a hypothetical: `groundWorldY` (what `entityFrame` uses for
@@ -77,37 +77,49 @@
  * formula over the *same* constants -- `groundLevelAt` delegates to the
  * identical `levelAt` grove.ts imports from `shared.ts`. So a unit's feet
  * vertex (local up = 0) and a co-located tree's trunk base sit at exactly
- * the same world Y before any tie-break, on a tile grove tiles do not block
- * movement onto. `grove.ts`'s own inter-lobe epsilons (`TRUNK_EPSILON` ..
- * `CROWN_LIT_EPSILON`, 0.005-0.04 world units) were sized to separate
- * coplanar quads *within one tree*; nothing about them arbitrates a
- * different mesh entirely.
+ * the same world Y before anything else runs, on a tile grove tiles do not
+ * block movement onto -- proven in `instances.test.ts`, not merely argued.
  *
- * `UNIT_DEPTH_BIAS` is the explicit tie-break this module establishes: every
- * unit vertex is nudged `UNIT_DEPTH_BIAS` world units up (this camera's fixed
- * pitch makes +Y monotonically nearer the camera, independent of pan or zoom
- * -- the same fact `grove.ts`'s own epsilons rely on), strictly larger than
- * grove's own largest epsilon so a unit wins a tie against *every* grove
- * layer, not merely its outermost. A unit reads as more urgent than
- * decoration by design -- this is a strategy game, and a unit standing in an
- * olive grove must stay legible rather than being swallowed by the canopy's
- * geometry the instant their depths happen to coincide. `renderOrder` was
- * the other option the brief names and was rejected: it only decides which
- * of two *equal*-depth fragments the GPU's `<=` depth test keeps (whichever
- * drew last), which resolves a bit-for-bit tie but not a *near* tie -- and a
- * moving, interpolated unit can cross from "near" to "exactly equal" to
- * "near from the other side" within a single animated frame, which would
- * read as a flicker `renderOrder` cannot prevent. A constant bias resolves
- * both the exact and the near case the same deterministic way, and is the
- * same mechanism (an epsilon nudge along +Y) `grove.ts` already uses
- * internally, rather than a second, differently-shaped mechanism for one
- * more case. `instances.test.ts` proves the ordering (`UNIT_DEPTH_BIAS >
- * CROWN_LIT_EPSILON`, imported from `grove.ts` rather than copied, so a
- * future change to grove's own epsilon cannot silently invalidate this
- * module's assumption) and the coincidence itself (a unit's biased feet
- * world Y strictly exceeds an unbiased tree base's, for the same tile).
- * `DoubleSide` was not reached for: it addresses back-face culling, not
- * depth ordering, and would not touch this problem at all.
+ * An earlier draft of this module resolved that tie with a constant world-Y
+ * nudge on every unit vertex, on the reasoning that +Y is monotonically
+ * nearer this camera (the same fact `grove.ts`'s own inter-lobe epsilons,
+ * `TRUNK_EPSILON` .. `CROWN_LIT_EPSILON`, rely on). That reasoning holds for
+ * grove's OWN epsilons because those quads are not all coplanar with each
+ * other. It does not hold here: a unit billboard and a grove billboard are
+ * BOTH spanned by the identical two vectors (`screenOffsetToWorld(1, 0)` and
+ * world +Y), so a translation purely along +Y stays inside that shared
+ * plane's span -- it moves a point *within* the plane, not off it. Every
+ * screen pixel maps to exactly one point of a plane under this orthographic
+ * projection, so at any shared pixel the two quads still yield the same
+ * depth regardless of the nudge's size. Measured directly against the real
+ * camera rather than re-derived on paper: 4.7e-10 in NDC, zero to float
+ * precision. The nudge bought no separation against trees at all -- inert
+ * for the one case it was introduced to fix -- which is why this module no
+ * longer carries one.
+ *
+ * What actually resolves the tie is ordinary three.js render-pass ordering,
+ * not anything this module opts into. Every builder under `terrain/` --
+ * ground, scatter, grove, buildings, all of it -- shares one opaque
+ * `MeshBasicMaterial({ vertexColors: true })` (`terrain/mesh.ts`);
+ * `createUnitMaterial` below sets `transparent: true`. three.js sorts every
+ * frame's renderables into an opaque list and a transparent list and always
+ * finishes the opaque list -- committing its depths to the depth buffer --
+ * before drawing anything transparent. The default depth comparison
+ * (`THREE.LessEqualDepth`) then passes a transparent fragment whose depth
+ * *equals* what is already written, so at the exact pixel where a unit and a
+ * tree (or a unit and the ground itself) tie, the transparent, drawn-after
+ * unit fragment passes and overwrites the opaque, already-committed terrain
+ * pixel -- deterministically, every frame, independent of scene-graph
+ * insertion order and of how exact the tie is. This is not the manual
+ * `renderOrder` property the brief names as the bias's alternative: that
+ * property only arbitrates which of two fragments *already judged equal
+ * depth within one pass* wins by submission order, which cannot help a
+ * *near* tie a moving, interpolated unit might cross through mid-frame.
+ * Opaque-before-transparent ordering has no such gap -- it never compares
+ * two draws' arrival order at all, only a committed depth buffer against an
+ * incoming fragment, so "near" and "exact" resolve the identical way.
+ * `DoubleSide` was never applicable either: it addresses back-face culling,
+ * not depth ordering.
  *
  * ## Alpha: blend, matching Pixi -- and the palette consequence, stated plainly
  *
@@ -150,20 +162,6 @@ import type { EntityFrame } from './frame-state';
 // objects below this line yet -- BufferAttribute/InstancedMesh construction
 // starts after the "GPU-facing" divider further down.
 // ---------------------------------------------------------------------------
-
-/**
- * World-Y nudge applied to every unit vertex, resolving the unit-vs-tree
- * depth tie in the unit's favour. See this file's own top comment ("The
- * unit-vs-tree tie") for the full derivation; `instances.test.ts` proves it
- * exceeds `grove.ts`'s own largest inter-lobe epsilon
- * (`CROWN_LIT_EPSILON`, 0.04) by importing that constant directly rather
- * than duplicating its value, so the two cannot silently drift apart.
- * 0.05 world units is ~2 screen px at this camera's fixed pitch (divide by
- * `WORLD_Y_PER_LIFT_PIXEL`), the same "well under one elevation step, well
- * above anything that reads as floating" scale `grove.ts`'s own epsilons
- * occupy.
- */
-export const UNIT_DEPTH_BIAS = 0.05;
 
 /**
  * Sprite-sheet facing index for a normalised (0..1) heading. Ported from
@@ -217,9 +215,15 @@ export function unitBillboardGeometry(sheet: SheetSpec): BillboardGeometry {
   const half = drawPx / 2;
   const right = screenOffsetToWorld(1, 0);
 
+  // No world-Y bias here -- see this file's top comment ("The unit-vs-tree
+  // tie, and what actually resolves it") for why a +Y nudge cannot separate
+  // this plane from a coplanar one, and for the render-order mechanism that
+  // actually resolves the tie instead. Local up = 0 is therefore the
+  // entity's real, unmodified groundWorldY, matching `groundWorldY`'s own
+  // contract exactly rather than by 0.05 world units.
   const corner = (rightPx: number, upPx: number): [number, number, number] => [
     right.dx * rightPx,
-    upPx * WORLD_Y_PER_LIFT_PIXEL + UNIT_DEPTH_BIAS,
+    upPx * WORLD_Y_PER_LIFT_PIXEL,
     right.dy * rightPx,
   ];
 
@@ -380,6 +384,15 @@ function createUnitMaterial(texture: THREE.DataArrayTexture): THREE.ShaderMateri
         gl_FragColor = vec4(texel.rgb, a);
       }
     `,
+    // `transparent: true` is not only the alpha decision (this file's top
+    // comment) -- combined with `depthTest`/`depthWrite` staying on, and
+    // three.js's own opaque-before-transparent render-pass ordering plus its
+    // default `LessEqualDepth` comparison, this is the actual mechanism that
+    // resolves the unit-vs-terrain/unit-vs-tree depth tie in the unit's
+    // favour. See this file's top comment, "The unit-vs-tree tie, and what
+    // actually resolves it", for the full account -- `instances.test.ts`
+    // asserts these three flags directly on a constructed `UnitInstancer`
+    // rather than trusting this comment.
     transparent: true,
     depthTest: true,
     depthWrite: true,

@@ -1,17 +1,23 @@
 /**
- * The pure half of Task B3.5 -- `UnitInstancer` itself needs a real
- * `WebGLRenderer` to mean anything (untestable under `environment: 'node'`,
- * the same reason `ThreeRenderer` has no test file), but the geometry, the
- * facing lookup and the per-instance attribute arithmetic are plain numbers
- * and are exercised directly here, the same split `atlas.test.ts` draws
- * between `packSheet` (tested) and `buildUnitTexture` (not).
+ * The pure half of Task B3.5 -- geometry, the facing lookup and the
+ * per-instance attribute arithmetic are plain numbers, exercised directly
+ * here, the same split `atlas.test.ts` draws between `packSheet` (tested)
+ * and `buildUnitTexture` (not). `UnitInstancer`'s per-frame `update` still
+ * needs a real `WebGLRenderer` to mean anything and stays untested (the same
+ * reason `ThreeRenderer` has no test file) -- but its *construction*, and in
+ * particular the static material flags that make the render-order tie-break
+ * mechanism work (see `instances.ts`'s own top comment, "The unit-vs-tree
+ * tie, and what actually resolves it"), needs no GPU at all: `THREE.Material`
+ * and friends are plain JS objects under `environment: 'node'`, the same
+ * fact `palette-material.test.ts` already relies on for `new THREE.Color`.
  */
 import { describe, it, expect } from 'vitest';
+import * as THREE from 'three';
 import { parseManifest, type SheetSpec } from '../../sheet';
 import { packSheet } from './atlas';
 import type { EntityFrame } from './frame-state';
 import {
-  UNIT_DEPTH_BIAS,
+  UnitInstancer,
   facingIndex,
   unitBillboardGeometry,
   writeUnitInstances,
@@ -21,7 +27,6 @@ import { TILE_W, WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import { screenOffsetToWorld, WORLD_PER_LEVEL } from '../terrain/shared';
 import { VIEW_DIRECTION } from '../camera';
 import { groundWorldY } from '../ground-height';
-import { CROWN_LIT_EPSILON } from '../terrain/grove';
 import infSquadManifest from '../../../../../assets/sprites/INF_SQUAD/manifest.json';
 
 const infSquad: SheetSpec = parseManifest(infSquadManifest);
@@ -86,13 +91,16 @@ describe('unitBillboardGeometry', () => {
   // rather than the double-precision exactness `toBeCloseTo(x, 10)` assumes.
   const F32_TOL = 5;
 
-  it('is anchored at the feet: both bottom vertices sit at UNIT_DEPTH_BIAS, not the quad centre', () => {
-    expect(geo.positions[0 * 3 + 1]).toBeCloseTo(UNIT_DEPTH_BIAS, F32_TOL); // bl.y
-    expect(geo.positions[1 * 3 + 1]).toBeCloseTo(UNIT_DEPTH_BIAS, F32_TOL); // br.y
+  it('is anchored at the feet: both bottom vertices sit at exactly 0, not the quad centre', () => {
+    // No bias -- local up 0 is the entity's real, unmodified groundWorldY.
+    // See instances.ts's own top comment for why a constant offset was
+    // removed (it could not separate this quad from a coplanar one anyway).
+    expect(geo.positions[0 * 3 + 1]).toBeCloseTo(0, F32_TOL); // bl.y
+    expect(geo.positions[1 * 3 + 1]).toBeCloseTo(0, F32_TOL); // br.y
   });
 
   it('the top edge sits a full draw height above the feet, converted through WORLD_Y_PER_LIFT_PIXEL', () => {
-    const topY = drawPx * WORLD_Y_PER_LIFT_PIXEL + UNIT_DEPTH_BIAS;
+    const topY = drawPx * WORLD_Y_PER_LIFT_PIXEL;
     expect(geo.positions[2 * 3 + 1]).toBeCloseTo(topY, F32_TOL); // tr.y
     expect(geo.positions[3 * 3 + 1]).toBeCloseTo(topY, F32_TOL); // tl.y
   });
@@ -143,28 +151,26 @@ describe('unitBillboardGeometry', () => {
   it('scales with sheet.scale, matching Pixi\'s own draw-width formula', () => {
     const doubled: SheetSpec = { ...infSquad, scale: infSquad.scale * 2 };
     const bigGeo = unitBillboardGeometry(doubled);
-    // Top edge should be twice as far above the feet in world Y (minus the
-    // shared, scale-independent UNIT_DEPTH_BIAS).
-    const smallRise = geo.positions[2 * 3 + 1] - UNIT_DEPTH_BIAS;
-    const bigRise = bigGeo.positions[2 * 3 + 1] - UNIT_DEPTH_BIAS;
+    // Top edge (feet are at exactly 0, so no offset to subtract) should be
+    // twice as far above the feet in world Y.
+    const smallRise = geo.positions[2 * 3 + 1];
+    const bigRise = bigGeo.positions[2 * 3 + 1];
     expect(bigRise).toBeCloseTo(smallRise * 2, F32_TOL);
   });
 });
 
-describe('the unit-vs-tree depth tie', () => {
-  it('UNIT_DEPTH_BIAS exceeds grove.ts\'s own largest inter-lobe epsilon', () => {
-    // Imported, not copied: if grove.ts's own epsilon ever grew past this
-    // module's bias, this is the test that would catch it rather than
-    // silently leaving a unit losing a tie it is meant to win.
-    expect(UNIT_DEPTH_BIAS).toBeGreaterThan(CROWN_LIT_EPSILON);
-  });
-
-  it('a unit and a co-located tree trunk base compute the identical unbiased ground height', () => {
+describe('the unit-vs-tree depth tie is real', () => {
+  it('a unit and a co-located tree trunk base compute the identical ground height', () => {
     // 4x4 flat-except-one-tile grid, level 3 at (1, 1) -- grove.ts's own
     // trunk base for a tree on that tile is `levelAt(...) * WORLD_PER_LEVEL`;
-    // groundWorldY (what entityFrame gives a unit's worldY) is the same
-    // formula through the same levelAt/WORLD_PER_LEVEL, proven here rather
-    // than assumed from both modules importing the same symbols.
+    // groundWorldY (what entityFrame gives a unit's worldY, and what
+    // unitBillboardGeometry's own feet vertex -- local up 0, no offset --
+    // sits on top of) is the same formula through the same
+    // levelAt/WORLD_PER_LEVEL, proven here rather than assumed from both
+    // modules importing the same symbols. This is exactly the coincidence
+    // that makes the render-order tie-break (tested below) load-bearing
+    // rather than academic: nothing in this module's own geometry
+    // separates the two.
     // prettier-ignore
     const elevation = new Uint8Array([
       0, 0, 0, 0,
@@ -175,13 +181,30 @@ describe('the unit-vs-tree depth tie', () => {
     const unitWorldY = groundWorldY(elevation, 4, 4, 1.5, 1.5);
     const treeBaseWorldY = 3 * WORLD_PER_LEVEL;
     expect(unitWorldY).toBeCloseTo(treeBaseWorldY, 12);
+  });
+});
 
-    // The tie a naive port would leave to chance: a unit's actual rendered
-    // feet-vertex world Y (ground height, plus the geometry's own baked
-    // UNIT_DEPTH_BIAS) must land strictly above the tree's unbiased base.
-    const renderedFeetY = unitWorldY + UNIT_DEPTH_BIAS;
-    expect(renderedFeetY).toBeGreaterThan(treeBaseWorldY);
-    expect(renderedFeetY - treeBaseWorldY).toBeCloseTo(UNIT_DEPTH_BIAS, 12);
+describe('the render-order tie-break', () => {
+  // What actually resolves the coincidence above: terrain (ground, scatter,
+  // grove, buildings) is opaque `MeshBasicMaterial`; three.js finishes the
+  // whole opaque pass -- committing its depths -- before drawing anything
+  // transparent, and its default LessEqualDepth comparison then lets an
+  // equal-depth transparent fragment pass and overwrite. These three flags
+  // are the precondition for that mechanism; UnitInstancer's construction
+  // needs no GPU, so they are asserted directly rather than trusted from
+  // the module's own doc comment. (The depth-test outcome itself is a GPU
+  // behaviour this suite cannot execute -- see instances.ts's top comment
+  // for the NDC measurement that confirms it, and the B3.5 report for the
+  // browser screenshots.)
+  it('the unit material is transparent with depth test and depth write both on', () => {
+    const packing = packSheet(infSquad);
+    const instancer = new UnitInstancer(infSquad, new THREE.DataArrayTexture(), packing, 4);
+    const material = instancer.mesh.material;
+    expect(Array.isArray(material)).toBe(false);
+    const m = material as THREE.Material;
+    expect(m.transparent).toBe(true);
+    expect(m.depthTest).toBe(true);
+    expect(m.depthWrite).toBe(true);
   });
 });
 

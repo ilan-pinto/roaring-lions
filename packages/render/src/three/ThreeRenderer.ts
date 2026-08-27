@@ -418,17 +418,7 @@ export class ThreeRenderer implements Renderer {
     if (!res.ok) throw new Error(`sheet manifest ${res.status} at ${basePath}`);
     const sheet: SheetSpec = parseManifest(await res.json());
     const packing = packSheet(sheet);
-    // `buildUnitTexture`'s declared return type is the wider `THREE.Texture`
-    // even though its body always constructs and returns a genuine `new
-    // THREE.DataArrayTexture(...)` (atlas.ts:394) -- the B3.5 brief's own
-    // "landed interfaces" section states the narrower `Promise<
-    // DataArrayTexture>`, so this is a discrepancy between that description
-    // and atlas.ts's actual signature, not something introduced here.
-    // atlas.ts is a landed B3.4 interface this task does not edit, so the
-    // cast is narrowed at this call site instead, where it is true by
-    // construction: `UnitInstancer`'s shader samples `sampler2DArray`, which
-    // only a `DataArrayTexture` can back.
-    const texture = (await buildUnitTexture(basePath, sheet, packing)) as THREE.DataArrayTexture;
+    const texture = await buildUnitTexture(basePath, sheet, packing);
     const instancer = new UnitInstancer(sheet, texture, packing, this.sim.capacity);
     // A re-load (unlikely, but `loadSprites` carries no such guarantee
     // against it) must not leak the mesh/material/texture it replaces.

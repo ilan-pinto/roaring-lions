@@ -642,6 +642,17 @@ async function main(): Promise<void> {
   // Every sheet is fetched in parallel, but the mission does not start until
   // all of them have settled — see the gate below.
   const artJobs: Promise<unknown>[] = [];
+  // Every id whose art failed to load, surfaced once the HUD exists (below)
+  // rather than left as a console.warn a completed loading bar buries. On
+  // Pixi a failed load still leaves the unit visible — its procedural
+  // placeholder, the pre-existing fallback for un-authored art. The three.js
+  // backend has no such fallback: a unit type whose sheet failed to load is
+  // not drawn at all, so a swallowed failure there means an entire unit type
+  // is silently invisible on the battlefield, differently on each reload
+  // (the underlying fetch race is nondeterministic). console.warn stays for
+  // developers reading the console; this array is what makes the same
+  // failure unmissable to a player.
+  const failedArt: string[] = [];
   loading.total(Object.keys(STRUCTURE_SPRITES).length + Object.keys(SPRITE_MAP).length);
 
   for (const [id, path] of Object.entries(STRUCTURE_SPRITES)) {
@@ -650,6 +661,7 @@ async function main(): Promise<void> {
         .loadStructureSprite(id, path)
         .catch((err) => {
           console.warn(`[lions] structure sprite FAILED for ${id}:`, err);
+          failedArt.push(id);
         })
         .then(() => loading.step())
     );
@@ -662,6 +674,7 @@ async function main(): Promise<void> {
         .loadSprites(id, path, rest)
         .catch((err) => {
           console.warn(`[lions] sprites FAILED for ${id}:`, err);
+          failedArt.push(id);
         })
         .then(() => loading.step())
     );
@@ -674,9 +687,10 @@ async function main(): Promise<void> {
   //
   // Each job swallows its own rejection above, so this waits for every fetch
   // to be *decided*, not to succeed. A sheet that 404s still lets the player
-  // in — that unit falls back to its placeholder, which is the pre-existing
-  // behaviour for un-authored art and is far better than a permanent loading
-  // screen.
+  // in — that unit falls back to its placeholder on Pixi, or (on three.js)
+  // to not being drawn — either way far better than a permanent loading
+  // screen, and now also reported to the player once the HUD exists, via
+  // `failedArt` above.
   await Promise.all(artJobs);
   // Waits for the player when there are orders to read; resolves at once when
   // there are none, which is every sandbox and the tutorial.
@@ -701,6 +715,18 @@ async function main(): Promise<void> {
     hoverEntity: () => renderer.hoverEntity,
     gameVersion: __GAME_VERSION__,
   });
+  // Loud, not a console.warn behind a completed loading bar: `failedArt`
+  // (collected above, before the HUD existed to report through) names every
+  // structure or unit type whose art never loaded. One notice for the whole
+  // batch — a burst of individually-failed fetches is one incident, not one
+  // per id.
+  if (failedArt.length > 0) {
+    hud.note(
+      `<b>art failed to load</b> for ${failedArt.length} type${failedArt.length === 1 ? '' : 's'}` +
+        ` (${failedArt.join(', ')}) — see the console for details`,
+      'bad'
+    );
+  }
   // The instrument, off by default now that the HUD is not built on top of it.
   const overlay = new DebugOverlay(document.body, sim, () => renderer.selection, __GAME_VERSION__);
   // DebugOverlay does not expose its own visibility, so the intent that
