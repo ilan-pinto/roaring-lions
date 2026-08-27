@@ -25,6 +25,34 @@ export const TILE_H = 32;
  * one line to change. */
 export const ELEV_STEP = 10;
 
+/**
+ * Pitch (from horizontal), in radians, of `three/camera.ts`'s dimetric
+ * camera -- Pixi has no camera to pitch. The VALUE is pure arithmetic over
+ * `TILE_W`/`TILE_H`, so it lives here rather than there: this file imports
+ * nothing at all, three.js included, and `terrain/ground.ts` and its
+ * siblings need the constant below without paying for a three.js import
+ * merely to reach a number. `camera.ts` imports this back for its own use
+ * (`SIN_EL`, `VIEW_DIRECTION`) and re-exports it for importers that already
+ * go through it; see its doc comment there for why 30 degrees is the pitch
+ * that makes the three.js camera agree with Pixi's flat projection, rather
+ * than the `atan(TILE_H/TILE_W)` ~= 26.565 degrees that also passes every
+ * ground-only projection test.
+ */
+export const ELEVATION = Math.asin(TILE_H / TILE_W);
+
+/**
+ * A raw `lift` pixel (see `worldToScreen`'s doc comment above) converts to
+ * this many `three/camera.ts` world-Y units. A world-Y offset of `dh`
+ * contributes `dh * cos(EL)` to that camera's view-space-Y, projecting (at
+ * its square-pixel scale) to `dh * cos(EL) * TILE_W/sqrt2` screen pixels at
+ * zoom 1. Setting that equal to the desired `1` pixel per raw `lift` pixel
+ * and solving for `dh` gives this constant -- independent of `cam`/`vp`/
+ * zoom, like `wx`/`wy` themselves. Lives here for the same reason
+ * `ELEVATION` does: pure arithmetic, needed by terrain builders that must
+ * not import three.js to reach it.
+ */
+export const WORLD_Y_PER_LIFT_PIXEL = (Math.SQRT2 * Math.tan(ELEVATION)) / TILE_H;
+
 export interface Camera {
   x: number;
   y: number;

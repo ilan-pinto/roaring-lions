@@ -14,8 +14,7 @@
  * gradient -- silently breaking the guarantee this module's test suite
  * asserts directly.
  */
-import { WORLD_Y_PER_LIFT_PIXEL } from '../camera';
-import { ELEV_STEP } from '../../project';
+import { ELEV_STEP, WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import { composite, quantise, groundTone, PALETTE_HEXES } from './tones';
 import type { MeshData, TerrainInput } from './types';
 import type { TerrainTones } from '../../api';
@@ -35,9 +34,12 @@ export const WORLD_PER_LEVEL = ELEV_STEP * WORLD_Y_PER_LIFT_PIXEL;
 
 /** Alphas Pixi composites the two visible side faces at (`renderer.ts:1421`,
  *  `:1432`) -- different on purpose, so a ridge reads as mass rather than a
- *  flat shape. */
-const FACE_ALPHA_EAST = 0.7;
-const FACE_ALPHA_SOUTH = 0.85;
+ *  flat shape. Exported so `scatter.ts`'s slope-face dressing (strata lines,
+ *  lit edge, foot scree) composites over the same base tone this module's
+ *  own faces use, rather than a second, independently-retunable copy that
+ *  could silently drift off the face it sits on. */
+export const FACE_ALPHA_EAST = 0.7;
+export const FACE_ALPHA_SOUTH = 0.85;
 
 function hexToUnit(hex: string): [number, number, number] {
   const h = hex.charAt(0) === '#' ? hex.slice(1) : hex;

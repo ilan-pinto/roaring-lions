@@ -15,8 +15,13 @@
  * import both, the way `sandbox-extras.test.ts` and `sandbox-anchors.test.ts`
  * already do. `packages/render/package.json`'s `exports` map grew three
  * paths for this file to import through -- `./terrain` (the pure builders,
- * barrelled; deliberately excludes `mesh.ts` and never names `ThreeRenderer`,
- * so importing it costs nothing beyond the builders themselves), `./project`
+ * barrelled; deliberately excludes `mesh.ts`, never names `ThreeRenderer`,
+ * and -- since a whole-branch review found `ground.ts`/`buildings.ts`/
+ * `grove.ts` reaching `WORLD_Y_PER_LIFT_PIXEL` through `../camera`, which
+ * imports three.js unconditionally, so excluding `mesh.ts` alone was not
+ * enough -- imports that constant from `project.ts` directly instead, so
+ * importing this barrel costs nothing beyond the builders themselves,
+ * verified by walking its full transitive module graph), `./project`
  * (the Pixi-side pure projection arithmetic this suite compares against) and
  * `./three-camera` (three.js's camera, pinned to reproduce that arithmetic).
  * Only `./terrain` was named by the phase's own ruling; `./project` and

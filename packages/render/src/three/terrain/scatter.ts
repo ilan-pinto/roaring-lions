@@ -21,7 +21,7 @@
  * elongated in the direction `screenOffsetToWorld` sends "up the screen" --
  * it reads as a blade from the isometric view without literal 3D extrusion.
  */
-import { WORLD_PER_LEVEL } from './ground';
+import { WORLD_PER_LEVEL, FACE_ALPHA_EAST, FACE_ALPHA_SOUTH } from './ground';
 import { TILE_W, TILE_H, ELEV_STEP, isoX, isoY } from '../../project';
 import { composite, quantise, groundTone, PALETTE_HEXES } from './tones';
 import { tileHash } from '../../tile-hash';
@@ -41,14 +41,6 @@ const DECOR_ROAD = 1;
 const DECOR_GROVE = 2;
 const DECOR_KNOLL = 3;
 const DECOR_RIDGE = 4;
-
-/**
- * Alphas `renderer.ts`'s two visible side faces composite at (`:1421`,
- * `:1432`). Private to `ground.ts`, so redeclared here rather than imported --
- * needed to reproduce the exact base tone slope-face dressing sits on.
- */
-const FACE_ALPHA_EAST = 0.7;
-const FACE_ALPHA_SOUTH = 0.85;
 
 /**
  * Marks sit this far above their own tile's top, in world units, so they do

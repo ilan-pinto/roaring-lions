@@ -68,7 +68,7 @@
  * structure's own footprint the way the arid theme's happens to be.
  */
 import { WORLD_PER_LEVEL } from './ground';
-import { WORLD_Y_PER_LIFT_PIXEL } from '../camera';
+import { WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import { composite, quantise, groundTone, PALETTE_HEXES } from './tones';
 import { tileHash } from '../../tile-hash';
 import { screenOffsetToWorld } from './scatter';

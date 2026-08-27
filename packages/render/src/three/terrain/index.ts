@@ -31,6 +31,21 @@
  * not an ambiguous export: ECMAScript module semantics only reject a `export
  * *` collision when two DIFFERENT bindings share a name, and these are the
  * same binding by construction.
+ *
+ * The "except `mesh.ts`" claim above was FALSE for a while and nothing
+ * caught it: `ground.ts`, `buildings.ts` and `grove.ts` all reached
+ * `WORLD_Y_PER_LIFT_PIXEL` via `import ... from '../camera'`, and importing
+ * any binding from a module runs that module's own top-level imports too --
+ * `camera.ts` does `import * as THREE from 'three'` unconditionally, so this
+ * barrel was silently dragging all of three.js in, just like `ThreeRenderer`
+ * is documented above as never being allowed to. `WORLD_Y_PER_LIFT_PIXEL`
+ * (and the `ELEVATION` angle it is solved from) now live in `project.ts`,
+ * which imports nothing, three.js included; those three files import it from
+ * there directly, and `camera.ts` only re-exports it for its own,
+ * already-three.js-dependent, importers. Verified by walking this barrel's
+ * full transitive module graph and confirming no file in it imports `'three'`
+ * -- checking `mesh.ts`'s exclusion alone is exactly the check that missed
+ * the regression above.
  */
 export * from './types';
 export * from './tones';

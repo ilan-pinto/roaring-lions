@@ -16,7 +16,7 @@
  * quads standing upright, always facing the viewer. That is the "billboards
  * first" framing Phase B's own spec uses, and it is cheap to make *correct*
  * rather than merely plausible because this camera never orbits: `ELEVATION`
- * and `AZIMUTH` (`camera.ts`) are module consts derived from layout
+ * (`project.ts`) and `AZIMUTH` (`camera.ts`) are consts derived from layout
  * constants, and `Camera` is `{x, y, zoom}` -- no orbit field exists to
  * animate. So "facing the camera" is not a per-frame computation, it is two
  * constant world-space axes baked in at build time, and they are exact, not
@@ -32,7 +32,7 @@
  *     Pixi, not an approximation of it.
  *   - a local "up" axis: world Y itself, and `up * WORLD_Y_PER_LIFT_PIXEL`
  *     is exactly one screen pixel of rise per unit of `up` by that
- *     constant's own construction (`camera.ts`'s doc comment derives it by
+ *     constant's own construction (`project.ts`'s doc comment derives it by
  *     solving for exactly this). A billboard that stands upright in world Y
  *     (rather than tilting to face the camera's own tilted "up", which a
  *     full spherical billboard would do) is also simply more correct for a
@@ -62,8 +62,7 @@
  * would have.
  */
 import { WORLD_PER_LEVEL } from './ground';
-import { WORLD_Y_PER_LIFT_PIXEL } from '../camera';
-import { TILE_W, TILE_H } from '../../project';
+import { TILE_W, TILE_H, WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import { composite, quantise, groundTone, PALETTE_HEXES } from './tones';
 import { tileHash } from '../../tile-hash';
 import { screenOffsetToWorld } from './scatter';

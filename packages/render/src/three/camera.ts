@@ -14,11 +14,21 @@
  * is up.
  */
 import * as THREE from 'three';
-import { TILE_W, TILE_H, type Camera, type Viewport } from '../project';
+import { TILE_W, TILE_H, ELEVATION, WORLD_Y_PER_LIFT_PIXEL, type Camera, type Viewport } from '../project';
+
+// ELEVATION and WORLD_Y_PER_LIFT_PIXEL live in project.ts now -- both are
+// pure arithmetic over TILE_W/TILE_H, and project.ts, unlike this file,
+// imports nothing at all, three.js included; terrain/ground.ts and its
+// siblings need WORLD_Y_PER_LIFT_PIXEL without paying for a three.js import
+// merely to reach a number. Re-exported here so every existing importer of
+// this module is unaffected; imported (above) so SIN_EL, VIEW_DIRECTION and
+// worldToScreenThree below still have both in scope.
+export { WORLD_Y_PER_LIFT_PIXEL } from '../project';
 
 /**
- * Pitch (from horizontal) for a 45-degree-azimuth camera whose ground
- * diagonal projects at the game's 2:1 dimetric slope, `TILE_H / TILE_W`.
+ * Why `ELEVATION` (imported above) is `asin(TILE_H / TILE_W)` -- the pitch,
+ * from horizontal, of a 45-degree-azimuth camera whose ground diagonal
+ * projects at the game's 2:1 dimetric slope, `TILE_H / TILE_W`.
  *
  * Fixing the camera at 45-degree azimuth (equal `|x|`/`|z|` contribution --
  * the symmetry the last test below checks) fixes the local "right" axis at
@@ -47,7 +57,6 @@ import { TILE_W, TILE_H, type Camera, type Viewport } from '../project';
  * not produce square pixels, so the frustum aspect ends up ~1.12x the
  * viewport's.)
  */
-const ELEVATION = Math.asin(TILE_H / TILE_W);
 const SIN_EL = Math.sin(ELEVATION);
 
 /** Both ground axes contribute equally at a 45-degree azimuth. */
@@ -64,17 +73,6 @@ export const VIEW_DIRECTION = new THREE.Vector3(
   SIN_EL,
   Math.cos(ELEVATION) * AZIMUTH
 );
-
-/**
- * A raw `lift` pixel (see `project.worldToScreen`'s doc comment) converts to
- * this many three.js world-Y units. A world-Y offset of `dh` contributes
- * `dh * cos(EL)` to view-space-Y, projecting (at the square-pixel scale
- * above) to `dh * cos(EL) * TILE_W/sqrt2` screen pixels at zoom 1. Setting
- * that equal to the desired `1` pixel per raw `lift` pixel and solving for
- * `dh` gives this constant -- independent of `cam`/`vp`/zoom, like `wx`/`wy`
- * themselves.
- */
-export const WORLD_Y_PER_LIFT_PIXEL = (Math.SQRT2 * Math.tan(ELEVATION)) / TILE_H;
 
 /**
  * The three.js orthographic camera reproducing `project.worldToScreen`'s
