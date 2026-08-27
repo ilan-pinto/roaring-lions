@@ -17,7 +17,7 @@ import {
   CROWN_LIT_EPSILON,
 } from './grove';
 import { WORLD_PER_LEVEL } from './ground';
-import { PALETTE_HEXES } from './tones';
+import { PALETTE_HEXES, composite, quantise, groundTone } from './tones';
 import { tileHash } from '../../tile-hash';
 import { VIEW_DIRECTION, WORLD_Y_PER_LIFT_PIXEL } from '../camera';
 import type { TerrainInput } from './types';
@@ -29,6 +29,23 @@ const TONES = {
   trunk: '#4E5433', trunkLit: '#8F9464', leafDark: '#333821', leafMid: '#4E5433',
   leafLit: '#6E7449', bladeLit: '#8F9464', bladeShade: '#4E5433', spoil: '#6E7449',
   crownRatio: 0.52, scatter: 'stone' as const,
+};
+
+/**
+ * A second fixture, used only by the colour-keyed epsilon test below. `TONES`
+ * above reuses the same hex across several roles on purpose (it is meant to
+ * exercise the pipeline, not to be visually distinct), and its trunk/leaf
+ * tones happen to quantise to just 3 distinct palette entries across the 5
+ * layer roles -- fine for every other test here, which never groups
+ * vertices by colour, but wrong for the one that does. Trunk/leaf tones
+ * here are the real 'arid' theme values (`packages/app/src/main.ts`,
+ * cross-checked against Pixi in an earlier review round) plus a
+ * deliberately different `trunkLit` -- picked to land on 5 distinct
+ * entries, confirmed by that test's own guard rather than assumed.
+ */
+const DISTINCT_TONES = {
+  ...TONES,
+  trunk: '#806032', trunkLit: '#C8B494', leafDark: '#4E5433', leafMid: '#6E7449', leafLit: '#8F9464',
 };
 
 function flat(w: number, h: number): TerrainInput {
@@ -257,6 +274,93 @@ describe('buildGroves', () => {
         const screenPx = epsilon / WORLD_Y_PER_LIFT_PIXEL;
         expect(screenPx).toBeGreaterThan(MIN_SCREEN_PX);
         expect(screenPx).toBeLessThan(MAX_SCREEN_PX);
+      }
+    });
+
+    it('applies each epsilon to the layer it actually belongs to, in the built mesh', () => {
+      // The previous two tests prove the five constants are ordered and
+      // sane in isolation -- neither proves a given epsilon reaches the
+      // COLOUR it is meant to. A reviewer swap at the call sites (draw
+      // hlMid with CROWN_LIT_EPSILON, hlLit with CROWN_MID_EPSILON --
+      // inverting which highlight actually renders on top) left both
+      // previous tests green, because neither reads which shape got which
+      // value. This one does: it recovers each layer's actual epsilon
+      // straight out of the built mesh, keyed by that layer's own colour,
+      // and compares it against the constant that colour is supposed to
+      // carry.
+      //
+      // Recovery works because every vertex's world Y is `topY + localUp *
+      // WORLD_Y_PER_LIFT_PIXEL * scale + epsilon`, and each layer's own
+      // topmost local `up` (before epsilon) is known analytically from the
+      // same formulas `buildGroves` itself uses (`crownBaseU` and the
+      // fixed per-lobe offsets/radii -- see `pushTree`): trunk's top edge
+      // is at `th`; the highlight rect's top edge is at `th + 1`; each
+      // crown ellipse's own top is `centreU + radiusU`. `leafDark` covers
+      // three lobes (they all share one epsilon, so the group's own max is
+      // whichever lobe reaches highest -- algebraically always lobe0,
+      // since its coefficient on `ry` is 1 against 0.56 and 0.46 for the
+      // other two, independent of any hash draw). `topY = 0` (flat tile)
+      // and `scale = 1` here -- confirmed by hand for this exact fixture
+      // (SINGLE_X/SINGLE_Y, k = 0: the tree's own maximum reach is 12.5px,
+      // comfortably inside `CLAMP_LIMIT` even after the anchor itself is
+      // repositioned to the boundary), the same reasoning the footprint
+      // tests above rely on -- so `maxY - analyticTop * WORLD_Y_PER_LIFT_PIXEL`
+      // isolates the epsilon term directly, with nothing else in the way.
+      const input = groveAt(1, 1, SINGLE_X, SINGLE_Y);
+      const m = buildGroves(input, DISTINCT_TONES, '#14150F');
+
+      const a = tileHash(SINGLE_X * 13, SINGLE_Y * 29); // k = 0
+      const b = tileHash(SINGLE_X * 37, SINGLE_Y * 11);
+      const th = 5.5 + a * 2.5;
+      const rx = 12.5 + b * 4;
+      const ry = rx * DISTINCT_TONES.crownRatio;
+      const crownBaseU = th + ry * 0.62;
+      const analyticTop = {
+        trunk: th,
+        trunkLit: th + 1,
+        leafDark: crownBaseU + ry, // lobe0 dominates -- see comment above
+        leafMid: crownBaseU + ry * 0.3 + ry * 0.5,
+        leafLit: crownBaseU + ry * 0.46 + ry * 0.26,
+      };
+
+      const baseHex = groundTone(input, DISTINCT_TONES, 0, PALETTE_HEXES, '#14150F');
+      const trunkHex = quantise(composite(baseHex, DISTINCT_TONES.trunk, 0.98), PALETTE_HEXES);
+      const trunkLitHex = quantise(composite(trunkHex, DISTINCT_TONES.trunkLit, 0.5), PALETTE_HEXES);
+      const leafDarkHex = quantise(composite(baseHex, DISTINCT_TONES.leafDark, 0.97), PALETTE_HEXES);
+      const leafMidHex = quantise(composite(leafDarkHex, DISTINCT_TONES.leafMid, 0.92), PALETTE_HEXES);
+      const leafLitHex = quantise(composite(leafMidHex, DISTINCT_TONES.leafLit, 0.8), PALETTE_HEXES);
+      const colourOf = { trunk: trunkHex, trunkLit: trunkLitHex, leafDark: leafDarkHex, leafMid: leafMidHex, leafLit: leafLitHex };
+
+      // Guard: grouping by colour is only unambiguous if the five roles
+      // really do land on five distinct palette entries for this fixture.
+      const distinctColours = new Set(Object.values(colourOf));
+      expect(distinctColours.size, 'two layer roles quantised to the same palette entry -- colour-based grouping below is not valid for this fixture').toBe(5);
+
+      const maxYForColour = (hex: string): number => {
+        let maxY = -Infinity;
+        for (let i = 0; i < m.colors.length; i += 3) {
+          if (colorAt(m.colors, i) !== hex.toUpperCase()) continue;
+          maxY = Math.max(maxY, m.positions[i + 1]); // +1: positions are (x, y, z)
+        }
+        expect(maxY, `no vertex found with colour ${hex}`).toBeGreaterThan(-Infinity);
+        return maxY;
+      };
+
+      const expectedEpsilon: Record<keyof typeof analyticTop, number> = {
+        trunk: TRUNK_EPSILON,
+        trunkLit: TRUNK_LIT_EPSILON,
+        leafDark: CROWN_EPSILON,
+        leafMid: CROWN_MID_EPSILON,
+        leafLit: CROWN_LIT_EPSILON,
+      };
+
+      for (const role of Object.keys(analyticTop) as (keyof typeof analyticTop)[]) {
+        const maxY = maxYForColour(colourOf[role]);
+        const recoveredEpsilon = maxY - analyticTop[role] * WORLD_Y_PER_LIFT_PIXEL;
+        expect(recoveredEpsilon, `${role}'s built-mesh epsilon does not match its own constant`).toBeCloseTo(
+          expectedEpsilon[role],
+          5
+        );
       }
     });
   });

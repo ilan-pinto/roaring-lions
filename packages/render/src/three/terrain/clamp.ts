@@ -34,8 +34,10 @@
  */
 
 /** Half the unit tile, minus a small margin -- the shared `limit` every
- *  caller passes to `clampCenterToTile`. */
-export const CLAMP_MARGIN = 0.02;
+ *  caller passes to `clampCenterToTile`. `CLAMP_MARGIN` itself stays
+ *  module-local: nothing outside this file needs the margin on its own,
+ *  only the limit it produces. */
+const CLAMP_MARGIN = 0.02;
 export const CLAMP_LIMIT = 0.5 - CLAMP_MARGIN;
 
 export interface ClampedCenter {
