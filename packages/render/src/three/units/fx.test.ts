@@ -15,7 +15,7 @@ import * as THREE from 'three';
 import { ParticleSystem } from '../../vfx';
 import type { ParticleSpec } from '../../vfx';
 import { isoX, isoY, WORLD_Y_PER_LIFT_PIXEL } from '../../project';
-import { hexToUnit } from '../terrain/shared';
+import { hexToUnit, screenOffsetToWorld } from '../terrain/shared';
 import { spawnTracer, type TracerModel } from './tracers';
 import {
   PARTICLE_CAPACITY,
@@ -67,6 +67,41 @@ describe('particleBillboardGeometry', () => {
     expect(geo.positions[4]).toBeCloseTo(-WORLD_Y_PER_LIFT_PIXEL, 5);
     expect(geo.positions[7]).toBeCloseTo(WORLD_Y_PER_LIFT_PIXEL, 5);
     expect(geo.positions[10]).toBeCloseTo(WORLD_Y_PER_LIFT_PIXEL, 5);
+  });
+
+  it('the horizontal (X/Z) span matches screenOffsetToWorld(1,0) exactly -- not a placeholder axis', () => {
+    // Round 1 tested only the Y span; a swapped or zeroed X/Z axis would
+    // have passed every prior assertion here while rendering as a vertical
+    // sliver instead of a circle. bl/br (indices 0-2, 3-5) are the two
+    // horizontal corners at up = -1.
+    const geo = particleBillboardGeometry();
+    const right = screenOffsetToWorld(1, 0);
+    expect(geo.positions[0]).toBeCloseTo(-right.dx, 5); // bl.x
+    expect(geo.positions[2]).toBeCloseTo(-right.dy, 5); // bl.z
+    expect(geo.positions[3]).toBeCloseTo(right.dx, 5); // br.x
+    expect(geo.positions[5]).toBeCloseTo(right.dy, 5); // br.z
+  });
+
+  it('is square in screen space -- horizontal and vertical spans reproject to equal screen-pixel extents, not an ellipse', () => {
+    // The load-bearing property this geometry exists for: a particle must
+    // render as a CIRCLE (the fragment shader's own circle cutout assumes a
+    // square local frame), not an ellipse stretched along one axis. bl -> br
+    // is the horizontal span (ground-plane X/Z, reprojects through
+    // isoX/isoY); bl -> tl is the vertical span (pure world-Y height, which
+    // isoX/isoY do not touch at all -- reprojected independently through
+    // the SAME WORLD_Y_PER_LIFT_PIXEL conversion the geometry itself was
+    // built from, not assumed equal by construction).
+    const geo = particleBillboardGeometry();
+    const blX = geo.positions[0];
+    const blY = geo.positions[1];
+    const blZ = geo.positions[2];
+    const brX = geo.positions[3];
+    const brZ = geo.positions[5];
+    const tlY = geo.positions[10];
+    const horizontalScreenPx = Math.hypot(isoX(brX, brZ) - isoX(blX, blZ), isoY(brX, brZ) - isoY(blX, blZ));
+    const verticalScreenPx = (tlY - blY) / WORLD_Y_PER_LIFT_PIXEL;
+    expect(horizontalScreenPx).toBeCloseTo(verticalScreenPx, 4);
+    expect(horizontalScreenPx).toBeCloseTo(2, 4); // spans -1..1 = 2 "px"
   });
 });
 
@@ -211,7 +246,7 @@ describe('writeTracerInstances', () => {
     for (let v = 0; v < 4; v++) expect(out.alphas[v]).toBeCloseTo(1, 10);
   });
 
-  it('stops at capacity rather than overrunning the output buffers', () => {
+  it('never writes more quads than the output buffer has room for', () => {
     const tracers: TracerModel[] = [
       spawnTracer(0, 0, 1, 0, 0),
       spawnTracer(0, 0, 1, 0, 0),
@@ -219,6 +254,26 @@ describe('writeTracerInstances', () => {
     ];
     const out = tBuffers(2);
     expect(writeTracerInstances(tracers, ['#FFFFFF', '#FFFFFF'], out)).toBe(2);
+  });
+
+  it('over capacity, drops the OLDEST tracers and keeps the newest -- not the reverse', () => {
+    // tracers is spawn-ordered (oldest at index 0, matching Array.push spawn
+    // order and stepTracers's own order-preserving filter). Distinct sx per
+    // tracer stands in for "which shot this is". Each kept quad's own s0.x
+    // is re-derived by calling the SAME pure tracerQuadPositions -- already
+    // independently tested above -- rather than assuming its exact value,
+    // so this only asserts what writeTracerInstances itself decides: WHICH
+    // tracers survive, not what their geometry looks like.
+    const tracers: TracerModel[] = [0, 1, 2, 3, 4].map((sx) => spawnTracer(sx, 0, sx + 1, 0, 0));
+    const expectedS0x = tracers.map((t) => tracerQuadPositions(t)[0]);
+    const out = tBuffers(3);
+    const count = writeTracerInstances(tracers, ['#FFFFFF', '#FFFFFF'], out);
+    expect(count).toBe(3);
+    const keptS0x = [0, 1, 2].map((i) => out.positions[i * 12]);
+    // The newest three (index 2, 3, 4 -- sx 2..4) must be present, in
+    // order; the oldest two (index 0, 1) must not -- a `break`-at-capacity
+    // implementation keeps index 0,1,2 instead and fails this.
+    expect(keptS0x).toEqual([expectedS0x[2], expectedS0x[3], expectedS0x[4]]);
   });
 });
 
@@ -231,9 +286,22 @@ describe('tracerIndexBuffer', () => {
 });
 
 describe('TRACER_CAPACITY', () => {
-  it('is a fixed, positive ceiling (Pixi\'s own tracer array is unbounded; an InstancedMesh/BufferGeometry cannot be)', () => {
-    expect(TRACER_CAPACITY).toBeGreaterThan(0);
-    expect(Number.isInteger(TRACER_CAPACITY)).toBe(true);
+  it('is the actual truncation bound writeTracerInstances enforces -- not a number that merely sits nearby', () => {
+    // A vacuous ">0 and integer" check would still pass if TRACER_CAPACITY
+    // were changed to a value that no longer matched what writeTracerInstances
+    // (called via its own default-sized buffers) actually allows through --
+    // this ties the exported constant to that real, observable behaviour:
+    // TRACER_CAPACITY + 5 live tracers must truncate to EXACTLY
+    // TRACER_CAPACITY, no more and no fewer.
+    const tracers: TracerModel[] = Array.from({ length: TRACER_CAPACITY + 5 }, (_, i) =>
+      spawnTracer(i, 0, i + 1, 0, 0)
+    );
+    const out: TracerInstanceBuffers = {
+      positions: new Float32Array(TRACER_CAPACITY * 4 * 3),
+      colors: new Float32Array(TRACER_CAPACITY * 4 * 3),
+      alphas: new Float32Array(TRACER_CAPACITY * 4),
+    };
+    expect(writeTracerInstances(tracers, ['#FFFFFF', '#FFFFFF'], out)).toBe(TRACER_CAPACITY);
   });
 });
 
@@ -257,15 +325,54 @@ describe('ParticleInstancer construction', () => {
     expect(instancer.mesh.count).toBe(0);
   });
 
-  it('the particle material is transparent, depth-tested, depth-written and single-sided', () => {
+  it('the particle material is transparent and depth-tested, but NOT depth-written, and single-sided', () => {
+    // depthWrite: false is the round-2 fix -- particles are inherently
+    // translucent (alpha_over_life fades by design), and a depth-WRITING
+    // particle would depth-reject an overlapping one instead of letting the
+    // two blend, which is exactly what a dense burst (catastrophic_kill's
+    // 18-26 overlapping discs) needs. depthTest stays true: that is what
+    // keeps occlusion against opaque, depth-writing terrain/buildings intact
+    // regardless of what FX does with its own depth buffer writes.
     const instancer = new ParticleInstancer(4);
     const material = instancer.mesh.material;
     expect(Array.isArray(material)).toBe(false);
     const m = material as THREE.Material;
     expect(m.transparent).toBe(true);
     expect(m.depthTest).toBe(true);
-    expect(m.depthWrite).toBe(true);
+    expect(m.depthWrite).toBe(false);
     expect(m.side).toBe(THREE.FrontSide);
+  });
+
+  it('draws after every unit via an explicit renderOrder, not an accident of construction order', () => {
+    // With depthWrite off, the depth buffer no longer arbitrates FX-vs-unit
+    // order -- this renderOrder is the declared replacement. UnitInstancer
+    // never sets renderOrder, so its default is three.js's own default (0);
+    // FX must sort strictly after that.
+    const instancer = new ParticleInstancer(4);
+    expect(instancer.mesh.renderOrder).toBeGreaterThan(0);
+  });
+
+  it('writes correct per-instance position and scale into the instance matrix, not merely the right count', () => {
+    // mesh.count being right does not prove setMatrixAt wrote the right
+    // transform -- an instance could be counted but placed at the origin,
+    // or scaled wrong, and every existing test would still pass.
+    const instancer = new ParticleInstancer(4);
+    const ps = new ParticleSystem(4, () => '#FFFFFF');
+    // size_px 5, magnitude 1 -> scale = 0.75 + 1*1.25 = 2 -> radius 10.
+    ps.spawn(makeSpec({ size_px: 5 }), 3, 7, 0, 1, 5, 0);
+    instancer.update(ps);
+    const m = new THREE.Matrix4();
+    instancer.mesh.getMatrixAt(0, m);
+    const pos = new THREE.Vector3();
+    const quat = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    m.decompose(pos, quat, scale);
+    expect(pos.x).toBeCloseTo(3, 5);
+    expect(pos.z).toBeCloseTo(7, 5);
+    expect(pos.y).toBeCloseTo(PARTICLE_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL, 5);
+    expect(scale.x).toBeCloseTo(10, 5);
+    expect(scale.y).toBeCloseTo(10, 5);
+    expect(scale.z).toBeCloseTo(10, 5);
   });
 
   it('mesh is exempt from frustum culling -- particles range across the whole map, not near the origin', () => {
@@ -282,16 +389,25 @@ describe('TracerBatch construction', () => {
     expect(batch.mesh.geometry.drawRange.count).toBe(6); // one quad = 6 indices
   });
 
-  it('the tracer material is transparent, depth-tested, depth-written and double-sided', () => {
+  it('the tracer material is transparent and depth-tested, but NOT depth-written, and double-sided', () => {
+    // depthWrite: false for the same reason as ParticleInstancer's material
+    // -- a tracer fades over its lifetime (tracerAlpha) exactly like a
+    // particle does, and two crossing tracers should blend rather than
+    // depth-reject one of them.
     const batch = new TracerBatch(4);
     const m = batch.mesh.material;
     expect(m.transparent).toBe(true);
     expect(m.depthTest).toBe(true);
-    expect(m.depthWrite).toBe(true);
+    expect(m.depthWrite).toBe(false);
     // Double-sided deliberately -- see fx.ts's own doc comment on
     // createTracerMaterial for why a per-frame, arbitrary-bearing quad
     // cannot reuse the fixed, once-proven winding units/particles rely on.
     expect(m.side).toBe(THREE.DoubleSide);
+  });
+
+  it('draws after every unit via an explicit renderOrder, matching ParticleInstancer', () => {
+    const batch = new TracerBatch(4);
+    expect(batch.mesh.renderOrder).toBeGreaterThan(0);
   });
 
   it('mesh is exempt from frustum culling, matching ParticleInstancer/UnitInstancer', () => {

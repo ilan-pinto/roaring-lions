@@ -709,14 +709,24 @@ export class ThreeRenderer implements Renderer {
    * empty and stays empty until Task B3.14 pushes onto it, and `stepTracers`
    * (`units/tracers.ts`) is total over an empty array.
    *
-   * Called after `updateUnits`, but the ORDER between the two does not
-   * matter for what ends up on screen: three.js sorts every transparent
-   * object into its own render pass independent of scene-graph or call
-   * order, and depth resolution between them comes from the shared
-   * `transparent + depthTest + depthWrite` recipe every one of
-   * units/particles/tracers/terrain uses (`units/fx.ts`'s own top comment
-   * has the full account) -- not from which `update*` method happened to run
-   * first this frame.
+   * Called after `updateUnits`, but the ORDER between the two calls does not
+   * matter for what ends up on screen -- NOT because three.js sorts by true
+   * proximity (an earlier version of this comment claimed that; it does not:
+   * every mesh here sits at its own untransformed origin, so three.js's
+   * transparent-list sort ties on `z` for all of them and falls through to
+   * `renderOrder` then insertion `id`). It does not matter because
+   * `units/fx.ts`'s two FX meshes are given an explicit `renderOrder`
+   * strictly above every unit's default -- a declared choice ("draw FX after
+   * every unit"), not a rediscovery of depth. `units/fx.ts`'s own top
+   * comment has the full account, including the fix this replaced: without
+   * that explicit `renderOrder`, FX-vs-unit draw order was an ACCIDENT of
+   * which class's constructor three.js happened to run first, not a design.
+   * Occlusion against terrain/buildings is unaffected by any of this --
+   * that still comes from real `depthTest` against opaque, depth-writing
+   * geometry, independent of `renderOrder` or of FX's own `depthWrite`
+   * (`false` for both FX materials, unlike units' `true` -- see
+   * `units/fx.ts` for why particles specifically need to blend rather than
+   * depth-reject their own overlaps).
    */
   private updateFx(dtMs: number): void {
     const dtSeconds = this.frameDtSeconds(dtMs);
