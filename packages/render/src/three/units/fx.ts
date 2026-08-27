@@ -379,11 +379,20 @@ export const PARTICLE_CAPACITY = 2048;
  * `TRACER_LIFETIME_S` (150 ms) times a deliberately generous fire cadence
  * (5 shots/s per shooter, well above any authored weapon's real rate) times
  * the GDD's 300-unit target gives ~225 concurrent tracers in the worst
- * physically-plausible case; 512 leaves better than 2x headroom over that
- * without being large enough to matter for the one draw call's vertex count
- * (512 * 4 verts = 2048, the same order of magnitude as the particle pool).
+ * physically-plausible case -- but Task B3.14 measured a real firefight
+ * (`beit_sahwan_2_foothold`, roughly a dozen shooters) at 268-270 CONCURRENT
+ * tracers, already past that estimate with a tenth of the unit count. 512
+ * looked like >2x headroom over the analytical estimate and was actually
+ * under 2x over the measured one; at 300 units it would silently drop most
+ * long-flight tracers (overflow evicts oldest first, so the truncation is
+ * quiet -- Task B3.11's 300-unit gate would measure a renderer quietly doing
+ * less work than a correct one). Raised to 4096 for that gate: comfortably
+ * above the measured 270 even after scaling shooters by another order of
+ * magnitude, and still cheap -- 4096 * 4 verts = 16384, four times the
+ * particle pool's vertex count but still hundreds of KB, not MB, for a
+ * `Float32Array` of positions/colors/alphas.
  */
-export const TRACER_CAPACITY = 512;
+export const TRACER_CAPACITY = 4096;
 
 /** Screen-pixel lift a particle draws at above flat ground, matching
  *  `particles.ts`'s own `draw()`: `isoY(x, y) - 3`. See this file's top
