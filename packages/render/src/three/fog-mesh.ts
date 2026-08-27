@@ -41,13 +41,20 @@
  * Pixi's `fogG` gets for free by being the last thing painted, with no depth
  * buffer to argue with it at all.
  *
- * `FOG_RENDER_ORDER` (`units/render-order.ts`) is one band above
- * `FX_RENDER_ORDER_ABOVE` -- above every FX tier, not merely above units --
- * because a BELOW-tier particle (`tunnel_collapse`, genuinely depth-tested
- * against terrain) must not shine through fog covering the ground it was
- * spawned into either. Pixi's own container order agrees: `fxG` is added to
- * `world` before `fogG` (`renderer.ts:530` vs. `:551`), so fog already sat
- * above every Pixi FX layer, not only above units.
+ * `FOG_RENDER_ORDER` (`units/render-order.ts`) sits above every FX tier, not
+ * merely above units, because a BELOW-tier particle (`tunnel_collapse`,
+ * genuinely depth-tested against terrain) must not shine through fog
+ * covering the ground it was spawned into either. Pixi's own container
+ * order agrees: `fxG` is added to `world` before `fogG` (`renderer.ts:540`
+ * vs. `:551`), so fog already sat above every Pixi FX layer, not only above
+ * units.
+ *
+ * It is not literally the very next band above `FX_RENDER_ORDER_ABOVE`
+ * (`units/render-order.ts` reserves bands 4-9 as headroom for Phase C's
+ * overlay tier and puts `FOG_RENDER_ORDER` at 10, not 4, to leave that tier
+ * room underneath fog rather than above it) -- but "above every FX tier" is
+ * a statement about ORDER, not about exactly how many bands separate the
+ * two, and stays true regardless of the gap's width.
  */
 import * as THREE from 'three';
 import { pushPolygon, hexToUnit } from './terrain/shared';
