@@ -96,7 +96,7 @@ import type { Renderer, RendererOptions } from '../api'; // both, after Step 2
 import { WORLD_Y_PER_LIFT_PIXEL, type Camera } from '../project';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
 import { SIM_HZ } from '../anim';
-import { parseManifest, clipOrFallback, type SheetSpec } from '../sheet';
+import { parseManifest, parseStructureManifest, clipOrFallback, type SheetSpec } from '../sheet';
 import type { UnitAnimInput } from '../clip';
 import { dimetricCamera, worldToScreenThree, screenToWorldThree } from './camera';
 import { applyPalettePipeline } from './palette-material';
@@ -112,6 +112,15 @@ import { UnitInstancer, TURRET_RENDER_ORDER } from './units/instances';
 import { pickUnit as pickUnitPure, unitsInScreenRect as unitsInScreenRectPure } from './units/pick';
 import { stepTracers, spawnTracer, type TracerModel } from './units/tracers';
 import { ParticleInstancer, TracerBatch, PARTICLE_CAPACITY, TRACER_CAPACITY } from './units/fx';
+import {
+  StructureInstancer,
+  loadStructureFrame,
+  structureBillboardGeometry,
+  maskArtedStructures,
+  liveStructurePlacements,
+  deadStructurePlacements,
+  resolveRoofPx,
+} from './units/structures';
 import { groundWorldY } from './ground-height';
 import { tileHash } from '../tile-hash';
 
@@ -195,8 +204,15 @@ export class ThreeRenderer implements Renderer {
    *
    * One bag rather than several fields on purpose: it keeps what B2/B3/B4
    * inherit visible at a glance. Terrain (`decor`, `elevation`) is read by
-   * `rebuildTerrain` below whenever `terrainDirty` is set; the two sheet maps
-   * and the tutorial focus ring are B3's -- still retained only, not drawn.
+   * `rebuildTerrain` below whenever `terrainDirty` is set; the tutorial focus
+   * ring is still B3's own retained-only state. `unitSheets` stays
+   * retained-only too (`loadSprites` builds its `UnitInstancer` straight from
+   * its own arguments, never reads this map back). `structureSheets`
+   * graduated out of "retained only" in Task B3.7: `loadStructureSprite` now
+   * builds real `StructureInstancer`s from it (`structureIdle`/
+   * `structureWreck` below); the map itself survives only as the bookkeeping
+   * `loadStructureSprite` already kept before that task, unread by anything
+   * new.
    *
    * The emitter list and its palette resolver used to live here too
    * (`emitters`, `resolveColor`), retained-only, until B3.13 wired them into
@@ -322,6 +338,37 @@ export class ThreeRenderer implements Renderer {
    * the has-a-turret gate" shape `EntityFrameInput.turretSheet` uses.
    */
   private readonly turretInstancers = new Map<string, UnitInstancer>();
+
+  /**
+   * Task B3.7: one `StructureInstancer` per structure TYPE with a loaded
+   * idle sheet, keyed by the structure type id `loadStructureSprite` was
+   * called with -- the same key `structureAtlas.has(stype.id)` gates on in
+   * Pixi (`renderer.ts:1488`). Presence in this map is exactly "does this
+   * type have art" for every purpose that question matters here:
+   * `rebuildTerrain`'s `maskArtedStructures` call (skip the box), and
+   * `updateStructures` below (draw the billboard instead).
+   */
+  private readonly structureIdle = new Map<string, StructureInstancer>();
+  /**
+   * A SECOND `StructureInstancer` per structure type whose sheet declared a
+   * `wreckFile` -- absent for a type with none (`BLD_WALL` today), matching
+   * Pixi's own `if (!art?.wreckTexture) continue` in `drawWreckedStructures`.
+   * Drawn from live `Sim` state every frame by `updateStructures`, not from
+   * the `terrainDirty`-gated terrain mesh -- see that method's own doc
+   * comment for why: `structureDestroyed` stays unwired into `onEvents`
+   * until Task B3.9, so nothing else would ever tell a wreck to appear.
+   */
+  private readonly structureWreck = new Map<string, StructureInstancer>();
+  /**
+   * `roofTopPx`/`badgeTopPx` per structure type with a loaded idle sheet --
+   * what `updateUnits`'s garrison `roofPx` now prefers over the type's own,
+   * squatter `heightPx`, closing the gap B3.3's review measured (see
+   * `resolveRoofPx`'s own doc comment in `units/structures.ts`). A type with
+   * no entry here falls back to `heightPx` exactly as it did before this
+   * task -- `resolveRoofPx(undefined, heightPx)`.
+   */
+  private readonly structureRoofArt = new Map<string, { roofTopPx: number | null; badgeTopPx: number | null }>();
+
   /** Reused across frames (`.length = 0` each `frame()`, not reallocated) --
    *  every living entity's `EntityFrame` this tick, grouped by its unit
    *  type id, the shape `UnitInstancer.update` consumes. `stepDeaths` also
@@ -479,6 +526,10 @@ export class ThreeRenderer implements Renderer {
     this.unitInstancers.clear();
     for (const instancer of this.turretInstancers.values()) instancer.dispose();
     this.turretInstancers.clear();
+    for (const instancer of this.structureIdle.values()) instancer.dispose();
+    this.structureIdle.clear();
+    for (const instancer of this.structureWreck.values()) instancer.dispose();
+    this.structureWreck.clear();
     this.particleInstancerBelow.dispose();
     this.particleInstancerAbove.dispose();
     this.tracerBatch.dispose();
@@ -513,6 +564,7 @@ export class ThreeRenderer implements Renderer {
       this.terrainDirty = false;
     }
     this.updateUnits(alpha, dtMs);
+    this.updateStructures();
     this.updateFx(dtMs);
     this.renderer.render(this.scene, this.threeCamera());
   }
@@ -1050,9 +1102,82 @@ export class ThreeRenderer implements Renderer {
       }
     }
   }
+  /**
+   * Task B3.7: load a structure type's idle sprite (and its wreck sprite,
+   * when the sheet declares one) and build the `StructureInstancer`(s) they
+   * draw through. Mirrors `PixiRenderer.loadStructureSprite` (`renderer.ts:
+   * 654-668`) in what it fetches and what it derives from the manifest, but
+   * builds real GPU objects rather than a single `structureAtlas` entry --
+   * `structureIdle`/`structureWreck` (one `InstancedMesh` each) are this
+   * backend's equivalent, per Ruling 1 (one draw call per type).
+   *
+   * `terrainDirty = true` at the end matters here in a way it does not for
+   * `loadSprites`: `rebuildTerrain`'s own `maskArtedStructures` call reads
+   * `this.structureIdle` to decide which structures' tiles `buildBuildings`
+   * should skip, so a structure's FIRST successful art load has to trigger a
+   * rebuild or its footprint would keep drawing a box underneath (or beside)
+   * the sprite this method just added to the scene. A LATER re-load (not
+   * exercised by any real caller -- `main.ts`'s `STRUCTURE_SPRITES` is
+   * static, same as `loadSprites`'s own `SPRITE_MAP`) sets it again
+   * harmlessly: the mask would compute the identical result.
+   *
+   * Errors propagate rather than being swallowed, matching `loadSprites`:
+   * `main.ts` already wraps every `loadStructureSprite` call in its own
+   * `.catch` per structure type, and a type whose art fails to load simply
+   * never gains an entry in `structureIdle` -- `maskArtedStructures`'s
+   * `hasArt` predicate (`this.structureIdle.has(id)`) is exactly "art
+   * actually loaded", not "art was attempted", so a failed load correctly
+   * keeps the procedural box for that type rather than silently drawing
+   * neither a box nor a sprite.
+   */
   async loadStructureSprite(structureId: string, basePath: string): Promise<void> {
     this.retained.structureSheets.set(structureId, basePath);
-    await Promise.resolve();
+    const res = await fetch(`${basePath}manifest.json`);
+    if (!res.ok) throw new Error(`structure manifest ${res.status} at ${basePath}`);
+    const spec = parseStructureManifest(await res.json());
+
+    const idleFrame = await loadStructureFrame(basePath, spec.file);
+    const idleGeometry = structureBillboardGeometry(spec.scale, idleFrame.width, idleFrame.height);
+    // Every structure of this type, alive or dead, is a safe capacity bound
+    // for either instancer -- `sim.structureCount` is already final by now
+    // (`main.ts` adds every map structure before kicking off any art load),
+    // the same bound reasoning `UnitInstancer` uses for `sim.capacity`.
+    const capacity = this.sim.structureCount;
+    const idleInstancer = new StructureInstancer(idleFrame.texture, idleGeometry, capacity);
+    const previousIdle = this.structureIdle.get(structureId);
+    if (previousIdle) {
+      this.scene.remove(previousIdle.mesh);
+      previousIdle.dispose();
+    }
+    this.structureIdle.set(structureId, idleInstancer);
+    this.scene.add(idleInstancer.mesh);
+
+    if (spec.wreckFile) {
+      const wreckFrame = await loadStructureFrame(basePath, spec.wreckFile);
+      const wreckGeometry = structureBillboardGeometry(spec.scale, wreckFrame.width, wreckFrame.height);
+      const wreckInstancer = new StructureInstancer(wreckFrame.texture, wreckGeometry, capacity);
+      const previousWreck = this.structureWreck.get(structureId);
+      if (previousWreck) {
+        this.scene.remove(previousWreck.mesh);
+        previousWreck.dispose();
+      }
+      this.structureWreck.set(structureId, wreckInstancer);
+      this.scene.add(wreckInstancer.mesh);
+    } else {
+      // A re-load that DROPS a previously-declared wreckFile (not exercised
+      // by any real caller today) must not leave a stale wreck mesh drawing
+      // for a type that no longer declares one -- same guard `loadSprites`
+      // applies to a dropped `turretPath`.
+      const staleWreck = this.structureWreck.get(structureId);
+      if (staleWreck) {
+        this.scene.remove(staleWreck.mesh);
+        staleWreck.dispose();
+        this.structureWreck.delete(structureId);
+      }
+    }
+
+    this.structureRoofArt.set(structureId, { roofTopPx: spec.roofTopPx, badgeTopPx: spec.badgeTopPx });
+    this.terrainDirty = true;
   }
 
   /**
@@ -1153,14 +1278,19 @@ export class ThreeRenderer implements Renderer {
       const inside = st.garrisonedIn[i];
       let roofPx = 0;
       if (inside >= 0) {
-        // The roof plane, not the top of the art -- `terrain/buildings.ts`'s
-        // own extrusion height, `heightPx`. ThreeRenderer has no structure
-        // sprite atlas yet (structures still draw as procedural boxes), so
-        // there is no `roofTopPx`/`badgeTopPx` to prefer the way Pixi does
-        // when art is loaded -- `heightPx` is this backend's only answer,
-        // not a fallback among several.
+        // Task B3.7: the roof plane, not the top of the art -- and now the
+        // sheet's own `roofTopPx`/`badgeTopPx` when this structure type has
+        // loaded art, exactly like Pixi's `sArt?.roofTopPx ?? sArt?.badgeTopPx
+        // ?? stype.heightPx` (`renderer.ts:1948-1950`). `structureRoofArt` has
+        // no entry for a type with no loaded sheet (or one that failed to
+        // load), so `resolveRoofPx` falls back to `terrain/buildings.ts`'s
+        // own extrusion height, `heightPx`, exactly as this backend's only
+        // answer used to be unconditionally. Closes the gap B3.3's review
+        // measured (house +2.81, apartment +3.92, mosque +1.79, warehouse
+        // +0.94, wall +0.43 world units of unwanted lift) -- see
+        // `resolveRoofPx`'s own doc comment in `units/structures.ts`.
         const sType = this.sim.structureTypes[this.sim.structures.typeIdx[inside]];
-        roofPx = sType.heightPx;
+        roofPx = resolveRoofPx(this.structureRoofArt.get(sType.id), sType.heightPx);
       }
 
       // Task B3.6: turret aim target, ported from renderer.ts:2113-2123 --
@@ -1448,15 +1578,25 @@ export class ThreeRenderer implements Renderer {
    * snapshot, so a destroyed structure's box keeps standing on screen for
    * exactly the reason its ground tile keeps reading as blocked above --
    * `structureAt` would already report -1 for it (Sim truth is correct
-   * immediately), but nothing tells this renderer to ask again. And even
-   * once something does: B2.7 deliberately does NOT port `drawWreckedStructures`
-   * (`renderer.ts:1759-1783`, a `Sprite` from `art.wreckTexture`) or invent a
-   * rubble block to stand in for it -- "no structure sprites" is this plan's
-   * own scope line, and inventing art is not porting. So a rebuilt
-   * three.js terrain will make a destroyed structure's box disappear
-   * outright (its tiles are unblocked, so the tile loop never reaches them),
-   * with no rubble left behind where Pixi would show one. Both gaps are
-   * B3's to close together, the same way `onEvents` itself is.
+   * immediately), but nothing tells this renderer to ask again.
+   *
+   * Task B3.7 closes the SPRITE half of that gap without touching `onEvents`
+   * at all: `structureIdle`/`structureWreck` (`updateStructures`, called from
+   * `frame()` every frame, not gated on `terrainDirty`) read live `Sim` state
+   * directly, so a structure's wreck sprite appears -- and a living one's
+   * battle-damage alpha darkens -- the instant `Sim` says so, regardless of
+   * how stale this method's own box/ground mesh is. `buildBuildings` itself
+   * still reads the SAME stale-until-rebuilt snapshot the paragraph above
+   * describes (a destroyed, un-arted structure's box still does not
+   * disappear promptly; a destroyed, ARTED structure's tiles -- already
+   * masked out of `buildBuildings`' input the moment its art first loaded,
+   * see `maskArtedStructures` below -- never drew a box in the first place,
+   * so there is nothing stale to disappear there either). The ground tone
+   * gap (`underBuilding` wash not reverting to open ground on death) is
+   * unaffected either way: `buildGround` reads the ORIGINAL, unmasked
+   * `input`, never the `buildingsInput` this method builds for
+   * `buildBuildings` alone. Both remaining staleness gaps are still B3.9's,
+   * not this task's -- see `onEvents`'s own doc comment.
    */
   private rebuildTerrain(): void {
     if (this.terrainMesh) {
@@ -1495,8 +1635,19 @@ export class ThreeRenderer implements Renderer {
     this.groveMesh = new THREE.Mesh(toGeometry(groveData), this.terrainMat);
     this.scene.add(this.groveMesh);
 
+    // Task B3.7: buildBuildings alone gets a `blocked` array with every
+    // tile of a LIVE, ARTED structure zeroed out -- `buildGround`/
+    // `buildScatter`/`buildGroves` above all read the ORIGINAL `input`,
+    // unmodified, so the ground tone under an arted structure is painted
+    // exactly as it always was (see `units/structures.ts`'s own top comment,
+    // "The ground tone needs no separate handling here"). `hasArt` is
+    // "this structure type has a loaded idle sheet" -- `structureIdle.has`,
+    // never merely "a load was attempted" (see `loadStructureSprite`'s own
+    // doc comment on why that distinction matters for a failed load).
+    const buildingsBlocked = maskArtedStructures(this.sim, (id) => this.structureIdle.has(id));
+    const buildingsInput: TerrainInput = { ...input, blocked: buildingsBlocked };
     const buildingData = buildBuildings(
-      input,
+      buildingsInput,
       structureFootprintsFor(this.sim),
       this.opts.terrainTones,
       this.opts.resolveColor,
@@ -1504,6 +1655,41 @@ export class ThreeRenderer implements Renderer {
     );
     this.buildingMesh = new THREE.Mesh(toGeometry(buildingData), this.terrainMat);
     this.scene.add(this.buildingMesh);
+  }
+
+  /**
+   * Task B3.7: per-frame idle/wreck billboard placement for every structure
+   * type with a loaded sheet -- the sprite counterpart to `updateUnits`, and
+   * deliberately driven off LIVE `Sim` state every frame rather than the
+   * `terrainDirty`-gated box/ground mesh `rebuildTerrain` owns.
+   *
+   * That is load-bearing, not merely convenient: `onEvents` stays barred
+   * from reacting to `structureHit`/`structureDestroyed` until Task B3.9
+   * makes the terrain rebuild incremental (this class's own top comment, and
+   * `rebuildTerrain`'s own doc comment on the 114-179ms full-rebuild cost a
+   * naive per-damage-event wiring would pay). If a structure's wreck sprite
+   * only ever refreshed on `terrainDirty`, it would never appear at all
+   * during a real mission -- nothing sets `terrainDirty` again after the
+   * last sheet finishes loading at boot. Reading `Sim` fresh here instead
+   * means a living structure's battle-damage alpha darkens in real time and
+   * its wreck appears the instant `Sim` marks it dead, without wiring
+   * `onEvents` or touching the terrain mesh at all -- and it is, in this one
+   * respect, MORE responsive than Pixi, which only refreshes either at the
+   * same `terrainDirty`-style granularity (`drawTerrain` calls
+   * `drawWreckedStructures` itself, at the very end).
+   *
+   * Called unconditionally, like `updateUnits`/`updateFx` -- both maps start
+   * empty and simply have nothing to iterate before any sheet has loaded.
+   */
+  private updateStructures(): void {
+    if (this.structureIdle.size === 0 && this.structureWreck.size === 0) return;
+    const elevation = this.retained.elevation;
+    for (const [id, instancer] of this.structureIdle) {
+      instancer.update(liveStructurePlacements(this.sim, id, elevation));
+    }
+    for (const [id, instancer] of this.structureWreck) {
+      instancer.update(deadStructurePlacements(this.sim, id, elevation));
+    }
   }
 }
 
@@ -1517,11 +1703,19 @@ export class ThreeRenderer implements Renderer {
  * run) is NOT a filled rectangle, and `structureAt` is the one query that
  * already gets this right for every structure shape the sim has.
  *
- * Deliberately draws no distinction between a structure with sprite art
- * and one without: `structureAtlas` is Pixi-only state this class does not
- * have, and Task B2.7's ruling is that B2 draws the block form for EVERY
- * structure regardless -- so there is nothing here to filter on even if
- * there were a reason to.
+ * Still draws no distinction between a structure with sprite art and one
+ * without, even after Task B3.7 gave `ThreeRenderer` its own art atlas
+ * (`structureIdle`): this function's own JOB is "every living structure,
+ * unconditionally" -- `packages/app/src/terrain-parity.test.ts` relies on
+ * exactly that neutrality to prove `buildBuildings` boxes EVERY structure
+ * when handed an unfiltered snapshot, independent of whatever a real
+ * `ThreeRenderer` instance has or has not loaded. B3.7's actual filtering
+ * happens one level up, in `rebuildTerrain`: it still calls this function to
+ * get every footprint, then separately masks `buildingsInput.blocked` (via
+ * `maskArtedStructures`) so `buildBuildings`' own tile loop skips an arted
+ * structure's tiles before it ever asks which footprint claims them --
+ * `structureFootprintsFor`'s output ends up unused for those tiles, not
+ * altered.
  *
  * A demolished structure never appears: `structureAt` returns -1 the
  * moment `alive` drops to 0 (and `destroyStructure` unblocks its whole
