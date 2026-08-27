@@ -67,20 +67,23 @@
  * against the green theme's real tones, which is NOT constant across a
  * structure's own footprint the way the arid theme's happens to be.
  */
-import { WORLD_PER_LEVEL } from './ground';
 import { WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import { composite, quantise, groundTone, PALETTE_HEXES } from './tones';
 import { tileHash } from '../../tile-hash';
-import { screenOffsetToWorld } from './scatter';
 import { CLAMP_LIMIT, clampCenterToTile } from './clamp';
+import {
+  DECOR_RIDGE,
+  MARK_EPSILON,
+  WORLD_PER_LEVEL,
+  hexToUnit,
+  levelAt,
+  screenOffsetToWorld,
+  pushPolygon,
+} from './shared';
 import type { MeshData, TerrainInput } from './types';
 import type { TerrainTones } from '../../api';
 
 export type { MeshData, TerrainInput };
-
-/** Mirrors `TERRAIN_DECOR.ridge` / the redeclaration in every other terrain
- *  builder -- `@lions/render` must not depend on `@lions/data`. */
-const DECOR_RIDGE = 4;
 
 /** `renderer.ts:1375`'s `H`: wall height (screen px) for a blocked tile with
  *  no structure behind it -- a generic wall box rather than a hole. Reached
@@ -123,12 +126,6 @@ const CLUTTER_RADIUS_PX = 3;
 const CLUTTER_OFFSET_X_PX = 18;
 const CLUTTER_OFFSET_Y_PX = 8;
 
-/** Same reasoning and magnitude as `scatter.ts`/`grove.ts`'s own
- *  `MARK_EPSILON`: lifts the clutter mark off the roof plane it sits flat on
- *  so it does not z-fight the roof quad directly beneath it. Not exported
- *  from either sibling module, so redeclared here rather than imported. */
-const MARK_EPSILON = 0.01;
-
 /** One structure's worth of plain data, as `ThreeRenderer` assembles it from
  *  `Sim` -- the minimum this builder needs and nothing that would require it
  *  to import `Sim` itself: which tiles it occupies, its wall/roof height in
@@ -151,25 +148,6 @@ export interface StructureFootprint {
    *  so this builder never needs to know or convert that representation. */
   hp: number;
   maxHp: number;
-}
-
-function hexToUnit(hex: string): [number, number, number] {
-  const h = hex.charAt(0) === '#' ? hex.slice(1) : hex;
-  return [
-    parseInt(h.slice(0, 2), 16) / 255,
-    parseInt(h.slice(2, 4), 16) / 255,
-    parseInt(h.slice(4, 6), 16) / 255,
-  ];
-}
-
-/** Mirrors `ground.ts`'s private `levelAt` (redeclared in every terrain
- *  builder that needs it -- not exported there, and five lines is not worth
- *  widening that module's surface for). Elevation level (0-9) at `(x, y)`,
- *  or 0 off the map. */
-function levelAt(input: TerrainInput, x: number, y: number): number {
-  if (x < 0 || x >= input.width || y < 0 || y >= input.height) return 0;
-  if (!input.elevation) return 0;
-  return input.elevation[y * input.width + x];
 }
 
 /** `renderer.ts:1856`'s circle, as a 4-corner diamond, in the same
@@ -210,16 +188,7 @@ export function buildBuildings(
     p3: [number, number, number],
     color: [number, number, number],
     flip: boolean
-  ): void => {
-    const base = positions.length / 3;
-    for (const p of [p0, p1, p2, p3]) positions.push(p[0], p[1], p[2]);
-    for (let i = 0; i < 4; i++) colors.push(color[0], color[1], color[2]);
-    if (flip) {
-      indices.push(base + 0, base + 1, base + 2, base + 0, base + 2, base + 3);
-    } else {
-      indices.push(base + 0, base + 2, base + 1, base + 0, base + 3, base + 2);
-    }
-  };
+  ): void => pushPolygon(positions, colors, indices, [p0, p1, p2, p3], color, flip);
 
   const pushClutter = (x: number, y: number, roofY: number, rnd: number, colorHex: string): void => {
     const color = hexToUnit(colorHex);

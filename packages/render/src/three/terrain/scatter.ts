@@ -21,26 +21,28 @@
  * elongated in the direction `screenOffsetToWorld` sends "up the screen" --
  * it reads as a blade from the isometric view without literal 3D extrusion.
  */
-import { WORLD_PER_LEVEL, FACE_ALPHA_EAST, FACE_ALPHA_SOUTH } from './ground';
+import { FACE_ALPHA_EAST, FACE_ALPHA_SOUTH } from './ground';
 import { TILE_W, TILE_H, ELEV_STEP, isoX, isoY } from '../../project';
 import { composite, quantise, groundTone, PALETTE_HEXES } from './tones';
 import { tileHash } from '../../tile-hash';
 import { CLAMP_LIMIT, clampCenterToTile } from './clamp';
+import {
+  DECOR_ROAD,
+  DECOR_GROVE,
+  DECOR_KNOLL,
+  DECOR_RIDGE,
+  MARK_EPSILON,
+  WORLD_PER_LEVEL,
+  hexToUnit,
+  levelAt,
+  screenOffsetToWorld,
+  rectCorners as sharedRectCorners,
+  pushPolygon,
+} from './shared';
 import type { MeshData, TerrainInput } from './types';
 import type { TerrainTones } from '../../api';
 
 export type { MeshData, TerrainInput };
-
-/**
- * DECOR values this module reads. Mirrors `TERRAIN_DECOR` in renderer.ts and
- * the redeclaration in `tones.ts` -- see that file's doc comment for why this
- * is a redeclaration rather than an import (renderer.ts pulls in pixi.js at
- * module scope; `@lions/render` must not depend on `@lions/data`).
- */
-const DECOR_ROAD = 1;
-const DECOR_GROVE = 2;
-const DECOR_KNOLL = 3;
-const DECOR_RIDGE = 4;
 
 /**
  * Marks sit this far above their own tile's top, in world units, so they do
@@ -52,8 +54,9 @@ const DECOR_RIDGE = 4;
  * the orthographic depth range configured in `camera.ts` (near 0.1, far
  * 20,000, a 24-bit buffer) one buffer step is on the order of 0.0012 view
  * units, so 0.01 world units (0.005 of depth) clears it with room to spare.
+ * (`MARK_EPSILON` itself now lives in `shared.ts`, shared with `grove.ts`
+ * and `buildings.ts` -- this derivation is unchanged by that move.)
  */
-const MARK_EPSILON = 0.01;
 
 /**
  * A second, taller epsilon for a highlight mark that is meant to sit in
@@ -121,45 +124,6 @@ const SCREE_A_MIN = 0.1;
 const SCREE_A_MAX = 0.9;
 
 /**
- * World-space (x, y) offset from a tile centre that projects, via
- * `isoX`/`isoY`, to the given screen-pixel offset from that same tile's
- * screen centre. The exact inverse of the dimetric projection:
- *
- *   isoX(ddx, ddy) = (ddx - ddy) * TILE_W / 2
- *   isoY(ddx, ddy) = (ddx + ddy) * TILE_H / 2
- *
- * Solving that 2x2 system for (ddx, ddy) given (dx, dy) gives the two lines
- * below. This is what lets every Pixi scatter offset -- tuned by eye against
- * the screen-space tile diamond -- be fed straight through and land in the
- * same relative spot in three.js, at whatever height the tile itself stands
- * at.
- */
-export function screenOffsetToWorld(dx: number, dy: number): { dx: number; dy: number } {
-  return {
-    dx: dx / TILE_W + dy / TILE_H,
-    dy: dy / TILE_H - dx / TILE_W,
-  };
-}
-
-function hexToUnit(hex: string): [number, number, number] {
-  const h = hex.charAt(0) === '#' ? hex.slice(1) : hex;
-  return [
-    parseInt(h.slice(0, 2), 16) / 255,
-    parseInt(h.slice(2, 4), 16) / 255,
-    parseInt(h.slice(4, 6), 16) / 255,
-  ];
-}
-
-/** Mirrors `ground.ts`'s private `levelAt`: elevation level (0-9) at
- *  `(x, y)`, or 0 off the map. Not exported there, so redeclared here --
- *  five lines, not worth widening that module's surface for. */
-function levelAt(input: TerrainInput, x: number, y: number): number {
-  if (x < 0 || x >= input.width || y < 0 || y >= input.height) return 0;
-  if (!input.elevation) return 0;
-  return input.elevation[y * input.width + x];
-}
-
-/**
  * True if any of the 8 tiles surrounding `(x, y)` sits at a different
  * elevation level than `(x, y)` itself -- the one condition an unclamped
  * mark's containment actually needs to guard against (a mark floating over
@@ -216,18 +180,21 @@ function diamondCorners(rx: number, ry: number): readonly (readonly [number, num
  *  bottom-left in screen space (y-down), which traces the same clockwise
  *  sense. `topDy`/`botDy` let a mark be asymmetric about its own anchor (the
  *  sward blade, whose "blade" runs from the ground up rather than being
- *  centred on it). */
+ *  centred on it).
+ *
+ *  Thin wrapper around `shared.ts`'s `rectCorners(rMin, rMax, uMin, uMax)`
+ *  -- this module's own symmetric-half-width, screen-y-down convention is
+ *  the special case `rectCorners(-halfW, halfW, botDy, topDy)`, proven
+ *  identical to this module's pre-consolidation implementation by
+ *  `shared.test.ts`. Kept as a local wrapper (rather than rewriting every
+ *  call site below to the 4-bound form directly) so nothing here changes
+ *  except where the four corners come from. */
 function rectCorners(
   halfW: number,
   topDy: number,
   botDy: number
 ): readonly (readonly [number, number])[] {
-  return [
-    [-halfW, topDy],
-    [halfW, topDy],
-    [halfW, botDy],
-    [-halfW, botDy],
-  ];
+  return sharedRectCorners(-halfW, halfW, botDy, topDy);
 }
 
 export function buildScatter(input: TerrainInput, tones: TerrainTones, background: string): MeshData {
@@ -251,16 +218,7 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
     p3: [number, number, number],
     color: [number, number, number],
     flip: boolean
-  ): void => {
-    const base = positions.length / 3;
-    for (const p of [p0, p1, p2, p3]) positions.push(p[0], p[1], p[2]);
-    for (let i = 0; i < 4; i++) colors.push(color[0], color[1], color[2]);
-    if (flip) {
-      indices.push(base + 0, base + 1, base + 2, base + 0, base + 2, base + 3);
-    } else {
-      indices.push(base + 0, base + 2, base + 1, base + 0, base + 3, base + 2);
-    }
-  };
+  ): void => pushPolygon(positions, colors, indices, [p0, p1, p2, p3], color, flip);
 
   /**
    * Pushes one flat ground-plane mark: a centre at screen-pixel offset

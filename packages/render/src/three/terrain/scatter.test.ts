@@ -8,8 +8,8 @@
  * protect against.
  */
 import { describe, it, expect } from 'vitest';
-import { buildScatter, screenOffsetToWorld, HIGHLIGHT_EPSILON, FACE_BAND_HALF_Y } from './scatter';
-import { WORLD_PER_LEVEL } from './ground';
+import { buildScatter, HIGHLIGHT_EPSILON, FACE_BAND_HALF_Y } from './scatter';
+import { WORLD_PER_LEVEL, screenOffsetToWorld } from './shared';
 import { PALETTE_HEXES } from './tones';
 import { VIEW_DIRECTION } from '../camera';
 import { TILE_W, TILE_H, ELEV_STEP, isoX, isoY } from '../../project';

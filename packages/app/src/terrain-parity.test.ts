@@ -73,7 +73,6 @@ import {
   structures as structureCatalogue,
   paletteColor,
   type MapId,
-  type TerrainTheme,
 } from '@lions/data';
 import type { TerrainTones } from '@lions/render';
 import {
@@ -83,12 +82,15 @@ import {
   buildBuildings,
   PALETTE_HEXES,
   WORLD_PER_LEVEL,
+  levelAt,
   type TerrainInput,
   type MeshData,
   type StructureFootprint,
 } from '@lions/render/terrain';
 import { worldToScreen, TILE_W, TILE_H, ELEV_STEP, type Camera, type Viewport } from '@lions/render/project';
 import { worldToScreenThree } from '@lions/render/three-camera';
+import { structureFootprintsFor } from '@lions/render/three';
+import { TERRAIN_THEMES } from './terrain-themes';
 
 // --- world setup: the same steps main.ts takes to go from map JSON to a
 // live Sim, minus everything terrain does not need (missions, tunnels,
@@ -97,95 +99,14 @@ import { worldToScreenThree } from '@lions/render/three-camera';
 // `document`/`window` -- so the pieces terrain cares about are reproduced
 // here rather than shared. ------------------------------------------------
 
-/**
- * Terrain tones by theme, copied verbatim from `main.ts` (lines ~480-545 at
- * the time of writing) rather than imported, for the reason above. Every
- * shipped map's `terrain` field is `'arid'` or `'green'` (checked below),
- * so this Record stays total without needing a third entry.
- */
-const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
-  arid: {
-    open: paletteColor('limestone.3'),
-    cover: [paletteColor('limestone.2'), paletteColor('dust.1'), paletteColor('dust.0')],
-    blocked: paletteColor('limestone.4'),
-    underBuilding: paletteColor('shadow.0'),
-    road: paletteColor('dust.3'),
-    rut: paletteColor('dust.5'),
-    rock: paletteColor('limestone.6'),
-    rockLit: paletteColor('limestone.3'),
-    earth: paletteColor('terracotta.2'),
-    low: paletteColor('olive.1'),
-    trunk: paletteColor('dust.5'),
-    trunkLit: paletteColor('dust.3'),
-    leafDark: paletteColor('olive.2'),
-    leafMid: paletteColor('olive.1'),
-    leafLit: paletteColor('olive.0'),
-    bladeLit: paletteColor('limestone.2'),
-    bladeShade: paletteColor('limestone.5'),
-    spoil: paletteColor('terracotta.1'),
-    crownRatio: 0.52,
-    scatter: 'stone',
-  },
-  green: {
-    open: paletteColor('grass.2'),
-    cover: [paletteColor('grass.4'), paletteColor('scrub.0'), paletteColor('scrub.1')],
-    blocked: paletteColor('limestone.4'),
-    underBuilding: paletteColor('shadow.0'),
-    road: paletteColor('dust.4'),
-    rut: paletteColor('dust.6'),
-    rock: paletteColor('limestone.6'),
-    rockLit: paletteColor('limestone.3'),
-    earth: paletteColor('dust.5'),
-    low: paletteColor('scrub.0'),
-    trunk: paletteColor('dust.5'),
-    trunkLit: paletteColor('dust.3'),
-    leafDark: paletteColor('scrub.1'),
-    leafMid: paletteColor('grass.4'),
-    leafLit: paletteColor('grass.2'),
-    bladeLit: paletteColor('grass.0'),
-    bladeShade: paletteColor('grass.4'),
-    spoil: paletteColor('dust.5'),
-    crownRatio: 1.5,
-    scatter: 'sward',
-  },
-};
+// `TERRAIN_THEMES` (Task B3.1: moved to `./terrain-themes`, shared with
+// `main.ts` -- both used to keep their own verbatim copy) and
+// `structureFootprintsFor` (Task B3.1: moved to `ThreeRenderer.ts`, the one
+// place `Sim` is legitimately turned into the plain-array snapshot
+// `buildBuildings` needs, and exported from there now that the file is no
+// longer off limits to edit) are imported above rather than declared here.
 
 const BACKGROUND = paletteColor('shadow.1');
-
-/**
- * Every LIVING structure as the plain-array snapshot `buildBuildings` needs.
- * Copied from `ThreeRenderer.private structureFootprints()` (which cannot be
- * imported: it is a private method, and `ThreeRenderer.ts` is off limits to
- * edit while a review runs over it) rather than reimplemented from scratch --
- * same walk, same reasoning: `structureAt` is the one query that already
- * gets a `per_tile` structure's shape right, where trusting
- * `structures.minX/maxX/minY/maxY` as a solid rectangle would not.
- */
-function structureFootprintsFor(sim: Sim): StructureFootprint[] {
-  const { width, height, structures: st, structureTypes } = sim;
-  const tilesByStructure = new Map<number, number[]>();
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const sIdx = sim.structureAt(x, y);
-      if (sIdx < 0) continue;
-      const tiles = tilesByStructure.get(sIdx);
-      if (tiles) tiles.push(y * width + x);
-      else tilesByStructure.set(sIdx, [y * width + x]);
-    }
-  }
-  const footprints: StructureFootprint[] = [];
-  for (const [sIdx, tiles] of tilesByStructure) {
-    const type = structureTypes[st.typeIdx[sIdx]];
-    footprints.push({
-      tiles,
-      heightPx: type.heightPx,
-      colorKey: type.color,
-      hp: st.hp[sIdx],
-      maxHp: st.maxHp[sIdx],
-    });
-  }
-  return footprints;
-}
 
 interface LoadedMap {
   parsedMap: ReturnType<typeof parseMap>;
@@ -296,15 +217,10 @@ function assertNonEmptyUnless(mesh: MeshData, key: string, label: string): void 
   }
 }
 
-/** Elevation level (0-9) at `(x, y)`, or 0 off the map -- mirrors every
- *  terrain builder's own private `levelAt`, redeclared here for the same
- *  reason they redeclare it from each other: five lines is not worth a
- *  shared export for. */
-function levelAt(input: TerrainInput, x: number, y: number): number {
-  if (x < 0 || x >= input.width || y < 0 || y >= input.height) return 0;
-  if (!input.elevation) return 0;
-  return input.elevation[y * input.width + x];
-}
+// `levelAt` (Task B3.1: moved to `packages/render/src/three/terrain/
+// shared.ts`, reached here through the `@lions/render/terrain` barrel) was
+// the fifth of five identical copies this task's inventory found -- the
+// other four were each terrain builder's own private redeclaration.
 
 /**
  * Two triangles per tile top, plus one side-face quad (two triangles) for

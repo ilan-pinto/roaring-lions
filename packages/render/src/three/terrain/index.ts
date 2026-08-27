@@ -48,6 +48,7 @@
  * the regression above.
  */
 export * from './types';
+export * from './shared';
 export * from './tones';
 export * from './ground';
 export * from './scatter';

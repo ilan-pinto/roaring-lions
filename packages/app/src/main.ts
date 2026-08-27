@@ -23,7 +23,6 @@ import {
   type RendererOptions,
   type AudioManifest,
   type EmitterSpec,
-  type TerrainTones,
   type Renderer,
 } from '@lions/render';
 import {
@@ -41,8 +40,8 @@ import {
   audioManifest,
   vfxEmitters,
   type MapJson,
-  type TerrainTheme,
 } from '@lions/data';
+import { TERRAIN_THEMES } from './terrain-themes';
 import './ui/theme.css';
 import { Hud, type MissionView, type Tone } from './ui/hud';
 import { showMenu, showCampaign, showEndScreen } from './ui/menu';
@@ -473,76 +472,11 @@ async function main(): Promise<void> {
   }
 
   // --- renderer + overlay --------------------------------------------------
-  // Terrain tones by theme. The arid bundle is byte-identical to the values that
-  // were hardcoded in drawTerrain -- drawTerrain has no tests, so "Beit Sahwan
-  // renders unchanged" is proven by these numbers not moving and by looking at it.
-  // Typing this as a Record makes a missing theme a compile error, not a test.
-  const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
-    arid: {
-      open: paletteColor('limestone.3'),
-      cover: [paletteColor('limestone.2'), paletteColor('dust.1'), paletteColor('dust.0')],
-      blocked: paletteColor('limestone.4'),
-      underBuilding: paletteColor('shadow.0'),
-      road: paletteColor('dust.3'),
-      rut: paletteColor('dust.5'),
-      rock: paletteColor('limestone.6'),
-      rockLit: paletteColor('limestone.3'),
-      earth: paletteColor('terracotta.2'),
-      low: paletteColor('olive.1'),
-      trunk: paletteColor('dust.5'),
-      trunkLit: paletteColor('dust.3'),
-      leafDark: paletteColor('olive.2'),
-      leafMid: paletteColor('olive.1'),
-      leafLit: paletteColor('olive.0'),
-      // The stone branch never reads these; the type is total, so it needs values.
-      bladeLit: paletteColor('limestone.2'),
-      bladeShade: paletteColor('limestone.5'),
-      // Spoil: freshly turned subsoil, redder and darker than anything the
-      // limestone surface shows, so a dig line reads as a wound in the ground.
-      spoil: paletteColor('terracotta.1'),
-      crownRatio: 0.52,
-      scatter: 'stone',
-    },
-    green: {
-      open: paletteColor('grass.2'),
-      // grass.3 is the blade-shade tone; a hedgerow in that same colour would not
-      // separate from the ground it sits on.
-      cover: [paletteColor('grass.4'), paletteColor('scrub.0'), paletteColor('scrub.1')],
-      // Buildings stay limestone. Stone in a green valley is correct, not a
-      // compromise, and it ties the village to the dry-stone terrace walls.
-      blocked: paletteColor('limestone.4'),
-      underBuilding: paletteColor('shadow.0'),
-      road: paletteColor('dust.4'),
-      rut: paletteColor('dust.6'),
-      // A knoll in the basin is a dry-stone terrace wall, so it stays limestone
-      // in both themes rather than becoming a green rock.
-      rock: paletteColor('limestone.6'),
-      rockLit: paletteColor('limestone.3'),
-      earth: paletteColor('dust.5'),
-      low: paletteColor('scrub.0'),
-      trunk: paletteColor('dust.5'),
-      trunkLit: paletteColor('dust.3'),
-      leafDark: paletteColor('scrub.1'),
-      leafMid: paletteColor('grass.4'),
-      leafLit: paletteColor('grass.2'),
-      bladeLit: paletteColor('grass.0'),
-      // grass.4, not grass.3. The shade blade sits on a grass.2 wash, and
-      // grass.3 is only 16 luma below it -- close enough that half the marks
-      // vanished and the sward read as a flat field with a few light flecks.
-      // grass.4 is 37 below, which is the same order of separation the arid
-      // pass gets from limestone.6 against limestone.3.
-      bladeShade: paletteColor('grass.4'),
-      // Spoil on sward is dark loam, not laterite: dust.5 sits well below the
-      // grass.2 wash in value, which is what makes the line legible.
-      spoil: paletteColor('dust.5'),
-      // Taller than wide. drawCanopy computes ry = rx * crownRatio, so ANY
-      // value below 1 is a squat crown -- 0.95 drew near-perfect circles and
-      // the poplar gallery read as a bramble thicket. The olive's 0.52 is
-      // correct for what it is; a poplar needs the ratio the other side of 1.
-      crownRatio: 1.5,
-      scatter: 'sward',
-    },
-  };
+  // Terrain tones by theme -- `./terrain-themes` (Task B3.1: was declared here
+  // verbatim AND, separately, in `terrain-parity.test.ts`; the parity test
+  // could not import this function-local declaration, and this function could
+  // not import a test file, so each kept its own copy until both moved to a
+  // shared module neither of those constraints applies to).
   const opts: RendererOptions = {
     background: paletteColor('shadow.1'),
     teamColors: [paletteColor('team.kedem'), paletteColor('team.hostile'), paletteColor('team.neutral')],

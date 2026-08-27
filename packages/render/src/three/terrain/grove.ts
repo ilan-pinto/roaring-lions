@@ -61,25 +61,22 @@
  * depth test always resolves the layers in the same order Pixi's paint order
  * would have.
  */
-import { WORLD_PER_LEVEL } from './ground';
 import { TILE_W, TILE_H, WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import { composite, quantise, groundTone, PALETTE_HEXES } from './tones';
 import { tileHash } from '../../tile-hash';
-import { screenOffsetToWorld } from './scatter';
 import { CLAMP_LIMIT, clampCenterToTile } from './clamp';
+import {
+  DECOR_GROVE,
+  MARK_EPSILON,
+  WORLD_PER_LEVEL,
+  hexToUnit,
+  levelAt,
+  screenOffsetToWorld,
+  rectCorners,
+  pushPolygon as sharedPushPolygon,
+} from './shared';
 import type { MeshData, TerrainInput } from './types';
 import type { TerrainTones } from '../../api';
-
-/** Mirrors `DECOR.grove` (`@lions/data`'s `map.ts`) and the same redeclaration
- *  in `scatter.ts`/`tones.ts` -- `@lions/render` must not depend on
- *  `@lions/data` (ESLint-enforced), so every terrain builder keeps its own
- *  copy of the handful of DECOR values it reads. */
-const DECOR_GROVE = 2;
-
-/** Marks sit this far above the exact ground plane so a flat mark (the
- *  trunk shadow) does not z-fight the tile-top quad directly beneath it --
- *  same constant, same reasoning as `scatter.ts`'s own `MARK_EPSILON`. */
-const MARK_EPSILON = 0.01;
 
 /**
  * Per-layer nudge toward the camera (added to world Y after real height),
@@ -137,24 +134,6 @@ const SHADOW_ALPHA = 0.22;
  * for the same reason -- the shadow is fleck-scale, not crown-scale. */
 const CROWN_LOBE_SEGMENTS = 8;
 
-function hexToUnit(hex: string): [number, number, number] {
-  const h = hex.charAt(0) === '#' ? hex.slice(1) : hex;
-  return [
-    parseInt(h.slice(0, 2), 16) / 255,
-    parseInt(h.slice(2, 4), 16) / 255,
-    parseInt(h.slice(4, 6), 16) / 255,
-  ];
-}
-
-/** Mirrors `ground.ts`'s private `levelAt` (also redeclared in `scatter.ts`
- *  for the same reason): elevation level (0-9) at `(x, y)`, or 0 off the
- *  map. */
-function levelAt(input: TerrainInput, x: number, y: number): number {
-  if (x < 0 || x >= input.width || y < 0 || y >= input.height) return 0;
-  if (!input.elevation) return 0;
-  return input.elevation[y * input.width + x];
-}
-
 /** A billboard corner, local to a tree's own ground anchor: `right` in
  *  screen-pixel-equivalent units along the camera's local right axis,
  *  `up` the same along world Y (positive is up, away from the ground). */
@@ -180,17 +159,6 @@ function ellipseCorners(cr: number, cu: number, rr: number, ru: number): readonl
   return corners;
 }
 
-/** Four corners of a rectangle spanning `[rMin, rMax] x [uMin, uMax]`, in the
- *  same top-left/top-right/bottom-right/bottom-left rotational order. */
-function rectCorners(rMin: number, rMax: number, uMin: number, uMax: number): readonly Corner[] {
-  return [
-    [rMin, uMax],
-    [rMax, uMax],
-    [rMax, uMin],
-    [rMin, uMin],
-  ];
-}
-
 export function buildGroves(input: TerrainInput, tones: TerrainTones, background: string): MeshData {
   const { width, height } = input;
   const positions: number[] = [];
@@ -213,15 +181,14 @@ export function buildGroves(input: TerrainInput, tones: TerrainTones, background
    * `n` points, triangle `i` is `(0, i+1, i)` -- at `n = 4` that is
    * `(0,2,1)` and `(0,3,2)`, the same two triangles a plain quad always
    * used here.
+   *
+   * Delegates to `shared.ts`'s `pushPolygon` (default `flip: false`, this
+   * module's only winding) -- `shared.test.ts` proves that shared fan is
+   * this exact formula for any point count, so nothing about this file's
+   * own geometry changes by routing through it.
    */
-  const pushPolygon = (points: readonly [number, number, number][], color: [number, number, number]): void => {
-    const base = positions.length / 3;
-    for (const p of points) positions.push(p[0], p[1], p[2]);
-    for (let i = 0; i < points.length; i++) colors.push(color[0], color[1], color[2]);
-    for (let i = 1; i < points.length - 1; i++) {
-      indices.push(base, base + i + 1, base + i);
-    }
-  };
+  const pushPolygon = (points: readonly [number, number, number][], color: [number, number, number]): void =>
+    sharedPushPolygon(positions, colors, indices, points, color);
 
   /**
    * The trunk shadow: a flat ground mark, positioned and clamped exactly

@@ -16,7 +16,7 @@ import {
   CROWN_MID_EPSILON,
   CROWN_LIT_EPSILON,
 } from './grove';
-import { WORLD_PER_LEVEL } from './ground';
+import { WORLD_PER_LEVEL } from './shared';
 import { PALETTE_HEXES, composite, quantise, groundTone } from './tones';
 import { tileHash } from '../../tile-hash';
 import { VIEW_DIRECTION, WORLD_Y_PER_LIFT_PIXEL } from '../camera';

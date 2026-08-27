@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { buildBuildings } from './buildings';
-import { WORLD_PER_LEVEL } from './ground';
+import { WORLD_PER_LEVEL } from './shared';
 import { WORLD_Y_PER_LIFT_PIXEL } from '../camera';
 import { PALETTE_HEXES, groundTone, composite, quantise } from './tones';
 import { VIEW_DIRECTION } from '../camera';

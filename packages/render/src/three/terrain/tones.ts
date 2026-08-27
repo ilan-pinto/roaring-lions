@@ -25,16 +25,7 @@ import type { TerrainInput } from './types';
 // -- no second parser, no transcribed copy -- just read directly rather than
 // through the package boundary render is not allowed to cross.
 import paletteJson from '../../../../../data/palette.json';
-
-/**
- * DECOR values this module reads. Mirrors `TERRAIN_DECOR` in renderer.ts and
- * `DECOR` in `@lions/data`'s map.ts. Redeclared rather than imported: renderer.ts
- * pulls in pixi.js at module scope (poisoning the lazy three.js chunk), and
- * `@lions/render` must not depend on `@lions/data` (see the palette import
- * above).
- */
-const DECOR_ROAD = 1;
-const DECOR_RIDGE = 4;
+import { DECOR_ROAD, DECOR_RIDGE } from './shared';
 
 /** Every colour in `data/palette.json`, flattened. Derived, not transcribed:
  *  a hand-copied list goes stale silently the first time the palette changes,

@@ -14,23 +14,12 @@
  * gradient -- silently breaking the guarantee this module's test suite
  * asserts directly.
  */
-import { ELEV_STEP, WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import { composite, quantise, groundTone, PALETTE_HEXES } from './tones';
+import { hexToUnit, levelAt, pushPolygon, WORLD_PER_LEVEL } from './shared';
 import type { MeshData, TerrainInput } from './types';
 import type { TerrainTones } from '../../api';
 
 export type { MeshData, TerrainInput };
-
-/**
- * World units of height per elevation level.
- *
- * Derived, not chosen. Pixi raises a tile by ELEV_STEP screen pixels per level;
- * three.js works in world units, and WORLD_Y_PER_LIFT_PIXEL is the bridge B1
- * solved for. Going through it means a four-level ridge stands exactly as tall
- * on screen in both backends, and it keeps ELEV_STEP the single place that
- * number is decided.
- */
-export const WORLD_PER_LEVEL = ELEV_STEP * WORLD_Y_PER_LIFT_PIXEL;
 
 /** Alphas Pixi composites the two visible side faces at (`renderer.ts:1421`,
  *  `:1432`) -- different on purpose, so a ridge reads as mass rather than a
@@ -40,23 +29,6 @@ export const WORLD_PER_LEVEL = ELEV_STEP * WORLD_Y_PER_LIFT_PIXEL;
  *  could silently drift off the face it sits on. */
 export const FACE_ALPHA_EAST = 0.7;
 export const FACE_ALPHA_SOUTH = 0.85;
-
-function hexToUnit(hex: string): [number, number, number] {
-  const h = hex.charAt(0) === '#' ? hex.slice(1) : hex;
-  return [
-    parseInt(h.slice(0, 2), 16) / 255,
-    parseInt(h.slice(2, 4), 16) / 255,
-    parseInt(h.slice(4, 6), 16) / 255,
-  ];
-}
-
-/** Elevation level (0-9) at `(x, y)`, or 0 off the map -- the rule that makes
- *  a rim tile show its full face rather than nothing at all. */
-function levelAt(input: TerrainInput, x: number, y: number): number {
-  if (x < 0 || x >= input.width || y < 0 || y >= input.height) return 0;
-  if (!input.elevation) return 0;
-  return input.elevation[y * input.width + x];
-}
 
 export function buildGround(input: TerrainInput, tones: TerrainTones, background: string): MeshData {
   const { width, height } = input;
@@ -69,6 +41,14 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
   const faceEastColor = hexToUnit(faceEastHex);
   const faceSouthColor = hexToUnit(faceSouthHex);
 
+  // `p0, p1, p2, p3` trace the quad's perimeter, not its diagonal. The two
+  // fans through that perimeter -- (0,1,2)/(0,2,3) and its reverse
+  // (0,2,1)/(0,3,2) -- point in opposite directions; which one is "up"
+  // depends on which two edges of the perimeter are being crossed, so the
+  // caller picks per quad (checked by hand against the camera's
+  // +X/+Y/+Z-facing convention, not guessed). `pushPolygon` (`shared.ts`) is
+  // the shared fan this delegates to -- see its own doc comment for why a
+  // 4-point call reproduces this exact index sequence.
   const pushQuad = (
     p0: [number, number, number],
     p1: [number, number, number],
@@ -76,22 +56,7 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
     p3: [number, number, number],
     color: [number, number, number],
     flip: boolean
-  ): void => {
-    const base = positions.length / 3;
-    for (const p of [p0, p1, p2, p3]) positions.push(p[0], p[1], p[2]);
-    for (let i = 0; i < 4; i++) colors.push(color[0], color[1], color[2]);
-    // `p0, p1, p2, p3` trace the quad's perimeter, not its diagonal. The two
-    // fans through that perimeter -- (0,1,2)/(0,2,3) and its reverse
-    // (0,2,1)/(0,3,2) -- point in opposite directions; which one is "up"
-    // depends on which two edges of the perimeter are being crossed, so the
-    // caller picks per quad (checked by hand against the camera's
-    // +X/+Y/+Z-facing convention, not guessed).
-    if (flip) {
-      indices.push(base + 0, base + 1, base + 2, base + 0, base + 2, base + 3);
-    } else {
-      indices.push(base + 0, base + 2, base + 1, base + 0, base + 3, base + 2);
-    }
-  };
+  ): void => pushPolygon(positions, colors, indices, [p0, p1, p2, p3], color, flip);
 
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {

@@ -423,7 +423,7 @@ export class ThreeRenderer implements Renderer {
 
     const buildingData = buildBuildings(
       input,
-      this.structureFootprints(),
+      structureFootprintsFor(this.sim),
       this.opts.terrainTones,
       this.opts.resolveColor,
       this.opts.background
@@ -431,53 +431,64 @@ export class ThreeRenderer implements Renderer {
     this.buildingMesh = new THREE.Mesh(toGeometry(buildingData), this.terrainMat);
     this.scene.add(this.buildingMesh);
   }
+}
 
-  /**
-   * Every LIVING structure, as the plain-array snapshot `buildBuildings`
-   * needs -- the pure builder must stay ignorant of `Sim`, so this is where
-   * that boundary is actually crossed. Walks every tile once (same cost
-   * `rebuildTerrain`'s own `TerrainInput` assembly already pays elsewhere)
-   * asking `structureAt`, rather than trusting `structures.minX/maxX/minY/
-   * maxY` as a solid rectangle -- a `per_tile` structure (a fence, a wall
-   * run) is NOT a filled rectangle, and `structureAt` is the one query that
-   * already gets this right for every structure shape the sim has.
-   *
-   * Deliberately draws no distinction between a structure with sprite art
-   * and one without: `structureAtlas` is Pixi-only state this class does not
-   * have, and Task B2.7's ruling is that B2 draws the block form for EVERY
-   * structure regardless -- so there is nothing here to filter on even if
-   * there were a reason to.
-   *
-   * A demolished structure never appears: `structureAt` returns -1 the
-   * moment `alive` drops to 0 (and `destroyStructure` unblocks its whole
-   * footprint besides), so this walk simply never visits its tiles. Whether
-   * that walk itself re-runs when a structure dies is a separate question --
-   * it does not, today, because `terrainDirty` is never set from `onEvents`
-   * (a still-stubbed B3 concern, documented on `rebuildTerrain` above).
-   */
-  private structureFootprints(): StructureFootprint[] {
-    const { width, height, structures: st, structureTypes } = this.sim;
-    const tilesByStructure = new Map<number, number[]>();
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const sIdx = this.sim.structureAt(x, y);
-        if (sIdx < 0) continue;
-        const tiles = tilesByStructure.get(sIdx);
-        if (tiles) tiles.push(y * width + x);
-        else tilesByStructure.set(sIdx, [y * width + x]);
-      }
+/**
+ * Every LIVING structure, as the plain-array snapshot `buildBuildings`
+ * needs -- the pure builder must stay ignorant of `Sim`, so this is where
+ * that boundary is actually crossed. Walks every tile once (same cost
+ * `rebuildTerrain`'s own `TerrainInput` assembly already pays elsewhere)
+ * asking `structureAt`, rather than trusting `structures.minX/maxX/minY/
+ * maxY` as a solid rectangle -- a `per_tile` structure (a fence, a wall
+ * run) is NOT a filled rectangle, and `structureAt` is the one query that
+ * already gets this right for every structure shape the sim has.
+ *
+ * Deliberately draws no distinction between a structure with sprite art
+ * and one without: `structureAtlas` is Pixi-only state this class does not
+ * have, and Task B2.7's ruling is that B2 draws the block form for EVERY
+ * structure regardless -- so there is nothing here to filter on even if
+ * there were a reason to.
+ *
+ * A demolished structure never appears: `structureAt` returns -1 the
+ * moment `alive` drops to 0 (and `destroyStructure` unblocks its whole
+ * footprint besides), so this walk simply never visits its tiles. Whether
+ * that walk itself re-runs when a structure dies is a separate question --
+ * it does not, today, because `terrainDirty` is never set from `onEvents`
+ * (a still-stubbed B3 concern, documented on `rebuildTerrain` above).
+ *
+ * Module-level (not a private method) and exported so
+ * `packages/app/src/terrain-parity.test.ts` can build the same
+ * `StructureFootprint[]` snapshot from its own `Sim` without maintaining a
+ * second copy of this walk -- Task B2.8 duplicated it there verbatim
+ * because this method was both private and, at the time, in a file B2's
+ * later tasks were barred from editing. Task B3.1 lifts that bar: this is
+ * now the one copy, reached from `ThreeRenderer` internally and from the
+ * test (a `*.test.ts` file, exempt from the bundle-rule lint that would
+ * otherwise stop `packages/app` from statically importing `@lions/render/
+ * three`) via `@lions/render/three`.
+ */
+export function structureFootprintsFor(sim: Sim): StructureFootprint[] {
+  const { width, height, structures: st, structureTypes } = sim;
+  const tilesByStructure = new Map<number, number[]>();
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const sIdx = sim.structureAt(x, y);
+      if (sIdx < 0) continue;
+      const tiles = tilesByStructure.get(sIdx);
+      if (tiles) tiles.push(y * width + x);
+      else tilesByStructure.set(sIdx, [y * width + x]);
     }
-    const footprints: StructureFootprint[] = [];
-    for (const [sIdx, tiles] of tilesByStructure) {
-      const type = structureTypes[st.typeIdx[sIdx]];
-      footprints.push({
-        tiles,
-        heightPx: type.heightPx,
-        colorKey: type.color,
-        hp: st.hp[sIdx],
-        maxHp: st.maxHp[sIdx],
-      });
-    }
-    return footprints;
   }
+  const footprints: StructureFootprint[] = [];
+  for (const [sIdx, tiles] of tilesByStructure) {
+    const type = structureTypes[st.typeIdx[sIdx]];
+    footprints.push({
+      tiles,
+      heightPx: type.heightPx,
+      colorKey: type.color,
+      hp: st.hp[sIdx],
+      maxHp: st.maxHp[sIdx],
+    });
+  }
+  return footprints;
 }

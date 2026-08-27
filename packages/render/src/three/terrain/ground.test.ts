@@ -3,7 +3,8 @@
  * screen or quietly stops applying. These tests assert it directly.
  */
 import { describe, it, expect } from 'vitest';
-import { buildGround, WORLD_PER_LEVEL } from './ground';
+import { buildGround } from './ground';
+import { WORLD_PER_LEVEL } from './shared';
 import { PALETTE_HEXES } from './tones';
 import { VIEW_DIRECTION } from '../camera';
 import type { TerrainInput } from './types';
