@@ -12,6 +12,8 @@
  * under a sprited structure, drawing the sprite off the footprint's centre,
  * and letting an un-arted structure fall through to the sprite path.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
 import { Sim } from '@lions/sim';
 import { buildBuildings, type StructureFootprint } from '../terrain/buildings';
@@ -41,6 +43,47 @@ const TONES = {
   crownRatio: 0.52, scatter: 'stone' as const,
 };
 const BACKGROUND = '#14150F';
+
+/**
+ * Task B4: repo root, reached from this file's own location
+ * (`packages/render/src/three/units/`) rather than `@lions/data` --
+ * `packages/render/src/**` may not statically import `@lions/(app|data)`
+ * (ESLint-enforced, `eslint.config.mjs`), tests included, which is why
+ * `terrain-parity.test.ts` (which needs exactly this data) lives in
+ * `packages/app` instead. Reading the raw JSON off disk sidesteps that
+ * restriction without moving this file -- the same technique
+ * `tools/src/terrain_symbols.test.ts` already uses for its own cross-package
+ * drift check.
+ */
+const ROOT = join(import.meta.dirname, '..', '..', '..', '..', '..');
+
+/** `roofTopPx`/`badgeTopPx` read straight off a shipped structure sheet's
+ *  own `manifest.json` -- see `resolveRoofPx`'s own doc comment for what
+ *  they mean. `manifestDir` is the sheet's directory name under
+ *  `assets/sprites/` (e.g. `BLD_MOSQUE`). */
+function readStructureManifest(manifestDir: string): { roofTopPx: number; badgeTopPx: number } {
+  const raw: unknown = JSON.parse(
+    readFileSync(join(ROOT, 'assets/sprites', manifestDir, 'manifest.json'), 'utf8')
+  );
+  const manifest = raw as { roofTopPx?: number; badgeTopPx?: number };
+  if (typeof manifest.roofTopPx !== 'number' || typeof manifest.badgeTopPx !== 'number') {
+    throw new Error(`assets/sprites/${manifestDir}/manifest.json is missing roofTopPx/badgeTopPx`);
+  }
+  return { roofTopPx: manifest.roofTopPx, badgeTopPx: manifest.badgeTopPx };
+}
+
+/** `height_px` read straight off `data/structures.json` for one structure
+ *  id -- the same catalogue `@lions/data`'s `structures` export wraps,
+ *  without importing that package (see `ROOT`'s own comment). */
+function readStructureHeightPx(structureId: string): number {
+  const raw: unknown = JSON.parse(readFileSync(join(ROOT, 'data/structures.json'), 'utf8'));
+  const catalogue = raw as { types?: Record<string, { height_px?: number }> };
+  const entry = catalogue.types?.[structureId];
+  if (typeof entry?.height_px !== 'number') {
+    throw new Error(`data/structures.json has no numeric height_px for structure type "${structureId}"`);
+  }
+  return entry.height_px;
+}
 
 /** A 6x6 sim with two structure types: `mosque` (a 2x2 footprint at
  *  tiles (1,1)-(2,2), footprint centre (2, 2) exactly) and `shanty` (a
@@ -223,32 +266,66 @@ describe('resolveRoofPx -- the discrepancy this task resolves', () => {
   });
 
   it('re-measures the B3.3 gap: the mosque and one BLD_* house both close to exactly 0', () => {
-    // Real manifest numbers (assets/sprites/BLD_MOSQUE, BLD_HOUSE) and real
-    // data/structures.json heightPx -- the same fixtures B3.3's review used.
-    // The OLD roofPx (this backend's only answer before this task) was
-    // heightPx alone; re-deriving the gap it left confirms this test fixture
-    // reproduces B3.3's own measurement before checking it is now closed.
+    // Task B4: real manifest numbers (assets/sprites/BLD_MOSQUE, BLD_HOUSE)
+    // and real data/structures.json heightPx, READ off those files rather
+    // than hardcoded -- the previous version pinned four literals (104.11,
+    // 136.65, 125.98, 140.86) plus a fifth and sixth (34, 16) that a
+    // re-render or a structures.json edit could drift out from under
+    // silently, with the test still green. `packages/render/src/**` may not
+    // statically import `@lions/data` (ESLint-enforced), hence reading the
+    // raw JSON directly rather than importing the `structures` catalogue.
     const cases = [
-      { id: 'mosque', heightPx: 34, roofTopPx: 104.11, badgeTopPx: 136.65, oldGapWorld: 1.79 },
-      { id: 'house', heightPx: 16, roofTopPx: 125.98, badgeTopPx: 140.86, oldGapWorld: 2.81 },
+      { id: 'mosque', manifestDir: 'BLD_MOSQUE' },
+      { id: 'house', manifestDir: 'BLD_HOUSE' },
     ];
     for (const c of cases) {
-      const oldRoofPx = c.heightPx; // ThreeRenderer's only answer pre-B3.7
-      const newRoofPx = resolveRoofPx({ roofTopPx: c.roofTopPx, badgeTopPx: c.badgeTopPx }, c.heightPx);
-      expect(newRoofPx).toBeCloseTo(c.roofTopPx, 10); // now prefers the sheet's own roof plane
-      const oldGap = (c.roofTopPx - oldRoofPx) * WORLD_Y_PER_LIFT_PIXEL;
-      expect(oldGap).toBeCloseTo(c.oldGapWorld, 2); // reproduces B3.3's own measured float
-      const newGap = (c.roofTopPx - newRoofPx) * WORLD_Y_PER_LIFT_PIXEL;
+      const heightPx = readStructureHeightPx(c.id);
+      const { roofTopPx, badgeTopPx } = readStructureManifest(c.manifestDir);
+      const oldRoofPx = heightPx; // ThreeRenderer's only answer pre-B3.7
+      const newRoofPx = resolveRoofPx({ roofTopPx, badgeTopPx }, heightPx);
+      expect(newRoofPx).toBeCloseTo(roofTopPx, 10); // now prefers the sheet's own roof plane
+      const oldGap = (roofTopPx - oldRoofPx) * WORLD_Y_PER_LIFT_PIXEL;
+      expect(oldGap).toBeGreaterThan(0); // B3.3 found a real, nonzero gap here
+      const newGap = (roofTopPx - newRoofPx) * WORLD_Y_PER_LIFT_PIXEL;
       expect(newGap).toBeCloseTo(0, 10); // closed: occupant now stands exactly on the roof plane
     }
   });
 
-  it('an un-arted structure keeps a gap of exactly 0 by construction (feet coplanar with the roof quad)', () => {
-    // `art` is undefined for an un-arted type -- resolveRoofPx falls back to
-    // heightPx, the SAME value buildings.ts's own box roof uses
-    // (`roofY = topY + heightPx * WORLD_Y_PER_LIFT_PIXEL`), so the two are
-    // identical by construction: nothing to "fix" here, per the brief.
-    expect(resolveRoofPx(undefined, 18)).toBe(18);
+  it("BREAK CHECK (B3): an un-arted structure's fallback is coplanar with buildings.ts's OWN roof plane, not merely a copy of resolveRoofPx's own argument", () => {
+    // The previous version of this test asserted only
+    // `resolveRoofPx(undefined, 18) === 18` -- functionally identical to the
+    // "falls back to heightPx" test above it, and it never referenced
+    // `buildings.ts` at all. It would have kept passing even if
+    // `buildings.ts`'s own roof formula (`roofY = topY + heightPx *
+    // WORLD_Y_PER_LIFT_PIXEL`, `buildings.ts`'s `pushBox`) changed
+    // underneath it. This version instead reads `buildings.ts`'s REAL box
+    // geometry off a real `buildBuildings` call and checks `resolveRoofPx`'s
+    // fallback lands exactly on that roof plane -- the actual coplanarity
+    // claim the title makes.
+    const heightPx = 18;
+    const input: TerrainInput = {
+      width: 1,
+      height: 1,
+      decor: null,
+      elevation: null,
+      blocked: Uint8Array.from([1]),
+      cover: new Uint8Array(1),
+    };
+    const footprint: StructureFootprint = { tiles: [0], heightPx, colorKey: 'dust.1', hp: 100, maxHp: 100 };
+    const mesh = buildBuildings(input, [footprint], TONES, undefined, BACKGROUND);
+    // `pushBox` (buildings.ts) emits the south wall first: `[x, roofY, y+1],
+    // [x+1, roofY, y+1], [x+1, topY, y+1], [x, topY, y+1]` -- vertex 0's y IS
+    // the roof plane's real world height, read off actual output rather than
+    // re-derived by this test.
+    const roofY = mesh.positions[1];
+    const topY = 0; // flat tile: elevation null -> levelAt returns 0
+    const occupantY = topY + resolveRoofPx(undefined, heightPx) * WORLD_Y_PER_LIFT_PIXEL;
+    // `mesh.positions` is a Float32Array (uploaded to the GPU as one, same
+    // reason `instances.test.ts`'s own `F32_TOL` exists) -- comparing
+    // against `occupantY`'s double-precision arithmetic needs a tolerance
+    // that survives the round-trip through single precision, not
+    // double-precision exactness.
+    expect(occupantY).toBeCloseTo(roofY, 5);
   });
 });
 

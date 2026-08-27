@@ -77,9 +77,6 @@ import {
 import type { TerrainTones } from '@lions/render';
 import {
   buildGround,
-  buildScatter,
-  buildGroves,
-  buildBuildings,
   PALETTE_HEXES,
   WORLD_PER_LEVEL,
   levelAt,
@@ -89,7 +86,7 @@ import {
 } from '@lions/render/terrain';
 import { worldToScreen, TILE_W, TILE_H, ELEV_STEP, type Camera, type Viewport } from '@lions/render/project';
 import { worldToScreenThree } from '@lions/render/three-camera';
-import { structureFootprintsFor } from '@lions/render/three';
+import { structureFootprintsFor, composeTerrain } from '@lions/render/three';
 import { TERRAIN_THEMES } from './terrain-themes';
 
 // --- world setup: the same steps main.ts takes to go from map JSON to a
@@ -108,8 +105,28 @@ import { TERRAIN_THEMES } from './terrain-themes';
 
 const BACKGROUND = paletteColor('shadow.1');
 
+/**
+ * Task C4: vitest's default `testTimeout` is 5000ms. This file's heaviest
+ * test -- four full-map meshes built and walked vertex by vertex, per map --
+ * measured at ~1.3s for the whole file run in isolation but ~8s under a
+ * loaded CI machine running the rest of the suite concurrently, close enough
+ * to the default that it has already flaked. 20s is generous headroom over
+ * the measured worst case without raising the budget for every other,
+ * genuinely-fast test in this file (each heavy test opts in explicitly by
+ * passing this as its own third argument, rather than this file reaching
+ * into `vitest.config.ts`'s global `testTimeout` and changing the budget for
+ * every OTHER suite in the monorepo too).
+ */
+const HEAVY_TEST_TIMEOUT_MS = 20_000;
+
 interface LoadedMap {
   parsedMap: ReturnType<typeof parseMap>;
+  /** The real `Sim` this map was built into -- retained (not just its
+   *  derived `TerrainInput`/`footprints`) so `composeTerrain` (Task B1's own
+   *  test, below) can be driven directly, exactly the way `ThreeRenderer.
+   *  rebuildTerrain` drives it: `composeTerrain` takes a `Sim`, not a
+   *  pre-extracted snapshot. */
+  sim: Sim;
   input: TerrainInput;
   footprints: StructureFootprint[];
   tones: TerrainTones;
@@ -151,6 +168,7 @@ function loadMap(id: MapId): LoadedMap {
   };
   const loaded: LoadedMap = {
     parsedMap,
+    sim,
     input,
     footprints: structureFootprintsFor(sim),
     tones: TERRAIN_THEMES[parsedMap.terrain],
@@ -284,32 +302,76 @@ it('covers exactly the five shipped maps this task names', () => {
 });
 
 describe.each(MAP_IDS)('terrain parity: %s', (id) => {
-  const { parsedMap, input, footprints, tones } = loadMap(id);
+  const { sim, parsedMap, input, tones } = loadMap(id);
 
   it('ground mesh has exactly two triangles per tile plus the expected side faces', () => {
     const mesh = buildGround(input, tones, BACKGROUND);
     expect(mesh.indices.length).toBe(expectedGroundIndexCount(input));
   });
 
-  it('every vertex colour across ground, scatter, groves and buildings is a palette entry', () => {
-    const ground = buildGround(input, tones, BACKGROUND);
-    const scatter = buildScatter(input, tones, BACKGROUND);
-    const grove = buildGroves(input, tones, BACKGROUND);
-    const buildings = buildBuildings(input, footprints, tones, paletteColor, BACKGROUND);
+  it(
+    'every vertex colour across ground, scatter, groves and buildings is a palette entry',
+    () => {
+      // Task B2: wired through `composeTerrain` -- the actual composition
+      // `ThreeRenderer.rebuildTerrain` performs (Task B3.9) -- rather than a
+      // hand-rolled merged `buildBuildings` call over unmasked input. That
+      // hand-rolled call stopped describing what production does the moment
+      // `composeTerrain` split buildings per-structure and started feeding
+      // the RESIDUAL layer alone a masked view: a suite asserting a
+      // composition production no longer performs is worse than an
+      // untested path, since it reads as coverage. `hasArt: () => false`
+      // reproduces the "every structure is un-arted, box everything" case
+      // this test always meant to cover -- `structureFootprintsFor`'s own
+      // doc comment is explicit that its whole job is "every living
+      // structure, unconditionally", regardless of art; see the dedicated
+      // `composeTerrain` describe block below for the hasArt=true side.
+      const composed = composeTerrain(
+        sim,
+        parsedMap.decor,
+        parsedMap.elevation,
+        () => false,
+        tones,
+        paletteColor,
+        BACKGROUND
+      );
 
-    // Non-empty first: a palette check on an empty mesh passes by checking
-    // nothing (see `KNOWN_EMPTY`'s doc comment -- this is exactly how
-    // `tel_marum`'s grove mesh was found to be empty in the first place).
-    assertNonEmptyUnless(ground, `${id}:ground`, `${id} ground`);
-    assertNonEmptyUnless(scatter, `${id}:scatter`, `${id} scatter`);
-    assertNonEmptyUnless(grove, `${id}:grove`, `${id} grove`);
-    assertNonEmptyUnless(buildings, `${id}:buildings`, `${id} buildings`);
+      // Non-empty first: a palette check on an empty mesh passes by checking
+      // nothing (see `KNOWN_EMPTY`'s doc comment -- this is exactly how
+      // `tel_marum`'s grove mesh was found to be empty in the first place).
+      assertNonEmptyUnless(composed.ground, `${id}:ground`, `${id} ground`);
+      assertNonEmptyUnless(composed.scatter, `${id}:scatter`, `${id} scatter`);
+      assertNonEmptyUnless(composed.groves, `${id}:grove`, `${id} grove`);
+      // Buildings are no longer one merged mesh: one `ComposedBuildingBox`
+      // per live, un-arted structure, plus the always-near-empty `residual`
+      // fallback layer (`composeTerrain`'s own doc comment). Non-emptiness
+      // is checked over their SUM, matching what the single merged mesh
+      // this test used to check covered.
+      const buildingVertexCount =
+        composed.buildings.reduce((n, b) => n + b.mesh.colors.length, 0) + composed.residual.colors.length;
+      if (buildingVertexCount === 0 && !KNOWN_EMPTY.has(`${id}:buildings`)) {
+        throw new Error(`${id} buildings: emitted no geometry at all -- either a real regression or a missing KNOWN_EMPTY entry`);
+      }
 
-    assertPaletteColors(ground, `${id} ground`);
-    assertPaletteColors(scatter, `${id} scatter`);
-    assertPaletteColors(grove, `${id} grove`);
-    assertPaletteColors(buildings, `${id} buildings`);
-  });
+      assertPaletteColors(composed.ground, `${id} ground`);
+      assertPaletteColors(composed.scatter, `${id} scatter`);
+      assertPaletteColors(composed.groves, `${id} grove`);
+      for (const box of composed.buildings) {
+        assertPaletteColors(box.mesh, `${id} buildings (structure ${box.structureIndex})`);
+      }
+      assertPaletteColors(composed.residual, `${id} buildings (residual)`);
+    },
+    // Task C4: this is the heaviest test in the file -- four full-map
+    // meshes (scatter alone runs 53,140-86,288 vertices on a shipped map,
+    // per this file's own KNOWN_EMPTY comment) built and then walked vertex
+    // by vertex. Measured at ~1.3s for the whole file run in isolation but
+    // ~8s under a loaded CI machine running the rest of the suite
+    // concurrently -- close enough to vitest's 5000ms default `testTimeout`
+    // that it has already flaked on load. Raised, not split: splitting
+    // would mean building the same four meshes twice (once per assertion
+    // group) for no measurement benefit, since the cost is the mesh
+    // construction, not the vertex walk.
+    HEAVY_TEST_TIMEOUT_MS
+  );
 
   // Cannot detect an X/Z transpose: every shipped map (data/maps/*.json) is
   // 48x48, so a swapped [z, topY, x] would still produce maxX === maxZ ===
@@ -354,6 +416,87 @@ describe.each(MAP_IDS)('terrain parity: %s', (id) => {
       const [x, y] = firstTileAt(input, level);
       assertRoundTrip(x + 0.5, y + 0.5, level, cam, vp, `${id} tile (${x},${y}) at level ${level}`);
     }
+  });
+});
+
+// --- composeTerrain: the art-masked split (Task B1) ------------------------
+
+describe('composeTerrain: ground/scatter/groves ignore hasArt, buildings do not', () => {
+  // `composeTerrain`'s own doc comment claims exactly this shape can "now be
+  // asserted directly against a real Sim with hasArt both true and false for
+  // the same structure" -- the affordance `structureBillboardGeometry`/
+  // `withoutLiveStructures`/`composeTerrain` were built to enable, and this
+  // is that test. Before it, nothing in this repo called `composeTerrain`
+  // with `hasArt` returning true for anything: `terrain-parity.test.ts`'s
+  // own palette check (above) always passed `() => false`, and no other test
+  // file reaches `composeTerrain` at all (it lives on `ThreeRenderer.ts`,
+  // untestable outside `packages/app` -- see this file's own top comment).
+  //
+  // Every shipped map has at least one structure (checked directly against
+  // every `data/maps/*.json`'s own symbol counts), so picking the first
+  // structure off the first map gives a stable, always-reachable target
+  // rather than a per-map conditional skip.
+  const mapId = MAP_IDS[0];
+  const { sim, parsedMap, tones, footprints } = loadMap(mapId);
+  const target = parsedMap.structures[0];
+  if (!target) {
+    throw new Error(`${mapId} has no structures -- this test needs a map with at least one`);
+  }
+  const targetTileX = target.tiles[0] % parsedMap.width;
+  const targetTileY = Math.floor(target.tiles[0] / parsedMap.width);
+
+  it('BREAK CHECK (B1): a structure with art keeps its ground tone unmasked -- only its own box is skipped', () => {
+    const withArt = composeTerrain(
+      sim,
+      parsedMap.decor,
+      parsedMap.elevation,
+      (id) => id === target.type,
+      tones,
+      paletteColor,
+      BACKGROUND
+    );
+    const withoutArt = composeTerrain(
+      sim,
+      parsedMap.decor,
+      parsedMap.elevation,
+      () => false,
+      tones,
+      paletteColor,
+      BACKGROUND
+    );
+
+    // The regression this task's own doc comment names by name: an earlier
+    // draft fed `buildGround` the ART-MASKED blocked array instead of the
+    // raw one, which would make this structure's ground tile read as OPEN
+    // the instant its sheet finished loading. Ground/scatter/groves must be
+    // byte-identical between the two calls -- `hasArt` has no business
+    // reaching any of the three.
+    expect(Array.from(withArt.ground.positions)).toEqual(Array.from(withoutArt.ground.positions));
+    expect(Array.from(withArt.ground.colors)).toEqual(Array.from(withoutArt.ground.colors));
+    expect(Array.from(withArt.scatter.colors)).toEqual(Array.from(withoutArt.scatter.colors));
+    expect(Array.from(withArt.groves.colors)).toEqual(Array.from(withoutArt.groves.colors));
+
+    // But buildings DO differ: hasArt=true must skip `target`'s own box, and
+    // every other LIVE structure sharing its type -- hasArt is a per-TYPE
+    // predicate in production (`this.structureIdle.has(id)`, keyed by
+    // structure type id, never by instance), so a map where several
+    // structures share `target.type` (a town's several houses, say) must
+    // skip all of them, not merely the first. Counted independently from
+    // `parsedMap.structures` (one entry per `sim.addStructure` call
+    // `loadMap` made, per its own doc comment) rather than assumed to be 1.
+    const structureIndex = sim.structureAt(targetTileX, targetTileY);
+    expect(structureIndex).toBeGreaterThanOrEqual(0);
+    expect(withoutArt.buildings.some((b) => b.structureIndex === structureIndex)).toBe(true);
+    expect(withArt.buildings.some((b) => b.structureIndex === structureIndex)).toBe(false);
+    const sameTypeCount = parsedMap.structures.filter((s) => s.type === target.type).length;
+    expect(withoutArt.buildings.length).toBe(withArt.buildings.length + sameTypeCount);
+
+    // The neutral, art-blind snapshot `structureFootprintsFor` returns (kept
+    // exercised here, not only inside `loadMap`) has one entry per live
+    // structure regardless of art -- matching `composeTerrain`'s own
+    // `hasArt: () => false` count exactly, since both walk the identical
+    // structure set (`walkStructureFootprints`).
+    expect(footprints.length).toBe(withoutArt.buildings.length);
   });
 });
 
