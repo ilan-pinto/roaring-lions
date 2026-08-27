@@ -117,6 +117,7 @@ import { buildBuildings, type StructureFootprint } from './terrain/buildings';
 import { toGeometry, terrainMaterial } from './terrain/mesh';
 import type { TerrainInput, MeshData } from './terrain/types';
 import { dirtyForStructureHit, dirtyForStructureDestroyed } from './terrain/dirty';
+import { isGrindingHit } from '../grind';
 import { packSheet, buildUnitTexture } from './units/atlas';
 import { entityFrame, assignRoofSlots, type EntityFrameInput, type EntityFrame } from './units/frame-state';
 import { UnitInstancer, TURRET_RENDER_ORDER } from './units/instances';
@@ -314,6 +315,15 @@ export class ThreeRenderer implements Renderer {
    * comparison living in this class.
    */
   private structureWear: Uint8Array | null = null;
+  /**
+   * Task B4.3: the renderer-side counterpart of `PixiRenderer`'s own
+   * `structPuffTick` (`renderer.ts:458`) -- the last tick a blade's grind
+   * dust was thrown at a given structure, so a demolisher landing a hit
+   * every tick still only spawns one puff every four (`onEvents`'s
+   * `structureHit` case). Keyed by structure index, exactly like
+   * `structureWear` above.
+   */
+  private readonly structPuffTick = new Map<number, number>();
   /** Reused across rebuilds -- one unlit, vertex-coloured material carries no
    *  per-terrain state, so there is nothing a fresh instance would buy. */
   private readonly terrainMat: THREE.Material = terrainMaterial();
@@ -863,12 +873,57 @@ export class ThreeRenderer implements Renderer {
         // itself (`dirtyForStructureHit`) -- see this method's own doc
         // comment. Do not add a second filter here.
         this.applyStructureHit(e.structure);
+        // Task B4.3, ported from `renderer.ts:858-878`. A blade throws dust
+        // where it is cutting; a shell throws it off the roof -- `isGrindingHit`
+        // is the shared, sim-only predicate that tells the two apart (see its
+        // own doc comment in `grind.ts`), same as the debug overlay uses.
+        const hitStruct = e.structure;
+        if (!isGrindingHit(this.sim, e.by, hitStruct)) {
+          this.spawnFlatFx(
+            fx.toNumber(this.sim.structures.cx[hitStruct]),
+            fx.toNumber(this.sim.structures.cy[hitStruct]),
+            this.opts.nearMissColor,
+            9,
+            12
+          );
+        } else if (e.tick - (this.structPuffTick.get(hitStruct) ?? -99) >= 4) {
+          // A blade lands a hit every tick; one puff in four is plenty, and it
+          // is counted per structure so two dozers do not double the dust.
+          this.structPuffTick.set(hitStruct, e.tick);
+          const a = tileHash(e.tick, hitStruct);
+          const b = tileHash(hitStruct, e.tick);
+          this.spawnFlatFx(
+            this.curX[e.by] + (a - 0.5) * 0.35,
+            this.curY[e.by] + (b - 0.5) * 0.35,
+            this.opts.nearMissColor,
+            7,
+            14
+          );
+        }
       } else if (e.kind === 'structureDestroyed') {
         // Task B3.10: one-shot per structure's whole life, so the full
         // `rebuildTerrain()` this schedules (see `applyStructureDestroyed`'s
         // own doc comment) is the deliberate asymmetry with `structureHit`
         // above, not an oversight.
         this.applyStructureDestroyed(e.structure);
+        // Task B4.3, ported from `renderer.ts:880-901`. Masonry and a dust
+        // bloom, authored in `data/vfx/structure_collapse.json`; falls back to
+        // flat puffs when no emitter set is loaded, exactly like
+        // `onTunnelCollapsed` already does for `tunnel_collapse`. `beginCollapse`
+        // (the falling-sprite animation, `renderer.ts:272`) is Pixi's own
+        // sprite-atlas mechanism and has no counterpart here -- out of scope
+        // for this task, see the brief.
+        const deadStruct = e.structure;
+        this.structPuffTick.delete(deadStruct);
+        const bx = fx.toNumber(this.sim.structures.cx[deadStruct]);
+        const by = fx.toNumber(this.sim.structures.cy[deadStruct]);
+        if (!this.spawnCollapseFx('structure_collapse', bx, by)) {
+          for (let k = 0; k < 14; k++) {
+            const a = tileHash(k * 7 + deadStruct, k * 13 + deadStruct);
+            const b = tileHash(k * 31 + deadStruct, k * 3 + deadStruct);
+            this.spawnFlatFx(bx + (a - 0.5) * 3, by + (b - 0.5) * 3, this.opts.nearMissColor, 10 + a * 10, 26 + Math.floor(a * 16));
+          }
+        }
       }
     }
   }
@@ -1018,18 +1073,14 @@ export class ThreeRenderer implements Renderer {
 
   /**
    * A collapse's debris and dust bloom -- `structure_collapse` for a
-   * building, `tunnel_collapse` for a route's vent. Only `tunnel_collapse`
-   * is actually invoked below, from `onTunnelCollapsed`. `structureDestroyed`
-   * is no longer out of scope -- Task B3.10 wired it into `onEvents` (see
-   * that method's own doc comment), which calls `applyStructureDestroyed` --
-   * but that method only manages the terrain mesh (box removal,
-   * `terrainDirty`) and never calls this function, so a destroyed building
-   * still produces no `structure_collapse` burst. Not this task's gap to
-   * close; noted so the next reader does not go looking for a call this
-   * comment used to claim was merely "out of scope" and find `onEvents`
-   * saying the opposite. Ported from `renderer.ts:330-342`
-   * (`PixiRenderer.spawnCollapseFx`). Returns false when no emitter set is
-   * loaded, exactly like Pixi, so the caller can fall back to flat puffs.
+   * building, `tunnel_collapse` for a route's vent. Invoked from
+   * `onTunnelCollapsed` for the latter, and (Task B4.3) directly from
+   * `onEvents`'s `structureDestroyed` case for the former -- see that
+   * branch's own comment; a destroyed building now throws the same burst
+   * a route's vent does, with the same flat-puff fallback. Ported from
+   * `renderer.ts:330-342` (`PixiRenderer.spawnCollapseFx`). Returns false
+   * when no emitter set is loaded, exactly like Pixi, so the caller can
+   * fall back to flat puffs.
    */
   private spawnCollapseFx(id: string, bx: number, by: number): boolean {
     if (!this.particleSystem) return false;
