@@ -43,6 +43,7 @@ import { applyPalettePipeline } from './palette-material';
 import { buildGround } from './terrain/ground';
 import { buildScatter } from './terrain/scatter';
 import { buildGroves } from './terrain/grove';
+import { buildBuildings, type StructureFootprint } from './terrain/buildings';
 import { toGeometry, terrainMaterial } from './terrain/mesh';
 import type { TerrainInput } from './terrain/types';
 
@@ -118,6 +119,13 @@ export class ThreeRenderer implements Renderer {
    *  path. `buildGroves` is a third independent builder over the identical
    *  `TerrainInput`, exactly like `buildScatter`. */
   private groveMesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material> | null = null;
+  /** Buildings -- a box per blocked, non-ridge tile -- as a fourth mesh
+   *  sharing the same material and rebuild path. `buildBuildings` is a
+   *  fourth independent builder over the identical `TerrainInput`, plus the
+   *  one thing none of the other three needs: a plain-array snapshot of the
+   *  sim's structures, assembled by `structureFootprints()` below so the
+   *  builder itself never has to import `Sim`. */
+  private buildingMesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material> | null = null;
   /** Reused across rebuilds -- one unlit, vertex-coloured material carries no
    *  per-terrain state, so there is nothing a fresh instance would buy. */
   private readonly terrainMat: THREE.Material = terrainMaterial();
@@ -195,6 +203,7 @@ export class ThreeRenderer implements Renderer {
     this.terrainMesh?.geometry.dispose();
     this.scatterMesh?.geometry.dispose();
     this.groveMesh?.geometry.dispose();
+    this.buildingMesh?.geometry.dispose();
     this.terrainMat.dispose();
     this.renderer.dispose();
     this.host = null;
@@ -324,16 +333,19 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
-   * (Re)builds the ground mesh, its scatter (grain) mesh, and its grove
-   * (olive trunk/crown) mesh from the sim's static layout (`width`,
-   * `height`, `blocked`, `cover`) plus whatever `setElevation`/`setDecor`
-   * have retained, and swaps all three into the scene in place of the
-   * previous set. The three are independent builders over the identical
-   * `TerrainInput` -- neither `buildScatter` nor `buildGroves` reads
-   * `buildGround`'s output -- sharing only the material, so a mismatch
-   * between the ground's palette tone and a mark's or a tree's
-   * alpha-composited tone would be a bug in one of the builders, not in how
-   * this method wires them together.
+   * (Re)builds the ground mesh, its scatter (grain) mesh, its grove (olive
+   * trunk/crown) mesh, and its buildings (blocked-tile boxes) mesh from the
+   * sim's static layout (`width`, `height`, `blocked`, `cover`,
+   * `structures`) plus whatever `setElevation`/`setDecor` have retained, and
+   * swaps all four into the scene in place of the previous set. The four are
+   * independent builders over the identical `TerrainInput` -- none of
+   * `buildScatter`, `buildGroves` or `buildBuildings` reads `buildGround`'s
+   * output -- sharing only the material, so a mismatch between the ground's
+   * palette tone and a mark's, a tree's or a building's alpha-composited
+   * tone would be a bug in one of the builders, not in how this method wires
+   * them together. `buildBuildings` alone also needs `structureFootprints()`
+   * below, since it is the one builder whose input cannot be read off
+   * `TerrainInput` alone.
    *
    * Only ever called from `frame()`, guarded by `terrainDirty` -- see that
    * field's doc comment for why building here, and not inside the setters,
@@ -343,7 +355,7 @@ export class ThreeRenderer implements Renderer {
    * rebuilt terrain that leaks its predecessor is invisible until a mission
    * rebuilds terrain a few hundred times, and then it is a memory bug nobody
    * can attribute. The material is not disposed -- `terrainMat` is reused
-   * across rebuilds, not replaced (all three meshes share it).
+   * across rebuilds, not replaced (all four meshes share it).
    *
    * A gap this does not close: Pixi sets `terrainDirty` from `onEvents` on
    * `structureDestroyed` (`renderer.ts:881`), so a destroyed building's tile
@@ -356,6 +368,21 @@ export class ThreeRenderer implements Renderer {
    * this comment, which is exactly the shape of gap that reads as a bug to
    * the next person who destroys a building on `?renderer=three` and
    * watches the ground not change.
+   *
+   * Task B2.7 makes this gap wider, not new: `buildingMesh` is built from
+   * the SAME stale-until-rebuilt `TerrainInput`/`structureFootprints()`
+   * snapshot, so a destroyed structure's box keeps standing on screen for
+   * exactly the reason its ground tile keeps reading as blocked above --
+   * `structureAt` would already report -1 for it (Sim truth is correct
+   * immediately), but nothing tells this renderer to ask again. And even
+   * once something does: B2.7 deliberately does NOT port `drawWreckedStructures`
+   * (`renderer.ts:1759-1783`, a `Sprite` from `art.wreckTexture`) or invent a
+   * rubble block to stand in for it -- "no structure sprites" is this plan's
+   * own scope line, and inventing art is not porting. So a rebuilt
+   * three.js terrain will make a destroyed structure's box disappear
+   * outright (its tiles are unblocked, so the tile loop never reaches them),
+   * with no rubble left behind where Pixi would show one. Both gaps are
+   * B3's to close together, the same way `onEvents` itself is.
    */
   private rebuildTerrain(): void {
     if (this.terrainMesh) {
@@ -369,6 +396,10 @@ export class ThreeRenderer implements Renderer {
     if (this.groveMesh) {
       this.scene.remove(this.groveMesh);
       this.groveMesh.geometry.dispose();
+    }
+    if (this.buildingMesh) {
+      this.scene.remove(this.buildingMesh);
+      this.buildingMesh.geometry.dispose();
     }
     const input: TerrainInput = {
       width: this.sim.width,
@@ -389,5 +420,64 @@ export class ThreeRenderer implements Renderer {
     const groveData = buildGroves(input, this.opts.terrainTones, this.opts.background);
     this.groveMesh = new THREE.Mesh(toGeometry(groveData), this.terrainMat);
     this.scene.add(this.groveMesh);
+
+    const buildingData = buildBuildings(
+      input,
+      this.structureFootprints(),
+      this.opts.terrainTones,
+      this.opts.resolveColor,
+      this.opts.background
+    );
+    this.buildingMesh = new THREE.Mesh(toGeometry(buildingData), this.terrainMat);
+    this.scene.add(this.buildingMesh);
+  }
+
+  /**
+   * Every LIVING structure, as the plain-array snapshot `buildBuildings`
+   * needs -- the pure builder must stay ignorant of `Sim`, so this is where
+   * that boundary is actually crossed. Walks every tile once (same cost
+   * `rebuildTerrain`'s own `TerrainInput` assembly already pays elsewhere)
+   * asking `structureAt`, rather than trusting `structures.minX/maxX/minY/
+   * maxY` as a solid rectangle -- a `per_tile` structure (a fence, a wall
+   * run) is NOT a filled rectangle, and `structureAt` is the one query that
+   * already gets this right for every structure shape the sim has.
+   *
+   * Deliberately draws no distinction between a structure with sprite art
+   * and one without: `structureAtlas` is Pixi-only state this class does not
+   * have, and Task B2.7's ruling is that B2 draws the block form for EVERY
+   * structure regardless -- so there is nothing here to filter on even if
+   * there were a reason to.
+   *
+   * A demolished structure never appears: `structureAt` returns -1 the
+   * moment `alive` drops to 0 (and `destroyStructure` unblocks its whole
+   * footprint besides), so this walk simply never visits its tiles. Whether
+   * that walk itself re-runs when a structure dies is a separate question --
+   * it does not, today, because `terrainDirty` is never set from `onEvents`
+   * (a still-stubbed B3 concern, documented on `rebuildTerrain` above).
+   */
+  private structureFootprints(): StructureFootprint[] {
+    const { width, height, structures: st, structureTypes } = this.sim;
+    const tilesByStructure = new Map<number, number[]>();
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const sIdx = this.sim.structureAt(x, y);
+        if (sIdx < 0) continue;
+        const tiles = tilesByStructure.get(sIdx);
+        if (tiles) tiles.push(y * width + x);
+        else tilesByStructure.set(sIdx, [y * width + x]);
+      }
+    }
+    const footprints: StructureFootprint[] = [];
+    for (const [sIdx, tiles] of tilesByStructure) {
+      const type = structureTypes[st.typeIdx[sIdx]];
+      footprints.push({
+        tiles,
+        heightPx: type.heightPx,
+        colorKey: type.color,
+        hp: st.hp[sIdx],
+        maxHp: st.maxHp[sIdx],
+      });
+    }
+    return footprints;
   }
 }
