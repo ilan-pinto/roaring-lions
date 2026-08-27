@@ -13,16 +13,26 @@
  * *reporting the current state truthfully* is not.
  *
  *  - **Data pushed in** *retains* its argument and returns:  `setElevation`,
- *    `useEmitters`, `loadStructureSprite`, and `setTutorialFocus`/
+ *    `loadStructureSprite`, and `setTutorialFocus`/
  *    `clearTutorialFocus` (a focus ring is state, not a one-shot). The data
- *    has arrived and is correct; it simply is not drawn until B4 (VFX,
- *    structure sprites) or is presentation-only Phase C state
- *    (`setTutorialFocus`). `setDecor` and `loadSprites` graduated out of this
- *    bucket in B2.6 and B3.5 respectively -- both now draw what they are
- *    given, immediately or on the next `frame()`.
+ *    has arrived and is correct; it simply is not drawn until B4 (structure
+ *    sprites) or is presentation-only Phase C state (`setTutorialFocus`).
+ *    `setDecor` and `loadSprites` graduated out of this bucket in B2.6 and
+ *    B3.5 respectively -- both now draw what they are given, immediately or
+ *    on the next `frame()`. `useEmitters` graduates in B3.13: it now wires
+ *    its `EmitterSpec[]` into a real `EmitterLibrary` and constructs a real
+ *    `ParticleSystem` from `resolve`, both actually consumed by `frame()`'s
+ *    draw path below (`ParticleInstancer`/`TracerBatch`, `units/fx.ts`) --
+ *    but nothing SPAWNS a particle or a tracer yet, because that reads
+ *    `SimEvent`s and `onEvents` is still the stub below. So the draw path is
+ *    real and browser-verified (see the B3.13 report), even though nothing
+ *    reaches it from a live mission until B3.14 wires `onEvents`'s
+ *    presentation half.
  *  - **Truthful no-ops**, where "nothing to do" is the honest answer rather
  *    than a dodge: `onEvents` (event-driven presentation -- fire flashes,
- *    deaths, damage tint -- is B4/Phase C; every clip `entityFrame` can
+ *    deaths, damage tint -- is Task B3.14, the next task after this one, not
+ *    B4/Phase C as an earlier draft of this comment said before the
+ *    combat-feedback addendum pulled it forward; every clip `entityFrame` can
  *    already resolve from direct per-tick `Sim` state alone, `working`
  *    included, needs no event feed at all), `addOrderMarker` (a one-shot
  *    with no state worth keeping), and `isVisible`, which returns `true`
@@ -71,7 +81,7 @@ import * as THREE from 'three';
 import { fx, type Sim } from '@lions/sim';
 import type { Renderer, RendererOptions } from '../api'; // both, after Step 2
 import type { Camera } from '../project';
-import type { EmitterSpec } from '../vfx';
+import { EmitterLibrary, ParticleSystem, type EmitterSpec } from '../vfx';
 import { SIM_HZ } from '../anim';
 import { parseManifest, type SheetSpec } from '../sheet';
 import type { UnitAnimInput } from '../clip';
@@ -87,6 +97,8 @@ import { packSheet, buildUnitTexture } from './units/atlas';
 import { entityFrame, assignRoofSlots, type EntityFrameInput, type EntityFrame } from './units/frame-state';
 import { UnitInstancer } from './units/instances';
 import { pickUnit as pickUnitPure, unitsInScreenRect as unitsInScreenRectPure } from './units/pick';
+import { stepTracers, type TracerModel } from './units/tracers';
+import { ParticleInstancer, TracerBatch, PARTICLE_CAPACITY, TRACER_CAPACITY } from './units/fx';
 
 /** Where a unit type's sheets live, as the app named them. */
 interface SpriteSheetRequest {
@@ -112,17 +124,21 @@ export class ThreeRenderer implements Renderer {
   /**
    * World data the app has already handed over, some of which is now drawn.
    *
-   * One bag rather than seven fields on purpose: it keeps what B2/B3/B4
+   * One bag rather than several fields on purpose: it keeps what B2/B3/B4
    * inherit visible at a glance. Terrain (`decor`, `elevation`) is read by
-   * `rebuildTerrain` below whenever `terrainDirty` is set; the emitter list
-   * and its palette resolver are VFX, which is B4's; the two sheet maps and
-   * the tutorial focus ring are B3's -- still retained only, not drawn.
+   * `rebuildTerrain` below whenever `terrainDirty` is set; the two sheet maps
+   * and the tutorial focus ring are B3's -- still retained only, not drawn.
+   *
+   * The emitter list and its palette resolver used to live here too
+   * (`emitters`, `resolveColor`), retained-only, until B3.13 wired them into
+   * `emitterLibrary`/`particleSystem` below -- objects that actually consume
+   * them (indexing by weapon class, sampling colour curves) rather than a
+   * copy of the raw arguments nothing read back. Keeping both would have
+   * been two sources of the same state agreeing only by construction.
    */
   private readonly retained = {
     decor: null as Uint8Array | null,
     elevation: null as Uint8Array | null,
-    emitters: [] as EmitterSpec[],
-    resolveColor: null as ((key: string) => string) | null,
     unitSheets: new Map<string, SpriteSheetRequest>(),
     structureSheets: new Map<string, string>(),
     tutorialFocus: null as { x: number; y: number; radius: number } | null,
@@ -193,6 +209,24 @@ export class ThreeRenderer implements Renderer {
    *  type id, the shape `UnitInstancer.update` consumes. */
   private readonly framesByType = new Map<string, EntityFrame[]>();
 
+  /**
+   * Task B3.13: combat feedback's draw path. `emitterLibrary` and
+   * `particleSystem` are wired by `useEmitters` below -- `particleSystem`
+   * stays `null` until then, exactly like `PixiRenderer.particles`, since a
+   * `ParticleSystem` needs the app's `resolve` callback to construct.
+   * `tracers` starts empty and is never populated by anything in THIS task
+   * (see `onEvents`'s own doc comment) -- Task B3.14 pushes onto it from a
+   * `fire` `SimEvent`, mirroring `PixiRenderer.tracers`. `particleInstancer`/
+   * `tracerBatch` exist unconditionally from construction, independent of
+   * whether `useEmitters` has run yet or any tracer has ever spawned, so
+   * `frame()` always has something to call `.update()` on.
+   */
+  private readonly emitterLibrary = new EmitterLibrary();
+  private particleSystem: ParticleSystem | null = null;
+  private tracers: TracerModel[] = [];
+  private readonly particleInstancer = new ParticleInstancer(PARTICLE_CAPACITY);
+  private readonly tracerBatch = new TracerBatch(TRACER_CAPACITY);
+
   constructor(
     private readonly sim: Sim,
     private readonly opts: RendererOptions
@@ -217,6 +251,12 @@ export class ThreeRenderer implements Renderer {
     // which is exactly why this is a single call rather than two lines a
     // future edit could reorder.
     applyPalettePipeline(this.renderer, this.opts.background);
+    // Added unconditionally, not lazily on first useEmitters/spawn -- both
+    // meshes start at count/drawRange 0 (nothing live yet) and simply stay
+    // that way until there is something to draw, the same "always present,
+    // draws nothing until fed" shape terrain's own meshes have before the
+    // first rebuildTerrain.
+    this.scene.add(this.particleInstancer.mesh, this.tracerBatch.mesh);
   }
 
   get canvas(): HTMLCanvasElement {
@@ -289,6 +329,8 @@ export class ThreeRenderer implements Renderer {
     this.terrainMat.dispose();
     for (const instancer of this.unitInstancers.values()) instancer.dispose();
     this.unitInstancers.clear();
+    this.particleInstancer.dispose();
+    this.tracerBatch.dispose();
     this.renderer.dispose();
     this.host = null;
   }
@@ -303,14 +345,16 @@ export class ThreeRenderer implements Renderer {
   }
 
   /** `alpha` (interpolation) and `dtMs` (presentation animation -- frame
-   *  advance) now feed every living unit's `EntityFrame` via `updateUnits`.
-   *  Terrain still reads neither: it has no per-frame presentation state. */
+   *  advance) now feed every living unit's `EntityFrame` via `updateUnits`,
+   *  and (Task B3.13) every live particle/tracer via `updateFx`. Terrain
+   *  still reads neither: it has no per-frame presentation state. */
   frame(alpha: number, dtMs: number): void {
     if (this.terrainDirty) {
       this.rebuildTerrain();
       this.terrainDirty = false;
     }
     this.updateUnits(alpha, dtMs);
+    this.updateFx(dtMs);
     this.renderer.render(this.scene, this.threeCamera());
   }
 
@@ -340,11 +384,23 @@ export class ThreeRenderer implements Renderer {
   }
   onEvents(): void {
     /* Event-driven presentation -- fire-flash timing, deaths, damage tint,
-     * trails -- is B4/Phase C. Every clip `entityFrame` can already resolve
-     * from direct per-tick Sim state alone (dead/routed/pinned/working/
-     * moving/idle); only the one-shot `fire` pose needs an event feed
-     * (Pixi's own `firingTimer`, latched from a `fired` SimEvent), and it is
-     * the one clip units drawn by this backend do not yet show. */
+     * trails -- is Task B3.14, immediately next (pulled forward from B4/
+     * Phase C by the combat-feedback addendum; see this class's own top
+     * comment). Every clip `entityFrame` can already resolve from direct
+     * per-tick Sim state alone (dead/routed/pinned/working/moving/idle);
+     * only the one-shot `fire` pose needs an event feed (Pixi's own
+     * `firingTimer`, latched from a `fired` SimEvent), and it is the one
+     * clip units drawn by this backend do not yet show.
+     *
+     * This is also where B3.14 pushes a `spawnTracer(...)` onto `this.
+     * tracers` and calls `this.particleSystem?.spawn(...)` on a `fire`
+     * event, porting `renderer.ts:756` onward (the tracer spawn, muzzle
+     * position/direction, and the emitter lookup through `emitterLibrary`).
+     * `updateFx` below already steps and draws both `tracers` and
+     * `particleSystem` every frame -- Task B3.13 built the whole draw path
+     * with nothing spawning into it yet, exactly the state `onEvents`
+     * itself has been in since B3.5: real machinery, no event feed wired to
+     * it. */
   }
 
   worldToScreen(wx: number, wy: number): { x: number; y: number } {
@@ -416,8 +472,11 @@ export class ThreeRenderer implements Renderer {
     );
   }
 
-  // --- world data pushed in. Decor/elevation are now drawn (terrain);
-  //     the rest stays retained only, for B3/B4.
+  // --- world data pushed in. Decor/elevation/emitters are now drawn (or,
+  //     for emitters, consumed by objects `updateFx` draws from -- see
+  //     `onEvents`'s own doc comment for what still has to happen before a
+  //     particle actually appears); the sheet maps and tutorial focus stay
+  //     retained only, for B3/B4.
   setElevation(elevation: Uint8Array): void {
     this.retained.elevation = elevation;
     this.terrainDirty = true;
@@ -426,9 +485,21 @@ export class ThreeRenderer implements Renderer {
     this.retained.decor = decor;
     this.terrainDirty = true;
   }
+  /**
+   * Wires weapon-fire emitters into a real `EmitterLibrary` (indexed by
+   * weapon class, mirroring `PixiRenderer.useEmitters`) and constructs a
+   * real `ParticleSystem` from the app's `resolve` callback, at the SAME
+   * `PARTICLE_CAPACITY` (2048) Pixi's own `ParticleSystem` uses
+   * (`renderer.ts:644`) -- one pool, matched, not two independently-guessed
+   * ceilings. Both are actually read from now: `emitterLibrary.
+   * fireEmitterFor`/`byName` and `particleSystem.spawn` are B3.14's job (a
+   * `fire` `SimEvent` inside `onEvents`), and `particleSystem.step`/
+   * `particleInstancer.update` already run every frame regardless, from
+   * `updateFx` below.
+   */
   useEmitters(list: EmitterSpec[], resolve: (key: string) => string): void {
-    this.retained.emitters = list;
-    this.retained.resolveColor = resolve;
+    this.emitterLibrary.useEmitters(list);
+    this.particleSystem = new ParticleSystem(PARTICLE_CAPACITY, resolve);
   }
   /**
    * Load a unit type's sprite sheet and build the `THREE.InstancedMesh`
@@ -512,6 +583,16 @@ export class ThreeRenderer implements Renderer {
     return dimetricCamera(this.camera, { width: this.width, height: this.height });
   }
 
+  /** Wall-clock seconds since the previous frame, clamped exactly the way
+   *  `PixiRenderer.frame()` clamps its own `dtSeconds` (`renderer.ts:1880`):
+   *  a 100 ms ceiling so a tab returning from the background catches up in
+   *  one bounded step instead of a huge stride. Shared by `updateUnits`
+   *  (animation phase advance) and `updateFx` (particle/tracer ageing) so
+   *  the two cannot silently clamp differently. */
+  private frameDtSeconds(dtMs: number): number {
+    return Math.min(dtMs, 100) / 1000;
+  }
+
   /**
    * Builds this frame's `EntityFrame` for every living entity whose unit
    * type has a loaded `UnitInstancer`, grouped by type, and hands each
@@ -534,7 +615,7 @@ export class ThreeRenderer implements Renderer {
   private updateUnits(alpha: number, dtMs: number): void {
     if (this.unitInstancers.size === 0) return;
 
-    const dtSeconds = Math.min(dtMs, 100) / 1000;
+    const dtSeconds = this.frameDtSeconds(dtMs);
     const st = this.sim.state;
     const n = this.sim.entityCount;
     const roofSlots = assignRoofSlots(st.garrisonedIn, st.alive, n);
@@ -611,6 +692,38 @@ export class ThreeRenderer implements Renderer {
     for (const [typeId, instancer] of this.unitInstancers) {
       instancer.update(this.framesByType.get(typeId) ?? []);
     }
+  }
+
+  /**
+   * Task B3.13: ages and draws every live particle and tracer, every frame,
+   * unconditionally -- mirrors `PixiRenderer.frame()`'s own `if (this.
+   * particles) this.particles.step(dtSeconds)` (`renderer.ts:1902`) plus its
+   * end-of-frame tracer step+draw (`renderer.ts:2597-2613`), minus the
+   * `puffs` fallback path (the "no emitter for this class yet" stand-in
+   * Pixi still carries; B3.14 owns whether this backend needs an equivalent
+   * when it wires the `fire` spawn this reads from).
+   *
+   * `particleSystem` is `null` until `useEmitters` runs -- `particleInstancer.
+   * update` already handles that truthfully (see its own doc comment), so
+   * there is nothing to guard here. `tracers` needs no such guard: it starts
+   * empty and stays empty until Task B3.14 pushes onto it, and `stepTracers`
+   * (`units/tracers.ts`) is total over an empty array.
+   *
+   * Called after `updateUnits`, but the ORDER between the two does not
+   * matter for what ends up on screen: three.js sorts every transparent
+   * object into its own render pass independent of scene-graph or call
+   * order, and depth resolution between them comes from the shared
+   * `transparent + depthTest + depthWrite` recipe every one of
+   * units/particles/tracers/terrain uses (`units/fx.ts`'s own top comment
+   * has the full account) -- not from which `update*` method happened to run
+   * first this frame.
+   */
+  private updateFx(dtMs: number): void {
+    const dtSeconds = this.frameDtSeconds(dtMs);
+    this.particleSystem?.step(dtSeconds);
+    this.particleInstancer.update(this.particleSystem);
+    this.tracers = stepTracers(this.tracers, dtSeconds);
+    this.tracerBatch.update(this.tracers, this.opts.tracerColors);
   }
 
   /**
