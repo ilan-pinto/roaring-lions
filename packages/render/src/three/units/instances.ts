@@ -1,0 +1,477 @@
+/**
+ * Task B3.5: units on screen. `frame-state.ts` (B3.3) decides WHERE and WHAT
+ * one living entity looks like for one rendered frame, as a plain
+ * `EntityFrame` -- no `THREE.*`, no GPU. `atlas.ts` (B3.4) decides WHICH
+ * `DataArrayTexture` layer holds a given `(clip, facing, frame)`. This module
+ * is where both become the thing actually on screen: one `THREE.InstancedMesh`
+ * per unit type, one draw call regardless of how many of that type are alive,
+ * per Ruling 1 (`packages/render/src/three/ThreeRenderer.ts`'s callers wire
+ * it up; nothing here touches `Sim`).
+ *
+ * Split the same way `atlas.ts` is: pure functions first (testable in
+ * `environment: 'node'` -- no DOM, no GPU), the `THREE.*`-constructing half
+ * after the line that says so. `unitBillboardGeometry`, `facingIndex` and
+ * `writeUnitInstances` are exercised directly by `instances.test.ts`;
+ * `UnitInstancer` itself is not (`THREE.InstancedMesh`/`ShaderMaterial`
+ * construction needs nothing headless cannot provide, but *using* it end to
+ * end needs a real `WebGLRenderer`, which cannot be built under
+ * `environment: 'node'` -- the same reason `ThreeRenderer` itself has no
+ * test file).
+ *
+ * ## Billboard convention: matches `terrain/grove.ts`, not `THREE.Sprite`
+ *
+ * `grove.ts`'s canopies are baked billboards: "right" is
+ * `screenOffsetToWorld(px, 0)`, "up" is world +Y scaled by
+ * `WORLD_Y_PER_LIFT_PIXEL`, and both are baked into static vertices once,
+ * never recomputed from the camera per frame -- correct because this camera
+ * never orbits (`ELEVATION`/`AZIMUTH` are compile-time constants; `Camera` is
+ * `{x, y, zoom}`, no orbit field exists). `unitBillboardGeometry` below uses
+ * the identical two axes for the identical reason, and for a second one
+ * specific to units: they carry real textures with real alpha, so *which*
+ * billboard convention is used is not merely a style choice the way it might
+ * be for an unlit vertex-coloured tree -- it decides depth semantics.
+ *
+ * `THREE.Sprite` was the other candidate and was rejected, not merely passed
+ * over. Its own vertex shader (`SpriteMaterial`'s chunk, `three.module.js`)
+ * transforms only the sprite's *anchor point* into view space and then
+ * offsets the four corners in view-space X/Y by a screen-facing rotation --
+ * critically, it does NOT touch view-space Z. Every corner of a `THREE.Sprite`
+ * therefore shares exactly one depth, regardless of the sprite's size. A unit
+ * standing at a ridge's base needs its feet and its head to depth-test
+ * differently against that ridge's own sloped face -- that is the entire
+ * reason B3 replaces Pixi's `clearZ` hacks with a real depth buffer. A
+ * `THREE.Sprite` cannot provide that: it is flat in depth by construction,
+ * the exact defect `clearZ` existed to paper over, reborn one layer down. So
+ * every vertex here is placed in genuine world space -- exactly like
+ * `grove.ts`'s `toWorld` -- and depth falls out of the ordinary depth buffer
+ * with no sort key, no per-frame camera-facing math, and (because this
+ * camera's azimuth/elevation are fixed) no loss of correctness relative to a
+ * "real" billboard shader that recomputed the same two axes from
+ * `viewMatrix` every frame: they would compute the same numbers.
+ *
+ * ## Anchored at the feet, not the centre
+ *
+ * Pixi's own comment on `spawnAmbient` (`renderer.ts`) calls a unit's screen
+ * anchor "the unit's ground contact point", and Pixi centres the sprite
+ * texture on it (`anchor: 0.5`) freely, because Pixi has no depth buffer for
+ * that choice to corrupt -- its `zIndex` sort key never reads *where inside
+ * the sprite* the anchor sits, only the tile underneath it. three.js has no
+ * such firewall: depth comes from real vertex position. Centring the quad
+ * here (local "up" running from `-halfDrawPx` to `+halfDrawPx`) would put
+ * HALF its height *below* the entity's actual standing point -- a foot span
+ * sunk into the ground plane -- and would put the quad's own geometric
+ * middle, not its feet, at the position depth is measured from: a unit would
+ * sort as though it stood half a body length further from the camera than it
+ * does, and its lower half would clip into whatever terrain or building
+ * geometry is directly behind its feet. Anchoring "up" at `[0, drawPx]`
+ * instead (feet at 0) makes the quad's lowest edge the entity's real world
+ * position, matching `groundWorldY`'s own contract ("a unit standing on a
+ * tile lands exactly on that tile's own top face").
+ *
+ * ## The unit-vs-tree tie
+ *
+ * A unit standing at a grove tile's own tree anchor is a genuine, reachable
+ * depth tie, not a hypothetical: `groundWorldY` (what `entityFrame` uses for
+ * a unit's `worldY`) and `grove.ts`'s own `topY = levelAt(...) *
+ * WORLD_PER_LEVEL` (what a tree's trunk base stands on) are the *same*
+ * formula over the *same* constants -- `groundLevelAt` delegates to the
+ * identical `levelAt` grove.ts imports from `shared.ts`. So a unit's feet
+ * vertex (local up = 0) and a co-located tree's trunk base sit at exactly
+ * the same world Y before any tie-break, on a tile grove tiles do not block
+ * movement onto. `grove.ts`'s own inter-lobe epsilons (`TRUNK_EPSILON` ..
+ * `CROWN_LIT_EPSILON`, 0.005-0.04 world units) were sized to separate
+ * coplanar quads *within one tree*; nothing about them arbitrates a
+ * different mesh entirely.
+ *
+ * `UNIT_DEPTH_BIAS` is the explicit tie-break this module establishes: every
+ * unit vertex is nudged `UNIT_DEPTH_BIAS` world units up (this camera's fixed
+ * pitch makes +Y monotonically nearer the camera, independent of pan or zoom
+ * -- the same fact `grove.ts`'s own epsilons rely on), strictly larger than
+ * grove's own largest epsilon so a unit wins a tie against *every* grove
+ * layer, not merely its outermost. A unit reads as more urgent than
+ * decoration by design -- this is a strategy game, and a unit standing in an
+ * olive grove must stay legible rather than being swallowed by the canopy's
+ * geometry the instant their depths happen to coincide. `renderOrder` was
+ * the other option the brief names and was rejected: it only decides which
+ * of two *equal*-depth fragments the GPU's `<=` depth test keeps (whichever
+ * drew last), which resolves a bit-for-bit tie but not a *near* tie -- and a
+ * moving, interpolated unit can cross from "near" to "exactly equal" to
+ * "near from the other side" within a single animated frame, which would
+ * read as a flicker `renderOrder` cannot prevent. A constant bias resolves
+ * both the exact and the near case the same deterministic way, and is the
+ * same mechanism (an epsilon nudge along +Y) `grove.ts` already uses
+ * internally, rather than a second, differently-shaped mechanism for one
+ * more case. `instances.test.ts` proves the ordering (`UNIT_DEPTH_BIAS >
+ * CROWN_LIT_EPSILON`, imported from `grove.ts` rather than copied, so a
+ * future change to grove's own epsilon cannot silently invalidate this
+ * module's assumption) and the coincidence itself (a unit's biased feet
+ * world Y strictly exceeds an unbiased tree base's, for the same tile).
+ * `DoubleSide` was not reached for: it addresses back-face culling, not
+ * depth ordering, and would not touch this problem at all.
+ *
+ * ## Alpha: blend, matching Pixi -- and the palette consequence, stated plainly
+ *
+ * B3.4's own orchestrator note (see the B3.5 brief) measured that `LinearFilter`
+ * (already set by `atlas.ts`, unchanged here) puts off-palette pixels on
+ * screen at this draw scale -- most interior pixels are already a bilinear
+ * blend of two to four adjacent palette entries, and the note is explicit
+ * that alpha-test alone does not undo that; only switching to `NearestFilter`
+ * would, at the cost of shimmer on pan/zoom the note also measured. Given
+ * that the interior is not palette-exact regardless of the alpha decision,
+ * this module chooses alpha-BLEND: `transparent: true`, real coverage
+ * blending at the silhouette edge, matching exactly what `?renderer=pixi`
+ * already ships for these same 3,101 PNGs (Pixi v8 defaults `scaleMode` to
+ * `'linear'` and nothing in this repo overrides it). That keeps a future
+ * Phase D golden-image diff meaningful for units, and keeps the three.js
+ * backend's units looking like the game players already know rather than
+ * introducing a crisper-but-different silhouette style nobody asked for.
+ *
+ * **Stated plainly, per the brief's own requirement: unit pixels drawn by
+ * this module are NOT palette-exact.** B2's terrain guarantee (every terrain
+ * pixel is one of the 65 palette entries, proved by `ground.test.ts` et al.)
+ * covers terrain only, and always has -- terrain is unlit vertex-coloured
+ * geometry with no texture sampling anywhere in its pipeline, a fundamentally
+ * different mechanism from a raster sprite. Units were never going to carry
+ * that same guarantee once real PNGs entered the picture; this is Pixi's
+ * own, already-shipping behaviour, inherited rather than introduced by B3.
+ * The one piece of `ALPHA_PADDING_DISCARD` below is not the palette
+ * trade-off -- it exists only so the fully-transparent canvas padding around
+ * a sprite's silhouette does not write bogus depth (see its own comment).
+ */
+import * as THREE from 'three';
+import { TILE_W, WORLD_Y_PER_LIFT_PIXEL } from '../../project';
+import { screenOffsetToWorld } from '../terrain/shared';
+import type { SheetSpec } from '../../sheet';
+import type { FramePacking } from './atlas';
+import type { EntityFrame } from './frame-state';
+
+// ---------------------------------------------------------------------------
+// Pure: geometry and per-instance attribute arithmetic. No THREE.* GPU
+// objects below this line yet -- BufferAttribute/InstancedMesh construction
+// starts after the "GPU-facing" divider further down.
+// ---------------------------------------------------------------------------
+
+/**
+ * World-Y nudge applied to every unit vertex, resolving the unit-vs-tree
+ * depth tie in the unit's favour. See this file's own top comment ("The
+ * unit-vs-tree tie") for the full derivation; `instances.test.ts` proves it
+ * exceeds `grove.ts`'s own largest inter-lobe epsilon
+ * (`CROWN_LIT_EPSILON`, 0.04) by importing that constant directly rather
+ * than duplicating its value, so the two cannot silently drift apart.
+ * 0.05 world units is ~2 screen px at this camera's fixed pitch (divide by
+ * `WORLD_Y_PER_LIFT_PIXEL`), the same "well under one elevation step, well
+ * above anything that reads as floating" scale `grove.ts`'s own epsilons
+ * occupy.
+ */
+export const UNIT_DEPTH_BIAS = 0.05;
+
+/**
+ * Sprite-sheet facing index for a normalised (0..1) heading. Ported from
+ * `PixiRenderer.spriteIndex` (`renderer.ts:388-392`) rather than imported:
+ * it is `private static` and unexported, and importing anything from
+ * `renderer.ts` would pull pixi.js into this module's graph -- the same
+ * reason `terrain/shared.ts` redeclares `TERRAIN_DECOR` instead of importing
+ * it. `entityFrame` (`frame-state.ts`) hands back `facing` as the raw
+ * normalised float unconverted (matching Pixi's own `facingNorm`); turning
+ * it into an integer sheet index is this module's job, one lookup away from
+ * where it is actually used (`packing.regionFor`).
+ */
+export function facingIndex(facingNorm: number, sheet: SheetSpec): number {
+  const n = sheet.facings;
+  const k = Math.round(facingNorm * n) % n;
+  const dir = sheet.facingReverse ? -k : k;
+  return (((dir + sheet.facingOffset) % n) + n) % n;
+}
+
+/** Plain-array quad geometry for one unit type's billboard: four vertices,
+ *  two triangles, shared by every instance of that type. No THREE.* types,
+ *  so it is testable exactly like `terrain/*`'s `MeshData` builders. */
+export interface BillboardGeometry {
+  /** xyz triples, three.js world space, local to an instance's own
+   *  translation (the entity's feet). Four vertices: bottom-left,
+   *  bottom-right, top-right, top-left. */
+  positions: Float32Array;
+  /** uv pairs, one per vertex, same order as `positions`. */
+  uvs: Float32Array;
+  indices: Uint32Array;
+}
+
+/**
+ * The static, per-unit-type camera-facing quad every instance of that type
+ * shares -- built once when a sheet's texture loads (`ThreeRenderer.
+ * loadSprites`), never per frame. See this file's own top comment for the
+ * billboard convention and the feet anchor; this is where both become
+ * numbers.
+ *
+ * Drawn size matches Pixi's own on-screen scale exactly: Pixi computes
+ * `spriteScale = (sheet.scale * TILE_W) / textureWidthPx` and applies it
+ * uniformly to a square texture (`renderer.ts:2103-2105`), so its drawn
+ * width -- and, since every frame is square, height -- is always
+ * `sheet.scale * TILE_W` regardless of the texture's actual pixel size. That
+ * arithmetic is reproduced directly here rather than importing `FRAME_PX`
+ * from `atlas.ts` and dividing it back out, which would only reintroduce the
+ * same cancelled term.
+ */
+export function unitBillboardGeometry(sheet: SheetSpec): BillboardGeometry {
+  const drawPx = sheet.scale * TILE_W;
+  const half = drawPx / 2;
+  const right = screenOffsetToWorld(1, 0);
+
+  const corner = (rightPx: number, upPx: number): [number, number, number] => [
+    right.dx * rightPx,
+    upPx * WORLD_Y_PER_LIFT_PIXEL + UNIT_DEPTH_BIAS,
+    right.dy * rightPx,
+  ];
+
+  const bl = corner(-half, 0);
+  const br = corner(half, 0);
+  const tr = corner(half, drawPx);
+  const tl = corner(-half, drawPx);
+
+  return {
+    positions: Float32Array.from([...bl, ...br, ...tr, ...tl]),
+    // v inverted relative to local "up": `buildUnitTexture` (atlas.ts)
+    // uploads into a `THREE.DataArrayTexture`, whose `flipY` three.js
+    // itself defaults to `false` (verified against 0.170's source, not
+    // assumed). With no flip, texel row 0 -- `getImageData`'s first row,
+    // the TOP of the source PNG -- lands at texture v = 0. So the quad's
+    // TOP edge (up = drawPx) must sample v = 0 to show the sprite's top,
+    // and the quad's BOTTOM edge (up = 0, the feet) samples v = 1.
+    uvs: Float32Array.from([0, 1, 1, 1, 1, 0, 0, 0]),
+    // Winding verified analytically against this camera's VIEW_DIRECTION,
+    // not by inspection -- `instances.test.ts` checks it directly, the same
+    // way `grove.test.ts` proves its own billboards. For vertex order
+    // (bl, br, tr, tl) this is the front-facing order; the opposite index
+    // order (0,2,1)/(0,3,2) -- `ground.ts`'s own `flip: false`, correct
+    // there for a *horizontal* quad traced (x,y)->(x+1,y)->(x+1,y+1)->
+    // (x,y+1) -- would face away here, because a vertical quad traced
+    // bottom-left->bottom-right->top-right->top-left runs the opposite
+    // rotational sense relative to this camera.
+    indices: Uint32Array.from([0, 1, 2, 0, 2, 3]),
+  };
+}
+
+/** Per-instance GPU attribute arrays `writeUnitInstances` fills, sized (by
+ *  the caller) to at least the unit type's own per-type capacity. */
+export interface UnitInstanceBuffers {
+  /** xyz triples, world space -- the translation `UnitInstancer` writes into
+   *  each live instance's `instanceMatrix`. */
+  positions: Float32Array;
+  /** DataArrayTexture layer index, one per instance. */
+  layers: Float32Array;
+  /** Body alpha (contact-level fade), one per instance. */
+  alphas: Float32Array;
+}
+
+/**
+ * Per-instance GPU attributes for every VISIBLE living entity of one unit
+ * type, this frame -- the pure half of the per-frame update, callable with
+ * no `THREE.InstancedMesh` at all (this file's own tests exercise it
+ * directly, with a hand-built `EntityFrame[]` fixture).
+ *
+ * `frames` need not be pre-filtered: `visible: false` (an over-the-cap roof
+ * occupant, per `frame-state.ts`'s own `assignRoofSlots`/`roofSpreadPx`) is
+ * skipped here, exactly mirroring Pixi's `continue`. The returned count is
+ * always `<= frames.length` -- callers set `mesh.count` to it, which is the
+ * only "hide an instance" mechanism an `InstancedMesh` has; a stale tail of
+ * attribute data past `count` is simply never read by the GPU.
+ *
+ * `roofDx` (a screen-pixel lateral spread between two roof occupants,
+ * `frame-state.ts`'s own doc comment) converts through the same `right` axis
+ * `unitBillboardGeometry` and every terrain mark use -- a garrisoned unit's
+ * translation is nudged sideways in world space by the same amount a mark's
+ * screen-pixel jitter would be, not a separate convention.
+ */
+export function writeUnitInstances(
+  frames: readonly EntityFrame[],
+  sheet: SheetSpec,
+  packing: FramePacking,
+  out: UnitInstanceBuffers
+): number {
+  const right = screenOffsetToWorld(1, 0);
+  let count = 0;
+  for (const f of frames) {
+    if (!f.visible) continue;
+    const facing = facingIndex(f.facing, sheet);
+    const region = packing.regionFor(f.clip, facing, f.frame);
+    out.positions[count * 3] = f.wx + right.dx * f.roofDx;
+    out.positions[count * 3 + 1] = f.worldY;
+    out.positions[count * 3 + 2] = f.wy + right.dy * f.roofDx;
+    out.layers[count] = region.layer;
+    out.alphas[count] = f.alpha;
+    count++;
+  }
+  return count;
+}
+
+// ---------------------------------------------------------------------------
+// GPU-facing: everything below touches THREE.* GPU-side construction
+// (BufferGeometry, InstancedMesh, ShaderMaterial). None of it is exercised
+// by `instances.test.ts` for the same reason `terrain/mesh.ts` has no test
+// file of its own -- there is nothing to assert beyond "three.js accepted
+// these buffers", and *using* it end to end needs a real WebGLRenderer,
+// which `environment: 'node'` cannot build. Covered instead by the browser
+// verification in the B3.5 report.
+// ---------------------------------------------------------------------------
+
+/**
+ * Threshold below which a fragment is fully discarded rather than blended.
+ *
+ * NOT the alpha-test-vs-blend decision (see this file's top comment) --
+ * everything above this threshold still blends normally, silhouette edges
+ * included. This exists only because `buildUnitTexture` decodes a sprite's
+ * *whole* 256x256 canvas, most of which is fully transparent padding around
+ * the silhouette: with `depthWrite: true` (needed so an opaque unit
+ * genuinely occludes terrain and other units behind it, replacing `clearZ`),
+ * a fragment that blended at alpha 0 would still write real depth at that
+ * pixel -- an invisible box occluding whatever stands behind the padding,
+ * the exact defect this task's shift to real depth is supposed to fix, not
+ * reintroduce one texel type at a time. Discarding fully-transparent texels
+ * outright means they write neither colour nor depth, exactly as if that
+ * corner of the quad were not there.
+ */
+const ALPHA_PADDING_DISCARD = 0.02;
+
+/**
+ * The unit material: samples one layer of a `DataArrayTexture` per instance,
+ * blends (see this file's top comment for the alpha decision), and applies
+ * no colour-space transform -- `applyPalettePipeline`'s pass-through
+ * `outputColorSpace` and `buildUnitTexture`'s untagged (`NoColorSpace`)
+ * texture mean the sampled bytes must reach `gl_FragColor` unmodified, the
+ * same contract `terrainMaterial`'s vertex colours honour.
+ *
+ * A custom `ShaderMaterial` rather than `MeshBasicMaterial`: three.js's
+ * built-in materials have no `sampler2DArray` path at all, and per-instance
+ * layer selection needs a custom instanced attribute (`aLayer`) regardless.
+ * `position`/`uv`/`instanceMatrix` are declared by three.js's own generated
+ * prefix for any non-raw `ShaderMaterial` used with an `InstancedMesh`
+ * (verified against 0.170's `WebGLProgram` source) -- only the two
+ * genuinely custom per-instance attributes are declared here.
+ */
+function createUnitMaterial(texture: THREE.DataArrayTexture): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uMap: { value: texture },
+    },
+    vertexShader: /* glsl */ `
+      attribute float aLayer;
+      attribute float aAlpha;
+      varying vec2 vUv;
+      varying float vLayer;
+      varying float vAlpha;
+      void main() {
+        vUv = uv;
+        vLayer = aLayer;
+        vAlpha = aAlpha;
+        vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * mvPosition;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      precision highp sampler2DArray;
+      uniform sampler2DArray uMap;
+      varying vec2 vUv;
+      varying float vLayer;
+      varying float vAlpha;
+      void main() {
+        vec4 texel = texture2D(uMap, vec3(vUv, vLayer));
+        float a = texel.a * vAlpha;
+        if (a < ${ALPHA_PADDING_DISCARD}) discard;
+        gl_FragColor = vec4(texel.rgb, a);
+      }
+    `,
+    transparent: true,
+    depthTest: true,
+    depthWrite: true,
+    side: THREE.FrontSide,
+  });
+}
+
+/**
+ * One unit type's `InstancedMesh`, plus everything `ThreeRenderer` needs to
+ * feed it a new frame: the shared billboard geometry, the packed texture,
+ * and the per-instance scratch buffers `update` writes into.
+ *
+ * Sized (via `capacity`) to the unit type's own per-type ceiling, not
+ * reallocated per frame -- `update` shrinks `mesh.count` to however many of
+ * that type are actually visible this frame rather than resizing anything.
+ */
+export class UnitInstancer {
+  readonly mesh: THREE.InstancedMesh;
+  readonly sheet: SheetSpec;
+  private readonly packing: FramePacking;
+  private readonly texture: THREE.DataArrayTexture;
+  private readonly layerAttr: THREE.InstancedBufferAttribute;
+  private readonly alphaAttr: THREE.InstancedBufferAttribute;
+  private readonly scratchPositions: Float32Array;
+  private readonly scratchMatrix = new THREE.Matrix4();
+
+  constructor(sheet: SheetSpec, texture: THREE.DataArrayTexture, packing: FramePacking, capacity: number) {
+    this.sheet = sheet;
+    this.packing = packing;
+    this.texture = texture;
+
+    const geo = unitBillboardGeometry(sheet);
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(geo.positions, 3));
+    geometry.setAttribute('uv', new THREE.BufferAttribute(geo.uvs, 2));
+    geometry.setIndex(new THREE.BufferAttribute(geo.indices, 1));
+
+    this.layerAttr = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
+    this.alphaAttr = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
+    geometry.setAttribute('aLayer', this.layerAttr);
+    geometry.setAttribute('aAlpha', this.alphaAttr);
+
+    this.mesh = new THREE.InstancedMesh(geometry, createUnitMaterial(texture), capacity);
+    this.mesh.count = 0;
+    // Instances are translated across the whole map, not clustered at the
+    // origin the base geometry is authored around -- the bounding sphere
+    // three.js would otherwise compute from the base geometry alone covers
+    // only a few dozen world units at the origin, and would frustum-cull the
+    // entire mesh the moment the camera panned away from (0, 0). One draw
+    // call per unit type (Ruling 1) already means every living instance of
+    // a type is submitted together regardless of per-instance visibility, so
+    // disabling frustum culling here costs nothing beyond what the
+    // architecture already pays.
+    this.mesh.frustumCulled = false;
+
+    this.scratchPositions = new Float32Array(capacity * 3);
+  }
+
+  /**
+   * Writes this frame's visible instances into the mesh's GPU-facing
+   * buffers and shrinks `mesh.count` to match. `frames` is every LIVING
+   * entity of this instancer's unit type this frame -- not pre-filtered for
+   * `visible`, matching `writeUnitInstances`'s own contract.
+   */
+  update(frames: readonly EntityFrame[]): void {
+    const count = writeUnitInstances(frames, this.sheet, this.packing, {
+      positions: this.scratchPositions,
+      layers: this.layerAttr.array as Float32Array,
+      alphas: this.alphaAttr.array as Float32Array,
+    });
+    for (let i = 0; i < count; i++) {
+      this.scratchMatrix.makeTranslation(
+        this.scratchPositions[i * 3],
+        this.scratchPositions[i * 3 + 1],
+        this.scratchPositions[i * 3 + 2]
+      );
+      this.mesh.setMatrixAt(i, this.scratchMatrix);
+    }
+    this.mesh.count = count;
+    this.mesh.instanceMatrix.needsUpdate = true;
+    this.layerAttr.needsUpdate = true;
+    this.alphaAttr.needsUpdate = true;
+  }
+
+  /** Releases the geometry, material and texture this instancer owns. Not
+   *  reached from anywhere today -- `ThreeRenderer` has no shutdown path
+   *  (see its own `dispose()` doc comment) -- but `loadSprites` replacing an
+   *  already-loaded unit type calls it, so a re-load cannot leak the type it
+   *  replaces. */
+  dispose(): void {
+    this.mesh.geometry.dispose();
+    (this.mesh.material as THREE.Material).dispose();
+    this.texture.dispose();
+  }
+}

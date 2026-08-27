@@ -2,24 +2,34 @@
  * The three.js backend. Phase B1 got it on screen with nothing but the clear
  * colour; Phase B2.4 adds the first drawn geometry -- terrain, built lazily
  * from `buildGround` (see `rebuildTerrain` below) and uploaded once per
- * change via `toGeometry`/`terrainMaterial`.
+ * change via `toGeometry`/`terrainMaterial`. Phase B3.5 adds the second:
+ * living units, one `THREE.InstancedMesh` per loaded unit type
+ * (`units/instances.ts`), fed a fresh `EntityFrame` per living entity every
+ * frame (`units/frame-state.ts`) from real per-entity position tracking this
+ * class now owns (`prevX`/`curX`/etc. below, populated by `snapshot`).
  *
  * Three kinds of not-yet-implemented member, and the line between them is the
  * whole discipline of this phase: *inventing an answer* is forbidden;
  * *reporting the current state truthfully* is not.
  *
- *  - **Data pushed in** *retains* its argument and returns: `setDecor`,
- *    `setElevation`, `useEmitters`, the two sprite loaders, and
- *    `setTutorialFocus`/`clearTutorialFocus` (a focus ring is state, not a
- *    one-shot). The data has arrived and is correct; it simply is not drawn
- *    until B2/B3/B4. Throwing here made `?renderer=three` unreachable in the
- *    first place -- the boot threw at `setDecor` before `init` ever appended
- *    the canvas, so the one thing B1 draws could not be seen at all.
+ *  - **Data pushed in** *retains* its argument and returns:  `setElevation`,
+ *    `useEmitters`, `loadStructureSprite`, and `setTutorialFocus`/
+ *    `clearTutorialFocus` (a focus ring is state, not a one-shot). The data
+ *    has arrived and is correct; it simply is not drawn until B4 (VFX,
+ *    structure sprites) or is presentation-only Phase C state
+ *    (`setTutorialFocus`). `setDecor` and `loadSprites` graduated out of this
+ *    bucket in B2.6 and B3.5 respectively -- both now draw what they are
+ *    given, immediately or on the next `frame()`.
  *  - **Truthful no-ops**, where "nothing to do" is the honest answer rather
- *    than a dodge: `snapshot` (nothing to latch), `onEvents` (nothing draws
- *    yet), `addOrderMarker` (a one-shot with no state worth keeping), and
- *    `isVisible`, which returns `true` because fog is B4 and a backend with no
- *    fog hides nothing.
+ *    than a dodge: `onEvents` (event-driven presentation -- fire flashes,
+ *    deaths, damage tint -- is B4/Phase C; every clip `entityFrame` can
+ *    already resolve from direct per-tick `Sim` state alone, `working`
+ *    included, needs no event feed at all), `addOrderMarker` (a one-shot
+ *    with no state worth keeping), and `isVisible`, which returns `true`
+ *    because fog is B4 and a backend with no fog hides nothing. `snapshot`
+ *    graduated out of this bucket in B3.5: it now latches per-entity
+ *    position and measures ground speed, the same job Pixi's own `snapshot`
+ *    does, because `frame()` needs both to draw a single moving unit.
  *  - **Throws**: `pickUnit` and `unitsInScreenRect`, the only two members that
  *    would have to *fabricate*. `-1` and `[]` both mean "you clicked empty
  *    ground", the player acts on that, and it would be believed. A stack trace
@@ -32,12 +42,33 @@
  * fabricating is the only alternative. Two rounds of review found members that
  * broke it -- `isVisible` in the frame loop, the tutorial focus pair in the
  * tick loop -- so weigh that before adding a `notYet` to anything new.
+ *
+ * ## What B3.5 deliberately does not draw
+ *
+ * `units/frame-state.ts`'s landed `EntityFrame` carries exactly what B3.3
+ * decided a unit needs: position, ground/roof lift, clip, frame, facing,
+ * body alpha. Everything Pixi's own unit loop draws beyond that --
+ * `firing`'s one-shot pose (latched from a `fired` `SimEvent`, and `onEvents`
+ * is still a stub per the bucket above), recoil/flinch/tremble/footfall-bob
+ * screen-space nudges, air-lift for `isAir` types (the sim's own `UnitType`
+ * doc comment calls this "presentation" and names the renderer as the thing
+ * that lifts it -- `frame-state.ts` does not), turret sprites, and the
+ * procedural-primitive fallback for a unit type with no loaded sheet -- is
+ * out of scope here. None of it can be added without either modifying
+ * `frame-state.ts` (barred this task) or reimplementing logic that module
+ * already owns (exactly the "second clip resolver" risk its own doc comment
+ * warns against). A unit type with no loaded sheet simply is not drawn: "no
+ * mesh units" (the B3 brief's own scope line) rules out inventing a
+ * placeholder shape for it the way Pixi's circle fallback does.
  */
 import * as THREE from 'three';
-import type { Sim } from '@lions/sim';
+import { fx, type Sim } from '@lions/sim';
 import type { Renderer, RendererOptions } from '../api'; // both, after Step 2
 import type { Camera } from '../project';
 import type { EmitterSpec } from '../vfx';
+import { SIM_HZ } from '../anim';
+import { parseManifest, type SheetSpec } from '../sheet';
+import type { UnitAnimInput } from '../clip';
 import { dimetricCamera, worldToScreenThree, screenToWorldThree } from './camera';
 import { applyPalettePipeline } from './palette-material';
 import { buildGround } from './terrain/ground';
@@ -46,6 +77,9 @@ import { buildGroves } from './terrain/grove';
 import { buildBuildings, type StructureFootprint } from './terrain/buildings';
 import { toGeometry, terrainMaterial } from './terrain/mesh';
 import type { TerrainInput } from './terrain/types';
+import { packSheet, buildUnitTexture } from './units/atlas';
+import { entityFrame, assignRoofSlots, type EntityFrameInput, type EntityFrame } from './units/frame-state';
+import { UnitInstancer } from './units/instances';
 
 function notYet(member: string): never {
   throw new Error(
@@ -130,11 +164,48 @@ export class ThreeRenderer implements Renderer {
    *  per-terrain state, so there is nothing a fresh instance would buy. */
   private readonly terrainMat: THREE.Material = terrainMaterial();
 
+  /**
+   * Per-entity position tracking for interpolation, mirroring
+   * `PixiRenderer`'s own `prevX`/`prevY`/`curX`/`curY`/`entitySpeed`
+   * (`renderer.ts:244-247,407`) exactly -- `frame()` needs the last two sim
+   * ticks to lerp between, and `entityFrame` needs a *measured* ground speed
+   * (from the tick delta, not the unit's data speed) so cover slowdowns,
+   * pinning and mobility kills pace the gait for free, same as Pixi. All
+   * sized to `sim.capacity`, populated by `snapshot()`, indexed by entity id.
+   */
+  private readonly prevX: Float64Array;
+  private readonly prevY: Float64Array;
+  private readonly curX: Float64Array;
+  private readonly curY: Float64Array;
+  private readonly entitySpeed: Float64Array;
+  /** Persisted per-entity animation phase state `entityFrame` mutates in
+   *  place -- `frame-state.ts`'s own `EntityFrameInput.entityAnimFrame`/
+   *  `animSeeded` doc comment: "owned and persisted by the caller across
+   *  frames." Mirrors Pixi's identically-named fields. */
+  private readonly entityAnimFrame: Float64Array;
+  private readonly animSeeded: Uint8Array;
+
+  /** One `UnitInstancer` per unit type with a loaded sheet, keyed by the
+   *  unit type id `loadSprites` was called with. */
+  private readonly unitInstancers = new Map<string, UnitInstancer>();
+  /** Reused across frames (`.length = 0` each `frame()`, not reallocated) --
+   *  every living entity's `EntityFrame` this tick, grouped by its unit
+   *  type id, the shape `UnitInstancer.update` consumes. */
+  private readonly framesByType = new Map<string, EntityFrame[]>();
+
   constructor(
     private readonly sim: Sim,
     private readonly opts: RendererOptions
   ) {
     this.unitGroup = new Uint8Array(sim.capacity);
+    const n = sim.capacity;
+    this.prevX = new Float64Array(n);
+    this.prevY = new Float64Array(n);
+    this.curX = new Float64Array(n);
+    this.curY = new Float64Array(n);
+    this.entitySpeed = new Float64Array(n);
+    this.entityAnimFrame = new Float64Array(n);
+    this.animSeeded = new Uint8Array(n);
     // antialias stays off deliberately (Phase 0 verdict, "Antialiasing must
     // be off, or accounted for"): a blended edge pixel is by definition not
     // a palette colour, and this backend's sprite/toon pipeline quantizes
@@ -178,6 +249,17 @@ export class ThreeRenderer implements Renderer {
       this.fitToHost();
     });
     this.resizeObserver.observe(host);
+    // Seeds prevX/prevY == curX/curY from the sim's actual starting
+    // positions before the first `frame()` -- exactly Pixi's own
+    // `PixiRenderer.init()` ("this.snapshot(); this.snapshot(); // prev ==
+    // cur on the first frame", `renderer.ts:557-558`). `main.ts`'s own
+    // fixed-tick loop calls `renderer.snapshot()` only from inside
+    // `runTick()`, which does not run until after the first `sim.tick()` --
+    // so without this, every unit would render at world (0, 0) (the
+    // Float64Array zero-fill) for however many animation frames elapse
+    // before that first tick lands.
+    this.snapshot();
+    this.snapshot();
     await Promise.resolve();
   }
 
@@ -205,6 +287,8 @@ export class ThreeRenderer implements Renderer {
     this.groveMesh?.geometry.dispose();
     this.buildingMesh?.geometry.dispose();
     this.terrainMat.dispose();
+    for (const instancer of this.unitInstancers.values()) instancer.dispose();
+    this.unitInstancers.clear();
     this.renderer.dispose();
     this.host = null;
   }
@@ -218,21 +302,49 @@ export class ThreeRenderer implements Renderer {
     this.renderer.setSize(this.host.clientWidth, this.host.clientHeight);
   }
 
-  /** `alpha`/`dtMs` (interpolation, presentation animation) go unread until
-   *  B3 draws anything they could apply to -- terrain has none. */
-  frame(): void {
+  /** `alpha` (interpolation) and `dtMs` (presentation animation -- frame
+   *  advance) now feed every living unit's `EntityFrame` via `updateUnits`.
+   *  Terrain still reads neither: it has no per-frame presentation state. */
+  frame(alpha: number, dtMs: number): void {
     if (this.terrainDirty) {
       this.rebuildTerrain();
       this.terrainDirty = false;
     }
+    this.updateUnits(alpha, dtMs);
     this.renderer.render(this.scene, this.threeCamera());
   }
 
+  /**
+   * Copy positions after every sim tick; `frame()` lerps between the
+   * copies -- the three.js counterpart to `PixiRenderer.snapshot()`
+   * (`renderer.ts:729-751`). Ground speed is measured from the tick delta
+   * rather than read off the unit type, matching Pixi exactly, so cover
+   * slowdowns, pinning and mobility kills pace the gait for free.
+   *
+   * Deliberately does not port Pixi's fog/trail refresh (`this.fogTick++ %
+   * 4 === 0` gating `updateFog`/`drawTrail`) or turret-facing seed -- fog
+   * and trails are B4, and turrets are out of scope for B3.5 (see this
+   * class's own top comment).
+   */
   snapshot(): void {
-    /* nothing to latch until B3 draws units */
+    this.prevX.set(this.curX);
+    this.prevY.set(this.curY);
+    const st = this.sim.state;
+    for (let i = 0; i < this.sim.entityCount; i++) {
+      this.curX[i] = fx.toNumber(st.posX[i]);
+      this.curY[i] = fx.toNumber(st.posY[i]);
+      const dx = this.curX[i] - this.prevX[i];
+      const dy = this.curY[i] - this.prevY[i];
+      this.entitySpeed[i] = Math.hypot(dx, dy) * SIM_HZ;
+    }
   }
   onEvents(): void {
-    /* B3 */
+    /* Event-driven presentation -- fire-flash timing, deaths, damage tint,
+     * trails -- is B4/Phase C. Every clip `entityFrame` can already resolve
+     * from direct per-tick Sim state alone (dead/routed/pinned/working/
+     * moving/idle); only the one-shot `fire` pose needs an event feed
+     * (Pixi's own `firingTimer`, latched from a `fired` SimEvent), and it is
+     * the one clip units drawn by this backend do not yet show. */
   }
 
   worldToScreen(wx: number, wy: number): { x: number; y: number } {
@@ -280,13 +392,53 @@ export class ThreeRenderer implements Renderer {
     this.retained.emitters = list;
     this.retained.resolveColor = resolve;
   }
+  /**
+   * Load a unit type's sprite sheet and build the `THREE.InstancedMesh`
+   * (`UnitInstancer`) it draws through -- one draw call for however many of
+   * this type end up alive, per Ruling 1.
+   *
+   * `opts.turretPath` is retained but not loaded: turret sprites are out of
+   * scope for B3.5 (see this class's own top comment) -- `frame-state.ts`'s
+   * landed `EntityFrame`/`EntityFrameInput` carry no turret facing or clip
+   * at all, so there is nothing downstream that could consume a second
+   * sheet yet.
+   *
+   * Errors propagate rather than being swallowed: `main.ts` already wraps
+   * every `loadSprites` call in its own `.catch` per unit type (so one
+   * missing sheet does not stop the rest of the roster from loading), which
+   * is exactly Pixi's own failure mode for the identical call.
+   */
   async loadSprites(
     unitTypeId: string,
     basePath: string,
     opts?: { turretPath?: string }
   ): Promise<void> {
     this.retained.unitSheets.set(unitTypeId, { basePath, turretPath: opts?.turretPath });
-    await Promise.resolve();
+    const res = await fetch(`${basePath}manifest.json`);
+    if (!res.ok) throw new Error(`sheet manifest ${res.status} at ${basePath}`);
+    const sheet: SheetSpec = parseManifest(await res.json());
+    const packing = packSheet(sheet);
+    // `buildUnitTexture`'s declared return type is the wider `THREE.Texture`
+    // even though its body always constructs and returns a genuine `new
+    // THREE.DataArrayTexture(...)` (atlas.ts:394) -- the B3.5 brief's own
+    // "landed interfaces" section states the narrower `Promise<
+    // DataArrayTexture>`, so this is a discrepancy between that description
+    // and atlas.ts's actual signature, not something introduced here.
+    // atlas.ts is a landed B3.4 interface this task does not edit, so the
+    // cast is narrowed at this call site instead, where it is true by
+    // construction: `UnitInstancer`'s shader samples `sampler2DArray`, which
+    // only a `DataArrayTexture` can back.
+    const texture = (await buildUnitTexture(basePath, sheet, packing)) as THREE.DataArrayTexture;
+    const instancer = new UnitInstancer(sheet, texture, packing, this.sim.capacity);
+    // A re-load (unlikely, but `loadSprites` carries no such guarantee
+    // against it) must not leak the mesh/material/texture it replaces.
+    const previous = this.unitInstancers.get(unitTypeId);
+    if (previous) {
+      this.scene.remove(previous.mesh);
+      previous.dispose();
+    }
+    this.unitInstancers.set(unitTypeId, instancer);
+    this.scene.add(instancer.mesh);
   }
   async loadStructureSprite(structureId: string, basePath: string): Promise<void> {
     this.retained.structureSheets.set(structureId, basePath);
@@ -330,6 +482,107 @@ export class ThreeRenderer implements Renderer {
 
   private threeCamera(): THREE.OrthographicCamera {
     return dimetricCamera(this.camera, { width: this.width, height: this.height });
+  }
+
+  /**
+   * Builds this frame's `EntityFrame` for every living entity whose unit
+   * type has a loaded `UnitInstancer`, grouped by type, and hands each
+   * group to its instancer's `update`. The per-entity work ported from
+   * Pixi's own unit loop (`renderer.ts:1919` onward) is exactly what
+   * `entityFrame` (`frame-state.ts`) already decides -- this method's own
+   * job is assembling its input from `Sim` and this class's own tracking
+   * arrays, nothing more.
+   *
+   * `assignRoofSlots` runs once, over every entity, before any single one is
+   * decided -- `frame-state.ts`'s own doc comment on why: it is a
+   * cross-entity pre-pass, not a per-entity decision, "so the spread is
+   * stable rather than flickering only because of that ordering."
+   *
+   * A unit type with no loaded `UnitInstancer` (a sheet still loading, or
+   * one that never will) is silently skipped, matching this class's own
+   * "no mesh units, no placeholder shape" scope line -- see the class-level
+   * doc comment's "What B3.5 deliberately does not draw" section.
+   */
+  private updateUnits(alpha: number, dtMs: number): void {
+    if (this.unitInstancers.size === 0) return;
+
+    const dtSeconds = Math.min(dtMs, 100) / 1000;
+    const st = this.sim.state;
+    const n = this.sim.entityCount;
+    const roofSlots = assignRoofSlots(st.garrisonedIn, st.alive, n);
+
+    for (const frames of this.framesByType.values()) frames.length = 0;
+
+    for (let i = 0; i < n; i++) {
+      if (st.alive[i] === 0) continue;
+      const type = this.sim.unitTypes[st.typeIdx[i]];
+      const instancer = this.unitInstancers.get(type.id);
+      if (!instancer) continue;
+
+      const side = st.side[i];
+      // Contact-level fade only applies to what is observed through
+      // contact; the player's own units (side 0) are always full alpha, and
+      // `entityFrame` ignores `contactLevel` for them regardless -- no need
+      // to pay for the query.
+      const contactLevel = side !== 0 ? this.sim.contactLevel(0, i) : 0;
+
+      const inside = st.garrisonedIn[i];
+      let roofPx = 0;
+      if (inside >= 0) {
+        // The roof plane, not the top of the art -- `terrain/buildings.ts`'s
+        // own extrusion height, `heightPx`. ThreeRenderer has no structure
+        // sprite atlas yet (structures still draw as procedural boxes), so
+        // there is no `roofTopPx`/`badgeTopPx` to prefer the way Pixi does
+        // when art is loaded -- `heightPx` is this backend's only answer,
+        // not a fallback among several.
+        const sType = this.sim.structureTypes[this.sim.structures.typeIdx[inside]];
+        roofPx = sType.heightPx;
+      }
+
+      const anim: UnitAnimInput = {
+        alive: st.alive[i],
+        routed: st.routed[i],
+        pinned: st.pinned[i],
+        speed: this.entitySpeed[i],
+        // The one clip this backend cannot yet show -- see onEvents' own
+        // comment for why.
+        firing: false,
+        working: this.sim.tunnelChargeProgress(i) > 0,
+      };
+
+      const input: EntityFrameInput = {
+        entityId: i,
+        prevX: this.prevX[i],
+        prevY: this.prevY[i],
+        curX: this.curX[i],
+        curY: this.curY[i],
+        alpha,
+        elevation: this.retained.elevation,
+        mapWidth: this.sim.width,
+        mapHeight: this.sim.height,
+        side,
+        contactLevel,
+        roofSlot: inside >= 0 ? roofSlots[i] : -1,
+        roofPx,
+        sheet: instancer.sheet,
+        anim,
+        dtSeconds,
+        entityAnimFrame: this.entityAnimFrame,
+        animSeeded: this.animSeeded,
+        facing: st.facing[i],
+      };
+
+      let list = this.framesByType.get(type.id);
+      if (!list) {
+        list = [];
+        this.framesByType.set(type.id, list);
+      }
+      list.push(entityFrame(input));
+    }
+
+    for (const [typeId, instancer] of this.unitInstancers) {
+      instancer.update(this.framesByType.get(typeId) ?? []);
+    }
   }
 
   /**
