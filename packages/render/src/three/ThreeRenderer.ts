@@ -30,12 +30,18 @@
  *    graduated out of this bucket in B3.5: it now latches per-entity
  *    position and measures ground speed, the same job Pixi's own `snapshot`
  *    does, because `frame()` needs both to draw a single moving unit.
- *  - **Throws**: `pickUnit` and `unitsInScreenRect`, the only two members that
- *    would have to *fabricate*. `-1` and `[]` both mean "you clicked empty
- *    ground", the player acts on that, and it would be believed. A stack trace
- *    naming the method is the better failure -- accepted even though a throw
- *    at `main.ts:968` leaves the drag box on screen, because neither is
- *    reached from a loop and silent wrongness in a *selection* is worse.
+ *  - **Throws**: this bucket is now empty. `pickUnit` and `unitsInScreenRect`
+ *    were the only two members that would have had to *fabricate* -- `-1`
+ *    and `[]` both mean "you clicked empty ground", the player acts on that,
+ *    and it would be believed -- so they threw rather than invent an answer.
+ *    Task B3.8 implements both for real, ported from `PixiRenderer`'s own
+ *    members into pure functions (`units/pick.ts`) this class merely calls.
+ *    The ruling that sent it: `pickUnit` is NOT a projection question --
+ *    Pixi's version is a nearest-entity search over `curX`/`curY` in WORLD
+ *    coordinates, with no projection inside it at all; only
+ *    `unitsInScreenRect` genuinely projects. Neither needs a GPU or a
+ *    raycast, so both are tested in `environment: 'node'` exactly like
+ *    `frame-state.ts`'s own `entityFrame`.
  *
  * The rule that catches these: any member reached from the 60 Hz frame loop,
  * the 20 Hz tick loop, or a block whose tail matters must not throw unless
@@ -80,13 +86,7 @@ import type { TerrainInput } from './terrain/types';
 import { packSheet, buildUnitTexture } from './units/atlas';
 import { entityFrame, assignRoofSlots, type EntityFrameInput, type EntityFrame } from './units/frame-state';
 import { UnitInstancer } from './units/instances';
-
-function notYet(member: string): never {
-  throw new Error(
-    `ThreeRenderer.${member} is not implemented until a later Phase B sub-plan. ` +
-      `Use ?renderer=pixi (the default) for anything that needs it.`
-  );
-}
+import { pickUnit as pickUnitPure, unitsInScreenRect as unitsInScreenRectPure } from './units/pick';
 
 /** Where a unit type's sheets live, as the app named them. */
 interface SpriteSheetRequest {
@@ -356,8 +356,24 @@ export class ThreeRenderer implements Renderer {
 
   // --- queries. The line is between *inventing* an answer and *reporting the
   //     current state truthfully*, not between "implemented" and "not".
-  pickUnit(): number {
-    return notYet('pickUnit');
+  /**
+   * Nearest living, surfaced unit within `radiusTiles` of a world point, or
+   * -1. `wx`/`wy` are already world coordinates -- the caller
+   * (`main.ts:928`) converts screen to world via `screenToWorld` first, so
+   * this is plain arithmetic over `curX`/`curY`, not a projection. See
+   * `units/pick.ts`'s own doc comment for the full ruling.
+   */
+  pickUnit(wx: number, wy: number, radiusTiles = 1.2): number {
+    return pickUnitPure(
+      wx,
+      wy,
+      this.curX,
+      this.curY,
+      this.sim.state.alive,
+      this.sim.state.tunnelIn,
+      this.sim.entityCount,
+      radiusTiles
+    );
   }
   /**
    * True, always -- and this is the correct answer, not a placeholder.
@@ -374,8 +390,30 @@ export class ThreeRenderer implements Renderer {
   isVisible(): boolean {
     return true;
   }
-  unitsInScreenRect(): number[] {
-    return notYet('unitsInScreenRect');
+  /**
+   * Living units whose projected FEET fall inside a screen-space rect --
+   * box-select's answer. A genuine projection question, unlike `pickUnit`
+   * above, so it goes through `worldToScreenThree` (via `units/pick.ts`) at
+   * each unit's own tile height rather than assuming flat ground. See
+   * `units/pick.ts`'s own doc comment for the parity argument against
+   * `PixiRenderer.unitsInScreenRect`.
+   */
+  unitsInScreenRect(x0: number, y0: number, x1: number, y1: number): number[] {
+    return unitsInScreenRectPure(
+      x0,
+      y0,
+      x1,
+      y1,
+      this.curX,
+      this.curY,
+      this.sim.state.alive,
+      this.sim.entityCount,
+      this.retained.elevation,
+      this.sim.width,
+      this.sim.height,
+      this.camera,
+      { width: this.width, height: this.height }
+    );
   }
 
   // --- world data pushed in. Decor/elevation are now drawn (terrain);
