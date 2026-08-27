@@ -54,7 +54,21 @@
  * not a per-overlay container per band. Every overlay this list names (HP
  * bars, suppression bars, selection rings, badges, hover, order markers, the
  * focus ring) draws into that same `Graphics` in one place
- * (`renderer.ts:1898`, `const g = this.unitsG`). And `unitsG` is added to
+ * (`renderer.ts:1898`, `const g = this.unitsG`).
+ *
+ * The one exception, and it is a trap for a Phase C badge port: a control-
+ * group badge is SPLIT across two containers. Its ring is drawn into
+ * `unitsG` like everything else (`renderer.ts:2310`), but its numeral is a
+ * `Text` added to `spriteLayer` (`:2307`) carrying `zIndex =
+ * Number.MAX_SAFE_INTEGER` (`:2315`, its own comment: "Above every sorted
+ * tile and sprite"). That puts the numeral above every sprite in its own
+ * layer and BELOW `fxAboveG`, `unitsG` and `fogG` alike -- so Pixi paints
+ * above-units FX over a group numeral, and porting the whole badge into
+ * bands 4-9 would lift the numeral over FX where Pixi covers it. The ring
+ * and the numeral do not share a band in Pixi and should not be assumed to
+ * share one here.
+ *
+ * And `unitsG` is added to
  * `world` BEFORE `fogG`, not after: `renderer.ts:548` then `:551`, with
  * `fogG` the LAST child `world` gets, ahead only of `:552`'s
  * `this.app.stage.addChild(this.world)`. `fxAboveG`'s own doc comment
@@ -85,9 +99,18 @@
  *
  * One more trap worth naming, since trails are on Phase C's own list:
  * trails are NOT part of this overlay tier. Pixi's `trailG` (tunnel spoil)
- * is `world`'s SECOND child (`renderer.ts:539`), below `spriteLayer` --
- * underneath units and buildings, not above anything. A Phase C trail port
- * belongs down with the hull/turret bands (0-1), not anywhere in 4-9.
+ * is `world`'s SECOND child (`renderer.ts:539`) -- below `fxG`,
+ * `wreckLayer` and `spriteLayer` alike, underneath everything rather than
+ * over anything. Nowhere in 4-9, then; but nor is a band the right
+ * instrument. A trail is flat, depth-tested ground geometry, and this
+ * table's own top comment already says what settles that case: real
+ * `depthTest`/`depthWrite` arbitration against terrain and units, not a
+ * `renderOrder` number (`units/fx.ts:116` makes the same argument for the
+ * `trailG`/`fxG`/`wreckLayer`-below-`spriteLayer` debt, which is why that
+ * debt does not reproduce in this backend). If a Phase C trail port needs a
+ * band at all, it belongs at or below `HULL_RENDER_ORDER` -- never band 1,
+ * which is the TURRET band and sits ABOVE every hull, the exact inverse of
+ * the Pixi relation derived above.
  */
 export const HULL_RENDER_ORDER = 0;
 export const TURRET_RENDER_ORDER = 1;
