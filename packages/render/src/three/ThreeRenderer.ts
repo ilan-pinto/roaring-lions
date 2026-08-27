@@ -33,17 +33,14 @@
  *    bucket in Task B3.14: it now wires seven of Pixi's nine event kinds --
  *    `fire`, `impact`, `nearMiss`, `aps`, `strike`, `destroyed`,
  *    `tunnelCollapsed` -- muzzle flashes, tracers, impact effects, the death
- *    fade, and the recoil/flinch latches `drainTimers` decays. Two kinds
- *    remain genuinely unhandled, not merely deferred by this comment:
- *    `structureHit`/`structureDestroyed`. Task B3.9 built the incremental
- *    rebuild both need (`applyStructureHit`/`applyStructureDestroyed`
- *    below -- public so the next task's `onEvents` wiring is a one-line call
- *    from inside this same class, not a redesign -- tested at the
- *    pure-function layer they call into and measured in that task's own
- *    report) but deliberately did NOT wire `onEvents` to call them -- that
- *    wiring is the next task's (see `onEvents`'s own doc comment for the
- *    cost that made building the incremental path a prerequisite in the
- *    first place).
+ *    fade, and the recoil/flinch latches `drainTimers` decays. Task B3.10
+ *    wired the remaining two: `structureHit`/`structureDestroyed` now call
+ *    `applyStructureHit`/`applyStructureDestroyed` below (built by Task
+ *    B3.9, an O(footprint) per-structure rebuild instead of an O(map area)
+ *    one, tested at the pure-function layer they call into and measured in
+ *    that task's own report) -- see `onEvents`'s own doc comment for the
+ *    cost that made building the incremental path a prerequisite before
+ *    this wiring, not merely a nice-to-have.
  *  - **Throws**: this bucket is now empty. `pickUnit` and `unitsInScreenRect`
  *    were the only two members that would have had to *fabricate* -- `-1`
  *    and `[]` both mean "you clicked empty ground", the player acts on that,
@@ -404,11 +401,13 @@ export class ThreeRenderer implements Renderer {
    * Pixi's own `if (!art?.wreckTexture) continue` in `drawWreckedStructures`.
    * Drawn from live `Sim` state every frame by `updateStructures`, not from
    * the `terrainDirty`-gated terrain mesh -- see that method's own doc
-   * comment for why: `structureDestroyed` stays unwired into `onEvents`
-   * (Task B3.9 built `applyStructureDestroyed`, the method that WOULD tell a
-   * wreck's neighbourhood to rebuild, but does not call it from `onEvents`
-   * itself -- the next task's job), so nothing else would ever tell a wreck
-   * to appear if this per-frame path did not exist.
+   * comment for why this stays true even after Task B3.10 wired
+   * `structureDestroyed` into `onEvents`: `applyStructureDestroyed` (Task
+   * B3.9) only ever touches `structureBoxes`/`structureFootprintTiles`,
+   * which an ARTED structure -- the only kind this map draws -- never has
+   * an entry in (`composeTerrain`'s `hasArt` skip). So the call is a true
+   * no-op for every structure this map cares about, and this per-frame path
+   * remains the only thing that ever tells one of ITS wrecks to appear.
    */
   private readonly structureWreck = new Map<string, StructureInstancer>();
   /**
@@ -687,20 +686,23 @@ export class ThreeRenderer implements Renderer {
    * and direction, tracer spawn, impact effects, the death fade
    * (`stepDeaths`), and the recoil/flinch latches `drainTimers` decays.
    *
-   * `structureHit` and `structureDestroyed` are DELIBERATELY left unhandled
-   * BY THIS METHOD, still. Both mark terrain dirty in Pixi (`renderer.ts:
-   * 853,881`), and Pixi fires `structureHit` on EVERY damage event -- a full
-   * `rebuildTerrain` here costs 114-179ms (this class's own `rebuildTerrain`
-   * doc comment), so wiring either directly to that full rebuild would make
-   * a siege unplayable rather than merely visually stale. Task B3.9 built
-   * the fix -- `applyStructureHit`/`applyStructureDestroyed`, private
-   * methods below, an O(footprint) per-structure rebuild instead of an
-   * O(map area) one, tested and measured in that task's own report -- but
-   * deliberately did not call either from here: wiring `onEvents` itself is
-   * the next task's job, named in that task's own brief. Until that lands,
-   * `rebuildTerrain`'s own doc comment's staleness description still holds
-   * IN PRACTICE (nothing calls the new methods yet), even though the fix
-   * they will call now exists.
+   * `structureHit` and `structureDestroyed` are wired by Task B3.10, the
+   * last two of the nine kinds Pixi handles at `renderer.ts:756` onward.
+   * Both mark terrain dirty in Pixi (`renderer.ts:853,881`), and Pixi fires
+   * `structureHit` on EVERY damage event -- a full `rebuildTerrain` here
+   * costs 114-179ms (this class's own `rebuildTerrain` doc comment), so
+   * wiring either directly to that full rebuild would make a siege
+   * unplayable rather than merely visually stale. Task B3.9 built the fix
+   * first, deliberately ahead of this wiring: `applyStructureHit`/
+   * `applyStructureDestroyed`, both public below, an O(footprint)
+   * per-structure rebuild instead of an O(map area) one, tested at the
+   * pure-function layer they call into (`terrain/dirty.ts`) and measured in
+   * that task's own report at 0.52% of a full rebuild worst case. This
+   * task's own job is exactly the one-line call each: `applyStructureHit`
+   * already contains the eight-step wear quantisation (via
+   * `dirtyForStructureHit`) that makes firing it on every `structureHit`
+   * survivable, so this method does not -- and must not -- add a second
+   * filter of its own on top.
    *
    * Task B3.6 closed the turret gap this comment used to describe: `onFire`
    * below now reads the shooter's TURRET facing for muzzle position/
@@ -740,11 +742,19 @@ export class ThreeRenderer implements Renderer {
           typeId: this.sim.unitTypes[st.typeIdx[e.entity]].id,
           t: 0,
         });
+      } else if (e.kind === 'structureHit') {
+        // Task B3.10: the quantisation that makes this survivable at
+        // Pixi's per-round event volume lives inside `applyStructureHit`
+        // itself (`dirtyForStructureHit`) -- see this method's own doc
+        // comment. Do not add a second filter here.
+        this.applyStructureHit(e.structure);
+      } else if (e.kind === 'structureDestroyed') {
+        // Task B3.10: one-shot per structure's whole life, so the full
+        // `rebuildTerrain()` this schedules (see `applyStructureDestroyed`'s
+        // own doc comment) is the deliberate asymmetry with `structureHit`
+        // above, not an oversight.
+        this.applyStructureDestroyed(e.structure);
       }
-      // structureHit / structureDestroyed: applyStructureHit/
-      // applyStructureDestroyed exist now (Task B3.9) but are not called
-      // from here yet -- the next task's job, see this method's own doc
-      // comment.
     }
   }
 
@@ -1622,18 +1632,14 @@ export class ThreeRenderer implements Renderer {
    * across rebuilds, not replaced (every mesh this method builds shares it,
    * `structureBoxes` included).
    *
-   * What this closes, and what it still does not: a destroyed, un-arted
-   * structure's box now disappears and its ground tone reverts to open the
-   * next time THIS method runs -- which `applyStructureDestroyed` now
-   * triggers directly, closing the gap B2.7/B3.7's own doc comments here
-   * used to describe as open. What is NOT closed by this task: `onEvents`
-   * itself still does not call `applyStructureHit`/`applyStructureDestroyed`
-   * -- that wiring is the next task's, per this class's own top comment and
-   * `onEvents`'s own doc comment on `structureHit`/`structureDestroyed`. So
-   * today, with nothing calling either method yet, the staleness B2.7/B3.7
-   * described is unchanged in PRACTICE; what has changed is that the fix
-   * now exists, is unit-tested at the pure-function layer, and is measured
-   * (this task's report) rather than merely deferred.
+   * What this closes: a destroyed, un-arted structure's box now disappears
+   * and its ground tone reverts to open the next time THIS method runs --
+   * which `applyStructureDestroyed` triggers directly, closing the gap
+   * B2.7/B3.7's own doc comments here used to describe as open. Task B3.10
+   * wired `onEvents` to call `applyStructureHit`/`applyStructureDestroyed`
+   * for real `structureHit`/`structureDestroyed` events, so that staleness
+   * is now closed in PRACTICE too, not merely in principle -- see
+   * `onEvents`'s own doc comment on those two kinds.
    */
   private rebuildTerrain(): void {
     if (this.terrainMesh) {
@@ -1712,11 +1718,9 @@ export class ThreeRenderer implements Renderer {
    * Task B3.9: the incremental half of `structureHit` -- recomputes ONLY
    * the hit structure's own box geometry, and only when `dirty.ts`'s
    * eight-step wear quantisation says the hit actually crossed a visible
-   * step. Not called from `onEvents` yet; see this class's own top comment
-   * and `onEvents`'s own doc comment for why that wiring is the next task's,
-   * not this one's. Exists here, tested at the pure-function layer it calls
-   * into, and measured (this task's report), so the next task's wiring is a
-   * single call rather than a design decision.
+   * step. Called from `onEvents` since Task B3.10 (that wiring is a single
+   * call, exactly as this method was built to make it -- see `onEvents`'s
+   * own doc comment on `structureHit`).
    *
    * A structure with no tracked footprint (arted -- drawn by
    * `StructureInstancer` instead, see `structureBoxes`'s own doc comment --
@@ -1765,18 +1769,35 @@ export class ThreeRenderer implements Renderer {
    * Task B3.9: the incremental half of `structureDestroyed`. Removes the
    * dead structure's own box mesh directly (O(1) -- no rebuild needed to
    * make a box disappear, only to make one appear correctly shaped
-   * elsewhere), then flags a full `rebuildTerrain` for the ground/scatter/
-   * grove retessellation `dirtyForStructureDestroyed`'s `kind: 'unblocked'`
-   * says is owed: those three layers have no per-structure invalidation of
-   * their own (see this module's own `dirty.ts` top comment), and death is
-   * a one-shot event per structure, not a several-times-a-second one --
+   * elsewhere) when this structure had one (un-arted only, see
+   * `structureBoxes`'s own doc comment), then flags a full `rebuildTerrain`
+   * for the ground/scatter/grove retessellation ANY structure's death owes:
+   * those three layers read every LIVE structure's raw `blocked` state
+   * UNCONDITIONALLY, arted or not (`composeTerrain`'s own comment; the
+   * `underBuilding` ground wash and scatter/grove's own "skip blocked
+   * tiles" branches all read `sim.blocked` directly, never `structureBoxes`
+   * or `structureFootprintTiles`), and have no per-structure invalidation
+   * of their own (see this module's own `dirty.ts` top comment). Death is a
+   * one-shot event per structure, not a several-times-a-second one --
    * unlike `structureHit`, there is no quantisation to defeat here, so a
    * full rebuild's cost is paid once per structure's whole life, not once
    * per round fired at it. See this task's report for the measured
    * reasoning and the numbers that back this choice over a second
    * per-tile splice mechanism for those three layers.
    *
-   * Not called from `onEvents` yet -- same caveat as `applyStructureHit`.
+   * Called from `onEvents` since Task B3.10, same as `applyStructureHit`.
+   * That wiring's own review caught a real defect this method shipped with:
+   * `terrainDirty` used to be set only inside the `tiles` branch below, so
+   * an ARTED structure's death -- no tracked footprint, hence no `tiles` --
+   * fell through as a silent no-op that never flagged the ground beneath
+   * it. Every shipped structure type has art (`main.ts`'s
+   * `STRUCTURE_SPRITES`), so that was the ONLY path any real mission ever
+   * took: the wreck sprite would swap in (`updateStructures`'s own
+   * per-frame path, unaffected) while the ground stayed permanently
+   * blocked-looking underneath it, on every map, for every building. Fixed
+   * by setting the flag unconditionally -- `tiles` still gates the box
+   * removal and the `dirtyForStructureDestroyed` call (meaningless without
+   * a tracked footprint), but not the flag itself.
    */
   applyStructureDestroyed(structure: number): void {
     const mesh = this.structureBoxes.get(structure);
@@ -1787,9 +1808,12 @@ export class ThreeRenderer implements Renderer {
     }
     const tiles = this.structureFootprintTiles.get(structure);
     this.structureFootprintTiles.delete(structure);
-    if (!tiles) return;
-    const dirty = dirtyForStructureDestroyed(tiles);
-    if (dirty.kind === 'unblocked') this.terrainDirty = true;
+    if (tiles) {
+      const dirty = dirtyForStructureDestroyed(tiles);
+      if (dirty.kind === 'unblocked') this.terrainDirty = true;
+      return;
+    }
+    this.terrainDirty = true;
   }
 
   /**
@@ -1798,20 +1822,23 @@ export class ThreeRenderer implements Renderer {
    * deliberately driven off LIVE `Sim` state every frame rather than the
    * `terrainDirty`-gated box/ground mesh `rebuildTerrain` owns.
    *
-   * That is load-bearing, not merely convenient: `onEvents` stays barred
-   * from reacting to `structureHit`/`structureDestroyed` (still true after
-   * Task B3.9 -- that task built the incremental rebuild, `applyStructureHit`/
-   * `applyStructureDestroyed`, but did not wire `onEvents` to call either;
-   * see this class's own top comment and `onEvents`'s own doc comment). If a
-   * structure's wreck sprite only ever refreshed on `terrainDirty`, it would
-   * never appear at all during a real mission -- nothing sets `terrainDirty`
-   * again after the last sheet finishes loading at boot, today. Reading
-   * `Sim` fresh here instead means a living structure's battle-damage alpha
-   * darkens in real time and its wreck appears the instant `Sim` marks it
-   * dead, without wiring `onEvents` or touching the terrain mesh at all --
-   * and it is, in this one respect, MORE responsive than Pixi, which only
-   * refreshes either at the same `terrainDirty`-style granularity
-   * (`drawTerrain` calls `drawWreckedStructures` itself, at the very end).
+   * That is load-bearing, not merely convenient: even now that `onEvents`
+   * calls `applyStructureHit`/`applyStructureDestroyed` for real
+   * `structureHit`/`structureDestroyed` events (Task B3.10), neither ever
+   * touches an ARTED structure -- the only kind this method draws --
+   * because both key off `structureBoxes`/`structureFootprintTiles`, which
+   * `composeTerrain`'s `hasArt` skip never populates for one (see
+   * `structureWreck`'s own field doc comment for the same point made about
+   * that map specifically). If a structure's wreck sprite only ever
+   * refreshed on `terrainDirty`, it would never appear at all during a real
+   * mission -- nothing sets `terrainDirty` for an arted structure, wired
+   * events included. Reading `Sim` fresh here instead means a living
+   * structure's battle-damage alpha darkens in real time and its wreck
+   * appears the instant `Sim` marks it dead, without touching the terrain
+   * mesh at all -- and it is, in this one respect, MORE responsive than
+   * Pixi, which only refreshes either at the same `terrainDirty`-style
+   * granularity (`drawTerrain` calls `drawWreckedStructures` itself, at the
+   * very end).
    *
    * Task B3.9's own review flagged this method by name and asked whether it
    * still composes with the new incremental invalidation, rather than
@@ -1820,9 +1847,9 @@ export class ThreeRenderer implements Renderer {
    * keyed by structure TYPE); `applyStructureHit`/`applyStructureDestroyed`
    * touch `structureBoxes`, keyed by structure INDEX, and only for UN-ARTED
    * structures (`composeTerrain`'s `hasArt` skip) -- two disjoint sets, never
-   * the same structure twice. Once `onEvents` is wired, this scan becomes
-   * the ONLY thing still doing per-frame, per-structure work for its own set
-   * (idempotent, and already known-cheap at today's counts -- an O(types x
+   * the same structure twice. Now that Task B3.10 has wired `onEvents`, this
+   * scan is the ONLY thing still doing per-frame, per-structure work for its
+   * own set (idempotent, and already known-cheap at today's counts -- an O(types x
    * structureCount) live-state pull each frame, up to 13 scans and one
    * object per structure per type today; ~4,000 probes / 18,000 objects a
    * second at the GDD's 300-structure target, GC-visible but not wired to
