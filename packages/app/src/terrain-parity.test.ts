@@ -395,6 +395,14 @@ describe.each(MAP_IDS)('terrain parity: %s', (id) => {
     assertPaletteColors(buildings, `${id} buildings`);
   });
 
+  // Cannot detect an X/Z transpose: every shipped map (data/maps/*.json) is
+  // 48x48, so a swapped [z, topY, x] would still produce maxX === maxZ ===
+  // 48 here -- the bound comes out identical either way on a square map. Not
+  // uncovered, though: `packages/render/src/three/terrain/ground.test.ts`'s
+  // "maps game (x, y) to three (x, height, y)" test uses a deliberately
+  // non-square `flat(3, 2)` fixture for exactly this reason, and would catch
+  // a transpose this suite cannot. Read this assertion as "matches on every
+  // shipped map's real data", not as a stronger claim about axis order.
   it("the ground mesh's world-space bounding box matches the map's dimensions", () => {
     const mesh = buildGround(input, tones, BACKGROUND);
     let minX = Infinity;
