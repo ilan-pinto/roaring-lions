@@ -283,9 +283,24 @@ export function packSheet(sheet: SheetSpec, maxLayers: number = MAX_ARRAY_LAYERS
 let deviceArrayLayerLimit: number | null | undefined;
 function queryArrayLayerLimit(): number | null {
   if (deviceArrayLayerLimit === undefined) {
-    const canvas = document.createElement('canvas');
-    const gl = canvas.getContext('webgl2');
+    // try/catch, not just a null check: `getContext` RETURNS null on a browser
+    // that merely lacks WebGL2, but THROWS on one that has blocked or
+    // blacklisted the GPU. Letting that throw escape would surface an
+    // unattributable error out of `buildUnitTexture` -- a diagnostic crashing
+    // on exactly the hardware it exists to diagnose, which is worse than the
+    // frozen constant it replaced. Either way we degrade to null and skip the
+    // check, falling back to the packed default.
+    let gl: WebGL2RenderingContext | null = null;
+    try {
+      gl = document.createElement('canvas').getContext('webgl2');
+    } catch {
+      gl = null;
+    }
     deviceArrayLayerLimit = gl ? (gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS) as number) : null;
+    // Hand the slot back. Chrome caps live contexts at roughly 16 and evicts
+    // the oldest, so holding one forever to answer a question already cached
+    // above is a slot taken from the renderer for nothing.
+    if (gl) gl.getExtension('WEBGL_lose_context')?.loseContext();
   }
   return deviceArrayLayerLimit;
 }
