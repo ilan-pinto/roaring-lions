@@ -354,6 +354,16 @@ export class ThreeRenderer implements Renderer {
    * instead of `hp`/`maxHp`, which `Sim.destroyStructure` has already
    * zeroed by the time a `structureDestroyed` event reaches this class
    * (`packages/sim/src/sim.ts:4092-4095`).
+   *
+   * This is a DELIBERATE divergence from what Pixi actually ships, not
+   * merely this backend's own path to the identical result --
+   * `structureAliveAlpha`'s own doc comment has the full reasoning: Pixi's
+   * `bumpStructureWear` also reads live (already-zeroed) `hp` for a combat
+   * kill's own `structureHit` event, so Pixi's `alpha0` is `0.55` -- fully
+   * battered -- for every combat kill, gradual or one-shot alike. This
+   * cache instead captures true pre-kill integrity, so a building felled by
+   * a single overwhelming hit from near-full health starts its fall near
+   * `1` here, where Pixi's event-ordering floors it to `0.55` regardless.
    */
   private structureLastAlpha: Float32Array | null = null;
   /**
@@ -2300,9 +2310,11 @@ export class ThreeRenderer implements Renderer {
    * translation below.
    *
    * `alpha0` continues from `structureLastAlpha`'s cache rather than
-   * recomputing from `hp`/`maxHp` fresh -- see that field's own doc
-   * comment for why a fresh read at this exact moment would always answer
-   * "fully battered."
+   * recomputing from `hp`/`maxHp` fresh -- see that field's own doc comment
+   * for why a fresh read at this exact moment would always answer "fully
+   * battered" (`0.55`), and for why that is a deliberate departure from
+   * what Pixi itself actually shows for a combat kill, not merely a
+   * different route to the same number.
    */
   private beginCollapse(structure: number): void {
     const st = this.sim.structures;

@@ -44,6 +44,7 @@ import {
   footprintCentre,
   type StructureInstanceBuffers,
 } from './structures';
+import { STRUCTURE_RENDER_ORDER, HULL_RENDER_ORDER, FOG_RENDER_ORDER } from './render-order';
 
 const TONES = {
   open: '#C8B494', cover: ['#8F9464', '#6E7449', '#4E5433'] as [string, string, string],
@@ -472,6 +473,11 @@ describe('collapseBillboardGeometry', () => {
 });
 
 describe('collapseFrame', () => {
+  it("pins the two fidelity constants themselves -- COLLAPSE_SECONDS 0.6s, COLLAPSE_SQUASH 0.8 -- so a literal edit to either fails a test directly, rather than only self-referentially (every assertion below is written IN TERMS OF these constants, e.g. `collapseFrame(COLLAPSE_SECONDS / 2, 1)` compared against `1 - COLLAPSE_SQUASH * 0.25`, so without this pin every other test in this block would keep passing even if the literals drifted from Pixi's own COLLAPSE_SECONDS/COLLAPSE_SQUASH, renderer.ts:53,58)", () => {
+    expect(COLLAPSE_SECONDS).toBe(0.6);
+    expect(COLLAPSE_SQUASH).toBe(0.8);
+  });
+
   it('at t = 0, scaleY is 1 (rest scale) and alpha is unchanged from alpha0', () => {
     const frame = collapseFrame(0, 0.8);
     expect(frame.scaleY).toBeCloseTo(1, 10);
@@ -510,5 +516,15 @@ describe('collapseFrame', () => {
     const squared = collapseFrame(COLLAPSE_SECONDS / 2, 1);
     const linearAlpha = 1 * (1 - 0.5);
     expect(squared.alpha).toBeGreaterThan(linearAlpha);
+  });
+});
+
+describe('STRUCTURE_RENDER_ORDER', () => {
+  it('is an explicit alias of HULL_RENDER_ORDER, not a fresh number free to drift from it -- StructureInstancer already ties there implicitly (never sets renderOrder), and both materials are real depth-tested/depth-written, so the tie is resolved by the depth buffer, not by this value', () => {
+    expect(STRUCTURE_RENDER_ORDER).toBe(HULL_RENDER_ORDER);
+  });
+
+  it('sits strictly below FOG_RENDER_ORDER -- the one property beginCollapse actually depends on, so a collapsing building in unobserved territory is hidden by fog\'s own unconditional overpaint rather than skipped', () => {
+    expect(STRUCTURE_RENDER_ORDER).toBeLessThan(FOG_RENDER_ORDER);
   });
 });

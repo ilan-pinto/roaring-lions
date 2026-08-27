@@ -144,12 +144,36 @@ export function footprintCentre(sim: Sim, sIdx: number): { fx: number; fy: numbe
  * `Sim.destroyStructure` zeroes `hp` unconditionally before the
  * `structureDestroyed` event ever reaches the renderer
  * (`packages/sim/src/sim.ts:4092-4095`) -- a fresh read at death would
- * always answer "fully battered" (`0.55`), even for a structure a scripted
- * demolition levelled straight from full health. Reading the cache instead
- * is this backend's own way of reaching the same result Pixi's
- * `structureWear` band exists for (`renderer.ts:290-298`, "must not flash
- * back to full"): continuing from what was last actually on screen, not
- * from a value the death itself already overwrote.
+ * answer "fully battered" (`0.55`) for EVERY combat kill, no matter how
+ * gradual or sudden.
+ *
+ * That is not a hypothetical Pixi avoids: it is what Pixi's own
+ * `structureWear` ALSO shows for an ordinary combat kill. `damageStructure`
+ * pushes the killing blow's `structureHit` event before calling
+ * `destroyStructure` (`sim.ts:4073-4084`), but `destroyStructure` runs
+ * synchronously within that same tick, before `pendingEvents` is ever
+ * drained -- so by the time `bumpStructureWear` (`renderer.ts:1792-1806`)
+ * reads LIVE `st.hp` for that very event, `hp` is already the zeroed value
+ * `destroyStructure` just wrote. `structureHpBand(0, max)` is `0`, so
+ * Pixi's own `alpha0` is `0.55` for every combat kill too -- gradual siege
+ * or one-shot from full health alike. Pixi's band only diverges from that
+ * floor for a kill with NO preceding `damageStructure` call at all (a
+ * non-blade demolition finishing its tick countdown, or the
+ * `debugDestroyStructure` dev hook): `structureWear` never left its `0xff`
+ * sentinel, so `beginCollapse` there reads the clamped max band and shows
+ * full brightness instead.
+ *
+ * This cache is a deliberate departure from that, not merely this backend's
+ * own route to the identical result. It captures the alpha ACTUALLY ON
+ * SCREEN one frame before death -- true pre-kill integrity, continuously --
+ * rather than state read at or after it, which is always zeroed regardless
+ * of path. A building ground down over a long fight starts its fall near
+ * `0.55` either way; one dropped by a single overwhelming hit from near-full
+ * health starts near `1` here, where Pixi's event-ordering quirk floors it
+ * to `0.55` regardless. Reading what the player was already looking at, the
+ * instant before it changed, is judged the better behaviour -- but it is a
+ * genuine divergence from Pixi's shipped result, not merely a different
+ * implementation of the same one.
  */
 export function structureAliveAlpha(hp: number, maxHp: number): number {
   const integrity = maxHp > 0 ? Math.max(0, hp / maxHp) : 1;
