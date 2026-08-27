@@ -30,12 +30,18 @@ where this stops.
 > **STALE as of task B4.4 (fog live) — do not cite this table.** It was measured with
 > `isVisible()` returning `true` unconditionally in three (see "What Phase C inherits" #1 below),
 > so it understates Pixi's real advantage-loss and overstates three's edge over what fog leaves
-> Pixi still drawing. The corrected numbers, and a load-bearing finding about how to measure this
-> harness's browser mode at all (a hidden/backgrounded automation tab understates Pixi's render
-> cost by 5–25×, confirmed independently twice), are in
+> Pixi still drawing. The corrected numbers are a RANGE, not a point: Pixi's render/tick cost
+> depends heavily on ambient CPU load in a way three's does not (Pixi's CPU-bound batching
+> degrades under contention; three's instanced draws barely move) — a lightly-loaded run and a
+> genuinely-loaded run (~30–60% CPU from another process) disagree by 5–25× on Pixi alone, and
+> both are real. (A tab-visibility hypothesis for that gap was raised and directly refuted: both
+> the low and high runs were taken in tabs with identical `hidden:true`/`hasFocus:false` state, so
+> visibility is not what separates them — recorded so nobody re-chases it.) Full reasoning and
+> both endpoints are in
 > `.superpowers/sdd/2026-08-27-three-renderer-phase-b4/task-B4.4-report.md`. Short version: three
-> is still flat and still wins decisively at every checkpoint — that verdict does not change — but
-> the millisecond values above should not be reused for anything quantitative.
+> is still flat and still wins decisively at every checkpoint across both load conditions — that
+> verdict does not change — but the millisecond values above should not be reused for anything
+> quantitative, and neither should a single number from the corrected report without its range.
 
 three.js render cost is **flat regardless of unit count** — one draw call per unit type, 3–4% of
 the 16.7 ms frame budget. Pixi's grows with N and its p95 and max exceed the frame budget at

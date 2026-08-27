@@ -770,26 +770,32 @@ function disposeRenderer(backend: 'three' | 'pixi', renderer: Renderer): void {
  *  import (e.g. from a devtools autocomplete probe) cannot kick off a
  *  multi-minute sprite-loading run by accident.
  *
- *  RUN THIS WITH THE TAB ACTUALLY VISIBLE/FOREGROUNDED. A fix-round on task
- *  B4.4 found that running this from an automation tool whose tab sits at a
- *  permanent `document.visibilityState === 'hidden'` (no real compositing,
- *  never brought to the screen) understated Pixi's render cost by roughly
- *  5-25x compared to an independent measurement taken on an ordinary,
- *  visible browser window -- three's numbers barely moved between the two.
- *  Diagnosed down to (not further than) "the browser tab was never actually
- *  composited": a direct `PixiRenderer.init()` in that same hidden tab
- *  produced a correctly-sized 1280x720 canvas against a real hardware GPU
- *  context (ANGLE/Metal, not software), which rules out a zero-size canvas
- *  or a software-rendering fallback as the cause. Leading hypothesis, not
- *  confirmed: real frame presentation imposes GPU swap-chain backpressure
- *  that only a genuinely visible/composited tab experiences, and only a
- *  renderer with real fill-rate cost (Pixi's alpha-blended, antialiased
- *  sprite batches) has enough GPU work for that backpressure to make
- *  visible as CPU-measured time -- three's instanced, low-overdraw draw
- *  calls may simply never queue deep enough to hit it, hidden tab or not.
- *  Whatever the exact mechanism, the practical rule is: a render-cost number
- *  for this file's browser mode is only trustworthy if it was taken with
- *  the tab on screen, not from an automation tool's background tab group. */
+ *  EXPECT A WIDE RANGE ON PIXI'S NUMBERS, NOT A SINGLE POINT. Two fix-rounds
+ *  on task B4.4 chased this down. Round 1 measured Pixi's render cost 5-25x
+ *  lower than an independent re-run and blamed it on the automation tab's
+ *  `document.visibilityState === 'hidden'` (never composited to a screen) --
+ *  round 2 refuted that directly: the independent re-run's tab was ALSO
+ *  `hidden:true`/`hasFocus:false`, in the exact same automation tab group,
+ *  so tab-visibility cannot be what separated the two measurements. That
+ *  hypothesis is TESTED AND REFUTED -- do not re-chase it.
+ *
+ *  What actually separates the runs is ambient CPU load, and it hits the two
+ *  backends asymmetrically. In a lightly-loaded run, this file's OWN
+ *  renderer-free `sim.tick()` (the exact code the Node CLI above times)
+ *  read 1.6-2.9ms inside a tab also driving THREE's renderer, and roughly
+ *  the same, 2.5-3.5ms, inside a tab also driving PIXI's. Under real ambient
+ *  load (another process on the machine at ~30-60% CPU, not induced by this
+ *  harness), the same renderer-free code read 2.5-3.5ms next to three but
+ *  12.0-14.5ms next to Pixi -- a 4-6x jump for Pixi's tab and barely any
+ *  move for three's, on code that does not know which renderer shares its
+ *  tab. That is a genuine load-SENSITIVITY difference between the backends
+ *  (Pixi's CPU-bound batching degrades under contention; three's instanced
+ *  draws largely do not), not a measurement artefact of either run being
+ *  "wrong". Report Pixi's render/tick cost as a RANGE bounded by a quiet-ish
+ *  run and a loaded run, and note which end is closer to what a real player
+ *  has running (a loaded machine, if anything, closer to the high end) --
+ *  never as one clean number. three's numbers stay tight across load levels
+ *  and don't need the same treatment. */
 export async function measureThree(
   onProgress?: (msg: string) => void
 ): Promise<BackendReport> {
