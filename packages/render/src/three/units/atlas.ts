@@ -10,8 +10,8 @@
  * test suite exactly like the terrain builders in `../terrain/`.
  *
  * `buildUnitTexture` is the other half: decode the PNGs `packSheet` pointed
- * at into a real `THREE.Texture`. That is I/O (`fetch`, image decode, a 2D
- * canvas) and cannot be tested headlessly, so it is a separate function
+ * at into a real `THREE.DataArrayTexture`. That is I/O (`fetch`, image
+ * decode, a 2D canvas) and cannot be tested headlessly, so it is a separate function
  * rather than a branch inside `packSheet` -- the same split `ground.ts`
  * (pure) and `mesh.ts` (`toGeometry`, GPU-facing) draw for terrain, just
  * kept in one file here because this task creates only `atlas.ts`.
@@ -180,6 +180,53 @@ function key(clip: ClipName, facing: number, frame: number): string {
   return `${clip}:${facing}:${frame}`;
 }
 
+/**
+ * A counting semaphore: at most `limit` holders at once, sharing one queue
+ * across every `acquire()` call on the same instance -- not one queue per
+ * caller. That "shared across callers" property is exactly what
+ * `buildUnitTexture`'s frame-fetch throttling needs (see its module-level
+ * `fetchSlots` instance below): `main.ts` runs ~30 unit types' worth of
+ * `buildUnitTexture` calls in parallel, and a limiter reset per call would
+ * still let each of those 30 calls open its own `limit` connections --
+ * `30 * limit` total, the exact compounding this class exists to prevent.
+ *
+ * No `fetch`, no DOM, no timers -- just `Promise`/array bookkeeping -- so
+ * it is genuinely pure and testable under `environment: 'node'`, unlike the
+ * I/O it is used to throttle below. `acquire()` resolves immediately while
+ * a slot is free; once the limit is reached, callers queue in FIFO order
+ * and each `release()` wakes exactly the next one.
+ */
+export class Semaphore {
+  private available: number;
+  private readonly queue: Array<() => void> = [];
+
+  constructor(limit: number) {
+    this.available = limit;
+  }
+
+  acquire(): Promise<void> {
+    if (this.available > 0) {
+      this.available--;
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      this.queue.push(() => {
+        this.available--;
+        resolve();
+      });
+    });
+  }
+
+  /** Always call from a `finally`, so a holder that throws still frees its
+   *  slot -- otherwise one failure stalls every caller queued behind it,
+   *  forever, which is worse than the burst this class exists to prevent. */
+  release(): void {
+    this.available++;
+    const next = this.queue.shift();
+    if (next) next();
+  }
+}
+
 /** Total frames a sheet declares, summed across every clip it has, in
  *  `CLIP_ORDER`. Shared by `packSheet` (the capacity check) and
  *  `buildUnitTexture` (checking a `packing` was actually built from the
@@ -305,26 +352,82 @@ function queryArrayLayerLimit(): number | null {
   return deviceArrayLayerLimit;
 }
 
-/** Fetch one frame's PNG and decode it to a bitmap. Separated out so the
- *  parallel `Promise.all` in `buildUnitTexture` reads as "decode every file
- *  concurrently" rather than an inline `fetch`/`blob`/`createImageBitmap`
- *  chain repeated at the call site. */
-async function decodeFrame(url: string): Promise<ImageBitmap> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`buildUnitTexture: ${res.status} fetching ${url}`);
-  const blob = await res.blob();
-  return createImageBitmap(blob);
+/**
+ * How many frame fetches this module allows in flight at once, *shared
+ * across every concurrent `buildUnitTexture` call* via the one `fetchSlots`
+ * instance below -- not one budget per call. `main.ts` loads a mission's
+ * roster (~30 unit types) with their `buildUnitTexture` calls running in
+ * parallel, and the largest sheets are 272 frames; the original shape here
+ * was a per-call `Promise.all` over `decodeFrame` with no throttle at all,
+ * issuing all 272 `fetch()`s for one sheet at once with nothing stopping 30
+ * sheets from doing that simultaneously -- up to ~8,000 concurrent requests
+ * from one page load. Task B3.5 hit this directly: genuine `503`s and fetch
+ * failures for a shifting subset of unit types on each reload, with units
+ * silently missing from the mission and no error naming which sheet or file
+ * was responsible.
+ *
+ * 6 is not a round number picked for tidiness -- it is Chrome's (and
+ * Firefox's and Safari's) own default maximum simultaneous HTTP/1.1
+ * connections per origin. Throttling above that number buys nothing: those
+ * extra requests would queue inside the browser's own connection pool
+ * regardless of how many this module hands it at once. Throttling *to* that
+ * number keeps this module from ever handing the browser (and whatever is
+ * serving `basePath`) a burst larger than the browser was ever going to
+ * service concurrently in the first place -- so the fix costs no real
+ * wall-clock parallelism, only the burst. A per-call limiter (a fresh
+ * `Semaphore` inside `buildUnitTexture` itself) would not fix this: 30
+ * concurrent calls would each open their own 6 connections, 180 total,
+ * exactly the compounding this exists to prevent -- so `fetchSlots` is one
+ * instance at module scope, shared for the process's lifetime, the same
+ * sharing `deviceArrayLayerLimit` above already relies on.
+ */
+const FETCH_CONCURRENCY = 6;
+const fetchSlots = new Semaphore(FETCH_CONCURRENCY);
+
+/**
+ * Fetch one packed frame's PNG and decode it to a bitmap, queued behind
+ * `fetchSlots` so this call cannot itself contribute to the burst it exists
+ * to prevent.
+ *
+ * Takes the `PackedFrame` itself, not a bare URL, so a failure -- a `fetch`
+ * rejection (typically an opaque `TypeError: Failed to fetch`, naming
+ * neither sheet nor file), a non-ok status, or a decode error from a
+ * truncated/corrupt PNG -- can be rethrown naming the sheet (`basePath`) and
+ * exactly which `(clip, facing, frame)` it was. That is the same principle
+ * the device-limit diagnostic above applies to capacity, applied here to
+ * loading: a named, attributable failure instead of a rejection a caller
+ * cannot trace back to a unit type.
+ */
+async function decodeFrame(basePath: string, entry: PackedFrame): Promise<ImageBitmap> {
+  const url = `${basePath}${entry.file}`;
+  const where = `${basePath} clip "${entry.clip}" facing ${entry.facing} frame ${entry.frame} (${url})`;
+  await fetchSlots.acquire();
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`buildUnitTexture: ${res.status} fetching ${where}`);
+    const blob = await res.blob();
+    return await createImageBitmap(blob);
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith('buildUnitTexture:')) throw err;
+    const cause = err instanceof Error ? err.message : String(err);
+    throw new Error(`buildUnitTexture: failed to fetch or decode ${where}: ${cause}`);
+  } finally {
+    fetchSlots.release();
+  }
 }
 
 /**
  * Decode a sheet's frames into one `DataArrayTexture`, per `packing`.
  *
- * Every PNG decodes in parallel (`Promise.all` over `decodeFrame`) -- 272
- * sequential round trips would be a visible stall on first load, the exact
- * problem `renderer.ts:loadSprites`'s own comment on parallel facing loads
- * already names. The 2D canvas that turns each bitmap into raw RGBA bytes is
- * reused sequentially after that, deliberately: `CanvasRenderingContext2D`
- * is stateful, and drawing two bitmaps into it concurrently would race.
+ * Every PNG decodes concurrently (`Promise.all` over `decodeFrame`), bounded
+ * by the shared `FETCH_CONCURRENCY` slot pool rather than truly unthrottled
+ * -- 272 sequential round trips would be a visible stall on first load, the
+ * exact problem `renderer.ts:loadSprites`'s own comment on parallel facing
+ * loads already names, but 272 (or 30 sheets' worth) genuinely simultaneous
+ * requests is the burst `FETCH_CONCURRENCY`'s own comment describes. The 2D
+ * canvas that turns each bitmap into raw RGBA bytes is reused sequentially
+ * after decoding, deliberately: `CanvasRenderingContext2D` is stateful, and
+ * drawing two bitmaps into it concurrently would race.
  *
  * `sheet` is cross-checked against `packing` before doing any of that work --
  * a `packing` built from a different sheet is a caller bug (wrong pairing
@@ -345,7 +448,7 @@ export async function buildUnitTexture(
   basePath: string,
   sheet: SheetSpec,
   packing: FramePacking
-): Promise<THREE.Texture> {
+): Promise<THREE.DataArrayTexture> {
   const expected = totalFrames(sheet);
   if (packing.entries.length !== expected) {
     throw new Error(
@@ -365,7 +468,7 @@ export async function buildUnitTexture(
 
   const { frameSize, layers } = packing;
   const bitmaps = await Promise.all(
-    packing.entries.map((entry) => decodeFrame(`${basePath}${entry.file}`))
+    packing.entries.map((entry) => decodeFrame(basePath, entry))
   );
 
   const canvas = document.createElement('canvas');

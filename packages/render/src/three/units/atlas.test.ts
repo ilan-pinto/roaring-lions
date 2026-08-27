@@ -1,7 +1,12 @@
 /**
- * `packSheet` is the pure half of Task B3.4 -- the only half that can be
- * tested headlessly (`buildUnitTexture` is I/O: fetch, image decode, a 2D
- * canvas, none of which exist in `environment: 'node'`).
+ * `packSheet` and `Semaphore` are the pure halves of this file -- the only
+ * parts that can be tested headlessly. `buildUnitTexture` and `decodeFrame`
+ * are I/O (fetch, image decode, a 2D canvas), none of which exist in
+ * `environment: 'node'`, and stay untested here for that reason; `Semaphore`
+ * is the fetch-throttling primitive `decodeFrame` queues behind, extracted
+ * specifically because it has no I/O of its own and its queueing behaviour
+ * (fix round 2, the unthrottled-parallel-fetch bug B3.5 hit) is exactly the
+ * kind of off-by-one that deserves a real test rather than a read-through.
  *
  * Fixture: the real `INF_SQUAD` manifest, not a hand-rolled toy shape.
  * `INF_SQUAD`/`INF_RPG`/`INF_MILITIA`/`INF_DEMO`/`INF_AT` are the largest
@@ -14,7 +19,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { parseManifest, type ClipName, type SheetSpec } from '../../sheet';
-import { packSheet, MAX_ARRAY_LAYERS, FRAME_PX, type FrameRegion } from './atlas';
+import { packSheet, MAX_ARRAY_LAYERS, FRAME_PX, Semaphore, type FrameRegion } from './atlas';
 import infSquadManifest from '../../../../../assets/sprites/INF_SQUAD/manifest.json';
 
 const infSquad: SheetSpec = parseManifest(infSquadManifest);
@@ -158,5 +163,78 @@ describe('packSheet', () => {
     const b = packSheet(infSquad, MAX_ARRAY_LAYERS);
     expect(a.layers).toBe(b.layers);
     expect(a.entries).toEqual(b.entries);
+  });
+});
+
+/**
+ * `Semaphore` is `decodeFrame`'s fetch-throttling primitive (fix round 2 on
+ * this task: an unthrottled `Promise.all` per sheet, times ~30 sheets loading
+ * in parallel, produced genuine 503s in B3.5). It has no `fetch`/DOM of its
+ * own, so its queueing behaviour is exercised directly here rather than only
+ * through the I/O it is used to throttle.
+ */
+describe('Semaphore', () => {
+  it('resolves the first `limit` acquires immediately', async () => {
+    const sem = new Semaphore(2);
+    let resolved = 0;
+    void sem.acquire().then(() => resolved++);
+    void sem.acquire().then(() => resolved++);
+    await Promise.resolve();
+    expect(resolved).toBe(2);
+  });
+
+  it('queues an acquire past the limit until a release happens', async () => {
+    const sem = new Semaphore(1);
+    let secondResolved = false;
+
+    await sem.acquire(); // takes the only slot
+    void sem.acquire().then(() => {
+      secondResolved = true;
+    });
+    await Promise.resolve();
+    expect(secondResolved).toBe(false); // still queued -- the holder hasn't released
+
+    sem.release();
+    await Promise.resolve();
+    expect(secondResolved).toBe(true);
+  });
+
+  it('wakes queued acquires in FIFO order, one at a time', async () => {
+    const sem = new Semaphore(1);
+    const order: number[] = [];
+
+    async function worker(id: number): Promise<void> {
+      await sem.acquire();
+      order.push(id);
+      sem.release();
+    }
+
+    // All three "start" together; only one can hold the slot at a time, so
+    // arrival order is what decides completion order.
+    await Promise.all([worker(1), worker(2), worker(3)]);
+    expect(order).toEqual([1, 2, 3]);
+  });
+
+  it('never lets more holders run at once than the limit, under load, and does reach the limit', async () => {
+    const limit = 3;
+    const sem = new Semaphore(limit);
+    let current = 0;
+    let maxObserved = 0;
+
+    async function worker(): Promise<void> {
+      await sem.acquire();
+      current++;
+      maxObserved = Math.max(maxObserved, current);
+      await Promise.resolve(); // yield a tick while "holding" the slot
+      current--;
+      sem.release();
+    }
+
+    await Promise.all(Array.from({ length: 20 }, () => worker()));
+    expect(current).toBe(0); // every holder released
+    expect(maxObserved).toBeLessThanOrEqual(limit);
+    // Not just "never exceeded" -- confirms it actually reaches the budget
+    // rather than a stricter, accidentally-serialising bug passing the same assertion.
+    expect(maxObserved).toBe(limit);
   });
 });
