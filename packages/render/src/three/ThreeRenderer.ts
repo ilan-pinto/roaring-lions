@@ -42,6 +42,7 @@ import { dimetricCamera, worldToScreenThree, screenToWorldThree } from './camera
 import { applyPalettePipeline } from './palette-material';
 import { buildGround } from './terrain/ground';
 import { buildScatter } from './terrain/scatter';
+import { buildGroves } from './terrain/grove';
 import { toGeometry, terrainMaterial } from './terrain/mesh';
 import type { TerrainInput } from './terrain/types';
 
@@ -112,6 +113,11 @@ export class ThreeRenderer implements Renderer {
    *  itself (`buildGround` and `buildScatter` are two independent builders
    *  over the same `TerrainInput`). */
   private scatterMesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material> | null = null;
+  /** Olive groves -- trunk and crown, standing above the ground rather than
+   *  lying on it -- as a third mesh sharing the same material and rebuild
+   *  path. `buildGroves` is a third independent builder over the identical
+   *  `TerrainInput`, exactly like `buildScatter`. */
+  private groveMesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material> | null = null;
   /** Reused across rebuilds -- one unlit, vertex-coloured material carries no
    *  per-terrain state, so there is nothing a fresh instance would buy. */
   private readonly terrainMat: THREE.Material = terrainMaterial();
@@ -176,18 +182,19 @@ export class ThreeRenderer implements Renderer {
    * than being a listener with no way to remove it, and so a future teardown
    * has one call to make instead of having to learn this class's internals.
    *
-   * Disposes both terrain geometries and the shared material. B2.4 left this
+   * Disposes every terrain geometry and the shared material. B2.4 left this
    * out for the ground mesh alone -- harmless while `WebGLRenderer.dispose()`
    * forces context loss regardless and nothing called `dispose()` at all --
-   * but B2.5 adds a second geometry sharing the same material, and letting
-   * that omission double rather than fixing it here would be the wrong
-   * direction to grow it in.
+   * but B2.5 added a second geometry sharing the same material, and B2.6 a
+   * third; letting that omission grow rather than fixing it here would be
+   * the wrong direction to take it in.
    */
   dispose(): void {
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     this.terrainMesh?.geometry.dispose();
     this.scatterMesh?.geometry.dispose();
+    this.groveMesh?.geometry.dispose();
     this.terrainMat.dispose();
     this.renderer.dispose();
     this.host = null;
@@ -317,14 +324,16 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
-   * (Re)builds the ground mesh and its scatter (grain) mesh from the sim's
-   * static layout (`width`, `height`, `blocked`, `cover`) plus whatever
-   * `setElevation`/`setDecor` have retained, and swaps both into the scene
-   * in place of the previous pair. The two are independent builders over the
-   * identical `TerrainInput` -- `buildScatter` does not read `buildGround`'s
-   * output -- sharing only the material, so a mismatch between the ground's
-   * palette tone and a mark's alpha-composited tone would be a bug in one of
-   * the two builders, not in how this method wires them together.
+   * (Re)builds the ground mesh, its scatter (grain) mesh, and its grove
+   * (olive trunk/crown) mesh from the sim's static layout (`width`,
+   * `height`, `blocked`, `cover`) plus whatever `setElevation`/`setDecor`
+   * have retained, and swaps all three into the scene in place of the
+   * previous set. The three are independent builders over the identical
+   * `TerrainInput` -- neither `buildScatter` nor `buildGroves` reads
+   * `buildGround`'s output -- sharing only the material, so a mismatch
+   * between the ground's palette tone and a mark's or a tree's
+   * alpha-composited tone would be a bug in one of the builders, not in how
+   * this method wires them together.
    *
    * Only ever called from `frame()`, guarded by `terrainDirty` -- see that
    * field's doc comment for why building here, and not inside the setters,
@@ -334,7 +343,7 @@ export class ThreeRenderer implements Renderer {
    * rebuilt terrain that leaks its predecessor is invisible until a mission
    * rebuilds terrain a few hundred times, and then it is a memory bug nobody
    * can attribute. The material is not disposed -- `terrainMat` is reused
-   * across rebuilds, not replaced (both meshes share it).
+   * across rebuilds, not replaced (all three meshes share it).
    *
    * A gap this does not close: Pixi sets `terrainDirty` from `onEvents` on
    * `structureDestroyed` (`renderer.ts:881`), so a destroyed building's tile
@@ -357,6 +366,10 @@ export class ThreeRenderer implements Renderer {
       this.scene.remove(this.scatterMesh);
       this.scatterMesh.geometry.dispose();
     }
+    if (this.groveMesh) {
+      this.scene.remove(this.groveMesh);
+      this.groveMesh.geometry.dispose();
+    }
     const input: TerrainInput = {
       width: this.sim.width,
       height: this.sim.height,
@@ -372,5 +385,9 @@ export class ThreeRenderer implements Renderer {
     const scatterData = buildScatter(input, this.opts.terrainTones, this.opts.background);
     this.scatterMesh = new THREE.Mesh(toGeometry(scatterData), this.terrainMat);
     this.scene.add(this.scatterMesh);
+
+    const groveData = buildGroves(input, this.opts.terrainTones, this.opts.background);
+    this.groveMesh = new THREE.Mesh(toGeometry(groveData), this.terrainMat);
+    this.scene.add(this.groveMesh);
   }
 }
