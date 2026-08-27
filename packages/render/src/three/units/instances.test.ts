@@ -11,7 +11,7 @@
  * and friends are plain JS objects under `environment: 'node'`, the same
  * fact `palette-material.test.ts` already relies on for `new THREE.Color`.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import * as THREE from 'three';
 import { parseManifest, type SheetSpec } from '../../sheet';
 import { packSheet, FRAME_PX } from './atlas';
@@ -322,6 +322,41 @@ describe('writeUnitInstances', () => {
     expect(out.positions[0]).toBeCloseTo(2, 10);
     expect(out.positions[3]).toBeCloseTo(3, 10);
   });
+
+  it('BREAK CHECK (A1): overflow clamps at capacity and warns exactly once even across repeated overflowing frames', () => {
+    // Before this clamp existed, a past-the-end write here would be a
+    // silent no-op (JS typed arrays do not throw on out-of-range indices)
+    // while `count` kept incrementing past `out`'s real size -- the caller
+    // would then set `mesh.count` beyond what was actually written. Proven
+    // here by checking BOTH that the returned count never exceeds capacity
+    // AND that every slot the clamp did allow to write actually holds real
+    // data, not a stale zero from an index that silently missed -- plus that
+    // a second and third overflowing call (consecutive frames of a real
+    // mission, the case this module's own doc comment worries about) do not
+    // warn again. One test, not two: the one-time warn is module-level
+    // state keyed by writer name, so a second test overflowing the same
+    // writer would see it already consumed and assert nothing meaningful.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const frames = [
+        makeFrame({ wx: 1, visible: true }),
+        makeFrame({ wx: 2, visible: true }),
+        makeFrame({ wx: 3, visible: true }),
+      ];
+      const out = buffers(2); // capacity 2, three visible frames offered
+      const count = writeUnitInstances(frames, infSquad, packing, out);
+      expect(count).toBe(2);
+      expect(out.positions[0]).toBeCloseTo(1, 10);
+      expect(out.positions[3]).toBeCloseTo(2, 10);
+
+      writeUnitInstances(frames, infSquad, packing, out);
+      writeUnitInstances(frames, infSquad, packing, out);
+      const ownCalls = warn.mock.calls.filter((args) => String(args[0]).includes('writeUnitInstances'));
+      expect(ownCalls.length).toBe(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });
 
 describe('writeTurretInstances', () => {
@@ -445,5 +480,19 @@ describe('writeTurretInstances', () => {
     const out = turretBuffers(1);
     writeTurretInstances(frames, hullSheet, noAxis, packing, out);
     expect(out.alphas[0]).toBeCloseTo(0.35, 5);
+  });
+
+  it('BREAK CHECK (A1): more visible frames than capacity clamps at capacity instead of silently overrunning the buffer', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const noAxis: SheetSpec = { ...turretSheetAxis, turretAxisPx: undefined };
+      const packing = packSheet(noAxis);
+      const frames = [makeFrame({ visible: true }), makeFrame({ visible: true }), makeFrame({ visible: true })];
+      const out = turretBuffers(2);
+      const count = writeTurretInstances(frames, hullSheet, noAxis, packing, out);
+      expect(count).toBe(2);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

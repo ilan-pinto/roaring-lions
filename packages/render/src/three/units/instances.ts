@@ -235,9 +235,11 @@ export function unitBillboardGeometry(sheet: SheetSpec): BillboardGeometry {
   return {
     positions: Float32Array.from([...bl, ...br, ...tr, ...tl]),
     // v inverted relative to local "up": `buildUnitTexture` (atlas.ts)
-    // uploads into a `THREE.DataArrayTexture`, whose `flipY` three.js
-    // itself defaults to `false` (verified against 0.170's source, not
-    // assumed). With no flip, texel row 0 -- `getImageData`'s first row,
+    // uploads into a `THREE.DataArrayTexture` with `flipY` set explicitly to
+    // `false` (matching `DataArrayTexture`'s own default, verified against
+    // 0.170's source -- but no longer relying on that default going
+    // unchanged across a future three.js version, see atlas.ts's own
+    // comment). With no flip, texel row 0 -- `getImageData`'s first row,
     // the TOP of the source PNG -- lands at texture v = 0. So the quad's
     // TOP edge (up = drawPx) must sample v = 0 to show the sprite's top,
     // and the quad's BOTTOM edge (up = 0, the feet) samples v = 1.
@@ -268,6 +270,27 @@ export interface UnitInstanceBuffers {
 }
 
 /**
+ * Fires `console.warn` at most once per writer for the life of this module,
+ * naming the writer and the capacity it overflowed -- an instance buffer
+ * overflow recurs every single frame for the rest of the mission (nothing
+ * about the condition that caused it self-corrects), and warning on every
+ * one of those frames would drown out anything else in the console. See
+ * `writeUnitInstances`'/`writeTurretInstances`' own doc comments for the
+ * defect this guards: a past-the-end typed-array write is a silent no-op in
+ * JS, not a thrown error, so without this a caller's `mesh.count` could climb
+ * past what was actually written with nothing ever saying so.
+ */
+const warnedInstanceOverflow = new Set<string>();
+function warnInstanceCapacityOnce(writer: string, capacity: number): void {
+  if (warnedInstanceOverflow.has(writer)) return;
+  warnedInstanceOverflow.add(writer);
+  console.warn(
+    `${writer}: instance capacity (${capacity}) exceeded -- extra instances are dropped, not drawn. ` +
+      'The caller needs a larger buffer.'
+  );
+}
+
+/**
  * Per-instance GPU attributes for every VISIBLE living entity of one unit
  * type, this frame -- the pure half of the per-frame update, callable with
  * no `THREE.InstancedMesh` at all (this file's own tests exercise it
@@ -279,6 +302,18 @@ export interface UnitInstanceBuffers {
  * always `<= frames.length` -- callers set `mesh.count` to it, which is the
  * only "hide an instance" mechanism an `InstancedMesh` has; a stale tail of
  * attribute data past `count` is simply never read by the GPU.
+ *
+ * Also clamped to `out`'s own capacity (`layers`/`alphas`' shared length,
+ * `positions` sized 3x that): a `count` past the end of a typed array is a
+ * silent no-op write in JavaScript, not a thrown `RangeError`, so without
+ * this clamp `count` would keep climbing past what was actually written and
+ * the caller would set `mesh.count` beyond the allocated instances -- every
+ * instance past the real data reads (0, 0, 0) at alpha 0 and is
+ * alpha-discarded, a mesh that silently draws fewer units than it claims to.
+ * Unreachable today (every per-type capacity is sized to `sim.capacity`), but
+ * this phase already shipped one buffer that dropped the wrong end on
+ * overflow (`tracers`, fixed) -- this is the same mistake, caught here before
+ * it needs its own incident.
  *
  * `roofDx` (a screen-pixel lateral spread between two roof occupants,
  * `frame-state.ts`'s own doc comment) converts through the same `right` axis
@@ -293,9 +328,14 @@ export function writeUnitInstances(
   out: UnitInstanceBuffers
 ): number {
   const right = screenOffsetToWorld(1, 0);
+  const capacity = Math.min(Math.floor(out.positions.length / 3), out.layers.length, out.alphas.length);
   let count = 0;
   for (const f of frames) {
     if (!f.visible) continue;
+    if (count >= capacity) {
+      warnInstanceCapacityOnce('writeUnitInstances', capacity);
+      break;
+    }
     const facing = facingIndex(f.facing, sheet);
     const region = packing.regionFor(f.clip, facing, f.frame);
     out.positions[count * 3] = f.wx + right.dx * f.roofDx;
@@ -351,9 +391,16 @@ export function writeTurretInstances(
 ): number {
   const right = screenOffsetToWorld(1, 0);
   const spritePxPerSheetPx = (hullSheet.scale * TILE_W) / FRAME_PX;
+  // Same overflow clamp as `writeUnitInstances`, same reason -- see that
+  // function's own doc comment.
+  const capacity = Math.min(Math.floor(out.positions.length / 3), out.layers.length, out.alphas.length);
   let count = 0;
   for (const f of frames) {
     if (!f.visible) continue;
+    if (count >= capacity) {
+      warnInstanceCapacityOnce('writeTurretInstances', capacity);
+      break;
+    }
     const hullIdx = facingIndex(f.facing, hullSheet);
     const turretIdx = facingIndex(f.turretFacing, turretSheet);
     const [axXsheetPx, axYsheetPx] = turretAxisOffset(turretSheet, hullIdx, turretIdx);

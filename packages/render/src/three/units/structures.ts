@@ -347,19 +347,56 @@ export interface StructureInstanceBuffers {
 }
 
 /**
+ * Fires `console.warn` at most once for the life of this module, naming the
+ * capacity `writeStructureInstances` overflowed -- identical reasoning to
+ * `units/instances.ts`'s own `warnInstanceCapacityOnce` (not imported from
+ * there: this module deliberately does not couple to `instances.ts`, see
+ * this file's own top comment on `StructureBillboardGeometry`), duplicated
+ * rather than shared for the same reason. A real overflow recurs every
+ * frame for the rest of the mission, so warning on every one of those frames
+ * would drown out everything else in the console.
+ */
+let warnedStructureOverflow = false;
+function warnStructureCapacityOnce(capacity: number): void {
+  if (warnedStructureOverflow) return;
+  warnedStructureOverflow = true;
+  console.warn(
+    `writeStructureInstances: instance capacity (${capacity}) exceeded -- extra instances are dropped, not ` +
+      "drawn. The caller needs a larger buffer."
+  );
+}
+
+/**
  * Per-instance GPU attributes for every placement this frame -- the pure
  * half of `StructureInstancer.update`, callable with no `THREE.InstancedMesh`
  * at all. `placements` is whatever `liveStructurePlacements`/
  * `deadStructurePlacements` returned; unlike `writeUnitInstances` there is no
  * `visible` flag to filter on here (a structure has no roof-slot cap the way
  * a garrisoned occupant does), so every placement handed in is written.
+ *
+ * Clamped to `out`'s own capacity (`alphas.length`, `positions` sized 3x
+ * that) for the same reason `writeUnitInstances` is: a past-the-end typed-
+ * array write is a silent no-op in JavaScript rather than a thrown error, so
+ * without this clamp `count` would climb past what was actually written and
+ * the caller would set `mesh.count` beyond the allocated instances -- every
+ * instance past the real data reads (0, 0, 0) at alpha 0 and is
+ * alpha-discarded. Unreachable today (capacity is `sim.structureCount`, an
+ * upper bound on any one type's own living-or-dead count), but this phase
+ * already shipped one buffer that dropped the wrong end on overflow
+ * (`tracers`, fixed) -- the same mistake, caught here before it needs its
+ * own incident.
  */
 export function writeStructureInstances(
   placements: readonly StructurePlacement[],
   out: StructureInstanceBuffers
 ): number {
+  const capacity = Math.min(Math.floor(out.positions.length / 3), out.alphas.length);
   let count = 0;
   for (const p of placements) {
+    if (count >= capacity) {
+      warnStructureCapacityOnce(capacity);
+      break;
+    }
     out.positions[count * 3] = p.fx;
     out.positions[count * 3 + 1] = p.worldY;
     out.positions[count * 3 + 2] = p.fy;

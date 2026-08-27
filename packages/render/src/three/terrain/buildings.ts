@@ -324,8 +324,23 @@ export function buildBuildings(
    * Factored out so it can be driven by either the full grid or a caller-
    * supplied `tiles` list without duplicating the body -- see `tiles`'s own
    * doc comment on the parameter above.
+   *
+   * Bounds-checks `ti` before ever indexing `input.blocked` with it. The
+   * unrestricted grid loop below always hands in a `ti` it derived from `x`/
+   * `y` within `[0, width) x [0, height)`, so it can never be out of range --
+   * but the caller-supplied `tiles` path (Task B3.9) takes an external index
+   * list on faith, and an out-of-range `ti` there makes `input.blocked[ti]`
+   * `undefined`, which is `!== 0`: without this guard the tile falls through
+   * to a real box draw, at whatever `x`/`y` `ti % width`/`ti / width` happen
+   * to decode to, on data every other read in this function (`levelAt`,
+   * `groundTone`, `footprintOf`) would also be reading out of bounds for --
+   * a garbage box, not a skipped tile. Internal callers only pass tiles from
+   * `structures[i].tiles`, which `walkStructureFootprints` derives the same
+   * bounds-safe way the grid loop does, so this is defence at the boundary
+   * this function's own signature promises, not a reachable path today.
    */
   const visitTile = (x: number, y: number, ti: number): void => {
+    if (ti < 0 || ti >= width * height) return;
     if (input.blocked[ti] === 0) return;
     const decorHere = input.decor ? input.decor[ti] : 0;
     if (decorHere === DECOR_RIDGE) return;

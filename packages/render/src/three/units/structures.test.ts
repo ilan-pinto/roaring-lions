@@ -12,7 +12,7 @@
  * under a sprited structure, drawing the sprite off the footprint's centre,
  * and letting an un-arted structure fall through to the sprite path.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { Sim } from '@lions/sim';
 import { buildBuildings, type StructureFootprint } from '../terrain/buildings';
 import { groundTone, PALETTE_HEXES } from '../terrain/tones';
@@ -358,5 +358,32 @@ describe('writeStructureInstances', () => {
   it('an empty placement list writes nothing and returns 0', () => {
     const out = buffers(1);
     expect(writeStructureInstances([], out)).toBe(0);
+  });
+
+  it('BREAK CHECK (A1): more placements than capacity clamps at capacity instead of silently overrunning the buffer', () => {
+    // Before this clamp existed, a past-the-end write here would be a
+    // silent no-op (JS typed arrays do not throw on out-of-range indices)
+    // while the returned count kept climbing past `out`'s real size -- the
+    // caller would then set `mesh.count` beyond what was actually written,
+    // and every instance past the real data reads (0, 0, 0) at alpha 0,
+    // alpha-discarded. Proven here by checking both the clamped return value
+    // and that the slots the clamp did allow to write hold real data.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const out = buffers(2);
+      const count = writeStructureInstances(
+        [
+          { fx: 1, fy: 1, worldY: 0, alpha: 1 },
+          { fx: 2, fy: 2, worldY: 0, alpha: 1 },
+          { fx: 3, fy: 3, worldY: 0, alpha: 1 },
+        ],
+        out
+      );
+      expect(count).toBe(2);
+      expect(out.positions[0]).toBe(1);
+      expect(out.positions[3]).toBe(2);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

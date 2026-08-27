@@ -344,6 +344,21 @@ describe('buildBuildings', () => {
     expect(m.indices.length).toBe(0);
   });
 
+  it('BREAK CHECK (A2): an out-of-range tile index in the tiles list is skipped, not drawn as a garbage box', () => {
+    // `input.blocked[ti]` for an out-of-range `ti` is `undefined` in plain
+    // JS, and `undefined !== 0` -- without an explicit bounds check the tile
+    // loop's `if (input.blocked[ti] === 0) return;` guard does not fire, and
+    // the walk falls through to `levelAt`/`groundTone`/`footprintOf`, every
+    // one of them also indexed out of bounds, producing a box at whatever
+    // (x, y) `ti % width`/`ti / width` decode a nonsense `ti` to. A 2x2 map
+    // has 4 valid tile indices (0..3); 99 and -1 are both out of range.
+    const input = flat(2, 2);
+    const structures = [oneStructure([0], { hp: 100, maxHp: 100 })];
+    const m = buildBuildings(input, structures, TONES, undefined, BACKGROUND, [99, -1]);
+    expect(m.indices.length).toBe(0);
+    expect(m.positions.length).toBe(0);
+  });
+
   it('every triangle winds toward the camera', () => {
     // Same method as ground.ts's own winding test: classify each triangle
     // by which world axis its three vertices share, then require a positive

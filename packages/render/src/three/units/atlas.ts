@@ -495,6 +495,19 @@ export async function buildUnitTexture(
   }
 
   const texture = new THREE.DataArrayTexture(data, frameSize, frameSize, layers);
+  // Set explicitly rather than left at `DataArrayTexture`'s own default
+  // (`false`, verified against 0.170's source -- see `unitBillboardGeometry`'s
+  // own uv comment in `instances.ts`, which this texture's row-0-at-v-0
+  // convention depends on). A three.js version bump could change that
+  // default without this codebase noticing until units render upside down --
+  // Phase B3.7 hit exactly that failure mode for structures (a plain
+  // `THREE.Texture`, whose default genuinely is `true`), caught only by
+  // looking at the screen, because every headless signal (this file's own
+  // `atlas.test.ts`, `instances.test.ts`'s winding/uv assertions) reads
+  // correct either way -- neither can see what a real GPU actually samples.
+  // Structures now set this explicitly for the same reason
+  // (`loadStructureFrame`'s own comment); this closes the same gap here.
+  texture.flipY = false;
   // No colour-space tag: `palette-material.ts`'s `applyPalettePipeline` sets
   // `renderer.outputColorSpace` to a pass-through (`LinearSRGBColorSpace`),
   // deliberately, so vertex colours reach the framebuffer byte-identical to
