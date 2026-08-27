@@ -780,15 +780,25 @@ function disposeRenderer(backend: 'three' | 'pixi', renderer: Renderer): void {
  *  hypothesis is TESTED AND REFUTED -- do not re-chase it.
  *
  *  What actually separates the runs is ambient CPU load, and it hits the two
- *  backends asymmetrically. In a lightly-loaded run, this file's OWN
- *  renderer-free `sim.tick()` (the exact code the Node CLI above times)
- *  read 1.6-2.9ms inside a tab also driving THREE's renderer, and roughly
- *  the same, 2.5-3.5ms, inside a tab also driving PIXI's. Under real ambient
- *  load (another process on the machine at ~30-60% CPU, not induced by this
- *  harness), the same renderer-free code read 2.5-3.5ms next to three but
- *  12.0-14.5ms next to Pixi -- a 4-6x jump for Pixi's tab and barely any
- *  move for three's, on code that does not know which renderer shares its
- *  tab. That is a genuine load-SENSITIVITY difference between the backends
+ *  backends asymmetrically. The evidence is this file's OWN renderer-free
+ *  `sim.tick()` -- the exact code the Node CLI above times -- read in three
+ *  conditions:
+ *
+ *    - no tab, no renderer at all (the Node CLI):   1.6-2.9ms
+ *    - loaded, in a tab also driving THREE:         2.5-3.5ms
+ *    - loaded, in a tab also driving PIXI:         12.0-14.5ms
+ *
+ *  Ambient load here means another process at ~30-60% CPU, not induced by
+ *  this harness. Beside three, sharing a tab with a live renderer under load
+ *  costs the sim roughly what running it bare costs; beside Pixi it costs
+ *  4-6x that, on code that does not know which renderer shares its tab.
+ *
+ *  Be careful reading those three numbers: only the second and third are a
+ *  controlled comparison. The Node CLI figure is the no-renderer floor, NOT
+ *  a light-load three-tab measurement -- no such measurement exists, because
+ *  the quiet run and the loaded run were taken by different agents and only
+ *  the loaded one recorded per-tab tick cost. Do not quote it as three's
+ *  light-load tab cost. That is a genuine load-SENSITIVITY difference between the backends
  *  (Pixi's CPU-bound batching degrades under contention; three's instanced
  *  draws largely do not), not a measurement artefact of either run being
  *  "wrong". Report Pixi's render/tick cost as a RANGE bounded by a quiet-ish
