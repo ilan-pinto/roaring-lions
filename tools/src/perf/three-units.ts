@@ -325,24 +325,48 @@ export function measureTicks(sim: Sim, ticks: number): SampleStats {
 // Task B4.4: this mode is the half of the three-vs-Pixi perf claim that CAN
 // join CI, because it is the half with no browser/GPU in it -- `measureTicks`
 // times `sim.tick()` alone, and `sim.tick()` runs identically under `tsx` in
-// a GitHub Actions runner as it does in a real browser tab (renderer-side
-// concerns -- draw calls, texture uploads, `renderer.frame()` -- are the
-// OTHER half, and stay a manual browser gate; see the phase B4 outcome doc).
-// So this mode now ASSERTS a budget per checkpoint (`REGRESSION_BUDGET_MS`)
-// and sets a non-zero exit code on breach, exactly like `pnpm balance`'s
-// `report(...)` -> `process.exit(ok ? 0 : 1)` -- the precedent this file
-// follows, wired the same way into `ci.yml`'s `gates` job.
+// a GitHub Actions runner as it does in a real browser tab. So this mode now
+// ASSERTS a budget per checkpoint and sets a non-zero exit code on breach,
+// exactly like `pnpm balance`'s `report(...)` -> `process.exit(ok ? 0 : 1)`
+// -- the precedent this file follows, wired the same way into `ci.yml`'s
+// `gates` job.
 //
-// Why this specific half catches a real regression rather than merely
-// existing: `CLAUDE.md`'s own scaling-debt section names detection as O(N^2)
-// per tick and flags it as "real at the GDD's 300-unit target" -- i.e. the
-// known failure mode is a SIM-side blowup, not a renderer one, and it is
-// exactly the number this mode times. It is also not a second, disconnected
-// measurement: the browser harness's own `measureCheckpoint` re-times
-// `sim.tick()` in-process as a cross-check against these same Node numbers
-// (this file's top comment), so a tick-cost regression caught here is a
-// regression that would have shown up in the browser run too -- CI just
-// catches it one step earlier, with no browser required.
+// Be precise about what this guards and what it does not (a fix-round on
+// this task's own report corrected an earlier version of this comment that
+// overclaimed the second point):
+//
+//   - It only exercises `@lions/sim`. `packages/sim/` is frozen for the
+//     whole three.js migration, so NOTHING under `packages/render/src/
+//     three/**` -- the code this migration is actually about -- can ever
+//     trip this gate. It is not a guard on the render-cost claim this task
+//     re-measured; it guards one specific, already-documented sim-side
+//     failure mode: CLAUDE.md's scaling-debt entry names detection as O(N^2)
+//     per tick and flags it "real at the GDD's 300-unit target," and that is
+//     exactly the number this mode times.
+//   - The thresholds carry 5-9x headroom over currently-measured cost (see
+//     the constants' own doc comment), so a regression smaller than roughly
+//     3x passes silently. It is a coarse trip-wire, not a tight one.
+//   - An EARLIER version of this comment claimed a tick-cost regression
+//     caught here "would have shown up in the browser run too," reasoning
+//     that the browser harness's own `measureCheckpoint` re-times
+//     `sim.tick()` as a cross-check against these same Node numbers. A
+//     fix-round on this task found that claim unsupported: an in-browser
+//     tab running Pixi's `renderer.frame()` measured its OWN renderer-free
+//     `sim.tick()` cost 5-8x higher than this Node CLI reports for the
+//     identical world (2.18ms node vs ~14.5ms in-tab; 4.00ms vs ~12.9ms) --
+//     i.e. sharing a tab with a GPU-heavy renderer inflates tick timing by
+//     itself, which means this Node number and an in-tab number are NOT
+//     interchangeable cross-checks the way the old comment claimed. This
+//     gate's real justification is the bullet above: it is a first,
+//     narrowly-scoped automated guard on one named sim-side debt, not a
+//     stand-in for the browser measurement.
+//   - Actually wiring the RENDER-cost claim into an automated gate would
+//     need a real headless-browser-in-CI setup (e.g. Playwright driving an
+//     actual Chromium with a real or software GL context) -- nothing of the
+//     kind exists in this repo today, and building one is a bigger change
+//     than this task's "wire an entry point" scope. Until then the render
+//     comparison stays a manual browser gate, the same debt shape CLAUDE.md
+//     already records for `playtest.ts`.
 // ============================================================================
 
 const CHECKPOINTS: readonly number[] = [65, 150, 300, 400];
@@ -350,13 +374,19 @@ const WARMUP_TICKS = 5;
 const TIMED_TICKS = 40;
 
 /** Fractions of the real 20 Hz tick budget (50 ms). Measured today (task
- *  B4.4, fog live, this machine): avg 0.21-2.71 ms, p95 0.91-3.58 ms, max
- *  0.97-6.65 ms across all four checkpoints -- so these thresholds carry
- *  roughly 4-9x headroom over the current worst case, wide enough to absorb
- *  CI-runner-vs-dev-laptop variance without being so wide a real O(N^2)-style
- *  regression (a 5-10x jump is the shape CLAUDE.md's detection-debt entry
- *  describes) could still slip under it. Tighten only alongside a real
- *  re-measurement, the same rule `tuning.ts` follows for combat constants. */
+ *  B4.4, fog live) via THIS Node CLI -- no browser, no renderer, no tab --
+ *  avg 0.21-2.84 ms, p95 0.72-3.79 ms, max 0.88-6.68 ms across the four
+ *  checkpoints, so these thresholds carry roughly 5-9x headroom over the
+ *  current worst case: enough to absorb CI-runner-vs-dev-laptop variance
+ *  without being so wide a real O(N^2)-style regression (a 5-10x jump is the
+ *  shape CLAUDE.md's detection-debt entry describes) could still slip under
+ *  it -- though anything under ~3x still would (see the block comment
+ *  above). Tighten only alongside a real re-measurement, the same rule
+ *  `tuning.ts` follows for combat constants. Do NOT compare these numbers
+ *  against an in-browser tick measurement from this file's browser mode --
+ *  see that mode's own doc comment: a tab running a renderer measures a
+ *  materially different (and, for Pixi, much higher) tick cost than this
+ *  isolated Node process does, for the identical world. */
 const MAX_AVG_TICK_MS = 20;
 const MAX_P95_TICK_MS = 30;
 const MAX_MAX_TICK_MS = 40;
@@ -738,7 +768,28 @@ function disposeRenderer(backend: 'three' | 'pixi', renderer: Renderer): void {
  *
  *  Kept as a named export rather than auto-run on import so a stray dynamic
  *  import (e.g. from a devtools autocomplete probe) cannot kick off a
- *  multi-minute sprite-loading run by accident. */
+ *  multi-minute sprite-loading run by accident.
+ *
+ *  RUN THIS WITH THE TAB ACTUALLY VISIBLE/FOREGROUNDED. A fix-round on task
+ *  B4.4 found that running this from an automation tool whose tab sits at a
+ *  permanent `document.visibilityState === 'hidden'` (no real compositing,
+ *  never brought to the screen) understated Pixi's render cost by roughly
+ *  5-25x compared to an independent measurement taken on an ordinary,
+ *  visible browser window -- three's numbers barely moved between the two.
+ *  Diagnosed down to (not further than) "the browser tab was never actually
+ *  composited": a direct `PixiRenderer.init()` in that same hidden tab
+ *  produced a correctly-sized 1280x720 canvas against a real hardware GPU
+ *  context (ANGLE/Metal, not software), which rules out a zero-size canvas
+ *  or a software-rendering fallback as the cause. Leading hypothesis, not
+ *  confirmed: real frame presentation imposes GPU swap-chain backpressure
+ *  that only a genuinely visible/composited tab experiences, and only a
+ *  renderer with real fill-rate cost (Pixi's alpha-blended, antialiased
+ *  sprite batches) has enough GPU work for that backpressure to make
+ *  visible as CPU-measured time -- three's instanced, low-overdraw draw
+ *  calls may simply never queue deep enough to hit it, hidden tab or not.
+ *  Whatever the exact mechanism, the practical rule is: a render-cost number
+ *  for this file's browser mode is only trustworthy if it was taken with
+ *  the tab on screen, not from an automation tool's background tab group. */
 export async function measureThree(
   onProgress?: (msg: string) => void
 ): Promise<BackendReport> {

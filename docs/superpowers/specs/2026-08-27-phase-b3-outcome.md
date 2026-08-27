@@ -27,6 +27,16 @@ where this stops.
 | 300 | 0.54 ms | **5.78 ms** |
 | 400 | 0.60 ms | **6.40 ms** |
 
+> **STALE as of task B4.4 (fog live) — do not cite this table.** It was measured with
+> `isVisible()` returning `true` unconditionally in three (see "What Phase C inherits" #1 below),
+> so it understates Pixi's real advantage-loss and overstates three's edge over what fog leaves
+> Pixi still drawing. The corrected numbers, and a load-bearing finding about how to measure this
+> harness's browser mode at all (a hidden/backgrounded automation tab understates Pixi's render
+> cost by 5–25×, confirmed independently twice), are in
+> `.superpowers/sdd/2026-08-27-three-renderer-phase-b4/task-B4.4-report.md`. Short version: three
+> is still flat and still wins decisively at every checkpoint — that verdict does not change — but
+> the millisecond values above should not be reused for anything quantitative.
+
 three.js render cost is **flat regardless of unit count** — one draw call per unit type, 3–4% of
 the 16.7 ms frame budget. Pixi's grows with N and its p95 and max exceed the frame budget at
 300–400 living units.
