@@ -262,16 +262,14 @@ The combat model is the product. Everything else is scaffolding around it.
   browser walk of that mission with the task force standing in the zone showed the
   Grad's indirect fire landing there — dust-cloud impacts and a visible tracer inside
   the zone's outline — with no occlusion glitch in what was on screen at the time.
-  That is not proof the sorting gap is fixed or absent; it means the condition this
+  That is not proof the sorting gap is fixed or absent — it means the condition this
   bullet describes (a wreck or tracer in front of a ridge, from the camera angles and
-  moments actually checked) was not caught in the act, not that it cannot happen —
-  the gap above is unchanged and the fix described there still applies whenever it
-  is taken up; and a correct fix means
-  depth-sorting wrecks and VFX against terrain, which is the same already-deferred
-  "VFX are not lifted to terrain height" gap above — a partial fix would be worse
-  than none, since `wreckLayer` sprites (`addWreck`, `renderer.ts`) carry no
-  `zIndex` at all and would sort behind every band on the map, not merely their
-  own tile's, if moved into `spriteLayer` naively.
+  moments actually checked) was not caught in the act, not that it cannot happen. The
+  gap is unchanged, and so is its fix: depth-sorting wrecks and VFX against terrain,
+  which is the same already-deferred "VFX are not lifted to terrain height" gap above.
+  A partial fix would be worse than none, since `wreckLayer` sprites (`addWreck`,
+  `renderer.ts`) carry no `zIndex` at all and would sort behind every band on the map,
+  not merely their own tile's, if moved into `spriteLayer` naively.
 - Tel Marum's narrow saddle is still free, and the reason is not the one this bullet used
   to give. A hollow → west flank → narrow saddle → battery route is +9 tiles (38 vs 47)
   and crosses no tile either overwatch pocket can both see and reach at the `atgm_cell`'s
@@ -279,10 +277,10 @@ The combat model is the product. Everything else is scaffolding around it.
   let the Grad at `battery_position` charge for it, since it reaches the corridor at 17
   tiles and `rocket` is in `INDIRECT_MASK` (`sim.ts:223`) so it needs no sight of its own,
   while `sim.ts:2073` gates each shot on **per-side** identification — was authored into
-  `tel_marum_3_clearance` with a spotter at [12,4]. That spotter is `sarim_rifles`, sight
-  9, not the 48-sight observer the doctrine test uses to walk the terrain — and the
-  corridor tiles sit 9.2 to 13.2 tiles away. So it sees only the corridor's north exit row
-  (11,12), not the length of it, and then measured. **It does not work.** Three runs: wide
+  `tel_marum_3_clearance` with a spotter at [12,4], and then measured. **It does not
+  work.** Nor could it have: that spotter is `sarim_rifles`, sight 9, not the 48-sight
+  observer the doctrine test uses to walk the terrain, and the corridor tiles sit 9.2 to
+  13.2 tiles away, so it sees the north exit row (11,12) and nothing below it. Three runs: wide
   3.5 min / roster 9, narrow with the spotter alive 5.2 / 6, narrow with the spotter killed
   at t=0 5.1 / 6. The last two are the same run. A trace of the battery's `fire` events
   shows six shots and not one at the flanking force — but with the spotter blind past the
