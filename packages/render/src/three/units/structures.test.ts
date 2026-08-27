@@ -7,17 +7,23 @@
  * the same reason `UnitInstancer`/`buildUnitTexture` do -- covered instead by
  * the browser verification in this task's report.
  *
- * Three of the describe blocks below are this task's own required "break
- * checks", named as such in their `it` titles: skipping the ground tone
- * under a sprited structure, drawing the sprite off the footprint's centre,
- * and letting an un-arted structure fall through to the sprite path.
+ * One of this task's own required "break checks" lives here, named as such
+ * in its `it` title: drawing the sprite off the footprint's centre. The
+ * other two -- skipping the ground tone under a sprited structure, and
+ * letting an un-arted structure fall through to the sprite path -- were
+ * originally proven here against this file's own `maskArtedStructures`, the
+ * function `composeTerrain`/`withoutLiveStructures` (`ThreeRenderer.ts`,
+ * Task B3.9) replaced when buildings stopped being one merged mesh; Task C1
+ * removed that now-dead function and its describe block, since nothing but
+ * its own tests still called it. The same two claims are proven now in
+ * `packages/app/src/terrain-parity.test.ts`'s `composeTerrain` describe
+ * block instead, against the function that actually ships.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
 import { Sim } from '@lions/sim';
 import { buildBuildings, type StructureFootprint } from '../terrain/buildings';
-import { groundTone, PALETTE_HEXES } from '../terrain/tones';
 import type { TerrainInput } from '../terrain/types';
 import { WORLD_PER_LEVEL } from '../terrain/shared';
 import { TILE_W, WORLD_Y_PER_LIFT_PIXEL } from '../../project';
@@ -25,7 +31,6 @@ import { screenOffsetToWorld } from '../terrain/shared';
 import { VIEW_DIRECTION } from '../camera';
 import { groundWorldY } from '../ground-height';
 import {
-  maskArtedStructures,
   liveStructurePlacements,
   deadStructurePlacements,
   resolveRoofPx,
@@ -99,95 +104,6 @@ function buildSim(): { sim: Sim; mosqueIdx: number; shantyIdx: number } {
   const shantyIdx = sim.addStructure(shantyType, [4 + 4 * w]);
   return { sim, mosqueIdx, shantyIdx };
 }
-
-describe('maskArtedStructures', () => {
-  it("BREAK CHECK 3: an un-arted structure's tiles stay blocked, so buildBuildings still boxes it", () => {
-    const { sim } = buildSim();
-    // Only mosque has art; shanty does not (hasArt returns false for it) --
-    // exactly the "sheet never loaded, or failed to load" case
-    // `ThreeRenderer.loadStructureSprite` leaves the type out of its own
-    // instancer map for.
-    const masked = maskArtedStructures(sim, (id) => id === 'mosque');
-    const w = 6;
-    // Mosque tiles: zeroed (the sprite draws instead).
-    for (const t of [1 + 1 * w, 2 + 1 * w, 1 + 2 * w, 2 + 2 * w]) {
-      expect(masked[t]).toBe(0);
-    }
-    // Shanty tile: still blocked -- unaffected by hasArt returning false, so
-    // buildBuildings's ordinary tile loop still reaches it and boxes it.
-    expect(masked[4 + 4 * w]).toBe(1);
-    expect(sim.blocked[4 + 4 * w]).toBe(1);
-  });
-
-  it('does not mutate sim.blocked -- a fresh copy every call', () => {
-    const { sim } = buildSim();
-    const before = Array.from(sim.blocked);
-    maskArtedStructures(sim, () => true);
-    expect(Array.from(sim.blocked)).toEqual(before);
-  });
-
-  it('a DEAD structure is left as sim.blocked already has it, arted or not', () => {
-    // destroyStructure is private; structureAt (what maskArtedStructures
-    // walks) is already gated on stAlive, so flipping alive directly is
-    // enough to prove a dead structure's tiles are never zeroed by this
-    // function regardless of hasArt -- there is nothing left for it to mask.
-    // hasArt is scoped to 'mosque' alone (rather than a blanket `() => true`)
-    // so the still-ALIVE shanty's own tile -- which legitimately SHOULD be
-    // masked once it, too, satisfies hasArt -- cannot muddy this assertion.
-    const { sim, mosqueIdx } = buildSim();
-    sim.structures.alive[mosqueIdx] = 0;
-    const masked = maskArtedStructures(sim, (id) => id === 'mosque');
-    expect(Array.from(masked)).toEqual(Array.from(sim.blocked));
-  });
-
-  it('BREAK CHECK 1 (guard): buildBuildings, given the masked blocked array, draws no box for the arted structure', () => {
-    const { sim } = buildSim();
-    const masked = maskArtedStructures(sim, (id) => id === 'mosque');
-    const input: TerrainInput = { width: 6, height: 6, decor: null, elevation: null, blocked: masked, cover: new Uint8Array(36) };
-    const footprints: StructureFootprint[] = [
-      { tiles: [1 + 1 * 6, 2 + 1 * 6, 1 + 2 * 6, 2 + 2 * 6], heightPx: 34, colorKey: 'limestone.4', hp: 400, maxHp: 400 },
-      { tiles: [4 + 4 * 6], heightPx: 11, colorKey: 'dust.1', hp: 50, maxHp: 50 },
-    ];
-    const m = buildBuildings(input, footprints, TONES, undefined, BACKGROUND);
-    // Only the shanty's one box (3 quads, no clutter guaranteed by hp<>threshold
-    // is irrelevant here -- what matters is it is not ZERO, and the mosque's
-    // four tiles contributed nothing): a single un-arted tile draws at most
-    // one box's worth of geometry (6 or 8 triangles), never the mosque's four.
-    const trisForOneBox = 6; // 3 quads x 2 tris, upper bound check below is generous
-    expect(m.indices.length).toBeGreaterThan(0);
-    expect(m.indices.length).toBeLessThanOrEqual((trisForOneBox + 2) * 3); // +2 headroom for clutter
-  });
-
-  it("BREAK CHECK 1: the ground tone under the mosque's tiles is identical whether or not it has art -- it was never conditioned on buildBuildings' box in the first place", () => {
-    // The load-bearing claim this module's top comment makes: `buildGround`
-    // must keep reading the ORIGINAL, unmasked TerrainInput -- never the
-    // masked one `maskArtedStructures` produces for buildBuildings alone.
-    // Prove it by computing groundTone (what buildGround's tile loop actually
-    // paints) against BOTH the original input and a hypothetical world where
-    // this tile were unmasked-but-unarted, and showing they agree: groundTone
-    // depends only on `blocked`/`decor`, never on which structure (if any)
-    // has a loaded sprite.
-    const { sim } = buildSim();
-    const original: TerrainInput = { width: 6, height: 6, decor: null, elevation: null, blocked: sim.blocked, cover: sim.cover };
-    const ti = 2 + 2 * 6; // one of the mosque's own tiles
-    const artedTone = groundTone(original, TONES, ti, PALETTE_HEXES, BACKGROUND);
-
-    // Now show what WOULD happen if the masked (arted-aware) array were fed
-    // to groundTone instead -- the actual regression this test guards
-    // against, since `mask[ti]` is 0 there (unblocked), so groundTone takes
-    // the OPEN-ground branch, not the under-building one.
-    const masked = maskArtedStructures(sim, () => true);
-    const maskedInput: TerrainInput = { ...original, blocked: masked };
-    const wrongTone = groundTone(maskedInput, TONES, ti, PALETTE_HEXES, BACKGROUND);
-
-    expect(artedTone).not.toBe(wrongTone); // the fixture genuinely distinguishes the two
-    // The correct (original-input) tone matches an equivalent UN-arted
-    // structure's own tile exactly -- groundTone has no "is this arted"
-    // input to even read.
-    const shantyTi = 4 + 4 * 6;
-    expect(groundTone(original, TONES, shantyTi, PALETTE_HEXES, BACKGROUND)).toBe(artedTone);
-  });
-});
 
 describe('liveStructurePlacements / deadStructurePlacements', () => {
   it("computes the footprint centre as (min + max + 1) / 2, Pixi's own drawStructureSprite formula", () => {

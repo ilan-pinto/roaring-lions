@@ -903,9 +903,16 @@ export class ThreeRenderer implements Renderer {
 
   /**
    * A collapse's debris and dust bloom -- `structure_collapse` for a
-   * building, `tunnel_collapse` for a route's vent (only the latter is
-   * reachable from this task's wired events; `structureDestroyed` is out of
-   * scope, see `onEvents`'s own doc comment). Ported from `renderer.ts:330-342`
+   * building, `tunnel_collapse` for a route's vent. Only `tunnel_collapse`
+   * is actually invoked below, from `onTunnelCollapsed`. `structureDestroyed`
+   * is no longer out of scope -- Task B3.10 wired it into `onEvents` (see
+   * that method's own doc comment), which calls `applyStructureDestroyed` --
+   * but that method only manages the terrain mesh (box removal,
+   * `terrainDirty`) and never calls this function, so a destroyed building
+   * still produces no `structure_collapse` burst. Not this task's gap to
+   * close; noted so the next reader does not go looking for a call this
+   * comment used to claim was merely "out of scope" and find `onEvents`
+   * saying the opposite. Ported from `renderer.ts:330-342`
    * (`PixiRenderer.spawnCollapseFx`). Returns false when no emitter set is
    * loaded, exactly like Pixi, so the caller can fall back to flat puffs.
    */
@@ -1172,6 +1179,32 @@ export class ThreeRenderer implements Renderer {
     }
   }
   /**
+   * Task C5: how many structures of ONE type -- alive or dead -- the sim
+   * holds, right now. `loadStructureSprite` uses this as its capacity bound
+   * for that type's `StructureInstancer`(s), rather than `sim.structureCount`
+   * (every structure of every type): sizing each of the seven shipped
+   * structure types' instancers to the map's TOTAL structure count wasted
+   * six types' worth of unused `Float32Array` slots on every type that is
+   * not the single most common one. Just as no living-plus-dead unit count
+   * of ONE unit type can ever exceed `sim.capacity` (the bound
+   * `UnitInstancer` already gets for free), no living-plus-dead structure
+   * count of ONE structure type can ever exceed this type's own count --
+   * but `Sim` has no per-type structure count to read directly the way it
+   * does for units, so this counts by a linear walk instead. Called once per
+   * structure type at load time (at most seven times today, per `main.ts`'s
+   * `STRUCTURE_SPRITES`), never per frame, so an O(structureCount) scan here
+   * costs nothing worth avoiding.
+   */
+  private structureTypeCapacity(structureId: string): number {
+    const st = this.sim.structures;
+    let count = 0;
+    for (let s = 0; s < this.sim.structureCount; s++) {
+      if (this.sim.structureTypes[st.typeIdx[s]].id === structureId) count++;
+    }
+    return count;
+  }
+
+  /**
    * Task B3.7: load a structure type's idle sprite (and its wreck sprite,
    * when the sheet declares one) and build the `StructureInstancer`(s) they
    * draw through. Mirrors `PixiRenderer.loadStructureSprite` (`renderer.ts:
@@ -1181,23 +1214,24 @@ export class ThreeRenderer implements Renderer {
    * backend's equivalent, per Ruling 1 (one draw call per type).
    *
    * `terrainDirty = true` at the end matters here in a way it does not for
-   * `loadSprites`: `rebuildTerrain`'s own `maskArtedStructures` call reads
-   * `this.structureIdle` to decide which structures' tiles `buildBuildings`
-   * should skip, so a structure's FIRST successful art load has to trigger a
-   * rebuild or its footprint would keep drawing a box underneath (or beside)
-   * the sprite this method just added to the scene. A LATER re-load (not
-   * exercised by any real caller -- `main.ts`'s `STRUCTURE_SPRITES` is
-   * static, same as `loadSprites`'s own `SPRITE_MAP`) sets it again
-   * harmlessly: the mask would compute the identical result.
+   * `loadSprites`: `rebuildTerrain`'s own `composeTerrain` call reads its
+   * `hasArt` callback (`this.structureIdle.has(id)`) to decide which
+   * structures' tiles `buildBuildings` should skip, so a structure's FIRST
+   * successful art load has to trigger a rebuild or its footprint would keep
+   * drawing a box underneath (or beside) the sprite this method just added
+   * to the scene. A LATER re-load (not exercised by any real caller --
+   * `main.ts`'s `STRUCTURE_SPRITES` is static, same as `loadSprites`'s own
+   * `SPRITE_MAP`) sets it again harmlessly: `hasArt` would evaluate to the
+   * identical result.
    *
    * Errors propagate rather than being swallowed, matching `loadSprites`:
    * `main.ts` already wraps every `loadStructureSprite` call in its own
    * `.catch` per structure type, and a type whose art fails to load simply
-   * never gains an entry in `structureIdle` -- `maskArtedStructures`'s
-   * `hasArt` predicate (`this.structureIdle.has(id)`) is exactly "art
-   * actually loaded", not "art was attempted", so a failed load correctly
-   * keeps the procedural box for that type rather than silently drawing
-   * neither a box nor a sprite.
+   * never gains an entry in `structureIdle` -- `composeTerrain`'s `hasArt`
+   * predicate (`this.structureIdle.has(id)`) is exactly "art actually
+   * loaded", not "art was attempted", so a failed load correctly keeps the
+   * procedural box for that type rather than silently drawing neither a box
+   * nor a sprite.
    */
   async loadStructureSprite(structureId: string, basePath: string): Promise<void> {
     this.retained.structureSheets.set(structureId, basePath);
@@ -1207,11 +1241,16 @@ export class ThreeRenderer implements Renderer {
 
     const idleFrame = await loadStructureFrame(basePath, spec.file);
     const idleGeometry = structureBillboardGeometry(spec.scale, idleFrame.width, idleFrame.height);
-    // Every structure of this type, alive or dead, is a safe capacity bound
-    // for either instancer -- `sim.structureCount` is already final by now
-    // (`main.ts` adds every map structure before kicking off any art load),
-    // the same bound reasoning `UnitInstancer` uses for `sim.capacity`.
-    const capacity = this.sim.structureCount;
+    // Every structure of THIS TYPE, alive or dead, is a safe capacity bound
+    // for either instancer -- `sim.structureCount` (every structure of every
+    // type) is already final by now (`main.ts` adds every map structure
+    // before kicking off any art load), the same bound reasoning
+    // `UnitInstancer` uses for `sim.capacity`. Sized per-type rather than to
+    // the flat `sim.structureCount`: seven shipped structure types (Task
+    // C5) each allocating the map's TOTAL structure count would waste six
+    // types' worth of `Float32Array` slots on every type that is not the
+    // single most common one.
+    const capacity = this.structureTypeCapacity(structureId);
     const idleInstancer = new StructureInstancer(idleFrame.texture, idleGeometry, capacity);
     const previousIdle = this.structureIdle.get(structureId);
     if (previousIdle) {

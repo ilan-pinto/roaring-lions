@@ -257,9 +257,16 @@ export function createSpawner(
 /** Spawns alternately from each side until `sim.entityCount` (the LIFETIME
  *  spawn count -- see `buildWorld`'s doc comment) reaches `target`. Called
  *  repeatedly across ascending checkpoints on the SAME sim, so a checkpoint
- *  spawns only the delta since the last one -- and, in the browser harness,
- *  since some may have died to real combat in between, "up to target" can
- *  mean topping the living count back up rather than starting fresh. */
+ *  spawns only the delta since the last one.
+ *
+ *  Task C3: does NOT "top the living count back up" -- `entityCount` counts
+ *  lifetime spawns and never decreases as units die, and this loop's own
+ *  condition reads that same never-decreasing counter, so a casualty
+ *  between two checkpoints is never replaced: once `entityCount` reaches
+ *  `target`, the loop exits regardless of how many of those spawns are
+ *  still alive. In the browser harness, where real combat can kill units
+ *  between checkpoints, the LIVING count at a later checkpoint can end up
+ *  strictly below `target`. */
 export function spawnUpTo(sim: Sim, spawner: Spawner, target: number): void {
   while (sim.entityCount < target) {
     const side: 0 | 1 = sim.entityCount % 2 === 0 ? 0 : 1;

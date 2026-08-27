@@ -32,9 +32,10 @@
  * right is the opposite direction: making sure `terrain/buildings.ts` skips
  * its OWN box for an arted structure's tiles, without also skipping (or
  * asking `buildGround` to skip) the ground tone underneath -- see
- * `maskArtedStructures` below, and `ThreeRenderer.rebuildTerrain`'s own
- * comment on how its output is used (for `buildBuildings` alone, never for
- * `buildGround`/`buildScatter`/`buildGroves`).
+ * `composeTerrain` and `withoutLiveStructures` in `ThreeRenderer.ts` (Task
+ * B3.9's own split of what used to be this module's own `maskArtedStructures`
+ * helper): buildings alone are fed a per-structure-masked view, never
+ * `buildGround`/`buildScatter`/`buildGroves`.
  *
  * ## Anchor convention: centred, like Pixi -- not feet-anchored, like units
  *
@@ -99,45 +100,6 @@ import { groundWorldY } from '../ground-height';
 // boundary, and keeping it here (rather than duplicating it a second time
 // inside `ThreeRenderer.ts`) is what makes it directly unit-testable.
 // ---------------------------------------------------------------------------
-
-/**
- * `sim.blocked`, with every tile belonging to a LIVING structure whose type
- * satisfies `hasArt` zeroed out -- a fresh copy, never a mutation of
- * `sim.blocked` itself (which `buildGround`/`buildScatter`/`buildGroves`
- * still read unmodified, via their own, separate `TerrainInput`).
- *
- * This is how `ThreeRenderer.rebuildTerrain` tells `buildBuildings` to skip
- * an arted structure's tiles entirely -- not by removing its entry from
- * `structureFootprintsFor`'s own snapshot (which would leave those tiles
- * `blocked` but unclaimed, and `buildBuildings`'s own fallback bundle exists
- * for exactly that shape of input: "a blocked tile no footprint claims
- * still gets a box", `buildings.ts`'s own top comment). Zeroing `blocked`
- * for those tiles instead means `buildBuildings`'s tile loop `continue`s
- * before it ever asks whether a footprint claims them, so neither the real
- * box nor the fallback one is drawn -- the sprite this module's GPU half
- * draws is the only thing left standing there.
- *
- * A structure that is DEAD, or whose type does not satisfy `hasArt` (no
- * sheet loaded, or the load failed -- see `ThreeRenderer.loadStructureSprite`),
- * is left exactly as `sim.blocked` already has it: `buildBuildings` still
- * draws its ordinary box, or the destroyed structure's already-unblocked
- * tiles are already skipped the same way they always were (the pre-existing
- * staleness gap `rebuildTerrain`'s own doc comment names, unaffected by this
- * function either way).
- */
-export function maskArtedStructures(sim: Sim, hasArt: (structureId: string) => boolean): Uint8Array {
-  const { width, height } = sim;
-  const out = Uint8Array.from(sim.blocked);
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const sIdx = sim.structureAt(x, y);
-      if (sIdx < 0) continue;
-      const type = sim.structureTypes[sim.structures.typeIdx[sIdx]];
-      if (hasArt(type.id)) out[y * width + x] = 0;
-    }
-  }
-  return out;
-}
 
 /** One billboard instance's placement -- what `StructureInstancer.update`
  *  (the GPU half, below) needs per living or dead structure of one type. */
