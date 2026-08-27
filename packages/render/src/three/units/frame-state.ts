@@ -8,10 +8,18 @@
  * instancing layer that turns the result into GPU attributes is a different
  * file again.
  *
- * Pure by construction -- no `Sim`, no three.js, no DOM -- because
- * `ThreeRenderer` constructs a `WebGLRenderer` and cannot be exercised under
- * `environment: 'node'`. Everything decided here has to be testable outside
- * it, the same discipline Phase B2's terrain builders already follow.
+ * Deterministic given its inputs, with caller-owned phase state passed in
+ * and mutated in place (`entityAnimFrame`/`animSeeded` below) -- no `Sim`,
+ * no three.js, no DOM -- because `ThreeRenderer` constructs a
+ * `WebGLRenderer` and cannot be exercised under `environment: 'node'`.
+ * Everything decided here has to be testable outside it, the same
+ * discipline Phase B2's terrain builders already follow. The mutable-array
+ * shape mirrors Pixi's own per-entity fields exactly (`entityAnimFrame`,
+ * `animSeeded`, `renderer.ts:399-405`) rather than allocating a fresh object
+ * per entity per frame, which the repo's struct-of-arrays convention (and a
+ * 300-unit-per-frame target) argues against -- and it is genuinely exercised
+ * by reading the mutated array back out, not merely asserted (see the
+ * "frame advance is time-based" tests below).
  *
  * Reuses `resolveClip`/`clipOrFallback`/`cadenceScale` (`clip.ts`),
  * `walkFps`/`phaseOffset`/`advancePhase` (`anim.ts`) and `groundWorldY`
@@ -32,19 +40,32 @@
  * Neither exists here. In three.js depth comes from the depth buffer, not a
  * sort key:
  *
- *  - **Garrison**: a roof occupant's `worldY` is the ground height under the
- *    *building's* tile (see `roofDx`/`roofDy` below), and the building's own
- *    mesh top face sits at that same tile's terrain height -- never above
- *    it, since a building does not extrude past its footprint's roof plane
- *    in this renderer's terrain builders (`terrain/buildings.ts`). A
- *    billboard positioned at that height, camera-facing, occludes nothing
- *    behind it that a real figure standing on that roof would not also
- *    occlude, and the depth buffer resolves it correctly against the
- *    building geometry with no sort key at all. This is the case Pixi's own
- *    comment calls out as needing the override most ("figures placed there
- *    hovered above the dome") -- and it is precisely the case a Z-buffer
- *    was invented to make unnecessary: real height in a real 3D scene sorts
- *    itself.
+ *  - **Garrison**: `terrain/buildings.ts` genuinely DOES extrude a box above
+ *    the ground -- `roofY = topY + b.heightPx * WORLD_Y_PER_LIFT_PIXEL`
+ *    (`buildings.ts:324`), with south/east walls and a roof quad filling
+ *    that span. An earlier draft of this comment claimed no geometry stands
+ *    above the footprint's terrain height; that was wrong, and it would have
+ *    mattered: a roof occupant whose `worldY` sat at ground level with only
+ *    a *screen-pixel* `roofDy` nudge on top would depth-test at the
+ *    building's floor, lose to its own walls and roof, and draw hidden
+ *    inside it -- `clearZ`'s exact failure, reborn, because a post-projection
+ *    screen offset moves a sprite without moving its depth.
+ *    The fix is not `clearZ` -- it is giving the occupant the SAME real
+ *    height the roof geometry itself has. `roofPx` (already the sheet's
+ *    `roofTopPx`/`badgeTopPx`/`heightPx` fallback, in the same screen-pixel
+ *    convention `buildings.ts` reads `heightPx` in) is converted through
+ *    `WORLD_Y_PER_LIFT_PIXEL` -- the exact multiplier `buildings.ts:324`
+ *    itself uses -- and added to `worldY`, not carried as `roofDy`. `roofDy`
+ *    is 0 unconditionally now; only `roofDx` (lateral spread between two
+ *    occupants) remains a screen-space nudge, because two figures standing
+ *    side by side is a presentation choice with no physical roof-plane
+ *    position the sim tracks, unlike height, which the roof geometry itself
+ *    defines. With that in place, a roof occupant's `worldY` sits at the
+ *    same height as the roof quad it is standing on, genuinely above the
+ *    wall geometry below it, and the depth buffer resolves it correctly
+ *    with no sort key at all -- which is what this argument claimed all
+ *    along, now actually true of what the code computes rather than merely
+ *    of what the geometry happens to allow.
  *  - **Demolisher**: Pixi's own comment says the quiet part -- a demolisher
  *    working a building's north or west face, sorted by `x + y` alone,
  *    draws *behind* the wall it is destroying, "which reads as the
@@ -66,6 +87,7 @@ import { fx, type Fx } from '@lions/sim';
 import { resolveClip, cadenceScale, type UnitAnimInput } from '../../clip';
 import { walkFps, phaseOffset, advancePhase } from '../../anim';
 import { clipOrFallback, type ClipName, type SheetSpec } from '../../sheet';
+import { WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import { groundWorldY } from '../ground-height';
 
 /**
@@ -144,9 +166,17 @@ export interface EntityFrameInput {
   roofSlot: number;
   /**
    * `roofTopPx ?? badgeTopPx ?? heightPx` of the structure this entity is
-   * garrisoned in (renderer.ts:1946-1950) -- already resolved by the
-   * caller, which owns the structure-sheet lookup this needs (backend- and
-   * atlas-specific, out of scope here). Ignored when `roofSlot` is -1.
+   * garrisoned in (renderer.ts:1946-1950), in screen pixels -- already
+   * resolved by the caller, which owns the structure-sheet lookup this
+   * needs (backend- and atlas-specific, out of scope here). Ignored when
+   * `roofSlot` is -1.
+   *
+   * Unlike Pixi, this is NOT applied as a screen-pixel `roofDy` nudge: it is
+   * converted through `WORLD_Y_PER_LIFT_PIXEL` and added to `worldY`, the
+   * same conversion `terrain/buildings.ts:324` applies to a structure's own
+   * `heightPx` to place its roof quad. See this module's top comment
+   * (`clearZ` is deliberately not ported) for why that distinction is
+   * load-bearing, not stylistic.
    */
   roofPx: number;
 
@@ -205,13 +235,16 @@ export function assignRoofSlots(
 }
 
 /**
- * Screen-pixel offset for a roof occupant, or `null` past the cap.
- * Mirrors `PixiRenderer.roofPlacement` (`renderer.ts:377-384`) exactly.
+ * Lateral screen-pixel spread for a roof occupant, or `null` past the cap.
+ * Mirrors the `dx` half of `PixiRenderer.roofPlacement`
+ * (`renderer.ts:377-384`) exactly -- the `dy` half (`-roofPx`) is NOT
+ * mirrored here: that was a screen-space stand-in for real height, which
+ * three.js does not need. See this module's top comment for why the
+ * vertical component is folded into `worldY` instead.
  */
-function roofPlacementFor(slot: number, roofPx: number): { dx: number; dy: number } | null {
+function roofSpreadPx(slot: number): number | null {
   if (slot < 0 || slot >= ROOF_SLOTS) return null;
-  const spread = (slot - (ROOF_SLOTS - 1) / 2) * ROOF_SPREAD_PX;
-  return { dx: spread, dy: -roofPx };
+  return (slot - (ROOF_SLOTS - 1) / 2) * ROOF_SPREAD_PX;
 }
 
 /**
@@ -246,27 +279,44 @@ export function entityFrame(input: EntityFrameInput): EntityFrame {
   const wx = prevX + (curX - prevX) * alpha;
   const wy = prevY + (curY - prevY) * alpha;
 
-  // Ground lift for this unit's own tile (renderer.ts:1977). Applied through
-  // `groundWorldY` -- the B3.2 adapter over the same `levelAt`/
-  // `WORLD_PER_LEVEL` B2's terraced mesh itself uses -- so a unit standing on
-  // a tile lands exactly on that tile's own top face.
-  const worldY = groundWorldY(elevation, mapWidth, mapHeight, wx, wy);
-
-  // Garrison roof placement (renderer.ts:1936-1956).
+  // Garrison roof placement (renderer.ts:1936-1956). Only the LATERAL spread
+  // between two occupants stays screen-space (`roofDx`, always paired with
+  // `roofDy: 0` below); the vertical lift is real world height, folded into
+  // `worldY` below rather than carried as a `roofDy` nudge -- see this
+  // module's top comment for why that distinction is load-bearing.
   let roofDx = 0;
-  let roofDy = 0;
+  let roofLiftWorld = 0;
   let visible = true;
   if (roofSlot >= 0) {
-    const place = roofPlacementFor(roofSlot, roofPx);
-    if (!place) {
-      // Over the cap: Pixi's `continue` -- the pips still report the true
-      // count, this occupant simply is not drawn.
+    const spread = roofSpreadPx(roofSlot);
+    if (spread === null) {
+      // Over the cap: Pixi's `continue` here (renderer.ts:1952) exits the
+      // rest of the loop body for this entity outright -- no body alpha, no
+      // clip resolution, no frame advance. The one piece of that skip with
+      // an actual observable effect is the frame-advance mutation below,
+      // guarded on `visible` rather than re-checked there: an occupant that
+      // will never draw must never silently advance -- or seed -- its own
+      // persisted animation phase, or it would visibly jump the moment a
+      // roof slot frees up and it becomes visible again. Every other value
+      // computed below (`worldY`, `bodyAlpha`, `clip`, `facing`) is pure and
+      // discarded when `visible` is false, so computing them anyway costs
+      // nothing and diverges from Pixi in no observable way.
       visible = false;
     } else {
-      roofDx = place.dx;
-      roofDy = place.dy;
+      roofDx = spread;
+      // Same conversion `terrain/buildings.ts:324` applies to a structure's
+      // own `heightPx` to place its roof quad -- `roofPx` is in the
+      // identical screen-pixel convention.
+      roofLiftWorld = roofPx * WORLD_Y_PER_LIFT_PIXEL;
     }
   }
+
+  // Ground lift for this unit's own tile (renderer.ts:1977), plus the roof
+  // lift above when garrisoned. `groundWorldY` is the B3.2 adapter over the
+  // same `levelAt`/`WORLD_PER_LEVEL` B2's terraced mesh itself uses, so a
+  // unit standing on a tile lands exactly on that tile's own top face; a
+  // roof occupant lands exactly on the roof quad standing above it.
+  const worldY = groundWorldY(elevation, mapWidth, mapHeight, wx, wy) + roofLiftWorld;
 
   // Contact-level body alpha (renderer.ts:1984-1988). The player's own units
   // (side 0) are always full alpha; only what is observed through contact
@@ -286,9 +336,11 @@ export function entityFrame(input: EntityFrameInput): EntityFrame {
   // Frame advance (renderer.ts:2013-2024): time-based, never call-count- or
   // rendered-frame-based, so playback is independent of display refresh
   // rate. A one-frame clip has nothing to advance, and must not touch the
-  // persisted phase -- matching Pixi's own `if (nFrames > 1)` guard.
+  // persisted phase -- matching Pixi's own `if (nFrames > 1)` guard. `&&
+  // visible` matches the over-the-cap `continue` above: see that branch's
+  // own comment for why this is the one piece of it that has to be matched.
   let frame = 0;
-  if (nFrames > 1) {
+  if (nFrames > 1 && visible) {
     if (animSeeded[entityId] === 0) {
       entityAnimFrame[entityId] = phaseOffset(entityId, nFrames);
       animSeeded[entityId] = 1;
@@ -315,7 +367,9 @@ export function entityFrame(input: EntityFrameInput): EntityFrame {
     facing: facingNorm,
     alpha: bodyAlpha,
     roofDx,
-    roofDy,
+    // Always 0 -- the vertical roof lift lives in `worldY` above, not here.
+    // See this module's top comment for why.
+    roofDy: 0,
     visible,
   };
 }

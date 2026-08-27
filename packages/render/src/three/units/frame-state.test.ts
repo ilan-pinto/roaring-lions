@@ -12,11 +12,13 @@ import {
   entityFrame,
   assignRoofSlots,
   ROOF_SLOTS,
+  ROOF_SPREAD_PX,
   type EntityFrameInput,
 } from './frame-state';
 import { resolveClip, type UnitAnimInput } from '../../clip';
 import { phaseOffset } from '../../anim';
 import { clipOrFallback, type SheetSpec } from '../../sheet';
+import { WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import { WORLD_PER_LEVEL } from '../terrain/shared';
 
 /** A representative clip-layout sheet: idle/move/fire/down, 8 facings.
@@ -243,26 +245,65 @@ describe('entityFrame — contact-level body alpha', () => {
 });
 
 describe('entityFrame — garrison roof placement', () => {
-  it('has no offset and stays visible when not garrisoned', () => {
+  it('has no offset, no lift and stays visible when not garrisoned', () => {
     const out = entityFrame(makeInput({ roofSlot: -1, roofPx: 999 }));
     expect(out.roofDx).toBe(0);
     expect(out.roofDy).toBe(0);
+    expect(out.worldY).toBe(0);
     expect(out.visible).toBe(true);
   });
 
-  it('lifts by roofPx and spreads slots either side of centre', () => {
+  it('spreads slots symmetrically either side of centre, by exactly ROOF_SPREAD_PX/ROOF_SLOTS', () => {
+    // Pinned to the actual constant and to centring, not merely "slot 1 is
+    // to the right of slot 0" -- a reviewer substitution of
+    // `slot * ROOF_SPREAD_PX * 3` (uncentred, 3x as wide) satisfies a bare
+    // ordering check but must fail this one on both magnitude and symmetry.
     const slot0 = entityFrame(makeInput({ roofSlot: 0, roofPx: 40 }));
     const slot1 = entityFrame(makeInput({ roofSlot: 1, roofPx: 40 }));
-    expect(slot0.roofDy).toBe(-40);
-    expect(slot1.roofDy).toBe(-40);
-    expect(slot0.roofDx).toBeLessThan(slot1.roofDx);
+    expect(slot0.roofDx).toBeCloseTo(-ROOF_SPREAD_PX / 2, 10);
+    expect(slot1.roofDx).toBeCloseTo(ROOF_SPREAD_PX / 2, 10);
+    expect(slot0.roofDx).toBeCloseTo(-slot1.roofDx, 10);
     expect(slot0.visible).toBe(true);
     expect(slot1.visible).toBe(true);
+  });
+
+  it('lifts worldY by real world height, not a screen-space roofDy nudge', () => {
+    // The fix-round finding: buildings.ts genuinely extrudes a roof box
+    // above the ground (`roofY = topY + heightPx * WORLD_Y_PER_LIFT_PIXEL`),
+    // so a garrisoned occupant must gain the SAME real height or it
+    // depth-tests inside the building's own walls. roofDy stays 0
+    // unconditionally; only worldY carries the lift.
+    const grounded = entityFrame(makeInput({ roofSlot: -1 }));
+    const onRoof = entityFrame(makeInput({ roofSlot: 0, roofPx: 40 }));
+    expect(onRoof.roofDy).toBe(0);
+    expect(onRoof.worldY).toBeCloseTo(grounded.worldY + 40 * WORLD_Y_PER_LIFT_PIXEL, 10);
   });
 
   it('is invisible past ROOF_SLOTS — the pips still count it, the sprite does not draw', () => {
     const out = entityFrame(makeInput({ roofSlot: ROOF_SLOTS, roofPx: 40 }));
     expect(out.visible).toBe(false);
+  });
+
+  it('does not advance or seed the persisted phase for an occupant over the cap', () => {
+    // Matches Pixi's `continue` (renderer.ts:1952), which exits before ever
+    // reaching the frame-advance code for this entity. An invisible
+    // occupant that kept animating anyway would visibly jump the moment a
+    // roof slot frees up and it starts drawing again.
+    const phase = new Float64Array([1.5]);
+    const seeded = new Uint8Array([0]);
+    const out = entityFrame(
+      makeInput({
+        roofSlot: ROOF_SLOTS, // over the cap
+        roofPx: 40,
+        anim: { ...baseAnim, speed: 1.4 }, // resolves to 'move', a 4-frame clip
+        dtSeconds: 1,
+        entityAnimFrame: phase,
+        animSeeded: seeded,
+      })
+    );
+    expect(out.visible).toBe(false);
+    expect(phase[0]).toBe(1.5);
+    expect(seeded[0]).toBe(0);
   });
 });
 
