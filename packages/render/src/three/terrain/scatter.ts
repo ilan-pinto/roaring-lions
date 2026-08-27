@@ -101,10 +101,24 @@ export const FACE_BAND_HALF_Y = 0.01;
 const CLAMP_MARGIN = 0.02;
 const CLAMP_LIMIT = 0.5 - CLAMP_MARGIN;
 
-/** Scree sits at the foot of a slope, inset this far off the exact shared
- *  edge and onto the lower tile -- reads as debris resting against the wall
- *  rather than a mark straddling the seam between two different heights. */
+/** Scree's base blob sits at the foot of a slope, inset this far off the
+ *  exact shared edge and onto the lower tile -- reads as debris resting
+ *  against the wall rather than a mark straddling the seam between two
+ *  different heights. */
 const SCREE_INSET = 0.05;
+/**
+ * The highlight blob (offset (-r*0.4, -r*0.4) from the base, per
+ * `renderer.ts:1354`) needs a bigger inset than the base: that offset,
+ * combined with the highlight shape's own corner furthest back toward the
+ * face, reaches up to 0.0984 world units back past the base's own anchor at
+ * scree's largest radius (checked numerically across the full r range,
+ * [2, 3.5]) -- enough to land the highlight behind the face plane, where it
+ * is occluded, if it used `SCREE_INSET` too. `SCREE_INSET` alone (0.05) is
+ * what let two highlight centres land at x = 0.9954 / 0.9976 on a Task
+ * B2.5 review -- behind the plane at x = 1. This clears that worst case
+ * with margin.
+ */
+const SCREE_HIGHLIGHT_INSET = 0.11;
 /** The hash-driven position along a slope's shared edge is clamped to this
  *  range before use, so a scree blob's own small radius cannot push it past
  *  the edge tile's far boundary even at the hash's extremes. */
@@ -148,6 +162,43 @@ function levelAt(input: TerrainInput, x: number, y: number): number {
   if (x < 0 || x >= input.width || y < 0 || y >= input.height) return 0;
   if (!input.elevation) return 0;
   return input.elevation[y * input.width + x];
+}
+
+/**
+ * True if any of the 8 tiles surrounding `(x, y)` sits at a different
+ * elevation level than `(x, y)` itself -- the one condition an unclamped
+ * mark's containment actually needs to guard against (a mark floating over
+ * a neighbour at the wrong height). Off-map counts as level 0, same as
+ * `levelAt` everywhere else, so a raised rim tile correctly reads as having
+ * an edge even though it has no on-map neighbour on that side.
+ *
+ * `pushMark`'s `clamp` argument reads this per tile rather than being a
+ * blanket `true`: on a flat map (`input.elevation` absent, or present but
+ * uniform -- every shipped map except Tel Marum) this is `false`
+ * everywhere, so every mark keeps its raw, unclamped `screenOffsetToWorld`
+ * position -- exactly Pixi's own placement, overhang and all, with zero
+ * distortion. That overhang is real and matches Pixi on purpose: Pixi's own
+ * road-rut ends run past their own tile's screen-space diamond
+ * (`renderer.ts:1526-1530`, checked against the source directly -- at
+ * `rut`'s 26px horizontal reach the diamond's own half-height is down to
+ * ~3px), and it is invisible there because a flat run of road tiles has
+ * nothing to float over. Clamping unconditionally, the way an earlier
+ * version of this function did, punished every mark on every tile for a
+ * risk that only exists near an actual drop -- measured at 30-75% of
+ * marks materially repositioned even on ordinary open ground, and total
+ * (100%) for road ruts specifically, which collapsed their two lines to
+ * within 0.1 tile of each other against Pixi's authored 0.31-0.44.
+ */
+function hasElevationEdge(input: TerrainInput, x: number, y: number): boolean {
+  if (!input.elevation) return false;
+  const levelHere = levelAt(input, x, y);
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      if (levelAt(input, x + dx, y + dy) !== levelHere) return true;
+    }
+  }
+  return false;
 }
 
 /** A small quad's four corners, as screen-pixel offsets from its own centre,
@@ -224,27 +275,35 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
    * whole mark is then kept inside `CLAMP_LIMIT` tiles of `(originX,
    * originZ)`.
    *
-   * The clamp is not optional. Pixi bounds each mark's *own* pixel offset
-   * against the screen-space tile diamond by eye, one axis at a time -- but
-   * the two axes are independent hashes, and the diamond is not a rectangle:
-   * a stone fleck's worst case, both hashes at their extreme (offset
+   * `clamp` is `needsContainment` at every real call site -- see
+   * `hasElevationEdge`'s doc comment for why that is a per-tile condition
+   * (an actual elevation drop nearby) rather than a blanket `true`. This
+   * function does not decide WHETHER to contain a mark, only HOW, once
+   * asked to: Pixi bounds each mark's own pixel offset against the
+   * screen-space tile diamond by eye, one axis at a time -- but the two
+   * axes are independent hashes, and the diamond is not a rectangle: a
+   * stone fleck's worst case, both hashes at their extreme (offset
    * (26px, 13px), within the diamond on each axis alone), converts via
    * `screenOffsetToWorld` to a world offset of (0.8125, 0) -- 62% past the
-   * tile's own edge. Left unclamped, that mark would sit on the *next*
-   * tile's ground, at this tile's height: exactly the "floats" failure this
-   * task's brief warns about, just triggered by the diamond/rectangle
-   * mismatch rather than by elevation.
+   * tile's own edge. Left unclamped near an elevation drop, that mark would
+   * sit on the *next* tile's ground, at this tile's height: exactly the
+   * "floats" failure this task's brief warns about.
    *
    * Reposition first, shrink only as a fallback. The centre is clamped not
    * to `CLAMP_LIMIT` itself but to `CLAMP_LIMIT - <this mark's own
    * half-extent>`, which is exactly enough room for its full, unscaled
    * shape to still fit once the centre lands at that tighter bound -- so
-   * `scale` stays 1 for every mark this module actually builds (checked by
-   * hand against all of them; the largest, a road rut's rect at ~0.43 tiles
-   * of half-extent, still leaves headroom under `CLAMP_LIMIT`). A raw offset
-   * that would have escaped the tile shifts inward instead, full size
-   * intact -- not shrinking toward a point, which was silently thinning the
-   * grain exactly where the underlying hash was most distinctive. Only a
+   * `scale` stays 1 for every mark this module builds, INCLUDING a road
+   * rut's rect, whose ~0.43-tile half-extent leaves only ~0.05 of headroom
+   * under `CLAMP_LIMIT` (0.48): tight enough that an earlier version of
+   * this design, which clamped every mark unconditionally rather than only
+   * `needsContainment` ones, pinned every rut's centre at that same ~0.05
+   * regardless of its intended ±5px/±7px offset -- collapsing two lines
+   * meant to read as 0.31-0.44 tiles apart to within 0.1 of each other,
+   * every time, on every road tile, not just at hash extremes. Reposition
+   * (not shrink) is still the right shape of fix for when `clamp` IS
+   * `true`; making that condition mean "an elevation edge is actually
+   * nearby" is what stops it from being punitive everywhere else. Only a
    * shape whose own half-extent exceeded `CLAMP_LIMIT` outright -- nothing
    * here does -- would still need the shrink fallback below; the maths
    * stays correct if one ever does.
@@ -259,9 +318,11 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
    * orientation-preserving similarity transform -- it can only shrink a
    * mark toward its centre, cleanly to a single point in the extreme case
    * (a true, unambiguous zero-area degenerate, not a numerically-ambiguous
-   * sliver) -- so winding can never flip. `clamp: false` is for marks --
-   * scree -- whose anchor is not a tile centre and whose bound the caller
-   * has already handled by hand.
+   * sliver) -- so winding can never flip. `clamp: false` unconditionally is
+   * for scree, whose anchor is not a tile centre and whose bound the caller
+   * has already handled by hand (its own inset plus a clamped edge
+   * parameter) -- it sits right at an elevation drop by construction (drawn
+   * only when one exists) but needs a different bound than this function's.
    */
   const pushMark = (
     originX: number,
@@ -400,9 +461,13 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
       const originX = faceTag === 0 ? x + 1 + SCREE_INSET : x + aClamped;
       const originZ = faceTag === 0 ? y + aClamped : y + 1 + SCREE_INSET;
       pushMark(originX, originZ, bottomY, MARK_EPSILON, 0, 0, diamondCorners(r, r * 0.6), screeHex, false);
+      // The highlight needs its own, larger inset -- see
+      // `SCREE_HIGHLIGHT_INSET`'s doc comment for the worked-out worst case.
+      const hlOriginX = faceTag === 0 ? x + 1 + SCREE_HIGHLIGHT_INSET : x + aClamped;
+      const hlOriginZ = faceTag === 0 ? y + aClamped : y + 1 + SCREE_HIGHLIGHT_INSET;
       pushMark(
-        originX,
-        originZ,
+        hlOriginX,
+        hlOriginZ,
         bottomY,
         HIGHLIGHT_EPSILON,
         -r * 0.4,
@@ -418,6 +483,10 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
     for (let x = 0; x < width; x++) {
       const ti = y * width + x;
       const levelHere = levelAt(input, x, y);
+      // Containment only matters where an unclamped mark could float over
+      // a differently-elevated neighbour -- see `hasElevationEdge`'s doc
+      // comment. Computed once per tile, used by every mark this tile emits.
+      const needsContainment = hasElevationEdge(input, x, y);
       const topY = levelHere * WORLD_PER_LEVEL;
       const cx = x + 0.5;
       const cz = y + 0.5;
@@ -444,7 +513,7 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
             const py = (b - 0.5) * (TILE_H - 18);
             const r = 6 + a * 5;
             const blobHex = quantise(composite(baseHex, tones.rock, 0.95), PALETTE_HEXES);
-            pushMark(cx, cz, topY, MARK_EPSILON, px, py, diamondCorners(r, r * 0.7), blobHex, true);
+            pushMark(cx, cz, topY, MARK_EPSILON, px, py, diamondCorners(r, r * 0.7), blobHex, needsContainment);
             const hlHex = quantise(composite(blobHex, tones.rockLit, 0.9), PALETTE_HEXES);
             pushMark(
               cx,
@@ -455,7 +524,7 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
               py - r * 0.26,
               diamondCorners(r * 0.55, r * 0.32),
               hlHex,
-              true
+              needsContainment
             );
           }
         }
@@ -473,8 +542,8 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
           const rut = (cxPx + cyPx) % 2 === 0 ? 5 : 7;
           const rutHex = quantise(composite(baseHex, tones.rut, 0.3), PALETTE_HEXES);
           const halfW = TILE_W / 2 - 6;
-          pushMark(cx, cz, topY, MARK_EPSILON, 0, -rut, rectCorners(halfW, -0.75, 0.75), rutHex, true);
-          pushMark(cx, cz, topY, MARK_EPSILON, 0, rut, rectCorners(halfW, -0.75, 0.75), rutHex, true);
+          pushMark(cx, cz, topY, MARK_EPSILON, 0, -rut, rectCorners(halfW, -0.75, 0.75), rutHex, needsContainment);
+          pushMark(cx, cz, topY, MARK_EPSILON, 0, rut, rectCorners(halfW, -0.75, 0.75), rutHex, needsContainment);
         } else if (decorHere === DECOR_KNOLL) {
           // Knoll: 4 blobs with a highlight, smaller than a ridge's
           // (renderer.ts:1543-1553).
@@ -485,7 +554,7 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
             const py = (b - 0.5) * (TILE_H - 10);
             const r = 3 + a * 5;
             const blobHex = quantise(composite(baseHex, tones.rock, 0.95), PALETTE_HEXES);
-            pushMark(cx, cz, topY, MARK_EPSILON, px, py, diamondCorners(r, r * 0.62), blobHex, true);
+            pushMark(cx, cz, topY, MARK_EPSILON, px, py, diamondCorners(r, r * 0.62), blobHex, needsContainment);
             const hlHex = quantise(composite(blobHex, tones.rockLit, 0.8), PALETTE_HEXES);
             pushMark(
               cx,
@@ -496,7 +565,7 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
               py - r * 0.22,
               diamondCorners(r * 0.6, r * 0.36),
               hlHex,
-              true
+              needsContainment
             );
           }
         } else if (decorHere === DECOR_GROVE) {
@@ -521,7 +590,7 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
               // halfW 0.5 matches Pixi's own 1px stroke width exactly
               // (renderer.ts:1594's `width: 1`) -- not a rounder-looking
               // 0.75, which would read 50% thicker than the source.
-              pushMark(cx, cz, topY, MARK_EPSILON, px, py, rectCorners(0.5, -bh, 0), bladeHex, true);
+              pushMark(cx, cz, topY, MARK_EPSILON, px, py, rectCorners(0.5, -bh, 0), bladeHex, needsContainment);
             }
             if (rnd > 0.9) {
               // Bare earth patch (renderer.ts:1596-1605).
@@ -536,7 +605,7 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
                 0,
                 diamondCorners(3 + a * 2.4, 1.6 + a * 1.2),
                 earthHex,
-                true
+                needsContainment
               );
             }
             if (rnd > 0.84 && coverHere === 0) {
@@ -561,7 +630,7 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
                 by,
                 rectCorners(3.2, -(4.2 + a * 1.6 + 0.6), 0.6),
                 tussockHex,
-                true
+                needsContainment
               );
             }
           } else {
@@ -583,12 +652,12 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
                   py,
                   diamondCorners(1.6 + a * 2.2, 1 + a * 1.2),
                   earthHex,
-                  true
+                  needsContainment
                 );
               } else {
                 const r = 1.2 + a * 2.6;
                 const fleckHex = quantise(composite(baseHex, tones.rockLit, 0.4 + b * 0.35), PALETTE_HEXES);
-                pushMark(cx, cz, topY, MARK_EPSILON, px, py, diamondCorners(r, r * 0.62), fleckHex, true);
+                pushMark(cx, cz, topY, MARK_EPSILON, px, py, diamondCorners(r, r * 0.62), fleckHex, needsContainment);
                 if (a > 0.72) {
                   const shadeHex = quantise(composite(fleckHex, tones.rock, 0.3), PALETTE_HEXES);
                   pushMark(
@@ -600,7 +669,7 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
                     py + r * 0.3,
                     diamondCorners(r * 0.7, r * 0.42),
                     shadeHex,
-                    true
+                    needsContainment
                   );
                 }
               }
@@ -618,7 +687,7 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
                 (rnd - 0.9) * 18,
                 diamondCorners(3.2 + a * 1.4, 2 + a),
                 bushHex,
-                true
+                needsContainment
               );
             }
           }
@@ -636,7 +705,7 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
               const px = (a - 0.5) * (TILE_W - 18);
               const py = (b - 0.5) * (TILE_H - 8);
               const halfW = (4 + a * 4) / 2;
-              pushMark(cx, cz, topY, MARK_EPSILON, px, py, rectCorners(halfW, -1.25, 1.25), rubbleHex, true);
+              pushMark(cx, cz, topY, MARK_EPSILON, px, py, rectCorners(halfW, -1.25, 1.25), rubbleHex, needsContainment);
             }
           }
         }
