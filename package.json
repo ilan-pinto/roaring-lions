@@ -17,6 +17,7 @@
     "validate:audio": "python3 tools/validate_audio.py",
     "balance": "pnpm --filter @lions/tools balance",
     "playtest": "pnpm --filter @lions/tools playtest",
+    "perf:units": "pnpm --filter @lions/tools perf:units",
     "gen:luts": "node tools/gen_luts.mjs"
   },
   "devDependencies": {

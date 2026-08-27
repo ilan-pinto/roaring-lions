@@ -6,7 +6,8 @@
   "description": "TypeScript tooling over the sim: headless balance/backtest harness. Python asset/balance validators live alongside.",
   "scripts": {
     "balance": "tsx src/balance/cli.ts",
-    "playtest": "tsx src/backtest/playtest.ts"
+    "playtest": "tsx src/backtest/playtest.ts",
+    "perf:units": "tsx src/perf/three-units.ts"
   },
   "dependencies": {
     "@lions/data": "workspace:*",

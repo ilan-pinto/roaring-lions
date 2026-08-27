@@ -34,6 +34,12 @@ jobs:
       - run: pnpm validate:audio
       - run: python tools/validate_balance.py --units data/units
       - run: pnpm balance
+      # Sim-side half of the three-vs-Pixi scaling claim (tools/src/perf/three-units.ts):
+      # no browser/GPU involved, so it can run headless here exactly like `pnpm balance`
+      # above it. Fails the build if sim.tick() cost regresses past a generous budget at
+      # 65/150/300/400 units -- see that file's Node-CLI section for what this does and
+      # does not cover (render cost stays a manual browser gate).
+      - run: pnpm perf:units
       - run: pnpm build
 
   determinism:

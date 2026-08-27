@@ -321,11 +321,45 @@ export function measureTicks(sim: Sim, ticks: number): SampleStats {
 
 // ============================================================================
 // Node CLI -- tick cost only, no renderer, no browser, no GPU.
+//
+// Task B4.4: this mode is the half of the three-vs-Pixi perf claim that CAN
+// join CI, because it is the half with no browser/GPU in it -- `measureTicks`
+// times `sim.tick()` alone, and `sim.tick()` runs identically under `tsx` in
+// a GitHub Actions runner as it does in a real browser tab (renderer-side
+// concerns -- draw calls, texture uploads, `renderer.frame()` -- are the
+// OTHER half, and stay a manual browser gate; see the phase B4 outcome doc).
+// So this mode now ASSERTS a budget per checkpoint (`REGRESSION_BUDGET_MS`)
+// and sets a non-zero exit code on breach, exactly like `pnpm balance`'s
+// `report(...)` -> `process.exit(ok ? 0 : 1)` -- the precedent this file
+// follows, wired the same way into `ci.yml`'s `gates` job.
+//
+// Why this specific half catches a real regression rather than merely
+// existing: `CLAUDE.md`'s own scaling-debt section names detection as O(N^2)
+// per tick and flags it as "real at the GDD's 300-unit target" -- i.e. the
+// known failure mode is a SIM-side blowup, not a renderer one, and it is
+// exactly the number this mode times. It is also not a second, disconnected
+// measurement: the browser harness's own `measureCheckpoint` re-times
+// `sim.tick()` in-process as a cross-check against these same Node numbers
+// (this file's top comment), so a tick-cost regression caught here is a
+// regression that would have shown up in the browser run too -- CI just
+// catches it one step earlier, with no browser required.
 // ============================================================================
 
 const CHECKPOINTS: readonly number[] = [65, 150, 300, 400];
 const WARMUP_TICKS = 5;
 const TIMED_TICKS = 40;
+
+/** Fractions of the real 20 Hz tick budget (50 ms). Measured today (task
+ *  B4.4, fog live, this machine): avg 0.21-2.71 ms, p95 0.91-3.58 ms, max
+ *  0.97-6.65 ms across all four checkpoints -- so these thresholds carry
+ *  roughly 4-9x headroom over the current worst case, wide enough to absorb
+ *  CI-runner-vs-dev-laptop variance without being so wide a real O(N^2)-style
+ *  regression (a 5-10x jump is the shape CLAUDE.md's detection-debt entry
+ *  describes) could still slip under it. Tighten only alongside a real
+ *  re-measurement, the same rule `tuning.ts` follows for combat constants. */
+const MAX_AVG_TICK_MS = 20;
+const MAX_P95_TICK_MS = 30;
+const MAX_MAX_TICK_MS = 40;
 
 async function runNodeCli(): Promise<void> {
   const capacity = CHECKPOINTS[CHECKPOINTS.length - 1] + 100;
@@ -334,7 +368,12 @@ async function runNodeCli(): Promise<void> {
   const spawner = createSpawner(sim, typeOf, anchors.friendly, anchors.hostile);
 
   console.log(`[three-units] map=${MAP_ID} seed=${SEED} capacity=${capacity} tick=${TICKS_PER_SECOND}Hz`);
+  console.log(
+    `[three-units] regression budget: avg<${MAX_AVG_TICK_MS}ms p95<${MAX_P95_TICK_MS}ms max<${MAX_MAX_TICK_MS}ms ` +
+      `(hard tick budget is ${(1000 / TICKS_PER_SECOND).toFixed(1)}ms)`
+  );
   console.log('units_target | living | avg_ms | p95_ms | max_ms | budget_ms(1/20s)');
+  let ok = true;
   for (const target of CHECKPOINTS) {
     spawnUpTo(sim, spawner, target);
     for (let i = 0; i < WARMUP_TICKS; i++) sim.tick();
@@ -345,6 +384,21 @@ async function runNodeCli(): Promise<void> {
       `${target} | ${living} | ${stats.avgMs.toFixed(3)} | ${stats.p95Ms.toFixed(3)} | ` +
         `${stats.maxMs.toFixed(3)} | ${budgetMs.toFixed(3)}`
     );
+    if (stats.avgMs >= MAX_AVG_TICK_MS || stats.p95Ms >= MAX_P95_TICK_MS || stats.maxMs >= MAX_MAX_TICK_MS) {
+      ok = false;
+      console.error(
+        `[three-units] REGRESSION at units_target=${target} (living=${living}): ` +
+          `avg=${stats.avgMs.toFixed(3)}ms p95=${stats.p95Ms.toFixed(3)}ms max=${stats.maxMs.toFixed(3)}ms ` +
+          `exceeds budget avg<${MAX_AVG_TICK_MS} p95<${MAX_P95_TICK_MS} max<${MAX_MAX_TICK_MS}`
+      );
+    }
+  }
+  if (!ok) {
+    console.error(
+      '[three-units] sim tick cost regressed past this gate\'s budget -- see CLAUDE.md\'s ' +
+        'detection-is-O(N^2) scaling debt before assuming the threshold is merely stale.'
+    );
+    process.exitCode = 1;
   }
 }
 
