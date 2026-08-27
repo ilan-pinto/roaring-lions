@@ -84,7 +84,7 @@
  * cases above, demonstrates a failure that needs it.
  */
 import { fx, type Fx } from '@lions/sim';
-import { resolveClip, cadenceScale, type UnitAnimInput } from '../../clip';
+import { resolveClip, resolveTurretClip, cadenceScale, type UnitAnimInput } from '../../clip';
 import { walkFps, phaseOffset, advancePhase } from '../../anim';
 import { clipOrFallback, type ClipName, type SheetSpec } from '../../sheet';
 import { WORLD_Y_PER_LIFT_PIXEL } from '../../project';
@@ -120,6 +120,19 @@ export const ROOF_SLOTS = 2;
 export const ROOF_SPREAD_PX = 13;
 
 /**
+ * Task B3.6: turret traverse spring constants. Redeclared from
+ * `renderer.ts`'s own `TURRET_STIFFNESS`/`TURRET_DAMPING` (private,
+ * unexported, values 90/13, `renderer.ts:80-81`) for the same reason
+ * everything else in this file is redeclared rather than imported --
+ * importing anything from `renderer.ts` would pull pixi.js into this
+ * module's graph. A damped spring, not a linear lerp, so traverse
+ * overshoots slightly and settles -- Pixi's own comment: "A turret has
+ * mass; the old lerp read as a servo snapping to its setpoint."
+ */
+export const TURRET_STIFFNESS = 90;
+export const TURRET_DAMPING = 13;
+
+/**
  * The three.js draw-ready state of one living unit for one rendered frame.
  * Everything downstream (the instanced-mesh attribute writer) reads this and
  * nothing else -- it never reaches back into `Sim`.
@@ -138,6 +151,31 @@ export interface EntityFrame {
   roofDx: number;
   roofDy: number;
   visible: boolean;
+  /**
+   * Task B3.6: the turret's own facing (0..1 turns), sprung toward a live
+   * target and returning to `facing` (the hull's) once there is none --
+   * `renderer.ts:2111-2170`. Equals `facing` verbatim whenever this entity's
+   * type has no turret sheet (`EntityFrameInput.turretSheet` was `null`):
+   * meaningless to draw in that case (there is no turret mesh to draw it
+   * with), but still a well-defined number rather than a sentinel, so a
+   * caller reading it before checking for turret art gets the hull's own
+   * heading rather than 0 or NaN.
+   */
+  turretFacing: number;
+  /**
+   * Resolved via `resolveTurretClip` (`clip.ts`) -- `idle` whenever this
+   * entity has no turret sheet, the turret's own firing signal
+   * (`EntityFrameInput.turretFiring`) is not set, or the turret sheet does
+   * not declare `fire`. See this module's top comment for why this is
+   * resolved from an INDEPENDENT firing signal rather than the hull's own
+   * `clip` above.
+   */
+  turretClip: ClipName;
+  /** Frame index into `turretClip`, clamped to the turret's own declared
+   *  frame count for it -- NOT the same clamp as the hull's `frame` above,
+   *  since a turret sheet's frame count for a given clip need not match the
+   *  hull's. Always 0 when there is no turret sheet. */
+  turretFrame: number;
 }
 
 /**
@@ -242,6 +280,61 @@ export interface EntityFrameInput {
   /** Normalised (0..1 turns) bearing FROM the shooter TO this entity -- the
    *  flinch jolts it further along this same bearing, away from the hit. */
   flinchDir: number;
+
+  // --- turret facing: Task B3.6, renderer.ts:2111-2170 ---
+  /**
+   * This entity's unit type's turret sheet, or `null` when it has none --
+   * most unit types (only vehicles with a `turretPath` in `main.ts`'s
+   * `SPRITE_MAP` have one). Doubles as the "has a turret" gate: there is
+   * nothing to gate WITH a turret sheet and nothing FOR without one, so a
+   * separate boolean would only be able to disagree with this by mistake.
+   */
+  turretSheet: SheetSpec | null;
+  /**
+   * World position to aim the turret at this frame, or `null` when there is
+   * no live target -- the turret returns to the hull's own heading
+   * (renderer.ts:2116-2117, "With no target the turret returns to the
+   * hull's heading"). Resolved by the caller from `curTarget`/`curStructure`
+   * (needs `Sim`, which this module deliberately does not import, per its
+   * own top comment) -- `entityFrame` itself only ever reads these two
+   * numbers, exactly like Pixi's own `ax`/`ay` (renderer.ts:2119-2120).
+   */
+  turretTargetX: number | null;
+  turretTargetY: number | null;
+  /**
+   * Whether the TURRET itself just fired -- a signal INDEPENDENT of the
+   * hull's own `anim.firing`, and deliberately so: every shipped hull sheet
+   * with turret art (TNK/EITAN/NAMER/GUNTRUCK/TECH) declares NO `fire` clip
+   * of its own (verified against every one of their manifests), so
+   * `anim.firing` -- latched from the HULL's fire-clip duration -- never
+   * becomes true for a turreted vehicle at all. Reusing it here would leave
+   * `resolveTurretClip` forever called with something other than `'fire'`,
+   * which is exactly how the gun truck's 16 recoil-frame turret pose stayed
+   * dead art even after the loadSprites fix that made every turret clip
+   * LOADABLE (`renderer.ts`'s own `loadSprites` comment) -- loadable is not
+   * the same as reachable if nothing ever asks for it. Owned and latched by
+   * the caller (`ThreeRenderer.onFire`, off the TURRET sheet's own fire
+   * clip duration), exactly like `anim.firing`/`firingTimer` is for the hull.
+   */
+  turretFiring: boolean;
+  /**
+   * Persisted per-entity turret facing (0..1 turns) and angular velocity
+   * (turns/s), mutated in place -- owned by the caller across frames,
+   * exactly like `entityAnimFrame`/`animSeeded` above. Mirrors Pixi's own
+   * `turretFacing`/`turretVel` (renderer.ts:421-425) field-for-field.
+   * `turretSeeded` is this pair's own `animSeeded`: the spring's very first
+   * update for an entity must start FROM the hull's current facing
+   * (mirroring Pixi's "seed turret facing to hull facing on first
+   * snapshot", renderer.ts:748-750), or a freshly spawned turret would
+   * visibly whip from angle 0 (Float64Array's zero-fill) to wherever it is
+   * actually aiming the instant it first acquires a target -- seeded here,
+   * per-entity on ITS OWN first `entityFrame` call, rather than Pixi's
+   * single `frameN === 0` gate, so a reinforcement that spawns mid-mission
+   * is seeded on its own first frame too, not left frozen at 0 until then.
+   */
+  turretFacing: Float64Array;
+  turretVel: Float64Array;
+  turretSeeded: Uint8Array;
 }
 
 /**
@@ -317,6 +410,13 @@ export function entityFrame(input: EntityFrameInput): EntityFrame {
     recoilPower,
     flinchT,
     flinchDir,
+    turretSheet,
+    turretTargetX,
+    turretTargetY,
+    turretFiring,
+    turretFacing,
+    turretVel,
+    turretSeeded,
   } = input;
 
   // Interpolation between the last two sim ticks (renderer.ts:1930-1931).
@@ -452,6 +552,80 @@ export function entityFrame(input: EntityFrameInput): EntityFrame {
   // this whole function, exactly as Pixi crosses it.
   const facingNorm = fx.toNumber(facing);
 
+  // Turret facing (Task B3.6, renderer.ts:2111-2170). A unit type with no
+  // turret sheet has nothing to spring toward and no second mesh to draw --
+  // `turretFacingOut` stays the hull's own heading (see `EntityFrame.
+  // turretFacing`'s own doc comment for why that is still a well-defined
+  // number rather than a sentinel).
+  let turretFacingOut = facingNorm;
+  let turretClip: ClipName = 'idle';
+  let turretFrame = 0;
+  if (turretSheet) {
+    if (turretSeeded[entityId] === 0) {
+      // Seed to the hull's CURRENT facing the first time this entity is ever
+      // decided with turret art loaded -- mirrors Pixi's own "seed turret
+      // facing to hull facing on first snapshot" (renderer.ts:748-750), but
+      // keyed per-entity (`turretSeeded`) rather than Pixi's single
+      // `frameN === 0` gate, so a reinforcement that spawns mid-mission is
+      // seeded on ITS OWN first frame rather than left frozen at 0
+      // (Float64Array's zero-fill) until something gives it a target.
+      turretFacing[entityId] = facingNorm;
+      turretSeeded[entityId] = 1;
+    }
+
+    // With no target the turret returns to the hull's heading
+    // (renderer.ts:2116-2117). `curX`/`curY`, not the interpolated `wx`/`wy`
+    // -- Pixi's own goal-angle math reads `this.curX[i]`/`this.curY[i]`
+    // (the shooter) against `this.curX[target]`/`this.curY[target]` (or the
+    // structure's centre), both last-tick exact positions, never the
+    // frame-interpolated ones (renderer.ts:2119-2123).
+    let goalTurn = facingNorm;
+    if (turretTargetX !== null && turretTargetY !== null) {
+      const dx = turretTargetX - curX;
+      const dy = turretTargetY - curY;
+      goalTurn = (((Math.atan2(dy, dx) / (Math.PI * 2)) % 1) + 1) % 1;
+    }
+
+    // Damped spring, not a linear lerp -- traverse overshoots slightly and
+    // settles (renderer.ts:2125-2138). See TURRET_STIFFNESS/TURRET_DAMPING's
+    // own doc comment.
+    let delta = goalTurn - turretFacing[entityId];
+    if (delta > 0.5) delta -= 1;
+    if (delta < -0.5) delta += 1;
+    // Bounded integration step -- explicit Euler diverges once damping * dt
+    // exceeds 1, which a 100ms frame hitch would reach, so the spring
+    // integrates on a bounded step even when the frame took longer
+    // (renderer.ts:2131-2134).
+    const sdt = Math.min(dtSeconds, 1 / 30);
+    const accel = delta * TURRET_STIFFNESS - turretVel[entityId] * TURRET_DAMPING;
+    turretVel[entityId] += accel * sdt;
+    turretFacing[entityId] += turretVel[entityId] * sdt;
+    turretFacing[entityId] = ((turretFacing[entityId] % 1) + 1) % 1;
+    turretFacingOut = turretFacing[entityId];
+
+    // Turret clip: resolved from an INDEPENDENT firing signal
+    // (`turretFiring`), not the hull's own `anim.firing` -- see
+    // `EntityFrameInput.turretFiring`'s own doc comment for why reusing the
+    // hull's signal would leave every shipped turret's `fire` clip
+    // unreachable (no hull sheet with turret art declares one itself).
+    // Everything else about this entity's posture (alive/routed/pinned/
+    // working) still applies -- a dead, pinned, routed or tunnel-working
+    // unit's turret does not recoil-flash either, matching `resolveClip`'s
+    // own precedence for the hull.
+    const turretAnim: UnitAnimInput = { ...anim, firing: turretFiring };
+    turretClip = resolveTurretClip(resolveClip(turretAnim), turretSheet.clips);
+    const turretSpec = turretSheet.clips[turretClip];
+    const turretFrameCount = turretSpec?.frames ?? 1;
+    // Reuses the HULL's own resolved `frame` index, clamped to the turret's
+    // own frame count for its clip -- exactly Pixi's `tframes[Math.min(frame,
+    // tframes.length - 1)]` (renderer.ts:2155). Every shipped turret clip
+    // has exactly one frame per facing (the gun truck's "16 frames" are 16
+    // FACINGS of one recoiled pose, not a 16-frame animation), so this
+    // clamp is what makes that pose reachable regardless of the hull's own
+    // frame count, not merely a defensive bound.
+    turretFrame = Math.min(turretFrameCount - 1, frame);
+  }
+
   return {
     wx,
     wy,
@@ -465,5 +639,8 @@ export function entityFrame(input: EntityFrameInput): EntityFrame {
     // See this module's top comment for why.
     roofDy: 0,
     visible,
+    turretFacing: turretFacingOut,
+    turretClip,
+    turretFrame,
   };
 }

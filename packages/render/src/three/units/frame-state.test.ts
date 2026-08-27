@@ -16,9 +16,11 @@ import {
   RECOIL_PX_VEHICLE,
   RECOIL_PX_SOFT,
   FLINCH_PX,
+  TURRET_STIFFNESS,
+  TURRET_DAMPING,
   type EntityFrameInput,
 } from './frame-state';
-import { resolveClip, type UnitAnimInput } from '../../clip';
+import { resolveClip, resolveTurretClip, type UnitAnimInput } from '../../clip';
 import { phaseOffset } from '../../anim';
 import { clipOrFallback, type SheetSpec } from '../../sheet';
 import { WORLD_Y_PER_LIFT_PIXEL } from '../../project';
@@ -44,6 +46,30 @@ const sheet: SheetSpec = {
 const sheetNoFire: SheetSpec = {
   ...sheet,
   clips: { idle: sheet.clips.idle, move: sheet.clips.move, down: sheet.clips.down },
+};
+
+/** A turret sheet: idle plus a real `fire` clip, one frame per facing for
+ *  each -- matching the gun truck's own shape (its "16 frames" are 16
+ *  FACINGS of one recoiled pose, not a multi-frame animation within one
+ *  facing). 8 facings, matching `sheet` above so a shared `facingNorm`
+ *  means the same thing for both in these tests. */
+const turretSheet: SheetSpec = {
+  facings: 8,
+  facingOffset: 0,
+  facingReverse: false,
+  scale: 1,
+  layout: 'clip',
+  clips: {
+    idle: { frames: 1, fps: 0, loop: false, fileOffset: 0 },
+    fire: { frames: 1, fps: 12, loop: false, fileOffset: 0 },
+  },
+};
+
+/** A turret sheet with no `fire` clip at all -- every shipped turret but
+ *  the gun truck's (`clip.test.ts`'s own `idleOnly` fixture, mirrored). */
+const turretSheetIdleOnly: SheetSpec = {
+  ...turretSheet,
+  clips: { idle: turretSheet.clips.idle },
 };
 
 const baseAnim: UnitAnimInput = {
@@ -81,6 +107,13 @@ function makeInput(overrides: Partial<EntityFrameInput> = {}): EntityFrameInput 
     recoilPower: 0,
     flinchT: 0,
     flinchDir: 0,
+    turretSheet: null,
+    turretTargetX: null,
+    turretTargetY: null,
+    turretFiring: false,
+    turretFacing: new Float64Array(1),
+    turretVel: new Float64Array(1),
+    turretSeeded: new Uint8Array(1),
     ...overrides,
   };
 }
@@ -411,6 +444,184 @@ describe('entityFrame — recoil/flinch', () => {
       })
     );
     expect(recoiling.worldY).toBe(plain.worldY);
+  });
+});
+
+describe('entityFrame — turret facing (Task B3.6)', () => {
+  it('with no turret sheet, turretFacing equals the hull facing and turretClip stays idle', () => {
+    const out = entityFrame(makeInput({ facing: HALF_TURN, turretSheet: null }));
+    expect(out.turretFacing).toBeCloseTo(fx.toNumber(HALF_TURN), 10);
+    expect(out.turretClip).toBe('idle');
+    expect(out.turretFrame).toBe(0);
+  });
+
+  it('seeds turretFacing to the hull\'s current facing on first use, not from zero', () => {
+    const turretFacing = new Float64Array([0]);
+    const turretVel = new Float64Array([0]);
+    const turretSeeded = new Uint8Array([0]);
+    const out = entityFrame(
+      makeInput({
+        facing: HALF_TURN, // 0.5
+        dtSeconds: 0, // isolates the seed from the spring
+        turretSheet,
+        turretFacing,
+        turretVel,
+        turretSeeded,
+      })
+    );
+    expect(turretSeeded[0]).toBe(1);
+    expect(turretFacing[0]).toBeCloseTo(0.5, 10);
+    expect(out.turretFacing).toBeCloseTo(0.5, 10);
+  });
+
+  it('BREAK CHECK 1: springs toward a live target rather than snapping straight to it', () => {
+    // Hull faces due east (0); the target sits due west of the shooter, so
+    // the goal angle is 0.5 turns away -- as large a single-step delta as
+    // this representation has. A snap (`turretFacing[i] = goalTurn`) would
+    // land out.turretFacing at 0.5 in one call; the real spring, integrated
+    // for one 1/60s step from rest, can only have covered a small fraction
+    // of that distance.
+    const turretFacing = new Float64Array([0]);
+    const turretVel = new Float64Array([0]);
+    const turretSeeded = new Uint8Array([1]); // already seeded -- isolates the spring from the seed
+    const out = entityFrame(
+      makeInput({
+        facing: 0,
+        curX: 0,
+        curY: 0,
+        turretTargetX: -5,
+        turretTargetY: 0,
+        dtSeconds: 1 / 60,
+        turretSheet,
+        turretFacing,
+        turretVel,
+        turretSeeded,
+      })
+    );
+    expect(out.turretFacing).toBeGreaterThan(0);
+    expect(out.turretFacing).toBeLessThan(0.1);
+    // The persisted array is mutated in place, matching entityAnimFrame's
+    // own contract -- not merely the returned EntityFrame.
+    expect(turretFacing[0]).toBeCloseTo(out.turretFacing, 10);
+    expect(turretVel[0]).not.toBe(0);
+  });
+
+  it('converges toward the goal over many steps (the spring is not merely non-snapping, it arrives)', () => {
+    const turretFacing = new Float64Array([0]);
+    const turretVel = new Float64Array([0]);
+    const turretSeeded = new Uint8Array([1]);
+    let out;
+    for (let i = 0; i < 240; i++) {
+      out = entityFrame(
+        makeInput({
+          facing: 0,
+          curX: 0,
+          curY: 0,
+          turretTargetX: -5,
+          turretTargetY: 0,
+          dtSeconds: 1 / 60,
+          turretSheet,
+          turretFacing,
+          turretVel,
+          turretSeeded,
+        })
+      );
+    }
+    expect(out!.turretFacing).toBeCloseTo(0.5, 1);
+  });
+
+  it('BREAK CHECK 3: returns to the hull heading over time, not instantly, once the target is lost', () => {
+    // turretFacing starts pointed opposite the hull's own heading (0.5 turns
+    // away, the same worst-case delta as break check 1) with no target --
+    // the goal is therefore the hull's own facing (0). An "instant return"
+    // implementation (`turretFacing[i] = facingNorm` whenever there is no
+    // target) would land out.turretFacing at (approximately) 0 in one call;
+    // the real spring can only have moved a small fraction of the way back.
+    const turretFacing = new Float64Array([0.5]);
+    const turretVel = new Float64Array([0]);
+    const turretSeeded = new Uint8Array([1]);
+    const out = entityFrame(
+      makeInput({
+        facing: 0,
+        turretTargetX: null,
+        turretTargetY: null,
+        dtSeconds: 1 / 60,
+        turretSheet,
+        turretFacing,
+        turretVel,
+        turretSeeded,
+      })
+    );
+    expect(out.turretFacing).toBeGreaterThan(0.4);
+  });
+
+  it('turret clip resolution reads an INDEPENDENT firing signal, not the hull\'s anim.firing', () => {
+    // The hull is firing but the turret is not: the hull's own resolved
+    // clip (irrelevant here) plays no part -- resolveTurretClip must never
+    // see 'fire'.
+    const hullFiringOnly = entityFrame(
+      makeInput({ turretSheet, turretFiring: false, anim: { ...baseAnim, firing: true } })
+    );
+    expect(hullFiringOnly.turretClip).toBe('idle');
+
+    // The reverse: the turret fired but the hull's own `anim.firing` is
+    // false (matches every shipped turreted vehicle -- no hull sheet with
+    // turret art declares a `fire` clip of its own, so `anim.firing` can
+    // never be the signal this depends on).
+    const turretFiringOnly = entityFrame(
+      makeInput({ turretSheet, turretFiring: true, anim: { ...baseAnim, firing: false } })
+    );
+    expect(turretFiringOnly.turretClip).toBe('fire');
+  });
+
+  it('never asks a turret sheet for a clip it does not declare, matching resolveTurretClip\'s own contract', () => {
+    const out = entityFrame(
+      makeInput({ turretSheet: turretSheetIdleOnly, turretFiring: true, anim: { ...baseAnim, firing: false } })
+    );
+    expect(out.turretClip).toBe(resolveTurretClip('fire', turretSheetIdleOnly.clips));
+    expect(out.turretClip).toBe('idle');
+  });
+
+  it('a pinned/dead/routed unit\'s turret does not fire either, matching resolveClip\'s own precedence', () => {
+    const out = entityFrame(
+      makeInput({
+        turretSheet,
+        turretFiring: true,
+        anim: { ...baseAnim, pinned: 1, firing: false },
+      })
+    );
+    expect(out.turretClip).toBe('idle');
+  });
+
+  it('clamps turretFrame to the turret sheet\'s own frame count for the resolved clip, not the hull\'s', () => {
+    const multiFrameTurret: SheetSpec = {
+      ...turretSheet,
+      clips: { idle: turretSheet.clips.idle, fire: { frames: 2, fps: 12, loop: false, fileOffset: 0 } },
+    };
+    // Force the hull's own frame index to 3 (the last index of `sheet`'s
+    // 4-frame `move` clip) by pre-seeding entityAnimFrame past it, with
+    // dtSeconds 0 so it does not advance further.
+    const out = entityFrame(
+      makeInput({
+        anim: { ...baseAnim, speed: 1.2 }, // -> 'move' on the hull
+        dtSeconds: 0,
+        entityAnimFrame: new Float64Array([3.9]),
+        animSeeded: new Uint8Array([1]),
+        turretSheet: multiFrameTurret,
+        turretFiring: true,
+      })
+    );
+    expect(out.frame).toBe(3); // the hull's own index, unclamped by the turret
+    expect(out.turretClip).toBe('fire');
+    expect(out.turretFrame).toBe(1); // clamped to multiFrameTurret's fire frame count - 1
+  });
+
+  it('pins the exported TURRET_STIFFNESS/TURRET_DAMPING values this module actually uses', () => {
+    // Same caveat as the RECOIL_PX pin above: this cannot detect
+    // renderer.ts's own copies (private, unexported) drifting -- only that
+    // THIS module's spring uses the documented 90/13.
+    expect(TURRET_STIFFNESS).toBe(90);
+    expect(TURRET_DAMPING).toBe(13);
   });
 });
 

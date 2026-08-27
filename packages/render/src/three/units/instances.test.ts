@@ -14,13 +14,14 @@
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import { parseManifest, type SheetSpec } from '../../sheet';
-import { packSheet } from './atlas';
+import { packSheet, FRAME_PX } from './atlas';
 import type { EntityFrame } from './frame-state';
 import {
   UnitInstancer,
   facingIndex,
   unitBillboardGeometry,
   writeUnitInstances,
+  writeTurretInstances,
   type UnitInstanceBuffers,
 } from './instances';
 import { TILE_W, WORLD_Y_PER_LIFT_PIXEL } from '../../project';
@@ -221,6 +222,9 @@ function makeFrame(overrides: Partial<EntityFrame> = {}): EntityFrame {
     roofDx: 0,
     roofDy: 0,
     visible: true,
+    turretFacing: 0,
+    turretClip: 'idle',
+    turretFrame: 0,
     ...overrides,
   };
 }
@@ -290,5 +294,129 @@ describe('writeUnitInstances', () => {
     expect(count).toBe(2);
     expect(out.positions[0]).toBeCloseTo(2, 10);
     expect(out.positions[3]).toBeCloseTo(3, 10);
+  });
+});
+
+describe('writeTurretInstances', () => {
+  // A small hull sheet, scale 2 (so spritePxPerSheetPx is not accidentally
+  // 1 and a dropped multiplier would still show up).
+  const hullSheet: SheetSpec = {
+    facings: 4,
+    facingOffset: 0,
+    facingReverse: false,
+    scale: 2,
+    layout: 'clip',
+    clips: { idle: { frames: 1, fps: 0, loop: true, fileOffset: 0 } },
+  };
+  // A turret sheet whose rig declared a real turretAxisPx -- distinct,
+  // nonzero entries at facing 0 and facing 1, so a hull/turret facing
+  // MISMATCH (the common case: a unit is tracking a target off its own
+  // heading) produces a genuinely nonzero correction, not one that would
+  // still pass by accident if the offset degenerated to [0, 0].
+  const turretSheetAxis: SheetSpec = {
+    facings: 4,
+    facingOffset: 0,
+    facingReverse: false,
+    scale: 2,
+    layout: 'clip',
+    clips: { idle: { frames: 1, fps: 0, loop: true, fileOffset: 0 } },
+    turretAxisPx: [
+      [5, 3],
+      [-4, 2],
+      [0, 0],
+      [0, 0],
+    ],
+  };
+  const turretPackingAxis = packSheet(turretSheetAxis);
+
+  function turretBuffers(capacity: number): UnitInstanceBuffers {
+    return {
+      positions: new Float32Array(capacity * 3),
+      layers: new Float32Array(capacity),
+      alphas: new Float32Array(capacity),
+    };
+  }
+
+  it("BREAK CHECK 2: applies the turret axis offset rather than drawing at the hull's own anchor", () => {
+    // facing 0 -> hullIdx = facingIndex(0, hullSheet) = 0.
+    // turretFacing 0.25 -> turretIdx = facingIndex(0.25, turretSheetAxis) = 1.
+    // turretAxisOffset(turretSheetAxis, 0, 1) = [5 - (-4), 3 - 2] = [9, 1].
+    const frames = [makeFrame({ wx: 10, worldY: 0, wy: 20, facing: 0, turretFacing: 0.25 })];
+    const out = turretBuffers(1);
+    writeTurretInstances(frames, hullSheet, turretSheetAxis, turretPackingAxis, out);
+
+    const spritePxPerSheetPx = (hullSheet.scale * TILE_W) / FRAME_PX;
+    const axisOffset = screenOffsetToWorld(9 * spritePxPerSheetPx, 1 * spritePxPerSheetPx);
+    expect(out.positions[0]).toBeCloseTo(10 + axisOffset.dx, 10);
+    expect(out.positions[2]).toBeCloseTo(20 + axisOffset.dy, 10);
+    // Drawing at the hull's own anchor (dropping the correction entirely)
+    // would land exactly at (10, 20) instead -- the axis offset here is
+    // large enough (9 sheet px, scale 2) that the two cannot coincide by
+    // float rounding, so this is a real, not incidental, distinguisher.
+    expect(out.positions[0]).not.toBeCloseTo(10, 3);
+    expect(out.positions[2]).not.toBeCloseTo(20, 3);
+  });
+
+  it('applies no offset when hull and turret face the same way (the common, non-tracking case)', () => {
+    const frames = [makeFrame({ wx: 10, worldY: 0, wy: 20, facing: 0, turretFacing: 0 })];
+    const out = turretBuffers(1);
+    writeTurretInstances(frames, hullSheet, turretSheetAxis, turretPackingAxis, out);
+    // hullIdx === turretIdx === 0 -> turretAxisOffset returns [0, 0].
+    expect(out.positions[0]).toBeCloseTo(10, 10);
+    expect(out.positions[2]).toBeCloseTo(20, 10);
+  });
+
+  it('worldY carries no axis correction -- only the ground-plane wx/wy do', () => {
+    const frames = [makeFrame({ wx: 0, worldY: 7, wy: 0, facing: 0, turretFacing: 0.25 })];
+    const out = turretBuffers(1);
+    writeTurretInstances(frames, hullSheet, turretSheetAxis, turretPackingAxis, out);
+    expect(out.positions[1]).toBeCloseTo(7, 10);
+  });
+
+  it('folds roofDx through the same right axis writeUnitInstances uses', () => {
+    const right = screenOffsetToWorld(1, 0);
+    const noAxis: SheetSpec = { ...turretSheetAxis, turretAxisPx: undefined };
+    const packing = packSheet(noAxis);
+    const frames = [makeFrame({ wx: 0, worldY: 0, wy: 0, roofDx: 13, facing: 0, turretFacing: 0 })];
+    const out = turretBuffers(1);
+    writeTurretInstances(frames, hullSheet, noAxis, packing, out);
+    expect(out.positions[0]).toBeCloseTo(right.dx * 13, 10);
+    expect(out.positions[2]).toBeCloseTo(right.dy * 13, 10);
+  });
+
+  it("resolves the DataArrayTexture layer through the TURRET's own clip/facing/frame, not the hull's", () => {
+    const fireTurret: SheetSpec = {
+      ...turretSheetAxis,
+      clips: {
+        idle: turretSheetAxis.clips.idle,
+        fire: { frames: 1, fps: 12, loop: false, fileOffset: 0 },
+      },
+      turretAxisPx: undefined,
+    };
+    const packing = packSheet(fireTurret);
+    // Hull is on 'idle'; the turret's own resolved clip is 'fire' (the
+    // independent signal `entityFrame` computes) -- the layer chosen must
+    // follow the turret's clip, not the hull's.
+    const frames = [makeFrame({ clip: 'idle', turretClip: 'fire', turretFrame: 0, facing: 0, turretFacing: 0 })];
+    const out = turretBuffers(1);
+    writeTurretInstances(frames, hullSheet, fireTurret, packing, out);
+    const expectedLayer = packing.regionFor('fire', facingIndex(0, fireTurret), 0).layer;
+    expect(out.layers[0]).toBe(expectedLayer);
+  });
+
+  it('skips invisible frames and returns the visible count, matching writeUnitInstances', () => {
+    const frames = [makeFrame({ visible: true }), makeFrame({ visible: false })];
+    const out = turretBuffers(2);
+    const count = writeTurretInstances(frames, hullSheet, turretSheetAxis, turretPackingAxis, out);
+    expect(count).toBe(1);
+  });
+
+  it('passes body alpha through unchanged', () => {
+    const noAxis: SheetSpec = { ...turretSheetAxis, turretAxisPx: undefined };
+    const packing = packSheet(noAxis);
+    const frames = [makeFrame({ alpha: 0.35 })];
+    const out = turretBuffers(1);
+    writeTurretInstances(frames, hullSheet, noAxis, packing, out);
+    expect(out.alphas[0]).toBeCloseTo(0.35, 5);
   });
 });

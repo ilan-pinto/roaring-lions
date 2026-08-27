@@ -153,8 +153,8 @@
 import * as THREE from 'three';
 import { TILE_W, WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import { screenOffsetToWorld } from '../terrain/shared';
-import type { SheetSpec } from '../../sheet';
-import type { FramePacking } from './atlas';
+import { turretAxisOffset, type SheetSpec } from '../../sheet';
+import { FRAME_PX, type FramePacking } from './atlas';
 import type { EntityFrame } from './frame-state';
 
 // ---------------------------------------------------------------------------
@@ -301,6 +301,78 @@ export function writeUnitInstances(
     out.positions[count * 3] = f.wx + right.dx * f.roofDx;
     out.positions[count * 3 + 1] = f.worldY;
     out.positions[count * 3 + 2] = f.wy + right.dy * f.roofDx;
+    out.layers[count] = region.layer;
+    out.alphas[count] = f.alpha;
+    count++;
+  }
+  return count;
+}
+
+/**
+ * Task B3.6: per-instance GPU attributes for a unit type's TURRET mesh --
+ * the second `InstancedMesh` a turreted unit type draws through, composited
+ * above its hull at the SAME world position, corrected by `turretAxisOffset`
+ * so the weapon's own traverse axis (not the model's median vertex) stays on
+ * the hull. Reads the SAME `EntityFrame[]` the hull mesh draws from --
+ * `entityFrame` (`frame-state.ts`) already decided `turretFacing`/
+ * `turretClip`/`turretFrame` alongside everything else, so this function's
+ * own job is exactly `writeUnitInstances`'s: turn an already-decided
+ * `EntityFrame` into GPU attributes, generalised only by the one thing a
+ * turret needs that a hull does not.
+ *
+ * `hullSheet` is needed only for `facingIndex(f.facing, hullSheet)` --
+ * `turretAxisOffset`'s own `hullIndex` argument, in the HULL sheet's own
+ * facing convention, exactly mirroring `renderer.ts:2161`'s
+ * `turretAxisOffset(atlas.turretSheet ?? sheet, hullIdx, tIdx)` where
+ * `hullIdx = PixiRenderer.spriteIndex(facingNorm, sheet)` and `sheet` there
+ * is the HULL sheet (`renderer.ts:2100`).
+ *
+ * The draw SIZE, though, comes from `hullSheet.scale`, not `turretSheet
+ * .scale` -- `spritePxPerSheetPx` below reproduces Pixi's own `spriteScale`
+ * (`renderer.ts:2108`, `(sheet.scale * TILE_W) / idle[0][0].width`, `sheet`
+ * again the HULL) applied to `tspr.scale.set(spriteScale)` (renderer.ts:2169,
+ * the SAME variable, never `atlas.turretSheet.scale`). This is safe rather
+ * than merely convenient: every shipped hull/turret pair (TNK, EITAN, NAMER,
+ * GUNTRUCK, TECH) declares the IDENTICAL `scale` in both manifests --
+ * verified against the files, not assumed -- because a hull and its turret
+ * are two meshes of the one vehicle, rendered by the same rig invocation
+ * from the same `realMetres`/`metresPerModelUnit`. `unitBillboardGeometry`
+ * itself is still built from `turretSheet` when this instancer is
+ * constructed (see `UnitInstancer.updateTurret`'s own comment) -- since the
+ * scales agree, that produces the identical quad size Pixi's own
+ * hull-scale-only mechanism does.
+ */
+export function writeTurretInstances(
+  frames: readonly EntityFrame[],
+  hullSheet: SheetSpec,
+  turretSheet: SheetSpec,
+  turretPacking: FramePacking,
+  out: UnitInstanceBuffers
+): number {
+  const right = screenOffsetToWorld(1, 0);
+  const spritePxPerSheetPx = (hullSheet.scale * TILE_W) / FRAME_PX;
+  let count = 0;
+  for (const f of frames) {
+    if (!f.visible) continue;
+    const hullIdx = facingIndex(f.facing, hullSheet);
+    const turretIdx = facingIndex(f.turretFacing, turretSheet);
+    const [axXsheetPx, axYsheetPx] = turretAxisOffset(turretSheet, hullIdx, turretIdx);
+    // Both components are a genuine 2D SCREEN-pixel correction -- the same
+    // shape recoil/flinch's `ox`/`oy` are (`frame-state.ts`'s own top
+    // comment) -- so both go through `screenOffsetToWorld` onto the ground
+    // plane. There is no "real height" component here the way
+    // `roofLiftWorld` has for `roofPx`: `turretAxisPx` measures a rendering
+    // artefact (the turret's pivot lands at a different screen pixel per
+    // facing purely because the rig rotated the object, not the camera),
+    // not a physical height the sim tracks.
+    const axisOffset = screenOffsetToWorld(
+      axXsheetPx * spritePxPerSheetPx,
+      axYsheetPx * spritePxPerSheetPx
+    );
+    const region = turretPacking.regionFor(f.turretClip, turretIdx, f.turretFrame);
+    out.positions[count * 3] = f.wx + right.dx * f.roofDx + axisOffset.dx;
+    out.positions[count * 3 + 1] = f.worldY;
+    out.positions[count * 3 + 2] = f.wy + right.dy * f.roofDx + axisOffset.dy;
     out.layers[count] = region.layer;
     out.alphas[count] = f.alpha;
     count++;
@@ -458,11 +530,45 @@ export class UnitInstancer {
    * `visible`, matching `writeUnitInstances`'s own contract.
    */
   update(frames: readonly EntityFrame[]): void {
-    const count = writeUnitInstances(frames, this.sheet, this.packing, {
+    this.commit(writeUnitInstances(frames, this.sheet, this.packing, this.scratchBuffers()));
+  }
+
+  /**
+   * Task B3.6: updates this instancer AS A TURRET MESH -- composited above
+   * `hullSheet`'s own hull mesh rather than standing on its own tile. Only a
+   * turret `UnitInstancer` (constructed from a turret sheet/texture/packing
+   * in `ThreeRenderer.loadSprites`) calls this; a hull instancer always
+   * calls the plain `update` above instead.
+   *
+   * Kept on the SAME class rather than a subclass or a second type: geometry
+   * construction, the material, the GPU buffers and `dispose` are all
+   * IDENTICAL between a hull mesh and a turret mesh (see `writeTurretInstances`'s
+   * own doc comment for why `unitBillboardGeometry(sheet)` -- called with
+   * the TURRET's own sheet here, in the constructor -- already produces the
+   * correct draw size without needing a separate code path). Only the
+   * per-instance attribute arithmetic differs, and both halves of that are
+   * already pure functions this method merely chooses between.
+   */
+  updateTurret(frames: readonly EntityFrame[], hullSheet: SheetSpec): void {
+    this.commit(writeTurretInstances(frames, hullSheet, this.sheet, this.packing, this.scratchBuffers()));
+  }
+
+  /** The mutable buffers `writeUnitInstances`/`writeTurretInstances` write
+   *  into -- a fresh object each call (cheap: three references, not a copy
+   *  of the underlying typed arrays) so `update`/`updateTurret` share this
+   *  exact wiring rather than each re-listing the same three fields. */
+  private scratchBuffers(): UnitInstanceBuffers {
+    return {
       positions: this.scratchPositions,
       layers: this.layerAttr.array as Float32Array,
       alphas: this.alphaAttr.array as Float32Array,
-    });
+    };
+  }
+
+  /** The GPU-facing tail both `update` and `updateTurret` share: turn
+   *  `scratchPositions` into per-instance transforms and shrink `mesh.count`
+   *  to `count`. Split out so neither caller has to duplicate it. */
+  private commit(count: number): void {
     for (let i = 0; i < count; i++) {
       this.scratchMatrix.makeTranslation(
         this.scratchPositions[i * 3],

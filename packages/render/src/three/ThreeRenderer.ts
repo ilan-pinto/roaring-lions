@@ -75,15 +75,16 @@
  * timers `frame()` drains", not every screen-space nudge Pixi's unit loop
  * ever applies), air-lift for `isAir` types (the sim's own `UnitType` doc
  * comment calls this "presentation" and names the renderer as the thing
- * that lifts it -- `frame-state.ts` does not), turret sprites (Task B3.6,
- * still ahead of this one -- `onEvents`'s own doc comment has the concrete
- * consequence: every shot's muzzle/recoil bearing uses hull facing, not
- * turret facing), and the procedural-primitive fallback for a unit type
- * with no loaded sheet. None of it can be added without either
- * reimplementing logic `frame-state.ts`/`clip.ts` already own (exactly the
- * "second clip resolver" risk `frame-state.ts`'s own doc comment warns
- * against) or waiting on data this backend does not have yet (turret
- * facing). A unit type with no loaded sheet simply is not drawn: "no mesh
+ * that lifts it -- `frame-state.ts` does not), and the procedural-primitive
+ * fallback for a unit type with no loaded sheet.
+ *
+ * Turret sprites (Task B3.6) DID land, closing the one item in this list
+ * that B3.14 could not: every shot's muzzle/recoil bearing now reads turret
+ * facing, not hull facing, for a unit type with turret art loaded
+ * (`onFire` below, and `frame-state.ts`'s own `EntityFrame.turretFacing`).
+ * Everything else in this paragraph is unaffected.
+ *
+ * A unit type with no loaded sheet simply is not drawn: "no mesh
  * units" (the B3 brief's own scope line) rules out inventing a placeholder
  * shape for it the way Pixi's circle fallback does -- and the same rule now
  * also governs a DYING unit with no loaded sheet (`stepDeaths`, Task
@@ -283,18 +284,63 @@ export class ThreeRenderer implements Renderer {
   private readonly recoilPower: Float64Array;
   private readonly flinchT: Float64Array;
   private readonly flinchDir: Float64Array;
+  /**
+   * Task B3.6: per-entity turret traverse state, mirroring Pixi's own
+   * `turretFacing`/`turretVel` (`renderer.ts:421-425`) field-for-field --
+   * owned here, mutated in place by `entityFrame` (`frame-state.ts`'s own
+   * `EntityFrameInput.turretFacing`/`turretVel`/`turretSeeded` doc comment),
+   * exactly like `entityAnimFrame`/`animSeeded` above. Meaningless (and
+   * never mutated) for an entity whose unit type has no turret sheet.
+   */
+  private readonly turretFacing: Float64Array;
+  private readonly turretVel: Float64Array;
+  private readonly turretSeeded: Uint8Array;
+  /**
+   * Task B3.6: the TURRET's own one-shot firing latch -- deliberately a
+   * SEPARATE timer from `firingTimer` above, not a second read of it. Every
+   * shipped hull sheet with turret art (TNK/EITAN/NAMER/GUNTRUCK/TECH)
+   * declares no `fire` clip of its own, so `firingTimer` (latched from the
+   * HULL's fire-clip duration in `onFire` below) never fires for a turreted
+   * vehicle at all -- reusing it here would leave every turret's own `fire`
+   * clip permanently unreachable, exactly the "16 recoil frames stay dead
+   * art" failure this task exists to close, just moved one layer past the
+   * loadSprites fix that made them loadable. Latched off the TURRET sheet's
+   * OWN fire-clip duration instead, independent of what the hull has.
+   */
+  private readonly turretFiringTimer: Float64Array;
   /** Units mid-death-fade -- see `stepDeaths`'s own doc comment. */
   private readonly dying: DyingUnit[] = [];
 
   /** One `UnitInstancer` per unit type with a loaded sheet, keyed by the
    *  unit type id `loadSprites` was called with. */
   private readonly unitInstancers = new Map<string, UnitInstancer>();
+  /**
+   * Task B3.6: one SECOND `UnitInstancer` per unit type whose `loadSprites`
+   * call carried a `turretPath` -- composited above its hull instancer's
+   * own mesh, updated via `UnitInstancer.updateTurret` rather than `update`.
+   * Absent entries mean "this type has no turret art", the same "doubles as
+   * the has-a-turret gate" shape `EntityFrameInput.turretSheet` uses.
+   */
+  private readonly turretInstancers = new Map<string, UnitInstancer>();
   /** Reused across frames (`.length = 0` each `frame()`, not reallocated) --
    *  every living entity's `EntityFrame` this tick, grouped by its unit
    *  type id, the shape `UnitInstancer.update` consumes. `stepDeaths` also
    *  appends a synthetic `EntityFrame` per still-fading dying unit into the
    *  same per-type arrays, for the same instancers to draw. */
   private readonly framesByType = new Map<string, EntityFrame[]>();
+  /**
+   * Task B3.6: the LIVING-ONLY subset of `framesByType`, for unit types with
+   * a turret instancer -- populated in the same per-entity loop that builds
+   * `framesByType`, but never appended to by `stepDeaths`. A dying unit's
+   * synthetic `EntityFrame` (`stepDeaths`'s own doc comment) still draws its
+   * hull's death-fade pose, but Pixi's own `stepDeaths` never draws a turret
+   * sprite for one at all (`turretSprites[i].visible` stays `false` for the
+   * whole fade, since dying entities never re-enter the main per-entity
+   * loop that would show one) -- matched here by simply never handing a
+   * dying frame to a turret instancer, rather than by a per-frame flag
+   * `writeTurretInstances` would have to additionally check.
+   */
+  private readonly turretFramesByType = new Map<string, EntityFrame[]>();
 
   /**
    * Task B3.13/B3.14: combat feedback's draw path. `emitterLibrary` and
@@ -338,6 +384,10 @@ export class ThreeRenderer implements Renderer {
     this.recoilPower = new Float64Array(n);
     this.flinchT = new Float64Array(n);
     this.flinchDir = new Float64Array(n);
+    this.turretFacing = new Float64Array(n);
+    this.turretVel = new Float64Array(n);
+    this.turretSeeded = new Uint8Array(n);
+    this.turretFiringTimer = new Float64Array(n);
     // antialias stays off deliberately (Phase 0 verdict, "Antialiasing must
     // be off, or accounted for"): a blended edge pixel is by definition not
     // a palette colour, and this backend's sprite/toon pipeline quantizes
@@ -427,6 +477,8 @@ export class ThreeRenderer implements Renderer {
     this.terrainMat.dispose();
     for (const instancer of this.unitInstancers.values()) instancer.dispose();
     this.unitInstancers.clear();
+    for (const instancer of this.turretInstancers.values()) instancer.dispose();
+    this.turretInstancers.clear();
     this.particleInstancerBelow.dispose();
     this.particleInstancerAbove.dispose();
     this.tracerBatch.dispose();
@@ -479,6 +531,11 @@ export class ThreeRenderer implements Renderer {
     const n = this.sim.entityCount;
     for (let i = 0; i < n; i++) {
       if (this.firingTimer[i] > 0) this.firingTimer[i] = Math.max(0, this.firingTimer[i] - dtSeconds);
+      // Task B3.6: same shape as firingTimer -- counts down its own
+      // remaining seconds, not a normalised 0..1 decay.
+      if (this.turretFiringTimer[i] > 0) {
+        this.turretFiringTimer[i] = Math.max(0, this.turretFiringTimer[i] - dtSeconds);
+      }
       if (this.recoilT[i] > 0) this.recoilT[i] = Math.max(0, this.recoilT[i] - dtSeconds / RECOIL_SECONDS);
       if (this.flinchT[i] > 0) this.flinchT[i] = Math.max(0, this.flinchT[i] - dtSeconds / FLINCH_SECONDS);
     }
@@ -492,9 +549,17 @@ export class ThreeRenderer implements Renderer {
    * slowdowns, pinning and mobility kills pace the gait for free.
    *
    * Deliberately does not port Pixi's fog/trail refresh (`this.fogTick++ %
-   * 4 === 0` gating `updateFog`/`drawTrail`) or turret-facing seed -- fog
-   * and trails are B4, and turrets are out of scope for B3.5 (see this
-   * class's own top comment).
+   * 4 === 0` gating `updateFog`/`drawTrail`) -- fog and trails are B4.
+   *
+   * Turret facing is NOT seeded here, unlike Pixi's own `snapshot()`
+   * (`renderer.ts:748-750`, gated on `this.frameN === 0`): Task B3.6 seeds
+   * it per-entity, in `entityFrame` itself (`turretSeeded`, `frame-state.ts`),
+   * on that entity's own first decided frame rather than a single
+   * tick-loop gate tied to the very first rendered frame. That also seeds a
+   * reinforcement correctly on ITS OWN first frame, which Pixi's single
+   * `frameN === 0` gate does not (a unit spawned after the first frame has
+   * rendered is never seeded there at all, and springs from a frozen 0
+   * until it first acquires a target).
    */
   snapshot(): void {
     this.prevX.set(this.curX);
@@ -528,17 +593,13 @@ export class ThreeRenderer implements Renderer {
    * does not repaint) -- this method does not widen that gap, it leaves it
    * exactly where B2.7 found it.
    *
-   * One further, real deviation from Pixi, forced by this backend's own
-   * documented scope cut (this class's own top comment, "What B3.5
-   * deliberately does not draw"): Pixi's muzzle position/direction and
-   * recoil bearing use the shooter's TURRET facing for a vehicle
-   * (`usesTurret`, `renderer.ts:778-781`); this backend has no turret
-   * tracking at all yet (`frame-state.ts`'s `EntityFrame` carries no turret
-   * facing -- turrets are Task B3.6, still ahead of this one per the
-   * addendum's own reordering), so every shot here uses HULL facing
-   * unconditionally. A turreted vehicle's muzzle flash and recoil kick will
-   * visibly disagree with Pixi's until B3.6 lands; there is no data this
-   * backend can read to do otherwise today.
+   * Task B3.6 closed the turret gap this comment used to describe: `onFire`
+   * below now reads the shooter's TURRET facing for muzzle position/
+   * direction and recoil bearing whenever this backend has turret art
+   * loaded for that unit type (`this.turretInstancers`), and only falls
+   * back to hull facing for a unit type with none -- see `onFire`'s own
+   * comment for the one deliberate way this differs from Pixi's `usesTurret`
+   * condition (`renderer.ts:778-781`), and why.
    */
   onEvents(events: SimEvent[]): void {
     const st = this.sim.state;
@@ -596,9 +657,36 @@ export class ThreeRenderer implements Renderer {
     if (fireClip && fireClip.fps > 0) {
       this.firingTimer[e.shooter] = fireClip.frames / fireClip.fps;
     }
-    // Hull facing only -- see onEvents' own doc comment for why this
-    // deviates from Pixi's turret-aware `usesTurret` branch.
-    const facingRad = fx.toNumber(st.facing[e.shooter]) * Math.PI * 2;
+
+    // Task B3.6: the turret's OWN fire-clip duration, latched independently
+    // of the hull's `firingTimer` above -- see `turretFiringTimer`'s own
+    // field doc comment for why reusing `firingTimer` would leave every
+    // shipped turret's `fire` clip unreachable (no hull sheet with turret
+    // art declares one of its own).
+    const turretInstancer = this.turretInstancers.get(type.id);
+    const turretFireClip = turretInstancer?.sheet.clips.fire;
+    if (turretFireClip && turretFireClip.fps > 0) {
+      this.turretFiringTimer[e.shooter] = turretFireClip.frames / turretFireClip.fps;
+    }
+
+    // Turret facing when this unit type has turret art loaded, hull facing
+    // otherwise -- `this.turretFacing[e.shooter]` holds whatever
+    // `updateUnits`'s last `entityFrame` call sprung it to, matching Pixi's
+    // own `usesTurret` read of `this.turretFacing[e.shooter]`
+    // (renderer.ts:778-781). Gated on ACTUAL turret art (`turretInstancer`)
+    // rather than Pixi's `!type.isSoft` -- a deliberate, narrower condition:
+    // Pixi's turret-facing spring only ever runs for a unit type with
+    // turret art loaded (`if (atlas.turretTextures)`, renderer.ts:2112), so
+    // a non-soft vehicle with NO turret sheet (the jeep, the D9, the
+    // Apache) has its `turretFacing` seeded once at mission start and then
+    // left frozen forever in Pixi -- reading it there would be reading a
+    // stale value, not a turret-aware one. Reading hull facing for that
+    // case instead (this backend's own pre-B3.6 behaviour) is strictly more
+    // correct, not merely different, and only matters for a unit type that
+    // never draws a turret sprite in either backend.
+    const facingRad = turretInstancer
+      ? this.turretFacing[e.shooter] * Math.PI * 2
+      : fx.toNumber(st.facing[e.shooter]) * Math.PI * 2;
     const barrelLen = type.isSoft ? 0.4 : 0.8;
     const mzX = this.curX[e.shooter] + Math.cos(facingRad) * barrelLen;
     const mzY = this.curY[e.shooter] + Math.sin(facingRad) * barrelLen;
@@ -883,16 +971,26 @@ export class ThreeRenderer implements Renderer {
    * (`UnitInstancer`) it draws through -- one draw call for however many of
    * this type end up alive, per Ruling 1.
    *
-   * `opts.turretPath` is retained but not loaded: turret sprites are out of
-   * scope for B3.5 (see this class's own top comment) -- `frame-state.ts`'s
-   * landed `EntityFrame`/`EntityFrameInput` carry no turret facing or clip
-   * at all, so there is nothing downstream that could consume a second
-   * sheet yet.
+   * Task B3.6: `opts.turretPath`, when given, is now ALSO loaded and built
+   * into a second `UnitInstancer` (`turretInstancers`), the same generic
+   * `packSheet`/`buildUnitTexture`/`UnitInstancer` pipeline the hull sheet
+   * goes through -- a turret sheet is shaped exactly like a hull sheet
+   * (`SheetSpec`), so nothing here is turret-specific except which map the
+   * result lands in and which mesh the caller (`updateUnits`) later calls
+   * `updateTurret` rather than `update` on. `packSheet`/`buildUnitTexture`
+   * already pack and load EVERY clip a sheet declares (not merely `idle`),
+   * so the gun truck's 16 recoil-frame `fire` clip is loaded here exactly
+   * like `idle` is -- there is no separate "load every clip" step to add,
+   * unlike the bug `renderer.ts`'s own `loadSprites` comment records
+   * needing a fix for.
    *
    * Errors propagate rather than being swallowed: `main.ts` already wraps
    * every `loadSprites` call in its own `.catch` per unit type (so one
    * missing sheet does not stop the rest of the roster from loading), which
-   * is exactly Pixi's own failure mode for the identical call.
+   * is exactly Pixi's own failure mode for the identical call. A turret
+   * sheet that fails to load fails the WHOLE call (hull included), matching
+   * Pixi: `PixiRenderer.loadSprites` `await`s its own turret load inline,
+   * with nothing to catch a rejection there either.
    */
   async loadSprites(
     unitTypeId: string,
@@ -915,6 +1013,33 @@ export class ThreeRenderer implements Renderer {
     }
     this.unitInstancers.set(unitTypeId, instancer);
     this.scene.add(instancer.mesh);
+
+    if (opts?.turretPath) {
+      const turretRes = await fetch(`${opts.turretPath}manifest.json`);
+      if (!turretRes.ok) throw new Error(`turret sheet manifest ${turretRes.status} at ${opts.turretPath}`);
+      const turretSheet: SheetSpec = parseManifest(await turretRes.json());
+      const turretPacking = packSheet(turretSheet);
+      const turretTexture = await buildUnitTexture(opts.turretPath, turretSheet, turretPacking);
+      const turretInstancer = new UnitInstancer(turretSheet, turretTexture, turretPacking, this.sim.capacity);
+      const previousTurret = this.turretInstancers.get(unitTypeId);
+      if (previousTurret) {
+        this.scene.remove(previousTurret.mesh);
+        previousTurret.dispose();
+      }
+      this.turretInstancers.set(unitTypeId, turretInstancer);
+      this.scene.add(turretInstancer.mesh);
+    } else {
+      // A re-load that DROPS a previously-declared turretPath (not exercised
+      // by any real caller today -- `main.ts`'s SPRITE_MAP is static -- but
+      // `loadSprites` carries no guarantee against it) must not leave a
+      // stale turret mesh drawing for a hull that no longer declares one.
+      const stale = this.turretInstancers.get(unitTypeId);
+      if (stale) {
+        this.scene.remove(stale.mesh);
+        stale.dispose();
+        this.turretInstancers.delete(unitTypeId);
+      }
+    }
   }
   async loadStructureSprite(structureId: string, basePath: string): Promise<void> {
     this.retained.structureSheets.set(structureId, basePath);
@@ -998,12 +1123,16 @@ export class ThreeRenderer implements Renderer {
     const roofSlots = assignRoofSlots(st.garrisonedIn, st.alive, n);
 
     for (const frames of this.framesByType.values()) frames.length = 0;
+    for (const frames of this.turretFramesByType.values()) frames.length = 0;
 
     for (let i = 0; i < n; i++) {
       if (st.alive[i] === 0) continue;
       const type = this.sim.unitTypes[st.typeIdx[i]];
       const instancer = this.unitInstancers.get(type.id);
       if (!instancer) continue;
+      // Task B3.6: absent when this type has no turret art -- doubles as
+      // the has-a-turret gate `EntityFrameInput.turretSheet` documents.
+      const turretInstancer = this.turretInstancers.get(type.id);
 
       const side = st.side[i];
       // Contact-level fade only applies to what is observed through
@@ -1023,6 +1152,27 @@ export class ThreeRenderer implements Renderer {
         // not a fallback among several.
         const sType = this.sim.structureTypes[this.sim.structures.typeIdx[inside]];
         roofPx = sType.heightPx;
+      }
+
+      // Task B3.6: turret aim target, ported from renderer.ts:2113-2123 --
+      // only computed when this type actually has turret art, the same
+      // "no need to pay for the query" precedent `contactLevel` above
+      // already follows. `null` means "no live target", and `entityFrame`
+      // reads that as "spring back to the hull's own heading"
+      // (`EntityFrameInput.turretTargetX`/`turretTargetY`'s own doc comment).
+      let turretTargetX: number | null = null;
+      let turretTargetY: number | null = null;
+      if (turretInstancer) {
+        const target = st.curTarget[i];
+        const struct = st.curStructure[i];
+        const aimAtStructure = target < 0 && struct >= 0 && this.sim.structures.alive[struct] === 1;
+        if (target >= 0 && st.alive[target] !== 0) {
+          turretTargetX = this.curX[target];
+          turretTargetY = this.curY[target];
+        } else if (aimAtStructure) {
+          turretTargetX = fx.toNumber(this.sim.structures.cx[struct]);
+          turretTargetY = fx.toNumber(this.sim.structures.cy[struct]);
+        }
       }
 
       const anim: UnitAnimInput = {
@@ -1062,6 +1212,16 @@ export class ThreeRenderer implements Renderer {
         recoilPower: this.recoilPower[i],
         flinchT: this.flinchT[i],
         flinchDir: this.flinchDir[i],
+        turretSheet: turretInstancer?.sheet ?? null,
+        turretTargetX,
+        turretTargetY,
+        // Latched by onEvents' `fire` case (Task B3.6), independent of the
+        // hull's own `firingTimer` above -- see `turretFiringTimer`'s own
+        // doc comment for why the two cannot be the same signal.
+        turretFiring: this.turretFiringTimer[i] > 0,
+        turretFacing: this.turretFacing,
+        turretVel: this.turretVel,
+        turretSeeded: this.turretSeeded,
       };
 
       let list = this.framesByType.get(type.id);
@@ -1069,13 +1229,30 @@ export class ThreeRenderer implements Renderer {
         list = [];
         this.framesByType.set(type.id, list);
       }
-      list.push(entityFrame(input));
+      const frame = entityFrame(input);
+      list.push(frame);
+
+      if (turretInstancer) {
+        // LIVING only -- `turretFramesByType` deliberately never receives a
+        // `stepDeaths` synthetic frame; see this class's own field doc
+        // comment on `turretFramesByType` for why.
+        let turretList = this.turretFramesByType.get(type.id);
+        if (!turretList) {
+          turretList = [];
+          this.turretFramesByType.set(type.id, turretList);
+        }
+        turretList.push(frame);
+      }
     }
 
     this.stepDeaths(dtSeconds);
 
     for (const [typeId, instancer] of this.unitInstancers) {
       instancer.update(this.framesByType.get(typeId) ?? []);
+      const turretInstancer = this.turretInstancers.get(typeId);
+      if (turretInstancer) {
+        turretInstancer.updateTurret(this.turretFramesByType.get(typeId) ?? [], instancer.sheet);
+      }
     }
   }
 
@@ -1149,6 +1326,16 @@ export class ThreeRenderer implements Renderer {
           roofDx: 0,
           roofDy: 0,
           visible: true,
+          // Task B3.6: never drawn -- this synthetic frame only ever
+          // reaches `framesByType` (the hull mesh), never
+          // `turretFramesByType`, matching Pixi's own `stepDeaths`, which
+          // draws no turret sprite for a dying unit at all (see
+          // `turretFramesByType`'s own field doc comment). Still a
+          // well-defined value rather than a sentinel, per `EntityFrame
+          // .turretFacing`'s own contract.
+          turretFacing: d.facing,
+          turretClip: 'idle',
+          turretFrame: 0,
         };
         let list = this.framesByType.get(d.typeId);
         if (!list) {
