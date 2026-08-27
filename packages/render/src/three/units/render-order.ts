@@ -39,17 +39,21 @@
  * | 1    | `TURRET_RENDER_ORDER`    | every `UnitInstancer` turret mesh -- must outrank its own hull at a co-located, identical-depth instance (`instances.ts`'s own "why this needs to be explicit" comment) |
  * | 2    | `FX_RENDER_ORDER`        | `TracerBatch` and the BELOW-tier `ParticleInstancer` (Pixi's `fxG`) -- still depth-tested against terrain/buildings/units, so must outrank every unit mesh, hull AND turret, now that FX's own materials are `depthWrite: false` (`fx.ts`'s "FX-vs-UNIT ordering is a DIFFERENT question") |
  * | 3    | `FX_RENDER_ORDER_ABOVE`  | the ABOVE-tier `ParticleInstancer` (`above_units`-tagged emitters, Pixi's `fxAboveG`) -- `depthTest: false`, unconditionally on top |
+ * | 4    | `FOG_RENDER_ORDER`       | `FogMesh` (`../fog-mesh.ts`) -- Pixi's `fogG`, the LAST child added to `world` (`renderer.ts:551`, its own comment: "above terrain AND units"). `depthTest: false` like band 3, for the identical reason: fog must hide a hostile standing on the tile it covers regardless of how tall that unit's own geometry rises above the flat ground plane a fog quad sits on -- a depth-tested quad coplanar with the ground would lose that comparison to the unit's own raised vertices. One band above every FX tier, not merely above units, because a below-tier particle (e.g. `tunnel_collapse`, genuinely depth-tested against terrain) must not poke through fog covering the ground it is spawned into either -- Pixi's `fxG` sits below `fogG` in container order for the identical reason. |
  *
  * Phase C (selection rings, HP bars, group badges, hover, and a focus ring)
  * will add more bands, all of them UI-adjacent overlays that want to sit
- * above everything already here. This module is where they get added: one
- * file, one ascending list, so the next collision is a merge conflict or a
- * failing test in THIS file, not a second silent tie two modules apart.
- * Nothing above band 3 is declared yet -- Phase C has not asked for it, and
- * inventing bands on spec would just be a second place a future author could
- * get the number wrong.
+ * above everything already here -- above `FOG_RENDER_ORDER` too, matching
+ * Pixi's own `hpBarG`/`selectionG`/etc., every one of them added to `world`
+ * AFTER `fogG` (`renderer.ts:551` onward). This module is where they get
+ * added: one file, one ascending list, so the next collision is a merge
+ * conflict or a failing test in THIS file, not a second silent tie two
+ * modules apart. Nothing above band 4 is declared yet -- Phase C has not
+ * asked for it, and inventing bands on spec would just be a second place a
+ * future author could get the number wrong.
  */
 export const HULL_RENDER_ORDER = 0;
 export const TURRET_RENDER_ORDER = 1;
 export const FX_RENDER_ORDER = 2;
 export const FX_RENDER_ORDER_ABOVE = 3;
+export const FOG_RENDER_ORDER = 4;

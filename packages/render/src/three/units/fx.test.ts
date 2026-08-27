@@ -21,6 +21,8 @@ import type { SheetSpec } from '../../sheet';
 import { packSheet } from './atlas';
 import { UnitInstancer, HULL_RENDER_ORDER, TURRET_RENDER_ORDER } from './instances';
 import { spawnTracer, type TracerModel } from './tracers';
+import { FOG_RENDER_ORDER } from './render-order';
+import { FogMesh } from '../fog-mesh';
 import {
   PARTICLE_CAPACITY,
   PARTICLE_LIFT_PX,
@@ -529,6 +531,19 @@ describe('ParticleInstancer construction', () => {
     // constants (not hand-typed literals, so a future edit to either file
     // fails THIS test rather than silently drifting again) is what this
     // suite could not do before FX_RENDER_ORDER was exported.
+    //
+    // Task B4.2 extends this SAME test with `FogMesh` rather than adding a
+    // parallel one (the brief's own instruction) -- `FOG_RENDER_ORDER` is
+    // the fifth and, so far, last band in the table, and it is the one this
+    // whole chain exists to protect the most directly: a fog quad that ends
+    // up BELOW a unit's own renderOrder would stop hiding a hostile standing
+    // on the tile it covers, which is this task's entire point. `depthTest:
+    // false` (asserted separately, fog-mesh.test.ts's own "unconditional
+    // overlay" test) makes fog immune to genuine depth occlusion, but immune
+    // to a LOSING renderOrder it is not -- three.js still submits transparent
+    // objects in renderOrder order, so the ordering half of "fog draws over
+    // everything" lives here, in the one file that can reach every band at
+    // once.
     const sheet = tinySheet;
     const packing = packSheet(sheet);
     const hull = new UnitInstancer(sheet, new THREE.DataArrayTexture(), packing, 4);
@@ -536,16 +551,18 @@ describe('ParticleInstancer construction', () => {
     const below = new ParticleInstancer(4, 0, true);
     const above = new ParticleInstancer(4, 1, false);
     const tracers = new TracerBatch(4);
+    const fog = new FogMesh(4, 4);
 
     // The full band table, asserted as a strict ascending chain rather than
-    // pairwise against zero -- HULL < TURRET < FX < FX_ABOVE, with no two
-    // bands equal. This is the exact shape of assertion the old collision
-    // (TURRET_RENDER_ORDER === FX_RENDER_ORDER, both 1) would fail.
+    // pairwise against zero -- HULL < TURRET < FX < FX_ABOVE < FOG, with no
+    // two bands equal. This is the exact shape of assertion the old
+    // collision (TURRET_RENDER_ORDER === FX_RENDER_ORDER, both 1) would fail.
     const bands = [
       HULL_RENDER_ORDER,
       TURRET_RENDER_ORDER,
       FX_RENDER_ORDER,
       FX_RENDER_ORDER_ABOVE,
+      FOG_RENDER_ORDER,
     ];
     for (let i = 1; i < bands.length; i++) {
       expect(bands[i]).toBeGreaterThan(bands[i - 1]);
@@ -560,6 +577,7 @@ describe('ParticleInstancer construction', () => {
     expect(below.mesh.renderOrder).toBeGreaterThan(turret.mesh.renderOrder);
     expect(tracers.mesh.renderOrder).toBeGreaterThan(turret.mesh.renderOrder);
     expect(above.mesh.renderOrder).toBeGreaterThan(below.mesh.renderOrder);
+    expect(fog.mesh.renderOrder).toBeGreaterThan(above.mesh.renderOrder);
   });
 
   it('writes correct per-instance position and scale into the instance matrix, not merely the right count', () => {

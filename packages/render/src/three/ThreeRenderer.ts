@@ -24,12 +24,19 @@
  *    real `ParticleSystem` from `resolve`, and (since B3.14) `onEvents`
  *    actually SPAWNS into both -- see the next bullet.
  *  - **Truthful no-ops**, where "nothing to do" is the honest answer rather
- *    than a dodge: `addOrderMarker` (a one-shot with no state worth
- *    keeping), and `isVisible`, which returns `true` because fog is B4 and a
- *    backend with no fog hides nothing. `snapshot` graduated out of this
- *    bucket in B3.5: it now latches per-entity position and measures ground
- *    speed, the same job Pixi's own `snapshot` does, because `frame()` needs
- *    both to draw a single moving unit. `onEvents` graduated out of this
+ *    than a dodge: `addOrderMarker` (a one-shot with no state worth keeping)
+ *    is the only member left in this bucket. `isVisible` graduated out of it
+ *    in Task B4.2: it now queries real fog-of-war state (`./fog`'s
+ *    `isFogVisible`, ported pure from Pixi's own `updateFog`/`hasSight` by
+ *    Task B4.1), recomputed at Pixi's own 5 Hz cadence (`recomputeFog`,
+ *    called from `snapshot`) -- see that method's own doc comment for the
+ *    cadence and `updateUnits`'s own top comment for what changed the moment
+ *    a real answer replaced the unconditional `true`: a non-player unit now
+ *    draws only while actually observed, the same as Pixi's frame loop.
+ *    `snapshot` graduated out of this bucket in B3.5: it now latches
+ *    per-entity position and measures ground speed, the same job Pixi's own
+ *    `snapshot` does, because `frame()` needs both to draw a single moving
+ *    unit. `onEvents` graduated out of this
  *    bucket in Task B3.14: it now wires seven of Pixi's nine event kinds --
  *    `fire`, `impact`, `nearMiss`, `aps`, `strike`, `destroyed`,
  *    `tunnelCollapsed` -- muzzle flashes, tracers, impact effects, the death
@@ -126,6 +133,8 @@ import {
 } from './units/structures';
 import { groundWorldY } from './ground-height';
 import { tileHash } from '../tile-hash';
+import { computeFog, isFogVisible, type FogInput } from './fog';
+import { FogMesh } from './fog-mesh';
 
 /** Where a unit type's sheets live, as the app named them. */
 interface SpriteSheetRequest {
@@ -463,6 +472,41 @@ export class ThreeRenderer implements Renderer {
   private readonly particleInstancerAbove = new ParticleInstancer(PARTICLE_CAPACITY, FX_LAYER_ABOVE, false);
   private readonly tracerBatch = new TracerBatch(TRACER_CAPACITY);
 
+  /**
+   * Task B4.2: fog of war. Per tile: 0 never seen, 1 explored but not
+   * currently observed, 2 in sight right now -- the three.js counterpart of
+   * `PixiRenderer.fog` (`renderer.ts:198`), owned here and reassigned (not
+   * mutated) each recompute, matching `./fog.ts`'s `computeFog` returning a
+   * fresh array rather than writing through `prev` -- see that module's own
+   * doc comment.
+   */
+  private fog: Uint8Array;
+  /** Counts `snapshot()` calls -- `recomputeFog` runs on every FOURTH one,
+   *  mirroring Pixi's own `this.fogTick++ % 4 === 0` (`renderer.ts:733`): 5
+   *  Hz at the sim's 20 Hz tick. Fog only needs to keep up with movement, not
+   *  the tick rate. */
+  private fogTick = 0;
+  /** Set whenever `recomputeFog` produces new fog data; cleared once
+   *  `frame()` has rebuilt `fogMesh` from it. Mirrors Pixi's own `fogDirty`
+   *  (`renderer.ts:200`) -- avoids rebuilding the fog mesh's instance buffers
+   *  on every 60 Hz `frame()` when the underlying data only changes at 5 Hz. */
+  private fogMeshDirty = true;
+  /**
+   * Sight radius in tiles, indexed by unit TYPE index (not per entity) --
+   * `./fog.ts`'s own `FogInput.sightByType` doc comment names this as an
+   * efficiency-only deviation from Pixi's per-entity `fx.toNumber(type
+   * .sight)` lookup, behaviourally identical because sight is a property of
+   * the TYPE, identical for every living entity of it. Built ONCE, in the
+   * constructor, not per frame: `main.ts` finishes every `sim.addUnitType`
+   * call (line 438) before constructing this renderer (line 517), so
+   * `sim.unitTypes` is already complete and never grows afterward -- the
+   * same precondition `unitInstancers`/`turretInstancers` already rely on
+   * implicitly (a unit type discovered only via `loadSprites`, never via a
+   * NEW `sim.unitTypes` entry appearing later).
+   */
+  private readonly sightByType: Float64Array;
+  private readonly fogMesh: FogMesh;
+
   constructor(
     private readonly sim: Sim,
     private readonly opts: RendererOptions
@@ -486,6 +530,10 @@ export class ThreeRenderer implements Renderer {
     this.turretVel = new Float64Array(n);
     this.turretSeeded = new Uint8Array(n);
     this.turretFiringTimer = new Float64Array(n);
+    this.fog = new Uint8Array(sim.width * sim.height);
+    this.sightByType = new Float64Array(sim.unitTypes.length);
+    for (let t = 0; t < sim.unitTypes.length; t++) this.sightByType[t] = fx.toNumber(sim.unitTypes[t].sight);
+    this.fogMesh = new FogMesh(sim.width, sim.height);
     // antialias stays off deliberately (Phase 0 verdict, "Antialiasing must
     // be off, or accounted for"): a blended edge pixel is by definition not
     // a palette colour, and this backend's sprite/toon pipeline quantizes
@@ -503,6 +551,14 @@ export class ThreeRenderer implements Renderer {
     // present, draws nothing until fed" shape terrain's own meshes have
     // before the first rebuildTerrain.
     this.scene.add(this.particleInstancerBelow.mesh, this.particleInstancerAbove.mesh, this.tracerBatch.mesh);
+    // Added LAST, matching Pixi's own `world.addChild(this.fogG)` being the
+    // final call in its constructor (`renderer.ts:551`, "above terrain AND
+    // units") -- three.js does not order draws by scene-graph child order
+    // the way Pixi does, so this placement is cosmetic here; `fogMesh.mesh
+    // .renderOrder` (`FOG_RENDER_ORDER`) is what actually enforces it. Kept
+    // last anyway so a reader scanning constructor order sees the same story
+    // both backends tell.
+    this.scene.add(this.fogMesh.mesh);
   }
 
   get canvas(): HTMLCanvasElement {
@@ -609,7 +665,17 @@ export class ThreeRenderer implements Renderer {
    *  (`renderer.ts:1882-1888`) exactly, including the ordering: the decay
    *  has to land before `updateUnits` builds this frame's `EntityFrameInput`
    *  from the just-drained values, or every latch would read one frame
-   *  stale. */
+   *  stale.
+   *
+   *  Task B4.2: the fog MESH (GPU instance buffers) rebuilds only when
+   *  `fogMeshDirty` -- set by `recomputeFog`, which runs at 5 Hz from
+   *  `snapshot`, not every 60 Hz `frame()` -- mirroring Pixi's own
+   *  `fogDirty`-gated `drawFog` (`renderer.ts:2574`). `isVisible`'s
+   *  correctness for THIS frame's `updateUnits` call does not depend on this
+   *  gate at all: it reads `this.fog` (the plain data `recomputeFog` last
+   *  wrote) directly via `isFogVisible`, never through `fogMesh` -- the mesh
+   *  rebuild below is purely what appears on screen, decoupled from what the
+   *  living-unit skip decides. */
   frame(alpha: number, dtMs: number): void {
     this.drainTimers(this.frameDtSeconds(dtMs));
     if (this.terrainDirty) {
@@ -619,6 +685,10 @@ export class ThreeRenderer implements Renderer {
     this.updateUnits(alpha, dtMs);
     this.updateStructures();
     this.updateFx(dtMs);
+    if (this.fogMeshDirty) {
+      this.fogMesh.update(this.fog, this.retained.elevation, this.sim.width, this.sim.height);
+      this.fogMeshDirty = false;
+    }
     this.renderer.render(this.scene, this.threeCamera());
   }
 
@@ -653,8 +723,11 @@ export class ThreeRenderer implements Renderer {
    * rather than read off the unit type, matching Pixi exactly, so cover
    * slowdowns, pinning and mobility kills pace the gait for free.
    *
-   * Deliberately does not port Pixi's fog/trail refresh (`this.fogTick++ %
-   * 4 === 0` gating `updateFog`/`drawTrail`) -- fog and trails are B4.
+   * Task B4.2 ports the fog half of Pixi's own refresh: `this.fogTick++ % 4
+   * === 0` gating `recomputeFog` at 5 Hz, exactly Pixi's own cadence
+   * (`renderer.ts:733`). Trails remain unported -- `drawTrail` stays Phase C
+   * (`CLAUDE.md`'s own "Known scaling debts" tracks it as its own item,
+   * separate from fog).
    *
    * Turret facing is NOT seeded here, unlike Pixi's own `snapshot()`
    * (`renderer.ts:748-750`, gated on `this.frameN === 0`): Task B3.6 seeds
@@ -667,6 +740,10 @@ export class ThreeRenderer implements Renderer {
    * until it first acquires a target).
    */
   snapshot(): void {
+    // Fog only needs to keep up with movement, not the tick rate -- same
+    // cadence Pixi uses (renderer.ts:733): every fourth snapshot() call, 5
+    // Hz at the sim's 20 Hz tick.
+    if (this.fogTick++ % 4 === 0) this.recomputeFog();
     this.prevX.set(this.curX);
     this.prevY.set(this.curY);
     const st = this.sim.state;
@@ -678,6 +755,44 @@ export class ThreeRenderer implements Renderer {
       this.entitySpeed[i] = Math.hypot(dx, dy) * SIM_HZ;
     }
   }
+
+  /**
+   * Task B4.2: one tick of fog-of-war -- assembles `./fog.ts`'s `FogInput`
+   * from `Sim` and this class's own `sightByType`, and reassigns `this.fog`
+   * to `computeFog`'s fresh result (pure function, never mutates `prev` in
+   * place -- see that module's own doc comment). Sets `fogMeshDirty` so
+   * `frame()` rebuilds the GPU mesh from the new data on its next call.
+   */
+  private recomputeFog(): void {
+    const st = this.sim.state;
+    const input: FogInput = {
+      width: this.sim.width,
+      height: this.sim.height,
+      entityCount: this.sim.entityCount,
+      alive: st.alive,
+      side: st.side,
+      typeIdx: st.typeIdx,
+      posX: st.posX,
+      posY: st.posY,
+      sightByType: this.sightByType,
+      blocked: this.sim.blocked,
+      isLowProfile: (x, y) => this.isLowProfileTile(x, y),
+    };
+    this.fog = computeFog(this.fog, input);
+    this.fogMeshDirty = true;
+  }
+
+  /** A chest-high wall casts no fog shadow, because the sim lets sight and
+   *  fire cross it -- ported verbatim from `PixiRenderer.isLowProfile`
+   *  (`renderer.ts:1083-1087`); see `./fog.ts`'s `hasSight` doc comment for
+   *  why this exemption exists (without it the compound's own garrison would
+   *  be shooting at men the fog swears they cannot see). */
+  private isLowProfileTile(x: number, y: number): boolean {
+    const s = this.sim.structureAt(x, y);
+    if (s < 0) return false;
+    return this.sim.structureTypes[this.sim.structures.typeIdx[s]].lowProfile;
+  }
+
   /**
    * Task B3.14: the presentation half of `onEvents`, ported from
    * `renderer.ts:756` onward (`PixiRenderer.onEvents`). Wires seven of the
@@ -1027,19 +1142,22 @@ export class ThreeRenderer implements Renderer {
     );
   }
   /**
-   * True, always -- and this is the correct answer, not a placeholder.
-   *
-   * Fog is B4. This backend has no fog system, so nothing is hidden, so every
-   * world point is visible. B4 replaces this with a real visibility query
-   * against the fog it introduces.
+   * Task B4.2: a real visibility query, replacing the unconditional `true`
+   * B2/B3 shipped ("fog is B4," this class's own top comment used to say).
+   * `./fog.ts`'s `isFogVisible` reads `this.fog` -- last written by
+   * `recomputeFog`, at Pixi's own 5 Hz cadence -- and returns true only for
+   * fog level exactly 2 (in sight right now), matching
+   * `PixiRenderer.isVisible` (`renderer.ts:1193-1197`) bit for bit.
    *
    * It matters that this does not throw: `updateHover()` calls it once per
    * living hostile every rAF iteration, so a throw here was a 60 Hz stream of
-   * expected errors -- which drowns the diagnostics B2 will need and trains
-   * everyone to stop reading the console.
+   * expected errors -- which drowns the diagnostics this backend needs and
+   * trains everyone to stop reading the console. `isFogVisible` itself never
+   * throws (an off-map query is bounds-checked to `false`), so that
+   * guarantee still holds with a real answer behind it.
    */
-  isVisible(): boolean {
-    return true;
+  isVisible(wx: number, wy: number): boolean {
+    return isFogVisible(this.fog, this.sim.width, this.sim.height, wx, wy);
   }
   /**
    * Living units whose projected FEET fall inside a screen-space rect --
@@ -1374,6 +1492,15 @@ export class ThreeRenderer implements Renderer {
    * one that never will) is silently skipped, matching this class's own
    * "no mesh units, no placeholder shape" scope line -- see the class-level
    * doc comment's "What B3.5 deliberately does not draw" section.
+   *
+   * Task B4.2: a non-player unit is now skipped entirely unless
+   * `isVisible()` says the player currently observes its own (interpolated)
+   * position -- mirroring `PixiRenderer`'s own unit loop (`renderer.ts:1930-
+   * 1934`, "Anyone who isn't ours is only drawn while actually observed --
+   * fog hides them, and losing sight loses the contact") for the first time.
+   * Before this task `isVisible()` was an unconditional `true`, so this
+   * branch was dead code with a guaranteed-true condition; it is live now
+   * that `./fog.ts` backs it with real data.
    */
   private updateUnits(alpha: number, dtMs: number): void {
     if (this.unitInstancers.size === 0) return;
@@ -1388,6 +1515,16 @@ export class ThreeRenderer implements Renderer {
 
     for (let i = 0; i < n; i++) {
       if (st.alive[i] === 0) continue;
+      const side = st.side[i];
+      if (side !== 0) {
+        // The INTERPOLATED position -- this frame's actual screen position,
+        // not last tick's raw curX/curY -- matching exactly what Pixi's own
+        // check tests (`renderer.ts:1930-1934` computes `x`/`y` this same
+        // way, from `prevX`/`curX`/`alpha`, before its own `isVisible` call).
+        const ix = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
+        const iy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+        if (!this.isVisible(ix, iy)) continue;
+      }
       const type = this.sim.unitTypes[st.typeIdx[i]];
       const instancer = this.unitInstancers.get(type.id);
       if (!instancer) continue;
@@ -1395,7 +1532,6 @@ export class ThreeRenderer implements Renderer {
       // the has-a-turret gate `EntityFrameInput.turretSheet` documents.
       const turretInstancer = this.turretInstancers.get(type.id);
 
-      const side = st.side[i];
       // Contact-level fade only applies to what is observed through
       // contact; the player's own units (side 0) are always full alpha, and
       // `entityFrame` ignores `contactLevel` for them regardless -- no need
@@ -1544,13 +1680,26 @@ export class ThreeRenderer implements Renderer {
    *    downward `worldY` settle (below) but the body does not tip over.
    *  - **Permanent wreckage and its fog gate** (`addWreck`/`wreckLayer`/
    *    `MAX_WRECKS`, and the `isExplored` check that decides whether a
-   *    fading OR wrecked unit draws at all). This backend has no fog system
-   *    yet -- `isVisible()` always returns `true` (see this class's own top
-   *    comment) -- so `isExplored`'s entire reason to exist, "you never
-   *    witness a kill you did not observe", has no query to port against:
-   *    the fade below draws unconditionally, and once it ends the entity
-   *    simply stops drawing, with no wreck left behind. Wreckage belongs
-   *    with whichever future task adds fog.
+   *    fading OR wrecked unit draws at all -- `renderer.ts:1229-1231`'s own
+   *    comment: "you never witness a kill you did not observe, but a
+   *    burnt-out position you HAVE seen stays on the map after the fog
+   *    closes over it"). Fog is real as of Task B4.2 (`./fog.ts`, `isVisible`
+   *    above), so the claim this bullet used to make -- "this backend has no
+   *    fog system yet" -- is no longer true, but this method still does NOT
+   *    gate on it, deliberately, for two reasons neither of which this task
+   *    closes: (1) `DyingUnit` carries no `side` field, so telling a hostile
+   *    kill apart from a friendly one here would need a new field threaded
+   *    through `onEvents`'s `destroyed` case, and (2) Pixi's own gate is
+   *    bound up with PERMANENT wreckage (`addWreck`, `wreckLayer`,
+   *    `MAX_WRECKS`) -- porting `isExplored` alone, with no wreck system
+   *    behind it, would only make an unobserved hostile's fade vanish
+   *    mid-animation with nothing left in its place, trading one gap for a
+   *    different one rather than closing it. The fade below still draws
+   *    unconditionally, for every dying unit regardless of side or fog, and
+   *    once it ends the entity simply stops drawing, with no wreck left
+   *    behind -- unchanged from before this task. Wreckage-plus-its-fog-gate
+   *    remains a real, tracked gap; it belongs with whichever future task
+   *    adds permanent wreckage, not this one.
    *
    * A unit type with no loaded `UnitInstancer` is silently skipped, matching
    * this class's own "no mesh units" scope line -- and, since that also
