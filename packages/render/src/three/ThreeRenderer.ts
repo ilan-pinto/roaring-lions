@@ -982,8 +982,27 @@ export class ThreeRenderer implements Renderer {
   worldToScreen(wx: number, wy: number): { x: number; y: number } {
     return worldToScreenThree(wx, wy, this.camera, { width: this.width, height: this.height });
   }
+  /**
+   * Bugfix: `screenToWorldThree` now carries the same elevation correction
+   * `PixiRenderer.screenToWorld` has always had (`renderer.ts:951-971`) --
+   * this is where that correction's inputs actually come from, exactly the
+   * way `unitsInScreenRect` below already threads `this.retained.elevation`/
+   * `sim.width`/`sim.height` through for the opposite (world-to-screen)
+   * direction. `Renderer.screenToWorld(px, py)`'s own signature is
+   * unchanged -- no `lift` parameter reaches this seam, per Phase B2's
+   * outcome doc -- the correction lives entirely below it, inside
+   * `screenToWorldThree` itself, using data this class already retains.
+   */
   screenToWorld(px: number, py: number): { x: number; y: number } {
-    return screenToWorldThree(px, py, this.camera, { width: this.width, height: this.height });
+    return screenToWorldThree(
+      px,
+      py,
+      this.camera,
+      { width: this.width, height: this.height },
+      this.retained.elevation,
+      this.sim.width,
+      this.sim.height
+    );
   }
 
   // --- queries. The line is between *inventing* an answer and *reporting the

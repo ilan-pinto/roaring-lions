@@ -15,6 +15,7 @@
  */
 import * as THREE from 'three';
 import { TILE_W, TILE_H, ELEVATION, WORLD_Y_PER_LIFT_PIXEL, type Camera, type Viewport } from '../project';
+import { groundWorldY } from './ground-height';
 
 // ELEVATION and WORLD_Y_PER_LIFT_PIXEL live in project.ts now -- both are
 // pure arithmetic over TILE_W/TILE_H, and project.ts, unlike this file,
@@ -130,15 +131,79 @@ export function worldToScreenThree(
 }
 
 /**
- * Pixel -> world point, assuming flat ground (elevation 0) -- the three.js
- * counterpart to `project.screenToWorldFlat`. Unprojects the pixel into a
- * ray and intersects it with the `y = 0` plane.
+ * Ray/plane intersection at world-Y `y`, from an already-configured
+ * raycaster -- the shared tail both the flat guess and the elevation-
+ * corrected re-intersection below go through.
+ *
+ * Unreachable with this camera returning `null` -- its ray is never
+ * parallel to a horizontal plane -- but `intersectPlane` returns `null`
+ * rather than lying, so this must too rather than silently reporting tile
+ * (0, 0).
+ */
+function intersectHorizontalPlane(raycaster: THREE.Raycaster, y: number): THREE.Vector3 {
+  // Plane equation is `normal . X + constant = 0`; for the horizontal plane
+  // `Y = y` with normal (0, 1, 0), that is `constant = -y`.
+  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -y);
+  const hit = raycaster.ray.intersectPlane(plane, new THREE.Vector3());
+  if (!hit) {
+    throw new Error('screenToWorldThree: camera ray does not intersect the ground plane');
+  }
+  return hit;
+}
+
+/**
+ * Pixel -> world point -- the three.js counterpart to
+ * `PixiRenderer.screenToWorld` (`renderer.ts:951-971`), not merely to
+ * `project.screenToWorldFlat`. `elevation`/`mapWidth`/`mapHeight` are
+ * optional and default to "no relief" (`groundWorldY` returns 0 for a
+ * `null` grid regardless of `mapWidth`/`mapHeight`, `ground-height.ts`'s own
+ * `levelAt` delegate), so every existing flat-ground call site -- and every
+ * `camera.test.ts` assertion against `screenToWorldFlat` -- is unaffected by
+ * this signature growing.
+ *
+ * `Renderer.screenToWorld(px, py)` itself deliberately has no `lift`
+ * parameter (Phase B2's outcome doc) -- this is NOT that seam. It is the
+ * layer below it: `ThreeRenderer.screenToWorld` calls this with its own
+ * `this.retained.elevation`/`sim.width`/`sim.height` already in hand, the
+ * same way `units/pick.ts`'s `unitsInScreenRect` already threads elevation
+ * through `worldToScreenThree`'s `lift` for the opposite direction. Kept
+ * here rather than folded only into `ThreeRenderer` so it stays a pure
+ * function, testable in `environment: 'node'` with no `WebGLRenderer` --
+ * `ThreeRenderer` itself has none of its own tests to carry this instead
+ * (see `units/instances.ts`'s own top comment for why).
+ *
+ * Ported one-iteration approximation, not a full height-field raycast: cast
+ * the ray against the FLAT (`y = 0`) plane first, read the elevation of the
+ * tile that lands on, then re-cast the SAME ray against the plane at that
+ * tile's own `groundWorldY` and return where THAT lands. Exactly Pixi's own
+ * "read the height where the flat projection lands, undo that much lift,
+ * and project again" (`renderer.ts`'s own comment on `groundOffset`) --
+ * ported as a genuine 3D plane re-intersection rather than reproducing its
+ * 2D pixel-shift arithmetic, because for an orthographic camera the two are
+ * the same correction: shifting a world point by `dh` along +Y changes only
+ * the projected screen-Y (by `dh` converted through `WORLD_Y_PER_LIFT_PIXEL`
+ * and the frustum scale), never screen-X, which is exactly what licenses
+ * Pixi's own single-axis `sy`-only correction and is proven directly by
+ * `worldToScreenThree`'s own `lift` parameter (this file's "puts higher
+ * ground higher on screen" test).
+ *
+ * Correct on flat ground and on a single terrace (matches Pixi exactly
+ * there -- both are ONE iteration of the same correction). Approximate near
+ * a terrace EDGE, for the identical reason Pixi's own comment gives: one
+ * screen point can correspond to several tiles at different heights, and
+ * only a full height-field raycast resolves that exactly -- worth building
+ * if it proves needed, not before. See `camera.test.ts`'s per-tile sweep
+ * over `tel_marum`'s real relief (the only shipped map with any) for the
+ * measured pick-rate this approximation buys back.
  */
 export function screenToWorldThree(
   px: number,
   py: number,
   cam: Camera,
-  vp: Viewport
+  vp: Viewport,
+  elevation: Uint8Array | null = null,
+  mapWidth = 0,
+  mapHeight = 0
 ): { x: number; y: number } {
   const camera = dimetricCamera(cam, vp);
   const ndcX = (px / vp.width) * 2 - 1;
@@ -147,14 +212,10 @@ export function screenToWorldThree(
   const raycaster = new THREE.Raycaster();
   raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
 
-  const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-  const hit = raycaster.ray.intersectPlane(groundPlane, new THREE.Vector3());
-  // Unreachable with this camera -- its ray is never parallel to y = 0 --
-  // but `intersectPlane` returns null rather than lying, so this must too
-  // rather than silently reporting tile (0, 0).
-  if (!hit) {
-    throw new Error('screenToWorldThree: camera ray does not intersect the ground plane');
-  }
+  const flat = intersectHorizontalPlane(raycaster, 0);
+  const liftY = groundWorldY(elevation, mapWidth, mapHeight, flat.x, flat.z);
+  if (liftY === 0) return { x: flat.x, y: flat.z };
 
-  return { x: hit.x, y: hit.z };
+  const corrected = intersectHorizontalPlane(raycaster, liftY);
+  return { x: corrected.x, y: corrected.z };
 }
