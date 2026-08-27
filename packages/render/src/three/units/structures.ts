@@ -121,12 +121,39 @@ export interface StructurePlacement {
   alpha: number;
 }
 
-function footprintCentre(sim: Sim, sIdx: number): { fx: number; fy: number } {
+/** Exported (Task B4.4) so `ThreeRenderer.beginCollapse` can find a dying
+ *  structure's own footprint centre without re-deriving Pixi's `(min + max +
+ *  1) / 2` formula a second time -- the exact same call `structurePlacements`
+ *  below already makes for every LIVE/DEAD billboard. */
+export function footprintCentre(sim: Sim, sIdx: number): { fx: number; fy: number } {
   const st = sim.structures;
   return {
     fx: (st.minX[sIdx] + st.maxX[sIdx] + 1) / 2,
     fy: (st.minY[sIdx] + st.maxY[sIdx] + 1) / 2,
   };
+}
+
+/**
+ * Task B4.4: `0.55 + 0.45 * integrity` for a single LIVE structure -- the
+ * same formula `structurePlacements` computes per placement below, pulled
+ * out standalone so `ThreeRenderer` can cache "what alpha this structure's
+ * billboard was actually drawn at" every frame (`cacheStructureAlpha`),
+ * independent of building a whole type's placement list. `beginCollapse`
+ * reads that cache the instant a structure dies rather than recomputing this
+ * formula fresh from `hp`/`maxHp` at that moment, because
+ * `Sim.destroyStructure` zeroes `hp` unconditionally before the
+ * `structureDestroyed` event ever reaches the renderer
+ * (`packages/sim/src/sim.ts:4092-4095`) -- a fresh read at death would
+ * always answer "fully battered" (`0.55`), even for a structure a scripted
+ * demolition levelled straight from full health. Reading the cache instead
+ * is this backend's own way of reaching the same result Pixi's
+ * `structureWear` band exists for (`renderer.ts:290-298`, "must not flash
+ * back to full"): continuing from what was last actually on screen, not
+ * from a value the death itself already overwrote.
+ */
+export function structureAliveAlpha(hp: number, maxHp: number): number {
+  const integrity = maxHp > 0 ? Math.max(0, hp / maxHp) : 1;
+  return 0.55 + 0.45 * integrity;
 }
 
 function structurePlacements(
@@ -143,12 +170,7 @@ function structurePlacements(
     if (type.id !== structureId) continue;
     const { fx, fy } = footprintCentre(sim, s);
     const worldY = groundWorldY(elevation, sim.width, sim.height, fx, fy);
-    let alpha = 1;
-    if (wantAlive) {
-      const max = st.maxHp[s];
-      const integrity = max > 0 ? Math.max(0, st.hp[s] / max) : 1;
-      alpha = 0.55 + 0.45 * integrity;
-    }
+    const alpha = wantAlive ? structureAliveAlpha(st.hp[s], st.maxHp[s]) : 1;
     out.push({ fx, fy, worldY, alpha });
   }
   return out;
@@ -240,14 +262,30 @@ export interface StructureBillboardGeometry {
  * `anchor: 0.5`, not an oversight relative to `unitBillboardGeometry`'s feet
  * anchor.
  */
+/**
+ * The drawn width/height in screen px, shared by `structureBillboardGeometry`
+ * and `collapseBillboardGeometry` below -- the two differ only in WHERE the
+ * quad's local origin sits (centre vs. base), never in how big it is, so
+ * this is the one place that formula is written rather than two copies that
+ * could silently drift apart.
+ */
+function billboardDrawSize(
+  scale: number,
+  textureWidthPx: number,
+  textureHeightPx: number
+): { drawWidthPx: number; drawHeightPx: number } {
+  const drawWidthPx = scale * TILE_W;
+  const spriteScale = textureWidthPx > 0 ? drawWidthPx / textureWidthPx : 0;
+  const drawHeightPx = textureHeightPx * spriteScale;
+  return { drawWidthPx, drawHeightPx };
+}
+
 export function structureBillboardGeometry(
   scale: number,
   textureWidthPx: number,
   textureHeightPx: number
 ): StructureBillboardGeometry {
-  const drawWidthPx = scale * TILE_W;
-  const spriteScale = textureWidthPx > 0 ? drawWidthPx / textureWidthPx : 0;
-  const drawHeightPx = textureHeightPx * spriteScale;
+  const { drawWidthPx, drawHeightPx } = billboardDrawSize(scale, textureWidthPx, textureHeightPx);
   const halfW = drawWidthPx / 2;
   const halfH = drawHeightPx / 2;
   const right = screenOffsetToWorld(1, 0);
@@ -293,6 +331,63 @@ export function structureBillboardGeometry(
     // Same winding as `unitBillboardGeometry`: (bl, br, tr, tl) is the
     // front-facing order for a vertical quad under this camera, verified
     // directly by this file's own winding test.
+    indices: Uint32Array.from([0, 1, 2, 0, 2, 3]),
+    drawWidthPx,
+    drawHeightPx,
+  };
+}
+
+/**
+ * Task B4.4: the same quad as `structureBillboardGeometry`, base-anchored
+ * instead of centred -- what `ThreeRenderer.beginCollapse` needs so
+ * shrinking `mesh.scale.y` around the mesh's own local origin brings the
+ * roof down while the footprint itself stays exactly where it is. Local up
+ * runs `0` to `drawHeightPx`, matching `units/instances.ts`'s own
+ * `unitBillboardGeometry` (base-anchored for the identical depth-correctness
+ * reason -- see that function's own "Anchored at the feet, not the centre"
+ * comment), NOT `-halfDrawHeightPx` to `+halfDrawHeightPx` the way the
+ * steady-state structure billboard above is.
+ *
+ * This is a SEPARATE geometry, not a runtime toggle on the shared one every
+ * live/dead instance already draws through -- exactly the choice Pixi's own
+ * `beginCollapse` makes: it builds a FRESH `Sprite` re-anchored at `{x:0.5,
+ * y:1}` (`renderer.ts:281`, "anchored at its *base* rather than its
+ * centre") rather than repositioning `drawStructureSprite`'s centred one,
+ * because collapsing is a one-off animation with its own lifetime, never
+ * the steady-state billboard's own concern.
+ *
+ * Translating this quad's local origin to `worldY - (drawHeightPx / 2) *
+ * WORLD_Y_PER_LIFT_PIXEL` (see `ThreeRenderer.beginCollapse`) lands its base
+ * at the EXACT world point the centred idle sprite's own bottom edge (`bl`/
+ * `br` above, at local up `-halfH`) already sat at -- the fall begins with
+ * no visible pop, "covering the same ground the centred sprite did."
+ */
+export function collapseBillboardGeometry(
+  scale: number,
+  textureWidthPx: number,
+  textureHeightPx: number
+): StructureBillboardGeometry {
+  const { drawWidthPx, drawHeightPx } = billboardDrawSize(scale, textureWidthPx, textureHeightPx);
+  const halfW = drawWidthPx / 2;
+  const right = screenOffsetToWorld(1, 0);
+
+  const corner = (rightPx: number, upPx: number): [number, number, number] => [
+    right.dx * rightPx,
+    upPx * WORLD_Y_PER_LIFT_PIXEL,
+    right.dy * rightPx,
+  ];
+
+  const bl = corner(-halfW, 0);
+  const br = corner(halfW, 0);
+  const tr = corner(halfW, drawHeightPx);
+  const tl = corner(-halfW, drawHeightPx);
+
+  return {
+    // Same uv/index convention as structureBillboardGeometry -- identical
+    // texture, identical camera, identical winding; only the "up" range of
+    // the positions above differs.
+    positions: Float32Array.from([...bl, ...br, ...tr, ...tl]),
+    uvs: Float32Array.from([0, 1, 1, 1, 1, 0, 0, 0]),
     indices: Uint32Array.from([0, 1, 2, 0, 2, 3]),
     drawWidthPx,
     drawHeightPx,
@@ -368,6 +463,61 @@ export function writeStructureInstances(
   return count;
 }
 
+/** Task B4.4: seconds a falling building takes to settle onto its own wreck
+ *  -- Pixi's own `COLLAPSE_SECONDS` (`renderer.ts:53`), redeclared here
+ *  rather than imported for the same pixi.js-import reason `ThreeRenderer.ts`
+ *  redeclares `RECOIL_SECONDS`/`FLINCH_SECONDS` from `renderer.ts` rather
+ *  than importing them (that class's own field doc comment). */
+export const COLLAPSE_SECONDS = 0.6;
+/** Task B4.4: how far the roof line settles over that fall, as a fraction of
+ *  the billboard's own height -- Pixi's own `COLLAPSE_SQUASH`
+ *  (`renderer.ts:58`). Not all the way to nothing: the wreck billboard
+ *  underneath stands a little proud of the ground, and a roof sinking past
+ *  it reads as the building falling through the floor -- Pixi's own comment
+ *  on the identical constant, verbatim reasoning. */
+export const COLLAPSE_SQUASH = 0.8;
+
+/** What `collapseFrame` computes for one falling building on one frame. */
+export interface CollapseFrame {
+  /** `mesh.scale.y` to apply this frame. Always `1` at `tSeconds === 0` --
+   *  `collapseBillboardGeometry`'s quad is already drawn at final world
+   *  size (like every other billboard in this backend), unlike Pixi's own
+   *  sprite, which starts at raw texture pixels and needs a separate
+   *  `scaleY0` multiplier (`renderer.ts:280`) to reach screen size at all;
+   *  three.js's own rest scale is simply `1`, so there is nothing here for
+   *  a caller to multiply by. */
+  scaleY: number;
+  /** `mesh.material.opacity` to apply this frame. */
+  alpha: number;
+  /** True once the fall has finished settling -- the caller removes and
+   *  disposes the mesh. */
+  done: boolean;
+}
+
+/**
+ * Squared easing, matching Pixi's own `stepCollapses` exactly
+ * (`renderer.ts:311-325`): `p = min(1, t / COLLAPSE_SECONDS)`, `e = p * p`,
+ * `scale.y = scaleY0 * (1 - COLLAPSE_SQUASH * e)`, `alpha = alpha0 * (1 -
+ * e)`. A linear fall reads as a lift lowering rather than a structure
+ * failing -- Pixi's own comment on why this is squared, not linear,
+ * reproduced verbatim in intent.
+ *
+ * Pure -- `tSeconds` is the caller's own accumulated elapsed time, not a
+ * per-frame delta, so this is a single deterministic function of "how far
+ * into the fall," not a stateful stepper. `ThreeRenderer` owns the
+ * per-mesh `t` accumulator itself, the same way it already owns every
+ * other per-entity timer (`recoilT`, `flinchT`, `dying[].t`).
+ */
+export function collapseFrame(tSeconds: number, alpha0: number): CollapseFrame {
+  const p = Math.min(1, tSeconds / COLLAPSE_SECONDS);
+  const e = p * p;
+  return {
+    scaleY: 1 - COLLAPSE_SQUASH * e,
+    alpha: alpha0 * (1 - e),
+    done: p >= 1,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // GPU-facing: everything below touches THREE.* GPU-side construction
 // (BufferGeometry, InstancedMesh, ShaderMaterial) or real I/O (fetch, image
@@ -441,6 +591,31 @@ function createStructureMaterial(texture: THREE.Texture): THREE.ShaderMaterial {
 }
 
 /**
+ * Task B4.4: the material a falling building's one-off, non-instanced
+ * `THREE.Mesh` draws through -- structurally simpler than
+ * `createStructureMaterial`'s `ShaderMaterial` above (no `aAlpha` instanced
+ * attribute to read: a collapse is never instanced, so plain
+ * `MeshBasicMaterial.opacity` is the whole story), but the same
+ * padding-discard threshold (`ALPHA_PADDING_DISCARD`) via `alphaTest`, for
+ * the identical reason: a fully-transparent texel around the art's own
+ * silhouette must write neither colour nor depth, or an invisible box would
+ * occlude whatever the fall passes in front of. `opacity` is set once here
+ * from the caller's own `alpha0` and overwritten every frame afterward by
+ * `ThreeRenderer.stepCollapses`' own easing.
+ */
+export function createCollapseMaterial(texture: THREE.Texture, alpha0: number): THREE.MeshBasicMaterial {
+  return new THREE.MeshBasicMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: true,
+    depthWrite: true,
+    side: THREE.FrontSide,
+    alphaTest: ALPHA_PADDING_DISCARD,
+    opacity: alpha0,
+  });
+}
+
+/**
  * One structure sheet's `InstancedMesh`, plus the per-instance scratch
  * buffers `update` writes into. A structure TYPE gets up to two of these --
  * one for its idle art, one for its wreck art if the sheet declares one --
@@ -481,6 +656,17 @@ export class StructureInstancer {
     this.mesh.frustumCulled = false;
 
     this.scratchPositions = new Float32Array(cap * 3);
+  }
+
+  /** Task B4.4: read-only access to the texture this instancer draws --
+   *  `ThreeRenderer.beginCollapse` reads the IDLE instancer's copy of this
+   *  and borrows the SAME texture object for its own one-off collapse
+   *  `Mesh` (never a copy or a second decode), so this instancer remains
+   *  the texture's one true owner: `dispose()` below is still the only
+   *  thing that ever frees it, and the collapse mesh's own `dispose()`
+   *  must not double-free it. */
+  get spriteTexture(): THREE.Texture {
+    return this.texture;
   }
 
   /** Writes this frame's placements into the mesh's GPU-facing buffers and

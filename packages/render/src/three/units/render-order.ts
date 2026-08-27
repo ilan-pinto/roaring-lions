@@ -35,7 +35,7 @@
  *
  * | band | constant                 | what draws there |
  * |------|--------------------------|-------------------|
- * | 0    | `HULL_RENDER_ORDER`      | every `UnitInstancer` hull mesh -- three.js's own default, never set explicitly |
+ * | 0    | `HULL_RENDER_ORDER`      | every `UnitInstancer` hull mesh -- three.js's own default, never set explicitly. `StructureInstancer` (idle/wreck billboards) ties here too, left at the same unset default -- real depth-tested world geometry, occluding units and buildings against each other purely through the actual depth buffer, exactly like Pixi's own `spriteLayer` depth-sorts buildings and units together by `zIndex` rather than giving buildings a separate paint pass. `STRUCTURE_RENDER_ORDER` (Task B4.4) is this same value, named and exported explicitly for the one caller that needs to SET it rather than merely rely on the default: a falling building's one-off collapse `Mesh` (`ThreeRenderer.beginCollapse`) is not an `InstancedMesh` tied to its own untransformed local origin the way `StructureInstancer`'s is (see this table's own top comment on why that tie is what makes `renderOrder` the deciding factor for instanced meshes) -- it is a real, individually-positioned `Mesh`, so leaving its `renderOrder` unset would be relying on the same numeric default by coincidence rather than by name. Below `FOG_RENDER_ORDER` is what matters for it: real `depthTest`/`depthWrite` handle occlusion against terrain and units correctly regardless of the exact value chosen among 0-3, and being here (rather than band 3) is what lets `FogMesh`'s own unconditional overpaint (band 4, `depthTest: false`) hide a collapse standing in fog rather than the collapse poking through it -- the identical mechanism that already hides a `tunnel_collapse` dust burst in fog (this table's own band-4 row). |
  * | 1    | `TURRET_RENDER_ORDER`    | every `UnitInstancer` turret mesh -- must outrank its own hull at a co-located, identical-depth instance (`instances.ts`'s own "why this needs to be explicit" comment) |
  * | 2    | `FX_RENDER_ORDER`        | `TracerBatch` and the BELOW-tier `ParticleInstancer` (Pixi's `fxG`) -- still depth-tested against terrain/buildings/units, so must outrank every unit mesh, hull AND turret, now that FX's own materials are `depthWrite: false` (`fx.ts`'s "FX-vs-UNIT ordering is a DIFFERENT question") |
  * | 3    | `FX_RENDER_ORDER_ABOVE`  | the ABOVE-tier `ParticleInstancer` (`above_units`-tagged emitters, Pixi's `fxAboveG`) -- `depthTest: false`, unconditionally on top |
@@ -57,3 +57,9 @@ export const TURRET_RENDER_ORDER = 1;
 export const FX_RENDER_ORDER = 2;
 export const FX_RENDER_ORDER_ABOVE = 3;
 export const FOG_RENDER_ORDER = 4;
+/** Task B4.4: the band a falling building's collapse `Mesh` draws in --
+ *  see the table's band-0 row above ("`STRUCTURE_RENDER_ORDER`...") for why
+ *  this is an explicit alias of `HULL_RENDER_ORDER` rather than a fresh
+ *  number, and why a real, individually-positioned `Mesh` needs it named
+ *  and set explicitly where `StructureInstancer` does not. */
+export const STRUCTURE_RENDER_ORDER = HULL_RENDER_ORDER;

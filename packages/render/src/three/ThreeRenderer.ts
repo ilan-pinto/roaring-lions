@@ -128,10 +128,16 @@ import {
   StructureInstancer,
   loadStructureFrame,
   structureBillboardGeometry,
+  collapseBillboardGeometry,
+  createCollapseMaterial,
+  collapseFrame,
   liveStructurePlacements,
   deadStructurePlacements,
+  footprintCentre,
+  structureAliveAlpha,
   resolveRoofPx,
 } from './units/structures';
+import { STRUCTURE_RENDER_ORDER } from './units/render-order';
 import { groundWorldY } from './ground-height';
 import { tileHash } from '../tile-hash';
 import { computeFog, isFogVisible, type FogInput } from './fog';
@@ -324,6 +330,65 @@ export class ThreeRenderer implements Renderer {
    * `structureWear` above.
    */
   private readonly structPuffTick = new Map<number, number>();
+  /**
+   * Task B4.4: a CONTINUOUS alpha cache, one float per
+   * structure, lazily grown to `sim.structureCount` exactly like
+   * `structureWear` above but holding the real `structureAliveAlpha` value
+   * this backend last actually drew for that structure, refreshed every
+   * frame by `cacheStructureAlpha` (called from `updateStructures`) for
+   * every LIVE, arted structure. `-1` is the "never cached" sentinel
+   * (`structureAliveAlpha`'s own range is `[0.55, 1]`, so `-1` cannot be a
+   * real value), read by `beginCollapse` as "assume full" -- the identical
+   * default Pixi's own `structureWear` uses for a structure that never took
+   * a `structureHit` event (`renderer.ts:298`, `0xff` clamped to the
+   * maximum band).
+   *
+   * This is a continuous cache rather than Pixi's own eight-step quantised
+   * one because `updateStructures` already recomputes an arted structure's
+   * displayed alpha from live `Sim` state EVERY frame, unconditionally (see
+   * that method's own doc comment) -- unlike Pixi, which only redraws a
+   * structure's sprite on a `terrainDirty` rebuild, so quantising into eight
+   * bands there is what keeps a rifle plinking a wall from redrawing every
+   * round. Nothing here redraws on account of this cache; it exists purely
+   * so `beginCollapse` can read back "what was on screen a moment ago"
+   * instead of `hp`/`maxHp`, which `Sim.destroyStructure` has already
+   * zeroed by the time a `structureDestroyed` event reaches this class
+   * (`packages/sim/src/sim.ts:4092-4095`).
+   */
+  private structureLastAlpha: Float32Array | null = null;
+  /**
+   * Task B4.4: the manifest facts `collapseBillboardGeometry` needs to
+   * rebuild a BASE-anchored quad matching the live idle sprite's own size --
+   * captured once at `loadStructureSprite` time (`spec.scale`, the decoded
+   * idle frame's own pixel dimensions), the identical facts
+   * `structureBillboardGeometry` was already called with for the live,
+   * CENTRED quad that draws every frame. Absent for a structure type with no
+   * loaded sheet, exactly like `structureIdle` itself -- `beginCollapse`
+   * checks both together.
+   */
+  private readonly structureCollapseArt = new Map<
+    string,
+    { scale: number; textureWidth: number; textureHeight: number }
+  >();
+  /**
+   * Buildings on their way down -- the three.js counterpart to
+   * `PixiRenderer`'s own `collapsing` field (`renderer.ts:459-478`). Each
+   * entry owns a real, individually-positioned `THREE.Mesh` (never a member
+   * of `structureIdle`/`structureWreck`'s instancers, and never added to
+   * `structureBoxes`), added to `scene` directly by `beginCollapse` and
+   * removed only by `stepCollapses` once its own fall finishes -- see
+   * `beginCollapse`'s own doc comment for why `updateStructures`' per-frame
+   * idle/wreck swap cannot delete it out from under the animation.
+   */
+  private readonly collapsing: {
+    mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+    /** Seconds elapsed since the fall began. */
+    t: number;
+    /** Alpha the building was last actually drawn at, so the fall continues
+     *  from what the player is already looking at rather than flashing back
+     *  to full -- mirrors Pixi's own `alpha0` field exactly. */
+    alpha0: number;
+  }[] = [];
   /** Reused across rebuilds -- one unlit, vertex-coloured material carries no
    *  per-terrain state, so there is nothing a fresh instance would buy. */
   private readonly terrainMat: THREE.Material = terrainMaterial();
@@ -649,6 +714,15 @@ export class ThreeRenderer implements Renderer {
     this.structureIdle.clear();
     for (const instancer of this.structureWreck.values()) instancer.dispose();
     this.structureWreck.clear();
+    // Task B4.4: each collapse owns its own geometry/material (the texture
+    // is borrowed from `structureIdle`, disposed above -- not here, see
+    // `StructureInstancer.spriteTexture`'s own doc comment).
+    for (const c of this.collapsing) {
+      this.scene.remove(c.mesh);
+      c.mesh.geometry.dispose();
+      c.mesh.material.dispose();
+    }
+    this.collapsing.length = 0;
     this.particleInstancerBelow.dispose();
     this.particleInstancerAbove.dispose();
     this.tracerBatch.dispose();
@@ -669,6 +743,12 @@ export class ThreeRenderer implements Renderer {
    *  advance) now feed every living unit's `EntityFrame` via `updateUnits`,
    *  and (Task B3.13) every live particle/tracer via `updateFx`. Terrain
    *  still reads neither: it has no per-frame presentation state.
+   *
+   *  Task B4.4: `stepCollapses` runs right after `updateStructures` -- the
+   *  two are independent, additive layers (see `beginCollapse`'s own doc
+   *  comment), so the order between them does not matter causally; placed
+   *  here simply because it is the other structure-presentation update this
+   *  frame does.
    *
    *  `drainTimers` runs FIRST, before anything reads `firingTimer`/`recoilT`/
    *  `flinchT` -- mirroring `PixiRenderer.frame()`'s own top-of-frame drain
@@ -694,6 +774,7 @@ export class ThreeRenderer implements Renderer {
     }
     this.updateUnits(alpha, dtMs);
     this.updateStructures();
+    this.stepCollapses(this.frameDtSeconds(dtMs));
     this.updateFx(dtMs);
     if (this.fogMeshDirty) {
       this.fogMesh.update(this.fog, this.retained.elevation, this.sim.width, this.sim.height);
@@ -906,13 +987,16 @@ export class ThreeRenderer implements Renderer {
         // own doc comment) is the deliberate asymmetry with `structureHit`
         // above, not an oversight.
         this.applyStructureDestroyed(e.structure);
+        // Task B4.4, ported from `renderer.ts:272-303`. Starts the falling
+        // sprite -- a separate, one-off mesh from the idle/wreck instancers
+        // `updateStructures` already swaps every frame -- see
+        // `beginCollapse`'s own doc comment for the ordering argument
+        // against that swap.
+        this.beginCollapse(e.structure);
         // Task B4.3, ported from `renderer.ts:880-901`. Masonry and a dust
         // bloom, authored in `data/vfx/structure_collapse.json`; falls back to
         // flat puffs when no emitter set is loaded, exactly like
-        // `onTunnelCollapsed` already does for `tunnel_collapse`. `beginCollapse`
-        // (the falling-sprite animation, `renderer.ts:272`) is Pixi's own
-        // sprite-atlas mechanism and has no counterpart here -- out of scope
-        // for this task, see the brief.
+        // `onTunnelCollapsed` already does for `tunnel_collapse`.
         const deadStruct = e.structure;
         this.structPuffTick.delete(deadStruct);
         const bx = fx.toNumber(this.sim.structures.cx[deadStruct]);
@@ -1473,6 +1557,15 @@ export class ThreeRenderer implements Renderer {
     }
 
     this.structureRoofArt.set(structureId, { roofTopPx: spec.roofTopPx, badgeTopPx: spec.badgeTopPx });
+    // Task B4.4: the exact inputs `collapseBillboardGeometry` needs to build
+    // a base-anchored quad matching `idleGeometry` above -- captured once
+    // here rather than re-derived at collapse time, since neither `spec` nor
+    // `idleFrame` survive past this method.
+    this.structureCollapseArt.set(structureId, {
+      scale: spec.scale,
+      textureWidth: idleFrame.width,
+      textureHeight: idleFrame.height,
+    });
     this.terrainDirty = true;
   }
 
@@ -1974,6 +2067,22 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
+   * Task B4.4: the lazy-grow counterpart of `ensureStructureWear` above, for
+   * `structureLastAlpha` -- same shape, `-1` as the "never cached" sentinel
+   * instead of `0xff` (see that field's own doc comment for why a float
+   * cache rather than a wear-step one).
+   */
+  private ensureStructureLastAlpha(): Float32Array {
+    const current = this.structureLastAlpha;
+    if (current && current.length >= this.sim.structureCount) return current;
+    const next = new Float32Array(this.sim.structureCount);
+    next.fill(-1);
+    if (current) next.set(current);
+    this.structureLastAlpha = next;
+    return next;
+  }
+
+  /**
    * Task B3.9: the incremental half of `structureHit` -- recomputes ONLY
    * the hit structure's own box geometry, and only when `dirty.ts`'s
    * eight-step wear quantisation says the hit actually crossed a visible
@@ -2131,6 +2240,127 @@ export class ThreeRenderer implements Renderer {
     }
     for (const [id, instancer] of this.structureWreck) {
       instancer.update(deadStructurePlacements(this.sim, id, elevation));
+    }
+    this.cacheStructureAlpha();
+  }
+
+  /**
+   * Task B4.4: snapshot every LIVE, arted structure's current billboard
+   * alpha into `structureLastAlpha` -- see that field's own doc comment for
+   * why `beginCollapse` needs a cache rather than a live read at the moment
+   * of death. A plain O(structureCount) scan, cheaper than the O(types x
+   * structureCount) work `updateStructures` already pays above (that
+   * method's own doc comment already accepts that shape at the GDD's
+   * 300-structure target).
+   */
+  private cacheStructureAlpha(): void {
+    const st = this.sim.structures;
+    const cache = this.ensureStructureLastAlpha();
+    for (let s = 0; s < this.sim.structureCount; s++) {
+      if (st.alive[s] !== 1) continue;
+      const type = this.sim.structureTypes[st.typeIdx[s]];
+      if (!this.structureIdle.has(type.id)) continue; // un-arted: structureBoxes' concern, not this cache's
+      cache[s] = structureAliveAlpha(st.hp[s], st.maxHp[s]);
+    }
+  }
+
+  /**
+   * Task B4.4: start a building falling -- the three.js counterpart to
+   * `PixiRenderer.beginCollapse` (`renderer.ts:272-303`).
+   *
+   * `updateStructures` swaps the idle billboard for the wreck one the
+   * instant `sim.alive` flips, every frame (see that method's own doc
+   * comment for why it has to poll live state rather than wait for a
+   * `terrainDirty` rebuild) -- this method adds a SEPARATE, one-off
+   * `THREE.Mesh` on top of that swap, exactly the way `structureBoxes`
+   * already gives an un-arted structure its own per-structure mesh outside
+   * the bulk-rebuilt terrain mesh. `updateStructures` cannot delete this
+   * mesh out from under the fall because it never touches it: that method
+   * only ever writes into `structureIdle`/`structureWreck`'s OWN instance
+   * buffers, keyed by structure TYPE, and this mesh is not a member of
+   * either -- it is tracked solely by `this.collapsing`, added to `scene`
+   * directly, and removed only by `stepCollapses` once its own fall
+   * finishes. The wreck billboard is therefore already sitting underneath,
+   * visible the instant `sim.alive` flips, exactly as Pixi's own comment on
+   * `beginCollapse` describes ("The wreck is already going down underneath
+   * on this rebuild, so all this adds is the intact sprite on top").
+   *
+   * Bails silently for a structure type with no loaded idle sheet -- the
+   * un-arted, procedurally-extruded case (`structureBoxes`) has no
+   * billboard to fell, matching Pixi's own `if (!art) return`
+   * (`renderer.ts:277`). Every shipped structure type has art today
+   * (`main.ts`'s `STRUCTURE_SPRITES`), so this branch is not reachable on
+   * any real mission, same as Pixi's.
+   *
+   * Anchored at the BASE, not the footprint's centred ground point every
+   * OTHER structure billboard uses -- `collapseBillboardGeometry` builds
+   * that separately; see its own doc comment for why a base anchor is what
+   * makes shrinking `mesh.scale.y` bring the roof down while the footprint
+   * stays exactly where it was, and for the `worldY - halfHeight`
+   * translation below.
+   *
+   * `alpha0` continues from `structureLastAlpha`'s cache rather than
+   * recomputing from `hp`/`maxHp` fresh -- see that field's own doc
+   * comment for why a fresh read at this exact moment would always answer
+   * "fully battered."
+   */
+  private beginCollapse(structure: number): void {
+    const st = this.sim.structures;
+    const type = this.sim.structureTypes[st.typeIdx[structure]];
+    const idle = this.structureIdle.get(type.id);
+    const art = this.structureCollapseArt.get(type.id);
+    if (!idle || !art) return;
+
+    const { fx: footX, fy: footY } = footprintCentre(this.sim, structure);
+    const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, footX, footY);
+    const cache = this.structureLastAlpha;
+    const cached = cache && structure < cache.length ? cache[structure] : -1;
+    const alpha0 = cached >= 0 ? cached : 1;
+
+    const geometry = collapseBillboardGeometry(art.scale, art.textureWidth, art.textureHeight);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(geometry.positions, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(geometry.uvs, 2));
+    geo.setIndex(new THREE.BufferAttribute(geometry.indices, 1));
+
+    const material = createCollapseMaterial(idle.spriteTexture, alpha0);
+    const mesh = new THREE.Mesh(geo, material);
+    // Base-anchored: local up runs 0..drawHeightPx (collapseBillboardGeometry),
+    // so translating to worldY - halfHeight lands the mesh's own local origin
+    // at the exact world point the CENTRED idle sprite's own bottom edge
+    // already sat at -- the fall begins with no visible pop, "covering the
+    // same ground the centred sprite did."
+    const halfHeightWorld = (geometry.drawHeightPx / 2) * WORLD_Y_PER_LIFT_PIXEL;
+    mesh.position.set(footX, worldY - halfHeightWorld, footY);
+    mesh.renderOrder = STRUCTURE_RENDER_ORDER;
+
+    this.scene.add(mesh);
+    this.collapsing.push({ mesh, t: 0, alpha0 });
+  }
+
+  /**
+   * Bring the falling buildings down one frame -- the three.js counterpart
+   * to `PixiRenderer.stepCollapses` (`renderer.ts:311-325`), identical
+   * squared easing via `collapseFrame` (see that function's own doc
+   * comment). `scale.y` needs no `scaleY0` multiplier the way Pixi's own
+   * sprite does: `collapseBillboardGeometry`'s quad is already sized to its
+   * final world extent (the same convention every other billboard in this
+   * backend uses), so three.js's rest scale is simply `1` -- `collapseFrame`
+   * already returns that ratio directly.
+   */
+  private stepCollapses(dtSeconds: number): void {
+    for (let i = this.collapsing.length - 1; i >= 0; i--) {
+      const c = this.collapsing[i];
+      c.t += dtSeconds;
+      const result = collapseFrame(c.t, c.alpha0);
+      c.mesh.scale.y = result.scaleY;
+      c.mesh.material.opacity = result.alpha;
+      if (result.done) {
+        this.scene.remove(c.mesh);
+        c.mesh.geometry.dispose();
+        c.mesh.material.dispose();
+        this.collapsing.splice(i, 1);
+      }
     }
   }
 }

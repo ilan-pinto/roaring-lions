@@ -34,8 +34,14 @@ import {
   liveStructurePlacements,
   deadStructurePlacements,
   resolveRoofPx,
+  structureAliveAlpha,
   structureBillboardGeometry,
+  collapseBillboardGeometry,
+  collapseFrame,
+  COLLAPSE_SECONDS,
+  COLLAPSE_SQUASH,
   writeStructureInstances,
+  footprintCentre,
   type StructureInstanceBuffers,
 } from './structures';
 
@@ -378,5 +384,131 @@ describe('writeStructureInstances', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+describe('structureAliveAlpha', () => {
+  it('full integrity (hp === maxHp) gives alpha 1', () => {
+    expect(structureAliveAlpha(100, 100)).toBeCloseTo(1, 10);
+  });
+
+  it('zero hp gives the floor, 0.55', () => {
+    expect(structureAliveAlpha(0, 100)).toBeCloseTo(0.55, 10);
+  });
+
+  it('follows 0.55 + 0.45 * integrity at a mid-damage point, exactly matching structurePlacements\' own formula', () => {
+    expect(structureAliveAlpha(20, 100)).toBeCloseTo(0.55 + 0.45 * 0.2, 10);
+  });
+
+  it('negative hp (never observed in practice -- destroyStructure clamps to 0) still clamps to the floor rather than going negative', () => {
+    expect(structureAliveAlpha(-50, 100)).toBeCloseTo(0.55, 10);
+  });
+
+  it('a zero maxHp degrades to full alpha rather than dividing by zero into NaN', () => {
+    expect(structureAliveAlpha(0, 0)).toBeCloseTo(1, 10);
+  });
+});
+
+describe('footprintCentre', () => {
+  it("matches liveStructurePlacements' own (min + max + 1) / 2 formula for the same structure", () => {
+    const { sim, mosqueIdx } = buildSim();
+    const { fx, fy } = footprintCentre(sim, mosqueIdx);
+    const placement = liveStructurePlacements(sim, 'mosque', null)[0];
+    expect(fx).toBeCloseTo(placement.fx, 10);
+    expect(fy).toBeCloseTo(placement.fy, 10);
+  });
+});
+
+describe('collapseBillboardGeometry', () => {
+  // Same fixture as structureBillboardGeometry's own describe block above,
+  // so the two are directly comparable -- this geometry is meant to be the
+  // SAME size, only re-anchored.
+  const scale = 4.5266;
+  const centred = structureBillboardGeometry(scale, 512, 600);
+  const geo = collapseBillboardGeometry(scale, 512, 600);
+  const F32_TOL = 5;
+
+  it('draws at the exact same width/height as the centred geometry for identical inputs -- only the anchor differs', () => {
+    expect(geo.drawWidthPx).toBeCloseTo(centred.drawWidthPx, 10);
+    expect(geo.drawHeightPx).toBeCloseTo(centred.drawHeightPx, 10);
+  });
+
+  it('is BASE-anchored: both bottom vertices sit at local y = 0, not -halfHeight', () => {
+    expect(geo.positions[0 * 3 + 1]).toBeCloseTo(0, F32_TOL); // bl.y
+    expect(geo.positions[1 * 3 + 1]).toBeCloseTo(0, F32_TOL); // br.y
+  });
+
+  it('the top edge sits a full drawHeightPx above the base, not merely halfHeight', () => {
+    const fullH = geo.drawHeightPx * WORLD_Y_PER_LIFT_PIXEL;
+    expect(geo.positions[2 * 3 + 1]).toBeCloseTo(fullH, F32_TOL); // tr.y
+    expect(geo.positions[3 * 3 + 1]).toBeCloseTo(fullH, F32_TOL); // tl.y
+  });
+
+  it("the base sits at the SAME world point the centred geometry's own bottom edge sat at, once translated by -halfHeight", () => {
+    // ThreeRenderer.beginCollapse translates this quad's local origin to
+    // `worldY - halfHeight`. Reproduced here: base-anchored bl.y (0) plus
+    // that translation should equal centred bl.y plus zero translation.
+    const halfHeight = (centred.drawHeightPx / 2) * WORLD_Y_PER_LIFT_PIXEL;
+    const collapseBaseWorldY = geo.positions[0 * 3 + 1] - halfHeight;
+    expect(collapseBaseWorldY).toBeCloseTo(centred.positions[0 * 3 + 1], F32_TOL);
+  });
+
+  it('is symmetric left/right about the origin, matching the centred geometry\'s own X/Z extents', () => {
+    expect(geo.positions[0 * 3 + 0]).toBeCloseTo(centred.positions[0 * 3 + 0], F32_TOL); // bl.x
+    expect(geo.positions[1 * 3 + 0]).toBeCloseTo(centred.positions[1 * 3 + 0], F32_TOL); // br.x
+  });
+
+  it('uv/index convention matches structureBillboardGeometry exactly -- same texture, same camera, same winding', () => {
+    expect(Array.from(geo.uvs)).toEqual(Array.from(centred.uvs));
+    expect(Array.from(geo.indices)).toEqual(Array.from(centred.indices));
+  });
+
+  it('a zero-width texture degrades to a zero-size quad rather than dividing by zero into NaN/Infinity', () => {
+    const degenerate = collapseBillboardGeometry(scale, 0, 0);
+    expect(degenerate.drawWidthPx).toBeCloseTo(scale * TILE_W, 10);
+    expect(degenerate.drawHeightPx).toBe(0);
+    expect(Array.from(degenerate.positions).every((n) => Number.isFinite(n))).toBe(true);
+  });
+});
+
+describe('collapseFrame', () => {
+  it('at t = 0, scaleY is 1 (rest scale) and alpha is unchanged from alpha0', () => {
+    const frame = collapseFrame(0, 0.8);
+    expect(frame.scaleY).toBeCloseTo(1, 10);
+    expect(frame.alpha).toBeCloseTo(0.8, 10);
+    expect(frame.done).toBe(false);
+  });
+
+  it('follows squared easing at the midpoint: p = 0.5, e = 0.25', () => {
+    const frame = collapseFrame(COLLAPSE_SECONDS / 2, 1);
+    expect(frame.scaleY).toBeCloseTo(1 - COLLAPSE_SQUASH * 0.25, 10);
+    expect(frame.alpha).toBeCloseTo(1 * (1 - 0.25), 10);
+    expect(frame.done).toBe(false);
+  });
+
+  it('at t = COLLAPSE_SECONDS, the fall is done: alpha reaches 0, scaleY reaches 1 - COLLAPSE_SQUASH', () => {
+    const frame = collapseFrame(COLLAPSE_SECONDS, 1);
+    expect(frame.scaleY).toBeCloseTo(1 - COLLAPSE_SQUASH, 10);
+    expect(frame.alpha).toBeCloseTo(0, 10);
+    expect(frame.done).toBe(true);
+  });
+
+  it('t past COLLAPSE_SECONDS clamps rather than overshooting (p is capped at 1)', () => {
+    const atEnd = collapseFrame(COLLAPSE_SECONDS, 1);
+    const wayPast = collapseFrame(COLLAPSE_SECONDS * 5, 1);
+    expect(wayPast.scaleY).toBeCloseTo(atEnd.scaleY, 10);
+    expect(wayPast.alpha).toBeCloseTo(atEnd.alpha, 10);
+    expect(wayPast.done).toBe(true);
+  });
+
+  it('a linear fall would NOT match this -- confirms the easing is genuinely squared, not linear', () => {
+    // At p = 0.5 a LINEAR fall would have eased exactly half the distance
+    // (e = 0.5); the squared curve eases only a quarter (e = 0.25) -- so the
+    // squared result must sit strictly ABOVE (less collapsed than) the
+    // linear one at the midpoint, matching Pixi's own "accelerates as it
+    // goes" reasoning.
+    const squared = collapseFrame(COLLAPSE_SECONDS / 2, 1);
+    const linearAlpha = 1 * (1 - 0.5);
+    expect(squared.alpha).toBeGreaterThan(linearAlpha);
   });
 });
