@@ -376,3 +376,128 @@ Hazard 8 (the toon shader has never been compiled) stays open — B3's units are
 **Type consistency.** `EntityFrame`/`EntityFrameInput` are defined in B3.3 and consumed by B3.5–B3.7. `FramePacking` is defined in B3.4 and consumed by B3.5. `groundWorldY` (B3.2) is consumed by B3.3. `MeshData`/`TerrainInput` keep B2's definitions in `terrain/types.ts`. `shared.ts` (B3.1) is the home for everything B2 duplicated, and must exist before any later task imports from it.
 
 **Ordering.** B3.1 and B3.2 are independent and both pure. B3.3 needs B3.2. B3.4 is independent. B3.5 needs B3.3 and B3.4 and is where anything becomes visible — task five of eleven, deliberately, so the phase produces something watchable before its infrastructure half. B3.6–B3.8 each need B3.5. B3.9 needs B3.1. B3.10 needs B3.9, per ruling 5. B3.11 needs everything.
+
+---
+
+# Addendum: combat feedback, pulled forward
+
+**Added 2026-08-27, after the user reviewed the running build.** Units were visible and
+selectable but nothing shot at anything: no tracers, no muzzle flashes, no hits, no deaths.
+The spec puts VFX in Phase C, and on paper that ordering was right — get the world and its
+inhabitants correct, then dress them. In practice every look at the build reads as broken
+rather than partial.
+
+So these three tasks run **next**, ahead of B3.6 (turrets), B3.7 (structure sprites), B3.9
+(incremental terrain rebuild), B3.10 (`onEvents`) and B3.11 (the 300-unit gate).
+
+## What the research found, and why this is cheaper than it looks
+
+**`ParticleSystem` is already backend-agnostic.** `packages/render/src/vfx/particles.ts` has
+exactly one Pixi reference — `import type { Graphics }` — which is a **type-only** import and
+erases at runtime. `spawn()` and `step()` are pure struct-of-arrays maths over `Float64Array`s.
+Only `draw()` is Pixi-shaped, and only in its parameter type.
+
+`vfx/emitters.ts` (`EmitterLibrary`, `EmitterSpec`, `ParticleSpec`) and `vfx/power.ts`
+(`firePower`) import nothing at all.
+
+So the three.js backend reuses the entire particle model and writes its own draw. **Do not
+reimplement particle stepping.** Two particle simulations diverging is a bug nobody can see
+and everybody can feel.
+
+## Ruling: `onEvents` splits in two, and only half needs the rebuild work
+
+Pixi's `onEvents` (`renderer.ts:756`) handles nine kinds: `fire`, `impact`, `nearMiss`, `aps`,
+`strike`, `destroyed`, `tunnelCollapsed`, `structureHit`, `structureDestroyed`.
+
+Ruling 5 of this plan says the terrain rebuild must be made incremental before `onEvents` is
+wired, because Pixi marks terrain dirty on **every structure-damage event** and a full rebuild
+costs 114–179 ms. That ruling stands — **but it only binds the last two kinds.**
+
+The other seven are pure presentation: they spawn particles, start a muzzle flash, push a
+tracer, begin a death fade. **None of them touches terrain.** So combat feedback can land now,
+and `structureHit`/`structureDestroyed` wait for B3.9 exactly as planned.
+
+*Cost if wrong:* none identified. The split is along the line the events themselves draw.
+
+---
+
+## Task B3.12: a backend-agnostic read path for particles and tracers
+
+**Files:**
+- Modify: `packages/render/src/vfx/particles.ts`
+- Create: `packages/render/src/three/units/tracers.ts` + test
+
+**Interfaces:**
+- Produces on `ParticleSystem`: `forEachLive(layerIdx, cb)` — or an equivalent read accessor —
+  exposing position, colour, alpha and radius per live particle **without** naming a graphics
+  library.
+- Produces: `stepTracers(tracers, dt)`, `TracerModel` — the `Tracer[]`-with-ttl model from
+  `renderer.ts:95` and `:2597-2601`, extracted pure.
+
+`ParticleSystem`'s per-particle fields are private and `draw()` is the only accessor. Add a read
+path rather than making the fields public: the sampling of colour, alpha and size curves
+(`sampleStep`/`sampleLerp` at the top of the file) is real logic, and both backends must get the
+identical answer or the same emitter looks different in each.
+
+**This edits a file Pixi uses.** It must be provably additive — `draw()` keeps working
+byte-identically, and the 1091-test suite is the guard. Run it after the change and say so.
+
+- [ ] **Steps:** failing tests → implement → break check → commit
+
+Test that the read path yields exactly what `draw()` would have drawn for the same state: same
+positions, same sampled colour, same alpha, same radius, same layer filtering, same skip of
+`alive === 0` and of `r <= 0 || alpha <= 0`.
+
+Break check: change the curve sampling in the read path only, and confirm a test catches the
+divergence between the two accessors.
+
+---
+
+## Task B3.13: VFX on screen
+
+**Files:**
+- Create: `packages/render/src/three/units/fx.ts` + test
+- Modify: `packages/render/src/three/ThreeRenderer.ts`
+
+`useEmitters` currently retains its argument and returns. Wire it: build the `EmitterLibrary`,
+hold the `resolve` callback, and construct a `ParticleSystem` — the same `2048` capacity Pixi
+uses (`renderer.ts:644`).
+
+Draw particles and tracers in `frame()`. Instanced quads are the obvious shape, matching the
+unit billboards; whatever you choose, **one draw call for all particles** is the target, for the
+same reason units got one per type.
+
+**Depth.** Pixi has two particle layers, `FX_LAYER_BELOW` and `FX_LAYER_ABOVE`, drawn either
+side of the sprite layer. In three.js that is a depth question, not a layer-order one — a
+particle is at a world position and the depth buffer sorts it. Say in your report how you
+handled the two layers and whether the distinction survives translation.
+
+Note `CLAUDE.md` records a known Pixi debt here: `trailG`, `fxG` and `wreckLayer` sit below
+`spriteLayer` unconditionally, so a tracer in front of a ridge is covered by it. **In three.js
+that debt should simply not exist.** If it does, say why.
+
+- [ ] **Steps:** implement → gate → browser check → commit
+
+Browser: particles must appear where Pixi's do. Compare the same emitter side by side.
+
+---
+
+## Task B3.14: the presentation half of `onEvents`
+
+**Files:** modify `packages/render/src/three/ThreeRenderer.ts`; extend `frame-state.ts` if
+recoil and flinch need per-entity timers.
+
+Wire the seven presentation kinds: `fire`, `impact`, `nearMiss`, `aps`, `strike`, `destroyed`,
+`tunnelCollapsed`. Port from `renderer.ts:756` onward — muzzle flash position and direction,
+tracer spawn (including the "shots at buildings carry target −1: aim the tracer at the building"
+case at `:759`), impact effects, the death fade in `stepDeaths`, and the recoil and flinch
+decay timers `frame()` drains at its top.
+
+**Do NOT wire `structureHit` or `structureDestroyed`.** They mark terrain dirty, and Task B3.9
+must make that incremental first — a full rebuild is 114–179 ms and Pixi fires these on every
+damage event. Leave them unhandled with a comment saying which task owns them.
+
+- [ ] **Steps:** failing tests where the logic is pure → implement → browser check → commit
+
+Browser: fire a real mission under `?renderer=three` and watch a firefight. Tracers, flashes,
+impacts, deaths. Compare against Pixi at the same moment.
