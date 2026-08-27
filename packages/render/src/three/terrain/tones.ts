@@ -102,8 +102,7 @@ export function quantise(hex: string, palette: readonly string[]): string {
  *
  * | tile                        | Pixi source          | composite |
  * |------------------------------|----------------------|-----------|
- * | open, stone scatter          | renderer.ts:1514-1518| `open` at `0.92 + rnd * 0.08` |
- * | open, sward scatter          | same                  | `open` at `0.96 + rnd * 0.04` |
+ * | open ground (either scatter) | renderer.ts:1514-1518| `open` at a fixed alpha -- see below |
  * | road                         | renderer.ts:1522-1525| open wash, then `road` at `0.85` |
  * | under a (sprited) structure  | renderer.ts:1489-1491| `open` at `0.92 + rnd * 0.08`, then `underBuilding` at `0.22` |
  * | blocked, ridge decor         | renderer.ts:1439-1452| `rock` at `0.92` |
@@ -114,6 +113,24 @@ export function quantise(hex: string, palette: readonly string[]): string {
  * so the canvas's own clear colour (`RendererOptions.background`) is what a
  * `< 1` alpha reveals underneath. It is a parameter here rather than an
  * import so this module stays a pure function of its inputs.
+ *
+ * The open-ground wash uses a FIXED alpha, not Pixi's per-tile hash jitter
+ * (`0.92 + rnd * 0.08`, or `0.96 + rnd * 0.04` on sward) -- a Task B2.5
+ * review ruling. Quantised, that jitter's raw range does not survive as
+ * texture: sweeping `rnd` over the `arid` theme's own tones lands on exactly
+ * two palette entries, assigned by tile hash, which is a checkerboard by
+ * construction rather than the smooth per-tile variation Pixi's continuous
+ * alpha produces. Quantisation makes it worse, not just flatter: the
+ * darker of the two entries sits outside the jitter's own continuous range,
+ * so the step between adjacent tiles ends up LARGER than the entire range
+ * Pixi's jitter ever spanned. Any alpha from 0.96 to 1.0 quantises to the
+ * same single entry for `arid`, so 1.0 is used -- the simplest value that
+ * settles the choice, not a tuned one. `buildScatter`'s grain now supplies
+ * the per-tile texture the jitter was standing in for, which is what makes
+ * dropping it free rather than a loss. The under-building wash (the other
+ * `openWash` below) keeps its jitter -- it was not what this ruling measured
+ * or asked to change, and a building's footprint is small enough that its
+ * checkerboard, if any, was never the complaint.
  */
 export function groundTone(
   input: TerrainInput,
@@ -135,8 +152,7 @@ export function groundTone(
     return quantise(composite(openWash, tones.underBuilding, 0.22), palette);
   }
 
-  const openAlpha = tones.scatter === 'sward' ? 0.96 + rnd * 0.04 : 0.92 + rnd * 0.08;
-  const openWash = composite(background, tones.open, openAlpha);
+  const openWash = composite(background, tones.open, 1);
 
   if (decorHere === DECOR_ROAD) {
     return quantise(composite(openWash, tones.road, 0.85), palette);

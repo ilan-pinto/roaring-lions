@@ -134,8 +134,14 @@ describe('buildScatter', () => {
     const topY = 5 * WORLD_PER_LEVEL;
     // Rules out "the face's own top-edge band explains this" -- only a
     // grain highlight correctly placed at the tile's own raised top can
-    // clear this ceiling.
-    expect(maxY).toBeGreaterThan(topY + FACE_BAND_HALF_Y);
+    // clear this ceiling. The intended margin is exactly zero
+    // (HIGHLIGHT_EPSILON > FACE_BAND_HALF_Y by construction); +1e-6 keeps
+    // the assertion from resting on which way Float32 happens to round
+    // topY + FACE_BAND_HALF_Y for these particular constants.
+    expect(
+      maxY,
+      'mesh does not clear the face top-edge band\'s own ceiling -- suggests grain reused the face height rather than its own tile top'
+    ).toBeGreaterThan(topY + FACE_BAND_HALF_Y + 1e-6);
     expect(maxY).toBeCloseTo(topY + HIGHLIGHT_EPSILON, 5);
   });
 
@@ -208,16 +214,18 @@ describe('buildScatter', () => {
       const b = at(m.indices[i + 1]);
       const c = at(m.indices[i + 2]);
       const normal = cross(sub(b, a), sub(c, a));
-      // A mark whose position hash puts it far enough outside the tile that
-      // EVERY corner clamps to the same edge value collapses to a
-      // zero-area, colinear triangle (confirmed against tile (0,0)'s k=0
-      // fleck, where a coincidental tileHash(0, 0) = 0 drives exactly this).
-      // Zero area means no winding to check -- and nothing wrong to render,
-      // since a degenerate triangle draws nothing either way. Skipping it is
-      // not the same as skipping a wrong-but-tiny triangle: `pushMark`'s
-      // clamp is per-corner and unconditional, so any triangle that is NOT
-      // degenerate still has every corner placed by the same code path and
-      // must still wind correctly.
+      // `pushMark`'s clamp repositions a mark whose raw offset would escape
+      // the tile (shifting its centre inward, full size intact) rather than
+      // shrinking it, so a degenerate zero-area triangle should not occur
+      // for anything this module actually builds -- confirmed by instrument-
+      // ing this fixture's own triangle magnitudes, all comfortably above
+      // 1e-3. The skip below guards the shrink fallback `pushMark`'s own doc
+      // comment describes for a shape whose half-extent alone exceeds
+      // CLAMP_LIMIT (nothing here reaches that), which WOULD still collapse
+      // cleanly to a single point -- an unambiguous zero-area degenerate
+      // with no winding to check, not a wrong-but-tiny triangle. Every
+      // triangle actually reached below still has every corner placed by
+      // the same code path and must still wind correctly.
       const magnitude = Math.hypot(normal[0], normal[1], normal[2]);
       if (magnitude < 1e-9) continue;
       const d = dot(normal, [VIEW_DIRECTION.x, VIEW_DIRECTION.y, VIEW_DIRECTION.z]);

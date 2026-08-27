@@ -132,10 +132,6 @@ export function screenOffsetToWorld(dx: number, dy: number): { dx: number; dy: n
   };
 }
 
-function clampAxis(v: number): number {
-  return Math.max(-CLAMP_LIMIT, Math.min(CLAMP_LIMIT, v));
-}
-
 function hexToUnit(hex: string): [number, number, number] {
   const h = hex.charAt(0) === '#' ? hex.slice(1) : hex;
   return [
@@ -226,9 +222,7 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
    * `corners` (screen-pixel offsets from that centre) tracing its shape.
    * Both convert through `screenOffsetToWorld`; when `clamp` is set, the
    * whole mark is then kept inside `CLAMP_LIMIT` tiles of `(originX,
-   * originZ)` by clamping its centre and, if the shape's own extent would
-   * still poke past that bound, shrinking the shape uniformly about the
-   * (already-clamped) centre until it does not.
+   * originZ)`.
    *
    * The clamp is not optional. Pixi bounds each mark's *own* pixel offset
    * against the screen-space tile diamond by eye, one axis at a time -- but
@@ -241,18 +235,33 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
    * task's brief warns about, just triggered by the diamond/rectangle
    * mismatch rather than by elevation.
    *
-   * Scaling uniformly about the centre -- rather than clamping each of the
-   * four corners independently -- matters beyond cosmetics: an earlier
-   * version did clamp per corner, and a mark whose centre sat right at the
-   * boundary while its corners straddled it left some corners clamped and
-   * others not, producing a near-degenerate quad. Float32 rounding on that
-   * near-collinear triangle flipped its winding sign under this task's own
-   * winding test. A uniform scale is an orientation-preserving similarity
-   * transform -- it can only shrink a mark toward its centre, cleanly to a
-   * single point in the extreme case (a true, unambiguous zero-area
-   * degenerate, not a numerically-ambiguous sliver) -- so winding can never
-   * flip. `clamp: false` is for marks -- scree -- whose anchor is not a tile
-   * centre and whose bound the caller has already handled by hand.
+   * Reposition first, shrink only as a fallback. The centre is clamped not
+   * to `CLAMP_LIMIT` itself but to `CLAMP_LIMIT - <this mark's own
+   * half-extent>`, which is exactly enough room for its full, unscaled
+   * shape to still fit once the centre lands at that tighter bound -- so
+   * `scale` stays 1 for every mark this module actually builds (checked by
+   * hand against all of them; the largest, a road rut's rect at ~0.43 tiles
+   * of half-extent, still leaves headroom under `CLAMP_LIMIT`). A raw offset
+   * that would have escaped the tile shifts inward instead, full size
+   * intact -- not shrinking toward a point, which was silently thinning the
+   * grain exactly where the underlying hash was most distinctive. Only a
+   * shape whose own half-extent exceeded `CLAMP_LIMIT` outright -- nothing
+   * here does -- would still need the shrink fallback below; the maths
+   * stays correct if one ever does.
+   *
+   * Scaling uniformly -- one `scale` factor applied to both axes of every
+   * corner, rather than clamping each corner independently -- matters
+   * beyond cosmetics: an earlier version clamped per corner, and a mark
+   * whose centre sat right at the boundary while its corners straddled it
+   * left some corners clamped and others not, producing a near-degenerate
+   * quad. Float32 rounding on that near-collinear triangle flipped its
+   * winding sign under this task's own winding test. A uniform scale is an
+   * orientation-preserving similarity transform -- it can only shrink a
+   * mark toward its centre, cleanly to a single point in the extreme case
+   * (a true, unambiguous zero-area degenerate, not a numerically-ambiguous
+   * sliver) -- so winding can never flip. `clamp: false` is for marks --
+   * scree -- whose anchor is not a tile centre and whose bound the caller
+   * has already handled by hand.
    */
   const pushMark = (
     originX: number,
@@ -273,16 +282,18 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
     let centerZ = center.dy;
     let scale = 1;
     if (clamp) {
-      centerX = clampAxis(centerX);
-      centerZ = clampAxis(centerZ);
-      const roomX = CLAMP_LIMIT - Math.abs(centerX);
-      const roomZ = CLAMP_LIMIT - Math.abs(centerZ);
       let maxAbsDX = 0;
       let maxAbsDZ = 0;
       for (const d of cornerDeltas) {
         maxAbsDX = Math.max(maxAbsDX, Math.abs(d.dx));
         maxAbsDZ = Math.max(maxAbsDZ, Math.abs(d.dy));
       }
+      const limitX = Math.max(0, CLAMP_LIMIT - maxAbsDX);
+      const limitZ = Math.max(0, CLAMP_LIMIT - maxAbsDZ);
+      centerX = Math.max(-limitX, Math.min(limitX, centerX));
+      centerZ = Math.max(-limitZ, Math.min(limitZ, centerZ));
+      const roomX = CLAMP_LIMIT - Math.abs(centerX);
+      const roomZ = CLAMP_LIMIT - Math.abs(centerZ);
       if (maxAbsDX > 0) scale = Math.min(scale, roomX / maxAbsDX);
       if (maxAbsDZ > 0) scale = Math.min(scale, roomZ / maxAbsDZ);
     }
@@ -359,7 +370,20 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
     // it uses `pushMark` like any other ground mark -- but anchored at the
     // shared-edge point, not a tile centre, so `clamp: false`; the edge
     // parameter is clamped by hand instead (`SCREE_A_MIN`/`MAX`).
+    //
+    // Composites against the NEIGHBOUR tile's own groundTone, not `faceHex`:
+    // scree sits on the lower tile's ground, and the inherited rule is "the
+    // tile beneath a mark", not "the face it dresses". A neighbour that is
+    // off the map (a rim tile's own drop) has no groundTone to read, so it
+    // falls back to `background` -- the same base groundTone itself starts
+    // from, and consistent with nothing having been drawn there.
     if (drop < 2) return;
+    const neighborX = faceTag === 0 ? x + 1 : x;
+    const neighborY = faceTag === 0 ? y : y + 1;
+    const neighborInBounds = neighborX >= 0 && neighborX < width && neighborY >= 0 && neighborY < height;
+    const screeBaseHex = neighborInBounds
+      ? groundTone(input, tones, neighborY * width + neighborX, PALETTE_HEXES, background)
+      : background;
     const hCount = tileHash(x * 29 + faceTag * 101 + drop, y * 31 + faceTag * 103);
     const n = 3 + (Math.floor(hCount * 1000) & 1);
     for (let k = 0; k < n; k++) {
@@ -367,10 +391,14 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
       const bits = tileHash(x * 43 + faceTag * 113 + k * 3, y * 47 + faceTag * 127 + k * 11);
       const r = 2 + bits * 1.5;
       const aClamped = Math.max(SCREE_A_MIN, Math.min(SCREE_A_MAX, a));
-      const screeHex = quantise(composite(faceHex, tones.rock, 0.9), PALETTE_HEXES);
+      const screeHex = quantise(composite(screeBaseHex, tones.rock, 0.9), PALETTE_HEXES);
       const hlHex = quantise(composite(screeHex, tones.rockLit, 0.5), PALETTE_HEXES);
-      const originX = faceTag === 0 ? x + 1 - SCREE_INSET : x + aClamped;
-      const originZ = faceTag === 0 ? y + aClamped : y + 1 - SCREE_INSET;
+      // Onto the LOWER tile, off the exact shared edge -- SCREE_INSET's own
+      // doc comment says so; a `- SCREE_INSET` sign here previously put it
+      // on the RAISED tile's side instead, inside the wedge the face quad
+      // itself covers, where it was occluded and invisible.
+      const originX = faceTag === 0 ? x + 1 + SCREE_INSET : x + aClamped;
+      const originZ = faceTag === 0 ? y + aClamped : y + 1 + SCREE_INSET;
       pushMark(originX, originZ, bottomY, MARK_EPSILON, 0, 0, diamondCorners(r, r * 0.6), screeHex, false);
       pushMark(
         originX,
@@ -490,7 +518,10 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
                 composite(baseHex, b > 0.4 ? tones.bladeLit : tones.bladeShade, 0.6 + a * 0.3),
                 PALETTE_HEXES
               );
-              pushMark(cx, cz, topY, MARK_EPSILON, px, py, rectCorners(0.75, -bh, 0), bladeHex, true);
+              // halfW 0.5 matches Pixi's own 1px stroke width exactly
+              // (renderer.ts:1594's `width: 1`) -- not a rounder-looking
+              // 0.75, which would read 50% thicker than the source.
+              pushMark(cx, cz, topY, MARK_EPSILON, px, py, rectCorners(0.5, -bh, 0), bladeHex, true);
             }
             if (rnd > 0.9) {
               // Bare earth patch (renderer.ts:1596-1605).
@@ -515,6 +546,12 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
               const bx = (a - 0.5) * 30;
               const by = (rnd - 0.9) * 18;
               const tussockHex = quantise(composite(baseHex, tones.low, 0.8), PALETTE_HEXES);
+              // Pixi's three strokes (renderer.ts:1612-1615) run from (bx, by)
+              // to (bx + k*2.6, by - 4.2 - a*1.6) for k in {-1, 0, 1}: exact
+              // tip height 4.2 + a*1.6, exact base 0. Padded by 0.6 on both
+              // ends -- half of the 1.2px stroke width (:1615) -- so the
+              // bounding box holds the stroke's rendered pixels, not just its
+              // ideal path.
               pushMark(
                 cx,
                 cz,
@@ -522,7 +559,7 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
                 MARK_EPSILON,
                 bx,
                 by,
-                rectCorners(3.2, -(4.6 + a * 1.6), 0.6),
+                rectCorners(3.2, -(4.2 + a * 1.6 + 0.6), 0.6),
                 tussockHex,
                 true
               );
