@@ -8,11 +8,18 @@
  * tree threshold matches Pixi's `tileHash(x * 3, y * 7) > 0.62`.
  */
 import { describe, it, expect } from 'vitest';
-import { buildGroves } from './grove';
+import {
+  buildGroves,
+  TRUNK_EPSILON,
+  TRUNK_LIT_EPSILON,
+  CROWN_EPSILON,
+  CROWN_MID_EPSILON,
+  CROWN_LIT_EPSILON,
+} from './grove';
 import { WORLD_PER_LEVEL } from './ground';
 import { PALETTE_HEXES } from './tones';
 import { tileHash } from '../../tile-hash';
-import { VIEW_DIRECTION } from '../camera';
+import { VIEW_DIRECTION, WORLD_Y_PER_LIFT_PIXEL } from '../camera';
 import type { TerrainInput } from './types';
 
 const TONES = {
@@ -111,15 +118,27 @@ describe('buildGroves', () => {
   });
 
   describe('the twin-tree threshold', () => {
-    it('draws one tree (trunk + 6 crown quads + shadow = 8 quads) below the threshold', () => {
+    // One tree = 2 quads (trunk, trunk highlight -- 2 triangles each) + 5
+    // octagon-approximated crown ellipses (3 dark lobes, 2 highlights -- 6
+    // triangles each, CROWN_LOBE_SEGMENTS - 2). The trunk shadow is one
+    // quad per TILE, not per tree.
+    const TRUNK_QUAD_TRIANGLES = 2;
+    const TRUNK_HIGHLIGHT_TRIANGLES = 2;
+    const CROWN_ELLIPSE_TRIANGLES = 6; // 8-corner fan: 8 - 2
+    const CROWN_ELLIPSES_PER_TREE = 5; // 3 dark lobes + 2 highlights
+    const TRIANGLES_PER_TREE =
+      TRUNK_QUAD_TRIANGLES + TRUNK_HIGHLIGHT_TRIANGLES + CROWN_ELLIPSE_TRIANGLES * CROWN_ELLIPSES_PER_TREE;
+    const SHADOW_TRIANGLES = 2;
+
+    it('draws one tree below the threshold', () => {
       const m = buildGroves(groveAt(1, 1, SINGLE_X, SINGLE_Y), TONES, '#14150F');
-      expect(m.indices.length).toBe(8 * 6);
+      expect(m.indices.length).toBe((SHADOW_TRIANGLES + TRIANGLES_PER_TREE) * 3);
     });
 
-    it('draws two trees (14 crown/trunk quads + shadow = 15 quads) above the threshold', () => {
+    it('draws two trees above the threshold', () => {
       const w = TWIN_X + 1;
       const m = buildGroves(groveAt(w, 1, TWIN_X, TWIN_Y), TONES, '#14150F');
-      expect(m.indices.length).toBe(15 * 6);
+      expect(m.indices.length).toBe((SHADOW_TRIANGLES + 2 * TRIANGLES_PER_TREE) * 3);
     });
   });
 
@@ -205,5 +224,40 @@ describe('buildGroves', () => {
       const d = dot(normal, [VIEW_DIRECTION.x, VIEW_DIRECTION.y, VIEW_DIRECTION.z]);
       expect(d, `triangle ${i / 3} (indices ${i}-${i + 2}) winds away from the camera`).toBeGreaterThan(0);
     }
+  });
+
+  describe('the inter-lobe epsilon layering', () => {
+    // Every quad of one tree is coplanar (right/up are both literal world
+    // axes shared by the whole tree), so wherever two layers' polygons
+    // genuinely overlap in screen space they are, before the epsilon, an
+    // EXACT depth tie -- the ordering below is the only thing that resolves
+    // it, in either paint-order direction. A future edit that reorders or
+    // collapses these constants would make some layer render behind one it
+    // should cover, silently -- this asserts the ordering directly rather
+    // than trusting the module doc comment that describes it.
+    it('is strictly increasing, in Pixi paint order', () => {
+      expect(TRUNK_EPSILON).toBeLessThan(TRUNK_LIT_EPSILON);
+      expect(TRUNK_LIT_EPSILON).toBeLessThan(CROWN_EPSILON);
+      expect(CROWN_EPSILON).toBeLessThan(CROWN_MID_EPSILON);
+      expect(CROWN_MID_EPSILON).toBeLessThan(CROWN_LIT_EPSILON);
+    });
+
+    it('is large enough to break a coplanar tie, and small enough not to read as floating apart', () => {
+      // Converted to screen-pixel-equivalent rise (divide by
+      // WORLD_Y_PER_LIFT_PIXEL): every epsilon here should be a real,
+      // non-zero nudge -- 0.05px is comfortably above float32 noise at this
+      // scale, so a value that rounds away to nothing would fail this --
+      // and stay well clear of 2px, the reviewer's own measured ceiling
+      // (~1.6px for CROWN_LIT_EPSILON) with headroom: a nudge anywhere near
+      // a real lobe's own extent (several px) would read as the layers
+      // visibly pulling apart rather than a hairline depth fix.
+      const MIN_SCREEN_PX = 0.05;
+      const MAX_SCREEN_PX = 2;
+      for (const epsilon of [TRUNK_EPSILON, TRUNK_LIT_EPSILON, CROWN_EPSILON, CROWN_MID_EPSILON, CROWN_LIT_EPSILON]) {
+        const screenPx = epsilon / WORLD_Y_PER_LIFT_PIXEL;
+        expect(screenPx).toBeGreaterThan(MIN_SCREEN_PX);
+        expect(screenPx).toBeLessThan(MAX_SCREEN_PX);
+      }
+    });
   });
 });

@@ -15,33 +15,39 @@
  * The choice made here: trunk and crown are camera-facing billboards --
  * quads standing upright, always facing the viewer. That is the "billboards
  * first" framing Phase B's own spec uses, and it is cheap to make *correct*
- * rather than merely plausible because this camera never orbits: azimuth and
- * pitch are fixed for the whole game (`camera.ts`), so "facing the camera"
- * is not a per-frame computation, it is two constant world-space axes baked
- * in at build time --
+ * rather than merely plausible because this camera never orbits: `ELEVATION`
+ * and `AZIMUTH` (`camera.ts`) are module consts derived from layout
+ * constants, and `Camera` is `{x, y, zoom}` -- no orbit field exists to
+ * animate. So "facing the camera" is not a per-frame computation, it is two
+ * constant world-space axes baked in at build time, and they are exact, not
+ * approximate:
  *
- *   - a local "right" axis, horizontal and independent of pitch: pushing a
- *     point along it is exactly what a *pure-horizontal* screen offset does
- *     to a flat mark, so `screenOffsetToWorld(pxRight, 0)` (already proven
- *     correct by `scatter.test.ts`) already computes it -- no new basis
- *     vector needs deriving or testing.
- *   - a local "up" axis: world Y itself. A billboard that stands upright in
- *     world Y (rather than tilting to face the camera's own tilted "up",
- *     which a full spherical billboard would do) is both simpler and more
- *     correct for a tree that has to look like it is standing on the
- *     ground from every zoom level, and its scale is `WORLD_Y_PER_LIFT_PIXEL`
- *     -- the exact constant elevation itself uses for "a pixel of pure
- *     vertical screen rise, with no ground movement."
+ *   - a local "right" axis, horizontal and independent of pitch:
+ *     `screenOffsetToWorld(r, 0)` returns `{ dx: r / TILE_W, dy: -r / TILE_W
+ *     }`, and feeding that back through `isoX` gives exactly `r` screen
+ *     pixels -- not close to `r`, exactly `r`, because `screenOffsetToWorld`
+ *     is `isoX`/`isoY`'s exact algebraic inverse (proven by
+ *     `scatter.test.ts`'s own round-trip test). A crown built from these
+ *     corners projects to the identical pixel shape `drawCanopy` draws in
+ *     Pixi, not an approximation of it.
+ *   - a local "up" axis: world Y itself, and `up * WORLD_Y_PER_LIFT_PIXEL`
+ *     is exactly one screen pixel of rise per unit of `up` by that
+ *     constant's own construction (`camera.ts`'s doc comment derives it by
+ *     solving for exactly this). A billboard that stands upright in world Y
+ *     (rather than tilting to face the camera's own tilted "up", which a
+ *     full spherical billboard would do) is also simply more correct for a
+ *     tree that has to look planted on the ground from every zoom level.
  *
  * So every corner in this file is authored as a `[rightPx, upPx]` pair local
  * to a tree's own ground anchor -- `rightPx` run through `screenOffsetToWorld`
  * for (x, z), `upPx` scaled by `WORLD_Y_PER_LIFT_PIXEL` for true world-Y
  * height -- which is what turns Pixi's flat canopy drawing into standing
- * geometry without inventing a new projection this module would have to
- * re-derive by hand. The ground anchor itself (where in the tile the trunk
- * base sits) is placed exactly like a scatter mark: a full two-axis
- * `screenOffsetToWorld` offset from the tile centre, clamped the same way,
- * for the same reason (`pushMark`'s doc comment in `scatter.ts`).
+ * geometry pixel-for-pixel, without inventing a new projection this module
+ * would have to re-derive by hand. The ground anchor itself (where in the
+ * tile the trunk base sits) is placed exactly like a scatter mark: a full
+ * two-axis `screenOffsetToWorld` offset from the tile centre, clamped the
+ * same way (`clampCenterToTile`, shared with `scatter.ts` -- see
+ * `clamp.ts`).
  *
  * Depth between the tree's own overlapping layers (trunk under crown, dark
  * lobes under the sunlit highlights) is real geometry, not alpha order --
@@ -61,25 +67,15 @@ import { TILE_W, TILE_H } from '../../project';
 import { composite, quantise, groundTone, PALETTE_HEXES } from './tones';
 import { tileHash } from '../../tile-hash';
 import { screenOffsetToWorld } from './scatter';
+import { CLAMP_LIMIT, clampCenterToTile } from './clamp';
 import type { MeshData, TerrainInput } from './types';
 import type { TerrainTones } from '../../api';
-
-export type { MeshData, TerrainInput };
 
 /** Mirrors `DECOR.grove` (`@lions/data`'s `map.ts`) and the same redeclaration
  *  in `scatter.ts`/`tones.ts` -- `@lions/render` must not depend on
  *  `@lions/data` (ESLint-enforced), so every terrain builder keeps its own
  *  copy of the handful of DECOR values it reads. */
 const DECOR_GROVE = 2;
-
-/** Half the unit tile, minus a small margin -- identical to `scatter.ts`'s
- *  own `CLAMP_LIMIT`, redeclared for the same reason every other private
- *  cross-module constant here is: `scatter.ts` does not export it, and is
- *  under review, so this module keeps its own copy rather than widening that
- *  file's surface. A tree's ground anchor is clamped to this from the tile
- *  centre, exactly like a scatter mark. */
-const CLAMP_MARGIN = 0.02;
-const CLAMP_LIMIT = 0.5 - CLAMP_MARGIN;
 
 /** Marks sit this far above the exact ground plane so a flat mark (the
  *  trunk shadow) does not z-fight the tile-top quad directly beneath it --
@@ -95,20 +91,52 @@ const MARK_EPSILON = 0.01;
  * order of magnitude as `scatter.ts`'s `HIGHLIGHT_EPSILON` (0.02) -- large
  * enough to always win the depth test against a neighbouring layer's own
  * real height variation at this scale, small enough that no tree reads as
- * "floating apart."
+ * "floating apart." Exported so `grove.test.ts` can assert the ordering and
+ * the screen-pixel-converted margin directly, rather than trusting a comment.
+ *
+ * Every quad of one tree is coplanar (right/up are both literal world axes,
+ * shared by every layer of one tree), so wherever two layers' quads
+ * genuinely overlap in screen space they are, before this nudge, an EXACT
+ * depth tie -- the epsilon is not competing against some other source of
+ * separation, it is the only thing resolving that tie, in either direction,
+ * deterministically. Converted to screen-pixel-equivalent rise (divide by
+ * `WORLD_Y_PER_LIFT_PIXEL`): 0.005-0.04 world units is about 0.2-1.6px,
+ * comfortably under the crown's own real inter-lobe separation (the
+ * smallest offset any lobe/highlight centre sits from another is
+ * `ry * 0.16`, at minimum around 2.5px for the smallest crown this module
+ * builds) -- large enough to break a tie, nowhere near large enough to read
+ * as the layers floating apart from each other.
  */
-const TRUNK_EPSILON = 0.005;
-const TRUNK_LIT_EPSILON = 0.01;
-const CROWN_EPSILON = 0.02;
-const CROWN_MID_EPSILON = 0.03;
-const CROWN_LIT_EPSILON = 0.04;
+export const TRUNK_EPSILON = 0.005;
+export const TRUNK_LIT_EPSILON = 0.01;
+export const CROWN_EPSILON = 0.02;
+export const CROWN_MID_EPSILON = 0.03;
+export const CROWN_LIT_EPSILON = 0.04;
 
 /** Trunk shadow: `renderer.ts:1561`'s flat ellipse, `t.rock` at alpha 0.22,
- *  offset `cy + 3`, radii (9, 4.5). */
+ *  offset `cy + 3`, radii (9, 4.5). Diamond-approximated at fleck scale --
+ *  see `ellipseCorners`'s doc comment for why the crown itself needs more
+ *  segments and this does not. */
 const SHADOW_OFFSET_Y = 3;
 const SHADOW_RX = 9;
 const SHADOW_RY = 4.5;
 const SHADOW_ALPHA = 0.22;
+
+/**
+ * Corners per crown ellipse (each dark lobe and each highlight). A 4-corner
+ * diamond -- fine for a 2-4px scatter fleck, which is what `scatter.ts`'s
+ * own `diamondCorners` exists for -- holds only `2/π` (~64%) of its
+ * inscribed ellipse's area and reads as a hard-edged rhombus at crown scale
+ * (a main lobe's own radius runs 12.5-16.5px, several times larger than
+ * anything `scatter.ts` approximates this way). Raised to an octagon here:
+ * every lobe/highlight is materially closer to Pixi's filled ellipse and no
+ * longer hard-edged, at a cost of 4 extra vertices and triangles per
+ * ellipse -- cheap for the handful of trees a grove tile draws, and not
+ * worth paying anywhere `scatter.ts` uses `diamondCorners`, where the
+ * shapes are small enough that a diamond and an ellipse are visually
+ * indistinguishable. `SHADOW_RX`/`SHADOW_RY` above stay a 4-corner diamond
+ * for the same reason -- the shadow is fleck-scale, not crown-scale. */
+const CROWN_LOBE_SEGMENTS = 8;
 
 function hexToUnit(hex: string): [number, number, number] {
   const h = hex.charAt(0) === '#' ? hex.slice(1) : hex;
@@ -133,25 +161,29 @@ function levelAt(input: TerrainInput, x: number, y: number): number {
  *  `up` the same along world Y (positive is up, away from the ground). */
 type Corner = readonly [right: number, up: number];
 
-/** Four corners approximating an ellipse as a diamond -- top, right, bottom,
- *  left around `(cr, cu)` -- the exact technique `scatter.ts`'s own
- *  `diamondCorners` uses to turn every `g.ellipse().fill()` call in
- *  `renderer.ts` into one flat quad. Same shape, ordered so a single shared
- *  winding (`flip: false` below) is correct for every quad this module
- *  builds -- verified directly by this file's own winding test, not assumed
- *  from `scatter.ts`'s (a different plane, orthogonal reasoning). */
-function ellipseCorners(cr: number, cu: number, rr: number, ru: number): readonly [Corner, Corner, Corner, Corner] {
-  return [
-    [cr, cu + ru],
-    [cr + rr, cu],
-    [cr, cu - ru],
-    [cr - rr, cu],
-  ];
+/**
+ * `CROWN_LOBE_SEGMENTS` corners approximating an ellipse centred at
+ * `(cr, cu)`, starting at the top and stepping clockwise -- the same
+ * rotational sense `scatter.ts`'s `diamondCorners` starts from (top, then
+ * right, then bottom, then left), generalised from 4 points to
+ * `CROWN_LOBE_SEGMENTS`. At 4 segments this reduces to exactly that
+ * diamond; at 8 it adds the four diagonal points, closer to the ellipse's
+ * own boundary at every angle. Ordered so a single shared winding
+ * (`pushPolygon`'s fixed fan below) is correct for every polygon this
+ * module builds -- verified directly by this file's own winding test, not
+ * assumed from `scatter.ts`'s (a different plane, orthogonal reasoning). */
+function ellipseCorners(cr: number, cu: number, rr: number, ru: number): readonly Corner[] {
+  const corners: Corner[] = [];
+  for (let i = 0; i < CROWN_LOBE_SEGMENTS; i++) {
+    const theta = Math.PI / 2 - (i * 2 * Math.PI) / CROWN_LOBE_SEGMENTS;
+    corners.push([cr + rr * Math.cos(theta), cu + ru * Math.sin(theta)]);
+  }
+  return corners;
 }
 
 /** Four corners of a rectangle spanning `[rMin, rMax] x [uMin, uMax]`, in the
  *  same top-left/top-right/bottom-right/bottom-left rotational order. */
-function rectCorners(rMin: number, rMax: number, uMin: number, uMax: number): readonly [Corner, Corner, Corner, Corner] {
+function rectCorners(rMin: number, rMax: number, uMin: number, uMax: number): readonly Corner[] {
   return [
     [rMin, uMax],
     [rMax, uMax],
@@ -166,34 +198,36 @@ export function buildGroves(input: TerrainInput, tones: TerrainTones, background
   const colors: number[] = [];
   const indices: number[] = [];
 
-  // A single shared winding for every quad in this file: every one of them
-  // lies in one of exactly two planes (a tree's camera-facing billboard
-  // plane, or the ground plane the trunk shadow sits flat on), and both were
-  // authored so their own top/right/bottom/left (or top-left/.../bottom-left)
-  // corner order already traces the correct front-facing perimeter -- see
-  // `ellipseCorners`/`rectCorners` above and the flat diamond built by
-  // `pushShadow` below. No quad here needs the alternate winding
-  // `ground.ts`'s east/south faces do, so there is no `flip` parameter to
-  // thread through -- one fan direction, confirmed by this file's own
-  // winding test rather than assumed.
-  const pushQuad = (
-    p0: [number, number, number],
-    p1: [number, number, number],
-    p2: [number, number, number],
-    p3: [number, number, number],
-    color: [number, number, number]
-  ): void => {
+  /**
+   * One flat-shaded convex polygon, fan-triangulated from its own first
+   * vertex. A single shared winding for every polygon in this file: every
+   * one of them lies in one of exactly two planes (a tree's camera-facing
+   * billboard plane, or the ground plane the trunk shadow sits flat on),
+   * and both were authored so their own top/right/bottom/left (or
+   * top-left/.../bottom-left) corner order already traces the correct
+   * front-facing perimeter -- see `ellipseCorners`/`rectCorners` above and
+   * the flat diamond built by `pushShadow` below. No polygon here needs the
+   * alternate winding `ground.ts`'s east/south faces do, so there is no
+   * `flip` parameter to thread through -- one fan direction, confirmed by
+   * this file's own winding test rather than assumed. The fan itself
+   * mirrors a 4-point quad's proven-correct triangle pair exactly: for
+   * `n` points, triangle `i` is `(0, i+1, i)` -- at `n = 4` that is
+   * `(0,2,1)` and `(0,3,2)`, the same two triangles a plain quad always
+   * used here.
+   */
+  const pushPolygon = (points: readonly [number, number, number][], color: [number, number, number]): void => {
     const base = positions.length / 3;
-    for (const p of [p0, p1, p2, p3]) positions.push(p[0], p[1], p[2]);
-    for (let i = 0; i < 4; i++) colors.push(color[0], color[1], color[2]);
-    indices.push(base + 0, base + 2, base + 1, base + 0, base + 3, base + 2);
+    for (const p of points) positions.push(p[0], p[1], p[2]);
+    for (let i = 0; i < points.length; i++) colors.push(color[0], color[1], color[2]);
+    for (let i = 1; i < points.length - 1; i++) {
+      indices.push(base, base + i + 1, base + i);
+    }
   };
 
   /**
    * The trunk shadow: a flat ground mark, positioned and clamped exactly
-   * like `scatter.ts`'s own `pushMark` (that function is private to that
-   * module and under review, so this is a small, single-purpose copy rather
-   * than a second export added there).
+   * like `scatter.ts`'s own `pushMark`, via the shared `clampCenterToTile`
+   * (`clamp.ts`).
    */
   const pushShadow = (originX: number, originZ: number, topY: number, colorHex: string): void => {
     const color = hexToUnit(colorHex);
@@ -205,21 +239,7 @@ export function buildGroves(input: TerrainInput, tones: TerrainTones, background
     ];
     const center = screenOffsetToWorld(0, SHADOW_OFFSET_Y);
     const cornerDeltas = corners.map(([cdx, cdy]) => screenOffsetToWorld(cdx, cdy));
-    let maxAbsDX = 0;
-    let maxAbsDZ = 0;
-    for (const d of cornerDeltas) {
-      maxAbsDX = Math.max(maxAbsDX, Math.abs(d.dx));
-      maxAbsDZ = Math.max(maxAbsDZ, Math.abs(d.dy));
-    }
-    const limitX = Math.max(0, CLAMP_LIMIT - maxAbsDX);
-    const limitZ = Math.max(0, CLAMP_LIMIT - maxAbsDZ);
-    const centerX = Math.max(-limitX, Math.min(limitX, center.dx));
-    const centerZ = Math.max(-limitZ, Math.min(limitZ, center.dy));
-    const roomX = CLAMP_LIMIT - Math.abs(centerX);
-    const roomZ = CLAMP_LIMIT - Math.abs(centerZ);
-    let scale = 1;
-    if (maxAbsDX > 0) scale = Math.min(scale, roomX / maxAbsDX);
-    if (maxAbsDZ > 0) scale = Math.min(scale, roomZ / maxAbsDZ);
+    const { centerX, centerZ, scale } = clampCenterToTile(center.dx, center.dy, cornerDeltas, CLAMP_LIMIT);
     const world = cornerDeltas.map(
       (d) =>
         [originX + centerX + d.dx * scale, topY + MARK_EPSILON, originZ + centerZ + d.dy * scale] as [
@@ -228,7 +248,7 @@ export function buildGroves(input: TerrainInput, tones: TerrainTones, background
           number,
         ]
     );
-    pushQuad(world[0], world[1], world[2], world[3], color);
+    pushPolygon(world, color);
   };
 
   /**
@@ -256,7 +276,7 @@ export function buildGroves(input: TerrainInput, tones: TerrainTones, background
   ): void => {
     // Splayed two-stem trunk (renderer.ts:1699-1708): a flared trapezoid,
     // narrower at the top, plus a small lit rect near its crown-facing edge.
-    const trunkQuad: readonly [Corner, Corner, Corner, Corner] = [
+    const trunkQuad: readonly Corner[] = [
       [-tw, 0],
       [-tw * 0.45, th],
       [tw * 0.45, th],
@@ -274,11 +294,11 @@ export function buildGroves(input: TerrainInput, tones: TerrainTones, background
     const hlMid = ellipseCorners(-rx * 0.22, crownBaseU + ry * 0.3, rx * 0.62, ry * 0.5);
     const hlLit = ellipseCorners(-rx * 0.38, crownBaseU + ry * 0.46, rx * 0.3, ry * 0.26);
 
-    // Every corner across every quad of this one tree, gathered once so the
-    // whole tree clamps and scales together -- pushMark's own doc comment
-    // (scatter.ts) explains why per-quad clamping is wrong: it can leave
+    // Every corner across every polygon of this one tree, gathered once so
+    // the whole tree clamps and scales together -- `clampCenterToTile`'s own
+    // doc comment explains why per-shape clamping is wrong: it can leave
     // some corners of a shared shape repositioned and others not, producing
-    // a near-degenerate quad. Only the RIGHT component matters for the
+    // a near-degenerate polygon. Only the RIGHT component matters for the
     // ground-footprint clamp -- UP is real world height, never ground
     // position, so it never pushes a vertex outside the tile.
     const allCorners: readonly Corner[] = [
@@ -290,23 +310,14 @@ export function buildGroves(input: TerrainInput, tones: TerrainTones, background
       ...hlMid,
       ...hlLit,
     ];
-    let maxAbsDX = 0;
-    let maxAbsDZ = 0;
-    for (const [right] of allCorners) {
-      const g = screenOffsetToWorld(right, 0);
-      maxAbsDX = Math.max(maxAbsDX, Math.abs(g.dx));
-      maxAbsDZ = Math.max(maxAbsDZ, Math.abs(g.dy));
-    }
+    const cornerGroundDeltas = allCorners.map(([right]) => screenOffsetToWorld(right, 0));
     const anchorGround = screenOffsetToWorld(offsetPxX, offsetPxY);
-    const limitX = Math.max(0, CLAMP_LIMIT - maxAbsDX);
-    const limitZ = Math.max(0, CLAMP_LIMIT - maxAbsDZ);
-    const centerX = Math.max(-limitX, Math.min(limitX, anchorGround.dx));
-    const centerZ = Math.max(-limitZ, Math.min(limitZ, anchorGround.dy));
-    const roomX = CLAMP_LIMIT - Math.abs(centerX);
-    const roomZ = CLAMP_LIMIT - Math.abs(centerZ);
-    let scale = 1;
-    if (maxAbsDX > 0) scale = Math.min(scale, roomX / maxAbsDX);
-    if (maxAbsDZ > 0) scale = Math.min(scale, roomZ / maxAbsDZ);
+    const { centerX, centerZ, scale } = clampCenterToTile(
+      anchorGround.dx,
+      anchorGround.dy,
+      cornerGroundDeltas,
+      CLAMP_LIMIT
+    );
 
     const originX = tileX + centerX;
     const originZ = tileZ + centerZ;
@@ -316,10 +327,12 @@ export function buildGroves(input: TerrainInput, tones: TerrainTones, background
       return [originX + g.dx * scale, topY + corner[1] * WORLD_Y_PER_LIFT_PIXEL * scale + epsilon, originZ + g.dy * scale];
     };
 
-    const pushBillboard = (quad: readonly [Corner, Corner, Corner, Corner], colorHex: string, epsilon: number): void => {
+    const pushBillboard = (quad: readonly Corner[], colorHex: string, epsilon: number): void => {
       const color = hexToUnit(colorHex);
-      const w = quad.map((c) => toWorld(c, epsilon));
-      pushQuad(w[0], w[1], w[2], w[3], color);
+      pushPolygon(
+        quad.map((c) => toWorld(c, epsilon)),
+        color
+      );
     };
 
     pushBillboard(trunkQuad, trunkHex, TRUNK_EPSILON);

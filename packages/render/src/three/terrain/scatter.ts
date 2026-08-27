@@ -25,6 +25,7 @@ import { WORLD_PER_LEVEL } from './ground';
 import { TILE_W, TILE_H, ELEV_STEP, isoX, isoY } from '../../project';
 import { composite, quantise, groundTone, PALETTE_HEXES } from './tones';
 import { tileHash } from '../../tile-hash';
+import { CLAMP_LIMIT, clampCenterToTile } from './clamp';
 import type { MeshData, TerrainInput } from './types';
 import type { TerrainTones } from '../../api';
 
@@ -97,9 +98,11 @@ export const FACE_BAND_HALF_Y = 0.01;
 
 /** Half the unit tile, minus a small margin. Grain-mark corners are clamped
  *  to this from their own tile centre -- see `pushMark`'s doc comment for
- *  why a raw port of Pixi's pixel bounds cannot skip this. */
-const CLAMP_MARGIN = 0.02;
-const CLAMP_LIMIT = 0.5 - CLAMP_MARGIN;
+ *  why a raw port of Pixi's pixel bounds cannot skip this. Imported from
+ *  `clamp.ts` (as is the clamp algorithm itself, below) rather than declared
+ *  here: `grove.ts` needs the identical constant and math for its own
+ *  tile-containment clamp, and a shape shared by two builders belongs to
+ *  neither of them. */
 
 /** Scree's base blob sits at the foot of a slope, inset this far off the
  *  exact shared edge and onto the lower tile -- reads as debris resting
@@ -343,20 +346,10 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
     let centerZ = center.dy;
     let scale = 1;
     if (clamp) {
-      let maxAbsDX = 0;
-      let maxAbsDZ = 0;
-      for (const d of cornerDeltas) {
-        maxAbsDX = Math.max(maxAbsDX, Math.abs(d.dx));
-        maxAbsDZ = Math.max(maxAbsDZ, Math.abs(d.dy));
-      }
-      const limitX = Math.max(0, CLAMP_LIMIT - maxAbsDX);
-      const limitZ = Math.max(0, CLAMP_LIMIT - maxAbsDZ);
-      centerX = Math.max(-limitX, Math.min(limitX, centerX));
-      centerZ = Math.max(-limitZ, Math.min(limitZ, centerZ));
-      const roomX = CLAMP_LIMIT - Math.abs(centerX);
-      const roomZ = CLAMP_LIMIT - Math.abs(centerZ);
-      if (maxAbsDX > 0) scale = Math.min(scale, roomX / maxAbsDX);
-      if (maxAbsDZ > 0) scale = Math.min(scale, roomZ / maxAbsDZ);
+      const clamped = clampCenterToTile(centerX, centerZ, cornerDeltas, CLAMP_LIMIT);
+      centerX = clamped.centerX;
+      centerZ = clamped.centerZ;
+      scale = clamped.scale;
     }
 
     const world = cornerDeltas.map(
