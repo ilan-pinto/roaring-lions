@@ -8,7 +8,13 @@
  * geometry/attribute arithmetic first (testable in `environment: 'node'`),
  * `THREE.*` GPU construction after the divider below.
  *
- * ## What happened to `FX_LAYER_BELOW`/`FX_LAYER_ABOVE`
+ * ## What `FX_LAYER_BELOW`/`FX_LAYER_ABOVE` mean here, and how that changed
+ *
+ * (This section's title is B3.13's own, kept for history; B3.13's answer was
+ * "the distinction dissolves into one mesh" -- B3.14 revises that, see "The
+ * `above_units` split (B3.14)" further down for the current answer: it is
+ * back, expressed as which of TWO `ParticleInstancer`s a particle's
+ * `layerIdx` routes it to, rather than which Pixi `Graphics` it drew on.)
  *
  * Pixi's `fxG` (below `spriteLayer`) and `fxAboveG` (above it) exist because
  * Pixi has no depth buffer -- draw order IS depth there, so "does this effect
@@ -19,12 +25,18 @@
  * three.js has no such question to answer FOR OCCLUSION AGAINST TERRAIN --
  * a particle carries a real world position (`writeParticleInstances` below
  * writes it at the particle's own `(x, y)` tile-space coordinates, height
- * included), and both materials below keep `depthTest: true` against the
- * terrain/building meshes, which are OPAQUE (`MeshBasicMaterial`,
+ * included), and the tracer material plus the BELOW-tier particle material
+ * (see "The `above_units` split (B3.14)" further down -- Task B3.14 gives
+ * `above_units` particles their OWN, `depthTest: false` mesh, so this
+ * paragraph's claim is scoped to everything else) keep `depthTest: true`
+ * against the terrain/building meshes, which are OPAQUE (`MeshBasicMaterial`,
  * `terrain/mesh.ts`) and so commit real depth in three.js's opaque pass
  * regardless of anything FX does. So "does this effect sit behind a ridge or
- * a building" is answered per pixel, by genuine proximity, for every FX
- * fragment -- see the next section for the browser-verified proof.
+ * a building" is answered per pixel, by genuine proximity, for every
+ * below-tier FX fragment and every tracer -- see the next section for the
+ * browser-verified proof. `above_units` particles deliberately do NOT get
+ * this treatment; see the dedicated section below for why that is a faithful
+ * match to Pixi, not an oversight.
  *
  * FX-vs-UNIT ordering is a DIFFERENT question, deliberately answered
  * differently, and this is a REVISION from this task's first round: both
@@ -45,22 +57,32 @@
  * `depthWrite`, not FX's.
  *
  * Without FX writing depth, FX-vs-UNIT ordering needs a different mechanism
- * than "let the depth buffer sort it out" -- both `ParticleInstancer.mesh`
- * and `TracerBatch.mesh` set `renderOrder = FX_RENDER_ORDER` (1), strictly
- * above every `UnitInstancer.mesh`'s default (0, never set explicitly).
- * three.js sorts its transparent render list by `renderOrder` ascending
- * BEFORE it ever reaches a `z`/`id` tiebreak, so this alone guarantees every
- * live particle and tracer draws after (visually in front of) every unit,
- * unconditionally -- not because it is nearer, because it is FX. This is a
- * DECLARED behaviour choice, not a rediscovery of "true depth": Pixi's
- * tracers lived on `fxG`, below `spriteLayer` (so below units too); this
- * backend puts both particles and tracers above every unit instead,
- * matching neither of Pixi's two layers exactly. The two-layer SPLIT still
- * dissolves (both new kinds draw the identical way, `renderOrder`
- * notwithstanding), but "FX draws after units" is a choice this module
- * makes, not a fact three.js discovers on its own -- see the next
- * subsection for why the *obvious* alternative (no `renderOrder` at all,
- * "let it sort itself out") does not do that.
+ * than "let the depth buffer sort it out" -- every FX mesh here
+ * (`TracerBatch.mesh`, and both `ParticleInstancer` meshes -- see "The
+ * `above_units` split (B3.14)" below for why there are now two) sets
+ * `renderOrder` strictly above every `UnitInstancer.mesh`'s default (0,
+ * never set explicitly). three.js sorts its transparent render list by
+ * `renderOrder` ascending BEFORE it ever reaches a `z`/`id` tiebreak, which
+ * settles FX-vs-FX blend order deterministically (no more "whichever mesh's
+ * constructor happened to run first", the accident the next subsection
+ * documents) and, for the depthTest-off `above_units` tier specifically,
+ * ALSO guarantees it is never hidden behind a unit -- but for anything that
+ * keeps `depthTest: true` (tracers, and the below-tier particle mesh),
+ * `renderOrder` alone decides only ordering among ties; genuine occlusion by
+ * an already-drawn, depth-writing unit still applies regardless of
+ * `renderOrder`, exactly the same as it does against terrain. This IS a
+ * DECLARED behaviour choice for the `above_units` tier specifically, not a
+ * rediscovery of "true depth" -- Pixi's tracers lived on `fxG`, below
+ * `spriteLayer` (so below units too); this backend's tracer mesh (and the
+ * below-tier particle mesh) stay in that same relative position, and only
+ * the NEW `above_units` particle mesh is pulled unconditionally in front,
+ * matching Pixi's own `fxAboveG` (drawn after `spriteLayer`, so above
+ * BOTH terrain/buildings and unit sprites, unconditionally -- see the
+ * `above_units` section for the container-order proof). The two-layer SPLIT
+ * Pixi had does NOT dissolve after all; B3.14 reinstates it, on the
+ * `depthTest` axis rather than Pixi's container-order one -- see that
+ * section for the full account of why round 1 merged it and round 2 split
+ * it back apart, and what each choice costs.
  *
  * ### Without an explicit `renderOrder`, ordering against units is an ACCIDENT, not a design
  *
@@ -82,29 +104,46 @@
  * front of the other. `FX_RENDER_ORDER` replaces that accident with the
  * declared choice above.
  *
- * ## The `trailG`/`fxG`/`wreckLayer`-below-`spriteLayer` debt does not exist here
+ * ## The `trailG`/`fxG`/`wreckLayer`-below-`spriteLayer` debt does not exist here (tracers, below-tier particles)
  *
  * CLAUDE.md's "Known scaling debts" records that Pixi's `fxG` (tracers,
  * particles) sits below `spriteLayer` (raised terrain, buildings)
  * UNCONDITIONALLY -- a tracer genuinely in front of a ridge is still drawn
  * behind it, because "in front of" is never asked; the Graphics container
  * order already decided the answer before either object's position mattered.
- * That is precisely the class of bug a real depth buffer cannot have: this
- * module's tracers and particles are placed at real world positions (see
- * `tracerQuadPositions`, `writeParticleInstances`) and keep `depthTest: true`
- * against the SAME opaque, depth-writing terrain/building geometry units
- * resolve their own tie against (`instances.ts`'s "unit-vs-tree tie"
- * section) -- `depthWrite` on FX's own two materials plays no part in this
- * particular guarantee, only `depthTest` does. A tracer nearer the camera
- * than a ridge's own near face draws over it; one farther is correctly
- * hidden. Browser-verified directly (B3.13 report): a tracer run from behind
- * a building to in front of it is cleanly, fully hidden for its occluded
- * span in this backend, where the identical spawn against Pixi bleeds
- * through wherever the building sprite's own art happens to be transparent.
- * Neither the debt nor a version of it was introduced writing this file --
- * there is no unconditional container order left to reintroduce it into.
+ * That is precisely the class of bug a real depth buffer cannot have: the
+ * tracer mesh and the BELOW-tier particle mesh are placed at real world
+ * positions (see `tracerQuadPositions`, `writeParticleInstances`) and keep
+ * `depthTest: true` against the SAME opaque, depth-writing terrain/building
+ * geometry units resolve their own tie against (`instances.ts`'s
+ * "unit-vs-tree tie" section) -- `depthWrite` on FX's own materials plays no
+ * part in this particular guarantee, only `depthTest` does. A tracer nearer
+ * the camera than a ridge's own near face draws over it; one farther is
+ * correctly hidden. Browser-verified directly (B3.13 report): a tracer run
+ * from behind a building to in front of it is cleanly, fully hidden for its
+ * occluded span in this backend, where the identical spawn against Pixi
+ * bleeds through wherever the building sprite's own art happens to be
+ * transparent. Neither the debt nor a version of it was introduced writing
+ * this file -- there is no unconditional container order left to
+ * reintroduce it into, for tracers or for `below_units` particles.
  *
- * ## Elevation lift is deliberately NOT applied to particles or tracers
+ * This guarantee is DELIBERATELY NOT extended to the `above_units` particle
+ * tier (`depthTest: false`, added in B3.14) -- see "The `above_units` split"
+ * below for why matching Pixi's own `fxAboveG` (which is subject to the
+ * identical debt in the opposite direction: it draws unconditionally over
+ * terrain too, since it sits after `spriteLayer` in Pixi's own container
+ * order) is the correct target to match here, not an accidental regression.
+ *
+ * ## Elevation lift, round 1 (B3.13): deliberately NOT applied to particles or tracers
+ *
+ * The account below is B3.13's own reasoning for shipping with NO ground-lift
+ * fix at all, kept verbatim because the finding it records (particles are
+ * physically buried, not merely misplaced) is what B3.14's fix, in the new
+ * section below, actually responds to. Task B3.14 REVISES this ruling for
+ * PARTICLES ONLY -- see "Elevation lift, round 2 (B3.14)" further down.
+ * Tracers are NOT touched by that revision; they keep exactly the flat lift
+ * described here, and the reasoning below for why that was acceptable in
+ * round 1 still stands for them.
  *
  * Pixi's own particle/tracer/puff draw calls (`particles.ts`'s `draw`,
  * `renderer.ts`'s tracer and puff loops) never call `groundOffset` --
@@ -144,11 +183,153 @@
  * out of scope, still Tel Marum's alone to need -- but "dormant" undersells
  * it: the moment relief exists, particles on it do not degrade, they
  * disappear.
+ *
+ * ## Elevation lift, round 2 (B3.14): PARTICLES follow the ground; tracers do not
+ *
+ * B3.14's own orchestrator review sharpened the finding above in two ways,
+ * both measured rather than argued:
+ *
+ *  1. It is not confined to relief. On FLAT ground the particle quad is
+ *     CENTRED on the fixed 3px lift (`particleBillboardGeometry`'s local `up`
+ *     spans -1..1), so any particle whose radius exceeds `PARTICLE_LIFT_PX`
+ *     loses its lower half into the ground plane. `catastrophic_kill.json`
+ *     (`size_px` 10-22, `size_over_life` up to x1.6) loses most of itself on
+ *     EVERY shipped map, not only Tel Marum -- this was reachable
+ *     immediately, not "when a map authors relief."
+ *  2. `groundWorldY` is necessary but not sufficient. It answers the
+ *     ELEVATION half (which terrace a particle's tile stands on), but a
+ *     particle centred on `groundWorldY + PARTICLE_LIFT_PX` still clips into
+ *     that same flat ground the instant its own radius exceeds the lift --
+ *     `groundWorldY` alone does not touch the round-1 flat-ground finding at
+ *     all.
+ *
+ * `writeParticleInstances` below now writes each live particle's own world
+ * Y as `groundWorldY(elevation, mapWidth, mapHeight, x, y) + max(PARTICLE_LIFT_PX,
+ * radius) * WORLD_Y_PER_LIFT_PIXEL` -- two decisions, both made deliberately
+ * rather than picked by default:
+ *
+ *  - **Sampled per frame, at the particle's OWN current (x, y), not once at
+ *    spawn.** A particle moves during its life (`ParticleSystem.step`
+ *    integrates velocity and gravity) -- sampling at spawn would keep it on
+ *    the terrace plane it was born on as it crosses a terrace edge, which
+ *    reads as the particle floating off a cliff it should be tracking down
+ *    (or through a rise it should be tracking up). Sampling per frame instead
+ *    makes it visibly STEP as it crosses a terrace, exactly the same
+ *    trade-off B2's own terraced ground and `entityFrame`'s own `groundWorldY`
+ *    call already accepted for UNITS (`ground-height.ts`'s own doc comment:
+ *    "a unit crossing a terrace steps up rather than ramping"). At particle
+ *    lifetimes of 60-620ms this pop is not perceptible in practice, and
+ *    `ParticleSystem` already treats a particle as flat 2-D motion (`x`, `y`
+ *    only, no world-height state of its own) -- there is no smooth height
+ *    trajectory being interrupted, because none was ever being tracked.
+ *  - **`max(PARTICLE_LIFT_PX, radius)`, not a re-anchored quad.** The other
+ *    option the orchestrator review posed was anchoring
+ *    `particleBillboardGeometry`'s quad at its bottom edge (local `up` 0..2)
+ *    rather than centring it (-1..1), mirroring `unitBillboardGeometry`'s own
+ *    feet anchor. Rejected: the circle-cutout fragment shader
+ *    (`createParticleMaterial`'s `dot(vLocal, vLocal) > 1.0`) assumes `vLocal`
+ *    is the offset from the particle's own CENTRE, and a re-anchored quad
+ *    would need that shader to also carry a per-vertex centre-offset to keep
+ *    drawing a circle rather than a lopsided sliver -- a real change to
+ *    shared, GPU-facing geometry (`fx.ts` is under review; this task was
+ *    asked to keep changes here minimal). The chosen formula needs no
+ *    geometry change at all, only a different Y written into the SAME
+ *    instance-position slot every particle already had: when `radius <=
+ *    PARTICLE_LIFT_PX` (the common case -- small-arms muzzle sparks, impact
+ *    puffs), the centre sits at `groundWorldY + PARTICLE_LIFT_PX *
+ *    WORLD_Y_PER_LIFT_PIXEL` exactly as round 1 already did, comfortably clear
+ *    of the ground. When `radius > PARTICLE_LIFT_PX` (a large burst), the
+ *    centre rises to `groundWorldY + radius * WORLD_Y_PER_LIFT_PIXEL` -- the
+ *    quad's own bottom edge (`centre - radius * WORLD_Y_PER_LIFT_PIXEL`) then
+ *    lands EXACTLY on `groundWorldY`, touching the ground plane rather than
+ *    crossing it, for every radius, not merely the ones smaller than 3px.
+ *
+ * Tracers are DELIBERATELY left out of both fixes above, for a narrower
+ * reason than "out of scope": a tracer's two endpoints
+ * (`tracerQuadPositions`' `t.sx/sy`/`t.tx/ty`) can sit on tiles at DIFFERENT
+ * elevations (a ridge-top ATGM team firing down at infantry in a wash), and
+ * `TRACER_LIFT_PX` is presently one scalar applied identically to all four
+ * vertices -- giving each end its own `groundWorldY` sample would tilt the
+ * ribbon to follow the two terraces rather than travelling in a straight
+ * line, which is a real, separate design question (does a tracer's line
+ * stay straight in world space, or kink at whatever terrace each end
+ * happens to sit on?) that this task's brief does not ask for and that
+ * touching would not be "minimal." Tracers keep the flat lift from round 1
+ * unconditionally; on a relief map they can still be visually misplaced
+ * relative to the ground the same way round 1 originally left particles --
+ * this is a known, narrower residual gap, not a fix silently dropped.
+ *
+ * ## The `above_units` split (B3.14): a second particle draw call, deliberately
+ *
+ * 11 of the 12 shipped emitters (`data/vfx/*.json`) declare `layer:
+ * "above_units"`; only `tunnel_collapse` declares `below_units`. B3.13 merged
+ * both into ONE `InstancedMesh` on the argument that the depth buffer
+ * resolves front-from-behind per pixel, which is true for particle-vs-terrain
+ * occlusion (unchanged, still correct, see the section above this one) but
+ * is NOT the same claim as "an above_units effect is never hidden by a unit
+ * sprite" -- Pixi's `fxAboveG` draws with NO depth reasoning at all (Pixi has
+ * no depth buffer), an absolute guarantee this backend's single merged mesh
+ * does not reproduce: `depthTest: true` still rejects a fragment genuinely
+ * farther from camera than whatever a unit already committed to the depth
+ * buffer at that pixel, and a muzzle flash spawned `shooter + 0.4-0.8 tiles
+ * along facing` (`ThreeRenderer.onEvents`, mirroring `renderer.ts:783`)
+ * lands exactly there when the barrel points away from camera -- a real,
+ * visible regression against Pixi (a flash that flickers out depending on
+ * which way the shooter happens to be facing), not a hypothetical.
+ *
+ * Three shapes were on the table, and the choice is deliberate, not a
+ * default:
+ *
+ *  1. **Leave the single merged mesh alone.** Costs nothing extra, but keeps
+ *     the regression above for every one of the 11 `above_units` emitters --
+ *     unacceptable given this task exists specifically to make combat FX
+ *     read correctly, and the emitter data is unambiguous about intent.
+ *  2. **Split into two meshes by layer** (the choice made): one FX draw call
+ *     stays exactly as B3.13 left it -- `depthTest: true`, `renderOrder =
+ *     FX_RENDER_ORDER` -- for `below_units`/`ground_decal`/`sky`-tagged
+ *     particles (today, only `tunnel_collapse`); a SECOND mesh, new in this
+ *     task, carries `above_units` particles with `depthTest: false` (an
+ *     unconditional pass, matching Pixi's own unconditional `fxAboveG`
+ *     guarantee exactly rather than merely approximating it with a higher
+ *     `renderOrder` and hoping ties never arise) and a higher `renderOrder`
+ *     (`FX_RENDER_ORDER_ABOVE`) so it also wins any blend order contest
+ *     against the first FX mesh and against tracers. Cost: one more draw
+ *     call (three total for FX instead of two: below-tier particles, tracers
+ *     -- both depth-tested against real geometry -- and above-tier
+ *     particles, which are not) and one more `PARTICLE_CAPACITY`-sized
+ *     `InstancedMesh` (positions/colors/alphas/scale attribute arrays sized
+ *     to the full 2048, not half of it -- a live particle's `layerIdx` is
+ *     fixed at spawn and the two tiers draw from the SAME underlying
+ *     `ParticleSystem` pool, so either tier could in principle hold every
+ *     live particle at once, exactly the reasoning `PARTICLE_CAPACITY`
+ *     itself already rests on for the single-mesh case). Roughly another
+ *     ~40KB of typed-array memory; negligible next to the terrain meshes.
+ *  3. **Force `depthTest: false` on the ONE merged mesh instead of adding a
+ *     second one.** Free (no extra draw call), and would equally guarantee
+ *     `above_units` particles are never hidden -- but it also stops
+ *     `tunnel_collapse` particles from being properly occluded by a building
+ *     or ridge standing in front of them, which is exactly the terrain-
+ *     occlusion win this file's own "The `trailG`/`fxG`/`wreckLayer`..."
+ *     section above documents and treats as a real improvement over Pixi's
+ *     `fxG`-always-behind-`spriteLayer` bug. Rejected because it would trade
+ *     one faithfully-reproduced Pixi guarantee (above_units is never hidden)
+ *     for silently breaking a DIFFERENT thing this backend already gets
+ *     right that Pixi does not (below_units genuinely occludes against
+ *     terrain).
+ *
+ * Tracers are unaffected by this split -- Pixi's tracers live on `fxG` (the
+ * below layer) unconditionally, which is exactly where `TracerBatch` already
+ * sits (`depthTest: true`, `renderOrder = FX_RENDER_ORDER`, unchanged by this
+ * task). `fxLayerIndex` (in `ThreeRenderer.ts`, mirroring `renderer.ts`'s
+ * own private helper of the same name) is what routes a spawned particle --
+ * both real emitter particles and this task's own synthetic flat-colour
+ * puffs -- to one tier or the other by its declared `layer`.
  */
 import * as THREE from 'three';
 import type { ParticleSystem } from '../../vfx';
 import { WORLD_Y_PER_LIFT_PIXEL, isoX, isoY } from '../../project';
 import { screenOffsetToWorld, hexToUnit } from '../terrain/shared';
+import { groundWorldY } from '../ground-height';
 import { tracerAlpha, type TracerModel } from './tracers';
 
 // ---------------------------------------------------------------------------
@@ -196,15 +377,26 @@ export const TRACER_LIFT_PX = 4;
 export const TRACER_WIDTH_PX = 1.5;
 
 /**
- * `renderOrder` both FX meshes are given, strictly above every
- * `UnitInstancer.mesh`'s default (0, never set explicitly there). See this
- * file's top comment ("FX-vs-UNIT ordering is a DIFFERENT question") for the
- * full reasoning -- in short, `depthWrite: false` on both FX materials below
- * means the depth buffer no longer arbitrates FX-vs-unit order, so this is
- * the explicit replacement for what used to be an accident of construction
+ * `renderOrder` for the tracer mesh and the BELOW-tier particle mesh,
+ * strictly above every `UnitInstancer.mesh`'s default (0, never set
+ * explicitly there). See this file's top comment ("FX-vs-UNIT ordering is a
+ * DIFFERENT question") for the full reasoning -- in short, `depthWrite:
+ * false` on FX's materials means the depth buffer no longer arbitrates
+ * FX-vs-FX blend order (though `depthTest: true` on this tier still
+ * arbitrates genuine FX-vs-unit and FX-vs-terrain occlusion), so this is the
+ * explicit replacement for what used to be an accident of construction
  * order.
  */
 const FX_RENDER_ORDER = 1;
+/**
+ * `renderOrder` for the ABOVE-tier particle mesh (`above_units`-tagged
+ * emitters) -- one higher than `FX_RENDER_ORDER`, so it also wins any
+ * submission-order tie against the below-tier mesh and against tracers, on
+ * top of its own `depthTest: false` already guaranteeing it is never hidden
+ * behind a unit. See "The `above_units` split (B3.14)", this file's top
+ * comment, for the full reasoning.
+ */
+const FX_RENDER_ORDER_ABOVE = 2;
 
 /** Plain-array quad geometry for the particle billboard every particle
  *  instance shares, in "per one screen pixel of radius" units -- an
@@ -302,24 +494,39 @@ function cachedHexToUnit(hex: string): readonly [number, number, number] {
 }
 
 /**
- * Visits every live particle across BOTH of `ParticleSystem`'s draw layers
- * (see this file's top comment for why the distinction does not survive
- * into a single instance buffer) and writes GPU-facing attributes. Pure
- * aside from the `forEachLive` callback boundary -- no `THREE.*` touched,
- * so this is exercised directly in `fx.test.ts` with a real `ParticleSystem`
- * (itself Pixi-free) rather than needing a `WebGLRenderer`.
+ * Visits every live particle on ONE of `ParticleSystem`'s draw layers
+ * (`layerIdx` -- see "The `above_units` split (B3.14)", this file's top
+ * comment, for why callers now visit the two layers separately, into two
+ * separate instance buffers, rather than merging both into one the way
+ * B3.13 did) and writes GPU-facing attributes. Pure aside from the
+ * `forEachLive` callback boundary -- no `THREE.*` touched, so this is
+ * exercised directly in `fx.test.ts` with a real `ParticleSystem` (itself
+ * Pixi-free) rather than needing a `WebGLRenderer`.
+ *
+ * `elevation`/`mapWidth`/`mapHeight` are `groundWorldY`'s own inputs
+ * (`ground-height.ts`), threaded through unchanged so this function needs no
+ * `Sim` of its own -- exactly the same boundary `frame-state.ts`'s
+ * `entityFrame` already draws for units. See "Elevation lift, round 2
+ * (B3.14)" for the `max(PARTICLE_LIFT_PX, radius)` formula's derivation.
  *
  * Returns the number of instances written, which the caller sets
  * `mesh.count` to -- the only "hide an instance" mechanism an
  * `InstancedMesh` has, exactly `writeUnitInstances`'s own contract.
  */
-export function writeParticleInstances(particles: ParticleSystem, out: ParticleInstanceBuffers): number {
+export function writeParticleInstances(
+  particles: ParticleSystem,
+  layerIdx: number,
+  elevation: Uint8Array | null,
+  mapWidth: number,
+  mapHeight: number,
+  out: ParticleInstanceBuffers
+): number {
   const capacity = out.alphas.length;
   let count = 0;
-  const liftY = PARTICLE_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL;
   const visit = (x: number, y: number, color: string, alpha: number, radius: number): void => {
     if (count >= capacity) return;
     const [r, g, b] = cachedHexToUnit(color);
+    const liftY = groundWorldY(elevation, mapWidth, mapHeight, x, y) + Math.max(PARTICLE_LIFT_PX, radius) * WORLD_Y_PER_LIFT_PIXEL;
     out.positions[count * 3] = x;
     out.positions[count * 3 + 1] = liftY;
     out.positions[count * 3 + 2] = y;
@@ -330,8 +537,7 @@ export function writeParticleInstances(particles: ParticleSystem, out: ParticleI
     out.scales[count] = radius;
     count++;
   };
-  particles.forEachLive(0, visit);
-  particles.forEachLive(1, visit);
+  particles.forEachLive(layerIdx, visit);
   return count;
 }
 
@@ -463,25 +669,35 @@ export function tracerIndexBuffer(capacity: number): Uint32Array {
 // ---------------------------------------------------------------------------
 
 /**
- * One draw call for every live particle, on both of Pixi's former layers at
- * once -- see this file's top comment for why that distinction dissolves.
+ * One draw call's worth of particles, on ONE of Pixi's former layers --
+ * `ParticleInstancer` now builds one of these per tier (below/above), see
+ * this file's top comment ("The `above_units` split (B3.14)") for why the
+ * two-layer distinction is back, on the `depthTest` axis this parameter
+ * controls.
  *
- * `depthWrite: false`, NOT the `true` `units/instances.ts` uses -- see this
- * file's top comment, "FX-vs-UNIT ordering is a DIFFERENT question", for the
- * full reasoning. In short: particles are inherently translucent
- * (`alpha_over_life` fades by design; `catastrophic_kill.json` overlaps
- * 18-26 discs meant to read as one dense burst), and `depthWrite: true`
- * would depth-reject the far side of every overlap instead of letting it
- * blend. `depthTest` stays `true` -- that is what keeps this backend's
- * building/ridge occlusion result intact, since terrain/buildings are
- * opaque and write real depth regardless of what FX does with its own.
+ * `depthWrite: false` unconditionally, NOT the `true` `units/instances.ts`
+ * uses -- see this file's top comment, "FX-vs-UNIT ordering is a DIFFERENT
+ * question", for the full reasoning. In short: particles are inherently
+ * translucent (`alpha_over_life` fades by design; `catastrophic_kill.json`
+ * overlaps 18-26 discs meant to read as one dense burst), and `depthWrite:
+ * true` would depth-reject the far side of every overlap instead of letting
+ * it blend.
+ *
+ * `depthTest` is the caller's choice: `true` for the below-tier (matches
+ * `units/instances.ts`'s own building/ridge occlusion result -- terrain and
+ * units are opaque and write real depth regardless of what FX does with its
+ * own), `false` for the above-tier (an unconditional pass, matching Pixi's
+ * own `fxAboveG`, which has no depth reasoning to opt out of because Pixi
+ * has no depth buffer at all -- see the `above_units` section for the full
+ * account).
+ *
  * No alpha-threshold discard is needed here the way `instances.ts`'s
  * `ALPHA_PADDING_DISCARD` is for units: that constant exists purely to stop
  * a near-zero-alpha fragment from committing occluding depth, and with
  * `depthWrite: false` a particle commits no depth at all, so there is
  * nothing for a faint fragment to pollute.
  */
-function createParticleMaterial(): THREE.ShaderMaterial {
+function createParticleMaterial(depthTest: boolean): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     vertexShader: /* glsl */ `
       attribute vec2 aLocal;
@@ -513,26 +729,49 @@ function createParticleMaterial(): THREE.ShaderMaterial {
       }
     `,
     transparent: true,
-    depthTest: true,
+    depthTest,
     depthWrite: false,
     side: THREE.FrontSide,
   });
 }
 
 /**
- * Every live particle, one `THREE.InstancedMesh`, one draw call -- the same
- * shape `UnitInstancer` gives units, sized to `PARTICLE_CAPACITY` so a live
- * particle can never outrun what this instancer can draw.
+ * Every live particle on ONE tier (`layerIdx`), one `THREE.InstancedMesh`,
+ * one draw call -- the same shape `UnitInstancer` gives units, sized to
+ * `PARTICLE_CAPACITY` (not a fraction of it) so a live particle can never
+ * outrun what this instancer can draw REGARDLESS of which tier ends up
+ * holding it -- both tiers draw from the same underlying `ParticleSystem`
+ * pool, and a particle's `layerIdx` is fixed at spawn, so in the worst case
+ * every live particle could land on ONE tier at once (today, 11 of 12
+ * shipped emitters are `above_units`, so this is not merely a theoretical
+ * worst case).
+ *
+ * `ThreeRenderer` constructs two of these -- one per tier -- rather than
+ * this class branching on `layerIdx` internally, so each tier's `depthTest`
+ * material flag and `renderOrder` are fixed at construction, matching how
+ * `UnitInstancer` is one instance per unit type rather than one instance
+ * juggling several.
  */
 export class ParticleInstancer {
   readonly mesh: THREE.InstancedMesh;
+  private readonly layerIdx: number;
   private readonly colorAttr: THREE.InstancedBufferAttribute;
   private readonly alphaAttr: THREE.InstancedBufferAttribute;
   private readonly scratchPositions: Float32Array;
   private readonly scratchScales: Float32Array;
   private readonly scratchMatrix = new THREE.Matrix4();
 
-  constructor(capacity: number) {
+  /**
+   * `layerIdx` selects which of `ParticleSystem`'s two draw layers this
+   * instancer reads (`FX_LAYER_BELOW`/`FX_LAYER_ABOVE`, `ThreeRenderer.ts`).
+   * `depthTest` is this tier's own material flag -- `true` for the
+   * below-tier (real occlusion against units/terrain), `false` for the
+   * above-tier (Pixi-`fxAboveG`-faithful, unconditional). See this class's
+   * own doc comment and this file's top comment ("The `above_units` split")
+   * for the full reasoning.
+   */
+  constructor(capacity: number, layerIdx: number, depthTest: boolean) {
+    this.layerIdx = layerIdx;
     const geo = particleBillboardGeometry();
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(geo.positions, 3));
@@ -544,12 +783,14 @@ export class ParticleInstancer {
     geometry.setAttribute('aColor', this.colorAttr);
     geometry.setAttribute('aAlpha', this.alphaAttr);
 
-    this.mesh = new THREE.InstancedMesh(geometry, createParticleMaterial(), capacity);
+    this.mesh = new THREE.InstancedMesh(geometry, createParticleMaterial(depthTest), capacity);
     this.mesh.count = 0;
     // Draw after every unit, deliberately -- see this file's top comment,
     // "FX-vs-UNIT ordering is a DIFFERENT question", for why this is now
-    // required rather than optional once depthWrite is off above.
-    this.mesh.renderOrder = FX_RENDER_ORDER;
+    // required rather than optional once depthWrite is off above. The
+    // above-tier (depthTest false) additionally wins any tie against the
+    // below-tier and against tracers, via the higher constant.
+    this.mesh.renderOrder = depthTest ? FX_RENDER_ORDER : FX_RENDER_ORDER_ABOVE;
     // Particles move continuously across the whole map, exactly like units
     // -- see UnitInstancer's own identical frustumCulled = false and its
     // comment for why an origin-centred bounding sphere would be wrong, not
@@ -564,13 +805,17 @@ export class ParticleInstancer {
    * `particles` is `null` before `ThreeRenderer.useEmitters` has wired a
    * `ParticleSystem` in. Truthfully nothing to draw yet -- `mesh.count`
    * drops to 0 rather than throwing or holding stale instances on screen.
+   *
+   * `elevation`/`mapWidth`/`mapHeight` thread straight through to
+   * `writeParticleInstances` -- see its own doc comment for why they are
+   * needed at all (Task B3.14's ground-lift fix).
    */
-  update(particles: ParticleSystem | null): void {
+  update(particles: ParticleSystem | null, elevation: Uint8Array | null, mapWidth: number, mapHeight: number): void {
     if (!particles) {
       this.mesh.count = 0;
       return;
     }
-    const count = writeParticleInstances(particles, {
+    const count = writeParticleInstances(particles, this.layerIdx, elevation, mapWidth, mapHeight, {
       positions: this.scratchPositions,
       colors: this.colorAttr.array as Float32Array,
       alphas: this.alphaAttr.array as Float32Array,

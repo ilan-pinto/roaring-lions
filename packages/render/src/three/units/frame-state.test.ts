@@ -13,13 +13,16 @@ import {
   assignRoofSlots,
   ROOF_SLOTS,
   ROOF_SPREAD_PX,
+  RECOIL_PX_VEHICLE,
+  RECOIL_PX_SOFT,
+  FLINCH_PX,
   type EntityFrameInput,
 } from './frame-state';
 import { resolveClip, type UnitAnimInput } from '../../clip';
 import { phaseOffset } from '../../anim';
 import { clipOrFallback, type SheetSpec } from '../../sheet';
 import { WORLD_Y_PER_LIFT_PIXEL } from '../../project';
-import { WORLD_PER_LEVEL } from '../terrain/shared';
+import { WORLD_PER_LEVEL, screenOffsetToWorld } from '../terrain/shared';
 
 /** A representative clip-layout sheet: idle/move/fire/down, 8 facings.
  *  `move` has 4 frames -- enough to exercise real frame advance. */
@@ -73,6 +76,11 @@ function makeInput(overrides: Partial<EntityFrameInput> = {}): EntityFrameInput 
     entityAnimFrame: new Float64Array(1),
     animSeeded: new Uint8Array(1),
     facing: 0,
+    recoilT: 0,
+    recoilDir: 0,
+    recoilPower: 0,
+    flinchT: 0,
+    flinchDir: 0,
     ...overrides,
   };
 }
@@ -317,6 +325,83 @@ describe('entityFrame — facing', () => {
   it('is zero for a due-east (unrotated) facing', () => {
     const out = entityFrame(makeInput({ facing: 0 }));
     expect(out.facing).toBe(0);
+  });
+});
+
+describe('entityFrame — recoil/flinch', () => {
+  it('leaves wx/wy untouched when neither timer is running', () => {
+    const out = entityFrame(makeInput({ curX: 5, curY: 5, alpha: 1 }));
+    expect(out.wx).toBe(5);
+    expect(out.wy).toBe(5);
+  });
+
+  it('offsets wx/wy by the SAME world delta screenOffsetToWorld gives the equivalent screen nudge', () => {
+    // recoilT 1 (freshly fired), power 1 -> px = RECOIL_PX_VEHICLE, firing
+    // due east (dir 0) -> Pixi's ox = -RECOIL_PX_VEHICLE, oy = 0
+    // (renderer.ts:2053-2056 at k=1). Reproduced independently here via
+    // screenOffsetToWorld rather than re-deriving entityFrame's own
+    // arithmetic, so this fails if the conversion is skipped, inverted, or
+    // applied on the wrong axis.
+    const out = entityFrame(
+      makeInput({ curX: 5, curY: 5, alpha: 1, recoilT: 1, recoilDir: 0, recoilPower: 1 })
+    );
+    const expected = screenOffsetToWorld(-RECOIL_PX_VEHICLE, 0);
+    expect(out.wx).toBeCloseTo(5 + expected.dx, 10);
+    expect(out.wy).toBeCloseTo(5 + expected.dy, 10);
+  });
+
+  it('interpolates recoil travel between RECOIL_PX_SOFT and RECOIL_PX_VEHICLE by recoilPower', () => {
+    const soft = entityFrame(makeInput({ curX: 0, curY: 0, alpha: 1, recoilT: 1, recoilDir: 0, recoilPower: 0 }));
+    const vehicle = entityFrame(makeInput({ curX: 0, curY: 0, alpha: 1, recoilT: 1, recoilDir: 0, recoilPower: 1 }));
+    // Both kick backwards along the same (0) bearing; a harder-hitting weapon
+    // (recoilPower 1) must travel farther than a softer one (recoilPower 0).
+    const softDist = Math.hypot(soft.wx, soft.wy);
+    const vehicleDist = Math.hypot(vehicle.wx, vehicle.wy);
+    expect(vehicleDist).toBeGreaterThan(softDist);
+    expect(softDist).toBeGreaterThan(0);
+  });
+
+  it('eases out — recoil travel shrinks as recoilT decays toward 0', () => {
+    const fresh = entityFrame(makeInput({ curX: 0, curY: 0, alpha: 1, recoilT: 1, recoilDir: 0.25, recoilPower: 1 }));
+    const settling = entityFrame(makeInput({ curX: 0, curY: 0, alpha: 1, recoilT: 0.2, recoilDir: 0.25, recoilPower: 1 }));
+    expect(Math.hypot(settling.wx, settling.wy)).toBeLessThan(Math.hypot(fresh.wx, fresh.wy));
+  });
+
+  it('flinch jolts the entity away from the shooter, independent of recoil', () => {
+    const out = entityFrame(makeInput({ curX: 0, curY: 0, alpha: 1, flinchT: 1, flinchDir: 0 }));
+    const expected = screenOffsetToWorld(FLINCH_PX, 0);
+    expect(out.wx).toBeCloseTo(expected.dx, 10);
+    expect(out.wy).toBeCloseTo(expected.dy, 10);
+  });
+
+  it('the RECOIL_PX_SOFT..RECOIL_PX_VEHICLE band matches the values Pixi still carries (renderer.ts:60-61)', () => {
+    expect(RECOIL_PX_SOFT).toBe(1);
+    expect(RECOIL_PX_VEHICLE).toBe(3);
+    expect(FLINCH_PX).toBe(2.5);
+  });
+
+  it('does not perturb worldY — ground height is sampled at the un-recoiled position', () => {
+    // 4x4 grid, level 3 at tile (1, 1) -- matching the "ground lift" suite
+    // above. Recoil/flinch offsets are a small fraction of a tile, so they
+    // must never change which tile's height entityFrame reports.
+    const elevation = new Uint8Array([0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const plain = entityFrame(
+      makeInput({ prevX: 1.5, prevY: 1.5, curX: 1.5, curY: 1.5, alpha: 0, elevation })
+    );
+    const recoiling = entityFrame(
+      makeInput({
+        prevX: 1.5,
+        prevY: 1.5,
+        curX: 1.5,
+        curY: 1.5,
+        alpha: 0,
+        elevation,
+        recoilT: 1,
+        recoilDir: 0,
+        recoilPower: 1,
+      })
+    );
+    expect(recoiling.worldY).toBe(plain.worldY);
   });
 });
 

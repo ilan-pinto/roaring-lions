@@ -89,6 +89,22 @@ import { walkFps, phaseOffset, advancePhase } from '../../anim';
 import { clipOrFallback, type ClipName, type SheetSpec } from '../../sheet';
 import { WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import { groundWorldY } from '../ground-height';
+import { screenOffsetToWorld } from '../terrain/shared';
+
+/**
+ * Recoil/flinch travel, in SCREEN pixels -- redeclared from `renderer.ts`'s
+ * own `RECOIL_PX_VEHICLE`/`RECOIL_PX_SOFT`/`FLINCH_PX` (private, unexported)
+ * rather than imported, the same reason `ROOF_SLOTS`/`ROOF_SPREAD_PX` above
+ * are redeclared: importing anything from `renderer.ts` would pull pixi.js
+ * into this module's graph. `RECOIL_SECONDS`/`FLINCH_SECONDS` (the DECAY
+ * durations) are NOT redeclared here -- draining `recoilT`/`flinchT` toward
+ * 0 is a once-a-frame, cross-entity operation (`ThreeRenderer.frame()`'s own
+ * top-of-frame drain, mirroring `PixiRenderer.frame()`'s), not a per-entity
+ * decision, so it belongs with the array it drains, not here.
+ */
+export const RECOIL_PX_VEHICLE = 3;
+export const RECOIL_PX_SOFT = 1;
+export const FLINCH_PX = 2.5;
 
 /**
  * How many of a building's occupants get a roof slot. Mirrors `ROOF_SLOTS`
@@ -203,6 +219,29 @@ export interface EntityFrameInput {
   /** Raw Q16.16 facing (sim units). `fx.toNumber` is applied inside
    *  `entityFrame`, not by the caller, matching the brief. */
   facing: Fx;
+
+  // --- recoil / flinch: renderer.ts:2048-2063, Task B3.14 ---
+  /**
+   * 1 at the instant this entity fires, decaying to 0 over `RECOIL_SECONDS`
+   * -- `PixiRenderer.recoilT`'s own per-entity value, already drained for
+   * this frame by the caller before `EntityFrameInput` is assembled (Task
+   * B3.5's `entityAnimFrame`/`animSeeded` are owned and mutated the same
+   * way; `recoilT`/`flinchT` below are owned and only READ here, since
+   * decay is a once-a-frame, cross-entity operation, not a per-entity one).
+   */
+  recoilT: number;
+  /** Normalised (0..1 turns) bearing the shot was fired along -- the recoil
+   *  kicks the entity back opposite this bearing. */
+  recoilDir: number;
+  /** 0..1, `firePower(weapon)` at the moment of the shot that is still
+   *  decaying -- interpolates the kick between `RECOIL_PX_SOFT` (a rifle,
+   *  barely a nudge) and `RECOIL_PX_VEHICLE` (a main gun, a real shove). */
+  recoilPower: number;
+  /** 1 at a penetrating hit, decaying to 0 over `FLINCH_SECONDS`. */
+  flinchT: number;
+  /** Normalised (0..1 turns) bearing FROM the shooter TO this entity -- the
+   *  flinch jolts it further along this same bearing, away from the hit. */
+  flinchDir: number;
 }
 
 /**
@@ -273,11 +312,25 @@ export function entityFrame(input: EntityFrameInput): EntityFrame {
     entityAnimFrame,
     animSeeded,
     facing,
+    recoilT,
+    recoilDir,
+    recoilPower,
+    flinchT,
+    flinchDir,
   } = input;
 
   // Interpolation between the last two sim ticks (renderer.ts:1930-1931).
-  const wx = prevX + (curX - prevX) * alpha;
-  const wy = prevY + (curY - prevY) * alpha;
+  // `let`, not `const`: recoil/flinch (below) offset these in place, AFTER
+  // `worldY` has already sampled ground height at the un-offset position --
+  // matching Pixi exactly, which computes `lift = groundOffset(x, y)`
+  // (renderer.ts:1977) before applying its own screen-space `ox`/`oy`
+  // nudges (renderer.ts:2048-2063). Recoil/flinch travel at most a few
+  // world-hundredths of a tile, so this ordering is not merely parity with
+  // Pixi -- re-sampling ground height from the offset position could only
+  // ever matter exactly at a terrace edge, and Pixi never attempts it there
+  // either.
+  let wx = prevX + (curX - prevX) * alpha;
+  let wy = prevY + (curY - prevY) * alpha;
 
   // Garrison roof placement (renderer.ts:1936-1956). Only the LATERAL spread
   // between two occupants stays screen-space (`roofDx`, always paired with
@@ -317,6 +370,47 @@ export function entityFrame(input: EntityFrameInput): EntityFrame {
   // unit standing on a tile lands exactly on that tile's own top face; a
   // roof occupant lands exactly on the roof quad standing above it.
   const worldY = groundWorldY(elevation, mapWidth, mapHeight, wx, wy) + roofLiftWorld;
+
+  // Recoil/flinch (renderer.ts:2044-2063): SCREEN-space nudges in Pixi,
+  // applied there directly to `sprite.position` post-projection. There is
+  // no post-projection position here to nudge -- `wx`/`wy` are pre-
+  // projection world coordinates -- so the same screen-pixel deltas are
+  // converted through `screenOffsetToWorld`, the identical conversion
+  // `roofDx` above is carried through by `writeUnitInstances`
+  // (`instances.ts`), generalised to the full 2D vector: unlike `roofDx`
+  // (a lateral-only nudge, `dy` always 0), recoil and flinch both carry a
+  // vertical SCREEN component too (`oy`, at half amplitude -- Pixi's own
+  // dimetric foreshortening), so the one-axis `right.dx` multiply `roofDx`
+  // uses is not enough; both components of `screenOffsetToWorld`'s output
+  // are needed. Applied directly to `wx`/`wy` rather than exported as a
+  // third nudge field: nothing downstream needs to tell "moved by
+  // interpolation" apart from "moved by recoil", unlike `roofDx`, which
+  // `instances.ts` must convert through ITS OWN copy of the `right` axis
+  // because it varies per unit-type geometry in a way recoil/flinch do not.
+  let recoilOx = 0;
+  let recoilOy = 0;
+  if (recoilT > 0) {
+    // Ease-out: hardest at the shot, settling back (renderer.ts:2048-2056).
+    // Recoil tracks the WEAPON, not the chassis -- a tank's coax nudges, its
+    // main gun shoves -- via `recoilPower` (0..1, `firePower` at the shot).
+    const k = recoilT * recoilT;
+    const px = RECOIL_PX_SOFT + (RECOIL_PX_VEHICLE - RECOIL_PX_SOFT) * recoilPower;
+    const a = recoilDir * Math.PI * 2;
+    recoilOx -= Math.cos(a) * px * k;
+    recoilOy -= Math.sin(a) * px * k * 0.5;
+  }
+  if (flinchT > 0) {
+    // renderer.ts:2058-2063.
+    const k = flinchT * flinchT;
+    const a = flinchDir * Math.PI * 2;
+    recoilOx += Math.cos(a) * FLINCH_PX * k;
+    recoilOy += Math.sin(a) * FLINCH_PX * k * 0.5;
+  }
+  if (recoilOx !== 0 || recoilOy !== 0) {
+    const offset = screenOffsetToWorld(recoilOx, recoilOy);
+    wx += offset.dx;
+    wy += offset.dy;
+  }
 
   // Contact-level body alpha (renderer.ts:1984-1988). The player's own units
   // (side 0) are always full alpha; only what is observed through contact

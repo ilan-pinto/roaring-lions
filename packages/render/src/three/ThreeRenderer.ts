@@ -19,27 +19,25 @@
  *    sprites) or is presentation-only Phase C state (`setTutorialFocus`).
  *    `setDecor` and `loadSprites` graduated out of this bucket in B2.6 and
  *    B3.5 respectively -- both now draw what they are given, immediately or
- *    on the next `frame()`. `useEmitters` graduates in B3.13: it now wires
- *    its `EmitterSpec[]` into a real `EmitterLibrary` and constructs a real
- *    `ParticleSystem` from `resolve`, both actually consumed by `frame()`'s
- *    draw path below (`ParticleInstancer`/`TracerBatch`, `units/fx.ts`) --
- *    but nothing SPAWNS a particle or a tracer yet, because that reads
- *    `SimEvent`s and `onEvents` is still the stub below. So the draw path is
- *    real and browser-verified (see the B3.13 report), even though nothing
- *    reaches it from a live mission until B3.14 wires `onEvents`'s
- *    presentation half.
+ *    on the next `frame()`. `useEmitters` graduated fully in Task B3.14: it
+ *    wires its `EmitterSpec[]` into a real `EmitterLibrary` and constructs a
+ *    real `ParticleSystem` from `resolve`, and (since B3.14) `onEvents`
+ *    actually SPAWNS into both -- see the next bullet.
  *  - **Truthful no-ops**, where "nothing to do" is the honest answer rather
- *    than a dodge: `onEvents` (event-driven presentation -- fire flashes,
- *    deaths, damage tint -- is Task B3.14, the next task after this one, not
- *    B4/Phase C as an earlier draft of this comment said before the
- *    combat-feedback addendum pulled it forward; every clip `entityFrame` can
- *    already resolve from direct per-tick `Sim` state alone, `working`
- *    included, needs no event feed at all), `addOrderMarker` (a one-shot
- *    with no state worth keeping), and `isVisible`, which returns `true`
- *    because fog is B4 and a backend with no fog hides nothing. `snapshot`
- *    graduated out of this bucket in B3.5: it now latches per-entity
- *    position and measures ground speed, the same job Pixi's own `snapshot`
- *    does, because `frame()` needs both to draw a single moving unit.
+ *    than a dodge: `addOrderMarker` (a one-shot with no state worth
+ *    keeping), and `isVisible`, which returns `true` because fog is B4 and a
+ *    backend with no fog hides nothing. `snapshot` graduated out of this
+ *    bucket in B3.5: it now latches per-entity position and measures ground
+ *    speed, the same job Pixi's own `snapshot` does, because `frame()` needs
+ *    both to draw a single moving unit. `onEvents` graduated out of this
+ *    bucket in Task B3.14: it now wires seven of Pixi's nine event kinds --
+ *    `fire`, `impact`, `nearMiss`, `aps`, `strike`, `destroyed`,
+ *    `tunnelCollapsed` -- muzzle flashes, tracers, impact effects, the death
+ *    fade, and the recoil/flinch latches `drainTimers` decays. Two kinds
+ *    remain genuinely unhandled, not merely deferred by this comment:
+ *    `structureHit`/`structureDestroyed`, both barred until Task B3.9 makes
+ *    the terrain rebuild they trigger incremental (see `onEvents`'s own doc
+ *    comment for the cost that forces this).
  *  - **Throws**: this bucket is now empty. `pickUnit` and `unitsInScreenRect`
  *    were the only two members that would have had to *fabricate* -- `-1`
  *    and `[]` both mean "you clicked empty ground", the player acts on that,
@@ -59,31 +57,45 @@
  * broke it -- `isVisible` in the frame loop, the tutorial focus pair in the
  * tick loop -- so weigh that before adding a `notYet` to anything new.
  *
- * ## What B3.5 deliberately does not draw
+ * ## What B3.5 deliberately does not draw, and what Task B3.14 added to it
  *
- * `units/frame-state.ts`'s landed `EntityFrame` carries exactly what B3.3
- * decided a unit needs: position, ground/roof lift, clip, frame, facing,
- * body alpha. Everything Pixi's own unit loop draws beyond that --
- * `firing`'s one-shot pose (latched from a `fired` `SimEvent`, and `onEvents`
- * is still a stub per the bucket above), recoil/flinch/tremble/footfall-bob
- * screen-space nudges, air-lift for `isAir` types (the sim's own `UnitType`
- * doc comment calls this "presentation" and names the renderer as the thing
- * that lifts it -- `frame-state.ts` does not), turret sprites, and the
- * procedural-primitive fallback for a unit type with no loaded sheet -- is
- * out of scope here. None of it can be added without either modifying
- * `frame-state.ts` (barred this task) or reimplementing logic that module
- * already owns (exactly the "second clip resolver" risk its own doc comment
- * warns against). A unit type with no loaded sheet simply is not drawn: "no
- * mesh units" (the B3 brief's own scope line) rules out inventing a
- * placeholder shape for it the way Pixi's circle fallback does.
+ * `units/frame-state.ts`'s landed `EntityFrame` carries what B3.3 decided a
+ * unit needs: position, ground/roof lift, clip, frame, facing, body alpha.
+ * Task B3.14 EXTENDS `EntityFrameInput` (frame-state.ts was explicitly not
+ * barred for this task, unlike B3.5) with `recoilT`/`recoilDir`/
+ * `recoilPower`/`flinchT`/`flinchDir` -- both `firing`'s one-shot pose
+ * (latched here, from `onEvents`'s `fire` case) and the recoil/flinch
+ * screen-space nudges Pixi's own unit loop applies (`renderer.ts:2044-2063`)
+ * are drawn now, event-fed exactly like Pixi.
+ *
+ * Everything ELSE Pixi's unit loop draws beyond what `EntityFrame` carries
+ * is still out of scope: pinned TREMBLE and footfall BOB (both continuous,
+ * driven every frame off `Sim` state or clip phase directly, not by an
+ * event -- this task's brief scopes it to "the recoil and flinch decay
+ * timers `frame()` drains", not every screen-space nudge Pixi's unit loop
+ * ever applies), air-lift for `isAir` types (the sim's own `UnitType` doc
+ * comment calls this "presentation" and names the renderer as the thing
+ * that lifts it -- `frame-state.ts` does not), turret sprites (Task B3.6,
+ * still ahead of this one -- `onEvents`'s own doc comment has the concrete
+ * consequence: every shot's muzzle/recoil bearing uses hull facing, not
+ * turret facing), and the procedural-primitive fallback for a unit type
+ * with no loaded sheet. None of it can be added without either
+ * reimplementing logic `frame-state.ts`/`clip.ts` already own (exactly the
+ * "second clip resolver" risk `frame-state.ts`'s own doc comment warns
+ * against) or waiting on data this backend does not have yet (turret
+ * facing). A unit type with no loaded sheet simply is not drawn: "no mesh
+ * units" (the B3 brief's own scope line) rules out inventing a placeholder
+ * shape for it the way Pixi's circle fallback does -- and the same rule now
+ * also governs a DYING unit with no loaded sheet (`stepDeaths`, Task
+ * B3.14): it is silently skipped, not drawn as a placeholder either.
  */
 import * as THREE from 'three';
-import { fx, type Sim } from '@lions/sim';
+import { fx, WEAPON_CLASS, type Fx, type Sim, type SimEvent } from '@lions/sim';
 import type { Renderer, RendererOptions } from '../api'; // both, after Step 2
-import type { Camera } from '../project';
-import { EmitterLibrary, ParticleSystem, type EmitterSpec } from '../vfx';
+import { WORLD_Y_PER_LIFT_PIXEL, type Camera } from '../project';
+import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
 import { SIM_HZ } from '../anim';
-import { parseManifest, type SheetSpec } from '../sheet';
+import { parseManifest, clipOrFallback, type SheetSpec } from '../sheet';
 import type { UnitAnimInput } from '../clip';
 import { dimetricCamera, worldToScreenThree, screenToWorldThree } from './camera';
 import { applyPalettePipeline } from './palette-material';
@@ -97,14 +109,70 @@ import { packSheet, buildUnitTexture } from './units/atlas';
 import { entityFrame, assignRoofSlots, type EntityFrameInput, type EntityFrame } from './units/frame-state';
 import { UnitInstancer } from './units/instances';
 import { pickUnit as pickUnitPure, unitsInScreenRect as unitsInScreenRectPure } from './units/pick';
-import { stepTracers, type TracerModel } from './units/tracers';
+import { stepTracers, spawnTracer, type TracerModel } from './units/tracers';
 import { ParticleInstancer, TracerBatch, PARTICLE_CAPACITY, TRACER_CAPACITY } from './units/fx';
+import { groundWorldY } from './ground-height';
+import { tileHash } from '../tile-hash';
 
 /** Where a unit type's sheets live, as the app named them. */
 interface SpriteSheetRequest {
   basePath: string;
   turretPath?: string;
 }
+
+/** One unit mid-death-fade -- ThreeRenderer.stepDeaths' own tracking,
+ *  mirroring PixiRenderer's identically-shaped `dying` entry (renderer.ts,
+ *  `stepDeaths`'s own doc comment). Position, facing and typeId are captured
+ *  at the moment of death, not read live off `Sim`, because the entity slot
+ *  may be reused by a later spawn before the fade finishes. */
+interface DyingUnit {
+  x: number;
+  y: number;
+  facing: number;
+  typeId: string;
+  t: number;
+}
+
+/** Recoil/flinch decay durations, seconds -- redeclared from `renderer.ts`'s
+ *  own `RECOIL_SECONDS`/`FLINCH_SECONDS` (private, unexported) rather than
+ *  imported, the same reason everything else redeclared from `renderer.ts`
+ *  in this backend is: importing from it would pull pixi.js into this
+ *  module's graph. Owned here rather than `frame-state.ts` because draining
+ *  `recoilT`/`flinchT` toward 0 is a once-a-frame, cross-entity operation
+ *  (`drainTimers` below, mirroring `PixiRenderer.frame()`'s own
+ *  top-of-frame drain, `renderer.ts:1882-1888`), not the per-entity decision
+ *  `entityFrame` makes with the already-drained value. */
+const RECOIL_SECONDS = 0.15;
+const FLINCH_SECONDS = 0.18;
+/** Seconds a dying unit spends fading before it is dropped -- mirrors
+ *  `PixiRenderer.DEATH_SECONDS` (renderer.ts:1209). See `stepDeaths`'s own
+ *  doc comment for what happens after that point (nothing -- permanent
+ *  wreckage is out of scope; see there for why). */
+const DEATH_SECONDS = 0.4;
+
+/**
+ * Particle draw layers -- mirrors `renderer.ts`'s own private
+ * `FX_LAYER_BELOW`/`FX_LAYER_ABOVE`/`fxLayerIndex` (redeclared for the same
+ * pixi.js-import reason as everything else redeclared from `renderer.ts`).
+ * `FX_LAYER_BELOW` routes to `particleInstancerBelow` (real occlusion
+ * against units/terrain); `FX_LAYER_ABOVE` routes to `particleInstancerAbove`
+ * (unconditional, matching Pixi's own `fxAboveG`) -- see `units/fx.ts`'s own
+ * top comment, "The `above_units` split (B3.14)", for the full reasoning.
+ */
+const FX_LAYER_BELOW = 0;
+const FX_LAYER_ABOVE = 1;
+function fxLayerIndex(layer: string | undefined): number {
+  return layer === 'above_units' || layer === 'sky' ? FX_LAYER_ABOVE : FX_LAYER_BELOW;
+}
+
+/**
+ * The `magnitude` value that makes `ParticleSystem.spawn`'s internal size
+ * scale (`0.75 + magnitude * 1.25`) equal exactly 1 -- so `spawnFlatFx`
+ * below can pass a `size_px` that becomes the drawn radius directly, rather
+ * than one pre-divided by an arbitrary scale factor. See `spawnFlatFx`'s own
+ * doc comment for the rest of the reasoning.
+ */
+const FLAT_FX_MAGNITUDE = 0.2;
 
 export class ThreeRenderer implements Renderer {
   readonly camera: Camera = { x: 24, y: 24, zoom: 1 };
@@ -200,31 +268,55 @@ export class ThreeRenderer implements Renderer {
    *  frames." Mirrors Pixi's identically-named fields. */
   private readonly entityAnimFrame: Float64Array;
   private readonly animSeeded: Uint8Array;
+  /**
+   * Task B3.14: event-driven presentation timers, one-shot latches set from
+   * `onEvents` and drained toward 0 by `drainTimers` at the top of every
+   * `frame()` -- mirrors `PixiRenderer`'s identically-named private fields
+   * (`renderer.ts:412-419`) exactly, including their shapes: `firingTimer`
+   * counts down its own remaining seconds; `recoilT`/`flinchT` count down
+   * 1..0 and are read alongside their paired `*Dir`/`recoilPower` by
+   * `entityFrame` (`frame-state.ts`) to place the screen-space kick.
+   */
+  private readonly firingTimer: Float64Array;
+  private readonly recoilT: Float64Array;
+  private readonly recoilDir: Float64Array;
+  private readonly recoilPower: Float64Array;
+  private readonly flinchT: Float64Array;
+  private readonly flinchDir: Float64Array;
+  /** Units mid-death-fade -- see `stepDeaths`'s own doc comment. */
+  private readonly dying: DyingUnit[] = [];
 
   /** One `UnitInstancer` per unit type with a loaded sheet, keyed by the
    *  unit type id `loadSprites` was called with. */
   private readonly unitInstancers = new Map<string, UnitInstancer>();
   /** Reused across frames (`.length = 0` each `frame()`, not reallocated) --
    *  every living entity's `EntityFrame` this tick, grouped by its unit
-   *  type id, the shape `UnitInstancer.update` consumes. */
+   *  type id, the shape `UnitInstancer.update` consumes. `stepDeaths` also
+   *  appends a synthetic `EntityFrame` per still-fading dying unit into the
+   *  same per-type arrays, for the same instancers to draw. */
   private readonly framesByType = new Map<string, EntityFrame[]>();
 
   /**
-   * Task B3.13: combat feedback's draw path. `emitterLibrary` and
+   * Task B3.13/B3.14: combat feedback's draw path. `emitterLibrary` and
    * `particleSystem` are wired by `useEmitters` below -- `particleSystem`
    * stays `null` until then, exactly like `PixiRenderer.particles`, since a
    * `ParticleSystem` needs the app's `resolve` callback to construct.
-   * `tracers` starts empty and is never populated by anything in THIS task
-   * (see `onEvents`'s own doc comment) -- Task B3.14 pushes onto it from a
-   * `fire` `SimEvent`, mirroring `PixiRenderer.tracers`. `particleInstancer`/
-   * `tracerBatch` exist unconditionally from construction, independent of
-   * whether `useEmitters` has run yet or any tracer has ever spawned, so
+   * `tracers` starts empty and is populated by `onEvents`'s own `fire` case
+   * (Task B3.14), mirroring `PixiRenderer.tracers`.
+   *
+   * Two `ParticleInstancer`s, not one: Task B3.14 splits B3.13's single
+   * merged mesh back into a below/above pair on the `depthTest` axis -- see
+   * `units/fx.ts`'s own top comment, "The `above_units` split (B3.14)", for
+   * the full reasoning and cost. `particleInstancerBelow`/`particleInstancerAbove`/
+   * `tracerBatch` all exist unconditionally from construction, independent
+   * of whether `useEmitters` has run yet or any tracer has ever spawned, so
    * `frame()` always has something to call `.update()` on.
    */
   private readonly emitterLibrary = new EmitterLibrary();
   private particleSystem: ParticleSystem | null = null;
   private tracers: TracerModel[] = [];
-  private readonly particleInstancer = new ParticleInstancer(PARTICLE_CAPACITY);
+  private readonly particleInstancerBelow = new ParticleInstancer(PARTICLE_CAPACITY, FX_LAYER_BELOW, true);
+  private readonly particleInstancerAbove = new ParticleInstancer(PARTICLE_CAPACITY, FX_LAYER_ABOVE, false);
   private readonly tracerBatch = new TracerBatch(TRACER_CAPACITY);
 
   constructor(
@@ -240,6 +332,12 @@ export class ThreeRenderer implements Renderer {
     this.entitySpeed = new Float64Array(n);
     this.entityAnimFrame = new Float64Array(n);
     this.animSeeded = new Uint8Array(n);
+    this.firingTimer = new Float64Array(n);
+    this.recoilT = new Float64Array(n);
+    this.recoilDir = new Float64Array(n);
+    this.recoilPower = new Float64Array(n);
+    this.flinchT = new Float64Array(n);
+    this.flinchDir = new Float64Array(n);
     // antialias stays off deliberately (Phase 0 verdict, "Antialiasing must
     // be off, or accounted for"): a blended edge pixel is by definition not
     // a palette colour, and this backend's sprite/toon pipeline quantizes
@@ -251,12 +349,12 @@ export class ThreeRenderer implements Renderer {
     // which is exactly why this is a single call rather than two lines a
     // future edit could reorder.
     applyPalettePipeline(this.renderer, this.opts.background);
-    // Added unconditionally, not lazily on first useEmitters/spawn -- both
-    // meshes start at count/drawRange 0 (nothing live yet) and simply stay
-    // that way until there is something to draw, the same "always present,
-    // draws nothing until fed" shape terrain's own meshes have before the
-    // first rebuildTerrain.
-    this.scene.add(this.particleInstancer.mesh, this.tracerBatch.mesh);
+    // Added unconditionally, not lazily on first useEmitters/spawn -- all
+    // three meshes start at count/drawRange 0 (nothing live yet) and simply
+    // stay that way until there is something to draw, the same "always
+    // present, draws nothing until fed" shape terrain's own meshes have
+    // before the first rebuildTerrain.
+    this.scene.add(this.particleInstancerBelow.mesh, this.particleInstancerAbove.mesh, this.tracerBatch.mesh);
   }
 
   get canvas(): HTMLCanvasElement {
@@ -329,7 +427,8 @@ export class ThreeRenderer implements Renderer {
     this.terrainMat.dispose();
     for (const instancer of this.unitInstancers.values()) instancer.dispose();
     this.unitInstancers.clear();
-    this.particleInstancer.dispose();
+    this.particleInstancerBelow.dispose();
+    this.particleInstancerAbove.dispose();
     this.tracerBatch.dispose();
     this.renderer.dispose();
     this.host = null;
@@ -347,8 +446,16 @@ export class ThreeRenderer implements Renderer {
   /** `alpha` (interpolation) and `dtMs` (presentation animation -- frame
    *  advance) now feed every living unit's `EntityFrame` via `updateUnits`,
    *  and (Task B3.13) every live particle/tracer via `updateFx`. Terrain
-   *  still reads neither: it has no per-frame presentation state. */
+   *  still reads neither: it has no per-frame presentation state.
+   *
+   *  `drainTimers` runs FIRST, before anything reads `firingTimer`/`recoilT`/
+   *  `flinchT` -- mirroring `PixiRenderer.frame()`'s own top-of-frame drain
+   *  (`renderer.ts:1882-1888`) exactly, including the ordering: the decay
+   *  has to land before `updateUnits` builds this frame's `EntityFrameInput`
+   *  from the just-drained values, or every latch would read one frame
+   *  stale. */
   frame(alpha: number, dtMs: number): void {
+    this.drainTimers(this.frameDtSeconds(dtMs));
     if (this.terrainDirty) {
       this.rebuildTerrain();
       this.terrainDirty = false;
@@ -356,6 +463,25 @@ export class ThreeRenderer implements Renderer {
     this.updateUnits(alpha, dtMs);
     this.updateFx(dtMs);
     this.renderer.render(this.scene, this.threeCamera());
+  }
+
+  /**
+   * Drains the one-shot firing/recoil/flinch latches -- ported verbatim from
+   * `PixiRenderer.frame()`'s own top-of-frame drain (`renderer.ts:1882-1888`,
+   * "Drain the one-shot latches before anything reads them. Recoil and
+   * flinch decay over their own durations, framerate-independently.").
+   * Not gated on `alive[i]`, matching Pixi exactly: a unit killed mid-recoil
+   * still has its timer drained (harmlessly -- nothing reads a dead entity's
+   * recoil, since `updateUnits`'s living-entity loop skips it and
+   * `stepDeaths` builds its own synthetic frame from captured state instead).
+   */
+  private drainTimers(dtSeconds: number): void {
+    const n = this.sim.entityCount;
+    for (let i = 0; i < n; i++) {
+      if (this.firingTimer[i] > 0) this.firingTimer[i] = Math.max(0, this.firingTimer[i] - dtSeconds);
+      if (this.recoilT[i] > 0) this.recoilT[i] = Math.max(0, this.recoilT[i] - dtSeconds / RECOIL_SECONDS);
+      if (this.flinchT[i] > 0) this.flinchT[i] = Math.max(0, this.flinchT[i] - dtSeconds / FLINCH_SECONDS);
+    }
   }
 
   /**
@@ -382,25 +508,253 @@ export class ThreeRenderer implements Renderer {
       this.entitySpeed[i] = Math.hypot(dx, dy) * SIM_HZ;
     }
   }
-  onEvents(): void {
-    /* Event-driven presentation -- fire-flash timing, deaths, damage tint,
-     * trails -- is Task B3.14, immediately next (pulled forward from B4/
-     * Phase C by the combat-feedback addendum; see this class's own top
-     * comment). Every clip `entityFrame` can already resolve from direct
-     * per-tick Sim state alone (dead/routed/pinned/working/moving/idle);
-     * only the one-shot `fire` pose needs an event feed (Pixi's own
-     * `firingTimer`, latched from a `fired` SimEvent), and it is the one
-     * clip units drawn by this backend do not yet show.
-     *
-     * This is also where B3.14 pushes a `spawnTracer(...)` onto `this.
-     * tracers` and calls `this.particleSystem?.spawn(...)` on a `fire`
-     * event, porting `renderer.ts:756` onward (the tracer spawn, muzzle
-     * position/direction, and the emitter lookup through `emitterLibrary`).
-     * `updateFx` below already steps and draws both `tracers` and
-     * `particleSystem` every frame -- Task B3.13 built the whole draw path
-     * with nothing spawning into it yet, exactly the state `onEvents`
-     * itself has been in since B3.5: real machinery, no event feed wired to
-     * it. */
+  /**
+   * Task B3.14: the presentation half of `onEvents`, ported from
+   * `renderer.ts:756` onward (`PixiRenderer.onEvents`). Wires seven of the
+   * nine event kinds Pixi handles there -- `fire`, `impact`, `nearMiss`,
+   * `aps`, `strike`, `destroyed`, `tunnelCollapsed` -- muzzle flash position
+   * and direction, tracer spawn, impact effects, the death fade
+   * (`stepDeaths`), and the recoil/flinch latches `drainTimers` decays.
+   *
+   * `structureHit` and `structureDestroyed` are DELIBERATELY left unhandled.
+   * Both mark terrain dirty in Pixi (`renderer.ts:853,881`), and Pixi fires
+   * `structureHit` on EVERY damage event -- a full `rebuildTerrain` here
+   * costs 114-179ms (this class's own `rebuildTerrain` doc comment), so
+   * wiring either before Task B3.9 makes the rebuild incremental would make
+   * a siege unplayable rather than merely visually stale. Task B3.9 owns
+   * both; Task B3.10 (`onEvents`'s remaining non-presentation half, if any)
+   * is the other named successor. `rebuildTerrain`'s own doc comment already
+   * documents the resulting staleness (a destroyed building's footprint
+   * does not repaint) -- this method does not widen that gap, it leaves it
+   * exactly where B2.7 found it.
+   *
+   * One further, real deviation from Pixi, forced by this backend's own
+   * documented scope cut (this class's own top comment, "What B3.5
+   * deliberately does not draw"): Pixi's muzzle position/direction and
+   * recoil bearing use the shooter's TURRET facing for a vehicle
+   * (`usesTurret`, `renderer.ts:778-781`); this backend has no turret
+   * tracking at all yet (`frame-state.ts`'s `EntityFrame` carries no turret
+   * facing -- turrets are Task B3.6, still ahead of this one per the
+   * addendum's own reordering), so every shot here uses HULL facing
+   * unconditionally. A turreted vehicle's muzzle flash and recoil kick will
+   * visibly disagree with Pixi's until B3.6 lands; there is no data this
+   * backend can read to do otherwise today.
+   */
+  onEvents(events: SimEvent[]): void {
+    const st = this.sim.state;
+    for (const e of events) {
+      if (e.kind === 'fire') this.onFire(e);
+      else if (e.kind === 'nearMiss') {
+        this.spawnFlatFx(fx.toNumber(e.x), fx.toNumber(e.y), this.opts.nearMissColor, 7, 14);
+      } else if (e.kind === 'aps' && e.intercepted) {
+        this.spawnFlatFx(this.curX[e.target], this.curY[e.target], this.opts.interceptColor, 10, 12);
+      } else if (e.kind === 'impact' && e.penetrated) {
+        this.spawnFlatFx(this.curX[e.target], this.curY[e.target], this.opts.flashColor, 8, 10);
+        // Jolt the target away from the shooter, so a penetrating hit lands
+        // on the unit rather than only in the roll feed (renderer.ts:825-832).
+        const dx = this.curX[e.target] - this.curX[e.shooter];
+        const dy = this.curY[e.target] - this.curY[e.shooter];
+        if (dx !== 0 || dy !== 0) {
+          this.flinchT[e.target] = 1;
+          this.flinchDir[e.target] = (((Math.atan2(dy, dx) / (Math.PI * 2)) % 1) + 1) % 1;
+        }
+      } else if (e.kind === 'strike') {
+        this.onStrike(e.x, e.y, e.tick);
+      } else if (e.kind === 'tunnelCollapsed') {
+        this.onTunnelCollapsed(e.tunnel, e.tick);
+      } else if (e.kind === 'destroyed') {
+        this.dying.push({
+          x: this.curX[e.entity],
+          y: this.curY[e.entity],
+          facing: fx.toNumber(st.facing[e.entity]),
+          typeId: this.sim.unitTypes[st.typeIdx[e.entity]].id,
+          t: 0,
+        });
+      }
+      // structureHit / structureDestroyed: Task B3.9 (incremental terrain
+      // rebuild) owns these -- see this method's own doc comment.
+    }
+  }
+
+  /**
+   * The `fire` case, ported from `renderer.ts:758-818`. Split out of
+   * `onEvents` itself only because it is by far the longest of the seven --
+   * the branch structure otherwise matches Pixi's exactly, kind for kind.
+   */
+  private onFire(e: Extract<SimEvent, { kind: 'fire' }>): void {
+    const st = this.sim.state;
+    // Shots at buildings carry target -1: aim the tracer at the building
+    // (renderer.ts:759-762).
+    const atStruct = e.target < 0 && e.structure !== undefined;
+    const tx = atStruct ? fx.toNumber(this.sim.structures.cx[e.structure as number]) : this.curX[e.target];
+    const ty = atStruct ? fx.toNumber(this.sim.structures.cy[e.structure as number]) : this.curY[e.target];
+    this.tracers.push(spawnTracer(this.curX[e.shooter], this.curY[e.shooter], tx, ty, st.side[e.shooter]));
+
+    const type = this.sim.unitTypes[st.typeIdx[e.shooter]];
+    // Latch the fire clip for its own declared duration (renderer.ts:772-777).
+    const fireClip = this.unitInstancers.get(type.id)?.sheet.clips.fire;
+    if (fireClip && fireClip.fps > 0) {
+      this.firingTimer[e.shooter] = fireClip.frames / fireClip.fps;
+    }
+    // Hull facing only -- see onEvents' own doc comment for why this
+    // deviates from Pixi's turret-aware `usesTurret` branch.
+    const facingRad = fx.toNumber(st.facing[e.shooter]) * Math.PI * 2;
+    const barrelLen = type.isSoft ? 0.4 : 0.8;
+    const mzX = this.curX[e.shooter] + Math.cos(facingRad) * barrelLen;
+    const mzY = this.curY[e.shooter] + Math.sin(facingRad) * barrelLen;
+
+    // Which weapon fired decides the signature, not whether the shooter is
+    // soft (renderer.ts:785-791).
+    const wp = type.weapons.find((w) => w.id === e.weaponId);
+    const cls = wp?.cls ?? WEAPON_CLASS.small_arms;
+    const emitter = this.emitterLibrary.fireEmitterFor(cls);
+    const power = wp ? firePower(wp) : 0;
+
+    // Kick the shooter back along its own bearing (renderer.ts:792-800).
+    // Demolition charges are placed, not fired -- a satchel charge must not
+    // make the squad lurch.
+    if (cls !== WEAPON_CLASS.demolition) {
+      this.recoilT[e.shooter] = 1;
+      this.recoilDir[e.shooter] = facingRad / (Math.PI * 2);
+      this.recoilPower[e.shooter] = power;
+    }
+
+    if (emitter && this.particleSystem) {
+      const dirTurns = facingRad / (Math.PI * 2);
+      const prio = emitter.budget_priority ?? 5;
+      const fxLayer = fxLayerIndex(emitter.layer);
+      for (const layer of emitter.particles) {
+        const offset = (layer.direction_offset_deg ?? 0) / 360;
+        this.particleSystem.spawn(layer, mzX, mzY, dirTurns + offset, power, prio, fxLayer);
+      }
+    } else {
+      // No emitter authored for this weapon class yet: the flat-colour
+      // fallback Pixi's own `puffs` stand in with (renderer.ts:811-818),
+      // reproduced through the SAME ParticleSystem pool real emitters use
+      // rather than a second FX mechanism -- see spawnFlatFx's own doc
+      // comment.
+      if (type.isSoft) {
+        this.spawnFlatFx(mzX, mzY, this.opts.flashColor, 5, 7);
+      } else {
+        this.spawnFlatFx(mzX, mzY, this.opts.flashColor, 14, 4);
+        this.spawnFlatFx(mzX, mzY, this.opts.flashColor, 10, 8);
+        this.spawnFlatFx(mzX, mzY, '#6B6355', 7, 18);
+      }
+    }
+  }
+
+  /**
+   * The `strike` case, ported from `renderer.ts:833-846`: a scatter of 18
+   * puffs around the impact point, positioned by the SAME deterministic
+   * per-sample hash Pixi uses (`PixiRenderer.h2`, which `renderer.ts`'s own
+   * doc comment says IS `tileHash` -- imported directly here rather than
+   * reimplemented, so the two backends scatter identically for the same
+   * tick/strike, not merely similarly).
+   */
+  private onStrike(ex: Fx, ey: Fx, tick: number): void {
+    const sx = fx.toNumber(ex);
+    const sy = fx.toNumber(ey);
+    for (let k = 0; k < 18; k++) {
+      const a = tileHash(k * 11 + tick, k * 17 + tick);
+      const b = tileHash(k * 23 + tick, k * 5 + tick);
+      this.spawnFlatFx(
+        sx + (a - 0.5) * 4,
+        sy + (b - 0.5) * 4,
+        k % 3 === 0 ? this.opts.flashColor : this.opts.nearMissColor,
+        10 + a * 14,
+        20 + Math.floor(a * 20)
+      );
+    }
+  }
+
+  /**
+   * The `tunnelCollapsed` case, ported from `renderer.ts:903-935`: a handful
+   * of sample points along the route's length, each spawning the
+   * `tunnel_collapse` emitter set (`spawnCollapseFx`) or, if no emitter set
+   * is loaded, the same flat-puff fallback structure/tunnel collapse share
+   * in Pixi.
+   */
+  private onTunnelCollapsed(tunnel: number, tick: number): void {
+    const len = fx.toNumber(this.sim.tnLength[tunnel]);
+    const samples = Math.max(2, Math.min(6, 1 + Math.round(len / 2.5)));
+    for (let s = 0; s < samples; s++) {
+      const d = fx.from((len * s) / (samples - 1));
+      const [px, py] = this.sim.tunnelPointAt(tunnel, d);
+      const tx = fx.toNumber(px) + 0.5;
+      const ty = fx.toNumber(py) + 0.5;
+      if (!this.spawnCollapseFx('tunnel_collapse', tx, ty)) {
+        for (let k = 0; k < 4; k++) {
+          const a = tileHash(k * 7 + tunnel + s * 5, k * 13 + tick);
+          const b = tileHash(k * 31 + tick + s * 17, k * 3 + tunnel);
+          this.spawnFlatFx(tx + (a - 0.5) * 2, ty + (b - 0.5) * 2, this.opts.nearMissColor, 8 + a * 8, 22 + Math.floor(a * 12));
+        }
+      }
+    }
+  }
+
+  /**
+   * A collapse's debris and dust bloom -- `structure_collapse` for a
+   * building, `tunnel_collapse` for a route's vent (only the latter is
+   * reachable from this task's wired events; `structureDestroyed` is out of
+   * scope, see `onEvents`'s own doc comment). Ported from `renderer.ts:330-342`
+   * (`PixiRenderer.spawnCollapseFx`). Returns false when no emitter set is
+   * loaded, exactly like Pixi, so the caller can fall back to flat puffs.
+   */
+  private spawnCollapseFx(id: string, bx: number, by: number): boolean {
+    if (!this.particleSystem) return false;
+    const em = this.emitterLibrary.byName(id);
+    if (!em) return false;
+    const prio = em.budget_priority ?? 1;
+    const fxLayer = fxLayerIndex(em.layer);
+    for (const layer of em.particles) {
+      // Straight up from the footprint centre; the spec's 360-degree cone
+      // and the presentation PRNG inside spawn() do the scattering.
+      this.particleSystem.spawn(layer, bx, by, 0.25, 1, prio, fxLayer);
+    }
+    return true;
+  }
+
+  /**
+   * A single-colour, non-authored puff, routed through the SAME
+   * `ParticleSystem` pool and draw path every real emitter uses -- not a
+   * second FX mechanism. Pixi's equivalent (`renderer.ts`'s `Puff`
+   * interface/array, `this.puffs`) is a flat, FRAME-counted circle drawn
+   * directly on a `Graphics`, with its own growth formula (`r * (1.4 -
+   * ttl/14)`, `renderer.ts:2605`) that has no equivalent in
+   * `ParticleSystem`'s 0..1-normalised, TIME-based curve model.
+   * `size_over_life`/`alpha_over_life` below reproduce the SHAPE of that
+   * effect (a small puff that grows while it fades) rather than its exact
+   * numbers -- an approximation, not a pixel-identical port; see this
+   * task's report for why an exact port was not attempted (the two curve
+   * models are not commensurable without either changing `ParticleSystem`,
+   * which is barred this task, or adding a second, incompatible FX
+   * mechanism just for these fallback cases).
+   *
+   * `lifetimeFrames` matches Pixi's own `ttl` values directly ("frames at a
+   * nominal 60Hz", the same convention `tracers.ts`'s own
+   * `TRACER_LIFETIME_S` documents) so every call site above can reuse
+   * Pixi's literal numbers unchanged rather than re-deriving them.
+   *
+   * `magnitude` is fixed at `FLAT_FX_MAGNITUDE` so `radiusPx` becomes the
+   * drawn radius directly (see that constant's own doc comment); `priority`
+   * 3 sits below every authored `fire_*` emitter's own `budget_priority`
+   * (1-8) except `fire_small_arms`'s own 1 -- deliberately low, so an
+   * unauthored fallback puff never evicts a real emitter's own particle
+   * under pool pressure. Always spawns on `FX_LAYER_BELOW`, matching Pixi's
+   * `puffs` -- they draw on `fxG` (the below layer) unconditionally, never
+   * `fxAboveG`.
+   */
+  private spawnFlatFx(x: number, y: number, color: string, radiusPx: number, lifetimeFrames: number): void {
+    if (!this.particleSystem) return;
+    const spec: ParticleSpec = {
+      count: 1,
+      lifetime_ms: (lifetimeFrames / 60) * 1000,
+      size_px: radiusPx,
+      size_over_life: [0.5, 1.2],
+      alpha_over_life: [0.85, 0],
+      color_over_life: [color],
+    };
+    this.particleSystem.spawn(spec, x, y, 0, FLAT_FX_MAGNITUDE, 3, FX_LAYER_BELOW);
   }
 
   worldToScreen(wx: number, wy: number): { x: number; y: number } {
@@ -492,14 +846,31 @@ export class ThreeRenderer implements Renderer {
    * `PARTICLE_CAPACITY` (2048) Pixi's own `ParticleSystem` uses
    * (`renderer.ts:644`) -- one pool, matched, not two independently-guessed
    * ceilings. Both are actually read from now: `emitterLibrary.
-   * fireEmitterFor`/`byName` and `particleSystem.spawn` are B3.14's job (a
-   * `fire` `SimEvent` inside `onEvents`), and `particleSystem.step`/
-   * `particleInstancer.update` already run every frame regardless, from
-   * `updateFx` below.
+   * fireEmitterFor`/`byName` and `particleSystem.spawn` are wired from
+   * `onEvents` (Task B3.14), and `particleSystem.step`/both
+   * `ParticleInstancer.update` calls already run every frame regardless,
+   * from `updateFx` below.
+   *
+   * `resolve` is wrapped, not passed straight through: `spawnFlatFx` (Task
+   * B3.14) feeds ALREADY-RESOLVED hex strings (`this.opts.flashColor` et
+   * al., resolved once at `RendererOptions` construction time in `main.ts`)
+   * through `ParticleSpec.color_over_life`, and `ParticleSystem.spawn`
+   * unconditionally calls `resolve` on every entry of that array
+   * (`vfx/particles.ts:125`). The app's real `resolve` (`paletteColor`,
+   * `packages/data/src/index.ts`) treats anything that is not a recognised
+   * `band.index`/`band.name` palette key as unknown and returns magenta
+   * (`#FF00FF`) -- a hex string has no `.` in it and is not a real palette
+   * key, so passing one through unwrapped would silently turn every
+   * `spawnFlatFx` puff (every fallback muzzle flash, every impact/near-miss/
+   * intercept/strike effect) magenta. Hex strings pass straight through
+   * here instead; anything else still resolves through the real palette
+   * exactly as before -- authored emitters' own `color_over_life` entries
+   * (palette keys like `"vfx.fire"`) are unaffected.
    */
   useEmitters(list: EmitterSpec[], resolve: (key: string) => string): void {
     this.emitterLibrary.useEmitters(list);
-    this.particleSystem = new ParticleSystem(PARTICLE_CAPACITY, resolve);
+    const passthroughResolve = (key: string): string => (key.startsWith('#') ? key : resolve(key));
+    this.particleSystem = new ParticleSystem(PARTICLE_CAPACITY, passthroughResolve);
   }
   /**
    * Load a unit type's sprite sheet and build the `THREE.InstancedMesh`
@@ -653,9 +1024,10 @@ export class ThreeRenderer implements Renderer {
         routed: st.routed[i],
         pinned: st.pinned[i],
         speed: this.entitySpeed[i],
-        // The one clip this backend cannot yet show -- see onEvents' own
-        // comment for why.
-        firing: false,
+        // Latched by onEvents' `fire` case (Task B3.14), drained once a
+        // frame by drainTimers -- mirrors Pixi's own `this.firingTimer[i] >
+        // 0` exactly (renderer.ts:2004).
+        firing: this.firingTimer[i] > 0,
         working: this.sim.tunnelChargeProgress(i) > 0,
       };
 
@@ -679,6 +1051,11 @@ export class ThreeRenderer implements Renderer {
         entityAnimFrame: this.entityAnimFrame,
         animSeeded: this.animSeeded,
         facing: st.facing[i],
+        recoilT: this.recoilT[i],
+        recoilDir: this.recoilDir[i],
+        recoilPower: this.recoilPower[i],
+        flinchT: this.flinchT[i],
+        flinchDir: this.flinchDir[i],
       };
 
       let list = this.framesByType.get(type.id);
@@ -689,25 +1066,111 @@ export class ThreeRenderer implements Renderer {
       list.push(entityFrame(input));
     }
 
+    this.stepDeaths(dtSeconds);
+
     for (const [typeId, instancer] of this.unitInstancers) {
       instancer.update(this.framesByType.get(typeId) ?? []);
     }
   }
 
   /**
-   * Task B3.13: ages and draws every live particle and tracer, every frame,
-   * unconditionally -- mirrors `PixiRenderer.frame()`'s own `if (this.
-   * particles) this.particles.step(dtSeconds)` (`renderer.ts:1902`) plus its
-   * end-of-frame tracer step+draw (`renderer.ts:2597-2613`), minus the
-   * `puffs` fallback path (the "no emitter for this class yet" stand-in
-   * Pixi still carries; B3.14 owns whether this backend needs an equivalent
-   * when it wires the `fire` spawn this reads from).
+   * Advances every unit mid-death-fade and, while still fading, appends a
+   * synthetic `EntityFrame` for it into `framesByType` -- so the SAME
+   * `UnitInstancer` a living unit of that type draws through also draws its
+   * corpse, no separate mesh needed. Ported from Pixi's `stepDeaths`
+   * (`renderer.ts:1230-1275), minus the permanent-wreckage half.
    *
-   * `particleSystem` is `null` until `useEmitters` runs -- `particleInstancer.
-   * update` already handles that truthfully (see its own doc comment), so
-   * there is nothing to guard here. `tracers` needs no such guard: it starts
-   * empty and stays empty until Task B3.14 pushes onto it, and `stepTracers`
-   * (`units/tracers.ts`) is total over an empty array.
+   * Facing and `typeId` are captured at the moment of death (`onEvents`'s
+   * `destroyed` case), not read live off `Sim` here, because the entity slot
+   * may be reused by a later spawn before the fade finishes -- Pixi's own
+   * comment on its `dying.push`, ported verbatim in spirit.
+   *
+   * Two things Pixi does that this method deliberately does NOT:
+   *
+   *  - **Rotation and squash** (`spr.rotation = p * 0.14`, the scale-Y
+   *    settle). `writeUnitInstances`/`UnitInstancer` (both out of bounds for
+   *    this task) only ever TRANSLATE an instance -- there is no rotation or
+   *    non-uniform-scale attribute to write into, and adding one would mean
+   *    editing a forbidden file. The fade keeps the alpha dim and a small
+   *    downward `worldY` settle (below) but the body does not tip over.
+   *  - **Permanent wreckage and its fog gate** (`addWreck`/`wreckLayer`/
+   *    `MAX_WRECKS`, and the `isExplored` check that decides whether a
+   *    fading OR wrecked unit draws at all). This backend has no fog system
+   *    yet -- `isVisible()` always returns `true` (see this class's own top
+   *    comment) -- so `isExplored`'s entire reason to exist, "you never
+   *    witness a kill you did not observe", has no query to port against:
+   *    the fade below draws unconditionally, and once it ends the entity
+   *    simply stops drawing, with no wreck left behind. Wreckage belongs
+   *    with whichever future task adds fog.
+   *
+   * A unit type with no loaded `UnitInstancer` is silently skipped, matching
+   * this class's own "no mesh units" scope line -- and, since that also
+   * governs `updateUnits`'s own early return, a dying entry's timer only
+   * advances while at least one sheet is loaded; a mission where every unit
+   * dies before any sheet finishes loading is the one case that stalls it,
+   * and it stalls harmlessly (nothing would have been visible to fade
+   * regardless).
+   */
+  private stepDeaths(dtSeconds: number): void {
+    for (let k = this.dying.length - 1; k >= 0; k--) {
+      const d = this.dying[k];
+      d.t += dtSeconds;
+      const p = Math.min(1, d.t / DEATH_SECONDS);
+      const instancer = this.unitInstancers.get(d.typeId);
+      if (instancer) {
+        const clip = clipOrFallback(instancer.sheet, 'down');
+        // Sink slightly as it settles -- Pixi's own `isoY(...) + p * 3`
+        // (renderer.ts:1263), reproduced as a small downward WORLD-height
+        // settle rather than a screen-space nudge, since there is no
+        // post-projection position here to nudge (the same reasoning
+        // `frame-state.ts`'s recoil/flinch doc comment gives, in reverse:
+        // there it is a screen delta converted to world; here Pixi's own
+        // "sink into the ground" reads most naturally as a real height
+        // change, not a lateral one).
+        const worldY =
+          groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, d.x, d.y) -
+          p * 3 * WORLD_Y_PER_LIFT_PIXEL;
+        const frame: EntityFrame = {
+          wx: d.x,
+          wy: d.y,
+          worldY,
+          clip,
+          frame: 0,
+          facing: d.facing,
+          // Fades toward half, never to nothing -- matches Pixi's own
+          // `1 - p * 0.5` (renderer.ts:1264) exactly.
+          alpha: 1 - p * 0.5,
+          roofDx: 0,
+          roofDy: 0,
+          visible: true,
+        };
+        let list = this.framesByType.get(d.typeId);
+        if (!list) {
+          list = [];
+          this.framesByType.set(d.typeId, list);
+        }
+        list.push(frame);
+      }
+      if (d.t >= DEATH_SECONDS) this.dying.splice(k, 1);
+    }
+  }
+
+  /**
+   * Task B3.13/B3.14: ages and draws every live particle and tracer, every
+   * frame, unconditionally -- mirrors `PixiRenderer.frame()`'s own `if
+   * (this.particles) this.particles.step(dtSeconds)` (`renderer.ts:1902`)
+   * plus its end-of-frame tracer step+draw (`renderer.ts:2597-2613`). Pixi's
+   * `puffs` fallback path is NOT missing here -- Task B3.14's `spawnFlatFx`
+   * (called from `onEvents`, above) routes the equivalent flat-colour
+   * effects through this SAME `particleSystem`, so `updateFx` ages and draws
+   * them exactly like any authored emitter's particles, with no separate
+   * step of its own.
+   *
+   * `particleSystem` is `null` until `useEmitters` runs -- both
+   * `ParticleInstancer.update` calls already handle that truthfully (see
+   * their own doc comment), so there is nothing to guard here. `tracers`
+   * needs no such guard: `stepTracers` (`units/tracers.ts`) is total over an
+   * empty array.
    *
    * Called after `updateUnits`, but the ORDER between the two calls does not
    * matter for what ends up on screen -- NOT because three.js sorts by true
@@ -715,23 +1178,28 @@ export class ThreeRenderer implements Renderer {
    * every mesh here sits at its own untransformed origin, so three.js's
    * transparent-list sort ties on `z` for all of them and falls through to
    * `renderOrder` then insertion `id`). It does not matter because
-   * `units/fx.ts`'s two FX meshes are given an explicit `renderOrder`
-   * strictly above every unit's default -- a declared choice ("draw FX after
-   * every unit"), not a rediscovery of depth. `units/fx.ts`'s own top
-   * comment has the full account, including the fix this replaced: without
-   * that explicit `renderOrder`, FX-vs-unit draw order was an ACCIDENT of
-   * which class's constructor three.js happened to run first, not a design.
-   * Occlusion against terrain/buildings is unaffected by any of this --
-   * that still comes from real `depthTest` against opaque, depth-writing
-   * geometry, independent of `renderOrder` or of FX's own `depthWrite`
-   * (`false` for both FX materials, unlike units' `true` -- see
-   * `units/fx.ts` for why particles specifically need to blend rather than
-   * depth-reject their own overlaps).
+   * `units/fx.ts`'s three FX meshes (Task B3.14 split the former two-mesh
+   * pair into three -- see its own top comment, "The `above_units` split")
+   * are each given an explicit `renderOrder` strictly above every unit's
+   * default -- a declared choice ("FX draws after every unit"), not a
+   * rediscovery of depth. `units/fx.ts`'s own top comment has the full
+   * account, including the fix this replaced: without that explicit
+   * `renderOrder`, FX-vs-unit draw order was an ACCIDENT of which class's
+   * constructor three.js happened to run first, not a design. Occlusion
+   * against terrain/buildings, for the below-tier particle mesh and for
+   * tracers, is unaffected by any of this -- that still comes from real
+   * `depthTest` against opaque, depth-writing geometry, independent of
+   * `renderOrder` or of FX's own `depthWrite` (`false` for every FX
+   * material, unlike units' `true`). The above-tier particle mesh
+   * deliberately skips `depthTest` altogether -- see `units/fx.ts` for the
+   * full reasoning on both counts.
    */
   private updateFx(dtMs: number): void {
     const dtSeconds = this.frameDtSeconds(dtMs);
     this.particleSystem?.step(dtSeconds);
-    this.particleInstancer.update(this.particleSystem);
+    const elevation = this.retained.elevation;
+    this.particleInstancerBelow.update(this.particleSystem, elevation, this.sim.width, this.sim.height);
+    this.particleInstancerAbove.update(this.particleSystem, elevation, this.sim.width, this.sim.height);
     this.tracers = stepTracers(this.tracers, dtSeconds);
     this.tracerBatch.update(this.tracers, this.opts.tracerColors);
   }

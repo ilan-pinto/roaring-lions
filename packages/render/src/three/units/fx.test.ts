@@ -15,7 +15,11 @@ import * as THREE from 'three';
 import { ParticleSystem } from '../../vfx';
 import type { ParticleSpec } from '../../vfx';
 import { isoX, isoY, WORLD_Y_PER_LIFT_PIXEL } from '../../project';
-import { hexToUnit, screenOffsetToWorld } from '../terrain/shared';
+import { hexToUnit, screenOffsetToWorld, WORLD_PER_LEVEL } from '../terrain/shared';
+import { groundWorldY } from '../ground-height';
+import type { SheetSpec } from '../../sheet';
+import { packSheet } from './atlas';
+import { UnitInstancer } from './instances';
 import { spawnTracer, type TracerModel } from './tracers';
 import {
   PARTICLE_CAPACITY,
@@ -33,6 +37,19 @@ import {
   type ParticleInstanceBuffers,
   type TracerInstanceBuffers,
 } from './fx';
+
+/** A tiny, easy-to-hand-check sheet, matching `instances.test.ts`'s own --
+ *  used ONLY for the cross-module renderOrder invariant test below, which
+ *  needs a real `UnitInstancer` to assert against, not for anything about
+ *  units themselves. */
+const tinySheet: SheetSpec = {
+  facings: 4,
+  facingOffset: 0,
+  facingReverse: false,
+  scale: 1,
+  layout: 'clip',
+  clips: { idle: { frames: 1, fps: 0, loop: true, fileOffset: 0 } },
+};
 
 function makeSpec(overrides: Partial<ParticleSpec> = {}): ParticleSpec {
   return {
@@ -110,10 +127,16 @@ describe('writeParticleInstances', () => {
     const ps = new ParticleSystem(8, () => '#00FF80');
     ps.spawn(makeSpec({ size_px: 4, color_over_life: ['x'] }), 10, 20, 0, 1, 5, 0);
     const out = buffers(8);
-    const count = writeParticleInstances(ps, out);
+    const count = writeParticleInstances(ps, 0, null, 0, 0, out);
     expect(count).toBe(1);
     expect(out.positions[0]).toBe(10);
-    expect(out.positions[1]).toBeCloseTo(PARTICLE_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL, 5);
+    // size_px 4, magnitude 1 -> scale = 0.75 + 1*1.25 = 2 -> radius 8, which
+    // EXCEEDS PARTICLE_LIFT_PX (3) -- the B3.14 ground-lift fix lifts by
+    // max(PARTICLE_LIFT_PX, radius), not the flat PARTICLE_LIFT_PX round 1
+    // used unconditionally, so the quad's own bottom edge lands exactly on
+    // the ground plane (elevation null -> groundWorldY 0) instead of
+    // clipping into it.
+    expect(out.positions[1]).toBeCloseTo(8 * WORLD_Y_PER_LIFT_PIXEL, 5);
     expect(out.positions[2]).toBe(20);
     const [r, g, b] = hexToUnit('#00FF80');
     expect(out.colors[0]).toBeCloseTo(r, 6);
@@ -125,23 +148,58 @@ describe('writeParticleInstances', () => {
     expect(out.scales[0]).toBeCloseTo(8, 6);
   });
 
-  it('visits both draw layers into the same buffer -- Pixi\'s below/above split does not survive here', () => {
+  it('a particle smaller than PARTICLE_LIFT_PX keeps the flat lift, comfortably clear of the ground', () => {
+    // size_px 2, magnitude 0 -> scale 0.75 -> radius 1.5, below PARTICLE_LIFT_PX
+    // (3) -- max(3, 1.5) = 3, the same flat lift round 1 always used for the
+    // common small-arms-scale case.
+    const ps = new ParticleSystem(8, () => '#FFFFFF');
+    ps.spawn(makeSpec({ size_px: 2 }), 0, 0, 0, 0, 5, 0);
+    const out = buffers(8);
+    writeParticleInstances(ps, 0, null, 0, 0, out);
+    expect(out.positions[1]).toBeCloseTo(PARTICLE_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL, 5);
+  });
+
+  it('visits only the requested layerIdx -- the two tiers no longer share one call', () => {
+    // B3.14 splits the merged single-mesh read B3.13 shipped with (see this
+    // file's own top comment, "The above_units split") into two instancers,
+    // each visiting exactly one of ParticleSystem's draw layers -- this is
+    // the direct behavioural consequence: a layer-0 particle must not appear
+    // when reading layer 1, and vice versa.
     const ps = new ParticleSystem(8, () => '#FFFFFF');
     ps.spawn(makeSpec(), 1, 1, 0, 1, 5, 0); // layer 0 (below)
     ps.spawn(makeSpec(), 2, 2, 0, 1, 5, 1); // layer 1 (above)
+    const below = buffers(8);
+    const above = buffers(8);
+    expect(writeParticleInstances(ps, 0, null, 0, 0, below)).toBe(1);
+    expect(below.positions[0]).toBe(1);
+    expect(writeParticleInstances(ps, 1, null, 0, 0, above)).toBe(1);
+    expect(above.positions[0]).toBe(2);
+  });
+
+  it('samples ground height at the particle\'s OWN (x, y), per frame -- not a fixed elevation', () => {
+    // 4x4 grid, level 3 at tile (1, 1), flat everywhere else -- the same
+    // fixture frame-state.test.ts's own "ground lift" suite uses for units.
+    const elevation = new Uint8Array([0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const ps = new ParticleSystem(8, () => '#FFFFFF');
+    ps.spawn(makeSpec({ size_px: 2 }), 1.5, 1.5, 0, 0, 5, 0); // on the raised tile
+    ps.spawn(makeSpec({ size_px: 2 }), 0.5, 0.5, 0, 0, 5, 0); // flat ground
     const out = buffers(8);
-    const count = writeParticleInstances(ps, out);
-    expect(count).toBe(2);
-    const xs = [out.positions[0], out.positions[3]];
-    expect(xs).toContain(1);
-    expect(xs).toContain(2);
+    writeParticleInstances(ps, 0, elevation, 4, 4, out);
+    const liftY = PARTICLE_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL;
+    expect(out.positions[1]).toBeCloseTo(3 * WORLD_PER_LEVEL + liftY, 5); // raised
+    expect(out.positions[4]).toBeCloseTo(liftY, 5); // flat
+    // Cross-checked against the exact function units use for the same job,
+    // not merely against a hand-derived number. Precision 5, not 10: `out`
+    // is a Float32Array (GPU-facing storage), so it cannot hold a double's
+    // full precision regardless of how exactly the formula matches.
+    expect(out.positions[1]).toBeCloseTo(groundWorldY(elevation, 4, 4, 1.5, 1.5) + liftY, 5);
   });
 
   it('stops at the output buffer\'s own capacity rather than overrunning it', () => {
     const ps = new ParticleSystem(8, () => '#FFFFFF');
     for (let i = 0; i < 5; i++) ps.spawn(makeSpec(), i, i, 0, 1, 5, 0);
     const out = buffers(2);
-    const count = writeParticleInstances(ps, out);
+    const count = writeParticleInstances(ps, 0, null, 0, 0, out);
     expect(count).toBe(2);
   });
 
@@ -150,7 +208,7 @@ describe('writeParticleInstances', () => {
     ps.spawn(makeSpec({ lifetime_ms: 10 }), 5, 5, 0, 1, 5, 0);
     ps.step(1); // well past its 10ms lifetime -> retired, liveCount back to 0
     const out = buffers(8);
-    expect(writeParticleInstances(ps, out)).toBe(0);
+    expect(writeParticleInstances(ps, 0, null, 0, 0, out)).toBe(0);
   });
 });
 
@@ -303,44 +361,84 @@ describe('TRACER_CAPACITY', () => {
     };
     expect(writeTracerInstances(tracers, ['#FFFFFF', '#FFFFFF'], out)).toBe(TRACER_CAPACITY);
   });
+
+  it('is the value the REAL TracerBatch is actually constructed with, not merely reused to size a fixture', () => {
+    // The test above sizes `out` FROM TRACER_CAPACITY, so it only proves
+    // writeTracerInstances respects whatever capacity a buffer implies --
+    // it would still pass unchanged if TRACER_CAPACITY drifted from what
+    // ThreeRenderer.ts actually builds TracerBatch with. `new
+    // TracerBatch(TRACER_CAPACITY)` is the one place that constant reaches a
+    // real allocation; pushing TRACER_CAPACITY + 5 live tracers through the
+    // genuine object and reading its own geometry drawRange back out ties
+    // the constant to the thing it is actually meant to size.
+    const batch = new TracerBatch(TRACER_CAPACITY);
+    const tracers: TracerModel[] = Array.from({ length: TRACER_CAPACITY + 5 }, (_, i) =>
+      spawnTracer(i, 0, i + 1, 0, 0)
+    );
+    batch.update(tracers, ['#FFFFFF', '#FFFFFF']);
+    expect(batch.mesh.geometry.drawRange.count).toBe(TRACER_CAPACITY * 6);
+  });
 });
 
 describe('ParticleInstancer construction', () => {
   it('starts with mesh.count 0 and grows to the written instance count on update', () => {
-    const instancer = new ParticleInstancer(4);
+    const instancer = new ParticleInstancer(4, 0, true);
     expect(instancer.mesh.count).toBe(0);
     const ps = new ParticleSystem(4, () => '#FFFFFF');
     ps.spawn(makeSpec(), 1, 1, 0, 1, 5, 0);
-    instancer.update(ps);
+    instancer.update(ps, null, 0, 0);
     expect(instancer.mesh.count).toBe(1);
   });
 
   it('drops back to 0 (not a stale frame) when handed a null ParticleSystem', () => {
-    const instancer = new ParticleInstancer(4);
+    const instancer = new ParticleInstancer(4, 0, true);
     const ps = new ParticleSystem(4, () => '#FFFFFF');
     ps.spawn(makeSpec(), 1, 1, 0, 1, 5, 0);
-    instancer.update(ps);
+    instancer.update(ps, null, 0, 0);
     expect(instancer.mesh.count).toBe(1);
-    instancer.update(null);
+    instancer.update(null, null, 0, 0);
     expect(instancer.mesh.count).toBe(0);
   });
 
-  it('the particle material is transparent and depth-tested, but NOT depth-written, and single-sided', () => {
-    // depthWrite: false is the round-2 fix -- particles are inherently
-    // translucent (alpha_over_life fades by design), and a depth-WRITING
-    // particle would depth-reject an overlapping one instead of letting the
-    // two blend, which is exactly what a dense burst (catastrophic_kill's
-    // 18-26 overlapping discs) needs. depthTest stays true: that is what
-    // keeps occlusion against opaque, depth-writing terrain/buildings intact
-    // regardless of what FX does with its own depth buffer writes.
-    const instancer = new ParticleInstancer(4);
-    const material = instancer.mesh.material;
-    expect(Array.isArray(material)).toBe(false);
-    const m = material as THREE.Material;
-    expect(m.transparent).toBe(true);
-    expect(m.depthTest).toBe(true);
-    expect(m.depthWrite).toBe(false);
-    expect(m.side).toBe(THREE.FrontSide);
+  it('only counts instances on its own constructed layerIdx', () => {
+    const below = new ParticleInstancer(4, 0, true);
+    const above = new ParticleInstancer(4, 1, false);
+    const ps = new ParticleSystem(4, () => '#FFFFFF');
+    ps.spawn(makeSpec(), 1, 1, 0, 1, 5, 0);
+    ps.spawn(makeSpec(), 2, 2, 0, 1, 5, 1);
+    below.update(ps, null, 0, 0);
+    above.update(ps, null, 0, 0);
+    expect(below.mesh.count).toBe(1);
+    expect(above.mesh.count).toBe(1);
+  });
+
+  it('the particle material is always transparent and NOT depth-written, regardless of tier', () => {
+    // depthWrite: false is the round-2 (B3.13) fix -- particles are
+    // inherently translucent (alpha_over_life fades by design), and a
+    // depth-WRITING particle would depth-reject an overlapping one instead
+    // of letting the two blend, which is exactly what a dense burst
+    // (catastrophic_kill's 18-26 overlapping discs) needs. Unaffected by the
+    // B3.14 depthTest split below -- both tiers keep depthWrite false.
+    for (const depthTest of [true, false]) {
+      const instancer = new ParticleInstancer(4, 0, depthTest);
+      const material = instancer.mesh.material;
+      expect(Array.isArray(material)).toBe(false);
+      const m = material as THREE.Material;
+      expect(m.transparent).toBe(true);
+      expect(m.depthWrite).toBe(false);
+      expect(m.side).toBe(THREE.FrontSide);
+    }
+  });
+
+  it('depthTest is the constructor\'s choice -- true for the below tier, false for the above tier', () => {
+    // The B3.14 fix for `above_units` (see fx.ts's own top comment, "The
+    // above_units split"): a below-tier instancer keeps real occlusion
+    // against units/terrain; an above-tier one skips the depth test
+    // entirely, matching Pixi's own unconditional `fxAboveG`.
+    const below = new ParticleInstancer(4, 0, true);
+    const above = new ParticleInstancer(4, 1, false);
+    expect((below.mesh.material as THREE.Material).depthTest).toBe(true);
+    expect((above.mesh.material as THREE.Material).depthTest).toBe(false);
   });
 
   it('draws after every unit via an explicit renderOrder, not an accident of construction order', () => {
@@ -348,19 +446,51 @@ describe('ParticleInstancer construction', () => {
     // order -- this renderOrder is the declared replacement. UnitInstancer
     // never sets renderOrder, so its default is three.js's own default (0);
     // FX must sort strictly after that.
-    const instancer = new ParticleInstancer(4);
+    const instancer = new ParticleInstancer(4, 0, true);
     expect(instancer.mesh.renderOrder).toBeGreaterThan(0);
+  });
+
+  it('the above tier draws after the below tier -- both explicit, not tied', () => {
+    const below = new ParticleInstancer(4, 0, true);
+    const above = new ParticleInstancer(4, 1, false);
+    expect(above.mesh.renderOrder).toBeGreaterThan(below.mesh.renderOrder);
+  });
+
+  it('the below tier shares its renderOrder with TracerBatch -- both are Pixi\'s "below" layer', () => {
+    // Tracers are unaffected by the B3.14 split -- Pixi's tracers live on
+    // fxG (below), exactly where the below-tier particle mesh already sits.
+    const below = new ParticleInstancer(4, 0, true);
+    const tracers = new TracerBatch(4);
+    expect(below.mesh.renderOrder).toBe(tracers.mesh.renderOrder);
+  });
+
+  it("CROSS-MODULE INVARIANT: every FX mesh's renderOrder outranks UnitInstancer's own default (0)", () => {
+    // This is the invariant that makes "renderOrder 1/2" mean "above units"
+    // at all -- if UnitInstancer ever started setting its own renderOrder,
+    // every FX-vs-unit ordering claim in this file's top comment would break
+    // silently, with no test anywhere catching it. Pinning UnitInstancer's
+    // own side of the comparison here, alongside the FX side, rather than
+    // trusting the two files to agree by construction.
+    const sheet = tinySheet;
+    const units = new UnitInstancer(sheet, new THREE.DataArrayTexture(), packSheet(sheet), 4);
+    const below = new ParticleInstancer(4, 0, true);
+    const above = new ParticleInstancer(4, 1, false);
+    const tracers = new TracerBatch(4);
+    expect(units.mesh.renderOrder).toBe(0);
+    expect(below.mesh.renderOrder).toBeGreaterThan(units.mesh.renderOrder);
+    expect(above.mesh.renderOrder).toBeGreaterThan(units.mesh.renderOrder);
+    expect(tracers.mesh.renderOrder).toBeGreaterThan(units.mesh.renderOrder);
   });
 
   it('writes correct per-instance position and scale into the instance matrix, not merely the right count', () => {
     // mesh.count being right does not prove setMatrixAt wrote the right
     // transform -- an instance could be counted but placed at the origin,
     // or scaled wrong, and every existing test would still pass.
-    const instancer = new ParticleInstancer(4);
+    const instancer = new ParticleInstancer(4, 0, true);
     const ps = new ParticleSystem(4, () => '#FFFFFF');
     // size_px 5, magnitude 1 -> scale = 0.75 + 1*1.25 = 2 -> radius 10.
     ps.spawn(makeSpec({ size_px: 5 }), 3, 7, 0, 1, 5, 0);
-    instancer.update(ps);
+    instancer.update(ps, null, 0, 0);
     const m = new THREE.Matrix4();
     instancer.mesh.getMatrixAt(0, m);
     const pos = new THREE.Vector3();
@@ -369,14 +499,16 @@ describe('ParticleInstancer construction', () => {
     m.decompose(pos, quat, scale);
     expect(pos.x).toBeCloseTo(3, 5);
     expect(pos.z).toBeCloseTo(7, 5);
-    expect(pos.y).toBeCloseTo(PARTICLE_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL, 5);
+    // radius 10 exceeds PARTICLE_LIFT_PX (3) -- lifted by its own radius,
+    // per the B3.14 ground-lift fix (see writeParticleInstances's tests).
+    expect(pos.y).toBeCloseTo(10 * WORLD_Y_PER_LIFT_PIXEL, 5);
     expect(scale.x).toBeCloseTo(10, 5);
     expect(scale.y).toBeCloseTo(10, 5);
     expect(scale.z).toBeCloseTo(10, 5);
   });
 
   it('mesh is exempt from frustum culling -- particles range across the whole map, not near the origin', () => {
-    const instancer = new ParticleInstancer(4);
+    const instancer = new ParticleInstancer(4, 0, true);
     expect(instancer.mesh.frustumCulled).toBe(false);
   });
 });
