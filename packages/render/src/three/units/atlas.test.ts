@@ -1,0 +1,128 @@
+/**
+ * `packSheet` is the pure half of Task B3.4 -- the only half that can be
+ * tested headlessly (`buildUnitTexture` is I/O: fetch, image decode, a 2D
+ * canvas, none of which exist in `environment: 'node'`).
+ *
+ * Fixture: the real `INF_SQUAD` manifest, not a hand-rolled toy shape.
+ * `INF_SQUAD`/`INF_RPG`/`INF_MILITIA`/`INF_DEMO`/`INF_AT` are the largest
+ * sheets this game ships -- 16 facings x (10 idle + 4 move + 1 fire + 1 down
+ * + 1 wreck) = 272 frames -- and a packer that only proves itself against a
+ * 4-frame fixture is exactly the failure mode the brief calls out: it can
+ * work at toy scale and silently overlap at 272. Importing the shipped JSON
+ * directly (as `tones.ts` reads `data/palette.json`) means this test tracks
+ * the real asset rather than a transcription of it that could drift.
+ */
+import { describe, it, expect } from 'vitest';
+import { parseManifest, type ClipName, type SheetSpec } from '../../sheet';
+import { packSheet, MAX_ARRAY_LAYERS, FRAME_PX, type FrameRegion } from './atlas';
+import infSquadManifest from '../../../../../assets/sprites/INF_SQUAD/manifest.json';
+
+const infSquad: SheetSpec = parseManifest(infSquadManifest);
+
+/** Every `(clip, facing, frame)` triple a sheet declares, in no particular
+ *  order -- used to drive `regionFor` from the sheet's own shape rather than
+ *  from `packSheet`'s output, so the "distinct region" test is not just
+ *  checking `packSheet` against itself. */
+function everyTriple(sheet: SheetSpec): Array<[ClipName, number, number]> {
+  const out: Array<[ClipName, number, number]> = [];
+  for (const clip of Object.keys(sheet.clips) as ClipName[]) {
+    const spec = sheet.clips[clip];
+    if (!spec) continue;
+    for (let facing = 0; facing < sheet.facings; facing++) {
+      for (let frame = 0; frame < spec.frames; frame++) {
+        out.push([clip, facing, frame]);
+      }
+    }
+  }
+  return out;
+}
+
+/** Real rectangle intersection on the same layer -- not merely "are these
+ *  layer numbers different". `atlas.ts`'s `FrameRegion` carries a full
+ *  rect precisely so this check exercises geometry, and the break-check
+ *  below (temporarily colliding two frames onto one layer) is what proves
+ *  it actually catches something rather than vacuously passing. */
+function regionsOverlap(a: FrameRegion, b: FrameRegion): boolean {
+  if (a.layer !== b.layer) return false;
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
+describe('packSheet', () => {
+  it('packs all 272 frames of the real INF_SQUAD shape', () => {
+    const packing = packSheet(infSquad);
+    expect(packing.entries.length).toBe(272);
+    expect(packing.layers).toBe(272);
+    expect(packing.frameSize).toBe(FRAME_PX);
+  });
+
+  it('maps every (clip, facing, frame) INF_SQUAD declares to a distinct region', () => {
+    const packing = packSheet(infSquad);
+    const triples = everyTriple(infSquad);
+    expect(triples.length).toBe(272);
+
+    const regions = triples.map(([clip, facing, frame]) => packing.regionFor(clip, facing, frame));
+    const layers = new Set(regions.map((r) => r.layer));
+    // One region per triple, and every one of them a distinct layer -- if
+    // two triples ever resolved to the same layer this set would be smaller
+    // than the triple count.
+    expect(layers.size).toBe(triples.length);
+  });
+
+  it('no region overlaps another', () => {
+    const packing = packSheet(infSquad);
+    const regions = packing.entries.map((e) => e.region);
+    for (let i = 0; i < regions.length; i++) {
+      for (let j = i + 1; j < regions.length; j++) {
+        expect(regionsOverlap(regions[i], regions[j])).toBe(false);
+      }
+    }
+  });
+
+  it('is stable across calls', () => {
+    const a = packSheet(infSquad);
+    const b = packSheet(infSquad);
+    expect(a.layers).toBe(b.layers);
+    expect(a.entries).toEqual(b.entries);
+    for (const entry of a.entries) {
+      expect(b.regionFor(entry.clip, entry.facing, entry.frame)).toEqual(entry.region);
+    }
+  });
+
+  it('regionFor is consistent with entries for every packed triple', () => {
+    const packing = packSheet(infSquad);
+    for (const entry of packing.entries) {
+      expect(packing.regionFor(entry.clip, entry.facing, entry.frame)).toEqual(entry.region);
+    }
+  });
+
+  it('regionFor throws on a triple the sheet never declared', () => {
+    const packing = packSheet(infSquad);
+    // INF_SQUAD's fire clip has exactly 1 frame (index 0) -- frame 5 is not
+    // a bug the packer should paper over with a default.
+    expect(() => packing.regionFor('fire', 0, 5)).toThrow(/no packed region/);
+  });
+
+  it('fails loudly, before packing anything, when a sheet needs more layers than the budget holds', () => {
+    // Synthetic on purpose -- no shipped sheet is anywhere close to this
+    // large. 64 facings x 40 idle frames = 2560 > MAX_ARRAY_LAYERS (2048).
+    const tooBig = parseManifest({
+      facings: 64,
+      clips: { idle: { frames: 40, fps: 4, loop: true } },
+    });
+    expect(() => packSheet(tooBig)).toThrow(/2560/);
+    expect(() => packSheet(tooBig)).toThrow(new RegExp(String(MAX_ARRAY_LAYERS)));
+  });
+
+  it('does not silently overlap right at the capacity boundary', () => {
+    // Exactly MAX_ARRAY_LAYERS frames must still pack cleanly -- the throw
+    // above is a ">", not a "off by one" masquerading as a safety check.
+    const exact = parseManifest({
+      facings: 64,
+      clips: { idle: { frames: 32, fps: 4, loop: true } }, // 64 * 32 = 2048
+    });
+    const packing = packSheet(exact);
+    expect(packing.layers).toBe(MAX_ARRAY_LAYERS);
+    const layers = new Set(packing.entries.map((e) => e.region.layer));
+    expect(layers.size).toBe(MAX_ARRAY_LAYERS);
+  });
+});
