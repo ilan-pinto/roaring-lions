@@ -138,12 +138,13 @@
  *
  * The account below is B3.13's own reasoning for shipping with NO ground-lift
  * fix at all, kept verbatim because the finding it records (particles are
- * physically buried, not merely misplaced) is what B3.14's fix, in the new
- * section below, actually responds to. Task B3.14 REVISES this ruling for
- * PARTICLES ONLY -- see "Elevation lift, round 2 (B3.14)" further down.
- * Tracers are NOT touched by that revision; they keep exactly the flat lift
- * described here, and the reasoning below for why that was acceptable in
- * round 1 still stands for them.
+ * physically buried, not merely misplaced) is what B3.14's fix, in the
+ * sections below, actually responds to -- for BOTH particles ("round 2") and
+ * tracers ("round 3"), the latter added after this task's own first pass
+ * shipped tracers still flat and a post-commit review found the same bug in
+ * them (see "Elevation lift, round 3" further down for why that finding
+ * landed, and why the "flat lift was fine for tracers" claim below does not
+ * hold up).
  *
  * Pixi's own particle/tracer/puff draw calls (`particles.ts`'s `draw`,
  * `renderer.ts`'s tracer and puff loops) never call `groundOffset` --
@@ -184,7 +185,7 @@
  * it: the moment relief exists, particles on it do not degrade, they
  * disappear.
  *
- * ## Elevation lift, round 2 (B3.14): PARTICLES follow the ground; tracers do not
+ * ## Elevation lift, round 2 (B3.14): particles follow the ground
  *
  * B3.14's own orchestrator review sharpened the finding above in two ways,
  * both measured rather than argued:
@@ -244,20 +245,42 @@
  *    lands EXACTLY on `groundWorldY`, touching the ground plane rather than
  *    crossing it, for every radius, not merely the ones smaller than 3px.
  *
- * Tracers are DELIBERATELY left out of both fixes above, for a narrower
- * reason than "out of scope": a tracer's two endpoints
- * (`tracerQuadPositions`' `t.sx/sy`/`t.tx/ty`) can sit on tiles at DIFFERENT
- * elevations (a ridge-top ATGM team firing down at infantry in a wash), and
- * `TRACER_LIFT_PX` is presently one scalar applied identically to all four
- * vertices -- giving each end its own `groundWorldY` sample would tilt the
- * ribbon to follow the two terraces rather than travelling in a straight
- * line, which is a real, separate design question (does a tracer's line
- * stay straight in world space, or kink at whatever terrace each end
- * happens to sit on?) that this task's brief does not ask for and that
- * touching would not be "minimal." Tracers keep the flat lift from round 1
- * unconditionally; on a relief map they can still be visually misplaced
- * relative to the ground the same way round 1 originally left particles --
- * this is a known, narrower residual gap, not a fix silently dropped.
+ * ## Elevation lift, round 3 (post-review fix): tracers follow the ground too
+ *
+ * This task's own first pass left tracers on the flat `TRACER_LIFT_PX` lift,
+ * reasoning that giving each of a tracer's two endpoints its own
+ * `groundWorldY` sample would "kink" the ribbon and that fixing it was a
+ * separate design question. A post-commit review found both halves of that
+ * wrong:
+ *
+ *  - **It is not a misplacement, it is invisibility.** `TRACER_LIFT_PX` (4
+ *    lift-px) is smaller than a SINGLE elevation level's own rise
+ *    (`ELEV_STEP`, 10 lift-px). So on every raised tile a flat-lifted tracer
+ *    sat at least 6px UNDER its own ground -- and `createTracerMaterial`
+ *    keeps `depthTest: true`, so a tracer under the ground it is drawn over
+ *    does not render at all. That is the exact "buried, not misplaced"
+ *    failure round 1 documented for particles above, reproduced here in the
+ *    one FX kind round 2 did not reach.
+ *  - **A quad cannot kink.** `tracerQuadPositions` returns four vertices for
+ *    TWO endpoints (`s0`/`s1` share the shooter's position, `t0`/`t1` share
+ *    the target's) -- there is no third, interior vertex along the ribbon's
+ *    length for two different end-lifts to disagree across. Lifting each
+ *    end by its own `groundWorldY` would TILT the planar quad, which is a
+ *    real, harmless geometric operation four-vertex quads support trivially;
+ *    it was never going to kink anything.
+ *
+ * The fix actually shipped sidesteps even the tilt: `liftY` is ONE scalar --
+ * `max(groundWorldY(sx, sy), groundWorldY(tx, ty)) + TRACER_LIFT_PX *
+ * WORLD_Y_PER_LIFT_PIXEL` -- applied to all four vertices identically, so the
+ * ribbon stays exactly as flat and straight as it always was, but never
+ * sits under the higher of its own two ends' ground. A tracer whose shooter
+ * and target stand at different elevations rides at the higher one's
+ * height along its whole length rather than at the lower one's (or a flat
+ * average) -- visibly floating a little above the lower end's ground in
+ * that specific case, which is a real, acknowledged simplification, not
+ * "sits under the ground it's drawn over": a tracer that reads as floating
+ * slightly is a cosmetic nit; a tracer that never renders at all is the
+ * urgent failure this fix exists for.
  *
  * ## The `above_units` split (B3.14): a second particle draw call, deliberately
  *
@@ -369,8 +392,13 @@ export const TRACER_CAPACITY = 512;
  *  actual documented relationship between the two lifts rather than
  *  hardcoding a duplicate literal. */
 export const PARTICLE_LIFT_PX = 3;
-/** Screen-pixel lift a tracer draws at, matching `renderer.ts:2599`'s
- *  `isoY(t.sx, t.sy) - 4`. */
+/** Screen-pixel lift ABOVE ITS OWN GROUND a tracer draws at -- matches
+ *  `renderer.ts:2599`'s `isoY(t.sx, t.sy) - 4` on flat ground (elevation 0,
+ *  where `groundWorldY` contributes nothing). On a raised tile,
+ *  `tracerQuadPositions` adds `groundWorldY`'s own height on top of this;
+ *  see that function's doc comment ("Elevation lift, round 3") for why a
+ *  flat `TRACER_LIFT_PX` alone buried a tracer under any tile at elevation
+ *  >= 1 rather than merely misplacing it. */
 export const TRACER_LIFT_PX = 4;
 /** Tracer ribbon width in screen pixels, matching `renderer.ts:2601`'s
  *  `stroke({ width: 1.5, ... })`. */
@@ -554,8 +582,30 @@ export function writeParticleInstances(
  * `screenOffsetToWorld` -- keeps the ribbon's width constant on screen no
  * matter which way the shot points, the same guarantee `stroke({width:
  * 1.5})` gives Pixi for free from a 2D API this backend does not have.
+ *
+ * `liftY` FIX (post-B3.14 review): `TRACER_LIFT_PX` (4) is smaller than a
+ * SINGLE elevation level's own lift (`ELEV_STEP` is 10 lift-pixels), so a
+ * flat `TRACER_LIFT_PX` sat at least 6px under a tracer's own ground on
+ * every raised tile -- with `depthTest: true` on the tracer material, that
+ * is not a misplaced tracer, it is an INVISIBLE one, the identical failure
+ * mode particles had before the B3.14 ground-lift fix, just not caught by
+ * that fix because tracers were left out of it on a "would kink the ribbon"
+ * argument that does not survive scrutiny: with four vertices for two
+ * endpoints, lifting each end by its OWN `groundWorldY` tilts the ribbon (a
+ * planar quad can be tilted), it cannot kink it (kinking needs a THIRD
+ * vertex along the ribbon's length, which this geometry never had). The fix
+ * actually shipped is simpler than either: `liftY` is ONE scalar,
+ * `max(groundWorldY(sx,sy), groundWorldY(tx,ty)) + TRACER_LIFT_PX *
+ * WORLD_Y_PER_LIFT_PIXEL`, applied to all four vertices -- still flat, still
+ * perfectly straight, but never sits under the higher of its own two ends'
+ * ground.
  */
-export function tracerQuadPositions(t: TracerModel): Float32Array {
+export function tracerQuadPositions(
+  t: TracerModel,
+  elevation: Uint8Array | null,
+  mapWidth: number,
+  mapHeight: number
+): Float32Array {
   const dxScreen = isoX(t.tx, t.ty) - isoX(t.sx, t.sy);
   const dyScreen = isoY(t.tx, t.ty) - isoY(t.sx, t.sy);
   const len = Math.hypot(dxScreen, dyScreen);
@@ -568,7 +618,11 @@ export function tracerQuadPositions(t: TracerModel): Float32Array {
   const ny = len > 0 ? dxScreen / len : 0;
   const half = TRACER_WIDTH_PX / 2;
   const perp = screenOffsetToWorld(nx * half, ny * half);
-  const liftY = TRACER_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL;
+  const groundY = Math.max(
+    groundWorldY(elevation, mapWidth, mapHeight, t.sx, t.sy),
+    groundWorldY(elevation, mapWidth, mapHeight, t.tx, t.ty)
+  );
+  const liftY = groundY + TRACER_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL;
 
   return Float32Array.from([
     t.sx - perp.dx, liftY, t.sy - perp.dy,
@@ -613,6 +667,9 @@ export interface TracerInstanceBuffers {
 export function writeTracerInstances(
   tracers: readonly TracerModel[],
   tracerColors: readonly [string, string],
+  elevation: Uint8Array | null,
+  mapWidth: number,
+  mapHeight: number,
   out: TracerInstanceBuffers
 ): number {
   const capacity = out.alphas.length / 4;
@@ -620,7 +677,7 @@ export function writeTracerInstances(
   let count = 0;
   for (let i = start; i < tracers.length; i++) {
     const t = tracers[i];
-    const quad = tracerQuadPositions(t);
+    const quad = tracerQuadPositions(t, elevation, mapWidth, mapHeight);
     const alpha = tracerAlpha(t);
     const [r, g, b] = cachedHexToUnit(tracerColors[t.side] ?? tracerColors[0]);
     out.positions.set(quad, count * 12);
@@ -937,8 +994,22 @@ export class TracerBatch {
     this.mesh.frustumCulled = false;
   }
 
-  update(tracers: readonly TracerModel[], tracerColors: readonly [string, string]): void {
-    const count = writeTracerInstances(tracers, tracerColors, {
+  /**
+   * `elevation`/`mapWidth`/`mapHeight` thread straight through to
+   * `tracerQuadPositions` via `writeTracerInstances` -- the post-B3.14
+   * review fix: a tracer's own lift now tracks the higher of its two
+   * endpoints' ground height, so it is never buried under a raised tile
+   * the way a flat `TRACER_LIFT_PX` left it. See `tracerQuadPositions`'s
+   * own doc comment for the full account.
+   */
+  update(
+    tracers: readonly TracerModel[],
+    tracerColors: readonly [string, string],
+    elevation: Uint8Array | null,
+    mapWidth: number,
+    mapHeight: number
+  ): void {
+    const count = writeTracerInstances(tracers, tracerColors, elevation, mapWidth, mapHeight, {
       positions: this.positionAttr.array as Float32Array,
       colors: this.colorAttr.array as Float32Array,
       alphas: this.alphaAttr.array as Float32Array,

@@ -374,7 +374,16 @@ describe('entityFrame — recoil/flinch', () => {
     expect(out.wy).toBeCloseTo(expected.dy, 10);
   });
 
-  it('the RECOIL_PX_SOFT..RECOIL_PX_VEHICLE band matches the values Pixi still carries (renderer.ts:60-61)', () => {
+  it('pins the exported RECOIL_PX_SOFT/RECOIL_PX_VEHICLE/FLINCH_PX values this module actually uses', () => {
+    // NOT a check against renderer.ts's own RECOIL_PX_SOFT/RECOIL_PX_VEHICLE/
+    // FLINCH_PX (private, unexported, and importing them would pull pixi.js
+    // into this module's graph -- see this file's own top comment on why
+    // they are redeclared here rather than imported). This only pins the
+    // three literals entityFrame's own recoil/flinch arithmetic reads
+    // (asserted indirectly, through those numbers, by the tests above) --
+    // it cannot and does not detect renderer.ts's copies drifting, since it
+    // has no access to them. If the two ever need to be kept in sync, that
+    // has to be done by eye against renderer.ts:60-61, not by this test.
     expect(RECOIL_PX_SOFT).toBe(1);
     expect(RECOIL_PX_VEHICLE).toBe(3);
     expect(FLINCH_PX).toBe(2.5);

@@ -737,12 +737,18 @@ export class ThreeRenderer implements Renderer {
    *
    * `magnitude` is fixed at `FLAT_FX_MAGNITUDE` so `radiusPx` becomes the
    * drawn radius directly (see that constant's own doc comment); `priority`
-   * 3 sits below every authored `fire_*` emitter's own `budget_priority`
-   * (1-8) except `fire_small_arms`'s own 1 -- deliberately low, so an
-   * unauthored fallback puff never evicts a real emitter's own particle
-   * under pool pressure. Always spawns on `FX_LAYER_BELOW`, matching Pixi's
-   * `puffs` -- they draw on `fxG` (the below layer) unconditionally, never
-   * `fxAboveG`.
+   * is `0`, the LOWEST possible -- `ParticleSystem.freeSlot`
+   * (`vfx/particles.ts:88-103`) recycles the LOWEST-priority live particle
+   * first when the pool is full, so `0` is the one value that guarantees a
+   * fallback puff is always the first thing evicted under pool pressure,
+   * never an authored emitter's own particle (every shipped emitter's
+   * `budget_priority` is >= 1, `fire_small_arms.json`'s own floor). A
+   * non-zero priority here would have the OPPOSITE effect from what it
+   * reads as: `fire_small_arms` (1) and `fire_hmg` (2) -- the two commonest
+   * weapon classes in a firefight -- and both cigarette emitters (1) would
+   * all rank BELOW it and be evicted in ITS favour instead. Always spawns
+   * on `FX_LAYER_BELOW`, matching Pixi's `puffs` -- they draw on `fxG` (the
+   * below layer) unconditionally, never `fxAboveG`.
    */
   private spawnFlatFx(x: number, y: number, color: string, radiusPx: number, lifetimeFrames: number): void {
     if (!this.particleSystem) return;
@@ -754,7 +760,7 @@ export class ThreeRenderer implements Renderer {
       alpha_over_life: [0.85, 0],
       color_over_life: [color],
     };
-    this.particleSystem.spawn(spec, x, y, 0, FLAT_FX_MAGNITUDE, 3, FX_LAYER_BELOW);
+    this.particleSystem.spawn(spec, x, y, 0, FLAT_FX_MAGNITUDE, 0, FX_LAYER_BELOW);
   }
 
   worldToScreen(wx: number, wy: number): { x: number; y: number } {
@@ -1201,7 +1207,7 @@ export class ThreeRenderer implements Renderer {
     this.particleInstancerBelow.update(this.particleSystem, elevation, this.sim.width, this.sim.height);
     this.particleInstancerAbove.update(this.particleSystem, elevation, this.sim.width, this.sim.height);
     this.tracers = stepTracers(this.tracers, dtSeconds);
-    this.tracerBatch.update(this.tracers, this.opts.tracerColors);
+    this.tracerBatch.update(this.tracers, this.opts.tracerColors, elevation, this.sim.width, this.sim.height);
   }
 
   /**

@@ -219,13 +219,49 @@ describe('PARTICLE_CAPACITY', () => {
 });
 
 describe('tracerQuadPositions', () => {
-  it('lifts every vertex by the documented tracer lift, and by exactly one pixel more than a particle\'s', () => {
+  it('on flat ground (no elevation layer), lifts every vertex by the documented tracer lift -- one pixel more than a particle\'s', () => {
     const t = spawnTracer(0, 0, 5, 0, 0);
-    const p = tracerQuadPositions(t);
+    const p = tracerQuadPositions(t, null, 0, 0);
     const liftY = TRACER_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL;
     for (const yIdx of [1, 4, 7, 10]) expect(p[yIdx]).toBeCloseTo(liftY, 5);
     // TRACER_LIFT_PX (4) - PARTICLE_LIFT_PX (3) = 1px, converted the same way.
     expect(liftY - PARTICLE_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL).toBeCloseTo(WORLD_Y_PER_LIFT_PIXEL, 5);
+  });
+
+  it('post-review fix: on raised ground, lifts every vertex by the HIGHER of its two endpoints\' own ground height', () => {
+    // 4x4 grid, level 3 at tile (1, 1), flat everywhere else -- the same
+    // fixture frame-state.test.ts's "ground lift" suite and fx.test.ts's own
+    // particle ground-lift test use. Shooter (0.5, 0.5) is on flat ground;
+    // target (1.5, 1.5) is on the raised tile -- before this fix, every
+    // vertex sat at a flat TRACER_LIFT_PX (4 lift-px), well UNDER the
+    // raised tile's own 3 * WORLD_PER_LEVEL (30 lift-px) ground, which is
+    // exactly the "buried, not misplaced" bug the review caught.
+    const elevation = new Uint8Array([0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const t = spawnTracer(0.5, 0.5, 1.5, 1.5, 0);
+    const p = tracerQuadPositions(t, elevation, 4, 4);
+    const expectedLift =
+      Math.max(groundWorldY(elevation, 4, 4, 0.5, 0.5), groundWorldY(elevation, 4, 4, 1.5, 1.5)) +
+      TRACER_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL;
+    for (const yIdx of [1, 4, 7, 10]) expect(p[yIdx]).toBeCloseTo(expectedLift, 5);
+    // The higher of the two -- the raised tile's, not the flat one's -- so
+    // this is strictly above the flat-ground lift, not merely different.
+    expect(expectedLift).toBeGreaterThan(TRACER_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL);
+  });
+
+  it('the lift stays a SINGLE scalar shared by all four vertices -- the ribbon tilts, it does not kink', () => {
+    // A "kink" would need three or more distinct Y values along the
+    // ribbon's own length; a tilt needs at most two (one per end), shared
+    // by both of that end's two width-offset vertices. This is the direct
+    // check that the fix does the latter: s0/s1 (both at the shooter) share
+    // one Y, t0/t1 (both at the target) share the other -- never four
+    // independent values.
+    const elevation = new Uint8Array([0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const t = spawnTracer(0.5, 0.5, 1.5, 1.5, 0);
+    const p = tracerQuadPositions(t, elevation, 4, 4);
+    // Vertex layout: s0 (0,1,2), s1 (3,4,5), t1 (6,7,8), t0 (9,10,11).
+    expect(p[1]).toBe(p[4]); // s0.y === s1.y
+    expect(p[7]).toBe(p[10]); // t1.y === t0.y
+    expect(p[1]).toBe(p[7]); // and, for THIS max()-based fix, s.y === t.y too
   });
 
   it('keeps a constant screen-pixel width at the source end regardless of the shot\'s bearing', () => {
@@ -237,7 +273,7 @@ describe('tracerQuadPositions', () => {
       spawnTracer(3, 3, 3, 3, 0), // degenerate: source === target
     ];
     for (const t of cases) {
-      const p = tracerQuadPositions(t);
+      const p = tracerQuadPositions(t, null, 0, 0);
       // Vertex layout: s0 (0,1,2), s1 (3,4,5), t1 (6,7,8), t0 (9,10,11).
       const s0Screen = { x: isoX(p[0], p[2]), y: isoY(p[0], p[2]) };
       const s1Screen = { x: isoX(p[3], p[5]), y: isoY(p[3], p[5]) };
@@ -248,7 +284,7 @@ describe('tracerQuadPositions', () => {
 
   it('the target end carries the same width offset as the source end (a true rectangle)', () => {
     const t = spawnTracer(1, 1, 6, 9, 0);
-    const p = tracerQuadPositions(t);
+    const p = tracerQuadPositions(t, null, 0, 0);
     // s1 - s0 (width vector at the source) should equal t1 - t0 (width
     // vector at the target) -- both ends offset by the identical perp.
     const sVec = [p[3] - p[0], p[5] - p[2]];
@@ -259,7 +295,7 @@ describe('tracerQuadPositions', () => {
 
   it('the quad\'s length axis (s0 to t0) reaches exactly the target -- the perp offset cancels', () => {
     const t = spawnTracer(0, 0, 4, 2, 0);
-    const p = tracerQuadPositions(t);
+    const p = tracerQuadPositions(t, null, 0, 0);
     // t0 = target - perp, s0 = source - perp -> t0 - s0 = target - source
     // exactly, regardless of the perpendicular's own magnitude or direction.
     const dx = p[9] - p[0];
@@ -281,7 +317,7 @@ describe('writeTracerInstances', () => {
   it('writes one quad (4 verts) per live tracer, coloured by side', () => {
     const tracers: TracerModel[] = [spawnTracer(0, 0, 1, 1, 0), spawnTracer(2, 2, 3, 3, 1)];
     const out = tBuffers(4);
-    const count = writeTracerInstances(tracers, ['#FF0000', '#00FF00'], out);
+    const count = writeTracerInstances(tracers, ['#FF0000', '#00FF00'], null, 0, 0, out);
     expect(count).toBe(2);
     const [r0, g0, b0] = hexToUnit('#FF0000');
     for (let v = 0; v < 4; v++) {
@@ -300,7 +336,7 @@ describe('writeTracerInstances', () => {
 
   it('a freshly spawned tracer writes full alpha at every one of its four vertices', () => {
     const out = tBuffers(2);
-    writeTracerInstances([spawnTracer(0, 0, 1, 0, 0)], ['#FFFFFF', '#FFFFFF'], out);
+    writeTracerInstances([spawnTracer(0, 0, 1, 0, 0)], ['#FFFFFF', '#FFFFFF'], null, 0, 0, out);
     for (let v = 0; v < 4; v++) expect(out.alphas[v]).toBeCloseTo(1, 10);
   });
 
@@ -311,7 +347,7 @@ describe('writeTracerInstances', () => {
       spawnTracer(0, 0, 1, 0, 0),
     ];
     const out = tBuffers(2);
-    expect(writeTracerInstances(tracers, ['#FFFFFF', '#FFFFFF'], out)).toBe(2);
+    expect(writeTracerInstances(tracers, ['#FFFFFF', '#FFFFFF'], null, 0, 0, out)).toBe(2);
   });
 
   it('over capacity, drops the OLDEST tracers and keeps the newest -- not the reverse', () => {
@@ -323,9 +359,9 @@ describe('writeTracerInstances', () => {
     // so this only asserts what writeTracerInstances itself decides: WHICH
     // tracers survive, not what their geometry looks like.
     const tracers: TracerModel[] = [0, 1, 2, 3, 4].map((sx) => spawnTracer(sx, 0, sx + 1, 0, 0));
-    const expectedS0x = tracers.map((t) => tracerQuadPositions(t)[0]);
+    const expectedS0x = tracers.map((t) => tracerQuadPositions(t, null, 0, 0)[0]);
     const out = tBuffers(3);
-    const count = writeTracerInstances(tracers, ['#FFFFFF', '#FFFFFF'], out);
+    const count = writeTracerInstances(tracers, ['#FFFFFF', '#FFFFFF'], null, 0, 0, out);
     expect(count).toBe(3);
     const keptS0x = [0, 1, 2].map((i) => out.positions[i * 12]);
     // The newest three (index 2, 3, 4 -- sx 2..4) must be present, in
@@ -359,7 +395,7 @@ describe('TRACER_CAPACITY', () => {
       colors: new Float32Array(TRACER_CAPACITY * 4 * 3),
       alphas: new Float32Array(TRACER_CAPACITY * 4),
     };
-    expect(writeTracerInstances(tracers, ['#FFFFFF', '#FFFFFF'], out)).toBe(TRACER_CAPACITY);
+    expect(writeTracerInstances(tracers, ['#FFFFFF', '#FFFFFF'], null, 0, 0, out)).toBe(TRACER_CAPACITY);
   });
 
   it('is the value the REAL TracerBatch is actually constructed with, not merely reused to size a fixture', () => {
@@ -375,7 +411,7 @@ describe('TRACER_CAPACITY', () => {
     const tracers: TracerModel[] = Array.from({ length: TRACER_CAPACITY + 5 }, (_, i) =>
       spawnTracer(i, 0, i + 1, 0, 0)
     );
-    batch.update(tracers, ['#FFFFFF', '#FFFFFF']);
+    batch.update(tracers, ['#FFFFFF', '#FFFFFF'], null, 0, 0);
     expect(batch.mesh.geometry.drawRange.count).toBe(TRACER_CAPACITY * 6);
   });
 });
@@ -517,7 +553,7 @@ describe('TracerBatch construction', () => {
   it('starts with an empty draw range and grows it to match live tracers on update', () => {
     const batch = new TracerBatch(4);
     expect(batch.mesh.geometry.drawRange.count).toBe(0);
-    batch.update([spawnTracer(0, 0, 1, 1, 0)], ['#FFFFFF', '#FFFFFF']);
+    batch.update([spawnTracer(0, 0, 1, 1, 0)], ['#FFFFFF', '#FFFFFF'], null, 0, 0);
     expect(batch.mesh.geometry.drawRange.count).toBe(6); // one quad = 6 indices
   });
 
