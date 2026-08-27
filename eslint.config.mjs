@@ -135,5 +135,62 @@ export default tseslint.config(
         },
       ],
     },
+  },
+
+  // Bundle regression guard (CLAUDE.md's "standing bundle rule"): three.js
+  // must never reach the default Pixi player's main chunk. That happened
+  // once already, live through all of Phase B1, and cost 464 kB -- every
+  // player on the Pixi default downloading a second renderer. Nothing but
+  // convention stopped `packages/app/src` production code from statically
+  // importing one of the three doors that reach three.js
+  // (`@lions/render/three`, `/terrain`, `/three-camera`) and putting the
+  // regression right back.
+  //
+  // `no-restricted-imports` only inspects static `ImportDeclaration`/
+  // `ExportNamedDeclaration` nodes; a dynamic `import()` is a distinct
+  // `ImportExpression` node the rule does not look at (verified directly:
+  // a scratch file with `await import('three')` against this same rule
+  // lints clean), so `main.ts:582`'s `await import('@lions/render/three')`
+  // -- the dynamic import that keeps `ThreeRenderer` in its own lazy chunk
+  // -- is untouched by this rule while a static import of the same
+  // specifier is not.
+  //
+  // Test files are exempt: `terrain-parity.test.ts` legitimately imports
+  // `@lions/render/terrain` and `@lions/render/three-camera` statically, to
+  // build real geometry against shipped map data in `environment: 'node'`
+  // (see that file's own doc comment) -- tests never ship in the
+  // player-facing bundle, so a static import there carries none of the
+  // bundle risk this rule exists to prevent.
+  {
+    files: ['packages/app/src/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@lions/render/three',
+              message:
+                'ThreeRenderer must reach packages/app only via a dynamic import() (see main.ts) -- a static ' +
+                'import puts three.js in the default Pixi player\'s main chunk. See CLAUDE.md\'s standing bundle rule.',
+            },
+            {
+              name: '@lions/render/terrain',
+              message:
+                'The terrain barrel exists for terrain-parity.test.ts (and packages/render\'s own test suite) to ' +
+                'build real geometry from shipped map data -- production app code has no use for the pure ' +
+                'builders directly, and this path is also how ../camera and its three.js import used to leak in.',
+            },
+            {
+              name: '@lions/render/three-camera',
+              message:
+                'three/camera.ts is three.js-dependent. Production app code asks the renderer for projection ' +
+                '(Renderer.worldToScreen) rather than importing either backend\'s arithmetic directly.',
+            },
+          ],
+        },
+      ],
+    },
   }
 );
