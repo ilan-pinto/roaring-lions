@@ -166,14 +166,32 @@ export class ParticleSystem {
     }
   }
 
-  /** Draws only particles spawned with the matching `layerIdx`, so callers
-   *  can render below-unit and above-unit effects onto separate Graphics
-   *  in the correct order relative to unit sprites. */
-  draw(
-    g: Graphics,
-    isoX: (x: number, y: number) => number,
-    isoY: (x: number, y: number) => number,
-    layerIdx: number
+  /**
+   * Backend-agnostic read path: visits every live particle on `layerIdx` and
+   * hands the callback its drawable state -- world position, the colour and
+   * alpha already sampled off that particle's curves for its current age,
+   * and its current radius. No graphics library is named anywhere in this
+   * signature (plain numbers and a string), so a three.js caller can build
+   * instance-buffer writes directly from it.
+   *
+   * This applies the exact same skips `draw()` used to apply inline: a slot
+   * that is not `alive`, or not on the requested `layerIdx`, is never
+   * visited; one whose sampled radius or alpha has collapsed to zero or
+   * below is visited by neither this nor `draw()` -- `sampleStep`/
+   * `sampleLerp` are the one place curve sampling happens, so the two
+   * backends cannot sample a palette-quantised colour or an alpha ramp
+   * differently.
+   *
+   * Callback takes flat arguments rather than an object: this method runs
+   * over up to `capacity` particles a frame (weapon fire is the
+   * highest-frequency effect in the game), and the class-level contract
+   * above -- "allocates nothing per particle per frame" -- has to hold for
+   * this accessor exactly as it holds for `spawn`/`step`, or a three.js
+   * caller adopting it inherits a GC-pressure regression `draw()` never had.
+   */
+  forEachLive(
+    layerIdx: number,
+    cb: (x: number, y: number, color: string, alpha: number, radius: number) => void
   ): void {
     for (let i = 0; i < this.capacity; i++) {
       if (this.alive[i] === 0 || this.layerIdx[i] !== layerIdx) continue;
@@ -183,7 +201,25 @@ export class ParticleSystem {
       const sizeMul = sampleLerp(this.sizeCurve[i], t, 1);
       const r = this.size[i] * sizeMul;
       if (r <= 0 || alpha <= 0) continue;
-      g.circle(isoX(this.x[i], this.y[i]), isoY(this.x[i], this.y[i]) - 3, r).fill({ color, alpha });
+      cb(this.x[i], this.y[i], color, alpha, r);
     }
+  }
+
+  /** Draws only particles spawned with the matching `layerIdx`, so callers
+   *  can render below-unit and above-unit effects onto separate Graphics
+   *  in the correct order relative to unit sprites.
+   *
+   *  Expressed entirely in terms of `forEachLive` -- there is no second copy
+   *  of the curve-sampling or skip logic here, so this and the read path
+   *  cannot diverge. */
+  draw(
+    g: Graphics,
+    isoX: (x: number, y: number) => number,
+    isoY: (x: number, y: number) => number,
+    layerIdx: number
+  ): void {
+    this.forEachLive(layerIdx, (x, y, color, alpha, r) => {
+      g.circle(isoX(x, y), isoY(x, y) - 3, r).fill({ color, alpha });
+    });
   }
 }
