@@ -108,7 +108,7 @@ import { toGeometry, terrainMaterial } from './terrain/mesh';
 import type { TerrainInput } from './terrain/types';
 import { packSheet, buildUnitTexture } from './units/atlas';
 import { entityFrame, assignRoofSlots, type EntityFrameInput, type EntityFrame } from './units/frame-state';
-import { UnitInstancer } from './units/instances';
+import { UnitInstancer, TURRET_RENDER_ORDER } from './units/instances';
 import { pickUnit as pickUnitPure, unitsInScreenRect as unitsInScreenRectPure } from './units/pick';
 import { stepTracers, spawnTracer, type TracerModel } from './units/tracers';
 import { ParticleInstancer, TracerBatch, PARTICLE_CAPACITY, TRACER_CAPACITY } from './units/fx';
@@ -1020,7 +1020,16 @@ export class ThreeRenderer implements Renderer {
       const turretSheet: SheetSpec = parseManifest(await turretRes.json());
       const turretPacking = packSheet(turretSheet);
       const turretTexture = await buildUnitTexture(opts.turretPath, turretSheet, turretPacking);
-      const turretInstancer = new UnitInstancer(turretSheet, turretTexture, turretPacking, this.sim.capacity);
+      const turretInstancer = new UnitInstancer(
+        turretSheet,
+        turretTexture,
+        turretPacking,
+        this.sim.capacity,
+        // Explicit, tested render-order split (instances.ts's own doc
+        // comment) -- draws above its hull at every co-located, identical-
+        // depth instance, not merely by construction-order accident.
+        TURRET_RENDER_ORDER
+      );
       const previousTurret = this.turretInstancers.get(unitTypeId);
       if (previousTurret) {
         this.scene.remove(previousTurret.mesh);

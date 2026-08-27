@@ -409,6 +409,21 @@ export function writeTurretInstances(
 const ALPHA_PADDING_DISCARD = 0.02;
 
 /**
+ * Task B3.6: explicit `Object3D.renderOrder` values for a hull mesh and its
+ * turret mesh. `HULL_RENDER_ORDER` is three.js's own default (0) named here
+ * rather than left implicit, so the pairing reads as a deliberate decision
+ * at both call sites, not an accident of only one of the two ever being set.
+ * `TURRET_RENDER_ORDER` being strictly greater is what guarantees a turret
+ * mesh draws on top of its hull at every co-located, identical-depth
+ * instance (every shipped sheet WITHOUT a `turretAxisPx` correction --
+ * mbt_lavi, apc_eitan, ifv_namer) regardless of scene-graph insertion order,
+ * construction order, or `Object3D.id` -- see `UnitInstancer`'s own
+ * constructor doc comment for why relying on any of those was the hazard.
+ */
+export const HULL_RENDER_ORDER = 0;
+export const TURRET_RENDER_ORDER = 1;
+
+/**
  * The unit material: samples one layer of a `DataArrayTexture` per instance,
  * blends (see this file's top comment for the alpha decision), and applies
  * no colour-space transform -- `applyPalettePipeline`'s pass-through
@@ -491,7 +506,33 @@ export class UnitInstancer {
   private readonly scratchPositions: Float32Array;
   private readonly scratchMatrix = new THREE.Matrix4();
 
-  constructor(sheet: SheetSpec, texture: THREE.DataArrayTexture, packing: FramePacking, capacity: number) {
+  /**
+   * `renderOrder` defaults to `HULL_RENDER_ORDER` (0, three.js's own
+   * default) -- a hull instancer never passes this argument. A turret
+   * instancer is always constructed with `TURRET_RENDER_ORDER` explicitly
+   * (`ThreeRenderer.loadSprites`).
+   *
+   * Why this needs to be explicit at all: for `mbt_lavi`/`apc_eitan`/
+   * `ifv_namer` -- none of which declare `turretAxisPx` -- the turret quad
+   * lands EXACTLY co-located with its hull's, at identical depth. Without an
+   * explicit `renderOrder`, three.js's transparent-list sort ties there and
+   * falls through to insertion order (`Object3D.id`), which happens to work
+   * today only because `ThreeRenderer.loadSprites` always constructs the
+   * hull `UnitInstancer` before its turret counterpart. That is exactly the
+   * hazard class `units/fx.ts`'s own `renderOrder` split was added to close
+   * after a review found ITS ordering was working by accident -- an
+   * explicit, tested value here means a future reordering of that
+   * construction sequence fails loudly (a turret drawing under its own
+   * hull) rather than silently, instead of relying on a tie-break this
+   * class has no control over.
+   */
+  constructor(
+    sheet: SheetSpec,
+    texture: THREE.DataArrayTexture,
+    packing: FramePacking,
+    capacity: number,
+    renderOrder: number = HULL_RENDER_ORDER
+  ) {
     this.sheet = sheet;
     this.packing = packing;
     this.texture = texture;
@@ -509,6 +550,7 @@ export class UnitInstancer {
 
     this.mesh = new THREE.InstancedMesh(geometry, createUnitMaterial(texture), capacity);
     this.mesh.count = 0;
+    this.mesh.renderOrder = renderOrder;
     // Instances are translated across the whole map, not clustered at the
     // origin the base geometry is authored around -- the bounding sphere
     // three.js would otherwise compute from the base geometry alone covers

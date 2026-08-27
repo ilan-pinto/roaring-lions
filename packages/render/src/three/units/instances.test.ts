@@ -22,6 +22,8 @@ import {
   unitBillboardGeometry,
   writeUnitInstances,
   writeTurretInstances,
+  HULL_RENDER_ORDER,
+  TURRET_RENDER_ORDER,
   type UnitInstanceBuffers,
 } from './instances';
 import { TILE_W, WORLD_Y_PER_LIFT_PIXEL } from '../../project';
@@ -206,6 +208,31 @@ describe('the render-order tie-break', () => {
     expect(m.transparent).toBe(true);
     expect(m.depthTest).toBe(true);
     expect(m.depthWrite).toBe(true);
+  });
+
+  it('defaults to HULL_RENDER_ORDER, not an unset/implicit value', () => {
+    const packing = packSheet(infSquad);
+    const instancer = new UnitInstancer(infSquad, new THREE.DataArrayTexture(), packing, 4);
+    expect(instancer.mesh.renderOrder).toBe(HULL_RENDER_ORDER);
+    expect(HULL_RENDER_ORDER).toBe(0);
+  });
+
+  it("a turret instancer's renderOrder is strictly above a hull's, pinned by VALUE -- not by which one happened to be constructed first", () => {
+    // Task B3.6's own regression: mbt_lavi/apc_eitan/ifv_namer declare no
+    // turretAxisPx, so their turret quad is exactly co-located with the
+    // hull's at identical depth. Before this, correct draw order depended
+    // on ThreeRenderer.loadSprites always constructing the hull
+    // UnitInstancer first (an insertion-order/Object3D.id tie-break this
+    // class has no control over) -- exactly the hazard units/fx.ts's own
+    // renderOrder split exists to avoid. This test would pass just as
+    // happily if a future edit constructed the turret instancer FIRST; only
+    // asserting the VALUES (not "whichever was built first wins") catches
+    // that regression.
+    const packing = packSheet(infSquad);
+    const hull = new UnitInstancer(infSquad, new THREE.DataArrayTexture(), packing, 4);
+    const turret = new UnitInstancer(infSquad, new THREE.DataArrayTexture(), packing, 4, TURRET_RENDER_ORDER);
+    expect(turret.mesh.renderOrder).toBeGreaterThan(hull.mesh.renderOrder);
+    expect(turret.mesh.renderOrder).toBe(TURRET_RENDER_ORDER);
   });
 });
 

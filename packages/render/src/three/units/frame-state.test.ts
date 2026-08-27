@@ -19,6 +19,7 @@ import {
   TURRET_STIFFNESS,
   TURRET_DAMPING,
   type EntityFrameInput,
+  type EntityFrame,
 } from './frame-state';
 import { resolveClip, resolveTurretClip, type UnitAnimInput } from '../../clip';
 import { phaseOffset } from '../../anim';
@@ -506,13 +507,45 @@ describe('entityFrame — turret facing (Task B3.6)', () => {
     expect(turretVel[0]).not.toBe(0);
   });
 
+  it('BREAK CHECK: the Euler step is bounded even under a long frame hitch (sdt clamped to 1/30)', () => {
+    // The same 0.5-turn goal delta as break check 1, but with a wildly long
+    // dtSeconds (a real 100ms-hitch-or-worse frame) -- entityFrame's own
+    // comment on `sdt` says explicit Euler diverges once damping * dt
+    // exceeds 1, which this dtSeconds clears many times over if it reaches
+    // the integration unclamped.
+    const turretFacing = new Float64Array([0]);
+    const turretVel = new Float64Array([0]);
+    const turretSeeded = new Uint8Array([1]);
+    const out = entityFrame(
+      makeInput({
+        facing: 0,
+        curX: 0,
+        curY: 0,
+        turretTargetX: -5,
+        turretTargetY: 0,
+        dtSeconds: 0.5, // 30x a real 60fps frame
+        turretSheet,
+        turretFacing,
+        turretVel,
+        turretSeeded,
+      })
+    );
+    // delta = 0.5, accel = 0.5 * TURRET_STIFFNESS = 45 (turretVel starts 0).
+    // Clamped: sdt = 1/30 -> turretVel = 45 * (1/30) = 1.5,
+    //          turretFacing = 1.5 * (1/30) = 0.05.
+    // Unclamped: sdt = 0.5 -> turretVel = 45 * 0.5 = 22.5 -- 15x larger,
+    // and would land turretFacing at 22.5 * 0.5 = 11.25 (mod 1 -> 0.25),
+    // nowhere near either of these numbers.
+    expect(turretVel[0]).toBeCloseTo(1.5, 5);
+    expect(out.turretFacing).toBeCloseTo(0.05, 5);
+  });
+
   it('converges toward the goal over many steps (the spring is not merely non-snapping, it arrives)', () => {
     const turretFacing = new Float64Array([0]);
     const turretVel = new Float64Array([0]);
     const turretSeeded = new Uint8Array([1]);
-    let out;
-    for (let i = 0; i < 240; i++) {
-      out = entityFrame(
+    const step = (): EntityFrame =>
+      entityFrame(
         makeInput({
           facing: 0,
           curX: 0,
@@ -526,8 +559,12 @@ describe('entityFrame — turret facing (Task B3.6)', () => {
           turretSeeded,
         })
       );
-    }
-    expect(out!.turretFacing).toBeCloseTo(0.5, 1);
+    // 239 steps advance the persisted state without needing to hold onto
+    // (or assert a non-null type on) every intermediate result -- only the
+    // last one is read.
+    for (let i = 0; i < 239; i++) step();
+    const out = step();
+    expect(out.turretFacing).toBeCloseTo(0.5, 1);
   });
 
   it('BREAK CHECK 3: returns to the hull heading over time, not instantly, once the target is lost', () => {
@@ -540,19 +577,39 @@ describe('entityFrame — turret facing (Task B3.6)', () => {
     const turretFacing = new Float64Array([0.5]);
     const turretVel = new Float64Array([0]);
     const turretSeeded = new Uint8Array([1]);
-    const out = entityFrame(
-      makeInput({
-        facing: 0,
-        turretTargetX: null,
-        turretTargetY: null,
-        dtSeconds: 1 / 60,
-        turretSheet,
-        turretFacing,
-        turretVel,
-        turretSeeded,
-      })
-    );
+    const step = (): EntityFrame =>
+      entityFrame(
+        makeInput({
+          facing: 0,
+          turretTargetX: null,
+          turretTargetY: null,
+          dtSeconds: 1 / 60,
+          turretSheet,
+          turretFacing,
+          turretVel,
+          turretSeeded,
+        })
+      );
+    const out = step();
     expect(out.turretFacing).toBeGreaterThan(0.4);
+
+    // Not merely "moved a little" -- a mutant that re-targets the goal at
+    // whatever turretFacing ALREADY is (so the turret drifts to a stop
+    // wherever it happens to be, and never actually comes home) would pass
+    // the single-step assertion above just as easily as the real spring
+    // does, since both start with a near-zero first step. Continuing to
+    // step with no target for much longer is what tells the two apart: the
+    // real spring keeps closing the distance toward the hull's own facing
+    // (0) and gets there; a goal-that-chases-current-position mutant never
+    // moves again once its own single-step "progress" is spent.
+    for (let i = 0; i < 239; i++) step();
+    const settled = step();
+    // turretFacing is circular (wrapped into [0, 1)), so "close to the hull's
+    // 0 heading" means close to EITHER 0 or 1, not merely close to the
+    // literal number 0 -- the shortest distance around the circle is what
+    // "arrived home" actually means.
+    const distanceFromHullHeading = Math.min(settled.turretFacing, 1 - settled.turretFacing);
+    expect(distanceFromHullHeading).toBeLessThan(0.05);
   });
 
   it('turret clip resolution reads an INDEPENDENT firing signal, not the hull\'s anim.firing', () => {
