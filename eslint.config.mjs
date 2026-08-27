@@ -192,5 +192,42 @@ export default tseslint.config(
         },
       ],
     },
+  },
+
+  // The other half of the standing bundle rule, guarding the source rather
+  // than the consumer.
+  //
+  // The rule above stops `packages/app` from taking a three.js door. This one
+  // stops a three.js door from being opened somewhere it does not belong: only
+  // `packages/render/src/three/**` may import three.js at all. Everything else
+  // under `packages/render/src` -- `renderer.ts` above all, which Pixi's own
+  // chunk is built from -- must stay three-free.
+  //
+  // This is the exact leak Phase B2's final review found: `ground.ts` imported
+  // one constant from `three/camera.ts`, and `camera.ts` imports all of three,
+  // so the "pure builders" barrel dragged the whole library while its own doc
+  // comment said it did not. Nothing had shipped wrong -- no app code reached
+  // it statically -- but the mechanism was identical to the one that put 464 kB
+  // of three.js in the default player's main chunk through all of Phase B1.
+  // A comment is not a guard; this is.
+  {
+    files: ['packages/render/src/**/*.ts'],
+    ignores: ['packages/render/src/three/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'three',
+              message:
+                'Only packages/render/src/three/** may import three.js. Pixi\'s renderer and the shared ' +
+                'projection code must stay three-free, or three.js lands in the default player\'s chunk. ' +
+                'A pure constant both backends need belongs in project.ts (see ELEV_STEP, WORLD_Y_PER_LIFT_PIXEL).',
+            },
+          ],
+        },
+      ],
+    },
   }
 );
