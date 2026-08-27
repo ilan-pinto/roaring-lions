@@ -10,7 +10,7 @@ import { describe, it, expect } from 'vitest';
 import { buildBuildings } from './buildings';
 import { WORLD_PER_LEVEL } from './ground';
 import { WORLD_Y_PER_LIFT_PIXEL } from '../camera';
-import { PALETTE_HEXES } from './tones';
+import { PALETTE_HEXES, groundTone, composite, quantise } from './tones';
 import { VIEW_DIRECTION } from '../camera';
 import type { TerrainInput } from './types';
 import type { StructureFootprint } from './buildings';
@@ -44,6 +44,11 @@ const CLUTTER_TILE: [number, number] = [1, 0];
 
 function oneStructure(tiles: readonly number[], overrides: Partial<StructureFootprint> = {}): StructureFootprint {
   return { tiles, heightPx: 18, colorKey: 'limestone.4', hp: 100, maxHp: 100, ...overrides };
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const h = hex.charAt(0) === '#' ? hex.slice(1) : hex;
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
 }
 
 function colorsAsHex(m: { colors: Float32Array }): string[] {
@@ -161,27 +166,64 @@ describe('buildBuildings', () => {
     expect(maxY).toBeLessThan(roofY + 1);
   });
 
-  it('a battered wall goes darker than an undamaged one', () => {
-    // wear = 0.45 + 0.55 * integrity -- lower integrity composites the roof
-    // and east-wall hex closer to `background`, which this suite's palette
-    // is dark, so a battered building's quantised roof tone should be
-    // darker (lower channel sum) than a healthy one built from the same
-    // structure otherwise. Fixed on a tile whose position keeps both builds
-    // off the clutter path, so a clutter quad can't skew the comparison.
+  it('wear fades the roof toward the tile\'s own ground tone, not toward black', () => {
+    // wear = 0.45 + 0.55 * integrity composites the roof over `groundTone`,
+    // NOT over `background` (the fix-round correction) -- so a battered
+    // roof does not simply get "darker", it moves toward whatever tone the
+    // ground under it already reads as. Direction (lighter or darker)
+    // depends on whether that ground tone happens to sit above or below the
+    // structure's own roof colour, so this test asserts the property that
+    // is actually guaranteed -- movement toward `groundTone`, computed
+    // independently via the same functions `buildBuildings` itself uses --
+    // rather than assuming a direction that isn't.
     const input = flat(1, 1);
     input.blocked = new Uint8Array([1]);
+    const heightPx = 20;
     const healthy = buildBuildings(
-      input, [oneStructure([0], { hp: 100, maxHp: 100 })], TONES, undefined, BACKGROUND
+      input, [oneStructure([0], { heightPx, hp: 100, maxHp: 100 })], TONES, undefined, BACKGROUND
     );
     const battered = buildBuildings(
-      input, [oneStructure([0], { hp: 5, maxHp: 100 })], TONES, undefined, BACKGROUND
+      input, [oneStructure([0], { heightPx, hp: 5, maxHp: 100 })], TONES, undefined, BACKGROUND
     );
+    const gt = groundTone(input, TONES, 0, PALETTE_HEXES, BACKGROUND);
+    const [gtR, gtG, gtB] = hexToRgb(gt);
     // Roof colour is vertices 8-11 (third quad) of a box with no clutter.
-    const roofSum = (m: typeof healthy): number => {
-      const i = 8 * 3; // colors are 3 floats/vertex, roof starts at vertex 8
-      return m.colors[i] + m.colors[i + 1] + m.colors[i + 2];
-    };
-    expect(roofSum(battered)).toBeLessThan(roofSum(healthy));
+    const roofRgb = (m: typeof healthy): [number, number, number] => [
+      Math.round(m.colors[24] * 255), Math.round(m.colors[25] * 255), Math.round(m.colors[26] * 255),
+    ];
+    const distToGround = ([r, g, b]: [number, number, number]): number =>
+      (r - gtR) ** 2 + (g - gtG) ** 2 + (b - gtB) ** 2;
+    // Lower integrity -> lower wear -> more weight on `gt` in the composite
+    // -> strictly closer to `gt` (in the un-quantised composite; quantising
+    // both independently can only preserve or tighten that gap here, since
+    // the healthy build's wear is 1.0 and so is untouched by `gt` at all).
+    expect(distToGround(roofRgb(battered))).toBeLessThan(distToGround(roofRgb(healthy)));
+  });
+
+  it('composites the roof and both walls over the tile\'s own ground tone, not raw background', () => {
+    // The fix-round regression this test exists to pin: `drawBuildingTile`
+    // draws into Pixi's `spriteLayer`, which sits OVER `terrainG` -- so its
+    // sub-1 alpha fills reveal the tile's own `groundTone` (already washed
+    // with `underBuilding`), never the page's raw clear colour. Compositing
+    // against `background` directly diverges hard as `wear` drops, and can
+    // land on a different hue family entirely, not just a darker one --
+    // this fixture is picked so the two bases provably disagree (verified
+    // by the second assertion), so this test would have failed against the
+    // pre-fix implementation.
+    const input = flat(1, 1);
+    input.blocked = new Uint8Array([1]);
+    const hp = 5, maxHp = 100;
+    const resolveColor = (): string => '#B8A182'; // limestone.4
+    const m = buildBuildings(
+      input, [oneStructure([0], { colorKey: 'limestone.4', hp, maxHp })], TONES, resolveColor, BACKGROUND
+    );
+    const gt = groundTone(input, TONES, 0, PALETTE_HEXES, BACKGROUND);
+    const wear = 0.45 + 0.55 * (hp / maxHp);
+    const expectedRoof = quantise(composite(gt, '#B8A182', wear), PALETTE_HEXES).toUpperCase();
+    const wrongRoof = quantise(composite(BACKGROUND, '#B8A182', wear), PALETTE_HEXES).toUpperCase();
+    expect(expectedRoof).not.toBe(wrongRoof); // the fixture actually distinguishes the two bases
+    const roofHex = colorsAsHex(m)[8]; // vertex 8 = first vertex of the roof quad
+    expect(roofHex).toBe(expectedRoof);
   });
 
   it('the south wall does NOT darken with damage -- porting drawBuildingTile as written', () => {

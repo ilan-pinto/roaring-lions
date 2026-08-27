@@ -44,10 +44,32 @@
  * same "one edge, two heights" quad family, just with the tile's own resting
  * height in the lower slot and the roof height in the upper one instead of a
  * neighbour's lower elevation.
+ *
+ * Every wall/roof fill composites over the TILE'S OWN `groundTone`, not over
+ * `background` directly -- a fix-round correction. In Pixi, `drawBuildingTile`
+ * draws into `spriteLayer`, which sits over `terrainG`: a sub-1 alpha fill
+ * reveals whatever `drawTerrain` already painted at that tile (its
+ * `underBuilding`-washed ground tone), never the page's raw clear colour.
+ * `grove.ts` gets this right for exactly the same reason (`baseHex =
+ * groundTone(...)`); this module's roof clutter always did too (it
+ * composites over the roof's OWN just-computed colour) -- only the three
+ * wall/roof surfaces underneath it were wrong, compositing against
+ * `background` as if nothing had been painted first. Harmless at full
+ * integrity (`wear` is 1, so the base contributes nothing), but as `wear`
+ * drops the two bases diverge, and `background` (this game's near-black
+ * `shadow.1`) can pull a battered wall toward the wrong hue family entirely
+ * rather than merely darkening it. `groundTone` is looked up per TILE, not
+ * hoisted per structure like `wear`/`roofBase` are: unlike open ground,
+ * `groundTone`'s under-building branch keeps Pixi's per-tile hash jitter
+ * (`tones.ts`'s own doc comment says the B2.5 fixed-alpha ruling deliberately
+ * left it alone), so two tiles of one structure can legitimately quantise to
+ * different ground tones on some themes -- verified by direct computation
+ * against the green theme's real tones, which is NOT constant across a
+ * structure's own footprint the way the arid theme's happens to be.
  */
 import { WORLD_PER_LEVEL } from './ground';
 import { WORLD_Y_PER_LIFT_PIXEL } from '../camera';
-import { composite, quantise, PALETTE_HEXES } from './tones';
+import { composite, quantise, groundTone, PALETTE_HEXES } from './tones';
 import { tileHash } from '../../tile-hash';
 import { screenOffsetToWorld } from './scatter';
 import { CLAMP_LIMIT, clampCenterToTile } from './clamp';
@@ -222,11 +244,13 @@ export function buildBuildings(
   /**
    * One box at tile `(x, y)`: `topY` is the tile's own resting height
    * (elevation-lifted, same value `ground.ts` gives that tile's top), `roofY`
-   * is `topY` plus the wall height converted to world units. `wallSouthHex`/
-   * `wallEastHex`/`roofHex` are already the final, quantised, per-tile-hash-
-   * independent colours -- computed once per structure (or once for the
-   * fallback bundle) outside this function, since neither wear nor the
-   * resolved roof colour vary per tile of one structure.
+   * is `topY` plus the wall height converted to world units (schema-legal
+   * `heightPx: 0` collapses `roofY` onto `topY` -- a degenerate, zero-area
+   * box rather than a crash; no shipped structure is authored that way
+   * today). `wallSouthHex`/`wallEastHex`/`roofHex`/`clutterHex` are already
+   * final and quantised -- computed by the caller from THIS tile's own
+   * `groundTone`, which is why they are passed in per call rather than
+   * hoisted alongside `heightPx`/`integrity`.
    */
   const pushBox = (
     x: number,
@@ -284,29 +308,27 @@ export function buildBuildings(
   // The fallback bundle: a blocked, non-ridge tile no footprint claims draws
   // a generic wall box at FALLBACK_HEIGHT_PX, roof tone `tones.blocked`,
   // full integrity -- `drawBuildingTile`'s own default before it learns
-  // whether `structureAt` found anything (renderer.ts:1831-1839).
+  // whether `structureAt` found anything (renderer.ts:1831-1839). Only the
+  // structure-level facts (never the tile's own groundTone) are hoistable,
+  // so this bundle stops short of a final colour -- see the module doc
+  // comment on why `groundTone` cannot be hoisted the same way.
   const fallbackIntegrity = 1;
-  const fallbackWear = 0.45 + 0.55 * fallbackIntegrity;
-  const fallbackWallSouth = quantise(composite(background, WALL_SOUTH_HEX, WALL_ALPHA), PALETTE_HEXES);
-  const fallbackWallEast = quantise(
-    composite(background, WALL_EAST_HEX, WALL_ALPHA * fallbackWear),
-    PALETTE_HEXES
-  );
-  const fallbackRoof = quantise(composite(background, tones.blocked, fallbackWear), PALETTE_HEXES);
-  const fallbackClutter = quantise(composite(fallbackRoof, CLUTTER_HEX, CLUTTER_ALPHA), PALETTE_HEXES);
+  const fallbackBundle = {
+    heightPx: FALLBACK_HEIGHT_PX,
+    integrity: fallbackIntegrity,
+    wear: 0.45 + 0.55 * fallbackIntegrity,
+    roofBase: tones.blocked,
+  };
 
-  // Per-structure bundles: wear (hence every wall/roof colour) depends only
-  // on that structure's own hp/maxHp, never on which of its tiles is being
-  // drawn, so this is computed once per structure rather than once per tile.
+  // Per-structure bundles: heightPx/integrity/wear/roofBase depend only on
+  // that structure's own type and hp/maxHp, never on which of its tiles is
+  // being drawn, so hoisting THESE FOUR (and only these four -- not the
+  // final colours) out of the tile loop is still correct.
   const bundles = structures.map((s) => {
     const integrity = s.maxHp > 0 ? Math.max(0, s.hp / s.maxHp) : 1;
     const wear = 0.45 + 0.55 * integrity;
     const roofBase = resolveColor ? resolveColor(s.colorKey) : tones.blocked;
-    const wallSouth = quantise(composite(background, WALL_SOUTH_HEX, WALL_ALPHA), PALETTE_HEXES);
-    const wallEast = quantise(composite(background, WALL_EAST_HEX, WALL_ALPHA * wear), PALETTE_HEXES);
-    const roof = quantise(composite(background, roofBase, wear), PALETTE_HEXES);
-    const clutter = quantise(composite(roof, CLUTTER_HEX, CLUTTER_ALPHA), PALETTE_HEXES);
-    return { heightPx: s.heightPx, integrity, wallSouth, wallEast, roof, clutter };
+    return { heightPx: s.heightPx, integrity, wear, roofBase };
   });
 
   for (let y = 0; y < height; y++) {
@@ -318,24 +340,20 @@ export function buildBuildings(
 
       const topY = levelAt(input, x, y) * WORLD_PER_LEVEL;
       const fi = footprintOf[ti];
-      if (fi >= 0) {
-        const b = bundles[fi];
-        const roofY = topY + b.heightPx * WORLD_Y_PER_LIFT_PIXEL;
-        pushBox(x, y, topY, roofY, b.wallSouth, b.wallEast, b.roof, b.clutter, b.integrity);
-      } else {
-        const roofY = topY + FALLBACK_HEIGHT_PX * WORLD_Y_PER_LIFT_PIXEL;
-        pushBox(
-          x,
-          y,
-          topY,
-          roofY,
-          fallbackWallSouth,
-          fallbackWallEast,
-          fallbackRoof,
-          fallbackClutter,
-          fallbackIntegrity
-        );
-      }
+      const b = fi >= 0 ? bundles[fi] : fallbackBundle;
+
+      // The tile's own ground tone -- what `drawTerrain` already painted at
+      // this tile before `drawBuildingTile`'s box goes over it in Pixi's
+      // `spriteLayer`. The composite base for every fill below, exactly as
+      // `grove.ts` uses it for its own tree/shadow tones.
+      const gt = groundTone(input, tones, ti, PALETTE_HEXES, background);
+      const wallSouthHex = quantise(composite(gt, WALL_SOUTH_HEX, WALL_ALPHA), PALETTE_HEXES);
+      const wallEastHex = quantise(composite(gt, WALL_EAST_HEX, WALL_ALPHA * b.wear), PALETTE_HEXES);
+      const roofHex = quantise(composite(gt, b.roofBase, b.wear), PALETTE_HEXES);
+      const clutterHex = quantise(composite(roofHex, CLUTTER_HEX, CLUTTER_ALPHA), PALETTE_HEXES);
+
+      const roofY = topY + b.heightPx * WORLD_Y_PER_LIFT_PIXEL;
+      pushBox(x, y, topY, roofY, wallSouthHex, wallEastHex, roofHex, clutterHex, b.integrity);
     }
   }
 
