@@ -293,6 +293,57 @@ describe('buildBuildings', () => {
     expect(Array.from(a.indices)).toEqual(Array.from(b.indices));
   });
 
+  it('Task B3.9: an optional tiles list restricts the walk to exactly those tiles', () => {
+    // Two structures on a 4x4 map; asking for ONLY the second one's tile
+    // must produce ONLY its box -- not the first one's, not the fallback
+    // case for anything else in `structures`.
+    const w = 4, h = 4;
+    const input = flat(w, h);
+    input.blocked[0] = 1; // structure A, tile 0
+    input.blocked[15] = 1; // structure B, tile 15 (bottom-right corner)
+    const structures = [oneStructure([0], { hp: 100, maxHp: 100 }), oneStructure([15], { hp: 5, maxHp: 100 })];
+    const restricted = buildBuildings(input, structures, TONES, undefined, BACKGROUND, [15]);
+    // Compared against structure B built in isolation, on an input where
+    // structure A's own tile is open ground -- otherwise tile 0 would hit
+    // the fallback bundle in THIS call too (it is still `blocked` in the
+    // shared `input`) and the comparison would be against the wrong thing.
+    const bOnlyInput = flat(w, h);
+    bOnlyInput.blocked[15] = 1;
+    const bOnly = buildBuildings(bOnlyInput, [structures[1]], TONES, undefined, BACKGROUND);
+    expect(Array.from(restricted.positions)).toEqual(Array.from(bOnly.positions));
+    expect(Array.from(restricted.colors)).toEqual(Array.from(bOnly.colors));
+    expect(Array.from(restricted.indices)).toEqual(Array.from(bOnly.indices));
+    // And NOT structure A's box: different heightPx -> different roof Y, so
+    // this would fail if the restriction leaked tile 0 in too.
+    expect(restricted.indices.length).toBe(TRIS_PER_BOX_NO_CLUTTER * 3);
+  });
+
+  it('Task B3.9: a tiles-restricted call matches the unrestricted call filtered to those same tiles', () => {
+    // Equivalence, not just a hand-picked case: restricting the walk must
+    // never change what a VISITED tile draws, only which tiles get visited
+    // -- exercised here against a multi-tile structure plus elevation, the
+    // two things most likely to leak a `x`/`y` derivation bug from `ti`.
+    const w = 5, h = 5;
+    const input = flat(w, h);
+    input.elevation = new Uint8Array(w * h).map((_, ti) => ti % 4);
+    const tiles: number[] = [6, 7, 12]; // an L-shaped footprint
+    for (const t of tiles) input.blocked[t] = 1;
+    const structures = [oneStructure(tiles, { heightPx: 24, hp: 40, maxHp: 100 })];
+    const full = buildBuildings(input, structures, TONES, undefined, BACKGROUND);
+    const restricted = buildBuildings(input, structures, TONES, undefined, BACKGROUND, tiles);
+    expect(Array.from(restricted.positions)).toEqual(Array.from(full.positions));
+    expect(Array.from(restricted.colors)).toEqual(Array.from(full.colors));
+    expect(Array.from(restricted.indices)).toEqual(Array.from(full.indices));
+  });
+
+  it('Task B3.9: an empty tiles list draws nothing, even over blocked ground', () => {
+    const input = flat(2, 2);
+    input.blocked = new Uint8Array([1, 1, 1, 1]);
+    const structures = [oneStructure([0, 1, 2, 3], { hp: 100, maxHp: 100 })];
+    const m = buildBuildings(input, structures, TONES, undefined, BACKGROUND, []);
+    expect(m.indices.length).toBe(0);
+  });
+
   it('every triangle winds toward the camera', () => {
     // Same method as ground.ts's own winding test: classify each triangle
     // by which world axis its three vertices share, then require a positive

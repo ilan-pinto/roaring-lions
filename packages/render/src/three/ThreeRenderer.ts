@@ -35,9 +35,15 @@
  *    `tunnelCollapsed` -- muzzle flashes, tracers, impact effects, the death
  *    fade, and the recoil/flinch latches `drainTimers` decays. Two kinds
  *    remain genuinely unhandled, not merely deferred by this comment:
- *    `structureHit`/`structureDestroyed`, both barred until Task B3.9 makes
- *    the terrain rebuild they trigger incremental (see `onEvents`'s own doc
- *    comment for the cost that forces this).
+ *    `structureHit`/`structureDestroyed`. Task B3.9 built the incremental
+ *    rebuild both need (`applyStructureHit`/`applyStructureDestroyed`
+ *    below -- public so the next task's `onEvents` wiring is a one-line call
+ *    from inside this same class, not a redesign -- tested at the
+ *    pure-function layer they call into and measured in that task's own
+ *    report) but deliberately did NOT wire `onEvents` to call them -- that
+ *    wiring is the next task's (see `onEvents`'s own doc comment for the
+ *    cost that made building the incremental path a prerequisite in the
+ *    first place).
  *  - **Throws**: this bucket is now empty. `pickUnit` and `unitsInScreenRect`
  *    were the only two members that would have had to *fabricate* -- `-1`
  *    and `[]` both mean "you clicked empty ground", the player acts on that,
@@ -92,7 +98,7 @@
  */
 import * as THREE from 'three';
 import { fx, WEAPON_CLASS, type Fx, type Sim, type SimEvent } from '@lions/sim';
-import type { Renderer, RendererOptions } from '../api'; // both, after Step 2
+import type { Renderer, RendererOptions, TerrainTones } from '../api'; // both, after Step 2
 import { WORLD_Y_PER_LIFT_PIXEL, type Camera } from '../project';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
 import { SIM_HZ } from '../anim';
@@ -105,7 +111,8 @@ import { buildScatter } from './terrain/scatter';
 import { buildGroves } from './terrain/grove';
 import { buildBuildings, type StructureFootprint } from './terrain/buildings';
 import { toGeometry, terrainMaterial } from './terrain/mesh';
-import type { TerrainInput } from './terrain/types';
+import type { TerrainInput, MeshData } from './terrain/types';
+import { dirtyForStructureHit, dirtyForStructureDestroyed } from './terrain/dirty';
 import { packSheet, buildUnitTexture } from './units/atlas';
 import { entityFrame, assignRoofSlots, type EntityFrameInput, type EntityFrame } from './units/frame-state';
 import { UnitInstancer, TURRET_RENDER_ORDER } from './units/instances';
@@ -116,7 +123,6 @@ import {
   StructureInstancer,
   loadStructureFrame,
   structureBillboardGeometry,
-  maskArtedStructures,
   liveStructurePlacements,
   deadStructurePlacements,
   resolveRoofPx,
@@ -254,13 +260,54 @@ export class ThreeRenderer implements Renderer {
    *  path. `buildGroves` is a third independent builder over the identical
    *  `TerrainInput`, exactly like `buildScatter`. */
   private groveMesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material> | null = null;
-  /** Buildings -- a box per blocked, non-ridge tile -- as a fourth mesh
-   *  sharing the same material and rebuild path. `buildBuildings` is a
-   *  fourth independent builder over the identical `TerrainInput`, plus the
-   *  one thing none of the other three needs: a plain-array snapshot of the
-   *  sim's structures, assembled by `structureFootprints()` below so the
-   *  builder itself never has to import `Sim`. */
-  private buildingMesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material> | null = null;
+  /**
+   * Task B3.9: buildings stopped being one fourth mesh. A blocked,
+   * non-ridge tile with no live structure at all (the fallback case
+   * `buildBuildings`'s own `FALLBACK_HEIGHT_PX` doc comment says is never
+   * reached on any shipped map, but is still tested and still handled) is
+   * the only thing this mesh draws now -- every REAL, un-arted structure
+   * gets its own entry in `structureBoxes` below instead, which is what
+   * lets a `structureHit` recompute one box without re-walking the map. See
+   * `composeTerrain`'s own doc comment for the full split.
+   */
+  private residualMesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material> | null = null;
+  /**
+   * Task B3.9: one small mesh per LIVE, un-arted structure -- keyed by the
+   * structure's own index into `sim.structures`, the same index a
+   * `structureHit`/`structureDestroyed` event's `structure` field carries.
+   * Rebuilt wholesale by `rebuildTerrain` (full rebuild: boot, elevation/
+   * decor change, or a structure's death); rebuilt ONE ENTRY AT A TIME by
+   * `applyStructureHit`, which is the whole point -- `buildBuildings`'s
+   * `tiles` restriction (this task) turns that into an O(footprint) call
+   * instead of an O(map area) one. An arted structure never gets an entry
+   * here at all: `StructureInstancer` (`structureIdle`/`structureWreck`
+   * above) draws it instead, reading live `Sim` state every frame already
+   * (`updateStructures`), which is why it needs no invalidation of its own.
+   */
+  private readonly structureBoxes = new Map<number, THREE.Mesh<THREE.BufferGeometry, THREE.Material>>();
+  /**
+   * Task B3.9: each live, un-arted structure's own footprint tiles, cached
+   * from the last full rebuild -- structures are never added or moved after
+   * boot (`main.ts` calls `sim.addStructure` exactly once, at load), so this
+   * stays valid for a structure's whole life without re-walking the map on
+   * every hit. `applyStructureDestroyed` deletes an entry when its structure
+   * dies; `structureAt` would already report -1 for those tiles by the time
+   * a `structureDestroyed` event is processed (`destroyStructure` unblocks
+   * the whole footprint synchronously, before the event is pushed), which is
+   * exactly why this cache has to be taken BEFORE that happens, not
+   * re-derived after.
+   */
+  private readonly structureFootprintTiles = new Map<number, readonly number[]>();
+  /**
+   * Task B3.9: the renderer-side counterpart of `PixiRenderer`'s own
+   * `structureWear` (`renderer.ts:1792`'s `bumpStructureWear`) -- one
+   * eight-step wear band per structure, lazily grown to `sim.structureCount`
+   * exactly like Pixi's own field, so `applyStructureHit` can tell a hit
+   * that crossed a visible step from one that did not
+   * (`dirty.ts`'s `dirtyForStructureHit`) without a second copy of that
+   * comparison living in this class.
+   */
+  private structureWear: Uint8Array | null = null;
   /** Reused across rebuilds -- one unlit, vertex-coloured material carries no
    *  per-terrain state, so there is nothing a fresh instance would buy. */
   private readonly terrainMat: THREE.Material = terrainMaterial();
@@ -345,8 +392,10 @@ export class ThreeRenderer implements Renderer {
    * called with -- the same key `structureAtlas.has(stype.id)` gates on in
    * Pixi (`renderer.ts:1488`). Presence in this map is exactly "does this
    * type have art" for every purpose that question matters here:
-   * `rebuildTerrain`'s `maskArtedStructures` call (skip the box), and
-   * `updateStructures` below (draw the billboard instead).
+   * `composeTerrain`'s `hasArt` callback (skip that structure's own box
+   * entirely, Task B3.9 -- previously a `maskArtedStructures` call inside
+   * `rebuildTerrain` itself, before buildings stopped being one merged
+   * mesh), and `updateStructures` below (draw the billboard instead).
    */
   private readonly structureIdle = new Map<string, StructureInstancer>();
   /**
@@ -356,7 +405,10 @@ export class ThreeRenderer implements Renderer {
    * Drawn from live `Sim` state every frame by `updateStructures`, not from
    * the `terrainDirty`-gated terrain mesh -- see that method's own doc
    * comment for why: `structureDestroyed` stays unwired into `onEvents`
-   * until Task B3.9, so nothing else would ever tell a wreck to appear.
+   * (Task B3.9 built `applyStructureDestroyed`, the method that WOULD tell a
+   * wreck's neighbourhood to rebuild, but does not call it from `onEvents`
+   * itself -- the next task's job), so nothing else would ever tell a wreck
+   * to appear if this per-frame path did not exist.
    */
   private readonly structureWreck = new Map<string, StructureInstancer>();
   /**
@@ -520,7 +572,9 @@ export class ThreeRenderer implements Renderer {
     this.terrainMesh?.geometry.dispose();
     this.scatterMesh?.geometry.dispose();
     this.groveMesh?.geometry.dispose();
-    this.buildingMesh?.geometry.dispose();
+    this.residualMesh?.geometry.dispose();
+    for (const mesh of this.structureBoxes.values()) mesh.geometry.dispose();
+    this.structureBoxes.clear();
     this.terrainMat.dispose();
     for (const instancer of this.unitInstancers.values()) instancer.dispose();
     this.unitInstancers.clear();
@@ -633,17 +687,20 @@ export class ThreeRenderer implements Renderer {
    * and direction, tracer spawn, impact effects, the death fade
    * (`stepDeaths`), and the recoil/flinch latches `drainTimers` decays.
    *
-   * `structureHit` and `structureDestroyed` are DELIBERATELY left unhandled.
-   * Both mark terrain dirty in Pixi (`renderer.ts:853,881`), and Pixi fires
-   * `structureHit` on EVERY damage event -- a full `rebuildTerrain` here
-   * costs 114-179ms (this class's own `rebuildTerrain` doc comment), so
-   * wiring either before Task B3.9 makes the rebuild incremental would make
-   * a siege unplayable rather than merely visually stale. Task B3.9 owns
-   * both; Task B3.10 (`onEvents`'s remaining non-presentation half, if any)
-   * is the other named successor. `rebuildTerrain`'s own doc comment already
-   * documents the resulting staleness (a destroyed building's footprint
-   * does not repaint) -- this method does not widen that gap, it leaves it
-   * exactly where B2.7 found it.
+   * `structureHit` and `structureDestroyed` are DELIBERATELY left unhandled
+   * BY THIS METHOD, still. Both mark terrain dirty in Pixi (`renderer.ts:
+   * 853,881`), and Pixi fires `structureHit` on EVERY damage event -- a full
+   * `rebuildTerrain` here costs 114-179ms (this class's own `rebuildTerrain`
+   * doc comment), so wiring either directly to that full rebuild would make
+   * a siege unplayable rather than merely visually stale. Task B3.9 built
+   * the fix -- `applyStructureHit`/`applyStructureDestroyed`, private
+   * methods below, an O(footprint) per-structure rebuild instead of an
+   * O(map area) one, tested and measured in that task's own report -- but
+   * deliberately did not call either from here: wiring `onEvents` itself is
+   * the next task's job, named in that task's own brief. Until that lands,
+   * `rebuildTerrain`'s own doc comment's staleness description still holds
+   * IN PRACTICE (nothing calls the new methods yet), even though the fix
+   * they will call now exists.
    *
    * Task B3.6 closed the turret gap this comment used to describe: `onFire`
    * below now reads the shooter's TURRET facing for muzzle position/
@@ -684,8 +741,10 @@ export class ThreeRenderer implements Renderer {
           t: 0,
         });
       }
-      // structureHit / structureDestroyed: Task B3.9 (incremental terrain
-      // rebuild) owns these -- see this method's own doc comment.
+      // structureHit / structureDestroyed: applyStructureHit/
+      // applyStructureDestroyed exist now (Task B3.9) but are not called
+      // from here yet -- the next task's job, see this method's own doc
+      // comment.
     }
   }
 
@@ -1538,65 +1597,43 @@ export class ThreeRenderer implements Renderer {
 
   /**
    * (Re)builds the ground mesh, its scatter (grain) mesh, its grove (olive
-   * trunk/crown) mesh, and its buildings (blocked-tile boxes) mesh from the
-   * sim's static layout (`width`, `height`, `blocked`, `cover`,
-   * `structures`) plus whatever `setElevation`/`setDecor` have retained, and
-   * swaps all four into the scene in place of the previous set. The four are
-   * independent builders over the identical `TerrainInput` -- none of
-   * `buildScatter`, `buildGroves` or `buildBuildings` reads `buildGround`'s
-   * output -- sharing only the material, so a mismatch between the ground's
-   * palette tone and a mark's, a tree's or a building's alpha-composited
-   * tone would be a bug in one of the builders, not in how this method wires
-   * them together. `buildBuildings` alone also needs `structureFootprints()`
-   * below, since it is the one builder whose input cannot be read off
-   * `TerrainInput` alone.
+   * trunk/crown) mesh, the residual (fallback-only) buildings mesh, and one
+   * small mesh per LIVE, un-arted structure, from the sim's static layout
+   * (`width`, `height`, `blocked`, `cover`, `structures`) plus whatever
+   * `setElevation`/`setDecor` have retained -- via `composeTerrain` below,
+   * the pure function this method's own body used to be before Task B3.9
+   * split it out (see that function's own doc comment for why, and for the
+   * per-structure building split this method now wires into the scene).
    *
    * Only ever called from `frame()`, guarded by `terrainDirty` -- see that
    * field's doc comment for why building here, and not inside the setters,
-   * is load-bearing rather than a style choice.
+   * is load-bearing rather than a style choice. Task B3.9 adds a second
+   * trigger for this same full rebuild: `applyStructureDestroyed` sets
+   * `terrainDirty = true` too, since a structure's death is the one event
+   * that changes the ground/scatter/grove tone under its own footprint
+   * (open ground where a building's box used to stand), and those three
+   * layers have no per-structure invalidation of their own -- see
+   * `applyStructureDestroyed`'s own doc comment for the measured reasoning.
    *
    * Disposes each outgoing geometry before dropping the reference to it: a
    * rebuilt terrain that leaks its predecessor is invisible until a mission
    * rebuilds terrain a few hundred times, and then it is a memory bug nobody
    * can attribute. The material is not disposed -- `terrainMat` is reused
-   * across rebuilds, not replaced (all four meshes share it).
+   * across rebuilds, not replaced (every mesh this method builds shares it,
+   * `structureBoxes` included).
    *
-   * A gap this does not close: Pixi sets `terrainDirty` from `onEvents` on
-   * `structureDestroyed` (`renderer.ts:881`), so a destroyed building's tile
-   * repaints from blocked/`underBuilding` back to open ground there.
-   * `ThreeRenderer.onEvents()` is still a B3 stub (events are not drawn
-   * until units arrive), so nothing here ever re-fires this rebuild for that
-   * reason -- the three.js ground keeps showing a destroyed structure's
-   * footprint as still-blocked. Correctly out of B2's scope (there is
-   * nothing yet to react to `onEvents` with), but left undocumented before
-   * this comment, which is exactly the shape of gap that reads as a bug to
-   * the next person who destroys a building on `?renderer=three` and
-   * watches the ground not change.
-   *
-   * Task B2.7 makes this gap wider, not new: `buildingMesh` is built from
-   * the SAME stale-until-rebuilt `TerrainInput`/`structureFootprints()`
-   * snapshot, so a destroyed structure's box keeps standing on screen for
-   * exactly the reason its ground tile keeps reading as blocked above --
-   * `structureAt` would already report -1 for it (Sim truth is correct
-   * immediately), but nothing tells this renderer to ask again.
-   *
-   * Task B3.7 closes the SPRITE half of that gap without touching `onEvents`
-   * at all: `structureIdle`/`structureWreck` (`updateStructures`, called from
-   * `frame()` every frame, not gated on `terrainDirty`) read live `Sim` state
-   * directly, so a structure's wreck sprite appears -- and a living one's
-   * battle-damage alpha darkens -- the instant `Sim` says so, regardless of
-   * how stale this method's own box/ground mesh is. `buildBuildings` itself
-   * still reads the SAME stale-until-rebuilt snapshot the paragraph above
-   * describes (a destroyed, un-arted structure's box still does not
-   * disappear promptly; a destroyed, ARTED structure's tiles -- already
-   * masked out of `buildBuildings`' input the moment its art first loaded,
-   * see `maskArtedStructures` below -- never drew a box in the first place,
-   * so there is nothing stale to disappear there either). The ground tone
-   * gap (`underBuilding` wash not reverting to open ground on death) is
-   * unaffected either way: `buildGround` reads the ORIGINAL, unmasked
-   * `input`, never the `buildingsInput` this method builds for
-   * `buildBuildings` alone. Both remaining staleness gaps are still B3.9's,
-   * not this task's -- see `onEvents`'s own doc comment.
+   * What this closes, and what it still does not: a destroyed, un-arted
+   * structure's box now disappears and its ground tone reverts to open the
+   * next time THIS method runs -- which `applyStructureDestroyed` now
+   * triggers directly, closing the gap B2.7/B3.7's own doc comments here
+   * used to describe as open. What is NOT closed by this task: `onEvents`
+   * itself still does not call `applyStructureHit`/`applyStructureDestroyed`
+   * -- that wiring is the next task's, per this class's own top comment and
+   * `onEvents`'s own doc comment on `structureHit`/`structureDestroyed`. So
+   * today, with nothing calling either method yet, the staleness B2.7/B3.7
+   * described is unchanged in PRACTICE; what has changed is that the fix
+   * now exists, is unit-tested at the pure-function layer, and is measured
+   * (this task's report) rather than merely deferred.
    */
   private rebuildTerrain(): void {
     if (this.terrainMesh) {
@@ -1611,10 +1648,99 @@ export class ThreeRenderer implements Renderer {
       this.scene.remove(this.groveMesh);
       this.groveMesh.geometry.dispose();
     }
-    if (this.buildingMesh) {
-      this.scene.remove(this.buildingMesh);
-      this.buildingMesh.geometry.dispose();
+    if (this.residualMesh) {
+      this.scene.remove(this.residualMesh);
+      this.residualMesh.geometry.dispose();
     }
+    for (const mesh of this.structureBoxes.values()) {
+      this.scene.remove(mesh);
+      mesh.geometry.dispose();
+    }
+    this.structureBoxes.clear();
+    this.structureFootprintTiles.clear();
+
+    const composed = composeTerrain(
+      this.sim,
+      this.retained.decor,
+      this.retained.elevation,
+      (id) => this.structureIdle.has(id),
+      this.opts.terrainTones,
+      this.opts.resolveColor,
+      this.opts.background
+    );
+
+    this.terrainMesh = new THREE.Mesh(toGeometry(composed.ground), this.terrainMat);
+    this.scene.add(this.terrainMesh);
+
+    this.scatterMesh = new THREE.Mesh(toGeometry(composed.scatter), this.terrainMat);
+    this.scene.add(this.scatterMesh);
+
+    this.groveMesh = new THREE.Mesh(toGeometry(composed.groves), this.terrainMat);
+    this.scene.add(this.groveMesh);
+
+    this.residualMesh = new THREE.Mesh(toGeometry(composed.residual), this.terrainMat);
+    this.scene.add(this.residualMesh);
+
+    for (const box of composed.buildings) {
+      const mesh = new THREE.Mesh(toGeometry(box.mesh), this.terrainMat);
+      this.structureBoxes.set(box.structureIndex, mesh);
+      this.structureFootprintTiles.set(box.structureIndex, box.tiles);
+      this.scene.add(mesh);
+    }
+  }
+
+  /**
+   * Task B3.9: the renderer-side counterpart of `PixiRenderer.
+   * bumpStructureWear`'s lazy grow (`renderer.ts:1792-1799`) -- returns the
+   * per-structure wear-step array, growing it (and copying whatever it
+   * already held) the first time `sim.structureCount` outgrows it. Returns
+   * the array rather than relying on the caller re-reading `this.
+   * structureWear` afterward so nothing here needs a non-null assertion to
+   * use what it just assigned.
+   */
+  private ensureStructureWear(): Uint8Array {
+    const current = this.structureWear;
+    if (current && current.length >= this.sim.structureCount) return current;
+    const next = new Uint8Array(this.sim.structureCount);
+    next.fill(0xff); // never a real structureWearStep() output (range 0..8)
+    if (current) next.set(current);
+    this.structureWear = next;
+    return next;
+  }
+
+  /**
+   * Task B3.9: the incremental half of `structureHit` -- recomputes ONLY
+   * the hit structure's own box geometry, and only when `dirty.ts`'s
+   * eight-step wear quantisation says the hit actually crossed a visible
+   * step. Not called from `onEvents` yet; see this class's own top comment
+   * and `onEvents`'s own doc comment for why that wiring is the next task's,
+   * not this one's. Exists here, tested at the pure-function layer it calls
+   * into, and measured (this task's report), so the next task's wiring is a
+   * single call rather than a design decision.
+   *
+   * A structure with no tracked footprint (arted -- drawn by
+   * `StructureInstancer` instead, see `structureBoxes`'s own doc comment --
+   * or simply unknown) is a silent no-op, matching this class's own
+   * "truthful no-op, not a fabricated answer" discipline for input this
+   * backend has nothing to draw for.
+   */
+  applyStructureHit(structure: number): void {
+    const tiles = this.structureFootprintTiles.get(structure);
+    if (!tiles) return;
+    const wear = this.ensureStructureWear();
+    const st = this.sim.structures;
+    const result = dirtyForStructureHit(tiles, wear[structure], st.hp[structure], st.maxHp[structure]);
+    wear[structure] = result.wearStep;
+    if (!result.dirty) return;
+
+    const type = this.sim.structureTypes[st.typeIdx[structure]];
+    const footprint: StructureFootprint = {
+      tiles,
+      heightPx: type.heightPx,
+      colorKey: type.color,
+      hp: st.hp[structure],
+      maxHp: st.maxHp[structure],
+    };
     const input: TerrainInput = {
       width: this.sim.width,
       height: this.sim.height,
@@ -1623,38 +1749,47 @@ export class ThreeRenderer implements Renderer {
       blocked: this.sim.blocked,
       cover: this.sim.cover,
     };
-    const groundData = buildGround(input, this.opts.terrainTones, this.opts.background);
-    this.terrainMesh = new THREE.Mesh(toGeometry(groundData), this.terrainMat);
-    this.scene.add(this.terrainMesh);
+    const data = buildBuildings(input, [footprint], this.opts.terrainTones, this.opts.resolveColor, this.opts.background, tiles);
 
-    const scatterData = buildScatter(input, this.opts.terrainTones, this.opts.background);
-    this.scatterMesh = new THREE.Mesh(toGeometry(scatterData), this.terrainMat);
-    this.scene.add(this.scatterMesh);
+    const previous = this.structureBoxes.get(structure);
+    if (previous) {
+      this.scene.remove(previous);
+      previous.geometry.dispose();
+    }
+    const mesh = new THREE.Mesh(toGeometry(data), this.terrainMat);
+    this.structureBoxes.set(structure, mesh);
+    this.scene.add(mesh);
+  }
 
-    const groveData = buildGroves(input, this.opts.terrainTones, this.opts.background);
-    this.groveMesh = new THREE.Mesh(toGeometry(groveData), this.terrainMat);
-    this.scene.add(this.groveMesh);
-
-    // Task B3.7: buildBuildings alone gets a `blocked` array with every
-    // tile of a LIVE, ARTED structure zeroed out -- `buildGround`/
-    // `buildScatter`/`buildGroves` above all read the ORIGINAL `input`,
-    // unmodified, so the ground tone under an arted structure is painted
-    // exactly as it always was (see `units/structures.ts`'s own top comment,
-    // "The ground tone needs no separate handling here"). `hasArt` is
-    // "this structure type has a loaded idle sheet" -- `structureIdle.has`,
-    // never merely "a load was attempted" (see `loadStructureSprite`'s own
-    // doc comment on why that distinction matters for a failed load).
-    const buildingsBlocked = maskArtedStructures(this.sim, (id) => this.structureIdle.has(id));
-    const buildingsInput: TerrainInput = { ...input, blocked: buildingsBlocked };
-    const buildingData = buildBuildings(
-      buildingsInput,
-      structureFootprintsFor(this.sim),
-      this.opts.terrainTones,
-      this.opts.resolveColor,
-      this.opts.background
-    );
-    this.buildingMesh = new THREE.Mesh(toGeometry(buildingData), this.terrainMat);
-    this.scene.add(this.buildingMesh);
+  /**
+   * Task B3.9: the incremental half of `structureDestroyed`. Removes the
+   * dead structure's own box mesh directly (O(1) -- no rebuild needed to
+   * make a box disappear, only to make one appear correctly shaped
+   * elsewhere), then flags a full `rebuildTerrain` for the ground/scatter/
+   * grove retessellation `dirtyForStructureDestroyed`'s `kind: 'unblocked'`
+   * says is owed: those three layers have no per-structure invalidation of
+   * their own (see this module's own `dirty.ts` top comment), and death is
+   * a one-shot event per structure, not a several-times-a-second one --
+   * unlike `structureHit`, there is no quantisation to defeat here, so a
+   * full rebuild's cost is paid once per structure's whole life, not once
+   * per round fired at it. See this task's report for the measured
+   * reasoning and the numbers that back this choice over a second
+   * per-tile splice mechanism for those three layers.
+   *
+   * Not called from `onEvents` yet -- same caveat as `applyStructureHit`.
+   */
+  applyStructureDestroyed(structure: number): void {
+    const mesh = this.structureBoxes.get(structure);
+    if (mesh) {
+      this.scene.remove(mesh);
+      mesh.geometry.dispose();
+      this.structureBoxes.delete(structure);
+    }
+    const tiles = this.structureFootprintTiles.get(structure);
+    this.structureFootprintTiles.delete(structure);
+    if (!tiles) return;
+    const dirty = dirtyForStructureDestroyed(tiles);
+    if (dirty.kind === 'unblocked') this.terrainDirty = true;
   }
 
   /**
@@ -1664,19 +1799,40 @@ export class ThreeRenderer implements Renderer {
    * `terrainDirty`-gated box/ground mesh `rebuildTerrain` owns.
    *
    * That is load-bearing, not merely convenient: `onEvents` stays barred
-   * from reacting to `structureHit`/`structureDestroyed` until Task B3.9
-   * makes the terrain rebuild incremental (this class's own top comment, and
-   * `rebuildTerrain`'s own doc comment on the 114-179ms full-rebuild cost a
-   * naive per-damage-event wiring would pay). If a structure's wreck sprite
-   * only ever refreshed on `terrainDirty`, it would never appear at all
-   * during a real mission -- nothing sets `terrainDirty` again after the
-   * last sheet finishes loading at boot. Reading `Sim` fresh here instead
-   * means a living structure's battle-damage alpha darkens in real time and
-   * its wreck appears the instant `Sim` marks it dead, without wiring
-   * `onEvents` or touching the terrain mesh at all -- and it is, in this one
-   * respect, MORE responsive than Pixi, which only refreshes either at the
-   * same `terrainDirty`-style granularity (`drawTerrain` calls
-   * `drawWreckedStructures` itself, at the very end).
+   * from reacting to `structureHit`/`structureDestroyed` (still true after
+   * Task B3.9 -- that task built the incremental rebuild, `applyStructureHit`/
+   * `applyStructureDestroyed`, but did not wire `onEvents` to call either;
+   * see this class's own top comment and `onEvents`'s own doc comment). If a
+   * structure's wreck sprite only ever refreshed on `terrainDirty`, it would
+   * never appear at all during a real mission -- nothing sets `terrainDirty`
+   * again after the last sheet finishes loading at boot, today. Reading
+   * `Sim` fresh here instead means a living structure's battle-damage alpha
+   * darkens in real time and its wreck appears the instant `Sim` marks it
+   * dead, without wiring `onEvents` or touching the terrain mesh at all --
+   * and it is, in this one respect, MORE responsive than Pixi, which only
+   * refreshes either at the same `terrainDirty`-style granularity
+   * (`drawTerrain` calls `drawWreckedStructures` itself, at the very end).
+   *
+   * Task B3.9's own review flagged this method by name and asked whether it
+   * still composes with the new incremental invalidation, rather than
+   * quietly duplicating it. It does compose, and stays exactly as written:
+   * this path draws ARTED structures only (`structureIdle`/`structureWreck`,
+   * keyed by structure TYPE); `applyStructureHit`/`applyStructureDestroyed`
+   * touch `structureBoxes`, keyed by structure INDEX, and only for UN-ARTED
+   * structures (`composeTerrain`'s `hasArt` skip) -- two disjoint sets, never
+   * the same structure twice. Once `onEvents` is wired, this scan becomes
+   * the ONLY thing still doing per-frame, per-structure work for its own set
+   * (idempotent, and already known-cheap at today's counts -- an O(types x
+   * structureCount) live-state pull each frame, up to 13 scans and one
+   * object per structure per type today; ~4,000 probes / 18,000 objects a
+   * second at the GDD's 300-structure target, GC-visible but not wired to
+   * anything expensive downstream). Made redundant in the narrow sense that
+   * an EVENT-DRIVEN update for arted structures would no longer strictly
+   * need to poll every frame, but not wrong, and folding it into
+   * event-driven invalidation is explicitly not this task's job -- the
+   * right time is when detection's own O(N^2) staggering lands (`CLAUDE.md`'s
+   * "Known scaling debts"), which already needs to touch per-frame structure
+   * scanning for the same reason.
    *
    * Called unconditionally, like `updateUnits`/`updateFx` -- both maps start
    * empty and simply have nothing to iterate before any sheet has loaded.
@@ -1693,6 +1849,13 @@ export class ThreeRenderer implements Renderer {
   }
 }
 
+/** `StructureFootprint` plus the one fact `buildBuildings` itself does not
+ *  need but `composeTerrain`'s own per-structure split does: which structure
+ *  TYPE this is, so it can be asked of `hasArt`. */
+interface IndexedStructureFootprint extends StructureFootprint {
+  readonly structureTypeId: string;
+}
+
 /**
  * Every LIVING structure, as the plain-array snapshot `buildBuildings`
  * needs -- the pure builder must stay ignorant of `Sim`, so this is where
@@ -1703,26 +1866,57 @@ export class ThreeRenderer implements Renderer {
  * run) is NOT a filled rectangle, and `structureAt` is the one query that
  * already gets this right for every structure shape the sim has.
  *
+ * Keyed by structure INDEX (`sim.structures`' own array index -- the same
+ * index a `structureHit`/`structureDestroyed` event's `structure` field
+ * carries), not merely collected into an array: `structureFootprintsFor` and
+ * `composeTerrain` both need that index for their own reasons (the former to
+ * preserve its own pre-B3.9 array-order contract, the latter to key
+ * `ComposedBuildingBox` so `ThreeRenderer` can cache tiles per structure for
+ * O(footprint) incremental updates) -- one walk, two consumers, rather than
+ * two copies of the same `structureAt` scan.
+ *
+ * A demolished structure never appears: `structureAt` returns -1 the moment
+ * `alive` drops to 0 (and `destroyStructure` unblocks its whole footprint
+ * besides), so this walk simply never visits its tiles.
+ */
+function walkStructureFootprints(sim: Sim): Map<number, IndexedStructureFootprint> {
+  const { width, height, structures: st, structureTypes } = sim;
+  const tilesByStructure = new Map<number, number[]>();
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const sIdx = sim.structureAt(x, y);
+      if (sIdx < 0) continue;
+      const tiles = tilesByStructure.get(sIdx);
+      if (tiles) tiles.push(y * width + x);
+      else tilesByStructure.set(sIdx, [y * width + x]);
+    }
+  }
+  const result = new Map<number, IndexedStructureFootprint>();
+  for (const [sIdx, tiles] of tilesByStructure) {
+    const type = structureTypes[st.typeIdx[sIdx]];
+    result.set(sIdx, {
+      tiles,
+      heightPx: type.heightPx,
+      colorKey: type.color,
+      hp: st.hp[sIdx],
+      maxHp: st.maxHp[sIdx],
+      structureTypeId: type.id,
+    });
+  }
+  return result;
+}
+
+/**
  * Still draws no distinction between a structure with sprite art and one
  * without, even after Task B3.7 gave `ThreeRenderer` its own art atlas
  * (`structureIdle`): this function's own JOB is "every living structure,
  * unconditionally" -- `packages/app/src/terrain-parity.test.ts` relies on
  * exactly that neutrality to prove `buildBuildings` boxes EVERY structure
  * when handed an unfiltered snapshot, independent of whatever a real
- * `ThreeRenderer` instance has or has not loaded. B3.7's actual filtering
- * happens one level up, in `rebuildTerrain`: it still calls this function to
- * get every footprint, then separately masks `buildingsInput.blocked` (via
- * `maskArtedStructures`) so `buildBuildings`' own tile loop skips an arted
- * structure's tiles before it ever asks which footprint claims them --
- * `structureFootprintsFor`'s output ends up unused for those tiles, not
- * altered.
- *
- * A demolished structure never appears: `structureAt` returns -1 the
- * moment `alive` drops to 0 (and `destroyStructure` unblocks its whole
- * footprint besides), so this walk simply never visits its tiles. Whether
- * that walk itself re-runs when a structure dies is a separate question --
- * it does not, today, because `terrainDirty` is never set from `onEvents`
- * (a still-stubbed B3 concern, documented on `rebuildTerrain` above).
+ * `ThreeRenderer` instance has or has not loaded. `composeTerrain` (below)
+ * is where art-aware filtering actually happens now, via `walkStructureFootprints`
+ * directly -- this function stays the neutral, whole-map snapshot it always
+ * was, just sharing that walk instead of repeating it.
  *
  * Module-level (not a private method) and exported so
  * `packages/app/src/terrain-parity.test.ts` can build the same
@@ -1736,27 +1930,119 @@ export class ThreeRenderer implements Renderer {
  * three`) via `@lions/render/three`.
  */
 export function structureFootprintsFor(sim: Sim): StructureFootprint[] {
-  const { width, height, structures: st, structureTypes } = sim;
-  const tilesByStructure = new Map<number, number[]>();
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const sIdx = sim.structureAt(x, y);
-      if (sIdx < 0) continue;
-      const tiles = tilesByStructure.get(sIdx);
-      if (tiles) tiles.push(y * width + x);
-      else tilesByStructure.set(sIdx, [y * width + x]);
-    }
+  return Array.from(walkStructureFootprints(sim).values());
+}
+
+/** `composeTerrain`'s per-structure output: which structure (by index into
+ *  `sim.structures`), which tiles it occupies (cached by the caller for
+ *  later O(footprint) incremental rebuilds), and its box geometry. */
+export interface ComposedBuildingBox {
+  readonly structureIndex: number;
+  readonly tiles: readonly number[];
+  readonly mesh: MeshData;
+}
+
+/** `composeTerrain`'s full result -- one entry per terrain layer
+ *  `rebuildTerrain` used to build inline before Task B3.9 lifted this out. */
+export interface ComposedTerrain {
+  readonly ground: MeshData;
+  readonly scatter: MeshData;
+  readonly groves: MeshData;
+  /** The fallback-only layer: a blocked, non-ridge tile that belongs to no
+   *  live structure at all (`buildBuildings`'s own `FALLBACK_HEIGHT_PX`
+   *  case, "never reached on any shipped map" per that file's own doc
+   *  comment, but still correct and still tested). Every LIVE structure's
+   *  own tiles are excluded from this layer's input regardless of whether
+   *  it has art -- see `withoutLiveStructures` below -- so it can never
+   *  double-draw a box a `ComposedBuildingBox` entry, or a
+   *  `StructureInstancer` sprite, already covers. */
+  readonly residual: MeshData;
+  /** One entry per LIVE, un-arted structure. */
+  readonly buildings: readonly ComposedBuildingBox[];
+}
+
+/** `sim.blocked`, with every currently-live structure's own tiles zeroed
+ *  out -- what the RESIDUAL layer's input needs so its tile walk only ever
+ *  reaches the fallback case (a blocked tile no structure claims at all),
+ *  never a REAL structure's tiles, whether or not that structure has art.
+ *  Deliberately broader than the old `maskArtedStructures` this replaces
+ *  (Task B3.9): that function only masked ARTED structures, because the
+ *  merged `buildBuildings` call still needed every un-arted structure's
+ *  tiles left `blocked` so its own single pass could box them. Now that
+ *  every un-arted structure gets its own `ComposedBuildingBox` instead, the
+ *  residual layer needs NO live structure's tiles at all -- masking only
+ *  arted ones would leave every un-arted structure double-drawn, once by
+ *  its own box and once by the residual layer's fallback branch. */
+function withoutLiveStructures(sim: Sim, footprints: ReadonlyMap<number, IndexedStructureFootprint>): Uint8Array {
+  const masked = Uint8Array.from(sim.blocked);
+  for (const footprint of footprints.values()) {
+    for (const ti of footprint.tiles) masked[ti] = 0;
   }
-  const footprints: StructureFootprint[] = [];
-  for (const [sIdx, tiles] of tilesByStructure) {
-    const type = structureTypes[st.typeIdx[sIdx]];
-    footprints.push({
-      tiles,
-      heightPx: type.heightPx,
-      colorKey: type.color,
-      hp: st.hp[sIdx],
-      maxHp: st.maxHp[sIdx],
+  return masked;
+}
+
+/**
+ * Task B3.9: `rebuildTerrain`'s own body, lifted into a pure function so the
+ * WIRING it performs -- ground/scatter/grove read the sim's raw `blocked`
+ * unconditionally, regardless of `hasArt`; a structure's own box is skipped
+ * entirely when `hasArt` says so, rather than drawn and hidden -- is
+ * testable under `environment: 'node'` the same way `structureFootprintsFor`
+ * already is (`packages/app/src/terrain-parity.test.ts` constructs a real
+ * `Sim` there; `ThreeRenderer` itself is the only thing in this file that
+ * cannot exist under node, because it constructs a real
+ * `THREE.WebGLRenderer`). A review of the task before this one named the
+ * missing case directly: nothing previously caught a break that fed
+ * `buildGround` the ART-MASKED blocked array instead of the raw one, which
+ * would make an arted structure's own ground tile read as open instead of
+ * `underBuilding`-washed the moment its sheet finished loading -- this
+ * function's own shape (ground/scatter/groves built from the untouched
+ * `input`, buildings alone built from a filtered view) is what a test can
+ * now assert directly against a real `Sim` with `hasArt` both true and
+ * false for the same structure.
+ *
+ * Buildings split three ways here, not built as one merged pass: `residual`
+ * (the always-near-empty fallback layer, `withoutLiveStructures`'s own doc
+ * comment), and one `ComposedBuildingBox` per live, un-arted structure --
+ * each built by restricting `buildBuildings`'s walk to exactly that
+ * structure's own tiles (`buildings.ts`'s own `tiles` parameter, this same
+ * task). That split is what lets `ThreeRenderer.applyStructureHit` recompute
+ * a SINGLE structure's box in O(its own footprint) rather than re-walking
+ * the whole map -- see this task's report for the measured fraction.
+ */
+export function composeTerrain(
+  sim: Sim,
+  decor: Uint8Array | null,
+  elevation: Uint8Array | null,
+  hasArt: (structureId: string) => boolean,
+  tones: TerrainTones,
+  resolveColor: ((key: string) => string) | undefined,
+  background: string
+): ComposedTerrain {
+  const input: TerrainInput = {
+    width: sim.width,
+    height: sim.height,
+    decor,
+    elevation,
+    blocked: sim.blocked,
+    cover: sim.cover,
+  };
+  const ground = buildGround(input, tones, background);
+  const scatter = buildScatter(input, tones, background);
+  const groves = buildGroves(input, tones, background);
+
+  const footprints = walkStructureFootprints(sim);
+  const residualInput: TerrainInput = { ...input, blocked: withoutLiveStructures(sim, footprints) };
+  const residual = buildBuildings(residualInput, [], tones, resolveColor, background);
+
+  const buildings: ComposedBuildingBox[] = [];
+  for (const [structureIndex, footprint] of footprints) {
+    if (hasArt(footprint.structureTypeId)) continue;
+    buildings.push({
+      structureIndex,
+      tiles: footprint.tiles,
+      mesh: buildBuildings(input, [footprint], tones, resolveColor, background, footprint.tiles),
     });
   }
-  return footprints;
+
+  return { ground, scatter, groves, residual, buildings };
 }

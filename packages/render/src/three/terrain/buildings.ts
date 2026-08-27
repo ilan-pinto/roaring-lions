@@ -165,7 +165,24 @@ export function buildBuildings(
   structures: readonly StructureFootprint[],
   tones: TerrainTones,
   resolveColor: ((key: string) => string) | undefined,
-  background: string
+  background: string,
+  /**
+   * Task B3.9: restrict the tile walk to exactly these tile indices (`y *
+   * width + x`) instead of the full `width x height` grid -- the seam the
+   * incremental rebuild needs. Omitted (every existing caller, and every
+   * pre-B3.9 test) means "every tile", unchanged from before this parameter
+   * existed. Given, it turns this call from O(map area) into O(tiles.length)
+   * -- what lets `ThreeRenderer` recompute a SINGLE structure's own box
+   * (typically a handful of tiles; the largest on any shipped map is 20) on
+   * every `structureHit` without re-walking the whole map, which is what B2
+   * measured at 114-179ms in the first place (`buildScatter` alone is
+   * 97-145ms of it, but `buildBuildings` itself pays the same O(map area)
+   * cost this parameter exists to avoid). Passing a tile NOT covered by any
+   * entry in `structures` still resolves through the fallback bundle below,
+   * exactly as it would in an unrestricted call -- restricting WHICH tiles
+   * are visited never changes what a visited tile draws.
+   */
+  tiles?: readonly number[]
 ): MeshData {
   const { width, height } = input;
   const positions: number[] = [];
@@ -300,29 +317,42 @@ export function buildBuildings(
     return { heightPx: s.heightPx, integrity, wear, roofBase };
   });
 
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const ti = y * width + x;
-      if (input.blocked[ti] === 0) continue;
-      const decorHere = input.decor ? input.decor[ti] : 0;
-      if (decorHere === DECOR_RIDGE) continue;
+  /**
+   * One tile's worth of the walk below -- `x`/`y`/`ti` for a single tile,
+   * body unchanged from the pre-B3.9 loop except `continue` becomes `return`
+   * (the two mean the same thing here: skip this tile, visit the next).
+   * Factored out so it can be driven by either the full grid or a caller-
+   * supplied `tiles` list without duplicating the body -- see `tiles`'s own
+   * doc comment on the parameter above.
+   */
+  const visitTile = (x: number, y: number, ti: number): void => {
+    if (input.blocked[ti] === 0) return;
+    const decorHere = input.decor ? input.decor[ti] : 0;
+    if (decorHere === DECOR_RIDGE) return;
 
-      const topY = levelAt(input, x, y) * WORLD_PER_LEVEL;
-      const fi = footprintOf[ti];
-      const b = fi >= 0 ? bundles[fi] : fallbackBundle;
+    const topY = levelAt(input, x, y) * WORLD_PER_LEVEL;
+    const fi = footprintOf[ti];
+    const b = fi >= 0 ? bundles[fi] : fallbackBundle;
 
-      // The tile's own ground tone -- what `drawTerrain` already painted at
-      // this tile before `drawBuildingTile`'s box goes over it in Pixi's
-      // `spriteLayer`. The composite base for every fill below, exactly as
-      // `grove.ts` uses it for its own tree/shadow tones.
-      const gt = groundTone(input, tones, ti, PALETTE_HEXES, background);
-      const wallSouthHex = quantise(composite(gt, WALL_SOUTH_HEX, WALL_ALPHA), PALETTE_HEXES);
-      const wallEastHex = quantise(composite(gt, WALL_EAST_HEX, WALL_ALPHA * b.wear), PALETTE_HEXES);
-      const roofHex = quantise(composite(gt, b.roofBase, b.wear), PALETTE_HEXES);
-      const clutterHex = quantise(composite(roofHex, CLUTTER_HEX, CLUTTER_ALPHA), PALETTE_HEXES);
+    // The tile's own ground tone -- what `drawTerrain` already painted at
+    // this tile before `drawBuildingTile`'s box goes over it in Pixi's
+    // `spriteLayer`. The composite base for every fill below, exactly as
+    // `grove.ts` uses it for its own tree/shadow tones.
+    const gt = groundTone(input, tones, ti, PALETTE_HEXES, background);
+    const wallSouthHex = quantise(composite(gt, WALL_SOUTH_HEX, WALL_ALPHA), PALETTE_HEXES);
+    const wallEastHex = quantise(composite(gt, WALL_EAST_HEX, WALL_ALPHA * b.wear), PALETTE_HEXES);
+    const roofHex = quantise(composite(gt, b.roofBase, b.wear), PALETTE_HEXES);
+    const clutterHex = quantise(composite(roofHex, CLUTTER_HEX, CLUTTER_ALPHA), PALETTE_HEXES);
 
-      const roofY = topY + b.heightPx * WORLD_Y_PER_LIFT_PIXEL;
-      pushBox(x, y, topY, roofY, wallSouthHex, wallEastHex, roofHex, clutterHex, b.integrity);
+    const roofY = topY + b.heightPx * WORLD_Y_PER_LIFT_PIXEL;
+    pushBox(x, y, topY, roofY, wallSouthHex, wallEastHex, roofHex, clutterHex, b.integrity);
+  };
+
+  if (tiles) {
+    for (const ti of tiles) visitTile(ti % width, Math.floor(ti / width), ti);
+  } else {
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) visitTile(x, y, y * width + x);
     }
   }
 
