@@ -122,16 +122,84 @@
  * sink is large relative to a tile, which large vehicles are. Infantry
  * (`inf_squad`, `half` ~15 screen px at zoom 1) shows no measurable version
  * of this in the same capture -- the effect scales with `sheet.scale`, so
- * it is a vehicle-specific cost, not a uniform one. Unresolved by this
- * change and out of its scope: a real fix wants either a second,
- * depth-write-disabled quad for the below-ground sliver (so it never
- * competes with the SAME tile's own ground for depth) or an accepted,
- * documented limitation -- a decision for whoever owns this backend's next
- * phase, not a call this fix makes unilaterally. What is NOT reopened: the
- * render-order tie-break below (opaque terrain committing depth before any
- * transparent unit fragment draws) resolves a depth TIE regardless of
+ * it is a vehicle-specific cost, not a uniform one. What is NOT reopened:
+ * the render-order tie-break below (opaque terrain committing depth before
+ * any transparent unit fragment draws) resolves a depth TIE regardless of
  * where within the quad the tied point falls, vertex or interior -- see
  * the next section, unaffected by this change.
+ *
+ * ## Fixed: a per-vertex depth clamp, not a second quad
+ *
+ * Resolved in `createUnitMaterial`'s vertex shader below, not by patching
+ * this geometry. Two candidates were named above and neither was taken.
+ * A second, depth-write-disabled quad for the sunk sliver does not actually
+ * fix anything on inspection: `depthWrite: false` only stops that quad's own
+ * depth from being COMMITTED, it does not change whether it PASSES the
+ * existing test against the ground already committed underneath it -- and it
+ * genuinely is farther away there (see below), so it would still lose,
+ * unless depth TESTING were also disabled for that quad -- at which point it
+ * draws through any REAL geometry between the camera and the unit's feet
+ * too (a wall the unit is standing behind), reopening exactly the
+ * "disabling depth testing wholesale" hazard this module's own brief rules
+ * out. An accepted, documented limitation was the other candidate, and the
+ * golden-diff number below shows it did not have to be accepted.
+ *
+ * What actually ships is a depth CLAMP, computed per vertex in the shader
+ * rather than expressed as a second draw call. The insight it relies on:
+ * this camera is orthographic and fixed-pitch (`camera.ts`), so clip-space
+ * depth is an affine function of local "up" for a fixed local "right" --
+ * the same linearity the "unit-vs-tree tie" section below already measured
+ * for a different pair of points (4.7e-10 in NDC). Measured directly here
+ * too, not merely re-derived: at `CAM = {x:24,y:24,zoom:1}`, `VP =
+ * {800,600}`, a point 0.5 world units ABOVE an instance's translation
+ * projects to a SMALLER (nearer) NDC z than the translation itself, and a
+ * point 0.5 world units BELOW it projects to a LARGER (farther) one -- in
+ * both cases confirmed off-column too, not only directly beneath the
+ * translation (`instances.test.ts`, "the ground-clip depth clamp"). That
+ * sign is exactly what the visible bug needs: going below local "up" = 0
+ * (the instance's own ground contact point) moves a vertex FARTHER from
+ * the camera, which is why the ground tile at that same screen pixel --
+ * sitting at "up" = 0's own depth, nearer -- wins the depth test and clips
+ * the sprite's own lower rows.
+ *
+ * The fix clamps each vertex's `gl_Position.z` to the NEARER of its own
+ * depth and the depth of the SAME instance/right-column at local "up" = 0
+ * (`position.y` zeroed, `x`/`z` left alone, run through the identical
+ * `modelViewMatrix * instanceMatrix` and `projectionMatrix` chain). For a
+ * vertex ABOVE ground that reference is farther than the vertex's own
+ * depth, so `min()` leaves it untouched -- every real depth test against a
+ * ridge, a building, or another unit still varies per-vertex exactly as it
+ * did before this fix, satisfying requirement (2) in this backend's own
+ * brief for this defect ("must still depth-test correctly against real
+ * geometry") without qualification. For a vertex BELOW ground, the clamp
+ * pulls its depth up to an exact TIE with the ground-level reference --
+ * resolved by the identical opaque-before-transparent + `LessEqualDepth`
+ * mechanism the next section already documents and this module already
+ * relies on for the tree case, not a second mechanism introduced for this
+ * fix. `gl_Position.w` is 1 for both the actual and the reference vertex
+ * (`modelViewMatrix`, `instanceMatrix` and this camera's orthographic
+ * `projectionMatrix` all carry no perspective row), so comparing
+ * `gl_Position.z` directly is comparing genuine NDC depth with no divide
+ * needed -- not an approximation valid only near the tie point, exact for
+ * the whole sunk sliver.
+ *
+ * Cost: the clamp cannot tell "the ground I stand on" apart from "something
+ * else that happens to sit within the same narrow depth band, right at this
+ * instance's own ground level" -- e.g. a trail decal or another unit's own
+ * ground-level sliver drawn at near-identical depth. Both already resolve
+ * through the same tie-break this module already ships (transparent-after-
+ * opaque for the former; equal-footing render order for the latter), so
+ * this is not a new hazard, merely the existing tie-break firing on a
+ * slightly wider set of vertices than before. What the clamp does NOT cost:
+ * no second draw call, no second geometry, no CPU-side change at all -- the
+ * two extra matrix multiplies live entirely in the vertex shader, on four
+ * vertices per instance, the cheapest stage in the pipeline to spend on this.
+ *
+ * Measured effect: the vehicle-dense golden-diff capture with the camera on
+ * `mbt_lavi` (this section's own reference case) was 2.010% before this
+ * fix -- see `.superpowers/d-ground-clip-report.md` for the after number
+ * and its capture conditions, not restated here to avoid two sources of
+ * truth for one number drifting apart.
  *
  * ## The unit-vs-tree tie, and what actually resolves it
  *
@@ -589,6 +657,32 @@ function createUnitMaterial(texture: THREE.DataArrayTexture): THREE.ShaderMateri
         vAlpha = aAlpha;
         vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(position, 1.0);
         gl_Position = projectionMatrix * mvPosition;
+
+        // Ground-clip fix -- see this file's top comment, "Fixed: a
+        // per-vertex depth clamp, not a second quad", for the full
+        // derivation and why the two candidates that comment used to name
+        // (a depth-write-disabled second quad; an accepted limitation)
+        // were not taken. position.y is local "up"
+        // (unitBillboardGeometry's own -half..+half); below 0 it draws
+        // BELOW this instance's own ground contact point even though the
+        // art there -- a track, a boot -- is drawn AT ground level, never
+        // genuinely beneath it. Recompute this SAME instance/right-column's
+        // clip-space depth at local up = 0 (position.y zeroed, x/z
+        // unchanged) and clamp to whichever is nearer: an above-ground
+        // vertex is already nearer than that reference, so min() leaves it
+        // untouched and real depth tests against a ridge, a building or
+        // another unit still vary per-vertex exactly as before; a
+        // below-ground vertex ties with the ground instead of losing to
+        // it, resolved by the same opaque-before-transparent +
+        // LessEqualDepth mechanism the "unit-vs-tree tie" section below
+        // already relies on. Exact, not approximate, for an orthographic
+        // camera: gl_Position.w and groundClip.w are both 1 (neither
+        // matrix in the chain carries a perspective row), so comparing
+        // gl_Position.z and groundClip.z directly compares genuine NDC
+        // depth with no divide needed.
+        vec4 groundPosition = modelViewMatrix * instanceMatrix * vec4(position.x, 0.0, position.z, 1.0);
+        vec4 groundClip = projectionMatrix * groundPosition;
+        gl_Position.z = min(gl_Position.z, groundClip.z);
       }
     `,
     fragmentShader: /* glsl */ `

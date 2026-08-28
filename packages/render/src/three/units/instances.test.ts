@@ -28,11 +28,13 @@ import {
 } from './instances';
 import { TILE_W, WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import { screenOffsetToWorld, WORLD_PER_LEVEL } from '../terrain/shared';
-import { VIEW_DIRECTION } from '../camera';
+import { VIEW_DIRECTION, dimetricCamera } from '../camera';
 import { groundWorldY } from '../ground-height';
 import infSquadManifest from '../../../../../assets/sprites/INF_SQUAD/manifest.json';
+import tnkHullManifest from '../../../../../assets/sprites/TNK_HULL/manifest.json';
 
 const infSquad: SheetSpec = parseManifest(infSquadManifest);
+const tnkHull: SheetSpec = parseManifest(tnkHullManifest);
 
 /** A small, easy-to-hand-check sheet: 4 facings, one clip, one frame. */
 const tinySheet: SheetSpec = {
@@ -245,6 +247,107 @@ describe('the render-order tie-break', () => {
     const turret = new UnitInstancer(infSquad, new THREE.DataArrayTexture(), packing, 4, TURRET_RENDER_ORDER);
     expect(turret.mesh.renderOrder).toBeGreaterThan(hull.mesh.renderOrder);
     expect(turret.mesh.renderOrder).toBe(TURRET_RENDER_ORDER);
+  });
+});
+
+describe('the ground-clip depth clamp', () => {
+  // Task D: instances.ts's own top comment, "Fixed: a per-vertex depth
+  // clamp, not a second quad" -- the below-ground half of a centred
+  // billboard quad is genuinely FARTHER from the camera than the ground
+  // beneath it, under this camera's fixed pitch, which is what let the
+  // ground win the (unclamped) depth test and clip a vehicle's own tracks.
+  // `mbt_lavi`'s TNK_HULL is the exact sheet the golden-diff crop on file
+  // caught this on -- used here rather than a synthetic sheet so the
+  // numbers below are the real ones, not a stand-in.
+  const CAM = { x: 24, y: 24, zoom: 1 };
+  const VP = { width: 800, height: 600 };
+  const camera = dimetricCamera(CAM, VP);
+
+  /** NDC z (post-divide, via THREE.Vector3.project -- the same call
+   *  worldToScreenThree already relies on for x/y). Smaller is nearer the
+   *  camera under three.js's default depth convention. */
+  function ndcZ(x: number, y: number, z: number): number {
+    const v = new THREE.Vector3(x, y, z);
+    v.project(camera);
+    return v.z;
+  }
+
+  const geo = unitBillboardGeometry(tnkHull);
+  // An entity standing at tile (24, 24) on flat ground (worldY 0) --
+  // matches `beit_sahwan_outskirts`, the flat map the defect was captured
+  // on ("no relief involved" is the point).
+  const tx = 24;
+  const tz = 24;
+
+  it('BREAK CHECK: the below-ground half of a real vehicle billboard is genuinely farther from the camera than its own ground contact point', () => {
+    // bl (index 0) is the BOTTOM edge, local up = -half (below the
+    // translation, where the tracks are drawn); tr (index 2) is the TOP
+    // edge, local up = +half.
+    const bottomLocalY = geo.positions[0 * 3 + 1];
+    const topLocalY = geo.positions[2 * 3 + 1];
+    expect(bottomLocalY).toBeLessThan(0); // sanity: really is below ground
+
+    const zGround = ndcZ(tx, 0, tz);
+    const zBottom = ndcZ(tx, bottomLocalY, tz);
+    const zTop = ndcZ(tx, topLocalY, tz);
+
+    // The bottom edge is FARTHER than the ground it stands on -- this is
+    // the defect: an unclamped depth test lets the ground win here and
+    // clip the sprite's own drawn tracks.
+    expect(zBottom).toBeGreaterThan(zGround);
+    // The top edge is correctly NEARER -- a turret poking above a wall
+    // must keep depth-testing normally, which the fix below must not
+    // disturb.
+    expect(zTop).toBeLessThan(zGround);
+  });
+
+  it('min(own depth, depth at local up = 0) -- the clamp the shader applies -- exactly cancels the defect and leaves the above-ground half untouched', () => {
+    const bottomLocalY = geo.positions[0 * 3 + 1];
+    const topLocalY = geo.positions[2 * 3 + 1];
+    const zGround = ndcZ(tx, 0, tz);
+    const zBottom = ndcZ(tx, bottomLocalY, tz);
+    const zTop = ndcZ(tx, topLocalY, tz);
+
+    const clampedBottom = Math.min(zBottom, zGround);
+    const clampedTop = Math.min(zTop, zGround);
+
+    // Below-ground: was farther than ground, now ties with it exactly --
+    // resolved in the unit's favour by the same opaque-before-transparent +
+    // LessEqualDepth mechanism the render-order tie-break above relies on.
+    expect(clampedBottom).toBeCloseTo(zGround, 12);
+    // Above-ground: min() picks the vertex's own (nearer) depth, unchanged
+    // -- real occlusion against a ridge or a building still varies
+    // per-vertex exactly as it did before this fix.
+    expect(clampedTop).toBeCloseTo(zTop, 12);
+    expect(clampedTop).not.toBeCloseTo(zGround, 6);
+  });
+
+  it('holds for the real quad corner, off the translation column on both axes -- not merely directly underfoot', () => {
+    // bl (index 0) sits at local right = -half, local up = -half: off the
+    // translation column on BOTH axes, the general case the production
+    // fix's own doc comment claims holds ("off-column too, not only
+    // directly beneath the translation").
+    const blX = geo.positions[0 * 3 + 0];
+    const blY = geo.positions[0 * 3 + 1];
+    const blZ = geo.positions[0 * 3 + 2];
+    const groundX = tx + blX;
+    const groundZ = tz + blZ;
+
+    const zGroundHere = ndcZ(groundX, 0, groundZ);
+    const zBottomHere = ndcZ(groundX, blY, groundZ);
+    expect(zBottomHere).toBeGreaterThan(zGroundHere);
+    expect(Math.min(zBottomHere, zGroundHere)).toBeCloseTo(zGroundHere, 12);
+  });
+
+  it('the shipped shader actually performs this clamp, not merely the maths above', () => {
+    // The maths above proves the CLAIM the shader's min() depends on; this
+    // proves the shipped GLSL actually contains that min(), so a future
+    // edit that silently drops it (leaving the maths true but unused) fails
+    // here instead of only in a browser screenshot.
+    const packing = packSheet(tnkHull);
+    const instancer = new UnitInstancer(tnkHull, new THREE.DataArrayTexture(), packing, 1);
+    const material = instancer.mesh.material as THREE.ShaderMaterial;
+    expect(material.vertexShader).toContain('gl_Position.z = min(gl_Position.z, groundClip.z)');
   });
 });
 
