@@ -994,4 +994,12 @@ def main():
         render_building(BUILDINGS[name])
 
 
-main()
+# Guarded, unlike every other call site here: `tools/export_mesh_building.py`
+# imports BUILDINGS, BuildingSpec and the collapse()/_dice()/_punch() geometry
+# ops from this module rather than re-typing the drop/offset/collapse tables a
+# second time (the exact drift risk `export_mesh_vehicle.py`'s own
+# turret_prefixes comment warns about). Every render_*.py sibling already runs
+# under `--python`, where `__name__ == "__main__"` regardless of this guard, so
+# nothing about invoking this script directly changes.
+if __name__ == "__main__":
+    main()
