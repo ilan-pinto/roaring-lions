@@ -1,8 +1,8 @@
 """Skinned-mesh rig for infantry teams -- the production export pipeline.
 
 Promotes `tools/spike_rig_infantry.py` (Phase R0, verdict GO -- see
-`docs/superpowers/specs/2026-08-28-phase-r0-verdict.md`) from a one-figure,
-two-clip throwaway into the file the runtime actually consumes, per
+`docs/superpowers/specs/2026-08-28-phase-r0-verdict.md`) into the file the
+runtime actually consumes, per
 `docs/superpowers/specs/2026-08-28-mesh-unit-contract.md`. That contract is
 pinned; this module targets it exactly rather than reinterpreting it.
 
@@ -10,20 +10,55 @@ pinned; this module targets it exactly rather than reinterpreting it.
 the bone table, the part -> bone binding, and clip authoring. It does NOT own
 a figure's geometry (`kit.py`, a parallel stream's to change) or a team's
 composition of figures (`teams.py`'s per-team offsets, leader flags and weapon
-placement). Both are read, neither is re-derived a second way -- exactly the
-discipline the R0 spike stated for its own bone table and which this module
-inherits.
+placement). Both are read, neither is re-derived a second way.
 
-**Rest-pose numbers are probed, not guessed**, same method R0 used: a
-throwaway script built `kit.figure()` at stride=0 and read the real vertex
-bounding-box centres of each part back. That is a one-time derivation for
-*this* kit.py revision -- if the parallel stream reshapes the figure, these
-numbers go stale silently, exactly as the spike's own docstring warned.
+**Coverage, this pass.** `inf_squad` (unchanged from the first production
+slice) plus eight more of `teams.TEAMS`'s thirteen entries:
+
+  * Standing riflemen, reusing `inf_squad`'s topology directly:
+    `militia_cell`, `charge_squad` (its own sprint lean baked into rest
+    geometry via `teams._lean_forward`, read not reimplemented),
+    `rpg_team` (both figures stand -- neither uses `_crew_posture`).
+  * Crew-served weapons -- new work, a second bone topology for a KNEELING
+    figure (`_kneel_bones`, derived below) plus a convention for a
+    free-standing weapon prop that is not gripped by any bone-bound hand:
+    `demo_squad`, `at_team`, `mortar_team`, `mortar_crew`, `atgm_cell`.
+
+Not attempted: `sniper_team` (its canonical idle is PRONE -- a third
+topology, and the one this project already tried and rejected once, see
+"down/wreck" in the prior report: an FK-folded standing rig produced a
+self-intersecting heap, not a plausible prone pose); `moto_rpg` (a
+from-scratch vehicle-plus-rider composition, `teams._motorcycle`/`_rider`,
+not `kit.figure()` at all -- scoped out by the brief); `digger_crew` and
+`yahalom_squad` (outside the requested priority list; `yahalom_squad` also
+owns a sixth clip, `work`, driving the ground itself, which is its own design
+problem this pass does not open).
+
+**Rest-pose numbers are probed or derived, never guessed.** The standing
+topology's numbers are R0's own, unchanged. The new kneeling topology's
+numbers were derived two ways and cross-checked against each other: by hand
+from `kit.py`'s own literal kneeling-branch source (every term is a plain
+constant at rest -- kneeling never reads `stride`), and independently by a
+throwaway Blender probe that built `kit.figure(posture="kneeling")` and read
+back real vertex-ring centres. Both agree to three decimal places; see the
+report for the actual probe output.
 
 **No armature edits to kit.py, no weight painting, no `mathutils.noise`.**
 Every bind below is rigid: one part, one vertex group, weight 1.0, no
-falloff -- the only thing that keeps `kit.py`'s "no armature" reason 1 (code
-is diffable, a rig's pose in a .blend is not) intact for this file too.
+falloff.
+
+**A free-standing crew weapon (mortar, ATGM tripod) has no hand to bind to.**
+It is bound to a dedicated, never-keyed `prop` bone instead -- a rigid,
+world-fixed mount, which is exactly correct because the sprite pipeline never
+repositions these either (`kit.mortar`/`kit.atgm_tripod`'s call site in
+`teams.py` passes the identical arguments regardless of clip). A
+shoulder-fired launcher (Spike, RPG) is different: `teams.py` describes it as
+"held", so it binds to the firer's own `forearm_R` instead, the same
+convention `_weapon_parts` already uses for a rifle -- and unlike the ground
+mounts, this makes the `fire` clip's raise/recoil apply correctly should a
+future pass want it (not authored here, since neither launcher's own
+position varies with `clip` in `teams.py` either -- see the report's
+"what fire clip means per team" table for the exact reasoning per team).
 """
 import math
 import os
@@ -40,101 +75,100 @@ import teams  # noqa: E402
 
 OUT_DIR = os.path.join(REPO, "art", "meshes")
 
-# --- which teams this pipeline covers -----------------------------------
-#
-# Only inf_squad. The other eight `teams.TEAMS` entries do not generalise
-# cheaply onto one biped rig, for two independent reasons, either of which is
-# enough on its own:
-#
-#   * Crew-served weapons (mortar_team, at_team, atgm_cell, mortar_crew,
-#     digger_crew) mix postures *within one team* -- kneeling gunners beside
-#     a standing spotter -- and the crew-served prop itself (kit.mortar,
-#     kit.atgm_tripod, kit.launcher's tripod-adjacent parts) is built as a
-#     free-standing object with no figure waypoint to bind to. A kneeling
-#     figure is not a rotation of this rig's standing rest pose any more than
-#     prone is (see `build_clips`'s note on `down`/`wreck` below); it is
-#     different kit.figure() topology.
-#   * moto_rpg is a vehicle-plus-two-riders composition with its own
-#     from-scratch rider primitive (`teams._rider`), not `kit.figure()` at
-#     all, and charge_squad and militia_cell both apply `_lean_forward` as a
-#     one-shot vertex rotation baked into a rebuild -- workable for a single
-#     static frame, not for a bone that has to carry every clip.
-#
-# Attempting any of these now would mean inventing a second rig shape under
-# time pressure and shipping it half-verified, which is worse than shipping
-# one team well and saying so.
-TEAM_ID = "inf_squad"
+#: Every team this pipeline can export. Order is priority order from the
+#: brief, not `teams.TEAMS`'s own order.
+SUPPORTED_TEAMS = (
+    "inf_squad", "militia_cell", "demo_squad", "charge_squad",
+    "at_team", "rpg_team", "mortar_team", "mortar_crew", "atgm_cell",
+)
+DEFAULT_TEAM = "inf_squad"
 
-# --- rest-pose figure placement, read from teams.py, not re-derived ------
-#
-# teams.inf_squad's own arrangement: `for i, y in enumerate((-0.78, 0.0,
-# 0.78)): x = 0.20 if i == 1 else 0.0`, leader on the centre figure. Copied
-# as literal values rather than called through `teams.inf_squad` because that
-# function returns baked-per-frame geometry for one clip at a time (see its
-# module docstring: "A clip is a composition, not a pose") -- exactly what
-# this rig exists to replace with bone motion. Figure prefixes are `f0`/`f1`/
-# `f2` directly, so kit.figure()'s own `{prefix}_{suffix}` part names already
-# carry the mesh-unit-contract's bone prefix convention with no translation
-# step.
-REST_FIGURES = [
-    # prefix, x, y, leader
-    ("f0", 0.0, -0.78, False),
-    ("f1", 0.20, 0.0, True),
-    ("f2", 0.0, 0.78, False),
-]
-
-#: Every figure-index prefix this rig covers, derived rather than re-typed --
-#: `rig_parts`'s weapon special-case (see `_weapon_parts` below) needs the
-#: set, not the ordered list.
-FIGURE_PREFIXES = {p for p, *_ in REST_FIGURES}
-
-
-def _check_rest_figures_against_teams():
-    """Self-check, run at import: re-derive `teams.inf_squad`'s own
-    figure-placement formula from its docstring and assert REST_FIGURES
-    still matches it, so a typo here -- or a future edit to that formula in
-    teams.py that this file is not touched for -- fails loudly at import
-    rather than drifting silently. Cheap and exact: `teams.py` builds three
-    figures at `y in (-0.78, 0.0, 0.78)`, `x = 0.20 if i == 1 else 0.0`,
-    leader on the centre one -- copied verbatim from `teams.inf_squad`'s own
-    body, not re-typed from memory.
-    """
-    expect = [
-        (f"f{i}", 0.20 if i == 1 else 0.0, y, i == 1)
-        for i, y in enumerate((-0.78, 0.0, 0.78))
-    ]
-    assert REST_FIGURES == expect, (
-        "REST_FIGURES no longer matches teams.inf_squad's own arrangement "
-        f"-- expected {expect}, have {REST_FIGURES}"
-    )
-    assert "inf_squad" in teams.TEAMS, "teams.py no longer defines inf_squad"
-    assert teams.TEAMS["inf_squad"][1] == "kdf", "inf_squad's faction changed"
-
-
-_check_rest_figures_against_teams()
-
-# --- per-figure bone table, relative to that figure's own (x, y, 0) -------
-#
-# Endpoints read from a probe (`kit.figure("f", (0,0,0), posture="standing",
-# stride=0.0, headgear="helmet", loadout="regular", arms=True, leader=False,
-# mirror=False, smoke=None)`, the same rest call REST_FIGURES drives) via
-# each named part's real vertex bounding-box centre -- not hand-guessed, and
-# not the R0 spike's numbers copied forward blind, though they land close
-# (same kit.py revision). Where a part's own centre is the natural bone
-# endpoint (deltoid for the shoulder, knee/wrist blobs for elbow/hand) it is
-# used directly; pelvis/spine/neck/head instead use kit.py's own named
-# fractions (BELT_Z, CHEST_Z, SHOULDER_Z, HEAD_Z) against FIGURE_H, which are
-# real constants in kit.py rather than inline literals, and so cannot drift
-# out of sync with a change to those four numbers the way a probed torso
-# value could.
 _H = kit.FIGURE_H
 
 
 def _z(frac):
-    return frac * _H  # drop == 0 at stride 0, matching kit.figure()'s own z()
+    return frac * _H  # drop == 0 at stride 0, matching kit.figure()'s own z() for STANDING
 
 
-# name, parent, head (x, y, z), tail (x, y, z)
+def _zk(frac):
+    # kit.figure()'s kneeling branch fixes `drop = 0.30 * H` regardless of any
+    # other argument (kneeling never reads stride) -- so the kneeling z() is
+    # this same fraction, shifted down by a plain constant. Confirmed against
+    # a live probe (see module docstring): 4 of 4 shared torso/head parts
+    # (hips, torso, neck, cranium) landed within rounding of this formula.
+    return frac * _H - 0.30 * _H
+
+
+# --- shared part -> bone suffix table ---------------------------------------
+#
+# One dict for every team and every posture this module builds. A posture
+# emits its own, disjoint set of suffixes (kneeling's leg parts are named
+# "shin_r"/"thigh_f"/etc, never "thigh0"/"thigh1"), so there is no collision
+# between the standing and kneeling entries below -- a team only ever emits
+# one posture's leg vocabulary.
+_COVER_BONE = {
+    "cuff": "shin", "kneepad": "thigh",
+    "elbowpad": "upperarm", "gauntlet": "forearm", "glove": "forearm",
+}
+
+PART_BONE = {
+    # --- standing legs ---
+    "sole0": "shin_L", "boot0": "shin_L", "toe0": "shin_L",
+    "calf0": "shin_L", "blouse0": "shin_L",
+    "knee0": "thigh_L", "kneefold0": "thigh_L", "thigh0": "thigh_L",
+    "hip0": "hip_L",
+    "sole1": "shin_R", "boot1": "shin_R", "toe1": "shin_R",
+    "calf1": "shin_R", "blouse1": "shin_R",
+    "knee1": "thigh_R", "kneefold1": "thigh_R", "thigh1": "thigh_R",
+    "hip1": "hip_R",
+    "dropleg": "thigh_R", "holster": "thigh_L",
+    # --- kneeling legs (new this pass) ---
+    # "down"/ground-contact leg (kit.py's own "_r" suffix -- not a body
+    # side, the leg whose knee is on the ground) and "front"/planted leg
+    # ("_f"). No hip-fix bone: kneeling never animates thighs (crew stay
+    # deployed through every clip this pass authors -- see the report), so
+    # there is no swing to open a gap at.
+    "shin_r": "shin_r", "boot_r": "shin_r", "thigh_r": "thigh_r",
+    "shin_f": "shin_f", "boot_f": "shin_f",
+    "knee_f": "thigh_f", "kneepad_f": "thigh_f", "thigh_f": "thigh_f",
+    # --- pelvis / belt line (either posture) ---
+    "hips": "pelvis", "belt": "pelvis", "dump": "pelvis", "canteen": "pelvis", "hem": "pelvis",
+    "shirt_hem": "pelvis",   # irregular loadout's long shirt hem
+    # --- torso / chest rig (either posture) ---
+    "torso": "spine", "carrier": "spine",
+    "pouch0": "spine", "pouch1": "spine", "pouch2": "spine",
+    "strap0": "spine", "strap1": "spine", "admin": "spine",
+    "deltoid0": "spine", "deltoid1": "spine",
+    "antenna": "spine",
+    "cummerbund0": "spine", "cummerbund1": "spine",
+    "bandolier": "spine",    # irregular loadout's single shoulder strap
+    "vest_f": "spine", "vest_b": "spine",   # charge_squad's front/back vest slabs
+    # --- arms (either posture) ---
+    "upperarm0": "upperarm_L", "elbow0": "upperarm_L", "elbowfold0": "upperarm_L",
+    "forearm0": "forearm_L", "wrist0": "forearm_L", "hand0": "forearm_L",
+    "upperarm1": "upperarm_R", "elbow1": "upperarm_R", "elbowfold1": "upperarm_R",
+    "forearm1": "forearm_R", "wrist1": "forearm_R", "hand1": "forearm_R",
+    # --- neck / head (either posture) ---
+    "neck": "neck",
+    "cranium": "head", "face": "head",
+    "helm_shell": "head", "helm_skirt": "head", "helm_nvg": "head",
+    "helm_rail0": "head", "helm_rail1": "head", "chinstrap": "head",
+    "hood": "head", "balaclava": "head", "gaiter": "neck",
+    "helm_counterweight": "head",
+    "kef_crown": "head", "kef_mantle": "head", "kef_tail": "head",
+    # --- weapon assembly, bound rigidly via forced_bone below, not this
+    # table -- see _weapon_parts and _add_figure. Retained here only so a
+    # stray unmapped "_w"-suffixed object still raises loudly rather than
+    # falling through silently, matching the original spike's guard.
+}
+for _cover, _base in _COVER_BONE.items():
+    PART_BONE[f"{_cover}0"] = f"{_base}_L"
+    PART_BONE[f"{_cover}1"] = f"{_base}_R"
+del _cover, _base
+
+
+# --- standing bone topology (R0's own numbers, unchanged) ------------------
+
 _BASE_BONES = [
     ("root", None, (0.0, 0.0, 0.0), (0.0, 0.0, 0.15)),
     ("pelvis", "root", (0.0, 0.0, _z(kit.BELT_Z) - 0.09), (0.0, 0.0, _z(kit.BELT_Z) + 0.05)),
@@ -151,253 +185,84 @@ _BASE_BONES = [
     ("shin_R", "thigh_R", (0.023, 0.114, 0.340), (-0.003, 0.118, 0.050)),
 ]
 
-#: Amplitudes, in radians unless noted. Same numbers R0 established, kept
-#: rather than re-tuned: the move cycle already reads as a real gait and
-#: nothing here changes leg geometry.
-A_THIGH = 0.55
-B_SHIN = 0.90
-BREATH_AMP = 0.035
-SWAY_AMP = 0.045
-#: New for the production clip set. A walking figure's torso pitches forward
-#: of a standing one's -- the spike's `move` did not do this, and per the
-#: brief this is part of why the sprite reads as dynamic and the spike did
-#: not. Small and constant through the cycle (a lean is a stance, not a
-#: stride phase); verified below rather than assumed, since the direction of
-#: a world-axis rotation on a bone whose local frame is `align_roll`-rotated
-#: is exactly the mistake R0's own local_quat_for_world_axis note records.
-MOVE_LEAN = 0.14
-
-# --- naturalism pass ------------------------------------------------------
+# --- kneeling bone topology (new this pass) ---------------------------------
 #
-# This round's brief, verbatim: the gait is "mechanically correct and reads
-# as a mannequin" and needs "weight transfer, a settle on the planted foot,
-# counter-rotation between hips and shoulders, arm swing that opposes the
-# legs and is damped by carrying a weapon, head stabilisation, and a slight
-# vertical bob". Every constant below is ADDITIVE on top of the swing
-# amplitudes above, which stay exactly as R0 proved them, and every one is a
-# smooth trig curve rather than a sharp corner: `MOVE_FRAMES` stays 16 (the
-# brief's own instruction is "do not simply add frames; add the
-# asymmetries") -- a kink sampled at 16 keys a cycle shows as a kink under
-# glTF's linear interpolation; a smooth one does not.
+# Derived from kit.py's kneeling branch, which -- unlike standing -- reads no
+# per-frame state at all (stride is never consulted; the branch's every
+# waypoint is a bare literal). Two independent derivations agree: hand
+# arithmetic from the literal source, and a live probe of the built mesh's
+# own vertex-ring centres (see module docstring; the report carries the
+# actual probe transcript). hand=1.0 throughout -- every kneeling figure this
+# pass ships uses mirror=False.
 #
-# **Hip/shoulder counter-rotation.** A walking pelvis yaws (world Z,
-# vertical) toward whichever leg is leading; the ribcage yaws the other way
-# and further -- the diagonal cross-body twist a real gait actually reads
-# by, and its absence is a large part of why a hips-square, shoulders-square
-# figure reads as a machine. Composed onto `pelvis`/`spine` via
-# `key_axes` below, not a second plain `key()` call: `spine` already carries
-# `MOVE_LEAN` on AXIS_Y, and a second `key()` on the same bone in the same
-# frame REPLACES `rotation_quaternion` rather than adding to it -- this
-# round's own version of R0's reference-frame trap, caught the same way, by
-# querying the exported pose and finding the lean had silently vanished the
-# moment shoulder twist was added.
-HIP_TWIST_AMP = 0.10
-SHOULDER_TWIST_AMP = 0.17
-#: **Head stabilisation.** Without a counter-key, `head` inherits the FULL
-#: ribcage twist above through the neck->spine parent chain and the whole
-#: skull swings edge to edge every stride; a real walker's gaze stays close
-#: to forward instead. Cancels a FRACTION of `shoulder_twist` each frame
-#: (computed from it, not an independent sine, so it cannot drift out of
-#: phase with the motion it cancels) -- an inert head reads as dead, not
-#: stabilised. Same second-order approximation `local_quat_for_world_axis`'s
-#: own docstring already accepts for idle's simultaneous pelvis+spine keys,
-#: one bone further down the chain here; verified below by measurement, not
-#: assumed.
-HEAD_COUNTER_FRAC = 0.65
-#: **Vertical bob**, `root`-bone LOCATION only -- never a per-limb
-#: translation, which would tear every rigid joint this rig's binding
-#: depends on (one part, one vertex group, one bone, no blending, no
-#: falloff). `root` has no skinned vertices of its own (`PART_BONE` never
-#: names it) and is the common ancestor of the whole figure, so translating
-#: it moves pelvis, spine, arms and legs together, rigidly -- the one
-#: translation this rig can add for free, with no new seam. Two peaks per
-#: cycle (`-cos(2*phase)`): a real gait's centre of mass is lowest at
-#: double-support and highest at each leg's own mid-stance. Amplitude is
-#: modest on purpose -- about 1.5% of figure height -- because there is no
-#: foot IK here to keep a sole pinned to the ground through it; a body that
-#: visibly floats past its own planted foot would read as more wrong than
-#: no bob at all.
-BOB_AMP = 0.026
-#: **Settle.** Real weight acceptance is not an instant lock to
-#: straight-legged the moment a heel lands -- the knee gives briefly and
-#: straightens over the first part of stance. Added ON TOP of the existing
-#: swing-phase knee flex (`_settle_bump` below, never replacing the swing
-#: term), a small raised-cosine bump timed to start exactly where each leg's
-#: own swing curve returns to zero -- `HEEL_L`/`HEEL_R` below, derived from
-#: the swing formula's own phase shift (`SHIN_SWING_SHIFT`) rather than a
-#: second hand-typed 0.6.
-SETTLE_AMP = 0.16
-SETTLE_WIDTH = 1.15
-#: The swing-phase knee-flex formula's own phase shift, named once so the
-#: settle bump's heel-strike timing is derived from it, not a second literal.
-SHIN_SWING_SHIFT = 0.6
-HEEL_L = math.pi + SHIN_SWING_SHIFT   # where shin_l's swing curve hits zero
-HEEL_R = SHIN_SWING_SHIFT             # where shin_r's swing curve hits zero
-#: **Asymmetric, damped arm swing.** `PART_BONE["w"]` (the weapon) binds to
-#: `forearm_R` -- the right arm is the weapon-carrying side (also
-#: `PART_BONE`'s own "right arm (index 1, weapon/lead side)" comment) -- so
-#: it is the one that should NOT swing like a free pendulum: a two-handed
-#: carry across the chest damps the shoulder's own swing sharply. The
-#: left/free arm gets a slightly LARGER swing than R0's flat, shared 0.45
-#: (it is carrying nothing) plus its own elbow bend, which the flat version
-#: never had at all -- a real swinging arm is not a rigid rod; it bends
-#: slightly as it comes back and straightens as it comes forward.
-A_ARM_FREE = 0.52
-A_ARM_WEAPON = 0.20
-#: Sign confirmed empirically against `forearm_L`'s own world-space tail
-#: position across the cycle (same method `FIRE_SHOULDER`/`FIRE_ELBOW`
-#: below already used for the weapon): +1 bends the elbow while the arm
-#: swings backward and straightens it swinging forward, not the reverse.
-ELBOW_FREE_AMP = 0.30
-ELBOW_PHASE_SIGN = 1.0
+# Shared torso/arm code (torso, webbing, deltoid, arms, neck, head) is
+# IDENTICAL between postures; only `drop` differs (0 for standing at
+# stride=0, 0.30*H for kneeling, always). `_zk` applies that shift to the
+# same kit.py fractions `_BASE_BONES` already uses, and the arm numbers below
+# are the standing arm formula's own inputs (ay, fwd, elbow_z, wrist_z)
+# re-evaluated at kneeling's drop -- probe-confirmed, not assumed.
+_KNEEL_BONES = [
+    ("root", None, (0.0, 0.0, 0.0), (0.0, 0.0, 0.15)),
+    ("pelvis", "root", (0.0, 0.0, _zk(kit.BELT_Z) - 0.09), (0.0, 0.0, _zk(kit.BELT_Z) + 0.05)),
+    ("spine", "pelvis", (0.0, 0.0, _zk(kit.BELT_Z) + 0.05), (0.0, 0.0, _zk(kit.SHOULDER_Z) - 0.03)),
+    ("neck", "spine", (0.0, 0.0, _zk(kit.HEAD_Z) - 0.155), (0.0, 0.0, _zk(kit.HEAD_Z) - 0.085)),
+    ("head", "neck", (0.0, 0.0, _zk(kit.HEAD_Z) - 0.085), (0.0, 0.0, _zk(kit.HEAD_Z) + 0.115)),
+    ("upperarm_L", "spine", (0.0, -0.245, 0.845), (-0.022, -0.249, 0.630)),
+    ("forearm_L", "upperarm_L", (-0.022, -0.249, 0.630), (-0.029, -0.245, 0.400)),
+    ("upperarm_R", "spine", (0.0, 0.225, 0.845), (0.062, 0.229, 0.660)),
+    ("forearm_R", "upperarm_R", (0.062, 0.229, 0.660), (0.127, 0.225, 0.460)),
+    # down/ground-contact leg: hip (high) -> knee-on-ground (low)
+    ("thigh_r", "pelvis", (-0.100, -0.125, 0.400), (-0.200, -0.115, 0.100)),
+    ("shin_r", "thigh_r", (-0.330, -0.110, 0.058), (0.050, -0.110, 0.058)),
+    # front/planted leg: hip (high) -> knee -> ankle (low)
+    ("thigh_f", "pelvis", (0.000, 0.122, 0.520), (0.150, 0.127, 0.440)),
+    ("shin_f", "thigh_f", (0.150, 0.128, 0.400), (0.150, 0.125, 0.055)),
+]
 
-# --- fire: raise (unchanged), plus a recoil impulse and recovery ----------
-#
-#: `fire`: the weapon-side shoulder and elbow come up and forward. The
-#: unrigged sprite achieves "weapon comes up" by swapping in an independently
-#: placed prop (kit.rifle(aim=True)) that never touches the arm mesh at all
-#: -- a workaround for having no skeleton, not the intent. Bound to a bone,
-#: the weapon can instead actually travel with the hand that holds it, which
-#: reads as more correct, not less; that is a deliberate deviation from the
-#: sprite's technique in service of its stated *goal* ("weapon comes up... no
-#: height change"), recorded here rather than left silent.
-#: Signs picked empirically, not guessed -- a small sweep against the
-#: weapon mesh's own world-space centroid (bound to forearm_R, see PART_BONE)
-#: confirmed which sign combination actually moves it forward *and* up
-#: rather than backward or down, exactly the check R0's own hip-swing note
-#: says a world-axis rotation needs. Magnitude kept at the same order as
-#: `move`'s own free-arm swing (already proven not to tear at the shoulder
-#: blob) so `fire` is not the clip that finds the *next* rigid-binding
-#: exception.
-FIRE_SHOULDER = -0.45
-FIRE_ELBOW = 0.35
-#: This round's own addition: the shipped `fire` was one static pose --
-#: "weapon comes up... no leg/height change" but no impulse, so a unit that
-#: fires reads exactly like a unit standing at the ready. `RECOIL_*` below
-#: are keyed ON TOP of the raise, peaking partway through the clip and
-#: bleeding back off, via `_recoil_curve`'s deliberately ASYMMETRIC shape
-#: (fast kick, slower settle -- a real recoil impulse, not a symmetric sine;
-#: the same "mechanical" read the brief names for `move` applies here too).
-#: Signs found the same empirical way as `FIRE_SHOULDER`/`FIRE_ELBOW`: a
-#: 4-way sweep of (shoulder sign, elbow sign) against the weapon mesh's own
-#: world-space centroid, comparing the raised pose (kick=0) to near-peak
-#: kick. Two of the four combinations move the centroid up and back; this
-#: one was picked over the other because its kick is larger and clearly
-#: readable (about 10 cm of centroid travel vs about 5), which matters more
-#: for an impulse that is only ever on screen for a couple of frames than a
-#: smaller, more restrained number would. `RECOIL_SPINE` rocks the torso
-#: back a little too, absorbing part of it (kept small: `move`'s own
-#: no-height-change rule for `fire` is about the LEGS, not a zero-tolerance
-#: on any motion at all, and an unmoving torso through a recoil impulse
-#: reads as unloaded, not calm).
-RECOIL_SHOULDER = -0.16
-RECOIL_ELBOW = -0.10
-RECOIL_SPINE = -0.05
-FIRE_RISE = 0.16     # fraction of the clip spent on the kick; the rest is recovery
-FIRE_FRAMES = 6
 
-MOVE_FRAMES = 16
-IDLE_FRAMES = 32
+def _translate(table, dx, dy, prefix):
+    out = []
+    for name, parent, head, tail in table:
+        h = (head[0] + dx, head[1] + dy, head[2])
+        t = (tail[0] + dx, tail[1] + dy, tail[2])
+        out.append((f"{prefix}_{name}", f"{prefix}_{parent}" if parent else None, h, t))
+    return out
+
+
+def _standing_bones(prefix, dx, dy):
+    """Standing figure's bone table, translated to its rest placement, plus
+    the two hip-fix bones (R0's fix for the one real rigid-binding failure
+    it found -- see the original report; unchanged here)."""
+    out = _translate(_BASE_BONES, dx, dy, prefix)
+    thigh_by_name = {n: (h, t) for n, _p, h, t in _BASE_BONES}
+    for base, side in (("hip_L", "thigh_L"), ("hip_R", "thigh_R")):
+        th_head, th_tail = thigh_by_name[side]
+        hx, hy, hz = th_head[0] + dx, th_head[1] + dy, th_head[2]
+        vx = (th_tail[0] - th_head[0]) * 0.15
+        vy = (th_tail[1] - th_head[1]) * 0.15
+        vz = (th_tail[2] - th_head[2]) * 0.15
+        out.append((f"{prefix}_{base}", f"{prefix}_pelvis", (hx, hy, hz), (hx + vx, hy + vy, hz + vz)))
+    return out
+
+
+def _kneel_bones(prefix, dx, dy):
+    """Kneeling figure's bone table, translated to its rest placement. No
+    hip-fix bones: kneeling never animates thighs in this pass (crew stay
+    deployed and static through every authored clip -- see module
+    docstring), so there is no swing to open a gap at."""
+    return _translate(_KNEEL_BONES, dx, dy, prefix)
+
 
 AXIS_Y = Vector((0.0, 1.0, 0.0))
 AXIS_X = Vector((1.0, 0.0, 0.0))
 AXIS_Z = Vector((0.0, 0.0, 1.0))
 
-#: suffix (kit.figure()'s "{prefix}_{suffix}" part name, prefix stripped) ->
-#: base bone name (figure-index prefix added at bind time). Covers every
-#: part the rest call (helmet, regular loadout, arms on, no leader-specific
-#: geometry beyond the antenna) emits, plus the rifle prop.
-#:
-#: hip0/hip1 are the one entry that changed from the R0 spike's mapping --
-#: see `hip_L`/`hip_R` below and the module docstring's "the hip" section.
-#: Every other suffix is unchanged from the spike, because R0 already found
-#: every other joint held.
-#: The geometry stream's own "modern outfit" pass (uncommitted in this
-#: shared worktree at the time this was written -- `git diff -- kit.py`
-#: shows it live) layers a "covering" part directly over several parts
-#: PART_BONE above already binds: a kneepad over `knee{i}`, a glove over
-#: `hand{i}`, and so on. Every one of these NEW parts sits at "the exact
-#: same centre" as the part it covers -- kit.py's own comment, verbatim, for
-#: `gauntlet`/`glove` -- so it binds to that SAME part's bone, not a fresh
-#: derivation. This is exactly the kind of drift this file's module
-#: docstring warned a parallel geometry stream could cause; it surfaced as
-#: `rig_parts`'s loud `RuntimeError` (`PART_BONE is stale`), not silently.
-_COVER_BONE = {
-    "cuff": "shin", "kneepad": "thigh",           # over calf{i}/knee{i}
-    "elbowpad": "upperarm", "gauntlet": "forearm", "glove": "forearm",
-    # over elbow{i}/wrist{i}/hand{i}
-}
-
-PART_BONE = {
-    # left leg (index 0, -y)
-    "sole0": "shin_L", "boot0": "shin_L", "toe0": "shin_L",
-    "calf0": "shin_L", "blouse0": "shin_L",
-    "knee0": "thigh_L", "kneefold0": "thigh_L", "thigh0": "thigh_L",
-    "hip0": "hip_L",
-    # right leg (index 1, +y)
-    "sole1": "shin_R", "boot1": "shin_R", "toe1": "shin_R",
-    "calf1": "shin_R", "blouse1": "shin_R",
-    "knee1": "thigh_R", "kneefold1": "thigh_R", "thigh1": "thigh_R",
-    "hip1": "hip_R",
-    # thigh-worn gear -- follows the leg it's strapped to, not the pelvis
-    "dropleg": "thigh_R", "holster": "thigh_L",
-    # pelvis / belt line
-    "hips": "pelvis", "belt": "pelvis", "dump": "pelvis", "canteen": "pelvis", "hem": "pelvis",
-    # torso / chest rig
-    "torso": "spine", "carrier": "spine",
-    "pouch0": "spine", "pouch1": "spine", "pouch2": "spine",
-    "strap0": "spine", "strap1": "spine", "admin": "spine",
-    "deltoid0": "spine", "deltoid1": "spine",
-    "antenna": "spine",
-    # NEW (modern-outfit pass): cummerbund "wraps the carrier's sides" --
-    # kit.py's own words -- so it follows `carrier`'s own bone, `spine`.
-    "cummerbund0": "spine", "cummerbund1": "spine",
-    # left arm (index 0)
-    "upperarm0": "upperarm_L", "elbow0": "upperarm_L", "elbowfold0": "upperarm_L",
-    "forearm0": "forearm_L", "wrist0": "forearm_L", "hand0": "forearm_L",
-    # right arm (index 1, weapon/lead side for mirror=False)
-    "upperarm1": "upperarm_R", "elbow1": "upperarm_R", "elbowfold1": "upperarm_R",
-    "forearm1": "forearm_R", "wrist1": "forearm_R", "hand1": "forearm_R",
-    # neck / head
-    "neck": "neck",
-    "cranium": "head", "face": "head",
-    "helm_shell": "head", "helm_skirt": "head", "helm_nvg": "head",
-    "helm_rail0": "head", "helm_rail1": "head", "chinstrap": "head",
-    # NEW (modern-outfit pass): hood/balaclava sit at cranium's/face's own
-    # centre (full coverage over the `skin` ramp, kit.py's own reasoning);
-    # gaiter is coaxial with the neck tube; helm_counterweight is part of
-    # tactical_helmet() like every other "helm_*" part above.
-    "hood": "head", "balaclava": "head", "gaiter": "neck",
-    "helm_counterweight": "head",
-    # weapon -- rigidly on the forearm that carries it (one bone for the
-    # whole assembly, see rig_parts()'s "_w"/"_w_<part>" special case and
-    # _weapon_parts() below), FIRE_* above and RECOIL_* above move it.
-    "w": "forearm_R",
-}
-for _cover, _base in _COVER_BONE.items():
-    PART_BONE[f"{_cover}0"] = f"{_base}_L"
-    PART_BONE[f"{_cover}1"] = f"{_base}_R"
-del _cover, _base
-
 
 def local_quat_for_world_axis(bone, axis, angle):
     """A pose-bone-local rotation quaternion for a world-space axis+angle.
 
-    Identical to the R0 spike's function of the same name, and identically
-    exact only when the bone's parent carries no pose rotation of its own at
-    the same frame -- see the spike's own long comment for the reference-
-    frame mistake this guards against (a stride that barely moved the leg
-    until it was fixed). True for every bone this module keys on its own,
-    including the new hip bones (parent pelvis, never keyed); `move`'s spine
-    lean is the one place two ancestors move at once (spine's own lean is
-    keyed while pelvis is not, so that one is still exact -- pelvis is
-    unmoved in `move`), and `idle` keys pelvis and spine together, where R0
-    already recorded the resulting error as second-order and negligible at
-    breath/sway amplitude. The naturalism pass below stacks a THIRD such
-    case -- `move`'s own pelvis+spine twist, plus a head that counter-twists
-    against a spine that is itself already twisting -- accepted for the same
-    reason and at a comparably small amplitude, verified rather than assumed
-    (see the report).
+    Exact only when the bone's parent carries no pose rotation of its own at
+    the same frame -- true for every bone this module keys on its own.
     """
     rot3 = bone.matrix_local.to_3x3()
     local_axis = (rot3.inverted() @ axis).normalized()
@@ -406,21 +271,9 @@ def local_quat_for_world_axis(bone, axis, angle):
 
 def local_quat_for_world_axes(bone, axis_angles):
     """Compose several small world-axis rotations into ONE pose-bone-local
-    quaternion, for a bone this file now keys on more than one axis in the
-    same frame -- `spine` carries both `MOVE_LEAN` (AXIS_Y) and the
-    naturalism pass's own shoulder twist (AXIS_Z). A second bare `key()`
-    call on the same bone in the same frame would REPLACE
-    `rotation_quaternion` rather than add to it; this is the fix, and the
-    bug it fixes was caught exactly the way this file's own docstring says
-    to catch this class of mistake -- by querying the exported pose, not by
-    reading the code (the first draft's spine silently lost its forward
-    lean the moment shoulder twist was added).
-
-    Composes each term via `local_quat_for_world_axis`, in sequence -- exact
-    for a single axis, an accepted small-angle approximation for more than
-    one at once, the same tolerance this file already accepts for idle's
-    simultaneous pelvis+spine keys.
-    """
+    quaternion, for a bone keyed on more than one axis in the same frame. A
+    second bare `key()` call on the same bone in the same frame would
+    REPLACE `rotation_quaternion` rather than add to it."""
     q = Quaternion((1.0, 0.0, 0.0, 0.0))
     for axis, angle in axis_angles:
         if angle == 0.0:
@@ -430,77 +283,61 @@ def local_quat_for_world_axes(bone, axis_angles):
 
 
 def local_offset_for_world_axis(bone, axis):
-    """A pose-bone-local translation direction for a world-space axis.
-
-    Same reasoning as `local_quat_for_world_axis`, for `location` instead of
-    `rotation_quaternion`: pose-bone location is applied in the bone's own
-    rest frame before the parent's rest/pose composes on top of it, and
-    `bone.matrix_local`'s 3x3 is exactly what turns a world direction into
-    that frame when the parent carries no pose transform of its own at the
-    same frame -- true for `root`, which has no parent at all. Used only for
-    `root`'s vertical bob below; every other bone in this file is keyed by
-    rotation only, never location.
-    """
+    """A pose-bone-local translation direction for a world-space axis. Used
+    only for `root`'s vertical bob in `move`."""
     rot3 = bone.matrix_local.to_3x3()
     return rot3.inverted() @ axis
 
 
-def _figure_bones(prefix, dx, dy):
-    """This figure's bone table, translated to its rest placement and with
-    two extra hip bones -- the fix for R0's one real rigid-binding failure.
+# --- naturalism pass (R0's own constants, unchanged) ------------------------
 
-    **The hip.** `hip0`/`hip1` are blobs that bridge the pelvis and the
-    thigh. R0 bound them wholly to the thigh bone, and at the hip's own
-    ~31 deg swing (A_THIGH) that opened a visible gap in profile: the blob's
-    pelvis-side vertices are close to the thigh's rotation pivot but the
-    *pelvis mesh itself never moves in `move`*, so anything bound 100% to the
-    thigh swings its near edge out from under a socket that stays still.
-    Every other joint blob (knee, elbow) sits between two bones that are
-    BOTH animated, so the discontinuity is smaller and R0 found it did not
-    tear visibly; the hip is the one blob between a moving bone and a
-    completely static one.
+A_THIGH = 0.55
+B_SHIN = 0.90
+BREATH_AMP = 0.035
+SWAY_AMP = 0.045
+MOVE_LEAN = 0.14
+HIP_TWIST_AMP = 0.10
+SHOULDER_TWIST_AMP = 0.17
+HEAD_COUNTER_FRAC = 0.65
+BOB_AMP = 0.026
+SETTLE_AMP = 0.16
+SETTLE_WIDTH = 1.15
+SHIN_SWING_SHIFT = 0.6
+HEEL_L = math.pi + SHIN_SWING_SHIFT
+HEEL_R = SHIN_SWING_SHIFT
+A_ARM_FREE = 0.52
+A_ARM_WEAPON = 0.20
+ELBOW_FREE_AMP = 0.30
+ELBOW_PHASE_SIGN = 1.0
 
-    The fix adds `hip_L`/`hip_R` as their own bones, children of `pelvis`
-    (not `thigh`), positioned at the thigh's own rest pivot and pointing the
-    same direction the thigh does (a fixed 15% of the thigh's own rest
-    vector, computed here rather than hand-typed, so it cannot drift out of
-    sync with a change to the thigh's endpoints above). The hip blob binds to
-    this new bone instead of the thigh, and the clip functions below key it
-    to HALF the thigh's own rotation every frame -- an anatomically
-    reasonable compromise (a hip blob is over real tissue that partially
-    follows the femur and partially stays with the pelvis) that closes roughly
-    half the gap by construction. This is a bone and a formula, not a weight
-    paint: it stays exactly as diffable as everything else here.
-    """
-    out = []
-    for name, parent, head, tail in _BASE_BONES:
-        h = (head[0] + dx, head[1] + dy, head[2])
-        t = (tail[0] + dx, tail[1] + dy, tail[2])
-        out.append((f"{prefix}_{name}", f"{prefix}_{parent}" if parent else None, h, t))
-    thigh_by_name = {n: (h, t) for n, _p, h, t in _BASE_BONES}
-    for base, side in (("hip_L", "thigh_L"), ("hip_R", "thigh_R")):
-        th_head, th_tail = thigh_by_name[side]
-        hx = th_head[0] + dx
-        hy = th_head[1] + dy
-        hz = th_head[2]
-        vx = (th_tail[0] - th_head[0]) * 0.15
-        vy = (th_tail[1] - th_head[1]) * 0.15
-        vz = (th_tail[2] - th_head[2]) * 0.15
-        out.append((f"{prefix}_{base}", f"{prefix}_pelvis", (hx, hy, hz), (hx + vx, hy + vy, hz + vz)))
-    return out
+FIRE_SHOULDER = -0.45
+FIRE_ELBOW = 0.35
+RECOIL_SHOULDER = -0.16
+RECOIL_ELBOW = -0.10
+RECOIL_SPINE = -0.05
+FIRE_RISE = 0.16
+FIRE_FRAMES = 6
 
+MOVE_FRAMES = 16
+IDLE_FRAMES = 32
+
+#: charge_squad's own extra lean: teams.py's `lean = 24.0 if clip == "fire"
+#: else 20.0` -- 20 degrees is baked into REST geometry (see
+#: `_charge_squad_rest`); this is the remaining 4 degrees, keyed as a
+#: constant (not a rise/decay impulse -- teams.py's own value is a flat
+#: constant for the whole clip, not a recoil) on the ROOT bone, which has no
+#: skinned vertices of its own and so rotates the whole leaning figure
+#: rigidly with no new seam -- the same property `move`'s vertical bob
+#: already relies on `root` for.
+FIRE_ROOT_LEAN = {
+    "charge_squad": {"chg0": math.radians(4.0), "chg1": math.radians(4.0)},
+}
+
+
+# --- weapon assembly (R0's own numbers, unchanged) --------------------------
 
 def _weapon_anchor(at, yaw, posture, aim):
-    """`kit.rifle()`'s own anchor formula, copied rather than called.
-
-    `kit.rifle()` returns finished geometry (one tube), not the anchor point
-    alone, and `_weapon_parts` below needs the point itself to build several
-    parts around it -- the same duplication discipline `REST_FIGURES`
-    already uses for `teams.inf_squad`'s formula: copied verbatim, cited,
-    and checked numerically rather than re-read (the report probes this
-    anchor against `kit.rifle()`'s own tube centroid and confirms they
-    land on the same point).
-    """
+    """`kit.rifle()`'s own anchor formula, copied rather than called."""
     z = kit.POSTURE_EYE[posture] * kit.FIGURE_H - (0.10 if aim else 0.16)
     reach = 0.32 if aim else 0.16
     x0, y0, z0 = at
@@ -509,35 +346,8 @@ def _weapon_anchor(at, yaw, posture, aim):
 
 
 def _weapon_parts(prefix, at, yaw=0.0, posture="standing", aim=False):
-    """A rifle built from actual sub-parts -- receiver, barrel, front and
-    rear sights, stock, pistol grip, angled magazine -- replacing
-    `kit.rifle()`'s single 0.045-radius, 8-sided tube.
-
-    That tube is 144 vertices across the whole team (~48/figure) against
-    `uniform`'s 8,262, and on screen it reads as a thin dark stick, not a
-    weapon -- not missing, under-modelled relative to everything around it.
-    The fix is shape, not polygon count for its own sake: a rifle silhouette
-    needs a body, a barrel line, and the magazine's forward-down break in an
-    otherwise straight outline, none of which one tube can express regardless
-    of how it is sized.
-
-    Every part still carries `role="weapon"` and is named `f"{prefix}_w"` or
-    `f"{prefix}_w_<component>"` -- `rig_parts()`'s special case below binds
-    the WHOLE family to `forearm_R`, one bone, exactly like the single tube
-    it replaces: the rifle is a rigid assembly riding the firing hand, so it
-    needs its own SHAPE, not its own joint chain. And because every one of
-    these parts shares the `weapon` role, `join_by_role` merges them into
-    the SAME one mesh the old tube was -- zero new draw calls team-wide, only
-    vertices, which is exactly the headroom the brief measured (draw-call
-    submission is the ~420-460-unit ceiling, not vertex count).
-
-    Built from `kit.box`/`kit.tube` -- `kit.py`'s own public primitives, not
-    a second geometry module -- around the SAME anchor point and at roughly
-    the SAME overall envelope (~0.8 m long) `kit.rifle()`'s tube already
-    occupied, so the shape gains detail without the "proportionate" ask in
-    the brief being second-guessed: this is not a bigger prop, it is a
-    better-shaped one at the same size.
-    """
+    """A rifle built from actual sub-parts, all role="weapon", all bound as
+    one rigid assembly to the firing hand -- see `_add_figure`."""
     gx, gy, gz = _weapon_anchor(at, yaw, posture, aim)
     c, s = math.cos(yaw), math.sin(yaw)
 
@@ -545,47 +355,267 @@ def _weapon_parts(prefix, at, yaw=0.0, posture="standing", aim=False):
         return (gx + dx * c - dy * s, gy + dx * s + dy * c, gz + dz)
 
     return [
-        # Receiver/handguard -- the body every other part reads off of.
         kit.box(f"{prefix}_w_receiver", (0.34, 0.046, 0.050), place(0.03, 0.0, 0.0), role="weapon"),
-        # Barrel -- forward of the receiver, slimmer, the line a stick alone
-        # was trying and failing to be.
         kit.tube(f"{prefix}_w_barrel", 0.30, 0.013, place(0.34, 0.0, 0.010), yaw=yaw, sides=8, role="weapon"),
-        # Front and rear sights -- small vertical breaks in an otherwise
-        # straight top line, the detail that reads "weapon" rather than
-        # "pipe" even at a glance.
         kit.box(f"{prefix}_w_sight_f", (0.014, 0.014, 0.055), place(0.47, 0.0, 0.045), role="weapon"),
         kit.box(f"{prefix}_w_sight_r", (0.035, 0.022, 0.035), place(-0.05, 0.0, 0.043), role="weapon"),
-        # Stock -- behind the receiver, toward the shoulder.
         kit.box(f"{prefix}_w_stock", (0.28, 0.032, 0.044), place(-0.30, 0.0, -0.010), role="weapon"),
-        # Pistol grip -- hangs down at the hand.
         kit.box(f"{prefix}_w_grip", (0.026, 0.032, 0.095), place(-0.03, 0.0, -0.065), role="weapon"),
-        # Magazine -- angled down and slightly forward (negative pitch tips
-        # the FORWARD end down, per kit.tube()'s own pitch convention: at
-        # its forward end, z = +length/2 * sin(pitch), so a negative pitch
-        # puts that end below the receiver line). The single most
-        # recognisable break in a rifle's silhouette, and the one thing a
-        # straight tube could never have.
         kit.tube(f"{prefix}_w_mag", 0.20, 0.020, place(0.09, 0.0, -0.075), yaw=yaw, pitch=-0.5, sides=6, role="weapon"),
     ]
 
 
-def build_team_rest(team_id=TEAM_ID):
-    """Fresh scene: every figure's rest geometry (idle/move/fire's shared
-    starting pose -- standing, stride 0, helmet, regular loadout, weapon
-    carried not aimed), all bone tables, figure by figure."""
-    assert team_id == TEAM_ID, f"rig.py currently covers only {TEAM_ID!r}"
-    kit.new_scene()
+# --- per-team figure specs ---------------------------------------------------
+#
+# One entry per figure this pass rigs: bone-prefix (kept identical to the
+# name `teams.py`'s own builder gives that figure, so PART_BONE's
+# "prefix_suffix" split just works), rest (x, y), posture, headgear/loadout,
+# leader flag, mirror, whether it walks in `move` ("animates" -- False for a
+# crew-served figure that stays kneeling and static through every clip, and
+# for `rpg_fire`, which teams.py pins to `stride=0.0` even during move), and
+# which handheld weapon (if any) `_add_figure` should attach via
+# `_weapon_parts`.
+#
+# Every (x, y) below is copied verbatim from `teams.py`'s own source, not
+# re-derived -- REST_FIGURES's own discipline, carried forward.
+
+def _f(prefix, x, y, posture="standing", headgear="helmet", loadout="regular",
+       leader=False, mirror=False, animates=True, weapon=None):
+    return dict(prefix=prefix, x=x, y=y, posture=posture, headgear=headgear,
+                loadout=loadout, leader=leader, mirror=mirror,
+                animates=animates, weapon=weapon)
+
+
+TEAM_FIGURES = {
+    "inf_squad": [
+        _f("f0", 0.0, -0.78, weapon="rifle"),
+        _f("f1", 0.20, 0.0, leader=True, weapon="rifle"),
+        _f("f2", 0.0, 0.78, weapon="rifle"),
+    ],
+    "militia_cell": [
+        _f("mil0", 0.0, -0.24, headgear="keffiyeh", loadout="irregular", leader=True, weapon="rifle"),
+        _f("mil1", 0.12, 0.26, headgear="keffiyeh", loadout="irregular", weapon="rifle"),
+    ],
+    "charge_squad": [
+        _f("chg0", 0.46, -0.06, headgear="keffiyeh", loadout="irregular"),
+        _f("chg1", -0.46, 0.10, headgear="keffiyeh", loadout="irregular", mirror=True),
+    ],
+    "rpg_team": [
+        _f("rpg_fire", 0.18, -0.26, headgear="keffiyeh", loadout="irregular", animates=False),
+        _f("rpg_load", -0.30, 0.30, headgear="keffiyeh", loadout="irregular", leader=True, weapon="rifle"),
+    ],
+    "demo_squad": [
+        _f("demo_a", 0.34, -0.16, posture="kneeling", animates=False),
+        _f("demo_b", -0.36, 0.28, leader=True, weapon="rifle"),
+    ],
+    "at_team": [
+        _f("at_fire", 0.24, -0.30, posture="kneeling", animates=False),
+        _f("at_spot", -0.32, 0.34, leader=True),
+    ],
+    "mortar_team": [
+        _f("mtr_crew0", -0.14, -0.54, posture="kneeling", animates=False),
+        _f("mtr_crew1", -0.14, 0.54, posture="kneeling", animates=False),
+        _f("mtr_no3", -0.62, 0.0, leader=True, weapon="rifle"),
+    ],
+    "mortar_crew": [
+        _f("emtr_crew0", -0.16, -0.40, posture="kneeling", headgear="keffiyeh", loadout="irregular", animates=False),
+        _f("emtr_crew1", -0.16, 0.42, posture="kneeling", headgear="keffiyeh", loadout="irregular", animates=False),
+    ],
+    "atgm_cell": [
+        _f("atgm_crew0", -0.34, -0.40, posture="kneeling", headgear="keffiyeh", loadout="irregular", animates=False),
+        _f("atgm_crew1", -0.34, 0.44, posture="kneeling", headgear="keffiyeh", loadout="irregular", animates=False),
+    ],
+}
+
+
+def _check_team_figures_against_teams():
+    """Cheap, always-on self-check: every prefix in TEAM_FIGURES must be a
+    real figure this pass can bind (posture standing/kneeling only), and
+    every team must exist in teams.TEAMS with the faction this file expects
+    -- catches an obvious transcription slip loudly, at import time, rather
+    than a silent stale export. Positions are additionally cross-checked
+    against teams.py's own ACTUAL BUILT geometry by a separate, throwaway
+    Blender probe (not run on every import -- see the report), which is the
+    stronger check; this one is the cheap always-on floor.
+    """
+    expect_faction = {
+        "inf_squad": "kdf", "militia_cell": "enemy", "demo_squad": "kdf",
+        "charge_squad": "enemy", "at_team": "kdf", "rpg_team": "enemy",
+        "mortar_team": "kdf", "mortar_crew": "enemy", "atgm_cell": "enemy",
+    }
+    for team_id, figures in TEAM_FIGURES.items():
+        assert team_id in teams.TEAMS, f"{team_id} missing from teams.TEAMS"
+        assert teams.TEAMS[team_id][1] == expect_faction[team_id], (
+            f"{team_id}'s faction changed in teams.py -- expected "
+            f"{expect_faction[team_id]!r}, teams.py now says "
+            f"{teams.TEAMS[team_id][1]!r}"
+        )
+        for spec in figures:
+            assert spec["posture"] in ("standing", "kneeling"), spec
+    assert set(SUPPORTED_TEAMS) == set(TEAM_FIGURES), "SUPPORTED_TEAMS/TEAM_FIGURES drifted apart"
+
+
+_check_team_figures_against_teams()
+
+
+def _add_figure(spec):
+    """One figure -- geometry, bone table, and (if it carries one) its rigid
+    weapon assembly. Returns (parts, bone_table_entries, forced_bone)."""
+    parts = kit.figure(
+        spec["prefix"], (spec["x"], spec["y"], 0.0), posture=spec["posture"],
+        yaw=0.0, headgear=spec["headgear"], stride=0.0, arms=True,
+        leader=spec["leader"], mirror=spec["mirror"], loadout=spec["loadout"],
+        smoke=None,
+    )
+    if spec["posture"] == "standing":
+        bones = _standing_bones(spec["prefix"], spec["x"], spec["y"])
+    else:
+        bones = _kneel_bones(spec["prefix"], spec["x"], spec["y"])
+    forced = {}
+    if spec["weapon"] == "rifle":
+        wp = _weapon_parts(spec["prefix"], (spec["x"], spec["y"], 0.0),
+                            posture=spec["posture"], aim=False)
+        parts += wp
+        for ob in wp:
+            forced[ob] = f"{spec['prefix']}_forearm_R"
+    return parts, bones, forced
+
+
+# --- team-specific extras: props with no hand to bind to, and charge_squad's
+# --- own vest/satchel/lean geometry -----------------------------------------
+
+def _prop_bone(at, height=0.30):
+    """A single static, never-keyed bone for a ground-mounted crew weapon --
+    see the module docstring's "free-standing crew weapon" note. Parented to
+    nothing: it never moves, so it needs no parent to move rigidly with."""
+    x, y, z = at
+    return ("prop", None, (x, y, z), (x, y, z + height))
+
+
+def _demo_extras():
+    """demo_squad's satchel charge (ground, static -- bound to the team's
+    own `prop` bone) and cable spool (carried by demo_b -- bound to
+    demo_b's own spine, so it leans/twists with the figure that carries it
+    through `move`, the same "worn kit follows the torso" read every other
+    webbing part in PART_BONE already gets)."""
+    charge = kit.demo_charge("demo_charge", (0.76, -0.16, 0.0))
+    spool = kit.cable_spool("demo_spool", (-0.36, 0.28, 0.0))
+    forced = {ob: "prop" for ob in charge}
+    forced.update({ob: "demo_b_spine" for ob in spool})
+    return charge + spool, [_prop_bone((0.76, -0.16, 0.10))], forced
+
+
+def _at_extras():
+    """at_team's Spike tube -- "held", per teams.py's own description, so it
+    rides at_fire's forearm_R exactly like a rifle -- and the spotter's
+    binoculars, bound to at_spot's head (they're raised near eye level, and
+    the small sway a breathing head keys in `idle` is the right amount of
+    motion for them)."""
+    tube = kit.launcher("at_tube", (0.24, -0.30, 1.02), pitch=0.0, length=1.16)
+    binos = kit.binoculars("at_binos", (-0.32, 0.34, 0.0), posture="standing")
+    forced = {ob: "at_fire_forearm_R" for ob in tube}
+    forced.update({ob: "at_spot_head" for ob in binos})
+    return tube + binos, [], forced
+
+
+def _rpg_extras():
+    """rpg_team's tube, held by rpg_fire the same way at_team's is."""
+    tube = kit.launcher("rpg_tube", (0.18, -0.26, 1.46),
+                         pitch=math.radians(38.0), length=1.24, radius=0.075)
+    return tube, [], {ob: "rpg_fire_forearm_R" for ob in tube}
+
+
+def _mortar_team_extras():
+    tube = kit.mortar("mtr_tube", (0.26, 0.0, 0.0), length=1.02)
+    return tube, [_prop_bone((0.26, 0.0, 0.10), 0.40)], {ob: "prop" for ob in tube}
+
+
+def _mortar_crew_extras():
+    tube = kit.mortar("emtr_tube", (0.22, 0.0, 0.0), length=0.76)
+    return tube, [_prop_bone((0.22, 0.0, 0.10), 0.35)], {ob: "prop" for ob in tube}
+
+
+def _atgm_extras():
+    post = kit.atgm_tripod("atgm_post", (0.24, 0.0, 0.0))
+    return post, [_prop_bone((0.24, 0.0, 0.20), 0.45)], {ob: "prop" for ob in post}
+
+
+TEAM_EXTRAS = {
+    "demo_squad": _demo_extras,
+    "at_team": _at_extras,
+    "rpg_team": _rpg_extras,
+    "mortar_team": _mortar_team_extras,
+    "mortar_crew": _mortar_crew_extras,
+    "atgm_cell": _atgm_extras,
+}
+
+
+def _charge_squad_rest():
+    """charge_squad's own geometry, built directly rather than through
+    `_add_figure`: `teams.charge_squad`'s vest_f/vest_b and (figure 1 only)
+    the satchel are appended to the figure's own part list BEFORE the sprint
+    lean is applied, so all three rotate together -- copied in that order.
+    `teams._lean_forward` is imported and called, not reimplemented: it is
+    the exact function `teams.py`'s own charge_squad uses, operating on
+    finished vertex data (never on the not-yet-existing bones), so baking it
+    at REST time here and animating on top of it afterward is the same
+    operation the sprite pipeline performs once per frame, done once here
+    because kneeling/standing figures in this pass never change posture
+    across clips. No weapon: "no weapon parts at all" is teams.py's own
+    line, and the tell IS the absence.
+    """
     parts = []
     bone_table = []
-    for prefix, x, y, leader in REST_FIGURES:
-        parts += kit.figure(
-            prefix, (x, y, 0.0), posture="standing", yaw=0.0, headgear="helmet",
-            stride=0.0, arms=True, leader=leader, mirror=False,
-            loadout="regular", smoke=None,
-        )
-        parts += _weapon_parts(prefix, (x, y, 0.0), posture="standing", aim=False)
-        bone_table += _figure_bones(prefix, x, y)
-    return parts, bone_table
+    forced = {}
+    for spec in TEAM_FIGURES["charge_squad"]:
+        prefix, x, y = spec["prefix"], spec["x"], spec["y"]
+        fig = kit.figure(prefix, (x, y, 0.0), posture="standing", yaw=0.0,
+                          headgear=spec["headgear"], stride=0.0, arms=True,
+                          leader=False, mirror=spec["mirror"],
+                          loadout=spec["loadout"], smoke=None)
+        fig.append(kit.rot_z(f"{prefix}_vest_f", (0.10, 0.26, 0.32),
+                              (x + 0.16, y, 0.60), 0.0, "charge"))
+        fig.append(kit.rot_z(f"{prefix}_vest_b", (0.09, 0.26, 0.28),
+                              (x - 0.15, y, 0.62), 0.0, "charge"))
+        if prefix == "chg1":
+            sat = kit.box("chg_satchel", (0.26, 0.18, 0.20),
+                           (x - 0.12, y + 0.19, 0.74), "charge")
+            fig.append(sat)
+            forced[sat] = f"{prefix}_spine"
+        teams._lean_forward(fig, 20.0, at_x=x)
+        parts += fig
+        bone_table += _standing_bones(prefix, x, y)
+    return parts, bone_table, forced
+
+
+def build_team_rest(team_id):
+    """Fresh scene: every figure's rest geometry for `team_id`, all bone
+    tables, and any team-specific extras (props, charge_squad's own
+    vest/lean geometry)."""
+    assert team_id in SUPPORTED_TEAMS, (
+        f"rig.py does not cover {team_id!r} -- see SUPPORTED_TEAMS and this "
+        "module's own docstring for what's out of scope and why"
+    )
+    kit.new_scene()
+    parts, bone_table, forced_bone = [], [], {}
+    if team_id == "charge_squad":
+        p, b, f = _charge_squad_rest()
+        parts += p
+        bone_table += b
+        forced_bone.update(f)
+    else:
+        for spec in TEAM_FIGURES[team_id]:
+            p, b, f = _add_figure(spec)
+            parts += p
+            bone_table += b
+            forced_bone.update(f)
+    extras_fn = TEAM_EXTRAS.get(team_id)
+    if extras_fn:
+        p, b, f = extras_fn()
+        parts += p
+        bone_table += b
+        forced_bone.update(f)
+    return parts, bone_table, forced_bone
 
 
 def build_armature(bone_table):
@@ -602,44 +632,47 @@ def build_armature(bone_table):
         b.tail = tail
         if parent:
             b.parent = eb[parent]
-        # Every bone's local Z points along world Y -- one convention so any
-        # hinge below can name a world axis and mean it. Same as R0.
         b.align_roll(AXIS_Y)
     bpy.ops.object.mode_set(mode="OBJECT")
     return arm_obj
 
 
-def rig_parts(parts, arm_obj):
+def rig_parts(parts, arm_obj, forced_bone, figure_prefixes):
     """Rigid bind: one part -> one vertex group -> one bone, weight 1.0.
 
-    Each part stays its own object through this step (not joined yet) so its
-    `rl_role` custom property -- set by `kit.py`'s `_mesh()` -- survives
-    per-part; `join_by_role` below merges by role only after every part
-    already carries a correct vertex group and modifier.
+    `forced_bone` (object identity -> bone name) is checked first -- every
+    free-standing prop and every weapon assembly is entered there explicitly
+    by the code that built it, rather than matched by name pattern. Anything
+    left over is bound by the standard "prefix_suffix" split against
+    PART_BONE; anything that resolves to neither raises loudly.
+
+    **The split is against `figure_prefixes`, not the first underscore.**
+    `inf_squad`'s own prefixes ("f0", "f1", "f2") happen to contain no
+    underscore, so `obj.name.partition("_")` used to work by accident -- and
+    broke the instant a team with a real prefix (`demo_a`, `at_fire`,
+    `mtr_crew0`, all copied verbatim from `teams.py`) was rigged: every part
+    of `demo_a`/`demo_b` came back unmapped, because partitioning
+    "demo_a_shin_r" on its first underscore gives prefix "demo", not
+    "demo_a". Caught by actually running the export, not by reading the
+    code -- exactly the standard this file's own docstring asks for.
+    `figure_prefixes` is sorted longest-first so a prefix that is itself a
+    prefix of another (none in this pass, but nothing prevents it later)
+    cannot match short.
     """
+    ordered_prefixes = sorted(figure_prefixes, key=len, reverse=True)
     unmapped = []
     for obj in parts:
-        prefix, _, suffix = obj.name.partition("_")
-        # kit.figure()'s own prefix arg is "f0"/"f1"/"f2", so its parts'
-        # "prefix_suffix" split above just works. _weapon_parts() names its
-        # OWN parts "f0_w" or "f0_w_<component>" (barrel, stock, mag, ...)
-        # -- neither form is a clean single "prefix_suffix" split (the
-        # second has a second underscore inside the suffix), and EVERY
-        # weapon component binds to the SAME bone regardless of which one
-        # it is (the rifle is one rigid assembly, not several jointed
-        # parts) -- handled as a special case rather than growing PART_BONE
-        # with one entry per component.
-        if obj.name.endswith("_w") and obj.name[:-2] in FIGURE_PREFIXES:
-            prefix, suffix = obj.name[:-2], "w"
-        elif "_w_" in obj.name:
-            cand_prefix, _, _component = obj.name.partition("_w_")
-            if cand_prefix in FIGURE_PREFIXES:
-                prefix, suffix = cand_prefix, "w"
-        bone_name = PART_BONE.get(suffix)
+        bone_name = forced_bone.get(obj)
         if bone_name is None:
-            unmapped.append(obj.name)
-            continue
-        vg = obj.vertex_groups.new(name=f"{prefix}_{bone_name}")
+            prefix = next((p for p in ordered_prefixes
+                           if obj.name == p or obj.name.startswith(p + "_")), None)
+            suffix = obj.name[len(prefix) + 1:] if prefix else obj.name
+            base = PART_BONE.get(suffix)
+            if prefix is None or base is None:
+                unmapped.append(obj.name)
+                continue
+            bone_name = f"{prefix}_{base}"
+        vg = obj.vertex_groups.new(name=bone_name)
         vg.add(list(range(len(obj.data.vertices))), 1.0, "REPLACE")
         mod = obj.modifiers.new(name="Armature", type="ARMATURE")
         mod.object = arm_obj
@@ -651,18 +684,7 @@ def rig_parts(parts, arm_obj):
 
 
 def join_by_role(parts):
-    """One skinned mesh per `rl_role` -- the mesh-unit-contract's central
-    requirement and the fix for R0's 56-draw-calls finding.
-
-    Every part destined for the same mesh already sits at the world origin
-    with an identity object transform (kit.py's own rule: "object scale
-    always 1", nothing here ever touches `obj.location` either), so `join()`
-    needs no coordinate reconciliation -- it is purely a data merge. Vertex
-    groups from every joined part carry over by name, so the merged mesh ends
-    up with one vertex group per bone actually used by that role, each
-    vertex still weighted 1.0 in exactly one group -- rigid binding survives
-    the join unchanged.
-    """
+    """One skinned mesh per `rl_role`."""
     from collections import defaultdict
     groups = defaultdict(list)
     for ob in parts:
@@ -693,10 +715,6 @@ def reset_pose(arm_obj):
     for pb in arm_obj.pose.bones:
         pb.rotation_mode = "QUATERNION"
         pb.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
-        # `move`'s vertical bob is this file's first LOCATION channel (every
-        # earlier clip only ever keyed rotation) -- reset it here too, same
-        # reason rotation is reset: a stale in-memory value would otherwise
-        # leak into whichever action is built next.
         pb.location = (0.0, 0.0, 0.0)
 
 
@@ -706,38 +724,15 @@ def key(pb, bone, axis, angle, frame):
 
 
 def key_axes(pb, bone, axis_angles, frame):
-    """Like `key`, for a bone keyed on more than one world axis in the same
-    frame -- see `local_quat_for_world_axes`'s own docstring for the bug
-    this exists to avoid (two plain `key()` calls on one bone overwrite
-    each other's rotation instead of composing)."""
     pb.rotation_quaternion = local_quat_for_world_axes(bone, axis_angles)
     pb.keyframe_insert(data_path="rotation_quaternion", frame=frame)
 
 
 def _new_action(arm_obj, name):
-    """A fresh, self-contained action.
-
-    **Every pose bone gets an explicit identity keyframe at frame 0**, not
-    just the ones this clip intentionally animates. Blender's animation
-    evaluation only writes a channel that the ACTIVE action actually drives;
-    a bone with no F-curve in this action keeps whatever value it was last
-    assigned by Python, in memory, regardless of which action is active when
-    that memory is read. Skipping this step is silent and was caught only by
-    measurement, not by reading the code: with `idle` built before `fire`,
-    exporting `idle` after `fire` was authored left the weapon-arm bones at
-    `fire`'s last angle for the *entire idle clip*, because `idle` never
-    keys them at all -- proven by re-querying the exported "idle" weapon
-    centroid before and after a `fire`-only code change and watching it move.
-    One frame-0 key per bone gives every channel a defined, constant value
-    for any frame this action does not otherwise touch.
-
-    Location gets the same identity key as rotation, for the same reason --
-    `move`'s vertical bob (below) is this file's first LOCATION channel;
-    every earlier clip only ever keyed rotation, so without this an action
-    built before `move` would inherit whatever `root`'s location last was in
-    memory, exactly the class of bug this docstring already found once for
-    rotation.
-    """
+    """A fresh, self-contained action. Every pose bone gets an explicit
+    identity keyframe at frame 0 -- see the original report for the bug this
+    fixes: a bone an action never touches otherwise keeps whatever value the
+    last-built action left in memory."""
     reset_pose(arm_obj)
     action = bpy.data.actions.new(name)
     action.use_fake_user = True
@@ -752,12 +747,10 @@ def _new_action(arm_obj, name):
     return action
 
 
-def build_idle_clip(arm_obj):
-    """Breath + weight shift, per figure -- unchanged from R0 beyond
-    repeating it three times under each figure's own bone prefix. All three
-    figures share the same phase, matching `teams.inf_squad`'s own idle
-    (every figure in the team is built from the same `smoke_pose` frame each
-    tick, so they were already synchronised in the sprite pipeline)."""
+def build_idle_clip(arm_obj, figures):
+    """Breath + weight shift, every figure regardless of posture -- a
+    kneeling gunner still breathes. Unchanged formula from R0, applied
+    generically to whichever team's figures are passed in."""
     _new_action(arm_obj, "idle")
     bones = arm_obj.data.bones
     pbones = arm_obj.pose.bones
@@ -766,48 +759,36 @@ def build_idle_clip(arm_obj):
         ph = 2.0 * math.pi * t
         breathe = BREATH_AMP * math.sin(ph)
         sway = SWAY_AMP * math.sin(ph + 1.1)
-        for prefix, _x, _y, _leader in REST_FIGURES:
+        for spec in figures:
+            prefix = spec["prefix"]
             key(pbones[f"{prefix}_spine"], bones[f"{prefix}_spine"], AXIS_Y, breathe, f)
             key(pbones[f"{prefix}_pelvis"], bones[f"{prefix}_pelvis"], AXIS_X, sway, f)
 
 
 def _settle_bump(phase, heel_phase, width, amp):
-    """A small, smooth (raised-cosine) knee-give right after heel-strike --
-    the "settle" the brief asks for: real weight acceptance is not an
-    instant lock to straight-legged, it is a brief give that straightens
-    back out over the first part of stance. Zero outside
-    `[heel_phase, heel_phase + width]`; a raised cosine inside it, so both
-    the give and the recovery are eased rather than a linear ramp with a
-    visible break at either end -- important at `MOVE_FRAMES`' own sampling
-    density, where a sharp corner would show as one.
-
-    `phase` and `heel_phase` are both taken mod 2*pi via the `%` below, so
-    this reads correctly regardless of which side of the 0/2*pi wrap the
-    bump falls on (`HEEL_R` sits early in the cycle, near phase 0).
-    """
     d = (phase - heel_phase) % (2.0 * math.pi)
     if d > width:
         return 0.0
     return amp * 0.5 * (1.0 - math.cos(2.0 * math.pi * d / width))
 
 
-def build_move_clip(arm_obj):
-    """A real gait cycle per figure: R0's proven thigh/shin/shoulder swing
-    and the hip-bone half-angle fix, both unchanged, plus this round's
-    naturalism pass -- weight transfer (vertical bob + hip/shoulder
-    counter-rotation), a settle on the planted foot, head stabilisation
-    against the torso's own twist, and an arm swing that is asymmetric
-    (free arm swings more and bends at the elbow; the weapon arm is
-    damped) rather than a mirrored pendulum. See the constants above for
-    why each term has the shape and sign it has.
+def build_move_clip(arm_obj, figures):
+    """Full gait -- thigh/shin/arm swing, weight transfer, settle, head
+    stabilisation, vertical bob -- for every figure that walks
+    (`spec["animates"]`). A crew-served figure (kneeling, or `rpg_fire`,
+    whose own `stride` teams.py pins to 0.0 even in `move`) gets NO keys
+    here at all and so stays at `move`'s own frame-0 identity pose for the
+    whole clip -- correctly: "crew-served weapons stay deployed through
+    move" (teams.py's own module docstring) means the whole figure stays
+    put, not just its weapon.
     """
     _new_action(arm_obj, "move")
     bones = arm_obj.data.bones
     pbones = arm_obj.pose.bones
-    # root's rest orientation is identical for every figure (only head/tail
-    # POSITION differs between f0/f1/f2, never orientation), so this
-    # direction is the same for all three -- computed once outside the loop.
-    root_bob_dir = local_offset_for_world_axis(bones[f"{REST_FIGURES[0][0]}_root"], AXIS_Z)
+    walkers = [s for s in figures if s["animates"]]
+    if not walkers:
+        return
+    root_bob_dir = local_offset_for_world_axis(bones[f"{walkers[0]['prefix']}_root"], AXIS_Z)
     for f in range(0, MOVE_FRAMES + 1):
         phase = 2.0 * math.pi * f / MOVE_FRAMES
         thigh_l = A_THIGH * math.sin(phase)
@@ -823,7 +804,8 @@ def build_move_clip(arm_obj):
         shoulder_twist = -SHOULDER_TWIST_AMP * math.sin(phase)
         head_counter = -HEAD_COUNTER_FRAC * shoulder_twist
         bob = -BOB_AMP * math.cos(2.0 * phase)
-        for prefix, _x, _y, _leader in REST_FIGURES:
+        for spec in walkers:
+            prefix = spec["prefix"]
             key(pbones[f"{prefix}_thigh_L"], bones[f"{prefix}_thigh_L"], AXIS_Y, thigh_l, f)
             key(pbones[f"{prefix}_thigh_R"], bones[f"{prefix}_thigh_R"], AXIS_Y, thigh_r, f)
             key(pbones[f"{prefix}_shin_L"], bones[f"{prefix}_shin_L"], AXIS_Y, shin_l, f)
@@ -833,9 +815,6 @@ def build_move_clip(arm_obj):
             key(pbones[f"{prefix}_forearm_L"], bones[f"{prefix}_forearm_L"], AXIS_Y, elbow_l, f)
             key(pbones[f"{prefix}_hip_L"], bones[f"{prefix}_hip_L"], AXIS_Y, thigh_l * 0.5, f)
             key(pbones[f"{prefix}_hip_R"], bones[f"{prefix}_hip_R"], AXIS_Y, thigh_r * 0.5, f)
-            # spine carries BOTH the forward lean and the shoulder twist --
-            # key_axes composes them; see its own docstring for why a
-            # second plain key() here would silently drop the lean.
             key_axes(pbones[f"{prefix}_spine"], bones[f"{prefix}_spine"],
                      [(AXIS_Y, MOVE_LEAN), (AXIS_Z, shoulder_twist)], f)
             key(pbones[f"{prefix}_pelvis"], bones[f"{prefix}_pelvis"], AXIS_Z, hip_twist, f)
@@ -846,15 +825,6 @@ def build_move_clip(arm_obj):
 
 
 def _recoil_curve(p):
-    """Asymmetric impulse-response shape for `fire`'s recoil: a fast rise to
-    1.0 at `p == FIRE_RISE`, then a slower linear fall back to 0.0 by
-    `p == 1.0`. `p` is `frame / FIRE_FRAMES`, so this is 0 at both ends of
-    the clip (`fire` loops cleanly the same way `move`'s own frame-16 ==
-    frame-0 wraparound already does) and peaks partway through -- a real
-    recoil impulse rises in milliseconds and bleeds off over the rest of
-    the cycle; a symmetric attack/decay would be exactly the "mechanical"
-    read the brief names for `move`, and the same argument applies here.
-    """
     if p <= FIRE_RISE:
         t = p / FIRE_RISE
     else:
@@ -862,49 +832,54 @@ def _recoil_curve(p):
     return max(0.0, t)
 
 
-def build_fire_clip(arm_obj):
-    """Raise (unchanged from the shipped clip -- `FIRE_SHOULDER`/
-    `FIRE_ELBOW` bring the rifle up and forward) plus a recoil impulse and
-    recovery, looping: this round's #2 item, replacing what was one static
-    pose. Still no leg or height change -- `_standing_posture("fire")` in
-    teams.py is "standing" specifically because the clip is latched per shot
-    and a pose that changed height would bob the whole squad through a
-    firefight; this rig still honours that for the LEGS. `RECOIL_SPINE`
-    rocks the torso back a little as it absorbs the kick, which is not a
-    height change (rotation, not translation) and reads as loaded rather
-    than inert.
+def build_fire_clip(arm_obj, figures, extra_root_lean=None):
+    """Raise + recoil, for every figure carrying a hand-bound rifle. Plus,
+    if `extra_root_lean` names any prefixes (charge_squad only), a flat
+    extra forward lean on `root` for those prefixes -- see FIRE_ROOT_LEAN's
+    own comment for why this is a constant, not an impulse.
+
+    Deliberately NOT applied to a figure whose weapon is a free-standing
+    ground mount (mortar, ATGM tripod) or whose held launcher's own position
+    teams.py never varies by clip (at_fire, rpg_fire) -- raising their arms
+    without a correspondingly-moving weapon would read as wrong, and the
+    source of truth (teams.py's own call sites) says nothing moves there
+    either. See the module docstring's closing paragraph.
     """
     _new_action(arm_obj, "fire")
     bones = arm_obj.data.bones
     pbones = arm_obj.pose.bones
+    shooters = [s for s in figures if s["weapon"] == "rifle"]
+    leaners = extra_root_lean or {}
     for f in range(0, FIRE_FRAMES + 1):
         p = f / FIRE_FRAMES
         kick = _recoil_curve(p)
-        for prefix, _x, _y, _leader in REST_FIGURES:
+        for spec in shooters:
+            prefix = spec["prefix"]
             key(pbones[f"{prefix}_upperarm_R"], bones[f"{prefix}_upperarm_R"], AXIS_Y,
                 FIRE_SHOULDER + RECOIL_SHOULDER * kick, f)
             key(pbones[f"{prefix}_forearm_R"], bones[f"{prefix}_forearm_R"], AXIS_Y,
                 FIRE_ELBOW + RECOIL_ELBOW * kick, f)
             key(pbones[f"{prefix}_spine"], bones[f"{prefix}_spine"], AXIS_Y,
                 RECOIL_SPINE * kick, f)
+        for prefix, extra in leaners.items():
+            key(pbones[f"{prefix}_root"], bones[f"{prefix}_root"], AXIS_Y, extra, f)
 
 
-def build_clips(arm_obj):
-    build_idle_clip(arm_obj)
-    build_move_clip(arm_obj)
-    build_fire_clip(arm_obj)
-    # `down`, `wreck`: NOT authored. See the module docstring's "what this
-    # slice does not attempt" section and the report -- kit.py's prone
-    # posture is a different topology (horizontal torso/leg primitives, not
-    # the standing figure rotated), and reaching it from this rig would need
-    # hip flexion of roughly 90 degrees against the ~31 degree swing that
-    # already needed a fix bone. Omitting a clip is legal per the mesh-unit
-    # contract ("A clip absent from the file is legal"); inventing a fake
-    # "prone" that is really a folded standing figure is not what the
-    # contract's clip vocabulary means and would be worse than absence.
-    # `work`: not part of inf_squad's clip vocabulary at all
-    # (`teams.TEAM_CLIP_ADD` scopes it to yahalom_squad only), so there is
-    # nothing to author here.
+def build_clips(arm_obj, team_id):
+    figures = TEAM_FIGURES[team_id]
+    build_idle_clip(arm_obj, figures)
+    build_move_clip(arm_obj, figures)
+    shooters = [s for s in figures if s["weapon"] == "rifle"]
+    leaners = FIRE_ROOT_LEAN.get(team_id)
+    if shooters or leaners:
+        build_fire_clip(arm_obj, figures, leaners)
+    # `down`, `wreck`: not authored for any team in this pass. kit.py's
+    # prone posture is a third, unrelated topology (horizontal tube-based
+    # primitives, not the standing/kneeling figure rotated) -- see the
+    # original report's own "attempted, not shipped" section, which found an
+    # FK-folded standing rig produces a self-intersecting heap, not a
+    # plausible prone pose. `work`: only `teams.TEAM_CLIP_ADD` scopes it to
+    # yahalom_squad, which this pass does not cover.
 
 
 def export_glb(arm_obj, path):
@@ -915,24 +890,25 @@ def export_glb(arm_obj, path):
         filepath=path,
         export_format="GLB",
         use_selection=False,
-        export_apply=False,           # never bake the armature deform
+        export_apply=False,
         export_yup=True,
         export_skins=True,
         export_animations=True,
         export_animation_mode="ACTIONS",
         export_force_sampling=True,
-        export_extras=True,           # rl_role lives in custom properties
-        export_materials="NONE",      # zero materials -- palette is runtime-side
+        export_extras=True,
+        export_materials="NONE",
         export_rest_position_armature=True,
     )
 
 
-def build_and_export(team_id=TEAM_ID, out_path=None):
-    parts, bone_table = build_team_rest(team_id)
+def build_and_export(team_id=DEFAULT_TEAM, out_path=None):
+    parts, bone_table, forced_bone = build_team_rest(team_id)
     arm_obj = build_armature(bone_table)
-    rig_parts(parts, arm_obj)
+    figure_prefixes = {spec["prefix"] for spec in TEAM_FIGURES[team_id]}
+    rig_parts(parts, arm_obj, forced_bone, figure_prefixes)
     merged = join_by_role(parts)
-    build_clips(arm_obj)
+    build_clips(arm_obj, team_id)
     path = out_path or os.path.join(OUT_DIR, f"{team_id}.glb")
     export_glb(arm_obj, path)
     return arm_obj, merged, path

@@ -3,12 +3,16 @@
 Usage:
 
     /Applications/Blender.app/Contents/MacOS/Blender --background \
-        --python tools/export_mesh_team.py -- inf_squad
+        --python tools/export_mesh_team.py -- inf_squad militia_cell ...
+
+    # or every team this pipeline covers:
+    /Applications/Blender.app/Contents/MacOS/Blender --background \
+        --python tools/export_mesh_team.py -- all
 
 Writes `art/meshes/<team_id>.glb` per
-`docs/superpowers/specs/2026-08-28-mesh-unit-contract.md`. `rig.py` currently
-covers only `inf_squad` -- see its `TEAM_ID` docstring for why the other eight
-`tools/units/teams.py` teams are out of scope for this slice.
+`docs/superpowers/specs/2026-08-28-mesh-unit-contract.md`. `rig.py`'s own
+`SUPPORTED_TEAMS` and module docstring record which of `tools/units/teams.py`'s
+teams are covered and why the rest are not.
 """
 import os
 import sys
@@ -22,7 +26,10 @@ import rig  # noqa: E402
 
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-    names = argv or [rig.TEAM_ID]
+    if argv == ["all"]:
+        names = list(rig.SUPPORTED_TEAMS)
+    else:
+        names = argv or [rig.DEFAULT_TEAM]
     for name in names:
         _arm_obj, merged, path = rig.build_and_export(name)
         size = os.path.getsize(path)
