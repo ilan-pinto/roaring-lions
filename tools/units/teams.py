@@ -379,6 +379,19 @@ def _rider(prefix, x, z=0.0, mirror=False, hands_fwd=0.28):
     arranges the same limb and blob primitives into a rider. At the 25 px the
     rig contract measured infantry at, a rider is a torso, a head and two
     angled legs, and that is the whole budget.
+
+    Gloved hands and kneepads, added below the same way kit.figure()'s own
+    modern-outfit pass covers a bare hand{i} or a bare knee{i} -- a second
+    blob at the SAME centre, over a webbing role, bigger radius. This is the
+    fix for "MOTO_RPG's riding-pose sprites are byte-identical to pre-
+    gear-pass art": this function never called kit.figure() (it cannot --
+    there is no seated posture), so it never picked up that pass, and every
+    other figure in the roster has. Two additions, not a rebuild: a hand
+    (there was none at all before -- the arm limb tapered straight to a bare
+    grip point) plus its glove, and a kneepad over the leg's own knee
+    waypoint. `torso`/`leg`/`arm`/`head`/`kef` are UNCHANGED from before this
+    pass -- every new line below only ADDS a part, at a centre already
+    implied by an existing waypoint, never moves one.
     """
     hand = -1.0 if mirror else 1.0
     parts = [
@@ -392,8 +405,20 @@ def _rider(prefix, x, z=0.0, mirror=False, hands_fwd=0.28):
                                                    (x + 0.25, sgn * 0.17, 0.36 + z, 0.050)]))
         parts.append(kit.blob(f"{prefix}_boot{i}", (x + 0.28, sgn * 0.17, 0.33 + z), 0.07,
                               role="boot"))
+        # NEW: kneepad, centred on the leg's own knee waypoint (the middle
+        # of the three above) -- kit.figure()'s own kneepad{i}/kneepad_f.
+        parts.append(kit.blob(f"{prefix}_kneepad{i}", (x + 0.22, sgn * 0.18, 0.55 + z),
+                              0.060 * 1.35, squash=(1.05, 0.95, 0.85), role="webbing"))
         parts.append(kit.limb(f"{prefix}_arm{i}", [(x + 0.04, sgn * 0.17, 1.25 + z, 0.050),
                                                    (x + hands_fwd, sgn * 0.15, 1.05 + z, 0.042)]))
+        # NEW: hand + glove at the grip -- kit.figure()'s own hand{i} (role
+        # "face", the same skin ramp) plus glove{i} over it. There was no
+        # hand geometry here at all before this pass.
+        grip = (x + hands_fwd, sgn * 0.15, 1.05 + z)
+        parts.append(kit.blob(f"{prefix}_hand{i}", grip, 0.045,
+                              squash=(1.0, 0.85, 0.9), role="face"))
+        parts.append(kit.blob(f"{prefix}_glove{i}", grip, 0.045 * 1.2,
+                              squash=(1.0, 0.85, 0.9), role="webbing"))
     parts.append(kit.blob(f"{prefix}_head", (x + 0.07, 0.0, 1.43 + z), 0.082,
                           squash=(1.0, 0.94, 1.05), role="face"))
     parts += kit.keffiyeh(f"{prefix}_kef", (x + 0.07, 0.0, 1.46 + z), radius=0.104)

@@ -12,27 +12,55 @@ a figure's geometry (`kit.py`, a parallel stream's to change) or a team's
 composition of figures (`teams.py`'s per-team offsets, leader flags and weapon
 placement). Both are read, neither is re-derived a second way.
 
-**Coverage, this pass.** `inf_squad` (unchanged from the first production
-slice) plus eight more of `teams.TEAMS`'s thirteen entries:
+**Coverage.** Twelve of `teams.TEAMS`'s thirteen entries -- every one but
+`moto_rpg`, a from-scratch vehicle-plus-rider composition
+(`teams._motorcycle`/`_rider`, not `kit.figure()` at all), scoped out as its
+own slice.
 
   * Standing riflemen, reusing `inf_squad`'s topology directly:
     `militia_cell`, `charge_squad` (its own sprint lean baked into rest
     geometry via `teams._lean_forward`, read not reimplemented),
-    `rpg_team` (both figures stand -- neither uses `_crew_posture`).
-  * Crew-served weapons -- new work, a second bone topology for a KNEELING
-    figure (`_kneel_bones`, derived below) plus a convention for a
-    free-standing weapon prop that is not gripped by any bone-bound hand:
-    `demo_squad`, `at_team`, `mortar_team`, `mortar_crew`, `atgm_cell`.
+    `rpg_team` (both figures stand -- neither uses `_crew_posture`),
+    `yahalom_squad` (its own held mast and worn packs, see
+    `_yahalom_extras`; its sixth clip, `work`, driving the mast into the
+    ground, is NOT built here -- its own design problem, `TEAM_CLIP_ADD`
+    scopes it to this one team alone).
+  * Crew-served weapons -- a second bone topology for a KNEELING figure
+    (`_kneel_bones`, derived below) plus a convention for a free-standing
+    weapon prop that is not gripped by any bone-bound hand: `demo_squad`,
+    `at_team`, `mortar_team`, `mortar_crew`, `atgm_cell`, and `digger_crew`
+    (its own ground-clutter spoil heap, see `_digger_extras` -- kneeling
+    through `idle`/`move`/`fire` rather than standing to relocate for
+    `move` the way `teams.digger_crew` itself does; a deliberate
+    simplification, not an oversight, see the report).
+  * `sniper_team` -- a THIRD bone topology, because its canonical idle is
+    PRONE, not standing or kneeling. `_sniper_rest`/`build_sniper_clips`
+    give it its own bespoke rest/clip builders rather than forcing it
+    through `_add_figure`'s one-living-posture-per-figure shape; see both
+    docstrings for why.
 
-Not attempted: `sniper_team` (its canonical idle is PRONE -- a third
-topology, and the one this project already tried and rejected once, see
-"down/wreck" in the prior report: an FK-folded standing rig produced a
-self-intersecting heap, not a plausible prone pose); `moto_rpg` (a
-from-scratch vehicle-plus-rider composition, `teams._motorcycle`/`_rider`,
-not `kit.figure()` at all -- scoped out by the brief); `digger_crew` and
-`yahalom_squad` (outside the requested priority list; `yahalom_squad` also
-owns a sixth clip, `work`, driving the ground itself, which is its own design
-problem this pass does not open).
+**`down`/`wreck` -- every figure in every team above, this pass.** The prior
+report tried FK-folding the standing rig into prone and got a
+self-intersecting heap (see the same report section); the conclusion it drew
+-- these clips want separate geometry -- is what this pass builds.
+`_figure_death_parts` calls `kit.figure(posture="prone", ...)` fresh, exactly
+as `teams.py`'s own `_crew_posture` already treats down/wreck as prone
+regardless of a figure's LIVING posture (standing or kneeling). That geometry
+binds rigidly, as ONE assembly, to a new figure-owned `{prefix}_death_root`
+bone -- no per-part articulation, because nothing in this pass poses the
+corpse relative to itself, only swaps whether it or the living rig is on
+screen. Both rigs live in the SAME skin (the contract's "one armature per
+file"): a figure's `root` and its `death_root` are siblings with no parent,
+and every clip keys BOTH bones' scale explicitly -- 1/0 for `root`/`death_root`
+in `idle`/`move`/`fire`, 0/1 in `down`/`wreck` -- which is what actually hides
+whichever rig is not current. A team's shared `prop` bone (the free-standing
+mortar tube / ATGM tripod / demo charge, see below) gets the same treatment,
+matching `teams._weapon_visible`'s own "abandoned when the crew goes flat".
+A held rifle or launcher needs no extra handling: it is already bound to its
+firer's `forearm_R`, a descendant of that figure's `root`, so collapsing
+`root` collapses the weapon with it, for free. `down` and `wreck` are
+identical, geometrically -- see `build_death_clip`'s own docstring for why,
+and for why this is a single static frame rather than an animated collapse.
 
 **Rest-pose numbers are probed or derived, never guessed.** The standing
 topology's numbers are R0's own, unchanged. The new kneeling topology's
@@ -80,6 +108,7 @@ OUT_DIR = os.path.join(REPO, "art", "meshes")
 SUPPORTED_TEAMS = (
     "inf_squad", "militia_cell", "demo_squad", "charge_squad",
     "at_team", "rpg_team", "mortar_team", "mortar_crew", "atgm_cell",
+    "sniper_team", "yahalom_squad", "digger_crew",
 )
 DEFAULT_TEAM = "inf_squad"
 
@@ -386,6 +415,22 @@ def _f(prefix, x, y, posture="standing", headgear="helmet", loadout="regular",
                 animates=animates, weapon=weapon)
 
 
+#: sniper_team's own rest spacing -- copied verbatim from `teams.sniper_team`
+#: (`close = 0.12 if clip in ("down","wreck") else 0.24`). `_sniper_rest`/
+#: `build_sniper_clips` use these directly rather than re-deriving them.
+SNIPER_CLOSE_IDLE = 0.24
+SNIPER_CLOSE_DOWN = 0.12
+
+#: `x`, and the SIGN `y` carries (`y = sign * close`) -- `role` says which of
+#: the two props (`kit.sniper_rifle`/`kit.binoculars`) this figure carries,
+#: matching `teams.sniper_team`'s own fixed pairing (`snp_a` always the
+#: rifle, `snp_b` always the spotter).
+SNIPER_SPECS = (
+    {"prefix": "snp_a", "x": 0.10, "sign": -1.0, "role": "rifle"},
+    {"prefix": "snp_b", "x": -0.24, "sign": 1.0, "role": "binos"},
+)
+
+
 TEAM_FIGURES = {
     "inf_squad": [
         _f("f0", 0.0, -0.78, weapon="rifle"),
@@ -425,6 +470,31 @@ TEAM_FIGURES = {
         _f("atgm_crew0", -0.34, -0.40, posture="kneeling", headgear="keffiyeh", loadout="irregular", animates=False),
         _f("atgm_crew1", -0.34, 0.44, posture="kneeling", headgear="keffiyeh", loadout="irregular", animates=False),
     ],
+    # sniper_team is NOT built through `_add_figure` (see `_sniper_rest`) --
+    # its own `posture` varies BY CLIP (prone for idle/fire, standing for
+    # move), which `_add_figure`'s one-living-posture-per-figure assumption
+    # cannot express. These entries exist only so `figure_prefixes` (used by
+    # `rig_parts` to bind the STANDING body's own parts, still built via
+    # plain `kit.figure()`) and `_check_team_figures_against_teams` have
+    # something to read; `x`/`y` are `SNIPER_SPECS`' own rest position at
+    # `SNIPER_CLOSE_IDLE`, matching `teams.sniper_team`'s "move" spacing.
+    "sniper_team": [
+        _f(s["prefix"], s["x"], s["sign"] * SNIPER_CLOSE_IDLE, posture="standing")
+        for s in SNIPER_SPECS
+    ],
+    "yahalom_squad": [
+        _f("yah_a", 0.30, -0.20, leader=True),
+        _f("yah_b", -0.34, 0.26, weapon="rifle"),
+    ],
+    # `dig` stays kneeling through idle/move/fire in this pass rather than
+    # standing to relocate for `move` the way `teams.digger_crew` itself
+    # does (`_crew_posture`'s own kneeling/prone split, plus a THIRD
+    # standing-for-move posture no other crew figure needs) -- a deliberate
+    # simplification, not an oversight; see this task's report.
+    "digger_crew": [
+        _f("dig", -0.34, 0.04, posture="kneeling", headgear="keffiyeh",
+           loadout="irregular", animates=False),
+    ],
 }
 
 
@@ -442,6 +512,7 @@ def _check_team_figures_against_teams():
         "inf_squad": "kdf", "militia_cell": "enemy", "demo_squad": "kdf",
         "charge_squad": "enemy", "at_team": "kdf", "rpg_team": "enemy",
         "mortar_team": "kdf", "mortar_crew": "enemy", "atgm_cell": "enemy",
+        "sniper_team": "kdf", "yahalom_squad": "kdf", "digger_crew": "enemy",
     }
     for team_id, figures in TEAM_FIGURES.items():
         assert team_id in teams.TEAMS, f"{team_id} missing from teams.TEAMS"
@@ -458,9 +529,46 @@ def _check_team_figures_against_teams():
 _check_team_figures_against_teams()
 
 
+def _death_root_bone(prefix, x, y):
+    """A single, never-rotated bone owning one figure's whole prone corpse --
+    the same "no hand to bind to, so bind the whole assembly to one rigid
+    mount" convention `_prop_bone` already established for a free-standing
+    crew weapon, applied here to a free-standing body. No parent: it must
+    scale independently of the figure's own `root`, which is exactly the
+    point -- see `_key_death_visibility`."""
+    return (f"{prefix}_death_root", None, (x, y, 0.0), (x, y, 0.30))
+
+
+def _figure_death_parts(spec):
+    """One figure's prone corpse -- fresh `kit.figure(posture="prone")`
+    geometry, independent of the figure's own LIVING posture (a kneeling
+    mortar gunner still goes flat, matching `teams._crew_posture`'s own
+    "prone" answer for down/wreck). Named `{prefix}_death_*` rather than
+    reusing the living figure's own part names -- collision-avoidance kept
+    explicit rather than relying on Blender's automatic `.001` renaming,
+    which would still bind correctly (binding is by object identity via
+    `forced_bone`, never by name) but reads as an accident rather than a
+    decision.
+
+    No weapon, no antenna (`kit.figure`'s own prone branch returns before
+    its `leader` block runs, so `leader` is not even passed here) -- a
+    generic fallen-soldier body, not a per-team recreation of every prop a
+    living figure carries. `moto_rpg`'s existing `wreck` clip already ships
+    exactly this simplification for its own thrown riders (prone `kit.figure`
+    calls with no weapon), so this is the established shape for a corpse in
+    this project, not a new one.
+    """
+    return kit.figure(
+        f"{spec['prefix']}_death", (spec["x"], spec["y"], 0.0), posture="prone",
+        yaw=0.0, headgear=spec["headgear"], stride=0.0, mirror=spec["mirror"],
+        loadout=spec["loadout"], smoke=None,
+    )
+
+
 def _add_figure(spec):
     """One figure -- geometry, bone table, and (if it carries one) its rigid
-    weapon assembly. Returns (parts, bone_table_entries, forced_bone)."""
+    weapon assembly, plus its prone death-state geometry and bone. Returns
+    (parts, bone_table_entries, forced_bone)."""
     parts = kit.figure(
         spec["prefix"], (spec["x"], spec["y"], 0.0), posture=spec["posture"],
         yaw=0.0, headgear=spec["headgear"], stride=0.0, arms=True,
@@ -478,6 +586,12 @@ def _add_figure(spec):
         parts += wp
         for ob in wp:
             forced[ob] = f"{spec['prefix']}_forearm_R"
+    death_parts = _figure_death_parts(spec)
+    death_bone = _death_root_bone(spec["prefix"], spec["x"], spec["y"])
+    bones.append(death_bone)
+    for ob in death_parts:
+        forced[ob] = death_bone[0]
+    parts += death_parts
     return parts, bones, forced
 
 
@@ -540,6 +654,53 @@ def _atgm_extras():
     return post, [_prop_bone((0.24, 0.0, 0.20), 0.45)], {ob: "prop" for ob in post}
 
 
+def _yahalom_extras():
+    """yah_a's ground-penetrating mast -- "held", the same convention
+    `_at_extras`/`_rpg_extras` already use for a launcher: bound to the
+    carrier's own `forearm_R`, so it auto-hides with the rest of yah_a in
+    `down`/`wreck` exactly as `teams.yahalom_squad`'s own
+    `_weapon_visible(clip)` gate intends. Both figures' packs are worn kit,
+    bound to `spine` -- the prone corpse's own pack needs no extra part at
+    all, since `kit.figure`'s prone branch already builds one
+    (`teams.yahalom_squad`'s own comment: "Prone figures mould their own
+    pack"). `work`, this team's own sixth clip (mast driven into the
+    ground), is not built here -- see the module docstring."""
+    A, B = (0.30, -0.20, 0.0), (-0.34, 0.26, 0.0)
+    # kit.tube/kit.box each return ONE Object, not a list -- unlike
+    # kit.launcher/kit.mortar/etc, which build a multi-part assembly.
+    # teams.py's own yahalom_squad wraps both in a list for exactly this
+    # reason (`out += [kit.tube(...)]`, `out += [kit.box(...)]`).
+    mast = [kit.tube("yah_mast", 1.45, 0.030, (0.62, -0.20, 0.74), yaw=0.0, pitch=0.0)]
+    head = [kit.box("yah_head", (0.16, 0.10, 0.04), (1.30, -0.20, 0.74))]
+    pack_a = [teams._yah_pack("yah_pack_a", A)]
+    pack_b = [teams._yah_pack("yah_pack_b", B)]
+    forced = {ob: "yah_a_forearm_R" for ob in (mast + head)}
+    forced.update({ob: "yah_a_spine" for ob in pack_a})
+    forced.update({ob: "yah_b_spine" for ob in pack_b})
+    return mast + head + pack_a + pack_b, [], forced
+
+
+def _digger_extras():
+    """The spoil heap -- ground, not kit (`teams.digger_crew`'s own comment:
+    "spoil does not go prone when the digger does"), so unlike every other
+    extra in this module it must NOT be hidden by ANY clip's visibility
+    keying. Bound to a dedicated `ground` bone that no clip builder ever
+    touches -- see `_key_death_visibility`'s own reasoning for why a bone
+    with no keyframe on a channel in ANY action is the one safe way to get a
+    truly constant value, rather than a bone keyed 1 in some clips and left
+    to chance in others."""
+    heap = [
+        kit.blob("dig_heap", (0.36, -0.06, 0.14), 0.45,
+                 squash=(1.0, 0.85, 0.62), wobble=0.12, role="wood"),
+        kit.blob("dig_heap_b", (0.52, 0.26, 0.08), 0.28,
+                 squash=(1.0, 0.9, 0.62), wobble=0.10, role="wood"),
+        kit.blob("dig_heap_c", (0.14, 0.30, 0.06), 0.20,
+                 squash=(0.9, 1.0, 0.6), wobble=0.10, role="wood"),
+    ]
+    ground_bone = ("ground", None, (0.30, 0.10, 0.0), (0.30, 0.10, 0.30))
+    return heap, [ground_bone], {ob: "ground" for ob in heap}
+
+
 TEAM_EXTRAS = {
     "demo_squad": _demo_extras,
     "at_team": _at_extras,
@@ -547,6 +708,8 @@ TEAM_EXTRAS = {
     "mortar_team": _mortar_team_extras,
     "mortar_crew": _mortar_crew_extras,
     "atgm_cell": _atgm_extras,
+    "yahalom_squad": _yahalom_extras,
+    "digger_crew": _digger_extras,
 }
 
 
@@ -563,6 +726,11 @@ def _charge_squad_rest():
     because kneeling/standing figures in this pass never change posture
     across clips. No weapon: "no weapon parts at all" is teams.py's own
     line, and the tell IS the absence.
+
+    The death-state corpse (`_figure_death_parts`) is built AFTER the lean is
+    applied to `fig`, and is not itself leaned -- a fallen body is prone, not
+    sprinting, and it carries no vest/satchel either, the same generic-corpse
+    simplification `_add_figure` uses for everyone else.
     """
     parts = []
     bone_table = []
@@ -585,6 +753,72 @@ def _charge_squad_rest():
         teams._lean_forward(fig, 20.0, at_x=x)
         parts += fig
         bone_table += _standing_bones(prefix, x, y)
+        death_parts = _figure_death_parts(spec)
+        death_bone = _death_root_bone(prefix, x, y)
+        bone_table.append(death_bone)
+        for ob in death_parts:
+            forced[ob] = death_bone[0]
+        parts += death_parts
+    return parts, bone_table, forced
+
+
+def _sniper_rest():
+    """sniper_team's own geometry -- TWO bones per figure, neither of them
+    the generic `root`/`death_root` corpse pair `_add_figure` gives every
+    other team, because `teams.sniper_team` treats prone as the LIVING pose
+    (idle/fire), not a death state: its own `down`/`wreck` is the SAME prone
+    build, tightened (`close` 0.24 -> 0.12), never a different pose ("`down`
+    cannot be 'go prone' here, since idle already is" -- `teams.py`'s own
+    docstring for this team).
+
+    So each figure gets:
+
+      * a STANDING rig (`_standing_bones`, `root`), built and bound exactly
+        like `_add_figure` would, used ONLY by `move` -- the one clip this
+        team stands up for;
+      * a PRONE rig -- one bone (`_death_root_bone`, reusing the name and
+        shape `_add_figure`'s corpse already uses, though it is not a
+        corpse here), the whole `kit.figure(posture="prone")` assembly plus
+        this figure's own prop (`kit.sniper_rifle` for `snp_a`,
+        `kit.binoculars` for `snp_b`) bound to it rigidly. Built ONCE, at
+        `SNIPER_CLOSE_IDLE` rest spacing; `build_sniper_clips` reuses this
+        SAME geometry for `down`/`wreck` via a bone-local translation
+        rather than a third build, matching how the sprite pipeline itself
+        never rebuilds geometry for the tighter spacing either.
+
+    The standing rifle/binoculars (`move` only, since a relocating sniper
+    still carries its gear) bind to `spine`/`head` respectively -- "worn
+    kit follows the torso" (`spine`, matching `_demo_extras`' cable spool)
+    for the slung rifle, and `head` (matching `_at_extras`' binoculars) for
+    optics raised near eye level.
+    """
+    parts, bone_table, forced = [], [], {}
+    for spec in SNIPER_SPECS:
+        prefix, x, sign, role = spec["prefix"], spec["x"], spec["sign"], spec["role"]
+        y = sign * SNIPER_CLOSE_IDLE
+
+        fig = kit.figure(prefix, (x, y, 0.0), posture="standing", stride=0.0)
+        bone_table += _standing_bones(prefix, x, y)
+        if role == "rifle":
+            prop = kit.sniper_rifle(f"{prefix}_rifle", (x, y, 0.0), posture="standing")
+            prop_bone = f"{prefix}_spine"
+        else:
+            prop = kit.binoculars(f"{prefix}_binos", (x, y, 0.0), posture="standing")
+            prop_bone = f"{prefix}_head"
+        for ob in prop:
+            forced[ob] = prop_bone
+        parts += fig + prop
+
+        death_bone = _death_root_bone(prefix, x, y)
+        prone_fig = kit.figure(f"{prefix}_death", (x, y, 0.0), posture="prone", stride=0.0)
+        if role == "rifle":
+            prone_prop = kit.sniper_rifle(f"{prefix}_death_rifle", (x, y, 0.0), posture="prone")
+        else:
+            prone_prop = kit.binoculars(f"{prefix}_death_binos", (x, y, 0.0), posture="prone")
+        bone_table.append(death_bone)
+        for ob in prone_fig + prone_prop:
+            forced[ob] = death_bone[0]
+        parts += prone_fig + prone_prop
     return parts, bone_table, forced
 
 
@@ -600,6 +834,11 @@ def build_team_rest(team_id):
     parts, bone_table, forced_bone = [], [], {}
     if team_id == "charge_squad":
         p, b, f = _charge_squad_rest()
+        parts += p
+        bone_table += b
+        forced_bone.update(f)
+    elif team_id == "sniper_team":
+        p, b, f = _sniper_rest()
         parts += p
         bone_table += b
         forced_bone.update(f)
@@ -747,6 +986,53 @@ def _new_action(arm_obj, name):
     return action
 
 
+def _key_scale(pb, value, frames):
+    """A uniform-scale keyframe on `pb`, at every frame in `frames` -- always
+    more than one so the resulting fcurve has a real (if tiny) time range
+    rather than a single sample. See `_key_death_visibility` for why this
+    matters."""
+    pb.scale = (value, value, value)
+    for frame in frames:
+        pb.keyframe_insert(data_path="scale", frame=frame)
+
+
+#: Frames every death-visibility scale key is set at. Two, not one: a
+#: single-keyframe fcurve gives the WHOLE action a (0, 0) frame_range unless
+#: something else in it spans more frames, which `down`/`wreck` -- entirely
+#: static, nothing else keyed -- never do. Both idle/move/fire (which already
+#: span many frames from their own gait/breath/recoil keys) and down/wreck
+#: use the same two frames for the same reason `_new_action`'s own frame-0
+#: identity keys exist: every action must be self-contained, never relying on
+#: a channel a DIFFERENT, previously-played action happened to leave behind.
+_VIS_FRAMES = (0, 1)
+
+
+def _key_death_visibility(pbones, figures, has_prop, alive, frame=0):
+    """Explicit scale keys for every figure's `root`/`death_root` (and the
+    team's shared `prop` bone, if it has one) -- the switch that actually
+    hides whichever rig, living or dead, is not this clip's.
+
+    Every clip calls this, not just `down`/`wreck` -- the runtime
+    (`applyMeshClip`, `packages/render/src/three/units/mesh-unit.ts`, not
+    this task's to touch) stops every OTHER action on a clip switch but does
+    not reset the bone transforms it leaves behind, so a bone this clip's own
+    action never keys keeps whatever a PREVIOUSLY PLAYED clip last set it to
+    -- the exact leftover-value bug `_new_action`'s own docstring names for
+    rotation, applied here to scale. `frame` is accepted (default 0) so a
+    future clip could vary it over time; every caller today passes only the
+    default, and `_key_scale` still keys `_VIS_FRAMES` around it so the
+    action's own time range stays well-formed regardless.
+    """
+    alive_scale = 1.0 if alive else 0.0
+    dead_scale = 0.0 if alive else 1.0
+    for spec in figures:
+        prefix = spec["prefix"]
+        _key_scale(pbones[f"{prefix}_root"], alive_scale, _VIS_FRAMES)
+        _key_scale(pbones[f"{prefix}_death_root"], dead_scale, _VIS_FRAMES)
+    if has_prop:
+        _key_scale(pbones["prop"], alive_scale, _VIS_FRAMES)
+
+
 def build_idle_clip(arm_obj, figures):
     """Breath + weight shift, every figure regardless of posture -- a
     kneeling gunner still breathes. Unchanged formula from R0, applied
@@ -754,6 +1040,7 @@ def build_idle_clip(arm_obj, figures):
     _new_action(arm_obj, "idle")
     bones = arm_obj.data.bones
     pbones = arm_obj.pose.bones
+    _key_death_visibility(pbones, figures, "prop" in pbones, alive=True)
     for f in range(0, IDLE_FRAMES + 1):
         t = f / IDLE_FRAMES
         ph = 2.0 * math.pi * t
@@ -785,6 +1072,7 @@ def build_move_clip(arm_obj, figures):
     _new_action(arm_obj, "move")
     bones = arm_obj.data.bones
     pbones = arm_obj.pose.bones
+    _key_death_visibility(pbones, figures, "prop" in pbones, alive=True)
     walkers = [s for s in figures if s["animates"]]
     if not walkers:
         return
@@ -848,6 +1136,7 @@ def build_fire_clip(arm_obj, figures, extra_root_lean=None):
     _new_action(arm_obj, "fire")
     bones = arm_obj.data.bones
     pbones = arm_obj.pose.bones
+    _key_death_visibility(pbones, figures, "prop" in pbones, alive=True)
     shooters = [s for s in figures if s["weapon"] == "rifle"]
     leaners = extra_root_lean or {}
     for f in range(0, FIRE_FRAMES + 1):
@@ -865,7 +1154,82 @@ def build_fire_clip(arm_obj, figures, extra_root_lean=None):
             key(pbones[f"{prefix}_root"], bones[f"{prefix}_root"], AXIS_Y, extra, f)
 
 
+def build_death_clip(arm_obj, team_id, clip_name):
+    """`down`/`wreck`: every figure's living `root` collapses to invisible
+    and its separate prone `death_root` geometry (see `_figure_death_parts`)
+    takes over instead. `down` and `wreck` call this with different
+    `clip_name`s but are otherwise IDENTICAL -- matching `teams.py`'s own
+    sprite-side convention, where `_standing_posture` already answers
+    "prone" for both clips alike, with no further distinction.
+
+    A single STATIC frame, deliberately not an animated collapse, for a
+    concrete reason rather than by default: the runtime
+    (`applyMeshClip`/`THREE.AnimationAction`, `packages/render/src/three/
+    units/mesh-unit.ts`, outside this task's remit) plays every clip on
+    three.js's default infinite `LoopRepeat` and never resets a stopped
+    action's bones on its own. A one-way standing-to-prone transition does
+    not end where it began, so looping it would flip the figure back and
+    forth between the two poses forever rather than settling -- the exact
+    failure a loop-safe clip (every OTHER clip this module builds already
+    returns to its own frame-0 value at its final frame) avoids by
+    construction. This task's own brief: "a correct static pose beats a bad
+    animation" -- this is that trade-off, made for a verified reason.
+    """
+    _new_action(arm_obj, clip_name)
+    pbones = arm_obj.pose.bones
+    figures = TEAM_FIGURES[team_id]
+    _key_death_visibility(pbones, figures, "prop" in pbones, alive=False)
+
+
+def build_sniper_clips(arm_obj):
+    """sniper_team's own five clips -- bespoke, not `build_idle_clip`/
+    `build_move_clip`/`build_fire_clip`/`build_death_clip`'s
+    living-root/dead-root shape, because for THIS team the "dead" bone
+    (`death_root`, see `_sniper_rest`) is the primary LIVING pose, and which
+    bone is visible flips per clip in a way no other team's does.
+
+    `idle` and `fire` are IDENTICAL in `teams.py` (same `close`, same
+    `posture`, and `kit.sniper_rifle` takes no `aim` parameter at all --
+    unlike `kit.rifle`, this team's weapon has no distinct firing pose), so
+    one loop builds both. `move` reuses `build_move_clip` UNCHANGED: the
+    standing rig it walks is the exact same `_standing_bones` topology
+    every other team's `move` already animates, and that function's own
+    `_key_death_visibility` call correctly makes `root` the visible side
+    for `move`, `death_root` the visible side otherwise, on THIS team as on
+    every other -- the inversion is only in what those two bones each
+    contain, not in the visibility mechanism itself.
+
+    `down`/`wreck` reuse the SAME prone geometry `idle`/`fire` already show,
+    translated inward via each figure's own `death_root` LOCATION -- the
+    bone-local equivalent of `teams.py`'s `close` 0.24 -> 0.12, expressed as
+    a pose rather than a rebuild, exactly as `_sniper_rest`'s docstring
+    describes.
+    """
+    figures = [dict(prefix=s["prefix"], animates=True) for s in SNIPER_SPECS]
+
+    build_move_clip(arm_obj, figures)
+
+    bones = arm_obj.data.bones
+    delta = SNIPER_CLOSE_DOWN - SNIPER_CLOSE_IDLE
+    for clip_name in ("idle", "fire", "down", "wreck"):
+        _new_action(arm_obj, clip_name)
+        pbones = arm_obj.pose.bones
+        _key_death_visibility(pbones, figures, False, alive=False)
+        if clip_name not in ("down", "wreck"):
+            continue
+        for spec in SNIPER_SPECS:
+            prefix = spec["prefix"]
+            pb = pbones[f"{prefix}_death_root"]
+            offset_dir = local_offset_for_world_axis(bones[f"{prefix}_death_root"], AXIS_Y)
+            pb.location = offset_dir * (spec["sign"] * delta)
+            pb.keyframe_insert(data_path="location", frame=0)
+            pb.keyframe_insert(data_path="location", frame=1)
+
+
 def build_clips(arm_obj, team_id):
+    if team_id == "sniper_team":
+        build_sniper_clips(arm_obj)
+        return
     figures = TEAM_FIGURES[team_id]
     build_idle_clip(arm_obj, figures)
     build_move_clip(arm_obj, figures)
@@ -873,13 +1237,10 @@ def build_clips(arm_obj, team_id):
     leaners = FIRE_ROOT_LEAN.get(team_id)
     if shooters or leaners:
         build_fire_clip(arm_obj, figures, leaners)
-    # `down`, `wreck`: not authored for any team in this pass. kit.py's
-    # prone posture is a third, unrelated topology (horizontal tube-based
-    # primitives, not the standing/kneeling figure rotated) -- see the
-    # original report's own "attempted, not shipped" section, which found an
-    # FK-folded standing rig produces a self-intersecting heap, not a
-    # plausible prone pose. `work`: only `teams.TEAM_CLIP_ADD` scopes it to
-    # yahalom_squad, which this pass does not cover.
+    build_death_clip(arm_obj, team_id, "down")
+    build_death_clip(arm_obj, team_id, "wreck")
+    # `work`: only `teams.TEAM_CLIP_ADD` scopes it to yahalom_squad, which
+    # this pass does not build (see the module docstring).
 
 
 def export_glb(arm_obj, path):
