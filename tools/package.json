@@ -7,13 +7,17 @@
   "scripts": {
     "balance": "tsx src/balance/cli.ts",
     "playtest": "tsx src/backtest/playtest.ts",
-    "perf:units": "tsx src/perf/three-units.ts"
+    "perf:units": "tsx src/perf/three-units.ts",
+    "golden-diff": "tsx src/golden-diff/diff.ts"
   },
   "dependencies": {
     "@lions/data": "workspace:*",
     "@lions/sim": "workspace:*"
   },
   "devDependencies": {
-    "tsx": "^4.19.2"
+    "tsx": "^4.19.2",
+    "pixelmatch": "^7.2.0",
+    "pngjs": "^7.0.0",
+    "@types/pngjs": "^6.0.5"
   }
 }
