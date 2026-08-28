@@ -65,6 +65,19 @@ OUT_DIR = os.path.join(REPO, "art", "meshes", "vehicles")
 #: mirroring the sprite pipeline's own "no turret sheet" behaviour.
 TURRET_PIVOT_NODE = "turret_pivot"
 
+#: Real-world bounding-box diagonal, in metres, below which a source part is
+#: culled before merge -- see `_cull_subpixel`'s own doc comment. Measured
+#: against `eitan_apc.blend` (f-vehicle-cost-report.md): every confirmed
+#: fastener-class object (wheel lug nuts 0.157-0.166 m, armour bolts 0.055 m,
+#: wheel nuts 0.139 m, suspension dampers 0.103 m, the drive hinge 0.158 m,
+#: the APS tube greebles 0.165 m) sits at or below 0.166 m; every part kept
+#: sits at 0.170 m or above (the muzzle-shroud "hider" family, the tow
+#: points, door hardware, suspension coils, the wheel dish/flange/cap ring,
+#: everything larger). 0.17 m draws the line squarely in that gap rather
+#: than at either edge -- not tuned per-vehicle, so it generalises to the
+#: next vehicle's own fastener-scale hardware without a name-pattern list.
+MIN_PART_DIAG_M = 0.17
+
 
 @dataclass
 class VehicleMeshSpec:
@@ -97,6 +110,19 @@ SPECS = {
         sprite_manifest=os.path.join(REPO, "assets", "sprites", "EITAN_HULL", "manifest.json"),
         credit="8x8 APC -- authored from primitives for this repository, CC BY-SA 4.0",
     ),
+    "dozer_d9": VehicleMeshSpec(
+        unit_id="dozer_d9",
+        src=os.path.join(REPO, "art", "src", "vehicles", "d9.blend"),
+        # No weapon station -- render_d9.py's own SPEC leaves turret_meshes
+        # empty for the same reason ("the D9 is unarmed"). An empty tuple
+        # here makes is_turret's str.startswith(()) False for every object,
+        # so every part goes to the hull and no turret_pivot node is emitted
+        # -- exercising the mesh contract's hull-only branch for the first
+        # time (apc_eitan always had a turret).
+        turret_prefixes=(),
+        sprite_manifest=os.path.join(REPO, "assets", "sprites", "D9_HULL", "manifest.json"),
+        credit="D9 armoured dozer -- authored from primitives for this repository, CC BY-SA 4.0",
+    ),
 }
 DEFAULT_UNIT = "apc_eitan"
 
@@ -111,6 +137,29 @@ def _drop_non_mesh(unit_id):
             bpy.data.objects.remove(ob, do_unlink=True)
     if dropped:
         print(f"[{unit_id}] dropped {len(dropped)} non-mesh object(s): {dropped}")
+
+
+def _drop_wreck_variants(unit_id, meshes):
+    """Some vehicles (the D9, confirmed by inspection -- not the Eitan, which
+    derives its wreck pose by re-posing the SAME live geometry at render
+    time) carry a dedicated `WRECK_`-prefixed replacement mesh per damaged
+    part, alongside the live one, in the same .blend -- the exact split
+    `render_d9.py`'s own live/debris list comprehension already makes
+    (`WRECK_` if name-prefixed, else live). The mesh contract has no wreck
+    clip in this slice (see the report's point 7), so this drops every
+    `WRECK_` object before merge, the same name-prefix convention the
+    billboard renderer uses, generalised for any future vehicle authored the
+    same way -- harmless (a no-op) on a vehicle with no such objects."""
+    keep, dropped = [], []
+    for ob in meshes:
+        if ob.name.startswith("WRECK_"):
+            dropped.append(ob.name)
+            bpy.data.objects.remove(ob, do_unlink=True)
+        else:
+            keep.append(ob)
+    if dropped:
+        print(f"[{unit_id}] dropped {len(dropped)} WRECK_ variant object(s) (no wreck clip in this export): {dropped}")
+    return keep
 
 
 def _apply_modifiers(meshes):
@@ -149,6 +198,56 @@ def _extent(meshes):
             zs.append(wc.z)
         eo.to_mesh_clear()
     return max(max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs))
+
+
+def _cull_subpixel(unit_id, meshes, mpu, min_diag_m=MIN_PART_DIAG_M):
+    """Drops any part whose own real-world bounding-box diagonal is below
+    `min_diag_m` -- fastener-scale hardware (lug nuts, armour bolts, wheel
+    nuts, suspension dampers...) that a Bevel modifier makes vertex-expensive
+    on export (hard-edge normal splitting) but that cannot resolve at the
+    25-80 px this ships at regardless of vertex budget. Geometric, not a
+    per-vehicle name-pattern list, so it generalises to the next vehicle's
+    own greebles unexamined -- it measures every part exactly the way
+    `_extent` already measures the whole model, just per-object instead of
+    pooled.
+
+    Genuinely small-but-singular features (a tow point, a door handle) sit
+    above the threshold and survive -- see `MIN_PART_DIAG_M`'s own doc
+    comment for the measured gap this line sits in. Runs AFTER `mpu` is
+    already known (derived from the FULL, uncalled part set, so a handful of
+    tiny parts cannot skew the scale the way culling before measuring
+    extent would risk) and BEFORE the turret/hull split, so it applies
+    uniformly to both.
+    """
+    dg = bpy.context.evaluated_depsgraph_get()
+    keep, dropped = [], []
+    for ob in meshes:
+        eo = ob.evaluated_get(dg)
+        m = eo.to_mesh()
+        coords = [eo.matrix_world @ v.co for v in m.vertices]
+        nv = len(m.vertices)
+        eo.to_mesh_clear()
+        if not coords:
+            keep.append(ob)
+            continue
+        xs = [c.x for c in coords]
+        ys = [c.y for c in coords]
+        zs = [c.z for c in coords]
+        diag_model = ((max(xs) - min(xs)) ** 2 + (max(ys) - min(ys)) ** 2 + (max(zs) - min(zs)) ** 2) ** 0.5
+        diag_m = diag_model * mpu
+        if diag_m < min_diag_m:
+            dropped.append((ob.name, nv, round(diag_m, 4)))
+            bpy.data.objects.remove(ob, do_unlink=True)
+        else:
+            keep.append(ob)
+    if dropped:
+        dropped_verts = sum(d[1] for d in dropped)
+        print(
+            f"[{unit_id}] culled {len(dropped)} sub-{min_diag_m}m part(s), "
+            f"{dropped_verts} source vertices (fastener-scale hardware, e.g. "
+            f"{dropped[0][0]}...{dropped[-1][0]})"
+        )
+    return keep
 
 
 def _turret_pivot(turret_meshes, eps=0.05):
@@ -250,6 +349,7 @@ def export_vehicle(spec, out_path=None):
     _drop_non_mesh(spec.unit_id)
 
     meshes = [o for o in bpy.data.objects if o.type == "MESH"]
+    meshes = _drop_wreck_variants(spec.unit_id, meshes)
     _apply_modifiers(meshes)
     # convert() replaces mesh data in place on the same objects; the object
     # list itself is unchanged, but re-fetch defensively rather than trust that.
@@ -265,6 +365,8 @@ def export_vehicle(spec, out_path=None):
         f"[{spec.unit_id}] extent {extent_model:.3f} model units -> {real_metres:.3f} m "
         f"declared ({mpu:.5f} m/unit, real_metres from {spec.sprite_manifest})"
     )
+
+    meshes = _cull_subpixel(spec.unit_id, meshes, mpu)
 
     def is_turret(ob):
         return ob.name.startswith(spec.turret_prefixes)
