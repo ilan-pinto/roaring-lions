@@ -30,6 +30,25 @@ jobs:
       - run: pnpm test
       - run: pnpm validate:data
       - run: pnpm validate:assets
+      # Phase G (docs/superpowers/specs/2026-08-26-three-renderer-design.md):
+      # validate:assets never looks at art/meshes/ -- it walks PNGs, and a mesh
+      # produces none. tools/validate_mesh_assets.py renders every mesh headlessly
+      # (tools/render_mesh_gate.py, inside this Blender) at the locked dimetric
+      # angle and runs the SAME palette/framing/fill/silhouette-IoU checks
+      # validate_assets.py already runs on sprites. A sibling script and gate step,
+      # not folded into validate:assets itself, so a contributor with no Blender
+      # installed can still run the fast, PNG-only sprite gate locally unblocked.
+      # Version pinned to match the Blender.app used for local dev (CLAUDE.md,
+      # "Blender 5.2.0 LTS"), same reasoning render_rig.py's rig-lock comment
+      # gives for every other CI-vs-local mismatch risk in this pipeline.
+      - name: Install Blender (mesh gate)
+        run: |
+          curl -fsSL -o /tmp/blender.tar.xz \
+            https://download.blender.org/release/Blender5.2/blender-5.2.0-linux-x64.tar.xz
+          mkdir -p /opt/blender
+          tar -xf /tmp/blender.tar.xz -C /opt/blender --strip-components=1
+          echo "/opt/blender" >> "$GITHUB_PATH"
+      - run: pnpm validate:meshes
       - run: pnpm validate:ui
       - run: pnpm validate:audio
       - run: python tools/validate_balance.py --units data/units
