@@ -107,7 +107,7 @@ import { WORLD_Y_PER_LIFT_PIXEL, type Camera } from '../project';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
 import { SIM_HZ } from '../anim';
 import { parseManifest, parseStructureManifest, clipOrFallback, type SheetSpec } from '../sheet';
-import type { UnitAnimInput } from '../clip';
+import { resolveClip, type UnitAnimInput } from '../clip';
 import { dimetricCamera, worldToScreenThree, screenToWorldThree } from './camera';
 import { applyPalettePipeline } from './palette-material';
 import { buildGround } from './terrain/ground';
@@ -138,6 +138,16 @@ import {
   resolveRoofPx,
 } from './units/structures';
 import { STRUCTURE_RENDER_ORDER } from './units/render-order';
+import {
+  loadMeshUnitTemplate,
+  instantiateMeshUnit,
+  applyMeshClip,
+  disposeMeshUnitEntity,
+  disposeMeshUnitTemplate,
+  type MeshUnitTemplate,
+  type MeshUnitEntity,
+} from './units/mesh-unit';
+import { meshYawFromFacing } from './units/mesh-anim';
 import { groundWorldY } from './ground-height';
 import { tileHash } from '../tile-hash';
 import { computeFog, isFogVisible, type FogInput } from './fog';
@@ -478,6 +488,20 @@ export class ThreeRenderer implements Renderer {
   private readonly turretInstancers = new Map<string, UnitInstancer>();
 
   /**
+   * Mesh units (task: "the runtime that draws mesh units"). One
+   * `MeshUnitTemplate` per unit type `loadMeshUnit` was called with -- empty
+   * until something calls it, which nothing does yet (the flag: additive,
+   * off by construction). A type present here is drawn through
+   * `updateMeshUnits` INSTEAD of a billboard, never both -- see the
+   * `meshUnitTemplates.has(type.id)` guard in `updateUnits`.
+   */
+  private readonly meshUnitTemplates = new Map<string, MeshUnitTemplate>();
+  /** One `MeshUnitEntity` per living entity of a mesh-enabled type, keyed by
+   *  entity id -- pooled across frames, torn down in `updateMeshUnits` once
+   *  the entity is no longer alive. */
+  private readonly meshUnitEntities = new Map<number, MeshUnitEntity>();
+
+  /**
    * Task B3.7: one `StructureInstancer` per structure TYPE with a loaded
    * idle sheet, keyed by the structure type id `loadStructureSprite` was
    * called with -- the same key `structureAtlas.has(stype.id)` gates on in
@@ -720,6 +744,24 @@ export class ThreeRenderer implements Renderer {
     this.unitInstancers.clear();
     for (const instancer of this.turretInstancers.values()) instancer.dispose();
     this.turretInstancers.clear();
+    // Mesh units: unlike the instancers above (added once, left for the
+    // life of the renderer), every `MeshUnitEntity` is added and removed
+    // dynamically across a mission (`updateMeshUnits`), so -- like
+    // `collapsing` below -- each one needs an explicit `scene.remove` here,
+    // not just a `.dispose()` relying on `renderer.dispose()`'s context
+    // loss. Entities first (they share the templates' geometries/materials
+    // by reference -- `MeshUnitTemplate`'s own doc comment -- so disposing a
+    // template before its entities are torn down would be fine here, since
+    // nothing renders again after this method returns, but entities-then-
+    // templates is the order `loadMeshUnit`'s own reload path already uses,
+    // and matching it means there is only one ordering to reason about).
+    for (const entity of this.meshUnitEntities.values()) {
+      this.scene.remove(entity.root);
+      disposeMeshUnitEntity(entity);
+    }
+    this.meshUnitEntities.clear();
+    for (const template of this.meshUnitTemplates.values()) disposeMeshUnitTemplate(template);
+    this.meshUnitTemplates.clear();
     for (const instancer of this.structureIdle.values()) instancer.dispose();
     this.structureIdle.clear();
     for (const instancer of this.structureWreck.values()) instancer.dispose();
@@ -793,6 +835,7 @@ export class ThreeRenderer implements Renderer {
       this.terrainDirty = false;
     }
     this.updateUnits(alpha, dtMs);
+    this.updateMeshUnits(alpha, dtMs);
     this.updateStructures();
     this.stepCollapses(this.frameDtSeconds(dtMs));
     this.updateFx(dtMs);
@@ -1470,6 +1513,45 @@ export class ThreeRenderer implements Renderer {
       }
     }
   }
+
+  /**
+   * The mesh-unit flag itself: loads `glbUrl` (`art/meshes/<team_id>.glb`
+   * per `mesh-unit-contract.md`), builds a `MeshUnitTemplate`
+   * (`units/mesh-unit.ts`), and files it under `unitTypeId`. Additive --
+   * nothing calls this today, so unless and until something does, every
+   * existing billboard type keeps drawing exactly as before (see
+   * `updateUnits`'s own `meshUnitTemplates.has(type.id)` guard).
+   *
+   * Once loaded, `unitTypeId` draws through `updateMeshUnits` instead of a
+   * billboard, regardless of whether `loadSprites` was ALSO called for it --
+   * mesh wins. A reload (`loadMeshUnit` called twice for the same type, not
+   * exercised by any caller today) disposes the old template's own
+   * materials/geometries and tears down every live clone of it first, the
+   * same "must not leak the thing it replaces" guarantee `loadSprites`
+   * itself gives.
+   *
+   * Errors propagate rather than being swallowed, matching `loadSprites` and
+   * `loadStructureSprite`: a missing or malformed GLB fails loudly, for the
+   * one caller (`main.ts`, when something wires this up) to decide how to
+   * report it -- exactly the precedent those two methods' own doc comments
+   * already set.
+   */
+  async loadMeshUnit(unitTypeId: string, glbUrl: string): Promise<void> {
+    const template = await loadMeshUnitTemplate(glbUrl);
+
+    const previous = this.meshUnitTemplates.get(unitTypeId);
+    if (previous) {
+      for (const [id, entity] of this.meshUnitEntities) {
+        if (entity.typeId !== unitTypeId) continue;
+        this.scene.remove(entity.root);
+        disposeMeshUnitEntity(entity);
+        this.meshUnitEntities.delete(id);
+      }
+      disposeMeshUnitTemplate(previous);
+    }
+    this.meshUnitTemplates.set(unitTypeId, template);
+  }
+
   /**
    * Task C5: how many structures of ONE type -- alive or dead -- the sim
    * holds, right now. `loadStructureSprite` uses this as its capacity bound
@@ -1690,6 +1772,13 @@ export class ThreeRenderer implements Renderer {
         if (!this.isVisible(ix, iy)) continue;
       }
       const type = this.sim.unitTypes[st.typeIdx[i]];
+      // A type drawn through the mesh-unit path (`updateMeshUnits`, called
+      // separately from `frame()`) must not ALSO build a billboard frame for
+      // it -- nothing calls `loadMeshUnit` today, so `meshUnitTemplates` is
+      // empty and this `continue` is never taken; it exists so a future
+      // caller that loads both a sheet and a GLB for the same type gets one
+      // draw of that type, not two overlapping ones.
+      if (this.meshUnitTemplates.has(type.id)) continue;
       const instancer = this.unitInstancers.get(type.id);
       if (!instancer) continue;
       // Task B3.6: absent when this type has no turret art -- doubles as
@@ -1819,6 +1908,90 @@ export class ThreeRenderer implements Renderer {
       if (turretInstancer) {
         turretInstancer.updateTurret(this.turretFramesByType.get(typeId) ?? [], instancer.sheet);
       }
+    }
+  }
+
+  /**
+   * Mesh units: called separately from `frame()`, right after `updateUnits`.
+   * A SEPARATE per-entity loop rather than folded into `updateUnits` itself
+   * -- `updateUnits` has no headless test coverage of its own (this class's
+   * top comment: "`ThreeRenderer` itself has no test file"), and keeping
+   * this new, first-cut path in its own method means a bug in it cannot
+   * corrupt the billboard loop's own state, and reading either method never
+   * requires reading both.
+   *
+   * Unlike a billboard, whose `EntityFrame` is only computed for a VISIBLE
+   * entity (`updateUnits`'s own `isVisible` `continue`, so an out-of-fog
+   * hostile is simply never added to that frame's instance buffer), this
+   * loop updates position/clip for every LIVING entity of a mesh-enabled
+   * type regardless of current fog state, and gates only `root.visible` on
+   * it. Skipping the update entirely while fogged would leave the clone
+   * frozen at its last-SEEN position; if that stale tile later comes back
+   * into view (the player re-scouts it) while the unit itself has moved on,
+   * the frozen clone would render as a ghost at a position fog is no longer
+   * covering -- a real information leak, not merely a cosmetic gap. Always
+   * updating position and gating only visibility avoids that by
+   * construction, at the cost of a `Vector3`/`Euler` write for a unit
+   * nobody can currently see, which is cheap next to the JS-side skinning
+   * `AnimationMixer.update` already does for it every frame regardless.
+   *
+   * `mixer.update` runs even while `!visible`, deliberately: it keeps the
+   * clip's phase advancing so a unit that re-enters fog resumes mid-stride
+   * rather than snapping back to frame zero, and three.js's own render
+   * traversal already skips an invisible object's draw call for free, so
+   * this costs nothing beyond the CPU-side interpolation already paid.
+   */
+  private updateMeshUnits(alpha: number, dtMs: number): void {
+    if (this.meshUnitTemplates.size === 0) return;
+
+    const dtSeconds = this.frameDtSeconds(dtMs);
+    const st = this.sim.state;
+    const n = this.sim.entityCount;
+
+    for (let i = 0; i < n; i++) {
+      if (st.alive[i] === 0) continue;
+      const type = this.sim.unitTypes[st.typeIdx[i]];
+      const template = this.meshUnitTemplates.get(type.id);
+      if (!template) continue;
+
+      let entity = this.meshUnitEntities.get(i);
+      if (!entity) {
+        entity = instantiateMeshUnit(template, type.id);
+        this.meshUnitEntities.set(i, entity);
+        this.scene.add(entity.root);
+      }
+
+      const wx = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
+      const wy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+      const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, wx, wy);
+      entity.root.position.set(wx, worldY, wy);
+      entity.root.rotation.y = meshYawFromFacing(fx.toNumber(st.facing[i]));
+      // Side 0 (the player's own) is always drawn, matching `entityFrame`'s
+      // own `contactLevel` short-circuit for it -- everything else defers to
+      // real fog-of-war, exactly like `updateUnits`'s own `isVisible` gate.
+      entity.root.visible = st.side[i] === 0 || this.isVisible(wx, wy);
+
+      const anim: UnitAnimInput = {
+        alive: st.alive[i],
+        routed: st.routed[i],
+        pinned: st.pinned[i],
+        speed: this.entitySpeed[i],
+        firing: this.firingTimer[i] > 0,
+        working: this.sim.tunnelChargeProgress(i) > 0,
+      };
+      applyMeshClip(entity, resolveClip(anim));
+      entity.mixer.update(dtSeconds);
+    }
+
+    // Prune entities no longer alive. Not gated on `seen`/visibility this
+    // frame -- see this method's own top comment on why a fogged unit stays
+    // instantiated (and simply invisible) rather than being torn down and
+    // rebuilt on every fog flicker.
+    for (const [id, entity] of this.meshUnitEntities) {
+      if (id < n && st.alive[id] !== 0) continue;
+      this.scene.remove(entity.root);
+      disposeMeshUnitEntity(entity);
+      this.meshUnitEntities.delete(id);
     }
   }
 
