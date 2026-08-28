@@ -155,6 +155,7 @@ import { groundWorldY } from './ground-height';
 import { tileHash } from '../tile-hash';
 import { computeFog, isFogVisible, type FogInput } from './fog';
 import { FogMesh } from './fog-mesh';
+import { TrailMesh, collapsedRouteLevel, type TrailInstanceInput } from './trail-mesh';
 import { billboardPoint } from './units/overlay-geometry';
 import {
   OverlayBatch,
@@ -672,6 +673,20 @@ export class ThreeRenderer implements Renderer {
    */
   private readonly sightByType: Float64Array;
   private readonly fogMesh: FogMesh;
+  /**
+   * Phase C: tunnel trails, the three.js counterpart of `PixiRenderer
+   * .drawTrail` (`renderer.ts:1121-1167`) -- see `./trail-mesh.ts`'s own top
+   * comment for the full port account, including why its `renderOrder`/depth
+   * recipe deliberately diverges from `fogMesh`'s.
+   */
+  private readonly trailMesh: TrailMesh;
+  /** Set on the SAME `fogTick` cadence as `fogMeshDirty` -- Pixi's own
+   *  `snapshot()` refreshes fog and trail off one shared `refresh` gate
+   *  (`renderer.ts:733-735`, "the trail rides the same cadence, since its
+   *  stamp/decay clock is slower still"), so this backend reuses `fogTick`
+   *  rather than a second, independently-ticking counter that could drift
+   *  out of step with it. */
+  private trailMeshDirty = true;
 
   constructor(
     private readonly sim: Sim,
@@ -700,6 +715,11 @@ export class ThreeRenderer implements Renderer {
     this.sightByType = new Float64Array(sim.unitTypes.length);
     for (let t = 0; t < sim.unitTypes.length; t++) this.sightByType[t] = fx.toNumber(sim.unitTypes[t].sight);
     this.fogMesh = new FogMesh(sim.width, sim.height);
+    // Colour baked once from opts.terrainTones.spoil, matching every other
+    // per-map tone this backend reads once at construction rather than
+    // re-resolving per frame -- see trail-mesh.ts's own top comment for why
+    // one uniform colour serves the whole mesh.
+    this.trailMesh = new TrailMesh(sim.width, sim.height, opts.terrainTones.spoil);
     // Phase C: sized off sim.capacity, not a bare constant -- see
     // OVERLAY_VERTICES_PER_ENTITY's own doc comment for the per-entity
     // budget this multiplies, and the "+ 8192" headroom for the handful of
@@ -738,6 +758,15 @@ export class ThreeRenderer implements Renderer {
     // haven't run yet) and stay that way until `updateOverlays`'s first
     // call, from `frame()`.
     this.scene.add(this.overlayBatch.mesh, this.numeralBatch.mesh);
+    // Pixi's own `trailG` is `world`'s SECOND child (`renderer.ts:539`,
+    // below fxG/wreckLayer/spriteLayer alike) -- but per trail-mesh.ts's own
+    // top comment, scene-graph position carries no draw-order meaning in
+    // this backend the way it does not for fogMesh either; `trailMesh.mesh
+    // .renderOrder` (`TRAIL_RENDER_ORDER`) plus real depth-buffer arbitration
+    // is what actually places it. Added here, not last, only so a reader
+    // scanning this constructor sees ground-plane geometry grouped before
+    // the always-on-top fog mesh below it.
+    this.scene.add(this.trailMesh.mesh);
     // Added LAST, matching Pixi's own `world.addChild(this.fogG)` being the
     // final call in its constructor (`renderer.ts:551`, "above terrain AND
     // units") -- three.js does not order draws by scene-graph child order
@@ -872,6 +901,11 @@ export class ThreeRenderer implements Renderer {
     // `collapsing` loop above calls `scene.remove`, because those meshes are
     // dynamically added and removed one at a time outside of dispose().
     this.fogMesh.dispose();
+    // Phase C: same full-map `InstancedMesh` shape as `fogMesh`, same
+    // "added once in the constructor, no scene.remove needed" reasoning
+    // just above -- guarded against the identical leak from the start
+    // rather than repeating fogMesh's own omit-then-fix history.
+    this.trailMesh.dispose();
     this.renderer.dispose();
     this.host = null;
   }
@@ -911,7 +945,15 @@ export class ThreeRenderer implements Renderer {
    *  gate at all: it reads `this.fog` (the plain data `recomputeFog` last
    *  wrote) directly via `isFogVisible`, never through `fogMesh` -- the mesh
    *  rebuild below is purely what appears on screen, decoupled from what the
-   *  living-unit skip decides. */
+   *  living-unit skip decides.
+   *
+   *  Phase C: `trailMesh` rebuilds on the identical `trailMeshDirty` gate,
+   *  set by `snapshot()` on the same 5 Hz tick `fogMeshDirty` uses -- unlike
+   *  fog, there is no intermediate "recompute" step producing owned data:
+   *  Pixi's own `drawTrail` reads `Sim.trail`/`tunnelContactLevel`/etc.
+   *  live at draw time with nothing cached in between, and `buildTrailInput`
+   *  below does the same, so this gate governs only the GPU rebuild, not a
+   *  separate computation. */
   frame(alpha: number, dtMs: number): void {
     this.drainTimers(this.frameDtSeconds(dtMs));
     if (this.terrainDirty) {
@@ -928,7 +970,35 @@ export class ThreeRenderer implements Renderer {
       this.fogMesh.update(this.fog, this.retained.elevation, this.sim.width, this.sim.height);
       this.fogMeshDirty = false;
     }
+    if (this.trailMeshDirty) {
+      this.trailMesh.update(this.buildTrailInput());
+      this.trailMeshDirty = false;
+    }
     this.renderer.render(this.scene, this.threeCamera());
+  }
+
+  /**
+   * Assembles `./trail-mesh.ts`'s `TrailInstanceInput` from `this.sim` --
+   * the three.js counterpart of `PixiRenderer.drawTrail`'s own direct `Sim`
+   * reads (`renderer.ts:1132-1155`). `routeLevel` reproduces that method's
+   * collapse downgrade verbatim: "a collapsed route keeps drawing its
+   * residual spoil... but never the identified line." Side hardcoded to 0 at
+   * every callback, matching Pixi exactly -- trails are what the PLAYER has
+   * found, never the AI's own contact state.
+   */
+  private buildTrailInput(): TrailInstanceInput {
+    const sim = this.sim;
+    return {
+      width: sim.width,
+      height: sim.height,
+      elevation: this.retained.elevation,
+      trail: sim.trail,
+      routeCount: sim.tunnelCount,
+      routeLevel: (r) => collapsedRouteLevel(sim.tnAlive[r] !== 0, sim.tunnelContactLevel(0, r)),
+      tunnelUnderTile: (r, x, y) => sim.tunnelUnderTile(r, x, y),
+      seenByAnyone: (x, y) => sim.sideSeesTile(0, x, y),
+      seenByCarrier: (x, y) => sim.markerSeesTile(0, x, y),
+    };
   }
 
   /**
@@ -964,9 +1034,11 @@ export class ThreeRenderer implements Renderer {
    *
    * Task B4.2 ports the fog half of Pixi's own refresh: `this.fogTick++ % 4
    * === 0` gating `recomputeFog` at 5 Hz, exactly Pixi's own cadence
-   * (`renderer.ts:733`). Trails remain unported -- `drawTrail` stays Phase C
-   * (`CLAUDE.md`'s own "Known scaling debts" tracks it as its own item,
-   * separate from fog).
+   * (`renderer.ts:733`). Phase C's trail port reuses the SAME gate for
+   * `trailMeshDirty` -- Pixi's own `snapshot()` refreshes both off one
+   * shared `refresh` local (`renderer.ts:733-735`, "the trail rides the same
+   * cadence, since its stamp/decay clock is slower still"), so this backend
+   * does not grow a second, independently-ticking counter for it.
    *
    * Turret facing is NOT seeded here, unlike Pixi's own `snapshot()`
    * (`renderer.ts:748-750`, gated on `this.frameN === 0`): Task B3.6 seeds
@@ -982,7 +1054,10 @@ export class ThreeRenderer implements Renderer {
     // Fog only needs to keep up with movement, not the tick rate -- same
     // cadence Pixi uses (renderer.ts:733): every fourth snapshot() call, 5
     // Hz at the sim's 20 Hz tick.
-    if (this.fogTick++ % 4 === 0) this.recomputeFog();
+    if (this.fogTick++ % 4 === 0) {
+      this.recomputeFog();
+      this.trailMeshDirty = true;
+    }
     this.prevX.set(this.curX);
     this.prevY.set(this.curY);
     const st = this.sim.state;
