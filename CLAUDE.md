@@ -208,6 +208,20 @@ yours; each one records what the next phase inherits.
   bug; changing it is a decision affecting both.
 - **`preserveDrawingBuffer` must stay off** in shipping code. Canvas readback
   therefore returns black — that is correct, not a broken renderer.
+- **A golden-image diff between the two backends exists**:
+  `tools/src/golden-diff/`. `npx tsx tools/src/golden-diff/diff.ts <pixi.png>
+  <three.png> <outDir>`. First clean reading was **0.128% of pixels, entirely
+  edge-shaped** (antialiasing is off in three by design), no solid-interior
+  mismatch. `expected-differences.ts` catalogues eight DELIBERATE divergences so
+  they do not read as failures — the largest being `structureLastAlpha`, where
+  **every building destruction differs** because Pixi's event ordering floors a
+  combat kill's starting alpha to 0.55 and three does not.
+  Two caveats, both load-bearing: it is **not in CI** (needs Playwright, the same
+  gap `playtest.ts` has), and it has **never diffed combat**, so five of the
+  eight entries and the whole VFX/collapse surface are documented but not
+  demonstrated. Capture conditions must be stated with any number from it — a
+  first run read 6.5× higher purely from screenshot downscaling and a font-load
+  race, and the OS mouse cursor is shared across tabs and can leak into a capture.
 
 ### Mesh units
 
