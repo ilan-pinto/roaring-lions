@@ -1,0 +1,77 @@
+# Automates tools/src/golden-diff/ -- the per-pixel diff between the Pixi and
+# three.js renderer backends (CLAUDE.md's "The three.js backend" section,
+# .superpowers/d-golden-diff-report.md). Capturing needs a real browser with a real
+# WebGL context (tools/src/ci/golden-diff-gate.ts, driven by Playwright's headless
+# Chromium), which is why this is a SEPARATE workflow from ci.yml's `gates` job
+# rather than one more `pnpm` step there:
+#
+#   - It is materially heavier than everything `gates` runs today: booting a real
+#     Vite dev server plus a real (headless, software-rendered) WebGL context twice,
+#     not a sub-5s Node-only check the way `pnpm playtest` (wired into `gates`
+#     directly, next to `pnpm balance`) and `pnpm perf:units` are.
+#   - The gate itself is one day old as of this workflow (tools/src/golden-diff/,
+#     commit a82c6c1) and has only ever been calibrated against ONE hand-captured,
+#     non-combat scenario -- see golden-diff-gate.ts's own top comment for the exact
+#     numbers and the ~10x headroom this file's thresholds carry over them. Blocking
+#     every push on a brand-new, single-scenario, not-yet-run-on-real-CI-infra gate
+#     is how a flaky gate ends up earning a wide allowlist just to keep merges
+#     moving -- the outcome CLAUDE.md and this repo's own review discipline already
+#     warn against inviting. Running it on a schedule/label/manual cadence instead
+#     means failures get seen and investigated without holding up unrelated work
+#     while the gate proves itself out on a real runner.
+#
+# Promote this into `gates` (ci.yml) once it has a run history that shows it is not
+# flaky on GitHub's own Linux runners -- this was developed and verified locally on
+# macOS, not there.
+
+name: golden-diff
+
+on:
+  schedule:
+    # 03:00 UTC nightly -- outside contributor hours, ahead of the working day.
+    - cron: '0 3 * * *'
+  workflow_dispatch: {}
+  # Opt in per-PR by adding the `golden-diff` label, rather than running on every
+  # push to every PR -- see this file's own top comment for why.
+  pull_request:
+    types: [labeled]
+
+jobs:
+  golden-diff:
+    if: github.event_name != 'pull_request' || github.event.label.name == 'golden-diff'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Chromium is ~270 MB; cached across runs since it only changes when the
+      # pinned `playwright` devDependency does. The Linux system deps
+      # (`--with-deps`: fonts, libnss3, etc.) are cheap to reinstall on a cache hit
+      # and are NOT part of this cache -- apt already dedupes what is present.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Install Playwright Chromium
+        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
+
+      # golden-diff-gate.ts owns the dev server's lifecycle for this run: it starts
+      # one on --port (nothing else is using this runner) and tears it down after,
+      # so no separate "start the dev server" step is needed here.
+      - name: Capture + diff Pixi vs three.js (beit_sahwan_outskirts@town_center)
+        run: pnpm --filter @lions/tools golden-diff:ci -- --port=5174 --out-dir=golden-diff-ci-output
+
+      - name: Upload capture + diff artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-diff-ci-output
+          path: golden-diff-ci-output
+          if-no-files-found: ignore
+          retention-days: 14

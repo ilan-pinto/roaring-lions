@@ -18,6 +18,7 @@
     "balance": "pnpm --filter @lions/tools balance",
     "playtest": "pnpm --filter @lions/tools playtest",
     "perf:units": "pnpm --filter @lions/tools perf:units",
+    "golden-diff:ci": "pnpm --filter @lions/tools golden-diff:ci",
     "gen:luts": "node tools/gen_luts.mjs"
   },
   "devDependencies": {

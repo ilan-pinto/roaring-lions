@@ -8,7 +8,8 @@
     "balance": "tsx src/balance/cli.ts",
     "playtest": "tsx src/backtest/playtest.ts",
     "perf:units": "tsx src/perf/three-units.ts",
-    "golden-diff": "tsx src/golden-diff/diff.ts"
+    "golden-diff": "tsx src/golden-diff/diff.ts",
+    "golden-diff:ci": "tsx src/ci/golden-diff-gate.ts"
   },
   "dependencies": {
     "@lions/data": "workspace:*",
@@ -18,6 +19,7 @@
     "tsx": "^4.19.2",
     "pixelmatch": "^7.2.0",
     "pngjs": "^7.0.0",
-    "@types/pngjs": "^6.0.5"
+    "@types/pngjs": "^6.0.5",
+    "playwright": "^1.55.0"
   }
 }

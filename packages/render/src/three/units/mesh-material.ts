@@ -59,6 +59,42 @@
  * object.isSkinnedMesh === true` -- so it is switched on for a raw
  * `ShaderMaterial` exactly when the mesh is a `SkinnedMesh`, and hard-defining
  * it here would break the material on anything else.
+ *
+ * ## `uOpacity`, added for the death fade, and the palette tension it looks
+ * like it should raise but does not
+ *
+ * A faded fragment is a blend, and this file's whole job is guaranteeing an
+ * UNBLENDED, palette-exact fragment colour -- so a naked "just multiply in
+ * an alpha" request is worth pausing on rather than granting by reflex. The
+ * resolution is the one `units/instances.ts` already shipped for the
+ * billboard material, read closely rather than assumed: its fragment shader
+ * ends `gl_FragColor = vec4(texel.rgb, a)` -- the RGB reaching the GPU is
+ * still the exact sampled texel, never touched; only the ALPHA channel
+ * carries the fade, and blending it against whatever is already in the
+ * framebuffer is `transparent: true`'s job -- a real GPU blend-unit
+ * compositing operation, not a colour this shader computes by mixing two
+ * palette entries itself. `uRamp`/`uSteps`/`uLightDir` and the quantized
+ * `outColor` lookup below are BYTE-IDENTICAL to `toonRampMaterial`'s; the
+ * only change is the final line, `vec4(outColor, uOpacity)`, mirroring
+ * `instances.ts`'s `vec4(texel.rgb, a)` exactly. `outColor` itself is never
+ * touched, so it is exactly as palette-exact as it was before this uniform
+ * existed -- what is off-palette, if anything, is the COMPOSITED pixel the
+ * player's eye integrates once a translucent fragment sits over whatever is
+ * behind it, and that is true of every `transparent: true` draw in this
+ * codebase (the billboard silhouette edge included), not a new problem this
+ * material introduces.
+ *
+ * Defaulting `uOpacity` to `1.0` and leaving `transparent` at three.js's own
+ * default (`false`) on every material this function returns means a LIVING
+ * unit's material is completely unaffected: with blending off, the GPU never
+ * reads the alpha channel at all, so the uniform existing costs nothing and
+ * changes nothing until something turns blending on. `units/mesh-death.ts`
+ * is the only caller that ever does -- and only on a per-entity CLONE it
+ * makes for the ~0.4s death fade, never on the shared template material
+ * every OTHER living clone of the same type/role still draws through
+ * (`MeshUnitTemplate`'s own doc comment: shared by reference, disposed
+ * exactly once) -- so turning a corpse translucent can never dim a living
+ * squadmate standing next to it.
  */
 import * as THREE from 'three';
 import { RAMP_MAX, paletteColorNoConvert } from '../palette-material';
@@ -97,6 +133,11 @@ export function toonRampSkinnedMaterial(rampHexes: readonly string[]): THREE.Sha
       uRamp: { value: padded },
       uSteps: { value: rampHexes.length },
       uLightDir: { value: new THREE.Vector3(0.5, 1, 0.3).normalize() },
+      // Death fade only -- see this file's own top comment, "uOpacity,
+      // added for the death fade". `1.0` and unread while `transparent`
+      // stays at three.js's own default (`false`): harmless on every
+      // living unit's material.
+      uOpacity: { value: 1.0 },
     },
     vertexShader: /* glsl */ `
       #include <common>
@@ -120,6 +161,7 @@ export function toonRampSkinnedMaterial(rampHexes: readonly string[]): THREE.Sha
       uniform vec3 uRamp[${RAMP_MAX}];
       uniform int uSteps;
       uniform vec3 uLightDir;
+      uniform float uOpacity;
       varying vec3 vNormal;
 
       void main() {
@@ -133,7 +175,11 @@ export function toonRampSkinnedMaterial(rampHexes: readonly string[]): THREE.Sha
             outColor = uRamp[i];
           }
         }
-        gl_FragColor = vec4(outColor, 1.0);
+        // outColor is untouched by uOpacity -- see this file's own top
+        // comment, "uOpacity, added for the death fade": the fade lives in
+        // the alpha channel alone, exactly like units/instances.ts's own
+        // vec4(texel.rgb, a).
+        gl_FragColor = vec4(outColor, uOpacity);
       }
     `,
   });
