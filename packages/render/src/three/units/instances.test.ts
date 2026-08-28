@@ -94,18 +94,30 @@ describe('unitBillboardGeometry', () => {
   // rather than the double-precision exactness `toBeCloseTo(x, 10)` assumes.
   const F32_TOL = 5;
 
-  it('is anchored at the feet: both bottom vertices sit at exactly 0, not the quad centre', () => {
-    // No bias -- local up 0 is the entity's real, unmodified groundWorldY.
-    // See instances.ts's own top comment for why a constant offset was
-    // removed (it could not separate this quad from a coplanar one anyway).
-    expect(geo.positions[0 * 3 + 1]).toBeCloseTo(0, F32_TOL); // bl.y
-    expect(geo.positions[1 * 3 + 1]).toBeCloseTo(0, F32_TOL); // br.y
+  it('is anchored at the centre, matching Pixi: the quad straddles world Y 0 symmetrically, not based at 0', () => {
+    // BREAK CHECK: an earlier version of this module anchored the quad at
+    // the feet (bl/br.y === 0, tr/tl.y === a full draw height above) --
+    // exactly the shape this test now asserts is WRONG, per
+    // instances.ts's own top comment ("Anchored at the centre, matching
+    // Pixi") and the golden-image-diff measurement that forced the change
+    // (every unit rendered drawPx/2 too high). Flipping this assertion back
+    // to the old feet-anchored shape is the regression this guards.
+    const halfY = (drawPx / 2) * WORLD_Y_PER_LIFT_PIXEL;
+    expect(geo.positions[0 * 3 + 1]).toBeCloseTo(-halfY, F32_TOL); // bl.y
+    expect(geo.positions[1 * 3 + 1]).toBeCloseTo(-halfY, F32_TOL); // br.y
+    expect(geo.positions[2 * 3 + 1]).toBeCloseTo(halfY, F32_TOL); // tr.y
+    expect(geo.positions[3 * 3 + 1]).toBeCloseTo(halfY, F32_TOL); // tl.y
   });
 
-  it('the top edge sits a full draw height above the feet, converted through WORLD_Y_PER_LIFT_PIXEL', () => {
-    const topY = drawPx * WORLD_Y_PER_LIFT_PIXEL;
-    expect(geo.positions[2 * 3 + 1]).toBeCloseTo(topY, F32_TOL); // tr.y
-    expect(geo.positions[3 * 3 + 1]).toBeCloseTo(topY, F32_TOL); // tl.y
+  it('the translation (local up = 0) is not itself a vertex: the top and bottom edges sit equal distances above and below it', () => {
+    // The entity's own groundWorldY is what `writeUnitInstances` writes as
+    // the instance translation -- this geometry only decides where, RELATIVE
+    // to that translation, the quad's four corners fall. Centred means the
+    // translation is the quad's midpoint, not one of its edges.
+    const bottomY = geo.positions[0 * 3 + 1];
+    const topY = geo.positions[2 * 3 + 1];
+    expect(topY).toBeCloseTo(-bottomY, F32_TOL);
+    expect(topY - bottomY).toBeCloseTo(drawPx * WORLD_Y_PER_LIFT_PIXEL, F32_TOL);
   });
 
   it('is symmetric left/right about the origin, sized to sheet.scale * TILE_W in screen px', () => {
@@ -116,7 +128,7 @@ describe('unitBillboardGeometry', () => {
     expect(geo.positions[1 * 3 + 2]).toBeCloseTo(half * right.dy, F32_TOL); // br.z
   });
 
-  it('uv: bottom (feet) samples v=1, top samples v=0 -- matches DataArrayTexture flipY=false', () => {
+  it('uv: bottom edge samples v=1, top edge samples v=0 -- matches DataArrayTexture flipY=false', () => {
     expect(Array.from(geo.uvs)).toEqual([0, 1, 1, 1, 1, 0, 0, 0]);
   });
 
@@ -154,8 +166,8 @@ describe('unitBillboardGeometry', () => {
   it('scales with sheet.scale, matching Pixi\'s own draw-width formula', () => {
     const doubled: SheetSpec = { ...infSquad, scale: infSquad.scale * 2 };
     const bigGeo = unitBillboardGeometry(doubled);
-    // Top edge (feet are at exactly 0, so no offset to subtract) should be
-    // twice as far above the feet in world Y.
+    // Top edge sits at +half*WORLD_Y_PER_LIFT_PIXEL above the translation,
+    // so doubling sheet.scale should double that rise exactly.
     const smallRise = geo.positions[2 * 3 + 1];
     const bigRise = bigGeo.positions[2 * 3 + 1];
     expect(bigRise).toBeCloseTo(smallRise * 2, F32_TOL);
@@ -167,13 +179,13 @@ describe('the unit-vs-tree depth tie is real', () => {
     // 4x4 flat-except-one-tile grid, level 3 at (1, 1) -- grove.ts's own
     // trunk base for a tree on that tile is `levelAt(...) * WORLD_PER_LEVEL`;
     // groundWorldY (what entityFrame gives a unit's worldY, and what
-    // unitBillboardGeometry's own feet vertex -- local up 0, no offset --
-    // sits on top of) is the same formula through the same
-    // levelAt/WORLD_PER_LEVEL, proven here rather than assumed from both
-    // modules importing the same symbols. This is exactly the coincidence
-    // that makes the render-order tie-break (tested below) load-bearing
-    // rather than academic: nothing in this module's own geometry
-    // separates the two.
+    // unitBillboardGeometry's own translation -- local up 0, the quad's
+    // geometric middle, no offset -- sits exactly on) is the same formula
+    // through the same levelAt/WORLD_PER_LEVEL, proven here rather than
+    // assumed from both modules importing the same symbols. This is exactly
+    // the coincidence that makes the render-order tie-break (tested below)
+    // load-bearing rather than academic: nothing in this module's own
+    // geometry separates the two.
     // prettier-ignore
     const elevation = new Uint8Array([
       0, 0, 0, 0,

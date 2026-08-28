@@ -477,9 +477,9 @@ export interface ParticleBillboardGeometry {
  * along either axis, in this convention, reprojects to 1 equal screen pixel
  * (that calibration is what lets `unitBillboardGeometry` draw a SQUARE sprite
  * frame without distortion; a particle's circle needs the identical
- * property, or it would render as an ellipse). Centred on (0, 0, 0) rather
- * than anchored at 0..drawPx the way a unit's feet are -- a particle's own
- * world position IS its centre, matching Pixi's `g.circle(cx, cy, r)`.
+ * property, or it would render as an ellipse). Centred on (0, 0, 0), same as
+ * `unitBillboardGeometry`'s own `-half..+half` convention -- a particle's
+ * own world position IS its centre, matching Pixi's `g.circle(cx, cy, r)`.
  */
 export function particleBillboardGeometry(): ParticleBillboardGeometry {
   const right = screenOffsetToWorld(1, 0);

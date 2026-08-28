@@ -37,12 +37,21 @@
  * helper): buildings alone are fed a per-structure-masked view, never
  * `buildGround`/`buildScatter`/`buildGroves`.
  *
- * ## Anchor convention: centred, like Pixi -- not feet-anchored, like units
+ * ## Anchor convention: centred, like Pixi -- like units, now too
  *
- * `units/instances.ts` anchors a unit billboard at the feet (local up = 0)
- * because Pixi's own unit anchor point (`spawnAmbient`'s "ground contact
- * point") already means the same thing on both backends. A structure sprite
- * is different: Pixi's `drawStructureSprite`/`drawWreckedStructures` both
+ * `units/instances.ts` anchored a unit billboard at the feet (local up = 0)
+ * for most of this migration, on the belief that Pixi's own unit anchor
+ * point (`spawnAmbient`'s "ground contact point") already meant the same
+ * thing on both backends. It did not: Pixi's unit-sprite path
+ * (`renderer.ts:1283`, `:1256`) makes the IDENTICAL `anchor: 0.5` call this
+ * file's own structure sprites use, so there was never a real difference for
+ * the two modules to diverge over. That module's own top comment ("Anchored
+ * at the centre, matching Pixi") now carries the correction and the
+ * golden-image-diff measurement that forced it -- a unit billboard is
+ * centred exactly like a structure one. This section's own reasoning below,
+ * for WHY a structure billboard is centred, is unchanged by that fix -- it
+ * was always right, and is restated here for structures specifically. Pixi's
+ * `drawStructureSprite`/`drawWreckedStructures` both
  * construct `new Sprite({ texture, anchor: 0.5 })` and position it at
  * `isoY(fx0, fy0) - groundOffset(fx0, fy0)` -- the SCREEN point of the
  * footprint's own ground centre, with the sprite's GEOMETRIC MIDDLE (both
@@ -283,8 +292,9 @@ export interface StructureBillboardGeometry {
  * Anchored at the footprint's ground CENTRE (local up = 0 at both `-half`
  * and `+half` from it), not the feet -- see this file's top comment,
  * "Anchor convention", for why that is the correct port of Pixi's own
- * `anchor: 0.5`, not an oversight relative to `unitBillboardGeometry`'s feet
- * anchor.
+ * `anchor: 0.5`, matching `unitBillboardGeometry`'s own `-half..+half`
+ * convention exactly (the two used to diverge here; see that module's own
+ * top comment for why they no longer do).
  */
 /**
  * The drawn width/height in screen px, shared by `structureBillboardGeometry`
@@ -366,11 +376,18 @@ export function structureBillboardGeometry(
  * instead of centred -- what `ThreeRenderer.beginCollapse` needs so
  * shrinking `mesh.scale.y` around the mesh's own local origin brings the
  * roof down while the footprint itself stays exactly where it is. Local up
- * runs `0` to `drawHeightPx`, matching `units/instances.ts`'s own
- * `unitBillboardGeometry` (base-anchored for the identical depth-correctness
- * reason -- see that function's own "Anchored at the feet, not the centre"
- * comment), NOT `-halfDrawHeightPx` to `+halfDrawHeightPx` the way the
- * steady-state structure billboard above is.
+ * runs `0` to `drawHeightPx`, NOT `-halfDrawHeightPx` to `+halfDrawHeightPx`
+ * the way the steady-state structure billboard above (and, since its own
+ * fix, `units/instances.ts`'s `unitBillboardGeometry`) is. This is a
+ * scale-pivot requirement specific to an animated collapse, not a
+ * depth-correctness argument shared with units -- `unitBillboardGeometry`
+ * used to be base-anchored for a depth-correctness reason of its own, but
+ * that reasoning turned out not to describe the shipped art (see that
+ * function's own top comment) and no longer applies; nothing here still
+ * leans on it. This geometry's own reason to stay base-anchored is
+ * independent and unaffected: `mesh.scale.y` has to shrink around a fixed
+ * point, and that point has to be the roofline's own base, not the quad's
+ * middle.
  *
  * This is a SEPARATE geometry, not a runtime toggle on the shared one every
  * live/dead instance already draws through -- exactly the choice Pixi's own

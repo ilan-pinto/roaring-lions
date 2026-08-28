@@ -49,24 +49,89 @@
  * "real" billboard shader that recomputed the same two axes from
  * `viewMatrix` every frame: they would compute the same numbers.
  *
- * ## Anchored at the feet, not the centre
+ * ## Anchored at the centre, matching Pixi -- not at the feet
  *
- * Pixi's own comment on `spawnAmbient` (`renderer.ts`) calls a unit's screen
- * anchor "the unit's ground contact point", and Pixi centres the sprite
- * texture on it (`anchor: 0.5`) freely, because Pixi has no depth buffer for
- * that choice to corrupt -- its `zIndex` sort key never reads *where inside
- * the sprite* the anchor sits, only the tile underneath it. three.js has no
- * such firewall: depth comes from real vertex position. Centring the quad
- * here (local "up" running from `-halfDrawPx` to `+halfDrawPx`) would put
- * HALF its height *below* the entity's actual standing point -- a foot span
- * sunk into the ground plane -- and would put the quad's own geometric
- * middle, not its feet, at the position depth is measured from: a unit would
- * sort as though it stood half a body length further from the camera than it
- * does, and its lower half would clip into whatever terrain or building
- * geometry is directly behind its feet. Anchoring "up" at `[0, drawPx]`
- * instead (feet at 0) makes the quad's lowest edge the entity's real world
- * position, matching `groundWorldY`'s own contract ("a unit standing on a
- * tile lands exactly on that tile's own top face").
+ * An earlier version of this module anchored the quad at the feet (local
+ * "up" `0..drawPx`, feet at `0`) on reasoning that was internally sound and
+ * still wrong, kept here rather than deleted because the mistake is worth
+ * naming: Pixi's own comment on `spawnAmbient` (`renderer.ts`) calls a
+ * unit's screen anchor "the unit's ground contact point", and three.js has a
+ * real depth buffer where Pixi has none, so centring the quad on that point
+ * -- local "up" running `-half` to `+half` -- looked like it would sink half
+ * the sprite below the entity's actual standing point for no reason, and
+ * that half-sink argument is correct as far as it goes.
+ *
+ * What it missed: Pixi does not anchor a UNIT at its feet either. `new
+ * Sprite({ texture, anchor: 0.5 })` (`renderer.ts:1283`, `:1256`) centres the
+ * FRAME on the anchor point, full stop -- the identical call, with the
+ * identical `anchor: 0.5`, that `structures.ts`'s own
+ * `structureBillboardGeometry` already ports correctly (see that file's own
+ * "Anchor convention" section). Pixi's source draws no distinction between a
+ * unit sprite and a structure sprite here; this module's belief that "the
+ * unit's ground contact point... already means the same thing on both
+ * backends" for a unit SPECIFICALLY was never checked against the art the
+ * manifests describe, and does not hold. The render rig's own camera aims at
+ * the footprint's ground centre for every sheet class it builds
+ * (`tools/dimetric.py`'s `badge_top_px` doc comment: "the camera aims at the
+ * footprint's ground centre, so the canvas centre is the anchor";
+ * `tools/render_team.py`'s own comment on why it aims at the footprint's
+ * `z=0`, "ground level between the figures", rather than the vertical middle
+ * of the mass) -- units included, with no carve-out for them.
+ *
+ * The golden-image diff (`tools/src/golden-diff/`, Phase C's own instrument)
+ * caught the consequence, run over real combat for the first time: every
+ * unit rendered 60-90 SCREEN PIXELS too high relative to Pixi at
+ * verified-identical tick/camera/zoom -- `drawPx / 2`, exactly the gap
+ * between "feet at the anchor" and "centre at the anchor" scaled by zoom.
+ * Measured directly against the shipped art rather than assumed, so "centre"
+ * is not assumed to be exactly right either: the opaque bottom edge of
+ * INF_SQUAD's sixteen idle frames sits 5-31 sheet px BELOW the frame's own
+ * centre row (of 256), not on it, and TNK_HULL's sits 40-63 sheet px below
+ * centre. Neither convention puts a unit's own drawn feet exactly at the
+ * anchor point -- Pixi's centred frame does not either. "Feet at the anchor"
+ * was therefore never actually a description of the shipped art, for
+ * infantry or for vehicles; it was a plausible-sounding idealisation this
+ * module adopted without checking it, and the 60-90px gap was the cost.
+ *
+ * Given that neither convention is exactly right, and Pixi is the explicit
+ * reference for this migration phase ("match its on-screen result"), this
+ * module now reproduces Pixi's actual, already-shipped, already-tuned
+ * convention: local "up" runs `-half` to `+half` (see
+ * `unitBillboardGeometry` below), so the quad's GEOMETRIC MIDDLE -- not its
+ * base -- sits at the translation. `writeUnitInstances` still writes
+ * `f.worldY` there unmodified; only this geometry's own parameterisation of
+ * "up" changed, matching `structureBillboardGeometry`'s `-halfH..+halfH`
+ * exactly rather than diverging from it for a reason that turned out not to
+ * exist.
+ *
+ * The depth-correctness cost this reopens has two parts, and only one of
+ * them is a repeat of something Pixi already lives with. The COSMETIC half
+ * -- a vehicle's tracks sitting 40-63 sheet px, scaled, below the point
+ * Pixi anchors at -- is not new; it is the same appearance Pixi's own tank
+ * rendering already carries, now reproduced rather than avoided. The
+ * DEPTH half is genuinely new, because Pixi has no depth buffer for it to
+ * cost anything against: a unit's quad now straddles true ground by
+ * `halfDrawPx` in world-Y on both sides, and the sunk lower half is not a
+ * hypothetical -- captured directly, `mbt_lavi`'s TNK_HULL (`half` = 63
+ * SCREEN px at zoom 1, over a third of a tile) visibly loses part of its
+ * own tracks to the flat ground plane it stands on, at zoom 1, on a map
+ * with NO relief at all (`beit_sahwan_outskirts`; golden-diff crop on
+ * file, not merely reasoned about). This does not need a ridge to occur --
+ * CLAUDE.md's "picking is untested mid-slope" elevation debt undersold it;
+ * it is reachable on flat ground for any unit type whose `halfDrawPx`
+ * sink is large relative to a tile, which large vehicles are. Infantry
+ * (`inf_squad`, `half` ~15 screen px at zoom 1) shows no measurable version
+ * of this in the same capture -- the effect scales with `sheet.scale`, so
+ * it is a vehicle-specific cost, not a uniform one. Unresolved by this
+ * change and out of its scope: a real fix wants either a second,
+ * depth-write-disabled quad for the below-ground sliver (so it never
+ * competes with the SAME tile's own ground for depth) or an accepted,
+ * documented limitation -- a decision for whoever owns this backend's next
+ * phase, not a call this fix makes unilaterally. What is NOT reopened: the
+ * render-order tie-break below (opaque terrain committing depth before any
+ * transparent unit fragment draws) resolves a depth TIE regardless of
+ * where within the quad the tied point falls, vertex or interior -- see
+ * the next section, unaffected by this change.
  *
  * ## The unit-vs-tree tie, and what actually resolves it
  *
@@ -75,10 +140,16 @@
  * a unit's `worldY`) and `grove.ts`'s own `topY = levelAt(...) *
  * WORLD_PER_LEVEL` (what a tree's trunk base stands on) are the *same*
  * formula over the *same* constants -- `groundLevelAt` delegates to the
- * identical `levelAt` grove.ts imports from `shared.ts`. So a unit's feet
- * vertex (local up = 0) and a co-located tree's trunk base sit at exactly
- * the same world Y before anything else runs, on a tile grove tiles do not
- * block movement onto -- proven in `instances.test.ts`, not merely argued.
+ * identical `levelAt` grove.ts imports from `shared.ts`. So a unit's own
+ * translation (local up = 0 -- the quad's geometric middle now, not a
+ * vertex; see "Anchored at the centre" above) and a co-located tree's trunk
+ * base sit at exactly the same world Y before anything else runs, on a tile
+ * grove tiles do not block movement onto -- proven in `instances.test.ts`,
+ * not merely argued. The tie-point moving from a vertex to the quad's
+ * interior does not weaken this: the quad is still one flat plane through
+ * that point, spanned by the same two vectors, so its interpolated depth AT
+ * that point is the plane equation evaluated there -- identical whether the
+ * point happens to land on an edge or inside the rectangle cut from it.
  *
  * An earlier draft of this module resolved that tie with a constant world-Y
  * nudge on every unit vertex, on the reasoning that +Y is monotonically
@@ -187,8 +258,9 @@ export function facingIndex(facingNorm: number, sheet: SheetSpec): number {
  *  so it is testable exactly like `terrain/*`'s `MeshData` builders. */
 export interface BillboardGeometry {
   /** xyz triples, three.js world space, local to an instance's own
-   *  translation (the entity's feet). Four vertices: bottom-left,
-   *  bottom-right, top-right, top-left. */
+   *  translation (the entity's ground anchor -- the quad's geometric middle
+   *  sits here, matching Pixi's `anchor: 0.5`, not its base). Four vertices:
+   *  bottom-left, bottom-right, top-right, top-left. */
   positions: Float32Array;
   /** uv pairs, one per vertex, same order as `positions`. */
   uvs: Float32Array;
@@ -199,7 +271,7 @@ export interface BillboardGeometry {
  * The static, per-unit-type camera-facing quad every instance of that type
  * shares -- built once when a sheet's texture loads (`ThreeRenderer.
  * loadSprites`), never per frame. See this file's own top comment for the
- * billboard convention and the feet anchor; this is where both become
+ * billboard convention and the centre anchor; this is where both become
  * numbers.
  *
  * Drawn size matches Pixi's own on-screen scale exactly: Pixi computes
@@ -221,17 +293,21 @@ export function unitBillboardGeometry(sheet: SheetSpec): BillboardGeometry {
   // this plane from a coplanar one, and for the render-order mechanism that
   // actually resolves the tie instead. Local up = 0 is therefore the
   // entity's real, unmodified groundWorldY, matching `groundWorldY`'s own
-  // contract exactly rather than by 0.05 world units.
+  // contract exactly rather than by 0.05 world units -- it is just no longer
+  // a drawn vertex (see "Anchored at the centre, matching Pixi" above): the
+  // quad's own geometric middle sits there now, matching
+  // `structureBillboardGeometry`'s `-halfH..+halfH` convention rather than
+  // this module's own former `0..drawPx`.
   const corner = (rightPx: number, upPx: number): [number, number, number] => [
     right.dx * rightPx,
     upPx * WORLD_Y_PER_LIFT_PIXEL,
     right.dy * rightPx,
   ];
 
-  const bl = corner(-half, 0);
-  const br = corner(half, 0);
-  const tr = corner(half, drawPx);
-  const tl = corner(-half, drawPx);
+  const bl = corner(-half, -half);
+  const br = corner(half, -half);
+  const tr = corner(half, half);
+  const tl = corner(-half, half);
 
   return {
     positions: Float32Array.from([...bl, ...br, ...tr, ...tl]),
@@ -242,8 +318,10 @@ export function unitBillboardGeometry(sheet: SheetSpec): BillboardGeometry {
     // unchanged across a future three.js version, see atlas.ts's own
     // comment). With no flip, texel row 0 -- `getImageData`'s first row,
     // the TOP of the source PNG -- lands at texture v = 0. So the quad's
-    // TOP edge (up = drawPx) must sample v = 0 to show the sprite's top,
-    // and the quad's BOTTOM edge (up = 0, the feet) samples v = 1.
+    // TOP edge (up = +half) must sample v = 0 to show the sprite's top,
+    // and the quad's BOTTOM edge (up = -half) samples v = 1 -- the vertex
+    // ORDER (bl, br, tr, tl) is unchanged from the feet-anchored version,
+    // only what world Y each one computes to did.
     uvs: Float32Array.from([0, 1, 1, 1, 1, 0, 0, 0]),
     // Winding verified analytically against this camera's VIEW_DIRECTION,
     // not by inspection -- `instances.test.ts` checks it directly, the same
