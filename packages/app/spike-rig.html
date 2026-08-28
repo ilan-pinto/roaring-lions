@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>R0 — rigged infantry vs. billboard</title>
+    <style>
+      /* Spike page, throwaway with the rest of Phase R0.
+
+         These hex literals would fail `pnpm validate:ui` in real UI source.
+         They do not fail here because that gate walks `packages/app/src` and
+         `assets/campaign` plus two named extras (`tools/validate_ui_palette
+         .mjs`, ROOTS/EXTRA), and this file sits one level up at
+         `packages/app/`. That is an accident of location, not an exemption
+         this file earned -- if any of this survives R0 it moves into `src/`
+         and uses theme tokens like everything else.
+
+         The values are palette entries anyway (shadow.0, limestone.1,
+         limestone.8, limestone.0) so the chrome does not lie about the
+         palette while the canvas is being judged against it. */
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #23241f;
+        color: #e6d8be;
+        font: 13px/1.5 monospace;
+      }
+      #stage {
+        width: 100vw;
+        height: calc(100vh - 88px);
+      }
+      #stage canvas {
+        display: block;
+        /* Nearest-neighbour all the way to the screen: the canvas is drawn at
+           devicePixelRatio 1, and letting the browser smooth it would blend
+           palette entries after the shader worked to keep them exact. */
+        image-rendering: pixelated;
+      }
+      #panel {
+        display: flex;
+        gap: 18px;
+        align-items: center;
+        flex-wrap: wrap;
+        padding: 8px 14px;
+        border-top: 1px solid #5e4e3a;
+      }
+      label {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+      #readout {
+        margin-left: auto;
+        opacity: 0.85;
+      }
+      button {
+        font: inherit;
+        background: #5e4e3a;
+        color: #f2e8d5;
+        border: 0;
+        padding: 4px 10px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage"></div>
+    <div id="panel">
+      <label>zoom <input id="zoom" type="range" min="1" max="10" step="0.5" value="1" /></label>
+      <label
+        >clip
+        <select id="clip">
+          <option value="move">move</option>
+          <option value="idle">idle</option>
+        </select>
+      </label>
+      <button id="pause">pause</button>
+      <button id="step">step ▸</button>
+      <label>yaw <input id="yaw" type="range" min="-180" max="180" step="5" value="0" /></label>
+      <label>sprite y <input id="lift" type="range" min="0" max="1.5" step="0.02" value="0.66" /></label>
+      <span id="readout"></span>
+    </div>
+    <script type="module" src="/src/spike-rig.ts"></script>
+  </body>
+</html>
