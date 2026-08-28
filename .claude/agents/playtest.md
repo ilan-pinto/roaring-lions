@@ -91,6 +91,47 @@ a broken feature.
 Use the console only to *read* state you cannot see (`read_console_messages`),
 never to drive the thing you are claiming works.
 
+## Two browser traps that have each produced a FALSE conclusion here
+
+Both cost a full investigation before anyone noticed the instrument, not the
+subject, was wrong. Neither announces itself.
+
+**1. `requestAnimationFrame` is throttled to a standstill in a backgrounded
+tab.** The game's ticker runs on rAF, so everything it computes — contextual
+cursors, hover state, per-frame entity pools, the mesh-unit pool — stays frozen
+at its last value while the tab is hidden, and reading it over the automation
+bridge returns that stale value with **no error and no warning**. This produced
+two false conclusions in one session: "the cursor is broken" and "mesh entities
+are never created". Both were simply frozen frames.
+
+*Take a screenshot before reading any frame-driven state* — it foregrounds the
+tab and lets frames run. **Never `await` a rAF callback from injected JS**; it
+hangs until the automation call times out.
+
+**2. A dual screenshot is not atomic.** Comparing two backends by screenshotting
+each in turn caught an apparently-missing tracer that did not exist — the two
+captures were simply at different moments. Cross-check live internal state
+(`__lions.renderer`, `__lions.sim`) before trusting a pixel difference, and
+verify both sides are at genuinely identical sim state rather than assuming
+equal tick counts mean equal worlds.
+
+Also: the OS mouse cursor is shared across tabs and has leaked into a capture as
+a false positive.
+
+## There are two renderer backends now
+
+Pixi is still the default. `?renderer=three` selects the three.js backend, and
+`&mesh` additionally draws thirteen infantry team types as rigged 3D meshes
+(`?sandbox=<map>&renderer=three&mesh`). `&mesh` on Pixi warns and is ignored —
+it is backend-only.
+
+**Say which backend a playtest ran against.** They are close but not identical:
+a golden-image diff measures ~0.14% differing pixels, and
+`tools/src/golden-diff/expected-differences.ts` catalogues the deliberate
+divergences. A visual anomaly you see under `?renderer=three` may be a known
+entry, a real defect, or one of the two traps above — check the catalogue before
+filing.
+
 ## Verification before any completion claim
 
 ```bash
@@ -114,6 +155,11 @@ Escalation target for: a mission that is stuck rather than lost, and a campaign
 difficulty curve that regresses across the ledger chain.
 
 ## What this agent must NOT do
+
+- Read frame-driven state without forcing a frame first, or await rAF in injected JS
+- Trust a pixel difference between two non-atomic screenshots
+- Report a playtest without saying which renderer backend it ran against
+- Kill a dev server, or any process it did not start
 
 - Emit a fun score, or any invented numeric rating
 - Mix judgment into the measured section of the report
