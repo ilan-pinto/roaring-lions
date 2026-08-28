@@ -26,6 +26,7 @@ import {
   OVERLAY_RENDER_ORDER,
   FOG_RENDER_ORDER,
   STRUCTURE_RENDER_ORDER,
+  TRAIL_RENDER_ORDER,
 } from './render-order';
 
 describe('render order bands', () => {
@@ -54,6 +55,17 @@ describe('render order bands', () => {
     // true BY NAME rather than by two constants that merely happen to agree
     // today.
     expect(STRUCTURE_RENDER_ORDER).toBe(HULL_RENDER_ORDER);
+  });
+
+  it('TRAIL_RENDER_ORDER is an alias of HULL_RENDER_ORDER, and sits below TURRET -- never band 1', () => {
+    // trail-mesh.ts's TrailMesh needs to draw at or below HULL_RENDER_ORDER,
+    // never at TURRET_RENDER_ORDER (band 1) -- this file's own closing
+    // paragraphs name that explicitly as the one band a trail must not
+    // out-rank the ground by claiming. Real depthTest/depthWrite arbitration
+    // does the actual occlusion work; this constant only has to stay named
+    // and out of the turret band.
+    expect(TRAIL_RENDER_ORDER).toBe(HULL_RENDER_ORDER);
+    expect(TRAIL_RENDER_ORDER).toBeLessThan(TURRET_RENDER_ORDER);
   });
 
   it('leaves a gap of at least four bands above FX_RENDER_ORDER_ABOVE for Phase C\'s overlay tier', () => {

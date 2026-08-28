@@ -112,6 +112,13 @@
  * band at all, it belongs at or below `HULL_RENDER_ORDER` -- never band 1,
  * which is the TURRET band and sits ABOVE every hull, the exact inverse of
  * the Pixi relation derived above.
+ *
+ * Update, the Phase C trail port: it landed as `TRAIL_RENDER_ORDER`, an
+ * alias of `HULL_RENDER_ORDER` exported below for the identical reason
+ * `STRUCTURE_RENDER_ORDER` is (see that constant's own doc comment) --
+ * naming it is what catches a future edit that moves `HULL_RENDER_ORDER`
+ * and silently strands this one behind it. `trail-mesh.ts` is the mesh this
+ * drives.
  */
 export const HULL_RENDER_ORDER = 0;
 export const TURRET_RENDER_ORDER = 1;
@@ -169,3 +176,26 @@ export const FOG_RENDER_ORDER = 10;
  * burst in fog (this file's own band-10 row, above).
  */
 export const STRUCTURE_RENDER_ORDER = HULL_RENDER_ORDER;
+
+/**
+ * Phase C: the tunnel-trail mesh's own band (`trail-mesh.ts`'s `TrailMesh`)
+ * -- the same value as `HULL_RENDER_ORDER` (band 0), aliased and exported
+ * under its own name for the identical reason `STRUCTURE_RENDER_ORDER` is
+ * (see that constant's own doc comment for the full argument: relying on
+ * the bare numeric default by coincidence leaves nothing to catch a future
+ * edit that moves `HULL_RENDER_ORDER` and strands this one behind it).
+ *
+ * Why band 0 specifically, and not band 2 (`FX_RENDER_ORDER`, where the
+ * below-tier particle mesh's own materially-similar recipe -- `depthTest:
+ * true`, `depthWrite: false` -- otherwise lives): this file's own closing
+ * paragraphs, "One more trap worth naming", settle it explicitly for
+ * trails by name -- "if a Phase C trail port needs a band at all, it
+ * belongs at or below `HULL_RENDER_ORDER` -- never band 1" (band 1 is
+ * `TURRET_RENDER_ORDER`, which sits ABOVE every hull; a trail must never
+ * out-rank the ground it paints). Real `depthTest`/`depthWrite` arbitration
+ * against terrain and units settles genuine occlusion regardless of which
+ * of bands 0-9 this sits in (none of them are `depthTest: false`) -- the
+ * band only has to avoid TURRET, and `HULL_RENDER_ORDER` is the value this
+ * file's own text already named.
+ */
+export const TRAIL_RENDER_ORDER = HULL_RENDER_ORDER;
