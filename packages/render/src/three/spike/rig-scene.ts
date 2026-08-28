@@ -151,7 +151,8 @@ export async function mountRigSpike(
       unmapped.add(role);
       return;
     }
-    const mat = toonRampSkinnedMaterial(rampForRole(role));
+    // The spike only ever showed a KDF figure (Phase R0 tested one faction).
+    const mat = toonRampSkinnedMaterial(rampForRole(role, 'kdf'));
     mesh.material = mat;
     ownedMaterials.push(mat);
   });

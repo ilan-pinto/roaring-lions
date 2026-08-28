@@ -151,6 +151,12 @@ import {
   type MeshUnitEntity,
 } from './units/mesh-unit';
 import { meshYawFromFacing } from './units/mesh-anim';
+import type { MeshFaction } from './units/mesh-role';
+/** Re-exported so `app` can name the side a mesh unit fights for without
+ *  importing anything under `three/units/` directly. TYPE ONLY: it is erased
+ *  at compile time, so it cannot pull three.js back into the main chunk --
+ *  the regression this entry point exists to prevent. */
+export type { MeshFaction } from './units/mesh-role';
 import { groundWorldY } from './ground-height';
 import { tileHash } from '../tile-hash';
 import { computeFog, isFogVisible, type FogInput } from './fog';
@@ -1696,8 +1702,12 @@ export class ThreeRenderer implements Renderer {
    * report it -- exactly the precedent those two methods' own doc comments
    * already set.
    */
-  async loadMeshUnit(unitTypeId: string, glbUrl: string): Promise<void> {
-    const template = await loadMeshUnitTemplate(glbUrl);
+  async loadMeshUnit(
+    unitTypeId: string,
+    glbUrl: string,
+    faction: MeshFaction
+  ): Promise<void> {
+    const template = await loadMeshUnitTemplate(glbUrl, faction);
 
     const previous = this.meshUnitTemplates.get(unitTypeId);
     if (previous) {

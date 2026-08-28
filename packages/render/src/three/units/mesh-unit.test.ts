@@ -255,7 +255,7 @@ describe('buildFixtureGlb + GLTFLoader (fixture sanity)', () => {
 describe('buildMeshUnitTemplate', () => {
   it('assigns one toon-ramp material per role and scales the root by MESH_SCALE', async () => {
     const gltf = await parseFixture({ roleName: 'uniform', clipName: 'move' });
-    const template = buildMeshUnitTemplate(gltf);
+    const template = buildMeshUnitTemplate(gltf, 'kdf');
 
     expect(template.materials).toHaveLength(1);
     expect(template.materials[0]).toBeInstanceOf(THREE.ShaderMaterial);
@@ -293,7 +293,7 @@ describe('buildMeshUnitTemplate', () => {
     // when both are present, per the contract's "carries its role in BOTH
     // places, deliberately redundantly".
     const gltf = await parseFixture({ roleName: 'uniform', clipName: 'move', nameRole: 'not-a-role-name' });
-    const template = buildMeshUnitTemplate(gltf);
+    const template = buildMeshUnitTemplate(gltf, 'kdf');
     expect(template.materials).toHaveLength(1);
   });
 
@@ -302,7 +302,7 @@ describe('buildMeshUnitTemplate', () => {
     // Either alone has failed once already in this project." This is the
     // half of that sentence a name-only mesh needs to keep working.
     const gltf = await parseFixture({ roleName: 'uniform', clipName: 'move', extrasRole: null });
-    const template = buildMeshUnitTemplate(gltf);
+    const template = buildMeshUnitTemplate(gltf, 'kdf');
     expect(template.materials).toHaveLength(1);
   });
 
@@ -316,7 +316,7 @@ describe('buildMeshUnitTemplate', () => {
   // useful message.
   it('throws loudly, listing the role, for an unmapped rl_role -- never a default colour', async () => {
     const gltf = await parseFixture({ roleName: 'turret_gun', clipName: 'move' });
-    expect(() => buildMeshUnitTemplate(gltf)).toThrow(/no ramp for rl_role turret_gun/);
+    expect(() => buildMeshUnitTemplate(gltf, 'kdf')).toThrow(/no ramp for rl_role turret_gun/);
   });
 
   // Break: change `if (!isMeshClipName(clip.name))` to `if (false)`.
@@ -327,14 +327,14 @@ describe('buildMeshUnitTemplate', () => {
   // the "never played" failure mesh-unit-contract.md's clip section names.
   it('throws loudly for an animation clip name outside the ClipName union', async () => {
     const gltf = await parseFixture({ roleName: 'uniform', clipName: 'walk' });
-    expect(() => buildMeshUnitTemplate(gltf)).toThrow(/animation "walk" is not a recognised clip name/);
+    expect(() => buildMeshUnitTemplate(gltf, 'kdf')).toThrow(/animation "walk" is not a recognised clip name/);
   });
 });
 
 describe('instantiateMeshUnit / applyMeshClip / mixer wiring', () => {
   it('clones are independent objects with independent skeletons -- not aliased to the template or each other', async () => {
     const gltf = await parseFixture({ roleName: 'uniform', clipName: 'move' });
-    const template = buildMeshUnitTemplate(gltf);
+    const template = buildMeshUnitTemplate(gltf, 'kdf');
     const a = instantiateMeshUnit(template, 'inf_squad');
     const b = instantiateMeshUnit(template, 'inf_squad');
 
@@ -368,7 +368,7 @@ describe('instantiateMeshUnit / applyMeshClip / mixer wiring', () => {
   // from an already-correct template -- is what sets it.
   it('sets HULL_RENDER_ORDER on the clone independently of the template\'s own value', async () => {
     const gltf = await parseFixture({ roleName: 'uniform', clipName: 'move' });
-    const template = buildMeshUnitTemplate(gltf);
+    const template = buildMeshUnitTemplate(gltf, 'kdf');
     template.root.traverse((o) => {
       if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).renderOrder = 99;
     });
@@ -382,7 +382,7 @@ describe('instantiateMeshUnit / applyMeshClip / mixer wiring', () => {
 
   it('mixer.update() actually drives the bone -- deforms via a real AnimationClip, not merely constructed', async () => {
     const gltf = await parseFixture({ roleName: 'uniform', clipName: 'move' });
-    const template = buildMeshUnitTemplate(gltf);
+    const template = buildMeshUnitTemplate(gltf, 'kdf');
     const entity = instantiateMeshUnit(template, 'inf_squad');
     applyMeshClip(entity, 'move');
 
@@ -426,7 +426,7 @@ describe('instantiateMeshUnit / applyMeshClip / mixer wiring', () => {
     // mesh units" leniency's mesh-unit equivalent: draw nothing rather than
     // fabricate a pose when there is truly nothing to play.
     const gltf = await parseFixture({ roleName: 'uniform', clipName: 'move' });
-    const template = buildMeshUnitTemplate(gltf);
+    const template = buildMeshUnitTemplate(gltf, 'kdf');
     const entity = instantiateMeshUnit(template, 'inf_squad');
 
     applyMeshClip(entity, 'fire');
@@ -441,7 +441,7 @@ describe('instantiateMeshUnit / applyMeshClip / mixer wiring', () => {
 
   it('applyMeshClip degrades to idle for a clip this GLB never authored, and is a no-op when already on the resolved clip', async () => {
     const gltf = await parseFixture({ roleName: 'uniform', clipName: ['move', 'idle'] });
-    const template = buildMeshUnitTemplate(gltf);
+    const template = buildMeshUnitTemplate(gltf, 'kdf');
     const entity = instantiateMeshUnit(template, 'inf_squad');
 
     applyMeshClip(entity, 'fire'); // not in this fixture's two-clip GLB
@@ -459,7 +459,7 @@ describe('instantiateMeshUnit / applyMeshClip / mixer wiring', () => {
 
   it('disposeMeshUnitEntity stops the mixer without touching the template\'s shared resources', async () => {
     const gltf = await parseFixture({ roleName: 'uniform', clipName: 'move' });
-    const template = buildMeshUnitTemplate(gltf);
+    const template = buildMeshUnitTemplate(gltf, 'kdf');
     const entity = instantiateMeshUnit(template, 'inf_squad');
     const stopSpy = vi.spyOn(entity.mixer, 'stopAllAction');
 
@@ -475,7 +475,7 @@ describe('instantiateMeshUnit / applyMeshClip / mixer wiring', () => {
 
   it('disposeMeshUnitTemplate disposes every owned material and geometry exactly once', async () => {
     const gltf = await parseFixture({ roleName: 'uniform', clipName: 'move' });
-    const template = buildMeshUnitTemplate(gltf);
+    const template = buildMeshUnitTemplate(gltf, 'kdf');
     const matSpy = vi.spyOn(template.materials[0], 'dispose');
     const geoSpy = vi.spyOn(template.geometries[0], 'dispose');
 

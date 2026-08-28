@@ -36,7 +36,7 @@ import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import type { ClipName } from '../../sheet';
 import { toonRampSkinnedMaterial } from './mesh-material';
-import { isMeshRole, rampForRole } from './mesh-role';
+import { isMeshRole, rampForRole, type MeshFaction } from './mesh-role';
 import { isMeshClipName, meshClipOrFallback, MESH_SCALE } from './mesh-anim';
 import { HULL_RENDER_ORDER } from './render-order';
 
@@ -80,7 +80,10 @@ export interface MeshUnitTemplate {
  * per-clone -- because `SkeletonUtils.clone` copies whatever `.scale` the
  * source object already has, so every future clone inherits it for free.
  */
-export function buildMeshUnitTemplate(gltf: Pick<GLTF, 'scene' | 'animations'>): MeshUnitTemplate {
+export function buildMeshUnitTemplate(
+  gltf: Pick<GLTF, 'scene' | 'animations'>,
+  faction: MeshFaction
+): MeshUnitTemplate {
   const root = gltf.scene;
   root.scale.setScalar(MESH_SCALE);
 
@@ -97,7 +100,7 @@ export function buildMeshUnitTemplate(gltf: Pick<GLTF, 'scene' | 'animations'>):
       unmapped.add(role || '(unnamed mesh)');
       return;
     }
-    const mat = toonRampSkinnedMaterial(rampForRole(role));
+    const mat = toonRampSkinnedMaterial(rampForRole(role, faction));
     mesh.material = mat;
     mesh.renderOrder = HULL_RENDER_ORDER;
     materials.push(mat);
@@ -127,9 +130,12 @@ export function buildMeshUnitTemplate(gltf: Pick<GLTF, 'scene' | 'animations'>):
  * the spike's own `new GLTFLoader().loadAsync(glbUrl)` call
  * (`spike/rig-scene.ts`).
  */
-export async function loadMeshUnitTemplate(glbUrl: string): Promise<MeshUnitTemplate> {
+export async function loadMeshUnitTemplate(
+  glbUrl: string,
+  faction: MeshFaction
+): Promise<MeshUnitTemplate> {
   const gltf = await new GLTFLoader().loadAsync(glbUrl);
-  return buildMeshUnitTemplate(gltf);
+  return buildMeshUnitTemplate(gltf, faction);
 }
 
 /** One living entity's mesh instance: an independent clone (own skeleton,

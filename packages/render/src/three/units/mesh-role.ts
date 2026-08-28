@@ -81,13 +81,60 @@ export const MESH_ROLES = [
 
 export type MeshRole = (typeof MESH_ROLES)[number];
 
-const RAMP_FOR_ROLE: Record<MeshRole, readonly string[]> = {
-  // KDF uniform: the whole olive ramp, lightest-lit to darkest-shadow.
-  uniform: readRamp('olive'),
-  // Grey nylon against olive -- deliberately NOT a second step of the same
-  // green, which `render_team.py` found "read as shading rather than as
-  // equipment".
-  webbing: readRamp('gunmetal').slice(1, 4),
+/**
+ * Which side a mesh unit fights for. Only two roles shade differently by
+ * faction, so this is a parameter rather than a second whole table -- exactly
+ * the shape `tools/render_team.py` already uses, where `ROLE_PALETTE` is keyed
+ * by faction and carries ONLY `uniform`/`webbing`, while `BODY_PALETTE` and
+ * `SHARED_PALETTE` are faction-blind ("a rifle is a rifle on either side").
+ */
+export type MeshFaction = 'kdf' | 'enemy';
+
+/**
+ * The two roles that differ by side, and they are INVERTED rather than tinted.
+ *
+ * `render_team.py` explains the design and it is worth not flattening: KDF wear
+ * grey nylon webbing over olive; the militia wear *olive* gear over tan cloth --
+ * "scavenged and mismatched, which is what an irregular cell should look like
+ * and which keeps the two factions' dominant tones apart regardless." So the
+ * enemy is not "KDF in a different green"; the two ramps swap roles between the
+ * cloth and the kit.
+ *
+ * Before this existed, every mesh unit shaded through the KDF rows below
+ * regardless of side -- Phase R0 only ever tested one faction, and five enemy
+ * teams shipped meshes before anyone had rendered one. An enemy squad came out
+ * in KDF olive, which reads as the wrong ARMY rather than as a wrong colour.
+ */
+const FACTION_RAMPS: Record<MeshFaction, { uniform: readonly string[]; webbing: readonly string[] }> =
+  {
+    kdf: {
+      // The whole olive ramp, lightest-lit to darkest-shadow.
+      uniform: readRamp('olive'),
+      // Grey nylon against olive -- deliberately NOT a second step of the same
+      // green, which `render_team.py` found "read as shading rather than as
+      // equipment".
+      webbing: readRamp('gunmetal').slice(1, 4),
+    },
+    enemy: {
+      // Tan cloth. `ROLE_PALETTE`'s enemy base is `dust.0`; dust is a 7-step
+      // ramp, so this takes the light half rather than all of it -- the full
+      // ramp bottoms out near `dust.6` (#6B4F29) and would read as a much
+      // darker figure than the sprite, which lights DOWN from dust.0 rather
+      // than stepping the whole way to the bottom.
+      uniform: readRamp('dust').slice(0, 5),
+      // Olive gear over tan, the mirror of KDF's grey-over-olive.
+      // `ROLE_PALETTE`'s enemy webbing base is `olive.1`.
+      webbing: readRamp('olive').slice(1, 4),
+    },
+  };
+
+/** Roles that shade the same on either side. `render_team.py`'s own division:
+ *  its `ROLE_PALETTE` carries only uniform and webbing per faction, because
+ *  "a rifle is a rifle on either side". */
+const SHARED_RAMP_FOR_ROLE: Record<
+  Exclude<MeshRole, 'uniform' | 'webbing'>,
+  readonly string[]
+> = {
   // Reddish-brown leather. Kept off terracotta.0 -- the sprite pipeline
   // clamps boots to 1.35 gain precisely because the top of that band "exists
   // for fired roof tile" and made boots read as glowing orange specks.
@@ -106,22 +153,36 @@ const RAMP_FOR_ROLE: Record<MeshRole, readonly string[]> = {
 
 /** True for any role in the closed vocabulary above -- a type guard so
  *  `rampForRole`'s caller can distinguish "unknown role" from "known role,
- *  ramp lookup failed for some other reason" without a try/catch. */
+ *  ramp lookup failed for some other reason" without a try/catch.
+ *
+ *  Keyed off `MESH_ROLES` rather than off either ramp table, so it stays
+ *  correct however the tables are split by faction. Deriving it from a table
+ *  was safe when there was one; with two, a role present in only one of them
+ *  would silently change what counts as "known". */
 export function isMeshRole(role: string): role is MeshRole {
-  return Object.prototype.hasOwnProperty.call(RAMP_FOR_ROLE, role);
+  return (MESH_ROLES as readonly string[]).includes(role);
 }
 
 /**
- * The ramp slice a mesh role shades through.
+ * The ramp slice a mesh role shades through, for a given side.
+ *
+ * `faction` is REQUIRED rather than defaulted to `'kdf'`. A default would make
+ * the exact bug this parameter exists to fix -- an enemy unit shading in KDF
+ * colours -- reachable again by simply forgetting the argument, and it would
+ * compile and render plausibly. The contract's own rule for roles applies here
+ * too: wrong colour must not be the quiet path.
  *
  * Throws loudly for any role outside the closed set -- per the contract,
  * "A role outside the set must be a loud failure on both sides, never a
  * default colour." Guessing a colour here would make an un-exported or
  * misspelled `rl_role` look plausible and be wrong.
  */
-export function rampForRole(role: string): readonly string[] {
+export function rampForRole(role: string, faction: MeshFaction): readonly string[] {
   if (!isMeshRole(role)) {
     throw new Error(`mesh-role: unknown rl_role "${role}" -- not in the closed role vocabulary`);
   }
-  return RAMP_FOR_ROLE[role];
+  if (role === 'uniform' || role === 'webbing') {
+    return FACTION_RAMPS[faction][role];
+  }
+  return SHARED_RAMP_FOR_ROLE[role];
 }

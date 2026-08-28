@@ -26,42 +26,68 @@ describe('readRamp', () => {
 });
 
 describe('isMeshRole / rampForRole', () => {
-  it('accepts every role in the closed vocabulary', () => {
+  it('accepts every role in the closed vocabulary, on BOTH sides', () => {
+    // Both factions, not just KDF: the whole reason this parameter exists is
+    // that five enemy teams shipped meshes while every role still resolved
+    // through the KDF table. A per-faction gap in coverage is exactly the
+    // shape of that bug.
+    for (const faction of ['kdf', 'enemy'] as const) {
+      for (const role of MESH_ROLES) {
+        expect(isMeshRole(role)).toBe(true);
+        expect(() => rampForRole(role, faction)).not.toThrow();
+        expect(rampForRole(role, faction).length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('shades uniform and webbing differently per side, and inverts the two ramps', () => {
+    // Not merely "different" -- INVERTED. render_team.py's own design: KDF
+    // wear grey nylon over olive, the militia wear olive gear over tan. So
+    // the enemy's webbing must come from the ramp KDF uses for cloth.
+    expect(rampForRole('uniform', 'kdf')).not.toEqual(rampForRole('uniform', 'enemy'));
+    expect(rampForRole('webbing', 'kdf')).not.toEqual(rampForRole('webbing', 'enemy'));
+    const olive = readRamp('olive');
+    expect(rampForRole('uniform', 'kdf').every((c) => olive.includes(c))).toBe(true);
+    expect(rampForRole('webbing', 'enemy').every((c) => olive.includes(c))).toBe(true);
+    const dust = readRamp('dust');
+    expect(rampForRole('uniform', 'enemy').every((c) => dust.includes(c))).toBe(true);
+  });
+
+  it('shades every OTHER role identically on both sides -- a rifle is a rifle', () => {
     for (const role of MESH_ROLES) {
-      expect(isMeshRole(role)).toBe(true);
-      expect(() => rampForRole(role)).not.toThrow();
-      expect(rampForRole(role).length).toBeGreaterThan(0);
+      if (role === 'uniform' || role === 'webbing') continue;
+      expect(rampForRole(role, 'kdf')).toEqual(rampForRole(role, 'enemy'));
     }
   });
 
   // Break: delete the `if (!isMeshRole(role))` guard in `rampForRole` (fall
   // through to `RAMP_FOR_ROLE[role]` unconditionally). Verified by hand --
-  // this test goes red because `rampForRole('turret_gun')` returns
+  // this test goes red because `rampForRole('turret_gun', 'kdf')` returns
   // `undefined` instead of throwing, so `.toThrow()` fails.
   it('throws loudly for a role outside the closed set -- never a default colour', () => {
     expect(isMeshRole('turret_gun')).toBe(false);
-    expect(() => rampForRole('turret_gun')).toThrow(/unknown rl_role "turret_gun"/);
+    expect(() => rampForRole('turret_gun', 'kdf')).toThrow(/unknown rl_role "turret_gun"/);
   });
 
   // Break: change `webbing: readRamp('gunmetal').slice(1, 4)` to
   // `readRamp('gunmetal')` (the whole ramp). Verified by hand -- this test
-  // goes red: `rampForRole('webbing').length` is 4 (the whole ramp) rather
+  // goes red: `rampForRole('webbing', 'kdf').length` is 4 (the whole ramp) rather
   // than 3, since `data/palette.json`'s gunmetal ramp has 4 steps at the
   // time this was written. This is the guard against silently handing a
   // role the whole ramp when the R0 rationale explicitly calls for a slice
   // (`webbing` distinguished from `metal` by VALUE inside one ramp).
   it('slices, rather than hands over, a shared ramp for webbing/metal/weapon/charge', () => {
     const gunmetal = readRamp('gunmetal');
-    expect(rampForRole('webbing').length).toBeLessThan(gunmetal.length);
-    expect(rampForRole('metal').length).toBeLessThan(gunmetal.length);
+    expect(rampForRole('webbing', 'kdf').length).toBeLessThan(gunmetal.length);
+    expect(rampForRole('metal', 'kdf').length).toBeLessThan(gunmetal.length);
     // webbing and metal must be genuinely different slices of the same
     // ramp -- both non-empty and not identical -- or a uniform and a
     // weapon would shade indistinguishably despite the art direction
     // deliberately separating them by value.
-    expect(rampForRole('webbing')).not.toEqual(rampForRole('metal'));
+    expect(rampForRole('webbing', 'kdf')).not.toEqual(rampForRole('metal', 'kdf'));
   });
 
   it('gives uniform the whole olive ramp (KDF only -- see this file\'s top comment)', () => {
-    expect(rampForRole('uniform')).toEqual(readRamp('olive'));
+    expect(rampForRole('uniform', 'kdf')).toEqual(readRamp('olive'));
   });
 });

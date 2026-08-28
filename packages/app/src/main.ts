@@ -523,14 +523,59 @@ async function main(): Promise<void> {
     const three = new ThreeRenderer(sim, opts);
     renderer = three;
     if (flags.mesh) {
-      // Vite rewrites `new URL(..., import.meta.url)` to a served asset URL,
-      // so the GLB stays in `art/meshes/` rather than being copied into the
-      // publicDir. Errors propagate: `loadMeshUnit`'s own doc comment says a
-      // missing or malformed GLB fails loudly for this caller to report, and
-      // swallowing it here would leave the flag looking like it did nothing.
-      await three.loadMeshUnit(
-        'inf_squad',
-        new URL('../../../art/meshes/inf_squad.glb', import.meta.url).href
+      // Every team with a shipped GLB, paired with the side it fights for.
+      // The faction is NOT decorative: `mesh-role.ts` shades `uniform` and
+      // `webbing` through inverted ramps per side (KDF grey-over-olive, the
+      // militia olive-over-tan), so getting it wrong reads as the wrong ARMY,
+      // not a wrong tint.
+      //
+      // Kept in step with `tools/units/teams.py`'s own `TEAMS` table, which is
+      // where the faction is actually decided. Team id and unit type id happen
+      // to be the same string for all nine; that is a convention this list
+      // relies on, not a guarantee, which is why both appear here as one pair
+      // rather than being derived from each other.
+      //
+      // `sniper_team`, `moto_rpg`, `yahalom_squad` and `digger_crew` have no
+      // GLB yet and are deliberately absent -- a type with no entry keeps its
+      // billboard, which is the whole point of the mesh path being additive.
+      // `as const` rather than an imported `MeshFaction` annotation, and that
+      // is deliberate: eslint forbids ANY static import from
+      // `@lions/render/three` in this package -- including a type-only one --
+      // because the rule cannot tell them apart and the bundle regression it
+      // guards against is the one that survived undetected longest. `as const`
+      // makes these string literals, and `loadMeshUnit`'s own parameter type
+      // still rejects a wrong faction at the call site below. So the union is
+      // enforced by the compiler without a second copy of it living here and
+      // without weakening the guard.
+      const MESH_TEAMS = [
+        ['inf_squad', 'kdf'],
+        ['demo_squad', 'kdf'],
+        ['at_team', 'kdf'],
+        ['mortar_team', 'kdf'],
+        ['militia_cell', 'enemy'],
+        ['rpg_team', 'enemy'],
+        ['atgm_cell', 'enemy'],
+        ['mortar_crew', 'enemy'],
+        ['charge_squad', 'enemy'],
+      ] as const;
+      // Vite rewrites `new URL(..., import.meta.url)` to a served asset URL, so
+      // the GLBs stay in `art/meshes/` rather than being copied into the
+      // publicDir. The literal must stay statically analysable -- a fully
+      // computed URL is not rewritten and 404s at runtime -- hence the
+      // template inside `new URL` rather than a precomputed string.
+      //
+      // Loaded in parallel, and errors propagate: `loadMeshUnit`'s own doc
+      // comment says a missing or malformed GLB fails loudly for this caller
+      // to report, and swallowing it would leave the flag looking like it did
+      // nothing at all.
+      await Promise.all(
+        MESH_TEAMS.map(([id, faction]) =>
+          three.loadMeshUnit(
+            id,
+            new URL(`../../../art/meshes/${id}.glb`, import.meta.url).href,
+            faction
+          )
+        )
       );
     }
   } else {
