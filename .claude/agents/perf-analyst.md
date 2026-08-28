@@ -26,6 +26,45 @@ array probes per tick — immaterial today, real at the GDD's 300-unit target.
 All four want staggering **in the same sweep**, because they share the same
 per-tick budget and fixing one in isolation just moves the cliff.
 
+## The renderer scaling picture, measured 2026-08-28
+
+There are two renderer backends now (`CLAUDE.md`, "The three.js backend"), and
+the three.js one has been measured. Do not re-derive these; do challenge them
+with new measurements if you have reason to.
+
+- **Rigged mesh infantry reaches ~420-460 units of one type** on a real
+  `WebGLRenderer` with hardware acceleration confirmed, across repeated runs.
+  That clears the GDD's 300-unit target with margin, so it is not blocking.
+- **The bottleneck is draw-call SUBMISSION** — 74-84% of `renderer.render()` —
+  **not `AnimationMixer` update and not bone-matrix computation.** This is the
+  load-bearing fact: it means vertex count is comparatively cheap (a rifle went
+  144 -> 612 verts for zero new draw calls) and the remedy for pushing past the
+  ceiling is FEWER SUBMISSIONS, not simpler geometry. Reach for that conclusion
+  before optimising a mesh.
+- **`SkinnedMesh` does not instance in three.js** — `InstancedMesh` and skinning
+  do not compose — so N units is N x (meshes per team) draw calls.
+- The known way past the ceiling is a **vertex animation texture**: bake clips
+  into a texture, drop runtime skinning, use `InstancedMesh` with a per-instance
+  time offset. VRAM cost is small (~22-130 MB against the existing 584 MB sprite
+  budget). **Unresolved before it could ship:** the "no band crawl" result was
+  measured against continuous real-time skinning, not VAT's baked-and-lerped
+  normals, and the toon ramp is indexed BY NORMAL — that needs re-verifying,
+  not assuming.
+- Harness: `tools/src/perf/three-units.ts`. It drives both backends headlessly
+  with a real WebGL context. **Reuse it; do not write a second one.**
+
+## Report ranges and conditions, not single numbers
+
+A perf claim on this branch was once published as a confident single figure,
+turned out to rest on a false mechanism (hidden-tab GPU backpressure), and had
+already reached a committed docstring before a reviewer refuted it — their own
+tab had been hidden too. Two runs that disagreed 5x were eventually published as
+a RANGE with load-sensitivity as the surviving explanation.
+
+So: state the conditions every number was taken under (GPU vs software
+rasteriser, machine load, tab visibility), run more than once, and **if two runs
+disagree, publish the disagreement** rather than the more convenient number.
+
 ## Constraints on any fix
 
 The sim's performance rules are not negotiable by you:
@@ -75,6 +114,11 @@ Escalation target for: performance budget violations, and any proposal to spend
 per-tick budget on a new O(N²) scan.
 
 ## What this agent must NOT do
+
+- Publish a perf number without the conditions it was measured under
+- Optimise vertex count before confirming submission is not the bottleneck
+- Write a second perf harness instead of extending `tools/src/perf/three-units.ts`
+- Kill a dev server, or any process it did not start
 
 - Optimize without a measurement, or report a speedup without numbers
 - Introduce a stagger keyed to wall time, load, or a global RNG

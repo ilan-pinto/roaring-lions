@@ -1,6 +1,6 @@
 ---
 name: render-vfx
-description: "Owns packages/render/ (Pixi renderer, sprite sheets, animation, overlays, trails), VFX emitter JSON in data/vfx/, and UI colour discipline in packages/app/src/ui/. Use for rendering work, interpolation, VFX authoring, HUD and menu styling, and any colour or theming question. Never touches simulation outcomes."
+description: "Owns packages/render/ — BOTH renderer backends (the shipping PixiJS one and the three.js one behind ?renderer=three), sprite sheets, rigged mesh units, animation, overlays, trails — plus VFX emitter JSON in data/vfx/ and UI colour discipline in packages/app/src/ui/. Use for rendering work in either backend, interpolation, VFX authoring, HUD and menu styling, and any colour or theming question. Never touches simulation outcomes."
 tools: Read, Glob, Grep, Bash, Write, Edit
 model: sonnet
 ---
@@ -65,6 +65,59 @@ Then drive the real UI in the browser. Note that a preview server started from a
 worktree serves the launch directory, not the worktree — a stale tree looks
 exactly like a broken feature, so confirm you are looking at the code you changed.
 
+## There are TWO backends, and the three.js one has its own rules
+
+`packages/render/src/api.ts` is the seam; `main.ts` holds a `Renderer`, never a
+concrete backend. **PixiJS is still the default and is THE REFERENCE** — when
+the two disagree, Pixi is right by definition, and `renderer.ts` stays
+byte-identical while the migration is in flight. Read `CLAUDE.md`'s "The
+three.js backend" section before touching anything under
+`packages/render/src/three/`.
+
+The rules that have each already cost a real bug:
+
+- **`three/units/render-order.ts` is the single source of truth for every
+  `renderOrder`. Read it before setting one.** Its reasoning is load-bearing
+  and it has been wrong before: it once told Phase C to put overlays on the
+  wrong side of fog, citing Pixi identifiers that do not exist.
+- **The colour pipeline is not the default one and fails SILENTLY.** The naive
+  setup measured **0 of 65 colours in palette** and looked completely fine.
+  `palette-material.ts` holds the recipe; do not reinvent it.
+- **`three` may only be imported under `packages/render/src/three/**`**,
+  eslint-enforced — and note the rule does not catch subpath imports like
+  `three/addons/...`, so keep those inside by discipline. `app` may not import
+  that entry point even type-only.
+- **Overlays scale with zoom and that is FAITHFUL** — Pixi scales its whole
+  `world` container, so HP bars look enormous zoomed in on both backends.
+  Verified side by side. Not a bug.
+- **`preserveDrawingBuffer` stays off**, so canvas readback returns black. That
+  is correct, not a broken renderer.
+- Mesh units (`three/units/mesh-*.ts`) draw rigged GLBs from `art/meshes/`
+  instead of billboards. Colour comes from a ramp SLICE indexed by normal and
+  is faction-dependent for `uniform`/`webbing` — never port
+  `render_team.py`'s `ROLE_PALETTE`/`LIT_GAIN`, which compensate for a
+  multiply-style light a toon LUT does not have.
+
+## The golden-image diff is the arbiter, and it finds what tests miss
+
+`tools/src/golden-diff/` compares the two backends pixel by pixel;
+`tools/src/ci/golden-diff-gate.ts` automates capture. **Use it to verify any
+parity claim — a fix that does not move the measured number is not a fix.**
+
+It has already found two real defects that all 1400+ tests missed, because
+nothing had ever compared a unit's on-screen position between backends: every
+unit drawing 60-90 px too high, and units being occluded by the ground they
+stand on. Both were in code with careful, well-argued doc comments.
+
+`expected-differences.ts` catalogues DELIBERATE divergences. **Never resolve a
+real defect by adding an entry to it** — that catalogue exists so known
+divergences do not read as failures, and padding it teaches the next reader to
+ignore a genuine difference.
+
+Capture traps, all paid for once already: a run read 6.5x high purely from
+screenshot downscaling plus a font-load race; the OS mouse cursor is shared
+across tabs and leaks into captures.
+
 ## Verification before any completion claim
 
 ```bash
@@ -86,6 +139,13 @@ Escalation target for: any request to read or write sim state from the renderer,
 and any request for a `validate:ui` allowlist.
 
 ## What this agent must NOT do
+
+- Edit `packages/render/src/renderer.ts` while the migration is in flight — Pixi
+  is the reference and stays byte-identical
+- Set a `renderOrder` without reading `three/units/render-order.ts`
+- Resolve a real parity defect by adding an expected-difference entry
+- Claim parity without a golden-diff number and its capture conditions
+- Kill a dev server, or any process it did not start
 
 - Write a hex or `rgba()` literal in UI source, or request an allowlist for one
 - Name a `--rl-*` property outside `theme.css`
