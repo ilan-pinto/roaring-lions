@@ -535,9 +535,9 @@ async function main(): Promise<void> {
       // relies on, not a guarantee, which is why both appear here as one pair
       // rather than being derived from each other.
       //
-      // `sniper_team`, `moto_rpg`, `yahalom_squad` and `digger_crew` have no
-      // GLB yet and are deliberately absent -- a type with no entry keeps its
-      // billboard, which is the whole point of the mesh path being additive.
+      // Only `moto_rpg` has no GLB now -- its vehicle-plus-rider rig is its
+      // own slice. A type with no entry here keeps its billboard, which is the
+      // whole point of the mesh path being additive.
       // `as const` rather than an imported `MeshFaction` annotation, and that
       // is deliberate: eslint forbids ANY static import from
       // `@lions/render/three` in this package -- including a type-only one --
@@ -552,11 +552,14 @@ async function main(): Promise<void> {
         ['demo_squad', 'kdf'],
         ['at_team', 'kdf'],
         ['mortar_team', 'kdf'],
+        ['sniper_team', 'kdf'],
+        ['yahalom_squad', 'kdf'],
         ['militia_cell', 'enemy'],
         ['rpg_team', 'enemy'],
         ['atgm_cell', 'enemy'],
         ['mortar_crew', 'enemy'],
         ['charge_squad', 'enemy'],
+        ['digger_crew', 'enemy'],
       ] as const;
       // Vite rewrites `new URL(..., import.meta.url)` to a served asset URL, so
       // the GLBs stay in `art/meshes/` rather than being copied into the
