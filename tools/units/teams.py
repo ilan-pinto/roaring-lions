@@ -331,6 +331,33 @@ def charge_squad(clip, frame):
     return out
 
 
+def _tip_over(parts, roll_deg=80.0):
+    """Roll every vertex `roll_deg` about the x axis, then lift the lot back
+    onto the ground. Vertex data, not object rotation, for the reason
+    `_lean_forward` records.
+
+    Factored out of `moto_rpg`'s own wreck branch so the mesh-export pipeline
+    (`tools/units/rig.py`) can build the identical tipped-over bike from the
+    same call rather than re-deriving the roll a second way -- see that
+    module's own "does NOT own a figure's geometry... both are read, neither
+    is re-derived" ownership note. Pure extraction: same operations, same
+    order, on the caller-supplied `parts` list.
+    """
+    c, s = math.cos(math.radians(roll_deg)), math.sin(math.radians(roll_deg))
+    for ob in parts:
+        for v in ob.data.vertices:
+            y, z = v.co.y, v.co.z
+            v.co.y = y * c - z * s
+            v.co.z = y * s + z * c
+        ob.data.update()
+    lift = -min(v.co.z for ob in parts for v in ob.data.vertices)
+    for ob in parts:
+        for v in ob.data.vertices:
+            v.co.z += lift
+        ob.data.update()
+    return parts
+
+
 def _motorcycle(prefix, z=0.0, dip=0.0):
     """The machine: 2.2 m long, wheels as 14-segment cylinders.
 
@@ -437,22 +464,7 @@ def moto_rpg(clip, frame):
     No `down` clip -- see TEAM_CLIP_DROP.
     """
     if clip == "wreck":
-        out = _motorcycle("mw")
-        # On its side: roll every vertex 80 degrees about the x axis, then lift
-        # the lot back onto the ground. Vertex data, not object rotation, for
-        # the reason _lean_forward records.
-        c, s = math.cos(math.radians(80.0)), math.sin(math.radians(80.0))
-        for ob in out:
-            for v in ob.data.vertices:
-                y, z = v.co.y, v.co.z
-                v.co.y = y * c - z * s
-                v.co.z = y * s + z * c
-            ob.data.update()
-        lift = -min(v.co.z for ob in out for v in ob.data.vertices)
-        for ob in out:
-            for v in ob.data.vertices:
-                v.co.z += lift
-            ob.data.update()
+        out = _tip_over(_motorcycle("mw"))
         # Riders thrown close to the machine, not sprawled away from it. This is
         # a framing decision as much as a staging one: render_team frames from
         # the union over every clip, so a wide wreck sizes the frame that `idle`

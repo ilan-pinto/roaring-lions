@@ -12,10 +12,7 @@ a figure's geometry (`kit.py`, a parallel stream's to change) or a team's
 composition of figures (`teams.py`'s per-team offsets, leader flags and weapon
 placement). Both are read, neither is re-derived a second way.
 
-**Coverage.** Twelve of `teams.TEAMS`'s thirteen entries -- every one but
-`moto_rpg`, a from-scratch vehicle-plus-rider composition
-(`teams._motorcycle`/`_rider`, not `kit.figure()` at all), scoped out as its
-own slice.
+**Coverage.** All thirteen of `teams.TEAMS`'s entries.
 
   * Standing riflemen, reusing `inf_squad`'s topology directly:
     `militia_cell`, `charge_squad` (its own sprint lean baked into rest
@@ -38,6 +35,16 @@ own slice.
     give it its own bespoke rest/clip builders rather than forcing it
     through `_add_figure`'s one-living-posture-per-figure shape; see both
     docstrings for why.
+  * `moto_rpg` -- a FOURTH topology, and the only one built from scratch
+    rather than through `_add_figure`/`kit.figure()` at all:
+    `teams._motorcycle`/`_rider` compose the machine and its two riders
+    from bare primitives, and `_rider`'s own docstring says why -- "kit.figure
+    offers standing, kneeling and prone -- no seated". `_moto_rpg_rest`/
+    `build_moto_clips` give it a bespoke rest/clip pair the same way
+    `sniper_team` gets one, for the same reason: no existing shape fits.
+    See both docstrings for the bone topology this pass chose (one rigid
+    `m_root` for the machine, two spinning wheel bones, a pitching launcher
+    bone, and each rider bound as one rigid `{prefix}_seat` unit) and why.
 
 **`down`/`wreck` -- every figure in every team above, this pass.** The prior
 report tried FK-folding the standing rig into prone and got a
@@ -61,6 +68,20 @@ firer's `forearm_R`, a descendant of that figure's `root`, so collapsing
 `root` collapses the weapon with it, for free. `down` and `wreck` are
 identical, geometrically -- see `build_death_clip`'s own docstring for why,
 and for why this is a single static frame rather than an animated collapse.
+
+`moto_rpg` varies this same pattern rather than reusing it verbatim -- see
+`_moto_rpg_rest`'s own docstring. It has no `down` at all (`TEAM_CLIP_DROP`
+already drops it from the sprite sheet -- "a motorcycle cannot go prone" --
+and the mesh drops it for the same reason). Its `wreck` is not one
+`{prefix}_death_root` per living figure but THREE independent bones sharing
+the shape (`_death_root_bone`, the exact same helper): one for the
+tipped-over machine (built from `teams._tip_over(teams._motorcycle("mw"))`,
+not `kit.figure()` -- the bike has no posture to fold into), and one each for
+the two thrown riders (`kit.figure(posture="prone", ...)`, copied verbatim
+from `teams.moto_rpg`'s own wreck branch -- the part of this pass that really
+was already free, exactly as billed). All three switch on together: scaling
+`m_root` alone hides the whole living machine, both riders and the launcher,
+since everything living is parented under it -- see `_key_moto_visibility`.
 
 **Rest-pose numbers are probed or derived, never guessed.** The standing
 topology's numbers are R0's own, unchanged. The new kneeling topology's
@@ -108,7 +129,7 @@ OUT_DIR = os.path.join(REPO, "art", "meshes")
 SUPPORTED_TEAMS = (
     "inf_squad", "militia_cell", "demo_squad", "charge_squad",
     "at_team", "rpg_team", "mortar_team", "mortar_crew", "atgm_cell",
-    "sniper_team", "yahalom_squad", "digger_crew",
+    "sniper_team", "yahalom_squad", "digger_crew", "moto_rpg",
 )
 DEFAULT_TEAM = "inf_squad"
 
@@ -495,6 +516,23 @@ TEAM_FIGURES = {
         _f("dig", -0.34, 0.04, posture="kneeling", headgear="keffiyeh",
            loadout="irregular", animates=False),
     ],
+    # moto_rpg is NOT built through `_add_figure`/PART_BONE at all -- see
+    # `_moto_rpg_rest`, which force-binds every single part it creates to an
+    # explicit bone name. These six entries exist only so `figure_prefixes`
+    # (rig_parts's PART_BONE fallback, never actually reached for this team,
+    # since forced_bone always answers first) and
+    # `_check_team_figures_against_teams` have something to read.
+    # `posture="standing"` is filler to satisfy that check's assert and is
+    # not used to build anything; `x`/`y` are likewise unread here (only
+    # `.prefix` is).
+    "moto_rpg": [
+        _f("m", 0.0, 0.0, animates=False),
+        _f("rid", 0.0, 0.0, animates=False),
+        _f("pas", 0.0, 0.0, animates=False),
+        _f("mw", 0.0, 0.0, animates=False),
+        _f("mw_a", 0.0, 0.0, animates=False),
+        _f("mw_b", 0.0, 0.0, animates=False),
+    ],
 }
 
 
@@ -513,6 +551,7 @@ def _check_team_figures_against_teams():
         "charge_squad": "enemy", "at_team": "kdf", "rpg_team": "enemy",
         "mortar_team": "kdf", "mortar_crew": "enemy", "atgm_cell": "enemy",
         "sniper_team": "kdf", "yahalom_squad": "kdf", "digger_crew": "enemy",
+        "moto_rpg": "enemy",
     }
     for team_id, figures in TEAM_FIGURES.items():
         assert team_id in teams.TEAMS, f"{team_id} missing from teams.TEAMS"
@@ -822,6 +861,157 @@ def _sniper_rest():
     return parts, bone_table, forced
 
 
+# --- moto_rpg: vehicle + seated riders, built from scratch ------------------
+#
+# `teams._motorcycle`/`teams._rider` never call `kit.figure()` -- `_rider`'s
+# own docstring says why ("kit.figure offers standing, kneeling and prone --
+# no seated"), so there is no standing/kneeling/prone rig to bind against and
+# `PART_BONE`'s suffix table has nothing to say about a wheel or a fuel tank.
+# This section decides a topology from scratch rather than stretching either
+# existing convention to fit, and every part it creates is bound by an
+# EXPLICIT `forced_bone` entry -- none of it goes through PART_BONE's
+# prefix/suffix matching, because `_rider`'s own part names ("leg0", "arm1",
+# "head") collide in spirit but not in bone shape with the standing/kneeling
+# vocabulary (a rider's arm is ONE two-waypoint limb, not an upperarm/forearm
+# pair), and binding by coincidence rather than by decision is exactly the
+# failure `rig_parts`'s own docstring already logs once (the "demo_a" prefix
+# bug). `moto_rpg`'s six `TEAM_FIGURES` entries exist only for
+# `figure_prefixes`/the self-check; they are never read by the code below.
+#
+# The topology, decided and reasoned about part by part:
+#
+#   * `m_root` -- the machine is RIGID. It does not need a skeleton so much
+#     as one root that can carry the whole bike (frame, tank, seat, forks,
+#     bars, lamp, exhaust, panniers, bedroll, both wheel guards) and be
+#     leant and bobbed as one piece for `move` -- the bone-space equivalent
+#     of `teams._motorcycle`'s own `z`/`dip` parameters, which the sprite
+#     pipeline bakes into fresh geometry per frame and this pipeline instead
+#     applies as a pose on one bone. `MOTO_BOB`/`MOTO_DIP` are copied
+#     verbatim from `teams.moto_rpg`'s own `bob`/`dip` amplitudes
+#     (0.02 m / 1.6 deg), generalised from that function's 4-frame discrete
+#     cycle (`(0, +a, 0, -a)`, which IS one period of `a * sin(2*pi*f/4)`)
+#     into a smooth `MOVE_FRAMES`-frame sine, so the mesh gait matches the
+#     sprite gait's own amplitude and phase exactly rather than a guessed
+#     substitute.
+#   * Two wheel bones, spinning. Worth a bone at 25 px: it is two bones and
+#     one rotation channel each -- no new geometry, no seam risk (a wheel is
+#     already one whole tube-shaped part, so "spin the bone" and "spin the
+#     mesh" are the same operation) -- and CLAUDE.md already records the
+#     project lead judging rigged motion better on screen than a static
+#     silhouette at this size, which is the same judgement call applied to a
+#     wheel rather than a leg. `MOTO_TURNS = 2.0` full rotations across the
+#     move clip is chosen so the final angle (720 deg) is an exact multiple
+#     of 360 -- the wheel returns to its start orientation and the
+#     LoopRepeat seam every cyclic clip in this file already has to consider
+#     is invisible on this one too.
+#   * `m_launcher` -- the RPG tube is not "held" the way `_at_extras`/
+#     `_rpg_extras` treat a Spike/RPG bound to a firer's `forearm_R`:
+#     `teams.moto_rpg` positions it independent of either rider's own reach
+#     (`(-0.50, -0.17, 1.44 + bob)`, tracking the BIKE's bob, not a rider's
+#     grip), so it gets its OWN bone, parented to `m_root` so it rides the
+#     bike's lean for free, with one extra rotation of its own: level for
+#     `fire`, angled up otherwise, exactly `teams.moto_rpg`'s own
+#     `pitch = 0 if clip == "fire" else 30` deg. Rest bakes the MORE common
+#     state (30 deg, shared by idle and move) directly into the geometry via
+#     `kit.launcher`'s own `pitch` argument, so only the exceptional clip
+#     (`fire`) needs a keyed delta -- the same "key only the exception"
+#     shape `FIRE_ROOT_LEAN` already uses for charge_squad's own fire-only
+#     lean.
+#   * `rid_seat`/`pas_seat` -- the riders are SEATED, a fourth posture after
+#     standing/kneeling/prone, and `_rider`'s own geometry already bakes
+#     that whole pose into its waypoints (the torso limb's own forward lean,
+#     the bent-knee legs, the arms reaching a fixed grip) exactly the way
+#     `kit.figure(posture="kneeling")`'s legs are baked rather than
+#     articulated -- "kneeling never reads stride". Nothing in `teams.py`
+#     ever moves a rider's own limb independent of the machine (no clip
+#     changes a rider's own pose; only the launcher's pitch and the whole
+#     bike's bob/dip vary), so there is no motion this pass would be
+#     dropping by binding each rider as ONE rigid unit to ONE bone -- the
+#     same "no per-part articulation" call `_figure_death_parts` already
+#     makes for a corpse, made here for a live but fixed pose instead. Each
+#     seat bone still gets its own idle breathing sway (matching every other
+#     figure's "a kneeling gunner still breathes" -- `build_idle_clip`'s own
+#     docstring), which is free precisely because the whole rider is one
+#     rigid unit: swaying it sways torso, arms, legs and head together with
+#     no seam to open anywhere.
+#   * `wreck` -- reuses `_death_root_bone` directly, the same helper (not a
+#     new one) every other team's corpse already uses, three times over: one
+#     bone for the tipped machine (`teams._tip_over(teams._motorcycle("mw"))`
+#     -- the bike has no posture to fold into, so there is no `kit.figure()`
+#     call here at all) and one each for the two thrown riders
+#     (`kit.figure(posture="prone", ...)`, copied verbatim from
+#     `teams.moto_rpg`'s own wreck branch). This is the part of the pass
+#     that is genuinely closer to free: the brief's own hint. Visibility is
+#     ONE scale key on `m_root` (collapsing the whole living machine, both
+#     riders and the launcher, since every one of those bones descends from
+#     it) plus one each on the three wreck bones -- see
+#     `_key_moto_visibility`.
+
+MOTO_BOB = 0.02                       # metres -- teams.moto_rpg's own `bob` amplitude
+MOTO_DIP = math.radians(1.6)          # teams.moto_rpg's own `dip` amplitude
+MOTO_LAUNCH_PITCH = math.radians(30.0)   # teams.moto_rpg's own "angled up" pitch
+MOTO_TURNS = 2.0                      # full wheel rotations across one `move` loop
+
+
+def _moto_bone_table():
+    return [
+        ("m_root", None, (0.0, 0.0, 0.0), (0.0, 0.0, 0.30)),
+        ("m_wheel0", "m_root", (0.78, 0.0, 0.30), (0.78, 0.15, 0.30)),
+        ("m_wheel1", "m_root", (-0.72, 0.0, 0.30), (-0.72, 0.15, 0.30)),
+        ("m_launcher", "m_root", (-0.50, -0.17, 1.44), (-0.50, -0.17, 1.59)),
+        ("rid_seat", "m_root", (0.18, 0.0, 0.77), (0.23, 0.0, 1.29)),
+        ("pas_seat", "m_root", (-0.42, 0.0, 0.77), (-0.37, 0.0, 1.29)),
+        _death_root_bone("mw", 0.0, 0.0),
+        _death_root_bone("mw_a", 0.30, -0.42),
+        _death_root_bone("mw_b", -0.32, 0.46),
+    ]
+
+
+def _moto_rpg_rest():
+    """`moto_rpg`'s whole rest scene -- machine, both riders, the launcher,
+    and the wrecked/thrown death-state geometry, all built by calling
+    `teams`/`kit` functions directly (never re-deriving their geometry) and
+    force-bound to the topology `_moto_bone_table` declares. See this
+    section's own header comment for why each binding choice was made.
+    """
+    parts = []
+    forced = {}
+
+    bike = teams._motorcycle("m")
+    for ob in bike:
+        forced[ob] = ob.name if ob.name in ("m_wheel0", "m_wheel1") else "m_root"
+    parts += bike
+
+    rider = teams._rider("rid", 0.18, hands_fwd=0.34)
+    forced.update({ob: "rid_seat" for ob in rider})
+    parts += rider
+
+    passenger = teams._rider("pas", -0.42, mirror=True, hands_fwd=0.18)
+    forced.update({ob: "pas_seat" for ob in passenger})
+    parts += passenger
+
+    launcher = kit.launcher("pas_rpg", (-0.50, -0.17, 1.44), yaw=math.pi,
+                             pitch=MOTO_LAUNCH_PITCH, length=1.18, radius=0.075)
+    forced.update({ob: "m_launcher" for ob in launcher})
+    parts += launcher
+
+    wreck_bike = teams._tip_over(teams._motorcycle("mw"))
+    forced.update({ob: "mw_death_root" for ob in wreck_bike})
+    parts += wreck_bike
+
+    mw_a = kit.figure("mw_a", (0.30, -0.42, 0.0), posture="prone",
+                       headgear="keffiyeh", loadout="irregular")
+    forced.update({ob: "mw_a_death_root" for ob in mw_a})
+    parts += mw_a
+
+    mw_b = kit.figure("mw_b", (-0.32, 0.46, 0.0), posture="prone", mirror=True,
+                       headgear="keffiyeh", loadout="irregular")
+    forced.update({ob: "mw_b_death_root" for ob in mw_b})
+    parts += mw_b
+
+    return parts, _moto_bone_table(), forced
+
+
 def build_team_rest(team_id):
     """Fresh scene: every figure's rest geometry for `team_id`, all bone
     tables, and any team-specific extras (props, charge_squad's own
@@ -839,6 +1029,11 @@ def build_team_rest(team_id):
         forced_bone.update(f)
     elif team_id == "sniper_team":
         p, b, f = _sniper_rest()
+        parts += p
+        bone_table += b
+        forced_bone.update(f)
+    elif team_id == "moto_rpg":
+        p, b, f = _moto_rpg_rest()
         parts += p
         bone_table += b
         forced_bone.update(f)
@@ -1226,9 +1421,106 @@ def build_sniper_clips(arm_obj):
             pb.keyframe_insert(data_path="location", frame=1)
 
 
+def _key_moto_visibility(pbones, alive):
+    """`m_root` (the whole living machine -- wheels, launcher, both riders,
+    all of which are its children, see `_moto_bone_table`) versus the three
+    wreck bones (`mw_death_root`, `mw_a_death_root`, `mw_b_death_root`) --
+    the same living/dead scale toggle `_key_death_visibility` gives every
+    other team's figure, keyed by hand here because `moto_rpg` never goes
+    through `_add_figure`/`TEAM_FIGURES`'s per-figure shape (see
+    `_moto_rpg_rest`). Every clip calls this, not just `wreck`, for the same
+    leftover-value reason `_key_death_visibility`'s own docstring gives.
+    """
+    alive_scale = 1.0 if alive else 0.0
+    dead_scale = 0.0 if alive else 1.0
+    _key_scale(pbones["m_root"], alive_scale, _VIS_FRAMES)
+    _key_scale(pbones["mw_death_root"], dead_scale, _VIS_FRAMES)
+    _key_scale(pbones["mw_a_death_root"], dead_scale, _VIS_FRAMES)
+    _key_scale(pbones["mw_b_death_root"], dead_scale, _VIS_FRAMES)
+
+
+def build_moto_idle_clip(arm_obj):
+    """Breath only -- the machine and its riders are otherwise static at a
+    stop, matching every other team's idle (no clip changes a rider's own
+    pose; see this section's header comment). Each rider's whole rigid
+    `{prefix}_seat` sways together, the same amplitude/phase
+    `build_idle_clip` gives every other figure's spine."""
+    _new_action(arm_obj, "idle")
+    bones = arm_obj.data.bones
+    pbones = arm_obj.pose.bones
+    _key_moto_visibility(pbones, alive=True)
+    for f in range(0, IDLE_FRAMES + 1):
+        t = f / IDLE_FRAMES
+        breathe = BREATH_AMP * math.sin(2.0 * math.pi * t)
+        key(pbones["rid_seat"], bones["rid_seat"], AXIS_Y, breathe, f)
+        key(pbones["pas_seat"], bones["pas_seat"], AXIS_Y, breathe, f)
+
+
+def build_moto_move_clip(arm_obj):
+    """`m_root`'s bob (translation) and dip (pitch) -- `MOTO_BOB`/`MOTO_DIP`
+    generalise `teams.moto_rpg`'s own 4-frame `(0, +a, 0, -a)` cycle into a
+    smooth sine at the same amplitude, over this file's own `MOVE_FRAMES` so
+    the clip is the same length as every other team's gait. Both riders ride
+    along for free, being `m_root`'s children -- neither is keyed here.
+    Both wheels spin `MOTO_TURNS` full turns across the same span, ending on
+    an exact multiple of 360 deg so the `LoopRepeat` seam is invisible (see
+    the header comment)."""
+    _new_action(arm_obj, "move")
+    bones = arm_obj.data.bones
+    pbones = arm_obj.pose.bones
+    _key_moto_visibility(pbones, alive=True)
+    root_bob_dir = local_offset_for_world_axis(bones["m_root"], AXIS_Z)
+    pb_root = pbones["m_root"]
+    for f in range(0, MOVE_FRAMES + 1):
+        phase = 2.0 * math.pi * f / MOVE_FRAMES
+        bob = MOTO_BOB * math.sin(phase)
+        dip = MOTO_DIP * math.sin(phase)
+        key(pb_root, bones["m_root"], AXIS_Y, dip, f)
+        pb_root.location = root_bob_dir * bob
+        pb_root.keyframe_insert(data_path="location", frame=f)
+        wheel_angle = MOTO_TURNS * 2.0 * math.pi * f / MOVE_FRAMES
+        key(pbones["m_wheel0"], bones["m_wheel0"], AXIS_Y, wheel_angle, f)
+        key(pbones["m_wheel1"], bones["m_wheel1"], AXIS_Y, wheel_angle, f)
+
+
+def build_moto_fire_clip(arm_obj):
+    """The one pose change `teams.moto_rpg` actually authors for `fire`:
+    the launcher levels out. Rest already bakes the OTHER, more common
+    pitch (30 deg, shared by idle and move) into the geometry, so this is a
+    single keyed delta on `m_launcher` alone -- a static two-frame clip
+    (`_VIS_FRAMES`), the same shape `build_death_clip` uses for a pose with
+    no internal motion of its own."""
+    _new_action(arm_obj, "fire")
+    bones = arm_obj.data.bones
+    pbones = arm_obj.pose.bones
+    _key_moto_visibility(pbones, alive=True)
+    for f in _VIS_FRAMES:
+        key(pbones["m_launcher"], bones["m_launcher"], AXIS_Y, -MOTO_LAUNCH_PITCH, f)
+
+
+def build_moto_wreck_clip(arm_obj):
+    """Visibility only -- see `_key_moto_visibility` and this section's
+    header comment for why three bones, not one, switch on together."""
+    _new_action(arm_obj, "wreck")
+    pbones = arm_obj.pose.bones
+    _key_moto_visibility(pbones, alive=False)
+
+
+def build_moto_clips(arm_obj):
+    build_moto_idle_clip(arm_obj)
+    build_moto_move_clip(arm_obj)
+    build_moto_fire_clip(arm_obj)
+    build_moto_wreck_clip(arm_obj)
+    # No `down` -- TEAM_CLIP_DROP already drops it from the sprite sheet for
+    # the same reason ("a motorcycle cannot go prone"); the mesh drops it too.
+
+
 def build_clips(arm_obj, team_id):
     if team_id == "sniper_team":
         build_sniper_clips(arm_obj)
+        return
+    if team_id == "moto_rpg":
+        build_moto_clips(arm_obj)
         return
     figures = TEAM_FIGURES[team_id]
     build_idle_clip(arm_obj, figures)
