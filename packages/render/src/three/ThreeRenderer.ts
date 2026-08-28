@@ -24,9 +24,12 @@
  *    real `ParticleSystem` from `resolve`, and (since B3.14) `onEvents`
  *    actually SPAWNS into both -- see the next bullet.
  *  - **Truthful no-ops**, where "nothing to do" is the honest answer rather
- *    than a dodge: `addOrderMarker` (a one-shot with no state worth keeping)
- *    is the only member left in this bucket. `isVisible` graduated out of it
- *    in Task B4.2: it now queries real fog-of-war state (`./fog`'s
+ *    than a dodge: empty as of Phase C. `addOrderMarker` graduated out of it
+ *    there -- it now pushes into `this.orderMarkers`, drawn (and expired) by
+ *    `updateOverlays` every `frame()`, the same one-shot-with-a-fade shape
+ *    `PixiRenderer`'s own `orderMarkers` array already has. `isVisible`
+ *    graduated out of it in Task B4.2: it now queries real fog-of-war state
+ *    (`./fog`'s
  *    `isFogVisible`, ported pure from Pixi's own `updateFog`/`hasSight` by
  *    Task B4.1), recomputed at Pixi's own 5 Hz cadence (`recomputeFog`,
  *    called from `snapshot`) -- see that method's own doc comment for the
@@ -103,7 +106,7 @@
 import * as THREE from 'three';
 import { fx, WEAPON_CLASS, type Fx, type Sim, type SimEvent } from '@lions/sim';
 import type { Renderer, RendererOptions, TerrainTones } from '../api'; // both, after Step 2
-import { WORLD_Y_PER_LIFT_PIXEL, type Camera } from '../project';
+import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, type Camera } from '../project';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
 import { SIM_HZ } from '../anim';
 import { parseManifest, parseStructureManifest, clipOrFallback, type SheetSpec } from '../sheet';
@@ -152,6 +155,19 @@ import { groundWorldY } from './ground-height';
 import { tileHash } from '../tile-hash';
 import { computeFog, isFogVisible, type FogInput } from './fog';
 import { FogMesh } from './fog-mesh';
+import { billboardPoint } from './units/overlay-geometry';
+import {
+  OverlayBatch,
+  NumeralBatch,
+  unitOverlayRadiusPx,
+  hpBarColorKey,
+  orderMarkerSize,
+  ORDER_MARKER_TTL,
+  HP_BG_COLOR_KEY,
+  SUPPRESSION_COLOR_KEY,
+  OVERLAY_ACCENT_COLOR_KEY,
+  BADGE_TEXT_COLOR_KEY,
+} from './units/overlays';
 
 /** Where a unit type's sheets live, as the app named them. */
 interface SpriteSheetRequest {
@@ -212,6 +228,22 @@ function fxLayerIndex(layer: string | undefined): number {
  * doc comment for the rest of the reasoning.
  */
 const FLAT_FX_MAGNITUDE = 0.2;
+
+/**
+ * Phase C: vertex budget for `OverlayBatch`, the shared overlay tier
+ * (`units/overlays.ts`'s own top comment). Sized off `sim.capacity` at
+ * construction (`ThreeRenderer`'s own field init below), not a bare
+ * constant -- every living entity can draw an HP bar (2 rects = 12
+ * vertices) and a suppression bar (1 rect = 6) unconditionally, plus a
+ * selection ring (`OVERLAY_RING_SEGMENTS` * 6 = 96) or a badge fan
+ * (`OVERLAY_RING_SEGMENTS` * 3 = 48) when selected/grouped. 200 vertices per
+ * entity is comfortable headroom over that worst case (12 + 6 + 96 = 114)
+ * with room left for order markers, the tutorial ring and the hover
+ * highlight, which are few and singular rather than per-entity. Past this,
+ * `OverlayBatch` silently drops the newest pushes rather than growing --
+ * the same trade `PARTICLE_CAPACITY`/`TRACER_CAPACITY` already accept.
+ */
+const OVERLAY_VERTICES_PER_ENTITY = 200;
 
 export class ThreeRenderer implements Renderer {
   readonly camera: Camera = { x: 24, y: 24, zoom: 1 };
@@ -582,6 +614,31 @@ export class ThreeRenderer implements Renderer {
   private readonly tracerBatch = new TracerBatch(TRACER_CAPACITY);
 
   /**
+   * Phase C: the unit overlay tier -- see `units/overlays.ts`'s own top
+   * comment for why this is two batches, not one. Both sized off `sim
+   * .capacity` (`OVERLAY_VERTICES_PER_ENTITY`'s own doc comment), which is
+   * not known until the constructor body runs (a class field initializer
+   * like `tracerBatch` above executes before `sim`/`opts`'s constructor-
+   * parameter assignment does, so neither can be a bare field initializer
+   * the way every fixed-capacity FX batch above is) -- assigned in the
+   * constructor body instead, from the `sim`/`opts` PARAMETERS directly,
+   * the same pattern `this.unitGroup`/`this.prevX`/etc. already use just
+   * below.
+   */
+  private readonly overlayBatch: OverlayBatch;
+  private readonly numeralBatch: NumeralBatch;
+  /** Frame counter Pixi's own pulsing overlays (`Math.sin(this.frameN *
+   *  k)`) are keyed off -- `PixiRenderer.frameN` (`renderer.ts:1881`,
+   *  `this.frameN++`), incremented once per `frame()` call (display refresh
+   *  rate, NOT the sim's fixed 20 Hz tick, matching Pixi's own cadence
+   *  exactly since this is presentation-only animation, invariant 1 is
+   *  about simulation, not this). */
+  private frameN = 0;
+  /** A fading move/attack order crosshair per recent command -- the three.js
+   *  counterpart of `PixiRenderer.orderMarkers` (`renderer.ts:488`). */
+  private orderMarkers: { x: number; y: number; ttl: number }[] = [];
+
+  /**
    * Task B4.2: fog of war. Per tile: 0 never seen, 1 explored but not
    * currently observed, 2 in sight right now -- the three.js counterpart of
    * `PixiRenderer.fog` (`renderer.ts:198`), owned here and reassigned (not
@@ -643,6 +700,22 @@ export class ThreeRenderer implements Renderer {
     this.sightByType = new Float64Array(sim.unitTypes.length);
     for (let t = 0; t < sim.unitTypes.length; t++) this.sightByType[t] = fx.toNumber(sim.unitTypes[t].sight);
     this.fogMesh = new FogMesh(sim.width, sim.height);
+    // Phase C: sized off sim.capacity, not a bare constant -- see
+    // OVERLAY_VERTICES_PER_ENTITY's own doc comment for the per-entity
+    // budget this multiplies, and the "+ 8192" headroom for the handful of
+    // singular overlays (order markers, the tutorial ring, the garrison
+    // hover highlight) that scale with neither entity nor selection count.
+    this.overlayBatch = new OverlayBatch(sim.capacity * OVERLAY_VERTICES_PER_ENTITY + 8192);
+    // Badge text fill: Pixi's own literal is '#14150F' with no resolveColor
+    // call at that exact site (renderer.ts's Text style) -- resolved here
+    // anyway ("colour is looked up, never computed" is this task's own
+    // constraint, stricter than what renderer.ts happens to do), with that
+    // literal only as the fallback for a caller that built this backend
+    // with no resolver at all (ThreeRenderer.test.ts's own makeOpts()).
+    this.numeralBatch = new NumeralBatch(
+      sim.capacity,
+      opts.resolveColor ? opts.resolveColor(BADGE_TEXT_COLOR_KEY) : '#14150F'
+    );
     // antialias stays off deliberately (Phase 0 verdict, "Antialiasing must
     // be off, or accounted for"): a blended edge pixel is by definition not
     // a palette colour, and this backend's sprite/toon pipeline quantizes
@@ -660,6 +733,11 @@ export class ThreeRenderer implements Renderer {
     // present, draws nothing until fed" shape terrain's own meshes have
     // before the first rebuildTerrain.
     this.scene.add(this.particleInstancerBelow.mesh, this.particleInstancerAbove.mesh, this.tracerBatch.mesh);
+    // Same "always present, draws nothing until fed" shape as the FX meshes
+    // just above -- both start at drawRange 0 (`beginFrame`/`endFrame`
+    // haven't run yet) and stay that way until `updateOverlays`'s first
+    // call, from `frame()`.
+    this.scene.add(this.overlayBatch.mesh, this.numeralBatch.mesh);
     // Added LAST, matching Pixi's own `world.addChild(this.fogG)` being the
     // final call in its constructor (`renderer.ts:551`, "above terrain AND
     // units") -- three.js does not order draws by scene-graph child order
@@ -778,6 +856,12 @@ export class ThreeRenderer implements Renderer {
     this.particleInstancerBelow.dispose();
     this.particleInstancerAbove.dispose();
     this.tracerBatch.dispose();
+    // Phase C: same "added once in the constructor, no scene.remove needed"
+    // shape as the FX batches just above -- see this file's own comment on
+    // the `fogMesh.dispose()` fix a few lines down for why that omission
+    // used to be a real leak elsewhere, guarded against here from the start.
+    this.overlayBatch.dispose();
+    this.numeralBatch.dispose();
     // Final-review fix: FogMesh owns a full-map `InstancedMesh` (geometry,
     // material, instance buffers) and this call was missing entirely --
     // `FogMesh.dispose()` existed but nothing called it. No `scene.remove`
@@ -839,6 +923,7 @@ export class ThreeRenderer implements Renderer {
     this.updateStructures();
     this.stepCollapses(this.frameDtSeconds(dtMs));
     this.updateFx(dtMs);
+    this.updateOverlays(alpha);
     if (this.fogMeshDirty) {
       this.fogMesh.update(this.fog, this.retained.elevation, this.sim.width, this.sim.height);
       this.fogMeshDirty = false;
@@ -1672,19 +1757,21 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
-   * A one-shot: a marker blooms at the ordered point and fades. There is no
-   * state to retain -- replaying a queue of stale blooms when B3 arrives would
-   * be wrong, not helpful -- and nothing to fabricate, so the honest answer is
-   * that a backend with no marker layer has nothing to do with it. Exactly the
-   * shape of `onEvents` above, which also receives real input and draws none
-   * of it yet.
+   * A one-shot: a marker blooms at the ordered point and fades -- Pixi's own
+   * `this.orderMarkers.push({ x, y, ttl: 80 })` (`renderer.ts`'s
+   * `addOrderMarker`). Phase C: `this.orderMarkers` graduates out of the
+   * "truthful no-op" bucket this class's own top comment describes --
+   * `updateOverlays` (`frame()`) decrements every entry's `ttl` once per
+   * call and draws it as a fading crosshair (`orderMarkerSize`, `units/
+   * overlays.ts`) until it expires, the identical shape `PixiRenderer.frame`
+   * ()`'s own trailing pass uses.
    *
    * Reached from the pointer handler, never from a loop -- but at `main.ts:962`
    * it is NOT the last statement: a throw there skipped `production.setArmed`
    * and left the drag box stuck on screen.
    */
-  addOrderMarker(): void {
-    /* B3 draws the marker */
+  addOrderMarker(x: number, y: number): void {
+    this.orderMarkers.push({ x, y, ttl: ORDER_MARKER_TTL });
   }
 
   /**
@@ -1697,11 +1784,16 @@ export class ThreeRenderer implements Renderer {
    * 20 errors a second, and the tail of that block -- `tut.done`, the
    * completion flag, `runtime.completeObjective` -- never ran, so the tutorial
    * could not finish.
+   *
+   * Phase C: `updateOverlays` (`frame()`) now reads `this.retained
+   * .tutorialFocus` every frame and draws the pulsing ring `renderer.ts`'s
+   * own tutorial-focus block does (`g.poly(ringPts, true).stroke(...)`) --
+   * the state this method retains was always correct, only nothing consumed
+   * it until now.
    */
   setTutorialFocus(x: number, y: number, radius: number): void {
     this.retained.tutorialFocus = { x, y, radius };
   }
-  /** Truthfully: there is no ring drawn, and now none recorded either. */
   clearTutorialFocus(): void {
     this.retained.tutorialFocus = null;
   }
@@ -2148,6 +2240,221 @@ export class ThreeRenderer implements Renderer {
     this.particleInstancerAbove.update(this.particleSystem, elevation, this.sim.width, this.sim.height);
     this.tracers = stepTracers(this.tracers, dtSeconds);
     this.tracerBatch.update(this.tracers, this.opts.tracerColors, elevation, this.sim.width, this.sim.height);
+  }
+
+  /** `this.opts.resolveColor(key)` if the app supplied one, `fallback`
+   *  otherwise -- the identical optional-resolver shape `renderer.ts`'s own
+   *  handful of `resolveColor`-through-a-ring-colour call sites already use
+   *  (e.g. its tutorial-focus-ring block, `this.opts.resolveColor ? this
+   *  .opts.resolveColor('vfx.tracer') : '#B8FF5A'`), not a new pattern. */
+  private overlayColor(key: string, fallback: string): string {
+    return this.opts.resolveColor ? this.opts.resolveColor(key) : fallback;
+  }
+
+  /**
+   * Phase C: every unit overlay named in the task brief's own "Scope" list
+   * -- selection rings, HP bars, suppression bars, control-group badges,
+   * the garrison hover highlight, order markers, and the tutorial focus
+   * ring. Ported from `renderer.ts`'s single per-entity unit loop
+   * (`renderer.ts:1898` onward) and its trailing per-frame passes, in the
+   * same relative order those appear there, so a reader diffing the two can
+   * follow along section by section.
+   *
+   * A SEPARATE per-entity loop from `updateUnits`, deliberately, rather than
+   * folded into it: `updateUnits` skips a mesh-unit-typed entity outright
+   * (`meshUnitTemplates.has(type.id)` `continue`, before it ever builds an
+   * `EntityFrame`) because that type draws through `updateMeshUnits`
+   * instead -- but Pixi draws an HP bar/selection ring for EVERY alive,
+   * visible unit regardless of which draw path its body takes, and so does
+   * this method. Folding overlay computation into `updateUnits`'s own loop
+   * would silently drop overlays for exactly the units `?sandbox&mesh`
+   * exists to exercise.
+   *
+   * `frameN` increments once per call, mirroring `PixiRenderer.frameN`
+   * (`renderer.ts`'s own `this.frameN++`, top of `frame()`) -- every pulsing
+   * overlay below (`Math.sin(this.frameN * k)`) reads it exactly the way
+   * Pixi's own do.
+   */
+  private updateOverlays(alpha: number): void {
+    this.frameN++;
+    this.overlayBatch.beginFrame();
+    this.numeralBatch.beginFrame();
+
+    const st = this.sim.state;
+    const n = this.sim.entityCount;
+    const elevation = this.retained.elevation;
+    const width = this.sim.width;
+    const height = this.sim.height;
+
+    for (let i = 0; i < n; i++) {
+      if (st.alive[i] === 0) continue;
+      const side = st.side[i];
+      const ix = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
+      const iy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+      // Anyone who isn't ours draws only while actually observed -- the
+      // identical fog gate `updateUnits`'s own per-entity loop applies
+      // (that method's own top comment, "Task B4.2: a non-player unit is
+      // now skipped..."), ported here separately because this loop is
+      // separate (see this method's own top comment for why).
+      if (side !== 0 && !this.isVisible(ix, iy)) continue;
+
+      const type = this.sim.unitTypes[st.typeIdx[i]];
+      const r = unitOverlayRadiusPx(type.isSoft);
+
+      // Ground/garrison lift: the same two facts `updateUnits` folds into
+      // `EntityFrameInput`'s `roofPx` (`resolveRoofPx`, that method's own
+      // "garrison roof placement" section) -- recomputed here rather than
+      // read back from `EntityFrame` because that struct carries no entity
+      // id to re-associate it with (`frame-state.ts`'s own `EntityFrame`
+      // has no `entityId` field), and because a mesh-unit-typed entity, per
+      // this method's own top comment, never gets one built at all.
+      let groundY = groundWorldY(elevation, width, height, ix, iy);
+      const inside = st.garrisonedIn[i];
+      if (inside >= 0) {
+        const sType = this.sim.structureTypes[this.sim.structures.typeIdx[inside]];
+        const roofPx = resolveRoofPx(this.structureRoofArt.get(sType.id), sType.heightPx);
+        groundY += roofPx * WORLD_Y_PER_LIFT_PIXEL;
+      }
+      const anchor: [number, number, number] = [ix, groundY, iy];
+
+      // HP bar -- renderer.ts: `g.rect(sx - 12, sy - r - 10, 24, 3).fill(...)`
+      // (background) then the same rect, width scaled by `hpRatio` (fill).
+      const hpRatio = Math.max(0, fx.toNumber(st.hp[i]) / fx.toNumber(type.hp));
+      this.overlayBatch.rect(anchor, -12, -(r + 10), 12, -(r + 7), this.overlayColor(HP_BG_COLOR_KEY, '#14150F'), 0.8);
+      if (hpRatio > 0) {
+        this.overlayBatch.rect(
+          anchor,
+          -12,
+          -(r + 10),
+          -12 + 24 * hpRatio,
+          -(r + 7),
+          this.overlayColor(hpBarColorKey(hpRatio), '#6B8A4A'),
+          1
+        );
+      }
+
+      // Suppression bar -- renderer.ts: `g.rect(sx - 12, sy - r - 6, 24 *
+      // supp, 3).fill('#FFB43C')`, only once supp clears the same 0.02 floor
+      // Pixi uses (a bar 0-2% full is not worth a draw call).
+      const supp = Math.min(1, fx.toNumber(st.suppression[i]));
+      if (supp > 0.02) {
+        this.overlayBatch.rect(
+          anchor,
+          -12,
+          -(r + 6),
+          -12 + 24 * supp,
+          -(r + 3),
+          this.overlayColor(SUPPRESSION_COLOR_KEY, '#FFB43C'),
+          1
+        );
+      }
+
+      // Control-group colour -- shared by the badge and the selection ring,
+      // exactly as renderer.ts's own comment says: "so a group reads as one
+      // formation instead of as a loose selection."
+      const grp = this.unitGroup[i];
+      const groupColor =
+        grp > 0 && this.opts.groupColors.length > 0 ? this.opts.groupColors[(grp - 1) % this.opts.groupColors.length] : '';
+      const accentDefault = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY, '#B8FF5A');
+
+      // Selection ring -- renderer.ts: `g.ellipse(sx, sy + 2, r + 7, (r + 7)
+      // / 2).stroke({ width: 2, color: groupColor || '#B8FF5A' })`.
+      if (this.selection.includes(i)) {
+        const ringCenter = billboardPoint(anchor, 0, -2);
+        this.overlayBatch.ellipseRing(ringCenter, r + 7, (r + 7) / 2, 2, groupColor || accentDefault, 1);
+      }
+
+      // Control-group badge -- renderer.ts: a filled circle (`g.circle(sx -
+      // r - 4, sy - r - 4, 7).fill({ color: groupColor || '#B8FF5A', alpha:
+      // 0.95 })`) plus a numeral Text at the same point. Two batches, not
+      // one -- see units/overlays.ts's own top comment for why.
+      if (grp > 0) {
+        const badgeCenter = billboardPoint(anchor, -(r + 4), r + 4);
+        this.overlayBatch.ellipseFan(badgeCenter, 7, 7, groupColor || accentDefault, 0.95);
+        this.numeralBatch.push(badgeCenter, 0, 0, 10, 12, grp);
+      }
+    }
+
+    // Order markers -- renderer.ts's own trailing pass: `this.orderMarkers
+    // = this.orderMarkers.filter((m) => --m.ttl > 0)`, then a crosshair plus
+    // a fading ring per survivor.
+    this.orderMarkers = this.orderMarkers.filter((m) => --m.ttl > 0);
+    if (this.orderMarkers.length > 0) {
+      const markerColor = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY, '#B8FF5A');
+      for (const m of this.orderMarkers) {
+        const groundYm = groundWorldY(elevation, width, height, m.x, m.y);
+        const manchor: [number, number, number] = [m.x, groundYm, m.y];
+        const a = m.ttl / ORDER_MARKER_TTL;
+        const s = orderMarkerSize(a);
+        this.overlayBatch.rect(manchor, -s, -1, -4, 1, markerColor, a);
+        this.overlayBatch.rect(manchor, 4, -1, s, 1, markerColor, a);
+        this.overlayBatch.rect(manchor, -1, -s / 2, 1, -2, markerColor, a);
+        this.overlayBatch.rect(manchor, -1, 2, 1, s / 2, markerColor, a);
+        this.overlayBatch.ellipseRing(manchor, s + 4, (s + 4) / 2, 1.5, markerColor, a * 0.6);
+      }
+    }
+
+    // Tutorial focus ring -- renderer.ts's own manual 24-point loop, a
+    // WORLD-TILE-radius circle (not a screen-pixel one), which for a flat
+    // map is algebraically the identical ellipse the weapon-envelope `ring
+    // ()` helper draws (`tiles * TILE_W * ISO_K`, `tiles * TILE_H * ISO_K`)
+    // -- see units/overlay-geometry.ts's own top comment for the derivation.
+    // Sampled at the CENTRE's own ground height only, not per ring vertex
+    // (Pixi samples `groundOffset` at every one of its 24 points): every
+    // shipped map the tutorial actually runs on today is flat (CLAUDE.md's
+    // own "every shipped map is flat" note), so the two are identical in
+    // practice; documented here as the simplification it is rather than
+    // silently matched only by accident.
+    const tut = this.retained.tutorialFocus;
+    if (tut) {
+      const groundYt = groundWorldY(elevation, width, height, tut.x, tut.y);
+      const tanchor: [number, number, number] = [tut.x, groundYt, tut.y];
+      const pulse = 0.35 + 0.25 * Math.sin(this.frameN * 0.09);
+      const color = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY, '#B8FF5A');
+      const ISO_K = Math.SQRT1_2;
+      const rPx = tut.radius * TILE_W * ISO_K;
+      this.overlayBatch.ellipseRing(tanchor, rPx, rPx / 2, 2, color, pulse + 0.25, 24);
+    }
+
+    // Garrison hover highlight -- renderer.ts's own doorway-arrow affordance,
+    // shown only while the current selection could actually garrison the
+    // hovered building. Structure-anchored, not unit-anchored: `top` there
+    // is a SCREEN point (`by - badgeTopPx - 12`), reproduced here as a
+    // derived world anchor the same `billboardPoint` convention every other
+    // overlay in this method uses.
+    if (
+      this.hoverStructure >= 0 &&
+      this.hoverCanGarrison &&
+      this.hoverStructure < this.sim.structureCount &&
+      this.sim.structures.alive[this.hoverStructure] === 1
+    ) {
+      const s = this.hoverStructure;
+      const stype = this.sim.structureTypes[this.sim.structures.typeIdx[s]];
+      const { fx: cxTile, fy: cyTile } = footprintCentre(this.sim, s);
+      const groundYs = groundWorldY(elevation, width, height, cxTile, cyTile);
+      const structAnchor: [number, number, number] = [cxTile, groundYs, cyTile];
+      // renderer.ts: `art?.badgeTopPx ?? stype.heightPx` -- NOT
+      // resolveRoofPx's roofTopPx-preferring chain above (that one answers
+      // "how tall does a garrisoned occupant stand", a different question
+      // from "where does this building's own badge/affordance UI hang").
+      const badgeTopPx = this.structureRoofArt.get(stype.id)?.badgeTopPx ?? stype.heightPx;
+      const hyUp = badgeTopPx + 12 + 34; // top = anchor_up(badgeTopPx + 12); hy = top - 34 (Pixi y-down)
+      const hAnchor = billboardPoint(structAnchor, 0, hyUp);
+      const pulse = 0.55 + 0.45 * Math.sin(this.frameN * 0.12);
+      const color = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY, '#B8FF5A');
+      // Door outline + jamb: renderer.ts's `g.rect(bx + 2, hy - 9, 11, 18)
+      // .stroke(...)` and `g.rect(bx + 2, hy - 9, 3, 18).fill(...)`.
+      this.overlayBatch.rectStroke(hAnchor, 2, -9, 13, 9, 2, color, pulse);
+      this.overlayBatch.rect(hAnchor, 2, -9, 5, 9, color, pulse);
+      // Arrow shaft + head: renderer.ts's `moveTo(bx - 14, hy).lineTo(bx -
+      // 2, hy).stroke({ width: 2.5, ... })` and `g.poly([bx - 2, hy - 5, bx
+      // + 4, hy, bx - 2, hy + 5]).fill(...)`.
+      this.overlayBatch.rect(hAnchor, -14, -1.25, -2, 1.25, color, pulse);
+      this.overlayBatch.triangle(hAnchor, [[-2, -5], [4, 0], [-2, 5]], color, pulse);
+    }
+
+    this.overlayBatch.endFrame();
+    this.numeralBatch.endFrame();
   }
 
   /**
