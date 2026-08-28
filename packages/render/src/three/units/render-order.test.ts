@@ -20,8 +20,10 @@ import { describe, it, expect } from 'vitest';
 import {
   HULL_RENDER_ORDER,
   TURRET_RENDER_ORDER,
+  BADGE_NUMERAL_RENDER_ORDER,
   FX_RENDER_ORDER,
   FX_RENDER_ORDER_ABOVE,
+  OVERLAY_RENDER_ORDER,
   FOG_RENDER_ORDER,
   STRUCTURE_RENDER_ORDER,
 } from './render-order';
@@ -32,6 +34,17 @@ describe('render order bands', () => {
     expect(TURRET_RENDER_ORDER).toBeLessThan(FX_RENDER_ORDER);
     expect(FX_RENDER_ORDER).toBeLessThan(FX_RENDER_ORDER_ABOVE);
     expect(FX_RENDER_ORDER_ABOVE).toBeLessThan(FOG_RENDER_ORDER);
+  });
+
+  it('the badge numeral sits strictly between the turret and FX bands -- Pixi paints it above every hull/turret sprite but below FX, unitsG and fog alike', () => {
+    expect(BADGE_NUMERAL_RENDER_ORDER).toBeGreaterThan(TURRET_RENDER_ORDER);
+    expect(BADGE_NUMERAL_RENDER_ORDER).toBeLessThan(FX_RENDER_ORDER);
+  });
+
+  it('the shared overlay tier sits strictly between fx-above and fog, and does not collide with the badge numeral band', () => {
+    expect(OVERLAY_RENDER_ORDER).toBeGreaterThan(FX_RENDER_ORDER_ABOVE);
+    expect(OVERLAY_RENDER_ORDER).toBeLessThan(FOG_RENDER_ORDER);
+    expect(OVERLAY_RENDER_ORDER).not.toBe(BADGE_NUMERAL_RENDER_ORDER);
   });
 
   it('STRUCTURE_RENDER_ORDER is an alias of HULL_RENDER_ORDER, not an independent number', () => {

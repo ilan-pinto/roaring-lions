@@ -37,13 +37,15 @@
  * |------|--------------------------|-------------------|
  * | 0    | `HULL_RENDER_ORDER`      | every `UnitInstancer` hull mesh -- three.js's own default, never set explicitly. `StructureInstancer` (idle/wreck billboards) ties here too, left at the same unset default -- real depth-tested world geometry, occluding units and buildings against each other purely through the actual depth buffer, exactly like Pixi's own `spriteLayer` depth-sorts buildings and units together by `zIndex` rather than giving buildings a separate paint pass. `STRUCTURE_RENDER_ORDER` (Task B4.4) is this same value, aliased and exported explicitly for the one caller that needs to SET it rather than merely rely on the default -- see that constant's own doc comment below for why. |
  * | 1    | `TURRET_RENDER_ORDER`    | every `UnitInstancer` turret mesh -- must outrank its own hull at a co-located, identical-depth instance (`instances.ts`'s own "why this needs to be explicit" comment) |
+ * | 1.5  | `BADGE_NUMERAL_RENDER_ORDER` | Phase C: the control-group badge's NUMERAL only -- see this file's closing paragraphs for why it cannot share `OVERLAY_RENDER_ORDER` (band 4) with the rest of the overlay tier, including its own ring. Deliberately a non-integer: it has to sit strictly between `TURRET_RENDER_ORDER` and `FX_RENDER_ORDER`, and nothing was free there before Phase C claimed it. |
  * | 2    | `FX_RENDER_ORDER`        | `TracerBatch` and the BELOW-tier `ParticleInstancer` (Pixi's `fxG`) -- still depth-tested against terrain/buildings/units, so must outrank every unit mesh, hull AND turret, now that FX's own materials are `depthWrite: false` (`fx.ts`'s "FX-vs-UNIT ordering is a DIFFERENT question") |
  * | 3    | `FX_RENDER_ORDER_ABOVE`  | the ABOVE-tier `ParticleInstancer` (`above_units`-tagged emitters, Pixi's `fxAboveG`) -- `depthTest: false`, unconditionally on top |
- * | 4-9  | *(reserved, no constant)* | Deliberate gap, not a typo: headroom for Phase C's overlay tier (selection rings, HP bars, group badges, hover, order markers, a focus ring). No constant is declared for it yet -- this table's own top comment already argues against inventing a band nobody consumes, and that argument still holds; reserving the NUMBERS costs nothing, while reserving unconsumed CONSTANTS would recreate the exact hazard this file exists to prevent. See this file's closing paragraph for where in this range Phase C's bands belong and why the range moved to make room for them. |
+ * | 4    | `OVERLAY_RENDER_ORDER`   | Phase C: `OverlayBatch` (`units/overlays.ts`) -- selection rings, HP bars, suppression bars, the control-group badge's RING (not its numeral, see band 1.5 above), order markers, the tutorial focus ring, and the garrison hover highlight. One shared band for the whole tier, matching Pixi's own single `unitsG` exactly (this file's closing paragraphs explain why Pixi has only the one container despite drawing all of this). |
+ * | 5-9  | *(reserved, no constant)* | Still headroom, now that Phase C has claimed band 4 rather than needing all six -- kept reserved rather than renumbering FOG_RENDER_ORDER down, on the same "reserving the NUMBERS costs nothing, reserving unconsumed CONSTANTS recreates the hazard" reasoning this table's top comment already gives. |
  * | 10   | `FOG_RENDER_ORDER`       | `FogMesh` (`../fog-mesh.ts`) -- Pixi's `fogG`, the LAST child added to `world` (`renderer.ts:551`, its own comment: "above terrain AND units"). `depthTest: false` like band 3, for the identical reason: fog must hide a hostile standing on the tile it covers regardless of how tall that unit's own geometry rises above the flat ground plane a fog quad sits on -- a depth-tested quad coplanar with the ground would lose that comparison to the unit's own raised vertices. Above every FX tier, not merely above units, because a below-tier particle (e.g. `tunnel_collapse`, genuinely depth-tested against terrain) must not poke through fog covering the ground it is spawned into either -- Pixi's `fxG` sits below `fogG` in container order for the identical reason. Numbered 10, not 4 (its value before this fix round) -- see the 4-9 row above and this file's closing paragraph: Pixi draws its overlays BELOW fog, not above it, so fog had to move up to leave room for that tier underneath it rather than the tier being squeezed in below band 3. |
  *
  * Phase C (selection rings, HP bars, group badges, hover, and a focus ring)
- * will add more bands, all of them UI-adjacent overlays -- but they belong
+ * adds two bands, both UI-adjacent overlays -- but they belong
  * BELOW `FOG_RENDER_ORDER`, not above it. An earlier version of this
  * paragraph claimed the opposite, citing Pixi identifiers (`hpBarG`,
  * `selectionG`) that do not exist and a container order that is backwards;
@@ -56,7 +58,7 @@
  * focus ring) draws into that same `Graphics` in one place
  * (`renderer.ts:1898`, `const g = this.unitsG`).
  *
- * The one exception, and it is a trap for a Phase C badge port: a control-
+ * The one exception, and it was a trap for the Phase C badge port: a control-
  * group badge is SPLIT across two containers. Its ring is drawn into
  * `unitsG` like everything else (`renderer.ts:2310`), but its numeral is a
  * `Text` added to `spriteLayer` (`:2307`) carrying `zIndex =
@@ -64,9 +66,10 @@
  * tile and sprite"). That puts the numeral above every sprite in its own
  * layer and BELOW `fxAboveG`, `unitsG` and `fogG` alike -- so Pixi paints
  * above-units FX over a group numeral, and porting the whole badge into
- * bands 4-9 would lift the numeral over FX where Pixi covers it. The ring
- * and the numeral do not share a band in Pixi and should not be assumed to
- * share one here.
+ * `OVERLAY_RENDER_ORDER` would have lifted the numeral over FX where Pixi
+ * covers it. The ring and the numeral do not share a band in Pixi, and Phase
+ * C's `NumeralBatch` (`units/overlays.ts`) does not share one here either --
+ * see `BADGE_NUMERAL_RENDER_ORDER`'s own row above.
  *
  * And `unitsG` is added to
  * `world` BEFORE `fogG`, not after: `renderer.ts:548` then `:551`, with
@@ -85,17 +88,15 @@
  * you cannot see.)
  *
  * Bands 4-9 -- above every FX tier, below `FOG_RENDER_ORDER` (moved from 4
- * to 10 in this same fix to open the room) -- are reserved for this tier.
- * Whether Phase C wants one shared overlay band (one `unitsG`-shaped bucket,
- * matching Pixi exactly) or splits hover/selection/badges/HP-bars/order-
- * markers across several of its own is Phase C's call, which is why the
- * room reserved is a RANGE and not a single number. This module is still
- * where any of it gets added: one file, one ascending list, so the next
- * collision is a merge conflict or a failing test in THIS file, not a
- * second silent tie two modules apart. No constant is declared in 4-9 yet
- * for the same reason none ever was above band 3 -- Phase C has not asked
- * for one, and inventing a band on spec would just be a second place a
- * future author could get the number wrong.
+ * to 10 in an earlier fix round to open the room) -- were reserved for this
+ * tier, and Phase C took the "one shared overlay band" option the paragraph
+ * above always allowed: `OVERLAY_RENDER_ORDER` (band 4) is one `unitsG`-
+ * shaped bucket, matching Pixi exactly, for every overlay this table names
+ * except the badge numeral (its own band, 1.5, above). Bands 5-9 stay
+ * reserved and undeclared -- Phase C did not need a second band, and this
+ * module remains where any of it gets added if a future task does: one
+ * file, one ascending list, so the next collision is a merge conflict or a
+ * failing test in THIS file, not a second silent tie two modules apart.
  *
  * One more trap worth naming, since trails are on Phase C's own list:
  * trails are NOT part of this overlay tier. Pixi's `trailG` (tunnel spoil)
@@ -114,12 +115,29 @@
  */
 export const HULL_RENDER_ORDER = 0;
 export const TURRET_RENDER_ORDER = 1;
+/**
+ * Phase C: the control-group badge's NUMERAL alone -- see the table's own
+ * 1.5 row and the closing paragraphs' "one exception... a control-group
+ * badge is SPLIT across two containers" section for why this cannot be
+ * `OVERLAY_RENDER_ORDER`. Deliberately not an integer: it has to sit
+ * strictly between `TURRET_RENDER_ORDER` and `FX_RENDER_ORDER`, and every
+ * integer in that neighbourhood was already claimed before Phase C needed
+ * this one.
+ */
+export const BADGE_NUMERAL_RENDER_ORDER = 1.5;
 export const FX_RENDER_ORDER = 2;
 export const FX_RENDER_ORDER_ABOVE = 3;
-/** Bands 4-9 (undeclared on purpose): reserved headroom for Phase C's
- *  overlay tier -- see the table's 4-9 row and this file's closing
- *  paragraph for why the gap is deliberate rather than a typo, and where a
- *  Phase C constant belongs when it lands. */
+/**
+ * Phase C: `OverlayBatch` (`units/overlays.ts`) -- every overlay this
+ * table's own 4-9 row and closing paragraphs describe, EXCEPT the badge
+ * numeral (`BADGE_NUMERAL_RENDER_ORDER` above). One band for the whole
+ * tier, matching Pixi's own single `unitsG` container.
+ */
+export const OVERLAY_RENDER_ORDER = 4;
+/** Bands 5-9 (undeclared on purpose): still-reserved headroom above
+ *  `OVERLAY_RENDER_ORDER` -- see the table's own 5-9 row and this file's
+ *  closing paragraphs for why the gap remains deliberate rather than a
+ *  typo, now that Phase C has claimed band 4 rather than the whole range. */
 export const FOG_RENDER_ORDER = 10;
 /**
  * Task B4.4: the band a falling building's collapse `Mesh` draws in -- the
