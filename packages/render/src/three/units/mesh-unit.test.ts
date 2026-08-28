@@ -1,13 +1,14 @@
 /**
  * The GLB does not exist on disk when this was written -- the exporter is a
  * parallel stream targeting the same contract (`docs/superpowers/specs/
- * 2026-08-28-mesh-unit-contract.md`). `buildFixtureGlb` below hand-authors a
- * minimal binary glTF (real GLB byte framing -- header, JSON chunk, BIN
- * chunk, per the glTF 2.0 spec) satisfying that contract: one role, one
- * clip, two bones, real skinning. It is parsed by the SAME `GLTFLoader`
- * production code uses (`GLTFLoader.parse`, called on a real `ArrayBuffer`,
- * not a synthetic in-memory scene graph built by hand) -- so these tests
- * exercise the actual parser, not a stand-in for it.
+ * 2026-08-28-mesh-unit-contract.md`). `buildFixtureGlb`/`parseFixture`
+ * (`./mesh-fixture.ts`) hand-author a minimal binary glTF (real GLB byte
+ * framing -- header, JSON chunk, BIN chunk, per the glTF 2.0 spec)
+ * satisfying that contract: one role, one or more clips, two bones, real
+ * skinning. It is parsed by the SAME `GLTFLoader` production code uses
+ * (`GLTFLoader.parse`, called on a real `ArrayBuffer`, not a synthetic
+ * in-memory scene graph built by hand) -- so these tests exercise the
+ * actual parser, not a stand-in for it.
  *
  * `environment: 'node'` (`vitest.config.ts`) supports this: `GLTFLoader`,
  * `THREE.SkinnedMesh`, `THREE.AnimationMixer`, `SkeletonUtils.clone` are all
@@ -26,10 +27,16 @@
  * here -- `art/` is out of bounds for this task, and that file's presence
  * is a transient state of someone else's in-progress work, not something a
  * committed test may rely on being there).
+ *
+ * The fixture builder used to live inline in this file; it moved to
+ * `./mesh-fixture.ts` (a plain module, not a `.test.ts`) so
+ * `mesh-death.test.ts` could reuse it -- importing one `.test.ts` file from
+ * another would make vitest collect and run this file's OWN `describe`/`it`
+ * blocks a second time as a side effect, which `mesh-fixture.ts`'s own top
+ * comment explains.
  */
 import { describe, it, expect, vi } from 'vitest';
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import {
   buildMeshUnitTemplate,
   instantiateMeshUnit,
@@ -39,197 +46,7 @@ import {
 } from './mesh-unit';
 import { MESH_SCALE } from './mesh-anim';
 import { HULL_RENDER_ORDER, TURRET_RENDER_ORDER } from './render-order';
-
-// --- fixture: a minimal, hand-authored binary glTF (GLB) --------------------
-
-const JSON_CHUNK_TYPE = 0x4e4f534a; // 'JSON'
-const BIN_CHUNK_TYPE = 0x004e4942; // 'BIN\0'
-
-/** Concatenates typed-array byte views into one `Uint8Array`, returning both
- *  the bytes and each input's byte offset/length within it -- exactly what a
- *  glTF `bufferViews` array needs, and simple because (per `loadBufferView`
- *  in `GLTFLoader.js`) each bufferView is `ArrayBuffer.slice`d into its own
- *  fresh buffer before any accessor reads it, so nothing here needs 4-byte
- *  alignment between segments -- only the OUTER GLB chunk lengths do. */
-function packBufferViews(parts: readonly Uint8Array[]): { bytes: Uint8Array; views: { byteOffset: number; byteLength: number }[] } {
-  const totalLength = parts.reduce((sum, p) => sum + p.byteLength, 0);
-  const bytes = new Uint8Array(totalLength);
-  const views: { byteOffset: number; byteLength: number }[] = [];
-  let cursor = 0;
-  for (const part of parts) {
-    bytes.set(part, cursor);
-    views.push({ byteOffset: cursor, byteLength: part.byteLength });
-    cursor += part.byteLength;
-  }
-  return { bytes, views };
-}
-
-function f32(nums: readonly number[]): Uint8Array {
-  return new Uint8Array(Float32Array.from(nums).buffer);
-}
-
-function u16(nums: readonly number[]): Uint8Array {
-  return new Uint8Array(Uint16Array.from(nums).buffer);
-}
-
-/** Pads `bytes` up to a multiple of 4, with `pad` as the fill byte -- the
- *  glTF-Binary spec's own chunk-alignment rule (`BINARY_EXTENSION_HEADER_
- *  LENGTH` + chunk framing in `GLTFLoader.js`'s `GLTFBinaryExtension`). */
-function pad4(bytes: Uint8Array, pad: number): Uint8Array {
-  const rem = bytes.byteLength % 4;
-  if (rem === 0) return bytes;
-  const out = new Uint8Array(bytes.byteLength + (4 - rem));
-  out.set(bytes);
-  out.fill(pad, bytes.byteLength);
-  return out;
-}
-
-/**
- * Packs a `{ json, bin }` pair into a real binary GLB `ArrayBuffer`, using
- * the exact chunk framing `GLTFLoader.js`'s `GLTFBinaryExtension` parses:
- * 12-byte header (`glTF` magic, version, total length), then a JSON chunk
- * (space-padded to 4 bytes), then a BIN chunk (zero-padded to 4 bytes).
- */
-function packGlb(json: unknown, bin: Uint8Array): ArrayBuffer {
-  const jsonBytes = pad4(new TextEncoder().encode(JSON.stringify(json)), 0x20);
-  const binBytes = pad4(bin, 0x00);
-
-  const total = 12 + 8 + jsonBytes.byteLength + 8 + binBytes.byteLength;
-  const out = new Uint8Array(total);
-  const dv = new DataView(out.buffer);
-
-  dv.setUint32(0, 0x46546c67, true); // little-endian so the raw bytes spell 'g','l','T','F'
-  dv.setUint32(4, 2, true); // version
-  dv.setUint32(8, total, true); // total length
-
-  let o = 12;
-  dv.setUint32(o, jsonBytes.byteLength, true);
-  dv.setUint32(o + 4, JSON_CHUNK_TYPE, true);
-  out.set(jsonBytes, o + 8);
-  o += 8 + jsonBytes.byteLength;
-
-  dv.setUint32(o, binBytes.byteLength, true);
-  dv.setUint32(o + 4, BIN_CHUNK_TYPE, true);
-  out.set(binBytes, o + 8);
-
-  return out.buffer;
-}
-
-/**
- * A minimal, valid, skinned, single-triangle glTF: two bones (a root and a
- * child offset +1 on Y), one `SkinnedMesh` node named `roleName` (carrying
- * `extras.rl_role = roleName` too, matching the contract's deliberate
- * redundancy -- `withExtras` lets a test omit one half to prove the other
- * half alone still works), fully weighted to the child bone, and one
- * animation clip named `clipName` rotating that bone 90° about X between
- * t=0 and t=1.
- *
- * Bind math (so the deformation is actually correct, not merely
- * non-throwing): full weight on bone1, whose bind-pose world matrix is
- * `translate(0,1,0)`, so its inverse bind matrix is `translate(0,-1,0)`.
- * Skinned position = `boneWorld * inverseBind * bindPosition`, which is
- * exactly "rotate the local offset from the bone's own pivot, then
- * translate back" -- the pivot rotation this fixture's tests check for.
- */
-function buildFixtureGlb(opts: {
-  roleName: string;
-  /** One or more animation names -- each gets its own `animations[]` entry,
-   *  all sharing the same sampler/accessor data (fine for exercising clip
-   *  wiring; the point is which NAME is reachable, not distinct motion per
-   *  clip). A single string is shorthand for `[clipName]`. */
-  clipName: string | string[];
-  extrasRole?: string | null;
-  nameRole?: string | null;
-}): ArrayBuffer {
-  const extrasRole = opts.extrasRole === undefined ? opts.roleName : opts.extrasRole;
-  const nameRole = opts.nameRole === undefined ? opts.roleName : opts.nameRole;
-  const clipNames = Array.isArray(opts.clipName) ? opts.clipName : [opts.clipName];
-
-  const position = f32([-0.1, 1, 0, 0.1, 1, 0, 0, 1, 0.2]);
-  const normal = f32([0, 0, 1, 0, 0, 1, 0, 0, 1]);
-  const joints = u16([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]);
-  const weights = f32([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]);
-  const indices = u16([0, 1, 2]);
-  // Column-major mat4 x2: bone0 (root) identity, bone1 translate(0,-1,0).
-  const inverseBind = f32([
-    1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
-    1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, -1, 0, 1,
-  ]);
-  const animInput = f32([0, 1]);
-  // Quaternion (x,y,z,w): identity, then 90 deg about X.
-  const HALF = Math.SQRT1_2;
-  const animOutput = f32([0, 0, 0, 1, HALF, 0, 0, HALF]);
-
-  const { bytes, views } = packBufferViews([
-    position,
-    normal,
-    joints,
-    weights,
-    indices,
-    inverseBind,
-    animInput,
-    animOutput,
-  ]);
-
-  const bufferViews = views.map((v) => ({ buffer: 0, byteOffset: v.byteOffset, byteLength: v.byteLength }));
-
-  const accessors = [
-    { bufferView: 0, componentType: 5126, count: 3, type: 'VEC3', min: [-0.1, 1, 0], max: [0.1, 1, 0.2] }, // 0 POSITION
-    { bufferView: 1, componentType: 5126, count: 3, type: 'VEC3' }, // 1 NORMAL
-    { bufferView: 2, componentType: 5123, count: 3, type: 'VEC4' }, // 2 JOINTS_0
-    { bufferView: 3, componentType: 5126, count: 3, type: 'VEC4' }, // 3 WEIGHTS_0
-    { bufferView: 4, componentType: 5123, count: 3, type: 'SCALAR' }, // 4 indices
-    { bufferView: 5, componentType: 5126, count: 2, type: 'MAT4' }, // 5 inverseBindMatrices
-    { bufferView: 6, componentType: 5126, count: 2, type: 'SCALAR' }, // 6 anim input
-    { bufferView: 7, componentType: 5126, count: 2, type: 'VEC4' }, // 7 anim output
-  ];
-
-  const nodeExtras: Record<string, unknown> = {};
-  if (extrasRole !== null) nodeExtras.rl_role = extrasRole;
-
-  const json = {
-    asset: { version: '2.0' },
-    buffers: [{ byteLength: bytes.byteLength }],
-    bufferViews,
-    accessors,
-    meshes: [
-      {
-        name: 'fixture-mesh',
-        primitives: [
-          {
-            attributes: { POSITION: 0, NORMAL: 1, JOINTS_0: 2, WEIGHTS_0: 3 },
-            indices: 4,
-          },
-        ],
-      },
-    ],
-    skins: [{ joints: [0, 1], inverseBindMatrices: 5 }],
-    nodes: [
-      { name: 'root_joint', children: [1] },
-      { name: 'bone1', translation: [0, 1, 0] },
-      {
-        name: nameRole ?? '',
-        mesh: 0,
-        skin: 0,
-        ...(Object.keys(nodeExtras).length > 0 ? { extras: nodeExtras } : {}),
-      },
-    ],
-    scenes: [{ nodes: [0, 2] }],
-    scene: 0,
-    animations: clipNames.map((name) => ({
-      name,
-      channels: [{ sampler: 0, target: { node: 1, path: 'rotation' } }],
-      samplers: [{ input: 6, output: 7, interpolation: 'LINEAR' }],
-    })),
-  };
-
-  return packGlb(json, bytes);
-}
-
-async function parseFixture(opts: Parameters<typeof buildFixtureGlb>[0]) {
-  const glb = buildFixtureGlb(opts);
-  return new GLTFLoader().parseAsync(glb, '');
-}
+import { parseFixture } from './mesh-fixture';
 
 // --- tests --------------------------------------------------------------
 
@@ -487,5 +304,86 @@ describe('instantiateMeshUnit / applyMeshClip / mixer wiring', () => {
     // assertion goes red.
     expect(matSpy).toHaveBeenCalledTimes(1);
     expect(geoSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+// --- applyMeshClip's `{ once: true }` option -- added for units/mesh-death.ts ---
+
+describe('applyMeshClip once option', () => {
+  it('omitted (or false): sets LoopRepeat/Infinity and clampWhenFinished=false -- three.js\'s own default, explicit', async () => {
+    const gltf = await parseFixture({ roleName: 'uniform', clipName: 'move' });
+    const template = buildMeshUnitTemplate(gltf, 'kdf');
+    const entity = instantiateMeshUnit(template, 'inf_squad');
+
+    applyMeshClip(entity, 'move');
+    const action = entity.actions.get('move') as THREE.AnimationAction;
+    expect(action.loop).toBe(THREE.LoopRepeat);
+    expect(action.clampWhenFinished).toBe(false);
+  });
+
+  it('once: true sets LoopOnce and clampWhenFinished=true', async () => {
+    const gltf = await parseFixture({ roleName: 'uniform', clipName: 'move' });
+    const template = buildMeshUnitTemplate(gltf, 'kdf');
+    const entity = instantiateMeshUnit(template, 'inf_squad');
+
+    applyMeshClip(entity, 'move', { once: true });
+    const action = entity.actions.get('move') as THREE.AnimationAction;
+    // Break check (verified by hand, then reverted): in `applyMeshClip`,
+    // swap the `once` branch's `next.setLoop(THREE.LoopOnce, 1)` for
+    // `THREE.LoopRepeat`. This assertion then reads `LoopRepeat` instead of
+    // `LoopOnce` and goes red.
+    expect(action.loop).toBe(THREE.LoopOnce);
+    // Break check (verified by hand, then reverted): in the same branch,
+    // change `next.clampWhenFinished = true` to `false`. This assertion
+    // then reads `false` and goes red.
+    expect(action.clampWhenFinished).toBe(true);
+  });
+
+  it('once: true actually holds the clip\'s LAST frame once its own duration elapses, rather than looping', async () => {
+    const gltf = await parseFixture({ roleName: 'uniform', clipName: 'move' });
+    const template = buildMeshUnitTemplate(gltf, 'kdf');
+    const entity = instantiateMeshUnit(template, 'inf_squad');
+    applyMeshClip(entity, 'move', { once: true });
+    const action = entity.actions.get('move') as THREE.AnimationAction;
+    expect(action.getClip().duration).toBe(1); // this fixture's own fixed 1-second clip
+
+    entity.mixer.update(1.5); // well past the clip's own 1-second duration
+    // Break check (verified by hand, then reverted): remove BOTH `once`
+    // lines (fall through to the `else` branch's LoopRepeat regardless of
+    // `opts?.once`). This assertion then reads `false` (a `LoopRepeat`
+    // action never pauses) and goes red.
+    expect(action.paused).toBe(true);
+
+    let bone: THREE.Bone | null = null;
+    entity.root.traverse((o) => {
+      if ((o as THREE.SkinnedMesh).isSkinnedMesh) bone = (o as THREE.SkinnedMesh).skeleton.bones[1];
+    });
+    const held = (bone as unknown as THREE.Bone).quaternion.clone();
+    entity.mixer.update(0.5); // a further update must be a no-op once paused
+    expect((bone as unknown as THREE.Bone).quaternion.equals(held)).toBe(true);
+  });
+
+  it('without once: the SAME clip keeps looping past its own duration -- the pre-existing, still-default behaviour', async () => {
+    const gltf = await parseFixture({ roleName: 'uniform', clipName: 'move' });
+    const template = buildMeshUnitTemplate(gltf, 'kdf');
+    const entity = instantiateMeshUnit(template, 'inf_squad');
+    applyMeshClip(entity, 'move'); // no opts -- every EXISTING caller's own shape
+    const action = entity.actions.get('move') as THREE.AnimationAction;
+
+    // Break check (verified by hand, then reverted): in `applyMeshClip`'s
+    // `else` branch, change `next.setLoop(THREE.LoopRepeat, Infinity)` to
+    // `THREE.LoopOnce` (leaving `clampWhenFinished = false` alone -- the
+    // `else` branch's own existing value). This assertion then reads
+    // `LoopOnce` instead of `LoopRepeat` and goes red. `action.paused`
+    // below does NOT catch this same break: a `LoopOnce` action that is
+    // NOT clamped sets `enabled = false` on finishing rather than `paused
+    // = true` (`AnimationAction.js`'s own branch, the one `once: true`
+    // above deliberately avoids by pairing `LoopOnce` with `clampWhenFinished
+    // = true`) -- so `.loop` is the assertion that actually distinguishes
+    // this regression, not `.paused`.
+    expect(action.loop).toBe(THREE.LoopRepeat);
+
+    entity.mixer.update(1.5); // past the clip's own 1-second duration
+    expect(action.paused).toBe(false);
   });
 });
