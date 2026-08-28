@@ -16,6 +16,7 @@ import {
   RECOIL_PX_VEHICLE,
   RECOIL_PX_SOFT,
   FLINCH_PX,
+  AIR_LIFT_PX,
   TURRET_STIFFNESS,
   TURRET_DAMPING,
   type EntityFrameInput,
@@ -95,6 +96,7 @@ function makeInput(overrides: Partial<EntityFrameInput> = {}): EntityFrameInput 
     mapHeight: 4,
     side: 0,
     contactLevel: 2,
+    isAir: false,
     roofSlot: -1,
     roofPx: 0,
     sheet,
@@ -283,6 +285,33 @@ describe('entityFrame — contact-level body alpha', () => {
       const out = entityFrame(makeInput({ side: 0, contactLevel: level }));
       expect(out.alpha).toBe(1);
     }
+  });
+});
+
+describe('entityFrame — air lift', () => {
+  it('adds no height for a grounded (non-isAir) unit', () => {
+    const out = entityFrame(makeInput({ isAir: false }));
+    expect(out.worldY).toBe(0);
+  });
+
+  it('lifts worldY by AIR_LIFT_PX converted through WORLD_Y_PER_LIFT_PIXEL -- a real world height, not a screen-space nudge', () => {
+    // Mirrors the identical roof-lift test below by design: both are real
+    // `worldY` offsets, not a Pixi-style post-projection sprite nudge, and
+    // this test would fail exactly the way that one would if a future edit
+    // reintroduced a screen-space "liftDy" field instead.
+    const grounded = entityFrame(makeInput({ isAir: false }));
+    const airborne = entityFrame(makeInput({ isAir: true }));
+    expect(airborne.worldY).toBeCloseTo(grounded.worldY + AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL, 10);
+  });
+
+  it('composes additively with garrison roof lift rather than one overriding the other', () => {
+    // Not a real in-game combination (an isAir type is never garrisonedIn),
+    // but pins the "just add it" shape the implementation actually uses --
+    // a future edit that branched on isAir vs. roofSlot instead of summing
+    // both would still pass every other test in this file and only fail here.
+    const roofOnly = entityFrame(makeInput({ isAir: false, roofSlot: 0, roofPx: 40 }));
+    const roofAndAir = entityFrame(makeInput({ isAir: true, roofSlot: 0, roofPx: 40 }));
+    expect(roofAndAir.worldY).toBeCloseTo(roofOnly.worldY + AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL, 10);
   });
 });
 

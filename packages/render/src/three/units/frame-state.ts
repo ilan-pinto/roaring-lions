@@ -107,6 +107,34 @@ export const RECOIL_PX_SOFT = 1;
 export const FLINCH_PX = 2.5;
 
 /**
+ * How far an `isAir` unit stands above its own ground tile. Redeclared from
+ * `renderer.ts`'s own `AIR_LIFT_PX` (private, value 14, `renderer.ts:77`)
+ * for the same reason everything else in this file is redeclared rather
+ * than imported -- see this file's own header, and `RECOIL_PX_VEHICLE`
+ * above.
+ *
+ * Applied differently from Pixi on purpose, and this is the one constant in
+ * this file where "differently" needs its own justification rather than
+ * silent parity. Pixi has no z-buffer: `AIR_LIFT_PX` there is a POST-
+ * PROJECTION screen-pixel nudge (`sprite.position`), applied after the
+ * dimetric transform, with nothing underneath it but a separately-drawn
+ * shadow ellipse standing in for "this thing is actually somewhere else."
+ * This backend has a real depth buffer and a real `groundWorldY` (this
+ * module's own "`clearZ` is deliberately not ported" section already made
+ * the identical argument for garrison roof placement: a screen-space nudge
+ * moves a sprite without moving its DEPTH, and a real height does not).
+ * Converting `AIR_LIFT_PX` through `WORLD_Y_PER_LIFT_PIXEL` -- the same
+ * conversion `roofLiftWorld` below already applies to `roofPx` -- gives an
+ * `isAir` unit a genuine world-Y position above the ground, not merely a
+ * sprite drawn higher on screen: it billboards correctly as the camera's
+ * fixed dimetric angle would actually show something flying (foreshortened
+ * exactly like a roof occupant is), and it is real geometry a future terrain
+ * occluder could correctly hide behind a ridge, rather than a screen offset
+ * that terrain would have no depth relationship to at all.
+ */
+export const AIR_LIFT_PX = 14;
+
+/**
  * How many of a building's occupants get a roof slot. Mirrors `ROOF_SLOTS`
  * in `renderer.ts` (private, value 2) -- redeclared rather than imported for
  * the same reason `terrain/shared.ts` redeclares `TERRAIN_DECOR`: importing
@@ -205,6 +233,12 @@ export interface EntityFrameInput {
   /** `sim.contactLevel(0, entityId)` -- 0, 1 or 2. Ignored when `side` is 0
    *  (the player's own units are always drawn at full opacity). */
   contactLevel: number;
+
+  // --- air lift: renderer.ts:2079-2090 (`AIR_LIFT_PX`) ---
+  /** This entity's unit type's `isAir` flag (`UnitType.isAir`, `@lions/sim`).
+   *  See `AIR_LIFT_PX`'s own doc comment for why this becomes a real
+   *  world-Y offset here rather than Pixi's post-projection screen nudge. */
+  isAir: boolean;
 
   // --- garrison roof placement: renderer.ts:1936-1956 (`roofPlacement`) ---
   /**
@@ -397,6 +431,7 @@ export function entityFrame(input: EntityFrameInput): EntityFrame {
     mapHeight,
     side,
     contactLevel,
+    isAir,
     roofSlot,
     roofPx,
     sheet,
@@ -464,12 +499,23 @@ export function entityFrame(input: EntityFrameInput): EntityFrame {
     }
   }
 
+  // Air lift (renderer.ts:2079-2090): a real world-Y offset, not a
+  // screen-pixel nudge -- see `AIR_LIFT_PX`'s own doc comment for why. Mutually
+  // exclusive with `roofLiftWorld` in practice (an `isAir` type is never
+  // `garrisonedIn`), but summed rather than branched regardless, the same
+  // "just add it" shape `roofLiftWorld` itself already uses alongside the
+  // base ground height.
+  const airLiftWorld = isAir ? AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL : 0;
+
   // Ground lift for this unit's own tile (renderer.ts:1977), plus the roof
-  // lift above when garrisoned. `groundWorldY` is the B3.2 adapter over the
-  // same `levelAt`/`WORLD_PER_LEVEL` B2's terraced mesh itself uses, so a
-  // unit standing on a tile lands exactly on that tile's own top face; a
-  // roof occupant lands exactly on the roof quad standing above it.
-  const worldY = groundWorldY(elevation, mapWidth, mapHeight, wx, wy) + roofLiftWorld;
+  // lift above when garrisoned, plus the air lift above when airborne.
+  // `groundWorldY` is the B3.2 adapter over the same `levelAt`/
+  // `WORLD_PER_LEVEL` B2's terraced mesh itself uses, so a unit standing on
+  // a tile lands exactly on that tile's own top face; a roof occupant lands
+  // exactly on the roof quad standing above it; an airborne unit stands the
+  // equivalent of `AIR_LIFT_PX` screen pixels above whichever of the two it
+  // would otherwise be standing on.
+  const worldY = groundWorldY(elevation, mapWidth, mapHeight, wx, wy) + roofLiftWorld + airLiftWorld;
 
   // Recoil/flinch (renderer.ts:2044-2063): SCREEN-space nudges in Pixi,
   // applied there directly to `sprite.position` post-projection. There is

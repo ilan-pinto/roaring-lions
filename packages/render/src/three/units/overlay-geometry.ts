@@ -289,3 +289,140 @@ export function pushEllipseRingPx(
     pushTrianglePx(soup, anchor, [in0, out1, in1], color, alpha);
   }
 }
+
+// ---------------------------------------------------------------------------
+// The objective zone: the one overlay in this file that is NOT expressed as
+// a screen-pixel offset from a single billboard anchor. Pixi's own zone loop
+// (`renderer.ts`'s objective-zone block) projects each of the rectangle's
+// FOUR corners independently -- `isoY(cx2, cy2) - this.groundOffset(cx2,
+// cy2)` per corner -- because the zone is genuine ground geometry, not a
+// marker hung off one unit. Every push*Px function above shares one anchor
+// on purpose (`billboardPoint`'s own top comment); reusing that shape here
+// would force every corner through the SAME ground height, silently
+// flattening a zone that straddles a terrace edge. `pushTriangleWorld` below
+// is the one exception: a raw world-space triangle, no anchor, no pixel
+// offset -- the caller (`objectiveZoneCorners`) has already resolved each
+// corner's own height.
+// ---------------------------------------------------------------------------
+
+/** A literal three.js world position -- game tile (x, y) plus that corner's
+ *  own ground height, already resolved. Unlike every anchor above, this is
+ *  not relative to anything. */
+export type WorldPoint = readonly [number, number, number];
+
+/** Writes one triangle of already-resolved world points directly, bypassing
+ *  `billboardPoint` entirely -- see this section's own top comment for why
+ *  the objective zone cannot share the single-anchor convention every other
+ *  push* function in this file uses. */
+export function pushTriangleWorld(
+  soup: TriangleSoup,
+  points: readonly [WorldPoint, WorldPoint, WorldPoint],
+  color: OverlayColor,
+  alpha: number
+): void {
+  if (soup.count + 3 > soup.capacity) return;
+  for (const [x, y, z] of points) {
+    const i = soup.count;
+    soup.positions[i * 3] = x;
+    soup.positions[i * 3 + 1] = y;
+    soup.positions[i * 3 + 2] = z;
+    soup.colors[i * 3] = color[0];
+    soup.colors[i * 3 + 1] = color[1];
+    soup.colors[i * 3 + 2] = color[2];
+    soup.alphas[i] = alpha;
+    soup.count++;
+  }
+}
+
+/** The four corners of a tile-space rectangle `[zx, zy, zw, zh]`, each
+ *  carrying ITS OWN ground height via `groundYAt` -- the direct three.js
+ *  analogue of Pixi's own per-corner `isoY(cx2, cy2) - groundOffset(cx2,
+ *  cy2)` loop. Order matches Pixi's `corners` array exactly (top-left,
+ *  top-right, bottom-right, bottom-left in tile space) so a fan or a
+ *  perimeter walk over the result traces the same rectangle Pixi's
+ *  `g.poly(pts)` does. */
+export function objectiveZoneCorners(
+  zx: number,
+  zy: number,
+  zw: number,
+  zh: number,
+  groundYAt: (x: number, y: number) => number
+): readonly [WorldPoint, WorldPoint, WorldPoint, WorldPoint] {
+  return [
+    [zx, groundYAt(zx, zy), zy],
+    [zx + zw, groundYAt(zx + zw, zy), zy],
+    [zx + zw, groundYAt(zx + zw, zy + zh), zy + zh],
+    [zx, groundYAt(zx, zy + zh), zy + zh],
+  ];
+}
+
+/** Fan-triangulates an arbitrary convex world-space polygon from its own
+ *  first vertex -- Pixi's `g.poly(pts).fill(...)`, the objective zone's
+ *  fill half. Any point count, same fan order `terrain/shared.ts`'s
+ *  `pushPolygon` uses, but writing into a `TriangleSoup` (per-vertex alpha)
+ *  rather than a terrain builder's flat position/colour/index arrays. */
+export function pushPolygonFillWorld(
+  soup: TriangleSoup,
+  points: readonly WorldPoint[],
+  color: OverlayColor,
+  alpha: number
+): void {
+  for (let i = 1; i < points.length - 1; i++) {
+    pushTriangleWorld(soup, [points[0], points[i], points[i + 1]], color, alpha);
+  }
+}
+
+/**
+ * A thin border around a closed world-space polygon loop -- Pixi's
+ * `g.poly(pts).stroke({width, ...})`, the objective zone's outline half.
+ *
+ * Not a literal constant-screen-pixel-width port: Pixi's stroke is drawn
+ * AFTER projection, in 2D screen space, where "outward" is a single
+ * well-defined direction for the whole polygon. This backend's overlay
+ * geometry is genuine pre-projection world space, and these corners each
+ * carry their OWN independent height (`objectiveZoneCorners`) -- there is no
+ * single per-vertex "outward" normal that stays a constant screen width once
+ * reprojected through a camera whose dimetric angle foreshortens X, Y and Z
+ * unequally. The practical approximation used instead: inset each corner
+ * toward the polygon's own centroid by `insetTiles` world-tile units, and
+ * fill the ring between the original loop and the inset one. `insetTiles` is
+ * chosen once by the caller to read as a thin line at gameplay zoom (see
+ * `ThreeRenderer.updateOverlays`'s own call site for the derivation from
+ * Pixi's literal 2px stroke width); it is not, and does not need to be,
+ * pixel-exact -- Pixi's own stroke is a state-encoding boundary marker, not
+ * a measurement the player reads a value off.
+ */
+export function pushPolygonStrokeWorld(
+  soup: TriangleSoup,
+  points: readonly WorldPoint[],
+  insetTiles: number,
+  color: OverlayColor,
+  alpha: number
+): void {
+  const n = points.length;
+  if (n < 3) return;
+  let cx = 0;
+  let cy = 0;
+  let cz = 0;
+  for (const [x, y, z] of points) {
+    cx += x;
+    cy += y;
+    cz += z;
+  }
+  cx /= n;
+  cy /= n;
+  cz /= n;
+  const inner: WorldPoint[] = points.map(([x, y, z]) => {
+    const dx = cx - x;
+    const dy = cy - y;
+    const dz = cz - z;
+    const len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+    const t = Math.min(insetTiles / len, 0.5);
+    return [x + dx * t, y + dy * t, z + dz * t];
+  });
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    pushTriangleWorld(soup, [points[i], points[j], inner[j]], color, alpha);
+    pushTriangleWorld(soup, [points[i], inner[j], inner[i]], color, alpha);
+  }
+}

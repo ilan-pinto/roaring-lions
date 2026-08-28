@@ -29,6 +29,11 @@ import {
   OVERLAY_ACCENT_COLOR_KEY,
   BADGE_TEXT_COLOR_KEY,
   ORDER_MARKER_TTL,
+  objectiveZoneColorKey,
+  objectiveZoneFallbackColor,
+  objectiveZonePulse,
+  OBJECTIVE_ZONE_STROKE_INSET_TILES,
+  AIR_SHADOW_COLOR_KEY,
   OverlayBatch,
   NumeralBatch,
 } from './overlays';
@@ -124,6 +129,51 @@ describe('overlay palette keys resolve to the exact hex Pixi hard-codes at the e
     expect(resolve(hpBarColorKey(0.4))).toBe('#E8C33A');
     expect(resolve(hpBarColorKey(0.1))).toBe('#D93A2B');
   });
+
+  it('objectiveZoneColorKey\'s three states resolve to Pixi\'s own three literals', () => {
+    expect(resolve(objectiveZoneColorKey('contested'))).toBe('#D93A2B');
+    expect(resolve(objectiveZoneColorKey('unheld'))).toBe('#E8C33A');
+    expect(resolve(objectiveZoneColorKey('held'))).toBe('#B8FF5A');
+  });
+
+  it('AIR_SHADOW_COLOR_KEY -> #0A0A08, Pixi\'s air-lift shadow ellipse fill (same swatch fog-mesh.ts names shadow.2)', () => {
+    expect(resolve(AIR_SHADOW_COLOR_KEY)).toBe('#0A0A08');
+  });
+});
+
+describe('objectiveZoneColorKey / objectiveZoneFallbackColor', () => {
+  it('held resolves to the same key OVERLAY_ACCENT_COLOR_KEY does', () => {
+    expect(objectiveZoneColorKey('held')).toBe(OVERLAY_ACCENT_COLOR_KEY);
+  });
+
+  it('every fallback literal matches its own key\'s resolved colour, pairwise', () => {
+    for (const state of ['held', 'unheld', 'contested'] as const) {
+      expect(objectiveZoneFallbackColor(state)).toBe(
+        state === 'contested' ? '#D93A2B' : state === 'unheld' ? '#E8C33A' : '#B8FF5A'
+      );
+    }
+  });
+});
+
+describe('objectiveZonePulse', () => {
+  it('held is a fixed 0.3, regardless of frameN', () => {
+    expect(objectiveZonePulse('held', 0)).toBe(0.3);
+    expect(objectiveZonePulse('held', 999)).toBe(0.3);
+  });
+
+  it('unheld/contested pulse with frameN, matching Pixi\'s own 0.35 + 0.25 * sin(frameN * 0.09)', () => {
+    for (const state of ['unheld', 'contested'] as const) {
+      expect(objectiveZonePulse(state, 0)).toBeCloseTo(0.35, 10);
+      expect(objectiveZonePulse(state, 10)).toBeCloseTo(0.35 + 0.25 * Math.sin(10 * 0.09), 10);
+    }
+  });
+});
+
+describe('OBJECTIVE_ZONE_STROKE_INSET_TILES', () => {
+  it('is a small positive fraction of a tile, not a screen-pixel or zero value', () => {
+    expect(OBJECTIVE_ZONE_STROKE_INSET_TILES).toBeGreaterThan(0);
+    expect(OBJECTIVE_ZONE_STROKE_INSET_TILES).toBeLessThan(0.5);
+  });
 });
 
 describe('OverlayBatch construction', () => {
@@ -182,6 +232,43 @@ describe('OverlayBatch.rect / endFrame', () => {
       expect(colors[v * 3 + 2]).toBeCloseTo(0, 5);
       expect(alphas[v]).toBeCloseTo(0.5, 5);
     }
+  });
+});
+
+describe('OverlayBatch.polygonFillWorld / polygonStrokeWorld', () => {
+  const square: readonly [number, number, number][] = [
+    [0, 0, 0],
+    [4, 0, 0],
+    [4, 0, 4],
+    [0, 0, 4],
+  ];
+
+  it('polygonFillWorld fan-triangulates a 4-point polygon into exactly 6 vertices (2 triangles)', () => {
+    const batch = new OverlayBatch(64);
+    batch.beginFrame();
+    batch.polygonFillWorld(square, '#FF0000', 0.05);
+    batch.endFrame();
+    expect(batch.mesh.geometry.drawRange.count).toBe(6);
+  });
+
+  it('polygonFillWorld writes literal world positions, not anchor-relative pixel offsets', () => {
+    const batch = new OverlayBatch(64);
+    batch.beginFrame();
+    batch.polygonFillWorld(square, '#FF0000', 0.05);
+    batch.endFrame();
+    const pos = (batch.mesh.geometry.getAttribute('position') as THREE.BufferAttribute).array as Float32Array;
+    // First vertex is the polygon's own first corner, verbatim.
+    expect(pos[0]).toBe(0);
+    expect(pos[1]).toBe(0);
+    expect(pos[2]).toBe(0);
+  });
+
+  it('polygonStrokeWorld writes 2 triangles (6 vertices) per edge of a closed loop', () => {
+    const batch = new OverlayBatch(64);
+    batch.beginFrame();
+    batch.polygonStrokeWorld(square, 0.1, '#FF0000', 0.5);
+    batch.endFrame();
+    expect(batch.mesh.geometry.drawRange.count).toBe(square.length * 6);
   });
 });
 

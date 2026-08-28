@@ -121,4 +121,25 @@ describe('ThreeRenderer.dispose', () => {
     // fogMesh disposal was ADDED, not substituted for something else.
     expect(disposeSpy).toHaveBeenCalled();
   });
+
+  it('disposes smokeMesh -- the identical shape of leak fogMesh once had, guarded against from the start', () => {
+    const renderer = new ThreeRenderer(makeSim(), makeOpts());
+    const smokeMesh = (renderer as unknown as { smokeMesh: { mesh: { geometry: unknown; material: unknown } } })
+      .smokeMesh;
+    const geometry = smokeMesh.mesh.geometry as { addEventListener: (type: string, cb: () => void) => void };
+    const material = smokeMesh.mesh.material as { addEventListener: (type: string, cb: () => void) => void };
+    let geometryDisposed = false;
+    let materialDisposed = false;
+    geometry.addEventListener('dispose', () => {
+      geometryDisposed = true;
+    });
+    material.addEventListener('dispose', () => {
+      materialDisposed = true;
+    });
+
+    renderer.dispose();
+
+    expect(geometryDisposed).toBe(true);
+    expect(materialDisposed).toBe(true);
+  });
 });

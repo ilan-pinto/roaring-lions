@@ -171,8 +171,9 @@ import { groundWorldY } from './ground-height';
 import { tileHash } from '../tile-hash';
 import { computeFog, isFogVisible, type FogInput } from './fog';
 import { FogMesh } from './fog-mesh';
+import { SmokeMesh } from './smoke-mesh';
 import { TrailMesh, collapsedRouteLevel, type TrailInstanceInput } from './trail-mesh';
-import { billboardPoint } from './units/overlay-geometry';
+import { billboardPoint, objectiveZoneCorners } from './units/overlay-geometry';
 import {
   OverlayBatch,
   NumeralBatch,
@@ -184,6 +185,11 @@ import {
   SUPPRESSION_COLOR_KEY,
   OVERLAY_ACCENT_COLOR_KEY,
   BADGE_TEXT_COLOR_KEY,
+  objectiveZoneColorKey,
+  objectiveZoneFallbackColor,
+  objectiveZonePulse,
+  OBJECTIVE_ZONE_STROKE_INSET_TILES,
+  AIR_SHADOW_COLOR_KEY,
 } from './units/overlays';
 
 /** Where a unit type's sheets live, as the app named them. */
@@ -705,6 +711,14 @@ export class ThreeRenderer implements Renderer {
   private readonly sightByType: Float64Array;
   private readonly fogMesh: FogMesh;
   /**
+   * Phase D readiness fix: `sim.smoke` on screen -- see `smoke-mesh.ts`'s own
+   * top comment for the full port account. Unlike `fogMesh`, there is no
+   * dirty flag gating this one: Pixi's own smoke loop (`renderer.ts:2576`)
+   * runs unconditionally every `frame()` call, not behind `fogDirty`, so
+   * `smokeMesh.update` is called the same way, every `frame()`, below.
+   */
+  private readonly smokeMesh: SmokeMesh;
+  /**
    * Phase C: tunnel trails, the three.js counterpart of `PixiRenderer
    * .drawTrail` (`renderer.ts:1121-1167`) -- see `./trail-mesh.ts`'s own top
    * comment for the full port account, including why its `renderOrder`/depth
@@ -746,6 +760,7 @@ export class ThreeRenderer implements Renderer {
     this.sightByType = new Float64Array(sim.unitTypes.length);
     for (let t = 0; t < sim.unitTypes.length; t++) this.sightByType[t] = fx.toNumber(sim.unitTypes[t].sight);
     this.fogMesh = new FogMesh(sim.width, sim.height);
+    this.smokeMesh = new SmokeMesh(sim.width, sim.height);
     // Colour baked once from opts.terrainTones.spoil, matching every other
     // per-map tone this backend reads once at construction rather than
     // re-resolving per frame -- see trail-mesh.ts's own top comment for why
@@ -798,6 +813,13 @@ export class ThreeRenderer implements Renderer {
     // scanning this constructor sees ground-plane geometry grouped before
     // the always-on-top fog mesh below it.
     this.scene.add(this.trailMesh.mesh);
+    // `SMOKE_RENDER_ORDER` sits above the overlay tier and below fog -- see
+    // `smoke-mesh.ts`'s own top comment. Scene-graph position is cosmetic
+    // here for the identical reason it is for `fogMesh`/`trailMesh` (three.js
+    // does not order draws by child order); added before `fogMesh` only so a
+    // reader scanning constructor order sees smoke grouped with the other
+    // ground-relative overlay meshes, fog last.
+    this.scene.add(this.smokeMesh.mesh);
     // Added LAST, matching Pixi's own `world.addChild(this.fogG)` being the
     // final call in its constructor (`renderer.ts:551`, "above terrain AND
     // units") -- three.js does not order draws by scene-graph child order
@@ -950,6 +972,11 @@ export class ThreeRenderer implements Renderer {
     // `collapsing` loop above calls `scene.remove`, because those meshes are
     // dynamically added and removed one at a time outside of dispose().
     this.fogMesh.dispose();
+    // Same full-map `InstancedMesh` shape as `fogMesh`, same "added once in
+    // the constructor, no scene.remove needed" reasoning -- guarded against
+    // the identical leak from the start rather than repeating fogMesh's own
+    // omit-then-fix history.
+    this.smokeMesh.dispose();
     // Phase C: same full-map `InstancedMesh` shape as `fogMesh`, same
     // "added once in the constructor, no scene.remove needed" reasoning
     // just above -- guarded against the identical leak from the start
@@ -1019,6 +1046,9 @@ export class ThreeRenderer implements Renderer {
       this.fogMesh.update(this.fog, this.retained.elevation, this.sim.width, this.sim.height);
       this.fogMeshDirty = false;
     }
+    // No dirty gate -- Pixi's own smoke loop redraws every `frame()` call,
+    // not behind `fogDirty` (`smokeMesh`'s own doc comment above).
+    this.smokeMesh.update(this.sim.smoke, this.retained.elevation, this.sim.width, this.sim.height);
     if (this.trailMeshDirty) {
       this.trailMesh.update(this.buildTrailInput());
       this.trailMeshDirty = false;
@@ -2074,6 +2104,7 @@ export class ThreeRenderer implements Renderer {
         mapHeight: this.sim.height,
         side,
         contactLevel,
+        isAir: type.isAir,
         roofSlot: inside >= 0 ? roofSlots[i] : -1,
         roofPx,
         sheet: instancer.sheet,
@@ -2500,6 +2531,36 @@ export class ThreeRenderer implements Renderer {
       }
       const anchor: [number, number, number] = [ix, groundY, iy];
 
+      // Air-lift shadow -- renderer.ts's own comment: "An airborne unit gets
+      // a shadow on the tile it actually occupies. Without it the lift...
+      // just reads as a sprite drawn in the wrong place; with it, the gap is
+      // the altitude and the shadow says which tile the sim is really
+      // using." Drawn at GROUND level (`anchor`, before `updateUnits`'
+      // separate world-Y air lift is applied to the body itself -- see
+      // `frame-state.ts`'s own `isAir` doc comment for why that lift is a
+      // real world-Y offset here, not a screen-pixel one), a few pixels
+      // below the unit's own feet, exactly like Pixi's `sy + 3`.
+      if (type.isAir) {
+        // Pixi's own `bodyAlpha`: full for the player's own units, faded by
+        // contact level otherwise (`renderer.ts:1984-1988`). Recomputed here
+        // rather than shared with `updateUnits`' identical value -- this is
+        // a separate per-entity loop (this method's own top comment) with no
+        // `EntityFrame` to read it back from.
+        let bodyAlpha = 1;
+        if (side !== 0) {
+          const lvl = this.sim.contactLevel(0, i);
+          bodyAlpha = lvl === 2 ? 1 : lvl === 1 ? 0.65 : 0.35;
+        }
+        const shadowR = r * 0.7 + 2;
+        this.overlayBatch.ellipseFan(
+          billboardPoint(anchor, 0, -3),
+          shadowR,
+          shadowR / 2,
+          this.overlayColor(AIR_SHADOW_COLOR_KEY, '#0A0A08'),
+          0.28 * bodyAlpha
+        );
+      }
+
       // HP bar -- renderer.ts: `g.rect(sx - 12, sy - r - 10, 24, 3).fill(...)`
       // (background) then the same rect, width scaled by `hpRatio` (fill).
       const hpRatio = Math.max(0, fx.toNumber(st.hp[i]) / fx.toNumber(type.hp));
@@ -2575,6 +2636,29 @@ export class ThreeRenderer implements Renderer {
         this.overlayBatch.rect(manchor, -1, 2, 1, s / 2, markerColor, a);
         this.overlayBatch.ellipseRing(manchor, s + 4, (s + 4) / 2, 1.5, markerColor, a * 0.6);
       }
+    }
+
+    // Objective zone -- renderer.ts's own comment: "the ground the mission
+    // is actually about. Without this the player is told to 'hold the
+    // western approach' and has to guess where that is." `objectiveZone`/
+    // `objectiveZoneState` are `Renderer`-interface members, already written
+    // every 5 ticks by `main.ts`'s tick loop -- until this port, nothing in
+    // this backend ever read them (Phase D readiness audit, "the only two
+    // genuine interface stubs of 28"). The colour is not decoration: it is
+    // the hold-state readout itself (held/unheld/contested), exactly like
+    // every other palette-key overlay in this tier.
+    if (this.objectiveZone) {
+      const [zx, zy, zw, zh] = this.objectiveZone;
+      const corners = objectiveZoneCorners(zx, zy, zw, zh, (cx, cy) =>
+        groundWorldY(elevation, width, height, cx, cy)
+      );
+      const colorKey = objectiveZoneColorKey(this.objectiveZoneState);
+      const color = this.overlayColor(colorKey, objectiveZoneFallbackColor(this.objectiveZoneState));
+      const pulse = objectiveZonePulse(this.objectiveZoneState, this.frameN);
+      // renderer.ts: `.stroke({width: 2, color, alpha: pulse + 0.25})` then
+      // `.fill({color, alpha: 0.05})` -- same two calls, same two alphas.
+      this.overlayBatch.polygonStrokeWorld(corners, OBJECTIVE_ZONE_STROKE_INSET_TILES, color, pulse + 0.25);
+      this.overlayBatch.polygonFillWorld(corners, color, 0.05);
     }
 
     // Tutorial focus ring -- renderer.ts's own manual 24-point loop, a

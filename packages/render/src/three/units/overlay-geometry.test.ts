@@ -15,6 +15,10 @@ import {
   pushRectStrokePx,
   pushEllipseFanPx,
   pushEllipseRingPx,
+  pushTriangleWorld,
+  objectiveZoneCorners,
+  pushPolygonFillWorld,
+  pushPolygonStrokeWorld,
   OVERLAY_RING_SEGMENTS,
 } from './overlay-geometry';
 
@@ -204,5 +208,98 @@ describe('pushEllipseRingPx', () => {
     expect(soup.positions[0]).toBeCloseTo(inner[0], 5);
     expect(soup.positions[1]).toBeCloseTo(inner[1], 5);
     expect(soup.positions[2]).toBeCloseTo(inner[2], 5);
+  });
+});
+
+describe('pushTriangleWorld', () => {
+  it('writes literal world points verbatim, with no anchor/pixel conversion at all', () => {
+    const soup = createTriangleSoup(3);
+    pushTriangleWorld(soup, [[1, 2, 3], [4, 5, 6], [7, 8, 9]], RED, 0.4);
+    expect(soup.count).toBe(3);
+    expect(Array.from(soup.positions)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    for (let v = 0; v < 3; v++) {
+      expect(soup.alphas[v]).toBeCloseTo(0.4, 5);
+    }
+  });
+
+  it('drops the whole triangle, not a partial one, when it would not fit in the remaining capacity', () => {
+    const soup = createTriangleSoup(4); // room for 4 verts, a triangle needs 3
+    pushTriangleWorld(soup, [[0, 0, 0], [1, 0, 0], [0, 0, 1]], RED, 1);
+    expect(soup.count).toBe(3);
+    // A second triangle needs 3 more (7 total) but only 1 slot remains --
+    // dropped whole, not partially written.
+    pushTriangleWorld(soup, [[2, 0, 0], [3, 0, 0], [2, 0, 1]], RED, 1);
+    expect(soup.count).toBe(3);
+  });
+});
+
+describe('objectiveZoneCorners', () => {
+  it('returns the four tile-space corners in Pixi\'s own top-left/top-right/bottom-right/bottom-left order', () => {
+    const corners = objectiveZoneCorners(2, 3, 4, 5, () => 0);
+    expect(corners).toEqual([
+      [2, 0, 3],
+      [6, 0, 3],
+      [6, 0, 8],
+      [2, 0, 8],
+    ]);
+  });
+
+  it('samples groundYAt independently per corner -- a zone straddling a terrace edge is not flattened to one height', () => {
+    const heights = new Map<string, number>([
+      ['0,0', 0],
+      ['2,0', 3],
+      ['2,2', 3],
+      ['0,2', 0],
+    ]);
+    const corners = objectiveZoneCorners(0, 0, 2, 2, (x, y) => heights.get(`${x},${y}`) ?? -1);
+    expect(corners[0][1]).toBe(0); // (0,0)
+    expect(corners[1][1]).toBe(3); // (2,0)
+    expect(corners[2][1]).toBe(3); // (2,2)
+    expect(corners[3][1]).toBe(0); // (0,2)
+  });
+});
+
+describe('pushPolygonFillWorld', () => {
+  it('fan-triangulates an N-point polygon into (N-2) triangles, from its own first vertex', () => {
+    const soup = createTriangleSoup(64);
+    const square: readonly [number, number, number][] = [[0, 0, 0], [4, 0, 0], [4, 0, 4], [0, 0, 4]];
+    pushPolygonFillWorld(soup, square, RED, 0.05);
+    expect(soup.count).toBe((square.length - 2) * 3);
+    // Every triangle's first vertex is the polygon's own first corner.
+    expect(soup.positions[0]).toBe(0);
+    expect(soup.positions[1]).toBe(0);
+    expect(soup.positions[2]).toBe(0);
+  });
+});
+
+describe('pushPolygonStrokeWorld', () => {
+  const square: readonly [number, number, number][] = [[0, 0, 0], [4, 0, 0], [4, 0, 4], [0, 0, 4]];
+
+  it('writes 2 triangles (6 vertices) per edge of a closed N-gon loop', () => {
+    const soup = createTriangleSoup(64);
+    pushPolygonStrokeWorld(soup, square, 0.2, RED, 0.5);
+    expect(soup.count).toBe(square.length * 6);
+  });
+
+  it('every written vertex sits strictly between the original loop and its own centroid -- a thin border, not the filled interior', () => {
+    const soup = createTriangleSoup(64);
+    pushPolygonStrokeWorld(soup, square, 0.2, RED, 0.5);
+    // Centroid of the unit square above is (2, 0, 2). No vertex the stroke
+    // writes should land exactly there (the fill's own interior), nor
+    // outside the original loop's own bounding box.
+    for (let v = 0; v < soup.count; v++) {
+      const x = soup.positions[v * 3];
+      const z = soup.positions[v * 3 + 2];
+      expect(x).toBeGreaterThanOrEqual(-1e-9);
+      expect(x).toBeLessThanOrEqual(4 + 1e-9);
+      expect(z).toBeGreaterThanOrEqual(-1e-9);
+      expect(z).toBeLessThanOrEqual(4 + 1e-9);
+    }
+  });
+
+  it('does nothing for fewer than 3 points -- a degenerate loop has no border to draw', () => {
+    const soup = createTriangleSoup(64);
+    pushPolygonStrokeWorld(soup, [[0, 0, 0], [1, 0, 1]], 0.2, RED, 0.5);
+    expect(soup.count).toBe(0);
   });
 });

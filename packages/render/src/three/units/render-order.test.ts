@@ -24,6 +24,7 @@ import {
   FX_RENDER_ORDER,
   FX_RENDER_ORDER_ABOVE,
   OVERLAY_RENDER_ORDER,
+  SMOKE_RENDER_ORDER,
   FOG_RENDER_ORDER,
   STRUCTURE_RENDER_ORDER,
   TRAIL_RENDER_ORDER,
@@ -66,6 +67,16 @@ describe('render order bands', () => {
     // and out of the turret band.
     expect(TRAIL_RENDER_ORDER).toBe(HULL_RENDER_ORDER);
     expect(TRAIL_RENDER_ORDER).toBeLessThan(TURRET_RENDER_ORDER);
+  });
+
+  it('smoke sits strictly between the overlay tier and fog -- it must paint over HP bars/rings/markers, and still be hidden by fog', () => {
+    // Pixi's own smoke block draws into the SAME unitsG container the
+    // overlay tier does, LATER in the same per-frame method -- on screen
+    // that paints smoke over the rest of the overlay tier, not merely
+    // alongside it (this file's own band-5 row has the full argument for
+    // why a dedicated band, not a shared one, is what reproduces that).
+    expect(SMOKE_RENDER_ORDER).toBeGreaterThan(OVERLAY_RENDER_ORDER);
+    expect(SMOKE_RENDER_ORDER).toBeLessThan(FOG_RENDER_ORDER);
   });
 
   it('leaves a gap of at least four bands above FX_RENDER_ORDER_ABOVE for Phase C\'s overlay tier', () => {

@@ -41,7 +41,8 @@
  * | 2    | `FX_RENDER_ORDER`        | `TracerBatch` and the BELOW-tier `ParticleInstancer` (Pixi's `fxG`) -- still depth-tested against terrain/buildings/units, so must outrank every unit mesh, hull AND turret, now that FX's own materials are `depthWrite: false` (`fx.ts`'s "FX-vs-UNIT ordering is a DIFFERENT question") |
  * | 3    | `FX_RENDER_ORDER_ABOVE`  | the ABOVE-tier `ParticleInstancer` (`above_units`-tagged emitters, Pixi's `fxAboveG`) -- `depthTest: false`, unconditionally on top |
  * | 4    | `OVERLAY_RENDER_ORDER`   | Phase C: `OverlayBatch` (`units/overlays.ts`) -- selection rings, HP bars, suppression bars, the control-group badge's RING (not its numeral, see band 1.5 above), order markers, the tutorial focus ring, and the garrison hover highlight. One shared band for the whole tier, matching Pixi's own single `unitsG` exactly (this file's closing paragraphs explain why Pixi has only the one container despite drawing all of this). |
- * | 5-9  | *(reserved, no constant)* | Still headroom, now that Phase C has claimed band 4 rather than needing all six -- kept reserved rather than renumbering FOG_RENDER_ORDER down, on the same "reserving the NUMBERS costs nothing, reserving unconsumed CONSTANTS recreates the hazard" reasoning this table's top comment already gives. |
+ * | 5    | `SMOKE_RENDER_ORDER`     | Phase D readiness fix: `SmokeMesh` (`../smoke-mesh.ts`) -- one translucent quad per smoked tile. Pixi's own smoke loop draws into the SAME `unitsG` every band-4 overlay does (`renderer.ts`'s smoke block runs later in the identical per-frame method, after the order-marker/tutorial-focus passes, still before `fogG`), so on screen it paints OVER the overlay tier, not merely alongside it -- a dedicated band one above `OVERLAY_RENDER_ORDER`, rather than folding smoke into `OverlayBatch` itself, reproduces that draw-order relationship without depending on which of two independently-constructed meshes happens to get a lower `Object3D.id` (this file's own top comment: id is the tiebreak of last resort, and relying on construction order to encode a real ordering requirement is the exact hazard the badge-numeral/turret history above already paid for once). `depthTest: false`, matching fog and the overlay tier -- Pixi's comment ("drawn over the ground and under the units so troops inside one still read") is about ALPHA legibility (smoke tops out at 0.72), not depth occlusion; Pixi's own container order paints it over units regardless, translucently. |
+ * | 6-9  | *(reserved, no constant)* | Still headroom, now that Phase C claimed band 4 and this fix round claimed band 5 -- kept reserved rather than renumbering `FOG_RENDER_ORDER` down, on the same "reserving the NUMBERS costs nothing, reserving unconsumed CONSTANTS recreates the hazard" reasoning this table's top comment already gives. |
  * | 10   | `FOG_RENDER_ORDER`       | `FogMesh` (`../fog-mesh.ts`) -- Pixi's `fogG`, the LAST child added to `world` (`renderer.ts:551`, its own comment: "above terrain AND units"). `depthTest: false` like band 3, for the identical reason: fog must hide a hostile standing on the tile it covers regardless of how tall that unit's own geometry rises above the flat ground plane a fog quad sits on -- a depth-tested quad coplanar with the ground would lose that comparison to the unit's own raised vertices. Above every FX tier, not merely above units, because a below-tier particle (e.g. `tunnel_collapse`, genuinely depth-tested against terrain) must not poke through fog covering the ground it is spawned into either -- Pixi's `fxG` sits below `fogG` in container order for the identical reason. Numbered 10, not 4 (its value before this fix round) -- see the 4-9 row above and this file's closing paragraph: Pixi draws its overlays BELOW fog, not above it, so fog had to move up to leave room for that tier underneath it rather than the tier being squeezed in below band 3. |
  *
  * Phase C (selection rings, HP bars, group badges, hover, and a focus ring)
@@ -141,10 +142,18 @@ export const FX_RENDER_ORDER_ABOVE = 3;
  * tier, matching Pixi's own single `unitsG` container.
  */
 export const OVERLAY_RENDER_ORDER = 4;
-/** Bands 5-9 (undeclared on purpose): still-reserved headroom above
- *  `OVERLAY_RENDER_ORDER` -- see the table's own 5-9 row and this file's
+/**
+ * Phase D readiness fix: `SmokeMesh` (`../smoke-mesh.ts`) -- see the table's
+ * own 5 row for the full reasoning. One band above `OVERLAY_RENDER_ORDER`
+ * (not sharing it) so smoke reliably paints over the rest of the overlay
+ * tier the way Pixi's own later-in-the-same-`unitsG`-pass draw order does,
+ * without depending on `Object3D.id` construction-order tiebreaking.
+ */
+export const SMOKE_RENDER_ORDER = 5;
+/** Bands 6-9 (undeclared on purpose): still-reserved headroom above
+ *  `SMOKE_RENDER_ORDER` -- see the table's own 6-9 row and this file's
  *  closing paragraphs for why the gap remains deliberate rather than a
- *  typo, now that Phase C has claimed band 4 rather than the whole range. */
+ *  typo, now that Phase C claimed band 4 and this fix round claimed band 5. */
 export const FOG_RENDER_ORDER = 10;
 /**
  * Task B4.4: the band a falling building's collapse `Mesh` draws in -- the

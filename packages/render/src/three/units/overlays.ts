@@ -66,10 +66,13 @@ import {
   pushTrianglePx,
   pushEllipseFanPx,
   pushEllipseRingPx,
+  pushPolygonFillWorld,
+  pushPolygonStrokeWorld,
   billboardPoint,
   OVERLAY_RING_SEGMENTS,
   type TriangleSoup,
   type OverlayColor,
+  type WorldPoint,
 } from './overlay-geometry';
 import { OVERLAY_RENDER_ORDER, BADGE_NUMERAL_RENDER_ORDER } from './render-order';
 
@@ -117,6 +120,60 @@ export const OVERLAY_ACCENT_COLOR_KEY = 'vfx.tracer';
  *  the same value as `HP_BG_COLOR_KEY` (a different UI purpose, the same
  *  palette swatch, exactly as Pixi's own literal hex values coincide). */
 export const BADGE_TEXT_COLOR_KEY = 'shadow.1';
+
+/**
+ * Palette key for the objective zone's outline and fill -- Pixi's own
+ * `this.objectiveZoneState === 'contested' ? '#D93A2B' : this
+ * .objectiveZoneState === 'unheld' ? '#E8C33A' : '#B8FF5A'` (`renderer.ts`'s
+ * objective-zone block), expressed as the palette keys those three literals
+ * happen to equal -- `team.hostile`, `team.neutral`, and `vfx.tracer` (the
+ * same key `OVERLAY_ACCENT_COLOR_KEY` above already names for "held", since
+ * both are Pixi's identical `#B8FF5A`).
+ */
+export function objectiveZoneColorKey(state: 'held' | 'unheld' | 'contested'): string {
+  if (state === 'contested') return 'team.hostile';
+  if (state === 'unheld') return 'team.neutral';
+  return OVERLAY_ACCENT_COLOR_KEY;
+}
+
+/** `overlayColor(objectiveZoneColorKey(state), ...)`'s fallback when no
+ *  `resolveColor` is supplied -- Pixi's own three literals verbatim, kept
+ *  next to the key function above rather than folded into it so the two can
+ *  be read side by side against `renderer.ts`'s own ternary. */
+export function objectiveZoneFallbackColor(state: 'held' | 'unheld' | 'contested'): string {
+  if (state === 'contested') return '#D93A2B';
+  if (state === 'unheld') return '#E8C33A';
+  return '#B8FF5A';
+}
+
+/**
+ * Pixi's own `this.objectiveZoneState === 'held' ? 0.3 : 0.35 + 0.25 *
+ * Math.sin(this.frameN * 0.09)` (`renderer.ts`'s objective-zone block) --
+ * "held" sits at a fixed low alpha, anything else pulses. Returns exactly
+ * the value Pixi's own local variable holds; the call site adds its own
+ * `+ 0.25` for the stroke (mirroring Pixi's `pulse + 0.25`) and uses the bare
+ * value for the fill, exactly as `renderer.ts` does.
+ */
+export function objectiveZonePulse(state: 'held' | 'unheld' | 'contested', frameN: number): number {
+  if (state === 'held') return 0.3;
+  return 0.35 + 0.25 * Math.sin(frameN * 0.09);
+}
+
+/** World-tile inset `pushPolygonStrokeWorld` uses for the objective zone's
+ *  outline -- see that function's own doc comment for why this cannot be a
+ *  literal screen-pixel width the way every anchor-based stroke in this file
+ *  is. Derived from Pixi's own 2px stroke (`renderer.ts`'s `.stroke({width:
+ *  2, ...})`) via `screenOffsetToWorld(2, 0)` -- the same "how far in tile
+ *  space does N screen pixels of horizontal movement go" conversion
+ *  `overlay-geometry.ts`'s `billboardPoint` is built from -- which resolves
+ *  to about 0.044 tile units; rounded up slightly, to 0.05, so the outline
+ *  reads as a visible line rather than vanishing at typical gameplay zoom. */
+export const OBJECTIVE_ZONE_STROKE_INSET_TILES = 0.05;
+
+/** Palette key for an airborne unit's ground shadow -- Pixi's own `#0A0A08`
+ *  (`renderer.ts`'s air-lift shadow ellipse), the same swatch `fog-mesh.ts`
+ *  already names `shadow.2` for the identical literal. */
+export const AIR_SHADOW_COLOR_KEY = 'shadow.2';
 
 /** Ticks this many `frame()` calls a placed order marker survives -- Pixi's
  *  own `ttl: 80` (`renderer.ts`'s `addOrderMarker`). Counted in frames, not
@@ -289,6 +346,20 @@ export class OverlayBatch {
     segments: number = OVERLAY_RING_SEGMENTS
   ): void {
     pushEllipseRingPx(this.soup, anchor, rightR, upR, strokeWidthPx, cachedHexToUnit(colorHex), alpha, segments);
+  }
+
+  /** The objective zone's fill -- see `overlay-geometry.ts`'s own top
+   *  comment for why this is the one overlay drawn from literal world
+   *  points rather than a single billboard anchor. */
+  polygonFillWorld(points: readonly WorldPoint[], colorHex: string, alpha: number): void {
+    pushPolygonFillWorld(this.soup, points, cachedHexToUnit(colorHex), alpha);
+  }
+
+  /** The objective zone's outline -- see `pushPolygonStrokeWorld`'s own doc
+   *  comment for what `insetTiles` means and why it is not a literal
+   *  screen-pixel width. */
+  polygonStrokeWorld(points: readonly WorldPoint[], insetTiles: number, colorHex: string, alpha: number): void {
+    pushPolygonStrokeWorld(this.soup, points, insetTiles, cachedHexToUnit(colorHex), alpha);
   }
 
   /** Uploads this frame's triangles and trims the draw range to what was
