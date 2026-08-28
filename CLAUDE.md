@@ -6,7 +6,13 @@ Working instructions for this repository. Read `docs/GDD.md` for *what the game 
 
 ## Project
 
-**Roaring Lions** — open-source dimetric RTS in TypeScript + PixiJS. Deterministic simulation, data-driven content, realistic combat resolution.
+**Roaring Lions** — open-source dimetric RTS in TypeScript. Deterministic simulation, data-driven content, realistic combat resolution.
+
+Two renderer backends live behind one interface. **PixiJS is still the default and
+still ships**; a three.js backend runs under `?renderer=three` and is mid-migration.
+See "The three.js backend" below before touching anything under
+`packages/render/src/three/` — it has its own rules, and several of them invert
+what the Pixi side does.
 
 ---
 
@@ -165,9 +171,95 @@ The combat model is the product. Everything else is scaffolding around it.
 
 ---
 
+## The three.js backend
+
+Behind `?renderer=three`. Pixi remains the default. The seam is
+`packages/render/src/api.ts`, and `main.ts` holds a `Renderer`, never a concrete
+backend — so the compiler, not a grep, keeps `app` off backend-only members.
+
+**Design and outcomes** are in `docs/superpowers/specs/`: the migration design
+(`2026-08-26-three-renderer-design.md`), the palette GO/NO-GO
+(`2026-08-26-phase-0-verdict.md`), phase outcomes B1-B4, the rigged-infantry
+design (`2026-08-28-rigged-infantry-design.md`), its verdict
+(`2026-08-28-phase-r0-verdict.md`), and the pinned mesh contract
+(`2026-08-28-mesh-unit-contract.md`). Read the outcome doc for the phase before
+yours; each one records what the next phase inherits.
+
+**Rules specific to this backend, each of which has already cost a bug:**
+
+- **`three` may only be imported under `packages/render/src/three/**`**, enforced
+  by eslint. Note the rule's `paths` entry does NOT catch subpath imports like
+  `three/addons/loaders/GLTFLoader.js` — keep those inside by discipline.
+- **The colour pipeline is not the default one and fails silently.**
+  `palette-material.ts`: LUT colours built with `setStyle(hex,
+  LinearSRGBColorSpace)`, `renderer.outputColorSpace = LinearSRGBColorSpace`, the
+  clear colour set through the same call (order matters — three reads
+  `outputColorSpace` synchronously when `setClearColor` runs), and antialiasing
+  OFF. The naive setup measured **0 of 65 colours in palette** and looked fine.
+- **`units/render-order.ts` is the single source of truth for every
+  `renderOrder`.** Read it before setting one. Bands are: 0 hull/structures,
+  1 turret, 1.5 badge numeral, 2 FX, 3 FX-above, 4 overlays, 5-9 reserved,
+  10 fog. Overlays sit BELOW fog because Pixi's `unitsG` is added to `world`
+  before `fogG`; an earlier version of that file said the opposite, citing Pixi
+  identifiers that do not exist.
+- **Overlays scale with zoom, and that is faithful.** Pixi scales its whole
+  `world` container by `camera.zoom` and the overlay layer is a child of it, so
+  HP bars look enormous zoomed in on BOTH backends. Verified side by side. Not a
+  bug; changing it is a decision affecting both.
+- **`preserveDrawingBuffer` must stay off** in shipping code. Canvas readback
+  therefore returns black — that is correct, not a broken renderer.
+
+### Mesh units
+
+Some unit types draw as rigged 3D meshes instead of billboards.
+`?sandbox=<map>&renderer=three&mesh` turns it on for `inf_squad`; the flag is
+backend-only and warns by name on Pixi. Pipeline: `tools/units/kit.py` (geometry)
+→ `tools/units/rig.py` (armature + clips, authored as Python tables) →
+`tools/export_mesh_team.py` → `art/meshes/<team_id>.glb` → `three/units/mesh-*.ts`.
+
+- **`kit.py`'s "No armature." rule is now partly overturned.** Of its three
+  reasons, only "blocky is enough at 25 px" fell — beaten by the project lead
+  judging rigged motion better on screen. The other two stand, and reason 1 is
+  why bones and clips are **authored in code and never hand-posed**, and why
+  binding is rigid one-part-to-one-bone with **no weight painting**.
+- Adding a part to `kit.py` makes `rig.py`'s `PART_BONE` stale. It **raises
+  loudly** rather than leaving gear in bind pose. Extend it; never silence it.
+- **A GLB carries zero materials.** Colour is applied at runtime from a ramp
+  SLICE indexed by normal. Do not port `render_team.py`'s `ROLE_PALETTE` or
+  `LIT_GAIN` into a mesh export — that table compensates for a multiply-style
+  light and a toon LUT indexes instead.
+- **Mesh units are outside `validate:assets`** — no PNG, so no palette or IoU
+  gate runs on them at all. Phase G is meant to fix that and has not.
+- **`kit.py` changed without the sprite sheets being re-rendered**, so
+  billboards and meshes can disagree until that debt is paid.
+
+---
+
 ## Known scaling debts
 
 - Detection is O(N²) pairs per tick — stagger evaluation before unit counts pass ~150.
+- Rigged mesh units cap out around **420-460** of the same infantry type, measured
+  against a real export on a real `WebGLRenderer` with hardware acceleration
+  confirmed, across repeated runs. That clears the GDD's 300-unit target with
+  margin, so it is not blocking. The bottleneck is **draw-call submission**
+  (74-84% of `renderer.render()`), NOT `AnimationMixer` update and NOT
+  bone-matrix computation — which matters, because it means vertex count is
+  comparatively cheap (the rifle went 144 → 612 verts for zero new draw calls)
+  and the remedy is fewer submissions rather than simpler geometry. `SkinnedMesh`
+  does **not** instance in three.js: `InstancedMesh` and skinning do not compose,
+  so N units is N × (meshes per team) draw calls. The known remedy for pushing
+  past the ceiling is a vertex animation texture — bake clips into a texture,
+  drop runtime skinning, use `InstancedMesh` with a per-instance time offset;
+  VRAM cost is small (~22-130 MB against the existing 584 MB sprite budget).
+  **Unresolved before VAT could ship:** R0's "no band crawl" result was measured
+  against continuous real-time skinning, not against VAT's baked-and-lerped
+  normals, and the toon ramp is indexed BY NORMAL — so that finding needs
+  re-verifying, not assuming. Harness: `tools/src/perf/three-units.ts`.
+- Mesh units have no `down`/`wreck`/`work` clips, so a mesh unit that dies has no
+  death state. Not an oversight: posing the standing rig into prone was attempted
+  and rendered, and it folds into a self-intersecting heap at the rotation prone
+  requires. Those clips want separate geometry, the way `teams.py` already treats
+  them. Invisible until something actually fights.
 - Tunnels are implemented (`feat/tunnel-subsystem`): routes are map data, a digger
   advances one and leaves surface spoil, stocked fighters surface at the vent to fire a
   volley and submerge, and a `yahalom_squad` charge collapses a route. Both content keys
