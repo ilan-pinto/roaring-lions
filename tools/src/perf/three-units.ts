@@ -833,6 +833,636 @@ function resolveBase(): string {
 }
 
 // ============================================================================
+// Skinned-mesh infantry -- f-scaling-report.md, "can skinned mesh infantry
+// reach the GDD's 300-unit target". `three.js SkinnedMesh does not instance`
+// (InstancedMesh and skinning do not compose), so this is a SEPARATE cost
+// shape from `runBackendCurve` above -- N independent draw calls, N
+// AnimationMixers, N bone-matrix computations -- rather than the flat,
+// instanced billboard cost that function measures. Reuses this file's own
+// `summarize`/`SampleStats`/`createHost`/`resolveBase` rather than a second
+// timing utility, per the task's "do not write a second harness" instruction.
+//
+// STAND-IN, stated plainly: no Phase F team GLB exists yet (`art/meshes/` is
+// unpopulated -- the export side owns it and has not run). This loads the
+// ONE real skinned artefact that exists, R0's throwaway spike
+// (`art/spike/inf_squad_rigged.glb`, commit `0d6eab2`): one unarmed KDF
+// figure, 13 bones, 4230 vertices, clips `idle`/`move`, and -- confirmed by
+// reading the file's own glTF JSON, not assumed -- 56 meshes (one per
+// `kit.figure()` part) each carrying a real `extras.rl_role` spanning 6
+// distinct roles (`uniform`, `webbing`, `boot`, `face`, `skin_shadow`,
+// `metal`). That 56-mesh shape is exactly R0's finding #1 -- the thing Phase
+// F's contract commits to fixing by merging parts sharing a role into one
+// mesh -- so `loadRoleMergedTemplate` below performs that merge itself, at
+// load time, out of R0's real geometry (`BufferGeometryUtils.mergeGeometries`
+// grouped by the real `rl_role` tags; every mesh-node in the spike carries an
+// identity local transform -- checked against the raw glTF JSON, not
+// assumed -- so concatenating POSITION/NORMAL/JOINTS_0/WEIGHTS_0 needs no
+// per-part matrix bake first). What this stand-in does NOT do: merge ACROSS
+// multiple figures in one team the way the pinned contract's `f0_`/`f1_`
+// bone-name prefixing describes (`2026-08-28-mesh-unit-contract.md`) --
+// R0 built exactly one figure, so there is only one to merge. Multiplying
+// this figure's real per-instance cost by a team's figure count (`teams.py`)
+// is therefore a CONSERVATIVE stand-in for a team: draw calls scale with
+// figure count here where the real contract would merge same-role parts
+// across figures too and use fewer, larger meshes for the same vertex/bone
+// total -- so every draw-call number this produces is an upper bound on
+// what Phase F ships, never an underestimate.
+//
+// No weapon geometry (R0's own "what R0 did NOT establish"), so vertex/tri
+// counts are a lower bound; bone/skin cost is unaffected by that omission
+// (a rigidly-bound rifle would add one more role-mesh and negligible bones).
+//
+// Imports below reach `three` and its addons via a RELATIVE PATH into
+// `packages/render`'s own `node_modules`, not the bare `three`/`three/addons`
+// specifiers `skinned-toon.ts` uses. Bare specifiers resolve relative to the
+// IMPORTING FILE's own location -- Vite's dev-server resolution walks up
+// from wherever the module actually lives, exactly like Node's algorithm --
+// and this file lives under `tools/`, which (like this file's own top
+// comment already says about `@lions/render`) declares no dependency on
+// `three` at all. `packages/render/package.json` does, so its
+// `node_modules/three` is the one real, already-installed copy this repo
+// has; reaching it by relative path costs three extra `../` segments and
+// buys a working import with no new `package.json` dependency anywhere.
+// Confirmed necessary, not assumed: the bare-specifier version of this
+// section failed to even load, with Vite's own error naming exactly this --
+// `Failed to resolve import "three/addons/utils/BufferGeometryUtils.js" from
+// ".../tools/src/perf/three-units.ts"` -- before the relative-path fix.
+//
+// The same reasoning applies to TYPES: `@types/three` is not reachable from
+// `tools/` either (checked -- it is not hoisted to the workspace root), so
+// this section does not import three.js's own type declarations at all.
+// The interfaces below describe only the subset of the real runtime API
+// actually called below, checked structurally against real objects by every
+// number this section produces -- a mismatch here is a crash, not a silent
+// wrong measurement.
+// ============================================================================
+
+const THREE_CORE_PATH = '../../../packages/render/node_modules/three/build/three.module.js';
+const THREE_GLTF_LOADER_PATH =
+  '../../../packages/render/node_modules/three/examples/jsm/loaders/GLTFLoader.js';
+const THREE_BUFFER_GEOMETRY_UTILS_PATH =
+  '../../../packages/render/node_modules/three/examples/jsm/utils/BufferGeometryUtils.js';
+const THREE_SKELETON_UTILS_PATH =
+  '../../../packages/render/node_modules/three/examples/jsm/utils/SkeletonUtils.js';
+
+const SPIKE_GLB_PATH = 'art/spike/inf_squad_rigged.glb';
+
+/** Figures, not units -- see `FRIENDLY_ROSTER`/`HOSTILE_ROSTER` above for the
+ *  distinction the report converts through. Checkpoints bracket rather than
+ *  equal the GDD's 300-unit target because "units" and "figures" are not the
+ *  same count once infantry teams field 2-3 figures per sim entity: 300 is
+ *  close to this harness's OWN measured figure count at 300 units (roughly
+ *  half the roster is an infantry team, averaging ~2.2 figures/team -- see
+ *  the report for the exact roster-weighted arithmetic), 900 is the "every
+ *  one of 300 units is a 3-man squad" upper bound, and 1350 goes past that to
+ *  find where the curve actually bends rather than stopping exactly at the
+ *  number this task happens to ask about. */
+const FIGURE_CHECKPOINTS: readonly number[] = [100, 300, 600, 900, 1350];
+const SKIN_WARMUP_FRAMES = 10;
+// 90 (1.5s at 60fps), shorter than the billboard harness's 180: N independent
+// draw calls and N mixer updates per frame is far more GC/driver-noise-prone
+// than one instanced draw call, and this measures FOUR isolated phases per
+// checkpoint rather than one, so the manual-run wall-clock budget is shared
+// five ways instead of one.
+const SKIN_TIMED_FRAMES = 90;
+
+// --- minimal structural types for the three.js subset this section touches ---
+
+interface Object3DLike {
+  name: string;
+  position: { set(x: number, y: number, z: number): void };
+  add(child: Object3DLike): unknown;
+  traverse(fn: (o: Object3DLike) => void): void;
+  userData: Record<string, unknown>;
+  isMesh?: true;
+  isSkinnedMesh?: true;
+  isBone?: true;
+}
+
+interface SkeletonLike {
+  bones: { length: number };
+  update(): void;
+}
+
+interface MeshLike extends Object3DLike {
+  geometry: { attributes: { position: { count: number } } };
+  material: unknown;
+  frustumCulled: boolean;
+  skeleton: SkeletonLike;
+  bindMatrix: unknown;
+  bind(skeleton: SkeletonLike, bindMatrix: unknown): void;
+}
+
+interface SceneLike extends Object3DLike {
+  matrixWorldAutoUpdate: boolean;
+  updateMatrixWorld(force: boolean): void;
+}
+
+interface AnimationClipLike {
+  name: string;
+  duration: number;
+}
+
+interface AnimationActionLike {
+  play(): AnimationActionLike;
+}
+
+interface AnimationMixerLike {
+  update(dt: number): void;
+  clipAction(clip: AnimationClipLike): AnimationActionLike;
+}
+
+interface RendererInfoLike {
+  render: { calls: number; triangles: number };
+  memory: { textures: number };
+  programs?: unknown[];
+}
+
+interface WebGLRendererLike {
+  setPixelRatio(r: number): void;
+  setSize(w: number, h: number, updateStyle?: boolean): void;
+  domElement: HTMLCanvasElement;
+  render(scene: SceneLike, camera: unknown): void;
+  info: RendererInfoLike;
+  dispose(): void;
+}
+
+interface ThreeModuleLike {
+  Group: new () => SceneLike;
+  Scene: new () => SceneLike;
+  AmbientLight: new (color: number, intensity: number) => Object3DLike;
+  OrthographicCamera: new (
+    left: number,
+    right: number,
+    top: number,
+    bottom: number,
+    near: number,
+    far: number
+  ) => { position: { set(x: number, y: number, z: number): void }; lookAt(x: number, y: number, z: number): void };
+  WebGLRenderer: new (opts: { antialias: boolean; powerPreference: string }) => WebGLRendererLike;
+  AnimationMixer: new (root: Object3DLike) => AnimationMixerLike;
+  SkinnedMesh: new (geometry: unknown, material: unknown) => MeshLike;
+  MeshBasicMaterial: new () => unknown;
+  Color: new () => ColorLike;
+  Vector3: new (x: number, y: number, z: number) => { normalize(): unknown };
+  ShaderMaterial: new (params: {
+    uniforms: Record<string, { value: unknown }>;
+    vertexShader: string;
+    fragmentShader: string;
+  }) => unknown;
+}
+
+interface ColorLike {
+  setStyle(hex: string): ColorLike;
+  clone(): ColorLike;
+}
+
+interface GLTFLoaderLike {
+  loadAsync(url: string): Promise<{ scene: SceneLike; animations: AnimationClipLike[] }>;
+}
+
+/** Recovers the repo's absolute filesystem root from this module's OWN dev
+ *  URL. Works because this file, per its own top comment, is only ever
+ *  reached in the browser via Vite's `/@fs/<absolute path>` dev endpoint --
+ *  so `import.meta.url` in that context already IS this file's absolute
+ *  path with an origin prefix, and trimming this file's own known suffix
+ *  recovers the root without hard-coding a machine-specific path (which
+ *  would silently break on every checkout but this one). */
+function repoRootFromModuleUrl(): string {
+  const url = new URL(import.meta.url);
+  const marker = '/@fs';
+  const suffix = '/tools/src/perf/three-units.ts';
+  if (!url.pathname.startsWith(marker)) {
+    throw new Error(
+      `measureSkinnedInfantry: expected a Vite /@fs/ dev import, got path ${url.pathname}. ` +
+        'Load this module the way this file\'s own top comment documents.'
+    );
+  }
+  const abs = url.pathname.slice(marker.length);
+  if (!abs.endsWith(suffix)) {
+    throw new Error(`measureSkinnedInfantry: unexpected module path ${abs}`);
+  }
+  return abs.slice(0, -suffix.length);
+}
+
+interface RoleMergedTemplate {
+  /** Never added to the live scene -- cloned per instance via
+   *  `SkeletonUtils.clone`, the same pattern `rig-scene.ts` uses for exactly
+   *  this "one skinned rig, many independent instances" shape. */
+  root: SceneLike;
+  meshesPerFigure: number;
+  bonesPerFigure: number;
+  verticesPerFigure: number;
+  roles: readonly string[];
+}
+
+/** Loads R0's spike GLB and merges its 56 per-part meshes into one
+ *  `THREE.SkinnedMesh` per `rl_role`, out of the file's own real geometry --
+ *  see this section's top comment for why that is a faithful (if
+ *  single-figure) stand-in for Phase F's contracted merge. */
+async function loadRoleMergedTemplate(THREE: ThreeModuleLike, glbUrl: string): Promise<RoleMergedTemplate> {
+  const { GLTFLoader } = (await import(/* @vite-ignore */ THREE_GLTF_LOADER_PATH)) as {
+    GLTFLoader: new () => GLTFLoaderLike;
+  };
+  const { mergeGeometries } = (await import(/* @vite-ignore */ THREE_BUFFER_GEOMETRY_UTILS_PATH)) as {
+    mergeGeometries: (geometries: unknown[], useGroups: boolean) => unknown | null;
+  };
+
+  const gltf = await new GLTFLoader().loadAsync(glbUrl);
+
+  const partsByRole = new Map<string, MeshLike[]>();
+  let sharedSkeleton: SkeletonLike | null = null;
+  let verticesPerFigure = 0;
+  gltf.scene.traverse((o) => {
+    const mesh = o as MeshLike;
+    if (!mesh.isMesh) return;
+    if (!mesh.isSkinnedMesh) {
+      throw new Error(`measureSkinnedInfantry: ${mesh.name} is not skinned -- spike GLB changed shape`);
+    }
+    const role = mesh.userData.rl_role as string | undefined;
+    if (!role) throw new Error(`measureSkinnedInfantry: mesh ${mesh.name} carries no rl_role`);
+    if (!partsByRole.has(role)) partsByRole.set(role, []);
+    partsByRole.get(role)!.push(mesh);
+    verticesPerFigure += mesh.geometry.attributes.position.count;
+    sharedSkeleton ??= mesh.skeleton;
+  });
+  if (!sharedSkeleton) throw new Error('measureSkinnedInfantry: no skinned mesh found in spike GLB');
+  // Aliased to a fresh `const` rather than read narrowed straight off
+  // `sharedSkeleton`: it was reassigned inside the `traverse` closure above,
+  // and TS does not carry a callback's narrowing back out to the enclosing
+  // scope, so a re-alias is what actually fixes the type here (the guard
+  // above is still load-bearing at RUNTIME -- it is what confirms one was
+  // found -- it just is not what TS uses to type the next line).
+  const skeleton: SkeletonLike = sharedSkeleton;
+  const bonesPerFigure = skeleton.bones.length;
+
+  // The bone hierarchy's root -- the one child of the loaded scene's "rig"
+  // node that is itself a Bone, per the spike's own layout (56 mesh-part
+  // siblings plus one root bone under `rig`; checked against the raw glTF
+  // JSON, not assumed). Reused directly (not cloned) as this template's own
+  // skeleton root: this template is never rendered itself, only cloned.
+  let boneRoot: Object3DLike | null = null;
+  gltf.scene.traverse((o) => {
+    if (boneRoot) return;
+    if (o.isBone) boneRoot = o;
+  });
+  if (!boneRoot) throw new Error('measureSkinnedInfantry: no Bone found in spike GLB');
+
+  const root = new THREE.Group();
+  root.name = 'inf_squad_role_merged_template';
+  root.add(boneRoot);
+
+  const roles = [...partsByRole.keys()].sort();
+  for (const role of roles) {
+    const parts = partsByRole.get(role)!;
+    const geometries = parts.map((m) => m.geometry);
+    const merged = mergeGeometries(geometries, false);
+    if (!merged) throw new Error(`measureSkinnedInfantry: mergeGeometries failed for role ${role}`);
+    const mesh = new THREE.SkinnedMesh(merged, new THREE.MeshBasicMaterial());
+    mesh.name = role;
+    mesh.bind(skeleton, parts[0].bindMatrix);
+    root.add(mesh);
+  }
+
+  return { root, meshesPerFigure: roles.length, bonesPerFigure, verticesPerFigure, roles };
+}
+
+export interface SkinnedCheckpoint {
+  figures: number;
+  /** `renderer.info.render.calls` after a real, warmed-up frame -- MEASURED,
+   *  not `figures * meshesPerFigure` arithmetic, though the two should (and
+   *  do, per the report) agree. */
+  drawCalls: number;
+  triangles: number;
+  /** `renderer.info.memory.textures` -- every unique `Skeleton` owns one
+   *  `DataTexture` bone texture, and nothing else in this scene creates a
+   *  texture, so this is a direct count of bone-texture uploads. */
+  boneTextures: number;
+  programs: number;
+  /** N x `AnimationMixer#update(dt)`, isolated -- no renderer call in the
+   *  timed loop. */
+  mixerUpdate: SampleStats;
+  /** `scene.updateMatrixWorld(true)`, isolated by setting
+   *  `matrixWorldAutoUpdate = false` and calling it by hand -- the local ->
+   *  world matrix propagation down every bone's hierarchy, which is the part
+   *  of "bone matrix computation" actually dominated by 4x4 multiplies. */
+  matrixWorldPropagate: SampleStats;
+  /** N x `Skeleton#update()`, isolated -- the offset-matrix multiply against
+   *  each bone's inverse bind matrix, flattened into the skeleton's
+   *  `Float32Array` and marking its bone texture dirty. A second, smaller
+   *  matrix pass distinct from `matrixWorldPropagate` above. */
+  skeletonUpdate: SampleStats;
+  /** `renderer.render(scene, camera)`, real end to end: frustum test (though
+   *  every mesh here sets `frustumCulled = false`, matching this repo's own
+   *  flat-baseline convention -- see `phase-b3-outcome.md`'s `isVisible()`
+   *  note), the internal (deduplicated-per-frame) `skeleton.update()` call,
+   *  and actual GL draw submission + bone-texture upload. Mixer update is
+   *  NOT included -- in real per-frame use it is a separate call before
+   *  `render()`, exactly as `measureCheckpoint` above times tick and render
+   *  as two non-overlapping phases. */
+  fullRender: SampleStats;
+}
+
+export interface SkinnedInfantryReport {
+  glb: string;
+  meshesPerFigure: number;
+  bonesPerFigure: number;
+  verticesPerFigure: number;
+  roles: readonly string[];
+  checkpoints: SkinnedCheckpoint[];
+}
+
+interface SkinnedInstance {
+  mixer: AnimationMixerLike;
+  skeleton: SkeletonLike;
+}
+
+/** A byte-for-byte copy of R0's `toonRampSkinnedMaterial`
+ *  (`packages/render/src/three/spike/skinned-toon.ts`, commit `0d6eab2`) --
+ *  same quantization, same skinning chunks, same uniform shape -- inlined
+ *  HERE rather than imported, because a concurrent Phase F implementation
+ *  stream deleted the original mid-investigation (`git status` showed
+ *  `packages/render/src/three/spike/skinned-toon.ts` as `D` while this file
+ *  was being written -- this worktree is shared, per this repo's own
+ *  concurrent-session note). Depending on a file another in-flight session
+ *  can delete out from under a "read-only outside tools/src/perf" harness
+ *  would make this section's numbers non-reproducible on the next run for a
+ *  reason that has nothing to do with scale. `RAMP_MAX` is copied too
+ *  (`palette-material.ts`'s own constant) rather than imported, for the same
+ *  reason. */
+const RAMP_MAX = 8;
+
+function toonRampSkinnedMaterialInline(THREE: ThreeModuleLike, rampHexes: readonly string[]): unknown {
+  if (rampHexes.length === 0 || rampHexes.length > RAMP_MAX) {
+    throw new Error(`toonRampSkinnedMaterialInline: ramp must have 1-${RAMP_MAX} colours`);
+  }
+  const padded = rampHexes.map((hex) => new THREE.Color().setStyle(hex));
+  const last = padded[padded.length - 1];
+  while (padded.length < RAMP_MAX) padded.push(last.clone());
+
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uRamp: { value: padded },
+      uSteps: { value: rampHexes.length },
+      uLightDir: { value: new THREE.Vector3(0.5, 1, 0.3).normalize() },
+    },
+    vertexShader: /* glsl */ `
+      #include <common>
+      #include <skinning_pars_vertex>
+      varying vec3 vNormal;
+      void main() {
+        #include <beginnormal_vertex>
+        #include <skinbase_vertex>
+        #include <skinnormal_vertex>
+        #include <defaultnormal_vertex>
+        vNormal = normalize( transformedNormal );
+        #include <begin_vertex>
+        #include <skinning_vertex>
+        #include <project_vertex>
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uRamp[${RAMP_MAX}];
+      uniform int uSteps;
+      uniform vec3 uLightDir;
+      varying vec3 vNormal;
+      void main() {
+        float nl = max(dot(normalize(vNormal), normalize(uLightDir)), 0.0);
+        int band = int(floor((1.0 - nl) * float(uSteps)));
+        band = min(band, uSteps - 1);
+        vec3 outColor = uRamp[0];
+        for (int i = 0; i < ${RAMP_MAX}; i++) {
+          if (i == band) { outColor = uRamp[i]; }
+        }
+        gl_FragColor = vec4(outColor, 1.0);
+      }
+    `,
+  });
+}
+
+/** Placeholder materials, one per role, SHARED across every clone of that
+ *  role -- matching the pinned contract's "each role already wants its own
+ *  material" and, more importantly, matching how Phase F will actually ship
+ *  it: one `Material` per role per team TYPE, not one per living unit. 1350
+ *  independent `ShaderMaterial` instances (one per figure per role) would
+ *  measure a program-churn cost no real build produces. Colours are
+ *  deliberately plain grays, not the real toon ramp -- R0 already answered
+ *  whether the palette survives skinning (`2026-08-28-phase-r0-verdict.md`,
+ *  Q1); this section answers a scale question and must not re-litigate a
+ *  closed one. Uses the SHIPPED skinning vertex chunks
+ *  (`skinbase_vertex`/`skinnormal_vertex`/`skinning_vertex`), so the
+ *  fragment/vertex cost measured here is the real shape, not a cheaper
+ *  stand-in shader. */
+function buildRoleMaterials(THREE: ThreeModuleLike, roles: readonly string[]): Map<string, unknown> {
+  const GRAY_RAMP = ['#9a9a9a', '#7a7a7a', '#5a5a5a', '#3a3a3a'];
+  const materials = new Map<string, unknown>();
+  for (const role of roles) materials.set(role, toonRampSkinnedMaterialInline(THREE, GRAY_RAMP));
+  return materials;
+}
+
+/** Task B(f-scaling): can skinned-mesh infantry reach the GDD's 300-unit
+ *  target? Answers the draw-call and CPU-cost halves of that question by
+ *  actually instancing N independent, role-merged, skinned, animated
+ *  figures in a real `THREE.WebGLRenderer` (headless Chrome over CDP in
+ *  practice, but nothing here is headless-specific) and timing four
+ *  isolated phases per checkpoint. See this section's top comment for what
+ *  the GLB stands in for and why the draw-call count it reports is an upper
+ *  bound, never an underestimate, on what Phase F ships. */
+export async function measureSkinnedInfantry(
+  onProgress?: (msg: string) => void
+): Promise<SkinnedInfantryReport> {
+  const THREE = (await import(/* @vite-ignore */ THREE_CORE_PATH)) as unknown as ThreeModuleLike;
+  const { clone: cloneSkinned } = (await import(/* @vite-ignore */ THREE_SKELETON_UTILS_PATH)) as {
+    clone: (source: SceneLike) => SceneLike;
+  };
+
+  const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(1);
+  const host = createHost();
+  renderer.setSize(host.clientWidth, host.clientHeight, false);
+  host.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.add(new THREE.AmbientLight(0xffffff, 1));
+  const camera = new THREE.OrthographicCamera(-50, 50, 50, -50, 0.1, 1000);
+  camera.position.set(0, 80, 0);
+  camera.lookAt(0, 0, 0);
+
+  const glbUrl = `/@fs${repoRootFromModuleUrl()}${SPIKE_GLB_PATH.startsWith('/') ? '' : '/'}${SPIKE_GLB_PATH}`;
+  onProgress?.(`[skinned] loading + role-merging ${glbUrl}...`);
+  const template = await loadRoleMergedTemplate(THREE, glbUrl);
+  onProgress?.(
+    `[skinned] template: ${template.meshesPerFigure} meshes/figure (roles: ${template.roles.join(', ')}), ` +
+      `${template.bonesPerFigure} bones/figure, ${template.verticesPerFigure} vertices/figure`
+  );
+
+  const materials = buildRoleMaterials(THREE, template.roles);
+
+  // The clip lives on the ORIGINAL (unmerged) scene's animations array --
+  // merging geometry does not touch `gltf.animations` -- so it is fetched
+  // once more here rather than threaded through `loadRoleMergedTemplate`'s
+  // return type for one array. Costs one extra parse of an already-cached
+  // 258 KB file, not one extra network fetch.
+  const { GLTFLoader } = (await import(/* @vite-ignore */ THREE_GLTF_LOADER_PATH)) as {
+    GLTFLoader: new () => GLTFLoaderLike;
+  };
+  const gltfForClip = await new GLTFLoader().loadAsync(glbUrl);
+  const foundMoveClip = gltfForClip.animations.find((c) => c.name === 'move');
+  if (!foundMoveClip) throw new Error('measureSkinnedInfantry: spike GLB has no "move" clip');
+  // Aliased for the same reason `sharedSkeleton` above is: `addFigures`
+  // below is a closure declared after this guard, and TS does not carry the
+  // guard's narrowing into it.
+  const moveClip: AnimationClipLike = foundMoveClip;
+
+  const instances: SkinnedInstance[] = [];
+  const GRID_SPACING = 2.2;
+  const maxCheckpoint = FIGURE_CHECKPOINTS[FIGURE_CHECKPOINTS.length - 1];
+  const cols = Math.ceil(Math.sqrt(maxCheckpoint));
+
+  function addFigures(count: number): void {
+    const startIdx = instances.length;
+    for (let i = 0; i < count; i++) {
+      const idx = startIdx + i;
+      const clone = cloneSkinned(template.root);
+      const gx = idx % cols;
+      const gz = Math.floor(idx / cols);
+      clone.position.set((gx - cols / 2) * GRID_SPACING, 0, (gz - cols / 2) * GRID_SPACING);
+
+      // REAL FINDING, not a stand-in artefact: `SkeletonUtils.clone` clones a
+      // `Skeleton` PER `SkinnedMesh` it visits, even when every mesh in the
+      // source shared exactly one. All 6 role-meshes here originate from one
+      // shared skeleton (`loadRoleMergedTemplate`'s `mesh.bind(skeleton, ...)`
+      // call, same skeleton object for every role), but a naive
+      // `SkeletonUtils.clone()` call produces SIX independent bone-identical
+      // `Skeleton` instances per figure, not one -- confirmed by measurement,
+      // not inferred: `renderer.info.memory.textures` read 600 at 100 figures
+      // (6/figure) before this re-bind existed. Each owns its own bone
+      // texture and its own `Skeleton#update()` call every frame Three
+      // dedupes by SKELETON OBJECT IDENTITY (`WebGLObjects.js`), not by bone
+      // content, so the naive path pays 6x the real skinning/bone-texture
+      // cost. This re-share is exactly the fix a real runtime needs: bind
+      // every role-mesh in a clone back to ONE of its own six (bone-content-
+      // identical) skeletons before use. `f-scaling-report.md` reports BOTH
+      // numbers -- the naive 6x and this corrected 1x -- because the naive
+      // one is a real trap the next implementer can fall into by calling
+      // `SkeletonUtils.clone` the obvious way.
+      let skeleton: SkeletonLike | undefined;
+      const meshes: MeshLike[] = [];
+      clone.traverse((o) => {
+        const m = o as MeshLike;
+        if (!m.isMesh) return;
+        m.frustumCulled = false;
+        m.material = materials.get(m.name) ?? m.material;
+        if (m.isSkinnedMesh) {
+          skeleton ??= m.skeleton;
+          meshes.push(m);
+        }
+      });
+      if (!skeleton) throw new Error('measureSkinnedInfantry: clone produced no skeleton');
+      for (const m of meshes) {
+        if (m.skeleton !== skeleton) m.bind(skeleton, m.bindMatrix);
+      }
+      scene.add(clone);
+      const mixer = new THREE.AnimationMixer(clone);
+      const action = mixer.clipAction(moveClip);
+      action.play();
+      // Deterministic per-instance phase stagger (not random) so bone poses
+      // actually differ instance to instance, the same reason this file's
+      // own `computeAnchors` avoids a coincidental starting state.
+      mixer.update((idx * 0.137) % moveClip.duration);
+      instances.push({ mixer, skeleton });
+    }
+  }
+
+  const dt = 1 / 60;
+  const checkpoints: SkinnedCheckpoint[] = [];
+
+  for (const target of FIGURE_CHECKPOINTS) {
+    const toAdd = target - instances.length;
+    onProgress?.(`[skinned] growing to ${target} figures (+${toAdd})...`);
+    addFigures(toAdd);
+
+    for (let w = 0; w < SKIN_WARMUP_FRAMES; w++) {
+      for (const inst of instances) inst.mixer.update(dt);
+      renderer.render(scene, camera);
+    }
+
+    // 1) AnimationMixer#update alone.
+    const mixerSamples: number[] = new Array<number>(SKIN_TIMED_FRAMES);
+    for (let i = 0; i < SKIN_TIMED_FRAMES; i++) {
+      const t0 = performance.now();
+      for (const inst of instances) inst.mixer.update(dt);
+      mixerSamples[i] = performance.now() - t0;
+    }
+
+    // 2) scene.updateMatrixWorld(true) alone -- bones keep moving between
+    // samples (mixer update outside the timed span) so this measures real,
+    // changing work rather than a cached no-op.
+    scene.matrixWorldAutoUpdate = false;
+    const mwSamples: number[] = new Array<number>(SKIN_TIMED_FRAMES);
+    for (let i = 0; i < SKIN_TIMED_FRAMES; i++) {
+      for (const inst of instances) inst.mixer.update(dt);
+      const t0 = performance.now();
+      scene.updateMatrixWorld(true);
+      mwSamples[i] = performance.now() - t0;
+    }
+
+    // 3) Skeleton#update alone (offset-matrix + flatten), matrixWorld fresh
+    // from the same per-sample pattern.
+    const skelSamples: number[] = new Array<number>(SKIN_TIMED_FRAMES);
+    for (let i = 0; i < SKIN_TIMED_FRAMES; i++) {
+      for (const inst of instances) inst.mixer.update(dt);
+      scene.updateMatrixWorld(true);
+      const t0 = performance.now();
+      for (const inst of instances) inst.skeleton.update();
+      skelSamples[i] = performance.now() - t0;
+    }
+    scene.matrixWorldAutoUpdate = true;
+
+    // 4) Full render, real end to end.
+    for (let w = 0; w < SKIN_WARMUP_FRAMES; w++) {
+      for (const inst of instances) inst.mixer.update(dt);
+      renderer.render(scene, camera);
+    }
+    const renderSamples: number[] = new Array<number>(SKIN_TIMED_FRAMES);
+    for (let i = 0; i < SKIN_TIMED_FRAMES; i++) {
+      for (const inst of instances) inst.mixer.update(dt);
+      const t0 = performance.now();
+      renderer.render(scene, camera);
+      renderSamples[i] = performance.now() - t0;
+    }
+
+    checkpoints.push({
+      figures: instances.length,
+      drawCalls: renderer.info.render.calls,
+      triangles: renderer.info.render.triangles,
+      boneTextures: renderer.info.memory.textures,
+      programs: renderer.info.programs?.length ?? -1,
+      mixerUpdate: summarize(mixerSamples),
+      matrixWorldPropagate: summarize(mwSamples),
+      skeletonUpdate: summarize(skelSamples),
+      fullRender: summarize(renderSamples),
+    });
+    onProgress?.(
+      `[skinned] ${instances.length} figures: drawCalls=${renderer.info.render.calls} ` +
+        `tris=${renderer.info.render.triangles} textures=${renderer.info.memory.textures}`
+    );
+  }
+
+  renderer.dispose();
+  host.remove();
+
+  return {
+    glb: SPIKE_GLB_PATH,
+    meshesPerFigure: template.meshesPerFigure,
+    bonesPerFigure: template.bonesPerFigure,
+    verticesPerFigure: template.verticesPerFigure,
+    roles: template.roles,
+    checkpoints,
+  };
+}
+
+// ============================================================================
 // Entry point selection
 // ============================================================================
 
