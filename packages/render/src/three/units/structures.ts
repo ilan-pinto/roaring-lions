@@ -95,6 +95,7 @@ import type { Sim } from '@lions/sim';
 import { TILE_W, WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import { screenOffsetToWorld } from '../terrain/shared';
 import { groundWorldY } from '../ground-height';
+import { GROUND_CLIP_DEPTH_CLAMP_GLSL } from './ground-clip';
 
 // ---------------------------------------------------------------------------
 // Pure: geometry, per-entity arithmetic and Sim -> plain-array snapshots. No
@@ -402,6 +403,20 @@ export function structureBillboardGeometry(
  * at the EXACT world point the centred idle sprite's own bottom edge (`bl`/
  * `br` above, at local up `-halfH`) already sat at -- the fall begins with
  * no visible pop, "covering the same ground the centred sprite did."
+ *
+ * KNOWN, NOT FIXED: that same translation means this quad's vertices span
+ * the identical `-halfH..+halfH` world-Y band relative to the footprint's
+ * ground height that `createStructureMaterial`'s own ground-clip fix
+ * addresses (`ground-clip.ts`) -- so a falling building is architecturally
+ * exposed to the same "loses to its own ground" depth failure during the
+ * animation. Unlike the steady-state billboard, this quad draws through a
+ * one-off `THREE.Mesh`/`MeshBasicMaterial` (`createCollapseMaterial` below),
+ * not the `InstancedMesh`/`ShaderMaterial` pair the shared clamp is written
+ * against -- porting it here needs `onBeforeCompile` or a bespoke
+ * `ShaderMaterial`, a larger change than this task's measured, in-scope fix.
+ * Confirmed by reading, not measured -- the same status `structures.ts`
+ * carried for its steady-state case before this pass, now narrowed to just
+ * this one animation.
  */
 export function collapseBillboardGeometry(
   scale: number,
@@ -588,6 +603,23 @@ const ALPHA_PADDING_DISCARD = 0.02;
  * (`three/src/textures/Texture.js`, verified against the installed 0.170
  * source), so the sampled bytes already reach `gl_FragColor` unmodified with
  * no extra code needed here.
+ *
+ * ## Ground-clip fix -- measured here, not merely inherited by reading
+ *
+ * `structureBillboardGeometry`'s quad is centred exactly like
+ * `unitBillboardGeometry`'s (this file's own top comment, "Anchor
+ * convention"), so it straddles true ground by `halfDrawHeightPx` the same
+ * way a unit's did before `f54be82` -- that commit's own "KNOWN, NOT FIXED"
+ * note named this file by name but left it unmeasured. Measured now: a live
+ * `apartment` billboard (the tallest arted type after `mosque`,
+ * `height_px: 30`) showed the identical defect signature on the same
+ * `beit_sahwan_outskirts` map -- a solid, textured band along the wall's
+ * own base losing its depth test to the flat ground beneath it, not the
+ * 1-2px antialiasing fringe. `mosque` and `shanty`, also captured, showed
+ * none -- consistent with `instances.ts`'s own "vehicle-specific, not
+ * uniform" scaling, not a contradiction. Full derivation, measurement, and
+ * the two buildings that did NOT show it: `ground-clip.ts`'s own top
+ * comment and `.superpowers/d-structure-clip-report.md`.
  */
 function createStructureMaterial(texture: THREE.Texture): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
@@ -603,6 +635,14 @@ function createStructureMaterial(texture: THREE.Texture): THREE.ShaderMaterial {
         vAlpha = aAlpha;
         vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(position, 1.0);
         gl_Position = projectionMatrix * mvPosition;
+
+        // Ground-clip fix -- shared verbatim with instances.ts's own
+        // createUnitMaterial via ground-clip.ts; see that file's own top
+        // comment for the full derivation and for why the identical proof
+        // applies to this material's InstancedMesh chain. (No backticks in
+        // this comment: it lives inside the vertexShader template literal
+        // below, and a backtick here would close it early.)
+        ${GROUND_CLIP_DEPTH_CLAMP_GLSL}
       }
     `,
     fragmentShader: /* glsl */ `

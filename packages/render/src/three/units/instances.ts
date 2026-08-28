@@ -296,6 +296,7 @@ import { turretAxisOffset, type SheetSpec } from '../../sheet';
 import { FRAME_PX, type FramePacking } from './atlas';
 import type { EntityFrame } from './frame-state';
 import { HULL_RENDER_ORDER, TURRET_RENDER_ORDER } from './render-order';
+import { GROUND_CLIP_DEPTH_CLAMP_GLSL } from './ground-clip';
 
 // ---------------------------------------------------------------------------
 // Pure: geometry and per-instance attribute arithmetic. No THREE.* GPU
@@ -662,27 +663,13 @@ function createUnitMaterial(texture: THREE.DataArrayTexture): THREE.ShaderMateri
         // per-vertex depth clamp, not a second quad", for the full
         // derivation and why the two candidates that comment used to name
         // (a depth-write-disabled second quad; an accepted limitation)
-        // were not taken. position.y is local "up"
-        // (unitBillboardGeometry's own -half..+half); below 0 it draws
-        // BELOW this instance's own ground contact point even though the
-        // art there -- a track, a boot -- is drawn AT ground level, never
-        // genuinely beneath it. Recompute this SAME instance/right-column's
-        // clip-space depth at local up = 0 (position.y zeroed, x/z
-        // unchanged) and clamp to whichever is nearer: an above-ground
-        // vertex is already nearer than that reference, so min() leaves it
-        // untouched and real depth tests against a ridge, a building or
-        // another unit still vary per-vertex exactly as before; a
-        // below-ground vertex ties with the ground instead of losing to
-        // it, resolved by the same opaque-before-transparent +
-        // LessEqualDepth mechanism the "unit-vs-tree tie" section below
-        // already relies on. Exact, not approximate, for an orthographic
-        // camera: gl_Position.w and groundClip.w are both 1 (neither
-        // matrix in the chain carries a perspective row), so comparing
-        // gl_Position.z and groundClip.z directly compares genuine NDC
-        // depth with no divide needed.
-        vec4 groundPosition = modelViewMatrix * instanceMatrix * vec4(position.x, 0.0, position.z, 1.0);
-        vec4 groundClip = projectionMatrix * groundPosition;
-        gl_Position.z = min(gl_Position.z, groundClip.z);
+        // were not taken. Shared verbatim with structures.ts's own
+        // createStructureMaterial via ground-clip.ts -- see that file's own
+        // top comment for why the identical proof applies to a structure
+        // billboard's InstancedMesh chain, not merely a unit's. (No
+        // backticks in this comment: it lives inside the vertexShader
+        // template literal below, and a backtick here would close it early.)
+        ${GROUND_CLIP_DEPTH_CLAMP_GLSL}
       }
     `,
     fragmentShader: /* glsl */ `

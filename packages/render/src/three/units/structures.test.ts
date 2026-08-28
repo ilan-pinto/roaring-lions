@@ -22,13 +22,14 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
+import * as THREE from 'three';
 import { Sim } from '@lions/sim';
 import { buildBuildings, type StructureFootprint } from '../terrain/buildings';
 import type { TerrainInput } from '../terrain/types';
 import { WORLD_PER_LEVEL } from '../terrain/shared';
 import { TILE_W, WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import { screenOffsetToWorld } from '../terrain/shared';
-import { VIEW_DIRECTION } from '../camera';
+import { VIEW_DIRECTION, dimetricCamera } from '../camera';
 import { groundWorldY } from '../ground-height';
 import {
   liveStructurePlacements,
@@ -42,6 +43,7 @@ import {
   COLLAPSE_SQUASH,
   writeStructureInstances,
   footprintCentre,
+  StructureInstancer,
   type StructureInstanceBuffers,
 } from './structures';
 import { STRUCTURE_RENDER_ORDER, HULL_RENDER_ORDER, FOG_RENDER_ORDER } from './render-order';
@@ -516,6 +518,100 @@ describe('collapseFrame', () => {
     const squared = collapseFrame(COLLAPSE_SECONDS / 2, 1);
     const linearAlpha = 1 * (1 - 0.5);
     expect(squared.alpha).toBeGreaterThan(linearAlpha);
+  });
+});
+
+describe('the ground-clip depth clamp (shared with instances.ts via ground-clip.ts)', () => {
+  // `ground-clip.ts`'s own top comment: the CAMERA property `f54be82` proved
+  // for units holds identically here because `structureBillboardGeometry`'s
+  // corner() and `createStructureMaterial`'s vertex shader both feed the
+  // SAME two inputs (screenOffsetToWorld for "right", WORLD_Y_PER_LIFT_PIXEL
+  // for "up") through the SAME modelViewMatrix * instanceMatrix chain a unit
+  // uses. `apartment` (BLD_APARTMENT) is the real sheet the browser capture
+  // in `.superpowers/d-structure-clip-report.md` actually caught this on --
+  // used here rather than the mosque/512x600 fixture above so the numbers
+  // are the real ones, not a stand-in.
+  const CAM = { x: 24, y: 24, zoom: 1 };
+  const VP = { width: 800, height: 600 };
+  const camera = dimetricCamera(CAM, VP);
+
+  /** Same technique as `instances.test.ts`'s own `ndcZ`: real NDC z via
+   *  `THREE.Vector3.project`, the same call `worldToScreenThree` relies on
+   *  for x/y. Smaller is nearer the camera under three.js's default depth
+   *  convention. */
+  function ndcZ(x: number, y: number, z: number): number {
+    const v = new THREE.Vector3(x, y, z);
+    v.project(camera);
+    return v.z;
+  }
+
+  // BLD_APARTMENT's real scale (manifest.json) against its real decoded
+  // bitmap size (512x512, PNG dimensions -- not the manifest's own unused
+  // "size" field, per this file's top comment on why nothing here reads it).
+  const geo = structureBillboardGeometry(7.0655, 512, 512);
+  // An instance standing at tile (24, 24) on flat ground (worldY 0) --
+  // matches beit_sahwan_outskirts, the flat map the defect was captured on.
+  const tx = 24;
+  const tz = 24;
+
+  it('BREAK CHECK: the below-ground half of a real structure billboard is genuinely farther from the camera than its own ground contact point', () => {
+    // bl (index 0) is the BOTTOM edge, local up = -half (below the
+    // translation, where the wall's own base is drawn); tr (index 2) is the
+    // TOP edge, local up = +half.
+    const bottomLocalY = geo.positions[0 * 3 + 1];
+    const topLocalY = geo.positions[2 * 3 + 1];
+    expect(bottomLocalY).toBeLessThan(0); // sanity: really is below ground
+
+    const zGround = ndcZ(tx, 0, tz);
+    const zBottom = ndcZ(tx, bottomLocalY, tz);
+    const zTop = ndcZ(tx, topLocalY, tz);
+
+    // The bottom edge is FARTHER than the ground it stands on -- the same
+    // defect signature f54be82 found on mbt_lavi, now proved for a
+    // structure billboard's own geometry.
+    expect(zBottom).toBeGreaterThan(zGround);
+    // The top edge (the roofline) is correctly NEARER -- real occlusion
+    // against a taller structure or a ridge must keep depth-testing
+    // normally, which the clamp must not disturb.
+    expect(zTop).toBeLessThan(zGround);
+  });
+
+  it('min(own depth, depth at local up = 0) exactly cancels the defect and leaves the above-ground half untouched', () => {
+    const bottomLocalY = geo.positions[0 * 3 + 1];
+    const topLocalY = geo.positions[2 * 3 + 1];
+    const zGround = ndcZ(tx, 0, tz);
+    const zBottom = ndcZ(tx, bottomLocalY, tz);
+    const zTop = ndcZ(tx, topLocalY, tz);
+
+    const clampedBottom = Math.min(zBottom, zGround);
+    const clampedTop = Math.min(zTop, zGround);
+
+    expect(clampedBottom).toBeCloseTo(zGround, 12);
+    expect(clampedTop).toBeCloseTo(zTop, 12);
+    expect(clampedTop).not.toBeCloseTo(zGround, 6);
+  });
+
+  it('holds for the real quad corner, off the translation column on both axes -- not merely directly underfoot', () => {
+    const blX = geo.positions[0 * 3 + 0];
+    const blY = geo.positions[0 * 3 + 1];
+    const blZ = geo.positions[0 * 3 + 2];
+    const groundX = tx + blX;
+    const groundZ = tz + blZ;
+
+    const zGroundHere = ndcZ(groundX, 0, groundZ);
+    const zBottomHere = ndcZ(groundX, blY, groundZ);
+    expect(zBottomHere).toBeGreaterThan(zGroundHere);
+    expect(Math.min(zBottomHere, zGroundHere)).toBeCloseTo(zGroundHere, 12);
+  });
+
+  it('the shipped structure shader actually performs this clamp, not merely the maths above', () => {
+    // Constructing a StructureInstancer needs no real WebGL context (its
+    // constructor never touches the GPU) -- the same reason
+    // instances.test.ts constructs a real UnitInstancer under
+    // `environment: 'node'`.
+    const instancer = new StructureInstancer(new THREE.Texture(), geo, 1);
+    const material = instancer.mesh.material as THREE.ShaderMaterial;
+    expect(material.vertexShader).toContain('gl_Position.z = min(gl_Position.z, groundClip.z)');
   });
 });
 
