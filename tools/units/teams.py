@@ -596,6 +596,70 @@ def digger_crew(clip, frame):
     return out
 
 
+def sarim_rifles(clip, frame):
+    """Sarim Rifles, crew 8. Three figures in a shallow echelon, staggered in
+    BOTH x and y -- not a rank. inf_squad is the collision risk: it is also
+    three standing riflemen, but its three sit on one straight line at even
+    spacing with only the centre figure stepped forward. Here every figure is
+    a half-step further back and further out than the last, so the group
+    silhouettes as a diagonal wedge instead of a line, and the camera's own
+    225-degree azimuth reads that stagger as unequal overlap between figures
+    rather than as three evenly-spaced repeats."""
+    p, st = _standing_posture(clip), _stride(clip, frame)
+    out = []
+    for i, (x, y) in enumerate(((0.34, -0.90), (0.0, 0.0), (-0.34, 0.86))):
+        out += kit.figure(f"sar{i}", (x, y, 0.0), posture=p, stride=st,
+                          headgear="keffiyeh", loadout="irregular", leader=(i == 1))
+        out += kit.rifle(f"sar{i}_w", (x, y, 0.0), posture=p, aim=(clip == "fire"))
+    return out
+
+
+def recoilless_team(clip, frame):
+    """Recoilless Team, crew 3. A kneeling firer with a short, wide tube held
+    LOW across the hip, and a second crewman who also stays down beside two
+    spare rounds laid on the ground rather than standing up on binoculars.
+
+    at_team is the collision risk -- a kneeling firer with a level tube -- and
+    every lever here pushes away from it: the tube sits 0.30 m lower (a
+    recoilless rifle is shouldered from a crouch, not tripod-mounted at chest
+    height), is shorter and a third again as thick, and this team never puts a
+    figure upright at all, where at_team's spotter is the tallest thing in its
+    silhouette."""
+    out = kit.figure("rcl_fire", (0.20, -0.28, 0.0), posture=_crew_posture(clip))
+    if _weapon_visible(clip):
+        out += kit.launcher("rcl_tube", (0.20, -0.28, 0.72), pitch=0.0, length=0.86, radius=0.115)
+    out += kit.figure("rcl_load", (-0.30, 0.30, 0.0), posture=_crew_posture(clip),
+                      headgear="keffiyeh", loadout="irregular", leader=True)
+    if _weapon_visible(clip):
+        out += [
+            kit.tube("rcl_round0", 0.52, 0.075, (-0.10, 0.46, 0.075), yaw=math.radians(90.0)),
+            kit.tube("rcl_round1", 0.52, 0.075, (-0.10, 0.60, 0.075), yaw=math.radians(90.0)),
+        ]
+    return out
+
+
+def manpad_team(clip, frame):
+    """MANPAD Team, crew 2. A standing gunner with the missile tube laid across
+    his own shoulder at a steep, near-vertical 78 degrees -- the only team in
+    the set where a weapon rides ON a figure's body instead of standing beside
+    it as its own object. A kneeling spotter looks skyward through binoculars
+    rather than standing, so the pair never reads as two upright figures the
+    way rpg_team's standing firer-and-loader does. rpg_team is the nearest
+    neighbour (also a standing figure with a raised tube); the angle -- 78
+    degrees against its 38 -- and the shorter, thinner tube are the levers
+    that keep them apart, on top of the posture difference above."""
+    p, st = _standing_posture(clip), _stride(clip, frame)
+    out = kit.figure("mpd_fire", (0.16, -0.22, 0.0), posture=p, stride=st,
+                     headgear="keffiyeh", loadout="irregular", leader=True)
+    if _weapon_visible(clip):
+        out += kit.launcher("mpd_tube", (0.16, -0.22, 1.30), pitch=math.radians(78.0),
+                            length=0.94, radius=0.065)
+    out += kit.figure("mpd_spot", (-0.28, 0.30, 0.0), posture=_crew_posture(clip),
+                      headgear="keffiyeh", loadout="irregular")
+    out += kit.binoculars("mpd_binos", (-0.28, 0.30, 0.0), posture=_crew_posture(clip))
+    return out
+
+
 #: id -> (builder, faction, sprite directory). The sheet name follows the unit id
 #: so a missing sheet is obvious in main.ts rather than hidden behind an alias --
 #: which is exactly how seven types came to share one directory.
@@ -613,6 +677,9 @@ TEAMS = {
     "charge_squad": (charge_squad, "enemy", "INF_CHARGE"),
     "moto_rpg": (moto_rpg, "enemy", "MOTO_RPG"),
     "digger_crew": (digger_crew, "enemy", "INF_DIGGER"),
+    "sarim_rifles": (sarim_rifles, "enemy", "INF_SARIM"),
+    "recoilless_team": (recoilless_team, "enemy", "INF_RECOILLESS"),
+    "manpad_team": (manpad_team, "enemy", "INF_MANPAD"),
 }
 
 #: Clips that are the same for every team. `idle` is not among them any more --
