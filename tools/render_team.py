@@ -384,6 +384,19 @@ def render_team(team_id, probe=False):
                 bpy.ops.render.render(write_still=True)
                 files.append({"clip": clip, "facing": f, "frame": frame, "file": name})
 
+    # A probe renders one facing of one clip (see above) -- `clips`/`files` here
+    # describe only that probe subset, not the team's real clip union, so a
+    # manifest built from them would ship a corrupt one: a runtime manifest.json
+    # promising a single idle frame while every other clip's PNGs (from the last
+    # real render) sit untouched next to it. `--probe` exists purely to measure
+    # the silhouette matrix cheaply before committing to a full massing render,
+    # so it must never overwrite the checked-in manifest at all -- writing it
+    # here once truncated every probed team's manifest.json to one frame while
+    # leaving the PNGs alone, and cost a manual revert of twelve manifests.
+    if probe:
+        print(f"[{team_id}] PROBE {len(files)} frame -> {out_dir} (manifest.json left untouched)")
+        return
+
     manifest = {
         "unit": team_id,
         "credit": "Composed from tools/units/kit.py for this repository, CC BY-SA 4.0",
