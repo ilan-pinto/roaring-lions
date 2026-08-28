@@ -1,14 +1,20 @@
 /**
- * SPIKE (Phase R0, `docs/superpowers/specs/2026-08-28-rigged-infantry-design.md`).
- * Throwaway. Not wired into any shipping path, not covered by tests, and
- * deletable in one `rm -rf` of this directory if R0 returns NO-GO.
+ * The toon material a mesh unit's skinned geometry draws through.
+ *
+ * Promoted out of `spike/skinned-toon.ts` after Phase R0's GO verdict
+ * (`docs/superpowers/specs/2026-08-28-phase-r0-verdict.md`) -- Q1 answered
+ * YES, twice over (a one-frame colour census and a band-crawl measurement
+ * across five time steps, both in that verdict). `spike/rig-scene.ts`'s
+ * throwaway comparison harness now imports this module rather than keeping
+ * its own copy, so the shader has exactly one source of truth between the
+ * spike and the shipped mesh-unit path (`mesh-unit.ts`).
  *
  * `../palette-material.ts`'s `toonRampMaterial` quantizes `N·L` into bands and
  * reads the fragment colour out of a ramp, so an off-palette colour is
  * unrepresentable. That guarantee was measured on STATIC geometry only (Phase
  * 0's verdict says so in as many words: "one unit type, one clip, one light
- * direction... stand-in geometry"). This module asks whether it survives
- * skeletal deformation, which is R0's Q1.
+ * direction... stand-in geometry"). This module is R0's answer to whether it
+ * survives skeletal deformation.
  *
  * ## Why deformation is a real question and not a formality
  *
@@ -17,23 +23,22 @@
  * animates. That much is correct and desirable -- it is what makes a walk
  * cycle read as volume rather than as a flat cut-out sliding around.
  *
- * The failure mode worth measuring is different: a band boundary that crawls
- * frame to frame at a scale small enough to read as noise rather than as
- * shading. The sprite pipeline cannot produce this, because each frame is
+ * The failure mode worth measuring was different: a band boundary that
+ * crawls frame to frame at a scale small enough to read as noise rather than
+ * as shading. The sprite pipeline cannot produce this, because each frame is
  * quantized independently from a render that was already stable. A real-time
  * toon ramp can, because `floor()` at a band edge turns an arbitrarily small
- * normal change into a whole-band colour change. A normal sitting almost
- * exactly on a boundary flips back and forth every frame, and a row of such
- * fragments flickers.
- *
- * There is no way to answer this by reading the shader. It has to be watched.
+ * normal change into a whole-band colour change. R0's band-crawl measurement
+ * found change proportional to elapsed time with a zero intercept -- the
+ * opposite shape from shimmer -- so the ramp below is safe to drive from a
+ * live `AnimationMixer`.
  *
  * ## What changed from the shipping material, and what deliberately did not
  *
  * The fragment shader is byte-identical in behaviour to `toonRampMaterial`'s:
  * same quantization, same "index 0 is the LIGHTEST step" direction, same
- * `uRamp`/`uSteps`/`uLightDir` uniforms. If this spike's colours differ from
- * the shipping backend's, that is a bug in this file, not a finding.
+ * `uRamp`/`uSteps`/`uLightDir` uniforms. If a mesh unit's colours differ from
+ * the shipping sprite backend's, that is a bug in this file, not a finding.
  *
  * The vertex shader is the only real change. It runs three.js's own skinning
  * chunks so both the position AND the normal are deformed by the bone
@@ -61,16 +66,11 @@ import { RAMP_MAX, paletteColorNoConvert } from '../palette-material';
 /**
  * The shipping toon ramp, with three.js's skinning chunks in the vertex stage.
  *
- * `rampHexes` is a WHOLE RAMP out of `data/palette.json` (e.g. all four
- * `olive` steps), not a single base colour. This is the one place the spike
- * must not copy the sprite pipeline: `tools/render_team.py`'s `ROLE_PALETTE`
- * maps a role to ONE colour at the LIGHTEST end of a ramp, because that
- * pipeline multiplies it by a light and "a figure renders at roughly half its
- * base value" (its own comment). A toon LUT does not multiply -- it INDEXES --
- * so feeding it `ROLE_PALETTE`'s single base would light a uniform from
- * `olive.0` toward black instead of stepping it down the olive ramp, and the
- * figure would come out darker and flatter than the sprite for reasons that
- * look like a shader bug and are not.
+ * `rampHexes` is a WHOLE RAMP or RAMP SLICE out of `data/palette.json` (e.g.
+ * the whole `olive` ramp, or a few steps of `gunmetal`) -- see `mesh-role.ts`
+ * for why a single base colour (`tools/render_team.py`'s `ROLE_PALETTE`)
+ * must never be passed here instead: that pipeline multiplies a base colour
+ * by a light, and a toon LUT indexes rather than multiplies.
  */
 export function toonRampSkinnedMaterial(rampHexes: readonly string[]): THREE.ShaderMaterial {
   if (rampHexes.length === 0) {

@@ -1,6 +1,13 @@
 /**
  * SPIKE (Phase R0, `docs/superpowers/specs/2026-08-28-rigged-infantry-design.md`).
- * Throwaway. Delete this directory if R0 returns NO-GO.
+ * R0 returned GO (`docs/superpowers/specs/2026-08-28-phase-r0-verdict.md`), so
+ * this file's own two load-bearing pieces -- the skinned toon material and the
+ * `rl_role` -> ramp-slice table -- were promoted out of this directory into
+ * `../units/mesh-material.ts` and `../units/mesh-role.ts`, which the shipped
+ * mesh-unit path (`../units/mesh-unit.ts`) now uses too. This file imports
+ * both rather than keeping its own copy. What remains here -- the side-by-side
+ * judging rig itself -- is still throwaway: a dev-only comparison harness, not
+ * wired into `ThreeRenderer`, deletable on its own schedule.
  *
  * A side-by-side judging rig: the code-authored rigged infantry mesh on the
  * left, the SHIPPING `INF_SQUAD` billboard sheet on the right, same camera,
@@ -26,10 +33,10 @@
  * would answer a question about a projection the game does not have.
  *
  * The mesh carries no materials from Blender (the GLB exports zero) -- every
- * colour on it comes from `toonRampSkinnedMaterial` and `RAMP_FOR_ROLE`
- * below. That is deliberate: it keeps the palette guarantee entirely on this
- * side, where it can be reasoned about, rather than splitting it across an
- * art tool and a shader.
+ * colour on it comes from `toonRampSkinnedMaterial` and `rampForRole`
+ * (imported above). That is deliberate: it keeps the palette guarantee
+ * entirely on this side, where it can be reasoned about, rather than
+ * splitting it across an art tool and a shader.
  *
  * ## The scale chain, which is easy to get wrong in two places
  *
@@ -46,62 +53,12 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { dimetricCamera } from '../camera';
 import { applyPalettePipeline } from '../palette-material';
-import { toonRampSkinnedMaterial } from './skinned-toon';
-import paletteJson from '../../../../../data/palette.json';
+import { toonRampSkinnedMaterial } from '../units/mesh-material';
+import { readRamp, rampForRole, isMeshRole } from '../units/mesh-role';
 
 /** `tools/dimetric.py`'s `UNITS_PER_TILE`. Blender builds at metres; three
  *  draws one unit per tile; a tile is 3 m. */
 const UNITS_PER_TILE = 3.0;
-
-// Same shape and same cast the shipping backend uses (`terrain/tones.ts:34`):
-// a ramp is `{ role, colors, note }`, not a bare array. Reading it as an array
-// typechecks against `any` in JS and silently yields `undefined` colours.
-const ramps = paletteJson.ramps as Record<string, { colors: string[] }>;
-const ramp = (name: string): string[] => ramps[name].colors;
-
-/**
- * `rl_role` -> the RAMP SLICE that role shades through.
- *
- * This is NOT `tools/render_team.py`'s `ROLE_PALETTE`, and copying that table
- * here would be the single most likely way to make this spike lie. That
- * pipeline maps a role to ONE base colour at the LIGHTEST end of a ramp and
- * then MULTIPLIES it by a light -- its own comment says "a figure renders at
- * roughly half its base value", and `LIT_GAIN` exists to pre-brighten faces
- * and boots so the lit result lands where it was aimed. A toon LUT does not
- * multiply. It INDEXES. Feeding it `olive.0` would shade a uniform from
- * olive.0 toward black instead of stepping it down the olive ramp.
- *
- * So each role gets a slice spanning the values the sprite pipeline's LIT
- * result occupies, and the shader picks a step within it from `N·L`. Slices
- * rather than whole ramps because the sprite separates `webbing`
- * (`gunmetal.2`) from `metal` (`gunmetal.2`) from `weapon` (`gunmetal.3`) by
- * VALUE inside one ramp, and handing all three the whole gunmetal ramp would
- * collapse a distinction the art direction deliberately makes.
- */
-const RAMP_FOR_ROLE: Record<string, string[]> = {
-  // KDF uniform: the whole olive ramp, lightest-lit to darkest-shadow.
-  uniform: ramp('olive'),
-  // Grey nylon against olive -- deliberately NOT a second step of the same
-  // green, which `render_team.py` found "read as shading rather than as
-  // equipment".
-  webbing: ramp('gunmetal').slice(1, 4),
-  // Reddish-brown leather. Kept off terracotta.0 -- the sprite pipeline
-  // clamps boots to 1.35 gain precisely because the top of that band "exists
-  // for fired roof tile" and made boots read as glowing orange specks.
-  boot: ramp('terracotta').slice(1, 3),
-  face: ramp('skin'),
-  // The darker skin variant. One step, so it reads flat -- it is a shadow
-  // area on a figure that is ~25 px wide, not a surface that needs its own
-  // shading.
-  skin_shadow: ramp('skin').slice(1, 2),
-  metal: ramp('gunmetal').slice(2, 4),
-  // Present in the role vocabulary but not on this figure. Kept so an
-  // unmapped role is a loud throw below rather than a silent wrong colour.
-  weapon: ramp('gunmetal').slice(2, 4),
-  wood: ramp('dust').slice(3, 6),
-  charge: ramp('gunmetal').slice(1, 3),
-  keffiyeh: ramp('limestone').slice(0, 3),
-};
 
 export interface RigSpike {
   /** Drive one frame. `dtSeconds` is real frame time -- this is a renderer
@@ -157,7 +114,7 @@ export async function mountRigSpike(
   renderer.setSize(vp.width, vp.height, false);
   // Sets outputColorSpace AND the clear colour, in that order, so neither
   // lands off-palette. See `palette-material.ts` on why this is one call.
-  applyPalettePipeline(renderer, ramp('limestone')[3]);
+  applyPalettePipeline(renderer, readRamp('limestone')[3]);
   host.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
@@ -167,7 +124,7 @@ export async function mountRigSpike(
   // for the same reason.
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(6, 6),
-    new THREE.MeshBasicMaterial({ color: new THREE.Color().setStyle(ramp('limestone')[3], THREE.LinearSRGBColorSpace) })
+    new THREE.MeshBasicMaterial({ color: new THREE.Color().setStyle(readRamp('limestone')[3], THREE.LinearSRGBColorSpace) })
   );
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
@@ -190,12 +147,11 @@ export async function mountRigSpike(
       // colour would make the figure look plausible and be wrong.
       throw new Error(`rig-scene: mesh ${mesh.name} carries no rl_role`);
     }
-    const ramp = RAMP_FOR_ROLE[role];
-    if (!ramp) {
+    if (!isMeshRole(role)) {
       unmapped.add(role);
       return;
     }
-    const mat = toonRampSkinnedMaterial(ramp);
+    const mat = toonRampSkinnedMaterial(rampForRole(role));
     mesh.material = mat;
     ownedMaterials.push(mat);
   });
