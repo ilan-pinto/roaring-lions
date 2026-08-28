@@ -151,6 +151,16 @@ import {
   type MeshUnitEntity,
 } from './units/mesh-unit';
 import { meshYawFromFacing } from './units/mesh-anim';
+import {
+  beginMeshDeath,
+  stepMeshDeath,
+  pushMeshWreck,
+  updateMeshWrecks,
+  endMeshDeathFade,
+  type DyingMeshUnit,
+  type MeshWreck,
+  type MeshDeathEnv,
+} from './units/mesh-death';
 import type { MeshFaction } from './units/mesh-role';
 /** Re-exported so `app` can name the side a mesh unit fights for without
  *  importing anything under `three/units/` directly. TYPE ONLY: it is erased
@@ -536,9 +546,24 @@ export class ThreeRenderer implements Renderer {
    */
   private readonly meshUnitTemplates = new Map<string, MeshUnitTemplate>();
   /** One `MeshUnitEntity` per living entity of a mesh-enabled type, keyed by
-   *  entity id -- pooled across frames, torn down in `updateMeshUnits` once
-   *  the entity is no longer alive. */
+   *  entity id -- pooled across frames. Once `Sim` reports the entity no
+   *  longer alive, its id is deleted from this map in the SAME step that
+   *  hands the `MeshUnitEntity` off to `meshDying` (`updateMeshUnits`'s own
+   *  prune loop) -- so an id never appears in both collections at once, and
+   *  a later spawn reusing the id can never alias the dying entity. */
   private readonly meshUnitEntities = new Map<number, MeshUnitEntity>();
+  /** Mesh units mid-death-fade, not keyed by entity id -- see
+   *  `meshUnitEntities`'s own doc comment for why an id-keyed collection
+   *  would be the wrong shape once an id can be reused mid-fade.
+   *  `units/mesh-death.ts`'s own top comment is the full account of what
+   *  this array is for. */
+  private readonly meshDying: DyingMeshUnit[] = [];
+  /** Permanent mesh wreckage -- the mesh-path counterpart of `renderer.ts`'s
+   *  `wrecks`/`wreckLayer`, populated only for a unit type whose GLB
+   *  carries a `wreck` `AnimationClip` (`mesh-death.ts`'s own "Wreck
+   *  persistence" section). Bounded by `MAX_MESH_WRECKS`, oldest evicted
+   *  first (`pushMeshWreck`). */
+  private readonly meshWrecks: MeshWreck[] = [];
 
   /**
    * Task B3.7: one `StructureInstancer` per structure TYPE with a loaded
@@ -873,6 +898,24 @@ export class ThreeRenderer implements Renderer {
       disposeMeshUnitEntity(entity);
     }
     this.meshUnitEntities.clear();
+    // Mesh units mid-death-fade own a per-entity material clone
+    // (`beginMeshDeathFade`) that nothing else disposes -- `endMeshDeathFade`
+    // restores the shared template material first (harmless here, since
+    // nothing renders again after this method returns, but it is the same
+    // call `stepMeshDeath` itself makes, so there is only one restore path
+    // to reason about) and disposes the clone.
+    for (const d of this.meshDying) {
+      endMeshDeathFade(d.swaps);
+      this.scene.remove(d.entity.root);
+      disposeMeshUnitEntity(d.entity);
+    }
+    this.meshDying.length = 0;
+    // Permanent wrecks share the template's geometry/material by reference
+    // (like every living `MeshUnitEntity` does -- `MeshUnitTemplate`'s own
+    // doc comment), so only `scene.remove` is needed; the shared resources
+    // themselves are disposed once, below, by `disposeMeshUnitTemplate`.
+    for (const w of this.meshWrecks) this.scene.remove(w.root);
+    this.meshWrecks.length = 0;
     for (const template of this.meshUnitTemplates.values()) disposeMeshUnitTemplate(template);
     this.meshUnitTemplates.clear();
     for (const instancer of this.structureIdle.values()) instancer.dispose();
@@ -2160,16 +2203,71 @@ export class ThreeRenderer implements Renderer {
       entity.mixer.update(dtSeconds);
     }
 
-    // Prune entities no longer alive. Not gated on `seen`/visibility this
-    // frame -- see this method's own top comment on why a fogged unit stays
-    // instantiated (and simply invisible) rather than being torn down and
-    // rebuilt on every fog flicker.
+    // Hand off entities no longer alive to the death sequence instead of
+    // tearing them down on the spot -- `units/mesh-death.ts`'s own top
+    // comment is the full account of what that buys (a fade, a `down` pose,
+    // and wreck persistence where a GLB has one). Not gated on
+    // `seen`/visibility this frame -- see this method's own top comment on
+    // why a fogged unit stays instantiated (and simply invisible) rather
+    // than being torn down and rebuilt on every fog flicker; the same
+    // applies to a unit that dies while fogged, which still gets its full
+    // fade (`beginMeshDeath` reads `entity.root.position.y` as-is, whatever
+    // it last was). `meshUnitEntities.delete(id)` runs in the SAME step as
+    // `beginMeshDeath`, before the entity is reachable any other way, so a
+    // later spawn reusing this id can never alias the dying entity --
+    // `beginMeshDeath`'s own doc comment spells out why that makes this
+    // safe with no captured x/y/facing/typeId at all, unlike Pixi's
+    // `DyingUnit`.
     for (const [id, entity] of this.meshUnitEntities) {
       if (id < n && st.alive[id] !== 0) continue;
-      this.scene.remove(entity.root);
-      disposeMeshUnitEntity(entity);
       this.meshUnitEntities.delete(id);
+      this.meshDying.push(beginMeshDeath(entity));
     }
+    this.stepMeshDeaths(dtSeconds);
+  }
+
+  /**
+   * Advances every mesh unit mid-death-fade (`units/mesh-death.ts`'s own
+   * `stepMeshDeath`) and reveals any newly-explored permanent wreck
+   * (`updateMeshWrecks`). All GPU-facing state lives in `mesh-death.ts`,
+   * exercisable with a real `THREE.Scene` and no `WebGLRenderer` -- this
+   * method is the thin, `ThreeRenderer`-private glue: three bookkeeping
+   * arrays (`meshDying`, `meshWrecks`) and the `isMeshTileExplored` fog
+   * query neither can reach on its own.
+   */
+  private stepMeshDeaths(dtSeconds: number): void {
+    const env: MeshDeathEnv = {
+      scene: this.scene,
+      elevation: this.retained.elevation,
+      width: this.sim.width,
+      height: this.sim.height,
+      isExplored: (x, y) => this.isMeshTileExplored(x, y),
+    };
+    for (let k = this.meshDying.length - 1; k >= 0; k--) {
+      const result = stepMeshDeath(this.meshDying[k], dtSeconds, env);
+      if (result === 'fading') continue;
+      this.meshDying.splice(k, 1);
+      if (result !== 'removed') pushMeshWreck(this.meshWrecks, result, this.scene);
+    }
+    updateMeshWrecks(this.meshWrecks, (x, y) => this.isMeshTileExplored(x, y));
+  }
+
+  /**
+   * "Ever seen", not "currently seen" -- `PixiRenderer.isExplored`
+   * (`renderer.ts:1200-1206`)'s own distinction, level >= 1 rather than
+   * `isVisible`'s level === 2. A small, deliberate duplicate of
+   * `isVisible`'s bounds check (`./fog.ts`'s `isFogVisible` only exposes
+   * the `=== 2` threshold, and this task's file ownership does not extend
+   * to `fog.ts`) rather than a shared helper -- the two thresholds differ
+   * by one comparison operator, and `mesh-wreck` fog-gating is the only
+   * caller in this backend that needs the explored, not merely visible,
+   * reading.
+   */
+  private isMeshTileExplored(wx: number, wy: number): boolean {
+    const x = wx | 0;
+    const y = wy | 0;
+    if (x < 0 || y < 0 || x >= this.sim.width || y >= this.sim.height) return false;
+    return this.fog[y * this.sim.width + x] >= 1;
   }
 
   /**
