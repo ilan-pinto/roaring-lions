@@ -72,6 +72,47 @@ describe('unknownParams', () => {
   });
 });
 
+describe('KNOWN_PARAMS renderer blurb', () => {
+  // Twice now this blurb has hardcoded a phase name and a capability list
+  // for the three.js backend ("terrain only, Phase B2; no units/fog yet"),
+  // and gone stale the moment the next phase shipped -- SANDBOX_FLAGS being
+  // "the single source" only proves a flag is parsed and listed, not that
+  // prose about a DIFFERENT package (packages/render) still describes that
+  // package's current state. Nothing under packages/app runs when
+  // packages/render changes, so a capability claim here has no way to be
+  // kept honest. The fix is to not make one: point at CLAUDE.md, which
+  // backend work actually does keep current, instead of restating facts
+  // that live there.
+  const renderer = KNOWN_PARAMS.find((p) => p.name === 'renderer');
+
+  it('exists', () => {
+    expect(renderer).toBeDefined();
+  });
+
+  it('does not name a phase or restate a capability list that will outlive it', () => {
+    const text = renderer?.blurb ?? '';
+    for (const stale of ['Phase B', 'Phase C', 'Phase D', 'no units', 'no fog', 'terrain only']) {
+      expect(text).not.toContain(stale);
+    }
+  });
+
+  it('points at the doc that is actually kept current instead', () => {
+    expect(renderer?.blurb ?? '').toContain('CLAUDE.md');
+  });
+});
+
+describe('mesh flag blurb', () => {
+  // Same drift, smaller instance: this named exactly one team ('inf_squad')
+  // when the mesh path only had one, and stayed pinned to that name after
+  // eleven more teams loaded (MESH_TEAMS in main.ts). Asserted as an absence
+  // rather than a fixed team count, since main.ts's team list -- not this
+  // file -- is the thing that actually changes.
+  it('does not hardcode a specific team id', () => {
+    const mesh = SANDBOX_FLAGS.find((f) => f.name === 'mesh');
+    expect(mesh?.blurb ?? '').not.toContain('inf_squad');
+  });
+});
+
 describe('sandboxHelp', () => {
   const ctx = { mapId: 'tel_marum', mapIds: MAPS, on: ['tunnel', 'sur'] };
 

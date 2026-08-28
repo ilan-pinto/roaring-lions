@@ -60,6 +60,7 @@ import { roeNotice } from './ui/roe-notice';
 import { sandboxAnchors, type SandboxAnchors } from './sandbox-anchors';
 import { sandboxFlaggedZones, sandboxTunnelRoute } from './sandbox-extras';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
+import { resolveRendererChoice, RENDERER_STORAGE_KEY } from './renderer-choice';
 import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
 import { tutorialPanel, type TutorialPanel } from './tutorial/panel';
 import { parseWorld, parseCountries, nextMissionAfter } from './campaign';
@@ -511,8 +512,22 @@ async function main(): Promise<void> {
   // The separate entry point is the other half of that: `@lions/render`'s
   // barrel no longer names ThreeRenderer, so importing the barrel (which this
   // file does, for PixiRenderer) cannot pull three.js in either.
+  // `?renderer=pixi` and `?renderer=three` are both real, parsed values --
+  // not `=== 'three'` with everything else falling through to Pixi, which
+  // only ever looked like a working escape hatch because Pixi happens to be
+  // the default. An explicit choice is also written to storage, so it
+  // survives every `menu.ts` link (they hard-code their own query string
+  // and drop this one) and a reload with no `?renderer` at all. See
+  // `renderer-choice.ts`.
+  const rendererDecision = resolveRendererChoice(
+    params.get('renderer'),
+    window.localStorage.getItem(RENDERER_STORAGE_KEY)
+  );
+  if (rendererDecision.persist) {
+    window.localStorage.setItem(RENDERER_STORAGE_KEY, rendererDecision.persist);
+  }
   let renderer: Renderer;
-  if (params.get('renderer') === 'three') {
+  if (rendererDecision.choice === 'three') {
     const { ThreeRenderer } = await import('@lions/render/three');
     // Held at its CONCRETE type only inside this branch. `renderer` stays the
     // `Renderer` interface, so `app` still cannot reach a backend-only member

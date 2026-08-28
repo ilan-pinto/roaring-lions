@@ -28,7 +28,7 @@ export const SANDBOX_FLAGS: readonly { name: SandboxFlagName; blurb: string }[] 
   { name: 'roe', blurb: 'flagged no-fire ground (the map’s own, or a synthesised 4×4)' },
   { name: 'tunnel', blurb: 'a pre-dug route + two yahalom_squad to collapse it' },
   { name: 'sur', blurb: 'the four Sarim units no mission fields' },
-  { name: 'mesh', blurb: 'inf_squad as a rigged 3D mesh — needs ?renderer=three' },
+  { name: 'mesh', blurb: 'rigged 3D mesh units, for every team with a shipped GLB — needs ?renderer=three' },
 ];
 
 /** Everything main.ts reads off the query string. The flags are spread in
@@ -41,13 +41,21 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
   { name: 'tutorial', blurb: 'replay the tutorial' },
   {
     name: 'renderer',
-    // `three` now draws terrain — ground, elevation, decor, grain — as real
-    // geometry (Phase B2); units, fog and VFX are still B3/B4. Said here
-    // because the previous wording ("clear colour only, Phase B1") went
-    // stale the moment terrain landed and would otherwise read as a finished
-    // second backend one phase too early, or an unfinished one one phase too
-    // late.
-    blurb: 'pixi (default) | three — which backend draws (three: terrain only, Phase B2; no units/fog yet)',
+    // This blurb used to name a phase and a capability list ("terrain only,
+    // Phase B2; no units/fog yet"), and went stale the moment the next
+    // phase shipped -- twice. SANDBOX_FLAGS/KNOWN_PARAMS being "the single
+    // source" only guarantees a flag is parsed and listed; it says nothing
+    // about whether prose describing a DIFFERENT package (packages/render's
+    // three backend) still matches that package's current state, and
+    // nothing under packages/app runs when packages/render changes. So this
+    // no longer states a capability list at all -- it points at the file
+    // that actually is kept current in the same commit as backend work
+    // (CLAUDE.md's "The three.js backend" section), which is the only
+    // durable fix short of importing render internals this package is not
+    // allowed to import.
+    blurb:
+      'pixi (default) | three — which backend draws; an explicit choice persists ' +
+      'across missions (see CLAUDE.md "The three.js backend" for current parity)',
   },
   ...SANDBOX_FLAGS,
 ];
