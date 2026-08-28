@@ -15,7 +15,7 @@
  * Pure: a URLSearchParams and some ids in, strings out. No DOM, no console.
  */
 
-export type SandboxFlagName = 'roe' | 'tunnel' | 'sur';
+export type SandboxFlagName = 'roe' | 'tunnel' | 'sur' | 'mesh';
 
 export interface UrlParam {
   name: string;
@@ -28,6 +28,7 @@ export const SANDBOX_FLAGS: readonly { name: SandboxFlagName; blurb: string }[] 
   { name: 'roe', blurb: 'flagged no-fire ground (the map’s own, or a synthesised 4×4)' },
   { name: 'tunnel', blurb: 'a pre-dug route + two yahalom_squad to collapse it' },
   { name: 'sur', blurb: 'the four Sarim units no mission fields' },
+  { name: 'mesh', blurb: 'inf_squad as a rigged 3D mesh — needs ?renderer=three' },
 ];
 
 /** Everything main.ts reads off the query string. The flags are spread in

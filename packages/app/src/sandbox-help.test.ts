@@ -27,11 +27,17 @@ describe('readFlags', () => {
   });
 
   it('is false for every flag when none are given', () => {
-    expect(Object.values(readFlags(new URLSearchParams('?sandbox=tel_marum')))).toEqual([
-      false,
-      false,
-      false,
-    ]);
+    // Asserted as a PROPERTY rather than against a literal `[false, false,
+    // false]`. That literal broke when a fourth flag was added, with nothing
+    // actually wrong -- a brittle guard rather than a strict one, and the
+    // kind that pressures whoever hits it into editing the test without
+    // reading it. Key coverage is not re-checked here: the test above
+    // ("reads every flag SANDBOX_FLAGS declares, and only those") already
+    // owns that, and duplicating it would mean two tests failing for one
+    // cause.
+    const f = readFlags(new URLSearchParams('?sandbox=tel_marum'));
+    expect(Object.values(f)).not.toHaveLength(0);
+    expect(Object.values(f).every((v) => v === false)).toBe(true);
   });
 
   it('treats a bare flag as on, the way the URL bar is actually typed', () => {

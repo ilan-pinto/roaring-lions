@@ -514,9 +514,34 @@ async function main(): Promise<void> {
   let renderer: Renderer;
   if (params.get('renderer') === 'three') {
     const { ThreeRenderer } = await import('@lions/render/three');
-    renderer = new ThreeRenderer(sim, opts);
+    // Held at its CONCRETE type only inside this branch. `renderer` stays the
+    // `Renderer` interface, so `app` still cannot reach a backend-only member
+    // anywhere else in this file -- the compiler keeps that, not a grep. But
+    // `loadMeshUnit` IS backend-only and always will be (a Pixi billboard has
+    // no mesh to load), so the honest place to call it is the one branch that
+    // already knows which backend it built.
+    const three = new ThreeRenderer(sim, opts);
+    renderer = three;
+    if (flags.mesh) {
+      // Vite rewrites `new URL(..., import.meta.url)` to a served asset URL,
+      // so the GLB stays in `art/meshes/` rather than being copied into the
+      // publicDir. Errors propagate: `loadMeshUnit`'s own doc comment says a
+      // missing or malformed GLB fails loudly for this caller to report, and
+      // swallowing it here would leave the flag looking like it did nothing.
+      await three.loadMeshUnit(
+        'inf_squad',
+        new URL('../../../art/meshes/inf_squad.glb', import.meta.url).href
+      );
+    }
   } else {
     renderer = new PixiRenderer(sim, opts);
+    if (flags.mesh) {
+      // The `&tunel` lesson, applied to a flag that is real but backend-only:
+      // `&mesh` on the Pixi backend otherwise does nothing at all, silently,
+      // and reads as a broken feature rather than as a missing `?renderer=
+      // three`. Warn by name, the way `unknownParams` warns for a typo.
+      console.warn('&mesh needs ?renderer=three — the Pixi backend has no mesh path; ignoring it');
+    }
   }
 
   // The map's decor layer -- road, olive grove, rocky knoll -- goes straight to
