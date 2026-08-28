@@ -127,6 +127,49 @@ def rot_z(name, size, at, yaw, role="uniform"):
     return _mesh(name, verts, list(_BOX_FACES), role)
 
 
+def rbox(name, size, at, yaw=0.0, chamfer=0.3, size_top=None, role="uniform"):
+    """A cuboid with its four vertical edges chamfered into an octagon.
+
+    Same reasoning `prism()`'s docstring already gives for going 4-sided ->
+    10-sided ("a box has four hard corners... at any facing one of them
+    points at the camera"), applied to the kit's remaining hard-surface
+    gear -- pouches, plates, boots -- which `box()`/`rot_z()` still leave
+    sharp. Top and bottom stay flat caps on purpose: gear is worn on a body,
+    not sculpted like one, and should keep reading as structured kit rather
+    than dissolve into another blob. `chamfer` is the corner cut as a
+    fraction of the shorter of each cap's own x/y half-extents -- 0
+    reproduces `box()` exactly, 1 is a diamond.
+
+    `size_top`, like `prism()`'s `r_top`, lets the cap narrow going up --
+    `size` alone always describes the bottom cap. A low-profile plate
+    carrier is fuller at the chest than the belt, and a panel the same width
+    top to bottom reads as a flat slab rather than a fitted carrier -- the
+    one thing a chamfer alone cannot fix, since it only rounds a corner, it
+    does not move one.
+    """
+    sx0, sy0, sz = (v / 2.0 for v in size)
+    sx1, sy1, _ = (v / 2.0 for v in (size_top if size_top is not None else size))
+    cx, cy, cz = at
+
+    def ring(sx, sy):
+        ch = max(0.0, min(1.0, chamfer)) * min(sx, sy)
+        return [
+            (sx - ch, sy), (sx, sy - ch), (sx, -(sy - ch)), (sx - ch, -sy),
+            (-(sx - ch), -sy), (-sx, -(sy - ch)), (-sx, sy - ch), (-(sx - ch), sy),
+        ]
+
+    cyaw, syaw = math.cos(yaw), math.sin(yaw)
+    n = 8
+    verts = []
+    for z, (sx, sy) in ((-sz, (sx0, sy0)), (sz, (sx1, sy1))):
+        for x, y in ring(sx, sy):
+            verts.append((cx + x * cyaw - y * syaw, cy + x * syaw + y * cyaw, cz + z))
+    faces = [(i, (i + 1) % n, n + (i + 1) % n, n + i) for i in range(n)]
+    faces.append(tuple(range(n)))
+    faces.append(tuple(range(2 * n - 1, n - 1, -1)))
+    return _mesh(name, verts, faces, role)
+
+
 def tube(name, length, radius, at, yaw=0.0, pitch=0.0, sides=8, role="weapon"):
     """A capped cylinder along +x, then pitched and yawed, at real coordinates.
 
@@ -395,10 +438,17 @@ def tactical_helmet(name, at, yaw=0.0, radius=0.113, role="uniform"):
     def at_local(dx, dy, dz):
         return (cx + dx * c - dy * sn, cy + dx * sn + dy * c, cz + dz)
 
-    parts.append(box(f"{name}_nvg", (0.062, 0.078, 0.050), at_local(0.088, 0.0, 0.052), "metal"))
+    parts.append(rbox(f"{name}_nvg", (0.062, 0.078, 0.050), at_local(0.088, 0.0, 0.052),
+                      chamfer=0.26, role="metal"))
     for i, sgn in enumerate((-1.0, 1.0)):
-        parts.append(box(f"{name}_rail{i}", (0.105, 0.016, 0.022),
-                         at_local(0.0, sgn * (radius - 0.004), 0.012), "metal"))
+        parts.append(rbox(f"{name}_rail{i}", (0.105, 0.016, 0.022),
+                          at_local(0.0, sgn * (radius - 0.004), 0.012), chamfer=0.22, role="metal"))
+    # NEW: rear counterweight/battery pouch, balancing the nvg mount's
+    # forward mass -- Ops-Core/Team Wendy style. Built here rather than in
+    # figure() so every tactical_helmet() call (standing, kneeling, prone)
+    # gets it for free and stays in sync with the mount it is balancing.
+    parts.append(blob(f"{name}_counterweight", at_local(-radius * 0.78, 0.0, -0.016),
+                      radius * 0.46, squash=(0.75, 0.95, 0.65), role="webbing"))
     return parts
 
 
@@ -552,6 +602,10 @@ def figure(prefix, at, posture="standing", yaw=0.0, headgear="helmet", stride=0.
     def B(name, size, at_local, role="uniform"):
         parts.append(rot_z(f"{prefix}_{name}", size, place(*at_local), yaw, role))
 
+    def RB(name, size, at_local, chamfer=0.3, size_top=None, role="uniform"):
+        parts.append(rbox(f"{prefix}_{name}", size, place(*at_local), yaw=yaw,
+                          chamfer=chamfer, size_top=size_top, role=role))
+
     def F(name, at_local, size, role="uniform"):
         parts.append(fold(f"{prefix}_{name}", place(*at_local), size, role=role))
 
@@ -562,17 +616,31 @@ def figure(prefix, at, posture="standing", yaw=0.0, headgear="helmet", stride=0.
             parts.append(tube(f"{prefix}_{name}", length, radius,
                               place(*at_local), yaw=yaw, role=role))
         C("torso", 0.70, 0.125, (0.30, 0.0, 0.125))
-        B("pack", (0.32, 0.30, 0.13), (0.02, 0.02 * hand, 0.255), "webbing")
+        RB("pack", (0.32, 0.30, 0.13), (0.02, 0.02 * hand, 0.255), chamfer=0.26, role="webbing")
         for i, sgn in enumerate((-1.0, 1.0)):
             reach = sgn * stride
             # Splayed unevenly: a prone body's legs are never parallel.
             spread = 0.085 + 0.03 * (1 if sgn * hand > 0 else 0)
             C(f"leg{i}", 0.62, 0.056, (-0.42 + reach * 0.085, sgn * spread, 0.072))
-            B(f"boot{i}", (0.15, 0.13, 0.10), (-0.78 + reach * 0.085, sgn * spread, 0.06), "boot")
+            RB(f"boot{i}", (0.15, 0.13, 0.10), (-0.78 + reach * 0.085, sgn * spread, 0.06),
+               chamfer=0.32, role="boot")
             C(f"arm{i}", 0.38, 0.044, (0.44 - reach * 0.075, sgn * 0.165, 0.082))
             BL(f"hand{i}", (0.62 - reach * 0.075, sgn * 0.165, 0.082), 0.043, role="skin_shadow")
+            # NEW: glove, an exact uniform scale-up of hand{i} from the same
+            # centre with the same squash/sides/wobble -- see the note by the
+            # standing/kneeling glove{i} below for why that guarantees full
+            # coverage rather than merely looking big enough.
+            BL(f"glove{i}", (0.62 - reach * 0.075, sgn * 0.165, 0.082), 0.043 * 1.18, role="webbing")
         C("neck", 0.09, R_NECK, (0.66, 0.0, 0.125), "skin_shadow")
+        # NEW: gaiter, a coaxial larger-radius cylinder over the same neck
+        # tube -- no wobble on tube() at all, so this is a plain, exact
+        # enclosure.
+        C("gaiter", 0.09 * 1.15, R_NECK * 1.3, (0.66, 0.0, 0.125), "uniform")
         BL("head", (0.78, 0.0, 0.115), 0.098, squash=(1.05, 0.92, 0.9), role="face")
+        # NEW: hood, same centre/squash as head, scaled up -- see the
+        # standing/kneeling note on why same-squash + bigger-radius is a
+        # guaranteed enclosure, not a guess.
+        BL("hood", (0.78, 0.0, 0.115), 0.098 * 1.18, squash=(1.05, 0.92, 0.9), role="uniform")
         if headgear == "helmet":
             parts += tactical_helmet(f"{prefix}_helm", place(0.78, 0.0, 0.115),
                                      yaw=yaw, radius=0.106, role="uniform")
@@ -586,15 +654,20 @@ def figure(prefix, at, posture="standing", yaw=0.0, headgear="helmet", stride=0.
         drop = 0.30 * H
         parts.append(tube(f"{prefix}_shin_r", 0.38, 0.056,
                           place(-0.14, -0.11 * hand, 0.058), yaw=yaw, role="uniform"))
-        B("boot_r", (0.16, 0.14, 0.10), (0.09, -0.11 * hand, 0.055), "boot")
+        RB("boot_r", (0.16, 0.14, 0.10), (0.09, -0.11 * hand, 0.055), chamfer=0.30, role="boot")
         L("thigh_r", [(-0.20, -0.115 * hand, 0.10, R_KNEE),
                       (-0.13, -0.120 * hand, 0.26, R_THIGH * 0.98),
                       (-0.10, -0.125 * hand, 0.40, R_THIGH)])
         L("shin_f", [(0.15, 0.125 * hand, 0.055, 0.048),
                      (0.16, 0.126 * hand, 0.20, 0.060),
                      (0.15, 0.128 * hand, 0.40, 0.050)])
-        B("boot_f", (0.24, 0.14, 0.10), (0.19, 0.125 * hand, 0.05), "boot")
+        RB("boot_f", (0.24, 0.14, 0.10), (0.19, 0.125 * hand, 0.05), chamfer=0.30, role="boot")
         BL("knee_f", (0.16, 0.126 * hand, 0.42), R_KNEE * 1.15, role="uniform")
+        # NEW: knee pad, same modern-armour read as the standing leg loop's
+        # kneepad{i} -- posture-independent per the spec, so it carries over
+        # here rather than being regular/standing only.
+        BL("kneepad_f", (0.16, 0.126 * hand, 0.42), R_KNEE * 1.15 * 1.20,
+           squash=(1.05, 0.95, 0.85), role="webbing")
         L("thigh_f", [(0.15, 0.127 * hand, 0.44, R_KNEE), (0.0, 0.122 * hand, 0.52, R_THIGH)])
         hip_tilt = 0.0
         sh_tilt = -0.012 * hand
@@ -622,25 +695,39 @@ def figure(prefix, at, posture="standing", yaw=0.0, headgear="helmet", stride=0.
             lat = sgn * 0.115 + (0.0 if bearing > 0 else -sgn * 0.022)
             knee_fwd = 0.02 if bearing > 0 else 0.055
             hz = hip_tilt * sgn * weight
-            B(f"sole{i}", (0.25, 0.135, 0.026),
-              (fore * 0.26, lat, 0.013 + lift), "boot")
-            B(f"boot{i}", (0.17, 0.125, 0.075),
-              (fore * 0.26 - 0.012, lat, 0.062 + lift), "boot")
-            B(f"toe{i}", (0.10, 0.115, 0.046),
-              (fore * 0.26 + 0.075, lat, 0.048 + lift), "boot")
+            RB(f"sole{i}", (0.25, 0.135, 0.026),
+               (fore * 0.26, lat, 0.013 + lift), chamfer=0.35, role="boot")
+            RB(f"boot{i}", (0.17, 0.125, 0.075),
+               (fore * 0.26 - 0.012, lat, 0.062 + lift), chamfer=0.30, role="boot")
+            RB(f"toe{i}", (0.10, 0.115, 0.046),
+               (fore * 0.26 + 0.075, lat, 0.048 + lift), chamfer=0.30, role="boot")
+            # NEW: ankle cuff, bridges calf -> boot. Every other leg joint
+            # (knee, hip) already has a blob; the ankle was the one butt-join
+            # left on the leg.
+            BL(f"cuff{i}", (fore * 0.22, lat, 0.095 + lift), 0.062,
+               squash=(1.0, 0.85, 0.55), role="boot")
             # Calf swells above the ankle, then narrows into the knee.
             L(f"calf{i}", [(fore * 0.22, lat, 0.10 + lift, 0.050),
                            (fore * 0.20, lat + sgn * 0.004, 0.20 + lift, 0.070),
                            (fore * 0.17 + knee_fwd * 0.4, lat, 0.30 + lift, 0.050)])
             F(f"blouse{i}", (fore * 0.23, lat, 0.115 + lift), (0.15, 0.135, 0.05))
             BL(f"knee{i}", (fore * 0.16 + knee_fwd, lat, 0.34 + lift), R_KNEE * 1.12)
+            # NEW: knee pad, webbing-toned, layered directly over knee{i} --
+            # bigger and a different tone from the trouser fabric (the
+            # "AirFlex" read), and it further bridges thigh<->shin.
+            BL(f"kneepad{i}", (fore * 0.16 + knee_fwd, lat, 0.345 + lift), R_KNEE * 1.35,
+               squash=(1.05, 0.95, 0.85), role="webbing")
             F(f"kneefold{i}", (fore * 0.16 + knee_fwd, lat + sgn * 0.01, 0.29 + lift),
               (0.13, 0.11, 0.055))
             L(f"thigh{i}", [(fore * 0.15 + knee_fwd, lat, 0.36 + lift, R_KNEE),
                             (fore * 0.11 + knee_fwd * 0.5, lat + sgn * 0.006, 0.55, R_THIGH),
                             (fore * 0.05, sgn * 0.105, 0.78 + hz, R_THIGH * 1.04)])
-            BL(f"hip{i}", (0.0, sgn * 0.10, 0.86 + hz), 0.072, squash=(1.0, 0.95, 0.8))
-        B("dropleg", (0.125, 0.09, 0.20), (0.02, 0.215 * hand, 0.40 * H), "webbing")
+            # Hip: enlarged and rounder in all three axes so it overlaps
+            # further into the pelvis's rest volume -- the R0 report's one
+            # measured rigid-binding tear (hip0/hip1 bound to the thigh
+            # bone, visible gap at peak forward swing). Same name/role.
+            BL(f"hip{i}", (0.0, sgn * 0.10, 0.86 + hz), 0.072 * 1.20, squash=(1.05, 1.05, 1.05))
+        RB("dropleg", (0.125, 0.09, 0.20), (0.02, 0.215 * hand, 0.40 * H), chamfer=0.28, role="webbing")
 
     def z(frac):
         return frac * H - drop
@@ -661,20 +748,35 @@ def figure(prefix, at, posture="standing", yaw=0.0, headgear="helmet", stride=0.
     if loadout == "regular":
         # Issued kit: a fitted carrier with pouches in a row, and everything in
         # its place. The regularity is the point -- it is what reads as issued.
-        B("belt", (0.245, 0.255, 0.05), (0.0, hip_tilt * 0.5, z(BELT_Z) + 0.05), "webbing")
-        B("carrier", (0.125, 0.245, 0.20), (0.09, lean * 0.6, z(CHEST_Z) + 0.05))
+        RB("belt", (0.245, 0.255, 0.05), (0.0, hip_tilt * 0.5, z(BELT_Z) + 0.05),
+           chamfer=0.22, role="webbing")
+        # Carrier: chamfered and tapered narrower at the belt (bottom cap)
+        # than the chest (top cap, `size_top`) -- the fuller low-profile-
+        # carrier read (Crye JPC2 / Ferro Concepts Slickster), where a panel
+        # the same width top to bottom reads as a flat slab.
+        RB("carrier", (0.115, 0.205, 0.20), (0.09, lean * 0.6, z(CHEST_Z) + 0.05),
+           chamfer=0.24, size_top=(0.125, 0.245, 0.20))
         for i, py in enumerate((-0.115, 0.005, 0.125)):   # uneven: packed by hand
-            B(f"pouch{i}", (0.105, 0.10, 0.105 + 0.012 * i),
-              (0.155, py + lean * 0.5, z(CHEST_Z) + 0.02), "webbing")
+            RB(f"pouch{i}", (0.105, 0.10, 0.105 + 0.012 * i),
+               (0.155, py + lean * 0.5, z(CHEST_Z) + 0.02), chamfer=0.30, role="webbing")
         for i, sgn in enumerate((-1.0, 1.0)):
             L(f"strap{i}", [(0.045, sgn * 0.075 + lean, z(SHOULDER_Z) - 0.02, 0.030),
                             (0.075, sgn * 0.135 + lean * 0.7, z(CHEST_Z) + 0.13, 0.026)],
               sides=7, squash=0.7, role="webbing")
-        B("admin", (0.07, 0.13, 0.095), (0.135, lean * 0.5, z(CHEST_Z) + 0.155), "webbing")
-        B("dump", (0.10, 0.085, 0.13), (-0.10, -0.155 * hand, z(BELT_Z) + 0.02), "webbing")
+        RB("admin", (0.07, 0.13, 0.095), (0.135, lean * 0.5, z(CHEST_Z) + 0.155),
+           chamfer=0.28, role="webbing")
+        RB("dump", (0.10, 0.085, 0.13), (-0.10, -0.155 * hand, z(BELT_Z) + 0.02),
+           chamfer=0.28, role="webbing")
         L("canteen", [(-0.13, 0.075 * hand, z(BELT_Z) - 0.075, 0.046),
                       (-0.13, 0.075 * hand, z(BELT_Z) + 0.045, 0.043)], sides=8, role="webbing")
-        B("holster", (0.08, 0.056, 0.15), (0.03, -0.215 * hand, 0.40 * H - drop), "webbing")
+        RB("holster", (0.08, 0.056, 0.15), (0.03, -0.215 * hand, 0.40 * H - drop),
+           chamfer=0.30, role="webbing")
+        # NEW: cummerbund, wraps the carrier's sides at belt height -- the
+        # low-profile-carrier side-wrap read, and it thickens the torso
+        # midline in silhouette next to a bare uniform.
+        for i, sgn in enumerate((-1.0, 1.0)):
+            RB(f"cummerbund{i}", (0.11, 0.055, 0.11),
+               (0.02, sgn * 0.155, z(BELT_Z) + 0.16), chamfer=0.35, role="webbing")
     else:
         # Irregular: no carrier at all. A single bandolier across one shoulder, two
         # mismatched pouches at different heights on a plain belt, and a long
@@ -691,9 +793,10 @@ def figure(prefix, at, posture="standing", yaw=0.0, headgear="helmet", stride=0.
         for i, (px, py, pz, ph) in enumerate((
                 (0.115, -0.075 * hand, 0.02, 0.115),
                 (0.095, 0.120 * hand, -0.03, 0.095))):
-            B(f"pouch{i}", (0.095, 0.085, ph),
-              (px, py + lean * 0.4, z(BELT_Z) + pz + 0.06), "webbing")
-        B("belt", (0.235, 0.245, 0.042), (0.0, hip_tilt * 0.5, z(BELT_Z) + 0.05), "webbing")
+            RB(f"pouch{i}", (0.095, 0.085, ph),
+               (px, py + lean * 0.4, z(BELT_Z) + pz + 0.06), chamfer=0.30, role="webbing")
+        RB("belt", (0.235, 0.245, 0.042), (0.0, hip_tilt * 0.5, z(BELT_Z) + 0.05),
+           chamfer=0.22, role="webbing")
         # Long untucked shirt: the hem sits low and irregular over the hips.
         F("shirt_hem", (0.0, hip_tilt * 0.5, z(BELT_Z) - 0.005), (0.31, 0.27, 0.12))
 
@@ -729,6 +832,10 @@ def figure(prefix, at, posture="standing", yaw=0.0, headgear="helmet", stride=0.
                                (fwd * 0.5, ay + sgn * 0.006, elbow_z + 0.09, R_UPPERARM * 0.90),
                                (fwd * 0.8, ay + sgn * 0.004, elbow_z, R_UPPERARM * 0.86)])
             BL(f"elbow{i}", (fwd * 0.8, ay + sgn * 0.004, elbow_z), 0.048)
+            # NEW: elbow pad, same idea as the knee pad -- webbing-toned,
+            # layered directly over elbow{i}.
+            BL(f"elbowpad{i}", (fwd * 0.8, ay + sgn * 0.004, elbow_z), 0.048 * 1.35,
+               squash=(1.0, 0.9, 0.85), role="webbing")
             F(f"elbowfold{i}", (fwd * 0.8, ay + sgn * 0.012, elbow_z + 0.035), (0.10, 0.09, 0.05))
             wrist_z = elbow_z - (0.20 if lead else 0.23) + (wrist_lift or 0.0)
             L(f"forearm{i}", [(fwd * 0.85, ay + sgn * 0.004, elbow_z - 0.01, 0.046),
@@ -738,6 +845,21 @@ def figure(prefix, at, posture="standing", yaw=0.0, headgear="helmet", stride=0.
             BL(f"wrist{i}", (fwd + (0.05 if lead else 0.0), ay, wrist_z), 0.037, role="skin_shadow")
             BL(f"hand{i}", (fwd + (0.075 if lead else 0.01), ay + sgn * 0.008, wrist_z - 0.045),
                0.046, squash=(1.0, 0.82, 0.95), role="face")
+            # NEW: gauntlet + glove. `wrist{i}`/`hand{i}` index the palette's
+            # `skin` ramp, which reads as bright pink/terracotta specks on a
+            # lit render rather than as a person -- see render_team.py's
+            # BODY_PALETTE note; the reference figure is fully covered. Each
+            # of these sits at the *same centre* as the part it covers, with
+            # the *same* squash/sides/rings/wobble and only a bigger radius
+            # -- a uniform scale about a shared centre, which is a strict
+            # geometric enclosure of the covered part's surface at every
+            # vertex, not merely "looks big enough". `wrist{i}`/`hand{i}`
+            # keep their own name and role unchanged -- a parallel rig
+            # stream binds bones by exactly those names.
+            BL(f"gauntlet{i}", (fwd + (0.05 if lead else 0.0), ay, wrist_z), 0.037 * 1.18,
+               role="webbing")
+            BL(f"glove{i}", (fwd + (0.075 if lead else 0.01), ay + sgn * 0.008, wrist_z - 0.045),
+               0.046 * 1.18, squash=(1.0, 0.82, 0.95), role="webbing")
             if smoke is not None and not lead:
                 parts += cigarette(f"{prefix}_cig",
                                    place(fwd + 0.055, ay + sgn * 0.008, wrist_z - 0.030),
@@ -767,11 +889,32 @@ def figure(prefix, at, posture="standing", yaw=0.0, headgear="helmet", stride=0.
        squash=(1.00, 0.96, 1.02), role="skin_shadow")
     BL("face", (hx + 0.064, hy + 0.004, z(HEAD_Z) - 0.070), 0.054,
        squash=(0.94, 0.92, 1.02), role="face")
+    # NEW: hood, balaclava, gaiter. `cranium`, `face` and `neck` all index
+    # the palette's `skin` ramp, which reads as bright pink/terracotta
+    # specks on a lit render rather than as a person -- see render_team.py's
+    # BODY_PALETTE note; the reference figure is fully covered. Each of
+    # these three sits at the exact same centre/waypoints as the part it
+    # covers, with the same squash/sides/rings/wobble and only a bigger
+    # radius -- a uniform scale about a shared centre (or, for `gaiter`, a
+    # coaxial larger-radius tube with no wobble to begin with), which
+    # strictly encloses the covered part's own surface at every vertex
+    # rather than merely being "big enough". Applied regardless of
+    # `headgear` -- a keffiyeh's mantle does not reliably cover the face
+    # patch either, and the enemy figure was the one the stale
+    # render_team.py comment called out worst.
+    BL("hood", (hx - 0.008, hy, z(HEAD_Z) - 0.015), 0.075 * 1.18,
+       squash=(1.00, 0.96, 1.02), role="uniform")
+    BL("balaclava", (hx + 0.064, hy + 0.004, z(HEAD_Z) - 0.070), 0.054 * 1.18,
+       squash=(0.94, 0.92, 1.02), role="uniform")
+    L("gaiter", [(0.0, lean, z(HEAD_Z) - 0.155, R_NECK * 1.05 * 1.3),
+                 (hx * 0.6, hy, z(HEAD_Z) - 0.085, R_NECK * 0.94 * 1.3)],
+      sides=8, role="uniform")
     if headgear == "helmet":
         parts += tactical_helmet(f"{prefix}_helm",
                                  place(hx, hy, z(HEAD_Z) + HEADGEAR_BASE),
                                  yaw=yaw + head_turn, role="uniform")
-        B("chinstrap", (0.085, 0.135, 0.02), (hx + 0.03, hy, z(HEAD_Z) - 0.115), "webbing")
+        RB("chinstrap", (0.085, 0.135, 0.02), (hx + 0.03, hy, z(HEAD_Z) - 0.115),
+           chamfer=0.28, role="webbing")
     elif headgear == "keffiyeh":
         parts += keffiyeh(f"{prefix}_kef",
                           place(hx, hy, z(HEAD_Z) + HEADGEAR_BASE),
