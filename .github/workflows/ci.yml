@@ -34,6 +34,16 @@ jobs:
       - run: pnpm validate:audio
       - run: python tools/validate_balance.py --units data/units
       - run: pnpm balance
+      # Headless mission playtests (tools/src/backtest/playtest.ts): each Beit Sahwan/
+      # Wadi Halam mission must be winnable by a sensible scripted plan inside its time
+      # budget. This was a manual `npx tsx` script, wired into neither `pnpm test` nor
+      # CI, and it crashed on every mission from Beit Sahwan II onward for days after
+      # d46b926 landed -- fixed at b604032, but nothing caught the break itself because
+      # nothing ran this gate (CLAUDE.md's "Known scaling debts"). No sim/browser/GPU
+      # involved and it finishes in ~3s, so -- unlike the golden-diff gate in its own
+      # workflow -- it costs nothing to run on every push rather than being gated
+      # behind a schedule or a label.
+      - run: pnpm playtest
       # Sim-side half of the three-vs-Pixi scaling claim (tools/src/perf/three-units.ts):
       # no browser/GPU involved, so it can run headless here exactly like `pnpm balance`
       # above it. Fails the build if sim.tick() cost regresses past a generous budget at
