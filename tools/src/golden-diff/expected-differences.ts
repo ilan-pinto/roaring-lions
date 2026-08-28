@@ -78,42 +78,54 @@ export const EXPECTED_DIFFERENCES: readonly ExpectedDifference[] = [
       'all -- it is an intentionally unported feature.',
   },
   {
-    id: 'tracerTtl',
+    id: 'turretMuzzleOriginIsSoft',
     symptom:
-      'Tracer/projectile visual lifetime differs between backends, most visible when a ' +
-      'capture batches many sim ticks into one rendered frame (as this harness\'s ' +
-      '__lions.step(n) does).',
+      "gun_truck and technical's tracer/muzzle-flash spawn point and initial bearing may " +
+      "sit a few pixels off between backends, specifically while the turret sprite is still " +
+      "swung away from the hull's own heading (e.g. just after acquiring a target that isn't " +
+      "straight ahead). NOT a frozen or non-turning turret -- see 2026-08-28 correction below.",
     mechanism:
-      "Pixi's tracer TTL is FRAME-COUNT based (decrements once per renderer.frame() " +
-      "call); three's is TIME-based (decrements by real dtMs). The B3 outcome doc notes " +
-      "these are 'identical at 60Hz' under normal per-frame play -- but __lions.step(n) " +
-      "calls renderer.frame(1, lastFrameMs) exactly ONCE regardless of how many ticks n " +
-      "advanced, so a tracer spawned mid-batch can read as fresh in Pixi (one frame-count " +
-      "tick) while three has already advanced it by lastFrameMs of elapsed time, or vice " +
-      "versa depending on when within the batch it spawned.",
-    source: 'docs/superpowers/specs/2026-08-27-phase-b3-outcome.md, defect #3 ("Tracer TTL is frame-count based").',
+      "REVISED 2026-08-28 after cross-backend pixel testing (see " +
+      ".superpowers/d-predictions-report.md): the original entry here (id " +
+      "'turretBearingIsSoft') claimed Pixi never turns a gun_truck/technical turret sprite at " +
+      "all because of an `!type.isSoft` gate. That claim is WRONG -- read against current " +
+      "renderer.ts, the turret sprite's spring-physics bearing update (renderer.ts:2112-2140, " +
+      "`if (atlas.turretTextures) { ... this.turretFacing[i] += ... }`) has NO isSoft gate " +
+      "anywhere in it or its git history; it runs for any unit type with turret art, " +
+      "unconditionally. Live-tested: staged a gun_truck against a tracked, undying target in " +
+      "both backends from identical sim state, stepped ~180 ticks, and read each backend's own " +
+      "internal turretFacing directly -- Pixi converged to 0.250219 turns, three to 0.250197, " +
+      "both starting near 0.49 and both visibly swinging the turret sprite in matching " +
+      "screenshots (mid-engagement, tracer visible, turret pointed off the hull's spawn " +
+      "heading in both). The 'frozen at spawn bearing' observation that motivated the original " +
+      "entry is better explained by fog-of-war: renderer.ts:1934's `if (st.side[i] !== 0 && " +
+      "!this.isVisible(x, y)) continue` skips a hostile's ENTIRE per-frame draw block " +
+      "(including the turret spring) whenever no friendly unit currently sees its tile -- " +
+      "reproduced directly: turretFacing froze bit-identically across 8 consecutive step() " +
+      "calls the instant the only spotting unit died and fog closed over the gun_truck, with " +
+      "no isSoft involvement at all. What IS still real and isSoft-gated: the ONE-SHOT muzzle " +
+      "point used to spawn a tracer (renderer.ts:778, `usesTurret = !type.isSoft && ...`) uses " +
+      "HULL facing for gun_truck/technical specifically (the two isSoft types with turret art), " +
+      "while three's equivalent (ThreeRenderer.ts:1319-1334) is gated on having turret art " +
+      "loaded rather than on isSoft -- three's own doc comment there calls this 'a deliberate, " +
+      "narrower condition ... strictly more correct, not merely different'. This changes where " +
+      "a tracer originates and its initial angle by up to barrelLen (0.4-0.8 world tiles) " +
+      "whenever turret and hull facing have not yet converged. Not independently isolated with " +
+      "pixels -- in testing, gun_truck's hull auto-faced its target the instant one was " +
+      "acquired (a sim-level behaviour, not a renderer one), so hull and turret facing " +
+      "converged to the same value before a shot was fired, leaving no visible gap to capture. " +
+      "The divergence window is real but narrow: only the interval after a NEW, off-hull-axis " +
+      "target is acquired and before the turret's damped spring (renderer.ts:2125-2138) has " +
+      "caught up.",
+    source:
+      'Originally docs/superpowers/specs/2026-08-27-phase-b3-outcome.md, defect #4; corrected ' +
+      'by .superpowers/d-predictions-report.md (2026-08-28) against current renderer.ts and ' +
+      'ThreeRenderer.ts, with live cross-backend turretFacing readings and matching screenshots.',
     howToConfirm:
-      'Diff region is a short line/streak (an in-flight tracer) rather than a static ' +
-      'sprite or terrain tile, and the capture used step(n) with n > 1.',
-  },
-  {
-    id: 'turretBearingIsSoft',
-    symptom:
-      "gun_truck and technical's turrets point a different direction between backends; " +
-      "dozer_d9 or heli_peten may show a muzzle-flash-style sprite pointed at their " +
-      "mission-start bearing in Pixi regardless of where they have since turned.",
-    mechanism:
-      "Pixi gates turret-bearing updates on `!type.isSoft` (renderer.ts), and isSoft is " +
-      "derived from armour. gun_truck and technical are exactly the two types that are " +
-      "BOTH soft AND ship real turret art (turretAxisPx) -- so Pixi never updates the one " +
-      "sprite state that would show it turning, and it stays frozen at spawn bearing. " +
-      "Conversely dozer_d9/heli_peten (non-soft, no turret art) still have Pixi update an " +
-      "internal turretFacing nothing draws from -- a cosmetic double bug. Three fixed " +
-      "this; the Pixi behaviour was intentionally NOT ported (filed upstream instead).",
-    source: 'docs/superpowers/specs/2026-08-27-phase-b3-outcome.md, defect #4 ("Turret bearing is gated on !type.isSoft").',
-    howToConfirm:
-      'Roster includes gun_truck, technical, dozer_d9 or heli_peten, and combat has run ' +
-      'long enough for a turret to have retargeted since spawn.',
+      'Roster includes gun_truck or technical, a shot fires in the first ~1s after the unit ' +
+      'acquires a target whose bearing differs from the hull\'s current heading, and the diff ' +
+      'region is the tracer\'s start point/angle specifically -- NOT the turret sprite itself, ' +
+      'which matches across backends once both settle (confirmed: within ~0.0001 turns).',
   },
   {
     id: 'turretFireClip',
@@ -128,6 +140,40 @@ export const EXPECTED_DIFFERENCES: readonly ExpectedDifference[] = [
       "turretFiringTimer and renders it. Intentional divergence, not a port gap.",
     source: 'docs/superpowers/specs/2026-08-27-phase-b3-outcome.md, defect #5 ("The turret fire clip has never rendered, in either backend").',
     howToConfirm: 'Unit is gun_truck (the only shipped turret-art type with a fire clip) and is actively firing in the captured window.',
+  },
+  {
+    id: 'unitWreckMissingInThree',
+    symptom:
+      'A killed vehicle or infantry unit (any type WITHOUT mesh art, i.e. everything except ' +
+      'inf_squad under &mesh) simply vanishes in three once its short death-fade finishes -- ' +
+      'no wreck sprite is left on the ground. The identical kill in Pixi leaves a permanent, ' +
+      'dark wreck/debris sprite at the death location that persists for the rest of the mission.',
+    mechanism:
+      "Confirmed 2026-08-28 (.superpowers/d-predictions-report.md), a NEW finding this " +
+      "harness's own \"unit death / wreck close-up\" check turned up -- not previously in this " +
+      "catalogue. `ThreeRenderer.stepDeaths` (ThreeRenderer.ts:2273-2323) is explicit in its " +
+      "own doc comment that it ports Pixi's stepDeaths (renderer.ts:1230-1275) 'minus the " +
+      "permanent-wreckage half': Pixi's addWreck/wreckLayer/MAX_WRECKS system (and the " +
+      "isExplored fog-gate bound up with it) has no three-side counterpart for ordinary " +
+      "billboard/instanced units. The comment names this outright: 'Wreckage-plus-its-fog-gate " +
+      "remains a real, tracked gap; it belongs with whichever future task adds permanent " +
+      "wreckage, not this one.' Structures DO get a three-side wreck (structureWreck, " +
+      "ThreeRenderer.ts:1850-1860) and mesh units get their own separate wreck path when their " +
+      "GLB carries a wreck clip (ThreeRenderer.ts:561-563) -- this gap is specifically ordinary " +
+      "(non-mesh) UNIT wrecks, ordinary because that is every currently-shipped unit type " +
+      "except inf_squad-under-&mesh. Live-tested: killed the same mbt_lavi (applyDamage, " +
+      "identical dmg/by args) in both backends from identical synced sim state, stepped 15 " +
+      "frame() calls (~0.75s, past DEATH_SECONDS=0.4), screenshotted the same world point in " +
+      "both -- Pixi shows a dark, angular wreck (turret/hull debris pieces) at the death tile; " +
+      "three shows bare, empty ground at the same tile. No wreck, no decal, nothing.",
+    source: '.superpowers/d-predictions-report.md (2026-08-28), cross-referenced against ' +
+      'ThreeRenderer.ts:2273-2323\'s own doc comment.',
+    howToConfirm:
+      'A non-mesh unit (the common case -- almost the whole roster) died more than ' +
+      '~DEATH_SECONDS ago in the captured window. Diff region is a solid-interior blob (the ' +
+      'wreck footprint), present in the Pixi capture and absent -- bare terrain -- in the ' +
+      'three capture. Does not apply to structures (which do get a three-side wreck) or to a ' +
+      'mesh unit under &mesh with its own wreck clip.',
   },
   {
     id: 'groupBadgeNumeralBand',
