@@ -15,9 +15,10 @@ player most if it shipped wrong.
 |---|---|---|
 | 1 | Five unit types render as nothing | **3 of 5 done** — `sarim_rifles`, `recoilless_team`, `manpad_team` shipped and wired. `attack_drone` (the tutorial hands it to the player) and `rocket_battery` in flight. |
 | 2 | Smoke not drawn at all | **done** — verified 29 sim tiles → 29 instances |
-| 3 | Air units flush on ground | **half done** — lift is a real world height now; **the shadow ellipse was never ported** |
+| 3 | Air units flush on ground | **done** — lift AND the shadow ellipse (`ThreeRenderer.ts:2645`). The audit said the shadow was never ported and this list repeated it; a five-map walk found a flown `heli_peten` casting it correctly. Corrected 2026-08-29. |
 | 4 | Objective zone not drawn | **done** |
-| 5 | Three rendered on 1 of 5 maps | **in flight** — `tel_marum` (the only elevation map) has never been drawn by this backend |
+| 5 | Three rendered on 1 of 5 maps | **done, and it found a defect** — see #20. `tel_marum`'s elevation-4 wall extrusions (occlusion, tracer lift, mid-slope picking) were NOT reached; everything else on that map matched. |
+| 20 | **Open-ground scatter renders as flat diamonds** | **open, highest-harm visual defect found so far** — Pixi draws layered blob-plus-highlight rock marks; three draws flat diamonds. Affects the non-`sward` branch, so **4 of 5 maps and every mission on them**. `sim.cover` is identical, so purely visual — but it turns rocky desert into flat plain. Missed by the golden diff because that only ever measured one quiet scene with no open ground at zoom. Start at `three/terrain/scatter.ts`'s `DECOR_KNOLL`/stone-grain branches against `tones.ts`. |
 | 6 | Six unported overlay passes | **open** — weapon envelopes, shepherd radius, engagement reticles, building integrity + garrison pips, demolition/tunnel-charge progress ring, mobility/firepower-kill pips |
 | 7 | Escape hatch `?renderer=pixi` | **done and clicked** |
 
