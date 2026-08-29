@@ -264,6 +264,16 @@ backend-only and warns by name on Pixi. Pipeline: `tools/units/kit.py` (geometry
   the same defect `229aad5` fixed for manifests. Fixed: probe output goes to
   `.superpowers/probe/`. If you touch that path, re-prove `git status` stays
   clean after a probe run.
+- **The elevation debts above were finally walked on `tel_marum` (2026-08-29)
+  and four of the five are not what the bullet implies.** Extruded terrain
+  fails to occlude units IDENTICALLY in both backends (neither does volumetric
+  occlusion); mid-slope picking works in both; the wreck/fx sorting gap
+  produced no visible artifact even staged at the map's steepest 4-level drop;
+  and `raySmoke` is shared sim code that cannot diverge by backend. The one
+  real divergence runs the OTHER way: Pixi's tracers and puffs ignore
+  elevation (`renderer.ts:2599`, a flat `isoY(...)-4`) while three's
+  `TracerBatch` lifts by the higher endpoint's ground height. Three is
+  correct there and Pixi is not.
 - **A renderer choice persists per ORIGIN, not per tab** (`renderer-choice.ts`,
   `localStorage['lions.renderer']`). Two tabs open on the same origin fight
   over it -- observed live. Harmless between agents; a real hazard for a player
