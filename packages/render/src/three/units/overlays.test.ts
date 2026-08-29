@@ -35,6 +35,15 @@ import {
   OBJECTIVE_ZONE_STROKE_INSET_TILES,
   AIR_SHADOW_COLOR_KEY,
   WRECK_MARKER_COLOR_KEY,
+  MOBILITY_KILL_COLOR_KEY,
+  FIREPOWER_KILL_COLOR_KEY,
+  FIREPOWER_KILL_FALLBACK_COLOR,
+  buildingIntegrityColorKey,
+  CHARGE_RING_TRACK_COLOR_KEY,
+  CHARGE_RING_FILL_COLOR_KEY,
+  CHARGE_RING_FILL_FALLBACK_COLOR,
+  ISO_K,
+  tileRadiusToEllipsePx,
   OverlayBatch,
   NumeralBatch,
 } from './overlays';
@@ -143,6 +152,64 @@ describe('overlay palette keys resolve to the exact hex Pixi hard-codes at the e
 
   it('WRECK_MARKER_COLOR_KEY -> #5C625F, Pixi\'s permanent-wreck cross-marker stroke (same swatch renderer.ts:2402 names gunmetal.2)', () => {
     expect(resolve(WRECK_MARKER_COLOR_KEY)).toBe('#5C625F');
+  });
+
+  it('MOBILITY_KILL_COLOR_KEY -> #8E9491, Pixi\'s own mobility-kill pip literal, exactly', () => {
+    expect(resolve(MOBILITY_KILL_COLOR_KEY)).toBe('#8E9491');
+  });
+
+  it('buildingIntegrityColorKey\'s three tiers resolve to Pixi\'s own three literals (0.6/0.3 thresholds, NOT hpBarColorKey\'s 0.5/0.25)', () => {
+    expect(resolve(buildingIntegrityColorKey(1))).toBe('#8E9491');
+    expect(resolve(buildingIntegrityColorKey(0.4))).toBe('#E8C33A');
+    expect(resolve(buildingIntegrityColorKey(0.1))).toBe('#D93A2B');
+  });
+
+  it('CHARGE_RING_TRACK_COLOR_KEY -> #5C625F, CHARGE_RING_FILL_COLOR_KEY -> #E8541E, Pixi\'s own charge-ring resolveColor fallbacks', () => {
+    expect(resolve(CHARGE_RING_TRACK_COLOR_KEY)).toBe('#5C625F');
+    expect(resolve(CHARGE_RING_FILL_COLOR_KEY)).toBe('#E8541E');
+    expect(resolve(CHARGE_RING_FILL_COLOR_KEY)).toBe(CHARGE_RING_FILL_FALLBACK_COLOR);
+  });
+
+  it('FIREPOWER_KILL_COLOR_KEY resolves to its own stated fallback -- Pixi\'s own #8B1E12 has no palette match at all (see this key\'s own doc comment)', () => {
+    expect(resolve(FIREPOWER_KILL_COLOR_KEY)).toBe(FIREPOWER_KILL_FALLBACK_COLOR);
+    expect(resolve(FIREPOWER_KILL_COLOR_KEY)).not.toBe('#8B1E12');
+  });
+});
+
+describe('FIREPOWER_KILL_COLOR_KEY is genuinely the nearest palette entry to Pixi\'s off-palette #8B1E12', () => {
+  it('beats every other entry in the palette by squared RGB distance', () => {
+    const target = { r: 0x8b, g: 0x1e, b: 0x12 };
+    const ramps = paletteJson.ramps as Record<string, { colors: string[] }>;
+    const reserved = paletteJson.reserved as Record<string, { colors: Record<string, string> }>;
+    const hex = (h: string): { r: number; g: number; b: number } => ({
+      r: parseInt(h.slice(1, 3), 16),
+      g: parseInt(h.slice(3, 5), 16),
+      b: parseInt(h.slice(5, 7), 16),
+    });
+    const dist = (h: string): number => {
+      const c = hex(h);
+      return (c.r - target.r) ** 2 + (c.g - target.g) ** 2 + (c.b - target.b) ** 2;
+    };
+    let best = Infinity;
+    for (const ramp of Object.values(ramps)) for (const c of ramp.colors) best = Math.min(best, dist(c));
+    for (const group of Object.values(reserved)) for (const c of Object.values(group.colors)) best = Math.min(best, dist(c));
+    expect(dist(FIREPOWER_KILL_FALLBACK_COLOR)).toBe(best);
+  });
+});
+
+describe('tileRadiusToEllipsePx / ISO_K', () => {
+  it('ISO_K is Math.SQRT1_2, Pixi\'s own weapon-envelope and tutorial-ring constant', () => {
+    expect(ISO_K).toBe(Math.SQRT1_2);
+  });
+
+  it('matches Pixi\'s ring() closure verbatim: tiles * TILE_W * ISO_K, tiles * TILE_H * ISO_K', () => {
+    const { rightR, upR } = tileRadiusToEllipsePx(4, 64, 32);
+    expect(rightR).toBeCloseTo(4 * 64 * Math.SQRT1_2, 10);
+    expect(upR).toBeCloseTo(4 * 32 * Math.SQRT1_2, 10);
+  });
+
+  it('a zero-tile radius collapses to a point, not NaN', () => {
+    expect(tileRadiusToEllipsePx(0, 64, 32)).toEqual({ rightR: 0, upR: 0 });
   });
 });
 
@@ -270,6 +337,31 @@ describe('OverlayBatch.line', () => {
       expect(colors[v * 3 + 1]).toBeCloseTo(1, 5);
       expect(colors[v * 3 + 2]).toBeCloseTo(0, 5);
       expect(alphas[v]).toBeCloseTo(0.5, 5);
+    }
+  });
+});
+
+describe('OverlayBatch.lineWorld', () => {
+  it('one segment between two independent world points uploads exactly 6 vertices', () => {
+    const batch = new OverlayBatch(64);
+    batch.beginFrame();
+    batch.lineWorld([0, 0, 0], [5, 0, 3], 1, '#B8FF5A', 0.35);
+    batch.endFrame();
+    expect(batch.mesh.geometry.drawRange.count).toBe(6);
+  });
+
+  it('writes the resolved colour and alpha into every vertex it pushes', () => {
+    const batch = new OverlayBatch(64);
+    batch.beginFrame();
+    batch.lineWorld([0, 0, 0], [5, 0, 3], 1, '#00FF00', 0.35);
+    batch.endFrame();
+    const colors = (batch.mesh.geometry.getAttribute('aColor') as THREE.BufferAttribute).array as Float32Array;
+    const alphas = (batch.mesh.geometry.getAttribute('aAlpha') as THREE.BufferAttribute).array as Float32Array;
+    for (let v = 0; v < 6; v++) {
+      expect(colors[v * 3]).toBeCloseTo(0, 5);
+      expect(colors[v * 3 + 1]).toBeCloseTo(1, 5);
+      expect(colors[v * 3 + 2]).toBeCloseTo(0, 5);
+      expect(alphas[v]).toBeCloseTo(0.35, 5);
     }
   });
 });

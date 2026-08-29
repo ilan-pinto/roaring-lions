@@ -20,6 +20,7 @@ import {
   objectiveZoneCorners,
   pushPolygonFillWorld,
   pushPolygonStrokeWorld,
+  pushLineWorld,
   OVERLAY_RING_SEGMENTS,
 } from './overlay-geometry';
 
@@ -352,5 +353,92 @@ describe('pushPolygonStrokeWorld', () => {
     const soup = createTriangleSoup(64);
     pushPolygonStrokeWorld(soup, [[0, 0, 0], [1, 0, 1]], 0.2, RED, 0.5);
     expect(soup.count).toBe(0);
+  });
+});
+
+describe('pushLineWorld', () => {
+  it('writes two triangles (6 vertices) for one segment between two arbitrary world points', () => {
+    const soup = createTriangleSoup(6);
+    pushLineWorld(soup, [0, 0, 0], [5, 0, 3], 2, RED, 1);
+    expect(soup.count).toBe(6);
+  });
+
+  it('colour and alpha apply uniformly to every written vertex', () => {
+    const soup = createTriangleSoup(6);
+    pushLineWorld(soup, [0, 0, 0], [5, 0, 3], 2, RED, 0.35);
+    for (let v = 0; v < 6; v++) {
+      expect(soup.colors[v * 3]).toBe(1);
+      expect(soup.colors[v * 3 + 1]).toBe(0);
+      expect(soup.colors[v * 3 + 2]).toBe(0);
+      expect(soup.alphas[v]).toBeCloseTo(0.35, 5);
+    }
+  });
+
+  it('a zero-length segment (shooter and target on the same tile) does not divide by zero', () => {
+    const soup = createTriangleSoup(6);
+    pushLineWorld(soup, [3, 0, 3], [3, 0, 3], 2, RED, 1);
+    for (let v = 0; v < soup.count * 3; v++) {
+      expect(Number.isFinite(soup.positions[v])).toBe(true);
+    }
+  });
+
+  it('a screen-horizontal segment (endpoints separated purely along the "right" pixel axis) thickens purely vertically, in world Y', () => {
+    // screenOffsetToWorld(1, 0) is, by construction, the world (dx, dy) that
+    // produces exactly one screen pixel of pure rightward movement with no
+    // vertical component -- the identical basis vector billboardPoint's own
+    // test above uses. 20 of them in a row is a segment this function's own
+    // forward isoX/isoY projection sees as perfectly horizontal on screen,
+    // so pushLinePx's own "horizontal segment thickens purely vertically"
+    // invariant should hold here too, through the world-point path instead
+    // of the anchor-offset one.
+    const right = screenOffsetToWorld(1, 0);
+    const p0: [number, number, number] = [0, 0, 0];
+    const p1: [number, number, number] = [right.dx * 20, 0, right.dy * 20];
+    const soup = createTriangleSoup(6);
+    pushLineWorld(soup, p0, p1, 4, RED, 1);
+    const top: [number, number, number] = [p0[0], p0[1] + 2 * WORLD_Y_PER_LIFT_PIXEL, p0[2]];
+    const bottom: [number, number, number] = [p0[0], p0[1] - 2 * WORLD_Y_PER_LIFT_PIXEL, p0[2]];
+    let foundTop = false;
+    let foundBottom = false;
+    for (let v = 0; v < 6; v++) {
+      const x = soup.positions[v * 3];
+      const y = soup.positions[v * 3 + 1];
+      const z = soup.positions[v * 3 + 2];
+      if (Math.abs(x - top[0]) < 1e-6 && Math.abs(y - top[1]) < 1e-6 && Math.abs(z - top[2]) < 1e-6) foundTop = true;
+      if (Math.abs(x - bottom[0]) < 1e-6 && Math.abs(y - bottom[1]) < 1e-6 && Math.abs(z - bottom[2]) < 1e-6) {
+        foundBottom = true;
+      }
+    }
+    expect(foundTop).toBe(true);
+    expect(foundBottom).toBe(true);
+  });
+
+  it('matches pushLinePx vertex-for-vertex when both endpoints are expressed relative to the same anchor -- pins the perpendicular SIGN, not just its existence', () => {
+    // The two "foundTop"/"foundBottom" checks above only assert that a point
+    // at each extreme exists somewhere in the 6 vertices -- a stroked quad is
+    // symmetric about its own centreline, so a perpendicular with the WRONG
+    // sign still produces a top point and a bottom point, just swapped
+    // between which named corner holds which (caught by mutation testing,
+    // not by inspection). This test instead compares against pushLinePx's
+    // own already-trusted output for the IDENTICAL geometry -- p0/p1
+    // expressed as small pixel offsets from one shared anchor, which is
+    // exactly the case `billboardPoint` makes the two functions' inputs
+    // interchangeable for -- vertex for vertex, in the order each writes
+    // them, not merely as a same-membership set.
+    const anchor: [number, number, number] = [5, 1, 5];
+    const x0 = -7, y0 = -5, x1 = 7, y1 = 5, width = 3;
+    const p0 = billboardPoint(anchor, x0, -y0);
+    const p1 = billboardPoint(anchor, x1, -y1);
+
+    const soupPx = createTriangleSoup(6);
+    pushLinePx(soupPx, anchor, x0, y0, x1, y1, width, RED, 1);
+
+    const soupWorld = createTriangleSoup(6);
+    pushLineWorld(soupWorld, p0, p1, width, RED, 1);
+
+    expect(soupWorld.count).toBe(soupPx.count);
+    for (let i = 0; i < soupPx.count * 3; i++) {
+      expect(soupWorld.positions[i]).toBeCloseTo(soupPx.positions[i], 5);
+    }
   });
 });

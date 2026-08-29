@@ -59,7 +59,7 @@
  * porting, not a shortcut).
  */
 import { screenOffsetToWorld } from '../terrain/shared';
-import { WORLD_Y_PER_LIFT_PIXEL } from '../../project';
+import { WORLD_Y_PER_LIFT_PIXEL, isoX, isoY } from '../../project';
 
 /** World-plane delta for one screen pixel of purely horizontal movement --
  *  computed once, like every other fixed-camera billboard axis in this
@@ -463,4 +463,67 @@ export function pushPolygonStrokeWorld(
     pushTriangleWorld(soup, [points[i], points[j], inner[j]], color, alpha);
     pushTriangleWorld(soup, [points[i], inner[j], inner[i]], color, alpha);
   }
+}
+
+/**
+ * A stroked straight line between two arbitrary WORLD points -- neither an
+ * anchor-relative offset (every push*Px function above) nor a pre-resolved
+ * polygon corner (the objective-zone section above). Its one caller is the
+ * engagement-reticle "duel line" (`ThreeRenderer.updateOverlays`, ported from
+ * `renderer.ts`'s `g.moveTo(sx0, sy0).lineTo(rx, ry).stroke(...)`): a shooter
+ * and its current target are two INDEPENDENT entities, arbitrarily far apart,
+ * so there is no single shared anchor to express both endpoints as small
+ * pixel offsets from -- the one precondition every anchor-based push*Px
+ * function relies on.
+ *
+ * The camera is a fixed orthographic dimetric projection with no perspective
+ * foreshortening, so a straight 3D segment between two world points always
+ * projects to a straight 2D segment between their screen positions, and
+ * `project.ts`'s pure `isoX`/`isoY` arithmetic and `three/camera.ts`'s real
+ * camera agree on every point by construction (that file's own doc comment:
+ * its pitch is chosen exactly so the two projections agree). `project.ts`'s
+ * own top comment warns "a three.js backend will NOT use these functions --
+ * there the projection is the camera"; this is not that -- `isoX`/`isoY` are
+ * used here only to find which SCREEN direction the segment already runs in,
+ * so a constant-pixel-width stroke can be built around it. Nothing here
+ * places anything the real camera will draw; only `pushTriangleWorld`'s
+ * plain world coordinates, at the end, do that.
+ */
+export function pushLineWorld(
+  soup: TriangleSoup,
+  p0: WorldPoint,
+  p1: WorldPoint,
+  widthPx: number,
+  color: OverlayColor,
+  alpha: number
+): void {
+  // Forward-project both endpoints to Pixi's own screen convention
+  // (x-right, y-down): `isoY(...) - lift` is `worldToScreen`'s own formula,
+  // with `lift` recovered from `p*[1]` the same way `billboardPoint`'s
+  // `upPx * WORLD_Y_PER_LIFT_PIXEL` produces it in the first place.
+  const s0x = isoX(p0[0], p0[2]);
+  const s0y = isoY(p0[0], p0[2]) - p0[1] / WORLD_Y_PER_LIFT_PIXEL;
+  const s1x = isoX(p1[0], p1[2]);
+  const s1y = isoY(p1[0], p1[2]) - p1[1] / WORLD_Y_PER_LIFT_PIXEL;
+  const dx = s1x - s0x;
+  const dy = s1y - s0y;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  const half = widthPx / 2;
+  // Perpendicular, in screen pixels -- `pushLinePx`'s own identical formula.
+  const nxPx = (-dy / len) * half;
+  const nyPx = (dx / len) * half;
+  // Convert that pixel-space perpendicular back into a world vector via the
+  // SAME per-pixel basis `billboardPoint` uses (`RIGHT_PER_PX`,
+  // `WORLD_Y_PER_LIFT_PIXEL`) -- both are translation-invariant, so the one
+  // offset vector computed here is valid added at EITHER endpoint without
+  // needing either one's own anchor.
+  const offX = RIGHT_PER_PX.dx * nxPx;
+  const offY = -nyPx * WORLD_Y_PER_LIFT_PIXEL; // Pixi y-down -> world-Y-up
+  const offZ = RIGHT_PER_PX.dy * nxPx;
+  const a0: WorldPoint = [p0[0] + offX, p0[1] + offY, p0[2] + offZ];
+  const a1: WorldPoint = [p0[0] - offX, p0[1] - offY, p0[2] - offZ];
+  const b0: WorldPoint = [p1[0] - offX, p1[1] - offY, p1[2] - offZ];
+  const b1: WorldPoint = [p1[0] + offX, p1[1] + offY, p1[2] + offZ];
+  pushTriangleWorld(soup, [a0, a1, b0], color, alpha);
+  pushTriangleWorld(soup, [a0, b0, b1], color, alpha);
 }

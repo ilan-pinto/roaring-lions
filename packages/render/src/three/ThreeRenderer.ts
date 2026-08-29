@@ -106,7 +106,7 @@
 import * as THREE from 'three';
 import { fx, WEAPON_CLASS, type Fx, type Sim, type SimEvent } from '@lions/sim';
 import type { Renderer, RendererOptions, TerrainTones } from '../api'; // both, after Step 2
-import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, type Camera } from '../project';
+import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
 import { SIM_HZ } from '../anim';
 import { parseManifest, parseStructureManifest, clipOrFallback, type SheetSpec } from '../sheet';
@@ -191,6 +191,14 @@ import {
   OBJECTIVE_ZONE_STROKE_INSET_TILES,
   AIR_SHADOW_COLOR_KEY,
   WRECK_MARKER_COLOR_KEY,
+  MOBILITY_KILL_COLOR_KEY,
+  FIREPOWER_KILL_COLOR_KEY,
+  FIREPOWER_KILL_FALLBACK_COLOR,
+  buildingIntegrityColorKey,
+  CHARGE_RING_TRACK_COLOR_KEY,
+  CHARGE_RING_FILL_COLOR_KEY,
+  CHARGE_RING_FILL_FALLBACK_COLOR,
+  tileRadiusToEllipsePx,
 } from './units/overlays';
 
 /** Where a unit type's sheets live, as the app named them. */
@@ -2704,6 +2712,31 @@ export class ThreeRenderer implements Renderer {
         );
       }
 
+      // Kill-state pips: mobility (gray) and firepower (dark red) --
+      // renderer.ts: `if (st.mobilityKilled[i] === 1) g.circle(sx - r, sy +
+      // r - 2, 3).fill('#8E9491')` and the firepower twin at `sx + r`. A
+      // vehicle that lost its engine but can still shoot, or lost its gun
+      // but can still drive, reads identically to a fully healthy one
+      // without these -- the HP bar alone does not carry that distinction.
+      if (st.mobilityKilled[i] === 1) {
+        this.overlayBatch.ellipseFan(
+          billboardPoint(anchor, -r, -(r - 2)),
+          3,
+          3,
+          this.overlayColor(MOBILITY_KILL_COLOR_KEY, '#8E9491'),
+          1
+        );
+      }
+      if (st.firepowerKilled[i] === 1) {
+        this.overlayBatch.ellipseFan(
+          billboardPoint(anchor, r, -(r - 2)),
+          3,
+          3,
+          this.overlayColor(FIREPOWER_KILL_COLOR_KEY, FIREPOWER_KILL_FALLBACK_COLOR),
+          1
+        );
+      }
+
       // Control-group colour -- shared by the badge and the selection ring,
       // exactly as renderer.ts's own comment says: "so a group reads as one
       // formation instead of as a loose selection."
@@ -2728,6 +2761,201 @@ export class ThreeRenderer implements Renderer {
         this.overlayBatch.ellipseFan(badgeCenter, 7, 7, groupColor || accentDefault, 0.95);
         this.numeralBatch.push(badgeCenter, 0, 0, 10, 12, grp);
       }
+    }
+
+    // Building status: an integrity bar once a building has been hit, and a
+    // pip per man inside -- renderer.ts's own comment: "you should be able
+    // to see that a house is held and how close it is to coming down."
+    // `footprintCentre` (already this file's own choice for the garrison
+    // hover affordance below) anchors both the bar and the badge -- the
+    // SAME point Pixi's `fx.toNumber(str.cx[s])`/`cy[s]` resolves to for a
+    // rectangular footprint (that function's own doc comment has the
+    // algebra), chosen over reading `str.cx`/`cy` directly so this loop's
+    // anchor and the hover affordance's anchor for the SAME structure never
+    // disagree.
+    {
+      const str = this.sim.structures;
+      for (let s = 0; s < this.sim.structureCount; s++) {
+        if (str.alive[s] === 0) continue;
+        const stype = this.sim.structureTypes[str.typeIdx[s]];
+        const { fx: scx, fy: scy } = footprintCentre(this.sim, s);
+        const groundYs = groundWorldY(elevation, width, height, scx, scy);
+        const structAnchor: [number, number, number] = [scx, groundYs, scy];
+        // renderer.ts: `art?.badgeTopPx ?? stype.heightPx` -- the mosque's
+        // own comment there: `heightPx` (the procedural extrusion's height)
+        // is right only for a structure with no sprite; `badgeTopPx` is the
+        // topmost opaque row of its real art.
+        const badgeTopPx = this.structureRoofArt.get(stype.id)?.badgeTopPx ?? stype.heightPx;
+        const topUp = badgeTopPx + 12; // Pixi's `top = by - badgeTopPx - 12`
+
+        // Integrity bar -- renderer.ts: `g.rect(bx - 16, top, 32, 4)` (bg)
+        // then the same rect scaled by `ratio` (fill), only once damaged.
+        const ratio = str.maxHp[s] > 0 ? str.hp[s] / str.maxHp[s] : 1;
+        if (ratio < 0.999) {
+          this.overlayBatch.rect(
+            structAnchor,
+            -16,
+            -topUp,
+            16,
+            -topUp + 4,
+            this.overlayColor(HP_BG_COLOR_KEY, '#14150F'),
+            0.85
+          );
+          this.overlayBatch.rect(
+            structAnchor,
+            -16,
+            -topUp,
+            -16 + 32 * Math.max(0, ratio),
+            -topUp + 4,
+            this.overlayColor(buildingIntegrityColorKey(ratio), '#8E9491'),
+            1
+          );
+        }
+
+        // Held building: a house badge in the holder's colour, one pip per
+        // man inside -- renderer.ts's own comment: "who is in there and how
+        // many reads at a glance." `this.opts.teamColors` is an
+        // ALREADY-RESOLVED hex per side (the app's own job), the identical
+        // source every other team-coloured overlay already reads from --
+        // not a palette-key lookup at this call site.
+        const occ = str.occupants[s];
+        if (occ > 0) {
+          let side = 1;
+          for (let i = 0; i < n; i++) {
+            if (st.alive[i] === 1 && st.garrisonedIn[i] === s) {
+              side = st.side[i];
+              break;
+            }
+          }
+          const col = this.opts.teamColors[side];
+          const by2Rel = -(topUp + 16); // Pixi's `by2 = top - 16`
+          this.overlayBatch.triangle(
+            structAnchor,
+            [[-7, by2Rel], [0, by2Rel - 6], [7, by2Rel]],
+            col,
+            1
+          ); // roof
+          this.overlayBatch.rect(structAnchor, -5, by2Rel, 5, by2Rel + 8, col, 1); // walls
+          this.overlayBatch.rect(
+            structAnchor,
+            -1.5,
+            by2Rel + 3,
+            1.5,
+            by2Rel + 8,
+            this.overlayColor(HP_BG_COLOR_KEY, '#14150F'),
+            1
+          ); // doorway
+          for (let k = 0; k < occ; k++) {
+            const pipRightPx = -(occ - 1) * 3 + k * 6;
+            this.overlayBatch.ellipseFan(billboardPoint(structAnchor, pipRightPx, -(by2Rel + 12)), 2, 2, col, 1);
+          }
+        }
+      }
+    }
+
+    // Charges being set -- demolition against a building, a tunnel charge
+    // against a route: a ring that grows as the timer runs. renderer.ts's
+    // own comment: "eight seconds standing still in the open is exactly
+    // when the player wants to know how long is LEFT." Demolition reads
+    // first, matching Pixi's own priority (no production unit carries both
+    // abilities today). Anchored at `this.curX[i]`/`curY[i]` DIRECTLY, not
+    // the interpolated `ix`/`iy` every neighbouring overlay in this method
+    // uses -- renderer.ts's own charge-ring block reads `this.curX[i]`,
+    // `this.curY[i]` verbatim, unlike the blocks immediately above and
+    // below it; a faithful port, not a judgement call (a charging unit is
+    // required to stand still, so the two are visually indistinguishable in
+    // practice, but this is what Pixi's own source says).
+    {
+      const ringTrack = this.overlayColor(CHARGE_RING_TRACK_COLOR_KEY, '#5C625F');
+      const ringFill = this.overlayColor(CHARGE_RING_FILL_COLOR_KEY, CHARGE_RING_FILL_FALLBACK_COLOR);
+      for (let i = 0; i < n; i++) {
+        if (st.alive[i] === 0) continue;
+        const demo = this.sim.demolitionProgress(i);
+        const prog = demo > 0 ? demo : this.sim.tunnelChargeProgress(i);
+        if (prog <= 0) continue;
+        const groundYc = groundWorldY(elevation, width, height, this.curX[i], this.curY[i]);
+        const chargeAnchor: [number, number, number] = [this.curX[i], groundYc, this.curY[i]];
+        this.overlayBatch.ellipseRing(chargeAnchor, 20, 10, 2, ringTrack, 0.5);
+        this.overlayBatch.ellipseRing(chargeAnchor, 20 * prog, 10 * prog, 3, ringFill, 0.9);
+      }
+    }
+
+    // Weapon envelopes for the selection (GDD S5.8): solid ring at
+    // effective range where accuracy holds up, faint ring at maximum reach,
+    // and an inner ring for weapons with a minimum range (mortars can't
+    // shoot close). `tileRadiusToEllipsePx` (units/overlays.ts) is Pixi's
+    // own `ring()` closure -- `tiles * TILE_W * ISO_K, tiles * TILE_H *
+    // ISO_K` -- pulled out once so this, the shepherd radius below, and the
+    // tutorial focus ring above all share the identical formula.
+    for (const i of this.selection) {
+      if (st.alive[i] === 0) continue;
+      const type = this.sim.unitTypes[st.typeIdx[i]];
+      if (type.weapons.length === 0) continue;
+      const ux = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
+      const uy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+      const groundYe = groundWorldY(elevation, width, height, ux, uy);
+      const envelopeAnchor: [number, number, number] = [ux, groundYe, uy];
+      const ring = (tiles: number, colorHex: string, widthPx: number, a: number): void => {
+        if (tiles <= 0) return;
+        const { rightR, upR } = tileRadiusToEllipsePx(tiles, TILE_W, TILE_H);
+        this.overlayBatch.ellipseRing(envelopeAnchor, rightR, upR, widthPx, colorHex, a);
+      };
+      const w0 = type.weapons[0];
+      const teamColor = this.opts.teamColors[st.side[i]];
+      ring(fx.toNumber(w0.range), teamColor, 1, 0.28);
+      ring(fx.toNumber(w0.effectiveRange), teamColor, 1.5, 0.5);
+      ring(Math.sqrt(fx.toNumber(w0.minRangeSq)), this.overlayColor('team.hostile', '#D93A2B'), 1, 0.35);
+    }
+
+    // Shepherd radius: when a player unit is selected, highlight nearby
+    // civilians that can still be evacuated -- renderer.ts's own comment:
+    // "a pulsing ring on each civilian tells the player 'drive here to
+    // rescue them.'" Ties directly to `evacuate_before`: without this a
+    // player has no way to see how close an escort must stay.
+    const SHEPHERD_TILES = 4;
+    if (this.selection.length > 0) {
+      const shepherdColor = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY, '#B8FF5A');
+      for (let ci = 0; ci < n; ci++) {
+        if (st.alive[ci] === 0 || st.side[ci] !== 2) continue;
+        const ctype = this.sim.unitTypes[st.typeIdx[ci]];
+        if (ctype.weapons.length > 0) continue;
+        if (st.moving[ci] === 1) continue;
+        const cx = this.prevX[ci] + (this.curX[ci] - this.prevX[ci]) * alpha;
+        const cy = this.prevY[ci] + (this.curY[ci] - this.prevY[ci]) * alpha;
+        const groundYc2 = groundWorldY(elevation, width, height, cx, cy);
+        const shepherdAnchor: [number, number, number] = [cx, groundYc2, cy];
+        const pulse = 0.35 + 0.2 * Math.sin(this.frameN * 0.12);
+        const { rightR, upR } = tileRadiusToEllipsePx(SHEPHERD_TILES, TILE_W, TILE_H);
+        this.overlayBatch.ellipseRing(shepherdAnchor, rightR, upR, 1.5, shepherdColor, pulse * 0.4);
+      }
+    }
+
+    // Engagement reticles: brackets on whatever the selected units are
+    // shooting at, with a faint line so the duel is readable at a glance.
+    // The duel line is the one overlay in this method connecting two
+    // INDEPENDENT world anchors (shooter, target) rather than small pixel
+    // offsets from one -- `OverlayBatch.lineWorld`'s own doc comment (and
+    // `pushLineWorld`'s, `units/overlay-geometry.ts`) has the full reasoning
+    // for why that needs its own primitive.
+    for (const i of this.selection) {
+      if (st.alive[i] === 0 || st.side[i] !== 0) continue;
+      const t = st.curTarget[i];
+      if (t < 0 || st.alive[t] === 0) continue;
+      const tx = this.prevX[t] + (this.curX[t] - this.prevX[t]) * alpha;
+      const ty = this.prevY[t] + (this.curY[t] - this.prevY[t]) * alpha;
+      const groundYt2 = groundWorldY(elevation, width, height, tx, ty);
+      const targetAnchor: [number, number, number] = [tx, groundYt2, ty];
+      const R = 15;
+      const c = this.opts.teamColors[1];
+      for (const [mx, my] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+        this.overlayBatch.line(targetAnchor, mx * R, my * (R / 2) - my * 4, mx * R, my * (R / 2), 2, c, 1);
+        this.overlayBatch.line(targetAnchor, mx * R, my * (R / 2), mx * R - mx * 7, my * (R / 2), 2, c, 1);
+      }
+      const shx = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
+      const shy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+      const groundYs2 = groundWorldY(elevation, width, height, shx, shy);
+      const shooterAnchor: [number, number, number] = [shx, groundYs2, shy];
+      this.overlayBatch.lineWorld(shooterAnchor, targetAnchor, 1, c, 0.35);
     }
 
     // Permanent-wreck fallback: a unit type with no real `wreck` clip
@@ -2814,9 +3042,11 @@ export class ThreeRenderer implements Renderer {
       const tanchor: [number, number, number] = [tut.x, groundYt, tut.y];
       const pulse = 0.35 + 0.25 * Math.sin(this.frameN * 0.09);
       const color = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY, '#B8FF5A');
-      const ISO_K = Math.SQRT1_2;
-      const rPx = tut.radius * TILE_W * ISO_K;
-      this.overlayBatch.ellipseRing(tanchor, rPx, rPx / 2, 2, color, pulse + 0.25, 24);
+      // `tileRadiusToEllipsePx` (units/overlays.ts) is this same `tiles *
+      // TILE_W * ISO_K, tiles * TILE_H * ISO_K` formula, pulled out once now
+      // that the weapon-envelope ring below actually exists and shares it.
+      const { rightR: rPx, upR: rPxUp } = tileRadiusToEllipsePx(tut.radius, TILE_W, TILE_H);
+      this.overlayBatch.ellipseRing(tanchor, rPx, rPxUp, 2, color, pulse + 0.25, 24);
     }
 
     // Garrison hover highlight -- renderer.ts's own doorway-arrow affordance,

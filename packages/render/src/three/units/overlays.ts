@@ -69,6 +69,7 @@ import {
   pushEllipseRingPx,
   pushPolygonFillWorld,
   pushPolygonStrokeWorld,
+  pushLineWorld,
   billboardPoint,
   OVERLAY_RING_SEGMENTS,
   type TriangleSoup,
@@ -200,6 +201,92 @@ export const ORDER_MARKER_TTL = 80;
  */
 export function orderMarkerSize(a: number): number {
   return 10 + (1 - a) * 6;
+}
+
+// ---------------------------------------------------------------------------
+// Phase D readiness: the six overlay passes the Phase C brief named out of
+// scope (this file's own top comment) -- weapon envelopes, the shepherd
+// radius, engagement reticles, building integrity + garrison pips, the
+// demolition/tunnel-charge progress ring, and mobility/firepower-kill pips.
+// Same split as everything above: palette-key policy here, GPU construction
+// below the divide.
+// ---------------------------------------------------------------------------
+
+/** Palette key for the mobility-kill pip -- Pixi's own `#8E9491`
+ *  (`renderer.ts`'s `if (st.mobilityKilled[i] === 1) g.circle(...).fill(
+ *  '#8E9491')`), an EXACT match for `gunmetal.1`. */
+export const MOBILITY_KILL_COLOR_KEY = 'gunmetal.1';
+
+/**
+ * Palette key for the firepower-kill pip -- Pixi's own `#8B1E12`
+ * (`renderer.ts`'s `if (st.firepowerKilled[i] === 1) g.circle(...).fill(
+ * '#8B1E12')`). Unlike every other colour ported from this file's list,
+ * `#8B1E12` is not IN `data/palette.json` at all -- checked by squared RGB
+ * distance against all 58 entries, not by eye. `terracotta.2` (`#7A3B24`) is
+ * the nearest at a distance of ~38 (`team.hostile`, the next closest
+ * plausible "kill/damage" red, is ~87 away). This is Pixi's own pre-existing
+ * gap, not introduced here -- `renderer.ts` is not subject to `validate:ui`
+ * (that gate's own scope comment excludes the renderer package entirely) or
+ * to `validate:assets` (that gate walks rendered sprites, not overlay
+ * literals) -- so it was never caught. Recorded here rather than silently
+ * matched, because "closest" is an approximation, not the palette-exactness
+ * this backend's colour pipeline otherwise guarantees everywhere else. */
+export const FIREPOWER_KILL_COLOR_KEY = 'terracotta.2';
+/** `overlayColor(FIREPOWER_KILL_COLOR_KEY, ...)`'s fallback when no
+ *  `resolveColor` is supplied -- `terracotta.2`'s own real value, NOT
+ *  Pixi's `#8B1E12` (which is not a resolvable key), so a caller with no
+ *  resolver still gets a genuine palette colour rather than reintroducing
+ *  the off-palette literal through the back door. */
+export const FIREPOWER_KILL_FALLBACK_COLOR = '#7A3B24';
+
+/**
+ * Palette key for a building's integrity-bar FILL at a given HP ratio --
+ * Pixi's own `ratio > 0.6 ? '#8E9491' : ratio > 0.3 ? '#E8C33A' : '#D93A2B'`
+ * (`renderer.ts`'s building-status block), three EXACT matches:
+ * `gunmetal.1`, `team.neutral`, `team.hostile`. A different threshold set
+ * from `hpBarColorKey` above (0.6/0.3 here, 0.5/0.25 there) and a different
+ * top colour (`gunmetal.1` here, `scrub.0` there) -- Pixi's own two ratio
+ * bars are not the same formula, so this is deliberately its own function
+ * rather than a shared one with different call-site thresholds.
+ */
+export function buildingIntegrityColorKey(ratio: number): string {
+  if (ratio > 0.6) return MOBILITY_KILL_COLOR_KEY;
+  if (ratio > 0.3) return 'team.neutral';
+  return 'team.hostile';
+}
+
+/** Palette key for the demolition/tunnel-charge progress ring's TRACK --
+ *  Pixi's own `this.opts.resolveColor ? this.opts.resolveColor('gunmetal.2')
+ *  : '#5C625F'` (`renderer.ts`'s charge-ring block) -- already resolved
+ *  THROUGH a palette key on the Pixi side, so this is a direct port, not a
+ *  derivation like `FIREPOWER_KILL_COLOR_KEY` above. Same key
+ *  `WRECK_MARKER_COLOR_KEY` already names for its own, unrelated purpose
+ *  (two different UI meanings, the same swatch, exactly as this file's own
+ *  `BADGE_TEXT_COLOR_KEY` doc comment already notes happens elsewhere). */
+export const CHARGE_RING_TRACK_COLOR_KEY = 'gunmetal.2';
+/** Palette key for the progress ring's FILL -- Pixi's own
+ *  `this.opts.resolveColor('vfx.ember')` fallback `'#E8541E'`, same block. */
+export const CHARGE_RING_FILL_COLOR_KEY = 'vfx.ember';
+/** `overlayColor(CHARGE_RING_FILL_COLOR_KEY, ...)`'s fallback -- Pixi's own
+ *  literal, verbatim. */
+export const CHARGE_RING_FILL_FALLBACK_COLOR = '#E8541E';
+
+/**
+ * World-tile radius of a weapon envelope ring, expressed in ON-SCREEN
+ * pixels for a fixed dimetric camera -- Pixi's own `ring()` closure
+ * (`renderer.ts`'s weapon-envelope block): `g.ellipse(ex, ey, tiles *
+ * TILE_W * ISO_K, tiles * TILE_H * ISO_K)`, where `ISO_K = Math.SQRT1_2`.
+ * Algebraically the SAME formula the tutorial focus ring already uses
+ * (`ThreeRenderer.updateOverlays`'s own tutorial-ring block, and its own
+ * comment on why a world-tile-radius circle in 2:1 dimetric is an
+ * axis-aligned ellipse of these two radii) -- pulled out once here so the
+ * weapon envelope, the shepherd radius, and the tutorial ring all compute it
+ * the identical way rather than three separately-typed copies of one
+ * formula.
+ */
+export const ISO_K = Math.SQRT1_2;
+export function tileRadiusToEllipsePx(tiles: number, tileWPx: number, tileHPx: number): { rightR: number; upR: number } {
+  return { rightR: tiles * tileWPx * ISO_K, upR: tiles * tileHPx * ISO_K };
 }
 
 /** RGB triple in 0..1, memoised -- the last step before a resolved palette
@@ -386,6 +473,12 @@ export class OverlayBatch {
    *  screen-pixel width. */
   polygonStrokeWorld(points: readonly WorldPoint[], insetTiles: number, colorHex: string, alpha: number): void {
     pushPolygonStrokeWorld(this.soup, points, insetTiles, cachedHexToUnit(colorHex), alpha);
+  }
+
+  /** The engagement-reticle duel line -- see `pushLineWorld`'s own doc
+   *  comment for why two independent world points, not one shared anchor. */
+  lineWorld(p0: WorldPoint, p1: WorldPoint, widthPx: number, colorHex: string, alpha: number): void {
+    pushLineWorld(this.soup, p0, p1, widthPx, cachedHexToUnit(colorHex), alpha);
   }
 
   /** Uploads this frame's triangles and trims the draw range to what was
