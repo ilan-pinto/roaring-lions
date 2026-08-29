@@ -73,3 +73,75 @@ scales by `1 / UNITS_PER_TILE` (3.0) because three draws one unit per tile.
 - Whether the hip needs geometry change, a third bone, or an accepted seam.
 - Bone count per figure beyond the 13 R0 used.
 - Whether `wreck` is a clip at all or stays separate geometry.
+
+---
+
+# v2 — vehicles and buildings
+
+**Pinned 2026-08-29.** v1 above was written for rigged infantry and holds
+unchanged for them. Two exporters have since shipped for asset classes it never
+anticipated, each proposed an extension rather than improvising one, and both
+are accepted. Where v2 differs from v1, the difference is stated as a
+difference.
+
+## Buildings: two sibling files, not one
+
+`art/meshes/buildings/<type>.glb` (standing) **and**
+`art/meshes/buildings/<type>_wreck.glb` (destroyed), keyed by
+`render_building.py`'s own `BUILDINGS` key.
+
+Two files rather than one, because v1's "node name equals its role exactly"
+rule cannot host a live `wall` mesh and a wrecked `wall` mesh in the same file
+without inventing a second axis it does not define — an `rl_state` wrapper, or
+a `_wreck` suffix that breaks the naming rule itself. Splitting sidesteps the
+ambiguity and **mirrors what already ships**: `render_building.py` writes
+`idle_f00_000.png` and `wreck_f00_000.png` as separate files with separate
+manifest entries, never one image.
+
+A building is rigid and never turns (`sheet.ts`: "one frame, because a building
+never turns"), so: no armature, no skin, no clips, no pivot. The footprint
+anchor is the model's own world origin at z≈0 — **not** the bounding-box
+centre, which sits 0.14–0.65 units off-origin on five of seven types from
+asymmetric overhangs.
+
+## Vehicles: `{part}_{role}`, a pivot node, and their own role vocabulary
+
+**Mesh naming is `{part}_{role}`** — `hull_plate`, `turret_metal` — not the
+bare role v1 requires. A bare-role join would merge hull and turret parts that
+share a role into one mesh, and that mesh could not then rotate.
+
+**The turret pivot** is a node named `turret_pivot` carrying
+`extras.rl_pivot = "turret"` on that node and not its children. The runtime
+looks it up by name and falls back to scanning `rl_pivot`, so a future crane or
+dozer blade needs no new convention.
+
+**Roles are a closed set per ASSET CLASS, not one universal ten.** Vehicles
+carry `tools/vehicles/kit.py`'s `hull, plate, rubber, metal, glass, recess`;
+only `metal` overlaps infantry's ten. The runtime's `MESH_ROLES`/`rampForRole`
+are infantry-specific and would reject every vehicle role as unmapped, so
+vehicles get a parallel `VEHICLE_MESH_ROLES` and `rampForVehicleRole`, read by
+a separate `buildVehicleMeshTemplate` — a skinned single-armature figure and a
+rigid hull-plus-pivot-turret share nothing beyond "walk the meshes, assign a
+material".
+
+**No faction parameter for vehicles**, and this is the one worth reading twice.
+Infantry needs `MeshFaction` because ONE `inf_squad.glb` is reused for both
+sides. **A vehicle GLB is faction-specific by construction** — `apc_eitan` is
+KDF-only, `technical` and `gun_truck` are irregular-only — so the ramp choice
+belongs to the unit type, not to the instance. The evidence is already in the
+tree: `render_eitan.py` and `render_d9.py` map `hull → olive.*`, while
+`render_gun_truck.py` maps `hull → dust.*` and `render_technical.py` maps
+`hull → limestone.*`. That decision has always lived at "which vehicle", never
+"which side".
+
+**Render order is per-mesh, not blanket**: hull parts at `HULL_RENDER_ORDER`,
+turret parts at `TURRET_RENDER_ORDER`, keyed off the `{part}_` prefix — the
+same relationship the billboard path already encodes, for the same reason
+(a turret must outrank its own hull at a co-located, identical-depth instance).
+
+## Unchanged from v1, for every class
+
+Zero materials. Real metres, scale derived via `dimetric`, never hand-typed.
+Forward +X. `extras` requires `export_extras=True`, which is off by default and
+drops silently. A role outside its class's closed set is a loud failure on both
+sides, never a default colour.
