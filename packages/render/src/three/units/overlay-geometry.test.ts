@@ -13,6 +13,7 @@ import {
   pushTrianglePx,
   pushRectPx,
   pushRectStrokePx,
+  pushLinePx,
   pushEllipseFanPx,
   pushEllipseRingPx,
   pushTriangleWorld,
@@ -128,6 +129,56 @@ describe('pushRectStrokePx', () => {
     const soup = createTriangleSoup(64);
     pushRectStrokePx(soup, ANCHOR, -10, -10, 10, 10, 2, RED, 1);
     expect(soup.count).toBe(24);
+  });
+});
+
+describe('pushLinePx', () => {
+  it('writes two triangles (6 vertices) for one stroked segment', () => {
+    const soup = createTriangleSoup(6);
+    pushLinePx(soup, ANCHOR, -7, -5, 7, 5, 3, RED, 1);
+    expect(soup.count).toBe(6);
+  });
+
+  it('a horizontal segment thickens purely vertically, by half the stroke width each side', () => {
+    // (0,0) -> (10,0), width 4: the quad's corners sit at y = +-2, x
+    // unchanged at the endpoints -- perpendicular to a horizontal segment is
+    // purely vertical, so this pins the normal direction, not just the count.
+    const soup = createTriangleSoup(6);
+    pushLinePx(soup, ANCHOR, 0, 0, 10, 0, 4, RED, 1);
+    const top = billboardPoint(ANCHOR, 0, 2); // y=-2 (up on screen) -> upPx=+2
+    const bottom = billboardPoint(ANCHOR, 0, -2);
+    let foundTop = false;
+    let foundBottom = false;
+    for (let v = 0; v < 6; v++) {
+      const x = soup.positions[v * 3];
+      const y = soup.positions[v * 3 + 1];
+      const z = soup.positions[v * 3 + 2];
+      if (Math.abs(x - top[0]) < 1e-5 && Math.abs(y - top[1]) < 1e-5 && Math.abs(z - top[2]) < 1e-5) foundTop = true;
+      if (Math.abs(x - bottom[0]) < 1e-5 && Math.abs(y - bottom[1]) < 1e-5 && Math.abs(z - bottom[2]) < 1e-5) {
+        foundBottom = true;
+      }
+    }
+    expect(foundTop).toBe(true);
+    expect(foundBottom).toBe(true);
+  });
+
+  it('colour and alpha apply uniformly to every written vertex', () => {
+    const soup = createTriangleSoup(6);
+    pushLinePx(soup, ANCHOR, -7, 5, 7, -5, 3, RED, 0.6);
+    for (let v = 0; v < 6; v++) {
+      expect(soup.colors[v * 3]).toBe(1);
+      expect(soup.colors[v * 3 + 1]).toBe(0);
+      expect(soup.colors[v * 3 + 2]).toBe(0);
+      expect(soup.alphas[v]).toBeCloseTo(0.6, 5);
+    }
+  });
+
+  it('a zero-length segment does not divide by zero -- length falls back to 1, not NaN corners', () => {
+    const soup = createTriangleSoup(6);
+    pushLinePx(soup, ANCHOR, 3, 3, 3, 3, 2, RED, 1);
+    for (let v = 0; v < soup.count * 3; v++) {
+      expect(Number.isFinite(soup.positions[v])).toBe(true);
+    }
   });
 });
 

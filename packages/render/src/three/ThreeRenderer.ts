@@ -190,6 +190,7 @@ import {
   objectiveZonePulse,
   OBJECTIVE_ZONE_STROKE_INSET_TILES,
   AIR_SHADOW_COLOR_KEY,
+  WRECK_MARKER_COLOR_KEY,
 } from './units/overlays';
 
 /** Where a unit type's sheets live, as the app named them. */
@@ -211,6 +212,30 @@ interface DyingUnit {
   t: number;
 }
 
+/**
+ * One permanent BILLBOARD-path unit wreck -- the counterpart of Pixi's own
+ * `wrecks` entry (`renderer.ts:485-487`, `{ x, y, spr, shown }`) and of
+ * `mesh-death.ts`'s `MeshWreck` for the mesh path. Pushed unconditionally
+ * once a dying unit's fade finishes (`ThreeRenderer.addWreck`), whether or
+ * not this type's sheet declares a real `wreck` clip -- `stepDeaths`'s own
+ * per-frame draw loop resolves that per entry (real art through the SAME
+ * `UnitInstancer` a living unit of that type draws through, or Pixi's own
+ * grey cross-marker fallback via `updateOverlays`), the identical split
+ * Pixi's own nullable `spr` field encodes. `facing`/`typeId` are captured at
+ * the moment of death, not read live off `Sim`, for the same reason
+ * `DyingUnit` above already gives.
+ */
+interface UnitWreck {
+  x: number;
+  y: number;
+  facing: number;
+  typeId: string;
+  /** Sticky reveal: latches true once the tile has ever been explored, and
+   *  never back to false -- `renderer.ts:1200`'s "Never goes back to false",
+   *  identical to `mesh-death.ts`'s own `MeshWreck.shown`. */
+  shown: boolean;
+}
+
 /** Recoil/flinch decay durations, seconds -- redeclared from `renderer.ts`'s
  *  own `RECOIL_SECONDS`/`FLINCH_SECONDS` (private, unexported) rather than
  *  imported, the same reason everything else redeclared from `renderer.ts`
@@ -224,9 +249,15 @@ const RECOIL_SECONDS = 0.15;
 const FLINCH_SECONDS = 0.18;
 /** Seconds a dying unit spends fading before it is dropped -- mirrors
  *  `PixiRenderer.DEATH_SECONDS` (renderer.ts:1209). See `stepDeaths`'s own
- *  doc comment for what happens after that point (nothing -- permanent
- *  wreckage is out of scope; see there for why). */
+ *  doc comment for what happens once that fade ends (a permanent
+ *  `UnitWreck` is pushed, `addWreck` below). */
 const DEATH_SECONDS = 0.4;
+/** Permanent billboard-path wreckage needs a ceiling the same way
+ *  `PixiRenderer.MAX_WRECKS` (`renderer.ts:1211`) and `mesh-death.ts`'s own
+ *  `MAX_MESH_WRECKS` do -- oldest evicted first (`addWreck`). Kept at the
+ *  identical value: nothing about which draw path a corpse takes changes
+ *  how many are expected to litter a long mission. */
+const MAX_UNIT_WRECKS = 256;
 
 /**
  * Particle draw layers -- mirrors `renderer.ts`'s own private
@@ -529,6 +560,12 @@ export class ThreeRenderer implements Renderer {
   private readonly turretFiringTimer: Float64Array;
   /** Units mid-death-fade -- see `stepDeaths`'s own doc comment. */
   private readonly dying: DyingUnit[] = [];
+  /** Permanent billboard-path wreckage -- the counterpart of `renderer.ts`'s
+   *  `wrecks`/`wreckLayer` for a unit type NOT drawn through the mesh path
+   *  (see `UnitWreck`'s own doc comment for the full picture, and this
+   *  file's `meshWrecks` field for the mesh-path sibling). Bounded by
+   *  `MAX_UNIT_WRECKS`, oldest evicted first (`addWreck`). */
+  private readonly wrecks: UnitWreck[] = [];
 
   /** One `UnitInstancer` per unit type with a loaded sheet, keyed by the
    *  unit type id `loadSprites` was called with. */
@@ -2263,8 +2300,8 @@ export class ThreeRenderer implements Renderer {
    * (`updateMeshWrecks`). All GPU-facing state lives in `mesh-death.ts`,
    * exercisable with a real `THREE.Scene` and no `WebGLRenderer` -- this
    * method is the thin, `ThreeRenderer`-private glue: three bookkeeping
-   * arrays (`meshDying`, `meshWrecks`) and the `isMeshTileExplored` fog
-   * query neither can reach on its own.
+   * arrays (`meshDying`, `meshWrecks`) and the `isExplored` fog query
+   * neither can reach on its own.
    */
   private stepMeshDeaths(dtSeconds: number): void {
     const env: MeshDeathEnv = {
@@ -2272,7 +2309,7 @@ export class ThreeRenderer implements Renderer {
       elevation: this.retained.elevation,
       width: this.sim.width,
       height: this.sim.height,
-      isExplored: (x, y) => this.isMeshTileExplored(x, y),
+      isExplored: (x, y) => this.isExplored(x, y),
     };
     for (let k = this.meshDying.length - 1; k >= 0; k--) {
       const result = stepMeshDeath(this.meshDying[k], dtSeconds, env);
@@ -2280,7 +2317,7 @@ export class ThreeRenderer implements Renderer {
       this.meshDying.splice(k, 1);
       if (result !== 'removed') pushMeshWreck(this.meshWrecks, result, this.scene);
     }
-    updateMeshWrecks(this.meshWrecks, (x, y) => this.isMeshTileExplored(x, y));
+    updateMeshWrecks(this.meshWrecks, (x, y) => this.isExplored(x, y));
   }
 
   /**
@@ -2288,13 +2325,18 @@ export class ThreeRenderer implements Renderer {
    * (`renderer.ts:1200-1206`)'s own distinction, level >= 1 rather than
    * `isVisible`'s level === 2. A small, deliberate duplicate of
    * `isVisible`'s bounds check (`./fog.ts`'s `isFogVisible` only exposes
-   * the `=== 2` threshold, and this task's file ownership does not extend
-   * to `fog.ts`) rather than a shared helper -- the two thresholds differ
-   * by one comparison operator, and `mesh-wreck` fog-gating is the only
-   * caller in this backend that needs the explored, not merely visible,
-   * reading.
+   * the `=== 2` threshold, and the mesh-death task's own file ownership did
+   * not extend to `fog.ts`) rather than a shared helper -- the two thresholds differ
+   * by one comparison operator. Originally named `isMeshTileExplored`
+   * (`mesh-wreck` fog-gating was its only caller) and generalised here: the
+   * billboard-path permanent wreck (`UnitWreck`/`addWreck`/`stepDeaths`)
+   * needs the identical "ever seen" reading Pixi's own `isExplored`
+   * (`renderer.ts:1200-1206`) gates its `wrecks`/`wreckLayer` on, and
+   * duplicating this method a second time for that caller would be the
+   * exact "two sources of the same state agreeing only by construction"
+   * this backend's own doc comments elsewhere warn against.
    */
-  private isMeshTileExplored(wx: number, wy: number): boolean {
+  private isExplored(wx: number, wy: number): boolean {
     const x = wx | 0;
     const y = wy | 0;
     if (x < 0 || y < 0 || x >= this.sim.width || y >= this.sim.height) return false;
@@ -2306,53 +2348,94 @@ export class ThreeRenderer implements Renderer {
    * synthetic `EntityFrame` for it into `framesByType` -- so the SAME
    * `UnitInstancer` a living unit of that type draws through also draws its
    * corpse, no separate mesh needed. Ported from Pixi's `stepDeaths`
-   * (`renderer.ts:1230-1275), minus the permanent-wreckage half.
+   * (`renderer.ts:1230-1275`), NOW INCLUDING the permanent-wreckage half
+   * (`unitWreckMissingInThree`, `tools/src/golden-diff/expected-differences.ts`
+   * -- catalogued as a real defect, not a deliberate divergence, since this
+   * method's own doc comment used to name the gap outright).
    *
    * Facing and `typeId` are captured at the moment of death (`onEvents`'s
    * `destroyed` case), not read live off `Sim` here, because the entity slot
    * may be reused by a later spawn before the fade finishes -- Pixi's own
    * comment on its `dying.push`, ported verbatim in spirit.
    *
-   * Two things Pixi does that this method deliberately does NOT:
+   * One thing Pixi does that this method still deliberately does NOT:
+   * **rotation and squash** (`spr.rotation = p * 0.14`, the scale-Y settle).
+   * `writeUnitInstances`/`UnitInstancer` (out of bounds for this task, same
+   * as the fade's own) only ever TRANSLATE an instance -- there is no
+   * rotation or non-uniform-scale attribute to write into, and adding one
+   * would mean editing a forbidden file. The fade keeps the alpha dim and a
+   * small downward `worldY` settle (below) but the body does not tip over.
    *
-   *  - **Rotation and squash** (`spr.rotation = p * 0.14`, the scale-Y
-   *    settle). `writeUnitInstances`/`UnitInstancer` (both out of bounds for
-   *    this task) only ever TRANSLATE an instance -- there is no rotation or
-   *    non-uniform-scale attribute to write into, and adding one would mean
-   *    editing a forbidden file. The fade keeps the alpha dim and a small
-   *    downward `worldY` settle (below) but the body does not tip over.
-   *  - **Permanent wreckage and its fog gate** (`addWreck`/`wreckLayer`/
-   *    `MAX_WRECKS`, and the `isExplored` check that decides whether a
-   *    fading OR wrecked unit draws at all -- `renderer.ts:1229-1231`'s own
-   *    comment: "you never witness a kill you did not observe, but a
-   *    burnt-out position you HAVE seen stays on the map after the fog
-   *    closes over it"). Fog is real as of Task B4.2 (`./fog.ts`, `isVisible`
-   *    above), so the claim this bullet used to make -- "this backend has no
-   *    fog system yet" -- is no longer true, but this method still does NOT
-   *    gate on it, deliberately, for two reasons neither of which this task
-   *    closes: (1) `DyingUnit` carries no `side` field, so telling a hostile
-   *    kill apart from a friendly one here would need a new field threaded
-   *    through `onEvents`'s `destroyed` case, and (2) Pixi's own gate is
-   *    bound up with PERMANENT wreckage (`addWreck`, `wreckLayer`,
-   *    `MAX_WRECKS`) -- porting `isExplored` alone, with no wreck system
-   *    behind it, would only make an unobserved hostile's fade vanish
-   *    mid-animation with nothing left in its place, trading one gap for a
-   *    different one rather than closing it. The fade below still draws
-   *    unconditionally, for every dying unit regardless of side or fog, and
-   *    once it ends the entity simply stops drawing, with no wreck left
-   *    behind -- unchanged from before this task. Wreckage-plus-its-fog-gate
-   *    remains a real, tracked gap; it belongs with whichever future task
-   *    adds permanent wreckage, not this one.
+   * **Permanent wreckage, ported now**: once a fade closes (`d.t >=
+   * DEATH_SECONDS`), `addWreck` below pushes a `UnitWreck` -- Pixi's own
+   * `addWreck`/`wreckLayer`/`MAX_WRECKS` (`renderer.ts:1211`,
+   * `:1277-1295`). The loop at the TOP of this method (before the fade loop,
+   * mirroring Pixi's own ordering: `stepDeaths`'s wreck-reveal pass runs
+   * before its fade pass in `renderer.ts` too) does two things per wreck,
+   * per frame: (1) latches `shown` true once `isExplored` says yes -- "you
+   * never witness a kill you did not observe, but a burnt-out position you
+   * HAVE seen stays on the map after the fog closes over it"
+   * (`renderer.ts:1224-1228`), and (2) for a `shown` wreck whose type has a
+   * REAL `wreck` clip (`clipOrFallback(sheet, 'wreck') === 'wreck'`, not a
+   * fallback to idle), appends a second synthetic `EntityFrame` -- alpha 1,
+   * clip `'wreck'` -- into the SAME `framesByType` list the fade above
+   * already writes into, so it draws through the identical `UnitInstancer`.
+   * A `shown` wreck whose type has NO real `wreck` clip (`mbt_lavi`'s
+   * `TNK_HULL`/`TNK_TURR` among them -- see `UnitWreck`'s own doc comment)
+   * draws NOTHING here: `updateOverlays`'s own fallback covers it instead,
+   * Pixi's identical split (`!wk.spr` -> the grey cross-marker, drawn into
+   * `unitsG` rather than `wreckLayer` -- `renderer.ts:1236-1242`).
    *
-   * A unit type with no loaded `UnitInstancer` is silently skipped, matching
-   * this class's own "no mesh units" scope line -- and, since that also
-   * governs `updateUnits`'s own early return, a dying entry's timer only
-   * advances while at least one sheet is loaded; a mission where every unit
-   * dies before any sheet finishes loading is the one case that stalls it,
-   * and it stalls harmlessly (nothing would have been visible to fade
-   * regardless).
+   * A unit type with no loaded `UnitInstancer` is silently skipped for BOTH
+   * the fade and the wreck, matching this class's own "no mesh units" scope
+   * line -- and, since that also governs `updateUnits`'s own early return, a
+   * dying entry's timer only advances while at least one sheet is loaded; a
+   * mission where every unit dies before any sheet finishes loading is the
+   * one case that stalls it, and it stalls harmlessly (nothing would have
+   * been visible to fade or wreck regardless).
    */
   private stepDeaths(dtSeconds: number): void {
+    // Permanent wreckage: reveal, then draw real art where this type has
+    // any -- see this method's own top comment for the fog-gate and the
+    // real-art-vs-cross-marker split. A mesh-enabled type (`&mesh`) is
+    // skipped here entirely: `addWreck` below never pushes one, because
+    // `mesh-death.ts`'s own `MeshWreck` already owns that type's wreckage
+    // end to end, and every unit type's billboard sheet is ALSO loaded
+    // unconditionally (`main.ts`'s `SPRITE_MAP` loop has no `&mesh` branch),
+    // so without that exclusion a mesh unit with a billboard `wreck` clip
+    // (`inf_squad`'s `INF_SQUAD` sheet among them) would draw a second,
+    // redundant wreck underneath its own mesh one.
+    for (const wk of this.wrecks) {
+      if (!wk.shown && this.isExplored(wk.x, wk.y)) wk.shown = true;
+      if (!wk.shown) continue;
+      const instancer = this.unitInstancers.get(wk.typeId);
+      if (!instancer || clipOrFallback(instancer.sheet, 'wreck') !== 'wreck') continue;
+      const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, wk.x, wk.y);
+      const frame: EntityFrame = {
+        wx: wk.x,
+        wy: wk.y,
+        worldY,
+        clip: 'wreck',
+        frame: 0,
+        facing: wk.facing,
+        // Wreckage draws at full opacity, matching Pixi's own `addWreck`,
+        // which never touches `spr.alpha` (`renderer.ts:1283`).
+        alpha: 1,
+        roofDx: 0,
+        roofDy: 0,
+        visible: true,
+        turretFacing: wk.facing,
+        turretClip: 'idle',
+        turretFrame: 0,
+      };
+      let wreckList = this.framesByType.get(wk.typeId);
+      if (!wreckList) {
+        wreckList = [];
+        this.framesByType.set(wk.typeId, wreckList);
+      }
+      wreckList.push(frame);
+    }
+
     for (let k = this.dying.length - 1; k >= 0; k--) {
       const d = this.dying[k];
       d.t += dtSeconds;
@@ -2402,8 +2485,36 @@ export class ThreeRenderer implements Renderer {
         }
         list.push(frame);
       }
-      if (d.t >= DEATH_SECONDS) this.dying.splice(k, 1);
+      if (d.t >= DEATH_SECONDS) {
+        this.dying.splice(k, 1);
+        this.addWreck(d.x, d.y, d.facing, d.typeId);
+      }
     }
+  }
+
+  /**
+   * Pushes a permanent `UnitWreck` once a dying unit's fade finishes --
+   * Pixi's own `addWreck` (`renderer.ts:1278-1295`). Pushed unconditionally,
+   * whether or not this type's sheet declares a real `wreck` clip: which
+   * draw path (if any) the entry takes is resolved every frame by
+   * `stepDeaths`'s own wreck loop, not at push time -- the identical split
+   * Pixi's own nullable `spr` field encodes (see `UnitWreck`'s own doc
+   * comment).
+   *
+   * Skips a mesh-enabled type entirely (`meshUnitTemplates.has(typeId)`):
+   * `mesh-death.ts`'s own `MeshWreck` system already owns that type's
+   * permanent wreckage end to end (`stepMeshDeaths` above), and every unit
+   * type's billboard sheet is loaded unconditionally regardless of `&mesh`
+   * (`main.ts`'s `SPRITE_MAP` loop) -- without this exclusion a mesh unit
+   * whose billboard sheet ALSO declares a `wreck` clip would draw a second,
+   * redundant wreck underneath its own mesh one. Pixi has no such case to
+   * exclude: it has no mesh path at all, so every destroyed entity there is
+   * a billboard one by construction.
+   */
+  private addWreck(x: number, y: number, facing: number, typeId: string): void {
+    if (this.meshUnitTemplates.has(typeId)) return;
+    this.wrecks.push({ x, y, facing, typeId, shown: this.isExplored(x, y) });
+    while (this.wrecks.length > MAX_UNIT_WRECKS) this.wrecks.shift();
   }
 
   /**
@@ -2616,6 +2727,31 @@ export class ThreeRenderer implements Renderer {
         const badgeCenter = billboardPoint(anchor, -(r + 4), r + 4);
         this.overlayBatch.ellipseFan(badgeCenter, 7, 7, groupColor || accentDefault, 0.95);
         this.numeralBatch.push(badgeCenter, 0, 0, 10, 12, grp);
+      }
+    }
+
+    // Permanent-wreck fallback: a unit type with no real `wreck` clip
+    // (`clipOrFallback(sheet, 'wreck') !== 'wreck'`, `mbt_lavi`'s
+    // `TNK_HULL`/`TNK_TURR` among them) or no loaded `UnitInstancer` at all
+    // gets Pixi's own grey X cross-marker instead of real art
+    // (`renderer.ts:1236-1242`, drawn into `unitsG` -- the identical overlay
+    // tier this method already builds, not `wreckLayer`). `stepDeaths`'s own
+    // wreck loop already drew every wreck WITH real art through
+    // `framesByType`/`UnitInstancer` this same frame -- this pass only
+    // covers what that one deliberately skipped, so a wreck never gets both.
+    if (this.wrecks.length > 0) {
+      const wreckMarkerColor = this.overlayColor(WRECK_MARKER_COLOR_KEY, '#5C625F');
+      for (const wk of this.wrecks) {
+        if (!wk.shown) continue;
+        const instancer = this.unitInstancers.get(wk.typeId);
+        if (instancer && clipOrFallback(instancer.sheet, 'wreck') === 'wreck') continue;
+        const wreckGroundY = groundWorldY(elevation, width, height, wk.x, wk.y);
+        const wreckAnchor: [number, number, number] = [wk.x, wreckGroundY, wk.y];
+        // Two crossing strokes, Pixi's own literal geometry verbatim:
+        // `g.moveTo(sx-7,sy-5).lineTo(sx+7,sy+5)` and
+        // `g.moveTo(sx-7,sy+5).lineTo(sx+7,sy-5)`, both `stroke({width: 3})`.
+        this.overlayBatch.line(wreckAnchor, -7, -5, 7, 5, 3, wreckMarkerColor, 1);
+        this.overlayBatch.line(wreckAnchor, -7, 5, 7, -5, 3, wreckMarkerColor, 1);
       }
     }
 

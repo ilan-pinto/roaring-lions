@@ -181,6 +181,44 @@ export function pushRectPx(
 }
 
 /**
+ * A stroked straight line segment, `widthPx` wide -- Pixi's own
+ * `g.moveTo(x0, y0).lineTo(x1, y1).stroke({ width, color })`, which this
+ * soup's triangle-only shape has no single-primitive equivalent for (the
+ * same gap `pushRectStrokePx`'s own doc comment names for a rectangle's
+ * outline, below). Built as a quad -- two triangles -- around the segment's
+ * own perpendicular, in the same Pixi pixel convention (x-right, y-down)
+ * every other push* function here shares via `pushTrianglePx`.
+ *
+ * Today's one caller: the billboard-path permanent-wreck cross marker
+ * (`ThreeRenderer.updateOverlays`'s own fallback for a unit type with no
+ * `wreck` clip -- Pixi's literal two-line X, `renderer.ts:1240-1241`).
+ */
+export function pushLinePx(
+  soup: TriangleSoup,
+  anchor: readonly [number, number, number],
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  widthPx: number,
+  color: OverlayColor,
+  alpha: number
+): void {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  const half = widthPx / 2;
+  const nx = (-dy / len) * half;
+  const ny = (dx / len) * half;
+  const a0: [number, number] = [x0 + nx, y0 + ny];
+  const a1: [number, number] = [x0 - nx, y0 - ny];
+  const b0: [number, number] = [x1 - nx, y1 - ny];
+  const b1: [number, number] = [x1 + nx, y1 + ny];
+  pushTrianglePx(soup, anchor, [a0, a1, b0], color, alpha);
+  pushTrianglePx(soup, anchor, [a0, b0, b1], color, alpha);
+}
+
+/**
  * A rectangle's stroked OUTLINE, `strokeWidthPx` wide, as four filled
  * border rects -- the closest faithful thing to Pixi's `g.rect(...).stroke
  * ({width, ...})`, which this soup's non-indexed triangle shape has no

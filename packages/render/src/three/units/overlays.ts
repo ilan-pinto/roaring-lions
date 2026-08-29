@@ -63,6 +63,7 @@ import {
   resetSoup,
   pushRectPx,
   pushRectStrokePx,
+  pushLinePx,
   pushTrianglePx,
   pushEllipseFanPx,
   pushEllipseRingPx,
@@ -174,6 +175,15 @@ export const OBJECTIVE_ZONE_STROKE_INSET_TILES = 0.05;
  *  (`renderer.ts`'s air-lift shadow ellipse), the same swatch `fog-mesh.ts`
  *  already names `shadow.2` for the identical literal. */
 export const AIR_SHADOW_COLOR_KEY = 'shadow.2';
+
+/** Palette key for the permanent-wreck fallback cross marker -- a unit type
+ *  with no `wreck` clip in its sheet (`mbt_lavi`'s `TNK_HULL`/`TNK_TURR`
+ *  manifests among them: no `clips` object at all, so `clipOrFallback(sheet,
+ *  'wreck')` resolves to `'idle'`, never `'wreck'`). Pixi's own literal,
+ *  `'#5C625F'` (`renderer.ts:1240-1241`'s two-line X, drawn into `unitsG`
+ *  itself rather than `wreckLayer`), is the SAME swatch `renderer.ts:2402`
+ *  already names `gunmetal.2` for its tutorial-ring track colour. */
+export const WRECK_MARKER_COLOR_KEY = 'gunmetal.2';
 
 /** Ticks this many `frame()` calls a placed order marker survives -- Pixi's
  *  own `ttl: 80` (`renderer.ts`'s `addOrderMarker`). Counted in frames, not
@@ -314,6 +324,22 @@ export class OverlayBatch {
     alpha: number
   ): void {
     pushRectStrokePx(this.soup, anchor, x0, y0, x1, y1, strokeWidthPx, cachedHexToUnit(colorHex), alpha);
+  }
+
+  /** A stroked straight line segment -- see `pushLinePx`'s own doc comment
+   *  (`overlay-geometry.ts`) for why this soup has no single-primitive
+   *  equivalent to Pixi's `g.moveTo(...).lineTo(...).stroke(...)`. */
+  line(
+    anchor: readonly [number, number, number],
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+    widthPx: number,
+    colorHex: string,
+    alpha: number
+  ): void {
+    pushLinePx(this.soup, anchor, x0, y0, x1, y1, widthPx, cachedHexToUnit(colorHex), alpha);
   }
 
   triangle(

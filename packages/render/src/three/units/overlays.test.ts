@@ -34,6 +34,7 @@ import {
   objectiveZonePulse,
   OBJECTIVE_ZONE_STROKE_INSET_TILES,
   AIR_SHADOW_COLOR_KEY,
+  WRECK_MARKER_COLOR_KEY,
   OverlayBatch,
   NumeralBatch,
 } from './overlays';
@@ -139,6 +140,10 @@ describe('overlay palette keys resolve to the exact hex Pixi hard-codes at the e
   it('AIR_SHADOW_COLOR_KEY -> #0A0A08, Pixi\'s air-lift shadow ellipse fill (same swatch fog-mesh.ts names shadow.2)', () => {
     expect(resolve(AIR_SHADOW_COLOR_KEY)).toBe('#0A0A08');
   });
+
+  it('WRECK_MARKER_COLOR_KEY -> #5C625F, Pixi\'s permanent-wreck cross-marker stroke (same swatch renderer.ts:2402 names gunmetal.2)', () => {
+    expect(resolve(WRECK_MARKER_COLOR_KEY)).toBe('#5C625F');
+  });
 });
 
 describe('objectiveZoneColorKey / objectiveZoneFallbackColor', () => {
@@ -223,6 +228,40 @@ describe('OverlayBatch.rect / endFrame', () => {
     const batch = new OverlayBatch(64);
     batch.beginFrame();
     batch.rect([1, 2, 3], 0, 0, 10, 10, '#00FF00', 0.5);
+    batch.endFrame();
+    const colors = (batch.mesh.geometry.getAttribute('aColor') as THREE.BufferAttribute).array as Float32Array;
+    const alphas = (batch.mesh.geometry.getAttribute('aAlpha') as THREE.BufferAttribute).array as Float32Array;
+    for (let v = 0; v < 6; v++) {
+      expect(colors[v * 3]).toBeCloseTo(0, 5);
+      expect(colors[v * 3 + 1]).toBeCloseTo(1, 5);
+      expect(colors[v * 3 + 2]).toBeCloseTo(0, 5);
+      expect(alphas[v]).toBeCloseTo(0.5, 5);
+    }
+  });
+});
+
+describe('OverlayBatch.line', () => {
+  it('one stroked segment uploads exactly 6 vertices and trims the draw range to them', () => {
+    const batch = new OverlayBatch(64);
+    batch.beginFrame();
+    batch.line([0, 0, 0], -7, -5, 7, 5, 3, '#5C625F', 1);
+    batch.endFrame();
+    expect(batch.mesh.geometry.drawRange.count).toBe(6);
+  });
+
+  it('two crossing segments (the permanent-wreck cross marker) upload 12 vertices total', () => {
+    const batch = new OverlayBatch(64);
+    batch.beginFrame();
+    batch.line([0, 0, 0], -7, -5, 7, 5, 3, '#5C625F', 1);
+    batch.line([0, 0, 0], -7, 5, 7, -5, 3, '#5C625F', 1);
+    batch.endFrame();
+    expect(batch.mesh.geometry.drawRange.count).toBe(12);
+  });
+
+  it('writes the resolved colour and alpha into every vertex it pushes', () => {
+    const batch = new OverlayBatch(64);
+    batch.beginFrame();
+    batch.line([1, 2, 3], -7, -5, 7, 5, 3, '#00FF00', 0.5);
     batch.endFrame();
     const colors = (batch.mesh.geometry.getAttribute('aColor') as THREE.BufferAttribute).array as Float32Array;
     const alphas = (batch.mesh.geometry.getAttribute('aAlpha') as THREE.BufferAttribute).array as Float32Array;
