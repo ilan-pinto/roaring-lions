@@ -696,9 +696,7 @@ async function main(): Promise<void> {
     mortar_crew: { path: `${BASE}sprites/INF_MORTAR_E/` },
     // The Sarim set. These three shipped complete, gate-passing sheets and
     // still drew NOTHING, because art existing and art being LOADED are
-    // different things and only the first has a gate. They appear in all
-    // three Tel Marum missions; `attack_drone` and `rocket_battery` are the
-    // two still missing art entirely.
+    // different things and only the first has a gate.
     sarim_rifles: { path: `${BASE}sprites/INF_SARIM/` },
     recoilless_team: { path: `${BASE}sprites/INF_RECOILLESS/` },
     manpad_team: { path: `${BASE}sprites/INF_MANPAD/` },
@@ -713,12 +711,21 @@ async function main(): Promise<void> {
     charge_squad: { path: `${BASE}sprites/INF_CHARGE/` },
     moto_rpg: { path: `${BASE}sprites/MOTO_RPG/` },
     digger_crew: { path: `${BASE}sprites/INF_DIGGER/` },
+    // Hull only: the rack is fixed to the bed, not a separately traversing
+    // weapon station, so there is no turret sheet to composite -- same shape
+    // as dozer_d9 above.
+    rocket_battery: { path: `${BASE}sprites/ROCKETBATTERY_HULL/` },
     // Two air sheets whose flight is presentational: the sim has no altitude,
     // so these move on the ground plane like anything else. The paramotor's
     // `down` clip is its landed state, authored against a land-and-dismount
     // behaviour that does not exist yet.
     paramotor: { path: `${BASE}sprites/PARA_MOTOR/` },
     loiter_drone: { path: `${BASE}sprites/DRONE_LOITER/` },
+    // attack_drone shares loiter_drone's shape of unit -- KDF's own loitering
+    // munition -- but not its source: reusing loitering_munition.blend would
+    // have been an identical silhouette (IoU ~= 1.0, guaranteed, not merely a
+    // risk), so it renders from its own hull, art/src/drones/attack_drone.blend.
+    attack_drone: { path: `${BASE}sprites/DRONE_ATTACK/` },
   };
   // Structures with art. A building has one sprite, not sixteen: it is placed
   // with a fixed orientation under a fixed camera and never turns. Types without
