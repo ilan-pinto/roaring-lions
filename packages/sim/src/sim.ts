@@ -1543,18 +1543,63 @@ export class Sim {
       if (cmd.kind === 'move' || cmd.kind === 'attackMove') {
         const gx = this.clampX(cmd.x);
         const gy = this.clampY(cmd.y);
-        const fieldIdx = this.fieldFor(fx.toInt(gx), fx.toInt(gy));
+        // A goal no GROUND unit can stand on has to become one that it can.
+        // `demolish`, `garrison` and `chargeTunnel` all snap through
+        // nearestOpenTile already; `move` was the one goal-setter that did
+        // not, and it is the one that could least afford to skip it, because
+        // move is the only order whose *completion* is a position test.
+        // stepMovement clears `moving` and shifts the waypoint queue on
+        // `nx === goalX && ny === goalY` alone, so a goal inside a wall is
+        // never reached: the all-DIR_NONE field drops the unit onto the
+        // straight-line fallback, the wall-slide clamp parks it flush against
+        // the first face on that line, and it stands there with `moving === 1`
+        // for the rest of the mission — taking every waypoint queued behind it
+        // with it.
+        //
+        // The GOAL moves here, not just the field. Routing the field alone is
+        // enough for demolish and garrison, whose arrival tests are range
+        // checks against the true centroid; for move it would only relocate
+        // the freeze to the open tile next door, since dirs[fieldGoal] is
+        // DIR_NONE too and the last leg beelines into the wall regardless.
+        const tx = fx.toInt(gx);
+        const ty = fx.toInt(gy);
+        const [fgx, fgy] = this.nearestOpenTile(tx, ty);
+        const snapped = fgx !== tx || fgy !== ty;
+        // Only when the tile really was blocked. An open goal keeps the exact
+        // point it was given, fraction and all — snapping those to a tile
+        // centre would be a different order from the one issued.
+        const sgx = snapped ? fx.add(fx.fromInt(fgx), HALF) : gx;
+        const sgy = snapped ? fx.add(fx.fromInt(fgy), HALF) : gy;
+        const fieldIdx = this.fieldFor(fgx, fgy);
+        // Air is exempt, and that is the whole reason this is resolved per id
+        // rather than once for the order. A drone hovers over rock as happily
+        // as over road, stepMovement skips the wall-slide for it entirely, and
+        // "stop on the blocked tile" is a legitimate thing to ask of one — so
+        // it keeps the raw point AND the raw field, which for a blocked goal
+        // is the all-DIR_NONE one that flies it straight there. Resolved
+        // lazily: an all-ground selection, which is nearly every selection,
+        // computes exactly one field as it always did.
+        let airField = -1;
         const attack = cmd.kind === 'attackMove' ? 1 : 0;
         for (const id of cmd.ids) {
           if (this.alive[id] === 0 || this.routed[id] === 1) continue; // broken troops aren't listening
+          let ux = sgx;
+          let uy = sgy;
+          let uf = fieldIdx;
+          if (snapped && this.unitTypes[this.typeIdx[id]].isAir) {
+            if (airField < 0) airField = this.fieldFor(tx, ty);
+            ux = gx;
+            uy = gy;
+            uf = airField;
+          }
           // Appending to a unit already under way queues the point instead of
           // overriding it: that is how a player draws a route round a block.
           if (cmd.append === true && this.moving[id] === 1) {
             const n = this.wpCount[id];
             if (n < MAX_WAYPOINTS) {
               const k = id * MAX_WAYPOINTS + n;
-              this.wpX[k] = gx;
-              this.wpY[k] = gy;
+              this.wpX[k] = ux;
+              this.wpY[k] = uy;
               this.wpAttack[k] = attack;
               this.wpCount[id] = n + 1;
             }
@@ -1583,9 +1628,9 @@ export class Sim {
           // reach of that route's spoil.
           this.chargeOrder[id] = -1;
           this.chargeTicks[id] = 0;
-          this.goalX[id] = gx;
-          this.goalY[id] = gy;
-          this.fieldRef[id] = fieldIdx;
+          this.goalX[id] = ux;
+          this.goalY[id] = uy;
+          this.fieldRef[id] = uf;
           this.moving[id] = 1;
           this.attackMove[id] = cmd.kind === 'attackMove' ? 1 : 0;
           this.engaging[id] = 0;

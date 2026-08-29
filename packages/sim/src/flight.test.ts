@@ -78,6 +78,27 @@ describe('an air unit ignores terrain', () => {
     // Stopping *on* the blocked tile is the point: nothing underneath matters.
     expect(fx.toNumber(sim.state.posX[a])).toBeCloseTo(12.5, 1);
   });
+
+  it('keeps its blocked goal when the same order snaps a ground unit off it', () => {
+    // One right-click, a mixed selection. A ground unit cannot stand on rock,
+    // so applyCommands moves its goal to the nearest tile it can; the drone
+    // above it must not be dragged along. Resolving the snap once for the
+    // whole order rather than per id gets this wrong in whichever direction
+    // the shared value happens to take.
+    const sim = new Sim({ seed: 13, width: 24, height: 12, capacity: 8 });
+    for (let y = 0; y < 12; y++) sim.setBlocked(12, y, true);
+    const a = sim.spawn(sim.addUnitType(DRONE), 0, fx.from(4.5), fx.from(6.5));
+    const g = sim.spawn(sim.addUnitType(TRUCK), 0, fx.from(4.5), fx.from(8.5));
+    sim.queueCommand({ kind: 'move', ids: [a, g], x: fx.from(12.5), y: fx.from(6.5) });
+    run(sim, 40 * TICKS_PER_SECOND);
+    // The drone hovers over the rock, exactly where it was sent.
+    expect(fx.toNumber(sim.state.posX[a])).toBeCloseTo(12.5, 1);
+    expect(sim.state.moving[a]).toBe(0);
+    // The truck stops on ground beside it, and stops — rather than grinding
+    // against the wall face with `moving` stuck at 1 forever.
+    expect(sim.state.moving[g]).toBe(0);
+    expect(sim.blocked[fx.toInt(sim.state.posY[g]) * 24 + fx.toInt(sim.state.posX[g])]).toBe(0);
+  });
 });
 
 describe('only weapons that can reach air engage it', () => {
