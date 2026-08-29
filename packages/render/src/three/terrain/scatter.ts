@@ -60,8 +60,8 @@ export type { MeshData, TerrainInput };
 
 /**
  * A second, taller epsilon for a highlight mark that is meant to sit in
- * front of a base mark it partially overlaps (the ridge/knoll blob-plus-
- * highlight pairs, and the stone fleck's shading pass). Camera pitch is
+ * front of a base mark it partially overlaps (the ridge/knoll/stone-fleck
+ * blob-plus-highlight pairs). Camera pitch is
  * fixed and its view direction has a strictly positive Y component
  * (`VIEW_DIRECTION.y = sin(30deg) > 0`, `camera.ts`), so a higher world Y is
  * always closer to the camera along the view axis and always wins the depth
@@ -599,19 +599,50 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
                 );
               } else {
                 const r = 1.2 + a * 2.6;
-                const fleckHex = quantise(composite(baseHex, tones.rockLit, 0.4 + b * 0.35), PALETTE_HEXES);
-                pushMark(cx, cz, topY, MARK_EPSILON, px, py, diamondCorners(r, r * 0.62), fleckHex, needsContainment);
+                // Limestone fleck: a rock-toned blob against the ground,
+                // never `tones.rockLit` blended straight onto `baseHex`.
+                // That direct port of Pixi's `ellipse.fill({ color:
+                // rockLit, alpha })` is a mathematical no-op wherever a
+                // theme's `rockLit` coincides with its own `open` tone --
+                // true of the shipped `arid` theme today (both
+                // `limestone.3`): `composite(X, X, anyAlpha)` is `X`
+                // exactly, in continuous colour and doubly so once
+                // quantised back onto the palette entry it already started
+                // from, for any alpha at all. Pixi never hits this: its
+                // base wash is a continuous, non-quantised alpha blend
+                // that keeps a faint but real gradient from the canvas
+                // clear colour underneath no matter what `rockLit` equals
+                // -- headroom this quantised, palette-snapped pipeline
+                // cannot reproduce at that same contrast (checked
+                // numerically: re-deriving that same per-tile jitter before
+                // compositing still rounds back to the identical entry --
+                // the palette's own step is coarser than the signal). So
+                // this blob is built the way the knoll, ridge and slope-
+                // scree marks a little above and below already are --
+                // `tones.rock` as the base, `tones.rockLit` as a highlight
+                // on top -- which stays visibly distinct from the ground
+                // regardless of what any given theme's `rockLit` happens to
+                // equal, rather than depending on a blend that can silently
+                // collapse. Verified against the shipped `arid` values
+                // directly (Task's own probe): this alpha range lands one
+                // step down the limestone ramp, matching the modest, single-
+                // step-darker tone Pixi's own continuous blend averages out
+                // to -- not the much heavier tone a knoll/ridge blob uses,
+                // which reads correctly as "impassable rock" rather than
+                // "ordinary open ground with grain".
+                const blobHex = quantise(composite(baseHex, tones.rock, 0.15 + b * 0.25), PALETTE_HEXES);
+                pushMark(cx, cz, topY, MARK_EPSILON, px, py, diamondCorners(r, r * 0.62), blobHex, needsContainment);
                 if (a > 0.72) {
-                  const shadeHex = quantise(composite(fleckHex, tones.rock, 0.3), PALETTE_HEXES);
+                  const hlHex = quantise(composite(blobHex, tones.rockLit, 0.5), PALETTE_HEXES);
                   pushMark(
                     cx,
                     cz,
                     topY,
                     HIGHLIGHT_EPSILON,
-                    px + r * 0.3,
-                    py + r * 0.3,
-                    diamondCorners(r * 0.7, r * 0.42),
-                    shadeHex,
+                    px - r * 0.3,
+                    py - r * 0.3,
+                    diamondCorners(r * 0.55, r * 0.34),
+                    hlHex,
                     needsContainment
                   );
                 }

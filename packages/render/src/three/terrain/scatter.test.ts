@@ -326,6 +326,68 @@ describe('buildScatter', () => {
     });
   });
 
+  describe('stone-grain fleck stays visible when a theme\'s rockLit coincides with its open tone', () => {
+    // The shipped `arid` theme (packages/app/src/terrain-themes.ts) sets
+    // `open: paletteColor('limestone.3')` and `rockLit: paletteColor('limestone.3')`
+    // -- the SAME palette entry, not merely a close one. `TONES` above never
+    // exercises that: it deliberately gives `open` and `rockLit` distinct
+    // hexes, which is exactly why 1473 passing tests coexisted with every
+    // open-ground fleck rendering as the tile's own background colour on
+    // every arid map. `composite(X, X, anyAlpha)` is `X` exactly -- true in
+    // continuous colour and doubly true once quantised back onto the
+    // palette entry it started from -- so a direct port of Pixi's
+    // `ellipse.fill({ color: rockLit, alpha })` over the tile's own
+    // `groundTone` is a silent no-op under this coincidence, for any alpha.
+    // Pixi never hits this: its base wash is a continuous, non-quantised
+    // alpha blend with real (if faint) headroom from the canvas clear
+    // colour, which stays a visible, if subtle, gradient no matter what
+    // `rockLit` equals -- headroom this quantised pipeline cannot reproduce
+    // at that same contrast (reintroducing the same per-tile jitter before
+    // compositing still rounds back to the identical palette entry; the
+    // palette step is coarser than the signal -- see this task's own probe).
+    const DEGENERATE_TONES: TerrainTones = {
+      ...TONES,
+      open: '#C8B494', // limestone.3
+      rockLit: '#C8B494', // limestone.3, same entry -- the real-world coincidence
+      rock: '#8C7659', // limestone.6, genuinely distinct -- the escape hatch
+    };
+
+    it('keeps most marks visibly distinct from the ground, not just an occasional one', () => {
+      // A "saw at least one distinct mark" version of this test still passes
+      // under the bug: the earth fleck (tones.earth, genuinely distinct) and
+      // the shading sub-mark on ~28% of lit flecks (tones.rock, also
+      // genuinely distinct) both survive quantisation on their own -- only
+      // the DOMINANT plain "lit fleck" pass (composite(baseHex, rockLit,
+      // alpha), ~56% of marks on flat open ground by construction) collapses
+      // silently. A wide flat field of open tiles, none decorated, none
+      // covered, gives a large enough sample that this fraction is stable
+      // rather than an artifact of one tile's own hash: under the bug it
+      // lands near 0.36 (worked out by hand from the branch probabilities:
+      // 0.22 earth + 0.22 shade-highlight, against 0.56 invisible plain
+      // flecks + 0.22 invisible bases under those same highlights); a
+      // correct fix makes the PRIMARY mark itself distinct, so every mark
+      // qualifies.
+      const input = flat(20, 20);
+      const m = buildScatter(input, DEGENERATE_TONES, '#14150F');
+      expect(m.colors.length).toBeGreaterThan(0);
+      const groundHex = DEGENERATE_TONES.open.toUpperCase();
+      let total = 0;
+      let distinct = 0;
+      for (let i = 0; i < m.colors.length; i += 12) {
+        // 4 vertices per mark, 3 floats per vertex -- one colour sample per
+        // mark is enough since every mark is flat-shaded (all 4 vertices
+        // share a colour).
+        total += 1;
+        if (colorAt(m.colors, i) !== groundHex) distinct += 1;
+      }
+      expect(total).toBeGreaterThan(100);
+      expect(
+        distinct / total,
+        `only ${distinct}/${total} marks were visibly distinct from the ground -- most of the stone-grain scatter is a no-op under this theme's rockLit/open coincidence`
+      ).toBeGreaterThanOrEqual(0.5);
+    });
+  });
+
   it('every triangle winds toward the camera', () => {
     // MeshBasicMaterial defaults to FrontSide (terrainMaterial(), reused for
     // the scatter mesh), so a wrong winding does not render dark -- it
