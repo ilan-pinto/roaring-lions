@@ -56,7 +56,8 @@ pnpm test             # unit tests
 pnpm test:determinism # replay 1000 ticks from seed, assert state hash
 pnpm lint
 pnpm validate:data    # JSON Schema check on all content
-pnpm validate:assets  # palette + silhouette gate
+pnpm validate:assets  # palette + silhouette gate, and sheet COMPLETENESS
+pnpm validate:meshes  # the same checks for art/meshes/**, rendered headlessly
 pnpm validate:ui      # no colour literals in UI source
 pnpm balance          # headless battle sim, prints win rates
 ```
@@ -246,6 +247,27 @@ backend-only and warns by name on Pixi. Pipeline: `tools/units/kit.py` (geometry
   gate runs on them at all. Phase G is meant to fix that and has not.
 - **`kit.py` changed without the sprite sheets being re-rendered**, so
   billboards and meshes can disagree until that debt is paid.
+- **Mesh units ARE gated now** -- `pnpm validate:meshes` (`tools/render_mesh_gate
+  .py` + `validate_mesh_assets.py`) renders every `art/meshes/**/*.glb`
+  headlessly through `render_rig.py`'s own rig and runs
+  `validate_assets.py`'s IMPORTED palette/silhouette/fill checks. 29/29 pass;
+  closest call 0.8669 against the 0.88 limit. Silhouette IoU compares each
+  mesh against every other mesh and every other unit's sprite, EXCLUDING its
+  own retired sprite -- a mesh is supposed to look like the unit it replaces.
+- **Art existing is not art drawing.** `packages/app/src/main.ts`'s
+  `SPRITE_MAP` is what queues a sheet for loading, and a unit type absent from
+  it never loads anything. Three complete, gate-passing sheets shipped and drew
+  NOTHING because of this. No gate catches it. Check `SPRITE_MAP` when adding a
+  unit.
+- **`render_team.py --probe` used to overwrite shipped sprites** with
+  unquantized renders (~10% of pixels, file sizes doubling) -- the PNG half of
+  the same defect `229aad5` fixed for manifests. Fixed: probe output goes to
+  `.superpowers/probe/`. If you touch that path, re-prove `git status` stays
+  clean after a probe run.
+- **A renderer choice persists per ORIGIN, not per tab** (`renderer-choice.ts`,
+  `localStorage['lions.renderer']`). Two tabs open on the same origin fight
+  over it -- observed live. Harmless between agents; a real hazard for a player
+  with two tabs.
 
 ---
 
