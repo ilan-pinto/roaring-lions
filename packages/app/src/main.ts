@@ -694,6 +694,14 @@ async function main(): Promise<void> {
     rpg_team: { path: `${BASE}sprites/INF_RPG/` },
     atgm_cell: { path: `${BASE}sprites/INF_ATGM/` },
     mortar_crew: { path: `${BASE}sprites/INF_MORTAR_E/` },
+    // The Sarim set. These three shipped complete, gate-passing sheets and
+    // still drew NOTHING, because art existing and art being LOADED are
+    // different things and only the first has a gate. They appear in all
+    // three Tel Marum missions; `attack_drone` and `rocket_battery` are the
+    // two still missing art entirely.
+    sarim_rifles: { path: `${BASE}sprites/INF_SARIM/` },
+    recoilless_team: { path: `${BASE}sprites/INF_RECOILLESS/` },
+    manpad_team: { path: `${BASE}sprites/INF_MANPAD/` },
     // The raider set. Like the technical, the gun truck's turret manifest
     // carries `turretAxisPx`: its cannon sits 1.65 m behind the model centre,
     // so without the correction the renderer swings it off the bed while

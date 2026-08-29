@@ -331,9 +331,22 @@ def place_camera(sc, ortho_units, centre):
     return cam
 
 
+#: Where a probe writes. Never the shipped sprite directory: a probe frame is
+#: unquantized (no quantize_sprites.py pass runs here) and would fail the
+#: palette gate outright if it landed in assets/sprites -- and worse, it would
+#: silently overwrite a real, already-quantized, checked-in idle_f00_000.png
+#: with an off-palette one, which is exactly what happened before this constant
+#: existed: a probe run overwrote 13 shipped sprites (~10% of pixels differing,
+#: file size roughly doubling) and only `pnpm validate:assets` catching the
+#: resulting off-palette colour kept it from shipping. `.superpowers/` is
+#: already gitignored wholesale, so nothing written here can leak into git no
+#: matter what forgets to clean it up.
+PROBE_DIR = os.path.join(REPO, ".superpowers", "probe")
+
+
 def render_team(team_id, probe=False):
     _, faction, sheet = teams.TEAMS[team_id]
-    out_dir = os.path.join(REPO, "assets", "sprites", sheet)
+    out_dir = os.path.join(PROBE_DIR, sheet) if probe else os.path.join(REPO, "assets", "sprites", sheet)
 
     # Frame from the union over every clip, in the team's own metres.
     pts = frame_points(team_id)
@@ -393,8 +406,17 @@ def render_team(team_id, probe=False):
     # so it must never overwrite the checked-in manifest at all -- writing it
     # here once truncated every probed team's manifest.json to one frame while
     # leaving the PNGs alone, and cost a manual revert of twelve manifests.
+    #
+    # PROBE_DIR above fixes the sibling bug: a probe frame is never quantized
+    # (no quantize_sprites.py pass runs in this script), so a probe rendered
+    # straight into assets/sprites/<sheet>/idle_f00_000.png silently replaced a
+    # checked-in, quantized, gate-passing sprite with an off-palette one --
+    # only caught because validate:assets happened to flag the resulting
+    # off-palette colour. Writing every probe frame under .superpowers/probe/
+    # instead makes that overwrite structurally impossible rather than
+    # depending on the gate to notice after the fact.
     if probe:
-        print(f"[{team_id}] PROBE {len(files)} frame -> {out_dir} (manifest.json left untouched)")
+        print(f"[{team_id}] PROBE {len(files)} frame -> {out_dir} (assets/sprites untouched)")
         return
 
     manifest = {
