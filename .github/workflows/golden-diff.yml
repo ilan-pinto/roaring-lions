@@ -64,7 +64,11 @@ jobs:
       # golden-diff-gate.ts owns the dev server's lifecycle for this run: it starts
       # one on --port (nothing else is using this runner) and tears it down after,
       # so no separate "start the dev server" step is needed here.
-      - name: Capture + diff Pixi vs three.js (beit_sahwan_outskirts@town_center)
+      # No --scenario filter: runs every entry in capture-protocol.ts's SCENARIOS
+      # (quiet + open-ground as of this comment), each against its own
+      # SCENARIO_BUDGETS entry in golden-diff-gate.ts -- see that file's top
+      # comment for why a single global threshold stopped being the right shape.
+      - name: Capture + diff Pixi vs three.js (all SCENARIOS)
         run: pnpm --filter @lions/tools golden-diff:ci -- --port=5174 --out-dir=golden-diff-ci-output
 
       - name: Upload capture + diff artifacts

@@ -55,6 +55,64 @@ function loadPng(path: string): PNG {
   return PNG.sync.read(buf);
 }
 
+export interface DominantColorSummary {
+  region: { x: number; y: number; w: number; h: number };
+  totalPixels: number;
+  distinctColors: number;
+  dominantColor: readonly [number, number, number];
+  dominantFraction: number;
+}
+
+/** Same-image, single-capture analysis -- no baseline/candidate pair, unlike
+ *  everything else in this file. Added alongside `Scenario.groundTextureCheck`
+ *  (capture-protocol.ts): a targeted self-check for a defect class the ordinary
+ *  pixi-vs-three diff was measured NOT to discriminate for the open-ground
+ *  scenario -- see that scenario's own doc comment for the full derivation and
+ *  real before/after numbers. Crops `pngPath` to `region` and reports what
+ *  fraction of it is the single most common RGB colour: a stone-grain mark that
+ *  silently collapsed into its own tile's background colour (the exact shape of
+ *  the scatter bug this exists to catch) pushes that fraction up, independent of
+ *  whatever Pixi's own rendering looks like. RGB only, alpha ignored (an opaque
+ *  canvas capture is always 255). */
+export function computeDominantColorFraction(
+  pngPath: string,
+  region: { x: number; y: number; w: number; h: number }
+): DominantColorSummary {
+  const img = loadPng(pngPath);
+  if (region.x < 0 || region.y < 0 || region.x + region.w > img.width || region.y + region.h > img.height) {
+    throw new Error(
+      `computeDominantColorFraction: region ${JSON.stringify(region)} falls outside ${pngPath}'s ` +
+        `${img.width}x${img.height} bounds`
+    );
+  }
+  const counts = new Map<number, number>(); // packed 0xRRGGBB -> count
+  for (let dy = 0; dy < region.h; dy++) {
+    for (let dx = 0; dx < region.w; dx++) {
+      const x = region.x + dx;
+      const y = region.y + dy;
+      const idx = (img.width * y + x) << 2;
+      const packed = (img.data[idx] << 16) | (img.data[idx + 1] << 8) | img.data[idx + 2];
+      counts.set(packed, (counts.get(packed) ?? 0) + 1);
+    }
+  }
+  let dominantPacked = 0;
+  let dominantCount = 0;
+  for (const [packed, count] of counts) {
+    if (count > dominantCount) {
+      dominantCount = count;
+      dominantPacked = packed;
+    }
+  }
+  const totalPixels = region.w * region.h;
+  return {
+    region,
+    totalPixels,
+    distinctColors: counts.size,
+    dominantColor: [(dominantPacked >> 16) & 0xff, (dominantPacked >> 8) & 0xff, dominantPacked & 0xff],
+    dominantFraction: dominantCount / totalPixels,
+  };
+}
+
 export function computeDiff(
   baselinePath: string,
   candidatePath: string,
