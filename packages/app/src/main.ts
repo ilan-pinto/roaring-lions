@@ -595,6 +595,29 @@ async function main(): Promise<void> {
           )
         )
       );
+
+      // `sarim_rifles` -- a Meshy-generated (AI, disclosed in this PR) rigged
+      // biped, contract-tested against v1's infantry shape but NOT part of
+      // `tools/units/teams.py`'s pipeline, so it cannot join `MESH_TEAMS`
+      // above without breaking that list's own "team id == unit type id ==
+      // file basename" convention: the file is `meshy_soldier.glb`, not
+      // `sarim_rifles.glb`. Wired to its own distinct unit id rather than
+      // replacing `inf_squad` -- the project lead needs to compare the two
+      // rigs on screen, not have one silently swap for the other.
+      // `sarim_rifles` is the natural home: `data/units/enemy/
+      // sarim_rifles.json` is already an enemy-side rifle squad (crew 8),
+      // and the asset itself is a Middle-Eastern rifleman by name and
+      // design -- a thematic fit `inf_squad`'s KDF figure is not. `'enemy'`
+      // per `mesh-role.ts`'s side split: every `data/units/enemy/*.json`
+      // unit renders through the inverted (olive-over-tan) ramp regardless
+      // of its own narrative sub-faction (`kdf`/`ashwar`/`sarim`/`rif`),
+      // matching how `atgm_cell` and `mortar_crew` (also narrative `sarim`/
+      // `ashwar`) are wired above.
+      await three.loadMeshUnit(
+        'sarim_rifles',
+        new URL('../../../art/meshes/meshy_soldier.glb', import.meta.url).href,
+        'enemy'
+      );
     }
   } else {
     renderer = new PixiRenderer(sim, opts);
