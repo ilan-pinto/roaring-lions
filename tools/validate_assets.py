@@ -100,6 +100,81 @@ def check_image(path, allowed, reserved):
     return errs
 
 
+def sheet_dirs(root):
+    """Every directory that directly holds at least one PNG.
+
+    This is the gate's notion of "a sheet" -- a unit or a composite layer.
+    Walking directories rather than reusing `sprite_paths`' flat file list
+    means an interrupted render job that left a directory with PNGs but no
+    `manifest.json` is still visited, even though it has nothing else in
+    common with a real sheet.
+    """
+    out = []
+    for dirpath, _, files in os.walk(root):
+        if any(f.lower().endswith(".png") for f in files):
+            out.append(dirpath)
+    return sorted(out)
+
+
+def check_manifest_completeness(sheet_dir):
+    """A sheet must declare exactly the frames it ships -- both directions.
+
+    A manifest promising frames that are not on disk (an interrupted render
+    job, or hand-edited JSON) is exactly as broken as frames on disk the
+    manifest never mentions (a probe render, or a frame nobody wired up):
+    either way, the frame set the game will actually load does not match the
+    frame set anyone signed off on. Below that: a manifest is also checked
+    against itself, since `facings x clip-frames` and the length of its own
+    `files` list are two ways of saying the same number and can disagree.
+    """
+    errs = []
+    on_disk = {
+        f for f in os.listdir(sheet_dir) if f.lower().endswith(".png")
+    }
+    mf = os.path.join(sheet_dir, "manifest.json")
+
+    if not os.path.exists(mf):
+        errs.append(
+            f"{sheet_dir}: no manifest.json for {len(on_disk)} PNG(s) -- "
+            f"incomplete sheet (probe render or interrupted job)"
+        )
+        return errs
+
+    with open(mf) as fh:
+        try:
+            manifest = json.load(fh)
+        except json.JSONDecodeError as e:
+            errs.append(f"{mf}: unreadable JSON ({e})")
+            return errs
+
+    declared_entries = manifest.get("files", [])
+    declared = {entry["file"] for entry in declared_entries}
+
+    for f in sorted(declared - on_disk):
+        errs.append(
+            f"{sheet_dir}: manifest declares {f} but it is not on disk"
+        )
+    for f in sorted(on_disk - declared):
+        errs.append(
+            f"{sheet_dir}: {f} is on disk but manifest.json does not "
+            f"declare it"
+        )
+
+    facings = manifest.get("facings")
+    clips = manifest.get("clips")
+    if facings and clips:
+        frames_per_facing = sum(c.get("frames", 0) for c in clips.values())
+        expected = facings * frames_per_facing
+        if expected != len(declared_entries):
+            errs.append(
+                f"{sheet_dir}: manifest lists {len(declared_entries)} files "
+                f"but facings({facings}) x clip-frames({frames_per_facing}) "
+                f"= {expected}"
+            )
+
+    return errs
+
+
 def is_layer(path):
     """True when a sheet declares itself a composite layer, not a unit."""
     mf = os.path.join(os.path.dirname(path), "manifest.json")
@@ -216,12 +291,27 @@ def main():
         for e in check_framing(p):
             failures.append(f"{p}: {e}")
 
+    incomplete_dirs = set()
+    for d in sheet_dirs(args.sprites):
+        errs = check_manifest_completeness(d)
+        if errs:
+            failures.extend(errs)
+            incomplete_dirs.add(d)
+
     reps = representative(sprites)
     # Composite layers (a turret drawn onto its hull) are not units. They are
     # still checked for palette, alpha and framing above; the two checks below
     # ask "does this read as a unit at gameplay zoom", which a layer never
-    # answers meaningfully.
-    reps = {u: p for u, p in reps.items() if not is_layer(p)}
+    # answers meaningfully. A sheet that failed the manifest-completeness
+    # check above is excluded the same way: it is already a reported
+    # failure, and comparing a probe render's one frame against shipped
+    # units' silhouettes answers a question nobody asked and would only
+    # bury the real error under a coincidental IoU collision.
+    reps = {
+        u: p
+        for u, p in reps.items()
+        if not is_layer(p) and os.path.dirname(p) not in incomplete_dirs
+    }
     masks = {}
     for unit, p in reps.items():
         m = silhouette(p)
