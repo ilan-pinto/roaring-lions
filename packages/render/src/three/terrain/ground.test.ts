@@ -56,6 +56,50 @@ describe('buildGround', () => {
     }
   });
 
+  it('litColors matches colors in length and vertex order, and is ALSO always a palette entry', () => {
+    // The muzzle-flash ramp-shift effect (`../palette-material.ts`'s "The
+    // muzzle-flash 'light'" doc comment) swaps a fragment's colour for
+    // `litColors` wholesale, never blends the two -- so `litColors` has to
+    // carry the SAME on-palette guarantee `colors` does, proven the same
+    // direct way, not merely argued from `rampNeighbor` only ever returning
+    // a ramp member (or its input unchanged).
+    const input = flat(8, 8);
+    input.elevation = new Uint8Array(8 * 8).map((_, ti) => ((ti % 8) + Math.floor(ti / 8)) % 6);
+    const m = buildGround(input, TONES, '#14150F');
+    expect(m.litColors).toBeDefined();
+    expect(m.litColors!.length).toBe(m.colors.length);
+    const entries = new Set(PALETTE_HEXES.map((h) => h.toUpperCase()));
+    for (let i = 0; i < m.litColors!.length; i += 3) {
+      const hex =
+        '#' +
+        [0, 1, 2]
+          .map((k) => Math.round(m.litColors![i + k] * 255).toString(16).padStart(2, '0'))
+          .join('')
+          .toUpperCase();
+      expect(entries).toContain(hex);
+    }
+  });
+
+  it('litColors is never DARKER than colors at the same vertex -- the "lit" step is a step TOWARD index 0, never away from it', () => {
+    // Guards the actual direction, not just palette membership: a regression
+    // that fed rampNeighbor a positive-but-wrong sign, or looked up the wrong
+    // ramp, could still land on a valid palette entry while getting brighter
+    // and darker backwards -- exactly the "index 0 is the LIGHTEST step"
+    // mistake `palette-material.ts` warns has already cost three renders.
+    // Luminance (perceptual weights, matching common practice) is a coarse
+    // proxy for "brighter", but it is directionally reliable for the specific
+    // tone/ramp pairs this map's TONES use, and every one of them is checked.
+    const input = flat(8, 8);
+    input.elevation = new Uint8Array(8 * 8).map((_, ti) => ((ti % 8) + Math.floor(ti / 8)) % 6);
+    const m = buildGround(input, TONES, '#14150F');
+    const luminance = (r: number, g: number, b: number): number => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    for (let i = 0; i < m.colors.length; i += 3) {
+      const base = luminance(m.colors[i], m.colors[i + 1], m.colors[i + 2]);
+      const lit = luminance(m.litColors![i], m.litColors![i + 1], m.litColors![i + 2]);
+      expect(lit).toBeGreaterThanOrEqual(base - 1e-6);
+    }
+  });
+
   it('puts a tile at the height its elevation says', () => {
     const input = flat(2, 1);
     input.elevation = new Uint8Array([0, 3]);

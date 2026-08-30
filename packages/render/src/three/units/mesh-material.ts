@@ -97,7 +97,13 @@
  * squadmate standing next to it.
  */
 import * as THREE from 'three';
-import { RAMP_MAX, paletteColorNoConvert } from '../palette-material';
+import {
+  RAMP_MAX,
+  paletteColorNoConvert,
+  defaultFlashUniforms,
+  FLASH_UNIFORMS_GLSL,
+  FLASH_SHIFT_GLSL,
+} from '../palette-material';
 
 /**
  * The shipping toon ramp, with three.js's skinning chunks in the vertex stage.
@@ -138,11 +144,18 @@ export function toonRampSkinnedMaterial(rampHexes: readonly string[]): THREE.Sha
       // stays at three.js's own default (`false`): harmless on every
       // living unit's material.
       uOpacity: { value: 1.0 },
+      // Muzzle-flash ramp shift -- see `../palette-material.ts`'s own doc
+      // comment, "The muzzle-flash 'light'". Byte-identical mechanism to
+      // `toonRampMaterial`'s, shared via the same exported GLSL rather than
+      // hand-copied (this file's own top comment already holds the fragment
+      // shader to a stricter "byte-identical" standard than this).
+      ...defaultFlashUniforms(),
     },
     vertexShader: /* glsl */ `
       #include <common>
       #include <skinning_pars_vertex>
       varying vec3 vNormal;
+      varying vec3 vWorldPos;
       void main() {
         // Normal path: bind-pose normal -> bone matrices -> normalMatrix.
         #include <beginnormal_vertex>
@@ -154,6 +167,12 @@ export function toonRampSkinnedMaterial(rampHexes: readonly string[]): THREE.Sha
         // Position path: bind-pose position -> bone matrices -> clip space.
         #include <begin_vertex>
         #include <skinning_vertex>
+        // transformed is the SKINNED local-space position at this point
+        // (post skinning_vertex, pre project_vertex) -- world position has
+        // to be taken from it, not from the bind-pose position attribute,
+        // or a moving/animated figure's flash-proximity check would read
+        // its bind pose forever.
+        vWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
         #include <project_vertex>
       }
     `,
@@ -162,13 +181,18 @@ export function toonRampSkinnedMaterial(rampHexes: readonly string[]): THREE.Sha
       uniform int uSteps;
       uniform vec3 uLightDir;
       uniform float uOpacity;
+      ${FLASH_UNIFORMS_GLSL}
       varying vec3 vNormal;
+      varying vec3 vWorldPos;
+
+      ${FLASH_SHIFT_GLSL}
 
       void main() {
         float nl = max(dot(normalize(vNormal), normalize(uLightDir)), 0.0);
         // Quantize into uSteps bands, brightest band -> index 0.
         int band = int(floor((1.0 - nl) * float(uSteps)));
         band = min(band, uSteps - 1);
+        band = max(0, band - flashShiftSteps(vWorldPos));
         vec3 outColor = uRamp[0];
         for (int i = 0; i < ${RAMP_MAX}; i++) {
           if (i == band) {

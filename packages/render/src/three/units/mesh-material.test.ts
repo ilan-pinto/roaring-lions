@@ -46,9 +46,23 @@ describe('toonRampSkinnedMaterial uOpacity', () => {
     // exists but is never wired to the output.
   });
 
-  it('does not change RGB output shape -- uRamp/uSteps/uLightDir are still the only colour inputs', () => {
+  it('does not change RGB output shape -- uRamp/uSteps/uLightDir are still the only STATIC colour inputs', () => {
+    // uFlashPos/uFlashRadius/uFlashShift joined this set for the muzzle-flash
+    // ramp-shift effect (`../palette-material.ts`'s "The muzzle-flash
+    // 'light'" doc comment) -- they default inert (`defaultFlashUniforms`)
+    // and only move once a `FlashLightManager` registers this material, so
+    // this test's own name ("does not change RGB output shape") still holds
+    // for anything that does not call `register()`.
     const m = toonRampSkinnedMaterial(OLIVE);
-    expect(Object.keys(m.uniforms).sort()).toEqual(['uLightDir', 'uOpacity', 'uRamp', 'uSteps']);
+    expect(Object.keys(m.uniforms).sort()).toEqual([
+      'uFlashPos',
+      'uFlashRadius',
+      'uFlashShift',
+      'uLightDir',
+      'uOpacity',
+      'uRamp',
+      'uSteps',
+    ]);
     expect(m.uniforms.uRamp.value).toHaveLength(RAMP_MAX);
     expect(m.uniforms.uSteps.value).toBe(OLIVE.length);
   });

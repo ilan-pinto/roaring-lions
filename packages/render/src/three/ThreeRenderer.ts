@@ -113,6 +113,7 @@ import { parseManifest, parseStructureManifest, clipOrFallback, type SheetSpec }
 import { resolveClip, type UnitAnimInput } from '../clip';
 import { dimetricCamera, worldToScreenThree, screenToWorldThree } from './camera';
 import { applyPalettePipeline } from './palette-material';
+import { FlashLightManager } from './flash-light';
 import { buildGround } from './terrain/ground';
 import { buildScatter } from './terrain/scatter';
 import { buildGroves } from './terrain/grove';
@@ -313,6 +314,20 @@ const MESH_HULL_PITCH_RAD = 0.06;
  *  rather than kicking.
  */
 const MESH_TURRET_RECOIL_TILES = 0.11;
+/**
+ * Barrel-tip distance BEYOND a mesh vehicle's own `turret_pivot`, tiles --
+ * `onFire` uses this to anchor the muzzle flash/tracer origin at the
+ * turret's own current world position plus this much further along its
+ * bearing, rather than at the hull centre plus a flat guess
+ * (`barrelLen`, `onFire`'s own local, still used for a unit type with no
+ * mesh turret pivot). `turret_pivot` sits at the mantlet/turret-ring, not
+ * the muzzle -- a real gun tube extends visibly beyond it -- but no export
+ * pipeline (`tools/export_mesh_vehicle.py` et al.) tags a muzzle point
+ * specifically, so this is an estimate, not read from authored data: smaller
+ * than the pre-existing 0.8-tile hull-centre guess, since the pivot itself
+ * is already offset forward from the hull's own origin.
+ */
+const MESH_TURRET_MUZZLE_TILES = 0.5;
 /** Seconds a dying unit spends fading before it is dropped -- mirrors
  *  `PixiRenderer.DEATH_SECONDS` (renderer.ts:1209). See `stepDeaths`'s own
  *  doc comment for what happens once that fade ends (a permanent
@@ -623,6 +638,25 @@ export class ThreeRenderer implements Renderer {
   /** Reused across rebuilds -- one unlit, vertex-coloured material carries no
    *  per-terrain state, so there is nothing a fresh instance would buy. */
   private readonly terrainMat: THREE.Material = terrainMaterial();
+  /**
+   * Owns the muzzle-flash ramp-shift pool (`./palette-material.ts`'s own
+   * "The muzzle-flash 'light'" doc comment) -- one instance for the whole
+   * renderer, since the effect is deliberately GLOBAL: every registered
+   * toon-ramp material (vehicle hull/turret, building, rigged infantry) and
+   * the terrain material all sample the SAME uniform arrays, differentiated
+   * only by each fragment's own world position, not by which entity fired.
+   * `register()` is called once per material, at `terrainMat`'s own
+   * construction (below, in the constructor body) and at every
+   * `loadMeshUnit`/`loadVehicleMesh`/`loadBuildingMesh` template load; `step()`
+   * runs once a frame from `frame()`, after which every registered material
+   * is current with no further per-material write (`FlashLightManager`'s own
+   * doc comment on `register`).
+   */
+  private readonly flashLights = new FlashLightManager();
+  /** Reused across `onFire` calls so reading a mesh vehicle's turret-pivot
+   *  world position (`getWorldPosition`) does not allocate a `THREE.Vector3`
+   *  per shot. */
+  private readonly scratchMuzzleWorld = new THREE.Vector3();
 
   /**
    * Per-entity position tracking for interpolation, mirroring
@@ -1034,6 +1068,11 @@ export class ThreeRenderer implements Renderer {
     // which is exactly why this is a single call rather than two lines a
     // future edit could reorder.
     applyPalettePipeline(this.renderer, this.opts.background);
+    // Terrain is a single shared material for the whole map (ground, scatter,
+    // grove, residual, building-decor boxes alike) -- one registration here
+    // covers all of it, unlike the mesh-unit/vehicle/building materials
+    // below, which are registered per template as each loads.
+    this.flashLights.register(this.terrainMat as THREE.ShaderMaterial);
     // Added unconditionally, not lazily on first useEmitters/spawn -- all
     // three meshes start at count/drawRange 0 (nothing live yet) and simply
     // stay that way until there is something to draw, the same "always
@@ -1314,6 +1353,12 @@ export class ThreeRenderer implements Renderer {
     this.updateBuildingMeshes();
     this.stepCollapses(this.frameDtSeconds(dtMs));
     this.updateFx(dtMs);
+    // Ages every active muzzle-flash and rewrites the shared uFlash* arrays
+    // every registered toon-ramp/terrain material already points at -- see
+    // `FlashLightManager.step`'s own doc comment. Presentation-only timing
+    // (`dtMs`, not a sim tick), the same footing `updateFx`'s own particle/
+    // tracer stepping already stands on.
+    this.flashLights.step(dtMs);
     this.updateOverlays(alpha);
     if (this.fogMeshDirty) {
       this.fogMesh.update(this.fog, this.retained.elevation, this.sim.width, this.sim.height);
@@ -1619,27 +1664,51 @@ export class ThreeRenderer implements Renderer {
       this.turretFiringTimer[e.shooter] = turretFireClip.frames / turretFireClip.fps;
     }
 
-    // Turret facing when this unit type has turret art loaded, hull facing
-    // otherwise -- `this.turretFacing[e.shooter]` holds whatever
-    // `updateUnits`'s last `entityFrame` call sprung it to, matching Pixi's
-    // own `usesTurret` read of `this.turretFacing[e.shooter]`
-    // (renderer.ts:778-781). Gated on ACTUAL turret art (`turretInstancer`)
-    // rather than Pixi's `!type.isSoft` -- a deliberate, narrower condition:
-    // Pixi's turret-facing spring only ever runs for a unit type with
-    // turret art loaded (`if (atlas.turretTextures)`, renderer.ts:2112), so
-    // a non-soft vehicle with NO turret sheet (the jeep, the D9, the
-    // Apache) has its `turretFacing` seeded once at mission start and then
-    // left frozen forever in Pixi -- reading it there would be reading a
-    // stale value, not a turret-aware one. Reading hull facing for that
-    // case instead (this backend's own pre-B3.6 behaviour) is strictly more
-    // correct, not merely different, and only matters for a unit type that
-    // never draws a turret sprite in either backend.
-    const facingRad = turretInstancer
+    // Turret facing when this unit type has turret art loaded -- BILLBOARD
+    // art (`turretInstancer`) or a mesh vehicle's own `turret_pivot`
+    // (`meshTurretPivot`) -- hull facing otherwise. `this.turretFacing
+    // [e.shooter]` is the SAME array either way (`updateVehicleMeshes`'s own
+    // doc comment: "reuse that source; do not invent a second one"), holding
+    // whatever the last `entityFrame`/`updateVehicleMeshes` call sprung it
+    // to, matching Pixi's own `usesTurret` read of
+    // `this.turretFacing[e.shooter]` (renderer.ts:778-781). Gated on ACTUAL
+    // turret art rather than Pixi's `!type.isSoft` -- a deliberate, narrower
+    // condition: Pixi's turret-facing spring only ever runs for a unit type
+    // with turret art loaded (`if (atlas.turretTextures)`,
+    // renderer.ts:2112), so a non-soft vehicle with NO turret sheet (the
+    // jeep, the D9, the Apache) has its `turretFacing` seeded once at
+    // mission start and then left frozen forever in Pixi -- reading it there
+    // would be reading a stale value, not a turret-aware one. Reading hull
+    // facing for that case instead (this backend's own pre-B3.6 behaviour)
+    // is strictly more correct, not merely different, and only matters for a
+    // unit type that never draws a turret (sprite OR mesh) in either
+    // backend.
+    const meshVehicle = this.vehicleMeshEntities.get(e.shooter);
+    const meshTurretPivot = meshVehicle?.turretPivot ?? null;
+    const facingRad = turretInstancer || meshTurretPivot
       ? this.turretFacing[e.shooter] * Math.PI * 2
       : fx.toNumber(st.facing[e.shooter]) * Math.PI * 2;
     const barrelLen = type.isSoft ? 0.4 : 0.8;
-    const mzX = this.curX[e.shooter] + Math.cos(facingRad) * barrelLen;
-    const mzY = this.curY[e.shooter] + Math.sin(facingRad) * barrelLen;
+    let mzX: number;
+    let mzY: number;
+    if (meshTurretPivot) {
+      // Anchor at the mesh vehicle's own turret pivot -- its REAL, per-entity
+      // world position (position/rotation set by the last `updateVehicleMeshes`
+      // call, `matrixWorld` refreshed by the render pass that call's own
+      // `frame()` invocation ends with, so this reads at most one frame
+      // stale) -- plus a residual barrel-tip extension along the turret's
+      // current bearing (`MESH_TURRET_MUZZLE_TILES`'s own doc comment). This
+      // replaces the flat hull-centre-plus-`barrelLen` guess below for any
+      // unit type whose mesh actually carries a `turret_pivot` node; that
+      // guess remains the fallback for every billboard-turret and no-turret
+      // type, unchanged.
+      meshTurretPivot.getWorldPosition(this.scratchMuzzleWorld);
+      mzX = this.scratchMuzzleWorld.x + Math.cos(facingRad) * MESH_TURRET_MUZZLE_TILES;
+      mzY = this.scratchMuzzleWorld.z + Math.sin(facingRad) * MESH_TURRET_MUZZLE_TILES;
+    } else {
+      mzX = this.curX[e.shooter] + Math.cos(facingRad) * barrelLen;
+      mzY = this.curY[e.shooter] + Math.sin(facingRad) * barrelLen;
+    }
 
     // Which weapon fired decides the signature, not whether the shooter is
     // soft (renderer.ts:785-791).
@@ -1647,6 +1716,16 @@ export class ThreeRenderer implements Renderer {
     const cls = wp?.cls ?? WEAPON_CLASS.small_arms;
     const emitter = this.emitterLibrary.fireEmitterFor(cls);
     const power = wp ? firePower(wp) : 0;
+    // Muzzle-flash ramp shift (`./palette-material.ts`'s own "The
+    // muzzle-flash 'light'" doc comment) -- a no-op when this emitter
+    // declares no `light` (`FlashLightManager.spawn` itself no-ops on a
+    // missing/zero `decay_ms`, which an absent `light` object also produces
+    // via the `?.` below). `light.color` is deliberately NOT read here: the
+    // chosen mechanism shifts a surface toward ITS OWN ramp's lighter step,
+    // not toward the flash's own hue -- tinting every nearby surface toward
+    // `vfx.white_hot` would reintroduce the exact off-palette RGB-summation
+    // problem `additive` (`units/fx.ts`) was already rejected for.
+    if (emitter?.light) this.flashLights.spawn(mzX, mzY, emitter.light);
 
     // Kick the shooter back along its own bearing (renderer.ts:792-800).
     // Demolition charges are placed, not fired -- a satchel charge must not
@@ -2165,6 +2244,14 @@ export class ThreeRenderer implements Renderer {
       disposeMeshUnitTemplate(previous);
     }
     this.meshUnitTemplates.set(unitTypeId, template);
+    // Muzzle-flash ramp shift: every material this template's meshes draw
+    // through gets pointed at the shared flash-uniform arrays -- see
+    // `flashLights`'s own field doc comment. Clones share these materials BY
+    // REFERENCE (this file's own doc comment on `MeshUnitTemplate`), so one
+    // registration per template covers every living/future clone of it.
+    for (const material of template.materials) {
+      this.flashLights.register(material as THREE.ShaderMaterial);
+    }
   }
 
   /**
@@ -2199,6 +2286,11 @@ export class ThreeRenderer implements Renderer {
       disposeVehicleMeshTemplate(previous);
     }
     this.vehicleMeshTemplates.set(unitTypeId, template);
+    // Muzzle-flash ramp shift -- see `loadMeshUnit`'s identical comment just
+    // above; the reasoning is unchanged, only the template kind differs.
+    for (const material of template.materials) {
+      this.flashLights.register(material as THREE.ShaderMaterial);
+    }
   }
 
   /**
@@ -2250,6 +2342,10 @@ export class ThreeRenderer implements Renderer {
       disposeBuildingMeshTemplate(previousIdle);
     }
     this.buildingMeshIdleTemplates.set(structureId, idleTemplate);
+    // Muzzle-flash ramp shift -- see `loadMeshUnit`'s identical comment.
+    for (const material of idleTemplate.materials) {
+      this.flashLights.register(material as THREE.ShaderMaterial);
+    }
 
     if (wreckUrl) {
       const wreckTemplate = await loadBuildingMeshTemplate(wreckUrl, wallColorKey);
@@ -2264,6 +2360,11 @@ export class ThreeRenderer implements Renderer {
         disposeBuildingMeshTemplate(previousWreck);
       }
       this.buildingMeshWreckTemplates.set(structureId, wreckTemplate);
+      // Muzzle-flash ramp shift -- see `loadMeshUnit`'s identical comment. A
+      // wreck can still sit near a live firefight, so it registers too.
+      for (const material of wreckTemplate.materials) {
+        this.flashLights.register(material as THREE.ShaderMaterial);
+      }
     }
 
     this.terrainDirty = true;

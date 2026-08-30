@@ -41,6 +41,124 @@ import * as THREE from 'three';
 export const RAMP_MAX = 9;
 
 /**
+ * The muzzle-flash "light": ramp-index shift, not a `THREE.PointLight`.
+ *
+ * `EmitterSpec.light` (`data/vfx/*.json`) declared and validated since the
+ * emitter schema's own first draft; nothing read it. A `THREE.PointLight`
+ * cannot fix that here -- `toonRampMaterial`'s fragment shader quantizes
+ * `N·L` against its own fixed `uLightDir` uniform and reads the fragment
+ * colour out of `uRamp`; it does not participate in three.js's lighting
+ * system at all, so a `PointLight` added anywhere would illuminate nothing.
+ * Nor is summed RGB available: the palette guarantee here is per-material,
+ * by construction (this file's own top comment), and `AdditiveBlending` was
+ * already tried and rejected for exactly this reason one task earlier (see
+ * `units/fx.ts`'s `createParticleMaterial` doc comment, "the dead-schema-
+ * field fix, and why it is NOT GPU additive blending" -- the identical
+ * argument: summing two on-palette colours produces a third the palette does
+ * not name, and `#FFFFFF` has zero hits in `data/palette.json` either).
+ *
+ * The mechanism that stays on-palette by construction: a surface near an
+ * active flash steps its OWN ramp toward index 0 (the lightest step, per
+ * this file's own "Index 0... is the LIGHTEST step" note) for the flash's
+ * duration, rather than being lit by anything. The only values this can ever
+ * emit are still `uRamp` entries -- the identical guarantee the shader
+ * already gives static shading, extended to a transient input.
+ *
+ * `FLASH_CAPACITY` bounds how many flashes can be simultaneously active,
+ * GLOBALLY, not per material -- every `toonRampMaterial`/
+ * `toonRampSkinnedMaterial`/terrain-material instance samples the SAME
+ * uniform arrays (`FlashLightManager` owns the arrays; `register()` points
+ * every material's `uFlash*` uniforms at them by reference, so updating the
+ * arrays once a frame updates every material with no per-material write
+ * loop). 8 is a deliberate ceiling, not the literal "eight emitters declare
+ * `light`" coincidence: unlike a tracer (which persists for its whole
+ * ballistic flight -- Task B3.14 measured 268 CONCURRENT tracers from a
+ * dozen shooters in a real firefight, `units/fx.ts`'s `TRACER_CAPACITY` doc
+ * comment), a flash is tied 1:1 to a `fire` event and decays fast (70-500ms
+ * across the eight declarations, 130ms median) -- expected concurrent count
+ * even in a 400-unit battle is bounded by (fleet-wide shots/second x mean
+ * decay time), not by ballistic flight time, and low single digits to a
+ * dozen is the plausible range from that arithmetic. The real cost this
+ * ceiling bounds is a per-FRAGMENT loop -- unlike tracers/particles (their
+ * own bounded draw calls), the terrain material's flash check runs on every
+ * on-screen terrain pixel, every frame, so this is deliberately smaller than
+ * `TRACER_CAPACITY`/`PARTICLE_CAPACITY`. Overflow drops the OLDEST active
+ * flash (`FlashLightManager.spawn`), the same "keep the newest, that is what
+ * the player is looking at" reasoning `writeTracerInstances` already uses.
+ * This is an ASSUMPTION, not a measurement -- no 400-unit browser run of
+ * this feature exists yet to confirm 8 is enough headroom, the same caveat
+ * `TRACER_CAPACITY`'s own doc comment carries for its own number.
+ */
+export const FLASH_CAPACITY = 8;
+
+/**
+ * Ramp-shift GLSL, shared verbatim between `toonRampMaterial` (below),
+ * `toonRampSkinnedMaterial` (`units/mesh-material.ts`) and the terrain
+ * material (`terrain/mesh.ts`) -- a single exported string rather than
+ * hand-copied into three fragment shaders, the exact "copied N times,
+ * diverged silently" failure `terrain/shared.ts`'s own top comment records
+ * against Phase B2's five separately-reviewed builders. `flashShiftSteps`
+ * returns the MAX (not the sum) of every active flash's own contribution at
+ * `worldPos.xz` -- summing could push a bunched cluster of simultaneous
+ * flashes past what any single flash's own `light.intensity` authorises, to
+ * a shift the ramp itself may have no entry for once clamped; `max()` keeps
+ * every possible output exactly one flash's own authored contribution, never
+ * a combination the data never asked for. Distance is XZ-only (world
+ * height/elevation is not part of the check) -- deliberately: 1 world unit
+ * is 1 game tile on X/Z (`units/fx.ts`'s `tracerQuadPositions` doc comment,
+ * "Game (x, y) maps directly onto world (X, Z)"), so `radius_tiles` needs no
+ * conversion, but height uses a wholly different, much smaller scale
+ * (`WORLD_PER_LEVEL`, ~0.255 world units per elevation level) that would
+ * either do nothing or dominate the check depending on how it were mixed in
+ * -- this is a cosmetic muzzle-flash radius, not a gameplay sight check, and
+ * a flat XZ distance is the simpler, correct-enough answer.
+ */
+export const FLASH_UNIFORMS_GLSL = /* glsl */ `
+  uniform vec2 uFlashPos[${FLASH_CAPACITY}];
+  uniform float uFlashRadius[${FLASH_CAPACITY}];
+  uniform float uFlashShift[${FLASH_CAPACITY}];
+`;
+
+export const FLASH_SHIFT_GLSL = /* glsl */ `
+  int flashShiftSteps(vec3 worldPos) {
+    float shift = 0.0;
+    for (int i = 0; i < ${FLASH_CAPACITY}; i++) {
+      float d = distance(worldPos.xz, uFlashPos[i]);
+      if (d < uFlashRadius[i]) {
+        shift = max(shift, uFlashShift[i]);
+      }
+    }
+    return int(shift);
+  }
+`;
+
+/**
+ * Fresh `uFlashPos`/`uFlashRadius`/`uFlashShift` uniform entries, harmless
+ * until a `FlashLightManager` calls `register()` on the material and points
+ * these at its own live arrays by reference (see that class's own doc
+ * comment). Positions default far off the map (`1e6`) rather than the
+ * origin -- the origin is real, occupied ground, and a zero-radius default
+ * already makes distance irrelevant, but a far-off default costs nothing and
+ * removes any doubt. Every `toonRampMaterial`/`toonRampSkinnedMaterial`/
+ * terrain-material instance gets its OWN set of these THREE objects at
+ * construction (never shared before registration) so an unregistered
+ * material -- a test fixture, or a material built before any
+ * `FlashLightManager` exists -- is fully inert rather than accidentally
+ * aliasing another instance's state.
+ */
+export function defaultFlashUniforms(): {
+  uFlashPos: { value: THREE.Vector2[] };
+  uFlashRadius: { value: number[] };
+  uFlashShift: { value: number[] };
+} {
+  return {
+    uFlashPos: { value: Array.from({ length: FLASH_CAPACITY }, () => new THREE.Vector2(1e6, 1e6)) },
+    uFlashRadius: { value: new Array(FLASH_CAPACITY).fill(0) },
+    uFlashShift: { value: new Array(FLASH_CAPACITY).fill(0) },
+  };
+}
+
+/**
  * A palette colour whose bytes survive to the framebuffer.
  *
  * `new THREE.Color(hex)` (or `.set(hex)`) treats the string as sRGB and
@@ -138,11 +256,14 @@ export function toonRampMaterial(rampHexes: readonly string[]): THREE.ShaderMate
       uRamp: { value: padded },
       uSteps: { value: rampHexes.length },
       uLightDir: { value: new THREE.Vector3(0.5, 1, 0.3).normalize() },
+      ...defaultFlashUniforms(),
     },
     vertexShader: /* glsl */ `
       varying vec3 vNormal;
+      varying vec3 vWorldPos;
       void main() {
         vNormal = normalize(normalMatrix * normal);
+        vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
@@ -150,13 +271,21 @@ export function toonRampMaterial(rampHexes: readonly string[]): THREE.ShaderMate
       uniform vec3 uRamp[${RAMP_MAX}];
       uniform int uSteps;
       uniform vec3 uLightDir;
+      ${FLASH_UNIFORMS_GLSL}
       varying vec3 vNormal;
+      varying vec3 vWorldPos;
+
+      ${FLASH_SHIFT_GLSL}
 
       void main() {
         float nl = max(dot(normalize(vNormal), normalize(uLightDir)), 0.0);
         // Quantize into uSteps bands, brightest band -> index 0.
         int band = int(floor((1.0 - nl) * float(uSteps)));
         band = min(band, uSteps - 1);
+        // Muzzle-flash ramp shift: a nearby active flash steps this
+        // fragment's band toward 0 (brighter), never past it -- see this
+        // file's own "The muzzle-flash 'light'" doc comment above.
+        band = max(0, band - flashShiftSteps(vWorldPos));
         vec3 outColor = uRamp[0];
         for (int i = 0; i < ${RAMP_MAX}; i++) {
           if (i == band) {

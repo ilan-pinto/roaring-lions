@@ -88,6 +88,41 @@ export function quantise(hex: string, palette: readonly string[]): string {
 }
 
 /**
+ * The lighter neighbour of `hex` within ITS OWN named ramp, `steps` entries
+ * toward index 0 (the lightest step -- this module's own imports read
+ * straight from `data/palette.json`'s `ramps`, where that convention lives).
+ * Used to build a "lit" variant of a terrain TONE (`buildGround`'s own
+ * `litColors` output) for the muzzle-flash ramp-shift effect
+ * (`../palette-material.ts`'s "The muzzle-flash 'light'" doc comment) --
+ * terrain has no normal and no per-vertex ramp/index bookkeeping the way
+ * `toonRampMaterial` does (this module's own top comment: terrain is
+ * "composited... then quantised", a single already-resolved hex with no
+ * ramp identity preserved past that point), so the lighter step has to be
+ * computed from the TONE itself, once, before compositing -- not from the
+ * final quantised vertex colour, which may not even be a member of `hex`'s
+ * own ramp (a composite of two different ramps' entries quantises to
+ * whichever of ALL ~65 colours is nearest, not necessarily one from either
+ * source ramp).
+ *
+ * Falls back to returning `hex` UNCHANGED when it is not found in any named
+ * ramp -- a graceful no-op (the flash simply has nothing to shift toward at
+ * that tile) rather than a throw, since a caller may pass a `background` or
+ * tone value this function was never guaranteed to recognise (a `reserved`-
+ * band colour, for instance, which `ramps` here deliberately excludes -- see
+ * `PALETTE_HEXES`'s own two-source concatenation above).
+ */
+export function rampNeighbor(hex: string, steps: number): string {
+  const upper = hex.toUpperCase();
+  for (const ramp of Object.values(ramps)) {
+    const idx = ramp.colors.findIndex((c) => c.toUpperCase() === upper);
+    if (idx !== -1) {
+      return ramp.colors[Math.max(0, idx - steps)];
+    }
+  }
+  return hex;
+}
+
+/**
  * Pixi's per-tile ground-tone decision (`drawTerrain`), reproduced in the
  * same order and quantised once at the end:
  *
