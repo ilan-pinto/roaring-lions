@@ -35,6 +35,12 @@ export interface ParticleSpec {
    *  authored particle exactly as declared). See
    *  `packages/render/src/three/units/explosion-burst.ts`'s own top comment. */
   mesh_burst?: boolean;
+  /** The `mesh_burst` sibling for the multi-second smoke AFTERMATH rather
+   *  than the sub-second fireball: superseded by `SmokePlumeManager`
+   *  instead, under the identical fallback contract (mesh not loaded,
+   *  `&mesh` off, or Pixi -> the authored particle exactly as declared).
+   *  See `packages/render/src/three/units/smoke-plume.ts`'s own top comment. */
+  mesh_plume?: boolean;
 }
 
 /** One emitter, as authored in data/vfx/*.json. */

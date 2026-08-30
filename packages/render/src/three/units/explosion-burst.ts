@@ -206,6 +206,40 @@ export function explosionBurstPowerFromFootprint(
   return power < 0 ? 0 : power > 1 ? 1 : power;
 }
 
+/**
+ * The sibling of `explosionBurstPowerFromFootprint`, for a KILLED UNIT
+ * rather than a destroyed structure -- added when `ThreeRenderer.onEvents`'
+ * `destroyed` case gained its own hard-target explosion burst (a second,
+ * later task layered onto this file's own). A unit has no footprint the
+ * way a structure does (`Sim.structures.minX`/etc. do not exist for
+ * entities), so this reads the unit TYPE's own `hp` (`UnitType.hp`, already
+ * converted to a plain number by the caller -- `fx.toNumber`, matching
+ * every other Fx-to-render-number boundary in `ThreeRenderer`) instead --
+ * the identical category of judgement as the footprint function: a
+ * physical-size stand-in for "how big should this burst look", NOT the
+ * sim-side "catastrophic kill" classification this file's own top comment
+ * says is out of scope. Hull armour thickness was also a candidate (the
+ * brief's own "hull size or max HP are the obvious candidates") but is not
+ * exposed as a single scalar the way `hp` is -- `armorFront`/`armorSide`/
+ * `armorRear` are three numbers with no one obvious combination, where
+ * `hp` is already exactly the single "how much of this thing is there"
+ * number the sim itself uses.
+ *
+ * `referenceHp` defaults to 3000 -- `mbt_lavi`'s own `hull.hp`, the largest
+ * of any unit type on the roster at the time this was written (measured
+ * directly from every `data/units/**\/*.json` file, not guessed; see this
+ * task's report). A unit at or above that HP reads as full power (1);
+ * anything smaller scales down linearly, clamped to [0, 1] -- the identical
+ * shape `explosionBurstPowerFromFootprint` already uses, so a `moto_rpg`
+ * (150 hp, power ~0.05) does not detonate like an `mbt_lavi` (3000 hp,
+ * power 1), while `muzzleFlashPowerScale`'s own 0.75 floor still keeps even
+ * the smallest reading from looking like literally nothing.
+ */
+export function explosionBurstPowerFromMaxHp(maxHp: number, referenceHp = 3000): number {
+  const power = maxHp / referenceHp;
+  return power < 0 ? 0 : power > 1 ? 1 : power;
+}
+
 /** One loaded `art/meshes/vfx/explosion_burst.glb`, kept as the source
  *  geometry every pooled `InstancedMesh` instance below draws through --
  *  mirrors `MuzzleFlashTemplate` exactly. */

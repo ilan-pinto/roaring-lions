@@ -7,6 +7,7 @@ import {
   EXPLOSION_BURST_BASE_SCALE,
   EXPLOSION_BURST_DEFAULT_DURATION_MS,
   explosionBurstPowerFromFootprint,
+  explosionBurstPowerFromMaxHp,
 } from './explosion-burst';
 
 describe('explosionBurstPowerFromFootprint', () => {
@@ -28,6 +29,39 @@ describe('explosionBurstPowerFromFootprint', () => {
 
   it('clamps to [0, 1] regardless of input shape', () => {
     expect(explosionBurstPowerFromFootprint(0, 0, 20, 20, 9)).toBe(1);
+  });
+});
+
+describe('explosionBurstPowerFromMaxHp', () => {
+  it('reads 1 (full power) at or above the reference hp', () => {
+    expect(explosionBurstPowerFromMaxHp(3000, 3000)).toBeCloseTo(1, 10);
+    expect(explosionBurstPowerFromMaxHp(5000, 3000)).toBe(1); // heavier-than-reference clamps, does not overshoot
+  });
+
+  it('scales linearly below the reference hp', () => {
+    expect(explosionBurstPowerFromMaxHp(1500, 3000)).toBeCloseTo(0.5, 10);
+  });
+
+  it('a light vehicle still reads as some power, never negative', () => {
+    const power = explosionBurstPowerFromMaxHp(150, 3000); // moto_rpg's own hp
+    expect(power).toBeGreaterThan(0);
+    expect(power).toBeLessThanOrEqual(1);
+  });
+
+  it('a jeep reads meaningfully weaker than a main battle tank -- "does not detonate like a tank"', () => {
+    const jeep = explosionBurstPowerFromMaxHp(520, 3000); // jeep_shoded's own hp
+    const tank = explosionBurstPowerFromMaxHp(3000, 3000); // mbt_lavi's own hp
+    expect(jeep).toBeLessThan(tank);
+    expect(tank).toBe(1);
+  });
+
+  it('defaults its reference to 3000 (mbt_lavi\'s own hp, the roster max) when none is given', () => {
+    expect(explosionBurstPowerFromMaxHp(3000)).toBeCloseTo(1, 10);
+  });
+
+  it('clamps to [0, 1] regardless of input', () => {
+    expect(explosionBurstPowerFromMaxHp(100000, 3000)).toBe(1);
+    expect(explosionBurstPowerFromMaxHp(0, 3000)).toBe(0);
   });
 });
 

@@ -119,7 +119,9 @@ import {
   ExplosionBurstManager,
   EXPLOSION_BURST_DEFAULT_DURATION_MS,
   explosionBurstPowerFromFootprint,
+  explosionBurstPowerFromMaxHp,
 } from './units/explosion-burst';
+import { SmokePlumeManager, SMOKE_PLUME_DEFAULT_DURATION_MS } from './units/smoke-plume';
 import { buildGround } from './terrain/ground';
 import { buildScatter } from './terrain/scatter';
 import { buildGroves } from './terrain/grove';
@@ -710,6 +712,15 @@ export class ThreeRenderer implements Renderer {
    *  shape): its `InstancedMesh`es exist only once `loadExplosionBurstMesh`
    *  resolves, its three palette colours only once `useEmitters` has run. */
   private readonly explosionBursts = new ExplosionBurstManager();
+  /** Owns the pooled, modelled smoke-plume mesh
+   *  (`art/meshes/vfx/smoke_plume.glb`) -- `units/smoke-plume.ts`'s own top
+   *  comment has the full account, including why its zones split along the
+   *  mesh's own rise rather than radially like `explosionBursts` above.
+   *  Constructed eagerly and wired identically to `explosionBursts` (same
+   *  "always present, draws nothing until fed" shape): its `InstancedMesh`es
+   *  exist only once `loadSmokePlumeMesh` resolves, its three palette
+   *  colours only once `useEmitters` has run. */
+  private readonly smokePlumes = new SmokePlumeManager();
 
   /**
    * Per-entity position tracking for interpolation, mirroring
@@ -1397,6 +1408,7 @@ export class ThreeRenderer implements Renderer {
     this.particleInstancerAboveAdditive.dispose();
     this.muzzleFlashes.dispose();
     this.explosionBursts.dispose();
+    this.smokePlumes.dispose();
     this.tracerBatch.dispose();
     // Phase C: same "added once in the constructor, no scene.remove needed"
     // shape as the FX batches just above -- see this file's own comment on
@@ -1751,13 +1763,60 @@ export class ThreeRenderer implements Renderer {
       } else if (e.kind === 'tunnelCollapsed') {
         this.onTunnelCollapsed(e.tunnel, e.tick);
       } else if (e.kind === 'destroyed') {
+        const deadType = this.sim.unitTypes[st.typeIdx[e.entity]];
         this.dying.push({
           x: this.curX[e.entity],
           y: this.curY[e.entity],
           facing: fx.toNumber(st.facing[e.entity]),
-          typeId: this.sim.unitTypes[st.typeIdx[e.entity]].id,
+          typeId: deadType.id,
           t: 0,
         });
+        // A hard-target kill (a vehicle) reuses the SAME pooled
+        // explosion-burst mesh `structureDestroyed` already draws below --
+        // "reuse the pooled mesh path... do not add a second one", per this
+        // task's own brief. `!deadType.isSoft` alone is NOT the vehicle
+        // gate: it is armour-derived (`SOFT_ARMOR_LIMIT`, 30mm) and every
+        // WHEELED unit on the roster except `apc_eitan` carries less than
+        // that (`jeep_shoded` 14mm, `technical` 15mm, `gun_truck` 12mm,
+        // `rocket_battery` 10mm, `moto_rpg` 0mm) -- the identical trap
+        // `vehicle-tracks.ts`'s own top comment documents for its "is this
+        // a vehicle" gate, and it bites here in exactly the same shape: on
+        // `isSoft` alone, EVERY unit type in `data/units/enemy/` reads as
+        // soft (there is no `!isSoft` enemy unit on the roster at all), so
+        // an `isSoft`-only gate would never show a burst on an enemy kill --
+        // the one case this feature exists to fix. `trackKindFor(deadType.id)
+        // !== null` reuses that file's own hand-verified closed vehicle
+        // table (never guessed against `isSoft`) to also catch those five;
+        // `!deadType.isSoft` alone still covers `heli_peten` (armoured,
+        // airborne, absent from that GROUND-vehicle table by construction,
+        // exactly as that file's own top comment says to expect). Neither
+        // half can ever admit infantry or a crew-served weapon team: every
+        // isotropic, `isSoft: true`, non-tracked/wheeled/single unit type on
+        // the roster (civilians included) is absent from both.
+        const isVehicleKill = !deadType.isSoft || trackKindFor(deadType.id) !== null;
+        if (isVehicleKill && (this.explosionBursts.ready || this.smokePlumes.ready)) {
+          const dx = this.curX[e.entity];
+          const dy = this.curY[e.entity];
+          const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, dx, dy);
+          // Scaled by the killed type's own max HP, not a footprint (a unit
+          // has none) -- see `explosionBurstPowerFromMaxHp`'s own doc
+          // comment for why HP over armour, and for `referenceHp`'s source
+          // (`mbt_lavi`, the roster's own largest). Cosmetic yaw, the same
+          // per-entity presentation hash `structureDestroyed` below uses for
+          // its own structure id.
+          const killPower = explosionBurstPowerFromMaxHp(fx.toNumber(deadType.hp));
+          const killYawTurns = tileHash(e.entity, e.entity * 7 + 1);
+          if (this.explosionBursts.ready) {
+            this.explosionBursts.spawn(dx, worldY, dy, killYawTurns, killPower, EXPLOSION_BURST_DEFAULT_DURATION_MS);
+          }
+          // The smoke aftermath follows the same hard-target kill -- a
+          // burning hull is exactly what a rising column is FOR. Checked
+          // live (this task's report) that pairing the two here reads the
+          // same way it does for a building collapse, not merely assumed.
+          if (this.smokePlumes.ready) {
+            this.smokePlumes.spawn(dx, worldY, dy, killYawTurns, killPower, SMOKE_PLUME_DEFAULT_DURATION_MS);
+          }
+        }
       } else if (e.kind === 'structureHit') {
         // Task B3.10: the quantisation that makes this survivable at
         // Pixi's per-round event volume lives inside `applyStructureHit`
@@ -2064,12 +2123,21 @@ export class ThreeRenderer implements Renderer {
    * when no emitter set is loaded, exactly like Pixi, so the caller can
    * fall back to flat puffs.
    *
-   * `power`/`yawTurns` feed the explosion-burst mesh alone (default to 1/0,
-   * exercised only by a caller that actually has a size/variety signal to
-   * offer -- today, only the `structureDestroyed` case below; `onTunnelCollapsed`
-   * never passes either, which is fine, since `tunnel_collapse.json` never
-   * marks a layer `mesh_burst` -- see `units/explosion-burst.ts`'s own top
-   * comment for why that attachment is `structure_collapse`-only).
+   * `power`/`yawTurns` feed the explosion-burst AND smoke-plume meshes
+   * (default to 1/0, exercised only by a caller that actually has a
+   * size/variety signal to offer -- today, only the `structureDestroyed`
+   * case below; `onTunnelCollapsed` never passes either, which is fine,
+   * since `tunnel_collapse.json` never marks a layer `mesh_burst` or
+   * `mesh_plume` -- see `units/explosion-burst.ts`'s own top comment for
+   * why that attachment is `structure_collapse`-only). Both meshes are
+   * spawned from the SAME event, at the SAME instant, with the SAME power/
+   * yaw -- verified live (this task's report) that the pairing reads as one
+   * coherent detonation-then-smoke sequence rather than fighting: the
+   * plume's own rise envelope (`smokePlumeRiseEnvelope`) keeps it barely
+   * visible for its first fraction of a second, so the burst's near-instant
+   * flash is what actually catches the eye first, with the column visibly
+   * climbing past it as the fireball fades -- an emergent sequencing from
+   * each effect's own envelope shape, not an explicit spawn-time delay.
    */
   private spawnCollapseFx(id: string, bx: number, by: number, power = 1, yawTurns = 0): boolean {
     if (!this.particleSystem) return false;
@@ -2084,6 +2152,13 @@ export class ThreeRenderer implements Renderer {
       if (layer.mesh_burst && this.explosionBursts.ready) {
         const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, bx, by);
         this.explosionBursts.spawn(bx, worldY, by, yawTurns, power, EXPLOSION_BURST_DEFAULT_DURATION_MS);
+        continue;
+      }
+      // The `mesh_burst` sibling, for the multi-second smoke AFTERMATH --
+      // see `units/smoke-plume.ts`'s own top comment.
+      if (layer.mesh_plume && this.smokePlumes.ready) {
+        const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, bx, by);
+        this.smokePlumes.spawn(bx, worldY, by, yawTurns, power, SMOKE_PLUME_DEFAULT_DURATION_MS);
         continue;
       }
       const fxLayer = fxLayerIndex(em.layer, layer.additive ?? false);
@@ -2379,6 +2454,8 @@ export class ThreeRenderer implements Renderer {
     this.muzzleFlashes.setColors(resolve);
     // Identical two-phase-construction safety, for the explosion-burst mesh.
     this.explosionBursts.setColors(resolve);
+    // Identical two-phase-construction safety, for the smoke-plume mesh.
+    this.smokePlumes.setColors(resolve);
   }
   /**
    * Load a unit type's sprite sheet and build the `THREE.InstancedMesh`
@@ -2583,6 +2660,21 @@ export class ThreeRenderer implements Renderer {
    */
   async loadExplosionBurstMesh(glbUrl: string): Promise<void> {
     const meshes = await this.explosionBursts.load(glbUrl);
+    this.scene.add(...meshes);
+  }
+
+  /**
+   * The pooled, modelled smoke-plume mesh (`units/smoke-plume.ts`'s own top
+   * comment) -- loads `art/meshes/vfx/smoke_plume.glb` ONCE and adds its
+   * three pooled `InstancedMesh` zones to the scene. Mirrors
+   * `loadExplosionBurstMesh` exactly, including the same silent-no-op
+   * contract for a caller that never invokes this (Pixi; three.js with
+   * `&mesh` off): `spawnCollapseFx` falls back to `structure_collapse.json`'s
+   * own authored `mesh_plume` particle layer until this resolves
+   * (`SmokePlumeManager.ready`).
+   */
+  async loadSmokePlumeMesh(glbUrl: string): Promise<void> {
+    const meshes = await this.smokePlumes.load(glbUrl);
     this.scene.add(...meshes);
   }
 
@@ -3671,6 +3763,8 @@ export class ThreeRenderer implements Renderer {
     this.muzzleFlashes.step(dtMs);
     // Identical presentation-only ageing, for the explosion-burst mesh.
     this.explosionBursts.step(dtMs);
+    // Identical presentation-only ageing, for the smoke-plume mesh.
+    this.smokePlumes.step(dtMs);
     this.tracers = stepTracers(this.tracers, dtSeconds);
     this.tracerBatch.update(this.tracers, this.opts.tracerColors, elevation, this.sim.width, this.sim.height);
   }

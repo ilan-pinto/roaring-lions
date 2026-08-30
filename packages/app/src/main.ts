@@ -731,6 +731,15 @@ async function main(): Promise<void> {
       // `spawnCollapseFx` falls back to `structure_collapse.json`'s own
       // authored `mesh_burst` particle layer until this resolves.
       await three.loadExplosionBurstMesh(new URL('../../../art/meshes/vfx/explosion_burst.glb', import.meta.url).href);
+
+      // The modelled smoke plume (mesh-unit-contract's VFX asset class,
+      // `units/smoke-plume.ts`'s own top comment) -- the multi-second
+      // aftermath a burst's own particle fallback and this mesh both pair
+      // with. Same single-shared-asset shape as the two calls above, gated
+      // behind the same `flags.mesh`: `spawnCollapseFx` falls back to
+      // `structure_collapse.json`'s own authored `mesh_plume` particle
+      // layer until this resolves.
+      await three.loadSmokePlumeMesh(new URL('../../../art/meshes/vfx/smoke_plume.glb', import.meta.url).href);
     }
   } else {
     // Same shape as the three branch above: PixiRenderer's own entry point,

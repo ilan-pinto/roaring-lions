@@ -43,6 +43,20 @@
       "size_over_life": [0.6, 2.6],
       "color_over_life": ["dust.2", "dust.4"],
       "alpha_over_life": [0.75, 0.0]
+    },
+    {
+      "sprite": "smoke_puff",
+      "count": [3, 5],
+      "lifetime_ms": [3200, 4800],
+      "speed_tiles_s": [0.3, 0.9],
+      "cone_deg": 360,
+      "gravity_tiles_s2": -0.3,
+      "drag": 0.5,
+      "size_px": [16, 28],
+      "size_over_life": [0.5, 1.4, 2.2],
+      "color_over_life": ["gunmetal.3", "gunmetal.2", "gunmetal.0"],
+      "alpha_over_life": [0.85, 0.6, 0.0],
+      "mesh_plume": true
     }
   ]
 }

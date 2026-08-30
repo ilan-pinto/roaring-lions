@@ -270,6 +270,11 @@
           "type": "boolean",
           "default": false,
           "description": "Three.js backend only, and only once art/meshes/vfx/explosion_burst.glb has loaded (the &mesh flag): this layer is superseded by a pooled, modelled explosion-fireball mesh instead of being spawned as a particle. Falls back to the authored particle exactly as declared when the mesh has not loaded (mesh flag off, still loading, or the Pixi backend, which never reads this field). The mesh_flash sibling field, for a structure_collapse/tunnel_collapse-triggered hot core rather than a weapon_fire one -- see packages/render/src/three/units/explosion-burst.ts's own top comment for why this attaches to structure_collapse specifically, not catastrophic_kill."
+        },
+        "mesh_plume": {
+          "type": "boolean",
+          "default": false,
+          "description": "Three.js backend only, and only once art/meshes/vfx/smoke_plume.glb has loaded (the &mesh flag): this layer is superseded by a pooled, modelled rising smoke column instead of being spawned as a particle. Falls back to the authored particle exactly as declared when the mesh has not loaded (mesh flag off, still loading, or the Pixi backend, which never reads this field). The mesh_burst sibling field, for the multi-second smoke aftermath of a structure_collapse (or a hard-target unit death) rather than the sub-second fireball itself -- see packages/render/src/three/units/smoke-plume.ts's own top comment."
         }
       }
     }
