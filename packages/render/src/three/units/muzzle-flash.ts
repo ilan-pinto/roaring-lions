@@ -118,6 +118,7 @@ import {
   type MuzzleFlashRole,
 } from './muzzle-flash-role';
 import { FX_RENDER_ORDER_ABOVE_ADDITIVE } from './render-order';
+import { createVfxMeshMaterial } from './vfx-mesh-material';
 
 // ---------------------------------------------------------------------------
 // Pure: geometry/matrix arithmetic and the GLTF -> role-keyed-geometry
@@ -312,52 +313,13 @@ const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 /**
  * One flat, unlit, forced-opaque colour per zone -- see this file's own top
- * comment ("Why a mesh at all") for the full palette argument. No lighting
- * term at all (unlike `toonRampMaterial`'s quantized `N·L`): this shape is
- * meant to read as EMITTING light, not reflecting it, so every fragment of
- * one zone is the same resolved `reserved.vfx` entry regardless of the
- * mesh's own surface normal -- there is no "dark side" of a flash.
- *
- * `blending: THREE.NormalBlending` with alpha pinned to 1.0 in the
- * fragment shader (never real `AdditiveBlending`) is the identical recipe
- * `units/fx.ts`'s `createParticleMaterial` already proved keeps every
- * fragment on-palette; see that function's own doc comment for the full
- * argument against summing blend modes. `depthTest: false` /
- * `depthWrite: false` matches the `above_units`, additive-tier particle
- * this mesh replaces (`fire_apfsds.json`'s own `layer: "above_units"`) --
- * an unconditional pass, never hidden behind a unit or terrain the way a
- * `depthTest: true` FX mesh would be, exactly the guarantee
- * `FX_RENDER_ORDER_ABOVE_ADDITIVE`'s own row in `render-order.ts` documents
- * for its particle sibling.
+ * comment ("Why a mesh at all") for the full palette argument, and
+ * `./vfx-mesh-material.ts`'s own top comment for the material recipe
+ * itself (extracted there once `explosion-burst.ts` needed the byte-
+ * identical recipe -- this file's own callers and doc citations of
+ * "createMuzzleFlashMaterial" are unaffected; only the implementation moved).
  */
-function createMuzzleFlashMaterial(): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
-    uniforms: {
-      uColor: { value: new THREE.Color(0, 0, 0) },
-    },
-    vertexShader: /* glsl */ `
-      void main() {
-        vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(position, 1.0);
-        gl_Position = projectionMatrix * mvPosition;
-      }
-    `,
-    fragmentShader: /* glsl */ `
-      uniform vec3 uColor;
-      void main() {
-        // Opaque overwrite, not a sum -- every fragment this material ever
-        // writes is EXACTLY uColor, on-palette by construction. See this
-        // file's own top comment, "Why a mesh at all", for the full argument
-        // against real additive blending.
-        gl_FragColor = vec4(uColor, 1.0);
-      }
-    `,
-    transparent: true,
-    depthTest: false,
-    depthWrite: false,
-    side: THREE.FrontSide,
-    blending: THREE.NormalBlending,
-  });
-}
+const createMuzzleFlashMaterial = createVfxMeshMaterial;
 
 /**
  * Owns the three pooled `InstancedMesh` zones (`core`/`mid`/`outer`) and the

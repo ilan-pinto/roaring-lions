@@ -29,6 +29,12 @@ export interface ParticleSpec {
    *  `&mesh` off, or Pixi, which never reads this field at all). See
    *  `packages/render/src/three/units/muzzle-flash.ts`'s own top comment. */
   mesh_flash?: boolean;
+  /** The `mesh_flash` sibling for a `structure_collapse`-triggered hot core:
+   *  superseded by `ExplosionBurstManager` instead, under the identical
+   *  fallback contract (mesh not loaded, `&mesh` off, or Pixi -> the
+   *  authored particle exactly as declared). See
+   *  `packages/render/src/three/units/explosion-burst.ts`'s own top comment. */
+  mesh_burst?: boolean;
 }
 
 /** One emitter, as authored in data/vfx/*.json. */

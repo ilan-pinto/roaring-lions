@@ -5,6 +5,20 @@
   "budget_priority": 8,
   "particles": [
     {
+      "sprite": "soft_dot",
+      "count": [10, 16],
+      "lifetime_ms": [350, 550],
+      "speed_tiles_s": [2.5, 5.5],
+      "cone_deg": 360,
+      "gravity_tiles_s2": -1.0,
+      "size_px": [8, 16],
+      "size_over_life": [0.4, 1.0, 1.3],
+      "color_over_life": ["vfx.white_hot", "vfx.fire", "vfx.ember"],
+      "alpha_over_life": [1.0, 0.9, 0.0],
+      "additive": true,
+      "mesh_burst": true
+    },
+    {
       "sprite": "shard",
       "count": [14, 22],
       "lifetime_ms": [400, 900],

@@ -115,6 +115,11 @@ import { dimetricCamera, worldToScreenThree, screenToWorldThree } from './camera
 import { applyPalettePipeline } from './palette-material';
 import { FlashLightManager } from './flash-light';
 import { MuzzleFlashManager, MUZZLE_FLASH_DEFAULT_DURATION_MS } from './units/muzzle-flash';
+import {
+  ExplosionBurstManager,
+  EXPLOSION_BURST_DEFAULT_DURATION_MS,
+  explosionBurstPowerFromFootprint,
+} from './units/explosion-burst';
 import { buildGround } from './terrain/ground';
 import { buildScatter } from './terrain/scatter';
 import { buildGroves } from './terrain/grove';
@@ -675,6 +680,15 @@ export class ThreeRenderer implements Renderer {
    *  "always present, draws nothing until fed" shape every other FX
    *  instancer in this file already has. */
   private readonly muzzleFlashes = new MuzzleFlashManager();
+  /** Owns the pooled, modelled explosion-burst mesh
+   *  (`art/meshes/vfx/explosion_burst.glb`) -- `units/explosion-burst.ts`'s
+   *  own top comment has the full account, including why it attaches to
+   *  `structure_collapse` rather than the never-dispatched
+   *  `catastrophic_kill`. Constructed eagerly and wired identically to
+   *  `muzzleFlashes` above (same "always present, draws nothing until fed"
+   *  shape): its `InstancedMesh`es exist only once `loadExplosionBurstMesh`
+   *  resolves, its three palette colours only once `useEmitters` has run. */
+  private readonly explosionBursts = new ExplosionBurstManager();
 
   /**
    * Per-entity position tracking for interpolation, mirroring
@@ -1349,6 +1363,7 @@ export class ThreeRenderer implements Renderer {
     this.particleInstancerBelowAdditive.dispose();
     this.particleInstancerAboveAdditive.dispose();
     this.muzzleFlashes.dispose();
+    this.explosionBursts.dispose();
     this.tracerBatch.dispose();
     // Phase C: same "added once in the constructor, no scene.remove needed"
     // shape as the FX batches just above -- see this file's own comment on
@@ -1763,7 +1778,23 @@ export class ThreeRenderer implements Renderer {
         this.structPuffTick.delete(deadStruct);
         const bx = fx.toNumber(this.sim.structures.cx[deadStruct]);
         const by = fx.toNumber(this.sim.structures.cy[deadStruct]);
-        if (!this.spawnCollapseFx('structure_collapse', bx, by)) {
+        // Feeds the explosion-burst mesh alone (`spawnCollapseFx`'s own doc
+        // comment) -- `power` from the building's own footprint size (a
+        // bigger building reads as a bigger burst; see
+        // `explosionBurstPowerFromFootprint`'s own doc comment for why this
+        // is not the sim classification this task's scope excludes),
+        // `yawTurns` a purely cosmetic per-structure hash so repeated
+        // collapses do not all show the identical silhouette angle -- the
+        // same presentation hash the flat-puff fallback below already uses
+        // for its own scatter.
+        const collapsePower = explosionBurstPowerFromFootprint(
+          this.sim.structures.minX[deadStruct],
+          this.sim.structures.minY[deadStruct],
+          this.sim.structures.maxX[deadStruct],
+          this.sim.structures.maxY[deadStruct]
+        );
+        const collapseYawTurns = tileHash(deadStruct, deadStruct * 7 + 1);
+        if (!this.spawnCollapseFx('structure_collapse', bx, by, collapsePower, collapseYawTurns)) {
           for (let k = 0; k < 14; k++) {
             const a = tileHash(k * 7 + deadStruct, k * 13 + deadStruct);
             const b = tileHash(k * 31 + deadStruct, k * 3 + deadStruct);
@@ -1999,13 +2030,29 @@ export class ThreeRenderer implements Renderer {
    * `renderer.ts:330-342` (`PixiRenderer.spawnCollapseFx`). Returns false
    * when no emitter set is loaded, exactly like Pixi, so the caller can
    * fall back to flat puffs.
+   *
+   * `power`/`yawTurns` feed the explosion-burst mesh alone (default to 1/0,
+   * exercised only by a caller that actually has a size/variety signal to
+   * offer -- today, only the `structureDestroyed` case below; `onTunnelCollapsed`
+   * never passes either, which is fine, since `tunnel_collapse.json` never
+   * marks a layer `mesh_burst` -- see `units/explosion-burst.ts`'s own top
+   * comment for why that attachment is `structure_collapse`-only).
    */
-  private spawnCollapseFx(id: string, bx: number, by: number): boolean {
+  private spawnCollapseFx(id: string, bx: number, by: number, power = 1, yawTurns = 0): boolean {
     if (!this.particleSystem) return false;
     const em = this.emitterLibrary.byName(id);
     if (!em) return false;
     const prio = em.budget_priority ?? 1;
     for (const layer of em.particles) {
+      // A layer marked mesh_burst is superseded by the pooled, modelled
+      // explosion-burst mesh once one has loaded (`ExplosionBurstManager
+      // .ready`, `&mesh` only) -- the identical `mesh_flash`/`onFire`
+      // contract, see `units/explosion-burst.ts`'s own top comment.
+      if (layer.mesh_burst && this.explosionBursts.ready) {
+        const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, bx, by);
+        this.explosionBursts.spawn(bx, worldY, by, yawTurns, power, EXPLOSION_BURST_DEFAULT_DURATION_MS);
+        continue;
+      }
       const fxLayer = fxLayerIndex(em.layer, layer.additive ?? false);
       // Straight up from the footprint centre; the spec's 360-degree cone
       // and the presentation PRNG inside spawn() do the scattering.
@@ -2297,6 +2344,8 @@ export class ThreeRenderer implements Renderer {
     // order against `loadMuzzleFlashMesh`, see `MuzzleFlashManager`'s own
     // "Two-phase construction" doc comment.
     this.muzzleFlashes.setColors(resolve);
+    // Identical two-phase-construction safety, for the explosion-burst mesh.
+    this.explosionBursts.setColors(resolve);
   }
   /**
    * Load a unit type's sprite sheet and build the `THREE.InstancedMesh`
@@ -2486,6 +2535,21 @@ export class ThreeRenderer implements Renderer {
    */
   async loadMuzzleFlashMesh(glbUrl: string): Promise<void> {
     const meshes = await this.muzzleFlashes.load(glbUrl);
+    this.scene.add(...meshes);
+  }
+
+  /**
+   * The pooled, modelled explosion-burst mesh (`units/explosion-burst.ts`'s
+   * own top comment) -- loads `art/meshes/vfx/explosion_burst.glb` ONCE and
+   * adds its three pooled `InstancedMesh` zones to the scene. Mirrors
+   * `loadMuzzleFlashMesh` exactly, including the same silent-no-op contract
+   * for a caller that never invokes this (Pixi; three.js with `&mesh` off):
+   * `spawnCollapseFx` falls back to `structure_collapse.json`'s own
+   * authored `mesh_burst` particle layer until this resolves
+   * (`ExplosionBurstManager.ready`).
+   */
+  async loadExplosionBurstMesh(glbUrl: string): Promise<void> {
+    const meshes = await this.explosionBursts.load(glbUrl);
     this.scene.add(...meshes);
   }
 
@@ -3541,6 +3605,8 @@ export class ThreeRenderer implements Renderer {
     // InstancedMesh zones -- presentation-only timing, the same footing
     // every other FX ageing call in this method already stands on.
     this.muzzleFlashes.step(dtMs);
+    // Identical presentation-only ageing, for the explosion-burst mesh.
+    this.explosionBursts.step(dtMs);
     this.tracers = stepTracers(this.tracers, dtSeconds);
     this.tracerBatch.update(this.tracers, this.opts.tracerColors, elevation, this.sim.width, this.sim.height);
   }
