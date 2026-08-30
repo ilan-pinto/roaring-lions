@@ -142,6 +142,53 @@ const SCENARIO_BUDGETS: Readonly<Record<string, ScenarioBudget>> = {
       'statistically the same); that defect is caught by groundTextureCheck instead. See this ' +
       "budget's own comment above for the full reasoning.",
   },
+  vehicle: {
+    // Calibrated against two real headless runs of THIS exact scenario, on this
+    // worktree's HEAD (targetTick 140, so both runs land on the identical
+    // absolute sim tick -- see Scenario.targetTick's own comment for why that
+    // matters here specifically): 0.774% / 4.747 and 0.780% / 4.747 --
+    // reproducible to within software-GL rasterisation noise (`quiet`'s own
+    // comment names this same caveat), not tick drift. This scenario has no
+    // `groundTextureCheck`-style embedded, accepted gap the way `open-ground`
+    // does (its diff is dominated by antialiasing fringe around vehicle/terrain
+    // edges, per `expected-differences.ts`'s `antialiasing` entry, not a
+    // catalogued shape/softness divergence) -- headroom is set closer to
+    // `quiet`'s own ~3x-of-clean-baseline spirit rather than `open-ground`'s
+    // tighter ~1.5x.
+    maxDiffPixelPct: 2.4,
+    maxMeanAbsChannelDelta: 12,
+    rationale:
+      '~3x the real headless clean baseline (0.774-0.780% / 4.747, two runs, this HEAD) -- ' +
+      "vehicles in frame at native zoom, the content neither `quiet` nor `open-ground` puts " +
+      'on screen. No embedded accepted gap the way open-ground has, so headroom follows ' +
+      "`quiet`'s wider style rather than open-ground's tighter one.",
+  },
+  combat: {
+    // Calibrated against THREE real headless runs of this exact scenario, this
+    // worktree's HEAD (both captures aligned to identical absolute ticks --
+    // orders queued at tick 20, captured at tick 600 -- via Scenario.orders/
+    // targetTick, so the spread below is genuine rendering-path/VFX-timing
+    // noise, not order-queuing or tick drift): 4.110%/7.146, 3.700%/6.849,
+    // 3.917%/7.062 -- mean ~3.91% / ~7.02, spread ~10% relative, wider than
+    // `vehicle`'s two-run spread because this scene has real deaths (wrecks,
+    // structure collapse) and real VFX (tracers, impacts, dust) in it, both
+    // documented as either accepted-divergent (`unitWreckMissingInThree`,
+    // `structureLastAlpha`) or fully exempt (`vfxThreeOnly`,
+    // CLAUDE.md's 2026-08-30 VFX-exemption note) in `expected-differences.ts`
+    // -- this budget does NOT subtract those pixels out, it just carries wider
+    // headroom to avoid the gate crying wolf on content it already knows is
+    // allowed to differ. A diff image was inspected by eye for this
+    // calibration (not just the percentage): the large solid-fill regions
+    // trace directly to dead units/wrecks and impact/dust VFX clusters, not to
+    // a shape the catalogue doesn't already name.
+    maxDiffPixelPct: 7,
+    maxMeanAbsChannelDelta: 14,
+    rationale:
+      '~1.8x the real headless clean baseline (mean 3.91%/7.02 across 3 runs, this HEAD) -- real ' +
+      'combat: units firing, dying, leaving wrecks, VFX playing. Wider than `vehicle` because this ' +
+      'scene carries several already-accepted or VFX-exempt divergence classes at once, not because ' +
+      'it is less trustworthy as a gate -- see this rationale comment above for what was checked.',
+  },
 };
 
 function budgetFor(scenario: Scenario): ScenarioBudget {
@@ -238,7 +285,46 @@ async function ensureDevServer(port: number): Promise<ChildProcess | null> {
   return child;
 }
 
-async function capture(page: Page, url: string, script: string, outFile: string, label: string): Promise<CaptureResult> {
+/**
+ * The mission-only half of boot: `main.ts`'s `showLoading` holds `await
+ * loading.done()` (and therefore everything after it, INCLUDING the
+ * `window.__lions` assignment -- both are synchronous continuations of the
+ * same `main()`) until the deploy button is clicked, but ONLY when a
+ * briefing is present (`briefingHoldsDeployment`, `ui/loading.ts`) -- true
+ * for every mission, never true for a sandbox scenario, which is why this is
+ * gated on `scenario.mission` rather than run unconditionally.
+ *
+ * The button exists in the DOM the instant `showLoading` runs (well before
+ * assets finish), but its `click` LISTENER is attached only when `done()`
+ * itself executes -- i.e. once the asset gate (`loading.total`/`loading.step`)
+ * has already settled. A click before that point lands on a button with no
+ * handler yet and is silently lost: reproduced directly while building this
+ * scenario (`waitForSelector` + an immediate `.click()` left the loading
+ * overlay on screen and `window.__lions` undefined for the full 30s timeout,
+ * every time). Polling `.rl-loading__count`'s own text until it stops
+ * changing (`"N / N sheets"`) is what `showLoading`'s own progress bar is
+ * FOR, and is exact where a fixed sleep would be a guess.
+ */
+async function dismissDeployGate(page: Page): Promise<void> {
+  await page.waitForSelector('.rl-loading__deploy', { timeout: 15_000 });
+  let last = '';
+  for (let i = 0; i < 60; i++) {
+    const txt = await page.evaluate(() => document.querySelector('.rl-loading__count')?.textContent ?? '');
+    if (txt === last && txt.includes('/')) break;
+    last = txt;
+    await page.waitForTimeout(250);
+  }
+  await page.evaluate(() => (document.querySelector('.rl-loading__deploy') as HTMLElement | null)?.click());
+}
+
+async function capture(
+  page: Page,
+  url: string,
+  script: string,
+  outFile: string,
+  label: string,
+  needsDeploy = false
+): Promise<CaptureResult> {
   // Up to 3 attempts: d-golden-diff-report.md's own Concerns section recorded the
   // dev server's module graph intermittently failing a dynamically-imported module
   // right after a `pnpm install`, reproducibly across five retries in one tab and
@@ -252,6 +338,7 @@ async function capture(page: Page, url: string, script: string, outFile: string,
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       await page.goto(url, { waitUntil: 'load', timeout: 30_000 });
+      if (needsDeploy) await dismissDeployGate(page);
       await page.waitForFunction(() => typeof (window as unknown as { __lions?: unknown }).__lions !== 'undefined', {
         timeout: 15_000,
       });
@@ -285,17 +372,21 @@ interface ScenarioResult {
 
 async function runScenario(page: Page, port: number, outDir: string, scenario: Scenario): Promise<ScenarioResult> {
   const budget = budgetFor(scenario);
+  const scene = scenario.mission !== undefined ? `mission=${scenario.mission}` : `sandbox=${scenario.sandboxMap}`;
+  const cam = scenario.cameraTile !== undefined ? `tile=${JSON.stringify(scenario.cameraTile)}` : `marker=${scenario.cameraMarker}`;
   console.log(
-    `\n[golden-diff-gate] scenario "${scenario.id}": sandbox=${scenario.sandboxMap} ` +
-      `marker=${scenario.cameraMarker} ticks=${scenario.ticks}${scenario.zoom !== undefined ? ` zoom=${scenario.zoom}` : ''} port=${port}`
+    `\n[golden-diff-gate] scenario "${scenario.id}": ${scene} ${cam} ticks=${scenario.ticks}` +
+      `${scenario.targetTick !== undefined ? ` targetTick=${scenario.targetTick}` : ''}` +
+      `${scenario.zoom !== undefined ? ` zoom=${scenario.zoom}` : ''} port=${port}`
   );
   const scenarioOutDir = path.join(outDir, scenario.id);
   mkdirSync(scenarioOutDir, { recursive: true });
   const pixiPng = path.join(scenarioOutDir, 'pixi.png');
   const threePng = path.join(scenarioOutDir, 'three.png');
   const script = captureScript(scenario);
-  const pixiResult = await capture(page, pixiUrl(port, scenario), script, pixiPng, `${scenario.id}/pixi`);
-  const threeResult = await capture(page, threeUrl(port, scenario), script, threePng, `${scenario.id}/three`);
+  const needsDeploy = scenario.mission !== undefined;
+  const pixiResult = await capture(page, pixiUrl(port, scenario), script, pixiPng, `${scenario.id}/pixi`, needsDeploy);
+  const threeResult = await capture(page, threeUrl(port, scenario), script, threePng, `${scenario.id}/three`, needsDeploy);
 
   // Sanity check from capture-protocol.ts step 3c: the app should compute
   // identical camera/rect state regardless of which Renderer is behind the

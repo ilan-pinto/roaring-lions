@@ -1,56 +1,94 @@
 # What still stands between here and Phase D
 
-**Date:** 2026-08-29 · **Branch:** `feat/three-renderer`
-**Source:** `.superpowers/d-readiness-audit.md` plus everything found since.
+**Date:** 2026-08-29, re-audited 2026-08-30 · **Branch:** `feat/three-renderer`
+**Source:** `.superpowers/d-readiness-audit.md` plus everything found since, plus
+`.superpowers/phase-d-readiness.md`'s 2026-08-30 re-audit (evidence for every row
+below states how it was checked — read that report for the full derivation of
+anything terse here).
 
-Phase D is "flip the default". The audit's verdict was **not ready**. This is
-the running list, with what has since closed. Ranked by what would hurt a
-player most if it shipped wrong.
+Phase D is "flip the default". The audit's original verdict was **not ready**.
+This list had drifted from the tree: two entries it still marked open (#1, #20)
+were closed, and the 2026-08-30 pass found the rest of the "blocking" table
+closed too, each **verified by driving a real headless browser against this
+worktree's own HEAD**, not by re-reading the commits that claimed the fix.
+
+**2026-08-30 verdict: nothing in the "blocking the flip" table still blocks it.**
+Every row below is closed, with fresh evidence from this session. What remains
+open is entirely outside that table — see the bottom of this file.
 
 ---
 
-## Blocking the flip
+## Blocking the flip — all closed
 
 | # | Item | State |
 |---|---|---|
-| 1 | Five unit types render as nothing | **3 of 5 done** — `sarim_rifles`, `recoilless_team`, `manpad_team` shipped and wired. `attack_drone` (the tutorial hands it to the player) and `rocket_battery` in flight. |
-| 2 | Smoke not drawn at all | **done** — verified 29 sim tiles → 29 instances |
-| 3 | Air units flush on ground | **done** — lift AND the shadow ellipse (`ThreeRenderer.ts:2645`). The audit said the shadow was never ported and this list repeated it; a five-map walk found a flown `heli_peten` casting it correctly. Corrected 2026-08-29. |
-| 4 | Objective zone not drawn | **done** |
-| 5 | Three rendered on 1 of 5 maps | **done** — found the scatter defect (#20, since fixed) |
-| 21 | `tel_marum`'s five dormant elevation gaps | **done, and NONE is a three-only regression.** Verified against the real elevation-4 walls, reading ground truth from live `sim.elevation`/`sim.blocked` rather than the map text: (1) `raySmoke` is sim-level shared code, cannot be three-only by construction; (2) **VFX-not-lifted is PIXI's bug** — `renderer.ts:2599` uses a flat `isoY(...)-4` with no elevation term, while three's `TracerBatch` was deliberately fixed post-B3.14 to lift by the higher endpoint's ground height. Three is the correct one; (3) extruded terrain fails to occlude units **identically in both** — neither does volumetric occlusion, only per-tile depth-stacking; (4) mid-slope picking works in both, tested with a real click rather than `sel()`; (5) wreck/fx sorting is architecturally real but staged at the map's steepest 4-level drop produced **no visible artifact in either backend**. |
-| 20 | **Open-ground scatter renders as flat diamonds** | **open, highest-harm visual defect found so far** — Pixi draws layered blob-plus-highlight rock marks; three draws flat diamonds. Affects the non-`sward` branch, so **4 of 5 maps and every mission on them**. `sim.cover` is identical, so purely visual — but it turns rocky desert into flat plain. Missed by the golden diff because that only ever measured one quiet scene with no open ground at zoom. Start at `three/terrain/scatter.ts`'s `DECOR_KNOLL`/stone-grain branches against `tones.ts`. |
-| 6 | Six unported overlay passes | **done** — all six ported and all six seen driving the real server |
-| 7 | Escape hatch `?renderer=pixi` | **done and clicked** |
+| 1 | Five unit types render as nothing | **done** — `attack_drone` and `rocket_battery` both carry `SPRITE_MAP` entries (`packages/app/src/main.ts`) and were spawned side-by-side with the rest of the sandbox force under `?renderer=three`, screenshotted, and visually match the Pixi capture pixel-for-shape (a small drone with rotors; a flatbed with a rocket rack). All 5 originally-listed types are now confirmed drawing something. |
+| 2 | Smoke not drawn at all | **done** — re-verified: wrote directly into `sim.smoke` (25 tiles), captured both backends. Three draws the same soft grey/white diamond screen Pixi does, obscuring the units and terrain under it. |
+| 3 | Air units flush on ground | **done** — re-verified: a `recon_drone` in frame casts a clear grey shadow ellipse on the ground beneath it; a `heli_peten` flown into frame shows its rotor blades and hull lifted, matching Pixi. |
+| 4 | Objective zone not drawn | **done** — re-verified live in `beit_sahwan_3_clearance`: the zone's red boundary outline and the `CONTESTED` HUD banner both draw under three, alongside HP bars, toast log lines and fog-of-war, matching the Pixi capture at the identical sim tick. |
+| 5 | Three rendered on 1 of 5 maps | **done** — found the scatter defect (#20, since fixed). `terrain-parity.test.ts` (part of `pnpm test`) renders and palette-checks all 5 shipped maps; this session additionally rendered `beit_sahwan_outskirts`, `tutorial_ground` and `tel_marum` live under three with no error. |
+| 20 | **Open-ground scatter renders as flat diamonds** | **done** — `scatter.ts`'s stone-fleck pass now composites `tones.rock`/`tones.rockLit` (never `baseHex` against itself) exactly as the historical fix (`d9fd1c7`) describes. Re-verified two ways this session: (a) a live capture on `tutorial_ground` at zoom 3 shows genuinely textured, multi-tone ground, not flat colour; (b) the bug was **reintroduced** in this tree (the pre-fix `scatter.ts` checked out from `d9fd1c7~1`), the golden-diff gate was run, `open-ground`'s `groundTextureCheck` **failed exactly as designed** (0.9588 ≥ 0.95 budget), the file was reverted, and the gate was re-run to confirm it passes again (0.9408). See item #9 below — this is also the regression-catching proof that item asked for. |
+| 21 | `tel_marum`'s five dormant elevation gaps | **done, and NONE is a three-only regression** (unchanged from the 2026-08-29 finding). Re-verified this session: `camera.test.ts`'s `screenToWorldThree is elevation-aware (bugfix)` suite — which reproduces `tel_marum`'s real elevation grid verbatim and asserts three matches Pixi's own elevation-corrected `screenToWorld` tile-for-tile across all 2116 interior tiles, level by level — is gated in `pnpm test` and passes. A live render of `tel_marum` under three (fog live, real relief) produced no error and drew terrain/roads correctly. |
+| 6 | Six unported overlay passes | **done** — all six are implemented in `three/units/overlays.ts` (weapon-envelope rings, shepherd radius, engagement reticles, building status, charge progress ring, mobility/firepower-kill pips). Re-verified live: selecting an `mbt_lavi` under three draws both weapon-envelope rings and the selection reticle, matching Pixi's capture at the same tick (Pixi's are smooth ellipses, three's are polygon-approximated rings — a known, deliberate no-antialiasing difference, not a missing feature). |
+| 7 | Escape hatch `?renderer=pixi` | **done and re-clicked this session** — live 4-step navigation test: `?renderer=three` boots `ThreeRenderer`; a bare `?sandbox` afterward still boots `ThreeRenderer` (persisted choice survives a link that drops the param); `?renderer=pixi` boots `PixiRenderer`; a bare `?sandbox` afterward boots `PixiRenderer`. Exactly the fix `renderer-choice.ts` describes, confirmed by driving it, not by reading `resolveRendererChoice`'s tests alone. |
 
 ## Instruments that lie
 
 | # | Item | State |
 |---|---|---|
-| 8 | Golden-diff CI budget is 1.3%, calibrated on a quiet scene | **open** — combat measures 2.1–3.4%; the gate is green only where it was calibrated |
-| 9 | Golden diff has never gated a real regression | **open** |
-| 10 | `conformance.test.ts` still binds the flat helpers | **open** — B1 said "rewrite the instant elevation is drawn"; elevation has been drawn since B2 |
-| 11 | The corrected B4 perf measurement is in a gitignored dir | **open** — the doc telling you not to cite the old table points at a file that is not in the repo |
+| 8 | Golden-diff CI budget is 1.3%, calibrated on a quiet scene | **fixed this session** — two new scenarios added to `tools/src/golden-diff/capture-protocol.ts` (`VEHICLE_SCENARIO`, `COMBAT_SCENARIO`) and calibrated in `tools/src/ci/golden-diff-gate.ts` against real headless measurements on this HEAD: `vehicle` (several `beit_sahwan_outskirts` sandbox vehicles at native zoom, tick-aligned) measured 0.774–0.780%/4.747 clean, budgeted 2.4%/12; `combat` (`beit_sahwan_3_clearance`, a real deterministic `attackMove` fight with kills and wrecks) measured 3.70–4.11%/6.85–7.15 clean across three runs, budgeted 7%/14. All four scenarios (`quiet`, `open-ground`, `vehicle`, `combat`) pass together on current HEAD. |
+| 9 | Golden diff has never gated a real regression | **proven this session** — the scatter no-op (#20) was reintroduced in the live tree, the gate was run, and `open-ground`'s `groundTextureCheck` failed (0.9588 ≥ 0.95) while the ordinary pixi-vs-three `diffPixelPct` check did **not** discriminate it (2.02% vs a 3% budget — reproducing the documented architectural trap: Pixi's own anti-aliased-blob softness swamps this specific defect's marginal contribution). The bug was then reverted and the gate re-confirmed green. This is the harness catching a real, historical regression, live, in this session's tree — not reused evidence from an old report. |
+| 10 | `conformance.test.ts` still binds the flat helpers | **literally still true, substantively closed elsewhere** — `conformance.test.ts` itself was not rewritten and still asserts only `screenToWorldFlat`/flat-mode `screenToWorldThree`. But the gap that sentence exists to name — "screenToWorld conformance on relief has no test" — is closed: `camera.test.ts`'s elevation-aware suite (added by `7695088`, well before this session, but re-run and confirmed passing here) does exactly what B1 asked for, reproducing `tel_marum`'s real relief and pinning exact per-level tile-hit counts against Pixi's own elevation-corrected inverse. It lives in a different file than the sentence names, which is why the literal claim survives even though the concern behind it does not. Left as-is (out of this session's explicit scope to relocate/rewrite `conformance.test.ts` itself). |
+| 11 | The corrected B4 perf measurement is in a gitignored dir | **still open, re-verified** — `.superpowers/sdd/` contains only its own `*`-pattern `.gitignore`; `task-B4.4-report.md` does not exist on disk. Not addressed this session (no re-measurement was performed — this needs a real browser run of `runBackendCurve` at 300/400 units with fog live, which is `perf-analyst` territory, not a rendering-parity check). The only published evidence for render-side performance at scale remains the qualitative "three is still flat and still wins decisively, 5–25× spread" statement. |
 
 ## Not wired, though the art exists
 
 | # | Item | State |
 |---|---|---|
-| 12 | Vehicle meshes (`apc_eitan`, `dozer_d9`) | **exported, not wired** — no runtime path, contract extension for hull/turret proposed but not pinned |
-| 13 | Building meshes (7 types × standing/wreck) | **exported, not wired** — same |
-| 14 | Mesh contract extension | **needs a decision** — hull/turret pivot, and standing/wreck as sibling files |
+| 12 | Vehicle meshes (`apc_eitan`, `dozer_d9`) | **exported, not wired** — no runtime path, contract extension for hull/turret proposed but not pinned. Not blocking: unaffected units keep their billboard, which is the default path. |
+| 13 | Building meshes (7 types × standing/wreck) | **exported, not wired** — same. |
+| 14 | Mesh contract extension | **needs a decision** — hull/turret pivot, and standing/wreck as sibling files. |
 
 ## Deferred by measurement, not by neglect
 
 | # | Item | State |
 |---|---|---|
 | 15 | VAT for >460 units | not needed yet — submission is the bottleneck, ceiling measured at ~420–460 |
-| 16 | Bundle inverts after the flip | Pixi is a 619 kB static import, three a 652 kB lazy chunk; post-flip every player downloads both |
+| 16 | Bundle inverts after the flip | Pixi is a 619 kB static import, three a 652 kB lazy chunk; post-flip every player downloads both. Not a rendering-parity blocker, but a real page-weight regression worth costing before or shortly after the flip. |
 | 17 | Collapse `MeshBasicMaterial` ground-clip exposure | documented in place, unmeasured |
 | 18 | Sticky fog gate on wrecks | fix landed; the "stays visible after fog closes" half is unproven live |
-| 19 | Renderer choice persists per ORIGIN, not per tab | observed live; a hazard for a player with two tabs |
+| 19 | Renderer choice persists per ORIGIN, not per tab | observed live; a hazard for a player with two tabs. Unchanged this session. |
 
 ---
+
+## Verdict, 2026-08-30
+
+**Nothing in the "blocking the flip" table blocks the flip.** Every row was
+re-verified this session by driving a real headless Chromium against this
+worktree's own HEAD (`d2a8635` plus this session's uncommitted instrument
+changes) — screenshots taken, gates run, tests executed, not inferred from
+commit messages. `pnpm test` (93 files / 1548 tests), `pnpm typecheck`,
+`pnpm lint`, and `pnpm validate:ui` are all green on the current tree.
+
+What is NOT resolved, and is worth naming so the flip decision is made with
+eyes open rather than because this list went quiet:
+
+- **The four licensing items** below (`soldier_kolos.fbx`, `mbt_lavi`,
+  `jeep_shoded`, `ifv_namer`) are unchanged — not engineering problems, and
+  explicitly the project lead's call, not something a flip should wait on
+  silently.
+- **#11** (perf evidence gap) is real and unaddressed — the flip changes what
+  the DEFAULT player's GPU has to render, and the only published cost claim
+  at scale is qualitative. Re-running `runBackendCurve` at 300/400 units with
+  fog live, before or immediately after the flip, is cheap insurance this
+  session did not spend the time on.
+- **#16** (bundle inversion) is a real, quantified, unaddressed page-weight
+  regression the flip introduces on day one.
+- **#19** (renderer choice per-origin) is a minor, known UX rough edge for a
+  two-tab player, not a correctness issue.
+
+None of the above is a rendering-parity defect. They are the honest list of
+what a "flip is not blocked" verdict does not, by itself, also mean.
 
 ## The palette guarantee has a hole, and it is on the Pixi side
 

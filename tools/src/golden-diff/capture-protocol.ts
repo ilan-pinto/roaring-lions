@@ -112,10 +112,101 @@ export interface Scenario {
   id: string;
   /** One line: what this scenario frames and why it exists. */
   description: string;
-  sandboxMap: string;
-  cameraMarker: string;
-  /** Sim ticks to fast-forward before capturing, via `__lions.step(n)`. */
+  /** Exactly one of `sandboxMap`/`mission` must be set -- `captureScript`
+   *  and `pixiUrl`/`threeUrl` throw if neither is, or both are. A `mission`
+   *  scenario gates behind the loading screen's deploy click (see `orders`'
+   *  own comment and `capture()` in `golden-diff-gate.ts`), which a
+   *  `sandboxMap` scenario never does (`main.ts`'s `showLoading` only holds
+   *  deployment for a mission's own briefing -- `briefingHoldsDeployment`,
+   *  `ui/loading.ts` -- and the sandbox passes no briefing at all). */
+  sandboxMap?: string;
+  /** A mission id (`data/missions/<id>.json`), in place of `sandboxMap`. The
+   *  only way to get a REAL hostile side and real combat in frame: the
+   *  sandbox force is friendly-only (`SANDBOX_KDF`/`SANDBOX_ENEMY` place an
+   *  opposition too, but it never receives orders and the sandbox force
+   *  never receives an attack order either -- see `QUIET_SCENARIO`'s own
+   *  comment, "has not left its assembly point"). Pair with `orders` to make
+   *  anything actually happen. */
+  mission?: string;
+  /** A named marker on the map, OR omit this and set `cameraTile` instead --
+   *  see that field for why a scenario would need the latter. */
+  cameraMarker?: string;
+  /** World tile coordinates, passed to `__lions.goto(x, y)` directly instead
+   *  of a marker name. Exists because the sandbox force's own placement
+   *  (`SANDBOX_KDF`, `main.ts`) is offsets from an anchor marker, not a
+   *  marker itself -- there is no named marker sitting on `mbt_lavi`'s own
+   *  tile to frame a vehicle-dense shot with `cameraMarker`. Exactly one of
+   *  `cameraMarker`/`cameraTile` must be set; `captureScript` throws if
+   *  neither is. */
+  cameraTile?: [number, number];
+  /** Sim ticks to fast-forward before capturing, via `__lions.step(n)`. Used
+   *  as a RELATIVE advance unless `targetTick` is also set -- see that
+   *  field's own comment for why a scenario with moving/animated content in
+   *  frame wants the absolute form instead. */
   ticks: number;
+  /** Absolute sim tick to align to before capturing, INSTEAD OF a relative
+   *  `step(ticks)`. When set, the capture script reads
+   *  `window.__lions.sim.tickCount` and steps exactly `targetTick - current`
+   *  (clamped to >= 0) rather than blindly stepping `ticks` more.
+   *
+   *  Why this exists, and why `QUIET_SCENARIO`/`OPEN_GROUND_SCENARIO` do NOT
+   *  use it: the app's own rAF accumulator (`main.ts`'s `loop`) starts
+   *  ticking in real time the instant `window.__lions` is assigned, and
+   *  `capture-protocol.ts`'s own documented settle (`document.fonts.ready`
+   *  + a 1s wait, BEFORE `captureScript` runs) gives that accumulator up to
+   *  ~1s of real wall-clock time to accrue ticks from, non-deterministically,
+   *  before a relative `step(ticks)` even runs -- Playwright does not
+   *  throttle a headless page's rAF the way a backgrounded real Chrome tab
+   *  does (`.superpowers/d-combat-diff-report.md`'s own capture protocol
+   *  needed that throttling trick specifically to hold `tickCount` at 0
+   *  through an equivalent boot sequence). `QUIET_SCENARIO`/`OPEN_GROUND_SCENARIO`
+   *  are unaffected because their content is drift-insensitive by
+   *  construction (a static, order-free force; terrain built once at map
+   *  load) -- extra background ticks move nothing either scenario's own crop
+   *  can see. A scenario that puts a VEHICLE in frame is not
+   *  drift-insensitive: idle turret sweep, ambient dust/exhaust and walk-
+   *  cycle phase all read the absolute tick, so the same relative `ticks`
+   *  value could land the two backends' captures (booted in two separate
+   *  `page.goto` navigations, each accruing its own independent real-time
+   *  drift) on two DIFFERENT absolute ticks -- a false diff with no
+   *  rendering bug behind it. `targetTick` removes the non-determinism by
+   *  aligning both captures to the same absolute tick regardless of how much
+   *  (different) drift each one accrued getting there -- the same fix
+   *  `.superpowers/d-ground-clip-report.md`'s own vehicle-dense measurement
+   *  applied by hand ("both backends explicitly aligned to sim tick 140").
+   */
+  targetTick?: number;
+  /** Real combat, injected deterministically. Only meaningful with `mission`
+   *  set (a sandbox force never fights -- see `mission`'s own comment).
+   *
+   *  `atTick`: aligned to FIRST (via the exact `step(atTick - tickCount)`
+   *  mechanism `targetTick` uses), so every queued command lands at the
+   *  identical absolute sim tick regardless of how much boot/deploy-click
+   *  wall-clock drift either backend's own `page.goto` navigation happened
+   *  to accrue before `window.__lions` existed -- the thing that made
+   *  `.superpowers/d-combat-diff-report.md`'s equivalent protocol expensive
+   *  (a backgrounded-tab click trick, four figures for `sim.queueCommand`'s
+   *  `fx.from` equivalent, cross-tab atomicity traps). Queuing at a
+   *  guaranteed-identical tick sidesteps essentially all of that: a `Command`
+   *  (`@lions/sim`) has no timestamp of its own, only an order of arrival in
+   *  `commandQueue`, so "queued at the same tick" is sufficient for the two
+   *  backends' sims to diverge by nothing thereafter, given `step()` calls
+   *  `runTick()` synchronously rather than through rAF (this file's own top
+   *  comment). Verified empirically before this scenario was written: two
+   *  independent Playwright pages (pixi, three), orders queued at tick 20,
+   *  stepped to tick 600, reported IDENTICAL living-unit counts on both
+   *  sides (9 friendly / 8 hostile, from 11 and 12) -- real combat, real
+   *  kills, zero divergence.
+   *
+   *  `commands`: raw JS statements (not JSON), each expected to call
+   *  `window.__lions.sim.queueCommand(...)` -- a raw statement rather than a
+   *  `Command[]` this file constructs, because `Command` (`@lions/sim`) is
+   *  Q16.16 fixed-point (invariant 2) and this file may not import `@lions/sim`
+   *  (`packages/render`'s own layering rule extends to tools built against
+   *  it) to reach the real `fx.from` -- the injected script hand-rolls the
+   *  encoding (`Math.round(n * 65536)`) the same way
+   *  `.superpowers/d-combat-diff-report.md`'s console commands did. */
+  orders?: { atTick: number; commands: string[] };
   /** Camera zoom to set after `goto()`, before stepping. `goto()` itself
    *  never touches zoom (only x/y), so omitting this leaves the camera at
    *  whatever zoom the app booted with (1, i.e. its default). */
@@ -249,16 +340,75 @@ export const OPEN_GROUND_SCENARIO: Scenario = {
   },
 };
 
+/** Promoted from `.superpowers/d-ground-clip-report.md` and
+ *  `.superpowers/d-anchor-fix-report.md`'s own ad-hoc "vehicle-dense"
+ *  scenario -- proven useful twice by hand, never committed. Same map,
+ *  same tile, same aligned tick (140) as both reports; the crop and exact
+ *  percentage will differ from either report's own numbers, because both
+ *  measured a hand-picked sub-crop around the vehicle and this harness's
+ *  `capture()` always screenshots the FULL canvas rect (`capture-protocol.ts`
+ *  step 3d) for consistency with `QUIET_SCENARIO`/`OPEN_GROUND_SCENARIO` --
+ *  re-measured fresh against the real committed harness rather than reusing
+ *  either report's crop-scoped figure.
+ *
+ *  `beit_sahwan_outskirts`'s sandbox force (`SANDBOX_KDF`, `main.ts`) places
+ *  two `mbt_lavi`, an `ifv_namer`, an `apc_eitan`, a `jeep_shoded` and more
+ *  around the friendly anchor -- no named marker sits on any of their tiles,
+ *  hence `cameraTile` rather than `cameraMarker`. `targetTick: 140` (not a
+ *  relative `ticks`) for the reason that field's own comment gives: vehicles
+ *  have idle turret sweep and ambient dust/exhaust, both tick-phase-sensitive,
+ *  so this scenario is NOT drift-insensitive the way the other two are. */
+export const VEHICLE_SCENARIO: Scenario = {
+  id: 'vehicle',
+  description:
+    "beit_sahwan_outskirts sandbox force's own mbt_lavi tile, tick 140 (aligned, not relative) -- " +
+    'several vehicles at native zoom, the framing neither other scenario puts in front of the diff.',
+  sandboxMap: 'beit_sahwan_outskirts',
+  cameraTile: [4.5, 20.5],
+  ticks: 140, // unused when targetTick is set; kept as documentation of the intended advance
+  targetTick: 140,
+};
+
+/** Real combat: `beit_sahwan_3_clearance`'s own opening roster, ordered to
+ *  fight. Closes the gap named in `docs/superpowers/specs/2026-08-29-phase-d-todo.md`
+ *  #8 -- `.superpowers/d-combat-diff-report.md` measured 2.133%-3.395% on
+ *  this exact mission by hand and found a real, since-fixed defect
+ *  (`d-anchor-fix-report.md`'s 60-90px sprite offset) that no committed gate
+ *  could have caught, because none exercised combat at all.
+ *
+ *  Verified deterministic (see `orders`' own comment) at tick 20 (order) /
+ *  600 (capture): two independent Playwright pages reported IDENTICAL
+ *  living-unit counts on both sides. `attackMove` for the opening armour/
+ *  infantry/AT push (ids 0-7 -- `mbt_lavi` x1, `ifv_namer` x2, `apc_eitan`,
+ *  `inf_squad` x3, `at_team`) toward world tile (20, 20), which by tick 600
+ *  has closed with the mission's own nearest militia/RPG/ATGM group and
+ *  taken losses on both sides (9 of 11 friendly, 8 of 12 hostile survive) --
+ *  real fire, real kills, not merely movement. `cameraTile` is the mission's
+ *  own surviving cluster's centroid at that tick (queried live, not guessed),
+ *  so the capture frames the fight rather than empty ground nearby. */
+export const COMBAT_SCENARIO: Scenario = {
+  id: 'combat',
+  description:
+    'beit_sahwan_3_clearance, tick 600 -- an attackMove queued at tick 20 for the opening armour/' +
+    'infantry push, closed with the enemy by capture time. Real combat: fire, kills, wrecks.',
+  mission: 'beit_sahwan_3_clearance',
+  cameraTile: [21, 21],
+  ticks: 600, // unused when targetTick is set; kept as documentation of the intended advance
+  targetTick: 600,
+  zoom: 1.5,
+  orders: {
+    atTick: 20,
+    commands: [
+      "window.__lions.sim.queueCommand({ kind: 'attackMove', ids: [0,1,2,3,4,5,6,7], " +
+        'x: Math.round(20 * 65536), y: Math.round(20 * 65536) });',
+    ],
+  },
+};
+
 /** Every scenario this harness knows about. `golden-diff-gate.ts` runs all of
  *  them, each against its own budget. Add a new one here rather than
- *  building a fourth ad-hoc scenario (`.superpowers/d-ground-clip-report.md`
- *  and `.superpowers/d-anchor-fix-report.md`'s "vehicle-dense" scenario is
- *  exactly that: proven useful twice, still not promoted here -- a natural
- *  next entry for whoever picks up combat/vehicle coverage, calibrated
- *  against its OWN measured baseline the same way `OPEN_GROUND_SCENARIO` was
- *  calibrated against this task's before/after capture, not against this
- *  scenario's or the quiet scenario's numbers). */
-export const SCENARIOS: readonly Scenario[] = [QUIET_SCENARIO, OPEN_GROUND_SCENARIO];
+ *  building another ad-hoc scenario by hand. */
+export const SCENARIOS: readonly Scenario[] = [QUIET_SCENARIO, OPEN_GROUND_SCENARIO, VEHICLE_SCENARIO, COMBAT_SCENARIO];
 
 /** Back-compat named export for the quiet scenario's fields -- kept because
  *  the manual protocol above (and any existing external notes) may still
@@ -272,6 +422,15 @@ function baseUrl(port = 5173): string {
   return `http://localhost:${port}`;
 }
 
+function sceneParam(scenario: Scenario): string {
+  if (scenario.sandboxMap !== undefined && scenario.mission !== undefined) {
+    throw new Error(`scenario "${scenario.id}" sets both sandboxMap and mission -- exactly one is allowed`);
+  }
+  if (scenario.mission !== undefined) return `mission=${scenario.mission}`;
+  if (scenario.sandboxMap !== undefined) return `sandbox=${scenario.sandboxMap}`;
+  throw new Error(`scenario "${scenario.id}" sets neither sandboxMap nor mission`);
+}
+
 export function pixiUrl(port = 5173, scenario: Scenario = QUIET_SCENARIO): string {
   // Explicit `&renderer=pixi`, not just the absence of `&renderer=three`.
   // `renderer-choice.ts` falls back to whatever `localStorage['lions.renderer']`
@@ -282,11 +441,11 @@ export function pixiUrl(port = 5173, scenario: Scenario = QUIET_SCENARIO): strin
   // storage was last set to 'three' silently boots three too, and the two
   // screenshots come back byte-identical: a real trap this file hit once,
   // caught only by both PNGs being suspiciously the same size and MD5.
-  return `${baseUrl(port)}/?sandbox=${scenario.sandboxMap}&renderer=pixi`;
+  return `${baseUrl(port)}/?${sceneParam(scenario)}&renderer=pixi`;
 }
 
 export function threeUrl(port = 5173, scenario: Scenario = QUIET_SCENARIO): string {
-  return `${baseUrl(port)}/?sandbox=${scenario.sandboxMap}&renderer=three`;
+  return `${baseUrl(port)}/?${sceneParam(scenario)}&renderer=three`;
 }
 
 /** Evaluated in-page (browser console / javascript_tool). Returns JSON so
@@ -297,10 +456,37 @@ export function threeUrl(port = 5173, scenario: Scenario = QUIET_SCENARIO): stri
  *  change the result, but keeping it explicit keeps this script legible as
  *  "frame, then zoom, then advance" rather than relying on that fact. */
 export function captureScript(scenario: Scenario = QUIET_SCENARIO): string {
+  if (scenario.cameraMarker === undefined && scenario.cameraTile === undefined) {
+    throw new Error(`captureScript: scenario "${scenario.id}" sets neither cameraMarker nor cameraTile`);
+  }
+  const gotoLine =
+    scenario.cameraTile !== undefined
+      ? `window.__lions.goto(${scenario.cameraTile[0]}, ${scenario.cameraTile[1]});`
+      : `window.__lions.goto(${JSON.stringify(scenario.cameraMarker)});`;
   const zoomLine = scenario.zoom !== undefined ? `window.__lions.renderer.camera.zoom = ${scenario.zoom};\n` : '';
+  // targetTick: align to an ABSOLUTE tick regardless of real-time rAF drift
+  // accrued since __lions was assigned (see Scenario.targetTick's own
+  // comment for why relative step(ticks) is not safe for a scenario with
+  // tick-phase-sensitive content). Falls back to the plain relative step for
+  // every scenario that omits it.
+  const stepLine =
+    scenario.targetTick !== undefined
+      ? `const _cur = window.__lions.sim.tickCount; const tick = window.__lions.step(Math.max(0, ${scenario.targetTick} - _cur));`
+      : `const tick = window.__lions.step(${scenario.ticks});`;
+  // orders: align to atTick FIRST (same absolute-tick mechanism as
+  // targetTick, independently, so the order-queuing moment is exactly as
+  // drift-proof as the final capture moment -- see Scenario.orders' own
+  // comment), queue every command, then fall through to stepLine's own
+  // (also absolute, when targetTick is set) advance to the capture tick.
+  const ordersLine =
+    scenario.orders !== undefined
+      ? `{ const _o = window.__lions.sim.tickCount; window.__lions.step(Math.max(0, ${scenario.orders.atTick} - _o)); }\n` +
+        scenario.orders.commands.join('\n') +
+        '\n'
+      : '';
   return `
-window.__lions.goto(${JSON.stringify(scenario.cameraMarker)});
-${zoomLine}const tick = window.__lions.step(${scenario.ticks});
+${gotoLine}
+${zoomLine}${ordersLine}${stepLine}
 const c = window.__lions.renderer.camera;
 const canvas = window.__lions.renderer.canvas;
 const r = canvas.getBoundingClientRect();
