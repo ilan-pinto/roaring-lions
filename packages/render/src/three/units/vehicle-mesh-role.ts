@@ -204,6 +204,29 @@ const VEHICLE_ROLE_PALETTE: Record<string, Partial<Record<VehicleMeshRole, reado
     glass: sliceFrom('gunmetal', 3, 1),
     recess: sliceFrom('shadow', 1, 2),
   },
+  // No sprite-rig script of its own (`tools/render_jeep.py` renders
+  // JEEP_HULL from a DIFFERENT, licence-unverified `art/src/jeep_shoded.blend`
+  // and defines NO `ROLE_PALETTE` at all -- the project lead's own repaint
+  // instruction, "olive drab", is this table's source rather than a
+  // ROLE_PALETTE this vehicle never had). Same judgement call as `mbt_lavi`/
+  // `ifv_namer` above and the same values, for the same reason: native KDF
+  // armour (`jeep_shoded` is on the KDF roster, `data/units/kdf/
+  // jeep_shoded.json`), `apc_eitan` the only real KDF vehicle table in the
+  // tree. `tools/vehicles/export_meshy_jeep.py`'s own exported GLB uses
+  // `hull`, `rubber`, `metal` (the pintle MG, fixed to the hull -- no
+  // turret_pivot, see that script's own docstring) and `plate` (a small
+  // door-mounted stowage box) today -- no `glass` or `recess` geometry was
+  // found (see that script's own docstring) -- but the table is held
+  // complete for the same "boot failure, not a load-time gap" reason
+  // `technical`/`mbt_lavi`/`ifv_namer` already are.
+  jeep_shoded: {
+    hull: sliceFrom('olive', 0, 4),
+    plate: sliceFrom('olive', 1, 3),
+    metal: sliceFrom('gunmetal', 2, 2),
+    rubber: sliceFrom('shadow', 0, 3),
+    glass: sliceFrom('gunmetal', 3, 1),
+    recess: sliceFrom('shadow', 1, 2),
+  },
 };
 
 /**

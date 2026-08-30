@@ -651,7 +651,7 @@ async function main(): Promise<void> {
       // "VEHICLE IFV DMM08 by Mutte", BlendSwap #75225) -- the repository's
       // only third-party attribution obligation. That sheet cannot be retired
       // until this mesh draws here; see `.superpowers/namer-integration-report.md`.
-      const MESH_VEHICLES = ['apc_eitan', 'dozer_d9', 'mbt_lavi', 'technical', 'ifv_namer'] as const;
+      const MESH_VEHICLES = ['apc_eitan', 'dozer_d9', 'mbt_lavi', 'technical', 'ifv_namer', 'jeep_shoded'] as const;
       await Promise.all(
         MESH_VEHICLES.map((id) =>
           three.loadVehicleMesh(id, new URL(`../../../art/meshes/vehicles/${id}.glb`, import.meta.url).href)
