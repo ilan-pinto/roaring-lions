@@ -177,6 +177,51 @@ describe('buildGroves', () => {
     ).toBeGreaterThan(topY + 0.1);
   });
 
+  describe('sway (wind weight)', () => {
+    // Single-tree tile: pushShadow's flat diamond (4 CORNERS -- shared.ts's
+    // own `pushPolygon` pushes one positions/colors entry per input POINT,
+    // indexing the fan triangulation separately, so a diamond is 4 vertex
+    // entries, not 2*(4-2) triangle-expanded ones) is emitted FIRST, before
+    // pushTree's seven billboards -- see buildGroves' own per-tile loop
+    // order.
+    const SHADOW_VERTEX_COUNT = 4;
+
+    it('is one float per vertex, the same length every other per-vertex buffer has', () => {
+      const m = buildGroves(groveAt(1, 1, SINGLE_X, SINGLE_Y), TONES, '#14150F');
+      expect(m.sway).toBeDefined();
+      expect(m.sway!.length).toBe(m.positions.length / 3);
+      expect(m.sway!.length).toBe(m.colors.length / 3);
+    });
+
+    it('is zero for every vertex of the flat ground-shadow mark', () => {
+      const m = buildGroves(groveAt(1, 1, SINGLE_X, SINGLE_Y), TONES, '#14150F');
+      for (let i = 0; i < SHADOW_VERTEX_COUNT; i++) expect(m.sway![i]).toBe(0);
+    });
+
+    it('is positive for at least some trunk/crown vertices, and never negative', () => {
+      const m = buildGroves(groveAt(1, 1, SINGLE_X, SINGLE_Y), TONES, '#14150F');
+      let sawPositive = false;
+      for (let i = 0; i < m.sway!.length; i++) {
+        expect(m.sway![i]).toBeGreaterThanOrEqual(0);
+        if (i >= SHADOW_VERTEX_COUNT && m.sway![i] > 0) sawPositive = true;
+      }
+      expect(sawPositive, 'no swaying vertex found on the tree itself').toBe(true);
+    });
+
+    it("does not depend on the tile's own terrain elevation", () => {
+      // swayFor is height ABOVE the tree's own anchor, not absolute world
+      // Y -- raising the whole tile must not change it, unlike positions[1]
+      // (world Y), which the "crowns stand above" test above already
+      // proves DOES move with elevation.
+      const flatInput = groveAt(1, 1, SINGLE_X, SINGLE_Y);
+      const raised = groveAt(1, 1, SINGLE_X, SINGLE_Y);
+      raised.elevation = new Uint8Array([4]);
+      const flatMesh = buildGroves(flatInput, TONES, '#14150F');
+      const raisedMesh = buildGroves(raised, TONES, '#14150F');
+      expect(Array.from(raisedMesh.sway!)).toEqual(Array.from(flatMesh.sway!));
+    });
+  });
+
   describe('keeps every tree inside its own tile footprint', () => {
     // Both the single-tree and twin-tree branches, each isolated on its own
     // tile so every vertex in the mesh can be checked against that one

@@ -118,7 +118,7 @@ import { buildGround } from './terrain/ground';
 import { buildScatter } from './terrain/scatter';
 import { buildGroves } from './terrain/grove';
 import { buildBuildings, type StructureFootprint } from './terrain/buildings';
-import { toGeometry, terrainMaterial } from './terrain/mesh';
+import { toGeometry, terrainMaterial, groveMaterial } from './terrain/mesh';
 import type { TerrainInput, MeshData } from './terrain/types';
 import { dirtyForStructureHit, dirtyForStructureDestroyed } from './terrain/dirty';
 import { isGrindingHit } from '../grind';
@@ -190,6 +190,7 @@ import { FogMesh } from './fog-mesh';
 import { SmokeMesh } from './smoke-mesh';
 import { TrailMesh, collapsedRouteLevel, type TrailInstanceInput } from './trail-mesh';
 import { VehicleTrackMesh, trackKindFor, stepTrackAccum, TRACK_POOL_CAPACITY } from './vehicle-tracks';
+import { UnitShadowMesh, groundShadowRadiusTiles } from './unit-shadows';
 import { billboardPoint, objectiveZoneCorners } from './units/overlay-geometry';
 import {
   OverlayBatch,
@@ -639,6 +640,12 @@ export class ThreeRenderer implements Renderer {
   /** Reused across rebuilds -- one unlit, vertex-coloured material carries no
    *  per-terrain state, so there is nothing a fresh instance would buy. */
   private readonly terrainMat: THREE.Material = terrainMaterial();
+  /** `groveMesh` alone -- see `terrain/mesh.ts`'s own `groveMaterial` doc
+   *  comment for why the wind-sway shader needs to be a separate material
+   *  from `terrainMat` rather than a flag on it (the `sway` attribute this
+   *  shader reads exists ONLY on grove geometry -- `toGeometry`'s own
+   *  comment). Reused across rebuilds for the same reason `terrainMat` is. */
+  private readonly groveMat: THREE.ShaderMaterial = groveMaterial();
   /**
    * Owns the muzzle-flash ramp-shift pool (`./palette-material.ts`'s own
    * "The muzzle-flash 'light'" doc comment) -- one instance for the whole
@@ -1023,6 +1030,23 @@ export class ThreeRenderer implements Renderer {
   private readonly vehicleTrackAccumTiles: Float64Array;
   private readonly vehicleTrackSeeded: Uint8Array;
   private trackClockMs = 0;
+  /** `groveMat`'s `uTime` uniform, in the same "accumulated `dtMs`, never
+   *  `Date.now()`" shape as `trackClockMs` immediately above and for the
+   *  identical reason (`Renderer.frame`'s documented contract) -- a separate
+   *  field rather than reusing `trackClockMs` itself so the wind's own
+   *  period stays independent of whatever `vehicleTrackMesh` does with its
+   *  clock. Converted from ms to seconds only at the point `frame()` writes
+   *  the uniform; see `terrain/mesh.ts`'s `groveMaterial` doc comment for
+   *  the shader-side use. */
+  private windClockMs = 0;
+  /** Ground-unit shadows -- see `./unit-shadows.ts`'s own top comment for
+   *  the full design account (why real, depth-tested ground geometry rather
+   *  than reusing the air-unit shadow's billboard mechanism). Rebuilt every
+   *  `frame()` from `updateOverlays`'s own per-entity loop, unlike
+   *  `vehicleTrackMesh` above (a persistent ring buffer) -- a shadow tracks
+   *  its own unit's current position, so nothing here should outlive the
+   *  frame that placed it. */
+  private readonly unitShadowMesh: UnitShadowMesh;
 
   constructor(
     private readonly sim: Sim,
@@ -1069,6 +1093,15 @@ export class ThreeRenderer implements Renderer {
     // same material. See vehicle-tracks.ts's own top comment for the full
     // palette/fog/pool-sizing account.
     this.vehicleTrackMesh = new VehicleTrackMesh(TRACK_POOL_CAPACITY, opts.terrainTones.rut);
+    // Same colour key the existing air-unit shadow already resolves
+    // (`AIR_SHADOW_COLOR_KEY`, `shadow.2`) -- see unit-shadows.ts's own top
+    // comment for why a ground shadow reuses it rather than naming a second
+    // key for the identical swatch. Sized off sim.capacity: at most one
+    // shadow blob per living entity is ever pushed in a frame.
+    this.unitShadowMesh = new UnitShadowMesh(
+      sim.capacity,
+      opts.resolveColor ? opts.resolveColor(AIR_SHADOW_COLOR_KEY) : '#0A0A08'
+    );
     // Phase C: sized off sim.capacity, not a bare constant -- see
     // OVERLAY_VERTICES_PER_ENTITY's own doc comment for the per-entity
     // budget this multiplies, and the "+ 8192" headroom for the handful of
@@ -1097,10 +1130,15 @@ export class ThreeRenderer implements Renderer {
     // future edit could reorder.
     applyPalettePipeline(this.renderer, this.opts.background);
     // Terrain is a single shared material for the whole map (ground, scatter,
-    // grove, residual, building-decor boxes alike) -- one registration here
-    // covers all of it, unlike the mesh-unit/vehicle/building materials
-    // below, which are registered per template as each loads.
+    // residual, building-decor boxes alike) -- one registration here covers
+    // all of it, unlike the mesh-unit/vehicle/building materials below,
+    // which are registered per template as each loads. `groveMat` is a
+    // SECOND registration, not covered by this one -- see its own field doc
+    // comment for why the wind-sway shader is a separate material rather
+    // than a flag on this one; both still sample the identical shared
+    // uFlash* arrays this call points every material at.
     this.flashLights.register(this.terrainMat as THREE.ShaderMaterial);
+    this.flashLights.register(this.groveMat);
     // Added unconditionally, not lazily on first useEmitters/spawn -- all
     // three meshes start at count/drawRange 0 (nothing live yet) and simply
     // stay that way until there is something to draw, the same "always
@@ -1131,6 +1169,9 @@ export class ThreeRenderer implements Renderer {
     // "scene-graph position is cosmetic here, renderOrder plus real depth
     // does the real work" reason -- see vehicle-tracks.ts's own top comment.
     this.scene.add(this.vehicleTrackMesh.mesh);
+    // Same ground-band placement as vehicleTrackMesh just above -- see
+    // unit-shadows.ts's own top comment.
+    this.scene.add(this.unitShadowMesh.mesh);
     // `SMOKE_RENDER_ORDER` sits above the overlay tier and below fog -- see
     // `smoke-mesh.ts`'s own top comment. Scene-graph position is cosmetic
     // here for the identical reason it is for `fogMesh`/`trailMesh` (three.js
@@ -1218,6 +1259,7 @@ export class ThreeRenderer implements Renderer {
     for (const mesh of this.structureBoxes.values()) mesh.geometry.dispose();
     this.structureBoxes.clear();
     this.terrainMat.dispose();
+    this.groveMat.dispose();
     for (const instancer of this.unitInstancers.values()) instancer.dispose();
     this.unitInstancers.clear();
     for (const instancer of this.turretInstancers.values()) instancer.dispose();
@@ -1326,6 +1368,9 @@ export class ThreeRenderer implements Renderer {
     // Same "added once in the constructor, no scene.remove needed" shape as
     // trailMesh just above.
     this.vehicleTrackMesh.dispose();
+    // Same "added once in the constructor, no scene.remove needed" shape as
+    // vehicleTrackMesh just above.
+    this.unitShadowMesh.dispose();
     this.renderer.dispose();
     this.host = null;
   }
@@ -1413,6 +1458,10 @@ export class ThreeRenderer implements Renderer {
     // direct clock read -- see the field's own doc comment.
     this.trackClockMs += dtMs;
     this.vehicleTrackMesh.update(this.trackClockMs);
+    // No dirty gate, same "cheap enough to just always run" reasoning as
+    // vehicleTrackMesh's own sweep just above -- one uniform write.
+    this.windClockMs += dtMs;
+    this.groveMat.uniforms.uTime.value = this.windClockMs / 1000;
     this.renderer.render(this.scene, this.threeCamera());
   }
 
@@ -3464,6 +3513,7 @@ export class ThreeRenderer implements Renderer {
     this.frameN++;
     this.overlayBatch.beginFrame();
     this.numeralBatch.beginFrame();
+    this.unitShadowMesh.beginFrame();
 
     const st = this.sim.state;
     const n = this.sim.entityCount;
@@ -3530,6 +3580,13 @@ export class ThreeRenderer implements Renderer {
           this.overlayColor(AIR_SHADOW_COLOR_KEY, '#0A0A08'),
           0.28 * bodyAlpha
         );
+      } else {
+        // Ground-unit shadow -- see ./unit-shadows.ts's own top comment for
+        // the full design account (real, depth-tested ground geometry
+        // rather than this method's own billboard overlay tier). `anchor`
+        // already carries the garrison-roof lift computed just above, so a
+        // garrisoned unit's shadow sits on the roof with it.
+        this.unitShadowMesh.push(anchor[0], anchor[1], anchor[2], groundShadowRadiusTiles(type.isSoft));
       }
 
       // HP bar -- renderer.ts: `g.rect(sx - 12, sy - r - 10, 24, 3).fill(...)`
@@ -3940,6 +3997,7 @@ export class ThreeRenderer implements Renderer {
 
     this.overlayBatch.endFrame();
     this.numeralBatch.endFrame();
+    this.unitShadowMesh.endFrame();
   }
 
   /**
@@ -3965,9 +4023,11 @@ export class ThreeRenderer implements Renderer {
    * Disposes each outgoing geometry before dropping the reference to it: a
    * rebuilt terrain that leaks its predecessor is invisible until a mission
    * rebuilds terrain a few hundred times, and then it is a memory bug nobody
-   * can attribute. The material is not disposed -- `terrainMat` is reused
-   * across rebuilds, not replaced (every mesh this method builds shares it,
-   * `structureBoxes` included).
+   * can attribute. Neither material is disposed -- `terrainMat` and
+   * `groveMat` are both reused across rebuilds, not replaced (every mesh
+   * this method builds shares one or the other, `structureBoxes` and
+   * `groveMesh` included respectively -- see `groveMat`'s own field doc
+   * comment for why the grove mesh alone uses the second one).
    *
    * What this closes: a destroyed, un-arted structure's box now disappears
    * and its ground tone reverts to open the next time THIS method runs --
@@ -4018,7 +4078,7 @@ export class ThreeRenderer implements Renderer {
     this.scatterMesh = new THREE.Mesh(toGeometry(composed.scatter), this.terrainMat);
     this.scene.add(this.scatterMesh);
 
-    this.groveMesh = new THREE.Mesh(toGeometry(composed.groves), this.terrainMat);
+    this.groveMesh = new THREE.Mesh(toGeometry(composed.groves), this.groveMat);
     this.scene.add(this.groveMesh);
 
     this.residualMesh = new THREE.Mesh(toGeometry(composed.residual), this.terrainMat);

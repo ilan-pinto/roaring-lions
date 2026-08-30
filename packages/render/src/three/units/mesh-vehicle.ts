@@ -105,7 +105,12 @@ export function buildVehicleMeshTemplate(
       unmapped.add(role || '(unnamed mesh)');
       return;
     }
-    const mat = toonRampMaterial(rampForVehicleRole(vehicleId, role));
+    // Cel specular ON: a vehicle hull is exactly the "reads as a hard
+    // surface" case `palette-material.ts`'s own "Cel specular" doc comment
+    // names first -- see it for why this is opt-in per material rather than
+    // always on, and `units/mesh-building.ts`'s own call site for the one
+    // that deliberately leaves it off.
+    const mat = toonRampMaterial(rampForVehicleRole(vehicleId, role), { specular: true });
     mesh.material = mat;
     mesh.renderOrder = renderOrderForPart(mesh.name);
     materials.push(mat);

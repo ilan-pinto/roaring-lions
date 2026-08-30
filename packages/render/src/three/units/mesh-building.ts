@@ -66,6 +66,11 @@ export function buildBuildingMeshTemplate(
       unmapped.add(role || '(unnamed mesh)');
       return;
     }
+    // Cel specular deliberately left OFF here (default `false`) -- the ask
+    // (`palette-material.ts`'s own "Cel specular" doc comment) is metal/
+    // glass/vehicle-hull surfaces, and a building wall's own ramp is a
+    // plaster/concrete tone (`rampForBuildingRole`), not a hard one. See
+    // `units/mesh-vehicle.ts`'s own call site for the one that opts in.
     const mat = toonRampMaterial(rampForBuildingRole(role, wallColorKey));
     mesh.material = mat;
     mesh.renderOrder = HULL_RENDER_ORDER;

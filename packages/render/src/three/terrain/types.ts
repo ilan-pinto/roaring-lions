@@ -27,6 +27,22 @@ export interface MeshData {
    * missing-attribute error.
    */
   litColors?: Float32Array;
+  /**
+   * One float per vertex, same length and vertex order as `colors` -- how
+   * far this vertex sits above its own object's ground anchor, in world-Y
+   * units (0 at a trunk base or a flat ground mark, larger toward a
+   * crown's own topmost highlight). Wind-sway weight, read only by
+   * `mesh.ts`'s `groveMaterial` fragment/vertex pair -- `terrainMaterial`
+   * (the shared material every other terrain sub-mesh draws through) never
+   * declares a `sway` attribute, so leaving this absent is a correct no-op
+   * for ground/scatter/residual/building-decor meshes, the same "OPTIONAL,
+   * only one builder populates it" shape `litColors` above already
+   * establishes. OPTIONAL: only `grove.ts`'s `buildGroves` computes this
+   * today, on tree trunk/crown vertices only -- a grove tile's own flat
+   * ground shadow mark leaves it at the implicit zero-fill, so wind never
+   * moves a shadow off the ground it is cast on.
+   */
+  sway?: Float32Array;
 }
 
 /** Everything a terrain builder is allowed to read. */

@@ -34,6 +34,7 @@
  * than blends.
  */
 import * as THREE from 'three';
+import { VIEW_DIRECTION } from './camera';
 
 /** The longest ramp in `data/palette.json` (limestone, 9 steps) and the
  *  shader's `uRamp` array length. Every shorter ramp is padded up to this so
@@ -218,6 +219,65 @@ export function applyPalettePipeline(renderer: PaletteTarget, background: string
 }
 
 /**
+ * Cel specular: a hard-edged highlight that SELECTS the ramp's own lightest
+ * entry (`uRamp[0]`) rather than adding light -- palette-safe by the exact
+ * same construction as the muzzle-flash shift above: the only values this
+ * can ever emit are ramp entries the data already names, never a synthesised
+ * highlight colour blended in on top. Optional per material (the `specular`
+ * flag `toonRampMaterial` takes below) rather than always-on: the ask this
+ * exists for is metal/glass/vehicle-hull surfaces reading as hard, not a
+ * highlight on every toon-ramp surface in the scene regardless of what it
+ * represents -- `units/mesh-vehicle.ts` turns this on; `units/mesh-building
+ * .ts` deliberately does not (see that call site's own comment for why).
+ *
+ * Blinn-Phong (`N·H`, half-vector), not Phong (`N·R`, reflection vector):
+ * the cheaper of the two standard formulations (no `reflect()` call), and
+ * this is a flat threshold CUT rather than a shaded curve, so the two
+ * forms' well-known shape difference where the curve is smooth is not in
+ * play here -- both produce the same hard yes/no per fragment for a
+ * suitably chosen threshold.
+ *
+ * `uLightDir` and `uViewDir` are both fixed world vectors already, not
+ * per-frame state: `uLightDir` is `toonRampMaterial`'s own long-standing
+ * `(0.5, 1, 0.3)` constant, and `uViewDir` defaults to `./camera.ts`'s
+ * `VIEW_DIRECTION` -- the exact vector that camera's own `position` is
+ * built from (`target + VIEW_DIRECTION * CAMERA_DISTANCE`), correct here
+ * because this dimetric camera never orbits (`terrain/grove.ts`'s own top
+ * comment makes the identical argument for its billboards' fixed axes) --
+ * a TRUE parallel/orthographic view direction is the same constant vector
+ * everywhere in the scene, which `normalize(cameraPosition - vWorldPos)`
+ * would NOT be (that expression is only exact for a perspective camera).
+ * So the half-vector between them is itself a build-time constant in
+ * spirit; it is still computed in-shader from two uniforms, matching
+ * `uLightDir`'s own existing pattern (also always the same value, still a
+ * uniform, not a hand-baked GLSL literal) rather than introducing a second
+ * convention.
+ *
+ * `SPECULAR_POWER`/`SPECULAR_THRESHOLD` were tuned by eye against real
+ * shipped vehicle meshes at gameplay zoom (~3), not derived -- see this
+ * task's report for what was actually looked at and why these two numbers.
+ */
+export const SPECULAR_POWER = 6.0;
+export const SPECULAR_THRESHOLD = 0.15;
+
+export const SPECULAR_UNIFORMS_GLSL = /* glsl */ `
+  uniform vec3 uViewDir;
+`;
+
+/** Depends on `uLightDir` already being in scope -- both `toonRampMaterial`
+ *  and `units/mesh-material.ts`'s `toonRampSkinnedMaterial` declare it
+ *  unconditionally, so this is safe wherever `FLASH_SHIFT_GLSL` already is,
+ *  the identical implicit-dependency shape that one already has on
+ *  `FLASH_UNIFORMS_GLSL`. */
+export const SPECULAR_GLSL = /* glsl */ `
+  bool specularHit(vec3 n) {
+    vec3 halfDir = normalize(normalize(uLightDir) + normalize(uViewDir));
+    float nh = max(dot(normalize(n), halfDir), 0.0);
+    return pow(nh, ${SPECULAR_POWER.toFixed(1)}) > ${SPECULAR_THRESHOLD.toFixed(2)};
+  }
+`;
+
+/**
  * A toon-shaded material that quantizes `N·L` into `uSteps` bands and reads
  * the fragment colour out of `uRamp` -- never computed. A shaded fragment
  * cannot emit an off-palette colour because the only values it can write are
@@ -229,8 +289,18 @@ export function applyPalettePipeline(renderer: PaletteTarget, background: string
  * `max(N·L, 0)` from 1 down to 0 across `uSteps` bands for exactly that
  * reason. Getting this backwards inverts every unit's shading, which reads
  * as "the art looks wrong" rather than as a bug.
+ *
+ * `specular` (default `false`) splices in this file's own "Cel specular" GLSL
+ * above -- see that doc comment for the full account. Left `false`, the
+ * generated shader source is BYTE IDENTICAL to what this function produced
+ * before the flag existed (every conditional GLSL splice below
+ * collapses to the empty string), so every caller that does not opt in is
+ * provably unaffected rather than merely expected to be.
  */
-export function toonRampMaterial(rampHexes: readonly string[]): THREE.ShaderMaterial {
+export function toonRampMaterial(
+  rampHexes: readonly string[],
+  opts: { specular?: boolean } = {}
+): THREE.ShaderMaterial {
   if (rampHexes.length === 0) {
     throw new Error('toonRampMaterial: ramp must have at least one colour');
   }
@@ -239,6 +309,7 @@ export function toonRampMaterial(rampHexes: readonly string[]): THREE.ShaderMate
       `toonRampMaterial: ramp has ${rampHexes.length} colours, longer than RAMP_MAX (${RAMP_MAX})`
     );
   }
+  const specular = opts.specular ?? false;
 
   const padded: THREE.Color[] = rampHexes.map((hex) => paletteColorNoConvert(hex));
   // Pad to RAMP_MAX with the ramp's own darkest (last) entry so three.js can
@@ -256,6 +327,7 @@ export function toonRampMaterial(rampHexes: readonly string[]): THREE.ShaderMate
       uRamp: { value: padded },
       uSteps: { value: rampHexes.length },
       uLightDir: { value: new THREE.Vector3(0.5, 1, 0.3).normalize() },
+      ...(specular ? { uViewDir: { value: VIEW_DIRECTION.clone() } } : {}),
       ...defaultFlashUniforms(),
     },
     vertexShader: /* glsl */ `
@@ -271,11 +343,13 @@ export function toonRampMaterial(rampHexes: readonly string[]): THREE.ShaderMate
       uniform vec3 uRamp[${RAMP_MAX}];
       uniform int uSteps;
       uniform vec3 uLightDir;
+      ${specular ? SPECULAR_UNIFORMS_GLSL : ''}
       ${FLASH_UNIFORMS_GLSL}
       varying vec3 vNormal;
       varying vec3 vWorldPos;
 
       ${FLASH_SHIFT_GLSL}
+      ${specular ? SPECULAR_GLSL : ''}
 
       void main() {
         float nl = max(dot(normalize(vNormal), normalize(uLightDir)), 0.0);
@@ -286,6 +360,11 @@ export function toonRampMaterial(rampHexes: readonly string[]): THREE.ShaderMate
         // fragment's band toward 0 (brighter), never past it -- see this
         // file's own "The muzzle-flash 'light'" doc comment above.
         band = max(0, band - flashShiftSteps(vWorldPos));
+        // Cel specular: a hard highlight always wins outright, the same
+        // "push all the way to the lightest entry" outcome flashShiftSteps
+        // already produces at its own maximum -- see this file's own "Cel
+        // specular" doc comment above.
+        ${specular ? 'if (specularHit(vNormal)) band = 0;' : ''}
         vec3 outColor = uRamp[0];
         for (int i = 0; i < ${RAMP_MAX}; i++) {
           if (i == band) {
