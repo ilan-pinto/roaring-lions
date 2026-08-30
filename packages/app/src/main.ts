@@ -641,6 +641,23 @@ async function main(): Promise<void> {
         'kdf'
       );
 
+      // A second Meshy-generated (AI, disclosed in this PR) rigged biped --
+      // an irregular fighter, supplied separately from the KDF soldier above
+      // and under its own source directory (`art/blend/Sarim irregular/`).
+      // Wired to enemy-side `sarim_rifles` (`data/units/enemy/sarim_rifles.json`),
+      // which had no mesh and was falling back to its billboard until now.
+      // Unlike `inf_squad`'s own asset, this one was supplied WITH the
+      // brief already naming it "irregular fighter" and pointed at an enemy
+      // unit -- no side-correction needed this time, but the fact that the
+      // KDF asset's own side got corrected once is exactly why this is
+      // stated rather than assumed: which side an asset fights for is a
+      // design call, not a naming heuristic.
+      await three.loadMeshUnit(
+        'sarim_rifles',
+        new URL('../../../art/meshes/sarim_rifles.glb', import.meta.url).href,
+        'enemy'
+      );
+
       // Vehicle meshes (mesh-unit-contract v2): `art/meshes/vehicles/<id>.glb`,
       // no faction parameter -- unlike infantry, a vehicle GLB is
       // faction-specific by construction, so `three.loadVehicleMesh` takes
@@ -689,6 +706,14 @@ async function main(): Promise<void> {
       // the authored particle for any `mesh_flash` layer until this
       // resolves, so a dev session with the flag off is unaffected.
       await three.loadMuzzleFlashMesh(new URL('../../../art/meshes/vfx/muzzle_flash.glb', import.meta.url).href);
+
+      // The modelled explosion burst (mesh-unit-contract's VFX asset class,
+      // `units/explosion-burst.ts`'s own top comment) -- reuses the muzzle
+      // flash's own render path end to end. Same single-shared-asset shape
+      // as the call above, gated behind the same `flags.mesh`:
+      // `spawnCollapseFx` falls back to `structure_collapse.json`'s own
+      // authored `mesh_burst` particle layer until this resolves.
+      await three.loadExplosionBurstMesh(new URL('../../../art/meshes/vfx/explosion_burst.glb', import.meta.url).href);
     }
   } else {
     // Same shape as the three branch above: PixiRenderer's own entry point,
