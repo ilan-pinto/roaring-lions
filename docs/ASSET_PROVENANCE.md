@@ -71,14 +71,20 @@ sources, so a fresh clone can run none of them.
 That rule is project policy rather than law, and a private repo can relax it
 deliberately. It should be a decision, not an omission.
 
-### The one open question
+### Commercial rights
 
-**Which Meshy plan generated these, and do its terms permit commercial use?**
+**Confirmed by the project lead on 2026-08-30: the Meshy plan used permits
+commercial use.**
 
-Closing the source removes the redistribution question. Selling on Steam does
-not remove the commercial-use question, and AI 3D generators commonly restrict
-that on free tiers. This is the only fact in this document that cannot be
-established from the repository.
+Recorded as his confirmation rather than as a verified fact — the terms live in
+his Meshy account and nothing in this repository can check them. That is the
+normal shape of a provenance record (the same way `data/audio.json` records a
+`license` string it cannot independently prove), but it is worth one direct read
+of the plan's own terms before a paid release, since "commercial use" and
+"redistribution as part of a shipped binary" are occasionally separated.
+
+With that settled, the four Meshy assets are clear to ship in a closed-source
+commercial build, and the retirements below are unblocked.
 
 ---
 
@@ -114,3 +120,24 @@ carry, written by the export script the way `render_*.py` writes a sprite
 manifest, and extend `tools/validate_mesh_assets.py` to reject a mesh without
 one — matching what `validate_audio.py` already does for clips. Provenance that
 depends on someone remembering is provenance that eventually fails.
+
+---
+
+## Outstanding, in order
+
+1. **Record credits for the 33 meshes and gate on them** (above). Now that the
+   Meshy terms are settled, every mesh has an answer to record — which is the
+   cheapest moment to start requiring one.
+2. **Retire the three superseded sprite sets** — `TNK_*`, `NAMER_*`, `JEEP_HULL`
+   plus their `render_*.py` scripts and `art/src/ifv_dmm08_LICENSE.html` — each
+   only after its replacement is confirmed drawing in game. Retiring `NAMER_*`
+   removes the project's last permanent attribution obligation; retiring
+   `JEEP_HULL` removes the only asset with no known terms at all.
+3. **Change the art licence declaration** in `ART_PIPELINE.md` §8 from
+   CC BY-SA 4.0 before the repository goes private. What has already been
+   distributed under it stays distributed under it; the point is to stop adding
+   to that set.
+4. **Decide the `art/blend/` question deliberately** — 465 MB of Meshy sources
+   are gitignored, so no clone can re-run the import and export scripts. Git LFS,
+   a decimated in-repo source, or a documented exception. Currently it is an
+   omission rather than a decision.
