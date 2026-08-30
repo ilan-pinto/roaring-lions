@@ -176,6 +176,14 @@ export default tseslint.config(
                 'import puts three.js in the default Pixi player\'s main chunk. See CLAUDE.md\'s standing bundle rule.',
             },
             {
+              name: '@lions/render/pixi',
+              message:
+                'PixiRenderer must reach packages/app only via a dynamic import() (see main.ts) -- a static ' +
+                'import puts pixi.js in the main chunk for every player, including one who chose ' +
+                '?renderer=three. Symmetric with the @lions/render/three rule above: neither backend is ' +
+                'privileged, so neither may be imported statically.',
+            },
+            {
               name: '@lions/render/terrain',
               message:
                 'The terrain barrel exists for terrain-parity.test.ts (and packages/render\'s own test suite) to ' +

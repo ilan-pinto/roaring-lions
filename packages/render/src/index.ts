@@ -3,13 +3,26 @@
 
 export const RENDER_VERSION = 1;
 
-export {
-  PixiRenderer,
-  TERRAIN_DECOR,
-  type RendererOptions,
-  type TerrainTones,
-  type TerrainScatter,
-} from './renderer';
+// PixiRenderer is deliberately NOT re-exported here, for the same reason
+// ThreeRenderer never has been (comment below): it lives behind its own
+// entry point, `@lions/render/pixi` (`pixi.ts`), so that `import
+// '@lions/render'` does not drag pixi.js in. Before this split, EVERY
+// player -- Pixi default or `?renderer=three` -- downloaded pixi.js in the
+// main chunk, because `main.ts` imported `PixiRenderer` from this barrel
+// statically alongside the pixi-free things below it (`DebugOverlay`,
+// `TERRAIN_DECOR`, etc.), and Rollup cannot partially execute a module: any
+// import of `renderer.ts` runs its `import 'pixi.js'` too. `main.ts` now
+// reaches `PixiRenderer` with a dynamic `import('@lions/render/pixi')`, the
+// same shape three.js already used -- see that file and `pixi.ts`.
+//
+// TERRAIN_DECOR moves with it, but to `./decor` rather than `./pixi`: it is
+// a plain object with no pixi dependency of its own, used unconditionally
+// by `main.ts` (to cross-check `@lions/data`'s `DECOR` enum) before either
+// backend is chosen, so it stays a static, pixi-free export of the barrel
+// rather than joining the lazy entry point. See `decor.ts`'s own comment for
+// why it is redeclared rather than imported from `renderer.ts`.
+export { TERRAIN_DECOR } from './decor';
+export type { RendererOptions, TerrainTones, TerrainScatter } from './api';
 export { DebugOverlay } from './overlay';
 // ThreeRenderer is deliberately NOT re-exported here. It lives behind its own
 // entry point, `@lions/render/three`, so that `import '@lions/render'` does

@@ -15,8 +15,13 @@ import {
   type MissionJson,
   type TunnelRouteJson,
 } from '@lions/sim';
+// PixiRenderer is deliberately NOT imported here (see the dynamic import
+// below, and `@lions/render/pixi`'s own comment): a static import of it,
+// even alongside pixi-free names like DebugOverlay/TERRAIN_DECOR below,
+// pulls pixi.js into this file's module graph and back into the main chunk
+// for every player -- the same shape ThreeRenderer's own static-import ban
+// (eslint, `@lions/render/three`) already guards against.
 import {
-  PixiRenderer,
   DebugOverlay,
   BattleAudio,
   TERRAIN_DECOR,
@@ -505,13 +510,20 @@ async function main(): Promise<void> {
   // reaches parity (spec, Phase D). The annotation is what makes this a real
   // choice: both branches must satisfy `Renderer` or this does not compile.
   //
-  // The three backend arrives by dynamic import, from its own entry point.
-  // A static `import { ThreeRenderer } from '@lions/render'` used in a live
-  // ternary is not tree-shakeable, and it put three.js's whole runtime into
-  // the main chunk -- 1,081 kB -- for every player who never passes the flag.
-  // The separate entry point is the other half of that: `@lions/render`'s
-  // barrel no longer names ThreeRenderer, so importing the barrel (which this
-  // file does, for PixiRenderer) cannot pull three.js in either.
+  // BOTH backends arrive by dynamic import, from their own entry points --
+  // this used to be true only of three. A static `import { ThreeRenderer }
+  // from '@lions/render'` used in a live ternary is not tree-shakeable, and
+  // it once put three.js's whole runtime into the main chunk -- 1,081 kB --
+  // for every player who never passed the flag; `@lions/render`'s barrel
+  // never named ThreeRenderer to fix that. But `PixiRenderer` stayed a
+  // static barrel export, which was invisible while Pixi was the only
+  // backend that ever ran eagerly -- once three shipped, that export became
+  // the mirror-image bug: importing the barrel AT ALL, on either backend,
+  // pulled pixi.js into the main chunk, because a module import cannot
+  // partially execute (`renderer.ts`'s own `import 'pixi.js'` runs
+  // regardless of which of its exports are used). `PixiRenderer` now has its
+  // own entry point too, `@lions/render/pixi` (`pixi.ts`), so which backend
+  // a player downloads is symmetric: only the one actually chosen.
   // `?renderer=pixi` and `?renderer=three` are both real, parsed values --
   // not `=== 'three'` with everything else falling through to Pixi, which
   // only ever looked like a working escape hatch because Pixi happens to be
@@ -655,6 +667,10 @@ async function main(): Promise<void> {
       );
     }
   } else {
+    // Same shape as the three branch above: PixiRenderer's own entry point,
+    // reached only when actually chosen, so pixi.js never lands in this
+    // file's static module graph.
+    const { PixiRenderer } = await import('@lions/render/pixi');
     renderer = new PixiRenderer(sim, opts);
     if (flags.mesh) {
       // The `&tunel` lesson, applied to a flag that is real but backend-only:
