@@ -61,6 +61,51 @@ cut threshold above is measured in the SOURCE's own coordinate frame, and
 flipping first would have required renegotiating every one of them for no
 benefit, since a Z-axis rotation cannot change which vertices are "above"
 Z_CUT or inside the barrel band.
+
+ROLE SPLIT (added after the project lead flagged "the tank color is all
+monolith color"; see `.superpowers/tank-role-split-report.md`). Both
+`hull_hull` and `turret_hull` shipped as one role (`hull`) each -- correct
+for the hull/turret CUT above, wrong for shading, since it means the tracks
+and the barrel shade through the same ramp as painted armour. Connectivity
+was checked FIRST, exactly like the hull/turret cut: a weld-invariant
+flood-fill (identical at weld thresholds 1e-6..1e-2, so not an artifact of
+the threshold) found the tracks welded into the SAME single component as
+the hull body, and the barrel welded into the SAME single component as the
+turret body -- so, same as above, there is no seam to cut along and the
+cut is geometric (face position), not topological. One exception: the two
+antenna stubs on the turret ARE already separate, watertight components
+(this was true even before the hull/turret cut -- see the module docstring
+above), so those need no cut or hole-fill at all, only picking out.
+
+Both new cuts are measured in the FINAL frame (already scaled, rotated
++X-forward, ground-aligned) -- unlike Z_CUT/BARREL_* above, which are
+source-frame -- because they were derived by inspecting the ALREADY
+SHIPPED predecessor `mbt_lavi.glb` directly (see the report for the
+z/y-histograms):
+
+  - Tracks/wheels (`hull` -> `rubber`): a y-histogram of `hull_hull` at low
+    z shows the mesh's own CENTRE (|y| < ~0.73) completely empty from
+    z=0 up to z=0.38 -- the open belly between the two track runs -- while
+    the flanks (|y| >= ~0.73) are dense. Above z=0.38 the centre starts
+    filling in (hull floor plate), so 0.38 is where the geometry itself
+    stops being "only the two track lobes." `Y_TRACK_MIN=0.70` sits with
+    margin inside the empirical gap.
+  - Barrel (`hull` -> `metal`, within `turret_hull`): an x-histogram of
+    `turret_hull` shows the turret body's own width collapsing from
+    |y|~0.75 down to a narrow ~0.11-wide cylinder from x=0.70 onward, with
+    the sparse-ring vertex spacing characteristic of a low-poly cylinder,
+    running to the muzzle at x=3.16.
+  - Antennas (`hull` -> `metal`, within `turret_hull`): picked out by
+    connectivity alone, not a box -- their real bounding boxes overlap the
+    turret roof's own z-range enough that a position-only box would also
+    catch roof-hatch geometry at the same x/z and opposite y.
+
+No `plate`/`glass`/`recess` split was attempted on this asset: past tracks,
+barrel and antennas, the remaining geometry (turret roof hatches, hull
+greebles) is still one welded blob with no comparable large-scale
+geometric signal (no open-gap, no cylinder-ring pattern, no disjoint
+component) to cut along -- see the report for what was checked and why it
+was not enough to act on.
 """
 import json
 import os
@@ -113,6 +158,25 @@ BARREL_Z_MAX = 0.08
 #: Above this many boundary-loop edges, a "cap" is not a small fix -- see
 #: the report for why this asset stays below it (largest loop: 85 edges).
 MAX_SANE_LOOP = 400
+
+#: Track/wheel role cut (`hull` -> `rubber`), in the FINAL (scaled,
+#: +X-forward, ground-aligned) frame, metres -- see module docstring
+#: "ROLE SPLIT" for the y-histogram evidence this was measured against.
+Z_WHEEL_CUT = 0.38
+Y_TRACK_MIN = 0.70
+
+#: Barrel role cut (`hull` -> `metal`, within `turret_hull`), same final
+#: frame -- narrower than BARREL_X_MAX/BARREL_Y above, which only had to
+#: separate turret from hull; this one must exclude the mantlet/turret-front
+#: body and keep only the free-standing barrel tube. See module docstring.
+BARREL_ROLE_X_MIN = 0.70
+BARREL_ROLE_Y_MAX = 0.35
+
+#: A connected component below this face count, once the antenna/greeble
+#: components are set aside, would mean the "one dominant welded body"
+#: assumption `_antenna_face_indices` relies on does not hold for this
+#: mesh -- fail loudly rather than silently mis-splitting.
+ANTENNA_MAIN_MIN_FACES = 200
 
 
 def _is_turret_face(f):
@@ -206,6 +270,74 @@ def _fill_holes(ob, label):
     if remaining:
         print(f"[{label}] WARNING: {remaining} boundary edge(s) remain open after fill")
     return remaining
+
+
+def _antenna_face_indices(ob, main_min_faces=ANTENNA_MAIN_MIN_FACES):
+    """Face indices of every SMALL connected component of `ob`, i.e. every
+    component except the largest -- the antenna stubs, which this module's
+    docstring already established are separate and watertight (found by the
+    same weld-then-flood-fill census this task's report ran, identical
+    across weld thresholds 1e-6..1e-2). Returns a plain set of
+    `ob.data.polygons` indices so the caller can build a position-free
+    `keep_fn` for `_delete_faces` -- deliberately NOT a bounding-box test:
+    the antenna stubs' real bounding boxes overlap the turret roof's own
+    z-range closely enough that a box would also catch roof-hatch geometry
+    at the same x/z and opposite y (see report).
+
+    Weld first (`remove_doubles`, matching the census's own method) so a
+    vertex-per-loop export convention cannot fragment one physical surface
+    into spurious extra "components" -- though `ob` here is still native
+    Blender geometry, not glTF-roundtripped, so this is a defensive no-op in
+    the common case, not a correction for a known defect on this specific
+    object.
+    """
+    n_faces_before = len(ob.data.polygons)
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)
+    bm.faces.ensure_lookup_table()
+    if len(bm.faces) != n_faces_before:
+        raise SystemExit(
+            f"{ob.name}: welding for component analysis changed face count "
+            f"{n_faces_before} -> {len(bm.faces)} -- the 'faces are stable, only "
+            f"verts merge' assumption this helper relies on does not hold here"
+        )
+    seen = set()
+    comps = []
+    for f0 in bm.faces:
+        if f0.index in seen:
+            continue
+        stack = [f0]
+        comp = []
+        seen.add(f0.index)
+        while stack:
+            f = stack.pop()
+            comp.append(f.index)
+            for e in f.edges:
+                for f2 in e.link_faces:
+                    if f2.index not in seen:
+                        seen.add(f2.index)
+                        stack.append(f2)
+        comps.append(comp)
+    bm.free()
+    comps.sort(key=len, reverse=True)
+    if not comps:
+        return set()
+    main = comps[0]
+    if len(main) < main_min_faces:
+        raise SystemExit(
+            f"{ob.name}: largest connected component is only {len(main)} faces "
+            f"(< {main_min_faces}) -- the 'one dominant welded body plus small "
+            f"greebles' assumption does not hold, stop and re-examine"
+        )
+    small = set()
+    for c in comps[1:]:
+        small.update(c)
+    print(
+        f"[{ob.name}] connected components: {len(comps)} "
+        f"(main={len(main)} faces, {len(comps) - 1} small totalling {len(small)} faces)"
+    )
+    return small
 
 
 def _extent_of(ob):
@@ -351,14 +483,124 @@ def export():
     print(f"[mbt_lavi] ground shift +{shift_z:.4f} m (lowest vertex -> z=0)")
     print(f"[mbt_lavi] turret pivot (export frame, +X forward, metres): {tuple(round(c, 4) for c in pivot_world)}")
 
+    # ------------------------------------------------------------------
+    # Role split. `hull_obj`/`turret_obj` are already scaled, rotated and
+    # ground-aligned at this point, which is why the thresholds above are
+    # metres in THIS frame rather than source model units -- see the module
+    # docstring's "ROLE SPLIT" section for the evidence each was measured
+    # against.
+
+    # -- Turret antennas -> metal. Connectivity-based, not a box (see
+    # `_antenna_face_indices` docstring): already separate, watertight, no
+    # hole-fill needed.
+    antenna_idx = _antenna_face_indices(turret_obj)
+
+    def _is_antenna_face(f):
+        return f.index in antenna_idx
+
+    bpy.ops.object.select_all(action="DESELECT")
+    turret_obj.select_set(True)
+    bpy.context.view_layer.objects.active = turret_obj
+    bpy.ops.object.duplicate()
+    antenna_obj = bpy.context.object
+    antenna_obj.name = "turret_metal_antenna"
+    _delete_faces(antenna_obj, _is_antenna_face, invert=False)
+    _delete_faces(turret_obj, _is_antenna_face, invert=True)
+    print(
+        f"[mbt_lavi] antenna piece: {len(antenna_obj.data.polygons)} faces; "
+        f"turret body+barrel remaining: {len(turret_obj.data.polygons)} faces"
+    )
+
+    # -- Barrel -> metal. A real geometric cut through the welded
+    # turret-body+barrel shell -- same per-loop triangle_fill approach as
+    # the original hull/turret cut, because the same "combined multi-loop
+    # holes_fill returns nothing" trap applies here too.
+    def _is_barrel_face(f):
+        c = f.calc_center_median()
+        return c.x >= BARREL_ROLE_X_MIN and abs(c.y) <= BARREL_ROLE_Y_MAX
+
+    bpy.ops.object.select_all(action="DESELECT")
+    turret_obj.select_set(True)
+    bpy.context.view_layer.objects.active = turret_obj
+    bpy.ops.object.duplicate()
+    barrel_obj = bpy.context.object
+    barrel_obj.name = "turret_metal_barrel"
+    _delete_faces(barrel_obj, _is_barrel_face, invert=False)
+    _delete_faces(turret_obj, _is_barrel_face, invert=True)
+    print(
+        f"[mbt_lavi] pre-fill barrel faces={len(barrel_obj.data.polygons)} "
+        f"turret-body-remaining faces={len(turret_obj.data.polygons)}"
+    )
+    _fill_holes(barrel_obj, "barrel")
+    _fill_holes(turret_obj, "turret-post-barrel-cut")
+    print(
+        f"[mbt_lavi] post-fill barrel faces={len(barrel_obj.data.polygons)} "
+        f"turret-body-remaining faces={len(turret_obj.data.polygons)}"
+    )
+
+    bpy.ops.object.select_all(action="DESELECT")
+    antenna_obj.select_set(True)
+    barrel_obj.select_set(True)
+    bpy.context.view_layer.objects.active = barrel_obj
+    bpy.ops.object.join()
+    metal_turret_obj = bpy.context.view_layer.objects.active
+    print(f"[mbt_lavi] turret_metal (antenna+barrel joined): {len(metal_turret_obj.data.polygons)} faces")
+
+    # -- Tracks/wheels -> rubber. Also a real geometric cut through the
+    # welded hull shell (see module docstring for the y-histogram evidence).
+    def _is_wheel_face(f):
+        c = f.calc_center_median()
+        return c.z < Z_WHEEL_CUT and abs(c.y) >= Y_TRACK_MIN
+
+    bpy.ops.object.select_all(action="DESELECT")
+    hull_obj.select_set(True)
+    bpy.context.view_layer.objects.active = hull_obj
+    bpy.ops.object.duplicate()
+    wheel_obj = bpy.context.object
+    wheel_obj.name = "hull_rubber"
+    _delete_faces(wheel_obj, _is_wheel_face, invert=False)
+    _delete_faces(hull_obj, _is_wheel_face, invert=True)
+    print(
+        f"[mbt_lavi] pre-fill wheel faces={len(wheel_obj.data.polygons)} "
+        f"hull-remaining faces={len(hull_obj.data.polygons)}"
+    )
+    _fill_holes(wheel_obj, "wheel")
+    _fill_holes(hull_obj, "hull-post-wheel-cut")
+    print(
+        f"[mbt_lavi] post-fill wheel faces={len(wheel_obj.data.polygons)} "
+        f"hull-remaining faces={len(hull_obj.data.polygons)}"
+    )
+
+    # Re-tag the two new pieces (hull_obj/turret_obj keep role "hull",
+    # already set above and unchanged by these cuts). Both new roles must
+    # be in the closed vehicle vocabulary -- checked, not assumed.
+    for role in ("rubber", "metal"):
+        if role not in vehicle_kit.ROLES:
+            raise SystemExit(f"role {role!r} outside tools/vehicles/kit.py's ROLES {vehicle_kit.ROLES}")
+
+    for ob, role, part, name in (
+        (wheel_obj, "rubber", "hull", "hull_rubber"),
+        (metal_turret_obj, "metal", "turret", "turret_metal"),
+    ):
+        ob.name = name
+        ob.data.name = name
+        ob.data.materials.clear()
+        for k in list(ob.keys()):
+            if k != "_RNA_UI":
+                del ob[k]
+        ob["rl_role"] = role
+        ob["rl_part"] = part
+    # ------------------------------------------------------------------
+
     pivot_obj = bpy.data.objects.new("turret_pivot", None)
     pivot_obj.empty_display_size = 0.15
     pivot_obj["rl_pivot"] = "turret"
     bpy.context.collection.objects.link(pivot_obj)
     pivot_obj.location = pivot_world
     inv = Matrix.Translation(Vector(pivot_world) * -1.0)
-    turret_obj.parent = pivot_obj
-    turret_obj.matrix_parent_inverse = inv
+    for ob in (turret_obj, metal_turret_obj):
+        ob.parent = pivot_obj
+        ob.matrix_parent_inverse = inv
 
     os.makedirs(OUT_DIR, exist_ok=True)
     bpy.ops.object.select_all(action="DESELECT")
@@ -374,11 +616,15 @@ def export():
         export_materials="NONE",
         export_copyright=(
             "Tank hull+turret -- AI-generated (Meshy), disclosed per CONTRIBUTING.md; "
-            "cut into hull_hull/turret_hull for this repository"
+            "cut into hull_hull/hull_rubber/turret_hull/turret_metal for this repository"
         ),
     )
     size = os.path.getsize(OUT_PATH)
-    print(f"[mbt_lavi] wrote {OUT_PATH} ({size} bytes)")
+    print(
+        f"[mbt_lavi] wrote {OUT_PATH} ({size} bytes) meshes: "
+        f"hull_hull={len(hull_obj.data.polygons)} hull_rubber={len(wheel_obj.data.polygons)} "
+        f"turret_hull={len(turret_obj.data.polygons)} turret_metal={len(metal_turret_obj.data.polygons)}"
+    )
     return OUT_PATH
 
 

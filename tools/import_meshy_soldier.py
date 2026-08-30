@@ -103,7 +103,52 @@ built here -- nothing in the contract asks for a second `move`, and
     identical across all five -- verified by comparing node name lists
     before trusting index equivalence, never assumed.
 
+## rl_role -- recovered from the source texture, not guessed
+
+R0/this file used to ship the whole figure under a single `uniform` role --
+see the task report for why that reads as a flat blob. This revision
+recovers the artist's own material zoning by sampling the mesh's OWN
+base-color texture at each vertex's own UV (`classify_vertex_roles`) and
+clustering the result, instead of inventing a part-level seam the source
+never drew. Full cluster analysis (fractions, spatial coherence evidence, and
+the one cluster that reads as a lighting artifact vs a real paint zone) is in
+`.superpowers/f-meshy-soldier-roles-report.md`, not repeated here -- this
+docstring only records WHAT the pipeline does, not the evidence for why.
+
+Four roles come out: `uniform` (bulk fabric, ~90%), `boot` (~3.4%, tight
+foot-shaped cluster at the lowest ~12% of standing height), `face` (~4.5%,
+tight head-shaped cluster at the top ~22% of standing height -- this asset
+DOES show skin, unlike our own fully-covered `kit.py` figures; see the
+report's recommendation on `render_team.py`'s terracotta-quantization risk
+before treating it as equivalent to a `kit.py` face), and `keffiyeh` (~2.0%,
+an unusually-blue but spatially tight, bilaterally symmetric patch at the
+head crown and both sides of the neck -- geometrically a headwrap-shaped
+region, though the source hue is not the traditional keffiyeh check; see the
+report for the confidence call). All four are in the contract's closed role
+set (`tools/units/kit.py`'s `ROLES`). No `webbing`/`metal`/`weapon` signal
+was found -- see the report for why (every other color cluster is scattered
+across the whole body, tracking directional-light shading rather than any
+material boundary, confirmed at k up to 10).
+
+Classification runs ONCE against the scratch mesh's bind-pose vertices,
+BEFORE duplication (`main()`'s ordering: classify while the material is
+still attached, since it is the only route to the texture -- then strip it,
+per contract). The resulting per-vertex role list drives `separate_by_role`,
+which splits the one scratch mesh into up to four role objects (via
+vertex-group-scoped `mesh.separate`, never raw index-based bmesh selection --
+index-based selection would break the moment the first separate call
+renumbers the remaining object's vertices). `duplicate_figure` then
+duplicates the armature and ALL role objects together per figure (so each
+mesh's Armature modifier retargets to the right duplicate automatically,
+generalising the original single-mesh idiom to N), and the final join step
+mirrors `tools/units/rig.py`'s own `join_by_role`: one merged mesh per role,
+each carrying all three figures' worth of vertices for that role.
+
 No `mathutils.noise` anywhere in this file (nothing here needs randomness).
+Nor does the role classifier: it is nearest-centroid against FOUR FIXED
+centroids fit once, externally, against this exact texture (see the report)
+-- not a fresh k-means run inside Blender, so there is no ML dependency and
+no run-to-run variance to worry about.
 """
 import json
 import math
@@ -111,12 +156,18 @@ import os
 import struct
 import sys
 import tempfile
+from collections import defaultdict
 
 import bpy
+import numpy as np
+from mathutils.bvhtree import BVHTree
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_DIR = os.path.join(REPO, "art", "blend", "soldier")
 OUT_PATH = os.path.join(REPO, "art", "meshes", "meshy_soldier.glb")
+
+sys.path.insert(0, os.path.join(REPO, "tools", "units"))
+import kit  # noqa: E402 -- the webbing graft below builds real kit.py geometry
 
 #: Clip build order -- also the order clips appear in the merged file.
 #: Arbitrary (the runtime reads clips by name, `mesh-unit.ts`'s own
@@ -140,7 +191,163 @@ FIGURE_SPREAD = (
     ("f2", 0.0, 0.78),
 )
 
-ROLE = "uniform"
+#: k=4 KMeans centroids (linear RGB, 0-1) fit ONCE, externally (scikit-learn,
+#: `random_state=0`), against every vertex of Walking.glb's own scratch mesh
+#: sampled at its own UV against its own base-color texture -- see the task
+#: report for the full analysis. Nearest-centroid classification against
+#: these FIXED values reproduces the fitted KMeans labels exactly (verified
+#: during analysis: 0 mismatches against `.labels_`), so this file never
+#: re-clusters at export time and carries no ML dependency.
+_ROLE_CENTROIDS = np.array(
+    [
+        (0.778843, 0.703726, 0.540231),  # 0: tan   -- split by height, see below
+        (0.301201, 0.295605, 0.249430),  # 1: olive, mid-shadow      -> uniform
+        (0.499632, 0.474519, 0.362418),  # 2: olive, lit             -> uniform
+        (0.136867, 0.253264, 0.792401),  # 3: blue                   -> keffiyeh
+    ]
+)
+_TAN_CENTROID = 0
+_BLUE_CENTROID = 3
+
+#: The tan centroid is bimodal in POSITION -- boots at the bottom, face at
+#: the top, plus a scatter of bright-highlight false positives across the
+#: torso that agree with neither. Fractions of standing height (matching the
+#: brief's own "boots are dark AND at the bottom, so both agree" -- here tan
+#: agrees with position for boot/face and disagrees for the torso scatter,
+#: which is why it folds back to `uniform` rather than getting its own role).
+#: Expressed as fractions of the mesh's own measured height rather than an
+#: absolute metre threshold, so this does not depend on whatever unit scale
+#: Blender's importer happens to apply to this particular file.
+_BOOT_FRAC = 0.20 / 1.67  # ~0.1198 -- below this, a tan vertex is a boot
+_FACE_FRAC = 1.30 / 1.67  # ~0.7784 -- above this, a tan vertex is skin
+
+
+def _basecolor_image_array(mesh_obj):
+    """(H, W, 4) float32 array of `mesh_obj`'s own Base-Color texture, read
+    via `foreach_get` (`image.pixels[i]` one at a time is unusably slow at
+    4096x4096 -- ~67M floats). Row 0 is whatever Blender's own internal
+    buffer calls row 0 -- deliberately NOT flipped. Confirmed empirically
+    (see the task report): Blender's glTF importer flips V on import
+    relative to the source glTF's own V convention, and sampling Blender's
+    OWN unflipped pixel buffer with Blender's OWN already-flipped
+    `uv_layers` V reproduces the source glTF's per-vertex colour to within
+    float32 rounding (mean abs error 2e-6 against an independent PIL-based
+    read of the raw glTF bytes, across a mismatched-convention control that
+    came out 46/255 wrong). Mixing this array with an externally-sourced UV,
+    or an externally-loaded (PIL, row-0-top) image, is the bug this
+    docstring exists to prevent someone from reintroducing."""
+    mat = mesh_obj.data.materials[0]
+    bsdf = next(n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+    image = bsdf.inputs["Base Color"].links[0].from_node.image
+    w, h = image.size
+    buf = np.empty(w * h * 4, dtype=np.float32)
+    image.pixels.foreach_get(buf)
+    return buf.reshape(h, w, 4), w, h
+
+
+def classify_vertex_roles(mesh_obj):
+    """Per-vertex role for every vertex of `mesh_obj`, derived from the
+    mesh's OWN base-color texture (the artist's own material zoning) plus a
+    position tiebreak -- never guessed. See the task report for the
+    clustering analysis this reuses. MUST run before
+    `mesh.data.materials.clear()` -- the material is this function's only
+    route to the texture.
+
+    UV is read per-VERTEX, taking the first loop touching each vertex
+    (confirmed, not assumed: every vertex in this mesh with >1 loop has ALL
+    its loops agreeing on UV to floating-point exactness -- the source glTF
+    already carries one UV per vertex, seam-split at export rather than
+    shared, so there is no ambiguity to average away)."""
+    mesh = mesh_obj.data
+    img, w, h = _basecolor_image_array(mesh_obj)
+
+    uv_layer = mesh.uv_layers.active.data
+    vertex_uv = [None] * len(mesh.vertices)
+    for loop in mesh.loops:
+        vi = loop.vertex_index
+        if vertex_uv[vi] is None:
+            vertex_uv[vi] = uv_layer[loop.index].uv
+
+    zmax = max(v.co.z for v in mesh.vertices)
+
+    roles = []
+    for v in mesh.vertices:
+        u, vv = vertex_uv[v.index]
+        px = min(max(int(round(u * (w - 1))), 0), w - 1)
+        py = min(max(int(round(vv * (h - 1))), 0), h - 1)
+        rgb = img[py, px, :3]
+        nearest = int(np.argmin(np.linalg.norm(_ROLE_CENTROIDS - rgb, axis=1)))
+        if nearest == _BLUE_CENTROID:
+            roles.append("keffiyeh")
+        elif nearest == _TAN_CENTROID:
+            height_frac = v.co.z / zmax
+            if height_frac < _BOOT_FRAC:
+                roles.append("boot")
+            elif height_frac > _FACE_FRAC:
+                roles.append("face")
+            else:
+                roles.append("uniform")
+        else:
+            roles.append("uniform")
+    return roles
+
+
+def separate_by_role(mesh_obj, vertex_roles):
+    """Splits `mesh_obj` into one object per NON-uniform role present in
+    `vertex_roles`, via vertex-group-scoped `mesh.separate` -- never raw
+    index-based bmesh selection, which would break the instant the first
+    separate call renumbers the remaining object's vertex indices. A
+    temporary `_role_<name>` vertex group is created per role and used only
+    to drive selection; every one is removed again afterward so the
+    per-figure vertex-group count (24 bones -- see `main()`'s own assertion)
+    is not polluted.
+
+    Whatever is left in `mesh_obj` once every non-uniform role has been
+    peeled off IS the `uniform` role -- boundary triangles whose three
+    vertices disagree on role (never fully selected for any one role's
+    separate call) fall back here too, which is the right default: a stray
+    edge triangle shading through the broad `uniform` ramp is harmless,
+    where inventing a fifth sliver role would not be.
+
+    Returns `{role: mesh_obj}`, covering every role including `uniform`.
+    Each object carries `rl_role` as an object custom property (exported via
+    `export_extras=True`, matching the contract) -- this is also how
+    `duplicate_figure` recovers which duplicate is which role after a
+    multi-object `bpy.ops.object.duplicate()`, since neither object name nor
+    `bpy.context.selected_objects` order is a index a multi-object duplicate
+    guarantees."""
+    present = sorted(set(vertex_roles) - {"uniform"})
+    for role in present:
+        vg = mesh_obj.vertex_groups.new(name=f"_role_{role}")
+        idxs = [i for i, r in enumerate(vertex_roles) if r == role]
+        vg.add(idxs, 1.0, "REPLACE")
+
+    by_role = {}
+    for role in present:
+        before = set(bpy.data.objects.keys())
+        bpy.context.view_layer.objects.active = mesh_obj
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_mode(type="VERT")
+        bpy.ops.mesh.select_all(action="DESELECT")
+        mesh_obj.vertex_groups.active_index = mesh_obj.vertex_groups[f"_role_{role}"].index
+        bpy.ops.object.vertex_group_select()
+        bpy.ops.mesh.separate(type="SELECTED")
+        bpy.ops.object.mode_set(mode="OBJECT")
+        new_name = next(iter(set(bpy.data.objects.keys()) - before))
+        new_obj = bpy.data.objects[new_name]
+        new_obj["rl_role"] = role
+        by_role[role] = new_obj
+
+    mesh_obj["rl_role"] = "uniform"
+    by_role["uniform"] = mesh_obj
+
+    for obj in by_role.values():
+        for role in present:
+            gname = f"_role_{role}"
+            if gname in obj.vertex_groups:
+                obj.vertex_groups.remove(obj.vertex_groups[gname])
+
+    return by_role
 
 
 def _new_objects_and_action(before_objs, before_actions):
@@ -242,12 +449,21 @@ def build_wreck_src(scratch_arm, down_action):
     return wreck
 
 
-def duplicate_figure(scratch_arm, scratch_mesh, prefix, dx, dy):
-    """One full-copy duplicate of the scratch rig, bones+vertex-groups
-    prefixed, translated to its rest position. Mirrors `tools/units/rig.py`'s
-    "no weight painting, rigid bind" spirit -- this is a rename, not a
-    reweight; every vertex keeps whatever single group it was already
-    rigidly bound to."""
+def duplicate_figure(scratch_arm, scratch_role_meshes, prefix, dx, dy):
+    """One full-copy duplicate of the scratch rig -- now the armature PLUS
+    every role mesh `separate_by_role` produced (a dict `{role: mesh_obj}`),
+    duplicated together in ONE `bpy.ops.object.duplicate()` call so each
+    mesh's Armature modifier retargets to the freshly-duplicated armature
+    automatically, generalising the original single-mesh idiom to N meshes.
+    Bones+vertex-groups prefixed, translated to its rest position. Mirrors
+    `tools/units/rig.py`'s "no weight painting, rigid bind" spirit -- this is
+    a rename, not a reweight; every vertex keeps whatever single group it
+    was already rigidly bound to.
+
+    Which duplicate is which role is recovered via the `rl_role` object
+    custom property `separate_by_role` set (itself duplicated along with the
+    object) -- NOT object name or `bpy.context.selected_objects` order,
+    neither of which a multi-object `duplicate()` guarantees."""
     bpy.context.preferences.edit.use_duplicate_mesh = True
     bpy.context.preferences.edit.use_duplicate_armature = True
     # This factory profile defaults `use_duplicate_action` ON, which
@@ -262,23 +478,37 @@ def duplicate_figure(scratch_arm, scratch_mesh, prefix, dx, dy):
 
     bpy.ops.object.select_all(action="DESELECT")
     scratch_arm.select_set(True)
-    scratch_mesh.select_set(True)
+    for mesh_obj in scratch_role_meshes.values():
+        mesh_obj.select_set(True)
     bpy.context.view_layer.objects.active = scratch_arm
     bpy.ops.object.duplicate(linked=False)
 
-    dup_arm = next(o for o in bpy.context.selected_objects if o.type == "ARMATURE")
-    dup_mesh = next(o for o in bpy.context.selected_objects if o.type == "MESH")
+    selected = list(bpy.context.selected_objects)
+    dup_arm = next(o for o in selected if o.type == "ARMATURE")
+    dup_meshes_by_role = {}
+    for o in selected:
+        if o.type == "MESH":
+            role = o.get("rl_role")
+            if role is None:
+                raise RuntimeError(f"{o.name}: duplicate lost its rl_role tag")
+            dup_meshes_by_role[role] = o
+    if set(dup_meshes_by_role) != set(scratch_role_meshes):
+        raise RuntimeError(
+            f"duplicate role mismatch: expected {sorted(scratch_role_meshes)}, "
+            f"got {sorted(dup_meshes_by_role)}"
+        )
 
     orig_names = [b.name for b in dup_arm.data.bones]
     for name in orig_names:
-        dup_mesh.vertex_groups[name].name = f"{prefix}_{name}"
+        for mesh_obj in dup_meshes_by_role.values():
+            mesh_obj.vertex_groups[name].name = f"{prefix}_{name}"
     for name in orig_names:
         dup_arm.data.bones[name].name = f"{prefix}_{name}"
 
     dup_arm.animation_data_clear()
     dup_arm.location = (dx, dy, 0.0)
 
-    return dup_arm, dup_mesh
+    return dup_arm, dup_meshes_by_role
 
 
 def sample_clip(scratch_arm, src_action):
@@ -574,6 +804,249 @@ def merge_clip_glbs(clip_paths, out_path):
     _write_glb(base_gltf, base_bin, out_path)
 
 
+# --- the webbing graft: real kit.py geometry, fit to this figure's own
+# measured proportions and skinned to its own rig -- see
+# `.superpowers/f-meshy-soldier-webbing-graft-report.md` for the measurements
+# and the render-based visual verification this fit was checked against.
+#
+# `uniform`/`boot`/`face`/`keffiyeh` above all came from the source texture --
+# this is the first role built from GEOMETRY THIS SCRIPT AUTHORS, because the
+# source mesh has none to recover (see the two predecessor reports: colour
+# clustering found no fifth material zone past shading, and connectivity
+# found one welded shell with no separable vest/rifle island).
+
+#: Measured directly off THIS figure's own bind-pose mesh (never kit.py's own
+#: 1.8 m proportions -- "fit to the measured body" is the whole point of this
+#: graft). Both z heights are bone `head_local.z` (Hips, Spine02), scaled by
+#: the armature's own 0.01 import scale to metres. The chest width is the
+#: lateral (X) span of vertices whose SINGLE DOMINANT vertex group is
+#: Spine02 -- real torso surface, not a guess, and not contaminated by the
+#: T-pose's outstretched arms the way a plain height-band bounding box was
+#: (that first attempt returned an X span of 0.86 m, obviously arms, not
+#: torso -- see the report).
+_MEASURED_BELT_Z = 0.9272
+_MEASURED_CHEST_Z = 1.0471
+_MEASURED_CHEST_WIDTH = 0.3607
+
+#: kit.py's own irregular-loadout figure, at its own 1.8 m proportions, for
+#: the SAME two reference points -- what a straight, unfit kit.py build
+#: would place them at.
+_KIT_BELT_Z = 0.52 * kit.FIGURE_H
+_KIT_CHEST_Z = 0.62 * kit.FIGURE_H
+_KIT_CHEST_WIDTH = 2.0 * kit.R_CHEST
+
+#: Uniform height scale -- this figure is 1.67 m tall, not kit.py's 1.8 m --
+#: plus a residual shift so BOTH the belt and the chest land on their
+#: measured heights rather than only their ratio-scaled ones. Solved as the
+#: average of the two anchors' post-scale residuals (belt +0.058 m, chest
+#: +0.011 m -- same sign, both small, so one shared shift is a defensible
+#: single-number fit rather than a per-part correction this task has no
+#: measurement to justify).
+_WEBBING_Z_SCALE = 1.67 / kit.FIGURE_H
+_WEBBING_Z_SHIFT = (
+    (_MEASURED_BELT_Z - _KIT_BELT_Z * _WEBBING_Z_SCALE)
+    + (_MEASURED_CHEST_Z - _KIT_CHEST_Z * _WEBBING_Z_SCALE)
+) / 2.0
+
+#: Horizontal (lateral AND depth) scale, from the one measurement least
+#: likely to be contaminated by the rifle/arms welded into the same mesh --
+#: the chest-width dominant-vertex-group bbox. A separate front-to-back
+#: DEPTH measurement came out much larger (0.39 m against kit.py's 0.244 m,
+#: a 1.6x ratio) but is NOT corroborated the way width is by a second,
+#: independent method, and applying it literally would stretch every pouch
+#: and strap 60% deeper than wide. Using the width ratio for both axes keeps
+#: every part's own proportions intact; the fit checked out visually (see
+#: the report) with this choice.
+_WEBBING_XY_SCALE = _MEASURED_CHEST_WIDTH / _KIT_CHEST_WIDTH
+
+#: `elbowpad`/`gauntlet`/`glove` are placed by kit.py relative to the ARM,
+#: assuming kit.py's own "arms bent, rifle at the ready" standing pose. This
+#: asset's own bind pose is a T-pose (arms straight out to the sides --
+#: confirmed by rendering the two together, see the report) -- a completely
+#: different arm position kit.py has no parameter to produce. Left in, those
+#: parts land nowhere near the real arm at bind time, and the nearest-
+#: surface weight transfer below binds them to whatever body surface IS
+#: nearest instead (torso, not the arm) -- which then does not track the arm
+#: once animated. Excluded rather than forced: the torso/leg items are pose-
+#: independent (a T-pose and a standing pose share the same leg/hip layout)
+#: and are unaffected, so only the arm-relative parts are dropped.
+_WEBBING_ARM_POSE_MISMATCH = ("elbowpad", "gauntlet", "glove")
+
+
+def _barycentric(p, a, b, c):
+    """Barycentric coordinates of `p` in triangle `a, b, c`, assuming `p`
+    already lies in (or on) the triangle -- true here since `p` always comes
+    from `BVHTree.find_nearest`, which returns the closest point ON the
+    triangle, never off its plane."""
+    v0, v1, v2 = b - a, c - a, p - a
+    d00, d01, d11 = v0.dot(v0), v0.dot(v1), v1.dot(v1)
+    d20, d21 = v2.dot(v0), v2.dot(v1)
+    denom = d00 * d11 - d01 * d01
+    if abs(denom) < 1e-12:
+        return (1.0, 0.0, 0.0)
+    v = (d11 * d20 - d01 * d21) / denom
+    w = (d00 * d21 - d01 * d20) / denom
+    return (1.0 - v - w, v, w)
+
+
+def _transfer_webbing_weights(webbing_obj, body_obj, bone_names):
+    """Nearest-surface, barycentric-interpolated vertex-group weight
+    transfer from `body_obj` to `webbing_obj` -- hand-rolled rather than
+    `bpy.ops.object.data_transfer` (the standard, intended tool for exactly
+    this). That operator returns `{'FINISHED'}` with no exception and
+    transfers NOTHING in this Blender 5.2 headless environment -- confirmed
+    on a minimal two-cube case with no armature involved at all (one cube, a
+    fully-weighted vertex group; a second cube 0.1 units away; the operator
+    finishes and the destination gains zero vertex groups), so this is an
+    environment fact rather than a mistake in how it was being invoked here
+    (context override via `temp_override` with a real VIEW_3D area/region
+    was also tried and made no difference). See the task report.
+
+    A convex (barycentric) combination of three already-normalised weight
+    vectors is itself normalised, so every destination vertex's weights sum
+    to exactly 1.0 by construction -- the caller still verifies this rather
+    than trusting the construction alone."""
+    body_obj.data.calc_loop_triangles()
+    tris = body_obj.data.loop_triangles
+    mw = body_obj.matrix_world
+    src_verts_world = [mw @ v.co for v in body_obj.data.vertices]
+    bvh = BVHTree.FromPolygons(
+        src_verts_world, [tuple(t.vertices) for t in tris], all_triangles=True
+    )
+
+    bone_idx = {n: i for i, n in enumerate(bone_names)}
+    n_bones = len(bone_names)
+    src_weights = np.zeros((len(body_obj.data.vertices), n_bones), dtype=np.float64)
+    for v in body_obj.data.vertices:
+        for g in v.groups:
+            gname = body_obj.vertex_groups[g.group].name
+            if gname in bone_idx:
+                src_weights[v.index, bone_idx[gname]] = g.weight
+
+    for v in webbing_obj.data.vertices:
+        loc, _normal, tri_idx, _dist = bvh.find_nearest(v.co)
+        if tri_idx is None:
+            raise RuntimeError(f"webbing vertex {v.index}: no nearest triangle found")
+        i0, i1, i2 = tris[tri_idx].vertices
+        u, w0, w1 = _barycentric(
+            loc, src_verts_world[i0], src_verts_world[i1], src_verts_world[i2]
+        )
+        w = u * src_weights[i0] + w0 * src_weights[i1] + w1 * src_weights[i2]
+        for bi, weight in enumerate(w):
+            if weight > 1e-5:
+                webbing_obj.vertex_groups[bone_names[bi]].add([v.index], float(weight), "REPLACE")
+
+    sums = np.array([sum(g.weight for g in v.groups) for v in webbing_obj.data.vertices])
+    if len(sums) == 0 or sums.min() < 0.999 or sums.max() > 1.001:
+        raise RuntimeError(
+            "webbing weight transfer: sums out of [0.999, 1.001] -- "
+            f"min={sums.min() if len(sums) else 'n/a'} max={sums.max() if len(sums) else 'n/a'}"
+        )
+    print(f"webbing weight transfer: {len(sums)} verts, sums [{sums.min():.6f}, {sums.max():.6f}]")
+
+
+def build_webbing(scratch_mesh, scratch_arm):
+    """Builds kit.py's irregular-loadout webbing (`militia_cell`'s own
+    loadout/headgear -- olive gear over tan cloth, the look this graft is
+    reaching for), fits it to this figure's own measured proportions, and
+    skins it to `scratch_arm` via nearest-surface weight transfer.
+
+    Calls `kit.figure(..., yaw=-90deg, ...)`. kit.py's own `place()` computes
+    `(x0 + dx*cos(yaw) - dy*sin(yaw), y0 + dx*sin(yaw) + dy*cos(yaw), z0+dz)`;
+    at yaw=-90 that reduces to exactly `(dy, -dx, dz)`, which maps kit.py's
+    own +X-forward convention onto THIS mesh's own pre-`fix_forward`
+    convention (forward = -Y, per `import_clip`'s own docstring) with no
+    further coordinate surgery needed -- so every part comes out already
+    positioned in the scratch mesh's own raw*0.01-scale world frame, in
+    metres, matching `scratch_mesh.matrix_world`'s own scale exactly (`kit.py`
+    already builds at real metres; the 0.01 factor is the ARMATURE's import
+    scale, not a unit mismatch to correct for).
+
+    Must be called BEFORE `separate_by_role` peels boot/face/keffiyeh off
+    `scratch_mesh` -- the weight-transfer source here is the FULL, still-
+    unsplit body.
+
+    Returns one joined mesh object, `rl_role="webbing"`, carrying all 24 of
+    `scratch_arm`'s bones as vertex groups (weight sums exactly 1.0),
+    parented to `scratch_arm` the same way the imported mesh already is --
+    needed so `duplicate_figure`'s per-figure lateral spread (applied via
+    `dup_arm.location`) carries this mesh along the same way it carries the
+    other four roles.
+    """
+    before = set(bpy.data.objects.keys())
+    kit.figure(
+        "webgraft", (0.0, 0.0, 0.0), posture="standing", yaw=math.radians(-90.0),
+        stride=0.0, arms=True, leader=False, mirror=False,
+        loadout="irregular", headgear="keffiyeh", smoke=None,
+    )
+    new_objs = [bpy.data.objects[n] for n in (set(bpy.data.objects.keys()) - before)]
+    webbing_parts = [
+        o for o in new_objs
+        if o.get("rl_role") == "webbing"
+        and not any(tag in o.name for tag in _WEBBING_ARM_POSE_MISMATCH)
+    ]
+    if not webbing_parts:
+        raise RuntimeError("build_webbing: kit.figure() produced no usable webbing parts")
+    webbing_part_names = sorted(o.name for o in webbing_parts)  # join() below invalidates o.name
+    for o in new_objs:
+        if o not in webbing_parts:
+            bpy.data.objects.remove(o, do_unlink=True)
+
+    for o in webbing_parts:
+        for v in o.data.vertices:
+            x, y, z = v.co
+            v.co = (
+                x * _WEBBING_XY_SCALE,
+                y * _WEBBING_XY_SCALE,
+                z * _WEBBING_Z_SCALE + _WEBBING_Z_SHIFT,
+            )
+        o.data.update()
+
+    bpy.ops.object.select_all(action="DESELECT")
+    for o in webbing_parts:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = webbing_parts[0]
+    if len(webbing_parts) > 1:
+        bpy.ops.object.join()
+    webbing_obj = bpy.context.view_layer.objects.active
+    # NOT named "webbing" here -- this is still the SCRATCH object (like the
+    # other four roles' scratch objects, which also keep whatever name
+    # `mesh.separate`/import gave them). `main()`'s step 10 renames the
+    # final, post-duplication merged mesh to "webbing"; naming this one that
+    # too pre-empts the name and step 10's rename collides, silently
+    # suffixing the REAL exported mesh to "webbing.001" -- caught by parsing
+    # the exported GLB directly, not by any in-Blender check, since Blender
+    # itself resolves the collision without complaint.
+    webbing_obj.name = "webbing_scratch"
+    webbing_obj.data.name = "webbing_scratch"
+    webbing_obj["rl_role"] = "webbing"
+    print(f"webbing graft: {len(webbing_obj.data.vertices)} verts from "
+          f"{len(webbing_part_names)} part(s): {webbing_part_names}")
+
+    bone_names = [b.name for b in scratch_arm.data.bones]
+    for name in bone_names:
+        if name not in webbing_obj.vertex_groups:
+            webbing_obj.vertex_groups.new(name=name)
+    mod = webbing_obj.modifiers.new(name="Armature", type="ARMATURE")
+    mod.object = scratch_arm
+
+    # Parent to the SAME armature the scratch mesh already follows, so
+    # `duplicate_figure`'s per-figure lateral spread (`dup_arm.location =
+    # (dx, dy, 0.0)`) carries this mesh the same way it carries the other
+    # four roles. `keep_transform=True` is load-bearing: without it
+    # `parent_set` leaves no compensating inverse, and every vertex authored
+    # above (in real-metre world coordinates) would jump by whatever the
+    # armature's own scale-0.01 transform puts it at.
+    bpy.ops.object.select_all(action="DESELECT")
+    webbing_obj.select_set(True)
+    scratch_arm.select_set(True)
+    bpy.context.view_layer.objects.active = scratch_arm
+    bpy.ops.object.parent_set(type="OBJECT", keep_transform=True)
+
+    _transfer_webbing_weights(webbing_obj, scratch_mesh, bone_names)
+    return webbing_obj
+
+
 def main():
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
@@ -585,16 +1058,29 @@ def main():
     fire_src = import_clip(os.path.join(SRC_DIR, CLIP_SOURCES["fire"]), "fire_src")
     down_src = import_clip(os.path.join(SRC_DIR, CLIP_SOURCES["down"]), "down_src")
 
-    # --- 2. zero materials --------------------------------------------------
+    # --- 2. classify every vertex's rl_role from the mesh's OWN base-color
+    # texture, BEFORE the material is stripped -- it is the only route to
+    # the texture. See `classify_vertex_roles`'s own docstring and the task
+    # report for the clustering analysis this reuses. -----------------------
+    vertex_roles = classify_vertex_roles(scratch_mesh)
+    role_counts = {role: vertex_roles.count(role) for role in sorted(set(vertex_roles))}
+    total = len(vertex_roles)
+    print(
+        "rl_role classification (single figure, "
+        f"{total} verts): "
+        + ", ".join(f"{role}={n} ({n / total:.1%})" for role, n in role_counts.items())
+    )
+
+    # --- 3. zero materials ---------------------------------------------------
     scratch_mesh.data.materials.clear()
 
-    # --- 3. fix forward to +X -----------------------------------------------
+    # --- 4. fix forward to +X -----------------------------------------------
     fix_forward(scratch_arm)
 
-    # --- 4. derive wreck from down's last frame -----------------------------
+    # --- 5. derive wreck from down's last frame -----------------------------
     wreck_src = build_wreck_src(scratch_arm, down_src)
 
-    # --- 5. sample all five clips into plain Python data, off the scratch
+    # --- 6. sample all five clips into plain Python data, off the scratch
     # rig, BEFORE any duplication happens -- order is load-bearing, see the
     # long comment on step 6 below for why. ----------------------------------
     src_by_clip = {
@@ -608,7 +1094,7 @@ def main():
         clip_name: sample_clip(scratch_arm, src_by_clip[clip_name]) for clip_name in CLIP_ORDER
     }
 
-    # --- 6. delete every `*_src` action BEFORE duplicating/renaming --------
+    # --- 7. delete every `*_src` action BEFORE duplicating/renaming --------
     # `sample_clip` already turned each one into plain data, so none needs
     # to survive -- and NONE MAY survive past this point. Renaming a bone
     # (`duplicate_figure`, next) does not scope its fixup to the object
@@ -633,48 +1119,103 @@ def main():
         action.use_fake_user = False
         bpy.data.actions.remove(action)
 
-    # --- 7. duplicate x3, prefix bones/vgroups, spread ----------------------
+    # --- 7.5. graft the webbing role, using the FULL (still unsplit) scratch
+    # mesh as the nearest-surface weight-transfer source -- must run before
+    # step 8 peels boot/face/keffiyeh off it. See `build_webbing`'s own
+    # docstring and the task report for the measurements this fit uses. ----
+    webbing_obj = build_webbing(scratch_mesh, scratch_arm)
+
+    # --- 8. split the scratch mesh by role, BEFORE duplication -------------
+    # One role classification, reused identically by all three figures --
+    # they are pure duplicates of the same bind-pose geometry, so computing
+    # this once and splitting before duplicating is equivalent to (and far
+    # cheaper than) classifying three times.
+    scratch_role_meshes = separate_by_role(scratch_mesh, vertex_roles)
+    scratch_role_meshes["webbing"] = webbing_obj
+    print(f"roles present: {sorted(scratch_role_meshes)}")
+
+    # --- 9. duplicate x3 (armature + every role mesh together), prefix
+    # bones/vgroups, spread -----------------------------------------------
     figures = []
-    dup_pairs = []
+    dup_arms = []
+    role_dup_meshes = defaultdict(list)
     for prefix, dx, dy in FIGURE_SPREAD:
-        dup_arm, dup_mesh = duplicate_figure(scratch_arm, scratch_mesh, prefix, dx, dy)
+        dup_arm, dup_meshes_by_role = duplicate_figure(
+            scratch_arm, scratch_role_meshes, prefix, dx, dy
+        )
         figures.append((prefix, dx, dy))
-        dup_pairs.append((dup_arm, dup_mesh))
+        dup_arms.append(dup_arm)
+        for role, mesh_obj in dup_meshes_by_role.items():
+            role_dup_meshes[role].append(mesh_obj)
 
-    # --- 8. join meshes, join armatures, tag role ---------------------------
-    bpy.ops.object.select_all(action="DESELECT")
-    for _arm, mesh in dup_pairs:
-        mesh.select_set(True)
-    bpy.context.view_layer.objects.active = dup_pairs[0][1]
-    bpy.ops.object.join()
-    merged_mesh = dup_pairs[0][1]
+    # --- 10. join each role's three duplicates into one mesh FIRST, THEN
+    # join the armatures -- this order is load-bearing, not arbitrary
+    # (mirrors `tools/units/rig.py`'s own `join_by_role`, but the ORDER
+    # relative to the armature join is the whole reason this bug exists to
+    # warn about). Each duplicate mesh is PARENTED to its own per-figure
+    # `dup_arm` (Blender's own object-duplicate behaviour, generalised from
+    # the original single-mesh script). `bpy.ops.object.join()` on
+    # armatures DELETES every non-active armature object outright once its
+    # bones are absorbed -- and does NOT reparent or otherwise fix up
+    # objects still parented to the object it just deleted. Joining the
+    # armatures FIRST (this function's first, broken version) left every
+    # f1/f2 role-mesh parented to a now-nonexistent object, which silently
+    # corrupted their world transform on evaluation -- not a crash, a wrong
+    # pose: the exported figure's evaluated bounds ballooned to roughly
+    # double the correct standing-figure envelope (z reaching 2.56 instead
+    # of ~1.5, x reaching -1.63 instead of ~-0.35) and rendered as a
+    # spiked, unrecognisable mess (see the task report for the side-by-side
+    # screenshots). Joining meshes per role FIRST consolidates every role's
+    # three copies under the ACTIVE (f0) copy alone, which is already
+    # parented to `dup_arms[0]` -- the one armature object guaranteed to
+    # survive the join below -- so nothing is ever left parented to an
+    # object about to be deleted.
+    merged_meshes = {}
+    for role, meshes in role_dup_meshes.items():
+        bpy.ops.object.select_all(action="DESELECT")
+        for m in meshes:
+            m.select_set(True)
+        bpy.context.view_layer.objects.active = meshes[0]
+        if len(meshes) > 1:
+            bpy.ops.object.join()
+        merged = bpy.context.view_layer.objects.active
+        merged.name = role
+        merged.data.name = role
+        merged["rl_role"] = role
+        merged_meshes[role] = merged
 
+        if len(merged.vertex_groups) != 24 * 3:
+            raise RuntimeError(
+                f"{role}: expected 72 vertex groups after join, got {len(merged.vertex_groups)}"
+            )
+
+    # --- 11. now join the armatures -----------------------------------------
     bpy.ops.object.select_all(action="DESELECT")
-    for arm, _mesh in dup_pairs:
+    for arm in dup_arms:
         arm.select_set(True)
-    bpy.context.view_layer.objects.active = dup_pairs[0][0]
+    bpy.context.view_layer.objects.active = dup_arms[0]
     bpy.ops.object.join()
-    merged_arm = dup_pairs[0][0]
+    merged_arm = dup_arms[0]
 
     if len(merged_arm.data.bones) != 24 * 3:
         raise RuntimeError(f"expected 72 bones after join, got {len(merged_arm.data.bones)}")
-    if len(merged_mesh.vertex_groups) != 24 * 3:
-        raise RuntimeError(
-            f"expected 72 vertex groups after join, got {len(merged_mesh.vertex_groups)}"
-        )
-    if merged_mesh.modifiers[0].object != merged_arm:
-        raise RuntimeError("merged mesh's Armature modifier does not target the merged armature")
+    for role, merged in merged_meshes.items():
+        if merged.modifiers[0].object != merged_arm:
+            raise RuntimeError(f"{role}: Armature modifier does not target the merged armature")
 
-    merged_mesh.name = ROLE
-    merged_mesh.data.name = ROLE
-    merged_mesh["rl_role"] = ROLE
+    total_verts = sum(len(m.data.vertices) for m in merged_meshes.values())
+    print(
+        f"merged: {len(merged_meshes)} role mesh(es) {sorted(merged_meshes)}, "
+        f"{total_verts} verts total"
+    )
 
-    # --- 9. scratch rig no longer needed -- delete it -----------------------
-    bpy.data.objects.remove(scratch_mesh, do_unlink=True)
+    # --- 12. scratch rig no longer needed -- delete it ----------------------
+    for mesh_obj in scratch_role_meshes.values():
+        bpy.data.objects.remove(mesh_obj, do_unlink=True)
     bpy.data.objects.remove(scratch_arm, do_unlink=True)
     bpy.data.orphans_purge(do_recursive=True)
 
-    # --- 10. write + export each clip ALONE, one export call per clip ------
+    # --- 13. write + export each clip ALONE, one export call per clip ------
     # One clip's action exists in `bpy.data.actions` at a time, deleted
     # immediately after its own export -- see `export_glb`'s own docstring
     # for why a shared multi-action armature silently corrupts every clip's
@@ -695,14 +1236,15 @@ def main():
         combined.use_fake_user = False
         bpy.data.actions.remove(combined)
 
-    # --- 11. merge the five single-clip temp files into the real output ----
+    # --- 14. merge the five single-clip temp files into the real output ----
     merge_clip_glbs({name: clip_paths[name] for name in CLIP_ORDER}, OUT_PATH)
     for path in clip_paths.values():
         os.remove(path)
     os.rmdir(tmp_dir)
 
     print(f"wrote {OUT_PATH} ({os.path.getsize(OUT_PATH)} bytes), clips={list(CLIP_ORDER)}, "
-          f"bones={len(merged_arm.data.bones)}, verts={len(merged_mesh.data.vertices)}")
+          f"bones={len(merged_arm.data.bones)}, roles={sorted(merged_meshes)}, "
+          f"verts={total_verts}")
 
 
 if __name__ == "__main__":
