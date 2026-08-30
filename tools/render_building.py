@@ -121,6 +121,16 @@ for _role in list(ROLE_PALETTE):
         print(f"  role override: {_role} -> {_override}")
 
 
+#: The sentinel `BuildingSpec.mesh_owner` value meaning "this kit's own `src`
+#: is authoritative for the shipped art/meshes/buildings/<unit>.glb pair too,
+#: not just the sprite `render_building.py` renders." A supplied replacement
+#: (a Meshy export, or anything else that is not this kit) names itself
+#: instead -- see the field's own comment on why there is no default.
+#: `export_mesh_building.py` imports this constant rather than every call
+#: site retyping the string "kit".
+MESH_KIT_OWNED = "kit"
+
+
 @dataclass
 class BuildingSpec:
     """Everything that differs between one building and another."""
@@ -133,6 +143,22 @@ class BuildingSpec:
     footprint_tiles: int
     # The structure's palette entry from data/structures.json, e.g. limestone.1.
     colour_key: str
+    # Who may regenerate this building's `art/meshes/buildings/<unit>.glb` pair.
+    # `MESH_KIT_OWNED` means tools/export_mesh_building.py may derive it from
+    # `src` above, exactly like the sprite this spec already renders. Any other
+    # (non-empty) string names whatever produced the shipped glb pair instead,
+    # and export_mesh_building.py refuses to touch it.
+    #
+    # No default, deliberately. `2b72047` replaced art/meshes/buildings/
+    # house.glb and house_wreck.glb with a supplied Meshy asset and left this
+    # table silent about it -- nothing stopped a later
+    # `export_mesh_building.py -- house` (or `-- all`) from regenerating over
+    # the replacement from this same kit `src`, with no error and no symptom
+    # until someone looked at the game. A silent default here would reopen
+    # that exact hole for the next building whose mesh gets replaced. See
+    # export_mesh_building.py's `_assert_mesh_kit_owned` /
+    # `_assert_no_provenance_drift`, and docs/ASSET_PROVENANCE.md.
+    mesh_owner: str
     # Where the footprint's centre sits in the model, in world units. The camera
     # aims here and the renderer anchors the sprite here, so the two must agree or
     # the building sits off the tiles it occupies. Kit-authored buildings are
@@ -168,6 +194,21 @@ class BuildingSpec:
     mortar_size: float = 0.035
     # Name fragments that stay flat -- curved or fine parts.
     smooth_parts: tuple = ("dome", "Dome", "finial", "Finial", "drum", "Drum")
+
+    def __post_init__(self):
+        # Enforced at construction, not just declared in a type hint: a
+        # dataclass field with no default already makes *omitting*
+        # `mesh_owner` a TypeError at import time (every BUILDINGS entry is
+        # built at module scope). This closes the other way to slip past it
+        # -- passing an empty string.
+        if not self.mesh_owner:
+            raise SystemExit(
+                f"{self.unit}: BuildingSpec.mesh_owner must be set -- "
+                f"{MESH_KIT_OWNED!r} if export_mesh_building.py may "
+                "regenerate this building's glb pair from `src`, or a "
+                "string naming whatever else owns it instead. There is "
+                "deliberately no default; see the field's own comment."
+            )
 
 
 def _shader(name, colour, roughness):
@@ -859,6 +900,7 @@ MOSQUE = BuildingSpec(
     src=os.path.abspath("art/src/buildings/mosque.blend"),
     out_dir=os.path.abspath("assets/sprites/BLD_MOSQUE"),
     unit="mosque",
+    mesh_owner=MESH_KIT_OWNED,
     credit="Original work for Roaring Lions (CC BY-SA 4.0)",
     # data/maps: the mosque is a 3x3 block of 'm'.
     footprint_tiles=3,
@@ -896,6 +938,14 @@ HOUSE = BuildingSpec(
     src=os.path.abspath("art/src/buildings/house.blend"),
     out_dir=os.path.abspath("assets/sprites/BLD_HOUSE"),
     unit="house",
+    mesh_owner=(
+        "tools/buildings/export_meshy_house.py -- art/meshes/buildings/"
+        "house.glb and house_wreck.glb are a supplied Meshy Levantine house, "
+        "not this kit source. This BuildingSpec still renders the BLD_HOUSE "
+        "sprite sheet from `src` below (assets/sprites/, unaffected by the "
+        "mesh replacement -- Pixi still draws buildings from that billboard, "
+        "never from art/meshes/); only the glb pair is off limits."
+    ),
     credit="Original work for Roaring Lions (CC BY-SA 4.0)",
     # data/maps: 'h' is four columns across three rows.
     footprint_tiles=4,
@@ -908,6 +958,7 @@ SHANTY = BuildingSpec(
     src=os.path.abspath("art/src/buildings/shanty.blend"),
     out_dir=os.path.abspath("assets/sprites/BLD_SHANTY"),
     unit="shanty",
+    mesh_owner=MESH_KIT_OWNED,
     credit="Original work for Roaring Lions (CC BY-SA 4.0)",
     footprint_tiles=3,
     colour_key="dust.1",
@@ -920,6 +971,7 @@ WAREHOUSE = BuildingSpec(
     src=os.path.abspath("art/src/buildings/warehouse.blend"),
     out_dir=os.path.abspath("assets/sprites/BLD_WAREHOUSE"),
     unit="warehouse",
+    mesh_owner=MESH_KIT_OWNED,
     credit="Original work for Roaring Lions (CC BY-SA 4.0)",
     footprint_tiles=4,
     colour_key="gunmetal.1",
@@ -930,6 +982,7 @@ APARTMENT = BuildingSpec(
     src=os.path.abspath("art/src/buildings/apartment.blend"),
     out_dir=os.path.abspath("assets/sprites/BLD_APARTMENT"),
     unit="apartment",
+    mesh_owner=MESH_KIT_OWNED,
     credit="Original work for Roaring Lions (CC BY-SA 4.0)",
     footprint_tiles=5,
     colour_key="limestone.4",
@@ -940,6 +993,7 @@ CONCRETE = BuildingSpec(
     src=os.path.abspath("art/src/buildings/concrete.blend"),
     out_dir=os.path.abspath("assets/sprites/BLD_CONCRETE"),
     unit="concrete",
+    mesh_owner=MESH_KIT_OWNED,
     credit="Original work for Roaring Lions (CC BY-SA 4.0)",
     # 2, not 3: no map places '#', so this footprint is a choice rather than a
     # measurement. See author_concrete.py -- tall and narrow was the only
@@ -955,6 +1009,7 @@ WALL = BuildingSpec(
     src=os.path.abspath("art/src/buildings/wall.blend"),
     out_dir=os.path.abspath("assets/sprites/BLD_WALL"),
     unit="wall",
+    mesh_owner=MESH_KIT_OWNED,
     credit="Original work for Roaring Lions (CC BY-SA 4.0)",
     # data/structures.json: per_tile, one tile square, so a run of any length
     # is drawn one sprite per occupied tile.

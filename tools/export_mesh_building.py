@@ -54,9 +54,32 @@ Why a building is simpler than either sibling exporter, and where it is not:
     role `wall`), and recolouring a wreck grey is left to whatever the
     eventual runtime consumer decides, the same way it decides an idle
     building's colour today.
+
+PROVENANCE GUARD. `2b72047` replaced art/meshes/buildings/house.glb and
+house_wreck.glb with a supplied Meshy asset and left this module with no way
+to know that had happened -- running `export_mesh_building.py -- house` (or
+`-- all`) would have silently regenerated the kit's own version straight over
+it, with no error and no symptom until someone looked at the game. Two checks
+close that, both run before any Blender work starts:
+
+  1. `_assert_mesh_kit_owned` -- `render_building.py`'s own `BuildingSpec` now
+     carries a REQUIRED `mesh_owner` field (no default: a BUILDINGS entry that
+     omits it fails at import, before this script can even run). `all` skips a
+     non-kit-owned entry with a visible line rather than either crashing the
+     whole run or silently vanishing it; naming one explicitly still refuses
+     hard.
+  2. `_assert_no_provenance_drift` -- the safety net for the case nobody
+     updates `mesh_owner` at all (exactly what happened for `house`): every
+     glb this pipeline writes already embeds an `asset.copyright` string
+     (`_export_glb` below, and identically in `export_meshy_house.py`'s own
+     `_finalize_and_export`), so before writing, this reads back whatever is
+     already at the output path and refuses if its credit does not match what
+     THIS kit would write. A file this script never produced is not this
+     script's to overwrite, regardless of what the Python table claims.
 """
 import json
 import os
+import struct
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
@@ -79,6 +102,7 @@ sys.path.insert(0, os.path.join(HERE, "buildings"))
 from render_building import (  # noqa: E402
     BUILDINGS,
     BuildingSpec,
+    MESH_KIT_OWNED,
     collapse,
 )
 import kit as building_kit  # noqa: E402 -- tools/buildings/kit.py, ROLES is the building role vocabulary
@@ -104,6 +128,82 @@ class BuildingMeshSpec:
 
 SPECS = {name: BuildingMeshSpec(unit_id=name, render_spec=spec) for name, spec in BUILDINGS.items()}
 DEFAULT_BUILDING = "wall"
+
+
+def _existing_glb_copyright(path):
+    """The `asset.copyright` field already embedded in a shipped glb, read
+    with no bpy/Blender dependency so this can run before opening anything
+    (a plain glTF-binary parse: 12-byte header, then a length-prefixed JSON
+    chunk -- https://www.khronos.org/registry/glTF, no library needed for
+    just the first chunk).
+
+    Every export script in this pipeline -- kit-built and supplied alike --
+    already sets `export_copyright` (`_export_glb` below;
+    `export_meshy_house.py`'s own `_finalize_and_export` does the same for
+    its two files). So this is not a new convention, only the first place
+    that reads it back.
+
+    Returns None if `path` does not exist yet: a first export has nothing to
+    compare against and is always allowed. Raises if `path` exists but is
+    not a well-formed glb with a leading JSON chunk -- refusing to guess at
+    a file this cannot parse is safer than silently treating it as absent.
+    """
+    if not os.path.exists(path):
+        return None
+    with open(path, "rb") as fh:
+        header = fh.read(12)
+        if len(header) < 12:
+            raise SystemExit(f"{path}: too short to be a glb ({len(header)} bytes)")
+        magic, _version, _length = struct.unpack("<4sII", header)
+        if magic != b"glTF":
+            raise SystemExit(f"{path}: does not start with the glTF magic -- refusing to guess its provenance")
+        chunk_header = fh.read(8)
+        if len(chunk_header) < 8:
+            raise SystemExit(f"{path}: truncated -- no first chunk header")
+        chunk_len, chunk_type = struct.unpack("<I4s", chunk_header)
+        if chunk_type != b"JSON":
+            raise SystemExit(f"{path}: first glb chunk is {chunk_type!r}, not JSON -- refusing to guess its provenance")
+        doc = json.loads(fh.read(chunk_len).decode("utf-8"))
+    return doc.get("asset", {}).get("copyright")
+
+
+def _assert_mesh_kit_owned(mesh_spec: BuildingMeshSpec):
+    """The primary clobber guard, checked before ANY Blender work for this
+    unit: `render_building.py`'s BuildingSpec must say explicitly that this
+    kit owns regenerating the glb pair. There is no default on that field --
+    see its own comment -- so an entry that never declares an opinion fails
+    at import, long before this function runs; this only handles the entry
+    that HAS declared one and said "not this kit"."""
+    owner = mesh_spec.render_spec.mesh_owner
+    if owner == MESH_KIT_OWNED:
+        return
+    raise SystemExit(
+        f"{mesh_spec.unit_id}: BuildingSpec.mesh_owner={owner!r} -- "
+        f"art/meshes/buildings/{mesh_spec.unit_id}.glb (and _wreck.glb) is "
+        "not this kit's to regenerate. export_mesh_building.py refuses "
+        "rather than silently overwriting a supplied replacement; see the "
+        "owner string above for where the real mesh comes from."
+    )
+
+
+def _assert_no_provenance_drift(unit_id, spec: BuildingSpec, path):
+    """The secondary guard, checked immediately before writing `path`: even
+    when `mesh_owner` says this kit may regenerate it, refuse if a file is
+    already there that this kit did not produce. This is what would have
+    caught the house replacement even with render_building.py's BUILDINGS
+    table left completely untouched -- exactly the failure `2b72047` left
+    behind. See docs/ASSET_PROVENANCE.md, "The gap, and the fix"."""
+    existing = _existing_glb_copyright(path)
+    if existing is None or existing == spec.credit:
+        return
+    raise SystemExit(
+        f"{path} already exists with credit {existing!r}, which does not "
+        f"match {spec.unit!r}'s own kit credit {spec.credit!r}. Something "
+        "other than this kit produced the file that is there now. Refusing "
+        "to overwrite it -- if this replacement is real, set mesh_owner on "
+        "the matching BuildingSpec (render_building.py) to say so; if it is "
+        "not, find out why the credit does not match before proceeding."
+    )
 
 
 def _open_and_prepare(spec: BuildingSpec):
@@ -274,9 +374,18 @@ def _export_glb(path, credit):
     return os.path.getsize(path)
 
 
-def export_building(mesh_spec: BuildingMeshSpec):
+def export_building(mesh_spec: BuildingMeshSpec, out_dir: str = OUT_DIR):
     spec = mesh_spec.render_spec
     unit_id = mesh_spec.unit_id
+    idle_path = os.path.join(out_dir, f"{unit_id}.glb")
+    wreck_path = os.path.join(out_dir, f"{unit_id}_wreck.glb")
+
+    # Clobber guard, ahead of any Blender work -- see the two functions' own
+    # docstrings, render_building.py's BuildingSpec.mesh_owner, and this
+    # module's own "PROVENANCE GUARD" docstring section.
+    _assert_mesh_kit_owned(mesh_spec)
+    _assert_no_provenance_drift(unit_id, spec, idle_path)
+    _assert_no_provenance_drift(unit_id, spec, wreck_path)
 
     # --- idle -----------------------------------------------------------
     meshes = _open_and_prepare(spec)
@@ -284,7 +393,6 @@ def export_building(mesh_spec: BuildingMeshSpec):
     xs, ys, zs = _extent_and_ground(meshes)
     _check_footprint_anchor(unit_id, spec.footprint_centre, xs, ys, zs)
     merged_idle = _join_by_role(meshes, unit_id)
-    idle_path = os.path.join(OUT_DIR, f"{unit_id}.glb")
     idle_size = _export_glb(idle_path, spec.credit)
     idle_v, idle_f = _vert_face_counts(merged_idle)
     print(f"[{unit_id}] wrote {idle_path} ({idle_size} bytes, {idle_v} verts, {idle_f} faces)")
@@ -308,7 +416,6 @@ def export_building(mesh_spec: BuildingMeshSpec):
     # the wreck side would be a much quieter failure than on the idle side.
     _validate_roles(unit_id, wreck_meshes)
     merged_wreck = _join_by_role(wreck_meshes, unit_id)
-    wreck_path = os.path.join(OUT_DIR, f"{unit_id}_wreck.glb")
     wreck_size = _export_glb(wreck_path, spec.credit)
     wreck_v, wreck_f = _vert_face_counts(merged_wreck)
     print(f"[{unit_id}] wrote {wreck_path} ({wreck_size} bytes, {wreck_v} verts, {wreck_f} faces)")
@@ -324,16 +431,39 @@ def export_building(mesh_spec: BuildingMeshSpec):
 
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+    # --out-dir overrides where the glb pair is written -- for a verification
+    # run against a scratch path (e.g. proving the provenance guard without
+    # touching the shipped art/meshes/buildings/ files it protects). Never
+    # needed for a real regeneration; defaults to the real OUT_DIR.
+    out_dir = OUT_DIR
+    if "--out-dir" in argv:
+        i = argv.index("--out-dir")
+        out_dir = argv[i + 1]
+        argv = argv[:i] + argv[i + 2:]
+
     if argv == ["all"]:
         names = list(SPECS)
+        # "all" means "everything this kit owns". A non-kit-owned entry is
+        # not a failure to abort the whole run over, but it is also not
+        # silently skippable -- print exactly which unit and why, matching
+        # this module's own "never silent" standard. Naming one explicitly
+        # (the branch below) still refuses hard via export_building()'s own
+        # guard.
+        owned, superseded = [], []
+        for n in names:
+            (owned if SPECS[n].render_spec.mesh_owner == MESH_KIT_OWNED else superseded).append(n)
+        for n in superseded:
+            print(f"=== {n} === SKIPPED: mesh_owner={SPECS[n].render_spec.mesh_owner!r}, not this kit's to regenerate")
+        names = owned
     else:
         names = argv or [DEFAULT_BUILDING]
+
     results = []
     for name in names:
         if name not in SPECS:
             raise SystemExit(f"no BuildingMeshSpec for {name!r}; have {sorted(SPECS)}")
         print(f"=== {name} ===")
-        results.append(export_building(SPECS[name]))
+        results.append(export_building(SPECS[name], out_dir=out_dir))
     print("SUMMARY_JSON " + json.dumps(results))
 
 
