@@ -13,7 +13,10 @@ Source files, gitignored (`art/blend/` -- never committed), read from
 
     Walking.glb              (action "...|walking_man|...")   -> move
     Gun_Hold_Left_Turn.glb   (action "...|Gun_Hold_Left_Turn|...") -> idle
-    Shot_and_Blown_Back.glb  (action "...|Shot_and_Blown_Back|...") -> down
+    Shot_and_Blown_Back.glb  (action "...|Shot_and_Blown_Back|...") -> wreck ONLY
+
+    (`down` is synthesized, not retargeted from any of the five -- see
+    point 4 below and `build_down_src`'s own docstring for why.)
 
 `Running.glb` is the brief's own named spare (a faster `move`) and is not
 built here -- nothing in the contract asks for a second `move`, and
@@ -45,22 +48,51 @@ impulse confined to the weapon-side arm, shoulder and upper spine.
     the contract's own "not negotiable", see module docstring in
     `tools/units/rig.py` for the reasoning this pipeline shares).
 
-3.  Fixes forward. The contract requires local +X; this asset's own
-    "headfront" marker bone (present nowhere else in the roster -- a Meshy
-    convention, not ours) sits at LOWER local Y than "Head" at import time,
-    confirmed by reading `Bone.head_local` directly rather than guessed --
-    i.e. forward is -Y in Blender's post-import (Z-up) frame. A +90 degree
-    rotation about Z maps -Y to +X. Applied to the scratch ARMATURE object
-    only (its child mesh follows via ordinary object parenting, and Blender
-    compensates the parent-inverse automatically on Apply Transform, so nothing
-    visually jumps) and then baked in (`transform_apply`) so the exported
-    rig's own rest bones encode +X-forward directly, matching `kit.py`'s
-    convention of building geometry with no separate node-level rotation.
+3.  Fixes forward -- but NOT the way this step used to. The contract
+    requires local +X, and the ORIGINAL mechanism here baked a rotation into
+    the scratch ARMATURE object's rest data via `transform_apply`
+    (`fix_forward`, still present, now a documented no-op -- see its own
+    docstring for the full account). That mechanism cannot touch this
+    asset's exported facing at all, at any angle: `bpy.ops.object.
+    transform_apply` always preserves the ARMATURE's own `matrix_world`, and
+    the scratch MESH -- a plain parented child, never itself touched -- is
+    left exactly where it was regardless of what gets baked into the
+    bones. Live-measured (walking due east, `simFacing=0`/`meshYaw=0`,
+    `renderer.meshUnitEntities`, the `face` mesh's world-space offset from
+    its own entity root, `at_team` as a known-correct control): the ORIGINAL
+    `+90` bake measured +89.9 degrees off (pointing +Z, not +X), and 0/180
+    candidates -- rebuilt and re-exported, not merely recomputed -- measured
+    the IDENTICAL +89.9, to 13 significant figures, confirming the
+    mechanism is inert regardless of angle. The real fix
+    (`FORWARD_FIX_DEG`/`apply_forward_fix`, far below, called from
+    `merge_clip_glbs`) rotates the EXPORTED glTF node graph directly, after
+    Blender is out of the picture: a three.js/glTF scene graph has no
+    "Apply Transform"-style compensation, so wrapping the whole exported
+    hierarchy in one new rotated parent node unconditionally propagates to
+    every descendant, mesh and joints alike.
 
-4.  Derives a `wreck` source action from `down`'s own LAST frame -- the
-    brief's own suggestion -- by sampling that pose once and keying it
-    static at two frames (frame 0 and 1, mirroring `rig.py`'s own
-    `_VIS_FRAMES` convention for a well-formed, non-degenerate static clip).
+4.  Derives TWO held-pose source actions, from two DIFFERENT bases -- they
+    are deliberately not the same pose, see the note below on why. `wreck`
+    (`build_wreck_src`, UNCHANGED) samples the imported `Shot_and_Blown_Back`
+    clip's own LAST frame -- the brief's own original suggestion, and the
+    only thing this function has ever done -- once, and keys it static at
+    two frames (frame 0 and 1, mirroring `rig.py`'s own `_VIS_FRAMES`
+    convention for a well-formed, non-degenerate static clip). `down`
+    (`build_down_src`, new) does NOT sample `Shot_and_Blown_Back` at all --
+    it starts from `idle`'s own base pose and adds authored leg/spine/head
+    bends, kept static the same `_VIS_FRAMES`-style way.
+
+    `down` USED to be retargeted from that same `Shot_and_Blown_Back` clip in
+    full (a multi-frame violent fall) -- wrong, because `resolveClip`
+    (`clip.ts`) returns `down` for suppression (`pinned`) as much as for
+    death, and `applyMeshClip` loops whatever is showing unless told
+    `once: true`. A suppressed soldier played the fall on repeat: shot and
+    blown back, again and again, for as long as he stayed pinned -- the
+    project lead's own "animation of getting hit runs more than once".
+    `build_down_src` synthesizes a crouch instead, from `idle`'s own base
+    pose plus authored leg/spine/head bends -- see its own docstring for why
+    a SLERP blend toward the fall (tried first) was rejected, and for the
+    axis/sign measurements the bends are built from.
 
     Also derives a `fire` source action -- `build_fire_src`, same step,
     same "sample one pose from another clip" idiom as `wreck` above, but
@@ -200,10 +232,68 @@ CLIP_ORDER = ("idle", "move", "fire", "down", "wreck")
 # file now exists to remove. `build_fire_src` synthesizes `fire` instead,
 # from `idle`'s own base pose -- see its docstring. `Side_Shot.glb` is READ
 # BY NOTHING in this file any more.
+#
+# `down` is ALSO deliberately absent now, for the same class of reason:
+# `Shot_and_Blown_Back.glb` -- this pipeline's ORIGINAL `down` mapping -- is
+# a one-shot death fall, not the HELD "gone to ground" pose `resolveClip`
+# (`clip.ts`) also plays on a LOOP for suppression (`pinned`). Looping it
+# played a suppressed soldier being blown backwards, on repeat. See
+# `build_down_src`'s own docstring. `FALL_SOURCE` below keeps the SAME file
+# imported, under a name that says what it is now used for: `wreck` alone.
 CLIP_SOURCES = {
     "move": "Walking.glb",
     "idle": "Gun_Hold_Left_Turn.glb",
-    "down": "Shot_and_Blown_Back.glb",
+}
+
+#: `Shot_and_Blown_Back.glb`, imported under a name that does not claim
+#: `down`. Read by exactly one caller now: `build_wreck_src`, for `wreck`'s
+#: own last-frame corpse pose -- the SAME use `CLIP_SOURCES["down"]` used to
+#: serve before this revision, unchanged in every respect except that `down`
+#: itself no longer shares it. Not folded into `CLIP_SOURCES` above: that
+#: dict's own keys are canonical `ClipName`s (`mesh-anim.ts`'s
+#: `isMeshClipName`), and this source no longer maps to one directly.
+FALL_SOURCE = "Shot_and_Blown_Back.glb"
+
+#: What each of the FIVE canonical clips must MEAN, and the measurable
+#: property `check_clip_semantics` (below `write_combined_clip`) checks it
+#: against -- added so a THIRD instance of this exact mistake is caught
+#: here, at build time, rather than by the project lead watching his
+#: soldiers fall over. Twice now, a supplied Meshy clip was mapped onto a
+#: contract clip name whose SEMANTICS it did not match, and in both cases
+#: the NAME looked plausible while the MOTION was wrong:
+#:
+#:   `Side_Shot.glb`          -> `fire`  (a hit reaction, not a firing stance)
+#:   `Shot_and_Blown_Back.glb` -> `down` (a one-shot fall, not a held pose)
+#:
+#: `hips_travel` is `_hips_world_z_travel`'s own number for that clip
+#: (max(z)-min(z) of Hips' WORLD z across the clip's own sampled frames,
+#: x100 -- the exact metric `.superpowers/meshy-fire-clip-report.md`'s own
+#: comparison table uses). `ceiling(idle_travel)` returns `None` for "no
+#: meaningful bound" (idle defines the baseline; move is SUPPOSED to move).
+CLIP_SEMANTICS = {
+    "idle": {
+        "means": "standing hold, minimal motion -- the baseline every other clip is measured against.",
+        "ceiling": lambda idle_travel: None,
+    },
+    "move": {
+        "means": "a real gait cycle -- Hips travel is EXPECTED here, unlike every other clip in this table.",
+        "ceiling": lambda idle_travel: None,
+    },
+    "fire": {
+        "means": "stand and shoot; recoil is upper-body only, so Hips travel must not exceed idle's own.",
+        "ceiling": lambda idle_travel: idle_travel + 0.5,
+    },
+    "down": {
+        "means": (
+            "a HELD pose -- suppression, looped indefinitely, AND the first phase of death "
+            "(mesh-death.ts plays this before wreck) -- near-zero Hips travel, well under idle's."
+        ),
+        "ceiling": lambda idle_travel: max(1.0, idle_travel * 0.5),
+    },
+    "wreck": {
+        "means": "a HELD corpse pose -- same requirement as down: static, near-zero Hips travel.",
+        "ceiling": lambda idle_travel: max(1.0, idle_travel * 0.5),
+    },
 }
 
 #: `teams.inf_squad`'s own spread, copied verbatim -- see module docstring
@@ -428,24 +518,89 @@ def import_base_clip(path, target_name):
     return arm, mesh, action
 
 
+#: Kept at 0 (inert) -- see `fix_forward`'s own docstring for why baking a
+#: rotation into the ARMATURE OBJECT here, the mechanism this pipeline
+#: shipped with originally (`+90`, derived from comparing the "headfront"
+#: marker bone's `head_local.y` against "Head"'s), cannot fix this asset's
+#: facing at all, in either direction: it was live-measured, at THREE
+#: different candidate angles (0/90/180), to have IDENTICAL, ZERO effect on
+#: the exported bind-pose facing every time. The real fix is
+#: `FORWARD_FIX_DEG`/`apply_forward_fix` far below, a POST-EXPORT glTF-level
+#: correction. This constant and `fix_forward` are kept, at 0, rather than
+#: deleted: a future Meshy source might genuinely need a bone-rest
+#: correction for some OTHER reason (e.g. to keep `move`/`idle`'s own
+#: retargeted pose data legible against a differently-oriented rest bone in
+#: Blender's own viewport while authoring), and the mechanism itself is not
+#: wrong -- only "this is where the exported FACING direction lives" was.
+_FIX_FORWARD_DEG = 0.0
+
+
 def fix_forward(arm_obj):
-    """+90 deg about Z, applied and baked -- see module docstring point 3
-    for the "headfront" bone evidence this rotation is derived from, not
-    guessed."""
+    """Bake `_FIX_FORWARD_DEG` (currently 0, i.e. a no-op) about Z into the
+    scratch rig's rest pose. Applied and baked (`transform_apply`) to the
+    scratch ARMATURE object only -- its child mesh follows via ordinary
+    object parenting.
+
+    ## Why this cannot fix the exported facing direction, at any angle
+
+    This was the pipeline's ORIGINAL forward-correction mechanism (shipped
+    at `+90`, derived from a STATIC bind-pose bone-position comparison --
+    "headfront" marker bone's `head_local.y` below "Head"'s, see git
+    history). A live walking measurement (`renderer.meshUnitEntities`, the
+    `face` mesh's world-space offset from its own entity root, unit walking
+    due east at `simFacing=0`/`meshYaw=0`, `at_team` as a known-correct
+    control) showed the shipped `+90` still 90 degrees off: this figure's
+    face measured +89.9 deg (+Z) against the control's -0.9 deg (+X,
+    correct). Candidates 0 and 180 were then tried -- REBUILDING AND
+    RE-EXPORTING the asset for each -- and BOTH measured the exact same
+    +89.9 deg, to 13 significant figures, as the shipped +90 (confirmed via
+    a network capture that the live page really was loading each freshly
+    rebuilt file, not a cached one -- md5 differed between builds; only the
+    MEASURED ANGLE did not).
+
+    The reason is `bpy.ops.object.transform_apply`'s own, documented
+    contract: applying a transform on an object always preserves THAT
+    object's own `matrix_world` (the transform moves from the object
+    property to the object's data; nothing about where the object itself
+    sits changes), and for a PARENT with children, Blender adjusts nothing
+    about the children either -- they stay visually put as a direct
+    consequence, needing no special-cased compensation. Baking a rotation
+    into the ARMATURE this way therefore rotates every BONE's own rest
+    matrix (real, and load-bearing for `sample_clip`'s pose evaluation,
+    which is why this function still runs before `build_fire_src`/
+    `build_wreck_src`/`sample_clip` below) but leaves the scratch MESH's own
+    vertex data and object transform completely untouched, at every angle --
+    and this pipeline's live measurement reads the `face` role MESH's own
+    geometry (`boundingSphere.center` through `localToWorld`), which
+    reflects the MESH's rigid placement, never the bones'. A three.js/glTF
+    scene graph has no equivalent "apply" step with this compensating
+    behaviour -- a parent node's rotation always visually propagates to
+    every descendant -- which is why the real fix (`apply_forward_fix`,
+    below) rotates the EXPORTED node graph directly instead of anything
+    inside Blender."""
     bpy.ops.object.select_all(action="DESELECT")
     arm_obj.select_set(True)
     bpy.context.view_layer.objects.active = arm_obj
-    arm_obj.rotation_euler = (0.0, 0.0, math.radians(90.0))
+    arm_obj.rotation_euler = (0.0, 0.0, math.radians(_FIX_FORWARD_DEG))
     bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
 
 
-def build_wreck_src(scratch_arm, down_action):
-    """A static two-frame action holding DOWN's own last frame -- the
-    brief's suggested `wreck` candidate. `_VIS_FRAMES`-style (frame 0 and 1,
-    matching `tools/units/rig.py`'s own convention for a non-degenerate
-    static clip) rather than a single keyframe."""
-    scratch_arm.animation_data.action = down_action
-    f0, f1 = down_action.frame_range
+def build_wreck_src(scratch_arm, fall_action):
+    """A static two-frame action holding `fall_action`'s own last frame --
+    the imported `Shot_and_Blown_Back` clip, the brief's own suggested
+    `wreck` candidate. `_VIS_FRAMES`-style (frame 0 and 1, matching
+    `tools/units/rig.py`'s own convention for a non-degenerate static clip)
+    rather than a single keyframe.
+
+    Parameter renamed from `down_action` -- this function's own logic is
+    UNCHANGED, but what gets passed to it is not: `down` used to BE this
+    same clip (retargeted in full, not just its last frame), and is now a
+    synthesized crouch (`build_down_src`) instead. `main()` now passes the
+    raw imported `fall_src` here, not the `down_src` action it builds for
+    the `down` clip -- see the module docstring's "what this script does"
+    point 4 for why `wreck` alone still needs this exact source."""
+    scratch_arm.animation_data.action = fall_action
+    f0, f1 = fall_action.frame_range
     bpy.context.scene.frame_set(int(f1), subframe=f1 - int(f1))
     bpy.context.view_layer.update()
 
@@ -580,6 +735,167 @@ def build_fire_src(scratch_arm, idle_action):
             pb.keyframe_insert(data_path="location", frame=frame)
             pb.keyframe_insert(data_path="scale", frame=frame)
     return fire
+
+
+#: Crouch bends for `down` -- (bone, axis 0=X/2=Z in POSE space -- `Y` is
+#: never a candidate, since Y is always a bone's OWN length axis in
+#: Blender's pose space, and a "bend" is never a twist along it -- sign,
+#: peak degrees). Measured the same way `_FIRE_RECOIL_BONES` were: a
+#: standalone FK probe rotated each candidate bone +-30deg about its own
+#: local X and Z against this exact rig's own idle-last-frame base pose and
+#: read back the resulting WORLD-space displacement of the relevant CHILD
+#: bone's own HEAD (`LeftLeg.head` for `LeftUpLeg`, `LeftFoot.head` for
+#: `LeftLeg`, `Spine.head` for `Spine02`, `Head.tail` for `neck`) -- not
+#: each bone's OWN tail, which for this asset's auto-rigged skeleton sits
+#: absurdly far from the joint for several bones (`LeftUpLeg.tail` swings
+#: through several METRES for a 30deg hip test, on a figure 1.67m tall --
+#: caught by comparing the raw number against the figure's own height
+#: before trusting it, not assumed away). Left and Right do NOT share a
+#: mirrored axis/sign convention here -- each was measured independently
+#: (`.superpowers/` probe transcript, not reproduced in full here), and
+#: this pass happened to land on matching signs for the hips anyway, which
+#: is a property of this measurement, not an assumption it was built on.
+#:
+#: The combination below -- not each bend in isolation -- is what was
+#: rendered and inspected (three angles: back, side, front-quarter) before
+#: being accepted: legs fold without self-intersecting, and the figure's
+#: own silhouette drops well below `idle`'s standing height. See
+#: `build_down_src`'s own docstring for why this crouch/kneel shape was
+#: chosen over attempting a literal prone (CLAUDE.md already records a
+#: prior attempt at posing THIS rig family flat folding into a
+#: self-intersecting heap).
+_CROUCH_BENDS = (
+    ("LeftUpLeg", 0, +1, 50.0),
+    ("RightUpLeg", 0, +1, 50.0),
+    ("LeftLeg", 0, +1, 70.0),
+    ("RightLeg", 0, +1, 70.0),
+    ("Spine02", 0, -1, 15.0),
+    ("Spine01", 0, -1, 10.0),
+    ("neck", 0, +1, 25.0),
+)
+
+#: Metres the Hips bone drops (world -Z), on top of `_CROUCH_BENDS`' own leg
+#: fold -- converted to Hips' own LOCAL space in `build_down_src` (Hips'
+#: rest orientation is not axis-aligned with world Z, so this cannot be a
+#: bare component assignment; see that function's own `local_hips_drop`
+#: line). Chosen, not measured: `_CROUCH_BENDS` alone already drops Hips
+#: some distance as a side effect of the leg fold, and this adds a further
+#: deliberate sink on top so the crouch reads as WEIGHT DOWN rather than
+#: merely bent knees. The combined result (Hips world z 0.674 against
+#: `idle`'s own 0.824 -- a real ~0.15m drop) is what was actually rendered
+#: and accepted, not this constant read in isolation.
+_CROUCH_HIPS_DROP_M = 0.15
+
+
+def build_down_src(scratch_arm, idle_action):
+    """Synthesizes a `down` source action: a LOW, HELD crouch -- gone to
+    ground, not a fall.
+
+    `resolveClip` (`packages/render/src/clip.ts`) returns `down` for
+    `pinned` (suppression, GDD 5.5) as much as for death, and
+    `applyMeshClip` LOOPS whichever clip is currently showing unless told
+    `once: true` (`mesh-death.ts` is the only caller that does). `down`
+    USED to be the imported `Shot_and_Blown_Back` clip retargeted in full --
+    a multi-frame violent fall -- so a suppressed soldier played it on
+    loop: shot and blown back, again and again, for as long as he stayed
+    pinned. That is the project lead's own "animation of getting hit runs
+    more than once", and the flicker between pinned and firing states is
+    the "up and down in a weird way".
+
+    None of the five supplied Meshy clips is a "gone to ground" pose, so
+    this is authored -- the same category of move as `build_fire_src` --
+    but NOT by blending `idle` toward `Shot_and_Blown_Back`'s own ending
+    pose, which was tried FIRST and rejected: a per-bone SLERP blend at
+    three fractions (0.15 / 0.2 / 0.4), rendered and inspected at each, read
+    as a snapshot of the ACTUAL FALL caught mid-flight every time -- weight
+    pitching backward, one leg kicking out, the arm flung up rather than
+    held -- never as a controlled crouch, at any fraction tried. A violent
+    fall's own rotational path does not pass through anything resembling
+    "deliberately getting low"; blending toward it more gently does not fix
+    that, it only reduces how far along the same wrong path the pose sits.
+
+    `_CROUCH_BENDS` is authored directly instead: hip and knee flexion on
+    BOTH legs (a kneeling-height squat, not a one-legged kneel -- simpler to
+    author symmetrically and lower risk of the two legs colliding with each
+    other), a modest forward spine lean, a head-down tilt ("heads down" per
+    `resolveClip`'s own comment), and a Hips location drop
+    (`_CROUCH_HIPS_DROP_M`). Composition is `base_quat @ Quaternion(axis,
+    angle)` -- POST-multiply, in the bone's own local (rest-relative) space,
+    the same convention `build_fire_src` uses and for the same reason
+    (matches this file's own "author with pb.keyframe_insert" idiom
+    throughout, no world-space decomposition needed).
+
+    Rendered and inspected from three angles (back, side, front-quarter)
+    before being accepted: legs fold without visibly self-intersecting, the
+    profile reads as a genuine low stance, and the figure's own silhouette
+    drops well below `idle`'s standing height (Hips world z 0.674 vs
+    `idle`'s own 0.824 -- a real ~0.15m drop, not merely a claimed one).
+    Deliberately NOT the "pose the standing rig into prone" CLAUDE.md
+    already records failing once for this rig family ("folds into a
+    self-intersecting heap") -- this is a moderate crouch/kneel, well short
+    of prone, and every angle here was chosen small enough to render
+    cleanly, not maximised for realism.
+
+    Base pose is `idle_action`'s own LAST frame, matching `build_fire_src`'s
+    identical choice for the identical reason: the settled stance every
+    other synthesized clip already starts from. Keyed as a STATIC two-frame
+    hold (`_VIS_FRAMES`-style, `build_wreck_src`'s own convention) -- nothing
+    in this clip's own keyframes has any per-frame motion to record, so its
+    vertical Hips travel is exactly 0 by construction, the same way `wreck`
+    already measures 0 -- matching the semantics `CLIP_SEMANTICS['down']`
+    states and `check_clip_semantics` enforces."""
+    from mathutils import Quaternion, Vector  # noqa: PLC0415 -- only this function needs them
+
+    scratch_arm.animation_data.action = idle_action
+    scratch_arm.animation_data.action_slot = idle_action.slots[0] if idle_action.slots else None
+    f0, f1 = idle_action.frame_range
+    bpy.context.scene.frame_set(int(f1), subframe=f1 - int(f1))
+    bpy.context.view_layer.update()
+
+    base = {
+        pb.name: (
+            Quaternion(pb.rotation_quaternion),
+            tuple(pb.location),
+            tuple(pb.scale),
+        )
+        for pb in scratch_arm.pose.bones
+    }
+
+    down = bpy.data.actions.new("down_src")
+    down.use_fake_user = True
+    scratch_arm.animation_data.action = down
+    scratch_arm.animation_data.action_slot = None
+
+    bends = {name: (axis_idx, math.radians(peak_deg * sign)) for name, axis_idx, sign, peak_deg in _CROUCH_BENDS}
+
+    # Hips' rest orientation is not axis-aligned with world Z, so "drop by
+    # `_CROUCH_HIPS_DROP_M` in world -Z" needs converting into Hips' own
+    # LOCAL space before it can be added to `pb.location` (which `sample_clip`/
+    # `write_combined_clip` elsewhere in this file always treat as bone-local,
+    # never world). `arm_scale` divides it back out: `pb.location` and the
+    # bone's own rest data share the RAW, pre-0.01-armature-scale units
+    # (confirmed against the same calibration `check_clip_semantics`'s own
+    # `_hips_world_z_travel` uses), so a WORLD-metres offset must be
+    # unscaled before it is expressed in that same raw local space.
+    hips_rest = scratch_arm.data.bones["Hips"].matrix_local
+    arm_scale = scratch_arm.matrix_world.to_scale()[0]
+    local_hips_drop = hips_rest.to_3x3().inverted() @ (Vector((0.0, 0.0, -_CROUCH_HIPS_DROP_M)) / arm_scale)
+
+    for frame in (0, 1):
+        for pb in scratch_arm.pose.bones:
+            base_q, base_loc, base_sc = base[pb.name]
+            if pb.name in bends:
+                axis_idx, angle = bends[pb.name]
+                delta = Quaternion(_FIRE_AXIS_VEC[axis_idx], angle)
+                pb.rotation_quaternion = base_q @ delta
+            else:
+                pb.rotation_quaternion = base_q
+            pb.location = tuple(Vector(base_loc) + local_hips_drop) if pb.name == "Hips" else base_loc
+            pb.scale = base_sc
+            pb.keyframe_insert(data_path="rotation_quaternion", frame=frame)
+            pb.keyframe_insert(data_path="location", frame=frame)
+            pb.keyframe_insert(data_path="scale", frame=frame)
+    return down
 
 
 def duplicate_figure(scratch_arm, scratch_role_meshes, prefix, dx, dy):
@@ -736,6 +1052,66 @@ def write_combined_clip(merged_arm, figures, clip_name, frames):
     return combined
 
 
+def _hips_world_z_travel(frames, hips_rest, arm_world):
+    """max(z) - min(z) of the Hips bone's WORLD z position across `frames`
+    (a `sample_clip`-style list of per-bone `{name: (quat, loc, scale)}`
+    dicts, sampled off the SCRATCH rig before duplication), x100 -- the
+    EXACT metric `.superpowers/meshy-fire-clip-report.md`'s own comparison
+    table uses (`arm.matrix_world @ pose_bone.matrix.translation`, evaluated
+    live in Blender there; this is the identical formula computed directly
+    from already-sampled data, since re-entering pose context per clip per
+    frame here would mean re-sampling work `sample_clip` already did once).
+
+    Calibrated against that report's own two independently-known numbers
+    BEFORE being trusted as a gate, not assumed correct by construction: run
+    against real `idle_src`/`move_src` sampled frames, this exact function
+    reproduces 7.204139... and 6.699657..., matching the report's own
+    7.204/6.699 to six decimal places (a standalone calibration script, not
+    reproduced here). An earlier, WRONG version of this idea read
+    `pb.location.z` directly (Hips' own raw pose-space translation, no rest
+    composition) and came out at 50.05 for idle against a 7.2 target -- 7x
+    off -- because a POSE bone's `location` is expressed relative to the
+    bone's own REST-relative axes, not world Z; only composing it back
+    through the bone's actual rest matrix (`hips_rest @ Matrix.LocRotScale(
+    loc, quat, scale)`, then through the armature's own world matrix)
+    reproduces the report's real number. Hips is a ROOT bone (no parent), so
+    its own sampled (quat, loc, scale) alone determines its evaluated pose
+    matrix -- no other bone's sampled data is needed here."""
+    from mathutils import Matrix, Quaternion, Vector  # noqa: PLC0415 -- only this function needs them
+
+    zs = []
+    for f in frames:
+        q, loc, sc = f["Hips"]
+        basis = Matrix.LocRotScale(Vector(loc), Quaternion(q), Vector(sc))
+        world = arm_world @ (hips_rest @ basis)
+        zs.append(world.translation.z)
+    return (max(zs) - min(zs)) * 100.0
+
+
+def check_clip_semantics(frames_by_clip, hips_rest, arm_world):
+    """Enforces `CLIP_SEMANTICS`'s numeric half at BUILD time -- see that
+    table's own comment for the two prior instances (`Side_Shot` -> `fire`,
+    `Shot_and_Blown_Back` -> `down`) this exists to make a THIRD of
+    impossible to ship silently. Raises loudly, naming the offending clip
+    and both numbers, rather than a passing build whose motion contradicts
+    its own clip name. Called from `main()` right after `frames_by_clip` is
+    complete, before duplication/export -- so a violation is caught before
+    any of the expensive downstream work (webbing graft, five-way export,
+    GLB merge) runs at all, not after."""
+    travel = {name: _hips_world_z_travel(frames_by_clip[name], hips_rest, arm_world) for name in CLIP_ORDER}
+    idle_travel = travel["idle"]
+    print("Hips world-z travel x100, by clip:", {k: round(v, 3) for k, v in travel.items()})
+
+    for name in CLIP_ORDER:
+        ceiling = CLIP_SEMANTICS[name]["ceiling"](idle_travel)
+        if ceiling is not None and travel[name] > ceiling:
+            raise RuntimeError(
+                f"{name}: Hips travel {travel[name]:.3f} exceeds {ceiling:.3f} -- "
+                f"CLIP_SEMANTICS['{name}']['means'] = {CLIP_SEMANTICS[name]['means']!r}"
+            )
+    return travel
+
+
 def export_glb(arm_obj, path):
     """`tools/units/rig.py`'s own `export_glb` settings, plus
     `export_optimize_animation_size=False`, and called ONCE PER CLIP against
@@ -858,10 +1234,68 @@ def _write_glb(gltf, bin_data, path):
         f.write(bin_bytes)
 
 
-def merge_clip_glbs(clip_paths, out_path):
+#: Degrees about glTF/three.js +Y (NOT Blender's Z-up frame -- this applies
+#: after export) needed to turn this asset's own exported facing into the
+#: contract's local +X. Live-measured, not guessed: with no correction, the
+#: `face` mesh's world-space offset from its own entity root -- walking due
+#: east, `simFacing=0`/`meshYaw=0` -- reads +89.9 deg (`atan2(z, x)`, i.e.
+#: pointing +Z) against the `at_team` control's -0.9 deg (pointing +X,
+#: correct). `apply_forward_fix` rotates by `θ` about +Y, which (per
+#: `Matrix4.makeRotationY`'s own convention, `mesh-anim.ts`'s
+#: `meshYawFromFacing` docstring already works this out) sends a vector
+#: currently at angle `φ` to `φ - θ` -- so `θ = +90` takes the measured
+#: +89.9 to within a tenth of a degree of the target 0, the same size
+#: residual the control itself already carries (bounding-sphere centres of
+#: an asymmetric vertex cluster are never perfectly on-axis; the control's
+#: own -0.9 is that same noise floor, not a defect).
+FORWARD_FIX_DEG = 90.0
+
+
+def _quat_y(deg):
+    """XYZW glTF node-rotation quaternion for `deg` about +Y. glTF's own
+    rotation convention needs no axis/sign conversion to match three.js's
+    `Quaternion.setFromAxisAngle((0,1,0), radians(deg))` (and therefore
+    `Matrix4.makeRotationY`) -- both are the same right-handed, Y-up
+    convention by construction; the Z-up/Y-up conversion this pipeline cares
+    about happens once, on Blender's own export side, before any of this
+    runs."""
+    half = math.radians(deg) / 2.0
+    return [0.0, math.sin(half), 0.0, math.cos(half)]
+
+
+def apply_forward_fix(gltf, deg):
+    """Wraps every node the CURRENT scene lists at the top level (this
+    asset's merged armature, and any top-level sibling) under one new
+    synthetic node carrying a rotation of `deg` about +Y, then repoints the
+    scene at that new node alone. Only ever called once, on the fully
+    merged `base_gltf` (every clip's channels/samplers already in place),
+    immediately before it is written: inserting the wrapper AFTER assembly
+    means every existing `channel.target.node` and skin `joints` index
+    stays valid, since this function only ever APPENDS one new node and
+    reassigns `scene.nodes` -- it never renumbers or moves anything that
+    already existed.
+
+    This is the real forward-correction, in place of a Blender-side bone
+    rotation (`fix_forward`'s own docstring has the full account of why
+    that mechanism cannot touch this asset's exported facing at all, at any
+    angle): a three.js/glTF scene graph has no "Apply Transform"-style
+    compensation, so a parent's rotation always, unconditionally, propagates
+    to every descendant -- mesh nodes and joint nodes alike."""
+    scene_idx = gltf.get("scene", 0)
+    scene = gltf["scenes"][scene_idx]
+    old_top_nodes = list(scene["nodes"])
+    wrapper = {"name": "forward_fix", "rotation": _quat_y(deg), "children": old_top_nodes}
+    wrapper_idx = len(gltf["nodes"])
+    gltf["nodes"].append(wrapper)
+    scene["nodes"] = [wrapper_idx]
+
+
+def merge_clip_glbs(clip_paths, out_path, forward_fix_deg=0.0):
     """`clip_paths`: ordered `{clip_name: path}`. Raises loudly (never
     silently drops a clip or mismatches a node) if any file's node graph
-    does not match the base file's exactly."""
+    does not match the base file's exactly. `forward_fix_deg`: see
+    `apply_forward_fix`'s own docstring -- applied once, to the fully
+    merged result, right before it is written."""
     names = list(clip_paths.keys())
     base_gltf, base_bin = _read_glb(clip_paths[names[0]])
     base_node_names = [n.get("name") for n in base_gltf["nodes"]]
@@ -932,6 +1366,9 @@ def merge_clip_glbs(clip_paths, out_path):
         base_gltf["animations"].append(
             {"name": clip_name, "channels": new_channels, "samplers": new_samplers}
         )
+
+    if forward_fix_deg:
+        apply_forward_fix(base_gltf, forward_fix_deg)
 
     base_gltf["buffers"][0]["byteLength"] = len(base_bin)
     _write_glb(base_gltf, base_bin, out_path)
@@ -1185,12 +1622,16 @@ def main():
 
     # --- 1. import: base rig from Walking.glb, then the other two -- no
     # `fire` import here (`CLIP_SOURCES` has no "fire" key), `Side_Shot.glb`
-    # is read by nothing: `fire` is synthesized in step 4.5 below. ---------
+    # is read by nothing: `fire` is synthesized in step 4.5 below.
+    # `Shot_and_Blown_Back.glb` is imported as `fall_src`, not `down_src` --
+    # `CLIP_SOURCES` has no "down" key either now; `down` is synthesized in
+    # step 4.5 too (`build_down_src`), and this import feeds `wreck` alone
+    # (step 5). ----------------------------------------------------------
     scratch_arm, scratch_mesh, move_src = import_base_clip(
         os.path.join(SRC_DIR, CLIP_SOURCES["move"]), "move_src"
     )
     idle_src = import_clip(os.path.join(SRC_DIR, CLIP_SOURCES["idle"]), "idle_src")
-    down_src = import_clip(os.path.join(SRC_DIR, CLIP_SOURCES["down"]), "down_src")
+    fall_src = import_clip(os.path.join(SRC_DIR, FALL_SOURCE), "fall_src")
 
     # --- 2. classify every vertex's rl_role from the mesh's OWN base-color
     # texture, BEFORE the material is stripped -- it is the only route to
@@ -1208,18 +1649,32 @@ def main():
     # --- 3. zero materials ---------------------------------------------------
     scratch_mesh.data.materials.clear()
 
-    # --- 4. fix forward to +X -----------------------------------------------
+    # --- 4. fix forward -- now a documented no-op (see `fix_forward`'s own
+    # docstring for why baking a rotation into the ARMATURE object cannot
+    # touch this asset's exported facing at all). The real correction is
+    # POST-export (`FORWARD_FIX_DEG`/`apply_forward_fix`, applied inside
+    # `merge_clip_glbs` at the very end of `main()`, step 14 below). Still
+    # called here, in the same place, because `build_fire_src`/
+    # `build_down_src`/`sample_clip` all read pose data relative to
+    # whatever this leaves as the scratch rig's rest state, and keeping the
+    # call site fixed means their own "runs after fix_forward" ordering
+    # comments stay accurate regardless of what `_FIX_FORWARD_DEG` is set
+    # to. --------------------------------------------------------------
     fix_forward(scratch_arm)
+    hips_rest = scratch_arm.data.bones["Hips"].matrix_local.copy()
+    arm_world = scratch_arm.matrix_world.copy()
 
-    # --- 4.5. synthesize fire from idle's own base pose + an authored recoil
-    # cycle -- see `build_fire_src`'s own docstring and the task report for
-    # why this is built rather than retargeted from a supplied clip. Must
-    # run after fix_forward (like wreck, below): `idle_src`'s fcurves only
-    # encode +X-forward once `transform_apply` above has baked it in. -------
+    # --- 4.5. synthesize fire and down, each from idle's own base pose plus
+    # an authored motion -- see `build_fire_src`'s and `build_down_src`'s
+    # own docstrings for why each is built rather than retargeted from a
+    # supplied clip. Must run after fix_forward (like wreck, below):
+    # `idle_src`'s fcurves only encode the rest state `sample_clip` will
+    # read once `transform_apply` above has run. -------------------------
     fire_src = build_fire_src(scratch_arm, idle_src)
+    down_src = build_down_src(scratch_arm, idle_src)
 
-    # --- 5. derive wreck from down's last frame -----------------------------
-    wreck_src = build_wreck_src(scratch_arm, down_src)
+    # --- 5. derive wreck from the imported fall clip's own last frame ------
+    wreck_src = build_wreck_src(scratch_arm, fall_src)
 
     # --- 6. sample all five clips into plain Python data, off the scratch
     # rig, BEFORE any duplication happens -- order is load-bearing, see the
@@ -1234,6 +1689,12 @@ def main():
     frames_by_clip = {
         clip_name: sample_clip(scratch_arm, src_by_clip[clip_name]) for clip_name in CLIP_ORDER
     }
+
+    # --- 6.5. enforce CLIP_SEMANTICS before any expensive downstream work
+    # (webbing graft, five-way duplicate/export, GLB merge) runs at all --
+    # see check_clip_semantics's own docstring for why this exists and
+    # where it is otherwise the project lead's own eyes. ------------------
+    check_clip_semantics(frames_by_clip, hips_rest, arm_world)
 
     # --- 7. delete every `*_src` action BEFORE duplicating/renaming --------
     # `sample_clip` already turned each one into plain data, so none needs
@@ -1256,7 +1717,7 @@ def main():
     # `dup_arm.animation_data_clear()`, and froze at the exact line that
     # renames `dup_arm`'s OWN bones. Deleting the source actions first means
     # there is nothing left in the file for that rewrite to corrupt.
-    for action in (move_src, idle_src, fire_src, down_src, wreck_src):
+    for action in (move_src, idle_src, fire_src, down_src, wreck_src, fall_src):
         action.use_fake_user = False
         bpy.data.actions.remove(action)
 
@@ -1378,7 +1839,9 @@ def main():
         bpy.data.actions.remove(combined)
 
     # --- 14. merge the five single-clip temp files into the real output ----
-    merge_clip_glbs({name: clip_paths[name] for name in CLIP_ORDER}, OUT_PATH)
+    merge_clip_glbs(
+        {name: clip_paths[name] for name in CLIP_ORDER}, OUT_PATH, forward_fix_deg=FORWARD_FIX_DEG
+    )
     for path in clip_paths.values():
         os.remove(path)
     os.rmdir(tmp_dir)
