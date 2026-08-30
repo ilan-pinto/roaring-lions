@@ -59,7 +59,14 @@ import {
   type PlayerIntent,
   type IntentWorld,
 } from './input/intents';
-import { cursorFor, cursorKey, badgeFor, type BadgeHints } from './input/cursor';
+import {
+  ANIMATED_CURSORS,
+  cursorFor,
+  cursorKey,
+  badgeFor,
+  type BadgeHints,
+  type CursorName,
+} from './input/cursor';
 import { roleBucket } from './ui/role';
 import { roeNotice } from './ui/roe-notice';
 import { sandboxAnchors, type SandboxAnchors } from './sandbox-anchors';
@@ -1002,6 +1009,48 @@ async function main(): Promise<void> {
    *  the same name would otherwise look unchanged and the write would be
    *  suppressed. */
   let lastCursorKey: string | null = null;
+  /** Advances `canvas.dataset.cursorFrame` for whichever cursor in
+   *  ANIMATED_CURSORS is currently showing (`attack`, `charge`) -- separate
+   *  from the `lastCursorKey` state write above on purpose. `cursor` is not
+   *  reliably repainted by a CSS-only animation with the mouse held still
+   *  (see ANIMATED_CURSORS's comment in cursor.ts for what was and was not
+   *  verified), so this drives the frame index from a plain `setInterval` at
+   *  each cursor's own authored rate instead, using the exact JS-dataset-
+   *  write mechanism `lastCursorKey` already relies on. Runs only while an
+   *  animated cursor is actually showing: `ensureCursorAnim` is called every
+   *  `updateHover` tick (every rAF, ~60Hz) regardless of whether the state
+   *  key changed that frame, but for every non-animated cursor -- the large
+   *  majority of hover time -- its cost is one object-property lookup and an
+   *  already-false comparison, no DOM write. The cost while an animated
+   *  cursor *is* showing: one attribute write (`data-cursor-frame`) and its
+   *  style invalidation, on this one canvas element, every `intervalMs` --
+   *  300ms for `attack`, 200ms for `charge` -- not once per rendered frame. */
+  let animFrame = 0;
+  let animTimer: ReturnType<typeof setInterval> | null = null;
+  let animName: CursorName | null = null;
+  const stopCursorAnim = (): void => {
+    if (animTimer !== null) {
+      clearInterval(animTimer);
+      animTimer = null;
+    }
+    animName = null;
+  };
+  const ensureCursorAnim = (name: CursorName): void => {
+    const anim = ANIMATED_CURSORS[name];
+    if (!anim) {
+      if (animName !== null) stopCursorAnim();
+      return;
+    }
+    if (animName === name) return; // already running the right animation
+    stopCursorAnim();
+    animName = name;
+    animFrame = 0;
+    canvas.dataset.cursorFrame = '0';
+    animTimer = setInterval(() => {
+      animFrame = (animFrame + 1) % anim.frames;
+      canvas.dataset.cursorFrame = String(animFrame);
+    }, anim.intervalMs);
+  };
   const canvasXY = (ev: PointerEvent): { x: number; y: number } => {
     const rect = canvas.getBoundingClientRect();
     return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
@@ -1609,6 +1658,11 @@ async function main(): Promise<void> {
     canvas.dataset.cursor = key;
     lastCursorKey = key;
   }
+  // Keyed on `name` (the bare verb), not `key`: a badge change alone --
+  // `attack` to `attack-kamikaze` from a selection change while still
+  // hovering the same target -- must not restart the pulse, only a change
+  // of *which* animation (or none) should be running does.
+  ensureCursorAnim(name);
   };
 
   let last = performance.now();

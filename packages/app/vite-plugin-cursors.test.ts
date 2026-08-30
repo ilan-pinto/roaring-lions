@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
 import { unitTypeFromJson, type UnitTypeJson } from '@lions/sim';
 import { describe, expect, it } from 'vitest';
-import { badgeFor, cursorFor, cursorKey, type BadgeHints, type CursorHints } from './src/input/cursor';
+import { ANIMATED_CURSORS, badgeFor, cursorFor, cursorKey, type BadgeHints, type CursorHints } from './src/input/cursor';
 import { resolvePointer, type IntentWorld } from './src/input/intents';
 import { roleBucket, type RoleBucket } from './src/ui/role';
 import { BADGED_VERBS, CENTER, cursorRules, deriveUiBand, resolvePalette } from './vite-plugin-cursors';
@@ -212,6 +212,178 @@ describe('badged rules', () => {
     // silently falls back to the OS arrow, which is what happened in slice 2.
     expect(css).toContain(`canvas[data-cursor='${cursorKey('demolish', 'soft')}']`);
     expect(css).toContain(`canvas[data-cursor='${cursorKey('move', null)}']`);
+  });
+});
+
+/** Same idea as selectorFor above, but for one animation frame of `key`.
+ *  Frame 0 is deliberately NOT a `[data-cursor-frame='0']` selector -- it is
+ *  the pre-existing bare/badged rule with no frame attribute at all (see the
+ *  "never emits an explicit frame-0 rule" test below), so this reads that
+ *  same rule back for frame 0, and the more specific two-attribute selector
+ *  ruleForFrame emits for frame >= 1. */
+function frameLineFor(css: string, key: string, frame: number): string {
+  const lines = css.split('\n');
+  const line =
+    frame === 0
+      ? lines.find((l) => l.includes(`data-cursor='${key}']`) && !l.includes('data-cursor-frame'))
+      : lines.find((l) => l.includes(`data-cursor='${key}'][data-cursor-frame='${frame}']`));
+  if (!line) throw new Error(`no rule found for ${key} frame ${frame}`);
+  return line;
+}
+
+function selectorOf(line: string): string {
+  return line.slice(0, line.indexOf('{')).trim();
+}
+
+/** The encoded SVG data URI out of one CSS rule line, so a test can compare
+ *  what two frames actually DRAW rather than only that their selectors
+ *  differ -- the selectors differ by construction (one has an extra
+ *  attribute), so that alone would never catch a copy-paste bug where every
+ *  frame drew frame 0's body. */
+function markupOf(line: string): string {
+  const match = line.match(/url\("(data:image\/svg\+xml,[^"]+)"\)/);
+  if (!match) throw new Error(`no data URI found in: ${line}`);
+  return match[1];
+}
+
+// Two of the thirteen CursorName values (`attack`, `charge`) additionally
+// animate -- see ANIMATED_CURSORS's own comment in cursor.ts, and the
+// plugin's top comment. Every non-frame property of those two keys' rules
+// (hotspot, the `cursor:` property, palette colours, encoding, DOM matching,
+// reachability) is already covered, unmodified, by the describes above --
+// this covers only what the frame slice adds on top.
+describe('animated cursor frames', () => {
+  const css = cursorRules(deriveUiBand(raw));
+
+  it('animates exactly attack and charge, and nothing else', () => {
+    // Pins the "two of the thirteen" claim the plugin's own top comment
+    // makes -- a silent third entry (or the loss of one of these two) would
+    // otherwise only surface as a visual difference nobody happened to look
+    // for.
+    expect(Object.keys(ANIMATED_CURSORS).sort()).toEqual(['attack', 'charge']);
+  });
+
+  it('emits frames 1..N-1 for attack itself and every reachable attack badge -- no more, no fewer', () => {
+    const { frames } = ANIMATED_CURSORS.attack!;
+    const keys = ['attack', ...(BADGED_VERBS.attack ?? []).map((bucket) => `attack-${bucket}`)];
+    expect(keys.length).toBe(1 + 7); // the bare cursor plus all seven role buckets
+    for (const key of keys) {
+      for (let frame = 1; frame < frames; frame++) {
+        expect(css).toContain(`canvas[data-cursor='${key}'][data-cursor-frame='${frame}']`);
+      }
+      // Neither end of the range gets an explicit rule: frame 0 is the
+      // existing bare/badged rule (see the frame-0 test below), and nothing
+      // beyond frames-1 was ever authored.
+      expect(css).not.toContain(`canvas[data-cursor='${key}'][data-cursor-frame='0']`);
+      expect(css).not.toContain(`canvas[data-cursor='${key}'][data-cursor-frame='${frames}']`);
+    }
+  });
+
+  it('emits frames 1..N-1 for charge-soft, and no bare charge frame rule at all', () => {
+    const { frames } = ANIMATED_CURSORS.charge!;
+    for (let frame = 1; frame < frames; frame++) {
+      expect(css).toContain(`canvas[data-cursor='charge-soft'][data-cursor-frame='${frame}']`);
+    }
+    expect(css).not.toContain(`canvas[data-cursor='charge-soft'][data-cursor-frame='0']`);
+    expect(css).not.toContain(`canvas[data-cursor='charge-soft'][data-cursor-frame='${frames}']`);
+    // charge draws no bare rule at all (Minor 2, same invariant as the
+    // "badged rules" describe above) -- that stays true frame by frame too.
+    expect(css).not.toContain(`data-cursor='charge'][data-cursor-frame`);
+  });
+
+  it('never emits an explicit frame-0 rule anywhere -- frame 0 always falls through to the existing bare/badged rule', () => {
+    expect(css).not.toMatch(/\[data-cursor-frame='0'\]/);
+  });
+
+  it('touches no key outside attack, its badges, and charge-soft', () => {
+    // The complement of the two tests above: every key that DOES receive a
+    // frame rule is one of exactly these nine (attack, its seven badges,
+    // charge-soft) -- proving the eleven other CursorName states (move,
+    // blocked, costly, protected, support, garrison, demolish, plus
+    // default/mount/dismount/smoke, which draw no rule at all) never pick up
+    // a data-cursor-frame selector, without enumerating all eleven by hand.
+    const frameKeys = new Set(
+      [...css.matchAll(/canvas\[data-cursor='([^']+)'\]\[data-cursor-frame='\d+'\]/g)].map((m) => m[1])
+    );
+    expect(frameKeys.size).toBeGreaterThan(0);
+    for (const key of frameKeys) {
+      expect(key === 'attack' || key.startsWith('attack-') || key === 'charge-soft').toBe(true);
+    }
+  });
+
+  it('gives every frame-specific rule the same centred hotspot as every other rule', () => {
+    const frameLines = css.split('\n').filter((l) => l.includes('data-cursor-frame'));
+    expect(frameLines.length).toBeGreaterThan(0);
+    for (const line of frameLines) {
+      expect(line).toMatch(new RegExp(`\\)\\s+${CENTER}\\s+${CENTER}\\s*,\\s*auto`));
+    }
+  });
+
+  /** Not "every frame pairwise distinct": ATTACK_PULSE deliberately returns
+   *  attack's frame 2 to the exact geometry of frame 0 -- its own comment
+   *  reads "rest, converge, rest, release", i.e. the pulse's midpoint is a
+   *  real rest, not a fifth arbitrary shape, so frames 0 and 2 draw
+   *  byte-identical bodies on purpose. What would be a real defect is a
+   *  timer tick that changes nothing on screen -- so the actual contract is
+   *  that no two ADJACENT frames in the cycle (including the wrap from the
+   *  last frame back to the first) are identical, checked for both animated
+   *  cursors so a future retune of either can't silently flatten a step. */
+  function assertNoStaticTick(css: string, key: string, frames: number): void {
+    const bodies = Array.from({ length: frames }, (_, frame) => markupOf(frameLineFor(css, key, frame)));
+    for (let frame = 0; frame < frames; frame++) {
+      const next = bodies[(frame + 1) % frames];
+      expect({ frame, changes: bodies[frame] !== next }).toEqual({ frame, changes: true });
+    }
+  }
+
+  it('changes what it draws on every tick of the attack cycle -- no adjacent-frame step (including the wrap) is a no-op', () => {
+    assertNoStaticTick(css, 'attack', ANIMATED_CURSORS.attack!.frames);
+  });
+
+  it('changes what it draws on every tick of the charge-soft cycle -- no adjacent-frame step (including the wrap) is a no-op', () => {
+    assertNoStaticTick(css, 'charge-soft', ANIMATED_CURSORS.charge!.frames);
+  });
+
+  it('returns attack\'s midpoint to its own rest pose on purpose -- frame 2 is frame 0, not a fifth shape', () => {
+    // Provenance for the weaker adjacency check above: this is *why* a
+    // strict "every frame pairwise distinct" assertion would be wrong here,
+    // proven directly rather than only argued about in a comment.
+    expect(markupOf(frameLineFor(css, 'attack', 2))).toBe(markupOf(frameLineFor(css, 'attack', 0)));
+  });
+
+  it('matches a real canvas once main.ts\'s own pairing writes both data-cursor and a mid-cycle data-cursor-frame', () => {
+    const dom = new JSDOM('<div id="stage"><canvas></canvas></div>');
+    const canvas = dom.window.document.querySelector('canvas')!;
+    canvas.dataset.cursor = 'attack';
+    canvas.dataset.cursorFrame = '2';
+    const selector = selectorOf(frameLineFor(css, 'attack', 2));
+    expect(canvas.matches(selector)).toBe(true);
+  });
+
+  it('the frame-0 (bare) rule matches regardless of what data-cursor-frame holds -- the fail-safe the plugin comment promises', () => {
+    // ruleFor's selector names only data-cursor, so it matches whether
+    // data-cursor-frame is absent or holds any value at all -- CSS attribute
+    // selectors are independent of attributes they do not name. main.ts's
+    // ensureCursorAnim always pairs the two writes in one synchronous call
+    // today, so an unpaired write does not currently arise from normal
+    // play -- but the CSS itself does not depend on that pairing discipline,
+    // which is what makes an absent or not-yet-written frame attribute (a
+    // future caller, or a debugging instrument, setting data-cursor alone)
+    // fall back to this rule instead of to the OS arrow. Checked against a
+    // real canvas node rather than trusted from selector syntax alone -- a
+    // string assertion cannot see a match; a DOM node can.
+    const dom = new JSDOM('<div id="stage"><canvas></canvas></div>');
+    const canvas = dom.window.document.querySelector('canvas')!;
+    const baseSelector = selectorOf(frameLineFor(css, 'attack', 0));
+    const frame2Selector = selectorOf(frameLineFor(css, 'attack', 2));
+
+    canvas.dataset.cursor = 'attack'; // data-cursor-frame not written at all yet
+    expect(canvas.matches(baseSelector)).toBe(true);
+    expect(canvas.matches(frame2Selector)).toBe(false);
+
+    canvas.dataset.cursorFrame = '2'; // now mid-cycle
+    expect(canvas.matches(baseSelector)).toBe(true); // unaffected by the extra attribute
+    expect(canvas.matches(frame2Selector)).toBe(true); // and the more specific rule engages too
   });
 });
 

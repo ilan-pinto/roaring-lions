@@ -52,6 +52,50 @@ export const UNBADGED_NAMES: ReadonlySet<CursorName> = new Set<UnbadgedName>([
   'support',
 ]);
 
+/** How many frames a cursor steps through, and how long each frame holds. */
+export interface CursorAnimation {
+  frames: number;
+  /** Milliseconds each frame holds before the next one shows. */
+  intervalMs: number;
+}
+
+/** The cursor names that animate, and their frame count/rate -- the one
+ *  table both the plugin (which draws `frames` distinct SVGs per name, keyed
+ *  by a `data-cursor-frame` attribute) and main.ts's frame driver (which
+ *  cycles `data-cursor-frame` on a `setInterval` of `intervalMs`) read, so
+ *  the two can never disagree on how many frames exist.
+ *
+ *  Driven from JS on a plain timer rather than a CSS `@keyframes` animation
+ *  on `cursor` itself -- verified in a real headed Chromium that a
+ *  `@keyframes` animation with `steps()` timing DOES step the *computed*
+ *  `cursor: url(...)` value correctly over time (confirmed by polling
+ *  `getComputedStyle` against a throwaway page), but that is necessary, not
+ *  sufficient: browsers only repaint the visible OS pointer bitmap on an
+ *  actual native pointer event, not on every style recalculation, and this
+ *  session had no way to capture the real screen to confirm or refute that
+ *  the paint keeps up while the mouse sits still (macOS blocked
+ *  `screencapture` on Screen Recording permission, with no interactive path
+ *  to grant it here). Rather than gamble on that gap for an app whose whole
+ *  point is aiming at a stationary target, this reuses the mechanism already
+ *  proven live in this codebase: `updateHover` in main.ts already writes
+ *  `canvas.dataset.cursor` from plain JS with no accompanying pointer event
+ *  at all -- e.g. a hostile unit walking under a motionless cursor flips
+ *  `hostile` and repaints the `attack` cursor with the mouse never moving --
+ *  so a second dataset attribute (`data-cursor-frame`), written the same
+ *  way, inherits that same proven behaviour instead of trusting a mechanism
+ *  this session could not confirm end to end.
+ *
+ *  `attack`: 4 frames at 300ms (~1.2s/cycle) -- a slow pulse, not a spinner:
+ *  rest, converge, rest, release. `charge`: 4 frames at 200ms (~0.8s/cycle,
+ *  noticeably brisker) -- a ring ticking outward from the charge, the one
+ *  place slightly more energy is justified. Both restrained by design: see
+ *  vite-plugin-cursors.ts's ATTACK_PULSE/CHARGE_RING tables for the actual
+ *  geometry and the fuller reasoning. */
+export const ANIMATED_CURSORS: Readonly<Partial<Record<CursorName, CursorAnimation>>> = {
+  attack: { frames: 4, intervalMs: 300 },
+  charge: { frames: 4, intervalMs: 200 },
+};
+
 /** The heaviest thing this click will cause, or null if it is a plain order.
  *
  *  One click can emit demolish, garrison and attack-move at once -- there is

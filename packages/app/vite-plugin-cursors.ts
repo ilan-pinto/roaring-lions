@@ -13,10 +13,31 @@
 //
 // `default` (one of the thirteen names) deliberately gets no rule -- it is
 // the OS arrow.
+//
+// Two of the thirteen (`attack`, `charge`) additionally animate: each draws
+// `ANIMATED_CURSORS[name].frames` distinct SVGs instead of one, emitted as
+// extra rules keyed on a second attribute, `data-cursor-frame`, that
+// main.ts's frame driver cycles on a plain JS timer -- see ANIMATED_CURSORS's
+// own comment in cursor.ts for why a timer and not a CSS `@keyframes`
+// animation on `cursor` itself. Frame 0 of each is drawn by the *same* code
+// path as every other cursor's single rule (`attackBody`/`chargeBody` called
+// with no frame argument, defaulting to 0) -- so the existing bare `attack`
+// and badged `charge-soft` rules are pixel-identical to what they drew before
+// animation existed, and only frames 1..N-1 are new, additive rules layered
+// on top via the extra attribute selector. That also makes the animation
+// fail safe: a stale or absent `data-cursor-frame` (nothing has written it
+// yet, or it is left over from a *different* animated cursor) simply falls
+// back to this always-correct frame-0 rule rather than to nothing.
 
 import { readFileSync } from 'node:fs';
 import type { Plugin } from 'vite';
-import { cursorKey, type CursorName, type UnbadgedName } from './src/input/cursor';
+import {
+  ANIMATED_CURSORS,
+  cursorKey,
+  type CursorAnimation,
+  type CursorName,
+  type UnbadgedName,
+} from './src/input/cursor';
 import type { RoleBucket } from './src/ui/role';
 
 interface Palette {
@@ -63,11 +84,11 @@ function moveShape(light: string): string {
 }
 
 // A four-tick reticle with an open centre -- no mark sits over the point
-// being aimed at.
-function reticleTicks(color: string): string {
+// being aimed at. near/far default to the original, static reticle's
+// geometry so every existing caller (costlyShape, and attackBody's frame 0
+// below) is unaffected by the added parameters.
+function reticleTicks(color: string, near = 6, far = 11): string {
   const c = hex(color);
-  const near = 6;
-  const far = 11;
   return (
     `<line x1="${CENTER}" y1="${CENTER - far}" x2="${CENTER}" y2="${CENTER - near}" stroke="${c}" stroke-width="2"/>` +
     `<line x1="${CENTER}" y1="${CENTER + near}" x2="${CENTER}" y2="${CENTER + far}" stroke="${c}" stroke-width="2"/>` +
@@ -76,8 +97,23 @@ function reticleTicks(color: string): string {
   );
 }
 
-function attackBody(bad: string): string {
-  return reticleTicks(bad);
+// attack's animation: a single slow pulse, not a spinner. Frame 0 is the
+// original static reticle (near 6, far 11), unchanged. 1 draws the ticks
+// converging in -- "arms tightening onto the target." 2 returns to rest so
+// the loop's midpoint reads as a settle, not just a bounce. 3 eases a little
+// past rest before the loop wraps -- a small release, not a second peak, so
+// four frames read as one breath in and out rather than two mechanical
+// snaps. All four stay well inside the 32px canvas (far tops out at 13).
+const ATTACK_PULSE: Readonly<Record<number, { near: number; far: number }>> = {
+  0: { near: 6, far: 11 },
+  1: { near: 4, far: 9 },
+  2: { near: 6, far: 11 },
+  3: { near: 8, far: 13 },
+};
+
+function attackBody(bad: string, frame = 0): string {
+  const { near, far } = ATTACK_PULSE[frame] ?? ATTACK_PULSE[0];
+  return reticleTicks(bad, near, far);
 }
 function attackShape(bad: string): string {
   return svg(attackBody(bad));
@@ -171,12 +207,33 @@ function demolishShape(bad: string): string {
   return svg(demolishBody(bad));
 }
 
+// charge's animation: a ring ticking outward from the charge -- "this is
+// going to blow." Keyed by frame (1..3); frame 0 and any unrecognised frame
+// have no ring at all, which is what makes chargeBody(bad) -- no frame
+// argument, i.e. frame 0 -- byte-identical to the diamond this drew before
+// animation existed. Radii start just outside the diamond's own tips (which
+// reach 10 from centre) and fade in opacity as they expand, reading as a
+// pulse radiating from the charge rather than a second, competing shape. 15
+// is the largest radius that still stays inside the 32px canvas.
+const CHARGE_RING: Readonly<Record<number, { r: number; op: number }>> = {
+  1: { r: 12, op: 0.9 },
+  2: { r: 14, op: 0.6 },
+  3: { r: 15, op: 0.3 },
+};
+
 // A filled diamond -- a breaching charge set at a point. Used only by
 // bodyFor below, for the badged `charge-soft` rule -- see BareCursorName's
 // comment for why `charge` never gets a bare rule of its own.
-function chargeBody(bad: string): string {
+function chargeBody(bad: string, frame = 0): string {
   const c = hex(bad);
-  return `<path d="M${CENTER},6 L${CENTER + 10},${CENTER} L${CENTER},26 L${CENTER - 10},${CENTER} Z" fill="${c}"/>`;
+  const diamond = `<path d="M${CENTER},6 L${CENTER + 10},${CENTER} L${CENTER},26 L${CENTER - 10},${CENTER} Z" fill="${c}"/>`;
+  const ring = CHARGE_RING[frame];
+  if (!ring) return diamond;
+  return (
+    diamond +
+    `<circle cx="${CENTER}" cy="${CENTER}" r="${ring.r}" fill="none" stroke="${c}" ` +
+    `stroke-width="1.5" stroke-opacity="${ring.op}"/>`
+  );
 }
 
 // mount, dismount and smoke had shapes here once (an upward chevron, a
@@ -320,20 +377,30 @@ export const BADGED_VERBS: { [K in Exclude<CursorName, UnbadgedName>]?: RoleBuck
  *  could drift from the first. `mount`, `dismount` and `smoke` fall to the
  *  default branch: they remain valid keys of the type (BADGED_VERBS is
  *  typed over the full `Exclude<CursorName, UnbadgedName>`) but never occur
- *  as actual entries, so this is never called for them. */
-function bodyFor(name: keyof typeof BADGED_VERBS, palette: Palette): string {
+ *  as actual entries, so this is never called for them.
+ *
+ *  Typed over the full `CursorName` (wider than `BADGED_VERBS`'s keys) so
+ *  the frame-override loop in cursorRules below -- which walks
+ *  ANIMATED_CURSORS, not BADGED_VERBS -- can call this without a cast; every
+ *  existing caller already passes a `keyof typeof BADGED_VERBS`, a subtype,
+ *  so this widening changes nothing for them. `frame` defaults to 0, which
+ *  is what every pre-animation caller still implicitly asks for -- and for
+ *  every name except `attack`/`charge`, `attackBody`/`chargeBody` are the
+ *  only two that read it at all, so a non-zero frame passed for any other
+ *  name is simply ignored, not an error. */
+function bodyFor(name: CursorName, palette: Palette, frame = 0): string {
   const { light, mid, bad } = paletteColors(palette);
   switch (name) {
     case 'move':
       return moveBody(light);
     case 'attack':
-      return attackBody(bad);
+      return attackBody(bad, frame);
     case 'garrison':
       return garrisonBody(mid);
     case 'demolish':
       return demolishBody(bad);
     case 'charge':
-      return chargeBody(bad);
+      return chargeBody(bad, frame);
     default:
       return '';
   }
@@ -341,9 +408,10 @@ function bodyFor(name: keyof typeof BADGED_VERBS, palette: Palette): string {
 
 /** The badge always contrasts against its own base shape's colour: `move`'s
  *  base is drawn in `light`, so its badge uses `mid`; every other badged
- *  verb's base is `mid` or `bad`, so its badge uses `light`. */
+ *  verb's base is `mid` or `bad`, so its badge uses `light`. Widened to
+ *  `CursorName` for the same reason as bodyFor above. */
 function badgeColourFor(
-  name: keyof typeof BADGED_VERBS,
+  name: CursorName,
   colors: { light: string; mid: string; bad: string; good: string }
 ): string {
   return name === 'move' ? colors.mid : colors.light;
@@ -357,9 +425,24 @@ function ruleFor(key: string, markup: string): string {
   );
 }
 
+/** Same shape as ruleFor, plus the `data-cursor-frame` requirement -- more
+ *  specific than ruleFor's single-attribute selector, so once main.ts's
+ *  frame driver sets a matching frame index this wins; otherwise ruleFor's
+ *  frame-0 rule for the same key still applies. */
+function ruleForFrame(key: string, frame: number, markup: string): string {
+  const encoded = encodeURIComponent(markup);
+  return (
+    `canvas[data-cursor='${key}'][data-cursor-frame='${frame}'] { ` +
+    `cursor: url("data:image/svg+xml,${encoded}") ${CENTER} ${CENTER}, auto; }`
+  );
+}
+
 /** The CSS text: one rule per drawn cursor name, each with an explicit
  *  hotspot so the pointer's true position matches where the shape aims, plus
- *  one further rule per reachable (verb, bucket) badge combination. */
+ *  one further rule per reachable (verb, bucket) badge combination, plus
+ *  (for the small set ANIMATED_CURSORS names) one further rule per
+ *  additional frame 1..N-1, on top of every key that name already earned
+ *  above -- bare, badged, or both. */
 export function cursorRules(palette: Palette): string {
   const shapes = shapesFor(palette);
   const colors = paletteColors(palette);
@@ -378,6 +461,26 @@ export function cursorRules(palette: Palette): string {
     for (const bucket of buckets) {
       const markup = svg(base + badgeMark(bucket, badgeColour));
       rules.push(ruleFor(cursorKey(name, bucket), markup));
+    }
+  }
+
+  // Frame overrides. bareNames records which ANIMATED_CURSORS entries also
+  // drew a bare rule above (`attack` did; `charge` did not -- see
+  // BareCursorName's comment on why `charge` never gets one), so this never
+  // has to hardcode which is which.
+  const bareNames = new Set<string>(Object.keys(shapes));
+  for (const [name, anim] of Object.entries(ANIMATED_CURSORS) as [CursorName, CursorAnimation][]) {
+    const buckets = (BADGED_VERBS as Partial<Record<CursorName, RoleBucket[]>>)[name] ?? [];
+    const badgeColour = badgeColourFor(name, colors);
+    for (let frame = 1; frame < anim.frames; frame++) {
+      const base = bodyFor(name, palette, frame);
+      if (bareNames.has(name)) {
+        rules.push(ruleForFrame(cursorKey(name, null), frame, svg(base)));
+      }
+      for (const bucket of buckets) {
+        const markup = svg(base + badgeMark(bucket, badgeColour));
+        rules.push(ruleForFrame(cursorKey(name, bucket), frame, markup));
+      }
     }
   }
 
