@@ -321,6 +321,23 @@ backend-only and warns by name on Pixi. Pipeline: `tools/units/kit.py` (geometry
   against continuous real-time skinning, not against VAT's baked-and-lerped
   normals, and the toon ramp is indexed BY NORMAL — so that finding needs
   re-verifying, not assuming. Harness: `tools/src/perf/three-units.ts`.
+  **Re-measured 2026-08-30 against this branch's HEAD** (three.js now the
+  default renderer; vehicle/building meshes, rigged infantry, and continuous
+  vehicle dust/exhaust FX all draw) — see `docs/PERFORMANCE.md`, which is now
+  the durable home for this evidence (the prior report lived only in a
+  gitignored `.superpowers/` file, unreachable outside the session that
+  produced it — `docs/superpowers/specs/2026-08-29-phase-d-todo.md` item #11).
+  Same stand-in harness, real hardware GPU confirmed via
+  `WEBGL_debug_renderer_info` (headless Chromium defaults to software
+  SwiftShader rendering and must be launched with explicit ANGLE/Metal args to
+  avoid it — a confound that cost one full mismeasurement while producing this
+  note, recorded in the doc as a worked example of "state capture conditions
+  with every number"), reproduced across two runs: the render budget is
+  crossed around **~1,150 figures**, not lower than 420-460 — the original
+  figure holds, with more margin than previously recorded, not less. The
+  billboard-vs-real-shipped-mesh comparison (a quarter of a mixed 400-unit
+  roster swapped from billboard to real `art/meshes/` GLBs) adds at most
+  ~1ms of p95 frame time at 320 living units, nowhere near either budget.
 - Mesh units have no `down`/`wreck`/`work` clips, so a mesh unit that dies has no
   death state. Not an oversight: posing the standing rig into prone was attempted
   and rendered, and it folds into a self-intersecting heap at the rotation prone

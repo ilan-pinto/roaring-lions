@@ -708,7 +708,8 @@ export async function runBackendCurve(
   backend: 'three' | 'pixi',
   makeRenderer: (sim: Sim, opts: RendererOptions) => Renderer,
   base: string,
-  onProgress?: (msg: string) => void
+  onProgress?: (msg: string) => void,
+  afterSprites?: (renderer: Renderer) => Promise<void>
 ): Promise<BackendReport> {
   const capacity = CHECKPOINTS[CHECKPOINTS.length - 1] + 150;
   const { sim, map, typeOf } = buildWorld(capacity);
@@ -723,6 +724,10 @@ export async function runBackendCurve(
 
   onProgress?.(`[${backend}] loading sprites (roster + map structures)...`);
   await loadAllSprites(renderer, map, base);
+  if (afterSprites) {
+    onProgress?.(`[${backend}] loading mesh variants...`);
+    await afterSprites(renderer);
+  }
 
   const anchors = computeAnchors(map);
   const spawner = createSpawner(sim, typeOf, anchors.friendly, anchors.hostile);
@@ -812,6 +817,78 @@ export async function measureThree(
   const { ThreeRenderer } = await import('../../../packages/render/src/three/ThreeRenderer');
   const base = resolveBase();
   return runBackendCurve('three', (sim, opts) => new ThreeRenderer(sim, opts), base, onProgress);
+}
+
+/** The subset of `main.ts`'s real `&mesh` wiring that overlaps this
+ *  harness's own fixed roster (`FRIENDLY_ROSTER`/`HOSTILE_ROSTER` above):
+ *  `inf_squad` (the shipped Meshy soldier, faction `kdf`) and four vehicle
+ *  types (`apc_eitan`, `dozer_d9`, `mbt_lavi`, `technical`). Every other
+ *  roster type (`ifv_namer`, `at_team`, `mortar_team`, `jeep_shoded`,
+ *  `recon_drone`, `heli_peten`, `militia_cell`, `rpg_team`, `atgm_cell`,
+ *  `mortar_crew`, `gun_truck`, `charge_squad`, `loiter_drone`, `moto_rpg`,
+ *  `paramotor`) has no shipped GLB and keeps its billboard regardless -- the
+ *  same "a type absent from the mesh list stays a billboard" rule `main.ts`
+ *  documents for `&mesh`. That gives every checkpoint a REAL, roster-typical
+ *  mixed scene (roughly 4/10 friendly types + 1/10 hostile types become
+ *  mesh -- not a synthetic all-mesh scene, which no real mission has), not
+ *  an isolated single-unit-type stand-in. Paths are literal copies of
+ *  `main.ts`'s own `new URL(...)` targets, not re-derived, so a missing
+ *  asset here is a missing asset there too, never a divergence introduced by
+ *  this harness. */
+const MESH_VEHICLE_TYPES = ['apc_eitan', 'dozer_d9', 'mbt_lavi', 'technical'] as const;
+
+interface MeshCapableRenderer {
+  loadMeshUnit(unitTypeId: string, glbUrl: string, faction: 'kdf' | 'enemy'): Promise<void>;
+  loadVehicleMesh(unitTypeId: string, glbUrl: string): Promise<void>;
+}
+
+/** Loads the real shipped mesh GLBs onto a `ThreeRenderer` the same way
+ *  `&mesh` does in `main.ts` -- reached through a structural cast rather
+ *  than a `ThreeRenderer` import, because this file (like `main.ts`'s own
+ *  eslint-enforced rule) keeps `three`-backend-only members off the
+ *  `Renderer` interface type; `runBackendCurve`'s `afterSprites` hook is
+ *  three-only by construction (never passed to `measurePixi`), so the cast
+ *  is safe at the one call site that uses it.
+ *
+ *  URLs are built the SAME way `measureSkinnedInfantry`'s `SPIKE_GLB_PATH`
+ *  already is (`/@fs<absolute repo root>/...`), via this file's own
+ *  `repoRootFromModuleUrl()`, rather than `main.ts`'s
+ *  `new URL(relative, import.meta.url)` convention -- that convention
+ *  resolves relative to `main.ts`'s own module location (`packages/app/
+ *  src/`), which this file does not share, and `art/meshes/` is NOT under
+ *  `vite.config.ts`'s `publicDir` (that is `assets/` only), so a
+ *  root-relative guess (`/art/meshes/...`) would 404. `/@fs/` is Vite dev's
+ *  own mechanism for serving an arbitrary absolute filesystem path,
+ *  independent of which module asks for it. */
+async function loadMeshVariants(renderer: Renderer): Promise<void> {
+  const root = repoRootFromModuleUrl();
+  const meshBase = `/@fs${root}/art/meshes/`;
+  const r = renderer as unknown as MeshCapableRenderer;
+  await Promise.all([
+    r.loadMeshUnit('inf_squad', `${meshBase}meshy_soldier.glb`, 'kdf'),
+    ...MESH_VEHICLE_TYPES.map((id) => r.loadVehicleMesh(id, `${meshBase}vehicles/${id}.glb`)),
+  ]);
+}
+
+/** Same curve as `measureThree`, on the identical roster/checkpoints, with
+ *  the real shipped mesh GLBs loaded for the types that have one -- so the
+ *  `measureThree()` vs `measureThreeMesh()` delta at each checkpoint is a
+ *  real, apples-to-apples "what does swapping these billboards for meshes
+ *  cost" number, not a comparison against a synthetic all-mesh scene or
+ *  R0's throwaway spike (see `measureSkinnedInfantry` above for why that
+ *  section is a deliberately separate, coarser stand-in). */
+export async function measureThreeMesh(
+  onProgress?: (msg: string) => void
+): Promise<BackendReport> {
+  const { ThreeRenderer } = await import('../../../packages/render/src/three/ThreeRenderer');
+  const base = resolveBase();
+  return runBackendCurve(
+    'three',
+    (sim, opts) => new ThreeRenderer(sim, opts),
+    base,
+    onProgress,
+    (renderer) => loadMeshVariants(renderer)
+  );
 }
 
 export async function measurePixi(
