@@ -1,8 +1,10 @@
-# Performance — both renderer backends
+# Performance — both renderer backends, and sim tick cost
 
 **Last measured:** 2026-08-30, this branch's HEAD (`15bd819` + this session's
 uncommitted `tools/src/perf/` changes). **Re-run before quoting these numbers
 again if either backend, the mesh contract, or vehicle FX has changed since.**
+A second pass the same day (this session) added the "Sim tick cost" section
+below — the renderer sections above it are unchanged from the prior pass.
 
 This is the doc `docs/superpowers/specs/2026-08-29-phase-d-todo.md`'s item #11
 names: the corrected Phase B4 perf measurement used to live only in
@@ -291,6 +293,181 @@ integrated GPU's typical several-GB budget, this is not tight.
 
 ---
 
+## Sim tick cost: scaling curve and per-loop attribution (no renderer, no browser)
+
+**Added 2026-08-30, same session as the rest of this doc.** Everything
+above measures the RENDERER. This section measures the other half of
+invariant 1's budget — the fixed 20 Hz, 50 ms `sim.tick()` — which nothing
+above exercises: the renderer curve's own tick column tops out at 400 units
+on a world with zero tunnels registered (`buildWorld` never calls
+`addTunnel`), so it cannot speak to CLAUDE.md's "Known scaling debts"
+entries at all — the trail-detection scan and `markerSeesRoute` cost
+exactly zero when `tunnelCount_` is 0. This section closes that gap: a
+curve that goes well past the GDD's 300-unit target, with per-loop
+attribution, on a world where the tunnel debt actually has something to
+scan.
+
+### How to reproduce
+
+```bash
+npx tsx tools/src/perf/sim-scaling.ts \
+  --checkpoints=150,300,600,1000,1500,1800,2100 --ticks=40 --warmup=5
+```
+
+`tools/src/perf/sim-scaling.ts` reuses `three-units.ts`'s own
+`buildWorld`/`computeAnchors`/`createSpawner`/`spawnUpTo` unchanged — same
+map (`beit_sahwan_outskirts`), same seed, same two 10-type rosters, same
+ring-spawn pattern, same "checkpoint = lifetime spawn count, living count
+is lower at high checkpoints from real attrition" convention as the
+renderer curve above, so a unit count means the same thing in both tables.
+It additionally registers the map's own 4 authored tunnel routes
+(`bs_tn_west`, `bs_tn_north`, `bs_tn_souk`, `bs_tn_clinic` — the same
+conversion `main.ts` performs from `map.tunnels`), which the renderer
+curve's harness never does. The friendly roster's `recon_drone` already
+carries `mark_tunnel`, so `markerSeesRoute` gets real load without
+inventing a unit for the purpose. Per-loop attribution works by wrapping
+the relevant PROTOTYPE methods (`stepDetection`, `stepCombat`, every other
+named phase in `tick()`'s body, `trailStrengthFor`, `markerSeesRoute`,
+`FlowField.prototype.compute`) with a timing accumulator before the timed
+loop and restoring the originals after — TypeScript `private` is erased at
+compile time, so this reaches the real methods without editing `sim.ts`.
+"detection pairwise" in the table below is `stepDetection`'s own total
+minus the two named sub-scans, i.e. just the O(N²) unit-vs-unit contact
+loop.
+
+### Capture conditions
+
+Same machine as the renderer curve (Apple M3 Pro, 12 cores, macOS 26.6.2,
+Node v25.9.0) — pure Node, no browser, no GPU, so the SwiftShader confound
+above does not apply here at all. Load average ~8.7–9.6 across 12 cores
+during capture (other local processes active, same as the renderer
+capture). 40 timed ticks / 5 warmup per checkpoint. **Reproduced across two
+independent runs** (fresh process each time); both agree closely (e.g. the
+300 checkpoint read 2.54 ms / 2.08 ms avg tick across the two runs — noise
+at that scale, not a real difference) and one representative run is quoted
+below.
+
+### The main curve (cumulative checkpoints — living < target from real attrition, same convention as the renderer curve)
+
+All times in ms. "detection pairwise" / "trailStrengthFor" /
+"markerSeesRoute" are the three components of `stepDetection`'s own total
+(they sum to it, modulo the small state-transition/decay loop). `flowField
+calls` is how many times `FlowField.compute` — the O(width×height) BFS a
+fresh movement goal triggers — ran across the 40 timed ticks; it is not
+called every tick and its cost is negligible throughout.
+
+| target | living | tick avg | tick p95 | tick max | detection pairwise | trailStrengthFor | markerSeesRoute | stepCombat | flowField.compute (calls) |
+|---|---|---|---|---|---|---|---|---|---|
+| 150  | 150  | 1.05  | 2.66  | 5.50  | 0.43  | 0.21 | 0.03 | 0.20  | 0.11 (6) |
+| 300  | 296  | 2.08  | 2.58  | 2.67  | 1.17  | 0.36 | 0.02 | 0.45  | 0.15 (1) |
+| 600  | 563  | 6.42  | 7.58  | 10.07 | 3.89  | 0.67 | 0.04 | 1.49  | 0.31 (24) |
+| 1000 | 899  | 13.53 | 16.22 | 19.27 | 7.94  | 1.12 | 0.06 | 3.80  | 0.50 (33) |
+| 1500 | 1330 | 25.31 | 27.87 | 28.11 | 15.12 | 1.48 | 0.07 | 7.84  | 0.57 (4) |
+| 1800 | 1526 | 33.00 | 37.93 | 56.66 | 19.77 | 1.63 | 0.07 | 10.52 | 0.64 (0) |
+| 2100 | 1691 | 39.39 | 44.57 | 45.26 | 23.46 | 1.64 | 0.08 | 12.96 | 0.71 (4) |
+
+**The 50 ms / 20 Hz tick budget (invariant 1) is not crossed anywhere in
+this table.** Even at the highest checkpoint measured this way (2100
+lifetime spawns, 1691 living after sustained combat), tick avg is 39.39 ms
+(79% of budget) and p95 is 44.57 ms (89%) — close, but under. One thing
+worth flagging rather than burying: the 1800 checkpoint's **max** reading
+(56.66 ms) already exceeds the budget once, on an average tick of 33.00 ms
+— a single-tick spike (GC pause is the leading suspect, not investigated
+further), not a sustained overrun. Read as: comfortably-average-safe
+stops being spike-safe somewhere around 1500–1800 living units, before the
+average itself crosses.
+
+### Why "living" alone does not determine cost — the crossing point depends on attrition state, not just unit count
+
+Every per-tick scan in `sim.ts` (`stepDetection`'s pair loop,
+`selectTarget`, `trailStrengthFor`, `markerSeesRoute`, and effectively
+every other phase) bounds its loop on `this.count` — the **lifetime**
+spawn count, which never decreases — and skips dead/irrelevant entries
+with an early `continue`. That early exit is cheap but not free, so a
+battle-worn world (many of `this.count` already dead) costs less than a
+freshly-spawned world with the identical `this.count`, because more
+iterations short-circuit immediately. Measured directly: spawning straight
+to 2100 units with only 5 warmup ticks (so `living ≈ 2100`, essentially no
+attrition yet) reads **58.11 ms avg / 74.49 ms p95 / 97.00 ms max** —
+budget crossed decisively — for the *same* `this.count` (2100) that the
+cumulative-checkpoint table above reads 39.39 ms avg for, at that point
+carrying only 1691 living because five earlier checkpoints' worth of
+sustained combat had already happened. Continuing the fresh run two more
+checkpoints (2200, 2300 — each now battle-worn from the checkpoint before
+it) reads 49.80 ms/58.26 ms p95 and 50.14 ms/58.14 ms p95 respectively —
+both p95-crossed, the second average-crossed too.
+
+**Net: the budget crossing point is not one number, it is a band —
+roughly 1700–2100 living units depending on how much prior attrition the
+world carries, with a freshly-spawned world at the pessimistic end.** Both
+ends of that band sit **5.7×–7× the GDD's 300-unit target**, and far
+beyond the largest authored mission (65 units, ~26–32× headroom). At the
+actual GDD target (300, living 296) tick avg is 2.08 ms — **4.2% of
+budget**. At 1000 living it is 13.53 ms — **27% of budget**, still not
+"near" by any reasonable reading.
+
+### What actually dominates — and it is not the debt CLAUDE.md names first
+
+At every checkpoint measured, **`stepDetection`'s pairwise unit-vs-unit
+scan and `stepCombat`'s per-shooter target selection (`selectTarget`)
+together account for 85–95% of total tick cost**, and both are separately
+O(N²) — `selectTarget` scans every entity for every weapon slot of every
+living shooter, unconditionally, every tick (`sim.ts`'s `stepCombat`, not
+gated on "no current target"). `stepCombat`'s **share of the tick is
+growing with N**: 19% at 150 living → 30% at 1691 living, the same
+super-linear shape `stepDetection`'s pair scan has. **This is a second
+O(N²) scan CLAUDE.md's scaling-debt entry does not name** — only detection
+is called out today. Anyone staggering detection without also staggering
+`selectTarget` will move the cliff, not remove it, exactly as the
+delegation brief's framing predicted for the four named debts — it is true
+of a fifth, unnamed one too.
+
+By contrast, **the trail-detection scan and `markerSeesRoute` — the two
+debts CLAUDE.md's entry actually singles out — are real but proportionally
+small everywhere tested**: `trailStrengthFor` never exceeds 1.64 ms (4% of
+tick) and `markerSeesRoute` never exceeds 0.08 ms (0.2%) across the whole
+table, against 4 authored routes. Pushed to `MAX_TUNNELS` (16 routes — the
+sim-enforced ceiling, `--stress-routes`, cloning the map's 4 routes to fill
+the cap) at 1500 fresh living units, `trailStrengthFor` rises to 7.61 ms —
+still smaller than `stepCombat` (10.33 ms) and well under `stepDetection`'s
+own pairwise cost (21.16 ms) at the same checkpoint. **The trail/marker
+scans scale exactly as documented (linear in route count, confirmed
+directly) but never become the dominant cost within the game's own
+structural limits** — no authored mission has ever shipped more than 4
+routes, and the sim caps it at 16 regardless.
+
+### What was fixed: nothing, and that is the finding
+
+**No staggering was implemented.** The task brief's own instruction — "if
+nothing is near budget at 1,000 units, that is a genuinely valuable
+finding — say so plainly and stop, rather than optimising to justify the
+task" — is the case this measurement lands in: nothing is near budget at
+either the GDD's actual 300-unit target (4.2%) or at 1,000 units (27%),
+and the budget-crossing band (1700–2100 living) sits 5.7×–7× past the
+target this milestone is scoped to. Implementing a stagger now would be
+optimising to justify the task, not responding to a measured need, and
+would spend the "staggering changes WHEN a detection resolves, which
+changes outcomes" cost (this task brief's own words) for no present
+benefit. The determinism hash (`packages/sim/src/determinism.test.ts`,
+`1147898451`) and `pnpm balance`'s §5.7 targets are both unchanged by this
+session — confirmed by running both after adding the harness — because
+nothing under `packages/sim/` besides this measurement's own
+prototype-wrapping (which is undone before the process exits, and lives in
+`tools/`, not `sim.ts`) was touched.
+
+If a future mission or the GDD's larger targets push sustained living
+counts past roughly 1500, the two things actually indicated by this
+measurement are `stepDetection`'s pairwise scan and `stepCombat`'s
+`selectTarget` — staggered together, on the same tick-index-and-entity-id
+schedule, for the reason the brief itself gives: they share the per-tick
+budget, and fixing one alone just moves the cliff onto the other (measured
+here: `stepCombat`'s share was still growing at the highest checkpoint
+tested). The trail/marker scans do not need staggering on this evidence —
+they are a rounding error next to either O(N²) scan at every count and
+route total the game can currently produce.
+
+---
+
 ## Known limitations of this evidence
 
 - **Not wired into CI or `pnpm test`.** Same gap `playtest.ts` and
@@ -312,3 +489,17 @@ integrated GPU's typical several-GB budget, this is not tight.
   render-cost half of this claim — the same gap `three-units.ts`'s own
   Node-CLI comment already names for why *that* half (sim tick cost only)
   is the one wired into an automated gate and this half is not.
+- **The sim-scaling section above (`sim-scaling.ts`) is Node-only, sim-tick
+  cost in isolation** — no renderer runs concurrently, matching (not
+  contradicting) the renderer curve's own finding that tick cost measured
+  in-process matches an in-tab measurement almost exactly once no *other*
+  renderer shares the tab. It measures one synthetic roster/map/spawn
+  pattern (the same one the renderer curve uses, for comparability), not
+  a real mission — the largest authored mission (65 units) is nowhere near
+  either curve's tested range, so nothing here has been cross-checked
+  against real mission content at scale. `drawTrail` — CLAUDE.md's fourth
+  named debt, "O(width × height × routes) at 5 Hz" — is a render-side cost
+  and out of this section's ownership (`packages/render/`, not
+  `packages/sim/`); not measured here at all.
+- **Not wired into CI or `pnpm test`** either, same as the harness above —
+  a manual `npx tsx` command.
