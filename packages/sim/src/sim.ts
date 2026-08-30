@@ -334,6 +334,24 @@ export interface UnitType {
   armorSide: Fx;
   armorRear: Fx;
   isSoft: boolean;
+  /** No turret: the body IS the aim, so the hull may swing onto its target
+   *  while moving instead of pointing down the line of march.
+   *
+   *  Derived from the armour numbers, never from a roster of ids, so a new
+   *  unit lands on the safe side by construction. Two conditions, both
+   *  required, because `facing` is mechanical — `resolveHit` reads it to pick
+   *  the armour arc (GDD §5.3):
+   *   - isotropic: front, side and rear plate are equal, so no arc choice can
+   *     change what a round has to defeat. Structurally this is also what
+   *     "has no turret" looks like in data — everything with a distinct front
+   *     is a vehicle whose gun traverses independently of its hull.
+   *   - soft: `resolveHit` returns before the arc block entirely, so facing is
+   *     never read. Isotropy ALONE is not enough, and that is not a belt-and-
+   *     braces flourish: the obliquity bonus scales armour by up to OBLIQ_MAX
+   *     *inside* the front arc, so an isotropic-but-armoured hull would still
+   *     trade damage for where it points.
+   *  Fail either and the unit keeps hull-follows-movement, unchanged. */
+  bodyAimed: boolean;
   era: boolean;
   suppResFactor: Fx; // incoming suppression multiplier, 1 - res/2
   hasAps: boolean;
@@ -395,6 +413,9 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
   const speed = fx.from(json.mobility.speed_tiles_s);
   const sight = fx.from(json.sensors.sight_tiles);
   const armorFront = fx.from(json.hull.armor.front);
+  const armorSide = fx.from(json.hull.armor.side);
+  const armorRear = fx.from(json.hull.armor.rear);
+  const isSoft = armorFront < SOFT_ARMOR_LIMIT;
   const suppRes = fx.from(json.hull.suppression_resistance ?? 1 / 2);
   const turnDeg = json.mobility.turn_rate_deg_s ?? DEFAULT_TURN_DEG_S;
   // deg/s → turns/tick: deg/360 * DT
@@ -424,9 +445,12 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     canSmoke: abilities.includes('smoke'),
     hp: fx.from(json.hull.hp),
     armorFront,
-    armorSide: fx.from(json.hull.armor.side),
-    armorRear: fx.from(json.hull.armor.rear),
-    isSoft: armorFront < SOFT_ARMOR_LIMIT,
+    armorSide,
+    armorRear,
+    isSoft,
+    // Computed once here rather than per-tick in stepCombat: it is a property
+    // of the type, and the combat loop runs for every unit every tick.
+    bodyAimed: isSoft && armorFront === armorSide && armorSide === armorRear,
     era: json.hull.era ?? false,
     suppResFactor: fx.sub(ONE, suppRes >> 1),
     hasAps: aps !== undefined,
@@ -698,6 +722,18 @@ export class Sim {
   private readonly garrisonGoal: Int32Array;
   /** 1 when the unit actually changed position this tick. */
   private readonly displaced: Uint8Array;
+  /** Set for the tick when stepCombat turned a body-aimed hull onto what it is
+   *  shooting at, so stepMovement leaves that facing alone. Scratch, cleared at
+   *  the top of every stepCombat.
+   *
+   *  This flag is the whole reason the fix works. stepMovement runs AFTER
+   *  stepCombat and turns every mover toward its heading at the same capped
+   *  rate — so without it, the combat turn is undone within the same tick and
+   *  a moving unit's facing never leaves the line of march no matter what
+   *  stepCombat asks for. Not hashed: it carries nothing that `facing` (which
+   *  is hashed) does not already show, and hashing it would give the golden
+   *  hash a second reason to move. */
+  private readonly aimTurned: Uint8Array;
   private readonly demoTicks: Int32Array;
   private readonly demoTarget: Int32Array;
   /**
@@ -922,6 +958,7 @@ export class Sim {
     this.garrisonedIn = new Int32Array(n).fill(-1);
     this.garrisonGoal = new Int32Array(n).fill(-1);
     this.displaced = new Uint8Array(n);
+    this.aimTurned = new Uint8Array(n);
     this.demoTicks = new Int32Array(n);
     this.demoTarget = new Int32Array(n).fill(-1);
     this.demolishOrder = new Int32Array(n).fill(-1);
@@ -2813,6 +2850,25 @@ export class Sim {
     this.stance[i] = 0;
   }
 
+  /**
+   * Point `id` at what it is shooting at, if it is allowed to.
+   *
+   * Stationary, everything turns: a halted hull has nothing better to point at.
+   * Moving, only a body-aimed unit turns (see `UnitType.bodyAimed`) — a
+   * turreted vehicle keeps its hull on the line of march and lets the gun
+   * traverse, because its front plate is where its survival lives.
+   *
+   * Latches `aimTurned` so stepMovement, which runs later in the same tick and
+   * would otherwise turn the hull straight back down its heading, stands off.
+   */
+  private aimHullAt(i: number, desired: Fx): void {
+    if (this.moving[i] === 1) {
+      if (!this.unitTypes[this.typeIdx[i]].bodyAimed) return;
+      this.aimTurned[i] = 1;
+    }
+    this.turnToward(i, desired);
+  }
+
   /** Rotate `id` toward `desired` at its turn rate. */
   private turnToward(id: number, desired: Fx): void {
     const type = this.unitTypes[this.typeIdx[id]];
@@ -2823,6 +2879,7 @@ export class Sim {
   }
 
   private stepCombat(): void {
+    this.aimTurned.fill(0);
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0 || this.firepowerKilled[i] === 1) continue;
       // The outbound half of containment — the inbound half is Task 7's
@@ -2876,9 +2933,10 @@ export class Sim {
         );
         if (dSq <= w.effectiveRangeSq) engagedClose = true;
 
-        // Hull turns toward the primary threat while stationary.
-        if (slot === 0 && this.moving[i] === 0) {
-          this.turnToward(
+        // Hull turns toward the primary threat. Stationary, always; on the
+        // move, only where facing cannot cost anything — see aimHullAt.
+        if (slot === 0) {
+          this.aimHullAt(
             i,
             fx.atan2(fx.sub(this.posY[target], this.posY[i]), fx.sub(this.posX[target], this.posX[i]))
           );
@@ -2907,8 +2965,8 @@ export class Sim {
           }
           if (slot === 0) this.curStructure[i] = s;
           const [tx, ty] = this.nearestStructTile(s, this.posX[i], this.posY[i]);
-          if (slot === 0 && this.moving[i] === 0) {
-            this.turnToward(i, fx.atan2(fx.sub(ty, this.posY[i]), fx.sub(tx, this.posX[i])));
+          if (slot === 0) {
+            this.aimHullAt(i, fx.atan2(fx.sub(ty, this.posY[i]), fx.sub(tx, this.posX[i])));
           }
           if (this.cooldown[i * 2 + slot] > 0) continue;
           this.fireAtStructure(i, slot, w, s, tx, ty);
@@ -2941,8 +2999,8 @@ export class Sim {
               if (dSq > w.rangeSq || dSq < w.minRangeSq) continue;
               engagedClose = true;
               if (slot === 0) this.curStructure[i] = s;
-              if (slot === 0 && this.moving[i] === 0) {
-                this.turnToward(i, fx.atan2(fx.sub(ty, this.posY[i]), fx.sub(tx, this.posX[i])));
+              if (slot === 0) {
+                this.aimHullAt(i, fx.atan2(fx.sub(ty, this.posY[i]), fx.sub(tx, this.posX[i])));
               }
               if (this.cooldown[i * 2 + slot] > 0) continue;
               this.fireAtStructure(i, slot, w, s, tx, ty);
@@ -4329,7 +4387,11 @@ export class Sim {
       const mvy = fx.sub(ny, py);
       if (mvx !== 0 || mvy !== 0) {
         this.displaced[i] = 1;
-        this.turnToward(i, fx.atan2(mvy, mvx));
+        // The hull follows the line of march — unless stepCombat already put it
+        // on a target this tick. Both turns are capped at the same rate, so
+        // running this one afterwards would cancel the aim exactly and the unit
+        // would shoot sideways forever.
+        if (this.aimTurned[i] === 0) this.turnToward(i, fx.atan2(mvy, mvx));
       }
       this.posX[i] = nx;
       this.posY[i] = ny;

@@ -335,7 +335,37 @@ describe('determinism (1000-tick replay)', () => {
     // differential test in `elevation.test.ts`, which runs one short replay
     // flat and once with every tile raised and asserts every observable but
     // the hash (positions, HP, alive counts, the event stream) is identical.
-    expect(a.hash()).toBe(1639983699);
+    //
+    // Moved for body-aimed hulls: a unit whose facing cannot change an outcome
+    // now turns onto what it is shooting at while MOVING, instead of keeping
+    // its facing on the line of march (`UnitType.bodyAimed`, `Sim.aimHullAt`).
+    // Infantry were firing sideways and backwards on the move, because they
+    // have no turret and the hull was the only thing pointing anywhere.
+    // Vehicles are untouched — an asymmetric front plate is exactly what the
+    // licence tests for, so the hull still drives where it points and the gun
+    // traverses.
+    //
+    // No OUTCOME changed, and that is measured rather than argued. Running this
+    // replay before and after and diffing EVERY observable — all 21 state
+    // columns, all 11 structure columns, and all 2036 events serialised in
+    // order — leaves exactly one difference: `facing`, on 3 of the 26 entities
+    // (6: 0 -> 13, 12: 32768 -> 32800, 14: 40960 -> 34515), all three of them
+    // riflemen. posX, posY, hp, suppression, alive, curTarget, the structures
+    // and the whole event stream are byte-identical, and the event stream
+    // carries `arc`, `effectiveArmor`, `pPen` and the penetration `roll` on
+    // every impact, so an identical stream IS the statement that no armour arc
+    // moved. `pnpm balance` agrees: all five §5.7 targets land on the same
+    // numbers, urban 1:1=0% 2:1=15% 3:1=95% 4:1=100% included.
+    //
+    // The reason it is outcome-neutral is structural, not lucky. `resolveHit`
+    // returns for soft targets BEFORE it ever reads facing to pick the
+    // arc, and `bodyAimed` requires `isSoft` — so a unit that gained the
+    // licence is a unit whose facing is never read. Isotropy alone would not
+    // have been enough: the obliquity bonus scales armour inside the front arc,
+    // so an isotropic-but-armoured hull would still trade damage for its angle.
+    // The hash covers a facing column that now records where infantry are
+    // actually looking; it moves, and nothing else does.
+    expect(a.hash()).toBe(3160666129);
   });
 
   it('the replay actually exercises the structure paths', () => {
