@@ -563,7 +563,8 @@ async function main(): Promise<void> {
       // enforced by the compiler without a second copy of it living here and
       // without weakening the guard.
       const MESH_TEAMS = [
-        ['inf_squad', 'kdf'],
+        // `inf_squad` is deliberately absent -- it is loaded below from the
+        // Meshy asset rather than from `tools/units/teams.py`'s own GLB.
         ['demo_squad', 'kdf'],
         ['at_team', 'kdf'],
         ['mortar_team', 'kdf'],
@@ -596,27 +597,61 @@ async function main(): Promise<void> {
         )
       );
 
-      // `sarim_rifles` -- a Meshy-generated (AI, disclosed in this PR) rigged
-      // biped, contract-tested against v1's infantry shape but NOT part of
-      // `tools/units/teams.py`'s pipeline, so it cannot join `MESH_TEAMS`
-      // above without breaking that list's own "team id == unit type id ==
-      // file basename" convention: the file is `meshy_soldier.glb`, not
-      // `sarim_rifles.glb`. Wired to its own distinct unit id rather than
-      // replacing `inf_squad` -- the project lead needs to compare the two
-      // rigs on screen, not have one silently swap for the other.
-      // `sarim_rifles` is the natural home: `data/units/enemy/
-      // sarim_rifles.json` is already an enemy-side rifle squad (crew 8),
-      // and the asset itself is a Middle-Eastern rifleman by name and
-      // design -- a thematic fit `inf_squad`'s KDF figure is not. `'enemy'`
-      // per `mesh-role.ts`'s side split: every `data/units/enemy/*.json`
-      // unit renders through the inverted (olive-over-tan) ramp regardless
-      // of its own narrative sub-faction (`kdf`/`ashwar`/`sarim`/`rif`),
-      // matching how `atgm_cell` and `mortar_crew` (also narrative `sarim`/
-      // `ashwar`) are wired above.
+      // The Meshy-generated (AI, disclosed in this PR) rigged biped, drawing
+      // KDF's own rifle squad. It cannot join `MESH_TEAMS` above because that
+      // list's "team id == unit type id == file basename" convention does not
+      // hold here -- the file is `meshy_soldier.glb`, not `inf_squad.glb` --
+      // so `inf_squad` is dropped from the list and loaded explicitly here.
+      //
+      // This was first wired to enemy-side `sarim_rifles`, reasoning that a
+      // Middle-Eastern rifleman was a thematic fit KDF was not. That reasoning
+      // was wrong, and the project lead corrected it: the asset was supplied as
+      // OUR infantry. Which side an asset fights for is a design call, not one
+      // the renderer or a naming heuristic gets to infer.
+      //
+      // The side is load-bearing for colour, which is what made the error
+      // visible. Per `mesh-role.ts`, the two factions are INVERTED rather than
+      // tinted: KDF wear an olive `uniform` with gunmetal `webbing`, the enemy
+      // tan cloth with olive gear. On the wrong side this figure rendered flat
+      // tan and read as an irregular.
       await three.loadMeshUnit(
-        'sarim_rifles',
+        'inf_squad',
         new URL('../../../art/meshes/meshy_soldier.glb', import.meta.url).href,
-        'enemy'
+        'kdf'
+      );
+
+      // Vehicle meshes (mesh-unit-contract v2): `art/meshes/vehicles/<id>.glb`,
+      // no faction parameter -- unlike infantry, a vehicle GLB is
+      // faction-specific by construction, so `three.loadVehicleMesh` takes
+      // none (`vehicle-mesh-role.ts`'s own top comment has the full
+      // argument). Same "team id == unit type id == file basename"
+      // convention `MESH_TEAMS` relies on for infantry.
+      //
+      // `mbt_lavi` matters beyond looks: it is a supplied replacement for
+      // the tank whose source `.blend` is missing from the repo and whose
+      // sprite sheets are the only two of 35 with no credit -- it cannot
+      // retire that old art until it draws here.
+      const MESH_VEHICLES = ['apc_eitan', 'dozer_d9', 'mbt_lavi', 'technical'] as const;
+      await Promise.all(
+        MESH_VEHICLES.map((id) =>
+          three.loadVehicleMesh(id, new URL(`../../../art/meshes/vehicles/${id}.glb`, import.meta.url).href)
+        )
+      );
+
+      // Building meshes (mesh-unit-contract v2): `art/meshes/buildings/
+      // <type>.glb` (standing) and `<type>_wreck.glb` (destroyed) -- every
+      // type in `STRUCTURE_SPRITES` below has shipped both. `colour_key`/
+      // `wallColorKey` is resolved inside `loadBuildingMesh` itself, off
+      // `Sim.structureTypes[...].color` -- nothing here needs to know it.
+      const MESH_BUILDINGS = ['shanty', 'house', 'warehouse', 'apartment', 'concrete', 'mosque', 'wall'] as const;
+      await Promise.all(
+        MESH_BUILDINGS.map((id) =>
+          three.loadBuildingMesh(
+            id,
+            new URL(`../../../art/meshes/buildings/${id}.glb`, import.meta.url).href,
+            new URL(`../../../art/meshes/buildings/${id}_wreck.glb`, import.meta.url).href
+          )
+        )
       );
     }
   } else {

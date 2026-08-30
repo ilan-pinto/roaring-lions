@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Supplied soldier — as-is vs in-game palette</title>
+    <style>
+      /* Spike page, throwaway. These literals are palette entries (shadow.0,
+         limestone.1/.8/.0); it sits at packages/app/ rather than under src/,
+         which is why validate:ui does not walk it. */
+      html, body { margin:0; height:100%; background:#23241F; color:#E6D8BE; font:13px/1.5 monospace; }
+      #stage { width:100vw; height:calc(100vh - 92px); }
+      #stage canvas { display:block; image-rendering:pixelated; }
+      #panel { display:flex; gap:18px; align-items:center; flex-wrap:wrap; padding:8px 14px; border-top:1px solid #5E4E3A; }
+      label { display:flex; gap:6px; align-items:center; }
+      #readout { margin-left:auto; opacity:.85; }
+      button, select { font:inherit; background:#5E4E3A; color:#F2E8D5; border:0; padding:4px 10px; cursor:pointer; }
+      button[data-on="1"] { background:#8F9464; color:#23241F; }
+    </style>
+  </head>
+  <body>
+    <div id="stage"></div>
+    <div id="panel">
+      <label>clip
+        <select id="clip">
+          <option value="Walking">Walking → move</option>
+          <option value="Running">Running → move (fast)</option>
+          <option value="Gun_Hold_Left_Turn">Gun_Hold_Left_Turn → idle</option>
+          <option value="Side_Shot">Side_Shot → fire</option>
+          <option value="Shot_and_Blown_Back">Shot_and_Blown_Back → down</option>
+        </select>
+      </label>
+      <button id="shading" data-on="0">shading: textured</button>
+      <label>zoom <input id="zoom" type="range" min="1" max="12" step="0.5" value="1" /></label>
+      <label>yaw <input id="yaw" type="range" min="-180" max="180" step="5" value="0" /></label>
+      <button id="pause">pause</button>
+      <span id="readout"></span>
+    </div>
+    <script type="module" src="/src/soldier-view.ts"></script>
+  </body>
+</html>

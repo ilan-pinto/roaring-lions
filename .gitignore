@@ -75,3 +75,4 @@ art/showcase/*.mp4
 # shared working tree can sweep a whole second copy into a commit.
 # `.claude/agents/` and the rest of `.claude/` stay tracked on purpose.
 .claude/worktrees/
+art/blend/

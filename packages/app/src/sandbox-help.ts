@@ -28,7 +28,11 @@ export const SANDBOX_FLAGS: readonly { name: SandboxFlagName; blurb: string }[] 
   { name: 'roe', blurb: 'flagged no-fire ground (the map’s own, or a synthesised 4×4)' },
   { name: 'tunnel', blurb: 'a pre-dug route + two yahalom_squad to collapse it' },
   { name: 'sur', blurb: 'the four Sarim units no mission fields' },
-  { name: 'mesh', blurb: 'rigged 3D mesh units, for every team with a shipped GLB — needs ?renderer=three' },
+  {
+    name: 'mesh',
+    blurb:
+      '3D mesh units, vehicles and buildings, for every type with a shipped GLB — needs ?renderer=three',
+  },
 ];
 
 /** Everything main.ts reads off the query string. The flags are spread in

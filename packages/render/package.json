@@ -10,7 +10,8 @@
     "./terrain": "./src/three/terrain/index.ts",
     "./project": "./src/project.ts",
     "./three-camera": "./src/three/camera.ts",
-    "./three-spike": "./src/three/spike/rig-scene.ts"
+    "./three-spike": "./src/three/spike/rig-scene.ts",
+    "./three-soldier": "./src/three/spike/soldier-view.ts"
   },
   "dependencies": {
     "@lions/sim": "workspace:*",
