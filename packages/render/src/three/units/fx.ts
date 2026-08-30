@@ -363,7 +363,12 @@ import { WORLD_Y_PER_LIFT_PIXEL, isoX, isoY } from '../../project';
 import { screenOffsetToWorld, hexToUnit } from '../terrain/shared';
 import { groundWorldY } from '../ground-height';
 import { tracerAlpha, type TracerModel } from './tracers';
-import { FX_RENDER_ORDER, FX_RENDER_ORDER_ABOVE } from './render-order';
+import {
+  FX_RENDER_ORDER,
+  FX_RENDER_ORDER_ADDITIVE,
+  FX_RENDER_ORDER_ABOVE,
+  FX_RENDER_ORDER_ABOVE_ADDITIVE,
+} from './render-order';
 
 // ---------------------------------------------------------------------------
 // Pure: geometry and per-instance attribute arithmetic. No THREE.* GPU
@@ -444,14 +449,25 @@ export const TRACER_WIDTH_PX = 1.5;
  * `above_units` split (B3.14)", this file's top comment, for the full
  * reasoning.
  *
- * Both are re-exported from `./render-order`, the single source of truth for
- * every band this backend uses -- not declared here, so a future band can
- * never collide with `instances.ts`'s bands without both living in, and
- * being checked against, the same file. Exported (unlike before this fix) so
- * `fx.test.ts`'s cross-module invariant suite can assert the relationship
- * directly, rather than being unable to reach this value at all.
+ * `FX_RENDER_ORDER_ADDITIVE`/`FX_RENDER_ORDER_ABOVE_ADDITIVE` are the
+ * `hotCore` (`additive: true`) sibling of each tier, one band after its own
+ * normal tier for a DIFFERENT reason than the above/below split -- normal
+ * blending pinned to alpha 1 is an opaque overwrite, not a commutative sum,
+ * so a hot core must draw AFTER its tier's own ordinary dust/smoke or a
+ * later-submitted normal particle could paint over it. See
+ * `createParticleMaterial`'s own doc comment for why this is not a GPU
+ * additive blend mode, and `./render-order`'s 2.5/3.5 rows for the band
+ * account.
+ *
+ * All four are re-exported from `./render-order`, the single source of
+ * truth for every band this backend uses -- not declared here, so a future
+ * band can never collide with `instances.ts`'s bands without both living
+ * in, and being checked against, the same file. Exported (unlike before
+ * this fix) so `fx.test.ts`'s cross-module invariant suite can assert the
+ * relationship directly, rather than being unable to reach this value at
+ * all.
  */
-export { FX_RENDER_ORDER, FX_RENDER_ORDER_ABOVE };
+export { FX_RENDER_ORDER, FX_RENDER_ORDER_ADDITIVE, FX_RENDER_ORDER_ABOVE, FX_RENDER_ORDER_ABOVE_ADDITIVE };
 
 /** Plain-array quad geometry for the particle billboard every particle
  *  instance shares, in "per one screen pixel of radius" units -- an
@@ -780,8 +796,100 @@ export function tracerIndexBuffer(capacity: number): Uint32Array {
  * a near-zero-alpha fragment from committing occluding depth, and with
  * `depthWrite: false` a particle commits no depth at all, so there is
  * nothing for a faint fragment to pollute.
+ *
+ * ## `hotCore` (`ParticleSpec.additive`): the dead-schema-field fix, and why
+ * it is NOT GPU additive blending
+ *
+ * `ParticleSpec.additive` has validated and typechecked since the emitter
+ * schema's own first draft, and until this fix nothing read it -- every
+ * particle composited with three.js's default `NormalBlending` regardless
+ * of what the JSON said, so `vfx.white_hot` (`#FFF6D0`) painted exactly the
+ * pale cream blob it is, alpha-diluted against the ring/smoke/terrain
+ * around it, never the blown-out incandescent core the reference photos the
+ * project lead supplied show.
+ *
+ * The first draft of this fix (kept in history, not here) used
+ * `THREE.AdditiveBlending` (`ONE, ONE`) -- the obvious reading of "additive"
+ * -- and it was REJECTED after review, not merely reconsidered:
+ *
+ *  - **This backend's palette guarantee is per-material, enforced by
+ *    construction.** `palette-material.ts`'s `toonRampMaterial` can only
+ *    emit a colour it reads out of `uRamp` -- its own doc comment: "A shaded
+ *    fragment cannot emit an off-palette colour because the only values it
+ *    can write are the ones read out of the ramp." This material has no
+ *    ramp (it writes a literal resolved palette hex straight to
+ *    `gl_FragColor`), but the SAME property -- every fragment this material
+ *    ever writes is one of the 65 -- held for it too, by a different
+ *    mechanism (a hardcoded, already-palette-resolved `vColor`), until
+ *    `AdditiveBlending` broke it: the GPU blend stage runs AFTER the
+ *    fragment shader, summing whatever the shader wrote with whatever is
+ *    already in the framebuffer, and that sum is arithmetic on RGB channels
+ *    with no palette awareness at all. Two `vfx.white_hot` (`#FFF6D0`)
+ *    fragments overlapping at partial alpha sum to something between
+ *    `#FFF6D0` and white that is neither -- off-palette, silently, every
+ *    frame it happens.
+ *  - **Clamping to white does not save it.** `#FFFFFF` was checked against
+ *    `data/palette.json` directly (`grep -n "FFFFFF" data/palette.json`) --
+ *    zero hits. The palette has no white entry, so even the one case where
+ *    additive summation saturates cleanly (enough full-alpha overlap to hit
+ *    the byte ceiling) lands on a colour the palette does not name either.
+ *    There is no accidental save here.
+ *  - **The `vfx` band being "RUNTIME ONLY... rejected by CI if found in
+ *    STATIC ART" is licence for saturated colour CHOICE, not for
+ *    arithmetic that exceeds the palette.** `data/palette.json`'s own text
+ *    for that band: "reserved so explosions and tracers pop against
+ *    desaturated terrain" -- about which 65 colours exist to choose from,
+ *    not about permission to synthesise a 66th at the blend stage. Ordinary
+ *    alpha compositing already produces continuously-varying, technically
+ *    off-palette output pixels wherever two different palette colours
+ *    overlap at partial alpha (every particle system in this file has
+ *    always done this, unremarked, because no CI path screenshots a live
+ *    frame and checks it) -- but that is `SRC_ALPHA, ONE_MINUS_SRC_ALPHA`
+ *    interpolating BETWEEN two already-on-palette colours, bounded within
+ *    their span. Additive is `ONE, ONE`, unbounded, and can produce a
+ *    result brighter than either input -- a qualitatively different kind of
+ *    off-palette, not the same accepted-by-precedent one.
+ *
+ * The fix actually shipped keeps `NormalBlending` for every tier and
+ * instead makes the `hotCore` fragment shader IGNORE its own alpha
+ * attribute and always write 1.0: `gl_FragColor = vec4(vColor, 1.0)`. With
+ * alpha pinned to 1, `SRC_ALPHA, ONE_MINUS_SRC_ALPHA` degenerates to `dst =
+ * src` -- a flat, opaque overwrite of whatever pixel is beneath it with
+ * EXACTLY the resolved `color_over_life` palette entry for that particle's
+ * current age, no interpolation, no summation. Every fragment a `hotCore`
+ * material writes is therefore on-palette by construction, the identical
+ * strength of guarantee `toonRampMaterial` gives lit geometry, achieved a
+ * different way because this material has no lighting term to quantize.
+ *
+ * This is a real, load-bearing behaviour change from what `additive: true`
+ * suggests by name: it no longer sums brightness at all, so a cluster of
+ * overlapping `vfx.white_hot` particles reads as a solid patch of
+ * `#FFF6D0`, not a blown-out white beyond it -- `#FFF6D0` IS already close
+ * to white (246, 208 of 255 on the two cooler channels) and, drawn fully
+ * opaque rather than alpha-diluted toward the dust/smoke around it, reads
+ * meaningfully brighter than the pre-fix pale blob, but it has a real
+ * ceiling this mechanism cannot cross while staying on-palette: no
+ * arrangement of `hotCore` particles can look brighter than `vfx.white_hot`
+ * itself, because nothing drawn through this material is ever allowed to.
+ * `data/vfx/fire_apfsds.json`'s own redesign (multiple concentric
+ * `hotCore` layers -- a tight `vfx.white_hot` root, a wider
+ * `vfx.white_hot`-to-`vfx.fire` flare, a `vfx.fire`-to-`vfx.ember` outer
+ * edge) leans on SPATIAL layering of the three reserved `vfx` ramp steps to
+ * build the reference's white-to-orange-to-red-orange grade, rather than on
+ * summation this fix deliberately does not provide -- see that file's own
+ * comments for the full account.
+ *
+ * `additive: true` is kept as the schema field's name (renaming it would
+ * touch every shipped emitter and the schema's own vocabulary for no
+ * behavioural gain) but is renamed to `hotCore` at this function's own
+ * boundary and below, so nothing in this module's code claims a summing
+ * blend mode it does not have. `ParticleInstancer`'s `additive` CONSTRUCTOR
+ * parameter is left as `additive` for now (it reads `ParticleSpec.additive`
+ * one call site up in `ThreeRenderer.ts`, and renaming across that seam too
+ * is out of scope for this fix) but is documented there with the same
+ * correction.
  */
-function createParticleMaterial(depthTest: boolean): THREE.ShaderMaterial {
+function createParticleMaterial(depthTest: boolean, hotCore: boolean): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     vertexShader: /* glsl */ `
       attribute vec2 aLocal;
@@ -809,13 +917,22 @@ function createParticleMaterial(depthTest: boolean): THREE.ShaderMaterial {
         // discarded: alpha, however faint, still blends (see this
         // function's own doc comment for why that is now safe).
         if (dot(vLocal, vLocal) > 1.0) discard;
-        gl_FragColor = vec4(vColor, vAlpha);
+        // hotCore: alpha is pinned to 1.0, not read off vAlpha -- see this
+        // function's own doc comment, "The fix actually shipped keeps
+        // NormalBlending...", for why an opaque overwrite is what keeps
+        // every hotCore fragment on-palette by construction.
+        gl_FragColor = vec4(vColor, ${hotCore ? '1.0' : 'vAlpha'});
       }
     `,
     transparent: true,
     depthTest,
     depthWrite: false,
     side: THREE.FrontSide,
+    // NormalBlending, always -- see this function's own doc comment for why
+    // AdditiveBlending was tried and rejected. hotCore's opacity guarantee
+    // comes from the fragment shader above pinning alpha to 1, not from a
+    // different GPU blend equation.
+    blending: THREE.NormalBlending,
   });
 }
 
@@ -846,15 +963,29 @@ export class ParticleInstancer {
   private readonly scratchMatrix = new THREE.Matrix4();
 
   /**
-   * `layerIdx` selects which of `ParticleSystem`'s two draw layers this
-   * instancer reads (`FX_LAYER_BELOW`/`FX_LAYER_ABOVE`, `ThreeRenderer.ts`).
-   * `depthTest` is this tier's own material flag -- `true` for the
-   * below-tier (real occlusion against units/terrain), `false` for the
-   * above-tier (Pixi-`fxAboveG`-faithful, unconditional). See this class's
-   * own doc comment and this file's top comment ("The `above_units` split")
-   * for the full reasoning.
+   * `layerIdx` selects which of `ParticleSystem`'s FOUR draw layers this
+   * instancer reads (`FX_LAYER_BELOW`/`FX_LAYER_ABOVE`/
+   * `FX_LAYER_BELOW_ADDITIVE`/`FX_LAYER_ABOVE_ADDITIVE`, `ThreeRenderer.ts`)
+   * -- widened from two to four the same day `additive` itself was wired,
+   * since blending is a whole-`ShaderMaterial` state (there is no per-
+   * instance blend mode an `InstancedMesh` can express), so a `hotCore`
+   * particle needs its own draw call, exactly like an above/below-tier
+   * particle already does. `depthTest` is this tier's own material flag --
+   * `true` for a below-tier instancer (real occlusion against
+   * units/terrain), `false` for an above-tier one (Pixi-`fxAboveG`-faithful,
+   * unconditional). `additive` (this constructor's own parameter name, kept
+   * for the caller in `ThreeRenderer.ts` which reads `ParticleSpec.additive`
+   * directly -- see `createParticleMaterial`'s own doc comment for why the
+   * schema field name did not change) is orthogonal to both: whether this
+   * instancer's material pins every fragment's alpha to 1 (an opaque hot
+   * core, `vfx.white_hot`-class effects) or samples the authored
+   * `alpha_over_life` curve normally (everything else, unchanged). This is
+   * NOT a summing/additive GPU blend mode -- see `createParticleMaterial`'s
+   * own doc comment for the full account of why that was tried and
+   * rejected, and for what `additive: true` in the JSON actually causes
+   * now.
    */
-  constructor(capacity: number, layerIdx: number, depthTest: boolean) {
+  constructor(capacity: number, layerIdx: number, depthTest: boolean, additive = false) {
     this.layerIdx = layerIdx;
     const geo = particleBillboardGeometry();
     const geometry = new THREE.BufferGeometry();
@@ -867,14 +998,27 @@ export class ParticleInstancer {
     geometry.setAttribute('aColor', this.colorAttr);
     geometry.setAttribute('aAlpha', this.alphaAttr);
 
-    this.mesh = new THREE.InstancedMesh(geometry, createParticleMaterial(depthTest), capacity);
+    this.mesh = new THREE.InstancedMesh(geometry, createParticleMaterial(depthTest, additive), capacity);
     this.mesh.count = 0;
     // Draw after every unit, deliberately -- see this file's top comment,
     // "FX-vs-UNIT ordering is a DIFFERENT question", for why this is now
     // required rather than optional once depthWrite is off above. The
     // above-tier (depthTest false) additionally wins any tie against the
-    // below-tier and against tracers, via the higher constant.
-    this.mesh.renderOrder = depthTest ? FX_RENDER_ORDER : FX_RENDER_ORDER_ABOVE;
+    // below-tier and against tracers, via the higher constant. A hotCore
+    // (additive: true) instancer sits ONE BAND AFTER its own tier's normal
+    // sibling, not tied to it -- with alpha pinned to 1 (an opaque
+    // overwrite, `createParticleMaterial`'s own doc comment), draw order
+    // between it and its normal sibling is no longer harmless the way true
+    // additive summation would have been: a normal-tier dust/smoke particle
+    // that happened to submit after the hot core would opaquely paint over
+    // it. `render-order.ts`'s own 2.5/3.5 rows have the full account.
+    this.mesh.renderOrder = depthTest
+      ? additive
+        ? FX_RENDER_ORDER_ADDITIVE
+        : FX_RENDER_ORDER
+      : additive
+        ? FX_RENDER_ORDER_ABOVE_ADDITIVE
+        : FX_RENDER_ORDER_ABOVE;
     // Particles move continuously across the whole map, exactly like units
     // -- see UnitInstancer's own identical frustumCulled = false and its
     // comment for why an origin-centred bounding sphere would be wrong, not

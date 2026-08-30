@@ -9,15 +9,27 @@
   "particles": [
     {
       "sprite": "soft_dot",
-      "count": [9, 13],
-      "lifetime_ms": [110, 210],
-      "emit_over_ms": 60,
-      "speed_tiles_s": [4.5, 9.0],
-      "cone_deg": 42,
-      "size_px": [16, 24],
-      "size_over_life": [1.3, 0.4],
-      "color_over_life": ["vfx.white_hot", "vfx.fire"],
+      "count": [6, 9],
+      "lifetime_ms": [40, 80],
+      "speed_tiles_s": [0.4, 1.2],
+      "cone_deg": 18,
+      "size_px": [11, 17],
+      "size_over_life": [1.4, 0.15],
+      "color_over_life": ["vfx.white_hot"],
       "alpha_over_life": [1.0, 0.0],
+      "additive": true
+    },
+    {
+      "sprite": "soft_dot",
+      "count": [11, 15],
+      "lifetime_ms": [90, 150],
+      "emit_over_ms": 55,
+      "speed_tiles_s": [6.0, 11.0],
+      "cone_deg": 26,
+      "size_px": [14, 22],
+      "size_over_life": [0.5, 1.4, 0.1],
+      "color_over_life": ["vfx.white_hot", "vfx.fire", "vfx.ember"],
+      "alpha_over_life": [1.0, 0.6, 0.0],
       "additive": true
     },
     {
@@ -29,6 +41,18 @@
       "size_over_life": [0.4, 2.2],
       "color_over_life": ["dust.3"],
       "alpha_over_life": [0.75, 0.0]
+    },
+    {
+      "sprite": "smoke_puff",
+      "count": [8, 12],
+      "lifetime_ms": [350, 650],
+      "speed_tiles_s": [0.4, 1.4],
+      "cone_deg": 170,
+      "drag": 0.65,
+      "size_px": [10, 18],
+      "size_over_life": [0.6, 1.0, 1.4],
+      "color_over_life": ["dust.2", "dust.3", "dust.4"],
+      "alpha_over_life": [0.6, 0.4, 0.0]
     },
     {
       "sprite": "smoke_puff",

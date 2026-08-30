@@ -333,11 +333,36 @@ const MAX_UNIT_WRECKS = 256;
  * against units/terrain); `FX_LAYER_ABOVE` routes to `particleInstancerAbove`
  * (unconditional, matching Pixi's own `fxAboveG`) -- see `units/fx.ts`'s own
  * top comment, "The `above_units` split (B3.14)", for the full reasoning.
+ *
+ * Widened from two values to four for `additive` (the dead-schema-field
+ * fix -- see `units/fx.ts`'s `createParticleMaterial`'s own doc comment for
+ * the full reasoning, INCLUDING why this is a fragment-alpha-pinned opaque
+ * "hot core" rather than a GPU `AdditiveBlending`/summing pass -- the
+ * mechanism is not literally additive despite the field's name): blending
+ * (and, here, alpha handling) is a whole-material state, so an additive
+ * particle layer needs its OWN `ParticleInstancer`/draw call, not merely a
+ * flag `writeParticleInstances` could carry per-instance. `layerIdx` here
+ * is `ParticleSystem`'s own per-particle routing key (`Uint8Array`, plenty
+ * of headroom past 4) -- entirely independent of `Object3D.renderOrder`
+ * (`render-order.ts`), which is a different number space for a different
+ * purpose; the two axes are combined only at each `ParticleInstancer`'s own
+ * construction (`particleInstancerBelow`/`Above`/`BelowAdditive`/
+ * `AboveAdditive` below).
  */
 const FX_LAYER_BELOW = 0;
 const FX_LAYER_ABOVE = 1;
-function fxLayerIndex(layer: string | undefined): number {
-  return layer === 'above_units' || layer === 'sky' ? FX_LAYER_ABOVE : FX_LAYER_BELOW;
+const FX_LAYER_BELOW_ADDITIVE = 2;
+const FX_LAYER_ABOVE_ADDITIVE = 3;
+/** `additive` is read per PARTICLE LAYER (`ParticleSpec.additive`), not per
+ *  emitter -- `fire_apfsds`'s own hot core/flare are additive while its
+ *  shockwave ring, dust wash and drifting smoke are not, all under one
+ *  `above_units` emitter. Callers already have both the emitter's `layer`
+ *  string and the specific `ParticleSpec` layer in hand at every spawn call
+ *  site, so this takes both rather than either alone. */
+function fxLayerIndex(layer: string | undefined, additive: boolean): number {
+  const above = layer === 'above_units' || layer === 'sky';
+  if (additive) return above ? FX_LAYER_ABOVE_ADDITIVE : FX_LAYER_BELOW_ADDITIVE;
+  return above ? FX_LAYER_ABOVE : FX_LAYER_BELOW;
 }
 
 /**
@@ -840,8 +865,28 @@ export class ThreeRenderer implements Renderer {
   private readonly emitterLibrary = new EmitterLibrary();
   private particleSystem: ParticleSystem | null = null;
   private tracers: TracerModel[] = [];
-  private readonly particleInstancerBelow = new ParticleInstancer(PARTICLE_CAPACITY, FX_LAYER_BELOW, true);
-  private readonly particleInstancerAbove = new ParticleInstancer(PARTICLE_CAPACITY, FX_LAYER_ABOVE, false);
+  private readonly particleInstancerBelow = new ParticleInstancer(PARTICLE_CAPACITY, FX_LAYER_BELOW, true, false);
+  private readonly particleInstancerAbove = new ParticleInstancer(PARTICLE_CAPACITY, FX_LAYER_ABOVE, false, false);
+  /**
+   * Additive siblings of the two instancers above -- see `FX_LAYER_BELOW`'s
+   * own doc comment and `units/fx.ts`'s `createParticleMaterial` for the
+   * full reasoning. Exist unconditionally from construction, same as their
+   * normal siblings, so `frame()` always has something to call `.update()`
+   * on regardless of whether any emitter has spawned an additive particle
+   * yet.
+   */
+  private readonly particleInstancerBelowAdditive = new ParticleInstancer(
+    PARTICLE_CAPACITY,
+    FX_LAYER_BELOW_ADDITIVE,
+    true,
+    true
+  );
+  private readonly particleInstancerAboveAdditive = new ParticleInstancer(
+    PARTICLE_CAPACITY,
+    FX_LAYER_ABOVE_ADDITIVE,
+    false,
+    true
+  );
   private readonly tracerBatch = new TracerBatch(TRACER_CAPACITY);
 
   /**
@@ -994,7 +1039,13 @@ export class ThreeRenderer implements Renderer {
     // stay that way until there is something to draw, the same "always
     // present, draws nothing until fed" shape terrain's own meshes have
     // before the first rebuildTerrain.
-    this.scene.add(this.particleInstancerBelow.mesh, this.particleInstancerAbove.mesh, this.tracerBatch.mesh);
+    this.scene.add(
+      this.particleInstancerBelow.mesh,
+      this.particleInstancerAbove.mesh,
+      this.particleInstancerBelowAdditive.mesh,
+      this.particleInstancerAboveAdditive.mesh,
+      this.tracerBatch.mesh
+    );
     // Same "always present, draws nothing until fed" shape as the FX meshes
     // just above -- both start at drawRange 0 (`beginFrame`/`endFrame`
     // haven't run yet) and stay that way until `updateOverlays`'s first
@@ -1172,6 +1223,8 @@ export class ThreeRenderer implements Renderer {
     this.collapsing.length = 0;
     this.particleInstancerBelow.dispose();
     this.particleInstancerAbove.dispose();
+    this.particleInstancerBelowAdditive.dispose();
+    this.particleInstancerAboveAdditive.dispose();
     this.tracerBatch.dispose();
     // Phase C: same "added once in the constructor, no scene.remove needed"
     // shape as the FX batches just above -- see this file's own comment on
@@ -1607,9 +1660,14 @@ export class ThreeRenderer implements Renderer {
     if (emitter && this.particleSystem) {
       const dirTurns = facingRad / (Math.PI * 2);
       const prio = emitter.budget_priority ?? 5;
-      const fxLayer = fxLayerIndex(emitter.layer);
       for (const layer of emitter.particles) {
         const offset = (layer.direction_offset_deg ?? 0) / 360;
+        // additive is a per-PARTICLE-LAYER field (`fire_apfsds`'s own hot
+        // core is additive; its dust wash and drifting smoke are not, all
+        // under the same `above_units` emitter) -- so the draw-layer lookup
+        // has to happen per layer, not once for the whole emitter the way
+        // `fxLayer` used to be hoisted above this loop.
+        const fxLayer = fxLayerIndex(emitter.layer, layer.additive ?? false);
         this.particleSystem.spawn(layer, mzX, mzY, dirTurns + offset, power, prio, fxLayer);
       }
     } else {
@@ -1693,8 +1751,8 @@ export class ThreeRenderer implements Renderer {
     const em = this.emitterLibrary.byName(id);
     if (!em) return false;
     const prio = em.budget_priority ?? 1;
-    const fxLayer = fxLayerIndex(em.layer);
     for (const layer of em.particles) {
+      const fxLayer = fxLayerIndex(em.layer, layer.additive ?? false);
       // Straight up from the footprint centre; the spec's 360-degree cone
       // and the presentation PRNG inside spawn() do the scattering.
       this.particleSystem.spawn(layer, bx, by, 0.25, 1, prio, fxLayer);
@@ -1816,8 +1874,8 @@ export class ThreeRenderer implements Renderer {
         const anchor = vehicleFxAnchor(this.curX[i], this.curY[i], facingNorm, VEHICLE_DUST_OFFSET_TILES);
         const magnitude = vehicleDustMagnitude(speed);
         const prio = dust.budget_priority ?? 2;
-        const fxLayer = fxLayerIndex(dust.layer);
         for (const layer of dust.particles) {
+          const fxLayer = fxLayerIndex(dust.layer, layer.additive ?? false);
           this.particleSystem.spawn(layer, anchor.x, anchor.y, anchor.dirTurns, magnitude, prio, fxLayer);
         }
       } else {
@@ -1829,8 +1887,8 @@ export class ThreeRenderer implements Renderer {
 
         const anchor = vehicleFxAnchor(this.curX[i], this.curY[i], facingNorm, VEHICLE_EXHAUST_OFFSET_TILES);
         const prio = exhaust.budget_priority ?? 1;
-        const fxLayer = fxLayerIndex(exhaust.layer);
         for (const layer of exhaust.particles) {
+          const fxLayer = fxLayerIndex(exhaust.layer, layer.additive ?? false);
           this.particleSystem.spawn(
             layer,
             anchor.x,
@@ -3180,6 +3238,8 @@ export class ThreeRenderer implements Renderer {
     const elevation = this.retained.elevation;
     this.particleInstancerBelow.update(this.particleSystem, elevation, this.sim.width, this.sim.height);
     this.particleInstancerAbove.update(this.particleSystem, elevation, this.sim.width, this.sim.height);
+    this.particleInstancerBelowAdditive.update(this.particleSystem, elevation, this.sim.width, this.sim.height);
+    this.particleInstancerAboveAdditive.update(this.particleSystem, elevation, this.sim.width, this.sim.height);
     this.tracers = stepTracers(this.tracers, dtSeconds);
     this.tracerBatch.update(this.tracers, this.opts.tracerColors, elevation, this.sim.width, this.sim.height);
   }

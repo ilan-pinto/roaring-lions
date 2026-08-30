@@ -38,8 +38,10 @@
  * | 0    | `HULL_RENDER_ORDER`      | every `UnitInstancer` hull mesh -- three.js's own default, never set explicitly. `StructureInstancer` (idle/wreck billboards) ties here too, left at the same unset default -- real depth-tested world geometry, occluding units and buildings against each other purely through the actual depth buffer, exactly like Pixi's own `spriteLayer` depth-sorts buildings and units together by `zIndex` rather than giving buildings a separate paint pass. `STRUCTURE_RENDER_ORDER` (Task B4.4) is this same value, aliased and exported explicitly for the one caller that needs to SET it rather than merely rely on the default -- see that constant's own doc comment below for why. |
  * | 1    | `TURRET_RENDER_ORDER`    | every `UnitInstancer` turret mesh -- must outrank its own hull at a co-located, identical-depth instance (`instances.ts`'s own "why this needs to be explicit" comment) |
  * | 1.5  | `BADGE_NUMERAL_RENDER_ORDER` | Phase C: the control-group badge's NUMERAL only -- see this file's closing paragraphs for why it cannot share `OVERLAY_RENDER_ORDER` (band 4) with the rest of the overlay tier, including its own ring. Deliberately a non-integer: it has to sit strictly between `TURRET_RENDER_ORDER` and `FX_RENDER_ORDER`, and nothing was free there before Phase C claimed it. |
- * | 2    | `FX_RENDER_ORDER`        | `TracerBatch` and the BELOW-tier `ParticleInstancer` (Pixi's `fxG`) -- still depth-tested against terrain/buildings/units, so must outrank every unit mesh, hull AND turret, now that FX's own materials are `depthWrite: false` (`fx.ts`'s "FX-vs-UNIT ordering is a DIFFERENT question") |
- * | 3    | `FX_RENDER_ORDER_ABOVE`  | the ABOVE-tier `ParticleInstancer` (`above_units`-tagged emitters, Pixi's `fxAboveG`) -- `depthTest: false`, unconditionally on top |
+ * | 2    | `FX_RENDER_ORDER`        | `TracerBatch` and the BELOW-tier, normal-blended `ParticleInstancer` (Pixi's `fxG`) -- still depth-tested against terrain/buildings/units, so must outrank every unit mesh, hull AND turret, now that FX's own materials are `depthWrite: false` (`fx.ts`'s "FX-vs-UNIT ordering is a DIFFERENT question") |
+ * | 2.5  | `FX_RENDER_ORDER_ADDITIVE` | the BELOW-tier's `additive`-flagged `ParticleInstancer` (`units/fx.ts`'s `createParticleMaterial`, the `additive` schema field) -- forced-opaque hot-core particles (`vfx.white_hot`-class effects), which must draw AFTER this tier's own normal siblings or an ordinary dust/smoke particle that happens to submit later would opaquely overwrite the hot core it should sit on top of. Not a GPU blend-mode band (`fx.ts`'s own doc comment explains why true `AdditiveBlending` was rejected -- it sums to colours no palette entry names) -- this is still `depthTest: true`, normal-blended-but-forced-to-alpha-1 geometry, one band later than its sibling for exactly the ordering reason just given. |
+ * | 3    | `FX_RENDER_ORDER_ABOVE`  | the ABOVE-tier, normal-blended `ParticleInstancer` (`above_units`-tagged emitters, Pixi's `fxAboveG`) -- `depthTest: false`, unconditionally on top |
+ * | 3.5  | `FX_RENDER_ORDER_ABOVE_ADDITIVE` | the ABOVE-tier's `additive`-flagged `ParticleInstancer` -- same forced-opaque hot-core treatment as band 2.5, one band after `FX_RENDER_ORDER_ABOVE` for the identical reason: it must draw over this tier's own normal siblings (muzzle-flash cores over their own ring/smoke), not the other way around. Every shipped `additive: true` particle today lands here (all eleven `above_units` fire/cigarette emitters) -- band 2.5 exists for schema completeness, not because anything currently populates it. |
  * | 4    | `OVERLAY_RENDER_ORDER`   | Phase C: `OverlayBatch` (`units/overlays.ts`) -- selection rings, HP bars, suppression bars, the control-group badge's RING (not its numeral, see band 1.5 above), order markers, the tutorial focus ring, and the garrison hover highlight. One shared band for the whole tier, matching Pixi's own single `unitsG` exactly (this file's closing paragraphs explain why Pixi has only the one container despite drawing all of this). |
  * | 5    | `SMOKE_RENDER_ORDER`     | Phase D readiness fix: `SmokeMesh` (`../smoke-mesh.ts`) -- one translucent quad per smoked tile. Pixi's own smoke loop draws into the SAME `unitsG` every band-4 overlay does (`renderer.ts`'s smoke block runs later in the identical per-frame method, after the order-marker/tutorial-focus passes, still before `fogG`), so on screen it paints OVER the overlay tier, not merely alongside it -- a dedicated band one above `OVERLAY_RENDER_ORDER`, rather than folding smoke into `OverlayBatch` itself, reproduces that draw-order relationship without depending on which of two independently-constructed meshes happens to get a lower `Object3D.id` (this file's own top comment: id is the tiebreak of last resort, and relying on construction order to encode a real ordering requirement is the exact hazard the badge-numeral/turret history above already paid for once). `depthTest: false`, matching fog and the overlay tier -- Pixi's comment ("drawn over the ground and under the units so troops inside one still read") is about ALPHA legibility (smoke tops out at 0.72), not depth occlusion; Pixi's own container order paints it over units regardless, translucently. |
  * | 6-9  | *(reserved, no constant)* | Still headroom, now that Phase C claimed band 4 and this fix round claimed band 5 -- kept reserved rather than renumbering `FOG_RENDER_ORDER` down, on the same "reserving the NUMBERS costs nothing, reserving unconsumed CONSTANTS recreates the hazard" reasoning this table's top comment already gives. |
@@ -134,7 +136,21 @@ export const TURRET_RENDER_ORDER = 1;
  */
 export const BADGE_NUMERAL_RENDER_ORDER = 1.5;
 export const FX_RENDER_ORDER = 2;
+/**
+ * `additive`-flagged particles at the BELOW-tier (`depthTest: true`) --
+ * forced-opaque hot cores, one band after `FX_RENDER_ORDER` so they draw
+ * over their own tier's ordinary dust/smoke rather than risking being
+ * overwritten by it. See the table's own 2.5 row for the full account,
+ * including why this is not a GPU blend-mode band.
+ */
+export const FX_RENDER_ORDER_ADDITIVE = 2.5;
 export const FX_RENDER_ORDER_ABOVE = 3;
+/**
+ * `additive`-flagged particles at the ABOVE-tier (`depthTest: false`) --
+ * every shipped muzzle-flash core lands here today. See the table's own 3.5
+ * row.
+ */
+export const FX_RENDER_ORDER_ABOVE_ADDITIVE = 3.5;
 /**
  * Phase C: `OverlayBatch` (`units/overlays.ts`) -- every overlay this
  * table's own 4-9 row and closing paragraphs describe, EXCEPT the badge
