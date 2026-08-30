@@ -20,8 +20,12 @@
  * than trying to thread it through every link `menu.ts` builds. An explicit
  * `?renderer=pixi` or `?renderer=three` is both a real, parsed value AND
  * gets written to storage, so it outlives the navigation that carried it.
- * Absent the query param, the last explicit choice wins; absent both, Pixi
- * is still the default — this file does not change that.
+ * Absent the query param, the last explicit choice wins; absent both, the
+ * default is THREE as of Phase D. It was Pixi until then, which is what made
+ * the first bug above invisible: `?renderer=pixi` and an empty query string
+ * genuinely did the same thing, so nothing could tell a working hatch from a
+ * missing one. Flipping the default is what turns that escape hatch from
+ * decoration into the only way back.
  *
  * Pure: two strings in, a decision out. No DOM, no storage I/O — the caller
  * does the read/write so this stays testable without jsdom.
@@ -52,6 +56,6 @@ export function resolveRendererChoice(
   if (requested === 'three' || requested === 'pixi') {
     return { choice: requested, persist: requested };
   }
-  const choice: RendererChoice = stored === 'three' ? 'three' : 'pixi';
+  const choice: RendererChoice = stored === 'pixi' ? 'pixi' : 'three';
   return { choice, persist: null };
 }

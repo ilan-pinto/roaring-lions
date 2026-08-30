@@ -58,7 +58,7 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
     // durable fix short of importing render internals this package is not
     // allowed to import.
     blurb:
-      'pixi (default) | three — which backend draws; an explicit choice persists ' +
+      'three (default) | pixi — which backend draws; an explicit choice persists ' +
       'across missions (see CLAUDE.md "The three.js backend" for current parity)',
   },
   ...SANDBOX_FLAGS,

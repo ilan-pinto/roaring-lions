@@ -506,9 +506,11 @@ async function main(): Promise<void> {
     interceptColor: paletteColor('vfx.interceptor'),
     resolveColor: paletteColor,
   };
-  // Pixi is the default and stays the default until the three.js backend
-  // reaches parity (spec, Phase D). The annotation is what makes this a real
-  // choice: both branches must satisfy `Renderer` or this does not compile.
+  // Three is the default as of Phase D; Pixi remains reachable through
+  // `?renderer=pixi`, which `renderer-choice.ts` persists so it survives the
+  // navigation links `menu.ts` builds. The annotation is what makes this a
+  // real choice: both branches must satisfy `Renderer` or this does not
+  // compile.
   //
   // BOTH backends arrive by dynamic import, from their own entry points --
   // this used to be true only of three. A static `import { ThreeRenderer }

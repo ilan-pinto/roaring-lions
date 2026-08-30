@@ -23,14 +23,18 @@ describe('resolveRendererChoice', () => {
     expect(resolveRendererChoice('three', null)).toEqual({ choice: 'three', persist: 'three' });
   });
 
-  it('defaults to pixi with no param and nothing stored', () => {
-    expect(resolveRendererChoice(null, null)).toEqual({ choice: 'pixi', persist: null });
+  it('defaults to three with no param and nothing stored', () => {
+    expect(resolveRendererChoice(null, null)).toEqual({ choice: 'three', persist: null });
   });
 
   it('falls back to the stored choice when the param is absent -- this is the hatch surviving a menu.ts link', () => {
     // menu.ts hard-codes `?mission=${id}` and drops any query string a
     // player arrived with. This is what makes the choice survive that.
     expect(resolveRendererChoice(null, 'three')).toEqual({ choice: 'three', persist: null });
+    // The mirror, and the one that matters after the Phase D flip: a stored
+    // `pixi` must survive a boot with no query param, or a player who escaped
+    // a three-only bug is silently put back on three next navigation.
+    expect(resolveRendererChoice(null, 'pixi')).toEqual({ choice: 'pixi', persist: null });
   });
 
   it('an explicit param overrides a different stored choice, and re-persists it', () => {
@@ -39,10 +43,10 @@ describe('resolveRendererChoice', () => {
 
   it('treats a typo the same as absent, rather than crashing or silently picking three', () => {
     expect(resolveRendererChoice('threee', 'three')).toEqual({ choice: 'three', persist: null });
-    expect(resolveRendererChoice('threee', null)).toEqual({ choice: 'pixi', persist: null });
+    expect(resolveRendererChoice('threee', null)).toEqual({ choice: 'three', persist: null });
   });
 
   it('ignores garbage in storage rather than trusting it as three', () => {
-    expect(resolveRendererChoice(null, 'nope')).toEqual({ choice: 'pixi', persist: null });
+    expect(resolveRendererChoice(null, 'nope')).toEqual({ choice: 'three', persist: null });
   });
 });
