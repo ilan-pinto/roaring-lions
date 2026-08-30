@@ -21,6 +21,14 @@ export interface ParticleSpec {
   alpha_over_life?: number[];
   additive?: boolean;
   heat_shimmer?: boolean;
+  /** This layer is superseded by a pooled, modelled mesh once one has
+   *  loaded (three.js backend, `&mesh` only) -- `ThreeRenderer.onFire`
+   *  spawns `MuzzleFlashManager` instead of this particle spec when both
+   *  this flag and `MuzzleFlashManager.ready` are true, and falls back to
+   *  spawning the particle exactly as authored otherwise (mesh not loaded,
+   *  `&mesh` off, or Pixi, which never reads this field at all). See
+   *  `packages/render/src/three/units/muzzle-flash.ts`'s own top comment. */
+  mesh_flash?: boolean;
 }
 
 /** One emitter, as authored in data/vfx/*.json. */

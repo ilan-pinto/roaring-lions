@@ -17,7 +17,8 @@
       "size_over_life": [1.0, 0.0],
       "color_over_life": ["vfx.white_hot"],
       "alpha_over_life": [1.0, 0.0],
-      "additive": true
+      "additive": true,
+      "mesh_flash": true
     },
     {
       "sprite": "soft_dot",
@@ -30,7 +31,8 @@
       "size_over_life": [1.0, 0.25],
       "color_over_life": ["vfx.white_hot", "vfx.fire", "vfx.ember"],
       "alpha_over_life": [1.0, 0.6, 0.0],
-      "additive": true
+      "additive": true,
+      "mesh_flash": true
     },
     {
       "sprite": "ring",

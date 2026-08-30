@@ -114,6 +114,7 @@ import { resolveClip, type UnitAnimInput } from '../clip';
 import { dimetricCamera, worldToScreenThree, screenToWorldThree } from './camera';
 import { applyPalettePipeline } from './palette-material';
 import { FlashLightManager } from './flash-light';
+import { MuzzleFlashManager, MUZZLE_FLASH_DEFAULT_DURATION_MS } from './units/muzzle-flash';
 import { buildGround } from './terrain/ground';
 import { buildScatter } from './terrain/scatter';
 import { buildGroves } from './terrain/grove';
@@ -665,6 +666,15 @@ export class ThreeRenderer implements Renderer {
    *  world position (`getWorldPosition`) does not allocate a `THREE.Vector3`
    *  per shot. */
   private readonly scratchMuzzleWorld = new THREE.Vector3();
+  /** Owns the pooled, modelled muzzle-flash mesh
+   *  (`art/meshes/vfx/muzzle_flash.glb`) -- `units/muzzle-flash.ts`'s own
+   *  top comment has the full account. Constructed eagerly (like
+   *  `flashLights` above); its own `InstancedMesh`es exist only once
+   *  `loadMuzzleFlashMesh` resolves, and its three palette colours only
+   *  once `useEmitters` has run -- both are no-ops until then, the same
+   *  "always present, draws nothing until fed" shape every other FX
+   *  instancer in this file already has. */
+  private readonly muzzleFlashes = new MuzzleFlashManager();
 
   /**
    * Per-entity position tracking for interpolation, mirroring
@@ -1338,6 +1348,7 @@ export class ThreeRenderer implements Renderer {
     this.particleInstancerAbove.dispose();
     this.particleInstancerBelowAdditive.dispose();
     this.particleInstancerAboveAdditive.dispose();
+    this.muzzleFlashes.dispose();
     this.tracerBatch.dispose();
     // Phase C: same "added once in the constructor, no scene.remove needed"
     // shape as the FX batches just above -- see this file's own comment on
@@ -1822,6 +1833,16 @@ export class ThreeRenderer implements Renderer {
     const barrelLen = type.isSoft ? 0.4 : 0.8;
     let mzX: number;
     let mzY: number;
+    // Real 3D world height at the muzzle -- read for `MuzzleFlashManager`
+    // alone (a particle never needs this; `units/fx.ts`'s own
+    // `writeParticleInstances` samples ground height itself, live, every
+    // frame, because a particle MOVES -- a flash mesh never does, so it is
+    // simpler and just as correct to capture height once, here, alongside
+    // the X/Z anchor it is spawned at). Do not invent a second anchor: the
+    // mesh-turret branch reads the exact same `scratchMuzzleWorld` the X/Z
+    // lines below it already populate; the fallback branch reads the exact
+    // same `groundWorldY` every particle in this file already anchors to.
+    let mzZ: number;
     if (meshTurretPivot) {
       // Anchor at the mesh vehicle's own turret pivot -- its REAL, per-entity
       // world position (position/rotation set by the last `updateVehicleMeshes`
@@ -1836,9 +1857,11 @@ export class ThreeRenderer implements Renderer {
       meshTurretPivot.getWorldPosition(this.scratchMuzzleWorld);
       mzX = this.scratchMuzzleWorld.x + Math.cos(facingRad) * MESH_TURRET_MUZZLE_TILES;
       mzY = this.scratchMuzzleWorld.z + Math.sin(facingRad) * MESH_TURRET_MUZZLE_TILES;
+      mzZ = this.scratchMuzzleWorld.y;
     } else {
       mzX = this.curX[e.shooter] + Math.cos(facingRad) * barrelLen;
       mzY = this.curY[e.shooter] + Math.sin(facingRad) * barrelLen;
+      mzZ = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, mzX, mzY);
     }
 
     // Which weapon fired decides the signature, not whether the shooter is
@@ -1871,6 +1894,27 @@ export class ThreeRenderer implements Renderer {
       const dirTurns = facingRad / (Math.PI * 2);
       const prio = emitter.budget_priority ?? 5;
       for (const layer of emitter.particles) {
+        // A layer marked mesh_flash is superseded by the pooled, modelled
+        // muzzle-flash mesh once one has loaded (`MuzzleFlashManager.ready`,
+        // `&mesh` only) -- the particle spec stays fully authored underneath
+        // it so Pixi (which never reads this field) and a three.js session
+        // with no mesh loaded both still get the exact particle this
+        // replaces, unchanged. `emitter.light?.decay_ms` doubles as the
+        // mesh's own lifetime -- the same duration the ramp-shift "light"
+        // this shot already spawned (above) decays over, so the two read as
+        // one event rather than two independently-timed effects. See
+        // `units/muzzle-flash.ts`'s own top comment for the full account.
+        if (layer.mesh_flash && this.muzzleFlashes.ready) {
+          this.muzzleFlashes.spawn(
+            mzX,
+            mzZ,
+            mzY,
+            dirTurns,
+            power,
+            emitter.light?.decay_ms ?? MUZZLE_FLASH_DEFAULT_DURATION_MS
+          );
+          continue;
+        }
         const offset = (layer.direction_offset_deg ?? 0) / 360;
         // additive is a per-PARTICLE-LAYER field (`fire_apfsds`'s own hot
         // core is additive; its dust wash and drifting smoke are not, all
@@ -2249,6 +2293,10 @@ export class ThreeRenderer implements Renderer {
     this.emitterLibrary.useEmitters(list);
     const passthroughResolve = (key: string): string => (key.startsWith('#') ? key : resolve(key));
     this.particleSystem = new ParticleSystem(PARTICLE_CAPACITY, passthroughResolve);
+    // Resolves core/mid/outer against the real `resolve` -- safe in either
+    // order against `loadMuzzleFlashMesh`, see `MuzzleFlashManager`'s own
+    // "Two-phase construction" doc comment.
+    this.muzzleFlashes.setColors(resolve);
   }
   /**
    * Load a unit type's sprite sheet and build the `THREE.InstancedMesh`
@@ -2422,6 +2470,23 @@ export class ThreeRenderer implements Renderer {
     for (const material of template.materials) {
       this.flashLights.register(material as THREE.ShaderMaterial);
     }
+  }
+
+  /**
+   * The pooled, modelled muzzle-flash mesh (`units/muzzle-flash.ts`'s own
+   * top comment) -- loads `art/meshes/vfx/muzzle_flash.glb` ONCE (there is
+   * only one asset, unlike `loadVehicleMesh`/`loadMeshUnit`, which key a
+   * per-unit-type map) and adds its three pooled `InstancedMesh` zones to
+   * the scene. Called once by `main.ts`, inside the same `flags.mesh`
+   * branch every other mesh asset in this backend already loads from --
+   * `onFire` falls back to the authored particle for any `mesh_flash`
+   * layer until this resolves (`MuzzleFlashManager.ready`), so a caller
+   * that never invokes this at all (Pixi; three.js with `&mesh` off) is a
+   * silent, correct no-op, not a missing effect.
+   */
+  async loadMuzzleFlashMesh(glbUrl: string): Promise<void> {
+    const meshes = await this.muzzleFlashes.load(glbUrl);
+    this.scene.add(...meshes);
   }
 
   /**
@@ -3472,6 +3537,10 @@ export class ThreeRenderer implements Renderer {
     this.particleInstancerAbove.update(this.particleSystem, elevation, this.sim.width, this.sim.height);
     this.particleInstancerBelowAdditive.update(this.particleSystem, elevation, this.sim.width, this.sim.height);
     this.particleInstancerAboveAdditive.update(this.particleSystem, elevation, this.sim.width, this.sim.height);
+    // Ages every active modelled flash and rewrites its own three
+    // InstancedMesh zones -- presentation-only timing, the same footing
+    // every other FX ageing call in this method already stands on.
+    this.muzzleFlashes.step(dtMs);
     this.tracers = stepTracers(this.tracers, dtSeconds);
     this.tracerBatch.update(this.tracers, this.opts.tracerColors, elevation, this.sim.width, this.sim.height);
   }

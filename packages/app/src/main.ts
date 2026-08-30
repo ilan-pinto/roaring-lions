@@ -680,6 +680,15 @@ async function main(): Promise<void> {
           )
         )
       );
+
+      // The modelled muzzle flash (mesh-unit-contract's VFX asset class,
+      // `units/muzzle-flash.ts`'s own top comment) -- one shared asset, not
+      // a per-unit-type map, so this is a single call rather than a
+      // Promise.all over a team/vehicle/building list. Gated behind
+      // `flags.mesh` like every mesh asset above: `onFire` falls back to
+      // the authored particle for any `mesh_flash` layer until this
+      // resolves, so a dev session with the flag off is unaffected.
+      await three.loadMuzzleFlashMesh(new URL('../../../art/meshes/vfx/muzzle_flash.glb', import.meta.url).href);
     }
   } else {
     // Same shape as the three branch above: PixiRenderer's own entry point,

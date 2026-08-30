@@ -29,12 +29,13 @@ ever emit a palette entry, and `mesh-material.test.ts` covers it under
 skinning), but so the rendered silhouette and its on-palette-ness are
 meaningful to check at all.
 
-`art/meshes/` ships three different kinds of mesh, told apart by which
+`art/meshes/` ships four different kinds of mesh, told apart by which
 subdirectory they live in (`art/meshes/vehicles/`, `art/meshes/buildings/`,
-everything else is an infantry team) -- discovered from the path, not from a
-hardcoded per-file list, because other streams are actively adding new GLBs
-under all three and this script must see them without an edit here. Each kind
-has its own closed `rl_role` vocabulary and its own role->colour table:
+`art/meshes/vfx/`, everything else is an infantry team) -- discovered from
+the path, not from a hardcoded per-file list, because other streams are
+actively adding new GLBs under all four and this script must see them
+without an edit here. Each of the first three kinds has its own closed
+`rl_role` vocabulary and its own role->colour table:
 
   * **Infantry teams** reuse `tools/render_team.py`'s `ROLE_PALETTE` /
     `BODY_PALETTE` / `SHARED_PALETTE` directly, by importing that module and
@@ -55,6 +56,21 @@ has its own closed `rl_role` vocabulary and its own role->colour table:
     script resolves it the same way the sprite pipeline's data ultimately
     does: `data/structures.json`'s `types.<id>.color`, read directly (it is
     leaf data, not code) rather than duplicated as a fourth hand-kept table.
+  * **VFX** (`art/meshes/vfx/`, e.g. `muzzle_flash.glb`) is SKIPPED by this
+    gate entirely -- `render_one` returns before importing anything, once
+    `mesh_kind` reads `vfx`. Not an oversight: a modelled VFX asset is not a
+    UNIT, and this gate's whole apparatus (one representative POSE, a
+    silhouette compared for collision against every OTHER unit's own
+    silhouette) answers a question that has no meaning for it -- a muzzle
+    flash reading similar in outline to a rifleman is not the "these read as
+    the same unit in a fight" failure this gate exists to catch. Its own
+    palette discipline is enforced a different, STRONGER way instead
+    (`packages/render/src/three/units/muzzle-flash.ts`'s own top comment:
+    each zone's fragment shader can only ever emit one already-resolved
+    `reserved.vfx` entry, the identical structural guarantee
+    `toonRampMaterial` gives lit geometry) -- there is no rendered PNG this
+    gate could check that would tell you anything the shader does not
+    already guarantee by construction.
 
 None of `render_eitan.py`, `render_d9.py`, or `render_building.py` is
 imported for its table: each performs real work at module scope from a
@@ -179,8 +195,8 @@ def is_skinned(glb_json):
 
 
 def mesh_kind(glb_path):
-    """'vehicle' / 'building' / 'infantry', from which subdirectory of
-    art/meshes/ the file lives in -- see this file's module docstring for
+    """'vehicle' / 'building' / 'vfx' / 'infantry', from which subdirectory
+    of art/meshes/ the file lives in -- see this file's module docstring for
     why path, not content, is the discovery signal."""
     rel = os.path.relpath(os.path.abspath(glb_path), MESHES_DIR)
     top = rel.split(os.sep)[0]
@@ -188,6 +204,8 @@ def mesh_kind(glb_path):
         return "vehicle"
     if top == "buildings":
         return "building"
+    if top == "vfx":
+        return "vfx"
     return "infantry"
 
 
@@ -329,6 +347,18 @@ def apply_building_materials(mesh_objs, unit_id):
 def render_one(glb_path, out_root):
     unit_id = os.path.splitext(os.path.basename(glb_path))[0]
     kind = mesh_kind(glb_path)
+    if kind == "vfx":
+        # Not a unit -- see this module's own docstring, "VFX is SKIPPED by
+        # this gate entirely", for why no representative pose or silhouette
+        # comparison applies. Prints through the existing MESH_GATE_WARN
+        # channel (validate_mesh_assets.py already parses and surfaces it as
+        # `[warn]`) rather than a new prefix that script would not read --
+        # and, deliberately, neither MESH_GATE_OK nor MESH_GATE_FAIL: no PNG
+        # is produced, so this id never enters the palette/framing/
+        # silhouette checks either, which is the whole point of the skip.
+        print(f"MESH_GATE_WARN: {unit_id}: vfx-class mesh -- skipped by this "
+              f"gate (not a unit; see tools/render_mesh_gate.py's own docstring)")
+        return
     glb_json = read_glb_json(glb_path)
     skinned = is_skinned(glb_json)
     if skinned != (kind == "infantry"):
