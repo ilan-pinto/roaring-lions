@@ -616,3 +616,241 @@ run('beit_sahwan_4_subterranean', (sim, _rt, ids, at) => {
   at(45, () => sim.queueCommand({ kind: 'chargeTunnel', ids: east, tunnel: 1 }));
   at(50, () => sim.queueCommand({ kind: 'attackMove', ids: escort, ...M(30, 17) }));
 }, led4In);
+
+// --- Sur: Tel Marum -----------------------------------------------------------
+
+// Tel Marum I — the picture, taken from dead ground.
+//
+// Round 1 shipped `picture` as an untargeted `locate` (count N of ANY
+// identified hostile). That was the actual bug: it let the pursuit waves
+// below feed the same objective they were meant to punish passivity for
+// dodging, so a heavy wave produced a free VICTORY for a player who gave no
+// orders, and a light one produced a stalemate no wave volume could break.
+// The primary is now four separately TARGETED `locate`s -- one per named
+// garrison tag (tm_pocket_east, tm_pocket_west, tm_spotter_west,
+// tm_hvt_battery) -- exactly the shape `beit_sahwan_1_recon`'s `hvt_seen`
+// already ships. A wave unit carries no such tag, so it is structurally
+// unable to complete any of the four; only genuine recon of the wall and
+// the battery can.
+//
+// The approach at (24,25) still gives three of the four for free (sight 16
+// reaches both ATGM pockets and the spotter from there, ~9-10 tiles out).
+// `find_battery` costs the sweep: the battery sits 18.6 tiles from the
+// approach, past sight 16, and the straight route north runs through the
+// wide pass at x=22-26 -- exactly what tm_picket_wide (sarim_rifles, weapon
+// range 8) is posted to cover, which is what killed the drone at 44.5s in
+// an earlier attempt that went straight up the middle. The shipped route
+// goes around instead: south and west off the wall's engagement envelope
+// entirely, up the narrow saddle at x=11 (nothing in this garrison reaches
+// that column), then east to a standoff point that sees the battery at
+// range 10.6 -- outside both rifle squads' weapon range and sight the whole
+// way, checked leg by leg, not just at the endpoints.
+//
+// Control: a player who gives no orders never moves the drone, so none of
+// the four primaries can complete on their own -- and now, unlike round 1,
+// nothing a wave carries can complete them either (a wave unit has no
+// tm_pocket_east/tm_pocket_west/tm_spotter_west/tm_hvt_battery tag, so it is
+// structurally unable to satisfy a targeted `locate`). That closes the
+// round-1 exploit: this control cannot WIN, which is a real assertion --
+// round 1's untargeted `picture` could be won by a passive player for free.
+//
+// It still cannot LOSE either, and BOUNDED FALLBACK authorised: this was
+// tried honestly before falling back. Wiping this mission's starting force
+// (Eitan APC 1600 hp/220 front armour, Spike AT team, three rifle squads,
+// jeep_shoded) takes real volume -- both AT-capable types in this garrison
+// are ground-only (`can_target: ["ground"]`), so a wave built from them
+// alone can kill every crewed unit and still never touch `recon_drone`
+// (air): confirmed directly, an all-AT-team wave series left the drone the
+// sole survivor, unkillable, for the rest of the 20 minutes, so every wave
+// below needs a sarim_rifles (the garrison's only air-capable weapon)
+// alongside the anti-armour pair. With that fixed, volume is what's left to
+// tune, and it does not scale gently: 6 waves of 4 (24 attackers, every 90s
+// to 600s) leaves ONE player unit alive and unreachable for the rest of the
+// cap; 7 waves of 4 (28 attackers, to 690s) wipes the defenders cleanly at
+// 742.6s (12.4 min). There is no gradual middle -- below the threshold the
+// mission gets permanently stuck, not gracefully close. 28 attackers in
+// sustained pursuit for 10+ minutes is a stand-up battle, not a pursuit
+// response to a recon patrol that "brings back the picture, not
+// casualties" -- so per the bounded fallback, the light 3-wave/4-unit
+// pursuit below ships instead (thematically real, and harmless to the
+// scripted run, which resolves at 0.9 min, before the first wave even
+// spawns at 150s), and the control's expectation stays `ongoing`: unable to
+// WIN (closed exploit, verified) and, at a volume this mission can still
+// call a recon, unable to LOSE either.
+run('tel_marum_1_recon', () => {}, {}, 'ongoing', 'tel_marum_1_recon (passive control)');
+
+run(
+  'tel_marum_1_recon',
+  (sim, _rt, ids, at) => {
+    const drone = ids('recon_drone');
+    const screen = ids('apc_eitan');
+    const foot = ids('inf_squad');
+    at(4, () => {
+      // Screen forward to the hollow and stop there — out of the envelope.
+      sim.queueCommand({ kind: 'move', ids: screen, ...M(24, 30) });
+      sim.queueCommand({ kind: 'move', ids: foot, ...M(23, 31) });
+      // The drone alone goes into the envelope. From the approach alone,
+      // sight 16 already reaches both ATGM pockets and the spotter (all
+      // three complete by ~t=16s, well before the next order below fires).
+      sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 25) });
+    });
+    // find_battery is the one the approach cannot give for free: the battery
+    // sits 18.6 tiles out from there, past sight 16. The straight route north
+    // runs through the wide pass at x=22-26, which is exactly what
+    // tm_picket_wide (sarim_rifles, weapon range 8) is posted to cover --
+    // closing on it is what killed the drone at 44.5s in the round-2 replay.
+    // So the drone goes around: south and west off the wall's engagement
+    // envelope entirely, up the UNGUARDED narrow saddle at x=11 (nothing in
+    // this garrison can reach that column), then east to a standoff point
+    // north of the wall that sees the battery at range 10.6 -- outside both
+    // rifle squads' weapon range (8) and sight (9) throughout, by margins of
+    // 1-7.5 tiles at every leg (checked against both tm_picket_wide and
+    // tm_spotter_west along the full path, not just the endpoints).
+    at(20, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(16, 27) }));
+    at(28, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(11, 22) }));
+    at(35, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(11, 12) }));
+    at(44, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(15, 8) }));
+  },
+  {},
+  'victory',
+  'tel_marum_1_recon'
+);
+
+// Tel Marum II — the start line, and the man who calls the fire.
+//
+// The approach is 35 tiles. The design doc's 18-of-35 figure came from the
+// doctrine test's 48-sight OBSERVER, walking terrain, not from the garrison
+// unit actually posted there: `tm_spotter_west` is sarim_rifles, sight 9. At
+// that sight the real count is smaller, roughly 15 — approximate, not
+// re-measured through the real Sim here. The plan takes the southern edge of
+// the zone, which counts for the hold and is the cheapest ground in it, then
+// sends infantry up the west side of the bay to kill the observer. Killing
+// him removes one contact feeding the battery, but `sim.ts:2073` identifies
+// per side, not per unit — other garrison Sarim can still hand the Grad eyes
+// on the zone, so the hold is not proven uncontested by this kill alone (see
+// mission II's own briefing, which already carries this caveat).
+//
+// Control: a player who gives no orders never enters the approach, so
+// hold_for never starts and kill_spotter never fires. Neither primary can
+// go to 'failed', though: `hold_for` and `eliminate_hvt` are not among the
+// three objective types `checkEnd` can ever fail (only `raze`, `collapse`,
+// both seconds-gated, and `evacuate_before` can -- mission.ts:1361/1372/1423),
+// and `checkEnd` (mission.ts:1434+) otherwise loses only on a wipe or an ROE
+// collapse. The passive force sits at [24,44], 38 tiles from the battery
+// (out of its 20-tile reach) behind a standoff garrison that will not come
+// to it, so it is never wiped either. Observed, not assumed: this control
+// stays ONGOING for the full 20-minute cap, exactly as Task 2's did.
+// Unlike mission I's control, no wave-volume wipe was attempted for this
+// mission -- the 'ongoing' ruling here is inherited from I's method, not
+// backed by its own 24-stall/28-wipe-style measurement.
+run('tel_marum_2_foothold', () => {}, {}, 'ongoing', 'tel_marum_2_foothold (passive control)');
+
+run(
+  'tel_marum_2_foothold',
+  (sim, _rt, ids, at) => {
+    const armour = ids('apc_eitan');
+    const tank = ids('mbt_lavi');
+    const foot = ids('inf_squad');
+    const at_ = ids('at_team');
+    const mortar = ids('mortar_team');
+    at(3, () => {
+      // Into the southern edge of the approach zone — inside it for the hold,
+      // furthest from the battery.
+      sim.queueCommand({ kind: 'move', ids: armour, ...M(23, 26) });
+      sim.queueCommand({ kind: 'move', ids: tank, ...M(26, 26) });
+      sim.queueCommand({ kind: 'move', ids: at_, ...M(25, 26) });
+      // Mortar stays in the hollow: 18 tiles of reach covers the bay lip from
+      // ground the Grad cannot touch.
+      sim.queueCommand({ kind: 'move', ids: mortar, ...M(24, 29) });
+    });
+    at(20, () => {
+      // Infantry up the west side toward the pocket.
+      sim.queueCommand({ kind: 'move', ids: foot, ...M(20, 22) });
+    });
+    at(70, () => {
+      sim.queueCommand({ kind: 'move', ids: foot, ...M(20, 17) });
+    });
+    at(110, () => {
+      sim.queueCommand({ kind: 'attackMove', ids: foot, ...M(20, 16) });
+    });
+  },
+  {},
+  'victory',
+  'tel_marum_2_foothold'
+);
+
+// Tel Marum III — the pass, taken the expensive way on purpose.
+//
+// The plan takes the WIDE saddle. That is the costly route and it is chosen
+// deliberately: the narrow saddle is nine tiles longer, and while the Grad
+// reaches it at 17 tiles, measurement showed the observer at [12,4] does not
+// change that price -- narrow-with-spotter-alive (5.2 min) and
+// narrow-with-spotter-dead (5.1 min) are the same run (see the Tel Marum
+// saddle bullet in CLAUDE.md). The narrow route's real cost is
+// force-splitting, not this observer. A scripted proof should demonstrate
+// the mission is winnable by the obvious line, not by the clever one.
+//
+// Mortars kill the west pocket's observer from the hollow first, because every
+// tile of the wide saddle is inside the Grad's reach and being seen there is
+// what makes it lethal rather than merely defended.
+//
+// Control: primaries are `capture` (take_pass) and `eliminate_hvt`
+// (kill_battery), and neither is among the three objective types `checkEnd`
+// can ever fail (only `raze`, `collapse`, both seconds-gated, and
+// `evacuate_before` -- mission.ts:1361/1372/1423), so a passive run cannot
+// lose on an objective going 'failed'. checkEnd otherwise loses only on a
+// wipe or an ROE collapse. The passive force sits at [24,44], 38 tiles from
+// the battery (out of its 20-tile reach) behind a standoff garrison that will
+// not come to it, so it is never wiped either. Observed, not assumed: this
+// control stays ONGOING for the full 20-minute cap, exactly as Task 2's did.
+// As with II, no wave-volume wipe was attempted for this mission -- the
+// 'ongoing' ruling is inherited from I's method, not backed by its own
+// 24-stall/28-wipe-style measurement.
+run('tel_marum_3_clearance', () => {}, {}, 'ongoing', 'tel_marum_3_clearance (passive control)');
+
+run(
+  'tel_marum_3_clearance',
+  (sim, _rt, ids, at) => {
+    const tanks = ids('mbt_lavi');
+    const namer = ids('ifv_namer');
+    const armour = ids('apc_eitan');
+    const foot = ids('inf_squad');
+    const at_ = ids('at_team');
+    const mortar = ids('mortar_team');
+    at(3, () => {
+      // Mortar into the hollow — 18 tiles of reach onto the wall, out of the
+      // Grad's 20-tile circle at 23.
+      sim.queueCommand({ kind: 'move', ids: mortar, ...M(24, 29) });
+      sim.queueCommand({ kind: 'move', ids: at_, ...M(25, 28) });
+      sim.queueCommand({ kind: 'move', ids: foot, ...M(23, 27) });
+    });
+    at(30, () => {
+      // Kill the west observer before anything crosses the approach.
+      sim.queueCommand({ kind: 'attackMove', ids: mortar, ...M(20, 16) });
+    });
+    at(85, () => {
+      // Armour forward through the approach to the wide saddle mouth.
+      sim.queueCommand({ kind: 'move', ids: armour, ...M(23, 22) });
+      sim.queueCommand({ kind: 'move', ids: tanks, ...M(25, 22) });
+      sim.queueCommand({ kind: 'move', ids: namer, ...M(24, 23) });
+    });
+    at(130, () => {
+      sim.queueCommand({ kind: 'attackMove', ids: tanks, ...M(28, 16) });
+      sim.queueCommand({ kind: 'attackMove', ids: namer, ...M(20, 16) });
+    });
+    at(190, () => {
+      sim.queueCommand({ kind: 'move', ids: tanks, ...M(24, 13) });
+      sim.queueCommand({ kind: 'move', ids: armour, ...M(24, 14) });
+      sim.queueCommand({ kind: 'move', ids: foot, ...M(24, 15) });
+    });
+    at(240, () => {
+      // Into the pass zone, then the battery beyond it.
+      sim.queueCommand({ kind: 'move', ids: foot, ...M(24, 12) });
+      sim.queueCommand({ kind: 'move', ids: armour, ...M(23, 12) });
+      sim.queueCommand({ kind: 'attackMove', ids: tanks, ...M(25, 6) });
+    });
+  },
+  {},
+  'victory',
+  'tel_marum_3_clearance'
+);

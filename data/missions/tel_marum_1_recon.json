@@ -1,0 +1,135 @@
+{
+  "id": "tel_marum_1_recon",
+  "name": "Tel Marum I — The Gateway",
+  "town": "tel_marum",
+  "phase": "recon",
+  "target_minutes": 7,
+  "briefing": "Sur begins at the pass, and the pass is watched. Rockets have been falling on the north for a week and nobody can say from where, so tonight you find out. Push the drone up the valley and build the picture — two ATGM pockets on the wall, a Grad section behind it, and whoever is feeding them targets. Keep the metal in the hollow: the valley floor south of it is out of the battery's reach, and everything north of it is not. Bring back the picture, not casualties.",
+  "map": {
+    "file": "tel_marum",
+    "player_start": [24, 44]
+  },
+  "ledger": {
+    "requires": ["roster.surviving_units"],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions",
+      "intel.marked_positions"
+    ]
+  },
+  "starting_force": [
+    { "unit": "recon_drone", "count": 1, "at": [24, 42] },
+    { "unit": "jeep_shoded", "count": 1, "at": [22, 43] },
+    { "unit": "inf_squad", "count": 3, "at": [24, 44], "from_ledger": true },
+    { "unit": "at_team", "count": 1, "at": [27, 44], "from_ledger": true },
+    { "unit": "apc_eitan", "count": 1, "at": [22, 45] }
+  ],
+  "objectives": [
+    {
+      "id": "find_pocket_east",
+      "type": "locate",
+      "primary": true,
+      "target": "tm_pocket_east",
+      "text": "Identify the eastern ATGM pocket"
+    },
+    {
+      "id": "find_pocket_west",
+      "type": "locate",
+      "primary": true,
+      "target": "tm_pocket_west",
+      "text": "Identify the western ATGM pocket"
+    },
+    {
+      "id": "find_spotter",
+      "type": "locate",
+      "primary": true,
+      "target": "tm_spotter_west",
+      "text": "Identify whoever is spotting for the battery"
+    },
+    {
+      "id": "find_battery",
+      "type": "locate",
+      "primary": true,
+      "target": "tm_hvt_battery",
+      "text": "Find the Grad section behind the wall"
+    },
+    {
+      "id": "screen_out",
+      "type": "survive_until",
+      "primary": false,
+      "seconds": 240,
+      "text": "Stay in the field for four minutes"
+    }
+  ],
+  "roe": {
+    "enabled": true
+  },
+  "enemy": {
+    "faction": "sarim",
+    "doctrine_profile": "standoff overwatch",
+    "garrison": [
+      {
+        "unit": "atgm_cell",
+        "count": 1,
+        "at": [28.5, 16.5],
+        "facing_deg": 180,
+        "tag": "tm_pocket_east"
+      },
+      {
+        "unit": "atgm_cell",
+        "count": 1,
+        "at": [19.5, 16.5],
+        "facing_deg": 180,
+        "tag": "tm_pocket_west"
+      },
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [20.5, 16.5],
+        "facing_deg": 180,
+        "tag": "tm_spotter_west"
+      },
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [24.5, 13.5],
+        "facing_deg": 180,
+        "tag": "tm_picket_wide"
+      },
+      {
+        "unit": "recoilless_team",
+        "count": 1,
+        "at": [26.5, 16.5],
+        "facing_deg": 180,
+        "stance": { "kind": "ambush", "tiles": 4 },
+        "tag": "tm_bay_lip"
+      },
+      {
+        "unit": "rocket_battery",
+        "count": 1,
+        "at": [25.5, 6.5],
+        "facing_deg": 180,
+        "tag": "tm_hvt_battery"
+      }
+    ],
+    "waves": [
+      {
+        "at_seconds": 150,
+        "to": "hollow",
+        "units": [{ "unit": "sarim_rifles", "count": 1, "from": "town_edge" }]
+      },
+      {
+        "at_seconds": 260,
+        "to": "start_line",
+        "units": [{ "unit": "sarim_rifles", "count": 2, "from": "town_edge" }]
+      },
+      {
+        "at_seconds": 380,
+        "to": "start_line",
+        "units": [{ "unit": "recoilless_team", "count": 1, "from": "town_edge" }]
+      }
+    ]
+  },
+  "triggers": []
+}

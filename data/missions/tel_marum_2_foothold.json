@@ -1,0 +1,109 @@
+{
+  "id": "tel_marum_2_foothold",
+  "name": "Tel Marum II — The Start Line",
+  "town": "tel_marum",
+  "phase": "foothold",
+  "target_minutes": 6,
+  "briefing": "The picture says the Grad cannot see past the wall — it doesn't have to. It fires wherever the Sarim line can see, and the best eyes on that ground belong to the man in the west pocket. Take the approach and hold it for four minutes while the engineers mark the start line behind you. Kill him and the shelling slackens — he is not the only pair of eyes on that ground, so do not expect it to stop. Not every tile of the approach is watched: pick your ground before you are made to.",
+  "map": {
+    "file": "tel_marum",
+    "player_start": [24, 44]
+  },
+  "ledger": {
+    "requires": ["roster.surviving_units", "intel.marked_positions"],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions"
+    ]
+  },
+  "starting_force": [
+    { "unit": "inf_squad", "count": 3, "at": [24, 44], "from_ledger": true },
+    { "unit": "at_team", "count": 1, "at": [27, 44], "from_ledger": true },
+    { "unit": "apc_eitan", "count": 2, "at": [22, 45] },
+    { "unit": "mbt_lavi", "count": 1, "at": [26, 45] },
+    { "unit": "mortar_team", "count": 1, "at": [24, 46] }
+  ],
+  "objectives": [
+    {
+      "id": "hold_approach",
+      "type": "hold_for",
+      "primary": true,
+      "target": "approach",
+      "seconds": 240,
+      "text": "Hold the approach for four minutes"
+    },
+    {
+      "id": "kill_spotter",
+      "type": "eliminate_hvt",
+      "primary": true,
+      "target": "tm_spotter_west",
+      "text": "Kill the observer in the west pocket — the shelling will ease, not stop"
+    }
+  ],
+  "roe": {
+    "enabled": true
+  },
+  "enemy": {
+    "faction": "sarim",
+    "doctrine_profile": "standoff overwatch",
+    "garrison": [
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [20.5, 16.5],
+        "facing_deg": 180,
+        "tag": "tm_spotter_west"
+      },
+      {
+        "unit": "atgm_cell",
+        "count": 1,
+        "at": [19.5, 16.5],
+        "facing_deg": 180,
+        "tag": "tm_pocket_west"
+      },
+      {
+        "unit": "atgm_cell",
+        "count": 1,
+        "at": [28.5, 16.5],
+        "facing_deg": 180,
+        "tag": "tm_pocket_east"
+      },
+      {
+        "unit": "recoilless_team",
+        "count": 1,
+        "at": [26.5, 16.5],
+        "facing_deg": 180,
+        "stance": { "kind": "ambush", "tiles": 4 },
+        "tag": "tm_bay_lip"
+      },
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [24.5, 13.5],
+        "facing_deg": 180,
+        "tag": "tm_picket_wide"
+      },
+      {
+        "unit": "rocket_battery",
+        "count": 1,
+        "at": [25.5, 6.5],
+        "facing_deg": 180,
+        "tag": "tm_hvt_battery"
+      }
+    ],
+    "waves": [
+      {
+        "at_seconds": 120,
+        "to": "saddle_wide",
+        "units": [{ "unit": "sarim_rifles", "count": 1, "from": "town_edge" }]
+      },
+      {
+        "at_seconds": 210,
+        "to": "saddle_wide",
+        "units": [{ "unit": "recoilless_team", "count": 1, "from": "town_edge" }]
+      }
+    ]
+  },
+  "triggers": []
+}

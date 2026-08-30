@@ -1,0 +1,127 @@
+{
+  "id": "tel_marum_3_clearance",
+  "name": "Tel Marum III — The Pass",
+  "town": "tel_marum",
+  "phase": "clearance",
+  "target_minutes": 7,
+  "briefing": "Two ways through the wall and neither is free. The wide saddle lies under both Kornet pockets and will cost you vehicles. The narrow one is nine tiles longer and no missile reaches it — the Grad's rockets do, at seventeen, but the only Sarim eyes over that corridor sit at its northern mouth and see no further, so most of its length goes unwatched. Mind the town block behind the pass: it stands two tiles from the battery you are ordered to destroy, which is the one place heavy ordnance is guaranteed to land. Take the pass, and put the battery out of the war.",
+  "map": {
+    "file": "tel_marum",
+    "player_start": [24, 44]
+  },
+  "ledger": {
+    "requires": ["roster.surviving_units"],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions"
+    ]
+  },
+  "starting_force": [
+    { "unit": "inf_squad", "count": 3, "at": [24, 44], "from_ledger": true },
+    { "unit": "at_team", "count": 1, "at": [27, 44], "from_ledger": true },
+    { "unit": "mbt_lavi", "count": 2, "at": [26, 45] },
+    { "unit": "apc_eitan", "count": 2, "at": [22, 45] },
+    { "unit": "ifv_namer", "count": 1, "at": [20, 45] },
+    { "unit": "mortar_team", "count": 1, "at": [24, 46] },
+    { "unit": "recon_drone", "count": 1, "at": [22, 43] }
+  ],
+  "objectives": [
+    {
+      "id": "take_pass",
+      "type": "capture",
+      "primary": true,
+      "target": "pass",
+      "seconds": 20,
+      "text": "Take the pass and hold it for 20 seconds"
+    },
+    {
+      "id": "kill_battery",
+      "type": "eliminate_hvt",
+      "primary": true,
+      "target": "tm_hvt_battery",
+      "text": "Destroy the Grad section"
+    }
+  ],
+  "roe": {
+    "enabled": true,
+    "flagged_zones": ["town_block"],
+    "fail_below": 45
+  },
+  "enemy": {
+    "faction": "sarim",
+    "doctrine_profile": "standoff overwatch",
+    "garrison": [
+      {
+        "unit": "atgm_cell",
+        "count": 1,
+        "at": [19.5, 16.5],
+        "facing_deg": 180,
+        "tag": "tm_pocket_west"
+      },
+      {
+        "unit": "atgm_cell",
+        "count": 1,
+        "at": [28.5, 16.5],
+        "facing_deg": 180,
+        "tag": "tm_pocket_east"
+      },
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [20.5, 16.5],
+        "facing_deg": 180,
+        "tag": "tm_spotter_west"
+      },
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [12.5, 4.5],
+        "facing_deg": 180,
+        "tag": "tm_spotter_narrow"
+      },
+      {
+        "unit": "recoilless_team",
+        "count": 1,
+        "at": [26.5, 16.5],
+        "facing_deg": 180,
+        "stance": { "kind": "ambush", "tiles": 4 },
+        "tag": "tm_bay_lip"
+      },
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [24.5, 13.5],
+        "facing_deg": 180,
+        "tag": "tm_picket_wide"
+      },
+      {
+        "unit": "manpad_team",
+        "count": 1,
+        "at": [23.5, 8.5],
+        "facing_deg": 180,
+        "tag": "tm_manpad"
+      },
+      {
+        "unit": "rocket_battery",
+        "count": 1,
+        "at": [25.5, 6.5],
+        "facing_deg": 180,
+        "tag": "tm_hvt_battery"
+      }
+    ],
+    "waves": [
+      {
+        "at_seconds": 150,
+        "to": "saddle_narrow",
+        "units": [{ "unit": "sarim_rifles", "count": 1, "from": "sarim_west" }]
+      },
+      {
+        "at_seconds": 240,
+        "to": "pass",
+        "units": [{ "unit": "recoilless_team", "count": 1, "from": "town_edge" }]
+      }
+    ]
+  },
+  "triggers": []
+}
