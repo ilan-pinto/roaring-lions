@@ -303,7 +303,20 @@ backend-only and warns by name on Pixi. Pipeline: `tools/units/kit.py` (geometry
 
 ## Known scaling debts
 
-- Detection is O(N²) pairs per tick — stagger evaluation before unit counts pass ~150.
+- Detection is O(N²) pairs per tick. **The "~150 units" figure this line used to
+  carry was a guess and it was wrong by an order of magnitude** — measured
+  2026-08-30 (`docs/PERFORMANCE.md`, "Sim tick cost"), the 300-unit GDD target
+  runs at **2.08 ms, 4.2% of the 50 ms budget**, and the budget is not crossed
+  until ~1,700–2,100 living units. Nothing needs staggering today.
+  Two corrections worth carrying when it eventually does. **`selectTarget`
+  (`sim.ts:2603`) is a SECOND O(N²) scan** — every living shooter scans every
+  entity for every weapon slot, every tick — and together with `stepDetection`
+  it owns 85–95% of tick cost at every checkpoint. Those two are the targets,
+  not the trail scan below. And **every per-tick scan bounds on `this.count`,
+  the LIFETIME spawn count, never decremented** — so a freshly-spawned
+  2,100-unit world costs 58 ms where the same `this.count` battle-worn costs
+  39 ms. Attrition makes the sim faster, and a long mission with heavy churn
+  keeps paying for units that died an hour ago.
 - Rigged mesh units cap out around **420-460** of the same infantry type, measured
   against a real export on a real `WebGLRenderer` with hardware acceleration
   confirmed, across repeated runs. That clears the GDD's 300-unit target with
