@@ -8,8 +8,9 @@ Working instructions for this repository. Read `docs/GDD.md` for *what the game 
 
 **Roaring Lions** — open-source dimetric RTS in TypeScript. Deterministic simulation, data-driven content, realistic combat resolution.
 
-Two renderer backends live behind one interface. **PixiJS is still the default and
-still ships**; a three.js backend runs under `?renderer=three` and is mid-migration.
+Two renderer backends live behind one interface. **three.js is the default as of
+Phase D (2026-08-30)**; PixiJS still ships and is reachable through
+`?renderer=pixi`, which persists so it survives the links `menu.ts` builds.
 See "The three.js backend" below before touching anything under
 `packages/render/src/three/` — it has its own rules, and several of them invert
 what the Pixi side does.
@@ -174,9 +175,18 @@ The combat model is the product. Everything else is scaffolding around it.
 
 ## The three.js backend
 
-Behind `?renderer=three`. Pixi remains the default. The seam is
-`packages/render/src/api.ts`, and `main.ts` holds a `Renderer`, never a concrete
-backend — so the compiler, not a grep, keeps `app` off backend-only members.
+**The default since Phase D.** Pixi is the escape hatch (`?renderer=pixi`), not
+the baseline. The seam is `packages/render/src/api.ts`, and `main.ts` holds a
+`Renderer`, never a concrete backend — so the compiler, not a grep, keeps `app`
+off backend-only members. Both backends arrive by dynamic import from their own
+entry points, so a player downloads only the one they run.
+
+Two constraints that were true DURING the migration and are worth restating now
+they can be misread. `renderer.ts` was frozen per phase so the cross-renderer
+diff had a fixed reference; with the flip done, that freeze is no longer
+load-bearing and unfreezing it is a decision someone should make deliberately
+rather than assume. And **VFX no longer owe Pixi parity at all** — three-only
+effects are the intended end state.
 
 **Design and outcomes** are in `docs/superpowers/specs/`: the migration design
 (`2026-08-26-three-renderer-design.md`), the palette GO/NO-GO
