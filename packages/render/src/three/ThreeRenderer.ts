@@ -189,6 +189,7 @@ import { computeFog, isFogVisible, type FogInput } from './fog';
 import { FogMesh } from './fog-mesh';
 import { SmokeMesh } from './smoke-mesh';
 import { TrailMesh, collapsedRouteLevel, type TrailInstanceInput } from './trail-mesh';
+import { VehicleTrackMesh, trackKindFor, stepTrackAccum, TRACK_POOL_CAPACITY } from './vehicle-tracks';
 import { billboardPoint, objectiveZoneCorners } from './units/overlay-geometry';
 import {
   OverlayBatch,
@@ -1005,6 +1006,24 @@ export class ThreeRenderer implements Renderer {
    *  out of step with it. */
   private trailMeshDirty = true;
 
+  /**
+   * Vehicle track marks (tread ruts, tyre prints) -- see `./vehicle-tracks
+   * .ts`'s own top comment for the full design account. `vehicleTrackAccumTiles`
+   * is the per-entity distance-since-last-stamp accumulator `stepTrackAccum`
+   * carries forward; `vehicleTrackSeeded` mirrors `turretSeeded`/
+   * `animSeeded`'s own pattern -- an entity's first tick only records its
+   * position, so a freshly spawned or reinforced vehicle does not stamp a
+   * phantom line from `(0, 0)` (the `Float64Array` zero-fill) to its actual
+   * spawn tile. `trackClockMs` is this class's own accumulated `dtMs` total
+   * (never `Date.now()`), the "now" both the stamp TTL and the expiry sweep
+   * read -- see `Renderer.frame`'s own documented contract for why a
+   * backend must not read its own clock.
+   */
+  private readonly vehicleTrackMesh: VehicleTrackMesh;
+  private readonly vehicleTrackAccumTiles: Float64Array;
+  private readonly vehicleTrackSeeded: Uint8Array;
+  private trackClockMs = 0;
+
   constructor(
     private readonly sim: Sim,
     private readonly opts: RendererOptions
@@ -1031,6 +1050,8 @@ export class ThreeRenderer implements Renderer {
     this.vehicleMoving = new Uint8Array(n);
     this.vehicleDustAccumMs = new Float64Array(n);
     this.vehicleExhaustAccumMs = new Float64Array(n);
+    this.vehicleTrackAccumTiles = new Float64Array(n);
+    this.vehicleTrackSeeded = new Uint8Array(n);
     this.fog = new Uint8Array(sim.width * sim.height);
     this.sightByType = new Float64Array(sim.unitTypes.length);
     for (let t = 0; t < sim.unitTypes.length; t++) this.sightByType[t] = fx.toNumber(sim.unitTypes[t].sight);
@@ -1041,6 +1062,13 @@ export class ThreeRenderer implements Renderer {
     // re-resolving per frame -- see trail-mesh.ts's own top comment for why
     // one uniform colour serves the whole mesh.
     this.trailMesh = new TrailMesh(sim.width, sim.height, opts.terrainTones.spoil);
+    // Same "resolve the palette-key colour once, at construction" pattern
+    // as trailMesh just above -- opts.terrainTones.rut is the SAME resolved
+    // hex the static rut painting already uses (`renderer.ts`'s own `rut`
+    // stroke), so a driven-over tile and a hand-painted one read as the
+    // same material. See vehicle-tracks.ts's own top comment for the full
+    // palette/fog/pool-sizing account.
+    this.vehicleTrackMesh = new VehicleTrackMesh(TRACK_POOL_CAPACITY, opts.terrainTones.rut);
     // Phase C: sized off sim.capacity, not a bare constant -- see
     // OVERLAY_VERTICES_PER_ENTITY's own doc comment for the per-entity
     // budget this multiplies, and the "+ 8192" headroom for the handful of
@@ -1099,6 +1127,10 @@ export class ThreeRenderer implements Renderer {
     // scanning this constructor sees ground-plane geometry grouped before
     // the always-on-top fog mesh below it.
     this.scene.add(this.trailMesh.mesh);
+    // Same ground-band placement as trailMesh just above, for the same
+    // "scene-graph position is cosmetic here, renderOrder plus real depth
+    // does the real work" reason -- see vehicle-tracks.ts's own top comment.
+    this.scene.add(this.vehicleTrackMesh.mesh);
     // `SMOKE_RENDER_ORDER` sits above the overlay tier and below fog -- see
     // `smoke-mesh.ts`'s own top comment. Scene-graph position is cosmetic
     // here for the identical reason it is for `fogMesh`/`trailMesh` (three.js
@@ -1291,6 +1323,9 @@ export class ThreeRenderer implements Renderer {
     // just above -- guarded against the identical leak from the start
     // rather than repeating fogMesh's own omit-then-fix history.
     this.trailMesh.dispose();
+    // Same "added once in the constructor, no scene.remove needed" shape as
+    // trailMesh just above.
+    this.vehicleTrackMesh.dispose();
     this.renderer.dispose();
     this.host = null;
   }
@@ -1371,6 +1406,13 @@ export class ThreeRenderer implements Renderer {
       this.trailMesh.update(this.buildTrailInput());
       this.trailMeshDirty = false;
     }
+    // No dirty gate, matching smokeMesh's own "runs every frame()" above --
+    // the sweep is a flat, bounded (TRACK_POOL_CAPACITY) scan, cheap enough
+    // to just always run; see sweepExpiredTrackSlots's own doc comment.
+    // trackClockMs is this backend's own accumulated dtMs total, never a
+    // direct clock read -- see the field's own doc comment.
+    this.trackClockMs += dtMs;
+    this.vehicleTrackMesh.update(this.trackClockMs);
     this.renderer.render(this.scene, this.threeCamera());
   }
 
@@ -1464,6 +1506,46 @@ export class ThreeRenderer implements Renderer {
       const dx = this.curX[i] - this.prevX[i];
       const dy = this.curY[i] - this.prevY[i];
       this.entitySpeed[i] = Math.hypot(dx, dy) * SIM_HZ;
+
+      // Vehicle track marks: tick-driven (not frame-driven), matching this
+      // tick's own exact dx/dy rather than a re-derived speed*dt -- see
+      // ./vehicle-tracks.ts's own top comment for the full design account.
+      // `type.isAir` is checked explicitly (no roster air unit is in
+      // trackKindFor's table today, but heli_peten is armoured and would
+      // have slipped an isSoft-only gate); membership in trackKindFor's own
+      // closed table is what actually excludes every foot/crew-served unit.
+      if (st.alive[i] !== 0) {
+        const type = this.sim.unitTypes[st.typeIdx[i]];
+        if (!type.isAir) {
+          const kind = trackKindFor(type.id);
+          if (kind) {
+            // First tick after spawn/reinforcement only seeds -- avoids a
+            // phantom straight-line stamp from the Float64Array zero-fill
+            // to this entity's real spawn tile, mirroring turretSeeded/
+            // animSeeded's own established pattern above.
+            if (this.vehicleTrackSeeded[i] === 1 && (dx !== 0 || dy !== 0)) {
+              const r = stepTrackAccum(this.vehicleTrackAccumTiles[i], dx, dy);
+              this.vehicleTrackAccumTiles[i] = r.accumTiles;
+              if (r.stamps > 0) {
+                const facingNorm = fx.toNumber(st.facing[i]);
+                for (let s = 0; s < r.stamps; s++) {
+                  this.vehicleTrackMesh.stamp(
+                    this.curX[i],
+                    this.curY[i],
+                    facingNorm,
+                    kind,
+                    this.retained.elevation,
+                    this.sim.width,
+                    this.sim.height,
+                    this.trackClockMs
+                  );
+                }
+              }
+            }
+            this.vehicleTrackSeeded[i] = 1;
+          }
+        }
+      }
     }
   }
 
