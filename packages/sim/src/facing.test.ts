@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
 import { Sim, unitTypeFromJson, type UnitTypeJson } from './sim';
+import { AIM_OFF_HEADING_MAX } from './tuning';
 
 // GDD §5.3 facing, and the one place it is mechanical: the armour arc in
 // `resolveHit`. These tests pin *when a hull is allowed to turn toward what it
@@ -13,6 +14,12 @@ import { Sim, unitTypeFromJson, type UnitTypeJson } from './sim';
 // no turret: the body IS the aim, and it costs them nothing, because their
 // armour is the same from every angle AND soft enough that `resolveHit` never
 // reads facing at all.
+//
+// The second thing pinned here is HOW FAR a hull that is actually walking may
+// turn off its line of march to do it (`AIM_OFF_HEADING_MAX`). Aiming freely
+// while moving is right for the gun and wrong for the feet: there is exactly
+// one movement clip and it is a forward walk, so a body pointing 90° off its
+// direction of travel moonwalks. Stationary hulls keep the free turn.
 
 /** Isotropic and soft: exactly the shape of every infantry type on the roster.
  *  90 deg/s = 4.5 deg/tick, so a quarter turn takes 20 ticks. */
@@ -154,15 +161,23 @@ describe('who is allowed to aim with the whole body', () => {
 });
 
 describe('a moving unit that is firing (GDD §5.3)', () => {
-  it('turns a body-aimed hull onto the target instead of the line of march', () => {
+  it('turns a body-aimed hull toward the target, as far as the walk allows', () => {
     const r = walkAndShoot(RIFLES, 90);
     // The scenario is the point: it must really be moving and really firing.
     expect(r.moving).toBe(1);
     expect(r.target).toBeGreaterThanOrEqual(0);
     expect(r.firedWhileMoving).toBe(true);
-    // Aimed at the enemy, not down the road.
-    expect(turnsApart(r.facing, r.bearing)).toBeLessThan(0.02);
-    expect(turnsApart(r.facing, r.heading)).toBeGreaterThan(0.1);
+    // The enemy starts abeam and ends up behind — always further off the line
+    // of march than a walking hull may point. So the hull turns the whole
+    // allowance and stops there: onto the enemy's side of the road, not onto
+    // the enemy. Aiming the rest of the way is what slid the feet.
+    const off = fx.angleDiff(r.facing, r.heading);
+    expect(Math.abs(off)).toBe(AIM_OFF_HEADING_MAX);
+    expect(Math.sign(off)).toBe(Math.sign(fx.angleDiff(r.bearing, r.heading)));
+    // Closer to the enemy than the road is, so it is aiming and not merely
+    // walking — and not ON the enemy, which is the bound doing its job.
+    expect(turnsApart(r.facing, r.bearing)).toBeLessThan(turnsApart(r.heading, r.bearing));
+    expect(turnsApart(r.facing, r.bearing)).toBeGreaterThan(0.02);
   });
 
   it('leaves a turreted hull pointing where it drives — the armour arc is not the gun', () => {
@@ -200,7 +215,7 @@ describe('the aim survives the rest of the tick', () => {
     const shooter = sim.spawn(st, 0, fx.fromInt(4), fx.fromInt(16));
     const post = sim.spawn(pt, 1, fx.fromInt(4), fx.fromInt(10));
     sim.queueCommand({ kind: 'move', ids: [shooter], x: fx.fromInt(40), y: fx.fromInt(16) });
-    let worst = 0;
+    let nearest = 1;
     let sampled = 0;
     for (let t = 0; t < 160; t++) {
       sim.tick();
@@ -210,12 +225,96 @@ describe('the aim survives the rest of the tick', () => {
         fx.sub(sim.state.posY[post], sim.state.posY[shooter]),
         fx.sub(sim.state.posX[post], sim.state.posX[shooter])
       );
-      worst = Math.max(worst, turnsApart(sim.state.facing[shooter], bearing));
+      // Held at the full allowance, toward the enemy, on every sampled tick.
+      // Steered back would read 0 here; oscillating would read anything else.
+      const off = fx.angleDiff(sim.state.facing[shooter], 0);
+      expect(off).toBe(-AIM_OFF_HEADING_MAX); // the enemy is off to the left
+      expect(Math.sign(fx.angleDiff(bearing, 0))).toBe(-1);
+      nearest = Math.min(nearest, turnsApart(sim.state.facing[shooter], 0));
       sampled++;
     }
     expect(sampled).toBe(70);
-    // Never wanders off the target, on any of the 70 sampled moving ticks.
-    expect(worst).toBeLessThan(0.02);
+    // Never once collapses back onto the line of march.
+    expect(nearest).toBeGreaterThan(0.1);
+  });
+});
+
+describe('how far a walking hull may aim off its line of march', () => {
+  // The bound exists for the ANIMATION, and it is the whole difference between
+  // "advancing while covering that direction" and moonwalking. One movement
+  // clip, and it is a forward walk.
+  it('never points further off the direction of travel than the cap, and uses all of it', () => {
+    // Straight east the whole way, so the heading is exactly 0 every tick and
+    // the deviation needs no interpretation. The enemy starts ahead-left,
+    // inside the cap, and slides abeam as the shooter walks past it — one run,
+    // both regimes, and the test fails if it does not see both.
+    const sim = new Sim({ seed: 11, width: 48, height: 32, capacity: 16 });
+    const st = sim.addUnitType(RIFLES);
+    const pt = sim.addUnitType(POST);
+    const shooter = sim.spawn(st, 0, fx.fromInt(4), fx.fromInt(16));
+    const post = sim.spawn(pt, 1, fx.fromInt(18), fx.fromInt(12));
+    sim.queueCommand({ kind: 'move', ids: [shooter], x: fx.fromInt(40), y: fx.fromInt(16) });
+    let inside = 0;
+    let outside = 0;
+    let worstOff = 0;
+    let worstInsideMiss = 0;
+    let held = 0; // consecutive ticks on the same contact
+    for (let t = 0; t < 300; t++) {
+      sim.tick();
+      expect(sim.state.moving[shooter]).toBe(1);
+      const bearing = fx.atan2(
+        fx.sub(sim.state.posY[post], sim.state.posY[shooter]),
+        fx.sub(sim.state.posX[post], sim.state.posX[shooter])
+      );
+      const off = fx.angleDiff(sim.state.facing[shooter], 0);
+      // THE guard. Holds on every tick of the run, acquired or not.
+      worstOff = Math.max(worstOff, Math.abs(off));
+      held = sim.state.curTarget[shooter] < 0 ? 0 : held + 1;
+      // 4.5 deg/tick: a hull just handed a contact is still swinging onto it,
+      // and that lag is the turn rate, not the bound. Let it arrive first.
+      if (held < 20) continue;
+      const want = fx.angleDiff(bearing, 0);
+      if (Math.abs(want) < AIM_OFF_HEADING_MAX - 1000) {
+        // Target inside the cap: aimed at it, exactly as before the bound.
+        inside++;
+        worstInsideMiss = Math.max(worstInsideMiss, turnsApart(sim.state.facing[shooter], bearing));
+      } else if (Math.abs(want) > AIM_OFF_HEADING_MAX + 1000) {
+        // Target outside it: pinned at the edge, still turned the right way.
+        outside++;
+        expect(off).toBe(-AIM_OFF_HEADING_MAX);
+      }
+    }
+    expect(worstOff).toBeLessThanOrEqual(AIM_OFF_HEADING_MAX);
+    expect(inside).toBeGreaterThan(20);
+    expect(outside).toBeGreaterThan(20);
+    expect(worstInsideMiss).toBeLessThan(0.02);
+  });
+
+  it('does not bound a hull that has stopped walking to fight', () => {
+    // An attack-mover halts on contact (`isEffectivelyMoving`), so `moving` is
+    // 1 and the feet are still. Nothing to contradict: it turns the whole way
+    // onto the target, past the walking cap.
+    const sim = new Sim({ seed: 11, width: 48, height: 32, capacity: 16 });
+    const st = sim.addUnitType(RIFLES);
+    const pt = sim.addUnitType(POST);
+    const shooter = sim.spawn(st, 0, fx.fromInt(4), fx.fromInt(16));
+    const post = sim.spawn(pt, 1, fx.fromInt(4), fx.fromInt(10));
+    sim.queueCommand({ kind: 'attackMove', ids: [shooter], x: fx.fromInt(40), y: fx.fromInt(16) });
+    let haltedAt = -1;
+    for (let t = 0; t < 120; t++) {
+      sim.tick();
+      if (t === 60) haltedAt = sim.state.posX[shooter];
+    }
+    expect(sim.state.moving[shooter]).toBe(1);
+    expect(sim.state.curTarget[shooter]).toBeGreaterThanOrEqual(0);
+    expect(sim.state.posX[shooter]).toBe(haltedAt); // stopped, under a move order
+    const bearing = fx.atan2(
+      fx.sub(sim.state.posY[post], sim.state.posY[shooter]),
+      fx.sub(sim.state.posX[post], sim.state.posX[shooter])
+    );
+    expect(turnsApart(sim.state.facing[shooter], bearing)).toBeLessThan(0.02);
+    // Well past what a walking hull is allowed — the enemy is abeam.
+    expect(Math.abs(fx.angleDiff(sim.state.facing[shooter], 0))).toBeGreaterThan(AIM_OFF_HEADING_MAX);
   });
 });
 
@@ -227,6 +326,21 @@ describe('a stationary unit that is firing', () => {
       expect(r.target).toBeGreaterThanOrEqual(0);
       expect(turnsApart(r.facing, r.bearing)).toBeLessThan(0.02);
     }
+  });
+
+  it('turns the whole way round for a target behind it — no cap when halted', () => {
+    // Dead astern: half a turn, which is four times what a walking hull may
+    // do. A halted unit has no walk cycle to disagree with, and this is the
+    // case the original complaint was about.
+    const sim = new Sim({ seed: 5, width: 48, height: 32, capacity: 8 });
+    const st = sim.addUnitType(RIFLES);
+    const pt = sim.addUnitType(POST);
+    const shooter = sim.spawn(st, 0, fx.fromInt(20), fx.fromInt(16));
+    sim.spawn(pt, 1, fx.fromInt(14), fx.fromInt(16));
+    for (let t = 0; t < 90; t++) sim.tick();
+    expect(sim.state.moving[shooter]).toBe(0);
+    expect(sim.state.curTarget[shooter]).toBeGreaterThanOrEqual(0);
+    expect(turnsApart(sim.state.facing[shooter], 32768)).toBeLessThan(0.02);
   });
 });
 

@@ -365,6 +365,19 @@ describe('determinism (1000-tick replay)', () => {
     // so an isotropic-but-armoured hull would still trade damage for its angle.
     // The hash covers a facing column that now records where infantry are
     // actually looking; it moves, and nothing else does.
+    //
+    // NOT moved, deliberately, by the bound that followed: a hull that is
+    // actually walking may now point at most AIM_OFF_HEADING_MAX (45°) off its
+    // direction of travel, because there is one movement clip and it is a
+    // forward walk — turning the whole way onto a target abeam made infantry
+    // moonwalk. The bound is live in this replay (it engages on four ticks, and
+    // entity 18's facing differs from the unbounded build on ticks 30-37), and
+    // it leaves NO trace at tick 1000: the same full observable diff as above —
+    // 21 state columns, 11 structure columns, all 2036 events — is byte-
+    // identical, hash included, because facing re-converges once the hull stops
+    // or its heading catches up, and nothing reads a soft unit's facing on the
+    // way. So this number is unchanged on purpose. It is also the admission
+    // that this replay does not pin the bound: `facing.test.ts` does.
     expect(a.hash()).toBe(3160666129);
   });
 

@@ -139,6 +139,23 @@ export const VET_SUPP_BONUS = 5243; // -8% per level
  *  minimum profile (GDD §6 behaviour vocabulary). */
 export const AMBUSH_SIG = 32768; // 0.5
 export const DEFAULT_TURN_DEG_S = 360;
+/** How far a WALKING hull may point away from its line of march to aim at
+ *  what it is shooting at, in Q16.16 turns.
+ *
+ *  This is an ANIMATION floor, not a combat knob, and it is the reason it may
+ *  not be "simplified" away. There is exactly one movement clip and it is a
+ *  forward walk, so a hull pointing further off its direction of travel than
+ *  this slides its feet — the moonwalk that turning fully onto the target
+ *  while moving produced. One eighth of a turn is also exactly one flow-field
+ *  octant (`DIR_VX`/`DIR_VY`), so the aim may swing as far as the adjacent
+ *  movement direction and no further; without a cap, a target abeam or behind
+ *  puts the body up to 180° off the walk. Stationary hulls are unaffected —
+ *  they have no walk cycle to contradict and turn onto the target freely.
+ *
+ *  `pnpm balance` cannot move it: the only hulls it applies to are
+ *  `UnitType.bodyAimed` ones (soft AND isotropic), and `resolveHit` returns
+ *  before it ever reads a soft target's facing. */
+export const AIM_OFF_HEADING_MAX = 8192; // 0.125 turns = 45°
 /** Speed right-shift while pinned. Calibrated to 6 (÷64 — effectively
  *  halted): together with pinned-units-hold-fire this is what makes fire
  *  superiority decisive and the urban 3:1 ratio emerge in the backtest.

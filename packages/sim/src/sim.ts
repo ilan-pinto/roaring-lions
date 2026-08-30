@@ -96,6 +96,7 @@ import {
   VET_ACC_BONUS,
   VET_SUPP_BONUS,
   DEFAULT_TURN_DEG_S,
+  AIM_OFF_HEADING_MAX,
   PIN_SPEED_SHIFT,
   ROUT_AFTER_TICKS,
   ROUT_SPEED_SHIFT,
@@ -723,17 +724,32 @@ export class Sim {
   /** 1 when the unit actually changed position this tick. */
   private readonly displaced: Uint8Array;
   /** Set for the tick when stepCombat turned a body-aimed hull onto what it is
-   *  shooting at, so stepMovement leaves that facing alone. Scratch, cleared at
-   *  the top of every stepCombat.
+   *  shooting at, so stepMovement does not simply steer it back. Scratch,
+   *  cleared at the top of every stepCombat.
    *
-   *  This flag is the whole reason the fix works. stepMovement runs AFTER
-   *  stepCombat and turns every mover toward its heading at the same capped
-   *  rate — so without it, the combat turn is undone within the same tick and
-   *  a moving unit's facing never leaves the line of march no matter what
-   *  stepCombat asks for. Not hashed: it carries nothing that `facing` (which
-   *  is hashed) does not already show, and hashing it would give the golden
-   *  hash a second reason to move. */
+   *  This flag is the whole reason aiming on the move works at all.
+   *  stepMovement runs AFTER stepCombat and turns every mover toward its
+   *  heading at the same capped rate — so without it, the combat turn is
+   *  undone within the same tick and a moving unit's facing never leaves the
+   *  line of march no matter what stepCombat asks for. Not hashed: it carries
+   *  nothing that `facing` (which is hashed) does not already show, and
+   *  hashing it would give the golden hash a second reason to move. */
   private readonly aimTurned: Uint8Array;
+  /** The heading stepCombat asked for, and the facing it started from, for a
+   *  hull that aimed on the move this tick. Scratch, meaningful only while
+   *  `aimTurned` is 1, and unhashed for the same reason it is.
+   *
+   *  stepCombat turns the hull immediately, because that is correct for every
+   *  unit that is flagged `moving` but does not actually travel this tick — an
+   *  attack-mover halted on a contact, a hull pressed into a wall. Only
+   *  stepMovement knows both of those things: whether the unit really walked,
+   *  and the heading it walked along. So the combat turn is PROVISIONAL, and
+   *  stepMovement rewinds and redoes it against `AIM_OFF_HEADING_MAX` for the
+   *  units that moved. Rewinding rather than turning a second time keeps the
+   *  hull's turn rate honest — two capped turns in one tick would spin an
+   *  aiming unit at double `turnPerTick`. */
+  private readonly aimDesired: Int32Array;
+  private readonly aimFrom: Int32Array;
   private readonly demoTicks: Int32Array;
   private readonly demoTarget: Int32Array;
   /**
@@ -959,6 +975,8 @@ export class Sim {
     this.garrisonGoal = new Int32Array(n).fill(-1);
     this.displaced = new Uint8Array(n);
     this.aimTurned = new Uint8Array(n);
+    this.aimDesired = new Int32Array(n);
+    this.aimFrom = new Int32Array(n);
     this.demoTicks = new Int32Array(n);
     this.demoTarget = new Int32Array(n).fill(-1);
     this.demolishOrder = new Int32Array(n).fill(-1);
@@ -2853,18 +2871,34 @@ export class Sim {
   /**
    * Point `id` at what it is shooting at, if it is allowed to.
    *
-   * Stationary, everything turns: a halted hull has nothing better to point at.
-   * Moving, only a body-aimed unit turns (see `UnitType.bodyAimed`) — a
-   * turreted vehicle keeps its hull on the line of march and lets the gun
-   * traverse, because its front plate is where its survival lives.
+   * Stationary, everything turns, all the way onto the target: a halted hull
+   * has nothing better to point at and no walk cycle to contradict.
    *
-   * Latches `aimTurned` so stepMovement, which runs later in the same tick and
-   * would otherwise turn the hull straight back down its heading, stands off.
+   * Under a move order, only a body-aimed unit turns (see `UnitType.bodyAimed`)
+   * — a turreted vehicle keeps its hull on the line of march and lets the gun
+   * traverse, because its front plate is where its survival lives. And the turn
+   * taken here is PROVISIONAL: `aimTurned` both stops stepMovement steering the
+   * hull straight back down its heading, and tells it to redo this turn inside
+   * `AIM_OFF_HEADING_MAX` of the direction actually travelled. The turn is
+   * still taken here and now, because `moving` is 1 for plenty of units that do
+   * not travel — an attack-mover halted on a contact, a hull against a wall —
+   * and those want the full stationary turn, which is what they keep by
+   * stepMovement never reaching them. stepCombat proposes; stepMovement, the
+   * only place that knows whether a hull actually walked and where, disposes.
+   *
+   * The gate stays `moving`, deliberately NOT `isEffectivelyMoving`: that
+   * would let a halted attack-moving TANK swing its hull onto its target, and
+   * a tank's facing is read by `resolveHit` for the armour arc. Bounding an
+   * animation must not move a penetration roll.
    */
   private aimHullAt(i: number, desired: Fx): void {
     if (this.moving[i] === 1) {
       if (!this.unitTypes[this.typeIdx[i]].bodyAimed) return;
+      // First aim of the tick owns the rewind point. At most one of the three
+      // call sites fires per tick today; this does not depend on that.
+      if (this.aimTurned[i] === 0) this.aimFrom[i] = this.facing[i];
       this.aimTurned[i] = 1;
+      this.aimDesired[i] = desired;
     }
     this.turnToward(i, desired);
   }
@@ -4387,11 +4421,27 @@ export class Sim {
       const mvy = fx.sub(ny, py);
       if (mvx !== 0 || mvy !== 0) {
         this.displaced[i] = 1;
-        // The hull follows the line of march — unless stepCombat already put it
-        // on a target this tick. Both turns are capped at the same rate, so
-        // running this one afterwards would cancel the aim exactly and the unit
-        // would shoot sideways forever.
-        if (this.aimTurned[i] === 0) this.turnToward(i, fx.atan2(mvy, mvx));
+        const heading = fx.atan2(mvy, mvx);
+        if (this.aimTurned[i] === 1) {
+          // stepCombat put this hull on its target, provisionally. Redo that
+          // turn from where it started, bounded to AIM_OFF_HEADING_MAX either
+          // side of the direction actually travelled: the unit advances facing
+          // its march and covers the threat, instead of walking sideways with
+          // its feet sliding — there is one movement clip and it is a forward
+          // walk. Merely skipping this branch (leaving the combat turn alone)
+          // is what moonwalked; turning toward the heading again is what
+          // cancels the aim to the bit, since both turns share `turnPerTick`.
+          const off = fx.clamp(
+            fx.angleDiff(this.aimDesired[i], heading),
+            -AIM_OFF_HEADING_MAX,
+            AIM_OFF_HEADING_MAX
+          );
+          this.facing[i] = this.aimFrom[i];
+          this.turnToward(i, (heading + off) & 0xffff);
+        } else {
+          // The hull follows the line of march.
+          this.turnToward(i, heading);
+        }
       }
       this.posX[i] = nx;
       this.posY[i] = ny;
