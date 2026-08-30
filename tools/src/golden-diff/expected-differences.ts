@@ -194,6 +194,43 @@ export const EXPECTED_DIFFERENCES: readonly ExpectedDifference[] = [
       'it in the same frame the diff was captured.',
   },
   {
+    id: 'vfxThreeOnly',
+    symptom:
+      'Any VFX present in a three capture with no counterpart at all in the matching Pixi ' +
+      'capture -- not a colour/edge/timing difference on a shared effect, an effect that ' +
+      'simply never plays in Pixi. First concrete instance: a moving vehicle trails a warm, ' +
+      'ground-hugging dust cloud behind its hull in three (`vehicle_dust`, trigger ' +
+      '`vehicle_move`) and a stationary one vents a thin grey exhaust plume ' +
+      '(`vehicle_exhaust`, trigger `ambient_idle`) -- neither exists in Pixi at all, for any ' +
+      'vehicle, ever.',
+    mechanism:
+      "Deliberate, and -- per the project lead's 2026-08-30 direction, recorded in CLAUDE.md's " +
+      "'VFX are exempt from this diff as of 2026-08-30' -- no longer scoped to one effect at a " +
+      "time. Cross-backend VFX parity is not a goal any more; an effect that lives only in " +
+      "three is the intended end state, not a divergence pending reconciliation. Concretely for " +
+      "the dust/exhaust pair: both are dispatched from `ThreeRenderer.updateVehicleAmbientFx` " +
+      "(`three/units/vehicle-fx.ts` holds the pure hysteresis/geometry math), a method with no " +
+      "call anywhere in `renderer.ts`, which stays frozen and byte-identical to `main` -- " +
+      "Pixi's `EmitterLibrary` loads both emitter JSON (same shared `vfxEmitters` list both " +
+      "backends consume) but never looks either id up via `byName`, so they are inert there by " +
+      "construction, not by omission. This entry is written to generalise rather than to name " +
+      "one effect, on purpose: the alternative -- adding a fresh catalogue entry every time a " +
+      "future VFX task ships something three-only -- is exactly the 'accumulating per-effect " +
+      "exceptions' shape the 2026-08-30 direction called out as worth avoiding by naming the " +
+      "category once instead.",
+    source:
+      "CLAUDE.md, 'A golden-image diff between the two backends exists', the 2026-08-30 " +
+      "addendum; coordinator direction on this task ('all VFX should move to three... an " +
+      "effect that exists only in three is the intended end state'); " +
+      '`packages/render/src/three/units/vehicle-fx.ts` and its own top comment.',
+    howToConfirm:
+      'The diff region is a particle-shaped blob (soft-edged, additive or translucent, ' +
+      'not a hard silhouette) with NOTHING at the corresponding pixels in the Pixi capture -- ' +
+      'not merely a different colour or a different fade curve on something Pixi also drew. ' +
+      'For the dust/exhaust pair specifically: a moving or freshly-idled vehicle is in frame in ' +
+      'the three capture.',
+  },
+  {
     id: 'roadRutDeadCode',
     symptom: 'NOT expected to differ -- listed to rule it out.',
     mechanism:

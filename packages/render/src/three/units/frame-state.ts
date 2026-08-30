@@ -372,6 +372,101 @@ export interface EntityFrameInput {
 }
 
 /**
+ * Everything `stepTurretFacing` needs, extracted verbatim from `entityFrame`'s
+ * own turret-spring block (Task B3.6, renderer.ts:2111-2170) so a caller that
+ * has no `SheetSpec`/clip to resolve -- a mesh vehicle, which has no billboard
+ * turret sheet at all -- can still drive the identical spring, off the SAME
+ * persisted per-entity state (`turretFacing`/`turretVel`/`turretSeeded`), the
+ * SAME seeding rule, and the SAME `TURRET_STIFFNESS`/`TURRET_DAMPING`
+ * constants a turreted billboard vehicle already uses.
+ *
+ * This is the mesh-unit-contract's own "Turret bearing... already comes from
+ * sim state on the billboard path... reuse that source; do not invent a
+ * second one" requirement, made literal: `entityFrame` below and
+ * `ThreeRenderer.updateVehicleMeshes` both call this SAME function, so a
+ * type's turret bearing is computed in exactly one place regardless of which
+ * path draws it.
+ */
+export interface TurretSpringInput {
+  /** Index into the persisted `turretFacing`/`turretVel`/`turretSeeded`
+   *  arrays -- the sim entity id, exactly like `EntityFrameInput.entityId`. */
+  entityId: number;
+  /** The hull's own facing, 0..1 turns -- `fx.toNumber(facing)`, already
+   *  crossed out of Q16.16 by the caller. */
+  facingNorm: number;
+  /** The shooter's own last-tick EXACT position (`curX`/`curY`, never the
+   *  frame-interpolated `wx`/`wy`) -- see this function's own body comment,
+   *  ported verbatim from `entityFrame`, for why. */
+  curX: number;
+  curY: number;
+  /** World position to aim at, or `null` for "no live target -- spring back
+   *  to the hull's own heading". */
+  targetX: number | null;
+  targetY: number | null;
+  dtSeconds: number;
+  /** Persisted per-entity turret facing (0..1 turns) and angular velocity
+   *  (turns/s), mutated in place -- owned by the caller across frames, the
+   *  identical arrays `EntityFrameInput.turretFacing`/`turretVel` name. */
+  turretFacing: Float64Array;
+  turretVel: Float64Array;
+  turretSeeded: Uint8Array;
+}
+
+/**
+ * Advances one entity's turret-traverse spring by one frame and returns its
+ * new facing (0..1 turns) -- extracted from `entityFrame`'s own turret block
+ * with NO behavioural change; `entityFrame` below calls this directly, so the
+ * billboard turret's own bearing is unaffected by this extraction (pinned by
+ * this file's own existing tests, which exercise `entityFrame` end to end).
+ */
+export function stepTurretFacing(input: TurretSpringInput): number {
+  const { entityId, facingNorm, curX, curY, targetX, targetY, dtSeconds, turretFacing, turretVel, turretSeeded } =
+    input;
+
+  if (turretSeeded[entityId] === 0) {
+    // Seed to the hull's CURRENT facing the first time this entity is ever
+    // decided with turret art loaded -- mirrors Pixi's own "seed turret
+    // facing to hull facing on first snapshot" (renderer.ts:748-750), but
+    // keyed per-entity (`turretSeeded`) rather than Pixi's single
+    // `frameN === 0` gate, so a reinforcement that spawns mid-mission is
+    // seeded on ITS OWN first frame rather than left frozen at 0
+    // (Float64Array's zero-fill) until something gives it a target.
+    turretFacing[entityId] = facingNorm;
+    turretSeeded[entityId] = 1;
+  }
+
+  // With no target the turret returns to the hull's heading
+  // (renderer.ts:2116-2117). `curX`/`curY`, not the interpolated `wx`/`wy`
+  // -- Pixi's own goal-angle math reads `this.curX[i]`/`this.curY[i]`
+  // (the shooter) against `this.curX[target]`/`this.curY[target]` (or the
+  // structure's centre), both last-tick exact positions, never the
+  // frame-interpolated ones (renderer.ts:2119-2123).
+  let goalTurn = facingNorm;
+  if (targetX !== null && targetY !== null) {
+    const dx = targetX - curX;
+    const dy = targetY - curY;
+    goalTurn = (((Math.atan2(dy, dx) / (Math.PI * 2)) % 1) + 1) % 1;
+  }
+
+  // Damped spring, not a linear lerp -- traverse overshoots slightly and
+  // settles (renderer.ts:2125-2138). See TURRET_STIFFNESS/TURRET_DAMPING's
+  // own doc comment.
+  let delta = goalTurn - turretFacing[entityId];
+  if (delta > 0.5) delta -= 1;
+  if (delta < -0.5) delta += 1;
+  // Bounded integration step -- explicit Euler diverges once damping * dt
+  // exceeds 1, which a 100ms frame hitch would reach, so the spring
+  // integrates on a bounded step even when the frame took longer
+  // (renderer.ts:2131-2134).
+  const sdt = Math.min(dtSeconds, 1 / 30);
+  const accel = delta * TURRET_STIFFNESS - turretVel[entityId] * TURRET_DAMPING;
+  turretVel[entityId] += accel * sdt;
+  turretFacing[entityId] += turretVel[entityId] * sdt;
+  turretFacing[entityId] = ((turretFacing[entityId] % 1) + 1) % 1;
+  return turretFacing[entityId];
+}
+
+/**
  * Which roof slot (0..ROOF_SLOTS-1, or higher if over the cap) each
  * garrisoned, living entity gets this frame, or -1 if not garrisoned.
  *
@@ -607,47 +702,23 @@ export function entityFrame(input: EntityFrameInput): EntityFrame {
   let turretClip: ClipName = 'idle';
   let turretFrame = 0;
   if (turretSheet) {
-    if (turretSeeded[entityId] === 0) {
-      // Seed to the hull's CURRENT facing the first time this entity is ever
-      // decided with turret art loaded -- mirrors Pixi's own "seed turret
-      // facing to hull facing on first snapshot" (renderer.ts:748-750), but
-      // keyed per-entity (`turretSeeded`) rather than Pixi's single
-      // `frameN === 0` gate, so a reinforcement that spawns mid-mission is
-      // seeded on ITS OWN first frame rather than left frozen at 0
-      // (Float64Array's zero-fill) until something gives it a target.
-      turretFacing[entityId] = facingNorm;
-      turretSeeded[entityId] = 1;
-    }
-
-    // With no target the turret returns to the hull's heading
-    // (renderer.ts:2116-2117). `curX`/`curY`, not the interpolated `wx`/`wy`
-    // -- Pixi's own goal-angle math reads `this.curX[i]`/`this.curY[i]`
-    // (the shooter) against `this.curX[target]`/`this.curY[target]` (or the
-    // structure's centre), both last-tick exact positions, never the
-    // frame-interpolated ones (renderer.ts:2119-2123).
-    let goalTurn = facingNorm;
-    if (turretTargetX !== null && turretTargetY !== null) {
-      const dx = turretTargetX - curX;
-      const dy = turretTargetY - curY;
-      goalTurn = (((Math.atan2(dy, dx) / (Math.PI * 2)) % 1) + 1) % 1;
-    }
-
-    // Damped spring, not a linear lerp -- traverse overshoots slightly and
-    // settles (renderer.ts:2125-2138). See TURRET_STIFFNESS/TURRET_DAMPING's
-    // own doc comment.
-    let delta = goalTurn - turretFacing[entityId];
-    if (delta > 0.5) delta -= 1;
-    if (delta < -0.5) delta += 1;
-    // Bounded integration step -- explicit Euler diverges once damping * dt
-    // exceeds 1, which a 100ms frame hitch would reach, so the spring
-    // integrates on a bounded step even when the frame took longer
-    // (renderer.ts:2131-2134).
-    const sdt = Math.min(dtSeconds, 1 / 30);
-    const accel = delta * TURRET_STIFFNESS - turretVel[entityId] * TURRET_DAMPING;
-    turretVel[entityId] += accel * sdt;
-    turretFacing[entityId] += turretVel[entityId] * sdt;
-    turretFacing[entityId] = ((turretFacing[entityId] % 1) + 1) % 1;
-    turretFacingOut = turretFacing[entityId];
+    // Seeding, goal-angle resolution and the damped spring itself now live in
+    // `stepTurretFacing` (this module, above) -- extracted, not reimplemented,
+    // so a mesh vehicle's turret pivot springs through the identical function
+    // a turreted billboard's turret sprite does. Behaviourally unchanged: see
+    // that function's own doc comment.
+    turretFacingOut = stepTurretFacing({
+      entityId,
+      facingNorm,
+      curX,
+      curY,
+      targetX: turretTargetX,
+      targetY: turretTargetY,
+      dtSeconds,
+      turretFacing,
+      turretVel,
+      turretSeeded,
+    });
 
     // Turret clip: resolved from an INDEPENDENT firing signal
     // (`turretFiring`), not the hull's own `anim.firing` -- see

@@ -1,0 +1,22 @@
+{
+  "id": "vehicle_exhaust",
+  "trigger": "ambient_idle",
+  "layer": "above_units",
+  "budget_priority": 1,
+  "particles": [
+    {
+      "sprite": "smoke_puff",
+      "count": [1, 2],
+      "lifetime_ms": [500, 800],
+      "emit_over_ms": 500,
+      "speed_tiles_s": [0.05, 0.15],
+      "cone_deg": 25,
+      "gravity_tiles_s2": -0.25,
+      "drag": 0.7,
+      "size_px": [3, 6],
+      "size_over_life": [0.4, 1.0, 1.7],
+      "color_over_life": ["gunmetal.2", "gunmetal.1", "gunmetal.0"],
+      "alpha_over_life": [0.45, 0.25, 0.0]
+    }
+  ]
+}

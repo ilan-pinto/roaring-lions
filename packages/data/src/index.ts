@@ -68,6 +68,8 @@ import cigaretteSmoke from '../../../data/vfx/cigarette_smoke.json';
 import fireSmallArms from '../../../data/vfx/fire_small_arms.json';
 import structureCollapse from '../../../data/vfx/structure_collapse.json';
 import tunnelCollapse from '../../../data/vfx/tunnel_collapse.json';
+import vehicleDust from '../../../data/vfx/vehicle_dust.json';
+import vehicleExhaust from '../../../data/vfx/vehicle_exhaust.json';
 
 export { palette };
 export type Palette = typeof palette;
@@ -177,12 +179,18 @@ export type UnitId = keyof typeof units;
 
 /** Every emitter the renderer may need.
  *
- * Weapon-fire ones are indexed by weapon class; the two `ambient_idle` ones are
- * looked up by name, because idling is not a sim event and must not become one.
+ * Weapon-fire ones are indexed by weapon class; the `ambient_idle` ones
+ * (`cigarette_ember`/`cigarette_smoke`, `vehicle_exhaust`) are looked up by
+ * name, because idling is not a sim event and must not become one.
  * `structure_collapse` is looked up by name too, off the `structureDestroyed`
  * event — the sim says a building fell, the renderer decides what that looks
  * like. `tunnel_collapse` follows the same arrangement off `tunnelCollapsed`,
- * aimed at the route's vent.
+ * aimed at the route's vent. `vehicle_dust` is the same "renderer decides,
+ * no sim event" arrangement as the ambient pair, but keyed off the
+ * renderer's own measured ground speed instead of a clip phase — see
+ * `three/units/vehicle-fx.ts`'s top comment. Three-only: `renderer.ts` never
+ * looks either vehicle emitter up, by design (VFX now live in three; see
+ * CLAUDE.md's "VFX are exempt from this diff as of 2026-08-30").
  */
 export const vfxEmitters = [
   fireSmallArms,
@@ -196,6 +204,8 @@ export const vfxEmitters = [
   cigaretteSmoke,
   structureCollapse,
   tunnelCollapse,
+  vehicleDust,
+  vehicleExhaust,
 ];
 
 /** Resolve a palette key like "vfx.fire" or "dust.2" to its hex colour. */

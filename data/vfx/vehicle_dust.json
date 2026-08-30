@@ -1,0 +1,21 @@
+{
+  "id": "vehicle_dust",
+  "trigger": "vehicle_move",
+  "layer": "below_units",
+  "budget_priority": 2,
+  "particles": [
+    {
+      "sprite": "smoke_puff",
+      "count": [2, 3],
+      "lifetime_ms": [450, 700],
+      "emit_over_ms": 250,
+      "speed_tiles_s": [0.3, 0.8],
+      "cone_deg": 55,
+      "drag": 0.6,
+      "size_px": [4, 7],
+      "size_over_life": [0.6, 0.9, 1.2],
+      "color_over_life": ["dust.2", "dust.3", "dust.4"],
+      "alpha_over_life": [0.55, 0.35, 0.0]
+    }
+  ]
+}

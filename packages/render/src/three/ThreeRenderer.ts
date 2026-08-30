@@ -127,6 +127,7 @@ import { UnitInstancer, TURRET_RENDER_ORDER } from './units/instances';
 import { pickUnit as pickUnitPure, unitsInScreenRect as unitsInScreenRectPure } from './units/pick';
 import { stepTracers, spawnTracer, type TracerModel } from './units/tracers';
 import { ParticleInstancer, TracerBatch, PARTICLE_CAPACITY, TRACER_CAPACITY } from './units/fx';
+import { nextVehicleMoving, vehicleDustMagnitude, vehicleFxAnchor } from './units/vehicle-fx';
 import {
   StructureInstancer,
   loadStructureFrame,
@@ -151,6 +152,20 @@ import {
   type MeshUnitEntity,
 } from './units/mesh-unit';
 import { meshYawFromFacing } from './units/mesh-anim';
+import { stepTurretFacing } from './units/frame-state';
+import {
+  loadVehicleMeshTemplate,
+  instantiateVehicleMesh,
+  disposeVehicleMeshTemplate,
+  type VehicleMeshTemplate,
+  type VehicleMeshEntity,
+} from './units/mesh-vehicle';
+import {
+  loadBuildingMeshTemplate,
+  instantiateBuildingMesh,
+  disposeBuildingMeshTemplate,
+  type BuildingMeshTemplate,
+} from './units/mesh-building';
 import {
   beginMeshDeath,
   stepMeshDeath,
@@ -290,6 +305,40 @@ function fxLayerIndex(layer: string | undefined): number {
  * doc comment for the rest of the reasoning.
  */
 const FLAT_FX_MAGNITUDE = 0.2;
+
+/**
+ * How far behind the hull, in tiles, `updateVehicleAmbientFx` anchors each
+ * effect -- see `vehicleFxAnchor`'s (`units/vehicle-fx.ts`) own doc comment
+ * for why the anchor moves at all. Dust sits further back than exhaust: it
+ * is kicked up by the rear road wheels/tracks reaching the ground behind the
+ * hull, where exhaust vents from the engine deck, closer to the hull itself.
+ */
+const VEHICLE_DUST_OFFSET_TILES = 0.55;
+const VEHICLE_EXHAUST_OFFSET_TILES = 0.35;
+
+/**
+ * How often (in ms) `updateVehicleAmbientFx` calls `particleSystem.spawn`
+ * for a single moving/idling vehicle, one accumulator per entity
+ * (`vehicleDustAccumMs`/`vehicleExhaustAccumMs`). Each spawn's own
+ * `emit_over_ms` (`vehicle_dust.json`/`vehicle_exhaust.json`) is set to
+ * MATCH the interval it is called on, so successive spawn windows tile
+ * back-to-back with no gap and no overlap -- a continuously trickling cloud
+ * built from repeated bursts, not a visibly popping one. Exhaust's interval
+ * is longer than dust's on purpose: "thinner, slower" per the brief this
+ * effect was built against, not merely a smaller particle count.
+ */
+const VEHICLE_DUST_INTERVAL_MS = 250;
+const VEHICLE_EXHAUST_INTERVAL_MS = 500;
+
+/**
+ * Fixed `magnitude` for `vehicle_exhaust`'s `spawn()` call -- unlike dust,
+ * which scales with ground speed (`vehicleDustMagnitude`), idle exhaust has
+ * no speed to scale against (`nextVehicleMoving` only reaches this branch
+ * once speed has settled near 0) and reads as a steady, thin plume rather
+ * than one that pulses. 0.4 keeps it visibly present without competing with
+ * `FLAT_FX_MAGNITUDE`'s "just big enough to read as one puff" tier below.
+ */
+const VEHICLE_EXHAUST_MAGNITUDE = 0.4;
 
 /**
  * Phase C: vertex budget for `OverlayBatch`, the shared overlay tier
@@ -566,6 +615,21 @@ export class ThreeRenderer implements Renderer {
    * OWN fire-clip duration instead, independent of what the hull has.
    */
   private readonly turretFiringTimer: Float64Array;
+  /**
+   * Vehicle-only ambient FX state -- `updateVehicleAmbientFx`'s own doc
+   * comment has the full account. `vehicleMoving` is the hysteresis latch
+   * `nextVehicleMoving` (`units/vehicle-fx.ts`) reads and writes each frame;
+   * `vehicleDustAccumMs`/`vehicleExhaustAccumMs` are per-entity clocks that
+   * decide when the next dust/exhaust `spawn()` call is due, mirroring the
+   * shape `firingTimer`/`recoilT` above already use for a one-shot latch --
+   * these instead accumulate UP toward a fixed interval rather than
+   * counting down from one, since the effect they gate is sustained, not a
+   * one-shot reaction to an event. Never read for a soft (infantry) entity;
+   * see that method's own `!type.isSoft` gate.
+   */
+  private readonly vehicleMoving: Uint8Array;
+  private readonly vehicleDustAccumMs: Float64Array;
+  private readonly vehicleExhaustAccumMs: Float64Array;
   /** Units mid-death-fade -- see `stepDeaths`'s own doc comment. */
   private readonly dying: DyingUnit[] = [];
   /** Permanent billboard-path wreckage -- the counterpart of `renderer.ts`'s
@@ -615,6 +679,47 @@ export class ThreeRenderer implements Renderer {
    *  persistence" section). Bounded by `MAX_MESH_WRECKS`, oldest evicted
    *  first (`pushMeshWreck`). */
   private readonly meshWrecks: MeshWreck[] = [];
+
+  /**
+   * Vehicle meshes (mesh-unit-contract v2). One `VehicleMeshTemplate` per
+   * unit type `loadVehicleMesh` was called with -- the rigid,
+   * hull-plus-pivot-turret counterpart of `meshUnitTemplates` above, kept in
+   * its OWN map rather than folded into that one: `updateVehicleMeshes`
+   * drives a plain `Object3D.clone`/turret-pivot rotation, never a mixer or a
+   * clip, so sharing one map (and thus one draw-time branch) would force
+   * `updateMeshUnits`' loop to guess which shape each entry needs.
+   */
+  private readonly vehicleMeshTemplates = new Map<string, VehicleMeshTemplate>();
+  /** One `VehicleMeshEntity` per living entity of a vehicle-mesh-enabled
+   *  type, keyed by entity id -- pooled across frames like `meshUnitEntities`,
+   *  but torn down and removed IMMEDIATELY on death rather than handed to a
+   *  fade sequence: every shipped `art/meshes/vehicles/*.glb` carries zero
+   *  `down`/`wreck` clips (there is no animation at all), so there is no
+   *  pose for a vehicle fade to hold, unlike infantry's `meshDying`/
+   *  `meshWrecks`. See this task's own report for why that gap is left open
+   *  rather than closed here. */
+  private readonly vehicleMeshEntities = new Map<number, VehicleMeshEntity>();
+
+  /**
+   * Building meshes (mesh-unit-contract v2). One `BuildingMeshTemplate` per
+   * structure TYPE's IDLE file, keyed the same way `structureIdle` is --
+   * presence here means "this type draws a mesh instead of a billboard",
+   * mirroring `meshUnitTemplates.has(type.id)`'s "mesh wins" rule for units.
+   */
+  private readonly buildingMeshIdleTemplates = new Map<string, BuildingMeshTemplate>();
+  /** The WRECK sibling -- absent for a type whose `loadBuildingMesh` call
+   *  carried no wreck URL. */
+  private readonly buildingMeshWreckTemplates = new Map<string, BuildingMeshTemplate>();
+  /** One clone per LIVING structure of a mesh-enabled type, keyed by
+   *  structure index (`Sim.structures`' own row index, stable for a
+   *  structure's whole lifetime -- unlike an entity id, a structure index is
+   *  never reused mid-mission). A building never moves and never turns, so
+   *  unlike `vehicleMeshEntities` this clone is positioned exactly once, at
+   *  creation, not every frame. */
+  private readonly buildingMeshIdleEntities = new Map<number, THREE.Object3D>();
+  /** The WRECK sibling -- one clone per DEAD structure of a mesh-enabled
+   *  type whose wreck template loaded. */
+  private readonly buildingMeshWreckEntities = new Map<number, THREE.Object3D>();
 
   /**
    * Task B3.7: one `StructureInstancer` per structure TYPE with a loaded
@@ -801,6 +906,9 @@ export class ThreeRenderer implements Renderer {
     this.turretVel = new Float64Array(n);
     this.turretSeeded = new Uint8Array(n);
     this.turretFiringTimer = new Float64Array(n);
+    this.vehicleMoving = new Uint8Array(n);
+    this.vehicleDustAccumMs = new Float64Array(n);
+    this.vehicleExhaustAccumMs = new Float64Array(n);
     this.fog = new Uint8Array(sim.width * sim.height);
     this.sightByType = new Float64Array(sim.unitTypes.length);
     for (let t = 0; t < sim.unitTypes.length; t++) this.sightByType[t] = fx.toNumber(sim.unitTypes[t].sight);
@@ -985,6 +1093,27 @@ export class ThreeRenderer implements Renderer {
     this.meshWrecks.length = 0;
     for (const template of this.meshUnitTemplates.values()) disposeMeshUnitTemplate(template);
     this.meshUnitTemplates.clear();
+    // Vehicle meshes: entities first, then templates -- the identical
+    // "clones share the template's geometry/material by reference" ordering
+    // `meshUnitEntities`/`meshUnitTemplates` just above already follow.
+    // `VehicleMeshEntity` owns nothing of its own to dispose (no mixer, no
+    // per-entity material clone -- `mesh-vehicle.ts`'s own top comment), so
+    // `scene.remove` is the whole story for each one.
+    for (const entity of this.vehicleMeshEntities.values()) this.scene.remove(entity.root);
+    this.vehicleMeshEntities.clear();
+    for (const template of this.vehicleMeshTemplates.values()) disposeVehicleMeshTemplate(template);
+    this.vehicleMeshTemplates.clear();
+    // Building meshes: same shape again -- every clone removed from the
+    // scene first (nothing of its own to dispose, matching vehicles), then
+    // each template's shared geometry/material released exactly once.
+    for (const root of this.buildingMeshIdleEntities.values()) this.scene.remove(root);
+    this.buildingMeshIdleEntities.clear();
+    for (const root of this.buildingMeshWreckEntities.values()) this.scene.remove(root);
+    this.buildingMeshWreckEntities.clear();
+    for (const template of this.buildingMeshIdleTemplates.values()) disposeBuildingMeshTemplate(template);
+    this.buildingMeshIdleTemplates.clear();
+    for (const template of this.buildingMeshWreckTemplates.values()) disposeBuildingMeshTemplate(template);
+    this.buildingMeshWreckTemplates.clear();
     for (const instancer of this.structureIdle.values()) instancer.dispose();
     this.structureIdle.clear();
     for (const instancer of this.structureWreck.values()) instancer.dispose();
@@ -1083,7 +1212,10 @@ export class ThreeRenderer implements Renderer {
     }
     this.updateUnits(alpha, dtMs);
     this.updateMeshUnits(alpha, dtMs);
+    this.updateVehicleMeshes(alpha, dtMs);
+    this.updateVehicleAmbientFx(dtMs);
     this.updateStructures();
+    this.updateBuildingMeshes();
     this.stepCollapses(this.frameDtSeconds(dtMs));
     this.updateFx(dtMs);
     this.updateOverlays(alpha);
@@ -1576,6 +1708,100 @@ export class ThreeRenderer implements Renderer {
     this.particleSystem.spawn(spec, x, y, 0, FLAT_FX_MAGNITUDE, 0, FX_LAYER_BELOW);
   }
 
+  /**
+   * Vehicle-only ambient VFX: dust while moving, thin engine exhaust while
+   * idle. Three-only, by design -- see `units/vehicle-fx.ts`'s top comment
+   * for the full "no Pixi counterpart owed" reasoning, and `vfx/emitters.ts`
+   * `byName`'s own doc comment for why an ambient effect like this is
+   * dispatched from the renderer's own per-frame read rather than a sim
+   * event: idling (and moving) is not an event and must not become one.
+   *
+   * Called once a frame, straight from `frame()`, over every LIVING entity
+   * -- not folded into `updateUnits`/`updateVehicleMeshes` the way a
+   * per-draw-path effect might be, because a vehicle's speed and facing
+   * (`entitySpeed`, `curX`/`curY`, `state.facing`) are the SAME regardless
+   * of which of those two paths currently draws it, and this way there is
+   * exactly one place that decides "is this vehicle moving", not one copy
+   * per draw path that could disagree. `curX`/`curY` (last-tick exact
+   * position), not the frame-interpolated position `updateUnits` computes
+   * for its own billboard placement -- matching `TurretSpringInput`'s own
+   * documented preference for the same reason: this is a presentation
+   * decision that only needs to update once per SIM tick's worth of motion,
+   * not resmoothed every render frame.
+   *
+   * `!type.isSoft` is this file's own established vehicle test (see
+   * `onFire`'s "rather than Pixi's `!type.isSoft`" comment above, and
+   * `unitOverlayRadiusPx(type.isSoft)` in `updateOverlays`) -- true for
+   * every rifle squad, team and demo squad, false for every tank/APC/
+   * technical/dozer, so infantry never reaches either spawn call below.
+   *
+   * Reads only `Sim.state.alive`/`typeIdx`/`facing` (read-only, per
+   * invariant 4) plus this class's own presentation arrays. Writes nothing
+   * back to `Sim`.
+   */
+  private updateVehicleAmbientFx(dtMs: number): void {
+    if (!this.particleSystem) return;
+    const dust = this.emitterLibrary.byName('vehicle_dust');
+    const exhaust = this.emitterLibrary.byName('vehicle_exhaust');
+    if (!dust && !exhaust) return;
+
+    const st = this.sim.state;
+    const n = this.sim.entityCount;
+
+    for (let i = 0; i < n; i++) {
+      if (st.alive[i] === 0) continue;
+      const type = this.sim.unitTypes[st.typeIdx[i]];
+      if (type.isSoft) continue;
+
+      const speed = this.entitySpeed[i];
+      const moving = nextVehicleMoving(this.vehicleMoving[i] === 1, speed);
+      this.vehicleMoving[i] = moving ? 1 : 0;
+      const facingNorm = fx.toNumber(st.facing[i]);
+
+      if (moving) {
+        // Entering (or continuing) motion cancels any exhaust already owed
+        // -- the hysteresis in nextVehicleMoving guarantees this branch and
+        // the one below are mutually exclusive per entity per frame, so
+        // this is strictly resetting a clock the idle branch will not run
+        // this frame, not racing it.
+        this.vehicleExhaustAccumMs[i] = 0;
+        if (!dust) continue;
+        this.vehicleDustAccumMs[i] += dtMs;
+        if (this.vehicleDustAccumMs[i] < VEHICLE_DUST_INTERVAL_MS) continue;
+        this.vehicleDustAccumMs[i] -= VEHICLE_DUST_INTERVAL_MS;
+
+        const anchor = vehicleFxAnchor(this.curX[i], this.curY[i], facingNorm, VEHICLE_DUST_OFFSET_TILES);
+        const magnitude = vehicleDustMagnitude(speed);
+        const prio = dust.budget_priority ?? 2;
+        const fxLayer = fxLayerIndex(dust.layer);
+        for (const layer of dust.particles) {
+          this.particleSystem.spawn(layer, anchor.x, anchor.y, anchor.dirTurns, magnitude, prio, fxLayer);
+        }
+      } else {
+        this.vehicleDustAccumMs[i] = 0;
+        if (!exhaust) continue;
+        this.vehicleExhaustAccumMs[i] += dtMs;
+        if (this.vehicleExhaustAccumMs[i] < VEHICLE_EXHAUST_INTERVAL_MS) continue;
+        this.vehicleExhaustAccumMs[i] -= VEHICLE_EXHAUST_INTERVAL_MS;
+
+        const anchor = vehicleFxAnchor(this.curX[i], this.curY[i], facingNorm, VEHICLE_EXHAUST_OFFSET_TILES);
+        const prio = exhaust.budget_priority ?? 1;
+        const fxLayer = fxLayerIndex(exhaust.layer);
+        for (const layer of exhaust.particles) {
+          this.particleSystem.spawn(
+            layer,
+            anchor.x,
+            anchor.y,
+            anchor.dirTurns,
+            VEHICLE_EXHAUST_MAGNITUDE,
+            prio,
+            fxLayer
+          );
+        }
+      }
+    }
+  }
+
   worldToScreen(wx: number, wy: number): { x: number; y: number } {
     return worldToScreenThree(wx, wy, this.camera, { width: this.width, height: this.height });
   }
@@ -1841,6 +2067,108 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
+   * Vehicle meshes (mesh-unit-contract v2): loads
+   * `art/meshes/vehicles/<id>.glb`, builds a `VehicleMeshTemplate`, and
+   * files it under `unitTypeId` -- the rigid counterpart of `loadMeshUnit`
+   * above. No `faction` parameter: see `vehicle-mesh-role.ts`'s top comment
+   * for why a vehicle GLB is faction-specific by construction and the ramp
+   * choice already lives at "which vehicle", not "which side".
+   *
+   * `unitTypeId` doubles as both the map key AND the vehicle id
+   * `vehicle-mesh-role.ts`'s ramp table is keyed by -- the same "team id ==
+   * file basename" convention `main.ts`'s own `MESH_TEAMS` comment names for
+   * infantry, restated here because a mismatch would resolve a real ramp for
+   * the WRONG vehicle rather than failing at all.
+   *
+   * Once loaded, `unitTypeId` draws through `updateVehicleMeshes` instead of
+   * a billboard -- see that method's own doc comment and `updateUnits`'s
+   * `vehicleMeshTemplates.has(type.id)` guard for the "mesh wins" rule this
+   * shares with `loadMeshUnit`.
+   */
+  async loadVehicleMesh(unitTypeId: string, glbUrl: string): Promise<void> {
+    const template = await loadVehicleMeshTemplate(glbUrl, unitTypeId);
+
+    const previous = this.vehicleMeshTemplates.get(unitTypeId);
+    if (previous) {
+      for (const [id, entity] of this.vehicleMeshEntities) {
+        if (entity.typeId !== unitTypeId) continue;
+        this.scene.remove(entity.root);
+        this.vehicleMeshEntities.delete(id);
+      }
+      disposeVehicleMeshTemplate(previous);
+    }
+    this.vehicleMeshTemplates.set(unitTypeId, template);
+  }
+
+  /**
+   * Building meshes (mesh-unit-contract v2): loads
+   * `art/meshes/buildings/<type>.glb` (and, when `wreckUrl` is given,
+   * `<type>_wreck.glb`), builds one or two `BuildingMeshTemplate`s, and
+   * files them under `structureId` -- the mesh counterpart of
+   * `loadStructureSprite`.
+   *
+   * `wallColorKey` is looked up here, once, from `Sim.structureTypes` --
+   * never from `@lions/data` (this package must not import it) -- and
+   * threaded into BOTH templates: idle and wreck share the same building's
+   * wall colour (`building-mesh-role.ts`'s own top comment explains why a
+   * wrecked wall still wants its own type's stone, not a generic rubble
+   * tone). Throws if `structureId` names no known structure type -- there is
+   * no wall colour to build a template with, matching every other member in
+   * this class that fails loudly rather than fabricating one (this file's
+   * own top comment, "Three kinds of not-yet-implemented member").
+   *
+   * `terrainDirty = true` for the identical reason `loadStructureSprite`
+   * sets it: `composeTerrain`'s `hasArt` callback (below, `rebuildTerrain`)
+   * must stop drawing this type's procedural box the instant its mesh art
+   * is available.
+   */
+  async loadBuildingMesh(structureId: string, idleUrl: string, wreckUrl: string | null): Promise<void> {
+    const structureType = this.sim.structureTypes.find((t) => t.id === structureId);
+    if (!structureType) {
+      throw new Error(`loadBuildingMesh: unknown structure type "${structureId}"`);
+    }
+    const wallColorKey = structureType.color;
+
+    const idleTemplate = await loadBuildingMeshTemplate(idleUrl, wallColorKey);
+    const previousIdle = this.buildingMeshIdleTemplates.get(structureId);
+    if (previousIdle) {
+      // `buildingMeshIdleEntities` is keyed by STRUCTURE INDEX, not type --
+      // every OTHER mesh-enabled type's clones live in this same map, so a
+      // reload must tear down only the entries belonging to THIS type
+      // (`sim.structures.typeIdx[s]` resolved back to its own id), not the
+      // whole map. Not exercised by any real caller today (`main.ts`'s
+      // `MESH_BUILDINGS` is static, loaded once), same caveat
+      // `loadMeshUnit`/`loadVehicleMesh` already carry for their own reload
+      // paths -- but wrong is wrong whether or not it is reachable yet.
+      const st = this.sim.structures;
+      for (const [s, root] of this.buildingMeshIdleEntities) {
+        if (this.sim.structureTypes[st.typeIdx[s]].id !== structureId) continue;
+        this.scene.remove(root);
+        this.buildingMeshIdleEntities.delete(s);
+      }
+      disposeBuildingMeshTemplate(previousIdle);
+    }
+    this.buildingMeshIdleTemplates.set(structureId, idleTemplate);
+
+    if (wreckUrl) {
+      const wreckTemplate = await loadBuildingMeshTemplate(wreckUrl, wallColorKey);
+      const previousWreck = this.buildingMeshWreckTemplates.get(structureId);
+      if (previousWreck) {
+        const st = this.sim.structures;
+        for (const [s, root] of this.buildingMeshWreckEntities) {
+          if (this.sim.structureTypes[st.typeIdx[s]].id !== structureId) continue;
+          this.scene.remove(root);
+          this.buildingMeshWreckEntities.delete(s);
+        }
+        disposeBuildingMeshTemplate(previousWreck);
+      }
+      this.buildingMeshWreckTemplates.set(structureId, wreckTemplate);
+    }
+
+    this.terrainDirty = true;
+  }
+
+  /**
    * Task C5: how many structures of ONE type -- alive or dead -- the sim
    * holds, right now. `loadStructureSprite` uses this as its capacity bound
    * for that type's `StructureInstancer`(s), rather than `sim.structureCount`
@@ -2016,6 +2344,30 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
+   * `curTarget`/`curStructure` -> a world aim point, or `null` for "no live
+   * target" -- ported from `renderer.ts:2113-2123`, extracted out of
+   * `updateUnits`'s own per-entity loop (Task B3.6) so `updateVehicleMeshes`
+   * can resolve the IDENTICAL target for a mesh vehicle's own turret pivot,
+   * off the same `curTarget`/`curStructure` read and the same last-tick
+   * `curX`/`curY` snapshot -- one implementation, two callers, exactly the
+   * "reuse that source, do not invent a second one" the mesh-unit contract's
+   * own turret-bearing section asks for.
+   */
+  private resolveTurretTarget(i: number): { x: number | null; y: number | null } {
+    const st = this.sim.state;
+    const target = st.curTarget[i];
+    const struct = st.curStructure[i];
+    const aimAtStructure = target < 0 && struct >= 0 && this.sim.structures.alive[struct] === 1;
+    if (target >= 0 && st.alive[target] !== 0) {
+      return { x: this.curX[target], y: this.curY[target] };
+    }
+    if (aimAtStructure) {
+      return { x: fx.toNumber(this.sim.structures.cx[struct]), y: fx.toNumber(this.sim.structures.cy[struct]) };
+    }
+    return { x: null, y: null };
+  }
+
+  /**
    * Builds this frame's `EntityFrame` for every living entity whose unit
    * type has a loaded `UnitInstancer`, grouped by type, and hands each
    * group to its instancer's `update`. The per-entity work ported from
@@ -2069,11 +2421,13 @@ export class ThreeRenderer implements Renderer {
       const type = this.sim.unitTypes[st.typeIdx[i]];
       // A type drawn through the mesh-unit path (`updateMeshUnits`, called
       // separately from `frame()`) must not ALSO build a billboard frame for
-      // it -- nothing calls `loadMeshUnit` today, so `meshUnitTemplates` is
-      // empty and this `continue` is never taken; it exists so a future
-      // caller that loads both a sheet and a GLB for the same type gets one
-      // draw of that type, not two overlapping ones.
-      if (this.meshUnitTemplates.has(type.id)) continue;
+      // it -- "mesh wins" whenever a GLB is loaded for a type, whether it is
+      // the skinned infantry path (`meshUnitTemplates`) or the rigid vehicle
+      // one (`vehicleMeshTemplates`, `updateVehicleMeshes`). A type present
+      // in neither takes this `continue` never, exactly the "additive,
+      // billboard unaffected until something loads a GLB for it" contract
+      // both paths share.
+      if (this.meshUnitTemplates.has(type.id) || this.vehicleMeshTemplates.has(type.id)) continue;
       const instancer = this.unitInstancers.get(type.id);
       if (!instancer) continue;
       // Task B3.6: absent when this type has no turret art -- doubles as
@@ -2104,26 +2458,18 @@ export class ThreeRenderer implements Renderer {
         roofPx = resolveRoofPx(this.structureRoofArt.get(sType.id), sType.heightPx);
       }
 
-      // Task B3.6: turret aim target, ported from renderer.ts:2113-2123 --
-      // only computed when this type actually has turret art, the same
-      // "no need to pay for the query" precedent `contactLevel` above
-      // already follows. `null` means "no live target", and `entityFrame`
-      // reads that as "spring back to the hull's own heading"
-      // (`EntityFrameInput.turretTargetX`/`turretTargetY`'s own doc comment).
-      let turretTargetX: number | null = null;
-      let turretTargetY: number | null = null;
-      if (turretInstancer) {
-        const target = st.curTarget[i];
-        const struct = st.curStructure[i];
-        const aimAtStructure = target < 0 && struct >= 0 && this.sim.structures.alive[struct] === 1;
-        if (target >= 0 && st.alive[target] !== 0) {
-          turretTargetX = this.curX[target];
-          turretTargetY = this.curY[target];
-        } else if (aimAtStructure) {
-          turretTargetX = fx.toNumber(this.sim.structures.cx[struct]);
-          turretTargetY = fx.toNumber(this.sim.structures.cy[struct]);
-        }
-      }
+      // Task B3.6: turret aim target -- only computed when this type
+      // actually has turret art, the same "no need to pay for the query"
+      // precedent `contactLevel` above already follows. `null` means "no
+      // live target", and `entityFrame` reads that as "spring back to the
+      // hull's own heading" (`EntityFrameInput.turretTargetX`/`turretTargetY`'s
+      // own doc comment). Extracted to `resolveTurretTarget` so
+      // `updateVehicleMeshes` can resolve the identical target for a mesh
+      // vehicle's own turret pivot, off the SAME `curTarget`/`curStructure`
+      // read -- one implementation, two callers.
+      const turretTarget = turretInstancer ? this.resolveTurretTarget(i) : { x: null, y: null };
+      const turretTargetX = turretTarget.x;
+      const turretTargetY = turretTarget.y;
 
       const anim: UnitAnimInput = {
         alive: st.alive[i],
@@ -2300,6 +2646,169 @@ export class ThreeRenderer implements Renderer {
       this.meshDying.push(beginMeshDeath(entity));
     }
     this.stepMeshDeaths(dtSeconds);
+  }
+
+  /**
+   * Vehicle meshes: called separately from `frame()`, alongside
+   * `updateMeshUnits` -- its own separate method for the identical reason
+   * that one is its own method rather than folded into `updateUnits`
+   * (`updateMeshUnits`'s own doc comment: no headless test coverage of
+   * `updateUnits` itself, and a bug here must not be able to corrupt the
+   * billboard loop's state).
+   *
+   * Position and hull yaw are set every frame for every LIVING entity of a
+   * vehicle-mesh-enabled type, gated only on `root.visible` -- the identical
+   * "never freeze a fogged unit's position, or a later re-scout reads as a
+   * ghost" reasoning `updateMeshUnits`'s own top comment gives for infantry,
+   * unchanged here.
+   *
+   * Turret bearing is the payoff this method exists for: `stepTurretFacing`
+   * (`frame-state.ts`) is the SAME function, driven off the SAME persisted
+   * `turretFacing`/`turretVel`/`turretSeeded` arrays, a turreted BILLBOARD
+   * vehicle's own `entityFrame` call already uses -- see that function's own
+   * doc comment, "reuse that source; do not invent a second one." Because
+   * `updateUnits` skips a vehicle-mesh-enabled type entirely (the "mesh
+   * wins" guard), this method is the only place the spring advances for such
+   * an entity; `resolveTurretTarget` is the identical target-resolution
+   * `updateUnits` itself calls, so a mesh vehicle's turret tracks exactly
+   * what a billboard one would have.
+   *
+   * A vehicle with no `turretPivot` (`dozer_d9` today) simply never reads
+   * `turretFacing` at all -- there is no pivot node to rotate.
+   *
+   * Death: immediate removal, no fade. Every shipped vehicle GLB carries
+   * zero animations, so there is no `down`/`wreck` pose for a fade to hold
+   * -- seen and accepted as a known gap in this task's own report, not
+   * silently dropped.
+   */
+  private updateVehicleMeshes(alpha: number, dtMs: number): void {
+    if (this.vehicleMeshTemplates.size === 0) return;
+
+    const dtSeconds = this.frameDtSeconds(dtMs);
+    const st = this.sim.state;
+    const n = this.sim.entityCount;
+
+    for (let i = 0; i < n; i++) {
+      if (st.alive[i] === 0) continue;
+      const type = this.sim.unitTypes[st.typeIdx[i]];
+      const template = this.vehicleMeshTemplates.get(type.id);
+      if (!template) continue;
+
+      let entity = this.vehicleMeshEntities.get(i);
+      if (!entity) {
+        entity = instantiateVehicleMesh(template, type.id);
+        this.vehicleMeshEntities.set(i, entity);
+        this.scene.add(entity.root);
+      }
+
+      const wx = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
+      const wy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+      const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, wx, wy);
+      entity.root.position.set(wx, worldY, wy);
+      const facingNorm = fx.toNumber(st.facing[i]);
+      entity.root.rotation.y = meshYawFromFacing(facingNorm);
+      entity.root.visible = st.side[i] === 0 || this.isVisible(wx, wy);
+
+      if (entity.turretPivot) {
+        const target = this.resolveTurretTarget(i);
+        const turretFacingOut = stepTurretFacing({
+          entityId: i,
+          facingNorm,
+          curX: this.curX[i],
+          curY: this.curY[i],
+          targetX: target.x,
+          targetY: target.y,
+          dtSeconds,
+          turretFacing: this.turretFacing,
+          turretVel: this.turretVel,
+          turretSeeded: this.turretSeeded,
+        });
+        // The pivot is a CHILD of `entity.root` (a scene-root sibling of the
+        // hull meshes, per `mesh-vehicle.ts`'s own top comment), so
+        // `entity.root.rotation.y` already carries the hull's own yaw --
+        // this local rotation only has to cover the DELTA between the
+        // turret's absolute bearing and the hull's, exactly like
+        // `meshYawFromFacing`'s own derivation applied to that delta turn.
+        entity.turretPivot.rotation.y = meshYawFromFacing(turretFacingOut) - meshYawFromFacing(facingNorm);
+      }
+    }
+
+    // Immediate removal on death -- see this method's own doc comment for
+    // why there is no fade/wreck sequence to hand off to, unlike
+    // `updateMeshUnits`'s `beginMeshDeath`.
+    for (const [id, entity] of this.vehicleMeshEntities) {
+      if (id < n && st.alive[id] !== 0) continue;
+      this.scene.remove(entity.root);
+      this.vehicleMeshEntities.delete(id);
+    }
+  }
+
+  /**
+   * Building meshes: called separately from `frame()`, alongside
+   * `updateStructures`. Unlike every unit path above, a building mesh clone
+   * is positioned exactly ONCE, at creation -- a structure's footprint never
+   * moves and a building never turns (mesh-unit-contract.md: "rigid and
+   * never turns... no pivot"), so there is no per-frame transform to redo.
+   * What this method actually does every frame is the idle<->wreck SWAP,
+   * mirroring `updateStructures`'s own per-frame poll of live `Sim` state
+   * for the identical reason that method's own doc comment gives: structure
+   * death is not (yet) wired through `onEvents` the way unit death is, so
+   * polling `st.alive` is still the source of truth for "did this one just
+   * die".
+   *
+   * One pass over `sim.structureCount`, not one pass per mesh-enabled type
+   * (`updateStructures`'s own O(types x structureCount) shape) -- there is
+   * no per-type instance BUFFER to write here, only a plain `Map` lookup per
+   * structure, so folding every type into a single scan costs nothing extra.
+   */
+  private updateBuildingMeshes(): void {
+    if (this.buildingMeshIdleTemplates.size === 0) return;
+    const st = this.sim.structures;
+    const elevation = this.retained.elevation;
+
+    for (let s = 0; s < this.sim.structureCount; s++) {
+      const type = this.sim.structureTypes[st.typeIdx[s]];
+      const idleTemplate = this.buildingMeshIdleTemplates.get(type.id);
+      if (!idleTemplate) continue; // this structure type has no mesh loaded
+
+      const alive = st.alive[s] === 1;
+      if (alive) {
+        if (!this.buildingMeshIdleEntities.has(s)) {
+          const root = instantiateBuildingMesh(idleTemplate);
+          const { fx: cx, fy: cy } = footprintCentre(this.sim, s);
+          const worldY = groundWorldY(elevation, this.sim.width, this.sim.height, cx, cy);
+          root.position.set(cx, worldY, cy);
+          this.buildingMeshIdleEntities.set(s, root);
+          this.scene.add(root);
+        }
+        // A structure that somehow re-gains `alive` after being wrecked is
+        // not a real case today (structures never heal), but tearing down a
+        // stale wreck clone here keeps this method correct if that changes.
+        const staleWreck = this.buildingMeshWreckEntities.get(s);
+        if (staleWreck) {
+          this.scene.remove(staleWreck);
+          this.buildingMeshWreckEntities.delete(s);
+        }
+        continue;
+      }
+
+      // Dead: drop the idle clone, and stand up the wreck one if this type
+      // loaded a wreck template.
+      const idleEntity = this.buildingMeshIdleEntities.get(s);
+      if (idleEntity) {
+        this.scene.remove(idleEntity);
+        this.buildingMeshIdleEntities.delete(s);
+      }
+      const wreckTemplate = this.buildingMeshWreckTemplates.get(type.id);
+      if (wreckTemplate && !this.buildingMeshWreckEntities.has(s)) {
+        const root = instantiateBuildingMesh(wreckTemplate);
+        const { fx: cx, fy: cy } = footprintCentre(this.sim, s);
+        const worldY = groundWorldY(elevation, this.sim.width, this.sim.height, cx, cy);
+        root.position.set(cx, worldY, cy);
+        this.buildingMeshWreckEntities.set(s, root);
+        this.scene.add(root);
+      }
+    }
   }
 
   /**
@@ -3154,7 +3663,7 @@ export class ThreeRenderer implements Renderer {
       this.sim,
       this.retained.decor,
       this.retained.elevation,
-      (id) => this.structureIdle.has(id),
+      (id) => this.structureIdle.has(id) || this.buildingMeshIdleTemplates.has(id),
       this.opts.terrainTones,
       this.opts.resolveColor,
       this.opts.background
@@ -3369,10 +3878,18 @@ export class ThreeRenderer implements Renderer {
     if (this.structureIdle.size === 0 && this.structureWreck.size === 0) return;
     const elevation = this.retained.elevation;
     for (const [id, instancer] of this.structureIdle) {
-      instancer.update(liveStructurePlacements(this.sim, id, elevation));
+      // "Mesh wins": a structure type with a loaded building mesh
+      // (`updateBuildingMeshes`) must not ALSO draw its billboard --
+      // matching `updateUnits`'s own `vehicleMeshTemplates.has(type.id)`
+      // guard. Forced to an EMPTY placement list rather than skipped
+      // outright, so `mesh.count` is actively zeroed even if a mesh loads
+      // for a type whose billboard previously had a non-zero count.
+      instancer.update(this.buildingMeshIdleTemplates.has(id) ? [] : liveStructurePlacements(this.sim, id, elevation));
     }
     for (const [id, instancer] of this.structureWreck) {
-      instancer.update(deadStructurePlacements(this.sim, id, elevation));
+      instancer.update(
+        this.buildingMeshWreckTemplates.has(id) ? [] : deadStructurePlacements(this.sim, id, elevation)
+      );
     }
     this.cacheStructureAlpha();
   }
