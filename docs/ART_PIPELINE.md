@@ -161,9 +161,21 @@ Sound follows the same logic as sprites: mechanical gates, not taste. Emitters a
 ## 8. Licensing
 
 - Code: **MIT**
-- Art and data: **CC BY-SA 4.0**
+- Art and data: **all rights reserved.** Changed 2026-08-30, ahead of a planned
+  commercial release. It was CC BY-SA 4.0, and that matters in one direction
+  only: a Creative Commons grant is **irrevocable for copies already obtained**,
+  so everything published under it up to this date stays licensed under it to
+  whoever took a copy. The change stops adding to that set; it cannot undo it.
+  Practically the exposure is small — the repository went public on 2026-08-04
+  and the game has never been released — but the reasoning is worth keeping,
+  because the instinct to "just relicense it" is exactly the one that does not
+  work.
 - All contributions under **DCO sign-off**
 - Source `.blend` files required alongside rendered output — no binary-only art. Without source, the asset cannot be re-rendered when the rig or palette version bumps, and it becomes dead weight.
+  **Currently unmet for the supplied Meshy assets**, whose sources sit in a
+  gitignored 465 MB `art/blend/`. Recorded in `docs/ASSET_PROVENANCE.md` as an
+  open decision (Git LFS, a decimated in-repo source, or a documented
+  exception) rather than an accident.
 - Audio clips must be redistribution-safe (CC0 or equivalent) and declared in `data/audio.json` with their source.
 
 ---

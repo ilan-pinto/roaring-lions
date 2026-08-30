@@ -23,7 +23,7 @@ This file is a snapshot with a date on it. It is not a gate. See
 `tools/validate_mesh_assets.py` checks palette, silhouette and completeness. It
 does not look at provenance, because there is no provenance to look at.
 
-**33 mesh GLBs ship with no recorded origin**, four of them AI-generated.
+**38 mesh GLBs ship with no recorded origin**, ten of them AI-generated.
 
 ---
 
@@ -38,28 +38,35 @@ equivalent. The five exceptions:
 | `TNK_TURR` | **(none)** | as above | as above |
 | `NAMER_HULL` | `Mutte (CC-BY 3.0, BlendSwap #75225)` | attribution mandatory and permanent; would have to appear in a shipped credits screen | **replaced** by `art/meshes/vehicles/ifv_namer.glb`; old art not yet retired |
 | `NAMER_TURR` | as above | as above | as above |
-| `JEEP_HULL` | `Military jeep. LICENCE UNVERIFIED` | `tools/render_jeep.py`: *"downloaded without licence, readme or attribution. Do not redistribute until the terms are established."* **No known terms at all.** | replacement in progress |
+| `JEEP_HULL` | `Military jeep. LICENCE UNVERIFIED` | `tools/render_jeep.py`: *"downloaded without licence, readme or attribution. Do not redistribute until the terms are established."* **No known terms at all.** | **replaced** by `art/meshes/vehicles/jeep_shoded.glb`; old art not yet retired |
 
 Licence file on disk for the Namer only: `art/src/ifv_dmm08_LICENSE.html`
 (`creativecommons.org/licenses/by/3.0` — plain Attribution, so commercial use
 and closed-source derivatives are both permitted; attribution is not optional).
 
-**Retirement is deliberately not performed.** Art existing and art drawing are
-different things, and this branch has confused them four times. Each retirement
-happens after its replacement is confirmed drawing in game, not before.
+**All five now have replacements drawing in game**, so every retirement below is
+unblocked. Retirement is still deliberately not performed here: art existing and
+art drawing are different things, this branch has confused them six times, and
+each retirement is its own verified step rather than a bulk delete.
 
 ---
 
 ## The supplied Meshy assets
 
-Four, all AI-generated with Meshy, all disclosed per `CONTRIBUTING.md`:
+Ten, all AI-generated with Meshy, all disclosed per `CONTRIBUTING.md`:
 
 | File | Draws as | Source `.blend` |
 |---|---|---|
 | `art/meshes/meshy_soldier.glb` | `inf_squad` (KDF infantry) | `art/blend/soldier/` |
+| `art/meshes/sarim_rifles.glb` | `sarim_rifles` (enemy infantry) | `art/blend/Sarim irregular/` |
 | `art/meshes/vehicles/mbt_lavi.glb` | `mbt_lavi` | `art/blend/tank/` |
 | `art/meshes/vehicles/technical.glb` | `technical` | `art/blend/truck/` |
 | `art/meshes/vehicles/ifv_namer.glb` | `ifv_namer` | `art/blend/namer/` |
+| `art/meshes/vehicles/jeep_shoded.glb` | `jeep_shoded` | `art/blend/Shodeed jeep/` |
+| `art/meshes/vehicles/heli_peten.glb` | `heli_peten` | `art/blend/AH-64 attack helicopter/` |
+| `art/meshes/buildings/house.glb` + `_wreck` | the `house` structure | `art/blend/enemy building 1/` |
+| `art/meshes/vfx/muzzle_flash.glb` | `fire_apfsds` hot core | `art/blend/Muzzle flush/` |
+| `art/meshes/vfx/explosion_burst.glb` | `structure_collapse` | `art/blend/explosion burst /` |
 
 `art/blend/` is **gitignored** (465 MB), so none of their sources are in version
 control. `ART_PIPELINE.md` §8 requires source alongside rendered output — "no
@@ -133,10 +140,11 @@ depends on someone remembering is provenance that eventually fails.
    only after its replacement is confirmed drawing in game. Retiring `NAMER_*`
    removes the project's last permanent attribution obligation; retiring
    `JEEP_HULL` removes the only asset with no known terms at all.
-3. **Change the art licence declaration** in `ART_PIPELINE.md` §8 from
-   CC BY-SA 4.0 before the repository goes private. What has already been
-   distributed under it stays distributed under it; the point is to stop adding
-   to that set.
+3. ~~**Change the art licence declaration**~~ — **done 2026-08-30**, in
+   `ART_PIPELINE.md` §8, ahead of merging this work to `main`. Art and data are
+   now all rights reserved. Everything published under CC BY-SA 4.0 between
+   2026-08-04 and that date remains licensed under it to whoever took a copy;
+   the change stops adding to that set and cannot undo it.
 4. **Decide the `art/blend/` question deliberately** — 465 MB of Meshy sources
    are gitignored, so no clone can re-run the import and export scripts. Git LFS,
    a decimated in-repo source, or a documented exception. Currently it is an
