@@ -13,16 +13,25 @@ Source files, gitignored (`art/blend/` -- never committed), read from
 
     Walking.glb              (action "...|walking_man|...")   -> move
     Gun_Hold_Left_Turn.glb   (action "...|Gun_Hold_Left_Turn|...") -> idle
-    Side_Shot.glb            (action "...|Side_Shot|...")      -> fire
     Shot_and_Blown_Back.glb  (action "...|Shot_and_Blown_Back|...") -> down
 
 `Running.glb` is the brief's own named spare (a faster `move`) and is not
 built here -- nothing in the contract asks for a second `move`, and
 `ClipName` has no slot for one.
 
+`Side_Shot.glb` is READ BY NOTHING in this file. It was `fire`'s source
+through R1/R2 and is retired here: measured, it is a HIT reaction ("shot in
+the side", not "shooting sideways") with roughly double `idle`'s own vertical
+hip travel, and looping it continuously produced a visible up-down bob on
+every firing unit -- see `build_fire_src`'s own docstring and the task report
+for the measurement. None of the five supplied clips is an actual firing
+animation, so `fire` is synthesized instead of retargeted: a held-aim pose
+(borrowed from `idle`'s own settled stance) plus an authored recoil-and-settle
+impulse confined to the weapon-side arm, shoulder and upper spine.
+
 ## What this script does, in order
 
-1.  Imports each of the four required GLBs into ONE continuous Blender
+1.  Imports each of the three required GLBs into ONE continuous Blender
     session (never resetting between them -- `wm.read_factory_settings`
     would drop already-collected action data blocks), and keeps only the
     action each one contributes (`*_src`, `use_fake_user=True`). Every
@@ -52,6 +61,14 @@ built here -- nothing in the contract asks for a second `move`, and
     brief's own suggestion -- by sampling that pose once and keying it
     static at two frames (frame 0 and 1, mirroring `rig.py`'s own
     `_VIS_FRAMES` convention for a well-formed, non-degenerate static clip).
+
+    Also derives a `fire` source action -- `build_fire_src`, same step,
+    same "sample one pose from another clip" idiom as `wreck` above, but
+    NOT a static hold: a held-aim base pose (`idle`'s own LAST frame, the
+    settled stance `Gun_Hold_Left_Turn` ends on) plus a short, authored
+    recoil-and-settle cycle confined to `RightForeArm`/`RightArm`/
+    `RightShoulder`/`Spine02`. See `build_fire_src`'s own docstring for why
+    this is synthesized rather than retargeted from a supplied clip.
 
 5.  Duplicates the scratch rig three times (full independent mesh+armature
     data per copy -- forced via `preferences.edit.use_duplicate_mesh` /
@@ -175,11 +192,17 @@ import kit  # noqa: E402 -- the webbing graft below builds real kit.py geometry
 #: fixed only so a rerun's temp-file names are predictable.
 CLIP_ORDER = ("idle", "move", "fire", "down", "wreck")
 
-# --- source clip mapping, per the task brief's own table --------------------
+# --- source clip mapping ------------------------------------------------
+# `fire` is deliberately absent: none of the five supplied Meshy clips is a
+# firing animation, and `Side_Shot.glb` -- the original task brief's `fire`
+# mapping -- is a HIT reaction (measured: ~2x `idle`'s own vertical hip
+# travel), not a firing stance. Looping it produced the visible bob this
+# file now exists to remove. `build_fire_src` synthesizes `fire` instead,
+# from `idle`'s own base pose -- see its docstring. `Side_Shot.glb` is READ
+# BY NOTHING in this file any more.
 CLIP_SOURCES = {
     "move": "Walking.glb",
     "idle": "Gun_Hold_Left_Turn.glb",
-    "fire": "Side_Shot.glb",
     "down": "Shot_and_Blown_Back.glb",
 }
 
@@ -447,6 +470,116 @@ def build_wreck_src(scratch_arm, down_action):
             pb.keyframe_insert(data_path="location", frame=frame)
             pb.keyframe_insert(data_path="scale", frame=frame)
     return wreck
+
+
+#: Recoil bones, local axis (0=X/1=Y/2=Z in POSE space -- i.e. `Quaternion`
+#: composed as `base_quat @ Quaternion(axis, angle)`, NOT a world axis) and
+#: PEAK angle in degrees. Values and axis choice are measured, not guessed:
+#: a standalone forward-kinematics probe (`.superpowers/meshy-fire-clip-
+#: report.md` carries the numbers) applied +-15deg about each local axis of
+#: every candidate bone to this exact rig's own idle-last-frame pose and
+#: read back the resulting WORLD-space displacement of `RightHand`'s tail
+#: (the closest available proxy for muzzle position -- this asset ships no
+#: weapon mesh). Local -X on `RightForeArm`/`RightArm`/`Spine02` and local
+#: -Z on `RightShoulder` were the ones that move that point mostly in world
+#: +Z (muzzle rises) with a small world -X companion (pulls back, not
+#: forward) and little lateral drift -- i.e. "up and back", the shape a
+#: braced-weapon recoil actually has, not a guess from bone naming.
+#: Magnitude falls off going up the chain (forearm carries most of the kick,
+#: shoulder and spine react less) the way a real recoil transmits through a
+#: braced weapon rather than snapping the whole arm as one rigid unit.
+_FIRE_RECOIL_BONES = {
+    "RightForeArm": (0, -14.0),
+    "RightArm": (0, -6.0),
+    "RightShoulder": (2, -6.0),
+    "Spine02": (0, -3.0),
+}
+
+#: (frame, fraction of each bone's own peak angle in `_FIRE_RECOIL_BONES`).
+#: Frame 0 IS the base pose (idle's own held-aim stance, fraction 0). Frame
+#: 2 is the sharp kick-out (fraction 1, full peak) -- a 2-frame attack reads
+#: as "sharp" rather than a slow wind-up. Frame 6 is a small rebound
+#: UNDERSHOOT (fraction -0.12, past centre the other way) -- a spring
+#: settling, not a linear decay, for a touch of "settling back" rather than
+#: a robotic snap-to-rest. Frame 12 returns EXACTLY to the base pose
+#: (fraction 0) so the clip loops with no seam pop: `fire` is never played
+#: with `once: true` (`mesh-unit.ts`'s `applyMeshClip` -- `idle`/`move`/
+#: `fire`/`work` all keep three.js's own `LoopRepeat` default), so this
+#: clip plays back to back for as long as a unit keeps firing.
+_FIRE_CYCLE = ((0, 0.0), (2, 1.0), (6, -0.12), (12, 0.0))
+
+_FIRE_AXIS_VEC = {0: (1.0, 0.0, 0.0), 1: (0.0, 1.0, 0.0), 2: (0.0, 0.0, 1.0)}
+
+
+def build_fire_src(scratch_arm, idle_action):
+    """Synthesizes a `fire` source action -- none of the five supplied Meshy
+    clips is a firing animation, so this is authored, not retargeted.
+
+    Base pose is `idle`'s own LAST frame -- the settled "hold" stance
+    `Gun_Hold_Left_Turn` ends on after its own turn-in motion, i.e. exactly
+    the pose `idle` itself already holds. On top of that base, a short,
+    sharp recoil-and-settle cycle (`_FIRE_CYCLE`) is authored onto four
+    bones only (`_FIRE_RECOIL_BONES`): the weapon-side forearm/upper
+    arm/shoulder and the upper spine. Every OTHER bone -- Hips included --
+    is keyed at the SAME base-pose value on every frame of this clip, never
+    touched. That is deliberate, not an oversight: "stay up and shoot" taken
+    literally means nothing about this clip should move the body's root at
+    all, so this clip's own measured vertical Hips travel is exactly zero
+    (see the task report), safely at-or-below `idle`'s own 7.33 -- against
+    the previous `fire` source (`Side_Shot.glb`, a HIT reaction, 13.37,
+    looped continuously) that produced the reported up-down bob.
+
+    Composition is `base_quat @ Quaternion(axis, angle)` -- POST-multiply,
+    in the bone's own local (rest-relative) space, matching this file's own
+    "author with pb.keyframe_insert" idiom elsewhere (`build_wreck_src`,
+    `write_combined_clip`) rather than a world-space rotation, which would
+    need decomposing each bone's current armature-space orientation out of
+    the pose chain first. `_FIRE_RECOIL_BONES`'s own docstring records how
+    the axis/sign per bone was chosen from measurement, not guessed.
+
+    Mirrors `sample_clip`'s explicit `action_slot` reassignment (`action =
+    X` alone can leave the PREVIOUS action's stale slot bound -- see that
+    function's own docstring for the confirmed failure mode) rather than
+    `build_wreck_src`'s bare `.action = X`, since this function -- like
+    `sample_clip` -- reads pose values back via `frame_set` before writing
+    anything, so a stale slot here would read the wrong pose silently."""
+    scratch_arm.animation_data.action = idle_action
+    scratch_arm.animation_data.action_slot = idle_action.slots[0] if idle_action.slots else None
+    f0, f1 = idle_action.frame_range
+    bpy.context.scene.frame_set(int(f1), subframe=f1 - int(f1))
+    bpy.context.view_layer.update()
+
+    from mathutils import Quaternion  # noqa: PLC0415 -- only this function needs it
+
+    base = {
+        pb.name: (
+            Quaternion(pb.rotation_quaternion),
+            tuple(pb.location),
+            tuple(pb.scale),
+        )
+        for pb in scratch_arm.pose.bones
+    }
+
+    fire = bpy.data.actions.new("fire_src")
+    fire.use_fake_user = True
+    scratch_arm.animation_data.action = fire
+    scratch_arm.animation_data.action_slot = None
+
+    for frame, fraction in _FIRE_CYCLE:
+        for pb in scratch_arm.pose.bones:
+            base_q, base_loc, base_sc = base[pb.name]
+            if pb.name in _FIRE_RECOIL_BONES:
+                axis_idx, peak_deg = _FIRE_RECOIL_BONES[pb.name]
+                delta = Quaternion(_FIRE_AXIS_VEC[axis_idx], math.radians(peak_deg * fraction))
+                pb.rotation_quaternion = base_q @ delta
+            else:
+                pb.rotation_quaternion = base_q
+            pb.location = base_loc
+            pb.scale = base_sc
+            pb.keyframe_insert(data_path="rotation_quaternion", frame=frame)
+            pb.keyframe_insert(data_path="location", frame=frame)
+            pb.keyframe_insert(data_path="scale", frame=frame)
+    return fire
 
 
 def duplicate_figure(scratch_arm, scratch_role_meshes, prefix, dx, dy):
@@ -1050,12 +1183,13 @@ def build_webbing(scratch_mesh, scratch_arm):
 def main():
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
-    # --- 1. import: base rig from Walking.glb, then the other three -------
+    # --- 1. import: base rig from Walking.glb, then the other two -- no
+    # `fire` import here (`CLIP_SOURCES` has no "fire" key), `Side_Shot.glb`
+    # is read by nothing: `fire` is synthesized in step 4.5 below. ---------
     scratch_arm, scratch_mesh, move_src = import_base_clip(
         os.path.join(SRC_DIR, CLIP_SOURCES["move"]), "move_src"
     )
     idle_src = import_clip(os.path.join(SRC_DIR, CLIP_SOURCES["idle"]), "idle_src")
-    fire_src = import_clip(os.path.join(SRC_DIR, CLIP_SOURCES["fire"]), "fire_src")
     down_src = import_clip(os.path.join(SRC_DIR, CLIP_SOURCES["down"]), "down_src")
 
     # --- 2. classify every vertex's rl_role from the mesh's OWN base-color
@@ -1076,6 +1210,13 @@ def main():
 
     # --- 4. fix forward to +X -----------------------------------------------
     fix_forward(scratch_arm)
+
+    # --- 4.5. synthesize fire from idle's own base pose + an authored recoil
+    # cycle -- see `build_fire_src`'s own docstring and the task report for
+    # why this is built rather than retargeted from a supplied clip. Must
+    # run after fix_forward (like wreck, below): `idle_src`'s fcurves only
+    # encode +X-forward once `transform_apply` above has baked it in. -------
+    fire_src = build_fire_src(scratch_arm, idle_src)
 
     # --- 5. derive wreck from down's last frame -----------------------------
     wreck_src = build_wreck_src(scratch_arm, down_src)
