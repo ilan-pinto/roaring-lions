@@ -273,3 +273,114 @@ describe('ParticleSystem.forEachLive', () => {
     expect(collect(system, LAYER_ABOVE)).toHaveLength(0);
   });
 });
+
+/**
+ * `emit_over_ms`, `inherit_velocity`: previously declared in the schema and
+ * `ParticleSpec` and read by nothing (`emitOverMs`/`inheritVelocity` never
+ * appeared outside the type declaration and the JSON that set them --
+ * confirmed by grep before writing this suite). `spawn()` burst behaviour is
+ * the field-absent/0 case and must stay byte-identical; that is the first
+ * test below, and it was run against the pre-change `spawn()` to confirm it
+ * already passed before any implementation landed here.
+ */
+describe('ParticleSystem sustained emission (emit_over_ms) and inherit_velocity', () => {
+  it('REGRESSION: a spec without emit_over_ms spawns its full count immediately, exactly as burst always has', () => {
+    const system = new ParticleSystem(32, (key) => key);
+    // count 8, magnitude 0 -> n = round(8 * 0.5) = 4, same formula spawn()
+    // has always used. No emit_over_ms field at all (not merely 0).
+    system.spawn(makeSpec({ count: 8, speed_tiles_s: 0 }), 1, 2, 0, 0, 3, LAYER_BELOW);
+    expect(system.live).toBe(4);
+  });
+
+  it('REGRESSION: emit_over_ms: 0 behaves identically to the field being absent', () => {
+    const system = new ParticleSystem(32, (key) => key);
+    system.spawn(makeSpec({ count: 8, speed_tiles_s: 0, emit_over_ms: 0 }), 1, 2, 0, 0, 3, LAYER_BELOW);
+    expect(system.live).toBe(4);
+  });
+
+  it('spreads emission across the declared window instead of bursting all particles at once', () => {
+    const system = new ParticleSystem(32, (key) => key);
+    // count 8, magnitude 0 -> n = 4 (same formula as above). lifetime is long
+    // so nothing dies mid-test; emit_over_ms spreads the 4 across 1000ms.
+    system.spawn(
+      makeSpec({ count: 8, lifetime_ms: 60_000, speed_tiles_s: 0, emit_over_ms: 1000 }),
+      1,
+      2,
+      0,
+      0,
+      3,
+      LAYER_BELOW
+    );
+    // Not all 4 exist the instant spawn() returns -- this is the behaviour
+    // that distinguishes a sustained emitter from a burst.
+    expect(system.live).toBeLessThan(4);
+    expect(system.live).toBeGreaterThanOrEqual(1);
+
+    system.step(0.5); // halfway through the window
+    expect(system.live).toBeLessThan(4);
+
+    system.step(0.6); // now well past the 1000ms window
+    expect(system.live).toBe(4);
+
+    // Further stepping does not keep spawning past the declared total.
+    system.step(1);
+    expect(system.live).toBe(4);
+  });
+
+  it('respects the pool capacity while trickling a sustained emission, without throwing', () => {
+    const system = new ParticleSystem(2, (key) => key);
+    system.spawn(
+      makeSpec({ count: 10, lifetime_ms: 60_000, speed_tiles_s: 0, emit_over_ms: 200 }),
+      0,
+      0,
+      0,
+      0,
+      3,
+      LAYER_BELOW
+    );
+    for (let i = 0; i < 20; i++) {
+      system.step(0.05);
+      expect(system.live).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it('inherit_velocity blends in the emitting entity motion passed to spawn()', () => {
+    const system = new ParticleSystem(4, (key) => key);
+    // speed_tiles_s 0 removes the cone-jitter term from vx/vy entirely, so
+    // the only source of velocity is the inherited fraction of (velX, velY).
+    system.spawn(
+      makeSpec({ lifetime_ms: 60_000, speed_tiles_s: 0, gravity_tiles_s2: 0, drag: 0, inherit_velocity: 0.5 }),
+      0,
+      0,
+      0,
+      0,
+      1,
+      LAYER_BELOW,
+      10,
+      -4
+    );
+    system.step(1); // 1s at constant velocity -> displacement equals velocity
+    const [p] = collect(system, LAYER_BELOW);
+    expect(p.x).toBeCloseTo(5, 10); // 10 * 0.5
+    expect(p.y).toBeCloseTo(-2, 10); // -4 * 0.5
+  });
+
+  it('REGRESSION: inherit_velocity has no effect when spawn() is called without a velocity argument', () => {
+    // Every existing call site (weapon fire, collapse, ambient) calls spawn()
+    // with exactly 7 arguments. inherit_velocity must not change their output.
+    const system = new ParticleSystem(4, (key) => key);
+    system.spawn(
+      makeSpec({ lifetime_ms: 60_000, speed_tiles_s: 0, gravity_tiles_s2: 0, drag: 0, inherit_velocity: 0.9 }),
+      3,
+      4,
+      0,
+      0,
+      1,
+      LAYER_BELOW
+    );
+    system.step(1);
+    const [p] = collect(system, LAYER_BELOW);
+    expect(p.x).toBeCloseTo(3, 10);
+    expect(p.y).toBeCloseTo(4, 10);
+  });
+});

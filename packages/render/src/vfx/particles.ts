@@ -31,6 +31,41 @@ function sampleLerp(curve: number[] | undefined, t: number, fallback: number): n
 }
 
 /**
+ * A `spawn()` call whose spec set `emit_over_ms` and has particles still
+ * owed to it. `step()` trickles `spawnOne` calls out of this list instead of
+ * `spawn()` placing the whole count at once -- the mechanism `emit_over_ms`
+ * needed and never had (it validated, typechecked, and was read by nothing).
+ *
+ * A plain array of small objects, not struct-of-arrays: unlike per-particle
+ * state this is bounded by the number of *sustained emitters alive at once*
+ * (a handful -- a burning wreck, a collapsing building), not by particle
+ * count, so it is nowhere near the per-frame budget the pool itself has to
+ * respect.
+ */
+interface PendingEmission {
+  spec: ParticleSpec;
+  x: number;
+  y: number;
+  dirRad: number;
+  coneRad: number;
+  scale: number;
+  resolved: string[];
+  priority: number;
+  layerIdx: number;
+  velX: number;
+  velY: number;
+  /** Total particles this emission owes, computed once at spawn() time --
+   *  the same `pick(count) * (0.5 + magnitude*0.9)` burst has always used. */
+  total: number;
+  /** How many of `total` have been handed to spawnOne so far, including any
+   *  that spawnOne dropped for a full pool -- a starved slot is not retried,
+   *  matching the burst path's existing drop-on-full behaviour exactly. */
+  spawned: number;
+  elapsedMs: number;
+  durationMs: number;
+}
+
+/**
  * Fixed-capacity particle pool in struct-of-arrays form.
  *
  * Weapon fire is the highest-frequency effect in the game, so this allocates
@@ -60,6 +95,9 @@ export class ParticleSystem {
   private readonly capacity: number;
   private readonly resolve: (key: string) => string;
   private liveCount = 0;
+  /** Sustained (`emit_over_ms`) emissions still owed particles. See
+   *  `PendingEmission`'s own doc comment. */
+  private readonly pending: PendingEmission[] = [];
 
   constructor(capacity: number, resolve: (key: string) => string) {
     this.capacity = capacity;
@@ -108,6 +146,19 @@ export class ParticleSystem {
    * needing its own emitter. `layerIdx` selects which draw call later
    * picks this particle up — the pool itself is not split by layer, so
    * priority-based eviction still competes globally.
+   *
+   * `velX`/`velY` are the emitting entity's own world-space velocity in
+   * tiles/s, both defaulting to 0 -- every call site today omits them, so
+   * `spec.inherit_velocity` (a 0..1 fraction) blends in exactly nothing
+   * until a caller starts passing real motion. That is a caller-side gap
+   * once outside this file's scope, not a bug in the blend itself; see the
+   * VFX dead-fields report for the constraint that keeps it that way.
+   *
+   * `spec.emit_over_ms` (absent or 0) is the burst path: every particle is
+   * placed the instant this call returns, unchanged from before this field
+   * existed. `> 0` spreads the remaining particles across that many
+   * milliseconds via `pending`/`step()` -- the first particle still lands
+   * immediately, so a sustained effect never has a silent gap at its start.
    */
   spawn(
     spec: ParticleSpec,
@@ -116,36 +167,88 @@ export class ParticleSystem {
     dirTurns: number,
     magnitude: number,
     priority: number,
-    layerIdx: number
+    layerIdx: number,
+    velX = 0,
+    velY = 0
   ): void {
     const scale = 0.75 + magnitude * 1.25;
     const n = Math.max(1, Math.round(pick(spec.count, 1) * (0.5 + magnitude * 0.9)));
     const coneRad = ((spec.cone_deg ?? 360) * Math.PI) / 180;
     const dirRad = dirTurns * Math.PI * 2;
     const resolved = spec.color_over_life.map((k) => this.resolve(k));
+    const emitOverMs = spec.emit_over_ms ?? 0;
 
-    for (let k = 0; k < n; k++) {
-      const i = this.freeSlot(priority);
-      if (i < 0) return;
-      if (this.alive[i] === 0) this.liveCount++;
-      const a = dirRad + (Math.random() - 0.5) * coneRad;
-      const speed = pick(spec.speed_tiles_s, 0);
-      this.x[i] = x;
-      this.y[i] = y;
-      this.vx[i] = Math.cos(a) * speed;
-      this.vy[i] = Math.sin(a) * speed;
-      this.age[i] = 0;
-      this.life[i] = pick(spec.lifetime_ms, 200) / 1000;
-      this.size[i] = pick(spec.size_px, 6) * scale;
-      this.gravity[i] = spec.gravity_tiles_s2 ?? 0;
-      this.drag[i] = spec.drag ?? 0;
-      this.priority[i] = priority;
-      this.layerIdx[i] = layerIdx;
-      this.alive[i] = 1;
-      this.colors[i] = resolved;
-      this.alphaCurve[i] = spec.alpha_over_life;
-      this.sizeCurve[i] = spec.size_over_life;
+    // The first particle always lands now, burst or sustained alike -- a
+    // sustained emitter with a 900ms window must not read as "nothing for
+    // the first frame".
+    this.spawnOne(spec, x, y, dirRad, coneRad, scale, resolved, priority, layerIdx, velX, velY);
+
+    if (emitOverMs <= 0 || n <= 1) {
+      // Burst path, byte-for-byte the loop this always was: same per-particle
+      // work (spawnOne), same order, same count.
+      for (let k = 1; k < n; k++) {
+        this.spawnOne(spec, x, y, dirRad, coneRad, scale, resolved, priority, layerIdx, velX, velY);
+      }
+      return;
     }
+
+    this.pending.push({
+      spec,
+      x,
+      y,
+      dirRad,
+      coneRad,
+      scale,
+      resolved,
+      priority,
+      layerIdx,
+      velX,
+      velY,
+      total: n,
+      spawned: 1,
+      elapsedMs: 0,
+      durationMs: emitOverMs,
+    });
+  }
+
+  /** Places exactly one particle from `spec` into a free (or reclaimed) pool
+   *  slot. The entire per-particle body `spawn()`'s burst loop always ran,
+   *  now shared with the `emit_over_ms` trickle in `step()` so the two paths
+   *  cannot compute a particle's look differently. */
+  private spawnOne(
+    spec: ParticleSpec,
+    x: number,
+    y: number,
+    dirRad: number,
+    coneRad: number,
+    scale: number,
+    resolved: string[],
+    priority: number,
+    layerIdx: number,
+    velX: number,
+    velY: number
+  ): void {
+    const i = this.freeSlot(priority);
+    if (i < 0) return;
+    if (this.alive[i] === 0) this.liveCount++;
+    const a = dirRad + (Math.random() - 0.5) * coneRad;
+    const speed = pick(spec.speed_tiles_s, 0);
+    const inherit = spec.inherit_velocity ?? 0;
+    this.x[i] = x;
+    this.y[i] = y;
+    this.vx[i] = Math.cos(a) * speed + velX * inherit;
+    this.vy[i] = Math.sin(a) * speed + velY * inherit;
+    this.age[i] = 0;
+    this.life[i] = pick(spec.lifetime_ms, 200) / 1000;
+    this.size[i] = pick(spec.size_px, 6) * scale;
+    this.gravity[i] = spec.gravity_tiles_s2 ?? 0;
+    this.drag[i] = spec.drag ?? 0;
+    this.priority[i] = priority;
+    this.layerIdx[i] = layerIdx;
+    this.alive[i] = 1;
+    this.colors[i] = resolved;
+    this.alphaCurve[i] = spec.alpha_over_life;
+    this.sizeCurve[i] = spec.size_over_life;
   }
 
   step(dt: number): void {
@@ -163,6 +266,20 @@ export class ParticleSystem {
       this.vy[i] += this.gravity[i] * dt;
       this.x[i] += this.vx[i] * dt;
       this.y[i] += this.vy[i] * dt;
+    }
+
+    // Trickle sustained emissions. Iterated back-to-front so a finished
+    // entry can be spliced out in place without disturbing the next index.
+    for (let p = this.pending.length - 1; p >= 0; p--) {
+      const e = this.pending[p];
+      e.elapsedMs += dt * 1000;
+      const t = Math.min(1, e.elapsedMs / e.durationMs);
+      const due = Math.min(e.total, Math.round(t * e.total));
+      while (e.spawned < due) {
+        this.spawnOne(e.spec, e.x, e.y, e.dirRad, e.coneRad, e.scale, e.resolved, e.priority, e.layerIdx, e.velX, e.velY);
+        e.spawned++;
+      }
+      if (e.spawned >= e.total) this.pending.splice(p, 1);
     }
   }
 
