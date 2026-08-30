@@ -227,6 +227,39 @@ const VEHICLE_ROLE_PALETTE: Record<string, Partial<Record<VehicleMeshRole, reado
     glass: sliceFrom('gunmetal', 3, 1),
     recess: sliceFrom('shadow', 1, 2),
   },
+  // `tools/render_apache.py`'s own `ROLE_PALETTE` base colours (`hull`
+  // olive.1, `plate` olive.2, `metal` gunmetal.2 -- "rotor, mast, gun, gear
+  // legs" -- `rubber` shadow.0, `glass` gunmetal.3 -- "tandem canopy" --
+  // `recess` shadow.1), each extended to the end of its own band, the same
+  // method every table above already uses. Unlike `mbt_lavi`/`ifv_namer`/
+  // `jeep_shoded`, this vehicle has its OWN sourced `ROLE_PALETTE` --
+  // `render_apache.py` IS `heli_peten`'s current shipped art, not a
+  // borrowed KDF analogue -- so this entry is derived straight from it
+  // rather than copied from `apc_eitan`. It happens to match `dozer_d9`'s
+  // own table in five of six roles (both are native KDF olive/gunmetal
+  // hardware); `metal` is the one genuine difference (`gunmetal.2` here,
+  // `gunmetal.1` there), which is exactly why this table is sourced fresh
+  // rather than assumed identical.
+  //
+  // `tools/vehicles/export_meshy_apache.py`'s own exported GLB uses `hull`
+  // (fuselage + tail fin, joined), `glass` (the cut canopy), `metal` (the
+  // chin gun assembly, joined with two small tail greebles, all on the
+  // `hull` part) and `metal` again on a SECOND part, `rotor` (the main
+  // rotor, the vehicle's first `rotor_pivot`-parented mesh -- see that
+  // script's own docstring "ROTOR PIVOT"/"TAIL ROTOR" for why the tail
+  // rotor ships fused into the static `hull` fin instead of a second
+  // pivot). No `plate` or `recess` geometry was found (see that script's
+  // own "ROLES" section) -- the table is held complete regardless, the same
+  // "boot failure, not a load-time gap" reason every table above already
+  // is.
+  heli_peten: {
+    hull: sliceFrom('olive', 1, 3),
+    plate: sliceFrom('olive', 2, 2),
+    metal: sliceFrom('gunmetal', 2, 2),
+    rubber: sliceFrom('shadow', 0, 3),
+    glass: sliceFrom('gunmetal', 3, 1),
+    recess: sliceFrom('shadow', 1, 2),
+  },
 };
 
 /**

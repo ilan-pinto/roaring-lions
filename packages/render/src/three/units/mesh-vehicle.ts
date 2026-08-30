@@ -35,6 +35,22 @@ import { HULL_RENDER_ORDER, TURRET_RENDER_ORDER } from './render-order';
 const PIVOT_NODE_NAME = 'turret_pivot';
 const PIVOT_ROLE = 'turret';
 
+/**
+ * The rotor pivot -- a SECOND, independent pivot kind alongside
+ * `turret_pivot` above, added for `heli_peten` (the first mesh vehicle with
+ * a spinning part that is not a weapon traverse). Same two-tier lookup
+ * (name first, `extras.rl_pivot` fallback), same reasoning, kept as its own
+ * pair of constants rather than generalised into a role-keyed pivot table:
+ * exactly two pivot kinds exist today, and a vehicle either has a turret, a
+ * rotor, both, or neither -- `tools/vehicles/export_meshy_apache.py`'s own
+ * docstring ("ROTOR PIVOT") has the export-side half of this convention.
+ * Unlike `turret_pivot`, a rotor spins at a constant rate with no target to
+ * track (`ThreeRenderer.updateVehicleMeshes`'s own rotor-spin block), so it
+ * needs no spring state to go with it.
+ */
+const ROTOR_PIVOT_NODE_NAME = 'rotor_pivot';
+const ROTOR_PIVOT_ROLE = 'rotor';
+
 /** `{part}_` prefix -> the render-order band its meshes draw at, per the
  *  contract: "Render order is per-mesh... hull parts at HULL_RENDER_ORDER,
  *  turret parts at TURRET_RENDER_ORDER, keyed off the `{part}_` prefix."
@@ -59,6 +75,10 @@ export interface VehicleMeshTemplate {
    *  that is not an error: it simply means this vehicle's turret facing is
    *  never read. */
   readonly hasTurretPivot: boolean;
+  /** True when this vehicle's GLB carries a `rotor_pivot` node -- every
+   *  ground vehicle legitimately has none; `heli_peten` is the first with
+   *  one. See `ROTOR_PIVOT_NODE_NAME`'s own doc comment. */
+  readonly hasRotorPivot: boolean;
 }
 
 /**
@@ -84,10 +104,15 @@ export function buildVehicleMeshTemplate(
   const geometries: THREE.BufferGeometry[] = [];
   const unmapped = new Set<string>();
   let pivotNode: THREE.Object3D | null = null;
+  let rotorPivotNode: THREE.Object3D | null = null;
 
   root.traverse((o) => {
     if (o.name === PIVOT_NODE_NAME) {
       pivotNode = o;
+      return;
+    }
+    if (o.name === ROTOR_PIVOT_NODE_NAME) {
+      rotorPivotNode = o;
       return;
     }
     const extrasPivot = (o.userData as { rl_pivot?: unknown }).rl_pivot;
@@ -95,6 +120,9 @@ export function buildVehicleMeshTemplate(
       // Fallback path, per the contract: found by scanning `extras.rl_pivot`
       // rather than by the node's own name.
       pivotNode = o;
+    }
+    if (!rotorPivotNode && extrasPivot === ROTOR_PIVOT_ROLE) {
+      rotorPivotNode = o;
     }
 
     const mesh = o as THREE.Mesh;
@@ -121,7 +149,7 @@ export function buildVehicleMeshTemplate(
     throw new Error(`mesh-vehicle: no ramp for rl_role ${[...unmapped].join(', ')} (vehicle "${vehicleId}")`);
   }
 
-  return { root, materials, geometries, hasTurretPivot: pivotNode !== null };
+  return { root, materials, geometries, hasTurretPivot: pivotNode !== null, hasRotorPivot: rotorPivotNode !== null };
 }
 
 /** Fetches and parses `glbUrl`, then builds a `VehicleMeshTemplate` --
@@ -154,6 +182,12 @@ export interface VehicleMeshEntity {
    * hull, snapping it to the origin the instant a single shell fires.
    */
   readonly turretPivotBase: THREE.Vector3 | null;
+  /** THIS clone's own `rotor_pivot` node, same cloning reasoning as
+   *  `turretPivot` above. Spun at a constant rate by
+   *  `ThreeRenderer.updateVehicleMeshes` -- unlike the turret, a rotor
+   *  tracks no target and needs no base/rest position to kick away from and
+   *  return to, so there is no `rotorPivotBase` counterpart. */
+  readonly rotorPivot: THREE.Object3D | null;
 }
 
 /**
@@ -179,7 +213,19 @@ export function instantiateVehicleMesh(template: VehicleMeshTemplate, typeId: st
     });
   }
   const turretPivotBase: THREE.Vector3 | null = turretPivot ? (turretPivot as THREE.Object3D).position.clone() : null;
-  return { typeId, root, turretPivot, turretPivotBase };
+  let rotorPivot: THREE.Object3D | null = null;
+  if (template.hasRotorPivot) {
+    root.traverse((o) => {
+      if (rotorPivot) return;
+      if (o.name === ROTOR_PIVOT_NODE_NAME) {
+        rotorPivot = o;
+        return;
+      }
+      const extrasPivot = (o.userData as { rl_pivot?: unknown }).rl_pivot;
+      if (extrasPivot === ROTOR_PIVOT_ROLE) rotorPivot = o;
+    });
+  }
+  return { typeId, root, turretPivot, turretPivotBase, rotorPivot };
 }
 
 /** Releases a template's own owned resources -- every clone made from it

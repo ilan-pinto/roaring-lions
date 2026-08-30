@@ -100,8 +100,22 @@ DEFAULT_BLENDER_CANDIDATES = (
 # tools/export_mesh_vehicle.py owns the real mapping; not imported here
 # (see render_mesh_gate.py's docstring for why), so this is kept by hand.
 # Extend it when a new vehicle mesh ships.
+#
+# Every vehicle mesh under art/meshes/vehicles/ is listed. The pairs are taken
+# from `SPRITE_MAP` in packages/app/src/main.ts -- the RUNTIME authority for
+# which sheet a unit type draws with, so a mesh and the billboard it stands in
+# for cannot disagree here -- and each one also matches the `out_hull` /
+# `out_turr` its own tools/render_*.py writes. Sheets those scripts name but
+# never write (`*_TURR_UNUSED`, for a vehicle whose weapon station is not
+# separately modelled) are correctly absent.
 VEHICLE_OWN_SPRITES = {
     "apc_eitan": ("EITAN_HULL", "EITAN_TURR"),
+    "dozer_d9": ("D9_HULL",),
+    "heli_peten": ("APACHE_HULL",),
+    "ifv_namer": ("NAMER_HULL", "NAMER_TURR"),
+    "jeep_shoded": ("JEEP_HULL",),
+    "mbt_lavi": ("TNK_HULL", "TNK_TURR"),
+    "technical": ("TECH_HULL", "TECH_TURR"),
 }
 
 

@@ -129,7 +129,7 @@ import type { TerrainInput, MeshData } from './terrain/types';
 import { dirtyForStructureHit, dirtyForStructureDestroyed } from './terrain/dirty';
 import { isGrindingHit } from '../grind';
 import { packSheet, buildUnitTexture } from './units/atlas';
-import { entityFrame, assignRoofSlots, type EntityFrameInput, type EntityFrame } from './units/frame-state';
+import { entityFrame, assignRoofSlots, AIR_LIFT_PX, type EntityFrameInput, type EntityFrame } from './units/frame-state';
 import { UnitInstancer, TURRET_RENDER_ORDER } from './units/instances';
 import { pickUnit as pickUnitPure, unitsInScreenRect as unitsInScreenRectPure } from './units/pick';
 import { stepTracers, spawnTracer, type TracerModel } from './units/tracers';
@@ -336,6 +336,27 @@ const MESH_TURRET_RECOIL_TILES = 0.11;
  * is already offset forward from the hull's own origin.
  */
 const MESH_TURRET_MUZZLE_TILES = 0.5;
+/**
+ * Main-rotor spin rate for a `rotor_pivot`-carrying mesh vehicle (`heli_peten`
+ * today), radians/second -- `updateVehicleMeshes`'s own rotor-spin block.
+ * `render_apache.py`'s sprite rig had to bake spin into geometry (four
+ * `idle` phases at 22.5 deg, exploiting a 4-blade rotor's own 90-degree
+ * rotational symmetry, and deliberately no `fire` clip because a fixed pose
+ * "would freeze the rotor the instant it fires" -- that file's own
+ * docstring) precisely because a sprite has no pivot of its own to spin
+ * independently of a clip. A mesh does: this constant drives the pivot
+ * directly, every frame, regardless of clip or firing state, so none of
+ * that sprite-side constraint applies here.
+ *
+ * One full turn every ~1 second (2*PI rad/s) -- a judgement call, not
+ * measured (this pipeline's own convention for an unmeasured constant, see
+ * `MESH_HULL_RECOIL_TILES`'s own doc comment): fast enough to read as an
+ * energetic idle rotor at gameplay zoom, slow enough that a 60 fps
+ * continuous rotation never strobes or reads as static. Not tied to the
+ * real AH-64's own ~289 RPM main-rotor speed, which would be a blur at any
+ * sprite-scale render and is not what this constant is trying to reproduce.
+ */
+const ROTOR_SPIN_RAD_PER_SEC = Math.PI * 2;
 /** Seconds a dying unit spends fading before it is dropped -- mirrors
  *  `PixiRenderer.DEATH_SECONDS` (renderer.ts:1209). See `stepDeaths`'s own
  *  doc comment for what happens once that fade ends (a permanent
@@ -737,6 +758,17 @@ export class ThreeRenderer implements Renderer {
   private readonly turretVel: Float64Array;
   private readonly turretSeeded: Uint8Array;
   /**
+   * Per-entity main-rotor spin phase (radians, wrapped mod 2*PI so it never
+   * grows unbounded over a long session) for a `rotor_pivot`-carrying mesh
+   * vehicle -- `updateVehicleMeshes`'s own rotor-spin block, driven by
+   * `ROTOR_SPIN_RAD_PER_SEC`. Sized and allocated alongside `turretFacing`
+   * above for every entity regardless of type, the same "harmless no-op for
+   * a type that never reads it" shape `recoilT` already has -- but unlike
+   * the turret's spring pair, a constant-rate spin has no velocity or
+   * target to track, so this is the only array it needs.
+   */
+  private readonly rotorPhase: Float64Array;
+  /**
    * Task B3.6: the TURRET's own one-shot firing latch -- deliberately a
    * SEPARATE timer from `firingTimer` above, not a second read of it. Every
    * shipped hull sheet with turret art (TNK/EITAN/NAMER/GUNTRUCK/TECH)
@@ -1094,6 +1126,7 @@ export class ThreeRenderer implements Renderer {
     this.turretFacing = new Float64Array(n);
     this.turretVel = new Float64Array(n);
     this.turretSeeded = new Uint8Array(n);
+    this.rotorPhase = new Float64Array(n);
     this.turretFiringTimer = new Float64Array(n);
     this.vehicleMoving = new Uint8Array(n);
     this.vehicleDustAccumMs = new Float64Array(n);
@@ -3138,6 +3171,14 @@ export class ThreeRenderer implements Renderer {
    * A vehicle with no `turretPivot` (`dozer_d9` today) simply never reads
    * `turretFacing` at all -- there is no pivot node to rotate.
    *
+   * A vehicle WITH a `rotorPivot` (`heli_peten` today, the mesh-unit-contract
+   * v2 extension this task adds) spins it at a constant rate every frame,
+   * independent of clip, firing state, or the turret spring above -- see
+   * `ROTOR_SPIN_RAD_PER_SEC`'s own doc comment. `heli_peten` is also the
+   * first `isAir` type this method draws, which is why `worldY` below reads
+   * `type.isAir` at all: every other mesh vehicle is ground-domain and gets
+   * `airLift = 0`.
+   *
    * Death: immediate removal, no fade. Every shipped vehicle GLB carries
    * zero animations, so there is no `down`/`wreck` pose for a fade to hold
    * -- seen and accepted as a known gap in this task's own report, not
@@ -3170,7 +3211,17 @@ export class ThreeRenderer implements Renderer {
       // travels at most a few hundredths of a tile, so re-sampling terrain
       // height from the offset position could only ever matter exactly at a
       // terrace edge, and neither path attempts it there.
-      const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, wx, wy);
+      //
+      // Air lift: `heli_peten` is this path's first `isAir` type, so this is
+      // the first read of `type.isAir` here -- reused verbatim from the
+      // billboard path (`frame-state.ts`'s own `AIR_LIFT_PX` doc comment),
+      // same constant, same `WORLD_Y_PER_LIFT_PIXEL` conversion to a real
+      // world-Y offset rather than a screen-space nudge. The ground shadow
+      // ellipse needs no change to match: `updateOverlays` computes it from
+      // `groundWorldY` directly, independent of mesh-vs-billboard body
+      // representation, so it already draws under a mesh-drawn air unit.
+      const airLift = type.isAir ? AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL : 0;
+      const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, wx, wy) + airLift;
       const facingNorm = fx.toNumber(st.facing[i]);
 
       // Hull recoil: a genuine world-space shove opposite the bearing the
@@ -3249,6 +3300,19 @@ export class ThreeRenderer implements Renderer {
             entity.turretPivot.position.copy(entity.turretPivotBase);
           }
         }
+      }
+
+      // Rotor spin (mesh-unit-contract v2 extension): constant-rate, driven
+      // every frame regardless of clip or firing state -- see
+      // `ROTOR_SPIN_RAD_PER_SEC`'s own doc comment for why a mesh pivot has
+      // none of the sprite rig's phase-count constraint. `rotorPhase[i]`
+      // persists per entity (wrapped mod 2*PI) the same way `turretFacing`
+      // does above it, but needs no velocity/target pair: nothing ever
+      // stops or redirects this spin the way the turret spring tracks a
+      // moving contact.
+      if (entity.rotorPivot) {
+        this.rotorPhase[i] = (this.rotorPhase[i] + ROTOR_SPIN_RAD_PER_SEC * dtSeconds) % (Math.PI * 2);
+        entity.rotorPivot.rotation.y = this.rotorPhase[i];
       }
     }
 
