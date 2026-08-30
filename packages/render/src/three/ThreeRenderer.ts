@@ -151,7 +151,7 @@ import {
   type MeshUnitTemplate,
   type MeshUnitEntity,
 } from './units/mesh-unit';
-import { meshYawFromFacing } from './units/mesh-anim';
+import { meshYawFromFacing, MESH_UNITS_PER_TILE } from './units/mesh-anim';
 import { stepTurretFacing } from './units/frame-state';
 import {
   loadVehicleMeshTemplate,
@@ -270,6 +270,49 @@ interface UnitWreck {
  *  `entityFrame` makes with the already-drained value. */
 const RECOIL_SECONDS = 0.15;
 const FLINCH_SECONDS = 0.18;
+
+/**
+ * Mesh-vehicle recoil, a genuine 3D shove -- distinct from the billboard
+ * path's screen-pixel `RECOIL_PX_VEHICLE`/`RECOIL_PX_SOFT` (`frame-state.ts`),
+ * which exists to nudge a flat sprite a few pixels because Pixi has no real
+ * depth. A mesh vehicle has real geometry and a real camera distance, so
+ * these are authored in WORLD TILE UNITS -- they read as a consistent shove
+ * at any zoom, the same reason `AIR_LIFT_PX` was converted to a real world-Y
+ * offset instead of staying a screen nudge (`frame-state.ts`'s own doc
+ * comment on `AIR_LIFT_PX`). Judgement calls, not measured: eyeballed at
+ * gameplay zoom (2-4) against a firing `mbt_lavi`.
+ *
+ * Both the hull shove and the turret's own independent kick scale by
+ * `recoilPower` (0..1, `firePower(weapon)` at the shot) -- `gun_120`
+ * (`apfsds`, penetration 1300 + damage 520) resolves to ~0.98, effectively
+ * the maximum below; `coax_mg` (`hmg`, penetration 20 + damage 35, weight 55
+ * under `firePower`'s own 100 floor) resolves to EXACTLY 0, so a coax burst
+ * still advances `recoilT`/`recoilDir` (fired) but produces zero hull shove
+ * and zero turret kick -- not "a smaller shove", none at all. That is not a
+ * clamp bug: a coax MG is an internal mechanism with no meaningful external
+ * recoil on a 60-tonne hull, so "the coax MG does not shove the tank like
+ * the main gun does" is satisfied at its natural, unclamped extreme.
+ */
+const MESH_HULL_RECOIL_TILES = 0.16;
+/** Hull nose-up pitch at full `recoilPower`, radians (~3.4 deg) -- the tank
+ *  visibly rocks back onto its rear road wheels under the main gun, not just
+ *  translates. Applied to `root.rotation.x`, which three.js's default 'XYZ'
+ *  Euler order evaluates in the object's OWN local frame before `rotation.y`
+ *  (yaw) is composed -- so this reads as a local pitch regardless of which
+ *  way the hull is currently facing, not a world-axis tilt that would look
+ *  like a roll from some headings. */
+const MESH_HULL_PITCH_RAD = 0.06;
+/** The turret's own kick, independent of the hull -- the barrel visibly
+ *  recedes into the mantlet along whatever bearing it is CURRENTLY aimed
+ *  along (not necessarily the hull's own facing), in ROOT-LOCAL units
+ *  (`MESH_UNITS_PER_TILE` per tile, the space `turretPivot.position` lives
+ *  in) -- see `updateVehicleMeshes`'s own turret-kick block for the axis
+ *  derivation. Smaller than the hull shove: the barrel is the part that
+ *  actually recoils on a real gun, but a shove this size on top of the
+ *  hull's own translation would read as the turret flying off its mount
+ *  rather than kicking.
+ */
+const MESH_TURRET_RECOIL_TILES = 0.11;
 /** Seconds a dying unit spends fading before it is dropped -- mirrors
  *  `PixiRenderer.DEATH_SECONDS` (renderer.ts:1209). See `stepDeaths`'s own
  *  doc comment for what happens once that fade ends (a permanent
@@ -2701,11 +2744,41 @@ export class ThreeRenderer implements Renderer {
         this.scene.add(entity.root);
       }
 
-      const wx = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
-      const wy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+      let wx = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
+      let wy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+      // Ground height is sampled from the un-recoiled position, exactly like
+      // `entityFrame`'s own recoil block on the billboard path -- recoil
+      // travels at most a few hundredths of a tile, so re-sampling terrain
+      // height from the offset position could only ever matter exactly at a
+      // terrace edge, and neither path attempts it there.
       const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, wx, wy);
-      entity.root.position.set(wx, worldY, wy);
       const facingNorm = fx.toNumber(st.facing[i]);
+
+      // Hull recoil: a genuine world-space shove opposite the bearing the
+      // shot was fired along, easing out over `RECOIL_SECONDS` -- see
+      // `MESH_HULL_RECOIL_TILES`'s own doc comment for units and scaling.
+      // `recoilT`/`recoilDir`/`recoilPower` are drained/latched once a frame
+      // by `drainTimers`/`onFire`, identically to the billboard path; this is
+      // simply the first reader of them for a mesh-enabled type.
+      let hullPitch = 0;
+      if (this.recoilT[i] > 0) {
+        const k = this.recoilT[i] * this.recoilT[i]; // ease-out: hardest at the shot
+        const power = this.recoilPower[i];
+        const kick = MESH_HULL_RECOIL_TILES * power * k;
+        const a = this.recoilDir[i] * Math.PI * 2;
+        // Game (x, y) maps directly onto world (X, Z) for this backend
+        // (`EntityFrame`'s own top comment) -- no `screenOffsetToWorld`
+        // detour needed, unlike the billboard path, which only ever had a
+        // screen-space nudge to offset.
+        wx -= Math.cos(a) * kick;
+        wy -= Math.sin(a) * kick;
+        hullPitch = MESH_HULL_PITCH_RAD * power * k;
+      }
+      entity.root.position.set(wx, worldY, wy);
+      // XYZ Euler order composes local X (pitch) before Y (yaw) -- see
+      // `MESH_HULL_PITCH_RAD`'s own doc comment for why that makes this a
+      // local-frame pitch rather than a world-axis tilt.
+      entity.root.rotation.x = hullPitch;
       entity.root.rotation.y = meshYawFromFacing(facingNorm);
       entity.root.visible = st.side[i] === 0 || this.isVisible(wx, wy);
 
@@ -2729,7 +2802,34 @@ export class ThreeRenderer implements Renderer {
         // this local rotation only has to cover the DELTA between the
         // turret's absolute bearing and the hull's, exactly like
         // `meshYawFromFacing`'s own derivation applied to that delta turn.
-        entity.turretPivot.rotation.y = meshYawFromFacing(turretFacingOut) - meshYawFromFacing(facingNorm);
+        const deltaYaw = meshYawFromFacing(turretFacingOut) - meshYawFromFacing(facingNorm);
+        entity.turretPivot.rotation.y = deltaYaw;
+
+        // Turret kick: the barrel recedes along whatever bearing it is
+        // CURRENTLY aimed at (`deltaYaw`, root-local), independent of the
+        // hull's own shove above -- this is what actually sells a main gun
+        // firing, per this task's own brief ("You have a real turret pivot
+        // to work with too... which is what actually sells it"). Offset from
+        // `turretPivotBase` (the pivot's own AUTHORED rest position),
+        // never overwritten outright -- see that field's own doc comment.
+        if (entity.turretPivotBase) {
+          if (this.recoilT[i] > 0) {
+            const k = this.recoilT[i] * this.recoilT[i];
+            const kickLocal = MESH_TURRET_RECOIL_TILES * MESH_UNITS_PER_TILE * this.recoilPower[i] * k;
+            // Rest pose faces local +X (mesh-unit-contract.md), rotated by
+            // this pivot's own current `deltaYaw` -- the identical
+            // `makeRotationY` derivation `meshYawFromFacing`'s own doc
+            // comment already works out: local +X -> (cos θ, 0, -sin θ).
+            // "Backward" is the negation of that.
+            entity.turretPivot.position.set(
+              entity.turretPivotBase.x - Math.cos(deltaYaw) * kickLocal,
+              entity.turretPivotBase.y,
+              entity.turretPivotBase.z + Math.sin(deltaYaw) * kickLocal
+            );
+          } else {
+            entity.turretPivot.position.copy(entity.turretPivotBase);
+          }
+        }
       }
     }
 

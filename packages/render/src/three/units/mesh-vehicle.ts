@@ -135,6 +135,20 @@ export interface VehicleMeshEntity {
   readonly typeId: string;
   readonly root: THREE.Object3D;
   readonly turretPivot: THREE.Object3D | null;
+  /**
+   * `turretPivot`'s own AUTHORED local position at clone time (root-local
+   * units, i.e. `MESH_UNITS_PER_TILE` per tile, the same space the GLB
+   * itself was built in) -- where on the hull the turret actually sits.
+   * `null` exactly when `turretPivot` is `null`.
+   *
+   * Recorded once, here, rather than read back from `turretPivot.position`
+   * every frame: a per-shot recoil kick (`ThreeRenderer.updateVehicleMeshes`)
+   * has to OFFSET the pivot from its rest position and return to it as the
+   * shot decays, not overwrite it outright -- overwriting would erase
+   * whatever offset the export authored to seat the turret correctly on the
+   * hull, snapping it to the origin the instant a single shell fires.
+   */
+  readonly turretPivotBase: THREE.Vector3 | null;
 }
 
 /**
@@ -159,7 +173,8 @@ export function instantiateVehicleMesh(template: VehicleMeshTemplate, typeId: st
       if (extrasPivot === PIVOT_ROLE) turretPivot = o;
     });
   }
-  return { typeId, root, turretPivot };
+  const turretPivotBase: THREE.Vector3 | null = turretPivot ? (turretPivot as THREE.Object3D).position.clone() : null;
+  return { typeId, root, turretPivot, turretPivotBase };
 }
 
 /** Releases a template's own owned resources -- every clone made from it
