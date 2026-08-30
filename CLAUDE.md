@@ -220,7 +220,17 @@ yours; each one records what the next phase inherits.
   Two caveats, both load-bearing: it is **not in CI** (needs Playwright, the same
   gap `playtest.ts` has), and it has **never diffed combat**, so five of the
   eight entries and the whole VFX/collapse surface are documented but not
-  demonstrated. Capture conditions must be stated with any number from it — a
+  demonstrated.
+  **VFX are exempt from this diff as of 2026-08-30.** The project lead's call:
+  "all VFX should move to three." Pixi's VFX are legacy and are no longer owed a
+  matching effect — an effect that exists only in three is the intended end
+  state, not a divergence to be reconciled. This does NOT relax the freeze on
+  `packages/render/src/renderer.ts`, which must still stay byte-identical to
+  `main`; it removes the obligation to hold three's VFX back to what Pixi can
+  match. Two consequences: `additive` and `heat_shimmer` (schema fields read by
+  nothing) were deferred purely because implementing them meant touching both
+  backends, and are now unblocked in three alone; and new VFX work should be
+  judged on how it looks in three, not on cross-backend agreement. Capture conditions must be stated with any number from it — a
   first run read 6.5× higher purely from screenshot downscaling and a font-load
   race, and the OS mouse cursor is shared across tabs and can leak into a capture.
 
