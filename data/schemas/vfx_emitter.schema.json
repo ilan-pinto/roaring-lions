@@ -253,7 +253,8 @@
         },
         "additive": {
           "type": "boolean",
-          "default": false
+          "default": false,
+          "description": "Marks this layer as a hot, opaque core -- the three.js backend renders it fully opaque (alpha_over_life is ignored; the fragment always writes alpha 1.0) rather than fading it, so it reads as a solid patch of its resolved colour instead of diluting toward whatever is behind it. Reserve for vfx.white_hot-class effects (muzzle flashes, explosion cores). NOT a GPU additive/summing blend mode despite the name: overlapping additive particles do not sum brighter than a single one -- true additive blending was tried and rejected because it sums to colours no palette entry names (see packages/render/src/three/units/fx.ts's createParticleMaterial doc comment). Build a white-to-orange-to-red-orange grade by layering separate particle layers spatially (see fire_apfsds.json), not by relying on this field to blend one layer's colour past the palette."
         },
         "heat_shimmer": {
           "type": "boolean",

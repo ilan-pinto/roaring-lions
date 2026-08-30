@@ -22,7 +22,9 @@ import {
   TURRET_RENDER_ORDER,
   BADGE_NUMERAL_RENDER_ORDER,
   FX_RENDER_ORDER,
+  FX_RENDER_ORDER_ADDITIVE,
   FX_RENDER_ORDER_ABOVE,
+  FX_RENDER_ORDER_ABOVE_ADDITIVE,
   OVERLAY_RENDER_ORDER,
   SMOKE_RENDER_ORDER,
   FOG_RENDER_ORDER,
@@ -77,6 +79,18 @@ describe('render order bands', () => {
     // why a dedicated band, not a shared one, is what reproduces that).
     expect(SMOKE_RENDER_ORDER).toBeGreaterThan(OVERLAY_RENDER_ORDER);
     expect(SMOKE_RENDER_ORDER).toBeLessThan(FOG_RENDER_ORDER);
+  });
+
+  it('the additive (hotCore) sibling of each FX tier sits strictly after its own normal tier, and strictly before the next tier', () => {
+    // Not tied to its normal sibling -- see units/fx.ts's createParticleMaterial
+    // doc comment for why: a hotCore fragment writes alpha 1.0 (an opaque
+    // overwrite, not a commutative sum), so it must draw AFTER its own
+    // tier's ordinary dust/smoke or a later-submitted normal particle could
+    // paint over the hot core it should sit on top of.
+    expect(FX_RENDER_ORDER_ADDITIVE).toBeGreaterThan(FX_RENDER_ORDER);
+    expect(FX_RENDER_ORDER_ADDITIVE).toBeLessThan(FX_RENDER_ORDER_ABOVE);
+    expect(FX_RENDER_ORDER_ABOVE_ADDITIVE).toBeGreaterThan(FX_RENDER_ORDER_ABOVE);
+    expect(FX_RENDER_ORDER_ABOVE_ADDITIVE).toBeLessThan(OVERLAY_RENDER_ORDER);
   });
 
   it('leaves a gap of at least four bands above FX_RENDER_ORDER_ABOVE for Phase C\'s overlay tier', () => {
