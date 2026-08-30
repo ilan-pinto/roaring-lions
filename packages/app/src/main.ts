@@ -645,7 +645,13 @@ async function main(): Promise<void> {
       // the tank whose source `.blend` is missing from the repo and whose
       // sprite sheets are the only two of 35 with no credit -- it cannot
       // retire that old art until it draws here.
-      const MESH_VEHICLES = ['apc_eitan', 'dozer_d9', 'mbt_lavi', 'technical'] as const;
+      //
+      // `ifv_namer` matters the same way: it replaces NAMER_HULL/NAMER_TURR,
+      // rendered from a third-party CC BY 3.0 model (`art/src/ifv_dmm08.blend`,
+      // "VEHICLE IFV DMM08 by Mutte", BlendSwap #75225) -- the repository's
+      // only third-party attribution obligation. That sheet cannot be retired
+      // until this mesh draws here; see `.superpowers/namer-integration-report.md`.
+      const MESH_VEHICLES = ['apc_eitan', 'dozer_d9', 'mbt_lavi', 'technical', 'ifv_namer'] as const;
       await Promise.all(
         MESH_VEHICLES.map((id) =>
           three.loadVehicleMesh(id, new URL(`../../../art/meshes/vehicles/${id}.glb`, import.meta.url).href)
