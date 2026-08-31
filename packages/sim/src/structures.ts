@@ -23,6 +23,9 @@ export interface StructureTypeJson {
   color?: string;
   /** ROE cost when the player levels it (GDD §6). */
   roe_penalty?: number;
+  /** Which side this structure builds units for, if any. See `producesFor`
+   *  on `StructureType` below for the whole account. */
+  produces_for?: number;
   /** Chest-high: blocks movement and shields whoever is hugging it, but you
    *  shoot over it rather than at it. A compound built from sight-blocking
    *  masonry is a blind box -- its garrison cannot fire out, so the wall
@@ -42,6 +45,21 @@ export interface StructureTypeJson {
 }
 
 export interface StructureType {
+  /**
+   * Which side this structure builds units for, or -1 for none.
+   *
+   * ONLY production structures carry an owner. The seven civilian types are
+   * neutral terrain -- HP, garrison slots and an ROE penalty, but no faction --
+   * because nothing needed one until the camp did, and giving all of them a
+   * side would have been a much larger change for no present gain.
+   *
+   * While a living structure whose type matches a side stands, that side's
+   * `requestBuild` deploys beside it (`MissionRuntime.productionAnchor`), and
+   * destroying the last one stops that side's production outright. A mission
+   * with no such structure falls back to its own `player_start`, which is what
+   * keeps every mission authored before this feature working untouched.
+   */
+  producesFor: number;
   id: string;
   /** Display name for the HUD. */
   name: string;
@@ -71,6 +89,7 @@ export function structureTypeFromJson(json: StructureTypeJson): StructureType {
     heightPx: json.height_px ?? 18,
     color: json.color ?? 'limestone.4',
     roePenalty: json.roe_penalty ?? 0,
+    producesFor: json.produces_for ?? -1,
     perTile: json.per_tile ?? false,
     lowProfile: json.low_profile ?? false,
     standingCover: json.standing_cover ?? 2,

@@ -80,6 +80,18 @@
       "height_px": 34,
       "color": "limestone.1",
       "roe_penalty": 30
+    },
+    "camp": {
+      "id": "camp",
+      "name": "Field Camp",
+      "symbol": "c",
+      "hp_per_tile": 300,
+      "garrison_slots": 3,
+      "rubble_cover": 2,
+      "height_px": 20,
+      "color": "olive.1",
+      "roe_penalty": 0,
+      "produces_for": 0
     }
   }
 }

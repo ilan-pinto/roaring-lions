@@ -74,6 +74,19 @@
       ]
     }
   ],
+  "structures": [
+    {
+      "type": "camp",
+      "at": [
+        2,
+        20
+      ],
+      "size": [
+        2,
+        2
+      ]
+    }
+  ],
   "resources": {
     "logistics_start": 400,
     "logistics_rate_per_min": 120

@@ -147,6 +147,8 @@ export interface MissionJson {
   ledger: { requires: readonly string[]; produces: readonly string[] };
   objectives: readonly ObjectiveJson[];
   starting_force?: readonly PlacementJson[];
+  /** Buildings this mission raises on top of its map's own. See the schema. */
+  structures?: readonly { type: string; at: readonly number[]; size?: readonly number[] }[];
   resources?: {
     logistics_start?: number;
     intel_start?: number;
@@ -420,10 +422,52 @@ export class MissionRuntime {
    * affordability changes tick to tick and is shown as a price, but a locked
    * unit needs to say what would unlock it (GDD §6).
    */
+  /**
+   * The living structure this side produces from, or -1. A camp is the only
+   * structure type that declares `produces_for`; everything else in the
+   * catalogue is neutral terrain, so this scan finds at most a handful.
+   *
+   * First one wins. With several camps the player keeps producing until the
+   * last falls, which is the behaviour "losing the camp loses production"
+   * asks for — losing *a* camp must not.
+   */
+  private productionAnchor(side: number): number {
+    for (let s = 0; s < this.sim.structureCount; s++) {
+      if (this.sim.structures.alive[s] === 0) continue;
+      if (this.sim.structureTypes[this.sim.structures.typeIdx[s]].producesFor === side) return s;
+    }
+    return -1;
+  }
+
   buildBlockedReason(unitId: string): string | null {
     const info = this.ctx.unitInfo?.(unitId);
     if (!info) return 'not available in the field';
-    return unlockReason(info.unlock as UnlockGate | undefined, this.ctx.ledger);
+    const unlock = unlockReason(info.unlock as UnlockGate | undefined, this.ctx.ledger);
+    if (unlock !== null) return unlock;
+    // Where would it deploy? A camp if the mission placed one, else the map's
+    // `player_start` — the fallback that keeps every mission authored before
+    // camps existed producing exactly as it did. Only a mission that HAS a
+    // camp can lose production by losing it; a mission with neither was never
+    // able to build in the first place.
+    if (this.productionAnchor(0) >= 0) return null;
+    // No camp standing. Whether that BLOCKS production depends on whether this
+    // mission ever had one -- asked of the mission JSON, not the live sim.
+    // Reading it off the sim instead would make `player_start` a silent
+    // fallback the moment the camp fell, which is precisely the coupling this
+    // feature exists to create: a mission that fields a camp loses production
+    // with it, and a mission that never fielded one is untouched.
+    if (this.declaresProduction(0)) return 'field camp destroyed — no production';
+    if (!this.mission.map.player_start) return 'no field camp — production needs one standing';
+    return null;
+  }
+
+  /** Does this mission field a production structure at all, alive or dead? */
+  private declaresProduction(side: number): boolean {
+    for (const spec of this.mission.structures ?? []) {
+      const t = this.sim.structureTypes.find((x) => x.id === spec.type);
+      if (t !== undefined && t.producesFor === side) return true;
+    }
+    return false;
   }
 
   /** What a satellite sweep and a precision strike cost, for the HUD. */
@@ -471,7 +515,6 @@ export class MissionRuntime {
     if (!info) return false;
     if (this.buildBlockedReason(unitId) !== null) return false;
     if (this.logisticsValue < info.logistics || this.intelValue < (info.intel ?? 0)) return false;
-    if (!this.mission.map.player_start) return false;
     this.logisticsValue -= info.logistics;
     this.intelValue -= info.intel ?? 0;
     this.buildQueue.push({
@@ -579,6 +622,9 @@ export class MissionRuntime {
 
   /** Spawn everything the mission declares. Call once before the first tick. */
   start(): void {
+    // Mission-placed buildings go up BEFORE any force spawns, so a placement
+    // can never land inside one.
+    this.raiseMissionStructures();
     for (const p of this.mission.starting_force ?? []) this.spawnPlacement(p, 0);
     for (const p of this.mission.enemy?.garrison ?? []) this.spawnPlacement(p, 1);
     for (const p of this.mission.civilians?.groups ?? []) this.spawnPlacement(p, 2);
@@ -738,7 +784,15 @@ export class MissionRuntime {
       const b = this.buildQueue[i];
       if (tick < b.readyTick) continue;
       this.buildQueue.splice(i, 1);
-      this.spawnPlacement({ unit: b.unit, count: 1 }, 0);
+      // Deploy beside the camp that built it. `origin` is the same channel a
+      // carrier's passengers use. With no camp this is undefined and the
+      // placement falls through to `player_start`, unchanged.
+      const anchor = this.productionAnchor(0);
+      this.spawnPlacement(
+        { unit: b.unit, count: 1 },
+        0,
+        anchor >= 0 ? this.sim.structureExit(anchor) : undefined
+      );
       out.push({ kind: 'built', tick, unit: b.unit });
     }
 
@@ -857,6 +911,42 @@ export class MissionRuntime {
           );
         }
       }
+    }
+  }
+
+  /**
+   * Raise this mission's own buildings. The map grid cannot express these: it
+   * is shared by every mission that names the file, and a camp belongs to one
+   * mission. Everything else about them is identical to a map-parsed
+   * structure -- same catalogue, same `addStructure`, same HP and rubble.
+   */
+  private raiseMissionStructures(): void {
+    for (const spec of this.mission.structures ?? []) {
+      const ti = this.sim.structureTypes.findIndex((t) => t.id === spec.type);
+      if (ti < 0) {
+        throw new Error(`mission ${this.mission.id}: unknown structure type "${spec.type}"`);
+      }
+      const [w, h] = spec.size ?? [2, 2];
+      const [ox, oy] = spec.at;  // length pinned to 2 by mission.schema.json
+      const tiles: number[] = [];
+      for (let y = oy; y < oy + h; y++) {
+        for (let x = ox; x < ox + w; x++) {
+          if (x < 0 || y < 0 || x >= this.sim.width || y >= this.sim.height) {
+            throw new Error(
+              `mission ${this.mission.id}: ${spec.type} tile (${x},${y}) is off the map`
+            );
+          }
+          // Silent corruption otherwise: addStructure overwrites structureOfTile,
+          // so a camp dropped on a house would orphan the house's own tiles.
+          if (this.sim.structureAt(x, y) >= 0) {
+            throw new Error(
+              `mission ${this.mission.id}: ${spec.type} at (${ox},${oy}) overlaps an existing building at (${x},${y})`
+            );
+          }
+          tiles.push(y * this.sim.width + x);
+        }
+      }
+      this.sim.addStructure(ti, tiles);
     }
   }
 

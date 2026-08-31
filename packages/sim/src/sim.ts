@@ -3653,6 +3653,15 @@ export class Sim {
     return [bx, by];
   }
 
+  /**
+   * Where a unit leaving a structure appears. Public because mission
+   * production anchors to a camp and needs the same answer a garrison spill
+   * gets — one spill rule, not a second one that drifts from it.
+   */
+  structureExit(s: number): [Fx, Fx] {
+    return this.exitTile(s);
+  }
+
   /** First open tile beside a structure — where a garrison spills out. */
   private exitTile(s: number): [Fx, Fx] {
     const w = this.width;

@@ -1006,6 +1006,129 @@ describe('economy (GDD §3, just enough for M1)', () => {
     expect(fx.toNumber(w.sim.state.posX[id])).toBeCloseTo(4, 0);
   });
 
+  // ---- production anchored to a camp -------------------------------------
+  //
+  // A camp is the first structure with an owner. Everything else in the
+  // catalogue is neutral terrain, so these three cases pin the whole
+  // contract: production follows a living camp, dies with the last one, and
+  // falls back to `player_start` for every mission authored before camps
+  // existed.
+  const CAMP = {
+    id: 'camp', name: 'Field Camp', hp_per_tile: 300,
+    garrison_slots: 3, rubble_cover: 2, produces_for: 0,
+  };
+
+  function campWorld(partial: Partial<MissionJson>): World & { camp: number } {
+    const sim = new Sim({ seed: 11, width: 28, height: 14, capacity: 24 });
+    const ids = new Map<string, number>();
+    ids.set(SQUAD.id, sim.addUnitType(SQUAD));
+    // Raised before start() so the starting force cannot spawn inside it.
+    sim.addStructureType(CAMP);
+    // Raised by the runtime from the mission's own `structures`, exactly as a
+    // real mission does it -- NOT by a direct addStructure here. Raising it
+    // both ways is what the overlap guard is for, and these tests hit it.
+    const runtime = new MissionRuntime(sim, baseMission({
+      structures: [{ type: 'camp', at: [18, 8], size: [2, 2] }],
+      ...partial,
+    }), {
+      typeIdOf: (u) => {
+        const t = ids.get(u);
+        if (t === undefined) throw new Error(`unknown unit ${u}`);
+        return t;
+      },
+      markers: {},
+      zones: {},
+      unitInfo: (u) => (u === 'm_squad' ? { logistics: 300, buildTimeS: 2 } : null),
+    });
+    runtime.start();
+    let camp = -1;
+    for (let i = 0; i < sim.structureCount; i++) {
+      if (sim.structureTypes[sim.structures.typeIdx[i]].id === 'camp') camp = i;
+    }
+    expect(camp).toBeGreaterThanOrEqual(0);
+    return {
+      sim,
+      runtime,
+      camp,
+      step: (ticks: number) => {
+        const out: { sim: SimEvent[]; mission: MissionEvent[] } = { sim: [], mission: [] };
+        for (let i = 0; i < ticks; i++) {
+          const se = sim.tick();
+          out.sim.push(...se);
+          out.mission.push(...runtime.step(se));
+        }
+        return out;
+      },
+    };
+  }
+
+  it('deploys beside a living camp, with no player_start at all', () => {
+    const w = campWorld({
+      map: { file: 'none' }, // deliberately NO player_start
+      starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+      resources: { logistics_start: 500 },
+      objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+    });
+    expect(w.runtime.requestBuild('m_squad')).toBe(true);
+    const before = w.sim.entityCount;
+    w.step(2 * TICKS_PER_SECOND + 2);
+    expect(w.sim.entityCount).toBe(before + 1);
+    const id = w.sim.entityCount - 1;
+    // Beside the camp (footprint 18..19 x 8..9), not at some default origin.
+    expect(fx.toNumber(w.sim.state.posX[id])).toBeGreaterThan(16);
+    expect(fx.toNumber(w.sim.state.posY[id])).toBeGreaterThan(6);
+  });
+
+  it('stops production when the last camp dies', () => {
+    const w = campWorld({
+      map: { file: 'none' },
+      starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+      resources: { logistics_start: 5000 },
+      objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+    });
+    expect(w.runtime.requestBuild('m_squad')).toBe(true);
+    w.sim.debugDestroyStructure(w.camp);
+    expect(w.runtime.requestBuild('m_squad')).toBe(false);
+    expect(w.runtime.buildBlockedReason('m_squad')).toMatch(/camp/i);
+  });
+
+  it('a destroyed camp blocks production even with a player_start on the map', () => {
+    // The case that matters, and the one the two tests above BOTH miss: every
+    // shipped mission declares a `player_start`. Treating it as a live
+    // fallback made the camp decorative -- production simply carried on from
+    // the map's own start tile the moment the camp fell. Caught by probing a
+    // real mission, not by these tests, which is why this one exists.
+    const w = campWorld({
+      map: { file: 'none', player_start: [4, 6] },
+      starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+      resources: { logistics_start: 5000 },
+      objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+    });
+    expect(w.runtime.requestBuild('m_squad')).toBe(true);
+    w.sim.debugDestroyStructure(w.camp);
+    expect(w.runtime.buildBlockedReason('m_squad')).toMatch(/camp/i);
+    expect(w.runtime.requestBuild('m_squad')).toBe(false);
+  });
+
+  it('still uses player_start when the mission has no camp at all', () => {
+    // BREAK CHECK: every mission authored before camps existed must be
+    // untouched by this feature. Same world, no structure.
+    const w = makeWorld(
+      baseMission({
+        map: { file: 'none', player_start: [4, 6] },
+        starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+        resources: { logistics_start: 500 },
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+      }),
+      ECON_CTX
+    );
+    expect(w.runtime.requestBuild('m_squad')).toBe(true);
+    const before = w.sim.entityCount;
+    w.step(2 * TICKS_PER_SECOND + 2);
+    expect(w.sim.entityCount).toBe(before + 1);
+    expect(fx.toNumber(w.sim.state.posX[w.sim.entityCount - 1])).toBeCloseTo(4, 0);
+  });
+
   it('rejects builds it cannot afford or does not know', () => {
     const w = makeWorld(
       baseMission({

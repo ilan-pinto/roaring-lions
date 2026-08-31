@@ -714,7 +714,11 @@ async function main(): Promise<void> {
       // type in `STRUCTURE_SPRITES` below has shipped both. `colour_key`/
       // `wallColorKey` is resolved inside `loadBuildingMesh` itself, off
       // `Sim.structureTypes[...].color` -- nothing here needs to know it.
-      const MESH_BUILDINGS = ['shanty', 'house', 'warehouse', 'apartment', 'concrete', 'mosque', 'wall'] as const;
+      // `camp` is the eighth and the only one with a faction: it is the KDF
+      // field camp a mission places (see `structures[]` in mission.schema.json)
+      // and produces from. Its `wall` role takes `olive.1` off structures.json
+      // like every other type's does -- no role-table entry needed.
+      const MESH_BUILDINGS = ['shanty', 'house', 'warehouse', 'apartment', 'concrete', 'mosque', 'wall', 'camp'] as const;
       await Promise.all(
         MESH_BUILDINGS.map((id) =>
           three.loadBuildingMesh(

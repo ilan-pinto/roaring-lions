@@ -86,6 +86,11 @@
             "maximum": 3,
             "default": 2,
             "description": "Cover level for a unit fighting from immediately behind this while it stands -- the companion to rubble_cover, which is what remains once it does not. Only consulted for a low_profile type."
+          },
+          "produces_for": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Which side this structure builds units for. Present ONLY on production structures -- the seven civilian types are neutral terrain and carry no owner at all, because nothing needed one until a camp did. While a living structure of a type with produces_for === side stands, that side's requestBuild deploys beside it; destroying every one of them stops that side's production. Missions with no such structure fall back to the mission's own player_start, which is what keeps every mission authored before this feature working unchanged."
           }
         }
       }

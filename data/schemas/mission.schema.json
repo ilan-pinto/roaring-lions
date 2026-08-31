@@ -428,6 +428,44 @@
           }
         }
       }
+    },
+    "structures": {
+      "type": "array",
+      "description": "Buildings this mission raises, on top of whatever its map already has. The map's character grid is shared between every mission that names it, so a structure only one mission should own -- a field camp -- belongs here rather than in the grid. Raised by MissionRuntime.start(), which is the one path every loader already goes through.",
+      "items": {
+        "type": "object",
+        "required": [
+          "type",
+          "at"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Structure type id from data/structures.json."
+          },
+          "at": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "Top-left tile of the footprint."
+          },
+          "size": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "Footprint in tiles, default [2,2]."
+          }
+        }
+      }
     }
   },
   "$defs": {
