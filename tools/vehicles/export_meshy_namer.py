@@ -5,7 +5,7 @@
 
 Writes `art/meshes/vehicles/ifv_namer.glb`.
 
-SOURCE: art/blend/namer/Meshy_AI_heavy_ifv_multigun_mo_0830112110_image-to-3d-texture.blend
+SOURCE: art/blend/KDF/Namer IFV/Meshy_AI_heavy_ifv_multigun_mo_0830112110_image-to-3d-texture.blend
 -- AI-generated (Meshy), image-to-3D, single mesh object `mesh_node`, 992,444
 verts / 1,987,781 polys (a full-resolution Meshy export, NOT its low-poly
 mode -- same situation as `export_meshy_truck.py`'s two sources, not

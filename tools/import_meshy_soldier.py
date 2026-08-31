@@ -9,7 +9,7 @@ Usage (headless, matching `tools/export_mesh_team.py`'s own invocation shape):
         --python tools/import_meshy_soldier.py
 
 Source files, gitignored (`art/blend/` -- never committed), read from
-`art/blend/soldier/*.glb`:
+`art/blend/KDF/soldier/*.glb`:
 
     Walking.glb              (action "...|walking_man|...")   -> move
     Gun_Hold_Left_Turn.glb   (action "...|Gun_Hold_Left_Turn|...") -> idle

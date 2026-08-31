@@ -8,12 +8,12 @@ Writes `art/meshes/vehicles/technical.glb`.
 SOURCES (two separate files, unlike the tank -- see this task's report,
 `.superpowers/f-meshy-truck-report.md`, for the full reasoning):
 
-  art/blend/truck/Meshy_AI_Technical_Truck_Body_0829203857_image-to-3d-texture.blend
+  art/blend/enemy/truck/Meshy_AI_Technical_Truck_Body_0829203857_image-to-3d-texture.blend
       single mesh object `mesh_node`, 983,143 verts, one material,
       three packed 4096/2048 textures -- the truck bed already carries
       modelled jerry cans, no gun.
 
-  art/blend/truck/Meshy_AI_Pintle_Mount_Machine__0829203951_image-to-3d-texture.blend
+  art/blend/enemy/truck/Meshy_AI_Pintle_Mount_Machine__0829203951_image-to-3d-texture.blend
       single mesh object `mesh_node`, 987,449 verts, one material, its own
       three packed textures -- a complete pedestal-mounted DShK: base
       plate, post, cradle, gun body, barrel.

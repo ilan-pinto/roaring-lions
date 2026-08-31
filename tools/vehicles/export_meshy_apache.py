@@ -5,7 +5,7 @@
 
 Writes `art/meshes/vehicles/heli_peten.glb`.
 
-SOURCE: art/blend/AH-64 attack helicopter/
+SOURCE: art/blend/KDF/AH-64 attack helicopter/
 Meshy_AI_attack_helicopter_spl_0830150207_part-segmentation.blend -- AI-generated
 (Meshy), **part-segmentation** export, disclosed per CONTRIBUTING.md. Like
 `export_meshy_jeep.py`'s source and unlike the welded single-shell sources

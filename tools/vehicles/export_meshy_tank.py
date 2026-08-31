@@ -5,7 +5,7 @@
 
 Writes `art/meshes/vehicles/mbt_lavi.glb`.
 
-SOURCE: art/blend/tank/Meshy_AI_A_3D_low_poly_futuris_0829201559_texture.blend
+SOURCE: art/blend/KDF/tank/Meshy_AI_A_3D_low_poly_futuris_0829201559_texture.blend
 -- AI-generated (Meshy), single mesh object `mesh_node`, 3,906 verts, one
 material with three packed 2048^2 textures. Disclosed per CONTRIBUTING.md;
 see this task's report (`.superpowers/f-meshy-tank-report.md`) for the full

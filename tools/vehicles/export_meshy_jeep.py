@@ -5,7 +5,7 @@
 
 Writes `art/meshes/vehicles/jeep_shoded.glb`.
 
-SOURCE: art/blend/jeep/Meshy_AI_military_vehicle_spli_0830115629_part-segmentation.blend
+SOURCE: art/blend/KDF/Shodeed jeep/Meshy_AI_military_vehicle_spli_0830115629_part-segmentation.blend
 -- AI-generated (Meshy), **part-segmentation** export, disclosed per
 CONTRIBUTING.md. Unlike every other Meshy source this pipeline has cut
 (`export_meshy_tank.py`, `export_meshy_truck.py`, `export_meshy_namer.py`, all

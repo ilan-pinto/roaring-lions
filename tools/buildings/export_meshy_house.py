@@ -14,8 +14,8 @@ runtime from `data/structures.json`, not by this script).
 SOURCES (both AI-generated, Meshy, image-to-3D-texture mode -- disclosed per
 CONTRIBUTING.md; see this task's report for the full licensing note):
 
-    art/blend/enemy building 1/Meshy_AI_levantine_house_intac_0830152052_image-to-3d-texture.blend
-    art/blend/enemy building 1/Meshy_AI_levantine_house_destr_0830152122_image-to-3d-texture.blend
+    art/blend/enemy/enemy building 1/Meshy_AI_levantine_house_intac_0830152052_image-to-3d-texture.blend
+    art/blend/enemy/enemy building 1/Meshy_AI_levantine_house_destr_0830152122_image-to-3d-texture.blend
 
 Each is a single mesh object `mesh_node`, one material, baked 4096/2048
 textures (discarded -- zero materials ship, per contract). Intact: 975,406
