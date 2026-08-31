@@ -1228,21 +1228,54 @@ def _key_death_visibility(pbones, figures, has_prop, alive, frame=0):
         _key_scale(pbones["prop"], alive_scale, _VIS_FRAMES)
 
 
+#: Per-figure gait-phase offset, as a FRACTION of one cycle (0..1), keyed by
+#: a figure's 0-based position among the figures a clip is animating over --
+#: not by name, since prefixes are not numbered consistently across teams
+#: (`f0`/`f1`/`f2`, but also `yah_a`/`yah_b`, `mil0`/`mil1`).
+#:
+#: Every clip this pipeline built kept `f0`/`f1`/`f2` (and every other
+#: team's figures) at byte-identical keyframes -- confirmed on
+#: `inf_squad.glb`: `f0_thigh_L` and `f1_thigh_L` both 26 frames, same first
+#: quaternion. The result was every squad in the game marching and
+#: breathing in perfect unison, which real infantry never do -- "three
+#: clones in a chorus line".
+#:
+#: Three fractions is enough to cover every team this pipeline builds (no
+#: team has more than three walkers in `move`, or breathes with more than
+#: three figures in `idle`): index 0 stays unshifted, index 1 leads by a
+#: third of the cycle, index 2 by two thirds, and the mod-3 wrap in
+#: `_gait_phase` below covers any team that ever grows a fourth. Applied to
+#: `idle` (breathing) and `move` (the gait) -- both are cycles a constant
+#: phase shift is well-defined for. Deliberately NOT applied to `fire` (a
+#: single recoil impulse, not a cycle) or `down`/`wreck` (a held static
+#: pose, no motion at all) -- see those functions' own docstrings.
+GAIT_PHASE_FRACTIONS = (0.0, 1.0 / 3.0, 2.0 / 3.0)
+
+
+def _gait_phase(index):
+    """The phase offset, in radians, for the figure at this 0-based index
+    within whichever figure list a cyclic clip (`idle`, `move`) is
+    animating over."""
+    return 2.0 * math.pi * GAIT_PHASE_FRACTIONS[index % len(GAIT_PHASE_FRACTIONS)]
+
+
 def build_idle_clip(arm_obj, figures):
     """Breath + weight shift, every figure regardless of posture -- a
-    kneeling gunner still breathes. Unchanged formula from R0, applied
-    generically to whichever team's figures are passed in."""
+    kneeling gunner still breathes. Formula from R0, unchanged; the one
+    addition is `_gait_phase` below, so a multi-figure team no longer
+    breathes in lockstep -- see that constant's own docstring for why."""
     _new_action(arm_obj, "idle")
     bones = arm_obj.data.bones
     pbones = arm_obj.pose.bones
     _key_death_visibility(pbones, figures, "prop" in pbones, alive=True)
     for f in range(0, IDLE_FRAMES + 1):
         t = f / IDLE_FRAMES
-        ph = 2.0 * math.pi * t
-        breathe = BREATH_AMP * math.sin(ph)
-        sway = SWAY_AMP * math.sin(ph + 1.1)
-        for spec in figures:
+        base_ph = 2.0 * math.pi * t
+        for i, spec in enumerate(figures):
             prefix = spec["prefix"]
+            ph = base_ph + _gait_phase(i)
+            breathe = BREATH_AMP * math.sin(ph)
+            sway = SWAY_AMP * math.sin(ph + 1.1)
             key(pbones[f"{prefix}_spine"], bones[f"{prefix}_spine"], AXIS_Y, breathe, f)
             key(pbones[f"{prefix}_pelvis"], bones[f"{prefix}_pelvis"], AXIS_X, sway, f)
 
@@ -1263,6 +1296,16 @@ def build_move_clip(arm_obj, figures):
     whole clip -- correctly: "crew-served weapons stay deployed through
     move" (teams.py's own module docstring) means the whole figure stays
     put, not just its weapon.
+
+    Each walker's gait is offset by `_gait_phase`, keyed by its index among
+    `walkers` (not among `figures` -- a figure that never animates does not
+    take a slot in the marching order), so a multi-walker team no longer
+    steps in lockstep. `MOVE_FRAMES` still closes the same loop it always
+    did: `phase` sweeps a full 2*pi across `f` regardless of figure, and
+    adding a per-walker CONSTANT to it does not change that periodicity, so
+    frame 0 and frame `MOVE_FRAMES` still agree for every walker. This
+    changes which pose lands on which frame, never the frame count or the
+    loop seam.
     """
     _new_action(arm_obj, "move")
     bones = arm_obj.data.bones
@@ -1273,22 +1316,23 @@ def build_move_clip(arm_obj, figures):
         return
     root_bob_dir = local_offset_for_world_axis(bones[f"{walkers[0]['prefix']}_root"], AXIS_Z)
     for f in range(0, MOVE_FRAMES + 1):
-        phase = 2.0 * math.pi * f / MOVE_FRAMES
-        thigh_l = A_THIGH * math.sin(phase)
-        thigh_r = -A_THIGH * math.sin(phase)
-        shin_l = B_SHIN * max(0.0, math.sin(phase - SHIN_SWING_SHIFT))
-        shin_r = B_SHIN * max(0.0, math.sin(phase + math.pi - SHIN_SWING_SHIFT))
-        shin_l += _settle_bump(phase, HEEL_L, SETTLE_WIDTH, SETTLE_AMP)
-        shin_r += _settle_bump(phase, HEEL_R, SETTLE_WIDTH, SETTLE_AMP)
-        arm_l = -A_ARM_FREE * math.sin(phase)
-        arm_r = A_ARM_WEAPON * math.sin(phase)
-        elbow_l = ELBOW_FREE_AMP * max(0.0, ELBOW_PHASE_SIGN * math.sin(phase))
-        hip_twist = HIP_TWIST_AMP * math.sin(phase)
-        shoulder_twist = -SHOULDER_TWIST_AMP * math.sin(phase)
-        head_counter = -HEAD_COUNTER_FRAC * shoulder_twist
-        bob = -BOB_AMP * math.cos(2.0 * phase)
-        for spec in walkers:
+        base_phase = 2.0 * math.pi * f / MOVE_FRAMES
+        for i, spec in enumerate(walkers):
             prefix = spec["prefix"]
+            phase = base_phase + _gait_phase(i)
+            thigh_l = A_THIGH * math.sin(phase)
+            thigh_r = -A_THIGH * math.sin(phase)
+            shin_l = B_SHIN * max(0.0, math.sin(phase - SHIN_SWING_SHIFT))
+            shin_r = B_SHIN * max(0.0, math.sin(phase + math.pi - SHIN_SWING_SHIFT))
+            shin_l += _settle_bump(phase, HEEL_L, SETTLE_WIDTH, SETTLE_AMP)
+            shin_r += _settle_bump(phase, HEEL_R, SETTLE_WIDTH, SETTLE_AMP)
+            arm_l = -A_ARM_FREE * math.sin(phase)
+            arm_r = A_ARM_WEAPON * math.sin(phase)
+            elbow_l = ELBOW_FREE_AMP * max(0.0, ELBOW_PHASE_SIGN * math.sin(phase))
+            hip_twist = HIP_TWIST_AMP * math.sin(phase)
+            shoulder_twist = -SHOULDER_TWIST_AMP * math.sin(phase)
+            head_counter = -HEAD_COUNTER_FRAC * shoulder_twist
+            bob = -BOB_AMP * math.cos(2.0 * phase)
             key(pbones[f"{prefix}_thigh_L"], bones[f"{prefix}_thigh_L"], AXIS_Y, thigh_l, f)
             key(pbones[f"{prefix}_thigh_R"], bones[f"{prefix}_thigh_R"], AXIS_Y, thigh_r, f)
             key(pbones[f"{prefix}_shin_L"], bones[f"{prefix}_shin_L"], AXIS_Y, shin_l, f)
@@ -1327,6 +1371,12 @@ def build_fire_clip(arm_obj, figures, extra_root_lean=None):
     without a correspondingly-moving weapon would read as wrong, and the
     source of truth (teams.py's own call sites) says nothing moves there
     either. See the module docstring's closing paragraph.
+
+    Not phase-offset the way `build_idle_clip`/`build_move_clip` are:
+    `_recoil_curve` is one rise-and-settle impulse per shot, not a cycle, so
+    there is no phase for `_gait_phase` to mean here -- every shooter fires
+    on the same beat, which is correct (nothing about muzzle timing should
+    be desynchronised the way a gait or a breath is).
     """
     _new_action(arm_obj, "fire")
     bones = arm_obj.data.bones
@@ -1369,6 +1419,9 @@ def build_death_clip(arm_obj, team_id, clip_name):
     returns to its own frame-0 value at its final frame) avoids by
     construction. This task's own brief: "a correct static pose beats a bad
     animation" -- this is that trade-off, made for a verified reason.
+
+    Not phase-offset either, for the simplest possible reason: nothing here
+    moves at all, so there is no cycle for `_gait_phase` to shift.
     """
     _new_action(arm_obj, clip_name)
     pbones = arm_obj.pose.bones

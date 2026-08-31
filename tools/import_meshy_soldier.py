@@ -224,6 +224,13 @@ import kit  # noqa: E402 -- the webbing graft below builds real kit.py geometry
 #: fixed only so a rerun's temp-file names are predictable.
 CLIP_ORDER = ("idle", "move", "fire", "down", "wreck")
 
+#: The two clips that actually loop at runtime (`LoopRepeat`, see
+#: `write_combined_clip`'s own docstring for why that is what makes a
+#: per-figure phase shift well-defined). Passed as `write_combined_clip`'s
+#: `cyclic` argument -- `fire`/`down`/`wreck` are not cycles and stay
+#: synchronised across figures.
+CYCLIC_CLIPS = frozenset({"idle", "move"})
+
 # --- source clip mapping ------------------------------------------------
 # `fire` is deliberately absent: none of the five supplied Meshy clips is a
 # firing animation, and `Side_Shot.glb` -- the original task brief's `fire`
@@ -1021,11 +1028,40 @@ def sample_clip(scratch_arm, src_action):
     return frames
 
 
-def write_combined_clip(merged_arm, figures, clip_name, frames):
+#: Per-figure gait-phase offset, as a FRACTION of a clip's own frame count,
+#: keyed by a figure's 0-based position in `FIGURE_SPREAD` (`f0`/`f1`/`f2`).
+#: Matches `tools/units/rig.py`'s own `GAIT_PHASE_FRACTIONS` exactly, so both
+#: asset families desync a squad the same way: `f0` unshifted, `f1` a third
+#: of the cycle ahead, `f2` two thirds -- rather than each of the three
+#: figures replaying the SAME mocap frame at the SAME output frame, which is
+#: what `write_combined_clip` used to do unconditionally, and which is why
+#: `f0_LeftUpLeg`/`f1_LeftUpLeg`/`f2_LeftUpLeg` on the shipped
+#: `meshy_soldier.glb` all reported the same 26 frames AND the same first
+#: quaternion -- three figures playing one mocap clip in perfect unison.
+GAIT_PHASE_FRACTIONS = (0.0, 1.0 / 3.0, 2.0 / 3.0)
+
+
+def write_combined_clip(merged_arm, figures, clip_name, frames, cyclic=False):
     """Keys `frames` (from `sample_clip`) onto every figure's `f{n}_`-
     prefixed bones on `merged_arm`, under one new action named `clip_name`
     -- exactly the canonical name the contract and `mesh-anim.ts`'s
-    `isMeshClipName` both require."""
+    `isMeshClipName` both require.
+
+    `cyclic`, True only for `idle`/`move` (the two clips that actually loop
+    at runtime -- see `main()`'s own call site): each figure reads `frames`
+    from a different, WRAPPED starting index -- `GAIT_PHASE_FRACTIONS[i]` of
+    the way around the clip -- instead of every figure reading the exact
+    same sampled pose at the same output frame. `frames` is already a full,
+    loop-safe cycle (it is a direct replay of a supplied mocap clip authored
+    to loop), so a per-figure ROTATION of which sample lands on which output
+    frame changes what value each figure's keyframes carry, never how many
+    frames exist or the clip's own loop point -- it costs nothing at
+    runtime, still one mixer and one clip. `fire`'s synthesized recoil and
+    `down`/`wreck`'s held poses are not cycles -- there is no "a third of
+    the way around" for a single impulse or a static hold to mean -- so
+    every figure keeps reading frame `step` unshifted for those, exactly as
+    before.
+    """
     combined = bpy.data.actions.new(clip_name)
     combined.use_fake_user = True
     if merged_arm.animation_data is None:
@@ -1038,8 +1074,14 @@ def write_combined_clip(merged_arm, figures, clip_name, frames):
     # fresh slot to `combined` on the very next `keyframe_insert` below.
     merged_arm.animation_data.action_slot = None
 
-    for step, sampled in enumerate(frames):
-        for prefix, _dx, _dy in figures:
+    n = len(frames)
+    for step in range(n):
+        for i, (prefix, _dx, _dy) in enumerate(figures):
+            if cyclic:
+                shift = round(n * GAIT_PHASE_FRACTIONS[i % len(GAIT_PHASE_FRACTIONS)])
+                sampled = frames[(step + shift) % n]
+            else:
+                sampled = frames[step]
             for name, (q, loc, sc) in sampled.items():
                 pb = merged_arm.pose.bones[f"{prefix}_{name}"]
                 pb.rotation_quaternion = q
@@ -1825,7 +1867,10 @@ def main():
     tmp_dir = tempfile.mkdtemp(prefix="meshy_soldier_clips_")
     clip_paths = {}
     for clip_name in CLIP_ORDER:
-        combined = write_combined_clip(merged_arm, figures, clip_name, frames_by_clip[clip_name])
+        combined = write_combined_clip(
+            merged_arm, figures, clip_name, frames_by_clip[clip_name],
+            cyclic=clip_name in CYCLIC_CLIPS,
+        )
         tmp_path = os.path.join(tmp_dir, f"{clip_name}.glb")
         export_glb(merged_arm, tmp_path)
         clip_paths[clip_name] = tmp_path

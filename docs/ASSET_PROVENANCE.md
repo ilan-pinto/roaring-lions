@@ -49,6 +49,32 @@ unblocked. Retirement is still deliberately not performed here: art existing and
 art drawing are different things, this branch has confused them six times, and
 each retirement is its own verified step rather than a bulk delete.
 
+**Correction, 2026-08-31: "drawing in game" above is narrower than it reads.**
+The replacements draw only behind the dev-only `&mesh` URL flag
+(`packages/app/src/sandbox-help.ts`'s `SANDBOX_FLAGS`) — checked live against
+the running dev server, not merely read off the source. Neither backend's
+*default* configuration loads a vehicle mesh at all: `SPRITE_MAP` in
+`main.ts` still names `TNK_HULL`/`TNK_TURR` for `mbt_lavi`,
+`NAMER_HULL`/`NAMER_TURR` for `ifv_namer`, and `JEEP_HULL` for `jeep_shoded`,
+and that loop runs unconditionally, for both backends, regardless of `&mesh`.
+`?renderer=pixi` has no mesh path at all (`PixiRenderer` never gained one),
+so it depends on these three sets absolutely. And on the default `three`
+backend, `flags.mesh` gates the *entire* `MESH_VEHICLES` load — with the flag
+off, `vehicleMeshTemplates` stays empty and the billboard path (built from
+these same three sprite sets) is what actually draws `mbt_lavi`, `ifv_namer`
+and `jeep_shoded`. Confirmed empirically: on the live dev server,
+`?sandbox&renderer=three` (no `&mesh`) shows `unitInstancers` containing all
+three ids and `vehicleMeshTemplates` empty; adding `&mesh` populates
+`vehicleMeshTemplates` for them (and `unitInstancers` still keeps loading the
+sprites — mesh wins the draw, but nothing stops loading the billboard).
+`menu.ts` never appends `&mesh` to any link it builds, so **every real player,
+on both backends, in their default configuration, is currently drawing these
+three units from the sprite sets this section calls "unblocked" to retire.**
+"Unblocked" is true only for a developer who manually adds `&mesh` to the
+URL. See `.superpowers/sprite-retirement-report.md` for the full trail
+(gitignored, session-scoped) and outstanding item 2 below for what retiring
+these three sets actually requires before it is safe.
+
 ---
 
 ## The supplied Meshy assets
@@ -140,6 +166,29 @@ depends on someone remembering is provenance that eventually fails.
    only after its replacement is confirmed drawing in game. Retiring `NAMER_*`
    removes the project's last permanent attribution obligation; retiring
    `JEEP_HULL` removes the only asset with no known terms at all.
+   **Attempted 2026-08-31, NOT done — blocked, not merely deferred.** "Confirmed
+   drawing in game" turned out to mean "drawing behind the dev-only `&mesh`
+   flag," which is off in every real player's session on both backends (see
+   the correction above `SPRITE_MAP`'s table). Concretely, deleting these
+   three directories today would blank `mbt_lavi`, `ifv_namer` and
+   `jeep_shoded` for `?renderer=pixi` (no mesh path exists there at all — not
+   a gap to close, a permanent property of that backend) AND for the default
+   `three` backend with no `&mesh` (which is every menu-driven link —
+   `menu.ts` never adds the flag). Two more concrete breaks found alongside
+   the rendering hole, neither owned by this task: `packages/render/src/
+   three/units/instances.test.ts` (in `pnpm test`'s baseline) does a hard
+   JSON import of `assets/sprites/TNK_HULL/manifest.json`; and
+   `tools/vehicles/export_meshy_tank.py` / `export_meshy_namer.py` /
+   `export_meshy_jeep.py` each read their respective legacy manifest's
+   `real_metres` as the source of truth when regenerating that vehicle's GLB
+   — deleting the manifest breaks re-running those scripts, not just today's
+   render. Unblocking this is a decision, not a cleanup: either make `&mesh`
+   (or an equivalent) the default for these three vehicle types on `three`
+   and accept that `?renderer=pixi` permanently loses them, or accept the
+   attribution/licence debt stays until `?renderer=pixi` itself is retired,
+   or give these three types their own non-Meshy replacement sprites. That
+   choice is the project lead's, not this task's — see
+   `.superpowers/sprite-retirement-report.md` for the full trail.
 3. ~~**Change the art licence declaration**~~ — **done 2026-08-30**, in
    `ART_PIPELINE.md` §8, ahead of merging this work to `main`. Art and data are
    now all rights reserved. Everything published under CC BY-SA 4.0 between

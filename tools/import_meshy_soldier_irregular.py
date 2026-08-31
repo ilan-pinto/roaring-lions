@@ -119,6 +119,12 @@ OUT_PATH = os.path.join(REPO, "art", "meshes", "sarim_rifles.glb")
 #: Clip build order -- also the order clips appear in the merged file.
 CLIP_ORDER = ("idle", "move", "fire", "down", "wreck")
 
+#: The two clips that actually loop at runtime. Identical to
+#: `import_meshy_soldier.py`'s own `CYCLIC_CLIPS` -- see that file's
+#: `write_combined_clip` for why this is what makes a per-figure phase
+#: shift well-defined, and why `fire`/`down`/`wreck` are excluded.
+CYCLIC_CLIPS = frozenset({"idle", "move"})
+
 CLIP_SOURCES = {
     "move": "Meshy_AI_irregular_fighter_rig_biped_Animation_Walking_withSkin.glb",
     "idle": "Meshy_AI_irregular_fighter_rig_biped_Animation_Idle_02_withSkin.glb",
@@ -669,8 +675,17 @@ def sample_clip(scratch_arm, src_action):
     return frames
 
 
-def write_combined_clip(merged_arm, figures, clip_name, frames):
-    """Identical to `import_meshy_soldier.py`'s own `write_combined_clip`."""
+#: Identical to `import_meshy_soldier.py`'s own `GAIT_PHASE_FRACTIONS` --
+#: see that constant's docstring, and `tools/units/rig.py`'s own
+#: `GAIT_PHASE_FRACTIONS` for why both asset families use the same three
+#: fractions.
+GAIT_PHASE_FRACTIONS = (0.0, 1.0 / 3.0, 2.0 / 3.0)
+
+
+def write_combined_clip(merged_arm, figures, clip_name, frames, cyclic=False):
+    """Identical to `import_meshy_soldier.py`'s own `write_combined_clip`,
+    `cyclic` included -- see that function's docstring for what it does and
+    why."""
     combined = bpy.data.actions.new(clip_name)
     combined.use_fake_user = True
     if merged_arm.animation_data is None:
@@ -678,8 +693,14 @@ def write_combined_clip(merged_arm, figures, clip_name, frames):
     merged_arm.animation_data.action = combined
     merged_arm.animation_data.action_slot = None
 
-    for step, sampled in enumerate(frames):
-        for prefix, _dx, _dy in figures:
+    n = len(frames)
+    for step in range(n):
+        for i, (prefix, _dx, _dy) in enumerate(figures):
+            if cyclic:
+                shift = round(n * GAIT_PHASE_FRACTIONS[i % len(GAIT_PHASE_FRACTIONS)])
+                sampled = frames[(step + shift) % n]
+            else:
+                sampled = frames[step]
             for name, (q, loc, sc) in sampled.items():
                 pb = merged_arm.pose.bones[f"{prefix}_{name}"]
                 pb.rotation_quaternion = q
@@ -1027,7 +1048,10 @@ def main():
     tmp_dir = tempfile.mkdtemp(prefix="meshy_irregular_clips_")
     clip_paths = {}
     for clip_name in CLIP_ORDER:
-        combined = write_combined_clip(merged_arm, figures, clip_name, frames_by_clip[clip_name])
+        combined = write_combined_clip(
+            merged_arm, figures, clip_name, frames_by_clip[clip_name],
+            cyclic=clip_name in CYCLIC_CLIPS,
+        )
         tmp_path = os.path.join(tmp_dir, f"{clip_name}.glb")
         export_glb(merged_arm, tmp_path)
         clip_paths[clip_name] = tmp_path

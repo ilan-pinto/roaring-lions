@@ -571,9 +571,8 @@ async function main(): Promise<void> {
       // relies on, not a guarantee, which is why both appear here as one pair
       // rather than being derived from each other.
       //
-      // Only `moto_rpg` has no GLB now -- its vehicle-plus-rider rig is its
-      // own slice. A type with no entry here keeps its billboard, which is the
-      // whole point of the mesh path being additive.
+      // A type with no entry here keeps its billboard, which is the whole
+      // point of the mesh path being additive.
       // `as const` rather than an imported `MeshFaction` annotation, and that
       // is deliberate: eslint forbids ANY static import from
       // `@lions/render/three` in this package -- including a type-only one --
@@ -596,6 +595,17 @@ async function main(): Promise<void> {
         ['atgm_cell', 'enemy'],
         ['mortar_crew', 'enemy'],
         ['charge_squad', 'enemy'],
+        // `moto_rpg` shipped its GLB in 1d93f53 ("the last of the thirteen
+        // teams gets a mesh") but was never added here -- the sixth time on
+        // this branch that art existed and did not draw. It is built by the
+        // same `tools/units/kit.py`/`teams.py` pipeline as every team above
+        // (composed primitives, zero materials, faction-ramp colour at
+        // runtime), so despite being a motorcycle it takes `loadMeshUnit`
+        // and a faction here, not `loadVehicleMesh`'s faction-baked list
+        // further down -- see `tools/units/teams.py`'s own `TEAMS['moto_rpg']`,
+        // which fixes the faction at 'enemy' the same way it does for every
+        // other row here.
+        ['moto_rpg', 'enemy'],
         ['digger_crew', 'enemy'],
       ] as const;
       // Vite rewrites `new URL(..., import.meta.url)` to a served asset URL, so
