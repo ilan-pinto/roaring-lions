@@ -121,6 +121,7 @@
  * here.
  */
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { SILHOUETTE_RENDER_ORDER } from './render-order';
 
 /**
@@ -312,6 +313,133 @@ export function createMeshSilhouetteMaterial(color: string): THREE.MeshBasicMate
   return material;
 }
 
+/**
+ * The merged silhouette geometry for one group of body meshes, cached by the
+ * group's FIRST geometry -- which is a template-owned object shared by every
+ * clone of that unit type (`mesh-unit.ts`'s own `MeshUnitTemplate.geometries`
+ * doc comment), so the merge runs once per type and not once per unit.
+ *
+ * Why merge at all, measured rather than assumed: a shipped infantry GLB is
+ * five meshes (boot, face, keffiyeh, uniform, webbing -- one per material
+ * role) and a vehicle is four (two hull, two turret). A silhouette per body
+ * mesh is five extra draw calls per rifleman, which on `marj_perimeter` with
+ * 16 units on screen measured +83 draw calls against a unit cost of ~80 --
+ * a doubling of exactly the submission cost this project has measured as
+ * its bottleneck. A silhouette has ONE flat colour, so the per-role split
+ * buys it nothing: merging takes that to one draw per group.
+ *
+ * A `WeakMap`, so a template that is disposed and dropped takes its merged
+ * geometry with it -- nothing here holds a template alive.
+ */
+const mergedGeometryCache = new WeakMap<
+  THREE.BufferGeometry,
+  { sources: readonly THREE.BufferGeometry[]; merged: THREE.BufferGeometry }
+>();
+
+/** The attributes a silhouette actually reads. It samples no texture and is
+ *  unlit, so `uv` and `normal` are dropped -- which is also what makes the
+ *  merge possible at all: on a shipped infantry GLB, `webbing` carries no
+ *  `uv` while its four siblings do, and `mergeGeometries` refuses a set that
+ *  does not match. */
+function silhouetteAttributes(mesh: THREE.Mesh): string[] {
+  return (mesh as THREE.SkinnedMesh).isSkinnedMesh
+    ? ['position', 'skinIndex', 'skinWeight']
+    : ['position'];
+}
+
+/**
+ * One group of body meshes that can share a single silhouette: same parent
+ * (so one world transform), same rigid/skinned kind, and -- for skinned --
+ * the same `Skeleton` bone ORDER and bind matrix, since `skinIndex` is an
+ * index into that array and merging two meshes whose bone orders differ
+ * would deform one of them by the other's skeleton.
+ *
+ * Checked rather than assumed: a shipped `SkeletonUtils.clone` gives each
+ * `SkinnedMesh` its own `Skeleton` OBJECT, so object identity is the wrong
+ * test; the five infantry meshes hold five distinct `Skeleton`s over the
+ * same 72 bones in the same order, which is what makes them mergeable.
+ * Anything that fails these tests falls back to its own silhouette -- a
+ * correct picture at a higher draw cost, never a wrong one.
+ */
+function canShareSilhouette(a: THREE.Mesh, b: THREE.Mesh): boolean {
+  if (a.parent !== b.parent) return false;
+  const sa = a as THREE.SkinnedMesh;
+  const sb = b as THREE.SkinnedMesh;
+  if (Boolean(sa.isSkinnedMesh) !== Boolean(sb.isSkinnedMesh)) return false;
+  if (sa.isSkinnedMesh) {
+    // A skinned geometry is authored in bind space; baking a local matrix
+    // into it (which the rigid path below does) would be wrong, so a
+    // non-identity local transform disqualifies the merge instead.
+    if (!isIdentityTransform(a) || !isIdentityTransform(b)) return false;
+    if (!sa.bindMatrix.equals(sb.bindMatrix)) return false;
+    const ba = sa.skeleton.bones;
+    const bb = sb.skeleton.bones;
+    if (ba.length !== bb.length) return false;
+    for (let i = 0; i < ba.length; i++) if (ba[i] !== bb[i]) return false;
+  }
+  const attrA = silhouetteAttributes(a);
+  const attrB = silhouetteAttributes(b);
+  if (attrA.length !== attrB.length) return false;
+  for (const name of attrA) {
+    if (!a.geometry.getAttribute(name) || !b.geometry.getAttribute(name)) return false;
+  }
+  return Boolean(a.geometry.index) === Boolean(b.geometry.index);
+}
+
+function isIdentityTransform(o: THREE.Object3D): boolean {
+  return (
+    o.position.lengthSq() === 0 &&
+    Math.abs(o.quaternion.w - 1) < 1e-9 &&
+    o.scale.x === 1 &&
+    o.scale.y === 1 &&
+    o.scale.z === 1
+  );
+}
+
+/**
+ * The geometry one group's silhouette draws. A single-mesh group SHARES that
+ * mesh's own geometry (no copy, no merge, no extra vertex memory); a group of
+ * two or more is merged once per template and cached above.
+ *
+ * Rigid sources have their own local matrix baked in, so the merged mesh can
+ * sit at identity under the shared parent -- that is what lets a turret's two
+ * meshes become one silhouette while still rotating with `turretPivot`.
+ * Skinned sources are already required to be at identity (`canShareSilhouette`).
+ *
+ * Returns `null` if the merge fails, and the caller falls back to one
+ * silhouette per mesh.
+ */
+function silhouetteGeometryFor(group: readonly THREE.Mesh[]): THREE.BufferGeometry | null {
+  if (group.length === 1) return group[0].geometry;
+  const sources = group.map((m) => m.geometry);
+  const cached = mergedGeometryCache.get(sources[0]);
+  if (cached && cached.sources.length === sources.length && cached.sources.every((g, i) => g === sources[i])) {
+    return cached.merged;
+  }
+  const names = silhouetteAttributes(group[0]);
+  const cleaned: THREE.BufferGeometry[] = [];
+  for (const mesh of group) {
+    const g = new THREE.BufferGeometry();
+    for (const name of names) {
+      const attr = mesh.geometry.getAttribute(name);
+      if (!attr) return null;
+      g.setAttribute(name, attr.clone());
+    }
+    const index = mesh.geometry.index;
+    if (index) g.setIndex(index.clone());
+    if (!(mesh as THREE.SkinnedMesh).isSkinnedMesh) {
+      mesh.updateMatrix();
+      g.applyMatrix4(mesh.matrix);
+    }
+    cleaned.push(g);
+  }
+  const merged = mergeGeometries(cleaned, false);
+  for (const g of cleaned) g.dispose();
+  if (!merged) return null;
+  mergedGeometryCache.set(sources[0], { sources, merged });
+  return merged;
+}
+
 /** Marker every silhouette object carries, so a second `attachMeshSilhouette`
  *  cannot silhouette a silhouette and `detachMeshSilhouette` knows what it
  *  owns. */
@@ -366,38 +494,67 @@ export function attachMeshSilhouette(
     sources.push(mesh);
   });
 
-  const created: THREE.Mesh[] = [];
+  // One silhouette per GROUP of body meshes that can share it, not one per
+  // body mesh -- see `mergedGeometryCache`'s own doc comment for the measured
+  // draw-call cost that makes this worth doing. Greedy grouping over the
+  // traversal order, which is stable for a given template.
+  const groups: THREE.Mesh[][] = [];
   for (const mesh of sources) {
-    const skinnedSource = mesh as THREE.SkinnedMesh;
-    let clone: THREE.Mesh;
-    if (skinnedSource.isSkinnedMesh) {
-      const skinnedClone = new THREE.SkinnedMesh(mesh.geometry, material);
-      // Same skeleton object, same bind matrix: the clone deforms with the
-      // body's own pose rather than standing in bind pose, and no second
-      // `AnimationMixer` or bone hierarchy is created.
-      skinnedClone.bindMode = skinnedSource.bindMode;
-      skinnedClone.bind(skinnedSource.skeleton, skinnedSource.bindMatrix);
-      clone = skinnedClone;
-    } else {
-      clone = new THREE.Mesh(mesh.geometry, material);
+    const existing = groups.find((g) => canShareSilhouette(g[0], mesh));
+    if (existing) existing.push(mesh);
+    else groups.push([mesh]);
+  }
+
+  const created: THREE.Mesh[] = [];
+  for (const group of groups) {
+    const merged = silhouetteGeometryFor(group);
+    // A merge that could not be built falls back to one silhouette per mesh:
+    // more draw calls, never a wrong shape.
+    const subgroups = merged ? [group] : group.map((m) => [m]);
+    for (const sub of subgroups) {
+      const geometry = merged && sub === group ? merged : sub[0].geometry;
+      const head = sub[0];
+      const skinnedSource = head as THREE.SkinnedMesh;
+      let clone: THREE.Mesh;
+      if (skinnedSource.isSkinnedMesh) {
+        const skinnedClone = new THREE.SkinnedMesh(geometry, material);
+        // Same skeleton object, same bind matrix: the clone deforms with the
+        // body's own pose rather than standing in bind pose, and no second
+        // `AnimationMixer` or bone hierarchy is created.
+        skinnedClone.bindMode = skinnedSource.bindMode;
+        skinnedClone.bind(skinnedSource.skeleton, skinnedSource.bindMatrix);
+        clone = skinnedClone;
+      } else {
+        clone = new THREE.Mesh(geometry, material);
+      }
+      clone.name = `${head.name}__silhouette`;
+      if (sub.length > 1) {
+        // A merged rigid group had each source's local matrix baked into the
+        // geometry (`silhouetteGeometryFor`), so the merged mesh sits at
+        // identity under the shared parent; a merged skinned group was
+        // required to be at identity already.
+        clone.matrixAutoUpdate = head.matrixAutoUpdate;
+      } else {
+        clone.position.copy(head.position);
+        clone.quaternion.copy(head.quaternion);
+        clone.scale.copy(head.scale);
+        clone.matrixAutoUpdate = head.matrixAutoUpdate;
+      }
+      clone.frustumCulled = head.frustumCulled;
+      clone.renderOrder = SILHOUETTE_RENDER_ORDER;
+      const data = clone.userData as SilhouetteUserData;
+      data.rl_silhouette = true;
+      data.rl_silhouette_of = head.name;
+      head.parent?.add(clone);
+      created.push(clone);
     }
-    // The body has to stamp the mask this silhouette reads -- see
-    // `markSilhouetteOccludee`. Done here, at the one place that pairs the
-    // two, rather than in the material factories.
-    markSilhouetteOccludee(mesh.material);
-    clone.name = `${mesh.name}__silhouette`;
-    clone.position.copy(mesh.position);
-    clone.quaternion.copy(mesh.quaternion);
-    clone.scale.copy(mesh.scale);
-    clone.matrixAutoUpdate = mesh.matrixAutoUpdate;
-    clone.frustumCulled = mesh.frustumCulled;
-    clone.renderOrder = SILHOUETTE_RENDER_ORDER;
-    const data = clone.userData as SilhouetteUserData;
-    data.rl_silhouette = true;
-    data.rl_silhouette_of = mesh.name;
-    (mesh.userData as SilhouetteUserData).rl_has_silhouette = true;
-    mesh.parent?.add(clone);
-    created.push(clone);
+    for (const mesh of group) {
+      // Every body mesh in the group has to stamp the mask its shared
+      // silhouette reads -- see `markSilhouetteOccludee`. Done here, at the
+      // one place that pairs the two, rather than in the material factories.
+      markSilhouetteOccludee(mesh.material);
+      (mesh.userData as SilhouetteUserData).rl_has_silhouette = true;
+    }
   }
   return created;
 }

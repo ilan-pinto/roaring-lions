@@ -135,6 +135,86 @@ describe('attachMeshSilhouette', () => {
   });
 });
 
+describe('one silhouette per shareable group, not per body mesh', () => {
+  /** Two skinned meshes over ONE skeleton's bones, the shape a shipped
+   *  infantry GLB has (five material roles, five `SkinnedMesh`es, five
+   *  distinct `Skeleton` OBJECTS over the same bone array). */
+  function twoRoleFigure(opts: { sameBoneOrder?: boolean } = {}): {
+    root: THREE.Object3D;
+    a: THREE.SkinnedMesh;
+    b: THREE.SkinnedMesh;
+  } {
+    const root = new THREE.Object3D();
+    const bones = [new THREE.Bone(), new THREE.Bone()];
+    function skinned(name: string, boneOrder: THREE.Bone[]): THREE.SkinnedMesh {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3));
+      g.setAttribute('skinIndex', new THREE.BufferAttribute(new Uint16Array(12), 4));
+      g.setAttribute('skinWeight', new THREE.BufferAttribute(new Float32Array(12), 4));
+      g.setIndex(new THREE.BufferAttribute(new Uint16Array([0, 1, 2]), 1));
+      const m = new THREE.SkinnedMesh(g, new THREE.MeshBasicMaterial());
+      m.name = name;
+      // A DISTINCT Skeleton object per mesh, exactly like SkeletonUtils.clone
+      // produces -- so object identity is the wrong test and bone ORDER is
+      // the right one.
+      m.bind(new THREE.Skeleton(boneOrder));
+      root.add(m);
+      return m;
+    }
+    const a = skinned('uniform', bones);
+    const b = skinned('webbing', opts.sameBoneOrder === false ? [bones[1], bones[0]] : bones);
+    return { root, a, b };
+  }
+
+  it('collapses a multi-role figure to ONE silhouette mesh', () => {
+    // The draw-call claim, as a test. Five roles per shipped rifleman means
+    // five extra draws per unit if this does not hold -- measured at +83
+    // draws for 16 units before the merge landed.
+    // Break to confirm red: return `null` from `silhouetteGeometryFor`, or
+    // make `canShareSilhouette` always false.
+    const { root, a, b } = twoRoleFigure();
+    const created = attachMeshSilhouette(root, createMeshSilhouetteMaterial('#2F6FD9'));
+    expect(created.length).toBe(1);
+    expect(created[0].geometry).not.toBe(a.geometry);
+    expect(created[0].geometry).not.toBe(b.geometry);
+    // ...and the merged geometry really is both of them, not one of them.
+    expect(created[0].geometry.getAttribute('position').count).toBe(
+      a.geometry.getAttribute('position').count + b.geometry.getAttribute('position').count
+    );
+    // Every body mesh in the group stamps the mask the shared silhouette reads.
+    for (const mesh of [a, b]) {
+      expect((mesh.material as THREE.Material).stencilZPass).toBe(THREE.ReplaceStencilOp);
+    }
+  });
+
+  it('refuses to merge meshes whose skeletons order their bones differently', () => {
+    // `skinIndex` is an index INTO the bone array, so merging across two
+    // different orders would deform one mesh by the other's skeleton. The
+    // fallback is one silhouette each: more draw calls, never a wrong shape.
+    // Break to confirm red: drop the bone-order loop in canShareSilhouette.
+    const { root } = twoRoleFigure({ sameBoneOrder: false });
+    const created = attachMeshSilhouette(root, createMeshSilhouetteMaterial('#2F6FD9'));
+    expect(created.length).toBe(2);
+  });
+
+  it('merges the same template only once, however many units are built from it', () => {
+    // Geometries are template-owned and shared by every clone
+    // (`mesh-unit.ts`), so the merge is cached on them -- otherwise every
+    // spawned rifleman would pay a merge and carry its own vertex copy.
+    // Break to confirm red: delete the mergedGeometryCache lookup.
+    const first = twoRoleFigure();
+    const second = twoRoleFigure();
+    // A second "clone": same geometry objects, its own skeletons.
+    second.a.geometry = first.a.geometry;
+    second.b.geometry = first.b.geometry;
+    const one = attachMeshSilhouette(first.root, createMeshSilhouetteMaterial('#2F6FD9'));
+    const two = attachMeshSilhouette(second.root, createMeshSilhouetteMaterial('#2F6FD9'));
+    expect(one.length).toBe(1);
+    expect(two.length).toBe(1);
+    expect(two[0].geometry).toBe(one[0].geometry);
+  });
+});
+
 describe('the silhouette material', () => {
   it('draws ONLY where something already won the depth test in front of it', () => {
     // This is the whole occlusion mechanism: GreaterDepth means the fragment
