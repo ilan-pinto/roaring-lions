@@ -169,18 +169,19 @@ import { STRUCTURE_RENDER_ORDER } from './units/render-order';
 import {
   loadMeshUnitTemplate,
   instantiateMeshUnit,
-  applyMeshClip,
   disposeMeshUnitEntity,
   disposeMeshUnitTemplate,
   type MeshUnitTemplate,
   type MeshUnitEntity,
 } from './units/mesh-unit';
+import { applyMeshClip } from './units/mesh-clip';
 import { meshYawFromFacing, MESH_UNITS_PER_TILE, MESH_SCALE } from './units/mesh-anim';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { stepTurretFacing } from './units/frame-state';
 import {
   loadVehicleMeshTemplate,
   instantiateVehicleMesh,
+  disposeVehicleMeshEntity,
   disposeVehicleMeshTemplate,
   type VehicleMeshTemplate,
   type VehicleMeshEntity,
@@ -897,7 +898,8 @@ export class ThreeRenderer implements Renderer {
    * unit type `loadVehicleMesh` was called with -- the rigid,
    * hull-plus-pivot-turret counterpart of `meshUnitTemplates` above, kept in
    * its OWN map rather than folded into that one: `updateVehicleMeshes`
-   * drives a plain `Object3D.clone`/turret-pivot rotation, never a mixer or a
+   * drives a plain `Object3D.clone`/turret-pivot rotation, and its mixer is
+   * OPTIONAL (null for every shipped GLB) rather than the guaranteed one a
    * clip, so sharing one map (and thus one draw-time branch) would force
    * `updateMeshUnits`' loop to guess which shape each entry needs.
    */
@@ -1451,10 +1453,16 @@ export class ThreeRenderer implements Renderer {
     // Vehicle meshes: entities first, then templates -- the identical
     // "clones share the template's geometry/material by reference" ordering
     // `meshUnitEntities`/`meshUnitTemplates` just above already follow.
-    // `VehicleMeshEntity` owns nothing of its own to dispose (no mixer, no
-    // per-entity material clone -- `mesh-vehicle.ts`'s own top comment), so
-    // `scene.remove` is the whole story for each one.
-    for (const entity of this.vehicleMeshEntities.values()) this.scene.remove(entity.root);
+    // A `VehicleMeshEntity` now owns its own mixer WHEN its GLB carried
+    // clips (`mesh-vehicle.ts`'s own top comment) -- `disposeVehicleMesh
+    // Entity` releases it, and is a no-op for the clipless case every
+    // shipped vehicle is in. Its per-entity material clone situation is
+    // unchanged: there is none, so the shared resources below are still
+    // disposed exactly once.
+    for (const entity of this.vehicleMeshEntities.values()) {
+      this.scene.remove(entity.root);
+      disposeVehicleMeshEntity(entity);
+    }
     this.vehicleMeshEntities.clear();
     for (const template of this.vehicleMeshTemplates.values()) disposeVehicleMeshTemplate(template);
     this.vehicleMeshTemplates.clear();
@@ -2751,6 +2759,9 @@ export class ThreeRenderer implements Renderer {
       for (const [id, entity] of this.vehicleMeshEntities) {
         if (entity.typeId !== unitTypeId) continue;
         this.scene.remove(entity.root);
+        // Its actions point at the OUTGOING template's clips, so the mixer
+        // has to go with the clone -- a reload rebuilds both.
+        disposeVehicleMeshEntity(entity);
         this.vehicleMeshEntities.delete(id);
       }
       disposeVehicleMeshTemplate(previous);
@@ -3501,10 +3512,12 @@ export class ThreeRenderer implements Renderer {
    * `type.isAir` at all: every other mesh vehicle is ground-domain and gets
    * `airLift = 0`.
    *
-   * Death: immediate removal, no fade. Every shipped vehicle GLB carries
-   * zero animations, so there is no `down`/`wreck` pose for a fade to hold
-   * -- seen and accepted as a known gap in this task's own report, not
-   * silently dropped.
+   * Death: immediate removal, no fade. Every shipped vehicle GLB still
+   * carries zero animations, so there is no `down`/`wreck` pose for a fade
+   * to hold -- a known gap, not silently dropped. The clip path added
+   * below does not close it: it plays whatever a GLB authors, and no
+   * vehicle authors a death pose yet. Wiring one up is
+   * `units/mesh-death.ts`'s shape and a separate job.
    */
   private updateVehicleMeshes(alpha: number, dtMs: number): void {
     if (this.vehicleMeshTemplates.size === 0) return;
@@ -3636,6 +3649,43 @@ export class ThreeRenderer implements Renderer {
         this.rotorPhase[i] = (this.rotorPhase[i] + ROTOR_SPIN_RAD_PER_SEC * dtSeconds) % (Math.PI * 2);
         entity.rotorPivot.rotation.y = this.rotorPhase[i];
       }
+
+      // Clips, when this vehicle's GLB carries any. Gated on `entity.mixer`
+      // rather than run unconditionally, and that gate is the whole
+      // "clipless vehicles cost exactly what they did before" contract:
+      // every shipped `art/meshes/vehicles/*.glb` declares zero animations,
+      // so for all nine of them this branch is a single null check per
+      // frame -- no `UnitAnimInput` allocated, no `resolveClip` call, no
+      // `mixer.update`, nothing that can touch the clone.
+      //
+      // Everything inside is the infantry path, reused rather than
+      // reinvented: `resolveClip` (`../clip.ts`) is the SAME precedence
+      // chain `updateMeshUnits` feeds, and `applyMeshClip`
+      // (`units/mesh-clip.ts`) is the SAME switcher -- a `VehicleMeshEntity`
+      // satisfies its `ClipPlayer` shape structurally. The only difference
+      // is the `working` read: infantry's is tunnel-charge work, and a
+      // vehicle's is that PLUS demolition, because `dozer_d9` is an
+      // engineer that razes buildings and that is the vehicle state
+      // `resolveClip` already answers `work` for. Both reads are the
+      // existing presentation accessors `updateOverlays`'s own charge ring
+      // already pairs the identical way (`demo > 0 ? demo :
+      // tunnelChargeProgress`) -- no new sim coupling, and nothing written
+      // back (invariant 4).
+      if (entity.mixer) {
+        const anim: UnitAnimInput = {
+          alive: st.alive[i],
+          routed: st.routed[i],
+          pinned: st.pinned[i],
+          speed: this.entitySpeed[i],
+          firing: this.firingTimer[i] > 0,
+          working: this.sim.demolitionProgress(i) > 0 || this.sim.tunnelChargeProgress(i) > 0,
+        };
+        applyMeshClip(entity, resolveClip(anim));
+        // Frame time, never sim time (invariant 1) -- `dtSeconds` is
+        // `frameDtSeconds(dtMs)`, the same clamped real-time delta
+        // `updateMeshUnits` advances infantry's mixer by.
+        entity.mixer.update(dtSeconds);
+      }
     }
 
     // Immediate removal on death -- see this method's own doc comment for
@@ -3644,6 +3694,7 @@ export class ThreeRenderer implements Renderer {
     for (const [id, entity] of this.vehicleMeshEntities) {
       if (id < n && st.alive[id] !== 0) continue;
       this.scene.remove(entity.root);
+      disposeVehicleMeshEntity(entity);
       this.vehicleMeshEntities.delete(id);
     }
   }

@@ -6,10 +6,15 @@
  * the SAME `GLTFLoader` production code uses, never a synthetic in-memory
  * scene graph or a mock.
  *
- * Simpler than `mesh-fixture.ts` throughout: no skin, no joints/weights, no
- * animations -- exactly what `mesh-unit-contract.md` v2 pins for both
- * classes ("no armature, no skin, no clips" for buildings; vehicles carry no
- * clip at all in any shipped GLB). One shared triangle's `POSITION`/`NORMAL`/
+ * Simpler than `mesh-fixture.ts` throughout: no skin, no joints/weights, and
+ * -- unless `clipNames` asks for them -- no animations either, which is
+ * exactly what `mesh-unit-contract.md` v2 pins for buildings ("no armature,
+ * no skin, no clips") and what all nine shipped vehicle GLBs carry today.
+ * `clipNames` exists because a vehicle GLB *may* carry rigid node-animation
+ * clips even though none does yet, and the engine half of that path
+ * (`mesh-vehicle.ts`) has to be exercisable before any asset ships one --
+ * otherwise the only proof the code works arrives with the art, which is
+ * the wrong order. One shared triangle's `POSITION`/`NORMAL`/
  * indices accessors are reused across every mesh node the caller asks for --
  * legal glTF (multiple meshes may reference the same accessor), and there is
  * nothing about role/pivot resolution that depends on distinct geometry.
@@ -90,19 +95,65 @@ export interface RigidFixtureOpts {
    *  else stays a scene-root sibling, exactly like the real vehicle GLBs
    *  this fixture stands in for. */
   pivot?: { pivotName: string; pivotChildren: number[] };
+  /**
+   * Animation clip names, each becoming its own `animations[]` entry,
+   * rotating a part node 90 degrees about X between t=0 and t=1. The
+   * animated target is a plain part NODE rather than a bone, because a
+   * vehicle GLB carries no skin at all.
+   *
+   * The Nth clip animates the Nth part node, wrapping when there are fewer
+   * parts than clips. That indirection exists so a test can tell WHICH clip
+   * is playing by which node moved -- `mesh-fixture.ts`'s own `clipName`
+   * option points every clip at one shared sampler ("the point is which
+   * NAME is reachable, not distinct motion per clip"), which cannot
+   * distinguish `applyMeshClip` selecting `work` from it selecting `idle`,
+   * and a test that cannot tell those apart is not testing clip selection.
+   * Give it as many parts as clips to get one distinct motion each.
+   *
+   * OMITTING this is the case every shipped `art/meshes/vehicles/*.glb`
+   * is in today -- all nine declare zero animations -- and when it is
+   * omitted this fixture emits NO `animations` key and no extra accessors,
+   * so the bytes are identical to what it produced before clips existed.
+   */
+  clipNames?: readonly string[];
 }
 
 export function buildRigidFixtureGlb(opts: RigidFixtureOpts): ArrayBuffer {
   const position = f32([-0.1, 0, 0, 0.1, 0, 0, 0, 0, 0.2]);
   const normal = f32([0, 1, 0, 0, 1, 0, 0, 1, 0]);
   const indices = u16([0, 1, 2]);
-  const { bytes, views } = packBufferViews([position, normal, indices]);
+  const clipNames = opts.clipNames ?? [];
+  // Quaternion (x,y,z,w) keys: identity at t=0, 90 deg about X at t=1 --
+  // the same two-key rotation track `mesh-fixture.ts` uses for the skinned
+  // case, retargeted from a bone to a part node.
+  const HALF = Math.SQRT1_2;
+  const animParts: Uint8Array[] =
+    clipNames.length > 0 ? [f32([0, 1]), f32([0, 0, 0, 1, HALF, 0, 0, HALF])] : [];
+  const { bytes, views } = packBufferViews([position, normal, indices, ...animParts]);
   const bufferViews = views.map((v) => ({ buffer: 0, byteOffset: v.byteOffset, byteLength: v.byteLength }));
-  const accessors = [
+  const accessors: unknown[] = [
     { bufferView: 0, componentType: 5126, count: 3, type: 'VEC3', min: [-0.1, 0, 0], max: [0.1, 0, 0.2] },
     { bufferView: 1, componentType: 5126, count: 3, type: 'VEC3' },
     { bufferView: 2, componentType: 5123, count: 3, type: 'SCALAR' },
   ];
+  if (clipNames.length > 0) {
+    accessors.push(
+      { bufferView: 3, componentType: 5126, count: 2, type: 'SCALAR' }, // 3 anim input (seconds)
+      { bufferView: 4, componentType: 5126, count: 2, type: 'VEC4' } // 4 anim output (quaternions)
+    );
+  }
+  const animations =
+    clipNames.length > 0
+      ? {
+          animations: clipNames.map((name, i) => ({
+            name,
+            channels: [
+              { sampler: 0, target: { node: i % opts.parts.length, path: 'rotation' } },
+            ],
+            samplers: [{ input: 3, output: 4, interpolation: 'LINEAR' }],
+          })),
+        }
+      : {};
 
   const meshes = opts.parts.map((p) => ({
     name: p.nodeName,
@@ -143,6 +194,7 @@ export function buildRigidFixtureGlb(opts: RigidFixtureOpts): ArrayBuffer {
       nodes,
       scenes: [{ nodes: roots }],
       scene: 0,
+      ...animations,
     };
     return packGlb(json, bytes);
   }
@@ -156,6 +208,7 @@ export function buildRigidFixtureGlb(opts: RigidFixtureOpts): ArrayBuffer {
     nodes,
     scenes: [{ nodes: sceneRoots }],
     scene: 0,
+    ...animations,
   };
   return packGlb(json, bytes);
 }
