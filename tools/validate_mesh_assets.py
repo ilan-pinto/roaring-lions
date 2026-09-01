@@ -115,6 +115,8 @@ VEHICLE_OWN_SPRITES = {
     "ifv_namer": ("NAMER_HULL", "NAMER_TURR"),
     "jeep_shoded": ("JEEP_HULL",),
     "mbt_lavi": ("TNK_HULL", "TNK_TURR"),
+    "paramotor": ("PARA_MOTOR",),
+    "rocket_battery": ("ROCKETBATTERY_HULL",),
     "technical": ("TECH_HULL", "TECH_TURR"),
 }
 

@@ -732,6 +732,10 @@ async function main(): Promise<void> {
         'ifv_namer',
         'jeep_shoded',
         'heli_peten',
+        // The two supplied enemy vehicles. Both already existed as unit types
+        // drawing billboards; these replace the sprite, not the unit.
+        'paramotor',
+        'rocket_battery',
       ] as const;
       await Promise.all(
         MESH_VEHICLES.map((id) =>

@@ -147,6 +147,25 @@ VEHICLE_ROLE_PALETTES = {
         "hull": "olive.1", "plate": "olive.2", "metal": "gunmetal.1",
         "rubber": "shadow.0", "glass": "gunmetal.3", "recess": "shadow.1",
     },
+    # tools/render_paramotor.py's own ROLE_PALETTE, hand-copied like the rest.
+    # An enemy vehicle mesh, so the generic KDF fallback is wrong for it
+    # rather than merely approximate -- and wrong in an unusually visible way
+    # here: this unit's `hull` is the FABRIC CANOPY (that script's own comment
+    # on the entry is "# canopy"), a sun-bleached dust tone, not olive armour,
+    # and the canopy is ~90% of what this unit's silhouette is.
+    "paramotor": {
+        "hull": "dust.0", "plate": "dust.1", "metal": "gunmetal.2",
+        "rubber": "shadow.0", "glass": "gunmetal.3", "recess": "shadow.1",
+    },
+    # tools/render_rocket_battery.py's own ROLE_PALETTE, hand-copied like the
+    # two above. The one enemy vehicle mesh in the tree, and the reason the
+    # generic KDF fallback is wrong for it rather than merely approximate:
+    # that script's own comment is "dust hull for a truck the Grad drives --
+    # sun-rotted ochre, not the KDF's olive".
+    "rocket_battery": {
+        "hull": "dust.1", "plate": "dust.2", "metal": "gunmetal.2",
+        "rubber": "shadow.0", "glass": "gunmetal.3", "recess": "shadow.1",
+    },
 }
 VEHICLE_ROLE_PALETTE_FALLBACK = {
     "hull": "olive.0", "plate": "olive.0", "metal": "gunmetal.2",
