@@ -37,6 +37,16 @@ describe('building-mesh-role', () => {
     expect(() => rampForBuildingRole('wall', 'nonexistent.1')).toThrow(/no ramp named/);
   });
 
+  it('gives roof and wood distinct ramps', () => {
+    // Regression: both were `sliceFrom('dust', 4)` -- byte-identical. The
+    // shanty carries both roles and could not tell its timber from its
+    // roofing. wallColorKey is irrelevant to either (see the shared-role
+    // test above) so any valid key exercises the bug.
+    const roof = rampForBuildingRole('roof', 'limestone.1');
+    const wood = rampForBuildingRole('wood', 'limestone.1');
+    expect(wood).not.toEqual(roof);
+  });
+
   it('gives every role (except wall) a real multi-step ramp', () => {
     // Prevents truncation like the roof getting sliced to just one colour.
     // Matches the pattern in decor-role.test.ts.

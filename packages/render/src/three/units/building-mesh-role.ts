@@ -84,7 +84,19 @@ const BUILDING_ROLE_PALETTE: Record<Exclude<BuildingMeshRole, 'wall'>, readonly 
   roof: sliceFrom('dust', 4),
   trim: sliceFrom('terracotta', 1),
   dome: sliceFrom('limestone', 1),
-  wood: sliceFrom('dust', 4),
+  // `dust`'s lightest three steps -- bare/raw timber, deliberately the
+  // OPPOSITE end of the ramp from `roof` (dust[4:7], the darkest three:
+  // weathered roofing). The two slices do not touch (dust[3], `#AC8248`,
+  // is the buffer step between them), so timber and roofing can never
+  // collide the way they did before, on any building. Checked against
+  // every shipped type's wall colour (`data/structures.json`): dust
+  // (shanty, `dust.1` = indices 1-3) is the only wall band this shares --
+  // partial overlap there (index 1-2) is unavoidable in a 7-step ramp once
+  // both roof and that wall have already claimed three steps each, and is
+  // outside this task's scope (wall is untouched, per-type, and correct).
+  // Every other type's wall is a different band entirely (limestone,
+  // gunmetal, olive), so wood reads as distinct from wall everywhere else.
+  wood: sliceFrom('dust', 0),
   glass: sliceFrom('shadow', 0),
   metal: sliceFrom('gunmetal', 2),
   rust: sliceFrom('terracotta', 0),
