@@ -410,6 +410,37 @@ symbol-derived `ParsedMap.decor`).
 
 ### Task 4: The decor assets
 
+**ASSETS DELIVERED 2026-09-01.** Sources are flat in
+`/Users/ilpinto/dev/roaring-lions/art/blend/terrain object` (569 MB), except the
+pre-existing `olive tree/` and `stone/` subdirectories. The family mapping is NOT
+derivable from the filenames alone:
+
+| family | source prefix | variants | note |
+|---|---|---|---|
+| grass | `Meshy_AI_foliage_grass_tuft_va` | **4** | one more than `VARIANTS_PER_FAMILY` (3) |
+| sand | `Meshy_AI_sand_gravel_patch_var` | 3 | |
+| bush | `Meshy_AI_shrub_desert_varN` | 3 | **each has a `_spl_..._part-segmentation` companion** |
+| rock | `Meshy_AI_rock_cluster_varN` | 3 | |
+| slab | `Meshy_AI_rock_outcrop_varN` | 3 | var3 is duplicated as `... (1).blend` |
+| tree | `olive tree/` | **2** | pre-existing, one short of 3 |
+
+**`Meshy_AI_rock_boulder_varN` (3 files) is NOT part of this task.** Those are the large
+vehicle-blocking boulder for subsystem B (per-domain passability), a separate plan. B has
+no `b` map symbol yet, so a boulder mesh would have nothing to draw on.
+
+The bush part-segmentation files are load-bearing: the decor vocabulary needs `trunk` AND
+`foliage` on a shrub, and a single-object export gives one flat colour — the exact
+mechanism behind the "enemy building is missing details and colors" report. The
+segmentation pass is how the split is obtained.
+
+**Two decisions this task must settle, neither guessable:**
+- grass ships 4 variants against `VARIANTS_PER_FAMILY = 3`. Use three, or raise the
+  constant — but the constant feeds the placement hash, so raising it changes every
+  existing placement's variant on every map.
+- tree ships 2, not 3. Author a third, accept two (the loader already drops a missing key
+  silently), or map variant 2 onto one of the first two.
+
+
 **Files:**
 - Create: `tools/terrain/export_meshy_decor.py`
 - Create: `art/meshes/decor/{grass,sand,bush,tree,rock,slab}_{0,1,2}.glb`
@@ -587,6 +618,37 @@ git commit -m "feat(decor): one BatchedMesh per decor role"
 
 ### Task 6: Wire it in, and prove it draws
 
+**FOUR SEAM PROBLEMS, found by the final whole-branch review. Read these before writing
+the loader — each one bites on day one.**
+
+1. **`geometry` alone is not enough.** `mesh.geometry` is in the mesh's LOCAL space; the
+   GLB node hierarchy's transforms are lost, so a multi-part decor GLB — exactly the
+   rock-cluster case — collapses every part onto the origin. Bake it:
+   `mesh.updateWorldMatrix(true, false)` then
+   `geometry.clone().applyMatrix4(mesh.matrixWorld)`.
+2. **`MESH_SCALE` is `1/3`** (`mesh-anim.ts`; Blender builds at 3 units per tile). Every
+   unit and building loader applies `root.scale.setScalar(MESH_SCALE)`. `buildDecorMesh`
+   composes its matrix from `p.scale` (0.8–1.2) alone, so decor authored to the mesh
+   contract will be **3x oversized** unless the loader bakes the scale in. Nothing in
+   Tasks 1, 2 or 5 mentions this.
+   Once the loader clones geometry it OWNS those clones and needs a
+   `disposeDecorGeometrySet`; `disposeDecorMesh` deliberately does not dispose them.
+3. **No materials handle.** `BuildingMeshTemplate` exposes `readonly materials` precisely
+   so `ThreeRenderer` can register them with `flashLights`. `buildDecorMesh` returns a
+   bare `THREE.Group` and creates its `ShaderMaterial`s privately, so decor is invisible
+   to the muzzle-flash system. Return `{ group, materials }` or mirror the template shape.
+4. **`composeTerrain` does not expose its `TerrainInput`.** It is built privately inside
+   `ThreeRenderer.rebuildTerrain`, so the snippet below calling
+   `buildDecorMesh(decorPlacements(input), ...)` has no `input` in scope. Either
+   reconstruct it or give `composeTerrain` a decor layer — the latter is the coherent
+   choice.
+
+Also worth pricing, not redesigning: `rebuildTerrain` already costs 114–179 ms and fires
+on structure destruction. `buildDecorMesh` disposes and recreates every batch and
+re-uploads every geometry each time — a full GPU re-upload for an event that changes a
+handful of tiles.
+
+
 **Files:**
 - Modify: `packages/render/src/three/ThreeRenderer.ts`
 - Modify: `packages/app/src/main.ts`
@@ -694,6 +756,16 @@ git commit -m "feat(decor): draw scattered decor meshes by default"
 ---
 
 ### Task 7: Retire the procedural canopy
+
+**Retiring `buildGroves` will THIN the canopy, and the interface cannot currently express
+what it replaces.** `grove.ts` places **1 or 2** trees per grove tile (`twin =
+tileHash(x*3, y*7) > 0.62`, the second at 0.68 scale). `decor-place.ts` sets
+`tree: 1.0` — exactly one, always — and pushes at most ONE `DecorPlacement` per tile.
+Wadi Halam goes from ~315 trees to 228 and loses the twin's size variation.
+
+Decide deliberately: accept the thinner canopy, or let `decorPlacements` emit more than
+one placement per tile. Do not discover it in a screenshot.
+
 
 **Files:**
 - Modify: `packages/render/src/three/terrain/grove.ts`, `ThreeRenderer.ts`
