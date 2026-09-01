@@ -593,9 +593,7 @@ async function main(): Promise<void> {
         // Meshy asset rather than from `tools/units/teams.py`'s own GLB.
         ['demo_squad', 'kdf'],
         ['at_team', 'kdf'],
-        ['mortar_team', 'kdf'],
         ['sniper_team', 'kdf'],
-        ['yahalom_squad', 'kdf'],
         ['militia_cell', 'enemy'],
         ['rpg_team', 'enemy'],
         ['atgm_cell', 'enemy'],
@@ -672,6 +670,32 @@ async function main(): Promise<void> {
         'sarim_rifles',
         new URL('../../../art/meshes/sarim_rifles.glb', import.meta.url).href,
         'enemy'
+      );
+
+      // Two more Meshy-generated (AI, disclosed) rigged bipeds. They cannot
+      // join `MESH_TEAMS` above for the same reason the two calls beside them
+      // cannot: that list's "team id == unit type id == file basename"
+      // convention does not hold here. The files are `meshy_mortar_team.glb`
+      // and `yahalom_engineer.glb`, not `<unit id>.glb`, and the distinct
+      // basename is deliberate -- `export_mesh_team.py <id>` keeps
+      // regenerating the `tools/units/kit.py` file of the same name, so each
+      // swap stays one line to revert.
+      //
+      // The engineer is the first mesh team to ship a `work` clip
+      // (`resolveClip` has returned `work` above `fire` all along and
+      // `ThreeRenderer` already feeds `working`, but no GLB ever carried it)
+      // and the first to ship WITHOUT a `fire`: its source rig skins the slung
+      // carbine to `Hips`, so no arm-only recoil can move the weapon, and
+      // `meshClipOrFallback` degrades `fire` to `idle` by design.
+      await three.loadMeshUnit(
+        'mortar_team',
+        new URL('../../../art/meshes/meshy_mortar_team.glb', import.meta.url).href,
+        'kdf'
+      );
+      await three.loadMeshUnit(
+        'yahalom_squad',
+        new URL('../../../art/meshes/yahalom_engineer.glb', import.meta.url).href,
+        'kdf'
       );
 
       // Vehicle meshes (mesh-unit-contract v2): `art/meshes/vehicles/<id>.glb`,
