@@ -69,6 +69,26 @@ Two comparisons, run separately, because they answer different questions:
 Never adjusts `IOU_LIMIT` or `MIN_FILL` to make a result pass -- both are
 imported from `validate_assets.py`, not redeclared, so there is nowhere here
 to move them even by accident.
+
+## Decor is checked a THIRD way, and never rendered by this gate at all
+
+`art/meshes/decor/*.glb` (scattered terrain props -- `docs/superpowers/plans/
+2026-09-01-terrain-c-mesh-decor.md`, Task 4) skips `render_mesh_gate.py`
+entirely: that script's own `render_one` returns early for `mesh_kind() ==
+'decor'`, the same early-return `vfx` already gets, and for the same reason
+given there -- a rock or a grass tuft is not a unit, has no faction, and the
+"does this collide in silhouette with some OTHER unit" question this gate's
+whole IoU apparatus exists to answer has no meaning for it. So there is no
+rendered PNG to run `check_image`/`silhouette` against, and `check_decor_meshes`
+below checks the one thing that DOES apply to decor -- the mesh contract
+itself (zero materials, zero images, zero textures, every mesh node's
+`extras.rl_role` inside the closed `{foliage, trunk, rock, sand}` set from
+`packages/render/src/three/terrain/decor-role.ts`) -- directly against the
+raw GLB bytes, the same minimal JSON-chunk parse `render_mesh_gate.py`'s own
+`read_glb_json` uses, copied rather than imported because that module opens
+with `import bpy` and cannot load in this plain-`python3` process. An empty
+`art/meshes/decor/` (the state before Task 4 lands any asset) is not a
+failure -- `glob` returning nothing means zero iterations, zero failures.
 """
 import argparse
 import glob
@@ -76,6 +96,7 @@ import itertools
 import json
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -242,6 +263,65 @@ def check_collisions(mesh_masks, sprite_masks, sheets):
     return failures
 
 
+# The closed decor role vocabulary, mirroring
+# packages/render/src/three/terrain/decor-role.ts's own `DECOR_MESH_ROLES`.
+# Not imported (that file is TypeScript); kept in sync by hand the same way
+# `VEHICLE_ROLE_PALETTES` above tracks its own TypeScript-side counterparts.
+DECOR_ROLES = {"foliage", "trunk", "rock", "sand"}
+
+
+def _read_glb_json(path):
+    """The glTF JSON chunk, parsed without any dependency on `bpy` -- this
+    script runs as plain `python3`, unlike `render_mesh_gate.py`'s own
+    identical parse, which can only load inside Blender. See this module's
+    own docstring, "Decor is checked a THIRD way"."""
+    with open(path, "rb") as fh:
+        data = fh.read()
+    _magic, _version, length = struct.unpack("<III", data[0:12])
+    offset = 12
+    while offset < length:
+        chunk_len, chunk_type = struct.unpack("<II", data[offset:offset + 8])
+        chunk_data = data[offset + 8:offset + 8 + chunk_len]
+        if chunk_type == 0x4E4F534A:  # 'JSON'
+            return json.loads(chunk_data)
+        offset += 8 + chunk_len
+    raise ValueError(f"{path}: no JSON chunk found -- not a valid glb")
+
+
+def check_decor_meshes(decor_root):
+    """Every `art/meshes/decor/*.glb` carries zero materials/images/textures
+    and every mesh-bearing node's `extras.rl_role` is inside the closed decor
+    set -- checked directly against the raw GLB bytes, never rendered (see
+    module docstring). An empty directory is zero iterations, not a failure."""
+    failures = []
+    for path in sorted(glob.glob(os.path.join(decor_root, "*.glb"))):
+        name = os.path.basename(path)
+        glb_json = _read_glb_json(path)
+        n_mat = len(glb_json.get("materials", []))
+        n_img = len(glb_json.get("images", []))
+        n_tex = len(glb_json.get("textures", []))
+        if n_mat or n_img or n_tex:
+            failures.append(
+                f"{name}: carries {n_mat} material(s), {n_img} image(s), "
+                f"{n_tex} texture(s) -- the decor contract is zero of each"
+            )
+        nodes = glb_json.get("nodes", [])
+        gltf_meshes = glb_json.get("meshes", [])
+        for node in nodes:
+            if "mesh" not in node:
+                continue  # a camera/empty node, not a mesh-bearing one
+            role = (node.get("extras") or {}).get("rl_role")
+            node_name = node.get("name") or gltf_meshes[node["mesh"]].get("name", "?")
+            if role is None:
+                failures.append(f"{name}: mesh node {node_name!r} carries no rl_role")
+            elif role not in DECOR_ROLES:
+                failures.append(
+                    f"{name}: mesh node {node_name!r} has rl_role {role!r}, outside "
+                    f"the closed decor vocabulary {sorted(DECOR_ROLES)}"
+                )
+    return failures
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--palette", default=os.path.join(REPO, "data", "palette.json"))
@@ -282,14 +362,20 @@ def main():
         sprite_masks = load_sprite_masks(args.sprites)
         failures.extend(check_collisions(mesh_masks, sprite_masks, sheets))
 
+        decor_root = os.path.join(REPO, "art", "meshes", "decor")
+        decor_failures = check_decor_meshes(decor_root)
+        failures.extend(decor_failures)
+
         if failures:
             print(f"\nMESH GATE FAILED -- {len(failures)} issue(s):\n")
             for f in failures:
                 print(f"  - {f}")
             return 1
 
+        n_decor = len(glob.glob(os.path.join(decor_root, "*.glb")))
         print(f"mesh gate passed: {len(mesh_masks)} mesh unit(s) rendered and checked "
-              f"against {len(sprite_masks)} sprite unit(s)")
+              f"against {len(sprite_masks)} sprite unit(s); {n_decor} decor mesh(es) "
+              f"checked against the mesh contract directly")
         return 0
     finally:
         if not keep:

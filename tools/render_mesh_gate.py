@@ -29,13 +29,13 @@ ever emit a palette entry, and `mesh-material.test.ts` covers it under
 skinning), but so the rendered silhouette and its on-palette-ness are
 meaningful to check at all.
 
-`art/meshes/` ships four different kinds of mesh, told apart by which
+`art/meshes/` ships five different kinds of mesh, told apart by which
 subdirectory they live in (`art/meshes/vehicles/`, `art/meshes/buildings/`,
-`art/meshes/vfx/`, everything else is an infantry team) -- discovered from
-the path, not from a hardcoded per-file list, because other streams are
-actively adding new GLBs under all four and this script must see them
-without an edit here. Each of the first three kinds has its own closed
-`rl_role` vocabulary and its own role->colour table:
+`art/meshes/vfx/`, `art/meshes/decor/`, everything else is an infantry team)
+-- discovered from the path, not from a hardcoded per-file list, because
+other streams are actively adding new GLBs under all five and this script
+must see them without an edit here. Each of the first three kinds has its
+own closed `rl_role` vocabulary and its own role->colour table:
 
   * **Infantry teams** reuse `tools/render_team.py`'s `ROLE_PALETTE` /
     `BODY_PALETTE` / `SHARED_PALETTE` directly, by importing that module and
@@ -71,6 +71,13 @@ without an edit here. Each of the first three kinds has its own closed
     `toonRampMaterial` gives lit geometry) -- there is no rendered PNG this
     gate could check that would tell you anything the shader does not
     already guarantee by construction.
+  * **Decor** (`art/meshes/decor/`, e.g. `rock_0.glb`) is SKIPPED the same
+    way and for the same reason: not a unit, no faction, no roster entry to
+    read a "same as its own retired sprite" exclusion from, and no per-object
+    palette table (`decor-role.ts`'s own top comment: "a rock is the same
+    grey whichever family placed it"). `tools/validate_mesh_assets.py` checks
+    its contract (zero materials, closed `{foliage, trunk, rock, sand}` role
+    set) directly against the raw GLB bytes instead, in its own decor branch.
 
 None of `render_eitan.py`, `render_d9.py`, or `render_building.py` is
 imported for its table: each performs real work at module scope from a
@@ -224,9 +231,9 @@ def is_skinned(glb_json):
 
 
 def mesh_kind(glb_path):
-    """'vehicle' / 'building' / 'vfx' / 'infantry', from which subdirectory
-    of art/meshes/ the file lives in -- see this file's module docstring for
-    why path, not content, is the discovery signal."""
+    """'vehicle' / 'building' / 'vfx' / 'decor' / 'infantry', from which
+    subdirectory of art/meshes/ the file lives in -- see this file's module
+    docstring for why path, not content, is the discovery signal."""
     rel = os.path.relpath(os.path.abspath(glb_path), MESHES_DIR)
     top = rel.split(os.sep)[0]
     if top == "vehicles":
@@ -235,6 +242,8 @@ def mesh_kind(glb_path):
         return "building"
     if top == "vfx":
         return "vfx"
+    if top == "decor":
+        return "decor"
     return "infantry"
 
 
@@ -386,6 +395,25 @@ def render_one(glb_path, out_root):
         # is produced, so this id never enters the palette/framing/
         # silhouette checks either, which is the whole point of the skip.
         print(f"MESH_GATE_WARN: {unit_id}: vfx-class mesh -- skipped by this "
+              f"gate (not a unit; see tools/render_mesh_gate.py's own docstring)")
+        return
+    if kind == "decor":
+        # Also not a unit, same reasoning as vfx above: `decor-place.ts`
+        # scatters these across open ground with no faction, no per-object
+        # palette table, and nothing for this gate's "does this read as a
+        # DIFFERENT unit" silhouette-collision check to mean anything against
+        # -- a rock is not on anyone's roster. Rendering one through this
+        # gate's infantry/vehicle/building path would also be actively wrong,
+        # not merely pointless: `mesh_kind` used to fall through decor to
+        # 'infantry' (the function's own default for an unrecognised
+        # subdirectory) before this branch existed, which sent every decor
+        # GLB into `apply_materials(mesh_objs, faction, casualty=False)` --
+        # a table keyed by the INFANTRY role vocabulary (helmet/vest/skin/...)
+        # that has no entry for `foliage`/`trunk`/`rock`/`sand` and raises.
+        # `tools/validate_mesh_assets.py` runs the decor contract check
+        # (zero materials, closed role set) directly against the raw GLB
+        # bytes instead -- see that script's own decor branch.
+        print(f"MESH_GATE_WARN: {unit_id}: decor-class mesh -- skipped by this "
               f"gate (not a unit; see tools/render_mesh_gate.py's own docstring)")
         return
     glb_json = read_glb_json(glb_path)
