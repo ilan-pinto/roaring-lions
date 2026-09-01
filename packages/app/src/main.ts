@@ -1773,6 +1773,33 @@ async function main(): Promise<void> {
   ensureCursorAnim(name);
   };
 
+  // Paint one real frame before the rAF loop ever gets a callback -- GitHub
+  // #141. `renderer.frame()` already builds mesh entities (`updateMeshUnits`/
+  // `updateVehicleMeshes`) from whatever is CURRENTLY alive in `sim`, with no
+  // tick-based gate of its own; the templates (awaited above) and every
+  // starting unit (spawned above, sandbox or mission) both already exist by
+  // this point. The gap was never in what `frame()` does, only in nothing
+  // having called it yet: `main.ts`'s only call site was inside `loop()`
+  // below, reachable exclusively through `requestAnimationFrame`, and rAF is
+  // throttled to near-zero the moment a tab is backgrounded or unfocused --
+  // exactly the state a browser automated for an art check sits in, which is
+  // how this shipped unnoticed. Until that first rAF callback landed,
+  // `vehicleMeshEntities`/`meshUnitEntities` stayed empty and the billboard
+  // sprite path drew instead, indefinitely.
+  //
+  // `sim.tick()` is deliberately NOT called here -- only `frame()`, the exact
+  // call `__lions.step()` already makes after its own tick loop. `tickCount`
+  // stays 0, so a page that boots this way still reads as tick 0 to anyone
+  // asking, `__lions.step(n)` still means exactly n ticks from here, and this
+  // is presentation-only: nothing about sim state changes, only what has
+  // already been painted once before anything can observe it unpainted.
+  // `renderer.init()` (`ThreeRenderer.init()`'s own comment) has already run
+  // `snapshot()` twice, seeding prevX == curX from the sim's real starting
+  // positions -- alpha is irrelevant here as a result, but `1` matches
+  // `__lions.step()`'s own call for the same reason: on a still frame,
+  // prevX + (curX - prevX) * alpha reduces to curX regardless.
+  renderer.frame(1, lastFrameMs);
+
   let last = performance.now();
   let acc = 0;
   // The app owns the frame loop, not the renderer.
