@@ -424,11 +424,42 @@ load is worth doing before release. Pipeline: `tools/units/kit.py` (geometry)
   billboard-vs-real-shipped-mesh comparison (a quarter of a mixed 400-unit
   roster swapped from billboard to real `art/meshes/` GLBs) adds at most
   ~1ms of p95 frame time at 320 living units, nowhere near either budget.
-- Mesh units have no `down`/`wreck`/`work` clips, so a mesh unit that dies has no
-  death state. Not an oversight: posing the standing rig into prone was attempted
-  and rendered, and it folds into a self-intersecting heap at the rotation prone
-  requires. Those clips want separate geometry, the way `teams.py` already treats
-  them. Invisible until something actually fights.
+- ~~Mesh units have no `down`/`wreck`/`work` clips~~ — **stale for INFANTRY since
+  `233f683`, and the debt has moved to vehicles.** The prediction in the old text
+  was right and was acted on: FK-folding the standing rig into prone did produce a
+  self-intersecting heap, so `rig.py`'s `_figure_death_parts` calls
+  `kit.figure(posture="prone")` for SEPARATE geometry, binds it rigidly to a
+  per-figure `{prefix}_death_root`, and every clip keys both roots' scale (1/0
+  living, 0/1 dead). All sixteen infantry team GLBs now carry `down` and `wreck`
+  (`moto_rpg` carries `wreck` only — a motorcycle cannot go prone;
+  `yahalom_engineer` also carries `work`), civilians carry `down`, and
+  `units/mesh-death.ts` plays them: 0.4 s fade, then a persistent `MeshWreck`.
+  Verified 2026-09-01 both from the shipped bytes and on screen — a killed
+  `inf_squad` on `?sandbox=beit_sahwan_outskirts` leaves three prone figures beside
+  a standing squad.
+  **What has NO death state is a mesh VEHICLE**, and the failure is worse than
+  "nothing draws". `art/meshes/vehicles/*.glb` declare zero animations, and
+  `updateVehicleMeshes` skips `alive[i] === 0` and prunes the clone in the SAME
+  frame — so at t=0 the 3D mesh vanishes. What replaces it is a BILLBOARD:
+  `ThreeRenderer.addWreck` excludes `meshUnitTemplates.has(typeId)` but **not**
+  `vehicleMeshTemplates`, so a mesh-drawn vehicle still gets a `UnitWreck`. The
+  sequence a player sees, measured at zoom 1.6 and 2.2 on the default renderer, is
+  three art styles in half a second: 3D mesh → a flat 2D sprite of the INTACT
+  vehicle fading over 0.4 s (`stepDeaths` falls `down` back to `idle` for a sheet
+  with no `down`, which is every mesh vehicle's sheet but `PARA_MOTOR`'s) → the 2D
+  `wreck` sprite. For
+  `mbt_lavi` there is no third step at all: `TNK_HULL`'s manifest declares no
+  `clips` key, so `clipOrFallback(sheet,'wreck') !== 'wreck'` and a destroyed Lavi
+  leaves only `updateOverlays`' grey cross on bare ground. Do NOT "fix" this by
+  adding `vehicleMeshTemplates` to that `addWreck` guard on its own — that deletes
+  the sprite wreck and leaves nothing, which is strictly worse. It needs a real
+  mesh wreck first. The asset mechanism is proven and the two Blender traps are
+  measured (see `.superpowers/queue/mesh-death-report.md`); what is missing is
+  wreck GEOMETRY for a currently-shipped vehicle. The only vehicle in the tree that
+  ever had any is the D9 — `d9.blend` carries seven `WRECK_` parts (collapsed cab,
+  blade off, stack down) that `export_mesh_vehicle.py` deletes at export — and
+  `31c9799` replaced `dozer_d9.glb` with a Meshy-sourced export, so
+  `export_mesh_vehicle.py` now produces no shipped asset but `apc_eitan.glb`.
 - Tunnels are implemented (`feat/tunnel-subsystem`): routes are map data, a digger
   advances one and leaves surface spoil, stocked fighters surface at the vent to fire a
   volley and submerge, and a `yahalom_squad` charge collapses a route. Both content keys
