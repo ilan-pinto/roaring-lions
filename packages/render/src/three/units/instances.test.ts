@@ -28,7 +28,11 @@ import {
   type UnitInstanceBuffers,
 } from './instances';
 import { SILHOUETTE_RENDER_ORDER } from './render-order';
-import { SILHOUETTE_OUTLINE_PX } from './silhouette';
+import {
+  SILHOUETTE_BILLBOARD_DEPTH_BIAS_WORLD,
+  SILHOUETTE_OUTLINE_PX,
+  silhouetteMeshDepthBiasWorld,
+} from './silhouette';
 import { TILE_W, WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import { screenOffsetToWorld, WORLD_PER_LEVEL } from '../terrain/shared';
 import { VIEW_DIRECTION, dimetricCamera } from '../camera';
@@ -384,6 +388,30 @@ describe('the occlusion silhouette on the billboard path', () => {
     const mat = inst.silhouette?.material as THREE.ShaderMaterial;
     expect(mat.uniforms.uOutlineUv.value).toBe(billboardOutlineUv(infSquad.scale * TILE_W, 2.5));
     expect(() => instancer(2, false).setOutlineZoom(2.5)).not.toThrow();
+  });
+
+  it('holds its depth bias CONSTANT in world units while the width tracks zoom', () => {
+    // The one place the two silhouette paths deliberately disagree, and the
+    // disagreement is measured rather than assumed. This path's silhouette
+    // shares the body's own ground-clipped QUAD -- the outline is a UV
+    // dilation, not an expanded hull -- and a sprite's world size does not
+    // change with zoom, so scaling its bias with the outline width is wrong.
+    // Measured wrong: at the mesh path's 2.5 widths a billboard rifleman on
+    // open flat ground on `tel_marum` grows 5-126 false pixels at his feet
+    // across zooms 0.35-2.5, where this constant gives zero.
+    // Break to confirm red: seed the uniform from
+    // silhouetteMeshDepthBiasWorld(1) and write it in setOutlineZoom, the
+    // way the mesh path does -- fails with `expected 0.13810679320049754 to
+    // be 0.75 // Object.is equality`.
+    const inst = instancer(2);
+    const mat = inst.silhouette?.material as THREE.ShaderMaterial;
+    expect(mat.vertexShader).toContain('uniform float uSilhouetteDepthBias;');
+    expect(mat.vertexShader).toContain('mvPosition.z += uSilhouetteDepthBias;');
+    expect(mat.uniforms.uSilhouetteDepthBias.value).toBe(SILHOUETTE_BILLBOARD_DEPTH_BIAS_WORLD);
+    inst.setOutlineZoom(2.5);
+    expect(mat.uniforms.uSilhouetteDepthBias.value).toBe(SILHOUETTE_BILLBOARD_DEPTH_BIAS_WORLD);
+    // ...and it is NOT the mesh path's number, which is the whole point.
+    expect(SILHOUETTE_BILLBOARD_DEPTH_BIAS_WORLD).not.toBe(silhouetteMeshDepthBiasWorld(2.5));
   });
 
   it('is not built at all when no team colours are supplied', () => {

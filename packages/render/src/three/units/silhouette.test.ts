@@ -17,9 +17,12 @@ import {
   SILHOUETTE_FALLBACK_HEX_BY_SIDE,
   SILHOUETTE_EXPAND_ATTRIBUTE,
   SILHOUETTE_MATERIAL_FLAGS,
+  SILHOUETTE_MESH_DEPTH_BIAS_OUTLINE_WIDTHS,
+  SILHOUETTE_DEPTH_BIAS_UNIFORM_KEY,
   SILHOUETTE_OUTLINE_PX,
   SILHOUETTE_OUTLINE_UNIFORM_KEY,
   SILHOUETTE_PX_PER_WORLD_UNIT,
+  silhouetteMeshDepthBiasWorld,
   silhouetteColorKey,
   silhouetteFallbackHex,
   silhouetteOutlineObjectWidth,
@@ -35,6 +38,25 @@ import {
 } from './silhouette';
 import { MESH_SCALE } from './mesh-anim';
 import { SILHOUETTE_RENDER_ORDER } from './render-order';
+import { ELEVATION, ELEV_STEP, WORLD_Y_PER_LIFT_PIXEL } from '../../project';
+
+/** Every zoom `main.ts` clamps the camera to, plus the two ends of the
+ *  range -- the bias is zoom-dependent, so an assertion made at one zoom
+ *  says nothing about the others. This is the set that matters. */
+const ZOOMS = [0.35, 0.55, 1, 1.6, 2.5] as const;
+
+/**
+ * How much VIEW-SPACE DEPTH (nearness to the camera, in world units) one
+ * step of world geometry is worth, for `camera.ts`'s dimetric camera.
+ *
+ * Derived here from `project.ts`'s own `ELEVATION` rather than copied as a
+ * literal, so a change to the game's 2:1 dimetric ratio moves these tests
+ * with it instead of leaving them asserting yesterday's camera. The camera
+ * looks along `(cos EL / sqrt2, sin EL, cos EL / sqrt2)` (`camera.ts`'s
+ * `VIEW_DIRECTION`), and depth is the dot product with it.
+ */
+const DEPTH_PER_TILE_SINGLE_AXIS = Math.cos(ELEVATION) * Math.SQRT1_2;
+const DEPTH_PER_ELEVATION_LEVEL = WORLD_Y_PER_LIFT_PIXEL * ELEV_STEP * Math.sin(ELEVATION);
 
 /** One triangle, enough shape for `smoothedOutwardNormals` to have something
  *  to average and for the shared-attribute assertions to be about a real
@@ -343,11 +365,14 @@ describe('the silhouette material', () => {
     expect(b.stencilZPass).toBe(THREE.ReplaceStencilOp);
   });
 
-  it('pushes its own depth toward the camera, clearing a billboard’s ground-clipped lower half', () => {
-    // The one artefact the stencil cannot reach: terrain writes no mask, and
-    // a ground-clipped billboard fragment that loses to it writes none
-    // either, so without the bias every billboard unit grows a flat smear at
-    // its feet. Break to confirm red: delete the onBeforeCompile injection.
+  it('pushes its own depth toward the camera, clearing the ring of ground at a unit’s feet', () => {
+    // The one artefact the stencil cannot reach. The outline lives OUTSIDE
+    // the footprint the mask covers, so its lowest fragments hang below the
+    // unit's ground-contact point and the ground drawn there is nearer than
+    // they are -- without the bias every unit standing in the open wears a
+    // ring. How BIG it has to be is `the depth bias` below; that it is
+    // injected at all is here. Break to confirm red: delete the
+    // onBeforeCompile injection.
     const mat = createMeshSilhouetteMaterial('#2F6FD9');
     const shader = { vertexShader: '#include <project_vertex>\n', fragmentShader: '', uniforms: {} };
     mat.onBeforeCompile(shader as never, null as never);
@@ -557,5 +582,100 @@ describe('the silhouette band', () => {
     const { root } = meshUnitRig();
     const silhouettes = attachMeshSilhouette(root, createMeshSilhouetteMaterial('#2F6FD9'));
     for (const s of silhouettes) expect(s.renderOrder).toBe(SILHOUETTE_RENDER_ORDER);
+  });
+});
+
+describe('the depth bias (mesh path)', () => {
+  it('is a fixed multiple of the outline’s own world width, at every zoom', () => {
+    // The bias exists to suppress exactly one thing: the ring of ground the
+    // outline reaches over. That ring is `silhouetteOutlineWorldWidth` wide,
+    // so the two are one number scaled twice -- decoupling them means either
+    // the ring comes back (bias too small) or real occluders are swallowed
+    // (bias too large), and the second is how a boulder hid 77% of a squad
+    // and drew nothing.
+    // Break to confirm red: return a constant 0.75 from
+    // silhouetteMeshDepthBiasWorld -- `expected 0.75 to be close to
+    // 0.3945908377157073, received difference is 0.3554091622842927, but
+    // expected 5e-13`.
+    for (const zoom of ZOOMS) {
+      expect(silhouetteMeshDepthBiasWorld(zoom)).toBeCloseTo(
+        silhouetteOutlineWorldWidth(zoom) * SILHOUETTE_MESH_DEPTH_BIAS_OUTLINE_WIDTHS,
+        12
+      );
+    }
+  });
+
+  it('is at least the 2 outline widths the ring-around-the-feet artefact needs', () => {
+    // The derived floor, not a taste. This camera's pitch is 30 degrees, so
+    // a ring fragment sitting `d` BELOW its unit's ground-contact point --
+    // the deepest being one full outline width, where the smoothed normal
+    // at a boot's sole points straight down -- projects onto ground that is
+    // `2d` nearer, and would satisfy `GreaterDepth` on its own. Anything
+    // under 2 puts a blue ring around the feet of every unit standing in
+    // the open; measured on `tel_marum` at 1.5, on both an inf_squad and an
+    // mbt_lavi, at all five zooms.
+    // Break to confirm red: set SILHOUETTE_MESH_DEPTH_BIAS_OUTLINE_WIDTHS to 1.5
+    // -- `expected 1.5 to be greater than or equal to 2`.
+    expect(SILHOUETTE_MESH_DEPTH_BIAS_OUTLINE_WIDTHS).toBeGreaterThanOrEqual(2);
+    for (const zoom of ZOOMS) {
+      expect(silhouetteMeshDepthBiasWorld(zoom)).toBeGreaterThanOrEqual(
+        2 * silhouetteOutlineWorldWidth(zoom)
+      );
+    }
+  });
+
+  it('never swallows an occluder a whole tile in front, at any zoom', () => {
+    // THE assertion this file was missing. The bias was a constant 0.75 world
+    // units, which is MORE than the 0.612 of depth a single-axis neighbouring
+    // tile is worth -- so anything closer than about a tile and a quarter was
+    // invisible to `GreaterDepth`, at every zoom, and a boulder standing on a
+    // unit's own tile hid 48-79% of it and drew no outline at all. Stated in
+    // the projection's own terms so it stays true if the camera changes.
+    // Break to confirm red: return a constant 0.75 from
+    // silhouetteMeshDepthBiasWorld -- `expected 0.75 to be less than
+    // 0.6123724356957946`.
+    for (const zoom of ZOOMS) {
+      expect(silhouetteMeshDepthBiasWorld(zoom)).toBeLessThan(DEPTH_PER_TILE_SINGLE_AXIS);
+    }
+  });
+
+  it('never swallows a one-tile, one-level step, which the old constant did', () => {
+    // The case the previous walk measured as "no outline" and could not
+    // explain: a unit one tile in front of and one level below a step is
+    // 0.740 of depth away from it, and 0.75 rejected that by a hair. This is
+    // the same bug as the boulder, one tile further out.
+    // Break to confirm red: return a constant 0.75 from
+    // silhouetteMeshDepthBiasWorld -- `expected 0.75 to be less than
+    // 0.7399500264657518`.
+    const oneTileOneLevel = DEPTH_PER_TILE_SINGLE_AXIS + DEPTH_PER_ELEVATION_LEVEL;
+    for (const zoom of ZOOMS) {
+      expect(silhouetteMeshDepthBiasWorld(zoom)).toBeLessThan(oneTileOneLevel);
+    }
+  });
+
+  it('reaches the shader as a live uniform, retuned by the same call as the width', () => {
+    // A bias that does not track zoom is the bug this slice fixed, so the
+    // wiring is asserted rather than trusted: the same shared uniform OBJECT
+    // the compiled program holds must be what `setSilhouetteOutlineZoom`
+    // writes, and it must be written by the SAME call that writes the width.
+    // Break to confirm red: drop the `biasUniform` write from
+    // setSilhouetteOutlineZoom -- `expected 0.13810679320049754 to be
+    // 0.05524271728019902 // Object.is equality`.
+    const mat = createMeshSilhouetteMaterial('#2F6FD9');
+    const shader = {
+      vertexShader: '#include <begin_vertex>\n#include <project_vertex>\n',
+      fragmentShader: '',
+      uniforms: {} as Record<string, { value: number }>,
+    };
+    mat.onBeforeCompile(shader as never, null as never);
+    expect(shader.vertexShader).toContain('uniform float uSilhouetteDepthBias;');
+    expect(shader.vertexShader).toContain('mvPosition.z += uSilhouetteDepthBias;');
+    expect(shader.uniforms.uSilhouetteDepthBias.value).toBe(silhouetteMeshDepthBiasWorld(1));
+
+    setSilhouetteOutlineZoom([mat], 2.5);
+    expect(shader.uniforms.uSilhouetteDepthBias.value).toBe(silhouetteMeshDepthBiasWorld(2.5));
+    expect(
+      (mat.userData as Record<string, { value: number }>)[SILHOUETTE_DEPTH_BIAS_UNIFORM_KEY].value
+    ).toBe(silhouetteMeshDepthBiasWorld(2.5));
   });
 });

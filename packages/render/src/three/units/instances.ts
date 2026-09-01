@@ -298,8 +298,10 @@ import type { EntityFrame } from './frame-state';
 import { HULL_RENDER_ORDER, TURRET_RENDER_ORDER, SILHOUETTE_RENDER_ORDER } from './render-order';
 import { GROUND_CLIP_DEPTH_CLAMP_GLSL } from './ground-clip';
 import {
+  SILHOUETTE_BILLBOARD_DEPTH_BIAS_WORLD,
   SILHOUETTE_COLOR_KEY_BY_SIDE,
   SILHOUETTE_DEPTH_BIAS_GLSL,
+  SILHOUETTE_DEPTH_BIAS_UNIFORM_GLSL,
   SILHOUETTE_MATERIAL_FLAGS,
   SILHOUETTE_OUTLINE_PX,
   markSilhouetteOccludee,
@@ -786,11 +788,20 @@ function createUnitSilhouetteMaterial(
       // is somehow never updated still draws a sane outline rather than a
       // zero-width (invisible) one.
       uOutlineUv: { value: billboardOutlineUv(quadPx, 1) },
+      // NOT retuned with `uOutlineUv`, and that is the measured answer
+      // rather than an oversight: this path's silhouette shares the body's
+      // own ground-clipped QUAD, whose sunk band is fixed in world units,
+      // where the mesh path's ring is fixed in pixels. See
+      // `silhouette.ts`'s top comment, "The two paths need DIFFERENT
+      // biases". A uniform rather than a literal only so the two shaders
+      // share one GLSL fragment for the mechanism.
+      uSilhouetteDepthBias: { value: SILHOUETTE_BILLBOARD_DEPTH_BIAS_WORLD },
     },
     vertexShader: /* glsl */ `
       attribute float aLayer;
       attribute float aAlpha;
       attribute float aSide;
+      ${SILHOUETTE_DEPTH_BIAS_UNIFORM_GLSL}
       varying vec2 vUv;
       varying float vLayer;
       varying float vAlpha;
@@ -1033,6 +1044,9 @@ export class UnitInstancer {
     if (!this.silhouette) return;
     const material = this.silhouette.material as THREE.ShaderMaterial;
     material.uniforms.uOutlineUv.value = billboardOutlineUv(this.sheet.scale * TILE_W, zoom);
+    // `uSilhouetteDepthBias` is deliberately NOT written here -- this
+    // path's bias is a world-space constant. See its own comment in
+    // `createUnitSilhouetteMaterial` above.
   }
 
   /** The mutable buffers `writeUnitInstances`/`writeTurretInstances` write

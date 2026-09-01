@@ -119,15 +119,8 @@
  * nearer than the unit and would satisfy `GreaterDepth` on its own. Without
  * a bias every unit standing in the open wears a ring.
  *
- * (For the fill, the same bias was sized against a different artefact --
- * the ground-clipped lower half of a BILLBOARD quad, which `ground-clip.ts`
- * clamps to the ground's own depth and which, before the footprint stamp
- * above, wrote no mask of its own. That case is now inside the footprint
- * and masked out for free; the ring around the feet replaced it, and wants
- * the same bias for the same reason.)
- *
- * `SILHOUETTE_DEPTH_BIAS_WORLD` pushes the silhouette's own depth toward the
- * camera by a fixed number of world units before the comparison, so only an
+ * `silhouetteDepthBiasWorld` pushes the silhouette's own depth toward the
+ * camera by that many world units before the comparison, so only an
  * occluder at least that far in FRONT counts. Applied in view space
  * (`mvPosition.z += bias`, then re-project) rather than through
  * `polygonOffset`, because `polygonOffset` is expressed in
@@ -135,6 +128,60 @@
  * 20000 world units away -- a value tuned on one driver would mean
  * something else on another. View space is metric: the bias is a distance
  * in tiles, and reads as one.
+ *
+ * ### The two paths need DIFFERENT biases, and that is not a fudge
+ *
+ * The bias should be exactly as large as the artefact it suppresses, and
+ * the two paths have physically different artefacts. Measured, both of
+ * them, on `tel_marum` at all five zooms in `main.ts`'s 0.35..2.5 clamp.
+ *
+ * **The mesh path's artefact is the RING**, and the ring is the inverted
+ * hull's own expansion: `uOutlineWidth` of world geometry, and nothing
+ * else, is the only ground the outline can wrongly reach over. So the bias
+ * is a multiple of that width (`SILHOUETTE_MESH_DEPTH_BIAS_OUTLINE_WIDTHS`)
+ * and the two are retuned together per frame. A CONSTANT cannot be right at
+ * two zooms here: the outline is a fixed number of PIXELS, so in world
+ * units -- which is what a depth comparison sees -- it is 7x wider zoomed
+ * out than zoomed in.
+ *
+ * The multiple is 2, derived, plus a margin. For an orthographic camera at
+ * this pitch a ring fragment sitting `d` below its unit's ground-contact
+ * point projects onto ground that is `2d` NEARER (the view ray descends at
+ * `sin(EL)`, and `EL` is 30 degrees, so it travels `2d` to reach the ground
+ * plane); the deepest a ring fragment can sit is one outline width, when
+ * the smoothed normal at a boot's sole points straight down. Measured
+ * against an `inf_squad` and an `mbt_lavi` on open flat ground, the first
+ * false ring pixel appears just below `2 x width` at every one of the five
+ * zooms -- the derivation confirmed, rather than a coincidence to lean on.
+ * 2.5 is the smallest multiple tested that draws ZERO false pixels at all
+ * five, and it is carried rather than 2 because a posed limb's expansion is
+ * not exactly the sole's.
+ *
+ * **The billboard path's artefact is the ground-clipped QUAD**, and that is
+ * fixed in world units, not in pixels: the silhouette shares the body's own
+ * quad (the outline is a UV dilation, not an expanded hull), `ground-clip.ts`
+ * clamps its sunk lower band to the instance's ground-contact depth, and a
+ * sprite's world size does not change with zoom. Scaling THAT with the
+ * outline width is simply wrong, and it was measured wrong: at 2.5 widths a
+ * billboard rifleman on open flat ground grows 5-126 false pixels at his
+ * feet, where the constant below gives zero. So the billboard path keeps
+ * `SILHOUETTE_BILLBOARD_DEPTH_BIAS_WORLD`, sized for the quad it guards.
+ *
+ * Only the GLSL is shared between them, so the two cannot drift on the
+ * MECHANISM while differing, correctly, on the number.
+ *
+ * ### What the mesh path's old constant cost
+ *
+ * The mesh path used the billboard's 0.75 until the boulder field on
+ * `tel_marum` was walked -- it had simply never been resized for the
+ * geometry it actually guards. 0.75 is 5.4x the ring it guards at zoom 1,
+ * and it silently swallowed every occluder nearer than three quarters of a
+ * tile: less than the 0.612 of depth a single-axis neighbouring tile is
+ * worth, so a BOULDER SHARING A UNIT'S OWN TILE hid 77% of an `inf_squad`
+ * and drew no outline at all. That is worse than the building case the
+ * feature exists for, because the player has no cue that anything is there.
+ * Across `tel_marum`'s 1550 open tiles, ten hid 25-73% of a rifleman and
+ * outlined none of it; every one of the ten was in the boulder field.
  *
  * ## What this deliberately does NOT do
  *
@@ -244,26 +291,69 @@ export const SILHOUETTE_EXPAND_ATTRIBUTE = 'aExpand';
 export const SILHOUETTE_OUTLINE_UNIFORM_KEY = 'rl_silhouette_outline_width';
 
 /**
- * How far toward the camera, in world units (one unit is one tile), a
- * silhouette's own depth is pushed before the `GreaterDepth` comparison --
- * see this file's top comment, "The depth bias, and the second artefact".
- *
- * Sized from the one thing the stencil cannot cover: the ground-clipped
- * lower half of a BILLBOARD unit's quad. `ground-clip.ts` clamps a sunk
- * vertex to the depth of the instance's own ground-contact point, and the
- * terrain drawn in FRONT of that point is nearer still, by at most the
- * quad's own half-height projected along `VIEW_DIRECTION` -- for the
- * tallest shipped sheet (TNK_HULL, `half` ~ 63 screen px, about a third of
- * a tile) that is well under one world unit. 0.75 clears it with margin
- * while staying small enough that a unit standing directly behind a
- * building's near wall still silhouettes.
+ * How many OUTLINE WIDTHS toward the camera a MESH silhouette's own depth is
+ * pushed before the `GreaterDepth` comparison -- see this file's top
+ * comment, "The two paths need DIFFERENT biases", for the derivation (2)
+ * and the measurement that sets the margin (2.5).
  *
  * The cost, stated plainly rather than hidden: a unit whose occluder is
- * less than this far in front of it gets no silhouette. That is also the
- * case where almost none of it is hidden, so the cue it loses is the one
- * the player needs least.
+ * less than `silhouetteMeshDepthBiasWorld(zoom)` in front of it gets no
+ * silhouette. At zoom 1 that is 0.138 world units -- about an eighth of a
+ * tile, and less than a quarter of the 0.612 a single-axis neighbouring
+ * tile is worth -- so what it now discards is genuinely the ground under
+ * the unit's own feet, and no longer a boulder sharing its tile.
  */
-export const SILHOUETTE_DEPTH_BIAS_WORLD = 0.75;
+export const SILHOUETTE_MESH_DEPTH_BIAS_OUTLINE_WIDTHS = 2.5;
+
+/**
+ * The BILLBOARD path's depth bias, in world units (one unit is one tile) --
+ * a constant, because the artefact it guards is one. See this file's top
+ * comment for why the two paths differ and what happens if this one is made
+ * proportional instead.
+ *
+ * Sized from the ground-clipped lower half of a billboard unit's quad.
+ * `ground-clip.ts` clamps a sunk vertex to the depth of the instance's own
+ * ground-contact point, and the terrain drawn in FRONT of that point is
+ * nearer still, by at most the quad's own half-height projected along
+ * `VIEW_DIRECTION` -- for the tallest shipped sheet (TNK_HULL, `half` ~ 63
+ * screen px, about a third of a tile) that is well under one world unit.
+ *
+ * **It is not quite enough for a tank, and that is a known, PRE-EXISTING
+ * defect of this path, not a consequence of the mesh split.** Measured on
+ * `tel_marum` with `&nomesh`: an `mbt_lavi` standing on open flat ground
+ * draws 75-432 false silhouette pixels along its own hull base at this
+ * value, at every zoom -- photographed, and reproduced by forcing this
+ * exact number. A billboard rifleman draws zero. Raising it far enough to
+ * clear the tank (about 1.1 world units at zoom 1) would start swallowing
+ * genuine occluders a tile and a half away, so it is left as it is and
+ * recorded rather than traded blind. `&nomesh` is the escape hatch, not the
+ * default, and it draws no decor at all -- so the boulder case that
+ * motivated the mesh split cannot arise on this path.
+ */
+export const SILHOUETTE_BILLBOARD_DEPTH_BIAS_WORLD = 0.75;
+
+/**
+ * `Material.userData` key holding a silhouette material's live depth-bias
+ * uniform object -- the twin of `SILHOUETTE_OUTLINE_UNIFORM_KEY`, and for
+ * the same reason: a `MeshBasicMaterial` has no `.uniforms` of its own for
+ * `setSilhouetteOutlineZoom` to reach through.
+ */
+export const SILHOUETTE_DEPTH_BIAS_UNIFORM_KEY = 'rl_silhouette_depth_bias';
+
+/**
+ * The MESH path's depth bias in WORLD units (one unit is one tile) at
+ * `zoom` -- what a mesh silhouette's `uSilhouetteDepthBias` is set to, once
+ * per frame. The billboard path uses the constant above and never retunes.
+ *
+ * Expressed through `silhouetteOutlineWorldWidth` rather than as its own
+ * arithmetic so the two cannot drift: changing the outline's thickness
+ * changes the ring the bias exists to suppress, and a bias left behind
+ * would either re-grow the ring or start swallowing real occluders. That
+ * coupling is the whole content of this function.
+ */
+export function silhouetteMeshDepthBiasWorld(zoom: number): number {
+  return silhouetteOutlineWorldWidth(zoom) * SILHOUETTE_MESH_DEPTH_BIAS_OUTLINE_WIDTHS;
+}
 
 /**
  * The stencil value a unit body writes where it WINS the depth test, and
@@ -333,9 +423,18 @@ export function silhouetteFallbackHex(side: number): string {
  *
  * `+=` moves toward the camera: this renderer's view space looks down -Z, so
  * a larger `z` is nearer.
+ *
+ * A UNIFORM rather than a baked literal, because the bias tracks the
+ * outline's world width and that changes with zoom every frame
+ * (`silhouetteDepthBiasWorld`). `SILHOUETTE_DEPTH_BIAS_UNIFORM_GLSL`
+ * declares it; both call sites must emit that too, which is why the two
+ * fragments live together here rather than one being left to each shader.
  */
+export const SILHOUETTE_DEPTH_BIAS_UNIFORM_GLSL = /* glsl */ `uniform float uSilhouetteDepthBias;
+`;
+
 export const SILHOUETTE_DEPTH_BIAS_GLSL = /* glsl */ `
-        mvPosition.z += ${SILHOUETTE_DEPTH_BIAS_WORLD.toFixed(4)};
+        mvPosition.z += uSilhouetteDepthBias;
         gl_Position = projectionMatrix * mvPosition;
 `;
 
@@ -476,15 +575,19 @@ export function createMeshSilhouetteMaterial(color: string): THREE.MeshBasicMate
   // so the shared object has to be captured before `onBeforeCompile` runs
   // and parked somewhere reachable, which is what `userData` is for.
   const outlineWidth = { value: silhouetteOutlineObjectWidth(1) };
+  const depthBias = { value: silhouetteMeshDepthBiasWorld(1) };
   (material.userData as Record<string, unknown>)[SILHOUETTE_OUTLINE_UNIFORM_KEY] = outlineWidth;
+  (material.userData as Record<string, unknown>)[SILHOUETTE_DEPTH_BIAS_UNIFORM_KEY] = depthBias;
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uOutlineWidth = outlineWidth;
+    shader.uniforms.uSilhouetteDepthBias = depthBias;
     // three.js's own generated prefix defines `attribute` as `in` under
     // GLSL ES 3.00, so this one declaration is correct on both targets --
     // the same reason `instances.ts` declares `aLayer`/`aAlpha`/`aSide`
     // plainly in its hand-written `ShaderMaterial`.
     shader.vertexShader =
       `attribute vec3 ${SILHOUETTE_EXPAND_ATTRIBUTE};\nuniform float uOutlineWidth;\n` +
+      SILHOUETTE_DEPTH_BIAS_UNIFORM_GLSL +
       shader.vertexShader
         .replace(
           '#include <begin_vertex>',
@@ -497,16 +600,25 @@ export function createMeshSilhouetteMaterial(color: string): THREE.MeshBasicMate
   // These three all patch identically, so one key is correct -- but it must
   // differ from an UNPATCHED MeshBasicMaterial's, or three.js would hand a
   // silhouette the unbiased program compiled for some other basic material.
-  material.customProgramCacheKey = () => `rl-silhouette-outline-${SILHOUETTE_DEPTH_BIAS_WORLD}`;
+  // A constant, not a value: the bias is a uniform now, so every silhouette
+  // material compiles the same program whatever the camera is doing.
+  material.customProgramCacheKey = () => 'rl-silhouette-outline';
   return material;
 }
 
 /**
- * Retunes every mesh silhouette material's outline width for the camera's
- * current zoom -- one `.value` write per material, three materials for the
- * whole scene, called once per frame from `ThreeRenderer.frame`.
+ * Retunes every mesh silhouette material's outline width AND its depth bias
+ * for the camera's current zoom -- two `.value` writes per material, three
+ * materials for the whole scene, called once per frame from
+ * `ThreeRenderer.frame`.
  *
- * Deliberately a write on the SHARED uniform object rather than anything
+ * Both, in one call, deliberately: the bias is a multiple of the width (see
+ * this file's top comment), so a caller able to update one without the
+ * other is a caller able to re-open the ring artefact or start swallowing
+ * occluders. `instances.ts`'s `setOutlineZoom` is the billboard path's
+ * counterpart and updates the same pair.
+ *
+ * Deliberately a write on the SHARED uniform objects rather than anything
  * per-unit: the outline's thickness is a property of the camera, not of the
  * unit, and a silhouette still costs zero per-frame CPU per entity.
  */
@@ -515,11 +627,13 @@ export function setSilhouetteOutlineZoom(
   zoom: number
 ): void {
   const width = silhouetteOutlineObjectWidth(zoom);
+  const bias = silhouetteMeshDepthBiasWorld(zoom);
   for (const material of materials) {
-    const uniform = (material.userData as Record<string, unknown>)[
-      SILHOUETTE_OUTLINE_UNIFORM_KEY
-    ] as { value: number } | undefined;
-    if (uniform) uniform.value = width;
+    const data = material.userData as Record<string, unknown>;
+    const widthUniform = data[SILHOUETTE_OUTLINE_UNIFORM_KEY] as { value: number } | undefined;
+    if (widthUniform) widthUniform.value = width;
+    const biasUniform = data[SILHOUETTE_DEPTH_BIAS_UNIFORM_KEY] as { value: number } | undefined;
+    if (biasUniform) biasUniform.value = bias;
   }
 }
 

@@ -666,12 +666,35 @@ load is worth doing before release. Pipeline: `tools/units/kit.py` (geometry)
   Picking mid-slope was separately measured working in both backends. E3's cut scope
   is the only part of that original list still standing, and slope cost has since
   shipped (T1-A).
-  **One real defect came out of that walk, and it is new.** A unit standing in Tel
-  Marum's boulder field is 48–79% hidden by the boulder decor and gets **no
-  silhouette at all** — so infantry can take cover in boulders and become genuinely
-  invisible, which is worse than the building case the feature was built for. The
-  cause is `SILHOUETTE_DEPTH_BIAS_WORLD`, not draw order; the draw-order hypothesis
-  was tested and falsified explicitly. Unfixed.
+  **One real defect came out of that walk. It is fixed, and the fix is worth
+  knowing about because it could not be one number.** A unit standing in Tel Marum's
+  boulder field was 48–79% hidden by the boulder decor and got no silhouette at all
+  — infantry taking cover in boulders became genuinely invisible, which is worse
+  than the building case the feature was built for. The cause was the depth bias,
+  as reported (draw order was tested and falsified). The bias, a constant 0.75
+  world units, had been sized for the FILL era's billboard artefact and never
+  resized: it is larger than the **0.612** of depth a single-axis neighbouring tile
+  is worth, so it swallowed every occluder nearer than about a tile and a quarter —
+  a boulder sharing a unit's own tile included. Across `tel_marum`'s 1550 open
+  tiles, **ten** hid 25–73% of a rifleman and outlined none of it; all ten were in
+  the boulder field.
+  **The two silhouette paths now carry different biases, deliberately.** The MESH
+  path's artefact is the outline ring, whose size is the outline's own width — a
+  fixed number of SCREEN pixels, so 7x wider in world units at zoom 0.35 than at
+  2.5. Its bias is therefore `2.5 x silhouetteOutlineWorldWidth(zoom)`, retuned per
+  frame; the multiple is 2 by derivation (this camera's 30-degree pitch means a ring
+  fragment `d` below the feet sits over ground `2d` nearer) plus a measured margin.
+  The BILLBOARD path's artefact is the ground-clipped QUAD, fixed in world units
+  because a sprite's world size does not change with zoom, so it keeps the 0.75
+  constant — applying the mesh number there was measured to grow 5–126 false pixels
+  at a rifleman's feet. Only the GLSL is shared. Nothing is lost by the split:
+  **`&nomesh` draws no decor at all**, so the boulder case cannot arise on it.
+  One pre-existing defect was found while proving that and is NOT fixed: on
+  `&nomesh` at the shipped 0.75, a billboard `mbt_lavi` on open flat ground already
+  draws 75–432 false silhouette pixels along its hull base, at every zoom.
+  Photographed. Clearing it needs ~1.1 world units, which would swallow real
+  occluders a tile and a half out — a worse trade, so it is recorded rather than
+  traded blind. See `.superpowers/queue/boulder-silhouette-report.md`.
 - Tel Marum's narrow saddle is **closed to armour and still the cheaper road on foot**, and
   what priced the armour half was terrain rather than fire. The corridor at x=10-11, y=12-17 is a boulder field (`b`) now, with a
   small scree apron on the valley floor at its mouth (x=9-12, y=18): open ground on foot, a
