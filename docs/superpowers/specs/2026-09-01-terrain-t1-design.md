@@ -196,7 +196,7 @@ Built on **`THREE.BatchedMesh`** (present in three r170, already a dependency).
 point: draw-call submission is this project's measured bottleneck, with the GPU
 otherwise idle.
 
-### Placement: derived, with authored overrides
+### Placement: derived (authored overrides deferred to #138)
 
 Placement is a **pure function** of the tile, so it is testable without a
 renderer and identical on every machine:
@@ -301,7 +301,7 @@ hill does not read them as regressions from this milestone.
   allocates no second field.
 - **C:** `decorFor` is pure, so it is unit-tested directly — same symbol and
   seed gives the same placement, and different tiles give different variants.
-  Overrides beat the derived rule. Rendering itself is not unit-tested, per
+  (Override precedence: deferred with #138.) Rendering itself is not unit-tested, per
   the repo convention that combat maths requires tests and rendering does not.
 
 ## Order of work

@@ -551,115 +551,25 @@ Expected: FAIL — module not found.
 
 - [ ] **Step 3: Implement**
 
-```ts
-// packages/render/src/three/terrain/decor-mesh.ts
-/**
- * Scattered decor as batched geometry.
- *
- * ONE BatchedMesh PER ROLE, not per family. Every family's `rock` parts share
- * one ramp and therefore one material, so a rock cluster, a boulder and a slab
- * all land in the same batch -- which is the whole point: draw-call submission
- * is this project's measured bottleneck, with the GPU otherwise idle. Six
- * families across four roles is four draws, not eighteen.
- */
-import * as THREE from 'three';
-import { toonRampMaterial } from '../palette-material';
-import { rampForDecorRole } from './decor-role';
-import type { DecorPlacement } from './decor-place';
+**The code that shipped is NOT the code this plan originally contained, and the
+original had two defects. Read `packages/render/src/three/terrain/decor-mesh.ts`
+rather than re-running the block that used to live here.**
 
-export interface DecorGeometrySet {
-  readonly parts: ReadonlyMap<string, readonly { role: string; geometry: THREE.BufferGeometry }[]>;
-}
+What changed, and why re-introducing either would be a regression:
 
-const TAU = Math.PI * 2;
+- **`geomId` was keyed by `${family}_${variant}` alone**, inside the per-role loop. A
+  family holding two parts of the SAME role -- a rock cluster built from several rock
+  sub-meshes -- had the second `addGeometry` overwrite the first's id. The geometry was
+  still counted in the batch budget, so it was uploaded to the GPU and never drawn,
+  silently. The shipped code gives every part its own id and adds an instance per part.
+- **`maxInstances = live.length * 4`** was an underived magic number. Once one placement
+  can contribute several instances the bound genuinely changes -- and `BatchedMesh` is
+  allocated up front and cannot grow. Fixing the collision alone made the batch throw
+  `BatchedMesh: Maximum item count reached` (8 slots for 10 instances); that crash is the
+  evidence. The shipped code derives the bound from the maximum same-role part count.
 
-export function buildDecorMesh(
-  placements: readonly DecorPlacement[],
-  set: DecorGeometrySet
-): THREE.Group {
-  const group = new THREE.Group();
-  group.name = 'decor';
-
-  // Pass 1: which parts are actually referenced, and how big each role's
-  // batch must be. BatchedMesh is sized up front and cannot grow.
-  const used = new Map<string, { role: string; geometry: THREE.BufferGeometry }[]>();
-  const live: DecorPlacement[] = [];
-  for (const p of placements) {
-    const key = `${p.family}_${p.variant}`;
-    const parts = set.parts.get(key);
-    // A family whose GLB failed to fetch loses its objects. Losing a bush is
-    // acceptable; throwing here would lose the whole frame.
-    if (!parts) continue;
-    used.set(key, [...parts]);
-    live.push(p);
-  }
-  if (live.length === 0) return group;
-
-  const byRole = new Map<string, { verts: number; idx: number; parts: Set<string> }>();
-  for (const [key, parts] of used) {
-    for (const part of parts) {
-      const acc = byRole.get(part.role) ?? { verts: 0, idx: 0, parts: new Set<string>() };
-      const pos = part.geometry.getAttribute('position');
-      acc.verts += pos.count;
-      acc.idx += part.geometry.getIndex()?.count ?? pos.count;
-      acc.parts.add(key);
-      byRole.set(part.role, acc);
-    }
-  }
-
-  // Pass 2: one batch per role. Instance count is bounded by (placements x
-  // parts-per-placement), so size it from the worst case.
-  const maxInstances = live.length * 4;
-  for (const [role, acc] of byRole) {
-    const mesh = new THREE.BatchedMesh(
-      maxInstances,
-      acc.verts,
-      acc.idx,
-      toonRampMaterial(rampForDecorRole(role))
-    );
-    // geometryId per "${family}_${variant}::role", so one addGeometry per
-    // distinct part rather than one per placement.
-    const geomId = new Map<string, number>();
-    for (const key of acc.parts) {
-      for (const part of used.get(key) ?? []) {
-        if (part.role !== role) continue;
-        geomId.set(key, mesh.addGeometry(part.geometry));
-      }
-    }
-    const m = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-    const axis = new THREE.Vector3(0, 1, 0);
-    const scale = new THREE.Vector3();
-    let added = 0;
-    for (const p of live) {
-      const id = geomId.get(`${p.family}_${p.variant}`);
-      if (id === undefined) continue;
-      const inst = mesh.addInstance(id);
-      q.setFromAxisAngle(axis, p.yawTurns * TAU);
-      scale.set(p.scale, p.scale, p.scale);
-      m.compose(new THREE.Vector3(p.x, p.y, p.z), q, scale);
-      mesh.setMatrixAt(inst, m);
-      added++;
-    }
-    if (added === 0) {
-      mesh.material.dispose();
-      mesh.dispose();
-      continue;
-    }
-    group.add(mesh);
-  }
-  return group;
-}
-
-export function disposeDecorMesh(group: THREE.Group): void {
-  for (const child of [...group.children]) {
-    const mesh = child as THREE.BatchedMesh;
-    (mesh.material as THREE.Material).dispose();
-    mesh.dispose();
-    group.remove(child);
-  }
-}
-```
+Everything else -- one batch per ROLE not per family, the two-pass shape, a missing
+geometry skipped rather than thrown -- is as designed and as described above.
 
 - [ ] **Step 4: Run it and watch it pass**
 
@@ -682,7 +592,7 @@ git commit -m "feat(decor): one BatchedMesh per decor role"
 - Modify: `packages/app/src/main.ts`
 
 **Interfaces:**
-- Consumes: Tasks 2, 3, 5.
+- Consumes: Tasks 2 and 5. (Task 3 is deferred -- see #138; there is no override path.)
 - Produces: `ThreeRenderer.loadDecorMeshes(urls: ReadonlyMap<string, string>): Promise<void>`, and a decor group rebuilt inside `rebuildTerrain`.
 
 - [ ] **Step 1: Load the assets in `main.ts`**
