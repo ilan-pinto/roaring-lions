@@ -634,7 +634,11 @@ describe('buildDecorMesh', () => {
     // The whole reason this is BatchedMesh and not six instancers: draw-call
     // submission is the measured bottleneck on this project.
     const g = buildDecorMesh(P(50), SET);
-    const batches = g.children.filter((c) => (c as THREE.Object3D).type === 'BatchedMesh');
+    // `isBatchedMesh`, NOT `.type` — three.js r170 leaves BatchedMesh's `type`
+    // as the inherited "Mesh", so a `.type === 'BatchedMesh'` filter finds
+    // nothing and fails against a CORRECT implementation. Verified against the
+    // installed build, not assumed.
+    const batches = g.children.filter((c) => (c as THREE.BatchedMesh).isBatchedMesh === true);
     expect(batches.length).toBe(1);
   });
 
