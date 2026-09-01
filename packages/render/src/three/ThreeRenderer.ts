@@ -184,6 +184,7 @@ import {
   type MeshUnitEntity,
 } from './units/mesh-unit';
 import { applyMeshClip } from './units/mesh-clip';
+import { pickMeshVariant } from './units/mesh-variant';
 import { meshYawFromFacing, MESH_UNITS_PER_TILE, MESH_SCALE } from './units/mesh-anim';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { stepTurretFacing } from './units/frame-state';
@@ -884,14 +885,22 @@ export class ThreeRenderer implements Renderer {
   private readonly turretInstancers = new Map<string, UnitInstancer>();
 
   /**
-   * Mesh units (task: "the runtime that draws mesh units"). One
-   * `MeshUnitTemplate` per unit type `loadMeshUnit` was called with -- empty
+   * Mesh units (task: "the runtime that draws mesh units"). The
+   * `MeshUnitTemplate`s per unit type `loadMeshUnit` was called with -- empty
    * until something calls it, which nothing does yet (the flag: additive,
    * off by construction). A type present here is drawn through
    * `updateMeshUnits` INSTEAD of a billboard, never both -- see the
    * `meshUnitTemplates.has(type.id)` guard in `updateUnits`.
+   *
+   * A LIST per type rather than one template, since GH-149: `civilians` is a
+   * single unit type supplied as four different figures, and each living
+   * entity picks one by `units/mesh-variant.ts`. Every other type loads a
+   * one-element list and behaves exactly as before. The list is never empty
+   * for a key that exists -- `loadMeshUnit` rejects an empty URL list -- so
+   * `[0]` is always a template, which is what the single-asset readers here
+   * (the `fire` latch) rely on.
    */
-  private readonly meshUnitTemplates = new Map<string, MeshUnitTemplate>();
+  private readonly meshUnitTemplates = new Map<string, readonly MeshUnitTemplate[]>();
   /** One `MeshUnitEntity` per living entity of a mesh-enabled type, keyed by
    *  entity id -- pooled across frames. Once `Sim` reports the entity no
    *  longer alive, its id is deleted from this map in the SAME step that
@@ -1494,7 +1503,9 @@ export class ThreeRenderer implements Renderer {
     // themselves are disposed once, below, by `disposeMeshUnitTemplate`.
     for (const w of this.meshWrecks) this.scene.remove(w.root);
     this.meshWrecks.length = 0;
-    for (const template of this.meshUnitTemplates.values()) disposeMeshUnitTemplate(template);
+    for (const variants of this.meshUnitTemplates.values()) {
+      for (const template of variants) disposeMeshUnitTemplate(template);
+    }
     this.meshUnitTemplates.clear();
     // Vehicle meshes: entities first, then templates -- the identical
     // "clones share the template's geometry/material by reference" ordering
@@ -2304,8 +2315,16 @@ export class ThreeRenderer implements Renderer {
    * why it is a second timer rather than a second read of this one.
    */
   private fireLatchSeconds(unitTypeId: string): number | null {
+    // Variant 0 stands for the whole type. The latch is a per-TYPE duration
+    // (`firingTimer` is keyed by entity but sized once, here, from the type),
+    // and the only multi-variant type is `civilians`, whose four figures
+    // authored no `fire` clip at all and never will -- so `[0]` is either the
+    // one template a type has, or one of four that agree on having no `fire`.
+    // A future multi-variant COMBAT type whose variants disagreed on clip
+    // length would need this to become a per-entity read; it would also need
+    // a reason to disagree, which is why this is a comment and not machinery.
     const meshFire =
-      this.meshUnitTemplates.get(unitTypeId)?.clips.get('fire') ??
+      this.meshUnitTemplates.get(unitTypeId)?.[0]?.clips.get('fire') ??
       this.vehicleMeshTemplates.get(unitTypeId)?.clips.get('fire');
     // A zero-length clip is degenerate art, not a request for a zero latch
     // (which would mean "never firing"): treat it like an absent one and
@@ -2820,8 +2839,9 @@ export class ThreeRenderer implements Renderer {
 
   /**
    * The mesh-unit flag itself: loads `glbUrl` (`art/meshes/<team_id>.glb`
-   * per `mesh-unit-contract.md`), builds a `MeshUnitTemplate`
-   * (`units/mesh-unit.ts`), and files it under `unitTypeId`. Additive --
+   * per `mesh-unit-contract.md`) -- or SEVERAL, one per variant of the same
+   * unit type -- builds a `MeshUnitTemplate` each
+   * (`units/mesh-unit.ts`), and files them under `unitTypeId`. Additive --
    * nothing calls this today, so unless and until something does, every
    * existing billboard type keeps drawing exactly as before (see
    * `updateUnits`'s own `meshUnitTemplates.has(type.id)` guard).
@@ -2842,10 +2862,22 @@ export class ThreeRenderer implements Renderer {
    */
   async loadMeshUnit(
     unitTypeId: string,
-    glbUrl: string,
+    glbUrl: string | readonly string[],
     faction: MeshFaction
   ): Promise<void> {
-    const template = await loadMeshUnitTemplate(glbUrl, faction);
+    // One URL or several. Several means VARIANTS of one unit type -- see
+    // `units/mesh-variant.ts` for which entity draws which, and why. Loaded
+    // in parallel and in order, so variant `n` is always the `n`th URL the
+    // caller listed however the fetches interleave: which figure an entity id
+    // maps to is then a property of the call site, readable there, rather
+    // than of network timing.
+    const urls = typeof glbUrl === 'string' ? [glbUrl] : glbUrl;
+    if (urls.length === 0) {
+      throw new Error(`loadMeshUnit: no GLB urls given for "${unitTypeId}"`);
+    }
+    const templates = await Promise.all(
+      urls.map((url) => loadMeshUnitTemplate(url, faction))
+    );
 
     const previous = this.meshUnitTemplates.get(unitTypeId);
     if (previous) {
@@ -2855,15 +2887,15 @@ export class ThreeRenderer implements Renderer {
         disposeMeshUnitEntity(entity);
         this.meshUnitEntities.delete(id);
       }
-      disposeMeshUnitTemplate(previous);
+      for (const template of previous) disposeMeshUnitTemplate(template);
     }
-    this.meshUnitTemplates.set(unitTypeId, template);
-    // Muzzle-flash ramp shift: every material this template's meshes draw
+    this.meshUnitTemplates.set(unitTypeId, templates);
+    // Muzzle-flash ramp shift: every material these templates' meshes draw
     // through gets pointed at the shared flash-uniform arrays -- see
     // `flashLights`'s own field doc comment. Clones share these materials BY
     // REFERENCE (this file's own doc comment on `MeshUnitTemplate`), so one
     // registration per template covers every living/future clone of it.
-    for (const material of template.materials) {
+    for (const material of templates.flatMap((t) => t.materials)) {
       this.flashLights.register(material as THREE.ShaderMaterial);
     }
   }
@@ -3567,8 +3599,14 @@ export class ThreeRenderer implements Renderer {
     for (let i = 0; i < n; i++) {
       if (st.alive[i] === 0) continue;
       const type = this.sim.unitTypes[st.typeIdx[i]];
-      const template = this.meshUnitTemplates.get(type.id);
-      if (!template) continue;
+      const variants = this.meshUnitTemplates.get(type.id);
+      if (!variants) continue;
+      // One variant for almost every type; four for `civilians` (GH-149).
+      // `pickMeshVariant` is a pure function of the entity id, so this
+      // resolves to the same figure every frame of that entity's life and
+      // costs a modulo -- see `units/mesh-variant.ts` for why the id and not
+      // a hash or a draw at instantiation.
+      const template = pickMeshVariant(variants, i);
 
       let entity = this.meshUnitEntities.get(i);
       if (!entity) {

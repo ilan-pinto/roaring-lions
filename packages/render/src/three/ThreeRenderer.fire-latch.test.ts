@@ -135,7 +135,10 @@ function spriteFireSeconds(sheet: SheetSpec): number {
 interface ThreeRendererPrivates {
   firingTimer: Float64Array;
   unitInstancers: Map<string, UnitInstancer>;
-  meshUnitTemplates: Map<string, MeshUnitTemplate>;
+  // A LIST per type since GH-149 -- `civilians` ships four figures for one
+  // unit type (`units/mesh-variant.ts`). This file loads one; the shape is
+  // the field's, not this test's choice.
+  meshUnitTemplates: Map<string, readonly MeshUnitTemplate[]>;
   meshUnitEntities: Map<number, MeshUnitEntity>;
   vehicleMeshTemplates: Map<string, VehicleMeshTemplate>;
   drainTimers(dtSeconds: number): void;
@@ -213,7 +216,7 @@ async function setUp(opts: SetUpOpts = {}) {
     clipName: opts.meshClips ?? ['idle', 'fire'],
     ...(opts.meshClipSeconds !== undefined ? { clipSeconds: opts.meshClipSeconds } : {}),
   });
-  priv.meshUnitTemplates.set(MESH_INF.id, buildMeshUnitTemplate(gltf, 'kdf'));
+  priv.meshUnitTemplates.set(MESH_INF.id, [buildMeshUnitTemplate(gltf, 'kdf')]);
 
   let vehicleId = -1;
   if (opts.withVehicle) {

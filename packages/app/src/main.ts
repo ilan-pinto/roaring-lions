@@ -724,6 +724,40 @@ async function main(): Promise<void> {
         'kdf'
       );
 
+      // Civilians (GH-149). Four Meshy-generated (AI, disclosed) rigged
+      // bipeds for ONE unit type -- `data/units/civilians.json` is a single
+      // type, so these are VARIANTS rather than four types, and
+      // `units/mesh-variant.ts` decides which entity draws as which. Four
+      // figures rather than one because a mission fields eleven civilians
+      // (`beit_sahwan_breach`) and eleven copies of one person reads as a
+      // repeating texture, not a village.
+      //
+      // `civilians` was in NO mesh list AND in no `SPRITE_MAP` entry before
+      // this, which on `three` means it drew literally nothing:
+      // `updateUnits`' own `if (!instancer) continue` skips a type with no
+      // loaded sheet, so eleven civilians walking to the refuge were eleven
+      // invisible entities that the ROE system still scored the player on.
+      //
+      // The faction is `civilian`, a third side added for these
+      // (`mesh-role.ts`'s own `MeshFaction`), and it is the load-bearing part
+      // of this call: `rampForRole` requires a faction, and both of the two
+      // that existed are actively wrong here. Through `kdf` a civilian wears
+      // rifle-squad olive and reads as friendly infantry; through `enemy` it
+      // wears militia tan and reads as a target, which is precisely the
+      // mistake `roe.civilian_casualty_penalty` deducts for.
+      //
+      // The order of this list IS the variant order -- entity id `n` draws
+      // variant `n % 4` -- so it is readable here rather than being a
+      // property of whichever fetch finished first.
+      await three.loadMeshUnit(
+        'civilians',
+        ['civilian_woman', 'office_worker', 'farm_worker', 'civilian_child'].map(
+          (figure) =>
+            new URL(`../../../art/meshes/civilians/${figure}.glb`, import.meta.url).href
+        ),
+        'civilian'
+      );
+
       // Vehicle meshes (mesh-unit-contract v2): `art/meshes/vehicles/<id>.glb`,
       // no faction parameter -- unlike infantry, a vehicle GLB is
       // faction-specific by construction, so `three.loadVehicleMesh` takes

@@ -26,12 +26,13 @@ describe('readRamp', () => {
 });
 
 describe('isMeshRole / rampForRole', () => {
-  it('accepts every role in the closed vocabulary, on BOTH sides', () => {
-    // Both factions, not just KDF: the whole reason this parameter exists is
+  it('accepts every role in the closed vocabulary, on EVERY side', () => {
+    // Every faction, not just KDF: the whole reason this parameter exists is
     // that five enemy teams shipped meshes while every role still resolved
     // through the KDF table. A per-faction gap in coverage is exactly the
-    // shape of that bug.
-    for (const faction of ['kdf', 'enemy'] as const) {
+    // shape of that bug, and adding `civilian` (GH-149) re-opened the same
+    // hole for a third row.
+    for (const faction of ['kdf', 'enemy', 'civilian'] as const) {
       for (const role of MESH_ROLES) {
         expect(isMeshRole(role)).toBe(true);
         expect(() => rampForRole(role, faction)).not.toThrow();
@@ -53,10 +54,36 @@ describe('isMeshRole / rampForRole', () => {
     expect(rampForRole('uniform', 'enemy').every((c) => dust.includes(c))).toBe(true);
   });
 
-  it('shades every OTHER role identically on both sides -- a rifle is a rifle', () => {
+  it('shades every OTHER role identically on every side -- a rifle is a rifle', () => {
     for (const role of MESH_ROLES) {
       if (role === 'uniform' || role === 'webbing') continue;
       expect(rampForRole(role, 'kdf')).toEqual(rampForRole(role, 'enemy'));
+      expect(rampForRole(role, 'kdf')).toEqual(rampForRole(role, 'civilian'));
+    }
+  });
+
+  // Break: set `civilian.uniform` to `readRamp('dust').slice(0, 5)` -- the
+  // enemy's own ramp, which is the near miss this test exists to catch (the
+  // candidate that lost to `water` was `limestone`, whose lit values sit
+  // beside dust's). Verified by hand: the first expect goes red.
+  //
+  // GH-149's hardest requirement is that a civilian must not read as a
+  // fighter, and colour is half of that read. It is not enough for the
+  // civilian ramp to be "some third thing" -- it must share no step with
+  // EITHER army's cloth, or the two populations overlap at some lighting
+  // angle, which at 25 px is where the player's shoot/hold decision is made.
+  it('shades civilians in a cloth ramp that shares no step with either army', () => {
+    const civilian = rampForRole('uniform', 'civilian');
+    expect(civilian.length).toBeGreaterThan(0);
+    for (const side of ['kdf', 'enemy'] as const) {
+      for (const step of rampForRole('uniform', side)) {
+        expect(civilian, `civilian cloth must not reuse ${side}'s ${step}`).not.toContain(step);
+      }
+      for (const step of rampForRole('webbing', side)) {
+        expect(civilian, `civilian cloth must not reuse ${side}'s webbing ${step}`).not.toContain(
+          step
+        );
+      }
     }
   });
 

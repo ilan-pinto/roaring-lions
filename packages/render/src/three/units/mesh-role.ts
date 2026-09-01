@@ -87,8 +87,19 @@ export type MeshRole = (typeof MESH_ROLES)[number];
  * the shape `tools/render_team.py` already uses, where `ROLE_PALETTE` is keyed
  * by faction and carries ONLY `uniform`/`webbing`, while `BODY_PALETTE` and
  * `SHARED_PALETTE` are faction-blind ("a rifle is a rifle on either side").
+ *
+ * `civilian` is a third SIDE, not a third army -- `data/units/civilians.json`
+ * declares `"faction": "civilian"` and the sim spawns them on side 2. It was
+ * added with GH-149's four figures, and it is not decoration: `rampForRole`
+ * REQUIRES a faction, so wiring a civilian mesh meant choosing one of the two
+ * that existed, and both answers were wrong in a way that costs the player
+ * points. Through `kdf` a civilian wears the same olive as a rifle squad and
+ * reads as friendly infantry; through `enemy` it wears militia tan and reads
+ * as something to shoot, which the ROE system then deducts for
+ * (`mission.ts`'s `civilian_casualty_penalty`). See `FACTION_RAMPS` for what
+ * the third row shades through and why that colour.
  */
-export type MeshFaction = 'kdf' | 'enemy';
+export type MeshFaction = 'kdf' | 'enemy' | 'civilian';
 
 /**
  * The two roles that differ by side, and they are INVERTED rather than tinted.
@@ -125,6 +136,38 @@ const FACTION_RAMPS: Record<MeshFaction, { uniform: readonly string[]; webbing: 
       // Olive gear over tan, the mirror of KDF's grey-over-olive.
       // `ROLE_PALETTE`'s enemy webbing base is `olive.1`.
       webbing: readRamp('olive').slice(1, 4),
+    },
+    civilian: {
+      // The `water` ramp: a soft blue-grey, and the only hue in
+      // `data/palette.json` that is neither of the two an army wears. The
+      // candidates were rendered side by side against an olive KDF figure and
+      // a dust militia one before this was chosen (task report, GH-149), and
+      // the near miss is the instructive one: `limestone`, the obvious
+      // "civilian sand-cloth" answer, came out a near twin of the enemy's own
+      // dust at gameplay value -- exactly the confusion this row exists to
+      // prevent. Blue is also what the sources themselves wear (a navy
+      // tunic, a pale blue shirt, blue jeans -- three of the four figures).
+      //
+      // Two steps rather than a slice of a longer ramp, because `water` only
+      // has two. That is fine for the same reason `skin_shadow` gets away
+      // with one: the toon shader INDEXES a ramp rather than multiplying by
+      // it, so a two-step ramp is a two-band figure, not a broken one.
+      //
+      // `water` is a terrain ramp by origin and is unused by terrain: only
+      // `tools/render_campaign_map.py` and `render_campaign_world.py` name it,
+      // both for the strategic map screen, and no in-mission terrain or map
+      // symbol draws water at all. Checked before choosing it.
+      uniform: readRamp('water'),
+      // No shipped civilian mesh carries a `webbing` role and none may --
+      // GH-149's "no webbing, no pouches, no weapon" is what keeps a
+      // non-combatant readable as one. `tools/civilian_roles.py`'s
+      // `FORBIDDEN_ROLES` states it, its own test asserts no figure's table
+      // names one, and `civilian-mesh-shipped.test.ts` asserts the shipped
+      // GLBs carry none. This entry exists only because the record demands
+      // every faction answer for both roles; it is the same cloth ramp as
+      // `uniform` so that a role which must never appear could not, if it
+      // somehow did, read as military kit.
+      webbing: readRamp('water'),
     },
   };
 

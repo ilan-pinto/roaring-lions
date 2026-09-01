@@ -90,7 +90,9 @@ const INF: UnitTypeJson = {
  *  `ThreeRenderer.test.ts` already gives for its own `fogMesh` reach. */
 interface ThreeRendererPrivates {
   scene: THREE.Scene;
-  meshUnitTemplates: Map<string, MeshUnitTemplate>;
+  // A LIST per type since GH-149 -- see the same field's doc comment on
+  // `ThreeRenderer`, and `units/mesh-variant.ts`.
+  meshUnitTemplates: Map<string, readonly MeshUnitTemplate[]>;
   meshUnitEntities: Map<number, MeshUnitEntity>;
   meshDying: DyingMeshUnit[];
   meshWrecks: MeshWreck[];
@@ -107,7 +109,7 @@ async function setUp(clips: string | string[]) {
 
   const gltf = await parseFixture({ roleName: 'uniform', clipName: clips });
   const template = buildMeshUnitTemplate(gltf, 'kdf');
-  priv.meshUnitTemplates.set(INF.id, template);
+  priv.meshUnitTemplates.set(INF.id, [template]);
 
   renderer.snapshot();
   renderer.snapshot();
