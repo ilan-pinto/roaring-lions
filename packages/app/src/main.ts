@@ -789,11 +789,14 @@ async function main(): Promise<void> {
         )
       );
 
-      // Decor: six families, three variants each. Unlike units and buildings
-      // these are keyed by `<family>_<variant>`, not by a unit type id --
-      // nothing in the sim has a "bush", which is the point: decor is
-      // presentation with no simulation counterpart at all.
-      const DECOR_FAMILY_IDS = ['grass', 'sand', 'bush', 'tree', 'rock', 'slab'] as const;
+      // Decor: seven families, three variants each. Unlike units and
+      // buildings these are keyed by `<family>_<variant>`, not by a unit type
+      // id -- nothing in the sim has a "bush", which is the point: decor is
+      // presentation with no simulation counterpart at all. `boulder` is the
+      // one exception: it draws `Sim.boulder` (the `b` map symbol, T1-B), a
+      // real mechanic, not mere scatter -- see `decor-place.ts`'s own doc
+      // comment on `DENSITY.boulder`.
+      const DECOR_FAMILY_IDS = ['grass', 'sand', 'bush', 'tree', 'rock', 'slab', 'boulder'] as const;
       const decorUrls = new Map<string, string>();
       for (const fam of DECOR_FAMILY_IDS) {
         for (let v = 0; v < 3; v++) {

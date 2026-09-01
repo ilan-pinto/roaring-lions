@@ -55,4 +55,14 @@ export interface TerrainInput {
   elevation: Uint8Array | null;
   blocked: Uint8Array;
   cover: Uint8Array;
+  /**
+   * Per tile, 1 = a boulder tile (`Sim.boulder`): open on foot, a wall to
+   * wheels and tracks. Optional, like `decor`/`elevation` -- most maps have
+   * none, and only `decorPlacements` (the `boulder` family) reads it; every
+   * other builder in this directory is indifferent to it, the same reason a
+   * ridge's `^` blocks without needing its own layer here. Absent or all-zero
+   * both mean "no boulders", so an existing fixture that omits this field
+   * keeps testing exactly what it tested before this field existed.
+   */
+  boulder?: Uint8Array | null;
 }

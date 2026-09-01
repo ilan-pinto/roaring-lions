@@ -1,37 +1,44 @@
-"""Export the six scattered-decor families -- grass, sand, bush, rock, slab,
-tree -- as the `packages/render/src/three/terrain/decor-role.ts` mesh
+"""Export the scattered-decor families -- grass, sand, bush, rock, slab, tree,
+boulder -- as the `packages/render/src/three/terrain/decor-role.ts` mesh
 contract: zero materials, zero images, every mesh node carrying
 `extras.rl_role` from exactly `{foliage, trunk, rock, sand}`.
 
     /Applications/Blender.app/Contents/MacOS/Blender --background \
         --factory-startup --python tools/terrain/export_meshy_decor.py
 
-Writes 18 GLBs to `art/meshes/decor/<family>_<variant>.glb`, variant 0..2,
-for `family` in `{grass, sand, bush, rock, slab, tree}` --
-`docs/superpowers/plans/2026-09-01-terrain-c-mesh-decor.md`, Task 4.
+    # Add --only <family>[,<family>...] to export a subset without touching
+    # every already-shipped GLB -- e.g. the boulder family alone:
+    #     ... --python tools/terrain/export_meshy_decor.py -- --only boulder
+
+Writes 21 GLBs to `art/meshes/decor/<family>_<variant>.glb`, variant 0..2, for
+`family` in `{grass, sand, bush, rock, slab, tree, boulder}` -- the first six
+from `docs/superpowers/plans/2026-09-01-terrain-c-mesh-decor.md` Task 4;
+`boulder` from the T1-C follow-up that draws the `b` map symbol (T1-B) as an
+actual obstacle instead of bare ground.
 
 SOURCES (all AI-generated, Meshy, disclosed per CONTRIBUTING.md), flat in
 
     /Users/ilpinto/dev/roaring-lions/art/blend/terrain object/
 
 except the pre-existing `olive tree/` subdirectory (`stone/` also pre-exists
-there but supplies nothing this task uses -- its `limestone_boulder_cluster`
-is the large vehicle-blocking boulder for a different, not-yet-symbol-bearing
-subsystem, the same reason this script does not touch the three
-`Meshy_AI_rock_boulder_varN` files sitting flat alongside the families below).
-`art/blend/` is gitignored and does not exist inside a worktree checkout, so
-SRC_DIR is an absolute path into the main repo's own untracked working
-directory, exactly as `tools/buildings/export_meshy_camp.py`'s own SRC_DIR is.
+there but supplies nothing this script uses -- its `limestone_boulder_cluster`
+is a large vehicle-blocking boulder for a DIFFERENT source; `boulder` below
+exports the three `Meshy_AI_rock_boulder_varN` files that sit flat alongside
+the other families instead). `art/blend/` is gitignored and does not exist
+inside a worktree checkout, so SRC_DIR is an absolute path into the main
+repo's own untracked working directory, exactly as `tools/buildings/
+export_meshy_camp.py`'s own SRC_DIR is.
 
 ## THE FAMILY MAP -- not derivable from filenames, so recorded once here
 
-    family  source prefix                              variants  role(s)
-    grass   Meshy_AI_foliage_grass_tuft_va               4 -> 3   foliage
-    sand    Meshy_AI_sand_gravel_patch_var                3      sand
-    bush    Meshy_AI_shrub_desert_varN (+ _spl_ company)  3      trunk + foliage
-    rock    Meshy_AI_rock_cluster_varN                    3      rock
-    slab    Meshy_AI_rock_outcrop_varN                    3      rock
-    tree    olive tree/ (2 sources)                       2 -> 3 trunk + foliage
+    family   source prefix                              variants  role(s)
+    grass    Meshy_AI_foliage_grass_tuft_va               4 -> 3   foliage
+    sand     Meshy_AI_sand_gravel_patch_var                3      sand
+    bush     Meshy_AI_shrub_desert_varN (+ _spl_ company)  3      trunk + foliage
+    rock     Meshy_AI_rock_cluster_varN                    3      rock
+    slab     Meshy_AI_rock_outcrop_varN                    3      rock
+    tree     olive tree/ (2 sources)                       2 -> 3 trunk + foliage
+    boulder  Meshy_AI_rock_boulder_varN                    3      rock
 
 Every one of the 15 grass/sand/rock/slab source files was opened and
 inspected: each is a single object named `mesh_node`, zero materials, zero
@@ -148,13 +155,14 @@ Per-family target sizes (in GLB build-units, ~metres at this convention),
 each a judged real-world size for the object, NOT derived from the source's
 own arbitrary Meshy normalisation:
 
-    family  target  calibration axis   why
-    grass   0.40    longest axis       a low tuft/clump, ~40 cm
-    sand    1.20    longest axis       a modest gravel patch, ~1.2 m across
-    bush    0.90    Z (height)         a desert shrub, ~90 cm tall
-    rock    0.75    longest axis       a small rock cluster, ~75 cm across
-    slab    1.50    longest axis       a flatter, wider outcrop, ~1.5 m
-    tree    3.40    Z (height)         a small olive tree, a little over 1 tile tall
+    family   target  calibration axis   why
+    grass    0.40    longest axis       a low tuft/clump, ~40 cm
+    sand     1.20    longest axis       a modest gravel patch, ~1.2 m across
+    bush     0.90    Z (height)         a desert shrub, ~90 cm tall
+    rock     0.75    longest axis       a small rock cluster, ~75 cm across
+    slab     1.50    longest axis       a flatter, wider outcrop, ~1.5 m
+    tree     3.40    Z (height)         a small olive tree, a little over 1 tile tall
+    boulder  2.50    longest axis       vehicle-blocking, against a 3 m tile
 
 `bush` and `tree` calibrate on Z (height) rather than "longest axis of any
 kind", the same principle `dimetric.metres_per_unit`'s own docstring gives
@@ -167,6 +175,33 @@ out visibly SHORTER than the narrow var1/3 to hit the same target -- the
 opposite of the intended "same-height, different-silhouette" family. `tree`
 inherits the same reasoning: a canopy that droops wide on one source and
 narrow on the other should still stand the same height.
+
+## BOULDER -- why "longest axis", not "2.5 wide x 2.0 tall" literally
+
+The generation prompt for these three sources asked Meshy for "~2.5 m across
+and 2.0 m tall against a ~3 m tile", but the returned geometry is NOT a fixed
+2.5:2.0 aspect ratio -- var1 is near-cubic and slightly TALLER than wide
+(measured extent 0.857 x 0.914 x 1.000, Z the longest axis), var2 is close to
+cubic the other way (0.996 x 1.000 x 0.863), and var3 is a flat, wide slab
+(1.000 x 0.395 x 0.365, X the longest axis by nearly 3x). `_bake_scale_and_ground`
+only ever applies one ISOTROPIC scalar (`ob.scale = (mpu, mpu, mpu)`, shared
+by every family in this file) -- there is no independent width-vs-height
+target the way `bush`/`tree` get by calibrating on Z alone, because these
+three sources do not share a common "mostly-vertical" shape the way bush and
+tree do. Forcing var3 up to a literal 2.0 m tall would need a ~5.5x Z-only
+stretch that no other family in this file does and that visibly warps a
+naturally flat rock into an artificial slab. `longest axis = 2.5` (the SAME
+convention `rock`/`slab` already use) is the safer, precedented choice: it
+reproduces the ~2.5 m footprint on all three variants and lands close to
+2.0 m tall on the two cubic ones (var1 2.50 m, var2 2.16 m) while var3 comes
+out a genuinely flatter, wider obstacle (2.50 m x 0.99 m x 0.91 m) -- shape
+variety a real boulder field would have anyway, not a defect. Measured
+against `art/meshes/vehicles/mbt_lavi.glb` (a Merkava-style MBT, exported at
+the same 3-units-per-tile convention): the tank is 2.11 tile-widths long,
+0.96 wide, 1.05 tall in WORLD units after the loader's own /3 `MESH_SCALE`.
+A `longest axis = 2.5` boulder is 2.5/3 = 0.83 tile-widths across after the
+same division -- comparably wide to the tank's own hull, and (on the two
+taller variants) roughly two-thirds its height.
 
 ## PROCESS
 
@@ -204,10 +239,19 @@ if "--out-dir" in _argv:
 else:
     OUT_DIR = os.path.join(REPO, "art", "meshes", "decor")
 
+# `--only grass,boulder` restricts export() to those families -- so adding a
+# new family later (as this file's own boulder addendum just did) can ship
+# its GLBs without re-exporting the other, already-shipped ones. None means
+# "every family", the original (and still default) behaviour.
+if "--only" in _argv:
+    ONLY_FAMILIES = set(_argv[_argv.index("--only") + 1].split(","))
+else:
+    ONLY_FAMILIES = None
+
 CREDIT = (
-    "Scattered terrain decor (grass/sand/bush/rock/slab/tree) -- AI-generated "
-    "(Meshy), disclosed per CONTRIBUTING.md; role-tagged, re-scaled and grounded "
-    "for Roaring Lions"
+    "Scattered terrain decor (grass/sand/bush/rock/slab/tree/boulder) -- "
+    "AI-generated (Meshy), disclosed per CONTRIBUTING.md; role-tagged, "
+    "re-scaled and grounded for Roaring Lions"
 )
 
 DECOR_ROLES = {"foliage", "trunk", "rock", "sand"}
@@ -252,14 +296,21 @@ TREE_SRC = [
     os.path.join(TREE_DIR, "Meshy_AI_lowpoly_olive_tree_0831112418_image-to-3d-texture.blend"),
     os.path.join(TREE_DIR, "Meshy_AI_lowpoly_olive_tree_0831112418_image-to-3d-texture.blend"),
 ]
+BOULDER_SRC = [
+    os.path.join(SRC_DIR, "Meshy_AI_rock_boulder_var1_0901052936_generate.blend"),
+    os.path.join(SRC_DIR, "Meshy_AI_rock_boulder_var2_0901052738_generate.blend"),
+    os.path.join(SRC_DIR, "Meshy_AI_rock_boulder_var3_0901052728_generate.blend"),
+]
 
 # Per-family target size (GLB build-units, ~metres) and calibration axis.
-# See module docstring "SCALE" for the reasoning behind each number and axis.
+# See module docstring "SCALE" (and "BOULDER" for why that one is "longest"
+# rather than a literal width/height pair) for the reasoning behind each.
 FAMILY_TARGET = {
     "grass": (0.40, "longest"),
     "sand": (1.20, "longest"),
     "rock": (0.75, "longest"),
     "slab": (1.50, "longest"),
+    "boulder": (2.50, "longest"),
 }
 BUSH_TARGET_HEIGHT = 0.90
 TREE_TARGET_HEIGHT = 3.40
@@ -575,7 +626,10 @@ def export():
         ("sand", SAND_SRC, "sand"),
         ("rock", ROCK_SRC, "rock"),
         ("slab", SLAB_SRC, "rock"),
+        ("boulder", BOULDER_SRC, "rock"),
     ):
+        if ONLY_FAMILIES is not None and family not in ONLY_FAMILIES:
+            continue
         target, axis = FAMILY_TARGET[family]
         for variant, src in enumerate(srcs):
             label = f"{family}_{variant}"
@@ -584,19 +638,21 @@ def export():
             summary[label] = {"path": out_path, "bytes": result[0], "verts": result[1],
                                "polys": result[2], "roles": result[3]}
 
-    for variant, src in enumerate(BUSH_SRC):
-        label = f"bush_{variant}"
-        out_path = os.path.join(OUT_DIR, f"{label}.glb")
-        result = _export_bush_variant(label, src, out_path)
-        summary[label] = {"path": out_path, "bytes": result[0], "verts": result[1],
-                           "polys": result[2], "roles": result[3]}
+    if ONLY_FAMILIES is None or "bush" in ONLY_FAMILIES:
+        for variant, src in enumerate(BUSH_SRC):
+            label = f"bush_{variant}"
+            out_path = os.path.join(OUT_DIR, f"{label}.glb")
+            result = _export_bush_variant(label, src, out_path)
+            summary[label] = {"path": out_path, "bytes": result[0], "verts": result[1],
+                               "polys": result[2], "roles": result[3]}
 
-    for variant, src in enumerate(TREE_SRC):
-        label = f"tree_{variant}"
-        out_path = os.path.join(OUT_DIR, f"{label}.glb")
-        result = _export_tree_variant(label, src, out_path)
-        summary[label] = {"path": out_path, "bytes": result[0], "verts": result[1],
-                           "polys": result[2], "roles": result[3]}
+    if ONLY_FAMILIES is None or "tree" in ONLY_FAMILIES:
+        for variant, src in enumerate(TREE_SRC):
+            label = f"tree_{variant}"
+            out_path = os.path.join(OUT_DIR, f"{label}.glb")
+            result = _export_tree_variant(label, src, out_path)
+            summary[label] = {"path": out_path, "bytes": result[0], "verts": result[1],
+                               "polys": result[2], "roles": result[3]}
 
     print("SUMMARY_JSON " + json.dumps(summary))
 

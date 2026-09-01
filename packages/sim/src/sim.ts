@@ -728,8 +728,11 @@ export class Sim {
 
   readonly blocked: Uint8Array;
   /** Boulder tiles: passable on foot, closed to wheels and tracks. Authored
-   *  as `b` and set once at map load; the sim never changes it. */
-  private readonly boulder: Uint8Array;
+   *  as `b` and set once at map load; the sim never changes it. Public like
+   *  `blocked`/`cover` (not merely via `blockedVehicle`'s derived mask) so a
+   *  renderer's decor layer can draw the field itself -- open ground on foot
+   *  is exactly what read as a bare, walkable tile before T1-C drew one. */
+  readonly boulder: Uint8Array;
   /** `blocked | boulder`. While a map has no boulders this is the SAME ARRAY
    *  as `blocked`, not a copy — which is what makes a boulder-free map cost
    *  nothing at all, in memory or in fields. It stops being an alias the

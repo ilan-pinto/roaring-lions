@@ -21,6 +21,24 @@ function input(w: number, h: number, edit?: (i: TerrainInput, decor: Uint8Array,
   return t;
 }
 
+/** Same shape as `input`, plus a `boulder` layer -- kept separate rather than
+ *  widening `input`'s own signature, since only the boulder tests below need
+ *  it and every other test in this file must keep proving the field is
+ *  genuinely optional (map.ts's own legend: a `b` tile is always
+ *  blocked=0/decor=none/cover=0, so boulder is the ONLY layer these fixtures
+ *  vary). */
+function inputWithBoulder(w: number, h: number, boulder: Uint8Array): TerrainInput {
+  return {
+    width: w,
+    height: h,
+    decor: new Uint8Array(w * h),
+    elevation: null,
+    blocked: new Uint8Array(w * h),
+    cover: new Uint8Array(w * h),
+    boulder,
+  };
+}
+
 describe('decorPlacements', () => {
   it('is deterministic: the same map twice gives an identical list', () => {
     // Appearance determinism is the whole reason this uses tileHash and not
@@ -200,6 +218,73 @@ describe('decorPlacements', () => {
           decor[TWIN_Y * w + TWIN_X] = DECOR_GROVE;
         });
       expect(decorPlacements(build())).toEqual(decorPlacements(build()));
+    });
+  });
+
+  describe('boulder tiles (T1-C: the field a vehicle cannot cross must actually draw)', () => {
+    it('a map with no boulder layer at all places no boulders', () => {
+      // The field is optional (`boulder?: Uint8Array | null`) -- omitting it
+      // entirely, the way every non-boulder test in this file already does
+      // via `input()`, must read as "no boulders", not a crash.
+      const out = decorPlacements(input(8, 8));
+      expect(out.some((p) => p.family === 'boulder')).toBe(false);
+    });
+
+    it('a boulder tile gets a boulder, not grass or sand', () => {
+      // Before this: a `b` tile has blocked=0/decor=none/cover=0 (map.ts's
+      // own legend), which is EXACTLY the shape `familyFor` already reads as
+      // "roll grass or sand" -- the bug this task exists to fix. A boulder
+      // tile is open ground to `decorPlacements`'s other inputs, so this
+      // proves the boulder mask itself is what redirects it.
+      const boulder = new Uint8Array(4);
+      boulder[0] = 1; // tile (0,0) of a 2x2 map
+      const out = decorPlacements(inputWithBoulder(2, 2, boulder));
+      const atOrigin = out.filter((p) => p.x >= 0 && p.x <= 1 && p.z >= 0 && p.z <= 1);
+      expect(atOrigin.length).toBeGreaterThan(0);
+      for (const p of atOrigin) expect(p.family).toBe('boulder');
+    });
+
+    it('places on EVERY boulder tile -- a field, not a sparse roll', () => {
+      // "Noticeably denser than rock" (rock's own DENSITY is 0.75, a roll
+      // that skips some qualifying tiles): boulder tiles must place
+      // unconditionally, or the field reads with holes a vehicle could
+      // thread through.
+      const boulder = new Uint8Array(20 * 20).fill(1);
+      const out = decorPlacements(inputWithBoulder(20, 20, boulder));
+      const boulders = out.filter((p) => p.family === 'boulder');
+      expect(boulders.length).toBe(20 * 20);
+    });
+
+    it('is denser than the rock family on an otherwise-identical roll', () => {
+      // Direct A/B on the SAME density gate: a knoll tile (family 'rock')
+      // rolls against DENSITY.rock (0.75) and can come up empty; the boulder
+      // tile at the same map position, same hash stream, must not.
+      const knollOut = decorPlacements(
+        input(20, 20, (_t, decor) => decor.fill(3 /* DECOR_KNOLL, shared.ts */))
+      );
+      const boulder = new Uint8Array(20 * 20).fill(1);
+      const boulderOut = decorPlacements(inputWithBoulder(20, 20, boulder));
+      const knollCount = knollOut.filter((p) => p.family === 'rock').length;
+      const boulderCount = boulderOut.filter((p) => p.family === 'boulder').length;
+      expect(boulderCount).toBeGreaterThan(knollCount);
+      expect(boulderCount).toBe(400); // every tile, unconditionally
+    });
+
+    it('is deterministic across two runs', () => {
+      const boulder = new Uint8Array(10 * 10);
+      for (let i = 0; i < boulder.length; i++) boulder[i] = i % 3 === 0 ? 1 : 0;
+      const a = decorPlacements(inputWithBoulder(10, 10, boulder));
+      const b = decorPlacements(inputWithBoulder(10, 10, boulder));
+      expect(a).toEqual(b);
+    });
+
+    it('sits on its own tile\'s elevation, like every other family', () => {
+      const boulder = new Uint8Array(4);
+      boulder[0] = 1;
+      const raised: TerrainInput = { ...inputWithBoulder(2, 2, boulder), elevation: new Uint8Array(4).fill(3) };
+      const out = decorPlacements(raised);
+      const b = out.find((p) => p.family === 'boulder');
+      expect(b?.y).toBe(3 * WORLD_PER_LEVEL);
     });
   });
 

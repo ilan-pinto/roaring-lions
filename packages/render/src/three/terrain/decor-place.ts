@@ -19,7 +19,7 @@ import { tileHash } from '../../tile-hash';
 import { DECOR_GROVE, DECOR_KNOLL, DECOR_RIDGE, DECOR_ROAD, WORLD_PER_LEVEL } from './shared';
 import type { TerrainInput } from './types';
 
-export type DecorFamily = 'grass' | 'sand' | 'bush' | 'tree' | 'rock' | 'slab';
+export type DecorFamily = 'grass' | 'sand' | 'bush' | 'tree' | 'rock' | 'slab' | 'boulder';
 
 export interface DecorPlacement {
   readonly family: DecorFamily;
@@ -34,7 +34,11 @@ export interface DecorPlacement {
 export const VARIANTS_PER_FAMILY = 3;
 
 /** How often a qualifying tile actually gets an object. Cover tiles scale
- *  with their level, so a cover-3 thicket reads denser than a cover-1 verge. */
+ *  with their level, so a cover-3 thicket reads denser than a cover-1 verge.
+ *  `boulder` is 1.0 -- deliberately unconditional, not merely "denser than
+ *  rock's 0.75": `b` is a mechanic (a wall to wheels and tracks), not an
+ *  aesthetic scatter, and a roll that skipped even one boulder tile would
+ *  draw a gap a vehicle could see straight through. */
 const DENSITY: Record<DecorFamily, number> = {
   grass: 0.34,
   sand: 0.18,
@@ -42,10 +46,18 @@ const DENSITY: Record<DecorFamily, number> = {
   tree: 1.0,
   rock: 0.75,
   slab: 0.6,
+  boulder: 1.0,
 };
 
-/** Which family this tile offers, or null for "nothing grows here". */
-function familyFor(decor: number, cover: number, roll: number): DecorFamily | null {
+/** Which family this tile offers, or null for "nothing grows here".
+ *  `boulder` is checked first and unconditionally: `map.ts`'s own legend
+ *  ties the `b` symbol to blocked=0/decor=none/cover=0 always, which is
+ *  exactly the shape every branch below already reads as "roll grass or
+ *  sand" -- so a boulder tile that fell through to those branches would draw
+ *  as bare, walkable ground with a tuft on it, the T1-C bug this exists to
+ *  fix. */
+function familyFor(decor: number, cover: number, roll: number, boulder: boolean): DecorFamily | null {
+  if (boulder) return 'boulder';
   if (decor === DECOR_ROAD) return null;
   if (decor === DECOR_GROVE) return 'tree';
   if (decor === DECOR_KNOLL) return 'rock';
@@ -55,7 +67,7 @@ function familyFor(decor: number, cover: number, roll: number): DecorFamily | nu
 }
 
 export function decorPlacements(input: TerrainInput): DecorPlacement[] {
-  const { width, height, blocked, cover, decor, elevation } = input;
+  const { width, height, blocked, cover, decor, elevation, boulder } = input;
   const out: DecorPlacement[] = [];
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
@@ -70,7 +82,8 @@ export function decorPlacements(input: TerrainInput): DecorPlacement[] {
       // DECOR_RIDGE) { ... } }` shape for its ridge grain.
       if (blocked[t] !== 0 && d !== DECOR_RIDGE) continue;
       const c = cover[t];
-      const family = familyFor(d, c, tileHash(x + 977, y + 311));
+      const isBoulder = boulder ? boulder[t] !== 0 : false;
+      const family = familyFor(d, c, tileHash(x + 977, y + 311), isBoulder);
       if (family === null) continue;
 
       // Cover level thickens a bush tile; every other family keeps its base
