@@ -104,7 +104,7 @@
  * B3.14): it is silently skipped, not drawn as a placeholder either.
  */
 import * as THREE from 'three';
-import { fx, WEAPON_CLASS, type Fx, type Sim, type SimEvent } from '@lions/sim';
+import { fx, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent } from '@lions/sim';
 import type { Renderer, RendererOptions, TerrainTones } from '../api'; // both, after Step 2
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
@@ -215,6 +215,7 @@ import {
   type MeshWreck,
   type MeshDeathEnv,
 } from './units/mesh-death';
+import { beginMeshEvac, stepMeshEvac, type DepartingMeshUnit } from './units/mesh-evac';
 import type { MeshFaction } from './units/mesh-role';
 /** Re-exported so `app` can name the side a mesh unit fights for without
  *  importing anything under `three/units/` directly. TYPE ONLY: it is erased
@@ -921,6 +922,29 @@ export class ThreeRenderer implements Renderer {
    *  persistence" section). Bounded by `MAX_MESH_WRECKS`, oldest evicted
    *  first (`pushMeshWreck`). */
   private readonly meshWrecks: MeshWreck[] = [];
+  /** Mesh units mid-DEPARTURE fade -- rescued, not killed. Same shape and
+   *  same reasoning as `meshDying` above (not id-keyed, for the identical
+   *  reason), a separate array because the two sequences share no state and
+   *  advance under different rules: `units/mesh-evac.ts` plays no `down`,
+   *  sinks nothing, fades to zero and never yields a wreck. */
+  private readonly meshDeparting: DepartingMeshUnit[] = [];
+  /**
+   * Entity ids the MISSION runtime has reported evacuated (`onMissionEvents`).
+   *
+   * The whole disambiguation, and it has to be a latch rather than a
+   * per-frame read for an ordering reason: `MissionRuntime.step` clears
+   * `alive` and emits its `evacuated` event inside the SAME call, one tick
+   * before the next `frame()` runs, so by the time `updateMeshUnits`' prune
+   * loop sees `alive === 0` the event has already been and gone. This is what
+   * it left behind.
+   *
+   * Never cleared per entity: `Sim.count` is the LIFETIME spawn count and is
+   * never decremented (CLAUDE.md, "Known scaling debts"), so an id is never
+   * reused and a stale member can never mislabel a later unit's death. It is
+   * bounded by the number of civilians a mission ships -- eleven, at the
+   * largest -- and is emptied wholesale by `dispose`.
+   */
+  private readonly evacuated = new Set<number>();
 
   /**
    * Vehicle meshes (mesh-unit-contract v2). One `VehicleMeshTemplate` per
@@ -1498,6 +1522,16 @@ export class ThreeRenderer implements Renderer {
       disposeMeshUnitEntity(d.entity);
     }
     this.meshDying.length = 0;
+    // Mesh units mid-DEPARTURE fade own the identical per-entity material
+    // clone (`beginMeshEvac` calls the same `beginMeshDeathFade`), so they
+    // need the identical restore-then-dispose, for the identical reason.
+    for (const d of this.meshDeparting) {
+      endMeshDeathFade(d.swaps);
+      this.scene.remove(d.entity.root);
+      disposeMeshUnitEntity(d.entity);
+    }
+    this.meshDeparting.length = 0;
+    this.evacuated.clear();
     // Permanent wrecks share the template's geometry/material by reference
     // (like every living `MeshUnitEntity` does -- `MeshUnitTemplate`'s own
     // doc comment), so only `scene.remove` is needed; the shared resources
@@ -1905,6 +1939,30 @@ export class ThreeRenderer implements Renderer {
    * comment for the one deliberate way this differs from Pixi's `usesTurret`
    * condition (`renderer.ts:778-781`), and why.
    */
+  /**
+   * Mission events (`api.ts`'s own `onMissionEvents` doc comment for why this
+   * seam exists at all). One kind is read today.
+   *
+   * `evacuated` is the only thing that can tell a rescued civilian from a
+   * killed one: `MissionRuntime` writes `alive[civ] = 0` for both, so on
+   * `alive` alone `resolveClip` returns `down` and the prune loop starts a
+   * death fade -- the crawl pose, for a woman the player just walked to
+   * safety. Latched into `this.evacuated` rather than acted on here, because
+   * this arrives one tick BEFORE the frame that will notice she is gone; see
+   * that field's own comment.
+   *
+   * Deliberately does not touch the entity: the departure begins in
+   * `updateMeshUnits`' prune loop alongside every death, so there is exactly
+   * one place an entity leaves `meshUnitEntities` and exactly one ordering to
+   * reason about. Splitting the teardown across two call sites is how an
+   * entity ends up in both collections at once.
+   */
+  onMissionEvents(events: readonly MissionEvent[]): void {
+    for (const e of events) {
+      if (e.kind === 'evacuated') this.evacuated.add(e.entity);
+    }
+  }
+
   onEvents(events: SimEvent[]): void {
     const st = this.sim.state;
     for (const e of events) {
@@ -3672,9 +3730,18 @@ export class ThreeRenderer implements Renderer {
       // mutating a material shared by every other unit on that side. A
       // wreck has nothing left to keep track of either.
       detachMeshSilhouette(entity.root);
-      this.meshDying.push(beginMeshDeath(entity));
+      // The one fork: was this entity KILLED, or did it get out? `alive === 0`
+      // cannot answer -- `MissionRuntime.stepObjectives` clears it for a
+      // civilian who reaches the evacuation zone using the identical write a
+      // casualty gets. `this.evacuated` is the mission runtime's own answer,
+      // delivered by `onMissionEvents` on the tick that made the call. Without
+      // this branch a rescued civilian played `down` (the held crawl frame)
+      // and sank, so saving someone looked exactly like killing them.
+      if (this.evacuated.has(id)) this.meshDeparting.push(beginMeshEvac(entity));
+      else this.meshDying.push(beginMeshDeath(entity));
     }
     this.stepMeshDeaths(dtSeconds);
+    this.stepMeshEvacs(dtSeconds);
   }
 
   /**
@@ -4035,6 +4102,23 @@ export class ThreeRenderer implements Renderer {
       if (result !== 'removed') pushMeshWreck(this.meshWrecks, result, this.scene);
     }
     updateMeshWrecks(this.meshWrecks, (x, y) => this.isExplored(x, y));
+  }
+
+  /**
+   * Advances every mesh unit mid-DEPARTURE fade (`units/mesh-evac.ts`'s own
+   * `stepMeshEvac`) -- the rescued counterpart of `stepMeshDeaths` above.
+   *
+   * Thinner than that method because a departure needs less: no `MeshDeathEnv`
+   * (nothing is re-grounded, so no elevation), no fog query (nothing persists
+   * to be revealed later), and no second collection to push into. Reverse
+   * iteration for the same reason -- splicing during a forward walk skips the
+   * next entry.
+   */
+  private stepMeshEvacs(dtSeconds: number): void {
+    for (let k = this.meshDeparting.length - 1; k >= 0; k--) {
+      if (stepMeshEvac(this.meshDeparting[k], dtSeconds, this.scene) === 'fading') continue;
+      this.meshDeparting.splice(k, 1);
+    }
   }
 
   /**

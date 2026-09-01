@@ -1557,7 +1557,18 @@ async function main(): Promise<void> {
     audio.setListener(renderer.camera);
     audio.onEvents(events, sim);
     if (runtime && mission) {
-      for (const me of runtime.step(events)) {
+      const missionEvents = runtime.step(events);
+      // The renderer subscribes to the MISSION's events as well as the sim's.
+      // The one it reads today is `evacuated`: `MissionRuntime` clears `alive`
+      // for a civilian who reaches the refuge with the same write a casualty
+      // gets, so without this the renderer played the crawl-and-fade death
+      // pose for someone the player had just rescued. Called here, in the same
+      // statement order `onEvents` above already follows, so the fact lands
+      // before the frame that would otherwise mistake her for a corpse.
+      // Optional on the interface (`api.ts`) -- Pixi draws no civilians at all
+      // and implements nothing.
+      renderer.onMissionEvents?.(missionEvents);
+      for (const me of missionEvents) {
         if (tut) tut = advance(tut, { kind: 'mission', event: me }, performance.now());
         const described = describeMissionEvent(me, mission, narratedRoeReasons);
         if (described) hud.note(described[0], described[1]);

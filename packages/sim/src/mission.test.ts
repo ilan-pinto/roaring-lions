@@ -839,6 +839,53 @@ describe('civilians and ROE (GDD §6)', () => {
     expect(done).toHaveLength(1);
   });
 
+  // `alive = 0` is the ONLY thing an evacuation leaves behind, and it is the
+  // identical mark a casualty leaves. Everything outside the sim that draws a
+  // civilian therefore had no way to tell a rescue from a killing -- the
+  // renderer put a woman the player had just walked to safety into the crawl
+  // pose and faded her, exactly like a corpse. These three pin the event that
+  // distinguishes them: the runtime already knows, and now says so on the way
+  // out (invariant 4 -- events out, never the renderer inferring it).
+  function evacWorld(): World {
+    return civWorld(
+      {
+        starting_force: [{ unit: 'm_squad', count: 1, at: [11, 6] }],
+        civilians: { groups: [{ unit: 'm_civ', count: 1, at: [12, 6] }], refuge: 'refuge' },
+        objectives: [
+          { id: 'evac', type: 'evacuate_before', primary: false, target: 'refuge_zone', count: 1, seconds: 600 },
+          { id: 'clock', type: 'survive_until', primary: true, seconds: 600 },
+        ],
+      },
+      REFUGE_CTX
+    );
+  }
+
+  it('names the civilian who got out, once, on the tick she is counted', () => {
+    const w = evacWorld();
+    const civ = 1; // spawn order: the soldier, then the one civilian group
+    const evs = w.step(600);
+    const out = evs.mission.filter((m) => m.kind === 'evacuated');
+    expect(out).toHaveLength(1);
+    expect(out[0].kind === 'evacuated' && out[0].entity).toBe(civ);
+    // And it is the same moment the count moves -- the event is emitted from
+    // the branch that latches her, so the two cannot drift apart.
+    const done = evs.mission.find((m) => m.kind === 'objective' && m.id === 'evac' && m.status === 'complete');
+    expect(done?.tick).toBe(out[0].tick);
+    // The state she leaves behind is indistinguishable from a casualty's.
+    // That is the whole reason the event has to exist.
+    expect(w.sim.state.alive[civ]).toBe(0);
+  });
+
+  it('says nothing for a civilian who is killed, though her state looks the same', () => {
+    const w = evacWorld();
+    const civ = 1;
+    w.step(20);
+    w.sim.debugKill(civ);
+    const evs = w.step(600);
+    expect(w.sim.state.alive[civ]).toBe(0); // identical to the rescue above
+    expect(evs.mission.filter((m) => m.kind === 'evacuated')).toHaveLength(0);
+  });
+
   it('marks the evacuation failed when the deadline passes short of the count', () => {
     const w = civWorld(
       {

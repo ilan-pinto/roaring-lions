@@ -224,6 +224,20 @@ export type MissionEvent =
   | { kind: 'wave'; tick: number; count: number }
   | { kind: 'roe'; tick: number; penalty: number; reason: string; score: number }
   | { kind: 'built'; tick: number; unit: string }
+  /**
+   * One civilian got out: reached the evacuation zone and was counted.
+   *
+   * Emitted from the same branch that latches `civEvacuated` and clears
+   * `alive`, so it is exactly the set of civilians who SURVIVED — never a
+   * casualty. It carries the entity id (every other `MissionEvent` id is an
+   * AUTHORED string, hence the different field name) because the one thing
+   * outside the sim that needs this cannot use anything else: the renderer
+   * reads `alive === 0` and cannot otherwise tell a rescue from a killing,
+   * so it drew the crawl-and-fade death pose for both. Invariant 4 permits
+   * exactly this shape — the runtime already knows the difference and says
+   * so on the way out, rather than the renderer inferring it from positions.
+   */
+  | { kind: 'evacuated'; tick: number; entity: number }
   | {
       kind: 'missionEnd';
       tick: number;
@@ -237,7 +251,7 @@ export type MissionEvent =
 
 /** Every `MissionEvent` kind, as a value. See `SIM_EVENT_KINDS`. */
 export const MISSION_EVENT_KINDS = [
-  'objective', 'trigger', 'wave', 'roe', 'built', 'missionEnd',
+  'objective', 'trigger', 'wave', 'roe', 'built', 'evacuated', 'missionEnd',
 ] as const satisfies readonly MissionEvent['kind'][];
 
 /** Compile-time proof the list above covers the whole union. See
@@ -1538,6 +1552,15 @@ export class MissionRuntime {
             if (tx >= z[0] && tx < z[0] + z[2] && ty >= z[1] && ty < z[1] + z[3]) {
               this.civEvacuated.add(civ);
               st.alive[civ] = 0;
+              // Say so on the way out. `alive = 0` above is the ONLY record
+              // that this civilian left the map, and it is the identical
+              // record a casualty leaves -- so without this line the renderer
+              // has no way to tell a rescue from a killing, and drew the death
+              // pose for both. Emitted here rather than anywhere later so it
+              // is impossible for the two to disagree: same branch, same
+              // guard (`civEvacuated.has`), therefore exactly once per
+              // civilian and never for one who died.
+              out.push({ kind: 'evacuated', tick, entity: civ });
             }
           }
         }

@@ -2,12 +2,13 @@
  * What `packages/app` is allowed to know about a renderer.
  *
  * Extracted so a second backend is possible. The surface is small for a
- * 5,000-line implementation -- seventeen methods and eleven properties -- and
+ * 5,000-line implementation -- eighteen methods (one of them optional) and
+ * eleven properties -- and
  * that smallness is the whole reason replacing the backend is tractable.
  *
  * Types only. No implementation, no imports from Pixi or three.
  */
-import type { SimEvent } from '@lions/sim';
+import type { MissionEvent, SimEvent } from '@lions/sim';
 import type { Camera } from './project';
 import type { EmitterSpec } from './vfx';
 
@@ -88,6 +89,27 @@ export interface Renderer {
   /** Latch current sim positions as the previous frame's, before the next tick. */
   snapshot(): void;
   onEvents(events: SimEvent[]): void;
+  /**
+   * The other half of "events out": what the MISSION runtime concluded this
+   * tick, as opposed to what the sim did.
+   *
+   * Needed because some sim state is ambiguous on its own and only the
+   * runtime holds the disambiguation. The case that forced it:
+   * `MissionRuntime` clears `alive` for a civilian who reaches the evacuation
+   * zone, using the identical write a casualty gets -- so a renderer reading
+   * only `alive` drew the crawl-and-fade death pose for a woman the player
+   * had just walked to safety. The runtime's `evacuated` event is the fact
+   * that distinguishes them, and invariant 4 permits exactly this shape:
+   * events out, never the renderer inferring a sim conclusion from geometry.
+   *
+   * OPTIONAL, unlike `onEvents`, and that is deliberate rather than lazy. A
+   * backend is free to have nothing that mission events could change -- Pixi
+   * draws no civilians at all (no mesh path, and `civilians` is absent from
+   * `SPRITE_MAP`), so an implementation there would be dead code in a file
+   * that is under a freeze. `main.ts` calls it as `?.()`, so the compiler,
+   * not a grep, keeps the app honest about that.
+   */
+  onMissionEvents?(events: readonly MissionEvent[]): void;
 
   // --- the surface itself
   /** The element to attach input listeners to. Callers must not ask which
