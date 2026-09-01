@@ -108,7 +108,63 @@ verified by rendering the classification back onto the model in false colour
     alternative was leaving the biggest dark mass on the vehicle painted as
     body limestone.
 
-NOT SHIPPED, both checked and rejected rather than assumed:
+  - `hull_plate` -- the improvised bolted armour: the four door plates, the
+    plated-over side and rear windows, and the big slitted windscreen plate
+    that carries forward onto the bonnet. This is the vehicle's single most
+    characteristic feature, and it is the one role here that BASE COLOUR
+    decides and geometry cannot. Three measurements, in the order they
+    matter:
+
+    (1) **There is no geometric standoff to find, at any decimation ratio.**
+    An earlier pass rejected `plate` on the finding that the cab side has
+    dense material to |y|=0.260, ZERO faces from 0.260 to 0.285, then more
+    at 0.285-0.310, and that `DECIMATE_RATIO_HULL` closed that gap. Both
+    halves of that are wrong. Re-measured over the ratio sweep
+    1.0 / 0.10 / 0.06 / 0.03 / 0.015 / 0.008 / 0.004, the 0.260-0.285 band
+    holds EXACTLY ZERO faces at every one of them -- decimation never closed
+    it, including at 0.004, a fifth of what ships. And the band is not the
+    plate: rendering the whole mesh banded by |y| shows 0.285+ is simply the
+    body's widest belt (lower doors, wheel arches, bed sides, tyres) running
+    unbroken nose to tailgate, and the empty band is the AIR INSIDE THE BODY
+    SHELL, between the outer skin and the cab's inner surface. The armour is
+    modelled flush; the door plates and the door skin around them are the
+    same |y|. No ratio recovers what was never a boundary.
+
+    (2) **Base colour separates it cleanly, but only inside the cab box.**
+    Sampled per polygon on the FULL-RESOLUTION mesh (see the texture note
+    below), the faces inside `PLATE_X0..PLATE_X1`, `z >= PLATE_Z0` are
+    strongly BIMODAL in linear luminance: a peak at 0.24-0.36 (193k faces in
+    the 0.28 bin alone) and a second at 0.64-0.84, with a floor of
+    ~4.3k/bin across 0.48-0.56. `PLATE_LUM_MAX` sits in that floor, and the
+    split is insensitive to where exactly: 0.45 and 0.60 differ by four
+    percentage points of the box. The bimodality is why this works where the
+    earlier attempt's thresholds of 0.30 and 0.33 tore the plates apart --
+    the plate's own median is 0.28, so both of those cut THROUGH the peak
+    rather than between the peaks.
+
+    (3) **The nose does separate.** The earlier pass reported windscreen
+    armour 0.302 against bonnet 0.313 and concluded the nose was hopeless.
+    The plate figure is right; the bonnet figure is contaminated, because
+    the windscreen plate CARRIES FORWARD ONTO THE BONNET and any x/z box
+    drawn around "the bonnet" swallows it. The bonnet proper reads 0.65-0.82
+    and the plate 0.276 -- as wide a separation as the door plates get.
+
+    The cab box is what keeps this from being the speckle the earlier pass
+    saw: unbounded, a dark threshold also claims the mud-caked rocker
+    panels, wheel arches and tailgate, which read as dark as the armour.
+    Bounded to the cab, and evaluated AFTER `rubber` and `metal` have taken
+    their own faces, what is left below the threshold is armour and cab
+    interior. The interior is never seen, so it costs a role tag and
+    nothing else.
+
+    Classify-then-transfer, not classify-on-the-decimated-mesh, and the
+    reason is the UV atlas: Meshy's layout for this asset is a shattered
+    per-triangle mosaic, so a decimated face's own UVs straddle island seams
+    and smear every sample toward the atlas mean. A full-resolution triangle
+    never does. So the mask is built at 1.97M faces and transferred onto the
+    29.5k decimated faces by a spatial majority vote (`_transfer_plate`).
+
+NOT SHIPPED, checked and rejected rather than assumed:
 
   - `glass`. **This vehicle has no glazing.** Its windscreen is a bolted
     twin steel plate with two letterbox vision slits, and every side window
@@ -119,27 +175,9 @@ NOT SHIPPED, both checked and rejected rather than assumed:
     few faces inside the front bumper assembly and ship as `metal` with it.
     A `glass` role here would have to be invented.
 
-  - `plate`, the improvised bolted armour -- which is this vehicle's single
-    most characteristic feature and would have been the biggest win of the
-    four. It has a real boundary in the SOURCE and no boundary at all in the
-    SHIPPED mesh. At full resolution the door plates stand proud of the door
-    skin across a genuinely empty air gap: binning the cab side by |y| finds
-    dense material to |y|=0.260, then ZERO faces from 0.260 to 0.285, then
-    the plate itself at 0.285-0.310. `DECIMATE_RATIO_HULL` closes that gap
-    -- the same bins on the decimated mesh run continuously from 0.18 to
-    0.305 with no empty band anywhere. Base colour cannot rescue it either:
-    it works on the side (front wing 0.65-0.73 against door plate 0.25) and
-    fails completely at the nose, where the windscreen armour reads 0.302
-    against 0.313 for the bonnet beside it. A luminance threshold rendered
-    onto the model produces torn, jagged patches across the bonnet, wing,
-    tailgate and bed sides while leaving triangular holes INSIDE the plates
-    -- exactly the speckle a role split must not have. And a rule tuned to
-    catch only the door plates would paint half of one continuous armour kit
-    dark and leave the windscreen plate -- the panel this vehicle most shows
-    the dimetric camera -- as body limestone, which reads as a bug rather
-    than as a partial answer. Recovering it needs a coarser
-    `DECIMATE_RATIO_HULL` or a full-resolution classify-then-transfer pass,
-    not a better threshold.
+  - `recess`. Nothing on this source reads as a shadowed gap distinct from
+    the body -- see `plate` above for what the base colour actually splits
+    into, which is two populations and not three.
 
 GROUND / PLACEMENT. The hull's own origin sits at its vertical midpoint
 (z range roughly symmetric before ground-align), same defect as every
@@ -225,6 +263,32 @@ CARGO_Z0, CARGO_Z1 = 0.085, 0.30
 #: tailgate lip aft -- rather than fading into the panel above.
 NOSE_X, NOSE_Z = -0.84, 0.037
 TAIL_X, TAIL_Z = 0.84, -0.037
+
+#: The cab box, source frame. `plate` is only looked for inside it, because
+#: outside it a dark-luminance threshold also claims the mud-caked rocker
+#: panels, wheel arches and tailgate -- which measure as dark as the armour
+#: does and are not armour. The box is the cab and its windscreen: aft to the
+#: bed front wall (+0.20), forward far enough to keep the windscreen plate's
+#: carry-over onto the bonnet (-0.60), and above the rocker line (-0.05).
+PLATE_X0, PLATE_X1 = -0.60, 0.20
+PLATE_Z0 = -0.05
+
+#: Linear-luminance ceiling for `plate`, read off the floor between the cab
+#: box's own two luminance peaks (0.24-0.36 armour, 0.64-0.84 body) -- see the
+#: module docstring. Anywhere in 0.45-0.60 gives the same split to within four
+#: percentage points of the box; 0.50 is the middle of the floor.
+PLATE_LUM_MAX = 0.50
+
+#: Voxel edge for `_transfer_plate`'s majority vote, source units. Small
+#: enough that one cell is finer than the decimated mesh's own face spacing,
+#: large enough that a cell holds many full-resolution faces (1.97M faces over
+#: a 1.9 x 0.68 x 0.60 box).
+PLATE_VOXEL = 0.006
+
+#: Every role the hull splits into, in the one order that both `_classify_hull`
+#: and `_split_hull` walk -- so a role added here cannot be classified and then
+#: silently not emitted, which is the shape of the bug this whole split fixed.
+HULL_ROLES = ("hull", "plate", "metal", "rubber")
 
 #: The turret source ships wholesale as `metal`; see the module docstring.
 TURRET_ROLE = "metal"
@@ -316,10 +380,142 @@ def _turret_pivot_local(ob, eps=0.05):
     return (cx, cy, zmin)
 
 
-def _hull_role(c):
+def _plate_mask_full(ob):
+    """Per-polygon boolean over the FULL-RESOLUTION hull: "this face is bolted
+    armour". Base colour decides it; see the module docstring's `hull_plate`
+    section for why geometry cannot and why the cab box is required.
+
+    The texture sample is the MEDIAN of four lookups per triangle -- the face's
+    own UV centroid, plus each corner pulled halfway in toward that centroid.
+    Pulling in matters: Meshy's atlas is a per-triangle mosaic and a corner UV
+    sits exactly on an island seam, so sampling corners raw reads the
+    neighbouring island. Run on the full-resolution mesh ONLY, before decimate,
+    because a decimated triangle's UVs span several islands and no amount of
+    pulling in rescues that.
+    """
+    import numpy as np
+
+    me = ob.data
+    nl, nv, npoly = len(me.loops), len(me.vertices), len(me.polygons)
+    lt = np.empty(npoly, dtype=np.int32)
+    me.polygons.foreach_get("loop_total", lt)
+    if lt.min() != 3 or lt.max() != 3:
+        raise SystemExit("[technical] hull source is not pure triangles -- _plate_mask_full assumes it")
+
+    co = np.empty(nv * 3, dtype=np.float32)
+    me.vertices.foreach_get("co", co)
+    lv = np.empty(nl, dtype=np.int32)
+    me.loops.foreach_get("vertex_index", lv)
+    cent = co.reshape(-1, 3)[lv.reshape(-1, 3)].mean(axis=1)
+
+    uv = np.empty(nl * 2, dtype=np.float32)
+    me.uv_layers.active.data.foreach_get("uv", uv)
+    uv = uv.reshape(-1, 3, 2)
+    uvc = uv.mean(axis=1)
+
+    img = bpy.data.images["base_color"]
+    w, h = img.size
+    px = np.empty(w * h * 4, dtype=np.float32)
+    img.pixels.foreach_get(px)
+    px = px.reshape(h, w, 4)[:, :, :3]
+    # `Image.pixels` hands back SCENE-LINEAR floats for an sRGB-tagged image --
+    # Blender has already undone the encoding. Converting again here halves
+    # every reading and moves the peaks off the constants above.
+    lum = (0.2126 * px[:, :, 0] + 0.7152 * px[:, :, 1] + 0.0722 * px[:, :, 2]).astype(np.float32)
+    del px
+
+    def sample(u):
+        xs = np.clip((u[:, 0] % 1.0) * (w - 1), 0, w - 1).astype(np.int32)
+        ys = np.clip((u[:, 1] % 1.0) * (h - 1), 0, h - 1).astype(np.int32)
+        return lum[ys, xs]
+
+    taps = [sample(uvc)] + [sample(uvc + 0.5 * (uv[:, k, :] - uvc)) for k in range(3)]
+    lin = np.median(np.stack(taps, axis=1), axis=1)
+
+    x, y, z = cent[:, 0], cent[:, 1], cent[:, 2]
+    box = (x >= PLATE_X0) & (x <= PLATE_X1) & (z >= PLATE_Z0)
+    mask = box & (lin < PLATE_LUM_MAX)
+    print(
+        f"[technical] plate mask (full res): {int(mask.sum())} of {npoly} faces "
+        f"({100.0 * mask.sum() / npoly:.1f}%), {100.0 * mask.sum() / max(1, box.sum()):.1f}% of the cab box"
+    )
+    return cent, mask
+
+
+def _transfer_plate(cent, mask, ob):
+    """Carry `mask` (full-resolution) onto the DECIMATED faces of `ob`, as a
+    set of face indices.
+
+    A spatial majority vote rather than a single nearest neighbour: a decimated
+    face centroid does not land on any original face, and one nearest original
+    triangle at a plate's edge is a coin toss. Bin the full-resolution faces
+    into `PLATE_VOXEL` cells, blur the plate and total counts by one cell in
+    each direction (so a query cell always sees its neighbours), and take the
+    majority of the 3x3x3 neighbourhood -- widening to 5x5x5 for the rare
+    decimated centroid whose neighbourhood is empty.
+    """
+    import numpy as np
+
+    lo = cent.min(axis=0) - PLATE_VOXEL
+    hi = cent.max(axis=0) + PLATE_VOXEL
+    dims = np.maximum(((hi - lo) / PLATE_VOXEL).astype(np.int64) + 1, 1)
+    nx, ny, nz = (int(d) for d in dims)
+
+    def cells(pts):
+        i = np.clip(((pts - lo) / PLATE_VOXEL).astype(np.int64), 0, dims - 1)
+        return i[:, 0], i[:, 1], i[:, 2]
+
+    ix, iy, iz = cells(cent)
+    tot = np.zeros((nx, ny, nz), dtype=np.int32)
+    hit = np.zeros((nx, ny, nz), dtype=np.int32)
+    np.add.at(tot, (ix, iy, iz), 1)
+    np.add.at(hit, (ix[mask], iy[mask], iz[mask]), 1)
+
+    def blur(a, r):
+        out = np.zeros_like(a)
+        for dx in range(-r, r + 1):
+            sx = slice(max(0, dx), nx + min(0, dx))
+            tx = slice(max(0, -dx), nx + min(0, -dx))
+            for dy in range(-r, r + 1):
+                sy = slice(max(0, dy), ny + min(0, dy))
+                ty = slice(max(0, -dy), ny + min(0, -dy))
+                for dz in range(-r, r + 1):
+                    sz = slice(max(0, dz), nz + min(0, dz))
+                    tz = slice(max(0, -dz), nz + min(0, -dz))
+                    out[sx, sy, sz] += a[tx, ty, tz]
+        return out
+
+    tot1, hit1 = blur(tot, 1), blur(hit, 1)
+    tot2, hit2 = blur(tot, 2), blur(hit, 2)
+
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bm.faces.ensure_lookup_table()
+    q = np.array([tuple(f.calc_center_median()) for f in bm.faces], dtype=np.float32)
+    idx = [f.index for f in bm.faces]
+    bm.free()
+
+    qx, qy, qz = cells(q)
+    t1, h1 = tot1[qx, qy, qz], hit1[qx, qy, qz]
+    t2, h2 = tot2[qx, qy, qz], hit2[qx, qy, qz]
+    wide = t1 == 0
+    t = np.where(wide, t2, t1)
+    hcount = np.where(wide, h2, h1)
+    vote = (t > 0) & (hcount * 2 > t)
+    print(
+        f"[technical] plate transfer: {int(vote.sum())} of {len(idx)} decimated faces, "
+        f"{int(wide.sum())} needed the 5x5x5 fallback"
+    )
+    return {idx[i] for i in np.nonzero(vote)[0]}
+
+
+def _hull_role(c, is_plate):
     """The role for one decimated hull face, from its centroid in the SOURCE
-    frame (nose -X, bed +X, ground z=-0.289). See the module docstring's
-    ROLE SPLIT section for how every constant below was measured."""
+    frame (nose -X, bed +X, ground z=-0.289) plus the transferred plate vote.
+    See the module docstring's ROLE SPLIT section for how every constant below
+    was measured. `rubber` and `metal` are geometric and outrank `plate`, which
+    is why the front bumper and the can load stay gunmetal rather than being
+    swept up by a luminance test they would also pass."""
     for cx in (AXLE_F, AXLE_R):
         if abs(c.y) >= WHEEL_AY and (c.x - cx) ** 2 + (c.z - WHEEL_CZ) ** 2 <= WHEEL_R ** 2:
             return "rubber"
@@ -329,10 +525,12 @@ def _hull_role(c):
         return "metal"
     if c.x > TAIL_X and c.z < TAIL_Z:
         return "metal"
+    if is_plate:
+        return "plate"
     return "hull"
 
 
-def _classify_hull(ob):
+def _classify_hull(ob, plate_idx):
     """{role: set(face_index)} over the decimated hull. Every role must be
     non-empty: an empty one would mean a constant above has drifted off the
     geometry it was fitted to, which is a silent flat-colour regression --
@@ -342,10 +540,11 @@ def _classify_hull(ob):
     bm.faces.ensure_lookup_table()
     out = {}
     for f in bm.faces:
-        out.setdefault(_hull_role(f.calc_center_median()), set()).add(f.index)
+        role = _hull_role(f.calc_center_median(), f.index in plate_idx)
+        out.setdefault(role, set()).add(f.index)
     total = len(bm.faces)
     bm.free()
-    for role in ("hull", "metal", "rubber"):
+    for role in HULL_ROLES:
         if not out.get(role):
             raise SystemExit(
                 f"[technical] hull role {role!r} came out EMPTY -- the cut constants no "
@@ -376,7 +575,7 @@ def _split_hull(hull_obj, role_faces):
     is no boundary loop to cap the way `export_meshy_tank.py`'s mid-hull
     face cut had."""
     pieces = []
-    for role in ("hull", "metal", "rubber"):
+    for role in HULL_ROLES:
         bpy.ops.object.select_all(action="DESELECT")
         hull_obj.select_set(True)
         bpy.context.view_layer.objects.active = hull_obj
@@ -426,6 +625,12 @@ def export():
     pivot_local = _turret_pivot_local(turret_obj)
     print(f"[technical] turret pivot (source frame, model units): {tuple(round(c, 4) for c in pivot_local)}")
 
+    # The `plate` mask, on the FULL-RESOLUTION hull and therefore before
+    # decimate -- a decimated triangle's UVs straddle Meshy's atlas islands and
+    # read the wrong texel (see `_plate_mask_full`). Same source frame as the
+    # geometric constants, since nothing has been transformed yet.
+    plate_cent, plate_mask = _plate_mask_full(hull_obj)
+
     # Decimate. Order: after measuring extent/pivot on the full mesh, before
     # everything else -- so every later step (rotate, bake scale, ground
     # align) operates on the cheap mesh.
@@ -435,7 +640,8 @@ def export():
     # Role split. Measured in the SOURCE frame on the DECIMATED mesh, so it
     # has to run here -- after decimate, before the scale bake and the
     # 180-degree rotation move every coordinate the constants were fitted to.
-    role_faces = _classify_hull(hull_obj)
+    plate_idx = _transfer_plate(plate_cent, plate_mask, hull_obj)
+    role_faces = _classify_hull(hull_obj, plate_idx)
     hull_pieces = _split_hull(hull_obj, role_faces)
 
     # Contract naming and role, before bake/rotate so nothing downstream
