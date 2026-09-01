@@ -21,6 +21,23 @@ import {
   writeSmokeInstances,
   SmokeMesh,
   type SmokeInstanceBuffers,
+  SMOKE_BOB_AMPLITUDE,
+  SMOKE_DRIFT_AMPLITUDE,
+  SMOKE_SCALE_PULSE_AMOUNT,
+  SMOKE_ALPHA_NOISE_MIN,
+  SMOKE_GROW_DURATION_MS,
+  SMOKE_GROW_ALPHA_FLOOR,
+  SMOKE_GROW_SCALE_FLOOR,
+  smokeTilePhase,
+  smokeBobOffset,
+  smokeDriftX,
+  smokeDriftZ,
+  smokeScalePulse,
+  smokeAlphaNoise,
+  smokeGrowEase,
+  smokeGrowAlphaFactor,
+  smokeGrowScaleFactor,
+  updateSmokeGrowStarts,
 } from './smoke-mesh';
 
 const W = 4;
@@ -180,20 +197,63 @@ describe('SmokeMesh construction', () => {
     expect(Array.from(posAttr.array)).toEqual(Array.from(geo.positions));
   });
 
-  it('writes correct per-instance position into the instance matrix, not merely the right count', () => {
+  // GH #144: the matrix is no longer a bare translation of the tile's own
+  // integer coordinates -- it is composed from that base position plus the
+  // animation offsets `SmokeMesh.update` threads through `smokeDriftX/Z`,
+  // `smokeBobOffset`, `smokeScalePulse` and `smokeGrowScaleFactor`. This
+  // test proves the WIRING -- that `update()` actually calls those exact
+  // pure functions with the tile's own (x, z) and the given `clockMs`, not
+  // that the functions themselves are correct (each has its own dedicated
+  // tests below, in isolation, for that).
+  it('composes the instance matrix from the tile position plus the documented animation offsets, not a bare translation', () => {
     const mesh = new SmokeMesh(W, H);
     const smoke = emptySmoke();
-    smoke[2 * W + 3] = 200; // tile (3, 2)
-    mesh.update(smoke, null, W, H);
+    smoke[2 * W + 3] = 200; // tile (x=3, z=2)
+    const CLOCK = 0; // first-ever update: this tile is also "born" at this clock
+    mesh.update(smoke, null, W, H, CLOCK);
     const m = new THREE.Matrix4();
     mesh.mesh.getMatrixAt(0, m);
     const pos = new THREE.Vector3();
     const quat = new THREE.Quaternion();
     const scale = new THREE.Vector3();
     m.decompose(pos, quat, scale);
-    expect(pos.x).toBeCloseTo(3, 5);
-    expect(pos.y).toBeCloseTo(0, 5);
-    expect(pos.z).toBeCloseTo(2, 5);
+
+    const phase = smokeTilePhase(3, 2);
+    const ageMs = CLOCK - CLOCK; // this exact call is the birth frame
+    const expectedScale = smokeScalePulse(CLOCK, phase) * smokeGrowScaleFactor(ageMs);
+    const centerAdjust = (1 - expectedScale) * 0.5;
+
+    expect(pos.x).toBeCloseTo(3 + centerAdjust + smokeDriftX(CLOCK, phase), 6);
+    expect(pos.y).toBeCloseTo(smokeBobOffset(CLOCK, phase), 6);
+    expect(pos.z).toBeCloseTo(2 + centerAdjust + smokeDriftZ(CLOCK, phase), 6);
+    expect(scale.x).toBeCloseTo(expectedScale, 6);
+    expect(scale.y).toBeCloseTo(expectedScale, 6);
+    expect(scale.z).toBeCloseTo(expectedScale, 6);
+    // No rotation -- smoke quads never yaw (see the class's own
+    // `identityQuat` doc comment).
+    expect(quat.x).toBeCloseTo(0, 6);
+    expect(quat.y).toBeCloseTo(0, 6);
+    expect(quat.z).toBeCloseTo(0, 6);
+    expect(quat.w).toBeCloseTo(1, 6);
+  });
+
+  it('the animation bob is ADDED on top of the tile\'s own elevation, not a replacement for it', () => {
+    const elevation = new Uint8Array([0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const mesh = new SmokeMesh(W, H);
+    const smoke = emptySmoke();
+    smoke[1 * W + 1] = 200; // the raised tile
+    const CLOCK = 777;
+    mesh.update(smoke, elevation, W, H, CLOCK);
+    const m = new THREE.Matrix4();
+    mesh.mesh.getMatrixAt(0, m);
+    const pos = new THREE.Vector3();
+    const quat = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    m.decompose(pos, quat, scale);
+    const groundY = groundWorldY(elevation, W, H, 1, 1);
+    const phase = smokeTilePhase(1, 1);
+    expect(groundY).toBeGreaterThan(0);
+    expect(pos.y).toBeCloseTo(groundY + smokeBobOffset(CLOCK, phase), 6);
   });
 
   it('dispose() releases both geometry and material', () => {
@@ -203,5 +263,250 @@ describe('SmokeMesh construction', () => {
     mesh.dispose();
     expect(geoDispose).toHaveBeenCalled();
     expect(matDispose).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GH #144: presentation animation. Every function below is a plain function
+// of its explicit inputs -- no THREE.*, no Math.random, no Date.now -- so
+// each is exercised directly, the same `environment: 'node'` guarantee the
+// rest of this file relies on.
+// ---------------------------------------------------------------------------
+
+describe('smokeTilePhase', () => {
+  it('is deterministic: the same tile always yields the same phase', () => {
+    expect(smokeTilePhase(5, 9)).toBe(smokeTilePhase(5, 9));
+  });
+
+  it('differs between tiles -- a whole smoke screen does not animate in lockstep', () => {
+    const phases = new Set<number>();
+    for (let y = 0; y < 4; y++) {
+      for (let x = 0; x < 4; x++) {
+        phases.add(smokeTilePhase(x, y));
+      }
+    }
+    // 16 distinct tiles; a shared or degenerate hash would collapse this set.
+    expect(phases.size).toBe(16);
+  });
+});
+
+describe('smokeBobOffset / smokeDriftX / smokeDriftZ / smokeScalePulse -- bounded, deterministic motion', () => {
+  const phase = smokeTilePhase(2, 7);
+
+  it('smokeBobOffset never exceeds its documented amplitude', () => {
+    for (let clockMs = 0; clockMs < 20000; clockMs += 137) {
+      expect(Math.abs(smokeBobOffset(clockMs, phase))).toBeLessThanOrEqual(SMOKE_BOB_AMPLITUDE + 1e-9);
+    }
+  });
+
+  it('smokeDriftX and smokeDriftZ never exceed their documented amplitude', () => {
+    for (let clockMs = 0; clockMs < 20000; clockMs += 149) {
+      expect(Math.abs(smokeDriftX(clockMs, phase))).toBeLessThanOrEqual(SMOKE_DRIFT_AMPLITUDE + 1e-9);
+      expect(Math.abs(smokeDriftZ(clockMs, phase))).toBeLessThanOrEqual(SMOKE_DRIFT_AMPLITUDE + 1e-9);
+    }
+  });
+
+  it('smokeScalePulse stays within 1 +/- SMOKE_SCALE_PULSE_AMOUNT', () => {
+    for (let clockMs = 0; clockMs < 20000; clockMs += 151) {
+      const s = smokeScalePulse(clockMs, phase);
+      expect(s).toBeGreaterThanOrEqual(1 - SMOKE_SCALE_PULSE_AMOUNT - 1e-9);
+      expect(s).toBeLessThanOrEqual(1 + SMOKE_SCALE_PULSE_AMOUNT + 1e-9);
+    }
+  });
+
+  it('every function above is deterministic -- same (clockMs, phase) in, same value out', () => {
+    expect(smokeBobOffset(1234, phase)).toBe(smokeBobOffset(1234, phase));
+    expect(smokeDriftX(1234, phase)).toBe(smokeDriftX(1234, phase));
+    expect(smokeDriftZ(1234, phase)).toBe(smokeDriftZ(1234, phase));
+    expect(smokeScalePulse(1234, phase)).toBe(smokeScalePulse(1234, phase));
+  });
+
+  it('is genuinely time-varying -- not a constant masquerading as motion', () => {
+    expect(smokeBobOffset(0, phase)).not.toBeCloseTo(smokeBobOffset(900, phase), 4);
+  });
+});
+
+describe('smokeAlphaNoise', () => {
+  it('stays within [SMOKE_ALPHA_NOISE_MIN, 1] for every input', () => {
+    const phase = smokeTilePhase(9, 1);
+    for (let clockMs = 0; clockMs < 20000; clockMs += 97) {
+      const v = smokeAlphaNoise(clockMs, phase);
+      expect(v).toBeGreaterThanOrEqual(SMOKE_ALPHA_NOISE_MIN - 1e-9);
+      expect(v).toBeLessThanOrEqual(1 + 1e-9);
+    }
+  });
+
+  it('actually reaches both ends of its range across a full period, rather than sitting flat', () => {
+    const phase = 0;
+    let min = Infinity;
+    let max = -Infinity;
+    for (let clockMs = 0; clockMs < 2000; clockMs += 5) {
+      const v = smokeAlphaNoise(clockMs, phase);
+      min = Math.min(min, v);
+      max = Math.max(max, v);
+    }
+    expect(min).toBeCloseTo(SMOKE_ALPHA_NOISE_MIN, 2);
+    expect(max).toBeCloseTo(1, 2);
+  });
+});
+
+describe('smokeGrowEase / smokeGrowAlphaFactor / smokeGrowScaleFactor', () => {
+  it('smokeGrowEase is 0 at birth and 1 once the grow window has fully elapsed, clamped beyond it', () => {
+    expect(smokeGrowEase(0)).toBe(0);
+    expect(smokeGrowEase(SMOKE_GROW_DURATION_MS)).toBeCloseTo(1, 6);
+    expect(smokeGrowEase(SMOKE_GROW_DURATION_MS * 50)).toBeCloseTo(1, 6);
+  });
+
+  it('smokeGrowAlphaFactor ranges [SMOKE_GROW_ALPHA_FLOOR, 1] and is monotonically non-decreasing across the window', () => {
+    expect(smokeGrowAlphaFactor(0)).toBeCloseTo(SMOKE_GROW_ALPHA_FLOOR, 6);
+    expect(smokeGrowAlphaFactor(SMOKE_GROW_DURATION_MS)).toBeCloseTo(1, 6);
+    let prev = -Infinity;
+    for (let age = 0; age <= SMOKE_GROW_DURATION_MS; age += 10) {
+      const v = smokeGrowAlphaFactor(age);
+      expect(v).toBeGreaterThanOrEqual(prev - 1e-9);
+      prev = v;
+    }
+  });
+
+  it('smokeGrowScaleFactor ranges [SMOKE_GROW_SCALE_FLOOR, 1] and is monotonically non-decreasing across the window', () => {
+    expect(smokeGrowScaleFactor(0)).toBeCloseTo(SMOKE_GROW_SCALE_FLOOR, 6);
+    expect(smokeGrowScaleFactor(SMOKE_GROW_DURATION_MS)).toBeCloseTo(1, 6);
+    let prev = -Infinity;
+    for (let age = 0; age <= SMOKE_GROW_DURATION_MS; age += 10) {
+      const v = smokeGrowScaleFactor(age);
+      expect(v).toBeGreaterThanOrEqual(prev - 1e-9);
+      prev = v;
+    }
+  });
+
+  it('a negative age (should not occur, but growStart could equal clockMs on the exact birth frame) clamps to the floor rather than going out of range', () => {
+    expect(smokeGrowAlphaFactor(-50)).toBeCloseTo(SMOKE_GROW_ALPHA_FLOOR, 6);
+    expect(smokeGrowScaleFactor(-50)).toBeCloseTo(SMOKE_GROW_SCALE_FLOOR, 6);
+  });
+});
+
+describe('updateSmokeGrowStarts', () => {
+  function grid(): { smoke: Uint8Array; prev: Uint8Array; growStart: Float64Array } {
+    return { smoke: emptySmoke(), prev: emptySmoke(), growStart: new Float64Array(W * H) };
+  }
+
+  it('stamps growStart with clockMs for a tile transitioning 0 -> nonzero', () => {
+    const { smoke, prev, growStart } = grid();
+    smoke[5] = 200;
+    updateSmokeGrowStarts(smoke, prev, growStart, 1000, W, H);
+    expect(growStart[5]).toBe(1000);
+  });
+
+  it('leaves growStart untouched for a tile that stays 0', () => {
+    const { smoke, prev, growStart } = grid();
+    updateSmokeGrowStarts(smoke, prev, growStart, 1000, W, H);
+    expect(growStart[5]).toBe(0);
+  });
+
+  it('does NOT restamp a tile that was already nonzero last call -- ongoing smoke keeps its original birth clock', () => {
+    const { smoke, prev, growStart } = grid();
+    smoke[5] = 200;
+    updateSmokeGrowStarts(smoke, prev, growStart, 1000, W, H); // birth at t=1000
+    smoke[5] = 150; // still smoking, just decaying
+    updateSmokeGrowStarts(smoke, prev, growStart, 1500, W, H);
+    expect(growStart[5]).toBe(1000);
+  });
+
+  it('DOES restamp a tile that goes nonzero -> 0 -> nonzero again -- a fresh screen is a new birth', () => {
+    const { smoke, prev, growStart } = grid();
+    smoke[5] = 200;
+    updateSmokeGrowStarts(smoke, prev, growStart, 1000, W, H); // first birth
+    smoke[5] = 0;
+    updateSmokeGrowStarts(smoke, prev, growStart, 2000, W, H); // fully lifted
+    smoke[5] = 255;
+    updateSmokeGrowStarts(smoke, prev, growStart, 3000, W, H); // reborn
+    expect(growStart[5]).toBe(3000);
+  });
+
+  it('updates prevSmoke to the current frame, so the diff base always advances', () => {
+    const { smoke, prev, growStart } = grid();
+    smoke[5] = 200;
+    updateSmokeGrowStarts(smoke, prev, growStart, 1000, W, H);
+    expect(prev[5]).toBe(200);
+  });
+});
+
+describe('SmokeMesh animation integration (GH #144)', () => {
+  function alphaAt(mesh: SmokeMesh, index: number): number {
+    const attr = mesh.mesh.geometry.getAttribute('aAlpha') as THREE.InstancedBufferAttribute;
+    return (attr.array as Float32Array)[index];
+  }
+
+  it('a smoked tile\'s rendered alpha genuinely changes frame to frame even with the sim byte completely unchanged -- the exact flatness GH #144 reports', () => {
+    const mesh = new SmokeMesh(W, H);
+    const smoke = emptySmoke();
+    smoke[5] = 180; // fixed density, never touched again below
+    const seen = new Set<number>();
+    for (let clockMs = 0; clockMs < 4000; clockMs += 233) {
+      mesh.update(smoke, null, W, H, clockMs);
+      seen.add(Number(alphaAt(mesh, 0).toFixed(6)));
+    }
+    // Old behaviour: one value, forever, for an unchanged `d`. New: several.
+    expect(seen.size).toBeGreaterThan(1);
+  });
+
+  it('a smoked tile\'s composed position genuinely changes frame to frame even with the sim byte completely unchanged', () => {
+    const mesh = new SmokeMesh(W, H);
+    const smoke = emptySmoke();
+    smoke[5] = 180;
+    const positions = new Set<string>();
+    const m = new THREE.Matrix4();
+    const pos = new THREE.Vector3();
+    const quat = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    for (let clockMs = 0; clockMs < 8000; clockMs += 401) {
+      mesh.update(smoke, null, W, H, clockMs);
+      mesh.mesh.getMatrixAt(0, m);
+      m.decompose(pos, quat, scale);
+      positions.add(`${pos.x.toFixed(6)},${pos.y.toFixed(6)},${pos.z.toFixed(6)}`);
+    }
+    expect(positions.size).toBeGreaterThan(1);
+  });
+
+  it('never renders a smoked tile fully transparent, even at the exact birth frame (worst case: grow floor and alpha-noise floor both apply)', () => {
+    const mesh = new SmokeMesh(W, H);
+    const smoke = emptySmoke();
+    smoke[0] = 1; // the faintest possible nonzero density
+    for (let clockMs = 0; clockMs < 6000; clockMs += 17) {
+      mesh.update(smoke, null, W, H, clockMs);
+      expect(alphaAt(mesh, 0)).toBeGreaterThan(0);
+    }
+  });
+
+  it('a tile transitioning into smoke THIS frame renders dimmer than the identical density once fully bloomed in -- isolating the grow-in from alpha noise by comparing at the SAME clockMs and SAME tile, so the noise factor is identical in both', () => {
+    const smoke = emptySmoke();
+    smoke[5] = 200; // tile (1, 1) on a 4-wide grid
+    const CLOCK = 12345;
+
+    const justBorn = new SmokeMesh(W, H);
+    justBorn.update(smoke, null, W, H, CLOCK); // prevSmoke was 0 -- this is the birth frame
+
+    const longSince = new SmokeMesh(W, H);
+    longSince.update(smoke, null, W, H, CLOCK - SMOKE_GROW_DURATION_MS * 10); // born long ago
+    longSince.update(smoke, null, W, H, CLOCK); // sampled at the identical clock
+
+    expect(alphaAt(justBorn, 0)).toBeLessThan(alphaAt(longSince, 0));
+  });
+
+  it('the animation is deterministic given the same tick sequence -- two freshly constructed meshes driven through the same clockMs values land on identical alpha and position, matching this codebase\'s no-Math.random VFX convention', () => {
+    const smoke = emptySmoke();
+    smoke[5] = 180;
+    const a = new SmokeMesh(W, H);
+    const b = new SmokeMesh(W, H);
+    for (const clockMs of [0, 233, 466, 4000]) {
+      a.update(smoke, null, W, H, clockMs);
+      b.update(smoke, null, W, H, clockMs);
+    }
+    expect(alphaAt(a, 0)).toBe(alphaAt(b, 0));
+    const ma = new THREE.Matrix4();
+    const mb = new THREE.Matrix4();
+    a.mesh.getMatrixAt(0, ma);
+    b.mesh.getMatrixAt(0, mb);
+    expect(ma.elements).toEqual(mb.elements);
   });
 });

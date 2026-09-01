@@ -1106,6 +1106,15 @@ export class ThreeRenderer implements Renderer {
    *  the uniform; see `terrain/mesh.ts`'s `groveMaterial` doc comment for
    *  the shader-side use. */
   private windClockMs = 0;
+  /** GH #144: `SmokeMesh`'s own animation clock, the same "accumulated
+   *  `dtMs`, never `Date.now()`" shape as `trackClockMs`/`windClockMs`
+   *  immediately above and for the identical reason (`Renderer.frame`'s
+   *  documented contract) -- a separate field, not a reuse of either, so
+   *  smoke's own drift/billow/breathing periods stay independent of what
+   *  the vehicle-track sweep or the grove-wind shader do with their own
+   *  clocks. See `smoke-mesh.ts`'s own "Presentation animation (GH #144)"
+   *  section comment for what this clock drives. */
+  private smokeClockMs = 0;
   /** Ground-unit shadows -- see `./unit-shadows.ts`'s own top comment for
    *  the full design account (why real, depth-tested ground geometry rather
    *  than reusing the air-unit shadow's billboard mechanism). Rebuilt every
@@ -1517,7 +1526,16 @@ export class ThreeRenderer implements Renderer {
     }
     // No dirty gate -- Pixi's own smoke loop redraws every `frame()` call,
     // not behind `fogDirty` (`smokeMesh`'s own doc comment above).
-    this.smokeMesh.update(this.sim.smoke, this.retained.elevation, this.sim.width, this.sim.height);
+    // GH #144: `smokeClockMs` is real accumulated frame time, exactly like
+    // `trackClockMs`/`windClockMs` just below -- never the sim's own tick.
+    this.smokeClockMs += dtMs;
+    this.smokeMesh.update(
+      this.sim.smoke,
+      this.retained.elevation,
+      this.sim.width,
+      this.sim.height,
+      this.smokeClockMs
+    );
     if (this.trailMeshDirty) {
       this.trailMesh.update(this.buildTrailInput());
       this.trailMeshDirty = false;
