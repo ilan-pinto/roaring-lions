@@ -739,9 +739,10 @@ export class Sim {
   private hasBoulders = false;
   readonly cover: Uint8Array;
   /** Elevation level 0-9 per tile, row-major. Stored and hashed; line of sight
-   *  reads it (E2) but sight range and pathing do not yet -- that is E3. It
-   *  is hashed anyway, because a replay that ignored terrain the renderer draws
-   *  would be a replay of a different battlefield. */
+   *  reads it (E2) and, since T1-A, so does the flow field -- a climb costs
+   *  UPHILL_PER_LEVEL a level and a descent is free. Sight RANGE still does not
+   *  and deliberately never will: elevation changes what you can see over,
+   *  never how far. */
   readonly elevation: Uint8Array;
   /** Smoke density per tile, 0-255. Presentation reads it; LOS respects it. */
   readonly smoke: Uint8Array;
@@ -1207,7 +1208,7 @@ export class Sim {
       const mask = this.maskFor(d);
       for (const [goal, idx] of this.fieldByGoal[d]) {
         const gx = goal % this.width;
-        this.fields[idx].compute(mask, gx, (goal - gx) / this.width);
+        this.fields[idx].compute(mask, this.elevation, gx, (goal - gx) / this.width);
       }
     }
   }
@@ -1220,8 +1221,19 @@ export class Sim {
     this.cover[y * this.width + x] = c;
   }
 
+  /**
+   * Raise or lower one tile.
+   *
+   * Recomputes the cached fields for the same reason `setBlocked` does: since
+   * T1-A the flow field prices a climb, so terrain height is pathing input and
+   * a field computed before the ground moved is stale. At map load that loop
+   * is empty and costs nothing — `applyTerrain` runs before any unit has asked
+   * for a field — but the invalidation belongs with the write, not with the
+   * one caller that happens to be safe today.
+   */
   setElevation(x: number, y: number, h: number): void {
     this.elevation[y * this.width + x] = h;
+    this.recomputeFields();
   }
 
   // ------------------------------------------------------------- structures
@@ -1638,7 +1650,7 @@ export class Sim {
     const existing = byGoal.get(key);
     if (existing !== undefined) return existing;
     const field = new FlowField(this.width, this.height);
-    field.compute(this.maskFor(d), gx, gy);
+    field.compute(this.maskFor(d), this.elevation, gx, gy);
     const idx = this.fields.length;
     this.fields.push(field);
     byGoal.set(key, idx);

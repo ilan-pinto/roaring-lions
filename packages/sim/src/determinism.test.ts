@@ -512,3 +512,162 @@ describe('determinism (1000-tick replay)', () => {
     }
   });
 });
+
+// --------------------------------------------------------------- relief ----
+//
+// A SECOND pinned replay, over ground that is not flat.
+//
+// The replay above is flat, and since T1-A that is a hole rather than a
+// nuisance. `setElevation` is never called there, so every climb is 0, the
+// slope term collapses to exactly the arithmetic it replaced, and the golden
+// hash would stay green through a completely broken slope implementation — an
+// inverted sign included. It DID stay green through T1-A, which is evidence
+// that flat ground is untouched and no evidence whatever about slope. This
+// block is the other half.
+//
+// The ground: a nine-by-nine hill, eight levels up, sitting squarely between an
+// assault in the south and its objective in the north. Everything else is flat.
+//
+// A hill rather than a step, deliberately. A climb to a fixed height
+// TELESCOPES — every monotone route from 0 up to 3 pays three levels wherever
+// it crosses — so a plain escarpment prices every crossing alike and would
+// prove nothing about routing. Ground that rises above its destination and
+// comes back down does not telescope: over the top is eighty units of climb
+// bought and all eighty thrown away again, and round the flank is none. The
+// flank is 32 units of extra walking, so the hill is worth going round, and
+// going round is a decision the sign has to be right to make.
+const RELIEF_W = 40;
+const RELIEF_H = 40;
+const RELIEF_SEED = 0x510_9e5;
+const RELIEF_TICKS = 900;
+
+/** Every tile of the hill, x 16-24 by y 14-22. */
+const HILL: number[] = [];
+/**
+ * Its interior, one tile in on every side. Standing on one of these is the only
+ * thing that means "went over the hill".
+ *
+ * The rim is excluded, and the reason is worth stating rather than quietly
+ * dropping: the flanking routes hug the hill and then turn inward toward the
+ * goal, and a diagonal step crosses one tile boundary a tick before the other,
+ * so the assault clips the two northern corners — (16,14) and (24,14) — in
+ * passing. Slope is a COST, not a wall. Nothing clamps a unit off high ground
+ * the way the boulder mask clamps a vehicle, and nothing should: a unit may
+ * stand on a hill, it simply will not route over one to save distance.
+ */
+const HILL_CORE: number[] = [];
+for (let y = 14; y <= 22; y++) {
+  for (let x = 16; x <= 24; x++) {
+    HILL.push(y * RELIEF_W + x);
+    if (x >= 17 && x <= 23 && y >= 15 && y <= 21) HILL_CORE.push(y * RELIEF_W + x);
+  }
+}
+
+/**
+ * The same little battle twice over: an assault north into a held position,
+ * once with the hill in the way and once on ground left flat. Same seed, same
+ * forces, same spawn tiles, same orders — the elevation grid is the only
+ * difference between the two runs.
+ *
+ * `tiles0` is every tile a living attacker stood on, which is what turns "the
+ * hash moved" into "the route moved". The hash alone cannot say that, because
+ * `elevation` is itself hashed.
+ */
+function relief(seed: number, ticks: number, raised: boolean): { sim: Sim; tiles0: Set<number> } {
+  const sim = new Sim({ seed, width: RELIEF_W, height: RELIEF_H, capacity: 32 });
+  if (raised) {
+    for (const t of HILL) sim.setElevation(t % RELIEF_W, (t - (t % RELIEF_W)) / RELIEF_W, 8);
+  }
+  const rifles = sim.addUnitType(RIFLES);
+  const tank = sim.addUnitType(TANK);
+
+  // The assault, in the southern flat, on the hill's own centre line so that
+  // going round is a detour for every one of them rather than the way they
+  // were already walking.
+  const up: number[] = [];
+  for (const [x, y] of [[18, 34], [20, 34], [22, 34], [19, 36], [21, 36]] as const) {
+    up.push(sim.spawn(rifles, 0, fx.fromInt(x), fx.fromInt(y)));
+  }
+  up.push(sim.spawn(tank, 0, fx.fromInt(20), fx.fromInt(37)));
+  // The position they are sent at, held rather than manoeuvring: it is far
+  // enough north that the crossing happens out of its sight, so the route is
+  // chosen by the terrain and the fight starts once the hill is behind them.
+  for (const x of [18, 20, 22]) sim.spawn(rifles, 1, fx.fromInt(x), fx.fromInt(8));
+  sim.spawn(tank, 1, fx.fromInt(20), fx.fromInt(5));
+
+  const tiles0 = new Set<number>();
+  for (let t = 0; t < ticks; t++) {
+    if (t === 10) sim.queueCommand({ kind: 'attackMove', ids: up, x: fx.fromInt(20), y: fx.fromInt(6) });
+    sim.tick();
+    for (const id of up) {
+      if (sim.state.alive[id] === 0) continue;
+      tiles0.add((sim.state.posY[id] >> 16) * RELIEF_W + (sim.state.posX[id] >> 16));
+    }
+  }
+  return { sim, tiles0 };
+}
+
+describe('determinism over relief (900-tick replay round a hill)', () => {
+  it('two independent replays from the same seed produce an identical state hash', () => {
+    const a = relief(RELIEF_SEED, RELIEF_TICKS, true);
+    const b = relief(RELIEF_SEED, RELIEF_TICKS, true);
+    expect(a.sim.hash()).toBe(b.sim.hash());
+  });
+
+  it('the pinned hash', () => {
+    // Pinned for the same reason the flat number above is, and NOT
+    // interchangeable with it: this is the only replay in the repo whose flow
+    // fields carry a non-zero climb, so it is the only one that can catch a
+    // change to UPHILL_PER_LEVEL, to the sign of the climb, or to the slope
+    // term's arithmetic. Move it deliberately, in the commit that moves the
+    // behaviour, and say why.
+    //
+    // Set when T1-A gave the flow field a slope term (UPHILL_PER_LEVEL = 10,
+    // descent free). There is no earlier value: before T1-A this replay would
+    // have been identical to its own flat control.
+    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(2641065416);
+  });
+
+  it('the relief changes the route, not merely the hash', () => {
+    // `elevation` is part of hash(), so "the hash differs" is true of any
+    // raised map whatever the pathing does, and is worth nothing on its own.
+    // This is the assertion that says the slope term is live in this replay:
+    // the same units, from the same tiles, under the same order, stand
+    // somewhere else at the end. Delete the cost term and this fails.
+    const raised = relief(RELIEF_SEED, RELIEF_TICKS, true);
+    const flat = relief(RELIEF_SEED, RELIEF_TICKS, false);
+    expect(raised.sim.hash()).not.toBe(flat.sim.hash());
+    let moved = 0;
+    for (let i = 0; i < flat.sim.entityCount; i++) {
+      if (
+        raised.sim.state.posX[i] !== flat.sim.state.posX[i] ||
+        raised.sim.state.posY[i] !== flat.sim.state.posY[i]
+      ) {
+        moved++;
+      }
+    }
+    expect(moved).toBeGreaterThan(0);
+  });
+
+  it('the assault goes round the hill rather than over it', () => {
+    // What this does NOT test, measured rather than assumed: the SIGN. Flip
+    // `elevation[tile] - elevation[n]` in flowfield.ts and every assertion in
+    // this describe block still passes, the pinned hash above included, byte
+    // for byte. An inverted sign shifts every cost by a term that depends only
+    // on the tile and the goal, so it cannot reorder the routes from a tile —
+    // see the note at the top of flowfield.test.ts, which is where the sign
+    // actually is pinned. What this DOES test is that a rim costs what a rim
+    // should: eighty units of climb bought and thrown away, against 32 units of
+    // extra walking. Deleting the cost term, or zeroing UPHILL_PER_LEVEL, fails
+    // here loudly.
+    const raised = relief(RELIEF_SEED, RELIEF_TICKS, true);
+    expect(HILL_CORE.filter((t) => raised.tiles0.has(t))).toEqual([]);
+  });
+
+  it('and on the identical ground flat it walks straight over the top — the control', () => {
+    // Without this, the test above passes on a map whose geometry, spawn
+    // tiles or order would have sent them round whatever the elevation said.
+    const flat = relief(RELIEF_SEED, RELIEF_TICKS, false);
+    expect(HILL_CORE.some((t) => flat.tiles0.has(t))).toBe(true);
+  });
+});

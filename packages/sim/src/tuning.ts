@@ -168,6 +168,25 @@ export const ROUT_AFTER_TICKS = 200;
 export const ROUT_SPEED_SHIFT = 1;
 export const ROUT_DISTANCE = 393216; // 6 tiles
 
+/** Extra flow-field cost per elevation level CLIMBED, in the same tenths-of-a-
+ *  tile units the field already uses (COST_ORTH 10, COST_DIAG 14). One level of
+ *  climb therefore costs what one extra tile of flat ground costs.
+ *
+ *  Descending is FREE, and the asymmetry is the design rather than an omission:
+ *  high ground is expensive to attack and cheap to withdraw from. A symmetric
+ *  cost would price a retreat downhill exactly like the assault that took the
+ *  hill, and the withdraw-downhill option would stop existing.
+ *
+ *  A plain integer, added straight to an Int32Array of costs -- no Q16.16
+ *  anywhere near the flow field, which is what keeps invariant 2 intact on the
+ *  one code path every unit runs every tick.
+ *
+ *  `pnpm balance` cannot move it. All five GDD 5.7 scenarios are built directly
+ *  by the harness on flat ground and never call `setElevation`, so every climb
+ *  in them is 0. What this number is calibrated against is the ladder: only Tel
+ *  Marum has relief, and only its three missions re-time when it changes. */
+export const UPHILL_PER_LEVEL = 10;
+
 // --- smoke (GDD ability vocabulary) -----------------------------------------
 /** Density a fresh screen puts on each covered tile, and the per-tick burn
  *  that lifts it. 255 at 1 per tick ≈ 13 s of concealment, thinning at the

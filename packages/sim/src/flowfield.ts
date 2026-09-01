@@ -2,7 +2,11 @@
 // unit in the group (never per-unit A*; it collapses above ~50 units).
 // Integer Dijkstra from the goal outward over the tile grid; each tile stores
 // the direction of descent toward the goal. Deterministic: the heap breaks
-// cost ties by tile index.
+// cost ties by tile index. Edge cost is a base step plus an uphill term —
+// variable edge cost is something Dijkstra already handles, so slope is a cost
+// term and not a new algorithm; the priority queue is untouched.
+
+import { UPHILL_PER_LEVEL } from './tuning';
 
 /** Direction encoding 0..7: E, NE, N, NW, W, SW, S, SE. 255 = none/goal. */
 export const DIR_DX = new Int8Array([1, 1, 0, -1, -1, -1, 0, 1]);
@@ -54,8 +58,14 @@ export class FlowField {
    * Recompute the field toward (gx, gy). Diagonal steps require both adjacent
    * orthogonal tiles open — no corner cutting, so a unit following the field
    * never clips a wall corner.
+   *
+   * `elevation` prices the climb, per level, and gives the descent away for
+   * free. It is a required parameter rather than an optional one on purpose:
+   * a caller that forgets it is a map whose relief silently stops mattering,
+   * and there is no symptom to notice. Flat ground is unchanged to the byte —
+   * every climb is 0 there, so the arithmetic collapses to what it was.
    */
-  compute(blocked: Uint8Array, gx: number, gy: number): void {
+  compute(blocked: Uint8Array, elevation: Uint8Array, gx: number, gy: number): void {
     const w = this.width;
     const h = this.height;
     const cost = this.cost;
@@ -127,7 +137,18 @@ export class FlowField {
           // perspective too; expanding goal-outward, that is these two tiles.
           if (blocked[ty * w + nx] !== 0 || blocked[ny * w + tx] !== 0) continue;
         }
-        const nc = c + (diag ? COST_DIAG : COST_ORTH);
+        // Slope. The field expands GOAL-OUTWARD, so the unit walks `n -> tile`,
+        // against the direction this loop reads: the climb it pays is the
+        // tile's height minus the neighbour's, not the other way round.
+        // Inverted, the field makes units PREFER to climb, and that reads as a
+        // plausible-but-odd pathing bug rather than as a sign error.
+        //
+        // Descending is free, deliberately (UPHILL_PER_LEVEL): high ground is
+        // expensive to attack and cheap to withdraw from. All integer, on the
+        // one code path every unit runs every tick.
+        const climb = elevation[tile] - elevation[n];
+        const nc =
+          c + (diag ? COST_DIAG : COST_ORTH) + (climb > 0 ? climb * UPHILL_PER_LEVEL : 0);
         if (nc < cost[n]) {
           cost[n] = nc;
           // The neighbor travels opposite to the expansion direction.
