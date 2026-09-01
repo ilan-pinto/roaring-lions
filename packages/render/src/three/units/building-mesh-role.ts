@@ -47,6 +47,7 @@
  * task's report exactly like the vehicle table is.
  */
 import { readRamp } from './mesh-role';
+import type { CourseSurface } from '../palette-material';
 
 export const BUILDING_MESH_ROLES = [
   'wall',
@@ -101,6 +102,56 @@ const BUILDING_ROLE_PALETTE: Record<Exclude<BuildingMeshRole, 'wall'>, readonly 
   metal: sliceFrom('gunmetal', 2),
   rust: sliceFrom('terracotta', 0),
 };
+
+/**
+ * What a building TYPE's `wall` role is made of, and therefore which
+ * generated surface (if any) its wall material draws --
+ * `palette-material.ts`'s `CourseSurface`, plus `'flat'` for a wall that is
+ * not masonry at all.
+ *
+ * A ninth thing keyed by structure id, and the closed-set rule applies here
+ * exactly as it does to the role vocabulary above: an id outside this table
+ * throws rather than defaulting, so a new structure type is a loud failure
+ * at load rather than a wall that is silently the wrong material.
+ *
+ * The split is the project lead's, not derived from `render_building.py`
+ * (which only knows brick/not-brick), though `brick` matches its three
+ * `brick=True` specs plus `wall`:
+ *
+ *  - `brick`  house, apartment, mosque, wall -- masonry.
+ *  - `panel`  concrete -- poured, so form-work seams at a much larger scale,
+ *             never courses. `render_building.py` leaves this one flat; the
+ *             lead's call is that flat concrete is the same complaint as
+ *             flat masonry, one tier quieter.
+ *  - `flat`   shanty (corrugated sheet), warehouse (metal), camp (canvas
+ *             over HESCO). None of the three is a laid material and coursing
+ *             any of them would be a lie about what it is.
+ */
+export type WallSurface = CourseSurface | 'flat';
+
+const WALL_SURFACE: Record<string, WallSurface> = {
+  house: 'brick',
+  apartment: 'brick',
+  mosque: 'brick',
+  wall: 'brick',
+  concrete: 'panel',
+  shanty: 'flat',
+  warehouse: 'flat',
+  camp: 'flat',
+};
+
+/** The `WallSurface` for a `data/structures.json` type id. Throws for an
+ *  unknown id -- see the table's own comment for why there is no default. */
+export function wallSurfaceForBuilding(structureId: string): WallSurface {
+  const surface = WALL_SURFACE[structureId];
+  if (!surface) {
+    throw new Error(
+      `building-mesh-role: no wall surface for structure type "${structureId}" -- ` +
+        `extend WALL_SURFACE (known: ${Object.keys(WALL_SURFACE).sort().join(', ')})`
+    );
+  }
+  return surface;
+}
 
 /**
  * The ramp slice a building's `rl_role` shades through. `wallColorKey` is a

@@ -278,6 +278,179 @@ export const SPECULAR_GLSL = /* glsl */ `
 `;
 
 /**
+ * ## Coursing: masonry and form-work, generated rather than textured
+ *
+ * `tools/render_building.py` has given SPRITE buildings coursed brick since
+ * the building set shipped (`BuildingSpec.brick`, `brick_material()`), and
+ * the mesh path had no equivalent at all -- `toonRampMaterial` picked one
+ * flat ramp per role, so a mesh house was a slab of `limestone.3` where its
+ * own sprite is visibly masonry. This is the mesh answer to that gap, and it
+ * is deliberately NOT a port of the sprite's method.
+ *
+ * ### Why not a texture
+ *
+ * A shipped GLB carries zero materials, zero images, zero textures
+ * (`tools/validate_mesh_assets.py` enforces it; `ART_PIPELINE.md` states the
+ * rule as "every opaque pixel is exactly a palette entry -- cohesion is
+ * mechanical"). The sprite pipeline gets to be off-palette mid-render and
+ * relies on `quantize_sprites.py` afterwards to snap every pixel back onto
+ * the 41 ramp entries; a real-time renderer has no quantizer downstream, and
+ * this backend's whole palette guarantee (this file's top comment) is that
+ * the fragment shader can only ever WRITE a `uRamp` entry, never compute a
+ * colour. Sampling a brick texture would break that on the first bilinear
+ * tap -- Phase 0 measured the naive setup at 0 of 65 colours on-palette and
+ * it still looked fine, which is exactly why the guarantee is structural
+ * here rather than eyeballed.
+ *
+ * So the pattern selects a STEP of the role's own existing ramp instead of
+ * contributing a colour: `courseShiftSteps` returns an integer in
+ * `[-1, +1]`, the caller adds it to the shading band and re-clamps into
+ * `[0, uSteps - 1]`. Palette-exact by construction, the same property the
+ * muzzle-flash shift and the cel specular above already have -- and the
+ * pattern is free to be as fine as it likes without any risk of inventing a
+ * mortar colour the palette does not name.
+ *
+ * ### What the shift means, and why it is signed
+ *
+ * `+1` (a step DARKER) is the mortar joint; `-1` (a step lighter) is the
+ * alternate brick tone, chosen per brick from a hash so courses are not a
+ * regular two-tone stripe. Signed rather than "mortar only" because the wall
+ * ramp is three steps wide (`building-mesh-role.ts`'s `sliceFrom`) and the
+ * dimetric camera's two visible wall faces do NOT sit on the same band: with
+ * `uLightDir` at `(0.5, 1, 0.3)`, a `+X` face lands on band 1 and a `+Z`
+ * face on band 2, the ramp's darkest step. A mortar-only `+1` would clamp
+ * away to nothing on every `+Z` wall in the scene -- half the visible
+ * masonry, flat again. With the shift signed, the mortar carries the light
+ * face and the brick tint carries the dark one, so no face can be pattern-
+ * less no matter which band it shades to.
+ *
+ * ### Scale is NOT the sprite's scale
+ *
+ * `render_building.py`'s `brick_scale = 6.0` is per BLENDER unit, and its
+ * own comment tunes it against a 512px offline render: with the brick node's
+ * `Row Height` of 0.25 that is `6 / 0.25 = 24` courses per Blender unit, and
+ * at three Blender units per game tile (`units/mesh-anim.ts`'s
+ * `MESH_UNITS_PER_TILE`) that is 72 courses per tile. Reproduced here that
+ * would be well under a pixel per course at gameplay zoom -- pure moire on a
+ * renderer with antialiasing switched off. These numbers are in WORLD units
+ * (one world unit = one game tile) and were measured on screen instead; see
+ * this task's report for the pixel sizes.
+ */
+export const COURSE_SURFACES = ['brick', 'panel'] as const;
+
+/** Which generated wall surface a coursed material draws. `brick` is
+ *  masonry coursing (the sprite pipeline's `BuildingSpec.brick`); `panel` is
+ *  poured concrete -- form-work banding at a much larger scale, since a
+ *  poured wall has panel seams and pour variation, not courses. */
+export type CourseSurface = (typeof COURSE_SURFACES)[number];
+
+/** One surface's geometry, in world units (= game tiles) except
+ *  `tintChance`, which is the fraction of bricks/panels taking the lighter
+ *  step. `joint` is the distance from a brick's edge at which the joint
+ *  starts, so a course's joint reads `2 * joint` thick. */
+export interface CourseSpec {
+  readonly course: number;
+  readonly length: number;
+  readonly joint: number;
+  readonly tintChance: number;
+}
+
+/**
+ * Measured at gameplay zoom (`camera.zoom = 1`), where one world unit of
+ * WALL HEIGHT is `TILE_W * cos(ELEVATION) / sqrt(2)` = 39.2 screen px (the
+ * dimetric camera's square-pixel scale, `camera.ts`), and one world unit of
+ * horizontal run is 35.8 px.
+ *
+ *  - `brick` 0.15 -> 6.7 courses per tile, 5.9 px a course at zoom 1 and
+ *    2.1 px at the 0.35 minimum. A compound wall (`wall.glb`, 0.58 tiles
+ *    tall) therefore carries four courses rather than one stripe.
+ *  - `panel` 0.55 -> 21.6 px a band at zoom 1: seams on a poured wall, not
+ *    a pattern. `tintChance` is a third of brick's so most panels are plain
+ *    and the variation reads as pour rather than as checkerboard.
+ */
+export const COURSE_SPECS: Record<CourseSurface, CourseSpec> = {
+  brick: { course: 0.15, length: 0.3, joint: 0.018, tintChance: 0.45 },
+  panel: { course: 0.35, length: 0.7, joint: 0.016, tintChance: 0.25 },
+};
+
+/** Declared next to `varying vec3 vWorldPos;` in BOTH shaders, and only when
+ *  coursing is on. Leading newline so the non-coursing source is byte
+ *  identical -- see `toonRampMaterial`'s own note on the splice points. */
+export const COURSE_VARYING_GLSL = /* glsl */ `
+      varying vec3 vWorldNormal;`;
+
+/** The vertex-shader half. `mat3(modelMatrix)` rather than a full inverse-
+ *  transpose: every caller that opts in is a building mesh, uniformly scaled
+ *  by `MESH_SCALE`, and a uniform scale leaves a normal's DIRECTION alone --
+ *  which is all `courseShiftSteps` reads it for (it picks a projection
+ *  plane; it never shades with it). `vNormal` cannot be reused for this:
+ *  that one is transformed by `normalMatrix` into VIEW space, and the
+ *  triplanar choice has to be made in world space or courses stop running
+ *  level. */
+export const COURSE_VERTEX_GLSL = /* glsl */ `
+        vWorldNormal = mat3(modelMatrix) * rlNormal;`;
+
+/** Applied straight after the shading band is quantized and before the
+ *  muzzle-flash shift, so a flash still brightens whatever the coursing
+ *  left. `min`/`max` rather than `clamp` because integer `clamp` is a
+ *  GLSL ES 3.00 overload and this shader compiles as ESSL1 -- the two lines
+ *  around it already bound `band` the same way. */
+export const COURSE_APPLY_GLSL = /* glsl */ `
+        band = min(max(band + courseShiftSteps(vWorldPos, vWorldNormal), 0), uSteps - 1);`;
+
+/**
+ * The fragment-shader half for one surface: a hash and `courseShiftSteps`.
+ *
+ * Triplanar by DOMINANT AXIS (a hard `if`, not a blend): the wall's rows
+ * must run along world Y, so a face whose normal is mostly X is patterned in
+ * ZY and one mostly Z in XY. Blending three projections is the usual
+ * triplanar recipe and is wrong here twice over -- it would mix two integer
+ * shifts into a fractional one, and there is nothing to hide a seam on
+ * geometry that is all box faces meeting at right angles.
+ *
+ * The hash is Dave Hoskins' `hash12` rather than the `fract(sin(...))` form:
+ * `sin` at large arguments is where that idiom loses precision, and a wall
+ * 40 tiles out from the origin is 260 courses up the row counter.
+ *
+ * Pattern phase comes from WORLD position, not from model-local position,
+ * so two houses standing side by side course continuously into each other
+ * instead of each restarting at its own origin.
+ */
+export function courseShiftGlsl(surface: CourseSurface): string {
+  const s = COURSE_SPECS[surface];
+  return /* glsl */ `
+  float rlCourseHash(vec2 p) {
+    vec3 q = fract(vec3(p.xyx) * 0.1031);
+    q += dot(q, q.yzx + 33.33);
+    return fract((q.x + q.y) * q.z);
+  }
+
+  int courseShiftSteps(vec3 worldPos, vec3 worldNormal) {
+    vec3 an = abs(normalize(worldNormal));
+    vec2 uv;
+    if (an.y >= max(an.x, an.z)) {
+      uv = worldPos.xz;
+    } else if (an.x >= an.z) {
+      uv = vec2(worldPos.z, worldPos.y);
+    } else {
+      uv = vec2(worldPos.x, worldPos.y);
+    }
+    float row = floor(uv.y / ${s.course.toFixed(4)});
+    // Running bond: every other course offsets by half a brick.
+    float u = uv.x + mod(row, 2.0) * ${(s.length * 0.5).toFixed(4)};
+    float col = floor(u / ${s.length.toFixed(4)});
+    float fu = u - col * ${s.length.toFixed(4)};
+    float fv = uv.y - row * ${s.course.toFixed(4)};
+    float edge = min(min(fu, ${s.length.toFixed(4)} - fu), min(fv, ${s.course.toFixed(4)} - fv));
+    if (edge < ${s.joint.toFixed(4)}) {
+      return 1;
+    }
+    return rlCourseHash(vec2(col, row)) < ${s.tintChance.toFixed(3)} ? -1 : 0;
+  }
+`;
+}
+
+/**
  * A toon-shaded material that quantizes `N·L` into `uSteps` bands and reads
  * the fragment colour out of `uRamp` -- never computed. A shaded fragment
  * cannot emit an off-palette colour because the only values it can write are
@@ -339,7 +512,7 @@ export const SPECULAR_GLSL = /* glsl */ `
  */
 export function toonRampMaterial(
   rampHexes: readonly string[],
-  opts: { specular?: boolean } = {}
+  opts: { specular?: boolean; coursing?: CourseSurface } = {}
 ): THREE.ShaderMaterial {
   if (rampHexes.length === 0) {
     throw new Error('toonRampMaterial: ramp must have at least one colour');
@@ -350,6 +523,10 @@ export function toonRampMaterial(
     );
   }
   const specular = opts.specular ?? false;
+  // `undefined`, not `'flat'`: coursing is opt-in and every splice below
+  // collapses to the empty string without it, which is what keeps the
+  // generated source byte-identical for units, vehicles and decor.
+  const coursing = opts.coursing;
 
   const padded: THREE.Color[] = rampHexes.map((hex) => paletteColorNoConvert(hex));
   // Pad to RAMP_MAX with the ramp's own darkest (last) entry so three.js can
@@ -373,7 +550,7 @@ export function toonRampMaterial(
     vertexShader: /* glsl */ `
       #include <batching_pars_vertex>
       varying vec3 vNormal;
-      varying vec3 vWorldPos;
+      varying vec3 vWorldPos;${coursing ? COURSE_VARYING_GLSL : ''}
       void main() {
         #include <batching_vertex>
         vec3 rlNormal = normal;
@@ -393,7 +570,7 @@ export function toonRampMaterial(
           rlPos = batchingMatrix * rlPos;
         #endif
         vNormal = normalize(normalMatrix * rlNormal);
-        vWorldPos = (modelMatrix * rlPos).xyz;
+        vWorldPos = (modelMatrix * rlPos).xyz;${coursing ? COURSE_VERTEX_GLSL : ''}
         gl_Position = projectionMatrix * modelViewMatrix * rlPos;
       }
     `,
@@ -404,16 +581,16 @@ export function toonRampMaterial(
       ${specular ? SPECULAR_UNIFORMS_GLSL : ''}
       ${FLASH_UNIFORMS_GLSL}
       varying vec3 vNormal;
-      varying vec3 vWorldPos;
+      varying vec3 vWorldPos;${coursing ? COURSE_VARYING_GLSL : ''}
 
       ${FLASH_SHIFT_GLSL}
-      ${specular ? SPECULAR_GLSL : ''}
+      ${specular ? SPECULAR_GLSL : ''}${coursing ? courseShiftGlsl(coursing) : ''}
 
       void main() {
         float nl = max(dot(normalize(vNormal), normalize(uLightDir)), 0.0);
         // Quantize into uSteps bands, brightest band -> index 0.
         int band = int(floor((1.0 - nl) * float(uSteps)));
-        band = min(band, uSteps - 1);
+        band = min(band, uSteps - 1);${coursing ? COURSE_APPLY_GLSL : ''}
         // Muzzle-flash ramp shift: a nearby active flash steps this
         // fragment's band toward 0 (brighter), never past it -- see this
         // file's own "The muzzle-flash 'light'" doc comment above.

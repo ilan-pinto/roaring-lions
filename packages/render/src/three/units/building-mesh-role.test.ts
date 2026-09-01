@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { BUILDING_MESH_ROLES, isBuildingMeshRole, rampForBuildingRole } from './building-mesh-role';
+import structuresJson from '../../../../../data/structures.json';
+import {
+  BUILDING_MESH_ROLES,
+  isBuildingMeshRole,
+  rampForBuildingRole,
+  wallSurfaceForBuilding,
+} from './building-mesh-role';
 
 describe('building-mesh-role', () => {
   it('recognises the closed eight-role building vocabulary', () => {
@@ -45,6 +51,33 @@ describe('building-mesh-role', () => {
     const roof = rampForBuildingRole('roof', 'limestone.1');
     const wood = rampForBuildingRole('wood', 'limestone.1');
     expect(wood).not.toEqual(roof);
+  });
+
+  it('gives every shipped structure type a wall surface', () => {
+    // Read off data/structures.json rather than a list retyped here: a new
+    // structure type must fail this the day it lands, not the day someone
+    // notices its wall is flat.
+    for (const id of Object.keys(structuresJson.types)) {
+      expect(['brick', 'panel', 'flat']).toContain(wallSurfaceForBuilding(id));
+    }
+  });
+
+  it('courses masonry, panels concrete, and leaves sheet/metal/canvas flat', () => {
+    // The lead's split, verbatim. `house`/`apartment`/`mosque` are exactly
+    // `render_building.py`'s three `brick=True` specs; `wall` is the
+    // compound wall it leaves flat and this does not.
+    expect(wallSurfaceForBuilding('house')).toBe('brick');
+    expect(wallSurfaceForBuilding('apartment')).toBe('brick');
+    expect(wallSurfaceForBuilding('mosque')).toBe('brick');
+    expect(wallSurfaceForBuilding('wall')).toBe('brick');
+    expect(wallSurfaceForBuilding('concrete')).toBe('panel');
+    expect(wallSurfaceForBuilding('shanty')).toBe('flat');
+    expect(wallSurfaceForBuilding('warehouse')).toBe('flat');
+    expect(wallSurfaceForBuilding('camp')).toBe('flat');
+  });
+
+  it('throws for a structure type it has no surface for', () => {
+    expect(() => wallSurfaceForBuilding('bunker')).toThrow(/no wall surface/);
   });
 
   it('gives every role (except wall) a real multi-step ramp', () => {

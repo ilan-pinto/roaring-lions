@@ -193,6 +193,7 @@ import {
   buildingSettleScale,
   type BuildingMeshTemplate,
 } from './units/mesh-building';
+import { wallSurfaceForBuilding } from './units/building-mesh-role';
 import {
   beginMeshDeath,
   stepMeshDeath,
@@ -2917,8 +2918,13 @@ export class ThreeRenderer implements Renderer {
       throw new Error(`loadBuildingMesh: unknown structure type "${structureId}"`);
     }
     const wallColorKey = structureType.color;
+    // What the wall is MADE of, keyed by type id -- masonry courses, poured-
+    // concrete form-work banding, or flat. Resolved here, once, beside
+    // `wallColorKey` and threaded into both templates for the same reason: a
+    // wrecked masonry wall is still masonry.
+    const wallSurface = wallSurfaceForBuilding(structureId);
 
-    const idleTemplate = await loadBuildingMeshTemplate(idleUrl, wallColorKey);
+    const idleTemplate = await loadBuildingMeshTemplate(idleUrl, wallColorKey, wallSurface);
     const previousIdle = this.buildingMeshIdleTemplates.get(structureId);
     if (previousIdle) {
       // `buildingMeshIdleEntities` is keyed by STRUCTURE INDEX, not type --
@@ -2944,7 +2950,7 @@ export class ThreeRenderer implements Renderer {
     }
 
     if (wreckUrl) {
-      const wreckTemplate = await loadBuildingMeshTemplate(wreckUrl, wallColorKey);
+      const wreckTemplate = await loadBuildingMeshTemplate(wreckUrl, wallColorKey, wallSurface);
       const previousWreck = this.buildingMeshWreckTemplates.get(structureId);
       if (previousWreck) {
         const st = this.sim.structures;

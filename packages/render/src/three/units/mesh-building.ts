@@ -24,7 +24,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { toonRampMaterial } from '../palette-material';
-import { isBuildingMeshRole, rampForBuildingRole } from './building-mesh-role';
+import { isBuildingMeshRole, rampForBuildingRole, type WallSurface } from './building-mesh-role';
 import { MESH_SCALE } from './mesh-anim';
 import { HULL_RENDER_ORDER } from './render-order';
 
@@ -45,10 +45,19 @@ export interface BuildingMeshTemplate {
  * for the mosque) -- see `building-mesh-role.ts`'s top comment for why this
  * is a required parameter rather than a default, and why it is sourced from
  * `Sim` rather than `@lions/data` (this package must not import that).
+ *
+ * `wallSurface` is the same shape of decision: what the wall is MADE of
+ * (`wallSurfaceForBuilding`, keyed by structure type id), which decides
+ * whether the wall material generates coursing and of which kind. Required,
+ * not defaulted to `'flat'`, for the identical reason `wallColorKey` is
+ * required -- a default would quietly mean "whatever the caller forgot to
+ * look up", and its failure mode (a flat wall) is indistinguishable from
+ * the bug this parameter exists to fix.
  */
 export function buildBuildingMeshTemplate(
   gltf: Pick<GLTF, 'scene'>,
-  wallColorKey: string
+  wallColorKey: string,
+  wallSurface: WallSurface
 ): BuildingMeshTemplate {
   const root = gltf.scene;
   root.scale.setScalar(MESH_SCALE);
@@ -71,7 +80,21 @@ export function buildBuildingMeshTemplate(
     // glass/vehicle-hull surfaces, and a building wall's own ramp is a
     // plaster/concrete tone (`rampForBuildingRole`), not a hard one. See
     // `units/mesh-vehicle.ts`'s own call site for the one that opts in.
-    const mat = toonRampMaterial(rampForBuildingRole(role, wallColorKey));
+    //
+    // Coursing is `wall`-only and surface-gated. Not because the other
+    // seven roles could not carry a pattern, but because none of them is a
+    // laid material: `roof` is a packed-earth deck, `dome`/`trim` are
+    // rendered plaster, `metal`/`glass`/`rust`/`wood` name themselves.
+    // `render_building.py` draws the identical line -- its brick material
+    // reaches `WALL_ROLE` and nothing else -- and its `smooth_parts` list
+    // (domes, finials, drums stay flat, "coursing a curved surface reads as
+    // scaffolding, not stonework") needs no counterpart here: on every
+    // shipped GLB those parts already carry their own `dome`/`trim` role,
+    // so the curved geometry is outside `wall` by construction rather than
+    // by a name-fragment match.
+    const mat = toonRampMaterial(rampForBuildingRole(role, wallColorKey), {
+      ...(role === 'wall' && wallSurface !== 'flat' ? { coursing: wallSurface } : {}),
+    });
     mesh.material = mat;
     mesh.renderOrder = HULL_RENDER_ORDER;
     materials.push(mat);
@@ -87,9 +110,13 @@ export function buildBuildingMeshTemplate(
 
 /** Fetches and parses `glbUrl`, then builds a `BuildingMeshTemplate` --
  *  mirrors `loadMeshUnitTemplate`/`loadVehicleMeshTemplate` exactly. */
-export async function loadBuildingMeshTemplate(glbUrl: string, wallColorKey: string): Promise<BuildingMeshTemplate> {
+export async function loadBuildingMeshTemplate(
+  glbUrl: string,
+  wallColorKey: string,
+  wallSurface: WallSurface
+): Promise<BuildingMeshTemplate> {
   const gltf = await new GLTFLoader().loadAsync(glbUrl);
-  return buildBuildingMeshTemplate(gltf, wallColorKey);
+  return buildBuildingMeshTemplate(gltf, wallColorKey, wallSurface);
 }
 
 /** One placed structure's mesh instance -- a plain clone with no per-entity
