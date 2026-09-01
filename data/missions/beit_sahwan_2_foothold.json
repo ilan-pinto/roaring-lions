@@ -3,7 +3,7 @@
   "name": "Beit Sahwan II \u2014 Foothold",
   "town": "beit_sahwan",
   "phase": "foothold",
-  "target_minutes": 12,
+  "target_minutes": 7,
   "briefing": "The battalion has its foothold west of town and Ashwar knows it. Hold the western approach for five minutes while the engineers dig in behind you. The corridor delivers reinforcements \u2014 spend them well; what survives tonight clears the town tomorrow. One more thing: Ashwar digs. Intel says a crew is already cutting a shaft out of town \u2014 watch for spoil creeping toward your line, and keep the Yahalom engineers alive; they are the only team that can bring a tunnel down.",
   "map": {
     "file": "beit_sahwan_outskirts",

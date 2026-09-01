@@ -3,7 +3,7 @@
   "name": "Beit Sahwan I \u2014 Recon",
   "town": "beit_sahwan",
   "phase": "recon",
-  "target_minutes": 10,
+  "target_minutes": 7,
   "briefing": "Before anything moves on Beit Sahwan, command needs the picture. The battalion has attached one of everything it owns \u2014 armor, an IFV, mortars, scouts and a drone \u2014 so use this approach to learn your tools. Push the drone east and identify six garrison positions; keep the heavy metal back as a screen. Do not get decisively engaged, and mind the mortar near houses: what you find and who you bring home is what the brigade fights with next week.",
   "map": {
     "file": "beit_sahwan_outskirts",
