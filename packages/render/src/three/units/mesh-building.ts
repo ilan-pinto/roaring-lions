@@ -6,12 +6,16 @@
  * one, identically -- the caller (`ThreeRenderer.loadBuildingMesh`) is what
  * knows which file is which and swaps between the two templates it builds.
  *
- * No render-order distinction either (unlike vehicles' hull/turret split):
- * every building mesh part is left at `HULL_RENDER_ORDER`, three.js's own
- * default, exactly like `StructureInstancer`'s billboards -- see
- * `units/render-order.ts`'s own table, band 0's row, for why that is real
- * depth-tested world geometry rather than something needing an explicit
- * band.
+ * No render-order distinction between a building's own parts (unlike
+ * vehicles' hull/turret split): every part draws at `WORLD_RENDER_ORDER`,
+ * one band BELOW every unit. That band is not about compositing -- these
+ * meshes are opaque and the depth buffer settles what covers what
+ * regardless of submission order -- it is about `units/silhouette.ts`'s
+ * stencil mask, which is only correct if a unit body is depth-tested
+ * against a world that has already drawn. See `units/render-order.ts`'s
+ * own table, band -1's row, for the measured incident (a tank behind an
+ * apartment silhouetting as a few slivers) and for why three.js's opaque
+ * sort otherwise leaves this to whichever GLB loaded first.
  *
  * The footprint anchor is the model's own world origin at z≈0 (the
  * contract's own words) -- so, unlike a vehicle or a billboard, a building
@@ -26,7 +30,7 @@ import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { toonRampMaterial } from '../palette-material';
 import { isBuildingMeshRole, rampForBuildingRole, type WallSurface } from './building-mesh-role';
 import { MESH_SCALE } from './mesh-anim';
-import { HULL_RENDER_ORDER } from './render-order';
+import { WORLD_RENDER_ORDER } from './render-order';
 
 /** One loaded `art/meshes/buildings/<type>.glb` or `<type>_wreck.glb`, kept
  *  as a clone source -- mirrors `MeshUnitTemplate`/`VehicleMeshTemplate`'s
@@ -96,7 +100,7 @@ export function buildBuildingMeshTemplate(
       ...(role === 'wall' && wallSurface !== 'flat' ? { coursing: wallSurface } : {}),
     });
     mesh.material = mat;
-    mesh.renderOrder = HULL_RENDER_ORDER;
+    mesh.renderOrder = WORLD_RENDER_ORDER;
     materials.push(mat);
     geometries.push(mesh.geometry);
   });

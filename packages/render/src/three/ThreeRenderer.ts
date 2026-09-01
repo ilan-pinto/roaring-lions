@@ -139,7 +139,7 @@ import { dirtyForStructureHit, dirtyForStructureDestroyed } from './terrain/dirt
 import { isGrindingHit } from '../grind';
 import { packSheet, buildUnitTexture } from './units/atlas';
 import { entityFrame, assignRoofSlots, AIR_LIFT_PX, type EntityFrameInput, type EntityFrame } from './units/frame-state';
-import { UnitInstancer, TURRET_RENDER_ORDER } from './units/instances';
+import { UnitInstancer, TURRET_RENDER_ORDER, HULL_RENDER_ORDER } from './units/instances';
 import { pickUnit as pickUnitPure, unitsInScreenRect as unitsInScreenRectPure } from './units/pick';
 import { stepTracers, spawnTracer, type TracerModel } from './units/tracers';
 import { stepShells, spawnShell, shellKindFor, type ShellModel } from './units/shells';
@@ -166,6 +166,15 @@ import {
   resolveRoofPx,
 } from './units/structures';
 import { STRUCTURE_RENDER_ORDER } from './units/render-order';
+import { unitIsObserved } from './units/observed';
+import {
+  SILHOUETTE_COLOR_KEY_BY_SIDE,
+  SILHOUETTE_FALLBACK_HEX_BY_SIDE,
+  silhouetteSideIndex,
+  createMeshSilhouetteMaterial,
+  attachMeshSilhouette,
+  detachMeshSilhouette,
+} from './units/silhouette';
 import {
   loadMeshUnitTemplate,
   instantiateMeshUnit,
@@ -263,6 +272,13 @@ interface DyingUnit {
   facing: number;
   typeId: string;
   t: number;
+  /** Whose it was. Carried only so the synthetic `EntityFrame` this becomes
+   *  can be team-coloured by the occlusion silhouette (`units/silhouette.ts`)
+   *  -- a corpse fading behind a building is drawn through the same
+   *  `UnitInstancer` a living unit is, and therefore through the same
+   *  silhouette mesh, so it needs the same one fact the art does not carry.
+   *  Nothing else reads it. */
+  side: number;
 }
 
 /**
@@ -283,6 +299,8 @@ interface UnitWreck {
   y: number;
   facing: number;
   typeId: string;
+  /** Whose it was -- see `DyingUnit.side` for why a corpse carries one. */
+  side: number;
   /** Sticky reveal: latches true once the tile has ever been explored, and
    *  never back to false -- `renderer.ts:1200`'s "Never goes back to false",
    *  identical to `mesh-death.ts`'s own `MeshWreck.shown`. */
@@ -1078,6 +1096,17 @@ export class ThreeRenderer implements Renderer {
    */
   private readonly overlayBatch: OverlayBatch;
   private readonly numeralBatch: NumeralBatch;
+  /**
+   * The three occlusion-silhouette team colours (`units/silhouette.ts`),
+   * indexed by `silhouetteSideIndex`, resolved once at construction.
+   * `silhouetteTeamColors` feeds every billboard `UnitInstancer`'s own
+   * per-instance shader; `silhouetteMeshMaterials` is the mesh path's
+   * equivalent -- three `MeshBasicMaterial`s shared by every mesh unit and
+   * mesh vehicle on the map, so the whole feature adds three materials, not
+   * one per unit.
+   */
+  private readonly silhouetteTeamColors: THREE.Color[];
+  private readonly silhouetteMeshMaterials: THREE.MeshBasicMaterial[];
   /** Frame counter Pixi's own pulsing overlays (`Math.sin(this.frameN *
    *  k)`) are keyed off -- `PixiRenderer.frameN` (`renderer.ts:1881`,
    *  `this.frameN++`), incremented once per `frame()` call (display refresh
@@ -1261,11 +1290,27 @@ export class ThreeRenderer implements Renderer {
       sim.capacity,
       opts.resolveColor ? opts.resolveColor(BADGE_TEXT_COLOR_KEY) : '#14150F'
     );
+    // Occlusion silhouettes: three colours for the whole scene, resolved
+    // once here rather than per unit type or per entity. Indexed by
+    // `silhouetteSideIndex` -- see `units/silhouette.ts` for the mechanism
+    // and for why the colour is "whose unit is that" rather than anything
+    // about the unit's own art.
+    this.silhouetteTeamColors = SILHOUETTE_COLOR_KEY_BY_SIDE.map(
+      (key, slot) => new THREE.Color(this.overlayColor(key, SILHOUETTE_FALLBACK_HEX_BY_SIDE[slot]))
+    );
+    this.silhouetteMeshMaterials = SILHOUETTE_COLOR_KEY_BY_SIDE.map((key, slot) =>
+      createMeshSilhouetteMaterial(this.overlayColor(key, SILHOUETTE_FALLBACK_HEX_BY_SIDE[slot]))
+    );
     // antialias stays off deliberately (Phase 0 verdict, "Antialiasing must
     // be off, or accounted for"): a blended edge pixel is by definition not
     // a palette colour, and this backend's sprite/toon pipeline quantizes
     // rather than blends. Do not re-enable it without accounting for edges.
-    this.renderer = new THREE.WebGLRenderer({ antialias: false });
+    // `stencil: true` is NOT boilerplate: `units/silhouette.ts` masks a
+    // unit's own far side out of its occlusion silhouette with a one-bit
+    // stencil, and three.js's own default is `stencil: false`. With no
+    // stencil attachment the test silently always passes and every vehicle
+    // grows flat blue patches in the open -- measured, not feared.
+    this.renderer = new THREE.WebGLRenderer({ antialias: false, stencil: true });
     // outputColorSpace and the clear colour, in the one order that is
     // correct -- see palette-material.ts's module doc comment for why
     // three.js reads outputColorSpace synchronously inside setClearColor(),
@@ -1877,6 +1922,7 @@ export class ThreeRenderer implements Renderer {
           facing: fx.toNumber(st.facing[e.entity]),
           typeId: deadType.id,
           t: 0,
+          side: st.side[e.entity],
         });
         // A hard-target kill (a vehicle) reuses the SAME pooled
         // explosion-burst mesh `structureDestroyed` already draws below --
@@ -2586,6 +2632,11 @@ export class ThreeRenderer implements Renderer {
   isVisible(wx: number, wy: number): boolean {
     return isFogVisible(this.fog, this.sim.width, this.sim.height, wx, wy);
   }
+  /** `isVisible` as a value, bound once at construction rather than
+   *  re-closed per entity per frame -- `units/observed.ts` takes fog as a
+   *  predicate so it can stay free of `ThreeRenderer`, and the three unit
+   *  loops call it once per living entity. */
+  private readonly fogVisibleAt = (wx: number, wy: number): boolean => this.isVisible(wx, wy);
   /**
    * Living units whose projected FEET fall inside a screen-space rect --
    * box-select's answer. A genuine projection question, unlike `pickUnit`
@@ -2703,16 +2754,25 @@ export class ThreeRenderer implements Renderer {
     const sheet: SheetSpec = parseManifest(await res.json());
     const packing = packSheet(sheet);
     const texture = await buildUnitTexture(basePath, sheet, packing);
-    const instancer = new UnitInstancer(sheet, texture, packing, this.sim.capacity);
+    const instancer = new UnitInstancer(
+      sheet,
+      texture,
+      packing,
+      this.sim.capacity,
+      HULL_RENDER_ORDER,
+      this.silhouetteTeamColors
+    );
     // A re-load (unlikely, but `loadSprites` carries no such guarantee
     // against it) must not leak the mesh/material/texture it replaces.
     const previous = this.unitInstancers.get(unitTypeId);
     if (previous) {
       this.scene.remove(previous.mesh);
+      if (previous.silhouette) this.scene.remove(previous.silhouette);
       previous.dispose();
     }
     this.unitInstancers.set(unitTypeId, instancer);
     this.scene.add(instancer.mesh);
+    if (instancer.silhouette) this.scene.add(instancer.silhouette);
 
     if (opts?.turretPath) {
       const turretRes = await fetch(`${opts.turretPath}manifest.json`);
@@ -2728,15 +2788,21 @@ export class ThreeRenderer implements Renderer {
         // Explicit, tested render-order split (instances.ts's own doc
         // comment) -- draws above its hull at every co-located, identical-
         // depth instance, not merely by construction-order accident.
-        TURRET_RENDER_ORDER
+        TURRET_RENDER_ORDER,
+        // A turret gets its own silhouette for the same reason it gets its
+        // own mesh: without it, an occluded tank would show a hull-shaped
+        // cut-out with a hole where its turret is.
+        this.silhouetteTeamColors
       );
       const previousTurret = this.turretInstancers.get(unitTypeId);
       if (previousTurret) {
         this.scene.remove(previousTurret.mesh);
+        if (previousTurret.silhouette) this.scene.remove(previousTurret.silhouette);
         previousTurret.dispose();
       }
       this.turretInstancers.set(unitTypeId, turretInstancer);
       this.scene.add(turretInstancer.mesh);
+      if (turretInstancer.silhouette) this.scene.add(turretInstancer.silhouette);
     } else {
       // A re-load that DROPS a previously-declared turretPath (not exercised
       // by any real caller today -- `main.ts`'s SPRITE_MAP is static -- but
@@ -2745,6 +2811,7 @@ export class ThreeRenderer implements Renderer {
       const stale = this.turretInstancers.get(unitTypeId);
       if (stale) {
         this.scene.remove(stale.mesh);
+        if (stale.silhouette) this.scene.remove(stale.silhouette);
         stale.dispose();
         this.turretInstancers.delete(unitTypeId);
       }
@@ -3318,7 +3385,12 @@ export class ThreeRenderer implements Renderer {
         // way, from `prevX`/`curX`/`alpha`, before its own `isVisible` call).
         const ix = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
         const iy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
-        if (!this.isVisible(ix, iy)) continue;
+        // `units/observed.ts` owns this rule for every draw path in this
+        // backend, silhouettes included -- see that module's own top comment
+        // for why it is one function rather than the three copies of
+        // `side === 0 || isVisible(...)` that used to live here, in
+        // `updateMeshUnits` and in `updateVehicleMeshes`.
+        if (!unitIsObserved(side, ix, iy, this.fogVisibleAt)) continue;
       }
       const type = this.sim.unitTypes[st.typeIdx[i]];
       // A type drawn through the mesh-unit path (`updateMeshUnits`, called
@@ -3501,6 +3573,14 @@ export class ThreeRenderer implements Renderer {
       let entity = this.meshUnitEntities.get(i);
       if (!entity) {
         entity = instantiateMeshUnit(template, type.id);
+        // The occlusion silhouette, attached ONCE at instantiation and
+        // never touched again: it lives inside this entity's own subtree,
+        // shares each mesh's geometry and skeleton, and therefore inherits
+        // position, pose and -- the part that matters -- `root.visible`.
+        // See `units/silhouette.ts` for why that structural inheritance,
+        // rather than a second visibility test, is what keeps a silhouette
+        // from ever revealing a fogged unit.
+        attachMeshSilhouette(entity.root, this.silhouetteMaterialFor(st.side[i]));
         this.meshUnitEntities.set(i, entity);
         this.scene.add(entity.root);
       }
@@ -3513,7 +3593,7 @@ export class ThreeRenderer implements Renderer {
       // Side 0 (the player's own) is always drawn, matching `entityFrame`'s
       // own `contactLevel` short-circuit for it -- everything else defers to
       // real fog-of-war, exactly like `updateUnits`'s own `isVisible` gate.
-      entity.root.visible = st.side[i] === 0 || this.isVisible(wx, wy);
+      entity.root.visible = unitIsObserved(st.side[i], wx, wy, this.fogVisibleAt);
 
       const anim: UnitAnimInput = {
         alive: st.alive[i],
@@ -3545,6 +3625,13 @@ export class ThreeRenderer implements Renderer {
     for (const [id, entity] of this.meshUnitEntities) {
       if (id < n && st.alive[id] !== 0) continue;
       this.meshUnitEntities.delete(id);
+      // Detach BEFORE the death sequence takes the entity. `mesh-death.ts`
+      // clones every mesh's material to fade it and then writes
+      // `uniforms.uOpacity` on the clone -- which a silhouette's
+      // `MeshBasicMaterial` does not have, and which would in any case be
+      // mutating a material shared by every other unit on that side. A
+      // wreck has nothing left to keep track of either.
+      detachMeshSilhouette(entity.root);
       this.meshDying.push(beginMeshDeath(entity));
     }
     this.stepMeshDeaths(dtSeconds);
@@ -3609,6 +3696,10 @@ export class ThreeRenderer implements Renderer {
       let entity = this.vehicleMeshEntities.get(i);
       if (!entity) {
         entity = instantiateVehicleMesh(template, type.id);
+        // Same attach-once contract as `updateMeshUnits` above -- and here
+        // the turret comes along for free, because a vehicle's turret
+        // meshes hang off `turretPivot` inside this same subtree.
+        attachMeshSilhouette(entity.root, this.silhouetteMaterialFor(st.side[i]));
         this.vehicleMeshEntities.set(i, entity);
         this.scene.add(entity.root);
       }
@@ -3659,7 +3750,7 @@ export class ThreeRenderer implements Renderer {
       // local-frame pitch rather than a world-axis tilt.
       entity.root.rotation.x = hullPitch;
       entity.root.rotation.y = meshYawFromFacing(facingNorm);
-      entity.root.visible = st.side[i] === 0 || this.isVisible(wx, wy);
+      entity.root.visible = unitIsObserved(st.side[i], wx, wy, this.fogVisibleAt);
 
       if (entity.turretPivot) {
         const target = this.resolveTurretTarget(i);
@@ -4001,6 +4092,7 @@ export class ThreeRenderer implements Renderer {
         wx: wk.x,
         wy: wk.y,
         worldY,
+        side: wk.side,
         clip: 'wreck',
         frame: 0,
         facing: wk.facing,
@@ -4044,6 +4136,7 @@ export class ThreeRenderer implements Renderer {
           wx: d.x,
           wy: d.y,
           worldY,
+          side: d.side,
           clip,
           frame: 0,
           facing: d.facing,
@@ -4073,7 +4166,7 @@ export class ThreeRenderer implements Renderer {
       }
       if (d.t >= DEATH_SECONDS) {
         this.dying.splice(k, 1);
-        this.addWreck(d.x, d.y, d.facing, d.typeId);
+        this.addWreck(d.x, d.y, d.facing, d.typeId, d.side);
       }
     }
   }
@@ -4097,9 +4190,9 @@ export class ThreeRenderer implements Renderer {
    * exclude: it has no mesh path at all, so every destroyed entity there is
    * a billboard one by construction.
    */
-  private addWreck(x: number, y: number, facing: number, typeId: string): void {
+  private addWreck(x: number, y: number, facing: number, typeId: string, side: number): void {
     if (this.meshUnitTemplates.has(typeId)) return;
-    this.wrecks.push({ x, y, facing, typeId, shown: this.isExplored(x, y) });
+    this.wrecks.push({ x, y, facing, typeId, side, shown: this.isExplored(x, y) });
     while (this.wrecks.length > MAX_UNIT_WRECKS) this.wrecks.shift();
   }
 
@@ -4175,6 +4268,13 @@ export class ThreeRenderer implements Renderer {
    *  .opts.resolveColor('vfx.tracer') : '#B8FF5A'`), not a new pattern. */
   private overlayColor(key: string, fallback: string): string {
     return this.opts.resolveColor ? this.opts.resolveColor(key) : fallback;
+  }
+
+  /** The shared occlusion-silhouette material for `side` -- one of three for
+   *  the whole scene, not one per unit. See `silhouetteMeshMaterials`' own
+   *  field doc comment. */
+  private silhouetteMaterialFor(side: number): THREE.MeshBasicMaterial {
+    return this.silhouetteMeshMaterials[silhouetteSideIndex(side)];
   }
 
   /**

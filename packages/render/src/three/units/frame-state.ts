@@ -180,6 +180,20 @@ export interface EntityFrame {
   roofDy: number;
   visible: boolean;
   /**
+   * `EntityFrameInput.side`, carried through unchanged -- 0 is the player's
+   * own, 2 is civilians, anything else is hostile.
+   *
+   * Nothing in the BODY path reads it (`bodyAlpha` above already consumed
+   * it, and a unit's art is the same art whoever fields it). It is here for
+   * the occlusion silhouette, which is flat team colour by definition and
+   * therefore needs the one fact the art does not carry: whose unit this is.
+   * Carried on the frame rather than looked up again downstream so the
+   * silhouette's colour comes from the SAME per-entity read the body's own
+   * contact-level fade does, not a second one that could disagree at a
+   * `side` this function was never given.
+   */
+  side: number;
+  /**
    * Task B3.6: the turret's own facing (0..1 turns), sprung toward a live
    * target and returning to `facing` (the hull's) once there is none --
    * `renderer.ts:2111-2170`. Equals `facing` verbatim whenever this entity's
@@ -756,6 +770,7 @@ export function entityFrame(input: EntityFrameInput): EntityFrame {
     // See this module's top comment for why.
     roofDy: 0,
     visible,
+    side,
     turretFacing: turretFacingOut,
     turretClip,
     turretFrame,

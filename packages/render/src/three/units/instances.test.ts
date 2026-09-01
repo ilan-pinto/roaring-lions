@@ -26,6 +26,7 @@ import {
   TURRET_RENDER_ORDER,
   type UnitInstanceBuffers,
 } from './instances';
+import { SILHOUETTE_RENDER_ORDER } from './render-order';
 import { TILE_W, WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import { screenOffsetToWorld, WORLD_PER_LEVEL } from '../terrain/shared';
 import { VIEW_DIRECTION, dimetricCamera } from '../camera';
@@ -250,6 +251,120 @@ describe('the render-order tie-break', () => {
   });
 });
 
+describe('the occlusion silhouette on the billboard path', () => {
+  const teamColors = [new THREE.Color('#2F6FD9'), new THREE.Color('#D93A2B'), new THREE.Color('#E8C33A')];
+
+  function instancer(capacity: number, withSilhouette = true): UnitInstancer {
+    return new UnitInstancer(
+      infSquad,
+      new THREE.DataArrayTexture(),
+      packSheet(infSquad),
+      capacity,
+      HULL_RENDER_ORDER,
+      withSilhouette ? teamColors : undefined
+    );
+  }
+
+  it('cannot draw an instance the body did not: one instanceMatrix, one count', () => {
+    // The fog guarantee for this path. A fogged hostile never becomes an
+    // EntityFrame at all (ThreeRenderer's `unitIsObserved` continue), and
+    // because the silhouette has no instance buffer of its own there is
+    // nowhere for one to reappear.
+    // Break to confirm red: give the silhouette its own
+    // `new THREE.InstancedBufferAttribute(...)`, or drop the count line in
+    // `commit`.
+    const inst = instancer(8);
+    expect(inst.silhouette).not.toBeNull();
+    expect(inst.silhouette?.instanceMatrix).toBe(inst.mesh.instanceMatrix);
+    inst.update([makeFrame({ side: 0 }), makeFrame({ side: 1 }), makeFrame({ visible: false, side: 1 })]);
+    expect(inst.mesh.count).toBe(2);
+    expect(inst.silhouette?.count).toBe(2);
+    inst.update([]);
+    expect(inst.silhouette?.count).toBe(0);
+  });
+
+  it('is ONE extra draw call per unit type, not one per unit', () => {
+    // The perf claim, stated as a test rather than as a comment. Two types
+    // with different live counts, so a per-instance implementation would
+    // give 5 + 7 = 12 silhouette meshes rather than 2. Deliberately not a
+    // single-instance fixture: an implementation that built one silhouette
+    // per instance would pass that.
+    // Break to confirm red: build a silhouette mesh inside `commit` per
+    // instance.
+    const a = instancer(8);
+    const b = instancer(8);
+    a.update(Array.from({ length: 5 }, () => makeFrame({ side: 0 })));
+    b.update(Array.from({ length: 7 }, () => makeFrame({ side: 1 })));
+    const silhouetteMeshes = [a.silhouette, b.silhouette].filter((m) => m !== null);
+    expect(silhouetteMeshes.length).toBe(2);
+    expect(a.mesh.count + b.mesh.count).toBe(12);
+    // ...and both share their body's geometry, so no second vertex buffer
+    // is submitted either.
+    expect(a.silhouette?.geometry).toBe(a.mesh.geometry);
+    expect(b.silhouette?.geometry).toBe(b.mesh.geometry);
+  });
+
+  it('draws only where the unit already lost the depth test, and never writes depth', () => {
+    // Break to confirm red: THREE.LessEqualDepth, or depthWrite: true.
+    const inst = instancer(2);
+    const mat = inst.silhouette?.material as THREE.ShaderMaterial;
+    expect(mat.depthFunc).toBe(THREE.GreaterDepth);
+    expect(mat.depthTest).toBe(true);
+    expect(mat.depthWrite).toBe(false);
+    expect(mat.transparent).toBe(true);
+    expect(inst.silhouette?.renderOrder).toBe(SILHOUETTE_RENDER_ORDER);
+    // The shape comes from the atlas alpha, exactly as the body's does --
+    // a silhouette of the bounding quad would be a rectangle.
+    expect(mat.fragmentShader).toContain('texture2D(uMap');
+    expect(mat.fragmentShader).toContain('discard');
+    // ...and the depth push that clears a ground-clipped billboard's own
+    // sunk lower half (silhouette.ts's "The depth bias" section).
+    expect(mat.vertexShader).toContain('mvPosition.z +=');
+  });
+
+  it('reads the stencil mask its own body writes, so a unit never silhouettes against itself', () => {
+    // Break to confirm red: drop the markSilhouetteOccludee call in the
+    // UnitInstancer constructor, or change the silhouette's stencilFunc.
+    const inst = instancer(2);
+    const sil = inst.silhouette?.material as THREE.ShaderMaterial;
+    const body = inst.mesh.material as THREE.ShaderMaterial;
+    expect(sil.stencilFunc).toBe(THREE.NotEqualStencilFunc);
+    expect(body.stencilFunc).toBe(THREE.AlwaysStencilFunc);
+    expect(body.stencilZPass).toBe(THREE.ReplaceStencilOp);
+    expect(body.stencilRef).toBe(sil.stencilRef);
+    // A hull with no silhouette leaves the stencil test off entirely.
+    expect((instancer(2, false).mesh.material as THREE.ShaderMaterial).stencilWrite).toBe(false);
+  });
+
+  it('is not built at all when no team colours are supplied', () => {
+    // The billboard path is reachable with `&nomesh`, but a turret sheet or
+    // a future caller may not want one. Break to confirm red: construct the
+    // silhouette unconditionally.
+    const inst = instancer(2, false);
+    expect(inst.silhouette).toBeNull();
+    expect(() => inst.update([makeFrame({ side: 0 })])).not.toThrow();
+  });
+
+  it('colours per instance from the frame\'s own side, not per material', () => {
+    // One material per type would have to pick a side for the whole type.
+    // Break to confirm red: write a constant into `out.sides`.
+    const out: UnitInstanceBuffers = {
+      positions: new Float32Array(9),
+      layers: new Float32Array(3),
+      alphas: new Float32Array(3),
+      sides: new Float32Array(3),
+    };
+    const count = writeUnitInstances(
+      [makeFrame({ side: 0 }), makeFrame({ side: 1 }), makeFrame({ side: 2 })],
+      infSquad,
+      packSheet(infSquad),
+      out
+    );
+    expect(count).toBe(3);
+    expect(Array.from(out.sides ?? [])).toEqual([0, 1, 2]);
+  });
+});
+
 describe('the ground-clip depth clamp', () => {
   // Task D: instances.ts's own top comment, "Fixed: a per-vertex depth
   // clamp, not a second quad" -- the below-ground half of a centred
@@ -364,6 +479,7 @@ function makeFrame(overrides: Partial<EntityFrame> = {}): EntityFrame {
     roofDx: 0,
     roofDy: 0,
     visible: true,
+    side: 0,
     turretFacing: 0,
     turretClip: 'idle',
     turretFrame: 0,

@@ -295,8 +295,15 @@ import { screenOffsetToWorld } from '../terrain/shared';
 import { turretAxisOffset, type SheetSpec } from '../../sheet';
 import { FRAME_PX, type FramePacking } from './atlas';
 import type { EntityFrame } from './frame-state';
-import { HULL_RENDER_ORDER, TURRET_RENDER_ORDER } from './render-order';
+import { HULL_RENDER_ORDER, TURRET_RENDER_ORDER, SILHOUETTE_RENDER_ORDER } from './render-order';
 import { GROUND_CLIP_DEPTH_CLAMP_GLSL } from './ground-clip';
+import {
+  SILHOUETTE_COLOR_KEY_BY_SIDE,
+  SILHOUETTE_DEPTH_BIAS_GLSL,
+  SILHOUETTE_MATERIAL_FLAGS,
+  markSilhouetteOccludee,
+  silhouetteSideIndex,
+} from './silhouette';
 
 // ---------------------------------------------------------------------------
 // Pure: geometry and per-instance attribute arithmetic. No THREE.* GPU
@@ -415,6 +422,15 @@ export interface UnitInstanceBuffers {
   layers: Float32Array;
   /** Body alpha (contact-level fade), one per instance. */
   alphas: Float32Array;
+  /**
+   * Silhouette colour slot (`silhouette.ts`'s `silhouetteSideIndex`), one
+   * per instance. OPTIONAL, on the same "only one consumer populates it"
+   * precedent `MeshData.litColors`/`sway` already set in `terrain/types.ts`:
+   * the body material never declares an `aSide` attribute, so a caller with
+   * no silhouette mesh -- every existing test fixture included -- correctly
+   * passes nothing and writes nothing.
+   */
+  sides?: Float32Array;
 }
 
 /**
@@ -491,6 +507,7 @@ export function writeUnitInstances(
     out.positions[count * 3 + 2] = f.wy + right.dy * f.roofDx;
     out.layers[count] = region.layer;
     out.alphas[count] = f.alpha;
+    if (out.sides) out.sides[count] = silhouetteSideIndex(f.side);
     count++;
   }
   return count;
@@ -702,6 +719,83 @@ function createUnitMaterial(texture: THREE.DataArrayTexture): THREE.ShaderMateri
 }
 
 /**
+ * The occlusion-silhouette twin of `createUnitMaterial`: the same geometry,
+ * the same atlas, the same alpha cut-out -- and then a flat team colour
+ * instead of the sampled texel, drawn only where the unit already lost the
+ * depth test. See `silhouette.ts`'s top comment for the mechanism; only the
+ * two things this material does DIFFERENTLY are argued here.
+ *
+ * The alpha channel is still sampled, and that is the whole point: the
+ * silhouette has to be the unit's SHAPE, not its bounding quad, so the same
+ * `ALPHA_PADDING_DISCARD` cut that gives the body its outline gives the
+ * silhouette the identical one. Only `texel.rgb` is thrown away.
+ *
+ * Colour is per instance (`aSide`), not per material, because a unit TYPE is
+ * not a side: `?sandbox` and future content can field the same type on either
+ * roster, and one material per type would have to pick a colour for whichever
+ * entity happened to be written first. The mapping from `side` to slot is
+ * `silhouette.ts`'s `silhouetteSideIndex`, applied CPU-side in
+ * `writeUnitInstances`; the shader below is a lookup with no policy of its
+ * own, so there is exactly one place that decides what "hostile" means.
+ */
+function createUnitSilhouetteMaterial(
+  texture: THREE.DataArrayTexture,
+  colors: readonly THREE.Color[]
+): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uMap: { value: texture },
+      uTeam: { value: colors.map((c) => c.clone()) },
+    },
+    vertexShader: /* glsl */ `
+      attribute float aLayer;
+      attribute float aAlpha;
+      attribute float aSide;
+      varying vec2 vUv;
+      varying float vLayer;
+      varying float vAlpha;
+      varying float vSide;
+      void main() {
+        vUv = uv;
+        vLayer = aLayer;
+        vAlpha = aAlpha;
+        vSide = aSide;
+        vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * mvPosition;
+        ${GROUND_CLIP_DEPTH_CLAMP_GLSL}
+        ${SILHOUETTE_DEPTH_BIAS_GLSL}
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      precision highp sampler2DArray;
+      uniform sampler2DArray uMap;
+      uniform vec3 uTeam[${SILHOUETTE_COLOR_KEY_BY_SIDE.length}];
+      varying vec2 vUv;
+      varying float vLayer;
+      varying float vAlpha;
+      varying float vSide;
+      void main() {
+        vec4 texel = texture2D(uMap, vec3(vUv, vLayer));
+        float a = texel.a * vAlpha;
+        if (a < ${ALPHA_PADDING_DISCARD}) discard;
+        // Branch rather than a dynamic uTeam[int(vSide)] index: dynamic
+        // indexing of a uniform array by a varying is not guaranteed in
+        // GLSL ES 1.00 fragment shaders, and this backend targets both.
+        vec3 team = uTeam[1];
+        if (vSide < 0.5) team = uTeam[0];
+        else if (vSide > 1.5) team = uTeam[2];
+        gl_FragColor = vec4(team, a);
+      }
+    `,
+    // Inverted depth comparison, no depth write, and the stencil test that
+    // keeps a unit from silhouetting against its own far side -- the one
+    // shared recipe, spread from `silhouette.ts` so this material and
+    // `createMeshSilhouetteMaterial` cannot drift apart.
+    ...SILHOUETTE_MATERIAL_FLAGS,
+  });
+}
+
+/**
  * One unit type's `InstancedMesh`, plus everything `ThreeRenderer` needs to
  * feed it a new frame: the shared billboard geometry, the packed texture,
  * and the per-instance scratch buffers `update` writes into.
@@ -712,11 +806,28 @@ function createUnitMaterial(texture: THREE.DataArrayTexture): THREE.ShaderMateri
  */
 export class UnitInstancer {
   readonly mesh: THREE.InstancedMesh;
+  /**
+   * The occlusion silhouette for this type -- ONE additional draw call for
+   * however many of this type are on screen, exactly like `mesh` itself.
+   *
+   * It shares `mesh`'s geometry object (so `aLayer`/`aAlpha`/`aSide` and
+   * every vertex are written once and read twice) and, critically, `mesh`'s
+   * own `instanceMatrix` OBJECT and `count`. That is not an optimisation --
+   * it is the fog guarantee for this path: the silhouette cannot draw an
+   * instance the body did not, because there is only one set of instances.
+   * `commit` below sets both counts from the same number; nothing else can
+   * set either.
+   *
+   * `null` when no silhouette was requested (a turret instancer gets one
+   * too; see `ThreeRenderer.loadSprites`).
+   */
+  readonly silhouette: THREE.InstancedMesh | null;
   readonly sheet: SheetSpec;
   private readonly packing: FramePacking;
   private readonly texture: THREE.DataArrayTexture;
   private readonly layerAttr: THREE.InstancedBufferAttribute;
   private readonly alphaAttr: THREE.InstancedBufferAttribute;
+  private readonly sideAttr: THREE.InstancedBufferAttribute;
   private readonly scratchPositions: Float32Array;
   private readonly scratchMatrix = new THREE.Matrix4();
 
@@ -745,7 +856,13 @@ export class UnitInstancer {
     texture: THREE.DataArrayTexture,
     packing: FramePacking,
     capacity: number,
-    renderOrder: number = HULL_RENDER_ORDER
+    renderOrder: number = HULL_RENDER_ORDER,
+    /** Resolved `data/palette.json` team colours, indexed by
+     *  `silhouetteSideIndex`. Omitted means "no silhouette for this
+     *  instancer" -- `silhouette` stays `null` and nothing extra is built or
+     *  drawn, which is what keeps this optional rather than a second thing
+     *  every caller has to remember to switch off. */
+    silhouetteColors?: readonly THREE.Color[]
   ) {
     this.sheet = sheet;
     this.packing = packing;
@@ -759,8 +876,14 @@ export class UnitInstancer {
 
     this.layerAttr = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
     this.alphaAttr = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
+    // `aSide` is declared by the silhouette material only. An attribute no
+    // program reads costs one unused buffer and nothing per frame, which is
+    // why it lives on the SHARED geometry rather than a second one: sharing
+    // the geometry is what makes the silhouette free of per-frame CPU work.
+    this.sideAttr = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
     geometry.setAttribute('aLayer', this.layerAttr);
     geometry.setAttribute('aAlpha', this.alphaAttr);
+    geometry.setAttribute('aSide', this.sideAttr);
 
     this.mesh = new THREE.InstancedMesh(geometry, createUnitMaterial(texture), capacity);
     this.mesh.count = 0;
@@ -775,6 +898,30 @@ export class UnitInstancer {
     // disabling frustum culling here costs nothing beyond what the
     // architecture already pays.
     this.mesh.frustumCulled = false;
+
+    if (silhouetteColors) {
+      const silhouette = new THREE.InstancedMesh(
+        geometry,
+        createUnitSilhouetteMaterial(texture, silhouetteColors),
+        capacity
+      );
+      // The same `InstancedBufferAttribute` OBJECT, not a copy: three.js
+      // reads `object.instanceMatrix` at draw time, so both meshes bind the
+      // one GPU buffer `commit` already fills for the body. Nothing here is
+      // written per frame, and no instance can exist for one mesh and not
+      // the other.
+      silhouette.instanceMatrix = this.mesh.instanceMatrix;
+      silhouette.count = 0;
+      silhouette.renderOrder = SILHOUETTE_RENDER_ORDER;
+      silhouette.frustumCulled = false;
+      // The body stamps the stencil mask its own silhouette reads -- see
+      // `markSilhouetteOccludee`. Paired here, where the silhouette is
+      // built, so a hull with no silhouette keeps the stencil test off.
+      markSilhouetteOccludee(this.mesh.material as THREE.Material);
+      this.silhouette = silhouette;
+    } else {
+      this.silhouette = null;
+    }
 
     this.scratchPositions = new Float32Array(capacity * 3);
   }
@@ -818,6 +965,7 @@ export class UnitInstancer {
       positions: this.scratchPositions,
       layers: this.layerAttr.array as Float32Array,
       alphas: this.alphaAttr.array as Float32Array,
+      sides: this.sideAttr.array as Float32Array,
     };
   }
 
@@ -834,9 +982,14 @@ export class UnitInstancer {
       this.mesh.setMatrixAt(i, this.scratchMatrix);
     }
     this.mesh.count = count;
+    // The silhouette draws the SAME instances or none -- see its own field
+    // doc comment. One assignment, from the one number, in the one place
+    // either count is ever set.
+    if (this.silhouette) this.silhouette.count = count;
     this.mesh.instanceMatrix.needsUpdate = true;
     this.layerAttr.needsUpdate = true;
     this.alphaAttr.needsUpdate = true;
+    this.sideAttr.needsUpdate = true;
   }
 
   /** Releases the geometry, material and texture this instancer owns. Not
@@ -845,6 +998,9 @@ export class UnitInstancer {
    *  already-loaded unit type calls it, so a re-load cannot leak the type it
    *  replaces. */
   dispose(): void {
+    // The silhouette's geometry and texture are the body's own -- disposed
+    // once, below, not twice. Only its material is separately owned.
+    if (this.silhouette) (this.silhouette.material as THREE.Material).dispose();
     this.mesh.geometry.dispose();
     (this.mesh.material as THREE.Material).dispose();
     this.texture.dispose();

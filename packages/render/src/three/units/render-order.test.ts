@@ -30,6 +30,8 @@ import {
   FOG_RENDER_ORDER,
   STRUCTURE_RENDER_ORDER,
   TRAIL_RENDER_ORDER,
+  SILHOUETTE_RENDER_ORDER,
+  WORLD_RENDER_ORDER,
 } from './render-order';
 
 describe('render order bands', () => {
@@ -43,6 +45,30 @@ describe('render order bands', () => {
   it('the badge numeral sits strictly between the turret and FX bands -- Pixi paints it above every hull/turret sprite but below FX, unitsG and fog alike', () => {
     expect(BADGE_NUMERAL_RENDER_ORDER).toBeGreaterThan(TURRET_RENDER_ORDER);
     expect(BADGE_NUMERAL_RENDER_ORDER).toBeLessThan(FX_RENDER_ORDER);
+  });
+
+  it('the occlusion silhouette sits above the overlay and smoke tiers and below fog', () => {
+    // Above overlays and smoke because both are depthTest:false tiers that
+    // paint over a unit's body unconditionally, and smoke's 0.72-alpha
+    // full-body wash would gut the one cue that survives an occluder --
+    // see this module's own "Update, the silhouette band" paragraph. Below
+    // fog because a unit's geometry overhangs onto unobserved ground.
+    expect(SILHOUETTE_RENDER_ORDER).toBeGreaterThan(OVERLAY_RENDER_ORDER);
+    expect(SILHOUETTE_RENDER_ORDER).toBeGreaterThan(SMOKE_RENDER_ORDER);
+    expect(SILHOUETTE_RENDER_ORDER).toBeLessThan(FOG_RENDER_ORDER);
+  });
+
+  it('world geometry draws BEFORE every unit band, not merely at a different one', () => {
+    // The silhouette's stencil mask is only true if a unit body was
+    // depth-tested against a world that had already drawn -- see the
+    // table's own -1 row for the measured incident. Strictly below hull,
+    // which is the band every unit body path starts from.
+    expect(WORLD_RENDER_ORDER).toBeLessThan(HULL_RENDER_ORDER);
+    expect(WORLD_RENDER_ORDER).toBeLessThan(TURRET_RENDER_ORDER);
+    // ...and it is NOT the band a structure billboard or a collapse mesh
+    // uses: both are transparent, drawn after every opaque object whatever
+    // number they carry, and band 0 is load-bearing for them.
+    expect(STRUCTURE_RENDER_ORDER).not.toBe(WORLD_RENDER_ORDER);
   });
 
   it('the shared overlay tier sits strictly between fx-above and fog, and does not collide with the badge numeral band', () => {
