@@ -180,7 +180,15 @@ export interface UnitTypeJson {
       ineffective_vs?: string[];
     };
   };
-  mobility: { speed_tiles_s: number; turn_rate_deg_s?: number; domain?: string };
+  mobility: {
+    speed_tiles_s: number;
+    turn_rate_deg_s?: number;
+    domain?: string;
+    /** Rides on wheels or tracks, so a boulder field stops it. Absent means
+     *  `!FOOT_ROLES.has(role)` — see UnitType.wheeled for why role alone is
+     *  not enough and this field has to exist. */
+    wheeled?: boolean;
+  };
   sensors: {
     optics: number;
     sight_tiles: number;
@@ -203,6 +211,18 @@ export interface UnitTypeJson {
  * A unit may override this with `hull.can_embark`.
  */
 const FOOT_ROLES = new Set(['infantry', 'at_team', 'artillery', 'engineer', 'sniper', 'support']);
+
+/**
+ * Movement domains — which blocked mask a unit paths on.
+ *
+ * Passability is per-domain because of one terrain symbol: `b`, a boulder
+ * field, is open ground on foot and a wall to anything wheeled or tracked.
+ * `FlowField.compute` already takes the mask as a parameter, so this is a
+ * second mask and a second cache key, not a second pathfinder.
+ */
+export const DOMAIN_FOOT = 0;
+export const DOMAIN_VEHICLE = 1;
+const DOMAIN_COUNT = 2;
 
 /** Weapon classes as ints — string compares stay out of the hot loop. */
 export const WEAPON_CLASS: Record<string, number> = {
@@ -316,6 +336,27 @@ export interface UnitType {
    * means mechanically.
    */
   isAir: boolean;
+  /**
+   * Rides on wheels or tracks: a boulder field (`b`) is a wall to it, and
+   * open ground to everything else.
+   *
+   * This is an authored field rather than a role test, and the reason is
+   * `rocket_battery`. FOOT_ROLES already splits foot from vehicle for
+   * `canEmbark`, and it contains `artillery` — but the Grad is a launcher on
+   * a 6x6 truck and declares `role: "artillery"` exactly as `mortar_team`,
+   * which is four men and a tube, does. Deriving this from the role would
+   * drive a rocket truck through terrain that stops a jeep. The default is
+   * `!FOOT_ROLES.has(role)`, so every unit keeps its existing classification
+   * and only the one the default gets wrong says so in JSON.
+   */
+  wheeled: boolean;
+  /**
+   * Which blocked mask this type paths on: DOMAIN_FOOT or DOMAIN_VEHICLE.
+   *
+   * Air is DOMAIN_FOOT deliberately. It ignores terrain blocking outright, so
+   * a vehicle field would be a second field computed for nothing.
+   */
+  moveDomain: number;
   /** Seats for infantry. */
   transportSlots: number;
   /** Dismounted element: can ride inside a transport. */
@@ -422,6 +463,8 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
   // deg/s → turns/tick: deg/360 * DT
   const turnPerTick = fx.mul(fx.div(fx.from(turnDeg), fx.fromInt(360)), DT);
   const abilities = json.abilities ?? [];
+  const isAir = json.mobility.domain === 'air';
+  const wheeled = json.mobility.wheeled ?? !FOOT_ROLES.has(json.role ?? '');
   return {
     id: json.id,
     name: json.name ?? json.id,
@@ -438,7 +481,11 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
       fx.mul(fx.from(json.tunnel_charge_time_s ?? CHARGE_SECONDS), fx.fromInt(TICKS_PER_SECOND)),
     ),
     isKamikaze: abilities.includes('kamikaze'),
-    isAir: json.mobility.domain === 'air',
+    isAir,
+    wheeled,
+    // Air never pays for a vehicle field: it flies over the boulders the
+    // vehicle mask exists to describe.
+    moveDomain: !isAir && wheeled ? DOMAIN_VEHICLE : DOMAIN_FOOT,
     transportSlots: json.hull.transport_slots ?? 0,
     canEmbark: json.hull.can_embark ?? FOOT_ROLES.has(json.role ?? ''),
     canMarkTarget: abilities.includes('mark_target'),
@@ -680,6 +727,16 @@ export class Sim {
   readonly rng: Rng;
 
   readonly blocked: Uint8Array;
+  /** Boulder tiles: passable on foot, closed to wheels and tracks. Authored
+   *  as `b` and set once at map load; the sim never changes it. */
+  private readonly boulder: Uint8Array;
+  /** `blocked | boulder`. While a map has no boulders this is the SAME ARRAY
+   *  as `blocked`, not a copy — which is what makes a boulder-free map cost
+   *  nothing at all, in memory or in fields. It stops being an alias the
+   *  first time `setBoulder` is called. */
+  private blockedVehicleMask: Uint8Array;
+  /** False until a boulder actually arrives. Decided once, at map load. */
+  private hasBoulders = false;
   readonly cover: Uint8Array;
   /** Elevation level 0-9 per tile, row-major. Stored and hashed; line of sight
    *  reads it (E2) but sight range and pathing do not yet -- that is E3. It
@@ -933,7 +990,17 @@ export class Sim {
   private commandQueue: Command[] = [];
   private pendingEvents: SimEvent[] = [];
   private readonly fields: FlowField[] = [];
-  private readonly fieldByGoal = new Map<number, number>();
+  /**
+   * Cached fields, keyed by (domain, goal tile) — one map per domain rather
+   * than a bit stuffed into the tile index, so the key stays readable and the
+   * tile index stays a tile index.
+   *
+   * This pool still never evicts (`fields.push` grows for the mission's
+   * life), and per-domain passability is what could have doubled it. It does
+   * not, on any map without boulders: `fieldFor` collapses the domain there,
+   * because the two masks are the same array.
+   */
+  private readonly fieldByGoal: Map<number, number>[] = [new Map(), new Map()];
 
   constructor(config: SimConfig) {
     this.width = config.width;
@@ -944,6 +1011,8 @@ export class Sim {
     const n = config.capacity;
     const tiles = config.width * config.height;
     this.blocked = new Uint8Array(tiles);
+    this.boulder = new Uint8Array(tiles);
+    this.blockedVehicleMask = this.blocked;
     this.cover = new Uint8Array(tiles);
     this.elevation = new Uint8Array(tiles);
     this.smoke = new Uint8Array(tiles);
@@ -1087,18 +1156,64 @@ export class Sim {
   }
 
   setBlocked(x: number, y: number, b: boolean): void {
-    this.blocked[y * this.width + x] = b ? 1 : 0;
+    const t = y * this.width + x;
+    this.blocked[t] = b ? 1 : 0;
+    this.syncVehicleTile(t);
     this.recomputeFields();
+  }
+
+  /**
+   * A tile wheels and tracks cannot cross but boots can — the `b` symbol.
+   *
+   * The first one on a map is where `blockedVehicleMask` stops being an alias
+   * of `blocked` and becomes a real array. Everything downstream keys off
+   * `hasBoulders`, so a map with none pays nothing: no array, no second field,
+   * and the identical arithmetic it ran before this existed.
+   */
+  setBoulder(x: number, y: number, b: boolean): void {
+    const t = y * this.width + x;
+    if (b && !this.hasBoulders) {
+      this.hasBoulders = true;
+      this.blockedVehicleMask = new Uint8Array(this.blocked);
+    }
+    this.boulder[t] = b ? 1 : 0;
+    this.syncVehicleTile(t);
+    this.recomputeFields();
+  }
+
+  /** The vehicle mask a domain paths on. Identical to `blocked` — the same
+   *  object — until a map declares its first boulder. */
+  get blockedVehicle(): Uint8Array {
+    return this.blockedVehicleMask;
+  }
+
+  /** How many flow fields have been allocated. Diagnostic: the pool never
+   *  evicts, and per-domain passability is the thing that could double it. */
+  get flowFieldCount(): number {
+    return this.fields.length;
+  }
+
+  /** Re-derive one tile of the vehicle mask after `blocked` moved under it.
+   *  A no-op while the mask is still an alias, which is the common case. */
+  private syncVehicleTile(t: number): void {
+    if (this.hasBoulders) this.blockedVehicleMask[t] = this.blocked[t] | this.boulder[t];
   }
 
   /** Terrain changed (building raised or levelled): every cached flow field
    *  is stale. Flow fields are shared per destination, so this is cheap
    *  compared to the per-unit repathing it replaces. */
   private recomputeFields(): void {
-    for (const [goal, idx] of this.fieldByGoal) {
-      const gx = goal % this.width;
-      this.fields[idx].compute(this.blocked, gx, (goal - gx) / this.width);
+    for (let d = 0; d < DOMAIN_COUNT; d++) {
+      const mask = this.maskFor(d);
+      for (const [goal, idx] of this.fieldByGoal[d]) {
+        const gx = goal % this.width;
+        this.fields[idx].compute(mask, gx, (goal - gx) / this.width);
+      }
     }
+  }
+
+  private maskFor(domain: number): Uint8Array {
+    return domain === DOMAIN_VEHICLE ? this.blockedVehicleMask : this.blocked;
   }
 
   setCover(x: number, y: number, c: number): void {
@@ -1139,6 +1254,7 @@ export class Sim {
       const ty = (t - tx) / w;
       this.structureOfTile[t] = id;
       this.blocked[t] = 1;
+      this.syncVehicleTile(t);
       if (tx < minX) minX = tx;
       if (ty < minY) minY = ty;
       if (tx > maxX) maxX = tx;
@@ -1506,16 +1622,41 @@ export class Sim {
 
   // ----------------------------------------------------------------- commands
 
-  private fieldFor(gx: number, gy: number): number {
+  /**
+   * The cached field toward (gx, gy) for one movement domain, computing it
+   * on first ask.
+   *
+   * The domain collapses to DOMAIN_FOOT on a map with no boulders. That is
+   * not an optimisation bolted on afterwards: the two masks are the same
+   * array there, so a vehicle field would be a byte-identical duplicate of
+   * one already in the pool — and this pool never evicts.
+   */
+  private fieldFor(gx: number, gy: number, domain: number): number {
+    const d = this.hasBoulders ? domain : DOMAIN_FOOT;
+    const byGoal = this.fieldByGoal[d];
     const key = gy * this.width + gx;
-    const existing = this.fieldByGoal.get(key);
+    const existing = byGoal.get(key);
     if (existing !== undefined) return existing;
     const field = new FlowField(this.width, this.height);
-    field.compute(this.blocked, gx, gy);
+    field.compute(this.maskFor(d), gx, gy);
     const idx = this.fields.length;
     this.fields.push(field);
-    this.fieldByGoal.set(key, idx);
+    byGoal.set(key, idx);
     return idx;
+  }
+
+  /** The movement domain a living unit paths in. */
+  private domainOf(id: number): number {
+    return this.unitTypes[this.typeIdx[id]].moveDomain;
+  }
+
+  /** Field toward a tile for one unit's domain, snapped to ground that domain
+   *  can actually stand on. The snap is what `demolish` and `garrison` need:
+   *  their goal is a structure centroid, always inside its own footprint. */
+  private fieldToward(id: number, tx: number, ty: number): number {
+    const d = this.domainOf(id);
+    const [fgx, fgy] = this.nearestOpenTile(tx, ty, this.maskFor(d));
+    return this.fieldFor(fgx, fgy, d);
   }
 
   /**
@@ -1533,11 +1674,15 @@ export class Sim {
    * order within each ring so two runs from the same seed pick the same tile
    * -- required by invariant 3, and unrelated to any RNG stream.
    */
-  private nearestOpenTile(gx: number, gy: number): [number, number] {
+  private nearestOpenTile(
+    gx: number,
+    gy: number,
+    mask: Uint8Array = this.blocked
+  ): [number, number] {
     const w = this.width;
     const h = this.height;
     if (gx < 0 || gy < 0 || gx >= w || gy >= h) return [gx, gy];
-    if (this.blocked[gy * w + gx] === 0) return [gx, gy];
+    if (mask[gy * w + gx] === 0) return [gx, gy];
     const maxR = w > h ? w : h;
     for (let r = 1; r <= maxR; r++) {
       const x0 = gx - r < 0 ? 0 : gx - r;
@@ -1552,7 +1697,7 @@ export class Sim {
           const ddy = y - gy < 0 ? gy - y : y - gy;
           const cheb = ddx > ddy ? ddx : ddy;
           if (cheb !== r) continue;
-          if (this.blocked[y * w + x] === 0) return [x, y];
+          if (mask[y * w + x] === 0) return [x, y];
         }
       }
     }
@@ -1625,7 +1770,21 @@ export class Sim {
         // centre would be a different order from the one issued.
         const sgx = snapped ? fx.add(fx.fromInt(fgx), HALF) : gx;
         const sgy = snapped ? fx.add(fx.fromInt(fgy), HALF) : gy;
-        const fieldIdx = this.fieldFor(fgx, fgy);
+        const fieldIdx = this.fieldFor(fgx, fgy, DOMAIN_FOOT);
+        // A vehicle snaps against its OWN mask, because a boulder is open
+        // ground to a rifleman and a wall to a tank: the same right-click
+        // resolves to different tiles for the two. `move` is the one order
+        // whose completion is a position test, so a vehicle goal left on a
+        // tile it can never stand on is the freeze described above, arriving
+        // by a different door. Resolved lazily, once per order at most —
+        // and deliberately with no `hasBoulders` shortcut of its own: on a
+        // boulder-free map the two masks are the same array, so this arrives
+        // at the same tile and `fieldFor` hands back the same field. One
+        // collapse, in one place, is the only kind a test can pin.
+        let vgx = sgx;
+        let vgy = sgy;
+        let vField = fieldIdx;
+        let vResolved = false;
         // Air is exempt, and that is the whole reason this is resolved per id
         // rather than once for the order. A drone hovers over rock as happily
         // as over road, stepMovement skips the wall-slide for it entirely, and
@@ -1641,11 +1800,24 @@ export class Sim {
           let ux = sgx;
           let uy = sgy;
           let uf = fieldIdx;
-          if (snapped && this.unitTypes[this.typeIdx[id]].isAir) {
-            if (airField < 0) airField = this.fieldFor(tx, ty);
+          const utype = this.unitTypes[this.typeIdx[id]];
+          if (snapped && utype.isAir) {
+            if (airField < 0) airField = this.fieldFor(tx, ty, DOMAIN_FOOT);
             ux = gx;
             uy = gy;
             uf = airField;
+          } else if (utype.moveDomain === DOMAIN_VEHICLE) {
+            if (!vResolved) {
+              vResolved = true;
+              const [bx, by] = this.nearestOpenTile(tx, ty, this.blockedVehicleMask);
+              const vSnapped = bx !== tx || by !== ty;
+              vgx = vSnapped ? fx.add(fx.fromInt(bx), HALF) : gx;
+              vgy = vSnapped ? fx.add(fx.fromInt(by), HALF) : gy;
+              vField = this.fieldFor(bx, by, DOMAIN_VEHICLE);
+            }
+            ux = vgx;
+            uy = vgy;
+            uf = vField;
           }
           // Appending to a unit already under way queues the point instead of
           // overriding it: that is how a player draws a route round a block.
@@ -1762,7 +1934,6 @@ export class Sim {
         // Walk to the vehicle; stepTransport puts them aboard on arrival.
         const gx = this.posX[car];
         const gy = this.posY[car];
-        const fieldIdx = this.fieldFor(fx.toInt(gx), fx.toInt(gy));
         for (const id of cmd.ids) {
           if (this.alive[id] === 0 || this.routed[id] === 1 || id === car) continue;
           // Only dismounted elements ride. This also covers vehicle stacking,
@@ -1774,7 +1945,7 @@ export class Sim {
           this.wpCount[id] = 0;
           this.goalX[id] = gx;
           this.goalY[id] = gy;
-          this.fieldRef[id] = fieldIdx;
+          this.fieldRef[id] = this.fieldFor(fx.toInt(gx), fx.toInt(gy), this.domainOf(id));
           this.moving[id] = 1;
           this.attackMove[id] = 0;
           this.stance[id] = 0;
@@ -1796,8 +1967,8 @@ export class Sim {
         // `goalX`/`goalY` stay the true centroid so the final approach (and
         // demolition/garrison range checks, both comfortably inside one tile
         // of an adjacent-open-tile arrival) still aim at the real target.
-        const [fgx, fgy] = this.nearestOpenTile(fx.toInt(gx), fx.toInt(gy));
-        const fieldIdx = this.fieldFor(fgx, fgy);
+        const dtx = fx.toInt(gx);
+        const dty = fx.toInt(gy);
         for (const id of cmd.ids) {
           if (this.alive[id] === 0 || this.routed[id] === 1) continue;
           if (!this.unitTypes[this.typeIdx[id]].canDemolish) continue;
@@ -1812,7 +1983,7 @@ export class Sim {
           this.garrisonGoal[id] = -1;
           this.goalX[id] = gx;
           this.goalY[id] = gy;
-          this.fieldRef[id] = fieldIdx;
+          this.fieldRef[id] = this.fieldToward(id, dtx, dty);
           this.moving[id] = 1;
           this.attackMove[id] = 0;
           this.engaging[id] = 0;
@@ -1827,8 +1998,8 @@ export class Sim {
         // Same fix as `demolish` above, for the same reason: the centroid is
         // always blocked, so the field routes to the nearest open tile and
         // goalX/goalY keep the true centroid for the final approach.
-        const [fgx, fgy] = this.nearestOpenTile(fx.toInt(gx), fx.toInt(gy));
-        const fieldIdx = this.fieldFor(fgx, fgy);
+        const gtx = fx.toInt(gx);
+        const gty = fx.toInt(gy);
         for (const id of cmd.ids) {
           if (this.alive[id] === 0 || this.routed[id] === 1) continue;
           if (!this.unitTypes[this.typeIdx[id]].canGarrison) continue;
@@ -1836,7 +2007,7 @@ export class Sim {
           this.garrisonGoal[id] = s;
           this.goalX[id] = gx;
           this.goalY[id] = gy;
-          this.fieldRef[id] = fieldIdx;
+          this.fieldRef[id] = this.fieldToward(id, gtx, gty);
           this.moving[id] = 1;
           this.attackMove[id] = 0;
           this.engaging[id] = 0;
@@ -1879,13 +2050,14 @@ export class Sim {
           // retarget cannot — a goal that is open but sealed off (a route
           // venting inside a walled compound), where the beeline grinds the
           // team along the wall inside charge range.
-          const [fgx, fgy] = this.nearestOpenTile(tx, ty);
+          const cd = this.domainOf(id);
+          const [fgx, fgy] = this.nearestOpenTile(tx, ty, this.maskFor(cd));
           this.wpCount[id] = 0;
           this.boardGoal[id] = -1;
           this.garrisonGoal[id] = -1;
           this.goalX[id] = fx.add(fx.fromInt(fgx), HALF);
           this.goalY[id] = fx.add(fx.fromInt(fgy), HALF);
-          this.fieldRef[id] = this.fieldFor(fgx, fgy);
+          this.fieldRef[id] = this.fieldFor(fgx, fgy, cd);
           this.moving[id] = 1;
           this.attackMove[id] = 0;
           this.engaging[id] = 0;
@@ -3917,7 +4089,11 @@ export class Sim {
         // Run in: it steers itself, no order needed.
         this.goalX[i] = this.posX[target];
         this.goalY[i] = this.posY[target];
-        this.fieldRef[i] = this.fieldFor(fx.toInt(this.posX[target]), fx.toInt(this.posY[target]));
+        this.fieldRef[i] = this.fieldFor(
+          fx.toInt(this.posX[target]),
+          fx.toInt(this.posY[target]),
+          this.domainOf(i)
+        );
         this.moving[i] = 1;
         this.attackMove[i] = 1;
         continue;
@@ -4265,6 +4441,9 @@ export class Sim {
     const rubble = this.structureTypes[this.stTypeIdx[s]].rubbleCover;
     for (const t of this.stTiles[s]) {
       this.blocked[t] = 0;
+      // A collapsed building leaves rubble a vehicle can cross; a boulder
+      // under the same tile does not stop being a boulder.
+      this.syncVehicleTile(t);
       this.cover[t] = rubble;
     }
     this.pendingEvents.push({ kind: 'structureDestroyed', tick: this.tickCount, structure: s, by });
@@ -4357,7 +4536,12 @@ export class Sim {
       const gy = this.lastSeenY[best];
       this.goalX[i] = gx;
       this.goalY[i] = gy;
-      this.fieldRef[i] = this.fieldFor(fx.toInt(gx), fx.toInt(gy));
+      // Raw, not snapped — as it has always been. A goal that is closed to
+      // this domain gives an all-DIR_NONE field and the straight-line
+      // fallback, which for a hunt is a unit walking at its contact until
+      // something stops it. That is the existing behaviour for a target
+      // inside a building, and a boulder is no different.
+      this.fieldRef[i] = this.fieldFor(fx.toInt(gx), fx.toInt(gy), this.domainOf(i));
       this.moving[i] = 1;
     }
   }
@@ -4438,10 +4622,14 @@ export class Sim {
       // Air flies over everything: walls, buildings, rubble. The map edge
       // still holds, because clampX/clampY ran above -- an aircraft leaving
       // the play area is a bug, not a feature.
-      if (!type.isAir && this.blocked[nty * w + ntx] !== 0) {
-        if (this.blocked[tileY * w + ntx] === 0) {
+      // The mask a vehicle collides against includes boulders: without this
+      // the FIELD would route round them and the straight-line final leg
+      // would drive straight over one.
+      const clip = type.moveDomain === DOMAIN_VEHICLE ? this.blockedVehicleMask : this.blocked;
+      if (!type.isAir && clip[nty * w + ntx] !== 0) {
+        if (clip[tileY * w + ntx] === 0) {
           ny = py;
-        } else if (this.blocked[nty * w + tileX] === 0) {
+        } else if (clip[nty * w + tileX] === 0) {
           nx = px;
         } else {
           nx = px;
@@ -4491,7 +4679,11 @@ export class Sim {
             this.wpAttack[base + k] = this.wpAttack[base + k + 1];
           }
           this.wpCount[i] = queued - 1;
-          this.fieldRef[i] = this.fieldFor(fx.toInt(this.goalX[i]), fx.toInt(this.goalY[i]));
+          this.fieldRef[i] = this.fieldFor(
+            fx.toInt(this.goalX[i]),
+            fx.toInt(this.goalY[i]),
+            this.domainOf(i)
+          );
           this.engaging[i] = 0;
         } else {
           this.moving[i] = 0;
@@ -4593,6 +4785,12 @@ export class Sim {
     h = hashWord(h, this.count);
     h = hashArray(h, this.rng.state);
     h = hashArray(h, this.blocked);
+    // `boulder` and the vehicle mask are deliberately absent. `boulder` is
+    // authored map data the sim never writes after load, and the vehicle mask
+    // is `blocked | boulder` — derived, not state. Hashing either would move
+    // the golden hash for every existing map while adding nothing: a replay
+    // that failed to apply a map's boulders would still diverge in the unit
+    // positions this already covers.
     h = hashArray(h, this.cover);
     h = hashArray(h, this.elevation);
     h = hashArray(h, this.smoke);

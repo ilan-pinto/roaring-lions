@@ -226,6 +226,10 @@
           "default": false,
           "description": "D9-class. Opens assault lanes and forces flow-field recompute."
         },
+        "wheeled": {
+          "type": "boolean",
+          "description": "Rides on wheels or tracks, so a boulder field (map symbol `b`) stops it where infantry walk through. Absent means derived from `role`: everything outside the dismounted set (infantry, at_team, artillery, engineer, sniper, support) is wheeled. The derivation is wrong for exactly one unit and that is why this field exists -- `rocket_battery` is a Grad on a 6x6 truck and declares role \"artillery\" exactly as `mortar_team`, four men and a tube, does. Set it only where the default gets a unit wrong."
+        },
         "domain": {
           "type": "string",
           "enum": [

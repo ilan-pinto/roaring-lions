@@ -68,12 +68,14 @@ describe('parseMap', () => {
     expect(() => parseMap({ ...TINY, terrain: 'lunar' })).toThrow(/unknown terrain theme/);
   });
 
-  it('still decodes exactly eight terrain symbols', () => {
+  it('still decodes exactly nine terrain symbols', () => {
     // If this count moves, a symbol was added and validate_data.mjs's
     // TERRAIN_SYMBOLS must move with it. That used to be the whole guard --
     // a comment asking the next author to remember. tools/src/terrain_symbols.test.ts
     // now checks the validator's actual source, so forgetting fails a test.
-    expect(Object.keys(TERRAIN_LEGEND).sort()).toEqual(['.', '1', '2', '3', '^', 'n', 'o', 'r']);
+    expect(Object.keys(TERRAIN_LEGEND).sort()).toEqual([
+      '.', '1', '2', '3', '^', 'b', 'n', 'o', 'r',
+    ]);
   });
 });
 
@@ -307,6 +309,53 @@ describe('rock ridge', () => {
 // out three times -- main.ts, walk_world.ts and playtest.ts -- none of which
 // consumed `blocked` at all. The sink is structurally typed so @lions/data
 // imports nothing and stays a leaf; Sim satisfies it without knowing it exists.
+// A boulder field: open ground to a rifleman, a wall to anything with wheels
+// or tracks. It is ONLY that -- no cover, no sight-blocking, no HP -- so the
+// assertions below are as much about what `b` does NOT set as what it does.
+describe('the boulder symbol `b`', () => {
+  const BOULDERS: MapJson = {
+    id: 'boulders',
+    name: 'Boulders',
+    width: 4,
+    height: 2,
+    rows: ['.b^2', 'b...'],
+  };
+
+  it('blocks vehicles without blocking infantry', () => {
+    const m = parseMap(BOULDERS);
+    // `blocked` is the infantry mask: the ridge is in it, the boulders are not.
+    expect(Array.from(m.blocked)).toEqual([0, 0, 1, 0, 0, 0, 0, 0]);
+    // `boulder` is the extra the vehicle mask adds on top.
+    expect(Array.from(m.boulder)).toEqual([0, 1, 0, 0, 1, 0, 0, 0]);
+    expect(m.boulderCount).toBe(2);
+  });
+
+  it('carries no cover, so nothing hides behind one', () => {
+    const m = parseMap(BOULDERS);
+    // Cover 2 at index 3 is the control: a broken cover write would zero that
+    // too, and "the boulder has no cover" would pass for the wrong reason.
+    expect(m.cover[1]).toBe(0);
+    expect(m.cover[4]).toBe(0);
+    expect(m.cover[3]).toBe(2);
+  });
+
+  it('draws as open ground for now — the boulder mesh is T1-C, not this', () => {
+    // Deliberate, and this test is the record of it: giving `b` a decor kind
+    // means adding a value to `renderer.ts`'s TERRAIN_DECOR, which is frozen
+    // byte-identical to `main`. The mechanical half needs nothing from the
+    // decor array -- `ParsedMap.boulder` names the tiles outright. The ridge
+    // beside it is the control: decor IS being written, just not for `b`.
+    const m = parseMap(BOULDERS);
+    expect(m.decor[1]).toBe(DECOR.none);
+    expect(m.decor[2]).toBe(DECOR.ridge);
+  });
+
+  it('counts zero on every map that has none', () => {
+    expect(parseMap(TINY).boulderCount).toBe(0);
+    expect(Array.from(parseMap(TINY).boulder).every((v) => v === 0)).toBe(true);
+  });
+});
+
 describe('applyTerrain', () => {
   interface Call {
     x: number;
@@ -314,17 +363,20 @@ describe('applyTerrain', () => {
     v: number | boolean;
   }
 
-  function sink(): { blocks: Call[]; covers: Call[]; elevs: Call[] } & TerrainSink {
+  function sink(): { blocks: Call[]; covers: Call[]; elevs: Call[]; rocks: Call[] } & TerrainSink {
     const blocks: Call[] = [];
     const covers: Call[] = [];
     const elevs: Call[] = [];
+    const rocks: Call[] = [];
     return {
       blocks,
       covers,
       elevs,
+      rocks,
       setBlocked: (x, y, v) => blocks.push({ x, y, v }),
       setCover: (x, y, v) => covers.push({ x, y, v }),
       setElevation: (x, y, v) => elevs.push({ x, y, v }),
+      setBoulder: (x, y, v) => rocks.push({ x, y, v }),
     };
   }
 
@@ -379,6 +431,27 @@ describe('applyTerrain', () => {
     const s = sink();
     applyTerrain(parseMap({ id: 'f', name: 'F', width: 3, height: 2, rows: ['...', '...'] }), s);
     expect(s.elevs).toEqual([]);
+  });
+
+  it('reports boulder tiles, and never blocks them outright', () => {
+    // `b` is the only symbol whose passability differs by domain, so it is
+    // the only one that reaches the sink through a channel of its own. It
+    // must NOT arrive as setBlocked: that would close it to infantry too,
+    // which is the entire thing the symbol exists to avoid.
+    const s = sink();
+    applyTerrain(parseMap({ id: 'bo', name: 'Bo', width: 3, height: 2, rows: ['.b.', 'b..'] }), s);
+    expect(s.rocks).toEqual([
+      { x: 1, y: 0, v: true },
+      { x: 0, y: 1, v: true },
+    ]);
+    expect(s.blocks).toEqual([]);
+    expect(s.covers).toEqual([]);
+  });
+
+  it('says nothing about boulders on a map with none', () => {
+    const s = sink();
+    applyTerrain(parseMap({ id: 'nb', name: 'Nb', width: 3, height: 2, rows: ['.^.', '.1.'] }), s);
+    expect(s.rocks).toEqual([]);
   });
 });
 

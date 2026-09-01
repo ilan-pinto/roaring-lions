@@ -5,7 +5,13 @@
 //   .  open ground          1 2 3  cover levels (light / heavy / garrison)
 //   r  dirt road            o  olive grove (cover 1)   n  rocky knoll (cover 2)
 //   ^  rock ridge: impassable and blocks sight, the only non-building blocked tile
+//   b  boulder field: open ground on foot, a wall to anything wheeled or tracked
 //   building symbols come from data/structures.json, NOT from this file
+//
+// `b` is the only symbol whose passability depends on WHO is asking, which is
+// why `blocked` alone cannot carry it: the sim keeps a second mask, and this
+// file supplies the extra tiles that go into it. It is ONLY that -- no cover,
+// no sight-blocking, no HP, not destructible.
 //
 // Any building symbol makes a blocked tile; a contiguous run of the SAME
 // symbol becomes one structure with its own HP, garrison and rubble — unless
@@ -111,8 +117,16 @@ export interface ParsedMap {
   height: number;
   /** Terrain theme. Presentation only -- never given to Sim. */
   terrain: TerrainTheme;
-  /** 1 = impassable building tile, row-major width*height. */
+  /** 1 = impassable to everything on the ground, row-major width*height.
+   *  Buildings and `^` ridges. This is the mask infantry path on. */
   blocked: Uint8Array;
+  /** 1 = a boulder tile: passable on foot, impassable to wheels and tracks.
+   *  The vehicle mask is `blocked | boulder`; this array is the difference,
+   *  and is deliberately NOT folded into `blocked`. */
+  boulder: Uint8Array;
+  /** How many tiles `boulder` marks. Zero means the two masks are identical,
+   *  which is what lets the sim skip allocating a second flow field at all. */
+  boulderCount: number;
   /** Cover level 0-3, row-major width*height. */
   cover: Uint8Array;
   /** DECOR value per tile, row-major. Presentation only -- never given to Sim. */
@@ -163,26 +177,43 @@ export const PER_TILE_SYMBOLS: ReadonlySet<string> = new Set(
     .map((spec) => spec.symbol)
 );
 
-/** Terrain symbols, and the blocked/cover/decor triple each one means. */
-export const TERRAIN_LEGEND: Record<
-  string,
-  { blocked: number; cover: number; decor: DecorKind }
-> = {
-  '.': { blocked: 0, cover: 0, decor: DECOR.none },
-  '1': { blocked: 0, cover: 1, decor: DECOR.none },
-  '2': { blocked: 0, cover: 2, decor: DECOR.none },
-  '3': { blocked: 0, cover: 3, decor: DECOR.none },
-  r: { blocked: 0, cover: 0, decor: DECOR.road },
-  o: { blocked: 0, cover: 1, decor: DECOR.grove },
-  n: { blocked: 0, cover: 2, decor: DECOR.knoll },
-  '^': { blocked: 1, cover: 0, decor: DECOR.ridge },
+/** One terrain symbol's mechanical and decorative meaning.
+ *  `blocked` closes the tile to every ground unit; `boulder` closes it only to
+ *  wheels and tracks. A symbol sets one or the other, never both. */
+export interface TerrainCell {
+  blocked: number;
+  boulder: number;
+  cover: number;
+  decor: DecorKind;
+}
+
+/** Terrain symbols, and what each one means. */
+export const TERRAIN_LEGEND: Record<string, TerrainCell> = {
+  '.': { blocked: 0, boulder: 0, cover: 0, decor: DECOR.none },
+  '1': { blocked: 0, boulder: 0, cover: 1, decor: DECOR.none },
+  '2': { blocked: 0, boulder: 0, cover: 2, decor: DECOR.none },
+  '3': { blocked: 0, boulder: 0, cover: 3, decor: DECOR.none },
+  r: { blocked: 0, boulder: 0, cover: 0, decor: DECOR.road },
+  o: { blocked: 0, boulder: 0, cover: 1, decor: DECOR.grove },
+  n: { blocked: 0, boulder: 0, cover: 2, decor: DECOR.knoll },
+  '^': { blocked: 1, boulder: 0, cover: 0, decor: DECOR.ridge },
+  // No cover and no sight-blocking, deliberately: a boulder that hides a tank
+  // is a different object from one that merely stops it, and CLAUDE.md's own
+  // rule is that a low-profile obstacle should not block sight.
+  //
+  // No decor kind of its own either, YET. A `b` tile draws as open ground
+  // until the decor-mesh work (T1-C) gives it a boulder to draw, and adding
+  // the enum value early would mean editing `renderer.ts`, which is frozen
+  // byte-identical to `main`. The renderer does not need the decor array for
+  // this anyway: `ParsedMap.boulder` says exactly which tiles they are.
+  b: { blocked: 0, boulder: 1, cover: 0, decor: DECOR.none },
 };
 
-const LEGEND: Record<string, { blocked: number; cover: number; decor: DecorKind }> = {
+const LEGEND: Record<string, TerrainCell> = {
   ...TERRAIN_LEGEND,
 };
 for (const sym of Object.keys(STRUCTURE_SYMBOLS)) {
-  LEGEND[sym] = { blocked: 1, cover: 0, decor: DECOR.none };
+  LEGEND[sym] = { blocked: 1, boulder: 0, cover: 0, decor: DECOR.none };
 }
 
 export function parseMap(json: MapJson): ParsedMap {
@@ -197,6 +228,8 @@ export function parseMap(json: MapJson): ParsedMap {
     throw new Error(`map ${json.id}: ${rows.length} rows, declared height ${height}`);
   }
   const blocked = new Uint8Array(width * height);
+  const boulder = new Uint8Array(width * height);
+  let boulderCount = 0;
   const cover = new Uint8Array(width * height);
   const decor = new Uint8Array(width * height);
   for (let y = 0; y < height; y++) {
@@ -210,6 +243,8 @@ export function parseMap(json: MapJson): ParsedMap {
         throw new Error(`map ${json.id}: unknown symbol "${row[x]}" at (${x},${y})`);
       }
       blocked[y * width + x] = cell.blocked;
+      boulder[y * width + x] = cell.boulder;
+      if (cell.boulder !== 0) boulderCount++;
       cover[y * width + x] = cell.cover;
       decor[y * width + x] = cell.decor;
     }
@@ -313,7 +348,7 @@ export function parseMap(json: MapJson): ParsedMap {
       structures.push({ type: typeId, tiles });
     }
   }
-  return { id: json.id, width, height, terrain: terrain as TerrainTheme, blocked, cover, decor, elevation, markers, zones, structures, tunnels };
+  return { id: json.id, width, height, terrain: terrain as TerrainTheme, blocked, boulder, boulderCount, cover, decor, elevation, markers, zones, structures, tunnels };
 }
 
 /**
@@ -325,6 +360,11 @@ export function parseMap(json: MapJson): ParsedMap {
  */
 export interface TerrainSink {
   setBlocked(x: number, y: number, b: boolean): void;
+  /** A tile wheels and tracks cannot cross but boots can. Separate from
+   *  `setBlocked` because the two are different questions, not two strengths
+   *  of the same one -- routing `b` through setBlocked would close it to
+   *  infantry, which is the whole thing the symbol exists to avoid. */
+  setBoulder(x: number, y: number, b: boolean): void;
   setCover(x: number, y: number, c: number): void;
   setElevation(x: number, y: number, h: number): void;
 }
@@ -348,11 +388,12 @@ export interface TerrainSink {
  * Never unblocking means calling this after the structure loop cannot undo it.
  */
 export function applyTerrain(map: ParsedMap, sink: TerrainSink): void {
-  const { width, height, blocked, cover, elevation } = map;
+  const { width, height, blocked, boulder, cover, elevation } = map;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const t = y * width + x;
       if (blocked[t] !== 0) sink.setBlocked(x, y, true);
+      if (boulder[t] !== 0) sink.setBoulder(x, y, true);
       if (cover[t] !== 0) sink.setCover(x, y, cover[t]);
       if (elevation[t] !== 0) sink.setElevation(x, y, elevation[t]);
     }

@@ -89,6 +89,7 @@ export {
   type MapJson,
   type ParsedMap,
   type DecorKind,
+  type TerrainCell,
   type TerrainSink,
   type TerrainTheme,
 } from './map';
