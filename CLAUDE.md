@@ -258,10 +258,27 @@ yours; each one records what the next phase inherits.
   they do not read as failures — the largest being `structureLastAlpha`, where
   **every building destruction differs** because Pixi's event ordering floors a
   combat kill's starting alpha to 0.55 and three does not.
-  Two caveats, both load-bearing: it is **not in CI** (needs Playwright, the same
-  gap `playtest.ts` has), and it has **never diffed combat**, so five of the
-  eight entries and the whole VFX/collapse surface are documented but not
-  demonstrated.
+  **It IS in CI** as of `9c76b7b` — `.github/workflows/golden-diff.yml`, its own
+  workflow rather than a `gates` step, on a nightly schedule plus
+  `workflow_dispatch` plus an opt-in `golden-diff` PR label. Playwright drives a
+  headless Chromium (`tools/src/ci/golden-diff-gate.ts`); four scenarios now
+  exist (`quiet`, `open-ground`, `vehicle`, `combat`), each with its own entry in
+  `SCENARIO_BUDGETS`, and a scenario with no budget throws rather than passing
+  silently.
+  **The `quiet` scenario is RED and has been silently so** — measured 2026-09-01
+  at HEAD `b7a2465`, twice, bit-identical: `diffPixelPct 2.564%` against a
+  `1.3%` budget (`meanAbsChannelDelta 3.005` of 10, well inside). It is not
+  antialiasing fringe: the diff has large SOLID-INTERIOR regions where three
+  draws terracotta mesh buildings and detailed decor that Pixi has no
+  counterpart for at all. The 1.3% budget was calibrated (`0.128%` GPU /
+  `0.143%` headless) when three drew none of that. Because the workflow only
+  runs nightly or on a label, nothing surfaced it. **Do not widen the budget to
+  clear this** — that is the failure mode the gate's own header forbids. It
+  needs a decision first: the project has already abandoned cross-backend parity
+  for VFX and mesh units have no Pixi path at all, so the honest options are a
+  re-calibration against a fresh measurement, a new `EXPECTED_DIFFERENCES` entry
+  for three-only building/decor geometry (the catalogue has none for it), or
+  retiring the quiet scenario.
   **VFX are exempt from this diff as of 2026-08-30.** The project lead's call:
   "all VFX should move to three." Pixi's VFX are legacy and are no longer owed a
   matching effect — an effect that exists only in three is the intended end
@@ -311,10 +328,25 @@ load is worth doing before release. Pipeline: `tools/units/kit.py` (geometry)
 - **Mesh units ARE gated now** -- `pnpm validate:meshes` (`tools/render_mesh_gate
   .py` + `validate_mesh_assets.py`) renders every `art/meshes/**/*.glb`
   headlessly through `render_rig.py`'s own rig and runs
-  `validate_assets.py`'s IMPORTED palette/silhouette/fill checks. 29/29 pass;
-  closest call 0.8669 against the 0.88 limit. Silhouette IoU compares each
-  mesh against every other mesh and every other unit's sprite, EXCLUDING its
-  own retired sprite -- a mesh is supposed to look like the unit it replaces.
+  `validate_assets.py`'s IMPORTED palette/silhouette/fill checks. Silhouette IoU
+  compares each mesh against every other mesh and every other unit's sprite,
+  EXCLUDING its own retired sprite -- a mesh is supposed to look like the unit it
+  replaces. **It is in CI** (`8304f6b`, ci.yml's `gates` job), and CI really can
+  run headless Blender: the workflow downloads Blender 5.2.0 linux-x64 from
+  download.blender.org and that URL is live (HTTP 200, verified 2026-09-01) --
+  this is a real gate, not a green-looking no-op. Current state measured
+  2026-09-01: **passes in 31.69s**, "46 mesh unit(s) rendered and checked against
+  36 sprite unit(s); 21 decor mesh(es) checked against the mesh contract
+  directly" -- the "29/29" this line used to carry is long stale. Locally it
+  needs Blender on PATH or `--blender`/`BLENDER_BIN` (a macOS `Blender.app` is
+  found by the default candidate list); with none it fails loudly rather than
+  skipping. Two traps when running it in a **shared worktree**: it walks
+  `art/meshes/` with no filter and no ignore of untracked files, so another
+  session's scratch `.glb` will fail YOUR run (observed -- a stray
+  `zz_throwaway.glb`, a copy of `digger_crew`, produced
+  `silhouette collision: digger_crew (mesh) vs zz_throwaway (mesh) IoU=1.000
+  (limit 0.88)`); and there is no `--meshes` flag to point it elsewhere, so
+  `git status art/meshes/` is the first thing to check when it goes red.
 - **Art existing is not art drawing.** `packages/app/src/main.ts`'s
   `SPRITE_MAP` is what queues a sheet for loading, and a unit type absent from
   it never loads anything. Three complete, gate-passing sheets shipped and drew
@@ -433,9 +465,10 @@ load is worth doing before release. Pipeline: `tools/units/kit.py` (geometry)
   `b604032` and nobody noticed. Its `run()` never registered the map's tunnels with
   the `Sim`, so the moment Beit Sahwan II gained a `digs`/`in_tunnel` placement the
   whole chain died at that mission with `unknown tunnel "bs_tn_west"`, taking every
-  mission below it with it. The gate is a manual `npx tsx` script wired into neither
-  `pnpm test` nor CI, which is why "all gates green" could be said truthfully about
-  the tunnel subsystem while this one was red. Two consequences outlived the fix and have
+  mission below it with it. The gate was then a manual `npx tsx` script wired into
+  neither `pnpm test` nor CI, which is why "all gates green" could be said truthfully
+  about the tunnel subsystem while this one was red. **It is wired now** (`c05de3c`,
+  `pnpm playtest` in ci.yml's `gates` job), so that particular silence cannot recur. Two consequences outlived the fix and have
   SINCE BEEN RESOLVED (see below): `beit_sahwan_breach (passive control)` returned
   VICTORY where its own comment demands DEFEAT, and `beit_sahwan_3_clearance` returned
   DEFEAT. Neither was a tunnel-era regression — checking out `066445f` (main before any tunnel code) and
@@ -453,9 +486,23 @@ load is worth doing before release. Pipeline: `tools/units/kit.py` (geometry)
   `evac_settlements` -- the only objective requiring anyone to leave the compound --
   while leaving all eleven civilians on the map; restoring it as a primary
   (`checkEnd` reads only primaries, and `evacuate_before` is the one type that can
-  reach 'failed') makes passivity lose again. **`playtest.ts` now exits 0.** It is
-  still wired into neither `pnpm test` nor CI, so it still has to be run by hand --
-  which is the part of this debt that has not been paid.
+  reach 'failed') makes passivity lose again. **`playtest.ts` now exits 0, and it is
+  wired into CI** — `pnpm playtest` in ci.yml's `gates` job since `c05de3c`. It runs
+  in **4.07s** measured (no browser, no GPU, no Blender), which is why it sits on
+  every push next to `pnpm balance` rather than behind a schedule the way
+  golden-diff does. Not in `pnpm test`: it is a CLI harness that prints a table, not
+  a vitest spec, and `pnpm test` (18.65s, 2012 specs) stays the fast inner loop.
+  **What it can and cannot fail on, measured 2026-09-01.** Falsified by hand:
+  setting `beit_sahwan_3_clearance`'s `take_town` hold from 20s to 1500s pushes the
+  run past the harness's own 20-minute ceiling and it goes red —
+  `beit_sahwan_3_clearance: FAILED — expected VICTORY, got ONGOING`, exit 1.
+  But the same break at 900s took that mission from **2.5 min to 17.2 min — a 7x
+  blowout, 3.4x its own `target_minutes` — and the gate stayed GREEN, exit 0.**
+  The assertion is `result === expect` and nothing else, so the only duration
+  failure it can express is "did not finish inside 20 minutes". A mission can
+  degrade several-fold and CI will not notice. Closing that means giving the
+  harness a per-mission duration ceiling, which is a design call, not a tidy-up —
+  see the next bullet for why tying it to `target_minutes` is the wrong shape.
 - A scripted plan in `playtest.ts` proves a mission WINNABLE; it does not measure how
   long the mission takes. The plans are optimal-play proofs, and tuning enemy volume
   until the scripted clock reaches `target_minutes` would produce missions no real
