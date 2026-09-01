@@ -219,8 +219,8 @@ The default mapping, derived from symbols that already exist:
 The hash also picks the variant, rotation and scale jitter. Every shipped map
 therefore gains scatter with **zero authoring**.
 
-An optional `decor` grid in the map JSON overrides specific tiles where a
-landmark is wanted. Overrides win where present; absent tiles fall to the
+**DEFERRED 2026-09-01 (see the T1-C plan and its issue):** an optional authored
+grid overriding specific tiles where a landmark is wanted. Overrides win where present; absent tiles fall to the
 derived rule. Two placement paths is a real cost and is accepted deliberately:
 the derived rule gives every map something for free, and the override is what
 makes a set-piece possible without hand-placing hundreds of objects.

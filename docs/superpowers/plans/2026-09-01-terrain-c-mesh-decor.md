@@ -28,8 +28,8 @@
 |---|---|
 | `packages/render/src/three/terrain/decor-role.ts` | The closed decor role vocabulary and its ramp table. Pure. |
 | `packages/render/src/three/terrain/decor-role.test.ts` | Role set is closed; unknown role throws. |
-| `packages/render/src/three/terrain/decor-place.ts` | `decorPlacements(input)` — headless, no three.js. The derived rule plus overrides. |
-| `packages/render/src/three/terrain/decor-place.test.ts` | Determinism, per-family mapping, override precedence. |
+| `packages/render/src/three/terrain/decor-place.ts` | `decorPlacements(input)` — headless, no three.js. The derived rule. |
+| `packages/render/src/three/terrain/decor-place.test.ts` | Determinism and per-family mapping. (Override precedence: deferred, see Task 3.) |
 | `packages/render/src/three/terrain/decor-mesh.ts` | Placements + loaded geometries -> one `THREE.BatchedMesh`. |
 | `tools/terrain/export_meshy_decor.py` | Blender export for the six decor families. |
 | `art/meshes/decor/*.glb` | The assets. |
@@ -386,145 +386,25 @@ git commit -m "feat(decor): the derived placement rule, headless and determinist
 
 ---
 
-### Task 3: Authored overrides
+### Task 3: Authored overrides — DEFERRED, not part of this plan
 
-**Files:**
-- Modify: `data/schemas/map.schema.json`
-- Modify: `packages/data/src/map.ts` — parse the grid, expose it on `ParsedMap`
-- Modify: `packages/render/src/three/terrain/types.ts` — `TerrainInput.decorOverride`
-- Modify: `packages/render/src/three/terrain/decor-place.ts`
-- Test: `packages/data/src/map.test.ts`, `packages/render/src/three/terrain/decor-place.test.ts`
+**Status: deferred to its own issue on 2026-09-01, by the project lead's decision.**
 
-**Interfaces:**
-- Consumes: Task 2's `decorPlacements` and `DecorFamily`.
-- Produces: `TerrainInput.decorOverride: Uint8Array | null`, and `ParsedMap.decorOverride: Uint8Array | null`. Encoding: `0` = derive, `1..6` = force family, in `DECOR_FAMILIES` order (`['grass','sand','bush','tree','rock','slab']`), `7` = force nothing.
+T1-C ships **derived-only**: scatter comes from the terrain symbols and the
+per-tile hash, with no authored grid, no `decor_overrides` schema key, no
+parser, and no `TerrainInput.decorOverride` field. `decor-place.ts` stays as
+Task 2 shipped it.
 
-- [ ] **Step 1: Write the failing test**
+The reasoning is worth keeping: an override path is only worth its two
+placement paths — and the debugging cost of "which one put that rock there" —
+if the derived rule turns out to need correcting. Nobody has seen the derived
+scatter on a real map yet, so that is a guess. Decide it with evidence.
 
-First extend the `input` helper from Task 2 -- Task 3 makes `decorOverride` a
-required field on `TerrainInput`, so the helper must set it or nothing in this
-file compiles:
-
-```ts
-function input(w: number, h: number, edit?: (i: TerrainInput) => void): TerrainInput {
-  const t: TerrainInput = {
-    width: w,
-    height: h,
-    decor: new Uint8Array(w * h),
-    elevation: null,
-    blocked: new Uint8Array(w * h),
-    cover: new Uint8Array(w * h),
-    decorOverride: null,
-  };
-  edit?.(t);
-  return t;
-}
-```
-
-```ts
-// append to packages/render/src/three/terrain/decor-place.test.ts
-import { DECOR_FAMILIES, OVERRIDE_NONE } from './decor-place';
-
-describe('authored overrides', () => {
-  it('forces the named family on the tile that names one', () => {
-    // Asserted on a map that derives NO trees, so a tree can only have come
-    // from the override. `cover: 1` derives bushes everywhere.
-    const w = 8;
-    const t = input(w, w, (i) => i.cover.fill(1));
-    t.decorOverride = new Uint8Array(w * w);
-    t.decorOverride[3 * w + 3] = DECOR_FAMILIES.indexOf('tree') + 1;
-    const trees = decorPlacements(t).filter((p) => p.family === 'tree');
-    expect(trees.length).toBe(1);
-  });
-
-  it('places an authored object even where the density roll would have skipped it', () => {
-    // An authored placement is a decision, not a probability. Every tile is
-    // forced, so every tile must produce exactly one object.
-    const w = 6;
-    const t = input(w, w);
-    t.decorOverride = new Uint8Array(w * w).fill(DECOR_FAMILIES.indexOf('rock') + 1);
-    expect(decorPlacements(t).length).toBe(w * w);
-  });
-
-  it('suppresses decor entirely where the author asked for none', () => {
-    const w = 6;
-    const t = input(w, w);
-    t.decorOverride = new Uint8Array(w * w).fill(OVERRIDE_NONE);
-    expect(decorPlacements(t)).toEqual([]);
-  });
-
-  it('derives normally on tiles with no override', () => {
-    const w = 8;
-    const bare = decorPlacements(input(w, w));
-    const t = input(w, w);
-    t.decorOverride = new Uint8Array(w * w);
-    expect(decorPlacements(t)).toEqual(bare);
-  });
-});
-```
-
-- [ ] **Step 2: Run it and watch it fail**
-
-Run: `npx vitest run packages/render/src/three/terrain/decor-place.test.ts`
-Expected: FAIL — `DECOR_FAMILIES` and `OVERRIDE_NONE` are not exported.
-
-- [ ] **Step 3: Implement**
-
-In `decor-place.ts`, export the family order and the sentinel, add the field, and consult it first:
-
-```ts
-export const DECOR_FAMILIES: readonly DecorFamily[] = [
-  'grass', 'sand', 'bush', 'tree', 'rock', 'slab',
-];
-/** Author says "nothing here" -- distinct from 0, which means "derive". */
-export const OVERRIDE_NONE = 7;
-```
-
-Inside the tile loop, immediately after the `blocked` check:
-
-```ts
-      const ov = input.decorOverride ? input.decorOverride[t] : 0;
-      if (ov === OVERRIDE_NONE) continue;
-      const forced = ov > 0 ? DECOR_FAMILIES[ov - 1] : null;
-```
-
-then use `forced ?? familyFor(...)` and skip the density roll when `forced !== null`
-(an authored placement is a decision, not a probability).
-
-In `types.ts`, add to `TerrainInput`:
-
-```ts
-  /** Per tile: 0 derive, 1..6 force a DECOR_FAMILIES entry, 7 force nothing.
-   *  Null when the map authored none, which is every map today. */
-  decorOverride: Uint8Array | null;
-```
-
-In `map.ts`, parse an optional `decor` array of strings the same way `elevation`
-is parsed (same dimension check, one character per tile), mapping
-`.`=0 `g`=1 `s`=2 `b`=3 `t`=4 `r`=5 `k`=6 `-`=7 and throwing on any other
-character with the tile coordinates in the message.
-
-In `map.schema.json`, add `decor` beside `elevation` with the same
-`minItems`/`maxItems` shape and a description naming the characters.
-
-- [ ] **Step 4: Run every affected gate**
-
-```bash
-npx vitest run packages/render/src/three/terrain packages/data
-pnpm validate:data
-npx tsc --noEmit
-```
-Expected: all pass. `TerrainInput` gained a required field, so every construction
-site must be updated — the compiler lists them.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add data/schemas/map.schema.json packages/data/src/map.ts packages/data/src/map.test.ts \
-  packages/render/src/three/terrain/types.ts packages/render/src/three/terrain/decor-place.ts \
-  packages/render/src/three/terrain/decor-place.test.ts
-git commit -m "feat(decor): an optional authored decor grid overriding the derived rule"
-```
+Everything the deferred task would have needed is written up in the issue,
+including the exact `elevation` parser at `packages/data/src/map.ts:217-238`
+that it should mirror, and the ruling that its JSON key must be
+`decor_overrides` rather than `decor` (the latter collides with the
+symbol-derived `ParsedMap.decor`).
 
 ---
 
