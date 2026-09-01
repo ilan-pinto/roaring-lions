@@ -32,20 +32,21 @@ of that is faced here rather than papered over:
   * All five clips are synthesized. Their quality is a function of authoring
     effort alone.
 
-## Which of the two supplied blends, and why
-
-`..._standing_...` is three men on their feet: one shoulders the limbered tube and
-bipod, one carries a round and an ammunition case, one has his rifle slung. It is a
-genuine travel state and it is NOT used here -- see "The limbered state" at the
-bottom of this docstring.
+## BOTH supplied blends, one per posture -- see `CLIP_SOURCES`
 
 `..._loading_...` is the deployed tableau: baseplate down, bipod planted, tube up,
 one man kneeling at an open ammunition case, the loader kneeling with a round raised
 over the muzzle, a third kneeling with his rifle and a handset. That is the
 composition `tools/units/teams.py`'s own `mortar_team` already builds and ships
 (a tube at +0.26, two kneeling crew at +/-0.54, an upright No.3 at -0.62), with the
-No.3 also kneeling. The art matches the design that already shipped, so `loading`
-is the base for every clip.
+No.3 also kneeling. It is the base for `idle`, `fire`, `down` and `wreck`.
+
+`..._standing_...` is three men on their feet: one shoulders the limbered tube and
+bipod, one carries a round and an ammunition case, one has his rifle slung. It is a
+genuine travel state, and it is the base for `move` alone -- which is the whole
+point of this revision, and is written up under "The limbered state" at the bottom
+of this docstring. A crew that walks upright and kneels to deploy is not a
+compromise; it is what a mortar crew does.
 
 ## `work` -- asked, and the answer is NO
 
@@ -181,18 +182,55 @@ of the tube and hides the vertical spike that is this unit's whole silhouette
 identity; 0.80 was chosen by rendering 1.00, 0.80, 0.70 and 0.62 and looking at all
 four.
 
-## The limbered state
+## The limbered state -- how `move` gets a real walk (issue #145)
 
-`..._standing_...` is exactly the source a travel/`move` state would want, and it
-cannot be added under the contract as written: a skinned mesh has ONE rest geometry,
-so `move` on standing geometry while `idle` uses loading geometry is not expressible
-without either two geometry sets scale-swapped per clip (which puts two meshes under
-one role and breaks "node name equals its role exactly", the same way the building
-wreck case did) or a second sibling file. That is a design decision for a later
-slice, not something to improvise here. `teams.py`'s own module docstring already
-accepts the trade in writing: "Crew-served weapons stay deployed through `move`. A
-mortar team really walks with the tube shouldered. Authoring a carried state per crew
-weapon roughly doubles the work for something invisible at 25 px."
+The first version of this file used `loading` for all five clips and said the hybrid
+was not expressible, on the grounds that "a skinned mesh has ONE rest geometry" and
+that two geometry sets would put two meshes under one role. Both halves of that were
+wrong, and the shipped tree already contained the counter-example.
+
+It cost a real regression: with every figure kneeling and no leg column, `move` was a
+torso bob. Measured on the shipped GLB by skinning the `boot` role with its own
+animated joints, the boots travelled **4.08 cm** against the 130 cm of ground the
+team covers in one cycle (0.65 tiles/s x 0.667 s x 3 m/tile) -- 3.1%, against 88.5%
+for the `tools/units/kit.py` build. The unit skated, and `mortar_team` was reverted
+to the older, uglier, walking asset.
+
+What was wrong:
+
+  * **One rest geometry is not one POSTURE.** A skinned mesh's rest geometry can
+    contain two disjoint sculpts bound to two disjoint bone trees, and a clip picks
+    which one exists by keying the other tree's root `scale` to zero. That is not a
+    trick invented here: `tools/units/rig.py` has always shipped `down`/`wreck` this
+    way (`{prefix}_root` and `{prefix}_death_root` are siblings, "every clip keys
+    BOTH bones' scale explicitly -- 1/0 in `idle`/`move`/`fire`, 0/1 in
+    `down`/`wreck`"), `packages/render/src/three/units/mesh-unit.ts` documents it,
+    and `tools/export_meshy_sniper.py` already does exactly THIS job from exactly
+    this Meshy product line: two unrigged sculpts, one file, `move` on the standing
+    one and every other clip on the prone one.
+  * **Two geometry sets do not mean two meshes per role.** They are JOINED by role
+    before binding, so `uniform` is still one mesh -- it simply contains the standing
+    men's vertices weighted to `f<N>_st_*` and the kneeling men's weighted to
+    `f<N>_*`. "Node name equals its role exactly" is untouched. The building-wreck
+    case that forced two sibling files is genuinely different: a building has no
+    armature at all, so it has no way to hide half of itself.
+  * `applyMeshClip` (`mesh-unit.ts`) **stops every other action rather than
+    crossfading**, so the swap is a hard cut with no frame in which both sets are
+    half-scaled.
+
+So `CLIP_SOURCES` below declares a source per clip, `check_clip_sources` refuses to
+build if a declared source is never opened (the exact defect that produced #145 --
+`SRC_STANDING` was declared here and read by nothing), and `check_gait` measures the
+boots' peak-to-peak travel over `move` on the EVALUATED mesh and refuses to build a
+slide. `tools/src/mesh_gait.test.ts` re-measures the same thing from the shipped
+bytes, so the gate survives this file not being run.
+
+What `teams.py`'s module docstring accepts in writing -- "Crew-served weapons stay
+deployed through `move`. A mortar team really walks with the tube shouldered.
+Authoring a carried state per crew weapon roughly doubles the work for something
+invisible at 25 px" -- remains true of the `kit.py` pipeline and is not contradicted
+here. That trade was about AUTHORING a limbered state from primitives. This asset was
+supplied with one.
 
 No `mathutils.noise` anywhere in this file.
 """
@@ -201,6 +239,7 @@ import math
 import os
 import struct
 import tempfile
+from collections import Counter
 
 import bpy
 import numpy as np
@@ -214,11 +253,31 @@ SRC_BLEND = (
     "/Users/ilpinto/dev/roaring-lions/art/blend/KDF/mortor team/"
     "Meshy_AI_mortar_crew_loading_0831170353_image-to-3d-texture.blend"
 )
-#: The unused travel-pose sibling -- see "The limbered state" in the module docstring.
+#: The travel-pose sibling -- `move`'s geometry. See "The limbered state" in the
+#: module docstring for why this file used to declare it and never open it, and what
+#: that cost.
 SRC_STANDING = (
     "/Users/ilpinto/dev/roaring-lions/art/blend/KDF/mortor team/"
     "Meshy_AI_mortar_crew_standing_0831170455_image-to-3d-texture.blend"
 )
+
+#: Which supplied blend each clip's geometry comes from.
+#: `import_meshy_soldier.py` declares the same relation for its seven supplied clip
+#: FILES; here the two values are POSES rather than animations, which is
+#: `tools/export_meshy_sniper.py`'s shape ("The source: two POSES, not two
+#: animations"). Read by `check_clip_sources` (below), by `write_clip` (which set is
+#: visible), and by `check_clip_semantics` (which set's root travel to measure).
+CLIP_SOURCES = {
+    "idle": "loading",
+    "move": "standing",
+    "fire": "loading",
+    "down": "loading",
+    "wreck": "loading",
+}
+
+#: The blend behind each `CLIP_SOURCES` value. A source declared here and used by no
+#: clip is a BUILD FAILURE, not a spare -- see `check_clip_sources`.
+SOURCE_BLEND = {"loading": SRC_BLEND, "standing": SRC_STANDING}
 
 #: A NEW file rather than a rewrite of `art/meshes/mortar_team.glb`. That one
 #: ships today, is fielded in seven missions plus the tutorial, and passes every
@@ -322,6 +381,150 @@ GAIT_PHASE_FRACTIONS = (0.0, 1.0 / 3.0, 2.0 / 3.0)
 #: influence hands over to the next. Ordered and non-overlapping, which is what
 #: makes the four weights sum to exactly 1 with no normalisation pass.
 BONE_BANDS = ((0.28, 0.42), (0.50, 0.62), (0.74, 0.86))
+
+# --- the standing source: rig, roles, gait --------------------------------
+#
+# Everything below belongs to `..._standing_...` alone. The kneeling source's
+# constants above are untouched: `idle`/`fire`/`down`/`wreck` are byte-identical in
+# intent to what shipped, and this revision adds a second set beside them rather
+# than re-tuning the first.
+
+#: Bone name infix for the standing set: `f0_st_pelvis` beside the deployed set's
+#: `f0_abdomen`. The contract's rule is the `f<N>_` prefix ("the runtime ... never
+#: depends on bone names beyond the `f<N>_` prefix convention") and both sets keep
+#: it, so a reader can tell at a glance which posture a bone drives.
+STAND_INFIX = "st"
+
+#: The standing rig, parent-first. Two torso bones and a real leg column per figure
+#: -- which is the entire point: `move` on a rig with no leg bones is a slide, and
+#: that is issue #145.
+STAND_CHAIN = ("root", "pelvis", "chest", "thigh_L", "thigh_R", "shin_L", "shin_R")
+STAND_PARENT = {
+    "root": None,
+    "pelvis": "root",
+    "chest": "pelvis",
+    "thigh_L": "pelvis",
+    "thigh_R": "pelvis",
+    "shin_L": "thigh_L",
+    "shin_R": "thigh_R",
+}
+
+#: Pivot heights as fractions of each figure's OWN measured height. `hip` and `knee`
+#: are the leg chain's two joints; `ankle` is where the shin ends. Measured off the
+#: source rather than assumed: the three standing figures are 1.191 / 1.190 / 1.199
+#: source units tall against the 1.207 tableau, and their boots occupy the lowest
+#: 0.075 of that (confirmed by a flat-colour render of the classification, not by a
+#: histogram).
+STAND_ROOT_ZFRAC = 0.02
+STAND_HIP_ZFRAC = 0.53
+STAND_CHEST_ZFRAC = 0.66
+STAND_KNEE_ZFRAC = 0.28
+STAND_ANKLE_ZFRAC = 0.02
+
+#: Height-fraction handover bands, same cumulative-smoothstep device as
+#: `BONE_BANDS`: hips, then chest, then the knee inside the leg.
+STAND_HIP_BAND = (0.44, 0.56)
+STAND_CHEST_BAND = (0.58, 0.70)
+STAND_KNEE_BAND = (0.22, 0.34)
+
+#: How far from the nearer leg column a vertex may sit and still be a LEG, as a
+#: fraction of the figure's own height. Below the hip a figure's vertices are legs,
+#: hanging arms, hands, and whatever those hands hold; only the legs may swing.
+#: Measured per figure from its own boots: the distance histogram of below-hip body
+#: vertices to the nearer boot centre falls off hard past 0.11 h on the two men whose
+#: arms hang free, and the middle man -- the only one carrying a case at hip height
+#: -- has a second population at 0.17-0.22 h that is exactly the arm this gate exists
+#: to keep off the thigh bone.
+STAND_LEG_GATE = (0.11, 0.17)
+
+#: Which measured leg column each bone side is. `legs[0]` is the column at smaller x
+#: and `legs[1]` the one at larger x; the crew face -Y (measured -- see
+#: "Orientation") and up is +Z, so the figure's own LEFT points toward +X and
+#: `legs[1]` is the left leg. The gait is anti-phase either way, so this changes
+#: nothing on screen -- it is named correctly because a bone called `thigh_L` that
+#: drives the right leg is a trap for whoever authors the next clip, and because
+#: `build_armature` and `skin_standing` must agree or the weights land on the wrong
+#: bone entirely.
+STAND_LEG_INDEX = {"L": 1, "R": 0}
+
+#: Hardware -- the limbered tube, the slung rifle, the ammunition case, the goggles
+#: and the pouches -- binds RIGIDLY to its owner's chest, never to the height ladder.
+#: A carried case sits at hip height, so the ladder would hang it off a thigh bone
+#: and swing it like a pendulum; the tube spans hip to over the head, so the ladder
+#: would tear its butt off with the leg. Both are carried BY the torso, and the torso
+#: is what they must follow.
+STAND_HARDWARE_BONE = "chest"
+
+#: Which grown hardware group is which in the STANDING tableau, by rank in descending
+#: vertex count. Ranks are stable because the objects differ by multiples (73.8k /
+#: 35.5k / 23.0k / 8.8k / 8.1k / 5.7k / 5.6k / 5.7k / 3.0k), and every one was
+#: identified by re-colouring the actual vertices and rendering the result from -Y,
+#: +Y and above -- the same standard the kneeling source's own table was held to,
+#: and never from colour statistics.
+#:   0  the limbered mortar, shouldered by the left man (tube, bipod, baseplate)
+#:   1  the right man's rifle, held across his chest
+#:   2  the ammunition case in the middle man's hand
+#:   3+ goggles (one group per man), the left man's waist pouch, a small held item
+STAND_HW_ROLE_BY_RANK = {0: "metal", 1: "weapon", 2: "metal"}
+
+#: Boots: the lowest band of each standing figure. No radial term, unlike the
+#: kneeling source's `BOOT_RADIAL_MAX` -- there, the ammunition case sits ON THE
+#: GROUND beside its owner and had to be excluded by radius. Here the lowest thing
+#: that is not a boot is the carried case at 0.25 of the figure's height, three times
+#: this band, so a radial guard would be a term that never fires.
+STAND_BOOT_ZFRAC_MAX = 0.075
+
+#: Face: the front-lower window of each standing head, below the goggles. Fractions
+#: of that head band's OWN measured depth, never absolute coordinates -- same shape
+#: as the kneeling source's own face rule, different numbers because a standing head
+#: sits at a different fraction of a standing figure.
+STAND_FACE_ZFRAC = (0.84, 0.905)
+STAND_FACE_DEPTH_OFFSET = 0.12
+STAND_FACE_RADIUS = 0.55
+
+#: Per-role decimation for the standing set. Tighter than the kneeling set's
+#: (`DECIMATE`) across the board, and deliberately: this geometry is only ever on
+#: screen while the unit is CROSSING GROUND, so it is seen in motion and never held
+#: still, while the kneeling set is what a deployed team sits in for whole minutes.
+#: The kneeling set ships 62,840 verts; these ratios put the standing set near 35k.
+STAND_DECIMATE = {
+    "uniform": 0.026,
+    "metal": 0.055,
+    "weapon": 0.100,
+    "boot": 0.080,
+    "webbing": 0.080,
+    "face": 0.090,
+}
+
+#: The gait. Radians, and every one an authored art number measured against the one
+#: number that is NOT authored: `GAIT_GROUND_M` below.
+#:
+#: `STAND_THIGH_SWING` is the amplitude of the hip swing; the boots' peak-to-peak
+#: travel is very nearly `2 * leg_length * sin(swing)`, so this is the single knob
+#: `check_gait` reports against. `STAND_SHIN_BEND` is knee flexion, positive-only and
+#: active only across the swing phase (`max(0, ...)`), the same shape
+#: `tools/units/rig.py`'s `B_SHIN` uses and the same magnitude.
+STAND_THIGH_SWING = 0.53
+STAND_SHIN_BEND = 0.90
+STAND_SHIN_SHIFT = 0.6
+STAND_BOB = 0.026
+STAND_LEAN = 0.08
+STAND_TWIST = 0.10
+
+#: The ground the team covers in one `move` cycle, and the target the gait is
+#: measured against. NOT authored: `data/units/kdf/mortar_team.json`'s own
+#: `mobility.speed_tiles_s` (0.65) x `CLIP_FRAMES["move"]` / 24 fps (0.667 s) x
+#: `MESH_UNITS_PER_TILE` (3.0, `packages/render/src/three/units/mesh-anim.ts`).
+#: Restated here rather than read, because this script runs inside Blender with no
+#: repo import path and the three inputs live in three different packages -- but
+#: `tools/src/mesh_gait.test.ts` DOES read all three, from the shipped bytes, so a
+#: drift between this literal and the data fails there.
+GAIT_GROUND_M = 0.65 * (16 / 24) * 3.0
+
+#: The fraction of `GAIT_GROUND_M` the boots must actually travel. The two known-good
+#: walks in the tree land at 0.887 (`mortar_team.glb`) and 0.891 (`inf_squad.glb`);
+#: the legless rig this gate exists for landed at 0.032.
+GAIT_FLOOR = 0.75
 
 #: Where each bone's pivot sits, again as a fraction of the figure's own height.
 BONE_PIVOTS = {"root": 0.02, "abdomen": 0.35, "chest": 0.56, "head": 0.80}
@@ -684,6 +887,229 @@ def quantize_weights(w):
     return q
 
 
+# --- the standing source --------------------------------------------------
+
+
+def check_clip_sources():
+    """Refuse to build unless every clip has a source and every source is used.
+
+    The second half is the one that matters. Before this revision `SRC_STANDING` was
+    declared in this file, described in its own docstring as "exactly the source a
+    travel/`move` state would want", and opened by nothing -- and the resulting
+    `move` was a 4 cm shuffle across 130 cm of ground (issue #145). A constant that
+    names an input nobody reads looks identical to one that is wired up. This makes
+    the difference a build failure."""
+    missing = [c for c in CLIP_ORDER if c not in CLIP_SOURCES]
+    if missing:
+        raise RuntimeError(f"CLIP_SOURCES has no source for {missing}")
+    unknown = sorted(set(CLIP_SOURCES.values()) - set(SOURCE_BLEND))
+    if unknown:
+        raise RuntimeError(f"CLIP_SOURCES names sources with no blend: {unknown}")
+    unused = sorted(set(SOURCE_BLEND) - set(CLIP_SOURCES.values()))
+    if unused:
+        raise RuntimeError(
+            f"SOURCE_BLEND declares {unused}, which no clip reads -- this is the "
+            f"exact shape of issue #145. Wire it to a clip or delete it."
+        )
+    for name, path in SOURCE_BLEND.items():
+        if not os.path.exists(path):
+            raise RuntimeError(f"source blend {name!r} missing: {path}")
+    print("clip sources:", {c: CLIP_SOURCES[c] for c in CLIP_ORDER})
+
+
+def append_standing_mesh():
+    """Bring the standing sculpt into the scene the kneeling one is already in.
+
+    `bpy.ops.wm.open_mainfile` would replace it, so the second source is APPENDED --
+    `bpy.data.libraries.load(link=False)`, which copies the object, its mesh, its
+    material and its packed textures in as local data. The material matters: it is
+    the only route to the base-colour image `basecolor_per_vertex` samples, and it
+    has to survive until that sample is taken.
+
+    Returns the appended mesh object. Everything else the append dragged in is
+    deleted, so a stray empty or a display plinth cannot be mistaken for a figure by
+    the connected-component split."""
+    before = set(bpy.data.objects.keys())
+    with bpy.data.libraries.load(SRC_STANDING, link=False) as (src, dst):
+        dst.objects = list(src.objects)
+    added = [bpy.data.objects[n] for n in set(bpy.data.objects.keys()) - before]
+    for ob in added:
+        bpy.context.collection.objects.link(ob)
+    mesh_objs = [o for o in added if o.type == "MESH" and len(o.data.vertices) > 0]
+    if not mesh_objs:
+        raise RuntimeError(f"no mesh appended from {SRC_STANDING}")
+    keep = max(mesh_objs, key=lambda o: len(o.data.vertices))
+    for ob in added:
+        if ob is not keep:
+            bpy.data.objects.remove(ob, do_unlink=True)
+    print(f"standing source: {keep.name}, {len(keep.data.vertices)} verts, "
+          f"{len(keep.data.polygons)} polys")
+    return keep
+
+
+def split_standing_figures(co, mesh_obj):
+    """Figure index per vertex, left to right in x.
+
+    Simpler than the kneeling tableau's own split and deliberately not sharing code
+    with it: this source is THREE connected components and nothing else (356,496 /
+    320,333 / 303,264 verts, measured), with no loose round to fold in and no display
+    plinth to cut. A `RuntimeError` rather than a silent fold, because a fourth
+    component here would mean the source changed and the ranks in
+    `STAND_HW_ROLE_BY_RANK` can no longer be trusted."""
+    comp = connected_components(mesh_obj)
+    sizes = np.bincount(comp)
+    order = [int(c) for c in np.argsort(-sizes)]
+    big = [c for c in order if sizes[c] > 50_000]
+    print("standing components:", [(c, int(sizes[c])) for c in order[:6]])
+    if len(big) != 3:
+        raise RuntimeError(f"standing source: expected 3 figures, found {len(big)}")
+    if sum(int(sizes[c]) for c in big) != len(co):
+        raise RuntimeError("standing source: loose geometry outside the three figures")
+    fig = np.full(len(co), -1, dtype=np.int64)
+    for i, c in enumerate(sorted(big, key=lambda c: co[comp == c, 0].mean())):
+        fig[comp == c] = i
+    return fig
+
+
+def classify_standing(co, cols, fig):
+    """Per-vertex `rl_role` for the standing tableau, plus the per-figure frames the
+    standing rig is built from -- including each figure's two leg columns, taken from
+    its OWN boots rather than from an assumed stance (the middle man stands with his
+    feet staggered 0.10 units fore-aft, which an assumed stance would have missed)."""
+    groups = hardware_groups(co, cols)
+    print(f"standing hardware groups: {len(groups)} -- " +
+          ", ".join(f"#{i}={int(m.sum())}" for i, m in enumerate(groups)))
+    if len(groups) < 3:
+        raise RuntimeError(
+            f"standing source: {len(groups)} hardware groups, expected at least 3 -- "
+            f"STAND_HW_ROLE_BY_RANK's ranks cannot be trusted"
+        )
+    hw = np.zeros(len(co), bool)
+    for m in groups:
+        hw |= m
+    body = ~hw
+
+    roles = np.array(["uniform"] * len(co), dtype=object)
+    meta = {}
+    for c in sorted(set(fig.tolist())):
+        m = fig == c
+        b = m & body
+        p = co[b]
+        zb, zt = float(p[:, 2].min()), float(p[:, 2].max())
+        h = zt - zb
+        zf = (co[:, 2] - zb) / h
+
+        boots = b & (zf < STAND_BOOT_ZFRAC_MAX)
+        roles[boots] = "boot"
+
+        q = co[boots]
+        mx = np.median(q[:, 0])
+        legs = []
+        for sel in (q[:, 0] < mx, q[:, 0] >= mx):
+            legs.append((float(np.median(q[sel, 0])), float(np.median(q[sel, 1]))))
+        meta[c] = dict(zb=zb, h=h, legs=legs)
+        print(f"  standing figure {c}: zb={zb:.3f} h={h:.3f} "
+              f"legs={[tuple(round(v, 3) for v in l) for l in legs]}")
+
+        band = b & (zf > STAND_FACE_ZFRAC[0]) & (zf < STAND_FACE_ZFRAC[1])
+        pp = co[band]
+        cx, cy = float(np.median(pp[:, 0])), float(np.median(pp[:, 1]))
+        depth = float(pp[:, 1].max() - pp[:, 1].min())
+        r = np.sqrt((co[:, 0] - cx) ** 2 + (co[:, 1] - cy) ** 2)
+        roles[band
+              & (co[:, 1] < cy - STAND_FACE_DEPTH_OFFSET * depth)
+              & (r < STAND_FACE_RADIUS * depth)] = "face"
+
+    for i, m in enumerate(groups):
+        roles[m] = STAND_HW_ROLE_BY_RANK.get(i, "webbing")
+    return roles, hw, meta
+
+
+def stand_bone(c, name):
+    return f"f{c}_{STAND_INFIX}_{name}"
+
+
+def stand_weights(zf, leg_frac):
+    """Four weights per standing vertex, in (pelvis, chest, thigh, shin) order,
+    summing to exactly 1 by construction.
+
+    Same cumulative-smoothstep device as `bone_weights`, with one extra term: below
+    the hip, influence is split between the leg chain and the pelvis by `leg_frac`
+    -- how far the vertex sits from its figure's nearer leg column, as a fraction of
+    the figure's own height. A hanging arm and the case in its hand are below the hip
+    and are NOT legs; without this gate they swing off a thigh bone.
+
+    `leg_frac` is `1.0` for anything that must not be a leg (hardware is bound
+    separately and never reaches here, but an orphan vertex might)."""
+    a = _smoothstep(zf, *STAND_HIP_BAND)
+    b = np.minimum(_smoothstep(zf, *STAND_CHEST_BAND), a)
+    gate = 1.0 - _smoothstep(leg_frac, *STAND_LEG_GATE)
+    legness = (1.0 - a) * gate
+    shin_frac = 1.0 - _smoothstep(zf, *STAND_KNEE_BAND)
+    w_shin = legness * shin_frac
+    w_thigh = legness - w_shin
+    w_pelvis = (a - b) + (1.0 - a) * (1.0 - gate)
+    return np.stack([w_pelvis, b, w_thigh, w_shin], axis=1)
+
+
+def skin_standing(obj, arm, fig_tag, hw_tag, meta):
+    """Vertex groups for the standing set. No armature modifier and no parenting
+    here: the role meshes are JOINED across the two sources first (vertex groups
+    survive a join by NAME, which is why every group below is named for its bone),
+    and only the merged object is bound -- `tools/export_meshy_sniper.py`'s hard-won
+    fact 4 ordering."""
+    co = vertex_positions(obj)
+    names = []
+    for c in sorted(meta):
+        names += [stand_bone(c, b) for b in STAND_CHAIN]
+    vgs = {n: obj.vertex_groups.new(name=n) for n in names}
+
+    for c in sorted(meta):
+        info = meta[c]
+        sel = fig_tag == c
+        if not sel.any():
+            continue
+        idx = np.nonzero(sel)[0]
+        pts = co[sel]
+        zf = (pts[:, 2] - info["zb_m"]) / info["h_m"]
+
+        carried = hw_tag[sel]
+        if carried.any():
+            vgs[stand_bone(c, STAND_HARDWARE_BONE)].add(
+                idx[carried].tolist(), 1.0, "REPLACE")
+
+        live = ~carried
+        if not live.any():
+            continue
+        lx = np.array([l[0] for l in info["legs_m"]])
+        ly = np.array([l[1] for l in info["legs_m"]])
+        d = np.sqrt((pts[live, 0][:, None] - lx[None, :]) ** 2
+                    + (pts[live, 1][:, None] - ly[None, :]) ** 2)
+        near = np.argmin(d, axis=1)
+        leg_frac = d.min(axis=1) / info["h_m"]
+        w = quantize_weights(stand_weights(zf[live], leg_frac))
+        live_idx = idx[live]
+        # `stand_weights`' own column order, and the bone each column feeds. The two
+        # leg columns are split by which measured leg column the vertex is nearer.
+        columns = [
+            (stand_bone(c, "pelvis"), None),
+            (stand_bone(c, "chest"), None),
+            ("thigh", "side"),
+            ("shin", "side"),
+        ]
+        for j, (name, kind) in enumerate(columns):
+            col = w[:, j]
+            picks = ([(stand_bone(c, f"{name}_{s}"), near == STAND_LEG_INDEX[s])
+                      for s in ("L", "R")]
+                     if kind == "side" else [(name, np.ones(len(col), bool))])
+            for bone, pick in picks:
+                vg = vgs[bone]
+                for q in np.unique(col[pick]):
+                    if q <= 0:
+                        continue
+                    vg.add(live_idx[pick & (col == q)].tolist(), float(q) / 255.0, "REPLACE")
+
+
 # --- Blender mesh surgery -------------------------------------------------
 
 
@@ -705,6 +1131,13 @@ def separate_by_role(mesh_obj, roles):
     by_role = {}
     for role in present:
         before = set(bpy.data.objects.keys())
+        # Deselect first, and select ONLY this mesh. Blender enters edit mode on
+        # every SELECTED mesh object, not just the active one, so once a second
+        # source is in the scene a leftover selection would make `mesh.separate`
+        # cut geometry out of the other source's role meshes as well. With one
+        # object in the file this was unreachable; with two it is not.
+        bpy.ops.object.select_all(action="DESELECT")
+        mesh_obj.select_set(True)
         bpy.context.view_layer.objects.active = mesh_obj
         bpy.ops.object.mode_set(mode="EDIT")
         bpy.ops.mesh.select_mode(type="VERT")
@@ -759,7 +1192,15 @@ def read_tag(obj, names):
 # --- armature -------------------------------------------------------------
 
 
-def build_armature(meta, prop_anchor):
+def build_armature(meta, prop_anchor, meta_st):
+    """ONE armature covering both postures -- the contract's "one armature per file".
+
+    The two bone trees are siblings with no shared parent, exactly as
+    `tools/units/rig.py`'s `{prefix}_root` and `{prefix}_death_root` are, and for the
+    same reason: `write_clip` keys BOTH roots' `scale` in every clip, 1/0 or 0/1, and
+    that is what makes one posture exist and the other not. Nothing constrains one
+    tree from the other, so the kneeling clips are unaffected by the standing rig's
+    existence."""
     arm_data = bpy.data.armatures.new("rig")
     arm = bpy.data.objects.new("rig", arm_data)
     bpy.context.collection.objects.link(arm)
@@ -784,14 +1225,49 @@ def build_armature(meta, prop_anchor):
     p.head = tuple(prop_anchor)
     p.tail = (prop_anchor[0], prop_anchor[1], prop_anchor[2] + 0.30)
 
+    # The standing set. Torso bones point UP; the two leg bones point DOWN, head at
+    # the joint above and tail at the joint below, so `shin` can be connected to
+    # `thigh` and a hip rotation carries the whole leg. Their local axes are
+    # therefore NOT the torso bones', which is why every rotation authored below goes
+    # through `local_axis` rather than being written in bone space by hand.
+    for c in sorted(meta_st):
+        m = meta_st[c]
+        zb, h = m["zb_m"], m["h_m"]
+        made = {}
+        for name in STAND_CHAIN:
+            b = arm_data.edit_bones.new(stand_bone(c, name))
+            if name in ("thigh_L", "thigh_R", "shin_L", "shin_R"):
+                lx, ly = m["legs_m"][STAND_LEG_INDEX[name[-1]]]
+                top = STAND_HIP_ZFRAC if name.startswith("thigh") else STAND_KNEE_ZFRAC
+                bot = STAND_KNEE_ZFRAC if name.startswith("thigh") else STAND_ANKLE_ZFRAC
+                b.head = (lx, ly, zb + top * h)
+                b.tail = (lx, ly, zb + bot * h)
+            else:
+                zf = {"root": STAND_ROOT_ZFRAC, "pelvis": STAND_HIP_ZFRAC,
+                      "chest": STAND_CHEST_ZFRAC}[name]
+                b.head = (m["cx_m"], m["cy_m"], zb + zf * h)
+                b.tail = (m["cx_m"], m["cy_m"], zb + zf * h + 0.12 * h)
+            made[name] = b
+        for name in STAND_CHAIN:
+            parent = STAND_PARENT[name]
+            if parent is not None:
+                made[name].parent = made[parent]
+                made[name].use_connect = name.startswith("shin")
+
     bpy.ops.object.mode_set(mode="OBJECT")
     print(f"armature: {len(arm_data.bones)} bones "
-          f"({len(meta)} figures x {len(BONE_CHAIN)} + prop)")
+          f"({len(meta)} kneeling x {len(BONE_CHAIN)} + prop + "
+          f"{len(meta_st)} standing x {len(STAND_CHAIN)})")
     return arm
 
 
 def skin(obj, arm, fig_tag, prop_tag, meta, head_gate_fn):
-    """Give `obj` its bone vertex groups and an Armature modifier."""
+    """Give `obj` its kneeling-set bone vertex groups.
+
+    Binding (parent + Armature modifier) is NOT done here any more: the same role
+    now arrives from two sources and the two objects are joined first, so binding
+    belongs to the merged object. Vertex groups survive `bpy.ops.object.join` by
+    NAME, which is what makes that ordering safe."""
     co = vertex_positions(obj)
     n = len(co)
     names = []
@@ -820,11 +1296,40 @@ def skin(obj, arm, fig_tag, prop_tag, meta, head_gate_fn):
 
     if prop_tag.any():
         vgs["prop"].add(np.nonzero(prop_tag)[0].tolist(), 1.0, "REPLACE")
-
-    mod = obj.modifiers.new(name="arm", type="ARMATURE")
-    mod.object = arm
-    obj.parent = arm
     return n
+
+
+def join_and_bind(sets, arm):
+    """One mesh per role across BOTH sources, then bound to the armature.
+
+    This is the step the previous revision of this file believed was impossible --
+    "two geometry sets ... puts two meshes under one role and breaks 'node name
+    equals its role exactly'". It does not: joining is what keeps the contract's
+    one-mesh-per-role rule true while the mesh carries two postures, and the two
+    postures never collide because their vertices are weighted to disjoint bone
+    trees. `tools/export_meshy_sniper.py`'s `join_by_role` is the same function for
+    the same reason."""
+    merged = {}
+    for role in sorted({r for s in sets for r in s}):
+        obs = [s[role] for s in sets if role in s]
+        bpy.ops.object.select_all(action="DESELECT")
+        for o in obs:
+            o.select_set(True)
+        bpy.context.view_layer.objects.active = obs[0]
+        if len(obs) > 1:
+            bpy.ops.object.join()
+        ob = bpy.context.view_layer.objects.active
+        ob.name = role
+        ob.data.name = role
+        ob["rl_role"] = role
+        ob.data.materials.clear()
+        mod = ob.modifiers.new(name="arm", type="ARMATURE")
+        mod.object = arm
+        ob.parent = arm
+        merged[role] = ob
+        print(f"  role {role:9s} {len(ob.data.vertices):6d} verts "
+              f"from {len(obs)} source{'s' if len(obs) > 1 else ''}")
+    return merged
 
 
 # --- clip authoring -------------------------------------------------------
@@ -922,8 +1427,55 @@ def clip_pose(clip, figure, phase, t):
     raise RuntimeError(f"unknown clip {clip!r}")
 
 
+def stand_pose(clip, phase, t):
+    """The standing figure's pose at normalized time `t` -- (root_offset_metres,
+    {bone: radians about a world axis}).
+
+    Only `move` is authored. Every other clip returns the identity pose, because in
+    every other clip this whole set is scaled to zero and its pose is not on screen;
+    keying it to identity anyway is deliberate, so a clip can never inherit whatever
+    the previously-authored action left in memory (`rig.py`'s `_new_action` records
+    that bug).
+
+    The gait: hips swing, knees flex on the swing phase only, the pelvis counter-
+    rotates against the chest and the body rises twice per cycle. Positive rotation
+    about `AX_PITCH` swings a foot BACKWARD -- the crew face -Y (measured; see
+    "Orientation"), so a point below the hip rotating about +X moves toward +Y."""
+    if clip != "move":
+        return (0.0, 0.0, 0.0), {}
+
+    p = 2.0 * math.pi * ((t + phase) % 1.0)
+    swing = {"L": math.sin(p), "R": -math.sin(p)}
+    out = {
+        # Two rises per cycle, peaking at mid-stance rather than at heel strike.
+        "chest": (AX_PITCH, STAND_LEAN),
+        "_chest_yaw": (AX_YAW, -STAND_TWIST * math.sin(p)),
+        "pelvis": (AX_YAW, STAND_TWIST * math.sin(p)),
+    }
+    for side in ("L", "R"):
+        out[f"thigh_{side}"] = (AX_PITCH, STAND_THIGH_SWING * swing[side])
+        # `max(0, ...)` over exactly the half-cycle this leg is off the ground: a
+        # knee only flexes on the swing, and a knee that flexed under load would
+        # drive the figure into the ground.
+        lead = 0.0 if side == "L" else math.pi
+        out[f"shin_{side}"] = (
+            AX_PITCH,
+            STAND_SHIN_BEND * max(0.0, math.sin(p + lead - math.pi / 2.0 + STAND_SHIN_SHIFT)),
+        )
+    return (0.0, 0.0, STAND_BOB * math.cos(2.0 * p)), out
+
+
 def write_clip(arm, figures, clip):
-    """Keyframe one whole clip onto `arm` and return the action."""
+    """Keyframe one whole clip onto `arm` and return the action.
+
+    Both bone trees are keyed in every clip, `scale` included -- 1 on the tree
+    `CLIP_SOURCES` names for this clip and 0 on the other. That scale key is the
+    entire posture swap: a bone at scale 0 collapses every vertex weighted to it (and
+    to its children) onto its own head, so the set that is not current occupies no
+    pixels. `prop` -- the EMPLACED tube, bipod and baseplate -- follows the kneeling
+    set, because a crew crossing ground is carrying its weapon, not standing beside
+    an emplaced one; the limbered tube on the left man's shoulder is standing
+    geometry and comes along with him."""
     from mathutils import Quaternion, Vector  # noqa: PLC0415
 
     action = bpy.data.actions.new(clip)
@@ -935,22 +1487,35 @@ def write_clip(arm, figures, clip):
 
     n = CLIP_FRAMES[clip]
     cyclic = clip in CYCLIC_CLIPS
+    kneeling_live = CLIP_SOURCES[clip] == "loading"
+    kneel_scale = (1.0, 1.0, 1.0) if kneeling_live else (0.0, 0.0, 0.0)
+    stand_scale = (0.0, 0.0, 0.0) if kneeling_live else (1.0, 1.0, 1.0)
     root_axis = {}
+    stand_axis = {}
     for c in figures:
         root_axis[c] = arm.data.bones[f"f{c}_root"].matrix_local.to_3x3().inverted()
+        stand_axis[c] = arm.data.bones[stand_bone(c, "root")].matrix_local.to_3x3().inverted()
 
     for frame in range(n + 1):
         t = (frame % n) / n if cyclic else frame / n
         for c in figures:
             phase = GAIT_PHASE_FRACTIONS[c % len(GAIT_PHASE_FRACTIONS)] if cyclic else 0.0
-            offset, bends = clip_pose(clip, c, phase, t)
+            # A hidden set holds its identity pose. Posing geometry that is scaled
+            # to zero changes nothing on screen and costs keyframes, and it makes
+            # every measurement of the clip read the wrong population -- the
+            # kneeling boots, collapsed to a point, still followed `move`'s own
+            # 4 cm root shuffle and sat squarely in the middle of `check_gait`'s
+            # median. Same rule `stand_pose` already applies in the other direction.
+            offset, bends = clip_pose(clip, c, phase, t) if kneeling_live else ((0.0, 0.0, 0.0), {})
             extra_roll = bends.pop("_roll", None)
             pb = arm.pose.bones[f"f{c}_root"]
             pb.rotation_mode = "QUATERNION"
             pb.location = root_axis[c] @ Vector(offset)
             pb.rotation_quaternion = Quaternion((1, 0, 0, 0))
+            pb.scale = kneel_scale
             pb.keyframe_insert(data_path="location", frame=frame)
             pb.keyframe_insert(data_path="rotation_quaternion", frame=frame)
+            pb.keyframe_insert(data_path="scale", frame=frame)
             for bone in BONE_CHAIN[1:]:
                 pb = arm.pose.bones[f"f{c}_{bone}"]
                 pb.rotation_mode = "QUATERNION"
@@ -965,12 +1530,41 @@ def write_clip(arm, figures, clip):
                 pb.location = (0.0, 0.0, 0.0)
                 pb.keyframe_insert(data_path="rotation_quaternion", frame=frame)
                 pb.keyframe_insert(data_path="location", frame=frame)
+
+            st_offset, st_bends = stand_pose(clip, phase, t)
+            chest_yaw = st_bends.pop("_chest_yaw", None)
+            pb = arm.pose.bones[stand_bone(c, "root")]
+            pb.rotation_mode = "QUATERNION"
+            pb.location = stand_axis[c] @ Vector(st_offset)
+            pb.rotation_quaternion = Quaternion((1, 0, 0, 0))
+            pb.scale = stand_scale
+            pb.keyframe_insert(data_path="location", frame=frame)
+            pb.keyframe_insert(data_path="rotation_quaternion", frame=frame)
+            pb.keyframe_insert(data_path="scale", frame=frame)
+            for bone in STAND_CHAIN[1:]:
+                name = stand_bone(c, bone)
+                pb = arm.pose.bones[name]
+                pb.rotation_mode = "QUATERNION"
+                q = Quaternion((1, 0, 0, 0))
+                if bone in st_bends:
+                    ax, rad = st_bends[bone]
+                    q = Quaternion(local_axis(arm, name, ax), rad)
+                if chest_yaw is not None and bone == "chest":
+                    ax, rad = chest_yaw
+                    q = q @ Quaternion(local_axis(arm, name, ax), rad)
+                pb.rotation_quaternion = q
+                pb.location = (0.0, 0.0, 0.0)
+                pb.keyframe_insert(data_path="rotation_quaternion", frame=frame)
+                pb.keyframe_insert(data_path="location", frame=frame)
+
         pb = arm.pose.bones["prop"]
         pb.rotation_mode = "QUATERNION"
         pb.rotation_quaternion = Quaternion((1, 0, 0, 0))
         pb.location = (0.0, 0.0, 0.0)
+        pb.scale = kneel_scale
         pb.keyframe_insert(data_path="rotation_quaternion", frame=frame)
         pb.keyframe_insert(data_path="location", frame=frame)
+        pb.keyframe_insert(data_path="scale", frame=frame)
     return action
 
 
@@ -990,7 +1584,13 @@ def check_clip_semantics(arm, figures):
             for c in figures:
                 phase = GAIT_PHASE_FRACTIONS[c % len(GAIT_PHASE_FRACTIONS)] \
                     if clip in CYCLIC_CLIPS else 0.0
-                zs.append(clip_pose(clip, c, phase, t)[0][2])
+                # The VISIBLE set's root, and only it. Measuring the hidden set as
+                # well would blend a zero into every range and make `fire`'s ceiling
+                # -- the one bound in this table that is not `None` -- meaningless.
+                if CLIP_SOURCES[clip] == "loading":
+                    zs.append(clip_pose(clip, c, phase, t)[0][2])
+                else:
+                    zs.append(stand_pose(clip, phase, t)[0][2])
         travel[clip] = (max(zs) - min(zs)) * 100.0
     print("root world-z travel x100, by clip:",
           {k: round(v, 3) for k, v in travel.items()})
@@ -1002,6 +1602,61 @@ def check_clip_semantics(arm, figures):
                 f"CLIP_SEMANTICS['{clip}']['means'] = {CLIP_SEMANTICS[clip]['means']!r}"
             )
     return travel
+
+
+def check_gait(arm, boot_obj, action):
+    """Do the boots actually walk? Measured on the EVALUATED mesh, not on the keys.
+
+    This is issue #145's gate and the reason this file has a second source at all.
+    The old build's `move` keyed a 4.46-degree torso twist and a 4.1 cm root
+    translation, and every gate in the tree passed it: the palette was right, the
+    silhouette was right, the roles were right, the clip names were right, and the
+    unit skated across the ground because the rig had no legs.
+
+    What is measured is the deformation the exporter will write -- `to_mesh()` on the
+    depsgraph-evaluated object, i.e. the armature modifier's own output -- so this
+    cannot pass on keys that the skin does not actually follow. Reported as a
+    fraction of `GAIT_GROUND_M`, the ground the unit covers in one cycle, because
+    "how far did the boots move" only means something against "how far did the unit".
+
+    The MAX vertex is what the gate reads. The median is printed beside it over the
+    MOVING vertices only: the joined `boot` mesh also holds the kneeling set's boots,
+    collapsed to a point for the whole of `move`, and a median over the joined mesh
+    would be a median of mostly zeros."""
+    scene = bpy.context.scene
+    arm.animation_data.action = action
+    lo = hi = None
+    for frame in range(CLIP_FRAMES["move"]):   # frame n repeats frame 0
+        scene.frame_set(frame)
+        ev = boot_obj.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        me = ev.to_mesh()
+        co = np.empty(len(me.vertices) * 3, dtype=np.float64)
+        me.vertices.foreach_get("co", co)
+        co = co.reshape(-1, 3)
+        ev.to_mesh_clear()
+        lo = co if lo is None else np.minimum(lo, co)
+        hi = co if hi is None else np.maximum(hi, co)
+    d = np.linalg.norm(hi - lo, axis=1)
+    moving = d > 1e-3
+    top = float(d.max())
+    mid = float(np.median(d[moving])) if moving.any() else 0.0
+    ratio = top / GAIT_GROUND_M
+    # `2 * L * sin(swing)` is the boots' travel to within the shin's own contribution,
+    # so the swing that would land exactly on the ground distance is recoverable from
+    # one measurement. Printed, never applied: the amplitude stays an authored
+    # constant, and this is here so tuning it takes one run rather than a sweep.
+    want = min(1.0, math.sin(STAND_THIGH_SWING) / max(ratio, 1e-6))
+    print(f"gait: boots travel {top * 100:.2f} cm max, {mid * 100:.2f} cm median, "
+          f"against {GAIT_GROUND_M * 100:.1f} cm of ground = {ratio:.1%} "
+          f"(STAND_THIGH_SWING={STAND_THIGH_SWING:.3f}; "
+          f"{math.asin(want):.3f} would land on 100%)")
+    if ratio < GAIT_FLOOR:
+        raise RuntimeError(
+            f"move: boots travel {top * 100:.2f} cm = {ratio:.1%} of the "
+            f"{GAIT_GROUND_M * 100:.1f} cm the team covers in one cycle, under the "
+            f"{GAIT_FLOOR:.0%} floor -- this is issue #145 again, the unit will slide"
+        )
+    return top, mid
 
 
 # --- export ---------------------------------------------------------------
@@ -1151,11 +1806,14 @@ def merge_clip_glbs(clip_paths, out_path, forward_fix_deg=0.0):
     _write_glb(base, base_bin, out_path)
 
 
-def main():
+def prepare_loading():
+    """The kneeling tableau -- unchanged from the revision that shipped, lifted out of
+    `main` only so a second source can run beside it. Returns the decimated role
+    meshes, the per-figure frames, the emplaced weapon's anchor and the head gate."""
     bpy.ops.wm.open_mainfile(filepath=SRC_BLEND)
     meshes = [o for o in bpy.data.objects if o.type == "MESH"]
     mesh_obj = max(meshes, key=lambda o: len(o.data.vertices))
-    print(f"source: {mesh_obj.name}, {len(mesh_obj.data.vertices)} verts, "
+    print(f"loading source: {mesh_obj.name}, {len(mesh_obj.data.vertices)} verts, "
           f"{len(mesh_obj.data.polygons)} polys")
 
     # --- 1. sample the texture BEFORE the material is stripped ---------------
@@ -1184,9 +1842,8 @@ def main():
         print(f"  loose component {int(c)} ({int(sizes[c])} verts) -> figure {fig[m][0]}")
 
     roles, prop, held_round, zf, rad, meta = classify(co, cols, fig)
-    from collections import Counter
     counts = Counter(roles.tolist())
-    print("rl_role (source resolution): " +
+    print("rl_role (loading, source resolution): " +
           ", ".join(f"{k}={v} ({v / len(co):.1%})" for k, v in counts.most_common()))
 
     # The held round belongs to the loader, whichever figure that is: the mortar
@@ -1224,28 +1881,24 @@ def main():
         mesh_obj.data.uv_layers.remove(mesh_obj.data.uv_layers[0])
 
     # --- 5. tag figure membership so it survives decimation ------------------
-    fig_names = [f"_fig{c}" for c in sorted(meta)]
     for c in sorted(meta):
         tag_group(mesh_obj, f"_fig{c}", (fig == c) & ~prop)
     tag_group(mesh_obj, "_prop", prop)
 
     # --- 6. split by role, then decimate each ------------------------------
     by_role = separate_by_role(mesh_obj, roles)
-    print(f"roles present: {sorted(by_role)}")
-    print("decimating:")
+    print(f"loading roles present: {sorted(by_role)}")
+    print("decimating (loading):")
     total = 0
     for role in sorted(by_role):
         obj = by_role[role]
         obj.name = role
         obj.data.name = role
-        obj["rl_role"] = role
         total += decimate(obj, DECIMATE[role])
     print(f"  total {total} verts across {len(by_role)} role meshes")
 
-    # --- 7. armature --------------------------------------------------------
     prop_anchor = newco[prop].mean(0)
     prop_anchor[2] = newco[prop][:, 2].min()
-    arm = build_armature(meta, prop_anchor)
 
     def head_gate(c, pts):
         """1 near this figure's own head, falling to 0 away from it -- see
@@ -1255,7 +1908,84 @@ def main():
         r = np.sqrt((pts[:, 0] - info["hx"]) ** 2 + (pts[:, 1] - info["hy"]) ** 2)
         return 1.0 - _smoothstep(r, 0.55 * info["hr"], 1.00 * info["hr"])
 
-    # --- 8. skin every role mesh -------------------------------------------
+    return by_role, meta, prop_anchor, head_gate
+
+
+def prepare_standing():
+    """The travel tableau -- `move`'s geometry, appended beside the kneeling one.
+
+    Recomposed by the SAME `recompose` the kneeling set uses, so both land on z=0,
+    both are centred on their own footprint and both take the same
+    `LATERAL_SQUEEZE`. That is what keeps the two postures the same size and roughly
+    the same width when a clip swaps between them; getting it wrong would make the
+    team visibly grow or slide sideways the instant it started moving."""
+    mesh_obj = append_standing_mesh()
+    co = vertex_positions(mesh_obj)
+    cols = basecolor_per_vertex(mesh_obj)
+    fig = split_standing_figures(co, mesh_obj)
+    roles, hw, meta = classify_standing(co, cols, fig)
+    counts = Counter(roles.tolist())
+    print("rl_role (standing, source resolution): " +
+          ", ".join(f"{k}={v} ({v / len(co):.1%})" for k, v in counts.most_common()))
+
+    body = ~hw
+    newco = recompose(co, fig, body)
+    mesh_obj.data.vertices.foreach_set("co", newco.reshape(-1))
+    mesh_obj.data.update()
+
+    for c in sorted(meta):
+        m = fig == c
+        p = newco[m & body]
+        zb = float(p[:, 2].min())
+        h = float(p[:, 2].max() - zb)
+        meta[c]["zb_m"] = zb
+        meta[c]["h_m"] = h
+        core = m & body & (newco[:, 2] > zb + 0.35 * h) & (newco[:, 2] < zb + 0.62 * h)
+        meta[c]["cx_m"] = float(np.median(newco[core, 0]))
+        meta[c]["cy_m"] = float(np.median(newco[core, 1]))
+        boots = m & body & (newco[:, 2] < zb + STAND_BOOT_ZFRAC_MAX * h)
+        q = newco[boots]
+        mx = np.median(q[:, 0])
+        meta[c]["legs_m"] = [
+            (float(np.median(q[sel, 0])), float(np.median(q[sel, 1])))
+            for sel in (q[:, 0] < mx, q[:, 0] >= mx)
+        ]
+        print(f"  standing figure {c}: zb={zb:.3f} h={h:.3f} m "
+              f"legs={[tuple(round(v, 3) for v in l) for l in meta[c]['legs_m']]}")
+
+    mesh_obj.data.materials.clear()
+    while mesh_obj.data.uv_layers:
+        mesh_obj.data.uv_layers.remove(mesh_obj.data.uv_layers[0])
+
+    # Body and carried hardware are tagged into SEPARATE slots per figure rather
+    # than one figure tag plus one hardware flag: `read_tag` returns the single
+    # strongest group, so a vertex in both would be ambiguous at weight 1.0.
+    for c in sorted(meta):
+        tag_group(mesh_obj, f"_stfig{c}", (fig == c) & body)
+        tag_group(mesh_obj, f"_sthw{c}", (fig == c) & hw)
+
+    by_role = separate_by_role(mesh_obj, roles)
+    print(f"standing roles present: {sorted(by_role)}")
+    print("decimating (standing):")
+    total = 0
+    for role in sorted(by_role):
+        total += decimate(by_role[role], STAND_DECIMATE[role])
+    print(f"  total {total} verts across {len(by_role)} role meshes")
+    return by_role, meta
+
+
+def main():
+    check_clip_sources()
+    by_role, meta, prop_anchor, head_gate = prepare_loading()
+    by_role_st, meta_st = prepare_standing()
+    if sorted(meta) != sorted(meta_st):
+        raise RuntimeError(
+            f"figure sets disagree: kneeling {sorted(meta)}, standing {sorted(meta_st)}"
+        )
+
+    arm = build_armature(meta, prop_anchor, meta_st)
+
+    fig_names = [f"_fig{c}" for c in sorted(meta)]
     for role in sorted(by_role):
         obj = by_role[role]
         tag = read_tag(obj, fig_names + ["_prop"])
@@ -1274,14 +2004,41 @@ def main():
             if g.name.startswith("_"):
                 obj.vertex_groups.remove(g)
 
+    st_names = ([f"_stfig{c}" for c in sorted(meta_st)]
+                + [f"_sthw{c}" for c in sorted(meta_st)])
+    n_fig = len(meta_st)
+    for role in sorted(by_role_st):
+        obj = by_role_st[role]
+        tag = read_tag(obj, st_names)
+        if (tag < 0).any():
+            pts = vertex_positions(obj)
+            for i in np.nonzero(tag < 0)[0]:
+                d = [abs(pts[i, 0] - meta_st[c]["cx_m"]) for c in sorted(meta_st)]
+                tag[i] = int(np.argmin(d))
+            print(f"  standing {role}: {(tag < 0).sum()} untagged verts by proximity")
+        hw_tag = tag >= n_fig
+        fig_tag = np.where(hw_tag, tag - n_fig, tag)
+        skin_standing(obj, arm, fig_tag, hw_tag, meta_st)
+        for g in list(obj.vertex_groups):
+            if g.name.startswith("_"):
+                obj.vertex_groups.remove(g)
+
+    print("joining by role across both sources:")
+    merged = join_and_bind([by_role, by_role_st], arm)
+    total = sum(len(o.data.vertices) for o in merged.values())
+    print(f"  total {total} verts across {len(merged)} role meshes")
+
     figures = sorted(meta)
     check_clip_semantics(arm, figures)
 
-    # --- 9. one export per clip, then merge --------------------------------
+    # --- one export per clip, then merge ------------------------------------
     tmp = tempfile.mkdtemp(prefix="meshy_mortar_clips_")
     paths = {}
     for clip in CLIP_ORDER:
         action = write_clip(arm, figures, clip)
+        if clip == "move":
+            check_gait(arm, merged["boot"], action)
+            bpy.context.scene.frame_set(0)
         paths[clip] = os.path.join(tmp, f"{clip}.glb")
         export_glb(arm, paths[clip])
         arm.animation_data.action = None
@@ -1295,7 +2052,7 @@ def main():
 
     print(f"wrote {OUT_PATH} ({os.path.getsize(OUT_PATH)} bytes), "
           f"clips={list(CLIP_ORDER)}, bones={len(arm.data.bones)}, "
-          f"roles={sorted(by_role)}, verts={total}")
+          f"roles={sorted(merged)}, verts={total}")
 
 
 if __name__ == "__main__":
