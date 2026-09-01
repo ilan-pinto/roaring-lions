@@ -171,6 +171,27 @@ The combat model is the product. Everything else is scaffolding around it.
   backend-only members. Projection is asked for (`renderer.worldToScreen`) rather
   than recomputed: the arithmetic lives in `project.ts`, pure and tested, and is
   **not** exported from the package. `TILE_W`/`TILE_H` are, as layout constants.
+- ~~`touch packages/app/src/main.ts` after adding an asset~~ — **not needed any
+  more, and nobody should be told it again** (GH-147, fixed 2026-09-01). Every
+  agent on this branch was passed that workaround by word of mouth; it never
+  appeared here. What it worked around: `main.ts` names meshes by template
+  (`new URL(\`../../../art/meshes/${id}.glb\`, import.meta.url)`), Vite rewrites
+  that at TRANSFORM time into an `import.meta.glob` and bakes the directory
+  LISTING into the module. Vite invalidates that listing on a file add — but only
+  from a watcher event, and its watcher covers `[root, configFileDependencies,
+  env files, publicDir]`, which for this app is `packages/app` and `assets/`.
+  `art/` is in neither, so a new GLB was invisible: the missing key gave
+  `undefined`, `new URL(undefined, …)` resolved to `/src/undefined`, the SPA
+  fallback answered with `index.html` at HTTP 200, and the app died on
+  `SyntaxError: Unexpected token '<', "<!doctype "... is not valid JSON at
+  GLTFLoader.parse` — a JSON error, in a mesh loader, naming a file nobody
+  touched. `packages/app/vite-plugin-asset-watch.ts` now puts those directories
+  under the watcher and Vite's own invalidation does the rest. It DERIVES them
+  from the source rather than listing them, because a hand-kept list of asset
+  locations is the `SPRITE_MAP` failure mode and would go stale the same silent
+  way. Two consequences worth knowing: a running browser now reloads by itself
+  when a GLB lands, and the six watched directories are printed at `pnpm dev`
+  boot, so "is my new mesh's directory covered?" is answered by the banner.
 
 ---
 
@@ -605,35 +626,38 @@ load is worth doing before release. Pipeline: `tools/units/kit.py` (geometry)
   either way. Pinned by `packages/sim/src/smoke.test.ts` (`smoke and elevation`) and
   `tools/src/tel_marum_smoke.test.ts`, which also pins the map elevations it argues
   from — (24,26) reads as plain basin by eye and is two levels up.
-  The other two are unchanged. E1 left three relief gaps
-  of its own: VFX are not lifted to terrain height, extruded terrain cannot occlude
-  units, and picking is untested mid-slope. And slope movement cost and downhill cover
-  were both deliberately cut from E3's scope — slope cost in particular touches
-  `FlowField.compute`, the pathing core every unit uses every tick, which is why it
-  wants its own slice rather than a tuck-in. The next map to author relief — Tel
-  Marum — is the first thing that meets all of these, and will read as broken rather
-  than as known unless this bullet is read first. Moving raised terrain into
-  `spriteLayer` (so it can occlude units) opened a new gap the same way: `trailG`,
-  `fxG`, and `wreckLayer` still sit below `spriteLayer` unconditionally, so a wreck
-  or tracer on ground in front of a ridge — geometry that should cover the ridge —
-  is covered by it instead. Deliberately unfixed: it is cosmetic only, with no
-  effect on sim truth or fog. It is no longer unreachable — Tel Marum shipped three
-  missions (`tel_marum_1_recon`, `tel_marum_2_foothold`, `tel_marum_3_clearance`) and
-  relief is fought over in them, not merely walked: `tel_marum_2_foothold`'s
-  `approach` zone [21,22,7,5] sits astride the elevation-2 band at rows 25–26, and a
-  browser walk of that mission with the task force standing in the zone showed the
-  Grad's indirect fire landing there — dust-cloud impacts and a visible tracer inside
-  the zone's outline — with no occlusion glitch in what was on screen at the time.
-  That is not proof the sorting gap is fixed or absent — it means the condition this
-  bullet describes (a wreck or tracer in front of a ridge, from the camera angles and
-  moments actually checked) was not caught in the act, not that it cannot happen. The
-  gap is unchanged, and so is its fix: depth-sorting wrecks and VFX against terrain,
-  which is the same already-deferred "VFX are not lifted to terrain height" gap above.
-  A partial fix would be worse than none, since `wreckLayer` sprites (`addWreck`,
-  `renderer.ts`) carry no `zIndex` at all and would sort behind every band on the map,
-  not merely their own tile's, if moved into `spriteLayer` naively.
-- Tel Marum's narrow saddle is **no longer free**, and what finally priced it was terrain
-  rather than fire. The corridor at x=10-11, y=12-17 is a boulder field (`b`) now, with a
+  **The other two were walked on 2026-09-01 and neither survives as written.** Both
+  were Pixi-era statements that stopped being true when three became the default,
+  and both now read as live bugs to anyone who trusts this file.
+  **"VFX are not lifted to terrain height", and the wreck/tracer sorting gap it
+  opened, are Pixi-only.** In `three` all four layers — trails, fx, fx-above and
+  wrecks — are already lifted to their own tile's ground height. The artifact was
+  staged deliberately at Tel Marum's steepest drop and behind its only building,
+  photographed reproducing blatantly in Pixi, and photographed drawing correctly in
+  three at the identical staging. Nothing was changed because there was nothing to
+  change. The Pixi half stays broken on purpose: `renderer.ts` is frozen, VFX owe it
+  no parity since 2026-08-30, and `renderer.ts:2599`'s flat `isoY(...)-4` is the
+  legacy path. The warning that a partial fix would be worse than none — `wreckLayer`
+  sprites (`addWreck`) carry no `zIndex` at all and would sort behind every band on
+  the map, not merely their own tile's — still applies to anyone who reaches for
+  Pixi, and is the reason not to.
+  **"Extruded terrain cannot occlude units" is backwards for `three`.** It occludes
+  them through the real depth buffer, decisively — up to 85% of an infantryman.
+  More usefully: the occluded-unit silhouette (band 6) **already covers terrain,
+  unmodified**. It fires on every terrain-occluded tile above its ~10% threshold and
+  on none of the 126 unoccluded tiles sampled. There is nothing to extend, and a
+  design that set out to extend it would be rebuilding something that works.
+  Picking mid-slope was separately measured working in both backends. E3's cut scope
+  is the only part of that original list still standing, and slope cost has since
+  shipped (T1-A).
+  **One real defect came out of that walk, and it is new.** A unit standing in Tel
+  Marum's boulder field is 48–79% hidden by the boulder decor and gets **no
+  silhouette at all** — so infantry can take cover in boulders and become genuinely
+  invisible, which is worse than the building case the feature was built for. The
+  cause is `SILHOUETTE_DEPTH_BIAS_WORLD`, not draw order; the draw-order hypothesis
+  was tested and falsified explicitly. Unfixed.
+- Tel Marum's narrow saddle is **closed to armour and still the cheaper road on foot**, and
+  what priced the armour half was terrain rather than fire. The corridor at x=10-11, y=12-17 is a boulder field (`b`) now, with a
   small scree apron on the valley floor at its mouth (x=9-12, y=18): open ground on foot, a
   wall to anything wheeled or tracked. Measured through the real `FlowField` on the shipped
   map, crossing the wall there costs a rifleman **8 tiles** before and after, and a vehicle
@@ -653,25 +677,57 @@ load is worth doing before release. Pipeline: `tools/units/kit.py` (geometry)
   are identical before and after -- no shipped plan ever drove a vehicle up the corridor
   (mission I's drone is `domain: air` and flies over boulders), so the field costs the
   optimal-play proofs nothing and closes an exploit they never used.
-  What remains true and is worth keeping. The obvious fire-based fix -- let the Grad at
-  `battery_position` charge for the flank, since it reaches the corridor at 17 tiles and
-  `rocket` is in `INDIRECT_MASK` (`sim.ts:223`) so it needs no sight of its own, while
-  `sim.ts:2073` gates each shot on **per-side** identification -- was authored into
-  `tel_marum_3_clearance` with a spotter at [12,4], and measured. **It does not work.** Nor
-  could it have: that spotter is `sarim_rifles`, sight 9, not the 48-sight observer the
-  doctrine test uses to walk the terrain, and the corridor tiles sit 9.2 to 13.2 tiles away,
-  so it sees the north exit row (11,12) and nothing below it. Three runs: wide 3.5 min /
-  roster 9, narrow with the spotter alive 5.2 / 6, narrow with the spotter killed at t=0
-  5.1 / 6 -- the last two are the same run. Target-selection preference remains the leading
-  explanation and an unproven one; anyone attempting it must first put eyes on the corridor
-  that can actually see it, then re-measure before touching `selectTarget`. Two sight facts
-  stand: **nothing north of the wall can see the hollow** -- 841 open tiles see [24,29] and
-  not one is at y <= 17, so the hollow is dead ground twice over -- and the corridor is
-  **not** watchable from its own mouth at [8,9]. Both were drawn wrong by eye first.
-  `tools/src/tel_marum_doctrine.test.ts` pins all of it, the per-domain routes included,
-  each one paired against the same map with the boulders turned back into '.' so that "the
-  vehicle went round" cannot pass for the wrong reason.
-  Two traps for anyone re-running this: isolating a unit by removing its garrison entry
-  corrupts every later unit's RNG stream -- kill it at t=0 via `applyDamage` instead; and
-  rerouting only `mbt_lavi` or only `ifv_namer` reproduces the wide result exactly,
-  because either wins the pass fight alone.
+  The fire-based half is now settled, and not in the direction this bullet used to point.
+  Measured over ten seeds with the armour's orders held byte-identical in both arms and only
+  the foot's route changed (`tools/src/backtest/saddle-price.ts`): through the pass costs
+  **1.20 losses a run**, up the corridor **0.30**, on the same 3.54-minute clock. The pass
+  kills the men -- seven of those twelve deaths are the `mortar_team` -- and the corridor
+  kills nobody on foot at all; its three deaths over ten seeds are every one of them armour,
+  lost in the pass fight the foot walked away from.
+  The authored answer -- let the Grad at `battery_position` charge for it, since it reaches
+  the corridor at 17 tiles and `rocket` is in `INDIRECT_MASK` (`sim.ts:244`) so it needs no
+  sight of its own, while `selectTarget` (`sim.ts:2887`) gates each shot on **per-side**
+  identification -- still does not work, and **`selectTarget` is not why.** That was the
+  recorded leading explanation and it is now disproved: hand the Sarim side contact and the
+  battery shells the man in the corridor on its very next reload, three rounds in two
+  minutes, every time. Its rule is `hurts` first and then nearest, so a flanker is not
+  immune, only LAST IN THE QUEUE -- with a decoy at [24,13] the battery spends three rockets
+  killing that and turns west on the fourth. Both halves are pinned as behaviour, not prose,
+  in `tel_marum_doctrine.test.ts`.
+  What actually fails is the observer, and it is geometry rather than tuning. **Every post
+  that can see the corridor stands inside the corridor's own weapons.** The only sightlines
+  into a straight slot in a rock wall run along its axis, so distance along that axis IS the
+  standoff: at `sarim_rifles`' sight 9 the best standoff for seeing even ONE of the twelve
+  corridor tiles is 9.0 and for ten of them 4.0, against an 8-tile rifle and `at_team`'s
+  9-tile Spike. `tm_spotter_narrow` at [12,4] sees **2 of 12** -- the north exit row and
+  nothing below it, exactly as its briefing says -- and moving it to the best sight-9 post
+  ([11,8], 10 of 12) changes the mission by **nothing at all**: 0.30 either way, because the
+  flank shoots it off its hill at 48 s instead of 59 s. Nor does a longer lens help:
+  `manpad_team` is the roster's best standing eye at sight 12 and still buys only 9.2 tiles
+  of standoff for half the corridor, and every observer variant measured -- moved rifleman,
+  manpad at 6/12, manpad seeing all twelve -- returns **0.30, unchanged**. The ceiling shows
+  the idea is sound and merely unreachable: unkillable permanent contact on the corridor
+  takes it to **1.20, exactly level with the pass**, and turns the corridor's dead into
+  infantry. The binding constraint is `grad_122`'s `rof_per_min: 2` -- one round per 30 s --
+  against a battery dead by ~155 s in every plan that presses the pass. Nothing that can
+  watch a two-tile defile lives the ninety seconds three rounds would take. **So do not add
+  a spotter**, and do not read the shipped one as broken content: it buys the Grad exactly
+  the one round at the corridor exit that the briefing promises. Closing the rest needs
+  something that SHOOTS the corridor rather than something that watches it, which is a
+  design call and not a bug. A trigger cannot do it either -- the schema's `do` vocabulary
+  is commit/withdraw_to/spawn/reinforce/dismount, with no reveal, so it would take
+  `mission.ts`.
+  Two sight facts stand unchanged: **nothing north of the wall can see the hollow** -- 841
+  open tiles see [24,29] and not one is at y <= 17, so the hollow is dead ground twice over
+  -- and the corridor is **not** watchable from its own mouth at [8,9]. Both were drawn
+  wrong by eye first. `tools/src/tel_marum_doctrine.test.ts` pins all of it, the per-domain
+  routes included, each one paired against the same map with the boulders turned back into
+  '.' so that "the vehicle went round" cannot pass for the wrong reason.
+  Three traps for anyone re-running this. Isolating a unit by removing its garrison entry
+  corrupts every later unit's RNG stream -- kill it at t=0 with `debugKill` (`applyDamage`
+  is private), or mutate the entry in place at the same array index, which leaves entity ids
+  and streams untouched. Rerouting only `mbt_lavi` or only `ifv_namer` reproduces the wide
+  result exactly, because either wins the pass fight alone. And the earlier "wide 3.5 /
+  narrow 5.2 / narrow-with-the-spotter-dead 5.1" reading is retired: those runs held the
+  flank at a waypoint until t=130 s, some 90 s later than a direct order puts it in the
+  corridor, so they measured the halt and not the route.
