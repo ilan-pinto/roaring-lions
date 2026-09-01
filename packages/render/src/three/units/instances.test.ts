@@ -18,6 +18,7 @@ import { packSheet, FRAME_PX } from './atlas';
 import type { EntityFrame } from './frame-state';
 import {
   UnitInstancer,
+  billboardOutlineUv,
   facingIndex,
   unitBillboardGeometry,
   writeUnitInstances,
@@ -27,6 +28,7 @@ import {
   type UnitInstanceBuffers,
 } from './instances';
 import { SILHOUETTE_RENDER_ORDER } from './render-order';
+import { SILHOUETTE_OUTLINE_PX } from './silhouette';
 import { TILE_W, WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import { screenOffsetToWorld, WORLD_PER_LEVEL } from '../terrain/shared';
 import { VIEW_DIRECTION, dimetricCamera } from '../camera';
@@ -331,9 +333,57 @@ describe('the occlusion silhouette on the billboard path', () => {
     expect(sil.stencilFunc).toBe(THREE.NotEqualStencilFunc);
     expect(body.stencilFunc).toBe(THREE.AlwaysStencilFunc);
     expect(body.stencilZPass).toBe(THREE.ReplaceStencilOp);
+    // ...and on zFail too: the bit means "this unit's footprint covers this
+    // pixel", which is what punches the outline's interior. See
+    // silhouette.ts's own "The stencil mask" section.
+    // Break to confirm red: stencilZFail: KeepStencilOp in
+    // markSilhouetteOccludee -- `expected 7680 to be 7681`.
+    expect(body.stencilZFail).toBe(THREE.ReplaceStencilOp);
     expect(body.stencilRef).toBe(sil.stencilRef);
     // A hull with no silhouette leaves the stencil test off entirely.
     expect((instancer(2, false).mesh.material as THREE.ShaderMaterial).stencilWrite).toBe(false);
+  });
+
+  it('outlines by DILATING the sprite alpha -- a billboard has no hull to invert', () => {
+    // The mesh path grows geometry along a smoothed normal; a billboard's
+    // shape is the atlas alpha channel, so the equivalent is a max over a
+    // ring of neighbouring texels. Without it this material draws the solid
+    // fill that was replaced.
+    // Break to confirm red: drop the two ringMax lines -- fails with
+    // `expected '...' to contain 'max(dilated, ringMax(uOutlineUv))'`.
+    const mat = instancer(2).silhouette?.material as THREE.ShaderMaterial;
+    expect(mat.fragmentShader).toContain('ringMax');
+    expect(mat.fragmentShader).toContain('max(dilated, ringMax(uOutlineUv))');
+    // The half-radius ring: the outer one alone leaves a thin feature's
+    // outline dotted, because its taps straddle the feature.
+    expect(mat.fragmentShader).toContain('ringMax(uOutlineUv * 0.5)');
+  });
+
+  it('holds the billboard outline to the same pixel width as the mesh path, at every zoom', () => {
+    // UV 0..1 spans `sheet.scale * TILE_W` screen pixels at zoom 1, so the
+    // conversion has to divide by BOTH. A fixed texel radius would make the
+    // billboard outline thicken with zoom while the mesh outline did not --
+    // two paths disagreeing about the same setting, in the one build where
+    // `&nomesh` shows both.
+    // Break to confirm red: drop the `zoom` divisor in billboardOutlineUv --
+    // fails with `expected 0.875 to be close to 2.5`.
+    const quadPx = infSquad.scale * TILE_W;
+    for (const zoom of [0.35, 1, 2.5]) {
+      expect(billboardOutlineUv(quadPx, zoom) * quadPx * zoom).toBeCloseTo(SILHOUETTE_OUTLINE_PX, 9);
+    }
+  });
+
+  it('retunes that width from the live camera zoom, and shrugs at an instancer with no silhouette', () => {
+    // A uniform seeded at zoom 1 and never written is an outline that is
+    // wrong at every other zoom -- and `ThreeRenderer.frame` loops over
+    // every instancer without knowing which asked for a silhouette.
+    // Break to confirm red: make setOutlineZoom a no-op -- fails with
+    // `expected 0.04194856099656357 to be 0.01677942439862543`.
+    const inst = instancer(2);
+    inst.setOutlineZoom(2.5);
+    const mat = inst.silhouette?.material as THREE.ShaderMaterial;
+    expect(mat.uniforms.uOutlineUv.value).toBe(billboardOutlineUv(infSquad.scale * TILE_W, 2.5));
+    expect(() => instancer(2, false).setOutlineZoom(2.5)).not.toThrow();
   });
 
   it('is not built at all when no team colours are supplied', () => {

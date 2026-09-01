@@ -1,6 +1,34 @@
 /**
- * Occlusion silhouettes: a flat, team-coloured redraw of a unit's own shape,
+ * Occlusion silhouettes: a team-coloured OUTLINE of a unit's own shape,
  * visible only through whatever is standing in front of it.
+ *
+ * ## It was a solid fill first, and that was the wrong picture
+ *
+ * The first shipped version filled the hidden shape with flat team colour at
+ * full alpha. It was legible and it was too loud: against this game's muted
+ * desert palette a solid `#2F6FD9` body reads as a paint blob ON the wall
+ * rather than as a unit BEHIND it. Dropping the opacity does not fix it and
+ * was measured, not guessed -- a merged silhouette mesh has several
+ * front-facing layers over one pixel, and with `depthWrite: false` they
+ * blend back toward opaque. The project lead chose an outline over both
+ * keeping the fill and a depth-equal pre-pass.
+ *
+ * The outline is an INVERTED HULL, and the interior is punched out by the
+ * stencil bit the fill already needed:
+ *
+ *  - the silhouette geometry is pushed outward along a smoothed per-vertex
+ *    normal (`aExpand`, computed once per template below) by a width that
+ *    is a constant number of SCREEN pixels at any zoom, so what draws is
+ *    the unit's shape grown by a couple of pixels;
+ *  - a unit body now stamps the stencil wherever it was RASTERISED at all,
+ *    won or lost (`markSilhouetteOccludee`), so the grown shape minus the
+ *    real footprint is a ring.
+ *
+ * That is the whole change, and it costs no extra draw call: the same one
+ * mesh per group draws, with a fatter shell and a bigger hole. See "The
+ * stencil mask" below for what the bit means now versus what it meant for
+ * the fill -- the two readings are mutually exclusive, and the fill's is
+ * the one that was replaced.
  *
  * ## The bug
  *
@@ -42,21 +70,39 @@
  * same unit, `GreaterDepth` passes, and flat colour is painted over the
  * model's own back with no building anywhere near it.
  *
- * The fix is a one-bit stencil mask, and it is the only mechanism here that
- * can tell "hidden by something else" from "hidden by my own far side":
+ * The fix is a one-bit stencil mask:
  *
- *  - every unit BODY material writes `SILHOUETTE_STENCIL_REF` wherever its
- *    fragment actually WINS the depth test (`markSilhouetteOccludee`,
- *    `stencilZPass: Replace`, everything else `Keep` -- a fragment that lost
- *    writes nothing);
+ *  - every unit BODY material writes `SILHOUETTE_STENCIL_REF` wherever it
+ *    was RASTERISED -- `stencilZPass` AND `stencilZFail` both `Replace`
+ *    (`markSilhouetteOccludee`), so the bit means "a unit's own footprint
+ *    covers this pixel", whether that fragment won the depth test or lost
+ *    it;
  *  - every silhouette material draws only where the stencil is NOT that
  *    value.
  *
- * So a pixel where any unit is the visible surface is masked out, which is
- * exactly the set of pixels a unit's own back occupies. A pixel where a
- * BUILDING is the visible surface was never written, so the silhouette
- * draws there. No CPU occlusion test, no per-unit state, one extra bit per
- * pixel.
+ * A unit's whole projected footprint is therefore masked out, and the
+ * expanded shell only survives in the ring OUTSIDE it. That kills the
+ * blue-blob artefact for the same reason it did before (a unit's own far
+ * side is inside its own footprint) and, in the same bit, punches the
+ * outline's interior. No CPU occlusion test, no per-unit state, no second
+ * pass, one extra bit per pixel.
+ *
+ * **This is not what the bit meant for the fill.** The fill needed
+ * `stencilZFail: Keep` -- a body fragment that LOST had to leave the mask
+ * clear, because the fill *was* the lost region. The outline needs the
+ * opposite. One bit cannot serve both readings, which is why replacing the
+ * fill with an outline is a change to the body materials and not only to
+ * the silhouette ones.
+ *
+ * One consequence worth recording, because it retires a subtlety rather
+ * than adding one: the stamp no longer depends on the depth test, so it no
+ * longer depends on DRAW ORDER either. `WORLD_RENDER_ORDER` (-1) was added
+ * because a unit stamping "I won" before the building in front of it had
+ * drawn stamped a lie, and the tank's own silhouette came out as slivers.
+ * A footprint stamp is true whenever it happens. The band is kept -- it is
+ * still correct, still cheap, and still what a future occluder created
+ * after the unit templates should join -- but it is no longer the only
+ * thing holding the mask honest.
  *
  * `WebGLRenderer` must therefore be constructed with `stencil: true`
  * (`ThreeRenderer`'s own constructor). Without it there is no stencil
@@ -66,14 +112,19 @@
  *
  * ## The depth bias, and the second artefact
  *
- * The stencil handles geometry a unit actually drew. It does NOT handle
- * ground clipping on the billboard path: a centred billboard quad straddles
- * true ground by half its height (`instances.ts`'s own "Anchored at the
- * centre" section), and `ground-clip.ts` clamps that sunk lower half to the
- * ground's own depth so terrain hides it. Terrain writes no stencil, and a
- * clamped-but-still-losing fragment writes none either -- so without a
- * bias the silhouette would paint a flat smear at every billboard unit's
- * feet.
+ * The stencil handles pixels a unit's own body covers. The outline lives
+ * OUTSIDE that footprint by construction, so it is the one part of this
+ * mechanism the mask can never protect: a couple of pixels of ground all
+ * round every unit, including the ground in FRONT of its feet, which is
+ * nearer than the unit and would satisfy `GreaterDepth` on its own. Without
+ * a bias every unit standing in the open wears a ring.
+ *
+ * (For the fill, the same bias was sized against a different artefact --
+ * the ground-clipped lower half of a BILLBOARD quad, which `ground-clip.ts`
+ * clamps to the ground's own depth and which, before the footprint stamp
+ * above, wrote no mask of its own. That case is now inside the footprint
+ * and masked out for free; the ring around the feet replaced it, and wants
+ * the same bias for the same reason.)
  *
  * `SILHOUETTE_DEPTH_BIAS_WORLD` pushes the silhouette's own depth toward the
  * camera by a fixed number of world units before the comparison, so only an
@@ -122,7 +173,75 @@
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { TILE_W } from '../../project';
+import { MESH_UNITS_PER_TILE } from './mesh-anim';
 import { SILHOUETTE_RENDER_ORDER } from './render-order';
+
+/**
+ * How thick the outline is, in SCREEN pixels, at every zoom.
+ *
+ * Constant pixels rather than constant world units, and that is not a
+ * refinement -- `main.ts` clamps `camera.zoom` to 0.35..2.5, a 7x range. A
+ * width tuned in world units to read at zoom 1 would be a sub-pixel hairline
+ * at 0.35 and a 6-pixel band at 2.5, which is the paint blob back again at
+ * the zoom where the player is looking hardest.
+ *
+ * 2.5 was chosen against the bar this task was given: at zoom 1.0 an
+ * occluded unit is about 30 px, and the outline has to still say "a vehicle
+ * of that colour is there" at that size. Two things follow from the number
+ * being fixed in pixels while the unit is not: a vehicle at 30 px reads as
+ * an outlined shape, and a rifleman's 3-px-wide limbs fill in solid, which
+ * is the correct degradation -- small features become marks, large ones
+ * become outlines.
+ */
+export const SILHOUETTE_OUTLINE_PX = 2.5;
+
+/**
+ * Screen pixels per world unit at `camera.zoom === 1`, for this game's
+ * dimetric camera.
+ *
+ * Derived, not measured: `camera.ts`'s `dimetricCamera` frames a half-width
+ * of `vp.width / (TILE_W * zoom * SQRT2)` view-space units across `vp.width`
+ * pixels, so pixels-per-view-unit is `TILE_W * zoom * SQRT2 / 2` -- and that
+ * file's own "square pixels" derivation is what makes the same figure hold
+ * on the vertical axis too. The camera is orthographic, so this is a
+ * constant across the frame rather than a function of depth.
+ */
+export const SILHOUETTE_PX_PER_WORLD_UNIT = (TILE_W * Math.SQRT2) / 2;
+
+/** The outline's width in WORLD units (one unit is one tile) at `zoom`. */
+export function silhouetteOutlineWorldWidth(zoom: number): number {
+  return SILHOUETTE_OUTLINE_PX / (SILHOUETTE_PX_PER_WORLD_UNIT * Math.max(zoom, 1e-3));
+}
+
+/**
+ * The same width in the OBJECT space a mesh unit's silhouette geometry
+ * actually lives in.
+ *
+ * The expansion is applied to `transformed` in the vertex shader -- before
+ * skinning, so a bone carries the offset with it rather than the outline
+ * standing in bind pose while the body walks. That puts it in the GLB's own
+ * space, and every mesh unit and mesh vehicle root is scaled by
+ * `MESH_SCALE` (= 1 / `MESH_UNITS_PER_TILE`, `mesh-anim.ts`) because Blender
+ * builds at real metres and this renderer draws one world unit per tile. So
+ * an offset authored in world units has to be multiplied BACK UP by the
+ * same factor, or the outline comes out a third as thick as asked for --
+ * which is exactly the class of silent, plausible-looking wrongness this
+ * backend has paid for before.
+ */
+export function silhouetteOutlineObjectWidth(zoom: number): number {
+  return silhouetteOutlineWorldWidth(zoom) * MESH_UNITS_PER_TILE;
+}
+
+/** Vertex attribute carrying the smoothed outward direction each silhouette
+ *  vertex is pushed along. Named here because the geometry builder writes it
+ *  and the material's own shader patch declares it. */
+export const SILHOUETTE_EXPAND_ATTRIBUTE = 'aExpand';
+
+/** `Material.userData` key holding a silhouette material's live outline-width
+ *  uniform object, so `setSilhouetteOutlineZoom` can retune it per frame --
+ *  a `MeshBasicMaterial` has no `.uniforms` of its own to reach through. */
+export const SILHOUETTE_OUTLINE_UNIFORM_KEY = 'rl_silhouette_outline_width';
 
 /**
  * How far toward the camera, in world units (one unit is one tile), a
@@ -220,6 +339,25 @@ export const SILHOUETTE_DEPTH_BIAS_GLSL = /* glsl */ `
         gl_Position = projectionMatrix * mvPosition;
 `;
 
+/**
+ * The inverted-hull expansion, as a GLSL fragment appended immediately after
+ * `#include <begin_vertex>` -- while `transformed` holds the un-skinned
+ * object-space position and BEFORE `<skinning_vertex>` rewrites it.
+ *
+ * Before skinning on purpose: an offset added here is carried by whichever
+ * bone owns the vertex, so a running rifleman's outline runs with him. An
+ * offset applied after projection would have to re-derive the posed normal,
+ * which `MeshBasicMaterial` does not compute at all.
+ *
+ * `aExpand` is a SMOOTHED normal (`smoothedOutwardNormals` below), never the
+ * geometry's own: a hard-edged export splits every crease into vertices
+ * carrying face normals, and pushing those apart tears the shell open at
+ * exactly the silhouette edges the outline is made of.
+ */
+export const SILHOUETTE_OUTLINE_EXPAND_GLSL = /* glsl */ `
+        transformed += aExpand * uOutlineWidth;
+`;
+
 /** The flags that ARE the mechanism -- see this file's top comment. Shared
  *  verbatim by both silhouette materials (the mesh path's below, and
  *  `instances.ts`'s billboard one) so neither can be built with half of it:
@@ -230,6 +368,11 @@ export const SILHOUETTE_MATERIAL_FLAGS = {
   depthTest: true,
   depthWrite: false,
   depthFunc: THREE.GreaterDepth,
+  // The BILLBOARD path's facing. A billboard is one camera-facing quad, wound
+  // to face this camera (`instances.ts`'s own winding proof), so `BackSide`
+  // there draws nothing at all. The MESH path overrides this -- see
+  // `SILHOUETTE_MESH_SIDE`, which is not a preference but the difference
+  // between an outline and a handful of fragments.
   side: THREE.FrontSide,
   // `stencilWrite` is three.js's switch for `gl.enable(STENCIL_TEST)`, not
   // merely for writing -- every op below is `Keep`, so this material reads
@@ -245,8 +388,8 @@ export const SILHOUETTE_MATERIAL_FLAGS = {
 
 /**
  * Marks a unit BODY material as one that masks out its own silhouette:
- * wherever this material's fragment wins the depth test, it stamps
- * `SILHOUETTE_STENCIL_REF`, and no silhouette draws there.
+ * wherever this material is RASTERISED -- won the depth test or lost it --
+ * it stamps `SILHOUETTE_STENCIL_REF`, and no silhouette draws there.
  *
  * Called from the two places that CREATE a silhouette -- `attachMeshSilhouette`
  * below, and `UnitInstancer`'s constructor -- rather than from the material
@@ -266,10 +409,13 @@ export function markSilhouetteOccludee(material: THREE.Material | THREE.Material
     m.stencilRef = SILHOUETTE_STENCIL_REF;
     m.stencilWriteMask = 0xff;
     m.stencilFail = THREE.KeepStencilOp;
-    // Only a fragment that actually WON writes the mask. A unit's own
-    // hidden far side loses, writes nothing, and so does not mask itself
-    // out -- which is what makes the silhouette appear on it.
-    m.stencilZFail = THREE.KeepStencilOp;
+    // Won or lost, the mask is stamped: the bit means "this unit's own
+    // footprint covers this pixel", and the outline lives strictly OUTSIDE
+    // that footprint. `stencilZFail: Keep` is the FILL's setting -- see this
+    // file's top comment for why the two readings cannot coexist, and why a
+    // footprint stamp is also what makes the mask independent of draw
+    // order. (`stencilFail` above never fires: `stencilFunc` is `Always`.)
+    m.stencilZFail = THREE.ReplaceStencilOp;
     m.stencilZPass = THREE.ReplaceStencilOp;
     m.needsUpdate = true;
   }
@@ -293,24 +439,88 @@ export function markSilhouetteOccludee(material: THREE.Material | THREE.Material
  * silhouettes before handing an entity to the death sequence for exactly
  * that reason.
  */
+/**
+ * The mesh path's facing, and it is measured rather than chosen.
+ *
+ * `FrontSide` -- the obvious, more depth-conservative option, and what this
+ * shipped with for one browser round -- produces an outline in FRAGMENTS.
+ * The reason is that the ring lies just outside the body's own silhouette,
+ * and a front face only moves outward IN SCREEN SPACE by the amount its
+ * normal is perpendicular to the view. The triangles that satisfy that are
+ * exactly the grazing ones at the silhouette edge -- and half of those face
+ * away and are culled. The ring is therefore covered patchily, and on a
+ * kit-built vehicle (many separate boxes) what survives is a scatter of
+ * short strokes that reads as noise. Photographed side by side at one
+ * camera on `beit_sahwan_outskirts`: `FrontSide` gave broken squiggles,
+ * `BackSide` a single continuous contour of the whole tank.
+ *
+ * `BackSide` is the standard inverted-hull answer for that reason: the far
+ * shell covers the ring completely. The depth it brings with it is not the
+ * model's deep far side, which would over-trigger: just outside the original
+ * silhouette the near and far surfaces MEET, so a ring fragment carries
+ * roughly the silhouette-edge depth. The genuinely deep interior is inside
+ * the footprint, where the stencil discards it before depth matters.
+ */
+export const SILHOUETTE_MESH_SIDE = THREE.BackSide;
+
 export function createMeshSilhouetteMaterial(color: string): THREE.MeshBasicMaterial {
   const material = new THREE.MeshBasicMaterial({
     color: new THREE.Color(color),
     ...SILHOUETTE_MATERIAL_FLAGS,
+    side: SILHOUETTE_MESH_SIDE,
   });
+  // ONE uniform object, held here and handed to every program compiled from
+  // this material, so `setSilhouetteOutlineZoom` can retune the width by
+  // writing `.value` once. `MeshBasicMaterial` has no `.uniforms` field of
+  // its own -- three.js keeps the compiled `shader.uniforms` internally --
+  // so the shared object has to be captured before `onBeforeCompile` runs
+  // and parked somewhere reachable, which is what `userData` is for.
+  const outlineWidth = { value: silhouetteOutlineObjectWidth(1) };
+  (material.userData as Record<string, unknown>)[SILHOUETTE_OUTLINE_UNIFORM_KEY] = outlineWidth;
   material.onBeforeCompile = (shader) => {
-    shader.vertexShader = shader.vertexShader.replace(
-      '#include <project_vertex>',
-      `#include <project_vertex>${SILHOUETTE_DEPTH_BIAS_GLSL}`
-    );
+    shader.uniforms.uOutlineWidth = outlineWidth;
+    // three.js's own generated prefix defines `attribute` as `in` under
+    // GLSL ES 3.00, so this one declaration is correct on both targets --
+    // the same reason `instances.ts` declares `aLayer`/`aAlpha`/`aSide`
+    // plainly in its hand-written `ShaderMaterial`.
+    shader.vertexShader =
+      `attribute vec3 ${SILHOUETTE_EXPAND_ATTRIBUTE};\nuniform float uOutlineWidth;\n` +
+      shader.vertexShader
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>${SILHOUETTE_OUTLINE_EXPAND_GLSL}`
+        )
+        .replace('#include <project_vertex>', `#include <project_vertex>${SILHOUETTE_DEPTH_BIAS_GLSL}`);
   };
   // Two materials with identical source but different `onBeforeCompile`
   // patches share a program cache entry unless their cache keys differ.
   // These three all patch identically, so one key is correct -- but it must
   // differ from an UNPATCHED MeshBasicMaterial's, or three.js would hand a
   // silhouette the unbiased program compiled for some other basic material.
-  material.customProgramCacheKey = () => `rl-silhouette-${SILHOUETTE_DEPTH_BIAS_WORLD}`;
+  material.customProgramCacheKey = () => `rl-silhouette-outline-${SILHOUETTE_DEPTH_BIAS_WORLD}`;
   return material;
+}
+
+/**
+ * Retunes every mesh silhouette material's outline width for the camera's
+ * current zoom -- one `.value` write per material, three materials for the
+ * whole scene, called once per frame from `ThreeRenderer.frame`.
+ *
+ * Deliberately a write on the SHARED uniform object rather than anything
+ * per-unit: the outline's thickness is a property of the camera, not of the
+ * unit, and a silhouette still costs zero per-frame CPU per entity.
+ */
+export function setSilhouetteOutlineZoom(
+  materials: readonly THREE.Material[],
+  zoom: number
+): void {
+  const width = silhouetteOutlineObjectWidth(zoom);
+  for (const material of materials) {
+    const uniform = (material.userData as Record<string, unknown>)[
+      SILHOUETTE_OUTLINE_UNIFORM_KEY
+    ] as { value: number } | undefined;
+    if (uniform) uniform.value = width;
+  }
 }
 
 /**
@@ -335,6 +545,102 @@ const mergedGeometryCache = new WeakMap<
   THREE.BufferGeometry,
   { sources: readonly THREE.BufferGeometry[]; merged: THREE.BufferGeometry }
 >();
+
+/**
+ * Quantised position key, for welding vertices that a hard-edged export
+ * split apart. 1e-4 of a GLB metre is 0.1 mm -- far below anything these
+ * models resolve, far above float noise. `Math.round(-0.00004 * 1e4)` is
+ * `-0`, and `String(-0)` is `"0"`, so a coordinate either side of zero
+ * cannot land in two buckets.
+ */
+function weldKey(x: number, y: number, z: number): string {
+  return `${Math.round(x * 1e4)},${Math.round(y * 1e4)},${Math.round(z * 1e4)}`;
+}
+
+/**
+ * The direction each vertex is pushed along to build the inverted hull: the
+ * area-weighted average of the face normals of every triangle touching that
+ * POSITION, not that vertex index.
+ *
+ * Welding by position is the whole point. A GLB from `kit.py` is hard-edged:
+ * a hull corner is three vertices at one point carrying three different face
+ * normals. Expanding each along its own normal pulls the three faces apart
+ * and opens a wedge at every crease -- and the creases are exactly where a
+ * boxy vehicle's outline is. Averaging over the welded point moves the
+ * corner outward as one corner.
+ *
+ * Computed from positions and winding alone, never from the source `normal`
+ * attribute: the merge below drops `normal` (a silhouette samples no texture
+ * and is unlit, and a shipped infantry GLB's `webbing` role has no `uv` at
+ * all, so trimming the attribute set is what makes the merge legal in the
+ * first place). Recomputing costs one pass per TEMPLATE and removes a
+ * dependency on whether every role in every GLB happens to carry normals.
+ *
+ * Cross product of `(b - a) x (c - a)`: for three.js's front-facing
+ * counter-clockwise winding that points OUT of the surface, and its length
+ * is twice the triangle's area, which is the weighting we want anyway.
+ */
+export function smoothedOutwardNormals(geometry: THREE.BufferGeometry): Float32Array {
+  const position = geometry.getAttribute('position');
+  const count = position ? position.count : 0;
+  const out = new Float32Array(count * 3);
+  if (!position || count === 0) return out;
+
+  const slotOf = new Int32Array(count);
+  const slots = new Map<string, number>();
+  for (let i = 0; i < count; i++) {
+    const key = weldKey(position.getX(i), position.getY(i), position.getZ(i));
+    let slot = slots.get(key);
+    if (slot === undefined) {
+      slot = slots.size;
+      slots.set(key, slot);
+    }
+    slotOf[i] = slot;
+  }
+  const acc = new Float32Array(slots.size * 3);
+
+  const index = geometry.index;
+  const triangles = index ? index.count : count;
+  for (let t = 0; t + 2 < triangles; t += 3) {
+    const i0 = index ? index.getX(t) : t;
+    const i1 = index ? index.getX(t + 1) : t + 1;
+    const i2 = index ? index.getX(t + 2) : t + 2;
+    const ax = position.getX(i0);
+    const ay = position.getY(i0);
+    const az = position.getZ(i0);
+    const ux = position.getX(i1) - ax;
+    const uy = position.getY(i1) - ay;
+    const uz = position.getZ(i1) - az;
+    const vx = position.getX(i2) - ax;
+    const vy = position.getY(i2) - ay;
+    const vz = position.getZ(i2) - az;
+    const nx = uy * vz - uz * vy;
+    const ny = uz * vx - ux * vz;
+    const nz = ux * vy - uy * vx;
+    for (const i of [i0, i1, i2]) {
+      const s = slotOf[i] * 3;
+      acc[s] += nx;
+      acc[s + 1] += ny;
+      acc[s + 2] += nz;
+    }
+  }
+
+  for (let i = 0; i < count; i++) {
+    const s = slotOf[i] * 3;
+    const nx = acc[s];
+    const ny = acc[s + 1];
+    const nz = acc[s + 2];
+    const len = Math.hypot(nx, ny, nz);
+    // A vertex touching no triangle, or one whose faces cancel exactly,
+    // simply does not move. Better a locally un-expanded vertex than a
+    // NaN, which would take the whole draw call's geometry with it.
+    if (len === 0) continue;
+    out[i * 3] = nx / len;
+    out[i * 3 + 1] = ny / len;
+    out[i * 3 + 2] = nz / len;
+  }
+  return out;
+}
 
 /** The attributes a silhouette actually reads. It samples no texture and is
  *  unlit, so `uv` and `normal` are dropped -- which is also what makes the
@@ -397,47 +703,73 @@ function isIdentityTransform(o: THREE.Object3D): boolean {
 }
 
 /**
- * The geometry one group's silhouette draws. A single-mesh group SHARES that
- * mesh's own geometry (no copy, no merge, no extra vertex memory); a group of
- * two or more is merged once per template and cached above.
+ * The geometry one group's silhouette draws: the group's shape, trimmed to
+ * the attributes an outline reads, plus the `aExpand` direction that turns
+ * it into an inverted hull.
+ *
+ * A single-mesh group still SHARES the body's own attribute OBJECTS -- the
+ * wrapper `BufferGeometry` around them costs no vertex memory beyond
+ * `aExpand` itself, and no copy of the positions. It cannot simply BE the
+ * body's geometry any more, because `aExpand` would then be uploaded for
+ * every body draw too, and the body's own material would be carrying an
+ * attribute it never reads. A group of two or more is merged, exactly as
+ * before.
  *
  * Rigid sources have their own local matrix baked in, so the merged mesh can
  * sit at identity under the shared parent -- that is what lets a turret's two
  * meshes become one silhouette while still rotating with `turretPivot`.
  * Skinned sources are already required to be at identity (`canShareSilhouette`).
+ * `aExpand` is computed AFTER that bake, from final positions, so the
+ * expansion directions are already in the space the shell is drawn in.
  *
- * Returns `null` if the merge fails, and the caller falls back to one
- * silhouette per mesh.
+ * Cached on the group's FIRST source geometry -- a template-owned object
+ * every clone of that unit type shares -- so a type pays this once, not once
+ * per spawned unit. Returns `null` if a merge fails, and the caller falls
+ * back to one silhouette per mesh.
  */
 function silhouetteGeometryFor(group: readonly THREE.Mesh[]): THREE.BufferGeometry | null {
-  if (group.length === 1) return group[0].geometry;
   const sources = group.map((m) => m.geometry);
   const cached = mergedGeometryCache.get(sources[0]);
   if (cached && cached.sources.length === sources.length && cached.sources.every((g, i) => g === sources[i])) {
     return cached.merged;
   }
   const names = silhouetteAttributes(group[0]);
-  const cleaned: THREE.BufferGeometry[] = [];
-  for (const mesh of group) {
-    const g = new THREE.BufferGeometry();
+  let shell: THREE.BufferGeometry | null;
+  if (group.length === 1) {
+    shell = new THREE.BufferGeometry();
     for (const name of names) {
-      const attr = mesh.geometry.getAttribute(name);
-      if (!attr) return null;
-      g.setAttribute(name, attr.clone());
+      const attr = sources[0].getAttribute(name);
+      // Shared, not cloned: one buffer on the GPU, read by two draw calls.
+      if (attr) shell.setAttribute(name, attr);
     }
-    const index = mesh.geometry.index;
-    if (index) g.setIndex(index.clone());
-    if (!(mesh as THREE.SkinnedMesh).isSkinnedMesh) {
-      mesh.updateMatrix();
-      g.applyMatrix4(mesh.matrix);
+    if (sources[0].index) shell.setIndex(sources[0].index);
+  } else {
+    const cleaned: THREE.BufferGeometry[] = [];
+    for (const mesh of group) {
+      const g = new THREE.BufferGeometry();
+      for (const name of names) {
+        const attr = mesh.geometry.getAttribute(name);
+        if (!attr) return null;
+        g.setAttribute(name, attr.clone());
+      }
+      const index = mesh.geometry.index;
+      if (index) g.setIndex(index.clone());
+      if (!(mesh as THREE.SkinnedMesh).isSkinnedMesh) {
+        mesh.updateMatrix();
+        g.applyMatrix4(mesh.matrix);
+      }
+      cleaned.push(g);
     }
-    cleaned.push(g);
+    shell = mergeGeometries(cleaned, false);
+    for (const g of cleaned) g.dispose();
   }
-  const merged = mergeGeometries(cleaned, false);
-  for (const g of cleaned) g.dispose();
-  if (!merged) return null;
-  mergedGeometryCache.set(sources[0], { sources, merged });
-  return merged;
+  if (!shell) return null;
+  shell.setAttribute(
+    SILHOUETTE_EXPAND_ATTRIBUTE,
+    new THREE.BufferAttribute(smoothedOutwardNormals(shell), 3)
+  );
+  mergedGeometryCache.set(sources[0], { sources, merged: shell });
+  return shell;
 }
 
 /** Marker every silhouette object carries, so a second `attachMeshSilhouette`
@@ -471,8 +803,10 @@ export function isSilhouette(o: THREE.Object3D): boolean {
  * pose all arrive through the ancestors and the shared skeleton that the
  * body path already writes.
  *
- * Geometry is SHARED, never cloned: one extra draw call per mesh, and zero
- * extra vertex memory or CPU per frame.
+ * Vertex data is SHARED wherever it can be (`silhouetteGeometryFor`): one
+ * extra draw call per GROUP, no copy of the positions, and zero extra CPU
+ * per frame. The one thing a silhouette adds is its own `aExpand`
+ * attribute -- three floats per vertex, built once per template.
  *
  * Returns the objects created, in traversal order.
  */
@@ -512,7 +846,12 @@ export function attachMeshSilhouette(
     // more draw calls, never a wrong shape.
     const subgroups = merged ? [group] : group.map((m) => [m]);
     for (const sub of subgroups) {
-      const geometry = merged && sub === group ? merged : sub[0].geometry;
+      // Never `sub[0].geometry` directly, even in the fallback: a silhouette
+      // draws through the OUTLINE material, which reads `aExpand`, and a
+      // body geometry does not carry one. An un-expanded shell would draw a
+      // solid fill again -- the exact defect this replaced, reappearing only
+      // for whichever unit type failed to merge.
+      const geometry = (merged && sub === group ? merged : silhouetteGeometryFor(sub)) ?? sub[0].geometry;
       const head = sub[0];
       const skinnedSource = head as THREE.SkinnedMesh;
       let clone: THREE.Mesh;

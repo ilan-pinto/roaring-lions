@@ -216,14 +216,34 @@ yours; each one records what the next phase inherits.
   before `fogG`; an earlier version of that file said the opposite, citing Pixi
   identifiers that do not exist. Band -1 is the only one whose value changes
   anything for an OPAQUE mesh, where the depth buffer normally makes
-  submission order irrelevant: it exists for the occlusion silhouette's
-  stencil mask. A unit body stamps that mask where its fragment wins the depth
-  test, which is only the truth once the world has already drawn, and three.js
-  sorts the opaque queue by `material.id` BEFORE `z` -- so at band 0 the draw
-  order between a unit and a building was decided by which GLB finished
-  loading first (measured on `beit_sahwan_outskirts`: unit materials 164-167,
-  building materials 246-250, so units drew first and a tank behind an
-  apartment silhouetted as a few slivers).
+  submission order irrelevant. It was added for the occlusion silhouette's
+  stencil mask, back when that silhouette was a solid FILL and a unit body
+  stamped the mask only where its fragment WON the depth test -- true only
+  once the world had already drawn, and three.js sorts the opaque queue by
+  `material.id` BEFORE `z`, so at band 0 the draw order between a unit and a
+  building was decided by which GLB finished loading first (measured on
+  `beit_sahwan_outskirts`: unit materials 164-167, building materials
+  246-250, so units drew first and a tank behind an apartment silhouetted as
+  a few slivers). **The outline retired that dependency**: the mask now means
+  "a unit's footprint covers this pixel" and is stamped on `stencilZFail`
+  too, so no draw order can falsify it. The band stays -- still correct,
+  still free, still where a future opaque occluder belongs -- but it is no
+  longer load-bearing.
+- **The occlusion silhouette is an OUTLINE, not a fill** (`units/silhouette.ts`).
+  An inverted hull -- the merged silhouette geometry pushed out along a welded
+  per-vertex normal by a constant 2.5 SCREEN pixels at any zoom -- with the
+  interior punched out by the footprint stencil above. Three things about it
+  are counter-intuitive and were each measured, not reasoned. `side` must be
+  `BackSide` on the mesh path: `FrontSide` only widens the silhouette where a
+  face's normal is perpendicular to the view, which is a razor-thin set of
+  grazing triangles half of which are culled, and it photographs as broken
+  squiggles rather than an outline. The width must be constant in PIXELS, not
+  world units, because `main.ts` clamps zoom to 0.35-2.5. And it is applied in
+  the GLB's own object space, so it needs multiplying by `MESH_UNITS_PER_TILE`
+  to undo `MESH_SCALE` -- forget that and the outline is a third as thick as
+  asked for, which looks plausible and is wrong. Billboards have no hull to
+  invert, so that path dilates the atlas alpha instead. Costs no extra draw
+  call over the fill: measured +24 on 310, both ways.
 - **Overlays scale with zoom, and that is faithful.** Pixi scales its whole
   `world` container by `camera.zoom` and the overlay layer is a child of it, so
   HP bars look enormous zoomed in on BOTH backends. Verified side by side. Not a

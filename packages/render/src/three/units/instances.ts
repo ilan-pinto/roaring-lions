@@ -301,6 +301,7 @@ import {
   SILHOUETTE_COLOR_KEY_BY_SIDE,
   SILHOUETTE_DEPTH_BIAS_GLSL,
   SILHOUETTE_MATERIAL_FLAGS,
+  SILHOUETTE_OUTLINE_PX,
   markSilhouetteOccludee,
   silhouetteSideIndex,
 } from './silhouette';
@@ -719,16 +720,49 @@ function createUnitMaterial(texture: THREE.DataArrayTexture): THREE.ShaderMateri
 }
 
 /**
+ * The number of screen pixels a billboard's outline is offset by, expressed
+ * as a fraction of the quad's own UV span, for a given quad size and zoom.
+ *
+ * A billboard has no hull to invert, so the mesh path's `aExpand` trick has
+ * no counterpart here: the shape lives in the atlas's alpha channel, and the
+ * equivalent of growing the hull is DILATING that alpha -- taking the
+ * maximum over a ring of neighbouring texels. This is the radius of that
+ * ring, in UV.
+ *
+ * UV 0..1 spans `unitBillboardGeometry`'s own `sheet.scale * TILE_W` screen
+ * pixels at zoom 1, so dividing the wanted pixel width by that (times zoom)
+ * is what keeps the billboard path's outline the SAME thickness as the mesh
+ * path's at every zoom, rather than merely a plausible-looking one.
+ */
+export function billboardOutlineUv(quadPx: number, zoom: number): number {
+  return SILHOUETTE_OUTLINE_PX / (quadPx * Math.max(zoom, 1e-3));
+}
+
+/**
  * The occlusion-silhouette twin of `createUnitMaterial`: the same geometry,
  * the same atlas, the same alpha cut-out -- and then a flat team colour
- * instead of the sampled texel, drawn only where the unit already lost the
+ * OUTLINE of the sampled shape, drawn only where the unit already lost the
  * depth test. See `silhouette.ts`'s top comment for the mechanism; only the
- * two things this material does DIFFERENTLY are argued here.
+ * things this material does DIFFERENTLY are argued here.
  *
  * The alpha channel is still sampled, and that is the whole point: the
  * silhouette has to be the unit's SHAPE, not its bounding quad, so the same
  * `ALPHA_PADDING_DISCARD` cut that gives the body its outline gives the
  * silhouette the identical one. Only `texel.rgb` is thrown away.
+ *
+ * The outline is the DILATED shape, and the interior is punched out by the
+ * stencil rather than by a second sample: a unit body stamps
+ * `SILHOUETTE_STENCIL_REF` across its own footprint (`markSilhouetteOccludee`),
+ * and this material refuses to draw there, so what survives is exactly the
+ * ring the dilation added. There is room to dilate INTO because
+ * `buildUnitTexture` decodes a sprite's whole 256x256 canvas, most of which
+ * is transparent padding around the figure -- the same fact
+ * `ALPHA_PADDING_DISCARD` exists to handle.
+ *
+ * Two rings of eight taps rather than one: the outer ring alone is enough
+ * for a hull edge, and not enough for a thin feature -- an antenna four
+ * texels wide sits BETWEEN a fragment's outer taps, and its outline comes
+ * out dotted. The half-radius ring is what fills those in.
  *
  * Colour is per instance (`aSide`), not per material, because a unit TYPE is
  * not a side: `?sandbox` and future content can field the same type on either
@@ -740,12 +774,18 @@ function createUnitMaterial(texture: THREE.DataArrayTexture): THREE.ShaderMateri
  */
 function createUnitSilhouetteMaterial(
   texture: THREE.DataArrayTexture,
-  colors: readonly THREE.Color[]
+  colors: readonly THREE.Color[],
+  quadPx: number
 ): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     uniforms: {
       uMap: { value: texture },
       uTeam: { value: colors.map((c) => c.clone()) },
+      // Retuned every frame from the live camera zoom by
+      // `UnitInstancer.setOutlineZoom`; seeded at zoom 1 so a material that
+      // is somehow never updated still draws a sane outline rather than a
+      // zero-width (invisible) one.
+      uOutlineUv: { value: billboardOutlineUv(quadPx, 1) },
     },
     vertexShader: /* glsl */ `
       attribute float aLayer;
@@ -770,13 +810,35 @@ function createUnitSilhouetteMaterial(
       precision highp sampler2DArray;
       uniform sampler2DArray uMap;
       uniform vec3 uTeam[${SILHOUETTE_COLOR_KEY_BY_SIDE.length}];
+      uniform float uOutlineUv;
       varying vec2 vUv;
       varying float vLayer;
       varying float vAlpha;
       varying float vSide;
+      float alphaAt(vec2 uv) {
+        return texture2D(uMap, vec3(uv, vLayer)).a;
+      }
+      // Maximum alpha over a ring of eight taps at radius r -- the dilation
+      // that turns the sprite's own shape into a slightly larger one. See
+      // this material's doc comment for why it is called twice.
+      float ringMax(float r) {
+        float d = 0.0;
+        d = max(d, alphaAt(vUv + vec2( r,  0.0)));
+        d = max(d, alphaAt(vUv + vec2(-r,  0.0)));
+        d = max(d, alphaAt(vUv + vec2( 0.0,  r)));
+        d = max(d, alphaAt(vUv + vec2( 0.0, -r)));
+        float q = r * 0.70710678;
+        d = max(d, alphaAt(vUv + vec2( q,  q)));
+        d = max(d, alphaAt(vUv + vec2( q, -q)));
+        d = max(d, alphaAt(vUv + vec2(-q,  q)));
+        d = max(d, alphaAt(vUv + vec2(-q, -q)));
+        return d;
+      }
       void main() {
-        vec4 texel = texture2D(uMap, vec3(vUv, vLayer));
-        float a = texel.a * vAlpha;
+        float dilated = alphaAt(vUv);
+        dilated = max(dilated, ringMax(uOutlineUv));
+        dilated = max(dilated, ringMax(uOutlineUv * 0.5));
+        float a = dilated * vAlpha;
         if (a < ${ALPHA_PADDING_DISCARD}) discard;
         // Branch rather than a dynamic uTeam[int(vSide)] index: dynamic
         // indexing of a uniform array by a varying is not guaranteed in
@@ -902,7 +964,11 @@ export class UnitInstancer {
     if (silhouetteColors) {
       const silhouette = new THREE.InstancedMesh(
         geometry,
-        createUnitSilhouetteMaterial(texture, silhouetteColors),
+        // `sheet.scale * TILE_W` is `unitBillboardGeometry`'s own `drawPx`,
+        // recomputed here rather than threaded out of it -- it is one
+        // multiply, and the alternative is a second return value on a pure
+        // geometry builder that nothing else wants.
+        createUnitSilhouetteMaterial(texture, silhouetteColors, sheet.scale * TILE_W),
         capacity
       );
       // The same `InstancedBufferAttribute` OBJECT, not a copy: three.js
@@ -954,6 +1020,19 @@ export class UnitInstancer {
    */
   updateTurret(frames: readonly EntityFrame[], hullSheet: SheetSpec): void {
     this.commit(writeTurretInstances(frames, hullSheet, this.sheet, this.packing, this.scratchBuffers()));
+  }
+
+  /**
+   * Retunes this instancer's silhouette outline for the camera's current
+   * zoom -- one uniform write, once per frame, from `ThreeRenderer.frame`.
+   *
+   * A no-op when this instancer has no silhouette, so the caller can loop
+   * over every instancer without knowing which ones asked for one.
+   */
+  setOutlineZoom(zoom: number): void {
+    if (!this.silhouette) return;
+    const material = this.silhouette.material as THREE.ShaderMaterial;
+    material.uniforms.uOutlineUv.value = billboardOutlineUv(this.sheet.scale * TILE_W, zoom);
   }
 
   /** The mutable buffers `writeUnitInstances`/`writeTurretInstances` write

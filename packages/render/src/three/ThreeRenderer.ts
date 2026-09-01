@@ -174,6 +174,7 @@ import {
   createMeshSilhouetteMaterial,
   attachMeshSilhouette,
   detachMeshSilhouette,
+  setSilhouetteOutlineZoom,
 } from './units/silhouette';
 import {
   loadMeshUnitTemplate,
@@ -1696,6 +1697,7 @@ export class ThreeRenderer implements Renderer {
     // vehicleTrackMesh's own sweep just above -- one uniform write.
     this.windClockMs += dtMs;
     this.groveMat.uniforms.uTime.value = this.windClockMs / 1000;
+    this.updateSilhouetteOutlineWidth();
     this.renderer.render(this.scene, this.threeCamera());
   }
 
@@ -4313,6 +4315,25 @@ export class ThreeRenderer implements Renderer {
    *  field doc comment. */
   private silhouetteMaterialFor(side: number): THREE.MeshBasicMaterial {
     return this.silhouetteMeshMaterials[silhouetteSideIndex(side)];
+  }
+
+  /**
+   * Retunes every occlusion outline to the camera's current zoom, once per
+   * frame, just before `render`.
+   *
+   * The outline is a fixed number of SCREEN pixels wide at every zoom (see
+   * `silhouette.ts`'s `SILHOUETTE_OUTLINE_PX` for why world units are the
+   * wrong choice against `main.ts`'s 0.35..2.5 clamp), and neither path can
+   * work that out for itself: a mesh silhouette is a child of a unit and
+   * never sees the camera, and a billboard's is an `InstancedMesh` with no
+   * per-frame CPU work of its own by design. Three material writes plus one
+   * per unit-type instancer, all of them a single uniform assignment.
+   */
+  private updateSilhouetteOutlineWidth(): void {
+    const zoom = this.camera.zoom;
+    setSilhouetteOutlineZoom(this.silhouetteMeshMaterials, zoom);
+    for (const instancer of this.unitInstancers.values()) instancer.setOutlineZoom(zoom);
+    for (const instancer of this.turretInstancers.values()) instancer.setOutlineZoom(zoom);
   }
 
   /**
