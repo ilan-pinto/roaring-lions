@@ -354,10 +354,34 @@ load is worth doing before release. Pipeline: `tools/units/kit.py` (geometry)
   binding is rigid one-part-to-one-bone with **no weight painting**.
 - Adding a part to `kit.py` makes `rig.py`'s `PART_BONE` stale. It **raises
   loudly** rather than leaving gear in bind pose. Extend it; never silence it.
-- **A GLB carries zero materials.** Colour is applied at runtime from a ramp
-  SLICE indexed by normal. Do not port `render_team.py`'s `ROLE_PALETTE` or
-  `LIT_GAIN` into a mesh export — that table compensates for a multiply-style
-  light and a toon LUT indexes instead.
+- **A GLB carries zero materials — except three buildings, by the lead's
+  explicit override.** Colour is applied at runtime from a ramp SLICE indexed
+  by normal. Do not port `render_team.py`'s `ROLE_PALETTE` or `LIT_GAIN` into
+  a mesh export — that table compensates for a multiply-style light and a
+  toon LUT indexes instead.
+  The exception is `house`, `apartment` and `warehouse` (and their wrecks),
+  which ship their supplied Meshy `base_color` bake: *"i have provided a very
+  detailed blender files and i want them to be used as is unless ill provide
+  other instruction."* The opt-out is a NAMED LIST on both sides —
+  `TEXTURED_BUILDING_TYPES` (`three/units/textured-building.ts`) and
+  `TEXTURED_MESH_EXEMPT` (`tools/validate_mesh_assets.py`) — pinned against
+  each other by `textured-building.test.ts`, which parses the Python set. A
+  GLB outside the list that ships a texture **throws** rather than being
+  silently upgraded. Three things a reader will otherwise get wrong:
+  **the decision is per MESH, not per file** — the warehouse's roof cap is
+  synthesised by `export_meshy_warehouse.py` (its source is an open-topped
+  scan), has no UVs, and stays on the palette inside a textured GLB;
+  **`pnpm validate:meshes` does NOT palette-check these six**, and never
+  could have — `render_mesh_gate.py` repaints every building from the palette
+  before rendering, so the check was measuring a stand-in, and the gate now
+  prints a `NOT palette-checked` line naming them (silhouette IoU still runs);
+  and **the map's `colorSpace` must be `NoColorSpace`**, because
+  `GLTFLoader` stamps `SRGBColorSpace` on a baseColorTexture and this
+  renderer's output is pass-through — measured on `beit_sahwan_outskirts`,
+  getting that wrong drops a lit wall from rgb 67 to 51 and a shaded one from
+  51 to 30 while the terrain beside it is byte-identical, and it still looks
+  like a building. `metallic_roughness`/`normal` are dropped at export: there
+  are no lights in this scene to consume them.
 - **Mesh units are outside `validate:assets`** — no PNG, so no palette or IoU
   gate runs on them at all. Phase G is meant to fix that and has not.
 - **`kit.py` changed without the sprite sheets being re-rendered**, so

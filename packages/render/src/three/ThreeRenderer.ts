@@ -205,6 +205,7 @@ import {
   type BuildingMeshTemplate,
 } from './units/mesh-building';
 import { wallSurfaceForBuilding } from './units/building-mesh-role';
+import { TEXTURED_BUILDING_TYPES } from './units/textured-building';
 import {
   beginMeshDeath,
   stepMeshDeath,
@@ -3083,7 +3084,19 @@ export class ThreeRenderer implements Renderer {
     // wrecked masonry wall is still masonry.
     const wallSurface = wallSurfaceForBuilding(structureId);
 
-    const idleTemplate = await loadBuildingMeshTemplate(idleUrl, wallColorKey, wallSurface);
+    // The named textured opt-out -- see `units/textured-building.ts`. The
+    // LIST lives there and is answered here, once, for both states: a
+    // building's wreck is the same asset class as its standing state and a
+    // type whose idle draws its own bake would look absurd collapsing into
+    // a palette-painted pile.
+    const allowTextured = TEXTURED_BUILDING_TYPES.has(structureId);
+
+    const idleTemplate = await loadBuildingMeshTemplate(
+      idleUrl,
+      wallColorKey,
+      wallSurface,
+      allowTextured
+    );
     const previousIdle = this.buildingMeshIdleTemplates.get(structureId);
     if (previousIdle) {
       // `buildingMeshIdleEntities` is keyed by STRUCTURE INDEX, not type --
@@ -3109,7 +3122,12 @@ export class ThreeRenderer implements Renderer {
     }
 
     if (wreckUrl) {
-      const wreckTemplate = await loadBuildingMeshTemplate(wreckUrl, wallColorKey, wallSurface);
+      const wreckTemplate = await loadBuildingMeshTemplate(
+        wreckUrl,
+        wallColorKey,
+        wallSurface,
+        allowTextured
+      );
       const previousWreck = this.buildingMeshWreckTemplates.get(structureId);
       if (previousWreck) {
         const st = this.sim.structures;

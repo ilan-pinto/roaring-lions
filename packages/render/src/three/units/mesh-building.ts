@@ -29,6 +29,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { toonRampMaterial } from '../palette-material';
 import { isBuildingMeshRole, rampForBuildingRole, type WallSurface } from './building-mesh-role';
+import { texturedBuildingMaterial } from './textured-building';
 import { MESH_SCALE } from './mesh-anim';
 import { WORLD_RENDER_ORDER } from './render-order';
 
@@ -61,7 +62,8 @@ export interface BuildingMeshTemplate {
 export function buildBuildingMeshTemplate(
   gltf: Pick<GLTF, 'scene'>,
   wallColorKey: string,
-  wallSurface: WallSurface
+  wallSurface: WallSurface,
+  allowTextured = false
 ): BuildingMeshTemplate {
   const root = gltf.scene;
   root.scale.setScalar(MESH_SCALE);
@@ -69,12 +71,52 @@ export function buildBuildingMeshTemplate(
   const materials: THREE.Material[] = [];
   const geometries: THREE.BufferGeometry[] = [];
   const unmapped = new Set<string>();
+  const smuggled = new Set<string>();
 
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
     const extrasRole = (mesh.userData as { rl_role?: unknown }).rl_role;
     const role = typeof extrasRole === 'string' && extrasRole.length > 0 ? extrasRole : mesh.name;
+
+    // The per-MESH textured opt-out. `allowTextured` is the caller's answer
+    // to `TEXTURED_BUILDING_TYPES.has(structureId)` -- a NAMED list, so the
+    // types outside the palette gate are enumerable rather than implicit
+    // (see `textured-building.ts`'s own top comment). Whether THIS mesh
+    // takes it is decided by the GLB's own evidence: a mesh whose material
+    // carries a map has a photograph to draw, and one that does not (the
+    // warehouse's synthesised roof cap, which has no UVs and no honest
+    // texel) falls through to the palette below.
+    //
+    // Deliberately checked BEFORE `isBuildingMeshRole`: a textured mesh
+    // needs no ramp, so it needs no role in the ramp table either. It still
+    // has one on every shipped asset, and that is fine -- this simply does
+    // not depend on it.
+    const loaded = mesh.material as THREE.Material | undefined;
+    const loadedMap =
+      loaded && 'map' in loaded ? ((loaded as { map?: THREE.Texture | null }).map ?? null) : null;
+    if (loadedMap) {
+      if (!allowTextured) {
+        // A GLB outside the named list shipping a texture anyway is an
+        // error, never a silent upgrade -- the whole point of the list is
+        // that nobody has to read GLB bytes to know which buildings the
+        // palette gate still covers.
+        smuggled.add(role || '(unnamed mesh)');
+        return;
+      }
+      const textured = texturedBuildingMaterial(loadedMap);
+      mesh.material = textured;
+      mesh.renderOrder = WORLD_RENDER_ORDER;
+      materials.push(textured);
+      geometries.push(mesh.geometry);
+      // The `MeshStandardMaterial` GLTFLoader built is now unreferenced.
+      // Its TEXTURE is not -- `texturedBuildingMaterial` holds it -- so
+      // dispose the material alone and let the template's own disposal path
+      // own the map through the material that actually uses it.
+      loaded?.dispose();
+      return;
+    }
+
     if (!isBuildingMeshRole(role)) {
       unmapped.add(role || '(unnamed mesh)');
       return;
@@ -105,6 +147,13 @@ export function buildBuildingMeshTemplate(
     geometries.push(mesh.geometry);
   });
 
+  if (smuggled.size > 0) {
+    throw new Error(
+      `mesh-building: ${[...smuggled].join(', ')} ships a texture, but this building type is not in ` +
+        `TEXTURED_BUILDING_TYPES (textured-building.ts). Add it there and to TEXTURED_MESH_EXEMPT ` +
+        `in tools/validate_mesh_assets.py, or export the GLB without materials.`
+    );
+  }
   if (unmapped.size > 0) {
     throw new Error(`mesh-building: no ramp for rl_role ${[...unmapped].join(', ')}`);
   }
@@ -113,14 +162,17 @@ export function buildBuildingMeshTemplate(
 }
 
 /** Fetches and parses `glbUrl`, then builds a `BuildingMeshTemplate` --
- *  mirrors `loadMeshUnitTemplate`/`loadVehicleMeshTemplate` exactly. */
+ *  mirrors `loadMeshUnitTemplate`/`loadVehicleMeshTemplate` exactly.
+ *  `allowTextured` threads through unchanged; see
+ *  `buildBuildingMeshTemplate` for what it gates. */
 export async function loadBuildingMeshTemplate(
   glbUrl: string,
   wallColorKey: string,
-  wallSurface: WallSurface
+  wallSurface: WallSurface,
+  allowTextured = false
 ): Promise<BuildingMeshTemplate> {
   const gltf = await new GLTFLoader().loadAsync(glbUrl);
-  return buildBuildingMeshTemplate(gltf, wallColorKey, wallSurface);
+  return buildBuildingMeshTemplate(gltf, wallColorKey, wallSurface, allowTextured);
 }
 
 /** One placed structure's mesh instance -- a plain clone with no per-entity
@@ -179,6 +231,18 @@ export function buildingSettleScale(tSeconds: number): { scaleFactor: number; do
  *  clone made from this template must already be removed from the scene
  *  first, since they share these exact objects by reference. */
 export function disposeBuildingMeshTemplate(template: BuildingMeshTemplate): void {
-  for (const material of template.materials) material.dispose();
+  for (const material of template.materials) {
+    // A TEXTURED building's material owns a `base_color` map that no other
+    // material in the scene references (each GLB carries its own bake), and
+    // `Material.dispose()` does NOT release textures -- three.js leaves that
+    // to the owner deliberately, since a map is routinely shared. Here it is
+    // not shared, so this is the owner: 2048x2048 of GPU memory per building
+    // type would otherwise leak on every template reload.
+    const map = 'uniforms' in material
+      ? (material as THREE.ShaderMaterial).uniforms.uMap?.value
+      : undefined;
+    if (map instanceof THREE.Texture) map.dispose();
+    material.dispose();
+  }
   for (const geometry of template.geometries) geometry.dispose();
 }

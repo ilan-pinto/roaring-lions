@@ -278,6 +278,7 @@ sys.path.insert(0, HERE)
 
 from dimetric import metres_per_unit  # noqa: E402
 import kit as building_kit  # noqa: E402 -- tools/buildings/kit.py, ROLES
+import textured  # noqa: E402 -- tools/buildings/textured.py, the shipped-material path
 
 REPO = os.path.dirname(TOOLS)
 # `art/blend/` is gitignored (blanket rule, too large for git) and therefore
@@ -685,31 +686,29 @@ def _bake_scale_rotate_ground(objs, mpu):
 
 
 def _finalize_and_export(role_objs, out_path):
-    """Clears custom props/materials, sets rl_role, exports one GLB. Returns
-    (bytes, total_verts, total_polys, roles)."""
+    """Sets rl_role, keeps the source's own baked material, exports one GLB.
+    Returns (bytes, total_verts, total_polys, roles).
+
+    The material is KEPT rather than cleared -- see `tools/buildings/
+    textured.py`'s own module docstring for the project lead's override of
+    the contract's "a GLB carries zero materials" rule, the measured texture
+    size table, and why `metallic_roughness`/`normal` are dropped while
+    `base_color` ships."""
     for role, ob in role_objs.items():
         ob.name = role
         ob.data.name = role
-        ob.data.materials.clear()
         for k in list(ob.keys()):
             if k != "_RNA_UI":
                 del ob[k]
         ob["rl_role"] = role
 
+    textured.split_textured_roles(role_objs, "house")
+    tex_px = textured.prepare_textured_images()
+    print(f"[house] shipping base_color at {tex_px[0]}x{tex_px[1]}, JPEG q{textured.JPEG_QUALITY}")
+
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     bpy.ops.object.select_all(action="DESELECT")
-    bpy.ops.export_scene.gltf(
-        filepath=out_path,
-        export_format="GLB",
-        use_selection=False,
-        export_apply=True,
-        export_yup=True,
-        export_skins=False,
-        export_animations=False,
-        export_extras=True,
-        export_materials="NONE",
-        export_copyright=CREDIT,
-    )
+    bpy.ops.export_scene.gltf(**textured.gltf_kwargs(out_path, CREDIT))
     size = os.path.getsize(out_path)
     verts = sum(len(ob.data.vertices) for ob in role_objs.values())
     polys = sum(len(ob.data.polygons) for ob in role_objs.values())

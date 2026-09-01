@@ -103,6 +103,42 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
+
+# Building types that ship their OWN baked material instead of being
+# repainted from the palette -- the project lead's explicit override of the
+# mesh contract's "a GLB carries zero materials" rule:
+#
+#     "i have provided a very detailed blender files and i want them to be
+#      used as is unless ill provide other instruction."
+#
+# Must stay in step with `TEXTURED_BUILDING_TYPES` in
+# `packages/render/src/three/units/textured-building.ts`. The two are pinned
+# against each other by `textured-building.test.ts`, which parses THIS set
+# out of THIS file -- so adding a type on one side and not the other fails
+# `pnpm test` rather than silently un-gating a check.
+#
+# WHY AN EXEMPTION IS NEEDED AT ALL, given the gate passes without one. It
+# passes for the wrong reason: `render_mesh_gate.py`'s `apply_building_
+# materials` REPAINTS every building mesh from the palette before rendering
+# it, so a textured GLB is checked as a palette-painted stand-in for itself
+# and `check_image` can only ever agree. Left alone, this gate would go on
+# reporting these three as palette-conformant while the game draws a
+# photograph -- a green check on a thing it is not looking at. Skipping the
+# check and SAYING SO is the honest state; weakening the check for every
+# building to accommodate three would be the dishonest one.
+#
+# What is skipped: the palette-conformance, framing and minimum-fill checks
+# (`check_image`, `check_framing`, `MIN_FILL`). What still runs: the
+# silhouette IoU comparison against every other mesh and sprite -- a textured
+# building must still not read as some other building.
+TEXTURED_MESH_EXEMPT = {"house", "apartment", "warehouse"}
+
+
+def textured_exempt(unit_id):
+    """True if `unit_id` (or its living form, for a `_wreck` variant) ships
+    its own material. Mirrors `own_sprite_dirs`' own `_wreck` stripping."""
+    base = unit_id[:-len("_wreck")] if unit_id.endswith("_wreck") else unit_id
+    return base in TEXTURED_MESH_EXEMPT
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "units"))
 
@@ -208,6 +244,7 @@ def load_mesh_masks(out_dir, palette_path):
     (failures, masks)."""
     failures = []
     masks = {}
+    exempt = []
     targets, _ = qs.load_targets(palette_path)
     allowed, reserved = va.load_palette(palette_path)
 
@@ -215,20 +252,30 @@ def load_mesh_masks(out_dir, palette_path):
     for path in paths:
         unit_id = os.path.basename(os.path.dirname(path))
         qs.quantize(path, targets, check_only=False)
-        for e in va.check_image(path, allowed, reserved):
-            failures.append(f"{unit_id}: {e}")
-        for e in va.check_framing(path):
-            failures.append(f"{unit_id}: {e}")
 
-        mask = va.silhouette(path)
-        fill = mask.sum() / float(mask.size)
-        if fill < va.MIN_FILL:
-            failures.append(
-                f"{unit_id}: silhouette fills {fill:.1%} of frame "
-                f"(min {va.MIN_FILL:.0%}) -- unreadable at gameplay zoom"
-            )
-        masks[unit_id] = mask
-    return failures, masks
+        # See TEXTURED_MESH_EXEMPT above. The silhouette below still runs --
+        # only the colour-facing checks are skipped, and they are skipped
+        # rather than silently satisfied by the gate's own repaint.
+        if textured_exempt(unit_id):
+            exempt.append(unit_id)
+        else:
+            for e in va.check_image(path, allowed, reserved):
+                failures.append(f"{unit_id}: {e}")
+            for e in va.check_framing(path):
+                failures.append(f"{unit_id}: {e}")
+
+            mask = va.silhouette(path)
+            fill = mask.sum() / float(mask.size)
+            if fill < va.MIN_FILL:
+                failures.append(
+                    f"{unit_id}: silhouette fills {fill:.1%} of frame "
+                    f"(min {va.MIN_FILL:.0%}) -- unreadable at gameplay zoom"
+                )
+            masks[unit_id] = mask
+            continue
+
+        masks[unit_id] = va.silhouette(path)
+    return failures, masks, exempt
 
 
 def load_sprite_masks(sprites_root):
@@ -356,7 +403,7 @@ def main():
 
         failures = [f"render: {u}" for u in fail]
 
-        image_failures, mesh_masks = load_mesh_masks(out_dir, args.palette)
+        image_failures, mesh_masks, textured = load_mesh_masks(out_dir, args.palette)
         failures.extend(image_failures)
 
         sprite_masks = load_sprite_masks(args.sprites)
@@ -376,6 +423,14 @@ def main():
         print(f"mesh gate passed: {len(mesh_masks)} mesh unit(s) rendered and checked "
               f"against {len(sprite_masks)} sprite unit(s); {n_decor} decor mesh(es) "
               f"checked against the mesh contract directly")
+        if textured:
+            # Deliberately loud, and deliberately on the PASSING path: the
+            # thing worth catching is a future reader assuming these are
+            # palette-checked because the gate went green. See
+            # TEXTURED_MESH_EXEMPT.
+            print(f"  NOT palette-checked -- {len(textured)} textured mesh(es) ship their own "
+                  f"baked material by the project lead's instruction: {', '.join(sorted(textured))}")
+            print("  (silhouette IoU still applied to them; see TEXTURED_MESH_EXEMPT)")
         return 0
     finally:
         if not keep:
