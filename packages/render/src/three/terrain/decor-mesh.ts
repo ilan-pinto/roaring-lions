@@ -20,6 +20,42 @@ export interface DecorGeometrySet {
   >;
 }
 
+/**
+ * The only two vertex attributes a decor batch may carry.
+ *
+ * `BatchedMesh` takes its attribute set from the FIRST geometry added and then
+ * requires every later one to match (`_validateGeometry`: "Added geometry
+ * missing X. All geometries must have consistent attributes"). Decor's own
+ * shipped GLBs do not agree: `tree_*.glb` exports a `TEXCOORD_0` that
+ * `grass/bush/rock/sand/slab` lack, and trees share the `foliage` and `trunk`
+ * roles -- therefore the same two batches -- with grass and bush. Which of the
+ * two shapes lands first is decided by nothing more principled than map scan
+ * order, so the same code booted `beit_sahwan_outskirts` and threw on
+ * `wadi_halam_basin`.
+ *
+ * Normalising here rather than re-exporting the trees is the durable fix: the
+ * next decor GLB to arrive with a stray attribute is a content change, not a
+ * crash. `position` and `normal` are exactly what `toonRampMaterial`'s vertex
+ * shader reads, so nothing that survives this strip is ever missed.
+ */
+const BATCH_ATTRIBUTES: ReadonlySet<string> = new Set(['position', 'normal']);
+
+/**
+ * Strips every attribute a decor batch cannot use, IN PLACE, returning the
+ * same geometry for call-site convenience.
+ *
+ * In place because the only caller (`ThreeRenderer.loadDecorMeshes`) already
+ * owns a fresh clone at that point and is the sole owner for its lifetime --
+ * see that method's own "seam fix 3". A second clone here would double the
+ * decor geometry the renderer has to dispose for no benefit.
+ */
+export function stripToBatchAttributes(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
+  for (const name of Object.keys(geometry.attributes)) {
+    if (!BATCH_ATTRIBUTES.has(name)) geometry.deleteAttribute(name);
+  }
+  return geometry;
+}
+
 const TAU = Math.PI * 2;
 
 export function buildDecorMesh(

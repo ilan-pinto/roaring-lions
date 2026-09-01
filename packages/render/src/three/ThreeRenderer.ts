@@ -128,7 +128,12 @@ import { buildGroves } from './terrain/grove';
 import { buildBuildings, type StructureFootprint } from './terrain/buildings';
 import { toGeometry, terrainMaterial, groveMaterial } from './terrain/mesh';
 import type { TerrainInput, MeshData } from './terrain/types';
-import { buildDecorMesh, disposeDecorMesh, type DecorGeometrySet } from './terrain/decor-mesh';
+import {
+  buildDecorMesh,
+  disposeDecorMesh,
+  stripToBatchAttributes,
+  type DecorGeometrySet,
+} from './terrain/decor-mesh';
 import { decorPlacements, type DecorPlacement } from './terrain/decor-place';
 import { isDecorMeshRole, type DecorMeshRole } from './terrain/decor-role';
 import { dirtyForStructureHit, dirtyForStructureDestroyed } from './terrain/dirty';
@@ -2886,7 +2891,19 @@ export class ThreeRenderer implements Renderer {
             throw new Error(`loadDecorMeshes: unknown rl_role "${role}" in "${id}"`);
           }
           mesh.updateWorldMatrix(true, false);
-          list.push({ role, geometry: mesh.geometry.clone().applyMatrix4(mesh.matrixWorld) });
+          // `stripToBatchAttributes` normalises every decor geometry down to
+          // position+normal. `BatchedMesh` takes its attribute set from the
+          // first geometry added and rejects any later one that lacks a member
+          // of it, and `tree_*.glb` ships a `uv` its foliage/trunk batch-mates
+          // (grass, bush) do not -- which threw
+          // `BatchedMesh: Added geometry missing "uv"` and killed the boot on
+          // `wadi_halam_basin`. See that function's own doc comment.
+          list.push({
+            role,
+            geometry: stripToBatchAttributes(
+              mesh.geometry.clone().applyMatrix4(mesh.matrixWorld)
+            ),
+          });
         });
         if (list.length > 0) parts.set(id, list);
       })
