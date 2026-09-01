@@ -81,7 +81,7 @@ pnpm balance          # headless battle sim, prints win rates
 
 **A unit:** JSON in `data/units/`, validated against `unit.schema.json`, must pass `pnpm balance` within the cost-curve tolerance band, and needs a `.blend` in `art/src/` that survives `pnpm validate:assets` (including the silhouette IoU check).
 
-**A mission:** JSON in `data/missions/`, validated against `mission.schema.json`. Must declare its ledger contract — `requires` and `produces`. Target 5–7 minutes of play. The schema's `maximum` is still 25 rather than 7: the four Beit Sahwan missions authored against the old 12–20 target are being brought into range one at a time, and the ceiling tightens once they are.
+**A mission:** JSON in `data/missions/`, validated against `mission.schema.json`. Must declare its ledger contract — `requires` and `produces`. Target 5–7 minutes of play, and **the schema enforces it now** — the 25 allowance for the old 12–20 Beit Sahwan missions is gone. `target_minutes` is 5–7, capped by an `if/then/else` at the schema root rather than by a plain `maximum`, because there is exactly one exemption and it is named in the schema: `beit_sahwan_0_tutorial` at 10. The tutorial is not a campaign mission (it produces no ledger keys), its length is 13 teaching steps in `data/tutorial/beit_sahwan_0.json` rather than a timer, and its `survive_until` 600s primary is a backstop that ejects a stalled player — so 10 declares the backstop. No headless instrument can measure a step machine driven by player input, so cutting it to 7 would be fitting a number to a ceiling with nothing behind it. Nothing in the runtime reads `target_minutes` at all: it is a claim, and the schema is the only thing that checks it.
 
 **A VFX emitter:** JSON in `data/vfx/`, validated against `vfx_emitter.schema.json`. Palette keys only, never raw hex.
 
@@ -429,21 +429,44 @@ load is worth doing before release. Pipeline: `tools/units/kit.py` (geometry)
 - A scripted plan in `playtest.ts` proves a mission WINNABLE; it does not measure how
   long the mission takes. The plans are optimal-play proofs, and tuning enemy volume
   until the scripted clock reaches `target_minutes` would produce missions no real
-  player could finish. Measured against every mission's declared `target_minutes`,
-  eight of nine plans land close to it — between 0.51 and 1.00 of target — and only
-  one is a real outlier: `beit_sahwan_1_recon` declares 10 and its plan wins in 0.7
-  (ratio 0.07). `beit_sahwan_4_subterranean` declares 6 and its plan wins in 1.1
-  (ratio 0.18) — the second-largest gap, and the only *combat* mission where the
-  scripted clock and the target diverge this far; the other seven combat missions
-  (`beit_sahwan_breach` 1.00, `wadi_halam_5_depot` 0.98, `wadi_halam_3_counterraid`
-  0.93, `wadi_halam_4_village` 0.87, `wadi_halam_1_fords` 0.80, `wadi_halam_2_laager`
-  0.80, `beit_sahwan_2_foothold` 0.51) all sit inside that 0.51–1.00 band.
-  `beit_sahwan_1_recon` is a recon mission, not a fight, and behaves differently by
-  nature. #84's method — stepping the real runtime and reading `runtime.result` and
-  `objectiveList` — remains the only instrument that measures duration, and there is
-  nothing headless between the optimal-play proof and a fully-passive walk. Beit
-  Sahwan IV's own `target_minutes: 6` stands unverified for this reason and belongs
-  to #84's set of unresolved predecessors.
+  player could finish. **Re-measured across all thirteen plans (GH-84, 2026-09-01);
+  the "eight of nine, band 0.51–1.00" reading this bullet used to carry is retired.**
+  It predated Tel Marum and had silently omitted `beit_sahwan_3_clearance`, and worse,
+  it pooled two populations that do not belong in one band. What separates them is
+  whether a primary makes the player ENDURE a clock. A `hold_for` or `survive_until`
+  `seconds` is a floor on mission length; a `raze`, `collapse` or `evacuate_before`
+  `seconds` is the opposite — a deadline, a ceiling on the allowance — so it does not
+  set length and does not belong in this split.
+  The seven missions with an endure-clock all land **0.70–1.00 of target, and 0.0–2.1
+  minutes above their own floor**: `beit_sahwan_breach` 1.00 (floor 5.0, plan +0.0),
+  `wadi_halam_3_counterraid` 0.93 (+0.6), `beit_sahwan_2_foothold` 0.87 (+1.1),
+  `wadi_halam_5_depot` 0.87 (+2.1, the extra being the raze that precedes the hold),
+  `wadi_halam_1_fords` 0.80 (+0.8), `wadi_halam_2_laager` 0.80 (+0.6),
+  `tel_marum_2_foothold` 0.70 (+0.2). The plan does not beat these missions quickly —
+  it runs the timer out and leaves. That is why the ratio is informative there, and why
+  it tracks a real player: it is the same clock for both.
+  The other six have no endure-clock and scatter 0.10–0.87 — `wadi_halam_4_village`
+  0.87, `tel_marum_3_clearance` 0.50, `beit_sahwan_3_clearance` 0.36,
+  `beit_sahwan_4_subterranean` 0.22, `tel_marum_1_recon` 0.13, `beit_sahwan_1_recon`
+  0.10 — because each plan *hardcodes the answer the mission is about*. The recon plans
+  fly the drone to the six positions by waypoint; IV drives a `mark_tunnel` carrier
+  straight at a route it is not supposed to know; the clearance plans go straight to the
+  HVT. The plan holds perfect information and the player does not, so its clock is a
+  floor with the puzzle removed. **A low ratio on one of these six is not evidence of
+  anything and must not be tuned against.** `wadi_halam_4_village` at 0.87 is why the
+  scatter is scatter and not a second band: a search mission is not *required* to read
+  low, so a high one is not reassurance either.
+  What has NOT changed: stepping the real runtime and reading
+  `runtime.result` and `objectiveList` is still the only instrument that measures
+  duration at all, there is still nothing headless between the optimal-play proof and
+  a fully-passive walk, and therefore **no real-player duration has ever been measured
+  for any mission** — every `target_minutes` in the tree is design intent that survived
+  a floor check, including Beit Sahwan IV's 6.
+  One consequence of the 5–7 ceiling worth knowing before authoring: `target_minutes`
+  cannot express a sequential-timer worst case. `wadi_halam_5_depot` gates `raze` at
+  300s and then holds for 240s *after* it comes down — a 9-minute mechanical ceiling
+  behind a declaration of 7, which the optimal plan reaches in 6.1 only because it
+  razes fast.
 - The elevation milestone (E1–E3) closes with three things left inert, every one of
   them dormant only because every shipped map is flat and every one of them first
   reachable the moment a map authors relief. `raySmoke` (`packages/sim/src/sim.ts:1771`)
