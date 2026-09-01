@@ -296,6 +296,46 @@ export const SPECULAR_GLSL = /* glsl */ `
  * before the flag existed (every conditional GLSL splice below
  * collapses to the empty string), so every caller that does not opt in is
  * provably unaffected rather than merely expected to be.
+ *
+ * ## Why the vertex shader includes three.js's batching chunks
+ *
+ * `THREE.BatchedMesh` applies its per-instance transform IN THE VERTEX
+ * SHADER, through `<batching_pars_vertex>`/`<batching_vertex>`. A hand-written
+ * vertex shader that omits them ignores every instance matrix, so every
+ * instance collapses onto raw local geometry coordinates and the batch draws
+ * NOTHING recognisable. That is not hypothetical: `terrain/decor-mesh.ts`
+ * gives every decor batch a material from this function, and until these two
+ * `#include`s existed the whole decor layer drew zero pixels -- proven by
+ * toggling `decorGroup.visible` and diffing the framebuffer, which showed no
+ * change at all.
+ *
+ * Four facts make this work for a raw `THREE.ShaderMaterial`, each read out of
+ * the installed three.js 0.170 build rather than assumed:
+ *
+ *  1. `WebGLProgram` runs `resolveIncludes()` on `vertexShader` for EVERY
+ *     material, `ShaderMaterial` included -- only `RawShaderMaterial` skips
+ *     the GLSL-3 prefix, and this is not one.
+ *  2. `WebGLPrograms` sets `batching: IS_BATCHEDMESH` from
+ *     `object.isBatchedMesh`, and `WebGLProgram` emits `#define USE_BATCHING`
+ *     from it into the non-raw prefix. Nothing about the material gates it.
+ *  3. `batchingTexture` and `batchingIdTexture` are bound by
+ *     `WebGLRenderer.setProgram` straight onto the PROGRAM's uniforms from the
+ *     object (`p_uniforms.setValue(_gl, 'batchingTexture', object.
+ *     _matricesTexture, textures)`), never merged in from `material.uniforms`
+ *     -- so this material needs no `UniformsLib` merge and no uniform entries
+ *     of its own. Same for `_gl_DrawID`, which `WebGLRenderer` sets per draw
+ *     when `WEBGL_multi_draw` is unavailable.
+ *  4. Both chunks are wholly wrapped in `#ifdef USE_BATCHING`, so for the
+ *     THREE non-batched callers -- `units/mesh-vehicle.ts`,
+ *     `units/mesh-building.ts`, and the tests -- the preprocessor deletes
+ *     every line of this and the emitted program is the one that shipped
+ *     before. `rlNormal`/`rlPos` reduce to `normal` and `vec4(position, 1.0)`
+ *     verbatim.
+ *
+ * The normal is transformed too, not just the position. Skipping it is the
+ * quiet half of this bug: geometry would appear in the right place while
+ * every instance shaded off a normal in the wrong frame, which on a toon ramp
+ * reads as flat-shaded blobs rather than as an obvious error.
  */
 export function toonRampMaterial(
   rampHexes: readonly string[],
@@ -331,12 +371,30 @@ export function toonRampMaterial(
       ...defaultFlashUniforms(),
     },
     vertexShader: /* glsl */ `
+      #include <batching_pars_vertex>
       varying vec3 vNormal;
       varying vec3 vWorldPos;
       void main() {
-        vNormal = normalize(normalMatrix * normal);
-        vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        #include <batching_vertex>
+        vec3 rlNormal = normal;
+        vec4 rlPos = vec4(position, 1.0);
+        #ifdef USE_BATCHING
+          // Byte-for-byte the transform three.js's own <defaultnormal_vertex>
+          // and <project_vertex> chunks apply under USE_BATCHING -- the
+          // inverse-square divide is what keeps a non-uniformly scaled
+          // instance's normal perpendicular to its surface.
+          mat3 rlBatch = mat3(batchingMatrix);
+          rlNormal /= vec3(
+            dot(rlBatch[0], rlBatch[0]),
+            dot(rlBatch[1], rlBatch[1]),
+            dot(rlBatch[2], rlBatch[2])
+          );
+          rlNormal = rlBatch * rlNormal;
+          rlPos = batchingMatrix * rlPos;
+        #endif
+        vNormal = normalize(normalMatrix * rlNormal);
+        vWorldPos = (modelMatrix * rlPos).xyz;
+        gl_Position = projectionMatrix * modelViewMatrix * rlPos;
       }
     `,
     fragmentShader: /* glsl */ `
