@@ -71,6 +71,24 @@ import { roleBucket } from './ui/role';
 import { roeNotice } from './ui/roe-notice';
 import { sandboxAnchors, type SandboxAnchors } from './sandbox-anchors';
 import { sandboxFlaggedZones, sandboxTunnelRoute } from './sandbox-extras';
+import {
+  SANDBOX_KDF,
+  SANDBOX_ENEMY,
+  SANDBOX_SUR,
+  SANDBOX_TUNNEL_KDF,
+  sandboxUnitTypes,
+} from './sandbox-force';
+import {
+  RIGGED_UNIT_MESHES,
+  VEHICLE_UNIT_MESHES,
+  BUILDING_MESHES,
+  DECOR_MESHES,
+  VFX_MESHES,
+  meshUrl,
+  missionUnitTypes,
+  decorFamiliesFor,
+  hasUnitMesh,
+} from './mesh-catalogue';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { resolveRendererChoice, RENDERER_STORAGE_KEY } from './renderer-choice';
 import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
@@ -116,55 +134,6 @@ function campaignSummary(ledger: LedgerData): string {
   return parts.length > 0 ? `campaign: ${parts.join(' · ')}` : 'campaign: fresh start';
 }
 
-/** The task force, as offsets from the friendly anchor. */
-const SANDBOX_KDF: readonly (readonly [string, number, number])[] = [
-  ['mbt_lavi', 0, -3],
-  ['mbt_lavi', 0, 3],
-  ['ifv_namer', -1, -7],
-  ['ifv_namer', -1, 7],
-  ['apc_eitan', -2, 0],
-  ['inf_squad', 2, -5],
-  ['inf_squad', 2, 0],
-  ['inf_squad', 2, 5],
-  ['at_team', 1, -2],
-  ['mortar_team', -2, 2],
-  ['jeep_shoded', 1, 3],
-  ['recon_drone', 4, 0],
-  // The D9 and the Apache both sit behind the line of contact, for different
-  // reasons: the D9 is slow and unarmed, so sending it forward would just feed
-  // it to the militia before it has done any work. The Apache is fast enough
-  // to reach the front on its own, so holding it back gives the player a beat
-  // to notice their most powerful asset before committing it.
-  ['dozer_d9', -1, -3],
-  ['heli_peten', 2, 8],
-];
-
-/** The opposition, as offsets from the hostile anchor. */
-const SANDBOX_ENEMY: readonly (readonly [string, number, number])[] = [
-  ['militia_cell', -4, -10],
-  ['militia_cell', 2, -7],
-  ['militia_cell', -2, 3],
-  ['militia_cell', -6, 15],
-  ['rpg_team', -4, 2],
-  ['rpg_team', -12, -3],
-  ['atgm_cell', 7, 0],
-  ['technical', 11, -8],
-  ['technical', 11, 10],
-  ['mortar_crew', 13, 2],
-  // The raider set. The sandbox is the only place these appear — no mission
-  // places them yet — so this is what makes their art reachable in play at
-  // all, and what the art was verified against. They sit inside the band
-  // rather than beyond it: a hostile draws no sprite until a friendly unit
-  // sees its tile, so anything parked past the opposition is invisible for
-  // the whole opening, and scouting it with the drone does not work either
-  // since the gun truck kills the drone before the fog lifts.
-  ['gun_truck', 1, -5],
-  ['charge_squad', 0, -2],
-  ['loiter_drone', -1, 0],
-  ['moto_rpg', -5, 6],
-  ['paramotor', 2, 7],
-];
-
 /**
  * The sandbox force, placed relative to the map's own anchors.
  *
@@ -172,26 +141,13 @@ const SANDBOX_ENEMY: readonly (readonly [string, number, number])[] = [
  * against beit_sahwan_outskirts' `kdf_assembly` and `town_center` — so that
  * map's sandbox is unchanged, and every other map gets the same formation
  * translated onto its own ground.
+ *
+ * The four placement TABLES moved to `./sandbox-force` when mesh loading
+ * became roster-driven: `sandboxUnitTypes` there answers "which unit types
+ * will this sandbox place" off the very arrays this function iterates, so the
+ * mesh plan cannot fall behind the force. This function stayed here because it
+ * needs `Sim`, `fx` and the open-tile spiral.
  */
-/** The Sarim roster, as offsets from the hostile anchor. `atgm_cell` and
- *  `loiter_drone` are already in the base set, so only the four the sandbox
- *  could not otherwise reach are here. No mission fields any of them yet. */
-const SANDBOX_SUR: readonly (readonly [string, number, number])[] = [
-  ['sarim_rifles', -3, -4],
-  ['sarim_rifles', -3, 4],
-  ['recoilless_team', 3, -3],
-  ['manpad_team', 5, 4],
-  ['rocket_battery', 9, 1],
-];
-
-/** What `&tunnel` adds to the player's side: something that can find a route,
- *  and something that can bring it down. The base force already carries a
- *  `recon_drone`, which marks tunnels — the yahalom is what makes the charge
- *  cursor reachable at all. */
-const SANDBOX_TUNNEL_KDF: readonly (readonly [string, number, number])[] = [
-  ['yahalom_squad', 3, -1],
-  ['yahalom_squad', 3, 1],
-];
 
 function sandboxSpawns(
   sim: Sim,
@@ -553,6 +509,66 @@ async function main(): Promise<void> {
   if (rendererDecision.persist) {
     window.localStorage.setItem(RENDERER_STORAGE_KEY, rendererDecision.persist);
   }
+  // --- which meshes this mission needs -------------------------------------
+  //
+  // The whole mesh library used to load at boot, before the loading screen was
+  // even on screen: 65 GLB fetches and 40.04 MiB, the same for every mission
+  // and every sandbox, measured against a production build served from disk.
+  // This is the roster that replaces it. `./mesh-catalogue` owns the tables and
+  // the arithmetic; what is decided HERE is only which roster to ask about.
+  //
+  // Computed unconditionally, outside the renderer branch, so a change to it
+  // is not hidden inside a backend the reader may not be looking at. On Pixi
+  // and under `&nomesh` it is simply never read.
+  const meshRoster = mission
+    ? missionUnitTypes(mission, new Set(Object.keys(units)))
+    : sandboxUnitTypes({ tunnel: wantTunnel, sur: wantSur });
+  // Structure types this map actually stands, plus anything the mission
+  // places itself (`camp` is the only one that arrives that way).
+  const meshStructures = new Set(map.structures.map((b) => b.type));
+  for (const s of mission?.structures ?? []) meshStructures.add(s.type);
+  const meshPlan = {
+    rigged: new Set([...meshRoster].filter((id) => id in RIGGED_UNIT_MESHES)),
+    vehicles: new Set([...meshRoster].filter((id) => id in VEHICLE_UNIT_MESHES)),
+    buildings: new Set([...meshStructures].filter((id) => id in BUILDING_MESHES)),
+    decor: decorFamiliesFor(map),
+  };
+  /**
+   * Types whose mesh is fetched AFTER the mission is running rather than
+   * before it starts.
+   *
+   * A mission with `resources` lets the player build any KDF unit the ledger
+   * has unlocked, so its true roster is "what it fields" plus "the whole KDF
+   * catalogue" -- which on `beit_sahwan_3_clearance` is most of the library
+   * again and would give the change back. They are deferred instead: a build
+   * takes seconds of game time to deploy, `updateUnits` draws a
+   * mesh-less type as its BILLBOARD in the meantime, and every KDF buildable
+   * has a `SPRITE_MAP` entry, so the worst case is a sprite that becomes a
+   * model rather than a unit that is missing.
+   */
+  const meshDeferred = mission?.resources
+    ? new Set(
+        Object.values(units)
+          .filter((u) => u.faction === 'kdf' && hasUnitMesh(u.id) && !meshRoster.has(u.id))
+          .map((u) => u.id)
+      )
+    : new Set<string>();
+  /** Every type `ensureUnitMesh` has already started. Owned here rather than
+   *  asked of the renderer: `ThreeRenderer` exposes no "is this loaded" read,
+   *  and this file is the only thing that calls the loaders. */
+  const meshLoaded = new Set<string>([...meshPlan.rigged, ...meshPlan.vehicles]);
+  /** Type ids whose deferred mesh failed, surfaced beside `failedArt`. */
+  const failedMesh: string[] = [];
+  /** Load one unit type's mesh if it has one and has not been asked for yet.
+   *  Assigned only on the three backend with meshes on; a no-op on Pixi and
+   *  under `&nomesh`, where `meshPathActive` keeps the sweep off entirely. */
+  let ensureUnitMesh: (typeId: string) => void = () => {};
+  /** Whether anything on screen is drawing a mesh at all. Gates the
+   *  living-unit sweep below: with the mesh path off, EVERY type is
+   *  legitimately mesh-less and the sweep would warn about all of them once a
+   *  second forever. */
+  let meshPathActive = false;
+
   let renderer: Renderer;
   if (rendererDecision.choice === 'three') {
     const { ThreeRenderer } = await import('@lions/render/three');
@@ -565,306 +581,94 @@ async function main(): Promise<void> {
     const three = new ThreeRenderer(sim, opts);
     renderer = three;
     if (wantMesh) {
-      // Every team with a shipped GLB, paired with the side it fights for.
-      // The faction is NOT decorative: `mesh-role.ts` shades `uniform` and
-      // `webbing` through inverted ramps per side (KDF grey-over-olive, the
-      // militia olive-over-tan), so getting it wrong reads as the wrong ARMY,
-      // not a wrong tint.
+      // ROSTER-DRIVEN, not the whole library. Everything below is driven by
+      // `meshPlan` above: this branch loads the meshes for the unit types this
+      // mission or sandbox can actually field, the buildings its map actually
+      // stands, and the decor families its terrain can actually place.
       //
-      // Kept in step with `tools/units/teams.py`'s own `TEAMS` table, which is
-      // where the faction is actually decided. Team id and unit type id happen
-      // to be the same string for all nine; that is a convention this list
-      // relies on, not a guarantee, which is why both appear here as one pair
-      // rather than being derived from each other.
+      // Before this, the block here was ~300 lines of hand-written calls that
+      // ran for every mission alike -- measured, in a production build served
+      // from disk, at 65 GLB fetches and 40.04 MiB regardless of what was on
+      // the map. `tel_marum_1_recon` fields nine unit types and downloaded all
+      // thirty. The catalogue those calls became is `./mesh-catalogue`, whose
+      // header carries the reasoning that used to live here: which faction
+      // each rigged mesh is shaded through and why that is a design call
+      // rather than a naming heuristic, why five Meshy assets cannot share the
+      // "team id == unit type id == file basename" convention, why civilians
+      // are four variants of one type in a fixed order, and which three
+      // shipped GLBs are deliberately never loaded.
       //
-      // A type with no entry here keeps its billboard, which is the whole
-      // point of the mesh path being additive.
-      // `as const` rather than an imported `MeshFaction` annotation, and that
-      // is deliberate: eslint forbids ANY static import from
-      // `@lions/render/three` in this package -- including a type-only one --
-      // because the rule cannot tell them apart and the bundle regression it
-      // guards against is the one that survived undetected longest. `as const`
-      // makes these string literals, and `loadMeshUnit`'s own parameter type
-      // still rejects a wrong faction at the call site below. So the union is
-      // enforced by the compiler without a second copy of it living here and
-      // without weakening the guard.
-      const MESH_TEAMS = [
-        // `inf_squad` is deliberately absent -- it is loaded below from the
-        // Meshy asset rather than from `tools/units/teams.py`'s own GLB.
-        ['demo_squad', 'kdf'],
-        ['at_team', 'kdf'],
-        ['sniper_team', 'kdf'],
-        ['militia_cell', 'enemy'],
-        ['rpg_team', 'enemy'],
-        ['atgm_cell', 'enemy'],
-        ['mortar_crew', 'enemy'],
-        ['charge_squad', 'enemy'],
-        // `moto_rpg` shipped its GLB in 1d93f53 ("the last of the thirteen
-        // teams gets a mesh") but was never added here -- the sixth time on
-        // this branch that art existed and did not draw. It is built by the
-        // same `tools/units/kit.py`/`teams.py` pipeline as every team above
-        // (composed primitives, zero materials, faction-ramp colour at
-        // runtime), so despite being a motorcycle it takes `loadMeshUnit`
-        // and a faction here, not `loadVehicleMesh`'s faction-baked list
-        // further down -- see `tools/units/teams.py`'s own `TEAMS['moto_rpg']`,
-        // which fixes the faction at 'enemy' the same way it does for every
-        // other row here.
-        ['moto_rpg', 'enemy'],
-        ['digger_crew', 'enemy'],
-      ] as const;
-      // Vite rewrites `new URL(..., import.meta.url)` to a served asset URL, so
-      // the GLBs stay in `art/meshes/` rather than being copied into the
-      // publicDir. The literal must stay statically analysable -- a fully
-      // computed URL is not rewritten and 404s at runtime -- hence the
-      // template inside `new URL` rather than a precomputed string.
+      // `meshUrl` keeps the `new URL(..., import.meta.url)` template form Vite
+      // rewrites into a glob, so `vite-plugin-asset-watch.ts` (GH-147) still
+      // finds and watches all six mesh directories.
       //
-      // Loaded in parallel, and errors propagate: `loadMeshUnit`'s own doc
-      // comment says a missing or malformed GLB fails loudly for this caller
-      // to report, and swallowing it would leave the flag looking like it did
-      // nothing at all.
-      await Promise.all(
-        MESH_TEAMS.map(([id, faction]) =>
+      // Errors propagate, as they did before: `loadMeshUnit`'s own doc comment
+      // says a missing or malformed GLB fails loudly for this caller to
+      // report, and swallowing it would leave a unit type silently absent.
+      await Promise.all([
+        ...[...meshPlan.rigged].map((id) =>
           three.loadMeshUnit(
             id,
-            new URL(`../../../art/meshes/${id}.glb`, import.meta.url).href,
-            faction
+            RIGGED_UNIT_MESHES[id].files.map(meshUrl),
+            RIGGED_UNIT_MESHES[id].faction
           )
-        )
-      );
-
-      // The Meshy-generated (AI, disclosed in this PR) rigged biped, drawing
-      // KDF's own rifle squad. It cannot join `MESH_TEAMS` above because that
-      // list's "team id == unit type id == file basename" convention does not
-      // hold here -- the file is `meshy_soldier.glb`, not `inf_squad.glb` --
-      // so `inf_squad` is dropped from the list and loaded explicitly here.
-      //
-      // This was first wired to enemy-side `sarim_rifles`, reasoning that a
-      // Middle-Eastern rifleman was a thematic fit KDF was not. That reasoning
-      // was wrong, and the project lead corrected it: the asset was supplied as
-      // OUR infantry. Which side an asset fights for is a design call, not one
-      // the renderer or a naming heuristic gets to infer.
-      //
-      // The side is load-bearing for colour, which is what made the error
-      // visible. Per `mesh-role.ts`, the two factions are INVERTED rather than
-      // tinted: KDF wear an olive `uniform` with gunmetal `webbing`, the enemy
-      // tan cloth with olive gear. On the wrong side this figure rendered flat
-      // tan and read as an irregular.
-      await three.loadMeshUnit(
-        'inf_squad',
-        new URL('../../../art/meshes/meshy_soldier.glb', import.meta.url).href,
-        'kdf'
-      );
-
-      // A second Meshy-generated (AI, disclosed in this PR) rigged biped --
-      // an irregular fighter, supplied separately from the KDF soldier above
-      // and under its own source directory (`art/blend/Sarim irregular/`).
-      // Wired to enemy-side `sarim_rifles` (`data/units/enemy/sarim_rifles.json`),
-      // which had no mesh and was falling back to its billboard until now.
-      // Unlike `inf_squad`'s own asset, this one was supplied WITH the
-      // brief already naming it "irregular fighter" and pointed at an enemy
-      // unit -- no side-correction needed this time, but the fact that the
-      // KDF asset's own side got corrected once is exactly why this is
-      // stated rather than assumed: which side an asset fights for is a
-      // design call, not a naming heuristic.
-      await three.loadMeshUnit(
-        'sarim_rifles',
-        new URL('../../../art/meshes/sarim_rifles.glb', import.meta.url).href,
-        'enemy'
-      );
-
-      // Two more Meshy-generated (AI, disclosed) rigged bipeds. They cannot
-      // join `MESH_TEAMS` above for the same reason the two calls beside them
-      // cannot: that list's "team id == unit type id == file basename"
-      // convention does not hold here. The files are `meshy_mortar_team.glb`
-      // and `yahalom_engineer.glb`, not `<unit id>.glb`, and the distinct
-      // basename is deliberate -- `export_mesh_team.py <id>` keeps
-      // regenerating the `tools/units/kit.py` file of the same name, so each
-      // swap stays one line to revert.
-      //
-      // `mortar_team` is BACK on the Meshy asset. It was reverted to the
-      // `kit.py` GLB by `9ddec70` because it slid (issue GH-145), and the
-      // condition that revert set for its return has been met: the asset now
-      // draws `move` from the SECOND supplied source blend -- three men on
-      // their feet, one with the tube limbered on his shoulder -- rigged with
-      // a real thigh/shin chain, while `idle`, `fire`, `down` and `wreck`
-      // keep the deployed kneeling tableau. The two postures live in one file
-      // as disjoint bone trees whose roots' `scale` each clip keys 1/0, the
-      // same mechanism `tools/units/rig.py` has always used for
-      // `root`/`death_root` and `sniper_team.glb` already ships.
-      //
-      // Re-measured with the same instrument that condemned it, by skinning
-      // the `boot` role with its own animated joints and taking each vertex's
-      // peak-to-peak travel over one `move` cycle, against the 130 cm of
-      // ground the team covers in that cycle (0.65 tiles/s x 0.667 s x
-      // 3 m/tile):
-      //
-      //   meshy_mortar_team.glb  boots move 128.30 cm = 98.7% of 130 cm  (now)
-      //   meshy_mortar_team.glb  boots move   4.08 cm =  3.1%            (was)
-      //   mortar_team.glb        boots move 115.36 cm = 88.7%  (kit.py, for scale)
-      //
-      // That measurement is not a claim in a comment: `tools/src/mesh_gait.ts`
-      // is the instrument, and `mesh_gait.test.ts` re-runs it on the shipped
-      // bytes -- including on whichever GLB THIS FILE wires to `mortar_team`,
-      // so pointing this line at a sliding asset fails the suite.
-      //
-      // The engineer is the first mesh team to ship a `work` clip
-      // (`resolveClip` has returned `work` above `fire` all along and
-      // `ThreeRenderer` already feeds `working`, but no GLB ever carried it)
-      // and the first to ship WITHOUT a `fire`: its source rig skins the slung
-      // carbine to `Hips`, so no arm-only recoil can move the weapon, and
-      // `meshClipOrFallback` degrades `fire` to `idle` by design.
-      await three.loadMeshUnit(
-        'mortar_team',
-        new URL('../../../art/meshes/meshy_mortar_team.glb', import.meta.url).href,
-        'kdf'
-      );
-      await three.loadMeshUnit(
-        'yahalom_squad',
-        new URL('../../../art/meshes/yahalom_engineer.glb', import.meta.url).href,
-        'kdf'
-      );
-
-      // Civilians (GH-149). Four Meshy-generated (AI, disclosed) rigged
-      // bipeds for ONE unit type -- `data/units/civilians.json` is a single
-      // type, so these are VARIANTS rather than four types, and
-      // `units/mesh-variant.ts` decides which entity draws as which. Four
-      // figures rather than one because a mission fields eleven civilians
-      // (`beit_sahwan_breach`) and eleven copies of one person reads as a
-      // repeating texture, not a village.
-      //
-      // `civilians` was in NO mesh list AND in no `SPRITE_MAP` entry before
-      // this, which on `three` means it drew literally nothing:
-      // `updateUnits`' own `if (!instancer) continue` skips a type with no
-      // loaded sheet, so eleven civilians walking to the refuge were eleven
-      // invisible entities that the ROE system still scored the player on.
-      //
-      // The faction is `civilian`, a third side added for these
-      // (`mesh-role.ts`'s own `MeshFaction`), and it is the load-bearing part
-      // of this call: `rampForRole` requires a faction, and both of the two
-      // that existed are actively wrong here. Through `kdf` a civilian wears
-      // rifle-squad olive and reads as friendly infantry; through `enemy` it
-      // wears militia tan and reads as a target, which is precisely the
-      // mistake `roe.civilian_casualty_penalty` deducts for.
-      //
-      // The order of this list IS the variant order -- entity id `n` draws
-      // variant `n % 4` -- so it is readable here rather than being a
-      // property of whichever fetch finished first.
-      await three.loadMeshUnit(
-        'civilians',
-        ['civilian_woman', 'office_worker', 'farm_worker', 'civilian_child'].map(
-          (figure) =>
-            new URL(`../../../art/meshes/civilians/${figure}.glb`, import.meta.url).href
         ),
-        'civilian'
-      );
-
-      // Vehicle meshes (mesh-unit-contract v2): `art/meshes/vehicles/<id>.glb`,
-      // no faction parameter -- unlike infantry, a vehicle GLB is
-      // faction-specific by construction, so `three.loadVehicleMesh` takes
-      // none (`vehicle-mesh-role.ts`'s own top comment has the full
-      // argument). Same "team id == unit type id == file basename"
-      // convention `MESH_TEAMS` relies on for infantry.
-      //
-      // `mbt_lavi` matters beyond looks: it is a supplied replacement for
-      // the tank whose source `.blend` is missing from the repo and whose
-      // sprite sheets are the only two of 35 with no credit -- it cannot
-      // retire that old art until it draws here.
-      //
-      // `ifv_namer` matters the same way: it replaces NAMER_HULL/NAMER_TURR,
-      // rendered from a third-party CC BY 3.0 model (`art/src/ifv_dmm08.blend`,
-      // "VEHICLE IFV DMM08 by Mutte", BlendSwap #75225) -- the repository's
-      // only third-party attribution obligation. That sheet cannot be retired
-      // until this mesh draws here; see `.superpowers/namer-integration-report.md`.
-      //
-      // `heli_peten` is different from the rest of this list in two ways:
-      // it is `isAir` (the mesh vehicle path's first -- `ThreeRenderer`
-      // lifts it off the ground the same way the billboard path already
-      // lifts an air unit), and its GLB carries a `rotor_pivot`, spun
-      // continuously rather than turned by sim state the way `turret_pivot`
-      // is. It replaces the authored-primitive APACHE_HULL sprite sheet
-      // (CC BY-SA 4.0, no licensing debt retired by this swap) -- see
-      // `.superpowers/apache-integration-report.md`.
-      const MESH_VEHICLES = [
-        'apc_eitan',
-        'dozer_d9',
-        'mbt_lavi',
-        'technical',
-        'ifv_namer',
-        'jeep_shoded',
-        'heli_peten',
-        // The two supplied enemy vehicles. Both already existed as unit types
-        // drawing billboards; these replace the sprite, not the unit.
-        'paramotor',
-        'rocket_battery',
-      ] as const;
-      await Promise.all(
-        MESH_VEHICLES.map((id) =>
-          three.loadVehicleMesh(id, new URL(`../../../art/meshes/vehicles/${id}.glb`, import.meta.url).href)
-        )
-      );
-
-      // Building meshes (mesh-unit-contract v2): `art/meshes/buildings/
-      // <type>.glb` (standing) and `<type>_wreck.glb` (destroyed) -- every
-      // type in `STRUCTURE_SPRITES` below has shipped both. `colour_key`/
-      // `wallColorKey` is resolved inside `loadBuildingMesh` itself, off
-      // `Sim.structureTypes[...].color` -- nothing here needs to know it.
-      // `camp` is the eighth and the only one with a faction: it is the KDF
-      // field camp a mission places (see `structures[]` in mission.schema.json)
-      // and produces from. Its `wall` role takes `olive.1` off structures.json
-      // like every other type's does -- no role-table entry needed.
-      const MESH_BUILDINGS = ['shanty', 'house', 'warehouse', 'apartment', 'concrete', 'mosque', 'wall', 'camp'] as const;
-      await Promise.all(
-        MESH_BUILDINGS.map((id) =>
+        ...[...meshPlan.vehicles].map((id) =>
+          three.loadVehicleMesh(id, meshUrl(VEHICLE_UNIT_MESHES[id]))
+        ),
+        // Building meshes: standing plus wreck, for the structure types this
+        // map actually stands. `colour_key`/`wallColorKey` is resolved inside
+        // `loadBuildingMesh` itself off `Sim.structureTypes[...].color` --
+        // nothing here needs to know it.
+        ...[...meshPlan.buildings].map((id) =>
           three.loadBuildingMesh(
             id,
-            new URL(`../../../art/meshes/buildings/${id}.glb`, import.meta.url).href,
-            new URL(`../../../art/meshes/buildings/${id}_wreck.glb`, import.meta.url).href
+            meshUrl(BUILDING_MESHES[id].idle),
+            meshUrl(BUILDING_MESHES[id].wreck)
           )
-        )
-      );
+        ),
+        // The three shared VFX meshes (`units/muzzle-flash.ts`,
+        // `units/explosion-burst.ts`, `units/smoke-plume.ts`). Not keyed by
+        // anything and wanted by every mission -- 0.46 MiB for the set, so
+        // there is nothing to gain by making them conditional. Each falls back
+        // to its authored particle layer until it resolves.
+        three.loadMuzzleFlashMesh(meshUrl(VFX_MESHES.muzzleFlash)),
+        three.loadExplosionBurstMesh(meshUrl(VFX_MESHES.explosionBurst)),
+        three.loadSmokePlumeMesh(meshUrl(VFX_MESHES.smokePlume)),
+        // Decor: one call for the whole set, so it is one entry rather than a
+        // spread. `<family>_<variant>` keys, not unit type ids -- nothing in
+        // the sim has a "bush", which is the point.
+        three.loadDecorMeshes(
+          new Map(
+            [...meshPlan.decor].flatMap((fam) =>
+              DECOR_MESHES[fam].map((file, v): [string, string] => [`${fam}_${v}`, meshUrl(file)])
+            )
+          )
+        ),
+      ]);
 
-      // Decor: seven families, three variants each. Unlike units and
-      // buildings these are keyed by `<family>_<variant>`, not by a unit type
-      // id -- nothing in the sim has a "bush", which is the point: decor is
-      // presentation with no simulation counterpart at all. `boulder` is the
-      // one exception: it draws `Sim.boulder` (the `b` map symbol, T1-B), a
-      // real mechanic, not mere scatter -- see `decor-place.ts`'s own doc
-      // comment on `DENSITY.boulder`.
-      const DECOR_FAMILY_IDS = ['grass', 'sand', 'bush', 'tree', 'rock', 'slab', 'boulder'] as const;
-      const decorUrls = new Map<string, string>();
-      for (const fam of DECOR_FAMILY_IDS) {
-        for (let v = 0; v < 3; v++) {
-          const id = `${fam}_${v}`;
-          decorUrls.set(id, new URL(`../../../art/meshes/decor/${id}.glb`, import.meta.url).href);
-        }
-      }
-      await three.loadDecorMeshes(decorUrls);
-
-      // The modelled muzzle flash (mesh-unit-contract's VFX asset class,
-      // `units/muzzle-flash.ts`'s own top comment) -- one shared asset, not
-      // a per-unit-type map, so this is a single call rather than a
-      // Promise.all over a team/vehicle/building list. Gated behind
-      // `wantMesh` like every mesh asset above: `onFire` falls back to
-      // the authored particle for any `mesh_flash` layer until this
-      // resolves, so a dev session with the flag off is unaffected.
-      await three.loadMuzzleFlashMesh(new URL('../../../art/meshes/vfx/muzzle_flash.glb', import.meta.url).href);
-
-      // The modelled explosion burst (mesh-unit-contract's VFX asset class,
-      // `units/explosion-burst.ts`'s own top comment) -- reuses the muzzle
-      // flash's own render path end to end. Same single-shared-asset shape
-      // as the call above, gated behind the same `wantMesh`:
-      // `spawnCollapseFx` falls back to `structure_collapse.json`'s own
-      // authored `mesh_burst` particle layer until this resolves.
-      await three.loadExplosionBurstMesh(new URL('../../../art/meshes/vfx/explosion_burst.glb', import.meta.url).href);
-
-      // The modelled smoke plume (mesh-unit-contract's VFX asset class,
-      // `units/smoke-plume.ts`'s own top comment) -- the multi-second
-      // aftermath a burst's own particle fallback and this mesh both pair
-      // with. Same single-shared-asset shape as the two calls above, gated
-      // behind the same `wantMesh`: `spawnCollapseFx` falls back to
-      // `structure_collapse.json`'s own authored `mesh_plume` particle
-      // layer until this resolves.
-      await three.loadSmokePlumeMesh(new URL('../../../art/meshes/vfx/smoke_plume.glb', import.meta.url).href);
+      // The late arrivals. `loadMeshUnit`/`loadVehicleMesh` are safe to call
+      // after the first frame -- both replace a template and tear down every
+      // live clone of it first -- and `updateUnits`' own
+      // `meshUnitTemplates.has(type.id)` guard means a type with no template
+      // yet draws its BILLBOARD rather than nothing, so a mesh arriving late
+      // is a sprite becoming a model, never a hole in the battlefield. The one
+      // type that has no billboard is `civilians`, and it is never deferred:
+      // `missionUnitTypes` puts it in the blocking set above whenever a
+      // mission fields any.
+      meshPathActive = true;
+      ensureUnitMesh = (typeId: string): void => {
+        if (!hasUnitMesh(typeId) || meshLoaded.has(typeId)) return;
+        meshLoaded.add(typeId);
+        const rigged = RIGGED_UNIT_MESHES[typeId];
+        const job = rigged
+          ? three.loadMeshUnit(typeId, rigged.files.map(meshUrl), rigged.faction)
+          : three.loadVehicleMesh(typeId, meshUrl(VEHICLE_UNIT_MESHES[typeId]));
+        job.catch((err: unknown) => {
+          console.warn(`[lions] mesh FAILED for ${typeId}:`, err);
+          failedMesh.push(typeId);
+        });
+      };
     }
   } else {
     // Same shape as the three branch above: PixiRenderer's own entry point,
@@ -1069,6 +873,19 @@ async function main(): Promise<void> {
   // screen, and now also reported to the player once the HUD exists, via
   // `failedArt` above.
   await Promise.all(artJobs);
+  // The buildables, now that the art gate is behind us. Deliberately NOT
+  // awaited: these are meshes for units the player MIGHT build, and the whole
+  // point of deferring them is that the mission starts without them.
+  //
+  // This line sits BETWEEN the two waits on purpose. Started any earlier it
+  // would compete with the sprite sheets for the gate above and delay the
+  // mission for everyone, including a player who never builds anything.
+  // Started any later it would begin only when `loading.done()` returns, which
+  // for a mission with a briefing is the moment the player clicks Begin --
+  // throwing away the one stretch of wall-clock time in the whole boot where
+  // the human is reading and the network is idle.
+  for (const id of meshDeferred) ensureUnitMesh(id);
+
   // Waits for the player when there are orders to read; resolves at once when
   // there are none, which is every sandbox and the tutorial.
   await loading.done();
@@ -1104,6 +921,18 @@ async function main(): Promise<void> {
       'bad'
     );
   }
+  /** The same notice for a mesh that arrived late and failed. Separate from
+   *  `failedArt` because it can happen minutes into a mission, long after that
+   *  one batch was decided -- a mesh load started by `ensureUnitMesh` has no
+   *  gate to be counted at. Reported once per type. */
+  const reportedMeshFailures = new Set<string>();
+  const reportMeshFailures = (): void => {
+    for (const id of failedMesh) {
+      if (reportedMeshFailures.has(id)) continue;
+      reportedMeshFailures.add(id);
+      hud.note(`<b>mesh failed to load</b> for ${id} — drawing its sprite instead`, 'bad');
+    }
+  };
   // The instrument, off by default now that the HUD is not built on top of it.
   const overlay = new DebugOverlay(document.body, sim, () => renderer.selection, __GAME_VERSION__);
   // DebugOverlay does not expose its own visibility, so the intent that
@@ -1641,6 +1470,32 @@ async function main(): Promise<void> {
     hud.onTick();
     overlay.onTick(events);
     if (production && sim.tickCount % 5 === 0) production.refresh();
+    // The safety net under roster-driven mesh loading, once a second.
+    //
+    // `missionUnitTypes` reads the mission JSON and `sandboxUnitTypes` reads
+    // the placement tables; between them they should name every type that ever
+    // stands on this map. If one is ever missed, the old failure was the worst
+    // kind -- `SPRITE_MAP`'s: a unit that quietly draws the wrong thing, or
+    // nothing, with no gate anywhere. This makes that case LOUD and
+    // self-healing instead: whatever is actually alive gets its mesh, named in
+    // the console so the roster can be fixed rather than lived with.
+    //
+    // Bounded by `sim.entityCount`, the same scan `__lions.units()` does, at
+    // 1 Hz against a 20 Hz tick. `ensureUnitMesh` returns immediately for a
+    // type already asked for, so the steady-state cost is the loop itself.
+    if (meshPathActive && sim.tickCount % TICKS_PER_SECOND === 0) {
+      for (let i = 0; i < sim.entityCount; i++) {
+        if (sim.state.alive[i] !== 1) continue;
+        const typeId = sim.unitTypes[sim.state.typeIdx[i]].id;
+        if (meshLoaded.has(typeId) || !hasUnitMesh(typeId)) continue;
+        console.warn(
+          `[lions] ${typeId} reached the field with no mesh queued — loading it now. ` +
+            `Its roster (mesh-catalogue.ts) missed it; that is the bug, not this line.`
+        );
+        ensureUnitMesh(typeId);
+      }
+      reportMeshFailures();
+    }
     // Show the ground a timed objective is about, and how it is going.
     if (runtime && sim.tickCount % 5 === 0) {
       const timed = runtime.objectiveList.find((o) => o.status === 'active' && o.zone !== undefined);

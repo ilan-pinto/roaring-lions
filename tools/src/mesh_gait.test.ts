@@ -20,6 +20,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { groundPerCycleM, measureRoleTravel } from './mesh_gait';
+import { RIGGED_UNIT_MESHES } from '../../packages/app/src/mesh-catalogue';
 
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
 const MESHES = `${REPO}art/meshes/`;
@@ -43,19 +44,30 @@ function mortarSpeedTilesPerSecond(): number {
  */
 const WALK_FLOOR = 0.6;
 
-/** Which GLB `packages/app/src/main.ts` actually loads for `mortar_team`.
- *  Comments are stripped first: that file carries a long comment block that
- *  names both candidate basenames, and a regex over the raw source would
- *  happily match the prose. */
+/**
+ * Which GLB the app actually loads for `mortar_team`.
+ *
+ * This used to be a REGEX over `packages/app/src/main.ts`, with the comments
+ * stripped first because that file's prose named both candidate basenames and
+ * a raw-source match would have hit the wrong one. It is an import now: the
+ * wiring moved to `packages/app/src/mesh-catalogue.ts` when mesh loading
+ * became roster-driven, and that table is plain data with no `import.meta.url`
+ * in it precisely so a node-side reader can ask it directly. Same question,
+ * asked of the thing itself rather than of its source text.
+ *
+ * A `mortar_team` drawing several variants would make "the GLB" ambiguous;
+ * only `civilians` does that today, so this asserts the single-file shape
+ * rather than silently measuring the first of a list.
+ */
 function wiredMortarGlb(): string {
-  const raw = readFileSync(`${REPO}packages/app/src/main.ts`, 'utf8');
-  const src = raw.replace(/^\s*\/\/.*$/gm, '');
-  const explicit = src.match(
-    /loadMeshUnit\(\s*'mortar_team',\s*new URL\('\.\.\/\.\.\/\.\.\/art\/meshes\/([\w.-]+\.glb)'/
-  );
-  if (explicit) return explicit[1];
-  if (/\[\s*'mortar_team',\s*'\w+'\s*\]/.test(src)) return 'mortar_team.glb';
-  throw new Error('main.ts loads no mesh for mortar_team');
+  const entry = RIGGED_UNIT_MESHES.mortar_team;
+  if (!entry) throw new Error('mesh-catalogue loads no mesh for mortar_team');
+  if (entry.files.length !== 1) {
+    throw new Error(
+      `mortar_team now has ${entry.files.length} mesh variants — this gate measures one`
+    );
+  }
+  return entry.files[0];
 }
 
 describe('mesh unit gait', () => {
@@ -72,7 +84,7 @@ describe('mesh unit gait', () => {
     expect(m.maxTravelM / ground).toBeGreaterThan(WALK_FLOOR);
   });
 
-  it('whichever GLB main.ts wires to mortar_team is the one that walks', () => {
+  it('whichever GLB the mesh catalogue wires to mortar_team is the one that walks', () => {
     const m = measureRoleTravel(`${MESHES}${wiredMortarGlb()}`, 'boot', 'move');
     const ground = groundPerCycleM(mortarSpeedTilesPerSecond(), m.clipSeconds);
     expect(m.maxTravelM / ground).toBeGreaterThan(WALK_FLOOR);
