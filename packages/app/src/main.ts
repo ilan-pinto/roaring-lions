@@ -787,6 +787,20 @@ async function main(): Promise<void> {
         )
       );
 
+      // Decor: six families, three variants each. Unlike units and buildings
+      // these are keyed by `<family>_<variant>`, not by a unit type id --
+      // nothing in the sim has a "bush", which is the point: decor is
+      // presentation with no simulation counterpart at all.
+      const DECOR_FAMILY_IDS = ['grass', 'sand', 'bush', 'tree', 'rock', 'slab'] as const;
+      const decorUrls = new Map<string, string>();
+      for (const fam of DECOR_FAMILY_IDS) {
+        for (let v = 0; v < 3; v++) {
+          const id = `${fam}_${v}`;
+          decorUrls.set(id, new URL(`../../../art/meshes/decor/${id}.glb`, import.meta.url).href);
+        }
+      }
+      await three.loadDecorMeshes(decorUrls);
+
       // The modelled muzzle flash (mesh-unit-contract's VFX asset class,
       // `units/muzzle-flash.ts`'s own top comment) -- one shared asset, not
       // a per-unit-type map, so this is a single call rather than a

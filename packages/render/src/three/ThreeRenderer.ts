@@ -128,6 +128,9 @@ import { buildGroves } from './terrain/grove';
 import { buildBuildings, type StructureFootprint } from './terrain/buildings';
 import { toGeometry, terrainMaterial, groveMaterial } from './terrain/mesh';
 import type { TerrainInput, MeshData } from './terrain/types';
+import { buildDecorMesh, disposeDecorMesh, type DecorGeometrySet } from './terrain/decor-mesh';
+import { decorPlacements, type DecorPlacement } from './terrain/decor-place';
+import { isDecorMeshRole, type DecorMeshRole } from './terrain/decor-role';
 import { dirtyForStructureHit, dirtyForStructureDestroyed } from './terrain/dirty';
 import { isGrindingHit } from '../grind';
 import { packSheet, buildUnitTexture } from './units/atlas';
@@ -160,7 +163,8 @@ import {
   type MeshUnitTemplate,
   type MeshUnitEntity,
 } from './units/mesh-unit';
-import { meshYawFromFacing, MESH_UNITS_PER_TILE } from './units/mesh-anim';
+import { meshYawFromFacing, MESH_UNITS_PER_TILE, MESH_SCALE } from './units/mesh-anim';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { stepTurretFacing } from './units/frame-state';
 import {
   loadVehicleMeshTemplate,
@@ -579,6 +583,24 @@ export class ThreeRenderer implements Renderer {
    * re-derived after.
    */
   private readonly structureFootprintTiles = new Map<number, readonly number[]>();
+  /**
+   * Task 6: every decor GLB's role-tagged geometry, keyed `<family>_<variant>`
+   * (`loadDecorMeshes`'s own doc comment has the load-time detail). Read back
+   * by `rebuildTerrain` on every full rebuild to feed `buildDecorMesh` --
+   * decor has no per-structure incremental path the way `structureBoxes`
+   * does, because nothing in `decorPlacements`'s own input (blocked/cover/
+   * decor/elevation) changes at a finer grain than a full terrain rebuild
+   * already walks. Starts empty, which is a correct no-op for a caller that
+   * never invokes `loadDecorMeshes` (Pixi; `&nomesh`): `buildDecorMesh`
+   * already treats a placement whose key is absent from `parts` as "lose
+   * this one object, not the frame" (its own doc comment).
+   */
+  private decorSet: DecorGeometrySet = { parts: new Map() };
+  /** Task 6: the current scattered-decor batch (`BatchedMesh` per role,
+   *  `decor-mesh.ts`'s own top comment), rebuilt wholesale by
+   *  `rebuildTerrain` alongside ground/scatter/groves/buildings. `null`
+   *  before the first rebuild. */
+  private decorGroup: THREE.Group | null = null;
   /**
    * Task B3.9: the renderer-side counterpart of `PixiRenderer`'s own
    * `structureWear` (`renderer.ts:1792`'s `bumpStructureWear`) -- one
@@ -1350,6 +1372,13 @@ export class ThreeRenderer implements Renderer {
     this.residualMesh?.geometry.dispose();
     for (const mesh of this.structureBoxes.values()) mesh.geometry.dispose();
     this.structureBoxes.clear();
+    // Task 6: the batch itself (per-rebuild geometry/material, disposed by
+    // `disposeDecorMesh` the same way `rebuildTerrain` already does on every
+    // rebuild) plus the SOURCE geometry clones `loadDecorMeshes` owns
+    // (`disposeDecorGeometrySet`'s own doc comment) -- two different owners,
+    // both released here.
+    if (this.decorGroup) disposeDecorMesh(this.decorGroup);
+    this.disposeDecorGeometrySet(this.decorSet);
     this.terrainMat.dispose();
     this.groveMat.dispose();
     for (const instancer of this.unitInstancers.values()) instancer.dispose();
@@ -2794,6 +2823,92 @@ export class ThreeRenderer implements Renderer {
     }
 
     this.terrainDirty = true;
+  }
+
+  /**
+   * Task 6: loads every decor GLB (`urls` keyed `<family>_<variant>`, one
+   * entry per `art/meshes/decor/*.glb`) and keeps its role-tagged geometry --
+   * the decor counterpart of `loadBuildingMesh`/`loadMeshUnit`, except decor
+   * never becomes a scene entity of its own the way a template's clones do:
+   * `rebuildTerrain` reads `decorSet` back out through `buildDecorMesh`
+   * instead, every full rebuild.
+   *
+   * Three seam fixes a whole-branch review found before this method existed
+   * (this task's own brief numbers them 1, 2 and part of 4):
+   *
+   *  1. `gltf.scene.scale.setScalar(MESH_SCALE)` -- every unit/vehicle/
+   *     building loader applies `MESH_SCALE` to its own root
+   *     (`mesh-anim.ts`'s own constant: "Blender builds at 3 units per
+   *     tile"). Decor is authored to the identical mesh contract and ships
+   *     3x oversized without it. Applied to the GLTF's own root, BEFORE the
+   *     bake below, so the scale folds into the same world-matrix multiply
+   *     rather than needing a second, separate one.
+   *  2. `mesh.updateWorldMatrix(true, false)` then `mesh.geometry.clone().
+   *     applyMatrix4(mesh.matrixWorld)` -- a mesh's own `.geometry` is in
+   *     its LOCAL space; a multi-part decor GLB (the rock-cluster case)
+   *     collapses every part onto the origin without baking each part's
+   *     node transform first. `updateParents: true` recomputes the whole
+   *     ancestor chain -- including the scale just set above -- rather than
+   *     relying on a render loop this loader runs well before ever reaching.
+   *  3. The clone in (2) means THIS renderer now owns that geometry, not
+   *     GLTFLoader's own scene graph -- nothing else will ever dispose it.
+   *     `disposeDecorGeometrySet` is the other half: called on the outgoing
+   *     set here (a reload releases its predecessor, the same order every
+   *     other `load*` method above uses for its own previous template) and
+   *     again from `dispose()`.
+   *
+   * `rl_role` is validated against the closed decor vocabulary with
+   * `isDecorMeshRole` -- a mesh carrying an unrecognised role throws rather
+   * than silently guessing a colour, the "throws by design" contract
+   * `decor-role.ts`'s own `rampForDecorRole` already documents for exactly
+   * this string. A family with no `rl_role`-tagged mesh at all (a failed
+   * fetch never reaches this point -- `Promise.all` would already have
+   * rejected) simply contributes no entry to `parts`, which `buildDecorMesh`
+   * already treats as "lose this family's objects, not the frame".
+   *
+   * `terrainDirty = true` for the same reason `loadBuildingMesh` sets it
+   * just above: whatever `rebuildTerrain` last drew (nothing, on the very
+   * first call) is stale the instant new decor geometry is available.
+   */
+  async loadDecorMeshes(urls: ReadonlyMap<string, string>): Promise<void> {
+    const parts = new Map<string, { role: DecorMeshRole; geometry: THREE.BufferGeometry }[]>();
+    await Promise.all(
+      [...urls].map(async ([id, url]) => {
+        const gltf = await new GLTFLoader().loadAsync(url);
+        gltf.scene.scale.setScalar(MESH_SCALE);
+        const list: { role: DecorMeshRole; geometry: THREE.BufferGeometry }[] = [];
+        gltf.scene.traverse((o) => {
+          const mesh = o as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          const role = (mesh.userData as { rl_role?: string }).rl_role;
+          if (role === undefined) return;
+          if (!isDecorMeshRole(role)) {
+            throw new Error(`loadDecorMeshes: unknown rl_role "${role}" in "${id}"`);
+          }
+          mesh.updateWorldMatrix(true, false);
+          list.push({ role, geometry: mesh.geometry.clone().applyMatrix4(mesh.matrixWorld) });
+        });
+        if (list.length > 0) parts.set(id, list);
+      })
+    );
+    this.disposeDecorGeometrySet(this.decorSet);
+    this.decorSet = { parts };
+    this.terrainDirty = true;
+  }
+
+  /**
+   * Task 6, seam fix 3's other half: disposes every geometry
+   * `loadDecorMeshes` cloned into a `DecorGeometrySet`. `disposeDecorMesh`
+   * (`terrain/decor-mesh.ts`) deliberately does NOT reach these -- its own
+   * geometries are per-BATCH copies `BatchedMesh.addGeometry` uploads fresh
+   * every `rebuildTerrain` and disposes every subsequent one; these are the
+   * SOURCE clones it reads from on every rebuild, living for this renderer's
+   * whole life (or until a reload replaces them) rather than one rebuild's.
+   */
+  private disposeDecorGeometrySet(set: DecorGeometrySet): void {
+    for (const list of set.parts.values()) {
+      for (const part of list) part.geometry.dispose();
+    }
   }
 
   /**
@@ -4434,6 +4549,14 @@ export class ThreeRenderer implements Renderer {
     }
     this.structureBoxes.clear();
     this.structureFootprintTiles.clear();
+    // Task 6: same "remove then dispose" shape as every layer above --
+    // `disposeDecorMesh` both disposes each batch's geometry/material AND
+    // empties the group's own `children`, so nothing here needs a second
+    // per-child loop the way `structureBoxes` does.
+    if (this.decorGroup !== null) {
+      this.scene.remove(this.decorGroup);
+      disposeDecorMesh(this.decorGroup);
+    }
 
     const composed = composeTerrain(
       this.sim,
@@ -4463,6 +4586,29 @@ export class ThreeRenderer implements Renderer {
       this.structureFootprintTiles.set(box.structureIndex, box.tiles);
       this.scene.add(mesh);
     }
+
+    // Task 6, seam fix 4: `composed.decorPlacements` is `composeTerrain`'s
+    // own `TerrainInput` run through `decorPlacements` -- see that
+    // function's own doc comment for why giving `composeTerrain` a decor
+    // layer, rather than reconstructing an `input` here, is the coherent
+    // choice (this method has no `TerrainInput` of its own to reach for).
+    this.decorGroup = buildDecorMesh(composed.decorPlacements, this.decorSet);
+    // Task 6, seam fix 3: `buildDecorMesh` returns a bare `THREE.Group`
+    // rather than a `{ group, materials }` pair (unlike `BuildingMeshTemplate`
+    // -- see this task's own brief) -- surfaced here instead, by reading
+    // each batch's own `.material` straight off the group's children, so
+    // decor responds to `flashLights` the same way every other toon-ramp
+    // material in this backend does, with no change to `decor-mesh.ts`'s
+    // already-shipped, already-tested return shape. Re-registering on every
+    // rebuild is correct, not wasteful: `buildDecorMesh` builds fresh
+    // `ShaderMaterial`s each call (this file's own top comment on the "full
+    // GPU re-upload" cost `rebuildTerrain` already pays), so the materials
+    // from the PREVIOUS rebuild are already disposed by `disposeDecorMesh`
+    // above and would be dangling references if left registered.
+    for (const child of this.decorGroup.children) {
+      this.flashLights.register((child as THREE.BatchedMesh).material as THREE.ShaderMaterial);
+    }
+    this.scene.add(this.decorGroup);
   }
 
   /**
@@ -4918,6 +5064,17 @@ export interface ComposedTerrain {
   readonly residual: MeshData;
   /** One entry per LIVE, un-arted structure. */
   readonly buildings: readonly ComposedBuildingBox[];
+  /**
+   * Task 6, seam fix 4: `decorPlacements(input)` over this same call's own
+   * `TerrainInput` -- surfaced here rather than left for `rebuildTerrain` to
+   * reconstruct a second `TerrainInput` from `retained`/`sim` fields, which
+   * is what the brief's original snippet needed and did not have. Plain
+   * data, not GPU geometry (unlike every other field on this interface):
+   * `rebuildTerrain` is what turns it into a `THREE.Group` via
+   * `buildDecorMesh`, the same "compose is pure, the caller builds GPU
+   * state" split `ground`/`scatter`/`groves`/`buildings` already draw.
+   */
+  readonly decorPlacements: readonly DecorPlacement[];
 }
 
 /** `sim.blocked`, with every currently-live structure's own tiles zeroed
@@ -4967,6 +5124,12 @@ function withoutLiveStructures(sim: Sim, footprints: ReadonlyMap<number, Indexed
  * task). That split is what lets `ThreeRenderer.applyStructureHit` recompute
  * a SINGLE structure's box in O(its own footprint) rather than re-walking
  * the whole map -- see this task's report for the measured fraction.
+ *
+ * Task 6 adds `decorPlacements` (scattered rocks/bushes/grass/trees/slabs)
+ * over the same `input` every other layer here already reads -- the
+ * coherent place for it precisely because `input` is otherwise built
+ * privately inside this function and unreachable from outside (seam
+ * problem 4 in that task's own brief).
  */
 export function composeTerrain(
   sim: Sim,
@@ -5003,5 +5166,5 @@ export function composeTerrain(
     });
   }
 
-  return { ground, scatter, groves, residual, buildings };
+  return { ground, scatter, groves, residual, buildings, decorPlacements: decorPlacements(input) };
 }
