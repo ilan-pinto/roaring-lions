@@ -1,19 +1,22 @@
 import { describe, it, expect } from 'vitest';
 import { decorPlacements, VARIANTS_PER_FAMILY } from './decor-place';
-import { DECOR_GROVE, DECOR_KNOLL, DECOR_RIDGE, DECOR_ROAD } from './shared';
+import { DECOR_GROVE, DECOR_KNOLL, DECOR_RIDGE, DECOR_ROAD, WORLD_PER_LEVEL } from './shared';
 import type { TerrainInput } from './types';
 
 /** A w*h map, everything open ground, with per-tile overrides applied after. */
-function input(w: number, h: number, edit?: (i: TerrainInput) => void): TerrainInput {
+function input(w: number, h: number, edit?: (i: TerrainInput, decor: Uint8Array, blocked: Uint8Array, cover: Uint8Array) => void): TerrainInput {
+  const decor = new Uint8Array(w * h);
+  const blocked = new Uint8Array(w * h);
+  const cover = new Uint8Array(w * h);
   const t: TerrainInput = {
     width: w,
     height: h,
-    decor: new Uint8Array(w * h),
+    decor,
     elevation: null,
-    blocked: new Uint8Array(w * h),
-    cover: new Uint8Array(w * h),
+    blocked,
+    cover,
   };
-  edit?.(t);
+  edit?.(t, decor, blocked, cover);
   return t;
 }
 
@@ -39,19 +42,28 @@ describe('decorPlacements', () => {
 
   it('never places anything on a road', () => {
     const out = decorPlacements(
-      input(8, 8, (t) => t.decor!.fill(DECOR_ROAD))
+      input(8, 8, (_t, decor) => decor.fill(DECOR_ROAD))
     );
     expect(out).toEqual([]);
   });
 
   it('puts trees on grove tiles, rocks on knolls, slabs on ridges', () => {
     const families = (decorValue: number): Set<string> => {
-      const out = decorPlacements(input(10, 10, (t) => t.decor!.fill(decorValue)));
+      const out = decorPlacements(input(10, 10, (_t, decor) => decor.fill(decorValue)));
       return new Set(out.map((p) => p.family));
     };
     expect(families(DECOR_GROVE)).toEqual(new Set(['tree']));
     expect(families(DECOR_KNOLL)).toEqual(new Set(['rock']));
     expect(families(DECOR_RIDGE)).toEqual(new Set(['slab']));
+  });
+
+  it('puts bushes directly on cover tiles with no decor value', () => {
+    // Verify that a plain cover > 0 tile (with decor = 0) yields family === 'bush'
+    const out = decorPlacements(
+      input(8, 8, (_t, _decor, _blocked, cover) => cover.fill(1))
+    );
+    const families = new Set(out.map((p) => p.family));
+    expect(families).toEqual(new Set(['bush']));
   });
 
   it('puts bushes on cover tiles and gets denser with the cover level', () => {
@@ -76,6 +88,7 @@ describe('decorPlacements', () => {
         t.elevation = new Uint8Array(36).fill(4);
       })
     );
-    expect(raised[0].y).toBeGreaterThan(flat[0].y);
+    expect(flat[0].y).toBe(0);
+    expect(raised[0].y).toBe(4 * WORLD_PER_LEVEL);
   });
 });
