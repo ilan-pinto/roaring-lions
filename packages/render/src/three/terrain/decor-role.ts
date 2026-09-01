@@ -1,0 +1,47 @@
+/**
+ * The closed role vocabulary for scattered terrain decor.
+ *
+ * Decor is its own asset class, so it gets its own set -- the same reason
+ * VFX got `core/mid/outer` rather than borrowing the vehicle set. `foliage`
+ * and `trunk` are not `hull` and `plate` in any useful sense, and reusing
+ * those names would make a decor GLB silently loadable as a vehicle.
+ *
+ * Unlike vehicles, decor has NO per-object table: a rock is the same grey
+ * whichever family placed it, because decor has no faction and no paint job.
+ * One role, one ramp, shared by every family.
+ */
+import { readRamp } from '../units/mesh-role';
+
+export const DECOR_MESH_ROLES = ['foliage', 'trunk', 'rock', 'sand'] as const;
+
+export type DecorMeshRole = (typeof DECOR_MESH_ROLES)[number];
+
+export function isDecorMeshRole(role: string): role is DecorMeshRole {
+  return (DECOR_MESH_ROLES as readonly string[]).includes(role);
+}
+
+/** `readRamp(band).slice(index)` to the END of the band, the same shading
+ *  convention `vehicle-mesh-role.ts` uses for every entry in its own table. */
+function sliceFrom(band: string, index: number): readonly string[] {
+  return readRamp(band).slice(index);
+}
+
+const DECOR_ROLE_PALETTE: Record<DecorMeshRole, readonly string[]> = {
+  // Living green, distinct from the olive a KDF uniform uses.
+  foliage: sliceFrom('scrub', 0),
+  // Woody stems: the dark end of dust, so a trunk reads against its own crown.
+  trunk: sliceFrom('dust', 4),
+  // Bare stone, the same band the ridge tone already uses.
+  rock: sliceFrom('gunmetal', 1),
+  // Ground litter: pale, so it reads as sand rather than as shadow.
+  sand: sliceFrom('limestone', 3),
+};
+
+export function rampForDecorRole(role: string): readonly string[] {
+  if (!isDecorMeshRole(role)) {
+    throw new Error(
+      `decor-role: unknown rl_role "${role}" -- not in the closed decor role vocabulary`
+    );
+  }
+  return DECOR_ROLE_PALETTE[role];
+}
