@@ -293,7 +293,6 @@ Expected: FAIL — `Cannot find module './decor-place'`.
  */
 import { tileHash } from '../../tile-hash';
 import { DECOR_GROVE, DECOR_KNOLL, DECOR_RIDGE, DECOR_ROAD, WORLD_PER_LEVEL } from './shared';
-import { isoX, isoY } from '../../project';
 import type { TerrainInput } from './types';
 
 export type DecorFamily = 'grass' | 'sand' | 'bush' | 'tree' | 'rock' | 'slab';
@@ -355,8 +354,12 @@ export function decorPlacements(input: TerrainInput): DecorPlacement[] {
       out.push({
         family,
         variant: Math.floor(tileHash(x + 53, y + 991) * VARIANTS_PER_FAMILY),
-        x: isoX(x + 0.5 + jx * 0.6, y + 0.5 + jy * 0.6),
-        z: isoY(x + 0.5 + jx * 0.6, y + 0.5 + jy * 0.6),
+        // WORLD space, not screen. `MeshData`'s own doc: "game tile (x, y) ->
+        // (x, height, y)". `isoX`/`isoY` are the projection the CAMERA
+        // applies -- baking them in here would project twice. Jitter is
+        // therefore in tile units (+/-0.3 of a tile).
+        x: x + 0.5 + jx * 0.6,
+        z: y + 0.5 + jy * 0.6,
         y: level * WORLD_PER_LEVEL,
         yawTurns: tileHash(x + 617, y + 29),
         scale: 0.8 + tileHash(x + 71, y + 137) * 0.4,
