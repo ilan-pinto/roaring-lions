@@ -149,9 +149,21 @@ const VEHICLE_ROLE_PALETTE: Record<string, Partial<Record<VehicleMeshRole, reado
   // limestone.0 (`#F2E8D5`, 2353 px) and limestone.8 (`#5E4E3A`, 1928 px)
   // both present in comparable quantity. `hull: sliceFrom('limestone', 0, 9)`
   // now reaches limestone.8, the ramp's own darkest step.
+  // Repainted 2026-09-01 from the Meshy source rather than by eye. The base
+  // colour texture of `art/blend/enemy/truck/Meshy_AI_Technical_Truck_Body_...`
+  // has a mean of #A9A094 -- a warm mid-grey. `limestone.4` (#B8A182) is the
+  // nearest palette entry to it (d=0.033); the previous `limestone.0` (#F2E8D5,
+  // the lightest colour in the whole palette) sat at d=0.260, eight times
+  // further, which is why the truck read as white.
+  //
+  // `plate` moves DOWN the band, not up. Its job is the sprite pipeline's own
+  // "bolt-ons, breaking up the body": against a light hull that meant a darker
+  // limestone, but against a mid hull the old `limestone.2` would be LIGHTER
+  // than the hull and invert the relationship. Fixing only the hull would have
+  // produced a subtler version of the same wrong look.
   technical: {
-    hull: sliceFrom('limestone', 0, 9),
-    plate: sliceFrom('limestone', 2, 7),
+    hull: sliceFrom('limestone', 4, 5),
+    plate: sliceFrom('limestone', 6, 3),
     metal: sliceFrom('gunmetal', 2, 2),
     rubber: sliceFrom('shadow', 0, 3),
     glass: sliceFrom('gunmetal', 3, 1),

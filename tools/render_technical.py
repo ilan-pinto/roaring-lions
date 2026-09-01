@@ -37,8 +37,13 @@ from render_vehicle import VehicleSpec, render_vehicle  # noqa: E402
 #: rl_role -> palette key. Kept identical to tools/vehicles/preview_technical.py,
 #: so what was approved in the mockup is what ships.
 ROLE_PALETTE = {
-    "hull": "limestone.0",    # sun-bleached body
-    "plate": "limestone.2",   # bolt-ons, breaking up the white
+    # Repainted 2026-09-01 from the Meshy source's own base-colour texture
+    # (mean #A9A094). limestone.4 is its nearest palette entry; limestone.0 was
+    # eight times further away and read as a white truck. `plate` goes DARKER
+    # than the hull now -- at limestone.2 it would be lighter and invert the
+    # "breaking up the body" relationship this comment describes.
+    "hull": "limestone.4",    # weathered body, matched to the source texture
+    "plate": "limestone.6",   # bolt-ons, breaking up the body
     "metal": "gunmetal.2",    # gun, bars, chassis
     "rubber": "shadow.0",     # tyres
     "glass": "gunmetal.3",    # glazing

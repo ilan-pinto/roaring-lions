@@ -153,6 +153,16 @@ VEHICLE_ROLE_PALETTES = {
     # here: this unit's `hull` is the FABRIC CANOPY (that script's own comment
     # on the entry is "# canopy"), a sun-bleached dust tone, not olive armour,
     # and the canopy is ~90% of what this unit's silhouette is.
+    # tools/render_technical.py's own ROLE_PALETTE, hand-copied like the rest.
+    # Added 2026-09-01 with the repaint: `technical` was the one shipped vehicle
+    # mesh absent from this table, so the drift guard in
+    # vehicle-mesh-role.test.ts -- which only checks vehicles the gate knows --
+    # could not have caught a one-sided colour change to it. Repainting it was
+    # exactly such a change, so the hole is closed in the same commit.
+    "technical": {
+        "hull": "limestone.4", "plate": "limestone.6", "metal": "gunmetal.2",
+        "rubber": "shadow.0", "glass": "gunmetal.3", "recess": "shadow.1",
+    },
     "paramotor": {
         "hull": "dust.0", "plate": "dust.1", "metal": "gunmetal.2",
         "rubber": "shadow.0", "glass": "gunmetal.3", "recess": "shadow.1",
