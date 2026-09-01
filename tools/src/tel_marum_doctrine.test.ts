@@ -375,3 +375,192 @@ describe('the flagged town block', () => {
     expect(nearest).toBeLessThan(4);
   });
 });
+
+// The Grad cannot be given eyes on the corridor, and that is geometry.
+//
+// The standing plan for pricing the narrow flank was to let the battery shell
+// it: `rocket` is in `INDIRECT_MASK` so the Grad needs no sight of its own, and
+// `sim.ts` gates each shot on PER-SIDE identification — so one spotter with a
+// view down the corridor should be enough. It was authored (`tm_spotter_narrow`
+// at [12,4]) and measured not to work, and the recorded explanation was that
+// `selectTarget` preferred the holding force over the flankers.
+//
+// That explanation is WRONG and this block retires it. The gate is candidacy,
+// not preference: hand the Sarim side identification and the battery shoots the
+// man in the corridor on its next reload, every time. What actually fails is
+// the observer — every post that can see the corridor stands inside the
+// corridor's own weapons, because the only sightlines into a straight slot in a
+// rock wall run along its axis, and distance along that axis IS the standoff.
+describe('eyes on the narrow corridor', () => {
+  /** The corridor's twelve authored `b` tiles. */
+  const CORRIDOR: Pt[] = [];
+  for (let y = 12; y <= 17; y++) for (let x = 10; x <= 11; x++) CORRIDOR.push([x, y] as Pt);
+
+  /** `inf_squad` rifles reach 8.0; `at_team`'s spike_atgm reaches 9.0. Anything
+   *  standing this close to a tile the flank walks over can be shot off it. */
+  const FLANK_REACH = 9;
+
+  const watcher = (sight: number): UnitTypeJson => ({
+    ...OBSERVER,
+    id: `t_watch_${sight}`,
+    sensors: { optics: 1, sight_tiles: sight, signature: 0.6 },
+  });
+
+  /** Which of the twelve corridor tiles a post at `a` sees at `sight`. One Sim,
+   *  all twelve targets at once — the same `debugDetection` path `sees()` uses.
+   *
+   *  No tick loop, unlike `sees()` above, and that is deliberate rather than a
+   *  shortcut: `detectionPair` computes `visible` from range and `losRay` alone,
+   *  with no accumulated contact in it, so ticking cannot change the answer.
+   *  Checked rather than assumed — every open tile on the map at sights 9, 12
+   *  and 48, 2073 (post, sight) pairs, gave the identical count at 0 ticks and
+   *  at 240. These two tests sweep the whole map, and at 240 ticks a post they
+   *  ran 25 s under a loaded `pnpm test` and tripped the 5 s per-test timeout. */
+  function corridorSeenFrom(a: Pt, sight: number): number {
+    const map = parseMap(maps.tel_marum as MapJson);
+    const sim = new Sim({ seed: 11, width: map.width, height: map.height, capacity: 32 });
+    applyTerrain(map, sim);
+    const tw = sim.addUnitType(watcher(sight));
+    const tt = sim.addUnitType({ ...OBSERVER, id: 't_corridor_tgt' });
+    const w = sim.spawn(tw, 0, fx.from(a[0] + 0.5), fx.from(a[1] + 0.5));
+    const ts = CORRIDOR.map((t) => sim.spawn(tt, 1, fx.from(t[0] + 0.5), fx.from(t[1] + 0.5)));
+    return ts.filter((t) => sim.debugDetection(w, t)?.visible === true).length;
+  }
+
+  /** Nearest corridor tile to a post — the range a flanker shoots back from. */
+  const standoff = (a: Pt) => Math.min(...CORRIDOR.map((c) => dist(a, c)));
+
+  /** Every open tile a post of this sight could conceivably watch from. */
+  function posts(sight: number): Pt[] {
+    const rows = (maps.tel_marum as MapJson).rows;
+    const out: Pt[] = [];
+    for (let y = 0; y < rows.length; y++)
+      for (let x = 0; x < rows[y].length; x++)
+        if (rows[y][x] === '.' && CORRIDOR.some((c) => dist([x, y] as Pt, c) <= sight)) out.push([x, y] as Pt);
+    return out;
+  }
+
+  it('leaves the shipped spotter seeing two of the corridor’s twelve tiles', () => {
+    // Paired with the sight lines proved above: the ground is clear along the
+    // whole corridor (OBSERVER, sight 48, sees all of it), so what stops
+    // `tm_spotter_narrow` is its own sight_tiles: 9 and nothing else.
+    expect(corridorSeenFrom(SPOTTER_NARROW, 48)).toBe(CORRIDOR.length);
+    expect(corridorSeenFrom(SPOTTER_NARROW, 9)).toBe(2);
+    // The two it does see are the north exit row, at 8.1 and 8.2 tiles; the
+    // next row down is already 9.1 away.
+    expect(dist(SPOTTER_NARROW, [11, 12] as Pt)).toBeCloseTo(8.06, 2);
+    expect(dist(SPOTTER_NARROW, [11, 13] as Pt)).toBeCloseTo(9.06, 2);
+    expect(dist(SPOTTER_NARROW, [10, 17] as Pt)).toBeCloseTo(13.15, 2);
+  });
+
+  it('offers no sight-9 post outside the corridor’s own weapons', () => {
+    // The whole map, every open tile. Not one that sees ANY of the corridor
+    // stands further off than a Spike can answer — so an observer good enough
+    // to matter is always shootable from the ground it is observing. This is
+    // why moving `tm_spotter_narrow` cannot work, and it is terrain, not tuning.
+    const seeing = posts(9).filter((p) => corridorSeenFrom(p, 9) > 0);
+    expect(seeing.length).toBeGreaterThan(0);
+    expect(Math.max(...seeing.map(standoff))).toBeLessThanOrEqual(FLANK_REACH);
+    // And the good posts are far worse off than the marginal ones: seeing ten
+    // of twelve means standing four tiles from the men you are watching.
+    const good = seeing.filter((p) => corridorSeenFrom(p, 9) >= 10);
+    expect(good.length).toBeGreaterThan(0);
+    expect(Math.max(...good.map(standoff))).toBeCloseTo(4.0, 1);
+  });
+
+  it('buys almost no standoff even at the Sarim roster’s longest sight', () => {
+    // manpad_team is sight 12, the best set of eyes the faction owns that
+    // stands still. Half the corridor still costs it a post inside 10 tiles —
+    // 0.2 outside a Spike, which is one step of walking.
+    expect(units.manpad_team.sensors.sight_tiles).toBe(12);
+    const half = posts(12).filter((p) => corridorSeenFrom(p, 12) >= 6);
+    expect(half.length).toBeGreaterThan(0);
+    const best = Math.max(...half.map(standoff));
+    expect(best).toBeGreaterThan(FLANK_REACH);
+    expect(best).toBeLessThan(10);
+  });
+
+  it('reloads too slowly for a short-lived observer to matter', () => {
+    // One rocket per thirty seconds. An observer must live a minute and a half
+    // to buy three rounds onto the corridor, and nothing that can see a
+    // two-tile defile lives that long with a rifle company walking up it.
+    const grad = units.rocket_battery.weapons[0];
+    expect(grad.id).toBe('grad_122');
+    expect(grad.rof_per_min).toBe(2);
+    expect(60 / grad.rof_per_min).toBe(30);
+  });
+});
+
+// Candidacy, not preference — the claim the block above rests on, driven
+// through the real Sim rather than argued.
+describe('what the battery will and will not shoot at in the corridor', () => {
+  /** Battery at `battery_position`, one rifle squad on the narrow saddle, and
+   *  nothing else alive. `identify` re-asserts Sarim contact every tick, which
+   *  is exactly what an observer holding a sight line does. */
+  function batteryVsCorridor(
+    identify: boolean,
+    decoy: Pt | null
+  ): { atFlanker: number; atDecoy: number; flankerWhileDecoyLived: number } {
+    const map = parseMap(maps.tel_marum as MapJson);
+    const sim = new Sim({ seed: 11, width: map.width, height: map.height, capacity: 16 });
+    applyTerrain(map, sim);
+    const grad = sim.spawn(
+      sim.addUnitType(units.rocket_battery as UnitTypeJson), 1,
+      fx.from(BATTERY[0] + 0.5), fx.from(BATTERY[1] + 0.5)
+    );
+    const inf = sim.addUnitType(units.inf_squad as UnitTypeJson);
+    const flanker = sim.spawn(inf, 0, fx.from(SADDLE_NARROW[0] + 0.5), fx.from(SADDLE_NARROW[1] + 0.5));
+    const near = decoy ? sim.spawn(inf, 0, fx.from(decoy[0] + 0.5), fx.from(decoy[1] + 0.5)) : -1;
+    let atFlanker = 0;
+    let atDecoy = 0;
+    let flankerWhileDecoyLived = 0;
+    for (let i = 0; i < 120 * TICKS_PER_SECOND; i++) {
+      if (identify) {
+        sim.identifyTo(1, flanker);
+        if (near >= 0) sim.identifyTo(1, near);
+      }
+      const decoyLived = near >= 0 && sim.state.alive[near] === 1;
+      for (const e of sim.tick()) {
+        if (e.kind !== 'fire' || e.shooter !== grad) continue;
+        if (e.target === flanker) {
+          atFlanker++;
+          if (decoyLived) flankerWhileDecoyLived++;
+        }
+        if (e.target === near) atDecoy++;
+      }
+    }
+    return { atFlanker, atDecoy, flankerWhileDecoyLived };
+  }
+
+  it('never fires at a corridor it has not identified', () => {
+    // The battery's own sight is 6 tiles and the saddle is 17 away, so with no
+    // observer there is no contact and no shot. This is the shipped behaviour.
+    expect(dist(BATTERY, SADDLE_NARROW)).toBeCloseTo(17.0, 1);
+    expect(units.rocket_battery.sensors.sight_tiles).toBe(6);
+    expect(batteryVsCorridor(false, null).atFlanker).toBe(0);
+  });
+
+  it('fires at it on the next reload once the side identifies it', () => {
+    // The positive half. Two minutes at one round per thirty seconds, and every
+    // round goes at the man in the corridor — `selectTarget` is not the
+    // obstacle, and a fix that reaches for it is aimed at the wrong thing.
+    expect(batteryVsCorridor(true, null).atFlanker).toBeGreaterThanOrEqual(3);
+  });
+
+  it('prefers the nearer of two identified targets, which is the rule and not a bug', () => {
+    // Both soft, both identified, both in range: `selectTarget` scores `hurts`
+    // first and then distance, so the closer one wins. That is why a battery
+    // with a live fight on its own doorstep spends nothing on the flank — it is
+    // not ignoring the corridor, it has something nearer.
+    // It is an ordering, not an exclusion: over two minutes the battery spends
+    // three rockets on the decoy, kills it, and only then turns west. So the
+    // flank is not immune — it is LAST IN THE QUEUE, and on this mission the
+    // battery is dead long before the queue reaches it.
+    const decoy: Pt = [24, 13];
+    expect(dist(BATTERY, decoy)).toBeLessThan(dist(BATTERY, SADDLE_NARROW));
+    const r = batteryVsCorridor(true, decoy);
+    expect(r.atDecoy).toBe(3);
+    expect(r.atFlanker).toBe(1);
+    expect(r.flankerWhileDecoyLived).toBe(0);
+  });
+});
