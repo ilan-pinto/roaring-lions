@@ -707,6 +707,27 @@ export const BLOCK_RISE = 2;
  *  is invisible here, so elevation.test.ts asserts it. */
 export const EYE_HEIGHT = 1;
 
+/** How far a laid smoke screen rises above the ground it sits on, in elevation
+ *  levels. A plume is a column `elevation + SMOKE_RISE` tall on each tile it
+ *  covers, and a sight line passing above that column is not obscured by it.
+ *
+ *  MUST STAY STRICTLY ABOVE EYE_HEIGHT, and that is the load-bearing half. On
+ *  flat ground the sight line sits at exactly EYE_HEIGHT above every tile it
+ *  crosses, so a plume of height EYE_HEIGHT or less never reaches it and smoke
+ *  stops working on every shipped map at once -- the mirror of the
+ *  EYE_HEIGHT < BLOCK_RISE coupling above, and asserted by the same test file.
+ *
+ *  2 is BLOCK_RISE, deliberately. A screen laid to mask a street crossing has
+ *  to mask what the buildings either side of that street mask, or it is not a
+ *  screen; and making it TALLER than a building would make smoke a better wall
+ *  than a wall -- a plume dropped in a valley would blind an observer on ground
+ *  that already sees over the ridges around it, which is half of the bug this
+ *  constant exists to remove, reintroduced one level smaller. So the authoring
+ *  rule is the same sentence as the terrain one: smoke obscures what a building
+ *  obscures, from the same places. High ground that sees over the rooftops sees
+ *  over the smoke too. */
+export const SMOKE_RISE = 2;
+
 // ---------------------------------------------------------------------------
 
 /** distance² in Q16.16 tile² without overflow: (d>>8)² == d²>>16 exactly
@@ -2102,7 +2123,32 @@ export class Sim {
     return this.moving[i] === 1 && !(this.attackMove[i] === 1 && this.engaging[i] === 1);
   }
 
-  /** Smoke density crossed by a sight line (endpoints included). */
+  /** Smoke density crossed by a sight line (endpoints included).
+   *
+   *  Elevation-aware, and it has to be: a screen is a column SMOKE_RISE levels
+   *  tall standing on its OWN tile's ground, not an infinitely high curtain.
+   *  Height-blind, this counted a plume pooled on a valley floor against a line
+   *  passing six levels above it -- one of the three things the elevation
+   *  milestone left inert while every shipped map was flat, and reachable the
+   *  day Tel Marum authored relief.
+   *
+   *  The geometry is `losRay`'s, deliberately: same endpoints, same eye height
+   *  at both ends, same cross-multiplied comparison so it stays in plain
+   *  integers with no division and no fixed point (elevations are 0-9, maps are
+   *  at most 128 across, so every term stays under about 1,400). The line's
+   *  height at step k is `lineH / total`; the plume's top is
+   *  `elevation + SMOKE_RISE`; smoke counts only where the second is above the
+   *  first.
+   *
+   *  There is no lower bound to test. A line that passes BELOW a tile's ground
+   *  has already been stopped by that tile in `losRay`, so anything that
+   *  reaches this comparison is at or above the plume's base by construction.
+   *
+   *  On flat ground every elevation is 0 and the comparison reduces to
+   *  `SMOKE_RISE > EYE_HEIGHT` at every step -- always true -- so this is
+   *  bit-identical to the height-blind version on every map without relief.
+   *  That equivalence is what SMOKE_RISE > EYE_HEIGHT buys, and why the
+   *  constant carries the warning it does. */
   private raySmoke(x0: number, y0: number, x1: number, y1: number): number {
     const w = this.width;
     let dx = x1 - x0;
@@ -2111,12 +2157,25 @@ export class Sim {
     const sy = dy < 0 ? -1 : 1;
     dx = dx < 0 ? -dx : dx;
     dy = dy < 0 ? -dy : dy;
+    const total = dx > dy ? dx : dy;
+    // Both endpoints on one tile: there is no line to pass over anything, and
+    // the cross-multiply below would degenerate to `0 > 0`. A man standing in
+    // his own screen is in it.
+    if (total === 0) return this.smoke[y0 * w + x0];
+    const h0 = this.elevation[y0 * w + x0] + EYE_HEIGHT;
+    const h1 = this.elevation[y1 * w + x1] + EYE_HEIGHT;
     let err = dx - dy;
     let x = x0;
     let y = y0;
-    let total = this.smoke[y0 * w + x0];
+    let k = 0;
+    let acc = 0;
     for (;;) {
-      if (x === x1 && y === y1) return total;
+      const t = y * w + x;
+      const s = this.smoke[t];
+      if (s !== 0 && (this.elevation[t] + SMOKE_RISE) * total > h0 * total + (h1 - h0) * k) {
+        acc += s;
+      }
+      if (x === x1 && y === y1) return acc;
       const e2 = 2 * err;
       if (e2 > -dy) {
         err -= dy;
@@ -2126,8 +2185,7 @@ export class Sim {
         err += dx;
         y += sy;
       }
-      total += this.smoke[y * w + x];
-      if (x === x1 && y === y1) return total;
+      k++;
     }
   }
 
