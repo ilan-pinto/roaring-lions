@@ -98,7 +98,8 @@
 import * as THREE from 'three';
 import { groundWorldY } from '../ground-height';
 import { WORLD_Y_PER_LIFT_PIXEL } from '../../project';
-import { applyMeshClip, disposeMeshUnitEntity, type MeshUnitEntity } from './mesh-unit';
+import { applyMeshClip } from './mesh-clip';
+import { disposeMeshUnitEntity, type MeshUnitEntity } from './mesh-unit';
 
 /** Seconds a dying mesh unit fades before it either becomes a wreck or is
  *  torn down -- see this file's own top comment, "The curve, read from the

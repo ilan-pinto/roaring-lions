@@ -37,7 +37,8 @@ import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import type { ClipName } from '../../sheet';
 import { toonRampSkinnedMaterial } from './mesh-material';
 import { isMeshRole, rampForRole, type MeshFaction } from './mesh-role';
-import { isMeshClipName, meshClipOrFallback, MESH_SCALE } from './mesh-anim';
+import { isMeshClipName, MESH_SCALE } from './mesh-anim';
+import type { ClipPlayer } from './mesh-clip';
 import { HULL_RENDER_ORDER } from './render-order';
 
 /**
@@ -141,12 +142,10 @@ export async function loadMeshUnitTemplate(
 /** One living entity's mesh instance: an independent clone (own skeleton,
  *  own bones -- `SkeletonUtils.clone`'s whole point) driven by its own
  *  `AnimationMixer` on real frame time, never sim time (invariant 1). */
-export interface MeshUnitEntity {
+export interface MeshUnitEntity extends ClipPlayer {
   readonly typeId: string;
   readonly root: THREE.Object3D;
   readonly mixer: THREE.AnimationMixer;
-  readonly actions: ReadonlyMap<ClipName, THREE.AnimationAction>;
-  currentClip: ClipName | null;
 }
 
 /**
@@ -181,61 +180,6 @@ export function instantiateMeshUnit(template: MeshUnitTemplate, typeId: string):
   }
 
   return { typeId, root, mixer, actions, currentClip: null };
-}
-
-/**
- * Switches `entity` to `desired`, falling back to `idle` through
- * `meshClipOrFallback` exactly as `sheet.ts`'s `clipOrFallback` does for
- * sprite sheets. A no-op when the resolved clip is already playing -- so a
- * unit holding `idle` for seconds does not `reset().play()` itself every
- * single frame, which would restart its own loop constantly. Stops every
- * OTHER action rather than crossfading: a simple, deterministic switch,
- * matching the spike's own `applyClip` (`spike/rig-scene.ts`).
- *
- * `opts.once`, added for `units/mesh-death.ts`: `idle`/`move`/`fire`/`work`
- * are never passed it and keep three.js's own default -- `LoopRepeat`,
- * looping forever, exactly as before this option existed. `false`/omitted
- * still sets that default EXPLICITLY (`setLoop(LoopRepeat, Infinity)`,
- * `clampWhenFinished = false`) rather than merely leaving whatever the
- * action already had, so a clip that was ONCE played with `once: true` and
- * is later re-selected without it (not exercised by any caller today, but
- * not ruled out either) cannot inherit a stale one-shot setting.
- *
- * `once: true` is `THREE.LoopOnce` + `clampWhenFinished = true`: the action
- * plays exactly once and then HOLDS its own last frame, driven entirely by
- * three.js's own mixer -- no caller has to guess a duration or freeze
- * anything by hand. This exists because of a real, previously-unfixed
- * limitation the death-fade work surfaced: without it, EVERY clip played
- * through this function loops forever, so an authored one-way transition
- * (stand -> collapse, or a real animated collapse -> wreck pose) would
- * replay from its start every time it reached its end -- a visible
- * flip-flop, not a hold. `art/meshes/*.glb`'s `down`/`wreck` clips ship
- * static today specifically to route around that gap (their own root/
- * death_root bone-scale swap is constant across the clip, so looping it is
- * harmless by accident, not by design) -- `once: true` removes the
- * constraint for good, so a future animated collapse clip is safe to author
- * without this function changing again.
- */
-export function applyMeshClip(entity: MeshUnitEntity, desired: ClipName, opts?: { once?: boolean }): void {
-  const available = new Set(entity.actions.keys());
-  const resolved = meshClipOrFallback(available, desired);
-  if (entity.currentClip === resolved) return;
-  const next = entity.actions.get(resolved);
-  if (!next) return; // No idle clip either -- nothing to play. Matches the
-  // "no mesh units" leniency ThreeRenderer already applies to a billboard
-  // type with no loaded sheet: draw nothing rather than fabricate a pose.
-  for (const [name, action] of entity.actions) {
-    if (name !== resolved) action.stop();
-  }
-  if (opts?.once) {
-    next.setLoop(THREE.LoopOnce, 1);
-    next.clampWhenFinished = true;
-  } else {
-    next.setLoop(THREE.LoopRepeat, Infinity);
-    next.clampWhenFinished = false;
-  }
-  next.reset().play();
-  entity.currentClip = resolved;
 }
 
 /** Releases everything a `MeshUnitEntity` owns for itself -- its mixer's

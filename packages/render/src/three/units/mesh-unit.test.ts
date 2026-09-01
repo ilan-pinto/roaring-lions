@@ -40,10 +40,10 @@ import * as THREE from 'three';
 import {
   buildMeshUnitTemplate,
   instantiateMeshUnit,
-  applyMeshClip,
   disposeMeshUnitEntity,
   disposeMeshUnitTemplate,
 } from './mesh-unit';
+import { applyMeshClip } from './mesh-clip';
 import { MESH_SCALE } from './mesh-anim';
 import { HULL_RENDER_ORDER, TURRET_RENDER_ORDER } from './render-order';
 import { parseFixture } from './mesh-fixture';
