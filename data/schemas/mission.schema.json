@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://roaringlions.dev/schemas/mission.schema.json",
   "title": "Mission",
-  "description": "A single short mission, 12-20 minutes. Missions are declarative data, never TypeScript. If a mission needs behaviour this schema cannot express, extend the schema rather than writing engine code -- that is what keeps missions authorable by contributors who do not know the codebase.",
+  "description": "A single short mission, 5-7 minutes. Missions are declarative data, never TypeScript. If a mission needs behaviour this schema cannot express, extend the schema rather than writing engine code -- that is what keeps missions authorable by contributors who do not know the codebase.",
   "type": "object",
   "required": [
     "id",
@@ -13,6 +13,32 @@
     "ledger"
   ],
   "additionalProperties": false,
+  "if": {
+    "required": [
+      "id"
+    ],
+    "properties": {
+      "id": {
+        "const": "beit_sahwan_0_tutorial"
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "target_minutes": {
+        "maximum": 10
+      }
+    },
+    "description": "The one named exemption from the 5-7 ceiling, and it is an exemption rather than a cut on purpose. The tutorial is not a campaign mission -- it produces no ledger keys and is not in the campaign chain. Its length is set by 13 teaching steps in data/tutorial/beit_sahwan_0.json, four of which carry 45s patience fallbacks, and it ends when the LAST STEP CLEARS (`completes: work_up`, applied by main.ts), not when a timer fires. The `survive_until` 600s primary is a BACKSTOP that ejects a stalled player, so 10 declares the backstop. Nothing headless can measure a step machine driven by player input, so cutting this to 7 would be tuning a number to fit a ceiling with no measurement behind it -- the exact move GH-84 forbids. Revisit only with a real measurement of a played tutorial."
+  },
+  "else": {
+    "properties": {
+      "target_minutes": {
+        "maximum": 7
+      }
+    },
+    "description": "GDD 6 and CLAUDE.md: 5-7 minutes of play. This was 25 while the four Beit Sahwan missions authored against the old 12-20 target were brought into range; they are in range as of GH-84, so the allowance is gone."
+  },
   "properties": {
     "id": {
       "type": "string",
@@ -45,8 +71,8 @@
     "target_minutes": {
       "type": "integer",
       "minimum": 5,
-      "maximum": 25,
-      "default": 6
+      "default": 6,
+      "description": "Design intent for how long a competent player takes, in minutes. Nothing in the runtime reads this field -- it is a claim, and the only instrument that can check it is tools/src/backtest/playtest.ts, whose scripted plans are optimal-play LOWER bounds. The 5-7 ceiling is enforced by the if/then/else at the root of this schema, with one named exemption; see its description."
     },
     "briefing": {
       "type": "string"
