@@ -575,12 +575,37 @@ load is worth doing before release. Pipeline: `tools/units/kit.py` (geometry)
   300s and then holds for 240s *after* it comes down — a 9-minute mechanical ceiling
   behind a declaration of 7, which the optimal plan reaches in 6.1 only because it
   razes fast.
-- The elevation milestone (E1–E3) closes with three things left inert, every one of
-  them dormant only because every shipped map is flat and every one of them first
-  reachable the moment a map authors relief. `raySmoke` (`packages/sim/src/sim.ts:1771`)
-  never reads elevation, and `losRay` calls it at `:1816` before any height reasoning
-  runs — so smoke pooled in a valley will block a ray passing six levels above it, and
-  smoke sitting on a peak will not blanket the valley below. E1 left three relief gaps
+- The elevation milestone (E1–E3) closed with three things left inert, dormant only
+  because every shipped map was flat and each first reachable the moment a map
+  authored relief. **`raySmoke` is no longer one of them.** A screen is now a column
+  `SMOKE_RISE` levels tall standing on its OWN tile's ground, tested with `losRay`'s
+  own cross-multiplied comparison, so a line passing above the plume is not obscured
+  by it: on Tel Marum an observer on the western shoulder (20,16) now sees the bench
+  at (24,26) across five tiles of screen his sight line clears by more than a level,
+  while the same screen still stops a line drawn along the basin floor dead. Two
+  things about it are load-bearing and neither is obvious. **`SMOKE_RISE` (2) MUST
+  stay strictly above `EYE_HEIGHT`**, the mirror of the `EYE_HEIGHT < BLOCK_RISE`
+  coupling: on flat ground the sight line sits at exactly `EYE_HEIGHT` above every
+  tile, so a shorter plume never reaches it and smoke goes inert on every shipped map
+  at once (falsified by hand — at 1, four pre-existing flat-ground smoke tests go
+  red). And it equals `BLOCK_RISE` deliberately, so the authoring rule is the terrain
+  sentence again: **smoke obscures what a building obscures, from the same places**,
+  and high ground that sees over the rooftops sees over the smoke. Taller would make
+  smoke a better wall than a wall. The fix is bit-identical on flat ground by
+  construction, which is why **no golden hash moved and neither did `pnpm balance` or
+  `playtest.ts`** — and that silence is not a blind test: the golden replay lays no
+  smoke, and **no shipped mission or playtest plan lays any either**, since `smoke` is
+  reachable only from the player's UI. The replay guard for smoke over non-uniform
+  relief therefore lives in `smoke.test.ts`, not in `determinism.test.ts`. One clause
+  of the old bullet was never reproducible and is retired rather than fixed: “smoke
+  sitting on a peak will not blanket the valley below” described nothing the code did
+  — the height-blind version was uniformly OVER-permissive, so every behavioural
+  change from this fix is smoke ceasing to block, never starting to. `raySmoke` still
+  runs before `losRay`'s loop, and that is harmless: a ray terrain blocks returns -1
+  either way. Pinned by `packages/sim/src/smoke.test.ts` (`smoke and elevation`) and
+  `tools/src/tel_marum_smoke.test.ts`, which also pins the map elevations it argues
+  from — (24,26) reads as plain basin by eye and is two levels up.
+  The other two are unchanged. E1 left three relief gaps
   of its own: VFX are not lifted to terrain height, extruded terrain cannot occlude
   units, and picking is untested mid-slope. And slope movement cost and downhill cover
   were both deliberately cut from E3's scope — slope cost in particular touches
