@@ -93,7 +93,7 @@ is the only file allowed to name one, mapping them to semantic tokens (`--ink`,
 literal anywhere in UI source, with no allowlist — use `color-mix()` for
 translucency. Fonts are self-hosted in `assets/fonts/`; never a CDN.
 
-**A map:** JSON in `data/maps/`, validated against `map.schema.json`. A character grid (`.` open, `1`–`3` cover, `#` building, `^` rock ridge, `b` boulder field) plus named markers and zones — authorable in a text editor. The loader is `parseMap` in `@lions/data`, and `applyTerrain(map, sim)` is the one way its mechanical layer reaches a `Sim` — use it rather than writing a fourth cover loop. `^` is the only blocked tile that is not a building: impassable, sight-blocking, and with no HP, garrison or ROE penalty. `b` is the only symbol whose passability depends on WHO is asking — open ground on foot, a wall to anything wheeled or tracked — and deliberately nothing else: no cover, no sight-blocking, no HP, not destructible, and no decor of its own until T1-C draws one. It is carried by a second blocked mask (`blocked | boulder`) rather than by `blocked`, since `FlowField.compute` already takes the mask as a parameter; `Sim.fieldFor` keys its cache by `(goal, domain)`, and on a map with no `b` the two masks are the SAME ARRAY, so no second field is ever allocated. What counts as a vehicle is `mobility.wheeled`, an authored boolean defaulting to `!FOOT_ROLES.has(role)` — **`FOOT_ROLES` alone is wrong here**, because it contains `artillery` and `rocket_battery` is a Grad on a 6x6 truck; that unit is the one place the default is overridden in JSON, and `tools/src/boulders.test.ts` pins it against `mortar_team`, which shares the role and is genuinely foot. An optional `elevation` grid gives each tile a height 0–9, one digit per tile, same dimensions as `rows`; absent means flat. It is orthogonal to the terrain symbol on purpose — a symbol table can express ridges but not valleys. E1 stores and draws it at 10 px per level; line of sight reads it — high ground sees over lower obstacles, and every blocking tile, rock or building, stands two levels above its own ground; a low-profile obstacle like a fence never blocks sight at all, but the ground it stands on still does. Since T1-A **pathing reads it too**: `FlowField.compute` takes the elevation grid and charges `UPHILL_PER_LEVEL` (tuning.ts, 10 — one level of climb costs one extra tile of ground) per level CLIMBED, while descending is free. That asymmetry is the design: high ground is expensive to attack and cheap to withdraw from. Sight RANGE still does not. Two things about slope are counter-intuitive and were measured rather than reasoned. First, **a climb telescopes**: every monotone route to a fixed height pays the same total wherever it crosses, so slope only reorders routes over ground that rises ABOVE its destination and comes back down — a rim, a spur, a hill. Second, **inverting the sign changes no route at all**; it shifts every cost by `UPHILL_PER_LEVEL * (h(tile) - h(goal))`, a term independent of the path, so the optimal-route set is untouched and only the cost NUMBER moves. The walk tests and the relief replay all pass with the sign flipped; the mirrored cost pair in `packages/sim/src/flowfield.test.ts` is the only guard on it, and that file's header carries the measurement. `costAt` is the sign's one behavioural reader, via `selectBreachTarget`'s detour test, where slope eats up to 50 of the 100-unit `BREACH_DETOUR_SLACK` on Tel Marum. Terrain needs two levels or more to obscure ground troops, since a one-level rise sits exactly at eye level, and nothing sees further for being higher — elevation affects what you can see over, never how far.
+**A map:** JSON in `data/maps/`, validated against `map.schema.json`. A character grid (`.` open, `1`–`3` cover, `#` building, `^` rock ridge, `b` boulder field) plus named markers and zones — authorable in a text editor. The loader is `parseMap` in `@lions/data`, and `applyTerrain(map, sim)` is the one way its mechanical layer reaches a `Sim` — use it rather than writing a fourth cover loop. `^` is the only blocked tile that is not a building: impassable, sight-blocking, and with no HP, garrison or ROE penalty. `b` is the only symbol whose passability depends on WHO is asking — open ground on foot, a wall to anything wheeled or tracked — and deliberately nothing else: no cover, no sight-blocking, no HP, not destructible. T1-C gave it a `boulder` decor family, and `tel_marum` is the first (and so far only) map to author any: the corridor at x=10-11, y=12-17 plus a scree apron at x=9-12, y=18. It is carried by a second blocked mask (`blocked | boulder`) rather than by `blocked`, since `FlowField.compute` already takes the mask as a parameter; `Sim.fieldFor` keys its cache by `(goal, domain)`, and on a map with no `b` the two masks are the SAME ARRAY, so no second field is ever allocated. What counts as a vehicle is `mobility.wheeled`, an authored boolean defaulting to `!FOOT_ROLES.has(role)` — **`FOOT_ROLES` alone is wrong here**, because it contains `artillery` and `rocket_battery` is a Grad on a 6x6 truck; that unit is the one place the default is overridden in JSON, and `tools/src/boulders.test.ts` pins it against `mortar_team`, which shares the role and is genuinely foot. An optional `elevation` grid gives each tile a height 0–9, one digit per tile, same dimensions as `rows`; absent means flat. It is orthogonal to the terrain symbol on purpose — a symbol table can express ridges but not valleys. E1 stores and draws it at 10 px per level; line of sight reads it — high ground sees over lower obstacles, and every blocking tile, rock or building, stands two levels above its own ground; a low-profile obstacle like a fence never blocks sight at all, but the ground it stands on still does. Since T1-A **pathing reads it too**: `FlowField.compute` takes the elevation grid and charges `UPHILL_PER_LEVEL` (tuning.ts, 10 — one level of climb costs one extra tile of ground) per level CLIMBED, while descending is free. That asymmetry is the design: high ground is expensive to attack and cheap to withdraw from. Sight RANGE still does not. Two things about slope are counter-intuitive and were measured rather than reasoned. First, **a climb telescopes**: every monotone route to a fixed height pays the same total wherever it crosses, so slope only reorders routes over ground that rises ABOVE its destination and comes back down — a rim, a spur, a hill. Second, **inverting the sign changes no route at all**; it shifts every cost by `UPHILL_PER_LEVEL * (h(tile) - h(goal))`, a term independent of the path, so the optimal-route set is untouched and only the cost NUMBER moves. The walk tests and the relief replay all pass with the sign flipped; the mirrored cost pair in `packages/sim/src/flowfield.test.ts` is the only guard on it, and that file's header carries the measurement. `costAt` is the sign's one behavioural reader, via `selectBreachTarget`'s detour test, where slope eats up to 50 of the 100-unit `BREACH_DETOUR_SLACK` on Tel Marum. Terrain needs two levels or more to obscure ground troops, since a one-level rise sits exactly at eye level, and nothing sees further for being higher — elevation affects what you can see over, never how far.
 
 ---
 
@@ -499,34 +499,46 @@ load is worth doing before release. Pipeline: `tools/units/kit.py` (geometry)
   A partial fix would be worse than none, since `wreckLayer` sprites (`addWreck`,
   `renderer.ts`) carry no `zIndex` at all and would sort behind every band on the map,
   not merely their own tile's, if moved into `spriteLayer` naively.
-- Tel Marum's narrow saddle is still free, and the reason is not the one this bullet used
-  to give. A hollow → west flank → narrow saddle → battery route is +9 tiles (38 vs 47)
-  and crosses no tile either overwatch pocket can both see and reach at the `atgm_cell`'s
-  10-tile Kornet range. The ground is correct and stays as authored. The obvious fix —
-  let the Grad at `battery_position` charge for it, since it reaches the corridor at 17
-  tiles and `rocket` is in `INDIRECT_MASK` (`sim.ts:223`) so it needs no sight of its own,
-  while `sim.ts:2073` gates each shot on **per-side** identification — was authored into
-  `tel_marum_3_clearance` with a spotter at [12,4], and then measured. **It does not
-  work.** Nor could it have: that spotter is `sarim_rifles`, sight 9, not the 48-sight
-  observer the doctrine test uses to walk the terrain, and the corridor tiles sit 9.2 to
-  13.2 tiles away, so it sees the north exit row (11,12) and nothing below it. Three runs: wide
-  3.5 min / roster 9, narrow with the spotter alive 5.2 / 6, narrow with the spotter killed
-  at t=0 5.1 / 6. The last two are the same run. A trace of the battery's `fire` events
-  shows six shots and not one at the flanking force — but with the spotter blind past the
-  exit row, that trace does not prove `selectTarget` preferred the holding force over the
-  flankers; it may never have had the flankers as candidates at all. The narrow route's
-  real cost is force-splitting, which a player who commits everything to the flank simply
-  does not pay. **Target-selection preference is the leading explanation, not a proven
-  one** — anyone attempting a fix must first put eyes on the corridor that can actually
-  see it (sight 9 does not reach past the north exit row), then re-measure before touching
-  `selectTarget`: a trigger that retasks it, a contact that outranks proximity, or the
-  admission that indirect fire here will always shoot at whatever is nearest and softest.
-  Two sight facts worth keeping regardless: **nothing north of the wall can see the
-  hollow** — 841 open tiles see [24,29] and not one is at y ≤ 17 — so the hollow is dead
-  ground twice over, out of range and unobservable; and the corridor is **not** watchable
-  from its own mouth at [8,9]. Both were drawn wrong by eye first.
-  `tools/src/tel_marum_doctrine.test.ts` pins all of it.
+- Tel Marum's narrow saddle is **no longer free**, and what finally priced it was terrain
+  rather than fire. The corridor at x=10-11, y=12-17 is a boulder field (`b`) now, with a
+  small scree apron on the valley floor at its mouth (x=9-12, y=18): open ground on foot, a
+  wall to anything wheeled or tracked. Measured through the real `FlowField` on the shipped
+  map, crossing the wall there costs a rifleman **8 tiles** before and after, and a vehicle
+  **8 -> 28**, because the only remaining gap in the wall is the guarded wide saddle. The
+  whole flank route start line -> corridor -> battery is **48 tiles on foot** against 38
+  through the pass, and **no route at all** for armour. The shortest route to the battery is
+  **38 for both domains, unchanged** -- the mission's own axis was deliberately not touched,
+  and if that number ever moves the field has leaked onto it. Committing the whole force to
+  one route is therefore structurally impossible: the split the design always wanted is
+  enforced by the ground instead of hoped for.
+  Two figures this bullet used to carry were wrong and are corrected. The flank is **+10
+  tiles (38 vs 48)**, not +9 (38 vs 47) -- measured five ways, every waypoint through the
+  corridor gives 48; `tel_marum_3_clearance`'s briefing said nine and now says ten. And
+  **no sight fact moved**, because `b` is deliberately not sight-blocking: every `sees()`
+  assertion in `tools/src/tel_marum_doctrine.test.ts` passed unchanged when the field
+  landed. `pnpm balance`, the golden determinism hash and all nineteen `playtest.ts` lines
+  are identical before and after -- no shipped plan ever drove a vehicle up the corridor
+  (mission I's drone is `domain: air` and flies over boulders), so the field costs the
+  optimal-play proofs nothing and closes an exploit they never used.
+  What remains true and is worth keeping. The obvious fire-based fix -- let the Grad at
+  `battery_position` charge for the flank, since it reaches the corridor at 17 tiles and
+  `rocket` is in `INDIRECT_MASK` (`sim.ts:223`) so it needs no sight of its own, while
+  `sim.ts:2073` gates each shot on **per-side** identification -- was authored into
+  `tel_marum_3_clearance` with a spotter at [12,4], and measured. **It does not work.** Nor
+  could it have: that spotter is `sarim_rifles`, sight 9, not the 48-sight observer the
+  doctrine test uses to walk the terrain, and the corridor tiles sit 9.2 to 13.2 tiles away,
+  so it sees the north exit row (11,12) and nothing below it. Three runs: wide 3.5 min /
+  roster 9, narrow with the spotter alive 5.2 / 6, narrow with the spotter killed at t=0
+  5.1 / 6 -- the last two are the same run. Target-selection preference remains the leading
+  explanation and an unproven one; anyone attempting it must first put eyes on the corridor
+  that can actually see it, then re-measure before touching `selectTarget`. Two sight facts
+  stand: **nothing north of the wall can see the hollow** -- 841 open tiles see [24,29] and
+  not one is at y <= 17, so the hollow is dead ground twice over -- and the corridor is
+  **not** watchable from its own mouth at [8,9]. Both were drawn wrong by eye first.
+  `tools/src/tel_marum_doctrine.test.ts` pins all of it, the per-domain routes included,
+  each one paired against the same map with the boulders turned back into '.' so that "the
+  vehicle went round" cannot pass for the wrong reason.
   Two traps for anyone re-running this: isolating a unit by removing its garrison entry
-  corrupts every later unit's RNG stream — kill it at t=0 via `applyDamage` instead; and
+  corrupts every later unit's RNG stream -- kill it at t=0 via `applyDamage` instead; and
   rerouting only `mbt_lavi` or only `ifv_namer` reproduces the wide result exactly,
   because either wins the pass fight alone.
