@@ -113,10 +113,23 @@ export function buildFixtureGlb(opts: {
   clipName: string | string[];
   extrasRole?: string | null;
   nameRole?: string | null;
+  /**
+   * Length of every clip in the fixture, in seconds -- the second (and
+   * last) keyframe's time. Defaults to 1, which is what this fixture always
+   * produced before the parameter existed, so every caller that omits it is
+   * byte-identical to before.
+   *
+   * Added for `ThreeRenderer.fire-latch.test.ts` (GH-148), which pins a
+   * latch length against a clip's OWN duration: proving "the clip's
+   * duration" rather than "some constant" needs two fixtures whose clips
+   * differ in length, and 1 s was the only length expressible.
+   */
+  clipSeconds?: number;
 }): ArrayBuffer {
   const extrasRole = opts.extrasRole === undefined ? opts.roleName : opts.extrasRole;
   const nameRole = opts.nameRole === undefined ? opts.roleName : opts.nameRole;
   const clipNames = Array.isArray(opts.clipName) ? opts.clipName : [opts.clipName];
+  const clipSeconds = opts.clipSeconds ?? 1;
 
   const position = f32([-0.1, 1, 0, 0.1, 1, 0, 0, 1, 0.2]);
   const normal = f32([0, 0, 1, 0, 0, 1, 0, 0, 1]);
@@ -128,7 +141,7 @@ export function buildFixtureGlb(opts: {
     1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
     1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, -1, 0, 1,
   ]);
-  const animInput = f32([0, 1]);
+  const animInput = f32([0, clipSeconds]);
   // Quaternion (x,y,z,w): identity, then 90 deg about X.
   const HALF = Math.SQRT1_2;
   const animOutput = f32([0, 0, 0, 1, HALF, 0, 0, HALF]);

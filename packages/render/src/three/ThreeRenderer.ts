@@ -2039,11 +2039,12 @@ export class ThreeRenderer implements Renderer {
       this.tracers.push(spawnTracer(this.curX[e.shooter], this.curY[e.shooter], tx, ty, st.side[e.shooter]));
     }
 
-    // Latch the fire clip for its own declared duration (renderer.ts:772-777).
-    const fireClip = this.unitInstancers.get(type.id)?.sheet.clips.fire;
-    if (fireClip && fireClip.fps > 0) {
-      this.firingTimer[e.shooter] = fireClip.frames / fireClip.fps;
-    }
+    // Latch the fire clip for its own declared duration (renderer.ts:772-777)
+    // -- WHOSE duration decided by which asset is actually drawing this
+    // unit. See `fireLatchSeconds` for why that distinction is the whole of
+    // GH-148.
+    const latch = this.fireLatchSeconds(type.id);
+    if (latch !== null) this.firingTimer[e.shooter] = latch;
 
     // Task B3.6: the turret's OWN fire-clip duration, latched independently
     // of the hull's `firingTimer` above -- see `turretFiringTimer`'s own
@@ -2201,6 +2202,73 @@ export class ThreeRenderer implements Renderer {
         this.spawnFlatFx(mzX, mzY, '#6B6355', 7, 18);
       }
     }
+  }
+
+  /**
+   * How long one shot should hold `firingTimer` -- in seconds, or `null`
+   * when nothing loaded for this type declares a `fire` clip at all (leave
+   * whatever the latch already held; there is no duration to write).
+   *
+   * GH-148, the whole of it. Pixi has one answer to this question because it
+   * has one asset: a sprite sheet. This backend has two, and the latch has
+   * to come from WHICHEVER ONE IS DRAWING THE UNIT -- because `firingTimer`
+   * is not one shared read. `updateUnits` reads it for a BILLBOARD entity
+   * (and `continue`s past every mesh type before it gets there),
+   * `updateMeshUnits` reads it for a skinned infantry mesh, and
+   * `updateVehicleMeshes` reads it for a rigid vehicle mesh. A given entity
+   * is drawn by exactly one of the three, so sizing the latch from that same
+   * one is not a preference, it is the only self-consistent choice.
+   *
+   * It was previously always the sprite's, and on a billboard "firing" is a
+   * single muzzle-flash frame: every infantry sheet that ships declares
+   * `fire` as 1 frame @ 12 fps, a 0.083 s latch. The mesh clips are 3-6x
+   * longer (0.250 s on `inf_squad`/`militia_cell`, 0.500 s on
+   * `meshy_soldier`/`sarim_rifles`). A rifle at 320 rpm fires every 0.188 s,
+   * so a mesh figure latched for 0.083 s played 17% of its fire clip,
+   * `resolveClip` dropped it to `idle`, and the next shot restarted it from
+   * frame 0 -- a pose snapping back and forth 5.3 times a second, which is
+   * what the project lead saw as "infantry goes up and down when shooting."
+   * The bob was never in the animation: the rigs are vertically flat in
+   * `fire` to within 0.00006 m, exactly as `teams.py`'s `_standing_posture`
+   * requires.
+   *
+   * The clip's OWN duration, rather than "hold until the next shot", is
+   * what makes a slow weapon still settle: a 3 rpm ATGM fires every 20 s and
+   * its figure returns to idle after its clip, instead of standing in a
+   * firing pose for twenty seconds.
+   *
+   * Both mesh maps are consulted, in `updateUnits`' own precedence order
+   * (infantry template, then vehicle) -- a type is never in both, and one
+   * lookup covering both classes is deliberate: a second copy of this rule
+   * living in a vehicle-shaped variant is exactly the shape
+   * `units/mesh-clip.ts`'s own top comment records this project having been
+   * bitten by. No shipped vehicle GLB declares any clip today, so the
+   * vehicle arm changes nothing until one does.
+   *
+   * The sprite remains the fallback, not a legacy branch: it is the right
+   * answer for a billboard type (unchanged -- `?renderer=pixi` has no mesh
+   * path at all), and it is also the right answer for a mesh type whose GLB
+   * never authored `fire` (`at_team`, `atgm_cell`, `digger_crew`,
+   * `mortar_crew` today), where `applyMeshClip` resolves the pose to `idle`
+   * regardless and the latch value is unobservable.
+   *
+   * The turret's own latch (`turretFiringTimer`, set separately in `onFire`)
+   * is deliberately NOT routed through here -- see its field doc comment for
+   * why it is a second timer rather than a second read of this one.
+   */
+  private fireLatchSeconds(unitTypeId: string): number | null {
+    const meshFire =
+      this.meshUnitTemplates.get(unitTypeId)?.clips.get('fire') ??
+      this.vehicleMeshTemplates.get(unitTypeId)?.clips.get('fire');
+    // A zero-length clip is degenerate art, not a request for a zero latch
+    // (which would mean "never firing"): treat it like an absent one and
+    // fall through, the same leniency `fps > 0` already gives the sprite.
+    if (meshFire && meshFire.duration > 0) return meshFire.duration;
+
+    const spriteFire = this.unitInstancers.get(unitTypeId)?.sheet.clips.fire;
+    if (spriteFire && spriteFire.fps > 0) return spriteFire.frames / spriteFire.fps;
+
+    return null;
   }
 
   /**
