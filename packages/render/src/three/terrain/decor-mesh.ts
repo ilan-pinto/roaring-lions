@@ -9,12 +9,15 @@
  */
 import * as THREE from 'three';
 import { toonRampMaterial } from '../palette-material';
-import { rampForDecorRole } from './decor-role';
+import { rampForDecorRole, type DecorMeshRole } from './decor-role';
 import type { DecorPlacement } from './decor-place';
 
 /** Keyed `${family}_${variant}`, each a role-tagged geometry list. */
 export interface DecorGeometrySet {
-  readonly parts: ReadonlyMap<string, readonly { role: string; geometry: THREE.BufferGeometry }[]>;
+  readonly parts: ReadonlyMap<
+    string,
+    readonly { role: DecorMeshRole; geometry: THREE.BufferGeometry }[]
+  >;
 }
 
 const TAU = Math.PI * 2;
@@ -28,15 +31,25 @@ export function buildDecorMesh(
 
   // Pass 1: which parts are actually referenced, and how big each role's
   // batch must be. BatchedMesh is sized up front and cannot grow.
-  const used = new Map<string, { role: string; geometry: THREE.BufferGeometry }[]>();
+  //
+  // Keyed once per DISTINCT key, not once per placement -- a shipped map can
+  // reference the same family/variant key ~700 times, and `parts` is
+  // `readonly` and never mutated by anything below, so storing the
+  // reference (rather than `[...parts]`, a fresh copy on every single
+  // placement) costs nothing and loses nothing.
+  const used = new Map<string, readonly { role: DecorMeshRole; geometry: THREE.BufferGeometry }[]>();
   const live: DecorPlacement[] = [];
   for (const p of placements) {
     const key = `${p.family}_${p.variant}`;
-    const parts = set.parts.get(key);
-    // A family whose GLB failed to fetch loses its objects. Losing a bush is
-    // acceptable; throwing here would lose the whole frame.
-    if (!parts) continue;
-    used.set(key, [...parts]);
+    let parts = used.get(key);
+    if (parts === undefined) {
+      const found = set.parts.get(key);
+      // A family whose GLB failed to fetch loses its objects. Losing a bush
+      // is acceptable; throwing here would lose the whole frame.
+      if (!found) continue;
+      used.set(key, found);
+      parts = found;
+    }
     live.push(p);
   }
   if (live.length === 0) return group;
@@ -112,6 +125,7 @@ export function buildDecorMesh(
     const q = new THREE.Quaternion();
     const axis = new THREE.Vector3(0, 1, 0);
     const scale = new THREE.Vector3();
+    const position = new THREE.Vector3();
     let added = 0;
     for (const p of live) {
       const ids = geomIds.get(`${p.family}_${p.variant}`);
@@ -120,7 +134,8 @@ export function buildDecorMesh(
         const inst = mesh.addInstance(id);
         q.setFromAxisAngle(axis, p.yawTurns * TAU);
         scale.set(p.scale, p.scale, p.scale);
-        m.compose(new THREE.Vector3(p.x, p.y, p.z), q, scale);
+        position.set(p.x, p.y, p.z);
+        m.compose(position, q, scale);
         mesh.setMatrixAt(inst, m);
         added++;
       }

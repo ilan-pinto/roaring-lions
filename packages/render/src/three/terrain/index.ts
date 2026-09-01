@@ -9,13 +9,16 @@
  * the only pre-existing export paths were `.` (the Pixi renderer) and
  * `./three` (`ThreeRenderer` itself, which constructs a `WebGLRenderer` and
  * cannot run under `environment: 'node'`). This barrel is the missing import
- * surface: every file in this directory except `mesh.ts`, which is the one
- * file here that touches `THREE.*` (`BufferGeometry`, `MeshBasicMaterial`)
- * rather than plain arrays.
+ * surface: every file in this directory except `mesh.ts` and `decor-mesh.ts`,
+ * the two files here that touch `THREE.*` (`BufferGeometry`,
+ * `MeshBasicMaterial`, `BatchedMesh`) rather than plain arrays.
  *
- * Excluding `mesh.ts` is deliberate and load-bearing, not tidiness: it is
- * what makes importing this barrel cost nothing beyond the pure builders
- * themselves. `ThreeRenderer` stays out of every barrel for the same
+ * Excluding `mesh.ts`/`decor-mesh.ts` is deliberate and load-bearing, not
+ * tidiness: it is what makes importing this barrel cost nothing beyond the
+ * pure builders themselves. `decor-role.ts` and `decor-place.ts` ARE
+ * exported -- both are pure and three-free (the same reason `decor-place.ts`
+ * stays headless is why it belongs here), so they cost this barrel nothing
+ * either. `ThreeRenderer` stays out of every barrel for the same
  * reason it was pulled off this one and given `./three` as its own entry
  * point in Phase B1 -- re-exporting it (directly or transitively) puts all
  * of three.js back in the default Pixi player's main chunk, a regression
@@ -55,3 +58,5 @@ export * from './scatter';
 export * from './grove';
 export * from './buildings';
 export * from './clamp';
+export * from './decor-role';
+export * from './decor-place';

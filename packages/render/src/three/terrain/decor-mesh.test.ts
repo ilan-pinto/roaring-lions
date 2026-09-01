@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as THREE from 'three';
 import { buildDecorMesh, disposeDecorMesh } from './decor-mesh';
+import type { DecorGeometrySet } from './decor-mesh';
 import type { DecorPlacement } from './decor-place';
 
 function geo(): THREE.BufferGeometry {
@@ -9,7 +10,7 @@ function geo(): THREE.BufferGeometry {
   g.setIndex([0, 1, 2]);
   return g;
 }
-const SET = { parts: new Map([['rock_0', [{ role: 'rock', geometry: geo() }]]]) };
+const SET: DecorGeometrySet = { parts: new Map([['rock_0', [{ role: 'rock', geometry: geo() }]]]) };
 const P = (n: number): DecorPlacement[] =>
   Array.from({ length: n }, (_, i) => ({
     family: 'rock' as const, variant: 0, x: i, z: i, y: 0, yawTurns: 0, scale: 1,
@@ -51,7 +52,7 @@ describe('buildDecorMesh', () => {
     // cannot distinguish this from "one batch per family" -- N instances of
     // ONE geometry share a batch either way. Two keys, one shared role, is
     // the only way to prove the merge actually happens.
-    const set = {
+    const set: DecorGeometrySet = {
       parts: new Map([
         ['rock_0', [{ role: 'rock', geometry: geo() }]],
         ['slab_0', [{ role: 'rock', geometry: geo() }]],
@@ -68,7 +69,7 @@ describe('buildDecorMesh', () => {
     // Same fixture as the merge test above, plus a third key on a DIFFERENT
     // role -- proves roles still separate rather than everything collapsing
     // into one mesh regardless of role.
-    const set = {
+    const set: DecorGeometrySet = {
       parts: new Map([
         ['rock_0', [{ role: 'rock', geometry: geo() }]],
         ['slab_0', [{ role: 'rock', geometry: geo() }]],
@@ -89,7 +90,7 @@ describe('buildDecorMesh', () => {
     // reserved in the batch budget regardless -- losing the second part's id
     // to a key collision would upload its geometry to the GPU and never draw
     // it. One placement referencing this key must yield TWO instances.
-    const cluster = {
+    const cluster: DecorGeometrySet = {
       parts: new Map([
         ['rock_1', [{ role: 'rock', geometry: geo() }, { role: 'rock', geometry: geo() }]],
       ]),
@@ -108,7 +109,7 @@ describe('buildDecorMesh', () => {
     // `addInstance` throws once its budget is exhausted -- so a bound that
     // is not derived from the real per-key part count is a latent overflow,
     // not merely wasted headroom.
-    const cluster = {
+    const cluster: DecorGeometrySet = {
       parts: new Map([
         [
           'rock_2',

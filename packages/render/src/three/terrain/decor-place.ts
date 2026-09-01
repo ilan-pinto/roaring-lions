@@ -60,9 +60,16 @@ export function decorPlacements(input: TerrainInput): DecorPlacement[] {
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const t = y * width + x;
-      if (blocked[t] !== 0) continue;
-      const c = cover[t];
       const d = decor ? decor[t] : 0;
+      // A ridge is the one blocked tile that is not a building --
+      // `buildings.ts`'s own doc comment says so explicitly, and skips
+      // exactly it before ever asking whether a structure stands there.
+      // Every OTHER blocked tile is a building or fence: `buildBuildings`'s
+      // box already owns that ground entirely, so it gets no decor at all.
+      // Mirrors `scatter.ts`'s own `if (blocked) { if (decorHere ===
+      // DECOR_RIDGE) { ... } }` shape for its ridge grain.
+      if (blocked[t] !== 0 && d !== DECOR_RIDGE) continue;
+      const c = cover[t];
       const family = familyFor(d, c, tileHash(x + 977, y + 311));
       if (family === null) continue;
 
@@ -70,7 +77,13 @@ export function decorPlacements(input: TerrainInput): DecorPlacement[] {
       // density. Clamped so a cover-3 tile cannot exceed 1.
       const density =
         family === 'bush' ? Math.min(1, DENSITY.bush * (0.5 + 0.5 * c)) : DENSITY[family];
-      if (tileHash(x, y) >= density) continue;
+      // Own offset stream, like every other roll in this file -- NOT the
+      // bare `tileHash(x, y)` scatter.ts's ground grain uses for its own
+      // pebble/fleck gate (`rnd > 0.9`, `rnd > 0.84`). Sharing that stream
+      // anti-correlates decor density with grain density across the whole
+      // map: a grass tuft (density 0.34) could never land on a tile grain
+      // calls "pebbled" (>0.84), because the two ranges never overlap.
+      if (tileHash(x + 449, y + 823) >= density) continue;
 
       const jx = tileHash(x + 101, y + 7) - 0.5;
       const jy = tileHash(x + 13, y + 401) - 0.5;
@@ -84,6 +97,19 @@ export function decorPlacements(input: TerrainInput): DecorPlacement[] {
         // therefore in tile units (+/-0.3 of a tile).
         x: x + 0.5 + jx * 0.6,
         z: y + 0.5 + jy * 0.6,
+        // This tile's OWN elevation reading, exactly as `ground.ts` and
+        // `scatter.ts` both use it (`scatter.ts`'s ridge rock-blob branch:
+        // `topY = levelHere * WORLD_PER_LEVEL`, same tile, same array read).
+        // Elevation is authored independently of the `^` symbol (`map.ts`:
+        // "orthogonal to the terrain symbol on purpose"), and a real ridge's
+        // elevation IS already raised above its surroundings -- Tel Marum's
+        // authored grid reads elevation 3 at its ridge tiles against 1 on
+        // the open ground beside them, the two-level rise CLAUDE.md's map
+        // section describes for every blocking tile. So this already places
+        // a slab on the ridge's own drawn top, not on the ground beneath
+        // it: there is no separate "ridge top" height anywhere in this
+        // renderer for it to miss -- the ground mesh has no per-tile bump
+        // for `blocked`/ridge tiles beyond what the elevation grid says.
         y: level * WORLD_PER_LEVEL,
         yawTurns: tileHash(x + 617, y + 29),
         scale: 0.8 + tileHash(x + 71, y + 137) * 0.4,

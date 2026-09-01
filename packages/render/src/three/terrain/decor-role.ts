@@ -31,8 +31,15 @@ const DECOR_ROLE_PALETTE: Record<DecorMeshRole, readonly string[]> = {
   foliage: sliceFrom('scrub', 0),
   // Woody stems: the dark end of dust, so a trunk reads against its own crown.
   trunk: sliceFrom('dust', 4),
-  // Bare stone, the same band the ridge tone already uses.
-  rock: sliceFrom('gunmetal', 1),
+  // Warm brown stone, matching the terrain it sits on: `terrain-themes.ts`
+  // sets `rock: paletteColor('limestone.6')` in BOTH themes ("A knoll in the
+  // basin is a dry-stone terrace wall, so it stays limestone in both themes
+  // rather than becoming a green rock" -- that file's own comment). Slicing
+  // from index 6 starts this ramp at that exact tone. NOT gunmetal: that is
+  // a cold metal grey -- the same ramp `mesh-role.ts` gives `metal` and
+  // `weapon` -- which would draw a mesh rock in cold blue-grey directly on
+  // warm brown terrain stone.
+  rock: sliceFrom('limestone', 6),
   // Ground litter: pale, so it reads as sand rather than as shadow.
   sand: sliceFrom('limestone', 3),
 };
