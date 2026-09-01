@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { palettePlugin } from './vite-plugin-palette';
 import { cursorsPlugin } from './vite-plugin-cursors';
+import { assetWatchPlugin } from './vite-plugin-asset-watch';
 
 // The version shown in the menu and the HUD. Root package.json is the single
 // source of truth; only major.minor is displayed, so a patch bump is invisible.
@@ -18,6 +19,12 @@ export default defineConfig({
   plugins: [
     palettePlugin(new URL('../../data/palette.json', import.meta.url)),
     cursorsPlugin(new URL('../../data/palette.json', import.meta.url)),
+    // The GLBs live in `art/`, which is above this package and therefore
+    // outside the dev server's watcher — so adding one left the mesh
+    // directory listing Vite bakes into `main.ts` stale, and the app booted
+    // into a GLTFLoader `<!doctype` error (GH-147). See the plugin's own
+    // header; the `touch packages/app/src/main.ts` workaround is retired.
+    assetWatchPlugin(),
   ],
   // Build-time constant: no runtime fetch, and it works the same on Pages.
   define: { __GAME_VERSION__: JSON.stringify(GAME_VERSION) },
