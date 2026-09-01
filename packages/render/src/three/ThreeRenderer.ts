@@ -124,7 +124,6 @@ import {
 import { SmokePlumeManager, SMOKE_PLUME_DEFAULT_DURATION_MS } from './units/smoke-plume';
 import { buildGround } from './terrain/ground';
 import { buildScatter } from './terrain/scatter';
-import { buildGroves } from './terrain/grove';
 import { buildBuildings, type StructureFootprint } from './terrain/buildings';
 import { toGeometry, terrainMaterial, groveMaterial } from './terrain/mesh';
 import type { TerrainInput, MeshData } from './terrain/types';
@@ -5167,7 +5166,16 @@ export function composeTerrain(
   };
   const ground = buildGround(input, tones, background);
   const scatter = buildScatter(input, tones, background);
-  const groves = buildGroves(input, tones, background);
+  // buildGroves is retired (Task 7): grove tiles now get real tree meshes
+  // from `decor-place.ts`'s `tree` family (including its own twin rule,
+  // added in the same task so the mesh replacement does not thin the
+  // canopy), drawn in the decor batch below. The builder and its own test
+  // suite (`grove.ts`, `grove.test.ts`) stay in the tree for one release --
+  // `ASSET_PROVENANCE.md`'s own precedent for a superseded sprite -- so
+  // reverting to the procedural canopy is one line, not a restore. An empty
+  // `MeshData` produces an empty geometry, which `toGeometry` already
+  // handles (`buildScatter` returns one for a map with no marks).
+  const groves: MeshData = { positions: new Float32Array(0), colors: new Float32Array(0), indices: new Uint32Array(0) };
 
   const footprints = walkStructureFootprints(sim);
   const residualInput: TerrainInput = { ...input, blocked: withoutLiveStructures(sim, footprints) };

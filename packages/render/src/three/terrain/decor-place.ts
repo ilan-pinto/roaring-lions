@@ -88,6 +88,7 @@ export function decorPlacements(input: TerrainInput): DecorPlacement[] {
       const jx = tileHash(x + 101, y + 7) - 0.5;
       const jy = tileHash(x + 13, y + 401) - 0.5;
       const level = elevation ? elevation[t] : 0;
+      const scale = 0.8 + tileHash(x + 71, y + 137) * 0.4;
       out.push({
         family,
         variant: Math.floor(tileHash(x + 53, y + 991) * VARIANTS_PER_FAMILY),
@@ -112,8 +113,31 @@ export function decorPlacements(input: TerrainInput): DecorPlacement[] {
         // for `blocked`/ridge tiles beyond what the elevation grid says.
         y: level * WORLD_PER_LEVEL,
         yawTurns: tileHash(x + 617, y + 29),
-        scale: 0.8 + tileHash(x + 71, y + 137) * 0.4,
+        scale,
       });
+
+      // A second, smaller tree on the same grove tile -- retiring the
+      // procedural canopy (`grove.ts`, Task 7) means this is now the ONLY
+      // place a grove tile's tree count is decided, so it reproduces
+      // grove.ts's own twin rule exactly (`tileHash(x * 3, y * 7) > 0.62`,
+      // second tree at 0.68 scale) rather than silently thinning every
+      // grove to one tree per tile. Own hash stream (601/491, an offset
+      // pair unused by any other roll in this file) so the second tree's
+      // position/variant/yaw are independent draws, not a duplicate
+      // stacked exactly on the first.
+      if (family === 'tree' && tileHash(x * 3, y * 7) > 0.62) {
+        const jx2 = tileHash(x + 601, y + 491) - 0.5;
+        const jy2 = tileHash(x + 491, y + 601) - 0.5;
+        out.push({
+          family: 'tree',
+          variant: Math.floor(tileHash(x + 601, y + 991) * VARIANTS_PER_FAMILY),
+          x: x + 0.5 + jx2 * 0.6,
+          z: y + 0.5 + jy2 * 0.6,
+          y: level * WORLD_PER_LEVEL,
+          yawTurns: tileHash(x + 601, y + 29),
+          scale: scale * 0.68,
+        });
+      }
     }
   }
   return out;

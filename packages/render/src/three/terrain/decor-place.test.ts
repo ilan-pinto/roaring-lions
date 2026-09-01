@@ -129,6 +129,80 @@ describe('decorPlacements', () => {
     expect(raised[0].y).toBe(4 * WORLD_PER_LEVEL);
   });
 
+  describe('the grove twin tree (retiring buildGroves must not thin the canopy)', () => {
+    // grove.ts's own twin rule: `tileHash(x * 3, y * 7) > 0.62`, second tree
+    // at 0.68 scale. Retiring the procedural canopy (Task 7) means
+    // decor-place.ts is now the ONLY source of grove trees, so it must
+    // reproduce that rule itself rather than silently dropping to one tree
+    // per tile everywhere. (0, 0) sits below the threshold (single tree),
+    // (2, 0) sits above it (twin) -- the same two fixture coordinates
+    // grove.test.ts already uses, picked by brute force over the real hash.
+    const SINGLE_X = 0, SINGLE_Y = 0;
+    const TWIN_X = 2, TWIN_Y = 0;
+
+    it('the fixture coordinates actually straddle the twin threshold', () => {
+      expect(tileHash(SINGLE_X * 3, SINGLE_Y * 7)).toBeLessThanOrEqual(0.62);
+      expect(tileHash(TWIN_X * 3, TWIN_Y * 7)).toBeGreaterThan(0.62);
+    });
+
+    it('places exactly one tree below the threshold', () => {
+      const out = decorPlacements(
+        input(1, 1, (_t, decor) => {
+          decor[SINGLE_Y * 1 + SINGLE_X] = DECOR_GROVE;
+        })
+      );
+      expect(out.length).toBe(1);
+      expect(out[0].family).toBe('tree');
+    });
+
+    it('places two trees above the threshold, the second at 0.68 the first\'s scale', () => {
+      const w = TWIN_X + 1;
+      const out = decorPlacements(
+        input(w, 1, (_t, decor) => {
+          decor[TWIN_Y * w + TWIN_X] = DECOR_GROVE;
+        })
+      );
+      const trees = out.filter((p) => p.family === 'tree');
+      expect(trees.length).toBe(2);
+      expect(trees[1].scale).toBeCloseTo(trees[0].scale * 0.68, 6);
+    });
+
+    it('the twin does not sit exactly on top of the first tree', () => {
+      const w = TWIN_X + 1;
+      const out = decorPlacements(
+        input(w, 1, (_t, decor) => {
+          decor[TWIN_Y * w + TWIN_X] = DECOR_GROVE;
+        })
+      );
+      const trees = out.filter((p) => p.family === 'tree');
+      expect(trees[0].x === trees[1].x && trees[0].z === trees[1].z).toBe(false);
+    });
+
+    it('both twin trees stay inside their own tile footprint', () => {
+      const w = TWIN_X + 1;
+      const out = decorPlacements(
+        input(w, 1, (_t, decor) => {
+          decor[TWIN_Y * w + TWIN_X] = DECOR_GROVE;
+        })
+      );
+      for (const p of out.filter((t) => t.family === 'tree')) {
+        expect(p.x).toBeGreaterThanOrEqual(TWIN_X);
+        expect(p.x).toBeLessThanOrEqual(TWIN_X + 1);
+        expect(p.z).toBeGreaterThanOrEqual(TWIN_Y);
+        expect(p.z).toBeLessThanOrEqual(TWIN_Y + 1);
+      }
+    });
+
+    it('is deterministic across two runs, twin included', () => {
+      const w = TWIN_X + 1;
+      const build = (): TerrainInput =>
+        input(w, 1, (_t, decor) => {
+          decor[TWIN_Y * w + TWIN_X] = DECOR_GROVE;
+        });
+      expect(decorPlacements(build())).toEqual(decorPlacements(build()));
+    });
+  });
+
   it('rolls density on its own stream, independent of scatter.ts\'s ground-grain roll', () => {
     // scatter.ts's own ground grain treats bare `tileHash(x, y)` as its
     // pebble/fleck gate (`rnd > 0.9`, `rnd > 0.84`). Tile (28, 0) on an

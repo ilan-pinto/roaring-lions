@@ -209,23 +209,39 @@ function assertPaletteColors(mesh: MeshData, label: string): void {
 
 /**
  * `<mapId>:<builder>` pairs where a builder legitimately emits NO geometry --
- * a property of the map's own decor, not a bug. `tel_marum`'s rows contain
- * no `o` (grove) tile at all (checked against the shipped JSON directly), so
- * `buildGroves` correctly returns empty `MeshData` there.
+ * either a property of the map's own decor, or (grove, every map, as of
+ * Task 7) a builder `composeTerrain` no longer calls at all.
+ *
+ * `grove` is now empty for EVERY map, not just `tel_marum`: retiring the
+ * procedural canopy means `composeTerrain` stopped calling `buildGroves`
+ * (`ThreeRenderer.ts`, `composeTerrain`'s own comment) -- grove tiles now get
+ * real tree meshes from `decor-place.ts`'s `tree` family instead, drawn in
+ * the decor batch, which this per-builder mesh check does not cover (decor
+ * meshes are GPU `BatchedMesh` state built by `buildDecorMesh`, not a
+ * `MeshData` this suite walks). `buildGroves` and its own test suite
+ * (`grove.ts`, `grove.test.ts`) still exist and are still exercised
+ * directly by `grove.test.ts` -- only the CALL from `composeTerrain` is
+ * gone, kept as a one-line revert. Before Task 7, only `tel_marum` (no `o`
+ * tile in its rows at all) was in this set; every other map produced real
+ * grove geometry (912-16,368 vertices) through this same call.
  *
  * This matters because, without `assertNonEmptyUnless` below, "every vertex
- * colour is a palette entry" is checking an empty loop for that one
+ * colour is a palette entry" is checking an empty loop for a listed
  * map/builder pair -- passing while verifying nothing, exactly the failure
  * mode this task exists to find and remove (discovered by actually running
  * this suite against real map data and reading the vertex counts, not by
  * inspection). Every OTHER map/builder pair among the five shipped maps
- * produces real geometry (checked directly: ground 9,216-9,964 vertices,
- * scatter 53,140-86,288, buildings 80-1,984, and grove 912-16,368 on the
- * four maps that have olive groves at all) -- so this is the one, named,
- * deliberate hole in an otherwise-total requirement, not a general
- * allowance.
+ * still produces real geometry (checked directly: ground 9,216-9,964
+ * vertices, scatter 53,140-86,288, buildings 80-1,984) -- so grove is now a
+ * total, named exception across all five maps, not a per-map one.
  */
-const KNOWN_EMPTY: ReadonlySet<string> = new Set(['tel_marum:grove']);
+// `Object.keys(maps)` directly, not `MAP_IDS` -- that constant is declared
+// further down this file (after `KNOWN_EMPTY` is used by the assertion
+// helpers just below), and both are top-level `const`s, so referencing it
+// here would throw on the temporal-dead-zone, not merely warn.
+const KNOWN_EMPTY: ReadonlySet<string> = new Set(
+  Object.keys(maps).map((id) => `${id}:grove`)
+);
 
 /** A builder producing real geometry somewhere is the precondition for its
  *  palette check meaning anything -- see `KNOWN_EMPTY`'s doc comment. */
@@ -646,9 +662,10 @@ describe('break checks: proving each assertion actually discriminates', () => {
   it('the non-emptiness guard rejects an unlisted empty mesh, and only an unlisted one', () => {
     // Proves KNOWN_EMPTY/assertNonEmptyUnless itself discriminates, since it
     // is what stood between the palette check and quietly checking nothing
-    // on tel_marum's (real, legitimately empty) grove mesh -- see that
+    // on grove meshes, every one of which is now legitimately empty (Task
+    // 7 retired the `composeTerrain` -> `buildGroves` call) -- see that
     // constant's own doc comment. An empty mesh with no KNOWN_EMPTY entry
-    // must fail; the one real entry that exists must not.
+    // must fail; a listed entry must not.
     const empty: MeshData = { positions: new Float32Array(0), colors: new Float32Array(0), indices: new Uint32Array(0) };
     expect(() => assertNonEmptyUnless(empty, 'not_a_real_map:ground', 'unlisted empty mesh')).toThrow(
       /emitted no geometry/
