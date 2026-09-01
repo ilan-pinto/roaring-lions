@@ -65,6 +65,24 @@ export interface RendererOptions {
   /** Terrain tones and grain for this map's theme. */
   terrainTones: TerrainTones;
   tracerColors: [string, string];
+  /**
+   * The ARCING round's own pair, by side -- a mortar bomb or a Grad rocket
+   * in flight (GH-149).
+   *
+   * Separate from `tracerColors` because a bomb is not a bullet and the
+   * project lead asked for it explicitly: the round used to be drawn from
+   * `tracerColors` and so came out `vfx.tracer` green for the player, which
+   * reads as a very slow tracer rather than as ordnance. `vfx.fire` /
+   * `vfx.ember` is the pair. Note the HOSTILE entry is `vfx.ember` in both
+   * pairs, so only the player's own indirect fire changes colour; the two
+   * pairs are still distinguishable per side, which is the property that
+   * matters on screen.
+   *
+   * Read only by the three.js backend's `ShellBatch`. `renderer.ts` (Pixi)
+   * ignores it, like every other three-only VFX field -- VFX owe Pixi no
+   * parity since 2026-08-30.
+   */
+  shellColors: [string, string];
   flashColor: string;
   nearMissColor: string;
   interceptColor: string;

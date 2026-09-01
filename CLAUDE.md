@@ -265,6 +265,38 @@ yours; each one records what the next phase inherits.
   asked for, which looks plausible and is wrong. Billboards have no hull to
   invert, so that path dilates the atlas alpha instead. Costs no extra draw
   call over the fill: measured +24 on 310, both ways.
+- **Every shot that is one round draws a travelling projectile; only a STREAM
+  keeps the flat tracer.** `units/shells.ts` is the whole model and it now
+  serves both halves — `mortar`/`rocket` arc (GH-145), and since GH-149
+  `bolt` (`apfsds`, `autocannon`) and `missile` (`atgm`, `rpg`, `heat`) fly
+  the same streak with no arc and a much shorter trail. `small_arms` and
+  `hmg` deliberately keep `TracerBatch`'s full-span ribbon, which is right
+  for a rifle burst and was wrong for everything else. Three things about
+  this are worth knowing before touching it. **The flat tracer was never
+  absent from direct fire** — the complaint "direct fire has no visible
+  projectile" is literally false and substantially true: photographed at
+  `ad7ac3d`, a Lavi's `gun_120` drew two dead-straight lines that spanned the
+  whole gap on frame 0, did not move for seven more frames, and faded. It was
+  a laser that dimmed. **The brief's "~4 frames" was argued down with a
+  frame-for-frame A/B and the shipped bolt lives ~13** (30 tiles/s over the
+  6.7-tile engagement range measured on `beit_sahwan_outskirts`): at 4 frames
+  the streak is longer than its own travel, so it reads as one shape that
+  flashes — the identical failure, shorter. **There are two `ShellBatch`
+  instances**, and they differ in exactly three things, none per-shell:
+  `depthTest` (off for the arc, which flies 88 lift px up and was measured
+  drawing behind a one-storey house; ON for a bolt at 9, where a building in
+  front SHOULD hide it and cannot be in the way anyway, since direct fire
+  needs LOS), the band (3 vs 2), and the colour pair. Which one a round goes
+  to is `SHELL_PROFILES[kind].indirect`, read once through `isIndirectShell`.
+- **An arcing round is `vfx.fire`/`vfx.ember`, not `vfx.tracer`** — the new
+  `RendererOptions.shellColors`, three-only, ignored by Pixi. A landing
+  mortar bomb or Grad rocket also throws `data/vfx/shell_impact.json` through
+  the same `spawnCollapseFx`/`mesh_burst` path a building collapse uses, at
+  `impactPower` 0.3/0.45. That fires off the FRAME clock (`shellHasLanded`),
+  deliberately not off the sim's own `impact` event, which resolves on a
+  different clock and would put the fireball where the bomb visibly is not.
+  Note `screen_shake` in `vfx_emitter.schema.json` is still read by nothing —
+  `emitters.ts` types it and no backend consumes it.
 - **Overlays scale with zoom, and that is faithful.** Pixi scales its whole
   `world` container by `camera.zoom` and the overlay layer is a child of it, so
   HP bars look enormous zoomed in on BOTH backends. Verified side by side. Not a

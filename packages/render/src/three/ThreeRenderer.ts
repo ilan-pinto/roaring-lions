@@ -142,7 +142,15 @@ import { entityFrame, assignRoofSlots, AIR_LIFT_PX, type EntityFrameInput, type 
 import { UnitInstancer, TURRET_RENDER_ORDER, HULL_RENDER_ORDER } from './units/instances';
 import { pickUnit as pickUnitPure, unitsInScreenRect as unitsInScreenRectPure } from './units/pick';
 import { stepTracers, spawnTracer, type TracerModel } from './units/tracers';
-import { stepShells, spawnShell, shellKindFor, type ShellModel } from './units/shells';
+import {
+  stepShells,
+  spawnShell,
+  shellKindFor,
+  shellHasLanded,
+  isIndirectShell,
+  SHELL_PROFILES,
+  type ShellModel,
+} from './units/shells';
 import {
   ParticleInstancer,
   TracerBatch,
@@ -150,6 +158,7 @@ import {
   PARTICLE_CAPACITY,
   TRACER_CAPACITY,
   SHELL_CAPACITY,
+  BOLT_CAPACITY,
 } from './units/fx';
 import { nextVehicleMoving, vehicleDustMagnitude, vehicleFxAnchor } from './units/vehicle-fx';
 import {
@@ -165,7 +174,7 @@ import {
   structureAliveAlpha,
   resolveRoofPx,
 } from './units/structures';
-import { STRUCTURE_RENDER_ORDER } from './units/render-order';
+import { STRUCTURE_RENDER_ORDER, FX_RENDER_ORDER } from './units/render-order';
 import { unitIsObserved } from './units/observed';
 import {
   SILHOUETTE_COLOR_KEY_BY_SIDE,
@@ -1118,6 +1127,25 @@ export class ThreeRenderer implements Renderer {
   private readonly shellBatch = new ShellBatch(SHELL_CAPACITY);
 
   /**
+   * GH-149: rounds from DIRECT weapons, in flight -- the tank's `bolt` and
+   * the missile a helicopter, an AT team or an RPG gunner launches.
+   *
+   * A second array and a second batch rather than a `kind` test inside the
+   * first, because the two differ in three things at once and every one of
+   * them is per-BATCH rather than per-shell: the material's `depthTest`, the
+   * mesh's render-order band, and the colour pair `update` is handed
+   * (`shellColors` for an arcing round since GH-149's recolour,
+   * `tracerColors` for a direct one). `SHELL_PROFILES[kind].indirect` is the
+   * single authored fact that routes a shell to one or the other, read
+   * through `isIndirectShell` at the one place it is decided (`onFire`).
+   */
+  private bolts: ShellModel[] = [];
+  private readonly boltBatch = new ShellBatch(BOLT_CAPACITY, {
+    depthTest: true,
+    renderOrder: FX_RENDER_ORDER,
+  });
+
+  /**
    * Phase C: the unit overlay tier -- see `units/overlays.ts`'s own top
    * comment for why this is two batches, not one. Both sized off `sim
    * .capacity` (`OVERLAY_VERTICES_PER_ENTITY`'s own doc comment), which is
@@ -1373,7 +1401,8 @@ export class ThreeRenderer implements Renderer {
       this.particleInstancerBelowAdditive.mesh,
       this.particleInstancerAboveAdditive.mesh,
       this.tracerBatch.mesh,
-      this.shellBatch.mesh
+      this.shellBatch.mesh,
+      this.boltBatch.mesh
     );
     // Same "always present, draws nothing until fed" shape as the FX meshes
     // just above -- both start at drawRange 0 (`beginFrame`/`endFrame`
@@ -1597,6 +1626,7 @@ export class ThreeRenderer implements Renderer {
     this.smokePlumes.dispose();
     this.tracerBatch.dispose();
     this.shellBatch.dispose();
+    this.boltBatch.dispose();
     // Phase C: same "added once in the constructor, no scene.remove needed"
     // shape as the FX batches just above -- see this file's own comment on
     // the `fogMesh.dispose()` fix a few lines down for why that omission
@@ -2143,17 +2173,21 @@ export class ThreeRenderer implements Renderer {
     // decision, not after it.
     const wp = type.weapons.find((w) => w.id === e.weaponId);
     const cls = wp?.cls ?? WEAPON_CLASS.small_arms;
-    // GH-145. `null` for every direct-fire class, which is every class but
-    // mortar and rocket -- see `units/shells.ts`'s `shellKindFor`.
+    // GH-145/GH-149. `null` only for the classes that keep the flat
+    // full-span tracer -- `small_arms`, `hmg`, `interceptor`, `demolition`
+    // -- see `units/shells.ts`'s `shellKindFor` for the whole split and why
+    // it is drawn at "one round per shot" versus "a stream".
     const shellKind = shellKindFor(cls);
-    // A shell REPLACES the tracer, it does not join it. Indirect fire has
-    // always pushed a tracer here (it was never excluded -- see
-    // `units/shells.ts`'s top comment), and that tracer is a flat ribbon
-    // lying on the ground along the shooter-to-target line: correct for a
-    // rifle round, and a straight contradiction of a bomb that visibly
-    // leaves the tube upward and comes down two seconds later somewhere
-    // else. Drawing both would show the round arcing over a line claiming
-    // it went straight.
+    // A travelling round REPLACES the tracer, it does not join it. Every
+    // shot has always pushed a tracer here (indirect was never excluded --
+    // see `units/shells.ts`'s top comment), and that tracer is a flat ribbon
+    // lying on the ground along the shooter-to-target line, drawn at full
+    // length on its very first frame: correct for a rifle round, and a
+    // straight contradiction of BOTH a bomb that visibly leaves the tube
+    // upward and comes down two seconds later somewhere else AND a tank
+    // round that is supposed to be seen crossing the gap. Drawing both would
+    // show the round travelling along a line already claiming it had
+    // arrived.
     if (shellKind === null) {
       this.tracers.push(spawnTracer(this.curX[e.shooter], this.curY[e.shooter], tx, ty, st.side[e.shooter]));
     }
@@ -2248,7 +2282,13 @@ export class ThreeRenderer implements Renderer {
     // happened to sit at, which is wrong the moment a shot crosses a
     // terrace.
     if (shellKind !== null) {
-      this.shells.push(spawnShell(mzX, mzY, tx, ty, st.side[e.shooter], shellKind));
+      const shell = spawnShell(mzX, mzY, tx, ty, st.side[e.shooter], shellKind);
+      // GH-149: the arcing kinds and the direct kinds live in separate
+      // arrays and separate batches -- see the `bolts` field's own doc
+      // comment for the three things that differ between them, none of
+      // which is per-shell.
+      if (isIndirectShell(shellKind)) this.shells.push(shell);
+      else this.bolts.push(shell);
     }
 
     const emitter = this.emitterLibrary.fireEmitterFor(cls);
@@ -4399,8 +4439,49 @@ export class ThreeRenderer implements Renderer {
     // GH-145: the same real-frame-seconds ageing, for indirect rounds. Sim
     // ticks never reach this -- an arc is presentation, and a presentation
     // clock is the frame clock (invariant 1's other half).
+    // GH-149: a round that ends its flight this frame detonates where it
+    // lands. Read BEFORE the step, since `stepShells` drops exactly these.
+    // Presentation only in both directions: the sim never learns that a
+    // shell was drawn, and this reads nothing from it that `onFire` did not
+    // already capture at launch.
+    for (const s of this.shells) {
+      if (shellHasLanded(s, dtSeconds)) this.spawnShellImpactFx(s);
+    }
     this.shells = stepShells(this.shells, dtSeconds);
-    this.shellBatch.update(this.shells, this.opts.tracerColors, elevation, this.sim.width, this.sim.height);
+    this.shellBatch.update(this.shells, this.opts.shellColors, elevation, this.sim.width, this.sim.height);
+    // The direct-fire half, identical in shape and different in exactly the
+    // three ways the `bolts` field documents -- here, the colour pair.
+    this.bolts = stepShells(this.bolts, dtSeconds);
+    this.boltBatch.update(this.bolts, this.opts.tracerColors, elevation, this.sim.width, this.sim.height);
+  }
+
+  /**
+   * GH-149: the explosion an arcing round throws where it lands.
+   *
+   * Routed through `spawnCollapseFx`, not a new mechanism -- `shell_impact`
+   * (`data/vfx/shell_impact.json`) is an ordinary authored emitter whose hot
+   * layer carries `mesh_burst`, so it gets the same pooled fireball mesh a
+   * building collapse does and the same authored-particle fallback when that
+   * mesh has not loaded. The only thing this adds over calling it directly
+   * is the size and the yaw: `SHELL_PROFILES[kind].impactPower` (a mortar
+   * bomb is a third of a collapsing house, a Grad rocket nearer a half), and
+   * a per-impact `tileHash` so twenty rounds on the same grid square do not
+   * all show the identical silhouette angle -- the same presentation hash
+   * the `structureDestroyed` case already uses for its own.
+   *
+   * This is deliberately NOT tied to the sim's own `impact`/`nearMiss`
+   * event. Those fire when the ROUND resolves, which is a different clock
+   * (sim ticks) from the one the arc flies on (real frame seconds), and
+   * pairing them would make the fireball appear at a moment unrelated to
+   * where the bomb visibly is. The sim's own small `flashColor`/
+   * `nearMissColor` puff still happens, unchanged, and reads as the hit on
+   * top of the burst rather than instead of it.
+   */
+  private spawnShellImpactFx(s: ShellModel): void {
+    const power = SHELL_PROFILES[s.kind].impactPower;
+    if (power <= 0) return;
+    const yawTurns = tileHash(Math.floor(s.tx), Math.floor(s.ty));
+    this.spawnCollapseFx('shell_impact', s.tx, s.ty, power, yawTurns);
   }
 
   /** `this.opts.resolveColor(key)` if the app supplied one, `fallback`

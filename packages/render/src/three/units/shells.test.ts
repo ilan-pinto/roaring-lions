@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { WEAPON_CLASS } from '@lions/sim';
 import {
   shellKindFor,
+  isIndirectShell,
+  shellHasLanded,
   spawnShell,
   stepShells,
   shellPointAt,
@@ -13,6 +15,7 @@ import {
   SHELL_TRAIL_S,
   SHELL_MIN_DURATION_S,
   SHELL_MAX_DURATION_S,
+  type ShellKind,
 } from './shells';
 
 describe('shellKindFor', () => {
@@ -21,10 +24,116 @@ describe('shellKindFor', () => {
     expect(shellKindFor(WEAPON_CLASS.rocket)).toBe('rocket');
   });
 
-  it('claims nothing else on the roster -- direct fire keeps its tracer', () => {
-    for (const name of ['apfsds', 'heat', 'he', 'atgm', 'rpg', 'small_arms', 'hmg', 'autocannon', 'interceptor', 'demolition']) {
+  // GH-149. This case used to assert `null` for all ten remaining classes;
+  // the contract changed deliberately when direct fire got a projectile, and
+  // the interesting half of it is what is STILL null -- see `shellKindFor`'s
+  // own doc comment for why a rifle burst keeps the full-span ribbon.
+  it('flies a bolt for the one-big-round direct classes -- the tank and the chain gun', () => {
+    expect(shellKindFor(WEAPON_CLASS.apfsds)).toBe('bolt');
+    expect(shellKindFor(WEAPON_CLASS.autocannon)).toBe('bolt');
+  });
+
+  it('flies a missile for the guided/rocket-propelled classes', () => {
+    expect(shellKindFor(WEAPON_CLASS.atgm)).toBe('missile');
+    expect(shellKindFor(WEAPON_CLASS.rpg)).toBe('missile');
+    expect(shellKindFor(WEAPON_CLASS.heat)).toBe('missile');
+  });
+
+  it('leaves the STREAM classes on the flat tracer, which is what that ribbon is right for', () => {
+    for (const name of ['small_arms', 'hmg', 'he', 'interceptor', 'demolition']) {
       expect(shellKindFor(WEAPON_CLASS[name])).toBeNull();
     }
+  });
+});
+
+describe('isIndirectShell', () => {
+  it('splits the arcing kinds from the direct ones -- the one fact that routes a shell', () => {
+    expect(isIndirectShell('mortar')).toBe(true);
+    expect(isIndirectShell('rocket')).toBe(true);
+    expect(isIndirectShell('bolt')).toBe(false);
+    expect(isIndirectShell('missile')).toBe(false);
+  });
+
+  it('is the only kind that detonates on landing -- a direct round leaves it to the sim event', () => {
+    for (const kind of Object.keys(SHELL_PROFILES) as ShellKind[]) {
+      expect(SHELL_PROFILES[kind].impactPower > 0).toBe(isIndirectShell(kind));
+    }
+  });
+});
+
+// The module-level constants are now the ARCING kinds' values and the
+// profiles are what the code reads. These pin the two together, so a future
+// edit to one that means to move both cannot silently move only one --
+// which is exactly how `SHELL_TRAIL_S`'s doc comment would have gone stale.
+describe('the arcing profiles still carry the constants they were tuned as', () => {
+  it.each(['mortar', 'rocket'] as const)('%s', (kind) => {
+    expect(SHELL_PROFILES[kind].trailS).toBe(SHELL_TRAIL_S);
+    expect(SHELL_PROFILES[kind].minDurationS).toBe(SHELL_MIN_DURATION_S);
+    expect(SHELL_PROFILES[kind].baseLiftPx).toBe(0);
+  });
+});
+
+describe('the bolt profile', () => {
+  it('is genuinely flat -- no apex at any range, so its height is the base lift alone', () => {
+    const near = spawnShell(0, 0, 1, 0, 0, 'bolt');
+    const far = spawnShell(0, 0, 40, 0, 0, 'bolt');
+    expect(near.apexPx).toBe(0);
+    expect(far.apexPx).toBe(0);
+    for (const u of [0, 0.25, 0.5, 0.75, 1]) {
+      expect(shellPointAt(far, u).liftPx).toBeCloseTo(SHELL_PROFILES.bolt.baseLiftPx, 9);
+    }
+  });
+
+  it('flies clear of the deck, unlike a mortar bomb which meets its own ground at both ends', () => {
+    expect(SHELL_PROFILES.bolt.baseLiftPx).toBeGreaterThan(0);
+    const bomb = spawnShell(0, 0, 10, 0, 0, 'mortar');
+    expect(shellPointAt(bomb, 0).liftPx).toBe(0);
+    expect(shellPointAt(bomb, 1).liftPx).toBe(0);
+  });
+
+  it('crosses a real engagement in more frames than it is long -- the read GH-149 was after', () => {
+    // 6.7 tiles is the tank-duel range measured on beit_sahwan_outskirts.
+    const shot = spawnShell(0, 0, 6.7, 0, 0, 'bolt');
+    const frames = shot.duration * 60;
+    expect(frames).toBeGreaterThan(8);
+    // The streak must be clearly SHORTER than the gap it crosses, or it
+    // reads as a line that flashes rather than a round that travels.
+    const streakTiles = SHELL_PROFILES.bolt.trailS * SHELL_PROFILES.bolt.speedTilesS;
+    expect(streakTiles).toBeLessThan(6.7 / 2);
+  });
+
+  it('outruns a missile by a wide margin, so a Hellfire and a sabot round do not read alike', () => {
+    expect(SHELL_PROFILES.bolt.speedTilesS).toBeGreaterThan(SHELL_PROFILES.missile.speedTilesS * 4);
+  });
+});
+
+describe('shellTrailSpan reads the KIND\'s own trail, not one global', () => {
+  it('gives a bolt a much shorter wake than a bomb at the same point in flight', () => {
+    // Both 40% through a 12-tile shot: the only thing that can differ is
+    // trailS (and the duration it is divided by).
+    const bomb = { ...spawnShell(0, 0, 12, 0, 0, 'mortar') };
+    const bolt = { ...spawnShell(0, 0, 12, 0, 0, 'bolt') };
+    bomb.t = bomb.duration * 0.4;
+    bolt.t = bolt.duration * 0.4;
+    const span = (s: typeof bomb): number => {
+      const { tail, head } = shellTrailSpan(s);
+      return head - tail;
+    };
+    // In SECONDS of flight, which is what trailS is expressed in.
+    expect(span(bolt) * bolt.duration).toBeCloseTo(SHELL_PROFILES.bolt.trailS, 6);
+    expect(span(bomb) * bomb.duration).toBeCloseTo(SHELL_PROFILES.mortar.trailS, 6);
+    expect(SHELL_PROFILES.bolt.trailS).toBeLessThan(SHELL_PROFILES.mortar.trailS);
+  });
+});
+
+describe('shellHasLanded', () => {
+  it('is true exactly for the shells this dt would drop, so an impact fires once and on time', () => {
+    const s = spawnShell(0, 0, 10, 0, 0, 'mortar');
+    const nearly = { ...s, t: s.duration - 0.02 };
+    expect(shellHasLanded(nearly, 0.01)).toBe(false);
+    expect(shellHasLanded(nearly, 0.05)).toBe(true);
+    expect(stepShells([nearly], 0.01)).toHaveLength(1);
+    expect(stepShells([nearly], 0.05)).toHaveLength(0);
   });
 });
 

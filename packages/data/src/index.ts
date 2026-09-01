@@ -69,6 +69,7 @@ import fireMortar from '../../../data/vfx/fire_mortar.json';
 import cigaretteEmber from '../../../data/vfx/cigarette_ember.json';
 import cigaretteSmoke from '../../../data/vfx/cigarette_smoke.json';
 import fireSmallArms from '../../../data/vfx/fire_small_arms.json';
+import shellImpact from '../../../data/vfx/shell_impact.json';
 import structureCollapse from '../../../data/vfx/structure_collapse.json';
 import tunnelCollapse from '../../../data/vfx/tunnel_collapse.json';
 import vehicleDust from '../../../data/vfx/vehicle_dust.json';
@@ -209,6 +210,7 @@ export const vfxEmitters = [
   fireMortar,
   cigaretteEmber,
   cigaretteSmoke,
+  shellImpact,
   structureCollapse,
   tunnelCollapse,
   vehicleDust,

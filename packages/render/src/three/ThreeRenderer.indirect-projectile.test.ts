@@ -1,6 +1,9 @@
 /**
  * GH-145: indirect fire draws an arcing projectile, and stops drawing the
- * flat ground-level tracer that contradicted it.
+ * flat ground-level tracer that contradicted it. GH-149: so does DIRECT
+ * fire, from the same module and through the same wiring -- plus the two
+ * things that only the wiring can get wrong, the colour pair each batch is
+ * handed and the explosion a landing bomb throws.
  *
  * The wiring is the whole risk here. `units/shells.ts` and `units/fx.ts`'s
  * `writeShellInstances` are covered by their own pure suites, which prove
@@ -22,7 +25,7 @@ import { Sim, fx, type SimEvent, type UnitTypeJson } from '@lions/sim';
 import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
 import type { TracerModel } from './units/tracers';
-import type { ShellModel } from './units/shells';
+import { SHELL_PROFILES, type ShellModel } from './units/shells';
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>();
@@ -58,6 +61,7 @@ function makeOpts(): RendererOptions {
     groupColors: ['#C8B494', '#6E7449', '#8E9491', '#3A3C33', '#E6D8BE', '#4E5433', '#8E9491', '#F2E8D5', '#6E7449'],
     terrainTones: TONES,
     tracerColors: ['#F2E8D5', '#E6D8BE'],
+    shellColors: ['#FFB43C', '#E8541E'],
     flashColor: '#F2E8D5',
     nearMissColor: '#6E7449',
     interceptColor: '#8E9491',
@@ -110,6 +114,37 @@ const RIFLES: UnitTypeJson = {
   ],
 };
 
+/** `mbt_lavi`'s own `gun_120` -- GH-149's headline case. */
+const TANK: UnitTypeJson = {
+  id: 't_tank',
+  role: 'armor',
+  hull: { hp: 3000, armor: { front: 700, side: 300, rear: 120 } },
+  mobility: { speed_tiles_s: 2.4 },
+  sensors: { optics: 1.2, sight_tiles: 20 },
+  weapons: [
+    {
+      id: 'gun_120', type: 'apfsds', range_tiles: 12, effective_range_tiles: 10,
+      accuracy: 0.78, penetration: 700, damage: 900, suppression: 70, rof_per_min: 9,
+    },
+  ],
+};
+
+/** `heli_peten`'s own `hellfire` -- the other half of "the tank and the
+ *  helicopter", and the only `missile` in these fixtures. */
+const HELI: UnitTypeJson = {
+  id: 't_heli',
+  role: 'air',
+  hull: { hp: 900, armor: { front: 40, side: 30, rear: 30 } },
+  mobility: { speed_tiles_s: 6 },
+  sensors: { optics: 1.4, sight_tiles: 20 },
+  weapons: [
+    {
+      id: 'hellfire', type: 'atgm', range_tiles: 10.5, effective_range_tiles: 9,
+      accuracy: 0.8, penetration: 800, damage: 750, suppression: 80, rof_per_min: 6,
+    },
+  ],
+};
+
 const TARGET: UnitTypeJson = {
   id: 't_target',
   role: 'infantry',
@@ -123,6 +158,9 @@ const TARGET: UnitTypeJson = {
 interface Privates {
   tracers: TracerModel[];
   shells: ShellModel[];
+  bolts: ShellModel[];
+  shellBatch: { mesh: { geometry: { attributes: { aColor: { array: Float32Array } } } } };
+  boltBatch: { mesh: { geometry: { attributes: { aColor: { array: Float32Array } } } } };
 }
 
 /**
@@ -235,6 +273,129 @@ describe('indirect fire draws an arcing projectile', () => {
     // And it lands once its own flight time has actually elapsed.
     for (let i = 0; i < Math.ceil(duration * 60) + 2; i++) updateFx(renderer, 1000 / 60);
     expect(p.shells).toHaveLength(0);
+    renderer.dispose();
+  });
+});
+
+/**
+ * GH-149. Everything below is about the WIRING, not the geometry -- the arc
+ * maths is `shells.test.ts`'s and the quad maths is `fx.test.ts`'s, and
+ * neither can tell you that a tank's `fire` event ever reaches them, that
+ * the right batch gets the right colour pair, or that a landing bomb throws
+ * anything. Real unit types, a real `Sim`, real `SimEvent`s, as above.
+ */
+describe('direct fire draws a travelling round', () => {
+  const updateFx = (r: ThreeRenderer, dtMs: number): void =>
+    (r as unknown as { updateFx(ms: number): void }).updateFx(dtMs);
+
+  it("a tank's main gun spawns a bolt, and NOT the flat full-span tracer it used to", () => {
+    const { sim, events } = firstFireEvents(TANK);
+    const renderer = rendererAfter(sim, events);
+    const p = privates(renderer);
+    expect(p.bolts).toHaveLength(1);
+    expect(p.bolts[0].kind).toBe('bolt');
+    // The static full-span line is the thing this REPLACES: photographed at
+    // HEAD, it spanned the whole gap on frame 0 and had not moved by frame
+    // 7. Drawing both would show the round travelling along a line that
+    // already claims it arrived.
+    expect(p.tracers).toHaveLength(0);
+    expect(p.shells).toHaveLength(0);
+    renderer.dispose();
+  });
+
+  it("a helicopter's Hellfire spawns a missile -- slower than the tank's round over the same ground", () => {
+    const tankRun = firstFireEvents(TANK);
+    const heliRun = firstFireEvents(HELI);
+    const tankRenderer = rendererAfter(tankRun.sim, tankRun.events);
+    const heliRenderer = rendererAfter(heliRun.sim, heliRun.events);
+    const bolt = privates(tankRenderer).bolts[0];
+    const missile = privates(heliRenderer).bolts[0];
+    expect(missile.kind).toBe('missile');
+    expect(missile.duration).toBeGreaterThan(bolt.duration * 4);
+    // A missile bends; a sabot round does not.
+    expect(missile.apexPx).toBeGreaterThan(0);
+    expect(bolt.apexPx).toBe(0);
+    tankRenderer.dispose();
+    heliRenderer.dispose();
+  });
+
+  it('a bolt travels: its streak is somewhere different on frame 6 than on frame 1', () => {
+    const { sim, events } = firstFireEvents(TANK);
+    const renderer = rendererAfter(sim, events);
+    const p = privates(renderer);
+    updateFx(renderer, 1000 / 60);
+    const headAfter1 = p.bolts[0].t / p.bolts[0].duration;
+    for (let i = 0; i < 5; i++) updateFx(renderer, 1000 / 60);
+    const headAfter6 = p.bolts[0].t / p.bolts[0].duration;
+    // The whole point of GH-149. A tracer's endpoints never move at all.
+    expect(headAfter6).toBeGreaterThan(headAfter1 + 0.2);
+    expect(headAfter6).toBeLessThan(1);
+    renderer.dispose();
+  });
+
+  it('the two batches are handed DIFFERENT colour pairs -- fire for the bomb, tracer green for the bolt', () => {
+    const readColor = (buf: Float32Array): [number, number, number] => [buf[0], buf[1], buf[2]];
+    const mortarRun = firstFireEvents(MORTAR);
+    const mortarRenderer = rendererAfter(mortarRun.sim, mortarRun.events);
+    updateFx(mortarRenderer, 1000 / 60);
+    const bombRgb = readColor(privates(mortarRenderer).shellBatch.mesh.geometry.attributes.aColor.array);
+
+    const tankRun = firstFireEvents(TANK);
+    const tankRenderer = rendererAfter(tankRun.sim, tankRun.events);
+    updateFx(tankRenderer, 1000 / 60);
+    const boltRgb = readColor(privates(tankRenderer).boltBatch.mesh.geometry.attributes.aColor.array);
+
+    // makeOpts: shellColors[0] = '#FFB43C' (vfx.fire), tracerColors[0] =
+    // '#F2E8D5'. The bomb must be the FORMER -- it was drawn from
+    // tracerColors before GH-149, which is the bug being fixed.
+    expect(bombRgb[0]).toBeCloseTo(1, 3);
+    expect(bombRgb[1]).toBeCloseTo(0xb4 / 255, 3);
+    expect(bombRgb[2]).toBeCloseTo(0x3c / 255, 3);
+    expect(boltRgb[1]).toBeCloseTo(0xe8 / 255, 3);
+    expect(boltRgb[2]).toBeCloseTo(0xd5 / 255, 3);
+    mortarRenderer.dispose();
+    tankRenderer.dispose();
+  });
+
+  it('a landing bomb throws ONE shell_impact burst, on the frame it lands and not before', () => {
+    const { sim, events } = firstFireEvents(MORTAR);
+    const renderer = rendererAfter(sim, events);
+    const p = privates(renderer);
+    const calls: unknown[][] = [];
+    const withPrivate = renderer as unknown as {
+      spawnCollapseFx(id: string, x: number, y: number, power?: number, yaw?: number): boolean;
+    };
+    withPrivate.spawnCollapseFx = (...args: unknown[]): boolean => {
+      calls.push(args);
+      return true;
+    };
+    const shell = p.shells[0];
+    const frames = Math.ceil(shell.duration * 60);
+    for (let i = 0; i < frames - 2; i++) updateFx(renderer, 1000 / 60);
+    expect(calls).toHaveLength(0);
+    for (let i = 0; i < 6; i++) updateFx(renderer, 1000 / 60);
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0]).toBe('shell_impact');
+    // Where it LANDS, which is the aim point, not the tube.
+    expect(calls[0][1]).toBeCloseTo(shell.tx, 5);
+    expect(calls[0][2]).toBeCloseTo(shell.ty, 5);
+    expect(calls[0][3]).toBe(SHELL_PROFILES.mortar.impactPower);
+    renderer.dispose();
+  });
+
+  it('a landing BOLT throws nothing -- a direct hit is the sim event, not a crater', () => {
+    const { sim, events } = firstFireEvents(TANK);
+    const renderer = rendererAfter(sim, events);
+    const calls: unknown[][] = [];
+    (renderer as unknown as { spawnCollapseFx(...a: unknown[]): boolean }).spawnCollapseFx = (
+      ...args: unknown[]
+    ): boolean => {
+      calls.push(args);
+      return true;
+    };
+    for (let i = 0; i < 60; i++) updateFx(renderer, 1000 / 60);
+    expect(privates(renderer).bolts).toHaveLength(0);
+    expect(calls).toHaveLength(0);
     renderer.dispose();
   });
 });

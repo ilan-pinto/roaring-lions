@@ -536,6 +536,7 @@ function buildRendererOptions(): RendererOptions {
     ],
     terrainTones: aridTerrainTones(),
     tracerColors: [paletteColor('vfx.tracer'), paletteColor('vfx.ember')],
+    shellColors: [paletteColor('vfx.fire'), paletteColor('vfx.ember')],
     flashColor: paletteColor('vfx.fire'),
     nearMissColor: paletteColor('dust.0'),
     interceptColor: paletteColor('vfx.interceptor'),

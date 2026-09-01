@@ -21,7 +21,14 @@ import type { SheetSpec } from '../../sheet';
 import { packSheet } from './atlas';
 import { UnitInstancer, HULL_RENDER_ORDER, TURRET_RENDER_ORDER } from './instances';
 import { spawnTracer, type TracerModel } from './tracers';
-import { spawnShell, shellPointAt, shellTrailSpan, SHELL_TRAIL_SEGMENTS, type ShellModel } from './shells';
+import {
+  spawnShell,
+  shellPointAt,
+  shellTrailSpan,
+  SHELL_PROFILES,
+  SHELL_TRAIL_SEGMENTS,
+  type ShellModel,
+} from './shells';
 import { FOG_RENDER_ORDER } from './render-order';
 import { FogMesh } from '../fog-mesh';
 import {
@@ -837,5 +844,69 @@ describe('ShellBatch construction', () => {
     expect(batch.mesh.renderOrder).toBeGreaterThan(new TracerBatch(4).mesh.renderOrder);
     expect(batch.mesh.renderOrder).toBeLessThan(FOG_RENDER_ORDER);
     expect(batch.mesh.frustumCulled).toBe(false);
+  });
+
+  // GH-149: the same class, constructed the other way for the direct-fire
+  // batch. Both flags together, because either alone would be a different
+  // effect -- band 2 with no depth test would sit under the arcing rounds
+  // AND ignore the wreck in front of it.
+  it('takes the opposite treatment on request -- depth-tested, in the tracer band', () => {
+    const bolts = new ShellBatch(4, { depthTest: true, renderOrder: FX_RENDER_ORDER });
+    expect(bolts.mesh.material.depthTest).toBe(true);
+    expect(bolts.mesh.renderOrder).toBe(FX_RENDER_ORDER);
+    expect(bolts.mesh.renderOrder).toBe(new TracerBatch(4).mesh.renderOrder);
+    // Everything else is still the shared contract.
+    expect(bolts.mesh.material.transparent).toBe(true);
+    expect(bolts.mesh.material.depthWrite).toBe(false);
+    expect(bolts.mesh.material.side).toBe(THREE.DoubleSide);
+    expect(bolts.mesh.frustumCulled).toBe(false);
+  });
+});
+
+describe('per-kind streak width', () => {
+  function sBuffers(capacity: number): TracerInstanceBuffers {
+    return {
+      positions: new Float32Array(capacity * 4 * 3),
+      colors: new Float32Array(capacity * 4 * 3),
+      alphas: new Float32Array(capacity * 4),
+    };
+  }
+
+  // SHELL_WIDTH_PX is now the ARCING kinds' value and a default parameter;
+  // SHELL_PROFILES[kind].widthPx is what writeShellInstances reads. Pinned
+  // so the constant's own doc comment cannot go quietly stale.
+  it('still equals SHELL_WIDTH_PX for the kinds it was tuned as', () => {
+    expect(SHELL_PROFILES.mortar.widthPx).toBe(SHELL_WIDTH_PX);
+    expect(SHELL_PROFILES.rocket.widthPx).toBe(SHELL_WIDTH_PX);
+  });
+
+  // Measured in SCREEN pixels, not world units, and that distinction is the
+  // whole test. A first draft compared `Math.hypot(dx, dz)` on the raw world
+  // positions and PASSED with the per-kind width removed -- because
+  // `screenOffsetToWorld` reprojects a fixed screen offset to a world delta
+  // whose length depends on its DIRECTION, and a bolt's flat segment points
+  // a different way on screen than an arcing mortar's. It was measuring the
+  // bearing, not the width. Broken by hand both ways: with the width source
+  // reverted to the single constant this now fails on the bolt line.
+  it('writes each kind at its OWN width, measured on screen where the taper is 1', () => {
+    const headWidthPx = (kind: 'mortar' | 'bolt' | 'missile'): number => {
+      const out = sBuffers(SHELL_TRAIL_SEGMENTS);
+      writeShellInstances([{ ...spawnShell(0, 0, 12, 0, 0, kind), t: 0.6 }], ['#FFFFFF', '#FFFFFF'], null, 0, 0, out);
+      // Head quad (the last one); its b1/b0 pair is the end where the taper
+      // factor is exactly 1, so the offset is the profile's own width.
+      const base = (SHELL_TRAIL_SEGMENTS - 1) * 12;
+      const screen = (i: number) => ({
+        x: isoX(out.positions[base + i], out.positions[base + i + 2]),
+        y: isoY(out.positions[base + i], out.positions[base + i + 2]) -
+          out.positions[base + i + 1] / WORLD_Y_PER_LIFT_PIXEL,
+      });
+      const b1 = screen(6);
+      const b0 = screen(9);
+      return Math.hypot(b1.x - b0.x, b1.y - b0.y);
+    };
+    expect(headWidthPx('mortar')).toBeCloseTo(SHELL_PROFILES.mortar.widthPx, 4);
+    expect(headWidthPx('bolt')).toBeCloseTo(SHELL_PROFILES.bolt.widthPx, 4);
+    expect(headWidthPx('missile')).toBeCloseTo(SHELL_PROFILES.missile.widthPx, 4);
+    expect(SHELL_PROFILES.bolt.widthPx).toBeLessThan(SHELL_PROFILES.mortar.widthPx);
   });
 });

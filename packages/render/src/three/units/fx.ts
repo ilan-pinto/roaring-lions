@@ -366,6 +366,7 @@ import { tracerAlpha, type TracerModel } from './tracers';
 import {
   shellPointAt,
   shellTrailSpan,
+  SHELL_PROFILES,
   SHELL_TRAIL_SEGMENTS,
   type ShellModel,
 } from './shells';
@@ -445,6 +446,21 @@ export const TRACER_WIDTH_PX = 1.5;
  * vertices, under a tenth of the tracer pool's.
  */
 export const SHELL_CAPACITY = 384;
+/**
+ * GH-149, the direct-fire streak. Quads again, `SHELL_TRAIL_SEGMENTS` per
+ * round, so this holds 256 bolts and missiles in the air at once.
+ *
+ * Four times `SHELL_CAPACITY` because direct fire is four orders of
+ * magnitude more frequent than indirect. The worst shipped case is the
+ * autocannon: `zu23_twin` at 800 rounds per minute is 13.3 shots a second,
+ * and a bolt's cosmetic flight over a 10-tile shot is 0.33 s, so ONE gun
+ * truck sustains about 4.4 live bolts. 256 is therefore roughly 58
+ * simultaneously-firing autocannons -- more than the whole roster of any
+ * shipped mission, with the same "evicts the oldest" degradation
+ * `writeShellInstances` already documents if it is ever exceeded. 1536 * 4 =
+ * 6144 vertices, well under the tracer pool's 16384.
+ */
+export const BOLT_CAPACITY = 1536;
 /** Screen-pixel lift a shell draws at above the ground line between its own
  *  launch and impact tiles, on top of whatever the arc itself contributes.
  *  Exists for one reason: at `u = 0` and `u = 1` the arc's own height is
@@ -453,11 +469,17 @@ export const SHELL_CAPACITY = 384;
  *  not misplaced" failure `TRACER_LIFT_PX` documents. Same value, for the
  *  same reason. */
 export const SHELL_LIFT_PX = 4;
-/** Width in screen pixels of the streak AT THE ROUND. More than three times
- *  `TRACER_WIDTH_PX`, deliberately: a bullet is a line and a bomb is an
- *  object, and a tracer gets to be 1.5px because it spans the whole shot
- *  while this spans about a tile. 3.5 was the first value walked in the
- *  browser and read as a thin dash; 5 reads as a round. */
+/** Width in screen pixels of the streak AT THE ROUND, for the ARCING kinds.
+ *  More than three times `TRACER_WIDTH_PX`, deliberately: a bullet is a line
+ *  and a bomb is an object, and a tracer gets to be 1.5px because it spans
+ *  the whole shot while this spans about a tile. 3.5 was the first value
+ *  walked in the browser and read as a thin dash; 5 reads as a round.
+ *
+ *  GH-149 moved the live per-kind value onto `SHELL_PROFILES[kind].widthPx`
+ *  -- a bolt is deliberately thinner than a bomb -- and this stays as
+ *  `shellSegmentQuad`'s own default parameter and as the number the mortar
+ *  and rocket profiles were tuned to. `fx.test.ts` pins the two together so
+ *  they cannot drift apart silently. */
 export const SHELL_WIDTH_PX = 5;
 /** The tail of the streak is this fraction of the head's width -- the taper
  *  that makes it read as a round with a wake rather than a floating dash. */
@@ -906,6 +928,9 @@ export function writeShellInstances(
   for (let i = start; i < shells.length; i++) {
     const s = shells[i];
     const { tail, head } = shellTrailSpan(s);
+    // GH-149: per KIND, not one constant -- a `bolt` is a thinner streak than
+    // a mortar bomb. `SHELL_WIDTH_PX` remains the arcing kinds' own value.
+    const widthPx = SHELL_PROFILES[s.kind].widthPx;
     const [r, g, b] = cachedHexToUnit(tracerColors[s.side] ?? tracerColors[0]);
     for (let seg = 0; seg < SHELL_TRAIL_SEGMENTS; seg++) {
       const fA = seg / SHELL_TRAIL_SEGMENTS;
@@ -919,8 +944,8 @@ export function writeShellInstances(
         elevation,
         mapWidth,
         mapHeight,
-        SHELL_WIDTH_PX * (SHELL_TAIL_WIDTH_RATIO + (1 - SHELL_TAIL_WIDTH_RATIO) * fA),
-        SHELL_WIDTH_PX * (SHELL_TAIL_WIDTH_RATIO + (1 - SHELL_TAIL_WIDTH_RATIO) * fB)
+        widthPx * (SHELL_TAIL_WIDTH_RATIO + (1 - SHELL_TAIL_WIDTH_RATIO) * fA),
+        widthPx * (SHELL_TAIL_WIDTH_RATIO + (1 - SHELL_TAIL_WIDTH_RATIO) * fB)
       );
       out.positions.set(quad, count * 12);
       for (let v = 0; v < 4; v++) {
@@ -1389,6 +1414,14 @@ export class TracerBatch {
  * item instead of one, and `writeShellInstances` in place of
  * `writeTracerInstances`.
  *
+ * GH-149 added a SECOND instance of this same class for direct fire
+ * (`boltBatch` in `ThreeRenderer`), which is why the two flags that used to
+ * be hardcoded here are now constructor options -- see "`depthTest: false`,
+ * and band 3 rather than band 2" below, which is still the DEFAULT and is
+ * still the arcing case's answer, and `ShellBatchOptions` for the direct
+ * case's opposite one. Nothing else differs between the two instances: the
+ * geometry writer, the material and the index buffer are shared outright.
+ *
  * It shares `createTracerMaterial` and `tracerIndexBuffer` outright rather
  * than growing near-copies. `transparent` (the streak tapers) and
  * `depthWrite: false` (a fading streak must not punch a hole in what is
@@ -1427,13 +1460,35 @@ export class TracerBatch {
  * `SHELL_CAPACITY` and `writeShellInstances` derives the shell count from
  * it.
  */
+export interface ShellBatchOptions {
+  /**
+   * `false` (the default) for the arcing batch, for the measured reason
+   * above. `true` for GH-149's DIRECT-fire batch, where the argument runs
+   * the other way and lands where `TracerBatch`'s already does: a bolt flies
+   * at `SHELL_PROFILES.bolt.baseLiftPx` (9 lift pixels, about turret
+   * height), not the eighty-eight a mortar reaches, so it is at exactly the
+   * height a building or a ridge in front of it SHOULD hide -- and the
+   * "vanishes depending on what stands under it" hazard cannot bite,
+   * because direct fire needs line of sight to have been fired at all, so
+   * there is nothing sight-blocking between the two ends by construction.
+   * What is left for the depth test to arbitrate is the honest case: a
+   * wreck, a rock or another unit standing in front of the line.
+   */
+  depthTest?: boolean;
+  /** Defaults to `FX_RENDER_ORDER_ABOVE` (band 3). The direct batch passes
+   *  `FX_RENDER_ORDER` (band 2) so it sits with `TracerBatch`, which is what
+   *  it is a variant of -- see `./render-order.ts`, the single source of
+   *  truth for every band this backend uses. */
+  renderOrder?: number;
+}
+
 export class ShellBatch {
   readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
   private readonly positionAttr: THREE.BufferAttribute;
   private readonly colorAttr: THREE.BufferAttribute;
   private readonly alphaAttr: THREE.BufferAttribute;
 
-  constructor(capacity: number) {
+  constructor(capacity: number, opts: ShellBatchOptions = {}) {
     const geometry = new THREE.BufferGeometry();
     this.positionAttr = new THREE.BufferAttribute(new Float32Array(capacity * 4 * 3), 3);
     this.positionAttr.setUsage(THREE.DynamicDrawUsage);
@@ -1447,8 +1502,8 @@ export class ShellBatch {
     geometry.setIndex(new THREE.BufferAttribute(tracerIndexBuffer(capacity), 1));
     geometry.setDrawRange(0, 0);
 
-    this.mesh = new THREE.Mesh(geometry, createTracerMaterial(false));
-    this.mesh.renderOrder = FX_RENDER_ORDER_ABOVE;
+    this.mesh = new THREE.Mesh(geometry, createTracerMaterial(opts.depthTest ?? false));
+    this.mesh.renderOrder = opts.renderOrder ?? FX_RENDER_ORDER_ABOVE;
     this.mesh.frustumCulled = false;
   }
 

@@ -470,6 +470,10 @@ async function main(): Promise<void> {
     ],
     terrainTones: TERRAIN_THEMES[map.terrain],
     tracerColors: [paletteColor('vfx.tracer'), paletteColor('vfx.ember')],
+    // GH-149. Deliberately NOT `tracerColors` -- an arcing round is
+    // ordnance, not a bullet, and drew green until now. See
+    // `RendererOptions.shellColors`.
+    shellColors: [paletteColor('vfx.fire'), paletteColor('vfx.ember')],
     flashColor: paletteColor('vfx.fire'),
     nearMissColor: paletteColor('dust.0'),
     interceptColor: paletteColor('vfx.interceptor'),

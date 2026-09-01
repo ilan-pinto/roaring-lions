@@ -59,6 +59,7 @@ function makeOpts(): RendererOptions {
     groupColors: ['#C8B494', '#6E7449', '#8E9491', '#3A3C33', '#E6D8BE', '#4E5433', '#8E9491', '#F2E8D5', '#6E7449'],
     terrainTones: TONES,
     tracerColors: ['#F2E8D5', '#E6D8BE'],
+    shellColors: ['#FFB43C', '#E8541E'],
     flashColor: '#F2E8D5',
     nearMissColor: '#6E7449',
     interceptColor: '#8E9491',
