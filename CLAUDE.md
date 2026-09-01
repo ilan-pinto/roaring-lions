@@ -286,20 +286,36 @@ yours; each one records what the next phase inherits.
   exist (`quiet`, `open-ground`, `vehicle`, `combat`), each with its own entry in
   `SCENARIO_BUDGETS`, and a scenario with no budget throws rather than passing
   silently.
-  **The `quiet` scenario is RED and has been silently so** — measured 2026-09-01
-  at HEAD `b7a2465`, twice, bit-identical: `diffPixelPct 2.564%` against a
-  `1.3%` budget (`meanAbsChannelDelta 3.005` of 10, well inside). It is not
-  antialiasing fringe: the diff has large SOLID-INTERIOR regions where three
-  draws terracotta mesh buildings and detailed decor that Pixi has no
-  counterpart for at all. The 1.3% budget was calibrated (`0.128%` GPU /
-  `0.143%` headless) when three drew none of that. Because the workflow only
-  runs nightly or on a label, nothing surfaced it. **Do not widen the budget to
-  clear this** — that is the failure mode the gate's own header forbids. It
-  needs a decision first: the project has already abandoned cross-backend parity
-  for VFX and mesh units have no Pixi path at all, so the honest options are a
-  re-calibration against a fresh measurement, a new `EXPECTED_DIFFERENCES` entry
-  for three-only building/decor geometry (the catalogue has none for it), or
-  retiring the quiet scenario.
+  **ALL FOUR scenarios are RED and have been silently so** — not just `quiet`,
+  as this file first recorded. Measured 2026-09-01 at HEAD `5ccdafc`, headless
+  Chromium, software GL, 1400x900: `quiet` 2.556% against a 1.3% budget,
+  `open-ground` 7.094% against 3%, `vehicle` 5.426% against 2.4%, `combat`
+  11.971% against 7%. Because the workflow only runs nightly or on a label,
+  nothing surfaced it.
+  **The cause is the mesh path, measured rather than inferred.** Re-capturing
+  three with `&nomesh` and diffing against the IDENTICAL Pixi capture puts every
+  scenario back inside budget — 0.255% / 2.132% / 1.312% / 5.996%. So 100% of
+  the overage is mesh units, mesh buildings and mesh decor, none of which Pixi
+  has any counterpart for, permanently and by design. The budgets were last
+  calibrated at `45a2cc1`, **124 commits** before the mesh flip (`362bde7`),
+  decor-by-default (`edf45ff`) and mesh trees (`c452d5d`) landed.
+  **The 2026-09-01 renderer batch is NOT the cause** — an earlier note here
+  called that "a strong correlation"; it is now disproved. Re-running the whole
+  gate at `431cc00`, the commit immediately before that batch, reproduces every
+  number within ±0.03pp (2.583 / 7.064 / 5.448 / 11.992). The coursed walls,
+  concrete coursing, occlusion outline and mesh civilians changed the gate's
+  reading by nothing.
+  **Do not widen the budgets to clear this**, and note that adding
+  `EXPECTED_DIFFERENCES` entries cannot clear it either — that catalogue is
+  advisory, printed on failure, and feeds nothing in the `diffOk` path. What it
+  needs is a decision about what the gate should COMPARE, now that three is the
+  default and the two backends diverge on purpose: the honest reading is that a
+  cross-backend pixel diff measures the gap between what players see and what
+  nobody sees, and the same-renderer-against-a-stored-baseline shape would catch
+  what actually matters. The harness's own `OPEN_GROUND_SCENARIO` comment
+  already measured that a same-renderer cross-commit diff discriminates **34x**
+  better than the cross-backend one. See
+  `.superpowers/queue/golden-diff-red-report.md`.
   **VFX are exempt from this diff as of 2026-08-30.** The project lead's call:
   "all VFX should move to three." Pixi's VFX are legacy and are no longer owed a
   matching effect — an effect that exists only in three is the intended end

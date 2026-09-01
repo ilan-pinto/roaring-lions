@@ -64,18 +64,56 @@ export const EXPECTED_DIFFERENCES: readonly ExpectedDifference[] = [
   {
     id: 'meshUnits',
     symptom:
-      'A unit type drawn as a rigged 3D mesh under three (with &mesh) has no counterpart ' +
-      'shape in Pixi at all -- not a colour or edge difference, an entirely different ' +
-      'silhouette.',
+      'A unit type drawn as a rigged 3D mesh under three has no counterpart shape in ' +
+      'Pixi at all -- not a colour or edge difference, an entirely different silhouette.',
     mechanism:
-      'Mesh units (packages/render/src/three/units/mesh-*.ts, currently inf_squad under ' +
-      '?renderer=three&mesh) have no Pixi rendering path whatsoever. Pixi always draws ' +
-      'the billboard sprite for that type.',
-    source: 'CLAUDE.md, "Mesh units"; task prompt.',
+      'Mesh units (packages/render/src/three/units/mesh-*.ts) have no Pixi rendering ' +
+      'path whatsoever. Pixi always draws the billboard sprite for that type. REWRITTEN ' +
+      '2026-09-01: this entry used to say "currently inf_squad under ?renderer=three&mesh", ' +
+      'and its howToConfirm told a triager to check that "the &mesh flag was on ... the ' +
+      'harness default" being flag OFF. Both halves are now false and the second was ' +
+      'actively harmful -- it would lead a triager to rule this entry OUT on every ' +
+      'modern run. Since the mesh flip (362bde7) meshes are the DEFAULT on three for ' +
+      'every type with a shipped GLB, with no flag; `&mesh` is accepted and does ' +
+      'nothing; the opt-out is `&nomesh`. Scope is no longer one unit type -- it is most ' +
+      'of the roster plus civilians (2ed7e7c) and vehicles.',
+    source:
+      'CLAUDE.md, "Mesh units"; commit 362bde7 (meshes default, &mesh becomes &nomesh); ' +
+      'measured 2026-09-01, see meshBuildingsAndDecor below for the numbers.',
     howToConfirm:
-      'The &mesh flag was on for the three capture. Compare with the flag OFF (the ' +
-      'harness default) unless deliberately testing mesh parity, which is not parity at ' +
-      'all -- it is an intentionally unported feature.',
+      'This is the DEFAULT state of any three capture -- assume it is present unless ' +
+      '`&nomesh` was on. To measure how much of a diff it accounts for, re-capture three ' +
+      'with `&nomesh` appended and diff that against the same Pixi capture; the ' +
+      'difference between the two percentages is this entry plus meshBuildingsAndDecor.',
+  },
+  {
+    id: 'meshBuildingsAndDecor',
+    symptom:
+      'Large SOLID-INTERIOR regions -- whole buildings, compounds and vegetation -- in a ' +
+      'different colour family and a different shape between backends. On ' +
+      'beit_sahwan_outskirts at town_center: Pixi draws a flat cream mosque compound, a ' +
+      'small tan building and round green tree canopies; three draws a terracotta mesh ' +
+      'compound, a detailed walled construction site (brick coursing, rebar, tanks, ' +
+      'pipes) and bare brown branching trees. Not an edge fringe -- Pixi has no ' +
+      'counterpart geometry at all.',
+    mechanism:
+      'Building meshes (f3c9ba5) and scattered decor meshes (edf45ff, a34bca7; mesh trees ' +
+      'replaced the procedural canopy in c452d5d) draw by default on three and have no ' +
+      'Pixi path, exactly as meshUnits above. Pixi keeps its billboard/procedural ' +
+      'rendering. This is the SAME permanent, by-design asymmetry, and it is the single ' +
+      'largest contributor to every scenario the CI gate runs.',
+    source:
+      'Measured 2026-09-01 at HEAD 5ccdafc, headless Chromium (software GL), 1400x900, ' +
+      'via a `&nomesh` A/B against the identical Pixi capture. pixi-vs-three with meshes ' +
+      'ON vs with `&nomesh`: quiet 2.556% -> 0.255%, open-ground 7.094% -> 2.132%, ' +
+      'vehicle 5.426% -> 1.312%, combat 11.971% -> 5.996%. With `&nomesh` all four sit ' +
+      'INSIDE their SCENARIO_BUDGETS; with meshes on all four are over. Re-measured at ' +
+      '431cc00 (before the 2026-09-01 renderer batch) within +/-0.03pp, so this predates ' +
+      'that batch and is not a regression in it.',
+    howToConfirm:
+      'The diff region is a filled building/vegetation footprint, not a 1-2px outline, ' +
+      'and the two captures show recognisably different ART rather than the same art ' +
+      'shaded differently. Confirm quantitatively with the `&nomesh` A/B above.',
   },
   {
     id: 'turretMuzzleOriginIsSoft',

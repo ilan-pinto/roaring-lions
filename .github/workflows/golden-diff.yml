@@ -68,10 +68,21 @@ jobs:
       # (quiet, open-ground, vehicle, combat as of 2026-09-01), each against its
       # own SCENARIO_BUDGETS entry in golden-diff-gate.ts -- see that file's top
       # comment for why a single global threshold stopped being the right shape.
-      # KNOWN RED as of 2026-09-01: `quiet` measures 2.564% against its 1.3%
-      # budget, reproducibly, because three now draws mesh buildings and decor
-      # Pixi has no counterpart for -- solid-interior diff, not AA fringe. See
-      # CLAUDE.md's golden-diff paragraph. Do NOT widen the budget to clear it.
+      # KNOWN RED as of 2026-09-01, and it is ALL FOUR scenarios, not just `quiet`
+      # as this comment first said: quiet 2.556%/1.3%, open-ground 7.094%/3%,
+      # vehicle 5.426%/2.4%, combat 11.971%/7%. Cause is measured, not guessed:
+      # re-capturing three with `&nomesh` and diffing against the identical Pixi
+      # capture puts all four back INSIDE budget (0.255 / 2.132 / 1.312 / 5.996),
+      # so 100% of the overage is the mesh path -- mesh units, mesh buildings and
+      # mesh decor, none of which Pixi has any counterpart for by design. The
+      # budgets were last calibrated at 45a2cc1, 124 commits before the mesh flip
+      # (362bde7) and the decor work (edf45ff, c452d5d) landed.
+      # Do NOT widen the budgets to clear this, and note that adding
+      # expected-differences.ts entries cannot clear it either -- that catalogue is
+      # advisory print-only and feeds nothing in the pass/fail path. This needs a
+      # decision on what the gate should compare at all now that three is the
+      # default and the backends diverge deliberately; see
+      # .superpowers/queue/golden-diff-red-report.md and CLAUDE.md.
       - name: Capture + diff Pixi vs three.js (all SCENARIOS)
         run: pnpm --filter @lions/tools golden-diff:ci -- --port=5174 --out-dir=golden-diff-ci-output
 
