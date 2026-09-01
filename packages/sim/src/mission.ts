@@ -175,7 +175,7 @@ export interface MissionJson {
       at_seconds: number;
       trigger?: string;
       to?: string;
-      units: readonly { unit: string; count: number; from?: string }[];
+      units: readonly { unit: string; count: number; from?: string; group?: string; tag?: string }[];
     }[];
   };
   triggers?: readonly {
@@ -1412,7 +1412,17 @@ export class MissionRuntime {
       const spawned: number[] = [];
       for (const u of w.units) {
         if (!u.from) throw new Error(`mission ${this.mission.id}: wave unit ${u.unit} has no "from"`);
-        spawned.push(...this.spawnPlacement({ unit: u.unit, count: u.count, marker: u.from }, 1));
+        // `group`/`tag` pass through, so a wave can be addressed by the same
+        // triggers a garrison can. Dropping them here is why `withdraw_to`,
+        // `commit` and `eliminate_hvt` could not name a wave at all, and why
+        // `wadi_halam_2_laager` works around it by spawning its four waves
+        // through `timer_s` triggers instead (#88).
+        spawned.push(
+          ...this.spawnPlacement(
+            { unit: u.unit, count: u.count, marker: u.from, group: u.group, tag: u.tag },
+            1
+          )
+        );
       }
       out.push({ kind: 'wave', tick, count: spawned.length });
       if (w.to && spawned.length > 0) {

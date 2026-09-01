@@ -39,7 +39,11 @@ export interface ParsedWorld {
   regions: readonly WorldRegion[];
 }
 
-export type RegionStatus = 'live' | 'complete' | 'locked';
+/** `empty` is "unlocked, but nothing authored" -- distinct from `live`, which
+ *  promises something to click. Without it an empty region printed the badge
+ *  `live` directly above "no operations authored yet" and the card
+ *  contradicted itself; the badge is the half that reads as actionable. */
+export type RegionStatus = 'live' | 'complete' | 'locked' | 'empty';
 
 /** One country on the world render: generated geometry from countries.json.
  *  The three campaign fronts share ids with world.json regions; the rest are
@@ -155,7 +159,13 @@ export function regionProgress(region: WorldRegion, ledger: LedgerData | undefin
   // A region with nothing authored yet is not "finished". Treating total 0 as complete
   // would grey out every region piece 2 has not written, which reads as a bug.
   const status: RegionStatus =
-    lockedBecause !== null ? 'locked' : total > 0 && done === total ? 'complete' : 'live';
+    lockedBecause !== null
+      ? 'locked'
+      : total === 0
+        ? 'empty'
+        : done === total
+          ? 'complete'
+          : 'live';
   return { status, done, total, lockedBecause };
 }
 

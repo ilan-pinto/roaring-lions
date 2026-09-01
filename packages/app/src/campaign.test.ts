@@ -64,17 +64,25 @@ describe('regionProgress', () => {
     expect(p.lockedBecause).toBe(null);
   });
 
-  it('is not complete when it has no missions authored yet, however open it is', () => {
+  it('reports an unlocked region with nothing authored as empty, not complete and not live', () => {
     // Umm Zeitoun is still empty pending its own mission slice. total 0 must not
     // read as "finished", or an unwritten town would show up already greyed out.
     // (Tel Marum, sur.towns[0], now carries tel_marum_1_recon and no longer fits
     // this case -- this asserts on umm_zeitoun instead, which still has none.)
+    //
+    // It must not read as `live` either (#117): the card printed the badge
+    // `live` directly above "no operations authored yet", and the badge is the
+    // half a player acts on. `live` promises something to click; `empty` is
+    // open ground with nothing on it. The un-clickable hover affordances that
+    // made that promise worse are gated on the same distinction -- see
+    // worldmap.test.ts.
     const surWithOneAuthoredTown = { ...sur, towns: [sur.towns[1]!] };
     const p = regionProgress(surWithOneAuthoredTown, {
       'campaign.completed_missions': ['beit_sahwan_3_clearance'],
     });
     expect(p.total).toBe(0);
-    expect(p.status).toBe('live');
+    expect(p.status).toBe('empty');
+    expect(p.lockedBecause).toBe(null);
   });
 
   it('ignores completed missions that belong to other regions', () => {

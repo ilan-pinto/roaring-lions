@@ -122,11 +122,18 @@ export function worldMap(opts: WorldMapOptions): HTMLElement {
         })
       );
     }
-    // Same glow contract the town markers use, from the country's own ground.
-    g.addEventListener('mouseenter', () => g.setAttribute('data-hover', '1'));
-    g.addEventListener('mouseleave', () => g.removeAttribute('data-hover'));
-    g.addEventListener('focusin', () => g.setAttribute('data-hover', '1'));
-    g.addEventListener('focusout', () => g.removeAttribute('data-hover'));
+    // Same glow contract the town markers use, from the country's own ground --
+    // but ONLY where the ground is actually a control. These were attached to
+    // every non-home country regardless, so a locked country and an unlocked
+    // one with nothing authored both lit up under the cursor and then did
+    // nothing when clicked. Hover feedback is the affordance that says "this is
+    // a control", so it is gated on the same `next` the <a> wrapper is.
+    if (next !== null) {
+      g.addEventListener('mouseenter', () => g.setAttribute('data-hover', '1'));
+      g.addEventListener('mouseleave', () => g.removeAttribute('data-hover'));
+      g.addEventListener('focusin', () => g.setAttribute('data-hover', '1'));
+      g.addEventListener('focusout', () => g.removeAttribute('data-hover'));
+    }
     svg.appendChild(g);
   }
   board.appendChild(svg);

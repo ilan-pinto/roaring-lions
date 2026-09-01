@@ -345,6 +345,14 @@
                     "from": {
                       "type": "string",
                       "description": "Spawn point or tunnel id. Tunnels keep producing until located and collapsed."
+                    },
+                    "group": {
+                      "type": "string",
+                      "description": "Group id, so commit/withdraw_to can address this wave. Without it a wave is unaddressable by any trigger -- the reason no mission could make raiders break off."
+                    },
+                    "tag": {
+                      "type": "string",
+                      "description": "Tag, so eliminate_hvt and intel.marked_positions can name a unit from this wave."
                     }
                   }
                 }

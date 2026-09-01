@@ -173,7 +173,15 @@
   filter: drop-shadow(0 0 5px var(--map-live)) drop-shadow(0 0 12px var(--map-live));
 }
 .rl-world__town { transition: transform 120ms ease-out; }
-.rl-world__town:hover { transform: translate(-50%, -50%) scale(1.08); }
+/* Only a town you can actually open moves under the cursor. This used to be
+   unqualified, so an `empty` or `locked` marker scaled exactly like a playable
+   one -- the muted colour said "not available" and the motion said "press me".
+   Keyed off the link's own presence rather than a status list or a second data
+   attribute, so it cannot drift from whether there is really a link to click:
+   `worldmap.ts` emits `.rl-world__townlink` in exactly that case. */
+.rl-world__town:has(.rl-world__townlink):hover {
+  transform: translate(-50%, -50%) scale(1.08);
+}
 /* complete/locked are told apart from live by texture and saturation, never by
    fading the whole group toward the page ground. opacity composites the region
    against the page background to make it "dimmer" -- and the ground here is
@@ -187,6 +195,10 @@
    as the ground and only ever meant to read against a bright live fill. */
 [data-status='complete'] { filter: grayscale(0.55) saturate(0.55); }
 [data-status='complete'] .region-outline { stroke: var(--map-spent); stroke-width: 2.5; }
+/* Open, but nothing authored: not greyed like a finished or locked region --
+   it is not spent and it is not barred -- just given no live outline, so it
+   reads as ground with nothing on it rather than a front you can act on. */
+[data-status='empty'] .region-outline { stroke: var(--map-spent); stroke-width: 2; }
 [data-status='locked'] { filter: grayscale(0.9) brightness(0.7) contrast(1.05); }
 [data-status='locked'] .region-outline { stroke: var(--map-locked-line); stroke-width: 2; }
 

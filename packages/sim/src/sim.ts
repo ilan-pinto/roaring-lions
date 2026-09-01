@@ -2039,6 +2039,29 @@ export class Sim {
 
   /** Signature × strength × p for one observer→target pair. Shared by the
    *  detection system and the debug overlay (which is why it exists). */
+  /**
+   * Does minimum range forbid this shot?
+   *
+   * Minimum range models arming distance and flight time against a target
+   * that is manoeuvring and shooting back. A firepower-killed vehicle is
+   * doing neither -- it is a stationary hulk -- and refusing the shot there
+   * is what let one sit permanently unengageable at point-blank while the
+   * only weapon present that could penetrate it stood 0.7 tiles away (#105).
+   * Both sides then stood still until the tick budget ran out, with no error
+   * and a mission objective hanging on a unit nothing could kill.
+   *
+   * Deliberately narrow: it changes nothing about engaging a HEALTHY target
+   * inside minimum range, which stays forbidden. `firepowerKilled` is never
+   * cleared anywhere in this file, so this is the one state that can make the
+   * exclusion permanent rather than momentary.
+   *
+   * Structures never reach here -- they cannot be firepower-killed -- so the
+   * two structure-targeting sites keep the bare comparison.
+   */
+  private minRangeBlocks(w: WeaponStats, dSq: Fx, target: number): boolean {
+    return dSq < w.minRangeSq && this.firepowerKilled[target] === 0;
+  }
+
   private detectionPair(obs: number, tgt: number): DetectionDebug {
     const none: DetectionDebug = {
       visible: false,
@@ -2183,7 +2206,7 @@ export class Sim {
     let best: HitProjection = { kind: 'noSolution' };
     let bestP = -1;
     for (const w of type.weapons) {
-      if (dSq > w.rangeSq || dSq < w.minRangeSq) continue;
+      if (dSq > w.rangeSq || this.minRangeBlocks(w, dSq, target)) continue;
       if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
         if (this.losRay(px >> 16, py >> 16, tx >> 16, ty >> 16) < 0) continue;
       }
@@ -2623,7 +2646,7 @@ export class Sim {
       // on to an aircraft and firing into the sky for the rest of the fight.
       if (this.unitTypes[this.typeIdx[t]].isAir ? !w.canTargetAir : !w.canTargetGround) continue;
       const dSq = distSqFx(fx.sub(this.posX[t], px), fx.sub(this.posY[t], py));
-      if (dSq > w.rangeSq || dSq < w.minRangeSq) continue;
+      if (dSq > w.rangeSq || this.minRangeBlocks(w, dSq, t)) continue;
       if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
         if (this.losRay(px >> 16, py >> 16, this.posX[t] >> 16, this.posY[t] >> 16) < 0) continue;
       }

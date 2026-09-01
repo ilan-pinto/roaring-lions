@@ -1129,6 +1129,49 @@ describe('economy (GDD §3, just enough for M1)', () => {
     expect(fx.toNumber(w.sim.state.posX[w.sim.entityCount - 1])).toBeCloseTo(4, 0);
   });
 
+  // #88's third defect: a wave's units carried neither `group` nor `tag`,
+  // because `stepWaves` built a fresh literal passing only unit/count/marker.
+  // So no trigger could address a wave -- `withdraw_to` and `commit` name a
+  // group, `eliminate_hvt` names a tag, and a wave had neither. The visible
+  // consequence was that NO mission in the repo could make raiders break off,
+  // which is GDD 5.7's whole Raid doctrine. Asserted end to end (spawn ->
+  // trigger -> the units actually leave) rather than on the group map, since
+  // "the group exists" is not the thing that was broken for the player.
+  it('lets a trigger withdraw a wave, so raiders can break off', () => {
+    const w = makeWorld(
+      baseMission({
+        map: { file: 'none', player_start: [4, 6] },
+        starting_force: [{ unit: 'm_squad', count: 1, at: [4, 6] }],
+        enemy: {
+          waves: [
+            {
+              at_seconds: 1,
+              units: [{ unit: 'm_squad', count: 2, from: 'east', group: 'raiders' }],
+            },
+          ],
+        },
+        triggers: [
+          { id: 'break_off', on: { kind: 'timer_s', value: 3 }, do: { kind: 'withdraw_to', group: 'raiders', to: 'east' } },
+        ],
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+      }),
+      { markers: { east: [22, 6] } }
+    );
+    w.step(2 * TICKS_PER_SECOND);
+    const raiders: number[] = [];
+    for (let i = 0; i < w.sim.entityCount; i++) {
+      if (w.sim.state.alive[i] === 1 && w.sim.state.side[i] === 1) raiders.push(i);
+    }
+    expect(raiders.length).toBe(2);
+    // Walk them well off the marker first, so "went back east" is unambiguous.
+    const startX = raiders.map((id) => fx.toNumber(w.sim.state.posX[id]));
+    w.step(6 * TICKS_PER_SECOND);
+    const endX = raiders.map((id) => fx.toNumber(w.sim.state.posX[id]));
+    // Before the fix the group was empty, the trigger commanded nobody, and
+    // these stayed where the wave dropped them.
+    expect(endX.some((x, i) => Math.abs(x - (startX[i] ?? x)) > 0.5)).toBe(true);
+  });
+
   it('rejects builds it cannot afford or does not know', () => {
     const w = makeWorld(
       baseMission({

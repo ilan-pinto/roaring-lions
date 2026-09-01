@@ -480,3 +480,83 @@ describe('death and cleanup', () => {
     expect(firesAfter.length).toBe(0);
   });
 });
+
+// #105: a firepower kill at point-blank range deadlocked the engagement
+// forever. Both halves are needed to reproduce it: the target must be inside
+// the shooter's minimum range AND already firepower-killed, so it can neither
+// shoot nor be shot. Nothing errored -- the fight simply never ended, and any
+// objective waiting on that unit hung with it.
+describe('point-blank firepower kill (#105)', () => {
+  const MIN_RANGE_AT: UnitTypeJson = {
+    id: 'c_minat',
+    hull: { hp: 380, armor: { front: 10, side: 10, rear: 10 } },
+    mobility: { speed_tiles_s: 0.7 },
+    sensors: { optics: 1.0, sight_tiles: 9, signature: 0.5 },
+    weapons: [
+      {
+        id: 'kornet',
+        type: 'atgm',
+        range_tiles: 10,
+        effective_range_tiles: 8,
+        accuracy: 0.9,
+        penetration: 1200,
+        damage: 500,
+        suppression: 10,
+        rof_per_min: 12,
+        min_range_tiles: 1,
+      },
+    ],
+  };
+
+  const HULK: UnitTypeJson = {
+    id: 'c_hulk',
+    hull: { hp: 900, armor: { front: 600, side: 400, rear: 200 } },
+    mobility: { speed_tiles_s: 0.8 },
+    sensors: { optics: 1.0, sight_tiles: 9, signature: 1.0 },
+    weapons: [
+      {
+        id: 'main',
+        type: 'apfsds',
+        range_tiles: 10,
+        effective_range_tiles: 8,
+        accuracy: 0.8,
+        penetration: 700,
+        damage: 600,
+        suppression: 40,
+        rof_per_min: 6,
+      },
+    ],
+  };
+
+  /** Cell and hulk 0.7 tiles apart -- inside the Kornet's 1-tile minimum. */
+  function pointBlank(): { sim: Sim; cell: number; hulk: number } {
+    const sim = new Sim({ seed: 11016, width: 24, height: 24, capacity: 8 });
+    const at = sim.addUnitType(MIN_RANGE_AT);
+    const tank = sim.addUnitType(HULK);
+    const cell = sim.spawn(at, 0, fx.from(14), fx.from(10), 0);
+    const hulk = sim.spawn(tank, 1, fx.from(14.7), fx.from(10), 0);
+    return { sim, cell, hulk };
+  }
+
+  it('a HEALTHY target inside minimum range is still refused', () => {
+    // The narrowness of the fix, pinned. Minimum range is a real constraint
+    // and this must not become "shoot anything close".
+    const { sim, hulk } = pointBlank();
+    for (let i = 0; i < 400; i++) sim.tick();
+    expect(sim.state.alive[hulk]).toBe(1);
+  });
+
+  it('a firepower-killed target inside minimum range can be finished off', () => {
+    const { sim, hulk } = pointBlank();
+    sim.debugDisableFirepower(hulk);
+    let died = -1;
+    for (let i = 0; i < 1200 && died < 0; i++) {
+      sim.tick();
+      if (sim.state.alive[hulk] === 0) died = i;
+    }
+    // Before the fix this ran to the cap with both units standing still: the
+    // hulk could not shoot (firepowerKilled) and could not be shot (min range).
+    expect(sim.state.alive[hulk]).toBe(0);
+    expect(died).toBeGreaterThan(0);
+  });
+});

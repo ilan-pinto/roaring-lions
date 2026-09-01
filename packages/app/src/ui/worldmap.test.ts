@@ -35,6 +35,26 @@ describe('worldMap', () => {
     expect(statusOf(el, 'sur')).toBe('live');
   });
 
+  // #117 defect 2. The glow listeners were attached to every non-home country
+  // regardless of whether the <a class="country-hit"> wrapper was ever built,
+  // so a locked country lit up under the cursor and then did nothing when
+  // clicked. Hover feedback is the affordance that says "this is a control",
+  // and handing it to inert ground is what made a player ask why they could
+  // not open a mission that was never there.
+  const hoverSetsGlow = (el: HTMLElement, region: string): boolean => {
+    const g = el.querySelector(`#region-${region}`) as SVGGElement;
+    g.dispatchEvent(new Event('mouseenter'));
+    return g.getAttribute('data-hover') === '1';
+  };
+
+  it('glows a country you can actually open', () => {
+    expect(hoverSetsGlow(render({}), 'marj')).toBe(true);
+  });
+
+  it('does not glow a locked country -- there is nothing behind the cursor', () => {
+    expect(hoverSetsGlow(render({}), 'sur')).toBe(false);
+  });
+
   it('places one town marker per town, positioned from the data', () => {
     const el = render({});
     const towns = el.querySelectorAll('[data-town]');
