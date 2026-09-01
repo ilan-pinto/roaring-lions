@@ -54,9 +54,10 @@ GLBs, not from a render of this asset.
       while `turret_hull` runs only X[-2.174,+0.746] and `turret_pivot` sits
       at X=-0.117. The barrel therefore projects 3.28 m to +X past its own
       pivot and 0.75 m to -X. A tank's gun points forward => **forward = +X**.
-    * `technical.glb` -- `turret_hull` (the pintle DShK on the cargo bed)
-      occupies X[-2.276,-0.475], i.e. the whole armed bed is at -X, so the
-      cab is at +X. Same answer.
+    * `technical.glb` -- the pintle DShK on the cargo bed (measured when
+      that node was still named `turret_hull`; it is `turret_metal` since
+      the GH #148 role split, same geometry) occupies X[-2.276,-0.475],
+      i.e. the whole armed bed is at -X, so the cab is at +X. Same answer.
     * `heli_peten.glb` -- `hull_metal` (the chin gun) has centroid X=+0.681
       against the airframe's own +0.054, and the pooled X-band profile runs
       from a 0.296 m Y-span at the -X extreme (the tail boom) to 2.817 m at

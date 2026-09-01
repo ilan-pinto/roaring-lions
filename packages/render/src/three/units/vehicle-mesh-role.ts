@@ -135,11 +135,15 @@ const VEHICLE_ROLE_PALETTE: Record<string, Partial<Record<VehicleMeshRole, reado
   // `tools/render_technical.py`'s `ROLE_PALETTE` base colours (`hull`
   // limestone.0, `plate` limestone.2, `metal` gunmetal.2, `rubber`
   // shadow.0, `glass` gunmetal.3, `recess` shadow.1), each extended to the
-  // end of its own band -- even though `art/meshes/vehicles/technical.glb`
-  // only actually uses the `hull` role today (both its parts are
-  // `rl_role: "hull"`), the full table is kept so a future re-export that
-  // splits it into plate/metal/rubber/glass parts, matching the sprite
-  // rig's own shape, needs no new mapping.
+  // end of its own band. The table was kept COMPLETE while the GLB shipped
+  // every part as `hull`, against exactly the re-export that has now
+  // happened: `art/meshes/vehicles/technical.glb` uses `hull`, `metal` and
+  // `rubber` as of the GH #148 split (`hull_hull` 44.6% of vertices,
+  // `hull_metal` 15.0%, `hull_rubber` 5.8%, `turret_metal` 34.6%), and it
+  // needed no change here because `metal` and `rubber` were already mapped.
+  // `plate`, `glass` and `recess` stay mapped and unused -- see
+  // `tools/vehicles/export_meshy_truck.py`'s own docstring for why the
+  // source carries no separable glazing and no separable armour plate.
   //
   // `hull` is the one that mattered: `limestone` runs 9 steps, and the old
   // width-3 slice from index 0 covered only limestone.0-limestone.2, the
