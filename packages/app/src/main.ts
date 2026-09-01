@@ -682,7 +682,7 @@ async function main(): Promise<void> {
       // swap stays one line to revert.
       //
       // `mortar_team` is BACK on the Meshy asset. It was reverted to the
-      // `kit.py` GLB by `9ddec70` because it slid (issue #145), and the
+      // `kit.py` GLB by `9ddec70` because it slid (issue GH-145), and the
       // condition that revert set for its return has been met: the asset now
       // draws `move` from the SECOND supplied source blend -- three men on
       // their feet, one with the tube limbered on his shoulder -- rigged with
@@ -1814,7 +1814,7 @@ async function main(): Promise<void> {
   };
 
   // Paint one real frame before the rAF loop ever gets a callback -- GitHub
-  // #141. `renderer.frame()` already builds mesh entities (`updateMeshUnits`/
+  // GH-141. `renderer.frame()` already builds mesh entities (`updateMeshUnits`/
   // `updateVehicleMeshes`) from whatever is CURRENTLY alive in `sim`, with no
   // tick-based gate of its own; the templates (awaited above) and every
   // starting unit (spawned above, sandbox or mission) both already exist by
