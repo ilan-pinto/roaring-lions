@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0) (0x0000C0DE)), SwiftShader driver)",
   "platform": "darwin",
   "arch": "arm64",
-  "commit": "3052136d0e101e113b31c1a027ad25eeade07200",
-  "blessedAt": "2026-09-01T20:54:14.820Z",
-  "reason": "first three-vs-three baseline: HEAD 3052136, three.js default, meshes and decor on",
+  "commit": "27a923d103b107e627a142ef468206783a8913be",
+  "blessedAt": "2026-09-01T21:57:36.339Z",
+  "reason": "the capture protocol now freezes the app's rAF frame loop before the settle, so the screenshot is the frame step() drew instead of whichever of ticks 140-168 the compositor happened to hold; adds the tel_marum relief/boulder scenario",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "033be95f7f42894df268e9b088a6cd79a3e89956ae60cf5af4b8aad497684151"
+      "sha256": "5fd610225e900fc0071c5e52cfb9045dd9e42bca147667817b1ad16345aecd23"
     },
     "open-ground": {
       "tick": 60,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "09a642bc1f61d781fd91f0948e1a9ec8e5392863651726960d80a0119b372873"
+      "sha256": "4a6505b3e1371bba498cbdb05b459698f26b358e063449a6bbfe79e9c2a38bba"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,21 @@
         "h": 900
       },
       "region": null,
-      "sha256": "7eb87c80c73eda7533d4a23fe2e14a6ac18264e351738176d15c8930e6cd1151"
+      "sha256": "ac0563131382d0f8f3a4817f8ccf06886e700b39f8dee9e762c32b69d30bdf5c"
+    },
+    "relief": {
+      "tick": 500,
+      "camera": {
+        "x": 10,
+        "y": 15,
+        "zoom": 2
+      },
+      "rect": {
+        "w": 1400,
+        "h": 900
+      },
+      "region": null,
+      "sha256": "370fd9624496380234bd8b5e4ca7b79618070e3aa40ef3aa30176570554bfe3e"
     }
   }
 }

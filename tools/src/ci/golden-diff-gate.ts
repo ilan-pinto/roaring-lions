@@ -202,15 +202,19 @@ const SCENARIO_BUDGETS: Readonly<Record<string, ScenarioBudget>> = {
   },
 };
 
-function budgetFor(scenario: Scenario): ScenarioBudget {
-  const b = SCENARIO_BUDGETS[scenario.id];
-  if (!b) {
-    throw new Error(
-      `golden-diff-gate: no SCENARIO_BUDGETS entry for scenario "${scenario.id}" -- add one, ` +
-        'calibrated against a real measurement of THIS scenario, before running it in the gate.'
-    );
-  }
-  return b;
+/** `null` for a scenario that postdates the cross-backend pass/fail.
+ *
+ *  This used to throw, which was right while these numbers were THRESHOLDS: a
+ *  scenario with no calibrated budget must not pass silently. They are
+ *  pre-mesh-flip HISTORICAL REFERENCE numbers now (see this file's top
+ *  comment), and a scenario added afterwards has no such number by
+ *  construction. `RELIEF_SCENARIO` is the first: inventing a figure for it, or
+ *  measuring one today and filing it beside four numbers from before the flip,
+ *  would both be worse than printing that there is nothing to compare it
+ *  against. The diff is still captured, still reported and still self-checked
+ *  -- only the historical-reference line is skipped. */
+function budgetFor(scenario: Scenario): ScenarioBudget | null {
+  return SCENARIO_BUDGETS[scenario.id] ?? null;
 }
 
 const PIXELMATCH_THRESHOLD = 0.1; // pixelmatch's own default -- unchanged from diff.ts's CLI default
@@ -292,15 +296,29 @@ async function runScenario(page: Page, port: number, outDir: string, scenario: S
   // reading over them is the EXPECTED state of this diagnostic today -- Pixi
   // does not draw the content three draws -- so calling it PASS/FAIL would be
   // lying about what was measured.
-  const withinHistorical =
-    summary.diffPixelPct < budget.maxDiffPixelPct && summary.meanAbsChannelDelta < budget.maxMeanAbsChannelDelta;
-  console.log(
-    `[golden-diff-gate] scenario "${scenario.id}": diffPixelPct ${summary.diffPixelPct.toFixed(3)}% ` +
-      `(pre-mesh-flip reference <${budget.maxDiffPixelPct}%), meanAbsChannelDelta ` +
-      `${summary.meanAbsChannelDelta.toFixed(3)} (reference <${budget.maxMeanAbsChannelDelta}) -> ` +
-      `${withinHistorical ? 'within the old reference' : 'OVER the old reference (expected since the mesh flip)'}`
-  );
-  console.log(`[golden-diff-gate] scenario "${scenario.id}" reference provenance: ${budget.rationale}`);
+  // `true` when there is no historical reference to be over -- the
+  // expected-differences table below is offered when something looks worth
+  // reading, and "no reference number exists" is not that.
+  let withinHistorical = true;
+  if (budget) {
+    withinHistorical =
+      summary.diffPixelPct < budget.maxDiffPixelPct && summary.meanAbsChannelDelta < budget.maxMeanAbsChannelDelta;
+    console.log(
+      `[golden-diff-gate] scenario "${scenario.id}": diffPixelPct ${summary.diffPixelPct.toFixed(3)}% ` +
+        `(pre-mesh-flip reference <${budget.maxDiffPixelPct}%), meanAbsChannelDelta ` +
+        `${summary.meanAbsChannelDelta.toFixed(3)} (reference <${budget.maxMeanAbsChannelDelta}) -> ` +
+        `${withinHistorical ? 'within the old reference' : 'OVER the old reference (expected since the mesh flip)'}`
+    );
+    console.log(`[golden-diff-gate] scenario "${scenario.id}" reference provenance: ${budget.rationale}`);
+  } else {
+    console.log(
+      `[golden-diff-gate] scenario "${scenario.id}": diffPixelPct ${summary.diffPixelPct.toFixed(3)}%, ` +
+        `meanAbsChannelDelta ${summary.meanAbsChannelDelta.toFixed(3)} -- NO pre-mesh-flip reference ` +
+        'number exists for this scenario (it was added after the cross-backend pass/fail was ' +
+        'retired), so there is nothing honest to compare it against here. Its real gate is ' +
+        '`pnpm golden-baseline`.'
+    );
+  }
 
   // groundTextureCheck (capture-protocol.ts): a same-renderer self-check, run ONLY
   // for scenarios that declare one. Exists because the ordinary pixi-vs-three

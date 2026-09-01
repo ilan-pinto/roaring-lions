@@ -307,11 +307,11 @@ yours; each one records what the next phase inherits.
   `pnpm golden-baseline` (`tools/src/ci/three-baseline-gate.ts`). Playwright
   captures three.js at a fixed scenario/tick/camera and diffs it against a PNG
   in `tools/golden-baselines/<envKey>/`. It runs in **ci.yml's `visual` job on
-  every PR and every push to main** — 30.8 s wall clock for all four scenarios
-  including booting its own dev server — plus a nightly that files a GitHub
-  issue on failure. Read `tools/src/golden-diff/baseline.ts` before touching a
-  threshold; four things about it are counter-intuitive and every one was
-  measured.
+  every PR and every push to main** — 32.0–32.9 s wall clock for all **five**
+  scenarios including booting its own dev server — plus a nightly that files a
+  GitHub issue on failure. Read `tools/src/golden-diff/baseline.ts` before
+  touching a threshold; five things about it are counter-intuitive and every
+  one was measured.
   **`meanAbsChannelDelta` is the PRIMARY metric and pixelmatch's pixel count is
   the secondary one**, which is the reverse of how a golden-image gate is
   usually written. Colour here is quantised onto a palette, so a real
@@ -328,13 +328,47 @@ yours; each one records what the next phase inherits.
   portability (Linux SwiftShader vs macOS SwiftShader) is **unmeasured** — the
   committed `darwin-arm64-swiftshader` set is not a substitute for a Linux one,
   and CI's must be created by the `visual-baseline-bless` workflow.
+  That workflow **could not create the first one**, which made the whole gate a
+  green-ticking no-op on CI: its `git diff --quiet -- tools/golden-baselines`
+  guard reports only TRACKED changes, and a first bless on a new runner writes
+  an entirely UNTRACKED directory, so the step printed "Baseline unchanged" and
+  opened no PR. Fixed with `git status --porcelain -uall`; if you touch that
+  guard, remember `git diff` cannot see a new file. And exit 3 no longer
+  returns before capturing: the run still takes every scenario and still votes
+  on `groundTextureCheck`, which needs no stored reference — the re-injected
+  scatter defect exits **1** on a runner with no baseline at all.
   **Run-to-run noise is not spread over the frame**; it sits in tight clusters
   around animating mesh units and real-time VFX, and every other pixel is
   bit-identical between captures. That is why a scenario can declare a
   `region`: scoping `open-ground` to its unit-free ground crop took its noise
   from 1762 px / 0.1544 to **0 / 0.0000**. Every scenario also has an ABSOLUTE
-  `targetTick` now, because a relative `step(n)` lands 18–22 ticks late and
-  drifts run to run.
+  `targetTick`, because a relative `step(n)` lands 18–22 ticks late and drifts
+  run to run.
+  **Pinning the tick the script STEPS TO is not the same as pinning the tick
+  the SCREENSHOT sees, and the gap was worth a 28% false-red rate.** The app's
+  rAF loop keeps ticking and repainting between `page.evaluate(captureScript)`
+  and `page.screenshot()` — measured on `vehicle`, the script returned tick 140
+  on all 20 runs while the sim read **167–171** right after the screenshot, so
+  the picture was whichever frame in that window the compositor happened to
+  hold. That read as bimodal renderer noise (45–204 px in one mode, 1164–1549
+  in the other) and it was the harness. `capture()` now **kills the frame
+  loop** before its settle (`FREEZE_FRAME_LOOP_STATEMENTS`,
+  `capture-protocol.ts`), so `step()`'s own paint is the last paint. Every
+  threshold is calibrated against 24 consecutive full-gate runs taken that way:
+  `quiet` 0–1 px / 0.0000–0.0001, `open-ground` 0 / 0.0000, `vehicle` 5–101 px
+  / 0.0029–0.0058 unimodal, `relief` 0 / 0.0000. **A bimodal noise reading is a
+  bug to find, not a band to widen.**
+  **`tel_marum` is in the gate now, and it is the only map that can catch
+  terrain.** The `relief` scenario frames the T1-C boulder corridor and the
+  extruded rock-ridge walls either side of it. Before it, the gate sampled two
+  of the five shipped maps — both FLAT and boulder-free — and deleting every
+  boulder decor object (`decor-place.ts`) left every gated scenario green.
+  It now reads **36001 px / 2.6292** there against a 0/0.0000 noise floor,
+  while `quiet`, `open-ground` and `vehicle` stay inside their own noise. It
+  costs **74.4 KiB** per environment (the set is 464.3 KiB) and it needs an
+  `orders` entry, because fog is computed from living side-0 units only and the
+  sandbox force spawns thirty tiles away: the scenario sends the `recon_drone`
+  to the corridor mouth, without which the frame is a black rectangle.
   **`combat` is captured, reported and does NOT vote.** Two captures of the
   same commit differ by 969–3847 px / 0.19–0.36 there; the defect reads 3231 px
   / 0.6006 — inside the noise on count and 1.7x it on magnitude. No honest

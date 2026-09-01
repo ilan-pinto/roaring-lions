@@ -11,6 +11,7 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { chromium, type Browser, type Page } from 'playwright';
+import { FREEZE_FRAME_LOOP_SCRIPT } from './capture-protocol';
 
 /** What `captureScript` returns, parsed. */
 export interface CaptureResult {
@@ -116,6 +117,17 @@ export async function capture(
       await page.waitForFunction(() => typeof (window as unknown as { __lions?: unknown }).__lions !== 'undefined', {
         timeout: 25_000,
       });
+      // Stop the app's rAF loop FIRST, before the settle rather than after it.
+      // Two things follow, and both were measured (see
+      // `FREEZE_FRAME_LOOP_STATEMENTS`): the settle below no longer accrues
+      // sim ticks, so `targetTick`'s `step(target - current)` starts from a
+      // repeatable place instead of from wherever ~1s of real time landed;
+      // and the continuous VFX that `vehicle` exists to look at stop
+      // accumulating wall-clock time during it. The settle itself still does
+      // its job -- fonts, module graph, lazily-arriving GLBs are all promise
+      // and network work, none of it driven by rAF, and `main.ts` paints one
+      // real frame (GH-141) before the loop is ever armed.
+      await page.evaluate(FREEZE_FRAME_LOOP_SCRIPT);
       // capture-protocol.ts's documented settle: await font load + a 1s settle
       // before stepping -- a first run read 6.5x noisier without it.
       await page.evaluate(() => document.fonts.ready);

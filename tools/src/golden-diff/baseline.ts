@@ -28,7 +28,7 @@
 // that blocker, which is what this file is.
 //
 // ============================================================================
-// Two measured facts that shaped every number below
+// Three measured facts that shaped every number below
 // ============================================================================
 //
 // Both from the noise measurement in `.superpowers/queue/golden-three-report.md`
@@ -53,6 +53,20 @@
 //    `maxMeanAbsChannelDelta` is the primary metric of this gate and
 //    `maxDiffPixels` is the secondary one -- the reverse of how a golden-image
 //    gate is usually written, and the reason is measured, not stylistic.
+//
+// 3. WHAT LOOKED LIKE RENDERER NOISE WAS THE HARNESS TAKING THE WRONG FRAME,
+//    and it was worth 28% false reds on `vehicle` before it was found. Pinning
+//    the tick the capture script STEPS TO does not pin the tick the SCREENSHOT
+//    sees: `main.ts`'s rAF loop keeps ticking and repainting between
+//    `page.evaluate(captureScript)` and `page.screenshot()`. Reading
+//    `sim.tickCount` right after the screenshot on 20 runs gave 167-171 every
+//    time against a capture script that returned 140. `capture()` now kills
+//    the frame loop before its settle (`FREEZE_FRAME_LOOP_STATEMENTS`), and
+//    every threshold below is calibrated against 24 consecutive full-gate runs
+//    taken that way -- see each entry's own comment for its before and after.
+//    The lesson generalises: measure the spread over enough runs to see a
+//    second mode, and treat a bimodal noise reading as a bug to find rather
+//    than a band to widen.
 
 import type { DiffSummary, Region } from './diff';
 
@@ -96,28 +110,21 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     // what the cross-backend gate could never judge: mesh buildings, mesh
     // decor trees and the mosque compound, none of which Pixi draws at all.
     //
-    // Measured over TWELVE captures spanning five browser processes and two
-    // checkouts of one commit, the noise here is BIMODAL rather than a spread:
-    // a run reads either 0-2 differing pixels / <=0.0001, or 41 / 0.0024, with
-    // nothing in between. The 41 are scattered high-delta (mean 105/255) pixels
-    // inside one bbox in the top-left quarter -- the shape of a small asset
-    // that has or has not finished arriving, which is what a per-mission lazy
-    // mesh load (`c9b8ff4`) makes possible even behind `capture()`'s
-    // font-ready + 1s settle. So the calibration basis is 41 / 0.0024, not the
-    // quiet half of the pair, and the thresholds are 3.7x and 4.2x THAT.
-    //
-    // Note what this makes of the pixel count on this scenario: the defect
-    // signal is ALSO 41 pixels. The two are indistinguishable by count and
-    // separated 20x by magnitude (0.0493 against 0.0024). Fact 2 again, and
-    // sharper -- here `maxDiffPixels` is not merely secondary, it is incapable.
+    // RECALIBRATED after the frame-loop freeze. The bimodal 0-2 / 41 px noise
+    // this entry used to describe was the rAF race, not a lazy asset load: the
+    // screenshot was taken while `main.ts`'s `loop()` was still painting, so it
+    // captured either the frame `step()` drew or a later one. With the loop
+    // frozen (`FREEZE_FRAME_LOOP_STATEMENTS`) 24 consecutive full-gate runs
+    // read 0 or 1 differing pixels and 0.0000-0.0001 -- unimodal, and 41x
+    // tighter on magnitude. Thresholds are 40x that.
     region: null,
-    maxDiffPixels: 150,
-    maxMeanAbsChannelDelta: 0.01,
+    maxDiffPixels: 40,
+    maxMeanAbsChannelDelta: 0.004,
     rationale:
-      'whole frame, no units in shot. Noise is bimodal at 0-2 px / <=0.0001 or 41 px / 0.0024 over ' +
-      '12 captures / 5 processes / 2 checkouts (macOS SwiftShader); thresholds are 3.7x and 4.2x the ' +
-      'worse mode. The re-injected scatter defect reads 41 px / 0.0493 -- the SAME pixel count as the ' +
-      'noise and 20x its magnitude, so only meanAbsChannelDelta can see it here.',
+      'whole frame, no units in shot. Noise 0-1 px / 0.0000-0.0001 over 24 consecutive gate runs ' +
+      '(macOS SwiftShader, frame loop frozen); thresholds are 40x that. The re-injected scatter ' +
+      'defect reads 14 px / 0.0470 -- 12x over the magnitude threshold, and 470x the noise floor, ' +
+      'while the pixel count moves by 13.',
   },
   'open-ground': {
     // The same crop `groundTextureCheck` already uses, and for the same
@@ -128,30 +135,79 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     // with the tick pinned. Inside the crop the same six captures are
     // bit-identical: 0 px / 0.0000.
     region: { x: 950, y: 500, w: 450, h: 400 },
-    maxDiffPixels: 60,
-    maxMeanAbsChannelDelta: 0.05,
+    // Tightened from 60 / 0.050 once 24 consecutive runs read a literal zero
+    // inside the crop. Still above the 25 px / 0.0131 a different GL backend
+    // costs on this crop -- that number is a deliberate cushion, not the
+    // calibration basis, since baselines are env-keyed and a backend change
+    // should be a re-bless rather than a red run.
+    maxDiffPixels: 40,
+    maxMeanAbsChannelDelta: 0.02,
     rationale:
-      'unit-free ground crop (the groundTextureCheck region). Noise 0 px / 0.0000 across the same ' +
-      '6 captures; a different GL backend on the same machine moves it to 25 px / 0.0131, which is ' +
-      'the cushion these thresholds sit above rather than their calibration basis. The re-injected ' +
-      'scatter defect reads 0 px / 0.3519 -- 7x over the threshold on meanAbsChannelDelta and ' +
-      'literally invisible to the pixel count. This is the scenario that discriminates the defect ' +
-      'cross-backend measured 1.945%-vs-1.937% on.',
+      'unit-free ground crop (the groundTextureCheck region). Noise 0 px / 0.0000 over 24 ' +
+      'consecutive gate runs; a different GL backend on the same machine moves it to 25 px / ' +
+      '0.0131, which is the cushion these thresholds sit above rather than their calibration ' +
+      'basis. The re-injected scatter defect reads 0 px / 0.3519 -- 17x over the threshold on ' +
+      'meanAbsChannelDelta and literally invisible to the pixel count. This is the scenario that ' +
+      'discriminates the defect cross-backend measured 1.945%-vs-1.937% on.',
   },
   vehicle: {
     // Whole frame: the vehicles' own dust and exhaust are the only real-time
-    // content, and unlike `open-ground`'s infantry they are cheap -- 78-133
-    // differing pixels / 0.0136-0.0170 across twelve captures. Cropping them
-    // out would remove the only mesh VEHICLES the gate ever looks at, so the
-    // noise is paid here rather than dodged.
+    // content. Cropping them out would remove the only mesh VEHICLES the gate
+    // ever looks at, so the noise is paid here rather than dodged.
+    //
+    // THIS ENTRY'S OLD NUMBERS WERE THE BEST CASE, NOT THE SPREAD, and it made
+    // the scenario false-red 28% of the time on an unmodified tree: an
+    // independent 18-run sample measured 45-1549 px / 0.0110-0.1299, strongly
+    // bimodal (13 runs low, 5 runs 1164-1549), where this file had recorded
+    // 78-133 px / 0.0136-0.0170. The cause was not a lazy load and not a
+    // settling race in the renderer: the app's rAF loop kept ticking and
+    // repainting between `page.evaluate(captureScript)` and
+    // `page.screenshot()`, so the picture was whichever frame in the tick
+    // 140-168 window the compositor held -- confirmed by reading
+    // `sim.tickCount` after the screenshot on 20 runs and getting 167-171
+    // every time against a script that returned 140.
+    //
+    // Freezing the frame loop (`FREEZE_FRAME_LOOP_STATEMENTS`) removed the
+    // race, not merely narrowed it. Re-measured over 24 consecutive full-gate
+    // runs: 5-101 px / 0.0029-0.0058, unimodal, no run outside it. Thresholds
+    // are 3.0x and 3.4x the observed maximum, the same headroom convention the
+    // other entries use -- NOT widened to absorb the flake.
     region: null,
-    maxDiffPixels: 600,
-    maxMeanAbsChannelDelta: 0.06,
+    maxDiffPixels: 300,
+    maxMeanAbsChannelDelta: 0.02,
     rationale:
-      'whole frame, mesh vehicles plus continuous dust/exhaust FX. Noise 78-133 px / 0.0136-0.0170 ' +
-      'over 12 captures / 5 processes / 2 checkouts (macOS SwiftShader); thresholds are 4.5x and ' +
-      '3.5x that. The re-injected scatter defect reads 100 px / 0.2068 -- caught on ' +
-      'meanAbsChannelDelta (3.4x over), invisible to the pixel count, which does not move at all.',
+      'whole frame, mesh vehicles plus continuous dust/exhaust FX. Noise 5-101 px / 0.0029-0.0058 ' +
+      'over 24 consecutive gate runs (macOS SwiftShader, frame loop frozen), unimodal; thresholds ' +
+      'are 3.0x and 3.4x the observed maximum. The re-injected scatter defect reads 63 px / 0.1953 ' +
+      '-- 10x over on meanAbsChannelDelta, and INSIDE the noise band on pixel count, which is why ' +
+      'magnitude is the primary metric here.',
+  },
+  relief: {
+    // MAP COVERAGE. The other four scenarios look at two of the five shipped
+    // maps, both of them flat and boulder-free, which is how deleting every
+    // boulder decor object left the whole gate green (see
+    // `RELIEF_SCENARIO`'s own comment). This one frames `tel_marum`'s narrow
+    // corridor: the T1-C boulder field, the rock-ridge walls either side of
+    // it, and the elevation band the corridor cuts.
+    //
+    // Whole frame, and the measurement earns it: 0 px / 0.0000 over 24
+    // consecutive gate runs. That is despite one unit being in shot -- the
+    // `recon_drone` the scenario orders forward so the fog lifts at all (see
+    // `RELIEF_SCENARIO`). It is one small hovering mesh at a pinned tick, and
+    // with the frame loop frozen its animation clock no longer advances by a
+    // wall-clock amount either, so there is no unstable cluster to crop
+    // around. If a future change puts real-time content here, crop it the way
+    // `open-ground` does rather than widening these numbers.
+    region: null,
+    maxDiffPixels: 40,
+    maxMeanAbsChannelDelta: 0.004,
+    rationale:
+      'whole frame, tel_marum boulder corridor @ tile (10,15) zoom 2, tick 500 -- the T1-C boulder ' +
+      'field plus the extruded rock-ridge relief either side of it. Noise 0 px / 0.0000 over 24 ' +
+      'consecutive gate runs (macOS SwiftShader). Deleting every boulder decor object reads 36001 ' +
+      'px / 2.6292 here -- 900x and 657x the thresholds -- while quiet, open-ground and vehicle do ' +
+      'not move outside their own noise at all. The scatter defect also fires here, at 86 px / ' +
+      '0.1452, so this is map coverage rather than a single-feature tripwire.',
   },
   combat: {
     // NOT GATED, and this is a finding rather than a gap. Real deaths, wrecks,

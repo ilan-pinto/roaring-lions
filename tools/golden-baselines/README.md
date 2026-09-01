@@ -14,18 +14,28 @@ measurably different: on one machine, SwiftShader against ANGLE/Metal read 230
 differing pixels / 0.0320 meanAbsChannelDelta on the `quiet` scenario alone —
 roughly 100× that scenario's run-to-run noise, and enough to hide the defect the
 gate exists to catch. A capture environment with no directory here is **exit 3**
-from the gate, loudly, never a silent pass.
+from the gate, loudly, never a silent pass. The run still captures every
+scenario and still votes on the reference-free `groundTextureCheck`, so a real
+defect exits 1 even here; exit 3 means "nothing was COMPARED", not "nothing was
+checked".
 
 **Cross-OS portability is unmeasured.** Linux SwiftShader and macOS SwiftShader
 may or may not agree; nobody has checked. Do not assume the macOS set covers CI.
 
 ## The bytes
 
-Roughly **390 KiB per environment**: three PNGs plus a manifest. Only *gated*
+**464.3 KiB per environment**: four PNGs plus a manifest — `quiet` 107.5 KiB,
+`open-ground` 111.6 KiB, `vehicle` 169.1 KiB, `relief` 74.4 KiB. Only *gated*
 scenarios are stored — `combat` is captured on every run and reported, but it
 never votes (its own same-commit noise is wider than the signal), so storing a
 baseline for it would have cost another 362 KiB for a number that cannot decide
 anything. Its frame is uploaded as a CI artifact instead.
+
+`relief` is the newest and the cheapest, and it is what gives the gate any
+coverage of `tel_marum` — the only shipped map with elevation and the only one
+with `b` boulder tiles. Deleting every boulder decor object used to leave the
+whole gate green; it now reads 36001 px / 2.6292 there. 74.4 KiB was judged
+worth that.
 
 ## Changing a baseline
 

@@ -96,13 +96,28 @@
 // and why this harness had to add its own capture step rather than reuse
 // one.
 //
-// A note on rAF and backgrounded tabs (a documented trap, paid for once):
-// `captureScript` never relies on `requestAnimationFrame` firing -- `step(n)`
-// calls `renderer.frame(...)` directly, synchronously, so the frame it draws
-// is current even if the tab is backgrounded and rAF is throttled. Do not
-// add a "wait a frame" step that depends on rAF between `step()` and the
-// screenshot; it is unnecessary and, in a backgrounded tab, can silently
-// read stale state instead.
+// A note on rAF, REWRITTEN after it cost a 28% false-red rate. What was here
+// before was half right and the missing half was the bug: "`captureScript`
+// never relies on `requestAnimationFrame` firing -- `step(n)` calls
+// `renderer.frame(...)` directly, synchronously, so the frame it draws is
+// current even if the tab is backgrounded and rAF is throttled."
+//
+// All true, and it says nothing about what happens AFTER `step()` returns.
+// The app's own `loop()` (`main.ts`) is still armed, still re-arming itself
+// through rAF, and still catching up `runTick()` for every whole
+// `MS_PER_TICK` of real time it accumulated -- including the real time
+// `step()` itself spent running hundreds of ticks synchronously. So the
+// screenshot Playwright takes next is not necessarily the frame `step()`
+// drew. Measured on `vehicle` over 20 clean captures: the script returned
+// tick 140 every time and the sim read 167-171 immediately after the
+// screenshot, and which frame in that window the compositor held was a coin
+// toss worth 45-1549 differing pixels.
+//
+// So the protocol now KILLS the frame loop before it does anything else
+// (`FREEZE_FRAME_LOOP_STATEMENTS`, run by `capture()` before its settle and
+// again by `captureScript` for a caller driving this by hand). After that the
+// old note's advice holds in the form it should always have had: between
+// `step()` and the screenshot nothing paints, because nothing can.
 //
 // ============================================================================
 
@@ -149,35 +164,50 @@ export interface Scenario {
    *  `window.__lions.sim.tickCount` and steps exactly `targetTick - current`
    *  (clamped to >= 0) rather than blindly stepping `ticks` more.
    *
-   *  Why this exists, and why `QUIET_SCENARIO`/`OPEN_GROUND_SCENARIO` do NOT
-   *  use it: the app's own rAF accumulator (`main.ts`'s `loop`) starts
+   *  EVERY SCENARIO SETS THIS. An earlier version of this comment said
+   *  `QUIET_SCENARIO` and `OPEN_GROUND_SCENARIO` did not, and were
+   *  "drift-insensitive by construction" -- that was true of the pair before
+   *  the three-vs-three baseline gate, and the same commit that built the gate
+   *  gave both of them absolute ticks. The doc is corrected rather than
+   *  deleted because the reasoning it carries is still what this field is for.
+   *
+   *  Why it exists: the app's own rAF accumulator (`main.ts`'s `loop`) starts
    *  ticking in real time the instant `window.__lions` is assigned, and
-   *  `capture-protocol.ts`'s own documented settle (`document.fonts.ready`
-   *  + a 1s wait, BEFORE `captureScript` runs) gives that accumulator up to
-   *  ~1s of real wall-clock time to accrue ticks from, non-deterministically,
-   *  before a relative `step(ticks)` even runs -- Playwright does not
-   *  throttle a headless page's rAF the way a backgrounded real Chrome tab
-   *  does (`.superpowers/d-combat-diff-report.md`'s own capture protocol
-   *  needed that throttling trick specifically to hold `tickCount` at 0
-   *  through an equivalent boot sequence). `QUIET_SCENARIO`/`OPEN_GROUND_SCENARIO`
-   *  are unaffected because their content is drift-insensitive by
-   *  construction (a static, order-free force; terrain built once at map
-   *  load) -- extra background ticks move nothing either scenario's own crop
-   *  can see. A scenario that puts a VEHICLE in frame is not
-   *  drift-insensitive: idle turret sweep, ambient dust/exhaust and walk-
-   *  cycle phase all read the absolute tick, so the same relative `ticks`
-   *  value could land the two backends' captures (booted in two separate
-   *  `page.goto` navigations, each accruing its own independent real-time
-   *  drift) on two DIFFERENT absolute ticks -- a false diff with no
-   *  rendering bug behind it. `targetTick` removes the non-determinism by
-   *  aligning both captures to the same absolute tick regardless of how much
-   *  (different) drift each one accrued getting there -- the same fix
-   *  `.superpowers/d-ground-clip-report.md`'s own vehicle-dense measurement
-   *  applied by hand ("both backends explicitly aligned to sim tick 140").
-   */
+   *  `capture()`'s documented settle (`document.fonts.ready` + a 1s wait,
+   *  BEFORE `captureScript` runs) gives that accumulator up to ~1s of real
+   *  wall-clock time to accrue ticks from, non-deterministically, before a
+   *  relative `step(ticks)` even runs -- Playwright does not throttle a
+   *  headless page's rAF the way a backgrounded real Chrome tab does
+   *  (`.superpowers/d-combat-diff-report.md`'s own capture protocol needed
+   *  that throttling trick specifically to hold `tickCount` at 0 through an
+   *  equivalent boot sequence). Measured: `quiet`'s `ticks: 100` landed on
+   *  tick 118, 119 and 122 across three runs, and `open-ground`'s `ticks: 20`
+   *  on 40, 42 and 42 -- two ticks of drift worth 1842-5912 differing pixels
+   *  on that scenario, several times the whole signal of the defect it exists
+   *  to catch.
+   *
+   *  A scenario whose content moves is hit hardest -- a vehicle's idle turret
+   *  sweep, its ambient dust/exhaust and a walk-cycle phase all read the
+   *  absolute tick -- but "drift-insensitive by construction" was never a
+   *  reason to leave a stored baseline reproducible by luck rather than for a
+   *  reason: the moment content drifts into a static shot, the drift starts
+   *  reading as a regression.
+   *
+   *  `capture()` now also freezes the frame loop before its settle
+   *  (`FREEZE_FRAME_LOOP_STATEMENTS`), which removes most of the drift this
+   *  field compensates for. It does NOT make the field redundant: the freeze
+   *  lands after `window.__lions` exists and the loop may already have run,
+   *  so the starting tick is small but not guaranteed zero, and `step` cannot
+   *  go backwards. `targetTick` is what makes the number in the manifest a
+   *  fact rather than an observation. */
   targetTick?: number;
-  /** Real combat, injected deterministically. Only meaningful with `mission`
-   *  set (a sandbox force never fights -- see `mission`'s own comment).
+  /** Commands queued at a pinned absolute tick. Two uses, and only the first
+   *  was the original one. REAL COMBAT needs `mission` set, because a sandbox
+   *  force never fights (see `mission`'s own comment) -- that is
+   *  `COMBAT_SCENARIO`. But the same mechanism is also the only way to put a
+   *  side-0 unit somewhere the sandbox does not spawn one, which is what
+   *  `RELIEF_SCENARIO` needs: fog of war is computed from living side-0 units
+   *  alone, so ground nobody is looking at photographs black.
    *
    *  `atTick`: aligned to FIRST (via the exact `step(atTick - tickCount)`
    *  mechanism `targetTick` uses), so every queued command lands at the
@@ -444,10 +474,95 @@ export const COMBAT_SCENARIO: Scenario = {
   },
 };
 
+/** MAP COVERAGE, and it was a real blind spot rather than a nice-to-have.
+ *  The four scenarios above sample two of the five shipped maps --
+ *  `beit_sahwan_outskirts` twice and `tutorial_ground` once -- and both of
+ *  them are FLAT and boulder-free. Deleting every boulder decor object
+ *  (`decor-place.ts`, `if (boulder) return 'boulder'` -> `return null`), which
+ *  erases the whole T1-C boulder field and the exact feature `ad7ac3d` fixed,
+ *  left the gate exiting 0 with every gated scenario passing.
+ *
+ *  `tel_marum` is the only shipped map with relief and the only one with `b`
+ *  tiles, so one scenario on it closes both gaps at once. This framing puts
+ *  the boulder corridor (x 10-11, y 12-17) and its scree apron (x 9-12, y 18)
+ *  in the middle of the shot, with the extruded `^` rock-ridge walls either
+ *  side of it and the elevation band they stand on.
+ *
+ *  WHY THIS SCENARIO NEEDS AN `orders` ENTRY AND THE OTHER SANDBOX ONES DO
+ *  NOT -- the trap that cost the first three attempts at this framing. Fog of
+ *  war is computed from LIVING SIDE-0 UNITS ONLY (`three/fog.ts`'s
+ *  `computeFog`: "only living side-0 units reveal"), and the sandbox force
+ *  spawns from this map's own anchors at [24,44], thirty tiles south of the
+ *  corridor. A camera pointed here with nobody watching photographs a black
+ *  rectangle: only the ridge TOPS and the boulders themselves poke above the
+ *  fog quad, because that quad is drawn at each tile's own ground height and
+ *  an extruded ridge stands two levels over it. That picture would technically
+ *  still move when the boulders were deleted, and it would be a terrible
+ *  baseline -- 90% of it is unexplored black, so nothing else on the map could
+ *  ever regress into view.
+ *
+ *  So one unit is sent to look. `recon_drone` is id 11 -- `SANDBOX_KDF`
+ *  (`app/src/sandbox-force.ts`) spawns side 0 in array order from index 0, and
+ *  the drone is the twelfth entry -- and it is the right one three times over:
+ *  `domain: air`, so the boulder field is not a wall to it and its route is
+ *  not the pathing question this map exists to pose; `sight_tiles: 16`, which
+ *  covers the whole corridor from one hover point; and it is one small mesh
+ *  rather than a squad, so the region below has little to dodge. It is ordered
+ *  at tick 20 to [10,18], the corridor mouth, and arrives well before the
+ *  capture: 2.2 tiles/s over ~30 tiles is ~14 s, against `targetTick: 500`'s
+ *  25 s. The extra ten seconds are deliberate slack -- the drone is stationary
+ *  and the fog settled by then, so a small change in pathing speed moves
+ *  nothing in the picture.
+ *
+ *  A capture where the drone died on the way is not a subtle failure and does
+ *  not need its own check: the frame goes back to black and every metric
+ *  saturates at once.
+ *
+ *  `zoom: 2` is inside the in-game mouse-wheel clamp of [0.35, 2.5]
+ *  (`main.ts`'s wheel handler), unlike `open-ground`'s deliberate 3: this is
+ *  meant to be ground a player actually looks at, and at zoom 1 a single
+ *  boulder is small enough that losing the entire field moves less of the
+ *  frame than it should. */
+export const RELIEF_SCENARIO: Scenario = {
+  id: 'relief',
+  description:
+    'tel_marum boulder corridor @ tile (10,15), zoom 2, tick 500 -- the T1-C boulder field and ' +
+    'the extruded rock-ridge relief either side of it, revealed by the sandbox recon drone. The ' +
+    'only shipped map with elevation and the only one with `b` tiles.',
+  sandboxMap: 'tel_marum',
+  // No named marker sits where this wants to look: `saddle_narrow` is [10,14],
+  // which frames the corridor but pushes the scree apron off the bottom of the
+  // shot. Same reason `vehicle` uses `cameraTile`.
+  cameraTile: [10, 15],
+  ticks: 20, // unused when targetTick is set; kept as documentation of the original relative advance
+  targetTick: 500,
+  zoom: 2,
+  orders: {
+    atTick: 20,
+    commands: [
+      // id 11 is `recon_drone` in `SANDBOX_KDF` -- see this scenario's own
+      // comment for why the fog makes this order mandatory rather than
+      // decorative.
+      "window.__lions.sim.queueCommand({ kind: 'move', ids: [11], x: Math.round(10 * 65536), y: Math.round(18 * 65536) });",
+    ],
+  },
+};
+
 /** Every scenario this harness knows about. `golden-diff-gate.ts` runs all of
  *  them, each against its own budget. Add a new one here rather than
- *  building another ad-hoc scenario by hand. */
-export const SCENARIOS: readonly Scenario[] = [QUIET_SCENARIO, OPEN_GROUND_SCENARIO, VEHICLE_SCENARIO, COMBAT_SCENARIO];
+ *  building another ad-hoc scenario by hand.
+ *
+ *  Adding one here and forgetting its `BASELINES` entry is caught by
+ *  `baseline.test.ts` in `pnpm test`, which asserts the two sets are equal --
+ *  it reads THIS array rather than a hand-written copy of `BASELINES`' own
+ *  keys, which is what it used to do and what made it incapable of failing. */
+export const SCENARIOS: readonly Scenario[] = [
+  QUIET_SCENARIO,
+  OPEN_GROUND_SCENARIO,
+  VEHICLE_SCENARIO,
+  RELIEF_SCENARIO,
+  COMBAT_SCENARIO,
+];
 
 /** Back-compat named export for the quiet scenario's fields -- kept because
  *  the manual protocol above (and any existing external notes) may still
@@ -487,13 +602,67 @@ export function threeUrl(port = 5173, scenario: Scenario = QUIET_SCENARIO): stri
   return `${baseUrl(port)}/?${sceneParam(scenario)}&renderer=three`;
 }
 
+/** Statements (not an expression) that stop the app's own rAF frame loop.
+ *  Must run inside an `async` context -- it awaits a real frame.
+ *
+ *  WHY, AND IT IS THE SECOND HALF OF THE `targetTick` BUG. Pinning the tick
+ *  the capture script STEPS TO does not pin the tick the SCREENSHOT sees.
+ *  `main.ts`'s `loop()` re-arms itself through `requestAnimationFrame` and
+ *  keeps running while Playwright is between `page.evaluate(captureScript)`
+ *  and `page.screenshot()`; every one of those frames calls `runTick()` for
+ *  each whole `MS_PER_TICK` of real time it accumulated, then repaints. The
+ *  synchronous `step()` inside the capture script takes real wall-clock time
+ *  of its own (140 ticks of sim), so `acc` is large when the next frame lands
+ *  and the loop catches up in a burst.
+ *
+ *  Measured on the `vehicle` scenario, 20 clean captures at HEAD: the capture
+ *  script returned tick 140 every single time, and the sim read **167-171**
+ *  immediately after the screenshot. The picture was therefore never the
+ *  tick-140 frame `step()` drew; it was whichever frame in the 140 -> 168
+ *  window the compositor happened to hold, which is a coin toss and is exactly
+ *  the bimodality (45-204 px in one mode, 1164-1549 in the other) that made
+ *  this scenario false-red 28% of the time on an unmodified tree.
+ *
+ *  The fix is to make `step()`'s own paint the LAST paint. Replacing
+ *  `window.requestAnimationFrame` with a stub makes `loop()`'s self-re-arm a
+ *  no-op, so the loop dies after at most one more callback -- which is what
+ *  the two nested real-rAF waits below are for. After this runs, the sim
+ *  advances only when something calls `step()`, and the canvas is repainted
+ *  only by that call.
+ *
+ *  Idempotent by flag, because `capture()` freezes BEFORE its settle (so the
+ *  settle accrues no ticks and no wall-clock VFX either) and `captureScript`
+ *  freezes again for a caller driving it by hand from devtools. Without the
+ *  flag the second run would capture the STUB as `_raf` and await a promise
+ *  nothing can ever resolve. */
+export const FREEZE_FRAME_LOOP_STATEMENTS = `
+if (!window.__lionsCaptureFrozen) {
+  const _raf = window.requestAnimationFrame.bind(window);
+  window.__lionsCaptureFrozen = true;
+  window.requestAnimationFrame = function () { return 0; };
+  await new Promise(function (r) { _raf(function () { _raf(function () { r(null); }); }); });
+}
+`.trim();
+
+/** The same freeze as a standalone expression a `page.evaluate` can run on its
+ *  own, returning the sim tick it froze at. */
+export const FREEZE_FRAME_LOOP_SCRIPT = `(async () => {
+${FREEZE_FRAME_LOOP_STATEMENTS}
+return JSON.stringify({ tick: window.__lions.sim.tickCount });
+})()`;
+
 /** Evaluated in-page (browser console / javascript_tool). Returns JSON so
  *  the two backends' results can be diffed textually before trusting the
  *  screenshots -- see protocol step 3c. Zoom (if the scenario sets one) is
  *  applied AFTER `goto()`, matching the scatter report's own sequence --
  *  `goto()` never touches `camera.zoom` (only x/y), so the order does not
  *  change the result, but keeping it explicit keeps this script legible as
- *  "frame, then zoom, then advance" rather than relying on that fact. */
+ *  "frame, then zoom, then advance" rather than relying on that fact.
+ *
+ *  An `async` IIFE rather than a bare statement list because it opens with
+ *  `FREEZE_FRAME_LOOP_STATEMENTS`, which awaits a real frame. Playwright
+ *  awaits a promise an evaluated expression returns, and so does devtools'
+ *  console. */
 export function captureScript(scenario: Scenario = QUIET_SCENARIO): string {
   if (scenario.cameraMarker === undefined && scenario.cameraTile === undefined) {
     throw new Error(`captureScript: scenario "${scenario.id}" sets neither cameraMarker nor cameraTile`);
@@ -523,19 +692,20 @@ export function captureScript(scenario: Scenario = QUIET_SCENARIO): string {
         scenario.orders.commands.join('\n') +
         '\n'
       : '';
-  return `
+  return `(async () => {
+${FREEZE_FRAME_LOOP_STATEMENTS}
 ${gotoLine}
 ${zoomLine}${ordersLine}${stepLine}
 const c = window.__lions.renderer.camera;
 const canvas = window.__lions.renderer.canvas;
 const r = canvas.getBoundingClientRect();
-JSON.stringify({
+return JSON.stringify({
   tick,
   camera: { x: c.x, y: c.y, zoom: c.zoom },
   rect: { x: r.x, y: r.y, w: r.width, h: r.height },
   dpr: window.devicePixelRatio,
 });
-`.trim();
+})()`.trim();
 }
 
 /** Back-compat named export: the quiet scenario's capture script, exactly as

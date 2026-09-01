@@ -8,12 +8,21 @@
 // `diff.ts` and `capture-protocol.ts` already make between measuring and
 // capturing.
 //
-// Two of these tests exist because a real measurement said something
+// Several of these tests exist because a real measurement said something
 // counter-intuitive, and a future reader tightening the code would otherwise
 // "fix" it back:
 //   - a scenario can fail on `meanAbsChannelDelta` with `diffPixels` at ZERO
-//     (the palette-step regression this renderer actually suffers), and
-//   - `combat` must NOT vote, however tempting a fourth green tick looks.
+//     (the palette-step regression this renderer actually suffers);
+//   - `combat` must NOT vote, however tempting a fifth green tick looks;
+//   - `vehicle`'s thresholds must still reject the pre-freeze flake's high
+//     mode, because widening to absorb it was the rejected fix; and
+//   - the boulder deletion must fail `relief` and nothing else, which is the
+//     map-coverage blind spot written down as an assertion.
+//
+// And the FIRST test in this file is here because the version it replaced
+// could not fail: it compared `Object.keys(BASELINES)` against a hand-written
+// copy of `Object.keys(BASELINES)` and never imported `SCENARIOS` at all, so a
+// scenario shipped with no calibrated threshold was green.
 
 import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync } from 'node:fs';
@@ -30,6 +39,7 @@ import {
   specFor,
 } from './baseline';
 import { computeDiff, type DiffSummary } from './diff';
+import { SCENARIOS } from './capture-protocol';
 
 function summary(over: Partial<DiffSummary>): DiffSummary {
   return {
@@ -53,14 +63,32 @@ describe('BASELINES', () => {
   it('covers every scenario the gate captures, since a missing entry throws', () => {
     // Mirrors golden-diff-gate.ts's own rule: a scenario with no calibrated
     // entry must not pass silently.
-    expect(Object.keys(BASELINES).sort()).toEqual(['combat', 'open-ground', 'quiet', 'vehicle']);
+    //
+    // THE ASSERTION READS `SCENARIOS`, NOT A HAND-WRITTEN LIST. What was here
+    // before compared `Object.keys(BASELINES).sort()` against a literal copy
+    // of `Object.keys(BASELINES)` -- a test that could not fail, and did not:
+    // adding a fifth scenario to `SCENARIOS` with no `BASELINES` entry left
+    // all eighteen specs in this file green while the gate itself would have
+    // thrown at run time in CI, or (worse, on a `--scenario`-filtered run)
+    // never looked at it at all.
+    expect(Object.keys(BASELINES).sort()).toEqual(SCENARIOS.map((s) => s.id).sort());
     expect(() => specFor('no-such-scenario')).toThrow(/no BASELINES entry/);
+  });
+
+  it('names every scenario it gates, so the reverse direction is covered too', () => {
+    // The equality above already forces both directions, but only while both
+    // sides are compared as sets. Spelled out: an entry here with no scenario
+    // behind it is a threshold nothing captures, which reads as coverage and
+    // is not.
+    const captured = new Set(SCENARIOS.map((s) => s.id));
+    for (const id of Object.keys(BASELINES)) expect(captured.has(id)).toBe(true);
   });
 
   it('gates by default and only combat opts out', () => {
     expect(isGated(BASELINES.quiet)).toBe(true);
     expect(isGated(BASELINES['open-ground'])).toBe(true);
     expect(isGated(BASELINES.vehicle)).toBe(true);
+    expect(isGated(BASELINES.relief)).toBe(true);
     // Not an oversight. Two captures of the SAME commit differ by 969-3847
     // pixels on this scene, and the scatter defect reads 3231 -- inside that
     // band. There is no honest threshold, so it is reported and does not vote.
@@ -70,6 +98,16 @@ describe('BASELINES', () => {
   it('scopes open-ground to the measured-stable ground crop, not the whole frame', () => {
     expect(BASELINES['open-ground'].region).toEqual({ x: 950, y: 500, w: 450, h: 400 });
     expect(BASELINES.quiet.region).toBeNull();
+  });
+
+  it('covers a map with relief and boulders, which two of the five shipped maps cannot', () => {
+    // `tel_marum` is the only shipped map with an elevation grid and the only
+    // one with `b` tiles. Before `relief` existed the gate sampled
+    // `beit_sahwan_outskirts` and `tutorial_ground` only, both flat and
+    // boulder-free, and deleting every boulder decor object left it green.
+    const maps = SCENARIOS.filter((s) => s.sandboxMap !== undefined).map((s) => s.sandboxMap);
+    expect(maps).toContain('tel_marum');
+    expect(BASELINES.relief).toBeDefined();
   });
 });
 
@@ -86,7 +124,7 @@ describe('evaluateBaseline', () => {
       BASELINES['open-ground']
     );
     expect(v.ok).toBe(false);
-    expect(v.failures.join(' ')).toMatch(/meanAbsChannelDelta 0\.3519 > 0\.05/);
+    expect(v.failures.join(' ')).toMatch(/meanAbsChannelDelta 0\.3519 > 0\.02/);
     // Exactly one failure: the pixel count is inside budget and contributes
     // nothing. (The one message mentions `diffPixels` in its own explanation,
     // so count the failures rather than grepping the text.)
@@ -94,30 +132,68 @@ describe('evaluateBaseline', () => {
   });
 
   it('passes the measured run-to-run noise on every gated scenario', () => {
-    // The worst same-environment reading actually observed for each scenario,
-    // over 12 captures spanning five browser processes and two checkouts of one
-    // commit. If a future edit tightens a threshold under these, the gate
-    // starts crying wolf -- which is how a gate earns an allowlist.
-    // quiet's worse noise mode carries the SAME pixel count as the defect
-    // signal below; the two are separated only by magnitude.
-    expect(evaluateBaseline(summary({ diffPixels: 41, meanAbsChannelDelta: 0.0024 }), BASELINES.quiet).ok).toBe(true);
+    // The WORST same-environment reading actually observed for each scenario
+    // over 24 consecutive full-gate runs, with the app's frame loop frozen. If
+    // a future edit tightens a threshold under these, the gate starts crying
+    // wolf -- which is how a gate earns an allowlist.
+    //
+    // The figures this test used to carry (quiet 41 px / 0.0024, vehicle 133 px
+    // / 0.0170) were the best case rather than the spread: an independent
+    // 18-run sample measured `vehicle` at 45-1549 px / 0.0110-0.1299 and
+    // false-red 28% of the time. The cause was the rAF loop repainting between
+    // the capture script and the screenshot; see `FREEZE_FRAME_LOOP_STATEMENTS`.
+    expect(evaluateBaseline(summary({ diffPixels: 1, meanAbsChannelDelta: 0.0001 }), BASELINES.quiet).ok).toBe(true);
     expect(
       evaluateBaseline(summary({ diffPixels: 0, meanAbsChannelDelta: 0 }), BASELINES['open-ground']).ok
     ).toBe(true);
-    expect(evaluateBaseline(summary({ diffPixels: 133, meanAbsChannelDelta: 0.017 }), BASELINES.vehicle).ok).toBe(
+    expect(evaluateBaseline(summary({ diffPixels: 101, meanAbsChannelDelta: 0.0058 }), BASELINES.vehicle).ok).toBe(
       true
     );
+    expect(evaluateBaseline(summary({ diffPixels: 0, meanAbsChannelDelta: 0 }), BASELINES.relief).ok).toBe(true);
+  });
+
+  it('would have gone red on the pre-freeze vehicle flake, which is why it was fixed not widened', () => {
+    // The high mode of the measured bimodal distribution on an UNMODIFIED
+    // tree. It must still fail: widening `vehicle` until this passed was the
+    // rejected option, because a threshold that absorbs 1549 px / 0.1299 also
+    // absorbs the 0.1953 the scatter defect reads on this scenario.
+    expect(
+      evaluateBaseline(summary({ diffPixels: 1549, meanAbsChannelDelta: 0.1299 }), BASELINES.vehicle).ok
+    ).toBe(false);
   });
 
   it('fails the measured scatter-defect signal on every gated scenario', () => {
-    expect(evaluateBaseline(summary({ diffPixels: 41, meanAbsChannelDelta: 0.0493 }), BASELINES.quiet).ok).toBe(
+    // Re-measured against the re-blessed baselines under the frozen frame
+    // loop, by reverse-applying `d9fd1c7`'s own diff onto HEAD.
+    expect(evaluateBaseline(summary({ diffPixels: 14, meanAbsChannelDelta: 0.047 }), BASELINES.quiet).ok).toBe(
       false
     );
     expect(
       evaluateBaseline(summary({ diffPixels: 0, meanAbsChannelDelta: 0.3519 }), BASELINES['open-ground']).ok
     ).toBe(false);
-    expect(evaluateBaseline(summary({ diffPixels: 100, meanAbsChannelDelta: 0.2068 }), BASELINES.vehicle).ok).toBe(
+    expect(evaluateBaseline(summary({ diffPixels: 63, meanAbsChannelDelta: 0.1953 }), BASELINES.vehicle).ok).toBe(
       false
+    );
+    expect(evaluateBaseline(summary({ diffPixels: 86, meanAbsChannelDelta: 0.1452 }), BASELINES.relief).ok).toBe(
+      false
+    );
+  });
+
+  it('fails the boulder deletion on relief, and on relief alone', () => {
+    // `decor-place.ts`'s `if (boulder) return 'boulder'` -> `return null`
+    // erases the whole T1-C boulder field. Measured through the real gate: the
+    // three older gated scenarios stayed inside their own noise (quiet 1 px /
+    // 0.0001, open-ground 0 / 0.0000, vehicle 35 px / 0.0046) and only this
+    // one moved. That is the map-coverage blind spot, stated as an assertion.
+    expect(
+      evaluateBaseline(summary({ diffPixels: 36001, meanAbsChannelDelta: 2.6292 }), BASELINES.relief).ok
+    ).toBe(false);
+    expect(evaluateBaseline(summary({ diffPixels: 1, meanAbsChannelDelta: 0.0001 }), BASELINES.quiet).ok).toBe(true);
+    expect(
+      evaluateBaseline(summary({ diffPixels: 0, meanAbsChannelDelta: 0 }), BASELINES['open-ground']).ok
+    ).toBe(true);
+    expect(evaluateBaseline(summary({ diffPixels: 35, meanAbsChannelDelta: 0.0046 }), BASELINES.vehicle).ok).toBe(
+      true
     );
   });
 
