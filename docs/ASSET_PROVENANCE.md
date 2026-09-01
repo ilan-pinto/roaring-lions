@@ -213,17 +213,67 @@ depends on someone remembering is provenance that eventually fails.
    2026-08-04 and that date remains licensed under it to whoever took a copy;
    the change stops adding to that set and cannot undo it.
 4. **Decide the `art/blend/` question deliberately** ([#137](https://github.com/ilan-pinto/roaring-lions/issues/137),
-   queued behind the T1 terrain milestone) — **4.8 GB** of Meshy
-   sources are gitignored, so no clone can re-run the import and export scripts.
-   Git LFS, a decimated in-repo source, or a documented exception. Currently it
-   is an omission rather than a decision.
+   queued behind the T1 terrain milestone) — measured **2026-09-01: 5.16 GB**
+   in the main checkout (both prior figures were wrong: 4.8 GB is stale, and
+   the issue's own ~5.4 GB estimate ran high — re-measure before quoting
+   either again; `art/blend/` is gitignored, per-checkout, and does not exist
+   in a fresh worktree, so the number moves independently of `main`'s own
+   history). Git LFS, a decimated in-repo source, or a documented exception.
+   Currently it is an omission rather than a decision.
 
-   **The size changes which option is reasonable.** At the 465 MB this item was
-   written against, Git LFS was the obvious answer. At 4.8 GB it is not: GitHub
-   bills LFS storage and bandwidth per account, and every clone would pull the
-   lot. The proximate cause is that Meshy's `image-to-3d-texture` sources run
-   ~193 MB each and 22 of them are textured variants the pipeline never reads —
-   every export script strips materials, because the mesh contract requires zero
-   materials in the shipped GLB. So the sources carry texture data that is
-   discarded by construction. A decimated, material-stripped in-repo source
-   would likely fit in ordinary git; that is worth measuring before buying LFS.
+   **The "texture is discarded by construction" hypothesis was tested, not
+   assumed — and it splits cleanly by asset class, not uniformly.** It holds
+   for vehicles, buildings, terrain and effects (3.46 GB of the 5.16 GB):
+   grepping every `export_meshy_*`/`import_meshy_*` script for a base-color
+   pixel read finds none in that group — classification there is pure
+   geometry (Z/X/Y histograms). Proven concretely on one representative
+   vehicle, `ifv_namer` (992,444-vert single mesh, 189 MB source): a
+   materials-stripped copy (geometry untouched, 94 MB, 50% retained) ran
+   through the real `export_meshy_namer.py` unmodified and produced a GLB
+   with the shipped one's exact bounding box and vertex counts within 0.3%.
+   Pre-*decimating* the source on top of that is a different question and
+   the answer is no — the exporter applies its own fixed 0.02-ratio decimate
+   to whatever mesh it's handed, so a pre-decimated input compounds and
+   undershoots the calibrated target by roughly half (measured: 10,369 hull
+   polys vs. the real 19,179). The geometric cuts still land correctly
+   (they're absolute coordinates, not vertex-relative), but the shipped
+   resolution changes — so **materials-only stripping, not decimation, is
+   the safe operation for this class.**
+
+   The hypothesis does **not** hold for the rigged-figure class
+   (`KDF/sniper`, `KDF/mortor team`, `KDF/soldier`, `KDF/Yaalom`,
+   `enemy/Sarim irregular` — 1.70 GB): four of those five import scripts
+   read a base-color pixel array to classify vertices into roles
+   (`webbing`/`boot`/`uniform`/…) *before* clearing materials, not after.
+   Proven concretely, not inferred: stripping the texture from the
+   representative rigged biped's base clip (`Sarim irregular`) and running
+   the real `import_meshy_soldier_irregular.py` against it crashed —
+   `IndexError: … materials[0] … index 0 out of range, size 0` inside
+   `classify_vertex_roles`. Two sub-patterns live inside this class and
+   extrapolate very differently: `soldier`/`Yaalom`/`Sarim irregular` each
+   ship one texture-load-bearing base clip plus several animation-only clips
+   whose own mesh is discarded either way (only the action curve survives
+   `import_clip`) — stripping those is provably free (a partial-strip run
+   reproduced the shipped `sarim_rifles.glb`'s vertex count exactly, 58,725
+   both times) — and each of those three families also carries a redundant
+   delivery `.zip`, byte-for-byte duplicating a folder already unzipped
+   beside it (462 MB total, a zero-risk deletion available today,
+   independent of this whole question). `sniper` and `mortor team`, though,
+   are each two independently-classified static poses with no disposable
+   clip at all — every byte of their texture is load-bearing.
+
+   **Extrapolated best case sits around 2.6 GB, not "ordinary git."**
+   Applying the Namer ratio to the rest of the geometry-only class
+   (3.46 GB → ~1.7 GB) and the measured per-family ratios to the figure
+   class (1.70 GB → ~0.9 GB, almost all of the saving from
+   `soldier`/`Yaalom`/`Sarim irregular` collapsing roughly 6:1 while
+   `sniper`/`mortor team` stay full-size) totals **~2.6 GB retained** —
+   about half of 5.16 GB, not the order-of-magnitude cut "texture is pure
+   waste" implied. 2.6 GB of binary sources that get replaced wholesale on
+   every re-export (nothing here deltas) is still well past what plain git
+   carries gracefully. **This measurement rules out "strip and commit
+   plainly" as a full fix on its own; it does not resolve the choice between
+   Git LFS, a class-aware partial in-repo source, and a documented
+   exception** — that remains the project lead's call. Full method, per-file
+   numbers, and the Blender scripts used are in
+   `.superpowers/queue/blend-size-report.md`.
