@@ -84,12 +84,87 @@ for `technical.glb`).
     seed list -- every stair-tread seed found sits in that range). A tight
     seed at window-band height, away from that edge, reverts to `wall`
     rather than being forced into either bucket.
-  - `wall`: everything else -- the base masonry, ALL window and door
-    openings (no clean recess signal separated frame/shutter/glass from the
-    surrounding wall without also re-conflating with the sill problem above
-    -- see the report), the lower single-storey wing. Coloured from this
-    building's own `wallColorKey` at runtime (`data/structures.json`
-    `house.color` = `limestone.3`), unchanged by this script.
+  - `glass` (GH #142, added after the rest of this split -- see GLASS below):
+    three of the four window openings plus the ground-floor door, out of
+    `wall`'s own window/door recesses. NOT depth -- a recess-along-the-wall-
+    normal signal was tried first and re-conflates with the sill problem
+    directly above (a window recess and a sill are both "a shallow dip in an
+    otherwise flat wall" at this decimation), which is why the original pass
+    shipped none. Colour SATURATION is a different signal in a different
+    domain and does not have that collision.
+  - `wall`: everything else -- the base masonry, the fourth window opening
+    (see GLASS -- entangled with a tank-support strut, not shipped), the
+    lower single-storey wing. Coloured from this building's own
+    `wallColorKey` at runtime (`data/structures.json` `house.color` =
+    `limestone.3`), unchanged by this script.
+
+GLASS (GH #142 -- "house.glb ships no glass role"; added in a later pass over
+the same source, after the rest of the split above already shipped). The
+signal this asset carries is colour SATURATION, not luminance
+(`export_meshy_warehouse.py`'s own signal for its own Meshy source) and not
+depth (tried and rejected for `wall` above, in the original pass): a real
+textured render of this source's own -Y facade (Workbench TEXTURE, the same
+instrument that settled FORWARD REORIENTATION below) shows the three closed
+window shutters at roughly a FIFTH of the surrounding limestone wall's own
+saturation (~0.016-0.020 sampled on the shutters against ~0.06-0.13 on wall/
+trim/door-opening in that render) while sitting close to the wall's own
+LUMINANCE (shutter ~0.46-0.68, wall ~0.49-0.68 -- badly overlapping, which is
+why a luminance threshold in warehouse's own style found almost nothing here:
+at warehouse's own 0.32 cut, only ~1% of this asset's `wall` faces qualified
+and the largest connected cluster was 28 faces, nowhere near a real window).
+`_detect_glass` samples SATURATION (max channel minus min) at each `wall`
+face's own UV centroid against the DECIMATED mesh's `base_color` bake (the
+same per-face-UV sampling `_sample_uv_luminance` uses in warehouse, just a
+different statistic), takes mesh-topology connected components among faces
+below SAT_GLASS_THRESH (bmesh edge adjacency -- this asset's own
+`_flood_components`, not warehouse's position grid: house is not a simple
+box the way warehouse is -- a two-storey main block, a single-storey wing
+and an external stair mean there is no single global per-side "slab" to grid
+against, and normal-direction bucketing was tried and tested WORSE, pooling
+faces from spatially distant, differently-offset walls into one grid whose
+window signal drowned in wall-sized cells: 0 glass candidates found -- see
+the report), then grows every seed at or above GLASS_MIN_FACES into its own
+surrounding `wall` faces with the SAME bounded KDTree BFS `metal` already
+uses (`_grow_metal_seeds`, now taking an optional `allowed_idx` so growth
+can never cross into a face `roof`/`trim`/`metal` already claimed) -- so a
+window ships with its visible frame, not just the darkest-saturation core.
+
+Four openings clear GLASS_MIN_FACES cleanly and were confirmed by a coloured
+role render from all 4 cardinal directions (glass painted red against the
+other roles' own tones, the same "render the role alone, check it by eye"
+verification `export_meshy_apartment.py`'s own docstring used for its stair
+corner): the three -Y (front) window shutters and the -Y door -- eight seed
+components total (536-577 faces per shutter-pair, 202 for the door), every
+one landing exactly on its own opening with no bleed into the surrounding
+wall in any of the four views. A FIFTH opening -- a shuttered window on the
++Y (back) facade, matching this script's own earlier note of "a boarded
+window" on one of the three non-front sides -- was found by the same signal
+(a 166-face seed, cleanly square in isolation) but is NOT shipped: at every
+growth radius and padding tried, it also pulls in a sliver of the water
+tank's OWN support strut sitting close above it, because that strut reads
+just as low-saturation as the window itself (grey structural metal, not
+glass) and the two are close enough in the mesh that no radius/padding
+choice separated "capture this window's frame" from "capture the strut too"
+without either failing to bleed or getting too aggressive elsewhere.
+GLASS_MIN_FACES=200 is the line that keeps that one out while keeping every
+other confirmed opening (whose own seeds run 202-577 faces, well clear) --
+raising it further would not lose anything else, and 91 is the largest
+surviving noise seed excluded at that floor. Shipping the back window would
+mean either inventing a boundary the geometry does not cleanly support, or
+also (wrongly) recolouring a piece of the tank's own strut as `glass` --
+this script does neither, and ships four openings honestly rather than five
+with one visibly wrong.
+
+DESTROYED PASS: NO `glass`, checked and rejected rather than assumed. The
+same saturation detector run against the wreck's own decimated `wall` faces
+finds nothing to grow: collapse damage and dust roughen this source's own
+saturation into a tight, uniformly LOW band (p10 0.075 against the intact
+source's own p10 of 0.020 -- the wreck is more uniform, not less, because
+dust flattens the colour variation a shutter would stand out against) and
+the largest connected low-saturation component is 43 faces against
+GLASS_MIN_FACES's 200. The same call `export_meshy_apartment.py`'s and
+`export_meshy_warehouse.py`'s own destroyed passes already made for glass,
+for the same reason -- collapse does not preserve this signal.
 
   DESTROYED (measured on the DECIMATED wreck mesh directly -- no main-
   component isolation needed, see CONNECTIVITY above):
@@ -193,6 +268,7 @@ from collections import defaultdict
 
 import bpy
 import bmesh
+import numpy as np
 from mathutils import kdtree
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -208,7 +284,13 @@ REPO = os.path.dirname(TOOLS)
 # does not exist inside a worktree checkout at all -- these sources live
 # only in the main repo's own local, untracked working directory, the exact
 # absolute path this task was given. NOT derived from REPO for that reason.
-SRC_DIR = "/Users/ilpinto/dev/roaring-lions/art/blend/enemy building 1"
+# Corrected during GH #142's glass-role pass: this constant had drifted to
+# ".../art/blend/enemy building 1" (missing the "enemy/" segment), a stale
+# path from before the source tree was reorganised into one "enemy/" parent
+# alongside apartment's and warehouse's own siblings -- confirmed against
+# the actual tree (`ls art/blend/enemy/`) rather than assumed, and the
+# script would not run at all against the old value.
+SRC_DIR = "/Users/ilpinto/dev/roaring-lions/art/blend/enemy/enemy building 1"
 SRC_INTACT = os.path.join(SRC_DIR, "Meshy_AI_levantine_house_intac_0830152052_image-to-3d-texture.blend")
 SRC_DESTR = os.path.join(SRC_DIR, "Meshy_AI_levantine_house_destr_0830152122_image-to-3d-texture.blend")
 
@@ -265,6 +347,28 @@ GROW_ROUNDS = 2
 #: Destroyed-pass `roof` union floor -- filters single-triangle noise, keeps
 #: every real debris facet. See docstring "ROLE SPLIT / DESTROYED".
 WRECK_SIZE_FLOOR = 15
+
+#: `glass` detection (GH #142), intact pass only -- source frame, against the
+#: DECIMATED main shell's own `base_color` bake. See docstring "GLASS".
+#: A face's colour SATURATION (max channel minus min), not luminance: the
+#: shutters read close to the wall's own brightness but at roughly a fifth
+#: of its saturation (measured ~0.016-0.02 on the shutters against a
+#: ~0.06-0.13 wall/trim range on a real textured render of this asset's own
+#: front facade) -- see the report for the sampled RGB triples.
+SAT_GLASS_THRESH = 0.03
+#: A seed component below this many faces is noise (a dirt fleck, a stray
+#: dark grout line) at DECIMATE_RATIO's density -- every confirmed window
+#: pane and the door seed clear 200; the largest noise seed found was 91 (a
+#: sliver of the water tank's own support strut, entangled with a real
+#: window seed above this floor -- see docstring GLASS for why that one
+#: window is NOT shipped).
+GLASS_MIN_FACES = 200
+#: Local growth for a `glass` seed, restricted to the `wall` idx set -- same
+#: mechanism and same defaults as `_grow_metal_seeds`'s own fixture growth,
+#: reused here (see `allowed_idx`) so a window ships with its visible frame/
+#: casing, not just the darkest-saturation core.
+GLASS_GROW_RADIUS = 0.025
+GLASS_GROW_ROUNDS = 2
 
 CREDIT = (
     "Levantine house (standing + destroyed) -- AI-generated (Meshy), disclosed "
@@ -365,10 +469,15 @@ def _centroid_bbox(faces_by_idx, idx_list):
     )
 
 
-def _grow_metal_seeds(bm, faces_by_idx, seed_comps, radius, rounds):
+def _grow_metal_seeds(bm, faces_by_idx, seed_comps, radius, rounds, allowed_idx=None):
     """Local BFS from each seed component's own vertices, over a KDTree of
     every mesh vertex -- see module docstring "ROLE SPLIT / INTACT / metal".
-    """
+    `allowed_idx`, if given, restricts every grown face to that set -- used
+    by `_detect_glass` (GH #142) to grow a window/door seed into its own
+    surrounding `wall` faces without ever reaching into a face another role
+    already claimed; left `None` (unrestricted) for the original `metal`
+    caller, which runs before roof/trim/wall are finalised and has nothing
+    to restrict against yet."""
     all_verts = list(bm.verts)
     kd = kdtree.KDTree(len(all_verts))
     for i, v in enumerate(all_verts):
@@ -380,14 +489,14 @@ def _grow_metal_seeds(bm, faces_by_idx, seed_comps, radius, rounds):
         for v in f.verts:
             vert_to_faces[v.index].add(f.index)
 
-    metal_idx = set()
+    grown_total = set()
     for comp in seed_comps:
         grown_verts = set()
         for fi in comp:
             for v in faces_by_idx[fi].verts:
                 grown_verts.add(v.index)
         frontier_pts = [all_verts[i].co for i in grown_verts]
-        grown_faces = set(comp)
+        grown_faces = set(comp) if allowed_idx is None else {fi for fi in comp if fi in allowed_idx}
         for _round in range(rounds):
             new_verts = set()
             for p in frontier_pts:
@@ -396,6 +505,8 @@ def _grow_metal_seeds(bm, faces_by_idx, seed_comps, radius, rounds):
             newly_added = False
             for vi in new_verts:
                 for fi in vert_to_faces[vi]:
+                    if allowed_idx is not None and fi not in allowed_idx:
+                        continue
                     if fi not in grown_faces:
                         grown_faces.add(fi)
                         newly_added = True
@@ -403,8 +514,50 @@ def _grow_metal_seeds(bm, faces_by_idx, seed_comps, radius, rounds):
                 break
             frontier_pts = [all_verts[i].co for i in new_verts if i not in grown_verts]
             grown_verts |= new_verts
-        metal_idx |= grown_faces
-    return metal_idx
+        grown_total |= grown_faces
+    return grown_total
+
+
+def _detect_glass(bm, uv_layer, img, wall_idx, faces_by_idx):
+    """Returns a set of face indices to tag `glass`, out of `wall_idx` --
+    see module docstring "GLASS". Per-face colour SATURATION (max channel
+    minus min), sampled from `base_color` at each face's own UV centroid --
+    NOT luminance (`export_meshy_warehouse.py`'s own signal): this asset's
+    shutters read close to the wall's own brightness and are told apart by
+    being far LESS saturated, not darker. Seed components come from mesh-
+    topology adjacency among below-threshold `wall` faces (not a position
+    grid -- house is not a simple box the way warehouse is, so there is no
+    single global per-side slab to grid against); surviving seeds (>=
+    GLASS_MIN_FACES) are grown into their own surrounding `wall` faces by
+    the same bounded KDTree BFS `metal` uses, restricted to `wall_idx` so
+    growth can never cross into a face another role already claimed."""
+    w, h = img.size
+    arr = np.array(img.pixels[:], dtype=np.float32).reshape(h, w, img.channels)
+    face_sat = {}
+    for fi in wall_idx:
+        f = faces_by_idx[fi]
+        us = [l[uv_layer].uv.x for l in f.loops]
+        vs = [l[uv_layer].uv.y for l in f.loops]
+        u = sum(us) / len(us)
+        v = sum(vs) / len(vs)
+        x = int(min(max(u, 0.0), 0.999999) * w)
+        y = int(min(max(v, 0.0), 0.999999) * h)
+        col = arr[y, x]
+        r, g, b = float(col[0]), float(col[1]), float(col[2])
+        face_sat[fi] = max(r, g, b) - min(r, g, b)
+
+    low_idx = {fi for fi in wall_idx if face_sat[fi] < SAT_GLASS_THRESH}
+    comps, _ = _flood_components(bm, low_idx)
+    print(f"[house] glass seed components (sat<{SAT_GLASS_THRESH}): {len(comps)}, "
+          f"top sizes {[len(c) for c in comps[:12]]}")
+
+    seed_comps = [c for c in comps if len(c) >= GLASS_MIN_FACES]
+    glass_idx = _grow_metal_seeds(
+        bm, faces_by_idx, seed_comps, GLASS_GROW_RADIUS, GLASS_GROW_ROUNDS, allowed_idx=wall_idx
+    )
+    print(f"[house] glass: kept {len(seed_comps)} of {len(comps)} seed components, "
+          f"{len(glass_idx)} faces after growth")
+    return glass_idx
 
 
 def _split_intact_roles(main_obj):
@@ -438,9 +591,20 @@ def _split_intact_roles(main_obj):
     metal_idx -= roof_idx | trim_idx
     trim_idx -= roof_idx
     wall_idx = set(faces_by_idx) - roof_idx - trim_idx - metal_idx
-    print(f"[house] intact roles: roof={len(roof_idx)} trim={len(trim_idx)} metal={len(metal_idx)} wall={len(wall_idx)}")
+
+    uv_layer = bm.loops.layers.uv.active
+    if uv_layer is None:
+        raise SystemExit("house intact: decimated mesh has no UV layer -- glass detection (GH #142) needs one")
+    img = bpy.data.images["base_color"]
+    glass_idx = _detect_glass(bm, uv_layer, img, wall_idx, faces_by_idx)
+    wall_idx -= glass_idx
+
+    print(
+        f"[house] intact roles: roof={len(roof_idx)} trim={len(trim_idx)} metal={len(metal_idx)} "
+        f"glass={len(glass_idx)} wall={len(wall_idx)}"
+    )
     bm.free()
-    return {"roof": roof_idx, "trim": trim_idx, "metal": metal_idx, "wall": wall_idx}
+    return {"roof": roof_idx, "trim": trim_idx, "metal": metal_idx, "glass": glass_idx, "wall": wall_idx}
 
 
 def _split_wreck_roles(wreck_obj):
