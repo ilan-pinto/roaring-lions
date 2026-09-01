@@ -28,9 +28,18 @@ function sliceFrom(band: string, index: number): readonly string[] {
 
 const DECOR_ROLE_PALETTE: Record<DecorMeshRole, readonly string[]> = {
   // Living green, distinct from the olive a KDF uniform uses.
-  foliage: sliceFrom('scrub', 0),
-  // Woody stems: the dark end of dust, so a trunk reads against its own crown.
-  trunk: sliceFrom('dust', 4),
+  // OLIVE, not scrub. The procedural canopy this replaced shaded its leaves
+  // through `terrain-themes.ts`'s `leafDark`/`leafMid`/`leafLit` = olive.2/1/0
+  // -- a muted grey-green with three steps. `scrub` is a bright, saturated
+  // grass-green with only TWO, so mesh trees came out flat and vivid: the
+  // project lead's word for it was "broccoli". Switching to olive restores the
+  // hue the game already calls leaves AND gains a fourth shading step, so a
+  // crown reads as rounded rather than as one lump of colour.
+  foliage: sliceFrom('olive', 0),
+  // Woody stems. Starts at dust.3 to match the theme's own `trunkLit`
+  // (`#AC8248`) rather than one step darker, which left the lit side of a
+  // trunk too close to its shadow to read as round.
+  trunk: sliceFrom('dust', 3),
   // Warm brown stone, matching the terrain it sits on: `terrain-themes.ts`
   // sets `rock: paletteColor('limestone.6')` in BOTH themes ("A knoll in the
   // basin is a dry-stone terrace wall, so it stays limestone in both themes
