@@ -364,6 +364,12 @@ import { screenOffsetToWorld, hexToUnit } from '../terrain/shared';
 import { groundWorldY } from '../ground-height';
 import { tracerAlpha, type TracerModel } from './tracers';
 import {
+  shellPointAt,
+  shellTrailSpan,
+  SHELL_TRAIL_SEGMENTS,
+  type ShellModel,
+} from './shells';
+import {
   FX_RENDER_ORDER,
   FX_RENDER_ORDER_ADDITIVE,
   FX_RENDER_ORDER_ABOVE,
@@ -427,6 +433,40 @@ export const TRACER_LIFT_PX = 4;
 /** Tracer ribbon width in screen pixels, matching `renderer.ts:2601`'s
  *  `stroke({ width: 1.5, ... })`. */
 export const TRACER_WIDTH_PX = 1.5;
+
+/**
+ * GH-145, the indirect-fire arc. Quads, not shells: one shell draws
+ * `SHELL_TRAIL_SEGMENTS` of them, so this holds 64 rounds in the air at
+ * once. The whole shipped roster has three indirect weapons (`mortar_60`,
+ * `mortar_82`, `grad_122`), the fastest of which is `mortar_60` at 4 rounds
+ * per minute, and the longest cosmetic flight is 4 s (`grad_122` at its own
+ * 20-tile range) -- so 64 concurrent rounds would need about a thousand
+ * tubes firing. Two orders of magnitude of headroom, at 384 * 4 = 1536
+ * vertices, under a tenth of the tracer pool's.
+ */
+export const SHELL_CAPACITY = 384;
+/** Screen-pixel lift a shell draws at above the ground line between its own
+ *  launch and impact tiles, on top of whatever the arc itself contributes.
+ *  Exists for one reason: at `u = 0` and `u = 1` the arc's own height is
+ *  exactly zero, and with `depthTest: true` a ribbon lying flat on the
+ *  ground it is drawn over does not render at all -- the identical "buried,
+ *  not misplaced" failure `TRACER_LIFT_PX` documents. Same value, for the
+ *  same reason. */
+export const SHELL_LIFT_PX = 4;
+/** Width in screen pixels of the streak AT THE ROUND. More than three times
+ *  `TRACER_WIDTH_PX`, deliberately: a bullet is a line and a bomb is an
+ *  object, and a tracer gets to be 1.5px because it spans the whole shot
+ *  while this spans about a tile. 3.5 was the first value walked in the
+ *  browser and read as a thin dash; 5 reads as a round. */
+export const SHELL_WIDTH_PX = 5;
+/** The tail of the streak is this fraction of the head's width -- the taper
+ *  that makes it read as a round with a wake rather than a floating dash. */
+export const SHELL_TAIL_WIDTH_RATIO = 0.3;
+/** Alpha at the very tail. Not 0: a streak that fades to nothing at gameplay
+ *  zoom loses roughly its last third to the background, which is the third
+ *  that tells you where the round CAME FROM -- the readability this whole
+ *  feature exists for. */
+export const SHELL_TAIL_ALPHA = 0.2;
 
 /**
  * `renderOrder` for the tracer mesh and the BELOW-tier particle mesh,
@@ -757,6 +797,149 @@ export function tracerIndexBuffer(capacity: number): Uint32Array {
   return indices;
 }
 
+/**
+ * GH-145: one segment of an indirect round's streak, as four world-space
+ * corners in `tracerQuadPositions`'s own vertex order -- a0 (0,1,2), a1
+ * (3,4,5), b1 (6,7,8), b0 (9,10,11), where `a` is the segment's tail (`uA`)
+ * and `b` its head (`uB`).
+ *
+ * Everything here is a tracer ribbon with ONE difference, and every property
+ * worth knowing follows from it: **the two ends sit at different heights.**
+ *
+ *  - **World Y is real, not a lift.** Each end's Y is the ground line
+ *    between the shot's own LAUNCH and IMPACT tiles, linearly interpolated
+ *    at that end's `u`, plus `SHELL_LIFT_PX`, plus the parabola's own height
+ *    at that `u`. It deliberately does NOT sample the ground under the arc
+ *    the way `tracerQuadPositions` samples its two endpoints: a bomb does
+ *    not bulge upward crossing a ridge. With a genuine height and
+ *    `depthTest: true`, terrain occlusion is the depth buffer's job -- a
+ *    round passing over a 3-level ridge clears it because it is actually
+ *    above it, and one arcing INTO a hillside is hidden by that hillside,
+ *    both for free and both correct.
+ *  - **The perpendicular is taken in SCREEN space including height.**
+ *    `worldToScreen`'s own convention is that a lifted point's screen Y is
+ *    `isoY(x, y) - liftPx`, so a climbing segment's on-screen direction is
+ *    not its ground bearing. Taking the perpendicular against the ground
+ *    bearing alone would make the ribbon narrow as the arc steepens, worst
+ *    exactly at launch and impact where a mortar is steepest. The offset
+ *    itself is still a pure ground-plane delta (`screenOffsetToWorld`) with
+ *    no Y component, so both vertices at one end keep that end's single Y --
+ *    the quad tilts, and, having only two distinct Y values across four
+ *    vertices, still cannot kink.
+ *  - **Each end carries its own width**, so a caller can taper the streak
+ *    across segments (`SHELL_TAIL_WIDTH_RATIO`) without the notches a
+ *    per-segment constant width would leave at every join.
+ */
+export function shellSegmentQuad(
+  s: ShellModel,
+  uA: number,
+  uB: number,
+  elevation: Uint8Array | null,
+  mapWidth: number,
+  mapHeight: number,
+  widthAPx: number = SHELL_WIDTH_PX,
+  widthBPx: number = SHELL_WIDTH_PX
+): Float32Array {
+  const launchGround = groundWorldY(elevation, mapWidth, mapHeight, s.sx, s.sy);
+  const impactGround = groundWorldY(elevation, mapWidth, mapHeight, s.tx, s.ty);
+  const a = shellPointAt(s, uA);
+  const b = shellPointAt(s, uB);
+  const worldYAt = (u: number, liftPx: number): number => {
+    const p = u < 0 ? 0 : u > 1 ? 1 : u;
+    return launchGround + (impactGround - launchGround) * p + (SHELL_LIFT_PX + liftPx) * WORLD_Y_PER_LIFT_PIXEL;
+  };
+  const aY = worldYAt(uA, a.liftPx);
+  const bY = worldYAt(uB, b.liftPx);
+
+  // On-screen direction of the segment, height included -- see this
+  // function's own doc comment for why the ground bearing alone is wrong.
+  const dxScreen = isoX(b.x, b.y) - isoX(a.x, a.y);
+  const dyScreen = isoY(b.x, b.y) - bY / WORLD_Y_PER_LIFT_PIXEL - (isoY(a.x, a.y) - aY / WORLD_Y_PER_LIFT_PIXEL);
+  const len = Math.hypot(dxScreen, dyScreen);
+  // A zero-length segment has no bearing -- the same fixed fallback
+  // `tracerQuadPositions` uses, for the same reason.
+  const nx = len > 0 ? -dyScreen / len : 1;
+  const ny = len > 0 ? dxScreen / len : 0;
+  const perpA = screenOffsetToWorld((nx * widthAPx) / 2, (ny * widthAPx) / 2);
+  const perpB = screenOffsetToWorld((nx * widthBPx) / 2, (ny * widthBPx) / 2);
+
+  return Float32Array.from([
+    a.x - perpA.dx, aY, a.y - perpA.dy,
+    a.x + perpA.dx, aY, a.y + perpA.dy,
+    b.x + perpB.dx, bY, b.y + perpB.dy,
+    b.x - perpB.dx, bY, b.y - perpB.dy,
+  ]);
+}
+
+/**
+ * Writes every live shell's streak into the same flat, batched buffer shape
+ * tracers use (`TracerInstanceBuffers`), `SHELL_TRAIL_SEGMENTS` quads per
+ * shell. Returns the number of QUADS written; the caller derives
+ * `drawRange` from it.
+ *
+ * Colour comes from the SAME per-side `tracerColors` pair a tracer is drawn
+ * with, not a new palette entry: indirect fire from your own side should
+ * read as your own side's fire, and adding a second colour key for it would
+ * be a palette decision this feature does not need to make.
+ *
+ * Alpha and width both ramp from the tail to the round -- `SHELL_TAIL_ALPHA`
+ * and `SHELL_TAIL_WIDTH_RATIO` to 1 -- across the whole streak, not per
+ * segment, so the joins are continuous.
+ *
+ * Overflow evicts the OLDEST shells, exactly as `writeTracerInstances` does
+ * and for the identical reason: the rounds a player is watching are the ones
+ * still in the air, and truncating from the front would hold the buffer for
+ * shells about to land while dropping the ones just fired.
+ */
+export function writeShellInstances(
+  shells: readonly ShellModel[],
+  tracerColors: readonly [string, string],
+  elevation: Uint8Array | null,
+  mapWidth: number,
+  mapHeight: number,
+  out: TracerInstanceBuffers
+): number {
+  const quadCapacity = out.alphas.length / 4;
+  const shellCapacity = Math.floor(quadCapacity / SHELL_TRAIL_SEGMENTS);
+  const start = Math.max(0, shells.length - shellCapacity);
+  let count = 0;
+  for (let i = start; i < shells.length; i++) {
+    const s = shells[i];
+    const { tail, head } = shellTrailSpan(s);
+    const [r, g, b] = cachedHexToUnit(tracerColors[s.side] ?? tracerColors[0]);
+    for (let seg = 0; seg < SHELL_TRAIL_SEGMENTS; seg++) {
+      const fA = seg / SHELL_TRAIL_SEGMENTS;
+      const fB = (seg + 1) / SHELL_TRAIL_SEGMENTS;
+      const alphaA = SHELL_TAIL_ALPHA + (1 - SHELL_TAIL_ALPHA) * fA;
+      const alphaB = SHELL_TAIL_ALPHA + (1 - SHELL_TAIL_ALPHA) * fB;
+      const quad = shellSegmentQuad(
+        s,
+        tail + (head - tail) * fA,
+        tail + (head - tail) * fB,
+        elevation,
+        mapWidth,
+        mapHeight,
+        SHELL_WIDTH_PX * (SHELL_TAIL_WIDTH_RATIO + (1 - SHELL_TAIL_WIDTH_RATIO) * fA),
+        SHELL_WIDTH_PX * (SHELL_TAIL_WIDTH_RATIO + (1 - SHELL_TAIL_WIDTH_RATIO) * fB)
+      );
+      out.positions.set(quad, count * 12);
+      for (let v = 0; v < 4; v++) {
+        const ci = count * 12 + v * 3;
+        out.colors[ci] = r;
+        out.colors[ci + 1] = g;
+        out.colors[ci + 2] = b;
+      }
+      // Vertex order a0, a1, b1, b0: the first two are the tail end.
+      out.alphas[count * 4] = alphaA;
+      out.alphas[count * 4 + 1] = alphaA;
+      out.alphas[count * 4 + 2] = alphaB;
+      out.alphas[count * 4 + 3] = alphaB;
+      count++;
+    }
+  }
+  return count;
+}
+
 // ---------------------------------------------------------------------------
 // GPU-facing: everything below touches THREE.* GPU-side construction
 // (BufferGeometry, InstancedMesh, ShaderMaterial). Not exercised by
@@ -1082,7 +1265,7 @@ export class ParticleInstancer {
  * `depthTest` stays `true`, which is the half of this recipe the
  * building/ridge occlusion result actually depends on.
  */
-function createTracerMaterial(): THREE.ShaderMaterial {
+function createTracerMaterial(depthTest = true): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     vertexShader: /* glsl */ `
       attribute vec3 aColor;
@@ -1103,7 +1286,10 @@ function createTracerMaterial(): THREE.ShaderMaterial {
       }
     `,
     transparent: true,
-    depthTest: true,
+    // `true` for a tracer, which lies on the ground and SHOULD be hidden by
+    // the building in front of it. `false` for the indirect-fire arc
+    // (`ShellBatch`), which must not be -- see that class's own doc comment.
+    depthTest,
     depthWrite: false,
     // DoubleSide, unlike every billboard elsewhere in this backend --
     // deliberate, not an oversight. unitBillboardGeometry/
@@ -1181,6 +1367,99 @@ export class TracerBatch {
     mapHeight: number
   ): void {
     const count = writeTracerInstances(tracers, tracerColors, elevation, mapWidth, mapHeight, {
+      positions: this.positionAttr.array as Float32Array,
+      colors: this.colorAttr.array as Float32Array,
+      alphas: this.alphaAttr.array as Float32Array,
+    });
+    this.positionAttr.needsUpdate = true;
+    this.colorAttr.needsUpdate = true;
+    this.alphaAttr.needsUpdate = true;
+    this.mesh.geometry.setDrawRange(0, count * 6);
+  }
+
+  dispose(): void {
+    this.mesh.geometry.dispose();
+    this.mesh.material.dispose();
+  }
+}
+
+/**
+ * GH-145: every indirect round in flight, one batched `THREE.Mesh`, one draw
+ * call -- structurally `TracerBatch` with `SHELL_TRAIL_SEGMENTS` quads per
+ * item instead of one, and `writeShellInstances` in place of
+ * `writeTracerInstances`.
+ *
+ * It shares `createTracerMaterial` and `tracerIndexBuffer` outright rather
+ * than growing near-copies. `transparent` (the streak tapers) and
+ * `depthWrite: false` (a fading streak must not punch a hole in what is
+ * drawn after it) are right here for exactly the reasons they are right for
+ * a tracer, and `DoubleSide` applies with MORE force, not less: a shell
+ * segment's quad is rebuilt every frame from a bearing that changes
+ * continuously along its own arc, so there is no fixed winding to prove
+ * once.
+ *
+ * ## `depthTest: false`, and band 3 rather than band 2
+ *
+ * The one flag that differs, and the only one that had to be MEASURED. A
+ * tracer lies on the ground, so a building in front of it should hide it,
+ * and `depthTest: true` gets that right for free. An arcing round is the
+ * opposite case, and the browser walk caught it: the friendly mortar's
+ * round, 88 lift pixels up -- nearly nine elevation levels, about three
+ * tile-heights, far above any building on any shipped map -- was drawing
+ * BEHIND a one-storey house it was passing over. Toggling `depthTest` off
+ * at runtime made it appear, which is what identified the cause. A bomb
+ * that vanishes depending on what happens to stand under it is exactly the
+ * "flickers out depending on geometry" failure `units/fx.ts`'s own
+ * `above_units` section already rejected for muzzle flashes.
+ *
+ * So this takes the treatment that section already established for effects
+ * that must not be hidden: no depth test, and `FX_RENDER_ORDER_ABOVE`
+ * (band 3, `./render-order.ts`'s "unconditionally on top") instead of
+ * `TracerBatch`'s band 2. A round in the air IS the `above_units` case.
+ * The acknowledged cost is the mirror image: a round arcing INTO a hillside
+ * will draw over the hillside for its last few frames rather than
+ * disappearing behind it, the same trade every `above_units` emitter in
+ * `data/vfx/` already makes. Fog (band 10) still covers it, unchanged --
+ * a round over unexplored ground stays unseen, exactly as a tracer there
+ * does.
+ *
+ * `capacity` is in QUADS, like `TracerBatch`'s, so the caller passes
+ * `SHELL_CAPACITY` and `writeShellInstances` derives the shell count from
+ * it.
+ */
+export class ShellBatch {
+  readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
+  private readonly positionAttr: THREE.BufferAttribute;
+  private readonly colorAttr: THREE.BufferAttribute;
+  private readonly alphaAttr: THREE.BufferAttribute;
+
+  constructor(capacity: number) {
+    const geometry = new THREE.BufferGeometry();
+    this.positionAttr = new THREE.BufferAttribute(new Float32Array(capacity * 4 * 3), 3);
+    this.positionAttr.setUsage(THREE.DynamicDrawUsage);
+    this.colorAttr = new THREE.BufferAttribute(new Float32Array(capacity * 4 * 3), 3);
+    this.colorAttr.setUsage(THREE.DynamicDrawUsage);
+    this.alphaAttr = new THREE.BufferAttribute(new Float32Array(capacity * 4), 1);
+    this.alphaAttr.setUsage(THREE.DynamicDrawUsage);
+    geometry.setAttribute('position', this.positionAttr);
+    geometry.setAttribute('aColor', this.colorAttr);
+    geometry.setAttribute('aAlpha', this.alphaAttr);
+    geometry.setIndex(new THREE.BufferAttribute(tracerIndexBuffer(capacity), 1));
+    geometry.setDrawRange(0, 0);
+
+    this.mesh = new THREE.Mesh(geometry, createTracerMaterial(false));
+    this.mesh.renderOrder = FX_RENDER_ORDER_ABOVE;
+    this.mesh.frustumCulled = false;
+  }
+
+  update(
+    shells: readonly ShellModel[],
+    tracerColors: readonly [string, string],
+    elevation: Uint8Array | null,
+    mapWidth: number,
+    mapHeight: number
+  ): void {
+    const count = writeShellInstances(shells, tracerColors, elevation, mapWidth, mapHeight, {
       positions: this.positionAttr.array as Float32Array,
       colors: this.colorAttr.array as Float32Array,
       alphas: this.alphaAttr.array as Float32Array,

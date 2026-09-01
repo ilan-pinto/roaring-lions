@@ -21,6 +21,7 @@ import type { SheetSpec } from '../../sheet';
 import { packSheet } from './atlas';
 import { UnitInstancer, HULL_RENDER_ORDER, TURRET_RENDER_ORDER } from './instances';
 import { spawnTracer, type TracerModel } from './tracers';
+import { spawnShell, shellPointAt, shellTrailSpan, SHELL_TRAIL_SEGMENTS, type ShellModel } from './shells';
 import { FOG_RENDER_ORDER } from './render-order';
 import { FogMesh } from '../fog-mesh';
 import {
@@ -38,6 +39,12 @@ import {
   tracerQuadPositions,
   writeTracerInstances,
   tracerIndexBuffer,
+  SHELL_LIFT_PX,
+  SHELL_WIDTH_PX,
+  SHELL_TAIL_ALPHA,
+  ShellBatch,
+  shellSegmentQuad,
+  writeShellInstances,
   type ParticleInstanceBuffers,
   type TracerInstanceBuffers,
 } from './fx';
@@ -642,6 +649,193 @@ describe('TracerBatch construction', () => {
 
   it('mesh is exempt from frustum culling, matching ParticleInstancer/UnitInstancer', () => {
     const batch = new TracerBatch(4);
+    expect(batch.mesh.frustumCulled).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GH-145: the indirect-fire arc. A shell segment is a tracer ribbon whose two
+// ends sit at DIFFERENT heights -- that is the whole geometric difference,
+// and every test below is about one consequence of it.
+// ---------------------------------------------------------------------------
+
+describe('shellSegmentQuad', () => {
+  const flat = spawnShell(0, 0, 12, 0, 0, 'mortar');
+
+  it('lifts each end by its own arc height, so the ribbon tilts -- unlike a tracer\'s single shared scalar', () => {
+    // Vertex layout mirrors tracerQuadPositions: a0 (0,1,2), a1 (3,4,5),
+    // b1 (6,7,8), b0 (9,10,11).
+    const p = shellSegmentQuad(flat, 0.1, 0.3, null, 0, 0);
+    expect(p[1]).toBe(p[4]); // both vertices at the tail end share one Y
+    expect(p[7]).toBe(p[10]); // both at the head end share the other
+    // ...and the two ends genuinely differ, which is what a tracer never does.
+    expect(p[7]).toBeGreaterThan(p[1]);
+  });
+
+  it('falls again past the apex -- the segment past halfway tilts DOWN', () => {
+    const p = shellSegmentQuad(flat, 0.7, 0.9, null, 0, 0);
+    expect(p[7]).toBeLessThan(p[1]);
+  });
+
+  it('never lies on the ground it is drawn over: even at launch it clears SHELL_LIFT_PX', () => {
+    // Launch and impact are both at arc height 0. With depthTest on, a
+    // ribbon exactly ON the ground does not render -- the same "buried, not
+    // misplaced" failure TRACER_LIFT_PX exists to prevent.
+    const p = shellSegmentQuad(flat, 0, 0, null, 0, 0);
+    expect(p[1]).toBeCloseTo(SHELL_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL, 6);
+  });
+
+  it('rides between its OWN two endpoints\' ground heights, not the ground under the arc', () => {
+    // 4x4 grid, level 3 at tile (1,1). A shot fired from the flat tile
+    // (0.5,0.5) at the raised one (1.5,1.5): the round's baseline is the
+    // launch tile's ground at u=0 and the impact tile's at u=1. Sampling the
+    // ground UNDER the arc instead would make a bomb bulge over every ridge
+    // it passes, which is not how a bomb flies -- and with real height and
+    // real depth, terrain occlusion is the depth buffer's job, not the
+    // baseline's.
+    const elevation = new Uint8Array([0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const s = spawnShell(0.5, 0.5, 1.5, 1.5, 0, 'mortar');
+    const launchGround = groundWorldY(elevation, 4, 4, 0.5, 0.5);
+    const impactGround = groundWorldY(elevation, 4, 4, 1.5, 1.5);
+    expect(impactGround).toBeGreaterThan(launchGround);
+    const atLaunch = shellSegmentQuad(s, 0, 0, elevation, 4, 4);
+    const atImpact = shellSegmentQuad(s, 1, 1, elevation, 4, 4);
+    expect(atLaunch[1]).toBeCloseTo(launchGround + SHELL_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL, 6);
+    expect(atImpact[1]).toBeCloseTo(impactGround + SHELL_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL, 6);
+  });
+
+  it('the width offset is SHELL_WIDTH_PX and runs PERPENDICULAR to the segment on screen, height included', () => {
+    // Screen Y of a lifted point is isoY(x,y) - liftPx (worldToScreen's own
+    // convention), so a climbing segment's on-screen direction is NOT its
+    // ground bearing. Magnitude alone cannot catch getting this wrong --
+    // screenOffsetToWorld reprojects any unit screen direction to exactly
+    // the length it was given, so a ribbon offset along the WRONG axis is
+    // still exactly SHELL_WIDTH_PX wide. Perpendicularity is the property
+    // that actually distinguishes them, and a segment steep enough for the
+    // two candidate axes to differ is what makes it observable.
+    const cases: [ShellModel, number, number][] = [
+      [spawnShell(0, 0, 8, 0, 0, 'mortar'), 0, 0.06], // steepest: straight off the tube
+      [spawnShell(0, 0, 0, 8, 0, 'mortar'), 0.4, 0.6],
+      [spawnShell(0, 0, 5, 7, 1, 'rocket'), 0.88, 1], // steepest: terminal descent
+      [spawnShell(3, 3, 3, 3, 0, 'mortar'), 0.2, 0.4], // degenerate: no ground track
+    ];
+    for (const [s, uA, uB] of cases) {
+      const p = shellSegmentQuad(s, uA, uB, null, 0, 0);
+      const screen = (xi: number, yi: number, zi: number) => ({
+        x: isoX(p[xi], p[zi]),
+        y: isoY(p[xi], p[zi]) - p[yi] / WORLD_Y_PER_LIFT_PIXEL,
+      });
+      const a0 = screen(0, 1, 2);
+      const a1 = screen(3, 4, 5);
+      const b0 = screen(9, 10, 11);
+      const width = { x: a1.x - a0.x, y: a1.y - a0.y };
+      expect(Math.hypot(width.x, width.y)).toBeCloseTo(SHELL_WIDTH_PX, 4);
+      const along = { x: b0.x - a0.x, y: b0.y - a0.y };
+      const alongLen = Math.hypot(along.x, along.y);
+      if (alongLen > 1e-6) {
+        expect((width.x * along.x + width.y * along.y) / alongLen).toBeCloseTo(0, 4);
+      }
+    }
+  });
+
+  it('tapers: the tail end is narrower than the head end, so the streak reads as a comet', () => {
+    const p = shellSegmentQuad(flat, 0.1, 0.3, null, 0, 0, SHELL_WIDTH_PX * 0.25, SHELL_WIDTH_PX);
+    const width = (i: number, j: number) =>
+      Math.hypot(isoX(p[i], p[i + 2]) - isoX(p[j], p[j + 2]), isoY(p[i], p[i + 2]) - isoY(p[j], p[j + 2]));
+    expect(width(0, 3)).toBeCloseTo(SHELL_WIDTH_PX * 0.25, 4);
+    expect(width(9, 6)).toBeCloseTo(SHELL_WIDTH_PX, 4);
+  });
+});
+
+describe('writeShellInstances', () => {
+  function sBuffers(capacity: number): TracerInstanceBuffers {
+    return {
+      positions: new Float32Array(capacity * 4 * 3),
+      colors: new Float32Array(capacity * 4 * 3),
+      alphas: new Float32Array(capacity * 4),
+    };
+  }
+
+  it('writes one quad per trail segment per live shell, coloured by side from the tracer palette', () => {
+    const shells = [
+      { ...spawnShell(0, 0, 12, 0, 0, 'mortar'), t: 1 },
+      { ...spawnShell(2, 2, 10, 2, 1, 'rocket'), t: 1 },
+    ];
+    const out = sBuffers(SHELL_TRAIL_SEGMENTS * 2);
+    const count = writeShellInstances(shells, ['#FF0000', '#00FF00'], null, 0, 0, out);
+    expect(count).toBe(SHELL_TRAIL_SEGMENTS * 2);
+    const [r0, g0, b0] = hexToUnit('#FF0000');
+    expect(out.colors[0]).toBeCloseTo(r0, 6);
+    expect(out.colors[1]).toBeCloseTo(g0, 6);
+    expect(out.colors[2]).toBeCloseTo(b0, 6);
+    const [r1] = hexToUnit('#00FF00');
+    // Second shell's first quad starts after the first shell's own segments.
+    expect(out.colors[SHELL_TRAIL_SEGMENTS * 12]).toBeCloseTo(r1, 6);
+  });
+
+  it('fades the streak from tail to head, reaching full alpha only at the round itself', () => {
+    const shells = [{ ...spawnShell(0, 0, 12, 0, 0, 'mortar'), t: 1 }];
+    const out = sBuffers(SHELL_TRAIL_SEGMENTS);
+    writeShellInstances(shells, ['#FFFFFF', '#FFFFFF'], null, 0, 0, out);
+    // Vertex alphas per quad: [tail, tail, head, head] (a0, a1, b1, b0).
+    const tailOf = (q: number) => out.alphas[q * 4];
+    const headOf = (q: number) => out.alphas[q * 4 + 2];
+    expect(tailOf(0)).toBeCloseTo(SHELL_TAIL_ALPHA, 6);
+    expect(headOf(SHELL_TRAIL_SEGMENTS - 1)).toBeCloseTo(1, 6);
+    for (let q = 0; q < SHELL_TRAIL_SEGMENTS; q++) {
+      expect(headOf(q)).toBeGreaterThan(tailOf(q));
+      // Joins are continuous: one quad's head alpha IS the next one's tail,
+      // so the ramp runs across the whole streak rather than resetting at
+      // every segment boundary and banding it.
+      if (q > 0) expect(tailOf(q)).toBeCloseTo(headOf(q - 1), 6);
+    }
+  });
+
+  it('drops the OLDEST shells when the buffer cannot hold them all, for the same reason tracers do', () => {
+    const capacityShells = 2;
+    const shells = [0, 1, 2, 3].map((i) => ({ ...spawnShell(i, 0, i + 10, 0, 0, 'mortar'), t: 1 }));
+    const out = sBuffers(SHELL_TRAIL_SEGMENTS * capacityShells);
+    const count = writeShellInstances(shells, ['#FFFFFF', '#FFFFFF'], null, 0, 0, out);
+    expect(count).toBe(SHELL_TRAIL_SEGMENTS * capacityShells);
+    // The first quad written is the tail of shell index 2, not index 0. The
+    // two width-offset vertices at one end straddle the arc symmetrically,
+    // so their mean is the arc point itself whatever the taper is doing --
+    // the same "the perp offset cancels" identity the tracer suite uses.
+    const meanX = (out.positions[0] + out.positions[3]) / 2;
+    const kept = shellPointAt(shells[2], shellTrailSpan(shells[2]).tail);
+    const dropped = shellPointAt(shells[0], shellTrailSpan(shells[0]).tail);
+    expect(meanX).toBeCloseTo(kept.x, 5);
+    expect(meanX).not.toBeCloseTo(dropped.x, 5);
+  });
+});
+
+describe('ShellBatch construction', () => {
+  it('starts with an empty draw range and grows it by one quad per trail segment', () => {
+    const batch = new ShellBatch(SHELL_TRAIL_SEGMENTS);
+    expect(batch.mesh.geometry.drawRange.count).toBe(0);
+    batch.update([{ ...spawnShell(0, 0, 12, 0, 0, 'mortar'), t: 1 }], ['#FFFFFF', '#FFFFFF'], null, 0, 0);
+    expect(batch.mesh.geometry.drawRange.count).toBe(SHELL_TRAIL_SEGMENTS * 6);
+  });
+
+  it('is NOT depth-tested, unlike the tracer material it otherwise shares', () => {
+    // The one flag that differs, and the reason band 3 is right. A browser
+    // walk caught a mortar round 88 lift pixels up -- three tile-heights,
+    // higher than any building on any shipped map -- drawing BEHIND a
+    // one-storey house it was passing over. See ShellBatch's own doc
+    // comment. Everything else is the tracer contract verbatim.
+    const m = new ShellBatch(4).mesh.material;
+    expect(m.depthTest).toBe(false);
+    expect(new TracerBatch(4).mesh.material.depthTest).toBe(true);
+    expect(m.transparent).toBe(true);
+    expect(m.depthWrite).toBe(false);
+    expect(m.side).toBe(THREE.DoubleSide);
+  });
+
+  it('draws in the FX-ABOVE band -- strictly after TracerBatch, and skips frustum culling', () => {
+    const batch = new ShellBatch(4);
+    expect(batch.mesh.renderOrder).toBe(FX_RENDER_ORDER_ABOVE);
+    expect(batch.mesh.renderOrder).toBeGreaterThan(new TracerBatch(4).mesh.renderOrder);
+    expect(batch.mesh.renderOrder).toBeLessThan(FOG_RENDER_ORDER);
     expect(batch.mesh.frustumCulled).toBe(false);
   });
 });

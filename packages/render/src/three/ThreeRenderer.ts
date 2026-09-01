@@ -142,7 +142,15 @@ import { entityFrame, assignRoofSlots, AIR_LIFT_PX, type EntityFrameInput, type 
 import { UnitInstancer, TURRET_RENDER_ORDER } from './units/instances';
 import { pickUnit as pickUnitPure, unitsInScreenRect as unitsInScreenRectPure } from './units/pick';
 import { stepTracers, spawnTracer, type TracerModel } from './units/tracers';
-import { ParticleInstancer, TracerBatch, PARTICLE_CAPACITY, TRACER_CAPACITY } from './units/fx';
+import { stepShells, spawnShell, shellKindFor, type ShellModel } from './units/shells';
+import {
+  ParticleInstancer,
+  TracerBatch,
+  ShellBatch,
+  PARTICLE_CAPACITY,
+  TRACER_CAPACITY,
+  SHELL_CAPACITY,
+} from './units/fx';
 import { nextVehicleMoving, vehicleDustMagnitude, vehicleFxAnchor } from './units/vehicle-fx';
 import {
   StructureInstancer,
@@ -1040,6 +1048,20 @@ export class ThreeRenderer implements Renderer {
   private readonly tracerBatch = new TracerBatch(TRACER_CAPACITY);
 
   /**
+   * GH-145: rounds from indirect weapons, in flight. Exactly the shape
+   * `tracers`/`tracerBatch` above have -- populated by `onFire`, aged by
+   * `updateFx` on real frame seconds, drawn by one batched mesh that exists
+   * unconditionally from construction and draws nothing until fed.
+   *
+   * A shell REPLACES the tracer for its own shot rather than joining it;
+   * see `onFire`'s own comment at the branch, and `units/shells.ts`'s top
+   * comment for why indirect fire drawing a flat ground-level ribbon was
+   * the bug rather than the baseline.
+   */
+  private shells: ShellModel[] = [];
+  private readonly shellBatch = new ShellBatch(SHELL_CAPACITY);
+
+  /**
    * Phase C: the unit overlay tier -- see `units/overlays.ts`'s own top
    * comment for why this is two batches, not one. Both sized off `sim
    * .capacity` (`OVERLAY_VERTICES_PER_ENTITY`'s own doc comment), which is
@@ -1267,7 +1289,8 @@ export class ThreeRenderer implements Renderer {
       this.particleInstancerAbove.mesh,
       this.particleInstancerBelowAdditive.mesh,
       this.particleInstancerAboveAdditive.mesh,
-      this.tracerBatch.mesh
+      this.tracerBatch.mesh,
+      this.shellBatch.mesh
     );
     // Same "always present, draws nothing until fed" shape as the FX meshes
     // just above -- both start at drawRange 0 (`beginFrame`/`endFrame`
@@ -1472,6 +1495,7 @@ export class ThreeRenderer implements Renderer {
     this.explosionBursts.dispose();
     this.smokePlumes.dispose();
     this.tracerBatch.dispose();
+    this.shellBatch.dispose();
     // Phase C: same "added once in the constructor, no scene.remove needed"
     // shape as the FX batches just above -- see this file's own comment on
     // the `fogMesh.dispose()` fix a few lines down for why that omission
@@ -1983,9 +2007,30 @@ export class ThreeRenderer implements Renderer {
     const atStruct = e.target < 0 && e.structure !== undefined;
     const tx = atStruct ? fx.toNumber(this.sim.structures.cx[e.structure as number]) : this.curX[e.target];
     const ty = atStruct ? fx.toNumber(this.sim.structures.cy[e.structure as number]) : this.curY[e.target];
-    this.tracers.push(spawnTracer(this.curX[e.shooter], this.curY[e.shooter], tx, ty, st.side[e.shooter]));
 
     const type = this.sim.unitTypes[st.typeIdx[e.shooter]];
+    // Which weapon fired decides the signature, not whether the shooter is
+    // soft (renderer.ts:785-791). Resolved here, at the top, rather than
+    // where the muzzle FX below need it: GH-145 made the tracer conditional
+    // on the weapon class, so the class has to be known before the tracer
+    // decision, not after it.
+    const wp = type.weapons.find((w) => w.id === e.weaponId);
+    const cls = wp?.cls ?? WEAPON_CLASS.small_arms;
+    // GH-145. `null` for every direct-fire class, which is every class but
+    // mortar and rocket -- see `units/shells.ts`'s `shellKindFor`.
+    const shellKind = shellKindFor(cls);
+    // A shell REPLACES the tracer, it does not join it. Indirect fire has
+    // always pushed a tracer here (it was never excluded -- see
+    // `units/shells.ts`'s top comment), and that tracer is a flat ribbon
+    // lying on the ground along the shooter-to-target line: correct for a
+    // rifle round, and a straight contradiction of a bomb that visibly
+    // leaves the tube upward and comes down two seconds later somewhere
+    // else. Drawing both would show the round arcing over a line claiming
+    // it went straight.
+    if (shellKind === null) {
+      this.tracers.push(spawnTracer(this.curX[e.shooter], this.curY[e.shooter], tx, ty, st.side[e.shooter]));
+    }
+
     // Latch the fire clip for its own declared duration (renderer.ts:772-777).
     const fireClip = this.unitInstancers.get(type.id)?.sheet.clips.fire;
     if (fireClip && fireClip.fps > 0) {
@@ -2061,10 +2106,23 @@ export class ThreeRenderer implements Renderer {
       mzZ = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, mzX, mzY);
     }
 
-    // Which weapon fired decides the signature, not whether the shooter is
-    // soft (renderer.ts:785-791).
-    const wp = type.weapons.find((w) => w.id === e.weaponId);
-    const cls = wp?.cls ?? WEAPON_CLASS.small_arms;
+    // GH-145: the round itself, launched from the muzzle the flash uses --
+    // not the unit centre the tracer aims from. The muzzle is what a player
+    // watches a bomb leave, and by here it has already been resolved
+    // against a mesh turret's own pivot where the shooter has one.
+    //
+    // `mzZ` (a real world Y) is deliberately NOT passed: a `ShellModel`
+    // carries tile-space endpoints and a height in LIFT PIXELS, and the
+    // draw side samples ground height itself at both ends every frame
+    // (`shellSegmentQuad`), the same way a tracer's own lift is resolved at
+    // draw time rather than captured at spawn. Capturing an absolute world
+    // Y here would freeze the arc's baseline to whatever the muzzle
+    // happened to sit at, which is wrong the moment a shot crosses a
+    // terrace.
+    if (shellKind !== null) {
+      this.shells.push(spawnShell(mzX, mzY, tx, ty, st.side[e.shooter], shellKind));
+    }
+
     const emitter = this.emitterLibrary.fireEmitterFor(cls);
     const power = wp ? firePower(wp) : 0;
     // Muzzle-flash ramp shift (`./palette-material.ts`'s own "The
@@ -3978,6 +4036,11 @@ export class ThreeRenderer implements Renderer {
     this.smokePlumes.step(dtMs);
     this.tracers = stepTracers(this.tracers, dtSeconds);
     this.tracerBatch.update(this.tracers, this.opts.tracerColors, elevation, this.sim.width, this.sim.height);
+    // GH-145: the same real-frame-seconds ageing, for indirect rounds. Sim
+    // ticks never reach this -- an arc is presentation, and a presentation
+    // clock is the frame clock (invariant 1's other half).
+    this.shells = stepShells(this.shells, dtSeconds);
+    this.shellBatch.update(this.shells, this.opts.tracerColors, elevation, this.sim.width, this.sim.height);
   }
 
   /** `this.opts.resolveColor(key)` if the app supplied one, `fallback`
@@ -5163,6 +5226,10 @@ export function composeTerrain(
     elevation,
     blocked: sim.blocked,
     cover: sim.cover,
+    // Read only by `decorPlacements`'s `boulder` family below -- ground/
+    // scatter/groves/buildings are indifferent to it, the same reason a
+    // ridge's `^` needs no layer of its own here either.
+    boulder: sim.boulder,
   };
   const ground = buildGround(input, tones, background);
   const scatter = buildScatter(input, tones, background);
