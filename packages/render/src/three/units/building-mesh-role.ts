@@ -81,13 +81,13 @@ function sliceFrom(band: string, index: number, width = 3): readonly string[] {
  *  `ROLE_PALETTE`'s own "one fixed colour per role shared by every
  *  building" contract. */
 const BUILDING_ROLE_PALETTE: Record<Exclude<BuildingMeshRole, 'wall'>, readonly string[]> = {
-  roof: sliceFrom('dust', 6),
+  roof: sliceFrom('dust', 4),
   trim: sliceFrom('terracotta', 1),
   dome: sliceFrom('limestone', 1),
   wood: sliceFrom('dust', 4),
   glass: sliceFrom('shadow', 0),
   metal: sliceFrom('gunmetal', 2),
-  rust: sliceFrom('terracotta', 2),
+  rust: sliceFrom('terracotta', 0),
 };
 
 /**

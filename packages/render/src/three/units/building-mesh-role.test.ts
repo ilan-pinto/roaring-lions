@@ -36,4 +36,15 @@ describe('building-mesh-role', () => {
   it('throws on an unknown ramp band in the wall colour key', () => {
     expect(() => rampForBuildingRole('wall', 'nonexistent.1')).toThrow(/no ramp named/);
   });
+
+  it('gives every role (except wall) a real multi-step ramp', () => {
+    // Prevents truncation like the roof getting sliced to just one colour.
+    // Matches the pattern in decor-role.test.ts.
+    const rolesExceptWall = BUILDING_MESH_ROLES.filter(r => r !== 'wall');
+    for (const role of rolesExceptWall) {
+      const ramp = rampForBuildingRole(role, 'limestone.1');
+      expect(ramp.length).toBeGreaterThan(1);
+      for (const hex of ramp) expect(hex).toMatch(/^#[0-9A-Fa-f]{6}$/);
+    }
+  });
 });
