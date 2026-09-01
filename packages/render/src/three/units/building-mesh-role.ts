@@ -119,10 +119,16 @@ const BUILDING_ROLE_PALETTE: Record<Exclude<BuildingMeshRole, 'wall'>, readonly 
  * `brick=True` specs plus `wall`:
  *
  *  - `brick`  house, apartment, mosque, wall -- masonry.
- *  - `panel`  concrete -- poured, so form-work seams at a much larger scale,
- *             never courses. `render_building.py` leaves this one flat; the
- *             lead's call is that flat concrete is the same complaint as
- *             flat masonry, one tier quieter.
+ *  - `panel`  concrete -- poured, so board-formed banding at a much larger
+ *             scale and in a STACK bond, never courses.
+ *             `render_building.py` leaves this one flat. It first shipped
+ *             here "one tier quieter" than masonry and the lead's verdict
+ *             on seeing it was that concrete did not read at gameplay zoom
+ *             at all; it is now as loud as brick, and stays concrete rather
+ *             than becoming big brick because of the bond, not the
+ *             contrast. See `palette-material.ts`'s `COURSE_SPECS` for the
+ *             measurement that settled which of the two candidate causes
+ *             was real (it was not the geometry).
  *  - `flat`   shanty (corrugated sheet), warehouse (metal), camp (canvas
  *             over HESCO). None of the three is a laid material and coursing
  *             any of them would be a lie about what it is.

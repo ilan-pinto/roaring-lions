@@ -181,12 +181,51 @@ describe('the surface specs', () => {
     }
   });
 
-  it('gives concrete a much larger, quieter pattern than masonry', () => {
-    // The lead's distinction: poured concrete has form-work seams, not
-    // courses, and must read as surface rather than as pattern.
+  it('gives concrete a much larger pattern than masonry', () => {
+    // The lead's distinction: poured concrete has form seams, not courses.
+    // Size is what carries it -- `tintChance` USED to be the third clause
+    // here, asserting panel was quieter than brick, and that is exactly the
+    // call the lead overturned ("make concrete read at gameplay zoom").
+    // Quietness is now spelled out as an ink budget below instead, which is
+    // the thing that was actually wrong.
     expect(COURSE_SPECS.panel.course).toBeGreaterThan(COURSE_SPECS.brick.course * 2);
     expect(COURSE_SPECS.panel.length).toBeGreaterThan(COURSE_SPECS.brick.length * 2);
-    expect(COURSE_SPECS.panel.tintChance).toBeLessThan(COURSE_SPECS.brick.tintChance);
+  });
+
+  it('paints concrete with as much ink as masonry -- the reason it now reads', () => {
+    // The measured cause of "concrete does not read at gameplay zoom", and
+    // the one number that decides it: what FRACTION of a cell's area is not
+    // the base band. Joint area is the cell minus the inset rectangle
+    // (`joint` bites into all four sides, so `2 * joint` off each axis);
+    // the rest is tinted at `tintChance`. Panel shipped at 35% against
+    // brick's 63% -- a 1.25 px hairline every 13.7 px on an otherwise flat
+    // slab. Anything under about half of brick's is the old defect back.
+    const ink = (s: (typeof COURSE_SPECS)[CourseSurface]) => {
+      const cell = s.course * s.length;
+      const inner = Math.max(0, s.length - 2 * s.joint) * Math.max(0, s.course - 2 * s.joint);
+      const jointFraction = (cell - inner) / cell;
+      return jointFraction + (1 - jointFraction) * s.tintChance;
+    };
+    const brickInk = ink(COURSE_SPECS.brick);
+    expect(brickInk).toBeGreaterThan(0.55);
+    expect(ink(COURSE_SPECS.panel)).toBeGreaterThan(brickInk * 0.8);
+  });
+
+  it('lays masonry in a running bond and pours concrete in a stack bond', () => {
+    // The other half of the same fix, and the reason raising panel's
+    // contrast alone was not enough: a running bond IS what masonry looks
+    // like. Rendered side by side in the same colours, the new panel
+    // numbers in a running bond read as large BRICKS -- which is the
+    // failure mode ("concrete stops reading as concrete") the louder
+    // pattern had to avoid.
+    expect(COURSE_SPECS.brick.bond).toBeGreaterThan(0);
+    expect(COURSE_SPECS.panel.bond).toBe(0);
+
+    // ...and the generated source honours it, rather than the table merely
+    // saying so. A stack bond emits no offset term at all.
+    expect(courseShiftGlsl('brick')).toContain('mod(row, 2.0)');
+    expect(courseShiftGlsl('panel')).not.toContain('mod(row, 2.0)');
+    expect(courseShiftGlsl('panel')).toContain('float u = uv.x;');
   });
 
   it('keeps every joint thinner than half its own course', () => {

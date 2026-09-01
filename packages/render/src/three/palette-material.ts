@@ -340,19 +340,24 @@ export const COURSE_SURFACES = ['brick', 'panel'] as const;
 
 /** Which generated wall surface a coursed material draws. `brick` is
  *  masonry coursing (the sprite pipeline's `BuildingSpec.brick`); `panel` is
- *  poured concrete -- form-work banding at a much larger scale, since a
- *  poured wall has panel seams and pour variation, not courses. */
+ *  poured concrete -- board-formed banding at a much larger scale and in a
+ *  STACK bond, since a poured wall has form seams and pour variation, not
+ *  courses. */
 export type CourseSurface = (typeof COURSE_SURFACES)[number];
 
-/** One surface's geometry, in world units (= game tiles) except
- *  `tintChance`, which is the fraction of bricks/panels taking the lighter
- *  step. `joint` is the distance from a brick's edge at which the joint
- *  starts, so a course's joint reads `2 * joint` thick. */
+/** One surface's geometry, in world units (= game tiles) except the two
+ *  fractions. `tintChance` is the fraction of bricks/panels taking the
+ *  lighter step. `joint` is the distance from a unit's edge at which the
+ *  joint starts, so the groove between two neighbours reads `2 * joint`
+ *  thick. `bond` is the fraction of `length` that alternate rows offset by:
+ *  0.5 is a running bond (masonry), 0 is a stack bond (form panels line up
+ *  because they were poured against a grid of forms, not laid). */
 export interface CourseSpec {
   readonly course: number;
   readonly length: number;
   readonly joint: number;
   readonly tintChance: number;
+  readonly bond: number;
 }
 
 /**
@@ -363,14 +368,37 @@ export interface CourseSpec {
  *
  *  - `brick` 0.15 -> 6.7 courses per tile, 5.9 px a course at zoom 1 and
  *    2.1 px at the 0.35 minimum. A compound wall (`wall.glb`, 0.58 tiles
- *    tall) therefore carries four courses rather than one stripe.
- *  - `panel` 0.55 -> 21.6 px a band at zoom 1: seams on a poured wall, not
- *    a pattern. `tintChance` is a third of brick's so most panels are plain
- *    and the variation reads as pour rather than as checkerboard.
+ *    tall) therefore carries four courses rather than one stripe. Running
+ *    bond, 1.4 px of joint per 5.9 px course -- 33% of the cell's area is
+ *    joint, and another 30% is tinted, so 63% of a brick wall's pixels are
+ *    off the base band. That is why it reads.
+ *  - `panel` 0.35 x 1.40 -> a 13.7 px board on a 50 px run at zoom 1
+ *    (4.8 px at the 0.35 minimum, 34.3 px at 2.5), STACK bonded, joint
+ *    0.045 -> a 3.5 px groove. 31% joint area plus 45% of the rest tinted
+ *    is 62% off-base, the same ink as brick, organised as horizontal boards
+ *    with sparse vertical form seams rather than as a stagger.
+ *
+ * ### Why panel changed, and what it was
+ *
+ * It shipped at `0.35 x 0.70, joint 0.016, tint 0.25, running bond` and the
+ * project lead's verdict was that concrete did not read at gameplay zoom.
+ * Two hypotheses were measured before anything moved. The first -- that
+ * `concrete.glb` is an open frame with too little `wall` surface to carry a
+ * pattern -- is FALSE: read off the shipped GLB under this camera, `wall` is
+ * the largest role on that building, 21,176 px^2 of 37,695 visible at zoom 1
+ * (56%), one merged mesh spanning 2.22 x 2.53 x 2.19 tiles, and in absolute
+ * terms comparable to the mosque's own wall (23,312 px^2). The second --
+ * parameters -- is the whole story, and in two parts. Ink: the old cell was
+ * 13% joint and 22% tint, 35% off-base against brick's 63%, so a 1.25 px
+ * hairline every 13.7 px on an otherwise flat slab. Shape: it was a RUNNING
+ * bond, which is what masonry is, so pushing its contrast up without
+ * changing the bond made it read as bigger BRICKS -- rendered side by side
+ * against the brick spec in the same colours and confirmed. Stack bond is
+ * what makes a louder concrete still read as concrete.
  */
 export const COURSE_SPECS: Record<CourseSurface, CourseSpec> = {
-  brick: { course: 0.15, length: 0.3, joint: 0.018, tintChance: 0.45 },
-  panel: { course: 0.35, length: 0.7, joint: 0.016, tintChance: 0.25 },
+  brick: { course: 0.15, length: 0.3, joint: 0.018, tintChance: 0.45, bond: 0.5 },
+  panel: { course: 0.35, length: 1.4, joint: 0.045, tintChance: 0.45, bond: 0 },
 };
 
 /** Declared next to `varying vec3 vWorldPos;` in BOTH shaders, and only when
@@ -397,6 +425,25 @@ export const COURSE_VERTEX_GLSL = /* glsl */ `
  *  around it already bound `band` the same way. */
 export const COURSE_APPLY_GLSL = /* glsl */ `
         band = min(max(band + courseShiftSteps(vWorldPos, vWorldNormal), 0), uSteps - 1);`;
+
+/** The one line of `courseShiftSteps` that differs between a laid material
+ *  and a poured one. A running bond emits the offset term; a stack bond
+ *  emits none at all rather than `* 0.0000`, so a stack-bonded surface
+ *  costs no multiply and, more usefully, so `brick`'s generated source is
+ *  character-for-character what it was before `bond` existed. */
+function bondGlsl(s: CourseSpec): string {
+  if (s.bond > 0) {
+    return (
+      `    // Running bond: every other course offsets by half a brick.\n` +
+      `    float u = uv.x + mod(row, 2.0) * ${(s.length * s.bond).toFixed(4)};`
+    );
+  }
+  // Stack bond: form panels line up in a grid because they were poured
+  // against one. Offsetting them would be the single strongest "this is
+  // masonry" cue on the wall -- measured: the same numbers in a running
+  // bond read as large bricks.
+  return `    float u = uv.x;`;
+}
 
 /**
  * The fragment-shader half for one surface: a hash and `courseShiftSteps`.
@@ -436,8 +483,7 @@ export function courseShiftGlsl(surface: CourseSurface): string {
       uv = vec2(worldPos.x, worldPos.y);
     }
     float row = floor(uv.y / ${s.course.toFixed(4)});
-    // Running bond: every other course offsets by half a brick.
-    float u = uv.x + mod(row, 2.0) * ${(s.length * 0.5).toFixed(4)};
+${bondGlsl(s)}
     float col = floor(u / ${s.length.toFixed(4)});
     float fu = u - col * ${s.length.toFixed(4)};
     float fv = uv.y - row * ${s.course.toFixed(4)};
