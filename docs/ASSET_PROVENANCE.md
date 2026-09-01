@@ -212,7 +212,8 @@ depends on someone remembering is provenance that eventually fails.
    now all rights reserved. Everything published under CC BY-SA 4.0 between
    2026-08-04 and that date remains licensed under it to whoever took a copy;
    the change stops adding to that set and cannot undo it.
-4. **Decide the `art/blend/` question deliberately** — **4.8 GB** of Meshy
+4. **Decide the `art/blend/` question deliberately** ([#137](https://github.com/ilan-pinto/roaring-lions/issues/137),
+   queued behind the T1 terrain milestone) — **4.8 GB** of Meshy
    sources are gitignored, so no clone can re-run the import and export scripts.
    Git LFS, a decimated in-repo source, or a documented exception. Currently it
    is an omission rather than a decision.
