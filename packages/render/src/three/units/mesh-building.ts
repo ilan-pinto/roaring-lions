@@ -100,6 +100,49 @@ export function instantiateBuildingMesh(template: BuildingMeshTemplate): THREE.O
   return template.root.clone(true);
 }
 
+/**
+ * GH #143 follow-up: a building mesh's idle -> wreck swap
+ * (`ThreeRenderer.updateBuildingMeshes`) is otherwise instant -- the wreck
+ * clone appears at full height the same frame the sim marks the structure
+ * dead, with no transition bridging the pop (the double-fire the billboard
+ * collapse used to layer on top of it, fixed separately, was never that
+ * transition -- it was a second, unrelated bug). `spawnCollapseFx
+ * ('structure_collapse', ...)` already throws a dust bloom / explosion burst
+ * at the footprint for every `structureDestroyed` event, mesh or billboard
+ * alike (`ThreeRenderer.ts`'s own `onEvents` case) -- this is a second,
+ * cheap, code-only transition to pair with it: the newly-appeared wreck root
+ * grows in on its own Y axis from a visibly squashed pile up to its real
+ * height over `BUILDING_SETTLE_SECONDS`, so the burst's flash and dust have
+ * something to cover besides a flat cut.
+ *
+ * Starts from `BUILDING_SETTLE_START`, not 0 -- a wreck root growing from
+ * nothing reads as MATERIALISING, not settling; starting already
+ * substantially formed and easing the rest of the way in reads as debris
+ * finishing its fall a beat late, which is the honest story here (the fall
+ * itself already happened, off-model, in the instant the sim tick killed the
+ * structure).
+ *
+ * Pure timing only -- no `THREE.Object3D`, no `ThreeRenderer` state -- so it
+ * is provable in `environment: 'node'` with nothing else stood up, the same
+ * split every other collapse/death curve in this backend already keeps
+ * (`collapseFrame`, `structures.ts`; `stepMeshDeath`, `mesh-death.ts`).
+ */
+export const BUILDING_SETTLE_SECONDS = 0.35;
+const BUILDING_SETTLE_START = 0.4;
+
+/** The eased scale factor (multiply a wreck root's own baseline Y scale by
+ *  this) at `tSeconds` into its settle, and whether the settle has finished.
+ *  Ease-out quadratic (`1 - (1-p)^2`): fast at the start, slowing into its
+ *  final height -- clamped at `tSeconds >= BUILDING_SETTLE_SECONDS` so a
+ *  caller that steps past the duration in one frame (a stalled tab resuming,
+ *  say) lands on exactly `1`, never an overshoot. */
+export function buildingSettleScale(tSeconds: number): { scaleFactor: number; done: boolean } {
+  if (tSeconds >= BUILDING_SETTLE_SECONDS) return { scaleFactor: 1, done: true };
+  const p = Math.max(0, tSeconds) / BUILDING_SETTLE_SECONDS;
+  const eased = 1 - (1 - p) * (1 - p);
+  return { scaleFactor: BUILDING_SETTLE_START + (1 - BUILDING_SETTLE_START) * eased, done: false };
+}
+
 /** Releases a template's own owned resources -- mirrors
  *  `disposeMeshUnitTemplate`/`disposeVehicleMeshTemplate` exactly; every
  *  clone made from this template must already be removed from the scene

@@ -173,6 +173,7 @@ import {
   loadBuildingMeshTemplate,
   instantiateBuildingMesh,
   disposeBuildingMeshTemplate,
+  buildingSettleScale,
   type BuildingMeshTemplate,
 } from './units/mesh-building';
 import {
@@ -897,6 +898,20 @@ export class ThreeRenderer implements Renderer {
   /** The WRECK sibling -- one clone per DEAD structure of a mesh-enabled
    *  type whose wreck template loaded. */
   private readonly buildingMeshWreckEntities = new Map<number, THREE.Object3D>();
+  /**
+   * GH #143 follow-up: every WRECK root currently mid-`buildingSettleScale`
+   * grow-in, keyed the same way `buildingMeshWreckEntities` is (structure
+   * index) -- `updateBuildingMeshes` inserts an entry the instant it
+   * instantiates a new wreck clone, `stepBuildingMeshSettle` advances and
+   * evicts finished ones every frame. `baseScaleY` is the root's own
+   * template-baked Y scale (`MESH_SCALE`, captured once rather than
+   * re-imported, in case a future template ever varies it) -- `scale.y` is
+   * set to `baseScaleY * buildingSettleScale(t).scaleFactor` each frame,
+   * `x`/`z` left untouched, so only the building's HEIGHT grows in, not its
+   * footprint (a widening footprint would visibly slide the walls past the
+   * ground tile boundary the sim already fixed at spawn).
+   */
+  private readonly buildingMeshSettling = new Map<number, { root: THREE.Object3D; t: number; baseScaleY: number }>();
 
   /**
    * Task B3.7: one `StructureInstancer` per structure TYPE with a loaded
@@ -1394,6 +1409,11 @@ export class ThreeRenderer implements Renderer {
     this.buildingMeshIdleEntities.clear();
     for (const root of this.buildingMeshWreckEntities.values()) this.scene.remove(root);
     this.buildingMeshWreckEntities.clear();
+    // GH #143 follow-up: bookkeeping only (no owned geometry/material of its
+    // own -- every root it references is already torn down above), but left
+    // dangling it would otherwise be a map full of stale `THREE.Object3D`
+    // references after this method returns.
+    this.buildingMeshSettling.clear();
     for (const template of this.buildingMeshIdleTemplates.values()) disposeBuildingMeshTemplate(template);
     this.buildingMeshIdleTemplates.clear();
     for (const template of this.buildingMeshWreckTemplates.values()) disposeBuildingMeshTemplate(template);
@@ -1473,7 +1493,9 @@ export class ThreeRenderer implements Renderer {
    *  two are independent, additive layers (see `beginCollapse`'s own doc
    *  comment), so the order between them does not matter causally; placed
    *  here simply because it is the other structure-presentation update this
-   *  frame does.
+   *  frame does. `stepBuildingMeshSettle` (GH #143 follow-up) sits between
+   *  the two for the identical reason: independent of both, ordered here
+   *  only because this is where structure-presentation updates already live.
    *
    *  `drainTimers` runs FIRST, before anything reads `firingTimer`/`recoilT`/
    *  `flinchT` -- mirroring `PixiRenderer.frame()`'s own top-of-frame drain
@@ -1511,6 +1533,7 @@ export class ThreeRenderer implements Renderer {
     this.updateVehicleAmbientFx(dtMs);
     this.updateStructures();
     this.updateBuildingMeshes();
+    this.stepBuildingMeshSettle(this.frameDtSeconds(dtMs));
     this.stepCollapses(this.frameDtSeconds(dtMs));
     this.updateFx(dtMs);
     // Ages every active muzzle-flash and rewrites the shared uFlash* arrays
@@ -3453,6 +3476,16 @@ export class ThreeRenderer implements Renderer {
    * (`updateStructures`'s own O(types x structureCount) shape) -- there is
    * no per-type instance BUFFER to write here, only a plain `Map` lookup per
    * structure, so folding every type into a single scan costs nothing extra.
+   *
+   * GH #143 follow-up: a freshly-instantiated wreck clone is armed into
+   * `buildingMeshSettling` at a squashed Y scale rather than left at its
+   * template's full baseline -- `stepBuildingMeshSettle` grows it in over
+   * the next `BUILDING_SETTLE_SECONDS` of real frames. `!this.
+   * buildingMeshWreckEntities.has(s)` already guards this to fire exactly
+   * ONCE per structure (this method itself is polled every frame, same as
+   * `updateStructures`), so a later frame that finds the wreck clone already
+   * present skips straight past this block and leaves whatever scale the
+   * settle step last wrote alone.
    */
   private updateBuildingMeshes(): void {
     if (this.buildingMeshIdleTemplates.size === 0) return;
@@ -3481,6 +3514,12 @@ export class ThreeRenderer implements Renderer {
         if (staleWreck) {
           this.scene.remove(staleWreck);
           this.buildingMeshWreckEntities.delete(s);
+          // Same "keeps this method correct if that changes" reasoning as
+          // the scene.remove above -- an unfinished settle for a wreck that
+          // no longer exists must not go on being stepped (harmless today:
+          // nothing reads a settling entry whose root was already removed
+          // from `scene`, but a dangling reference is still wrong).
+          this.buildingMeshSettling.delete(s);
         }
         continue;
       }
@@ -3498,9 +3537,32 @@ export class ThreeRenderer implements Renderer {
         const { fx: cx, fy: cy } = footprintCentre(this.sim, s);
         const worldY = groundWorldY(elevation, this.sim.width, this.sim.height, cx, cy);
         root.position.set(cx, worldY, cy);
+        // GH #143 follow-up: start squashed on Y alone (see this method's
+        // own doc comment and `buildingSettleScale`'s), so the wreck appears
+        // already forming rather than instantly at full height.
+        const baseScaleY = root.scale.y;
+        const initial = buildingSettleScale(0);
+        root.scale.y = baseScaleY * initial.scaleFactor;
         this.buildingMeshWreckEntities.set(s, root);
+        this.buildingMeshSettling.set(s, { root, t: 0, baseScaleY });
         this.scene.add(root);
       }
+    }
+  }
+
+  /**
+   * GH #143 follow-up: advances every wreck root mid-`buildingSettleScale`
+   * grow-in and evicts the ones that finish this frame -- the mesh-building
+   * counterpart to `stepCollapses` for the billboard path, run from `frame()`
+   * right alongside it for the same "independent, additive layer" reason
+   * that method's own doc comment gives.
+   */
+  private stepBuildingMeshSettle(dtSeconds: number): void {
+    for (const [s, entry] of this.buildingMeshSettling) {
+      entry.t += dtSeconds;
+      const result = buildingSettleScale(entry.t);
+      entry.root.scale.y = entry.baseScaleY * result.scaleFactor;
+      if (result.done) this.buildingMeshSettling.delete(s);
     }
   }
 
@@ -4656,6 +4718,21 @@ export class ThreeRenderer implements Renderer {
    * (`main.ts`'s `STRUCTURE_SPRITES`), so this branch is not reachable on
    * any real mission, same as Pixi's.
    *
+   * Also bails for a structure type with a loaded building MESH (GH #143) --
+   * the same "mesh wins" guard `updateStructures` already applies to the
+   * ordinary idle/wreck billboard swap (`this.buildingMeshIdleTemplates.has(id)`
+   * above), missing here until now. `main.ts`'s `STRUCTURE_SPRITES` and
+   * `MESH_BUILDINGS` overlap on all seven billboard-arted types, so every
+   * structure that reaches this method with `idle`/`art` both present ALSO
+   * had a mesh loaded, on every real mission -- without this guard, a dying
+   * building's mesh swaps to its wreck instantly (`updateBuildingMeshes`)
+   * while this method ALSO span up a mis-scaled falling ghost of the
+   * standing billboard on top of it. `?renderer=pixi` builds a wholly
+   * separate `PixiRenderer` with no `buildingMeshIdleTemplates` field at
+   * all, so that backend's own `beginCollapse` (`renderer.ts:272-303`) is
+   * untouched by this and keeps playing its collapse for every arted
+   * structure, mesh or not -- there is no mesh path there to prefer.
+   *
    * Anchored at the BASE, not the footprint's centred ground point every
    * OTHER structure billboard uses -- `collapseBillboardGeometry` builds
    * that separately; see its own doc comment for why a base anchor is what
@@ -4675,7 +4752,7 @@ export class ThreeRenderer implements Renderer {
     const type = this.sim.structureTypes[st.typeIdx[structure]];
     const idle = this.structureIdle.get(type.id);
     const art = this.structureCollapseArt.get(type.id);
-    if (!idle || !art) return;
+    if (!idle || !art || this.buildingMeshIdleTemplates.has(type.id)) return;
 
     const { fx: footX, fy: footY } = footprintCentre(this.sim, structure);
     const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, footX, footY);
