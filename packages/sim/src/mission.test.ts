@@ -563,6 +563,17 @@ const CIVILIANS: UnitTypeJson = {
   sensors: { optics: 0.5, sight_tiles: 4, signature: 0.7, firing_signature_mult: 1.0 },
 };
 
+/** A civilian who can ride. `CIVILIANS` cannot: it declares no `role` and no
+ *  `can_embark`, so `canEmbark` falls to `FOOT_ROLES.has('')` = false. Added
+ *  as its OWN type rather than by giving CIVILIANS `can_embark`, for the
+ *  reason CARRIER states about editing shared fixtures -- every existing
+ *  civilian test would start boarding things. */
+const CIV_RIDER: UnitTypeJson = {
+  ...CIVILIANS,
+  id: 'm_civ_rider',
+  hull: { ...CIVILIANS.hull, can_embark: true },
+};
+
 const MORTAR: UnitTypeJson = {
   id: 'm_mortar',
   hull: { hp: 350, armor: { front: 10, side: 10, rear: 10 } },
@@ -590,7 +601,8 @@ describe('civilians and ROE (GDD §6)', () => {
   function civWorld(partial: Partial<MissionJson>, ctx?: Partial<MissionContext>): World {
     const sim = new Sim({ seed: 11, width: 28, height: 12, capacity: 32 });
     const ids = new Map<string, number>();
-    for (const t of [SQUAD, AMBUSHER, RUNNER, TANK, CIVILIANS, MORTAR]) ids.set(t.id, sim.addUnitType(t));
+    for (const t of [SQUAD, AMBUSHER, RUNNER, TANK, CIVILIANS, MORTAR, CARRIER, CIV_RIDER])
+      ids.set(t.id, sim.addUnitType(t));
     const runtime = new MissionRuntime(sim, baseMission(partial), {
       typeIdOf: (u) => {
         const t = ids.get(u);
@@ -774,6 +786,41 @@ describe('civilians and ROE (GDD §6)', () => {
   });
 
   const REFUGE_CTX = { zones: { clinic: [20, 2, 4, 4], refuge_zone: [0, 8, 6, 4] } };
+
+  it('re-orders a civilian whose transport died, instead of stranding it forever', () => {
+    // The dead-transport latch. `civFled` is added BEFORE boarding is even
+    // attempted, and every later tick skipped a fled civilian outright -- so a
+    // civilian set down by a wreck had no order and no way back into
+    // stepCivilians. `evacuate_before` then never completed: no error, the
+    // objective just hung. Avoidable at the authoring level (escort civilians
+    // with something nothing on the roster can kill), but the latch is wrong.
+    const w = civWorld(
+      {
+        starting_force: [
+          { unit: 'm_squad', count: 1, at: [11, 6] },
+          { unit: 'm_carrier', count: 1, at: [12, 6] },
+        ],
+        civilians: { groups: [{ unit: 'm_civ_rider', count: 1, at: [12, 6] }], refuge: 'refuge' },
+        objectives: [
+          { id: 'evac', type: 'evacuate_before', primary: false, target: 'refuge_zone', count: 1, seconds: 900 },
+          { id: 'clock', type: 'survive_until', primary: true, seconds: 900 },
+        ],
+      },
+      REFUGE_CTX
+    );
+    const civ = w.sim.entityCount - 1;
+    // Let it board, then kill the carrier out from under it mid-run.
+    w.step(40);
+    const carrier = w.sim.state.carriedBy[civ];
+    expect(carrier).toBeGreaterThanOrEqual(0);
+    w.sim.debugKill(carrier);
+
+    const evs = w.step(900);
+    const done = evs.mission.filter(
+      (m) => m.kind === 'objective' && m.id === 'evac' && m.status === 'complete'
+    );
+    expect(done).toHaveLength(1);
+  });
 
   it('counts civilians who reach the refuge zone and completes at the count', () => {
     const w = civWorld(

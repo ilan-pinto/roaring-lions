@@ -1217,7 +1217,32 @@ export class MissionRuntime {
     if (refuge === undefined) return;
     const st = this.sim.state;
     for (const civ of this.civIds) {
-      if (st.alive[civ] === 0 || this.civFled.has(civ)) continue;
+      if (st.alive[civ] === 0) continue;
+      if (this.civFled.has(civ)) {
+        // Already ordered out -- but the order can be LOST, and the latch used
+        // to make that permanent. `civFled` is added before boarding is even
+        // attempted, so a civilian whose transport dies mid-run is set down
+        // wherever the wreck fell with no order, and every later tick skipped
+        // it on the strength of the latch. `evacuate_before` then never
+        // completed: no error, the objective simply hung.
+        //
+        // Re-order only one that has actually STOPPED. Riding and walking are
+        // both progress, and an evacuated civilian is already `alive = 0`
+        // (stepObjectives clears it on arrival), so this cannot re-order
+        // someone who is done.
+        if (st.carriedBy[civ] >= 0) continue;
+        if (st.moving[civ] === 1) continue;
+        const [rrx, rry] = this.markerPos(refuge);
+        const rdx = (fx.sub(st.posX[civ], rrx) >> 8) | 0;
+        const rdy = (fx.sub(st.posY[civ], rry) >> 8) | 0;
+        // Standing on the refuge and still not counted means the mission's
+        // refuge marker sits outside its own evacuation zone -- an authoring
+        // fault. Re-ordering there would queue one dead command every tick
+        // for the rest of the mission, so it stops here instead.
+        if (rdx * rdx + rdy * rdy <= SHEPHERD_RADIUS_SQ) continue;
+        this.sim.queueCommand({ kind: 'move', ids: [civ], x: rrx, y: rry });
+        continue;
+      }
       // A buried civilian cannot be reached, shepherded, or moved — and
       // civFled latches before the order is confirmed, so evaluating one
       // here would freeze it out of `evacuate_before` forever (the same
