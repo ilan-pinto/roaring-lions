@@ -1,25 +1,31 @@
-// CI wiring for tools/src/golden-diff/ -- the same "manual script, not in CI" gap
-// CLAUDE.md records for playtest.ts, and the one d-golden-diff-report.md's own
-// Concerns section names explicitly: "capture cannot be scripted end-to-end without
-// a browser-automation surface... doing so would need Playwright/Puppeteer driving a
-// real Chromium with a real or software GL context."
+// RETIRED AS A GATE -- this is now a REPORT-ONLY cross-backend diagnostic.
 //
-// This file IS that automation. It imports the frozen capture protocol
-// (capture-protocol.ts) and the pure diff function (diff.ts) the exact way a human
-// running the manual protocol already does, and adds the browser-driving +
-// pass/fail-gate layer around them. tools/src/perf/three-units.ts hit the identical
-// "needs a real browser" wall for render cost and, per its own top comment,
-// deliberately did NOT solve it -- this file is the solve, scoped to the one thing
-// that can be gated headlessly: pixel comparison, not manual visual judgement.
+// It still captures Pixi and three at an identical scene/tick/camera and prints
+// the per-pixel difference, which is a useful thing to look at by hand. It no
+// longer decides anything and it always exits 0 unless a capture itself fails.
 //
-// Cost of wiring this in: one new devDependency (`playwright`, tools/package.json)
-// plus a one-time `playwright install chromium` (~270 MB, cached across CI runs by
-// actions/cache the same way node_modules already is) plus the wall-clock cost of
-// booting a real Vite dev server and two real (headless, software-rendered) WebGL
-// contexts per SCENARIO -- multiple seconds to tens of seconds, not playtest.ts's
-// ~3s. That is why this is its own workflow (.github/workflows/golden-diff.yml),
-// gated by schedule/label/manual dispatch rather than every push -- see that file's
-// header.
+// Why, in one paragraph. Since the mesh flip (`362bde7`) the two backends draw
+// deliberately different content: three has mesh units, mesh buildings and mesh
+// decor, Pixi has none of them and never will, and since 2026-08-30 Pixi's VFX
+// are not owed a matching effect either. Measured 2026-09-01, all four scenarios
+// sat 1.8x-2.3x over budget with no regression behind it -- re-capturing three
+// with `&nomesh` put every one back inside budget, so 100% of the overage was
+// the mesh path (`.superpowers/queue/golden-diff-red-report.md`). Recalibrating
+// would have blessed a ~12% baseline on `combat`, inside which a broken mesh
+// material or a missing unit type would be invisible. The project lead's call
+// was to "retire cross-backend and rebuild it as three-vs-three".
+//
+// THE GATE IS NOW `three-baseline-gate.ts` -- same renderer, same scenario,
+// current commit against a committed baseline. Read `../golden-diff/baseline.ts`
+// for why that discriminates a defect this file measured 1.945%-vs-1.937% on.
+//
+// `SCENARIO_BUDGETS` below is kept as HISTORICAL REFERENCE, not as a threshold:
+// each number is a real clean measurement of that scenario from before the mesh
+// flip, and a run prints how far today's reading sits from it. Do not restore it
+// to a pass/fail without first re-reading the report above.
+//
+// Usage: pnpm golden-diff:compare -- [--port=5174] [--out-dir=path]
+//        [--keep-server] [--scenario=<id>[,<id>...]]
 //
 // ============================================================================
 // Why per-scenario budgets, not one global threshold
@@ -59,12 +65,17 @@
 //        [--keep-server] [--scenario=<id>[,<id>...]]
 //   --scenario filters SCENARIOS by id (comma-separated); default: all of them.
 
-import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium, type Page } from 'playwright';
+import type { Page } from 'playwright';
 import { pixiUrl, threeUrl, captureScript, SCENARIOS, type Scenario } from '../golden-diff/capture-protocol';
+import {
+  CAPTURE_VIEWPORT,
+  capture,
+  ensureDevServer,
+  launchCaptureBrowser,
+} from '../golden-diff/browser';
 import { computeDiff, formatSummary, computeDominantColorFraction, type DiffSummary } from '../golden-diff/diff';
 import { EXPECTED_DIFFERENCES, formatExpectedDifferences } from '../golden-diff/expected-differences';
 
@@ -202,13 +213,6 @@ function budgetFor(scenario: Scenario): ScenarioBudget {
   return b;
 }
 
-interface CaptureResult {
-  tick: number;
-  camera: { x: number; y: number; zoom: number };
-  rect: { x: number; y: number; w: number; h: number };
-  dpr: number;
-}
-
 const PIXELMATCH_THRESHOLD = 0.1; // pixelmatch's own default -- unchanged from diff.ts's CLI default
 
 interface Args {
@@ -234,133 +238,6 @@ function parseArgs(argv: readonly string[]): Args {
     keepServer: flags.has('keep-server'),
     scenarioIds: scenarioArg ? scenarioArg.split(',').map((s) => s.trim()) : null,
   };
-}
-
-async function isServerUp(port: number): Promise<boolean> {
-  try {
-    const res = await fetch(`http://localhost:${port}/`, { signal: AbortSignal.timeout(1000) });
-    return res.status < 500;
-  } catch {
-    return false;
-  }
-}
-
-async function waitForServer(port: number, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await isServerUp(port)) return;
-    await new Promise((r) => setTimeout(r, 300));
-  }
-  throw new Error(`golden-diff-gate: dev server on port ${port} did not come up within ${timeoutMs}ms`);
-}
-
-/** Starts a dedicated dev server for this run UNLESS one is already answering on
- *  `port`, in which case it is reused, never managed: this repo's hard rule is to
- *  never kill a `pnpm dev` this process did not start, and "already up" is exactly
- *  the ambiguous case where the safe move is to leave it alone (the same call
- *  d-golden-diff-report.md's manual run made about the port-5173 server it found).
- *  Returns the child process to tear down at the end, or `null` if an existing
- *  server was reused (and therefore must not be touched). */
-async function ensureDevServer(port: number): Promise<ChildProcess | null> {
-  if (await isServerUp(port)) {
-    console.log(`[golden-diff-gate] reusing dev server already listening on :${port} (not managed, will not be killed)`);
-    return null;
-  }
-  console.log(`[golden-diff-gate] starting a dev server on :${port}...`);
-  const child = spawn('pnpm', ['--filter', '@lions/app', 'dev'], {
-    cwd: REPO_ROOT,
-    env: { ...process.env, PORT: String(port) },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  let out = '';
-  child.stdout?.on('data', (d: Buffer) => (out += d.toString()));
-  child.stderr?.on('data', (d: Buffer) => (out += d.toString()));
-  try {
-    await waitForServer(port, 30_000);
-  } catch (err) {
-    console.error(`[golden-diff-gate] dev server output so far:\n${out}`);
-    child.kill('SIGTERM');
-    throw err;
-  }
-  return child;
-}
-
-/**
- * The mission-only half of boot: `main.ts`'s `showLoading` holds `await
- * loading.done()` (and therefore everything after it, INCLUDING the
- * `window.__lions` assignment -- both are synchronous continuations of the
- * same `main()`) until the deploy button is clicked, but ONLY when a
- * briefing is present (`briefingHoldsDeployment`, `ui/loading.ts`) -- true
- * for every mission, never true for a sandbox scenario, which is why this is
- * gated on `scenario.mission` rather than run unconditionally.
- *
- * The button exists in the DOM the instant `showLoading` runs (well before
- * assets finish), but its `click` LISTENER is attached only when `done()`
- * itself executes -- i.e. once the asset gate (`loading.total`/`loading.step`)
- * has already settled. A click before that point lands on a button with no
- * handler yet and is silently lost: reproduced directly while building this
- * scenario (`waitForSelector` + an immediate `.click()` left the loading
- * overlay on screen and `window.__lions` undefined for the full 30s timeout,
- * every time). Polling `.rl-loading__count`'s own text until it stops
- * changing (`"N / N sheets"`) is what `showLoading`'s own progress bar is
- * FOR, and is exact where a fixed sleep would be a guess.
- */
-async function dismissDeployGate(page: Page): Promise<void> {
-  await page.waitForSelector('.rl-loading__deploy', { timeout: 15_000 });
-  let last = '';
-  for (let i = 0; i < 60; i++) {
-    const txt = await page.evaluate(() => document.querySelector('.rl-loading__count')?.textContent ?? '');
-    if (txt === last && txt.includes('/')) break;
-    last = txt;
-    await page.waitForTimeout(250);
-  }
-  await page.evaluate(() => (document.querySelector('.rl-loading__deploy') as HTMLElement | null)?.click());
-}
-
-async function capture(
-  page: Page,
-  url: string,
-  script: string,
-  outFile: string,
-  label: string,
-  needsDeploy = false
-): Promise<CaptureResult> {
-  // Up to 3 attempts: d-golden-diff-report.md's own Concerns section recorded the
-  // dev server's module graph intermittently failing a dynamically-imported module
-  // right after a `pnpm install`, reproducibly across five retries in one tab and
-  // resolved only by a fresh tab -- a fresh `page.goto` here is this script's
-  // equivalent of "a brand-new tab". This is not hypothetical: wiring this file up
-  // reproduced the identical shape live, once, against a dev server another
-  // concurrent session was actively hot-reloading ("Execution context was destroyed,
-  // most likely because of a navigation", then a full page.goto timeout) -- 2
-  // attempts were not enough to ride it out that time, so this budgets 3.
-  let lastErr: unknown;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      await page.goto(url, { waitUntil: 'load', timeout: 30_000 });
-      if (needsDeploy) await dismissDeployGate(page);
-      await page.waitForFunction(() => typeof (window as unknown as { __lions?: unknown }).__lions !== 'undefined', {
-        timeout: 15_000,
-      });
-      // capture-protocol.ts's own documented settle: await font load + a 1s
-      // settle before stepping -- run 1 in the report read 6.5x noisier without it.
-      await page.evaluate(() => document.fonts.ready);
-      await page.waitForTimeout(1000);
-      const raw = await page.evaluate(script);
-      const result = JSON.parse(raw as string) as CaptureResult;
-      await page.screenshot({
-        path: outFile,
-        clip: { x: result.rect.x, y: result.rect.y, width: result.rect.w, height: result.rect.h },
-      });
-      return result;
-    } catch (err) {
-      lastErr = err;
-      console.warn(`[golden-diff-gate] ${label} capture attempt ${attempt + 1} failed: ${(err as Error).message}`);
-    }
-  }
-  throw new Error(
-    `[golden-diff-gate] ${label} capture failed 3 times: ${(lastErr as Error)?.message ?? String(lastErr)}`
-  );
 }
 
 interface ScenarioResult {
@@ -411,13 +288,19 @@ async function runScenario(page: Page, port: number, outDir: string, scenario: S
   writeFileSync(path.join(scenarioOutDir, 'summary.json'), JSON.stringify(summary, null, 2));
   console.log(formatSummary(summary));
 
-  const diffOk = summary.diffPixelPct < budget.maxDiffPixelPct && summary.meanAbsChannelDelta < budget.maxMeanAbsChannelDelta;
+  // Reported against the pre-mesh-flip reference numbers, never enforced. A
+  // reading over them is the EXPECTED state of this diagnostic today -- Pixi
+  // does not draw the content three draws -- so calling it PASS/FAIL would be
+  // lying about what was measured.
+  const withinHistorical =
+    summary.diffPixelPct < budget.maxDiffPixelPct && summary.meanAbsChannelDelta < budget.maxMeanAbsChannelDelta;
   console.log(
-    `[golden-diff-gate] scenario "${scenario.id}" gate: diffPixelPct ${summary.diffPixelPct.toFixed(3)}% ` +
-      `(budget <${budget.maxDiffPixelPct}%), meanAbsChannelDelta ${summary.meanAbsChannelDelta.toFixed(3)} ` +
-      `(budget <${budget.maxMeanAbsChannelDelta}) -> ${diffOk ? 'PASS' : 'FAIL'}`
+    `[golden-diff-gate] scenario "${scenario.id}": diffPixelPct ${summary.diffPixelPct.toFixed(3)}% ` +
+      `(pre-mesh-flip reference <${budget.maxDiffPixelPct}%), meanAbsChannelDelta ` +
+      `${summary.meanAbsChannelDelta.toFixed(3)} (reference <${budget.maxMeanAbsChannelDelta}) -> ` +
+      `${withinHistorical ? 'within the old reference' : 'OVER the old reference (expected since the mesh flip)'}`
   );
-  console.log(`[golden-diff-gate] scenario "${scenario.id}" budget rationale: ${budget.rationale}`);
+  console.log(`[golden-diff-gate] scenario "${scenario.id}" reference provenance: ${budget.rationale}`);
 
   // groundTextureCheck (capture-protocol.ts): a same-renderer self-check, run ONLY
   // for scenarios that declare one. Exists because the ordinary pixi-vs-three
@@ -447,16 +330,16 @@ async function runScenario(page: Page, port: number, outDir: string, scenario: S
     }
   }
 
-  const ok = diffOk && textureOk;
-  if (!ok) {
-    console.error(
-      `[golden-diff-gate] scenario "${scenario.id}" FAILED (diffOk=${diffOk}, textureOk=${textureOk}). ` +
-        `Before treating this as a real regression, check the ${summary.diffPixels} differing pixels ` +
-        `against the ${EXPECTED_DIFFERENCES.length} known expected-difference entries:\n\n` +
-        formatExpectedDifferences()
+  if (!textureOk || !withinHistorical) {
+    console.log(
+      `[golden-diff-gate] scenario "${scenario.id}": before reading any of the ${summary.diffPixels} ` +
+        `differing pixels as a bug, check them against the ${EXPECTED_DIFFERENCES.length} known ` +
+        `expected-difference entries:\n\n${formatExpectedDifferences()}`
     );
   }
-  return { scenario, ok, comparable: true, summary };
+  // `ok` is now "the two captures were comparable and the diff ran", not a
+  // verdict on the picture. The verdict lives in `three-baseline-gate.ts`.
+  return { scenario, ok: true, comparable: true, summary };
 }
 
 async function main(): Promise<void> {
@@ -473,10 +356,10 @@ async function main(): Promise<void> {
     return;
   }
 
-  const devServer = await ensureDevServer(port);
-  const browser = await chromium.launch({ headless: true });
+  const devServer = await ensureDevServer(port, REPO_ROOT, 'golden-diff-gate');
+  const browser = await launchCaptureBrowser();
   try {
-    const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+    const page = await browser.newPage({ viewport: { ...CAPTURE_VIEWPORT } });
 
     const results: ScenarioResult[] = [];
     for (const scenario of scenarios) {
@@ -484,17 +367,20 @@ async function main(): Promise<void> {
     }
     await page.close();
 
-    console.log('\n[golden-diff-gate] ==== summary ====');
+    console.log('\n[golden-diff-gate] ==== cross-backend report (NOT a gate) ====');
     for (const r of results) {
-      const status = !r.comparable ? 'FAIL (not comparable)' : r.ok ? 'PASS' : 'FAIL';
       const pct = r.summary ? `${r.summary.diffPixelPct.toFixed(3)}%` : 'n/a';
-      console.log(`  ${r.scenario.id}: ${status} (diffPixelPct ${pct})`);
+      console.log(`  ${r.scenario.id}: ${r.comparable ? `diffPixelPct ${pct}` : 'NOT COMPARABLE (camera/rect mismatch)'}`);
     }
-
-    const allOk = results.every((r) => r.ok);
-    if (!allOk) {
-      process.exitCode = 1;
-    }
+    console.log(
+      '\n[golden-diff-gate] This tool reports; it does not vote. The visual gate is\n' +
+        '[golden-diff-gate]   pnpm golden-baseline   (tools/src/ci/three-baseline-gate.ts)\n' +
+        '[golden-diff-gate] which compares three against a committed three baseline.'
+    );
+    // A camera/rect mismatch means the two captures were never comparable --
+    // a broken protocol rather than a rendering difference, so it is still an
+    // error even though the picture is no longer judged.
+    if (results.some((r) => !r.comparable)) process.exitCode = 1;
   } finally {
     await browser.close();
     if (devServer && !keepServer) {

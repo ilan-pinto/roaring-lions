@@ -9,7 +9,9 @@
     "playtest": "tsx src/backtest/playtest.ts",
     "perf:units": "tsx src/perf/three-units.ts",
     "golden-diff": "tsx src/golden-diff/diff.ts",
-    "golden-diff:ci": "tsx src/ci/golden-diff-gate.ts"
+    "golden-diff:compare": "tsx src/ci/golden-diff-gate.ts",
+    "golden-baseline": "tsx src/ci/three-baseline-gate.ts",
+    "golden-baseline:bless": "tsx src/ci/three-baseline-gate.ts --bless"
   },
   "dependencies": {
     "@lions/data": "workspace:*",

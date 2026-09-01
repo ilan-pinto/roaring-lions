@@ -258,7 +258,20 @@ export const QUIET_SCENARIO: Scenario = {
     'hand-measured baseline. No vehicle, no combat, no open ground at zoom.',
   sandboxMap: 'beit_sahwan_outskirts',
   cameraMarker: 'town_center',
-  ticks: 100,
+  ticks: 100, // unused when targetTick is set; kept as documentation of the original relative advance
+  // ABSOLUTE, added for the three-vs-three baseline gate. A relative
+  // `step(100)` does not land on tick 100: `capture()` waits for fonts and
+  // settles for a second first, and rAF has been advancing the sim the whole
+  // time, so three consecutive runs measured tick 118, 119 and 122. Nothing in
+  // THIS framing animates (the sandbox force spawns at the friendly anchor,
+  // well outside the shot), so that drift cost nothing here -- diffing the
+  // tick-118 capture against the tick-200 one gives 29 differing pixels, the
+  // same as diffing two captures at the same tick. It is pinned anyway because
+  // a stored baseline must be reproducible for a REASON, not by luck: the
+  // moment content drifts into this shot the drift would start showing up as a
+  // regression. 200 rather than 100 because `step(max(0, target - current))`
+  // cannot go backwards, and 100 is already behind by capture time.
+  targetTick: 200,
 };
 
 /** Added for Phase D item #20/#8 (`.superpowers/d-scatter-report.md`,
@@ -306,14 +319,28 @@ export const QUIET_SCENARIO: Scenario = {
  *  no Pixi involved) DOES discriminate clearly -- pixelmatch counts 485
  *  differing pixels here vs 14 for the same cross-commit comparison on
  *  `QUIET_SCENARIO` (34x), and `meanAbsChannelDelta` 0.401 vs 0.054 (7.4x) --
- *  but a CI gate only ever has ONE commit's captures to look at, not a
- *  before/after pair, so that technique cannot run automatically here.
- *  `groundTextureCheck` below is the same-renderer idea adapted to run from
- *  a single capture: instead of comparing three against a past version of
- *  itself, it checks a structural property of three's OWN output directly
+ *  and that sentence is the reason `three-baseline-gate.ts` exists.
+ *
+ *  WHAT THIS PARAGRAPH USED TO SAY, AND WHY IT WAS WRONG: "a CI gate only
+ *  ever has ONE commit's captures to look at, not a before/after pair, so
+ *  that technique cannot run automatically here." True only if you do not
+ *  STORE a baseline, which is ordinary golden-image practice. Committing one
+ *  turns "cross-commit" into "current commit against a picture somebody
+ *  approved", and the discriminating power measured just above is what you
+ *  get. The same defect, re-injected into today's HEAD and captured through
+ *  the new gate, reads meanAbsChannelDelta 0.3519 on this scenario's own
+ *  ground crop against a run-to-run noise floor of 0.0000 -- while
+ *  pixelmatch counts ZERO differing pixels either way, because the whole
+ *  ground moves by one palette step (19/255) and that is under pixelmatch's
+ *  threshold. See `baseline.ts`.
+ *
+ *  `groundTextureCheck` below stays, and stays useful: it is the
+ *  same-renderer idea adapted to run from a single capture with NO stored
+ *  reference at all -- it checks a structural property of three's OWN output
  *  (how much of a known-pure-ground crop is literally the single flat
- *  background colour) -- exactly what the invisible-fleck bug broke, and
- *  exactly what Pixi's rendering style has no bearing on either way. */
+ *  background colour), which makes it the one check that still works in a
+ *  capture environment nobody has blessed a baseline for yet. It fires on
+ *  the re-injected defect too, at 0.9542 against its 0.95 budget. */
 export const OPEN_GROUND_SCENARIO: Scenario = {
   id: 'open-ground',
   description:
@@ -321,7 +348,19 @@ export const OPEN_GROUND_SCENARIO: Scenario = {
     'the framing that caught the stone-grain scatter defect (d9fd1c7).',
   sandboxMap: 'tutorial_ground',
   cameraMarker: 'field',
-  ticks: 20,
+  ticks: 20, // unused when targetTick is set; kept as documentation of the original relative advance
+  // ABSOLUTE, added for the three-vs-three baseline gate, and here it MATTERS
+  // rather than merely being tidy: `tutorial_ground`'s sandbox infantry stand
+  // in the top-left of this framing, and a relative `step(20)` landed on tick
+  // 40, 42 and 42 across three runs. Those two ticks of drift alone put
+  // 1842-5912 differing pixels between two captures of the same commit --
+  // several times the whole signal of the scatter defect this scenario exists
+  // to catch. Pinning the tick takes that to 879-1762 (what remains is the
+  // rigged idle clip, which advances on wall-clock time and no tick can pin),
+  // and `BASELINES`' region takes the gated part of it to zero. 60 rather than
+  // 20 for the same reason `quiet` uses 200: the sim is already past 20 by the
+  // time the capture script runs.
+  targetTick: 60,
   zoom: 3,
   groundTextureCheck: {
     // Confirmed unit/HUD-free at this exact scenario's camera framing (1400x900

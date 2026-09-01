@@ -1,0 +1,114 @@
+# The ONLY way a stored visual baseline changes on a CI runner.
+#
+# Manual dispatch only, a required `reason`, and the result arrives as a PULL
+# REQUEST rather than a push -- so somebody looks at the picture before it
+# becomes what every future run is judged against. GitHub renders a committed
+# PNG's before/after side by side in the Files-changed tab, which is the whole
+# point of storing full-resolution captures rather than a hash.
+#
+# Two jobs this workflow does that a local `pnpm golden-baseline:bless` cannot:
+#
+#   1. It is where `linux-x64-swiftshader` -- the environment CI actually judges
+#      in -- gets its baseline. A baseline is keyed to its capture environment
+#      because a shared one is measurably worse (see `baseline.ts`'s `envKey`),
+#      and the macOS baseline committed alongside it is NOT a substitute.
+#   2. It leaves the reason in `manifest.json`, where the compare run prints it
+#      on every future mismatch.
+#
+# Run this the first time after `ci.yml`'s `visual` job warns "No visual
+# baseline for this runner", and again whenever a renderer change is MEANT to
+# change the picture.
+
+name: visual-baseline-bless
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Why the picture changed (goes into manifest.json and every future mismatch message)'
+        required: true
+        type: string
+      scenario:
+        description: 'Optional comma-separated scenario ids; blank re-blesses all of them'
+        required: false
+        type: string
+
+jobs:
+  bless:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Install Playwright Chromium
+        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
+
+      - name: Capture a new baseline on this runner
+        env:
+          REASON: ${{ inputs.reason }}
+          SCENARIO: ${{ inputs.scenario }}
+        run: |
+          set -euo pipefail
+          ARGS=(--port=5175 --out-dir=visual-baseline-output "--reason=$REASON")
+          if [ -n "${SCENARIO}" ]; then ARGS+=("--scenario=${SCENARIO}"); fi
+          pnpm golden-baseline:bless -- "${ARGS[@]}"
+
+      - name: Upload the captures the bless was taken from
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-baseline-bless-captures
+          path: visual-baseline-output
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # An explicit path list, never `git add -A`: this job must not sweep up a
+      # build artifact or anything else the capture left in the tree.
+      - name: Open a pull request with the new baseline
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REASON: ${{ inputs.reason }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- tools/golden-baselines; then
+            echo "::notice title=Baseline unchanged::The capture matched the stored baseline byte for byte. Nothing to review."
+            exit 0
+          fi
+          BRANCH="visual-baseline/${GITHUB_SHA::7}-${GITHUB_RUN_ID}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add -- tools/golden-baselines
+          git commit -m "chore(visual): re-bless the golden baseline
+
+          $REASON
+
+          Captured by .github/workflows/visual-baseline-bless.yml on this runner,
+          at ${GITHUB_SHA}. Review the PNG diff before merging: it becomes what
+          every future run of the visual gate is judged against."
+          git push origin "$BRANCH"
+          gh pr create \
+            --title "chore(visual): re-bless the golden baseline" \
+            --body "**Reason given:** $REASON
+
+          Captured on \`ubuntu-latest\` at \`${GITHUB_SHA::7}\` by the \`visual-baseline-bless\` workflow.
+
+          **Review the images, not the diff stat.** GitHub shows each PNG before/after in
+          Files changed. Every future run of \`pnpm golden-baseline\` is judged against
+          exactly these pixels, so a wrong picture merged here silently disarms the gate
+          for everything it would otherwise have caught.
+
+          If the change was not intended, close this PR and fix the renderer instead." \
+            --head "$BRANCH"

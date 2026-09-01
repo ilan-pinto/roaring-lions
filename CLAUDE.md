@@ -303,51 +303,66 @@ yours; each one records what the next phase inherits.
   bug; changing it is a decision affecting both.
 - **`preserveDrawingBuffer` must stay off** in shipping code. Canvas readback
   therefore returns black — that is correct, not a broken renderer.
-- **A golden-image diff between the two backends exists**:
-  `tools/src/golden-diff/`. `npx tsx tools/src/golden-diff/diff.ts <pixi.png>
-  <three.png> <outDir>`. First clean reading was **0.128% of pixels, entirely
-  edge-shaped** (antialiasing is off in three by design), no solid-interior
-  mismatch. `expected-differences.ts` catalogues eight DELIBERATE divergences so
-  they do not read as failures — the largest being `structureLastAlpha`, where
-  **every building destruction differs** because Pixi's event ordering floors a
-  combat kill's starting alpha to 0.55 and three does not.
-  **It IS in CI** as of `9c76b7b` — `.github/workflows/golden-diff.yml`, its own
-  workflow rather than a `gates` step, on a nightly schedule plus
-  `workflow_dispatch` plus an opt-in `golden-diff` PR label. Playwright drives a
-  headless Chromium (`tools/src/ci/golden-diff-gate.ts`); four scenarios now
-  exist (`quiet`, `open-ground`, `vehicle`, `combat`), each with its own entry in
-  `SCENARIO_BUDGETS`, and a scenario with no budget throws rather than passing
-  silently.
-  **ALL FOUR scenarios are RED and have been silently so** — not just `quiet`,
-  as this file first recorded. Measured 2026-09-01 at HEAD `5ccdafc`, headless
-  Chromium, software GL, 1400x900: `quiet` 2.556% against a 1.3% budget,
-  `open-ground` 7.094% against 3%, `vehicle` 5.426% against 2.4%, `combat`
-  11.971% against 7%. Because the workflow only runs nightly or on a label,
-  nothing surfaced it.
-  **The cause is the mesh path, measured rather than inferred.** Re-capturing
-  three with `&nomesh` and diffing against the IDENTICAL Pixi capture puts every
-  scenario back inside budget — 0.255% / 2.132% / 1.312% / 5.996%. So 100% of
-  the overage is mesh units, mesh buildings and mesh decor, none of which Pixi
-  has any counterpart for, permanently and by design. The budgets were last
-  calibrated at `45a2cc1`, **124 commits** before the mesh flip (`362bde7`),
-  decor-by-default (`edf45ff`) and mesh trees (`c452d5d`) landed.
-  **The 2026-09-01 renderer batch is NOT the cause** — an earlier note here
-  called that "a strong correlation"; it is now disproved. Re-running the whole
-  gate at `431cc00`, the commit immediately before that batch, reproduces every
-  number within ±0.03pp (2.583 / 7.064 / 5.448 / 11.992). The coursed walls,
-  concrete coursing, occlusion outline and mesh civilians changed the gate's
-  reading by nothing.
-  **Do not widen the budgets to clear this**, and note that adding
-  `EXPECTED_DIFFERENCES` entries cannot clear it either — that catalogue is
-  advisory, printed on failure, and feeds nothing in the `diffOk` path. What it
-  needs is a decision about what the gate should COMPARE, now that three is the
-  default and the two backends diverge on purpose: the honest reading is that a
-  cross-backend pixel diff measures the gap between what players see and what
-  nobody sees, and the same-renderer-against-a-stored-baseline shape would catch
-  what actually matters. The harness's own `OPEN_GROUND_SCENARIO` comment
-  already measured that a same-renderer cross-commit diff discriminates **34x**
-  better than the cross-backend one. See
-  `.superpowers/queue/golden-diff-red-report.md`.
+- **The visual gate is three-vs-three against a committed baseline**:
+  `pnpm golden-baseline` (`tools/src/ci/three-baseline-gate.ts`). Playwright
+  captures three.js at a fixed scenario/tick/camera and diffs it against a PNG
+  in `tools/golden-baselines/<envKey>/`. It runs in **ci.yml's `visual` job on
+  every PR and every push to main** — 30.8 s wall clock for all four scenarios
+  including booting its own dev server — plus a nightly that files a GitHub
+  issue on failure. Read `tools/src/golden-diff/baseline.ts` before touching a
+  threshold; four things about it are counter-intuitive and every one was
+  measured.
+  **`meanAbsChannelDelta` is the PRIMARY metric and pixelmatch's pixel count is
+  the secondary one**, which is the reverse of how a golden-image gate is
+  usually written. Colour here is quantised onto a palette, so a real
+  regression moves a wide area by ONE palette step — 19/255 for the stone-grain
+  scatter defect — which is under pixelmatch's 0.1 perceptual threshold.
+  Re-injecting that defect into HEAD and capturing gives **`diffPixels` 0 and
+  `meanAbsChannelDelta` 0.3519** on the open-ground crop. A gate written the
+  usual way sees nothing.
+  **Baselines are keyed to the capture environment and that is not tidiness.**
+  Same machine, same commit, SwiftShader vs ANGLE/Metal: 230 px / 0.0320 on
+  `quiet` alone, ~100x that scenario's run-to-run noise and enough to swallow
+  the defect's own 0.0493 signal. A missing baseline for the current
+  environment is **exit 3**, a distinct code, never a silent pass. Cross-OS
+  portability (Linux SwiftShader vs macOS SwiftShader) is **unmeasured** — the
+  committed `darwin-arm64-swiftshader` set is not a substitute for a Linux one,
+  and CI's must be created by the `visual-baseline-bless` workflow.
+  **Run-to-run noise is not spread over the frame**; it sits in tight clusters
+  around animating mesh units and real-time VFX, and every other pixel is
+  bit-identical between captures. That is why a scenario can declare a
+  `region`: scoping `open-ground` to its unit-free ground crop took its noise
+  from 1762 px / 0.1544 to **0 / 0.0000**. Every scenario also has an ABSOLUTE
+  `targetTick` now, because a relative `step(n)` lands 18–22 ticks late and
+  drifts run to run.
+  **`combat` is captured, reported and does NOT vote.** Two captures of the
+  same commit differ by 969–3847 px / 0.19–0.36 there; the defect reads 3231 px
+  / 0.6006 — inside the noise on count and 1.7x it on magnitude. No honest
+  threshold exists between them. Its frame still uploads as a CI artifact.
+  **Accepting an intended change** is `pnpm golden-baseline:bless -- --reason="..."`,
+  which refuses to run without the reason and writes it into `manifest.json`;
+  on CI it is a `workflow_dispatch` that opens a PR with the new PNGs so a human
+  sees the picture. Do not widen a threshold to clear a red run.
+- **The cross-backend Pixi-vs-three diff is now REPORT-ONLY**
+  (`pnpm golden-diff:compare`, `tools/src/ci/golden-diff-gate.ts`). It exits 0
+  unless a capture fails, and its `SCENARIO_BUDGETS` are kept as historical
+  reference numbers, not thresholds. The project lead retired the pass/fail:
+  *"retire cross-backend and rebuild it as three-vs-three."*
+  Why, measured: since the mesh flip (`362bde7`) all four scenarios sat 1.8x–2.3x
+  over budget with **no regression behind it** — re-capturing three with
+  `&nomesh` put every one back inside budget (2.556→0.255, 7.094→2.132,
+  5.426→1.312, 11.971→5.996), so 100% of the overage is the mesh path Pixi has
+  no counterpart for. The budgets were last calibrated at `45a2cc1`, **124
+  commits** before the flip. Recalibrating would have blessed a ~12% baseline on
+  `combat`, inside which a broken mesh material or a missing unit type is
+  invisible. And the harness's own `OPEN_GROUND_SCENARIO` comment already
+  recorded that cross-backend **could not discriminate the scatter defect from
+  its fix at all** (1.945% buggy vs 1.937% fixed, not even ordered right) while
+  same-renderer separated them 34x. `EXPECTED_DIFFERENCES` never fed a pass/fail
+  — it is `.length` in a message and a printed table — so adding entries could
+  never have cleared the red, and correcting them is safe. Full account:
+  `.superpowers/queue/golden-diff-red-report.md` and
+  `.superpowers/queue/golden-three-report.md`.
   **VFX are exempt from this diff as of 2026-08-30.** The project lead's call:
   "all VFX should move to three." Pixi's VFX are legacy and are no longer owed a
   matching effect — an effect that exists only in three is the intended end

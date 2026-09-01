@@ -1,5 +1,16 @@
 // The catalogue of KNOWN, DELIBERATE divergences between PixiRenderer and
-// ThreeRenderer, gathered from the Phase B1-B4 outcome docs
+// ThreeRenderer.
+//
+// SCOPE, since the gate this served was retired: cross-backend comparison is
+// now a report-only diagnostic (`ci/golden-diff-gate.ts`) and this catalogue is
+// its triage checklist -- nothing more, and nothing less than it ever was. It
+// never fed a pass/fail (it is `.length` in a message and a printed table), and
+// the visual GATE is now `ci/three-baseline-gate.ts`, which compares three
+// against a committed three baseline and has no use for a Pixi divergence list
+// at all. An entry here is a note to a human reading a cross-backend diff, and
+// several of the entries below are documented rather than demonstrated.
+//
+// Gathered from the Phase B1-B4 outcome docs
 // (docs/superpowers/specs/2026-08-2[6-8]-phase-b*-outcome.md) and
 // CLAUDE.md's "The three.js backend" section.
 //

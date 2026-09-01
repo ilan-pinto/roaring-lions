@@ -27,9 +27,23 @@ import { PNG } from 'pngjs';
 import pixelmatch from 'pixelmatch';
 import { EXPECTED_DIFFERENCES, formatExpectedDifferences } from './expected-differences';
 
+/** A rectangle in capture-pixel coordinates. Shared by `computeDiff`'s optional
+ *  `region` and by `computeDominantColorFraction`, which already took this
+ *  shape structurally. */
+export interface Region {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface DiffSummary {
   baseline: string;
   candidate: string;
+  /** The sub-rectangle both images were cropped to before diffing, or `null`
+   *  for a whole-frame diff. Every number below is over the CROP when this is
+   *  set, never the whole capture. */
+  region: Region | null;
   width: number;
   height: number;
   totalPixels: number;
@@ -56,7 +70,7 @@ function loadPng(path: string): PNG {
 }
 
 export interface DominantColorSummary {
-  region: { x: number; y: number; w: number; h: number };
+  region: Region;
   totalPixels: number;
   distinctColors: number;
   dominantColor: readonly [number, number, number];
@@ -74,10 +88,7 @@ export interface DominantColorSummary {
  *  the scatter bug this exists to catch) pushes that fraction up, independent of
  *  whatever Pixi's own rendering looks like. RGB only, alpha ignored (an opaque
  *  canvas capture is always 255). */
-export function computeDominantColorFraction(
-  pngPath: string,
-  region: { x: number; y: number; w: number; h: number }
-): DominantColorSummary {
+export function computeDominantColorFraction(pngPath: string, region: Region): DominantColorSummary {
   const img = loadPng(pngPath);
   if (region.x < 0 || region.y < 0 || region.x + region.w > img.width || region.y + region.h > img.height) {
     throw new Error(
@@ -113,10 +124,28 @@ export function computeDominantColorFraction(
   };
 }
 
+/** Copies `region` out of `img` into a fresh RGBA buffer, alpha forced opaque
+ *  (a canvas capture is always 255 already; forcing it keeps a cropped buffer
+ *  comparable with one that came from a PNG encoder that dropped the channel). */
+function cropPixels(img: PNG, region: Region): Uint8Array {
+  const out = new Uint8Array(region.w * region.h * 4);
+  for (let y = 0; y < region.h; y++) {
+    for (let x = 0; x < region.w; x++) {
+      const s = ((region.x + x) + (region.y + y) * img.width) << 2;
+      const d = (x + y * region.w) << 2;
+      out[d] = img.data[s];
+      out[d + 1] = img.data[s + 1];
+      out[d + 2] = img.data[s + 2];
+      out[d + 3] = 255;
+    }
+  }
+  return out;
+}
+
 export function computeDiff(
   baselinePath: string,
   candidatePath: string,
-  opts: { outDir?: string; threshold?: number; diffFileName?: string } = {}
+  opts: { outDir?: string; threshold?: number; diffFileName?: string; region?: Region } = {}
 ): DiffSummary {
   const threshold = opts.threshold ?? 0.1;
   const a = loadPng(baselinePath);
@@ -128,6 +157,35 @@ export function computeDiff(
         `${candidatePath} is ${b.width}x${b.height}. Both captures must use the same ` +
         `window size and canvas rect; see capture-protocol.ts.`
     );
+  }
+
+  // Region support exists because the noise measurement behind
+  // `three-baseline-gate.ts` found the run-to-run instability in a capture is
+  // NOT spread over the frame -- it sits in tight clusters around animating
+  // units and real-time VFX, and everything else is bit-identical across
+  // repeated captures. Diffing a declared stable sub-rectangle instead of the
+  // whole frame took the open-ground scenario's own run-to-run noise from
+  // 1762 differing pixels / 0.1544 meanAbsChannelDelta to 0 / 0.0000, which is
+  // what makes a stored baseline usable there at all. See
+  // `baseline.ts`'s BASELINES table for the measured per-scenario numbers.
+  const region = opts.region ?? null;
+  if (region) {
+    if (
+      region.x < 0 ||
+      region.y < 0 ||
+      region.w <= 0 ||
+      region.h <= 0 ||
+      region.x + region.w > a.width ||
+      region.y + region.h > a.height
+    ) {
+      throw new Error(
+        `golden-diff: region ${JSON.stringify(region)} falls outside the ${a.width}x${a.height} capture`
+      );
+    }
+    a.data = Buffer.from(cropPixels(a, region));
+    b.data = Buffer.from(cropPixels(b, region));
+    a.width = region.w;
+    a.height = region.h;
   }
 
   const { width, height } = a;
@@ -170,6 +228,7 @@ export function computeDiff(
   return {
     baseline: baselinePath,
     candidate: candidatePath,
+    region,
     width,
     height,
     totalPixels,
@@ -185,7 +244,8 @@ export function computeDiff(
 export function formatSummary(s: DiffSummary): string {
   return [
     `[golden-diff] ${s.baseline}  vs  ${s.candidate}`,
-    `  ${s.width}x${s.height} = ${s.totalPixels} px, threshold=${s.thresholdUsed}`,
+    `  ${s.width}x${s.height} = ${s.totalPixels} px, threshold=${s.thresholdUsed}` +
+      (s.region ? `, region ${s.region.x},${s.region.y} ${s.region.w}x${s.region.h}` : ', whole frame'),
     `  differing pixels: ${s.diffPixels} (${s.diffPixelPct.toFixed(3)}%)`,
     `  mean |channel delta| over ALL pixels: ${s.meanAbsChannelDelta.toFixed(3)} / 255`,
     `  max  |channel delta|: ${s.maxAbsChannelDelta} / 255`,

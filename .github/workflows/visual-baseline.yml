@@ -1,0 +1,126 @@
+# Nightly drift watch for the three-vs-three visual gate, plus the one thing a
+# PR check cannot do: NOTIFY.
+#
+# The PRIMARY wiring for this gate is ci.yml's `visual` job, which runs on every
+# pull request and every push to main. That is deliberate and it is the direct
+# fix for how the old cross-backend gate rotted: it was nightly-and-label only,
+# so 124 commits of drift landed without anyone seeing a red tick. A failing PR
+# check is seen by the person who caused it, on the change that caused it, in
+# the minute they caused it -- there is no notification mechanism that beats it.
+#
+# This workflow exists for the drift a PR check structurally cannot catch:
+#
+#   - a direct push to main, or a merge-queue race that lands two visually
+#     interacting changes that each passed alone;
+#   - a change in the RUNNER rather than the repo. The baseline is keyed to
+#     `linux-x64-swiftshader`, and SwiftShader ships inside Chromium, which
+#     `pnpm-lock.yaml` pins -- but a GitHub runner image change, or anything
+#     else that moves the rasteriser under a lockfile that did not move, would
+#     show up here first and nowhere else.
+#
+# ...and when it fails, it opens (or updates) an ISSUE, because a red scheduled
+# run nobody reads is exactly the failure mode this whole exercise is fixing.
+
+name: visual-baseline-nightly
+
+on:
+  schedule:
+    # 03:00 UTC -- outside contributor hours, ahead of the working day.
+    - cron: '0 3 * * *'
+  workflow_dispatch: {}
+
+# Only one at a time; a backed-up queue of nightlies tells nobody anything new.
+concurrency:
+  group: visual-baseline-nightly
+  cancel-in-progress: true
+
+jobs:
+  visual:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Chromium is ~270 MB and only changes when the pinned `playwright`
+      # devDependency does, so it caches on the lockfile hash. The Linux system
+      # deps (`--with-deps`) are cheap to reinstall on a cache hit and are NOT
+      # part of the cache -- apt already dedupes what is present.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Install Playwright Chromium
+        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
+
+      # Exit 3 means "no baseline blessed for this capture environment yet",
+      # which is actionable and, once one exists, impossible. Anything else
+      # non-zero is a real finding. See tools/src/golden-diff/baseline.ts.
+      - name: three-vs-three against the committed baseline
+        id: gate
+        run: |
+          set +e
+          pnpm golden-baseline -- --port=5175 --out-dir=visual-baseline-output
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" = "3" ]; then
+            echo "::warning title=No visual baseline for this runner::Run the visual-baseline-bless workflow to create one. The gate cannot judge anything until then."
+            exit 0
+          fi
+          exit $code
+
+      - name: Upload captures and diffs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-baseline-output
+          path: visual-baseline-output
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # The notification. One issue, reused: a nightly that files a fresh issue
+      # every night trains people to close them unread, which is the same
+      # failure in a louder costume.
+      - name: Open or update the drift issue
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = 'visual-baseline nightly is red';
+            const url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              `The nightly three-vs-three visual gate failed on \`${context.sha.slice(0, 7)}\`.`,
+              '',
+              `Run: ${url} (the \`visual-baseline-output\` artifact holds current.png, the stored`,
+              'baseline it was compared against, and diff.png for every scenario -- look at the',
+              'diff image before reading any number).',
+              '',
+              'If the change is INTENDED, re-bless through the `visual-baseline-bless` workflow,',
+              'which opens a PR with the new PNGs so the picture is reviewed before it becomes',
+              'the truth. Do NOT widen a threshold in `tools/src/golden-diff/baseline.ts` to',
+              'clear this: every one is calibrated against a real repeated-capture noise',
+              'measurement of its own scenario.',
+            ].join('\n');
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'visual-baseline',
+            });
+            if (existing.data.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: existing.data[0].number, body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title, body, labels: ['visual-baseline'],
+              });
+            }

@@ -71,6 +71,70 @@ jobs:
       - run: pnpm perf:units
       - run: pnpm build
 
+  # The visual regression gate: three.js against a committed three.js baseline
+  # (tools/src/ci/three-baseline-gate.ts). Its own job rather than a step in
+  # `gates` because it needs Playwright's Chromium (~270 MB, cached) and a real
+  # Vite dev server, and because a separate job runs in PARALLEL -- `gates`
+  # already spends several minutes on Blender, balance, playtest and build, so
+  # this adds runner minutes and no wall-clock to the pipeline.
+  #
+  # ON EVERY PR AND EVERY PUSH TO MAIN, deliberately, and that is the whole
+  # lesson of what it replaces. The old cross-backend golden-diff ran nightly
+  # and on an opt-in label only; it went red and stayed red through 124 commits
+  # because nothing put a tick in front of the person making the change
+  # (.superpowers/queue/golden-diff-red-report.md). Measured cost of being here:
+  # 30.8s wall clock for all four scenarios end to end, INCLUDING booting its
+  # own dev server, on an M3 Pro through software SwiftShader -- the same
+  # rasteriser this runner uses, so the figure travels.
+  #
+  # No `paths:` filter. A palette entry, a piece of map data, a GLB or a mission
+  # can all change what is on screen without touching packages/render, and a
+  # path list that has to enumerate them is a list that goes stale silently --
+  # the SPRITE_MAP failure mode this repo already knows.
+  visual:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Install Playwright Chromium
+        run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
+      # Exit 3 is "no baseline blessed for this capture environment yet" -- a
+      # distinct code precisely so it can be told apart from "the picture
+      # changed". It warns rather than failing, and it is IMPOSSIBLE once a
+      # baseline exists for this runner, so nothing is weakened by treating it
+      # gently. Create one with the `visual-baseline-bless` workflow.
+      - name: three-vs-three against the committed baseline
+        run: |
+          set +e
+          pnpm golden-baseline -- --port=5175 --out-dir=visual-baseline-output
+          code=$?
+          if [ "$code" = "3" ]; then
+            echo "::warning title=No visual baseline for this runner::Run the visual-baseline-bless workflow to create one. Until then this gate judges nothing."
+            exit 0
+          fi
+          exit $code
+      # Uploaded on failure AND on success: the diff image is what a triager
+      # actually needs, and `combat` is captured but never gated, so its frame
+      # is only ever reachable here.
+      - name: Upload captures and diffs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-baseline-output
+          path: visual-baseline-output
+          if-no-files-found: ignore
+          retention-days: 14
+
   determinism:
     strategy:
       fail-fast: false
@@ -97,7 +161,7 @@ jobs:
   # last case is the common one here — a spec, a plan and a ledger correction
   # are a normal merge, and they change nothing a player can see.
   version:
-    needs: [gates, determinism]
+    needs: [gates, visual, determinism]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
