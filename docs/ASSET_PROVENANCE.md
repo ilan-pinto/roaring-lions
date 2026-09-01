@@ -109,7 +109,9 @@ Ten, all AI-generated with Meshy, all disclosed per `CONTRIBUTING.md`:
 | `art/meshes/vfx/muzzle_flash.glb` | `fire_apfsds` hot core | `art/blend/Muzzle flush/` |
 | `art/meshes/vfx/explosion_burst.glb` | `structure_collapse` | `art/blend/explosion burst /` |
 
-`art/blend/` is **gitignored** (465 MB), so none of their sources are in version
+`art/blend/` is **gitignored** (4.8 GB as of 2026-09-01, not the 465 MB this
+line recorded until then — it grew roughly tenfold as assets were supplied), so
+none of their sources are in version
 control. `ART_PIPELINE.md` §8 requires source alongside rendered output — "no
 binary-only art" — for the practical reason that an asset without source cannot
 be re-rendered when the rig or palette version bumps. Both
@@ -210,7 +212,17 @@ depends on someone remembering is provenance that eventually fails.
    now all rights reserved. Everything published under CC BY-SA 4.0 between
    2026-08-04 and that date remains licensed under it to whoever took a copy;
    the change stops adding to that set and cannot undo it.
-4. **Decide the `art/blend/` question deliberately** — 465 MB of Meshy sources
-   are gitignored, so no clone can re-run the import and export scripts. Git LFS,
-   a decimated in-repo source, or a documented exception. Currently it is an
-   omission rather than a decision.
+4. **Decide the `art/blend/` question deliberately** — **4.8 GB** of Meshy
+   sources are gitignored, so no clone can re-run the import and export scripts.
+   Git LFS, a decimated in-repo source, or a documented exception. Currently it
+   is an omission rather than a decision.
+
+   **The size changes which option is reasonable.** At the 465 MB this item was
+   written against, Git LFS was the obvious answer. At 4.8 GB it is not: GitHub
+   bills LFS storage and bandwidth per account, and every clone would pull the
+   lot. The proximate cause is that Meshy's `image-to-3d-texture` sources run
+   ~193 MB each and 22 of them are textured variants the pipeline never reads —
+   every export script strips materials, because the mesh contract requires zero
+   materials in the shipped GLB. So the sources carry texture data that is
+   discarded by construction. A decimated, material-stripped in-repo source
+   would likely fit in ordinary git; that is worth measuring before buying LFS.
