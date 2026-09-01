@@ -594,6 +594,12 @@ async function main(): Promise<void> {
         ['demo_squad', 'kdf'],
         ['at_team', 'kdf'],
         ['sniper_team', 'kdf'],
+        // Back on the `tools/units/kit.py` asset after the Meshy swap was
+        // reverted -- see the block below `MESH_TEAMS` for the measurement
+        // that forced it. Its GLB is `art/meshes/mortar_team.glb`, so the
+        // "team id == unit type id == file basename" convention holds again
+        // and it belongs in this list rather than in an explicit call.
+        ['mortar_team', 'kdf'],
         ['militia_cell', 'enemy'],
         ['rpg_team', 'enemy'],
         ['atgm_cell', 'enemy'],
@@ -672,14 +678,37 @@ async function main(): Promise<void> {
         'enemy'
       );
 
-      // Two more Meshy-generated (AI, disclosed) rigged bipeds. They cannot
-      // join `MESH_TEAMS` above for the same reason the two calls beside them
+      // One more Meshy-generated (AI, disclosed) rigged biped. It cannot join
+      // `MESH_TEAMS` above for the same reason the two calls beside it
       // cannot: that list's "team id == unit type id == file basename"
-      // convention does not hold here. The files are `meshy_mortar_team.glb`
-      // and `yahalom_engineer.glb`, not `<unit id>.glb`, and the distinct
-      // basename is deliberate -- `export_mesh_team.py <id>` keeps
-      // regenerating the `tools/units/kit.py` file of the same name, so each
-      // swap stays one line to revert.
+      // convention does not hold here. The file is `yahalom_engineer.glb`,
+      // not `<unit id>.glb`, and the distinct basename is deliberate --
+      // `export_mesh_team.py <id>` keeps regenerating the
+      // `tools/units/kit.py` file of the same name, so each swap stays one
+      // line to revert.
+      //
+      // `mortar_team` USED to be loaded here from `meshy_mortar_team.glb`,
+      // and that one-line revert is exactly what issue #145 spent: the Meshy
+      // asset has no walk and the unit slid. Measured on the shipped GLBs by
+      // skinning the `boot` role with its own animated joints and taking each
+      // vertex's peak-to-peak travel over one `move` cycle, against the
+      // 130 cm of ground the team covers in that cycle (0.65 tiles/s x
+      // 0.667 s x 3 m/tile):
+      //
+      //   meshy_mortar_team.glb  boots move  4.08 cm  =  3.1% of 130 cm
+      //   mortar_team.glb        boots move 115.09 cm = 88.5% of 130 cm
+      //
+      // The cause is in the asset, not the clip selection: the Meshy rig has
+      // 13 joints and ZERO leg bones (`f{0,1,2}_{root,abdomen,chest,head}`
+      // plus `prop`), so its `move` is a torso bob with the boots weighted to
+      // the root. It is not re-riggable in place either -- all three figures
+      // in the source tableau are KNEELING (measured 1.07/1.20/1.13 m tall
+      // against 1.80 m standing, with lower-body fore-aft depth >= the
+      // torso's), so there is no leg column to build a thigh/shin chain on.
+      // Restoring the better-looking Meshy model needs it re-rigged from the
+      // standing source blend, which is a full re-import rather than a rig
+      // fix. `art/meshes/meshy_mortar_team.glb` is kept on disk, unreferenced,
+      // so that work has something to start from.
       //
       // The engineer is the first mesh team to ship a `work` clip
       // (`resolveClip` has returned `work` above `fire` all along and
@@ -687,11 +716,6 @@ async function main(): Promise<void> {
       // and the first to ship WITHOUT a `fire`: its source rig skins the slung
       // carbine to `Hips`, so no arm-only recoil can move the weapon, and
       // `meshClipOrFallback` degrades `fire` to `idle` by design.
-      await three.loadMeshUnit(
-        'mortar_team',
-        new URL('../../../art/meshes/meshy_mortar_team.glb', import.meta.url).href,
-        'kdf'
-      );
       await three.loadMeshUnit(
         'yahalom_squad',
         new URL('../../../art/meshes/yahalom_engineer.glb', import.meta.url).href,
