@@ -82,10 +82,31 @@ jobs:
           REASON: ${{ inputs.reason }}
         run: |
           set -euo pipefail
-          if git diff --quiet -- tools/golden-baselines; then
+          # `git status --porcelain`, NOT `git diff --quiet`, and the difference
+          # was the whole workflow's one blocking bug. `git diff` reports only
+          # TRACKED changes. The single most important run of this job is the
+          # FIRST one on a new runner, which writes a brand-new environment
+          # directory (`tools/golden-baselines/linux-x64-swiftshader/`) whose
+          # every file is untracked -- so `git diff --quiet` exited 0, the step
+          # printed "Baseline unchanged" and returned without opening a PR.
+          # Reproduced in this repo: a fresh env dir gives `git diff --quiet`
+          # exit 0 while `git status --porcelain -uall` lists both files.
+          #
+          # It made the whole gate a no-op: no Linux baseline meant ci.yml's
+          # `visual` job exited 3 forever, warned, and stayed green -- a gate
+          # reporting success while judging nothing, which is the exact failure
+          # the three-vs-three rebuild exists to end.
+          #
+          # `-uall` lists files rather than just the directory, so the log names
+          # what is about to be committed. Nothing under this path is gitignored
+          # (checked); if that ever changes, this guard goes quiet again.
+          CHANGES="$(git status --porcelain --untracked-files=all -- tools/golden-baselines)"
+          if [ -z "$CHANGES" ]; then
             echo "::notice title=Baseline unchanged::The capture matched the stored baseline byte for byte. Nothing to review."
             exit 0
           fi
+          echo "Baseline files to review:"
+          echo "$CHANGES"
           BRANCH="visual-baseline/${GITHUB_SHA::7}-${GITHUB_RUN_ID}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

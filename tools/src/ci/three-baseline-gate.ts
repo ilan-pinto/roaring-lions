@@ -28,8 +28,11 @@
 //   0  every gated scenario matched its baseline
 //   1  at least one gated scenario differs -- a real finding
 //   2  usage error / capture failure
-//   3  no baseline exists for THIS capture environment (actionable, and
-//      impossible once one has been blessed here)
+//   3  no baseline exists for THIS capture environment, and every scenario
+//      that COULD be judged without one passed (actionable, and impossible
+//      once one has been blessed here). The run still captures everything and
+//      still runs `groundTextureCheck`; a self-check failure is exit 1 even
+//      with no baseline, so 3 can never mask a real finding.
 //
 // ============================================================================
 // Accepting an intended visual change
@@ -227,11 +230,24 @@ async function main(): Promise<void> {
         `[${TAG}]   baselines: ${envDir}`
     );
 
-    if (!args.bless && !existsSync(manifestPath)) {
-      // Never a silent pass. A baseline captured through a different GL backend
-      // is measurably worse than none (see `envKey`'s comment), and cross-OS
-      // portability was never measured, so the gate stops with its own distinct
-      // exit code and the workflow decides what that means.
+    // NO BASELINE HERE YET. Never a silent pass: a baseline captured through a
+    // different GL backend is measurably worse than none (see `envKey`'s
+    // comment), and cross-OS portability was never measured, so this gets its
+    // own distinct exit code and the workflow decides what it means.
+    //
+    // It no longer RETURNS here, though, and that matters. It used to, which
+    // made this file's own claim about `groundTextureCheck` -- "unlike the
+    // baseline comparison it needs no stored reference at all, which means it
+    // is the one check that still works in an environment with no blessed
+    // baseline" -- false in exactly the environment it was written for:
+    // nothing was captured, so nothing was checked. Combined with the bless
+    // workflow being unable to create a first baseline at all
+    // (`visual-baseline-bless.yml`, fixed in the same commit), CI ran a
+    // green-ticking no-op. Now the run captures every scenario, self-checks
+    // each one, and exits 1 if a self-check FAILS -- only an otherwise-clean
+    // run reaches the softer exit 3.
+    const noBaseline = !args.bless && !existsSync(manifestPath);
+    if (noBaseline) {
       const have = existsSync(args.baselineDir)
         ? readdirSync(args.baselineDir).filter((d) => statSync(path.join(args.baselineDir, d)).isDirectory())
         : [];
@@ -243,10 +259,11 @@ async function main(): Promise<void> {
           `[${TAG}] SwiftShader and ANGLE/Metal on the quiet scenario alone, which is 100x that\n` +
           `[${TAG}] scenario's run-to-run noise and enough to swallow the defect this gate exists\n` +
           `[${TAG}] to catch. Bless one HERE, after looking at the captures:\n` +
-          `[${TAG}]   pnpm golden-baseline:bless -- --reason="first baseline for ${key}"\n`
+          `[${TAG}]   pnpm golden-baseline:bless -- --reason="first baseline for ${key}"\n` +
+          `[${TAG}] Capturing anyway, so groundTextureCheck still votes: it needs no stored\n` +
+          `[${TAG}] reference and is the only thing standing between this environment and a\n` +
+          `[${TAG}] gate that judges nothing.\n`
       );
-      process.exitCode = EXIT_NO_BASELINE;
-      return;
     }
 
     const manifest: BaselineManifest = args.bless
@@ -261,9 +278,21 @@ async function main(): Promise<void> {
           reason: args.reason ?? '',
           scenarios: {},
         }
-      : (JSON.parse(readFileSync(manifestPath, 'utf8')) as BaselineManifest);
+      : noBaseline
+        ? {
+            version: 1,
+            envKey: key,
+            unmaskedRenderer,
+            platform: process.platform,
+            arch: process.arch,
+            commit: gitHead(),
+            blessedAt: '',
+            reason: '(no baseline blessed for this environment)',
+            scenarios: {},
+          }
+        : (JSON.parse(readFileSync(manifestPath, 'utf8')) as BaselineManifest);
 
-    if (!args.bless) {
+    if (!args.bless && !noBaseline) {
       if (manifest.version !== 1) {
         console.error(`[${TAG}] baseline manifest version ${manifest.version} is not 1 -- re-bless.`);
         process.exitCode = EXIT_USAGE;
@@ -312,6 +341,28 @@ async function main(): Promise<void> {
             `(report-only). ${spec.rationale}`
         );
         outcomes.push({ id: scenario.id, gated, ok: true, detail: `captured, ${short(png)}` });
+        continue;
+      }
+
+      // No stored picture to compare against, so the self-check is the whole
+      // verdict for this scenario. `textureOk` is `true` for a scenario with no
+      // `groundTextureCheck` -- that is honest rather than generous: this run
+      // is explicitly not gating on appearance, and says so in its summary and
+      // its exit code.
+      if (noBaseline) {
+        const textureOk = texture ? texture.ok : true;
+        console.log(
+          `[${TAG}] scenario "${scenario.id}": captured at tick ${record.tick}, NO BASELINE to ` +
+            `compare against. Self-check ${texture ? (textureOk ? 'PASS' : 'FAIL') : 'not available for this scenario'}.`
+        );
+        outcomes.push({
+          id: scenario.id,
+          gated,
+          ok: textureOk,
+          detail: texture
+            ? `no baseline; groundTextureCheck ${textureOk ? 'PASS' : 'FAIL'}`
+            : 'no baseline; no self-check for this scenario',
+        });
         continue;
       }
 
@@ -423,16 +474,28 @@ async function main(): Promise<void> {
 
     console.log(`\n[${TAG}] ==== summary (env ${key}) ====`);
     for (const o of outcomes) {
-      const status = !o.gated ? 'report-only' : o.ok ? 'PASS' : 'FAIL';
+      // "PASS" would be a lie on a run with nothing to compare against: the
+      // scenario did not pass, it was not judged.
+      const status = !o.gated ? 'report-only' : !o.ok ? 'FAIL' : noBaseline ? 'NOT COMPARED' : 'PASS';
       console.log(`  ${o.id}: ${status} -- ${o.detail}`);
     }
     const failed = outcomes.filter((o) => o.gated && !o.ok);
     if (failed.length > 0) {
       console.error(
-        `\n[${TAG}] ${failed.length} gated scenario(s) differ from the stored baseline: ` +
+        `\n[${TAG}] ${failed.length} gated scenario(s) ${noBaseline ? 'failed their self-check' : 'differ from the stored baseline'}: ` +
           `${failed.map((f) => f.id).join(', ')}`
       );
+      // A self-check failure is a real finding whether or not a baseline
+      // exists, so it takes EXIT_DIFF even here -- exit 3 must never be able
+      // to mask one.
       process.exitCode = EXIT_DIFF;
+    } else if (noBaseline) {
+      console.error(
+        `\n[${TAG}] NOTHING WAS COMPARED. Every scenario captured and every available self-check\n` +
+          `[${TAG}] passed, but there is no "${key}" baseline, so no appearance regression could\n` +
+          `[${TAG}] have been caught by this run. Bless one before trusting a green tick here.`
+      );
+      process.exitCode = EXIT_NO_BASELINE;
     } else {
       console.log(`\n[${TAG}] all gated scenarios match the "${key}" baseline.`);
       process.exitCode = EXIT_OK;

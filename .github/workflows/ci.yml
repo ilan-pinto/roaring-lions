@@ -110,16 +110,39 @@ jobs:
         run: pnpm --filter @lions/tools exec playwright install --with-deps chromium
       # Exit 3 is "no baseline blessed for this capture environment yet" -- a
       # distinct code precisely so it can be told apart from "the picture
-      # changed". It warns rather than failing, and it is IMPOSSIBLE once a
-      # baseline exists for this runner, so nothing is weakened by treating it
-      # gently. Create one with the `visual-baseline-bless` workflow.
+      # changed" (exit 1). It warns rather than failing, so a fork or a
+      # brand-new runner is not blocked by a picture nobody has approved.
+      #
+      # THAT LENIENCY IS ONLY DEFENSIBLE BECAUSE TWO THINGS ARE NOW TRUE, and
+      # neither was when it was written. The `visual-baseline-bless` workflow
+      # could not create a first baseline at all -- its `git diff --quiet`
+      # guard is blind to untracked files, so the very run that writes a new
+      # environment directory reported "unchanged" and opened no PR -- which
+      # made exit 3 permanent and this job a green tick forever. And the gate
+      # returned before capturing anything on exit 3, so not even
+      # `groundTextureCheck` ran. Both are fixed; a self-check failure now
+      # exits 1 even with no baseline.
+      #
+      # The warning is also written to the step summary. A `::warning::`
+      # annotation is easy to miss beside a green tick, and "the gate told you
+      # it was doing nothing and you did not see it" is the same failure as the
+      # gate not telling you.
       - name: three-vs-three against the committed baseline
         run: |
           set +e
           pnpm golden-baseline -- --port=5175 --out-dir=visual-baseline-output
           code=$?
           if [ "$code" = "3" ]; then
-            echo "::warning title=No visual baseline for this runner::Run the visual-baseline-bless workflow to create one. Until then this gate judges nothing."
+            echo "::warning title=No visual baseline for this runner::This gate compared NOTHING. Run the visual-baseline-bless workflow to create a baseline for this runner."
+            {
+              echo "### :warning: Visual gate compared nothing"
+              echo ""
+              echo "There is no committed baseline for this runner's capture environment, so"
+              echo "\`pnpm golden-baseline\` captured every scenario, ran the reference-free"
+              echo "self-checks, and judged no appearance regression at all."
+              echo ""
+              echo "Fix: run the **visual-baseline-bless** workflow and merge the PR it opens."
+            } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           exit $code
