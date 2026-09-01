@@ -49,6 +49,21 @@ unblocked. Retirement is still deliberately not performed here: art existing and
 art drawing are different things, this branch has confused them six times, and
 each retirement is its own verified step rather than a bulk delete.
 
+**Update, 2026-09-01: the `&mesh` gate is gone — meshes are the default on
+`three`.** `main.ts` now loads every mesh asset unless `&nomesh` is passed, so
+the correction below is history rather than current state: a menu-driven player
+on the default backend now DOES draw `mbt_lavi`, `ifv_namer` and `jeep_shoded`
+from `art/meshes/vehicles/`. Verified live on `?mission=beit_sahwan_2_foothold`
+with no flags — 7 vehicle and 14 unit mesh templates populated, 34 GLB fetches.
+
+That unblocks **half** of outstanding item 2 and no more. `?renderer=pixi` still
+has no mesh path, and `SPRITE_MAP` still loads all three sets unconditionally
+for both backends, so deleting them today still blanks those vehicles on Pixi.
+The remaining decision is unchanged and still the project lead's: accept that
+`?renderer=pixi` loses them, or keep the debt until Pixi itself is retired. What
+changed is that the *default* configuration is no longer an argument for keeping
+them.
+
 **Correction, 2026-08-31: "drawing in game" above is narrower than it reads.**
 The replacements draw only behind the dev-only `&mesh` URL flag
 (`packages/app/src/sandbox-help.ts`'s `SANDBOX_FLAGS`) — checked live against
@@ -166,10 +181,11 @@ depends on someone remembering is provenance that eventually fails.
    only after its replacement is confirmed drawing in game. Retiring `NAMER_*`
    removes the project's last permanent attribution obligation; retiring
    `JEEP_HULL` removes the only asset with no known terms at all.
-   **Attempted 2026-08-31, NOT done — blocked, not merely deferred.** "Confirmed
-   drawing in game" turned out to mean "drawing behind the dev-only `&mesh`
-   flag," which is off in every real player's session on both backends (see
-   the correction above `SPRITE_MAP`'s table). Concretely, deleting these
+   **Attempted 2026-08-31, NOT done — still blocked, but for one reason fewer
+   as of 2026-09-01.** The original blocker — "confirmed drawing in game" meaning
+   "drawing behind the dev-only `&mesh` flag," off in every real player's session
+   — no longer applies on `three`: meshes are the default there now (see the
+   update above `SPRITE_MAP`'s table). Pixi is what still blocks it. Concretely, deleting these
    three directories today would blank `mbt_lavi`, `ifv_namer` and
    `jeep_shoded` for `?renderer=pixi` (no mesh path exists there at all — not
    a gap to close, a permanent property of that backend) AND for the default

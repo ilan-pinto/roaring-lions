@@ -360,6 +360,12 @@ async function main(): Promise<void> {
   const wantRoe = flags.roe;
   const wantTunnel = flags.tunnel;
   const wantSur = flags.sur;
+  // Meshes are what the game looks like now, so they load unless asked not to.
+  // This was `flags.mesh` -- an opt-IN that `ui/menu.ts` never appended to any
+  // link it builds, so no player reached by the menu ever saw a mesh. The
+  // escape hatch inverts rather than disappearing: `&nomesh` still walks the
+  // billboard path on `three`, and `?renderer=pixi` has no mesh path at all.
+  const wantMesh = !flags.nomesh;
   // A misspelled flag (`&tunel`) otherwise does nothing at all, silently,
   // which reads as a broken feature rather than as a typo.
   const strays = unknownParams(params);
@@ -558,7 +564,7 @@ async function main(): Promise<void> {
     // already knows which backend it built.
     const three = new ThreeRenderer(sim, opts);
     renderer = three;
-    if (flags.mesh) {
+    if (wantMesh) {
       // Every team with a shipped GLB, paired with the side it fights for.
       // The faction is NOT decorative: `mesh-role.ts` shades `uniform` and
       // `webbing` through inverted ramps per side (KDF grey-over-olive, the
@@ -733,7 +739,7 @@ async function main(): Promise<void> {
       // `units/muzzle-flash.ts`'s own top comment) -- one shared asset, not
       // a per-unit-type map, so this is a single call rather than a
       // Promise.all over a team/vehicle/building list. Gated behind
-      // `flags.mesh` like every mesh asset above: `onFire` falls back to
+      // `wantMesh` like every mesh asset above: `onFire` falls back to
       // the authored particle for any `mesh_flash` layer until this
       // resolves, so a dev session with the flag off is unaffected.
       await three.loadMuzzleFlashMesh(new URL('../../../art/meshes/vfx/muzzle_flash.glb', import.meta.url).href);
@@ -741,7 +747,7 @@ async function main(): Promise<void> {
       // The modelled explosion burst (mesh-unit-contract's VFX asset class,
       // `units/explosion-burst.ts`'s own top comment) -- reuses the muzzle
       // flash's own render path end to end. Same single-shared-asset shape
-      // as the call above, gated behind the same `flags.mesh`:
+      // as the call above, gated behind the same `wantMesh`:
       // `spawnCollapseFx` falls back to `structure_collapse.json`'s own
       // authored `mesh_burst` particle layer until this resolves.
       await three.loadExplosionBurstMesh(new URL('../../../art/meshes/vfx/explosion_burst.glb', import.meta.url).href);
@@ -750,7 +756,7 @@ async function main(): Promise<void> {
       // `units/smoke-plume.ts`'s own top comment) -- the multi-second
       // aftermath a burst's own particle fallback and this mesh both pair
       // with. Same single-shared-asset shape as the two calls above, gated
-      // behind the same `flags.mesh`: `spawnCollapseFx` falls back to
+      // behind the same `wantMesh`: `spawnCollapseFx` falls back to
       // `structure_collapse.json`'s own authored `mesh_plume` particle
       // layer until this resolves.
       await three.loadSmokePlumeMesh(new URL('../../../art/meshes/vfx/smoke_plume.glb', import.meta.url).href);
@@ -761,7 +767,7 @@ async function main(): Promise<void> {
     // file's static module graph.
     const { PixiRenderer } = await import('@lions/render/pixi');
     renderer = new PixiRenderer(sim, opts);
-    if (flags.mesh) {
+    if (wantMesh) {
       // The `&tunel` lesson, applied to a flag that is real but backend-only:
       // `&mesh` on the Pixi backend otherwise does nothing at all, silently,
       // and reads as a broken feature rather than as a missing `?renderer=

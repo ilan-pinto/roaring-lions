@@ -101,15 +101,35 @@ describe('KNOWN_PARAMS renderer blurb', () => {
   });
 });
 
-describe('mesh flag blurb', () => {
-  // Same drift, smaller instance: this named exactly one team ('inf_squad')
-  // when the mesh path only had one, and stayed pinned to that name after
-  // eleven more teams loaded (MESH_TEAMS in main.ts). Asserted as an absence
-  // rather than a fixed team count, since main.ts's team list -- not this
-  // file -- is the thing that actually changes.
+describe('the mesh flip', () => {
+  // Same drift, smaller instance: the old opt-in blurb named exactly one team
+  // ('inf_squad') when the mesh path only had one, and stayed pinned to that
+  // name after eleven more teams loaded (MESH_TEAMS in main.ts). Asserted as
+  // an absence rather than a fixed team count, since main.ts's team list --
+  // not this file -- is the thing that actually changes.
   it('does not hardcode a specific team id', () => {
-    const mesh = SANDBOX_FLAGS.find((f) => f.name === 'mesh');
-    expect(mesh?.blurb ?? '').not.toContain('inf_squad');
+    for (const f of SANDBOX_FLAGS) expect(f.blurb).not.toContain('inf_squad');
+  });
+
+  // Meshes became the default, so the live flag is the opt-OUT. These three
+  // pin the whole flip: absent means on, `&nomesh` means off, and the old
+  // opt-in spelling is still ACCEPTED so that every bookmark, CLAUDE.md line
+  // and finger-habit carrying `&mesh` is not reported as a typo by
+  // `unknownParams` -- which is the one thing that would make a silent no-op
+  // look like a broken feature.
+  it('draws meshes when nothing is asked for', () => {
+    expect(readFlags(new URLSearchParams('?sandbox')).nomesh).toBe(false);
+  });
+
+  it('turns them off for &nomesh', () => {
+    expect(readFlags(new URLSearchParams('?sandbox&nomesh')).nomesh).toBe(true);
+  });
+
+  it('still accepts a stale &mesh without calling it unknown', () => {
+    expect(unknownParams(new URLSearchParams('?sandbox&mesh'))).toEqual([]);
+    // ...and it is no longer a flag that changes anything, so the banner,
+    // which lists only SANDBOX_FLAGS, must not offer it.
+    expect(SANDBOX_FLAGS.map((f) => f.name)).not.toContain('mesh');
   });
 });
 

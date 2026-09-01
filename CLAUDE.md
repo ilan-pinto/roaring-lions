@@ -147,7 +147,8 @@ The combat model is the product. Everything else is scaffolding around it.
   `unknownParams` checks against it — so a flag parsed but undocumented, or
   documented but unparsed, is not expressible. Prefer this over grepping this file.
 - Three opt-in sandbox flags, each adding only what it names, so a check for one
-  subsystem is not buried under three others: `&roe` supplies flagged ground (the
+  subsystem is not buried under three others (a fourth, `&nomesh`, is an opt-OUT
+  — see "Mesh units"): `&roe` supplies flagged ground (the
   map's own `clinic`/`mosque`/`refuge` zone where it has one, otherwise a 4×4
   synthesised midway between the two anchors); `&tunnel` appends a pre-dug route
   from the hostile side toward the friendly one and adds two `yahalom_squad`;
@@ -246,9 +247,19 @@ yours; each one records what the next phase inherits.
 
 ### Mesh units
 
-Some unit types draw as rigged 3D meshes instead of billboards.
-`?sandbox=<map>&renderer=three&mesh` turns it on for `inf_squad`; the flag is
-backend-only and warns by name on Pixi. Pipeline: `tools/units/kit.py` (geometry)
+Most unit types draw as rigged 3D meshes instead of billboards, and **this is
+the default on `three` as of the mesh flip** — every type with a shipped GLB,
+in every mission, with no flag. It was an opt-in `&mesh` until then, which
+meant no player reached through `ui/menu.ts` ever saw a mesh: that file builds
+`?mission=<id>` and never appended the flag. `&mesh` is still ACCEPTED and does
+nothing, so old bookmarks and doc lines do not trip the unknown-parameter
+warning. The escape hatch inverted: **`&nomesh`** walks the billboard path on
+`three` (and skips the GLB downloads entirely), and `?renderer=pixi` has no
+mesh path at all — not a gap to close, a permanent property of that backend.
+
+The whole set costs **34 GLB fetches, 25.3 MiB**, loaded unconditionally at
+boot rather than per mission roster — measured, and the reason a lazy per-type
+load is worth doing before release. Pipeline: `tools/units/kit.py` (geometry)
 → `tools/units/rig.py` (armature + clips, authored as Python tables) →
 `tools/export_mesh_team.py` → `art/meshes/<team_id>.glb` → `three/units/mesh-*.ts`.
 

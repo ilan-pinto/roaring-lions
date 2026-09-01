@@ -15,7 +15,7 @@
  * Pure: a URLSearchParams and some ids in, strings out. No DOM, no console.
  */
 
-export type SandboxFlagName = 'roe' | 'tunnel' | 'sur' | 'mesh';
+export type SandboxFlagName = 'roe' | 'tunnel' | 'sur' | 'nomesh';
 
 export interface UrlParam {
   name: string;
@@ -29,9 +29,9 @@ export const SANDBOX_FLAGS: readonly { name: SandboxFlagName; blurb: string }[] 
   { name: 'tunnel', blurb: 'a pre-dug route + two yahalom_squad to collapse it' },
   { name: 'sur', blurb: 'the four Sarim units no mission fields' },
   {
-    name: 'mesh',
+    name: 'nomesh',
     blurb:
-      '3D mesh units, vehicles and buildings, for every type with a shipped GLB — needs ?renderer=three',
+      'draw billboards instead of meshes — the diagnostic half of what &mesh used to gate',
   },
 ];
 
@@ -60,6 +60,16 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
     blurb:
       'three (default) | pixi — which backend draws; an explicit choice persists ' +
       'across missions (see CLAUDE.md "The three.js backend" for current parity)',
+  },
+  {
+    name: 'mesh',
+    // Accepted and does nothing. It was the opt-IN gate until meshes became
+    // the default on `three`; keeping it known is what stops every bookmark,
+    // doc line and habit that carries it from tripping `unknownParams` and
+    // being reported as a typo. It is deliberately NOT in SANDBOX_FLAGS: the
+    // banner should list what still changes something, and this no longer
+    // does. `&nomesh` is the live flag now.
+    blurb: 'accepted, no effect — meshes are the default; use &nomesh to turn them off',
   },
   ...SANDBOX_FLAGS,
 ];
