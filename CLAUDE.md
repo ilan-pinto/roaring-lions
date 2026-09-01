@@ -209,11 +209,21 @@ yours; each one records what the next phase inherits.
   `outputColorSpace` synchronously when `setClearColor` runs), and antialiasing
   OFF. The naive setup measured **0 of 65 colours in palette** and looked fine.
 - **`units/render-order.ts` is the single source of truth for every
-  `renderOrder`.** Read it before setting one. Bands are: 0 hull/structures,
-  1 turret, 1.5 badge numeral, 2 FX, 3 FX-above, 4 overlays, 5-9 reserved,
+  `renderOrder`.** Read it before setting one. Bands are: **-1 world (mesh
+  buildings)**, 0 hull/structures, 1 turret, 1.5 badge numeral, 2 FX,
+  3 FX-above, 4 overlays, 5 smoke, **6 occlusion silhouette**, 7-9 reserved,
   10 fog. Overlays sit BELOW fog because Pixi's `unitsG` is added to `world`
   before `fogG`; an earlier version of that file said the opposite, citing Pixi
-  identifiers that do not exist.
+  identifiers that do not exist. Band -1 is the only one whose value changes
+  anything for an OPAQUE mesh, where the depth buffer normally makes
+  submission order irrelevant: it exists for the occlusion silhouette's
+  stencil mask. A unit body stamps that mask where its fragment wins the depth
+  test, which is only the truth once the world has already drawn, and three.js
+  sorts the opaque queue by `material.id` BEFORE `z` -- so at band 0 the draw
+  order between a unit and a building was decided by which GLB finished
+  loading first (measured on `beit_sahwan_outskirts`: unit materials 164-167,
+  building materials 246-250, so units drew first and a tank behind an
+  apartment silhouetted as a few slivers).
 - **Overlays scale with zoom, and that is faithful.** Pixi scales its whole
   `world` container by `camera.zoom` and the overlay layer is a child of it, so
   HP bars look enormous zoomed in on BOTH backends. Verified side by side. Not a
