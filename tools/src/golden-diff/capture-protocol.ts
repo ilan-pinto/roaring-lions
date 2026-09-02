@@ -121,6 +121,15 @@
 //
 // ============================================================================
 
+/** The browser viewport every capture is taken at, and therefore the frame every
+ *  stored baseline and every `region` is expressed in. Part of the protocol
+ *  rather than of the browser driver: a capture at a different viewport is not
+ *  the same scenario, and `baseline.test.ts` needs the number in `pnpm test`
+ *  (where playwright must not be imported) to check that `RELIEF_SCENARIO`'s
+ *  camera still frames the boulder corridor. `browser.ts` re-exports it, so
+ *  every existing importer is unaffected. */
+export const CAPTURE_VIEWPORT = { width: 1400, height: 900 } as const;
+
 export interface Scenario {
   /** Short, stable id -- used as a directory/file-name fragment by callers, so
    *  keep it filesystem-safe (lowercase, hyphens). */

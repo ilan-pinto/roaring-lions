@@ -16,8 +16,11 @@
 //   - `combat` must NOT vote, however tempting a fifth green tick looks;
 //   - `vehicle`'s thresholds must still reject the pre-freeze flake's high
 //     mode, because widening to absorb it was the rejected fix; and
-//   - the boulder deletion must fail `relief` and nothing else, which is the
-//     map-coverage blind spot written down as an assertion.
+//   - the thresholds must still score the recorded boulder-deletion numbers
+//     `relief`-only, which is the map-coverage blind spot written down as
+//     arithmetic -- and, separately, `RELIEF_SCENARIO`'s camera must still be
+//     POINTED at that boulder field, which is the half the arithmetic cannot
+//     see and which `RELIEF_SCENARIO framing` asserts against `tel_marum.json`.
 //
 // And the FIRST test in this file is here because the version it replaced
 // could not fail: it compared `Object.keys(BASELINES)` against a hand-written
@@ -25,9 +28,11 @@
 // scenario shipped with no calibrated threshold was green.
 
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { maps, parseMap } from '@lions/data';
 import { PNG } from 'pngjs';
 import {
   BASELINES,
@@ -39,7 +44,7 @@ import {
   specFor,
 } from './baseline';
 import { computeDiff, type DiffSummary } from './diff';
-import { SCENARIOS } from './capture-protocol';
+import { CAPTURE_VIEWPORT, RELIEF_SCENARIO, SCENARIOS } from './capture-protocol';
 
 function summary(over: Partial<DiffSummary>): DiffSummary {
   return {
@@ -179,12 +184,23 @@ describe('evaluateBaseline', () => {
     );
   });
 
-  it('fails the boulder deletion on relief, and on relief alone', () => {
-    // `decor-place.ts`'s `if (boulder) return 'boulder'` -> `return null`
-    // erases the whole T1-C boulder field. Measured through the real gate: the
-    // three older gated scenarios stayed inside their own noise (quiet 1 px /
-    // 0.0001, open-ground 0 / 0.0000, vehicle 35 px / 0.0046) and only this
-    // one moved. That is the map-coverage blind spot, stated as an assertion.
+  it('scores the RECORDED boulder-deletion numbers relief-only -- arithmetic over two sets of constants, not a capture', () => {
+    // WHAT THIS TEST IS, said plainly, because its old name ("fails the boulder
+    // deletion on relief, and on relief alone") promised something it never
+    // did. There is no renderer here, no capture, and no `relief` PNG: four
+    // hardcoded literals -- the numbers a real gate run measured with
+    // `decor-place.ts`'s `if (boulder) return 'boulder'` turned into `return
+    // null` -- are fed to `evaluateBaseline` and checked against thresholds
+    // defined a few lines away in the same module. Re-aim `RELIEF_SCENARIO`'s
+    // camera off the boulder corridor, which is exactly the change that
+    // reopens the blind spot, and this test still passes.
+    //
+    // It is kept because the narrow property it DOES pin is worth pinning:
+    // these thresholds still separate that measured signal from that measured
+    // noise, so tightening `vehicle` under 35 px / 0.0046 or loosening
+    // `relief` past 36001 px / 2.6292 goes red here. The property the old name
+    // claimed -- that the gate is still pointed at the boulder field at all --
+    // is pinned by `RELIEF_SCENARIO framing` below, against `tel_marum.json`.
     expect(
       evaluateBaseline(summary({ diffPixels: 36001, meanAbsChannelDelta: 2.6292 }), BASELINES.relief).ok
     ).toBe(false);
@@ -206,6 +222,136 @@ describe('evaluateBaseline', () => {
   it('reports both metrics when both are over', () => {
     const v = evaluateBaseline(summary({ diffPixels: 5000, meanAbsChannelDelta: 3 }), BASELINES.quiet);
     expect(v.failures).toHaveLength(2);
+  });
+});
+
+// ============================================================================
+// RELIEF_SCENARIO framing -- the guard the boulder-deletion test only looked
+// like it was
+// ============================================================================
+//
+// `relief` catches a terrain regression for exactly one reason: its camera is
+// pointed at `tel_marum`'s boulder corridor. Nothing enforced that. The
+// scenario's `cameraTile`, `zoom` and `sandboxMap` are three plain literals,
+// and moving any of them off the feature -- the single change that puts the
+// map-coverage blind spot back -- left every spec in this file green, because
+// none of them read the scenario at all.
+//
+// So this block asserts the geometry, from `tel_marum.json` rather than from a
+// number typed here: every authored `b` tile must land inside the capture rect
+// at the scenario's own camera and zoom, and the field must still cover a real
+// share of the frame. It needs no browser and no PNG, so it runs in
+// `pnpm test` with everything else.
+
+/** `tools` may import `@lions/sim` and `@lions/data` only (eslint.config.mjs),
+ *  and `packages/render` deliberately does not export its projection anyway
+ *  ("Projection is a question you ask the renderer... a second exported copy
+ *  of the arithmetic is a source of truth that drifts", `render/src/index.ts`).
+ *  So the three numbers the framing check needs are READ OUT of `project.ts`
+ *  instead of copied into this file: a copy would go on asserting against a
+ *  frame the renderer had stopped drawing, silently and green. Throws rather
+ *  than defaulting if the constant moves or is renamed. */
+function renderConstant(name: string): number {
+  const file = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '../../../packages/render/src/project.ts'
+  );
+  const m = new RegExp(`export const ${name} = (-?[0-9.]+);`).exec(readFileSync(file, 'utf8'));
+  if (!m) {
+    throw new Error(
+      `baseline.test.ts: could not read ${name} out of packages/render/src/project.ts. The ` +
+        'framing check below needs the real projection scale; fix this reader rather than ' +
+        'hardcoding a number here.'
+    );
+  }
+  return Number(m[1]);
+}
+
+const TILE_W = renderConstant('TILE_W');
+const TILE_H = renderConstant('TILE_H');
+const ELEV_STEP = renderConstant('ELEV_STEP');
+
+/** Tile -> pixel inside the capture, the 2:1 dimetric projection
+ *  `packages/render/src/project.ts` defines: `worldToScreen(wx, wy, cam, vp,
+ *  lift)` with `lift = ELEV_STEP * height`, which is what puts a raised tile
+ *  and whatever stands on it up the screen together. Ground-level agreement
+ *  between the two backends is what `three/camera.ts`'s 30-degree pitch is FOR
+ *  (see `ELEVATION` in that file), so this models the three capture too. */
+function tileToCapture(
+  x: number,
+  y: number,
+  height: number,
+  cam: { x: number; y: number; zoom: number }
+): { x: number; y: number } {
+  const isoX = (wx: number, wy: number): number => ((wx - wy) * TILE_W) / 2;
+  const isoY = (wx: number, wy: number): number => ((wx + wy) * TILE_H) / 2;
+  return {
+    x: (isoX(x, y) - isoX(cam.x, cam.y)) * cam.zoom + CAPTURE_VIEWPORT.width / 2,
+    y:
+      (isoY(x, y) - height * ELEV_STEP - isoY(cam.x, cam.y)) * cam.zoom +
+      CAPTURE_VIEWPORT.height / 2,
+  };
+}
+
+describe('RELIEF_SCENARIO framing', () => {
+  const json = maps[RELIEF_SCENARIO.sandboxMap as keyof typeof maps];
+  const map = parseMap(json);
+  const boulders: [number, number][] = [];
+  for (let y = 0; y < map.height; y++) {
+    for (let x = 0; x < map.width; x++) {
+      if (map.boulder[y * map.width + x] !== 0) boulders.push([x, y]);
+    }
+  }
+  const cam = {
+    x: RELIEF_SCENARIO.cameraTile?.[0] ?? NaN,
+    y: RELIEF_SCENARIO.cameraTile?.[1] ?? NaN,
+    zoom: RELIEF_SCENARIO.zoom ?? 1,
+  };
+
+  it('is aimed at the only shipped map that has boulders at all', () => {
+    expect(RELIEF_SCENARIO.sandboxMap).toBe('tel_marum');
+    // The field itself, read from the map rather than asserted from memory:
+    // the corridor x 10-11 / y 12-17 and the scree apron x 9-12 / y 18 that
+    // `CLAUDE.md` and `RELIEF_SCENARIO`'s own comment both name.
+    expect(boulders).toHaveLength(16);
+    expect(Math.min(...boulders.map((b) => b[0]))).toBe(9);
+    expect(Math.max(...boulders.map((b) => b[0]))).toBe(12);
+    expect(Math.min(...boulders.map((b) => b[1]))).toBe(12);
+    expect(Math.max(...boulders.map((b) => b[1]))).toBe(18);
+    // A marker-framed scenario would need the map's marker table instead; this
+    // one is `cameraTile`, and the check below reads it directly.
+    expect(RELIEF_SCENARIO.cameraTile).toBeDefined();
+  });
+
+  it('puts every authored boulder tile inside the capture rect', () => {
+    // 32 px of margin, not zero: a tile ON the edge of the frame is half out
+    // of it, and the point of the scenario is that losing the field moves a
+    // large, central part of the picture.
+    const MARGIN = 32;
+    const outside = boulders
+      .map(([x, y]) => ({ x, y, p: tileToCapture(x, y, map.elevation[y * map.width + x], cam) }))
+      .filter(
+        (t) =>
+          t.p.x < MARGIN ||
+          t.p.y < MARGIN ||
+          t.p.x > CAPTURE_VIEWPORT.width - MARGIN ||
+          t.p.y > CAPTURE_VIEWPORT.height - MARGIN
+      );
+    expect(
+      outside.map((t) => `(${t.x},${t.y}) -> ${t.p.x.toFixed(0)},${t.p.y.toFixed(0)}`)
+    ).toEqual([]);
+  });
+
+  it('frames the field large enough for its deletion to be the picture, not a speck', () => {
+    // The measured signal is 36001 differing pixels / 2.6292 against a
+    // 0/0.0000 floor. That is a property of the FRAMING as much as of the
+    // feature: at zoom 0.35 (the in-game floor) the same field is a smear a
+    // few dozen pixels across, and the same deletion would read as noise.
+    const pts = boulders.map(([x, y]) => tileToCapture(x, y, map.elevation[y * map.width + x], cam));
+    const spanX = Math.max(...pts.map((p) => p.x)) - Math.min(...pts.map((p) => p.x));
+    const spanY = Math.max(...pts.map((p) => p.y)) - Math.min(...pts.map((p) => p.y));
+    expect(spanX / CAPTURE_VIEWPORT.width).toBeGreaterThan(0.25);
+    expect(spanY / CAPTURE_VIEWPORT.height).toBeGreaterThan(0.25);
   });
 });
 

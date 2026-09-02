@@ -13,6 +13,14 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { chromium, type Browser, type Page } from 'playwright';
 import { FREEZE_FRAME_LOOP_SCRIPT } from './capture-protocol';
 
+// Re-exported, not declared here any more: the viewport is part of "what counts
+// as an identical scenario", so it belongs beside the rest of the protocol in a
+// module with no dependencies -- `baseline.test.ts` reads it to check
+// `RELIEF_SCENARIO`'s framing in `pnpm test`, and importing THIS file for it
+// would pull playwright into the unit-test run. Every existing importer keeps
+// working unchanged.
+export { CAPTURE_VIEWPORT } from './capture-protocol';
+
 /** What `captureScript` returns, parsed. */
 export interface CaptureResult {
   tick: number;
@@ -20,8 +28,6 @@ export interface CaptureResult {
   rect: { x: number; y: number; w: number; h: number };
   dpr: number;
 }
-
-export const CAPTURE_VIEWPORT = { width: 1400, height: 900 } as const;
 
 export async function isServerUp(port: number): Promise<boolean> {
   try {
