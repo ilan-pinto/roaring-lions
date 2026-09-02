@@ -75,6 +75,7 @@ import {
   capture,
   ensureDevServer,
   launchCaptureBrowser,
+  stopDevServer,
 } from '../golden-diff/browser';
 import { computeDiff, formatSummary, computeDominantColorFraction, type DiffSummary } from '../golden-diff/diff';
 import { EXPECTED_DIFFERENCES, formatExpectedDifferences } from '../golden-diff/expected-differences';
@@ -401,13 +402,28 @@ async function main(): Promise<void> {
     if (results.some((r) => !r.comparable)) process.exitCode = 1;
   } finally {
     await browser.close();
-    if (devServer && !keepServer) {
-      devServer.kill('SIGTERM');
-    }
+    // `stopDevServer`, not `kill('SIGTERM')`: the pid this process holds is a
+    // `pnpm` wrapper and signalling it leaves vite and esbuild running with
+    // this process's stdio pipes still open, which keeps the event loop alive
+    // forever. Measured on `visual-baseline-bless` run 33591712714, where the
+    // identical two lines in `three-baseline-gate.ts` turned a 3-minute
+    // failure into a 43-minute one. This gate is report-only and runs
+    // unattended, so the same hang here would be even quieter.
+    if (!keepServer) stopDevServer(devServer, 'golden-diff-gate');
   }
 }
 
-main().catch((err: unknown) => {
-  console.error(err);
-  process.exitCode = 1;
-});
+main()
+  .catch((err: unknown) => {
+    console.error(err);
+    process.exitCode = 1;
+  })
+  .finally(() => {
+    // See `three-baseline-gate.ts`'s `exitWith` for why an exit code is not the
+    // same thing as exiting. Flush stdout first, and hard-stop if even that
+    // cannot land.
+    const code = typeof process.exitCode === 'number' ? process.exitCode : 0;
+    const timer = setTimeout(() => process.exit(code), 2_000);
+    timer.unref();
+    process.stdout.write('', () => process.exit(code));
+  });

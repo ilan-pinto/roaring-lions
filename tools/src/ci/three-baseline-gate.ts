@@ -103,8 +103,10 @@ import {
   ensureDevServer,
   launchCaptureBrowser,
   readUnmaskedRenderer,
+  stopDevServer,
   type CaptureResult,
 } from '../golden-diff/browser';
+import { guardCapture } from '../golden-diff/capture-guard';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -134,7 +136,17 @@ function parseArgs(argv: readonly string[]): Args {
   const scenarioArg = flags.get('scenario');
   return {
     port: Number(flags.get('port') ?? 5175),
-    outDir: flags.get('out-dir') ?? path.join(REPO_ROOT, '.superpowers', 'three-baseline'),
+    // Resolved against the REPO ROOT, not the cwd, and that is a fix rather
+    // than a preference. Both workflows pass `--out-dir=visual-baseline-output`
+    // and then upload `visual-baseline-output` from the workspace root -- but
+    // the npm script is `pnpm --filter @lions/tools`, so the cwd is `tools/`
+    // and the captures landed in `tools/visual-baseline-output`. Measured on
+    // run 33591712714: "No files were found with the provided path:
+    // visual-baseline-output. No artifacts will be uploaded." Every artifact
+    // upload either gate has ever done was empty, including the `combat` frame
+    // this file's own comments call the thing a triager actually wants.
+    // `path.resolve` leaves an absolute --out-dir untouched.
+    outDir: path.resolve(REPO_ROOT, flags.get('out-dir') ?? path.join(REPO_ROOT, '.superpowers', 'three-baseline')),
     baselineDir: flags.get('baseline-dir') ?? DEFAULT_BASELINE_DIR,
     keepServer: flags.has('keep-server'),
     scenarioIds: scenarioArg ? scenarioArg.split(',').map((s) => s.trim()) : null,
@@ -355,7 +367,26 @@ async function main(): Promise<void> {
           `${scenario.targetTick !== undefined ? ` targetTick=${scenario.targetTick}` : ` ticks=${scenario.ticks}`}` +
           `${scenario.zoom !== undefined ? ` zoom=${scenario.zoom}` : ''}`
       );
-      const { png, result } = await captureScenario(page, args.port, args.outDir, scenario);
+      // A capture failure is fatal exactly when the scenario is GATED --
+      // `guardCapture` owns that rule and `capture-guard.ts`'s header owns the
+      // reasoning. `combat` threw here on the first Linux bless and took four
+      // already-captured gated baselines down with it, along with the manifest
+      // that would have made them usable and the PR that would have shown them
+      // to a human. A scenario that cannot vote must not be able to do that.
+      const attempt = await guardCapture(gated, `${TAG}/${scenario.id}`, () =>
+        captureScenario(page, args.port, args.outDir, scenario)
+      );
+      if (!attempt.ok) {
+        outcomes.push({
+          id: scenario.id,
+          gated,
+          ok: true, // report-only: it could not vote before and it cannot now
+          selfChecked: false,
+          detail: `CAPTURE FAILED (report-only, does not vote): ${attempt.error.message}`,
+        });
+        continue;
+      }
+      const { png, result } = attempt.value;
       const record: BaselineScenarioRecord = {
         tick: result.tick,
         camera: result.camera,
@@ -511,6 +542,18 @@ async function main(): Promise<void> {
           `[${TAG}] reason: "${manifest.reason}"\n` +
           `[${TAG}] Review the PNGs before committing them: they become what every future run is judged against.`
       );
+      // Named even though the bless still succeeded: a report-only scenario
+      // that could not be captured is invisible in the blessed set (it is
+      // never stored) and would otherwise leave no trace at all in the log a
+      // reviewer reads.
+      const uncaptured = outcomes.filter((o) => o.detail.startsWith('CAPTURE FAILED'));
+      if (uncaptured.length > 0) {
+        console.error(
+          `[${TAG}] ${uncaptured.length} report-only scenario(s) could not be captured and were skipped: ` +
+            `${uncaptured.map((o) => o.id).join(', ')}. The bless above is complete -- report-only scenarios ` +
+            'are never baselined -- but their frames are missing from this run.'
+        );
+      }
       return;
     }
 
@@ -555,8 +598,37 @@ async function main(): Promise<void> {
     }
   } finally {
     await browser.close();
-    if (devServer && !args.keepServer) devServer.kill('SIGTERM');
+    if (!args.keepServer) stopDevServer(devServer, TAG);
   }
+}
+
+/**
+ * Exit, for real, with `code`.
+ *
+ * Not decoration. The first Linux bless threw at 04:43:50, ran its `finally`,
+ * printed its error -- and then sat in that step until it was cancelled at
+ * 05:23, because the dev server's grandchildren held the inherited stdio pipes
+ * open and an event loop with a live handle never drains (`stopDevServer`
+ * carries the runner's own list of the nine processes that survived). Setting
+ * `process.exitCode` describes an intention; only `process.exit` is a promise.
+ *
+ * `stopDevServer` is the fix for that particular leak and this is the backstop
+ * for the next one, which is the right shape for a script whose whole job is
+ * to run unattended on someone else's machine: a wrong exit code is a bug you
+ * can see, and a process that never exits is 40 minutes of runner time and a
+ * cancelled job that looks like a hang.
+ *
+ * The empty write is a flush. `process.exit` truncates whatever is still
+ * queued on an async stdout -- and stdout IS async when it is a pipe, which is
+ * exactly what CI gives it -- so the summary that explains the exit code would
+ * be the thing lost. The timer is the second backstop: if even the flush
+ * callback cannot land, 2 s later this exits anyway. It is `unref`ed so it
+ * cannot itself be the reason a healthy run lingers.
+ */
+function exitWith(code: number): void {
+  const timer = setTimeout(() => process.exit(code), 2_000);
+  timer.unref();
+  process.stdout.write('', () => process.exit(code));
 }
 
 // Guard against the one shared-tree accident this script can cause: the repo's
@@ -566,9 +638,17 @@ async function main(): Promise<void> {
 if (process.argv.includes('--port=5173')) {
   console.error(`[${TAG}] refusing --port=5173: that is the convention for a human's own dev server.`);
   process.exitCode = EXIT_USAGE;
+  exitWith(EXIT_USAGE);
 } else {
-  main().catch((err: unknown) => {
-    console.error(err);
-    process.exitCode = EXIT_USAGE;
-  });
+  main()
+    .catch((err: unknown) => {
+      console.error(err);
+      process.exitCode = EXIT_USAGE;
+    })
+    // Both paths, deliberately: the success path could hang on a stray handle
+    // exactly as the failure path did, and nobody would be watching a green
+    // run to notice.
+    // `process.exitCode` is typed `number | string | undefined`; only a number
+    // is meaningful here, and anything else means nobody set one.
+    .finally(() => exitWith(typeof process.exitCode === 'number' ? process.exitCode : EXIT_OK));
 }

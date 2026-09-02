@@ -324,10 +324,18 @@ yours; each one records what the next phase inherits.
   Same machine, same commit, SwiftShader vs ANGLE/Metal: 230 px / 0.0320 on
   `quiet` alone, ~100x that scenario's run-to-run noise and enough to swallow
   the defect's own 0.0493 signal. A missing baseline for the current
-  environment is **exit 3**, a distinct code, never a silent pass. Cross-OS
-  portability (Linux SwiftShader vs macOS SwiftShader) is **unmeasured** — the
-  committed `darwin-arm64-swiftshader` set is not a substitute for a Linux one,
-  and CI's must be created by the `visual-baseline-bless` workflow.
+  environment is **exit 3**, a distinct code, never a silent pass. A baseline
+  still has to be blessed per environment, and CI's must be created by the
+  `visual-baseline-bless` workflow — but the reason is no longer "we do not
+  know whether a capture even works there". **Cross-OS CAPTURE is measured now
+  and it works**, which retires the "unmeasured" this line used to carry: on
+  `ubuntu-latest` (run 33591712714, 2026-09-02) all four gated scenarios
+  captured cleanly on `linux-x64-swiftshader` in ~35 s wall clock, and
+  `open-ground`'s reference-free `groundTextureCheck` read `fraction 0.9363
+  (budget <0.95), distinctColors 9 → PASS` there against macOS's own 0.9363.
+  What remains genuinely unmeasured is cross-OS EQUIVALENCE of the pixels —
+  nobody has diffed a Linux capture against the macOS baseline — and that is
+  why the per-environment key stays.
   That workflow **could not create the first one**, which made the whole gate a
   green-ticking no-op on CI: its `git diff --quiet -- tools/golden-baselines`
   guard reports only TRACKED changes, and a first bless on a new runner writes
@@ -388,7 +396,39 @@ yours; each one records what the next phase inherits.
   **`combat` is captured, reported and does NOT vote.** Two captures of the
   same commit differ by 969–3847 px / 0.19–0.36 there; the defect reads 3231 px
   / 0.6006 — inside the noise on count and 1.7x it on magnitude. No honest
-  threshold exists between them. Its frame still uploads as a CI artifact.
+  threshold exists between them. Its frame still uploads as a CI artifact —
+  **which it never actually did until 2026-09-02**: both workflows pass
+  `--out-dir=visual-baseline-output` and upload that path from the workspace
+  root, while the npm script runs under `pnpm --filter @lions/tools`, so every
+  capture landed in `tools/visual-baseline-output` and every upload logged "No
+  files were found with the provided path". `--out-dir` resolves against the
+  repo root now.
+  **A report-only scenario cannot abort the run, and that took a CI run to
+  learn.** On the first Linux bless `combat` failed to CAPTURE — three
+  `waitForFunction` timeouts — and threw, discarding four gated baselines
+  already written to disk, the manifest that makes them usable, and the PR
+  step. `guardCapture` (`tools/src/golden-diff/capture-guard.ts`) now decides
+  that from `isGated`, so a gated capture failure is still fatal (proved: exit
+  2, stopped at the first scenario) and a report-only one warns and continues.
+  Why `combat` timed out is the deploy gate, which only a `mission=` scenario
+  has: `main.ts` holds `await loading.done()` — and the `window.__lions`
+  assignment behind it — until the deploy button is clicked, but the button's
+  click LISTENER is attached inside `done()` itself, so a click before that is
+  silently lost with no second chance. The old harness guessed the moment from
+  the progress text going quiet, which is also true at "0 / 45 sheets" before
+  anything has loaded. It now clicks every 250 ms until the loading screen is
+  gone and REPORTS the count: on a warm macOS cache that reads `deploy gate
+  cleared after 2544 ms and 8 click(s) -- 7 landed before the handler was
+  attached and were lost`, so the single-click version was surviving on luck
+  everywhere and ran out of it on a cold Linux runner.
+  **And the script must EXIT.** That failure sat in its step for 40 minutes
+  after printing its error, because `child.kill('SIGTERM')` signals only the
+  `pnpm` wrapper while vite, esbuild and three intermediate shells keep the
+  inherited stdio pipes open — an event loop with a live handle never drains.
+  `stopDevServer` kills the process GROUP (`detached: true`) and destroys the
+  pipes; `exitWith` flushes stdout and calls `process.exit` on both paths.
+  macOS never showed it: there `pnpm` forwards the signal and the same code
+  exits in 10.9 s.
   **Accepting an intended change** is `pnpm golden-baseline:bless -- --reason="..."`,
   which refuses to run without the reason and writes it into `manifest.json`;
   on CI it is a `workflow_dispatch` that opens a PR with the new PNGs so a human

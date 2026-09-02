@@ -12,6 +12,12 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { chromium, type Browser, type Page } from 'playwright';
 import { FREEZE_FRAME_LOOP_SCRIPT } from './capture-protocol';
+import { dismissDeployGate } from './capture-guard';
+
+// Re-exported for every existing importer: the logic moved to `capture-guard.ts`
+// so a test can drive it with a stub page, but this is still where a
+// browser-driving caller expects to find it.
+export { dismissDeployGate } from './capture-guard';
 
 // Re-exported, not declared here any more: the viewport is part of "what counts
 // as an identical scenario", so it belongs beside the rest of the protocol in a
@@ -63,6 +69,11 @@ export async function ensureDevServer(port: number, repoRoot: string, tag: strin
     cwd: repoRoot,
     env: { ...process.env, PORT: String(port) },
     stdio: ['ignore', 'pipe', 'pipe'],
+    // Its own process GROUP, which is the whole point -- see `stopDevServer`.
+    // `pnpm` is a wrapper: it forks a shell, which forks another node, which
+    // forks vite, which forks esbuild. Signalling the pid we hold reaches the
+    // first of those and none of the rest.
+    detached: true,
   });
   let out = '';
   child.stdout?.on('data', (d: Buffer) => (out += d.toString()));
@@ -71,42 +82,77 @@ export async function ensureDevServer(port: number, repoRoot: string, tag: strin
     await waitForServer(port, 30_000);
   } catch (err) {
     console.error(`[${tag}] dev server output so far:\n${out}`);
-    child.kill('SIGTERM');
+    stopDevServer(child, tag);
     throw err;
   }
   return child;
 }
 
 /**
- * The mission-only half of boot: `main.ts`'s `showLoading` holds `await
- * loading.done()` (and therefore everything after it, INCLUDING the
- * `window.__lions` assignment) until the deploy button is clicked, but ONLY
- * when a briefing is present (`briefingHoldsDeployment`, `ui/loading.ts`) --
- * true for every mission, never true for a sandbox scenario.
+ * Tear down a dev server THIS process started, and release its handles.
  *
- * The button exists in the DOM the instant `showLoading` runs, but its `click`
- * LISTENER is attached only when `done()` itself executes -- i.e. once the
- * asset gate has already settled. A click before that point lands on a button
- * with no handler and is silently lost. Polling `.rl-loading__count`'s own text
- * until it stops changing is what `showLoading`'s progress bar is FOR, and is
- * exact where a fixed sleep would be a guess.
+ * The 40-minute half of `visual-baseline-bless` run 33591712714. The script
+ * threw at 04:43:50, logged the error, ran its `finally`, and then sat there
+ * until it was cancelled at 05:23 -- a 3-minute failure billed as 43 minutes
+ * of runner time, which is why it read as a hang rather than an error.
+ *
+ * `child.kill('SIGTERM')` signals only the `pnpm` wrapper. The runner's own
+ * epilogue names what survived it, and it is a whole tree:
+ *
+ *   Terminate orphan process: pid (3174) (node)   <- pnpm
+ *   Terminate orphan process: pid (3191) (sh)
+ *   Terminate orphan process: pid (3192) (node)
+ *   Terminate orphan process: pid (3209) (sh)
+ *   Terminate orphan process: pid (3210) (node)
+ *   Terminate orphan process: pid (3226) (node)   <- vite
+ *   Terminate orphan process: pid (3234) (esbuild)
+ *   Terminate orphan process: pid (3265) (node)
+ *   Terminate orphan process: pid (3278) (esbuild)
+ *
+ * Those grandchildren inherited the stdout/stderr PIPES this function's caller
+ * created, so their write ends stayed open, so the `data` listeners above
+ * stayed subscribed to a socket that could never emit `end` -- an active libuv
+ * handle, an event loop that can never drain, and a node process that never
+ * exits. On macOS `pnpm` happens to forward the signal and the same code exits
+ * in 10.9 s; the behaviour is the platform's, not the script's, which is
+ * exactly why it was never seen locally.
+ *
+ * Negative pid = the process GROUP (`detached: true` above is what creates
+ * one). Destroying the pipes afterwards is belt and braces: it drops this
+ * side's handle even if something in the group outlives the signal.
  */
-export async function dismissDeployGate(page: Page): Promise<void> {
-  await page.waitForSelector('.rl-loading__deploy', { timeout: 20_000 });
-  let last = '';
-  for (let i = 0; i < 80; i++) {
-    const txt = await page.evaluate(() => document.querySelector('.rl-loading__count')?.textContent ?? '');
-    if (txt === last && txt.includes('/')) break;
-    last = txt;
-    await page.waitForTimeout(250);
+export function stopDevServer(child: ChildProcess | null, tag: string): void {
+  if (child === null) return; // reused someone else's server -- never ours to kill
+  const pid = child.pid;
+  if (pid !== undefined) {
+    try {
+      process.kill(-pid, 'SIGTERM');
+    } catch {
+      // Already gone, or no group (a platform without one). Fall back to the
+      // single pid rather than leaving it running.
+      try {
+        child.kill('SIGTERM');
+      } catch {
+        /* already dead */
+      }
+    }
   }
-  await page.evaluate(() => (document.querySelector('.rl-loading__deploy') as HTMLElement | null)?.click());
+  child.stdout?.destroy();
+  child.stderr?.destroy();
+  child.unref();
+  console.log(`[${tag}] dev server process group stopped.`);
 }
 
 /** Navigates, boots, steps to the scenario's tick, and screenshots the canvas
  *  rect. Up to 3 attempts: the dev server's module graph has been observed
  *  intermittently failing a dynamically-imported module, resolved only by a
- *  fresh tab -- a fresh `page.goto` here is this script's equivalent. */
+ *  fresh tab -- a fresh `page.goto` here is this script's equivalent.
+ *
+ *  Page errors are collected and printed with a failed attempt. Without them
+ *  the only thing a failure can say is "something timed out", which is what
+ *  the first Linux bless said three times over while the real answer was a
+ *  click landing on a button whose handler did not exist yet. A timeout is
+ *  never a diagnosis. */
 export async function capture(
   page: Page,
   url: string,
@@ -115,14 +161,47 @@ export async function capture(
   label: string,
   needsDeploy = false
 ): Promise<CaptureResult> {
+  const pageErrors: string[] = [];
+  const onPageError = (err: Error): void => void pageErrors.push(`pageerror: ${err.message}`);
+  const onConsole = (msg: { type: () => string; text: () => string }): void => {
+    if (msg.type() === 'error') pageErrors.push(`console.error: ${msg.text()}`);
+  };
+  page.on('pageerror', onPageError);
+  page.on('console', onConsole);
+  try {
+    return await captureAttempts(page, url, script, outFile, label, needsDeploy, pageErrors);
+  } finally {
+    page.off('pageerror', onPageError);
+    page.off('console', onConsole);
+  }
+}
+
+async function captureAttempts(
+  page: Page,
+  url: string,
+  script: string,
+  outFile: string,
+  label: string,
+  needsDeploy: boolean,
+  pageErrors: string[]
+): Promise<CaptureResult> {
   let lastErr: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
+    pageErrors.length = 0;
     try {
       await page.goto(url, { waitUntil: 'load', timeout: 40_000 });
-      if (needsDeploy) await dismissDeployGate(page);
-      await page.waitForFunction(() => typeof (window as unknown as { __lions?: unknown }).__lions !== 'undefined', {
-        timeout: 25_000,
-      });
+      if (needsDeploy) await dismissDeployGate(page, label);
+      // The options bag is the THIRD argument -- the second is `arg`, the
+      // value handed to the page function. Passed as the second, `{ timeout:
+      // 25_000 }` was serialised into the page as an unused argument and the
+      // wait silently ran on Playwright's 30 s default, which is why the first
+      // Linux bless reported "Timeout 30000ms exceeded" from a call site that
+      // reads 25000.
+      await page.waitForFunction(
+        () => typeof (window as unknown as { __lions?: unknown }).__lions !== 'undefined',
+        undefined,
+        { timeout: 25_000 }
+      );
       // Stop the app's rAF loop FIRST, before the settle rather than after it.
       // Two things follow, and both were measured (see
       // `FREEZE_FRAME_LOOP_STATEMENTS`): the settle below no longer accrues
@@ -148,9 +227,14 @@ export async function capture(
     } catch (err) {
       lastErr = err;
       console.warn(`[${label}] capture attempt ${attempt + 1} failed: ${(err as Error).message}`);
+      for (const line of pageErrors.slice(0, 10)) console.warn(`[${label}]   page said: ${line}`);
+      if (pageErrors.length === 0) console.warn(`[${label}]   the page reported no errors of its own.`);
     }
   }
-  throw new Error(`[${label}] capture failed 3 times: ${(lastErr as Error)?.message ?? String(lastErr)}`);
+  throw new Error(
+    `[${label}] capture failed 3 times: ${(lastErr as Error)?.message ?? String(lastErr)}` +
+      (pageErrors.length > 0 ? ` (last attempt's page errors: ${pageErrors.slice(0, 3).join(' | ')})` : '')
+  );
 }
 
 /** Reads `WEBGL_debug_renderer_info`'s unmasked renderer string from a throwaway

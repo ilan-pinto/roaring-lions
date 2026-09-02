@@ -76,3 +76,9 @@ art/showcase/*.mp4
 # `.claude/agents/` and the rest of `.claude/` stay tracked on purpose.
 .claude/worktrees/
 art/blend/
+
+# Golden-image capture output. Both `ci.yml`'s `visual` job and
+# `visual-baseline-bless.yml` pass `--out-dir=visual-baseline-output` and then
+# upload it as an artifact; it is captures and diffs, never a baseline (those
+# live in tools/golden-baselines/ and are committed deliberately by a bless).
+/visual-baseline-output/
