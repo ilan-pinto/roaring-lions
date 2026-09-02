@@ -72,6 +72,22 @@ to move them even by accident.
 
 ## Decor is checked a THIRD way, and never rendered by this gate at all
 
+## Buildings are checked a FOURTH way, also against the raw bytes
+
+`tools/building_facing.py` (GH-142) answers a question no render this gate
+makes could: of a building's four elevations, is the one carrying its
+facade among the two the game's fixed dimetric camera can SEE. The rendered
+PNG above is one locked pose, and a building's whole orientation problem is
+which side that pose is of. A building never turns at runtime
+(`mesh-building.ts`: "leaves rotation at identity"), so the answer is baked
+at export and, until this, was checked by nothing at all -- house and
+apartment were correct because two export scripts measured it by hand and
+said so in prose. That was harmless while buildings were palette-painted
+boxes with no picture on any face, and stopped being harmless at `d63cd36`,
+when three of them started shipping a photographed facade. See that
+module's docstring for what it measures, what it deliberately does not, and
+why the shipped `warehouse` is allowed to have no front.
+
 `art/meshes/decor/*.glb` (scattered terrain props -- `docs/superpowers/plans/
 2026-09-01-terrain-c-mesh-decor.md`, Task 4) skips `render_mesh_gate.py`
 entirely: that script's own `render_one` returns early for `mesh_kind() ==
@@ -144,6 +160,7 @@ sys.path.insert(0, os.path.join(HERE, "units"))
 
 import validate_assets as va  # noqa: E402
 import quantize_sprites as qs  # noqa: E402
+import building_facing as bf  # noqa: E402
 
 DEFAULT_BLENDER_CANDIDATES = (
     os.environ.get("BLENDER_BIN", ""),
@@ -413,6 +430,15 @@ def main():
         decor_failures = check_decor_meshes(decor_root)
         failures.extend(decor_failures)
 
+        # A FOURTH way of checking, and like decor's it runs against the raw
+        # GLB bytes rather than against a render this gate made: the rendered
+        # PNG is one locked pose and says nothing about which of a building's
+        # four elevations the fixed dimetric camera can see. See
+        # tools/building_facing.py's own docstring for what it measures.
+        buildings_root = os.path.join(REPO, "art", "meshes", "buildings")
+        facing_failures, facing_notes = bf.check_building_facing(buildings_root)
+        failures.extend(facing_failures)
+
         if failures:
             print(f"\nMESH GATE FAILED -- {len(failures)} issue(s):\n")
             for f in failures:
@@ -431,6 +457,16 @@ def main():
             print(f"  NOT palette-checked -- {len(textured)} textured mesh(es) ship their own "
                   f"baked material by the project lead's instruction: {', '.join(sorted(textured))}")
             print("  (silhouette IoU still applied to them; see TEXTURED_MESH_EXEMPT)")
+        if facing_notes:
+            # Deliberately loud, and deliberately on the PASSING path, for the
+            # same reason as the line above: a green tick must not read as
+            # "every building's facing is guaranteed". Half of these are
+            # buildings with no facade to get wrong; the other half are ones
+            # this gate cannot see a facade on at all.
+            print(f"  facing: {len(facing_notes)} building mesh(es) NOT facing-checked or with "
+                  f"no front to get wrong --")
+            for note in facing_notes:
+                print(f"    {note}")
         return 0
     finally:
         if not keep:

@@ -531,6 +531,38 @@ load is worth doing before release. Pipeline: `tools/units/kit.py` (geometry)
   51 to 30 while the terrain beside it is byte-identical, and it still looks
   like a building. `metallic_roughness`/`normal` are dropped at export: there
   are no lights in this scene to consume them.
+- **A building's FACING is gated now** (GH-142, `tools/building_facing.py`,
+  inside `pnpm validate:meshes`). A building never turns — `mesh-building.ts`
+  leaves rotation at identity — so whichever elevation an export bakes toward
+  `+X`/`+Z` is the one the player gets forever, and until this that was a
+  coincidence held up by two comments in two export scripts. It stopped being
+  harmless at `d63cd36`: a palette-painted box has no front, a photographed
+  facade does. The gate rasterises each GLB orthographically from all four
+  cardinal directions and counts pixels whose nearest FRONT face is
+  `glass`-role geometry — the one role that marks an OPENING rather than a
+  surface material — then requires the camera-facing half (`+X`+`+Z`, derived
+  from `camera.ts`'s `VIEW_DIRECTION`, pinned by `building-facing.test.ts`) to
+  beat the hidden half by `FRONT_MARGIN`. Three things about it are worth
+  knowing. **Texture statistics do not work and several were measured failing**
+  — mean, contrast, dark-fraction and edge energy all pick house's fire-stair
+  side over its entrance side, because they score clutter rather than frontage.
+  **A third verdict, `symmetric`, is load-bearing**: `warehouse` has a roller
+  door on BOTH gable ends and `concrete` reads 1080 px on each half, so
+  demanding a front from them would be a false-positive factory; nothing
+  shipped falls between 1.32 and 4.67, so 2.0 sits in a gap rather than on a
+  fitted line. And **`apartment` is the one shipped textured building the gate
+  cannot judge** — its windows are painted into the bake with no pane modelled,
+  so it has no `glass` role and no readable front. That is named on the PASSING
+  path, like `NOT palette-checked` is.
+- **`apartment` deliberately does NOT get a `glass` role**, and the reason is
+  not "nobody got round to it". On a textured building the role is inert for
+  colour: `buildBuildingMeshTemplate` takes the texture branch BEFORE
+  `isBuildingMeshRole`, so `house`'s own `glass` mesh is drawn through the
+  photograph and contributes no palette entry — verified from house.glb's bytes
+  (its `glass` primitive carries `TEXCOORD_0` and references the one textured
+  material). Adding one to `apartment` would therefore buy zero colour and
+  would mean re-exporting a supplied Meshy asset purely so a gate can read it,
+  against the lead's "used as is". The gap is recorded instead.
 - **Mesh units are outside `validate:assets`** — no PNG, so no palette or IoU
   gate runs on them at all. Phase G is meant to fix that and has not.
 - **`kit.py` changed without the sprite sheets being re-rendered**, so
