@@ -636,6 +636,76 @@ load is worth doing before release. Pipeline: `tools/units/kit.py` (geometry)
   over it -- observed live. Harmless between agents; a real hazard for a player
   with two tabs.
 
+### The campaign board
+
+`?campaign` draws `art/meshes/campaign/sahar_basin.glb` as a rotating 3D diorama
+on `three` (`packages/render/src/three/campaign/`, reached from `app` by a
+DYNAMIC import of `@lions/render/three-campaign` -- named in eslint's bundle
+rule like the other four doors). **The flat PNG board is not a fallback that
+happens to still exist: it IS the Pixi path**, and `worldmap.ts` /
+`worldmap.test.ts` / `data/campaign/world.json` are unchanged. Forcing three
+for this one screen was rejected because the renderer choice persists per
+ORIGIN and survives every link `menu.ts` builds, so it would load a second
+backend behind a deliberate `?renderer=pixi` -- the hatch someone reaches for
+when three has failed them -- and hand them back to Pixi for the mission.
+Three more paths land on the flat board, each warning by name: no WebGL2
+(probed with a throwaway canvas BEFORE the dynamic import, so a browser that
+cannot draw it never downloads 609 kB of three), a GLB that will not load, and
+a scene graph that fails the campaign contract.
+
+Six things about it are counter-intuitive and each was measured.
+**The camera does not move; the BOARD turns**, under `camera.ts`'s own
+`VIEW_DIRECTION` -- so this screen and the mission share a camera, and
+`uLightDir` stays fixed in WORLD space (`mat3(modelMatrix) * normal`, not the
+view-space `normalMatrix` every other material here uses). An orbiting camera
+with a view-space light nails the shading to the screen and the board reads as
+a texture sliding over a shape that is not moving.
+**The frustum is fitted ONCE for the worst yaw**, so the board never changes
+size as it turns; a per-frame fit wastes no screen and makes a hex slab swell
+and shrink as it rotates.
+**Fit the FOOTPRINT, not the bounding box.** A hexagon's box has four corners
+with no board under them: fitting the 28-point plan hull instead of the 8 box
+corners takes the half-height from 0.45070 to 0.36066 -- the board draws
+**1.25x larger** in the same frame, at both 1140/641 and 16/9.
+**`outland_scenery` still must never take a REGION tint** (it carries the
+diorama's base and rim), but leaving it at the untouched bake was measured
+wrong the other way -- photographed at 1440x900 the eastern desert was the
+brightest, most saturated ground on screen, louder than the one region a fresh
+campaign can play. Scenery is drained to sit below `empty` and above `locked`.
+**The shade term is SMOOTH here and banded in `texturedBuildingMaterial`**, on
+purpose: a building's facets break on real edges, and three hard bands across a
+hillside draw contour terraces that are not in the source.
+**Antialiasing is ON, uniquely.** This asset is the named exemption from the
+palette entirely, so there is no palette guarantee for a blended edge pixel to
+cost, and its silhouette is a rotating hex rim -- the worst place aliasing could
+land. `applyPalettePipeline` is deliberately NOT called: its second job is the
+CLEAR colour, and this canvas is transparent. Its first job (pass-through
+`outputColorSpace`) is done directly, and pairs with `prepareTexturedMap`'s
+`NoColorSpace` exactly as the buildings' does.
+
+A click on locked ground **says why**, into an `aria-live` line. That is not
+polish: the ground is one canvas, so a click that resolved to nothing and
+printed nothing is indistinguishable from a broken screen. Hover is gated on
+"is this really a control", measured -- hovering the live region moves 43,848
+canvas pixels (7.52%), hovering a locked one moves **0**. Town pins are DOM
+anchors positioned from the view's own projection, never sprites: a canvas
+cannot be tabbed into. Full account, with all 27 test falsifications:
+`.superpowers/queue/kedem-map-screen-report.md`.
+
+Two traps found while building it, neither specific to this screen.
+**eslint walks your build output.** A browser check here means `vite build
+--outDir <somewhere>`, and this tree had two sessions doing it at once:
+`dist-campaign` and `dist-cursorverify` together made `pnpm lint` red with
+**8,631 errors**, every one `no-undef` on a minified bundle. `**/dist-*/**` and
+`.superpowers/**` are ignored now, alongside `**/dist/**`.
+**`window.localStorage` in this vitest jsdom config is a bare `{}`** -- no
+`getItem`, no `setItem`, no `length`. Any UI code reaching it must guard
+(`storedRenderer` in `menu.ts` does, which is also right for a real browser with
+site data blocked, where the property access itself throws). And it makes
+`worldmap.test.ts`'s "does not write to localStorage" test **unable to fail**:
+it compares `window.localStorage.length` before and after, and both are
+`undefined`.
+
 ---
 
 ## Known scaling debts
