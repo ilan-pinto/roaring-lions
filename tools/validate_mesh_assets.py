@@ -352,6 +352,31 @@ DECOR_ROLES = {"foliage", "trunk", "rock", "sand"}
 TEXTURED_DECOR_EXEMPT = {"ditch"}
 
 
+# The closed campaign-map node vocabulary. `region` is ground a campaign
+# region is played over and the runtime may tint; `scenery` is everything the
+# diorama needs to look like a world and nothing may tint. Mirrors
+# CAMPAIGN_MAP_ROLES in packages/render/src/three/campaign/textured-world.ts
+# (pinned by textured-world.test.ts, which parses this set).
+CAMPAIGN_MAP_ROLES = {"region", "scenery"}
+
+# The campaign worlds allowed to ship their own baked material -- the campaign
+# counterpart of TEXTURED_MESH_EXEMPT and TEXTURED_DECOR_EXEMPT above, kept in
+# step with TEXTURED_CAMPAIGN_MAPS in
+# packages/render/src/three/campaign/textured-world.ts.
+#
+# ONE world, and as with the ditch the reason is structural rather than
+# preference. The palette path indexes a ramp BY NORMAL, and this asset's
+# entire subject is BIOME -- forest, desert, snow, water, cultivation -- which
+# is colour at a constant normal. A normal-indexed ramp cannot express any of
+# it: the map would come out one flat colour per slope angle, and the two
+# regions a player has to tell apart would be identical wherever the ground is
+# flat, which is most of it. The palette path cannot express this asset.
+#
+# Everything else that lands in art/meshes/campaign/ still fails on a material,
+# image or texture it is not listed for.
+TEXTURED_CAMPAIGN_EXEMPT = {"sahar_basin"}
+
+
 def decor_family_of(name):
     """`ditch_0.glb` -> `ditch`. Mirrors `decorFamilyOf` in
     textured-decor.ts: split on the LAST underscore so a future two-word
@@ -458,6 +483,134 @@ def check_decor_meshes(decor_root):
     return failures, textured_names
 
 
+def check_campaign_meshes(campaign_root, world_path):
+    """Every `art/meshes/campaign/*.glb` against the campaign-map contract,
+    read straight out of the raw GLB bytes -- never rendered, for the reason
+    `render_mesh_gate.py`'s own docstring gives (a normal-indexed ramp cannot
+    express a biome map, so a repainted render would be a stand-in with none
+    of the asset's content in it).
+
+    Four things are checked, and each one is a defect that has a silent
+    failure mode on the other side of it:
+
+      1. A listed world ships exactly one material/image/texture. Zero images
+         means the bake was lost and the map draws untextured; more than one
+         means `metallic_roughness` or `normal` survived an export that must
+         drop them (there are no lights here to consume either).
+      2. Every mesh node declares `rl_textured` and an `rl_map_role` inside
+         CAMPAIGN_MAP_ROLES. The runtime reads that role to decide what may
+         be tinted as a region; a node with none would be drawn as neither.
+      3. The set of `rl_region` ids on the `region` nodes EQUALS the set of
+         region ids in data/campaign/world.json. This is the join the whole
+         design rests on -- rename a region in the JSON and the mesh the
+         campaign screen looks up by that name simply stops being found, with
+         no error anywhere.
+      4. Every town in world.json has its own marker node. A missing marker
+         is a town the 3D board cannot place, and it would read as a campaign
+         bug rather than a missing node.
+
+    Returns (failures, textured_names) so the caller can name the exempt
+    files on the PASSING path, the same shape `check_decor_meshes` returns.
+    """
+    failures = []
+    textured_names = []
+    paths = sorted(glob.glob(os.path.join(campaign_root, "*.glb")))
+    if not paths:
+        return failures, textured_names
+    with open(world_path) as fh:
+        world = json.load(fh)
+    want_regions = {r["id"] for r in world["regions"]}
+    want_towns = {t["id"] for r in world["regions"] for t in r["towns"]}
+
+    for path in paths:
+        name = os.path.basename(path)
+        world_id = os.path.splitext(name)[0]
+        exempt = world_id in TEXTURED_CAMPAIGN_EXEMPT
+        glb_json = _read_glb_json(path)
+        n_mat = len(glb_json.get("materials", []))
+        n_img = len(glb_json.get("images", []))
+        n_tex = len(glb_json.get("textures", []))
+        if exempt:
+            if (n_mat, n_img, n_tex) != (1, 1, 1):
+                failures.append(
+                    f"{name}: {world_id!r} is in TEXTURED_CAMPAIGN_EXEMPT and must ship "
+                    f"exactly one material/image/texture, but carries {n_mat}/{n_img}/{n_tex} "
+                    f"-- none means the bake was lost and the world draws untextured; more "
+                    f"than one means metallic_roughness or normal survived an export that "
+                    f"should have dropped them"
+                )
+            else:
+                textured_names.append(name)
+        elif n_mat or n_img or n_tex:
+            failures.append(
+                f"{name}: carries {n_mat} material(s), {n_img} image(s), {n_tex} texture(s) "
+                f"but {world_id!r} is not in TEXTURED_CAMPAIGN_EXEMPT "
+                f"{sorted(TEXTURED_CAMPAIGN_EXEMPT)}. If this is deliberate, add it there "
+                f"(and to TEXTURED_CAMPAIGN_MAPS in "
+                f"packages/render/src/three/campaign/textured-world.ts)"
+            )
+
+        gltf_meshes = glb_json.get("meshes", [])
+        got_regions = set()
+        got_towns = set()
+        for node in glb_json.get("nodes", []):
+            node_name = node.get("name") or "?"
+            extras = node.get("extras") or {}
+            if "mesh" not in node:
+                town = extras.get("rl_town")
+                if town is not None:
+                    got_towns.add(town)
+                continue
+            node_name = node.get("name") or gltf_meshes[node["mesh"]].get("name", "?")
+            if extras.get("rl_textured") is not True:
+                failures.append(
+                    f"{name}: mesh node {node_name!r} does not declare rl_textured -- the "
+                    f"runtime reads that flag to take the baked-material path, so this mesh "
+                    f"would fall through to a palette ramp it has no role for"
+                )
+            elif not exempt:
+                failures.append(
+                    f"{name}: mesh node {node_name!r} declares rl_textured but {world_id!r} "
+                    f"is not in TEXTURED_CAMPAIGN_EXEMPT "
+                    f"{sorted(TEXTURED_CAMPAIGN_EXEMPT)}"
+                )
+            role = extras.get("rl_map_role")
+            if role not in CAMPAIGN_MAP_ROLES:
+                failures.append(
+                    f"{name}: mesh node {node_name!r} has rl_map_role {role!r}, outside the "
+                    f"closed campaign vocabulary {sorted(CAMPAIGN_MAP_ROLES)}"
+                )
+            elif role == "region":
+                region = extras.get("rl_region")
+                if region is None:
+                    failures.append(
+                        f"{name}: mesh node {node_name!r} is rl_map_role 'region' but names "
+                        f"no rl_region -- nothing could look it up")
+                else:
+                    got_regions.add(region)
+
+        if got_regions != want_regions:
+            failures.append(
+                f"{name}: region nodes name {sorted(got_regions)} but "
+                f"{os.path.relpath(world_path, REPO)} declares {sorted(want_regions)} -- "
+                f"the campaign screen finds a region's ground BY NAME, so a mismatch is a "
+                f"region that silently has no mesh"
+            )
+        if not want_towns <= got_towns:
+            failures.append(
+                f"{name}: no marker node for town(s) {sorted(want_towns - got_towns)} -- "
+                f"every town in {os.path.relpath(world_path, REPO)} needs one "
+                f"(an empty node named <town_id>_town carrying extras.rl_town)"
+            )
+        extra_towns = got_towns - want_towns
+        if extra_towns:
+            failures.append(
+                f"{name}: marker node(s) for {sorted(extra_towns)}, which "
+                f"{os.path.relpath(world_path, REPO)} does not declare"
+            )
+    return failures, textured_names
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--palette", default=os.path.join(REPO, "data", "palette.json"))
@@ -502,6 +655,11 @@ def main():
         decor_failures, textured_decor = check_decor_meshes(decor_root)
         failures.extend(decor_failures)
 
+        campaign_root = os.path.join(REPO, "art", "meshes", "campaign")
+        campaign_failures, textured_campaign = check_campaign_meshes(
+            campaign_root, os.path.join(REPO, "data", "campaign", "world.json"))
+        failures.extend(campaign_failures)
+
         # A FOURTH way of checking, and like decor's it runs against the raw
         # GLB bytes rather than against a render this gate made: the rendered
         # PNG is one locked pose and says nothing about which of a building's
@@ -518,9 +676,11 @@ def main():
             return 1
 
         n_decor = len(glob.glob(os.path.join(decor_root, "*.glb")))
+        n_campaign = len(glob.glob(os.path.join(campaign_root, "*.glb")))
         print(f"mesh gate passed: {len(mesh_masks)} mesh unit(s) rendered and checked "
               f"against {len(sprite_masks)} sprite unit(s); {n_decor} decor mesh(es) "
-              f"checked against the mesh contract directly")
+              f"and {n_campaign} campaign world(s) checked against the mesh contract "
+              f"directly")
         if textured:
             # Deliberately loud, and deliberately on the PASSING path: the
             # thing worth catching is a future reader assuming these are
@@ -540,6 +700,21 @@ def main():
                   f"their own baked material: {', '.join(sorted(textured_decor))}")
             print("  (decor is contract-checked from the GLB bytes, never rendered, so no "
                   "silhouette IoU applies to it either; see TEXTURED_DECOR_EXEMPT)")
+        if textured_campaign:
+            # Third of the same kind of line, and on the PASSING path for the
+            # same reason. This one carries an extra clause the other two do
+            # not: a campaign world could not be palette-checked even if
+            # somebody wanted to, because its subject is biome and the ramp
+            # is indexed by normal. Saying only "not palette-checked" would
+            # read as a gap somebody could close.
+            print(f"  NOT palette-checked -- {len(textured_campaign)} campaign world(s) ship "
+                  f"their own baked material: {', '.join(sorted(textured_campaign))}")
+            print("  (a campaign world's subject is BIOME, which is colour at a constant "
+                  "normal, and the palette ramp is indexed BY normal -- there is no palette "
+                  "check to apply here, not merely one that was skipped. It is never "
+                  "rendered by this gate, so no silhouette IoU applies either; its region "
+                  "and town nodes ARE checked against data/campaign/world.json. See "
+                  "TEXTURED_CAMPAIGN_EXEMPT)")
         if facing_notes:
             # Deliberately loud, and deliberately on the PASSING path, for the
             # same reason as the line above: a green tick must not read as

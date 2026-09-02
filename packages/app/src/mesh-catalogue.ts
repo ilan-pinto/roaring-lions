@@ -206,6 +206,23 @@ export const VFX_MESHES = {
 } as const;
 
 /**
+ * The campaign world boards (mesh-unit-contract's `campaign` asset class).
+ *
+ * Keyed by `data/campaign/world.json`'s own `id`, which is also the GLB's
+ * basename -- `art/meshes/campaign/sahar_basin.glb`. Not part of any
+ * mission's roster: a world is the BOARD a mission is chosen from, wanted by
+ * the campaign screen and by nothing that happens during a mission.
+ *
+ * 3.78 MiB for the one, which is why the campaign screen should fetch it when
+ * it opens rather than at boot -- the whole point of this file's per-roster
+ * split. Listed here so `mesh-catalogue.test.ts` sees it claimed; nothing
+ * loads it yet.
+ */
+export const CAMPAIGN_MESHES: Readonly<Record<string, string>> = {
+  sahar_basin: 'campaign/sahar_basin.glb',
+};
+
+/**
  * Shipped GLBs that are deliberately never loaded, each with the reason.
  *
  * This is the ONLY way a file under `art/meshes/**` may go unclaimed:
@@ -229,11 +246,11 @@ export const RETIRED_MESH_FILES: Readonly<Record<string, string>> = {
 /**
  * The served URL for one catalogue path.
  *
- * Six `new URL()` forms rather than one, because Vite's
+ * Seven `new URL()` forms rather than one, because Vite's
  * `vite:asset-import-meta-url` rewrite turns each into a glob whose `*` does
  * not cross a `/` -- a single `art/meshes/*` pattern would match the seventeen
- * top-level files and none of the subdirectories. Six forms also means
- * `vite-plugin-asset-watch.ts` (GH-147) derives and watches all six
+ * top-level files and none of the subdirectories. Seven forms also means
+ * `vite-plugin-asset-watch.ts` (GH-147) derives and watches all seven
  * directories from this file exactly as it did from `main.ts`, so adding a GLB
  * to any of them still invalidates the listing in a running dev server.
  *
@@ -267,6 +284,9 @@ export function meshUrl(file: string): string {
     case 'vfx':
       href = new URL(`../../../art/meshes/vfx/${base}`, import.meta.url).href;
       break;
+    case 'campaign':
+      href = new URL(`../../../art/meshes/campaign/${base}`, import.meta.url).href;
+      break;
     default:
       throw new Error(
         `mesh-catalogue: "${file}" is in a directory meshUrl does not glob — ` +
@@ -293,6 +313,7 @@ export function claimedMeshFiles(): Set<string> {
   }
   for (const files of Object.values(DECOR_MESHES)) for (const f of files) out.add(f);
   for (const f of Object.values(VFX_MESHES)) out.add(f);
+  for (const f of Object.values(CAMPAIGN_MESHES)) out.add(f);
   return out;
 }
 

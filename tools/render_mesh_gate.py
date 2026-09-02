@@ -29,12 +29,12 @@ ever emit a palette entry, and `mesh-material.test.ts` covers it under
 skinning), but so the rendered silhouette and its on-palette-ness are
 meaningful to check at all.
 
-`art/meshes/` ships five different kinds of mesh, told apart by which
+`art/meshes/` ships six different kinds of mesh, told apart by which
 subdirectory they live in (`art/meshes/vehicles/`, `art/meshes/buildings/`,
-`art/meshes/vfx/`, `art/meshes/decor/`, everything else is an infantry team)
--- discovered from the path, not from a hardcoded per-file list, because
-other streams are actively adding new GLBs under all five and this script
-must see them without an edit here. Each of the first three kinds has its
+`art/meshes/vfx/`, `art/meshes/decor/`, `art/meshes/campaign/`, everything
+else is an infantry team) -- discovered from the path, not from a hardcoded
+per-file list, because other streams are actively adding new GLBs under all
+six and this script must see them without an edit here. Each of the first three kinds has its
 own closed `rl_role` vocabulary and its own role->colour table:
 
   * **Infantry teams** reuse `tools/render_team.py`'s `ROLE_PALETTE` /
@@ -78,6 +78,21 @@ own closed `rl_role` vocabulary and its own role->colour table:
     grey whichever family placed it"). `tools/validate_mesh_assets.py` checks
     its contract (zero materials, closed `{foliage, trunk, rock, sand}` role
     set) directly against the raw GLB bytes instead, in its own decor branch.
+  * **Campaign maps** (`art/meshes/campaign/`, e.g. `sahar_basin.glb`) are
+    SKIPPED for the same reason again, and one more that is specific to
+    them. Not a unit: a campaign world is the BOARD the player picks a
+    mission from, it has no faction, no roster entry and no retired sprite,
+    and "does this read as a different unit" is meaningless for a landmass.
+    The extra reason is that this gate's palette check could not be applied
+    even in principle -- the whole subject of the asset is BIOME (forest,
+    desert, snow, water, cultivation), which is colour at a constant normal,
+    and `toonRampMaterial` indexes its ramp BY NORMAL. Repainting it from the
+    palette the way `_repaint_buildings` does would render one flat colour
+    per slope angle and the gate would be measuring a stand-in with none of
+    the asset's content in it. `tools/validate_mesh_assets.py` checks the
+    campaign contract (one material/image/texture, `extras.rl_map_role` in a
+    closed set, `rl_region` ids joining `data/campaign/world.json`, one
+    marker per declared town) against the raw GLB bytes in its own branch.
 
 None of `render_eitan.py`, `render_d9.py`, or `render_building.py` is
 imported for its table: each performs real work at module scope from a
@@ -231,9 +246,10 @@ def is_skinned(glb_json):
 
 
 def mesh_kind(glb_path):
-    """'vehicle' / 'building' / 'vfx' / 'decor' / 'infantry', from which
-    subdirectory of art/meshes/ the file lives in -- see this file's module
-    docstring for why path, not content, is the discovery signal."""
+    """'vehicle' / 'building' / 'vfx' / 'decor' / 'campaign' / 'infantry',
+    from which subdirectory of art/meshes/ the file lives in -- see this
+    file's module docstring for why path, not content, is the discovery
+    signal."""
     rel = os.path.relpath(os.path.abspath(glb_path), MESHES_DIR)
     top = rel.split(os.sep)[0]
     if top == "vehicles":
@@ -244,6 +260,8 @@ def mesh_kind(glb_path):
         return "vfx"
     if top == "decor":
         return "decor"
+    if top == "campaign":
+        return "campaign"
     return "infantry"
 
 
@@ -414,6 +432,16 @@ def render_one(glb_path, out_root):
         # (zero materials, closed role set) directly against the raw GLB
         # bytes instead -- see that script's own decor branch.
         print(f"MESH_GATE_WARN: {unit_id}: decor-class mesh -- skipped by this "
+              f"gate (not a unit; see tools/render_mesh_gate.py's own docstring)")
+        return
+    if kind == "campaign":
+        # Also not a unit, and additionally the one kind whose palette check
+        # could not be applied even in principle: the asset's subject is
+        # biome, which is colour at a constant normal, and the ramp this gate
+        # would repaint it with is indexed BY normal. See the module
+        # docstring's "Campaign maps" bullet. Contract-checked from the raw
+        # GLB bytes by tools/validate_mesh_assets.py instead.
+        print(f"MESH_GATE_WARN: {unit_id}: campaign-class mesh -- skipped by this "
               f"gate (not a unit; see tools/render_mesh_gate.py's own docstring)")
         return
     glb_json = read_glb_json(glb_path)
