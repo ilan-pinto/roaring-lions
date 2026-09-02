@@ -1,6 +1,7 @@
 {
   "id": "yahalom_squad",
   "name": "Yahalom Engineers",
+  "blurb": "The only team that can collapse a tunnel.",
   "faction": "kdf",
   "role": "engineer",
   "cost": {

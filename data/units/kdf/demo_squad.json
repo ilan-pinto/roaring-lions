@@ -1,6 +1,7 @@
 {
   "id": "demo_squad",
   "name": "Combat Engineers",
+  "blurb": "Brings a building down from touching distance, without shelling the street to do it.",
   "faction": "kdf",
   "role": "engineer",
   "cost": {

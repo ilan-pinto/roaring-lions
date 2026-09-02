@@ -1,6 +1,7 @@
 {
   "id": "ifv_namer",
   "name": "Namer IFV",
+  "blurb": "Carries five under armour, but its 30mm is what arms the protected-zone penalty.",
   "faction": "kdf",
   "role": "ifv",
   "cost": {

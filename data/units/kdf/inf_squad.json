@@ -1,6 +1,7 @@
 {
   "id": "inf_squad",
   "name": "Rifle Squad",
+  "blurb": "Holds ground and garrisons buildings. Its rifles are the safest thing to fire in a street.",
   "faction": "kdf",
   "role": "infantry",
   "cost": {

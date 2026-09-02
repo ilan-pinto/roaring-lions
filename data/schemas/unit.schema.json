@@ -23,6 +23,11 @@
     "name": {
       "type": "string"
     },
+    "blurb": {
+      "description": "One line the reinforcements dock shows on hover (GH-153), under the cost and the doctrine tags. It must say something the tile cannot already: a role, a restriction, or the one thing this unit is for. Never lore, never a restatement of a stat that is already on screen. Optional — a unit without one simply shows no description line, which is why this is not required and why no default is supplied.",
+      "type": "string",
+      "maxLength": 96
+    },
     "faction": {
       "enum": [
         "kdf",

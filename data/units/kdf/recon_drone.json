@@ -1,6 +1,7 @@
 {
   "id": "recon_drone",
   "name": "Recon Drone",
+  "blurb": "Sees sixteen tiles, further than anything else, and marks what it finds. Carries no weapon.",
   "faction": "kdf",
   "role": "drone",
   "cost": {

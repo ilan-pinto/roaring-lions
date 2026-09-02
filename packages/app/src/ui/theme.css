@@ -70,6 +70,12 @@
      shape behind every glyph, and shadow-2 at this blur radius does the
      latter. */
   --type-shadow: var(--rl-shadow-0);
+  /* The fill behind a dock tile's sprite. Its own token, one step off --well,
+     because the two are different jobs and the spec draws them a step apart: a
+     --well is a recess INSIDE a panel (the unit card's 72px frame), while a
+     tile is a lit surface standing on the battlefield with no panel under it.
+     Given --well here, sixteen tiles read as sixteen holes. */
+  --tile-bg: var(--rl-shadow-0);
 
   /* Band colour is the panel's rank. Olive is the briefing — the panel you
      read for twelve minutes. Gunmetal is machinery you inspect. Dust is
@@ -1205,24 +1211,263 @@ body {
   text-shadow: 0 1px 12px var(--scrim), 0 1px 2px var(--scrim);
 }
 
-.rl-btnrow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s1);
-}
-.rl-btn--support {
-  color: var(--info);
-}
+/* --- the reinforcements dock (GH-153 slice 3) ------------------------- */
 
-.rl-queue:not(:empty) {
+/* Bottom left, unpanelled: a band label over a grid of tiles. `.rl-btnrow`,
+   `.rl-btn--support` and the `.rl-queue` list that used to live here are gone
+   with the text-button production bar they styled — a queue is a fact about a
+   unit TYPE, and it is drawn on that type's own tile now.
+
+   A flex column rather than the spec's two absolutely-positioned boxes. The
+   mock puts its label at a literal `bottom:136px`, which is 4px above a grid
+   of exactly two rows; the shipped KDF catalogue is fourteen types plus two
+   support calls, so the grid is four rows and a hard-coded label would sit
+   inside it. Stacking gives the same picture at two rows and the right one at
+   any count. */
+.rl-dock {
+  position: absolute;
+  left: var(--s2);
+  bottom: var(--s2);
   display: flex;
   flex-direction: column;
   gap: var(--s1);
-  margin-bottom: var(--s2);
+  /* The label and the gaps are not clickable; the tiles turn it back on. */
+  pointer-events: none;
 }
-.rl-queue__row {
+/* Unpanelled type sits on the battlefield, so it carries its own halo — the
+   same treatment the hold clock and the feed get. */
+.rl-dock__label {
+  margin: 0;
+  color: var(--ink-label);
+  text-shadow: 0 1px 3px var(--type-shadow);
+}
+.rl-dock__grid {
+  display: grid;
+  grid-template-columns: repeat(5, var(--tile));
+  gap: var(--s1);
+}
+
+/* --- one tile --------------------------------------------------------- */
+
+.rl-tile {
+  position: relative;
+  box-sizing: border-box;
+  width: var(--tile);
+  height: var(--tile);
+  padding: 0;
+  background: var(--tile-bg);
   border: 1px solid var(--panel-frame);
-  padding: var(--s1) var(--s2);
+  color: var(--ink);
+  font-family: var(--font-body);
+  cursor: pointer;
+  pointer-events: auto;
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    opacity var(--dur-fast) var(--ease);
+}
+.rl-tile:hover,
+.rl-tile:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+/* Affordability is not a refusal — the price is still legible, and the badge
+   goes red so the reason for the dimming is named rather than guessed.
+
+   `:not([data-queued='1'])` is not tidiness and was measured. Buying the one
+   affordable unit on `beit_sahwan_breach` leaves 111 of 403 logistics, so the
+   tile the player has JUST bought is unaffordable a frame later — and the dim
+   took the lime progress bar and the countdown down with it, photographed
+   invisible on a dark tile at 45%. A tile that is producing is not a tile the
+   player is being refused. It keeps full strength and says both things at
+   once: the bar and the clock at full opacity, the price still red. */
+.rl-tile[data-poor='1']:not([data-queued='1']) {
+  opacity: 0.45;
+}
+.rl-tile[data-poor='1'] .rl-tile__cost {
+  color: var(--bad);
+}
+
+.rl-tile__art {
+  position: absolute;
+  inset: 2px;
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  /* The sheets are 256px and this is 56. Nearest-neighbour for the same reason
+     the chips use it: the art is quantized onto the palette and a smooth
+     downscale invents colours that are not in it. */
+  image-rendering: pixelated;
+}
+/* Art the pipeline has not produced, or a manifest that never arrived: the
+   commander portrait's hatch with the role mark on it, exactly as the
+   selection chip degrades. Never an empty box. */
+.rl-tile__art[data-nosprite='1'] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-dim);
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--type-shadow) 0,
+    var(--type-shadow) 4px,
+    var(--panel-frame) 4px,
+    var(--panel-frame) 6px
+  );
+}
+
+.rl-tile__cost {
+  position: absolute;
+  right: 3px;
+  bottom: 1px;
+  font-size: var(--t-xs);
+  font-weight: 600;
+  color: var(--accent);
+  /* The badge sits on the sprite, not on the tile's own fill. */
+  text-shadow: 0 0 3px var(--well);
+}
+/* Lifted clear of the progress bar while one is running. */
+.rl-tile[data-queued='1'] .rl-tile__cost {
+  bottom: 4px;
+}
+
+.rl-tile__left {
+  position: absolute;
+  left: 3px;
+  top: 1px;
+  font-size: var(--t-xs);
+  color: var(--live);
+  text-shadow: 0 0 3px var(--well);
+}
+.rl-tile__bar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--live);
+  transition: width var(--dur) linear;
+}
+/* Both are absent rather than empty when nothing is building: a zero-width bar
+   still paints its own 0-height nothing, and an empty countdown span would
+   still reserve a text node the `title` has to explain. */
+.rl-tile[data-queued='0'] .rl-tile__left,
+.rl-tile[data-queued='0'] .rl-tile__bar {
+  display: none;
+}
+
+/* A campaign lock. The sprite stays — a player choosing what to earn next
+   needs to see WHAT is behind the gate — but drained of colour so it cannot be
+   mistaken for something buyable. */
+.rl-tile[data-locked='1'] .rl-tile__art {
+  filter: grayscale(1);
+  opacity: 0.35;
+}
+.rl-tile__lock {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 2px;
+  text-align: center;
+  font-size: var(--t-xs);
+  color: var(--ink-dim);
+}
+/* The price is not the answer when the campaign is the answer. */
+.rl-tile[data-locked='0'] .rl-tile__lock,
+.rl-tile[data-locked='1'] .rl-tile__cost {
+  display: none;
+}
+
+/* --- the two support tiles -------------------------------------------- */
+
+/* The pair starts its own row. The spec's mock has exactly eight buildables,
+   so 8 + 2 filled two rows of five and the two calls landed side by side by
+   luck; the shipped KDF catalogue is fourteen, which left `strike` alone on a
+   fourth row with four empty cells beside it. Photographed — it reads as a
+   layout that ran out rather than as a group. */
+.rl-tile--support[data-support='sweep'] {
+  grid-column-start: 1;
+}
+.rl-tile--support {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  text-align: center;
+  font-size: var(--t-xs);
+  color: var(--info);
+  border-color: var(--info);
+}
+.rl-tile__glyph {
+  font-size: 18px;
+  line-height: 1;
+}
+/* Not affordable: it stops reading as a live call at all. */
+.rl-tile--support[data-poor='1'] {
+  color: var(--ink-dim);
+  border-color: var(--panel-frame);
+  opacity: 0.45;
+}
+/* Armed outranks both — this is the tile the next click on the map spends, and
+   it must read as lime whether or not intel has since been spent elsewhere. */
+.rl-tile--support[data-armed='1'] {
+  color: var(--live);
+  border-color: var(--live);
+  opacity: 1;
+}
+
+/* --- the hover tooltip ------------------------------------------------- */
+
+/* The one panel-chromed thing left in the dock, and the ticket's own exception
+   ("no rl-panel remains except the projected-fire and dock tooltips"). It wears
+   the panel's fill and hairline without a title band, which is what the spec
+   draws — the name is the first line of the content, so a band would say it
+   twice.
+
+   `--tip-x` is written by production.ts from the hovered tile's own
+   `offsetLeft`, so the tooltip stands over the tile it describes without this
+   file and that one having to agree about a column count. */
+.rl-tip {
+  /* Declared here, not only written from JS: an undeclared custom property is
+     a `pnpm validate:ui` failure, and rightly — the gate cannot tell a
+     positional variable from a colour one that nobody defined. The default is
+     the first column, which is where a tooltip shown before any hover would
+     belong anyway. */
+  --tip-x: 0;
+  position: absolute;
+  left: var(--tip-x);
+  bottom: 100%;
+  margin-bottom: var(--s1);
+  box-sizing: border-box;
+  width: 230px;
+  padding: 6px 10px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+  pointer-events: none;
+}
+.rl-tip__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+}
+.rl-tip__name {
+  font-family: var(--font-display);
+  font-size: var(--t-band);
+  font-weight: 800;
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+}
+.rl-tip__cost {
+  margin-left: auto;
+  white-space: nowrap;
+  color: var(--accent);
+}
+.rl-tip__tags {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  color: var(--ink-dim);
 }
 
 /* Box-select marquee. Drawn in DOM over the canvas, so it is styled here with

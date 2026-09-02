@@ -53,7 +53,8 @@ import { portraitUrl, type SheetManifest } from './ui/portrait';
 import { Minimap } from './ui/minimap';
 import { showMenu, showCampaign, showSandbox, showEndScreen } from './ui/menu';
 import { briefingBeats, showLoading } from './ui/loading';
-import { ProductionBar } from './ui/production';
+import { ReinforcementDock } from './ui/production';
+import { doctrineTags } from './ui/dock-model';
 import {
   applyIntent,
   resolvePointer,
@@ -1151,16 +1152,44 @@ async function main(): Promise<void> {
     renderer.camera.y = start[1];
   }
 
-  // Field production, fire support and the build queue: one panel, bottom left.
-  let production: ProductionBar | null = null;
+  // Reinforcements and fire support: the dock, bottom left (GH-153 slice 3).
+  let production: ReinforcementDock | null = null;
   /** Armed fire-support purchase awaiting a target, if any. */
   let armedSupport: 'sweep' | 'strike' | null = null;
 
   if (runtime && mission?.resources) {
-    production = new ProductionBar(document.body, {
+    production = new ReinforcementDock(document.body, {
       units: Object.values(units)
         .filter((u) => u.faction === 'kdf')
-        .map((u) => ({ id: u.id, name: u.name, logistics: u.cost.logistics })),
+        .map((u) => {
+          // The role bucket comes from the SIM's unit type, through the very
+          // `roleBucket` call the selection chips make, so a Namer badged as a
+          // transport on its chip cannot be badged as armour on its tile while
+          // both are on screen. `typeOf` was filled from the same `units`
+          // object above, so the lookup cannot miss.
+          const typeIdx = typeOf.get(u.id);
+          const simType = typeIdx === undefined ? undefined : sim.unitTypes[typeIdx];
+          // `in` rather than `??`: these are JSON module imports, so a field
+          // absent from SOME units is absent from the union's type as well.
+          // Same narrowing `unitInfo` above already uses for `build_time_s`.
+          const abilities = 'abilities' in u ? (u.abilities as string[]) : [];
+          const bucket = simType === undefined ? ('soft' as const) : roleBucket(simType);
+          return {
+            id: u.id,
+            name: u.name,
+            logistics: u.cost.logistics,
+            // The runtime's own default when a unit declares none, so the
+            // tooltip's `· 30s` and the bar it fills are one number.
+            buildTimeS: 'build_time_s' in u.cost ? u.cost.build_time_s : 20,
+            bucket,
+            // The dock reads the SAME frame the chips do — `portraits` is
+            // resolved from each sheet's own manifest, so the two cannot
+            // disagree and neither goes stale when a rig renames its files.
+            sprite: portraits[u.id] ?? null,
+            tags: doctrineTags(bucket, abilities),
+            blurb: 'blurb' in u ? (u.blurb as string) : undefined,
+          };
+        }),
       runtime,
       note: (html, tone) => hud.note(html, tone),
       onArm: (kind) => {
@@ -1490,6 +1519,12 @@ async function main(): Promise<void> {
     // than two that have to keep agreeing.
     if (ev.key === 'g') orders.load();
     if (ev.key === 'u') orders.unload();
+    // The dock's label reads `Reinforcements · B`, and this is what makes that
+    // true. It moves keyboard focus onto the first tile the player could
+    // actually spend on; from there the tiles are ordinary buttons, so Tab
+    // walks them and Enter buys. A label naming a key that did nothing is the
+    // same drift slice 2 refused when it declined to print `Attack-move A`.
+    if (ev.key === 'b') production?.focusFirst();
     // `f` quick-casts at the cursor rather than arming, which is what it has
     // always done and what a hand already on the mouse wants. The Smoke
     // BUTTON arms instead -- see `armOrder` for why a button cannot quick-cast

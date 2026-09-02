@@ -1,6 +1,7 @@
 {
   "id": "mbt_lavi",
   "name": "Lavi MBT",
+  "blurb": "Wins any duel it can see out to twelve tiles. Its 120mm is the costliest round for ROE.",
   "faction": "kdf",
   "role": "mbt",
   "cost": {
