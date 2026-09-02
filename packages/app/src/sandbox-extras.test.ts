@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { maps } from '@lions/data';
 import { sandboxAnchors } from './sandbox-anchors';
-import { sandboxFlaggedZones, sandboxTunnelRoute } from './sandbox-extras';
+import { sandboxDitchRows, sandboxFlaggedZones, sandboxTunnelRoute } from './sandbox-extras';
 
 const ANCHORS = { friendly: [4, 23] as const, hostile: [31, 22] as const };
 
@@ -123,5 +123,66 @@ describe('against the maps that actually ship', () => {
         expect(`${id}:${inside}`).toBe(`${id}:true`);
       }
     }
+  });
+});
+
+describe('sandboxDitchRows', () => {
+  const open = (w: number, h: number): string[] =>
+    Array.from({ length: h }, () => '.'.repeat(w));
+
+  it('cuts the ditch ACROSS the axis between the two forces', () => {
+    // A ditch nobody has to path around proves nothing about the mask, which
+    // is the entire reason this flag exists. Anchors 4 apart in x and 0 in y,
+    // so the obstacle between them runs north-south down a single column.
+    const rows = sandboxDitchRows(
+      { width: 9, height: 5, rows: open(9, 5) },
+      { friendly: [1, 2], hostile: [7, 2] }
+    );
+    expect(rows.every((r) => r[4] === 'd')).toBe(true);
+    // And it is one column, not a smear: every other tile is untouched.
+    expect(rows.every((r) => r.replace(/d/g, '.') === '.'.repeat(9))).toBe(true);
+  });
+
+  it('turns the ditch the other way when the forces are apart in y', () => {
+    const rows = sandboxDitchRows(
+      { width: 9, height: 9, rows: open(9, 9) },
+      { friendly: [4, 1], hostile: [4, 7] }
+    );
+    expect(rows[4]).toBe('d'.repeat(9));
+    expect(rows[3]).toBe('.'.repeat(9));
+  });
+
+  it('never overwrites a ridge, a boulder or a building', () => {
+    // A dev flag that quietly deleted half a building would change the map
+    // under the very check it exists to serve.
+    // Anchors 0 and 2 apart in x put the line on column 1; row 1 holds a
+    // building there, and rows 0/2/3 hold plain ground.
+    const rows = ['....', '.#^b', '....', '....'];
+    const out = sandboxDitchRows(
+      { width: 4, height: 4, rows },
+      { friendly: [0, 1], hostile: [2, 1] }
+    );
+    expect(out[1]).toBe('.#^b');
+    expect(out[0]).toBe('.d..');
+    expect(out[2]).toBe('.d..');
+    expect(out[3]).toBe('.d..');
+  });
+
+  it('does overwrite plain ground and cover levels', () => {
+    const out = sandboxDitchRows(
+      { width: 3, height: 3, rows: ['.1.', '.2.', '.3.'] },
+      { friendly: [0, 1], hostile: [2, 1] }
+    );
+    expect(out).toEqual(['.d.', '.d.', '.d.']);
+  });
+
+  it('leaves the source rows alone', () => {
+    // main.ts spreads the result into a fresh MapJson; mutating the imported
+    // map JSON in place would leak a dev flag into every later parse of it,
+    // including a mission's.
+    const rows = open(5, 3);
+    const before = [...rows];
+    sandboxDitchRows({ width: 5, height: 3, rows }, { friendly: [0, 1], hostile: [4, 1] });
+    expect(rows).toEqual(before);
   });
 });

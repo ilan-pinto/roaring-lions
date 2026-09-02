@@ -53,7 +53,15 @@ export type MeshFactionName = 'kdf' | 'enemy' | 'civilian';
  *  for the same reason and with the same guard: `mesh-catalogue.test.ts` runs
  *  the real `decorPlacements` over every shipped map and fails if this file's
  *  derivation misses a family that actually gets placed. */
-export type DecorFamilyName = 'grass' | 'sand' | 'bush' | 'tree' | 'rock' | 'slab' | 'boulder';
+export type DecorFamilyName =
+  | 'grass'
+  | 'sand'
+  | 'bush'
+  | 'tree'
+  | 'rock'
+  | 'slab'
+  | 'boulder'
+  | 'ditch';
 
 /** A rigged unit mesh: one GLB per VARIANT of one unit type (`civilians` is
  *  four figures; everything else is one), plus the side it fights for. */
@@ -182,6 +190,10 @@ export const DECOR_MESHES: Readonly<Record<DecorFamilyName, readonly string[]>> 
   rock: ['decor/rock_0.glb', 'decor/rock_1.glb', 'decor/rock_2.glb'],
   slab: ['decor/slab_0.glb', 'decor/slab_1.glb', 'decor/slab_2.glb'],
   boulder: ['decor/boulder_0.glb', 'decor/boulder_1.glb', 'decor/boulder_2.glb'],
+  // ONE variant, not three. The ditch has a single source and
+  // `decor-place.ts` pins every placement to variant 0 for it; listing
+  // `ditch_1`/`ditch_2` here would 404 on every boot of a map with a ditch.
+  ditch: ['decor/ditch_0.glb'],
 };
 
 /** The three shared VFX meshes (mesh-unit-contract's VFX asset class). Not
@@ -357,6 +369,14 @@ export function decorFamiliesFor(map: ParsedMap): Set<DecorFamilyName> {
     // A ridge is the one blocked tile that draws decor; every other blocked
     // tile is a building or fence whose box owns that ground entirely.
     if (blocked[t] !== 0 && d !== DECOR.ridge) continue;
+    // Before the boulder branch, mirroring `familyFor`'s own order: a `d`
+    // tile sets the boulder mask too, so testing that first would fetch
+    // boulder GLBs for a map whose only vehicle obstacle is a ditch and
+    // never fetch the ditch at all.
+    if (d === DECOR.ditch) {
+      out.add('ditch');
+      continue;
+    }
     if (boulder[t] !== 0) {
       out.add('boulder');
       continue;

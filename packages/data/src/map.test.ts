@@ -68,13 +68,13 @@ describe('parseMap', () => {
     expect(() => parseMap({ ...TINY, terrain: 'lunar' })).toThrow(/unknown terrain theme/);
   });
 
-  it('still decodes exactly nine terrain symbols', () => {
+  it('still decodes exactly ten terrain symbols', () => {
     // If this count moves, a symbol was added and validate_data.mjs's
     // TERRAIN_SYMBOLS must move with it. That used to be the whole guard --
     // a comment asking the next author to remember. tools/src/terrain_symbols.test.ts
     // now checks the validator's actual source, so forgetting fails a test.
     expect(Object.keys(TERRAIN_LEGEND).sort()).toEqual([
-      '.', '1', '2', '3', '^', 'b', 'n', 'o', 'r',
+      '.', '1', '2', '3', '^', 'b', 'd', 'n', 'o', 'r',
     ]);
   });
 });
@@ -353,6 +353,56 @@ describe('the boulder symbol `b`', () => {
   it('counts zero on every map that has none', () => {
     expect(parseMap(TINY).boulderCount).toBe(0);
     expect(Array.from(parseMap(TINY).boulder).every((v) => v === 0)).toBe(true);
+  });
+});
+
+// An anti-tank ditch. Mechanically `b` to the byte -- it reuses the same
+// vehicle-only mask on purpose, so it costs the sim nothing at all -- and the
+// ONE thing that separates the two symbols is the decor layer. Both halves of
+// that sentence are asserted here, because either alone would pass while the
+// feature was broken: a `d` that set no mask would be scenery, and a `d` that
+// set no decor kind would draw as a boulder field.
+describe('the anti-tank ditch symbol `d`', () => {
+  const DITCHES: MapJson = {
+    id: 'ditches',
+    name: 'Ditches',
+    width: 4,
+    height: 2,
+    rows: ['.d^2', 'db..'],
+  };
+
+  it('blocks vehicles without blocking infantry, exactly as `b` does', () => {
+    const m = parseMap(DITCHES);
+    // `blocked` is the infantry mask: the ridge is in it, the ditches are not.
+    expect(Array.from(m.blocked)).toEqual([0, 0, 1, 0, 0, 0, 0, 0]);
+    // `boulder` is the extra the vehicle mask adds -- and the `b` at index 5
+    // is the control: both symbols land in the same array, which is the whole
+    // reason `d` needed no sim change.
+    expect(Array.from(m.boulder)).toEqual([0, 1, 0, 0, 1, 1, 0, 0]);
+    expect(m.boulderCount).toBe(3);
+  });
+
+  it('carries no cover, no HP and no sight-blocking of its own', () => {
+    const m = parseMap(DITCHES);
+    // Cover 2 at index 3 is the control: a broken cover write would zero that
+    // too, and "the ditch has no cover" would pass for the wrong reason.
+    expect(m.cover[1]).toBe(0);
+    expect(m.cover[4]).toBe(0);
+    expect(m.cover[3]).toBe(2);
+    // Not a structure, so nothing to shoot: the ridge is likewise absent, and
+    // `structures` holds only building runs.
+    expect(m.structures).toEqual([]);
+  });
+
+  it('is the one thing that tells it apart from a boulder: the decor kind', () => {
+    const m = parseMap(DITCHES);
+    expect(m.decor[1]).toBe(DECOR.ditch);
+    expect(m.decor[4]).toBe(DECOR.ditch);
+    // The boulder beside it stays decor-less, and the ridge keeps its own
+    // kind -- so this is testing that `d` is distinguished, not that the
+    // decor array is simply being filled in.
+    expect(m.decor[5]).toBe(DECOR.none);
+    expect(m.decor[2]).toBe(DECOR.ridge);
   });
 });
 

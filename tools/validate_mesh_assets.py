@@ -333,6 +333,33 @@ def check_collisions(mesh_masks, sprite_masks, sheets):
 # `VEHICLE_ROLE_PALETTES` above tracks its own TypeScript-side counterparts.
 DECOR_ROLES = {"foliage", "trunk", "rock", "sand"}
 
+# The decor families allowed to ship their own baked material instead of being
+# repainted from the palette -- the decor counterpart of TEXTURED_MESH_EXEMPT
+# above, and kept in step with TEXTURED_DECOR_FAMILIES in
+# packages/render/src/three/terrain/textured-decor.ts (pinned by
+# textured-decor.test.ts, which parses this set).
+#
+# ONE family, and the reason is not preference. The anti-tank ditch's job is to
+# REPLACE a patch of ground -- the terrain is an extruded heightfield with no
+# way to cut a hole in it -- and the ground it brings is a flat apron: one
+# normal, and therefore ONE FLAT COLOUR under a ramp indexed by normal, by
+# construction. On terrain carrying its own grain that reads as a plaque with a
+# ditch printed on it rather than as ground with a ditch in it. The palette
+# path cannot express this asset; it is not merely worse at it.
+#
+# Everything else in art/meshes/decor/ still fails on a single material, image
+# or texture. The gate is not weakened for all of decor to admit one family.
+TEXTURED_DECOR_EXEMPT = {"ditch"}
+
+
+def decor_family_of(name):
+    """`ditch_0.glb` -> `ditch`. Mirrors `decorFamilyOf` in
+    textured-decor.ts: split on the LAST underscore so a future two-word
+    family name survives."""
+    base = os.path.splitext(os.path.basename(name))[0]
+    cut = base.rfind("_")
+    return base if cut == -1 else base[:cut]
+
 
 def _read_glb_json(path):
     """The glTF JSON chunk, parsed without any dependency on `bpy` -- this
@@ -356,34 +383,79 @@ def check_decor_meshes(decor_root):
     """Every `art/meshes/decor/*.glb` carries zero materials/images/textures
     and every mesh-bearing node's `extras.rl_role` is inside the closed decor
     set -- checked directly against the raw GLB bytes, never rendered (see
-    module docstring). An empty directory is zero iterations, not a failure."""
+    module docstring). An empty directory is zero iterations, not a failure.
+
+    A family in TEXTURED_DECOR_EXEMPT takes the other contract instead: it
+    SHIPS exactly one material/image/texture, and its mesh nodes carry
+    `extras.rl_textured = true` rather than an `rl_role` (they draw their own
+    bake, so there is no palette ramp for a role to name). Both locks are
+    checked, the same pair the runtime checks -- the flag says a mesh is
+    textured, the list says whether its family is allowed to be -- so a GLB
+    that sets the flag from an unlisted family fails here rather than being
+    silently upgraded, and a listed family that quietly lost its texture fails
+    too instead of drawing an untextured slab.
+
+    Returns (failures, textured_names) so the caller can name the exempt
+    files on the PASSING path.
+    """
     failures = []
+    textured_names = []
     for path in sorted(glob.glob(os.path.join(decor_root, "*.glb"))):
         name = os.path.basename(path)
+        family = decor_family_of(name)
+        exempt = family in TEXTURED_DECOR_EXEMPT
         glb_json = _read_glb_json(path)
         n_mat = len(glb_json.get("materials", []))
         n_img = len(glb_json.get("images", []))
         n_tex = len(glb_json.get("textures", []))
-        if n_mat or n_img or n_tex:
+        if exempt:
+            if (n_mat, n_img, n_tex) != (1, 1, 1):
+                failures.append(
+                    f"{name}: family {family!r} is in TEXTURED_DECOR_EXEMPT and must ship "
+                    f"exactly one material/image/texture, but carries {n_mat}/{n_img}/{n_tex} "
+                    f"-- an exempt family with no texture draws an untextured slab, and more "
+                    f"than one image means metallic_roughness or normal survived an export "
+                    f"that should have dropped them"
+                )
+            else:
+                textured_names.append(name)
+        elif n_mat or n_img or n_tex:
             failures.append(
                 f"{name}: carries {n_mat} material(s), {n_img} image(s), "
-                f"{n_tex} texture(s) -- the decor contract is zero of each"
+                f"{n_tex} texture(s) -- the decor contract is zero of each. If this is "
+                f"deliberate, add {family!r} to TEXTURED_DECOR_EXEMPT (and to "
+                f"TEXTURED_DECOR_FAMILIES in "
+                f"packages/render/src/three/terrain/textured-decor.ts)"
             )
         nodes = glb_json.get("nodes", [])
         gltf_meshes = glb_json.get("meshes", [])
         for node in nodes:
             if "mesh" not in node:
                 continue  # a camera/empty node, not a mesh-bearing one
-            role = (node.get("extras") or {}).get("rl_role")
+            extras = node.get("extras") or {}
+            role = extras.get("rl_role")
             node_name = node.get("name") or gltf_meshes[node["mesh"]].get("name", "?")
-            if role is None:
+            if extras.get("rl_textured") is True:
+                if not exempt:
+                    failures.append(
+                        f"{name}: mesh node {node_name!r} declares rl_textured but family "
+                        f"{family!r} is not in TEXTURED_DECOR_EXEMPT {sorted(TEXTURED_DECOR_EXEMPT)}"
+                    )
+                continue
+            if exempt:
+                failures.append(
+                    f"{name}: family {family!r} is in TEXTURED_DECOR_EXEMPT but mesh node "
+                    f"{node_name!r} does not declare rl_textured -- the runtime reads that "
+                    f"flag, so this mesh would be dropped and never drawn"
+                )
+            elif role is None:
                 failures.append(f"{name}: mesh node {node_name!r} carries no rl_role")
             elif role not in DECOR_ROLES:
                 failures.append(
                     f"{name}: mesh node {node_name!r} has rl_role {role!r}, outside "
                     f"the closed decor vocabulary {sorted(DECOR_ROLES)}"
                 )
-    return failures
+    return failures, textured_names
 
 
 def main():
@@ -427,7 +499,7 @@ def main():
         failures.extend(check_collisions(mesh_masks, sprite_masks, sheets))
 
         decor_root = os.path.join(REPO, "art", "meshes", "decor")
-        decor_failures = check_decor_meshes(decor_root)
+        decor_failures, textured_decor = check_decor_meshes(decor_root)
         failures.extend(decor_failures)
 
         # A FOURTH way of checking, and like decor's it runs against the raw
@@ -457,6 +529,17 @@ def main():
             print(f"  NOT palette-checked -- {len(textured)} textured mesh(es) ship their own "
                   f"baked material by the project lead's instruction: {', '.join(sorted(textured))}")
             print("  (silhouette IoU still applied to them; see TEXTURED_MESH_EXEMPT)")
+        if textured_decor:
+            # Same reasoning as the building line above, and deliberately on
+            # the PASSING path: the thing worth catching is a reader assuming
+            # every decor GLB is palette-clean because the gate went green.
+            # Decor is never rendered by this gate at all, so these are not
+            # silhouette-checked either -- say so rather than let the
+            # building line's "silhouette IoU still applies" be read across.
+            print(f"  NOT palette-checked -- {len(textured_decor)} textured decor mesh(es) ship "
+                  f"their own baked material: {', '.join(sorted(textured_decor))}")
+            print("  (decor is contract-checked from the GLB bytes, never rendered, so no "
+                  "silhouette IoU applies to it either; see TEXTURED_DECOR_EXEMPT)")
         if facing_notes:
             # Deliberately loud, and deliberately on the PASSING path, for the
             # same reason as the line above: a green tick must not read as

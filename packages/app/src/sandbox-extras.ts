@@ -1,17 +1,19 @@
 /**
- * The opt-in halves of the sandbox: a protected zone, and a tunnel route.
+ * The opt-in halves of the sandbox: a protected zone, a tunnel route, and an
+ * anti-tank ditch.
  *
- * Both exist because a subsystem was unreachable without a mission. Rules of
- * engagement come from `mission.roe.flagged_zones`, and tunnels from a map's
- * own `tunnels` array — a sandbox has neither, so the ROE X and the tunnel
- * charge cursor could not be looked at on most maps at all.
+ * Each exists because a subsystem was unreachable without a mission. Rules of
+ * engagement come from `mission.roe.flagged_zones`, tunnels from a map's own
+ * `tunnels` array, and a ditch from a `d` in a map's own rows — a sandbox has
+ * none of the three, so the ROE X, the tunnel charge cursor and the ditch
+ * could not be looked at on any shipped map at all.
  *
  * They are opt-in rather than always-on so the default sandbox stays what it
  * has always been, and so a check for one subsystem is not buried under
  * three others.
  *
- * Pure: dimensions, zones and two anchors in, rectangles and a route out. No
- * sim, no DOM, no URL parsing.
+ * Pure: dimensions, zones and two anchors in, rectangles, a route and rows
+ * out. No sim, no DOM, no URL parsing.
  */
 
 import type { SandboxAnchors } from './sandbox-anchors';
@@ -98,4 +100,68 @@ export function sandboxTunnelRoute(map: ZonedMap, anchors: SandboxAnchors): Sand
     dig_tiles_per_s: 1,
     pre_dug: true,
   };
+}
+
+/**
+ * Terrain symbols a synthesised ditch is allowed to overwrite.
+ *
+ * Open ground and the three cover levels only. Deliberately NOT `^`, `b` or
+ * any building symbol: a dev flag that quietly deleted a rock ridge or half
+ * a building would change the map under the very check it exists to serve,
+ * and `d` carries no cover of its own so overwriting a cover tile is already
+ * the biggest change it makes.
+ *
+ * `r`, `o` and `n` are excluded for a subtler reason: they carry a decor kind,
+ * and `d` would replace it. A ditch dug straight through the middle of an
+ * olive grove is a fine thing to author on purpose and a confusing thing for
+ * a flag to do behind your back.
+ */
+const DITCH_OVERWRITABLE: ReadonlySet<string> = new Set(['.', '1', '2', '3']);
+
+export interface RowMap extends ZonedMap {
+  rows: readonly string[];
+}
+
+/**
+ * `map.rows` with an anti-tank ditch cut across it, for maps that author none
+ * — which today is every shipped map.
+ *
+ * The line is drawn PERPENDICULAR to the axis between the two anchors and at
+ * their midpoint, so it lies across the ground a force actually crosses
+ * rather than beside it. That is the whole point of the flag: a ditch nobody
+ * has to path around proves nothing about the mask.
+ *
+ * Axis-aligned, and only ever a straight run, which is also deliberate. The
+ * ditch asset is a straight prismatic segment and cannot express a bend
+ * (`decor-place.ts`'s `ditchYawTurns` documents what happens at a corner) —
+ * so a dev flag should demonstrate the case the asset is FOR, not manufacture
+ * the case it handles least well. A diagonal or dog-legged synthetic ditch
+ * would put a crossing artefact on screen and invite it to be read as a bug
+ * in the placement rule.
+ *
+ * Returns the rows unchanged if nothing on the line is overwritable, rather
+ * than forcing a ditch through a building.
+ */
+export function sandboxDitchRows(map: RowMap, anchors: SandboxAnchors): string[] {
+  const rows = map.rows.map((r) => r);
+  const [fx0, fy0] = anchors.friendly;
+  const [hx, hy] = anchors.hostile;
+  // Run the ditch across the LONGER of the two anchor separations: if the
+  // two forces are mostly east-west apart, the obstacle between them runs
+  // north-south.
+  const vertical = Math.abs(hx - fx0) >= Math.abs(hy - fy0);
+  const mid = vertical
+    ? Math.min(Math.max(Math.round((fx0 + hx) / 2), 0), map.width - 1)
+    : Math.min(Math.max(Math.round((fy0 + hy) / 2), 0), map.height - 1);
+
+  const span = vertical ? map.height : map.width;
+  for (let i = 0; i < span; i++) {
+    const x = vertical ? mid : i;
+    const y = vertical ? i : mid;
+    const row = rows[y];
+    if (row === undefined || x >= row.length) continue;
+    if (!DITCH_OVERWRITABLE.has(row[x])) continue;
+    rows[y] = `${row.slice(0, x)}d${row.slice(x + 1)}`;
+  }
+  return rows;
 }

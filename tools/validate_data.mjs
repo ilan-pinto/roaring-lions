@@ -775,7 +775,7 @@ const structureSymbols = new Map(
 // lists agreeing is asserted by tools/src/terrain_symbols.test.ts, which reads
 // this file's source text and regexes out the TERRAIN_SYMBOLS literal below,
 // rather than trusting a comment to keep them in sync.
-const TERRAIN_SYMBOLS = new Set(['.', '1', '2', '3', 'r', 'o', 'n', '^', 'b']);
+const TERRAIN_SYMBOLS = new Set(['.', '1', '2', '3', 'r', 'o', 'n', '^', 'b', 'd']);
 for (const [sym, id] of structureSymbols) {
   if (TERRAIN_SYMBOLS.has(sym)) {
     failures.push(

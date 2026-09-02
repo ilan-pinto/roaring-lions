@@ -70,7 +70,7 @@ import {
 import { roleBucket } from './ui/role';
 import { roeNotice } from './ui/roe-notice';
 import { sandboxAnchors, type SandboxAnchors } from './sandbox-anchors';
-import { sandboxFlaggedZones, sandboxTunnelRoute } from './sandbox-extras';
+import { sandboxDitchRows, sandboxFlaggedZones, sandboxTunnelRoute } from './sandbox-extras';
 import {
   SANDBOX_KDF,
   SANDBOX_ENEMY,
@@ -325,6 +325,7 @@ async function main(): Promise<void> {
   const wantRoe = flags.roe;
   const wantTunnel = flags.tunnel;
   const wantSur = flags.sur;
+  const wantDitch = flags.ditch;
   // Meshes are what the game looks like now, so they load unless asked not to.
   // This was `flags.mesh` -- an opt-IN that `ui/menu.ts` never appended to any
   // link it builds, so no player reached by the menu ever saw a mesh. The
@@ -354,8 +355,20 @@ async function main(): Promise<void> {
   // Printed only in the sandbox: a mission brings its own zones and tunnels,
   // and none of these flags apply to it.
   if (!mission) console.info(`[lions] ${helpText()}`);
-  const mapJson =
+  const baseMapJson =
     (maps as Record<string, MapJson | undefined>)[mapId] ?? maps.beit_sahwan_outskirts;
+  // The ditch is cut into the ROWS, before `parseMap`, rather than poked into
+  // the parsed arrays afterwards. That way the sandbox walks exactly the code
+  // path an authored `d` walks -- legend lookup, the vehicle mask, the decor
+  // layer and `applyTerrain` all see a real map -- so a bug anywhere in that
+  // chain shows up here instead of being bypassed by a shortcut.
+  //
+  // Sandbox-only, like every flag beside it: a mission brings its own terrain,
+  // and a dev flag must never change how a real mission is fought.
+  const mapJson: MapJson =
+    !mission && wantDitch
+      ? { ...baseMapJson, rows: sandboxDitchRows(baseMapJson, sandboxAnchors(baseMapJson)) }
+      : baseMapJson;
   const map = parseMap(mapJson);
   // 256, not 128: `spawn` never reuses a dead unit's slot, so capacity is a
   // budget for everyone who ever draws breath in a mission rather than for how
@@ -712,7 +725,8 @@ async function main(): Promise<void> {
     DECOR.road !== TERRAIN_DECOR.road ||
     DECOR.grove !== TERRAIN_DECOR.grove ||
     DECOR.knoll !== TERRAIN_DECOR.knoll ||
-    DECOR.ridge !== TERRAIN_DECOR.ridge
+    DECOR.ridge !== TERRAIN_DECOR.ridge ||
+    DECOR.ditch !== TERRAIN_DECOR.ditch
   ) {
     throw new Error('decor enums have diverged between @lions/data and @lions/render');
   }

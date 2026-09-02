@@ -40,6 +40,11 @@ export const DECOR_ROAD = 1;
 export const DECOR_GROVE = 2;
 export const DECOR_KNOLL = 3;
 export const DECOR_RIDGE = 4;
+/** An anti-tank ditch tile (`d`). Unlike every value above it, this one is
+ *  paired with a MECHANIC -- the tile also sets `TerrainInput.boulder`, the
+ *  vehicle-only block. `boulder` alone says a vehicle is stopped; this says by
+ *  what, which is the only thing separating a `d` tile from a `b` one. */
+export const DECOR_DITCH = 5;
 
 /**
  * World units of height per elevation level.

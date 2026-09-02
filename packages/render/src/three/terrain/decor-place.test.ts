@@ -1,6 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { decorPlacements, VARIANTS_PER_FAMILY } from './decor-place';
-import { DECOR_GROVE, DECOR_KNOLL, DECOR_RIDGE, DECOR_ROAD, WORLD_PER_LEVEL } from './shared';
+import {
+  decorPlacements,
+  DITCH_LIFT,
+  VARIANTS_PER_FAMILY,
+  type DecorPlacement,
+} from './decor-place';
+import {
+  DECOR_DITCH,
+  DECOR_GROVE,
+  DECOR_KNOLL,
+  DECOR_RIDGE,
+  DECOR_ROAD,
+  WORLD_PER_LEVEL,
+} from './shared';
 import { tileHash } from '../../tile-hash';
 import type { TerrainInput } from './types';
 
@@ -311,5 +323,159 @@ describe('decorPlacements', () => {
       (p) => Math.abs(p.x - expectedX) < 1e-9 && Math.abs(p.z - expectedZ) < 1e-9
     );
     expect(hit?.family).toBe('grass');
+  });
+});
+
+/**
+ * A w*h map with a ditch drawn by a callback. Ditch tiles set BOTH layers,
+ * exactly as `map.ts`'s legend does for `d`: the decor kind AND the
+ * vehicle-only mask. A fixture that set only one of them would be testing a
+ * map the parser cannot produce -- and setting only `decor` would let the
+ * ditch-before-boulder ordering test below pass for the wrong reason.
+ */
+function ditchInput(w: number, h: number, mark: (x: number, y: number) => boolean): TerrainInput {
+  const decor = new Uint8Array(w * h);
+  const boulder = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (!mark(x, y)) continue;
+      decor[y * w + x] = DECOR_DITCH;
+      boulder[y * w + x] = 1;
+    }
+  }
+  return {
+    width: w,
+    height: h,
+    decor,
+    elevation: null,
+    blocked: new Uint8Array(w * h),
+    cover: new Uint8Array(w * h),
+    boulder,
+  };
+}
+
+const ditchOnly = (out: readonly DecorPlacement[]): DecorPlacement[] =>
+  out.filter((p) => p.family === 'ditch');
+
+describe('an anti-tank ditch (`d`)', () => {
+  it('draws a ditch, not boulders, on a tile that sets both layers', () => {
+    // The ordering guard. A `d` tile sets the boulder mask too -- the two
+    // symbols deliberately share one vehicle-only mask -- so if `familyFor`
+    // tested `boulder` first, every ditch tile on every map would draw a
+    // field of rocks and no ditch would exist anywhere.
+    const out = decorPlacements(ditchInput(9, 9, (x, y) => y === 4 && x >= 2 && x <= 6));
+    expect(ditchOnly(out).length).toBe(5);
+    expect(out.some((p) => p.family === 'boulder')).toBe(false);
+  });
+
+  it('places exactly one segment per tile of a straight run, on the tile centre', () => {
+    // One per tile with no jitter is what makes a run continuous: the segment
+    // is baked to exactly one tile of length, so centring it spans [x, x+1]
+    // and abuts its neighbours with no gap and no overlap. Any jitter here
+    // would open a hole in an obstacle the player reads to decide whether
+    // armour can pass.
+    const out = ditchOnly(decorPlacements(ditchInput(9, 9, (x, y) => y === 4 && x >= 2 && x <= 6)));
+    expect(out.map((p) => [p.x, p.z])).toEqual([
+      [2.5, 4.5],
+      [3.5, 4.5],
+      [4.5, 4.5],
+      [5.5, 4.5],
+      [6.5, 4.5],
+    ]);
+  });
+
+  it('gives every segment the same scale and variant — no rolls at all', () => {
+    const out = ditchOnly(decorPlacements(ditchInput(9, 9, (x, y) => y === 4 && x >= 2 && x <= 6)));
+    expect(new Set(out.map((p) => p.scale))).toEqual(new Set([1]));
+    expect(new Set(out.map((p) => p.variant))).toEqual(new Set([0]));
+    // Variant 0 specifically, not merely "all the same": only `ditch_0.glb`
+    // exists, and a rolled 1 or 2 would hit `buildTexturedDecorMesh`'s
+    // missing-key skip and erase that tile's obstacle.
+    expect(out.every((p) => p.variant === 0)).toBe(true);
+  });
+
+  it('runs the trench along the run: 0 turns east-west, a quarter turn north-south', () => {
+    const ew = ditchOnly(decorPlacements(ditchInput(9, 9, (x, y) => y === 4 && x >= 2 && x <= 6)));
+    expect(new Set(ew.map((p) => p.yawTurns))).toEqual(new Set([0]));
+    const ns = ditchOnly(decorPlacements(ditchInput(9, 9, (x, y) => x === 4 && y >= 2 && y <= 6)));
+    expect(new Set(ns.map((p) => p.yawTurns))).toEqual(new Set([0.25]));
+  });
+
+  it('draws BOTH axes at a corner, so a bend is a crossing and never a hole', () => {
+    // The asset is a straight prismatic segment and cannot express a bend, so
+    // a corner is either a gap or a crossing. This picks the crossing on
+    // purpose: a gap draws ground a vehicle visibly could drive through on
+    // tiles `blockedVehicle` says are impassable. The corner tile is the only
+    // one carrying two segments; both arms' straight tiles carry one.
+    const out = ditchOnly(
+      decorPlacements(
+        // An L: east arm along y=4, south arm down x=6.
+        ditchInput(9, 9, (x, y) => (y === 4 && x >= 2 && x <= 6) || (x === 6 && y >= 4 && y <= 7))
+      )
+    );
+    const at = (x: number, y: number): number[] =>
+      out.filter((p) => p.x === x + 0.5 && p.z === y + 0.5).map((p) => p.yawTurns).sort();
+    expect(at(6, 4)).toEqual([0, 0.25]); // the corner itself
+    expect(at(4, 4)).toEqual([0]); // mid east arm
+    expect(at(6, 6)).toEqual([0.25]); // mid south arm
+  });
+
+  it('draws both axes at a T-junction too', () => {
+    const out = ditchOnly(
+      decorPlacements(ditchInput(9, 9, (x, y) => (y === 4 && x >= 2 && x <= 6) || (x === 4 && y >= 4 && y <= 7)))
+    );
+    const at = (x: number, y: number): number[] =>
+      out.filter((p) => p.x === x + 0.5 && p.z === y + 0.5).map((p) => p.yawTurns).sort();
+    expect(at(4, 4)).toEqual([0, 0.25]);
+  });
+
+  it('gives an isolated tile one segment, deterministically along x', () => {
+    // Arbitrary but FIXED. Rolling tileHash here would make a run's first
+    // authored tile flip axis the moment a second was authored beside it.
+    const out = ditchOnly(decorPlacements(ditchInput(9, 9, (x, y) => x === 4 && y === 4)));
+    expect(out.length).toBe(1);
+    expect(out[0].yawTurns).toBe(0);
+  });
+
+  it('does not let a neighbouring boulder field bend the run', () => {
+    // `isDitch` reads the DECOR layer, not the shared vehicle mask. A boulder
+    // beside a ditch sets the same mask bit, and asking that question here
+    // would turn a straight ditch into a junction because of a rock next door.
+    const w = 9;
+    const t = ditchInput(w, 9, (x, y) => y === 4 && x >= 2 && x <= 6);
+    t.boulder![3 * w + 4] = 1; // a boulder directly north of a ditch tile
+    const at4 = ditchOnly(decorPlacements(t)).filter((p) => p.x === 4.5 && p.z === 4.5);
+    expect(at4.map((p) => p.yawTurns)).toEqual([0]);
+  });
+
+  it('lifts the apron clear of the terrain it replaces', () => {
+    // The GLB grounds its apron at exactly Z=0, which would be coplanar with
+    // the terrain plane and z-fight across a fifth of the segment's width.
+    const flat = ditchOnly(decorPlacements(ditchInput(9, 9, (x, y) => y === 4 && x >= 2 && x <= 6)));
+    expect(flat.every((p) => p.y === DITCH_LIFT)).toBe(true);
+    expect(DITCH_LIFT).toBeGreaterThan(0);
+    // And it is an epsilon, not a step: well under a single elevation level,
+    // so it can never read as the ditch sitting on a plinth.
+    expect(DITCH_LIFT).toBeLessThan(WORLD_PER_LEVEL / 10);
+  });
+
+  it('stacks that lift on the tile’s own elevation, like every other family', () => {
+    const w = 9;
+    const t = ditchInput(w, 9, (x, y) => y === 4 && x >= 2 && x <= 6);
+    const elevation = new Uint8Array(w * 9);
+    elevation[4 * w + 4] = 3;
+    t.elevation = elevation;
+    const at4 = ditchOnly(decorPlacements(t)).filter((p) => p.x === 4.5 && p.z === 4.5);
+    expect(at4[0].y).toBeCloseTo(3 * WORLD_PER_LEVEL + DITCH_LIFT, 10);
+  });
+
+  it('never skips a tile — density is 1.0 and a gap is a gameplay lie', () => {
+    // Every other family rolls against a density and legitimately leaves
+    // tiles bare. A ditch that did would draw a hole a vehicle could see
+    // through, on ground it cannot cross.
+    const w = 24;
+    const out = ditchOnly(decorPlacements(ditchInput(w, 24, (_x, y) => y === 12)));
+    expect(out.length).toBe(w);
+    expect(new Set(out.map((p) => p.x))).toEqual(new Set(Array.from({ length: w }, (_, i) => i + 0.5)));
   });
 });

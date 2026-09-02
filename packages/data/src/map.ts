@@ -6,12 +6,20 @@
 //   r  dirt road            o  olive grove (cover 1)   n  rocky knoll (cover 2)
 //   ^  rock ridge: impassable and blocks sight, the only non-building blocked tile
 //   b  boulder field: open ground on foot, a wall to anything wheeled or tracked
+//   d  anti-tank ditch: the same, dug rather than natural
 //   building symbols come from data/structures.json, NOT from this file
 //
-// `b` is the only symbol whose passability depends on WHO is asking, which is
-// why `blocked` alone cannot carry it: the sim keeps a second mask, and this
-// file supplies the extra tiles that go into it. It is ONLY that -- no cover,
-// no sight-blocking, no HP, not destructible.
+// `b` and `d` are the symbols whose passability depends on WHO is asking, which
+// is why `blocked` alone cannot carry them: the sim keeps a second mask, and
+// this file supplies the extra tiles that go into it. They are ONLY that -- no
+// cover, no sight-blocking, no HP, not destructible.
+//
+// The two are mechanically IDENTICAL and differ only in what is drawn. That is
+// deliberate: `d` reuses `b`'s mask rather than inventing a second one, so it
+// costs the sim nothing at all -- no new field, no new code path, no
+// determinism exposure. What separates them is the decor layer, which is
+// presentation-only, and a renderer that could not tell them apart would draw
+// boulders in a trench.
 //
 // Any building symbol makes a blocked tile; a contiguous run of the SAME
 // symbol becomes one structure with its own HP, garrison and rubble — unless
@@ -108,7 +116,7 @@ export interface ParsedTunnel {
  * array to the renderer directly; the mechanical half of the same tile travels
  * the normal route, through `sim.setCover`.
  */
-export const DECOR = { none: 0, road: 1, grove: 2, knoll: 3, ridge: 4 } as const;
+export const DECOR = { none: 0, road: 1, grove: 2, knoll: 3, ridge: 4, ditch: 5 } as const;
 export type DecorKind = (typeof DECOR)[keyof typeof DECOR];
 
 export interface ParsedMap {
@@ -120,12 +128,20 @@ export interface ParsedMap {
   /** 1 = impassable to everything on the ground, row-major width*height.
    *  Buildings and `^` ridges. This is the mask infantry path on. */
   blocked: Uint8Array;
-  /** 1 = a boulder tile: passable on foot, impassable to wheels and tracks.
-   *  The vehicle mask is `blocked | boulder`; this array is the difference,
-   *  and is deliberately NOT folded into `blocked`. */
+  /** 1 = passable on foot, impassable to wheels and tracks. The vehicle mask
+   *  is `blocked | boulder`; this array is the difference, and is deliberately
+   *  NOT folded into `blocked`.
+   *
+   *  Named for `b`, which was its only author until `d` (the anti-tank ditch)
+   *  joined it. Both symbols set exactly this bit and nothing else, so the
+   *  sim cannot tell them apart and does not need to -- what a vehicle cannot
+   *  cross is one question, and which of two things is in the way is a
+   *  drawing question the `decor` layer answers. Renaming it would touch
+   *  `Sim.setBoulder` and every caller for no behavioural gain. */
   boulder: Uint8Array;
-  /** How many tiles `boulder` marks. Zero means the two masks are identical,
-   *  which is what lets the sim skip allocating a second flow field at all. */
+  /** How many tiles `boulder` marks, from either symbol. Zero means the two
+   *  masks are identical, which is what lets the sim skip allocating a second
+   *  flow field at all. */
   boulderCount: number;
   /** Cover level 0-3, row-major width*height. */
   cover: Uint8Array;
@@ -207,6 +223,21 @@ export const TERRAIN_LEGEND: Record<string, TerrainCell> = {
   // byte-identical to `main`. The renderer does not need the decor array for
   // this anyway: `ParsedMap.boulder` says exactly which tiles they are.
   b: { blocked: 0, boulder: 1, cover: 0, decor: DECOR.none },
+  // An anti-tank ditch. Mechanically `b` to the byte -- the same vehicle-only
+  // mask, no cover, no sight-blocking, no HP, not destructible -- because the
+  // mechanic `b` already shipped (T1-B) is exactly what a ditch does, and
+  // reusing it means no sim code and no determinism exposure.
+  //
+  // Giving it cover was considered and deliberately NOT done. A prepared
+  // trench arguably should shelter infantry standing in it, and that is a
+  // real design idea -- but it is a change to the combat model, it would have
+  // to clear `pnpm balance`, and it is the project lead's call rather than a
+  // side effect of adding an art asset.
+  //
+  // Unlike `b` it DOES carry a decor kind, because unlike `b` there is
+  // something to draw that is not a rock. `ParsedMap.boulder` says a vehicle
+  // is stopped; `decor` says by what.
+  d: { blocked: 0, boulder: 1, cover: 0, decor: DECOR.ditch },
 };
 
 const LEGEND: Record<string, TerrainCell> = {

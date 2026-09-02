@@ -135,6 +135,13 @@ import {
 } from './terrain/decor-mesh';
 import { decorPlacements, type DecorPlacement } from './terrain/decor-place';
 import { isDecorMeshRole, type DecorMeshRole } from './terrain/decor-role';
+import {
+  buildTexturedDecorMesh,
+  disposeTexturedDecorMesh,
+  type TexturedDecorSet,
+} from './terrain/decor-textured-mesh';
+import { isTexturedDecorKey } from './terrain/textured-decor';
+import { prepareTexturedMap } from './units/textured-building';
 import { dirtyForStructureHit, dirtyForStructureDestroyed } from './terrain/dirty';
 import { isGrindingHit } from '../grind';
 import { packSheet, buildUnitTexture } from './units/atlas';
@@ -646,6 +653,15 @@ export class ThreeRenderer implements Renderer {
    *  `rebuildTerrain` alongside ground/scatter/groves/buildings. `null`
    *  before the first rebuild. */
   private decorGroup: THREE.Group | null = null;
+  /** The textured half of the decor set -- geometry AND its own baked map,
+   *  kept apart from `decorSet` because the two are consumed by different
+   *  builders through different materials (`terrain/textured-decor.ts`'s own
+   *  top comment for why the exemption exists). Empty on every backend and
+   *  every map that never loads a textured family. */
+  private texturedDecorSet: TexturedDecorSet = { parts: new Map() };
+  /** The current textured-decor batch, rebuilt wholesale by `rebuildTerrain`
+   *  alongside `decorGroup`. */
+  private texturedDecorGroup: THREE.Group | null = null;
   /**
    * Task B3.9: the renderer-side counterpart of `PixiRenderer`'s own
    * `structureWear` (`renderer.ts:1792`'s `bumpStructureWear`) -- one
@@ -1517,7 +1533,9 @@ export class ThreeRenderer implements Renderer {
     // (`disposeDecorGeometrySet`'s own doc comment) -- two different owners,
     // both released here.
     if (this.decorGroup) disposeDecorMesh(this.decorGroup);
+    if (this.texturedDecorGroup) disposeTexturedDecorMesh(this.texturedDecorGroup);
     this.disposeDecorGeometrySet(this.decorSet);
+    this.disposeTexturedDecorSet(this.texturedDecorSet);
     this.terrainMat.dispose();
     this.groveMat.dispose();
     for (const instancer of this.unitInstancers.values()) instancer.dispose();
@@ -3236,6 +3254,7 @@ export class ThreeRenderer implements Renderer {
    */
   async loadDecorMeshes(urls: ReadonlyMap<string, string>): Promise<void> {
     const parts = new Map<string, { role: DecorMeshRole; geometry: THREE.BufferGeometry }[]>();
+    const textured = new Map<string, { geometry: THREE.BufferGeometry; map: THREE.Texture }>();
     await Promise.all(
       [...urls].map(async ([id, url]) => {
         const gltf = await new GLTFLoader().loadAsync(url);
@@ -3244,6 +3263,42 @@ export class ThreeRenderer implements Renderer {
         gltf.scene.traverse((o) => {
           const mesh = o as THREE.Mesh;
           if (!mesh.isMesh) return;
+          // The textured branch, taken BEFORE `rl_role` is even looked at: a
+          // textured decor mesh has no palette ramp and therefore no role to
+          // carry, so the `rl_role === undefined` skip just below would drop
+          // it silently and the ditch would simply never draw.
+          //
+          // Both locks are checked here, the same pair
+          // `terrain/textured-decor.ts` documents. The flag says this mesh
+          // ships a bake; the family list says whether it is allowed to. A
+          // GLB that sets the flag from a family outside the list THROWS
+          // rather than being quietly upgraded -- the runtime half of the
+          // rule `tools/validate_mesh_assets.py` enforces on the bytes.
+          if ((mesh.userData as { rl_textured?: boolean }).rl_textured === true) {
+            if (!isTexturedDecorKey(id)) {
+              throw new Error(
+                `loadDecorMeshes: "${id}" declares rl_textured but its family is not in ` +
+                  `TEXTURED_DECOR_FAMILIES -- add it there (and to TEXTURED_DECOR_EXEMPT ` +
+                  `in tools/validate_mesh_assets.py) or drop the flag`
+              );
+            }
+            const src = (mesh.material as THREE.MeshStandardMaterial | undefined)?.map;
+            if (!src) {
+              throw new Error(
+                `loadDecorMeshes: "${id}" declares rl_textured but carries no base_color map`
+              );
+            }
+            mesh.updateWorldMatrix(true, false);
+            textured.set(id, {
+              // Baked into world space like the palette path's clone, and for
+              // the same reason -- a mesh's own `.geometry` is in its local
+              // space. UVs are deliberately NOT stripped here: they are what
+              // the map is addressed by.
+              geometry: mesh.geometry.clone().applyMatrix4(mesh.matrixWorld),
+              map: prepareTexturedMap(src),
+            });
+            return;
+          }
           const role = (mesh.userData as { rl_role?: string }).rl_role;
           if (role === undefined) return;
           if (!isDecorMeshRole(role)) {
@@ -3268,8 +3323,21 @@ export class ThreeRenderer implements Renderer {
       })
     );
     this.disposeDecorGeometrySet(this.decorSet);
+    this.disposeTexturedDecorSet(this.texturedDecorSet);
     this.decorSet = { parts };
+    this.texturedDecorSet = { parts: textured };
     this.terrainDirty = true;
+  }
+
+  /** `disposeDecorGeometrySet`'s counterpart for the textured half. Disposes
+   *  the map as well as the geometry: unlike the palette path's shared ramp
+   *  material, each textured part owns a GPU texture that nothing else
+   *  references once this set is replaced. */
+  private disposeTexturedDecorSet(set: TexturedDecorSet): void {
+    for (const part of set.parts.values()) {
+      part.geometry.dispose();
+      part.map.dispose();
+    }
   }
 
   /**
@@ -5103,6 +5171,10 @@ export class ThreeRenderer implements Renderer {
       this.scene.remove(this.decorGroup);
       disposeDecorMesh(this.decorGroup);
     }
+    if (this.texturedDecorGroup !== null) {
+      this.scene.remove(this.texturedDecorGroup);
+      disposeTexturedDecorMesh(this.texturedDecorGroup);
+    }
 
     const composed = composeTerrain(
       this.sim,
@@ -5155,6 +5227,19 @@ export class ThreeRenderer implements Renderer {
       this.flashLights.register((child as THREE.BatchedMesh).material as THREE.ShaderMaterial);
     }
     this.scene.add(this.decorGroup);
+
+    // The textured half of the same placement list. `buildDecorMesh` above
+    // and this partition it by family rather than competing for it -- a
+    // placement whose family is textured has no entry in `decorSet` and is
+    // skipped there, and one whose family is not is skipped here.
+    this.texturedDecorGroup = buildTexturedDecorMesh(
+      composed.decorPlacements,
+      this.texturedDecorSet
+    );
+    for (const child of this.texturedDecorGroup.children) {
+      this.flashLights.register((child as THREE.InstancedMesh).material as THREE.ShaderMaterial);
+    }
+    this.scene.add(this.texturedDecorGroup);
   }
 
   /**

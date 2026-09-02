@@ -133,7 +133,13 @@ describe('the launch URL', () => {
     toggle(stage, 'nomesh');
     const params = new URLSearchParams(hrefOf(stage, 'wadi_halam_basin'));
     expect(params.get('sandbox')).toBe('wadi_halam_basin');
-    expect(readFlags(params)).toEqual({ roe: true, tunnel: false, sur: false, nomesh: true });
+    expect(readFlags(params)).toEqual({
+      roe: true,
+      tunnel: false,
+      sur: false,
+      ditch: false,
+      nomesh: true,
+    });
     expect(unknownParams(params)).toEqual([]);
   });
 

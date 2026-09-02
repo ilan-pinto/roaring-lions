@@ -256,6 +256,31 @@ describe('mesh catalogue: what has a mesh at all', () => {
 
   it('ships exactly the three VFX meshes as one shared set', () => {
     expect(Object.values(VFX_MESHES).every((f) => f.startsWith('vfx/'))).toBe(true);
-    expect(Object.values(DECOR_MESHES).every((v) => v.length === 3)).toBe(true);
+  });
+
+  it('lists three variants for every scattered decor family, and one for the ditch', () => {
+    // This was `every((v) => v.length === 3)` -- a stricter rule than the
+    // catalogue actually needs, and `ditch` is the first family to break it
+    // honestly. A scattered family wants variety so a hillside of rocks does
+    // not read as a stamped pattern; a ditch is one repeated segment of a
+    // continuous earthwork and variety in it would be a defect, not a
+    // feature. `decor-place.ts` pins every ditch placement to variant 0 to
+    // match.
+    //
+    // Still a real guard rather than a widened one: a family listing two
+    // variants, or four, or a `ditch_1` that does not exist, still fails.
+    const counts = Object.fromEntries(
+      Object.entries(DECOR_MESHES).map(([family, files]) => [family, files.length])
+    );
+    expect(counts).toEqual({
+      grass: 3,
+      sand: 3,
+      bush: 3,
+      tree: 3,
+      rock: 3,
+      slab: 3,
+      boulder: 3,
+      ditch: 1,
+    });
   });
 });
