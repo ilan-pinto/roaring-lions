@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "432efd3298f7c6940269e2b23c61a48bec97a3a3",
-  "blessedAt": "2026-09-02T13:54:12.296Z",
-  "reason": "HUD slice 1 of 4 (714e5db, GH-153): the corner rl-panel stack replaced by the map-first floating layout. All four diff images inspected before blessing; every red pixel is HUD chrome, terrain and units unchanged. darwin re-blessed alongside and reads 0 px afterwards. Three further HUD slices will each move this again.",
+  "commit": "53091e663fdf24632633ccbcddc341c1174ff86f",
+  "blessedAt": "2026-09-02T17:16:37.842Z",
+  "reason": "GH-153 HUD complete (four slices) plus the collapse shroud. The corner panel stack is gone and a 210x210 minimap occupies the bottom-right of every frame. Region-classified independently by three slices: every differing pixel is inside the minimap box, terrain and units unmoved. darwin re-blessed alongside and reads 0 px afterwards; this is the matching linux-x64-swiftshader half.",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "15c98caf68a4910b4c0d559f44900d4e2511b5897ee884cb63b2214cebd0f640"
+      "sha256": "fd256e544f83815dde36655369b0234db65999f34b7ce384c0f7926fdc354a83"
     },
     "open-ground": {
       "tick": 60,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "69d25bac2ed5b490dceaf69e7d4925630dae9daf88aa3e2d1e4e09a5f81bcb3d"
+      "sha256": "3a5ede7bca58e6fd5619cee6caa8b7c30f1f279ef79d51bd8325578ce279ad23"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "3b620f683824581ee2bbcd722e43d4f1c7b227b1c208ca682411af7941a10402"
+      "sha256": "699ed8951aaf54ec322f5240f23e71aeb459942d49f93f6ef47143eec0ba7ac0"
     },
     "relief": {
       "tick": 500,
@@ -67,7 +67,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "fbcc41589c4076a65b3668e25681444d997c390a312ab6f37025171e548a1648"
+      "sha256": "4f441e66210d96aed59bc17f1553b957dc25fe6121b71cb57169739b5617ec07"
     }
   }
 }
