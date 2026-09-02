@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "envKey": "linux-x64-swiftshader",
+  "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+  "platform": "linux",
+  "arch": "x64",
+  "commit": "e6548091563752ec7e384a691d15885047a43eb5",
+  "blessedAt": "2026-09-02T05:47:30.602Z",
+  "reason": "First baseline for linux-x64-swiftshader. CI runs ubuntu-latest and only darwin-arm64-swiftshader was committed, so ci.yml's visual job captured every scenario, compared none of them, and passed with a warning. Baselines are keyed per capture environment because the two GL backends disagree by ~100x the same-backend noise on quiet alone, larger than the scatter defect's own signal, so the macOS set is not a substitute. Captured at e654809, the commit that stops a report-only scenario aborting this run.",
+  "scenarios": {
+    "quiet": {
+      "tick": 200,
+      "camera": {
+        "x": 31,
+        "y": 22,
+        "zoom": 1
+      },
+      "rect": {
+        "w": 1400,
+        "h": 900
+      },
+      "region": null,
+      "sha256": "60fce98c30118efc9bc408b2d45a35ff1221504203249907b06cc9aa886ab849"
+    },
+    "open-ground": {
+      "tick": 60,
+      "camera": {
+        "x": 15,
+        "y": 24,
+        "zoom": 3
+      },
+      "rect": {
+        "w": 1400,
+        "h": 900
+      },
+      "region": {
+        "x": 950,
+        "y": 500,
+        "w": 450,
+        "h": 400
+      },
+      "sha256": "e356d5cf69d597002f1d11388d6066f9c9f45f31c7ac6b7a83ea68cc66d078de"
+    },
+    "vehicle": {
+      "tick": 140,
+      "camera": {
+        "x": 4.5,
+        "y": 20.5,
+        "zoom": 1
+      },
+      "rect": {
+        "w": 1400,
+        "h": 900
+      },
+      "region": null,
+      "sha256": "bc2fedb5d9e0646c96a66e46d6c729a93a2f4eb53840d4f9a3a935864d09b043"
+    },
+    "relief": {
+      "tick": 500,
+      "camera": {
+        "x": 10,
+        "y": 15,
+        "zoom": 2
+      },
+      "rect": {
+        "w": 1400,
+        "h": 900
+      },
+      "region": null,
+      "sha256": "fcc089501c0da40b43e13890430f029aa8df2f0b1a20ee05531ea585cbfd214a"
+    }
+  }
+}
