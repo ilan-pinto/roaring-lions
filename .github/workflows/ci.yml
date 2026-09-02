@@ -123,6 +123,17 @@ jobs:
       # `groundTextureCheck` ran. Both are fixed; a self-check failure now
       # exits 1 even with no baseline.
       #
+      # THAT IS NOT THE SAME AS "a real defect still fails here", which this
+      # comment's neighbours used to claim. `groundTextureCheck` is declared by
+      # ONE scenario (`open-ground`), so an unblessed runner judges a single
+      # 450x400 ground crop and compares nothing else. Measured: erasing every
+      # decor object fails all four gated scenarios against a baseline (quiet
+      # 4306 px / 0.5064, open-ground 952 / 0.4753, vehicle 19313 / 2.0243,
+      # relief 37183 / 2.7229) and exits 3 with none -- i.e. this step's
+      # leniency turns a four-scenario red into a green tick with a warning.
+      # The warning below is therefore the whole safety net until a baseline is
+      # blessed for this runner, which is the action it asks for.
+      #
       # The warning is also written to the step summary. A `::warning::`
       # annotation is easy to miss beside a green tick, and "the gate told you
       # it was doing nothing and you did not see it" is the same failure as the
@@ -138,8 +149,12 @@ jobs:
               echo "### :warning: Visual gate compared nothing"
               echo ""
               echo "There is no committed baseline for this runner's capture environment, so"
-              echo "\`pnpm golden-baseline\` captured every scenario, ran the reference-free"
-              echo "self-checks, and judged no appearance regression at all."
+              echo "\`pnpm golden-baseline\` captured every scenario and compared none of them."
+              echo ""
+              echo "Only \`open-ground\` carries a reference-free self-check, so that one 450x400"
+              echo "ground crop is everything this run judged. A measured example of what walks"
+              echo "past it: erasing every decor object fails all four gated scenarios against a"
+              echo "baseline (relief 37183 px / 2.7229) and exits 3 here."
               echo ""
               echo "Fix: run the **visual-baseline-bless** workflow and merge the PR it opens."
             } >> "$GITHUB_STEP_SUMMARY"

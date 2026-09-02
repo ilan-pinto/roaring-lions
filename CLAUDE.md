@@ -337,6 +337,16 @@ yours; each one records what the next phase inherits.
   returns before capturing: the run still takes every scenario and still votes
   on `groundTextureCheck`, which needs no stored reference — the re-injected
   scatter defect exits **1** on a runner with no baseline at all.
+  **Do not generalise from that one defect, because a second one was measured
+  walking straight past it.** `groundTextureCheck` is declared by ONE scenario
+  (`open-ground`), so an unblessed runner judges a single 450×400 ground crop
+  and compares nothing else. Erasing every decor object (`decor-place.ts`'s
+  `familyFor` → `return null`) fails all four gated scenarios *with* a baseline
+  — quiet 4306 px / 0.5064, open-ground 952 / 0.4753, vehicle 19313 / 2.0243,
+  relief 37183 / 2.7229 — and exits **3** with none, where the self-check reads
+  the clean tree's own 0.9408. Exit 3 means "one crop was checked and nothing
+  was COMPARED"; on CI that is a green tick with a warning, until a baseline is
+  blessed for that runner.
   **Run-to-run noise is not spread over the frame**; it sits in tight clusters
   around animating mesh units and real-time VFX, and every other pixel is
   bit-identical between captures. That is why a scenario can declare a

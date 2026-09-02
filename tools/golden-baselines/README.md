@@ -14,10 +14,22 @@ measurably different: on one machine, SwiftShader against ANGLE/Metal read 230
 differing pixels / 0.0320 meanAbsChannelDelta on the `quiet` scenario alone —
 roughly 100× that scenario's run-to-run noise, and enough to hide the defect the
 gate exists to catch. A capture environment with no directory here is **exit 3**
-from the gate, loudly, never a silent pass. The run still captures every
-scenario and still votes on the reference-free `groundTextureCheck`, so a real
-defect exits 1 even here; exit 3 means "nothing was COMPARED", not "nothing was
-checked".
+from the gate, loudly, never a silent pass.
+
+**Read what exit 3 does and does not check.** The run still captures every
+scenario and still votes on the reference-free `groundTextureCheck` — but only
+`open-ground` declares one, so on an unblessed runner a single 450×400 ground
+crop is the whole verdict and the other four scenarios are captured and compared
+to nothing. This sentence used to say "a real defect exits 1 even here", and a
+measurement falsified it: erasing every decor object (`decor-place.ts`'s
+`familyFor` → `return null` — no boulder, rock, tree, bush, slab, grass or sand
+on any map) fails all four gated scenarios *with* a baseline — quiet 4306 px /
+0.5064, open-ground 952 / 0.4753, vehicle 19313 / 2.0243, relief 37183 / 2.7229,
+exit 1 — and exits **3** with none, which `ci.yml` turns into a green tick. In
+that same run `open-ground`'s self-check read `fraction 0.9408 (budget <0.95) →
+PASS`, the number a clean tree reads, while the same crop's baseline diff was 952
+pixels. Exit 3 means "one crop of one scenario was checked and nothing was
+COMPARED". The fix is to bless a baseline here, not to trust the code.
 
 **Cross-OS portability is unmeasured.** Linux SwiftShader and macOS SwiftShader
 may or may not agree; nobody has checked. Do not assume the macOS set covers CI.
