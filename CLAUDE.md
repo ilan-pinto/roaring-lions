@@ -433,6 +433,16 @@ yours; each one records what the next phase inherits.
   which refuses to run without the reason and writes it into `manifest.json`;
   on CI it is a `workflow_dispatch` that opens a PR with the new PNGs so a human
   sees the picture. Do not widen a threshold to clear a red run.
+  **That workflow cannot open the PR itself on this repository, and the reason
+  is a repo setting** — `can_approve_pull_request_reviews: false` (Settings →
+  Actions → General → Workflow permissions → "Allow GitHub Actions to create
+  and approve pull requests"), which makes `gh pr create` fail with `GraphQL:
+  GitHub Actions is not permitted to create or approve pull requests`. It
+  captures, commits and PUSHES the branch first, so nothing is lost — the step
+  now prints the `pull/new/<branch>` URL and names the setting instead of dying
+  on the bare GraphQL error. Until somebody flips it, finish a bless by opening
+  the PR by hand from that branch. The first Linux baseline
+  (`linux-x64-swiftshader`, run 33596042795) landed that way as PR #150.
 - **The cross-backend Pixi-vs-three diff is now REPORT-ONLY**
   (`pnpm golden-diff:compare`, `tools/src/ci/golden-diff-gate.ts`). It exits 0
   unless a capture fails, and its `SCENARIO_BUDGETS` are kept as historical

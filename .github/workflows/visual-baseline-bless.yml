@@ -132,4 +132,35 @@ jobs:
           for everything it would otherwise have caught.
 
           If the change was not intended, close this PR and fix the renderer instead." \
-            --head "$BRANCH"
+            --head "$BRANCH" && exit 0
+
+          # Only reachable when `gh pr create` failed. The branch is already
+          # pushed at this point, so the work is NOT lost -- say so, and say
+          # exactly how to finish, because the one failure seen here reads as
+          # nothing of the sort:
+          #
+          #   pull request create failed: GraphQL: GitHub Actions is not
+          #   permitted to create or approve pull requests (createPullRequest)
+          #
+          # That is a repository setting, not a token scope and not a bug in
+          # this file: Settings -> Actions -> General -> Workflow permissions ->
+          # "Allow GitHub Actions to create and approve pull requests". With it
+          # off, every bless this workflow ever runs will get this far and stop,
+          # having pushed a perfectly good baseline nobody is told about
+          # (measured: run 33596042795, where the capture step succeeded in 62 s
+          # and this step exited 1).
+          echo "::error title=Baseline pushed, PR not opened::The branch $BRANCH is pushed with the new baseline, but gh pr create failed. See the step summary."
+          {
+            echo "### :warning: Baseline captured and pushed, but no PR was opened"
+            echo ""
+            echo "The new baseline is on branch \`$BRANCH\` — nothing is lost. Open the PR by hand:"
+            echo ""
+            echo "  https://github.com/${GITHUB_REPOSITORY}/pull/new/$BRANCH"
+            echo ""
+            echo "If the failure above says *\"GitHub Actions is not permitted to create or approve"
+            echo "pull requests\"*, that is a repository setting rather than anything in this"
+            echo "workflow: **Settings → Actions → General → Workflow permissions → Allow GitHub"
+            echo "Actions to create and approve pull requests**. Until it is on, every bless will"
+            echo "stop here."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
