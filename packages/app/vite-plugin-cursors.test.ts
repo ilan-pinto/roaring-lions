@@ -21,7 +21,16 @@ import { describe, expect, it } from 'vitest';
 import { ANIMATED_CURSORS, badgeFor, cursorFor, cursorKey, type BadgeHints, type CursorHints } from './src/input/cursor';
 import { resolvePointer, type IntentWorld } from './src/input/intents';
 import { roleBucket, type RoleBucket } from './src/ui/role';
-import { BADGED_VERBS, CENTER, cursorRules, deriveUiBand, resolvePalette } from './vite-plugin-cursors';
+import {
+  BADGED_VERBS,
+  CENTER,
+  SIZE,
+  UNWIRED_BODIES,
+  cursorRules,
+  deriveUiBand,
+  paletteColors,
+  resolvePalette,
+} from './vite-plugin-cursors';
 
 // Same relative path vite.config.ts uses from this same directory. Hoisted
 // here (rather than inside a single describe) so both the real-palette
@@ -50,13 +59,42 @@ function selectorFor(css: string, name: string): string {
   return rule.slice(0, brace).trim();
 }
 
+// Eight invented colours, one per drawn value, all distinct so a test can tell
+// which one a body used. Deliberately NOT the real palette's values -- the
+// point of this fixture is that cursorRules is a pure function of what it is
+// handed, and the real translation is covered separately by the deriveUiBand
+// describe below.
 const PALETTE = {
   ramps: { limestone: { colors: ['#EEE', '#DDD', '#CCC', '#BBB', '#AAA', '#999', '#888'] } },
-  reserved: { ui: { colors: { bad: '#C0392B', good: '#27AE60', ink: '#111111' } } },
+  reserved: {
+    ui: {
+      colors: {
+        ink: '#111111',
+        dim: '#222222',
+        bad: '#C0392B',
+        warn: '#D4AC0D',
+        hot: '#E67E22',
+        amber: '#B7950B',
+        info: '#5DADE2',
+        live: '#7DCEA0',
+      },
+    },
+  },
 };
 
 describe('cursorRules', () => {
   const css = cursorRules(PALETTE);
+
+  it('draws on the 32-unit grid every path literal in the plugin assumes', () => {
+    // Every payload path in vite-plugin-cursors.ts ("M11,21V11H16V16H21V21Z"
+    // and its dozen siblings) is authored against this canvas, and bracketAt's
+    // mirror arithmetic subtracts from it. Changing SIZE alone would leave the
+    // brackets correct and every payload silently off-centre -- art that still
+    // renders, still passes every other test here, and is wrong. Pinned so
+    // that change has to be deliberate.
+    expect(SIZE).toBe(32);
+    expect(CENTER).toBe(16);
+  });
 
   it('emits a rule for every cursor name the app can ask for', () => {
     // 'default' deliberately has no rule: it is the OS arrow.
@@ -119,9 +157,33 @@ describe('cursorRules', () => {
   it('changes when the palette changes', () => {
     const other = cursorRules({
       ...PALETTE,
-      reserved: { ui: { colors: { bad: '#00FF00', good: '#27AE60', ink: '#111111' } } },
+      reserved: {
+        ui: { colors: { ...PALETTE.reserved.ui.colors, bad: '#00FF00' } },
+      },
     });
     expect(other).not.toBe(css);
+  });
+
+  it('draws with seven of the eight declared colours, and invents none', () => {
+    // The chosen set widened paletteColors from four values to eight. A body
+    // that silently fell back to a colour it already had would still render
+    // and would still pass every shape test here -- this is what catches it.
+    // Asserted as a set equality in both directions, so an invented colour
+    // fails just as loudly as a missing one.
+    //
+    // SEVEN, not eight, and the gap is worth knowing: `amber` is used by
+    // `mount` and `dismount` alone, and those two earn no rule (the hover
+    // ticker never emits their intent -- see the Important 1 test above). So
+    // the eighth colour is derived, drawn by a real body, and shipped by
+    // nothing. It is spelled out here rather than quietly excluded, because
+    // "a declared colour that reaches no rule" is otherwise indistinguishable
+    // from a body that forgot to use the colour it was given.
+    const used = new Set(
+      [...css.matchAll(/%23([0-9a-f]{6})/g)].map((m) => `#${m[1]}`.toUpperCase())
+    );
+    const { amber, ...shipped } = PALETTE.reserved.ui.colors;
+    expect([...used].sort()).toEqual(Object.values(shipped).map((c) => c.toUpperCase()).sort());
+    expect(used.has(amber.toUpperCase())).toBe(false);
   });
 });
 
@@ -133,15 +195,53 @@ describe('cursorRules', () => {
 // at build time (or worse, silently emit `undefined` as a colour). This
 // closes that seam by running the real translation against the real file.
 describe('deriveUiBand against the real data/palette.json', () => {
-  it("derives ui.bad and ui.good from the real palette's team.hostile and scrub[0]", () => {
-    expect(resolved.reserved.ui.colors.bad).toBe(raw.reserved.team.colors.hostile);
-    expect(resolved.reserved.ui.colors.good).toBe(raw.ramps.scrub.colors[0]);
+  /** Every source location the eight drawn colours come from, spelled out
+   *  against the real file. A rename or a reordered ramp step lands here and
+   *  nowhere else -- cursorRules itself only ever sees the `ui` band. */
+  const SOURCES: Record<string, () => string> = {
+    ink: () => raw.ramps.limestone.colors[0],
+    dim: () => raw.ramps.gunmetal.colors[1],
+    amber: () => raw.ramps.dust.colors[0],
+    info: () => raw.ramps.water.colors[0],
+    bad: () => raw.reserved.team.colors.hostile,
+    warn: () => raw.reserved.team.colors.neutral,
+    hot: () => raw.reserved.vfx.colors.fire,
+    live: () => raw.reserved.vfx.colors.tracer,
+  };
+
+  it('derives all eight drawn colours from the real palette', () => {
+    for (const [name, source] of Object.entries(SOURCES)) {
+      const value = source();
+      expect({ name, value: resolved.reserved.ui.colors[name] }).toEqual({ name, value });
+      expect({ name, defined: typeof value }).toEqual({ name, defined: 'string' });
+    }
+    expect(Object.keys(resolved.reserved.ui.colors).sort()).toEqual(Object.keys(SOURCES).sort());
   });
 
-  it('carries those real colours into cursorRules, percent-encoded', () => {
+  it('carries the seven shipped ones into cursorRules, percent-encoded, and amber into none', () => {
+    // `amber` is real, derived and drawn -- by `mount` and `dismount`, the two
+    // bodies that earn no rule -- so it reaches the sheet through nothing. See
+    // the "seven of the eight" test above for why that is asserted rather than
+    // excluded.
     const css = cursorRules(resolved);
-    expect(css).toContain(encodeURIComponent(raw.reserved.team.colors.hostile.toLowerCase()));
-    expect(css).toContain(encodeURIComponent(raw.ramps.scrub.colors[0].toLowerCase()));
+    for (const [name, source] of Object.entries(SOURCES)) {
+      const encoded = encodeURIComponent(source().toLowerCase());
+      expect({ name, drawn: css.includes(encoded) }).toEqual({ name, drawn: name !== 'amber' });
+    }
+  });
+
+  it("declines the palette's olive, and that is a decision rather than an omission", () => {
+    // scrub[0] (#6B8A4A) is the one colour in the brief the chosen set does
+    // not use: it sits about 30 RGB from `dim` and photographs as mud at 32px
+    // on limestone ground, so `live` (vfx.tracer) carries the affirmative
+    // states instead. The previous set DID draw `support` in it, so this would
+    // have passed vacuously before and does not now -- it is pinned so that
+    // re-adding it is a deliberate act with a rendered check behind it, not a
+    // reflex when somebody notices a palette entry going unused.
+    expect(raw.ramps.scrub.colors[0]).toBe('#6B8A4A');
+    const css = cursorRules(resolved);
+    expect(css).not.toContain(encodeURIComponent(raw.ramps.scrub.colors[0].toLowerCase()));
+    expect(Object.values(resolved.reserved.ui.colors)).not.toContain(raw.ramps.scrub.colors[0]);
   });
 });
 
@@ -174,6 +274,25 @@ describe('badged rules', () => {
       expect(css).not.toContain(`data-cursor='${key}'`);
       expect(css).not.toContain(`data-cursor='${key}-`);
     }
+  });
+
+  it('keeps drawable bodies for those three without shipping a byte of them', () => {
+    // The previous set DELETED mount/dismount/smoke's drawings when their
+    // rules were withdrawn, and re-deriving three payloads that have already
+    // been drawn and looked at is the expensive half of the work. The chosen
+    // set keeps them, because in this vocabulary each is the shared housing
+    // plus one payload literal. Both halves are pinned: they really draw
+    // (a bare housing with no payload would pass a "returns a string" check),
+    // and they really ship nothing.
+    const c = paletteColors(deriveUiBand(raw));
+    for (const [name, body] of Object.entries(UNWIRED_BODIES)) {
+      const markup = body(c);
+      expect({ name, housing: markup.includes('M3,6L6,3H10V6H6V10H3Z') }).toEqual({ name, housing: true });
+      // ...and something beyond the housing: each carries a second <path>.
+      expect({ name, paths: markup.split('<path').length - 1 }).toEqual({ name, paths: 2 });
+      expect(css).not.toContain(encodeURIComponent(markup));
+    }
+    expect(Object.keys(UNWIRED_BODIES).sort()).toEqual(['dismount', 'mount', 'smoke']);
   });
 
   it('emits no bare rule for charge -- Minor 2', () => {
@@ -212,6 +331,89 @@ describe('badged rules', () => {
     // silently falls back to the OS arrow, which is what happened in slice 2.
     expect(css).toContain(`canvas[data-cursor='${cursorKey('demolish', 'soft')}']`);
     expect(css).toContain(`canvas[data-cursor='${cursorKey('move', null)}']`);
+  });
+});
+
+/** The chosen art's one integration decision, made by the project lead: the
+ *  role badge lands exactly on the housing's bottom-right bracket, so a badged
+ *  key OMITS that bracket and the badge becomes the fourth corner plate. The
+ *  rejected alternatives were drawing the badge on top of the bracket (two
+ *  shapes in one place) and moving it to a mid-edge gap (a sticker, not a
+ *  plate). All three of those render, so nothing but an assertion separates
+ *  the shipped one from either. */
+describe('the badge is the housing\'s fourth plate', () => {
+  const css = cursorRules(deriveUiBand(raw));
+
+  /** The decoded SVG for one key's frame-0 rule. */
+  function art(key: string): string {
+    const line = css
+      .split('\n')
+      .find((l) => l.includes(`data-cursor='${key}']`) && !l.includes('data-cursor-frame'));
+    if (!line) throw new Error(`no rule found for ${key}`);
+    return decodeURIComponent(line.match(/url\("data:image\/svg\+xml,([^"]+)"\)/)![1]);
+  }
+
+  // bracketAt('br', {inset:3, arm:7, thickness:3, chamfer:3}) -- the exact
+  // subpath the generator emits for the bottom-right corner at the default
+  // housing shape, which is the shape every badged verb uses. Spelled out
+  // rather than imported so this test would still fail if `bracketAt` itself
+  // started emitting something different for that corner.
+  const BR = 'M29,26L26,29H22V26H26V22H29Z';
+  // `protected` is the one state drawn on a heavier housing (arm 8, thickness
+  // 4, chamfer 4) -- the extra weight is what separates it from `support`, the
+  // other X-shaped state, at 32px -- so its own bottom-right plate is a
+  // different subpath. It is unbadged, so it can never lose it.
+  const BR_HEAVY = 'M29,25L25,29H21V25H25V21H29Z';
+
+  it('draws that bracket on every BARE key and on none of the badged ones', () => {
+    // Both directions matter and they fail differently: a badged key that
+    // kept the bracket draws the badge and the plate in the same 7px square
+    // (the collision the decision exists to resolve), and a bare key that lost
+    // it draws a three-cornered housing with nothing standing in for the
+    // fourth, which is just a broken frame.
+    for (const key of ['move', 'attack', 'garrison', 'demolish', 'blocked', 'costly', 'support']) {
+      expect({ key, hasBr: art(key).includes(BR) }).toEqual({ key, hasBr: true });
+    }
+    expect({ key: 'protected', hasBr: art('protected').includes(BR_HEAVY) })
+      .toEqual({ key: 'protected', hasBr: true });
+    const badged = [...css.matchAll(/canvas\[data-cursor='([a-z]+-[a-z]+)'\] /g)].map((m) => m[1]);
+    expect(badged.length).toBe(19); // move x7, attack x7, garrison x2, demolish x2, charge x1
+    for (const key of badged) {
+      expect({ key, hasBr: art(key).includes(BR) }).toEqual({ key, hasBr: false });
+    }
+  });
+
+  it('puts the badge on the vacated plate rather than beside it', () => {
+    // "The badge takes its place" is a geometric claim, so it is checked
+    // geometrically: the badge's own box must sit centred on the bracket's
+    // footprint. bracketAt('br') spans x22-29, y22-29 -- centre 25.5 -- and
+    // `armour` is the one bucket whose mark is a plain axis-aligned rect, so
+    // its four numbers ARE the badge box and can be read straight out of the
+    // markup. Off-centring the badge (it rode at 24,24 before this set, which
+    // welded it to garrison's portal wall) fails here rather than only in a
+    // screenshot nobody takes.
+    const rect = art('move-armour').match(/<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)"/);
+    expect(rect).not.toBeNull();
+    const [x, y, w, h] = rect!.slice(1).map(Number);
+    expect({ cx: x + w / 2, cy: y + h / 2 }).toEqual({ cx: 25.5, cy: 25.5 });
+  });
+
+  it('gives the badge the housing\'s own colour, so it reads as a plate and not a sticker', () => {
+    // A contrasting badge would read as one plate painted differently, which
+    // is exactly what demolish's beacon means -- and two things cannot mean it
+    // at once. Checked per verb against the colour that verb's housing is
+    // drawn in, so a future re-colour of any state has to update both halves.
+    const c = paletteColors(deriveUiBand(raw));
+    const expected: Record<string, string> = {
+      'move-armour': c.ink,
+      'attack-armour': c.bad,
+      'garrison-soft': c.info,
+      'charge-soft': c.bad,
+    };
+    for (const [key, colour] of Object.entries(expected)) {
+      const badge = art(key).match(/<(?:rect|path)[^>]*fill="(#[0-9a-f]{6})"[^>]*\/><\/svg>$/);
+      expect({ key, badge: badge?.[1] }).toEqual({ key, badge: colour.toLowerCase() });
+    }
   });
 });
 
@@ -320,24 +522,36 @@ describe('animated cursor frames', () => {
     for (const key of keys) assertFrameRules(key, ANIMATED_CURSORS.demolish!.frames);
   });
 
-  it('elides exactly the midpoint of both 300ms pulses -- and nothing else in the sheet is a duplicate', () => {
-    // The saving, pinned as a fact rather than a comment: attack's eight keys
-    // and demolish's three all return to rest at frame 2, so eleven rules are
-    // NOT emitted. What makes that safe is that the cascade draws frame 0's
-    // image for them, which frameLineFor models and the two assertions below
-    // check directly.
-    for (const key of ['attack', 'attack-soft', 'demolish', 'demolish-armour']) {
+  it('elides attack\'s midpoint, elides nothing of demolish\'s sweep, and leaves no duplicate anywhere', () => {
+    // The saving, pinned as a fact rather than a comment: attack's housing
+    // returns to its rest inset at frame 2 (ATTACK_INSETS 3, 6, 3, 1), so all
+    // eight of its keys drop that rule. What makes that safe is that the
+    // cascade draws frame 0's image for them, which frameLineFor models and
+    // the assertion below checks directly.
+    for (const key of ['attack', 'attack-soft', 'attack-armour']) {
       expect(css).not.toContain(`canvas[data-cursor='${key}'][data-cursor-frame='2']`);
       expect(markupOf(frameLineFor(css, key, 2))).toBe(markupOf(frameLineFor(css, key, 0)));
     }
-    // charge's ring grows on every tick, so none of its frames is elidable.
+    // demolish USED to be elided here too and is not any more, which is the
+    // point of writing the rule as content rather than as an index: the art
+    // changed from a pulse that returns to rest into a beacon that visits a
+    // different plate on each of four frames, and the elision loop needed no
+    // edit to stop firing. Its three keys now emit all three frames.
+    for (const key of ['demolish', 'demolish-soft', 'demolish-armour']) {
+      for (let frame = 1; frame < ANIMATED_CURSORS.demolish!.frames; frame++) {
+        expect({ key, frame, emitted: css.includes(`canvas[data-cursor='${key}'][data-cursor-frame='${frame}']`) })
+          .toEqual({ key, frame, emitted: true });
+      }
+    }
+    // charge's spark moves down the fuse on every tick, so none of its frames
+    // is elidable either.
     for (let frame = 1; frame < ANIMATED_CURSORS.charge!.frames; frame++) {
       expect(css).toContain(`canvas[data-cursor='charge-soft'][data-cursor-frame='${frame}']`);
     }
-    // And the whole sheet now carries no duplicate image at all: every rule
-    // draws something no other rule draws. This is the general statement the
-    // per-key assertions above are instances of -- it would go red if any
-    // future frame table reintroduced a redundant rule anywhere.
+    // And the whole sheet carries no duplicate image at all: every rule draws
+    // something no other rule draws. This is the general statement the per-key
+    // assertions above are instances of -- it would go red if any future frame
+    // table reintroduced a redundant rule anywhere.
     const images = css.split('\n').map((l) => markupOf(l));
     expect(new Set(images).size).toBe(images.length);
   });
@@ -420,28 +634,68 @@ describe('animated cursor frames', () => {
     assertNoStaticTick(css, 'demolish-armour', ANIMATED_CURSORS.demolish!.frames);
   });
 
-  it("pins demolish's centre hole against attack's -- the one thing that keeps two red radial marks apart in motion", () => {
-    // attack's near radius tracks its far (6/11 -> 4/9 -> 6/11 -> 8/13), so a
-    // demolish whose hole also opened would be attack's motion drawn on eight
-    // rays. DEMOLISH_BURST pins near at 5 and moves only the tips. Read off
-    // the emitted markup rather than the table, so re-tuning the table
-    // without re-reading this comment goes red.
+  it("pins demolish's still core against attack's moving housing -- the one thing that keeps two animated reticles apart in motion", () => {
+    // Both states are a chamfered housing that changes every 300ms, so what
+    // separates them at a glance is WHICH part moves. demolish holds a core
+    // dead still and rotates a bone-white beacon around the plates; attack has
+    // no core at all and moves the whole housing inward. Swap either half and
+    // the two become the same animation in two colours.
     //
-    // The two helpers spell coordinates differently, so this reads each one
-    // the way it actually emits (checked against the real bytes, not assumed):
-    // burstRays writes its ray INNER-end first and to two decimals
-    // (`x1="16.00" y1="11.00"` -> `y2="4.00"`), while reticleTicks writes the
-    // OUTER end first as bare integers (`y1="5"` -> inner `y2="10"`).
-    const inner = (n: number) => `y1="${(CENTER - n).toFixed(2)}"`; // demolish
+    // Read off the emitted markup rather than off the tables, so re-tuning a
+    // table without re-reading this comment goes red.
+    const CORE = 'M11,21V11H16V16H21V21Z';
+    const at = (frame: number, key = 'demolish') =>
+      decodeURIComponent(markupOf(frameLineFor(css, key, frame)));
+
+    // 1. demolish's core is byte-identical on all four frames.
     for (let frame = 0; frame < ANIMATED_CURSORS.demolish!.frames; frame++) {
-      const markup = decodeURIComponent(markupOf(frameLineFor(css, 'demolish', frame)));
-      expect({ frame, pinned: markup.includes(inner(5)) }).toEqual({ frame, pinned: true });
+      expect({ frame, still: at(frame).includes(CORE) }).toEqual({ frame, still: true });
     }
-    // attack, by contrast, moves its near radius: frame 1 is 4, frame 3 is 8.
-    const a1 = decodeURIComponent(markupOf(frameLineFor(css, 'attack', 1)));
-    const a3 = decodeURIComponent(markupOf(frameLineFor(css, 'attack', 3)));
-    expect(a1).toContain(`y2="${CENTER - 4}"`);
-    expect(a3).toContain(`y2="${CENTER - 8}"`);
+    // 2. ...and the beacon really does move: a different corner is drawn in
+    //    `ink` on each of the four, clockwise. The lit corner is the one
+    //    bracket that is NOT in the `hot` path, so each frame's ink subpath is
+    //    distinct and there are four of them.
+    const c = paletteColors(deriveUiBand(raw));
+    const beacons = Array.from({ length: 4 }, (_, frame) => {
+      const lit = at(frame).match(new RegExp(`<path fill="${c.ink.toLowerCase()}" d="([^"]+)"`));
+      return lit?.[1];
+    });
+    expect(beacons.filter((b) => typeof b === 'string').length).toBe(4);
+    expect(new Set(beacons).size).toBe(4);
+
+    // 3. attack, by contrast, carries NO core at all and moves its housing:
+    //    the four insets are 3, 6, 3, 1, and the top-left bracket's own
+    //    subpath is what shows it.
+    for (let frame = 0; frame < ANIMATED_CURSORS.attack!.frames; frame++) {
+      expect({ frame, core: at(frame, 'attack').includes(CORE) }).toEqual({ frame, core: false });
+    }
+    expect(at(1, 'attack')).toContain('M6,9L9,6'); // inset 6 -- converged
+    expect(at(3, 'attack')).toContain('M1,4L4,1'); // inset 1 -- released
+    expect(at(0, 'attack')).toContain('M3,6L6,3'); // inset 3 -- rest
+  });
+
+  it("lights the badge on the one frame the beacon reaches its plate, and only on a badged key", () => {
+    // The badge IS the bottom-right plate on a badged key, so the sweep has to
+    // include it. Skipping it would leave a quarter of every demolish-soft /
+    // demolish-armour cycle with no plate lit at all -- a tick that changes
+    // almost nothing, wearing the costume of a deliberate beat. BEACON_SWEEP
+    // is clockwise (tl, tr, br, bl), so `br` is frame 2.
+    const c = paletteColors(deriveUiBand(raw));
+    const ink = c.ink.toLowerCase();
+    const badgeColourAt = (key: string, frame: number): string | undefined => {
+      const art = decodeURIComponent(markupOf(frameLineFor(css, key, frame)));
+      return art.match(/<(?:rect|path)[^>]*fill="(#[0-9a-f]{6})"[^>]*\/><\/svg>$/)?.[1];
+    };
+    for (const key of ['demolish-soft', 'demolish-armour']) {
+      const litFrames = [0, 1, 2, 3].filter((f) => badgeColourAt(key, f) === ink);
+      expect({ key, litFrames }).toEqual({ key, litFrames: [2] });
+      // and on the other three it is the same `hot` the rest of the plates are
+      expect({ key, rest: badgeColourAt(key, 0) }).toEqual({ key, rest: c.hot.toLowerCase() });
+    }
+    // The bare key has a real bracket there instead, so nothing about it is
+    // a badge -- its frame-2 ink subpath is the bracket's own path.
+    expect(decodeURIComponent(markupOf(frameLineFor(css, 'demolish', 2))))
+      .toContain(`<path fill="${ink}" d="M29,26L26,29H22V26H26V22H29Z"/>`);
   });
 
   it('returns attack\'s midpoint to its own rest pose on purpose -- frame 2 is frame 0, not a fifth shape', () => {

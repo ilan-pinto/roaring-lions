@@ -71,7 +71,24 @@ export interface CursorAnimation {
  *  `demolitionTicks` (sim.ts `stepDemolition`, DEMO_SECONDS 5, reset to 0 on
  *  interruption at three separate sites); `charge` is `tunnelChargeTicks`
  *  (`stepTunnelCharge`, the same shape); `attack` is the reload-under-LOS
- *  hold. Anything that resolves instantly, resolves somewhere else, or merely
+ *  hold.
+ *
+ *  **`attack` is an exception to that rule and not an instance of it**, and it
+ *  is recorded here rather than argued away, because the next reader deserves
+ *  to meet it instead of discovering it. A `demolish` or `charge` order really
+ *  does pin a unit to a tile while a named sim counter runs; an attack order
+ *  does not -- the unit keeps moving, keeps re-targeting, and "the reload-
+ *  under-LOS hold" above is a fair description of what a shooter spends its
+ *  time doing but is not a timer this cursor previews. The 2026-09-03 cursor
+ *  designer raised it against their own work while the art was being chosen,
+ *  and the call was to keep the motion: dropping it would take movement off
+ *  the attack reticle, which is a regression nobody asked for and which no
+ *  player would read as a principle being upheld. If the rule is ever made
+ *  true as stated, `attack` is the member to un-animate, and its frame 0
+ *  stands alone perfectly well -- the housing at its rest inset is exactly
+ *  what every other state wears.
+ *
+ *  Anything that resolves instantly, resolves somewhere else, or merely
  *  labels the ground stays still -- which is why `move`, `garrison`,
  *  `blocked`, `costly`, `protected` and `support` are all absent, and why
  *  `demolish` -- `winningVerb`'s TOP rung, and until now the only one of the
@@ -111,16 +128,19 @@ export interface CursorAnimation {
  *  test can read it back. If someone ever captures the real pointer and finds
  *  no repaint, the answer is to delete the animation, not to swap mechanisms.
  *
- *  `attack`: 4 frames at 300ms (~1.2s/cycle) -- a slow pulse, not a spinner:
- *  rest, converge, rest, release. `demolish`: 4 frames at 300ms, attack's own
- *  tempo so the set keeps exactly two rates rather than gaining a third --
- *  the rays EXTEND first where attack CONVERGES first, the same grammar read
- *  backwards on a shape that is already distinct (8 dense rays against 4 open
- *  ticks). `charge`: 4 frames at 200ms (~0.8s/cycle, noticeably brisker) -- a
- *  ring ticking outward from the charge, the one place slightly more energy
- *  is justified. All three restrained by design: see vite-plugin-cursors.ts's
- *  ATTACK_PULSE/DEMOLISH_BURST/CHARGE_RING tables for the actual geometry and
- *  the fuller reasoning. */
+ *  `attack`: 4 frames at 300ms (~1.2s/cycle) -- a slow pulse, not a spinner.
+ *  The housing itself CLOSES on the target: rest, converge, rest, release,
+ *  so the reticle mechanically locks rather than ticking. `demolish`: 4
+ *  frames at 300ms, attack's own tempo so the set keeps exactly two rates
+ *  rather than gaining a third -- a bone-white beacon rotates clockwise over
+ *  the four corner plates above a core that never moves, which is what keeps
+ *  it apart from attack in motion (attack moves the whole housing and has no
+ *  core; demolish holds the core and moves one plate). `charge`: 4 frames at
+ *  200ms (~0.8s/cycle, noticeably brisker) -- a spark crawling down the fuse
+ *  toward a buried satchel, the one place slightly more energy is justified.
+ *  All three restrained by design: see vite-plugin-cursors.ts's
+ *  ATTACK_INSETS/BEACON_SWEEP/CHARGE_SPARKS tables for the actual geometry
+ *  and the fuller reasoning. */
 export const ANIMATED_CURSORS: Readonly<Partial<Record<CursorName, CursorAnimation>>> = {
   attack: { frames: 4, intervalMs: 300 },
   charge: { frames: 4, intervalMs: 200 },
