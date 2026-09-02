@@ -18,6 +18,26 @@
   font-display: swap;
   src: url('/fonts/big-shoulders-display-latin.woff2') format('woff2');
 }
+/* Barlow is the body face as of GH-153. Two static cuts rather than one
+ * variable file: Barlow ships no variable build, and the interface asks for
+ * exactly two weights — 400 for prose, 600 for the numerals inside it. Both
+ * are the latin subset, self-hosted beside the other two. Never a CDN: a HUD
+ * that reflows because fonts.gstatic.com is slow is a HUD that reflows in
+ * front of a player mid-fight. */
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/barlow-latin-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/barlow-latin-600.woff2') format('woff2');
+}
 @font-face {
   font-family: 'IBM Plex Mono';
   font-style: normal;
@@ -44,6 +64,12 @@
   --well: var(--rl-shadow-1);
   /* For type that sits directly on the battlefield with no panel behind it. */
   --scrim: var(--rl-shadow-2);
+  /* The halo the floating HUD's unpanelled type is set in, and the dark bar of
+     the commander's hatch. Deliberately shadow-0 and not --scrim: the halo has
+     to read as a soft lift off the terrain rather than as a second, blacker
+     shape behind every glyph, and shadow-2 at this blur radius does the
+     latter. */
+  --type-shadow: var(--rl-shadow-0);
 
   /* Band colour is the panel's rank. Olive is the briefing — the panel you
      read for twelve minutes. Gunmetal is machinery you inspect. Dust is
@@ -83,6 +109,10 @@
   --ink: var(--rl-limestone-0);
   --ink-mute: var(--rl-limestone-4);
   --ink-dim: var(--rl-gunmetal-1);
+  /* One step brighter than --ink-dim, for a tracked label that has to hold up
+     against the map rather than against a panel body — the commander's name
+     plate over a hatched frame is the case that needed it. */
+  --ink-label: var(--rl-gunmetal-0);
 
   /* --- state ---------------------------------------------------------- */
   /* Reserved bands are runtime-only in static art, but the HUD *is* runtime:
@@ -123,18 +153,44 @@
   --rail-left: min(430px, 46vw);
   --rail-right: min(340px, 38vw);
 
+  /* --- the floating HUD (GH-153) --------------------------------------- */
+  /* The map-first layout is edge-anchored rather than railed: everything sits
+     8px (--s2) off the frame and the middle of the screen stays map. These
+     five are the measurements the whole layout is built from, so a later slice
+     (chips, dock tiles, minimap) sizes itself from the same numbers this one
+     reserves rather than inventing a second set. */
+  --hud-strip-h: 30px;
+  --tile: 60px;
+  --chip-w: 150px;
+  --card-w: 460px;
+  --minimap: 210px;
+  /* The feed, the controls hint and the order row all share one x: centred on
+     the map, pushed clear of the reinforcements dock on the left. */
+  --hud-centre: calc(50% + 70px);
+
   /* --- type ----------------------------------------------------------- */
   --font-display: 'Big Shoulders Display', 'Oswald', 'Haettenschweiler', sans-serif;
   /* The fallback is the stack the UI used before this pass: if the webfont
      never arrives, the interface degrades to how it looked yesterday rather
      than to a serif. */
   --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Body prose is Barlow as of GH-153. It replaced IBM Plex Mono, which was
+     never doing monospace work here — nothing in the HUD is a column of
+     figures that has to align — and cost about 15% of the width for the same
+     words. --font-mono stays declared and stays in use by the debug overlay,
+     where columns of numbers ARE the point. */
+  --font-body: 'Barlow', system-ui, -apple-system, sans-serif;
   --t-xs: 10px;
   --t-s: 11px;
+  --t-body: 12px;
   --t-m: 13px;
+  --t-band: 15px; /* strip and band titles */
+  --t-card: 19px; /* the single-unit card's name */
   --t-l: 20px;
   --t-xl: 28px;
+  --t-clock: 34px; /* the hold clock, which is read across the room */
   --t-hero: clamp(34px, 7vw, 52px);
+  --lh-body: 1.5;
   --track-label: 0.18em; /* small caps need air to stay readable */
   --track-title: 0.06em;
 
@@ -143,6 +199,16 @@
   --dur: 160ms;
   --dur-slow: 250ms;
   --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+/* The document's own type. index.html paints the ground colour before this
+   sheet parses; this is the first place the FACE can be stated, and stating it
+   on `body` rather than on each component is what keeps a new HUD element from
+   silently inheriting the browser's Times. */
+body {
+  font-family: var(--font-body);
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
 }
 
 /* ====================================================================== */
@@ -206,18 +272,13 @@
 /* World map — the campaign screen                                        */
 /* ====================================================================== */
 
-/* The mid-mission way back to the map page. Bottom-left, under the brief's
-   column, small enough to never compete with the fight. */
-.rl-return {
-  position: fixed;
-  left: var(--s2);
-  bottom: var(--s2);
-  z-index: 5;
-  font-size: 0.8rem;
-  color: var(--ink-mute);
-}
-.rl-return:hover { color: var(--ink); }
+/* The mid-mission ways off the battlefield -- back to the campaign map, back
+   to the menu, and the mute toggle -- are stamps in the top strip now
+   (.rl-strip__link / .rl-strip__chip). `.rl-return` and `.rl-topbar` are gone
+   with them: the bottom-left corner they used to occupy is the reinforcements
+   dock's, and the top-centre one is the hold clock's.
 
+*/
 .rl-world { display: grid; gap: var(--s3); }
 .rl-world__board { position: relative; width: 100%; max-width: 1140px; margin-inline: auto; }
 .rl-world__board svg { display: block; width: 100%; height: auto; }
@@ -247,9 +308,9 @@
 
 .rl-panel {
   position: absolute;
-  font-family: var(--font-mono);
-  font-size: var(--t-s);
-  line-height: 1.55;
+  font-family: var(--font-body);
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
   color: var(--ink);
   /* The HUD is furniture over a live battlefield: clicks that are not aimed at
      a control belong to the map underneath. */
@@ -280,7 +341,7 @@
 }
 
 .rl-panel__title {
-  font-size: 19px;
+  font-size: var(--t-card);
   font-weight: 800;
   letter-spacing: var(--track-title);
   line-height: 1;
@@ -351,8 +412,8 @@
 /* ====================================================================== */
 
 .rl-btn {
-  font-family: var(--font-mono);
-  font-size: var(--t-s);
+  font-family: var(--font-body);
+  font-size: var(--t-body);
   color: var(--ink);
   background: var(--panel-bg);
   border: 1px solid var(--panel-frame);
@@ -483,50 +544,307 @@
   min-width: 0;
 }
 
-/* The clock, big and centred: in a hold you watch this more than the map. */
-.rl-clock {
+/* ====================================================================== */
+/* The floating HUD (GH-153)                                              */
+/* ====================================================================== */
+
+/* Everything below is edge-anchored and unpanelled wherever it can be. The
+   corner-panel HUD it replaces covered about a third of a 1440x900 viewport
+   and hid the map corner a player pans toward most; the rule here is that the
+   middle of the screen belongs to the battlefield, and type that has to sit on
+   bare map earns its legibility from a shadow halo rather than from a box.
+
+   Type sitting directly on the map. Two shadows, not one: the wide soft pass
+   lifts the glyph off whatever is behind it, the tight pass keeps the stem
+   edges from dissolving into it. */
+.rl-onmap {
+  text-shadow:
+    0 1px 12px var(--type-shadow),
+    0 1px 2px var(--type-shadow);
+}
+
+/* --- top strip -------------------------------------------------------- */
+
+.rl-strip {
   position: absolute;
-  top: 46px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: var(--s1) var(--s4);
+  left: 0;
+  right: 0;
+  top: 0;
+  height: var(--hud-strip-h);
+  box-sizing: border-box;
+  padding: 0 var(--s3);
   background: var(--panel-bg);
-  border: 1px solid var(--panel-frame);
+  border-bottom: 1px solid var(--panel-frame);
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  white-space: nowrap;
+  color: var(--ink);
+  /* The strip is furniture over a live battlefield; only its controls take
+     the pointer. Same rule as .rl-panel, for the same reason. */
+  pointer-events: none;
+  /* Above the fog and every overlay the renderer draws into the DOM. */
+  z-index: 6;
+}
+.rl-strip a,
+.rl-strip button {
+  pointer-events: auto;
+}
+/* The one field allowed to shrink. Everything else in the strip is a fixed
+   stamp; a long mission name plus a long objective is what actually overflows
+   at 1440, and truncating the objective loses less than truncating a count. */
+.rl-strip__obj {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rl-strip__name {
   font-family: var(--font-display);
-  font-size: var(--t-xl);
+  font-size: var(--t-band);
   font-weight: 800;
   letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  flex: none;
+}
+.rl-strip__mark {
+  flex: none;
+  align-self: center;
+}
+/* Pushes the right-hand instruments away from the mission's own fields. The
+   two halves report different things -- what the mission wants on the left,
+   what the force has on the right -- and the gap between them is what makes
+   that legible without a rule or a divider. */
+.rl-strip__gap {
+  margin-left: auto;
+}
+.rl-strip__right {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  flex: none;
+}
+.rl-strip__chips {
+  display: flex;
+  gap: var(--s1);
+}
+.rl-strip__chip {
+  border: 1px solid var(--panel-frame);
+  color: var(--ink-dim);
+  background: none;
+  padding: 0 6px;
+  font: inherit;
+  cursor: pointer;
+  line-height: 1.4;
+}
+.rl-strip__chip[data-on='1'] {
+  border-color: var(--live);
+  color: var(--live);
+}
+.rl-strip__chip:hover,
+.rl-strip__chip:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.rl-strip__link {
+  color: var(--ink);
+  text-decoration: none;
+}
+.rl-strip__link:hover {
+  color: var(--accent);
+}
+
+/* --- hold clock ------------------------------------------------------- */
+
+/* No box any more: the number IS the object. In a timed hold this is read
+   more often than the map, and a frame around it only added weight. */
+.rl-clock {
+  position: absolute;
+  top: 38px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-display);
+  font-size: var(--t-clock);
+  font-weight: 800;
+  letter-spacing: var(--track-title);
+  line-height: 1;
   color: var(--ink);
   pointer-events: none;
   white-space: pre;
+  text-shadow:
+    0 2px 18px var(--type-shadow),
+    0 1px 3px var(--type-shadow);
 }
 .rl-clock[data-tone='warn'] {
   color: var(--warn);
-  border-color: var(--warn);
 }
 .rl-clock[data-tone='bad'] {
   color: var(--bad);
-  border-color: var(--bad);
 }
 
-/* Notices: punctuation, not a log. They expire so the map stays visible. */
-.rl-notices {
+/* --- commander -------------------------------------------------------- */
+
+.rl-cmd {
   position: absolute;
-  bottom: var(--s2);
-  left: calc(var(--rail-left) + var(--s4));
-  right: calc(var(--rail-right) + var(--s4));
+  left: var(--s2);
+  top: 40px;
+  display: flex;
+  gap: var(--s2);
+  align-items: flex-start;
+  width: 520px;
+  pointer-events: none;
+}
+.rl-cmd button {
+  pointer-events: auto;
+}
+/* The portrait frame. Hatched because there is no portrait yet and an empty
+   box reads as a bug — the hatch reads as "reserved". The render is its own
+   ticket; when it lands, the background is the only line that changes. */
+.rl-cmd__face {
+  width: var(--tile);
+  height: var(--tile);
+  flex: none;
+  box-sizing: border-box;
+  border: 1px solid var(--panel-frame);
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--type-shadow) 0,
+    var(--type-shadow) 4px,
+    var(--panel-frame) 4px,
+    var(--panel-frame) 6px
+  );
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  pointer-events: auto;
+  cursor: pointer;
+}
+/* Open, the frame belongs to the briefing rather than to the machinery, and
+   its edge says so in the same olive the mission band wears. */
+.rl-cmd[data-open='1'] .rl-cmd__face {
+  border-color: var(--band-mission);
+  cursor: default;
+}
+.rl-cmd__plate {
+  font-family: var(--font-display);
+  font-size: var(--t-xs);
+  font-weight: 600;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+  background: var(--panel-bg);
+  padding: 0 var(--s1);
+}
+.rl-cmd[data-open='1'] .rl-cmd__plate {
+  display: none;
+}
+.rl-cmd__bar {
+  flex: 1;
+  min-width: 0;
+  background: var(--panel-bg);
+  border-left: 2px solid var(--band-mission);
+  padding: 6px 10px;
+  pointer-events: auto;
+}
+.rl-cmd[data-open='0'] .rl-cmd__bar {
+  display: none;
+}
+.rl-cmd__head {
+  display: flex;
+  gap: var(--s2);
+  align-items: baseline;
+}
+.rl-cmd__who {
+  font-family: var(--font-display);
+  font-size: var(--t-xs);
+  font-weight: 600;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.rl-cmd__page {
+  margin-left: auto;
+  display: flex;
+  gap: var(--s1);
+}
+.rl-cmd__page button {
+  background: none;
+  border: 0;
+  padding: 0 2px;
+  font: inherit;
+  color: var(--ink-dim);
+  cursor: pointer;
+}
+.rl-cmd__page button:hover:not([disabled]),
+.rl-cmd__page button:focus-visible {
+  color: var(--accent);
+}
+.rl-cmd__page button[disabled] {
+  opacity: 0.35;
+  cursor: default;
+}
+.rl-cmd__track {
+  height: 2px;
+  background: var(--well);
+  margin-top: 6px;
+}
+.rl-cmd__track > i {
+  display: block;
+  height: 100%;
+  background: var(--band-mission);
+  transition: width var(--dur) var(--ease);
+}
+
+/* --- event feed ------------------------------------------------------- */
+
+/* No panel at all. A notice is punctuation over the map, and boxing it made
+   four of them look like a fifth panel. Bottom-anchored so a new line pushes
+   the stack up out of the dock's way rather than down into it. */
+.rl-feed {
+  position: absolute;
+  left: var(--hud-centre);
+  bottom: 150px;
+  transform: translateX(-50%);
+  width: 560px;
   display: flex;
   flex-direction: column-reverse;
-  gap: var(--s1);
+  gap: 2px;
+  text-align: center;
   pointer-events: none;
 }
 .rl-notice {
-  font-family: var(--font-mono);
-  font-size: var(--t-s);
-  background: var(--panel-bg);
-  border-left: 2px solid currentColor;
-  padding: var(--s1) var(--s2);
   transition: opacity var(--dur-fast) var(--ease);
+}
+
+/* --- bottom-centre controls hint -------------------------------------- */
+
+.rl-hint {
+  position: absolute;
+  left: var(--hud-centre);
+  bottom: var(--s2);
+  transform: translateX(-50%);
+  text-align: center;
+  color: var(--ink-dim);
+  pointer-events: none;
+  /* One line or nothing. Wrapped, it stops being a caption and becomes a
+     paragraph lying on the map -- measured at 1440 with the longer key list
+     this used to carry. */
+  white-space: nowrap;
+}
+
+/* --- projected fire, on the cursor ------------------------------------ */
+
+/* The only panel left on the mission screen besides the dock's tooltip, and
+   it earns the box: it is dense, transient, and read against whatever the
+   cursor happens to be over. Positioned from the hovered entity rather than
+   the mouse, so it holds still while the pointer jitters. */
+.rl-fire {
+  position: absolute;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  padding: var(--s1) var(--s2);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 5;
 }
 
 .rl-bigbanner {
@@ -586,15 +904,6 @@
   margin-top: var(--s2);
   text-transform: uppercase;
   text-shadow: 0 1px 12px var(--scrim), 0 1px 2px var(--scrim);
-}
-
-.rl-topbar {
-  position: absolute;
-  top: var(--s2);
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  gap: var(--s2);
 }
 
 .rl-btnrow {

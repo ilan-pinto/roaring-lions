@@ -50,7 +50,7 @@ import { TERRAIN_THEMES } from './terrain-themes';
 import './ui/theme.css';
 import { Hud, type MissionView, type Tone } from './ui/hud';
 import { showMenu, showCampaign, showSandbox, showEndScreen } from './ui/menu';
-import { showLoading } from './ui/loading';
+import { briefingBeats, showLoading } from './ui/loading';
 import { ProductionBar } from './ui/production';
 import {
   applyIntent,
@@ -925,9 +925,22 @@ async function main(): Promise<void> {
           result: runtime.result,
           campaign: campaignSummary(ledger),
           roe: runtime.roeScore,
-          resources: mission.resources ? `logistics ${runtime.logistics} · intel ${runtime.intel}` : undefined,
+          // Structured rather than the prose line this used to be: the strip
+          // stamps logistics and intel as separate fields with their own
+          // glyphs, and a renderer that has to split a sentence back apart is
+          // how the two drift.
+          logistics: mission.resources ? runtime.logistics : undefined,
+          logisticsRate: mission.resources?.logistics_rate_per_min,
+          intel: mission.resources ? runtime.intel : undefined,
         }
       : null;
+  // Wall-clock pacing, not sim pacing: this multiplies how much real time the
+  // accumulator is fed, never the tick itself (invariant 1 — the sim is 20 Hz
+  // whatever this says, and a replay at 2x produces the same state hash).
+  let gameSpeed = 1;
+  // BattleAudio keeps `muted` private and reports the new state from
+  // `toggle()`, so the strip's chip reads this mirror rather than the mixer.
+  let audioMuted = false;
   const hud = new Hud(document.body, {
     sim,
     getSelection: () => renderer.selection,
@@ -935,6 +948,14 @@ async function main(): Promise<void> {
     hoverStructure: () => renderer.hoverStructure,
     hoverEntity: () => renderer.hoverEntity,
     gameVersion: __GAME_VERSION__,
+    getSpeed: () => gameSpeed,
+    setSpeed: (s) => {
+      gameSpeed = s;
+    },
+    isMuted: () => audioMuted,
+    toggleMute: () => {
+      audioMuted = audio.toggle();
+    },
   });
   // Loud, not a console.warn behind a completed loading bar: `failedArt`
   // (collected above, before the HUD existed to report through) names every
@@ -966,31 +987,15 @@ async function main(): Promise<void> {
   // reports it is tracked here, kept in lockstep with every `toggle()` call.
   let overlayOn = false;
 
-  // Always-visible escape hatch back to the campaign menu.
-  // Top bar: menu and audio, laid out side by side so neither can collide.
-  const topBar = document.createElement('div');
-  topBar.className = 'rl-topbar';
-  document.body.appendChild(topBar);
+  // The escape hatches -- back to the campaign map, and the audio toggle --
+  // are stamps in the HUD's top strip now (GH-153). The floating `rl-topbar`
+  // that used to hold them sat top-centre, which is where the hold clock goes.
 
-  const menuBtn = document.createElement('a');
-  menuBtn.textContent = '⌂ menu';
-  menuBtn.href = '?';
-  menuBtn.className = 'rl-btn';
-  topBar.appendChild(menuBtn);
-
-  // Audio toggle, next to the menu. Mirrors the `m` key both ways.
-  const muteBtn = document.createElement('button');
-  muteBtn.className = 'rl-btn';
-  const paintMute = (muted: boolean): void => {
-    muteBtn.textContent = muted ? '🔇 muted' : '🔊 sound';
-    muteBtn.dataset.locked = muted ? '1' : '0';
-  };
-  paintMute(false);
-  muteBtn.addEventListener('click', () => {
-    paintMute(audio.toggle());
-    muteBtn.blur(); // keep the keyboard on the battlefield, not the button
-  });
-  topBar.appendChild(muteBtn);
+  // The orders, handed to the commander so they stay reachable after the
+  // deployment screen is gone. Split the same way loading.ts reads them out,
+  // so the bar continues that conversation rather than opening a second,
+  // differently-punctuated one.
+  if (mission?.briefing) hud.brief(briefingBeats(mission.briefing));
 
   // Mission start punctuation: the operation names itself before the first
   // order is given. Skippable — a replay for a better ROE should not have to
@@ -1348,9 +1353,9 @@ async function main(): Promise<void> {
       if (res.marker) renderer.addOrderMarker(w.x, w.y);
     }
     if (ev.key === 'm') {
-      const muted = audio.toggle();
-      paintMute(muted);
-      hud.note(muted ? 'audio muted' : 'audio on', 'mute');
+      audioMuted = audio.toggle();
+      hud.paintMute(); // the key and the strip's chip are one state, both ways
+      hud.note(audioMuted ? 'audio muted' : 'audio on', 'mute');
     }
 
     // Control groups: Ctrl/Cmd+digit assigns the selection, digit recalls it,
@@ -1704,6 +1709,15 @@ async function main(): Promise<void> {
   }
   renderer.hoverEntity = he;
 
+  // Keep the projected-fire panel beside the target it describes. Per frame
+  // rather than per tick: the HUD rebuilds its CONTENT at 4 Hz, and a panel
+  // anchored to a moving unit at 4 Hz visibly steps along behind it. Projection
+  // is asked for, never recomputed here (CLAUDE.md: `renderer.worldToScreen`).
+  if (he >= 0) {
+    const p = renderer.worldToScreen(fx.toNumber(sim.state.posX[he]), fx.toNumber(sim.state.posY[he]));
+    hud.placeFire(p.x, p.y);
+  }
+
   // The hover cursor asks the same resolver the click uses, with the same
   // adapter (intentWorld) — one object, so the click and the cursor that
   // predicts it can never give different answers. append is always false:
@@ -1787,7 +1801,11 @@ async function main(): Promise<void> {
     rafId = requestAnimationFrame(loop);
     const now = performance.now();
     lastFrameMs = now - last;
-    acc += lastFrameMs;
+    // The speed control feeds the ACCUMULATOR, never the tick. A tick is 50 ms
+    // of sim time at every setting (invariant 1); 2x runs two of them where one
+    // would have run, and 0 runs none while the frame still draws, so the
+    // camera and the selection stay live in a pause.
+    acc += lastFrameMs * gameSpeed;
     last = now;
     if (acc > 250) acc = 250; // don't spiral after a background tab
     while (acc >= MS_PER_TICK) {

@@ -1,4 +1,5 @@
-// The player's HUD: briefing, unit card, clock, notices, mission punctuation.
+// The player's HUD: the top strip, the hold clock, the commander, the event
+// feed, and the unit card.
 //
 // This used to live inside DebugOverlay, in @lions/render, which put the face
 // of the game inside the development instrument and inside the rendering
@@ -7,38 +8,60 @@
 // the detection maths that stayed behind in the overlay are what a developer
 // looks at while tuning the model.
 //
+// The layout is map-first as of GH-153. Three stacked `rl-panel` sections in
+// the corners covered about a third of a 1440x900 viewport and hid the corner
+// a player pans toward most; everything a player reads continuously is now
+// edge-anchored, unpanelled, and 8px off the frame. The one panel left on the
+// mission screen is projected fire, and it earns its box by being dense,
+// transient, and read against whatever the cursor is over.
+//
+// What this slice does NOT own, and what still draws the way it did: the
+// selection card (`this.card`), which the multi-select chip row and the 460px
+// single-unit card replace in a later slice, and the production panel in
+// production.ts, which the reinforcements dock replaces.
+//
 // Nothing here reads or writes sim state — it renders what the sim reports
-// (invariant 4).
+// (invariant 4). The arithmetic is in hud-model.ts so that the strip's inline
+// clock and the big centred clock cannot derive the same number twice.
 
-import { fx, TICKS_PER_SECOND, type Sim } from '@lions/sim';
+import { fx, type Sim } from '@lions/sim';
 import { panel, type Panel } from './panel';
 import { flash, leave, titleCard } from './motion';
+import { markSvg } from './mark';
 import { ROLE_GLYPH, roleBucket } from './role';
+import {
+  beatDwellMs,
+  countSuppressed,
+  holdClock,
+  objectiveGlyph,
+  roeTone,
+  stepBeat,
+  stripObjectives,
+  worstPenalties,
+  type MissionView,
+  type Tone,
+} from './hud-model';
 
-export interface ObjectiveView {
-  id: string;
-  text: string;
-  primary: boolean;
-  status: string;
-  ticksLeft?: number;
-  paused?: 'contested' | 'unheld';
-}
+export type { MissionView, ObjectiveView, Tone } from './hud-model';
 
-export interface MissionView {
-  name: string;
-  objectives: ObjectiveView[];
-  result: 'ongoing' | 'victory' | 'defeat';
-  /** One-line campaign summary (roster size, cumulative ROE). */
-  campaign?: string;
-  /** Live mission ROE score 0-100 — always visible (GDD §6). */
-  roe?: number;
-  /** Resource line, e.g. "logistics 560 · intel 40". */
-  resources?: string;
-}
+/**
+ * Who delivers the orders.
+ *
+ * A constant and not mission data, because there is no data to read: the
+ * mission schema carries `briefing` prose and no `speaker`. Naming him here is
+ * honest about that; inventing a `commander` field and filling it with the
+ * same string in thirteen files would not be. Extending the schema is the
+ * right fix and it is not this slice's.
+ */
+const COMMANDER = { rank: 'Lt Col Dagan', plate: 'Dagan' };
 
-/** Semantic tone for a notice or a value. Never a colour — the mapping from
- *  meaning to colour belongs to theme.css, in one place. */
-export type Tone = 'good' | 'warn' | 'bad' | 'info' | 'live' | 'mute';
+/** The feed is punctuation, not a log. Four lines is what fits above the dock
+ *  without the stack reaching the reinforcements tiles. */
+const FEED_LINES = 4;
+
+/** How far the projected-fire panel sits from the target it describes. Right
+ *  and slightly up, so it never covers the unit the player is aiming at. */
+const FIRE_OFFSET = { x: 36, y: -8 };
 
 export interface HudDeps {
   sim: Sim;
@@ -47,23 +70,40 @@ export interface HudDeps {
   hoverStructure: () => number;
   hoverEntity: () => number;
   gameVersion: string;
-}
-
-function clockText(ticksLeft: number): string {
-  const secs = Math.ceil(ticksLeft / TICKS_PER_SECOND);
-  const mm = Math.floor(secs / 60);
-  const ss = (secs % 60).toString().padStart(2, '0');
-  return `${mm}:${ss}`;
+  /** Game speed as a multiplier: 0 paused, 1 normal, 2 double. The strip owns
+   *  the buttons; the frame loop owns the number. */
+  getSpeed?: () => number;
+  setSpeed?: (speed: number) => void;
+  /** Audio state, mirrored by the `m` key. Returns the new muted state. */
+  isMuted?: () => boolean;
+  toggleMute?: () => void;
 }
 
 export class Hud {
-  private readonly brief: Panel;
+  private readonly strip: HTMLDivElement;
+  private readonly stripBody: HTMLDivElement;
+  private readonly stripInfo: HTMLDivElement;
+  private readonly speedChips: { el: HTMLButtonElement; speed: number }[] = [];
+  private readonly muteChip: HTMLButtonElement;
   private readonly card: Panel;
   private readonly clock: HTMLDivElement;
-  private readonly notices: HTMLDivElement;
+  private readonly feed: HTMLDivElement;
+  private readonly hint: HTMLDivElement;
+  private readonly fire: HTMLDivElement;
+  private readonly cmd: HTMLDivElement;
+  private readonly cmdQuote: HTMLDivElement;
+  private readonly cmdWho: HTMLSpanElement;
+  private readonly cmdFill: HTMLElement;
+  private readonly cmdPrev: HTMLButtonElement;
+  private readonly cmdNext: HTMLButtonElement;
   private readonly banner: HTMLDivElement;
   private bannerShown = false;
   private tickN = 0;
+
+  /** The mission's briefing, split into the beats it is delivered in. */
+  private beats: string[] = [];
+  private beatIdx = 0;
+  private beatTimer = 0;
 
   /** Objective status and ROE from the previous refresh, so a change can be
    *  punctuated. Without this the HUD can only show state, never report that
@@ -76,13 +116,85 @@ export class Hud {
     private readonly host: HTMLElement,
     private readonly deps: HudDeps
   ) {
-    this.brief = panel({
-      rank: 'mission',
-      title: 'Roaring Lions',
-      tag: deps.gameVersion ? `V ${deps.gameVersion}` : '',
-      mark: true,
-      place: 'top:var(--s2);left:var(--s2);width:300px;max-height:calc(100vh - var(--s4))',
+    this.strip = document.createElement('div');
+    this.strip.className = 'rl-strip';
+
+    // Three runs, for two different reasons.
+    //
+    // Left and right, because the strip's two halves report different things:
+    // what the mission wants (name, ROE, the objective in hand) and what the
+    // force has (resources, suppression, the controls). The right half is
+    // pushed over by `rl-strip__gap`.
+    //
+    // Rebuilt and persistent, because the mission fields are innerHTML'd
+    // wholesale four times a second while the speed chips, the campaign link
+    // and the mute toggle carry listeners. One innerHTML over both would drop
+    // those listeners 4 Hz and break the very first click on any of them.
+    //
+    // `display: contents` on the rebuilt runs so the strip's own flex gap
+    // falls between the fields rather than around a wrapper holding them all.
+    this.stripBody = document.createElement('div');
+    this.stripBody.style.display = 'contents';
+    this.stripInfo = document.createElement('div');
+    this.stripInfo.style.display = 'contents';
+
+    const mark = document.createElement('span');
+    mark.className = 'rl-strip__mark';
+    mark.innerHTML = markSvg(15, 12);
+    mark.title = `Roaring Lions${deps.gameVersion ? ` v${deps.gameVersion}` : ''}`;
+
+    const right = document.createElement('div');
+    right.className = 'rl-strip__right rl-strip__gap';
+    right.appendChild(this.stripInfo);
+    this.strip.append(mark, this.stripBody, right);
+
+    // Speed. Rendered even where the frame loop has not wired it, because a
+    // strip that grows a control the moment a dependency appears is a strip
+    // whose layout nobody has actually looked at.
+    const chips = document.createElement('div');
+    chips.className = 'rl-strip__chips';
+    for (const spec of [
+      { speed: 0, label: '▮▮', title: 'pause' },
+      { speed: 1, label: '1×', title: 'normal speed' },
+      { speed: 2, label: '2×', title: 'double speed' },
+    ]) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'rl-strip__chip';
+      b.textContent = spec.label;
+      b.title = spec.title;
+      b.addEventListener('click', () => {
+        deps.setSpeed?.(spec.speed);
+        // Repainted here and not on the next tick, deliberately: at speed 0 no
+        // tick ever comes, so a pause button that waits for one never lights.
+        this.paintSpeed();
+        b.blur(); // keep the keyboard on the battlefield, not the button
+      });
+      this.speedChips.push({ el: b, speed: spec.speed });
+      chips.appendChild(b);
+    }
+
+    // The map page is always one click away, mid-mission included. A plain
+    // navigation, so leaving a fight costs the attempt -- deliberately.
+    const campaign = document.createElement('a');
+    campaign.className = 'rl-strip__link';
+    campaign.href = '?campaign';
+    campaign.textContent = '⌂';
+    campaign.title = 'campaign map';
+
+    this.muteChip = document.createElement('button');
+    this.muteChip.type = 'button';
+    this.muteChip.className = 'rl-strip__chip';
+    this.muteChip.addEventListener('click', () => {
+      deps.toggleMute?.();
+      this.paintMute();
+      this.muteChip.blur();
     });
+
+    right.append(chips, campaign, this.muteChip);
+    this.paintSpeed();
+    this.paintMute();
+
     this.card = panel({
       rank: 'inspect',
       title: 'Selection',
@@ -94,21 +206,76 @@ export class Hud {
     this.clock.className = 'rl-clock';
     this.clock.style.display = 'none';
 
-    this.notices = document.createElement('div');
-    this.notices.className = 'rl-notices';
+    this.feed = document.createElement('div');
+    this.feed.className = 'rl-feed';
+
+    this.hint = document.createElement('div');
+    this.hint.className = 'rl-hint rl-onmap';
+
+    this.fire = document.createElement('div');
+    this.fire.className = 'rl-fire';
+    this.fire.style.display = 'none';
+
+    // --- commander ---------------------------------------------------------
+    this.cmd = document.createElement('div');
+    this.cmd.className = 'rl-cmd';
+    this.cmd.dataset.open = '0';
+    this.cmd.style.display = 'none';
+
+    const face = document.createElement('div');
+    face.className = 'rl-cmd__face';
+    face.title = COMMANDER.rank;
+    // The collapsed frame is the way back in. A briefing the player dismissed
+    // by looking away is otherwise unreadable for the rest of the mission.
+    face.addEventListener('click', () => this.openCommander());
+    const plate = document.createElement('span');
+    plate.className = 'rl-cmd__plate';
+    plate.textContent = COMMANDER.plate;
+    face.appendChild(plate);
+
+    const bar = document.createElement('div');
+    bar.className = 'rl-cmd__bar';
+    const head = document.createElement('div');
+    head.className = 'rl-cmd__head';
+    this.cmdWho = document.createElement('span');
+    this.cmdWho.className = 'rl-cmd__who';
+    const paging = document.createElement('div');
+    paging.className = 'rl-cmd__page';
+    this.cmdPrev = document.createElement('button');
+    this.cmdPrev.type = 'button';
+    this.cmdPrev.textContent = '◂';
+    this.cmdPrev.title = 'previous';
+    this.cmdNext = document.createElement('button');
+    this.cmdNext.type = 'button';
+    this.cmdNext.textContent = '▸';
+    this.cmdNext.title = 'next';
+    this.cmdPrev.addEventListener('click', () => this.pageCommander(-1));
+    this.cmdNext.addEventListener('click', () => this.pageCommander(1));
+    paging.append(this.cmdPrev, this.cmdNext);
+    head.append(this.cmdWho, paging);
+
+    this.cmdQuote = document.createElement('div');
+    const track = document.createElement('div');
+    track.className = 'rl-cmd__track';
+    this.cmdFill = document.createElement('i');
+    track.appendChild(this.cmdFill);
+    bar.append(head, this.cmdQuote, track);
+    this.cmd.append(face, bar);
 
     this.banner = document.createElement('div');
     this.banner.className = 'rl-bigbanner';
     this.banner.style.display = 'none';
 
-    // The map page is always one click away, mid-mission included. A plain
-    // navigation, so leaving a fight costs the attempt -- deliberately.
-    const ret = document.createElement('a');
-    ret.className = 'rl-return';
-    ret.href = '?campaign';
-    ret.textContent = '⤺ campaign map';
-
-    host.append(this.brief.el, this.card.el, this.clock, this.notices, this.banner, ret);
+    host.append(
+      this.strip,
+      this.cmd,
+      this.clock,
+      this.card.el,
+      this.feed,
+      this.hint,
+      this.fire,
+      this.banner
+    );
   }
 
   /** Mission start punctuation. */
@@ -116,24 +283,71 @@ export class Hud {
     titleCard(this.host, name, subtitle, holdMs);
   }
 
+  /**
+   * Hand the commander his orders.
+   *
+   * Beats come from `briefingBeats()` in loading.ts, which is the same split
+   * the deployment screen reads the briefing out in — so the bar continues a
+   * conversation the player has already started rather than opening a second,
+   * differently-punctuated one.
+   */
+  brief(beats: string[]): void {
+    this.beats = beats;
+    this.beatIdx = 0;
+    if (beats.length === 0) {
+      this.cmd.style.display = 'none';
+      return;
+    }
+    this.cmd.style.display = '';
+    this.openCommander();
+  }
+
   onTick(): void {
     this.updateBanner();
     // A full innerHTML rebuild at 20 Hz stalls the page exactly when combat
     // floods events. 4 Hz reads identically.
     if (this.tickN++ % 5 !== 0) return;
-    this.renderBrief();
+    this.renderStrip();
     this.renderCard();
     this.renderClock();
+    this.renderHint();
+    this.renderFire();
+  }
+
+  /**
+   * Put the projected-fire panel beside the thing it describes.
+   *
+   * Called from the frame loop rather than from `onTick`, because at 4 Hz a
+   * panel anchored to a moving target visibly steps along behind it. Only the
+   * position moves here; the rows are rebuilt on the tick with everything
+   * else, which is the cadence the content actually changes at.
+   */
+  placeFire(x: number, y: number): void {
+    this.fire.style.left = `${Math.round(x + FIRE_OFFSET.x)}px`;
+    this.fire.style.top = `${Math.round(y + FIRE_OFFSET.y)}px`;
+  }
+
+  /** Mirror the audio state the `m` key just changed. */
+  paintMute(): void {
+    const muted = this.deps.isMuted?.() ?? false;
+    this.muteChip.textContent = muted ? '🔇' : '🔊';
+    this.muteChip.title = muted ? 'audio muted' : 'audio on';
+    this.muteChip.dataset.on = muted ? '0' : '1';
+  }
+
+  private paintSpeed(): void {
+    const now = this.deps.getSpeed?.() ?? 1;
+    for (const { el, speed } of this.speedChips) el.dataset.on = speed === now ? '1' : '0';
   }
 
   /** Mission-level narration — objectives, triggers, waves, refusals. */
   note(html: string, tone: Tone = 'live'): void {
     const el = document.createElement('div');
-    el.className = `rl-notice rl-enter rl-${tone}`;
+    el.className = `rl-notice rl-enter rl-onmap rl-${tone}`;
     el.innerHTML = html;
-    this.notices.prepend(el);
-    while (this.notices.childElementCount > 5) {
-      this.notices.lastElementChild?.remove();
+    this.feed.prepend(el);
+    while (this.feed.childElementCount > FEED_LINES) {
+      this.feed.lastElementChild?.remove();
     }
     // Notices are punctuation, not a log — the roll feed in the debug overlay
     // is where history lives. These clear themselves so the map stays visible.
@@ -151,19 +365,98 @@ export class Hud {
   }
 
   // ------------------------------------------------------------------
-  // Briefing: what the mission wants, how the force is holding up, and
-  // what the cursor is over.
+  // Commander: the briefing, delivered a beat at a time.
   // ------------------------------------------------------------------
 
-  private renderBrief(): void {
+  private openCommander(): void {
+    if (this.beats.length === 0) return;
+    this.cmd.dataset.open = '1';
+    this.renderCommander();
+  }
+
+  private pageCommander(dir: number): void {
+    this.beatIdx = stepBeat(this.beatIdx, this.beats.length, dir);
+    this.renderCommander();
+  }
+
+  private renderCommander(): void {
+    const total = this.beats.length;
+    const text = this.beats[this.beatIdx] ?? '';
+    this.cmdWho.textContent = `${COMMANDER.rank} · ${this.beatIdx + 1} / ${total}`;
+    this.cmdQuote.textContent = `“${text}”`;
+    this.cmdFill.style.width = `${(((this.beatIdx + 1) / total) * 100).toFixed(0)}%`;
+    this.cmdPrev.disabled = this.beatIdx === 0;
+    this.cmdNext.disabled = this.beatIdx === total - 1;
+    // Each beat gets its own dwell, restarted by paging. The bar folds back to
+    // the portrait rather than vanishing: the orders stay one click away.
+    window.clearTimeout(this.beatTimer);
+    this.beatTimer = window.setTimeout(() => {
+      this.cmd.dataset.open = '0';
+    }, beatDwellMs(text));
+  }
+
+  // ------------------------------------------------------------------
+  // Top strip: the mission, in one line, always.
+  // ------------------------------------------------------------------
+
+  private renderStrip(): void {
     const m = this.deps.getMission();
-    this.brief.setTitle(m ? m.name : 'Roaring Lions');
-    this.brief.body.innerHTML =
-      this.missionHtml(m) +
-      this.suppressionHtml() +
-      this.structureHtml() +
-      this.projectedFireHtml() +
-      this.controlsHtml();
+    const rows: string[] = [];
+    if (m) {
+      // The campaign summary has no field of its own in a 30px strip. It rides
+      // the mission name's tooltip rather than being dropped: it is a
+      // between-missions fact, not something read mid-fight.
+      rows.push(
+        `<span class="rl-strip__name"${m.campaign ? ` title="${escapeAttr(m.campaign)}"` : ''}>${m.name}</span>`
+      );
+      if (m.roe !== undefined) {
+        rows.push(
+          `<span><b class="rl-${roeTone(m.roe)}" data-roe>${m.roe}</b> <span class="rl-dim">ROE</span></span>`
+        );
+      }
+      const { primary, secondaryOpen } = stripObjectives(m);
+      const hold = holdClock(m);
+      if (primary) {
+        // The clock is stamped inline ONLY when it belongs to this objective.
+        // A hold running on a secondary while the strip shows a primary would
+        // otherwise read as the primary's own timer.
+        const inline =
+          hold && hold.id === primary.id
+            ? ` <b class="${hold.tone ? `rl-${hold.tone}` : ''}">${hold.text}</b>`
+            : '';
+        const tone =
+          primary.status === 'complete' ? 'rl-good' : primary.status === 'failed' ? 'rl-bad' : '';
+        rows.push(
+          `<span class="rl-strip__obj ${tone}" data-obj="${escapeAttr(primary.id)}">` +
+            `${objectiveGlyph(primary.status)} ${primary.text}${inline}</span>`
+        );
+      }
+      if (secondaryOpen > 0) {
+        rows.push(`<span class="rl-dim">+${secondaryOpen} secondary</span>`);
+      }
+    } else {
+      rows.push('<span class="rl-strip__name">Roaring Lions</span>');
+    }
+
+    const info: string[] = [];
+    if (m?.logistics !== undefined) {
+      const rate =
+        m.logisticsRate !== undefined && m.logisticsRate > 0
+          ? ` <span class="rl-dim">+${m.logisticsRate}/min</span>`
+          : '';
+      info.push(`<span class="rl-info" title="logistics">▣ <b>${m.logistics}</b>${rate}</span>`);
+    }
+    if (m?.intel !== undefined) {
+      info.push(`<span class="rl-info" title="intel">◎ <b>${m.intel}</b></span>`);
+    }
+    // Suppression: shown only when there is some. A permanent "0 pinned" is
+    // the kind of field a player learns to stop reading.
+    const { pinned, broken } = countSuppressed(this.deps.sim.state, this.deps.sim.entityCount);
+    if (pinned > 0) info.push(`<span class="rl-hot"><b>▼ ${pinned} pinned</b></span>`);
+    if (broken > 0) info.push(`<span class="rl-bad"><b>⚑ ${broken} broken</b></span>`);
+
+    this.stripBody.innerHTML = rows.join('');
+    this.stripInfo.innerHTML = info.join('');
     this.punctuate(m);
   }
 
@@ -174,109 +467,41 @@ export class Hud {
       const prev = this.lastStatus.get(o.id);
       this.lastStatus.set(o.id, o.status);
       if (prev === undefined || prev === o.status) continue;
-      const row = this.brief.body.querySelector<HTMLElement>(`[data-obj="${CSS.escape(o.id)}"]`);
+      const row = this.stripBody.querySelector<HTMLElement>(`[data-obj="${CSS.escape(o.id)}"]`);
       if (row) flash(row, o.status === 'complete' ? 'rl-flash-good' : 'rl-flash-bad', 400);
     }
     if (m.roe !== undefined) {
       const dropped = this.lastRoe !== null && m.roe < this.lastRoe;
       this.lastRoe = m.roe;
-      const el = this.brief.body.querySelector<HTMLElement>('[data-roe]');
+      const el = this.stripBody.querySelector<HTMLElement>('[data-roe]');
       if (dropped && el) flash(el, 'rl-flash-bad', 300);
     }
   }
 
-  private missionHtml(m: MissionView | null): string {
-    if (!m) return '';
-    const rows: string[] = [];
-    if (m.roe !== undefined) {
-      const tone = m.roe >= 80 ? 'good' : m.roe >= 50 ? 'warn' : 'bad';
-      rows.push(
-        `<div class="rl-score"><span class="rl-score__n rl-${tone}" data-roe>${m.roe}</span>` +
-          `<span class="rl-score__k">ROE</span>` +
-          (m.resources ? `<span class="rl-score__r rl-info">${m.resources}</span>` : '') +
-          `</div>`
-      );
-    } else if (m.resources) {
-      rows.push(`<div class="rl-info">${m.resources}</div>`);
-    }
-    if (m.campaign) rows.push(`<div class="rl-dim">${m.campaign}</div>`);
+  // ------------------------------------------------------------------
+  // Bottom centre: what the controls are, while nothing is selected.
+  // ------------------------------------------------------------------
 
-    rows.push('<div class="rl-label">Objectives</div>');
-    for (const o of m.objectives) {
-      const glyph = o.status === 'complete' ? '☑' : o.status === 'failed' ? '☒' : '☐';
-      const tone = o.status === 'complete' ? 'good' : o.status === 'failed' ? 'bad' : '';
-      let clock = '';
-      if (o.ticksLeft !== undefined) {
-        const secs = Math.ceil(o.ticksLeft / TICKS_PER_SECOND);
-        // Runs amber under a minute: the last stretch of a hold is the part
-        // worth watching.
-        const urgent = secs <= 60 ? 'rl-warn' : 'rl-info';
-        clock = ` <b class="${urgent}">${clockText(o.ticksLeft)}</b>`;
-        if (o.paused === 'contested') clock += ' <span class="rl-bad">CONTESTED</span>';
-        else if (o.paused === 'unheld') clock += ' <span class="rl-warn">NOBODY HOLDING</span>';
-      }
-      const secondary = o.primary ? '' : ' <span class="rl-dim">(secondary)</span>';
-      rows.push(
-        `<div class="rl-obj ${tone ? 'rl-' + tone : ''}" data-obj="${o.id}">` +
-          `<span class="rl-obj__g">${glyph}</span><span>${o.text}${clock}${secondary}</span></div>`
-      );
+  private renderHint(): void {
+    if (this.deps.getSelection().length > 0) {
+      this.hint.style.display = 'none';
+      return;
     }
-    return rows.join('');
+    this.hint.style.display = '';
+    // One line, not the three-line block this replaces. That block was a panel
+    // section with room to spare; on bare map it is a wall, and measured at
+    // 1440 the full key list wrapped to two lines and read as a paragraph
+    // sitting on the battlefield. The verb keys (h/f/g/u) are deliberately not
+    // here: the order row a later slice puts in this same place names them as
+    // buttons, and the unit card's Capabilities section already does.
+    this.hint.textContent =
+      'click/drag select · right-click attack-move · shift adds a waypoint · ' +
+      'ctrl+1–9 group · 1–9 recall';
   }
 
-  /** Force-wide suppression warning — visible even when the units are not. */
-  private suppressionHtml(): string {
-    const st = this.deps.sim.state;
-    let pinnedN = 0;
-    let brokenN = 0;
-    for (let i = 0; i < this.deps.sim.entityCount; i++) {
-      if (st.alive[i] === 0 || st.side[i] !== 0) continue;
-      if (st.routed[i] === 1) brokenN++;
-      else if (st.pinned[i] === 1) pinnedN++;
-    }
-    if (pinnedN === 0 && brokenN === 0) return '';
-    const parts: string[] = [];
-    if (pinnedN > 0) parts.push(`<span class="rl-hot"><b>▼ ${pinnedN} pinned</b></span>`);
-    if (brokenN > 0) parts.push(`<span class="rl-bad"><b>⚑ ${brokenN} broken</b></span>`);
-    return `<div class="rl-label">Force</div><div>${parts.join(' · ')}</div>`;
-  }
-
-  /** Building under the cursor, reported the way a unit is when selected. */
-  private structureHtml(): string {
-    const sim = this.deps.sim;
-    const s = this.deps.hoverStructure();
-    if (s < 0) return '';
-    const str = sim.structures;
-    if (str.alive[s] === 0) return '';
-    const type = sim.structureTypes[str.typeIdx[s]];
-    const integrity = str.maxHp[s] > 0 ? str.hp[s] / str.maxHp[s] : 1;
-    const st = sim.state;
-    // Count only what side 0 can actually see: friendlies always, hostiles
-    // once identified. A building does not report its garrison to the enemy.
-    let known = 0;
-    let hostile = false;
-    for (let i = 0; i < sim.entityCount; i++) {
-      if (st.alive[i] === 0 || st.garrisonedIn[i] !== s) continue;
-      if (st.side[i] === 0) known++;
-      else if (sim.contactLevel(0, i) === 2) {
-        known++;
-        hostile = true;
-      }
-    }
-    const rows = [
-      `<div class="rl-label">${type.name}</div>`,
-      `<div>integrity ${(integrity * 100).toFixed(0)}%</div>`,
-      known > 0
-        ? `<div class="${hostile ? 'rl-bad' : 'rl-live'}">held: ${known}/${type.garrisonSlots} inside</div>`
-        : type.garrisonSlots > 0
-          ? `<div class="rl-dim">empty · ${type.garrisonSlots} garrison slots</div>`
-          : '<div class="rl-dim">not garrisonable</div>',
-    ];
-    if (type.roePenalty > 0) {
-      rows.push(`<div class="rl-warn">⚠ levelling this costs ROE ${type.roePenalty}</div>`);
-    }
-    return rows.join('');
-  }
+  // ------------------------------------------------------------------
+  // Projected fire: what a shot costs, before it is taken.
+  // ------------------------------------------------------------------
 
   /**
    * Projected P(hit) for each selected unit against the hovered enemy.
@@ -286,6 +511,12 @@ export class Hud {
    * units that cannot engage are counted rather than listed — "3 cannot reach"
    * is information, three empty rows are not.
    */
+  private renderFire(): void {
+    const html = this.projectedFireHtml();
+    this.fire.style.display = html === '' ? 'none' : '';
+    if (html !== '') this.fire.innerHTML = html;
+  }
+
   private projectedFireHtml(): string {
     const sim = this.deps.sim;
     const t = this.deps.hoverEntity();
@@ -317,18 +548,13 @@ export class Hud {
       const chance = Math.round(fx.toNumber(p.pHit) * 100);
       // Name only the factors actually degrading the shot, worst first.
       // accuracy is the weapon's baseline, not a penalty the player can act on.
-      const penalties: [string, number][] = [
+      const worst = worstPenalties([
         ['range', fx.toNumber(p.factors.rangeFalloff)],
         ['cover', fx.toNumber(p.factors.coverMod)],
         ['target moving', fx.toNumber(p.factors.motionMod)],
         ['firing on the move', fx.toNumber(p.factors.stanceMod)],
         ['suppressed', fx.toNumber(p.factors.suppressionMod)],
-      ];
-      const worst = penalties
-        .filter(([, v]) => v < 0.995)
-        .sort((a, b) => a[1] - b[1])
-        .slice(0, 2)
-        .map(([label, v]) => `${label} ${Math.round(v * 100)}%`);
+      ]);
       const why = worst.length > 0 ? ` · ${worst.join(' · ')}` : '';
       const bounce = p.hurts ? '' : ' · <span class="rl-bad">cannot penetrate</span>';
       rows.push(
@@ -336,7 +562,8 @@ export class Hud {
       );
     }
 
-    const head = '<div class="rl-label">Projected fire</div>';
+    const target = sim.unitTypes[sim.state.typeIdx[t]].name;
+    const head = `<div class="rl-label">Projected fire · ${target}</div>`;
     if (rows.length === 0 && unidentified > 0 && cannot === 0 && holdingFire === 0) {
       return head + '<div class="rl-dim">contact not identified — no firing solution</div>';
     }
@@ -357,18 +584,12 @@ export class Hud {
     return head + rows.join('') + foot;
   }
 
-  private controlsHtml(): string {
-    if (this.deps.getSelection().length > 0) return '';
-    return (
-      '<div class="rl-label">Controls</div>' +
-      '<div class="rl-dim">click/drag select · right-click attack-move · shift adds a waypoint<br>' +
-      'h halt · f smoke · g load · u unload · m mute · o overlay<br>' +
-      'wasd/arrows pan · wheel zoom · ctrl+1–9 assign group · 1–9 recall</div>'
-    );
-  }
-
   // ------------------------------------------------------------------
   // Unit card: what it is, how it is doing, what it can do.
+  //
+  // Unchanged by GH-153's foundation slice on purpose. The 150px chip row and
+  // the 460px card that replace it are a later slice; leaving this working
+  // means the mission screen never goes through a state with no inspector.
   // ------------------------------------------------------------------
 
   private renderCard(): void {
@@ -466,25 +687,21 @@ export class Hud {
   // ------------------------------------------------------------------
 
   private renderClock(): void {
-    const m = this.deps.getMission();
-    const timed = m?.objectives.find((o) => o.status === 'active' && o.ticksLeft !== undefined);
-    if (!timed || timed.ticksLeft === undefined) {
+    const hold = holdClock(this.deps.getMission());
+    if (!hold) {
       this.clock.style.display = 'none';
       return;
     }
-    const secs = Math.ceil(timed.ticksLeft / TICKS_PER_SECOND);
-    // A paused clock must say why, or it reads as a broken game.
-    const why =
-      timed.paused === 'contested'
-        ? 'CONTESTED'
-        : timed.paused === 'unheld'
-          ? 'NOBODY HOLDING'
-          : '';
-    this.clock.textContent = why ? `${clockText(timed.ticksLeft)}  ${why}` : clockText(timed.ticksLeft);
-    const tone =
-      timed.paused === 'contested' ? 'bad' : timed.paused === 'unheld' || secs <= 60 ? 'warn' : '';
-    this.clock.dataset.tone = tone;
-    this.clock.classList.toggle('rl-pulse', timed.paused === 'contested');
+    this.clock.textContent = hold.text;
+    this.clock.dataset.tone = hold.tone;
+    this.clock.classList.toggle('rl-pulse', hold.contested);
     this.clock.style.display = 'block';
   }
+}
+
+/** Mission and objective text reaches the strip inside an attribute. Escaped
+ *  rather than trusted: it is authored JSON, but an apostrophe in a mission
+ *  name would otherwise end the attribute and eat the rest of the strip. */
+function escapeAttr(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
