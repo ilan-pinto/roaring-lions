@@ -304,7 +304,7 @@ export interface StructureBillboardGeometry {
  * this is the one place that formula is written rather than two copies that
  * could silently drift apart.
  */
-function billboardDrawSize(
+export function billboardDrawSize(
   scale: number,
   textureWidthPx: number,
   textureHeightPx: number

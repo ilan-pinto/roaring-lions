@@ -30,6 +30,9 @@ import { ThreeRenderer } from './ThreeRenderer';
 import { StructureInstancer, structureBillboardGeometry } from './units/structures';
 import { MESH_SCALE } from './units/mesh-anim';
 import { BUILDING_SETTLE_SECONDS, type BuildingMeshTemplate } from './units/mesh-building';
+import { COLLAPSE_SHROUD_SWAP_DELAY_MS } from './units/collapse-shroud';
+import shellImpact from '../../../../data/vfx/shell_impact.json';
+import type { EmitterSpec } from '../vfx/emitters';
 
 const disposeSpy = vi.fn();
 
@@ -221,5 +224,174 @@ describe('ThreeRenderer building-mesh wreck settle (GH #143 follow-up)', () => {
     priv.updateBuildingMeshes();
 
     expect(wreckRoot.scale.y).toBeCloseTo(MESH_SCALE, 10);
+  });
+});
+
+/**
+ * The collapse SHROUD and the standing-mesh hold it exists to cover
+ * (`units/collapse-shroud.ts`). The pure lattice/envelope maths and the
+ * pooled manager are covered in `units/collapse-shroud.test.ts`; what is
+ * proven HERE is the wiring those cannot see -- that the swap is actually
+ * held, that the shroud is actually sized from the structure, and that a
+ * shell impact cannot reach either.
+ */
+interface ShroudPrivate extends BuildingMeshPrivate {
+  buildingMeshSwapHold: Map<number, number>;
+  buildingMeshBounds: Map<string, THREE.Vector3>;
+  buildingMeshIdleEntities: Map<number, THREE.Object3D>;
+  collapseShrouds: {
+    liveCount: number;
+    instanceCount: number;
+    step(dtMs: number): void;
+    mesh: THREE.InstancedMesh;
+  };
+  structureCollapseArt: Map<string, { scale: number; textureWidth: number; textureHeight: number }>;
+  beginCollapseShroud(structure: number, cx: number, cy: number): void;
+  stepCollapseShrouds(dtMs: number): void;
+  spawnCollapseFx(id: string, bx: number, by: number, power?: number, yawTurns?: number): boolean;
+}
+
+/** Sim + renderer with `shanty` mesh-arted and its standing clone already in
+ *  the scene -- the state a real mission is in on the frame before a building
+ *  dies. `boundsY` sizes the stand-in template so a test can vary the
+ *  BUILDING and watch the shroud follow. */
+function armMeshBuilding(boundsY = 3): {
+  sim: Sim;
+  structureIdx: number;
+  renderer: ThreeRenderer;
+  priv: ShroudPrivate;
+} {
+  const { sim, structureIdx } = buildSim();
+  const renderer = new ThreeRenderer(sim, makeOpts());
+  const priv = renderer as unknown as ShroudPrivate;
+  priv.buildingMeshIdleTemplates.set('shanty', fakeBuildingMeshTemplate());
+  priv.buildingMeshWreckTemplates.set('shanty', fakeBuildingMeshTemplate());
+  // What `loadBuildingMesh` measures off the real GLB.
+  priv.buildingMeshBounds.set('shanty', new THREE.Vector3(2, boundsY, 2));
+  priv.updateBuildingMeshes(); // stands the idle clone up while it is alive
+  return { sim, structureIdx, renderer, priv };
+}
+
+describe('ThreeRenderer collapse shroud: the swap is held until the smoke hides it', () => {
+  it('keeps the STANDING mesh in the scene while the shroud is owed', () => {
+    const { sim, structureIdx, priv } = armMeshBuilding();
+    expect(priv.buildingMeshIdleEntities.has(structureIdx)).toBe(true);
+
+    sim.structures.alive[structureIdx] = 0;
+    priv.beginCollapseShroud(structureIdx, 0.5, 0.5);
+    priv.updateBuildingMeshes();
+
+    // Without the hold this is the frame the hard cut happens on.
+    expect(priv.buildingMeshIdleEntities.has(structureIdx)).toBe(true);
+    expect(priv.buildingMeshWreckEntities.has(structureIdx)).toBe(false);
+    expect(priv.collapseShrouds.liveCount).toBe(1);
+  });
+
+  it('swaps to the wreck once the hold runs out, and not before', () => {
+    const { sim, structureIdx, priv } = armMeshBuilding();
+    sim.structures.alive[structureIdx] = 0;
+    priv.beginCollapseShroud(structureIdx, 0.5, 0.5);
+
+    // One frame short of the delay: still standing.
+    priv.stepCollapseShrouds(COLLAPSE_SHROUD_SWAP_DELAY_MS - 1000 / 60);
+    priv.updateBuildingMeshes();
+    expect(priv.buildingMeshWreckEntities.has(structureIdx)).toBe(false);
+
+    // Past it: swapped. Two frames rather than the one that arithmetically
+    // finishes the hold -- `420 - (420 - 1000/60) - 1000/60` is 1.8e-14, not
+    // 0, so an exact-change step leaves a hold of a femtosecond owed. Real
+    // frames never land on the boundary and the effect is invisible either
+    // way; the test simply must not depend on binary floating point summing
+    // to exactly zero.
+    priv.stepCollapseShrouds((2 * 1000) / 60);
+    priv.updateBuildingMeshes();
+    expect(priv.buildingMeshIdleEntities.has(structureIdx)).toBe(false);
+    expect(priv.buildingMeshWreckEntities.has(structureIdx)).toBe(true);
+  });
+
+  it('still has the shroud at full density on the frame the swap lands', () => {
+    // The two halves of the mechanism, checked against each other rather than
+    // separately: the hold expiring and the cloud still being opaque are the
+    // same claim, and a test that only checked the hold would pass with the
+    // shroud already half faded.
+    const { sim, structureIdx, priv } = armMeshBuilding();
+    sim.structures.alive[structureIdx] = 0;
+    priv.beginCollapseShroud(structureIdx, 0.5, 0.5);
+    for (let ms = 0; ms < COLLAPSE_SHROUD_SWAP_DELAY_MS; ms += 1000 / 60) {
+      priv.stepCollapseShrouds(1000 / 60);
+      priv.collapseShrouds.step(1000 / 60);
+    }
+    priv.updateBuildingMeshes();
+    expect(priv.buildingMeshWreckEntities.has(structureIdx)).toBe(true);
+
+    const opacity = priv.collapseShrouds.mesh.geometry.getAttribute(
+      'aOpacity'
+    ) as THREE.InstancedBufferAttribute;
+    expect(priv.collapseShrouds.instanceCount).toBeGreaterThan(0);
+    for (let i = 0; i < priv.collapseShrouds.instanceCount; i++) {
+      expect(opacity.getX(i), `puff ${i} had already started to thin`).toBe(1);
+    }
+  });
+
+  it('does NOT hold a structure that has no standing clone to hold', () => {
+    // Holding here would leave bare ground where the building is for the
+    // whole delay -- the same hard cut, inverted.
+    const { sim, structureIdx, priv } = armMeshBuilding();
+    priv.buildingMeshIdleEntities.delete(structureIdx);
+
+    sim.structures.alive[structureIdx] = 0;
+    priv.beginCollapseShroud(structureIdx, 0.5, 0.5);
+
+    expect(priv.buildingMeshSwapHold.has(structureIdx)).toBe(false);
+    expect(priv.collapseShrouds.liveCount).toBe(1); // ...but it is still shrouded
+  });
+
+  it('sizes the shroud from the BUILDING, so a taller one gets a taller cloud', () => {
+    const short = armMeshBuilding(1);
+    short.sim.structures.alive[short.structureIdx] = 0;
+    short.priv.beginCollapseShroud(short.structureIdx, 0.5, 0.5);
+    short.priv.collapseShrouds.step(COLLAPSE_SHROUD_SWAP_DELAY_MS);
+
+    const tall = armMeshBuilding(8);
+    tall.sim.structures.alive[tall.structureIdx] = 0;
+    tall.priv.beginCollapseShroud(tall.structureIdx, 0.5, 0.5);
+    tall.priv.collapseShrouds.step(COLLAPSE_SHROUD_SWAP_DELAY_MS);
+
+    const top = (p: ShroudPrivate): number => {
+      const m = new THREE.Matrix4();
+      const pos = new THREE.Vector3();
+      const q = new THREE.Quaternion();
+      const s = new THREE.Vector3();
+      let highest = -Infinity;
+      for (let i = 0; i < p.collapseShrouds.instanceCount; i++) {
+        p.collapseShrouds.mesh.getMatrixAt(i, m);
+        m.decompose(pos, q, s);
+        highest = Math.max(highest, pos.y + s.y);
+      }
+      return highest;
+    };
+    // A constant-size puff would make these equal; that is the failure this
+    // catches, and it is the one the brief calls out ("a fixed-size puff will
+    // swallow the wall and leave the apartment's top floors bare").
+    expect(top(tall.priv)).toBeGreaterThan(2 * top(short.priv));
+    // ...and the tall one actually reaches over its own roof.
+    expect(top(tall.priv)).toBeGreaterThan(8);
+  });
+
+  it('is NOT reachable from a shell impact -- that path has no structure at all', () => {
+    // `shell_impact.json` goes through `spawnCollapseFx`, the same method a
+    // structure collapse uses for its burst and plume. The shroud is
+    // deliberately spawned OUTSIDE that method, from the `structureDestroyed`
+    // branch, because it is sized from the structure's own extents and
+    // `spawnCollapseFx` knows only a point. This is what makes "shell impacts
+    // are unaffected" a fact rather than an intention.
+    const { renderer, priv } = armMeshBuilding();
+    // Through the real public seam, so the `ParticleSystem` this path needs
+    // exists exactly as it does in the app.
+    renderer.useEmitters([shellImpact as unknown as EmitterSpec], () => '#C29455');
+    const spawned = priv.spawnCollapseFx('shell_impact', 1.5, 1.5, 0.3, 0);
+
+    expect(spawned).toBe(true); // the emitter really did run
+    expect(priv.collapseShrouds.liveCount).toBe(0);
   });
 });

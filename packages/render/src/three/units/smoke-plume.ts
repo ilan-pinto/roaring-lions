@@ -128,6 +128,23 @@
  * halves of the fix, and `.superpowers/queue/smoke-animation-report.md`
  * for the before/after frames.
  *
+ * ## There IS one dense smoke effect, and it is deliberately not this one
+ *
+ * `SMOKE_PLUME_DENSITY` (0.62) is a ceiling on AMBIENT smoke and must stay
+ * one: a plume lives four seconds over a wreck a player has to keep fighting
+ * around, and the whole defect above was that it hid the building. But a
+ * building's own moment of COLLAPSE does want opacity, because the
+ * standing-mesh -> wreck-mesh swap is a hard cut that has to happen hidden.
+ * That is `./collapse-shroud.ts` -- a separate, brief, locally opaque cloud
+ * over one footprint, with its own material, its own palette family
+ * (`ramps.dust`, not `ramps.gunmetal`) and its own pool. It touches nothing
+ * in this file, and the two are spawned from the same event and play
+ * together: the shroud covers the swap and clears inside 2.4 s, and this
+ * column is what is still standing over the ruin afterwards.
+ *
+ * So if a plume ever looks too thin somewhere, check whether what is wanted
+ * is a shroud before raising anything here.
+ *
  * ## Colour runs the other way -- and does not use the `vfx` reserved band
  *
  * Fire grades white-hot -> fire -> ember: hottest at ignition, cooling

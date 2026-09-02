@@ -122,6 +122,7 @@ import {
   explosionBurstPowerFromMaxHp,
 } from './units/explosion-burst';
 import { SmokePlumeManager, SMOKE_PLUME_DEFAULT_DURATION_MS } from './units/smoke-plume';
+import { CollapseShroudManager, COLLAPSE_SHROUD_SWAP_DELAY_MS } from './units/collapse-shroud';
 import { buildGround } from './terrain/ground';
 import { buildScatter } from './terrain/scatter';
 import { buildBuildings, type StructureFootprint } from './terrain/buildings';
@@ -173,6 +174,7 @@ import {
   loadStructureFrame,
   structureBillboardGeometry,
   collapseBillboardGeometry,
+  billboardDrawSize,
   createCollapseMaterial,
   collapseFrame,
   liveStructurePlacements,
@@ -805,6 +807,39 @@ export class ThreeRenderer implements Renderer {
    *  exist only once `loadSmokePlumeMesh` resolves, its three palette
    *  colours only once `useEmitters` has run. */
   private readonly smokePlumes = new SmokePlumeManager();
+  /** Owns the pooled collapse SHROUD -- the dense, building-sized dust cloud
+   *  that covers a structure at the instant it fails so the standing-mesh ->
+   *  wreck-mesh swap can happen hidden inside it. See
+   *  `units/collapse-shroud.ts`'s own top comment; that swap is what this
+   *  exists for, not spectacle.
+   *
+   *  UNLIKE `smokePlumes`/`explosionBursts` above there is no `load()` and no
+   *  `ready` gate: the geometry is procedural, so this manager draws from the
+   *  frame it is constructed. Deliberate -- the swap it hides happens on the
+   *  first frame after death, and an effect that arrived a moment later would
+   *  have nothing left to hide. Its three palette colours still arrive with
+   *  `useEmitters`, the same two-phase shape every other manager here uses. */
+  private readonly collapseShrouds = new CollapseShroudManager();
+  /** Structure index -> ms of standing-mesh hold still owed, counted down by
+   *  `stepCollapseShrouds`. While an entry is present and positive,
+   *  `updateBuildingMeshes` leaves the STANDING clone in the scene even
+   *  though `sim.structures.alive` already reads 0.
+   *
+   *  Presentation only, in the strictest sense (invariant 4): the sim is not
+   *  consulted, not written, and does not learn this map exists. What it
+   *  delays is one `scene.remove`/`scene.add` pair, under a cloud dense
+   *  enough that nothing about either mesh is on screen while it is owed. */
+  private readonly buildingMeshSwapHold = new Map<number, number>();
+  /** Structure type id -> the world-space extents of its STANDING mesh
+   *  (`x`/`y`/`z` = width/height/depth in tiles), measured off the loaded
+   *  template once in `loadBuildingMesh`.
+   *
+   *  Measured rather than taken from `structureTypes[...].heightPx`, and the
+   *  gap is not small: the mosque declares 34 lift-px, which is 0.867 world
+   *  units, against a mesh that measures 3.317 -- 3.8x. `heightPx` is the
+   *  BILLBOARD's drawn wall height and is the right number for that path and
+   *  no other. See `units/collapse-shroud.ts`'s own measured table. */
+  private readonly buildingMeshBounds = new Map<string, THREE.Vector3>();
 
   /**
    * Per-entity position tracking for interpolation, mirroring
@@ -1448,6 +1483,11 @@ export class ThreeRenderer implements Renderer {
     // reader scanning constructor order sees smoke grouped with the other
     // ground-relative overlay meshes, fog last.
     this.scene.add(this.smokeMesh.mesh);
+    // The collapse shroud draws in the same band (`SMOKE_RENDER_ORDER`) and
+    // with the same `depthTest: false` for the same reason -- see
+    // `units/collapse-shroud.ts`'s own material comment. Grouped here beside
+    // `smokeMesh` so the two smoke layers read together.
+    this.scene.add(this.collapseShrouds.mesh);
     // Added LAST, matching Pixi's own `world.addChild(this.fogG)` being the
     // final call in its constructor (`renderer.ts:551`, "above terrain AND
     // units") -- three.js does not order draws by scene-graph child order
@@ -1642,6 +1682,7 @@ export class ThreeRenderer implements Renderer {
     this.muzzleFlashes.dispose();
     this.explosionBursts.dispose();
     this.smokePlumes.dispose();
+    this.collapseShrouds.dispose();
     this.tracerBatch.dispose();
     this.shellBatch.dispose();
     this.boltBatch.dispose();
@@ -1738,6 +1779,10 @@ export class ThreeRenderer implements Renderer {
     this.updateVehicleMeshes(alpha, dtMs);
     this.updateVehicleAmbientFx(dtMs);
     this.updateStructures();
+    // BEFORE `updateBuildingMeshes`, not after: the hold this drains is read
+    // by that method, so draining afterwards would spend every hold one
+    // frame late and hand the last frame of it to a swap that already ran.
+    this.stepCollapseShrouds(dtMs);
     this.updateBuildingMeshes();
     this.stepBuildingMeshSettle(this.frameDtSeconds(dtMs));
     this.stepCollapses(this.frameDtSeconds(dtMs));
@@ -2159,6 +2204,14 @@ export class ThreeRenderer implements Renderer {
           this.sim.structures.maxY[deadStruct]
         );
         const collapseYawTurns = tileHash(deadStruct, deadStruct * 7 + 1);
+        // The shroud, and the swap hold it exists to cover. Spawned HERE and
+        // not from `spawnCollapseFx`, deliberately: this effect is sized from
+        // the STRUCTURE's own world extents, and `spawnCollapseFx` knows only
+        // a point. The consequence is worth stating because it is the whole
+        // answer to "does this change shell impacts": `shell_impact.json` and
+        // `tunnel_collapse.json` reach that method with no structure at all,
+        // so neither can reach this line and neither is touched.
+        this.beginCollapseShroud(deadStruct, bx, by);
         if (!this.spawnCollapseFx('structure_collapse', bx, by, collapsePower, collapseYawTurns)) {
           for (let k = 0; k < 14; k++) {
             const a = tileHash(k * 7 + deadStruct, k * 13 + deadStruct);
@@ -2854,6 +2907,10 @@ export class ThreeRenderer implements Renderer {
     this.explosionBursts.setColors(resolve);
     // Identical two-phase-construction safety, for the smoke-plume mesh.
     this.smokePlumes.setColors(resolve);
+    // Identical two-phase-construction safety, for the collapse shroud --
+    // which resolves `ramps.dust` rather than the plume's `ramps.gunmetal`;
+    // see `units/collapse-shroud-role.ts` for why the two differ on purpose.
+    this.collapseShrouds.setColors(resolve);
   }
   /**
    * Load a unit type's sprite sheet and build the `THREE.InstancedMesh`
@@ -3174,6 +3231,15 @@ export class ThreeRenderer implements Renderer {
       disposeBuildingMeshTemplate(previousIdle);
     }
     this.buildingMeshIdleTemplates.set(structureId, idleTemplate);
+    // Measured off the STANDING template only -- a wreck is by definition
+    // shorter, and the shroud has to cover the building that was there, not
+    // the pile that replaces it. `Box3.setFromObject` walks the root's own
+    // world matrix, which already carries `MESH_SCALE`, so the number is in
+    // real world (tile) units with nothing left to convert.
+    this.buildingMeshBounds.set(
+      structureId,
+      new THREE.Box3().setFromObject(idleTemplate.root).getSize(new THREE.Vector3())
+    );
     // Muzzle-flash ramp shift -- see `loadMeshUnit`'s identical comment.
     for (const material of idleTemplate.materials) {
       this.flashLights.register(material as THREE.ShaderMaterial);
@@ -4162,6 +4228,19 @@ export class ThreeRenderer implements Renderer {
         continue;
       }
 
+      // Dead, but still shrouded: leave the STANDING clone exactly where it
+      // is. `beginCollapseShroud` owes this structure a hold, and the whole
+      // point of that hold is that the swap below happens while a dust cloud
+      // dense enough to hide it is over the building -- see
+      // `units/collapse-shroud.ts`'s own top comment for the photographed
+      // hard cut this removes. `stepCollapseShrouds` counts the entry down
+      // and deletes it, and the swap lands on the next frame after that.
+      //
+      // Presentation only: `sim.structures.alive` already reads 0 and
+      // nothing here writes back to it (invariant 4). What is delayed is one
+      // `scene.remove`/`scene.add` pair, for 420 ms, under smoke.
+      if (this.buildingMeshSwapHold.has(s)) continue;
+
       // Dead: drop the idle clone, and stand up the wreck one if this type
       // loaded a wreck template.
       const idleEntity = this.buildingMeshIdleEntities.get(s);
@@ -4502,6 +4581,8 @@ export class ThreeRenderer implements Renderer {
     this.explosionBursts.step(dtMs);
     // Identical presentation-only ageing, for the smoke-plume mesh.
     this.smokePlumes.step(dtMs);
+    // Identical presentation-only ageing, for the collapse shroud.
+    this.collapseShrouds.step(dtMs);
     this.tracers = stepTracers(this.tracers, dtSeconds);
     this.tracerBatch.update(this.tracers, this.opts.tracerColors, elevation, this.sim.width, this.sim.height);
     // GH-145: the same real-frame-seconds ageing, for indirect rounds. Sim
@@ -5556,6 +5637,88 @@ export class ThreeRenderer implements Renderer {
 
     this.scene.add(mesh);
     this.collapsing.push({ mesh, t: 0, alpha0 });
+  }
+
+  /**
+   * Throws the collapse shroud over a structure that has just died, and
+   * starts the standing-mesh hold that lets the wreck swap happen inside it
+   * (`units/collapse-shroud.ts`'s own top comment is the whole argument;
+   * this method is the `Sim`-facing glue that file deliberately has none of).
+   *
+   * COVERAGE IS DERIVED, NEVER CONSTANT, and it is derived from two sources
+   * because neither alone is right:
+   *
+   *   - The FOOTPRINT (`minX`..`maxX`, `minY`..`maxY`) is what the sim says
+   *     this structure occupies, and it is authoritative for ground extent --
+   *     a `per_tile` wall run is one structure per tile, a mosque is 3x3.
+   *   - The MESH BOUNDS are what is actually on screen, and a building model
+   *     routinely overhangs its own footprint (the mosque measures 3.60 wide
+   *     over a 3-tile footprint). Height comes from here and nowhere else:
+   *     `heightPx` is off by 3.8x on that same building, see
+   *     `buildingMeshBounds`' own doc comment.
+   *
+   * Taking the larger of the two per horizontal axis covers whichever is
+   * bigger without ever under-covering either.
+   *
+   * The billboard path (`&nomesh`, or a type with no mesh loaded) has no mesh
+   * to measure and reads its SHEET's own drawn height instead
+   * (`billboardDrawSize`, the same formula `collapseBillboardGeometry` sizes
+   * the falling quad with). Not `structureTypes[...].heightPx`, which was
+   * tried and photographed under-covering: that is the authored WALL height,
+   * and for the mosque it is 34 lift-px (0.87 world units) against a sprite
+   * the same path draws several times taller. `heightPx` survives only as the
+   * last resort for a type with no sheet at all -- the un-arted case
+   * `beginCollapse` itself bails on.
+   *
+   * The hold is set only when there is a standing clone to hold. Without
+   * that guard a structure destroyed before `updateBuildingMeshes` had ever
+   * instantiated its idle clone would spend the hold with NOTHING drawn where
+   * the building is, which is the same hard cut this exists to remove, merely
+   * inverted.
+   */
+  private beginCollapseShroud(structure: number, cx: number, cy: number): void {
+    const st = this.sim.structures;
+    const type = this.sim.structureTypes[st.typeIdx[structure]];
+    const bounds = this.buildingMeshBounds.get(type.id);
+    const footprintW = st.maxX[structure] - st.minX[structure] + 1;
+    const footprintD = st.maxY[structure] - st.minY[structure] + 1;
+    const width = bounds ? Math.max(footprintW, bounds.x) : footprintW;
+    const depth = bounds ? Math.max(footprintD, bounds.z) : footprintD;
+    const art = this.structureCollapseArt.get(type.id);
+    const height = bounds
+      ? bounds.y
+      : art
+        ? billboardDrawSize(art.scale, art.textureWidth, art.textureHeight).drawHeightPx *
+          WORLD_Y_PER_LIFT_PIXEL
+        : type.heightPx * WORLD_Y_PER_LIFT_PIXEL;
+    const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, cx, cy);
+    // `structure` as the scatter seed: stable across a replay, never a clock,
+    // never sim state that could feed back -- the same presentation-hash rule
+    // `collapseYawTurns` at the call site already follows.
+    this.collapseShrouds.spawn(cx, worldY, cy, width, depth, height, structure);
+    if (bounds && this.buildingMeshIdleEntities.has(structure)) {
+      this.buildingMeshSwapHold.set(structure, COLLAPSE_SHROUD_SWAP_DELAY_MS);
+    }
+  }
+
+  /**
+   * Counts down every owed standing-mesh hold and drops the ones that expire
+   * this frame -- run from `frame()` beside `stepBuildingMeshSettle` for the
+   * same "independent, additive layer" reason that method's own doc comment
+   * gives. `updateBuildingMeshes` does the actual swap the next time it runs,
+   * once the entry is gone.
+   *
+   * Frame-clock driven (`dtMs`), never the sim's tick: the shroud it is
+   * synchronised with ages on the same clock, and a hold measured in ticks
+   * would drift against the cloud that has to hide it.
+   */
+  private stepCollapseShrouds(dtMs: number): void {
+    if (this.buildingMeshSwapHold.size === 0) return;
+    for (const [structure, remaining] of this.buildingMeshSwapHold) {
+      const left = remaining - dtMs;
+      if (left <= 0) this.buildingMeshSwapHold.delete(structure);
+      else this.buildingMeshSwapHold.set(structure, left);
+    }
   }
 
   /**
