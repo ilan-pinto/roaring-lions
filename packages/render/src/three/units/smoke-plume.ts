@@ -108,6 +108,26 @@
  * colour comes from `./smoke-plume-role.ts` at runtime, the same contract
  * every other VFX mesh in this backend uses.
  *
+ * ## It shipped OPAQUE, and that was the whole defect
+ *
+ * Everything above describes the asset and is unchanged. What changed
+ * (2026-09-02) is how it is SHADED and how it moves, and the reason is
+ * worth stating plainly because the original choice looks reasonable in the
+ * source and is wrong on screen. This class borrowed
+ * `createVfxMeshMaterial` from the muzzle flash and the explosion burst --
+ * the natural move, it is the shared recipe for "modelled, palette-shaded
+ * VFX mesh" -- and that recipe pins every fragment's alpha to a literal
+ * 1.0, on purpose, because a flash and a fireball EMIT light and an opaque
+ * overwrite is what keeps them exactly on a `reserved.vfx` palette entry.
+ * Smoke emits nothing. Photographed on `beit_sahwan_outskirts` at zoom 1.6,
+ * a plume was a solid three-tone cardboard cutout with knife-edge zone
+ * boundaries, drawn `depthTest: false` straight over the face of the
+ * building it had just risen from, and it left by SHRINKING back into the
+ * ground because opaque geometry has no other way to leave. See
+ * `createSmokePlumeMaterial` and `smokePlumeRiseEnvelope` for the two
+ * halves of the fix, and `.superpowers/queue/smoke-animation-report.md`
+ * for the before/after frames.
+ *
  * ## Colour runs the other way -- and does not use the `vfx` reserved band
  *
  * Fire grades white-hot -> fire -> ember: hottest at ignition, cooling
@@ -163,7 +183,6 @@ import {
   smokePlumePaletteKey,
   type SmokePlumeRole,
 } from './smoke-plume-role';
-import { createVfxMeshMaterial } from './vfx-mesh-material';
 import { muzzleFlashPowerScale } from './muzzle-flash';
 import { FX_RENDER_ORDER_ABOVE_ADDITIVE } from './render-order';
 
@@ -234,76 +253,213 @@ export const SMOKE_PLUME_BASE_SCALE = 0.8;
 export const SMOKE_PLUME_DEFAULT_DURATION_MS = 4000;
 
 /**
- * Fraction of a plume's own life spent RISING from nothing to full height
- * -- `smokePlumeRiseEnvelope`'s own first phase. Fast on purpose: 15% of
- * `SMOKE_PLUME_DEFAULT_DURATION_MS` is 600ms, well under a second, so "it
- * rises" reads as smoke visibly climbing rather than the column popping in
- * fully formed the way a symmetric burst-style envelope would if reused
- * here unmodified.
+ * Fraction of a plume's own life spent RISING from nothing to its nominal
+ * full height -- `smokePlumeRiseEnvelope`'s own first phase. Fast on
+ * purpose: 15% of `SMOKE_PLUME_DEFAULT_DURATION_MS` is 600ms, well under a
+ * second, so "it rises" reads as smoke visibly climbing rather than the
+ * column popping in fully formed the way a symmetric burst-style envelope
+ * would if reused here unmodified.
  */
 export const SMOKE_PLUME_RISE_FRACTION = 0.15;
 
 /**
- * Fraction of a plume's own life spent FADING back down at the end --
- * `smokePlumeRiseEnvelope`'s own third phase. Deliberately LONGER than
- * `SMOKE_PLUME_RISE_FRACTION` (25% vs 15%): real smoke billows up quickly
- * and then drifts and thins slowly, an asymmetric shape, not a mirror image
- * of its own rise. The remaining 60% of life (`1 - RISE - FADE`) is held at
- * full height -- "it persists".
+ * Fraction of a plume's own life spent FADING OUT at the end --
+ * `smokePlumeOpacity`'s own third phase, NOT a height ramp any more. See
+ * that function's own doc comment for the change: a column that leaves by
+ * shrinking is a column being sucked back into the ground, and that is
+ * what the shipped envelope did. Deliberately much longer than
+ * `SMOKE_PLUME_RISE_FRACTION` (35% vs 15%): real smoke billows up quickly
+ * and then thins slowly, an asymmetric shape, not a mirror image of its own
+ * rise.
  */
-export const SMOKE_PLUME_FADE_FRACTION = 0.25;
+export const SMOKE_PLUME_FADE_FRACTION = 0.35;
 
 /**
- * Floor for the FOOTPRINT (X/Z) scale multiplier, as a fraction of the
- * height-axis envelope -- see `smokePlumeFootprintScale`'s own doc comment
- * for why the footprint is driven by the SAME envelope value as height but
- * remapped into a narrower range rather than a second, independent curve: a
- * real plume's cross-section does not shrink toward zero the way its own
- * height does at the very start/end of its life, so a bare `0..1` footprint
- * scale (mirroring height exactly) would read as a column that vanishes to
- * a literal line rather than one that simply has not risen far yet. 0.4
- * keeps SOME footprint visible throughout -- a judgement call, not a
- * measured fact, same honesty as this file's other authored constants.
+ * Extra height, as a fraction of the nominal full height, a plume gains
+ * across the whole of the rest of its life once it has finished its initial
+ * rise. Smoke does not reach a ceiling and stop; it keeps climbing while it
+ * thins, so a flat hold at exactly 1 reads as a frozen prop the moment the
+ * eye has anything else moving to compare it against. 0.35 is small enough
+ * that the column never dwarfs the wreck it came from and large enough to
+ * be unmistakable over the ~3.4 s the hold phase now lasts -- roughly one
+ * extra tile of height on a full-power plume.
+ */
+export const SMOKE_PLUME_CLIMB = 0.35;
+
+/**
+ * FOOTPRINT (X/Z) scale at the instant a plume is born -- see
+ * `smokePlumeSpread`, which ramps from here to `SMOKE_PLUME_SPREAD_MAX`
+ * monotonically across the whole life. A real plume's cross-section does
+ * not shrink toward zero the way its own height does at the very start, so
+ * a bare `0..1` footprint would read as a column that vanishes to a literal
+ * line rather than one that simply has not risen far yet.
  */
 export const SMOKE_PLUME_FOOTPRINT_MIN = 0.4;
 
 /**
- * Three-phase rise/hold/fade trapezoid for a plume's own HEIGHT (Y) scale
- * over its life -- `progress` is `ageMs / durationMs`, clamped to [0, 1]
- * for the identical boundary-safety reason `muzzleFlashEnvelope` clamps it.
- * NOT a reuse of that function: `muzzleFlashEnvelope`'s symmetric
- * `sin(progress*PI)` peaks at the exact midpoint and is already shrinking
- * by 50% life -- correct for a burst that detonates and dissipates within
- * half a second, wrong for a column meant to persist near full height for
- * MOST of a multi-second life. This file's own top comment ("The burst is
- * the moment; this is the aftermath") has the full argument for why this
- * needed its own shape rather than a retuned copy of the burst's.
+ * FOOTPRINT (X/Z) scale at the end of life. Greater than 1 on purpose:
+ * smoke DISPERSES, so the one thing its cross-section certainly does not do
+ * is narrow back toward its birth width, which is exactly what the shipped
+ * `smokePlumeFootprintScale(riseEnvelope)` did (it mirrored the height
+ * envelope, so the last 25% of life ran the whole shape backwards). A
+ * monotone widen paired with `smokePlumeOpacity`'s fade is the "thins and
+ * spreads" read; the old pair was "shrinks and retracts".
+ */
+export const SMOKE_PLUME_SPREAD_MAX = 1.55;
+
+/**
+ * How far, in tiles, the TOP of a plume has leant downwind by the end of its
+ * life (`smokePlumeLeanTiles`). Applied per zone through
+ * `SMOKE_PLUME_ZONE_LEAN`, so the base stays planted on the wreck and the
+ * column shears rather than sliding off it. 0.9 of a tile over four seconds
+ * is a light breeze -- enough that the silhouette is visibly not the same
+ * shape it was a second ago, nowhere near enough to read as a gale.
+ */
+export const SMOKE_PLUME_LEAN_TILES = 0.9;
+
+/**
+ * Which way "downwind" is, as a world `(x, z)` unit vector. NOT a new
+ * choice: `terrain/mesh.ts`'s `groveMaterial` already leans every tree
+ * along `(+wind, 0, -wind)`, "the SAME `(dx, -dx)` shape
+ * `screenOffsetToWorld(dx, 0)` produces for a pure camera-right screen
+ * offset". Smoke drifting the same way the trees lean reads as weather;
+ * smoke drifting some other way reads as a bug in one of the two. Shared as
+ * ONE bearing across every live plume for the same reason -- two columns a
+ * few tiles apart leaning opposite ways is not variety, it is noise.
+ */
+export const SMOKE_PLUME_LEAN_DIR: readonly [number, number] = [Math.SQRT1_2, -Math.SQRT1_2];
+
+/**
+ * Per-zone share of `smokePlumeLeanTiles`' downwind offset. The base is
+ * pinned at 0 -- it sits on the rubble and must not slide off it -- and the
+ * top takes the whole of it, so the three stacked slabs describe a stepped
+ * SHEAR rather than a rigid translation. This is the one thing the
+ * three-zone split buys that a single-mesh plume could not have without a
+ * vertex shader: each zone is already its own `InstancedMesh` with its own
+ * `setMatrixAt`, so a per-zone offset is free.
+ *
+ * `mid` at 0.45 rather than the geometric 0.5: the mid slab spans local Z
+ * [0.63, 1.28] of a 1.91-tall column and its VISUAL mass sits low in that
+ * span (it is the widest zone, 43% of the triangles), so weighting it by
+ * its own centroid rather than its midpoint keeps the shear reading as a
+ * smooth curve instead of a kink.
+ */
+export const SMOKE_PLUME_ZONE_LEAN: Readonly<Record<SmokePlumeRole, number>> = {
+  base: 0,
+  mid: 0.45,
+  top: 1,
+};
+
+/**
+ * How far a plume turns about its own rise axis, in turns, across a full
+ * life. The mesh's horizontal cross-section is genuinely elongated (X/Z
+ * ~3.44:1, this file's own top comment), so a FIXED yaw makes the column a
+ * cardboard cutout: the silhouette you see at t=0 is the silhouette you see
+ * at t=4s, on a camera that never orbits. An eighth of a turn is enough for
+ * the outline to visibly reshape without the column ever appearing to
+ * spin.
+ */
+export const SMOKE_PLUME_YAW_DRIFT_TURNS = 0.125;
+
+/**
+ * A plume's HEIGHT (Y) scale over its life -- `progress` is
+ * `ageMs / durationMs`, clamped to [0, 1] for the identical boundary-safety
+ * reason `muzzleFlashEnvelope` clamps it.
  *
  *   - `progress < SMOKE_PLUME_RISE_FRACTION`: linear ramp 0 -> 1 (rising).
- *   - `progress > 1 - SMOKE_PLUME_FADE_FRACTION`: linear ramp 1 -> 0
- *     (fading, over a LONGER window than the rise -- see that constant's
- *     own doc comment).
- *   - otherwise: held at 1 (persisting).
+ *   - afterwards: keeps climbing, linearly, to `1 + SMOKE_PLUME_CLIMB` at
+ *     the exact end of life.
+ *
+ * WHAT THIS USED TO DO, AND WHY IT WAS WRONG. The shipped version was a
+ * rise/hold/fade trapezoid whose third phase ramped the HEIGHT back to 0
+ * over the last 25% of life. On screen that is not a plume dispersing, it
+ * is a plume being pulled back down into the ground it came out of --
+ * photographed on `beit_sahwan_outskirts` (this task's report), the column
+ * visibly retracts, and because the same value also drove the footprint
+ * (`smokePlumeFootprintScale`) the whole shape ran backwards at once. Smoke
+ * leaves by thinning, so leaving is now `smokePlumeOpacity`'s job and this
+ * function is monotone non-decreasing for its whole domain.
  */
 export function smokePlumeRiseEnvelope(progress: number): number {
   const p = progress < 0 ? 0 : progress > 1 ? 1 : progress;
   if (p < SMOKE_PLUME_RISE_FRACTION) return p / SMOKE_PLUME_RISE_FRACTION;
-  const fadeStart = 1 - SMOKE_PLUME_FADE_FRACTION;
-  if (p > fadeStart) return (1 - p) / SMOKE_PLUME_FADE_FRACTION;
-  return 1;
+  return 1 + SMOKE_PLUME_CLIMB * ((p - SMOKE_PLUME_RISE_FRACTION) / (1 - SMOKE_PLUME_RISE_FRACTION));
 }
 
 /**
- * The height envelope's own value, remapped into `[SMOKE_PLUME_FOOTPRINT_MIN,
- * 1]` for the FOOTPRINT (X/Z) scale -- driven by the same rise/hold/fade
- * shape as height (so the footprint still grows as the column establishes
- * and settles as it fades) but never collapsing all the way to zero, unlike
- * height (which legitimately reads as "nothing has risen yet" at
- * `progress=0`). See `SMOKE_PLUME_FOOTPRINT_MIN`'s own doc comment for why
- * a bare `0..1` footprint would read wrong at the very start/end of life.
+ * A plume's own opacity multiplier over its life, `[0, 1]` -- fades IN
+ * across the same window the rise uses (so the column is not stamped onto
+ * the frame at full density on the frame the building dies), holds, then
+ * dissolves smoothly to exactly 0 across `SMOKE_PLUME_FADE_FRACTION`.
+ *
+ * This is what makes a plume LEAVE, and it is new: before it, the mesh was
+ * drawn through `createVfxMeshMaterial`, whose fragment shader pins alpha
+ * to a literal 1.0. Nothing in the shipped plume could be partly
+ * transparent at any point in its life, so the only disappearance mechanism
+ * available was shrinking the geometry -- see `smokePlumeRiseEnvelope`'s own
+ * doc comment for what that looked like.
+ *
+ * The fade is smoothstepped rather than linear so the last visible frames
+ * thin out instead of stepping off; the rise is linear so it matches the
+ * height ramp exactly and the two cannot disagree about when "risen" is.
  */
-export function smokePlumeFootprintScale(riseEnvelope: number): number {
-  return SMOKE_PLUME_FOOTPRINT_MIN + riseEnvelope * (1 - SMOKE_PLUME_FOOTPRINT_MIN);
+export function smokePlumeOpacity(progress: number): number {
+  const p = progress < 0 ? 0 : progress > 1 ? 1 : progress;
+  if (p < SMOKE_PLUME_RISE_FRACTION) return p / SMOKE_PLUME_RISE_FRACTION;
+  const fadeStart = 1 - SMOKE_PLUME_FADE_FRACTION;
+  if (p <= fadeStart) return 1;
+  const t = (1 - p) / SMOKE_PLUME_FADE_FRACTION;
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * A plume's FOOTPRINT (X/Z) scale over its life -- a monotone widen from
+ * `SMOKE_PLUME_FOOTPRINT_MIN` at birth to `SMOKE_PLUME_SPREAD_MAX` at
+ * death. Takes `progress` directly rather than the height envelope's own
+ * output (as `smokePlumeFootprintScale` did), because the two curves no
+ * longer have the same shape and deriving one from the other is exactly how
+ * the footprint ended up running backwards for the last quarter of every
+ * plume's life.
+ */
+export function smokePlumeSpread(progress: number): number {
+  const p = progress < 0 ? 0 : progress > 1 ? 1 : progress;
+  return SMOKE_PLUME_FOOTPRINT_MIN + p * (SMOKE_PLUME_SPREAD_MAX - SMOKE_PLUME_FOOTPRINT_MIN);
+}
+
+/**
+ * How far downwind (in tiles) a plume's TOP has drifted at `progress` --
+ * linear, because a parcel of smoke in a steady breeze keeps moving at the
+ * breeze's speed rather than easing to a halt. Multiplied by
+ * `SMOKE_PLUME_ZONE_LEAN[role]` and `SMOKE_PLUME_LEAN_DIR` at the call
+ * site.
+ */
+export function smokePlumeLeanTiles(progress: number): number {
+  const p = progress < 0 ? 0 : progress > 1 ? 1 : progress;
+  return SMOKE_PLUME_LEAN_TILES * p;
+}
+
+/**
+ * One zone's world `(dx, dz)` downwind offset at `progress` -- its share of
+ * `smokePlumeLeanTiles` along `SMOKE_PLUME_LEAN_DIR`. Split out of `step()`
+ * so the shear is a pure function a test can walk without a
+ * `WebGLRenderer`; the manager does nothing with the result but add it to
+ * the plume's own anchor.
+ */
+export function smokePlumeZoneOffset(role: SmokePlumeRole, progress: number): readonly [number, number] {
+  const share = SMOKE_PLUME_ZONE_LEAN[role] * smokePlumeLeanTiles(progress);
+  return [SMOKE_PLUME_LEAN_DIR[0] * share, SMOKE_PLUME_LEAN_DIR[1] * share];
+}
+
+/**
+ * A plume's yaw in turns at `progress`: its own per-spawn cosmetic seed
+ * (`ActiveSmokePlume.yawTurns`) plus a slow drift so the elongated
+ * cross-section keeps presenting a changing outline. Returns turns, not
+ * radians -- the caller multiplies by 2*PI, matching `ActiveSmokePlume
+ * .yawTurns`' own unit.
+ */
+export function smokePlumeYawTurns(seedTurns: number, progress: number): number {
+  const p = progress < 0 ? 0 : progress > 1 ? 1 : progress;
+  return seedTurns + SMOKE_PLUME_YAW_DRIFT_TURNS * p;
 }
 
 /** One loaded `art/meshes/vfx/smoke_plume.glb`, kept as the source geometry
@@ -381,6 +537,181 @@ interface ActiveSmokePlume {
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 /**
+ * Peak alpha of the densest fragment of a plume -- the base zone, seen
+ * face-on, at the height of the hold phase. Well under 1 on purpose: this
+ * is the whole of the defect this task was sent to chase.
+ *
+ * `createVfxMeshMaterial` (`./vfx-mesh-material.ts`), which this mesh used
+ * to draw through, writes `gl_FragColor = vec4(uColor, 1.0)` -- a flat,
+ * unlit, forced-OPAQUE fill. That recipe is right for what it was written
+ * for: a muzzle flash and an explosion fireball are things that EMIT light,
+ * and an opaque overwrite is what keeps every one of their fragments
+ * exactly on a `reserved.vfx` palette entry. Smoke emits nothing. Drawn
+ * through the same recipe, with `depthTest: false` on top of it, a plume is
+ * a solid three-tone cardboard cutout stamped over whatever is behind it --
+ * photographed on `beit_sahwan_outskirts` at zoom 1.6, it hides the
+ * building it rose from completely, and its three zones meet at knife
+ * edges. 0.62 is a judgement call in the same sense
+ * `SMOKE_PLUME_BASE_SCALE` is, but it is anchored: `SMOKE_ALPHA_MAX`
+ * (`../smoke-mesh.ts`) is 0.72 for the sim's own smoke screen, which is
+ * denser than a dispersing plume should be and is the ceiling this stays
+ * under.
+ */
+export const SMOKE_PLUME_DENSITY = 0.62;
+
+/**
+ * How much of the `|N.V|` range the silhouette fade spends going from fully
+ * transparent to fully dense. Fragments whose normal is perpendicular to
+ * the view (`|N.V| -> 0`) are the mesh's own OUTLINE, and a hull's outline
+ * is exactly where a real volume of smoke is thinnest -- you are looking
+ * through the least of it there. Fading them out is what turns a solid hull
+ * into something that reads as a volume; it is the same geometric fact
+ * `units/silhouette.ts` exploits from the other direction (that file WIDENS
+ * the grazing band to draw an outline; this one erases it).
+ *
+ * `camera.ts`'s `dimetricCamera` is an `OrthographicCamera`, so the view
+ * direction is the constant view-space +Z for every fragment on screen and
+ * `abs(viewNormal.z)` IS `|N.V|` with no per-vertex view vector to compute.
+ * That is not a shortcut taken on a perspective camera and hoped for; it is
+ * exact for this one, and it is the reason the vertex stage below is three
+ * lines rather than six.
+ *
+ * 0.55 is broad -- more than half the range is fade -- because the plume is
+ * a lumpy AI-generated hull with a lot of near-grazing area, and a narrow
+ * band (0.15, tried first) left a hard-edged core with a thin halo, which
+ * is a cutout with a fringe rather than a volume.
+ */
+export const SMOKE_PLUME_EDGE_SOFTNESS = 0.55;
+
+/**
+ * Density multiplier at the very TOP of the column relative to its base --
+ * smoke thins as it climbs and disperses. Applied continuously from the
+ * mesh's own object-space height, so it grades ACROSS the base/mid/top zone
+ * boundaries rather than stepping at them: the three zones each carry one
+ * flat palette entry (`smoke-plume-role.ts` -- colour must stay quantised,
+ * so it cannot be interpolated), and without this the boundary between two
+ * of those flat bands is a visible horizontal line across the column.
+ * Alpha is not palette-quantised and can grade freely, so it is what
+ * dissolves the seam.
+ */
+export const SMOKE_PLUME_TOP_DENSITY = 0.4;
+
+/**
+ * The soft, translucent material every plume zone draws through -- a
+ * deliberate fork of `createVfxMeshMaterial` rather than a parameter added
+ * to it, because the two recipes now disagree about the one thing that
+ * recipe exists to guarantee (an opaque, exactly-on-palette overwrite). See
+ * `SMOKE_PLUME_DENSITY` for the measured reason.
+ *
+ * Three channels multiply into the fragment's alpha, and each answers a
+ * different question:
+ *
+ *   - `vFacing` (silhouette fade): how much smoke is this pixel looking
+ *     through? See `SMOKE_PLUME_EDGE_SOFTNESS`.
+ *   - `vHeight` (dispersal fade): how far up the column is this pixel? See
+ *     `SMOKE_PLUME_TOP_DENSITY`.
+ *   - `aOpacity` (life fade): how far through its life is this plume? See
+ *     `smokePlumeOpacity`. Per INSTANCE, so one pooled `InstancedMesh` can
+ *     hold plumes of different ages, which is the whole point of the pool.
+ *
+ * `uColor` is still one flat `data/palette.json` entry per zone, resolved
+ * by `setColors` exactly as before -- nothing about the palette contract
+ * changes here. What changes is that the fragment is now allowed to be
+ * partly transparent, so what lands on screen is a BLEND of that entry with
+ * whatever is behind it. That is the same latitude `../smoke-mesh.ts`
+ * already takes for the sim's own smoke screen at `SMOKE_ALPHA_MAX` 0.72
+ * and every `alpha_over_life` particle takes for its own fade: the palette
+ * rule governs where a colour comes from, not whether it may be composited.
+ *
+ * The instance normal correction is exact rather than approximate and needs
+ * to be: `step()` composes a NON-UNIFORM scale (footprint and height run on
+ * different curves), and `mat3(instanceMatrix) * normal` under a
+ * non-uniform scale points somewhere the surface does not face -- which
+ * would make the silhouette fade land in the wrong place and read as
+ * blotches. For `M = R*S` with `S` diagonal, the correct normal transform
+ * is `R*S^-1`, and since `R = M*S^-1` that is `M * (n / s^2)` with `s` the
+ * per-column length of `mat3(M)` -- three lines, no `inverse()` (which
+ * WebGL1 does not have), no extra attribute.
+ */
+export function createSmokePlumeMaterial(): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color(0, 0, 0) },
+      /** Object-space height of the WHOLE column (all three zones), so
+       *  `vHeight` is continuous across the zone boundaries rather than
+       *  restarting at 0 in each slab. Set by `SmokePlumeManager.load`
+       *  from the loaded geometry, never guessed. */
+      uHeight: { value: 1 },
+    },
+    vertexShader: /* glsl */ `
+      attribute float aOpacity;
+      uniform float uHeight;
+      varying float vFacing;
+      varying float vHeight;
+      varying float vOpacity;
+      void main() {
+        mat3 im = mat3(instanceMatrix);
+        vec3 s = vec3(length(im[0]), length(im[1]), length(im[2]));
+        vec3 worldNormal = im * (normal / max(s * s, vec3(1e-6)));
+        vec3 viewNormal = normalize(mat3(modelViewMatrix) * worldNormal);
+        // Orthographic camera: the view direction is a constant view-space
+        // +Z, so |N.V| is exactly abs(viewNormal.z).
+        vFacing = abs(viewNormal.z);
+        vHeight = clamp(position.y / uHeight, 0.0, 1.0);
+        vOpacity = aOpacity;
+        vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * mvPosition;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uColor;
+      varying float vFacing;
+      varying float vHeight;
+      varying float vOpacity;
+      void main() {
+        float rim = smoothstep(0.0, ${SMOKE_PLUME_EDGE_SOFTNESS.toFixed(2)}, vFacing);
+        float thin = mix(1.0, ${SMOKE_PLUME_TOP_DENSITY.toFixed(2)}, vHeight);
+        float a = ${SMOKE_PLUME_DENSITY.toFixed(2)} * vOpacity * rim * thin;
+        if (a <= 0.0) discard;
+        gl_FragColor = vec4(uColor, a);
+      }
+    `,
+    transparent: true,
+    // Unchanged from the recipe this forks: an `above_units`, additive-tier
+    // effect is an unconditional pass, never hidden behind a unit or
+    // terrain (`FX_RENDER_ORDER_ABOVE_ADDITIVE`'s own row in
+    // `render-order.ts`). It matters far less now than it did -- an opaque
+    // pass over a building is a decal, a 0.62-alpha pass over one is smoke
+    // in front of it.
+    depthTest: false,
+    depthWrite: false,
+    // FrontSide, as before. The three zones are open shells cut out of one
+    // hull by triangle assignment (`_height_split`, no caps are generated),
+    // so there is no interior surface for a back face to reveal, and
+    // culling them halves the blended fragment count.
+    side: THREE.FrontSide,
+    blending: THREE.NormalBlending,
+  });
+}
+
+/** Object-space height of the whole column: the largest local Y any zone
+ *  reaches. Measured off the loaded geometry rather than hardcoded from the
+ *  `.blend` (1.9061) so a re-export that changes the mesh's proportions
+ *  cannot silently leave the dispersal fade calibrated to the old one. */
+export function smokePlumeMeshHeight(
+  geometries: Readonly<Record<SmokePlumeRole, THREE.BufferGeometry>>
+): number {
+  let maxY = 0;
+  for (const role of SMOKE_PLUME_ROLES) {
+    const geo = geometries[role];
+    if (!geo.boundingBox) geo.computeBoundingBox();
+    const box = geo.boundingBox;
+    if (box && box.max.y > maxY) maxY = box.max.y;
+  }
+  return maxY > 0 ? maxY : 1;
+}
+
+/**
  * Owns the three pooled `InstancedMesh` zones (`base`/`mid`/`top`) and the
  * active-plume bookkeeping that drives them -- mirrors `ExplosionBurstManager`
  * in SHAPE (two-phase construction, oldest-evicted bounded pool, one
@@ -397,6 +728,11 @@ export class SmokePlumeManager {
   private readonly capacity: number;
   private readonly materials: Readonly<Record<SmokePlumeRole, THREE.ShaderMaterial>>;
   private meshes: Readonly<Record<SmokePlumeRole, THREE.InstancedMesh>> | null = null;
+  /** `createSmokePlumeMaterial`'s `aOpacity`, one attribute per zone --
+   *  every zone of one plume shares the same value (it is a property of the
+   *  plume's age, not of the slab), but an `InstancedBufferAttribute`
+   *  belongs to a geometry and each zone has its own. */
+  private opacityAttrs: Readonly<Record<SmokePlumeRole, THREE.InstancedBufferAttribute>> | null = null;
   private readonly active: ActiveSmokePlume[] = [];
   private readonly scratchMatrix = new THREE.Matrix4();
   private readonly scratchQuat = new THREE.Quaternion();
@@ -406,9 +742,9 @@ export class SmokePlumeManager {
   constructor(capacity = SMOKE_PLUME_CAPACITY) {
     this.capacity = capacity;
     this.materials = {
-      base: createVfxMeshMaterial(),
-      mid: createVfxMeshMaterial(),
-      top: createVfxMeshMaterial(),
+      base: createSmokePlumeMaterial(),
+      mid: createSmokePlumeMaterial(),
+      top: createSmokePlumeMaterial(),
     };
   }
 
@@ -435,9 +771,18 @@ export class SmokePlumeManager {
    */
   async load(glbUrl: string): Promise<THREE.Object3D[]> {
     const template = await loadSmokePlumeTemplate(glbUrl);
+    // One height for all three zones, measured off the loaded geometry --
+    // see `smokePlumeMeshHeight`.
+    const height = smokePlumeMeshHeight(template.geometries);
     const partial: Partial<Record<SmokePlumeRole, THREE.InstancedMesh>> = {};
+    const attrs: Partial<Record<SmokePlumeRole, THREE.InstancedBufferAttribute>> = {};
     for (const role of SMOKE_PLUME_ROLES) {
-      const mesh = new THREE.InstancedMesh(template.geometries[role], this.materials[role], this.capacity);
+      const geometry = template.geometries[role];
+      const opacity = new THREE.InstancedBufferAttribute(new Float32Array(this.capacity), 1);
+      geometry.setAttribute('aOpacity', opacity);
+      attrs[role] = opacity;
+      this.materials[role].uniforms.uHeight.value = height;
+      const mesh = new THREE.InstancedMesh(geometry, this.materials[role], this.capacity);
       mesh.count = 0;
       mesh.renderOrder = FX_RENDER_ORDER_ABOVE_ADDITIVE;
       mesh.frustumCulled = false;
@@ -445,6 +790,7 @@ export class SmokePlumeManager {
     }
     const meshes = partial as Record<SmokePlumeRole, THREE.InstancedMesh>;
     this.meshes = meshes;
+    this.opacityAttrs = attrs as Record<SmokePlumeRole, THREE.InstancedBufferAttribute>;
     return SMOKE_PLUME_ROLES.map((role) => meshes[role]);
   }
 
@@ -478,6 +824,13 @@ export class SmokePlumeManager {
    * spherical blob uniformly is the physically sensible read; a column
    * growing TALLER is not the same event as a column growing WIDER, so
    * this asset needed the split its own top comment already argues for.
+   *
+   * Each zone now gets its OWN matrix rather than the same one three times:
+   * `SMOKE_PLUME_ZONE_LEAN` shears the column downwind with age, base
+   * pinned, top carrying the whole offset. That is the one thing the
+   * three-zone split buys here that a single mesh could not have had
+   * without a vertex shader, and it costs one `Vector3.set` per zone per
+   * plume per frame.
    */
   step(dtMs: number): void {
     for (let i = this.active.length - 1; i >= 0; i--) {
@@ -485,23 +838,31 @@ export class SmokePlumeManager {
       p.ageMs += dtMs;
       if (p.ageMs >= p.durationMs) this.active.splice(i, 1);
     }
-    if (!this.meshes) return;
+    if (!this.meshes || !this.opacityAttrs) return;
     const meshes = this.meshes;
+    const opacityAttrs = this.opacityAttrs;
     for (const role of SMOKE_PLUME_ROLES) meshes[role].count = this.active.length;
     for (let i = 0; i < this.active.length; i++) {
       const p = this.active[i];
       const progress = p.ageMs / p.durationMs;
       const magnitude = SMOKE_PLUME_BASE_SCALE * muzzleFlashPowerScale(p.power);
-      const rise = smokePlumeRiseEnvelope(progress);
-      const heightScale = magnitude * rise;
-      const footprintScale = magnitude * smokePlumeFootprintScale(rise);
-      this.scratchPos.set(p.x, p.y, p.z);
-      this.scratchQuat.setFromAxisAngle(Y_AXIS, p.yawTurns * Math.PI * 2);
+      const heightScale = magnitude * smokePlumeRiseEnvelope(progress);
+      const footprintScale = magnitude * smokePlumeSpread(progress);
+      const opacity = smokePlumeOpacity(progress);
+      this.scratchQuat.setFromAxisAngle(Y_AXIS, smokePlumeYawTurns(p.yawTurns, progress) * Math.PI * 2);
       this.scratchScale.set(footprintScale, heightScale, footprintScale);
-      this.scratchMatrix.compose(this.scratchPos, this.scratchQuat, this.scratchScale);
-      for (const role of SMOKE_PLUME_ROLES) meshes[role].setMatrixAt(i, this.scratchMatrix);
+      for (const role of SMOKE_PLUME_ROLES) {
+        const [dx, dz] = smokePlumeZoneOffset(role, progress);
+        this.scratchPos.set(p.x + dx, p.y, p.z + dz);
+        this.scratchMatrix.compose(this.scratchPos, this.scratchQuat, this.scratchScale);
+        meshes[role].setMatrixAt(i, this.scratchMatrix);
+        (opacityAttrs[role].array as Float32Array)[i] = opacity;
+      }
     }
-    for (const role of SMOKE_PLUME_ROLES) meshes[role].instanceMatrix.needsUpdate = true;
+    for (const role of SMOKE_PLUME_ROLES) {
+      meshes[role].instanceMatrix.needsUpdate = true;
+      opacityAttrs[role].needsUpdate = true;
+    }
   }
 
   /** Releases every zone's own material; geometry is released too, but only

@@ -65,8 +65,8 @@
  * `SMOKE_ALPHA_MAX`) is UNCHANGED by this section -- still the verbatim
  * Pixi port the paragraphs above describe. What GH #144 added sits below,
  * in its own "Presentation animation (GH #144)" section comment: bob,
- * drift, a breathing scale pulse, bounded alpha noise, and a per-tile
- * grow-in, all driven by real frame time and all bounded so they can dim a
+ * drift, bounded alpha noise, and a per-tile grow-in, all driven by real
+ * frame time and all bounded so they can dim a
  * drawn tile but never make it invisible while `sim.smoke` still blocks
  * sight through it. Read that section's own comment for the full
  * desync-safety argument before touching either half.
@@ -76,7 +76,6 @@ import { hexToUnit } from './terrain/shared';
 import { groundWorldY } from './ground-height';
 import { fogQuadGeometry } from './fog-mesh';
 import { SMOKE_RENDER_ORDER } from './units/render-order';
-import { tileHash } from '../tile-hash';
 
 // ---------------------------------------------------------------------------
 // Pure: no THREE.* below this line yet -- mirrors fog-mesh.ts's own split.
@@ -176,23 +175,37 @@ export function writeSmokeInstances(
 //      `raySmoke` still counts it -- the specific failure mode the GH #144
 //      brief calls "a WORSE bug than the one you are fixing."
 //
-// Position/scale motion (`smokeBobOffset`, `smokeDriftX/Z`,
-// `smokeScalePulse`) is purely cosmetic wobble bounded to a small fraction
-// of one tile (`SMOKE_BOB_AMPLITUDE`/`SMOKE_DRIFT_AMPLITUDE` are both well
-// under half a tile, and the scale pulse is +/-5%) -- a drawn quad never
-// visually leaves the tile whose `sim.smoke` value it represents, so it
-// never implies LOS coverage anywhere the sim doesn't also grant it.
+// Position motion (`smokeBobOffset`, `smokeDriftX/Z`) is purely cosmetic
+// wobble bounded to a small fraction of one tile
+// (`SMOKE_BOB_AMPLITUDE`/`SMOKE_DRIFT_AMPLITUDE` are both well under half a
+// tile) -- a drawn quad never visually leaves the tile whose `sim.smoke`
+// value it represents, so it never implies LOS coverage anywhere the sim
+// doesn't also grant it. The one exception is the birth overshoot
+// (`SMOKE_GROW_SCALE_OVERSHOOT`), which spills 9% of a tile past the
+// footprint for the 350 ms of the grow ramp and at the faintest alpha of a
+// tile's life; that constant's own doc comment has the trade.
 //
-// ## Per-tile phase, not a global clock read
+// ## Geometry cannot carry the billow -- alpha can
 //
-// `smokeTilePhase` hashes `(x, y)` through the SAME `tileHash` every other
-// deterministic per-tile scatter effect in this backend already uses
-// (`ThreeRenderer.ts`'s own `tileHash` imports for kill-yaw/collapse-yaw/
-// spoil-jitter) -- not `Math.random()`, per this codebase's established
-// presentation-PRNG convention. Every tile in one freshly-laid smoke screen
-// therefore animates slightly out of phase with its neighbours: the "dims
-// like a single dimmer switch" flatness GH #144 names is what a SHARED
-// phase would still produce, even with motion added.
+// A quad is centred on its own tile, so a scale of anything but exactly 1
+// puts a seam between it and its neighbour, uniformly, across the whole
+// screen: a grid. That is what the steady-state scale pulse this file used
+// to run actually drew, and zeroing it by hand and re-capturing is what
+// identified it. So the geometry now moves only RIGIDLY -- a coherent drift
+// and a nearly-coherent bob, which shift every quad by the same amount and
+// leave the tiling intact -- and the billow lives entirely in alpha, where
+// variation composites instead of tiling. See `SMOKE_BREATH_PERIOD_MS`.
+//
+// ## A smooth phase FIELD, not a per-tile hash
+//
+// `smokeTilePhase` lays a slow plane wave across the map, so every tile has
+// its own phase (no lockstep) and neighbouring tiles have NEARLY THE SAME
+// one. The distinction matters and the original got it wrong: an
+// uncorrelated `tileHash` phase satisfies "not in lockstep" and produces a
+// chequerboard, because `smokeAlphaNoise`'s own +/-15% then lands on
+// adjacent tiles as unrelated values. Smoke is a continuum; what reads as
+// billowing is slow variation ACROSS tiles, not independent variation
+// within each. See `SMOKE_PHASE_FREQ_X`.
 //
 // ## Grow-in tracks the SPECIFIC 0->nonzero transition, not `d`'s magnitude
 //
@@ -200,9 +213,10 @@ export function writeSmokeInstances(
 // decays it uniformly (`SMOKE_DECAY` per tick) -- see `sim.ts`'s own smoke
 // command handler and `stepFields`. `updateSmokeGrowStarts` below detects
 // exactly that lay moment per tile (comparing this frame's `smoke` against
-// the previous frame's) and stamps a start clock; `smokeGrowAlphaFactor`/
-// `smokeGrowScaleFactor` ramp from their floor to 1 over
-// `SMOKE_GROW_DURATION_MS` from that stamp. This turns the sim's own
+// the previous frame's) and stamps a start clock; `smokeGrowAlphaFactor`
+// ramps up from its floor and `smokeGrowScaleFactor` settles DOWN from its
+// overshoot to exactly 1, both over `SMOKE_GROW_DURATION_MS` from that
+// stamp. This turns the sim's own
 // instant, uniform pop-in into a brief, per-tile bloom on screen without
 // touching the sim's timing at all -- the ramp is read-only presentation
 // layered on top of a `d` value that was already fully set the instant the
@@ -226,16 +240,74 @@ export const SMOKE_DRIFT_AMPLITUDE = 0.06;
  *  read as mechanical. */
 export const SMOKE_DRIFT_PERIOD_MS = 5400;
 
-/** Breathing scale amplitude: +/-5% -- a soft pulse, not a visible size
- *  pop. */
-export const SMOKE_SCALE_PULSE_AMOUNT = 0.05;
-export const SMOKE_SCALE_PULSE_PERIOD_MS = 4100;
+/**
+ * Period of the density breath `smokeAlphaNoise` runs -- SLOW, because it is
+ * now the only billow channel this effect has and a 900 ms cycle (what it
+ * was) reads as a flicker rather than a swell once it is carrying that on
+ * its own.
+ *
+ * THE SCALE PULSE IS GONE, and the measurement that killed it is worth
+ * keeping. A quad is centred on its own tile, so ANY scale other than
+ * exactly 1 puts a seam between it and its neighbour -- below 1 a gap
+ * showing bare ground, above 1 a doubled-alpha overlap line -- and it does
+ * so uniformly across the whole screen, which is a GRID. That is what a
+ * laid screen photographed as. Zeroing `SMOKE_SCALE_PULSE_AMOUNT` by hand
+ * and re-capturing (`.superpowers/queue/smoke-animation-report.md`) removed
+ * every seam and left a clean continuous sheet, which is what identified
+ * the pulse rather than the alpha noise as the cause.
+ *
+ * The lesson generalises: on a per-tile quad grid, GEOMETRY is the one
+ * channel that cannot carry variation without drawing the grid, and ALPHA
+ * is the one that can. So the breath moved to alpha, and the only motion
+ * left on the geometry is rigid -- a coherent drift and a bob that shift
+ * every quad by nearly the same amount, so the tiling survives them.
+ */
+export const SMOKE_BREATH_PERIOD_MS = 3700;
+
+/**
+ * Spatial frequency of the phase field `smokeTilePhase` lays across the
+ * map, in cycles per tile on X and on Y.
+ *
+ * WHAT THIS REPLACED, AND WHY. `smokeTilePhase` used to be `tileHash(x, y)`
+ * -- an uncorrelated per-tile hash, chosen so "the 'dims like a single
+ * dimmer switch' flatness GH #144 names is what a SHARED phase would still
+ * produce, even with motion added." The reasoning is right and the
+ * instrument was wrong: a hash gives every tile an INDEPENDENT phase, so
+ * `smokeAlphaNoise`'s +/-15% lands on neighbouring tiles as unrelated
+ * values and a laid screen reads as a chequerboard of light and dark
+ * diamonds -- a tiled floor, photographed on `beit_sahwan_outskirts` (this
+ * task's report). Smoke is a continuum: two points a metre apart are at
+ * nearly the same density, and it is the SLOW variation across many metres
+ * that reads as billowing.
+ *
+ * A plane wave gives exactly that and nothing else changes: phase is still
+ * a pure deterministic function of `(x, y)` with no `Math.random()`, still
+ * distinct tile to tile (the frequencies are deliberately not rational
+ * multiples of each other or of 1, so no two tiles inside any plausible
+ * map share a phase), and still cheap. The difference is that ADJACENT
+ * tiles are now close in phase, so the density variation rolls across a
+ * screen instead of flickering within it.
+ *
+ * 0.11 and 0.071: a full cycle every ~9 tiles on X and ~14 on Y, both
+ * larger than `SMOKE_RADIUS`'s 3-tile screen, so one screen sees a piece of
+ * the wave rather than several periods of it.
+ */
+export const SMOKE_PHASE_FREQ_X = 0.11;
+export const SMOKE_PHASE_FREQ_Y = 0.071;
 
 /** Alpha-noise floor -- the multiplier this channel applies never drops
  *  below this, so it alone can never zero a tile's alpha. Ranges
- *  `[SMOKE_ALPHA_NOISE_MIN, 1]`. */
-export const SMOKE_ALPHA_NOISE_MIN = 0.85;
-export const SMOKE_ALPHA_NOISE_PERIOD_MS = 900;
+ *  `[SMOKE_ALPHA_NOISE_MIN, 1]`.
+ *
+ *  Deepened from 0.85 when the scale pulse was removed (see
+ *  `SMOKE_BREATH_PERIOD_MS`): this is now the ONLY channel carrying the
+ *  billow, so a +/-15% swing that was a subtle texture alongside a moving
+ *  quad reads as nothing at all on its own. 0.72 is still comfortably above
+ *  zero -- the desync guarantee this section's own comment makes is that a
+ *  drawn tile stays visible while `d > 0`, and the worst-case product with
+ *  `SMOKE_GROW_ALPHA_FLOOR` is 0.25, dim but plainly drawn. */
+export const SMOKE_ALPHA_NOISE_MIN = 0.72;
+export const SMOKE_ALPHA_NOISE_PERIOD_MS = SMOKE_BREATH_PERIOD_MS;
 
 /** How long a freshly-laid tile takes to bloom from its grow floor to full
  *  presentation strength. Brief -- "a few hundred ms", per the GH #144
@@ -247,16 +319,31 @@ export const SMOKE_GROW_DURATION_MS = 350;
  *  (~0.30) -- dim, never zero, at the exact instant a tile is born, which
  *  is the one moment `ageMs` is smallest. */
 export const SMOKE_GROW_ALPHA_FLOOR = 0.35;
-/** Scale-side grow floor -- the quad starts visibly smaller and blooms
- *  outward to full footprint, independent of the alpha ramp above. */
-export const SMOKE_GROW_SCALE_FLOOR = 0.6;
+/**
+ * Scale a freshly-laid quad OVERSHOOTS to before settling back to exactly 1
+ * over `SMOKE_GROW_DURATION_MS` -- the screen bursts outward and settles,
+ * rather than growing in from small.
+ *
+ * It used to be a floor of 0.6 growing UP to 1, and the direction is the
+ * whole point. Every tile of one screen is born on the same tick, so
+ * whatever the grow scale is, it is the same for all of them at once: below
+ * 1 that is a lattice of gaps showing bare ground across the entire screen
+ * for the first 350 ms (photographed), above 1 it is a lattice of
+ * doubled-alpha overlap lines instead -- at the faintest alpha of a tile's
+ * whole life, and reading as smoke that has not settled yet rather than as
+ * holes in it. Overshooting is the cheaper artefact of the two, and it is
+ * also the better read for a grenade.
+ */
+export const SMOKE_GROW_SCALE_OVERSHOOT = 1.18;
 
-/** Deterministic per-tile phase, radians -- `tileHash`'s own `[0, 1)` output
- *  scaled to a full turn. Same hash every other per-tile scatter effect in
- *  this backend uses (see this section's own top comment); NOT
- *  `Math.random()`. */
+/** Deterministic per-tile phase, radians -- a smooth plane wave across the
+ *  map rather than an uncorrelated hash, so neighbouring tiles animate
+ *  ALMOST together and a screen billows instead of flickering. See
+ *  `SMOKE_PHASE_FREQ_X` for the full account of what this replaced and why.
+ *  Still a pure function of `(x, y)`; still not `Math.random()`. */
 export function smokeTilePhase(x: number, y: number): number {
-  return tileHash(x, y) * TWO_PI;
+  const cycles = x * SMOKE_PHASE_FREQ_X + y * SMOKE_PHASE_FREQ_Y;
+  return (cycles - Math.floor(cycles)) * TWO_PI;
 }
 
 /** Small sine bob on world Y, phase-offset per tile so a whole screen does
@@ -265,26 +352,33 @@ export function smokeBobOffset(clockMs: number, phase: number): number {
   return SMOKE_BOB_AMPLITUDE * Math.sin((clockMs / SMOKE_BOB_PERIOD_MS) * TWO_PI + phase);
 }
 
-/** Horizontal drift, X axis. A different phase multiplier than
- *  `smokeDriftZ` (and `sin`, not `cos`) so the two axes don't trace a
- *  perfect circle -- a slightly irregular drift reads less mechanical than
- *  a perfect orbit. */
-export function smokeDriftX(clockMs: number, phase: number): number {
-  return SMOKE_DRIFT_AMPLITUDE * Math.sin((clockMs / SMOKE_DRIFT_PERIOD_MS) * TWO_PI + phase * 1.3);
+/**
+ * Horizontal drift, X axis -- COHERENT, no per-tile phase.
+ *
+ * It used to take a phase and offset each tile independently. That is not
+ * what wind does: a breeze moves a whole screen together, and giving each
+ * quad its own drift both (a) reads as jitter rather than motion and (b)
+ * opens and closes gaps between neighbouring quads, which is half of why a
+ * laid screen photographed as a lattice of separate diamonds rather than a
+ * sheet of smoke. One bearing for the whole field also matches what
+ * `terrain/mesh.ts`'s `groveMaterial` already does for trees and what
+ * `units/smoke-plume.ts`'s `SMOKE_PLUME_LEAN_DIR` now does for plumes.
+ *
+ * It takes NO phase at all now, and the missing parameter is the point:
+ * a coherent channel that still accepted a per-tile phase would be one
+ * refactor away from silently reading it again. `SmokeMesh.update`'s call
+ * site not having a phase to hand it is the guard.
+ */
+export function smokeDriftX(clockMs: number): number {
+  return SMOKE_DRIFT_AMPLITUDE * Math.sin((clockMs / SMOKE_DRIFT_PERIOD_MS) * TWO_PI);
 }
 
-/** Horizontal drift, Z axis -- see `smokeDriftX`'s own doc comment for why
- *  this uses `cos` and a different phase multiplier. */
-export function smokeDriftZ(clockMs: number, phase: number): number {
-  return SMOKE_DRIFT_AMPLITUDE * Math.cos((clockMs / SMOKE_DRIFT_PERIOD_MS) * TWO_PI + phase * 0.7);
-}
-
-/** Uniform breathing scale, centred on 1.0. Multiplied by
- *  `smokeGrowScaleFactor` at the call site, not folded in here -- this
- *  function alone answers only "what does steady-state billow look like",
- *  independent of how old the tile's own smoke is. */
-export function smokeScalePulse(clockMs: number, phase: number): number {
-  return 1 + SMOKE_SCALE_PULSE_AMOUNT * Math.sin((clockMs / SMOKE_SCALE_PULSE_PERIOD_MS) * TWO_PI + phase * 1.7);
+/** Horizontal drift, Z axis -- coherent, see `smokeDriftX`. `cos` against
+ *  its `sin` so the whole field traces a slow ellipse rather than sliding
+ *  back and forth along one line: a screen that only ever moves on one
+ *  diagonal reads as a scrolling texture. */
+export function smokeDriftZ(clockMs: number): number {
+  return SMOKE_DRIFT_AMPLITUDE * Math.cos((clockMs / SMOKE_DRIFT_PERIOD_MS) * TWO_PI);
 }
 
 /** Bounded per-tile alpha texture, `[SMOKE_ALPHA_NOISE_MIN, 1]` -- a sine
@@ -318,10 +412,13 @@ export function smokeGrowAlphaFactor(ageMs: number): number {
   return SMOKE_GROW_ALPHA_FLOOR + (1 - SMOKE_GROW_ALPHA_FLOOR) * t;
 }
 
-/** Scale-side grow multiplier, `[SMOKE_GROW_SCALE_FLOOR, 1]`. */
+/** Scale-side grow multiplier, `[1, SMOKE_GROW_SCALE_OVERSHOOT]`, settling
+ *  DOWN to exactly 1 -- see `SMOKE_GROW_SCALE_OVERSHOOT` for why the ramp
+ *  runs that way round, and why exactly 1 at rest is load-bearing rather
+ *  than tidy. */
 export function smokeGrowScaleFactor(ageMs: number): number {
   const t = smokeGrowEase(ageMs);
-  return SMOKE_GROW_SCALE_FLOOR + (1 - SMOKE_GROW_SCALE_FLOOR) * t;
+  return SMOKE_GROW_SCALE_OVERSHOOT + (1 - SMOKE_GROW_SCALE_OVERSHOOT) * t;
 }
 
 /**
@@ -495,7 +592,7 @@ export class SmokeMesh {
       const phase = smokeTilePhase(x, z);
       const ageMs = clockMs - this.growStart[tileIndex];
 
-      const scale = smokeScalePulse(clockMs, phase) * smokeGrowScaleFactor(ageMs);
+      const scale = smokeGrowScaleFactor(ageMs);
       // `fogQuadGeometry()`'s unit quad spans local (0,0) -> (1,1), anchored
       // at the tile's OWN corner, not its centre (see that function's doc
       // comment) -- so scaling it in place via `compose` would grow the
@@ -505,9 +602,9 @@ export class SmokeMesh {
       const centerAdjust = (1 - scale) * 0.5;
 
       this.scratchPos.set(
-        x + centerAdjust + smokeDriftX(clockMs, phase),
+        x + centerAdjust + smokeDriftX(clockMs),
         groundY + smokeBobOffset(clockMs, phase),
-        z + centerAdjust + smokeDriftZ(clockMs, phase)
+        z + centerAdjust + smokeDriftZ(clockMs)
       );
       this.scratchScale.set(scale, scale, scale);
       this.scratchMatrix.compose(this.scratchPos, this.identityQuat, this.scratchScale);

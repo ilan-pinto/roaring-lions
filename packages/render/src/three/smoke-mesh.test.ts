@@ -23,16 +23,15 @@ import {
   type SmokeInstanceBuffers,
   SMOKE_BOB_AMPLITUDE,
   SMOKE_DRIFT_AMPLITUDE,
-  SMOKE_SCALE_PULSE_AMOUNT,
+  SMOKE_GROW_SCALE_OVERSHOOT,
   SMOKE_ALPHA_NOISE_MIN,
+  SMOKE_ALPHA_NOISE_PERIOD_MS,
   SMOKE_GROW_DURATION_MS,
   SMOKE_GROW_ALPHA_FLOOR,
-  SMOKE_GROW_SCALE_FLOOR,
   smokeTilePhase,
   smokeBobOffset,
   smokeDriftX,
   smokeDriftZ,
-  smokeScalePulse,
   smokeAlphaNoise,
   smokeGrowEase,
   smokeGrowAlphaFactor,
@@ -200,7 +199,7 @@ describe('SmokeMesh construction', () => {
   // GH #144: the matrix is no longer a bare translation of the tile's own
   // integer coordinates -- it is composed from that base position plus the
   // animation offsets `SmokeMesh.update` threads through `smokeDriftX/Z`,
-  // `smokeBobOffset`, `smokeScalePulse` and `smokeGrowScaleFactor`. This
+  // `smokeBobOffset` and `smokeGrowScaleFactor`. This
   // test proves the WIRING -- that `update()` actually calls those exact
   // pure functions with the tile's own (x, z) and the given `clockMs`, not
   // that the functions themselves are correct (each has its own dedicated
@@ -220,12 +219,12 @@ describe('SmokeMesh construction', () => {
 
     const phase = smokeTilePhase(3, 2);
     const ageMs = CLOCK - CLOCK; // this exact call is the birth frame
-    const expectedScale = smokeScalePulse(CLOCK, phase) * smokeGrowScaleFactor(ageMs);
+    const expectedScale = smokeGrowScaleFactor(ageMs);
     const centerAdjust = (1 - expectedScale) * 0.5;
 
-    expect(pos.x).toBeCloseTo(3 + centerAdjust + smokeDriftX(CLOCK, phase), 6);
+    expect(pos.x).toBeCloseTo(3 + centerAdjust + smokeDriftX(CLOCK), 6);
     expect(pos.y).toBeCloseTo(smokeBobOffset(CLOCK, phase), 6);
-    expect(pos.z).toBeCloseTo(2 + centerAdjust + smokeDriftZ(CLOCK, phase), 6);
+    expect(pos.z).toBeCloseTo(2 + centerAdjust + smokeDriftZ(CLOCK), 6);
     expect(scale.x).toBeCloseTo(expectedScale, 6);
     expect(scale.y).toBeCloseTo(expectedScale, 6);
     expect(scale.z).toBeCloseTo(expectedScale, 6);
@@ -285,12 +284,33 @@ describe('smokeTilePhase', () => {
         phases.add(smokeTilePhase(x, y));
       }
     }
-    // 16 distinct tiles; a shared or degenerate hash would collapse this set.
+    // 16 distinct tiles; a shared or degenerate field would collapse this set.
     expect(phases.size).toBe(16);
+  });
+
+  it('is SPATIALLY SMOOTH -- adjacent tiles are close in phase, which is what stops a screen reading as a chequerboard', () => {
+    // The wrap point is the one place two adjacent tiles are legitimately a
+    // full turn apart (2*PI and 0 are the same phase), so compare on the
+    // circle rather than on the line.
+    const gap = (a: number, b: number): number => {
+      const d = Math.abs(a - b) % (Math.PI * 2);
+      return Math.min(d, Math.PI * 2 - d);
+    };
+    let worst = 0;
+    for (let y = 0; y < 24; y++) {
+      for (let x = 0; x < 24; x++) {
+        worst = Math.max(worst, gap(smokeTilePhase(x, y), smokeTilePhase(x + 1, y)));
+        worst = Math.max(worst, gap(smokeTilePhase(x, y), smokeTilePhase(x, y + 1)));
+      }
+    }
+    // One step of the field is 0.11 or 0.071 cycles -- 0.70 rad at worst.
+    // An uncorrelated hash (what this replaced) averages PI/2 and routinely
+    // hits PI, so this bound is the whole difference between the two.
+    expect(worst).toBeLessThan(0.8);
   });
 });
 
-describe('smokeBobOffset / smokeDriftX / smokeDriftZ / smokeScalePulse -- bounded, deterministic motion', () => {
+describe('smokeBobOffset / smokeDriftX / smokeDriftZ -- bounded, deterministic motion', () => {
   const phase = smokeTilePhase(2, 7);
 
   it('smokeBobOffset never exceeds its documented amplitude', () => {
@@ -301,24 +321,53 @@ describe('smokeBobOffset / smokeDriftX / smokeDriftZ / smokeScalePulse -- bounde
 
   it('smokeDriftX and smokeDriftZ never exceed their documented amplitude', () => {
     for (let clockMs = 0; clockMs < 20000; clockMs += 149) {
-      expect(Math.abs(smokeDriftX(clockMs, phase))).toBeLessThanOrEqual(SMOKE_DRIFT_AMPLITUDE + 1e-9);
-      expect(Math.abs(smokeDriftZ(clockMs, phase))).toBeLessThanOrEqual(SMOKE_DRIFT_AMPLITUDE + 1e-9);
+      expect(Math.abs(smokeDriftX(clockMs))).toBeLessThanOrEqual(SMOKE_DRIFT_AMPLITUDE + 1e-9);
+      expect(Math.abs(smokeDriftZ(clockMs))).toBeLessThanOrEqual(SMOKE_DRIFT_AMPLITUDE + 1e-9);
     }
   });
 
-  it('smokeScalePulse stays within 1 +/- SMOKE_SCALE_PULSE_AMOUNT', () => {
-    for (let clockMs = 0; clockMs < 20000; clockMs += 151) {
-      const s = smokeScalePulse(clockMs, phase);
-      expect(s).toBeGreaterThanOrEqual(1 - SMOKE_SCALE_PULSE_AMOUNT - 1e-9);
-      expect(s).toBeLessThanOrEqual(1 + SMOKE_SCALE_PULSE_AMOUNT + 1e-9);
+  it('NOTHING varies the steady-state quad scale -- any scale but exactly 1 draws the tile grid, which is the seam this effect had', () => {
+    // The measured fact behind the whole redesign: a quad is centred on its
+    // own tile, so scale < 1 leaves bare ground between neighbours and
+    // scale > 1 leaves a doubled-alpha overlap line, uniformly, everywhere.
+    // Past its grow window a tile must sit at exactly 1 with no per-frame
+    // or per-tile modulation on it at all.
+    for (let ageMs = SMOKE_GROW_DURATION_MS; ageMs < 20000; ageMs += 151) {
+      expect(smokeGrowScaleFactor(ageMs), `settled scale must be exactly 1 at age ${ageMs}ms`).toBe(1);
     }
+  });
+
+  it('drift is COHERENT on the wire -- two far-apart tiles get the SAME offset from their own coordinates, because wind is one bearing and not per-tile jitter', () => {
+    // Asserted through `SmokeMesh.update`, not against the pure function:
+    // the failure worth catching is the call site passing a phase in again,
+    // and a per-tile drift is what opened and closed gaps between
+    // neighbouring quads.
+    const mesh = new SmokeMesh(24, 24);
+    const smoke = new Uint8Array(24 * 24);
+    smoke[3 * 24 + 2] = 200; // tile (2, 3)
+    smoke[19 * 24 + 21] = 200; // tile (21, 19), far away
+    mesh.update(smoke, null, 24, 24, 4321);
+    const m = new THREE.Matrix4();
+    const pos = new THREE.Vector3();
+    const quat = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    mesh.mesh.getMatrixAt(0, m);
+    m.decompose(pos, quat, scale);
+    const firstOffset = [pos.x - 2, pos.z - 3];
+    mesh.mesh.getMatrixAt(1, m);
+    m.decompose(pos, quat, scale);
+    const secondOffset = [pos.x - 21, pos.z - 19];
+    expect(firstOffset[0]).toBeCloseTo(secondOffset[0], 6);
+    expect(firstOffset[1]).toBeCloseTo(secondOffset[1], 6);
+    // ...and it is genuinely non-zero, so this is not passing on a
+    // motionless pair.
+    expect(Math.abs(firstOffset[0]) + Math.abs(firstOffset[1])).toBeGreaterThan(1e-6);
   });
 
   it('every function above is deterministic -- same (clockMs, phase) in, same value out', () => {
     expect(smokeBobOffset(1234, phase)).toBe(smokeBobOffset(1234, phase));
-    expect(smokeDriftX(1234, phase)).toBe(smokeDriftX(1234, phase));
-    expect(smokeDriftZ(1234, phase)).toBe(smokeDriftZ(1234, phase));
-    expect(smokeScalePulse(1234, phase)).toBe(smokeScalePulse(1234, phase));
+    expect(smokeDriftX(1234)).toBe(smokeDriftX(1234));
+    expect(smokeDriftZ(1234)).toBe(smokeDriftZ(1234));
   });
 
   it('is genuinely time-varying -- not a constant masquerading as motion', () => {
@@ -327,6 +376,16 @@ describe('smokeBobOffset / smokeDriftX / smokeDriftZ / smokeScalePulse -- bounde
 });
 
 describe('smokeAlphaNoise', () => {
+  it('is the ONLY billow channel now, so its swing has to be real -- the two range tests below read this constant and cannot catch it flattening', () => {
+    // Geometry cannot vary per tile without drawing the tile grid (see
+    // SMOKE_BREATH_PERIOD_MS), so the scale pulse is gone and alpha carries
+    // the whole effect. At 1.0 this function is a constant and a laid
+    // screen is a flat sheet again -- which the "reaches both ends of its
+    // range" test happily passes, because it is written from this value.
+    expect(SMOKE_ALPHA_NOISE_MIN).toBeLessThan(0.9);
+    expect(SMOKE_ALPHA_NOISE_MIN).toBeGreaterThan(0.5);
+  });
+
   it('stays within [SMOKE_ALPHA_NOISE_MIN, 1] for every input', () => {
     const phase = smokeTilePhase(9, 1);
     for (let clockMs = 0; clockMs < 20000; clockMs += 97) {
@@ -340,7 +399,7 @@ describe('smokeAlphaNoise', () => {
     const phase = 0;
     let min = Infinity;
     let max = -Infinity;
-    for (let clockMs = 0; clockMs < 2000; clockMs += 5) {
+    for (let clockMs = 0; clockMs < SMOKE_ALPHA_NOISE_PERIOD_MS * 2; clockMs += 5) {
       const v = smokeAlphaNoise(clockMs, phase);
       min = Math.min(min, v);
       max = Math.max(max, v);
@@ -368,20 +427,22 @@ describe('smokeGrowEase / smokeGrowAlphaFactor / smokeGrowScaleFactor', () => {
     }
   });
 
-  it('smokeGrowScaleFactor ranges [SMOKE_GROW_SCALE_FLOOR, 1] and is monotonically non-decreasing across the window', () => {
-    expect(smokeGrowScaleFactor(0)).toBeCloseTo(SMOKE_GROW_SCALE_FLOOR, 6);
+  it('smokeGrowScaleFactor OVERSHOOTS and settles down to exactly 1 -- never below it, because below 1 is a gap and a gap reads as a hole in the screen', () => {
+    expect(smokeGrowScaleFactor(0)).toBeCloseTo(SMOKE_GROW_SCALE_OVERSHOOT, 6);
     expect(smokeGrowScaleFactor(SMOKE_GROW_DURATION_MS)).toBeCloseTo(1, 6);
-    let prev = -Infinity;
+    expect(SMOKE_GROW_SCALE_OVERSHOOT).toBeGreaterThan(1);
+    let prev = Infinity;
     for (let age = 0; age <= SMOKE_GROW_DURATION_MS; age += 10) {
       const v = smokeGrowScaleFactor(age);
-      expect(v).toBeGreaterThanOrEqual(prev - 1e-9);
+      expect(v, `grow scale rose again at age ${age}`).toBeLessThanOrEqual(prev + 1e-9);
+      expect(v, `grow scale dipped under 1 at age ${age}`).toBeGreaterThanOrEqual(1 - 1e-9);
       prev = v;
     }
   });
 
   it('a negative age (should not occur, but growStart could equal clockMs on the exact birth frame) clamps to the floor rather than going out of range', () => {
     expect(smokeGrowAlphaFactor(-50)).toBeCloseTo(SMOKE_GROW_ALPHA_FLOOR, 6);
-    expect(smokeGrowScaleFactor(-50)).toBeCloseTo(SMOKE_GROW_SCALE_FLOOR, 6);
+    expect(smokeGrowScaleFactor(-50)).toBeCloseTo(SMOKE_GROW_SCALE_OVERSHOOT, 6);
   });
 });
 

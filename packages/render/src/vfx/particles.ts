@@ -31,6 +31,34 @@ function sampleLerp(curve: number[] | undefined, t: number, fallback: number): n
 }
 
 /**
+ * The `sprite` names that mean "this particle is a volume of suspended
+ * particulate, not a solid object" -- today exactly one, `smoke_puff`, the
+ * only entry in `vfx_emitter.schema.json`'s own sprite enum that names a
+ * cloud rather than a thing (`soft_dot`/`hard_dot`/`spark` are points,
+ * `streak` is a trail, `shard` is debris, `ring` is a shock front).
+ *
+ * This is presentation vocabulary, not a new schema field: it is DERIVED
+ * from the `sprite` every emitter already authors, so no `data/vfx/*.json`
+ * had to change to opt in and none can opt in by accident. A backend is
+ * free to ignore it (Pixi does -- `draw()` below passes it to nothing);
+ * `three`'s `createParticleMaterial` reads it to feather the particle's own
+ * edge instead of stamping the hard-edged filled circle every sprite used
+ * to get. See that function's own doc comment for what the hard circle
+ * looked like at collapse scale and why a *shape* fix was needed rather
+ * than a size or alpha retune.
+ */
+const SOFT_PARTICLE_SPRITES: ReadonlySet<string> = new Set(['smoke_puff']);
+
+/** True when this layer's authored `sprite` names a cloud rather than a
+ *  solid -- see `SOFT_PARTICLE_SPRITES`. An absent `sprite` defaults to
+ *  `soft_dot` (the schema's own default), which is NOT soft: "soft_dot" is
+ *  a small round point, and every emitter that wants a cloud says
+ *  `smoke_puff` explicitly. */
+export function isSoftParticleSprite(sprite: string | undefined): boolean {
+  return sprite !== undefined && SOFT_PARTICLE_SPRITES.has(sprite);
+}
+
+/**
  * A `spawn()` call whose spec set `emit_over_ms` and has particles still
  * owed to it. `step()` trickles `spawnOne` calls out of this list instead of
  * `spawn()` placing the whole count at once -- the mechanism `emit_over_ms`
@@ -88,6 +116,10 @@ export class ParticleSystem {
    *  units). One shared pool, so priority-based eviction still competes
    *  across both layers rather than reserving capacity per layer. */
   private readonly layerIdx: Uint8Array;
+  /** 1 when this particle's authored `sprite` names a cloud rather than a
+   *  solid (`isSoftParticleSprite`). Read back through `forEachLive` and
+   *  used by the three.js backend alone; Pixi's `draw()` ignores it. */
+  private readonly soft: Uint8Array;
   /** Resolved hex colours per particle, one ramp step per frame of life. */
   private readonly colors: string[][] = [];
   private readonly alphaCurve: (number[] | undefined)[] = [];
@@ -114,6 +146,7 @@ export class ParticleSystem {
     this.priority = new Uint8Array(capacity);
     this.alive = new Uint8Array(capacity);
     this.layerIdx = new Uint8Array(capacity);
+    this.soft = new Uint8Array(capacity);
     this.colors.length = capacity;
     this.alphaCurve.length = capacity;
     this.sizeCurve.length = capacity;
@@ -245,6 +278,7 @@ export class ParticleSystem {
     this.drag[i] = spec.drag ?? 0;
     this.priority[i] = priority;
     this.layerIdx[i] = layerIdx;
+    this.soft[i] = isSoftParticleSprite(spec.sprite) ? 1 : 0;
     this.alive[i] = 1;
     this.colors[i] = resolved;
     this.alphaCurve[i] = spec.alpha_over_life;
@@ -305,10 +339,17 @@ export class ParticleSystem {
    * above -- "allocates nothing per particle per frame" -- has to hold for
    * this accessor exactly as it holds for `spawn`/`step`, or a three.js
    * caller adopting it inherits a GC-pressure regression `draw()` never had.
+   *
+   * The trailing `soft` argument is `isSoftParticleSprite(spec.sprite)`,
+   * latched at spawn -- a sixth flat argument rather than a widened options
+   * object for exactly the no-allocation reason the paragraph above gives.
+   * It is deliberately LAST so every existing caller keeps working
+   * unchanged: `draw()` below declares five parameters and JavaScript drops
+   * the sixth, which is what keeps the frozen Pixi path byte-identical.
    */
   forEachLive(
     layerIdx: number,
-    cb: (x: number, y: number, color: string, alpha: number, radius: number) => void
+    cb: (x: number, y: number, color: string, alpha: number, radius: number, soft: boolean) => void
   ): void {
     for (let i = 0; i < this.capacity; i++) {
       if (this.alive[i] === 0 || this.layerIdx[i] !== layerIdx) continue;
@@ -318,7 +359,7 @@ export class ParticleSystem {
       const sizeMul = sampleLerp(this.sizeCurve[i], t, 1);
       const r = this.size[i] * sizeMul;
       if (r <= 0 || alpha <= 0) continue;
-      cb(this.x[i], this.y[i], color, alpha, r);
+      cb(this.x[i], this.y[i], color, alpha, r, this.soft[i] === 1);
     }
   }
 

@@ -35,6 +35,7 @@
       "sprite": "smoke_puff",
       "count": [16, 24],
       "lifetime_ms": [900, 1600],
+      "emit_over_ms": 260,
       "speed_tiles_s": [0.5, 1.6],
       "cone_deg": 360,
       "gravity_tiles_s2": -0.35,

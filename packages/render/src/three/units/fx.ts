@@ -531,6 +531,19 @@ export const SHELL_TAIL_ALPHA = 0.2;
  */
 export { FX_RENDER_ORDER, FX_RENDER_ORDER_ADDITIVE, FX_RENDER_ORDER_ABOVE, FX_RENDER_ORDER_ABOVE_ADDITIVE };
 
+/**
+ * Where a `smoke_puff` particle's feather starts, as a fraction of its own
+ * radius: full alpha inside this, smoothstepped to zero at the rim (see
+ * `createParticleMaterial`'s own `aSoft` section). 0.15 rather than
+ * something larger because the fall-off has to do the work across almost
+ * the whole disc -- a puff that is flat out to 0.6 and only feathers the
+ * last 40% still shows a visible edge where two of them overlap, which is
+ * the artefact this exists to remove. The remaining hard core keeps a
+ * SMALL puff (the 3-7 px `cigarette_smoke`/`vehicle_exhaust` sizes, only a
+ * few pixels across on screen) from feathering itself out of existence.
+ */
+export const SOFT_PARTICLE_CORE = 0.15;
+
 /** Plain-array quad geometry for the particle billboard every particle
  *  instance shares, in "per one screen pixel of radius" units -- an
  *  instance's own `radius` (from `ParticleSystem.forEachLive`) scales it via
@@ -596,6 +609,12 @@ export interface ParticleInstanceBuffers {
    *  quad is built in "per 1px of radius" units, so this IS the particle's
    *  own screen-pixel radius, applied as `Matrix4.makeScale`. */
   scales: Float32Array;
+  /** 1 when the particle's authored `sprite` names a cloud rather than a
+   *  solid (`isSoftParticleSprite`, `vfx/particles.ts`), 0 otherwise --
+   *  `createParticleMaterial`'s own `aSoft`. A float array rather than a
+   *  `Uint8Array` because it is uploaded straight into a
+   *  `THREE.InstancedBufferAttribute` the shader reads as `float`. */
+  softs: Float32Array;
 }
 
 /**
@@ -656,7 +675,7 @@ export function writeParticleInstances(
 ): number {
   const capacity = out.alphas.length;
   let count = 0;
-  const visit = (x: number, y: number, color: string, alpha: number, radius: number): void => {
+  const visit = (x: number, y: number, color: string, alpha: number, radius: number, soft: boolean): void => {
     if (count >= capacity) return;
     const [r, g, b] = cachedHexToUnit(color);
     const liftY = groundWorldY(elevation, mapWidth, mapHeight, x, y) + Math.max(PARTICLE_LIFT_PX, radius) * WORLD_Y_PER_LIFT_PIXEL;
@@ -668,6 +687,7 @@ export function writeParticleInstances(
     out.colors[count * 3 + 2] = b;
     out.alphas[count] = alpha;
     out.scales[count] = radius;
+    out.softs[count] = soft ? 1 : 0;
     count++;
   };
   particles.forEachLive(layerIdx, visit);
@@ -1008,6 +1028,37 @@ export function writeShellInstances(
  * ## `hotCore` (`ParticleSpec.additive`): the dead-schema-field fix, and why
  * it is NOT GPU additive blending
  *
+ * ## `aSoft`: `smoke_puff` is feathered, every other sprite is not
+ *
+ * The hard circle above is right for a spark, a shard, a ring or a
+ * `soft_dot` and it is WRONG for smoke, which is the failure the collapse
+ * screenshot caught: `structure_collapse.json`'s dust layer spawns 16-24
+ * `smoke_puff` discs at ONE point and grows each to `size_over_life` 2.6 of
+ * a 10-20 px base. Measured live on `beit_sahwan_outskirts` at zoom 1.6
+ * (`.superpowers/queue/smoke-animation-report.md`), that is 31 live discs
+ * of 18-37 px radius at ~0.6 alpha rising to 8 discs of 34-71 px, all
+ * concentric -- and a stack of concentric flat-filled circles does not read
+ * as 24 puffs, it reads as TWO discs with a lighter rim, because every
+ * overlap interior is uniform and only the outermost few radii differ. On
+ * the above-tier material (`depthTest: false`, Pixi-`fxAboveG`-faithful)
+ * they paint straight over the face of the building that just collapsed,
+ * which is what made them read as decals stuck to the wall rather than
+ * smoke in front of it.
+ *
+ * Shrinking them was rejected: the discs are the right SIZE for a
+ * building collapse (a four-storey house throws a dust cloud several tiles
+ * across) and the wrong SHAPE. `1.0 - smoothstep(SOFT_PARTICLE_CORE, 1.0,
+ * d)` gives each puff a dense core and a transparent rim, so the union of
+ * many overlapping puffs has a soft, varying interior and no rim at all --
+ * which is what a dust cloud is. `mix(1.0, feather, vSoft)` keeps every
+ * non-`smoke_puff` sprite bit-identical to before rather than softening the
+ * whole particle system; `vSoft` comes from the `sprite` string every
+ * emitter already authors, so no `data/vfx/*.json` changed to opt in and
+ * none can opt in by accident.
+ *
+ * ## `hotCore` (`ParticleSpec.additive`): the dead-schema-field fix, and why
+ * it is NOT GPU additive blending
+ *
  * `ParticleSpec.additive` has validated and typechecked since the emitter
  * schema's own first draft, and until this fix nothing read it -- every
  * particle composited with three.js's default `NormalBlending` regardless
@@ -1103,13 +1154,16 @@ function createParticleMaterial(depthTest: boolean, hotCore: boolean): THREE.Sha
       attribute vec2 aLocal;
       attribute vec3 aColor;
       attribute float aAlpha;
+      attribute float aSoft;
       varying vec2 vLocal;
       varying vec3 vColor;
       varying float vAlpha;
+      varying float vSoft;
       void main() {
         vLocal = aLocal;
         vColor = aColor;
         vAlpha = aAlpha;
+        vSoft = aSoft;
         vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(position, 1.0);
         gl_Position = projectionMatrix * mvPosition;
       }
@@ -1118,6 +1172,7 @@ function createParticleMaterial(depthTest: boolean, hotCore: boolean): THREE.Sha
       varying vec2 vLocal;
       varying vec3 vColor;
       varying float vAlpha;
+      varying float vSoft;
       void main() {
         // Hard-edged circle cutout -- matches Pixi's g.circle().fill(),
         // itself a flat fill with no soft falloff, rather than inventing
@@ -1125,11 +1180,25 @@ function createParticleMaterial(depthTest: boolean, hotCore: boolean): THREE.Sha
         // discarded: alpha, however faint, still blends (see this
         // function's own doc comment for why that is now safe).
         if (dot(vLocal, vLocal) > 1.0) discard;
+        // SMOKE ONLY (aSoft, from the layer's authored sprite --
+        // isSoftParticleSprite): feather the disc instead of filling it
+        // flat. Every other sprite keeps the hard fill above, unchanged and
+        // bit-identical -- mix(1.0, feather, vSoft) is exactly 1.0 when
+        // vSoft is 0, so a spark, a shard or a ring is not touched by this
+        // at all. See this function's own doc comment for the measured
+        // failure that made a shape fix necessary.
+        float d = length(vLocal);
+        float feather = 1.0 - smoothstep(${SOFT_PARTICLE_CORE.toFixed(2)}, 1.0, d);
+        float a = ${hotCore ? '1.0' : 'vAlpha'} * mix(1.0, feather, vSoft);
         // hotCore: alpha is pinned to 1.0, not read off vAlpha -- see this
         // function's own doc comment, "The fix actually shipped keeps
         // NormalBlending...", for why an opaque overwrite is what keeps
-        // every hotCore fragment on-palette by construction.
-        gl_FragColor = vec4(vColor, ${hotCore ? '1.0' : 'vAlpha'});
+        // every hotCore fragment on-palette by construction. No shipped
+        // emitter marks a smoke_puff layer additive, so the mix above
+        // is a no-op on that material in practice; it is written anyway
+        // rather than compiled out, so a future emitter that does both gets
+        // a soft hot core rather than a silently square one.
+        gl_FragColor = vec4(vColor, a);
       }
     `,
     transparent: true,
@@ -1166,6 +1235,10 @@ export class ParticleInstancer {
   private readonly layerIdx: number;
   private readonly colorAttr: THREE.InstancedBufferAttribute;
   private readonly alphaAttr: THREE.InstancedBufferAttribute;
+  /** `createParticleMaterial`'s `aSoft` -- 1 for a `smoke_puff`-sprite
+   *  particle, 0 for every other sprite. See that function's own `aSoft`
+   *  section. */
+  private readonly softAttr: THREE.InstancedBufferAttribute;
   private readonly scratchPositions: Float32Array;
   private readonly scratchScales: Float32Array;
   private readonly scratchMatrix = new THREE.Matrix4();
@@ -1203,8 +1276,10 @@ export class ParticleInstancer {
 
     this.colorAttr = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3);
     this.alphaAttr = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
+    this.softAttr = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
     geometry.setAttribute('aColor', this.colorAttr);
     geometry.setAttribute('aAlpha', this.alphaAttr);
+    geometry.setAttribute('aSoft', this.softAttr);
 
     this.mesh = new THREE.InstancedMesh(geometry, createParticleMaterial(depthTest, additive), capacity);
     this.mesh.count = 0;
@@ -1256,6 +1331,7 @@ export class ParticleInstancer {
       colors: this.colorAttr.array as Float32Array,
       alphas: this.alphaAttr.array as Float32Array,
       scales: this.scratchScales,
+      softs: this.softAttr.array as Float32Array,
     });
     for (let i = 0; i < count; i++) {
       this.scratchMatrix.makeScale(this.scratchScales[i], this.scratchScales[i], this.scratchScales[i]);
@@ -1270,6 +1346,7 @@ export class ParticleInstancer {
     this.mesh.instanceMatrix.needsUpdate = true;
     this.colorAttr.needsUpdate = true;
     this.alphaAttr.needsUpdate = true;
+    this.softAttr.needsUpdate = true;
   }
 
   dispose(): void {

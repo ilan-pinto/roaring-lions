@@ -46,6 +46,7 @@ import {
   tracerQuadPositions,
   writeTracerInstances,
   tracerIndexBuffer,
+  SOFT_PARTICLE_CORE,
   SHELL_LIFT_PX,
   SHELL_WIDTH_PX,
   SHELL_TAIL_ALPHA,
@@ -84,6 +85,7 @@ function buffers(capacity: number): ParticleInstanceBuffers {
     colors: new Float32Array(capacity * 3),
     alphas: new Float32Array(capacity),
     scales: new Float32Array(capacity),
+    softs: new Float32Array(capacity),
   };
 }
 
@@ -908,5 +910,87 @@ describe('per-kind streak width', () => {
     expect(headWidthPx('bolt')).toBeCloseTo(SHELL_PROFILES.bolt.widthPx, 4);
     expect(headWidthPx('missile')).toBeCloseTo(SHELL_PROFILES.missile.widthPx, 4);
     expect(SHELL_PROFILES.bolt.widthPx).toBeLessThan(SHELL_PROFILES.mortar.widthPx);
+  });
+});
+
+/**
+ * The soft-edge path for `smoke_puff` particles -- `createParticleMaterial`'s
+ * own `aSoft` section has the measured account of the artefact this fixes
+ * (the collapse dust reading as two flat tan discs with a lighter rim).
+ */
+describe('particle soft edge (aSoft)', () => {
+  it('writeParticleInstances marks a smoke_puff instance soft and a shard not', () => {
+    const ps = new ParticleSystem(8, () => '#FFFFFF');
+    ps.spawn(makeSpec({ sprite: 'smoke_puff' }), 1, 1, 0, 1, 5, 0);
+    ps.spawn(makeSpec({ sprite: 'shard' }), 2, 2, 0, 1, 5, 0);
+    const out = buffers(8);
+    const n = writeParticleInstances(ps, 0, null, 0, 0, out);
+    expect(n).toBe(2);
+    expect([...out.softs.slice(0, 2)].sort()).toEqual([0, 1]);
+  });
+
+  it('every instance is written every frame -- a stale 1 must not leak onto a later hard-edged particle in the same slot', () => {
+    const ps = new ParticleSystem(1, () => '#FFFFFF');
+    const out = buffers(1);
+    ps.spawn(makeSpec({ sprite: 'smoke_puff' }), 1, 1, 0, 1, 5, 0);
+    writeParticleInstances(ps, 0, null, 0, 0, out);
+    expect(out.softs[0]).toBe(1);
+    ps.step(2); // past the 1000ms lifetime; the slot is free again
+    ps.spawn(makeSpec({ sprite: 'spark' }), 1, 1, 0, 1, 5, 0);
+    writeParticleInstances(ps, 0, null, 0, 0, out);
+    expect(out.softs[0]).toBe(0);
+  });
+
+  it('ParticleInstancer carries an aSoft instanced attribute the shader can read', () => {
+    const instancer = new ParticleInstancer(4, 0, true);
+    const attr = instancer.mesh.geometry.getAttribute('aSoft');
+    expect(attr).toBeDefined();
+    expect(attr.itemSize).toBe(1);
+  });
+
+  it('ParticleInstancer uploads the flag, so a smoke_puff reaches the GPU soft', () => {
+    const instancer = new ParticleInstancer(4, 0, true);
+    const ps = new ParticleSystem(4, () => '#FFFFFF');
+    ps.spawn(makeSpec({ sprite: 'smoke_puff' }), 1, 1, 0, 1, 5, 0);
+    instancer.update(ps, null, 0, 0);
+    const attr = instancer.mesh.geometry.getAttribute('aSoft') as THREE.BufferAttribute;
+    expect((attr.array as Float32Array)[0]).toBe(1);
+    // `needsUpdate` is a write-only accessor on BufferAttribute; `version`
+    // is what it bumps, and an un-flagged attribute never reaches the GPU.
+    expect(attr.version).toBeGreaterThan(0);
+  });
+
+  it('the fragment shader feathers ONLY when aSoft is set -- every other sprite keeps the hard fill', () => {
+    const m = (new ParticleInstancer(4, 0, true).mesh.material) as THREE.ShaderMaterial;
+    // `mix(1.0, feather, vSoft)` is the whole guarantee: at vSoft 0 it is
+    // exactly 1.0, so a spark/shard/ring composites bit-identically to
+    // before this existed.
+    //
+    // Matched as the ASSIGNMENT, not as a substring of the shader: the
+    // GLSL comment two lines above it in the source names the same
+    // expression, so a `toContain` here passed happily with the guard
+    // deleted from the code -- found by breaking it (this file's own
+    // falsification pass) and it is exactly the "test that cannot fail"
+    // this repo keeps finding.
+    expect(m.fragmentShader).toMatch(/float a = \S+ \* mix\(1\.0, feather, vSoft\);/);
+    expect(m.fragmentShader).toMatch(
+      new RegExp(`float feather = 1\\.0 - smoothstep\\(${SOFT_PARTICLE_CORE.toFixed(2)}, 1\\.0, d\\);`)
+    );
+  });
+
+  it('the feather covers most of the disc -- a narrow one leaves a hard core with a fringe, which is a cutout, not a cloud', () => {
+    // The interpolated assertion above pins the WIRING (the shader reads
+    // this exact constant) and cannot catch a change to its VALUE, because
+    // it is written from that same value. This is the range check that
+    // can: at 0.7 the puff is flat out to 70% of its radius and reads as a
+    // disc with a soft rim again, which is the artefact this exists to
+    // remove.
+    expect(SOFT_PARTICLE_CORE).toBeGreaterThan(0);
+    expect(SOFT_PARTICLE_CORE).toBeLessThanOrEqual(0.3);
+  });
+
+  it('the hard-edged circle cutout is still there -- feathering must not silently widen a puff past its own radius', () => {
+    const m = (new ParticleInstancer(4, 0, true).mesh.material) as THREE.ShaderMaterial;
+    expect(m.fragmentShader).toContain('if (dot(vLocal, vLocal) > 1.0) discard;');
   });
 });

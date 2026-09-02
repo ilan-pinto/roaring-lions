@@ -27,7 +27,7 @@
  */
 import type { Graphics } from 'pixi.js';
 import { describe, expect, it } from 'vitest';
-import { ParticleSystem } from './particles';
+import { ParticleSystem, isSoftParticleSprite } from './particles';
 import type { ParticleSpec } from './emitters';
 
 const LAYER_BELOW = 0;
@@ -382,5 +382,56 @@ describe('ParticleSystem sustained emission (emit_over_ms) and inherit_velocity'
     const [p] = collect(system, LAYER_BELOW);
     expect(p.x).toBeCloseTo(3, 10);
     expect(p.y).toBeCloseTo(4, 10);
+  });
+});
+
+/**
+ * `isSoftParticleSprite` and the `soft` flag `forEachLive` now reports.
+ *
+ * Presentation vocabulary derived from the `sprite` string every emitter
+ * already authors -- see `SOFT_PARTICLE_SPRITES` (`particles.ts`). Pinned
+ * here rather than only in the three.js backend because the flag lives in
+ * this shared module and both backends read this file.
+ */
+describe('isSoftParticleSprite', () => {
+  it('is true for smoke_puff, the one sprite in the schema enum that names a cloud', () => {
+    expect(isSoftParticleSprite('smoke_puff')).toBe(true);
+  });
+
+  it('is false for every other sprite the schema allows -- a spark, a shard and a ring all want a hard edge', () => {
+    for (const s of ['soft_dot', 'hard_dot', 'streak', 'spark', 'shard', 'ring']) {
+      expect(isSoftParticleSprite(s), `${s} must not be feathered`).toBe(false);
+    }
+  });
+
+  it('is false when the layer authors no sprite at all -- the schema default is soft_dot, a point, not a cloud', () => {
+    expect(isSoftParticleSprite(undefined)).toBe(false);
+  });
+});
+
+describe('ParticleSystem.forEachLive -- the soft flag', () => {
+  it('reports true for a smoke_puff particle', () => {
+    const system = new ParticleSystem(8, (k) => k);
+    system.spawn(makeSpec({ sprite: 'smoke_puff' }), 0, 0, 0, 1, 1, LAYER_ABOVE);
+    const seen: boolean[] = [];
+    system.forEachLive(LAYER_ABOVE, (_x, _y, _c, _a, _r, soft) => seen.push(soft));
+    expect(seen).toEqual([true]);
+  });
+
+  it('reports false for a shard, on the same pool and the same frame', () => {
+    const system = new ParticleSystem(8, (k) => k);
+    system.spawn(makeSpec({ sprite: 'shard' }), 0, 0, 0, 1, 1, LAYER_ABOVE);
+    const seen: boolean[] = [];
+    system.forEachLive(LAYER_ABOVE, (_x, _y, _c, _a, _r, soft) => seen.push(soft));
+    expect(seen).toEqual([false]);
+  });
+
+  it('latches per particle at spawn, so two layers of one emitter can disagree', () => {
+    const system = new ParticleSystem(8, (k) => k);
+    system.spawn(makeSpec({ sprite: 'smoke_puff' }), 0, 0, 0, 1, 1, LAYER_ABOVE);
+    system.spawn(makeSpec({ sprite: 'shard' }), 0, 0, 0, 1, 1, LAYER_ABOVE);
+    const seen: boolean[] = [];
+    system.forEachLive(LAYER_ABOVE, (_x, _y, _c, _a, _r, soft) => seen.push(soft));
+    expect(seen.sort()).toEqual([false, true]);
   });
 });

@@ -29,11 +29,16 @@
  *     comment ("Colour runs the other way") for the full argument against
  *     using `reserved.vfx` here at all.
  *
- * The material recipe itself IS still shared, unchanged --
- * `./vfx-mesh-material.ts`'s `createVfxMeshMaterial` (flat, unlit,
- * forced-opaque, one resolved colour per zone) applies identically here:
- * nothing about "how a zone's fragments are shaded" differs for smoke, only
- * "which zones exist" and "which palette entries they resolve to" do.
+ * The material recipe is NO LONGER shared, and the sentence that used to
+ * stand here -- "nothing about how a zone's fragments are shaded differs
+ * for smoke, only which zones exist and which palette entries they resolve
+ * to" -- was the mistake, not a summary of one. `createVfxMeshMaterial`
+ * (`./vfx-mesh-material.ts`) is flat, unlit and forced-OPAQUE, which is
+ * exactly right for a thing that emits light and exactly wrong for a thing
+ * that suspends in air: drawn through it, a plume is a solid three-tone
+ * cutout stamped over the building it rose from. `smoke-plume.ts` now owns
+ * `createSmokePlumeMaterial` instead -- see `SMOKE_PLUME_DENSITY` there for
+ * the measurement. The zone -> palette table below is unchanged.
  */
 
 export const SMOKE_PLUME_ROLES = ['base', 'mid', 'top'] as const;
