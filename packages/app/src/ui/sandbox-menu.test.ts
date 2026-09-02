@@ -137,6 +137,7 @@ describe('the launch URL', () => {
       roe: true,
       tunnel: false,
       sur: false,
+      civ: false,
       ditch: false,
       nomesh: true,
     });

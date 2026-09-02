@@ -17,6 +17,15 @@
 /** One placement: unit type id, then dx/dy from the anchor. */
 export type SandboxPlacement = readonly [string, number, number];
 
+/** Which opt-in tables are in play. One shape for both readers — the spawner
+ *  and the mesh roster — so a flag added to one cannot be missed by the
+ *  other: the compiler rejects the object literal instead. */
+export interface SandboxExtras {
+  tunnel: boolean;
+  sur: boolean;
+  civ: boolean;
+}
+
 /** The task force, as offsets from the friendly anchor. */
 export const SANDBOX_KDF: readonly SandboxPlacement[] = [
   ['mbt_lavi', 0, -3],
@@ -78,6 +87,34 @@ export const SANDBOX_SUR: readonly SandboxPlacement[] = [
   ['rocket_battery', 9, 1],
 ];
 
+/**
+ * The crowd (`&civ`), as offsets from the MIDPOINT of the anchor axis — the
+ * only one of the three anchors that is ground the player has to cross.
+ *
+ * Eight, in two clusters of four, and eight is not a round number picked for
+ * the look of it. `civilians` is one unit type drawing four figures, and
+ * `pickMeshVariant` assigns them by `entityId % 4` over what is a contiguous
+ * id block here — so eight is the smallest count that shows every figure
+ * twice and cannot show one three times. Four would show each exactly once and
+ * prove nothing about repeats; eleven (what `beit_sahwan_breach` fields) comes
+ * out 3/3/3/2 and reads as a bug in the rotation to anyone counting.
+ *
+ * Two clusters rather than one line because that is how a mission authors
+ * them — `civilians.groups`, each a `count` at an `at` — and because a single
+ * row of eight is the one arrangement in which "all four figures, twice" is
+ * hard to see at a glance.
+ */
+export const SANDBOX_CIV: readonly SandboxPlacement[] = [
+  ['civilians', -2, -3],
+  ['civilians', -1, -2],
+  ['civilians', 0, -3],
+  ['civilians', -1, -4],
+  ['civilians', 1, 3],
+  ['civilians', 2, 4],
+  ['civilians', 3, 3],
+  ['civilians', 2, 2],
+];
+
 /** What `&tunnel` adds to the player's side: something that can find a route,
  *  and something that can bring it down. The base force already carries a
  *  `recon_drone`, which marks tunnels — the yahalom is what makes the charge
@@ -93,11 +130,12 @@ export const SANDBOX_TUNNEL_KDF: readonly SandboxPlacement[] = [
  * tables live in their own module: it reads the arrays that place the units
  * rather than a copy of what they contain.
  */
-export function sandboxUnitTypes(extras: { tunnel: boolean; sur: boolean }): Set<string> {
+export function sandboxUnitTypes(extras: SandboxExtras): Set<string> {
   const out = new Set<string>();
   for (const [id] of SANDBOX_KDF) out.add(id);
   for (const [id] of SANDBOX_ENEMY) out.add(id);
   if (extras.tunnel) for (const [id] of SANDBOX_TUNNEL_KDF) out.add(id);
   if (extras.sur) for (const [id] of SANDBOX_SUR) out.add(id);
+  if (extras.civ) for (const [id] of SANDBOX_CIV) out.add(id);
   return out;
 }

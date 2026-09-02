@@ -20,6 +20,10 @@ export {
   type LedgerRosterEntry,
   type MissionEventKindsAreExhaustive,
 } from './mission';
+// The civilian flight rule, shared by `MissionRuntime` and the `&civ` sandbox.
+// Exported because a sandbox has no mission and therefore no runtime, and the
+// alternative to sharing it was a second copy of a game rule in `packages/app`.
+export { CivilianFlight, CIV_FLEE_AT, SHEPHERD_RADIUS_SQ } from './civilians';
 export { unlockReason, type UnlockGate } from './unlock';
 // The mosque threshold. The sim keeps units from levelling a protected site on
 // their own initiative; the app needs the same number to keep an ambiguous

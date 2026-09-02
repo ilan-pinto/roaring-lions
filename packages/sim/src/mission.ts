@@ -8,6 +8,7 @@
 // caller passes parsed mission JSON plus a context resolving unit ids and
 // map markers/zones.
 
+import { CivilianFlight } from './civilians';
 import { fx, HALF, type Fx } from './fixed';
 import { TICKS_PER_SECOND, type Sim, type SimEvent } from './sim';
 import type { TunnelRouteJson } from './tunnels';
@@ -227,11 +228,12 @@ export type MissionEvent =
   /**
    * One civilian got out: reached the evacuation zone and was counted.
    *
-   * Emitted from the same branch that latches `civEvacuated` and clears
-   * `alive`, so it is exactly the set of civilians who SURVIVED — never a
-   * casualty. It carries the entity id (every other `MissionEvent` id is an
-   * AUTHORED string, hence the different field name) because the one thing
-   * outside the sim that needs this cannot use anything else: the renderer
+   * Emitted for exactly the ids `CivilianFlight.collect` returns, which is the
+   * same branch that latches them and clears `alive`, so it is exactly the set
+   * of civilians who SURVIVED — never a casualty. It carries the entity id
+   * (every other `MissionEvent` id is an AUTHORED string, hence the different
+   * field name) because the one thing outside the sim that needs this cannot
+   * use anything else: the renderer
    * reads `alive === 0` and cannot otherwise tell a rescue from a killing,
    * so it drew the crawl-and-fade death pose for both. Invariant 4 permits
    * exactly this shape — the runtime already knows the difference and says
@@ -267,13 +269,6 @@ const SUPPORTED = new Set([
 
 /** Spread for multi-unit placements: 1.25 tiles. */
 const SPREAD = 81920;
-/** Civilians break for the refuge above this suppression (0.3). */
-const CIV_FLEE_AT = 19661;
-/** A soldier this close is walking these people out: 4 tiles, squared, in the
- *  Q8.8 form the other radius checks use. Civilians move for exactly one other
- *  reason -- fear -- and an evacuation objective built on fear alone would
- *  reward shooting near them to herd them. */
-const SHEPHERD_RADIUS_SQ = 1048576;
 /** "Danger close": civilians within this of an aimpoint make heavy ordnance
  *  disproportionate (2 tiles, squared, Q16.16). */
 const DANGER_CLOSE_SQ = 262144;
@@ -355,10 +350,9 @@ export class MissionRuntime {
    */
   private readonly enemyAtStart: number[] = [];
   private readonly civIds: number[] = [];
-  private readonly civFled = new Set<number>();
-  /** Civilians who reached the refuge zone. Latched: getting people out is not
-   *  undone by what happens afterwards. */
-  private readonly civEvacuated = new Set<number>();
+  /** The flight-and-count rule, shared with the sandbox (`./civilians`).
+   *  Owns both latches: who has broken for the refuge, and who reached it. */
+  private readonly civFlight = new CivilianFlight();
   private readonly zoneDeductedAt = new Map<string, number>();
   /** Objective id -> the structure indices its zone held at mission start.
    *
@@ -1222,85 +1216,13 @@ export class MissionRuntime {
     }
   }
 
-  /** Civilians shelter in place until fire lands close, then break for the
-   *  refuge — once, in fear, not as a controlled unit. They also go when a
-   *  soldier reaches them: that is the player evacuating them, and it is the
-   *  only way `evacuate_before` can be satisfied without shooting at them. */
+  /** The civilian flight rule (`./civilians`), pointed at this mission's own
+   *  refuge marker and its own player force. Shared with `?sandbox=<map>&civ`,
+   *  which has no runtime and must not carry a second copy of the rule. */
   private stepCivilians(): void {
     const refuge = this.mission.civilians?.refuge;
     if (refuge === undefined) return;
-    const st = this.sim.state;
-    for (const civ of this.civIds) {
-      if (st.alive[civ] === 0) continue;
-      if (this.civFled.has(civ)) {
-        // Already ordered out -- but the order can be LOST, and the latch used
-        // to make that permanent. `civFled` is added before boarding is even
-        // attempted, so a civilian whose transport dies mid-run is set down
-        // wherever the wreck fell with no order, and every later tick skipped
-        // it on the strength of the latch. `evacuate_before` then never
-        // completed: no error, the objective simply hung.
-        //
-        // Re-order only one that has actually STOPPED. Riding and walking are
-        // both progress, and an evacuated civilian is already `alive = 0`
-        // (stepObjectives clears it on arrival), so this cannot re-order
-        // someone who is done.
-        if (st.carriedBy[civ] >= 0) continue;
-        if (st.moving[civ] === 1) continue;
-        const [rrx, rry] = this.markerPos(refuge);
-        const rdx = (fx.sub(st.posX[civ], rrx) >> 8) | 0;
-        const rdy = (fx.sub(st.posY[civ], rry) >> 8) | 0;
-        // Standing on the refuge and still not counted means the mission's
-        // refuge marker sits outside its own evacuation zone -- an authoring
-        // fault. Re-ordering there would queue one dead command every tick
-        // for the rest of the mission, so it stops here instead.
-        if (rdx * rdx + rdy * rdy <= SHEPHERD_RADIUS_SQ) continue;
-        this.sim.queueCommand({ kind: 'move', ids: [civ], x: rrx, y: rry });
-        continue;
-      }
-      // A buried civilian cannot be reached, shepherded, or moved — and
-      // civFled latches before the order is confirmed, so evaluating one
-      // here would freeze it out of `evacuate_before` forever (the same
-      // latch-before-confirm shape as the dead-transport debt).
-      if (st.tunnelIn[civ] >= 0) continue;
-      let leaving = st.suppression[civ] > CIV_FLEE_AT;
-      if (!leaving) {
-        for (const p of this.playerIds) {
-          // A buried soldier reaches nobody: his coordinates name a tile he
-          // is not standing on.
-          if (st.alive[p] === 0 || st.tunnelIn[p] >= 0) continue;
-          const dx = (fx.sub(st.posX[civ], st.posX[p]) >> 8) | 0;
-          const dy = (fx.sub(st.posY[civ], st.posY[p]) >> 8) | 0;
-          if (dx * dx + dy * dy <= SHEPHERD_RADIUS_SQ) {
-            leaving = true;
-            break;
-          }
-        }
-      }
-      if (!leaving) continue;
-      this.civFled.add(civ);
-
-      // Prefer boarding a nearby transport with free slots — civilians
-      // ride to the compound instead of walking.
-      let boarded = false;
-      for (const p of this.playerIds) {
-        // Nor does anyone board a hull that is under the earth.
-        if (st.alive[p] === 0 || st.tunnelIn[p] >= 0) continue;
-        const ptype = this.sim.unitTypes[st.typeIdx[p]];
-        if (ptype.transportSlots === 0) continue;
-        if (this.sim.passengerCount(p) >= ptype.transportSlots) continue;
-        const dx2 = (fx.sub(st.posX[civ], st.posX[p]) >> 8) | 0;
-        const dy2 = (fx.sub(st.posY[civ], st.posY[p]) >> 8) | 0;
-        if (dx2 * dx2 + dy2 * dy2 <= SHEPHERD_RADIUS_SQ) {
-          this.sim.queueCommand({ kind: 'load', ids: [civ], carrier: p });
-          boarded = true;
-          break;
-        }
-      }
-      if (!boarded) {
-        const [rx, ry] = this.markerPos(refuge);
-        this.sim.queueCommand({ kind: 'move', ids: [civ], x: rx, y: ry });
-      }
-    }
+    this.civFlight.step(this.sim, this.civIds, this.playerIds, this.markerPos(refuge));
   }
 
   private stepPatrols(): void {
@@ -1538,33 +1460,18 @@ export class MissionRuntime {
         complete = o.holdTicks >= (d.seconds ?? 60) * TICKS_PER_SECOND;
       } else if (d.type === 'evacuate_before') {
         const z = this.zone(d.target);
+        // Say so on the way out. `collect` clears `alive`, which is the ONLY
+        // record that this civilian left the map and the identical record a
+        // casualty leaves -- so without this the renderer has no way to tell a
+        // rescue from a killing, and drew the death pose for both. The ids
+        // come back from the same branch that latched them, so the two cannot
+        // disagree: exactly once per civilian, never for one who died.
         if (z !== undefined) {
-          const st = this.sim.state;
-          for (const civ of this.civIds) {
-            if (this.civEvacuated.has(civ) || st.alive[civ] === 0) continue;
-            // The same rule livingIn and contestedIn were fixed for: a
-            // buried body's coordinates name a tile it is not standing on.
-            // Counting one here evacuates a family that never moved, deletes
-            // it, and writes the fabricated rescue into the ledger.
-            if (st.tunnelIn[civ] >= 0) continue;
-            const tx = st.posX[civ] >> 16;
-            const ty = st.posY[civ] >> 16;
-            if (tx >= z[0] && tx < z[0] + z[2] && ty >= z[1] && ty < z[1] + z[3]) {
-              this.civEvacuated.add(civ);
-              st.alive[civ] = 0;
-              // Say so on the way out. `alive = 0` above is the ONLY record
-              // that this civilian left the map, and it is the identical
-              // record a casualty leaves -- so without this line the renderer
-              // has no way to tell a rescue from a killing, and drew the death
-              // pose for both. Emitted here rather than anywhere later so it
-              // is impossible for the two to disagree: same branch, same
-              // guard (`civEvacuated.has`), therefore exactly once per
-              // civilian and never for one who died.
-              out.push({ kind: 'evacuated', tick, entity: civ });
-            }
+          for (const civ of this.civFlight.collect(this.sim, this.civIds, z)) {
+            out.push({ kind: 'evacuated', tick, entity: civ });
           }
         }
-        complete = this.civEvacuated.size >= (d.count ?? 1);
+        complete = this.civFlight.evacuatedCount >= (d.count ?? 1);
         // The deadline is the whole point: a clock the player cannot see expire
         // is a hidden model (GDD §5.8), which is why this latches a status the
         // HUD already draws rather than failing silently.
@@ -1639,7 +1546,7 @@ export class MissionRuntime {
         if (this.resultValue === 'victory' && !done.includes(this.mission.id)) done.push(this.mission.id);
         produced[key] = done;
       }
-      else if (key === 'civ.settlements_evacuated') produced[key] = this.civEvacuated.size;
+      else if (key === 'civ.settlements_evacuated') produced[key] = this.civFlight.evacuatedCount;
       else if (key === 'intel.marked_positions') {
         // Union with what came in: intel accumulates across a campaign rather than
         // being replaced, so a later mission cannot un-know what an earlier one saw.

@@ -16,7 +16,7 @@
  * Pure: a URLSearchParams and some ids in, strings out. No DOM, no console.
  */
 
-export type SandboxFlagName = 'roe' | 'tunnel' | 'sur' | 'ditch' | 'nomesh';
+export type SandboxFlagName = 'roe' | 'tunnel' | 'sur' | 'civ' | 'ditch' | 'nomesh';
 
 export interface UrlParam {
   name: string;
@@ -29,6 +29,10 @@ export const SANDBOX_FLAGS: readonly { name: SandboxFlagName; blurb: string }[] 
   { name: 'roe', blurb: 'flagged no-fire ground (the map’s own, or a synthesised 4×4)' },
   { name: 'tunnel', blurb: 'a pre-dug route + two yahalom_squad to collapse it' },
   { name: 'sur', blurb: 'the four Sarim units no mission fields' },
+  {
+    name: 'civ',
+    blurb: 'a mixed crowd of eight civilians, and a refuge to shepherd them to',
+  },
   {
     name: 'ditch',
     blurb: 'an anti-tank ditch cut across the axis between the two forces',

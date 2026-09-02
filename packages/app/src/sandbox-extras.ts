@@ -62,6 +62,60 @@ export function sandboxFlaggedZones(map: ZonedMap, anchors: SandboxAnchors): rea
   return [[x, y, Math.min(SYNTHETIC_SIDE, map.width), Math.min(SYNTHETIC_SIDE, map.height)]];
 }
 
+/** Markers that read as somewhere civilians are walked TO. Every shipped map
+ *  but Tel Marum declares one (`civ_refuge`), and the four missions with a
+ *  `civilians` block all name exactly that marker — so preferring it means the
+ *  sandbox shepherds people onto the ground an author already chose. */
+const REFUGE_MARKER = /refuge|shelter/i;
+
+export interface MarkedMap extends ZonedMap {
+  markers?: Readonly<Record<string, readonly number[]>>;
+}
+
+export interface SandboxRefuge {
+  /** The tile civilians are ordered to. */
+  at: readonly [number, number];
+  /** The rectangle that counts as "got out": `[x, y, w, h]`. */
+  zone: readonly [number, number, number, number];
+}
+
+/**
+ * Where `&civ`'s crowd is walked to, and the ground that counts as arrival.
+ *
+ * A mission declares `civilians.refuge` (a marker) and points its
+ * `evacuate_before` at a zone; a sandbox has neither, so both are supplied
+ * here — the same shape `sandboxFlaggedZones` uses, and for the same reason.
+ * The marker half prefers what the map already declares. The ZONE half never
+ * does, and that is deliberate rather than lazy: only `wadi_halam_basin`
+ * declares a `refuge` rectangle at all, and `CivilianFlight.step` stops
+ * re-ordering a civilian standing on the refuge — so a refuge point sitting
+ * outside its own arrival zone is a hang, not a miss. Building the box AROUND
+ * the point makes that unrepresentable.
+ *
+ * Tel Marum declares no refuge marker, and falls back to the friendly anchor:
+ * the ground the player's own force forms up on is safe by construction, is
+ * open by construction (units spawn there), and needs no arithmetic to
+ * justify calling it shelter.
+ */
+export function sandboxRefuge(map: MarkedMap, anchors: SandboxAnchors): SandboxRefuge {
+  const declared = Object.entries(map.markers ?? {}).find(
+    ([name, p]) => REFUGE_MARKER.test(name) && Array.isArray(p) && p.length >= 2
+  );
+  const at: readonly [number, number] = declared
+    ? [Math.round(declared[1][0]), Math.round(declared[1][1])]
+    : [anchors.friendly[0], anchors.friendly[1]];
+  const half = Math.floor(SYNTHETIC_SIDE / 2);
+  // Clamped like the flagged zone above, and for the same reason: the arrival
+  // test is exclusive at the far edge, so a box hanging over the border would
+  // silently shrink on the side the civilians walk in from.
+  const x = Math.min(Math.max(at[0] - half, 0), Math.max(map.width - SYNTHETIC_SIDE, 0));
+  const y = Math.min(Math.max(at[1] - half, 0), Math.max(map.height - SYNTHETIC_SIDE, 0));
+  return {
+    at,
+    zone: [x, y, Math.min(SYNTHETIC_SIDE, map.width), Math.min(SYNTHETIC_SIDE, map.height)],
+  };
+}
+
 export interface SandboxRoute {
   id: string;
   points: readonly (readonly [number, number])[];

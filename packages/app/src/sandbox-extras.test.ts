@@ -7,7 +7,12 @@
 import { describe, expect, it } from 'vitest';
 import { maps } from '@lions/data';
 import { sandboxAnchors } from './sandbox-anchors';
-import { sandboxDitchRows, sandboxFlaggedZones, sandboxTunnelRoute } from './sandbox-extras';
+import {
+  sandboxDitchRows,
+  sandboxFlaggedZones,
+  sandboxRefuge,
+  sandboxTunnelRoute,
+} from './sandbox-extras';
 
 const ANCHORS = { friendly: [4, 23] as const, hostile: [31, 22] as const };
 
@@ -184,5 +189,50 @@ describe('sandboxDitchRows', () => {
     const before = [...rows];
     sandboxDitchRows({ width: 5, height: 3, rows }, { friendly: [0, 1], hostile: [4, 1] });
     expect(rows).toEqual(before);
+  });
+});
+
+describe('sandboxRefuge', () => {
+  it("prefers the map's own refuge marker, which is what a mission names", () => {
+    const r = sandboxRefuge(
+      { width: 48, height: 48, markers: { kdf_assembly: [4, 23], civ_refuge: [22, 45] } },
+      ANCHORS
+    );
+    expect(r.at).toEqual([22, 45]);
+  });
+
+  it('falls back to the friendly anchor on a map that declares none', () => {
+    // Tel Marum. The player's own start line is safe by construction and open
+    // by construction -- the force spawns on it.
+    const r = sandboxRefuge(
+      { width: 48, height: 48, markers: { start_line: [24, 44], pass: [24, 12] } },
+      { friendly: [24, 44], hostile: [24, 12] }
+    );
+    expect(r.at).toEqual([24, 44]);
+  });
+
+  it('puts the refuge point INSIDE its own arrival zone, on every shipped map', () => {
+    // The one property that makes the flag work rather than hang.
+    // `CivilianFlight.step` stops re-ordering a civilian standing on the
+    // refuge, so a point outside its own zone is a crowd that walks there,
+    // stops, and is never counted -- no error, nothing on screen, forever.
+    for (const map of Object.values(maps)) {
+      const a = sandboxAnchors(map);
+      const { at, zone } = sandboxRefuge(map, a);
+      expect(
+        at[0] >= zone[0] &&
+          at[0] < zone[0] + zone[2] &&
+          at[1] >= zone[1] &&
+          at[1] < zone[1] + zone[3],
+        `${map.id}: refuge ${at.join(',')} outside zone ${zone.join(',')}`
+      ).toBe(true);
+    }
+  });
+
+  it('keeps the zone on the map when the refuge sits in a corner', () => {
+    const r = sandboxRefuge({ width: 10, height: 10, markers: { refuge: [9, 9] } }, ANCHORS);
+    expect(r.zone).toEqual([6, 6, 4, 4]);
+    const r0 = sandboxRefuge({ width: 10, height: 10, markers: { refuge: [0, 0] } }, ANCHORS);
+    expect(r0.zone).toEqual([0, 0, 4, 4]);
   });
 });

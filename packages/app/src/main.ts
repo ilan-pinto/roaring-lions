@@ -7,7 +7,9 @@
 import {
   Sim,
   fx,
+  HALF,
   TICKS_PER_SECOND,
+  CivilianFlight,
   MissionRuntime,
   zoneContains,
   type LedgerData,
@@ -73,13 +75,20 @@ import {
 import { roleBucket } from './ui/role';
 import { roeNotice } from './ui/roe-notice';
 import { sandboxAnchors, type SandboxAnchors } from './sandbox-anchors';
-import { sandboxDitchRows, sandboxFlaggedZones, sandboxTunnelRoute } from './sandbox-extras';
 import {
+  sandboxDitchRows,
+  sandboxFlaggedZones,
+  sandboxRefuge,
+  sandboxTunnelRoute,
+} from './sandbox-extras';
+import {
+  SANDBOX_CIV,
   SANDBOX_KDF,
   SANDBOX_ENEMY,
   SANDBOX_SUR,
   SANDBOX_TUNNEL_KDF,
   sandboxUnitTypes,
+  type SandboxExtras,
 } from './sandbox-force';
 import {
   RIGGED_UNIT_MESHES,
@@ -137,6 +146,14 @@ function campaignSummary(ledger: LedgerData): string {
   return parts.length > 0 ? `campaign: ${parts.join(' · ')}` : 'campaign: fresh start';
 }
 
+interface SandboxForce {
+  /** Side 0. Who can shepherd a civilian, and who can carry one. */
+  player: number[];
+  /** Side 2. A CONTIGUOUS id block, which is what makes the four figures come
+   *  out two apiece — `pickMeshVariant` is `entityId % variants.length`. */
+  civilians: number[];
+}
+
 /**
  * The sandbox force, placed relative to the map's own anchors.
  *
@@ -145,19 +162,22 @@ function campaignSummary(ledger: LedgerData): string {
  * map's sandbox is unchanged, and every other map gets the same formation
  * translated onto its own ground.
  *
- * The four placement TABLES moved to `./sandbox-force` when mesh loading
+ * The five placement TABLES moved to `./sandbox-force` when mesh loading
  * became roster-driven: `sandboxUnitTypes` there answers "which unit types
  * will this sandbox place" off the very arrays this function iterates, so the
  * mesh plan cannot fall behind the force. This function stayed here because it
  * needs `Sim`, `fx` and the open-tile spiral.
+ *
+ * Returns the ids it made, in two lists, because `&civ` needs both: the
+ * civilian flight rule takes the crowd it steps and the force that shepherds
+ * it. Nothing else reads them.
  */
-
 function sandboxSpawns(
   sim: Sim,
   typeOf: Map<string, number>,
   anchors: SandboxAnchors,
-  extras: { tunnel: boolean; sur: boolean } = { tunnel: false, sur: false }
-): void {
+  extras: SandboxExtras = { tunnel: false, sur: false, civ: false }
+): SandboxForce {
   // Terrain the formation knows nothing about: an offset that lands in rock
   // or a wall would strand a unit inside it, and Tel Marum's ridge sits right
   // where the opposition's band falls. Spiral out to the nearest open tile.
@@ -195,14 +215,30 @@ function sandboxSpawns(
   const turns = Math.atan2(fyA - hyA, fxA - hxA) / (Math.PI * 2);
   const facing = fx.from(turns - Math.floor(turns));
 
-  for (const [id, dx, dy] of SANDBOX_KDF) spawn(id, 0, fxA + dx, fyA + dy);
+  const force: SandboxForce = { player: [], civilians: [] };
+  for (const [id, dx, dy] of SANDBOX_KDF) force.player.push(spawn(id, 0, fxA + dx, fyA + dy));
   if (extras.tunnel) {
-    for (const [id, dx, dy] of SANDBOX_TUNNEL_KDF) spawn(id, 0, fxA + dx, fyA + dy);
+    for (const [id, dx, dy] of SANDBOX_TUNNEL_KDF) {
+      force.player.push(spawn(id, 0, fxA + dx, fyA + dy));
+    }
   }
   for (const [id, dx, dy] of SANDBOX_ENEMY) spawn(id, 1, hxA + dx, hyA + dy, facing);
   if (extras.sur) {
     for (const [id, dx, dy] of SANDBOX_SUR) spawn(id, 1, hxA + dx, hyA + dy, facing);
   }
+  // Civilians go LAST, on side 2, so their ids are one unbroken run whatever
+  // the other flags added before them. The variant rotation is arithmetic on
+  // the id, so a gap in the block is a repeated figure.
+  //
+  // They stand on the MIDPOINT of the two anchors: a mission puts civilians on
+  // the ground being fought over, and anywhere else here would be a crowd the
+  // player's advance never reaches — which is the whole of what `&civ` is for.
+  if (extras.civ) {
+    const cx = (fxA + hxA) / 2;
+    const cy = (fyA + hyA) / 2;
+    for (const [id, dx, dy] of SANDBOX_CIV) force.civilians.push(spawn(id, 2, cx + dx, cy + dy));
+  }
+  return force;
 }
 
 /** Mission narration for the HUD notice stack: what to say, and how it lands. */
@@ -328,6 +364,7 @@ async function main(): Promise<void> {
   const wantRoe = flags.roe;
   const wantTunnel = flags.tunnel;
   const wantSur = flags.sur;
+  const wantCiv = flags.civ;
   const wantDitch = flags.ditch;
   // Meshes are what the game looks like now, so they load unless asked not to.
   // This was `flags.mesh` -- an opt-IN that `ui/menu.ts` never appended to any
@@ -441,6 +478,19 @@ async function main(): Promise<void> {
   // protected-zone violation is offered once rather than on every cooldown
   // expiry. One mission, one set — it lives as long as the runtime does.
   const narratedRoeReasons = new Set<string>();
+  /**
+   * `&civ`: where the crowd is walked to, and the ground that counts as out.
+   *
+   * Only ever set in the sandbox, like every flag beside it — a mission brings
+   * its own `civilians.refuge` and its own `evacuate_before` zone, and a dev
+   * flag that supplied a second one would change how a real mission scores.
+   */
+  const civRefuge = !mission && wantCiv ? sandboxRefuge(mapJson, anchors) : null;
+  /** The shared rule (`@lions/sim`'s `CivilianFlight`), not a copy of it. The
+   *  runtime owns one for a mission; this is the sandbox's own. */
+  const civFlight = civRefuge ? new CivilianFlight() : null;
+  /** Who the sandbox spawned, for the two lists `CivilianFlight.step` takes. */
+  let sandboxForce: SandboxForce = { player: [], civilians: [] };
   let runtime: MissionRuntime | null = null;
   if (mission) {
     runtime = new MissionRuntime(sim, mission, {
@@ -468,7 +518,11 @@ async function main(): Promise<void> {
     });
     runtime.start();
   } else {
-    sandboxSpawns(sim, typeOf, anchors, { tunnel: wantTunnel, sur: wantSur });
+    sandboxForce = sandboxSpawns(sim, typeOf, anchors, {
+      tunnel: wantTunnel,
+      sur: wantSur,
+      civ: wantCiv,
+    });
   }
 
   // --- renderer + overlay --------------------------------------------------
@@ -551,7 +605,7 @@ async function main(): Promise<void> {
   // and under `&nomesh` it is simply never read.
   const meshRoster = mission
     ? missionUnitTypes(mission, new Set(Object.keys(units)))
-    : sandboxUnitTypes({ tunnel: wantTunnel, sur: wantSur });
+    : sandboxUnitTypes({ tunnel: wantTunnel, sur: wantSur, civ: wantCiv });
   // Structure types this map actually stands, plus anything the mission
   // places itself (`camp` is the only one that arrives that way).
   const meshStructures = new Set(map.structures.map((b) => b.type));
@@ -712,6 +766,18 @@ async function main(): Promise<void> {
       // three`. Warn by name, the way `unknownParams` warns for a typo.
       console.warn('&mesh needs ?renderer=three — the Pixi backend has no mesh path; ignoring it');
     }
+  }
+  // The same lesson again, for the one unit type with no billboard to fall
+  // back on. `civilians` is absent from `SPRITE_MAP` by design (the four
+  // figures are mesh-only), so on Pixi or under `&nomesh` the crowd is spawned,
+  // walks, is shot at and evacuates while drawing NOTHING -- which reads as
+  // `&civ` being broken rather than as the wrong backend. The flag still does
+  // everything else it says: this warns, it does not refuse.
+  if (wantCiv && !meshPathActive) {
+    console.warn(
+      '&civ draws nothing without the mesh path — civilians have no billboard ' +
+        '(no SPRITE_MAP entry). Use ?renderer=three without &nomesh to see them.'
+    );
   }
 
   // The map's decor layer -- road, olive grove, rocky knoll -- goes straight to
@@ -1675,6 +1741,36 @@ async function main(): Promise<void> {
           tutPanel = null;
           renderer.clearTutorialFocus();
         }
+      }
+    }
+    // `&civ`: the same two calls `MissionRuntime.step` makes, in the same
+    // order and at the same point in the tick, against the SAME rule object
+    // from `@lions/sim` -- not a sandbox reimplementation of it. A sandbox has
+    // no runtime, so without this the crowd stands still forever: nothing else
+    // can order a side-2 unit (the player selects side 0), so `move` would be
+    // a clip that ships and never plays, and the evacuation fade would stay
+    // reachable only by launching a real mission.
+    //
+    // `evacuated` is built here rather than returned by the rule because the
+    // two callers announce differently and only the identity matters: without
+    // it the renderer sees the same `alive = 0` a casualty leaves and plays
+    // the crawl-and-fade death pose for someone who walked to safety.
+    if (civFlight && civRefuge) {
+      const refuge = [
+        fx.add(fx.fromInt(civRefuge.at[0]), HALF),
+        fx.add(fx.fromInt(civRefuge.at[1]), HALF),
+      ] as const;
+      civFlight.step(sim, sandboxForce.civilians, sandboxForce.player, refuge);
+      const out = civFlight
+        .collect(sim, sandboxForce.civilians, civRefuge.zone)
+        .map<MissionEvent>((entity) => ({ kind: 'evacuated', tick: sim.tickCount, entity }));
+      if (out.length > 0) {
+        renderer.onMissionEvents?.(out);
+        hud.note(
+          `<b>civilian evacuated</b> — ${civFlight.evacuatedCount} of ` +
+            `${sandboxForce.civilians.length} out`,
+          'good'
+        );
       }
     }
     hud.onTick();

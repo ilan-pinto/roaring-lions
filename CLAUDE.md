@@ -143,22 +143,44 @@ The combat model is the product. Everything else is scaffolding around it.
   parameter warns by name, which is the case that matters: `&tunel` otherwise does
   nothing at all, silently, and reads as a broken feature rather than a typo. The
   flag table (`packages/app/src/sandbox-help.ts`) is the single source for all
-  three callers — `readFlags` parses from it, `sandboxHelp` prints from it,
-  `unknownParams` checks against it — so a flag parsed but undocumented, or
-  documented but unparsed, is not expressible. Prefer this over grepping this file.
-- Three opt-in sandbox flags, each adding only what it names, so a check for one
-  subsystem is not buried under three others (a fourth, `&nomesh`, is an opt-OUT
-  — see "Mesh units"): `&roe` supplies flagged ground (the
-  map's own `clinic`/`mosque`/`refuge` zone where it has one, otherwise a 4×4
-  synthesised midway between the two anchors); `&tunnel` appends a pre-dug route
-  from the hostile side toward the friendly one and adds two `yahalom_squad`;
-  `&sur` adds the four Sarim units no mission fields (`sarim_rifles` ×2,
-  `recoilless_team`, `manpad_team`, `rocket_battery`). Combine them —
-  `?sandbox=tel_marum&tunnel&sur&roe` is the everything build, on the only map with
-  relief. All three are sandbox-only: a mission brings its own zones and tunnels,
-  and a dev flag must never change how a real mission scores. The synthesised route
-  is NOT identified by construction — a `mark_tunnel` carrier still has to see it,
-  which is the mechanic the charge cursor depends on.
+  FOUR callers — `readFlags` parses from it, `sandboxHelp` prints from it,
+  `unknownParams` checks against it, and `?sandboxes`, the picker screen in
+  `ui/menu.ts`, builds its checkbox list and its launch URLs from it — so a flag
+  parsed but undocumented, or documented but unparsed, is not expressible.
+  Prefer this over grepping this file.
+- The opt-in sandbox flags, each adding only what it names, so a check for one
+  subsystem is not buried under four others (`&nomesh` is the one opt-OUT
+  — see "Mesh units"). **This list goes stale; the table and `__lions.help()`
+  do not** — it is here for the reasoning, not the enumeration. `&roe` supplies
+  flagged ground (the map's own `clinic`/`mosque`/`refuge` zone where it has
+  one, otherwise a 4×4 synthesised midway between the two anchors); `&tunnel`
+  appends a pre-dug route from the hostile side toward the friendly one and adds
+  two `yahalom_squad`; `&sur` adds the four Sarim units no mission fields
+  (`sarim_rifles` ×2, `recoilless_team`, `manpad_team`, `rocket_battery`);
+  `&civ` puts eight civilians on the midpoint of the anchor axis and synthesises
+  a refuge; `&ditch` cuts an anti-tank ditch across that axis. Combine them —
+  `?sandbox=tel_marum&tunnel&sur&roe&civ` is the everything build, on the only map
+  with relief. Every one is sandbox-only: a mission brings its own zones,
+  tunnels, terrain and civilians, and a dev flag must never change how a real
+  mission scores. The synthesised route is NOT identified by construction — a
+  `mark_tunnel` carrier still has to see it, which is the mechanic the charge
+  cursor depends on.
+- **`&civ` walks the whole civilian loop, and the rule it walks is the mission's
+  own.** `stepCivilians` and the arrival half of `evacuate_before` moved out of
+  `MissionRuntime` into `packages/sim/src/civilians.ts` (`CivilianFlight`) so the
+  sandbox drives the SAME object rather than a copy — the only two alternatives
+  were a second implementation of a game rule in `packages/app`, or writing
+  `alive = 0` from outside the sim, which invariant 4 forbids. `main.ts` calls
+  `step` then `collect` at the same point in the tick the runtime does, and
+  turns `collect`'s ids into the `evacuated` MissionEvent the renderer needs to
+  tell a rescue from a killing. Four of the five maps declare a `civ_refuge`
+  marker and that is preferred; Tel Marum declares none and falls back to the
+  friendly anchor. The arrival ZONE is always a synthesised 4×4 built AROUND the
+  refuge point, never a declared rectangle: `CivilianFlight.step` stops
+  re-ordering a civilian standing on the refuge, so a point outside its own zone
+  is a permanent hang rather than a miss. `civilians` is the one unit type with
+  no `SPRITE_MAP` entry, so `&civ` under `&nomesh` or on Pixi spawns a crowd
+  that draws nothing — it warns by name rather than refusing.
 - Two ROE facts a visual check needs: **only `wadi_halam_basin` contains a mosque**,
   so the protected-target X is unreachable anywhere else unless a mission declares
   `roe.flagged_zones` or `&roe` supplies one. Tel Marum's town buildings are `#`
