@@ -363,11 +363,17 @@ yours; each one records what the next phase inherits.
   hold. That read as bimodal renderer noise (45–204 px in one mode, 1164–1549
   in the other) and it was the harness. `capture()` now **kills the frame
   loop** before its settle (`FREEZE_FRAME_LOOP_STATEMENTS`,
-  `capture-protocol.ts`), so `step()`'s own paint is the last paint. Every
-  threshold is calibrated against 24 consecutive full-gate runs taken that way:
-  `quiet` 0–1 px / 0.0000–0.0001, `open-ground` 0 / 0.0000, `vehicle` 5–101 px
-  / 0.0029–0.0058 unimodal, `relief` 0 / 0.0000. **A bimodal noise reading is a
-  bug to find, not a band to widen.**
+  `capture-protocol.ts`), so `step()`'s own paint is the last paint. The
+  thresholds were calibrated against 24 consecutive full-gate runs taken that
+  way and the noise has since been **pooled across three independent samples on
+  the same machine (24 + 21 + 49 runs)**: `quiet` 0–1 px / 0.0000–0.0001,
+  `open-ground` 0 / 0.0000, `relief` 0 / 0.0000, and `vehicle` **5–157 px /
+  0.0029–0.0069**, one continuous mode in every sample. The thresholds are
+  unchanged and still clear that — 300 px is 1.9× 157 and 0.02 is 2.9× 0.0069 —
+  but the `vehicle` figure this line used to carry (5–101 / 0.0029–0.0058) was
+  a single sample's best case, the second time that entry recorded one.
+  **A range with no sample size beside it is an anecdote**, and **a bimodal
+  noise reading is a bug to find, not a band to widen.**
   **`tel_marum` is in the gate now, and it is the only map that can catch
   terrain.** The `relief` scenario frames the T1-C boulder corridor and the
   extruded rock-ridge walls either side of it. Before it, the gate sampled two

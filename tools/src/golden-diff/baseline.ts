@@ -31,8 +31,15 @@
 // Three measured facts that shaped every number below
 // ============================================================================
 //
-// Both from the noise measurement in `.superpowers/queue/golden-three-report.md`
-// (macOS 15 / M3 Pro, headless Chromium, 1400x900, deviceScaleFactor 1):
+// CAPTURE CONDITIONS, stated once and true of every figure in this file unless
+// an entry says otherwise: macOS 15 / M3 Pro, headless Chromium (the version
+// `pnpm-lock.yaml` pins), 1400x900, deviceScaleFactor 1, no GL launch
+// arguments -- so software SwiftShader, read back from
+// `WEBGL_debug_renderer_info` on every run rather than assumed. Sample sizes
+// are given with every range, because the first two versions of `vehicle`'s
+// entry recorded a best case as if it were the spread, twice.
+// Measurements: `.superpowers/queue/golden-three-report.md`,
+// `golden-three-fix-report.md`, `golden-three-residuals-report.md`.
 //
 // 1. RUN-TO-RUN NOISE IS NOT SPREAD OVER THE FRAME. It sits in tight clusters
 //    around animating mesh units and real-time VFX; every other pixel is
@@ -62,11 +69,15 @@
 //    `sim.tickCount` right after the screenshot on 20 runs gave 167-171 every
 //    time against a capture script that returned 140. `capture()` now kills
 //    the frame loop before its settle (`FREEZE_FRAME_LOOP_STATEMENTS`), and
-//    every threshold below is calibrated against 24 consecutive full-gate runs
-//    taken that way -- see each entry's own comment for its before and after.
-//    The lesson generalises: measure the spread over enough runs to see a
-//    second mode, and treat a bimodal noise reading as a bug to find rather
-//    than a band to widen.
+//    every threshold below is calibrated against full-gate runs taken that way
+//    -- 24 of them when they were set, and 94 pooled across three independent
+//    samples since (`vehicle`; 73 for the other three). See each entry's own
+//    comment for its before and after. The lesson generalises TWICE: measure
+//    the spread over enough runs to see a second mode, treat a bimodal reading
+//    as a bug to find rather than a band to widen -- and never record one
+//    sample's extremes as "the noise", which this file did with `vehicle`
+//    before the freeze and again after it. A range without a sample size
+//    beside it is an anecdote.
 
 import type { DiffSummary, Region } from './diff';
 
@@ -114,17 +125,19 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     // this entry used to describe was the rAF race, not a lazy asset load: the
     // screenshot was taken while `main.ts`'s `loop()` was still painting, so it
     // captured either the frame `step()` drew or a later one. With the loop
-    // frozen (`FREEZE_FRAME_LOOP_STATEMENTS`) 24 consecutive full-gate runs
-    // read 0 or 1 differing pixels and 0.0000-0.0001 -- unimodal, and 41x
-    // tighter on magnitude. Thresholds are 40x that.
+    // frozen (`FREEZE_FRAME_LOOP_STATEMENTS`) 73 full-gate runs across two
+    // independent samples (24 + 49) read 0 or 1 differing pixels and
+    // 0.0000-0.0001 -- unimodal, and 41x tighter on magnitude than before the
+    // freeze. Thresholds are 40x the pixel maximum and 39x the magnitude one
+    // (0.004 against a raw 0.000103).
     region: null,
     maxDiffPixels: 40,
     maxMeanAbsChannelDelta: 0.004,
     rationale:
-      'whole frame, no units in shot. Noise 0-1 px / 0.0000-0.0001 over 24 consecutive gate runs ' +
-      '(macOS SwiftShader, frame loop frozen); thresholds are 40x that. The re-injected scatter ' +
-      'defect reads 14 px / 0.0470 -- 12x over the magnitude threshold, and 470x the noise floor, ' +
-      'while the pixel count moves by 13.',
+      'whole frame, no units in shot. Noise 0-1 px / 0.0000-0.0001 pooled over 73 gate runs in two ' +
+      'samples (24 + 49; macOS SwiftShader, frame loop frozen); thresholds are 40x the pixel maximum ' +
+      'and 39x the magnitude one. The re-injected scatter defect reads 14 px / 0.0470 -- 12x over the ' +
+      'magnitude threshold, and 457x the noise floor, while the pixel count moves by 13.',
   },
   'open-ground': {
     // The same crop `groundTextureCheck` already uses, and for the same
@@ -136,15 +149,17 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     // bit-identical: 0 px / 0.0000.
     region: { x: 950, y: 500, w: 450, h: 400 },
     // Tightened from 60 / 0.050 once 24 consecutive runs read a literal zero
-    // inside the crop. Still above the 25 px / 0.0131 a different GL backend
-    // costs on this crop -- that number is a deliberate cushion, not the
-    // calibration basis, since baselines are env-keyed and a backend change
-    // should be a re-bless rather than a red run.
+    // inside the crop, and re-measured since at a literal zero over 49 more
+    // (73 runs in total, two samples). Still above the 25 px / 0.0131 a
+    // different GL backend costs on this crop -- that number is a deliberate
+    // cushion, not the calibration basis, since baselines are env-keyed and a
+    // backend change should be a re-bless rather than a red run.
     maxDiffPixels: 40,
     maxMeanAbsChannelDelta: 0.02,
     rationale:
-      'unit-free ground crop (the groundTextureCheck region). Noise 0 px / 0.0000 over 24 ' +
-      'consecutive gate runs; a different GL backend on the same machine moves it to 25 px / ' +
+      'unit-free ground crop (the groundTextureCheck region). Noise 0 px / 0.0000 over 73 gate ' +
+      'runs in two samples (24 + 49) -- a literal zero, so no headroom multiple exists; a different ' +
+      'GL backend on the same machine moves it to 25 px / ' +
       '0.0131, which is the cushion these thresholds sit above rather than their calibration ' +
       'basis. The re-injected scatter defect reads 0 px / 0.3519 -- 17x over the threshold on ' +
       'meanAbsChannelDelta and literally invisible to the pixel count. This is the scenario that ' +
@@ -168,19 +183,40 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     // every time against a script that returned 140.
     //
     // Freezing the frame loop (`FREEZE_FRAME_LOOP_STATEMENTS`) removed the
-    // race, not merely narrowed it. Re-measured over 24 consecutive full-gate
-    // runs: 5-101 px / 0.0029-0.0058, unimodal, no run outside it. Thresholds
-    // are 3.0x and 3.4x the observed maximum, the same headroom convention the
-    // other entries use -- NOT widened to absorb the flake.
+    // race, not merely narrowed it. The shape of what is left is unimodal and
+    // that is the substantive claim; the RANGE below is a pooled figure, and
+    // the first version of this comment got that wrong the same way the
+    // pre-freeze one did.
+    //
+    // THE 5-101 px / 0.0029-0.0058 THIS ENTRY USED TO RECORD WAS ONE SAMPLE'S
+    // BEST CASE. It came from 24 runs. An independent 21-run sample on the same
+    // machine, same rasteriser, same clean tree measured 15-157 px /
+    // 0.0033-0.0069 -- two runs above that pixel maximum and three above that
+    // magnitude maximum. A third sample taken while writing this, 49 runs in
+    // two batches (35 + 14), each run its own Node and Chromium process, read
+    // 8-92 px / 0.0031-0.0060, mean 48 px, largest internal pixel gap 9 --
+    // still one continuous mode, still no second cluster.
+    //
+    // So the recorded range is the UNION of all three samples on this machine,
+    // 94 runs: 5-157 px / 0.0029-0.0069. That is what the headroom multiples
+    // below are computed against, and they are smaller than the ones this entry
+    // used to claim (3.0x/3.4x, which were against the narrowest sample). The
+    // thresholds themselves are unchanged and still clear the pooled maximum:
+    // 300 px is 1.9x 157, and 0.02 is 2.9x 0.0069. If a future sample exceeds
+    // them, say so and find the cause -- widening is the rejected fix, and the
+    // reason a bimodal reading is a bug rather than a band is that it was one.
     region: null,
     maxDiffPixels: 300,
     maxMeanAbsChannelDelta: 0.02,
     rationale:
-      'whole frame, mesh vehicles plus continuous dust/exhaust FX. Noise 5-101 px / 0.0029-0.0058 ' +
-      'over 24 consecutive gate runs (macOS SwiftShader, frame loop frozen), unimodal; thresholds ' +
-      'are 3.0x and 3.4x the observed maximum. The re-injected scatter defect reads 63 px / 0.1953 ' +
-      '-- 10x over on meanAbsChannelDelta, and INSIDE the noise band on pixel count, which is why ' +
-      'magnitude is the primary metric here.',
+      'whole frame, mesh vehicles plus continuous dust/exhaust FX. Noise 5-157 px / 0.0029-0.0069, ' +
+      'pooled over 94 gate runs in three independent samples on one machine (24 + 21 + 49; macOS 15 ' +
+      '/ M3 Pro, headless Chromium, software SwiftShader, 1400x900, frame loop frozen), unimodal in ' +
+      'every sample. Thresholds are 1.9x and 2.9x the POOLED maximum -- the 3.0x/3.4x this line used ' +
+      'to claim was measured against the narrowest of the three. The re-injected scatter defect ' +
+      'reads 63 px / 0.1953 -- 10x over the threshold on meanAbsChannelDelta (28x the pooled noise ' +
+      'maximum), and INSIDE the noise band on pixel count, which is why magnitude is the primary ' +
+      'metric here.',
   },
   relief: {
     // MAP COVERAGE. The other four scenarios look at two of the five shipped
@@ -190,8 +226,12 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     // corridor: the T1-C boulder field, the rock-ridge walls either side of
     // it, and the elevation band the corridor cuts.
     //
-    // Whole frame, and the measurement earns it: 0 px / 0.0000 over 24
-    // consecutive gate runs. That is despite one unit being in shot -- the
+    // Whole frame, and the measurement earns it: 0 px / 0.0000 over 73 gate
+    // runs in two samples (24 + 49). One further run of the second sample is
+    // excluded rather than counted as 0: it reported `capture drift: zoom 2 ->
+    // 0.5` because this scenario's zoom was being deliberately falsified at
+    // that moment, which is `capturePreconditionMismatches` doing its job by
+    // accident. That is despite one unit being in shot -- the
     // `recon_drone` the scenario orders forward so the fog lifts at all (see
     // `RELIEF_SCENARIO`). It is one small hovering mesh at a pinned tick, and
     // with the frame loop frozen its animation clock no longer advances by a
@@ -203,8 +243,8 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     maxMeanAbsChannelDelta: 0.004,
     rationale:
       'whole frame, tel_marum boulder corridor @ tile (10,15) zoom 2, tick 500 -- the T1-C boulder ' +
-      'field plus the extruded rock-ridge relief either side of it. Noise 0 px / 0.0000 over 24 ' +
-      'consecutive gate runs (macOS SwiftShader). Deleting every boulder decor object reads 36001 ' +
+      'field plus the extruded rock-ridge relief either side of it. Noise 0 px / 0.0000 over 73 gate ' +
+      'runs in two samples (24 + 49; macOS SwiftShader). Deleting every boulder decor object reads 36001 ' +
       'px / 2.6292 here -- 900x and 657x the thresholds -- while quiet, open-ground and vehicle do ' +
       'not move outside their own noise at all. The scatter defect also fires here, at 86 px / ' +
       '0.1452, so this is map coverage rather than a single-feature tripwire.',

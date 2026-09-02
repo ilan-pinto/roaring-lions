@@ -136,22 +136,32 @@ describe('evaluateBaseline', () => {
     expect(v.failures).toHaveLength(1);
   });
 
-  it('passes the measured run-to-run noise on every gated scenario', () => {
-    // The WORST same-environment reading actually observed for each scenario
-    // over 24 consecutive full-gate runs, with the app's frame loop frozen. If
-    // a future edit tightens a threshold under these, the gate starts crying
-    // wolf -- which is how a gate earns an allowlist.
+  it('passes the POOLED worst-case run-to-run noise on every gated scenario', () => {
+    // The worst same-environment reading observed for each scenario across
+    // EVERY sample taken on this machine with the frame loop frozen, not the
+    // worst of one sample. If a future edit tightens a threshold under these,
+    // the gate starts crying wolf -- which is how a gate earns an allowlist.
     //
-    // The figures this test used to carry (quiet 41 px / 0.0024, vehicle 133 px
-    // / 0.0170) were the best case rather than the spread: an independent
-    // 18-run sample measured `vehicle` at 45-1549 px / 0.0110-0.1299 and
-    // false-red 28% of the time. The cause was the rAF loop repainting between
-    // the capture script and the screenshot; see `FREEZE_FRAME_LOOP_STATEMENTS`.
+    // `vehicle` has now been over-narrow twice, which is why the number here is
+    // a union rather than a sample:
+    //   - before the frame-loop freeze this test carried 133 px / 0.0170 while
+    //     an independent 18-run sample measured 45-1549 px / 0.0110-0.1299 and
+    //     the scenario false-red 28% of the time (the rAF loop repainting
+    //     between the capture script and the screenshot --
+    //     `FREEZE_FRAME_LOOP_STATEMENTS`);
+    //   - after the freeze it carried 101 px / 0.0058 from a 24-run sample,
+    //     while an independent 21-run sample on the same machine and the same
+    //     clean tree read 15-157 px / 0.0033-0.0069, and a third 49-run sample
+    //     (two batches, each run its own browser process) read 8-92 px /
+    //     0.0031-0.0060.
+    // Union over all 94 runs: 5-157 px / 0.0029-0.0069, one continuous mode.
+    // That union is what is asserted, so a threshold tightened to fit any one
+    // sample goes red here rather than in CI.
     expect(evaluateBaseline(summary({ diffPixels: 1, meanAbsChannelDelta: 0.0001 }), BASELINES.quiet).ok).toBe(true);
     expect(
       evaluateBaseline(summary({ diffPixels: 0, meanAbsChannelDelta: 0 }), BASELINES['open-ground']).ok
     ).toBe(true);
-    expect(evaluateBaseline(summary({ diffPixels: 101, meanAbsChannelDelta: 0.0058 }), BASELINES.vehicle).ok).toBe(
+    expect(evaluateBaseline(summary({ diffPixels: 157, meanAbsChannelDelta: 0.0069 }), BASELINES.vehicle).ok).toBe(
       true
     );
     expect(evaluateBaseline(summary({ diffPixels: 0, meanAbsChannelDelta: 0 }), BASELINES.relief).ok).toBe(true);
