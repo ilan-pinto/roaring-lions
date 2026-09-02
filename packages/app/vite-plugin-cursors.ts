@@ -14,20 +14,26 @@
 // `default` (one of the thirteen names) deliberately gets no rule -- it is
 // the OS arrow.
 //
-// Two of the thirteen (`attack`, `charge`) additionally animate: each draws
-// `ANIMATED_CURSORS[name].frames` distinct SVGs instead of one, emitted as
-// extra rules keyed on a second attribute, `data-cursor-frame`, that
-// main.ts's frame driver cycles on a plain JS timer -- see ANIMATED_CURSORS's
-// own comment in cursor.ts for why a timer and not a CSS `@keyframes`
-// animation on `cursor` itself. Frame 0 of each is drawn by the *same* code
-// path as every other cursor's single rule (`attackBody`/`chargeBody` called
-// with no frame argument, defaulting to 0) -- so the existing bare `attack`
-// and badged `charge-soft` rules are pixel-identical to what they drew before
+// Three of the thirteen (`attack`, `charge`, `demolish`) additionally
+// animate: each draws up to `ANIMATED_CURSORS[name].frames` distinct SVGs
+// instead of one, emitted as extra rules keyed on a second attribute,
+// `data-cursor-frame`, that main.ts's frame driver cycles on a plain JS timer
+// -- see ANIMATED_CURSORS's own comment in cursor.ts for which names qualify
+// and why, and for what is and is not known about a timer versus a CSS
+// `@keyframes` animation on `cursor` itself. Frame 0 of each is drawn by the
+// *same* code path as every other cursor's single rule
+// (`attackBody`/`chargeBody`/`demolishBody` called with no frame argument,
+// defaulting to 0) -- so the existing bare `attack`, badged `charge-soft` and
+// bare/badged `demolish` rules are pixel-identical to what they drew before
 // animation existed, and only frames 1..N-1 are new, additive rules layered
 // on top via the extra attribute selector. That also makes the animation
 // fail safe: a stale or absent `data-cursor-frame` (nothing has written it
 // yet, or it is left over from a *different* animated cursor) simply falls
 // back to this always-correct frame-0 rule rather than to nothing.
+//
+// "up to `frames`" because a frame that would redraw its own key's frame 0
+// byte for byte emits no rule at all and leans on that same fallback -- see
+// cursorRules' frame loop.
 
 import { readFileSync } from 'node:fs';
 import type { Plugin } from 'vite';
@@ -162,10 +168,11 @@ function supportShape(good: string): string {
 
 // An eight-ray burst radiating from the centre -- denser and more violent
 // than attack's four-tick reticle, read as detonation rather than aim.
-function burstRays(color: string): string {
+// near/far default to the original, static burst's geometry, exactly as
+// reticleTicks above does, so every existing caller (demolishShape, and
+// demolishBody's frame 0) is unaffected by the added parameters.
+function burstRays(color: string, near = 5, far = 12): string {
   const c = hex(color);
-  const near = 5;
-  const far = 12;
   const dirs: [number, number][] = [
     [0, -1],
     [0, 1],
@@ -200,8 +207,38 @@ function garrisonShape(mid: string): string {
   return svg(garrisonBody(mid));
 }
 
-function demolishBody(bad: string): string {
-  return burstRays(bad);
+// demolish's animation: the blast pushing a structure apart, on attack's own
+// 300ms tempo so the set keeps exactly two rates (300ms for the two patient
+// held jobs, 200ms for charge's one fuse) rather than gaining a third.
+//
+// `near` is PINNED at burstRays' own 5 and only the tips travel. That is the
+// whole discriminator against `attack`, and it was chosen by rendering both
+// at true 32px and looking, not by reasoning. attack's near tracks its far
+// (6/11 -> 4/9 -> 6/11 -> 8/13), so a demolish whose centre hole also opened
+// would be attack's motion drawn on eight rays; with near fixed, the core
+// stays put and the rays alone breathe -- a motion attack never makes. The
+// phase is deliberately the mirror of attack's too: attack CONVERGES first
+// ("arms tightening onto a target that can move"), demolish EXTENDS first
+// ("pushing a structure apart").
+//
+// Amplitude is +/-2 on a far of 12, and it is deliberately small. A wider
+// swing was drawn and rejected: at far 15 the eight rays separate far enough
+// that the burst stops reading as one shape and becomes a ring of loose
+// dashes -- a twinkle, which is the identity-loss failure the plugin's own
+// grammar (the identity shape must survive any frozen frame) forbids.
+//
+// Frame 2 returns to rest, so it is byte-identical to frame 0 and cursorRules
+// below elides it -- see the frame loop's comment.
+const DEMOLISH_BURST: Readonly<Record<number, { near: number; far: number }>> = {
+  0: { near: 5, far: 12 },
+  1: { near: 5, far: 14 },
+  2: { near: 5, far: 12 },
+  3: { near: 5, far: 10 },
+};
+
+function demolishBody(bad: string, frame = 0): string {
+  const { near, far } = DEMOLISH_BURST[frame] ?? DEMOLISH_BURST[0];
+  return burstRays(bad, near, far);
 }
 function demolishShape(bad: string): string {
   return svg(demolishBody(bad));
@@ -347,10 +384,10 @@ export const BADGED_VERBS: { [K in Exclude<CursorName, UnbadgedName>]?: RoleBuck
  *  ANIMATED_CURSORS, not BADGED_VERBS -- can call this without a cast; every
  *  existing caller already passes a `keyof typeof BADGED_VERBS`, a subtype,
  *  so this widening changes nothing for them. `frame` defaults to 0, which
- *  is what every pre-animation caller still implicitly asks for -- and for
- *  every name except `attack`/`charge`, `attackBody`/`chargeBody` are the
- *  only two that read it at all, so a non-zero frame passed for any other
- *  name is simply ignored, not an error. */
+ *  is what every pre-animation caller still implicitly asks for -- and only
+ *  `attackBody`/`chargeBody`/`demolishBody` (the three ANIMATED_CURSORS
+ *  names) read it at all, so a non-zero frame passed for any other name is
+ *  simply ignored, not an error. */
 function bodyFor(name: CursorName, palette: Palette, frame = 0): string {
   const { light, mid, bad } = paletteColors(palette);
   switch (name) {
@@ -361,7 +398,7 @@ function bodyFor(name: CursorName, palette: Palette, frame = 0): string {
     case 'garrison':
       return garrisonBody(mid);
     case 'demolish':
-      return demolishBody(bad);
+      return demolishBody(bad, frame);
     case 'charge':
       return chargeBody(bad, frame);
     default:
@@ -410,9 +447,15 @@ export function cursorRules(palette: Palette): string {
   const shapes = shapesFor(palette);
   const colors = paletteColors(palette);
   const rules: string[] = [];
+  /** What each key's frame-0 rule already draws, keyed by cursor key. The
+   *  frame loop below consults it to drop a frame that would redraw exactly
+   *  this -- see its comment. */
+  const frameZero = new Map<string, string>();
 
   for (const [name, markup] of Object.entries(shapes) as [BareCursorName, string][]) {
-    rules.push(ruleFor(cursorKey(name, null), markup));
+    const key = cursorKey(name, null);
+    frameZero.set(key, markup);
+    rules.push(ruleFor(key, markup));
   }
 
   for (const [name, buckets] of Object.entries(BADGED_VERBS) as [
@@ -423,26 +466,50 @@ export function cursorRules(palette: Palette): string {
     const badgeColour = badgeColourFor(name, colors);
     for (const bucket of buckets) {
       const markup = svg(base + badgeMark(bucket, badgeColour));
-      rules.push(ruleFor(cursorKey(name, bucket), markup));
+      const key = cursorKey(name, bucket);
+      frameZero.set(key, markup);
+      rules.push(ruleFor(key, markup));
     }
   }
 
   // Frame overrides. bareNames records which ANIMATED_CURSORS entries also
-  // drew a bare rule above (`attack` did; `charge` did not -- see
-  // BareCursorName's comment on why `charge` never gets one), so this never
-  // has to hardcode which is which.
+  // drew a bare rule above (`attack` and `demolish` did; `charge` did not --
+  // see BareCursorName's comment on why `charge` never gets one), so this
+  // never has to hardcode which is which.
+  //
+  // A frame whose markup is byte-identical to its own key's frame-0 markup
+  // emits NO rule. Both pulses deliberately return to rest at their midpoint
+  // (ATTACK_PULSE's "rest, converge, rest, release"; DEMOLISH_BURST's
+  // 12/14/12/10), so frame 2 of each would otherwise ship a second copy of an
+  // image the frame-0 rule already draws at lower specificity -- measured at
+  // 7,472 B, 16.5% of the whole injected sheet, for attack's eight keys
+  // alone. Dropping the rule changes nothing on screen: with no
+  // `[data-cursor-frame='2']` selector to match, the cascade falls through to
+  // exactly that frame-0 rule, which is the same fail-safe the plugin's top
+  // comment already relies on for a stale or absent attribute. main.ts's
+  // driver still counts 0..frames-1 and still writes '2'; it simply has no
+  // rule of its own to hit.
+  //
+  // The test is CONTENT ("this markup equals frame 0's"), never position
+  // ("skip frame 2"). A future retune that makes frame 2 a real fifth shape
+  // must start emitting it again, and this way it does so automatically --
+  // whereas an index-based skip would silently flatten that tick, which is
+  // the exact defect `assertNoStaticTick` exists to catch.
   const bareNames = new Set<string>(Object.keys(shapes));
   for (const [name, anim] of Object.entries(ANIMATED_CURSORS) as [CursorName, CursorAnimation][]) {
     const buckets = (BADGED_VERBS as Partial<Record<CursorName, RoleBucket[]>>)[name] ?? [];
     const badgeColour = badgeColourFor(name, colors);
+    const pushFrame = (key: string, frame: number, markup: string): void => {
+      if (frameZero.get(key) === markup) return;
+      rules.push(ruleForFrame(key, frame, markup));
+    };
     for (let frame = 1; frame < anim.frames; frame++) {
       const base = bodyFor(name, palette, frame);
       if (bareNames.has(name)) {
-        rules.push(ruleForFrame(cursorKey(name, null), frame, svg(base)));
+        pushFrame(cursorKey(name, null), frame, svg(base));
       }
       for (const bucket of buckets) {
-        const markup = svg(base + badgeMark(bucket, badgeColour));
-        rules.push(ruleForFrame(cursorKey(name, bucket), frame, markup));
+        pushFrame(cursorKey(name, bucket), frame, svg(base + badgeMark(bucket, badgeColour)));
       }
     }
   }

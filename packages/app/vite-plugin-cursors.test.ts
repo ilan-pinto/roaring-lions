@@ -215,18 +215,29 @@ describe('badged rules', () => {
   });
 });
 
-/** Same idea as selectorFor above, but for one animation frame of `key`.
+/** Same idea as selectorFor above, but for one animation frame of `key` --
+ *  and it models the CASCADE, not the rule list, because what a test about
+ *  animation should assert is what the browser DRAWS at frame N, not which
+ *  rules happen to exist.
+ *
  *  Frame 0 is deliberately NOT a `[data-cursor-frame='0']` selector -- it is
  *  the pre-existing bare/badged rule with no frame attribute at all (see the
- *  "never emits an explicit frame-0 rule" test below), so this reads that
- *  same rule back for frame 0, and the more specific two-attribute selector
- *  ruleForFrame emits for frame >= 1. */
+ *  "never emits an explicit frame-0 rule" test below). And a frame >= 1 whose
+ *  markup would equal frame 0's emits no rule either (cursorRules elides it),
+ *  so it too resolves to that same lower-specificity rule -- exactly as the
+ *  browser resolves it when the driver writes that index. Falling back rather
+ *  than throwing is therefore faithful, not lenient: `assertNoStaticTick`
+ *  below keeps asserting real drawn output across an elided frame. */
 function frameLineFor(css: string, key: string, frame: number): string {
   const lines = css.split('\n');
+  const bare = lines.find(
+    (l) => l.includes(`data-cursor='${key}']`) && !l.includes('data-cursor-frame')
+  );
   const line =
     frame === 0
-      ? lines.find((l) => l.includes(`data-cursor='${key}']`) && !l.includes('data-cursor-frame'))
-      : lines.find((l) => l.includes(`data-cursor='${key}'][data-cursor-frame='${frame}']`));
+      ? bare
+      : (lines.find((l) => l.includes(`data-cursor='${key}'][data-cursor-frame='${frame}']`)) ??
+        bare);
   if (!line) throw new Error(`no rule found for ${key} frame ${frame}`);
   return line;
 }
@@ -246,37 +257,89 @@ function markupOf(line: string): string {
   return match[1];
 }
 
-// Two of the thirteen CursorName values (`attack`, `charge`) additionally
-// animate -- see ANIMATED_CURSORS's own comment in cursor.ts, and the
-// plugin's top comment. Every non-frame property of those two keys' rules
-// (hotspot, the `cursor:` property, palette colours, encoding, DOM matching,
-// reachability) is already covered, unmodified, by the describes above --
-// this covers only what the frame slice adds on top.
+// Three of the thirteen CursorName values (`attack`, `charge`, `demolish`)
+// additionally animate -- see ANIMATED_CURSORS's own comment in cursor.ts,
+// and the plugin's top comment. Every non-frame property of those keys'
+// rules (hotspot, the `cursor:` property, palette colours, encoding, DOM
+// matching, reachability) is already covered, unmodified, by the describes
+// above -- this covers only what the frame slice adds on top.
 describe('animated cursor frames', () => {
   const css = cursorRules(deriveUiBand(raw));
 
-  it('animates exactly attack and charge, and nothing else', () => {
-    // Pins the "two of the thirteen" claim the plugin's own top comment
-    // makes -- a silent third entry (or the loss of one of these two) would
-    // otherwise only surface as a visual difference nobody happened to look
-    // for.
-    expect(Object.keys(ANIMATED_CURSORS).sort()).toEqual(['attack', 'charge']);
+  it('animates exactly attack, charge and demolish, and nothing else', () => {
+    // Pins the "three of the thirteen" claim the plugin's own top comment
+    // makes -- a silent fourth entry (or the loss of one of these three)
+    // would otherwise only surface as a visual difference nobody happened to
+    // look for. `demolish` earns its place from ANIMATED_CURSORS' own rule
+    // (an order that holds a unit on the spot while a sim timer runs:
+    // demolitionTicks, the same shape as charge's tunnelChargeTicks);
+    // `support` was considered against that rule and rejected.
+    expect(Object.keys(ANIMATED_CURSORS).sort()).toEqual(['attack', 'charge', 'demolish']);
   });
 
-  it('emits frames 1..N-1 for attack itself and every reachable attack badge -- no more, no fewer', () => {
-    const { frames } = ANIMATED_CURSORS.attack!;
+  /** Every frame 1..N-1 of `key` either emits its own rule, or draws frame
+   *  0's markup and is deliberately elided -- and nothing outside that range
+   *  is ever emitted.
+   *
+   *  Stated as "emits a rule IFF the markup differs from frame 0" rather than
+   *  the flat "a rule for every frame" this used to assert, because both
+   *  pulses return to rest at their midpoint and shipping a byte-identical
+   *  second copy of frame 0 was 16.5% of the whole injected sheet. Written
+   *  against CONTENT so it still fails on the thing that matters: a frame
+   *  that should have moved and did not is caught by assertNoStaticTick
+   *  below, and a frame silently dropped by index is caught here. */
+  function assertFrameRules(key: string, frames: number): void {
+    for (let frame = 1; frame < frames; frame++) {
+      const selector = `canvas[data-cursor='${key}'][data-cursor-frame='${frame}']`;
+      const redundant =
+        markupOf(frameLineFor(css, key, frame)) === markupOf(frameLineFor(css, key, 0));
+      expect({ key, frame, emitted: css.includes(selector) }).toEqual({
+        key,
+        frame,
+        emitted: !redundant,
+      });
+    }
+    // Neither end of the range gets an explicit rule: frame 0 is the existing
+    // bare/badged rule (see the frame-0 test below), and nothing beyond
+    // frames-1 was ever authored.
+    expect(css).not.toContain(`canvas[data-cursor='${key}'][data-cursor-frame='0']`);
+    expect(css).not.toContain(`canvas[data-cursor='${key}'][data-cursor-frame='${frames}']`);
+  }
+
+  it('emits a frame rule for attack and every reachable attack badge exactly when it differs from frame 0', () => {
     const keys = ['attack', ...(BADGED_VERBS.attack ?? []).map((bucket) => `attack-${bucket}`)];
     expect(keys.length).toBe(1 + 7); // the bare cursor plus all seven role buckets
-    for (const key of keys) {
-      for (let frame = 1; frame < frames; frame++) {
-        expect(css).toContain(`canvas[data-cursor='${key}'][data-cursor-frame='${frame}']`);
-      }
-      // Neither end of the range gets an explicit rule: frame 0 is the
-      // existing bare/badged rule (see the frame-0 test below), and nothing
-      // beyond frames-1 was ever authored.
-      expect(css).not.toContain(`canvas[data-cursor='${key}'][data-cursor-frame='0']`);
-      expect(css).not.toContain(`canvas[data-cursor='${key}'][data-cursor-frame='${frames}']`);
+    for (const key of keys) assertFrameRules(key, ANIMATED_CURSORS.attack!.frames);
+  });
+
+  it('emits a frame rule for demolish and both reachable demolish badges exactly when it differs from frame 0', () => {
+    // demolish reaches only `soft` and `armour` -- BADGED_VERBS is derived
+    // from the roster, so this follows it rather than restating it.
+    const keys = ['demolish', ...(BADGED_VERBS.demolish ?? []).map((b) => `demolish-${b}`)];
+    expect(keys.length).toBe(1 + 2);
+    for (const key of keys) assertFrameRules(key, ANIMATED_CURSORS.demolish!.frames);
+  });
+
+  it('elides exactly the midpoint of both 300ms pulses -- and nothing else in the sheet is a duplicate', () => {
+    // The saving, pinned as a fact rather than a comment: attack's eight keys
+    // and demolish's three all return to rest at frame 2, so eleven rules are
+    // NOT emitted. What makes that safe is that the cascade draws frame 0's
+    // image for them, which frameLineFor models and the two assertions below
+    // check directly.
+    for (const key of ['attack', 'attack-soft', 'demolish', 'demolish-armour']) {
+      expect(css).not.toContain(`canvas[data-cursor='${key}'][data-cursor-frame='2']`);
+      expect(markupOf(frameLineFor(css, key, 2))).toBe(markupOf(frameLineFor(css, key, 0)));
     }
+    // charge's ring grows on every tick, so none of its frames is elidable.
+    for (let frame = 1; frame < ANIMATED_CURSORS.charge!.frames; frame++) {
+      expect(css).toContain(`canvas[data-cursor='charge-soft'][data-cursor-frame='${frame}']`);
+    }
+    // And the whole sheet now carries no duplicate image at all: every rule
+    // draws something no other rule draws. This is the general statement the
+    // per-key assertions above are instances of -- it would go red if any
+    // future frame table reintroduced a redundant rule anywhere.
+    const images = css.split('\n').map((l) => markupOf(l));
+    expect(new Set(images).size).toBe(images.length);
   });
 
   it('emits frames 1..N-1 for charge-soft, and no bare charge frame rule at all', () => {
@@ -295,20 +358,25 @@ describe('animated cursor frames', () => {
     expect(css).not.toMatch(/\[data-cursor-frame='0'\]/);
   });
 
-  it('touches no key outside attack, its badges, and charge-soft', () => {
-    // The complement of the two tests above: every key that DOES receive a
-    // frame rule is one of exactly these nine (attack, its seven badges,
-    // charge-soft) -- proving the eleven other CursorName states (move,
-    // blocked, costly, protected, support, garrison, demolish, plus
-    // default/mount/dismount/smoke, which draw no rule at all) never pick up
-    // a data-cursor-frame selector, without enumerating all eleven by hand.
+  it('touches no key outside attack, demolish, their badges, and charge-soft', () => {
+    // The complement of the tests above: every key that DOES receive a frame
+    // rule belongs to one of the three ANIMATED_CURSORS names -- proving the
+    // ten other CursorName states (move, blocked, costly, protected, support,
+    // garrison, plus default/mount/dismount/smoke, which draw no rule at all)
+    // never pick up a data-cursor-frame selector, without enumerating them by
+    // hand. `support` is in that list on purpose: it is the state most likely
+    // to be added next by someone reading only the cursor art, and
+    // ANIMATED_CURSORS' comment records why it was rejected.
     const frameKeys = new Set(
       [...css.matchAll(/canvas\[data-cursor='([^']+)'\]\[data-cursor-frame='\d+'\]/g)].map((m) => m[1])
     );
     expect(frameKeys.size).toBeGreaterThan(0);
+    const animated = Object.keys(ANIMATED_CURSORS);
     for (const key of frameKeys) {
-      expect(key === 'attack' || key.startsWith('attack-') || key === 'charge-soft').toBe(true);
+      const base = key.split('-')[0];
+      expect({ key, animated: animated.includes(base) }).toEqual({ key, animated: true });
     }
+    expect(frameKeys.has('support')).toBe(false);
   });
 
   it('gives every frame-specific rule the same centred hotspot as every other rule', () => {
@@ -344,6 +412,38 @@ describe('animated cursor frames', () => {
     assertNoStaticTick(css, 'charge-soft', ANIMATED_CURSORS.charge!.frames);
   });
 
+  it('changes what it draws on every tick of the demolish cycle -- no adjacent-frame step (including the wrap) is a no-op', () => {
+    // Runs through the elided frame 2, so it also proves the elision did not
+    // flatten a tick: frameLineFor resolves that index the way the cascade
+    // does, and 12 -> 14 -> 12 -> 10 still steps four times.
+    assertNoStaticTick(css, 'demolish', ANIMATED_CURSORS.demolish!.frames);
+    assertNoStaticTick(css, 'demolish-armour', ANIMATED_CURSORS.demolish!.frames);
+  });
+
+  it("pins demolish's centre hole against attack's -- the one thing that keeps two red radial marks apart in motion", () => {
+    // attack's near radius tracks its far (6/11 -> 4/9 -> 6/11 -> 8/13), so a
+    // demolish whose hole also opened would be attack's motion drawn on eight
+    // rays. DEMOLISH_BURST pins near at 5 and moves only the tips. Read off
+    // the emitted markup rather than the table, so re-tuning the table
+    // without re-reading this comment goes red.
+    //
+    // The two helpers spell coordinates differently, so this reads each one
+    // the way it actually emits (checked against the real bytes, not assumed):
+    // burstRays writes its ray INNER-end first and to two decimals
+    // (`x1="16.00" y1="11.00"` -> `y2="4.00"`), while reticleTicks writes the
+    // OUTER end first as bare integers (`y1="5"` -> inner `y2="10"`).
+    const inner = (n: number) => `y1="${(CENTER - n).toFixed(2)}"`; // demolish
+    for (let frame = 0; frame < ANIMATED_CURSORS.demolish!.frames; frame++) {
+      const markup = decodeURIComponent(markupOf(frameLineFor(css, 'demolish', frame)));
+      expect({ frame, pinned: markup.includes(inner(5)) }).toEqual({ frame, pinned: true });
+    }
+    // attack, by contrast, moves its near radius: frame 1 is 4, frame 3 is 8.
+    const a1 = decodeURIComponent(markupOf(frameLineFor(css, 'attack', 1)));
+    const a3 = decodeURIComponent(markupOf(frameLineFor(css, 'attack', 3)));
+    expect(a1).toContain(`y2="${CENTER - 4}"`);
+    expect(a3).toContain(`y2="${CENTER - 8}"`);
+  });
+
   it('returns attack\'s midpoint to its own rest pose on purpose -- frame 2 is frame 0, not a fifth shape', () => {
     // Provenance for the weaker adjacency check above: this is *why* a
     // strict "every frame pairwise distinct" assertion would be wrong here,
@@ -352,11 +452,15 @@ describe('animated cursor frames', () => {
   });
 
   it('matches a real canvas once main.ts\'s own pairing writes both data-cursor and a mid-cycle data-cursor-frame', () => {
+    // Frame 1, not 2: frame 2 is the elided midpoint and has no rule of its
+    // own to match any more (the elision test above pins that), so it is the
+    // wrong exemplar for "the frame rule engages". Frame 1 is a real emitted
+    // override and is what this test was always about.
     const dom = new JSDOM('<div id="stage"><canvas></canvas></div>');
     const canvas = dom.window.document.querySelector('canvas')!;
     canvas.dataset.cursor = 'attack';
-    canvas.dataset.cursorFrame = '2';
-    const selector = selectorOf(frameLineFor(css, 'attack', 2));
+    canvas.dataset.cursorFrame = '1';
+    const selector = selectorOf(frameLineFor(css, 'attack', 1));
     expect(canvas.matches(selector)).toBe(true);
   });
 
@@ -375,15 +479,62 @@ describe('animated cursor frames', () => {
     const dom = new JSDOM('<div id="stage"><canvas></canvas></div>');
     const canvas = dom.window.document.querySelector('canvas')!;
     const baseSelector = selectorOf(frameLineFor(css, 'attack', 0));
-    const frame2Selector = selectorOf(frameLineFor(css, 'attack', 2));
+    const frame1Selector = selectorOf(frameLineFor(css, 'attack', 1));
 
     canvas.dataset.cursor = 'attack'; // data-cursor-frame not written at all yet
     expect(canvas.matches(baseSelector)).toBe(true);
-    expect(canvas.matches(frame2Selector)).toBe(false);
+    expect(canvas.matches(frame1Selector)).toBe(false);
 
-    canvas.dataset.cursorFrame = '2'; // now mid-cycle
+    canvas.dataset.cursorFrame = '1'; // now mid-cycle
     expect(canvas.matches(baseSelector)).toBe(true); // unaffected by the extra attribute
-    expect(canvas.matches(frame2Selector)).toBe(true); // and the more specific rule engages too
+    expect(canvas.matches(frame1Selector)).toBe(true); // and the more specific rule engages too
+  });
+
+  it('draws the right art when data-cursor-frame is STALE from a different cursor', () => {
+    // The failure the fail-safe exists to prevent, exercised as a sequence
+    // rather than asserted from selector syntax: the pointer leaves a hostile
+    // mid-cycle and lands on something else while data-cursor-frame still
+    // holds the old index. ensureCursorAnim resets it today, but the CSS must
+    // not depend on that -- so this writes the stale index by hand and asks
+    // which rules a real node matches.
+    //
+    // Three cases, each a different way the index can be wrong, and in every
+    // one the art that wins must be a CORRECT frame of the cursor now named.
+    const dom = new JSDOM('<div id="stage"><canvas></canvas></div>');
+    const canvas = dom.window.document.querySelector('canvas')!;
+    const winner = (key: string): string => {
+      // Later rules win at equal specificity and the two-attribute selector
+      // outranks the one-attribute rule, so the last matching line is what
+      // the browser draws.
+      const matching = css.split('\n').filter((l) => canvas.matches(selectorOf(l)));
+      expect({ key, matched: matching.length > 0 }).toEqual({ key, matched: true });
+      return markupOf(matching[matching.length - 1]);
+    };
+
+    // 1. Stale index onto a NON-animated cursor. `move` emits no frame rules
+    //    at all, so only its bare rule can match -- frame 0 art, correct.
+    canvas.dataset.cursor = 'move-soft';
+    canvas.dataset.cursorFrame = '3'; // left over from an attack cycle
+    expect(winner('move-soft')).toBe(markupOf(frameLineFor(css, 'move-soft', 0)));
+
+    // 2. Stale index onto an animated cursor at an ELIDED frame. attack's
+    //    frame 2 has no rule, so the bare rule wins -- and frame 2's art IS
+    //    frame 0's art, so the elision costs nothing here. This is the case
+    //    that would regress if the elision were ever done by index rather
+    //    than by content.
+    canvas.dataset.cursor = 'attack-soft';
+    canvas.dataset.cursorFrame = '2';
+    expect(winner('attack-soft')).toBe(markupOf(frameLineFor(css, 'attack-soft', 0)));
+
+    // 3. Stale index onto a DIFFERENT animated cursor that does emit that
+    //    frame. demolish-soft frame 3 is real art, so the player sees a
+    //    demolish burst mid-cycle rather than an attack reticle or the OS
+    //    arrow -- out of phase for one tick at most, never wrong art.
+    canvas.dataset.cursor = 'demolish-soft';
+    canvas.dataset.cursorFrame = '3';
+    const drawn = winner('demolish-soft');
+    expect(drawn).toBe(markupOf(frameLineFor(css, 'demolish-soft', 3)));
+    expect(drawn).not.toBe(markupOf(frameLineFor(css, 'attack-soft', 3)));
   });
 });
 

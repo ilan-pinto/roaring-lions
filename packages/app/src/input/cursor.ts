@@ -65,35 +65,66 @@ export interface CursorAnimation {
  *  cycles `data-cursor-frame` on a `setInterval` of `intervalMs`) read, so
  *  the two can never disagree on how many frames exist.
  *
+ *  WHICH names belong here is a rule, not a taste: a cursor animates when the
+ *  order it previews commits a unit to STAND on that spot and hold station
+ *  while a sim timer runs, and the motion is that clock. `demolish` is
+ *  `demolitionTicks` (sim.ts `stepDemolition`, DEMO_SECONDS 5, reset to 0 on
+ *  interruption at three separate sites); `charge` is `tunnelChargeTicks`
+ *  (`stepTunnelCharge`, the same shape); `attack` is the reload-under-LOS
+ *  hold. Anything that resolves instantly, resolves somewhere else, or merely
+ *  labels the ground stays still -- which is why `move`, `garrison`,
+ *  `blocked`, `costly`, `protected` and `support` are all absent, and why
+ *  `demolish` -- `winningVerb`'s TOP rung, and until now the only one of the
+ *  three destructive verbs sitting still -- was added rather than left as an
+ *  inconsistency in the shipped design. `support` was considered and
+ *  REJECTED: it is the one true targeting *mode*, first rung in `cursorFor`
+ *  and armed with an empty selection, so while armed it covers every tile
+ *  regardless of what is under it -- its motion would be constant and carry
+ *  no per-tile information, which is the "a cursor that always moves is
+ *  noise" failure.
+ *
  *  Driven from JS on a plain timer rather than a CSS `@keyframes` animation
- *  on `cursor` itself -- verified in a real headed Chromium that a
- *  `@keyframes` animation with `steps()` timing DOES step the *computed*
- *  `cursor: url(...)` value correctly over time (confirmed by polling
- *  `getComputedStyle` against a throwaway page), but that is necessary, not
- *  sufficient: browsers only repaint the visible OS pointer bitmap on an
- *  actual native pointer event, not on every style recalculation, and this
- *  session had no way to capture the real screen to confirm or refute that
- *  the paint keeps up while the mouse sits still (macOS blocked
- *  `screencapture` on Screen Recording permission, with no interactive path
- *  to grant it here). Rather than gamble on that gap for an app whose whole
- *  point is aiming at a stationary target, this reuses the mechanism already
- *  proven live in this codebase: `updateHover` in main.ts already writes
- *  `canvas.dataset.cursor` from plain JS with no accompanying pointer event
- *  at all -- e.g. a hostile unit walking under a motionless cursor flips
- *  `hostile` and repaints the `attack` cursor with the mouse never moving --
- *  so a second dataset attribute (`data-cursor-frame`), written the same
- *  way, inherits that same proven behaviour instead of trusting a mechanism
- *  this session could not confirm end to end.
+ *  on `cursor` itself. What is actually known, restated in 2026-09-02 after a
+ *  second session measured it from a new direction and got further than the
+ *  first: a `@keyframes` animation with `steps()` timing DOES step the
+ *  *computed* `cursor: url(...)` value over time, and so does this timer.
+ *  Both were then re-measured against a REMOTE (http) cursor URL with a
+ *  request log, and both fetch each frame's image on their own cadence with
+ *  zero input events after the initial move. That is NOT the proof it looks
+ *  like, and the control is why: an unhovered element's cursor image is
+ *  fetched too, at load, with no pointer event ever -- so Blink loads a
+ *  cursor image at style-resolution time, and a fetch is evidence of a style
+ *  recalc, never of a pointer repaint. **The repaint past the style write
+ *  therefore remains unproven for BOTH mechanisms** (macOS blocks
+ *  `screencapture` on Screen Recording permission -- "could not create image
+ *  from display" -- and CDP screenshots exclude the OS pointer by
+ *  construction). Do not re-run the remote-URL probe expecting an answer; it
+ *  cannot give one.
+ *
+ *  So the JS timer is kept for a smaller, honest reason than this comment
+ *  used to give. It previously claimed the dataset write "inherits proven
+ *  behaviour" from `updateHover`; that overclaims -- `updateHover`'s own
+ *  repaint rests on exactly the same unverified step, and the measurement
+ *  above shows `@keyframes` is not observably worse. It is kept because it is
+ *  the mechanism already shipping, switching buys nothing measured, and the
+ *  timer alone can hold the frame index in the DOM where `cursorKey()` and a
+ *  test can read it back. If someone ever captures the real pointer and finds
+ *  no repaint, the answer is to delete the animation, not to swap mechanisms.
  *
  *  `attack`: 4 frames at 300ms (~1.2s/cycle) -- a slow pulse, not a spinner:
- *  rest, converge, rest, release. `charge`: 4 frames at 200ms (~0.8s/cycle,
- *  noticeably brisker) -- a ring ticking outward from the charge, the one
- *  place slightly more energy is justified. Both restrained by design: see
- *  vite-plugin-cursors.ts's ATTACK_PULSE/CHARGE_RING tables for the actual
- *  geometry and the fuller reasoning. */
+ *  rest, converge, rest, release. `demolish`: 4 frames at 300ms, attack's own
+ *  tempo so the set keeps exactly two rates rather than gaining a third --
+ *  the rays EXTEND first where attack CONVERGES first, the same grammar read
+ *  backwards on a shape that is already distinct (8 dense rays against 4 open
+ *  ticks). `charge`: 4 frames at 200ms (~0.8s/cycle, noticeably brisker) -- a
+ *  ring ticking outward from the charge, the one place slightly more energy
+ *  is justified. All three restrained by design: see vite-plugin-cursors.ts's
+ *  ATTACK_PULSE/DEMOLISH_BURST/CHARGE_RING tables for the actual geometry and
+ *  the fuller reasoning. */
 export const ANIMATED_CURSORS: Readonly<Partial<Record<CursorName, CursorAnimation>>> = {
   attack: { frames: 4, intervalMs: 300 },
   charge: { frames: 4, intervalMs: 200 },
+  demolish: { frames: 4, intervalMs: 300 },
 };
 
 /** The heaviest thing this click will cause, or null if it is a plain order.
