@@ -49,6 +49,7 @@ import {
 import { TERRAIN_THEMES } from './terrain-themes';
 import './ui/theme.css';
 import { Hud, type MissionView, type Tone } from './ui/hud';
+import { Minimap } from './ui/minimap';
 import { showMenu, showCampaign, showSandbox, showEndScreen } from './ui/menu';
 import { briefingBeats, showLoading } from './ui/loading';
 import { ProductionBar } from './ui/production';
@@ -957,6 +958,26 @@ async function main(): Promise<void> {
       audioMuted = audio.toggle();
     },
   });
+  // The minimap (GH-153). Mounted here rather than inside the Hud because it
+  // needs three things the Hud deliberately does not carry -- the parsed map,
+  // the renderer, and this map's terrain tones -- and threading all three
+  // through HudDeps to reach one corner of the screen would widen that
+  // interface for no gain. It keeps its own 4 Hz counter, so it is driven from
+  // the tick loop beside `hud.onTick()` and depends on hud.ts for nothing.
+  //
+  // `tones` and `teamColors` come straight off `opts`: the minimap paints the
+  // ground and the sides in the colours the battlefield itself is painted in,
+  // by construction rather than by a second lookup that could drift.
+  const minimap = new Minimap(document.body, {
+    sim,
+    map,
+    view: renderer,
+    tones: opts.terrainTones,
+    teamColors: opts.teamColors,
+    // A thunk: objectives complete and drop off mid-mission, and a sandbox
+    // has none at all.
+    objectives: () => runtime?.objectiveList ?? [],
+  });
   // Loud, not a console.warn behind a completed loading bar: `failedArt`
   // (collected above, before the HUD existed to report through) names every
   // structure or unit type whose art never loaded. One notice for the whole
@@ -1500,6 +1521,7 @@ async function main(): Promise<void> {
       }
     }
     hud.onTick();
+    minimap.onTick();
     overlay.onTick(events);
     if (production && sim.tickCount % 5 === 0) production.refresh();
     // The safety net under roster-driven mesh loading, once a second.

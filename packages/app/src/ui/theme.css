@@ -831,6 +831,46 @@ body {
   white-space: nowrap;
 }
 
+/* --- minimap ---------------------------------------------------------- */
+
+/* Everything inside the box is painted by minimap.ts into a 2D context, from
+   colours it resolves out of these same tokens (see CHROME there) — so this
+   rule owns the frame and the corner, and nothing else.
+
+   The size is stated twice on purpose: --minimap is the number, and the
+   canvas element carries its own backing store of the same value
+   (MINIMAP_SIZE). If those ever drift the canvas scales instead of clipping,
+   so the symptom is a soft minimap rather than one silently missing an edge.
+
+   No pointer-events:none, unlike the other floating regions. This one sits on
+   top of the battlefield's bottom-right corner and a click falling through it
+   would order a unit onto ground the player cannot see and did not aim at.
+
+   And deliberately NO background: minimap.ts fills the whole box itself before
+   it draws anything, so a CSS one would be redundant — and it is not merely
+   redundant, it is actively harmful. An opaque CSS background on a <canvas>
+   sitting over the WebGL canvas made headless Chromium's SwiftShader
+   compositor drop the fog layer across a 212x212 region of the FRAME, at the
+   vertical mirror of this box (bottom-right box -> top-right hole, a CSS-to-GL
+   y-flip). Measured on the golden gate's own relief capture: 42,049 pixels of
+   clear colour where fog belonged, worth 7.2473 meanAbsChannelDelta on its
+   own. Falsified four ways — removing the element clears it, a plain canvas
+   with no CSS background at the same spot does not reproduce it, moving this
+   box elsewhere moves nothing into the mirror, and `background: transparent`
+   on this very element clears it while it keeps drawing normally. Real
+   hardware (ANGLE/Metal, M3 Pro) does not reproduce it, so nothing a player
+   sees was ever wrong — but the visual gate captures on SwiftShader, and a
+   gate that cannot see the frame is worse than no gate. */
+.rl-minimap {
+  position: absolute;
+  right: var(--s2);
+  bottom: var(--s2);
+  width: var(--minimap);
+  height: var(--minimap);
+  border: 1px solid var(--panel-frame);
+  z-index: 5;
+}
+
 /* --- projected fire, on the cursor ------------------------------------ */
 
 /* The only panel left on the mission screen besides the dock's tooltip, and

@@ -32,6 +32,16 @@ export { DebugOverlay } from './overlay';
 // which only resolves when `?renderer=three` asks for it. (This reverses Task
 // B1.1's brief, which specified the re-export; the brief could not anticipate
 // the bundling consequence.)
+// The one fog-of-war gate every unit-draw path shares. It lives under
+// `three/` because that is where its third and fourth callers were written,
+// but it is backend-neutral by construction -- zero imports, three.js
+// included, and its own doc comment records that it matches
+// `PixiRenderer`'s loop bit for bit. Re-exported here because the HUD's
+// minimap (GH-153) is now a caller too: a minimap decides "may I draw this
+// hostile?" for every unit on the map, and a SECOND spelling of that rule in
+// `packages/app` would be x-ray vision the first time the two drifted. So the
+// app calls the same function rather than agreeing with it.
+export { unitIsObserved } from './three/units/observed';
 export { BattleAudio, type AudioManifest, type AudioSet, type AudioVariant } from './audio';
 export { type EmitterSpec } from './vfx';
 export type { Renderer } from './api';
