@@ -48,7 +48,8 @@ import {
 } from '@lions/data';
 import { TERRAIN_THEMES } from './terrain-themes';
 import './ui/theme.css';
-import { Hud, type MissionView, type Tone } from './ui/hud';
+import { Hud, type MissionView, type OrderHandlers, type Tone } from './ui/hud';
+import { portraitUrl, type SheetManifest } from './ui/portrait';
 import { Minimap } from './ui/minimap';
 import { showMenu, showCampaign, showSandbox, showEndScreen } from './ui/menu';
 import { briefingBeats, showLoading } from './ui/loading';
@@ -876,16 +877,44 @@ async function main(): Promise<void> {
     );
   }
 
+  /**
+   * The frame each unit type shows in the HUD's selection cluster (GH-153).
+   *
+   * Resolved from each sheet's own manifest rather than from a filename
+   * template, because there are already two naming conventions in
+   * `assets/sprites/` (`idle_f03_000.png` where the sheet declares clips, a
+   * bare `f03_000.png` where it does not) and a hand-kept map of which sheet is
+   * which is the `SPRITE_MAP` failure mode all over again. The manifest is the
+   * file the renderer itself reads, so reading the same one cannot drift.
+   *
+   * A type absent from here has no picture and the HUD draws its role mark on
+   * the reserved hatch instead — `civilians` is the one shipped type in that
+   * position, and a click-select can reach it.
+   */
+  const portraits: Record<string, string> = {};
+
   for (const [id, spec] of Object.entries(SPRITE_MAP)) {
     const { path, ...rest } = spec;
     artJobs.push(
-      renderer
-        .loadSprites(id, path, rest)
-        .catch((err) => {
+      Promise.all([
+        renderer.loadSprites(id, path, rest).catch((err) => {
           console.warn(`[lions] sprites FAILED for ${id}:`, err);
           failedArt.push(id);
-        })
-        .then(() => loading.step())
+        }),
+        // Its own fetch and its own failure: a manifest that 404s costs the HUD
+        // a picture, not the battlefield a unit, so it must not push onto
+        // `failedArt` and must not hold up the art gate on its own. In practice
+        // the renderer has just fetched the same URL and this is a cache hit.
+        fetch(`${path}manifest.json`)
+          .then((r) => (r.ok ? (r.json() as Promise<SheetManifest>) : null))
+          .then((m) => {
+            const url = m === null ? null : portraitUrl(path, m);
+            if (url !== null) portraits[id] = url;
+          })
+          .catch((err: unknown) => {
+            console.warn(`[lions] portrait manifest FAILED for ${id}:`, err);
+          }),
+      ]).then(() => loading.step())
     );
   }
 
@@ -942,6 +971,89 @@ async function main(): Promise<void> {
   // BattleAudio keeps `muted` private and reports the new state from
   // `toggle()`, so the strip's chip reads this mirror rather than the mixer.
   let audioMuted = false;
+
+  // --- the five orders, once ------------------------------------------------
+  //
+  // GH-153's order row draws a button per verb, and the ticket's requirement is
+  // that the button "dispatches the same intents as the keys in intents.ts".
+  // The way to make that true rather than merely intended is for there to be
+  // ONE function per verb: the keydown listener below calls these, and the HUD
+  // is handed the same object. There is no second implementation to drift.
+  //
+  // Every body reads state declared further down this function (`intentWorld`,
+  // `dispatch`, `lastCursor`, `production`). That is safe and deliberate: all
+  // of them run from a listener, long after main() has finished initialising,
+  // so no temporal dead zone is ever entered — and the alternative, moving the
+  // HUD's construction below the input block, would put the loading screen's
+  // successor on screen after the pointer handlers instead of before them.
+  /** The armed order waiting for a click on the map, if any. Only the two
+   *  point-targeted orders can be armed; the other three act at once. */
+  let armedOrder: 'attackMove' | 'smoke' | null = null;
+  const myLiving = (): number[] =>
+    renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
+  /**
+   * The three verbs `intents.ts` resolves, through one call.
+   *
+   * The three keydown branches this replaces each passed stub predicates for
+   * the fields their own verb ignores (`g` passed `canSmoke: () => false`).
+   * Passing the real ones for all three is behaviourally identical —
+   * `resolveKeyVerb` reads only the fields its verb needs — and removes three
+   * chances to stub the wrong one.
+   */
+  const runVerb = (verb: 'mount' | 'dismount' | 'smoke', at?: { x: number; y: number }): void => {
+    const w = at ?? renderer.screenToWorld(lastCursor.x, lastCursor.y);
+    const res = resolveKeyVerb(intentWorld, verb, {
+      ids: myLiving(),
+      x: w.x,
+      y: w.y,
+      isCarrier: (i) => sim.unitTypes[sim.state.typeIdx[i]].transportSlots > 0,
+      canEmbark: (i) => sim.unitTypes[sim.state.typeIdx[i]].canEmbark,
+      canSmoke: (i) => sim.unitTypes[sim.state.typeIdx[i]].canSmoke,
+      passengerCount: (i) => sim.passengerCount(i),
+    });
+    for (const intent of res.intents) dispatch(intent);
+    if (res.note) hud.note(res.note.text, res.note.tone);
+    if (res.marker) renderer.addOrderMarker(w.x, w.y);
+  };
+  /**
+   * Arm (or disarm) a point-targeted order.
+   *
+   * Attack-move and smoke both need a PLACE, and a button has none — so
+   * clicking one lights it lime and the next left click on the map spends it.
+   * Without this the Smoke button lays its screen where the pointer is, which
+   * after a click on the button is the button: measured on
+   * `?sandbox=beit_sahwan_outskirts`, `f` at the cursor and the Smoke button
+   * two seconds apart put the screen 1.3 tiles apart, the second one under the
+   * HUD. The wireframe draws Smoke lime with a lone Namer selected and nothing
+   * laid, which is this state.
+   *
+   * The KEYS are unchanged: `f` still quick-casts at the cursor, because a
+   * hand already on the mouse has a place and does not need a mode. Both paths
+   * end in the same `runVerb('smoke', …)` call, so what differs between a
+   * button and its key is where the point comes from and nothing else.
+   */
+  const armOrder = (id: 'attackMove' | 'smoke'): void => {
+    armedOrder = armedOrder === id ? null : id;
+    // Two armed modes cannot both own the next click. Arming an order disarms
+    // a fire-support call, and production's onArm does the reverse.
+    if (armedOrder !== null && armedSupport !== null) {
+      armedSupport = null;
+      production?.setArmed(null);
+    }
+  };
+  const orders: OrderHandlers = {
+    attackMove: () => armOrder('attackMove'),
+    // `side === 0` and not `myLiving()`: this is the pre-existing `h` binding
+    // moved, not rewritten, and a dead unit's halt is a no-op in the sim.
+    halt: () => {
+      const mine = renderer.selection.filter((i) => sim.state.side[i] === 0);
+      if (mine.length) dispatch({ kind: 'halt', ids: mine });
+    },
+    smoke: () => armOrder('smoke'),
+    load: () => runVerb('mount'),
+    unload: () => runVerb('dismount'),
+  };
+
   const hud = new Hud(document.body, {
     sim,
     getSelection: () => renderer.selection,
@@ -949,6 +1061,13 @@ async function main(): Promise<void> {
     hoverStructure: () => renderer.hoverStructure,
     hoverEntity: () => renderer.hoverEntity,
     gameVersion: __GAME_VERSION__,
+    orders,
+    armedOrder: () => armedOrder,
+    portrait: (typeId) => portraits[typeId] ?? null,
+    setSelection: (ids) => {
+      renderer.selection = ids;
+      dispatch({ kind: 'select', ids, via: 'click' });
+    },
     getSpeed: () => gameSpeed,
     setSpeed: (s) => {
       gameSpeed = s;
@@ -1046,6 +1165,10 @@ async function main(): Promise<void> {
       note: (html, tone) => hud.note(html, tone),
       onArm: (kind) => {
         armedSupport = kind;
+        // The other half of the mutual exclusion in `orders.attackMove`: only
+        // one armed mode can own the next click, and the one just asked for
+        // wins.
+        if (kind !== null) armedOrder = null;
       },
     });
   }
@@ -1226,6 +1349,38 @@ async function main(): Promise<void> {
         dragBox.style.display = 'none';
         return;
       }
+      // An armed order (GH-153's order row) spends this click instead of
+      // selecting with it. Attack-move resolves through `resolvePointer` with
+      // the same arguments the contextmenu handler passes, so the armed
+      // left-click and the right-click are the same order and not two that
+      // look alike — Shift still queues, Alt still confirms fire on a
+      // protected site. Smoke goes through the same `runVerb` the `f` key
+      // does, with this click's point instead of the cursor's.
+      if (armedOrder !== null) {
+        const spend = armedOrder;
+        armedOrder = null;
+        if (spend === 'smoke') {
+          runVerb('smoke', w);
+        } else {
+          const mine = myLiving();
+          if (mine.length > 0) {
+            const move = resolvePointer(intentWorld, {
+              ids: mine,
+              x: w.x,
+              y: w.y,
+              append: ev.shiftKey,
+              armed: null,
+              confirm: ev.altKey,
+            });
+            for (const intent of move.intents) dispatch(intent);
+            if (move.note) hud.note(move.note.text, move.note.tone);
+            if (move.marker) renderer.addOrderMarker(w.x, w.y);
+          }
+        }
+        dragStart = null;
+        dragBox.style.display = 'none';
+        return;
+      }
       const hit = renderer.pickUnit(w.x, w.y);
       renderer.selection = hit >= 0 ? [hit] : [];
       dispatch({ kind: 'select', ids: renderer.selection, via: 'click' });
@@ -1308,10 +1463,13 @@ async function main(): Promise<void> {
     // macOS swallows keyups released under Cmd — never track modified keys,
     // or Cmd+A leaves 'a' stuck and the camera pans forever.
     if (!ev.metaKey && !ev.ctrlKey) keys.add(ev.key.toLowerCase());
-    if (ev.key === 'h') {
-      const mine = renderer.selection.filter((i) => sim.state.side[i] === 0);
-      if (mine.length) dispatch({ kind: 'halt', ids: mine });
-    }
+    // The four bound verbs go through `orders`, which is the very object the
+    // HUD's order row calls (GH-153). A key and its button are one function.
+    if (ev.key === 'h') orders.halt();
+    // Tab walks the lime frame along the selection chips. Swallowed only when
+    // there is something to walk: taking the browser's own focus traversal on
+    // a screen with no chips would be a key spent on nothing.
+    if (ev.key === 'Tab' && hud.cycleChipFocus()) ev.preventDefault();
     if (ev.key.toLowerCase() === 'a' && (ev.ctrlKey || ev.metaKey)) {
       ev.preventDefault(); // browser select-all
       renderer.selection = [];
@@ -1326,53 +1484,17 @@ async function main(): Promise<void> {
     }
     // Mount up / dismount / smoke: the same resolver the right-click uses,
     // asked with a KeyContext instead of a PointerContext. The keys are
-    // unchanged; what moved is where the eligibility rules live.
-    if (ev.key === 'g') {
-      const mine = renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
-      const res = resolveKeyVerb(intentWorld, 'mount', {
-        ids: mine,
-        x: 0,
-        y: 0,
-        isCarrier: (i) => sim.unitTypes[sim.state.typeIdx[i]].transportSlots > 0,
-        canEmbark: (i) => sim.unitTypes[sim.state.typeIdx[i]].canEmbark,
-        canSmoke: () => false,
-        passengerCount: () => 0,
-      });
-      for (const intent of res.intents) dispatch(intent);
-      if (res.note) hud.note(res.note.text, res.note.tone);
-    }
-    if (ev.key === 'u') {
-      const mine = renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
-      const res = resolveKeyVerb(intentWorld, 'dismount', {
-        ids: mine,
-        x: 0,
-        y: 0,
-        isCarrier: () => false,
-        canEmbark: () => false,
-        canSmoke: () => false,
-        passengerCount: (i) => sim.passengerCount(i),
-      });
-      for (const intent of res.intents) dispatch(intent);
-      if (res.note) hud.note(res.note.text, res.note.tone);
-    }
-    if (ev.key === 'f') {
-      // Screen the ground ahead: laid where the cursor is, by whoever in the
-      // selection carries smoke and is off cooldown.
-      const mine = renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
-      const w = renderer.screenToWorld(lastCursor.x, lastCursor.y);
-      const res = resolveKeyVerb(intentWorld, 'smoke', {
-        ids: mine,
-        x: w.x,
-        y: w.y,
-        isCarrier: () => false,
-        canEmbark: () => false,
-        canSmoke: (i) => sim.unitTypes[sim.state.typeIdx[i]].canSmoke,
-        passengerCount: () => 0,
-      });
-      for (const intent of res.intents) dispatch(intent);
-      if (res.note) hud.note(res.note.text, res.note.tone);
-      if (res.marker) renderer.addOrderMarker(w.x, w.y);
-    }
+    // unchanged; what moved is where the eligibility rules live -- and, as of
+    // GH-153, WHERE THE CALL LIVES: `orders` above is the same object the HUD's
+    // order row clicks, so `g` and the Load button are one code path rather
+    // than two that have to keep agreeing.
+    if (ev.key === 'g') orders.load();
+    if (ev.key === 'u') orders.unload();
+    // `f` quick-casts at the cursor rather than arming, which is what it has
+    // always done and what a hand already on the mouse wants. The Smoke
+    // BUTTON arms instead -- see `armOrder` for why a button cannot quick-cast
+    // -- and both end in this same call.
+    if (ev.key === 'f') runVerb('smoke');
     if (ev.key === 'm') {
       audioMuted = audio.toggle();
       hud.paintMute(); // the key and the strip's chip are one state, both ways

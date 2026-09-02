@@ -165,8 +165,13 @@
   --card-w: 460px;
   --minimap: 210px;
   /* The feed, the controls hint and the order row all share one x: centred on
-     the map, pushed clear of the reinforcements dock on the left. */
-  --hud-centre: calc(50% + 70px);
+     the map, pushed clear of the reinforcements dock on the left. The offset
+     is its own token because anything centred on --hud-centre and bounded by
+     the viewport has to subtract it TWICE -- the shift eats the same room off
+     the right edge that it gains on the left, so the widest a centred child
+     can be is the viewport less two offsets. */
+  --hud-centre-offset: 70px;
+  --hud-centre: calc(50% + var(--hud-centre-offset));
 
   /* --- type ----------------------------------------------------------- */
   --font-display: 'Big Shoulders Display', 'Oswald', 'Haettenschweiler', sans-serif;
@@ -869,6 +874,260 @@ body {
   height: var(--minimap);
   border: 1px solid var(--panel-frame);
   z-index: 5;
+}
+
+/* --- the selection cluster (GH-153 slice 2) --------------------------- */
+
+/* Bottom centre, on the same x as the feed and the hint, because it REPLACES
+   the hint: nothing selected is a line of controls, something selected is the
+   orders for it. The two are never on screen together, so they share the
+   anchor rather than stacking and pushing each other around. */
+/* Spans the frame and centres its content, rather than being anchored at
+   --hud-centre and pulled back by translateX(-50%) the way the feed and the
+   hint are. Both put the content in the same place, and for a fixed-width
+   child they are equivalent — but this cluster is as wide as the selection
+   makes it, and an absolutely-positioned box with only a `left` gets exactly
+   `container - left` of room to lay out in. Measured at 1440 with ten unit
+   types: the anchored version had 650px to work with and wrapped ten chips
+   into three rows, while 1284px was free. Padding the left edge by two offsets
+   puts the centre of the remaining box back on --hud-centre exactly. */
+.rl-sel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: var(--s2);
+  box-sizing: border-box;
+  padding-left: calc(2 * var(--hud-centre-offset) + var(--s2));
+  padding-right: var(--s2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+/* Both rows are bounded by the map furniture on either side rather than by the
+   frame, so a wide selection wraps instead of sliding under the minimap in the
+   bottom-right corner. Derived, not guessed: the content is centred on
+   --hud-centre, so the widest it can be while its right edge clears a
+   --minimap inset by --s2 is 100vw - 2*minimap - 4*s2 - 2*offset. At 1440 that
+   is 848px (five chips a row); measured without it, ten unit types drew a
+   1284px row whose last chip sat under the minimap. */
+.rl-orders,
+.rl-cluster {
+  max-width: calc(
+    100vw - 2 * var(--minimap) - 4 * var(--s2) - 2 * var(--hud-centre-offset)
+  );
+}
+.rl-orders {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--s1);
+}
+/* Tighter and smaller than .rl-btn's default: five of these sit in a row over
+   the map and the row must not become a wall. The glyph carries the size the
+   type gives up. */
+.rl-order {
+  font-size: var(--t-s);
+  padding: var(--s1) 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.rl-order__glyph {
+  font-size: 14px;
+  line-height: 1;
+}
+/* Capable, but it would issue no command right now — an empty transport asked
+   to unload. Distinct from an order the selection cannot give at all, which is
+   absent from the row entirely. Still clickable: the handler's own refusal
+   note is what explains it, and a disabled button explains nothing. */
+.rl-order[data-inert='1'] {
+  opacity: 0.45;
+  color: var(--ink-dim);
+}
+/* The armed order outranks inert — an armed button is the one the next click
+   spends and must read as lime even mid-fade. */
+.rl-order[data-armed='1'] {
+  opacity: 1;
+}
+
+/* Wraps upward: the cluster is anchored at the bottom, so a second row of
+   chips grows into the map rather than off the bottom of the screen. */
+.rl-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--s1);
+}
+
+/* --- multi-select: one chip per unit type ----------------------------- */
+
+.rl-chip {
+  box-sizing: border-box;
+  width: var(--chip-w);
+  display: flex;
+  gap: var(--s2);
+  padding: 6px var(--s2);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  pointer-events: auto;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.rl-chip:hover {
+  border-color: var(--accent);
+}
+/* The focused sub-group. Tab cycles it; a click commits to it. */
+.rl-chip[data-focus='1'] {
+  border-color: var(--live);
+}
+.rl-chip__art {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  /* The sheets are 256px and this is 40. Nearest-neighbour is the spec's own
+     call and it is the right one here: the art is quantized onto the palette,
+     and a smooth downscale invents colours that are not in it. */
+  image-rendering: pixelated;
+}
+.rl-chip__body {
+  flex: 1;
+  min-width: 0;
+}
+.rl-chip__top {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s1);
+}
+.rl-chip__name {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  min-width: 0;
+}
+/* The ellipsis lives on the inner span, because text-overflow does nothing to
+   a flex container's own text — 150px is narrower than several unit names. */
+.rl-chip__name > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rl-chip__top > b {
+  flex: none;
+}
+.rl-chip .rl-track {
+  margin-top: 3px;
+}
+.rl-chip__status {
+  color: var(--ink-dim);
+}
+
+/* The role mark, inline with the name it belongs to. currentColor, so it dims
+   with whatever ink it sits in rather than needing its own rule. */
+.rl-badge {
+  flex: none;
+  color: currentcolor;
+}
+
+/* Art the pipeline has not produced. The commander portrait's hatch, so
+   "reserved" reads the same way everywhere in this HUD, with the role mark on
+   top so the frame still says what the unit IS. Never an empty box: a blank
+   40px hole reads as a broken image, and this reads as a deliberate gap. */
+.rl-chip__art[data-nosprite='1'],
+.rl-card__art[data-nosprite='1'] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-dim);
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--type-shadow) 0,
+    var(--type-shadow) 4px,
+    var(--panel-frame) 4px,
+    var(--panel-frame) 6px
+  );
+}
+
+/* --- single unit: the wide card --------------------------------------- */
+
+.rl-card {
+  box-sizing: border-box;
+  width: var(--card-w);
+  max-width: 92vw;
+  display: flex;
+  gap: 10px;
+  padding: var(--s2) 10px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  pointer-events: auto;
+}
+.rl-card__frame {
+  position: relative;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: 72px;
+  height: 72px;
+  border: 1px solid var(--panel-frame);
+  background: var(--well);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.rl-card__art {
+  width: 68px;
+  height: 68px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+/* The badge rides the frame rather than the art, so it holds still while the
+   picture inside changes size from one unit type to the next. */
+.rl-card__badge {
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  color: var(--ink-label);
+  line-height: 0;
+}
+.rl-card__body {
+  flex: 1;
+  min-width: 0;
+}
+.rl-card__top {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+}
+.rl-card__name {
+  font-family: var(--font-display);
+  font-size: var(--t-card);
+  font-weight: 800;
+  letter-spacing: var(--track-title);
+  line-height: 1;
+  text-transform: uppercase;
+}
+.rl-card__hp {
+  margin-left: auto;
+  white-space: nowrap;
+}
+.rl-card .rl-track {
+  margin: 3px 0;
+}
+/* Two columns, because armament and capabilities are read separately: one
+   answers "what does it kill", the other "what can I make it do". Stacked,
+   the second is below the fold of a glance. */
+.rl-card__cols {
+  display: flex;
+  gap: 14px;
+  margin-top: var(--s1);
+}
+.rl-card__cols > div {
+  flex: 1;
+  min-width: 0;
 }
 
 /* --- projected fire, on the cursor ------------------------------------ */

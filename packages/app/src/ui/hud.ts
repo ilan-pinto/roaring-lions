@@ -1,5 +1,5 @@
 // The player's HUD: the top strip, the hold clock, the commander, the event
-// feed, and the unit card.
+// feed, and the bottom-centre selection cluster.
 //
 // This used to live inside DebugOverlay, in @lions/render, which put the face
 // of the game inside the development instrument and inside the rendering
@@ -15,20 +15,21 @@
 // mission screen is projected fire, and it earns its box by being dense,
 // transient, and read against whatever the cursor is over.
 //
-// What this slice does NOT own, and what still draws the way it did: the
-// selection card (`this.card`), which the multi-select chip row and the 460px
-// single-unit card replace in a later slice, and the production panel in
-// production.ts, which the reinforcements dock replaces.
+// The bottom-right inspect panel is gone as of slice 2, replaced by the
+// cluster at the bottom centre: the order row over either a row of 150px chips
+// (one per unit type in the selection) or one 460px card. What still draws the
+// way it did is the production panel in production.ts, which the
+// reinforcements dock replaces in a later slice.
 //
 // Nothing here reads or writes sim state — it renders what the sim reports
-// (invariant 4). The arithmetic is in hud-model.ts so that the strip's inline
-// clock and the big centred clock cannot derive the same number twice.
+// (invariant 4). The arithmetic is in hud-model.ts and selection-model.ts, so
+// that the strip's inline clock and the big centred clock cannot derive the
+// same number twice, and so that "can this selection unload" is answered once.
 
 import { fx, type Sim } from '@lions/sim';
-import { panel, type Panel } from './panel';
 import { flash, leave, titleCard } from './motion';
 import { markSvg } from './mark';
-import { ROLE_GLYPH, roleBucket } from './role';
+import { roleBadgeSvg, roleBucket } from './role';
 import {
   beatDwellMs,
   countSuppressed,
@@ -41,8 +42,19 @@ import {
   type MissionView,
   type Tone,
 } from './hud-model';
+import {
+  ORDERS,
+  groupChips,
+  hpTone,
+  orderRow,
+  stepFocus,
+  type OrderId,
+  type SelectionFacts,
+  type UnitFacts,
+} from './selection-model';
 
 export type { MissionView, ObjectiveView, Tone } from './hud-model';
+export type { OrderId } from './selection-model';
 
 /**
  * Who delivers the orders.
@@ -63,6 +75,27 @@ const FEED_LINES = 4;
  *  and slightly up, so it never covers the unit the player is aiming at. */
 const FIRE_OFFSET = { x: 36, y: -8 };
 
+/** The badge size in each of the two places a unit is pictured. Both are small
+ *  enough that the mark is a shape rather than a drawing — the same reason the
+ *  cursor's badge is seven buckets and not fourteen roles. */
+const CHIP_BADGE = 8;
+const CARD_BADGE = 10;
+/** And the size the same mark is drawn at when it is standing IN for missing
+ *  art rather than labelling it — big enough to read as the picture. */
+const CHIP_MARK = 18;
+const CARD_MARK = 32;
+
+/**
+ * The five order buttons, wired to whatever `main.ts` binds its keys to.
+ *
+ * A record and not five optional callbacks, so adding a sixth order is a
+ * compile error here rather than a button that silently does nothing. Each
+ * value is the SAME function object the keydown listener calls — that is the
+ * whole contract of this type, and it is why the row cannot promise something
+ * the key does not deliver.
+ */
+export type OrderHandlers = Record<OrderId, () => void>;
+
 export interface HudDeps {
   sim: Sim;
   getSelection: () => number[];
@@ -70,6 +103,17 @@ export interface HudDeps {
   hoverStructure: () => number;
   hoverEntity: () => number;
   gameVersion: string;
+  /** What each order button does. Absent in tests that do not exercise the row
+   *  — the buttons then render and are inert, which is also what a mission with
+   *  no input wiring should look like. */
+  orders?: OrderHandlers;
+  /** Which order is armed and waiting for a click on the map, if any. */
+  armedOrder?: () => OrderId | null;
+  /** The idle-frame URL for a unit type, or null where the type ships no sprite
+   *  sheet. Resolved once at boot in main.ts from each sheet's own manifest. */
+  portrait?: (typeId: string) => string | null;
+  /** Narrow the selection to one chip's sub-group. */
+  setSelection?: (ids: number[]) => void;
   /** Game speed as a multiplier: 0 paused, 1 normal, 2 double. The strip owns
    *  the buttons; the frame loop owns the number. */
   getSpeed?: () => number;
@@ -85,7 +129,17 @@ export class Hud {
   private readonly stripInfo: HTMLDivElement;
   private readonly speedChips: { el: HTMLButtonElement; speed: number }[] = [];
   private readonly muteChip: HTMLButtonElement;
-  private readonly card: Panel;
+  /** The bottom-centre cluster: the order row over the chips or the card. */
+  private readonly sel: HTMLDivElement;
+  private readonly orderBar: HTMLDivElement;
+  private readonly orderBtns = new Map<OrderId, HTMLButtonElement>();
+  private readonly cluster: HTMLDivElement;
+  /** Which sub-group the lime frame is on, and the type ids it indexes into.
+   *  Kept as an index rather than a type id so Tab has something to step, and
+   *  re-clamped on every rebuild so a sub-group wiped out by casualties does
+   *  not leave the frame pointing past the end of the row. */
+  private chipFocus = 0;
+  private chipTypes: string[] = [];
   private readonly clock: HTMLDivElement;
   private readonly feed: HTMLDivElement;
   private readonly hint: HTMLDivElement;
@@ -195,12 +249,58 @@ export class Hud {
     this.paintSpeed();
     this.paintMute();
 
-    this.card = panel({
-      rank: 'inspect',
-      title: 'Selection',
-      place: 'right:var(--s2);bottom:var(--s2);width:var(--rail-right);max-height:46vh',
+    // --- the selection cluster --------------------------------------------
+    //
+    // Bottom centre, on the same x as the feed and the controls hint, because
+    // it replaces the hint the moment anything is selected: one place at the
+    // bottom of the screen that answers "what am I holding and what can it do".
+    //
+    // The order buttons are built ONCE and only repainted, while the chips and
+    // the card are innerHTML'd wholesale four times a second. That split is not
+    // tidiness — it is the same lesson the top strip's three runs record. A
+    // single innerHTML over both would drop every button's listener 4 Hz, and
+    // the symptom is an order button that fires only if you click it fast
+    // enough.
+    this.sel = document.createElement('div');
+    this.sel.className = 'rl-sel';
+    this.sel.style.display = 'none';
+
+    this.orderBar = document.createElement('div');
+    this.orderBar.className = 'rl-orders';
+    for (const spec of ORDERS) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'rl-btn rl-order';
+      b.dataset.order = spec.id;
+      b.addEventListener('click', () => {
+        // Straight through to whatever main.ts bound the key to. No local
+        // eligibility check: an inert order still calls its handler, and the
+        // handler's own resolver is what explains the refusal in the feed
+        // ("select a transport and the infantry to load"). Second-guessing it
+        // here would mean two answers to one question.
+        this.deps.orders?.[spec.id]();
+        b.blur(); // keep the keyboard on the battlefield
+      });
+      this.orderBtns.set(spec.id, b);
+      this.orderBar.appendChild(b);
+    }
+
+    this.cluster = document.createElement('div');
+    this.cluster.className = 'rl-cluster';
+    // Delegated, because the chips themselves are replaced 4 Hz. Clicking a
+    // chip narrows the selection to that sub-group, which is what makes the
+    // focus frame worth having: Tab picks, the click commits.
+    this.cluster.addEventListener('click', (ev) => {
+      const chip = (ev.target as HTMLElement | null)?.closest<HTMLElement>('.rl-chip');
+      const typeId = chip?.dataset.type;
+      if (typeId === undefined) return;
+      const sim = this.deps.sim;
+      const ids = this.deps
+        .getSelection()
+        .filter((i) => sim.state.alive[i] === 1 && sim.unitTypes[sim.state.typeIdx[i]].id === typeId);
+      if (ids.length > 0) this.deps.setSelection?.(ids);
     });
-    this.card.hide();
+    this.sel.append(this.orderBar, this.cluster);
 
     this.clock = document.createElement('div');
     this.clock.className = 'rl-clock';
@@ -270,12 +370,34 @@ export class Hud {
       this.strip,
       this.cmd,
       this.clock,
-      this.card.el,
+      this.sel,
       this.feed,
       this.hint,
       this.fire,
       this.banner
     );
+  }
+
+  /**
+   * Move the lime frame to the next sub-group. Returns false when there is
+   * nothing to cycle, which is what lets main.ts leave Tab alone — swallowing
+   * the browser's own focus traversal on a screen with no chips on it would be
+   * taking a key for nothing.
+   */
+  cycleChipFocus(): boolean {
+    if (this.chipTypes.length < 2) return false;
+    this.chipFocus = stepFocus(this.chipFocus, this.chipTypes.length);
+    this.paintChipFocus();
+    return true;
+  }
+
+  /** Repaint the frame without rebuilding the row — Tab has to answer on the
+   *  keystroke, not on the next 4 Hz rebuild 250 ms later. */
+  private paintChipFocus(): void {
+    const chips = this.cluster.querySelectorAll<HTMLElement>('.rl-chip');
+    chips.forEach((el, i) => {
+      el.dataset.focus = i === this.chipFocus ? '1' : '0';
+    });
   }
 
   /** Mission start punctuation. */
@@ -585,49 +707,211 @@ export class Hud {
   }
 
   // ------------------------------------------------------------------
-  // Unit card: what it is, how it is doing, what it can do.
+  // The selection cluster: the order row, and either a chip per unit type or
+  // one wide card.
   //
-  // Unchanged by GH-153's foundation slice on purpose. The 150px chip row and
-  // the 460px card that replace it are a later slice; leaving this working
-  // means the mission screen never goes through a state with no inspector.
+  // One entry point rather than two, because the two states share the order
+  // row above them and share the decision of whether the whole cluster is on
+  // screen at all. `sel.length` picks the body: one unit gets the 460px card
+  // with its armament and capabilities, more than one gets 150px chips
+  // grouped by type. A player is asking a different question in each case —
+  // "what is this thing" versus "what have I got" — and answering both with
+  // the same widget is what the old bottom-right panel did.
   // ------------------------------------------------------------------
 
   private renderCard(): void {
     const sim = this.deps.sim;
-    const sel = this.deps.getSelection();
+    // Alive only. A selection outlives its units by up to a tick, and a chip
+    // reporting a corpse's health reads as a bug in the health bar.
+    const sel = this.deps.getSelection().filter((i) => sim.state.alive[i] === 1);
     if (sel.length === 0) {
-      this.card.hide();
+      this.sel.style.display = 'none';
+      this.chipTypes = [];
       return;
     }
-    const wasHidden = !this.card.visible;
-    this.card.show();
+    const wasHidden = this.sel.style.display === 'none';
+    this.sel.style.display = '';
 
+    this.renderOrders(sel);
+    if (sel.length === 1) {
+      this.chipTypes = [];
+      this.cluster.innerHTML = this.cardHtml(sel[0]);
+    } else {
+      this.renderChips(sel);
+    }
+    // The cluster arrives from below the frame edge the first time it is
+    // needed, and then holds still: re-running the entrance on every rebuild
+    // would make it twitch four times a second.
+    if (wasHidden) {
+      this.sel.classList.remove('rl-enter');
+      void this.sel.offsetWidth; // restart the animation rather than resume it
+      this.sel.classList.add('rl-enter');
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Order row.
+  // ------------------------------------------------------------------
+
+  /**
+   * Show the orders this selection can give, and dim the ones that would do
+   * nothing right now.
+   *
+   * Only own-side living units count: an enemy or a civilian can be
+   * click-selected (pickUnit does not filter by side, deliberately — inspecting
+   * a contact is how a player reads the battlefield) and no order in this row
+   * applies to one.
+   */
+  private renderOrders(sel: number[]): void {
+    const sim = this.deps.sim;
     const st = sim.state;
-    const id = sel[0];
+    const mine = sel.filter((i) => st.side[i] === 0);
+    const facts: SelectionFacts = {
+      count: mine.length,
+      underway: 0,
+      smokers: 0,
+      carriers: 0,
+      slots: 0,
+      aboard: 0,
+      riders: 0,
+    };
+    for (const i of mine) {
+      const type = sim.unitTypes[st.typeIdx[i]];
+      if (st.moving[i] === 1 || sim.waypointCount(i) > 0) facts.underway++;
+      if (type.canSmoke) facts.smokers++;
+      if (type.canEmbark) facts.riders++;
+      if (type.transportSlots > 0) {
+        facts.carriers++;
+        facts.slots += type.transportSlots;
+        facts.aboard += sim.passengerCount(i);
+      }
+    }
+    const rows = orderRow(facts, this.deps.armedOrder?.() ?? null);
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    for (const [id, btn] of this.orderBtns) {
+      const row = byId.get(id);
+      if (!row) {
+        btn.style.display = 'none';
+        continue;
+      }
+      btn.style.display = '';
+      btn.dataset.armed = row.armed ? '1' : '0';
+      // Not `disabled`: an inert order still runs its handler, and the
+      // handler's own note is what tells the player why nothing happened.
+      // A disabled button answers "why?" with silence.
+      btn.dataset.inert = row.inert ? '1' : '0';
+      const cap =
+        row.capacity !== undefined ? ` <b class="rl-dim">${row.capacity}</b>` : '';
+      btn.innerHTML =
+        `<span class="rl-order__glyph">${row.glyph}</span>${row.label}` +
+        `${cap} <b class="rl-dim">${row.key}</b>`;
+      btn.title = row.inert
+        ? `${row.label} — nothing in the selection would act on it right now`
+        : row.label;
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Multi-select: one chip per unit type.
+  // ------------------------------------------------------------------
+
+  private renderChips(sel: number[]): void {
+    const sim = this.deps.sim;
+    const st = sim.state;
+    const facts: UnitFacts[] = sel.map((i) => {
+      const type = sim.unitTypes[st.typeIdx[i]];
+      return {
+        typeId: type.id,
+        name: type.name,
+        bucket: roleBucket(type),
+        hp: fx.toNumber(st.hp[i]),
+        hpMax: fx.toNumber(type.hp),
+        routed: st.routed[i] === 1,
+        pinned: st.pinned[i] === 1,
+        moving: st.moving[i] === 1,
+        aboard: st.carriedBy[i] >= 0,
+        ...(type.hasAps
+          ? { aps: { ammo: st.apsAmmo[i], magazine: type.apsMagazine } }
+          : {}),
+      };
+    });
+    const chips = groupChips(facts);
+    this.chipTypes = chips.map((c) => c.typeId);
+    // Clamp rather than reset: losing the last sub-group should walk the frame
+    // back one, not throw it to the front of the row.
+    if (this.chipFocus >= chips.length) this.chipFocus = Math.max(0, chips.length - 1);
+
+    this.cluster.innerHTML = chips
+      .map((c, i) => {
+        const tone = c.statusTone === null ? 'rl-dim' : `rl-${c.statusTone}`;
+        return (
+          `<div class="rl-chip" data-type="${escapeAttr(c.typeId)}" ` +
+          `data-focus="${i === this.chipFocus ? '1' : '0'}" ` +
+          `title="${escapeAttr(c.name)} — click to select only these">` +
+          this.artHtml(c.typeId, c.bucket, 'rl-chip__art', CHIP_MARK) +
+          `<div class="rl-chip__body">` +
+          `<div class="rl-chip__top">` +
+          // The name in its own span, not loose text beside the badge:
+          // `text-overflow: ellipsis` has no effect on a flex CONTAINER's own
+          // text, so "AH-64 Peten" was being cut to "AH-64 Pete" with no
+          // ellipsis, which reads as a truncated field rather than a long name.
+          `<span class="rl-chip__name">${roleBadgeSvg(c.bucket, CHIP_BADGE)}` +
+          `<span>${c.name}</span></span>` +
+          `<b>×${c.count}</b>` +
+          `</div>` +
+          `<div class="rl-track"><i class="rl-fill-${c.hpTone}" ` +
+          `style="width:${(c.hpPct * 100).toFixed(0)}%"></i></div>` +
+          `<div class="rl-chip__status ${tone}">${c.status}</div>` +
+          `</div></div>`
+        );
+      })
+      .join('');
+  }
+
+  /**
+   * A unit's own art, or a deliberate stand-in for a type that ships none.
+   *
+   * The stand-in is the commander portrait's hatch with the role mark on it —
+   * the same "reserved, not broken" language the briefing bar already uses —
+   * and never an empty box. `civilians` is the one shipped type with no sheet
+   * in `SPRITE_MAP`, and it is reachable: a left click picks any unit, not only
+   * your own. A boot where a sheet failed to fetch lands here too, which is the
+   * case worth drawing honestly: the HUD says "no picture for this type", and
+   * the failed-art notice says which.
+   */
+  private artHtml(
+    typeId: string,
+    bucket: ReturnType<typeof roleBucket>,
+    cls: string,
+    markSize: number
+  ): string {
+    const src = this.deps.portrait?.(typeId) ?? null;
+    if (src === null) {
+      return (
+        `<div class="${cls}" data-nosprite="1" title="${escapeAttr(typeId)} — no sprite sheet">` +
+        `${roleBadgeSvg(bucket, markSize)}</div>`
+      );
+    }
+    return `<img class="${cls}" src="${escapeAttr(src)}" alt="" draggable="false">`;
+  }
+
+  // ------------------------------------------------------------------
+  // Single unit: the wide card.
+  // ------------------------------------------------------------------
+
+  private cardHtml(id: number): string {
+    const sim = this.deps.sim;
+    const st = sim.state;
     const type = sim.unitTypes[st.typeIdx[id]];
     const hpNow = fx.toNumber(st.hp[id]);
     const hpMax = fx.toNumber(type.hp);
     const hpPct = hpMax > 0 ? Math.max(0, hpNow / hpMax) : 0;
-    const hpTone = hpPct > 0.5 ? 'good' : hpPct > 0.25 ? 'warn' : 'bad';
     const vet = st.veterancy[id];
-    const glyph = ROLE_GLYPH[roleBucket(type)];
+    const bucket = roleBucket(type);
 
-    this.card.setTitle(type.name);
-    this.card.setTag(sel.length > 1 ? `+${sel.length - 1} more` : (type.role ?? 'unit'));
-
-    const rows: string[] = [];
-    // Placeholder frame: real portraits drop in here when the art pipeline
-    // produces them (ART_PIPELINE §10), without moving anything else.
-    rows.push(
-      `<div class="rl-card__head"><div class="rl-card__icon" title="${type.id}">${glyph}</div>` +
-        `<div class="rl-card__vitals">` +
-        (vet > 0 ? `<div class="rl-warn">${'★'.repeat(vet)}</div>` : '') +
-        `<div class="rl-track"><i class="rl-fill-${hpTone}" style="width:${(hpPct * 100).toFixed(0)}%"></i></div>` +
-        `<div class="rl-dim">${hpNow.toFixed(0)} / ${hpMax.toFixed(0)} hp</div>` +
-        `</div></div>`
-    );
-
-    // Condition: only what is actually true right now.
+    // Condition: only what is actually true right now. Unchanged from the panel
+    // this replaces — the list is the product of a dozen play sessions and the
+    // layout around it is what GH-153 is changing, not the facts in it.
     const flags: string[] = [];
     if (st.routed[id] === 1) flags.push('<span class="rl-bad">BROKEN</span>');
     else if (st.pinned[id] === 1) flags.push('<span class="rl-hot">PINNED</span>');
@@ -637,17 +921,16 @@ export class Hud {
     if (st.moving[id] === 1) flags.push('moving');
     const supp = fx.toNumber(st.suppression[id]);
     if (supp > 0.05) flags.push(`suppression ${(supp * 100).toFixed(0)}%`);
-    if (type.hasAps) flags.push(`APS ${st.apsAmmo[id]}/${type.apsMagazine}`);
+    if (type.hasAps) flags.push(`<span class="rl-info">APS ${st.apsAmmo[id]}/${type.apsMagazine}</span>`);
     const wp = sim.waypointCount(id);
     if (wp > 0) flags.push(`${wp} waypoint${wp === 1 ? '' : 's'}`);
-    rows.push(`<div>${flags.length > 0 ? flags.join(' · ') : 'holding position'}</div>`);
 
     // Armament, so the player can tell what this unit is for.
+    const arms: string[] = [];
     if (type.weapons.length > 0) {
-      rows.push('<div class="rl-label">Armament</div>');
       for (const w of type.weapons) {
         const pen = fx.toNumber(w.penetration);
-        rows.push(
+        arms.push(
           `<div>${w.id} — ${fx.toNumber(w.effectiveRange).toFixed(1)}/${fx.toNumber(w.range).toFixed(0)} tiles` +
             (pen > 0 ? ` · ${pen.toFixed(0)}mm pen` : '') +
             (fx.toNumber(w.collateralRisk) >= 0.5 ? ' <span class="rl-warn">⚠ heavy</span>' : '') +
@@ -655,7 +938,7 @@ export class Hud {
         );
       }
     } else {
-      rows.push('<div class="rl-label">Armament</div><div class="rl-dim">unarmed</div>');
+      arms.push('<div class="rl-dim">unarmed</div>');
     }
 
     // Special controls: what this unit can do beyond move and shoot.
@@ -675,11 +958,33 @@ export class Hud {
       caps.push(`carries ${type.transportSlots} — <b>g</b> load · <b>u</b> unload`);
     }
     if (type.canMarkTarget) caps.push('earns intel while stationary');
-    rows.push('<div class="rl-label">Capabilities</div>');
-    for (const c of caps) rows.push(`<div>${c}</div>`);
+    if (caps.length === 0) caps.push('<span class="rl-dim">none</span>');
 
-    this.card.body.innerHTML = rows.join('');
-    if (wasHidden) this.card.el.classList.add('rl-enter');
+    return (
+      `<div class="rl-card" data-type="${escapeAttr(type.id)}">` +
+      `<div class="rl-card__frame">` +
+      this.artHtml(type.id, bucket, 'rl-card__art', CARD_MARK) +
+      // The corner badge only where there IS art. Without it the placeholder
+      // already carries the mark, and two of the same shape in one 72px frame
+      // reads as a rendering fault rather than as emphasis.
+      (this.deps.portrait?.(type.id) != null
+        ? `<span class="rl-card__badge">${roleBadgeSvg(bucket, CARD_BADGE)}</span>`
+        : '') +
+      `</div>` +
+      `<div class="rl-card__body">` +
+      `<div class="rl-card__top">` +
+      `<span class="rl-card__name">${type.name}</span>` +
+      (vet > 0 ? `<span class="rl-warn">${'★'.repeat(vet)}</span>` : '') +
+      `<span class="rl-card__hp rl-dim">${hpNow.toFixed(0)} / ${hpMax.toFixed(0)} hp</span>` +
+      `</div>` +
+      `<div class="rl-track"><i class="rl-fill-${hpTone(hpPct)}" ` +
+      `style="width:${(hpPct * 100).toFixed(0)}%"></i></div>` +
+      `<div class="rl-card__cond">${flags.length > 0 ? flags.join(' · ') : 'holding position'}</div>` +
+      `<div class="rl-card__cols">` +
+      `<div><div class="rl-label">Armament</div>${arms.join('')}</div>` +
+      `<div><div class="rl-label">Capabilities</div>${caps.map((c) => `<div>${c}</div>`).join('')}</div>` +
+      `</div></div></div>`
+    );
   }
 
   // ------------------------------------------------------------------

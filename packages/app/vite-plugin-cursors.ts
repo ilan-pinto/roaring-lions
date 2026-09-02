@@ -38,7 +38,7 @@ import {
   type CursorName,
   type UnbadgedName,
 } from './src/input/cursor';
-import type { RoleBucket } from './src/ui/role';
+import { roleBadgeShapes, type RoleBucket } from './src/ui/role';
 
 interface Palette {
   ramps: Record<string, { colors: string[] }>;
@@ -292,51 +292,14 @@ const BADGE_R = 4.5;
  *  player who sees both at once. Drawn as paths rather than that Unicode
  *  text, because font availability inside a cursor image is not something
  *  to bet on. Kept to a few path commands each: this rides at roughly 10px
- *  on a 32px reticle, seen in motion. */
+ *  on a 32px reticle, seen in motion.
+ *
+ *  The geometry itself lives in `role.ts` as `roleBadgeShapes`, and has since
+ *  GH-153 gave it a third reader (the selection chip and the unit card). This
+ *  wrapper is what stays here: the badge's PLACE on the reticle, and the fact
+ *  that a cursor image inherits no colour so the hex has to be baked in. */
 function badgeMark(bucket: RoleBucket, colour: string): string {
-  const c = hex(colour);
-  const x = BADGE_CX;
-  const y = BADGE_CY;
-  const r = BADGE_R;
-  switch (bucket) {
-    case 'armour': // '■' -- a filled square
-      return `<rect x="${x - r}" y="${y - r}" width="${r * 2}" height="${r * 2}" fill="${c}"/>`;
-    case 'soft': // '▲' -- a filled triangle
-      return `<path d="M${x},${y - r} L${x + r},${y + r} L${x - r},${y + r} Z" fill="${c}"/>`;
-    case 'drone': { // '⬡' -- a hexagon
-      const h = r;
-      return (
-        `<path d="M${x - h},${y} L${x - h / 2},${y - h} L${x + h / 2},${y - h} ` +
-        `L${x + h},${y} L${x + h / 2},${y + h} L${x - h / 2},${y + h} Z" fill="${c}"/>`
-      );
-    }
-    case 'gunship': // '✈' -- a dart, distinct from soft's plain triangle
-      return (
-        `<path d="M${x},${y - r} L${x + r * 0.7},${y + r} L${x},${y + r * 0.35} ` +
-        `L${x - r * 0.7},${y + r} Z" fill="${c}"/>`
-      );
-    case 'sniper': { // '✛' -- a heavy cross
-      const t = r * 0.4;
-      return (
-        `<path d="M${x - t},${y - r} L${x + t},${y - r} L${x + t},${y - t} ` +
-        `L${x + r},${y - t} L${x + r},${y + t} L${x + t},${y + t} ` +
-        `L${x + t},${y + r} L${x - t},${y + r} L${x - t},${y + t} ` +
-        `L${x - r},${y + t} L${x - r},${y - t} L${x - t},${y - t} Z" fill="${c}"/>`
-      );
-    }
-    case 'transport': // '▤' -- a square ruled with two bars
-      return (
-        `<rect x="${x - r}" y="${y - r}" width="${r * 2}" height="${r * 2}" fill="none" stroke="${c}" stroke-width="1"/>` +
-        `<line x1="${x - r}" y1="${y - r / 3}" x2="${x + r}" y2="${y - r / 3}" stroke="${c}" stroke-width="1"/>` +
-        `<line x1="${x - r}" y1="${y + r / 3}" x2="${x + r}" y2="${y + r / 3}" stroke="${c}" stroke-width="1"/>`
-      );
-    case 'kamikaze': // '✹' -- an eight-point burst, small
-      return (
-        `<path d="M${x},${y - r} L${x + r * 0.35},${y - r * 0.35} L${x + r},${y} ` +
-        `L${x + r * 0.35},${y + r * 0.35} L${x},${y + r} L${x - r * 0.35},${y + r * 0.35} ` +
-        `L${x - r},${y} L${x - r * 0.35},${y - r * 0.35} Z" fill="${c}"/>`
-      );
-  }
+  return roleBadgeShapes(bucket, BADGE_CX, BADGE_CY, BADGE_R, hex(colour));
 }
 
 /** Which buckets can actually reach each verb -- from the roster. `move` and
