@@ -1,7 +1,14 @@
 // Campaign menu and mission end screen. Pure navigation — no sim, no state.
 
 import type { LedgerData } from '@lions/sim';
+// The picker enumerates the shipped maps from `@lions/data` itself rather than
+// being handed a list. A list passed in is a list that can be passed WRONG --
+// and the whole point of this screen is that adding a map to `data/maps/`
+// makes it playable from the UI with no edit here. `terrain-parity.test.ts`
+// takes `Object.keys(maps)` the same way, for the same reason.
+import { maps, type MapJson } from '@lions/data';
 import type { ParsedWorld, WorldCountry } from '../campaign';
+import { SANDBOX_FLAGS, sandboxUrl, type SandboxFlagName } from '../sandbox-help';
 import { panel } from './panel';
 import { stagger } from './motion';
 import { wordmark } from './mark';
@@ -86,7 +93,11 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): void {
   if (opts.tutorial.done) {
     addAside('replay the tutorial', `?mission=${opts.tutorial.id}&tutorial=1`);
   }
-  addAside('M0 sandbox (no mission)', '?sandbox=1');
+  // Was `?sandbox=1`, which is not a map id at all: it warned "unknown sandbox
+  // map" and fell back to beit_sahwan_outskirts, so one of five shipped maps
+  // and none of the four flags were reachable by anyone who used the menu.
+  // Same defect as `&mesh`, which no menu link ever appended either.
+  addAside('sandbox — pick a map', '?sandboxes');
   addAside('reset campaign ledger', '?fresh=1');
   wrap.appendChild(aside);
 
@@ -130,6 +141,115 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): void {
   back.dataset.kind = 'back';
   nav.appendChild(back);
   wrap.appendChild(nav);
+
+  stagger(wrap);
+  stage.appendChild(wrap);
+}
+
+/** The sandbox picker: which map, and which of the opt-in extras.
+ *
+ *  Reached from the menu's sandbox entry. Same shape as `showCampaign` above --
+ *  a second screen inside the same `.rl-menu` frame with a back link home.
+ *
+ *  Neither list is written here. The maps are `@lions/data`'s own enumeration
+ *  and the flags are `SANDBOX_FLAGS`, which is also what `main.ts` parses,
+ *  what the boot banner prints, and what `unknownParams` checks against; the
+ *  URL itself is built by `sandboxUrl` from that same table. A copy of either
+ *  list in this file could drift from the thing that actually runs, and the
+ *  screen would then offer a map that does not load or a flag that does
+ *  nothing -- which is exactly the silence this whole subsystem was built to
+ *  remove.
+ *
+ *  The map entries stay real anchors with real hrefs, rewritten as the flag
+ *  boxes change, so middle-click, copy-link and the browser's own history all
+ *  behave. The URL is also shown: the picker is a dev instrument, and a dev
+ *  who can see the URL it built can type the next one themselves. */
+export function showSandbox(stage: HTMLElement): void {
+  const wrap = document.createElement('div');
+  wrap.className = 'rl-menu';
+
+  const lockup = document.createElement('div');
+  lockup.innerHTML = wordmark('');
+  wrap.appendChild(lockup.firstElementChild as HTMLElement);
+
+  const theatre = document.createElement('div');
+  theatre.className = 'rl-menu__theatre';
+  theatre.textContent = 'Sandbox — no mission';
+  wrap.appendChild(theatre);
+
+  // --- the extras ---------------------------------------------------------
+  const flagBox = document.createElement('div');
+  flagBox.className = 'rl-sandbox__flags';
+  const boxes: { name: SandboxFlagName; input: HTMLInputElement }[] = [];
+  for (const f of SANDBOX_FLAGS) {
+    const label = document.createElement('label');
+    label.className = 'rl-sandbox__flag';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.dataset.flag = f.name;
+    const name = document.createElement('b');
+    name.textContent = `&${f.name}`;
+    // The table's own blurb, not new prose: one description of a flag, in the
+    // banner and on this screen alike.
+    const blurb = document.createElement('span');
+    blurb.className = 'rl-sandbox__blurb';
+    blurb.textContent = f.blurb;
+    label.append(input, name, blurb);
+    flagBox.appendChild(label);
+    boxes.push({ name: f.name, input });
+  }
+  wrap.appendChild(flagBox);
+
+  const readout = document.createElement('div');
+  readout.className = 'rl-sandbox__url';
+  wrap.appendChild(readout);
+
+  // --- the maps -----------------------------------------------------------
+  const nav = document.createElement('nav');
+  nav.className = 'rl-menu__nav';
+  const catalogue = maps as Record<string, MapJson>;
+  const links: { id: string; a: HTMLAnchorElement }[] = [];
+  for (const id of Object.keys(catalogue)) {
+    const a = document.createElement('a');
+    a.className = 'rl-btn rl-menu__item';
+    a.dataset.kind = 'sandbox';
+    a.dataset.map = id;
+    const title = document.createElement('span');
+    title.textContent = catalogue[id].name;
+    // The id as well as the name: it is what `?sandbox=` takes and what the
+    // boot banner lists, so seeing the two together is how the URL stops
+    // being a thing you have to look up.
+    const slug = document.createElement('span');
+    slug.className = 'rl-sandbox__mapid';
+    slug.textContent = id;
+    a.append(title, slug);
+    nav.appendChild(a);
+    links.push({ id, a });
+  }
+  wrap.appendChild(nav);
+
+  const refresh = (): void => {
+    const on: Partial<Record<SandboxFlagName, boolean>> = {};
+    for (const b of boxes) on[b.name] = b.input.checked;
+    for (const l of links) l.a.href = sandboxUrl(l.id, on);
+    // MAP_ID rather than <map>: the readout is built by the same `sandboxUrl`
+    // the links are, so whatever stands in for the id is percent-encoded like
+    // a real one -- and `<map>` comes back as `%3Cmap%3E`. Underscores and
+    // capitals are unreserved and pass through as themselves.
+    readout.textContent = sandboxUrl('MAP_ID', on);
+  };
+  for (const b of boxes) b.input.addEventListener('change', refresh);
+  refresh();
+
+  const backNav = document.createElement('nav');
+  backNav.className = 'rl-menu__nav';
+  const back = document.createElement('a');
+  back.textContent = '← main menu';
+  back.href = '?';
+  back.className = 'rl-btn rl-menu__item';
+  back.dataset.kind = 'back';
+  backNav.appendChild(back);
+  wrap.appendChild(backNav);
 
   stagger(wrap);
   stage.appendChild(wrap);

@@ -762,6 +762,69 @@
   border: 1px solid color-mix(in srgb, var(--good) 45%, transparent);
 }
 
+/* ---------------------------------------------------------------------- */
+/* The sandbox picker                                                      */
+/* ---------------------------------------------------------------------- */
+
+/* A dev instrument, so it reads as one: a map entry is a name with its own
+   id beside it, not a campaign chapter. */
+.rl-menu__item[data-kind='sandbox'] {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s2);
+  font-size: var(--t-m);
+}
+.rl-sandbox__mapid {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-dim);
+}
+/* Not in the .rl-menu__nav max-width group above, so it carries the column
+   measure itself -- the flag list is the one part of this screen that is
+   read as prose. */
+.rl-sandbox__flags {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  max-width: var(--menu-col);
+  margin: var(--s3) auto var(--s2);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--panel-frame);
+  text-align: left;
+}
+.rl-sandbox__flag {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: baseline;
+  gap: var(--s2);
+  font-family: var(--font-mono);
+  font-size: var(--t-s);
+  color: var(--ink);
+  cursor: pointer;
+}
+.rl-sandbox__flag input {
+  accent-color: var(--good);
+}
+.rl-sandbox__blurb {
+  color: var(--ink-mute);
+}
+/* What the next click will actually navigate to. The sandbox is reached from
+   the URL bar as often as from here, and showing the URL is what makes this
+   screen teach it rather than replace it. */
+.rl-sandbox__url {
+  max-width: var(--menu-col);
+  margin: 0 auto var(--s2);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-dim);
+  text-align: left;
+  word-break: break-all;
+}
+
 .rl-endnav {
   display: flex;
   gap: var(--s2);

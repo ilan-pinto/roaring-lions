@@ -11,6 +11,7 @@ import {
   SANDBOX_FLAGS,
   readFlags,
   sandboxHelp,
+  sandboxUrl,
   unknownParams,
 } from './sandbox-help';
 
@@ -50,6 +51,46 @@ describe('readFlags', () => {
   });
 });
 
+describe('sandboxUrl', () => {
+  // The fourth caller of SANDBOX_FLAGS, and the inverse of readFlags. The
+  // menu's picker builds every one of its links with it, so a spelling this
+  // produces that readFlags does not accept is a screen that looks like it
+  // works and launches something else.
+  it('is the bare map when no flag is on', () => {
+    expect(sandboxUrl('tel_marum')).toBe('?sandbox=tel_marum');
+  });
+
+  it('appends flags bare, the way the banner prints them and a hand types them', () => {
+    expect(sandboxUrl('tel_marum', { tunnel: true, sur: true })).toBe(
+      '?sandbox=tel_marum&tunnel&sur'
+    );
+  });
+
+  it('omits a false flag rather than writing &sur=0, which readFlags reads as ON', () => {
+    expect(sandboxUrl('tel_marum', { sur: false })).toBe('?sandbox=tel_marum');
+  });
+
+  it('orders flags by the table, not by the order they were asked for', () => {
+    // Two pickers ticking the same boxes in a different order must produce
+    // the same URL, or the same build gets two links and two bookmarks.
+    expect(sandboxUrl('tel_marum', { sur: true, roe: true })).toBe(
+      sandboxUrl('tel_marum', { roe: true, sur: true })
+    );
+  });
+
+  it('round-trips through readFlags for every flag the table declares', () => {
+    const all = Object.fromEntries(SANDBOX_FLAGS.map((f) => [f.name, true]));
+    const params = new URLSearchParams(sandboxUrl('wadi_halam_basin', all));
+    expect(params.get('sandbox')).toBe('wadi_halam_basin');
+    expect(readFlags(params)).toEqual(all);
+  });
+
+  it('never produces a URL that unknownParams reports as a typo', () => {
+    const all = Object.fromEntries(SANDBOX_FLAGS.map((f) => [f.name, true]));
+    expect(unknownParams(new URLSearchParams(sandboxUrl('tel_marum', all)))).toEqual([]);
+  });
+});
+
 describe('unknownParams', () => {
   it('catches a misspelled flag', () => {
     expect(unknownParams(new URLSearchParams('?sandbox=tel_marum&tunel'))).toEqual(['tunel']);
@@ -58,6 +99,13 @@ describe('unknownParams', () => {
   it('passes every parameter main.ts actually reads', () => {
     const every = KNOWN_PARAMS.map((p) => p.name).join('&');
     expect(unknownParams(new URLSearchParams(`?${every}`))).toEqual([]);
+  });
+
+  it('knows the picker route, so landing on it does not warn about itself', () => {
+    expect(unknownParams(new URLSearchParams('?sandboxes'))).toEqual([]);
+    // ...and it is deliberately NOT the bare `?sandbox`, which has always
+    // meant "boot beit_sahwan_outskirts" and must keep meaning it.
+    expect(KNOWN_PARAMS.map((p) => p.name)).toContain('sandbox');
   });
 
   it('lists the three sandbox flags among the known parameters', () => {

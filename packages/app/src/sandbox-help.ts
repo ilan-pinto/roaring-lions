@@ -6,11 +6,12 @@
  * broken feature rather than a typo. A dev instrument whose options live only
  * in a markdown file gets used at a fraction of its value.
  *
- * One table, three callers: `readFlags` parses from it, `sandboxHelp` prints
- * from it, and `unknownParams` checks against it. A flag documented but not
- * parsed, or parsed but not documented, is not expressible — which is the
- * same one-rule-several-callers shape `zoneContains`, `roleBucket` and
- * `cursorKey` already use.
+ * One table, four callers: `readFlags` parses from it, `sandboxHelp` prints
+ * from it, `unknownParams` checks against it, and `sandboxUrl` builds a launch
+ * URL from it for the menu's sandbox picker. A flag documented but not parsed,
+ * or parsed but not offered, is not expressible — which is the same
+ * one-rule-several-callers shape `zoneContains`, `roleBucket` and `cursorKey`
+ * already use.
  *
  * Pure: a URLSearchParams and some ids in, strings out. No DOM, no console.
  */
@@ -39,6 +40,14 @@ export const SANDBOX_FLAGS: readonly { name: SandboxFlagName; blurb: string }[] 
  *  rather than repeated, so this cannot list fewer than the table above. */
 export const KNOWN_PARAMS: readonly UrlParam[] = [
   { name: 'sandbox', blurb: '<map id> — walk any shipped map, no mission needed' },
+  {
+    name: 'sandboxes',
+    // The plural is the index: `?sandbox=<id>` is one sandbox, `?sandboxes`
+    // is the screen that lists them. Deliberately a separate key rather than
+    // a bare `?sandbox`, which has always meant "boot beit_sahwan_outskirts"
+    // and still does.
+    blurb: 'the sandbox picker — choose a map and its flags instead of typing a URL',
+  },
   { name: 'mission', blurb: '<mission id> — run a real mission' },
   { name: 'campaign', blurb: 'open the campaign shell' },
   { name: 'fresh', blurb: 'ignore the saved ledger' },
@@ -83,6 +92,27 @@ export function readFlags(params: URLSearchParams): Record<SandboxFlagName, bool
   const out = {} as Record<SandboxFlagName, boolean>;
   for (const f of SANDBOX_FLAGS) out[f.name] = params.has(f.name);
   return out;
+}
+
+/** The launch URL for one sandbox pick: a map, plus whichever extras are on.
+ *
+ *  The inverse of `readFlags`, and built by iterating the same table, so the
+ *  picker cannot offer a flag the parser does not read or spell one in a form
+ *  it does not accept. Flags are appended BARE (`&sur`, not `&sur=1`) because
+ *  that is how they are typed by hand and what `sandboxHelp` prints — one
+ *  spelling everywhere, and `unknownParams` stays silent on anything this
+ *  produces.
+ *
+ *  A flag whose value is false is absent rather than `&sur=0`: `readFlags`
+ *  tests `has`, so `&sur=0` would read as ON. */
+export function sandboxUrl(
+  mapId: string,
+  on: Partial<Record<SandboxFlagName, boolean>> = {}
+): string {
+  const extras = SANDBOX_FLAGS.filter((f) => on[f.name] === true)
+    .map((f) => `&${f.name}`)
+    .join('');
+  return `?sandbox=${encodeURIComponent(mapId)}${extras}`;
 }
 
 /** Parameters present in the URL that nothing reads.

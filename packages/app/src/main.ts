@@ -49,7 +49,7 @@ import {
 import { TERRAIN_THEMES } from './terrain-themes';
 import './ui/theme.css';
 import { Hud, type MissionView, type Tone } from './ui/hud';
-import { showMenu, showCampaign, showEndScreen } from './ui/menu';
+import { showMenu, showCampaign, showSandbox, showEndScreen } from './ui/menu';
 import { showLoading } from './ui/loading';
 import { ProductionBar } from './ui/production';
 import {
@@ -268,6 +268,15 @@ async function main(): Promise<void> {
         countries: parseCountries(countries),
         ledger: loadLedger(),
       });
+      return;
+    }
+    if (params.get('sandboxes') !== null) {
+      // The sandbox picker. `?sandbox=<id>` boots one sandbox; the plural is
+      // the screen that lists them, so it has to be a distinct key -- bare
+      // `?sandbox` has always meant beit_sahwan_outskirts and still does.
+      // Nothing is passed in: the screen reads the map enumeration and
+      // SANDBOX_FLAGS itself, so a new map cannot be missing from it.
+      showSandbox(stage);
       return;
     }
     const tutorialDone = window.localStorage.getItem(TUTORIAL_DONE_KEY) !== null;
