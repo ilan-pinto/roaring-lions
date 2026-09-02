@@ -193,7 +193,10 @@ export function worldMap(opts: WorldMapOptions): HTMLElement {
   return wrap;
 }
 
-function regionCard(region: WorldRegion, opts: WorldMapOptions): HTMLElement {
+/** One region's status card. Exported because the 3D board (`worldmap3d.ts`)
+ *  shows the identical column beside its diorama: the boards differ in how
+ *  the ground is drawn, and must not differ in what the cards say. */
+export function regionCard(region: WorldRegion, opts: { ledger: LedgerData }): HTMLElement {
   const p = regionProgress(region, opts.ledger);
   const card = el('div', 'rl-world__card');
   card.dataset.regionCard = region.id;
@@ -216,7 +219,7 @@ function regionCard(region: WorldRegion, opts: WorldMapOptions): HTMLElement {
 /** Roster, campaign ROE, and -- when the rating is dragging -- the mission dragging it.
  *  #22 asks for the ledger to be visible and for a low rating to be explainable, and a
  *  bare number explains nothing. */
-function ledgerLine(ledger: LedgerData): HTMLElement {
+export function ledgerLine(ledger: LedgerData): HTMLElement {
   const line = el('div', 'rl-world__ledger rl-info');
   const parts: string[] = [];
 

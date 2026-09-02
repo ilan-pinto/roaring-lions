@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./pixi": "./src/pixi.ts",
     "./three": "./src/three/ThreeRenderer.ts",
+    "./three-campaign": "./src/three/campaign/world-view.ts",
     "./terrain": "./src/three/terrain/index.ts",
     "./project": "./src/project.ts",
     "./three-camera": "./src/three/camera.ts",

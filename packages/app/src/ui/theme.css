@@ -303,6 +303,123 @@ body {
 .rl-world__town[data-status='done'] .rl-world__townname { text-decoration: line-through; }
 .rl-world__town[data-status='locked'] .rl-world__townname { text-decoration: none; }
 
+/* ---------------------------------------------------------------------- */
+/* The 3D board (worldmap3d.ts). The flat board's own rules above still     */
+/* apply to it -- the town markers, their states and their strike-through   */
+/* are the SAME classes, because the two boards must not disagree about     */
+/* what a town looks like. Only the things a diorama has and a PNG does not */
+/* are new below.                                                           */
+/* ---------------------------------------------------------------------- */
+
+/* The stage is the canvas's box and the pins' coordinate frame in one.
+   HEIGHT is driven by the viewport rather than by an aspect ratio: the board
+   is fitted to whatever frame it is given (`world-camera.ts`), so the frame's
+   job here is to leave the status cards, the ledger line and the way back on
+   screen. A fixed 16/9 at 1440x900 pushed all three below the fold.
+
+   The WIDTH is the flat board's, deliberately, and widening it was tried and
+   reverted: at both 1440x900 and 1920x1080 the height cap is what binds the
+   fit, so a 1440-wide frame drew exactly the same board as a 1200-wide one
+   with more empty page either side of it. (`.rl-menu:has(.rl-world--3d)`
+   would also have had to sit after `:has(.rl-world)` to apply at all --
+   identical specificity, source order decides.) */
+.rl-world--3d .rl-world__stage {
+  position: relative;
+  width: 100%;
+  margin-inline: auto;
+  height: min(54vh, 660px);
+  min-height: 300px;
+}
+.rl-world__canvas { position: absolute; inset: 0; }
+/* The pins layer takes no clicks: a drag that started on a label would
+   otherwise never reach the canvas and the board would refuse to turn from
+   about a sixth of its own surface. The links inside it take them back. */
+.rl-world__pins { position: absolute; inset: 0; pointer-events: none; }
+.rl-world--3d .rl-world__town {
+  pointer-events: none;
+  /* Beside the point, not centred on it. The flat board centres its label on
+     the town because the PNG has no marker of its own; here the ring below IS
+     the marker and sits on the projected position, so the label steps aside
+     rather than covering the ground it is naming. */
+  transform: translate(14px, -50%);
+  /* A pin with no projected position yet is not drawn at all -- one parked in
+     the top-left corner reads as a bug rather than as "still loading". */
+  opacity: 0;
+  transition: opacity 160ms ease-out;
+}
+.rl-world--3d .rl-world__town[data-placed='1'] { opacity: 1; }
+.rl-world--3d .rl-world__town:has(.rl-world__townlink):hover {
+  transform: translate(14px, -50%) scale(1.08);
+}
+.rl-world--3d .rl-world__town::before {
+  /* The pin itself: a small ring on the marker's exact point, with the label
+     beside it. Without this the text floats with nothing tying it to ground. */
+  content: '';
+  position: absolute;
+  left: -13px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  margin-top: -4px;
+  border: 1px solid var(--ink);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ink) 35%, transparent);
+}
+.rl-world--3d .rl-world__town[data-status='live']::before { border-color: var(--map-live); }
+.rl-world--3d .rl-world__town[data-status='done']::before { border-color: var(--map-spent); }
+.rl-world--3d .rl-world__town[data-status='locked']::before,
+.rl-world--3d .rl-world__town[data-status='empty']::before { border-color: var(--map-locked-line); }
+.rl-world--3d .rl-world__townlink,
+.rl-world--3d .rl-world__townname {
+  pointer-events: auto;
+  /* Type sitting directly on the diorama, with no panel behind it: the same
+     halo the floating HUD uses for the same reason. */
+  text-shadow: 0 0 3px var(--type-shadow), 0 0 8px var(--type-shadow);
+}
+
+/* Rotation controls. Bottom-right of the stage, out of the board's own way
+   at every yaw -- the fit centres the diorama, so the corners are the empty
+   part of the frame. */
+.rl-world__spin {
+  position: absolute;
+  right: var(--s2);
+  bottom: var(--s2);
+  display: flex;
+  align-items: stretch;
+  gap: var(--s1);
+}
+.rl-world__spinbtn,
+.rl-world__bearing {
+  font-family: var(--font-display);
+  font-size: var(--t-xs);
+  letter-spacing: var(--track-label);
+  color: var(--ink);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  padding: var(--s1) var(--s2);
+  cursor: pointer;
+}
+.rl-world__spinbtn { font-size: 14px; line-height: 1; padding: var(--s1) var(--s2); }
+.rl-world__spinbtn:hover,
+.rl-world__bearing:hover { border-color: var(--map-live); color: var(--map-live); }
+.rl-world__bearing { font-variant-numeric: tabular-nums; min-width: 4.5em; }
+
+/* The line that answers a click. It is the only thing on this screen that
+   can report a locked front, because the ground is one canvas and a click on
+   it has no other way to say anything. */
+.rl-world__say {
+  margin: 0;
+  min-height: 1.4em;
+  text-align: center;
+  color: var(--ink-dim);
+}
+.rl-world__say[data-tone='good'] { color: var(--good); }
+.rl-world__say[data-tone='bad'] { color: var(--bad); }
+.rl-world__say[data-tone='info'] { color: var(--ink-mute); }
+/* The card for the region that was just clicked, so the eye is sent to the
+   longer explanation rather than being left with one sentence. */
+.rl-world__card[data-said='1'] { outline: 1px solid var(--map-live); }
+
 .rl-world__cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--s2); }
 .rl-world__card {
   border: 1px solid var(--panel-frame);

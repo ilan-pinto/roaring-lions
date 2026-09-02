@@ -16,7 +16,27 @@ export default tseslint.config(
     // whose env is never resolved -- 45 no-undef errors on `console`/`process`
     // in files that are already clean here. A red gate made entirely of false
     // positives is worse than no gate, because people learn to skip it.
-    ignores: ['**/node_modules/**', '**/dist/**', '**/*.d.ts', '.claude/worktrees/**'],
+    // `dist-*` as well as `dist`, and that is not tidiness. A browser check
+    // in this tree means `vite build --outDir <somewhere>`, and a shared
+    // worktree has several sessions doing it at once: observed 2026-09-02,
+    // `packages/app/dist-campaign` and `packages/app/dist-cursorverify`
+    // together turned `pnpm lint` red with **8,631 errors**, every one of
+    // them `no-undef` on a minified bundle, in two directories neither
+    // session had any reason to think eslint would walk. A gate made
+    // entirely of another agent's build output is the same failure the
+    // `.claude/worktrees/**` entry below already exists to prevent.
+    //
+    // `.superpowers/` is the same argument once more: `.gitignore` calls it
+    // "never committed" scratch, and a throwaway Playwright driver left in
+    // it should not be able to fail the repository's lint gate.
+    ignores: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/dist-*/**',
+      '**/*.d.ts',
+      '.claude/worktrees/**',
+      '.superpowers/**',
+    ],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
@@ -182,6 +202,14 @@ export default tseslint.config(
                 'import puts pixi.js in the main chunk for every player, including one who chose ' +
                 '?renderer=three. Symmetric with the @lions/render/three rule above: neither backend is ' +
                 'privileged, so neither may be imported statically.',
+            },
+            {
+              name: '@lions/render/three-campaign',
+              message:
+                'The campaign board is three.js. It must reach packages/app via a dynamic import() ' +
+                '(see ui/worldmap3d.ts) -- a static one puts three.js in the main chunk for every ' +
+                'player, including one on ?renderer=pixi who is served the flat PNG board instead ' +
+                'and will never draw it. Same rule as @lions/render/three above.',
             },
             {
               name: '@lions/render/terrain',

@@ -8,11 +8,14 @@ import type { LedgerData } from '@lions/sim';
 // takes `Object.keys(maps)` the same way, for the same reason.
 import { maps, type MapJson } from '@lions/data';
 import type { ParsedWorld, WorldCountry } from '../campaign';
+import { CAMPAIGN_MESHES, meshUrl } from '../mesh-catalogue';
+import { RENDERER_STORAGE_KEY, resolveRendererChoice } from '../renderer-choice';
 import { SANDBOX_FLAGS, sandboxUrl, type SandboxFlagName } from '../sandbox-help';
 import { panel } from './panel';
 import { stagger } from './motion';
 import { wordmark } from './mark';
 import { worldMap } from './worldmap';
+import { campaignBoard, worldMap3d } from './worldmap3d';
 
 export interface MenuOptions {
   /** Deploy base ('/' locally, '/<repo>/' on Pages). */
@@ -106,6 +109,34 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): void {
   stage.appendChild(wrap);
 }
 
+/**
+ * The remembered renderer choice, and how it is remembered.
+ *
+ * Wrapped rather than called inline because reaching `localStorage` is not
+ * guaranteed to work: a browser with site data blocked THROWS on the
+ * property access itself, and this vitest jsdom configuration supplies a
+ * bare `{}` with no Storage API at all -- so an unguarded `getItem` here
+ * takes the whole campaign screen down in both. Losing the remembered choice
+ * is a small cost (the default is three, and `?renderer=` still works for
+ * that session); losing the screen is not.
+ */
+function storedRenderer(): string | null {
+  try {
+    return window.localStorage?.getItem?.(RENDERER_STORAGE_KEY) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function rememberRenderer(choice: string): void {
+  try {
+    window.localStorage?.setItem?.(RENDERER_STORAGE_KEY, choice);
+  } catch {
+    // Nothing to do and nothing to say: the player asked for a backend, they
+    // get it this session, and it simply will not outlive the navigation.
+  }
+}
+
 /** The campaign map page: the world, its states, and a way back. Reached from the
  *  menu's Campaign entry, from every mission's return link, and from the end
  *  screen -- the map is the place the player can always come back to. */
@@ -122,15 +153,58 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): void {
   theatre.textContent = opts.world.name;
   wrap.appendChild(theatre);
 
-  wrap.appendChild(
+  // Which board: the Sahar Basin diorama on three, the flat PNG on Pixi.
+  // `worldmap3d.ts`'s own header has the argument for not forcing three here
+  // -- in short, `?renderer=pixi` is the hatch a player reaches for when
+  // three has failed them, and loading three behind that choice for one menu
+  // is not a fallback, it is ignoring them.
+  //
+  // The decision is read (and persisted) HERE rather than passed in from
+  // `main.ts`, which resolves it later, inside the branch that boots a
+  // mission -- the campaign screen returns before that line is reached. Same
+  // pure function, same storage key, so `?campaign&renderer=pixi` survives
+  // into every mission link this screen builds exactly as it does elsewhere.
+  const decision = resolveRendererChoice(
+    new URLSearchParams(window.location.search).get('renderer'),
+    storedRenderer()
+  );
+  if (decision.persist) rememberRenderer(decision.persist);
+  const href = (id: string): string => `?mission=${id}`;
+  const flat = (): HTMLElement =>
     worldMap({
       base: opts.base,
       world: opts.world,
       countries: opts.countries,
       ledger: opts.ledger,
-      href: (id) => `?mission=${id}`,
-    })
-  );
+      href,
+    });
+  // A world with no GLB in the catalogue has no diorama to draw, and
+  // `meshUrl` throws by name for a catalogue entry whose file is gone. Both
+  // land on the flat board rather than on a broken screen -- there are
+  // shipped worlds and there will be more, and only `sahar_basin` has been
+  // built in 3D.
+  const glb = CAMPAIGN_MESHES[opts.world.id];
+  let boardUrl: string | null = null;
+  if (glb !== undefined) {
+    try {
+      boardUrl = meshUrl(glb);
+    } catch (err) {
+      console.warn(`campaign board: ${opts.world.id} has no usable world mesh`, err);
+    }
+  }
+  if (boardUrl === null || campaignBoard(decision.choice) === 'flat') {
+    wrap.appendChild(flat());
+  } else {
+    wrap.appendChild(
+      worldMap3d({
+        world: opts.world,
+        ledger: opts.ledger,
+        href,
+        meshUrl: boardUrl,
+        fallback: flat,
+      }).el
+    );
+  }
 
   const nav = document.createElement('nav');
   nav.className = 'rl-menu__nav';
