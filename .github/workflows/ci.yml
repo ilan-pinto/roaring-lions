@@ -156,7 +156,7 @@ jobs:
               echo "past it: erasing every decor object fails all four gated scenarios against a"
               echo "baseline (relief 37183 px / 2.7229) and exits 3 here."
               echo ""
-              echo "Fix: run the **visual-baseline-bless** workflow and merge the PR it opens."
+              echo "Fix: run the **visual-baseline-bless** workflow; it commits the baseline straight to main."
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi

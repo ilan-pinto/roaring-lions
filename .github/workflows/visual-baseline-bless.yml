@@ -1,10 +1,16 @@
 # The ONLY way a stored visual baseline changes on a CI runner.
 #
-# Manual dispatch only, a required `reason`, and the result arrives as a PULL
-# REQUEST rather than a push -- so somebody looks at the picture before it
-# becomes what every future run is judged against. GitHub renders a committed
-# PNG's before/after side by side in the Files-changed tab, which is the whole
-# point of storing full-resolution captures rather than a hash.
+# Manual dispatch only, with a required `reason` that is written into
+# `manifest.json` and printed on every future mismatch. The result is
+# COMMITTED STRAIGHT TO `main` -- the project lead's call on 2026-09-02:
+# "instead of PR merge to main and push".
+#
+# What that trades away, stated plainly so nobody re-derives it as a bug: the
+# earlier version opened a pull request so a human saw the PNG before it became
+# the reference. Nothing looks at the picture now. A wrong baseline landed here
+# silently disarms the visual gate for everything it would otherwise catch, and
+# the only thing standing between a bad capture and `main` is whoever typed the
+# reason. Keep the reason honest; it is the whole audit trail.
 #
 # Two jobs this workflow does that a local `pnpm golden-baseline:bless` cannot:
 #
@@ -18,6 +24,7 @@
 # Run this the first time after `ci.yml`'s `visual` job warns "No visual
 # baseline for this runner", and again whenever a renderer change is MEANT to
 # change the picture.
+
 
 name: visual-baseline-bless
 
@@ -38,7 +45,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: write
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -76,21 +82,18 @@ jobs:
 
       # An explicit path list, never `git add -A`: this job must not sweep up a
       # build artifact or anything else the capture left in the tree.
-      - name: Open a pull request with the new baseline
+      - name: Commit the new baseline to main
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REASON: ${{ inputs.reason }}
         run: |
           set -euo pipefail
           # `git status --porcelain`, NOT `git diff --quiet`, and the difference
-          # was the whole workflow's one blocking bug. `git diff` reports only
+          # was this workflow's one blocking bug. `git diff` reports only
           # TRACKED changes. The single most important run of this job is the
           # FIRST one on a new runner, which writes a brand-new environment
           # directory (`tools/golden-baselines/linux-x64-swiftshader/`) whose
           # every file is untracked -- so `git diff --quiet` exited 0, the step
-          # printed "Baseline unchanged" and returned without opening a PR.
-          # Reproduced in this repo: a fresh env dir gives `git diff --quiet`
-          # exit 0 while `git status --porcelain -uall` lists both files.
+          # printed "Baseline unchanged" and returned having done nothing.
           #
           # It made the whole gate a no-op: no Linux baseline meant ci.yml's
           # `visual` job exited 3 forever, warned, and stayed green -- a gate
@@ -102,65 +105,62 @@ jobs:
           # (checked); if that ever changes, this guard goes quiet again.
           CHANGES="$(git status --porcelain --untracked-files=all -- tools/golden-baselines)"
           if [ -z "$CHANGES" ]; then
-            echo "::notice title=Baseline unchanged::The capture matched the stored baseline byte for byte. Nothing to review."
+            echo "::notice title=Baseline unchanged::The capture matched the stored baseline byte for byte. Nothing to commit."
             exit 0
           fi
-          echo "Baseline files to review:"
+          echo "Baseline files being committed to main:"
           echo "$CHANGES"
-          BRANCH="visual-baseline/${GITHUB_SHA::7}-${GITHUB_RUN_ID}"
+
+          # The captured PNGs are the only thing worth keeping out of this
+          # checkout. Park them outside the work tree, because the next step
+          # moves HEAD to main and the workflow may have been dispatched on any
+          # ref -- as it was for the first Linux bless, which ran on
+          # `feat/three-renderer` because main still held the broken code.
+          STASH="$(mktemp -d)"
+          cp -R tools/golden-baselines/. "$STASH/"
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$BRANCH"
-          git add -- tools/golden-baselines
-          git commit -m "chore(visual): re-bless the golden baseline
+
+          # Retry once: a push to main races anything else landing between the
+          # fetch and the push, and a lost baseline would be silent.
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git checkout -B main origin/main
+            mkdir -p tools/golden-baselines
+            cp -R "$STASH/." tools/golden-baselines/
+            git add -- tools/golden-baselines
+            if git diff --cached --quiet; then
+              echo "::notice title=Baseline unchanged::Already on main byte for byte."
+              exit 0
+            fi
+            git commit -m "chore(visual): re-bless the golden baseline
 
           $REASON
 
           Captured by .github/workflows/visual-baseline-bless.yml on this runner,
-          at ${GITHUB_SHA}. Review the PNG diff before merging: it becomes what
-          every future run of the visual gate is judged against."
-          git push origin "$BRANCH"
-          gh pr create \
-            --title "chore(visual): re-bless the golden baseline" \
-            --body "**Reason given:** $REASON
+          at ${GITHUB_SHA}. Every future run of the visual gate is judged against
+          exactly these pixels."
+            if git push origin main; then
+              echo "::notice title=Baseline committed::Pushed to main on attempt $attempt."
+              {
+                echo "### Baseline committed to \`main\`"
+                echo ""
+                echo "**Reason given:** $REASON"
+                echo ""
+                echo "Captured on \`ubuntu-latest\` at \`${GITHUB_SHA::7}\`. Files:"
+                echo ""
+                echo '```'
+                echo "$CHANGES"
+                echo '```'
+                echo ""
+                echo "Every future run of \`pnpm golden-baseline\` is judged against exactly these"
+                echo "pixels. If the change was not intended, revert this commit and fix the renderer."
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "::warning title=Push rejected::main moved under us; retrying ($attempt of 3)."
+          done
 
-          Captured on \`ubuntu-latest\` at \`${GITHUB_SHA::7}\` by the \`visual-baseline-bless\` workflow.
-
-          **Review the images, not the diff stat.** GitHub shows each PNG before/after in
-          Files changed. Every future run of \`pnpm golden-baseline\` is judged against
-          exactly these pixels, so a wrong picture merged here silently disarms the gate
-          for everything it would otherwise have caught.
-
-          If the change was not intended, close this PR and fix the renderer instead." \
-            --head "$BRANCH" && exit 0
-
-          # Only reachable when `gh pr create` failed. The branch is already
-          # pushed at this point, so the work is NOT lost -- say so, and say
-          # exactly how to finish, because the one failure seen here reads as
-          # nothing of the sort:
-          #
-          #   pull request create failed: GraphQL: GitHub Actions is not
-          #   permitted to create or approve pull requests (createPullRequest)
-          #
-          # That is a repository setting, not a token scope and not a bug in
-          # this file: Settings -> Actions -> General -> Workflow permissions ->
-          # "Allow GitHub Actions to create and approve pull requests". With it
-          # off, every bless this workflow ever runs will get this far and stop,
-          # having pushed a perfectly good baseline nobody is told about
-          # (measured: run 33596042795, where the capture step succeeded in 62 s
-          # and this step exited 1).
-          echo "::error title=Baseline pushed, PR not opened::The branch $BRANCH is pushed with the new baseline, but gh pr create failed. See the step summary."
-          {
-            echo "### :warning: Baseline captured and pushed, but no PR was opened"
-            echo ""
-            echo "The new baseline is on branch \`$BRANCH\` — nothing is lost. Open the PR by hand:"
-            echo ""
-            echo "  https://github.com/${GITHUB_REPOSITORY}/pull/new/$BRANCH"
-            echo ""
-            echo "If the failure above says *\"GitHub Actions is not permitted to create or approve"
-            echo "pull requests\"*, that is a repository setting rather than anything in this"
-            echo "workflow: **Settings → Actions → General → Workflow permissions → Allow GitHub"
-            echo "Actions to create and approve pull requests**. Until it is on, every bless will"
-            echo "stop here."
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error title=Baseline not committed::Three pushes to main were rejected."
           exit 1

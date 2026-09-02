@@ -326,7 +326,9 @@ yours; each one records what the next phase inherits.
   the defect's own 0.0493 signal. A missing baseline for the current
   environment is **exit 3**, a distinct code, never a silent pass. A baseline
   still has to be blessed per environment, and CI's must be created by the
-  `visual-baseline-bless` workflow — but the reason is no longer "we do not
+  `visual-baseline-bless` workflow, which **commits to `main` directly** — it
+  opened a review PR until 2026-09-02, so nothing now looks at the picture
+  before it becomes the reference — but the reason is no longer "we do not
   know whether a capture even works there". **Cross-OS CAPTURE is measured now
   and it works**, which retires the "unmeasured" this line used to carry: on
   `ubuntu-latest` (run 33591712714, 2026-09-02) all four gated scenarios

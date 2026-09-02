@@ -59,9 +59,14 @@ pnpm golden-baseline:bless -- --reason="what changed and why the new picture is 
 ```
 
 `--reason` is required and is printed on every future mismatch. On CI the same
-thing happens through the `visual-baseline-bless` workflow, which opens a pull
-request so somebody looks at the picture — GitHub renders each PNG before/after
-in Files changed — before it becomes what every later run is judged against.
+thing happens through the `visual-baseline-bless` workflow, which **commits the
+new baseline straight to `main`** (the project lead's call, 2026-09-02). It used
+to open a pull request so somebody looked at the picture first; nothing does
+now. A wrong baseline landed here silently disarms the gate for everything it
+would otherwise have caught, and the `--reason` is the only audit trail — so
+write one that would tell a stranger whether the new picture is correct. To
+review after the fact, read the commit's PNG diff on GitHub and revert it if the
+change was not intended.
 
 **Do not widen a threshold in `baseline.ts` to clear a red run.** Each one is
 calibrated against a real repeated-capture noise measurement of its own
