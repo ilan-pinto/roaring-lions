@@ -423,6 +423,16 @@ against `data/structures.json`, counted from the grid above: `.` 1396 · `^` 399
 
 ### 4.3 The elevation grid — same dimensions, digits 0–7
 
+> **Corrected after authoring (2026-09-03).** The foot of the crest hill was a
+> straight 3-level drop between OPEN tiles along y=12→13, x=11–17, with a lone
+> level-2 tile below it; the smooth ground's Catmull-Rom surface undershot zero
+> by 0.335 levels there and `terrain-parity.test.ts` refused it (budget 0.30,
+> measured on the maps that shipped). Eight open tiles at the foot — y=13
+> x=11–16 and y=12 x=10 and x=18 — are now level 1, so the drop is 3→1→0. Every
+> sight and route assertion in §4.4–§4.5 was re-run against the real engine
+> afterwards and none moved (`tools/src/umm_zeitoun_doctrine.test.ts`, 45
+> assertions). The grid below is the shipped one.
+
 ```
 222222222222222222222222222222222222222222222222
 222222222222222222222222222222222222222222222222
@@ -436,8 +446,8 @@ against `data/structures.json`, counted from the grid above: `.` 1396 · `^` 399
 111111111334555554331111111111111111111111111111
 111111111233444443321111111111111111111111111111
 111111111123344433211111111111111111111111111111
-000000000002333332000000000000000000000000000000
-000000000000002011111000000000000000000000000000
+000000000012333332100000000000000000000000000000
+000000000001111111111000000000000000000000000000
 000000000000000011211000000000000000000000000000
 000000000000000012221000000011111000000000000000
 000000000000000011211000000011211000000000000000
