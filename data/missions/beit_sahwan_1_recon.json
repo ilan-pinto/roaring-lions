@@ -4,7 +4,7 @@
   "town": "beit_sahwan",
   "phase": "recon",
   "target_minutes": 7,
-  "briefing": "Before anything moves on Beit Sahwan, command needs the picture. The battalion has attached one of everything it owns \u2014 armor, an IFV, mortars, scouts and a drone \u2014 so use this approach to learn your tools. Push the drone east and identify six garrison positions; keep the heavy metal back as a screen. Do not get decisively engaged, and mind the mortar near houses: what you find and who you bring home is what the brigade fights with next week.",
+  "briefing": "Before anything moves on Beit Sahwan, Idit needs the picture: six garrison positions, and the ATGM cell that overlooks the east road. An identification takes eyes held on a position, not a glance. The battalion has attached one of everything it owns \u2014 armor, an IFV, mortars, scouts and a drone \u2014 so use this approach to learn your tools. Push the drone east, keep the heavy metal back as a screen, and do not get decisively engaged. The mortar does not care who is under it. What you find and who you bring home is what the brigade fights with next week.",
   "map": {
     "file": "beit_sahwan_outskirts",
     "player_start": [
@@ -94,7 +94,7 @@
       "type": "locate",
       "primary": false,
       "target": "bs_hvt_atgm",
-      "text": "Find and identify the ATGM cell overlooking the east road (get eyes on until ID)"
+      "text": "Identify the ATGM cell overlooking the east road"
     }
   ],
   "roe": {
