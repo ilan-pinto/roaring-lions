@@ -115,6 +115,17 @@ def paint(objs):
         o.data.materials.append(mat(f"{o.name}_{role}", PAL[role]))
 
 
+#: Strip the fused rifle. `{f}_RightHand` weights the RIFLE and nothing else on
+#: this rig -- measured, not assumed: of the 1,544 vertices it dominates, NOT
+#: ONE lies within 0.15 m of the hand bone, while the left hand's own 466 all
+#: sit inside 0.25 m of theirs. The right hand's own geometry rides on
+#: `RightForeArm` instead. So deleting this group's dominated vertices removes
+#: the AK and leaves the hand. It also tears nothing: this mesh has no welded
+#: topology at all (`uniform` is 37,895 vertices in 7,958 disconnected islands,
+#: the largest of them 45 vertices), so there is no shared boundary to open.
+STRIP_RIFLE = True
+
+
 def import_figure(keep, clip, frame):
     """Import the three-figure team file and reduce it to the one figure whose
     bones are prefixed `keep`, posed on `clip` at `frame`. Returns (objects,
@@ -136,6 +147,10 @@ def import_figure(keep, clip, frame):
     drop = [g for g in ("f0", "f1", "f2") if g != keep]
     for ob in meshes:
         idx = {vg.index for vg in ob.vertex_groups if vg.name.split("_")[0] in drop}
+        if STRIP_RIFLE:
+            rifle = ob.vertex_groups.get(f"{keep}_RightHand")
+            if rifle:
+                idx.add(rifle.index)
         if not idx:
             continue
         bpy.context.view_layer.objects.active = ob
@@ -268,11 +283,17 @@ bore_dir = (face * math.cos(pitch) + Vector((0, 0, 1)) * math.sin(pitch)).normal
 pivot.rotation_mode = "XYZ"
 pivot.rotation_euler = (0.0, -pitch, math.atan2(face.y, face.x))
 # Seat it so the bore passes just above and outboard of the shoulder.
-SHOULDER_OUT, SHOULDER_UP, SHOULDER_FWD = 0.19, 0.02, 0.12
+# BORE_SHIFT slides the launcher along its OWN axis. Without it the pivot --
+# the tube's midpoint -- sits at the shoulder, so half a 1.4 m weapon hangs
+# below and behind it and the blast bell swings down to hip height in FRONT of
+# the man. A shouldered launcher rests on its rear third: shifting the midpoint
+# up-bore brings the bell back to just behind the shoulder, where it belongs.
+SHOULDER_OUT, SHOULDER_UP, SHOULDER_FWD, BORE_SHIFT = 0.19, 0.06, 0.02, 0.30
 pivot.location = (shoulder
                   + right * SHOULDER_OUT
                   + Vector((0.0, 0.0, SHOULDER_UP))
-                  + face * SHOULDER_FWD)
+                  + face * SHOULDER_FWD
+                  + bore_dir * BORE_SHIFT)
 bpy.context.view_layer.update()
 
 # IK targets at the two grips' world positions.
