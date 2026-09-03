@@ -271,6 +271,11 @@ import {
   hpBarColorKey,
   orderMarkerSize,
   ORDER_MARKER_TTL,
+  queuedRouteLegs,
+  ROUTE_LINE_WIDTH_PX,
+  ROUTE_LINE_ALPHA,
+  ROUTE_NODE_RADIUS_PX,
+  ROUTE_NODE_ALPHA,
   HP_BG_COLOR_KEY,
   SUPPRESSION_COLOR_KEY,
   OVERLAY_ACCENT_COLOR_KEY,
@@ -5306,6 +5311,45 @@ export class ThreeRenderer implements Renderer {
         // `g.moveTo(sx-7,sy+5).lineTo(sx+7,sy-5)`, both `stroke({width: 3})`.
         this.overlayBatch.line(wreckAnchor, -7, -5, 7, 5, 3, wreckMarkerColor, 1);
         this.overlayBatch.line(wreckAnchor, -7, 5, 7, -5, 3, wreckMarkerColor, 1);
+      }
+    }
+
+    // Queued route for the selection -- renderer.ts's own "the path you
+    // drew, in order": a stroke per leg from the unit through its current
+    // goal and every Shift-queued waypoint, a filled node at each leg's end.
+    // This block was NOT ported when `orderMarkers` graduated in Phase C
+    // (this file's own top comment), so on the default renderer a queued
+    // route was real in the sim, named on the unit card, and invisible --
+    // GH-154, "I don't see the path creation any more". Two things carried
+    // over deliberately: only a unit under way has a route (Pixi's own
+    // `st.moving[i] === 0` skip -- a halted unit's queue is not a path), and
+    // every point samples ITS OWN ground height, like Pixi's per-point
+    // `groundOffset`. One thing does not: the first leg starts at the
+    // interpolated position this frame draws the unit at, where Pixi reads
+    // `posX` at the last tick (its `curX`-derived `px`/`py` are dead code,
+    // `void`ed) -- a 20 Hz tail on a 60 fps sprite.
+    if (this.selection.length > 0) {
+      const routeColor = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY, '#B8FF5A');
+      for (const i of this.selection) {
+        if (i >= n || st.alive[i] === 0 || st.moving[i] === 0) continue;
+        const ix = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
+        const iy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+        const goal = this.sim.goalOf(i);
+        const queued = this.sim.waypointCount(i);
+        const waypoints: [number, number][] = [];
+        for (let k = 0; k < queued; k++) {
+          const [wx, wy] = this.sim.waypointAt(i, k);
+          waypoints.push([fx.toNumber(wx), fx.toNumber(wy)]);
+        }
+        const legs = queuedRouteLegs([ix, iy], [fx.toNumber(goal[0]), fx.toNumber(goal[1])], waypoints);
+        for (let k = 1; k < legs.length; k++) {
+          const [ax, ay] = legs[k - 1];
+          const [bx, by] = legs[k];
+          const p0: [number, number, number] = [ax, groundWorldY(elevation, width, height, ax, ay), ay];
+          const p1: [number, number, number] = [bx, groundWorldY(elevation, width, height, bx, by), by];
+          this.overlayBatch.lineWorld(p0, p1, ROUTE_LINE_WIDTH_PX, routeColor, ROUTE_LINE_ALPHA);
+          this.overlayBatch.ellipseFan(p1, ROUTE_NODE_RADIUS_PX, ROUTE_NODE_RADIUS_PX, routeColor, ROUTE_NODE_ALPHA);
+        }
       }
     }
 

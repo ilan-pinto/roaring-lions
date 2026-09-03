@@ -203,6 +203,35 @@ export function orderMarkerSize(a: number): number {
   return 10 + (1 - a) * 6;
 }
 
+/** Pixi's own queued-route stroke and node literals (`renderer.ts`'s
+ *  "Queued route for the selection" block): `stroke({ width: 1.5, alpha:
+ *  0.35 })` per leg, `circle(bx, by, 3).fill({ alpha: 0.55 })` at each
+ *  leg's end. The colour is `OVERLAY_ACCENT_COLOR_KEY`, the same swatch the
+ *  order marker the route ends at already uses. */
+export const ROUTE_LINE_WIDTH_PX = 1.5;
+export const ROUTE_LINE_ALPHA = 0.35;
+export const ROUTE_NODE_RADIUS_PX = 3;
+export const ROUTE_NODE_ALPHA = 0.55;
+
+/**
+ * The points a selected unit's route runs through, in the order it will be
+ * walked: where the unit is now, then its CURRENT goal, then every queued
+ * waypoint. The one fact worth pinning is the middle one -- the sim's
+ * waypoint queue holds the points AFTER the goal (`Sim.waypointAt`'s "0 =
+ * next"), so a route drawn straight from the unit through the queue would
+ * skip the leg it is on. Pixi's `legs` array (`renderer.ts`'s route block)
+ * builds exactly this list; ported as a function so that order is a test,
+ * not a comment. Never called for a halted unit: Pixi skips `moving === 0`
+ * before building the list, and so does `ThreeRenderer.updateOverlays`.
+ */
+export function queuedRouteLegs(
+  position: readonly [number, number],
+  goal: readonly [number, number],
+  waypoints: readonly (readonly [number, number])[]
+): (readonly [number, number])[] {
+  return [position, goal, ...waypoints];
+}
+
 // ---------------------------------------------------------------------------
 // Phase D readiness: the six overlay passes the Phase C brief named out of
 // scope (this file's own top comment) -- weapon envelopes, the shepherd
