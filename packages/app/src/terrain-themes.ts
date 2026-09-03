@@ -95,3 +95,27 @@ export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
     scatter: 'sward',
   },
 };
+
+/**
+ * The OPEN-GROUND albedo each theme draws, as the basename of a file in
+ * `assets/textures/` (and a key of `terrain/mesh.ts`'s `GROUND_ALBEDOS`,
+ * which is where its mean colour and repeat scale live).
+ *
+ * A second table beside `TERRAIN_THEMES` rather than a field inside
+ * `TerrainTones`, for the reason `TerrainTones` is what it is: that bundle is
+ * COLOUR, resolved through `paletteColor` and consumed by pure builders in
+ * `packages/render` that have no idea what a URL is. `main.ts` is what turns
+ * this basename into a URL, because `BASE` and the `assets/` publicDir are
+ * app facts.
+ *
+ * `Record<TerrainTheme, ...>` and not a partial one: a theme added to
+ * `map.schema.json` and to `TERRAIN_THEMES` but not here is a compile error,
+ * where a lookup with a fallback would have been a map that silently drew the
+ * desert. Which is the defect this table exists to fix -- `wadi_halam_basin`
+ * has been the only `green` map since Naharin was authored, and until
+ * 2026-09-03 every renderer drew its river basin with `desert_sand_tile`.
+ */
+export const TERRAIN_GROUND_TEXTURE: Record<TerrainTheme, string> = {
+  arid: 'desert_sand_tile',
+  green: 'green_basin_tile',
+};

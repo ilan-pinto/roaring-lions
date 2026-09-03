@@ -126,7 +126,20 @@ import { CollapseShroudManager, COLLAPSE_SHROUD_SWAP_DELAY_MS } from './units/co
 import { buildGround } from './terrain/ground';
 import { buildScatter } from './terrain/scatter';
 import { buildBuildings, type StructureFootprint } from './terrain/buildings';
-import { toGeometry, terrainMaterial, groveMaterial, groundSurfaceMaterial, prepareGroundTexture } from './terrain/mesh';
+import {
+  toGeometry,
+  terrainMaterial,
+  groveMaterial,
+  groundSurfaceMaterial,
+  prepareGroundTexture,
+  albedoMean,
+  slotUniforms,
+  GROUND_ALBEDOS,
+  GROUND_SLOTS,
+  type GroundAlbedoId,
+  type GroundSlot,
+} from './terrain/mesh';
+import { isDebugLayer, unknownDebugLayerMessage } from './debug-layers';
 import { terrainSurfaceFrom, type TerrainSurface } from './terrain/surface';
 import type { TerrainInput, MeshData } from './terrain/types';
 import {
@@ -471,6 +484,21 @@ function fxLayerIndex(layer: string | undefined, additive: boolean): number {
   return above ? FX_LAYER_ABOVE : FX_LAYER_BELOW;
 }
 
+/** `setDebugLayerVisible`'s worker: flips `.visible` on every object it is
+ *  given and reports how many really existed. Nullable entries are skipped
+ *  rather than rejected -- a layer whose mesh has not been built yet (no
+ *  terrain, no silhouette for this sheet) is a legitimate zero, and the
+ *  PIXEL delta is what the gate judges either way. */
+function setObjectsVisible(visible: boolean, ...objects: readonly (THREE.Object3D | null | undefined)[]): number {
+  let n = 0;
+  for (const o of objects) {
+    if (!o) continue;
+    o.visible = visible;
+    n++;
+  }
+  return n;
+}
+
 /**
  * The `magnitude` value that makes `ParticleSystem.spawn`'s internal size
  * scale (`0.75 + magnitude * 1.25`) equal exactly 1 -- so `spawnFlatFx`
@@ -772,30 +800,59 @@ export class ThreeRenderer implements Renderer {
   private readonly terrainMat: THREE.Material = terrainMaterial();
   /** The ground mesh's own material -- see `rebuildTerrain`. */
   private readonly groundMat: THREE.ShaderMaterial = groundSurfaceMaterial();
+  /** Non-null only while `setDebugLayerVisible('ground-albedo', false)` is in
+   *  force: the per-slot strengths to put back, in `GROUND_SLOTS` order. Not
+   *  a live rendering concern -- it is null in every frame the gate is not
+   *  driving. */
+  private groundAlbedoStrengths: number[] | null = null;
 
   /**
-   * Fetches the two ground albedo tiles named by
-   * `RendererOptions.groundTextureUrl` / `rockTextureUrl` and, as each
-   * arrives, switches the ground surface on to it. Each is independent: a
-   * rock tile that 404s costs the ridges their texture and leaves the sand
-   * alone.
+   * Fetches the five ground albedo tiles `RendererOptions` names -- open
+   * ground, `^` ridge, `r` road, cover, `o` grove -- and, as each arrives,
+   * switches its own slot on. Each is independent: a rock tile that 404s
+   * costs the ridges their texture and leaves the other four alone.
+   *
+   * **The image's own mean and repeat come from `GROUND_ALBEDOS`, keyed by
+   * the URL's basename, not from the slot.** That is the whole reason the
+   * table exists: the open-ground slot takes `desert_sand_tile` on an arid
+   * map and `green_basin_tile` on a green one, and the two have different
+   * means (the shader divides by it) and different repeats. A URL the table
+   * does not name is REFUSED -- the slot stays off and warns -- rather than
+   * bound and divided by whatever the slot's default happened to be, which
+   * would put a colour cast over the whole map and still look like ground.
    *
    * Fire-and-forget, and deliberately NOT awaited by `init`: the ground draws
-   * correctly without it (`uSandStrength` starts at 0, which makes the whole
-   * texture term exactly 1.0 on the palette tone), so blocking the first
-   * frame on a 2.4 MB image would trade a visible boot delay for a detail
-   * nobody has seen yet. A failure warns by name and leaves the flat tone --
-   * a missing texture must not cost the player a map, which is the same
-   * fail-soft rule `loadSprites` follows for a 404ing sheet.
+   * correctly without it (every `*Strength` starts at 0, which makes the
+   * whole texture term exactly 1.0 on the palette tone), so blocking the
+   * first frame on 12 MB of images would trade a visible boot delay for a
+   * detail nobody has seen yet. A failure warns by name and leaves the flat
+   * tone -- a missing texture must not cost the player a map, which is the
+   * same fail-soft rule `loadSprites` follows for a 404ing sheet.
    */
   private loadGroundTexture(): void {
-    const load = (url: string | undefined, sampler: string, strength: string, what: string): void => {
+    const load = (url: string | undefined, slot: GroundSlot, what: string): void => {
       if (!url) return;
+      // The basename, with any query string or extension stripped: `BASE`
+      // may be a full origin and a bundler may append a hash-free query.
+      const id = (url.split('?')[0].split('/').pop() ?? '').replace(/\.[a-z0-9]+$/i, '');
+      if (!(id in GROUND_ALBEDOS)) {
+        console.warn(
+          `[lions] ${what} texture ${url} is not in GROUND_ALBEDOS (terrain/mesh.ts), so its mean and repeat are unknown; drawing its flat palette tone`
+        );
+        return;
+      }
+      const albedo = GROUND_ALBEDOS[id as GroundAlbedoId];
+      const u = slotUniforms(slot);
       new THREE.TextureLoader().load(
         url,
         (tex) => {
-          this.groundMat.uniforms[sampler].value = prepareGroundTexture(tex);
-          this.groundMat.uniforms[strength].value = 1;
+          this.groundMat.uniforms[u.map].value = prepareGroundTexture(tex);
+          this.groundMat.uniforms[u.mean].value = albedoMean(id as GroundAlbedoId);
+          this.groundMat.uniforms[u.tiles].value = albedo.tiles;
+          // The image's own gain, not 1 -- see `GROUND_ALBEDOS`. It cannot
+          // move the surface's average colour, only how hard its texture is
+          // driven, which is what a 16x minification costs a fine source.
+          this.groundMat.uniforms[u.strength].value = albedo.gain;
           this.groundMat.needsUpdate = true;
         },
         undefined,
@@ -804,8 +861,11 @@ export class ThreeRenderer implements Renderer {
         }
       );
     };
-    load(this.opts.groundTextureUrl, 'uSand', 'uSandStrength', 'ground');
-    load(this.opts.rockTextureUrl, 'uRock', 'uRockStrength', 'rock ridge');
+    load(this.opts.groundTextureUrl, 'sand', 'open ground');
+    load(this.opts.rockTextureUrl, 'rock', 'rock ridge');
+    load(this.opts.roadTextureUrl, 'road', 'road');
+    load(this.opts.scrubTextureUrl, 'scrub', 'cover scrub');
+    load(this.opts.groveTextureUrl, 'grove', 'grove floor');
   }
   /** `groveMesh` alone -- see `terrain/mesh.ts`'s own `groveMaterial` doc
    *  comment for why the wind-sway shader needs to be a separate material
@@ -1880,6 +1940,82 @@ export class ThreeRenderer implements Renderer {
     this.groveMat.uniforms.uTime.value = this.windClockMs / 1000;
     this.updateSilhouetteOutlineWidth();
     this.renderer.render(this.scene, this.threeCamera());
+  }
+
+  /**
+   * Switch one named draw layer off (or back on) so a caller can photograph
+   * the difference. The visual gate's reference-free check -- see
+   * `./debug-layers.ts` for why it exists and why the list is named rather
+   * than walked.
+   *
+   * Returns the number of scene objects it touched, for the log line only.
+   * **Nothing votes on that count**, and that is the point: a scene-object
+   * tally is exactly the kind of evidence that passes while nothing draws
+   * (this repo shipped 44 ditch segments stacked in one corner behind a green
+   * count). The gate's verdict comes from diffing two SCREENSHOTS taken
+   * either side of this call.
+   *
+   * An unknown name throws rather than returning 0, because 0 is also what a
+   * layer with nothing on screen returns, and a typo in a harness string must
+   * not be able to impersonate a real (failing) measurement.
+   *
+   * Repaint is the CALLER's job -- `frame(1, 0)` -- so the harness can decide
+   * how much presentation time passes between the two photographs. Zero, in
+   * the gate's case, which makes the pair differ by the layer and nothing
+   * else.
+   */
+  setDebugLayerVisible(name: string, visible: boolean): number {
+    if (!isDebugLayer(name)) throw new Error(unknownDebugLayerMessage(name));
+    switch (name) {
+      case 'scatter':
+        return setObjectsVisible(visible, this.scatterMesh);
+      case 'decor':
+        return setObjectsVisible(visible, this.decorGroup, this.texturedDecorGroup);
+      case 'buildings':
+        return setObjectsVisible(
+          visible,
+          ...this.structureBoxes.values(),
+          ...this.buildingMeshIdleEntities.values(),
+          ...this.buildingMeshWreckEntities.values(),
+          ...[...this.structureIdle.values()].map((i) => i.mesh),
+          ...[...this.structureWreck.values()].map((i) => i.mesh)
+        );
+      case 'ground-albedo':
+        // Not a visibility flag: the ground's texture term is a per-slot
+        // STRENGTH, it starts at 0, and a 404 leaves it there
+        // (`loadGroundTexture`'s own doc comment -- "a missing texture must
+        // not cost the player a map"). Driving all five to 0 therefore
+        // reproduces the real fail-soft path exactly, rather than a
+        // synthetic one, so the delta this measures is the whole
+        // contribution of the shipped tiles over the flat palette tone.
+        // Restoring reads back the strength each slot was loaded with
+        // (`GROUND_ALBEDOS[id].gain`, never a hardcoded 1), which is why the
+        // previous values are stashed rather than recomputed.
+        return this.setGroundAlbedoOn(visible);
+    }
+  }
+
+  /** Backs `setDebugLayerVisible('ground-albedo', ...)`. Idempotent in both
+   *  directions: hiding twice must not stash a set of zeroes as the value to
+   *  restore, which would leave the ground permanently flat and make every
+   *  later toggle read a delta of nothing. */
+  private setGroundAlbedoOn(on: boolean): number {
+    if (!on) {
+      if (this.groundAlbedoStrengths === null) {
+        this.groundAlbedoStrengths = GROUND_SLOTS.map(
+          (slot) => this.groundMat.uniforms[slotUniforms(slot).strength].value as number
+        );
+      }
+      for (const slot of GROUND_SLOTS) this.groundMat.uniforms[slotUniforms(slot).strength].value = 0;
+      return GROUND_SLOTS.length;
+    }
+    const stashed = this.groundAlbedoStrengths;
+    if (stashed === null) return 0;
+    GROUND_SLOTS.forEach((slot, i) => {
+      this.groundMat.uniforms[slotUniforms(slot).strength].value = stashed[i];
+    });
+    this.groundAlbedoStrengths = null;
+    return GROUND_SLOTS.length;
   }
 
   /**

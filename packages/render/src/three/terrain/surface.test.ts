@@ -28,6 +28,7 @@ import {
   surfaceWorldY,
   SURFACE_SHADING_EXEMPTION,
 } from './surface';
+import { GROUND_ALBEDOS } from './mesh';
 import { WORLD_PER_LEVEL } from './shared';
 import type { TerrainInput } from './types';
 
@@ -245,8 +246,15 @@ describe('SURFACE_SHADING_EXEMPTION', () => {
 
     // Every claim the TypeScript makes has to appear in what the gate prints.
     expect(printed).toContain('fragment stage only');
-    for (const asset of ['desert_sand_tile', 'rock_ground_tile']) {
+    // Every image the renderer can bind, not a list typed here: a texture
+    // added to `GROUND_ALBEDOS` and wired to a surface widens the exemption,
+    // and the gate has to say so on its passing path or the paragraph
+    // becomes a reassurance about a narrower exemption than the one in
+    // force. Both sides are checked -- the TypeScript's own `what` and the
+    // Python the gate prints.
+    for (const asset of Object.keys(GROUND_ALBEDOS)) {
       expect(printed, `the gate never names ${asset}`).toContain(asset);
+      expect(SURFACE_SHADING_EXEMPTION.what, `the exemption never names ${asset}`).toContain(asset);
     }
     for (const kept of ['terrace', 'flat ground', 'road', 'scatter']) {
       expect(printed, `the gate never says ${kept} is still palette-only`).toContain(kept);

@@ -48,7 +48,7 @@ import {
   vfxEmitters,
   type MapJson,
 } from '@lions/data';
-import { TERRAIN_THEMES } from './terrain-themes';
+import { TERRAIN_GROUND_TEXTURE, TERRAIN_THEMES } from './terrain-themes';
 import './ui/theme.css';
 import { Hud, type MissionView, type OrderHandlers, type Tone } from './ui/hud';
 import { portraitUrl, type SheetManifest } from './ui/portrait';
@@ -557,14 +557,23 @@ async function main(): Promise<void> {
     nearMissColor: paletteColor('dust.0'),
     interceptColor: paletteColor('vfx.interceptor'),
     resolveColor: paletteColor,
-    // The ground albedo, served out of the repo-root `assets/` publicDir like
-    // every sprite sheet and font. Three-only and fail-soft: Pixi ignores the
-    // field and the three ground draws its flat palette tone if the image
-    // never arrives. See `RendererOptions.groundTextureUrl`.
-    groundTextureUrl: `${BASE}textures/desert_sand_tile.png`,
-    // The `^` rock ridge's own albedo. A separate image and a separate
-    // failure: a ridge that loses its texture is still a ridge.
+    // The ground albedos, served out of the repo-root `assets/` publicDir
+    // like every sprite sheet and font. Three-only and fail-soft: Pixi
+    // ignores the fields and the three ground draws its flat palette tone if
+    // an image never arrives. See `RendererOptions.groundTextureUrl`.
+    //
+    // Open ground is chosen by the map's own theme, the SAME read that picks
+    // `terrainTones` two lines up -- `TERRAIN_GROUND_TEXTURE[map.terrain]`,
+    // typed as a total `Record<TerrainTheme, ...>` so a new theme is a
+    // compile error here rather than a map that silently draws sand.
+    groundTextureUrl: `${BASE}textures/${TERRAIN_GROUND_TEXTURE[map.terrain]}.png`,
+    // Each of the four below is one surface, one image, and one independent
+    // failure: a ridge that loses its texture is still a ridge, and a road
+    // that loses its wheel track is still the authored road tone.
     rockTextureUrl: `${BASE}textures/rock_ground_tile.png`,
+    roadTextureUrl: `${BASE}textures/road_track_tile.png`,
+    scrubTextureUrl: `${BASE}textures/rough_scrub_tile.png`,
+    groveTextureUrl: `${BASE}textures/orchard_floor_tile.png`,
   };
   // Three is the default as of Phase D; Pixi remains reachable through
   // `?renderer=pixi`, which `renderer-choice.ts` persists so it survives the

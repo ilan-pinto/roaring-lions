@@ -81,6 +81,97 @@
 
 import type { DiffSummary, Region } from './diff';
 
+/**
+ * One visible-toggle A/B: hide a named draw layer, repaint, photograph, and
+ * require the two frames to DIFFER by at least this much.
+ *
+ * The floor is a MINIMUM, which is the whole inversion -- every other
+ * threshold in this file is a maximum, "do not change too much". These are
+ * "prove you are still there". A layer that stops contributing pixels drives
+ * its own delta to zero and fails, whatever the rest of the frame looks like,
+ * with no stored reference involved.
+ *
+ * `minMeanAbsChannelDelta` is the PRIMARY floor for the same measured reason
+ * `maxMeanAbsChannelDelta` is the primary ceiling: a palette-quantised mark
+ * can move a wide area by one step (19/255) and leave pixelmatch's count at
+ * zero. `minDiffPixels` is the secondary one and is deliberately 0 for a
+ * layer whose contribution is entirely sub-threshold -- stated in that
+ * entry's own `rationale` rather than left to be inferred.
+ */
+export interface LayerCheckSpec {
+  /** A `DEBUG_LAYERS` name (`packages/render/src/three/debug-layers.ts`). An
+   *  unknown one THROWS in the page rather than reading as a dead layer. */
+  layer: string;
+  /** Fails when hiding the layer moves the mean absolute per-channel delta
+   *  by LESS than this. */
+  minMeanAbsChannelDelta: number;
+  /** Fails when hiding the layer changes FEWER than this many pixels at
+   *  pixelmatch's 0.1 threshold. */
+  minDiffPixels: number;
+  /** Sub-rectangle the toggle diff covers. Omitted means the scenario's own
+   *  `region` -- which is the right default: a crop chosen to exclude
+   *  real-time content is exactly as useful here as it is for the baseline
+   *  comparison. `null` forces whole-frame even when the scenario crops. */
+  region?: Region | null;
+  /** An optional SECOND question about the same layer, asked from the same two
+   *  photographs plus two more: not "is it there" but "is it a different TONE
+   *  from the ground beneath it". See `ToneCollapseSpec`. */
+  toneCheck?: ToneCollapseSpec;
+  /** Measured signal, sample size, and what the floor is a fraction OF.
+   *  Printed on every run. */
+  rationale: string;
+}
+
+/**
+ * The tone-collapse ratio: proof that a layer's marks differ in COLOUR from
+ * the surface they sit on, with no stored reference.
+ *
+ * WHY A SECOND SHAPE OF CHECK EXISTS AT ALL, measured rather than assumed. The
+ * defect this whole gate was built for -- the stone-grain scatter no-op
+ * (`671acdb`), where every fleck composites into its own tile's base tone --
+ * is NOT an erasure, and the plain toggle floor above cannot see it. Before
+ * `c38f770` the marks vanished; since the ground gained a photographic sand
+ * tile they do not, because a flat base-toned mark still breaks a textured
+ * surface. Re-injected into this tree and measured: hiding `scatter` on
+ * `open-ground` moved 4610 px / 1.6858 clean against 4067 / 1.5393 defective
+ * -- a 9% dip. Hiding it against the FLAT palette ground was barely better
+ * (1.6239 vs 1.3923, 14%). No honest floor separates those, and a floor tight
+ * enough to would be a golden number in disguise.
+ *
+ * What DOES separate them is a ratio of two footprints of the same layer:
+ *
+ *   over TEXTURED ground -- every mark shows, including one whose colour has
+ *     collapsed into the ground's own tone, because a flat mark still flattens
+ *     the texture under it;
+ *   over FLAT ground (`over` hidden, which is the material's own 404 path) --
+ *     only a mark that is genuinely a different tone shows at all.
+ *
+ * So the ratio flat/textured is "what fraction of this layer's marks are a
+ * real tone difference rather than a hole in the texture", and it is 1.0 for a
+ * healthy layer by construction. Measured: 0.9306 / 0.9544 / 0.9377 clean on
+ * quiet / open-ground / relief, against 0.5927 / 0.6938 / 0.6359 with the
+ * defect re-injected. Nothing falls between 0.70 and 0.93, so a threshold in
+ * that gap sits in a gap rather than on a fitted line -- the same standard
+ * `tools/building_facing.py`'s FRONT_MARGIN is held to.
+ *
+ * IT DEPENDS ON THE GROUND ACTUALLY BEING TEXTURED, and that is not a hidden
+ * assumption: the same scenario's `ground-albedo` layer check proves the
+ * texture contributes pixels, and if it ever stops the gate goes red there
+ * first. Without a texture both footprints are the same set and the ratio is a
+ * vacuous 1.0.
+ */
+export interface ToneCollapseSpec {
+  /** The layer to hide to flatten the backdrop -- `ground-albedo` in every
+   *  case today, because driving the five texture strengths to 0 is the
+   *  renderer's own fail-soft path rather than a synthetic state. */
+  over: string;
+  /** Fails when the flat-ground footprint is smaller than this fraction of
+   *  the textured-ground one. */
+  minFootprintRatio: number;
+  /** Measured clean and defective readings, with sample size. */
+  rationale: string;
+}
+
 /** How a captured frame is compared against its stored baseline. */
 export interface BaselineSpec {
   /** Sub-rectangle of the 1400x900 capture that the comparison covers, or
@@ -99,6 +190,11 @@ export interface BaselineSpec {
    *  entry has to opt OUT, which is the direction that fails loudly when
    *  someone forgets. */
   gated?: boolean;
+  /** The reference-free half of this scenario's verdict: one entry per draw
+   *  layer this framing is a good witness for. Empty (or absent) means this
+   *  scenario judges nothing at all on a runner with no baseline, which is a
+   *  choice to state rather than a default to fall into. */
+  layerChecks?: readonly LayerCheckSpec[];
   /** Provenance for both numbers, printed on every run so it travels with the
    *  result rather than only with this file. */
   rationale: string;
@@ -113,6 +209,22 @@ export interface BaselineSpec {
  *  `tuning.ts` follows. The measurements are in
  *  `.superpowers/queue/golden-three-report.md`; the short form is in each
  *  `rationale`. */
+/** Every floor below is ONE THIRD of this machine's measured signal, on both
+ *  metrics, rounded down to a readable number.
+ *
+ *  Why a third, when the measurement carries no noise at all to leave room
+ *  for -- all ten layer deltas below are BIT-IDENTICAL across five
+ *  consecutive full-gate runs, to four decimal places, because the scene is
+ *  frozen and the two photographs differ only by the toggle. The floor's job
+ *  is therefore not headroom; it is a statement about how much of a layer may
+ *  disappear before the gate calls it gone. A third says "two thirds of this
+ *  layer's contribution can vanish before this fails", which is loose enough
+ *  that an ordinary art change does not turn every floor into a second
+ *  baseline needing its own bless, and tight enough that both documented
+ *  erasure defects (which drive their delta to zero, or near it) fail by a
+ *  wide margin. Tightening it toward the signal would make this a golden
+ *  number in disguise, which is the one thing a reference-free check must not
+ *  become. */
 export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
   quiet: {
     // The camera sits on `town_center` while the sandbox force spawns at the
@@ -133,6 +245,56 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     region: null,
     maxDiffPixels: 40,
     maxMeanAbsChannelDelta: 0.004,
+    layerChecks: [
+      {
+        layer: 'scatter',
+        minDiffPixels: 550,
+        minMeanAbsChannelDelta: 0.04,
+        toneCheck: {
+          over: 'ground-albedo',
+          minFootprintRatio: 0.8,
+          rationale:
+            'the grain mesh covers 8938 px of this frame over textured ground and 8318 px over the ' +
+            'flat palette tone -- ratio 0.9306, identical on 4 consecutive full-gate runs. With the ' +
+            'scatter no-op re-injected (671acdb) the same reading is 8794 / 5212 = 0.5927. Nothing ' +
+            'measured falls between 0.70 and 0.93, so the 0.8 floor sits in a gap.',
+        },
+        rationale:
+          'hiding the grain mesh moves 1730 px / 0.1318 here, identical on 5 consecutive full-gate ' +
+          'runs (macOS SwiftShader, frame loop frozen). Floors are a third of that. The weakest of ' +
+          "the three scatter witnesses -- this camera looks at a town, not at open ground -- which " +
+          'is why open-ground carries the same check at 4x the signal.',
+      },
+      {
+        layer: 'decor',
+        minDiffPixels: 4700,
+        minMeanAbsChannelDelta: 0.4,
+        rationale:
+          'hiding both decor batches moves 14180 px / 1.2038 here, identical on 5 runs. Floors are a ' +
+          'third. Erasing every decor object (decor-place.ts `familyFor` -> null) takes it to 0 / ' +
+          '0.0000 -- the defect that used to reach exit 3 with a green self-check.',
+      },
+      {
+        layer: 'ground-albedo',
+        minDiffPixels: 750,
+        minMeanAbsChannelDelta: 0.28,
+        rationale:
+          'driving the five ground texture strengths to 0 -- the material\'s own 404 path -- moves ' +
+          '2266 px / 0.8628 here, identical on 5 runs. Floors are a third. This is the check that ' +
+          'replaces what `groundTextureCheck` was meant to do and stopped doing: a sand tile that ' +
+          'never arrives now fails, where the dominant-colour fraction could not see it at all.',
+      },
+      {
+        layer: 'buildings',
+        minDiffPixels: 9300,
+        minMeanAbsChannelDelta: 0.48,
+        rationale:
+          'hiding structure boxes, mesh building clones and billboard structure instancers moves ' +
+          '28026 px / 1.4580 here, identical on 5 runs. Floors are a third. Only this scenario and ' +
+          'vehicle frame a building at all; open-ground and relief read a literal 0 and therefore do ' +
+          'not declare it.',
+      },
+    ],
     rationale:
       'whole frame, no units in shot. Noise 0-1 px / 0.0000-0.0001 pooled over 73 gate runs in two ' +
       'samples (24 + 49; macOS SwiftShader, frame loop frozen); thresholds are 40x the pixel maximum ' +
@@ -140,8 +302,8 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
       'magnitude threshold, and 457x the noise floor, while the pixel count moves by 13.',
   },
   'open-ground': {
-    // The same crop `groundTextureCheck` already uses, and for the same
-    // reason: it was confirmed unit-free and HUD-free at this scenario's exact
+    // The crop the retired `groundTextureCheck` used, kept for its own reason:
+    // it was confirmed unit-free and HUD-free at this scenario's exact
     // framing. Whole-frame here is NOT usable -- sandbox infantry stand in the
     // top-left of the shot and their rigged idle clip advances on wall-clock
     // time, giving 879-1762 differing pixels / 0.087-0.154 run to run even
@@ -156,8 +318,48 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     // backend change should be a re-bless rather than a red run.
     maxDiffPixels: 40,
     maxMeanAbsChannelDelta: 0.02,
+    layerChecks: [
+      {
+        layer: 'scatter',
+        minDiffPixels: 1500,
+        minMeanAbsChannelDelta: 0.56,
+        toneCheck: {
+          over: 'ground-albedo',
+          minFootprintRatio: 0.8,
+          rationale:
+            'the grain mesh covers 8967 px of this crop over textured ground and 8558 px over the ' +
+            'flat palette tone -- ratio 0.9544, identical on 4 consecutive full-gate runs. With the ' +
+            'scatter no-op re-injected (671acdb) the same reading is 8912 / 6183 = 0.6938. The ' +
+            'closest any measurement comes to the 0.8 floor, from either side.',
+        },
+        rationale:
+          'hiding the grain mesh moves 4610 px / 1.6858 inside this crop, identical on 5 consecutive ' +
+          'full-gate runs. Floors are a third. This is the strongest scatter witness in the gate -- ' +
+          'the crop is nothing but open ground at zoom 3, which is what it was chosen for.',
+      },
+      {
+        layer: 'decor',
+        minDiffPixels: 300,
+        minMeanAbsChannelDelta: 0.15,
+        rationale:
+          'hiding both decor batches moves 915 px / 0.4583 inside this crop, identical on 5 runs. ' +
+          'Floors are a third. The smallest decor signal of the three, and kept anyway: it is the ' +
+          'only decor check on `tutorial_ground`, and a decor fault that spared the other two maps ' +
+          'would otherwise be invisible.',
+      },
+      {
+        layer: 'ground-albedo',
+        minDiffPixels: 170,
+        minMeanAbsChannelDelta: 1.84,
+        rationale:
+          "driving the five ground texture strengths to 0 moves 511 px / 5.5363 inside this crop, " +
+          'identical on 5 runs -- the largest magnitude anywhere in the gate, because this crop is ' +
+          'entirely textured open ground. Floors are a third. Note the shape: 511 px against a ' +
+          '180000 px crop, so the pixel count is the weak half and the magnitude is the real signal.',
+      },
+    ],
     rationale:
-      'unit-free ground crop (the groundTextureCheck region). Noise 0 px / 0.0000 over 73 gate ' +
+      'unit-free ground crop (the region the retired groundTextureCheck used). Noise 0 px / 0.0000 over 73 gate ' +
       'runs in two samples (24 + 49) -- a literal zero, so no headroom multiple exists; a different ' +
       'GL backend on the same machine moves it to 25 px / ' +
       '0.0131, which is the cushion these thresholds sit above rather than their calibration ' +
@@ -208,6 +410,26 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     region: null,
     maxDiffPixels: 300,
     maxMeanAbsChannelDelta: 0.02,
+    // NO reference-free check, and that is a measurement rather than an
+    // omission. What this scenario uniquely frames is mesh VEHICLES, and mesh
+    // units are the one thing the toggle seam cannot hide: `updateVehicleMeshes`
+    // re-asserts `root.visible` from fog on every frame, so the repaint that
+    // should photograph them missing is the call that puts them back (measured:
+    // 76 px / 0.0100 for hiding "units" here, against 6922 px / 0.5014 for
+    // hiding scatter in the same frame -- see `debug-layers.ts`). Every OTHER
+    // layer in shot is already gated on `quiet`, which is the same map. So this
+    // scenario is judged by its baseline and, on an unblessed runner, captured
+    // and not judged -- which the summary says in those words.
+    //
+    // It is also the one scenario whose zero-time repaint is not bit-identical:
+    // 0 px / 0.0001-0.0004 over ~65-99 scattered pixels around the vehicles,
+    // decaying run to run (0.00035, 0.00021, 0.00021, 0.00012 ... over ten
+    // successive repaints). Three orders of magnitude below any floor here, and
+    // recorded rather than swept up: `quiet`, `open-ground` and `relief` all
+    // read a literal 0 / 0.0000, so whatever it is, it lives with the mesh
+    // vehicles and their continuous FX -- the same place this entry's own
+    // run-to-run noise already sits.
+    layerChecks: [],
     rationale:
       'whole frame, mesh vehicles plus continuous dust/exhaust FX. Noise 5-157 px / 0.0029-0.0069, ' +
       'pooled over 94 gate runs in three independent samples on one machine (24 + 21 + 49; macOS 15 ' +
@@ -241,6 +463,45 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     region: null,
     maxDiffPixels: 40,
     maxMeanAbsChannelDelta: 0.004,
+    layerChecks: [
+      {
+        layer: 'scatter',
+        minDiffPixels: 2300,
+        minMeanAbsChannelDelta: 0.13,
+        toneCheck: {
+          over: 'ground-albedo',
+          minFootprintRatio: 0.8,
+          rationale:
+            'the grain mesh covers 23915 px of this frame over textured ground and 22426 px over ' +
+            'the flat palette tone -- ratio 0.9377, identical on 4 consecutive full-gate runs. With ' +
+            'the scatter no-op re-injected (671acdb) the same reading is 23731 / 15090 = 0.6359, ' +
+            'and this is the framing where the defect moves the most pixels in absolute terms.',
+        },
+        rationale:
+          'hiding the grain mesh moves 7146 px / 0.4093 here, identical on 5 consecutive full-gate ' +
+          'runs. Floors are a third. The only scatter witness on a map with relief, where the marks ' +
+          'also dress slope faces.',
+      },
+      {
+        layer: 'decor',
+        minDiffPixels: 12800,
+        minMeanAbsChannelDelta: 0.92,
+        rationale:
+          'hiding both decor batches moves 38513 px / 2.7695 here, identical on 5 runs -- the ' +
+          'largest pixel signal in the gate, because this framing is the T1-C boulder field. Floors ' +
+          'are a third. This is the check that closes the exit-3 hole by name: the decor erase that ' +
+          'read 37183 px against a baseline and passed the old self-check.',
+      },
+      {
+        layer: 'ground-albedo',
+        minDiffPixels: 330,
+        minMeanAbsChannelDelta: 1.02,
+        rationale:
+          'driving the five ground texture strengths to 0 moves 1015 px / 3.0769 here, identical on ' +
+          '5 runs. Floors are a third. Covers the rock slot as well as sand -- tel_marum is the only ' +
+          'gated map with `^` ridge walls.',
+      },
+    ],
     rationale:
       'whole frame, tel_marum boulder corridor @ tile (10,15) zoom 2, tick 500 -- the T1-C boulder ' +
       'field plus the extruded rock-ridge relief either side of it. Noise 0 px / 0.0000 over 73 gate ' +
@@ -262,6 +523,13 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     maxDiffPixels: 0,
     maxMeanAbsChannelDelta: 0,
     gated: false,
+    // No reference-free check: this scene cannot even hold still between two
+    // photographs. Two screenshots taken with NO repaint at all between them
+    // differ by 10989 px / 0.4962 and then 22215 px / 2.0043 -- something in
+    // the mission path is still painting after the frame loop is frozen (the
+    // sandbox scenarios are bit-identical under the same test). Until that is
+    // found, a toggle A/B here would be measuring it. Report-only twice over.
+    layerChecks: [],
     rationale:
       'REPORT-ONLY. Same-commit noise 969-3847 px / 0.19-0.36; the re-injected scatter defect reads ' +
       '3231 px / 0.6006 -- inside the noise on pixel count, 1.7x it on meanAbsChannelDelta. No ' +
@@ -335,6 +603,67 @@ export interface BaselineVerdict {
   /** Every threshold that was crossed, in the words the gate prints. Empty
    *  when `ok`. */
   failures: string[];
+}
+
+/** A layer check FAILS when the delta is too SMALL -- the inverse comparison
+ *  to `evaluateBaseline`, and the reason both live here rather than being
+ *  inlined at the one call site each: the direction of the comparison is the
+ *  whole semantic difference between the two halves of this gate, and getting
+ *  it backwards would produce a check that passes precisely when the layer is
+ *  gone. `baseline.test.ts` pins both directions. */
+export function evaluateLayerCheck(summary: DiffSummary, check: LayerCheckSpec): BaselineVerdict {
+  const failures: string[] = [];
+  if (summary.meanAbsChannelDelta < check.minMeanAbsChannelDelta) {
+    failures.push(
+      `hiding "${check.layer}" moved meanAbsChannelDelta ${summary.meanAbsChannelDelta.toFixed(4)} < ` +
+        `${check.minMeanAbsChannelDelta} (the primary floor: this layer is contributing nothing, or ` +
+        'almost nothing, to the frame)'
+    );
+  }
+  if (summary.diffPixels < check.minDiffPixels) {
+    failures.push(`hiding "${check.layer}" changed diffPixels ${summary.diffPixels} < ${check.minDiffPixels}`);
+  }
+  return { ok: failures.length === 0, gated: true, failures };
+}
+
+/** The tone-collapse verdict. Takes the two footprints as counts of pixels
+ *  that are not BIT-IDENTICAL (`DiffSummary.changedPixels`), never pixelmatch's
+ *  perceptual `diffPixels`: the marks this separates differ from their ground
+ *  by around one palette step, which the perceptual count discards -- measured,
+ *  8558 exact against 3498 perceptual on the same footprint. */
+export function evaluateToneCheck(
+  footprintOverTexture: number,
+  footprintOverFlat: number,
+  check: ToneCollapseSpec,
+  layer: string
+): BaselineVerdict & { ratio: number } {
+  // A layer with no footprint at all is the plain floor's finding, not this
+  // one; reporting 0/0 as a ratio of 0 would double-fail it and bury the real
+  // message. Say so instead.
+  if (footprintOverTexture === 0) {
+    return {
+      ok: false,
+      gated: true,
+      ratio: 0,
+      failures: [
+        `"${layer}" has no footprint over textured ground at all, so its tone-collapse ratio is ` +
+          'undefined -- read the floor check above, which is the finding.',
+      ],
+    };
+  }
+  const ratio = footprintOverFlat / footprintOverTexture;
+  const failures =
+    ratio < check.minFootprintRatio
+      ? [
+          `"${layer}" covers ${footprintOverTexture} px over textured ground but only ` +
+            `${footprintOverFlat} px over the flat palette tone (ratio ${ratio.toFixed(4)} < ` +
+            `${check.minFootprintRatio}). That means ${(100 - ratio * 100).toFixed(0)}% of this layer ` +
+            'is drawing in its own ground\'s colour: the marks exist, and they are not a tone. This ' +
+            'is the shape of the stone-grain scatter no-op (671acdb) -- check the tone composites in ' +
+            '`scatter.ts` against the shipped theme before assuming it is unrelated.',
+        ]
+      : [];
+  return { ok: failures.length === 0, gated: true, ratio, failures };
 }
 
 export function evaluateBaseline(summary: DiffSummary, spec: BaselineSpec): BaselineVerdict {
@@ -413,6 +742,31 @@ export function capturePreconditionMismatches(
     out.push(`region ${JSON.stringify(stored.region)} -> ${JSON.stringify(region)}`);
   return out;
 }
+
+// ============================================================================
+// The repaint control
+// ============================================================================
+
+/** The toggle checks photograph the same scene twice and attribute the whole
+ *  difference to the layer they switched off. That attribution is only sound
+ *  while a repaint with nothing changed produces the same picture, so the gate
+ *  measures exactly that first and votes on it.
+ *
+ *  MEASURED, on the three scenarios that declare layer checks: with the frame
+ *  loop frozen and `frame(1, 0)` handing every clock zero elapsed
+ *  milliseconds, the control reads a literal 0 px / 0.0000 on `quiet`,
+ *  `open-ground` and `relief`, on 5 consecutive full-gate runs each. That is
+ *  not luck -- every clock `ThreeRenderer.frame` advances is fed the `dtMs` it
+ *  is handed, so zero makes the second paint a re-execution of the first.
+ *
+ *  So these are ZERO, not a band, and a control that starts drifting is a bug
+ *  to find rather than a number to widen -- widening it would silently loosen
+ *  every layer floor below at the same time. The two scenarios that do NOT
+ *  read zero (`vehicle` at 0 px / 0.0001-0.0004, `combat` at four figures)
+ *  declare no layer checks and never run this; their own entries carry the
+ *  measurement and what is known about it. */
+export const REPAINT_CONTROL_MAX_DIFF_PIXELS = 0;
+export const REPAINT_CONTROL_MAX_MEAN_DELTA = 0;
 
 /** Distinct exit codes, so a workflow step can tell "this environment has no
  *  baseline yet" (actionable, and impossible once one exists) apart from "the

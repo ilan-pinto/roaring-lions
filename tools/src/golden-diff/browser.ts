@@ -237,6 +237,33 @@ async function captureAttempts(
   );
 }
 
+/**
+ * Evaluate one script in an ALREADY-booted page and screenshot the same canvas
+ * rect, returning whatever JSON the script produced.
+ *
+ * The toggle checks' primitive (`three-baseline-gate.ts`). Deliberately not
+ * `capture()`: re-navigating would rebuild the scene, re-run the boot settle
+ * and land on a different frame, so the "layer hidden" photograph would differ
+ * from the "layer shown" one by a whole reload rather than by the layer. This
+ * keeps the page exactly as `capture()` left it -- frame loop frozen, sim
+ * pinned at its target tick -- and changes one thing.
+ *
+ * No retry loop, and that is deliberate too: `capture()`'s three attempts exist
+ * for a boot that can fail intermittently, whereas anything that throws here is
+ * a real fault in the page (an unknown layer name, a renderer without the
+ * instrument) that a second attempt would reproduce exactly.
+ */
+export async function rephotograph(
+  page: Page,
+  script: string,
+  outFile: string,
+  rect: { x: number; y: number; w: number; h: number }
+): Promise<unknown> {
+  const raw = await page.evaluate(script);
+  await page.screenshot({ path: outFile, clip: { x: rect.x, y: rect.y, width: rect.w, height: rect.h } });
+  return JSON.parse(raw as string) as unknown;
+}
+
 /** Reads `WEBGL_debug_renderer_info`'s unmasked renderer string from a throwaway
  *  page. This is the whole reason `baseline.ts` can key a stored baseline on the
  *  capture environment rather than hoping one is portable: without it, a run on

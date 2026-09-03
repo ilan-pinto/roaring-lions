@@ -89,15 +89,26 @@ export interface RendererOptions {
   /** Resolve a palette key from structure data (e.g. "limestone.4") to hex. */
   resolveColor?: (paletteKey: string) => string;
   /**
-   * URL of the ground albedo tile -- `assets/textures/desert_sand_tile.png`.
+   * URL of the OPEN-GROUND albedo tile.
    *
-   * Read only by the three.js backend, and only by the INTERPOLATED open
-   * ground (`terrain/mesh.ts`'s `groundSurfaceMaterial`). `renderer.ts`
-   * (Pixi) ignores it, like every other three-only field here -- see
-   * `shellColors` above for the same shape and the same reason. Optional and
-   * fail-soft: if it is absent, or the fetch fails, the ground draws as the
-   * flat palette tone it always did and warns by name. A missing texture
-   * must not cost the player a map.
+   * Chosen by the map's own `terrain` theme, exactly the way `terrainTones`
+   * above is: `assets/textures/desert_sand_tile.png` for `arid`,
+   * `green_basin_tile.png` for `green`. Before 2026-09-03 it was the sand
+   * unconditionally, so `wadi_halam_basin` -- the only green map, the whole
+   * Naharin arc, the only map with a mosque -- drew a river basin as desert.
+   *
+   * Read only by the three.js backend, and only by the open ground
+   * (`terrain/mesh.ts`'s `groundSurfaceMaterial`). `renderer.ts` (Pixi)
+   * ignores it, like every other three-only field here -- see `shellColors`
+   * above for the same shape and the same reason. Optional and fail-soft: if
+   * it is absent, or the fetch fails, the ground draws as the flat palette
+   * tone it always did and warns by name. A missing texture must not cost the
+   * player a map.
+   *
+   * The file's BASENAME is significant: the renderer looks the image's mean
+   * colour and repeat scale up in `GROUND_ALBEDOS` by it, and refuses to bind
+   * one the table does not name rather than dividing by a number nobody
+   * measured. Same for all four fields below.
    */
   groundTextureUrl?: string;
   /**
@@ -107,6 +118,27 @@ export interface RendererOptions {
    * `groundSurfaceMaterial`, optional, and fail-soft.
    */
   rockTextureUrl?: string;
+  /**
+   * URL of the `r` dirt-road albedo tile --
+   * `assets/textures/road_track_tile.png`. Same contract.
+   *
+   * The image is a single wheel track, and which way it points is decided
+   * per tile by the renderer from the road's own neighbours
+   * (`terrain/ground.ts`'s `roadAxisAt`), not here.
+   */
+  roadTextureUrl?: string;
+  /**
+   * URL of the cover-tile albedo -- `assets/textures/rough_scrub_tile.png`.
+   * Same contract. One image for all three tiers; how strongly each tier
+   * takes it is the renderer's own `SCRUB_TIER_STRENGTH`.
+   */
+  scrubTextureUrl?: string;
+  /**
+   * URL of the `o` olive-grove floor albedo --
+   * `assets/textures/orchard_floor_tile.png`. Same contract. The trees
+   * themselves are unaffected: they are palette-only geometry and stay so.
+   */
+  groveTextureUrl?: string;
 }
 
 export interface Renderer {

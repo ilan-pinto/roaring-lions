@@ -11,6 +11,14 @@ import beitSahwanOutskirts from '../../../data/maps/beit_sahwan_outskirts.json';
 import marjPerimeter from '../../../data/maps/marj_perimeter.json';
 import qarnHadid from '../../../data/maps/qarn_hadid.json';
 import telMarum from '../../../data/maps/tel_marum.json';
+// The four tile-study sandboxes (2026-09-03). Not campaign ground and no
+// mission references any of them: each exists to put ONE of the ground
+// albedos in front of the player at gameplay zoom, reachable from the
+// `?sandboxes` picker, which builds its list from this registry.
+import tileGreen from '../../../data/maps/tile_green.json';
+import tileOrchard from '../../../data/maps/tile_orchard.json';
+import tileRoad from '../../../data/maps/tile_road.json';
+import tileScrub from '../../../data/maps/tile_scrub.json';
 import tutorialGround from '../../../data/maps/tutorial_ground.json';
 import wadiHalamBasin from '../../../data/maps/wadi_halam_basin.json';
 import structureCatalogue from '../../../data/structures.json';
@@ -102,6 +110,10 @@ export const maps = {
   marj_perimeter: marjPerimeter,
   qarn_hadid: qarnHadid,
   tel_marum: telMarum,
+  tile_green: tileGreen,
+  tile_orchard: tileOrchard,
+  tile_road: tileRoad,
+  tile_scrub: tileScrub,
   tutorial_ground: tutorialGround,
   wadi_halam_basin: wadiHalamBasin,
 } as const;

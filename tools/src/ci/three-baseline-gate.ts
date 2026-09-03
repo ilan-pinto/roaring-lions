@@ -31,29 +31,50 @@
 //   3  no baseline exists for THIS capture environment, and every scenario
 //      that COULD be judged without one passed (actionable, and impossible
 //      once one has been blessed here). The run still captures everything and
-//      still runs `groundTextureCheck`; a self-check FAILURE is exit 1 even
-//      with no baseline.
+//      still runs every reference-free self-check; a self-check FAILURE is
+//      exit 1 even with no baseline.
 //
-// WHAT EXIT 3 DOES NOT PROMISE, because this comment used to promise it and a
-// measurement said otherwise. It said "3 can never mask a real finding". It
-// can, and here is the run that proves it. `groundTextureCheck` is declared by
-// ONE scenario -- `open-ground` -- so on an unblessed runner that single 450x400
-// ground crop is the only thing judged and the other four scenarios are
-// captured and not compared to anything. Measured 2026-09-02 on this branch:
-// erasing every decor object (`decor-place.ts`'s `familyFor` -> `return null`:
-// no boulder, rock, tree, bush, slab, grass or sand anywhere on any map) fails
-// all four gated scenarios WITH a baseline -- quiet 4306 px / 0.5064,
-// open-ground 952 / 0.4753, vehicle 19313 / 2.0243, relief 37183 / 2.7229,
-// exit 1 -- and exits 3 with none, which `ci.yml` turns into a green tick.
-// `open-ground`'s own self-check read `fraction 0.9408 (budget <0.95) -> PASS`
-// in that run, the SAME number a clean tree reads, while the same crop's
-// baseline diff was 952 px: the crop moved and the structural check did not.
+// ============================================================================
+// What votes when there is no baseline
+// ============================================================================
 //
-// So exit 3 means "one crop of one scenario was checked and nothing was
-// COMPARED", not "a real defect would still be caught". The scatter defect
-// happens to be the class `groundTextureCheck` was built for and does exit 1
-// with no baseline; nothing generalises from that to a second defect. Bless a
-// baseline for the environment -- that is the fix, and it is the only one.
+// The reference-free half of this gate is the VISIBLE-TOGGLE A/B: hide a named
+// draw layer, repaint with zero elapsed presentation time, photograph, and
+// require the two frames to differ by a calibrated floor
+// (`BaselineSpec.layerChecks`; the seam is
+// `packages/render/src/three/debug-layers.ts`). It is texture-proof by
+// construction -- it never asks what the frame looks like, only whether
+// removing one layer changes it -- and it needs no stored picture, so it is
+// what votes on a runner nobody has blessed a baseline for.
+//
+// IT REPLACED A CHECK THAT HAD GONE STRUCTURALLY INERT, and the way that
+// happened is the reason this section exists. `groundTextureCheck` cropped
+// `open-ground`'s ground and failed if more than 95% of the crop was a single
+// flat colour -- 0.9542 with the scatter defect, 0.9408 without. Then
+// `c38f770` put a photographic sand tile on every open-ground pixel and the
+// crop went to 0.2330 with 6,721 distinct colours. It could no longer reach
+// its own budget from any direction, on any tree, and it went on printing
+// PASS. A reference-free check that asks about APPEARANCE can be blinded by
+// content; one that asks whether a layer CONTRIBUTES cannot.
+//
+// WHAT EXIT 3 DOES AND DOES NOT PROMISE, measured on this branch rather than
+// argued. Both documented defects now exit 1 with an EMPTY baseline directory:
+//
+//   - erasing every decor object (`decor-place.ts`'s `familyFor` ->
+//     `return null`) drives the `decor` toggle to 0 px / 0.0000 on all three
+//     scenarios that declare it, against floors of 4700/0.4, 300/0.15 and
+//     12800/0.92. This is the defect that used to reach exit 3 with the old
+//     self-check reading the clean tree's own number;
+//   - the stone-grain scatter no-op (`671acdb`) fails the `scatter` layer's
+//     TONE check -- ratio 0.5927 / 0.6938 / 0.6359 against a 0.8 floor and a
+//     clean-tree 0.9306 / 0.9544 / 0.9377.
+//
+// What exit 3 still means is "nothing was COMPARED". Two scenarios declare no
+// reference-free check at all (`vehicle`, `combat`) and are captured and not
+// judged; every check that does run is a statement about ONE layer in ONE
+// framing. A regression in something no layer check names -- unit meshes, fog,
+// overlays, a wrong colour that is still a colour -- passes here at any size.
+// Bless a baseline for the environment. That is still the fix.
 //
 // ============================================================================
 // Accepting an intended visual change
@@ -82,20 +103,32 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync,
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Page } from 'playwright';
-import { threeUrl, captureScript, SCENARIOS, type Scenario } from '../golden-diff/capture-protocol';
-import { computeDiff, formatSummary, computeDominantColorFraction } from '../golden-diff/diff';
+import {
+  threeUrl,
+  captureScript,
+  layerToggleScript,
+  REPAINT_SCRIPT,
+  SCENARIOS,
+  type Scenario,
+} from '../golden-diff/capture-protocol';
+import { computeDiff, formatSummary } from '../golden-diff/diff';
 import {
   EXIT_DIFF,
   EXIT_NO_BASELINE,
   EXIT_OK,
   EXIT_USAGE,
+  REPAINT_CONTROL_MAX_DIFF_PIXELS,
+  REPAINT_CONTROL_MAX_MEAN_DELTA,
   capturePreconditionMismatches,
   envKey,
   evaluateBaseline,
+  evaluateLayerCheck,
+  evaluateToneCheck,
   isGated,
   specFor,
   type BaselineManifest,
   type BaselineScenarioRecord,
+  type BaselineSpec,
 } from '../golden-diff/baseline';
 import {
   CAPTURE_VIEWPORT,
@@ -103,6 +136,7 @@ import {
   ensureDevServer,
   launchCaptureBrowser,
   readUnmaskedRenderer,
+  rephotograph,
   stopDevServer,
   type CaptureResult,
 } from '../golden-diff/browser';
@@ -208,32 +242,142 @@ async function captureScenario(
   return { png, result };
 }
 
-/** The same-renderer structural self-check `golden-diff-gate.ts` introduced
- *  alongside `Scenario.groundTextureCheck`. It never depended on Pixi, so it
- *  moves here intact -- and unlike the baseline comparison it needs no stored
- *  reference at all, which means it is the one check that still works in an
- *  environment with no blessed baseline.
+interface SelfCheckResult {
+  /** Every reference-free check this scenario declares passed. */
+  ok: boolean;
+  /** How many voted. 0 means this scenario was CAPTURED, not judged. */
+  checks: number;
+  lines: string[];
+  failures: string[];
+}
+
+/**
+ * The reference-free half of the verdict: the visible-toggle A/B, run against
+ * the live page the scenario was just captured from.
  *
- *  Its REACH is one scenario and one property, and the difference matters on
- *  an unblessed runner where it is the whole verdict. Only `open-ground`
- *  declares a `groundTextureCheck`; it asks a single question about a single
- *  450x400 crop -- how much of it is the one most common colour -- and a
- *  regression that leaves that fraction alone is invisible to it however large
- *  it is elsewhere. See the exit-code block at the top of this file for the
- *  decor deletion that reads 4306-37183 differing pixels against a baseline
- *  and PASSES this check at the clean tree's own 0.9408. */
-function runGroundTextureCheck(scenario: Scenario, png: string): { ok: boolean; line: string } | null {
-  if (!scenario.groundTextureCheck) return null;
-  const { region, maxBackgroundFraction } = scenario.groundTextureCheck;
-  const dom = computeDominantColorFraction(png, region);
-  const ok = dom.dominantFraction < maxBackgroundFraction;
-  return {
-    ok,
-    line:
-      `groundTextureCheck: dominantColor rgb(${dom.dominantColor.join(',')}) ` +
-      `fraction ${dom.dominantFraction.toFixed(4)} (budget <${maxBackgroundFraction}), ` +
-      `distinctColors ${dom.distinctColors} -> ${ok ? 'PASS' : 'FAIL'}`,
-  };
+ * For each layer the scenario declares, hide it, repaint, photograph, and
+ * require the two frames to DIFFER by at least the calibrated floor. It needs
+ * no stored baseline, so it is what votes on a runner nobody has blessed one
+ * for -- the state the retired `groundTextureCheck` was supposed to cover and,
+ * measured, did not (see this file's exit-code block).
+ *
+ * Two properties are load-bearing and neither is incidental.
+ *
+ * IT IS TEXTURE-PROOF BY CONSTRUCTION. It never asks what the frame looks
+ * like, only whether removing one layer changes it, so no amount of detail
+ * underneath can hide a layer that stopped drawing. That is exactly what
+ * `groundTextureCheck` could not survive: it asked "is this crop mostly one
+ * flat colour", the ground gained a photographic sand tile, and the answer
+ * became a permanent 0.2330 against a <0.95 budget.
+ *
+ * THE CONTROL IS PART OF THE MEASUREMENT. Before any layer is touched, the
+ * page is repainted with zero elapsed presentation time and photographed
+ * again; that frame must be bit-identical to the capture. If it is not, the
+ * scene is drifting between photographs and every toggle delta below is
+ * measuring the drift as well as the layer. The control is a gated check of
+ * its own rather than an assumption in a comment.
+ */
+async function runSelfChecks(
+  page: Page,
+  scenario: Scenario,
+  spec: BaselineSpec,
+  capturedPng: string,
+  captured: CaptureResult,
+  outDir: string
+): Promise<SelfCheckResult> {
+  const checks = spec.layerChecks ?? [];
+  if (checks.length === 0) return { ok: true, checks: 0, lines: [], failures: [] };
+
+  const dir = path.join(outDir, scenario.id);
+  const lines: string[] = [];
+  const failures: string[] = [];
+
+  // The control. `REPAINT_SCRIPT` advances no tick and hands `frame()` zero
+  // milliseconds, so this is the same picture drawn twice.
+  const shownPng = path.join(dir, 'layer-shown.png');
+  await rephotograph(page, REPAINT_SCRIPT, shownPng, captured.rect);
+  const control = computeDiff(capturedPng, shownPng, {
+    outDir: dir,
+    diffFileName: 'diff-repaint-control.png',
+    threshold: PIXELMATCH_THRESHOLD,
+    region: spec.region ?? undefined,
+  });
+  const controlOk =
+    control.diffPixels <= REPAINT_CONTROL_MAX_DIFF_PIXELS &&
+    control.meanAbsChannelDelta <= REPAINT_CONTROL_MAX_MEAN_DELTA;
+  lines.push(
+    `repaint-control: a zero-time repaint moved ${control.diffPixels} px / ` +
+      `${control.meanAbsChannelDelta.toFixed(4)} (budget <=${REPAINT_CONTROL_MAX_DIFF_PIXELS} px / ` +
+      `${REPAINT_CONTROL_MAX_MEAN_DELTA}) -> ${controlOk ? 'PASS' : 'FAIL'}`
+  );
+  if (!controlOk) {
+    failures.push(
+      `repaint-control: the frame changed on its own between two photographs (${control.diffPixels} px / ` +
+        `${control.meanAbsChannelDelta.toFixed(4)}). Every layer delta below is measuring that drift too, ` +
+        'so none of them can be trusted -- find what is still animating with the frame loop frozen ' +
+        'before reading the toggles.'
+    );
+  }
+
+  for (const check of checks) {
+    const region = check.region !== undefined ? check.region : spec.region;
+    const hiddenPng = path.join(dir, `layer-${check.layer}-hidden.png`);
+    await rephotograph(page, layerToggleScript(check.layer, false), hiddenPng, captured.rect);
+    const shownAgain = await page.evaluate(layerToggleScript(check.layer, true));
+    const objects = (JSON.parse(shownAgain as string) as { objects: number }).objects;
+    const summary = computeDiff(shownPng, hiddenPng, {
+      outDir: dir,
+      diffFileName: `diff-layer-${check.layer}.png`,
+      threshold: PIXELMATCH_THRESHOLD,
+      region: region ?? undefined,
+    });
+    const verdict = evaluateLayerCheck(summary, check);
+    lines.push(
+      `layer "${check.layer}": hiding it moved ${summary.diffPixels} px / ` +
+        `${summary.meanAbsChannelDelta.toFixed(4)} (floor >=${check.minDiffPixels} px / ` +
+        `${check.minMeanAbsChannelDelta}) -> ${verdict.ok ? 'PASS' : 'FAIL'} ` +
+        `[${objects} scene object(s) toggled -- diagnostic only, the verdict is the pixels]`
+    );
+    lines.push(`layer "${check.layer}" floor: ${check.rationale}`);
+    for (const f of verdict.failures) failures.push(f);
+
+    // The tone-collapse ratio: the SAME layer's footprint measured a second
+    // time against a flattened backdrop. Two more photographs, and the
+    // `over` layer is put back before anything else runs -- a scenario's
+    // later checks are all measured against the ordinary picture.
+    if (check.toneCheck) {
+      const { over } = check.toneCheck;
+      const flatShown = path.join(dir, `layer-${check.layer}-over-flat-shown.png`);
+      const flatHidden = path.join(dir, `layer-${check.layer}-over-flat-hidden.png`);
+      await page.evaluate(layerToggleScript(over, false));
+      await rephotograph(page, REPAINT_SCRIPT, flatShown, captured.rect);
+      await rephotograph(page, layerToggleScript(check.layer, false), flatHidden, captured.rect);
+      await page.evaluate(layerToggleScript(check.layer, true));
+      await page.evaluate(layerToggleScript(over, true));
+      const flat = computeDiff(flatShown, flatHidden, {
+        outDir: dir,
+        diffFileName: `diff-layer-${check.layer}-over-flat.png`,
+        threshold: PIXELMATCH_THRESHOLD,
+        region: region ?? undefined,
+      });
+      const tone = evaluateToneCheck(summary.changedPixels, flat.changedPixels, check.toneCheck, check.layer);
+      lines.push(
+        `layer "${check.layer}" tone: footprint ${summary.changedPixels} px over textured ground, ` +
+          `${flat.changedPixels} px over the flat tone (ratio ${tone.ratio.toFixed(4)}, floor >=` +
+          `${check.toneCheck.minFootprintRatio}) -> ${tone.ok ? 'PASS' : 'FAIL'}`
+      );
+      lines.push(`layer "${check.layer}" tone floor: ${check.toneCheck.rationale}`);
+      for (const f of tone.failures) failures.push(f);
+    }
+  }
+
+  // The repaint control plus every layer check plus every tone check -- a
+  // count of things that actually VOTED, not of table rows. A tone check is a
+  // second, independent verdict on the same layer (it is what fails on the
+  // scatter no-op while the floor passes), so leaving it out would understate
+  // exactly the check that is hardest to explain from the summary line.
+  const toneChecks = checks.filter((c) => c.toneCheck).length;
+  return { ok: failures.length === 0, checks: checks.length + toneChecks + 1, lines, failures };
 }
 
 async function main(): Promise<void> {
@@ -283,20 +427,19 @@ async function main(): Promise<void> {
     // own distinct exit code and the workflow decides what it means.
     //
     // It no longer RETURNS here, though, and that matters. It used to, which
-    // made this file's own claim about `groundTextureCheck` -- "unlike the
-    // baseline comparison it needs no stored reference at all, which means it
-    // is the one check that still works in an environment with no blessed
-    // baseline" -- false in exactly the environment it was written for:
-    // nothing was captured, so nothing was checked. Combined with the bless
-    // workflow being unable to create a first baseline at all
+    // made the reference-free check's whole claim -- "it needs no stored
+    // reference, so it is the one thing that still works in an environment
+    // with no blessed baseline" -- false in exactly the environment it was
+    // written for: nothing was captured, so nothing was checked. Combined with
+    // the bless workflow being unable to create a first baseline at all
     // (`visual-baseline-bless.yml`, fixed in the same commit), CI ran a
     // green-ticking no-op. Now the run captures every scenario, runs whatever
-    // self-check each one declares, and exits 1 if a self-check FAILS -- only
-    // an otherwise-clean run reaches the softer exit 3.
+    // self-checks each one declares, and exits 1 if one FAILS -- only an
+    // otherwise-clean run reaches the softer exit 3.
     //
-    // "Whatever each one declares" is one scenario: `open-ground`. That is the
-    // honest size of what exit 3 still checks, and the exit-code block at the
-    // top of this file carries the defect measured walking straight past it.
+    // "Whatever each one declares" is three scenarios and ten layer checks,
+    // and the exit-code block at the top of this file says what that does and
+    // does not cover.
     const noBaseline = !args.bless && !existsSync(manifestPath);
     if (noBaseline) {
       const have = existsSync(args.baselineDir)
@@ -311,10 +454,11 @@ async function main(): Promise<void> {
           `[${TAG}] scenario's run-to-run noise and enough to swallow the defect this gate exists\n` +
           `[${TAG}] to catch. Bless one HERE, after looking at the captures:\n` +
           `[${TAG}]   pnpm golden-baseline:bless -- --reason="first baseline for ${key}"\n` +
-          `[${TAG}] Capturing anyway, so the reference-free groundTextureCheck still votes --\n` +
-          `[${TAG}] but ONE scenario declares one (open-ground), so this run judges a single\n` +
-          `[${TAG}] 450x400 ground crop and compares nothing else. A defect that leaves that\n` +
-          `[${TAG}] crop's dominant-colour fraction alone passes here at any size.\n`
+          `[${TAG}] Capturing anyway, so the reference-free toggle checks still vote -- each one\n` +
+          `[${TAG}] hides a named draw layer and requires the frame to change. They catch a layer\n` +
+          `[${TAG}] that has stopped drawing, and the scatter layer's tone collapsing into its own\n` +
+          `[${TAG}] ground; they say NOTHING about anything no layer check names. See the summary\n` +
+          `[${TAG}] at the end for which scenarios were judged and which were only captured.\n`
       );
     }
 
@@ -395,10 +539,21 @@ async function main(): Promise<void> {
         sha256: sha256(png),
       };
 
-      // The self-check runs in both modes: it needs no baseline, so it is the
-      // one thing that still gates a freshly-blessed environment.
-      const texture = runGroundTextureCheck(scenario, png);
-      if (texture) console.log(`[${TAG}] scenario "${scenario.id}" ${texture.line}`);
+      // The self-checks run in EVERY mode -- compare, bless, and no-baseline.
+      // They need no stored reference, so they are the only thing that gates a
+      // freshly-blessed environment; and a bless whose toggles fail would
+      // enshrine a frame with a dead layer in it as the picture every future
+      // run is judged against, which is the one way this gate could make
+      // things worse than having no gate at all.
+      const self = await runSelfChecks(page, scenario, spec, png, result, args.outDir);
+      for (const line of self.lines) console.log(`[${TAG}] scenario "${scenario.id}" ${line}`);
+      for (const f of self.failures) console.error(`[${TAG}]   self-check FAILED: ${f}`);
+      if (self.checks === 0) {
+        console.log(
+          `[${TAG}] scenario "${scenario.id}" declares NO reference-free check, so with no baseline ` +
+            'it is captured and not judged.'
+        );
+      }
 
       // A report-only scenario is captured and self-checked but NOT baselined.
       // Storing one costs real repo weight for a number that cannot vote --
@@ -411,29 +566,36 @@ async function main(): Promise<void> {
           `[${TAG}] scenario "${scenario.id}": captured at tick ${record.tick}, NOT baselined ` +
             `(report-only). ${spec.rationale}`
         );
-        outcomes.push({ id: scenario.id, gated, ok: true, selfChecked: texture !== null, detail: `captured, ${short(png)}` });
+        outcomes.push({
+          id: scenario.id,
+          gated,
+          ok: true,
+          selfChecked: self.checks > 0,
+          detail: `captured, ${short(png)}`,
+        });
         continue;
       }
 
-      // No stored picture to compare against, so the self-check is the whole
-      // verdict for this scenario. `textureOk` is `true` for a scenario with no
-      // `groundTextureCheck` -- that is honest rather than generous: this run
-      // is explicitly not gating on appearance, and says so in its summary and
-      // its exit code.
+      // No stored picture to compare against, so the self-checks ARE the
+      // verdict for this scenario. A scenario that declares none is `ok`
+      // here -- honest rather than generous: this run is explicitly not
+      // gating on its appearance, and the summary and exit code say so.
       if (noBaseline) {
-        const textureOk = texture ? texture.ok : true;
         console.log(
           `[${TAG}] scenario "${scenario.id}": captured at tick ${record.tick}, NO BASELINE to ` +
-            `compare against. Self-check ${texture ? (textureOk ? 'PASS' : 'FAIL') : 'not available for this scenario'}.`
+            `compare against. Self-checks: ${
+              self.checks === 0 ? 'none declared' : `${self.checks} run, ${self.ok ? 'all PASS' : 'FAILED'}`
+            }.`
         );
         outcomes.push({
           id: scenario.id,
           gated,
-          ok: textureOk,
-          selfChecked: texture !== null,
-          detail: texture
-            ? `no baseline; groundTextureCheck ${textureOk ? 'PASS' : 'FAIL'}`
-            : 'no baseline; no self-check for this scenario',
+          ok: self.ok,
+          selfChecked: self.checks > 0,
+          detail:
+            self.checks === 0
+              ? 'no baseline; no self-check for this scenario'
+              : `no baseline; ${self.checks} self-check(s) ${self.ok ? 'PASS' : 'FAIL'}`,
         });
         continue;
       }
@@ -446,7 +608,7 @@ async function main(): Promise<void> {
           `[${TAG}] blessed "${scenario.id}" -> ${path.relative(REPO_ROOT, path.join(envDir, `${scenario.id}.png`))} ` +
             `(tick ${record.tick}, sha256 ${record.sha256.slice(0, 12)})`
         );
-        outcomes.push({ id: scenario.id, gated, ok: true, selfChecked: texture !== null, detail: 'blessed' });
+        outcomes.push({ id: scenario.id, gated, ok: self.ok, selfChecked: self.checks > 0, detail: 'blessed' });
         continue;
       }
 
@@ -457,7 +619,7 @@ async function main(): Promise<void> {
           `[${TAG}] scenario "${scenario.id}": the "${key}" baseline has no entry for it. Re-bless ` +
             'that environment (a scenario added since the last bless is a picture nobody has approved).'
         );
-        outcomes.push({ id: scenario.id, gated, ok: false, selfChecked: texture !== null, detail: 'no baseline entry' });
+        outcomes.push({ id: scenario.id, gated, ok: false, selfChecked: self.checks > 0, detail: 'no baseline entry' });
         continue;
       }
       if (sha256(baselinePng) !== stored.sha256) {
@@ -466,7 +628,7 @@ async function main(): Promise<void> {
             'sha256 in manifest.json -- the stored baseline was edited or corrupted outside a bless. ' +
             'Refusing to compare against it.'
         );
-        outcomes.push({ id: scenario.id, gated, ok: false, selfChecked: texture !== null, detail: 'baseline sha mismatch' });
+        outcomes.push({ id: scenario.id, gated, ok: false, selfChecked: self.checks > 0, detail: 'baseline sha mismatch' });
         continue;
       }
       const drift = capturePreconditionMismatches(stored, result, spec.region);
@@ -476,7 +638,13 @@ async function main(): Promise<void> {
             `from -- ${drift.join('; ')}. That is a scenario re-authoring, not a rendering regression; ` +
             're-bless with a --reason saying so.'
         );
-        outcomes.push({ id: scenario.id, gated, ok: false, selfChecked: texture !== null, detail: `capture drift: ${drift.join('; ')}` });
+        outcomes.push({
+          id: scenario.id,
+          gated,
+          ok: false,
+          selfChecked: self.checks > 0,
+          detail: `capture drift: ${drift.join('; ')}`,
+        });
         continue;
       }
 
@@ -504,13 +672,14 @@ async function main(): Promise<void> {
             `[${TAG}]     pnpm golden-baseline:bless -- --reason="<what changed>"`
         );
       }
-      const textureOk = texture ? texture.ok : true;
       outcomes.push({
         id: scenario.id,
         gated,
-        ok: (verdict.ok || !verdict.gated) && textureOk,
-        selfChecked: texture !== null,
-        detail: `diffPixels ${summary.diffPixels}, meanAbsChannelDelta ${summary.meanAbsChannelDelta.toFixed(4)}`,
+        ok: (verdict.ok || !verdict.gated) && self.ok,
+        selfChecked: self.checks > 0,
+        detail:
+          `diffPixels ${summary.diffPixels}, meanAbsChannelDelta ${summary.meanAbsChannelDelta.toFixed(4)}` +
+          (self.checks > 0 ? `; ${self.checks} self-check(s) ${self.ok ? 'PASS' : 'FAIL'}` : ''),
       });
     }
 
@@ -576,20 +745,21 @@ async function main(): Promise<void> {
       process.exitCode = EXIT_DIFF;
     } else if (noBaseline) {
       // Name the scenarios rather than saying "every available self-check
-      // passed", which reads as coverage and is one crop of one scenario. The
-      // lists are derived, not typed here, so adding a `groundTextureCheck` to
-      // a second scenario moves this message on its own.
+      // passed", which reads as coverage when two of the five were only
+      // captured. The lists are derived, not typed here, so declaring a layer
+      // check on a third scenario moves this message on its own.
       const judged = outcomes.filter((o) => o.selfChecked).map((o) => o.id);
       const unjudged = outcomes.filter((o) => !o.selfChecked).map((o) => o.id);
       console.error(
         `\n[${TAG}] NOTHING WAS COMPARED, and ${judged.length} of ${outcomes.length} scenario(s) were judged at all.\n` +
           `[${TAG}]   reference-free self-check: ${judged.length ? judged.join(', ') : '(none)'}\n` +
           `[${TAG}]   captured, NOT judged:      ${unjudged.length ? unjudged.join(', ') : '(none)'}\n` +
-          `[${TAG}] There is no "${key}" baseline, so nothing outside that self-check could have\n` +
-          `[${TAG}] been caught. This is not a theoretical gap: erasing every decor object fails\n` +
-          `[${TAG}] all four gated scenarios against a baseline (relief 37183 px / 2.7229) and\n` +
-          `[${TAG}] reaches this exit instead, with open-ground's self-check reading the clean\n` +
-          `[${TAG}] tree's own number. Bless a baseline before trusting a green tick here.`
+          `[${TAG}] There is no "${key}" baseline, so nothing outside those self-checks could have\n` +
+          `[${TAG}] been caught. What they DO catch is measured: erasing every decor object, and\n` +
+          `[${TAG}] the stone-grain scatter no-op, both exit 1 from exactly this state. What they\n` +
+          `[${TAG}] cannot catch is anything no layer check names -- unit meshes, fog, overlays, a\n` +
+          `[${TAG}] wrong colour that is still a colour. Bless a baseline before trusting a green\n` +
+          `[${TAG}] tick here.`
       );
       process.exitCode = EXIT_NO_BASELINE;
     } else {

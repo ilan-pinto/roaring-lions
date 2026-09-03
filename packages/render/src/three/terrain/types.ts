@@ -74,6 +74,63 @@ export interface MeshData {
    */
   rockMask?: Float32Array;
   /**
+   * One float per vertex -- 1 where this vertex samples the ROAD albedo
+   * (`mesh.ts`, `uRoad`), 0 where it does not. Exactly the `r` tiles.
+   *
+   * Until 2026-09-03 a road was masked OUT of every albedo so its authored
+   * tone would keep reading as navigation. It now has an albedo of its own --
+   * a wheel track, applied as a ratio to its own mean like every other, so
+   * the tile still AVERAGES to the `tones.road` composite it always did and
+   * only the rut arrives from the image.
+   *
+   * OPTIONAL, `ground.ts` only, like every mask above.
+   */
+  roadMask?: Float32Array;
+  /**
+   * One float per vertex, and the only entry here that is not a mask: which
+   * axis this road tile's ruts run along. 0 north-south (the image's own
+   * orientation), 1 east-west (its coordinates swapped), 0.5 the average of
+   * the two.
+   *
+   * Separate from `roadMask` rather than packed into it because a mask of 0
+   * and an axis of 0 are different facts: packed, "no road here" would be
+   * indistinguishable from "a road running north-south", and every non-road
+   * vertex on the map would claim an orientation. `ground.ts`'s `roadAxisAt`
+   * is the rule that fills it.
+   *
+   * Meaningless where `roadMask` is 0, and left at 0 there.
+   *
+   * OPTIONAL, `ground.ts` only.
+   */
+  roadAxis?: Float32Array;
+  /**
+   * One float per vertex -- how strongly this vertex samples the SCRUB
+   * albedo (`mesh.ts`, `uScrub`). Unlike every mask above it is not 0-or-1:
+   * it carries the cover TIER, as the mix weight toward the image's full
+   * variation (`ground.ts`'s `SCRUB_TIER_STRENGTH`), so a light cover tile
+   * is faintly rough ground and a garrison-grade one is a thicket.
+   *
+   * Set on the `1`/`2`/`3` symbols only -- a cover tile whose `decor` is
+   * `none`. An `o` grove is cover 1 and takes the orchard floor instead; an
+   * `n` knoll is cover 2 and is deliberately left as it was, since neither
+   * the brief nor the art named it and quietly restyling a symbol is how a
+   * map stops looking like the one its author drew.
+   *
+   * OPTIONAL, `ground.ts` only.
+   */
+  scrubMask?: Float32Array;
+  /**
+   * One float per vertex -- 1 on an `o` olive grove's floor, where the
+   * orchard albedo is sampled (`mesh.ts`, `uGrove`), 0 elsewhere.
+   *
+   * The trees themselves are `grove.ts`'s own mesh and are untouched by
+   * this: they draw through the unlit `terrainMaterial` and are still
+   * palette-only, including the flat trunk shadows they cast on this ground.
+   *
+   * OPTIONAL, `ground.ts` only.
+   */
+  groveMask?: Float32Array;
+  /**
    * xy pairs, one per vertex: the WORLD-space coordinates the ground albedo
    * is sampled at, before the per-texture repeat scale.
    *

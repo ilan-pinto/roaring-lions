@@ -26,10 +26,10 @@ import {
   GROUND_RELIEF_STRENGTH,
   GROUND_SHADE_FLOOR,
   GROUND_SHADE_CEIL,
-  GROUND_TEXTURE_MEAN,
-  GROUND_TEXTURE_TILES,
-  ROCK_TEXTURE_MEAN,
-  ROCK_TEXTURE_TILES,
+  GROUND_ALBEDOS,
+  GROUND_SLOTS,
+  albedoMean,
+  slotUniforms,
   prepareGroundTexture,
 } from './mesh';
 import type { MeshData } from './types';
@@ -159,28 +159,116 @@ describe('the ground albedo tile', () => {
     expect(m.uniforms.uRock.value.image.width).toBe(1);
     // A ridge face is one to two levels tall; the rock repeat has to be
     // smaller than the sand's or a whole cliff shows a tenth of the image.
-    expect(ROCK_TEXTURE_TILES).toBeLessThan(GROUND_TEXTURE_TILES);
+    expect(GROUND_ALBEDOS.rock_ground_tile.tiles).toBeLessThan(GROUND_ALBEDOS.desert_sand_tile.tiles);
   });
 
-  it("the rock mean is the image's own, measured", () => {
-    expect(ROCK_TEXTURE_MEAN.x * 255).toBeCloseTo(152.9, 1);
-    expect(ROCK_TEXTURE_MEAN.y * 255).toBeCloseTo(141.2, 1);
-    expect(ROCK_TEXTURE_MEAN.z * 255).toBeCloseTo(125.2, 1);
-    // The two materials have to separate at a glance -- warm sand against
-    // cool grey-tan rock is the whole reason a second texture exists.
-    expect(GROUND_TEXTURE_MEAN.x - GROUND_TEXTURE_MEAN.z).toBeGreaterThan(
-      ROCK_TEXTURE_MEAN.x - ROCK_TEXTURE_MEAN.z
-    );
+  it('separates sand from rock by warmth, which is why there are two images', () => {
+    // The numbers themselves are checked against the shipped PNGs by
+    // `tools/src/ground-albedo.test.ts`, which decodes them; what belongs
+    // HERE is the relationship the two are for. Warm sand against cool
+    // grey-tan rock is the whole reason a ridge gets its own texture.
+    const sand = albedoMean('desert_sand_tile');
+    const rock = albedoMean('rock_ground_tile');
+    expect(sand.x - sand.z).toBeGreaterThan(rock.x - rock.z);
   });
 
-  it("the mean is the image's own, measured -- not a guess that would tint every map", () => {
-    // If this drifts from `assets/textures/desert_sand_tile.png`'s real mean,
-    // open ground stops averaging to its palette tone and the whole map takes
-    // a colour cast that still looks like sand.
-    expect(GROUND_TEXTURE_MEAN.x * 255).toBeCloseTo(203.5, 1);
-    expect(GROUND_TEXTURE_MEAN.y * 255).toBeCloseTo(166.6, 1);
-    expect(GROUND_TEXTURE_MEAN.z * 255).toBeCloseTo(110.7, 1);
-    expect(GROUND_TEXTURE_TILES).toBeGreaterThan(0);
+  it('gives every slot all four uniforms and a mask the shader actually reads', () => {
+    // The failure this exists to stop: a slot wired into `GROUND_SLOTS` (so
+    // `ThreeRenderer` fetches its image and writes its uniforms) whose
+    // uniforms or mask the shader never declares. Nothing throws -- the
+    // write lands on an object three.js ignores, and the ground quietly
+    // draws its flat palette tone forever.
+    const m = groundSurfaceMaterial();
+    const frag = m.fragmentShader;
+    const vert = m.vertexShader;
+    for (const slot of GROUND_SLOTS) {
+      const u = slotUniforms(slot);
+      for (const name of [u.map, u.strength, u.mean, u.tiles]) {
+        expect(m.uniforms[name], `no uniform ${name} for slot ${slot}`).toBeDefined();
+        expect(frag, `shader never reads ${name}`).toContain(name);
+      }
+      // Every slot starts OFF, so a map whose image never arrives draws the
+      // palette tone rather than white or undefined.
+      expect(m.uniforms[u.strength].value).toBe(0);
+      expect(m.uniforms[u.map].value.image.width).toBe(1);
+      const mask = `${slot}Mask`;
+      expect(vert, `no ${mask} attribute`).toContain(`attribute float ${mask};`);
+      expect(frag, `shader never reads v${slot.charAt(0).toUpperCase()}${slot.slice(1)}Mask`).toContain(
+        `v${slot.charAt(0).toUpperCase()}${slot.slice(1)}Mask`
+      );
+    }
+  });
+
+  it('every slot default names an image the albedo table knows', () => {
+    // `mean` and `tiles` are overwritten at load time from `GROUND_ALBEDOS`;
+    // these are only the values used before an image arrives. They still
+    // have to BE one of the table's entries, or the pre-load default is a
+    // number nobody measured.
+    const m = groundSurfaceMaterial();
+    const known = Object.values(GROUND_ALBEDOS);
+    for (const slot of GROUND_SLOTS) {
+      const u = slotUniforms(slot);
+      const tiles = m.uniforms[u.tiles].value as number;
+      const mean = m.uniforms[u.mean].value as THREE.Vector3;
+      expect(
+        known.some(
+          (a) =>
+            a.tiles === tiles &&
+            Math.abs(a.mean[0] / 255 - mean.x) < 1e-6 &&
+            Math.abs(a.mean[1] / 255 - mean.y) < 1e-6 &&
+            Math.abs(a.mean[2] / 255 - mean.z) < 1e-6
+        ),
+        `slot ${slot} defaults to a mean/tiles pair no GROUND_ALBEDOS entry has`
+      ).toBe(true);
+    }
+  });
+
+  it('applies every albedo as a MIX FROM 1.0, which is what keeps the average on-palette', () => {
+    // The exemption's whole scope rests on one identity: the fragment is
+    // `1 + g*(texel/mean - 1)`, whose average over the image is exactly 1 for
+    // any gain `g`, because `mean(texel/mean)` is 1 by construction. That
+    // holds ONLY for the mix-from-1.0 form. A shader that multiplied the
+    // texel in directly (`base *= texel / mean * g`, say) would scale the
+    // whole surface off the tone `tones.ts` composited -- and would still
+    // look like ground, which is why this is asserted against the source
+    // rather than left to the doc comment that derives it.
+    const src = groundSurfaceMaterial().fragmentShader;
+    for (const slot of GROUND_SLOTS) {
+      const u = slotUniforms(slot);
+      const cap = slot.charAt(0).toUpperCase() + slot.slice(1);
+      const pattern = new RegExp(
+        `mix\\s*\\(\\s*vec3\\(1\\.0\\)\\s*,\\s*${slot}\\s*,\\s*${u.strength}\\s*\\*\\s*v${cap}Mask\\s*\\)`
+      );
+      expect(src, `${slot} is not applied as a mix from vec3(1.0)`).toMatch(pattern);
+      // ...and each is a ratio to its own measured mean, never the raw texel.
+      expect(src, `${slot} does not divide by ${u.mean}`).toMatch(new RegExp(`/\\s*${u.mean}\\b`));
+    }
+  });
+
+  it('blends the road between two samples, and only the road', () => {
+    // The road is the one slot whose image is directional -- a single wheel
+    // track -- so it is the one slot that fetches twice and mixes by an
+    // axis. If that mix ever disappears, every junction on every map goes
+    // back to being a road that runs one way and stops.
+    const src = groundSurfaceMaterial().fragmentShader;
+    expect(src).toMatch(/mix\s*\(\s*texture2D\s*\(\s*uRoad\s*,\s*roadUv\s*\)\.rgb\s*,/);
+    expect(src).toMatch(/texture2D\s*\(\s*uRoad\s*,\s*roadUv\.yx\s*\)\.rgb\s*,\s*vRoadAxis\s*\)/);
+    // ...and no other slot does, which is what keeps the extra tap paid for
+    // once rather than five times.
+    for (const slot of GROUND_SLOTS) {
+      if (slot === 'road') continue;
+      const stem = slotUniforms(slot).map;
+      expect(src.split(`texture2D(${stem},`).length - 1, `${slot} fetches more than once`).toBe(1);
+    }
+  });
+
+  it('anchors the road to the tile, which needs a repeat of exactly one', () => {
+    // The source is one track with gravel shoulders, centred at 0.492 of the
+    // image width -- not a field of road. World tile boundaries are integers,
+    // so a repeat of 1 world unit is the only value that puts the lane down
+    // each road tile's own centre. Anything else and a road tile shows
+    // whichever slice of a track its world position happens to land on.
+    expect(GROUND_ALBEDOS.road_track_tile.tiles).toBe(1);
   });
 
   it('prepareGroundTexture forces NoColorSpace and plain repeat wrapping', () => {

@@ -250,35 +250,19 @@ export interface Scenario {
    *  never touches zoom (only x/y), so omitting this leaves the camera at
    *  whatever zoom the app booted with (1, i.e. its default). */
   zoom?: number;
-  /** OPTIONAL, and specific to a narrow defect class -- see
-   *  `OPEN_GROUND_SCENARIO`'s own comment for why this exists at all before
-   *  adding it to a new scenario. When set, `golden-diff-gate.ts` runs a
-   *  SECOND, same-renderer self-check on top of the ordinary pixi-vs-three
-   *  budget: it crops the three capture to `region` (px, in the captured
-   *  image's own coordinates) and fails if more than `maxBackgroundFraction`
-   *  of that crop is the single most common colour. This is deliberately NOT
-   *  a pixi-vs-three comparison -- it exists because that comparison was
-   *  measured, for this exact scenario, to NOT discriminate the defect it
-   *  was built to catch (see this file's `OPEN_GROUND_SCENARIO` comment). */
-  groundTextureCheck?: {
-    /** A sub-rectangle of the captured image, in captured-pixel coordinates,
-     *  known to contain only open ground -- no HUD chrome, no unit sprite, no
-     *  vehicle. Picking a contaminated region defeats the check silently (a
-     *  unit's own flat-coloured body would just become a second "background"
-     *  colour among many, diluting rather than tripping the fraction) rather
-     *  than loudly, so verify with a fresh capture before reusing this for a
-     *  different scenario/camera/zoom. */
-    region: { x: number; y: number; w: number; h: number };
-    /** Budget for "fraction of the region that is the single most common
-     *  colour". Real measured values for THIS region (`.superpowers/d-golden-scenarios-report.md`
-     *  has the full derivation): 0.9588 with the scatter bug present (671acdb),
-     *  0.9408 with it fixed (HEAD/d9fd1c7) -- both exactly reproducible across
-     *  repeated headless captures (this region's content is generated
-     *  deterministically from map data and a fixed tick count, so unlike the
-     *  pixi-vs-three metrics elsewhere in this harness, there is no
-     *  rasterisation-path noise to budget headroom for here). */
-    maxBackgroundFraction: number;
-  };
+  /** RETIRED FIELD, deliberately absent. `groundTextureCheck` used to sit here:
+   *  a same-renderer structural self-check that cropped this scenario's ground
+   *  and failed if more than 95% of it was a single flat colour. It was the
+   *  gate's only reference-free check, and `c38f770` put a photographic sand
+   *  tile on every open-ground pixel, so the crop now reads 0.2330 with 6,721
+   *  distinct colours against that <0.95 budget -- measured on both stored
+   *  baselines, and it can never approach it again. It could not fire on the
+   *  defect class it was built for, or on anything else. Replaced by
+   *  `BaselineSpec.layerChecks` (`baseline.ts`), which asks whether a layer
+   *  CONTRIBUTES pixels rather than what the pixels look like, and so cannot be
+   *  blinded by a texture. Do not re-add a statistic about appearance here
+   *  without a defect it catches that the toggles do not.
+   */
 }
 
 /** The original scenario (`.superpowers/d-golden-diff-report.md`): a static,
@@ -335,8 +319,8 @@ export const QUIET_SCENARIO: Scenario = {
  *
  *  A real, measured limitation, found while sanity-checking this scenario
  *  against `671acdb` (the commit immediately before the scatter fix) and
- *  `d9fd1c7` (the fix itself) -- recorded here because it shapes both this
- *  scenario's own `groundTextureCheck` below and `golden-diff-gate.ts`'s
+ *  `d9fd1c7` (the fix itself) -- recorded here because it shaped both this
+ *  scenario's retired `groundTextureCheck` and `golden-diff-gate.ts`'s
  *  `SCENARIO_BUDGETS` comment: the ordinary pixi-vs-three
  *  `diffPixelPct`/`meanAbsChannelDelta` pair, run against this exact
  *  scenario, does NOT discriminate the buggy commit from the fixed one
@@ -373,13 +357,20 @@ export const QUIET_SCENARIO: Scenario = {
  *  ground moves by one palette step (19/255) and that is under pixelmatch's
  *  threshold. See `baseline.ts`.
  *
- *  `groundTextureCheck` below stays, and stays useful: it is the
- *  same-renderer idea adapted to run from a single capture with NO stored
- *  reference at all -- it checks a structural property of three's OWN output
- *  (how much of a known-pure-ground crop is literally the single flat
- *  background colour), which makes it the one check that still works in a
- *  capture environment nobody has blessed a baseline for yet. It fires on
- *  the re-injected defect too, at 0.9542 against its 0.95 budget. */
+ *  THIS SCENARIO USED TO CARRY THE GATE'S ONLY REFERENCE-FREE CHECK, and it
+ *  does not any more. `groundTextureCheck` asked how much of the crop below
+ *  was literally one flat colour (budget <0.95; the scatter defect read
+ *  0.9542, the fix 0.9408) -- a structural property of three's OWN output,
+ *  which is what made it the one check that could vote in an environment
+ *  nobody had blessed a baseline for. Then `c38f770` put a photographic sand
+ *  tile on every open-ground pixel and the crop went to 0.2330 with 6,721
+ *  distinct colours, a margin it can never close again. It could no longer
+ *  fire on the defect it was built for, or on anything, and it was deleted
+ *  rather than left passing. What votes here now is the visible-toggle A/B in
+ *  `baseline.ts`'s `layerChecks` -- hide `scatter`, repaint, photograph, and
+ *  require the frames to differ -- which asks whether the marks CONTRIBUTE
+ *  pixels rather than what the crop looks like, so no texture underneath can
+ *  blind it. On this crop that reads 4610 px / 1.6858. */
 export const OPEN_GROUND_SCENARIO: Scenario = {
   id: 'open-ground',
   description:
@@ -401,22 +392,8 @@ export const OPEN_GROUND_SCENARIO: Scenario = {
   // time the capture script runs.
   targetTick: 60,
   zoom: 3,
-  groundTextureCheck: {
-    // Confirmed unit/HUD-free at this exact scenario's camera framing (1400x900
-    // capture): only 4 distinct colours appear in this crop in either the buggy or
-    // fixed commit (the flat background plus 2-3 mark tones), vs 244 in Pixi's own
-    // capture of the identical region -- a jump in distinct-colour count here would
-    // itself be a sign a unit had drifted into frame, before the fraction check even
-    // runs.
-    region: { x: 950, y: 500, w: 450, h: 400 },
-    // Halfway between the two real measured values (671acdb 0.9588, d9fd1c7
-    // 0.9408), which is safe specifically because both were bit-identical across
-    // repeated headless captures -- this crop's content has no rasterisation-path
-    // or timing noise to absorb, unlike the quiet scenario's ~10x-over-baseline
-    // budgets.
-    maxBackgroundFraction: 0.95,
-  },
 };
+
 
 /** Promoted from `.superpowers/d-ground-clip-report.md` and
  *  `.superpowers/d-anchor-fix-report.md`'s own ad-hoc "vehicle-dense"
@@ -659,6 +636,45 @@ export const FREEZE_FRAME_LOOP_SCRIPT = `(async () => {
 ${FREEZE_FRAME_LOOP_STATEMENTS}
 return JSON.stringify({ tick: window.__lions.sim.tickCount });
 })()`;
+
+/** Repaints the canvas WITHOUT advancing anything: no sim tick, and zero
+ *  presentation milliseconds, so every clock `frame()` accumulates
+ *  (`smokeClockMs`, `trackClockMs`, `windClockMs`, every animation mixer,
+ *  every particle age) is handed 0 and stands still.
+ *
+ *  That is what makes the toggle A/B below a measurement of the LAYER rather
+ *  than of the layer plus one frame of animation. Two consecutive evaluations
+ *  of this script with nothing changed in between produce a bit-identical
+ *  picture -- the gate photographs exactly that as its `repaint-control` and
+ *  votes on it, because if it ever stops being true every toggle delta below
+ *  is contaminated and the numbers would silently stop meaning what they say.
+ *
+ *  `alpha: 1` matches `__lions.step`'s own repaint: interpolation fully
+ *  arrived at the current tick, never a partial frame between two. */
+export const REPAINT_SCRIPT = `(async () => {
+  window.__lions.renderer.frame(1, 0);
+  return JSON.stringify({ tick: window.__lions.sim.tickCount });
+})()`;
+
+/** Switches one named draw layer off (`visible: false`) or back on, then
+ *  repaints with `REPAINT_SCRIPT`'s own zero-time `frame(1, 0)`.
+ *
+ *  `setDebugLayerVisible` is a three.js-only instrument
+ *  (`packages/render/src/three/debug-layers.ts`); this harness only ever
+ *  drives `threeUrl`, so there is no Pixi path to guard. An unknown layer
+ *  name throws IN THE PAGE, which surfaces as a capture failure rather than
+ *  as a layer that quietly appears to draw nothing -- the distinction that
+ *  makes a typo here impossible to mistake for a measurement.
+ *
+ *  Returns the object count `setDebugLayerVisible` reports, for the log line
+ *  only. The gate's verdict comes from the two SCREENSHOTS. */
+export function layerToggleScript(layer: string, visible: boolean): string {
+  return `(async () => {
+  const objects = window.__lions.renderer.setDebugLayerVisible(${JSON.stringify(layer)}, ${visible});
+  window.__lions.renderer.frame(1, 0);
+  return JSON.stringify({ layer: ${JSON.stringify(layer)}, visible: ${visible}, objects, tick: window.__lions.sim.tickCount });
+})()`;
+}
 
 /** Evaluated in-page (browser console / javascript_tool). Returns JSON so
  *  the two backends' results can be diffed textually before trusting the
