@@ -7,6 +7,7 @@ import palette from '../../../data/palette.json';
 import audioManifest from '../../../data/audio.json';
 import worldJson from '../../../data/campaign/world.json';
 import countriesJson from '../../../data/campaign/countries.json';
+import commanderJson from '../../../data/campaign/commander.json';
 import beitSahwanOutskirts from '../../../data/maps/beit_sahwan_outskirts.json';
 import marjPerimeter from '../../../data/maps/marj_perimeter.json';
 import qarnHadid from '../../../data/maps/qarn_hadid.json';
@@ -148,6 +149,11 @@ export const world = worldJson;
 /** Generated country geometry for the world render. Shape matches
  *  countries.schema.json; parsed by app/src/campaign.ts. */
 export const countries = countriesJson;
+
+/** The chain of command (GDD §11): the two named voices behind `say` and
+ *  Shai's rank per campaign span. Shape matches commander.schema.json;
+ *  parsed by app/src/campaign.ts (`parseCommander`). */
+export const commander = commanderJson;
 
 export type MissionId = keyof typeof missions;
 

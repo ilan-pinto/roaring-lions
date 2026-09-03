@@ -39,6 +39,7 @@ import {
   tutorials,
   world,
   countries,
+  commander,
   structures as structureCatalogue,
   parseMap,
   applyTerrain,
@@ -50,11 +51,12 @@ import {
 } from '@lions/data';
 import { TERRAIN_GROUND_TEXTURE, TERRAIN_THEMES } from './terrain-themes';
 import './ui/theme.css';
-import { Hud, type MissionView, type OrderHandlers, type Tone } from './ui/hud';
+import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type Tone } from './ui/hud';
 import { portraitUrl, type SheetManifest } from './ui/portrait';
 import { Minimap } from './ui/minimap';
 import { showMenu, showCampaign, showSandbox, showEndScreen } from './ui/menu';
 import { briefingBeats, showLoading } from './ui/loading';
+import { removedNotice, sayNotice } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
 import { doctrineTags } from './ui/dock-model';
 import {
@@ -105,7 +107,7 @@ import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { resolveRendererChoice, RENDERER_STORAGE_KEY } from './renderer-choice';
 import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
 import { tutorialPanel, type TutorialPanel } from './tutorial/panel';
-import { parseWorld, parseCountries, nextMissionAfter } from './campaign';
+import { parseWorld, parseCountries, parseCommander, commanderForMission, nextMissionAfter } from './campaign';
 
 /** Deploy base ('/' locally, '/<repo>/' on GitHub Pages) — every asset URL
  *  is built from it so the same bundle works in both places. */
@@ -269,6 +271,10 @@ function describeMissionEvent(
     }
     case 'built':
       return [`<b>reinforcement deployed</b> — ${e.unit}`, 'info'];
+    case 'say':
+      return sayNotice(e.speaker, e.text);
+    case 'removed':
+      return removedNotice(e.side, e.unit);
     case 'missionEnd':
       return [
         e.result === 'victory'
@@ -340,6 +346,19 @@ async function main(): Promise<void> {
     }
   }
   const ledger: LedgerData = params.get('fresh') !== null ? {} : loadLedger();
+
+  // The chain of command (GDD §11): resolved once, here, off the mission id
+  // alone -- world.json and commander.json are both static data, so this
+  // needs neither the mission JSON nor the ledger. A sandbox (`missionId`
+  // null) resolves through the same "unknown mission id" path an unrecognised
+  // one would (`commanderForMission`'s own doc comment) and is harmless: the
+  // commander bar stays hidden without a briefing regardless of what rank it
+  // would have shown (`ui/hud.ts`'s `brief`).
+  const commanderData = parseCommander(commander);
+  const hudCommander: HudCommanderInfo = {
+    shai: commanderForMission(commanderData, parseWorld(world), missionId ?? ''),
+    idit: { name: commanderData.people.idit.name, plate: commanderData.people.idit.plate },
+  };
 
   // --- world ---------------------------------------------------------------
   // `?sandbox=<map id>` walks any shipped map. Bare `?sandbox` keeps loading
@@ -821,7 +840,12 @@ async function main(): Promise<void> {
   // Up before the canvas exists, so the player never sees the terrain draw
   // itself in or the units stand around as procedural boxes waiting for their
   // sheets. It comes down once the art gate below has settled.
-  const loading = showLoading(stage, mission?.name ?? mission?.id ?? 'M0 sandbox', mission?.briefing);
+  const loading = showLoading(
+    stage,
+    mission?.name ?? mission?.id ?? 'M0 sandbox',
+    mission?.briefing,
+    { rank: hudCommander.shai.rank, plate: hudCommander.shai.plate }
+  );
   await renderer.init(stage);
   renderer.useEmitters(vfxEmitters as EmitterSpec[], paletteColor);
 
@@ -1046,6 +1070,10 @@ async function main(): Promise<void> {
           logistics: mission.resources ? runtime.logistics : undefined,
           logisticsRate: mission.resources?.logistics_rate_per_min,
           intel: mission.resources ? runtime.intel : undefined,
+          // The story voice's closing line (GDD §11) -- read straight off the
+          // mission JSON, like `name`/`briefing` already are. The sim never
+          // sees this field either (`mission.ts`'s own doc comment).
+          aftermath: mission.aftermath,
         }
       : null;
   // Wall-clock pacing, not sim pacing: this multiplies how much real time the
@@ -1145,6 +1173,7 @@ async function main(): Promise<void> {
     hoverStructure: () => renderer.hoverStructure,
     hoverEntity: () => renderer.hoverEntity,
     gameVersion: __GAME_VERSION__,
+    commander: hudCommander,
     orders,
     armedOrder: () => armedOrder,
     portrait: (typeId) => portraits[typeId] ?? null,
@@ -1226,7 +1255,9 @@ async function main(): Promise<void> {
   // sit through it again.
   if (mission) {
     const primaries = mission.objectives.filter((o) => o.primary !== false).length;
-    hud.announce(mission.name ?? mission.id, `${primaries} primary objective(s)`);
+    // `dispatch` is the story voice (GDD §11); absent, this card behaves
+    // exactly as it always has (`titleCard`'s own contract).
+    hud.announce(mission.name ?? mission.id, `${primaries} primary objective(s)`, mission.dispatch);
   }
 
   const start = mission?.map.player_start;
@@ -1694,6 +1725,10 @@ async function main(): Promise<void> {
         if (tut) tut = advance(tut, { kind: 'mission', event: me }, performance.now());
         const described = describeMissionEvent(me, mission, narratedRoeReasons);
         if (described) hud.note(described[0], described[1]);
+        // The story voice (GDD §11): the feed gets the note above, the
+        // commander bar gets the fuller, plated version -- see `Hud.say`'s
+        // own doc comment for why this is independent of `brief()`.
+        if (me.kind === 'say') hud.say(me.speaker, me.text);
         if (me.kind === 'missionEnd') {
           // The end screen must not land over a live step panel — an early
           // mission end (e.g. destroy_all completing before lesson 12) is not
@@ -1718,6 +1753,10 @@ async function main(): Promise<void> {
               survivors: me.survivors.length,
               missionId,
               nextMissionId,
+              // The story voice's closing word (GDD §11) -- `mission` is
+              // still the same JSON object `getMission()` reads `aftermath`
+              // off, above.
+              debrief: mission.debrief,
             });
           }
         }

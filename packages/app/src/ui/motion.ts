@@ -33,9 +33,21 @@ export function leave(el: HTMLElement, ms = 120): void {
   window.setTimeout(() => el.remove(), ms);
 }
 
+/** The mechanical default: long enough to read a name and an objective
+ *  count, nothing more -- unchanged from before `dispatch` existed. */
+const DEFAULT_HOLD_MS = 900;
+
+/** Held for a full read when the mission declares `dispatch` (GDD §11): a
+ *  sentence or two of story prose needs more than the mechanical default
+ *  affords. Any input still skips regardless (below) -- this only changes
+ *  how long a player who does nothing keeps looking at it. */
+const DISPATCH_HOLD_MS = 5000;
+
 /**
  * Mission start punctuation: the name of the operation, held long enough to
- * read, then out of the way.
+ * read, then out of the way. `dispatch` -- the story voice, GDD §11 -- prints
+ * under the name when the mission declares one; without it this draws
+ * exactly what it always has.
  *
  * Skippable by any click or key — a player replaying a mission for a better
  * ROE score should not have to watch it a fourth time. The hold is driven from
@@ -46,14 +58,27 @@ export function titleCard(
   host: HTMLElement,
   title: string,
   subtitle: string,
-  holdMs = 900
+  dispatch?: string,
+  holdMs?: number
 ): () => void {
   const card = document.createElement('div');
   card.className = 'rl-titlecard rl-enter';
-  card.innerHTML =
-    `<div class="rl-titlecard__title"></div><div class="rl-titlecard__sub"></div>`;
-  (card.firstChild as HTMLElement).textContent = title;
-  (card.lastChild as HTMLElement).textContent = subtitle;
+  const titleEl = document.createElement('div');
+  titleEl.className = 'rl-titlecard__title';
+  titleEl.textContent = title;
+  card.appendChild(titleEl);
+  // Present only with `dispatch` -- without it the card is exactly what it
+  // was before this field existed.
+  if (dispatch) {
+    const dispatchEl = document.createElement('div');
+    dispatchEl.className = 'rl-titlecard__dispatch';
+    dispatchEl.textContent = dispatch;
+    card.appendChild(dispatchEl);
+  }
+  const subEl = document.createElement('div');
+  subEl.className = 'rl-titlecard__sub';
+  subEl.textContent = subtitle;
+  card.appendChild(subEl);
   host.appendChild(card);
 
   let done = false;
@@ -65,7 +90,8 @@ export function titleCard(
     window.removeEventListener('keydown', dismiss);
     leave(card, 250);
   };
-  const timer = window.setTimeout(dismiss, holdMs + 250);
+  const hold = holdMs ?? (dispatch ? DISPATCH_HOLD_MS : DEFAULT_HOLD_MS);
+  const timer = window.setTimeout(dismiss, hold + 250);
   window.addEventListener('pointerdown', dismiss);
   window.addEventListener('keydown', dismiss);
   return dismiss;

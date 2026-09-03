@@ -226,3 +226,127 @@ export function campaignRoe(
   const legacy = ledger?.['roe.cumulative_rating'];
   return typeof legacy === 'number' ? { mean: legacy, worst: null } : null;
 }
+
+/**
+ * The player's chain of command (GDD §11): the two recurring voices behind
+ * `say`/`dispatch`/`aftermath`/`debrief`, and Shai's rank for a given
+ * mission. Runtime shapes for `data/campaign/commander.json`, matched to
+ * `commander.schema.json` the same way `ParsedWorld` matches `world.schema
+ * .json` above -- `@lions/data` exports the raw JSON, this parses it once.
+ */
+export interface CommanderPerson {
+  name: string;
+  plate: string;
+}
+
+export interface CommanderRank {
+  rank: string;
+  stars: number;
+  /** Mission id (campaign order) this rank holds through. Absent only on
+   *  the last entry, which is the default for everything after it. */
+  untilMission?: string;
+}
+
+export interface CommanderData {
+  people: { shai: CommanderPerson; idit: CommanderPerson };
+  /** Ascending campaign order -- see `commanderForMission`. */
+  ranks: readonly CommanderRank[];
+}
+
+/** Shai's rank and plate for one mission -- what `ui/hud.ts` and
+ *  `ui/loading.ts` show in place of the old hard-coded `COMMANDER` constant. */
+export interface ResolvedCommander {
+  name: string;
+  plate: string;
+  rank: string;
+  stars: number;
+}
+
+interface CommanderRankJson {
+  rank: string;
+  stars: number;
+  until_mission?: string;
+}
+
+interface CommanderJson {
+  people: { shai: CommanderPerson; idit: CommanderPerson };
+  ranks: CommanderRankJson[];
+}
+
+/** Maps the authoring spelling (`until_mission`) onto the runtime one
+ *  (`untilMission`) -- the same convention `parseWorld` above already
+ *  follows for `unlock.after_mission`. */
+export function parseCommander(json: unknown): CommanderData {
+  const c = json as CommanderJson;
+  if (!c || !c.people?.shai || !c.people.idit || !Array.isArray(c.ranks)) {
+    throw new Error('commander: expected people (shai, idit) and a ranks array');
+  }
+  return {
+    people: { shai: { ...c.people.shai }, idit: { ...c.people.idit } },
+    ranks: c.ranks.map((r) => {
+      const rank: CommanderRank = { rank: r.rank, stars: r.stars };
+      if (r.until_mission !== undefined) rank.untilMission = r.until_mission;
+      return rank;
+    }),
+  };
+}
+
+/**
+ * A mission's position in campaign order, as (town index, mission index
+ * within that town) -- comparable lexicographically, which is all
+ * `commanderForMission` needs. Every rank boundary in `commander.json` today
+ * happens to be a town's own LAST mission, but resolving at mission
+ * granularity (rather than town granularity) means a future promotion
+ * mid-town would still be placed correctly rather than only by luck.
+ *
+ * A mission absent from every town's `missions` array -- today, only the
+ * tutorial (this file's own `nextMissionAfter` doc comment: "teaches the
+ * mouse, not the war") -- is placed just BEFORE its town's own list, by
+ * matching the `${town.id}_` id prefix every mission in this campaign
+ * happens to share with its town. `undefined` means neither matched: an id
+ * this campaign does not recognise at all, which `commanderForMission` reads
+ * as "no rank claims this mission" and answers with the roster's own default
+ * (the last rank, which names no `untilMission`).
+ */
+function missionPosition(towns: readonly WorldTown[], missionId: string): readonly [number, number] | undefined {
+  for (let t = 0; t < towns.length; t++) {
+    const m = towns[t].missions.indexOf(missionId);
+    if (m >= 0) return [t, m];
+  }
+  const byPrefix = towns.findIndex((t) => missionId.startsWith(`${t.id}_`));
+  return byPrefix >= 0 ? [byPrefix, -1] : undefined;
+}
+
+function comparePosition(a: readonly [number, number], b: readonly [number, number]): number {
+  return a[0] !== b[0] ? a[0] - b[0] : a[1] - b[1];
+}
+
+/**
+ * Shai's rank and plate for `missionId` -- the first `ranks` entry whose
+ * `untilMission` is that mission or later in campaign order (`world`'s
+ * region array, then town array, then mission array, all in authored
+ * order); the last entry, which names no `untilMission`, is the default for
+ * everything after it and for anything this campaign cannot place at all
+ * (`missionPosition`'s own doc comment) -- see `commander.schema.json`'s
+ * `ranks` field for the authoring contract this walks.
+ */
+export function commanderForMission(
+  commander: CommanderData,
+  world: ParsedWorld,
+  missionId: string
+): ResolvedCommander {
+  const towns = world.regions.flatMap((r) => r.towns);
+  const shai = commander.people.shai;
+  const target = missionPosition(towns, missionId);
+  if (target) {
+    for (const r of commander.ranks) {
+      if (r.untilMission === undefined) break; // the default, handled below
+      const until = missionPosition(towns, r.untilMission);
+      if (until && comparePosition(target, until) <= 0) {
+        return { name: shai.name, plate: shai.plate, rank: r.rank, stars: r.stars };
+      }
+    }
+  }
+  const last = commander.ranks[commander.ranks.length - 1];
+  return { name: shai.name, plate: shai.plate, rank: last.rank, stars: last.stars };
+}

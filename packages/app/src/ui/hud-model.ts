@@ -38,6 +38,10 @@ export interface MissionView {
   logistics?: number;
   logisticsRate?: number;
   intel?: number;
+  /** The story voice's closing line (GDD §11), shown on the victory banner
+   *  only -- `mission.ts`'s own doc comment on the field: "Shown on the
+   *  victory banner." */
+  aftermath?: string;
 }
 
 /** Semantic tone for a notice or a value. Never a colour — the mapping from
@@ -185,6 +189,23 @@ export function worstPenalties(factors: [string, number][]): string[] {
 export function stepBeat(index: number, total: number, dir: number): number {
   if (total <= 0) return 0;
   return Math.max(0, Math.min(total - 1, index + dir));
+}
+
+/**
+ * The label a `say` line's speaker wears on the commander bar: the plate for
+ * the two named voices, or a literal word for the other two --
+ * `commander.schema.json`'s own comment on `people`: "net and enemy are not
+ * people on this roster -- the HUD names them literally (NET, ENEMY) rather
+ * than looking them up here." `.rl-cmd__who`'s own CSS uppercases
+ * unconditionally, so the casing returned here is cosmetic either way.
+ */
+export function speakerPlate(
+  people: { shai: { plate: string }; idit: { plate: string } },
+  speaker: string
+): string {
+  if (speaker === 'shai') return people.shai.plate;
+  if (speaker === 'idit') return people.idit.plate;
+  return speaker === 'net' ? 'NET' : 'ENEMY';
 }
 
 /** How long a beat stays open before the bar folds back to the portrait.

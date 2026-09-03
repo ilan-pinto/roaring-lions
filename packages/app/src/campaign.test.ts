@@ -1,14 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
 import worldJson from '../../../data/campaign/world.json';
+import commanderJson from '../../../data/campaign/commander.json';
 import type { LedgerData } from '@lions/sim';
 import {
   campaignRoe,
+  commanderForMission,
   nextMissionAfter,
   nextMissionOf,
+  parseCommander,
   parseWorld,
   regionProgress,
   townProgress,
+  type CommanderData,
   type ParsedWorld,
 } from './campaign';
 
@@ -17,6 +21,7 @@ const marj = world.regions[0]!;
 const sur = world.regions[1]!;
 const beitSahwan = marj.towns[0]!;
 const ALL_BS = beitSahwan.missions;
+const commander = parseCommander(commanderJson);
 
 describe('parseWorld', () => {
   it('maps snake_case authoring keys onto the runtime spelling', () => {
@@ -203,5 +208,76 @@ describe('campaignRoe', () => {
     const r = campaignRoe({ 'roe.cumulative_rating': 64 } as LedgerData);
     expect(r?.mean).toBe(64);
     expect(r?.worst).toBe(null);
+  });
+});
+
+describe('parseCommander', () => {
+  it('reads Shai and Idit from the shipped commander.json', () => {
+    expect(commander.people.shai).toEqual({ name: 'Shai Hammai', plate: 'Hammai' });
+    expect(commander.people.idit).toEqual({ name: 'Idit Zohar', plate: 'Zohar' });
+  });
+
+  it('maps the authoring spelling (until_mission) onto the runtime one (untilMission)', () => {
+    expect(commander.ranks[0]!.untilMission).toBe('beit_sahwan_4_subterranean');
+    // The last entry is the default and carries no until_mission at all.
+    expect(commander.ranks[commander.ranks.length - 1]!.untilMission).toBeUndefined();
+  });
+
+  it('rejects a commander object with no people or no ranks, rather than yielding a half object', () => {
+    expect(() => parseCommander({ ranks: [] })).toThrow();
+    expect(() => parseCommander({ people: { shai: {}, idit: {} } })).toThrow();
+  });
+});
+
+describe('commanderForMission', () => {
+  it('is Captain for every Beit Sahwan mission, including the tutorial and First Light', () => {
+    // The tutorial (beit_sahwan_0_tutorial) is deliberately unlisted under
+    // any town (`nextMissionAfter`'s own doc comment) -- this is the case
+    // `missionPosition`'s id-prefix fallback exists for. First Light is
+    // `beit_sahwan_breach`, ALL_BS[0], already in the list.
+    for (const id of [...ALL_BS, 'beit_sahwan_0_tutorial']) {
+      expect(commanderForMission(commander, world, id).rank).toBe('Captain');
+    }
+  });
+
+  it('is Major at Tel Marum I', () => {
+    expect(commanderForMission(commander, world, 'tel_marum_1_recon').rank).toBe('Major');
+  });
+
+  it('is Lieutenant Colonel at Wadi Halam I', () => {
+    expect(commanderForMission(commander, world, 'wadi_halam_1_fords').rank).toBe('Lieutenant Colonel');
+  });
+
+  it('defaults to Colonel -- the last entry, which names no until_mission -- for an unknown mission id', () => {
+    expect(commanderForMission(commander, world, 'not_a_real_mission').rank).toBe('Colonel');
+  });
+
+  it("resolves Shai's name, plate and stars from commander.json rather than a hard-coded constant", () => {
+    const r = commanderForMission(commander, world, 'beit_sahwan_breach');
+    expect(r).toEqual({ name: 'Shai Hammai', plate: 'Hammai', rank: 'Captain', stars: 2 });
+  });
+
+  it('never promotes early -- the mission that ENDS a rank still holds it, not the one after', () => {
+    expect(commanderForMission(commander, world, 'beit_sahwan_4_subterranean').rank).toBe('Captain');
+    expect(commanderForMission(commander, world, 'wadi_halam_5_depot').rank).toBe('Lieutenant Colonel');
+  });
+
+  it('resolves at mission granularity, not just town granularity, for a synthetic mid-town promotion', () => {
+    // None of commander.json's real boundaries fall mid-town today (every
+    // until_mission is a town's own last mission), so this is the one case
+    // that needs a synthetic fixture: proof that a future promotion placed
+    // BETWEEN two missions of the same town would still land correctly,
+    // rather than only by the accident of every boundary so far being a
+    // town's last mission.
+    const midTown: CommanderData = {
+      people: commander.people,
+      ranks: [
+        { rank: 'Lieutenant', stars: 1, untilMission: 'beit_sahwan_1_recon' },
+        { rank: 'Captain', stars: 2 },
+      ],
+    };
+    expect(commanderForMission(midTown, world, 'beit_sahwan_breach').rank).toBe('Lieutenant');
+    expect(commanderForMission(midTown, world, 'beit_sahwan_1_recon').rank).toBe('Lieutenant');
+    expect(commanderForMission(midTown, world, 'beit_sahwan_2_foothold').rank).toBe('Captain');
   });
 });

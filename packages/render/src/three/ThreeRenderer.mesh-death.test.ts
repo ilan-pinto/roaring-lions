@@ -183,6 +183,32 @@ describe('ThreeRenderer mesh-death wiring', () => {
     expect(priv.scene.children).not.toContain(root);
   });
 
+  it('prunes a REMOVED entity immediately -- no fade, no down clip, no wreck, even with both available', async () => {
+    // `sim.state.removed[id] = 1` stands in for `Sim.removeFromPlay` the
+    // same way `sim.state.alive[id] = 0` above stands in for a kill (this
+    // file's own top comment) -- a mission `remove` trigger (GDD §11), the
+    // enemy's act, never a death. The fixture ships BOTH `down` and `wreck`
+    // clips deliberately: a fixture with neither would pass this assertion
+    // even with the old, wrong `beginMeshDeath` fallback, since there would
+    // be nothing for it to draw either way.
+    const { sim, priv, id } = await setUp(['idle', 'down', 'wreck']);
+    priv.updateMeshUnits(1, 16); // entity instantiated while alive
+    const root = priv.meshUnitEntities.get(id)!.root;
+
+    sim.state.alive[id] = 0;
+    sim.state.removed[id] = 1;
+    priv.updateMeshUnits(1, 16);
+
+    // Break check (verified by hand, then reverted): delete the `removed`
+    // branch this task added, falling back to the `else`
+    // (`beginMeshDeath`/`meshDying.push`). `meshDying` then reads `1`
+    // instead of `0` and this goes red.
+    expect(priv.meshUnitEntities.has(id)).toBe(false);
+    expect(priv.meshDying).toHaveLength(0);
+    expect(priv.meshWrecks).toHaveLength(0);
+    expect(priv.scene.children).not.toContain(root);
+  });
+
   it('dispose() tears down every dying entity and every persisted wreck', async () => {
     const { sim, renderer, priv, id } = await setUp(['idle', 'down', 'wreck']);
     priv.updateMeshUnits(1, 16);

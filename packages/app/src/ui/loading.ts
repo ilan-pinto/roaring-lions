@@ -83,7 +83,12 @@ export interface LoadingScreen {
 export function showLoading(
   host: HTMLElement,
   title: string,
-  briefing?: string
+  briefing?: string,
+  /** Shai's rank and plate for this mission (`commanderForMission`,
+   *  `campaign.ts`) -- optional so a sandbox or a mission with no briefing
+   *  behaves exactly as it always has (gated on `holds` below, the same
+   *  condition the orders paragraph itself is). */
+  commander?: { rank: string; plate: string }
 ): LoadingScreen {
   const wrap = document.createElement('div');
   wrap.className = 'rl-loading';
@@ -114,6 +119,14 @@ export function showLoading(
 
   const holds = briefingHoldsDeployment(briefing);
 
+  // Attributed the same way the in-mission commander bar is (`ui/hud.ts`'s
+  // `renderCommander`) -- rank and plate, gated on `holds` exactly like the
+  // orders paragraph below: a sandbox or a mission with no briefing shows
+  // neither.
+  const commanderLine = document.createElement('div');
+  commanderLine.className = 'rl-loading__commander';
+  if (holds && commander) commanderLine.textContent = `${commander.rank} · ${commander.plate}`;
+
   const orders = document.createElement('p');
   orders.className = 'rl-loading__brief';
   if (holds) orders.textContent = briefing as string;
@@ -126,6 +139,7 @@ export function showLoading(
   box.append(label, name, track, count);
   if (holds) {
     box.classList.add('rl-loading__box--brief');
+    if (commander) box.append(commanderLine);
     box.append(orders, deploy);
   }
   wrap.appendChild(box);

@@ -16,7 +16,15 @@
 import { describe, expect, it } from 'vitest';
 import { units } from '@lions/data';
 import { Sim, fx, type UnitTypeJson } from '@lions/sim';
-import { Hud, type HudDeps, type MissionView } from './hud';
+import { Hud, type HudCommanderInfo, type HudDeps, type MissionView } from './hud';
+
+/** A stand-in resolved commander, the shape `main.ts` would hand over from
+ *  `commanderForMission` -- this suite is about the DOM join, not about rank
+ *  resolution, which `campaign.test.ts` already covers on its own. */
+const TEST_COMMANDER: HudCommanderInfo = {
+  shai: { name: 'Shai Hammai', plate: 'Hammai', rank: 'Captain', stars: 2 },
+  idit: { name: 'Idit Zohar', plate: 'Zohar' },
+};
 
 /** A two-unit force on an 8x8 field: enough for the suppression counter to have
  *  something to count, and nothing else. The type is the shipped `inf_squad`
@@ -70,6 +78,7 @@ function rig(m: MissionView | null, over: Partial<HudDeps> = {}): Rig {
     hoverStructure: () => -1,
     hoverEntity: () => -1,
     gameVersion: '0.1',
+    commander: TEST_COMMANDER,
     ...over,
   });
   const tick = (): void => hud.onTick();
@@ -258,6 +267,56 @@ describe('commander', () => {
     r.host.querySelector<HTMLElement>('.rl-cmd__face')!.click();
     expect(cmd.dataset.open).toBe('1');
   });
+
+  it('a say line forces the bar visible and shows the speaker plate, even with no briefing at all', () => {
+    const r = rig(mission()); // no brief() call -- no authored briefing
+    const cmd = r.host.querySelector<HTMLElement>('.rl-cmd')!;
+    expect(cmd.style.display).toBe('none');
+
+    r.hud.say('idit', 'Contact on the west ridge.');
+
+    expect(cmd.style.display).toBe('');
+    expect(cmd.dataset.open).toBe('1');
+    expect(r.host.querySelector('.rl-cmd__who')!.textContent).toBe('Zohar');
+    expect(cmd.textContent).toContain('Contact on the west ridge.');
+  });
+
+  it('shows Shai and Idit by their own plates, and never looks a name up for the enemy', () => {
+    const r = rig(mission());
+    const who = (): string => r.host.querySelector('.rl-cmd__who')!.textContent!;
+
+    r.hud.say('shai', 'Hold what you have.');
+    expect(who()).toBe('Hammai');
+
+    r.hud.say('net', 'Reinforcements are twelve minutes out.');
+    expect(who()).toBe('NET');
+
+    r.hud.say('enemy', 'We see you.');
+    expect(who()).toBe('ENEMY');
+  });
+
+  it('◂/▸ keep stepping the underlying beat regardless of a say overlay, and paging dismisses it', () => {
+    const r = rig(mission());
+    r.hud.brief(['One.', 'Two.']);
+    const cmd = r.host.querySelector<HTMLElement>('.rl-cmd')!;
+    const who = (): string => r.host.querySelector('.rl-cmd__who')!.textContent!;
+    const buttons = r.host.querySelectorAll<HTMLButtonElement>('.rl-cmd__page button');
+
+    buttons[1].click(); // beat 2 / 2, the last one
+    expect(who()).toContain('2 / 2');
+
+    r.hud.say('net', 'Reinforcements are twelve minutes out.');
+    expect(who()).toBe('NET');
+    expect(cmd.dataset.open).toBe('1');
+    // The paging buttons still reflect the BEAT position underneath the
+    // overlay, not the say -- "keep the beat paging working" means this
+    // never has to reason about which of the two is currently showing.
+    expect(buttons[1].disabled).toBe(true); // already the last beat
+    expect(buttons[0].disabled).toBe(false);
+
+    buttons[0].click(); // pages away from the say, back to beat 1 / 2
+    expect(who()).toContain('1 / 2');
+  });
 });
 
 describe('bottom-centre controls hint', () => {
@@ -358,6 +417,7 @@ function clusterRig(
     hoverStructure: () => -1,
     hoverEntity: () => -1,
     gameVersion: '0.1',
+    commander: TEST_COMMANDER,
     orders: {
       attackMove: () => calls.push('attackMove'),
       halt: () => calls.push('halt'),
@@ -608,5 +668,28 @@ describe('the order row', () => {
     }
     // The card still draws: the player asked what that thing is.
     expect(r.host.querySelector('.rl-card')).not.toBeNull();
+  });
+});
+
+describe('victory banner', () => {
+  it('appends the aftermath line to a victory, and never to a defeat', () => {
+    const rVictory = rig(mission({ result: 'victory', aftermath: 'The town is quiet tonight.' }));
+    const bannerV = rVictory.host.querySelector<HTMLElement>('.rl-bigbanner')!;
+    expect(bannerV.querySelector('.rl-bigbanner__head')!.textContent).toBe('Mission accomplished');
+    expect(bannerV.textContent).toContain('The town is quiet tonight.');
+
+    // `mission.ts`'s own doc comment on `aftermath`: "Shown on the victory
+    // banner." -- a defeat's retry prompt speaks for itself.
+    const rDefeat = rig(mission({ result: 'defeat', aftermath: 'Should never show.' }));
+    const bannerD = rDefeat.host.querySelector<HTMLElement>('.rl-bigbanner')!;
+    expect(bannerD.querySelector('.rl-bigbanner__head')!.textContent).toBe('Mission failed');
+    expect(bannerD.textContent).not.toContain('Should never show.');
+  });
+
+  it('shows the plain headline when the mission declares no aftermath', () => {
+    const r = rig(mission({ result: 'victory' }));
+    const banner = r.host.querySelector<HTMLElement>('.rl-bigbanner')!;
+    expect(banner.querySelector('.rl-bigbanner__head')!.textContent).toBe('Mission accomplished');
+    expect(banner.querySelector('.rl-bigbanner__aftermath')).toBeNull();
   });
 });
