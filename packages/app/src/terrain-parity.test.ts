@@ -64,6 +64,8 @@
  * comment for what "break" means here, given `packages/render/src/three/
  * terrain/*.ts` is off limits to edit while a review runs over it.
  */
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { Sim } from '@lions/sim';
 import {
@@ -311,10 +313,26 @@ function assertRoundTrip(wx: number, wy: number, level: number, cam: Camera, vp:
 
 const MAP_IDS = Object.keys(maps) as MapId[];
 
-it('covers exactly the five shipped maps this task names', () => {
-  expect(MAP_IDS.sort()).toEqual(
-    ['beit_sahwan_outskirts', 'marj_perimeter', 'tel_marum', 'tutorial_ground', 'wadi_halam_basin'].sort()
-  );
+it('covers every map that ships in data/maps/, with no list to keep up to date', () => {
+  // This used to name the five maps the task brief named, which meant the
+  // sixth (`qarn_hadid`) failed the suite rather than being covered by it --
+  // the same hand-written-list drift `ui/sandbox-menu.test.ts` exists to
+  // catch, one package over. Read off disk rather than through the bundle,
+  // so it also catches a map file that never reached `@lions/data`'s
+  // registry: that map would ship, validate, and be silently unparried.
+  //
+  // Walked up from the cwd rather than derived from `import.meta.url`, which
+  // is what `sandbox-menu.test.ts` does and for the same reason -- a jsdom
+  // environment makes that URL an http one and `fileURLToPath` throws.
+  let root = process.cwd();
+  for (let i = 0; i < 6 && !existsSync(join(root, 'data', 'maps')); i++) root = dirname(root);
+  const dir = join(root, 'data', 'maps');
+  expect(existsSync(dir), `no data/maps above ${process.cwd()}`).toBe(true);
+  const onDisk = readdirSync(dir)
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => (JSON.parse(readFileSync(join(dir, f), 'utf8')) as { id: string }).id);
+  expect(onDisk.length).toBeGreaterThanOrEqual(5);
+  expect(MAP_IDS.slice().sort()).toEqual(onDisk.sort());
 });
 
 describe.each(MAP_IDS)('terrain parity: %s', (id) => {

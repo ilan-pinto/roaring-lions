@@ -120,6 +120,48 @@ describe('against the maps that actually ship', () => {
     expect(zones[0][2]).not.toBe(4);
   });
 
+  it('uses the clinic Qarn Hadid declares, so `&roe` needs no synthesised box', () => {
+    // The relief map declares one on purpose: a 4x4 synthesised at the
+    // midpoint of the anchor axis would land in the saddle notch, which is
+    // the one piece of ground the map is about crossing.
+    const zones = sandboxFlaggedZones(maps.qarn_hadid, sandboxAnchors(maps.qarn_hadid));
+    expect(zones).toEqual([[42, 6, 5, 5]]);
+  });
+
+  it('walks Qarn Hadid’s civilians to its own refuge, not to the fallback', () => {
+    // Tel Marum has no `civ_refuge` and falls back to the friendly anchor.
+    // This map declares one, so the crowd is shepherded to ground an author
+    // chose rather than onto the start line.
+    const r = sandboxRefuge(maps.qarn_hadid, sandboxAnchors(maps.qarn_hadid));
+    expect(r.at).toEqual([10, 43]);
+    expect(r.at).not.toEqual([...sandboxAnchors(maps.qarn_hadid).friendly]);
+    // And the arrival box is open ground on all sixteen tiles: a civilian
+    // that walks into a wall inside its own refuge never gets counted.
+    const [zx, zy, zw, zh] = r.zone;
+    for (let y = zy; y < zy + zh; y++) {
+      for (let x = zx; x < zx + zw; x++) {
+        expect(`${x},${y}:${maps.qarn_hadid.rows[y]?.[x]}`).toBe(`${x},${y}:.`);
+      }
+    }
+  });
+
+  it('cuts `&ditch` across Qarn Hadid in one run, from the west edge to the scree', () => {
+    // The dev flag on the map that most needs it. The line lands on row 26 --
+    // the bench at the foot of the scarp, which is deliberately open ground
+    // for exactly this reason -- and stops where the boulder field starts,
+    // because `b` is not overwritable. The single gap at x=30 is the road,
+    // which is also not overwritable, and reads as a crossing.
+    const m = maps.qarn_hadid;
+    const rows = sandboxDitchRows(m, sandboxAnchors(m));
+    const row = rows[26] ?? '';
+    expect(row.slice(0, 30)).toBe('d'.repeat(30));
+    expect(row[30]).toBe('r');
+    expect(row.slice(31, 34)).toBe('ddd');
+    expect(row.slice(34)).toBe('b'.repeat(14));
+    // Nothing else on the map moved.
+    expect(rows.filter((r, y) => y !== 26 && r !== m.rows[y])).toEqual([]);
+  });
+
   it('routes a tunnel inside every shipped map', () => {
     for (const [id, m] of shipped) {
       const r = sandboxTunnelRoute(m, sandboxAnchors(m));

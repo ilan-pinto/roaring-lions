@@ -9,6 +9,7 @@ import worldJson from '../../../data/campaign/world.json';
 import countriesJson from '../../../data/campaign/countries.json';
 import beitSahwanOutskirts from '../../../data/maps/beit_sahwan_outskirts.json';
 import marjPerimeter from '../../../data/maps/marj_perimeter.json';
+import qarnHadid from '../../../data/maps/qarn_hadid.json';
 import telMarum from '../../../data/maps/tel_marum.json';
 import tutorialGround from '../../../data/maps/tutorial_ground.json';
 import wadiHalamBasin from '../../../data/maps/wadi_halam_basin.json';
@@ -99,6 +100,7 @@ export {
 export const maps = {
   beit_sahwan_outskirts: beitSahwanOutskirts,
   marj_perimeter: marjPerimeter,
+  qarn_hadid: qarnHadid,
   tel_marum: telMarum,
   tutorial_ground: tutorialGround,
   wadi_halam_basin: wadiHalamBasin,

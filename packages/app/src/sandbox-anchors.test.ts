@@ -112,6 +112,22 @@ describe('against the maps that actually ship', () => {
     }
   });
 
+  it('puts the two forces on opposite sides of Qarn Hadid’s ridge', () => {
+    // The relief map's whole point is the choice between its two gates, and
+    // that choice only exists if the opposition is on the far side of the
+    // wall. Both anchors are named markers rather than a fallback: `kdf_start`
+    // matches the friendly hint, and `north_junction` is the marker nearest
+    // contact range (err 1.80 tiles against `knoll_top`'s 4.31), so this also
+    // pins that the pick is not a coin flip between two near-equal markers.
+    const a = sandboxAnchors(maps.qarn_hadid);
+    expect(a.friendly).toEqual([24, 39]);
+    expect(a.hostile).toEqual([24, 12]);
+    // Row 20 is solid `^` outside the two gates, so "opposite sides" is
+    // exactly "one anchor above it and one below".
+    expect(a.friendly[1]).toBeGreaterThan(20);
+    expect(a.hostile[1]).toBeLessThan(20);
+  });
+
   it('keeps beit_sahwan_outskirts on the anchors the old sandbox used', () => {
     // The hardcoded layout was placed by hand and its comments explain why.
     // Preserving these two points is what makes the rewrite invisible there.
