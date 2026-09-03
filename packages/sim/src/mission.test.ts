@@ -2977,3 +2977,187 @@ describe('pre_dug routes', () => {
     expect(sim.tnVentOpen[0]).toBe(0);
   });
 });
+
+// The narrative layer (docs/superpowers/specs/2026-09-03-narrative-layer-engine-design.md):
+// `remove` triggers (an abduction, never a kill), `say` lines on triggers and
+// objectives, and `group` on a starting_force entry.
+describe('the narrative layer: remove, say, starting_force groups', () => {
+  it('remove of a civilian group leaves ROE at 100', () => {
+    const w = makeWorld(
+      baseMission({
+        objectives: [{ id: 'noop', type: 'survive_until', primary: true, seconds: 3 }],
+        civilians: { groups: [{ unit: 'm_civ', count: 2, at: [5, 5], group: 'family' }] },
+        triggers: [
+          { id: 'take_family', on: { kind: 'timer_s', value: 1 }, do: { kind: 'remove', group: 'family' } },
+        ],
+      })
+    );
+    w.step(25); // past the 1s trigger
+    expect(w.runtime.roeScore).toBe(100);
+    // Both civilians actually left play, not merely took damage.
+    expect(w.sim.state.alive[0]).toBe(0);
+    expect(w.sim.state.alive[1]).toBe(0);
+  });
+
+  it('remove with a zone removes only those inside it', () => {
+    const w = makeWorld(
+      baseMission({
+        enemy: {
+          garrison: [
+            { unit: 'm_tech', count: 1, at: [4, 2], group: 'squad' }, // inside the cage
+            { unit: 'm_tech', count: 1, at: [20, 2], group: 'squad' }, // outside it
+          ],
+        },
+        triggers: [
+          { id: 'take_cage', on: { kind: 'timer_s', value: 1 }, do: { kind: 'remove', group: 'squad', zone: 'cage' } },
+        ],
+      }),
+      { zones: { cage: [0, 0, 10, 10] } }
+    );
+    w.step(25);
+    expect(w.sim.state.alive[0]).toBe(0); // (4,2) is inside [0,0,10,10]
+    expect(w.sim.state.alive[1]).toBe(1); // (20,2) is not
+    expect(w.sim.state.removed[0]).toBe(1);
+    expect(w.sim.state.removed[1]).toBe(0);
+  });
+
+  it('a removed player unit is absent from roster.surviving_units', () => {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [
+          { unit: 'm_squad', count: 1, at: [3, 5], group: 'captured' },
+          { unit: 'm_squad', count: 1, at: [3, 8] },
+        ],
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 1 }],
+        ledger: { requires: [], produces: ['roster.surviving_units'] },
+        triggers: [{ id: 'take_one', on: { kind: 'timer_s', value: 0 }, do: { kind: 'remove', group: 'captured' } }],
+      })
+    );
+    const { mission } = w.step(4 * TICKS_PER_SECOND);
+    const end = mission.find((e) => e.kind === 'missionEnd');
+    expect(end?.kind).toBe('missionEnd');
+    if (end?.kind !== 'missionEnd') return;
+    expect(end.result).toBe('victory');
+    expect(end.survivors).toEqual(['m_squad']); // the captured one is gone
+    const roster = end.ledger['roster.surviving_units'];
+    expect(Array.isArray(roster)).toBe(true);
+    if (Array.isArray(roster)) expect(roster).toHaveLength(1);
+  });
+
+  it('casualties_pct ignores removed units — only an actual kill counts', () => {
+    const w = makeWorld(
+      baseMission({
+        enemy: {
+          garrison: [
+            { unit: 'm_tech', count: 1, at: [4, 2], group: 'watched' },
+            { unit: 'm_tech', count: 1, at: [4, 8] },
+          ],
+        },
+        triggers: [
+          { id: 'take_one', on: { kind: 'timer_s', value: 1 }, do: { kind: 'remove', group: 'watched' } },
+          { id: 'half_down', on: { kind: 'casualties_pct', value: 50 }, do: { kind: 'commit', group: 'none', to: 'rally' } },
+        ],
+      }),
+      { markers: { rally: [20, 8] } }
+    );
+    const fired = (evs: MissionEvent[]): boolean => evs.some((e) => e.kind === 'trigger' && e.id === 'half_down');
+    let seen = false;
+    // take_one removes garrison[0] at t=1s. If a removal counted as a
+    // casualty, that alone would be 50% of two and half_down would fire here.
+    for (let t = 0; t < 3 * TICKS_PER_SECOND; t++) seen = seen || fired(w.runtime.step(w.sim.tick()));
+    expect(seen).toBe(false);
+    // An actual kill of the survivor is the one death that should count.
+    w.sim.debugKill(1);
+    for (let t = 0; t < 2 * TICKS_PER_SECOND; t++) seen = seen || fired(w.runtime.step(w.sim.tick()));
+    expect(seen).toBe(true);
+  });
+
+  it('say is emitted immediately after the trigger event it annotates', () => {
+    const w = makeWorld(
+      baseMission({
+        triggers: [
+          {
+            id: 'warn',
+            on: { kind: 'timer_s', value: 1 },
+            do: { kind: 'commit', group: 'nobody', to: 'rally' },
+            say: { speaker: 'shai', text: 'Contact.' },
+          },
+        ],
+      }),
+      { markers: { rally: [5, 5] } }
+    );
+    const { mission } = w.step(2 * TICKS_PER_SECOND);
+    const triggerIdx = mission.findIndex((e) => e.kind === 'trigger' && e.id === 'warn');
+    expect(triggerIdx).toBeGreaterThanOrEqual(0);
+    const say = mission[triggerIdx + 1];
+    expect(say?.kind).toBe('say');
+    if (say?.kind === 'say') {
+      expect(say.speaker).toBe('shai');
+      expect(say.text).toBe('Contact.');
+    }
+  });
+
+  it('say is emitted immediately after an objective completes', () => {
+    const w = makeWorld(
+      baseMission({
+        objectives: [
+          { id: 'hold', type: 'survive_until', primary: true, seconds: 1, say: { speaker: 'idit', text: 'Good work.' } },
+        ],
+      })
+    );
+    const { mission } = w.step(2 * TICKS_PER_SECOND);
+    const objIdx = mission.findIndex((e) => e.kind === 'objective' && e.id === 'hold' && e.status === 'complete');
+    expect(objIdx).toBeGreaterThanOrEqual(0);
+    const say = mission[objIdx + 1];
+    expect(say?.kind).toBe('say');
+    if (say?.kind === 'say') {
+      expect(say.speaker).toBe('idit');
+      expect(say.text).toBe('Good work.');
+    }
+  });
+
+  it('say_on_fail is emitted immediately after an objective fails', () => {
+    const w = makeWorld(
+      baseMission({
+        civilians: { groups: [{ unit: 'm_civ', count: 1, at: [5, 5] }], refuge: 'refuge' },
+        objectives: [
+          {
+            id: 'evac',
+            type: 'evacuate_before',
+            primary: true,
+            target: 'refuge_zone',
+            seconds: 1,
+            say_on_fail: { speaker: 'net', text: 'Lost them.' },
+          },
+        ],
+      }),
+      { zones: { refuge_zone: [0, 0, 2, 2] }, markers: { refuge: [1, 1] } }
+    );
+    const { mission } = w.step(2 * TICKS_PER_SECOND);
+    const objIdx = mission.findIndex((e) => e.kind === 'objective' && e.id === 'evac' && e.status === 'failed');
+    expect(objIdx).toBeGreaterThanOrEqual(0);
+    const say = mission[objIdx + 1];
+    expect(say?.kind).toBe('say');
+    if (say?.kind === 'say') {
+      expect(say.speaker).toBe('net');
+      expect(say.text).toBe('Lost them.');
+    }
+  });
+
+  it('starting_force.group is addressable by commit-style lookups (groups)', () => {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5], group: 'alpha' }],
+        triggers: [
+          { id: 'pull_back', on: { kind: 'timer_s', value: 1 }, do: { kind: 'withdraw_to', group: 'alpha', to: 'rally' } },
+        ],
+      }),
+      { markers: { rally: [20, 8] } }
+    );
+    for (let t = 0; t < 30 * TICKS_PER_SECOND; t++) w.runtime.step(w.sim.tick());
+    const x = fx.toNumber(w.sim.state.posX[0]);
+    const y = fx.toNumber(w.sim.state.posY[0]);
+    expect(Math.abs(x - 20.5)).toBeLessThan(2.0);
+    expect(Math.abs(y - 8.5)).toBeLessThan(2.0);
+  });
+});

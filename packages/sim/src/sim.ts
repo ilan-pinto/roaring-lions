@@ -628,7 +628,15 @@ export type SimEvent =
   | { kind: 'rallied'; tick: number; entity: number }
   | { kind: 'pinned'; tick: number; entity: number }
   | { kind: 'unpinned'; tick: number; entity: number }
-  | { kind: 'destroyed'; tick: number; entity: number; by: number };
+  | { kind: 'destroyed'; tick: number; entity: number; by: number }
+  /**
+   * A mission `remove` trigger took this entity off the board — the enemy's
+   * act, never the player's, and never a death. Emitted by `removeFromPlay`,
+   * which does not call `destroy()`: no `by`, because nothing did this to
+   * it in combat terms, and `stepRoe` (which only reads `destroyed`) is
+   * built to see nothing here on purpose.
+   */
+  | { kind: 'removed'; tick: number; entity: number; side: number };
 
 /** Every `SimEvent` kind, as a value.
  *
@@ -640,6 +648,7 @@ export const SIM_EVENT_KINDS = [
   'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'ambushSprung',
   'strike', 'smokeLaid', 'revealed', 'structureHit', 'structureDestroyed', 'garrison',
   'transport', 'ventOpened', 'tunnelContact', 'surfaced', 'submerged', 'tunnelCollapsed', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
+  'removed',
 ] as const satisfies readonly SimEvent['kind'][];
 
 /** Compile-time proof the list above covers the whole union.
@@ -774,6 +783,18 @@ export class Sim {
   // --- entity SoA ---
   private count = 0;
   private readonly alive: Uint8Array;
+  /**
+   * A mission trigger's `remove` took this body off the board — an
+   * abduction, not a kill. `alive` still flips to 0 (see `removeFromPlay`),
+   * so every existing alive-gated loop already treats it as gone; this flag
+   * exists only for the two callers that must tell the difference:
+   * `casualties_pct` (a removed enemy is not a casualty) and the renderer
+   * (no death clip, no wreck). Deliberately absent from `hash()` — nothing
+   * in the golden replay ever calls `removeFromPlay`, and appending even an
+   * all-zero array to a multiplicative hash still moves the final value, so
+   * hashing it would move the pinned number for no behavioural reason.
+   */
+  private readonly removed: Uint8Array;
   private readonly side: Uint8Array;
   private readonly typeIdx: Uint16Array;
   private readonly posX: Int32Array;
@@ -968,6 +989,9 @@ export class Sim {
    *  nothing outside the sim may mutate sim state (invariant 4). */
   readonly state: {
     readonly alive: Uint8Array;
+    /** See the private field's own comment: set by `removeFromPlay`, never
+     *  by `destroy()`. */
+    readonly removed: Uint8Array;
     readonly side: Uint8Array;
     readonly typeIdx: Uint16Array;
     readonly posX: Int32Array;
@@ -1043,6 +1067,7 @@ export class Sim {
     this.smoke = new Uint8Array(tiles);
     this.trail = new Uint8Array(tiles);
     this.alive = new Uint8Array(n);
+    this.removed = new Uint8Array(n);
     this.side = new Uint8Array(n);
     this.typeIdx = new Uint16Array(n);
     this.posX = new Int32Array(n);
@@ -1135,6 +1160,7 @@ export class Sim {
 
     this.state = {
       alive: this.alive,
+      removed: this.removed,
       side: this.side,
       typeIdx: this.typeIdx,
       posX: this.posX,
@@ -1588,6 +1614,25 @@ export class Sim {
     this.apsAmmo[id] = type.apsMagazine;
     this.pendingEvents.push({ kind: 'spawn', tick: this.tickCount, entity: id, typeId: type.id, side });
     return id;
+  }
+
+  /**
+   * Take a unit off the board on a mission's own say-so — an abduction, not
+   * a kill (invariant 4: this is the sim executing a command, not the app
+   * reaching into state). `alive` flips to 0, same as `destroy()`, so every
+   * existing alive-gated system already treats it as gone; `removed` is set
+   * alongside it so `casualties_pct` and the renderer can tell the
+   * difference. Deliberately does not call `destroy()`: no passenger
+   * eject, no hp/moving reset, no `destroyed` event — none of combat's
+   * bookkeeping applies, because nothing here was combat. A no-op if the
+   * unit is not currently alive (already dead, or already removed).
+   */
+  removeFromPlay(id: number): void {
+    if (this.alive[id] !== 1) return;
+    const side = this.side[id];
+    this.alive[id] = 0;
+    this.removed[id] = 1;
+    this.pendingEvents.push({ kind: 'removed', tick: this.tickCount, entity: id, side });
   }
 
   queueCommand(cmd: Command): void {
@@ -4876,6 +4921,13 @@ export class Sim {
     h = hashArray(h, this.boardGoal);
     h = hashArray(h, this.passengers);
     h = hashArray(h, this.alive);
+    // `removed` is deliberately absent too, for now. Nothing that ships
+    // reaches `removeFromPlay` yet (no mission authors a `remove` trigger),
+    // so the array is all zero on every replay this hash guards -- but
+    // hashArray folds by XOR-then-multiply, not by sum, so even an all-zero
+    // array is not a no-op to fold in: it would still move the pinned
+    // number. Add it here in the same commit that gives it real content to
+    // protect.
     h = hashArray(h, this.side);
     h = hashArray(h, this.typeIdx);
     h = hashArray(h, this.posX);

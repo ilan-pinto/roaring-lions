@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
-import { Sim, TICKS_PER_SECOND, type UnitTypeJson } from './sim';
+import { Sim, TICKS_PER_SECOND, type SimEvent, type UnitTypeJson } from './sim';
 
 // Minimal schema-shaped types for exercising the core. Combat stats are
 // present but only movement/detection-agnostic behaviour is tested here.
@@ -155,5 +155,49 @@ describe('state hash', () => {
     };
     expect(build(1)).toBe(build(1));
     expect(build(1)).not.toBe(build(2));
+  });
+});
+
+describe('removeFromPlay (the narrative layer: an abduction, not a kill)', () => {
+  it('flips alive to 0 and marks removed, without touching hp', () => {
+    const sim = makeSim();
+    const t = sim.addUnitType(TANK);
+    const id = sim.spawn(t, 0, fx.fromInt(4), fx.fromInt(4));
+    sim.tick(); // drain the spawn event
+    const hpBefore = sim.state.hp[id];
+    sim.removeFromPlay(id);
+    expect(sim.state.alive[id]).toBe(0);
+    expect(sim.state.removed[id]).toBe(1);
+    expect(sim.state.hp[id]).toBe(hpBefore);
+  });
+
+  it('emits a "removed" event, never "destroyed"', () => {
+    const sim = makeSim();
+    const t = sim.addUnitType(RIFLES);
+    const id = sim.spawn(t, 1, fx.fromInt(4), fx.fromInt(4));
+    sim.tick();
+    sim.removeFromPlay(id);
+    const events = sim.tick();
+    const removed = events.find((e): e is Extract<SimEvent, { kind: 'removed' }> => e.kind === 'removed');
+    expect(removed).toBeDefined();
+    expect(removed?.entity).toBe(id);
+    expect(removed?.side).toBe(1);
+    expect(events.some((e) => e.kind === 'destroyed')).toBe(false);
+  });
+
+  it('is a no-op on a unit already removed, or already dead', () => {
+    const sim = makeSim();
+    const t = sim.addUnitType(RIFLES);
+    const removedTwice = sim.spawn(t, 0, fx.fromInt(2), fx.fromInt(2));
+    const alreadyDead = sim.spawn(t, 0, fx.fromInt(6), fx.fromInt(6));
+    sim.tick();
+    sim.removeFromPlay(removedTwice);
+    sim.debugKill(alreadyDead);
+    sim.tick(); // drain the first removal and the kill
+    sim.removeFromPlay(removedTwice); // already removed
+    sim.removeFromPlay(alreadyDead); // already dead, never removed
+    const events = sim.tick();
+    expect(events).toEqual([]);
+    expect(sim.state.removed[alreadyDead]).toBe(0); // destroy() never sets it
   });
 });
