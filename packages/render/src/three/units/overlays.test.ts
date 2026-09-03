@@ -23,6 +23,11 @@ import {
   unitOverlayRadiusPx,
   hpBarColorKey,
   orderMarkerSize,
+  queuedRouteLegs,
+  ROUTE_LINE_WIDTH_PX,
+  ROUTE_LINE_ALPHA,
+  ROUTE_NODE_RADIUS_PX,
+  ROUTE_NODE_ALPHA,
   cachedHexToUnit,
   HP_BG_COLOR_KEY,
   SUPPRESSION_COLOR_KEY,
@@ -83,6 +88,26 @@ describe('orderMarkerSize', () => {
 
   it('is exactly halfway (13) at a = 0.5', () => {
     expect(orderMarkerSize(0.5)).toBe(13);
+  });
+});
+
+describe('queuedRouteLegs', () => {
+  it('puts the current goal BETWEEN the unit and its queue -- the queue holds what comes after the goal', () => {
+    const legs = queuedRouteLegs([1, 2], [5, 6], [[9, 10], [13, 14]]);
+    expect(legs).toEqual([[1, 2], [5, 6], [9, 10], [13, 14]]);
+  });
+
+  it('is unit -> goal alone when nothing is queued: a plain order still draws its one leg', () => {
+    expect(queuedRouteLegs([1, 2], [5, 6], [])).toEqual([[1, 2], [5, 6]]);
+  });
+});
+
+describe('route literals match Pixi\'s own queued-route block (renderer.ts)', () => {
+  it('stroke width 1.5 / alpha 0.35 per leg, node radius 3 / alpha 0.55', () => {
+    expect(ROUTE_LINE_WIDTH_PX).toBe(1.5);
+    expect(ROUTE_LINE_ALPHA).toBe(0.35);
+    expect(ROUTE_NODE_RADIUS_PX).toBe(3);
+    expect(ROUTE_NODE_ALPHA).toBe(0.55);
   });
 });
 
