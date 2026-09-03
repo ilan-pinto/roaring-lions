@@ -18,7 +18,7 @@ Downstream: `narrative-designer` (voice, briefings, GDD §11), `level-scripter`
 
 | # | Decision | Source | Consequence here |
 |---|---|---|---|
-| D1 | Protagonist **Shai Hamami**, company commander at First Light, promoted to Colonel ("a five-star colonel" — the KDF's own fictional insignia) | lead, 2026-09-03 | §2.1 ladder. The HUD constant is wrong for 9 of 14 shipped missions (§7 G2) |
+| D1 | Protagonist **Shai Hammai**, company commander at First Light, promoted to Colonel ("a five-star colonel" — the KDF's own fictional insignia) | lead, 2026-09-03 | §2.1 ladder. The HUD constant is wrong for 9 of 14 shipped missions (§7 G2) |
 | D2 | **Idit**, intelligence officer and First Light survivor, grows beside him and supplies the intel each mission | lead | §2.2. She is the voice of every `locate` and of `intel.marked_positions` |
 | D3 | Shai and Idit are the **two voices of the HUD** | lead | Needs a speaker; there is exactly one, hard-coded (`packages/app/src/ui/hud.ts:68`) |
 | D4 | **One villain per front**, atrocity at the front's opening, captured or killed at its end | lead | §2.3 — all three already exist mechanically |
@@ -35,20 +35,23 @@ briefings and the title card — no new screens."* D5 approves a radio overlay a
 a voice layer, which are new surfaces. Read it as retired, not quietly broken
 (**O7**).
 
-### 0.2 Open — for the lead
+### 0.2 Decided by the lead on 2026-09-03 (answers to the open questions)
 
-| # | Open decision | Options | Recommendation |
+| # | question | decision | consequence |
 |---|---|---|---|
-| O1 | Protagonist spelling | `Hamami` · `Hammami` · `Hammai` | **`Hamami`** — already shipped at `ui/hud.ts:68`; the zero-diff option |
-| O2 | Idit spelling | `Idit` · `Edith` | **`Idit`**. `Edith` is an English given name and breaks the Hebrew-derived register every KDF proper noun uses (Lavi, Namer, Eitan, Yahalom, Peten, Shoded, Ari'im, Kedem) |
-| O3 | Idit's surname | `Zohar` · `Barkai` · `Nevo` | **`Zohar`** — already approved in `2026-08-21-commander-brief-design.md` for a character whose *job* has changed but whose name has not |
-| O4 | Villain handles | KDF **case names** · personal names · both | **Case names primary** (SPADE / LANTERN / FERRY). A case name is the *player's* naming, so it cannot be mistaken for a real group's self-description — the exact failure GDD §2 guards against |
-| O5 | Villain personal names, if wanted | Ashwar `Sabri Nawfal` · `Hazem Ashqar` · `Nadir Sahim`. Sarim `Ghazi Tureim` · `Fawzi Nasib` · `Karim Adhal`. Rif `Jubran Hallaq` · `Tamir Rashaq` · `Munir Sufyan` | Pick one per front **and run the §2.4(3) check first**. I cannot clear a name against real public figures from inside this repo, and claiming otherwise would be the one unsupported statement here |
-| O6 | The KDF rank ladder as insignia | see §2.1 | **Stars on a plain khaki slip: Captain 2 · Major 3 · Lt Col 4 · Colonel 5.** Makes "five-star colonel" literal, draws as N pips with no art dependency, resembles no real force |
-| O7 | Is "no new screens" retired? | yes · radio only, no debrief | **Retire it.** The debrief is the cheaper half, and `showEndScreen` (`ui/menu.ts:341`) has *zero* authorable text — `ROE n · m unit(s) walking out` and four links |
-| O8 | Which unbuilt plot first | §4 (a) Umm Zeitoun · (b) Khan Rafid + Deir Amun · (c) Qarn Hadid | **(a) → (c) → (b)**, reasoned in §4.4 |
-| O9 | The ending | §5 Option 1 "Ari Actual" · Option 2 "The Quiet Ground" | **Option 1** — lands on a person the player knows and reuses an approved fictional asset |
-| O10 | Census finding, not a story choice: `data/structures.json` declares a structure type named for a place of worship of a real faith (`roe_penalty` 30), on three maps. GDD §2 says never a faith | keep · rename to a doctrine-neutral protected type | The lead's. **This storyline builds no beat on it either way**, so it can be decided late |
+| O1 | Protagonist spelling | **`Hammai`** — heard as Hammai / Hammai / Hammami; the lead chose Hammai | `ui/hud.ts:68` and every document here now read *Shai Hammai* |
+| O2, O3 | Idit's spelling and surname | **Idit Zohar** | the name approved in `2026-08-21-commander-brief-design.md` is reused for the intel officer |
+| O4, O5 | Villain handles | **Personal names in the fictional register the towns use**; the KDF case name stays as Idit's file handle | Marj: **Nadir Sahim** (SPADE). Sur: **Karim Adhal** (LANTERN). Naharin: **Jubran Hallaq** (FERRY). Each full name was web-searched the same day and matched no real public figure or armed-group figure; *Ghazi Tureim* was dropped because *ghazi* is itself a religious warrior title (GDD §2). Veto welcome |
+| O6 | The KDF rank ladder as insignia | **Accepted**: stars on a plain khaki slip — Captain 2 · Major 3 · Lt Col 4 · Colonel 5 | §2.1 stands |
+| O8 | Where to start | **From the beginning** — Act I, Beit Sahwan, in campaign order | the pipeline runs on the six shipped Beit Sahwan missions first (`docs/campaign/beit_sahwan/`); Umm Zeitoun and the other unbuilt plots wait |
+
+### 0.3 Still open — for the lead
+
+| # | open decision | in plain words | recommendation |
+|---|---|---|---|
+| O7 | Is "no new screens" retired? | An earlier spec said the story may only use screens that already exist (the deploy screen and the title card). You have since asked for a radio overlay, which is a new screen. The remaining question is whether to **also** build a debrief screen at the end of a mission where Shai and Idit close the story beat — today the end screen shows only a ROE number and a survivor count | **Build both.** The debrief is the cheaper half and the end of every mission is where the player has time to read |
+| O9 | The ending | §5 Option 1 "Ari Actual" (the brigade is handed to Shai) · Option 2 "The Quiet Ground" (the ground is handed back) | can wait until Act III is re-briefed; nothing in Act I depends on it |
+| O10 | A structure type named for a place of worship of a real faith (`roe_penalty` 30, on three maps) | GDD §2 says never a faith | the lead's; no beat here depends on it |
 
 > **Two corrections found by census.**
 > **(1)** `CLAUDE.md` ("Two ROE facts a visual check needs") says only `wadi_halam_basin`
@@ -106,7 +109,7 @@ are already authored (§2.3). This storyline needs no new mechanic for any of th
 
 ## 2. Characters
 
-### 2.1 Shai Hamami
+### 2.1 Shai Hammai
 
 1. A company commander in the 401st "Ari'im" Brigade, thirty-one, six years in,
    competent and unremarkable until the morning of First Light.
@@ -140,8 +143,8 @@ lead's phrase literal and resembles no real force.
 | **campaign end** | **→ Colonel** | **5** | **the corridor is cut and the brigade is his** (§5) |
 
 **This ladder is why the HUD constant is a bug, not a placeholder.**
-`ui/hud.ts:68` reads `const COMMANDER = { rank: 'Lt Col Shai Hamami', plate:
-'Hamami' };` — correct for exactly the five Wadi Halam missions, wrong for the
+`ui/hud.ts:68` reads `const COMMANDER = { rank: 'Lt Col Shai Hammai', plate:
+'Hammai' };` — correct for exactly the five Wadi Halam missions, wrong for the
 other nine, so the player is told he is a Lieutenant Colonel while holding a
 company at First Light. Fix is §7 G2.
 
@@ -180,10 +183,11 @@ named tagged HVT, a signature bait that pressures ROE, and a mid-arc presence
 expressed as things the player finds. Nothing below invents a mechanic. Two need
 **one new tagged placement each** to have an ending; the third needs none.
 
-Characterised by doctrine, per GDD §2. The handle the player hears is a **KDF
-case name** — Idit's file name for him.
+Characterised by doctrine, per GDD §2. Each carries a **personal name in the
+fictional register the towns use** (O4/O5, decided 2026-09-03); the KDF **case
+name** is Idit's file handle for him and the second thing the player hears.
 
-**SPADE — the Marj Strip · Ashwar Front · *the digger***
+**Nadir Sahim, file SPADE — the Marj Strip · Ashwar Front · *the digger***
 
 | | |
 |---|---|
@@ -193,7 +197,7 @@ case name** — Idit's file name for him.
 | **his bait** | the human terrain. `beit_sahwan_3_clearance` flags `clinic`, `fail_below: 40`, and already says fire near it *"will be billed for every second they can see it."* Shai wants to level the block; levelling it loses the mission |
 | **his end** | Beit Sahwan IV, **+1 placement**; the existing `locate(bs4_digger)` is how you find him. Recommend **`capture`** of a 3×3 zone at the shaft head over `eliminate_hvt`: `capture` is live (10 s uninterrupted, contest resets), so "take him alive" works **today** with zero engine work and gives the prisoner theme its first beat without GH-18 |
 
-**LANTERN — Sur · Sarim Brigades · *the observer***
+**Karim Adhal, file LANTERN — Sur · Sarim Brigades · *the observer***
 
 | | |
 |---|---|
@@ -203,7 +207,7 @@ case name** — Idit's file name for him.
 | **his bait** | `tel_marum_3_clearance` puts `tm_hvt_battery` two tiles from a flagged `town_block`, `fail_below: 45`. Counter-battery fire is the trap and the mission says so |
 | **his end** | **Umm Zeitoun's last mission** (§4a), the front's climax per `2026-08-22-sur-front-design.md`. `eliminate_hvt`, not `capture` — an observer's doctrine is not being where you are looking. **Fallback if Umm Zeitoun is not authored:** +1 placement beside `tm_hvt_battery`, and Act II ends at the pass. Decide before `mission-author` starts |
 
-**FERRY — Naharin · Rif Cells · *the smuggler***
+**Jubran Hallaq, file FERRY — Naharin · Rif Cells · *the smuggler***
 
 | | |
 |---|---|
@@ -219,9 +223,10 @@ Binding on every proper noun added downstream.
 
 1. **Place names** are fixed by GDD §2 and `data/campaign/world.json`. Coin no
    more without a world entry.
-2. **An enemy's primary handle is a KDF case name** — a plain noun in small caps,
-   assigned by Idit's section. It is the player's naming, so it cannot read as a
-   real organisation's self-description.
+2. **An enemy carries a personal name in the towns' fictional register** — Nadir
+   Sahim, Karim Adhal, Jubran Hallaq (decided 2026-09-03) — and a **KDF case
+   name**, a plain noun in small caps assigned by Idit's section, as his file
+   handle. Every personal name is screened under rule 3 before it is written down.
 3. **A personal name must be checked** against a real public figure of that full
    name, a known figure of any real armed group, and the kunya pattern (`Abu …` /
    `Umm …` prefixed to a *person*), which belongs to real organisations. `Umm
@@ -577,7 +582,7 @@ Ordered by how much of the storyline each blocks.
 
 > ## 11. Story
 >
-> The campaign follows one officer. **Shai Hamami** is a company commander in the
+> The campaign follows one officer. **Shai Hammai** is a company commander in the
 > 401st "Ari'im" Brigade on the morning the Marj comes across the wire at Beit
 > Sahwan. He is the senior officer left inside the compound, which is how he comes
 > to be holding it. He gets two families through the wire before the ring closes.

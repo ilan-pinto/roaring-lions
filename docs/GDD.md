@@ -325,14 +325,14 @@ keeps this section in step with it. §2's rule stands over everything here:
 every person is fictional and every enemy is defined by doctrine, never by a
 people.
 
-**The protagonist** is **Shai Hamami**, a KDF officer of the 401st "Ari'im".
+**The protagonist** is **Shai Hammai**, a KDF officer of the 401st "Ari'im".
 He opens the war as a Captain commanding the company inside the compound at
 First Light, and is promoted across the campaign to Colonel — the KDF's own
 five-star insignia, fictional like the rest of the army. Promotions are
 act-level beats. The dead of First Light are his motive; rules of engagement are
 his discipline, and the game scores the second, not the first.
 
-**Idit**, an intelligence officer who was in the same compound at First Light,
+**Idit Zohar**, an intelligence officer who was in the same compound at First Light,
 grows beside him and provides the intelligence in every mission. The two of
 them are the voices of the HUD: every briefing is a two-hander, Idit's picture
 and Shai's plan, and every mid-mission transmission comes from one of them.

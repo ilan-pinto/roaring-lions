@@ -92,11 +92,11 @@ to the player verbatim as `enemy reacts (<id>)`, so name it as prose.
 
 ## The two voices and the villain
 
-- **Shai Hamami** — the commander and the player's officer. Captain at First
+- **Shai Hammai** — the commander and the player's officer. Captain at First
   Light, Colonel by the end. Orders voice: decisions, costs, restraint. The dead
   of First Light are his motive and ROE is his discipline; he never says the
   first aloud.
-- **Idit** — intelligence officer, a First Light survivor, grows beside him.
+- **Idit Zohar** — intelligence officer, a First Light survivor, grows beside him.
   Intel voice: what is known, how well, what knowing more will cost. She never
   gives an order.
 - **One villain per front**, introduced by an atrocity at the front's opening and
@@ -105,8 +105,9 @@ to the player verbatim as `enemy reacts (<id>)`, so name it as prose.
   people. He speaks through what he does.
 
 A briefing is a two-hander: Idit's picture, Shai's plan, alternating beats.
-Spellings and surnames are listed as open decisions in `storyline.md` until the
-lead confirms them.
+Spellings are decided (2026-09-03): Shai Hammai, Idit Zohar; the villains are
+Nadir Sahim, Karim Adhal and Jubran Hallaq, with SPADE, LANTERN and FERRY as
+Idit's file names for them (`storyline.md` §2.3).
 
 ## Census before you claim
 

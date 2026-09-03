@@ -27,16 +27,16 @@ never sermon: *"you will be billed for every second they can see it."*
 
 Two voices carry the HUD, and a briefing is a two-hander that alternates them:
 
-- **Shai Hamami** — the commander, the player's officer. Captain at First Light,
+- **Shai Hammai** — the commander, the player's officer. Captain at First Light,
   Colonel by the end. Orders voice: decisions, costs, restraint. The dead of
   First Light are his motive; ROE is his discipline; he never says the first
   aloud. His rank on each mission comes from `storyline.md`.
-- **Idit** — intelligence officer, a First Light survivor, growing beside him.
+- **Idit Zohar** — intelligence officer, a First Light survivor, growing beside him.
   Intel voice: what is known, how well it is known, and what knowing more will
-  cost. She never gives an order. Her surname is an open decision in
-  `storyline.md`; do not invent a new one.
+  cost. She never gives an order.
 - **The villain** of the front speaks rarely and through what he does. A line
-  from him is an event bound to a trigger, never a chat.
+  from him is an event bound to a trigger, never a chat. His personal name and
+  his KDF file name are in `storyline.md` §2.3; use those, coin no others.
 
 ## The rules of the fiction
 
