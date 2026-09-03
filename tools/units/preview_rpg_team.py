@@ -228,99 +228,91 @@ shoulder_z = glo.z + (ghi.z - glo.z) * 0.84
 print(f"launcher z: measured shoulder {shoulder_z:.3f} m  (kit value {KIT_TUBE_Z})")
 
 # --- the launcher ----------------------------------------------------------
-before = set(bpy.data.objects)
-bpy.ops.import_scene.gltf(filepath=RPG_GLB)
-rpg = [o for o in bpy.data.objects if o not in before]
-rpg_meshes = [o for o in rpg if o.type == "MESH"]
-# The prop's three role meshes are each their OWN root -- the exporter bakes
-# every transform into vertex data, so nothing parents them together. Moving
-# "the root" therefore moves one third of a launcher and leaves the tube and
-# the heat shield at the world origin, which is exactly what the first run of
-# this preview did. Parent them to one empty and move that instead.
-pivot = bpy.data.objects.new("rpg_pivot", None)
-bpy.context.collection.objects.link(pivot)
-for o in rpg_meshes:
-    o.parent = pivot
-
 # The two grip anchors, in the prop's own frame, measured from `rpg_wood`
 # rather than assumed (see the module docstring).
 PISTOL_GRIP = Vector((-0.0348, 0.0, -0.0759))
 FORWARD_GRIP = Vector((0.1408, 0.0, -0.0561))
+
+#: Where the bore sits relative to the RightArm BONE. Both numbers are
+#: measured off the figure, not chosen: the shoulder's top surface (the
+#: vertices weighted to RightShoulder/RightArm, top decile) sits +0.085 m
+#: ABOVE that bone and 0.005-0.083 m INBOARD of it -- the bone is the joint
+#: centre, the cap is the meat on top of it. Adding the tube's own 0.072 m
+#: radius puts a resting bore at +0.157 m. The first attempt used +0.06 up and
+#: 0.19 OUTBOARD, which hung the launcher about 0.23 m clear of the man: it
+#: read as floating beside him because it was. A shouldered RPG sits in the
+#: hollow between the neck and the shoulder cap, which is what these put it in.
+SHOULDER_OUT, SHOULDER_UP, SHOULDER_FWD, BORE_SHIFT = 0.02, 0.157, 0.02, 0.30
 
 
 def bone_world(arm_obj, name):
     return arm_obj.matrix_world @ arm_obj.pose.bones[name].head
 
 
-# The figure's own facing, from the marker bone the importer put there for
-# exactly this: `headfront` sits ahead of `Head`.
-head = bone_world(gunner_arm, "f0_Head")
-face = (bone_world(gunner_arm, "f0_headfront") - head)
-face.z = 0.0
-face.normalize()
-shoulder = bone_world(gunner_arm, "f0_RightArm")
-print(f"gunner facing ({face.x:+.3f},{face.y:+.3f})  right shoulder "
-      f"({shoulder.x:+.3f},{shoulder.y:+.3f},{shoulder.z:+.3f})")
+def mount_launcher(arm_obj, prefix, label):
+    """Import one launcher, seat it on `prefix`'s right shoulder, and solve
+    that figure's left arm onto its forward grip. Returns the mesh objects."""
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.gltf(filepath=RPG_GLB)
+    meshes = [o for o in bpy.data.objects if o not in before and o.type == "MESH"]
+    # The prop's three role meshes are each their OWN root -- the exporter bakes
+    # every transform into vertex data, so nothing parents them together.
+    # Moving "the root" moves one third of a launcher and leaves the tube and
+    # heat shield at the world origin, which is what an early run of this
+    # preview drew. Parent them to one empty and move that.
+    pivot = bpy.data.objects.new(f"rpg_pivot_{label}", None)
+    bpy.context.collection.objects.link(pivot)
+    for o in meshes:
+        o.parent = pivot
 
-# Bore over the right shoulder, pitched up along the facing.
-#
-# Three offsets, and the first is the one that matters: the tube must ride
-# OUTBOARD of the head, not over it. `pivot` sits at the prop's own x-midpoint
-# on the bore, so seating that at the shoulder puts a 1.4 m tube's middle
-# against the man -- and lifting it, as the first attempt did, walks it
-# straight through his face at head height. SHOULDER_OUT is therefore sized
-# against real widths (a head half-width of about 0.10 m plus the tube's own
-# 0.07 m radius), SHOULDER_UP keeps the bore at roughly shoulder height rather
-# than above it, and SHOULDER_FWD slides the grip clear of his chest.
-#
-# The optic being on the tube's left is what makes this hand: with the launcher
-# on his right shoulder the gunner's head sits to the left of the bore and
-# looks past the sight, which is how the weapon is actually held.
-right = Vector((face.y, -face.x, 0.0))
-pitch = math.radians(TUBE_PITCH_DEG)
-bore_dir = (face * math.cos(pitch) + Vector((0, 0, 1)) * math.sin(pitch)).normalized()
-# Yaw the prop (its own +X is the muzzle) onto `face`, then pitch it up.
-pivot.rotation_mode = "XYZ"
-pivot.rotation_euler = (0.0, -pitch, math.atan2(face.y, face.x))
-# Seat it so the bore passes just above and outboard of the shoulder.
-# BORE_SHIFT slides the launcher along its OWN axis. Without it the pivot --
-# the tube's midpoint -- sits at the shoulder, so half a 1.4 m weapon hangs
-# below and behind it and the blast bell swings down to hip height in FRONT of
-# the man. A shouldered launcher rests on its rear third: shifting the midpoint
-# up-bore brings the bell back to just behind the shoulder, where it belongs.
-SHOULDER_OUT, SHOULDER_UP, SHOULDER_FWD, BORE_SHIFT = 0.19, 0.06, 0.02, 0.30
-pivot.location = (shoulder
-                  + right * SHOULDER_OUT
-                  + Vector((0.0, 0.0, SHOULDER_UP))
-                  + face * SHOULDER_FWD
-                  + bore_dir * BORE_SHIFT)
-bpy.context.view_layer.update()
+    head = bone_world(arm_obj, f"{prefix}_Head")
+    face = bone_world(arm_obj, f"{prefix}_headfront") - head
+    face.z = 0.0
+    face.normalize()
+    shoulder = bone_world(arm_obj, f"{prefix}_RightArm")
+    right = Vector((face.y, -face.x, 0.0))
+    pitch = math.radians(TUBE_PITCH_DEG)
+    bore_dir = (face * math.cos(pitch) + Vector((0, 0, 1)) * math.sin(pitch)).normalized()
 
-# IK targets at the two grips' world positions.
-targets = {}
-# ONLY the left arm is solved, and the right one is deliberately left alone.
-# Solving both was tried and is worse than the problem it fixes: the rifle is
-# skinned to `RightHand`, so raising that arm to the pistol grip swings the AK
-# up with it into a horizontal bar across the gunner's chest -- two weapons at
-# once, one of them pointing sideways. Leaving the right arm down keeps the
-# rifle hanging at his side, which is the reading the lead approved, while the
-# left hand still genuinely closes on the launcher's forward grip and the tube
-# rests on the shoulder. A two-handed firing stance is reachable, but only by
-# cutting the fused rifle out of a supplied asset -- a separate decision.
-for label, local, bone in (("forward", FORWARD_GRIP, "f0_LeftForeArm"),):
-    world = pivot.matrix_world @ local
+    pivot.rotation_mode = "XYZ"
+    pivot.rotation_euler = (0.0, -pitch, math.atan2(face.y, face.x))
+    # BORE_SHIFT slides the launcher along its OWN axis. Without it the pivot --
+    # the tube's midpoint -- sits at the shoulder, so half a 1.4 m weapon hangs
+    # below and the blast bell swings down to hip height in FRONT of the man.
+    # A shouldered launcher rests on its rear third.
+    pivot.location = (shoulder
+                      + right * SHOULDER_OUT
+                      + Vector((0.0, 0.0, SHOULDER_UP))
+                      + face * SHOULDER_FWD
+                      + bore_dir * BORE_SHIFT)
+    bpy.context.view_layer.update()
+
+    # Only the LEFT arm is solved, and the right is deliberately left alone:
+    # with the rifle stripped the right hand is free, but an RPG's firing hand
+    # is on a pistol grip below the tube and solving both arms onto one narrow
+    # weapon folds the figure around it. One hand on the forward grip, the tube
+    # on the shoulder, is the pose that reads.
+    world = pivot.matrix_world @ FORWARD_GRIP
     tgt = bpy.data.objects.new(f"ik_{label}", None)
     bpy.context.collection.objects.link(tgt)
     tgt.location = world
-    targets[label] = tgt
-    pb = gunner_arm.pose.bones[bone]
+    pb = arm_obj.pose.bones[f"{prefix}_LeftForeArm"]
     ik = pb.constraints.new("IK")
     ik.target = tgt
     ik.chain_count = 2
-    print(f"  IK {label} grip -> {bone} at ({world.x:+.3f},{world.y:+.3f},{world.z:+.3f})")
-bpy.context.view_layer.update()
+    bpy.context.view_layer.update()
+    print(f"  {label}: shoulder ({shoulder.x:+.3f},{shoulder.y:+.3f},{shoulder.z:+.3f}) "
+          f"grip ({world.x:+.3f},{world.y:+.3f},{world.z:+.3f})")
+    return meshes
 
-rpg = rpg_meshes
+
+# Both men carry a launcher. teams.py's kit builds a firer plus a loader with
+# a rifle, but the lead's call is that the RPG rides on BOTH figures' shoulders
+# -- and it is the better read: the launcher's diagonal is the only thing that
+# identifies this team at gameplay size, so carrying it twice doubles the one
+# cue that works, where a second rifleman adds a silhouette shared with every
+# other irregular team on the map.
+rpg = mount_launcher(gunner_arm, "f0", "gunner") + mount_launcher(loader_arm, "f1", "loader")
 
 paint([o for o in gunner_meshes + loader_meshes if o.type == "MESH"])
 paint([o for o in rpg if o.type == "MESH"])
@@ -345,7 +337,11 @@ sc.view_settings.view_transform = "Standard"
 
 cam_data = bpy.data.cameras.new("cam"); cam_data.type = "ORTHO"
 cam = bpy.data.objects.new("cam", cam_data); sc.collection.objects.link(cam); sc.camera = cam
-ctr = Vector((0.0, 0.0, 0.9))
+# Framed on the pair's own centre of MASS-plus-weapon, not on the figures: the
+# launchers reach well above head height, and a frame centred on the men crops
+# the warheads -- which are the one part of the silhouette that identifies the
+# unit.
+ctr = Vector((0.0, 0.0, 1.15))
 
 
 def shoot(path, az_deg, elev_deg, ortho):
@@ -362,9 +358,9 @@ def shoot(path, az_deg, elev_deg, ortho):
 
 
 base = os.path.splitext(OUT)[0]
-shoot(f"{base}_dimetric.png", 225, 30, 3.0)     # the game's own camera
-shoot(f"{base}_close.png",    225, 30, 2.3)     # same angle, filling the frame
-shoot(f"{base}_side.png",     270, 8,  2.6)     # side, to read the pose
+shoot(f"{base}_dimetric.png", 225, 30, 3.6)     # the game's own camera
+shoot(f"{base}_close.png",    225, 30, 2.8)     # same angle, filling the frame
+shoot(f"{base}_side.png",     270, 8,  3.1)     # side, to read the pose
 
 # Gameplay size. Every judgement above is made at roughly 20x the size the
 # player sees, and this project has a standing rule about that ("approve art
@@ -374,5 +370,5 @@ shoot(f"{base}_side.png",     270, 8,  2.6)     # side, to read the pose
 # the only one of the four that answers "does the launcher read, and does the
 # second weapon matter" rather than "is the model nice".
 sc.render.resolution_x, sc.render.resolution_y = 220, 140
-shoot(f"{base}_gameplay.png", 225, 30, 3.0)
+shoot(f"{base}_gameplay.png", 225, 30, 3.6)
 sc.render.resolution_x, sc.render.resolution_y = 1600, 1000
