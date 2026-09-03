@@ -22,8 +22,8 @@ import {
   DECOR_KNOLL,
   DECOR_RIDGE,
   DECOR_ROAD,
-  WORLD_PER_LEVEL,
 } from './shared';
+import { buildTerrainSurface, surfaceWorldY } from './surface';
 import type { TerrainInput } from './types';
 
 export type DecorFamily =
@@ -193,7 +193,17 @@ const DITCH_YAW_VERTICAL: readonly number[] = [0.25];
 const DITCH_YAW_BOTH: readonly number[] = [0, 0.25];
 
 export function decorPlacements(input: TerrainInput): DecorPlacement[] {
-  const { width, height, blocked, cover, decor, elevation, boulder } = input;
+  const { width, height, blocked, cover, decor, boulder } = input;
+  // Every object below sits on the DRAWN ground, sampled at its own
+  // jittered position -- not on `elevation[tile] * WORLD_PER_LEVEL`, which
+  // was right when a tile top was a flat quad at its own integer height and
+  // is wrong now that open ground ramps (`terrain/surface.ts`). A boulder
+  // placed at the tile's integer level on a hillside floats on the downhill
+  // side of its own tile and buries itself on the uphill side, by up to half
+  // a level either way. `surfaceWorldY` still returns exactly that integer
+  // on a terrace and on flat ground, so a ridge slab and every object on
+  // every one of the four maps with no elevation grid are unmoved.
+  const surface = buildTerrainSurface(input);
   const out: DecorPlacement[] = [];
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
@@ -211,8 +221,6 @@ export function decorPlacements(input: TerrainInput): DecorPlacement[] {
       const isBoulder = boulder ? boulder[t] !== 0 : false;
       const family = familyFor(d, c, tileHash(x + 977, y + 311), isBoulder);
       if (family === null) continue;
-
-      const level = elevation ? elevation[t] : 0;
 
       // Cover level thickens a bush tile; every other family keeps its base
       // density. Clamped so a cover-3 tile cannot exceed 1.
@@ -248,7 +256,7 @@ export function decorPlacements(input: TerrainInput): DecorPlacement[] {
             // makes it span [x, x+1] precisely and abut its neighbours.
             x: x + 0.5,
             z: y + 0.5,
-            y: level * WORLD_PER_LEVEL + DITCH_LIFT,
+            y: surfaceWorldY(surface, x + 0.5, y + 0.5) + DITCH_LIFT,
             yawTurns,
             scale: DITCH_SCALE,
           });
@@ -268,20 +276,17 @@ export function decorPlacements(input: TerrainInput): DecorPlacement[] {
         // therefore in tile units (+/-0.3 of a tile).
         x: x + 0.5 + jx * 0.6,
         z: y + 0.5 + jy * 0.6,
-        // This tile's OWN elevation reading, exactly as `ground.ts` and
-        // `scatter.ts` both use it (`scatter.ts`'s ridge rock-blob branch:
-        // `topY = levelHere * WORLD_PER_LEVEL`, same tile, same array read).
-        // Elevation is authored independently of the `^` symbol (`map.ts`:
-        // "orthogonal to the terrain symbol on purpose"), and a real ridge's
-        // elevation IS already raised above its surroundings -- Tel Marum's
-        // authored grid reads elevation 3 at its ridge tiles against 1 on
-        // the open ground beside them, the two-level rise CLAUDE.md's map
-        // section describes for every blocking tile. So this already places
-        // a slab on the ridge's own drawn top, not on the ground beneath
-        // it: there is no separate "ridge top" height anywhere in this
-        // renderer for it to miss -- the ground mesh has no per-tile bump
-        // for `blocked`/ridge tiles beyond what the elevation grid says.
-        y: level * WORLD_PER_LEVEL,
+        // The drawn ground under this object's OWN jittered position, not
+        // its tile's integer level -- see the `surface` note at the top of
+        // this function. Elevation is authored independently of the `^`
+        // symbol (`map.ts`: "orthogonal to the terrain symbol on purpose"),
+        // and a real ridge's elevation IS already raised above its
+        // surroundings -- Tel Marum's authored grid reads elevation 3 at its
+        // ridge tiles against 1 on the open ground beside them, the
+        // two-level rise CLAUDE.md's map section describes for every
+        // blocking tile. A ridge is a TERRACE (`surface.ts`), so a slab
+        // still lands on the ridge's own flat drawn top, to the bit.
+        y: surfaceWorldY(surface, x + 0.5 + jx * 0.6, y + 0.5 + jy * 0.6),
         yawTurns: tileHash(x + 617, y + 29),
         scale,
       });
@@ -303,7 +308,7 @@ export function decorPlacements(input: TerrainInput): DecorPlacement[] {
           variant: Math.floor(tileHash(x + 601, y + 991) * VARIANTS_PER_FAMILY),
           x: x + 0.5 + jx2 * 0.6,
           z: y + 0.5 + jy2 * 0.6,
-          y: level * WORLD_PER_LEVEL,
+          y: surfaceWorldY(surface, x + 0.5 + jx2 * 0.6, y + 0.5 + jy2 * 0.6),
           yawTurns: tileHash(x + 601, y + 29),
           scale: scale * 0.68,
         });

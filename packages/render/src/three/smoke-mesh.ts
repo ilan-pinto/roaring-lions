@@ -73,7 +73,7 @@
  */
 import * as THREE from 'three';
 import { hexToUnit } from './terrain/shared';
-import { groundWorldY } from './ground-height';
+import { tileGroundWorldY, type ElevationSource } from './ground-height';
 import { fogQuadGeometry } from './fog-mesh';
 import { SMOKE_RENDER_ORDER } from './units/render-order';
 
@@ -118,7 +118,7 @@ export function writeSmokeInstances(
   smoke: Uint8Array,
   width: number,
   height: number,
-  elevation: Uint8Array | null,
+  elevation: ElevationSource,
   out: SmokeInstanceBuffers
 ): number {
   const capacity = out.alphas.length;
@@ -129,7 +129,9 @@ export function writeSmokeInstances(
       if (d === 0) continue;
       if (count >= capacity) return count;
       out.positions[count * 3] = x;
-      out.positions[count * 3 + 1] = groundWorldY(elevation, width, height, x, y);
+      // The TILE's own height, sampled at its centre -- see
+      // `tileGroundWorldY`.
+      out.positions[count * 3 + 1] = tileGroundWorldY(elevation, width, height, x, y);
       out.positions[count * 3 + 2] = y;
       out.alphas[count] = (d / 255) * SMOKE_ALPHA_MAX;
       count++;
@@ -573,7 +575,7 @@ export class SmokeMesh {
    */
   update(
     smoke: Uint8Array,
-    elevation: Uint8Array | null,
+    elevation: ElevationSource,
     width: number,
     height: number,
     clockMs = 0

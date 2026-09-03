@@ -82,6 +82,8 @@ import {
   PALETTE_HEXES,
   WORLD_PER_LEVEL,
   levelAt,
+  SURFACE_SUBDIVISIONS,
+  SURFACE_OVERSHOOT_LEVELS,
   type TerrainInput,
   type MeshData,
   type StructureFootprint,
@@ -258,24 +260,52 @@ function assertNonEmptyUnless(mesh: MeshData, key: string, label: string): void 
 // the fifth of five identical copies this task's inventory found -- the
 // other four were each terrain builder's own private redeclaration.
 
+type Vec3 = [number, number, number];
+
+function vtx(m: MeshData, i: number): Vec3 {
+  return [m.positions[i * 3], m.positions[i * 3 + 1], m.positions[i * 3 + 2]];
+}
+
+/** Which of the four things `buildGround` emits a triangle belongs to,
+ *  classified from its own vertices. Same classifier and same ordering as
+ *  `packages/render/src/three/terrain/ground.test.ts` uses -- X first, then
+ *  Z, then Y -- because a wall on a smooth side varies in Y and a level
+ *  patch of the interpolated surface does not, so testing Y first would
+ *  mislabel both. */
+function kindOfTriangle(a: Vec3, b: Vec3, c: Vec3): 'east face' | 'south face' | 'tile top' | 'surface patch' {
+  if (a[0] === b[0] && b[0] === c[0]) return 'east face';
+  if (a[2] === b[2] && b[2] === c[2]) return 'south face';
+  if (a[1] === b[1] && b[1] === c[1]) return 'tile top';
+  return 'surface patch';
+}
+
 /**
- * Two triangles per tile top, plus one side-face quad (two triangles) for
- * every east or south neighbour that sits lower -- `ground.ts`'s own rule,
- * computed independently here from the map's raw elevation grid rather than
- * by calling anything `ground.ts` exports, so a bug in `ground.ts`'s own
- * drop comparison cannot cancel out against this count agreeing with itself.
+ * How many GROUND-SURFACE triangles (tile tops and interpolated patches, not
+ * walls) the map's own data implies: two for a tile drawn as a flat terrace,
+ * `2 * SURFACE_SUBDIVISIONS^2` for a tile drawn as a patch of the
+ * interpolated surface, and two for every tile of a map with no relief at
+ * all.
+ *
+ * Computed here from the map's own `blocked` and `elevation` rather than by
+ * calling anything `ground.ts` or `surface.ts` exports, so a bug in the
+ * terrace rule cannot cancel out against this count agreeing with itself --
+ * the same reason the pre-2026-09-03 version of this function re-derived the
+ * side-face count by hand.
+ *
+ * The WALL count is deliberately not predicted here: a wall follows the
+ * interpolated profile of whichever of its two sides is a hillside and skips
+ * its own pinched ends, so predicting it would mean reimplementing
+ * `pushWall`. What the suite asserts about walls instead is the property
+ * that actually changed and that a regression would break -- see "no wall
+ * between two open tiles" below.
  */
-function expectedGroundIndexCount(input: TerrainInput): number {
-  let faceQuads = 0;
-  for (let y = 0; y < input.height; y++) {
-    for (let x = 0; x < input.width; x++) {
-      const here = levelAt(input, x, y);
-      if (here - levelAt(input, x + 1, y) > 0) faceQuads++;
-      if (here - levelAt(input, x, y + 1) > 0) faceQuads++;
-    }
-  }
-  const tileQuads = input.width * input.height;
-  return (tileQuads + faceQuads) * 6; // 2 triangles/quad * 3 indices/triangle
+function expectedSurfaceTriangles(input: TerrainInput): number {
+  const flatMap = !input.elevation || input.elevation.every((v) => v === 0);
+  if (flatMap) return input.width * input.height * 2;
+  const patch = 2 * SURFACE_SUBDIVISIONS * SURFACE_SUBDIVISIONS;
+  let n = 0;
+  for (let i = 0; i < input.width * input.height; i++) n += input.blocked[i] !== 0 ? 2 : patch;
+  return n;
 }
 
 function distinctLevels(input: TerrainInput): number[] {
@@ -338,9 +368,62 @@ it('covers every map that ships in data/maps/, with no list to keep up to date',
 describe.each(MAP_IDS)('terrain parity: %s', (id) => {
   const { sim, parsedMap, input, tones } = loadMap(id);
 
-  it('ground mesh has exactly two triangles per tile plus the expected side faces', () => {
+  it('ground mesh has two triangles per terrace tile and a full subdivided patch per open one', () => {
     const mesh = buildGround(input, tones, BACKGROUND);
-    expect(mesh.indices.length).toBe(expectedGroundIndexCount(input));
+    let surfaceTris = 0;
+    for (let i = 0; i < mesh.indices.length; i += 3) {
+      const k = kindOfTriangle(
+        vtx(mesh, mesh.indices[i]),
+        vtx(mesh, mesh.indices[i + 1]),
+        vtx(mesh, mesh.indices[i + 2])
+      );
+      if (k === 'tile top' || k === 'surface patch') surfaceTris++;
+    }
+    expect(surfaceTris).toBe(expectedSurfaceTriangles(input));
+  });
+
+  it('draws NO wall between two open tiles -- open ground ramps, and only a blocked tile or the map edge is a cliff', () => {
+    // THE assertion behind the 2026-09-03 change, on real map data. Before
+    // it, every elevation step anywhere on the map got a vertical face, which
+    // is what "the hills look more like stairs" was describing. Now a face
+    // exists only where `blocked` says there is a wall (a `^` ridge or a
+    // building footprint) or where the map runs out.
+    //
+    // Derived from `sim.blocked` alone, so it does not re-derive
+    // `surface.ts`'s own predicate: for every wall triangle, at least one of
+    // the two tiles sharing its edge must be blocked, or the edge must be
+    // the map's own rim.
+    const mesh = buildGround(input, tones, BACKGROUND);
+    const blockedAt = (x: number, y: number): boolean =>
+      x >= 0 && x < input.width && y >= 0 && y < input.height && input.blocked[y * input.width + x] !== 0;
+    let walls = 0;
+    for (let i = 0; i < mesh.indices.length; i += 3) {
+      const a = vtx(mesh, mesh.indices[i]);
+      const b = vtx(mesh, mesh.indices[i + 1]);
+      const c = vtx(mesh, mesh.indices[i + 2]);
+      const kind = kindOfTriangle(a, b, c);
+      if (kind !== 'east face' && kind !== 'south face') continue;
+      walls++;
+      // The two tiles sharing this edge. An east face at world X sits
+      // between tiles (X-1, ·) and (X, ·); a south face at world Z between
+      // (·, Z-1) and (·, Z).
+      const edge = kind === 'east face' ? a[0] : a[2];
+      const along = kind === 'east face' ? Math.floor(Math.min(a[2], b[2], c[2])) : Math.floor(Math.min(a[0], b[0], c[0]));
+      const lo = kind === 'east face' ? ([edge - 1, along] as const) : ([along, edge - 1] as const);
+      const hi = kind === 'east face' ? ([edge, along] as const) : ([along, edge] as const);
+      const rim = edge === 0 || edge === (kind === 'east face' ? input.width : input.height);
+      expect(
+        rim || blockedAt(lo[0], lo[1]) || blockedAt(hi[0], hi[1]),
+        `${id}: a ${kind} at ${edge} between two OPEN, on-map tiles (${lo}) and (${hi}) -- open ground must ramp`
+      ).toBe(true);
+    }
+    // Not passing by checking nothing: both relief maps have ridges, and
+    // every map has a rim.
+    if (input.elevation && input.elevation.some((v) => v !== 0)) {
+      expect(walls, `${id}: relief map with no wall anywhere`).toBeGreaterThan(0);
+    } else {
+      expect(walls, `${id}: a map with no relief cannot have a wall`).toBe(0);
+    }
   });
 
   it(
@@ -438,9 +521,22 @@ describe.each(MAP_IDS)('terrain parity: %s', (id) => {
     expect(maxX).toBe(parsedMap.width);
     expect(minZ).toBe(0);
     expect(maxZ).toBe(parsedMap.height);
-    expect(minY).toBeGreaterThanOrEqual(0);
+    // The vertical bounds used to be `minY >= 0` and `maxY` exactly the
+    // highest authored level. The first is no longer true and the second is
+    // no longer the whole story, both for the same reason: the surface is a
+    // C1 interpolant and a C1 interpolant overshoots a sharp step.
+    // `SURFACE_OVERSHOOT_LEVELS` is the measured bound (7.0-7.5% of the
+    // step; both relief maps' steepest OPEN step is 3 levels).
+    //
+    // What is still exact, and is asserted as a floor rather than dropped:
+    // the surface passes THROUGH every authored level, because
+    // `SURFACE_SUBDIVISIONS` is even and a tile's own centre is therefore a
+    // lattice point of its patch. So the highest tile on the map is still
+    // drawn at exactly its own height, whether it is a terrace or a hillside.
     const maxLevel = Math.max(...distinctLevels(input));
-    expect(maxY).toBeCloseTo(maxLevel * WORLD_PER_LEVEL, 5);
+    expect(minY).toBeGreaterThanOrEqual(-SURFACE_OVERSHOOT_LEVELS * WORLD_PER_LEVEL);
+    expect(maxY).toBeGreaterThanOrEqual(maxLevel * WORLD_PER_LEVEL - 1e-6);
+    expect(maxY).toBeLessThanOrEqual((maxLevel + SURFACE_OVERSHOOT_LEVELS) * WORLD_PER_LEVEL);
   });
 
   it("a tile's world position round-trips through worldToScreenThree to the screen point project.worldToScreen gives, at every elevation level the map contains", () => {
@@ -657,23 +753,36 @@ describe('break checks: proving each assertion actually discriminates', () => {
     ).toBeGreaterThan(1);
   });
 
-  it('the tile-count assertion is sensitive to a missing side face -- and only relief can exercise it', () => {
+  it('the surface-count assertion is sensitive to a lost elevation grid -- and only relief can exercise it', () => {
     const relief = loadMap('tel_marum');
-    // As if buildGround silently dropped every elevation face: fed to the
-    // REAL, unmodified buildGround, not a hand-simulated count.
+    // As if buildGround silently dropped the map's relief: fed to the REAL,
+    // unmodified buildGround, not a hand-simulated count. Losing relief now
+    // costs the whole subdivided surface as well as every wall, so the
+    // count moves by far more than it used to.
     const flattened: TerrainInput = { ...relief.input, elevation: null };
     const brokenMesh = buildGround(flattened, relief.tones, BACKGROUND);
-    const realExpected = expectedGroundIndexCount(relief.input);
-    expect(brokenMesh.indices.length).not.toBe(realExpected);
+    let brokenSurface = 0;
+    for (let i = 0; i < brokenMesh.indices.length; i += 3) {
+      const k = kindOfTriangle(
+        vtx(brokenMesh, brokenMesh.indices[i]),
+        vtx(brokenMesh, brokenMesh.indices[i + 1]),
+        vtx(brokenMesh, brokenMesh.indices[i + 2])
+      );
+      if (k === 'tile top' || k === 'surface patch') brokenSurface++;
+    }
+    expect(brokenSurface).not.toBe(expectedSurfaceTriangles(relief.input));
 
     // Contrast: on a genuinely flat map, the same mistake (elevation -> null)
     // changes nothing, because there was no relief to lose -- proving why the
     // brief calls out that a flat map "cannot exercise a single elevation
-    // side face" and this check needs tel_marum specifically.
+    // side face" and this check needs tel_marum specifically. Note this is
+    // now true for a SECOND reason as well: `parseMap` hands a flat map an
+    // all-zero grid, and `buildTerrainSurface` treats that and a missing one
+    // identically.
     const flat = loadMap('marj_perimeter');
     const flatFlattened: TerrainInput = { ...flat.input, elevation: null };
     expect(buildGround(flatFlattened, flat.tones, BACKGROUND).indices.length).toBe(
-      expectedGroundIndexCount(flat.input)
+      buildGround(flat.input, flat.tones, BACKGROUND).indices.length
     );
   });
 

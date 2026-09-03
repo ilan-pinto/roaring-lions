@@ -15,7 +15,7 @@
  */
 import * as THREE from 'three';
 import { TILE_W, TILE_H, ELEVATION, WORLD_Y_PER_LIFT_PIXEL, type Camera, type Viewport } from '../project';
-import { groundWorldY } from './ground-height';
+import { groundWorldY, type ElevationSource } from './ground-height';
 
 // ELEVATION and WORLD_Y_PER_LIFT_PIXEL live in project.ts now -- both are
 // pure arithmetic over TILE_W/TILE_H, and project.ts, unlike this file,
@@ -201,7 +201,7 @@ export function screenToWorldThree(
   py: number,
   cam: Camera,
   vp: Viewport,
-  elevation: Uint8Array | null = null,
+  elevation: ElevationSource = null,
   mapWidth = 0,
   mapHeight = 0
 ): { x: number; y: number } {

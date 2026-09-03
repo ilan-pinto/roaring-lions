@@ -88,7 +88,7 @@ import { resolveClip, resolveTurretClip, cadenceScale, type UnitAnimInput } from
 import { walkFps, phaseOffset, advancePhase } from '../../anim';
 import { clipOrFallback, type ClipName, type SheetSpec } from '../../sheet';
 import { WORLD_Y_PER_LIFT_PIXEL } from '../../project';
-import { groundWorldY } from '../ground-height';
+import { groundWorldY, type ElevationSource } from '../ground-height';
 import { screenOffsetToWorld } from '../terrain/shared';
 
 /**
@@ -238,7 +238,7 @@ export interface EntityFrameInput {
   alpha: number;
 
   // --- ground lift: renderer.ts:1977 (`groundOffset`) ---
-  elevation: Uint8Array | null;
+  elevation: ElevationSource;
   mapWidth: number;
   mapHeight: number;
 

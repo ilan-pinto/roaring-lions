@@ -69,7 +69,7 @@
  */
 import * as THREE from 'three';
 import { pushPolygon, hexToUnit, MARK_EPSILON } from './terrain/shared';
-import { groundWorldY } from './ground-height';
+import { tileGroundWorldY, type ElevationSource } from './ground-height';
 import { trailTileAlpha } from '../trail';
 import { TRAIL_RENDER_ORDER } from './units/render-order';
 
@@ -156,7 +156,7 @@ export function collapsedRouteLevel(alive: boolean, level: 0 | 1 | 2): 0 | 1 | 2
 export interface TrailInstanceInput {
   readonly width: number;
   readonly height: number;
-  readonly elevation: Uint8Array | null;
+  readonly elevation: ElevationSource;
   /** Spoil density per tile -- `Sim.trail` verbatim, `renderer.ts:1139`'s
    *  own read, 0..255 (`./trail.ts`'s `SPOIL_DENSITY_MAX`, restated there
    *  rather than imported past `@lions/sim`'s public surface). */
@@ -243,7 +243,7 @@ export function writeTrailInstances(input: TrailInstanceInput, out: TrailInstanc
       // MARK_EPSILON above the tile's own top, like every other mark or
       // decal that would otherwise z-fight the terrain quad directly
       // beneath it (`terrain/shared.ts`'s own doc comment on the constant).
-      out.positions[count * 3 + 1] = groundWorldY(elevation, width, height, x, y) + MARK_EPSILON;
+      out.positions[count * 3 + 1] = tileGroundWorldY(elevation, width, height, x, y) + MARK_EPSILON;
       out.positions[count * 3 + 2] = y;
       out.alphas[count] = alpha;
       count++;

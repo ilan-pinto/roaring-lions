@@ -94,7 +94,7 @@ import * as THREE from 'three';
 import type { Sim } from '@lions/sim';
 import { TILE_W, WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import { screenOffsetToWorld } from '../terrain/shared';
-import { groundWorldY } from '../ground-height';
+import { groundWorldY, type ElevationSource } from '../ground-height';
 import { GROUND_CLIP_DEPTH_CLAMP_GLSL } from './ground-clip';
 
 // ---------------------------------------------------------------------------
@@ -193,7 +193,7 @@ export function structureAliveAlpha(hp: number, maxHp: number): number {
 function structurePlacements(
   sim: Sim,
   structureId: string,
-  elevation: Uint8Array | null,
+  elevation: ElevationSource,
   wantAlive: boolean
 ): StructurePlacement[] {
   const st = sim.structures;
@@ -219,7 +219,7 @@ function structurePlacements(
 export function liveStructurePlacements(
   sim: Sim,
   structureId: string,
-  elevation: Uint8Array | null
+  elevation: ElevationSource
 ): StructurePlacement[] {
   return structurePlacements(sim, structureId, elevation, true);
 }
@@ -231,7 +231,7 @@ export function liveStructurePlacements(
 export function deadStructurePlacements(
   sim: Sim,
   structureId: string,
-  elevation: Uint8Array | null
+  elevation: ElevationSource
 ): StructurePlacement[] {
   return structurePlacements(sim, structureId, elevation, false);
 }

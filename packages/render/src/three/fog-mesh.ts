@@ -58,7 +58,7 @@
  */
 import * as THREE from 'three';
 import { pushPolygon, hexToUnit } from './terrain/shared';
-import { groundWorldY } from './ground-height';
+import { tileGroundWorldY, type ElevationSource } from './ground-height';
 import { FOG_RENDER_ORDER } from './units/render-order';
 
 // ---------------------------------------------------------------------------
@@ -169,7 +169,7 @@ export function writeFogInstances(
   fog: Uint8Array,
   width: number,
   height: number,
-  elevation: Uint8Array | null,
+  elevation: ElevationSource,
   out: FogInstanceBuffers
 ): number {
   const capacity = out.alphas.length;
@@ -181,7 +181,10 @@ export function writeFogInstances(
       if (v === 2) continue;
       if (count >= capacity) return count;
       out.positions[count * 3] = x;
-      out.positions[count * 3 + 1] = groundWorldY(elevation, width, height, x, y);
+      // The TILE's own height, sampled at its centre -- see
+      // `tileGroundWorldY`. Passing the corner puts a fog quad up to half a
+      // level off the ground it covers.
+      out.positions[count * 3 + 1] = tileGroundWorldY(elevation, width, height, x, y);
       out.positions[count * 3 + 2] = y;
       out.alphas[count] = v === 0 ? FOG_ALPHA_NEVER_SEEN : FOG_ALPHA_EXPLORED;
       count++;
@@ -279,7 +282,7 @@ export class FogMesh {
   /** Rebuilds every instance from the current `fog` array. Called only when
    *  fog data actually changed (`ThreeRenderer`'s own 5 Hz cadence, matching
    *  Pixi's `fogDirty` gate) -- not every 60 Hz frame. */
-  update(fog: Uint8Array, elevation: Uint8Array | null, width: number, height: number): void {
+  update(fog: Uint8Array, elevation: ElevationSource, width: number, height: number): void {
     const count = writeFogInstances(fog, width, height, elevation, {
       positions: this.scratchPositions,
       alphas: this.alphaAttr.array as Float32Array,

@@ -557,6 +557,14 @@ async function main(): Promise<void> {
     nearMissColor: paletteColor('dust.0'),
     interceptColor: paletteColor('vfx.interceptor'),
     resolveColor: paletteColor,
+    // The ground albedo, served out of the repo-root `assets/` publicDir like
+    // every sprite sheet and font. Three-only and fail-soft: Pixi ignores the
+    // field and the three ground draws its flat palette tone if the image
+    // never arrives. See `RendererOptions.groundTextureUrl`.
+    groundTextureUrl: `${BASE}textures/desert_sand_tile.png`,
+    // The `^` rock ridge's own albedo. A separate image and a separate
+    // failure: a ridge that loses its texture is still a ridge.
+    rockTextureUrl: `${BASE}textures/rock_ground_tile.png`,
   };
   // Three is the default as of Phase D; Pixi remains reachable through
   // `?renderer=pixi`, which `renderer-choice.ts` persists so it survives the

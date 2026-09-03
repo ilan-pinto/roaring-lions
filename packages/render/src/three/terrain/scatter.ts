@@ -39,6 +39,7 @@ import {
   rectCorners as sharedRectCorners,
   pushPolygon,
 } from './shared';
+import { buildTerrainSurface, hasWall, markPlane, surfaceWorldY } from './surface';
 import type { MeshData, TerrainInput } from './types';
 import type { TerrainTones } from '../../api';
 
@@ -199,6 +200,11 @@ function rectCorners(
 
 export function buildScatter(input: TerrainInput, tones: TerrainTones, background: string): MeshData {
   const { width, height } = input;
+  // The drawn ground every mark below is draped on, and the single source
+  // for whether a slope face exists at all. Built from `input`, exactly as
+  // `ground.ts` builds its own, so the two cannot disagree about where a
+  // wall is or how high the ground is under a fleck.
+  const surface = buildTerrainSurface(input);
   const positions: number[] = [];
   const colors: number[] = [];
   const indices: number[] = [];
@@ -280,7 +286,6 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
   const pushMark = (
     originX: number,
     originZ: number,
-    topY: number,
     epsilon: number,
     offsetPxX: number,
     offsetPxY: number,
@@ -302,13 +307,36 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
       scale = clamped.scale;
     }
 
-    const world = cornerDeltas.map(
-      (d) =>
-        [originX + centerX + d.dx * scale, topY + epsilon, originZ + centerZ + d.dy * scale] as [
-          number,
-          number,
-          number,
-        ]
+    // The mark is DRAPED on the drawn ground: it lies on the surface's own
+    // tangent plane at its centre (`markPlane`), lifted clear.
+    //
+    // It used to take an absolute `topY` -- its tile's integer level times
+    // `WORLD_PER_LEVEL` -- because that is exactly what the tile top under
+    // it was. It is not any more: open ground ramps (`terrain/surface.ts`),
+    // and a flat mark pinned to its tile's centre height cuts into the
+    // hillside on the uphill half of its own tile and floats off it on the
+    // downhill half, by up to half a level -- 0.128 world units against a
+    // `MARK_EPSILON` of 0.01.
+    //
+    // PLANAR rather than per-corner-sampled, and `markPlane`'s own doc
+    // comment has the reason: one gradient per mark is a clampable quantity,
+    // and clamping it is what makes "a decal always faces the camera" true
+    // by construction. `lift` then raises the whole plane, uniformly, by
+    // however far the real surface rises above it at its worst corner -- so
+    // the mark clears a curved hillside without the plane ever tilting, and
+    // a flat or terrace tile (gradient zero, lift zero) reproduces the
+    // pre-2026-09-03 `topY + epsilon` exactly, to the bit.
+    const plane = markPlane(surface, originX + centerX, originZ + centerZ);
+    const draped = cornerDeltas.map((d) => {
+      const wx = originX + centerX + d.dx * scale;
+      const wz = originZ + centerZ + d.dy * scale;
+      const planeY = plane.centerY + plane.gx * (d.dx * scale) + plane.gz * (d.dy * scale);
+      return { wx, wz, planeY, rise: surfaceWorldY(surface, wx, wz) - planeY };
+    });
+    let lift = 0;
+    for (const c of draped) if (c.rise > lift) lift = c.rise;
+    const world = draped.map(
+      (c) => [c.wx, c.planeY + lift + epsilon, c.wz] as [number, number, number]
     );
     pushQuad(world[0], world[1], world[2], world[3], color, false);
   };
@@ -350,15 +378,43 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
     x: number,
     y: number,
     levelHere: number,
-    levelNeighbor: number,
     drop: number,
-    faceHex: string
+    faceHex: string,
+    decorHere: number
   ): void => {
+    // `topY` is still the terrace's own integer height here, and only here:
+    // a slope face exists only where `hasWall` says one does, and every such
+    // edge has a TERRACE on its upper side (`surface.ts`), so its bands sit
+    // on a flat top by construction. `bottomY` is gone -- the scree at the
+    // foot is a ground mark now and drapes itself.
     const topY = levelHere * WORLD_PER_LEVEL;
-    const bottomY = levelNeighbor * WORLD_PER_LEVEL;
 
-    // 1. Strata banding: one line per internal level boundary (renderer.ts:1330-1334).
-    if (drop > 1) {
+    // 1. Strata banding: one line per internal level boundary
+    // (renderer.ts:1330-1334) -- but NOT on a `^` ridge any more.
+    //
+    // A ridge wall carries a real rock texture as of 2026-09-03
+    // (`ground.ts`'s `rockMask`, `mesh.ts`'s `uRock`), and that image is
+    // fractured limestone: it has horizontal strata and a crack network of
+    // its own, at a finer pitch than one line per level. Drawing synthetic
+    // bands over it puts two contradictory stratigraphies on the same face,
+    // and the synthetic one wins because it is a hard palette edge.
+    //
+    // The other two pieces of this dressing STAY, and the split is
+    // deliberate rather than a half-measure. The lit top edge marks where
+    // THIS wall's top is, which no tiling texture can know, and it is the
+    // silhouette cue that separates a cliff top from the ground beyond it.
+    // The foot scree sits on the SAND below, not on the rock at all, and it
+    // is the authored transition at the one place the two materials meet --
+    // which is also the answer to "is the sand/rock boundary hard or
+    // blended": it is hard, at the tile edge, because a cliff foot IS a
+    // line, and the scree is what softens it where the drop is big enough
+    // to throw any.
+    //
+    // A BUILDING's wall keeps its bands: it has no texture, so they are
+    // still the only thing telling a three-storey face from a one-storey
+    // one.
+    const rockFaced = decorHere === DECOR_RIDGE;
+    if (drop > 1 && !rockFaced) {
       const strataHex = quantise(composite(faceHex, tones.blocked, 0.35), PALETTE_HEXES);
       for (let i = 1; i < drop; i++) {
         pushFaceBand(faceTag, x, y, topY - i * WORLD_PER_LEVEL, strataHex);
@@ -403,16 +459,12 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
       // itself covers, where it was occluded and invisible.
       const originX = faceTag === 0 ? x + 1 + SCREE_INSET : x + aClamped;
       const originZ = faceTag === 0 ? y + aClamped : y + 1 + SCREE_INSET;
-      pushMark(originX, originZ, bottomY, MARK_EPSILON, 0, 0, diamondCorners(r, r * 0.6), screeHex, false);
+      pushMark(originX, originZ, MARK_EPSILON, 0, 0, diamondCorners(r, r * 0.6), screeHex, false);
       // The highlight needs its own, larger inset -- see
       // `SCREE_HIGHLIGHT_INSET`'s doc comment for the worked-out worst case.
       const hlOriginX = faceTag === 0 ? x + 1 + SCREE_HIGHLIGHT_INSET : x + aClamped;
       const hlOriginZ = faceTag === 0 ? y + aClamped : y + 1 + SCREE_HIGHLIGHT_INSET;
-      pushMark(
-        hlOriginX,
-        hlOriginZ,
-        bottomY,
-        HIGHLIGHT_EPSILON,
+      pushMark(hlOriginX, hlOriginZ, HIGHLIGHT_EPSILON,
         -r * 0.4,
         -r * 0.4,
         diamondCorners(r * 0.5, r * 0.3),
@@ -430,7 +482,6 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
       // a differently-elevated neighbour -- see `hasElevationEdge`'s doc
       // comment. Computed once per tile, used by every mark this tile emits.
       const needsContainment = hasElevationEdge(input, x, y);
-      const topY = levelHere * WORLD_PER_LEVEL;
       const cx = x + 0.5;
       const cz = y + 0.5;
       const rnd = tileHash(x, y);
@@ -445,34 +496,39 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
       const baseHex = groundTone(input, tones, ti, PALETTE_HEXES, background);
 
       if (blocked) {
-        if (decorHere === DECOR_RIDGE) {
-          // Ridge: full-tile rock diamond is already `baseHex` (groundTone's
-          // blocked+ridge branch); 5 larger blobs with a highlight on top
-          // (renderer.ts:1461-1477).
-          for (let k = 0; k < 5; k++) {
-            const a = tileHash(x * 13 + k, y * 29 + k);
-            const b = tileHash(x * 7 + k, y * 19 + k);
-            const px = (a - 0.5) * (TILE_W - 24);
-            const py = (b - 0.5) * (TILE_H - 18);
-            const r = 6 + a * 5;
-            const blobHex = quantise(composite(baseHex, tones.rock, 0.95), PALETTE_HEXES);
-            pushMark(cx, cz, topY, MARK_EPSILON, px, py, diamondCorners(r, r * 0.7), blobHex, needsContainment);
-            const hlHex = quantise(composite(blobHex, tones.rockLit, 0.9), PALETTE_HEXES);
-            pushMark(
-              cx,
-              cz,
-              topY,
-              HIGHLIGHT_EPSILON,
-              px - r * 0.24,
-              py - r * 0.26,
-              diamondCorners(r * 0.55, r * 0.32),
-              hlHex,
-              needsContainment
-            );
-          }
-        }
-        // A plain blocked (building) tile gets no grain: `drawBuildingTile`/
-        // the structure sprite own that ground entirely in Pixi.
+        // A `^` ridge TOP draws no synthetic grain any more, for the same
+        // reason its wall draws no synthetic strata: as of 2026-09-03 it
+        // carries a real rock texture (`ground.ts`'s `rockMask`, `mesh.ts`'s
+        // `uRock`), and that image is fractured limestone with its own
+        // grain, crack network and ochre staining.
+        //
+        // This was not a judgement made from the code. Photographed on
+        // `tel_marum`'s corridor walls at zoom 2 with both present, the five
+        // blobs and their `rockLit` highlights (`#F2E8D5`, all but white)
+        // read as pale confetti scattered over a photograph -- a hard
+        // palette edge on top of a continuous-tone surface wins the eye and
+        // looks like a rendering fault rather than like rock.
+        //
+        // A plain blocked (BUILDING) tile still gets none either, which it
+        // never did: `drawBuildingTile` and the structure sprite own that
+        // ground entirely.
+        // Nothing here any more, for either kind of blocked tile.
+        //
+        // A plain blocked (BUILDING) tile never had grain: `drawBuildingTile`
+        // and the structure sprite own that ground entirely in Pixi. A `^`
+        // RIDGE had five rock blobs with `rockLit` highlights
+        // (renderer.ts:1461-1477) and lost them on 2026-09-03, when it
+        // gained a real rock texture instead (`ground.ts`'s `rockMask`,
+        // `mesh.ts`'s `uRock`) -- fractured limestone with its own grain,
+        // crack network and staining.
+        //
+        // That was not decided from the code. Photographed on `tel_marum`'s
+        // corridor walls at zoom 2 with both present, the blobs' highlights
+        // (`tones.rockLit`, `#F2E8D5` on the arid theme -- all but white)
+        // read as pale confetti scattered over a photograph: a hard palette
+        // edge on a continuous-tone surface wins the eye and looks like a
+        // rendering fault rather than like rock. Same call as the strata
+        // bands in `drawSlopeFace` above, for the same reason.
       } else {
         if (decorHere === DECOR_ROAD) {
           // Road ruts: two lines, tone at 0.30 over the road's own groundTone
@@ -485,8 +541,8 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
           const rut = (cxPx + cyPx) % 2 === 0 ? 5 : 7;
           const rutHex = quantise(composite(baseHex, tones.rut, 0.3), PALETTE_HEXES);
           const halfW = TILE_W / 2 - 6;
-          pushMark(cx, cz, topY, MARK_EPSILON, 0, -rut, rectCorners(halfW, -0.75, 0.75), rutHex, needsContainment);
-          pushMark(cx, cz, topY, MARK_EPSILON, 0, rut, rectCorners(halfW, -0.75, 0.75), rutHex, needsContainment);
+          pushMark(cx, cz, MARK_EPSILON, 0, -rut, rectCorners(halfW, -0.75, 0.75), rutHex, needsContainment);
+          pushMark(cx, cz, MARK_EPSILON, 0, rut, rectCorners(halfW, -0.75, 0.75), rutHex, needsContainment);
         } else if (decorHere === DECOR_KNOLL) {
           // Knoll: 4 blobs with a highlight, smaller than a ridge's
           // (renderer.ts:1543-1553).
@@ -497,13 +553,9 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
             const py = (b - 0.5) * (TILE_H - 10);
             const r = 3 + a * 5;
             const blobHex = quantise(composite(baseHex, tones.rock, 0.95), PALETTE_HEXES);
-            pushMark(cx, cz, topY, MARK_EPSILON, px, py, diamondCorners(r, r * 0.62), blobHex, needsContainment);
+            pushMark(cx, cz, MARK_EPSILON, px, py, diamondCorners(r, r * 0.62), blobHex, needsContainment);
             const hlHex = quantise(composite(blobHex, tones.rockLit, 0.8), PALETTE_HEXES);
-            pushMark(
-              cx,
-              cz,
-              topY,
-              HIGHLIGHT_EPSILON,
+            pushMark(cx, cz, HIGHLIGHT_EPSILON,
               px - r * 0.2,
               py - r * 0.22,
               diamondCorners(r * 0.6, r * 0.36),
@@ -533,17 +585,13 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
               // halfW 0.5 matches Pixi's own 1px stroke width exactly
               // (renderer.ts:1594's `width: 1`) -- not a rounder-looking
               // 0.75, which would read 50% thicker than the source.
-              pushMark(cx, cz, topY, MARK_EPSILON, px, py, rectCorners(0.5, -bh, 0), bladeHex, needsContainment);
+              pushMark(cx, cz, MARK_EPSILON, px, py, rectCorners(0.5, -bh, 0), bladeHex, needsContainment);
             }
             if (rnd > 0.9) {
               // Bare earth patch (renderer.ts:1596-1605).
               const a = tileHash(x * 19, y * 23);
               const earthHex = quantise(composite(baseHex, tones.earth, 0.22), PALETTE_HEXES);
-              pushMark(
-                cx,
-                cz,
-                topY,
-                MARK_EPSILON,
+              pushMark(cx, cz, MARK_EPSILON,
                 (a - 0.5) * 22,
                 0,
                 diamondCorners(3 + a * 2.4, 1.6 + a * 1.2),
@@ -564,11 +612,7 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
               // ends -- half of the 1.2px stroke width (:1615) -- so the
               // bounding box holds the stroke's rendered pixels, not just its
               // ideal path.
-              pushMark(
-                cx,
-                cz,
-                topY,
-                MARK_EPSILON,
+              pushMark(cx, cz, MARK_EPSILON,
                 bx,
                 by,
                 rectCorners(3.2, -(4.2 + a * 1.6 + 0.6), 0.6),
@@ -586,11 +630,7 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
               const py = (b - 0.5) * (TILE_H - 6);
               if (b > 0.78) {
                 const earthHex = quantise(composite(baseHex, tones.earth, 0.24), PALETTE_HEXES);
-                pushMark(
-                  cx,
-                  cz,
-                  topY,
-                  MARK_EPSILON,
+                pushMark(cx, cz, MARK_EPSILON,
                   px,
                   py,
                   diamondCorners(1.6 + a * 2.2, 1 + a * 1.2),
@@ -631,14 +671,10 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
                 // which reads correctly as "impassable rock" rather than
                 // "ordinary open ground with grain".
                 const blobHex = quantise(composite(baseHex, tones.rock, 0.15 + b * 0.25), PALETTE_HEXES);
-                pushMark(cx, cz, topY, MARK_EPSILON, px, py, diamondCorners(r, r * 0.62), blobHex, needsContainment);
+                pushMark(cx, cz, MARK_EPSILON, px, py, diamondCorners(r, r * 0.62), blobHex, needsContainment);
                 if (a > 0.72) {
                   const hlHex = quantise(composite(blobHex, tones.rockLit, 0.5), PALETTE_HEXES);
-                  pushMark(
-                    cx,
-                    cz,
-                    topY,
-                    HIGHLIGHT_EPSILON,
+                  pushMark(cx, cz, HIGHLIGHT_EPSILON,
                     px - r * 0.3,
                     py - r * 0.3,
                     diamondCorners(r * 0.55, r * 0.34),
@@ -652,11 +688,7 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
               // Dry bush (renderer.ts:1643-1650).
               const a = tileHash(x * 31, y * 3);
               const bushHex = quantise(composite(baseHex, tones.low, 0.55), PALETTE_HEXES);
-              pushMark(
-                cx,
-                cz,
-                topY,
-                MARK_EPSILON,
+              pushMark(cx, cz, MARK_EPSILON,
                 (a - 0.5) * 30,
                 (rnd - 0.9) * 18,
                 diamondCorners(3.2 + a * 1.4, 2 + a),
@@ -679,23 +711,32 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
               const px = (a - 0.5) * (TILE_W - 18);
               const py = (b - 0.5) * (TILE_H - 8);
               const halfW = (4 + a * 4) / 2;
-              pushMark(cx, cz, topY, MARK_EPSILON, px, py, rectCorners(halfW, -1.25, 1.25), rubbleHex, needsContainment);
+              pushMark(cx, cz, MARK_EPSILON, px, py, rectCorners(halfW, -1.25, 1.25), rubbleHex, needsContainment);
             }
           }
         }
       }
 
-      // Slope-face dressing runs for every tile with a drop, independent of
-      // the blocked/decor branch above -- see `drawSlopeFace`'s doc comment.
+      // Slope-face dressing runs wherever `ground.ts` actually emits a WALL,
+      // independent of the blocked/decor branch above -- see
+      // `drawSlopeFace`'s doc comment.
+      //
+      // `hasWall` (`surface.ts`) rather than a second `levelHere > levelX`
+      // comparison, and that is the point of it existing: since open ground
+      // ramps, a drop between two OPEN tiles has no wall under it any more,
+      // and dressing it would hang a strata band and a lit top edge in mid
+      // air over a smooth hillside. Two copies of the rule would drift apart
+      // the first time either was touched; there is one, and both files read
+      // it.
       const levelEast = levelAt(input, x + 1, y);
       const dropEast = levelHere - levelEast;
-      if (dropEast > 0) {
-        drawSlopeFace(0, x, y, levelHere, levelEast, dropEast, faceEastHex);
+      if (dropEast > 0 && hasWall(surface, x, y, 0)) {
+        drawSlopeFace(0, x, y, levelHere, dropEast, faceEastHex, decorHere);
       }
       const levelSouth = levelAt(input, x, y + 1);
       const dropSouth = levelHere - levelSouth;
-      if (dropSouth > 0) {
-        drawSlopeFace(1, x, y, levelHere, levelSouth, dropSouth, faceSouthHex);
+      if (dropSouth > 0 && hasWall(surface, x, y, 1)) {
+        drawSlopeFace(1, x, y, levelHere, dropSouth, faceSouthHex, decorHere);
       }
     }
   }
