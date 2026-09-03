@@ -45,6 +45,7 @@ a voice layer, which are new surfaces. Read it as retired, not quietly broken
 | O6 | The KDF rank ladder as insignia | **Accepted**: stars on a plain khaki slip — Captain 2 · Major 3 · Lt Col 4 · Colonel 5 | §2.1 stands |
 | O8 | Where to start | **From the beginning** — Act I, Beit Sahwan, in campaign order | the pipeline runs on the six shipped Beit Sahwan missions first (`docs/campaign/beit_sahwan/`); Umm Zeitoun and the other unbuilt plots wait |
 | D12 | **The opening's chain of events** — the lead's structural reference is the surprise attack of 7 October 2023, transposed entirely into the fiction (GDD §2: no real name, place, date, flag, faith or people): a dawn surprise under rocket and mortar cover, the fence breached at many points, paramotors over the wire, the base and the villages hit at once, an outpost overrun, families killed and **abducted** with soldiers taken from the overrun positions, small groups holding alone, relief that comes late, and a war that opens as the search for the people who were taken | shown through mechanics and stated in the story voice, never depicted; the abductions become Act I's spine — see `docs/campaign/beit_sahwan/design.md` |
+| D13 | **Act I is landed; move to Act II** (Sur: Tel Marum shipped, Umm Zeitoun to design) | lead, 2026-09-03 | `docs/campaign/tel_marum/design.md` is the Act II MDD; Karim Adhal's ending decides whether Umm Zeitoun is authored now or the act ends at the pass |
 
 ### 0.3 Still open — for the lead
 
