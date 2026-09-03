@@ -95,6 +95,21 @@ translucency. Fonts are self-hosted in `assets/fonts/`; never a CDN.
 
 **A map:** JSON in `data/maps/`, validated against `map.schema.json`. A character grid (`.` open, `1`–`3` cover, `#` building, `^` rock ridge, `b` boulder field) plus named markers and zones — authorable in a text editor. The loader is `parseMap` in `@lions/data`, and `applyTerrain(map, sim)` is the one way its mechanical layer reaches a `Sim` — use it rather than writing a fourth cover loop. `^` is the only blocked tile that is not a building: impassable, sight-blocking, and with no HP, garrison or ROE penalty. `b` is the only symbol whose passability depends on WHO is asking — open ground on foot, a wall to anything wheeled or tracked — and deliberately nothing else: no cover, no sight-blocking, no HP, not destructible. T1-C gave it a `boulder` decor family, and `tel_marum` is the first (and so far only) map to author any: the corridor at x=10-11, y=12-17 plus a scree apron at x=9-12, y=18. It is carried by a second blocked mask (`blocked | boulder`) rather than by `blocked`, since `FlowField.compute` already takes the mask as a parameter; `Sim.fieldFor` keys its cache by `(goal, domain)`, and on a map with no `b` the two masks are the SAME ARRAY, so no second field is ever allocated. What counts as a vehicle is `mobility.wheeled`, an authored boolean defaulting to `!FOOT_ROLES.has(role)` — **`FOOT_ROLES` alone is wrong here**, because it contains `artillery` and `rocket_battery` is a Grad on a 6x6 truck; that unit is the one place the default is overridden in JSON, and `tools/src/boulders.test.ts` pins it against `mortar_team`, which shares the role and is genuinely foot. An optional `elevation` grid gives each tile a height 0–9, one digit per tile, same dimensions as `rows`; absent means flat. It is orthogonal to the terrain symbol on purpose — a symbol table can express ridges but not valleys. E1 stores and draws it at 10 px per level; line of sight reads it — high ground sees over lower obstacles, and every blocking tile, rock or building, stands two levels above its own ground; a low-profile obstacle like a fence never blocks sight at all, but the ground it stands on still does. Since T1-A **pathing reads it too**: `FlowField.compute` takes the elevation grid and charges `UPHILL_PER_LEVEL` (tuning.ts, 10 — one level of climb costs one extra tile of ground) per level CLIMBED, while descending is free. That asymmetry is the design: high ground is expensive to attack and cheap to withdraw from. Sight RANGE still does not. Two things about slope are counter-intuitive and were measured rather than reasoned. First, **a climb telescopes**: every monotone route to a fixed height pays the same total wherever it crosses, so slope only reorders routes over ground that rises ABOVE its destination and comes back down — a rim, a spur, a hill. Second, **inverting the sign changes no route at all**; it shifts every cost by `UPHILL_PER_LEVEL * (h(tile) - h(goal))`, a term independent of the path, so the optimal-route set is untouched and only the cost NUMBER moves. The walk tests and the relief replay all pass with the sign flipped; the mirrored cost pair in `packages/sim/src/flowfield.test.ts` is the only guard on it, and that file's header carries the measurement. `costAt` is the sign's one behavioural reader, via `selectBreachTarget`'s detour test, where slope eats up to 50 of the 100-unit `BREACH_DETOUR_SLACK` on Tel Marum. Terrain needs two levels or more to obscure ground troops, since a one-level rise sits exactly at eye level, and nothing sees further for being higher — elevation affects what you can see over, never how far.
 
+**A campaign or town arc:** design before JSON. Three design agents in
+`.claude/agents/` run in order and hand to `mission-author` and `playtest`:
+`campaign-designer` (premise → Mission Design Document: plot options, mission
+ladder, asset manifest with every row PRESENT-with-path or MISSING-with-gate),
+`narrative-designer` (the Shai/Idit two-voice briefing in beats, objective
+labels, radio/EVA lines each carrying a `live | schema | engine` status, GDD
+§11), and `level-scripter` (Event-Condition-Action rows in the schema's real
+shapes, the AI director's cadence, in-level twists classified by what the
+runtime can do, a gap report). The contract they write against is
+`docs/campaign/README.md`; the story is `docs/campaign/storyline.md`; a dated
+digest of what the runtime can express sits beside them. Two facts they exist to
+stop anyone forgetting: the only text a mission can show is `name`, `briefing`
+and `objectives[].text`, and a trigger's `id` is shown to the player verbatim as
+`enemy reacts (<id>)`.
+
 ---
 
 ## What not to do
@@ -181,9 +196,12 @@ The combat model is the product. Everything else is scaffolding around it.
   is a permanent hang rather than a miss. `civilians` is the one unit type with
   no `SPRITE_MAP` entry, so `&civ` under `&nomesh` or on Pixi spawns a crowd
   that draws nothing — it warns by name rather than refusing.
-- Two ROE facts a visual check needs: **only `wadi_halam_basin` contains a mosque**,
-  so the protected-target X is unreachable anywhere else unless a mission declares
-  `roe.flagged_zones` or `&roe` supplies one. Tel Marum's town buildings are `#`
+- Two ROE facts a visual check needs: **three maps carry mosque tiles — `beit_sahwan_outskirts` (9),
+  `marj_perimeter` (4) and `wadi_halam_basin` (9), counted 2026-09-03 from the
+  map rows; this line said "only `wadi_halam_basin`" until then** — so the
+  protected-target X (keyed on the STRUCTURE's `roe_penalty`, `input/intents.ts`
+  `isProtected`) is reachable on those three and nowhere else unless a mission
+  declares `roe.flagged_zones` or `&roe` supplies one. Tel Marum's town buildings are `#`
   (`concrete`, penalty 3), so they read as the *costly* tier, not protected.
 - **`qarn_hadid` is the terrain map** — the only one carrying all ten terrain
   symbols, and the only place `3` (cover 3) and `d` (the anti-tank ditch) are

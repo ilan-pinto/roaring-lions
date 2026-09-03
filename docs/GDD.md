@@ -1,6 +1,6 @@
 # Roaring Lions — Game Design Document
 
-**Version:** 1.1 · **Status:** decisions locked; §5 synced to the calibrated M0 model
+**Version:** 1.2 · **Status:** decisions locked; §5 synced to the calibrated M0 model; §11 (story) added 2026-09-03 as a draft
 **Companion docs:** `CLAUDE.md` (working conventions), `docs/ART_PIPELINE.md`, `CONTRIBUTING.md`
 
 ---
@@ -314,3 +314,42 @@ Target 300–600 simultaneous units at 60 fps. Struct-of-arrays layout over type
 Explicitly out of scope for v1.0, listed so they are not accidentally designed for: multiplayer, map editor UI, naval units, air superiority layer, dynamic campaign, mod loader beyond JSON content, localisation beyond English and Hebrew.
 
 The sim's determinism and command-based input mean multiplayer remains cheap to add later. That is the only deferred item the architecture actively protects.
+
+---
+
+## 11. Story
+
+**Status:** draft — decided facts only. The working storyline, its plot options
+and its asset manifest live in `docs/campaign/storyline.md`; `narrative-designer`
+keeps this section in step with it. §2's rule stands over everything here:
+every person is fictional and every enemy is defined by doctrine, never by a
+people.
+
+**The protagonist** is **Shai Hamami**, a KDF officer of the 401st "Ari'im".
+He opens the war as a Captain commanding the company inside the compound at
+First Light, and is promoted across the campaign to Colonel — the KDF's own
+five-star insignia, fictional like the rest of the army. Promotions are
+act-level beats. The dead of First Light are his motive; rules of engagement are
+his discipline, and the game scores the second, not the first.
+
+**Idit**, an intelligence officer who was in the same compound at First Light,
+grows beside him and provides the intelligence in every mission. The two of
+them are the voices of the HUD: every briefing is a two-hander, Idit's picture
+and Shai's plan, and every mid-mission transmission comes from one of them.
+
+**One villain per front.** Each campaign — the Marj, Sur, Naharin — introduces
+an arch-terrorist through an atrocity in its opening mission, keeps him present
+through what he does, and ends with him captured or killed. He is characterised
+by his doctrine (the digger, the observer, the smuggler) and named in the
+fictional register the towns use.
+
+**The level carries story twists.** Missions may turn the plot inside the level
+— a kidnapped civilian killed, a soldier abducted — where the declarative
+vocabulary can express it, and the vocabulary is extended where it cannot; no
+mission is ever scripted in code.
+
+**Planned narrative surfaces**, approved and not yet built: EVA announcements,
+voice audio for briefings and transmissions, and a radio overlay for
+mid-mission lines. Until they ship, the story reaches the player through the
+mission name, the briefing delivered in beats, and objective labels — see
+`docs/campaign/README.md` for the surface contract.
