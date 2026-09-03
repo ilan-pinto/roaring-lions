@@ -270,6 +270,32 @@ def representative(sprites):
     return best
 
 
+# The DRAWN GROUND is the fourth named exemption from data/palette.json, and
+# this gate is the one that says so out loud on its passing path -- the same
+# shape `render_mesh_gate.py` uses for the six textured buildings.
+#
+# Nothing in this file can check it: terrain is generated at runtime by
+# `packages/render/src/three/terrain/`, not shipped as a PNG, so there is no
+# image here to walk. What this gate CAN do, and what a silent exemption
+# would not, is make sure a reader of the art gate's output knows the ground
+# is no longer palette-bound and knows exactly how far that goes.
+#
+# Kept in step with the renderer's own `SURFACE_SHADING_EXEMPTION`
+# (`terrain/surface.ts`) by `terrain/surface.test.ts`, which parses this list
+# out of this file and compares them -- the same pinning
+# `textured-building.test.ts` does across the same language boundary for
+# TEXTURED_MESH_EXEMPT. A line added on one side and not the other fails
+# `pnpm test`.
+TERRAIN_PALETTE_EXEMPTION = (
+    "NOT palette-checked -- the drawn ground surface, at the fragment stage only:",
+    "a smooth normal-driven shade on interpolated open ground, plus the",
+    "desert_sand_tile albedo there and the rock_ground_tile albedo on a ^ ridge.",
+    "STILL palette-only, and still asserted directly: every vertex colour and",
+    "litColor buildGround emits; terrace tops and terrace/rim walls; flat ground",
+    "on any map; road tiles; scatter, groves, building boxes and the residual layer.",
+)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--palette", default="data/palette.json")
@@ -338,6 +364,8 @@ def main():
         return 1
 
     print(f"art gate passed: {len(sprites)} sprites, {len(masks)} units")
+    for line in TERRAIN_PALETTE_EXEMPTION:
+        print(f"  {line}")
     return 0
 
 

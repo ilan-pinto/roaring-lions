@@ -126,7 +126,8 @@ import { CollapseShroudManager, COLLAPSE_SHROUD_SWAP_DELAY_MS } from './units/co
 import { buildGround } from './terrain/ground';
 import { buildScatter } from './terrain/scatter';
 import { buildBuildings, type StructureFootprint } from './terrain/buildings';
-import { toGeometry, terrainMaterial, groveMaterial } from './terrain/mesh';
+import { toGeometry, terrainMaterial, groveMaterial, groundSurfaceMaterial, prepareGroundTexture } from './terrain/mesh';
+import { terrainSurfaceFrom, type TerrainSurface } from './terrain/surface';
 import type { TerrainInput, MeshData } from './terrain/types';
 import {
   buildDecorMesh,
@@ -568,7 +569,21 @@ export class ThreeRenderer implements Renderer {
    */
   private readonly retained = {
     decor: null as Uint8Array | null,
-    elevation: null as Uint8Array | null,
+    /** The raw grid the app pushed in, kept because the two callers that
+     *  genuinely need integers -- `composeTerrain` and the single-structure
+     *  `buildBuildings` rebuild -- read `TerrainInput.elevation`. */
+    elevationLevels: null as Uint8Array | null,
+    /**
+     * The DRAWN ground, and the thing every height query in this class
+     * samples. Typed as `TerrainSurface | null` rather than
+     * `ElevationSource`, deliberately: that is what makes "production always
+     * stands units on the surface it drew, never on the retired terraced
+     * approximation" a compiler guarantee. Rebuilt by `refreshSurface` from
+     * `elevationLevels` and `sim.blocked` -- so a destroyed structure that
+     * clears its own blocked tiles reshapes the ground under it on the same
+     * `rebuildTerrain` that redraws it.
+     */
+    elevation: null as TerrainSurface | null,
     unitSheets: new Map<string, SpriteSheetRequest>(),
     structureSheets: new Map<string, string>(),
     tutorialFocus: null as { x: number; y: number; radius: number } | null,
@@ -755,6 +770,43 @@ export class ThreeRenderer implements Renderer {
   /** Reused across rebuilds -- one unlit, vertex-coloured material carries no
    *  per-terrain state, so there is nothing a fresh instance would buy. */
   private readonly terrainMat: THREE.Material = terrainMaterial();
+  /** The ground mesh's own material -- see `rebuildTerrain`. */
+  private readonly groundMat: THREE.ShaderMaterial = groundSurfaceMaterial();
+
+  /**
+   * Fetches the two ground albedo tiles named by
+   * `RendererOptions.groundTextureUrl` / `rockTextureUrl` and, as each
+   * arrives, switches the ground surface on to it. Each is independent: a
+   * rock tile that 404s costs the ridges their texture and leaves the sand
+   * alone.
+   *
+   * Fire-and-forget, and deliberately NOT awaited by `init`: the ground draws
+   * correctly without it (`uSandStrength` starts at 0, which makes the whole
+   * texture term exactly 1.0 on the palette tone), so blocking the first
+   * frame on a 2.4 MB image would trade a visible boot delay for a detail
+   * nobody has seen yet. A failure warns by name and leaves the flat tone --
+   * a missing texture must not cost the player a map, which is the same
+   * fail-soft rule `loadSprites` follows for a 404ing sheet.
+   */
+  private loadGroundTexture(): void {
+    const load = (url: string | undefined, sampler: string, strength: string, what: string): void => {
+      if (!url) return;
+      new THREE.TextureLoader().load(
+        url,
+        (tex) => {
+          this.groundMat.uniforms[sampler].value = prepareGroundTexture(tex);
+          this.groundMat.uniforms[strength].value = 1;
+          this.groundMat.needsUpdate = true;
+        },
+        undefined,
+        (err) => {
+          console.warn(`[lions] ${what} texture FAILED for ${url}; drawing its flat palette tone:`, err);
+        }
+      );
+    };
+    load(this.opts.groundTextureUrl, 'uSand', 'uSandStrength', 'ground');
+    load(this.opts.rockTextureUrl, 'uRock', 'uRockStrength', 'rock ridge');
+  }
   /** `groveMesh` alone -- see `terrain/mesh.ts`'s own `groveMaterial` doc
    *  comment for why the wind-sway shader needs to be a separate material
    *  from `terrainMat` rather than a flag on it (the `sway` attribute this
@@ -1510,6 +1562,7 @@ export class ThreeRenderer implements Renderer {
 
   async init(host: HTMLElement): Promise<void> {
     this.host = host;
+    this.loadGroundTexture();
     this.renderer.setPixelRatio(1);
     this.fitToHost();
     host.appendChild(this.renderer.domElement);
@@ -2860,8 +2913,31 @@ export class ThreeRenderer implements Renderer {
   //     particle actually appears); the sheet maps and tutorial focus stay
   //     retained only, for B3/B4.
   setElevation(elevation: Uint8Array): void {
-    this.retained.elevation = elevation;
+    this.retained.elevationLevels = elevation;
+    this.refreshSurface();
     this.terrainDirty = true;
+  }
+
+  /**
+   * Rebuilds `retained.elevation` (the drawn surface) from the raw grid and
+   * the sim's CURRENT `blocked` mask.
+   *
+   * Called from `setElevation` and again at the top of `rebuildTerrain`,
+   * which is not redundant: the terrace rule is `blocked !== 0`, and
+   * `blocked` changes under this class -- a structure destroyed mid-mission
+   * flags a full terrain rebuild (`applyStructureDestroyed`), and the ground
+   * that was a flat building pad has to become hillside on the same rebuild
+   * that stops drawing the building. Recomputing costs one pass over the
+   * map plus the terrace fill; `rebuildTerrain` already pays 114-179 ms for
+   * the GPU re-upload beside it.
+   */
+  private refreshSurface(): void {
+    this.retained.elevation = terrainSurfaceFrom(
+      this.retained.elevationLevels,
+      this.sim.blocked,
+      this.sim.width,
+      this.sim.height
+    );
   }
   setDecor(decor: Uint8Array): void {
     this.retained.decor = decor;
@@ -5222,6 +5298,9 @@ export class ThreeRenderer implements Renderer {
    * `onEvents`'s own doc comment on those two kinds.
    */
   private rebuildTerrain(): void {
+    // The terrace rule reads `sim.blocked`, which changes under this class
+    // (a destroyed structure). See `refreshSurface`.
+    this.refreshSurface();
     if (this.terrainMesh) {
       this.scene.remove(this.terrainMesh);
       this.terrainMesh.geometry.dispose();
@@ -5260,14 +5339,24 @@ export class ThreeRenderer implements Renderer {
     const composed = composeTerrain(
       this.sim,
       this.retained.decor,
-      this.retained.elevation,
+      // The RAW grid: the terrain builders take a `TerrainInput` and build
+      // their own surface from it, so that both routes to the surface start
+      // from the same two arrays. `surface.test.ts` pins that they agree.
+      this.retained.elevationLevels,
       (id) => this.structureIdle.has(id) || this.buildingMeshIdleTemplates.has(id),
       this.opts.terrainTones,
       this.opts.resolveColor,
       this.opts.background
     );
 
-    this.terrainMesh = new THREE.Mesh(toGeometry(composed.ground), this.terrainMat);
+    // The GROUND alone draws through `groundSurfaceMaterial` -- the one
+    // material in this backend that reads a surface normal. Scatter, groves,
+    // the residual layer and every building box keep the unlit
+    // `terrainMaterial`, which declares no normal and is handed no `normals`
+    // by `toGeometry`: the palette exemption is scoped to the interpolated
+    // ground and nothing else (`terrain/surface.ts`,
+    // `SURFACE_SHADING_EXEMPTION`).
+    this.terrainMesh = new THREE.Mesh(toGeometry(composed.ground), this.groundMat);
     this.scene.add(this.terrainMesh);
 
     this.scatterMesh = new THREE.Mesh(toGeometry(composed.scatter), this.terrainMat);
@@ -5393,7 +5482,7 @@ export class ThreeRenderer implements Renderer {
       width: this.sim.width,
       height: this.sim.height,
       decor: this.retained.decor,
-      elevation: this.retained.elevation,
+      elevation: this.retained.elevationLevels,
       blocked: this.sim.blocked,
       cover: this.sim.cover,
     };

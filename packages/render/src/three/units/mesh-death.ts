@@ -96,7 +96,7 @@
  * of zero.
  */
 import * as THREE from 'three';
-import { groundWorldY } from '../ground-height';
+import { groundWorldY, type ElevationSource } from '../ground-height';
 import { WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import { applyMeshClip } from './mesh-clip';
 import { disposeMeshUnitEntity, type MeshUnitEntity } from './mesh-unit';
@@ -281,7 +281,7 @@ export interface MeshWreck {
  *  `WebGLRenderer` anywhere in the call graph. */
 export interface MeshDeathEnv {
   readonly scene: THREE.Scene;
-  readonly elevation: Uint8Array | null;
+  readonly elevation: ElevationSource;
   readonly width: number;
   readonly height: number;
   readonly isExplored: (x: number, y: number) => boolean;

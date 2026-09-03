@@ -88,6 +88,25 @@ export interface RendererOptions {
   interceptColor: string;
   /** Resolve a palette key from structure data (e.g. "limestone.4") to hex. */
   resolveColor?: (paletteKey: string) => string;
+  /**
+   * URL of the ground albedo tile -- `assets/textures/desert_sand_tile.png`.
+   *
+   * Read only by the three.js backend, and only by the INTERPOLATED open
+   * ground (`terrain/mesh.ts`'s `groundSurfaceMaterial`). `renderer.ts`
+   * (Pixi) ignores it, like every other three-only field here -- see
+   * `shellColors` above for the same shape and the same reason. Optional and
+   * fail-soft: if it is absent, or the fetch fails, the ground draws as the
+   * flat palette tone it always did and warns by name. A missing texture
+   * must not cost the player a map.
+   */
+  groundTextureUrl?: string;
+  /**
+   * URL of the `^` rock-ridge albedo tile --
+   * `assets/textures/rock_ground_tile.png`. Same contract as
+   * `groundTextureUrl` above in every respect: three-only, read only by
+   * `groundSurfaceMaterial`, optional, and fail-soft.
+   */
+  rockTextureUrl?: string;
 }
 
 export interface Renderer {

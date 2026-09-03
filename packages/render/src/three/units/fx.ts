@@ -361,7 +361,7 @@ import * as THREE from 'three';
 import type { ParticleSystem } from '../../vfx';
 import { WORLD_Y_PER_LIFT_PIXEL, isoX, isoY } from '../../project';
 import { screenOffsetToWorld, hexToUnit } from '../terrain/shared';
-import { groundWorldY } from '../ground-height';
+import { groundWorldY, type ElevationSource } from '../ground-height';
 import { tracerAlpha, type TracerModel } from './tracers';
 import {
   shellPointAt,
@@ -668,7 +668,7 @@ function cachedHexToUnit(hex: string): readonly [number, number, number] {
 export function writeParticleInstances(
   particles: ParticleSystem,
   layerIdx: number,
-  elevation: Uint8Array | null,
+  elevation: ElevationSource,
   mapWidth: number,
   mapHeight: number,
   out: ParticleInstanceBuffers
@@ -727,7 +727,7 @@ export function writeParticleInstances(
  */
 export function tracerQuadPositions(
   t: TracerModel,
-  elevation: Uint8Array | null,
+  elevation: ElevationSource,
   mapWidth: number,
   mapHeight: number
 ): Float32Array {
@@ -792,7 +792,7 @@ export interface TracerInstanceBuffers {
 export function writeTracerInstances(
   tracers: readonly TracerModel[],
   tracerColors: readonly [string, string],
-  elevation: Uint8Array | null,
+  elevation: ElevationSource,
   mapWidth: number,
   mapHeight: number,
   out: TracerInstanceBuffers
@@ -876,7 +876,7 @@ export function shellSegmentQuad(
   s: ShellModel,
   uA: number,
   uB: number,
-  elevation: Uint8Array | null,
+  elevation: ElevationSource,
   mapWidth: number,
   mapHeight: number,
   widthAPx: number = SHELL_WIDTH_PX,
@@ -936,7 +936,7 @@ export function shellSegmentQuad(
 export function writeShellInstances(
   shells: readonly ShellModel[],
   tracerColors: readonly [string, string],
-  elevation: Uint8Array | null,
+  elevation: ElevationSource,
   mapWidth: number,
   mapHeight: number,
   out: TracerInstanceBuffers
@@ -1321,7 +1321,7 @@ export class ParticleInstancer {
    * `writeParticleInstances` -- see its own doc comment for why they are
    * needed at all (Task B3.14's ground-lift fix).
    */
-  update(particles: ParticleSystem | null, elevation: Uint8Array | null, mapWidth: number, mapHeight: number): void {
+  update(particles: ParticleSystem | null, elevation: ElevationSource, mapWidth: number, mapHeight: number): void {
     if (!particles) {
       this.mesh.count = 0;
       return;
@@ -1464,7 +1464,7 @@ export class TracerBatch {
   update(
     tracers: readonly TracerModel[],
     tracerColors: readonly [string, string],
-    elevation: Uint8Array | null,
+    elevation: ElevationSource,
     mapWidth: number,
     mapHeight: number
   ): void {
@@ -1587,7 +1587,7 @@ export class ShellBatch {
   update(
     shells: readonly ShellModel[],
     tracerColors: readonly [string, string],
-    elevation: Uint8Array | null,
+    elevation: ElevationSource,
     mapWidth: number,
     mapHeight: number
   ): void {

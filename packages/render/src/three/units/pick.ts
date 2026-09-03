@@ -24,7 +24,7 @@
  * `../terrain/`), and the reason all of them are testable in
  * `environment: 'node'` even though `ThreeRenderer` itself is not.
  */
-import { groundLevelAt } from '../ground-height';
+import { groundLevelAt, type ElevationSource } from '../ground-height';
 import { worldToScreenThree } from '../camera';
 import { ELEV_STEP, type Camera, type Viewport } from '../../project';
 
@@ -110,7 +110,7 @@ export function unitsInScreenRect(
   curY: Float64Array,
   alive: Uint8Array,
   entityCount: number,
-  elevation: Uint8Array | null,
+  elevation: ElevationSource,
   mapWidth: number,
   mapHeight: number,
   cam: Camera,

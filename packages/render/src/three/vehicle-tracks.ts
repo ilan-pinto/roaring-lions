@@ -189,7 +189,7 @@
  */
 import * as THREE from 'three';
 import { hexToUnit, MARK_EPSILON } from './terrain/shared';
-import { groundWorldY } from './ground-height';
+import { groundWorldY, type ElevationSource } from './ground-height';
 import { tracerIndexBuffer } from './units/fx';
 import { TRAIL_RENDER_ORDER } from './units/render-order';
 
@@ -390,7 +390,7 @@ export function writeTrackMarkVertices(
   facingNorm: number,
   halfLength: number,
   halfWidth: number,
-  elevation: Uint8Array | null,
+  elevation: ElevationSource,
   mapWidth: number,
   mapHeight: number,
   out: Float32Array,
@@ -575,7 +575,7 @@ export class VehicleTrackMesh {
     cy: number,
     facingNorm: number,
     kind: VehicleTrackKind,
-    elevation: Uint8Array | null,
+    elevation: ElevationSource,
     mapWidth: number,
     mapHeight: number,
     nowMs: number

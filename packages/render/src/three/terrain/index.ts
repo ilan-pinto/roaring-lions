@@ -53,6 +53,7 @@
 export * from './types';
 export * from './shared';
 export * from './tones';
+export * from './surface';
 export * from './ground';
 export * from './scatter';
 export * from './grove';

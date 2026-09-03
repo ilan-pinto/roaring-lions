@@ -143,16 +143,23 @@ describe('buildScatter', () => {
     // does, so on ANY map with elevation, the tile's own top-edge band
     // reaches the correct height regardless of whether grain is broken --
     // that band alone would make a plain max-Y check pass even with every
-    // grain mark silently buried at elevation 0. A ridge tile's blob-plus-
-    // highlight pair fires unconditionally (unlike a plain fleck's shading
-    // pass, which depends on the tile hash), so it gives a guaranteed,
-    // hash-independent signal strictly above what the face band alone can
-    // reach: HIGHLIGHT_EPSILON (0.02) clears the top edge band's own
-    // ceiling (topY + FACE_BAND_HALF_Y, 0.01) by a full centimetre.
+    // grain mark silently buried at elevation 0. So the instrument has to be
+    // a mark that fires unconditionally (unlike a plain fleck's shading
+    // pass, which depends on the tile hash) and sits strictly above what the
+    // face band can reach: HIGHLIGHT_EPSILON (0.02) clears the top edge
+    // band's own ceiling (topY + FACE_BAND_HALF_Y, 0.01) by a full
+    // centimetre.
+    //
+    // That instrument used to be a `^` RIDGE tile's blob-plus-highlight
+    // pair. It cannot be any more: a ridge carries a real rock texture as of
+    // 2026-09-03 and draws no synthetic grain at all (`scatter.ts`'s own
+    // blocked branch). A KNOLL is the replacement and is a better one --
+    // four blobs with highlights, equally unconditional, and it is OPEN
+    // ground, so this now also exercises the INTERPOLATED surface path a
+    // ridge terrace would have skipped.
     const input = flat(1, 1);
     input.elevation = new Uint8Array([5]);
-    input.decor = new Uint8Array([4]); // DECOR_RIDGE
-    input.blocked = new Uint8Array([1]);
+    input.decor = new Uint8Array([3]); // DECOR_KNOLL
     const m = buildScatter(input, TONES, '#14150F');
     let maxY = -Infinity;
     for (let i = 1; i < m.positions.length; i += 3) maxY = Math.max(maxY, m.positions[i]);
@@ -187,14 +194,11 @@ describe('buildScatter', () => {
       ['knoll', nearElevationEdge((i) => { i.decor = new Uint8Array([3, 0]); }), TONES],
       ['road', nearElevationEdge((i) => { i.decor = new Uint8Array([1, 0]); }), TONES],
       ['cover rubble', nearElevationEdge((i) => { i.cover[0] = 3; }), TONES],
-      [
-        'ridge (blocked)',
-        nearElevationEdge((i) => {
-          i.decor = new Uint8Array([4, 0]);
-          i.blocked[0] = 1;
-        }),
-        TONES,
-      ],
+      // 'ridge (blocked)' used to be the sixth case here and is gone: a `^`
+      // ridge emits no grain at all now, so it has nothing to contain and
+      // the case would have passed by checking an empty loop -- exactly what
+      // this block's own `sawTileZeroVertex` guard exists to catch. The rule
+      // that replaced it is asserted positively, just below.
     ];
 
     for (const [label, input, tones] of cases) {
@@ -215,6 +219,69 @@ describe('buildScatter', () => {
         expect(sawTileZeroVertex).toBe(true);
       });
     }
+  });
+
+  it('a `^` ridge emits no grain at all -- its rock texture supplies it instead', () => {
+    // The rule that replaced the five blob-plus-highlight marks
+    // (renderer.ts:1461-1477). Asserted positively rather than left as an
+    // absence, because the containment case that used to cover ridge tiles
+    // would now pass by checking nothing.
+    //
+    // Photographed on `tel_marum`'s corridor walls at zoom 2 with both
+    // present: `tones.rockLit` is `#F2E8D5` on the arid theme, all but
+    // white, and the highlights read as pale confetti over a photograph.
+    const ridge = flat(1, 1);
+    ridge.elevation = new Uint8Array([5]);
+    ridge.decor = new Uint8Array([4]); // DECOR_RIDGE
+    ridge.blocked = new Uint8Array([1]);
+    const m = buildScatter(ridge, TONES, '#14150F');
+    // Not "the mesh is empty": the tile is raised, so its own rim faces are
+    // still dressed with a lit top edge, which is deliberately KEPT (a
+    // tiling texture cannot know where this wall's top is). What must be
+    // gone is every mark sitting ON the tile top.
+    const topY = 5 * WORLD_PER_LEVEL;
+    for (let i = 1; i < m.positions.length; i += 3) {
+      expect(
+        m.positions[i],
+        `a mark at y=${m.positions[i]} sits on the ridge top -- ridge grain is back`
+      ).toBeLessThanOrEqual(topY + FACE_BAND_HALF_Y + 1e-6);
+    }
+    // ...and the face dressing really is still there, so this is not passing
+    // because the tile emitted nothing.
+    expect(m.positions.length).toBeGreaterThan(0);
+  });
+
+  it('draws NO strata bands on a rock-textured ridge face, and still draws them on a building wall', () => {
+    // The other half of the same 2026-09-03 call, and the half that had no
+    // test at first: reinstating `drop > 1` unconditionally left the suite
+    // green. The rock texture is fractured limestone with horizontal strata
+    // of its own, at a finer pitch than one line per level -- two
+    // contradictory stratigraphies on one face, and the synthetic one wins
+    // because it is a hard palette edge.
+    //
+    // A BUILDING's wall keeps its bands: it has no texture, so they are still
+    // the only thing telling a three-storey face from a one-storey one.
+    //
+    // Both fixtures are the same tile at the same height with the same drop,
+    // so the ONLY difference is the decor byte -- which is the difference
+    // under test. Everything else the tile emits (the lit top edge, the foot
+    // scree, both KEPT on a ridge) is identical between them, so the vertex
+    // delta is exactly the strata.
+    const make = (decor: number): TerrainInput => {
+      const i = flat(1, 1);
+      i.elevation = new Uint8Array([3]);
+      i.decor = new Uint8Array([decor]);
+      i.blocked = new Uint8Array([1]);
+      return i;
+    };
+    const ridge = buildScatter(make(4), TONES, '#14150F'); // DECOR_RIDGE
+    const building = buildScatter(make(0), TONES, '#14150F'); // blocked, no decor
+    // drop 3 to off-map level 0 on each of the two visible faces, so
+    // `drop - 1` = 2 strata bands per face, 4 quads, 16 vertices.
+    const STRATA_VERTS = 2 * 2 * 4;
+    expect(building.positions.length / 3 - ridge.positions.length / 3).toBe(STRATA_VERTS);
+    // Neither is empty, so this is not a difference between two nothings.
+    expect(ridge.positions.length).toBeGreaterThan(0);
   });
 
   describe('road rut fidelity on flat ground (no elevation edge)', () => {
