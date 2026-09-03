@@ -923,7 +923,12 @@ run(
 // 24-stall/28-wipe-style measurement.
 run('tel_marum_3_clearance', () => {}, {}, 'ongoing', 'tel_marum_3_clearance (passive control)');
 
-run(
+// Captured (not part of the shipped Tel Marum patch) so Umm Zeitoun -- the
+// next town in the same region -- can thread the ledger the way the app
+// actually does: one persistent campaign ledger, not a per-mission `{}`. Only
+// the `run` call's return value changes here; the plan, its ledgerIn (`{}`),
+// and its expectation are byte-identical to the shipped Tel Marum III patch.
+const ledTelMarum3 = run(
   'tel_marum_3_clearance',
   (sim, _rt, ids, at) => {
     const tanks = ids('mbt_lavi');
@@ -968,4 +973,274 @@ run(
   {},
   'victory',
   'tel_marum_3_clearance'
+);
+
+// --- Sur: Umm Zeitoun ---------------------------------------------------------
+
+// Umm Zeitoun I -- Cold Ground: the drone builds the picture, the jeep buys
+// the wadi its two families.
+//
+// Control: no order ever brings a player unit within CivilianFlight's 4-tile
+// shepherd radius of the wells, so nobody flees, the count never reaches 2,
+// and `get_the_wells_clear` -- the mission's only evacuate_before -- fails at
+// the 240s deadline. `checkEnd` returns DEFEAT on the failed primary. None of
+// the four `locate`s can complete on a passive run either (the nearest is 9+
+// tiles from a sight-8 rifle squad sitting at the start line), but the
+// evacuation is what actually ends the mission.
+run('umm_zeitoun_1_recon', () => {}, {}, 'defeat', 'umm_zeitoun_1_recon (no orders)');
+
+// Falsified against the design draft's own station point (24,30): that tile
+// is 3.5 from `uz_eye_knoll`, and `sarim_rifles`' `rifles` weapon carries
+// `can_target: ["ground","air"]` -- not a MANPAD-only threat as the design
+// prose implies. A scratch trace (this session) shows the knoll garrison
+// killing the drone there at t=8.15s, decades before west/east ever reach
+// IDENTIFIED_AT (0.70) at 15 tiles. Every waypoint below is instead a
+// *stand-off* measured at >8.5 tiles from all three `sarim_rifles` posts
+// (their weapon range) -- outside rifle range, detection alone still climbs
+// to identified in ~20s at that distance, confirmed against the real
+// `Sim.contact` ladder. The route also detours through the map's south
+// corridor and up its western edge specifically to stay outside both
+// MANPADs' 13-tile envelope while transiting -- a direct cross-basin line
+// clips `manpad_basin` and gets the drone killed before it ever turns north.
+const ledUZ1 = run(
+  'umm_zeitoun_1_recon',
+  (sim, _rt, ids, at) => {
+    const drone = ids('recon_drone');
+    const jeep = ids('jeep_shoded');
+    at(2, () => {
+      // West stand-off, 8.6 tiles from `uz_eye_west` -- outside its rifle's
+      // 8-tile reach. The knoll is banked for free during the transit itself
+      // (it sits close enough to the direct path that a few seconds of
+      // passing sight is already enough).
+      sim.queueCommand({ kind: 'move', ids: drone, ...M(15.5, 30.5) });
+      // The jeep runs straight to the wells: within 4 tiles of all three
+      // families, which is all CivilianFlight needs to start them fleeing
+      // and boarding the jeep's two free seats.
+      sim.queueCommand({ kind: 'move', ids: jeep, ...M(15, 35) });
+    });
+    at(12, () => {
+      // Two families are aboard by now; drive them into the wadi. The third
+      // stays at the wells -- "nothing else out there is worth the jeep."
+      sim.queueCommand({ kind: 'move', ids: jeep, ...M(23, 37) });
+    });
+    // Loop south of the knoll's own 8.5-tile bubble, then east along the
+    // bottom of the basin, to the east stand-off -- 8.5 tiles from
+    // `uz_eye_east` and, measured, outside both MANPADs' envelopes the
+    // whole way there.
+    at(30, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(30, 42) }));
+    at(45, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(40.5, 31.5) }));
+    // Only the crest is left. Loop back through the same southern corridor
+    // and up the far-western column (x~5), which measures outside
+    // `manpad_north`'s 13-tile envelope for its entire length -- the reverse
+    // of the design draft's own approach (straight through the envelope, at
+    // a station 4-9 tiles from it), which is what cost the drone its life in
+    // every earlier attempt this session. The overlook at (4,6) sees the
+    // crest at ~11 tiles and sits ~18 tiles from `manpad_north` -- safe
+    // rather than sacrificial, and identification is permanent once banked
+    // either way.
+    at(70, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(30, 42) }));
+    at(90, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(10, 40) }));
+    at(105, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(5, 25) }));
+    at(120, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(4, 6) }));
+  },
+  ledTelMarum3,
+  'victory',
+  'umm_zeitoun_1_recon'
+);
+
+// Umm Zeitoun II -- The Long Look: hold the crest line while a demolition
+// party levels the post above the knoll.
+//
+// Control: a passive player never occupies `crest_line`, so `hold_for` never
+// starts accumulating (it cannot itself fail); nobody fires on the shed or
+// orders a demolition, so `level_the_stone_post` -- the mission's only
+// failable primary -- reaches `failed` at the 300s deadline. `checkEnd`
+// returns DEFEAT. The force is never wiped: Sarim doctrine here is standoff
+// and nothing in the light 90s/180s/210s/300s cadence closes on the empty
+// start line on its own.
+run('umm_zeitoun_2_buildup', () => {}, {}, 'defeat', 'umm_zeitoun_2_buildup (no orders)');
+
+// The whole force clears the knoll TOGETHER before anything splits off to
+// hold. A first version sent the demo squad in with only two rifle squads as
+// escort while the rest dug in on the crest line immediately -- it survived,
+// but the two escorting `inf_squad` did not, and UZ III's own `from_ledger`
+// draw for `inf_squad` (a fresh mission's own precondition per the design
+// draft) came up empty against that roster, spawning one fresh body where
+// three were expected. `hold_for` has no deadline of its own and does not
+// reset on a contest (only pauses), so nothing is lost by holding off the
+// crest line until the ground that can see it is cleared first -- only the
+// 300s `raze` deadline is a hard clock, and it is reached with room to
+// spare either way.
+const ledUZ2 = run(
+  'umm_zeitoun_2_buildup',
+  (sim, _rt, ids, at) => {
+    const demo = ids('demo_squad');
+    const strike = [...ids('apc_eitan'), ...ids('mbt_lavi'), ...ids('mortar_team'), ...ids('at_team'), ...ids('inf_squad')];
+    at(1, () => {
+      // Everyone but the demo squad clears the ground around the shed first.
+      sim.queueCommand({ kind: 'attackMove', ids: strike, ...M(23, 33) });
+      // The demo squad follows under its own orders and starts charges the
+      // moment it is within 2 tiles and the ground around it is unshaken --
+      // it does not need the knoll clear to begin walking there.
+      sim.queueCommand({ kind: 'demolish', ids: demo, structure: sim.structureAt(21, 33) });
+    });
+    // Once the knoll is down, the whole strike force pulls back onto the
+    // crest line and digs in for the hold. Re-anchored periodically after
+    // that: attackMove does not mean "stand here", and the 180s/300s waves
+    // both march straight into the zone (`rim_crest` sits inside
+    // `crest_line`).
+    at(70, () => sim.queueCommand({ kind: 'attackMove', ids: strike, ...M(24, 41) }));
+    for (let when = 110; when <= 350; when += 40) {
+      at(when, () => {
+        const cur: number[] = [];
+        for (let i = 0; i < sim.entityCount; i++) {
+          if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !demo.includes(i)) cur.push(i);
+        }
+        sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(24, 41) });
+      });
+    }
+  },
+  ledUZ1,
+  'victory',
+  'umm_zeitoun_2_buildup'
+);
+
+// UZ II does not declare `intel.marked_positions` in its own `produces`, so
+// its own `run()` return has already dropped it -- merge back to UZ I's
+// output rather than lose the recon carry-over, the same shape as Beit
+// Sahwan's `led4In = {...led1, ...led2, ...led3}`.
+const ledUZ2In = { ...ledUZ1, ...ledUZ2 };
+
+// Umm Zeitoun III -- Blinding: split the force (the western horn has no
+// vehicle route at all), clear the hamlet with weapons under the ROE
+// threshold, evacuate four of the six families.
+//
+// Control: a passive player never comes within 4 tiles of either hamlet
+// group, so `get_the_hamlet_out` -- the only failable primary -- fails at
+// 300s. `checkEnd` returns DEFEAT. Both `eliminate_hvt` primaries can only
+// stay incomplete on a passive run; neither can reach `failed` (not one of
+// the three failable objective types).
+run('umm_zeitoun_3_clearance', () => {}, {}, 'defeat', 'umm_zeitoun_3_clearance (no orders)');
+
+const ledUZ3 = run(
+  'umm_zeitoun_3_clearance',
+  (sim, _rt, ids, at) => {
+    // `inf_squad` is `from_ledger`, so this may be 1-3 bodies depending on
+    // what UZ II's fight left in the roster -- never hard-indexed. The
+    // hamlet group is the one that actually loses the mission if it is
+    // short a body (it is what triggers the evacuation and clears the
+    // garrison the ROE-safe way), so it is filled first; west and east take
+    // whatever is left, and the apc/mbt/namer/at_team/mortar/sniper carry
+    // both flanks regardless.
+    const infantry = ids('inf_squad');
+    const hamletInfantry = infantry.slice(0, 1);
+    const westInfantry = infantry.slice(1, 2);
+    const eastInfantry = infantry.slice(2);
+    const apcs = ids('apc_eitan');
+    const west = [...westInfantry, ...ids('at_team'), ...ids('mortar_team'), ...ids('sniper_team')];
+    const east = [...eastInfantry, ...ids('mbt_lavi'), ...ids('ifv_namer'), ...apcs.slice(0, 1)];
+    // Rifles and the Eitan's rws_50 only -- both under the 0.3 structural
+    // threshold that arms the flagged hamlet's penalty (§6.5's measured
+    // finding: cannon_30/gun_120/spike_atgm/mortar_60 all arm it; rifles and
+    // rws_50 do not).
+    const hamlet = [...hamletInfantry, ...apcs.slice(1)];
+    at(1, () => {
+      sim.queueCommand({ kind: 'attackMove', ids: west, ...M(12, 24) });
+      sim.queueCommand({ kind: 'attackMove', ids: east, ...M(35, 24) });
+      // Straight into the hamlet: `zone_entered` fires `the_house_was_the_section`
+      // the moment either body crosses in, walking both garrisoned riflemen
+      // out of their houses and into the open street at `hamlet_square`.
+      sim.queueCommand({ kind: 'attackMove', ids: hamlet, ...M(24, 26) });
+    });
+    // Re-press both flanks once the first contact clears -- attackMove halts
+    // on a live fight rather than closing the last few tiles to the post
+    // itself.
+    at(60, () => {
+      sim.queueCommand({ kind: 'attackMove', ids: west, ...M(10, 23) });
+      sim.queueCommand({ kind: 'attackMove', ids: east, ...M(37, 23) });
+    });
+    at(120, () => {
+      sim.queueCommand({ kind: 'attackMove', ids: west, ...M(10, 23) });
+      sim.queueCommand({ kind: 'attackMove', ids: east, ...M(37, 23) });
+    });
+  },
+  ledUZ2In,
+  'victory',
+  'umm_zeitoun_3_clearance'
+);
+
+// Umm Zeitoun IV -- The Stockpile: raze three structures on a 300s clock
+// while a second party climbs 16 tiles the other way for Adhal.
+//
+// Control: a passive player never orders a demolition, so all three
+// structures inside `stockpile` still stand at 300s and `raze_the_stockpile`
+// -- the only failable primary -- reaches `failed`. `checkEnd` returns
+// DEFEAT. `kill_adhal` has no deadline of its own and can only stay
+// incomplete.
+run('umm_zeitoun_4_clearance', () => {}, {}, 'defeat', 'umm_zeitoun_4_clearance (no orders)');
+
+// A first version sent both demo squads and their escort into one combined
+// `attackMove`. Two things falsified it, both about `attackMove` and neither
+// about `demolish`: merged with the escort, the demo squads inherited the
+// escort's own chase (an `attackMove` group does not stop at its destination
+// while a live contact is still ahead of it) and both walked, unescorted by
+// nothing left behind to peel off, straight into Adhal's rifle guard 16
+// tiles further on and died there; sent alone via a bare `demolish` order
+// while the depot's own garrison was still standing, they closed to within a
+// few tiles and stalled -- `demolish`'s own pathing has no re-route-around-a-
+// live-fight behaviour the way `attackMove` does, and it never got back on
+// its feet. The fix is sequencing, not a different order type: the escort
+// goes in FIRST and alone to clear `uz_eye_depot`/`uz_rcl_depot`/
+// `uz_atgm_north`/the warehouse garrison (and, chasing on past them, Adhal's
+// guard too -- a bonus, not something this plan depends on), and only once
+// that fight is in hand do the demo squads get their own direct `demolish`
+// orders, which they can now walk to the letter.
+run(
+  'umm_zeitoun_4_clearance',
+  (sim, _rt, ids, at) => {
+    const demo = ids('demo_squad');
+    const drone = ids('recon_drone');
+    // The three structures inside `stockpile` (the `w` block, the `#` block
+    // and the `s` block, flood-filled from the map's own grid) are each
+    // exactly 5s of standing charges once a demolisher is within 2 tiles --
+    // `demolish` is a hold-station timer, not a damage race, so 7,500 hp
+    // comes down as fast as two squads can walk to three doors.
+    const depotEscort = [...ids('mbt_lavi'), ...ids('apc_eitan')];
+    at(1, () => {
+      // The drone's own presence is enough to start the porters fleeing
+      // (CivilianFlight does not filter by domain) well before any charge is
+      // set near their ground.
+      sim.queueCommand({ kind: 'move', ids: drone, ...M(29.5, 9.5) });
+      sim.queueCommand({ kind: 'attackMove', ids: depotEscort, ...M(32, 8) });
+    });
+    at(45, () => {
+      sim.queueCommand({ kind: 'demolish', ids: [demo[0]], structure: sim.structureAt(29, 5) });
+      sim.queueCommand({ kind: 'demolish', ids: [demo[1]], structure: sim.structureAt(33, 5) });
+    });
+    // The shanty is the last of the three. Nothing has to name it: once a
+    // squad's own explicit order is fulfilled, `demolishOrder` clears and
+    // `stepDemolition`'s automatic search picks the nearest unprotected,
+    // non-fenced structure on its own initiative -- measured this session,
+    // both `w` and `#` finish first (~t=98s, well inside the 45s head start
+    // this plan gives the escort plus the ~48s walk from the player's own
+    // start line) and the freed squad retargets the shanty unordered. This
+    // is a backstop only, timed comfortably past that: if a future ledger
+    // ever leaves both squads still working their first door this late,
+    // it re-points BOTH at the shanty rather than let the mission stall.
+    at(180, () => sim.queueCommand({ kind: 'demolish', ids: demo, structure: sim.structureAt(33, 8) }));
+    // Adhal carries no deadline of his own, so a second, dedicated push for
+    // him only needs to exist at all -- it does not need to race the depot.
+    // Held back this long on purpose: sent at t=1 alongside the escort, it
+    // walks straight through the depot's own live fire on the way north.
+    at(90, () => {
+      sim.queueCommand({
+        kind: 'attackMove',
+        ids: [...ids('at_team'), ...ids('mortar_team'), ...ids('sniper_team'), ...ids('inf_squad'), ...ids('ifv_namer')],
+        ...M(14, 7),
+      });
+    });
+  },
+  ledUZ3,
+  'victory',
+  'umm_zeitoun_4_clearance'
 );

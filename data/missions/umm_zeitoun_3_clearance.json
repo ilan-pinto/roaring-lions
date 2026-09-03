@@ -1,0 +1,224 @@
+{
+  "id": "umm_zeitoun_3_clearance",
+  "name": "Umm Zeitoun III — Blinding",
+  "town": "umm_zeitoun",
+  "phase": "clearance",
+  "target_minutes": 7,
+  "briefing": "Both horns sit eighteen tiles from the crest and they are not the same job: the western is scree, and nothing on wheels or tracks gets up it. The eastern is a bare glacis with a Kornet team lying on it at ten tiles. Kill both posts. You have one force, it will not take the western horn in vehicles, and you decide which half of it walks before anything moves. Six families are in the hamlet on the floor between them, eleven tiles from the wadi. Nobody inside that block can see out of it and nothing outside it can see in — the houses do that in both directions. Get four of them to the wadi inside five minutes. The block is flagged: rifles, the remote gun and the sniper's rifle work in there, and autocannon, tank fire or anything from the tubes is billed against a floor of forty-five. His battery is west of the basin and reaches neither the hamlet nor the road out of it from there. Press him off that ground and it goes south, and the eye on the stone knoll can hand it both. You will not be billed for a rocket he fires. You will lose this all the same if four of them do not reach the wadi.",
+  "debrief": "A block like that is blind in both directions. That is not an accident and it is not geology.",
+  "map": {
+    "file": "umm_zeitoun",
+    "player_start": [24, 45]
+  },
+  "ledger": {
+    "requires": ["roster.surviving_units", "intel.marked_positions"],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions",
+      "intel.marked_positions",
+      "civ.settlements_evacuated"
+    ]
+  },
+  "starting_force": [
+    { "unit": "inf_squad", "count": 3, "at": [24, 45], "from_ledger": true },
+    { "unit": "at_team", "count": 1, "at": [27, 45], "from_ledger": true },
+    { "unit": "mortar_team", "count": 1, "at": [23, 44], "from_ledger": true },
+    { "unit": "mbt_lavi", "count": 1, "at": [26, 44] },
+    { "unit": "ifv_namer", "count": 1, "at": [20, 44] },
+    { "unit": "apc_eitan", "count": 2, "at": [22, 45] },
+    { "unit": "sniper_team", "count": 1, "at": [24, 44] },
+    { "unit": "recon_drone", "count": 1, "at": [24, 43] }
+  ],
+  "objectives": [
+    {
+      "id": "kill_the_west_horn",
+      "type": "eliminate_hvt",
+      "primary": true,
+      "target": "uz_eye_west",
+      "text": "Kill the post on the western horn",
+      "say": {
+        "speaker": "idit",
+        "text": "West horn is blind. Half the floor belongs to nobody now."
+      }
+    },
+    {
+      "id": "kill_the_east_horn",
+      "type": "eliminate_hvt",
+      "primary": true,
+      "target": "uz_eye_east",
+      "text": "Kill the post on the eastern horn",
+      "say": {
+        "speaker": "idit",
+        "text": "East horn is blind. Whatever he calls from here he calls off a map, not off the ground."
+      }
+    },
+    {
+      "id": "get_the_hamlet_out",
+      "type": "evacuate_before",
+      "primary": true,
+      "target": "refuge_wadi",
+      "count": 4,
+      "seconds": 300,
+      "text": "Get four families out of the hamlet to the wadi inside five minutes",
+      "say": {
+        "speaker": "shai",
+        "text": "Four out of the block. Nothing else in there is worth a round from the tubes."
+      },
+      "say_on_fail": {
+        "speaker": "shai",
+        "text": "Clock is out on the hamlet. They are under his rockets now and we are not going back through them."
+      }
+    },
+    {
+      "id": "find_adhal",
+      "type": "locate",
+      "primary": false,
+      "target": "uz_hvt_lantern",
+      "text": "Find the man the posts are reporting to",
+      "say": {
+        "speaker": "idit",
+        "text": "That is Karim Adhal, on the northern crest, thirty-four tiles out. Two towns of his work and this is the first time anybody has had his ground."
+      }
+    },
+    {
+      "id": "kill_the_knoll_eye",
+      "type": "eliminate_hvt",
+      "primary": false,
+      "target": "uz_eye_knoll",
+      "text": "Kill the eye on the stone knoll that overlooks the wadi road",
+      "say": {
+        "speaker": "idit",
+        "text": "Knoll is clear. Nothing left in this basin can put a round on the wadi road by looking at it."
+      }
+    }
+  ],
+  "roe": {
+    "enabled": true,
+    "flagged_zones": ["hamlet"],
+    "fail_below": 45
+  },
+  "civilians": {
+    "refuge": "civ_refuge",
+    "groups": [
+      { "unit": "civilians", "count": 3, "at": [22.5, 26.5], "group": "hamlet_north" },
+      { "unit": "civilians", "count": 3, "at": [21.5, 28.5], "group": "hamlet_south" }
+    ]
+  },
+  "enemy": {
+    "faction": "sarim",
+    "doctrine_profile": "standoff overwatch",
+    "garrison": [
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [10.5, 23.5],
+        "tag": "uz_eye_west"
+      },
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [37.5, 23.5],
+        "tag": "uz_eye_east"
+      },
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [23.5, 33.5],
+        "tag": "uz_eye_knoll"
+      },
+      {
+        "unit": "manpad_team",
+        "count": 1,
+        "at": [30.5, 22.5],
+        "tag": "uz_manpad_basin"
+      },
+      {
+        "unit": "atgm_cell",
+        "count": 1,
+        "at": [34.5, 20.5],
+        "tag": "uz_atgm_glacis",
+        "stance": { "kind": "ambush", "tiles": 10 }
+      },
+      {
+        "unit": "atgm_cell",
+        "count": 1,
+        "at": [17.5, 19.5],
+        "tag": "uz_atgm_lateral",
+        "stance": { "kind": "ambush", "tiles": 10 }
+      },
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [20.5, 24.5],
+        "group": "hamlet_garrison",
+        "stance": { "kind": "garrison", "building": [20, 24] }
+      },
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [26.5, 27.5],
+        "group": "hamlet_garrison",
+        "stance": { "kind": "garrison", "building": [26, 27] }
+      },
+      {
+        "unit": "recoilless_team",
+        "count": 1,
+        "at": [25.5, 27.5],
+        "tag": "uz_rcl_hamlet",
+        "stance": { "kind": "ambush", "tiles": 6 }
+      },
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [13.5, 6.5],
+        "tag": "uz_hvt_lantern",
+        "group": "lantern"
+      },
+      {
+        "unit": "rocket_battery",
+        "count": 1,
+        "marker": "battery_west",
+        "group": "battery",
+        "tag": "uz_battery"
+      }
+    ],
+    "waves": [
+      {
+        "at_seconds": 120,
+        "to": "horn_west",
+        "units": [{ "unit": "sarim_rifles", "count": 2, "from": "sarim_west" }]
+      },
+      {
+        "at_seconds": 240,
+        "to": "horn_east",
+        "units": [{ "unit": "recoilless_team", "count": 1, "from": "sarim_east" }]
+      },
+      {
+        "at_seconds": 330,
+        "to": "hamlet_square",
+        "units": [{ "unit": "sarim_rifles", "count": 2, "from": "sarim_north" }]
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "id": "he_brings_the_tube_south",
+      "on": { "kind": "casualties_pct", "value": 35 },
+      "do": { "kind": "withdraw_to", "group": "battery", "to": "battery_south" },
+      "say": {
+        "speaker": "idit",
+        "text": "Battery is coming south. From that position it reaches the hamlet at seven tiles and the wadi road at ten, and every round of it is his."
+      }
+    },
+    {
+      "id": "the_house_was_the_section",
+      "on": { "kind": "zone_entered", "zone": "hamlet" },
+      "do": { "kind": "commit", "group": "hamlet_garrison", "to": "hamlet_square" },
+      "say": {
+        "speaker": "idit",
+        "text": "They are out of the houses and into the street. They will not fight you from in there — they were never going to."
+      }
+    }
+  ]
+}

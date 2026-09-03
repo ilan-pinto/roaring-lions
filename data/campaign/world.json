@@ -52,7 +52,7 @@
       "doctrine": "rockets, ATGMs, standoff",
       "blurb": "Rockets range onto Kedem's north from behind a mountain wall.",
       "unlock": {
-        "after_mission": "beit_sahwan_3_clearance"
+        "after_mission": "beit_sahwan_4_subterranean"
       },
       "towns": [
         {
@@ -71,7 +71,7 @@
             674.4,
             153.3
           ],
-          "missions": []
+          "missions": ["umm_zeitoun_1_recon", "umm_zeitoun_2_buildup", "umm_zeitoun_3_clearance", "umm_zeitoun_4_clearance"]
         }
       ]
     },
@@ -82,7 +82,7 @@
       "doctrine": "technicals, raids, smuggling, mobility",
       "blurb": "A green river basin of terraced pasture and cultivation. The corridor that supplied the Marj's tunnels and Sur's rocket stocks.",
       "unlock": {
-        "after_mission": "beit_sahwan_3_clearance"
+        "after_mission": "umm_zeitoun_4_clearance"
       },
       "towns": [
         {

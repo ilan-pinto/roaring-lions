@@ -1,0 +1,173 @@
+{
+  "id": "umm_zeitoun_2_buildup",
+  "name": "Umm Zeitoun II — The Long Look",
+  "town": "umm_zeitoun",
+  "phase": "buildup",
+  "target_minutes": 7,
+  "briefing": "Sur has more than one tube: this one is south of the basin, and from there it reaches the crest line at twelve tiles. Idit has an observer marked on the stone knoll, eight tiles off that same ground. Hold the crest line for four minutes while the engineers work behind you. It is the highest ground on this half of the basin and the one piece of it he can both see and shell. The camp ground in the bowl is dead to every position on this map — nothing up there can see what you are putting on it. What they can see is the line. Supply is coming forward and the corridor behind it is open, so spend it as it arrives. Level the post above the knoll inside five minutes, with charges or with fire while the observer is still inside the shed. Break a third of what is in front of you and the tube pulls north, out of reach of the line entirely. Everything you buy to make that happen is not standing on the crest while it happens.",
+  "debrief": "Nobody replaces an observer on a heap of blocks. They replace him on the next hill.",
+  "map": {
+    "file": "umm_zeitoun",
+    "player_start": [24, 45]
+  },
+  "ledger": {
+    "requires": ["roster.surviving_units", "intel.marked_positions"],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions"
+    ]
+  },
+  "starting_force": [
+    { "unit": "inf_squad", "count": 3, "at": [24, 45], "from_ledger": true },
+    { "unit": "at_team", "count": 1, "at": [27, 45], "from_ledger": true },
+    { "unit": "apc_eitan", "count": 2, "at": [22, 45] },
+    { "unit": "mbt_lavi", "count": 1, "at": [26, 44] },
+    { "unit": "mortar_team", "count": 1, "at": [23, 44] },
+    { "unit": "demo_squad", "count": 1, "at": [21, 45] },
+    { "unit": "recon_drone", "count": 1, "at": [24, 43] }
+  ],
+  "resources": {
+    "logistics_start": 500,
+    "logistics_rate_per_min": 150,
+    "intel_start": 150,
+    "supply_corridor": true
+  },
+  "structures": [
+    { "type": "camp", "at": [20, 43], "size": [2, 2] }
+  ],
+  "objectives": [
+    {
+      "id": "hold_the_crest_line",
+      "type": "hold_for",
+      "primary": true,
+      "target": "crest_line",
+      "seconds": 240,
+      "text": "Hold the crest line for four minutes",
+      "say": {
+        "speaker": "net",
+        "text": "Crest line held four minutes. Engineers are off it."
+      }
+    },
+    {
+      "id": "level_the_stone_post",
+      "type": "raze",
+      "primary": true,
+      "target": "post_stone",
+      "seconds": 300,
+      "text": "Level the post above the stone knoll inside five minutes",
+      "say": {
+        "speaker": "shai",
+        "text": "Post is down. Nobody replaces an observer on a heap of blocks — they replace him on the next hill."
+      },
+      "say_on_fail": {
+        "speaker": "shai",
+        "text": "Five minutes gone and the shed is still standing. He has watched everything we put on that line."
+      }
+    },
+    {
+      "id": "kill_the_knoll_eye",
+      "type": "eliminate_hvt",
+      "primary": false,
+      "target": "uz_eye_knoll",
+      "text": "Kill the observer in the shed on the stone knoll",
+      "say": {
+        "speaker": "idit",
+        "text": "Knoll post is down. The wadi road is unobserved for the first time since we came into this basin."
+      }
+    },
+    {
+      "id": "take_the_stone_knoll",
+      "type": "capture",
+      "primary": false,
+      "target": "post_stone",
+      "seconds": 15,
+      "text": "Take the stone knoll and hold it for 15 seconds"
+    }
+  ],
+  "roe": {
+    "enabled": true
+  },
+  "enemy": {
+    "faction": "sarim",
+    "doctrine_profile": "standoff overwatch",
+    "garrison": [
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [23.5, 33.5],
+        "tag": "uz_eye_knoll",
+        "group": "knoll",
+        "stance": { "kind": "garrison", "building": [21, 33] }
+      },
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [10.5, 23.5],
+        "tag": "uz_eye_west"
+      },
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [37.5, 23.5],
+        "tag": "uz_eye_east"
+      },
+      {
+        "unit": "manpad_team",
+        "count": 1,
+        "at": [30.5, 22.5],
+        "tag": "uz_manpad_basin"
+      },
+      {
+        "unit": "recoilless_team",
+        "count": 1,
+        "at": [27.5, 32.5],
+        "tag": "uz_rcl_south",
+        "stance": { "kind": "ambush", "tiles": 6 }
+      },
+      {
+        "unit": "rocket_battery",
+        "count": 1,
+        "marker": "battery_south",
+        "group": "battery",
+        "tag": "uz_battery"
+      }
+    ],
+    "waves": [
+      {
+        "at_seconds": 90,
+        "to": "knoll_stone",
+        "units": [{ "unit": "sarim_rifles", "count": 2, "from": "sarim_west" }]
+      },
+      {
+        "at_seconds": 180,
+        "to": "rim_crest",
+        "units": [{ "unit": "recoilless_team", "count": 1, "from": "sarim_north" }]
+      },
+      {
+        "at_seconds": 210,
+        "to": "camp_ground",
+        "units": [{ "unit": "loiter_drone", "count": 1, "from": "sarim_north" }]
+      },
+      {
+        "at_seconds": 300,
+        "to": "rim_crest",
+        "units": [
+          { "unit": "sarim_rifles", "count": 1, "from": "sarim_east" },
+          { "unit": "sarim_rifles", "count": 1, "from": "sarim_north" }
+        ]
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "id": "the_tube_moves_north",
+      "on": { "kind": "casualties_pct", "value": 30 },
+      "do": { "kind": "withdraw_to", "group": "battery", "to": "battery_north" },
+      "say": {
+        "speaker": "idit",
+        "text": "Battery is displacing north. Twenty-eight tiles to the crest line from there — that is what taking a third of them off him buys."
+      }
+    }
+  ]
+}

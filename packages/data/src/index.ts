@@ -33,6 +33,10 @@ import beitSahwan4 from '../../../data/missions/beit_sahwan_4_subterranean.json'
 import telMarum1Recon from '../../../data/missions/tel_marum_1_recon.json';
 import telMarum2Foothold from '../../../data/missions/tel_marum_2_foothold.json';
 import telMarum3Clearance from '../../../data/missions/tel_marum_3_clearance.json';
+import ummZeitoun1Recon from '../../../data/missions/umm_zeitoun_1_recon.json';
+import ummZeitoun2Buildup from '../../../data/missions/umm_zeitoun_2_buildup.json';
+import ummZeitoun3Clearance from '../../../data/missions/umm_zeitoun_3_clearance.json';
+import ummZeitoun4Clearance from '../../../data/missions/umm_zeitoun_4_clearance.json';
 import wadiHalam1Fords from '../../../data/missions/wadi_halam_1_fords.json';
 import wadiHalam2Laager from '../../../data/missions/wadi_halam_2_laager.json';
 import wadiHalam3Counterraid from '../../../data/missions/wadi_halam_3_counterraid.json';
@@ -138,6 +142,10 @@ export const missions = {
   tel_marum_1_recon: telMarum1Recon,
   tel_marum_2_foothold: telMarum2Foothold,
   tel_marum_3_clearance: telMarum3Clearance,
+  umm_zeitoun_1_recon: ummZeitoun1Recon,
+  umm_zeitoun_2_buildup: ummZeitoun2Buildup,
+  umm_zeitoun_3_clearance: ummZeitoun3Clearance,
+  umm_zeitoun_4_clearance: ummZeitoun4Clearance,
   wadi_halam_1_fords: wadiHalam1Fords,
   wadi_halam_2_laager: wadiHalam2Laager,
   wadi_halam_3_counterraid: wadiHalam3Counterraid,

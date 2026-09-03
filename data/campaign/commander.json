@@ -5,7 +5,7 @@
   },
   "ranks": [
     { "rank": "Captain", "stars": 2, "until_mission": "beit_sahwan_4_subterranean" },
-    { "rank": "Major", "stars": 3, "until_mission": "tel_marum_3_clearance" },
+    { "rank": "Major", "stars": 3, "until_mission": "umm_zeitoun_4_clearance" },
     { "rank": "Lieutenant Colonel", "stars": 4, "until_mission": "wadi_halam_5_depot" },
     { "rank": "Colonel", "stars": 5 }
   ]

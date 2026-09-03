@@ -155,10 +155,15 @@ describe('the 3D board reads the ledger the same way the flat one does', () => {
   });
 
   it('opens the next region once its gate is met', async () => {
-    const s = mountScreen({ 'campaign.completed_missions': ['beit_sahwan_3_clearance'] });
+    // Sur and naharin used to share one gate (beit_sahwan_3_clearance), so
+    // clearing it opened both at once. They now gate on different missions --
+    // sur on beit_sahwan_4_subterranean, naharin on umm_zeitoun_4_clearance,
+    // a mission inside sur's own progression -- so meeting sur's gate alone
+    // no longer opens naharin too.
+    const s = mountScreen({ 'campaign.completed_missions': ['beit_sahwan_4_subterranean'] });
     await s.ready;
     expect(s.view().statuses.sur).toBe('live');
-    expect([...s.view().clickable].sort()).toEqual(['marj', 'naharin', 'sur']);
+    expect([...s.view().clickable].sort()).toEqual(['marj', 'sur']);
   });
 });
 
@@ -190,7 +195,7 @@ describe('clicking the ground', () => {
     await s.ready;
     s.view().pick('sur');
     expect(s.went).toEqual([]);
-    expect(say(s.el)).toBe('Sur — requires clearing beit_sahwan_3_clearance');
+    expect(say(s.el)).toBe('Sur — requires clearing beit_sahwan_4_subterranean');
     expect(tone(s.el)).toBe('bad');
   });
 
@@ -208,8 +213,11 @@ describe('clicking the ground', () => {
     // `naharin` unlocked but with every mission done is the reachable shape
     // of "unlocked, nothing left"; `empty` needs a region with no missions at
     // all, which world.json does not have -- so this covers `complete`.
+    // naharin's own gate moved from beit_sahwan_3_clearance to
+    // umm_zeitoun_4_clearance, so that is the mission that now has to be in
+    // `done` to unlock it before checking it reads as cleared.
     const done = [
-      'beit_sahwan_3_clearance',
+      'umm_zeitoun_4_clearance',
       ...world.regions[2]!.towns.flatMap((t) => t.missions),
     ];
     const s = mountScreen({ 'campaign.completed_missions': done });

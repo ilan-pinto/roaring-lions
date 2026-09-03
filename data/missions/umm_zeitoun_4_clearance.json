@@ -1,0 +1,224 @@
+{
+  "id": "umm_zeitoun_4_clearance",
+  "name": "Umm Zeitoun IV — The Stockpile",
+  "town": "umm_zeitoun",
+  "phase": "clearance",
+  "target_minutes": 7,
+  "briefing": "The depot is three buildings on the northern shelf, seven and a half thousand between them, and there is an eye on the spur beside it that sees the yard at five tiles. What that eye sees, the tube shells. Bring all of it down inside five minutes. There is no dozer in Sur — that is two demolition parties, five seconds of charges at a time, standing still within two tiles of what they are dropping. The man every post in this basin has been reporting to is on the crest, sixteen tiles the other way. Idit has had his voice for two towns and never once his ground. You cannot do both of those slowly. Buy a third party with the logistics if you want the depot and the crest inside the same seven minutes. Four porters are on the depot ground and the shelf behind it is five tiles from them. Charges do not care who is beside the wall: set one within two tiles of them and you are billed for it, and the party will level whatever else it halts beside.",
+  "aftermath": "Nothing fell on the north that morning, or the one after it. They took Adhal off the crest with the whole basin still in front of him. Brigade put a fourth star on the slip. The tubes came up a road, and the road is not in Sur.",
+  "debrief": "Nothing in Sur comes down by driving at it. Five seconds at a time, standing still, with the hill watching.",
+  "map": {
+    "file": "umm_zeitoun",
+    "player_start": [24, 45]
+  },
+  "ledger": {
+    "requires": ["roster.surviving_units", "intel.marked_positions"],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions"
+    ]
+  },
+  "starting_force": [
+    { "unit": "inf_squad", "count": 3, "at": [24, 45], "from_ledger": true },
+    { "unit": "at_team", "count": 1, "at": [27, 45], "from_ledger": true },
+    { "unit": "mortar_team", "count": 1, "at": [23, 44], "from_ledger": true },
+    { "unit": "sniper_team", "count": 1, "at": [24, 44], "from_ledger": true },
+    { "unit": "mbt_lavi", "count": 2, "at": [26, 44] },
+    { "unit": "ifv_namer", "count": 1, "at": [20, 44] },
+    { "unit": "apc_eitan", "count": 2, "at": [22, 45] },
+    { "unit": "demo_squad", "count": 2, "at": [19, 45] },
+    { "unit": "recon_drone", "count": 1, "at": [24, 43] }
+  ],
+  "resources": {
+    "logistics_start": 600,
+    "logistics_rate_per_min": 100,
+    "intel_start": 250,
+    "supply_corridor": true
+  },
+  "objectives": [
+    {
+      "id": "raze_the_stockpile",
+      "type": "raze",
+      "primary": true,
+      "target": "stockpile",
+      "seconds": 300,
+      "text": "Raze the stockpile inside five minutes",
+      "say": {
+        "speaker": "shai",
+        "text": "Depot is down. That is what was coming over the wall at Tel Marum, and it is not coming again."
+      },
+      "say_on_fail": {
+        "speaker": "shai",
+        "text": "Five minutes. The depot is standing and the parties that were going to bring it down are not."
+      }
+    },
+    {
+      "id": "kill_adhal",
+      "type": "eliminate_hvt",
+      "primary": true,
+      "target": "uz_hvt_lantern",
+      "text": "Kill Karim Adhal on the northern crest",
+      "say": {
+        "speaker": "idit",
+        "text": "Adhal is off the crest. He never fired a round in this war and he chose where every one of them landed."
+      }
+    },
+    {
+      "id": "kill_the_battery",
+      "type": "eliminate_hvt",
+      "primary": false,
+      "target": "uz_battery",
+      "text": "Destroy the rocket battery north of the depot",
+      "say": {
+        "speaker": "idit",
+        "text": "Battery is finished. Sur has nothing left that reaches Kedem."
+      }
+    },
+    {
+      "id": "get_the_porters_clear",
+      "type": "evacuate_before",
+      "primary": false,
+      "target": "north_shelf",
+      "count": 3,
+      "seconds": 240,
+      "text": "Get three porters off the depot ground to the northern shelf",
+      "say": {
+        "speaker": "shai",
+        "text": "Porters are on the shelf. Nothing of ours goes north of the yard for them."
+      },
+      "say_on_fail": {
+        "speaker": "shai",
+        "text": "They are still on the yard and the charges are already set. Work round them or work slower."
+      }
+    },
+    {
+      "id": "bring_the_relay_down",
+      "type": "raze",
+      "primary": false,
+      "target": "crest_top",
+      "text": "Bring the relay hut on the crest down",
+      "say": {
+        "speaker": "net",
+        "text": "Relay hut is down."
+      }
+    }
+  ],
+  "roe": {
+    "enabled": true,
+    "flagged_zones": ["hamlet"],
+    "fail_below": 45
+  },
+  "civilians": {
+    "refuge": "civ_north",
+    "groups": [
+      { "unit": "civilians", "count": 4, "at": [29.5, 9.5], "group": "porters" }
+    ]
+  },
+  "enemy": {
+    "faction": "sarim",
+    "doctrine_profile": "standoff overwatch",
+    "garrison": [
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [13.5, 6.5],
+        "tag": "uz_hvt_lantern",
+        "group": "lantern"
+      },
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [15.5, 5.5],
+        "tag": "uz_lantern_guard",
+        "group": "lantern"
+      },
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [14.5, 7.5],
+        "tag": "uz_eye_crest"
+      },
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [31.5, 12.5],
+        "tag": "uz_eye_depot"
+      },
+      {
+        "unit": "manpad_team",
+        "count": 1,
+        "at": [20.5, 12.5],
+        "tag": "uz_manpad_north"
+      },
+      {
+        "unit": "recoilless_team",
+        "count": 1,
+        "at": [33.5, 10.5],
+        "tag": "uz_rcl_depot",
+        "stance": { "kind": "ambush", "tiles": 6 }
+      },
+      {
+        "unit": "atgm_cell",
+        "count": 1,
+        "at": [27.5, 10.5],
+        "tag": "uz_atgm_north",
+        "stance": { "kind": "ambush", "tiles": 10 }
+      },
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [30.5, 6.5],
+        "tag": "uz_wh_garrison",
+        "stance": { "kind": "garrison", "building": [30, 6] }
+      },
+      {
+        "unit": "rocket_battery",
+        "count": 1,
+        "marker": "battery_north",
+        "group": "battery",
+        "tag": "uz_battery"
+      }
+    ],
+    "waves": [
+      {
+        "at_seconds": 150,
+        "to": "stockpile_yard",
+        "units": [{ "unit": "sarim_rifles", "count": 2, "from": "sarim_north" }]
+      },
+      {
+        "at_seconds": 260,
+        "to": "crest",
+        "units": [
+          { "unit": "recoilless_team", "count": 1, "from": "sarim_west" },
+          { "unit": "sarim_rifles", "count": 1, "from": "sarim_west" }
+        ]
+      },
+      {
+        "at_seconds": 360,
+        "to": "stockpile_yard",
+        "units": [{ "unit": "loiter_drone", "count": 1, "from": "sarim_north" }]
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "id": "the_tube_goes_west",
+      "on": { "kind": "casualties_pct", "value": 40 },
+      "do": { "kind": "withdraw_to", "group": "battery", "to": "battery_west" },
+      "say": {
+        "speaker": "enemy",
+        "text": "Move it west. The tube was never what had to see — that has been on the hill since long before the first rocket, and it does not close."
+      }
+    },
+    {
+      "id": "he_goes_over_the_back",
+      "on": { "kind": "casualties_pct", "value": 50 },
+      "do": { "kind": "withdraw_to", "group": "lantern", "to": "crest_reverse" },
+      "say": {
+        "speaker": "net",
+        "text": "He is over the back of the crest and out of sight of the basin. Whoever wants him climbs."
+      }
+    }
+  ]
+}

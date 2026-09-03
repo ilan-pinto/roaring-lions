@@ -31,7 +31,7 @@ describe('worldMap', () => {
   });
 
   it('opens the next region when its gate is met', () => {
-    const el = render({ 'campaign.completed_missions': ['beit_sahwan_3_clearance'] });
+    const el = render({ 'campaign.completed_missions': ['beit_sahwan_4_subterranean'] });
     expect(statusOf(el, 'sur')).toBe('live');
   });
 
@@ -110,7 +110,7 @@ describe('worldMap', () => {
 
   it('says why a locked region is locked, naming the condition', () => {
     const panel = render({}).querySelector('[data-region-card="sur"]') as HTMLElement;
-    expect(panel.textContent).toContain('beit_sahwan_3_clearance');
+    expect(panel.textContent).toContain('beit_sahwan_4_subterranean');
   });
 
   it('shows each region doctrine and mission count', () => {

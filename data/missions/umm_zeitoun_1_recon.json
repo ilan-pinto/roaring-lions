@@ -1,0 +1,200 @@
+{
+  "id": "umm_zeitoun_1_recon",
+  "name": "Umm Zeitoun I — Cold Ground",
+  "town": "umm_zeitoun",
+  "phase": "recon",
+  "target_minutes": 6,
+  "briefing": "Umm Zeitoun is a basin: no wall across it, no gate to force, crossable anywhere on its width. Idit counts four hills over the floor and each one sees a different piece of it. Identify all four posts before the brigade puts anything on this ground. Push the drone up the middle and take the cheap looks first. Two missile teams cover the northern half, air only, out to thirteen tiles. The crest cannot be identified from outside that envelope, so the drone buys you the near hills for nothing and that one for its life. Three families are at the wells on the west flank, nine tiles from the wadi on foot. You have four minutes before somebody else moves them. The jeep is the only thing you have that can screen the drone and the only thing that can carry a family off that flank. It will not do both.",
+  "debrief": "Four hills, and a drone that can only pay for some of them. That is the whole of Sur in one night.",
+  "map": {
+    "file": "umm_zeitoun",
+    "player_start": [24, 45]
+  },
+  "ledger": {
+    "requires": ["roster.surviving_units"],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions",
+      "intel.marked_positions",
+      "civ.settlements_evacuated"
+    ]
+  },
+  "starting_force": [
+    { "unit": "recon_drone", "count": 1, "at": [24, 43] },
+    { "unit": "jeep_shoded", "count": 1, "at": [22, 44] },
+    { "unit": "inf_squad", "count": 3, "at": [24, 45], "from_ledger": true },
+    { "unit": "at_team", "count": 1, "at": [27, 45], "from_ledger": true },
+    { "unit": "apc_eitan", "count": 1, "at": [22, 45] }
+  ],
+  "objectives": [
+    {
+      "id": "find_the_crest",
+      "type": "locate",
+      "primary": true,
+      "target": "uz_eye_crest",
+      "text": "Identify the post on the northern crest",
+      "say": {
+        "speaker": "idit",
+        "text": "That is the crest post, and I have him for as long as something is looking at him. Nothing of ours can hold that from outside thirteen tiles."
+      }
+    },
+    {
+      "id": "find_the_west_horn",
+      "type": "locate",
+      "primary": true,
+      "target": "uz_eye_west",
+      "text": "Identify the post on the western horn",
+      "say": {
+        "speaker": "idit",
+        "text": "West horn is a post, not a picket. He is lying on the shoulder with the whole western floor under him."
+      }
+    },
+    {
+      "id": "find_the_east_horn",
+      "type": "locate",
+      "primary": true,
+      "target": "uz_eye_east",
+      "text": "Identify the post on the eastern horn",
+      "say": {
+        "speaker": "idit",
+        "text": "East horn the same, across the basin. Between the two of them there is no line across this floor that nobody sees."
+      }
+    },
+    {
+      "id": "find_the_stone_knoll",
+      "type": "locate",
+      "primary": true,
+      "target": "uz_eye_knoll",
+      "text": "Identify the post above the stone knoll",
+      "say": {
+        "speaker": "idit",
+        "text": "The near one is in the shed on the stone knoll, four tiles from the wadi road. That is the eye that matters to the families, not to us."
+      }
+    },
+    {
+      "id": "get_the_wells_clear",
+      "type": "evacuate_before",
+      "primary": true,
+      "target": "refuge_wadi",
+      "count": 2,
+      "seconds": 240,
+      "text": "Get two families from the wells into the wadi inside four minutes",
+      "say": {
+        "speaker": "shai",
+        "text": "Two families in the wadi. Leave the rest of that flank alone; nothing else out there is worth the jeep."
+      },
+      "say_on_fail": {
+        "speaker": "shai",
+        "text": "Four minutes. Whatever is still at the wells is not ours to move now."
+      }
+    },
+    {
+      "id": "find_the_missile_team",
+      "type": "locate",
+      "primary": false,
+      "target": "uz_manpad_basin",
+      "text": "Identify the missile team covering the basin",
+      "say": {
+        "speaker": "idit",
+        "text": "Missile team on the northern shelf. Air only, thirteen tiles — the drone crosses that line once."
+      }
+    },
+    {
+      "id": "screen_out",
+      "type": "survive_until",
+      "primary": false,
+      "seconds": 240,
+      "text": "Stay in the field for four minutes"
+    }
+  ],
+  "roe": {
+    "enabled": true
+  },
+  "civilians": {
+    "refuge": "civ_refuge",
+    "groups": [
+      { "unit": "civilians", "count": 3, "at": [14.5, 35.5], "group": "wells_families" }
+    ]
+  },
+  "enemy": {
+    "faction": "sarim",
+    "doctrine_profile": "standoff overwatch",
+    "garrison": [
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [14.5, 7.5],
+        "tag": "uz_eye_crest"
+      },
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [10.5, 23.5],
+        "tag": "uz_eye_west"
+      },
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [37.5, 23.5],
+        "tag": "uz_eye_east"
+      },
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [23.5, 33.5],
+        "tag": "uz_eye_knoll",
+        "stance": { "kind": "garrison", "building": [21, 33] }
+      },
+      {
+        "unit": "manpad_team",
+        "count": 1,
+        "at": [20.5, 12.5],
+        "tag": "uz_manpad_north"
+      },
+      {
+        "unit": "manpad_team",
+        "count": 1,
+        "at": [30.5, 22.5],
+        "tag": "uz_manpad_basin"
+      },
+      {
+        "unit": "atgm_cell",
+        "count": 1,
+        "at": [34.5, 20.5],
+        "tag": "uz_atgm_glacis",
+        "stance": { "kind": "ambush", "tiles": 10 }
+      },
+      {
+        "unit": "rocket_battery",
+        "count": 1,
+        "marker": "battery_south",
+        "group": "battery",
+        "tag": "uz_battery"
+      }
+    ],
+    "waves": [
+      {
+        "at_seconds": 150,
+        "to": "uz_wells",
+        "units": [{ "unit": "sarim_rifles", "count": 1, "from": "sarim_west" }]
+      },
+      {
+        "at_seconds": 260,
+        "to": "lane_centre",
+        "units": [{ "unit": "sarim_rifles", "count": 2, "from": "sarim_north" }]
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "id": "they_move_the_families_off",
+      "on": { "kind": "timer_s", "value": 242 },
+      "do": { "kind": "remove", "group": "wells_families" },
+      "say": {
+        "speaker": "idit",
+        "text": "The wells are empty and nobody fought over them. They walked them north between the hills while we were looking at the hills."
+      }
+    }
+  ]
+}

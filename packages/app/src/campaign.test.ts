@@ -25,7 +25,7 @@ const commander = parseCommander(commanderJson);
 
 describe('parseWorld', () => {
   it('maps snake_case authoring keys onto the runtime spelling', () => {
-    expect(sur.unlock?.afterMission).toBe('beit_sahwan_3_clearance');
+    expect(sur.unlock?.afterMission).toBe('beit_sahwan_4_subterranean');
   });
 
   it('keeps town positions as a fixed pair', () => {
@@ -60,20 +60,23 @@ describe('regionProgress', () => {
   it('is locked, and says why, while its gate is unmet', () => {
     const p = regionProgress(sur, {});
     expect(p.status).toBe('locked');
-    expect(p.lockedBecause).toContain('beit_sahwan_3_clearance');
+    expect(p.lockedBecause).toContain('beit_sahwan_4_subterranean');
   });
 
   it('opens once the gating mission is cleared', () => {
-    const p = regionProgress(sur, { 'campaign.completed_missions': ['beit_sahwan_3_clearance'] });
+    const p = regionProgress(sur, { 'campaign.completed_missions': ['beit_sahwan_4_subterranean'] });
     expect(p.status).toBe('live');
     expect(p.lockedBecause).toBe(null);
   });
 
   it('reports an unlocked region with nothing authored as empty, not complete and not live', () => {
-    // Umm Zeitoun is still empty pending its own mission slice. total 0 must not
-    // read as "finished", or an unwritten town would show up already greyed out.
-    // (Tel Marum, sur.towns[0], now carries tel_marum_1_recon and no longer fits
-    // this case -- this asserts on umm_zeitoun instead, which still has none.)
+    // Originally exercised via sur.towns[1] (umm_zeitoun), which now carries
+    // umm_zeitoun_1_recon.._4_clearance and no longer fits this case (nor does
+    // tel_marum, sur.towns[0], which already carried tel_marum_1_recon before
+    // that). marj has no unlock gate at all, and khan_rafid (marj.towns[1])
+    // still has missions: [] in world.json, so it stands in for "unlocked
+    // region, one town, nothing authored" without needing any ledger entries
+    // to unlock it.
     //
     // It must not read as `live` either (#117): the card printed the badge
     // `live` directly above "no operations authored yet", and the badge is the
@@ -81,10 +84,8 @@ describe('regionProgress', () => {
     // open ground with nothing on it. The un-clickable hover affordances that
     // made that promise worse are gated on the same distinction -- see
     // worldmap.test.ts.
-    const surWithOneAuthoredTown = { ...sur, towns: [sur.towns[1]!] };
-    const p = regionProgress(surWithOneAuthoredTown, {
-      'campaign.completed_missions': ['beit_sahwan_3_clearance'],
-    });
+    const marjWithOneEmptyTown = { ...marj, towns: [marj.towns[1]!] };
+    const p = regionProgress(marjWithOneEmptyTown, {});
     expect(p.total).toBe(0);
     expect(p.status).toBe('empty');
     expect(p.lockedBecause).toBe(null);
@@ -115,9 +116,10 @@ describe('nextMissionOf', () => {
   });
 
   it('is null for a town with no missions authored yet', () => {
-    // Umm Zeitoun (sur.towns[1]) still has none; Tel Marum (sur.towns[0]) now
-    // carries tel_marum_1_recon, so it no longer fits this case.
-    expect(nextMissionOf(sur.towns[1]!, {})).toBe(null);
+    // Both of sur's towns now carry missions (tel_marum_1_recon and
+    // umm_zeitoun_1_recon respectively), so neither fits this case any more.
+    // khan_rafid (marj.towns[1]) still has missions: [] in world.json.
+    expect(nextMissionOf(marj.towns[1]!, {})).toBe(null);
   });
 });
 
