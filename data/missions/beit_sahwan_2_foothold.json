@@ -4,6 +4,7 @@
   "town": "beit_sahwan",
   "phase": "foothold",
   "target_minutes": 7,
+  "debrief": "They spent a night's men on a line they did not want, to buy a day on a shaft they did.",
   "briefing": "The battalion has its foothold west of town and Ashwar knows it. Idit is reading spoil west of the line \u2014 disturbed earth creeping toward you, which means a crew is cutting a shaft out of town right now. Hold the western approach for five minutes while the engineers dig in behind you. The corridor delivers reinforcements \u2014 spend them well; what survives tonight clears the town tomorrow. Ashwar dug this ground for years before the war reached it, and a route that comes up behind your line is worth more to them than every man they will spend in front of it. Keep the Yahalom engineers alive; they are the only team that can bring a tunnel down.",
   "map": {
     "file": "beit_sahwan_outskirts",
@@ -105,7 +106,8 @@
       "type": "collapse",
       "primary": false,
       "target": "tunnel_mouth_west",
-      "text": "Collapse the tunnel Ashwar is digging under the approach"
+      "text": "Collapse the tunnel Ashwar is digging under the approach",
+      "say": { "speaker": "shai", "text": "That is one route they will not have back this year." }
     }
   ],
   "roe": {
@@ -247,7 +249,8 @@
         "kind": "commit",
         "group": "flank_delivery",
         "to": "town_center"
-      }
+      },
+      "say": { "speaker": "idit", "text": "A technical is running the northern lane with passengers up. That is a taxi, not a gun truck." }
     },
     {
       "id": "flank_delivery_drops",
@@ -258,7 +261,8 @@
       "do": {
         "kind": "dismount",
         "group": "flank_delivery"
-      }
+      },
+      "say": { "speaker": "idit", "text": "It has put an RPG team down short of your line and turned for home." }
     }
   ]
 }

@@ -111,10 +111,22 @@ const M = (x: number, y: number) => ({ x: fx.from(x), y: fx.from(y) });
 // attackers converge on it from all eight edges over thirteen minutes. Three
 // things this plan does deliberately:
 //
-// - the defenders stay where they are. They start spread across the yard with
-//   firing positions covering each gate, and a wall they can shoot over, so
-//   there is nothing to reposition toward -- and a unit under orders is a unit
-//   that might walk into its own gateway and cork it.
+// - every other defender stays where they are. They start spread across the
+//   yard with firing positions covering each gate, and a wall they can shoot
+//   over, so there is nothing to reposition toward -- and a unit under orders
+//   is a unit that might walk into its own gateway and cork it.
+// - the forward section is the one exception, and it is the design's own
+//   decision rather than a workaround. `script.md`'s level design leaves one
+//   inf_squad at [20,14], outside the wire, between the paramotor's eye and
+//   the mortar crew laid in behind it -- exposed to both unless the sniper or
+//   the mortar team spends a turn on one of them instead of the wall. `hold_outpost`
+//   (secondary, hold_for(outpost_ground, 120)) rewards holding it; the
+//   `they_take_the_section` trigger (timer_s 165) takes it if the mission does
+//   not lose it first. This plan takes the other half of that decision: at t=0
+//   the section withdraws to [21,18], the tile it occupied before the level
+//   script moved it forward, trading `hold_outpost` for the unit itself rather
+//   than spend a defender on ground the plan cannot also hold with the rest of
+//   the line intact.
 // - the jeep does two runs, north village then south, and nothing escorts it.
 //   Shepherding is a four-tile proximity brush rather than an escort: the
 //   families walk themselves in once touched, so speed is the whole trick and
@@ -129,6 +141,19 @@ const M = (x: number, y: number) => ({ x: fx.from(x), y: fx.from(y) });
 run('beit_sahwan_breach', () => {}, {}, 'defeat', 'beit_sahwan_breach (passive control)');
 
 const led0 = run('beit_sahwan_breach', (sim, rt, ids, at) => {
+  at(0, () => {
+    // Pull the forward section back inside the wire immediately, rather than
+    // leave it to the paramotor/mortar pair or the t=120s wave that overruns
+    // `outpost_ground`. Filtered by starting position, not by entity order,
+    // since `inf_squad` spawns four times and only the one at [20,14] is the
+    // forward section -- the other three stay on the wall (see the comment
+    // above).
+    const forward = ids('inf_squad').filter(
+      (i) =>
+        Math.round(fx.toNumber(sim.state.posX[i])) === 20 && Math.round(fx.toNumber(sim.state.posY[i])) === 14
+    );
+    sim.queueCommand({ kind: 'move', ids: forward, ...M(21, 18) });
+  });
   const shepherds = ids('jeep_shoded');
   // Both western villages, out and back through the west gate, before the
   // south-west and west spawns build up. Six families is the objective and the

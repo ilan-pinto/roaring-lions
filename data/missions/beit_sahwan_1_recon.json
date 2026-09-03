@@ -4,6 +4,7 @@
   "town": "beit_sahwan",
   "phase": "recon",
   "target_minutes": 7,
+  "debrief": "That is the district on a board for the first time. Everything after this is us choosing where to go into it.",
   "briefing": "Before anything moves on Beit Sahwan, Idit needs the picture: six garrison positions, and the ATGM cell that overlooks the east road. An identification takes eyes held on a position, not a glance. The battalion has attached one of everything it owns \u2014 armor, an IFV, mortars, scouts and a drone \u2014 so use this approach to learn your tools. Push the drone east, keep the heavy metal back as a screen, and do not get decisively engaged. The mortar does not care who is under it. What you find and who you bring home is what the brigade fights with next week.",
   "map": {
     "file": "beit_sahwan_outskirts",
@@ -87,14 +88,16 @@
       "type": "locate",
       "primary": true,
       "count": 6,
-      "text": "Identify six garrison positions"
+      "text": "Identify six garrison positions",
+      "say": { "speaker": "idit", "text": "Six positions, and every one of them was put there. That is a fire plan, not a picket line." }
     },
     {
       "id": "hvt_seen",
       "type": "locate",
       "primary": false,
       "target": "bs_hvt_atgm",
-      "text": "Identify the ATGM cell overlooking the east road"
+      "text": "Identify the ATGM cell overlooking the east road",
+      "say": { "speaker": "idit", "text": "The ATGM cell has the whole east road. It has been in that position long enough to have a range card." }
     },
     {
       "id": "find_the_column",
@@ -298,7 +301,8 @@
         "kind": "commit",
         "group": "hunters",
         "to": "kdf_assembly"
-      }
+      },
+      "say": { "speaker": "idit", "text": "Both technicals are off the eastern road and running for the assembly area. They are hunting the drone, not you." }
     }
   ]
 }

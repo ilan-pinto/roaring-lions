@@ -107,7 +107,8 @@
       "type": "eliminate_hvt",
       "primary": true,
       "target": "bs_hvt_atgm",
-      "text": "Destroy the ATGM cell overlooking the east road"
+      "text": "Destroy the ATGM cell overlooking the east road",
+      "say": { "speaker": "idit", "text": "East road is clear of it. The convoy can move whenever you say." }
     },
     {
       "id": "take_town",
@@ -115,7 +116,8 @@
       "primary": true,
       "target": "town",
       "seconds": 20,
-      "text": "Clear the town centre and hold it for 20 seconds"
+      "text": "Clear the town centre and hold it for 20 seconds",
+      "say": { "speaker": "shai", "text": "Town centre is ours. Nobody goes into the southern block for any reason." }
     }
   ],
   "roe": {
@@ -314,7 +316,8 @@
         "kind": "commit",
         "group": "reserve",
         "to": "town_center"
-      }
+      },
+      "say": { "speaker": "idit", "text": "The southern cell has left its own block and is running for the town centre. He has decided he can spend it." }
     }
   ],
   "civilians": {

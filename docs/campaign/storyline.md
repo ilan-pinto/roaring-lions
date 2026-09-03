@@ -564,6 +564,14 @@ exists.**
 
 Ordered by how much of the storyline each blocks.
 
+> **Status 2026-09-03 (evening):** G1 (`say`, as a `MissionEvent` into the notice
+> feed and the commander bar), G2 (`data/campaign/commander.json`, rank per
+> mission), G3 (`dispatch`, `aftermath`, `debrief`) and G7's `remove` verb with
+> `group` on `starting_force` **landed** on main — see
+> `docs/superpowers/specs/2026-09-03-narrative-layer-engine-design.md`. The radio
+> overlay's art, G4, G5, G6, G8, G9 and G10 stand as written.
+
+
 | # | gap | smallest proposal | owner |
 |---|---|---|---|
 | **G1** | **No speaker, and no mid-mission line at all.** D3 wants two voices; there is one, hard-coded, and nothing can speak after the deploy screen — `stepTriggers` fires and the player sees only `enemy reacts (<trigger id>)` | `say: { speaker, text }` on `triggers[].do` and `objectives[]`, emitted as a new `MissionEvent` kind. **No sim state changes**, so invariant 4 holds and the determinism hash cannot move. Copy the tutorial's step machine (`title`/`teach`/`nudge` + `await`) — it is the working precedent | `sim-guard` (schema, emit) + `render-vfx` (overlay) |
@@ -576,6 +584,7 @@ Ordered by how much of the storyline each blocks.
 | **G8** | **Taking a villain alive is a zone hold, not a capture of him.** GH-18 is M2; GDD §5.5a says prisoners score ROE credit where kills score nothing — exactly this storyline's restraint theme | **Do not wait for it.** `capture` is live (10 s uninterrupted zone hold), so SPADE's end and T11 work today as a small zone around where he stands, and upgrade in place when GH-18 lands | `mission-author` now; `sim-guard` for GH-18 |
 | **G9** | **`mark`, `escort`, `no_collateral_above` throw.** `escort` is the obvious shape for T5 and for a D9 mission | Out of scope; recorded so nobody authors one by reading the schema. `SUPPORTED` (`packages/sim/src/mission.ts`) lists exactly nine (GH-2, GH-4) | `sim-guard` |
 | **G10** | **No Intel economy for Idit to spend.** One mission declares `intel_start`; none declares a rate | An `intel_rate_per_min` on Sur and Naharin missions, so the sweep (150) and precision strike (250) are choices rather than lore. Content, not engine | `mission-author` |
+| **G11** | **`debrief` is one string shown on every mission end**, where `aftermath` shows on victory only, so a debrief cannot say different things for a win and a loss and the paired Shai/Idit lines in the Act I sheet stay `engine` | `debrief_victory` / `debrief_defeat` (or `debrief: { victory, defeat }`), read by `showEndScreen` off `missionEnd.result` | `sim-guard` (schema) + `render-vfx` (`ui/menu.ts`) |
 
 ---
 
