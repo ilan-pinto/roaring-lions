@@ -31,14 +31,22 @@
       "primary": true,
       "target": "approach",
       "seconds": 240,
-      "text": "Hold the approach for four minutes"
+      "text": "Hold the approach for four minutes",
+      "say": {
+        "speaker": "net",
+        "text": "Approach held. Start line is marked and the engineers are off the ground."
+      }
     },
     {
       "id": "kill_spotter",
       "type": "eliminate_hvt",
       "primary": true,
       "target": "tm_spotter_west",
-      "text": "Kill the observer in the west pocket — the shelling will ease, not stop"
+      "text": "Kill the observer in the west pocket — the shelling will ease, not stop",
+      "say": {
+        "speaker": "shai",
+        "text": "Eyes off that lip. Count the next thirty seconds — anything that still lands is being called by somebody else."
+      }
     }
   ],
   "roe": {

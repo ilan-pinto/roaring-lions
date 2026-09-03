@@ -120,10 +120,10 @@ be recorded — retrofitting the rule means throwing audio away (GH-110).
 
 `Tel Marum I — The Gateway` — **unchanged.**
 
-### 1.2 `dispatch` — the act's opening — 238 chars
+### 1.2 `dispatch` — the act's opening — 235 chars
 
 > *For a week the north woke to rockets and nobody could say from where. On the
-> eighth morning one settlement took nine of them before the sirens stopped. No
+> eighth morning one settlement took nine before the sirens stopped. No
 > launch was ever seen, no line ever plotted. Somebody had been looking at it a
 > long time.*
 
