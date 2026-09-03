@@ -347,6 +347,31 @@ yours; each one records what the next phase inherits.
   `world` container by `camera.zoom` and the overlay layer is a child of it, so
   HP bars look enormous zoomed in on BOTH backends. Verified side by side. Not a
   bug; changing it is a decision affecting both.
+- **The ground is SMOOTH since 2026-09-03, and the sim never noticed** (`terrain/ground.ts`,
+  `terrain/surface.ts`). It was flat terraces by design -- corners never interpolated, vertices
+  never shared -- for two reasons that are both retired: Pixi parity (report-only since
+  2026-09-02) and the palette guarantee, which the project lead had already overridden three
+  times. Open ground is now **Catmull-Rom bicubic over tile CENTRES**, not corners: corner-bilinear
+  is a low-pass, and a lone level-3 tile would draw at a quarter of the height the sim charges a
+  climb for. Centres make the surface pass through every authored level exactly, so what the
+  player sees and what `FlowField` prices agree. **A tile is a terrace iff `blocked[tile] !== 0`**
+  -- the sim's own mask, so `^` ridges and building pads stay cliffs while `b`/`d` ramp, because
+  infantry walks them. **The sim reads only the integer grid** (`flowfield.ts:149`, `sim.ts:2165`)
+  and is untouched: determinism hash, `playtest` (byte-for-byte) and `balance` all unmoved -- this
+  is the spatial twin of interpolating units to 60 fps while the sim ticks at 20. Units, decor,
+  fog, smoke and trails all sample the drawn surface through `ground-height.ts`; three of those
+  were found sampling a tile CORNER and fixed. Cost: +0 draw calls, +1.87% triangles, fixed per map.
+  Open ground carries the supplied **sand** PNG (4 tiles per repeat), `^` walls the supplied
+  **rock** PNG (2 tiles), both `NoColorSpace` and plain `RepeatWrapping` -- **never mirror-tile
+  them**, it kaleidoscopes -- with roads (`r`) masked out. Terrain is the fourth named palette
+  exemption, split in two on the gate: the *shade* is exempt on interpolated ground, the *albedo*
+  on all open ground and on `^`. Two things worth knowing. **For a texture, the image fed to Meshy
+  is the asset, not the model it produces** -- `art/blend/desert tile/`'s `.blend` bakes a
+  scrambled UV atlas that tiles as noise, while the PNG beside it measured seamless (edge/adjacent
+  ratio 0.95x). And **`groundTextureCheck` is structurally inert now**: textured ground is never
+  one flat colour, so the `open-ground` crop reads 0.2330 / 6,721 distinct colours against a
+  `<0.95` budget and the gate's only reference-free check can no longer fire on the defect class it
+  was built for. It still passes. Queued, not fixed.
 - **`preserveDrawingBuffer` must stay off** in shipping code. Canvas readback
   therefore returns black — that is correct, not a broken renderer.
 - **The visual gate is three-vs-three against a committed baseline**:

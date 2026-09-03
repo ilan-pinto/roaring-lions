@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0) (0x0000C0DE)), SwiftShader driver)",
   "platform": "darwin",
   "arch": "arm64",
-  "commit": "6b7646c612391d1b4e29048fefdd5cf4b39eca12",
-  "blessedAt": "2026-09-02T17:05:11.669Z",
-  "reason": "GH-153 HUD complete (714e5db layout+tokens, 8be7a78 minimap, 13a68c8 selection cluster, 6b7646c dock) plus the collapse shroud (26b39e7). The corner rl-panel stack is gone; a 210x210 minimap now occupies the bottom-right of every frame. Region-classified across three independent slices: every differing pixel sits inside the 212x212 minimap box, terrain and units unmoved, and the shroud contributes 0 px / 0.0000 at every gated scenario's frozen frame. The dock and selection cluster contribute nothing structurally -- all four gated scenarios are sandboxMap, the dock mounts only with mission.resources, and no capture ever sets a selection.",
+  "commit": "c38f7701b4007e8a7e28ee86a2fd71a79622c6c1",
+  "blessedAt": "2026-09-03T05:29:18.470Z",
+  "reason": "Smooth terrain (c38f770): the ground is Catmull-Rom bicubic over tile centres instead of flat terraces, open ground carries the supplied sand PNG and ridge walls the supplied rock PNG, on every map including the four flat ones. Every gated scenario moves because every one shows ground. Region-attributed by the implementing agent: relief 29,818 px all terrain, HUD and minimap 0; quiet 0 px / 0.6870 (the whole ground moved under pixelmatch's threshold -- the primary-metric case); open-ground 511 / 5.5360 at its deliberate zoom 3; vehicle 2 / 2.5330. Sim untouched: determinism, playtest and balance unmoved.",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "7fa9708b015ecfae89d0e2c8ffc1e5ec08e620da18692934d5e065016e896143"
+      "sha256": "a63f5a8378f966b8af5ed10e2652e6a3546c18d46394daf88e2c646e3452bdf2"
     },
     "open-ground": {
       "tick": 60,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "ee3205be733a9b36d547fcce9ca917d5fa63aec9d75a221b10bbd7dad5285537"
+      "sha256": "ced1e38b79b6e778689c8c12060446441718cedab28840f72bb3d08d4df6e586"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "62f406923884855eaa468960bcf7b49d367470d59b493301e67520f2b3a881c2"
+      "sha256": "ed7abedd6f4fd600a11e4ce3282c578c420df391c8ab5c1f8c7dd3f3bae9fff5"
     },
     "relief": {
       "tick": 500,
@@ -67,7 +67,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "70ba42a41f91541afe1f9766596f3871b68f0f66f9d618ff74bc246cc0c5cf7d"
+      "sha256": "231c01e704a78583dbe84f2310d573eedeec39a7a3f00ce4dc79b5b1bf720459"
     }
   }
 }
