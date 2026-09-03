@@ -287,12 +287,16 @@ def representative(sprites):
 # TEXTURED_MESH_EXEMPT. A line added on one side and not the other fails
 # `pnpm test`.
 TERRAIN_PALETTE_EXEMPTION = (
-    "NOT palette-checked -- the drawn ground surface, at the fragment stage only:",
-    "a smooth normal-driven shade on interpolated open ground, plus the",
-    "desert_sand_tile albedo there and the rock_ground_tile albedo on a ^ ridge.",
+    "NOT palette-checked -- the drawn ground, at the fragment stage only:",
+    "a smooth normal-driven shade on INTERPOLATED open ground, plus the",
+    "desert_sand_tile albedo on ALL open ground (flat maps included) and the",
+    "rock_ground_tile albedo on a ^ ridge.",
     "STILL palette-only, and still asserted directly: every vertex colour and",
-    "litColor buildGround emits; terrace tops and terrace/rim walls; flat ground",
-    "on any map; road tiles; scatter, groves, building boxes and the residual layer.",
+    "litColor buildGround emits; terrace tops and terrace/rim walls; road tiles;",
+    "building footprints; scatter, groves, building boxes and the residual layer.",
+    "Flat ground keeps an up normal, so its SHADE term is exactly 1.0 -- but it",
+    "does take the sand albedo, by the project lead's call: the default sandbox",
+    "map is a flat one, and flat sand is still sand.",
 )
 
 

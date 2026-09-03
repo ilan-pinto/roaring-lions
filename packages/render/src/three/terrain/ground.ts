@@ -160,6 +160,7 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
     color: [number, number, number],
     litColor: [number, number, number],
     flip: boolean,
+    sand: number,
     rock: number
   ): void => {
     pushPolygon(positions, colors, indices, [p0, p1, p2, p3], color, flip);
@@ -176,9 +177,7 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
     for (let i = 0; i < 4; i++) {
       litColors.push(litColor[0], litColor[1], litColor[2]);
       normals.push(UP_NORMAL[0], UP_NORMAL[1], UP_NORMAL[2]);
-      // Never SAND: everything routed through this helper is a flat terrace
-      // top, a wall, or a whole tile of a map with no relief.
-      sandMask.push(0);
+      sandMask.push(sand);
       rockMask.push(rock);
     }
   };
@@ -202,10 +201,39 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
         // This is the pre-2026-09-03 path verbatim, and it is what a map
         // with no relief draws for every one of its tiles.
         //
-        // A `^` ridge TOP takes the rock albedo; a building footprint does
-        // not. On a map with no relief nothing does -- `surface.flat`
-        // short-circuits ahead of the ridge test, so all four relief-free
-        // maps stay byte-identical.
+        // This quad is drawn for two different reasons, and the albedo masks
+        // read them apart.
+        //
+        // SAND, for a map with NO RELIEF only. Every one of its tiles comes
+        // through here, and ordinary open ground on a flat map is the same
+        // sand as ordinary open ground on a hill -- "flat sand is still
+        // sand", the project lead's own call once he saw that
+        // `beit_sahwan_outskirts`, the DEFAULT sandbox map, would otherwise
+        // greet a player with untextured palette ground while `qarn_hadid`
+        // and `tel_marum` were sand. Holding the four flat maps out was an
+        // engineering convenience (it kept three golden baselines at a
+        // literal zero), never a design reason.
+        //
+        // A relief map's TERRACE reaches this branch too and gets none --
+        // and it needs NO guard of its own to say so, which is worth stating
+        // because an obvious `surface.flat && open` looks like it is doing
+        // work here and is not. `isTerrace` IS `blocked !== 0`
+        // (`surface.ts`), so any tile that reaches this branch on a relief
+        // map already fails `open`. The condition would be dead by
+        // construction, and no test could ever exercise it: falsified by
+        // hand, dropping the guard changes nothing on any fixture.
+        //
+        // The same two exclusions do the work on a flat map, from the same
+        // two reads -- a road keeps its authored tone, and a building
+        // footprint keeps `groundTone`'s own `underBuilding` wash.
+        //
+        // ROCK, for a `^` ridge top on any map. No shipped flat map has a
+        // single `^` tile (counted: 0 on all four), so this branch is only
+        // ever reached on relief today -- but it is written as the rule
+        // rather than guarded on `surface.flat`, so a flat map that ever
+        // authors a ridge gets the same bedrock every other ridge gets
+        // instead of a silent palette-grey exception.
+        const open = input.blocked[ti] === 0 && decorHere !== DECOR_ROAD;
         pushQuad(
           [x, topY, y],
           [x + 1, topY, y],
@@ -214,7 +242,8 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
           toneColor,
           litToneColor,
           false,
-          !surface.flat && decorHere === DECOR_RIDGE ? 1 : 0
+          open ? 1 : 0,
+          decorHere === DECOR_RIDGE ? 1 : 0
         );
       } else {
         pushSmoothTile(

@@ -168,8 +168,9 @@ export const SURFACE_OVERSHOOT_LEVELS = 0.3;
  *    indistinguishable from flat ground, so removing the terrace edges
  *    without adding a normal-driven term would have made the map read
  *    FLATTER, not rounder.
- *  - The ground ALBEDO, `assets/textures/desert_sand_tile.png`, sampled from
- *    world XZ and applied as a ratio to its own mean
+ *  - The ground ALBEDO, `assets/textures/desert_sand_tile.png` on open ground
+ *    and `rock_ground_tile.png` on a `^` ridge, applied as a ratio to its own
+ *    mean
  *    (`mesh.ts`'s `GROUND_TEXTURE_MEAN`). The ratio form is what keeps the
  *    exemption to the variation only: the AVERAGE of a stretch of open ground
  *    is still exactly its `data/palette.json` tone, so a road, a cover tile
@@ -197,24 +198,33 @@ export const SURFACE_OVERSHOOT_LEVELS = 0.3;
  *     (`ground.ts`), so the shade term evaluates to exactly 1.0 there and
  *     their fragments are the same palette bytes they have always been. A
  *     ridge face is exempt from nothing.
- *  3. Flat ground -- every tile of a map with no elevation grid, and every
- *     level patch of a map with one -- has an up normal for the same
- *     reason, so the shade term is exactly 1.0 and the pixels are
- *     unchanged. The exemption is scoped to ground that is actually
- *     sloped.
+ *  3. The SHADE, specifically, is exactly 1.0 on flat ground -- every tile of
+ *     a map with no relief, and every level patch of a map with one -- because
+ *     they carry the same up normal. The shading half of this exemption is
+ *     scoped to ground that is actually sloped, and that is what makes it
+ *     impossible for smoothing to re-tone a map that has nothing to smooth.
+ *
+ *     Flat ground does take the sand ALBEDO, and that is a deliberate
+ *     reversal. It was held out at first, which kept three golden baselines
+ *     at a literal zero; the project lead overruled it, because the default
+ *     sandbox map is a flat one and holding it out would have greeted a
+ *     player with untextured palette ground while the two relief maps were
+ *     sand. Flat sand is still sand. The albedo half of the exemption is
+ *     therefore scoped to OPEN GROUND, on any map, sloped or not.
  *
  * `mesh.test.ts` pins 2 and 3 against the shader source, and
  * `surface.test.ts` pins that the shade term is exactly 1 at an up normal
  * rather than merely close to it.
  */
 export const SURFACE_SHADING_EXEMPTION = {
-  what: 'the interpolated open-ground surface, at the fragment stage only: a smooth normal-driven shade and the desert_sand_tile albedo',
-  why: 'an unlit vertex-coloured heightfield reads flat; the normal-driven shade and the sand albedo are what make relief legible',
+  what: 'the drawn ground, at the fragment stage only: a smooth normal-driven shade on INTERPOLATED open ground, and a sampled albedo on ALL open ground (desert_sand_tile) and on a ^ ridge (rock_ground_tile)',
+  why: 'an unlit vertex-coloured heightfield reads flat; the normal-driven shade and the two albedos are what make relief and material legible',
   notExempt: [
     'every vertex colour and litColor emitted by buildGround (still asserted palette-only)',
-    'terrace tops and terrace/rim walls (up normal, shade exactly 1.0, sand mask 0)',
-    'flat ground on any map (up normal, shade exactly 1.0, sand mask 0)',
-    'road tiles (sand mask 0, so the authored road tone still reads as a road)',
+    'terrace tops and terrace/rim walls (up normal, shade exactly 1.0, and no albedo unless the terrace is a ^ ridge)',
+    'flat ground shading on any map (up normal, so the shade term is exactly 1.0 -- flat ground still takes the sand albedo)',
+    'road tiles (no albedo, so the authored road tone still reads as a road)',
+    'building footprints (no albedo, so groundTone underBuilding wash still owns that ground)',
     'scatter marks, groves, building boxes and the residual layer (drawn through the unlit terrainMaterial, untouched)',
   ],
 } as const;

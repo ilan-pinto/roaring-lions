@@ -563,10 +563,8 @@ describe('buildGround', () => {
       expect(m.sandMask![i] * m.rockMask![i], `vertex ${i} is both sand and rock`).toBe(0);
     }
 
-    // A map with no relief takes neither, so nothing about its pixels can
-    // change -- checked below for sand, and here for rock.
-    const level = buildGround(flat(4, 4), TONES, '#14150F');
-    expect(new Set(Array.from(level.rockMask!))).toEqual(new Set([0]));
+    // Nothing else on the relief fixture is rock either.
+    expect(rockPerTile[2], 'open ground must NOT take the rock tile').toEqual(new Set([0]));
 
     // The albedo UVs: a horizontal quad projects straight down, a wall does
     // not. An east wall spans one world X, so if its UVs used that X every
@@ -592,9 +590,44 @@ describe('buildGround', () => {
       }
     }
 
-    // And a map with no relief: every vertex masked off, so nothing about a
-    // flat map's pixels can change.
-    expect(new Set(Array.from(level.sandMask!))).toEqual(new Set([0]));
+    // A map with no relief takes the SAME sand, and the same two exclusions.
+    // It was held out at first -- that kept three golden baselines at a
+    // literal zero -- and the project lead overruled it: the default sandbox
+    // map is a flat one, so holding it out would have greeted a player with
+    // untextured palette ground while the two relief maps were sand. Flat
+    // sand is still sand.
+    //
+    // This is also the first real test of the ROAD mask on a road NETWORK
+    // rather than a single strip: the four shipped flat maps carry 82, 39, 26
+    // and 43 road tiles between them.
+    const flatMap = flat(4, 3);
+    flatMap.decor = new Uint8Array(12);
+    flatMap.decor[5] = DECOR_ROAD;
+    flatMap.blocked = new Uint8Array(12);
+    flatMap.blocked[6] = 1; // a building footprint
+    const fm = buildGround(flatMap, TONES, '#14150F');
+    // Bucketed per TRIANGLE by its own centroid, not per vertex by its x:
+    // the flat path emits four UNSHARED corners per tile, so a vertex sitting
+    // on a tile boundary belongs to two buckets and reads as a mixed set.
+    // (It did, first time round.)
+    const perFlatTile: Array<Set<number>> = Array.from({ length: 12 }, () => new Set<number>());
+    for (let i = 0; i < fm.indices.length; i += 3) {
+      const tri = [fm.indices[i], fm.indices[i + 1], fm.indices[i + 2]];
+      const cx = tri.reduce((a, v) => a + fm.positions[v * 3], 0) / 3;
+      const cz = tri.reduce((a, v) => a + fm.positions[v * 3 + 2], 0) / 3;
+      const t = Math.floor(cz) * 4 + Math.floor(cx);
+      for (const v of tri) perFlatTile[t].add(fm.sandMask![v]);
+    }
+    expect(perFlatTile[0], 'open ground on a flat map must take the sand tile').toEqual(new Set([1]));
+    expect(perFlatTile[5], 'a road on a flat map must NOT take the sand tile').toEqual(new Set([0]));
+    expect(perFlatTile[6], 'a building footprint must NOT take the sand tile').toEqual(new Set([0]));
+    // Nothing on a flat map is rock -- no shipped flat map has a `^` tile at
+    // all, and this pins that the ridge branch is the only thing that grants
+    // it rather than "flat" doing so by accident.
+    expect(new Set(Array.from(fm.rockMask!))).toEqual(new Set([0]));
+    // The geometry is still the pre-2026-09-03 two triangles per tile: the
+    // sand is a fragment-stage mask on the SAME mesh, not a rebuild of it.
+    expect(fm.indices.length).toBe(4 * 3 * 6);
   });
 
   it('reaches every groundTone branch: open, road, cover, blocked, ridge', () => {
