@@ -60,12 +60,12 @@ export type { OrderId } from './selection-model';
  * Who delivers the orders.
  *
  * A constant and not mission data, because there is no data to read: the
- * mission schema carries `briefing` prose and no `speaker`. Naming him here is
+ * mission schema carries `briefing` prose and no `speaker`. Naming the officer here is
  * honest about that; inventing a `commander` field and filling it with the
  * same string in thirteen files would not be. Extending the schema is the
  * right fix and it is not this slice's.
  */
-const COMMANDER = { rank: 'Lt Col Dagan', plate: 'Dagan' };
+const COMMANDER = { rank: 'Lt Col Shai Hamami', plate: 'Hamami' };
 
 /** The feed is punctuation, not a log. Four lines is what fits above the dock
  *  without the stack reaching the reinforcements tiles. */
