@@ -4,7 +4,7 @@
   "town": "beit_sahwan",
   "phase": "foothold",
   "target_minutes": 7,
-  "briefing": "The battalion has its foothold west of town and Ashwar knows it. Hold the western approach for five minutes while the engineers dig in behind you. The corridor delivers reinforcements \u2014 spend them well; what survives tonight clears the town tomorrow. One more thing: Ashwar digs. Intel says a crew is already cutting a shaft out of town \u2014 watch for spoil creeping toward your line, and keep the Yahalom engineers alive; they are the only team that can bring a tunnel down.",
+  "briefing": "The battalion has its foothold west of town and Ashwar knows it. Idit is reading spoil west of the line \u2014 disturbed earth creeping toward you, which means a crew is cutting a shaft out of town right now. Hold the western approach for five minutes while the engineers dig in behind you. The corridor delivers reinforcements \u2014 spend them well; what survives tonight clears the town tomorrow. Ashwar dug this ground for years before the war reached it, and a route that comes up behind your line is worth more to them than every man they will spend in front of it. Keep the Yahalom engineers alive; they are the only team that can bring a tunnel down.",
   "map": {
     "file": "beit_sahwan_outskirts",
     "player_start": [
