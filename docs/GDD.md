@@ -1,6 +1,6 @@
 # Roaring Lions — Game Design Document
 
-**Version:** 1.2 · **Status:** decisions locked; §5 synced to the calibrated M0 model; §11 (story) added 2026-09-03 as a draft
+**Version:** 1.2.1 · **Status:** decisions locked; §5 synced to the calibrated M0 model; §11 (story) added 2026-09-03 as a draft, its surface list corrected the same day when `dispatch`/`aftermath`/`debrief`/`say` landed
 **Companion docs:** `CLAUDE.md` (working conventions), `docs/ART_PIPELINE.md`, `CONTRIBUTING.md`
 
 ---
@@ -348,8 +348,11 @@ fictional register the towns use.
 vocabulary can express it, and the vocabulary is extended where it cannot; no
 mission is ever scripted in code.
 
-**Planned narrative surfaces**, approved and not yet built: EVA announcements,
-voice audio for briefings and transmissions, and a radio overlay for
-mid-mission lines. Until they ship, the story reaches the player through the
-mission name, the briefing delivered in beats, and objective labels — see
+**The story reaches the player** through the mission name, the briefing
+delivered in beats, `dispatch` on the title card, `aftermath` on the victory
+banner, `debrief` on the end screen, objective labels, and mid-mission `say`
+lines carried by triggers and objectives into the notice feed and onto the
+commander bar. **Approved and not yet built:** EVA announcements, voice audio
+for briefings and transmissions, a radio overlay with portraits for the `say`
+lines, and a `debrief` that can tell a victory from a defeat. See
 `docs/campaign/README.md` for the surface contract.
