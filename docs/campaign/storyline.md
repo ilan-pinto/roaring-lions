@@ -46,6 +46,7 @@ a voice layer, which are new surfaces. Read it as retired, not quietly broken
 | O8 | Where to start | **From the beginning** — Act I, Beit Sahwan, in campaign order | the pipeline runs on the six shipped Beit Sahwan missions first (`docs/campaign/beit_sahwan/`); Umm Zeitoun and the other unbuilt plots wait |
 | D12 | **The opening's chain of events** — the lead's structural reference is the surprise attack of 7 October 2023, transposed entirely into the fiction (GDD §2: no real name, place, date, flag, faith or people): a dawn surprise under rocket and mortar cover, the fence breached at many points, paramotors over the wire, the base and the villages hit at once, an outpost overrun, families killed and **abducted** with soldiers taken from the overrun positions, small groups holding alone, relief that comes late, and a war that opens as the search for the people who were taken | shown through mechanics and stated in the story voice, never depicted; the abductions become Act I's spine — see `docs/campaign/beit_sahwan/design.md` |
 | D13 | **Act I is landed; move to Act II** (Sur: Tel Marum shipped, Umm Zeitoun to design) | lead, 2026-09-03 | `docs/campaign/tel_marum/design.md` is the Act II MDD; Karim Adhal's ending decides whether Umm Zeitoun is authored now or the act ends at the pass |
+| D14 | **Act II is landed** (2026-09-03): the four Umm Zeitoun missions ship on `data/maps/umm_zeitoun.json`, `world.json` enforces proximity → standoff → source (Sur after Beit Sahwan IV, Naharin after Umm Zeitoun IV), Shai is a Major through the act and Karim Adhal ends on the crest | pipeline, measured by `pnpm playtest` | GH-122's content exists; the ending (O9) can now be written against a war with a middle; Act III (Naharin) is next |
 
 ### 0.3 Still open — for the lead
 
@@ -565,6 +566,8 @@ exists.**
 
 Ordered by how much of the storyline each blocks.
 
+> **Status 2026-09-03 (later):** Act II shipped on the engine slice below — see D14.
+>
 > **Status 2026-09-03 (evening):** G1 (`say`, as a `MissionEvent` into the notice
 > feed and the commander bar), G2 (`data/campaign/commander.json`, rank per
 > mission), G3 (`dispatch`, `aftermath`, `debrief`) and G7's `remove` verb with
