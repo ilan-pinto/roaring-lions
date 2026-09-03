@@ -243,9 +243,19 @@ function assertPaletteColors(mesh: MeshData, label: string): void {
 // further down this file (after `KNOWN_EMPTY` is used by the assertion
 // helpers just below), and both are top-level `const`s, so referencing it
 // here would throw on the temporal-dead-zone, not merely warn.
-const KNOWN_EMPTY: ReadonlySet<string> = new Set(
-  Object.keys(maps).map((id) => `${id}:grove`)
-);
+const KNOWN_EMPTY: ReadonlySet<string> = new Set([
+  ...Object.keys(maps).map((id) => `${id}:grove`),
+  // The four tile-study sandboxes author no structures at all, deliberately:
+  // each one exists to put ONE ground albedo in front of the player, and a
+  // building would be the loudest thing in the frame on a map whose subject
+  // is the ground. Named individually rather than derived from "has no
+  // building symbols", so a shipped map that LOSES its buildings still fails
+  // -- which is the regression this set exists to catch.
+  'tile_green:buildings',
+  'tile_orchard:buildings',
+  'tile_road:buildings',
+  'tile_scrub:buildings',
+]);
 
 /** A builder producing real geometry somewhere is the precondition for its
  *  palette check meaning anything -- see `KNOWN_EMPTY`'s doc comment. */
@@ -380,6 +390,49 @@ describe.each(MAP_IDS)('terrain parity: %s', (id) => {
       if (k === 'tile top' || k === 'surface patch') surfaceTris++;
     }
     expect(surfaceTris).toBe(expectedSurfaceTriangles(input));
+  });
+
+  it('gives every vertex at most one ground albedo, on real map data', () => {
+    // `groundSurfaceMaterial` multiplies its five albedo slots in sequence,
+    // so two non-zero masks on one vertex would multiply two images onto one
+    // fragment and the result would be neither surface. `ground.ts`'s
+    // `albedoFor` is a chain of exclusions, so this holds by construction --
+    // but only for the symbol COMBINATIONS someone thought of. This runs it
+    // over every symbol every shipped map actually authors, which is the
+    // half a fixture cannot cover: `o` carrying cover 1 and `n` carrying
+    // cover 2 are exactly the sort of thing that is true in `@lions/data`'s
+    // LEGEND and not in anybody's head.
+    const mesh = buildGround(input, tones, BACKGROUND);
+    const masks = [mesh.sandMask, mesh.rockMask, mesh.roadMask, mesh.scrubMask, mesh.groveMask];
+    for (const m of masks) expect(m, 'a ground albedo mask is missing entirely').toBeDefined();
+    const n = mesh.colors.length / 3;
+    for (const m of masks) expect(m!.length).toBe(n);
+    let doubled = 0;
+    for (let i = 0; i < n; i++) {
+      if (masks.filter((m) => m![i] !== 0).length > 1) doubled++;
+    }
+    expect(doubled, `${doubled} vertices sample two albedos`).toBe(0);
+  });
+
+  it('puts a road albedo on every road tile and nowhere else', () => {
+    // The wiring, end to end, on authored roads rather than a fixture --
+    // `beit_sahwan_outskirts` has 82 road tiles and `marj_perimeter` 39.
+    // Counted through the TRIANGLES, so a mask that is set but on geometry
+    // nothing draws still fails.
+    const mesh = buildGround(input, tones, BACKGROUND);
+    const roadTiles = new Set<number>();
+    for (let t = 0; t < input.width * input.height; t++) {
+      if ((input.decor ? input.decor[t] : 0) === 1) roadTiles.add(t);
+    }
+    const drawn = new Set<number>();
+    for (let i = 0; i < mesh.indices.length; i += 3) {
+      const [a, b, c] = [mesh.indices[i], mesh.indices[i + 1], mesh.indices[i + 2]];
+      if (mesh.roadMask![a] === 0) continue;
+      const cx = (mesh.positions[a * 3] + mesh.positions[b * 3] + mesh.positions[c * 3]) / 3;
+      const cz = (mesh.positions[a * 3 + 2] + mesh.positions[b * 3 + 2] + mesh.positions[c * 3 + 2]) / 3;
+      drawn.add(Math.floor(cz) * input.width + Math.floor(cx));
+    }
+    expect([...drawn].sort((p, q) => p - q)).toEqual([...roadTiles].sort((p, q) => p - q));
   });
 
   it('draws NO wall between two open tiles -- open ground ramps, and only a blocked tile or the map edge is a cliff', () => {
