@@ -21,6 +21,7 @@ import tileOrchard from '../../../data/maps/tile_orchard.json';
 import tileRoad from '../../../data/maps/tile_road.json';
 import tileScrub from '../../../data/maps/tile_scrub.json';
 import tutorialGround from '../../../data/maps/tutorial_ground.json';
+import ummZeitoun from '../../../data/maps/umm_zeitoun.json';
 import wadiHalamBasin from '../../../data/maps/wadi_halam_basin.json';
 import structureCatalogue from '../../../data/structures.json';
 import beitSahwanBreach from '../../../data/missions/beit_sahwan_breach.json';
@@ -116,6 +117,7 @@ export const maps = {
   tile_road: tileRoad,
   tile_scrub: tileScrub,
   tutorial_ground: tutorialGround,
+  umm_zeitoun: ummZeitoun,
   wadi_halam_basin: wadiHalamBasin,
 } as const;
 
