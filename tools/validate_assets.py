@@ -288,15 +288,24 @@ def representative(sprites):
 # `pnpm test`.
 TERRAIN_PALETTE_EXEMPTION = (
     "NOT palette-checked -- the drawn ground, at the fragment stage only:",
-    "a smooth normal-driven shade on INTERPOLATED open ground, plus the",
-    "desert_sand_tile albedo on ALL open ground (flat maps included) and the",
-    "rock_ground_tile albedo on a ^ ridge.",
+    "a smooth normal-driven shade on INTERPOLATED open ground, plus ONE",
+    "sampled albedo per surface, each applied as a ratio to its own measured",
+    "mean so the surface still AVERAGES to its data/palette.json tone:",
+    "  open ground   desert_sand_tile (arid) / green_basin_tile (green)",
+    "  ^ rock ridge  rock_ground_tile",
+    "  r dirt road   road_track_tile",
+    "  1/2/3 cover   rough_scrub_tile, at a per-tier strength",
+    "  o grove floor orchard_floor_tile",
     "STILL palette-only, and still asserted directly: every vertex colour and",
-    "litColor buildGround emits; terrace tops and terrace/rim walls; road tiles;",
-    "building footprints; scatter, groves, building boxes and the residual layer.",
+    "litColor buildGround emits, cover tiers included (groundTone does not",
+    "branch on cover -- a tier reads as texture contrast, never as a tint);",
+    "terrace tops and terrace/rim walls; walls, which take bedrock or nothing;",
+    "building footprints; knoll tiles; scatter, groves, building boxes and the",
+    "residual layer -- the olive trees standing on an orchard floor and the",
+    "tuft marks on a cover tile are both still palette-only geometry.",
     "Flat ground keeps an up normal, so its SHADE term is exactly 1.0 -- but it",
-    "does take the sand albedo, by the project lead's call: the default sandbox",
-    "map is a flat one, and flat sand is still sand.",
+    "does take its surface albedo, by the project lead's call: the default",
+    "sandbox map is a flat one, and flat sand is still sand.",
 )
 
 

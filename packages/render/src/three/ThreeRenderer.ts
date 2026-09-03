@@ -126,7 +126,18 @@ import { CollapseShroudManager, COLLAPSE_SHROUD_SWAP_DELAY_MS } from './units/co
 import { buildGround } from './terrain/ground';
 import { buildScatter } from './terrain/scatter';
 import { buildBuildings, type StructureFootprint } from './terrain/buildings';
-import { toGeometry, terrainMaterial, groveMaterial, groundSurfaceMaterial, prepareGroundTexture } from './terrain/mesh';
+import {
+  toGeometry,
+  terrainMaterial,
+  groveMaterial,
+  groundSurfaceMaterial,
+  prepareGroundTexture,
+  albedoMean,
+  slotUniforms,
+  GROUND_ALBEDOS,
+  type GroundAlbedoId,
+  type GroundSlot,
+} from './terrain/mesh';
 import { terrainSurfaceFrom, type TerrainSurface } from './terrain/surface';
 import type { TerrainInput, MeshData } from './terrain/types';
 import {
@@ -774,28 +785,52 @@ export class ThreeRenderer implements Renderer {
   private readonly groundMat: THREE.ShaderMaterial = groundSurfaceMaterial();
 
   /**
-   * Fetches the two ground albedo tiles named by
-   * `RendererOptions.groundTextureUrl` / `rockTextureUrl` and, as each
-   * arrives, switches the ground surface on to it. Each is independent: a
-   * rock tile that 404s costs the ridges their texture and leaves the sand
-   * alone.
+   * Fetches the five ground albedo tiles `RendererOptions` names -- open
+   * ground, `^` ridge, `r` road, cover, `o` grove -- and, as each arrives,
+   * switches its own slot on. Each is independent: a rock tile that 404s
+   * costs the ridges their texture and leaves the other four alone.
+   *
+   * **The image's own mean and repeat come from `GROUND_ALBEDOS`, keyed by
+   * the URL's basename, not from the slot.** That is the whole reason the
+   * table exists: the open-ground slot takes `desert_sand_tile` on an arid
+   * map and `green_basin_tile` on a green one, and the two have different
+   * means (the shader divides by it) and different repeats. A URL the table
+   * does not name is REFUSED -- the slot stays off and warns -- rather than
+   * bound and divided by whatever the slot's default happened to be, which
+   * would put a colour cast over the whole map and still look like ground.
    *
    * Fire-and-forget, and deliberately NOT awaited by `init`: the ground draws
-   * correctly without it (`uSandStrength` starts at 0, which makes the whole
-   * texture term exactly 1.0 on the palette tone), so blocking the first
-   * frame on a 2.4 MB image would trade a visible boot delay for a detail
-   * nobody has seen yet. A failure warns by name and leaves the flat tone --
-   * a missing texture must not cost the player a map, which is the same
-   * fail-soft rule `loadSprites` follows for a 404ing sheet.
+   * correctly without it (every `*Strength` starts at 0, which makes the
+   * whole texture term exactly 1.0 on the palette tone), so blocking the
+   * first frame on 12 MB of images would trade a visible boot delay for a
+   * detail nobody has seen yet. A failure warns by name and leaves the flat
+   * tone -- a missing texture must not cost the player a map, which is the
+   * same fail-soft rule `loadSprites` follows for a 404ing sheet.
    */
   private loadGroundTexture(): void {
-    const load = (url: string | undefined, sampler: string, strength: string, what: string): void => {
+    const load = (url: string | undefined, slot: GroundSlot, what: string): void => {
       if (!url) return;
+      // The basename, with any query string or extension stripped: `BASE`
+      // may be a full origin and a bundler may append a hash-free query.
+      const id = (url.split('?')[0].split('/').pop() ?? '').replace(/\.[a-z0-9]+$/i, '');
+      if (!(id in GROUND_ALBEDOS)) {
+        console.warn(
+          `[lions] ${what} texture ${url} is not in GROUND_ALBEDOS (terrain/mesh.ts), so its mean and repeat are unknown; drawing its flat palette tone`
+        );
+        return;
+      }
+      const albedo = GROUND_ALBEDOS[id as GroundAlbedoId];
+      const u = slotUniforms(slot);
       new THREE.TextureLoader().load(
         url,
         (tex) => {
-          this.groundMat.uniforms[sampler].value = prepareGroundTexture(tex);
-          this.groundMat.uniforms[strength].value = 1;
+          this.groundMat.uniforms[u.map].value = prepareGroundTexture(tex);
+          this.groundMat.uniforms[u.mean].value = albedoMean(id as GroundAlbedoId);
+          this.groundMat.uniforms[u.tiles].value = albedo.tiles;
+          // The image's own gain, not 1 -- see `GROUND_ALBEDOS`. It cannot
+          // move the surface's average colour, only how hard its texture is
+          // driven, which is what a 16x minification costs a fine source.
+          this.groundMat.uniforms[u.strength].value = albedo.gain;
           this.groundMat.needsUpdate = true;
         },
         undefined,
@@ -804,8 +839,11 @@ export class ThreeRenderer implements Renderer {
         }
       );
     };
-    load(this.opts.groundTextureUrl, 'uSand', 'uSandStrength', 'ground');
-    load(this.opts.rockTextureUrl, 'uRock', 'uRockStrength', 'rock ridge');
+    load(this.opts.groundTextureUrl, 'sand', 'open ground');
+    load(this.opts.rockTextureUrl, 'rock', 'rock ridge');
+    load(this.opts.roadTextureUrl, 'road', 'road');
+    load(this.opts.scrubTextureUrl, 'scrub', 'cover scrub');
+    load(this.opts.groveTextureUrl, 'grove', 'grove floor');
   }
   /** `groveMesh` alone -- see `terrain/mesh.ts`'s own `groveMaterial` doc
    *  comment for why the wind-sway shader needs to be a separate material
