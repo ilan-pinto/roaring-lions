@@ -67,7 +67,121 @@ map (there are no lights in this scene to consume them).
 
 ---
 
-## Prompt 1 — RPG-7 launcher (`rpg_team`)
+# REVISION, 2026-09-03 — what building the RPG team changed
+
+Everything above was written before a single prompt had been through the
+pipeline. One has now, and it invalidates the document's central assumption.
+The prompts below the line still describe real objects; what changed is
+**which of them should be a prop at all**, and what a figure prompt must say.
+
+## 1. The biggest change: ask for the FIGURE HOLDING THE THING, not the thing
+
+The original plan was one rigged figure plus a prop per team, parented at
+export. That is what prompt 1 produced, and the prop itself came out well —
+a clean RPG-7, 985k verts down to 8.8k, correct roles. Attaching it is where
+it fell apart, over three separate rounds:
+
+- The launcher **floated**, because a prop's pose has to be invented. Placing
+  it took a measured shoulder surface, a bore axis, an outboard offset and a
+  slide along its own axis — four numbers, each wrong at least once.
+- The hands **closed on nothing**, so the arms had to be IK-solved onto grip
+  anchors measured out of the prop's own geometry.
+- Solving the arms **swung the figure's own fused rifle** into a horizontal
+  bar across its chest, which forced cutting the rifle out of a supplied asset.
+- The result still read as a weapon resting against a man rather than held by
+  him, because the underlying pose was a walk cycle.
+
+The project lead then supplied a **fighter generated holding the RPG**, in two
+postures, and every one of those problems disappeared at once. No attachment,
+no grip solve, no pose invention: the weapon is in the hands because Meshy put
+it there.
+
+**So: a weapon a figure CARRIES should be generated as part of that figure.**
+Prompt 1 (RPG), prompt 2 (mortar) and prompt 4's tools were all written the
+wrong way round. What genuinely stays a prop is scenery a figure does not
+hold — spoil heaps, an ammunition crate, fences, a deployed tripod nobody is
+touching.
+
+## 2. Ask for the rigged export, not only the textured blend
+
+Meshy's `..._biped.zip` carries a **19,339-vertex** rigged character with the
+24-bone skeleton this pipeline already retargets, plus one clip per file. The
+`image-to-3d-texture.blend` beside it is the same character at **966k-971k
+vertices with no skeleton at all**. The rigged export is the shippable one and
+needs no decimation; the hi-res blend is a source, and for a figure it is
+mostly a detour. Always ask for both, and expect to use the rig.
+
+## 3. Name the idle by BEHAVIOUR, because Meshy's idle was a backflip
+
+The supplied clip set was Walking, Running, Backflip, and Fall_Dead. Measured
+Hips travel (x100): Walking 34.6, Running 31.5 (in place, net 0.001),
+Backflip 242.1 with 78.9 of vertical, Fall_Dead 265.1 with **136.3 of net
+travel**. There was no idle and no firing clip in it at all.
+
+A clip request must therefore describe the BODY, never the mood:
+
+> "An idle: the fighter stands still, weight settled, feet planted, breathing
+> and small weight shifts only. **No acrobatics — no flip, cartwheel,
+> handspring or jump.** The hips must not travel: near-zero root motion."
+
+The same discipline the contract already applies to `fire` ("stand-and-shoot,
+feet planted, the body recoils and the root does not move") is what stops
+`Side_Shot`-class mistakes, and it is exactly what was missing for `idle`.
+
+## 4. Ask for the postures as SEPARATE GENERATIONS of the same character
+
+Meshy would not animate a kneeling firing pose on the biped, but it generated
+a **crouching fighter** as its own model, and that is the right shape: one
+rigged standing character for `move`/`down`, one posed crouching character for
+`idle`/`fire`. The project lead's instruction — "when shooting the unit should
+be in crouch mode also when idle not shooting" — is a posture request, and
+postures come as models here, not as clips.
+
+Two cautions, both measured. The two generations' 4K bakes compare as
+**different** by tone statistics (mean RGB 0.439/0.376/0.317 against
+0.512/0.428/0.362, histogram intersection 0.66) while looking like plainly the
+same man side by side — that metric compares whole atlases, including the
+unused space a different UV layout moves around, so **do not trust it and do
+look**. And ask for both postures in one session against the same character so
+the man does not change between clips.
+
+## 5. Drop "separable named parts" for figures; keep it for props
+
+The ten-role vocabulary exists so the runtime can repaint a mesh from the
+palette. A figure that ships its own bake never takes that path —
+`buildBuildingMeshTemplate` reaches the texture branch before it ever asks
+about roles. Asking a photogrammetry figure for named role parts buys nothing
+and constrains the generation for no reason. Props that will be palette-painted
+still need it.
+
+## 6. State the texture budget
+
+The supplied bake is **4096x4096**, and exporting it unchanged wrote a
+**22,404 KiB** GLB for one unit — against a 55 MB library total, and against
+every textured building here shipping a JPEG of 520-660 KiB. Downscaled to
+1024 and re-encoded it lands near 174 KiB. The figure is drawn at roughly 30
+px. Nothing is asked of Meshy here; it is a note so the next person does not
+ship 22 MB by accident.
+
+## 7. What a figure prompt should now contain
+
+1. The character, described concretely (costume, gear, condition).
+2. **The weapon in their hands**, described as held, not as an object beside them.
+3. Two postures, same character, one session: **standing (rigged)** and
+   **crouching/kneeling in the firing position (posed)**.
+4. Clips on the rigged one, each named by body behaviour with its root-motion
+   constraint stated: walk, run, **a still idle with no acrobatics**, a
+   stand-and-shoot with the feet planted, and a death that ends where it began.
+5. No ground slab, no baked shadows, no plinth.
+6. Real-world scale in metres.
+7. Both the `_biped.zip` rigged export and the textured blend.
+
+
+---
+
+## Prompt 1 — RPG-7 launcher (`rpg_team`)  
+> **Superseded** by the figure-holding-the-weapon approach above — kept because the prop itself exported cleanly and the numbers in it are good reference.
+
 
 > A single RPG-7 rocket-propelled grenade launcher, weapon only, no hands and no
 > figure. One straight steel firing tube 1.24 metres long and 7.5 centimetres in
