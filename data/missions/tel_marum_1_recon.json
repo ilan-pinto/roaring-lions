@@ -1,6 +1,7 @@
 {
   "id": "tel_marum_1_recon",
   "name": "Tel Marum I — The Gateway",
+  "dispatch": "For a week the north woke to rockets and nobody could say from where. On the eighth morning one settlement took nine before the sirens stopped. No launch was ever seen, no line ever plotted. Somebody had been looking at it a long time.",
   "town": "tel_marum",
   "phase": "recon",
   "target_minutes": 7,
@@ -45,14 +46,22 @@
       "type": "locate",
       "primary": true,
       "target": "tm_spotter_west",
-      "text": "Identify whoever is spotting for the battery"
+      "text": "Identify whoever is spotting for the battery",
+      "say": {
+        "speaker": "idit",
+        "text": "That one is not a picket. He is lying still on the west lip with the whole valley in front of him, and everything that has fallen on the north fell because a man was doing that."
+      }
     },
     {
       "id": "find_battery",
       "type": "locate",
       "primary": true,
       "target": "tm_hvt_battery",
-      "text": "Find the Grad section behind the wall"
+      "text": "Find the Grad section behind the wall",
+      "say": {
+        "speaker": "idit",
+        "text": "The tube is behind the wall, thirty-eight tiles from your start line. Sight six — it has never once seen the thing it was firing at."
+      }
     },
     {
       "id": "screen_out",

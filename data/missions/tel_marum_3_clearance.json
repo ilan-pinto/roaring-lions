@@ -10,7 +10,7 @@
     "player_start": [24, 44]
   },
   "ledger": {
-    "requires": ["roster.surviving_units"],
+    "requires": ["roster.surviving_units", "intel.marked_positions"],
     "produces": [
       "roster.surviving_units",
       "roe.mission_ratings",
@@ -33,14 +33,22 @@
       "primary": true,
       "target": "pass",
       "seconds": 20,
-      "text": "Take the pass and hold it for 20 seconds"
+      "text": "Take the pass and hold it for 20 seconds",
+      "say": {
+        "speaker": "net",
+        "text": "Pass is held. Nothing on wheels goes north of the wall by any other road."
+      }
     },
     {
       "id": "kill_battery",
       "type": "eliminate_hvt",
       "primary": true,
       "target": "tm_hvt_battery",
-      "text": "Destroy the Grad section"
+      "text": "Destroy the Grad section",
+      "say": {
+        "speaker": "idit",
+        "text": "The tube is down and the north can sleep tonight. Whoever was telling it where to fire has not been on this ground once — the file calls him LANTERN."
+      }
     }
   ],
   "roe": {
