@@ -27,6 +27,27 @@ lead's call, 2026-09-03: ship it -- a real RPG gunner carries a rifle too.
 This preview exists partly so that decision can be looked at rather than
 imagined.
 
+THE GRIP IS SOLVED, NOT EYEBALLED. The first version of this preview hung the
+launcher near the gunner's shoulder at a hand-tuned offset, and it read exactly
+as that: resting against him, with his hands closing on nothing. Posing the
+arms by eye to meet it is the same problem one step further on. Instead the
+launcher is placed where a shouldered RPG belongs -- bore over the right
+shoulder, pitched 38 degrees up along the figure's own facing -- and then a
+two-bone IK constraint on each arm targets an empty sitting at that grip's
+measured world position, so the hands arrive at the grips because the solver
+put them there. The two anchors come from the prop's own geometry rather than
+from a guess: inside `rpg_wood`, the vertices below the bore split into a rear
+cluster centred at (-0.0348, 0, -0.0759) and a forward one at (+0.1408, 0,
+-0.0561) -- the pistol grip and the forward grip.
+
+ONE CONSEQUENCE THAT CANNOT BE DESIGNED AWAY: the gunner's rifle is skinned to
+`RightHand` -- 1,544 vertices weighted above 0.5, spanning 0.78 m and reaching
+down to shin height, against the left hand's 466 -- so it is the AK, and it
+travels with whatever the right arm does. Raising that arm to the pistol grip
+therefore carries the rifle up with it. That is not a fault in the solve; it
+is the fused-weapon gap `import_meshy_soldier_irregular.py` discloses, and the
+lead's decision to ship the double weapon is what makes it acceptable.
+
 PLACEMENT is `teams.py`'s `rpg_team` verbatim: firer at (0.18, -0.26), loader
 at (-0.30, 0.30), launcher at the firer's own x/y at z=1.46 pitched 38 degrees
 up. Those are kit units, and the figures here are the supplied Meshy ones
@@ -205,9 +226,79 @@ pivot = bpy.data.objects.new("rpg_pivot", None)
 bpy.context.collection.objects.link(pivot)
 for o in rpg_meshes:
     o.parent = pivot
+
+# The two grip anchors, in the prop's own frame, measured from `rpg_wood`
+# rather than assumed (see the module docstring).
+PISTOL_GRIP = Vector((-0.0348, 0.0, -0.0759))
+FORWARD_GRIP = Vector((0.1408, 0.0, -0.0561))
+
+
+def bone_world(arm_obj, name):
+    return arm_obj.matrix_world @ arm_obj.pose.bones[name].head
+
+
+# The figure's own facing, from the marker bone the importer put there for
+# exactly this: `headfront` sits ahead of `Head`.
+head = bone_world(gunner_arm, "f0_Head")
+face = (bone_world(gunner_arm, "f0_headfront") - head)
+face.z = 0.0
+face.normalize()
+shoulder = bone_world(gunner_arm, "f0_RightArm")
+print(f"gunner facing ({face.x:+.3f},{face.y:+.3f})  right shoulder "
+      f"({shoulder.x:+.3f},{shoulder.y:+.3f},{shoulder.z:+.3f})")
+
+# Bore over the right shoulder, pitched up along the facing.
+#
+# Three offsets, and the first is the one that matters: the tube must ride
+# OUTBOARD of the head, not over it. `pivot` sits at the prop's own x-midpoint
+# on the bore, so seating that at the shoulder puts a 1.4 m tube's middle
+# against the man -- and lifting it, as the first attempt did, walks it
+# straight through his face at head height. SHOULDER_OUT is therefore sized
+# against real widths (a head half-width of about 0.10 m plus the tube's own
+# 0.07 m radius), SHOULDER_UP keeps the bore at roughly shoulder height rather
+# than above it, and SHOULDER_FWD slides the grip clear of his chest.
+#
+# The optic being on the tube's left is what makes this hand: with the launcher
+# on his right shoulder the gunner's head sits to the left of the bore and
+# looks past the sight, which is how the weapon is actually held.
+right = Vector((face.y, -face.x, 0.0))
+pitch = math.radians(TUBE_PITCH_DEG)
+bore_dir = (face * math.cos(pitch) + Vector((0, 0, 1)) * math.sin(pitch)).normalized()
+# Yaw the prop (its own +X is the muzzle) onto `face`, then pitch it up.
 pivot.rotation_mode = "XYZ"
-pivot.rotation_euler = (0.0, -math.radians(TUBE_PITCH_DEG), 0.0)
-pivot.location = (FIRER_AT[0] - 0.10, FIRER_AT[1] - 0.16, shoulder_z)
+pivot.rotation_euler = (0.0, -pitch, math.atan2(face.y, face.x))
+# Seat it so the bore passes just above and outboard of the shoulder.
+SHOULDER_OUT, SHOULDER_UP, SHOULDER_FWD = 0.19, 0.02, 0.12
+pivot.location = (shoulder
+                  + right * SHOULDER_OUT
+                  + Vector((0.0, 0.0, SHOULDER_UP))
+                  + face * SHOULDER_FWD)
+bpy.context.view_layer.update()
+
+# IK targets at the two grips' world positions.
+targets = {}
+# ONLY the left arm is solved, and the right one is deliberately left alone.
+# Solving both was tried and is worse than the problem it fixes: the rifle is
+# skinned to `RightHand`, so raising that arm to the pistol grip swings the AK
+# up with it into a horizontal bar across the gunner's chest -- two weapons at
+# once, one of them pointing sideways. Leaving the right arm down keeps the
+# rifle hanging at his side, which is the reading the lead approved, while the
+# left hand still genuinely closes on the launcher's forward grip and the tube
+# rests on the shoulder. A two-handed firing stance is reachable, but only by
+# cutting the fused rifle out of a supplied asset -- a separate decision.
+for label, local, bone in (("forward", FORWARD_GRIP, "f0_LeftForeArm"),):
+    world = pivot.matrix_world @ local
+    tgt = bpy.data.objects.new(f"ik_{label}", None)
+    bpy.context.collection.objects.link(tgt)
+    tgt.location = world
+    targets[label] = tgt
+    pb = gunner_arm.pose.bones[bone]
+    ik = pb.constraints.new("IK")
+    ik.target = tgt
+    ik.chain_count = 2
+    print(f"  IK {label} grip -> {bone} at ({world.x:+.3f},{world.y:+.3f},{world.z:+.3f})")
+bpy.context.view_layer.update()
+
 rpg = rpg_meshes
 
 paint([o for o in gunner_meshes + loader_meshes if o.type == "MESH"])
