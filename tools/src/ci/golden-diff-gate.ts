@@ -77,7 +77,7 @@ import {
   launchCaptureBrowser,
   stopDevServer,
 } from '../golden-diff/browser';
-import { computeDiff, formatSummary, computeDominantColorFraction, type DiffSummary } from '../golden-diff/diff';
+import { computeDiff, formatSummary, type DiffSummary } from '../golden-diff/diff';
 import { EXPECTED_DIFFERENCES, formatExpectedDifferences } from '../golden-diff/expected-differences';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -140,18 +140,20 @@ const SCENARIO_BUDGETS: Readonly<Record<string, ScenarioBudget>> = {
     // (missing scatter geometry entirely, a wrong colour family, a broken theme
     // lookup -- all of which would read as tens of percent, not fractions of one,
     // per the same reasoning `quiet`'s own comment gives). The specific coincidental
-    // bug this scenario was added for is caught by `groundTextureCheck` instead
-    // (capture-protocol.ts, `OPEN_GROUND_SCENARIO`) -- a same-renderer self-check
-    // that does not depend on Pixi's rendering style at all, and which DOES cleanly
-    // separate the two commits (0.9588 vs 0.9408, budgeted at 0.95). Full derivation
-    // in .superpowers/d-golden-scenarios-report.md.
+    // bug this scenario was added for is caught by the `scatter` layer's TONE
+    // check in `three-baseline-gate.ts` instead -- a same-renderer measurement
+    // that does not depend on Pixi's rendering style at all, and which separates
+    // the two commits 0.9544 against 0.6938 on a 0.8 floor. (Until 2026-09-03
+    // that job belonged to `groundTextureCheck`, 0.9588 vs 0.9408 on a 0.95
+    // budget; textured ground retired it -- see `capture-protocol.ts`.) Full
+    // derivation in .superpowers/d-golden-scenarios-report.md.
     maxDiffPixelPct: 3,
     maxMeanAbsChannelDelta: 14,
     rationale:
       '~1.5x the real headless post-fix (d9fd1c7) clean baseline (1.937% / 8.733) -- tighter than ' +
       "`quiet`'s ~10x because this baseline already embeds an accepted shape/softness gap. Does " +
       'NOT by itself discriminate the historical scatter bug (671acdb measured 1.945% / 8.547 -- ' +
-      'statistically the same); that defect is caught by groundTextureCheck instead. See this ' +
+      'statistically the same); that defect is caught by the scatter toggle check instead. See this ' +
       "budget's own comment above for the full reasoning.",
   },
   vehicle: {
@@ -161,7 +163,7 @@ const SCENARIO_BUDGETS: Readonly<Record<string, ScenarioBudget>> = {
     // matters here specifically): 0.774% / 4.747 and 0.780% / 4.747 --
     // reproducible to within software-GL rasterisation noise (`quiet`'s own
     // comment names this same caveat), not tick drift. This scenario has no
-    // `groundTextureCheck`-style embedded, accepted gap the way `open-ground`
+    // embedded, accepted shape/softness gap the way `open-ground`
     // does (its diff is dominated by antialiasing fringe around vehicle/terrain
     // edges, per `expected-differences.ts`'s `antialiasing` entry, not a
     // catalogued shape/softness divergence) -- headroom is set closer to
@@ -321,35 +323,14 @@ async function runScenario(page: Page, port: number, outDir: string, scenario: S
     );
   }
 
-  // groundTextureCheck (capture-protocol.ts): a same-renderer self-check, run ONLY
-  // for scenarios that declare one. Exists because the ordinary pixi-vs-three
-  // diffOk check above was measured, for the open-ground scenario specifically, to
-  // NOT discriminate the scatter defect it exists to catch (see that scenario's own
-  // doc comment) -- this checks a structural property of three's OWN capture
-  // directly instead of comparing it to Pixi.
-  let textureOk = true;
-  if (scenario.groundTextureCheck) {
-    const { region, maxBackgroundFraction } = scenario.groundTextureCheck;
-    const dom = computeDominantColorFraction(threePng, region);
-    textureOk = dom.dominantFraction < maxBackgroundFraction;
-    console.log(
-      `[golden-diff-gate] scenario "${scenario.id}" groundTextureCheck: region ` +
-        `${JSON.stringify(region)}, dominantColor rgb(${dom.dominantColor.join(',')}), ` +
-        `dominantFraction ${dom.dominantFraction.toFixed(4)} (budget <${maxBackgroundFraction}), ` +
-        `distinctColors ${dom.distinctColors} -> ${textureOk ? 'PASS' : 'FAIL'}`
-    );
-    if (!textureOk) {
-      console.error(
-        `[golden-diff-gate] scenario "${scenario.id}": three's own captured ground is ` +
-          `${(dom.dominantFraction * 100).toFixed(1)}% a single flat colour in the checked region -- ` +
-          'this is the shape of the stone-grain scatter defect (d9fd1c7): a mark composited onto its ' +
-          "own tile's background tone collapsing to a no-op. Check `scatter.ts`'s tone composites " +
-          'against the shipped theme (`terrain-themes.ts`) before assuming this is unrelated.'
-      );
-    }
-  }
-
-  if (!textureOk || !withinHistorical) {
+  // THE SELF-CHECK THAT USED TO SIT HERE IS GONE. `groundTextureCheck` cropped
+  // three's own capture and failed if more than 95% of the crop was one flat
+  // colour; textured ground took it to 0.2330 against that budget and it became
+  // incapable of firing (see `capture-protocol.ts`'s retired-field note). Its
+  // replacement is the visible-toggle A/B, and it lives in the real gate
+  // (`three-baseline-gate.ts`) rather than here, because this tool reports and
+  // does not vote.
+  if (!withinHistorical) {
     console.log(
       `[golden-diff-gate] scenario "${scenario.id}": before reading any of the ${summary.diffPixels} ` +
         `differing pixels as a bug, check them against the ${EXPECTED_DIFFERENCES.length} known ` +

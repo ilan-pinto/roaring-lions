@@ -386,21 +386,24 @@ yours; each one records what the next phase inherits.
   on all open ground and on `^`. Two things worth knowing. **For a texture, the image fed to Meshy
   is the asset, not the model it produces** -- `art/blend/desert tile/`'s `.blend` bakes a
   scrambled UV atlas that tiles as noise, while the PNG beside it measured seamless (edge/adjacent
-  ratio 0.95x). And **`groundTextureCheck` is structurally inert now**: textured ground is never
-  one flat colour, so the `open-ground` crop reads 0.2330 / 6,721 distinct colours against a
-  `<0.95` budget and the gate's only reference-free check can no longer fire on the defect class it
-  was built for. It still passes. Queued, not fixed.
+  ratio 0.95x). And **`groundTextureCheck` was structurally inert and is now
+  deleted** (2026-09-03): textured ground is never one flat colour, so the `open-ground` crop read
+  0.2330 / 6,721 distinct colours against a `<0.95` budget and the gate's only reference-free check
+  could no longer fire on the defect class it was built for, or on anything, while printing PASS.
+  What replaced it is the visible-toggle A/B — see the visual-gate bullet below.
 - **`preserveDrawingBuffer` must stay off** in shipping code. Canvas readback
   therefore returns black — that is correct, not a broken renderer.
 - **The visual gate is three-vs-three against a committed baseline**:
   `pnpm golden-baseline` (`tools/src/ci/three-baseline-gate.ts`). Playwright
   captures three.js at a fixed scenario/tick/camera and diffs it against a PNG
   in `tools/golden-baselines/<envKey>/`. It runs in **ci.yml's `visual` job on
-  every PR and every push to main** — 32.0–32.9 s wall clock for all **five**
-  scenarios including booting its own dev server — plus a nightly that files a
-  GitHub issue on failure. Read `tools/src/golden-diff/baseline.ts` before
-  touching a threshold; five things about it are counter-intuitive and every
-  one was measured.
+  every PR and every push to main** — **39.2–40.0 s** wall clock for all
+  **five** scenarios including booting its own dev server and running the ten
+  reference-free toggle checks (34.1–35.4 s without them; 3 runs each, same
+  machine, 2026-09-03 — the 32.0–32.9 s this line used to carry predates them)
+  — plus a nightly that files a GitHub issue on failure. Read
+  `tools/src/golden-diff/baseline.ts` before touching a threshold; the things
+  below are counter-intuitive and every one was measured.
   **`meanAbsChannelDelta` is the PRIMARY metric and pixelmatch's pixel count is
   the secondary one**, which is the reverse of how a golden-image gate is
   usually written. Colour here is quantised onto a palette, so a real
@@ -422,8 +425,9 @@ yours; each one records what the next phase inherits.
   and it works**, which retires the "unmeasured" this line used to carry: on
   `ubuntu-latest` (run 33591712714, 2026-09-02) all four gated scenarios
   captured cleanly on `linux-x64-swiftshader` in ~35 s wall clock, and
-  `open-ground`'s reference-free `groundTextureCheck` read `fraction 0.9363
-  (budget <0.95), distinctColors 9 → PASS` there against macOS's own 0.9363.
+  `open-ground`'s then-reference-free `groundTextureCheck` read `fraction 0.9363
+  (budget <0.95), distinctColors 9 → PASS` there against macOS's own 0.9363
+  (that check is retired now — see the toggle bullet below).
   What remains genuinely unmeasured is cross-OS EQUIVALENCE of the pixels —
   nobody has diffed a Linux capture against the macOS baseline — and that is
   why the per-environment key stays.
@@ -432,20 +436,50 @@ yours; each one records what the next phase inherits.
   guard reports only TRACKED changes, and a first bless on a new runner writes
   an entirely UNTRACKED directory, so the step printed "Baseline unchanged" and
   opened no PR. Fixed with `git status --porcelain -uall`; if you touch that
-  guard, remember `git diff` cannot see a new file. And exit 3 no longer
-  returns before capturing: the run still takes every scenario and still votes
-  on `groundTextureCheck`, which needs no stored reference — the re-injected
-  scatter defect exits **1** on a runner with no baseline at all.
-  **Do not generalise from that one defect, because a second one was measured
-  walking straight past it.** `groundTextureCheck` is declared by ONE scenario
-  (`open-ground`), so an unblessed runner judges a single 450×400 ground crop
-  and compares nothing else. Erasing every decor object (`decor-place.ts`'s
-  `familyFor` → `return null`) fails all four gated scenarios *with* a baseline
-  — quiet 4306 px / 0.5064, open-ground 952 / 0.4753, vehicle 19313 / 2.0243,
-  relief 37183 / 2.7229 — and exits **3** with none, where the self-check reads
-  the clean tree's own 0.9408. Exit 3 means "one crop was checked and nothing
-  was COMPARED"; on CI that is a green tick with a warning, until a baseline is
-  blessed for that runner.
+  guard, remember `git diff` cannot see a new file.
+  **What votes with no baseline is the VISIBLE-TOGGLE A/B, and it replaced a
+  check that had gone structurally inert.** Hide a named draw layer, repaint
+  with zero elapsed presentation time, capture, and require the frame to change
+  by a calibrated floor — `BaselineSpec.layerChecks`, with the renderer seam in
+  `packages/render/src/three/debug-layers.ts` (`scatter`, `decor`,
+  `ground-albedo`, `buildings`; ten checks over `quiet`, `open-ground` and
+  `relief`). It is texture-proof by construction: it never asks what the frame
+  looks like, only whether removing a layer changes it. That is exactly what
+  `groundTextureCheck` could not survive — it asked how much of a ground crop
+  was one flat colour, the sand tile landed, and the answer became a permanent
+  0.2330 against a `<0.95` budget. **A reference-free check that asks about
+  appearance can be blinded by content added later; one that asks whether a
+  layer contributes cannot.** Both documented defects now exit **1** with an
+  empty baseline directory: erasing every decor object (`decor-place.ts`'s
+  `familyFor` → `return null`) drives the `decor` toggle to 0 px / 0.0000 on all
+  three scenarios (floors 4700/0.4, 300/0.15, 12800/0.92), and the scatter
+  no-op fails the `scatter` **tone** check.
+  **The scatter no-op is a colour regression, not an erasure, and the plain
+  toggle cannot see it** — measured, not assumed: hiding `scatter` on
+  `open-ground` moves 4610 px / 1.6858 clean against 4067 / 1.5393 defective, a
+  9% dip no honest floor separates. What separates them is a ratio of two
+  footprints of the same layer: over textured ground every mark shows, including
+  one whose colour has collapsed into the ground's own tone (a flat mark still
+  flattens the texture); over the FLAT palette tone (`ground-albedo` hidden,
+  which is the material's own 404 path) only a real tone difference shows.
+  Clean 0.9306 / 0.9544 / 0.9377, defective 0.5927 / 0.6938 / 0.6359, floor 0.8
+  in the gap.
+  **Floors are one third of a measured signal, not a guess, and they are not
+  per-environment.** All ten layer deltas are bit-identical across five
+  consecutive full-gate runs (the scene is frozen; the two photographs differ
+  only by the toggle), and ANGLE/Metal — a rasteriser difference worth 230 px
+  against a stored baseline — moves them by under 2% bar one (`relief`
+  `ground-albedo` pixel count 1015 → 906, still 2.7× its floor). The toggles
+  cost **~4.9 s** on the gate's ~34.8 s (3 runs each, same machine).
+  **Exit 3 still means "nothing was COMPARED", and two scenarios are captured
+  and not judged at all**: `vehicle`, because the only thing it uniquely frames
+  is mesh vehicles and `updateVehicleMeshes` re-asserts `root.visible` every
+  frame, so the repaint meant to photograph them missing is the call that puts
+  them back (76 px / 0.0100 for hiding "units" there, against 6922 / 0.5014 for
+  scatter — there is deliberately no `units` layer); and `combat`, whose scene
+  does not hold still between two photographs at all (two screenshots with NO
+  repaint between them differ by 10989 px, then 22215). A regression in anything
+  no layer check names still passes on an unblessed runner at any size.
   **Run-to-run noise is not spread over the frame**; it sits in tight clusters
   around animating mesh units and real-time VFX, and every other pixel is
   bit-identical between captures. That is why a scenario can declare a

@@ -36,15 +36,19 @@ import { maps, parseMap } from '@lions/data';
 import { PNG } from 'pngjs';
 import {
   BASELINES,
+  REPAINT_CONTROL_MAX_DIFF_PIXELS,
+  REPAINT_CONTROL_MAX_MEAN_DELTA,
   capturePreconditionMismatches,
   envKey,
   evaluateBaseline,
+  evaluateLayerCheck,
+  evaluateToneCheck,
   glFamily,
   isGated,
   specFor,
 } from './baseline';
 import { computeDiff, type DiffSummary } from './diff';
-import { CAPTURE_VIEWPORT, RELIEF_SCENARIO, SCENARIOS } from './capture-protocol';
+import { CAPTURE_VIEWPORT, RELIEF_SCENARIO, SCENARIOS, layerToggleScript } from './capture-protocol';
 
 function summary(over: Partial<DiffSummary>): DiffSummary {
   return {
@@ -56,6 +60,7 @@ function summary(over: Partial<DiffSummary>): DiffSummary {
     totalPixels: 1_260_000,
     diffPixels: 0,
     diffPixelPct: 0,
+    changedPixels: 0,
     meanAbsChannelDelta: 0,
     maxAbsChannelDelta: 0,
     thresholdUsed: 0.1,
@@ -507,5 +512,291 @@ describe('computeDiff region', () => {
     expect(s.diffPixels).toBe(0);
     expect(s.meanAbsChannelDelta).toBeCloseTo(19, 5);
     expect(evaluateBaseline(s, BASELINES['open-ground']).ok).toBe(false);
+    // And `changedPixels` counts EVERY one of them, because it has no
+    // threshold at all. This is the property the tone-collapse ratio stands on:
+    // it compares two FOOTPRINTS, and a mark that differs from its ground by
+    // one palette step is part of the footprint. Measured on the real scatter
+    // layer the two counts differ by more than 2x (8558 exact against 3498
+    // perceptual), so reading the perceptual one there would score a third of
+    // the marks as absent on a clean tree.
+    expect(s.changedPixels).toBe(400);
+  });
+});
+
+// ============================================================================
+// The reference-free half: the visible-toggle A/B
+// ============================================================================
+//
+// These tests exist because this gate has now shipped one reference-free check
+// that could not fail (`groundTextureCheck`, blinded by a texture and passing
+// at 0.2330 against a <0.95 budget) and one toggle layer that could not pass
+// (`units`, re-shown by the very repaint meant to photograph it missing). Both
+// failure modes are silent from the outside: the run is green and the log
+// reads like coverage. So the direction of every comparison, and the identity
+// of every layer name, is pinned here rather than in a comment.
+
+describe('evaluateLayerCheck', () => {
+  const check = {
+    layer: 'decor',
+    minDiffPixels: 4700,
+    minMeanAbsChannelDelta: 0.4,
+    rationale: 'test',
+  };
+
+  it('fails when hiding the layer changes almost nothing -- the erasure defect', () => {
+    // `decor-place.ts`'s `familyFor` -> `return null` erases every decor object
+    // on every map, so hiding the (now empty) decor batches changes nothing at
+    // all. This is the exact reading that must be red, and the one the retired
+    // groundTextureCheck scored as a clean-tree PASS.
+    const v = evaluateLayerCheck(summary({ diffPixels: 0, meanAbsChannelDelta: 0 }), check);
+    expect(v.ok).toBe(false);
+    expect(v.failures.join(' ')).toMatch(/hiding "decor" moved meanAbsChannelDelta 0\.0000 < 0\.4/);
+    expect(v.failures).toHaveLength(2);
+  });
+
+  it('passes the measured clean-tree signal', () => {
+    const v = evaluateLayerCheck(summary({ diffPixels: 14180, meanAbsChannelDelta: 1.2038 }), check);
+    expect(v.ok).toBe(true);
+    expect(v.failures).toEqual([]);
+  });
+
+  it('is a FLOOR, not a ceiling -- an enormous delta passes', () => {
+    // The inversion that makes this half of the gate work, and the one a reader
+    // tidying `evaluateBaseline` and this function into one shape would break:
+    // "the layer contributes far more than expected" is not a finding here.
+    const v = evaluateLayerCheck(summary({ diffPixels: 1_000_000, meanAbsChannelDelta: 200 }), check);
+    expect(v.ok).toBe(true);
+  });
+
+  it('fails on meanAbsChannelDelta alone, with the pixel count well clear', () => {
+    // The mirror of `evaluateBaseline`'s first test, for the same measured
+    // reason: a palette-quantised layer can move a wide area by one step and
+    // leave pixelmatch at zero, so magnitude is the primary metric in both
+    // directions.
+    const v = evaluateLayerCheck(summary({ diffPixels: 9999, meanAbsChannelDelta: 0.01 }), check);
+    expect(v.ok).toBe(false);
+    expect(v.failures).toHaveLength(1);
+    expect(v.failures[0]).toMatch(/primary floor/);
+  });
+});
+
+describe('BASELINES layerChecks', () => {
+  /** `DEBUG_LAYERS` parsed out of the renderer source as TEXT.
+   *
+   *  `@lions/tools` does not depend on `@lions/render` and should not start:
+   *  this package is the headless half of the project and pulling three.js into
+   *  `pnpm test` for one array would be a poor trade. Reading the declaration
+   *  is the same technique `textured-building.test.ts` uses to pin a TypeScript
+   *  set against a Python one, and it fails loudly if the declaration is
+   *  renamed or reshaped rather than silently matching nothing. */
+  function debugLayersFromRendererSource(): string[] {
+    const src = readFileSync(
+      path.resolve(
+        path.dirname(fileURLToPath(import.meta.url)),
+        '../../../packages/render/src/three/debug-layers.ts'
+      ),
+      'utf8'
+    );
+    const m = /export const DEBUG_LAYERS = \[([^\]]*)\] as const;/.exec(src);
+    if (!m) throw new Error('could not find DEBUG_LAYERS in packages/render/src/three/debug-layers.ts');
+    return [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
+  }
+
+  it('names only layers the renderer can actually toggle', () => {
+    // A name the renderer does not know THROWS in the page, which surfaces as a
+    // capture failure rather than as a layer that appears to draw nothing --
+    // but only once someone runs the browser half. This catches it in
+    // `pnpm test`.
+    const known = debugLayersFromRendererSource();
+    expect(known.length).toBeGreaterThan(0);
+    for (const [id, spec] of Object.entries(BASELINES)) {
+      for (const check of spec.layerChecks ?? []) {
+        expect(known, `scenario "${id}" declares layer "${check.layer}"`).toContain(check.layer);
+      }
+    }
+  });
+
+  it('has no `units` layer to declare, because the renderer re-shows units every frame', () => {
+    // Measured: `updateMeshUnits`/`updateVehicleMeshes` assign `root.visible`
+    // from fog visibility on every frame, so the repaint that should photograph
+    // units missing is the call that puts them back -- 76 px / 0.0100 on the
+    // `vehicle` scenario, whose subject IS mesh vehicles, against 6922 px /
+    // 0.5014 for scatter in the same frame. Re-adding it without also giving
+    // the per-frame path a flag to consult would ship a check that fails on a
+    // healthy tree.
+    expect(debugLayersFromRendererSource()).not.toContain('units');
+  });
+
+  it('gives every gated scenario either a reference-free check or a stated reason to have none', () => {
+    // The exit-3 regime in one assertion: with no stored baseline, a scenario
+    // with no layer check is CAPTURED and not judged. Two scenarios opt out and
+    // both carry a measured reason in their own comment (`vehicle`: the only
+    // thing it uniquely frames cannot be toggled; `combat`: the scene does not
+    // hold still between two photographs). If a THIRD opts out, that is a
+    // decision someone should have to make deliberately.
+    const withoutChecks = Object.entries(BASELINES)
+      .filter(([, spec]) => (spec.layerChecks ?? []).length === 0)
+      .map(([id]) => id);
+    expect(withoutChecks.sort()).toEqual(['combat', 'vehicle']);
+  });
+
+  it('covers all three maps the gate looks at, for scatter, decor and ground albedo alike', () => {
+    // Coverage stated as a fact rather than assumed from the table's shape: the
+    // decor erase that walked past the old self-check has to fail on more than
+    // one map, and the scatter defect has to be visible somewhere other than
+    // the crop it was first found in.
+    const byLayer = new Map<string, string[]>();
+    for (const [id, spec] of Object.entries(BASELINES)) {
+      for (const check of spec.layerChecks ?? []) {
+        byLayer.set(check.layer, [...(byLayer.get(check.layer) ?? []), id]);
+      }
+    }
+    expect(byLayer.get('scatter')?.sort()).toEqual(['open-ground', 'quiet', 'relief']);
+    expect(byLayer.get('decor')?.sort()).toEqual(['open-ground', 'quiet', 'relief']);
+    expect(byLayer.get('ground-albedo')?.sort()).toEqual(['open-ground', 'quiet', 'relief']);
+    // Only two scenarios frame a building at all; `open-ground` and `relief`
+    // read a literal 0 for it and must not declare it.
+    expect(byLayer.get('buildings')).toEqual(['quiet']);
+  });
+
+  it('sets every floor strictly below the signal it was measured from, on both metrics', () => {
+    // The measured clean-tree deltas, identical across 5 consecutive full-gate
+    // runs (macOS SwiftShader, frame loop frozen). Written out here so the
+    // arithmetic behind "a third of the signal" is checkable without a browser,
+    // and so a floor edited upward past its own measurement is caught in
+    // `pnpm test` rather than by a red gate nobody can explain.
+    const MEASURED: Record<string, Record<string, { px: number; mean: number }>> = {
+      quiet: {
+        scatter: { px: 1730, mean: 0.1318 },
+        decor: { px: 14180, mean: 1.2038 },
+        'ground-albedo': { px: 2266, mean: 0.8628 },
+        buildings: { px: 28026, mean: 1.458 },
+      },
+      'open-ground': {
+        scatter: { px: 4610, mean: 1.6858 },
+        decor: { px: 915, mean: 0.4583 },
+        'ground-albedo': { px: 511, mean: 5.5363 },
+      },
+      relief: {
+        scatter: { px: 7146, mean: 0.4093 },
+        decor: { px: 38513, mean: 2.7695 },
+        'ground-albedo': { px: 1015, mean: 3.0769 },
+      },
+    };
+    for (const [id, spec] of Object.entries(BASELINES)) {
+      for (const check of spec.layerChecks ?? []) {
+        const m = MEASURED[id]?.[check.layer];
+        expect(m, `no measurement recorded for ${id}/${check.layer}`).toBeDefined();
+        if (!m) continue;
+        // A third of the signal, with the rounding always downward.
+        expect(check.minDiffPixels).toBeLessThanOrEqual(m.px / 3);
+        expect(check.minMeanAbsChannelDelta).toBeLessThanOrEqual(m.mean / 3);
+        // And not zero: a floor of 0 is a check that cannot fail, which is the
+        // failure mode this whole file is a reaction to.
+        expect(check.minDiffPixels).toBeGreaterThan(0);
+        expect(check.minMeanAbsChannelDelta).toBeGreaterThan(0);
+        // The clean-tree signal passes, and a total erasure does not.
+        expect(evaluateLayerCheck(summary({ diffPixels: m.px, meanAbsChannelDelta: m.mean }), check).ok).toBe(true);
+        expect(evaluateLayerCheck(summary({ diffPixels: 0, meanAbsChannelDelta: 0 }), check).ok).toBe(false);
+      }
+    }
+  });
+});
+
+describe('the repaint control', () => {
+  it('is zero on both metrics, because a zero-time repaint was measured bit-identical', () => {
+    // Not a band. `quiet`, `open-ground` and `relief` each read a literal 0 px
+    // / 0.0000 on 5 consecutive full-gate runs, so there is nothing to leave
+    // room for -- and widening it would loosen every layer floor at once, since
+    // the toggle diffs attribute their whole delta to the layer on the strength
+    // of this number.
+    expect(REPAINT_CONTROL_MAX_DIFF_PIXELS).toBe(0);
+    expect(REPAINT_CONTROL_MAX_MEAN_DELTA).toBe(0);
+  });
+});
+
+describe('layerToggleScript', () => {
+  it('hides the named layer and repaints with ZERO elapsed presentation time', () => {
+    // The `0` is the whole reason the A/B measures the layer and not one frame
+    // of animation on top of it. `frame(1, lastFrameMs)` -- what `__lions.step`
+    // does -- would advance every particle, mixer and smoke clock between the
+    // two photographs.
+    const s = layerToggleScript('scatter', false);
+    expect(s).toContain("setDebugLayerVisible(\"scatter\", false)");
+    expect(s).toContain('frame(1, 0)');
+    expect(layerToggleScript('decor', true)).toContain("setDebugLayerVisible(\"decor\", true)");
+  });
+
+  it('quotes the layer name, so a name with a quote in it cannot inject script', () => {
+    expect(layerToggleScript('a"b', false)).toContain('setDebugLayerVisible("a\\"b", false)');
+  });
+});
+
+describe('evaluateToneCheck', () => {
+  const check = { over: 'ground-albedo', minFootprintRatio: 0.8, rationale: 'test' };
+
+  it('fails the measured scatter no-op on every scenario that declares it', () => {
+    // The defect, re-injected into this tree and captured with an EMPTY
+    // baseline directory. These are the real readings, and each is the pair of
+    // footprints the gate printed: over textured ground, and over the flat
+    // palette tone the ground wears when its texture 404s.
+    for (const [tex, flat] of [
+      [8794, 5212], // quiet
+      [8912, 6183], // open-ground
+      [23731, 15090], // relief
+    ]) {
+      const v = evaluateToneCheck(tex, flat, check, 'scatter');
+      expect(v.ok, `${tex}/${flat}`).toBe(false);
+      expect(v.failures[0]).toMatch(/drawing in its own ground's colour/);
+    }
+  });
+
+  it('passes the measured clean tree on every scenario that declares it', () => {
+    for (const [tex, flat] of [
+      [8938, 8318], // quiet
+      [8967, 8558], // open-ground
+      [23915, 22426], // relief
+    ]) {
+      expect(evaluateToneCheck(tex, flat, check, 'scatter').ok, `${tex}/${flat}`).toBe(true);
+    }
+  });
+
+  it('puts its floor in the GAP between the two populations, not on a fitted line', () => {
+    // The same standard `tools/building_facing.py`'s FRONT_MARGIN is held to.
+    // Clean readings bottom out at 0.9302 (measured on ANGLE/Metal); defective
+    // ones top out at 0.6938. A floor anywhere in between is defensible; one
+    // outside that range is either blind to the defect or red on a clean tree,
+    // and this asserts which side of each the shipped number is on.
+    const floors = new Set<number>();
+    for (const spec of Object.values(BASELINES)) {
+      for (const c of spec.layerChecks ?? []) if (c.toneCheck) floors.add(c.toneCheck.minFootprintRatio);
+    }
+    expect(floors.size).toBe(1);
+    const floor = [...floors][0];
+    expect(floor).toBeGreaterThan(0.6938);
+    expect(floor).toBeLessThan(0.9302);
+  });
+
+  it('refuses to score a layer with no footprint at all, and says which check to read', () => {
+    // 0/0 is the plain floor's finding (the layer draws nothing). Reporting it
+    // as a ratio of 0 would fail the scenario twice and bury the message that
+    // says what actually happened.
+    const v = evaluateToneCheck(0, 0, check, 'scatter');
+    expect(v.ok).toBe(false);
+    expect(v.failures[0]).toMatch(/no footprint over textured ground at all/);
+  });
+
+  it('is declared only where the ground is proven textured by its own scenario', () => {
+    // The ratio is vacuously 1.0 on ground that carries no texture, so every
+    // tone check depends on the same scenario also gating `ground-albedo`. If
+    // that pairing is ever broken the tone check silently stops meaning
+    // anything -- which is precisely how the check it replaced died.
+    for (const [id, spec] of Object.entries(BASELINES)) {
+      for (const c of spec.layerChecks ?? []) {
+        if (!c.toneCheck) continue;
+        const declared = (spec.layerChecks ?? []).map((x) => x.layer);
+        expect(declared, `scenario "${id}"`).toContain(c.toneCheck.over);
+      }
+    }
   });
 });

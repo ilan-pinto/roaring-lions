@@ -119,20 +119,25 @@ jobs:
       # guard is blind to untracked files, so the very run that writes a new
       # environment directory reported "unchanged" and opened no PR -- which
       # made exit 3 permanent and this job a green tick forever. And the gate
-      # returned before capturing anything on exit 3, so not even
-      # `groundTextureCheck` ran. Both are fixed; a self-check failure now
+      # returned before capturing anything on exit 3, so not even the
+      # reference-free self-check ran. Both are fixed; a self-check failure now
       # exits 1 even with no baseline.
       #
-      # THAT IS NOT THE SAME AS "a real defect still fails here", which this
-      # comment's neighbours used to claim. `groundTextureCheck` is declared by
-      # ONE scenario (`open-ground`), so an unblessed runner judges a single
-      # 450x400 ground crop and compares nothing else. Measured: erasing every
-      # decor object fails all four gated scenarios against a baseline (quiet
-      # 4306 px / 0.5064, open-ground 952 / 0.4753, vehicle 19313 / 2.0243,
-      # relief 37183 / 2.7229) and exits 3 with none -- i.e. this step's
-      # leniency turns a four-scenario red into a green tick with a warning.
-      # The warning below is therefore the whole safety net until a baseline is
-      # blessed for this runner, which is the action it asks for.
+      # WHAT AN UNBLESSED RUNNER ACTUALLY JUDGES, measured 2026-09-03: the ten
+      # visible-toggle checks (hide a draw layer, repaint, capture, require the
+      # frame to change) across quiet, open-ground and relief. Both defects
+      # this gate has been broken with exit 1 from that state -- the decor
+      # erase drives the `decor` toggle to 0 px / 0.0000, and the stone-grain
+      # scatter no-op fails the `scatter` tone ratio at 0.5927-0.6938 against a
+      # 0.8 floor. The decor erase is the one that used to reach exit 3 here
+      # and turn a four-scenario red into a green tick.
+      #
+      # THAT IS STILL NOT "a real defect always fails here". `vehicle` and
+      # `combat` declare no reference-free check at all, and every check that
+      # runs names ONE layer in ONE framing -- a regression in unit meshes,
+      # fog, overlays or a wrong-but-still-present colour passes at any size.
+      # The warning below remains the safety net until a baseline is blessed
+      # for this runner, which is the action it asks for.
       #
       # The warning is also written to the step summary. A `::warning::`
       # annotation is easy to miss beside a green tick, and "the gate told you

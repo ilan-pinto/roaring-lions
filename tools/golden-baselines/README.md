@@ -17,22 +17,62 @@ gate exists to catch. A capture environment with no directory here is **exit 3**
 from the gate, loudly, never a silent pass.
 
 **Read what exit 3 does and does not check.** The run still captures every
-scenario and still votes on the reference-free `groundTextureCheck` — but only
-`open-ground` declares one, so on an unblessed runner a single 450×400 ground
-crop is the whole verdict and the other four scenarios are captured and compared
-to nothing. This sentence used to say "a real defect exits 1 even here", and a
-measurement falsified it: erasing every decor object (`decor-place.ts`'s
-`familyFor` → `return null` — no boulder, rock, tree, bush, slab, grass or sand
-on any map) fails all four gated scenarios *with* a baseline — quiet 4306 px /
-0.5064, open-ground 952 / 0.4753, vehicle 19313 / 2.0243, relief 37183 / 2.7229,
-exit 1 — and exits **3** with none, which `ci.yml` turns into a green tick. In
-that same run `open-ground`'s self-check read `fraction 0.9408 (budget <0.95) →
-PASS`, the number a clean tree reads, while the same crop's baseline diff was 952
-pixels. Exit 3 means "one crop of one scenario was checked and nothing was
-COMPARED". The fix is to bless a baseline here, not to trust the code.
+scenario and still votes on the reference-free checks that need no stored
+picture — the **visible-toggle A/B**: hide a named draw layer, repaint, capture,
+and require the frame to change (`BaselineSpec.layerChecks`; the renderer seam is
+`packages/render/src/three/debug-layers.ts`). Ten of them run, across `quiet`,
+`open-ground` and `relief`, covering scatter, decor, ground albedo and buildings.
+Both defects this gate has ever been broken with now exit **1** from an empty
+baseline directory, measured on this branch:
 
-**Cross-OS portability is unmeasured.** Linux SwiftShader and macOS SwiftShader
-may or may not agree; nobody has checked. Do not assume the macOS set covers CI.
+| defect | reading with no baseline |
+|---|---|
+| decor erase (`decor-place.ts`'s `familyFor` → `return null`) | `decor` toggle 0 px / 0.0000 on all three scenarios, against floors of 4700/0.4, 300/0.15, 12800/0.92 |
+| stone-grain scatter no-op (`671acdb`) | `scatter` **tone** ratio 0.5927 / 0.6938 / 0.6359 against a 0.8 floor (clean tree: 0.9306 / 0.9544 / 0.9377) |
+
+The decor erase is the one this section used to record as walking straight past
+exit 3 with the old `groundTextureCheck` reading the clean tree's own number.
+That check is **gone** — see "What happened to groundTextureCheck" below.
+
+Exit 3 still means "nothing was COMPARED", and that is not nothing: `vehicle`
+and `combat` declare no reference-free check at all and are captured, not
+judged, and every check that runs is a statement about ONE layer in ONE framing.
+A regression in something no layer check names — unit meshes, fog, overlays, a
+wrong colour that is still a colour — passes here at any size. The fix is to
+bless a baseline here.
+
+## What happened to groundTextureCheck
+
+It was deleted, 2026-09-03, and nothing replaced it in kind.
+
+It cropped `open-ground`'s ground and failed if more than 95% of the crop was a
+single flat colour: 0.9542 with the scatter defect present, 0.9408 without, and
+for a while that 1.3% margin was the gate's only reference-free vote. Then
+`c38f770` put a photographic sand tile on every open-ground pixel. Textured
+ground is never one flat colour, so the same crop now reads **0.2330 with 6,721
+distinct colours** — measured on both stored baselines — against a `<0.95`
+budget it can no longer approach from any direction, on any tree. It could not
+fire on the defect class it was built for, or on anything, and it went on
+printing PASS.
+
+The lesson is in the shape of the question, not the number: a reference-free
+check that asks what the frame LOOKS LIKE can be blinded by content someone adds
+later. One that asks whether a layer CONTRIBUTES pixels cannot — it never looks
+at what is underneath. Do not reintroduce an appearance statistic here without a
+defect it catches that the toggles do not.
+
+**Floors are not per-environment, and that was measured rather than assumed.**
+The same three scenarios captured through ANGLE/Metal instead of SwiftShader —
+a rasteriser difference worth 230 px / 0.0320 against a stored baseline — move
+every layer delta by under 2% except one (`relief`'s `ground-albedo` pixel
+count, 1015 → 906, still 2.7× its floor), and move the three tone ratios by at
+most 0.0004. One set of floors covers both backends, so a new environment needs
+a blessed baseline but not a recalibration.
+
+**Cross-OS portability of the stored PIXELS is unmeasured.** Linux SwiftShader
+and macOS SwiftShader may or may not agree; nobody has diffed one against the
+other. Do not assume the macOS set covers CI. (The reference-free floors above
+are a different question and are measured across two GL backends.)
 
 ## The bytes
 
@@ -69,5 +109,9 @@ review after the fact, read the commit's PNG diff on GitHub and revert it if the
 change was not intended.
 
 **Do not widen a threshold in `baseline.ts` to clear a red run.** Each one is
-calibrated against a real repeated-capture noise measurement of its own
-scenario, and the margins are small on purpose.
+calibrated against a real repeated-capture measurement of its own scenario, and
+the margins are small on purpose. That applies in both directions now: the
+baseline thresholds are ceilings calibrated against run-to-run noise, and the
+layer floors are minimums set at one third of a measured signal that was
+bit-identical across five consecutive runs. Lowering a floor to clear a red run
+is the same act as widening a ceiling.
