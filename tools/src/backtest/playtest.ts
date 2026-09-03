@@ -566,12 +566,69 @@ const led4In = { ...led1, ...led2, ...led3 };
 // there is no tile to guess -- the plan only has to say which route and when.
 // Route indices are positional, in the map's own `tunnels` array order:
 // bs_tn_west=0, bs_tn_north=1, bs_tn_souk=2, bs_tn_clinic=3.
+//
+// Second regression: Beit Sahwan I gained a companion placement -- militia_cell
+// tagged bs_track_north at [26.5,16.5], IV's own tag too, with a secondary
+// (find_the_column) the I plan above now completes. intel.marked_positions
+// accumulates by tag and led4In merges led1..led3, so bs_track_north now
+// spawns PRE-IDENTIFIED here: spawnPlacement's preMarked branch (mission.ts)
+// skips setAmbush, and it stands revealed from tick zero at its full 7-tile
+// rifle range instead of holding fire to the 3 tiles its stance authors.
+//
+// That is not what actually broke this plan. A scratch instrumented run
+// (walk_world.ts's makeWorld, this same led1/led2/led3 chain, full per-tick
+// dumps of every unit's position/hp/mobilityKilled/chargeTicks) shows the fix
+// below returns the identical VICTORY in 2.1 min, ROE 98, roster out 6 even
+// with bs_track_north stripped back out of intel.marked_positions -- so it
+// spawns as a genuine hidden ambush again. The weaker militia cell it replaces
+// was never the threat; the ledger change shifted how many combat ticks other
+// entities spend fighting before this point, which shifts their own
+// per-entity RNG draws (sim.ts's `rng(shooterId)`, read on every
+// targeting/penetration/component roll) far enough to expose two pre-existing
+// structural faults this plan already had:
+//
+// 1. The Namer sat parked at the crossroads (27,25) -- one tile from
+//    bs_ambush_market_lane at (27.5,24.5) -- as part of `escort`, for the 45+
+//    seconds that group needs to clear bs4_cell_souk and bs4_charge_crossroads
+//    regardless of when a LATER order is queued (attack-move will not abandon
+//    a live fight). That ambush's rpg7 (penetration 550) overmatches the
+//    Namer's 420 front armor; the hit landed and rollComponent (sim.ts) drew
+//    mobility_kill. A mobility-killed hull is skipped by every later
+//    stepMovement tick FOREVER (sim.ts:4628) -- no order, however late, ever
+//    moves it again. It was already carrying the two civilians it picks up
+//    for free near its own spawn, so those two were stranded at (27,25) and
+//    get_them_out came up two short of 5 inside the 240s clock.
+// 2. East's solo run at bs_tn_north started the moment its own tunnel:1 order
+//    fired at t=45, with escort still 25-30s of travel away and unable to
+//    leave its own fight early. Two buried rpg_team occupants (300 damage,
+//    penetration 550 each) surfaced on approach and killed the 380 HP team
+//    before its charge finished, permanently blocking bs_tn_north -- only two
+//    Yahalom teams exist in the whole mission, so bring_it_down could never
+//    complete once one of them was dead.
+//
+// Fix: the Namer is no longer part of `escort` -- it peels off to the
+// collection point immediately instead, so it never stands next to either
+// ambush again -- and east's own north charge is held until t=68 instead of
+// t=45, so escort (now inf_squad + apc_eitan) is already drawing fire nearby
+// when the two buried teams surface, rather than east taking both alone.
+// Nothing else moved: a scratch run proved escort's own push orders were
+// never the lever -- it cannot leave its own gauntlet near spawn early no
+// matter when a later order is queued, so retiming those changed nothing.
+// Even fixed, escort's north fight stays close: one inf_squad is measured
+// dropping to ~8 of its 400 HP there before the buried pair dies -- exactly
+// the trade the design already intends (a replaceable rifle squad drawing
+// fire meant for an irreplaceable charge team), now actually landing on the
+// right unit.
 run('beit_sahwan_4_subterranean', (sim, _rt, ids, at) => {
   const teams = ids('yahalom_squad');
   const west = teams.slice(0, 1);
   const east = teams.slice(1, 2);
   const drone = ids('recon_drone');
-  const escort = [...ids('inf_squad'), ...ids('ifv_namer'), ...ids('apc_eitan')];
+  const rescueVehicle = ids('ifv_namer');
+  const holdForce = [...ids('inf_squad'), ...ids('apc_eitan')];
+  // The Namer never joins this group -- see above. It has nothing to gain at
+  // the crossroads and an irreplaceable rescue vehicle to lose there.
+  const escort = [...ids('inf_squad'), ...ids('apc_eitan')];
 
   // The escort goes out FIRST and alone. bs4_charge_crossroads -- a kamikaze
   // charge_squad, not one of the two tags this mission inherits pre-revealed
@@ -582,6 +639,15 @@ run('beit_sahwan_4_subterranean', (sim, _rt, ids, at) => {
   // attackMove clears bs_ambush_market_lane (already identified from the
   // inherited ledger) on the same pass.
   at(0, () => sim.queueCommand({ kind: 'attackMove', ids: escort, ...M(27, 25) }));
+
+  // The Namer peels off immediately instead of following. It spawns at
+  // [28,34], already within CivilianFlight's four-tile shepherd radius of the
+  // two southern civilians at (24.5,33.5), so they flee and board within the
+  // first couple of ticks purely from it EXISTING there -- no detour needed.
+  // Sending it straight to collection_point banks those two evacuees inside
+  // 20 seconds and keeps this 2200 HP hull out of range of every ambush in
+  // the district for the rest of the mission.
+  at(1, () => sim.queueCommand({ kind: 'move', ids: rescueVehicle, ...M(29, 33) }));
 
   // The drone scouts toward bs_tn_north -- the one route nothing has found
   // yet, its mouth over 20 tiles from every player spawn -- from a stand-off
@@ -611,10 +677,34 @@ run('beit_sahwan_4_subterranean', (sim, _rt, ids, at) => {
 
   // bs_tn_north is the hardest of the four: two rpg_team occupants (300
   // damage, penetration 550) plus a garrisoned militia_cell dug in at the
-  // mouth. East cannot solo this the way it solo'd clinic, so the escort
-  // follows it up once the crossroads/market lane fight is won.
-  at(45, () => sim.queueCommand({ kind: 'chargeTunnel', ids: east, tunnel: 1 }));
+  // mouth. East HOLDS at the clinic vent -- safe, and far from bs_tn_north's
+  // stocked occupants -- rather than soloing north the moment clinic is down.
+  // t=68 was reached by re-running the scratch harness until east's approach
+  // and escort's arrival at the vent overlap, so the two buried teams split
+  // their fire against a group already there instead of concentrating both
+  // rounds on one 380 HP team alone.
+  at(68, () => sim.queueCommand({ kind: 'chargeTunnel', ids: east, tunnel: 1 }));
   at(50, () => sim.queueCommand({ kind: 'attackMove', ids: escort, ...M(30, 17) }));
+
+  // Once the mouth fight at bs_tn_north is in hand, push the whole escort
+  // further north-west into the shaft head itself. bs4_hvt_spade holds it
+  // directly -- a `capture` cannot complete while he does, since contest
+  // resets the whole ten-second clock rather than merely pausing it -- and
+  // spade_guard's ambush and bs_track_north sit right against the same
+  // ground. The four hostages and the two shipped civilians at [28.5,14.5]
+  // stand within a couple of tiles of it too, so the same push that clears
+  // the ground suppresses them into fleeing on foot toward civ_collection:
+  // CivilianFlight walks anyone with no transport within four tiles, no extra
+  // order needed, and the ~19-tile walk from here still lands well inside
+  // get_them_out's 240s.
+  at(80, () => sim.queueCommand({ kind: 'attackMove', ids: escort, ...M(26, 14) }));
+
+  // Escort holds the shaft head rather than following anyone south.
+  // `capture`'s contest check resets `holdTicks` to zero on ANY living enemy
+  // inside the zone, so a unit left to chase a runner beyond it would restart
+  // the whole ten-second count -- ordering it to a fixed interior point once
+  // the ground is cleared is what keeps it held rather than merely visited.
+  at(115, () => sim.queueCommand({ kind: 'move', ids: holdForce, ...M(26, 13) }));
 }, led4In);
 
 // --- Sur: Tel Marum -----------------------------------------------------------

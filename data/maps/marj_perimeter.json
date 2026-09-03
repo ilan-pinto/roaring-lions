@@ -109,6 +109,26 @@
     "raid_nw": [
       4,
       3
+    ],
+    "outpost": [
+      20,
+      14
+    ],
+    "families_nw": [
+      12,
+      18
+    ],
+    "families_ne": [
+      35,
+      18
+    ],
+    "families_sw": [
+      12,
+      27
+    ],
+    "families_se": [
+      35,
+      27
     ]
   },
   "zones": {
@@ -123,6 +143,12 @@
       2,
       3,
       3
+    ],
+    "outpost_ground": [
+      19,
+      12,
+      4,
+      4
     ]
   }
 }
