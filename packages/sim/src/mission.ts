@@ -72,6 +72,14 @@ export interface PlacementJson {
   passengers?: readonly PlacementJson[];
 }
 
+/** A radio line (GDD §11): the story voice, not a game mechanic. `speaker` is
+ *  string-typed so parsed JSON assigns structurally — the schema constrains
+ *  the vocabulary to `shai | idit | net | enemy`. */
+export interface SayJson {
+  speaker: string;
+  text: string;
+}
+
 /** Campaign carry-over: the ledger keys this runtime understands today.
  *  Missions may declare future keys; the runtime produces only what it can. */
 export interface LedgerRosterEntry {
@@ -134,6 +142,11 @@ export interface ObjectiveJson {
   target?: string;
   count?: number;
   seconds?: number;
+  /** Fires as a `MissionEvent` the tick this objective completes, right
+   *  after the `objective`/`complete` event it annotates. */
+  say?: SayJson;
+  /** Same, on the tick this objective fails. */
+  say_on_fail?: SayJson;
 }
 
 export interface MissionJson {
@@ -144,6 +157,15 @@ export interface MissionJson {
    *  mission has carried one since the format was written, and no call site
    *  could reach a field the type did not describe. */
   briefing?: string;
+  /** Story voice (GDD §11), shown before the mission starts alongside the
+   *  title. The sim never reads these three -- they are carried on the
+   *  mission object purely so the app can, off the same JSON it already
+   *  loads. ≤ 240 chars each, enforced by the schema and validate_data.mjs. */
+  dispatch?: string;
+  /** Shown on the victory banner. */
+  aftermath?: string;
+  /** Shown on the end screen, above the rating. */
+  debrief?: string;
   map: { file: string; player_start?: readonly number[] };
   ledger: { requires: readonly string[]; produces: readonly string[] };
   objectives: readonly ObjectiveJson[];
@@ -182,11 +204,17 @@ export interface MissionJson {
   triggers?: readonly {
     id?: string;
     on: { kind: string; value?: number; zone?: string };
-    /** do.kind: 'commit' | 'withdraw_to' | 'spawn' | 'reinforce' — string-typed
-     *  so parsed JSON assigns structurally; the schema constrains the
-     *  vocabulary. spawn spawns on side 1 (enemy); reinforce on side 0
-     *  (player). */
-    do: { kind: string; group?: string; to?: string; units?: readonly PlacementJson[] };
+    /** do.kind: 'commit' | 'withdraw_to' | 'spawn' | 'reinforce' | 'dismount' |
+     *  'remove' — string-typed so parsed JSON assigns structurally; the schema
+     *  constrains the vocabulary. spawn spawns on side 1 (enemy); reinforce on
+     *  side 0 (player). remove: every living entity in `group` (restricted to
+     *  `zone` when given) leaves play via `sim.removeFromPlay` — the enemy's
+     *  act, not a kill; `to`/`units` are meaningless for it and the schema
+     *  refuses them. */
+    do: { kind: string; group?: string; to?: string; units?: readonly PlacementJson[]; zone?: string };
+    /** Fires as a `MissionEvent` the tick this trigger fires, right after the
+     *  `trigger` event it annotates. */
+    say?: SayJson;
   }[];
 }
 
@@ -240,6 +268,25 @@ export type MissionEvent =
    * so on the way out, rather than the renderer inferring it from positions.
    */
   | { kind: 'evacuated'; tick: number; entity: number }
+  /**
+   * A `remove` trigger took this entity off the board — the enemy's act
+   * (an abduction, a narrative capture), never a death and never scored.
+   * Mirrors `SimEvent`'s own `removed`, emitted right after
+   * `sim.removeFromPlay(id)` returns, and carries what `describeMissionEvent`
+   * needs to word it without reaching into sim state: `side` distinguishes a
+   * civilian (2) from a player unit (0) for "taken (<n>)" versus "<unit>
+   * taken", and `unit` is the type id, the same field `built` already uses.
+   */
+  | { kind: 'removed'; tick: number; entity: number; side: number; unit: string }
+  /**
+   * The story voice (GDD §11): a `say` on a trigger or objective, fired
+   * immediately after the event it annotates so a listener can pair them by
+   * position in the same tick's array. Pure translation of mission data —
+   * `speaker`/`text` are copied from the JSON verbatim, string-typed for the
+   * same reason every other vocabulary field here is: the schema constrains
+   * `speaker` to `shai | idit | net | enemy`, this type does not need to.
+   */
+  | { kind: 'say'; tick: number; speaker: string; text: string }
   | {
       kind: 'missionEnd';
       tick: number;
@@ -253,7 +300,7 @@ export type MissionEvent =
 
 /** Every `MissionEvent` kind, as a value. See `SIM_EVENT_KINDS`. */
 export const MISSION_EVENT_KINDS = [
-  'objective', 'trigger', 'wave', 'roe', 'built', 'evacuated', 'missionEnd',
+  'objective', 'trigger', 'wave', 'roe', 'built', 'evacuated', 'removed', 'say', 'missionEnd',
 ] as const satisfies readonly MissionEvent['kind'][];
 
 /** Compile-time proof the list above covers the whole union. See
@@ -1298,7 +1345,14 @@ export class MissionRuntime {
         const initial = this.enemyAtStart.length;
         if (initial > 0) {
           let dead = 0;
-          for (const id of this.enemyAtStart) if (this.sim.state.alive[id] === 0) dead++;
+          // A removed enemy is not a casualty (an abduction, not a kill) --
+          // `alive` alone cannot tell the two apart, since `removeFromPlay`
+          // sets it exactly as `destroy()` does. `removed` is the one flag
+          // that can, so a "50% casualties" trigger is not satisfied by the
+          // enemy quietly losing a man to a `remove` trigger of its own.
+          for (const id of this.enemyAtStart) {
+            if (this.sim.state.alive[id] === 0 && this.sim.state.removed[id] !== 1) dead++;
+          }
           fire = dead * 100 >= (t.on.value ?? 100) * initial;
         }
       } else if (t.on.kind === 'zone_entered') {
@@ -1308,6 +1362,7 @@ export class MissionRuntime {
       if (!fire) continue;
       this.firedTriggers[i] = true;
       out.push({ kind: 'trigger', tick, id: t.id ?? `trigger_${i}` });
+      if (t.say) out.push({ kind: 'say', tick, speaker: t.say.speaker, text: t.say.text });
 
       if (t.do.kind === 'commit' || t.do.kind === 'withdraw_to') {
         // Living AND on the surface: the sim would refuse the buried ids
@@ -1353,6 +1408,27 @@ export class MissionRuntime {
           (id) => this.sim.state.alive[id] === 1 && this.sim.state.tunnelIn[id] < 0,
         );
         if (ids.length > 0) this.sim.queueCommand({ kind: 'unload', ids });
+      } else if (t.do.kind === 'remove') {
+        // The enemy's act: every living member of `group`, restricted to
+        // `zone` when given, leaves play through `removeFromPlay` rather
+        // than a command queued at the sim — there is no Command variant
+        // for this, because nothing outside a mission trigger can ever
+        // cause it (invariant 4 unaffected: the runtime is still the only
+        // caller, and it resolves on a tick boundary with no RNG draw).
+        // validate_data.mjs is what keeps `group` naming a real placement
+        // and never covering the whole starting_force.
+        const zone = t.do.zone !== undefined ? this.zone(t.do.zone) : undefined;
+        const ids = (this.groups.get(t.do.group ?? '') ?? []).filter((id) => {
+          if (this.sim.state.alive[id] !== 1) return false;
+          if (zone === undefined) return true;
+          return zoneContains(zone, this.sim.state.posX[id] >> 16, this.sim.state.posY[id] >> 16);
+        });
+        for (const id of ids) {
+          const side = this.sim.state.side[id];
+          const unit = this.sim.unitTypes[this.sim.state.typeIdx[id]].id;
+          this.sim.removeFromPlay(id);
+          out.push({ kind: 'removed', tick, entity: id, side, unit });
+        }
       }
     }
   }
@@ -1480,9 +1556,13 @@ export class MissionRuntime {
       if (complete) {
         o.status = 'complete';
         out.push({ kind: 'objective', tick, id: d.id, status: 'complete' });
+        if (d.say) out.push({ kind: 'say', tick, speaker: d.say.speaker, text: d.say.text });
       } else if (failed) {
         o.status = 'failed';
         out.push({ kind: 'objective', tick, id: d.id, status: 'failed' });
+        if (d.say_on_fail) {
+          out.push({ kind: 'say', tick, speaker: d.say_on_fail.speaker, text: d.say_on_fail.text });
+        }
       }
     }
   }

@@ -77,6 +77,21 @@
     "briefing": {
       "type": "string"
     },
+    "dispatch": {
+      "type": "string",
+      "maxLength": 240,
+      "description": "Story voice (GDD §11): shown before the mission starts, alongside the title. The sim never reads it."
+    },
+    "aftermath": {
+      "type": "string",
+      "maxLength": 240,
+      "description": "Story voice: appended to the victory banner."
+    },
+    "debrief": {
+      "type": "string",
+      "maxLength": 240,
+      "description": "Story voice: shown on the end screen, above the rating."
+    },
     "map": {
       "type": "object",
       "required": [
@@ -153,6 +168,10 @@
             "type": "boolean",
             "default": false,
             "description": "If true, draw survivors with veterancy from roster.surviving_units instead of spawning fresh."
+          },
+          "group": {
+            "type": "string",
+            "description": "Trigger orders address groups -- spawnPlacement already registers this for every side, starting_force included. A `remove` trigger naming this group must not cover every starting_force entry: validate_data.mjs refuses one that would (removing the last living player unit would read as a wipe)."
           },
           "at": {
             "type": "array",
@@ -243,6 +262,14 @@
           "unlocks_phase": {
             "type": "string",
             "description": "Gate: assault cannot begin until civilians are clear, etc."
+          },
+          "say": {
+            "$ref": "#/$defs/say",
+            "description": "Story voice: fires the tick this objective completes, right after the objective/complete event it annotates."
+          },
+          "say_on_fail": {
+            "$ref": "#/$defs/say",
+            "description": "Story voice: fires the tick this objective fails, right after the objective/failed event it annotates."
           }
         }
       }
@@ -440,12 +467,13 @@
                   "withdraw_to",
                   "spawn",
                   "reinforce",
-                  "dismount"
+                  "dismount",
+                  "remove"
                 ]
               },
               "group": {
                 "type": "string",
-                "description": "commit/withdraw_to: which garrison group moves. dismount: whose carriers unload."
+                "description": "commit/withdraw_to: which garrison group moves. dismount: whose carriers unload. remove: which group leaves play (required for this kind)."
               },
               "to": {
                 "type": "string",
@@ -457,8 +485,45 @@
                 "items": {
                   "$ref": "#/$defs/placement"
                 }
+              },
+              "zone": {
+                "type": "string",
+                "description": "remove: restrict removal to living group members whose tile lies inside this map zone. Omit to remove the whole group."
+              }
+            },
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "remove"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "required": [
+                "group"
+              ],
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "to"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "units"
+                    ]
+                  }
+                ]
               }
             }
+          },
+          "say": {
+            "$ref": "#/$defs/say",
+            "description": "Story voice: fires the tick this trigger fires, right after the trigger event it annotates."
           }
         }
       }
@@ -503,6 +568,29 @@
     }
   },
   "$defs": {
+    "say": {
+      "type": "object",
+      "description": "A radio line (GDD §11): the story voice, not a game mechanic.",
+      "required": [
+        "speaker",
+        "text"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "speaker": {
+          "enum": [
+            "shai",
+            "idit",
+            "net",
+            "enemy"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 240
+        }
+      }
+    },
     "placement": {
       "type": "object",
       "required": [

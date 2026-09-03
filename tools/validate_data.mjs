@@ -20,6 +20,7 @@ import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import AjvModule from 'ajv/dist/2020.js';
 import { elevationFailures } from './validate_map_grid.mjs';
+import { commanderRankFailures, narrativeTextFailures, removeTriggerFailures } from './validate_narrative.mjs';
 
 const Ajv2020 = AjvModule.default ?? AjvModule;
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -103,10 +104,14 @@ const schemas = {
   tutorial: loadJson(join(ROOT, 'data/schemas/tutorial.schema.json')),
   world: loadJson(join(ROOT, 'data/schemas/world.schema.json')),
   countries: loadJson(join(ROOT, 'data/schemas/countries.schema.json')),
+  commander: loadJson(join(ROOT, 'data/schemas/commander.schema.json')),
 };
 
 let checked = 0;
-if (schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tutorial && schemas.world && schemas.countries) {
+if (
+  schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tutorial &&
+  schemas.world && schemas.countries && schemas.commander
+) {
   const validators = {
     unit: ajv.compile(schemas.unit),
     mission: ajv.compile(schemas.mission),
@@ -115,6 +120,7 @@ if (schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tut
     tutorial: ajv.compile(schemas.tutorial),
     world: ajv.compile(schemas.world),
     countries: ajv.compile(schemas.countries),
+    commander: ajv.compile(schemas.commander),
   };
   checked += validateDir(join(ROOT, 'data/units'), validators.unit, 'unit.schema');
   checked += validateDir(join(ROOT, 'data/missions'), validators.mission, 'mission.schema');
@@ -123,9 +129,10 @@ if (schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tut
   checked += validateDir(join(ROOT, 'data/tutorial'), validators.tutorial, 'tutorial.schema');
   checked += validateDir(join(ROOT, 'tools/fixtures/units'), validators.unit, 'unit.schema');
   // data/campaign is a mixed directory: world.json is hand-authored, countries.json
-  // is generated geometry. Each gets its own schema.
+  // is generated geometry, commander.json is hand-authored. Each gets its own schema.
   checked += validateFile(join(ROOT, 'data/campaign/world.json'), validators.world, 'world.schema');
   checked += validateFile(join(ROOT, 'data/campaign/countries.json'), validators.countries, 'countries.schema');
+  checked += validateFile(join(ROOT, 'data/campaign/commander.json'), validators.commander, 'commander.schema');
 } else {
   failures.push('schema files missing or unparseable — cannot validate content');
 }
@@ -621,6 +628,12 @@ const structureSymbols = new Map(
         );
       }
     }
+
+    // The narrative layer (2026-09-03 spec): `remove` trigger guards and the
+    // story voice's 240-character ceiling. Pure functions in
+    // validate_narrative.mjs, so they have their own direct fixture tests.
+    failures.push(...removeTriggerFailures(mi, rel(file)));
+    failures.push(...narrativeTextFailures(mi, rel(file)));
   }
 }
 
@@ -757,6 +770,14 @@ const structureSymbols = new Map(
           }
         }
       }
+    }
+
+    // The commander's ranks must reference real missions, in this same
+    // campaign order -- schema validation alone cannot see world.json.
+    const commanderPath = join(ROOT, 'data/campaign/commander.json');
+    const commanderDoc = loadJson(commanderPath);
+    if (commanderDoc) {
+      failures.push(...commanderRankFailures(commanderDoc, world, rel(commanderPath)));
     }
   }
 }

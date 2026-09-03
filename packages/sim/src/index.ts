@@ -16,6 +16,7 @@ export {
   type MissionEvent,
   type ObjectiveStatus,
   type PlacementJson,
+  type SayJson,
   type LedgerData,
   type LedgerRosterEntry,
   type MissionEventKindsAreExhaustive,
