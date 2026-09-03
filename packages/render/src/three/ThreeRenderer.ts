@@ -4141,8 +4141,24 @@ export class ThreeRenderer implements Renderer {
       // delivered by `onMissionEvents` on the tick that made the call. Without
       // this branch a rescued civilian played `down` (the held crawl frame)
       // and sank, so saving someone looked exactly like killing them.
+      // The second fork, alongside the evacuation one just above: was this
+      // entity KILLED, or did a mission `remove` trigger take it off the
+      // board? `alive === 0` cannot answer that either -- `removeFromPlay`
+      // sets it exactly as `destroy()` does (`Sim.removeFromPlay`'s own doc
+      // comment) -- but unlike evacuation this needs no event-driven latch:
+      // `removed` is a persistent flag on `Sim.state`, set synchronously
+      // before any later frame can read it, so it is checked directly here
+      // rather than through a `Set` populated from `onMissionEvents`. No
+      // fade, no `down` clip, no wreck: an abduction must never draw as a
+      // death. Symmetric with `updateVehicleMeshes`'s own unconditional
+      // immediate-removal branch, and with the BILLBOARD path (`onEvents`),
+      // which never enters `dying` for this case at all -- `removeFromPlay`
+      // never emits `destroyed`, the one event that ever pushes there.
       if (this.evacuated.has(id)) this.meshDeparting.push(beginMeshEvac(entity));
-      else this.meshDying.push(beginMeshDeath(entity));
+      else if (id < n && st.removed[id] === 1) {
+        this.scene.remove(entity.root);
+        disposeMeshUnitEntity(entity);
+      } else this.meshDying.push(beginMeshDeath(entity));
     }
     this.stepMeshDeaths(dtSeconds);
     this.stepMeshEvacs(dtSeconds);
@@ -4190,6 +4206,12 @@ export class ThreeRenderer implements Renderer {
    * below does not close it: it plays whatever a GLB authors, and no
    * vehicle authors a death pose yet. Wiring one up is
    * `units/mesh-death.ts`'s shape and a separate job.
+   *
+   * This unconditional immediate removal already covers a mission `remove`
+   * trigger (GDD §11) with no fork needed, unlike `updateMeshUnits`'s own
+   * evacuated/removed/killed three-way split: every alive->0 transition ends
+   * up here regardless of cause, and every one of them already draws
+   * nothing extra.
    */
   private updateVehicleMeshes(alpha: number, dtMs: number): void {
     if (this.vehicleMeshTemplates.size === 0) return;

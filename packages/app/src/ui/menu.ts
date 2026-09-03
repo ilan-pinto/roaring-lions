@@ -336,6 +336,10 @@ export interface EndScreenOptions {
   missionId: string;
   /** Next mission in campaign order, if this one was won and one follows. */
   nextMissionId?: string;
+  /** The story voice's closing word (GDD §11), shown above the rating when
+   *  the mission declares one -- `mission.ts`'s own doc comment: "Shown on
+   *  the end screen, above the rating." */
+  debrief?: string;
 }
 
 export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): void {
@@ -347,6 +351,13 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): void {
     place: 'top:62%;left:50%;transform:translateX(-50%);width:min(420px,90vw);text-align:center',
   });
   p.el.classList.add('rl-enter');
+
+  if (opts.debrief) {
+    const debrief = document.createElement('p');
+    debrief.className = 'rl-enddebrief';
+    debrief.textContent = opts.debrief;
+    p.body.appendChild(debrief);
+  }
 
   const summary = document.createElement('div');
   summary.className = 'rl-dim';

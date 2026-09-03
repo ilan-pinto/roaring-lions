@@ -27,6 +27,7 @@
 // same number twice, and so that "can this selection unload" is answered once.
 
 import { fx, type Sim } from '@lions/sim';
+import type { ResolvedCommander } from '../campaign';
 import { flash, leave, titleCard } from './motion';
 import { markSvg } from './mark';
 import { roleBadgeSvg, roleBucket } from './role';
@@ -36,6 +37,7 @@ import {
   holdClock,
   objectiveGlyph,
   roeTone,
+  speakerPlate,
   stepBeat,
   stripObjectives,
   worstPenalties,
@@ -57,15 +59,18 @@ export type { MissionView, ObjectiveView, Tone } from './hud-model';
 export type { OrderId } from './selection-model';
 
 /**
- * Who delivers the orders.
+ * Who delivers the orders, and who else can speak on the bar.
  *
- * A constant and not mission data, because there is no data to read: the
- * mission schema carries `briefing` prose and no `speaker`. Naming the officer here is
- * honest about that; inventing a `commander` field and filling it with the
- * same string in thirteen files would not be. Extending the schema is the
- * right fix and it is not this slice's.
+ * `shai` is Shai's rank and plate ALREADY resolved for the current mission
+ * (`commanderForMission`, `campaign.ts`) -- this file has no mission id and
+ * no `world`/`commander.json` to resolve one from, so the caller (`main.ts`)
+ * hands over the answer rather than the ingredients. `idit` is her static
+ * plate, needed only when a `say` line is hers.
  */
-const COMMANDER = { rank: 'Lt Col Shai Hammai', plate: 'Hammai' };
+export interface HudCommanderInfo {
+  shai: ResolvedCommander;
+  idit: { name: string; plate: string };
+}
 
 /** The feed is punctuation, not a log. Four lines is what fits above the dock
  *  without the stack reaching the reinforcements tiles. */
@@ -103,6 +108,9 @@ export interface HudDeps {
   hoverStructure: () => number;
   hoverEntity: () => number;
   gameVersion: string;
+  /** Shai's rank/plate for the mission in play, and Idit's static plate --
+   *  see `HudCommanderInfo`'s own doc comment. */
+  commander: HudCommanderInfo;
   /** What each order button does. Absent in tests that do not exercise the row
    *  — the buttons then render and are inert, which is also what a mission with
    *  no input wiring should look like. */
@@ -154,10 +162,21 @@ export class Hud {
   private bannerShown = false;
   private tickN = 0;
 
+  /** "${rank} ${name}", precomputed once from `deps.commander.shai` --
+   *  the combined line the face tooltip and the open bar's `who` line both
+   *  show, exactly what the retired `COMMANDER.rank` constant used to hold
+   *  as one hard-coded string. */
+  private readonly commanderLine: string;
+
   /** The mission's briefing, split into the beats it is delivered in. */
   private beats: string[] = [];
   private beatIdx = 0;
   private beatTimer = 0;
+  /** A `say` line (GDD §11) currently overriding the bar's own beat display
+   *  -- see `say()`. Cleared by paging (`pageCommander`) or replaced by the
+   *  next line; never by a timer, so a radio transmission does not vanish
+   *  mid-read the way a beat's own timed fold would. */
+  private activeSay: { speaker: string; text: string } | null = null;
 
   /** Objective status and ROE from the previous refresh, so a change can be
    *  punctuated. Without this the HUD can only show state, never report that
@@ -170,6 +189,7 @@ export class Hud {
     private readonly host: HTMLElement,
     private readonly deps: HudDeps
   ) {
+    this.commanderLine = `${deps.commander.shai.rank} ${deps.commander.shai.name}`;
     this.strip = document.createElement('div');
     this.strip.className = 'rl-strip';
 
@@ -324,13 +344,13 @@ export class Hud {
 
     const face = document.createElement('div');
     face.className = 'rl-cmd__face';
-    face.title = COMMANDER.rank;
+    face.title = this.commanderLine;
     // The collapsed frame is the way back in. A briefing the player dismissed
     // by looking away is otherwise unreadable for the rest of the mission.
     face.addEventListener('click', () => this.openCommander());
     const plate = document.createElement('span');
     plate.className = 'rl-cmd__plate';
-    plate.textContent = COMMANDER.plate;
+    plate.textContent = deps.commander.shai.plate;
     face.appendChild(plate);
 
     const bar = document.createElement('div');
@@ -400,9 +420,11 @@ export class Hud {
     });
   }
 
-  /** Mission start punctuation. */
-  announce(name: string, subtitle: string, holdMs?: number): void {
-    titleCard(this.host, name, subtitle, holdMs);
+  /** Mission start punctuation. `dispatch` is the story voice (GDD §11):
+   *  present, it holds the card for a full read (`titleCard`'s own
+   *  default); absent, the card behaves exactly as it always has. */
+  announce(name: string, subtitle: string, dispatch?: string): void {
+    titleCard(this.host, name, subtitle, dispatch);
   }
 
   /**
@@ -416,12 +438,29 @@ export class Hud {
   brief(beats: string[]): void {
     this.beats = beats;
     this.beatIdx = 0;
-    if (beats.length === 0) {
+    if (beats.length === 0 && !this.activeSay) {
       this.cmd.style.display = 'none';
       return;
     }
     this.cmd.style.display = '';
     this.openCommander();
+  }
+
+  /**
+   * The story voice (GDD §11): a `say` line takes over the commander bar,
+   * showing the speaker's own plate in place of the rank/beat line, until
+   * the next line replaces it or the player pages a beat (`pageCommander`
+   * clears it -- see that method's own comment). Independent of `brief()`:
+   * a mission can carry `say` events on its triggers with no authored
+   * `briefing` prose at all, so this forces the bar visible and cancels any
+   * pending beat-fold timer rather than assuming `brief()` already ran.
+   */
+  say(speaker: string, text: string): void {
+    this.activeSay = { speaker, text };
+    window.clearTimeout(this.beatTimer);
+    this.cmd.style.display = '';
+    this.cmd.dataset.open = '1';
+    this.renderCommander();
   }
 
   onTick(): void {
@@ -480,7 +519,19 @@ export class Hud {
     const m = this.deps.getMission();
     if (!m || m.result === 'ongoing' || this.bannerShown) return;
     this.bannerShown = true;
-    this.banner.textContent = m.result === 'victory' ? 'Mission accomplished' : 'Mission failed';
+    this.banner.innerHTML = '<div class="rl-bigbanner__head"></div>';
+    (this.banner.firstChild as HTMLElement).textContent =
+      m.result === 'victory' ? 'Mission accomplished' : 'Mission failed';
+    // The story voice's closing line (GDD §11) -- victory only, matching
+    // `mission.ts`'s own doc comment on `aftermath`: "Shown on the victory
+    // banner." A defeat gets no second line; the retry prompt speaks for
+    // itself.
+    if (m.result === 'victory' && m.aftermath) {
+      const line = document.createElement('div');
+      line.className = 'rl-bigbanner__aftermath';
+      line.textContent = m.aftermath;
+      this.banner.appendChild(line);
+    }
     this.banner.dataset.result = m.result;
     this.banner.style.display = 'block';
     this.banner.classList.add('rl-banner-in');
@@ -491,24 +542,38 @@ export class Hud {
   // ------------------------------------------------------------------
 
   private openCommander(): void {
-    if (this.beats.length === 0) return;
+    if (this.beats.length === 0 && !this.activeSay) return;
     this.cmd.dataset.open = '1';
     this.renderCommander();
   }
 
+  /** ◂/▸: always steps the underlying BEAT position, whether or not a `say`
+   *  line is currently showing over it -- "keep the beat paging working"
+   *  means the buttons' enabled state and what they step are unaffected by
+   *  the overlay. A manual page is also how a `say` line is dismissed by
+   *  hand, short of waiting for the next one: it clears `activeSay` before
+   *  stepping, so the very next render shows the beat paging landed on. */
   private pageCommander(dir: number): void {
+    this.activeSay = null;
     this.beatIdx = stepBeat(this.beatIdx, this.beats.length, dir);
     this.renderCommander();
   }
 
   private renderCommander(): void {
     const total = this.beats.length;
+    this.cmdPrev.disabled = this.beatIdx === 0;
+    this.cmdNext.disabled = total === 0 || this.beatIdx === total - 1;
+    if (this.activeSay) {
+      const { speaker, text } = this.activeSay;
+      this.cmdWho.textContent = speakerPlate(this.deps.commander, speaker);
+      this.cmdQuote.textContent = `“${text}”`;
+      this.cmdFill.style.width = '100%';
+      return;
+    }
     const text = this.beats[this.beatIdx] ?? '';
-    this.cmdWho.textContent = `${COMMANDER.rank} · ${this.beatIdx + 1} / ${total}`;
+    this.cmdWho.textContent = `${this.commanderLine} · ${this.beatIdx + 1} / ${total}`;
     this.cmdQuote.textContent = `“${text}”`;
     this.cmdFill.style.width = `${(((this.beatIdx + 1) / total) * 100).toFixed(0)}%`;
-    this.cmdPrev.disabled = this.beatIdx === 0;
-    this.cmdNext.disabled = this.beatIdx === total - 1;
     // Each beat gets its own dwell, restarted by paging. The bar folds back to
     // the portrait rather than vanishing: the orders stay one click away.
     window.clearTimeout(this.beatTimer);

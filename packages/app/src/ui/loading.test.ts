@@ -68,6 +68,22 @@ describe('showLoading with orders to read', () => {
     await screen.done();
     expect(el.querySelector('.rl-loading')).toBeNull();
   });
+
+  it('shows the same rank and plate the in-mission commander bar does, once there are orders to read', () => {
+    const el = host();
+    showLoading(el, 'Break the Depot', 'Seven structures inside the walled depot.', {
+      rank: 'Captain',
+      plate: 'Hammai',
+    });
+    expect(el.textContent).toContain('Captain');
+    expect(el.textContent).toContain('Hammai');
+  });
+
+  it('shows no commander line for a sandbox, which has no briefing to attribute', () => {
+    const el = host();
+    showLoading(el, 'M0 sandbox', undefined, { rank: 'Captain', plate: 'Hammai' });
+    expect(el.textContent).not.toContain('Hammai');
+  });
 });
 
 // A briefing long enough to scroll is a briefing the player scrolls, and the

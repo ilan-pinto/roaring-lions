@@ -1274,16 +1274,33 @@ body {
   top: 38%;
   left: 50%;
   transform: translate(-50%, -50%);
+  /* Bounded, now that a victory can carry a full sentence of `aftermath`
+     (GDD §11) under the headline — unbounded, a long line would run the
+     banner past a short viewport's edges. */
+  width: min(90vw, 640px);
+  text-align: center;
   padding: var(--s3) 42px;
   background: var(--panel-bg);
   border: 2px solid var(--panel-frame);
+  pointer-events: none;
+}
+.rl-bigbanner__head {
   font-family: var(--font-display);
   font-size: clamp(30px, 6vw, 44px);
   font-weight: 800;
   letter-spacing: var(--track-title);
   text-transform: uppercase;
   color: var(--ink);
-  pointer-events: none;
+}
+/* The story voice's closing line (GDD §11) -- deliberately not the hero
+   weight above: this is narration, not the verdict. */
+.rl-bigbanner__aftermath {
+  margin-top: var(--s2);
+  font-family: var(--font-mono);
+  font-size: var(--t-m);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-dim);
 }
 .rl-bigbanner[data-result='victory'] {
   border-color: var(--good);
@@ -1326,6 +1343,17 @@ body {
   margin-top: var(--s2);
   text-transform: uppercase;
   text-shadow: 0 1px 12px var(--scrim), 0 1px 2px var(--scrim);
+}
+/* The story voice (GDD §11), between the name and the mechanical objective
+   count -- prose, not a HUD label, so it reads in the body font rather than
+   `.rl-titlecard__sub`'s tracked mono caps. */
+.rl-titlecard__dispatch {
+  margin-top: var(--s2);
+  font-family: var(--font-body);
+  font-size: var(--t-m);
+  line-height: 1.5;
+  color: var(--ink);
+  text-shadow: 0 2px 18px var(--scrim), 0 1px 3px var(--scrim);
 }
 
 /* --- the reinforcements dock (GH-153 slice 3) ------------------------- */
@@ -1802,6 +1830,16 @@ body {
   margin-top: var(--s3);
 }
 
+/* The story voice's closing word (GDD §11), above the ROE/survivors rating
+   in the same panel body. Prose, so the body font, not a HUD label. */
+.rl-enddebrief {
+  margin: 0 0 var(--s2);
+  font-family: var(--font-body);
+  font-size: var(--t-m);
+  line-height: 1.5;
+  color: var(--ink);
+}
+
 /* ====================================================================== */
 /* Motion — short, interruptible, and only where it carries meaning        */
 /* ====================================================================== */
@@ -2002,6 +2040,20 @@ body {
 .rl-loading__box--brief {
   width: min(680px, 88vw);
   text-align: left;
+}
+/* Attribution for the orders below -- the same rank/plate the in-mission
+   commander bar shows (`.rl-cmd__plate`), tracked mono caps for the
+   identical "who is talking" reason. Empty and untouched by layout when the
+   deploy screen has no commander to attribute (a sandbox never reaches
+   `.rl-loading__box--brief` at all). */
+.rl-loading__commander {
+  margin-top: var(--s4);
+  font-family: var(--font-display);
+  font-size: var(--t-xs);
+  font-weight: 600;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
 }
 .rl-loading__brief {
   margin-top: var(--s4);
