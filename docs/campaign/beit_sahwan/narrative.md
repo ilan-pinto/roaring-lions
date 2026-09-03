@@ -2,22 +2,35 @@
 
 **Act I · The Marj Strip · Ashwar Front · Shai Hammai is a Captain throughout.**
 
-**Date:** 2026-09-03 · **Status:** the `live` rows are applied to
+**Date:** 2026-09-03 · **Revised the same day — delta pass after the level
+script was applied.** **Status:** the `live` rows are applied to
 `data/missions/beit_sahwan_*.json` and pass `pnpm validate:data`; everything
 else is written against a surface that does not exist yet and says so.
-**Written against** the six shipped missions on `feat/story-act-1`, read from
-the JSON this session. Contract: `docs/campaign/README.md`. Canon:
-`docs/campaign/storyline.md` §0.2, §1, §2, §3.1. GDD §2 and §11.
+**Written against** the six missions on `feat/story-act-1`, read from the JSON
+**as it now stands** — First Light and IV both changed under this sheet, and
+§2 and §6 are rewritten against the new placements, waves, triggers and
+objectives rather than against the earlier text. Contract:
+`docs/campaign/README.md`. Canon: `docs/campaign/storyline.md` §0.2, §1, §2,
+§3.1. GDD §2 and §11.
 
-Upstream: no `docs/campaign/beit_sahwan/design.md` exists — `campaign-designer`
-has not run for this town. This sheet is written from `storyline.md` §3.1's
-ladder and the shipped JSON directly, and every mechanical claim below is read
-from the mission files rather than from a design document.
+Upstream, and **this is the line that changed**: `docs/campaign/beit_sahwan/design.md`
+now exists (Option C, the hostage spine) and so does
+`docs/campaign/beit_sahwan/script.md`. The first version of this sheet was
+written before either, from `storyline.md` §3.1 and the shipped JSON alone; §2
+and §6 below are now written against design §5.2–§5.6 and §7 IV and against
+script §1 and §5, with every mechanical claim still read from the mission files
+rather than from a summary of them.
 
-Downstream: `level-scripter` (binding lines to triggers, the id renames in §10),
-`mission-author` (the +1 placement Act I's ending needs, §11 G-A),
+**What this pass changed in the JSON** — nothing outside the three text fields:
+`beit_sahwan_breach.briefing` and its `hold_outpost` label,
+`beit_sahwan_4_subterranean.briefing` and its `find_spade` label. `get_them_out`
+and `take_the_shaft_head` keep the text `level-scripter` shipped them with,
+which was this sheet's own proposal quoted back (§6.3).
+
+Downstream: `level-scripter` (the one surviving id rename in §10),
 `render-vfx` (radio overlay, debrief screen, the two toast defects in §11),
-`sim-guard` (`say` on triggers and objectives).
+`sim-guard` (`say` on triggers and objectives; the two `remove` verbs Act I's
+spine waits on, §13).
 
 ---
 
@@ -149,25 +162,62 @@ does not exist (`storyline.md` §7 G3); the title card holds for 900 ms and
 dismisses on any input (`ui/motion.ts:49`), so a longer hold is part of the
 same piece of work. Status **`schema`**.
 
-### 2.3 `briefing` — 675 chars, 5 beats — **unchanged, deliberately**
+### 2.3 `briefing` — 1,182 chars, 8 beats — **changed (delta pass)**
 
-`storyline.md` §3.1: *"Carries the atrocity in full. Needs the campaign's
-opening `dispatch` and nothing else — the orders voice must not gain
-narration."* The shipped string splits into a clean two-hander with no edit at
-all, which is the strongest possible argument for leaving it alone.
+`design.md` §5.6: the shipped text *"already carries the atrocity in full and
+**must not gain narration**"*, and needs *"two clauses it does not have: the
+forward section, and the eye aloft."* Both are added; the five shipped beats
+survive **word for word** as beats 1, 2, 3, 7 and 8.
 
 | beat | speaker | line | chars |
 |---|---|---|---|
 | 1 | **Idit** | They came at dawn, out of the Marj, across every approach at once. | 66 |
 | 2 | **Shai** | What is left of the company is inside the compound on the Beit Sahwan road, and the road is still open behind us — supply is coming forward, so spend it as it arrives rather than banking it. | 190 |
 | 3 | **Idit** | Two gates, both on the road, and two blind faces they will cut straight through rather than walk round. | 103 |
-| 4 | **Shai** | The villages are outside the wire and the families in them have nowhere else to go: get at least two inside before the ring closes, because nobody is coming back for them afterwards. | 182 |
-| 5 | **Shai** | Take something fast, brush them, and let them walk themselves in. Hold the yard, and still be standing when the column reaches us. | 130 |
+| 4 | **Shai** | A section of the company is still outside the wire, north-west of the yard: bring it in and that corner of the wall is manned again, or leave it out and hold the one position we have past it. | 191 |
+| 5 | **Idit** | They have an eye aloft north of the wire and a mortar crew laid in behind it. What lands in this yard lands because that eye is watching. | 137 |
+| 6 | **Shai** | Only the sniper's rifle reaches that high, and the tube itself is four tiles off the section's position. Whichever of the two you spend is not covering the wall while it works. | 176 |
+| 7 | **Shai** | The villages are outside the wire and the families in them have nowhere else to go: get at least two inside before the ring closes, because nobody is coming back for them afterwards. | 182 |
+| 8 | **Shai** | Take something fast, brush them, and let them walk themselves in. Hold the yard, and still be standing when the column reaches us. | 130 |
 
-Idit / Shai / Idit / Shai / Shai. Beat 4 is the only line in the campaign where
-Shai says a cost of this kind out loud, and he still does not say the number:
-**eleven are outside, two are counted, nine are not.** That number is Idit's,
-and she says it at the end (§2.6).
+Idit / Shai / Idit / Shai / Idit / Shai / Shai / Shai. The picture and the plan
+alternate for six beats and the last three are Shai's, exactly as the shipped
+five closed on two of his — the back half is cost and orders, which are his.
+
+**What changed and why.**
+
+1. **Beat 4 — the forward section, as a decision rather than a fact.** The level
+   script moves one `inf_squad` from `[21,18]` to `[20,14]`, outside the wire
+   (`script.md` §1.2, "The forward section"). The beat gives the player both
+   halves of the choice and no recommendation: *"bring it in and that corner of
+   the wall is manned again, or leave it out and hold the one position we have
+   past it."* It does not say which is right, because the mission does not
+   either.
+2. **Beats 5 and 6 — the eye, the tube, and what answering either costs.**
+   Idit reports the two placements (`bs0_spotter_aloft`, a `paramotor` on a
+   lateral patrol at sight 14; `bs0_barrage`, a `mortar_crew` holding behind
+   it) and states the relationship the whole opening turns on: *"what lands in
+   this yard lands because that eye is watching."* Shai then prices both
+   answers in one beat. **Both facts are measured, not asserted**: the
+   `sniper_team`'s `amr` at range 15 is the only weapon inside the compound
+   that reaches the paramotor at `[24.5,10.5]` (`rws_50` 9, `pintle_mg` 8,
+   `rifles` 8 — `design.md` §5.2), and the tube at `[21.5,10.5]` is 3.8 tiles
+   from the forward post at `[20,14]`, inside `rifles` range 8. *"Whichever of
+   the two you spend is not covering the wall while it works"* is the cost, and
+   it is the only sentence in the beat that is not a fact.
+3. **Nothing else moved.** Beat 7 is the atrocity beat verbatim, *"nobody is
+   coming back for them afterwards"* included; beats 1, 2, 3 and 8 are the
+   shipped strings unedited. 675 → **1,182 chars**, inside the shipped 385–1,225
+   band — second longest in the tree behind `wadi_halam_5_depot`'s 1,225, which
+   is the band's own ceiling. That length is deliberate: First Light asks more
+   simultaneous decisions than any other mission and it is the one briefing a
+   player reads before they know anything at all.
+
+**Idit is not named in the third person here, and that is the one briefing in
+the act where she should not be.** `storyline.md` §3.1 records her beat at First
+Light as *"she is **in** the compound, not on a net"*. Every other Act I
+briefing refers to her by name because she is reporting from somewhere else;
+this one does not, because she is standing next to him.
 
 ### 2.4 Objectives
 
@@ -176,42 +226,78 @@ and she says it at the end (§2.6).
 | `survive_relief` | Still be standing when the relief column arrives | `OBJECTIVE COMPLETE — Still be standing when the relief column arrives` |
 | `hold_compound` | Hold the compound for three minutes | `OBJECTIVE COMPLETE — Hold the compound for three minutes` |
 | `evac_settlements` | Get two families inside the wire before the ring closes | `OBJECTIVE COMPLETE — Get two families inside the wire before the ring closes` |
+| `hold_outpost` | **Hold the post outside the wire for two minutes** | `OBJECTIVE COMPLETE — Hold the post outside the wire for two minutes` |
 
-All three **unchanged.** `evac_settlements` is `evacuate_before`, which is one
-of only three objective types the runtime can mark `failed`
-(`mission.ts:1478`), so the atrocity has a mechanical voice:
-`OBJECTIVE FAILED — Get two families inside the wire before the ring closes`
-at t=270 s. Nothing else in Act I fails on a clock except IV's `collapse`.
+The first three are **unchanged**. `hold_outpost` is new
+(`hold_for(outpost_ground, 120)`, secondary) and its provisional text was *"Hold
+the forward post for two minutes"*.
+
+**Why it changed.** `design.md` §5.6 asks the label to *"name the position, not
+the men"*, and *"the post outside the wire"* is the position — it also stops the
+line reading as a near-twin of `hold_compound`'s *"Hold the compound for three
+minutes"*, which is the same verb, the same shape and the opposite decision. The
+toast is where it earns its keep: `hold_for` completes at 120 s and the post is
+overrun by the t=120 s wave, so `OBJECTIVE COMPLETE — Hold the post outside the
+wire for two minutes` lands **in the same breath as the assault that takes it**.
+That is the beat design §5.2 asks for — *they held for two minutes and then they
+were gone* — and it is carried entirely by a live surface.
+
+`evac_settlements` remains the only objective in this mission the runtime can
+mark `failed` (`mission.ts:1478`), so the atrocity still has a mechanical voice
+at t=270 s.
 
 ### 2.5 Trigger table
+
+Rewritten for the level script (`script.md` §1.2). Waves and trigger ids are read
+from `data/missions/beit_sahwan_breach.json` as it now stands, not from the
+design sheet's summary of it.
 
 | event | channel | speaker | line | overlay / audio | status |
 |---|---|---|---|---|---|
 | mission start | `title` | system | `Beit Sahwan — First Light` · *2 primary objectives* | applied | live |
 | mission start | `dispatch` | narrator | §2.2 above | needs the field + a longer title-card hold | schema |
-| mission start | `brief` | Shai / Idit | beats 1–5 above | one hard-coded speaker today | live |
+| mission start | `brief` | Shai / Idit | beats 1–8 above | one hard-coded speaker today; **applied** | live |
+| garrison `bs0_spotter_aloft` first identified | `radio` | Idit | "That is their eye, not a raider — he is pacing north of the wire and he is not coming any closer." | needs `say`; there is no placement-scoped trigger either, so this wants a `SimEvent contact` binding | engine |
+| garrison `bs0_barrage` first fires | `radio` | Idit | "The tube is behind him and it is firing off what he can see. Take one of the two away and the other stops being worth anything." | | engine |
+| wave t=18 s (10 units, five `raid_*` markers → `compound_centre`) | `toast` | system | `enemy reinforcements — 10 unit(s) inbound` | hard-coded | live |
+| wave t=18 s (6 units, three `raid_*` markers → `assault_sw`) | `toast` | system | `enemy reinforcements — 6 unit(s) inbound` | hard-coded | live |
+| wave t=18 s (either) | `radio` | Idit | "Every approach at once. There is no main effort in this — he does not need one." | | engine |
+| wave t=50 s (2 `paramotor` from `raid_n`) | `radio` | Idit | "Two more aloft, north. They are coming in over the wire rather than through it." | retimed from the shipped t=245 wave; *"more"* added because the eye is already up at t=0 | engine |
 | `first_contact` → `villages_rise` | `toast` | system | `enemy reacts (villages_rise)` | id shown verbatim; **rename proposed, §10** | live |
-| `first_contact` → `villages_rise` | `radio` | Idit | "Movement out of the north corners. Those positions were manned before dawn, not after." | needs `say` on `triggers[].do` | engine |
-| `timer_s(240)` → `south_rises` | `toast` | system | `enemy reacts (south_rises)` | rename proposed, §10 | live |
-| `timer_s(240)` → `south_rises` | `radio` | Idit | "South corners committing. That is the last of what was staged outside the wire." | | engine |
-| wave t=20 s (7 units, `raid_w`/`raid_nw`) | `toast` | system | `enemy reinforcements — 7 unit(s) inbound` | hard-coded | live |
-| wave t=55 s (6) | `radio` | Idit | "Second push, south and east. The motorcycles are the ones that will reach you first." | | engine |
-| wave t=95 s (6, to `assault_nw`) | `radio` | Idit | "They have stopped coming at the gates. North-west face, where the wall has no eyes." | | engine |
-| wave t=140 s (4) | `toast` | system | `enemy reinforcements — 4 unit(s) inbound` | hard-coded | live |
-| wave t=190 s (7, to `assault_se`) | `radio` | Idit | "South-east now. Same face, other corner — he is reading which one you reinforced." | | engine |
-| wave t=245 s (6, paramotors from `raid_n`) | `radio` | Idit | "Two aloft, north. They are coming in over the wire rather than through it." | | engine |
+| `first_contact` → `villages_rise` | `radio` | Idit | "The north-east corner is moving and it is not moving on us. Those positions were manned before dawn, not after." | rewritten: the shipped line said *"corners"* plural and this trigger commits one group | engine |
+| `first_contact` → `they_take_the_south_village` | `toast` | system | `enemy reacts (they_take_the_south_village)` | reads as prose; **keep** | live |
+| `first_contact` → `they_take_the_south_village` | `radio` | Idit | "South-east the same second. They are not queuing for the gates — they are going to the houses." | new; the old `south_rises` line is retired with its trigger | engine |
+| wave t=120 s (3 `militia_cell` + 1 `charge_squad` → `outpost`) | `radio` | Shai | "That is a charge squad walking onto the forward post. Whatever is out there is out there now." | the physical event `hold_outpost` is timed against | engine |
+| `objective(hold_outpost, complete)` @120 s | `toast` | system | `OBJECTIVE COMPLETE — Hold the post outside the wire for two minutes` | **applied**; lands in the same breath as the wave above | live |
+| `objective(hold_outpost, complete)` @120 s | `radio` | Shai | "Two minutes on that corner. Nobody is going to ask them for a third." | | engine |
+| `timer_s(150)` → `they_come_for_the_west_families` | `toast` | system | `enemy reacts (they_come_for_the_west_families)` | reads as prose; **keep** | live |
+| `timer_s(150)` → `they_come_for_the_west_families` | `radio` | Idit | "West corner is up and walking to the houses. If anything of yours is going that way it goes now." | | engine |
+| wave t=160 s (2 `technical` + 2 `rpg_team` → `compound_centre`) | `toast` | system | `enemy reinforcements — 4 unit(s) inbound` | hard-coded | live |
+| **`timer_s(165)` → `they_take_the_section`** | `radio` | Idit | "The forward post is off the net. Nobody saw them fall and there is nothing out there to recover." | **the taking of the section.** No `do.kind` removes anything and `starting_force` cannot carry a `group` (`script.md` §1.6 G1, G2), so neither the trigger nor its line exists | engine |
+| `timer_s(190)` → `the_last_village_goes` | `toast` | system | `enemy reacts (the_last_village_goes)` | reads as prose; **keep** | live |
+| `timer_s(190)` → `the_last_village_goes` | `radio` | Idit | "That is the last corner. All four villages are inside their line now, not ours." | | engine |
+| wave t=205 s (3 `moto_rpg` + 4 `militia_cell` → `assault_se`) | `radio` | Idit | "South-east now. Same face, other corner — he is reading which one you reinforced." | shipped line, retimed 15 s, content identical | engine |
+| wave t=250 s (2 `paramotor` + 4 `militia_cell` → `compound_centre`) | `toast` | system | `enemy reinforcements — 6 unit(s) inbound` | hard-coded | live |
 | `evacuated` (a civilian reaches `compound`) | `toast` | system | **nothing at all** — `describeMissionEvent` has no case for it | **defect, §11 G-B**; proposed: `one family through the wire` | engine |
 | `objective(evac_settlements, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Get two families inside the wire before the ring closes` | applied | live |
 | `objective(evac_settlements, complete)` | `radio` | Shai | "Two in. Get the gate shut behind them." | | engine |
 | `objective(evac_settlements, failed)` @270 s | `toast` | system | `OBJECTIVE FAILED — Get two families inside the wire before the ring closes` | applied | live |
 | `objective(evac_settlements, failed)` @270 s | `radio` | Idit | "The ring is closed. Whatever is still outside it is outside it." | **the single most important unbuilt line in Act I** | engine |
+| **`timer_s(272)` → `the_ring_closes`** | `radio` | Idit | "The corners are walking back the way they came and they are not walking back empty." | **the taking of the families.** Same missing `do.kind` (`script.md` §1.6 G1). Replaces §9 T1's older sketch, which was written for a `timer_s(270)` kill rather than this trigger's id and timing | engine |
 | `objective(hold_compound, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Hold the compound for three minutes` | applied | live |
-| `objective(survive_relief, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Still be standing when the relief column arrives` | applied | live |
+| `objective(survive_relief, complete)` @300 s | `toast` | system | `OBJECTIVE COMPLETE — Still be standing when the relief column arrives` | applied | live |
 | `roe` deduction inside `clinic` | `toast` | system | hard-coded `roeNotice` copy | strings are not authorable | live |
 | `missionEnd(victory)` | `toast` | system | `MISSION ACCOMPLISHED — ROE n, k units survive` | hard-coded | live |
 | `missionEnd(victory)` | `debrief` | Shai | "The column is through. We hold the yard we started the morning in and nothing else." | | engine |
 | `missionEnd(victory)` | `debrief` | Idit | "Eleven were outside the wire at first light. Two came in." | **she says the number he will not**; `storyline.md` §2.2(6) | engine |
 | `missionEnd(defeat)` | `debrief` | Idit | "The compound went at 0-something. I did not get the time." | | engine |
+
+**The two takings are the only `engine` mechanisms in this mission** — every
+other row above is either applied today or waits on the `radio` surface alone
+(§11 G-E). Both are written here so the sheet is not silently short of Act I's
+spine, and both are marked so nobody reads them as shippable. `design.md` §6.3's
+recommended shipping order stands: the mission plays without them, and the
+taking is stated in `dispatch`, `aftermath` and `debrief` until the verb lands.
 
 ---
 
@@ -466,108 +552,175 @@ requires **R I** · produces **R M C I** · `roe.fail_below: 40`.
 
 `Beit Sahwan IV — Subterranean` — **unchanged.**
 
-### 6.2 `briefing` — 912 chars, 5 beats — **changed**
+### 6.2 `briefing` — 1,178 chars, 7 beats — **changed (delta pass): the rescue**
+
+The mission is no longer four routes and a clock. `design.md` §7 IV and
+`script.md` §5.2 put **four people at the shaft head** at `[24.5,14.5]`, an
+`rpg_team` beside them, **Nadir Sahim himself holding the shaft head**
+(`bs4_hvt_spade`, `hold_position`, no `withdraw_to` anywhere in the mission),
+and move the civilians' refuge to `civ_collection` at `[29,33]`, three tiles
+from the start. The briefing now carries all of it and the second clock.
 
 | beat | speaker | line | chars |
 |---|---|---|---|
 | 1 | **Shai** | The town is ours and the fighting has not stopped. Rounds come from empty ground, the shooters are gone before the echo, and the reason is under your feet. | 155 |
-| 2 | **Idit** | Nadir Sahim mined this district years before we reached it, and Idit has four routes under the town. One is being reopened right now: spoil creeping west along the main road, and disturbed earth is something any soldier can read. | 229 |
-| 3 | **Shai** | They have men waiting close in with charges of their own, fast enough to reach your line before you have finished forming it. Put something else in front to meet them, not the engineers. | 186 |
-| 4 | **Idit** | The other three were finished years ago and left no dirt at all; only the drone or the engineers themselves can tell you where they run, and only while somebody is looking. | 172 |
-| 5 | **Shai** | Yahalom must stand still in the open beside a route to set the charge, so whether they live is a decision you make with everything else you have. Bring all four down. | 166 |
+| 2 | **Idit** | Nadir Sahim mined this district years before we reached it and he has not left it. He holds the north shaft head, with four people beside him who have been out of reach since the first morning. | 193 |
+| 3 | **Shai** | The collection point is three tiles from your start line, and they are counted the moment they reach it. Four minutes for the people and five for the routes; the second does not wait for the first. | 197 |
+| 4 | **Idit** | Idit has four routes under the town, and one is being reopened right now: spoil creeping west along the main road. Disturbed earth is something any soldier can read. | 165 |
+| 5 | **Shai** | A rocket team stands over the four; the Namer's cannon answers that and loses you the mission. Nothing heavy inside two tiles of them. | 134 |
+| 6 | **Idit** | Only the drone or the engineers can tell you where the other three run, and only while somebody is looking. | 107 |
+| 7 | **Shai** | Yahalom must stand still in the open beside a route to set the charge, so whether they live is a decision you make with everything else you have. Get the people out, take the ground he stands on, then bring all four down. | 221 |
 
-Shai / Idit / Shai / Idit / Shai. Shai opens because the opening fact — the
-town is held and the fighting continues — is his; her picture is the four
-routes and what seeing them costs, which is beat 2 and beat 4.
+Shai / Idit / Shai / Idit / Shai / Idit / Shai — the cleanest alternation in the
+act, and it can be because the mission has exactly two subjects: what is under
+the town, which is hers, and what it costs to reach it, which is his.
 
-**What changed and why.** §3.1 marks this **re-brief y**, so this is the one
-Act I briefing where a change was expected. Two:
+**What changed and why.**
 
-1. *"Ashwar mined this district long before we reached it"* → *"**Nadir Sahim**
-   mined this district years before we reached it"*. Act I's last mission is
-   his end; the network the player is about to destroy is the thing that made
-   him, and the briefing now says whose it is.
-2. Beat order. The shipped string ran picture, picture, picture, threat, order,
-   and the threat sentence — the charge squads that will reach the line first —
-   arrived after two long paragraphs about geology. It now alternates, and the
-   mission ends on the sentence that was already its best: *"whether they live
-   is a decision you make with everything else you have."* **"Bring all four
-   down"** moved to the end, where it is the last thing the player reads before
-   deploying.
+1. **Beat 2 — the man and the four, in one breath.** *"He has not left it"* is
+   the whole of `bs4_hvt_spade`'s behaviour as authored: `hold_position`, no
+   `withdraw_to`, `script.md` §5.5 T-B5. *"Four people beside him who have been
+   out of reach since the first morning"* is the only line in the act that
+   reaches back to First Light, and it is a present-state fact rather than a
+   story — **the taking itself is still told in `dispatch`, `aftermath` and
+   `debrief` only** (`design.md` §6.3), because it is story voice and this is
+   orders. Nothing here claims a rescue the mission cannot count.
+2. **Beat 3 — the collection point and the two clocks.** `civ_collection`
+   `[29,33]` is 3.2 tiles from `player_start [26,34]`, so *"three tiles from
+   your start line"* is measured. *"Four minutes for the people and five for the
+   routes; the second does not wait for the first"* is `get_them_out`'s 240 s
+   and `bring_it_down`'s 300 s, said as the ordering problem they are: both run
+   from t=0, and the shaft head is twenty tiles up a road with a live ambush on
+   it.
+3. **Beat 5 — the act's new ROE bait, priced in one sentence.** The four stand
+   two tiles from an `rpg_team`; the `ifv_namer`'s `cannon_30` is the obvious
+   answer to an ambushing RPG team and the one weapon that clears the
+   danger-close threshold. *"The Namer's cannon answers that and loses you the
+   mission"* is consequence and nothing else — no rule, no reproach, and the
+   arithmetic behind it is real (`fail_below: 40`; four civilians killed is 32
+   points).
+4. **Beat 7 — the order of work, as the closer.** *"Get the people out, take the
+   ground he stands on, then bring all four down"* replaces the shipped *"Bring
+   all four down"* and is the mission's whole sequence in one line. **"Take the
+   ground he stands on" is a `capture`, not a verb the runtime lacks** —
+   `take_the_shaft_head` is `capture(shaft_head, 10)`, live today, so the
+   briefing promises exactly what the mission can deliver. The Yahalom sentence
+   ahead of it is shipped text, unedited.
+5. **What was cut.** The shipped beat about charge squads reaching the line
+   before it forms (`bs4_charge_crossroads` is still on the map) and the clause
+   *"the other three were finished years ago and left no dirt at all"*. Both
+   went for room: 912 → 1,178 chars with four new subjects to carry, and the
+   surviving half of the second — *"only while somebody is looking"* — is the
+   part that is a mechanic rather than a colour note.
 
-**What is NOT in this briefing, and must not be until the placement lands.**
-§3.1 says IV *"Must gain SPADE's capture as a primary and say so"*, at the cost
-of **+1 placement and +1 objective** — `mission-author` and `level-scripter`
-work, not text work. Until then the briefing says the network is his and stops
-there. Writing *"take Sahim alive"* into an orders voice with no `capture`
-objective behind it would be the one failure mode this sheet exists to prevent.
-See §11 G-A.
+**§11 G-A is closed.** The earlier sheet said this briefing must not say *"take
+Sahim alive"* until a `capture` objective existed behind it. It exists
+(`take_the_shaft_head`), so the line is written, and the `aftermath`'s **A**
+variant (§6.4) is now the live one.
 
 ### 6.3 Objectives
 
 | id | as an order | as a toast |
 |---|---|---|
 | `bring_it_down` | Collapse every route under the district | `OBJECTIVE COMPLETE — Collapse every route under the district` |
-| `read_the_ground` | **Find the crew reopening Sahim's western route** | `OBJECTIVE COMPLETE — Find the crew reopening Sahim's western route` |
+| `read_the_ground` | Find the crew reopening Sahim's western route | `OBJECTIVE COMPLETE — Find the crew reopening Sahim's western route` |
+| `get_them_out` | **Get five people out to the collection point before the routes come down** | `OBJECTIVE COMPLETE — Get five people out to the collection point before the routes come down` |
+| `take_the_shaft_head` | **Hold the shaft head until Sahim is out of it** | `OBJECTIVE COMPLETE — Hold the shaft head until Sahim is out of it` |
+| `find_spade` | **Find Nadir Sahim at the shaft head** | `OBJECTIVE COMPLETE — Find Nadir Sahim at the shaft head` |
 
-`read_the_ground` **changed** from *"Find the crew reopening the western
-route"*. One possessive: it is the `locate` that puts the player's eyes on his
-work, and `storyline.md` §2.3 names it as how you find him. `bring_it_down`
-unchanged.
+The first two are **unchanged**. Of the three new ones, two keep their
+provisional text and one was polished.
 
-`bring_it_down` is `collapse` with `seconds: 300` and `primary: true`, so it
-**can fail** (`mission.ts:1433`) — the only failable primary in Act I besides
-First Light's evacuation. Act I can be lost on a clock, twice, at both ends.
+- **`get_them_out` — kept verbatim.** At 71 characters it ties
+  `tel_marum_2_foothold`'s observer line for the longest objective string in the
+  tree, and it earns them: it names the count, the
+  place and the deadline, and *"Get five people out"* deliberately answers First
+  Light's *"Get two families inside the wire"*. **The act opens on getting
+  people in and closes on getting people out**, in the same verb, and that rhyme
+  is worth more than a shorter line. `count: 5` is global across all eight
+  civilians on the map (`script.md` §5.6 G5) — the text says *"five people"*
+  rather than *"the hostages"* for exactly that reason, and is therefore
+  accurate rather than aspirational.
+- **`take_the_shaft_head` — kept verbatim.** It was this sheet's own §6.5
+  proposal and `script.md` §5.7 quoted it back. *"Until Sahim is out of it"*
+  states a capture without asserting one the objective cannot check
+  (`capture` cannot require its target alive — `script.md` §5.6 G4), and it
+  names the ground rather than the man, which is what the objective actually
+  measures.
+- **`find_spade` — changed** from *"Find Nadir Sahim"*. The bare name is the one
+  objective label in the act that is neither a position nor a task; it also
+  reads oddly beside its sibling `read_the_ground`, which is the same verb with
+  a place attached. **"Find Nadir Sahim at the shaft head"** names the position,
+  pairs the secondary with the primary that takes it, and is accurate: the
+  tagged placement sits at `[25.5,13.5]`, inside `shaft_head` `[25,12,3,3]`.
+
+`bring_it_down` and `get_them_out` are both failable primaries on a clock, so
+**Act I's last mission can be lost two ways on time and neither is a fight.**
 
 ### 6.4 `aftermath` — Act I closes
 
-Two versions, because one of them depends on content that does not exist.
-
-**A — once the +1 capture placement lands (§11 G-A). Preferred.**
+**Variant A is now the one.** The earlier sheet carried two, because A depended
+on a capture placement that did not exist; `bs4_hvt_spade` and
+`take_the_shaft_head` both ship now, so A is honest against the mission as it
+stands and B is retired.
 
 > *Four routes under Beit Sahwan, and the man who dug them came up out of the
 > last one with his hands empty. Brigade put a third star on the slip and said
 > nothing else about it. The Marj is quiet. Sur is not.*
 
-205 chars. Three stars is Major (`storyline.md` §2.1, §0.2 O6). "Came up out of
-the last one with his hands empty" is a capture and says so without a verb the
-player did not perform. The last two sentences hand the campaign to Act II.
+205 chars. Three stars is Major (`storyline.md` §2.1, §0.2 O6). *"Came up out of
+the last one with his hands empty"* is a capture and says so without a verb the
+player did not perform — and `capture(shaft_head, 10)` is the verb they did.
+The last two sentences hand the campaign to Act II.
 
-**B — honest against the mission as it ships today.**
+**Retired — variant B**, kept only so nobody re-derives it: *"Four routes under
+Beit Sahwan, and by morning none of them went anywhere. Brigade put a third star
+on the slip and said nothing else about it. Sahim is not in the district any
+more, and neither is his ground."* It claimed no capture because none was
+authorable. It is now weaker than the mission.
 
-> *Four routes under Beit Sahwan, and by morning none of them went anywhere.
-> Brigade put a third star on the slip and said nothing else about it. Sahim is
-> not in the district any more, and neither is his ground.*
-
-208 chars. No capture is claimed. Ships the moment the `aftermath` field exists,
-with no mission change at all.
-
-Status **`schema`** for both — the field does not exist (`storyline.md` §7 G3).
+Status **`schema`** — the field does not exist (`storyline.md` §7 G3).
 
 ### 6.5 Trigger table
 
-`beit_sahwan_4_subterranean` declares **no triggers**. Every row below is an
+`beit_sahwan_4_subterranean` still declares **no triggers**, deliberately: T-B5
+(*"he waits"*) is the absence of a `withdraw_to`, and adding a
+`casualties_pct(spade_party)` row would delete it. Every row below is an
 objective, a wave, a `SimEvent` or the mission end.
 
 | event | channel | speaker | line | overlay / audio | status |
 |---|---|---|---|---|---|
-| mission start | `title` | system | `Beit Sahwan IV — Subterranean` · *1 primary objective* | applied | live |
-| mission start | `brief` | Shai / Idit | beats 1–5 above | applied | live |
+| mission start | `title` | system | `Beit Sahwan IV — Subterranean` · *3 primary objectives* | title count changes with the two new primaries; applied | live |
+| mission start | `brief` | Shai / Idit | beats 1–7 above | **applied** | live |
+| garrison `bs_track_north` spawns **pre-identified** (tag carried in `intel.marked_positions` from I) | `radio` | Idit | "The track north of the road is where I lost the column last time, and it is still occupied. You are looking at it before it looks at you." | the payoff of I's new `find_the_column` secondary (`locate(bs_track_north)`); a thorough recon forfeits this ambush | engine |
+| garrison `bs_track_north` spawns **unmarked** (I's secondary not completed) | `radio` | Idit | "There is a gun on the road north and I cannot tell you where. We did not finish looking last time." | the same placement, the other way round — one of only two places in Act I where carry-over is audible | engine |
+| `SimEvent contact` on `bs4_hvt_spade` | `radio` | Idit | "That is Sahim, on the shaft head, not moving. He has never once left his own hole and he is not going to start." | | engine |
+| `objective(find_spade, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Find Nadir Sahim at the shaft head` | **applied** | live |
+| `SimEvent contact` on the `spade_guard` `rpg_team` | `radio` | Shai | "Rocket team two tiles off the people. Rifles only in there — the cannon is not a choice you have." | the mission's ROE bait, restated at the moment it becomes live | engine |
 | `SimEvent tunnelContact` (side 0, any route) | `radio` | Idit | "Route identified. Hold the eye on it — the moment nobody is looking it goes back to a rumour." | **the shipped mechanic exactly**: identification is live only while a `mark_tunnel` carrier holds line of sight | engine |
+| `evacuated` (a civilian reaches `collection_point`) | `toast` | system | **nothing at all** — `describeMissionEvent` has no case for it | **defect, §11 G-B**, and it bites hardest here: the rescue's own progress is silent until the fifth one lands | engine |
+| `evacuated`, first of the four from the shaft head | `radio` | Shai | "One of them is on our side of the road. Keep the lift moving and do not stop to fight for it." | the `ifv_namer`'s 5 slots take the whole group in one lift | engine |
+| wave t=150 s (2 `militia_cell` from `mortar_line`) | `toast` | system | `enemy reinforcements — 2 unit(s) inbound` | hard-coded | live |
 | `SimEvent ventOpened` | `eva` | brigade net | "Vent opened." | shared set, §8 | engine |
 | `SimEvent surfaced` | `radio` | Idit | "Up behind you, out of ground you cleared an hour ago." | | engine |
+| `objective(get_them_out, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Get five people out to the collection point before the routes come down` | **applied** | live |
+| `objective(get_them_out, complete)` | `radio` | Idit | "Five at the collection point. That is the first time this district has given anybody back." | | engine |
+| `objective(get_them_out, failed)` @240 s | `toast` | system | `OBJECTIVE FAILED — Get five people out to the collection point before the routes come down` | **applied**; a failed primary loses the mission (`checkEnd`) | live |
+| `objective(get_them_out, failed)` @240 s | `radio` | Shai | "Clock is out on the people. Nothing under this town is worth what we just did not do." | the mirror of First Light's failure, at the other end of the act | engine |
+| `objective(take_the_shaft_head, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Hold the shaft head until Sahim is out of it` | **applied** | live |
+| `objective(take_the_shaft_head, complete)` | `radio` | Idit | "The shaft head is yours and he is standing on the wrong side of it. Four years of digging and he is above ground." | **Act I's ending, said once** | engine |
+| wave t=240 s (1 `rpg_team` + 1 `technical` from `mortar_line`) | `radio` | Idit | "Last of what the mortar line can send. After this he is spending the ones underground." | | engine |
+| `objective(read_the_ground, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Find the crew reopening Sahim's western route` | applied | live |
+| `objective(read_the_ground, complete)` | `radio` | Idit | "That is the crew on the west route. He keeps his diggers close to the work, which is how we found him." | tense changed: the sheet no longer promises a capture the mission cannot stage — it has one | engine |
 | `SimEvent tunnelCollapsed` (`bs_tn_west`) | `radio` | Shai | "West route down." | needs a per-route `say`; `level-scripter` | engine |
-| `SimEvent tunnelCollapsed` (`bs_tn_north`) | `radio` | Shai | "North route down." | | engine |
+| `SimEvent tunnelCollapsed` (`bs_tn_north`) | `radio` | Shai | "North route down. That is the one under the shaft head." | | engine |
 | `SimEvent tunnelCollapsed` (`bs_tn_souk`) | `radio` | Idit | "The souk route is down. That one was older than the war." | ambient, §9 | engine |
 | `SimEvent tunnelCollapsed` (`bs_tn_clinic`) | `radio` | Idit | "Clinic route down. He put it there on purpose and we took it without touching the block." | **the act's ROE thesis in one line** | engine |
-| wave t=150 s (2, from `mortar_line`) | `toast` | system | `enemy reinforcements — 2 unit(s) inbound` | hard-coded | live |
-| wave t=240 s (2, from `mortar_line`) | `radio` | Idit | "Last of what the mortar line can send. After this he is spending the ones underground." | | engine |
-| `objective(read_the_ground, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Find the crew reopening Sahim's western route` | applied | live |
-| `objective(read_the_ground, complete)` | `radio` | Idit | "That is the crew on the west route. He keeps his diggers close to the work, which is how we will get him." | sets up the capture the mission cannot yet stage (§11 G-A) | engine |
 | `objective(bring_it_down, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Collapse every route under the district` | applied | live |
 | `objective(bring_it_down, failed)` @300 s | `toast` | system | `OBJECTIVE FAILED — Collapse every route under the district` | applied | live |
 | `objective(bring_it_down, failed)` @300 s | `radio` | Idit | "Clock is out and there is still ground under this town that is not ours." | | engine |
-| `capture(shaft_head)` — **does not exist yet** | `toast` | system | `OBJECTIVE COMPLETE — Hold the shaft head until Sahim is out of it` | proposed objective text for §11 G-A; do not author until the placement exists | engine |
+| `roe` deduction within 2 tiles of the four | `toast` | system | hard-coded `roeNotice` copy | strings not authorable; this is the deduction the briefing priced | live |
+| `missionEnd(defeat)` via `fail_below: 40` | `debrief` | Idit | "The rating went under forty with them standing there. He does not have to win these; he only has to be next to them." | | engine |
 | `missionEnd(victory)` | `aftermath` | narrator | §6.4 above | victory banner | schema |
 | `missionEnd(victory)` | `debrief` | Idit | "Four routes, and all four were his. That is the Marj." | | engine |
 | `missionEnd(victory)` | `debrief` | Shai | "Then we go north." | **the act boundary and the promotion**; Captain → Major | engine |
@@ -582,8 +735,12 @@ Places the player passes through that no objective names. Every line is a
 | location | map / id | channel | speaker | line | status |
 |---|---|---|---|---|---|
 | the corner villages | `marj_perimeter` staging at `[6,8] [37,8] [6,39] [38,39]` | `radio` | Idit | "Those four corners were occupied before the first shot. The families are between them and us." | engine |
+| **the forward post** | `marj_perimeter` `outpost` `[20,14]` / zone `outpost_ground` | `radio` | Idit | "That post was put out there to watch the northern approach in a war nobody thought was coming this week." | engine |
+| **the families' markers** | `marj_perimeter` `families_nw/ne/sw/se` | `radio` | Idit | "Four village blocks, one family in each, and every one of them is closer to a corner than it is to us." | engine |
 | the compound gates | `marj_perimeter` `compound` | `radio` | Idit | "Two gates, both on the road. They have never once used them." | engine |
 | `civ_refuge` | both maps | `toast` | system | `one family through the wire` | engine |
+| **the collection point** | `beit_sahwan_outskirts` `civ_collection` `[29,33]` / zone `collection_point` | `radio` | Shai | "Collection point is behind the start line and it stays behind it. Nothing forms up there and nothing fights from there." | engine |
+| **the shaft head** | `beit_sahwan_outskirts` zone `shaft_head` `[25,12,3,3]` | `radio` | Idit | "The north mouth comes up inside that block. He did not choose it for the ground — he chose it for who lives on top of it." | engine |
 | the mortar line | `beit_sahwan_outskirts` `mortar_line` | `radio` | Idit | "Everything that reinforces this town comes down the one track east of it. They have never needed a second." | engine |
 | the market lane | `bs_ambush_market_lane` | `radio` | Idit | "The market lane has been an ambush position since before we crossed the line. It is where the district narrows." | engine |
 | the west alley | `bs_ambush_west_alley` | `radio` | Idit | "West alley. Whoever picked it picked the one place armour cannot turn round." | engine |
@@ -648,12 +805,12 @@ The "mechanic" column is what would be needed *besides* a voice.
 
 | # | mission | twist | channel | speaker | line | mechanic | status |
 |---|---|---|---|---|---|---|---|
-| **T1** | `_breach` | *The families that did not get in.* At `timer_s(270)` the civilians still outside are killed rather than merely left | `radio` | Idit | "The ring is closed on the western villages. There is nothing out there left for us to reach." | **engine** — needs a `do.kind` that kills a named civilian group (`execute`, §7 G7) | engine |
+| **T1** | `_breach` | *The families that did not get in.* **Now authored as the trigger `the_ring_closes` at `timer_s(272)`** (`script.md` §1.2) — the nine outside are **taken**, not killed | `radio` | Idit | "The corners are walking back the way they came and they are not walking back empty." | **engine** — `do:{kind:"remove", group:"families"}`; `design.md` §6.1, `script.md` §1.6 G1. The old sketch, written for a 270 s *kill*, is retired: an abduction must not run through `destroy()` or it deducts 8 ROE for the enemy's act | engine |
 | **T2** | `_1_recon` | *The picture is old.* One `locate` target was abandoned days ago; the real cell is four tiles off | `radio` | Idit | "That position is cold. No fire, and the tracks leaving it are days old — the cell is off it and close." | expressible today: two tagged placements plus a `spawn` | engine |
 | **T3** | `_2_foothold` | *The spoil was a decoy.* The western shaft is real and empty; the route under the line is a second one | `radio` | Idit | "The western shaft is real and it is empty. The route under your line is a different one and it was finished before we came." | expressible today: two routes, one `collapse` target | engine |
 | **T4** | `_3_clearance` | *He is in the block.* Sahim is identified inside the flagged block and leaves during the fight | `radio` | Idit | "Sahim is inside the clinic block. That is a confirmed identification and a protected structure, and it is the same building." | expressible today: tagged placement + `withdraw_to` | engine |
 | **T4b** | `_3_clearance` | …and he leaves | `radio` | Idit | "He is out of the block and moving north on foot." | same trigger's `withdraw_to` | engine |
-| **T5** | `_4_subterranean` | *A soldier under the road.* A `yahalom_squad` is taken when a route is identified, held as an HVT to reach before the last collapse | `radio` | Idit | "We have lost a Yahalom team off the net at the west shaft. They did not die. They went down." | **engine** — needs player-side removal (`remove`, the mirror of `reinforce`, §7 G7) | engine |
+| **T5** | `_4_subterranean` | *A soldier under the road.* **The shipped half is now the baseline** — the four at the shaft head are a `civilians` placement, and §6.2 beat 2 says they have been out of reach since the first morning. What is still a twist is the *loss*, in First Light | `radio` | Idit | "We have lost a Yahalom team off the net at the west shaft. They did not die. They went down." | **engine** — player-side removal plus `group` on `starting_force` (`script.md` §1.6 G1, G2). A true friendly-tagged prisoner is a further schema field (`design.md` §9 G6) | engine |
 
 **T4 is the one to build first**, and not because it is the cheapest. It is the
 only twist in the act that states the campaign's whole engine in one event: the
@@ -672,8 +829,8 @@ in the JSON.**
 
 | mission | shipped id | proposed | why |
 |---|---|---|---|
-| `_breach` | `villages_rise` | `the_north_corners_commit` | **The one that matters.** "Villages rise" reads as the villagers rising, on a map carrying eleven civilians the player is scored on protecting. GDD §2 forbids attaching combat to a population; the trigger actually commits a garrison group of `militia_cell`s staged in the map's four corners, so the accurate name is also the safe one |
-| `_breach` | `south_rises` | `the_south_corners_commit` | same, and it pairs |
+| `_breach` | `villages_rise` | `the_north_village_goes_first` | **The one that matters, and the level script kept it** (`script.md` §1.1, "shipped, kept"). The proposal stands and is now *stronger*: the trigger's `do` changed from `commit → compound_centre` to `commit(ring_ne → families_ne)`, so `enemy reacts (villages_rise)` is printed at the exact moment armed men move on a village the player is scored on protecting. GDD §2 forbids attaching combat to a population. The new name also pairs with the three ids `level-scripter` wrote beside it — `they_take_the_south_village`, `they_come_for_the_west_families`, `the_last_village_goes` — which all read correctly as prose and need no change |
+| `_breach` | `south_rises` | **retired** | the trigger no longer exists; the four ring groups now commit on `first_contact` ×2 and `timer_s` 150 / 190. Its `radio` line is retired with it (§2.5) |
 | `_2_foothold` | `flank_delivery_rolls` | `a_technical_runs_the_north_lane` | "Flank delivery" is authoring jargon in the player's face |
 | `_2_foothold` | `flank_delivery_drops` | `it_puts_an_rpg_team_down` | reads as the second half of a sentence, which is what it is |
 | `_3_clearance` | `reserve_counterattack` | `the_southern_cell_commits` | accurate and less like a wargame manual |
@@ -686,7 +843,7 @@ in the JSON.**
 
 | # | gap | smallest fix | owner |
 |---|---|---|---|
-| **G-A** | **Act I has no ending.** `storyline.md` §2.3 makes IV Sahim's end and §3.1 says the briefing "must gain SPADE's capture as a primary and say so". IV declares `collapse` + `locate` and no person. `capture` is live (10 s uninterrupted zone hold), so this needs **+1 tagged placement at the shaft head and +1 `capture` objective** — no engine work at all. The `aftermath` A variant (§6.4) and the proposed objective text in §6.5 are written against it and are not to be authored before it | 1 placement, 1 objective, 1 zone | `mission-author` + `level-scripter` |
+| **G-A** | ~~**Act I has no ending.**~~ **CLOSED.** `bs4_hvt_spade` (`militia_cell`, `hold_position`, `[25.5,13.5]`), the `shaft_head` zone `[25,12,3,3]` and the `capture(shaft_head, 10)` primary `take_the_shaft_head` all ship. The `aftermath` **A** variant is now the live one (§6.4), the objective text this sheet proposed is applied verbatim, and §6.2 beat 7 says *"take the ground he stands on"* with a real objective behind it. **No engine work was needed, exactly as predicted.** What remains is a smaller, separate gap: `capture` cannot require its target alive, so the objective completes the same whether Sahim is standing there or already dead (`script.md` §5.6 G4) | done; the residue is an optional `requires_alive` on `capture` | `sim-guard` |
 | **G-B** | **A civilian reaching the wire is silent.** `evacuated` is a `MissionEvent` and `describeMissionEvent` (`main.ts:253`) has no case for it, so it falls to `default: return null`. The mechanic the whole campaign's motive rests on — First Light's eleven, and `evacuate_before` in three shipped missions — produces **no toast, no sound and no line**. Only the objective's own completion at count 2 says anything | one `case 'evacuated'` returning a toast | `render-vfx` |
 | **G-C** | **A friendly reinforcement is announced as an enemy reaction.** `describeMissionEvent`'s `case 'trigger'` prints `enemy reacts (<id>)` for every trigger regardless of `do.kind`. Six of the tutorial's six triggers are `reinforce` — the player's own equipment arriving — so the game's teaching mission announces each delivery as an enemy move | read `mission.triggers[].do.kind` and print `reinforcements (<id>)` for `reinforce` | `render-vfx` |
 | **G-D** | **`built` prints a raw unit id.** `reinforcement deployed — ifv_namer`. Every other toast in that function is prose | look the display name up from the unit JSON | `render-vfx` |
@@ -711,6 +868,16 @@ surfaces listed as approved and unbuilt. Everything this sheet writes sits
 inside that. **No edit to `docs/GDD.md` was made and its version line is
 untouched.**
 
+**Re-checked for the delta pass**, because two of the changes look at first like
+canon moving and neither is. §11 already says the villain *"ends with him
+captured or killed"*, so IV's `capture(shaft_head, 10)` is that sentence being
+honoured rather than extended. And §11 already says *"missions may turn the plot
+inside the level — a kidnapped civilian killed, a soldier abducted — where the
+declarative vocabulary can express it, and the vocabulary is extended where it
+cannot"*: the four at the shaft head are the expressible half, the two `remove`
+triggers are the half that needs extending, and §11 anticipated both. **No edit
+and no version bump.**
+
 One optional refinement is offered and **not applied**, because it is the
 lead's to take. §11 states the naming rule for the villains but names none of
 them, while shipped mission text now names one. If the lead wants canon and
@@ -732,21 +899,44 @@ That is +1 sentence and a version bump from 1.2 to 1.2.1. It moves no decision;
 ## 13. Row counts
 
 Every table row in this file whose last cell is `live`, `schema` or `engine`,
-counted by script rather than by eye. **140 rows.**
+counted by script rather than by eye. **170 rows**, up from 140 before this
+delta pass — the level script added triggers, waves, objectives and two whole
+positions, and each of them needed binding.
 
 | status | rows | what they are |
 |---|---|---|
-| `live` | **53** | `title` 6 · `brief` 6 · `toast` 39 · `tutorial` 2. Shipped surfaces only: title cards, deploy-screen briefings, objective / trigger / wave / mission-end / ROE toasts, and the tutorial step machine. **The 4 briefings and 2 objective labels this sheet changed are inside this count, applied and validated.** Eight of the 39 toasts are `live` and *wrong* — the six `enemy reacts (deliver_*)` deliveries and the two raw-id `built` lines (G-C, G-D) |
-| `schema` | **2** | `dispatch` on First Light, `aftermath` on IV. Two optional strings away from shipping; the second has two written variants (§6.4) and only one of them can be authored before G-A |
-| `engine` | **85** | `radio` 53 · `eva` 18 · `debrief` 10 · `toast` 4 (the replacements the hard-coded strings block) |
+| `live` | **63** (was 53) | `title` 6 · `brief` 6 · `toast` 49 · `tutorial` 2. Shipped surfaces only: title cards, deploy-screen briefings, objective / trigger / wave / mission-end / ROE toasts, and the tutorial step machine. **The 6 applied briefings and the 4 applied objective labels are inside this count, validated.** Eight of the 49 toasts are `live` and *wrong* — the six `enemy reacts (deliver_*)` deliveries and the two raw-id `built` lines (G-C, G-D) |
+| `schema` | **2** (unchanged) | `dispatch` on First Light, `aftermath` on IV. Two optional strings away from shipping; **§6.4 is down to one variant now that G-A is closed**, so both are authorable the moment the fields exist |
+| `engine` | **105** (was 85) | `radio` 72 · `eva` 18 · `debrief` 11 · `toast` 4 (the replacements the hard-coded strings block) |
 
-**85 `engine` rows.** That is the number to quote: **61% of the writing in this
+**105 `engine` rows.** That is the number to quote: **62% of the writing in this
 act reaches nobody today**, and all of it sits behind four pieces of work —
 `say` on triggers and objectives, a radio overlay, the three story fields, and a
 debrief screen. One `radio` line in the whole act has a live carrier, and only
 because the tutorial's step machine exists (§1.4).
 
-**Nothing in this sheet blocks Act II.** The four applied briefings, the two
+**Two of the 105 are `engine` for a second reason, and they are the act's
+spine.** `they_take_the_section` (§2.5, `timer_s(165)`) and `the_ring_closes`
+(§2.5, `timer_s(272)`) wait on a `do.kind` that removes a group *and* — for the
+first — on `group` being legal on `starting_force` (`script.md` §1.6 G1, G2).
+Every other `engine` row in this sheet has a working mechanism and no voice;
+those two have neither. They are written anyway, and marked twice, because
+`design.md` §6.3's shipping order is to author the act without them: the mission
+plays, the evacuation still fails visibly at 270 s, and the taking is **stated**
+in `dispatch`, `aftermath` and `debrief` until the verb lands.
+
+**What this delta pass changed in the JSON**, and nothing else:
+`beit_sahwan_breach.briefing` (675 → 1,182 chars, 5 → 8 beats),
+`beit_sahwan_breach.objectives[hold_outpost].text`,
+`beit_sahwan_4_subterranean.briefing` (912 → 1,178 chars, 5 → 7 beats), and
+`beit_sahwan_4_subterranean.objectives[find_spade].text`. `get_them_out` and
+`take_the_shaft_head` keep the text they shipped with. `pnpm validate:data`
+passes on 77 files; `loading.test.ts` passes; every beat in both briefings is
+≤ 240 characters and ≤ 2 sentences, checked with a port of `briefingBeats`
+rather than by eye.
+
+**Nothing in this sheet blocks Act II.** The six applied briefings, the four
 applied objective labels and the six unchanged mission names are the whole of
 what Act I can say to a player right now, and they say it in one voice with
-Idit named in the third person, exactly as the deploy screen requires.
+Idit named in the third person wherever she is not standing in the room —
+which at First Light, alone in the act, she is.

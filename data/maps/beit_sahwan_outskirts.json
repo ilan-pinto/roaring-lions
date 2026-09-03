@@ -69,6 +69,10 @@
     "civ_refuge": [
       22,
       45
+    ],
+    "civ_collection": [
+      29,
+      33
     ]
   },
   "zones": {
@@ -90,7 +94,9 @@
       6,
       6
     ],
-    "tunnel_mouth_west": [29, 21, 3, 3]
+    "tunnel_mouth_west": [29, 21, 3, 3],
+    "shaft_head": [25, 12, 3, 3],
+    "collection_point": [28, 32, 4, 3]
   },
   "tunnels": [
     {

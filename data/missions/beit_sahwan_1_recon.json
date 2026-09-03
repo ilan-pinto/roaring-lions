@@ -95,6 +95,13 @@
       "primary": false,
       "target": "bs_hvt_atgm",
       "text": "Identify the ATGM cell overlooking the east road"
+    },
+    {
+      "id": "find_the_column",
+      "type": "locate",
+      "primary": false,
+      "target": "bs_track_north",
+      "text": "Identify the track north of the road"
     }
   ],
   "roe": {
@@ -271,6 +278,13 @@
           ]
         },
         "tag": "bs_observer_aloft"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [26.5, 16.5],
+        "tag": "bs_track_north",
+        "stance": { "kind": "ambush", "tiles": 3 }
       }
     ]
   },
