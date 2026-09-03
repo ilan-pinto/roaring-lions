@@ -65,7 +65,7 @@ export type { OrderId } from './selection-model';
  * same string in thirteen files would not be. Extending the schema is the
  * right fix and it is not this slice's.
  */
-const COMMANDER = { rank: 'Lt Col Shai Hamami', plate: 'Hamami' };
+const COMMANDER = { rank: 'Lt Col Shai Hammai', plate: 'Hammai' };
 
 /** The feed is punctuation, not a log. Four lines is what fits above the dock
  *  without the stack reaching the reinforcements tiles. */
