@@ -88,10 +88,10 @@ CROP_BOTTOM_FRAC = 0.55     # bottom of the chest-up crop, fraction of height.
 HEAD_MARGIN_FRAC = 0.05     # headroom above the crown, fraction of height.
 HORIZ_MARGIN     = 1.08     # safety margin on the measured shoulder/prop width.
 
-KEY_ENERGY  = 220.0   # W, Blender area-light power.
+KEY_ENERGY  = 80.0    # W, Blender area-light power. 220 double-lit the bake (the lead: "too much light").
 KEY_SIZE    = 1.4     # m, square area light.
 KEY_COLOR   = (1.0, 0.95, 0.88)   # warm-neutral.
-FILL_ENERGY = 55.0     # W -- roughly a quarter of the key, "weak fill".
+FILL_ENERGY = 20.0     # W -- a quarter of the key, "weak fill".
 FILL_SIZE   = 1.2
 FILL_COLOR  = (0.92, 0.95, 1.0)   # slightly cool, unobtrusive.
 
@@ -108,6 +108,9 @@ def parse_args():
     p.add_argument("--yaw", type=float, default=35.0, help="azimuth off dead-front, degrees, toward camera-left")
     p.add_argument("--size", default="512x640", help="WxH pixels")
     p.add_argument("--samples", type=int, default=SAMPLES)
+    p.add_argument("--key", type=float, default=KEY_ENERGY, help="key area light, watts")
+    p.add_argument("--fill", type=float, default=FILL_ENERGY, help="fill area light, watts")
+    p.add_argument("--exposure", type=float, default=-0.3, help="scene exposure, EV (negative = darker)")
     return p.parse_args(argv)
 
 
@@ -181,7 +184,7 @@ def build_world():
     bpy.context.scene.world = world
 
 
-def build_scene(size_x, size_y, samples):
+def build_scene(size_x, size_y, samples, exposure=0.0):
     scene = bpy.context.scene
     scene.render.engine = "BLENDER_EEVEE"
     scene.render.resolution_x = size_x
@@ -195,6 +198,7 @@ def build_scene(size_x, size_y, samples):
     # second, unwanted display transform on top of it and flatten it.
     scene.view_settings.view_transform = "Standard"
     scene.view_settings.look = "None"
+    scene.view_settings.exposure = float(exposure)
     build_world()
 
 
@@ -211,7 +215,7 @@ def add_area_light(name, energy, size, color, location, target):
     return obj
 
 
-def build_camera(height, yaw_deg):
+def build_camera(height, yaw_deg, key_w=KEY_ENERGY, fill_w=FILL_ENERGY):
     """Returns (camera, geometry-report-dict)."""
     eye_z = EYE_FRAC * height
     crop_bottom_z = CROP_BOTTOM_FRAC * height
@@ -283,12 +287,12 @@ def build_camera(height, yaw_deg):
     key_yaw = yaw + math.radians(25.0)   # a bit wider than the camera itself.
     key_dir = Vector((-math.sin(key_yaw), -math.cos(key_yaw)))
     key_pos = aim_pos + Vector((key_dir.x * 1.4, key_dir.y * 1.4, 1.0))
-    add_area_light("key", KEY_ENERGY, KEY_SIZE, KEY_COLOR, key_pos, aim_pos)
+    add_area_light("key", key_w, KEY_SIZE, KEY_COLOR, key_pos, aim_pos)
 
     fill_yaw = -math.radians(30.0)
     fill_dir = Vector((-math.sin(fill_yaw), -math.cos(fill_yaw)))
     fill_pos = aim_pos + Vector((fill_dir.x * 1.6, fill_dir.y * 1.6, 0.3))
-    add_area_light("fill", FILL_ENERGY, FILL_SIZE, FILL_COLOR, fill_pos, aim_pos)
+    add_area_light("fill", fill_w, FILL_SIZE, FILL_COLOR, fill_pos, aim_pos)
 
     return cam, report
 
@@ -297,12 +301,12 @@ def main():
     args = parse_args()
     size_x, size_y = (int(v) for v in args.size.lower().split("x"))
 
-    build_scene(size_x, size_y, args.samples)
+    build_scene(size_x, size_y, args.samples, args.exposure)
 
     root = find_root()
     factor, measured_height = scale_and_ground(root, args.height)
 
-    cam, report = build_camera(args.height, args.yaw)
+    cam, report = build_camera(args.height, args.yaw, args.key, args.fill)
 
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     bpy.context.scene.render.filepath = os.path.abspath(args.out)
@@ -326,6 +330,7 @@ def main():
     print(f"  aim point             : {report['aim_pos']}")
     print(f"  yaw                   : {args.yaw} deg off dead-front, toward camera-left")
     print(f"  samples               : {args.samples}")
+    print(f"  key / fill / exposure : {args.key} W / {args.fill} W / {args.exposure} EV")
 
 
 if __name__ == "__main__":

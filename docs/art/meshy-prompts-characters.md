@@ -235,7 +235,7 @@ The portrait is rendered from the delivered figure, once per character, by
 | item | value |
 |---|---|
 | camera | 50 mm, eye height, three-quarter from camera-left, framing chest-up with the head in the upper third |
-| light | one large soft key from camera-left, one weak fill; no rim, no coloured light |
+| light | one large soft key from camera-left at 80 W, a 20 W fill, exposure −0.3 EV; no rim, no coloured light. The first pass at 220 / 55 / 0 double-lit the bake and read blown out; the bake is already a lit photograph, so the lights only add form |
 | backdrop | plain, dark, uniform — `--panel` composites over it |
 | output | 512 × 640 PNG, sRGB, ≤ 150 KiB, `assets/ui/portraits/<id>.png` |
 | pose | the **Idle** clip's first frame; for Adhal the binoculars half-lowered |
