@@ -249,7 +249,7 @@ stays for units; these five are people, not units.
 
 | character | Meshy output | portrait | map |
 |---|---|---|---|
-| Shai Hammai | `art/blend/KDF/shai_hammai/` (rig + blend) | `assets/ui/portraits/shai_hammai.png` → the commander bar, and the deploy panel when built | never on the map |
+| Shai Hammai | **delivered 2026-09-04** as `art/blend/KDF/Shai Hammi/` — the textured remesh only (5,147 verts, 2048 bake), no rigged `_biped.zip` yet | **rendered and wired 2026-09-04**: `assets/ui/portraits/shai_hammai.png` (56 KiB) shows on the commander bar and the deploy panel (`tools/render_portrait.py`) | never on the map |
 | Idit Zohar | `art/blend/KDF/idit_zohar/` | `assets/ui/portraits/idit_zohar.png` → the bar on her lines, after the speaker lookup lands | never on the map |
 | Nadir Sahim | `art/blend/enemy/nadir_sahim/` | `assets/ui/portraits/nadir_sahim.png` → debrief / overlay, when built | `bs4_hvt_spade`, once a placement can name a mesh |
 | Karim Adhal | `art/blend/enemy/karim_adhal/` | `assets/ui/portraits/karim_adhal.png` | `uz_hvt_lantern` |

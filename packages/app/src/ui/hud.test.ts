@@ -26,6 +26,20 @@ const TEST_COMMANDER: HudCommanderInfo = {
   idit: { name: 'Idit Zohar', plate: 'Zohar' },
 };
 
+/** The same shape, but with a portrait URL already resolved for both
+ *  people -- `main.ts` hands over exactly this after `portraitUrl` runs, so
+ *  this suite never has to touch `import.meta.glob` to prove the DOM join. */
+const TEST_COMMANDER_WITH_PORTRAITS: HudCommanderInfo = {
+  shai: {
+    name: 'Shai Hammai',
+    plate: 'Hammai',
+    rank: 'Captain',
+    stars: 2,
+    portrait: '/ui/portraits/shai_hammai.png',
+  },
+  idit: { name: 'Idit Zohar', plate: 'Zohar', portrait: '/ui/portraits/idit_zohar.png' },
+};
+
 /** A two-unit force on an 8x8 field: enough for the suppression counter to have
  *  something to count, and nothing else. The type is the shipped `inf_squad`
  *  rather than a hand-written stand-in — a stand-in here would only be testing
@@ -316,6 +330,61 @@ describe('commander', () => {
 
     buttons[0].click(); // pages away from the say, back to beat 1 / 2
     expect(who()).toContain('1 / 2');
+  });
+});
+
+describe('commander portrait', () => {
+  const face = (host: HTMLElement): HTMLImageElement =>
+    host.querySelector<HTMLImageElement>('.rl-cmd__face-img')!;
+
+  it('shows the hatch -- the image stays hidden -- when nobody on the roster has a portrait', () => {
+    const r = rig(mission(), { commander: TEST_COMMANDER });
+    r.hud.brief(['One.']);
+    expect(face(r.host).hidden).toBe(true);
+  });
+
+  it("shows Shai's portrait while the bar is delivering his own beats", () => {
+    const r = rig(mission(), { commander: TEST_COMMANDER_WITH_PORTRAITS });
+    r.hud.brief(['One.', 'Two.']);
+    const img = face(r.host);
+    expect(img.hidden).toBe(false);
+    expect(img.src).toContain('shai_hammai.png');
+  });
+
+  it("a say line from Idit swaps the face to hers, and paging back to a beat swaps it back to Shai's", () => {
+    const r = rig(mission(), { commander: TEST_COMMANDER_WITH_PORTRAITS });
+    r.hud.brief(['One.', 'Two.']);
+    expect(face(r.host).src).toContain('shai_hammai.png');
+
+    r.hud.say('idit', 'Contact on the west ridge.');
+    expect(face(r.host).src).toContain('idit_zohar.png');
+
+    // pageCommander's own doc comment: paging clears the say overlay, which
+    // is how one is dismissed by hand -- the very next render should show
+    // the beat paging landed on, face included.
+    const buttons = r.host.querySelectorAll<HTMLButtonElement>('.rl-cmd__page button');
+    buttons[1].click();
+    expect(face(r.host).src).toContain('shai_hammai.png');
+  });
+
+  it('falls to the hatch for net and enemy, who are not people on the roster', () => {
+    const r = rig(mission(), { commander: TEST_COMMANDER_WITH_PORTRAITS });
+    r.hud.say('net', 'Reinforcements are twelve minutes out.');
+    expect(face(r.host).hidden).toBe(true);
+
+    r.hud.say('enemy', 'We see you.');
+    expect(face(r.host).hidden).toBe(true);
+  });
+
+  it('falls back to the hatch when a resolved URL fails to load, rather than a broken-image glyph', () => {
+    const r = rig(mission(), { commander: TEST_COMMANDER_WITH_PORTRAITS });
+    r.hud.brief(['One.']);
+    const img = face(r.host);
+    expect(img.hidden).toBe(false);
+
+    img.dispatchEvent(new Event('error'));
+    expect(img.hidden).toBe(true);
+    expect(img.getAttribute('src')).toBeNull();
   });
 });
 

@@ -237,6 +237,17 @@ export function campaignRoe(
 export interface CommanderPerson {
   name: string;
   plate: string;
+  /**
+   * File name (not a path) under `assets/ui/portraits/`, e.g.
+   * `"shai_hammai.png"` -- data, not a URL. This module has no browser to
+   * resolve one with (`campaign.test.ts` runs `parseCommander` under plain
+   * node), so turning a name into something an `<img>` can load is
+   * `portrait-catalogue.ts`'s job, called from `main.ts`. Absent means the
+   * person has no portrait authored yet, which reads identically to one
+   * named here whose file is not on disk -- either way `.rl-cmd__face`
+   * shows the hatch.
+   */
+  portrait?: string;
 }
 
 export interface CommanderRank {
@@ -260,6 +271,14 @@ export interface ResolvedCommander {
   plate: string;
   rank: string;
   stars: number;
+  /**
+   * The RESOLVED portrait URL -- unlike `CommanderPerson.portrait`, which is
+   * a bare file name. `commanderForMission` never sets this field itself (it
+   * has no asset resolver to call); `main.ts` copies it in from
+   * `commanderPortraitUrl(commander.people.shai.portrait)` once it builds the
+   * `HudCommanderInfo` this type feeds. Absent means the hatch.
+   */
+  portrait?: string;
 }
 
 interface CommanderRankJson {

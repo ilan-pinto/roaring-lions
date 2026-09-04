@@ -87,8 +87,12 @@ export function showLoading(
   /** Shai's rank and plate for this mission (`commanderForMission`,
    *  `campaign.ts`) -- optional so a sandbox or a mission with no briefing
    *  behaves exactly as it always has (gated on `holds` below, the same
-   *  condition the orders paragraph itself is). */
-  commander?: { rank: string; plate: string }
+   *  condition the orders paragraph itself is). `portrait`, when present,
+   *  is already the RESOLVED URL (`portrait-catalogue.ts`'s
+   *  `commanderPortraitUrl`, called once in `main.ts` -- the same value
+   *  `ui/hud.ts`'s commander bar shows for Shai), not the bare file name
+   *  `commander.json` authors. */
+  commander?: { rank: string; plate: string; portrait?: string }
 ): LoadingScreen {
   const wrap = document.createElement('div');
   wrap.className = 'rl-loading';
@@ -127,6 +131,32 @@ export function showLoading(
   commanderLine.className = 'rl-loading__commander';
   if (holds && commander) commanderLine.textContent = `${commander.rank} · ${commander.plate}`;
 
+  // The same photo the in-mission commander bar shows for Shai, beside the
+  // rank/plate line rather than replacing it -- the deploy screen's first
+  // look at whoever is about to give the orders below. Same fallback as
+  // `.rl-cmd__face`: hatched when there is no resolved URL, and the `error`
+  // handler catches a URL that resolved but still fails to load, which
+  // `commander.portrait` being set does not by itself guarantee.
+  const commanderFace = document.createElement('div');
+  commanderFace.className = 'rl-loading__face';
+  const commanderFaceImg = document.createElement('img');
+  commanderFaceImg.className = 'rl-loading__face-img';
+  commanderFaceImg.alt = '';
+  commanderFaceImg.hidden = true;
+  commanderFaceImg.addEventListener('error', () => {
+    commanderFaceImg.hidden = true;
+    commanderFaceImg.removeAttribute('src');
+  });
+  if (commander?.portrait !== undefined) {
+    commanderFaceImg.src = commander.portrait;
+    commanderFaceImg.hidden = false;
+  }
+  commanderFace.appendChild(commanderFaceImg);
+
+  const commanderHead = document.createElement('div');
+  commanderHead.className = 'rl-loading__head';
+  commanderHead.append(commanderFace, commanderLine);
+
   const orders = document.createElement('p');
   orders.className = 'rl-loading__brief';
   if (holds) orders.textContent = briefing as string;
@@ -139,7 +169,7 @@ export function showLoading(
   box.append(label, name, track, count);
   if (holds) {
     box.classList.add('rl-loading__box--brief');
-    if (commander) box.append(commanderLine);
+    if (commander) box.append(commanderHead);
     box.append(orders, deploy);
   }
   wrap.appendChild(box);

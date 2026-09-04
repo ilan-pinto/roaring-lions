@@ -108,6 +108,7 @@ import { resolveRendererChoice, RENDERER_STORAGE_KEY } from './renderer-choice';
 import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
 import { tutorialPanel, type TutorialPanel } from './tutorial/panel';
 import { parseWorld, parseCountries, parseCommander, commanderForMission, nextMissionAfter } from './campaign';
+import { commanderPortraitUrl } from './portrait-catalogue';
 
 /** Deploy base ('/' locally, '/<repo>/' on GitHub Pages) — every asset URL
  *  is built from it so the same bundle works in both places. */
@@ -355,9 +356,19 @@ async function main(): Promise<void> {
   // commander bar stays hidden without a briefing regardless of what rank it
   // would have shown (`ui/hud.ts`'s `brief`).
   const commanderData = parseCommander(commander);
+  // `commanderForMission` never sets `portrait` -- it has no asset resolver
+  // to call (`portrait-catalogue.ts`'s own doc comment). The resolved URL is
+  // layered on here, once, for both people the bar can show a face for.
   const hudCommander: HudCommanderInfo = {
-    shai: commanderForMission(commanderData, parseWorld(world), missionId ?? ''),
-    idit: { name: commanderData.people.idit.name, plate: commanderData.people.idit.plate },
+    shai: {
+      ...commanderForMission(commanderData, parseWorld(world), missionId ?? ''),
+      portrait: commanderPortraitUrl(commanderData.people.shai.portrait),
+    },
+    idit: {
+      name: commanderData.people.idit.name,
+      plate: commanderData.people.idit.plate,
+      portrait: commanderPortraitUrl(commanderData.people.idit.portrait),
+    },
   };
 
   // --- world ---------------------------------------------------------------
@@ -844,7 +855,7 @@ async function main(): Promise<void> {
     stage,
     mission?.name ?? mission?.id ?? 'M0 sandbox',
     mission?.briefing,
-    { rank: hudCommander.shai.rank, plate: hudCommander.shai.plate }
+    { rank: hudCommander.shai.rank, plate: hudCommander.shai.plate, portrait: hudCommander.shai.portrait }
   );
   await renderer.init(stage);
   renderer.useEmitters(vfxEmitters as EmitterSpec[], paletteColor);

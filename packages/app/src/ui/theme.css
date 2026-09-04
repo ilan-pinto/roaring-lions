@@ -824,13 +824,18 @@ body {
 .rl-cmd button {
   pointer-events: auto;
 }
-/* The portrait frame. Hatched because there is no portrait yet and an empty
-   box reads as a bug — the hatch reads as "reserved". The render is its own
-   ticket; when it lands, the background is the only line that changes. */
+/* The portrait frame. Hatched whenever the current speaker has no portrait
+   -- authored or not, on disk or not, an empty box reads as a bug and the
+   hatch reads as "reserved". `.rl-cmd__face-img` sits on top of the hatch
+   rather than replacing it as a `background`: the hatch stays exactly this
+   CSS, and the JOIN that decides which face to show (or none) lives in
+   `hud.ts`'s `paintFace`. */
 .rl-cmd__face {
   width: var(--tile);
   height: var(--tile);
   flex: none;
+  position: relative;
+  overflow: hidden;
   box-sizing: border-box;
   border: 1px solid var(--panel-frame);
   background: repeating-linear-gradient(
@@ -846,6 +851,19 @@ body {
   pointer-events: auto;
   cursor: pointer;
 }
+/* Absolutely positioned so `hud.ts` can toggle it with the native `hidden`
+   attribute rather than a `display` this rule would have to fight over --
+   an author `display` here would beat the UA's own `[hidden] { display:
+   none }` regardless of specificity, since normal author rules always win
+   over normal UA ones. `position: absolute` blockifies the image without
+   one, so hiding stays entirely in the boolean the DOM already carries. */
+.rl-cmd__face-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
 /* Open, the frame belongs to the briefing rather than to the machinery, and
    its edge says so in the same olive the mission band wears. */
 .rl-cmd[data-open='1'] .rl-cmd__face {
@@ -853,6 +871,12 @@ body {
   cursor: default;
 }
 .rl-cmd__plate {
+  /* Positioned, not static, so it paints in the SAME stacking step as
+     `.rl-cmd__face-img` rather than the earlier one CSS2.1 Appendix E gives
+     non-positioned in-flow content -- otherwise a landed portrait paints
+     over this caption regardless of DOM order. */
+  position: relative;
+  z-index: 1;
   font-family: var(--font-display);
   font-size: var(--t-xs);
   font-weight: 600;
@@ -2041,13 +2065,52 @@ body {
   width: min(680px, 88vw);
   text-align: left;
 }
+/* The rank/plate line and, beside it, the same photo `.rl-cmd__face` shows
+   for Shai -- 200x250, `2026-08-21-commander-brief-design.md`'s own
+   "displayed" size. Beside the caption rather than the full two-column
+   mockup that spec draws (portrait as a left rail with the header, quote
+   and deploy button stacked to its right): that would restructure the
+   whole box, this only adds a row above the unchanged orders paragraph.
+   The head as a whole carries the top margin the plain line used to, so
+   nothing shifts when there is no commander to show either half of. */
+.rl-loading__head {
+  margin-top: var(--s4);
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+/* Hatched exactly like `.rl-cmd__face` whenever there is no resolved
+   portrait URL -- authored or not, on disk or not, reads identically as
+   "reserved" rather than a broken box. */
+.rl-loading__face {
+  width: 200px;
+  height: 250px;
+  flex: none;
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+  border: 1px solid var(--panel-frame);
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--type-shadow) 0,
+    var(--type-shadow) 4px,
+    var(--panel-frame) 4px,
+    var(--panel-frame) 6px
+  );
+}
+.rl-loading__face-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
 /* Attribution for the orders below -- the same rank/plate the in-mission
    commander bar shows (`.rl-cmd__plate`), tracked mono caps for the
    identical "who is talking" reason. Empty and untouched by layout when the
    deploy screen has no commander to attribute (a sandbox never reaches
    `.rl-loading__box--brief` at all). */
 .rl-loading__commander {
-  margin-top: var(--s4);
   font-family: var(--font-display);
   font-size: var(--t-xs);
   font-weight: 600;

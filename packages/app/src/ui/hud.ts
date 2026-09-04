@@ -38,6 +38,7 @@ import {
   objectiveGlyph,
   roeTone,
   speakerPlate,
+  speakerPortrait,
   stepBeat,
   stripObjectives,
   worstPenalties,
@@ -66,10 +67,17 @@ export type { OrderId } from './selection-model';
  * no `world`/`commander.json` to resolve one from, so the caller (`main.ts`)
  * hands over the answer rather than the ingredients. `idit` is her static
  * plate, needed only when a `say` line is hers.
+ *
+ * `portrait`, on both, is the RESOLVED URL (`portrait-catalogue.ts`'s
+ * `commanderPortraitUrl`, called in `main.ts`) -- not the bare file name
+ * `commander.json` authors. `.rl-cmd__face` shows whichever one belongs to
+ * the current speaker and falls back to its hatch when that person's is
+ * `undefined`, which covers both "never authored" and "authored, file not
+ * on disk yet" identically.
  */
 export interface HudCommanderInfo {
   shai: ResolvedCommander;
-  idit: { name: string; plate: string };
+  idit: { name: string; plate: string; portrait?: string };
 }
 
 /** The feed is punctuation, not a log. Four lines is what fits above the dock
@@ -153,6 +161,8 @@ export class Hud {
   private readonly hint: HTMLDivElement;
   private readonly fire: HTMLDivElement;
   private readonly cmd: HTMLDivElement;
+  private readonly cmdFace: HTMLDivElement;
+  private readonly cmdFaceImg: HTMLImageElement;
   private readonly cmdQuote: HTMLDivElement;
   private readonly cmdWho: HTMLSpanElement;
   private readonly cmdFill: HTMLElement;
@@ -342,16 +352,31 @@ export class Hud {
     this.cmd.dataset.open = '0';
     this.cmd.style.display = 'none';
 
-    const face = document.createElement('div');
-    face.className = 'rl-cmd__face';
-    face.title = this.commanderLine;
+    this.cmdFace = document.createElement('div');
+    this.cmdFace.className = 'rl-cmd__face';
+    this.cmdFace.title = this.commanderLine;
     // The collapsed frame is the way back in. A briefing the player dismissed
     // by looking away is otherwise unreadable for the rest of the mission.
-    face.addEventListener('click', () => this.openCommander());
+    this.cmdFace.addEventListener('click', () => this.openCommander());
+    // The photo of whoever is currently speaking. Hidden by default, so the
+    // frame's own hatch (theme.css: "reads as reserved") shows through until
+    // `renderCommander` has a speaker to paint -- and again whenever that
+    // speaker has no portrait, since a hidden `<img>` with no `src` cannot
+    // show a broken-image glyph. The `error` handler is the one case the
+    // build-time glob in `portrait-catalogue.ts` cannot see: a URL it
+    // resolved that still fails to load at runtime.
+    this.cmdFaceImg = document.createElement('img');
+    this.cmdFaceImg.className = 'rl-cmd__face-img';
+    this.cmdFaceImg.alt = '';
+    this.cmdFaceImg.hidden = true;
+    this.cmdFaceImg.addEventListener('error', () => {
+      this.cmdFaceImg.hidden = true;
+      this.cmdFaceImg.removeAttribute('src');
+    });
     const plate = document.createElement('span');
     plate.className = 'rl-cmd__plate';
     plate.textContent = deps.commander.shai.plate;
-    face.appendChild(plate);
+    this.cmdFace.append(this.cmdFaceImg, plate);
 
     const bar = document.createElement('div');
     bar.className = 'rl-cmd__bar';
@@ -380,7 +405,7 @@ export class Hud {
     this.cmdFill = document.createElement('i');
     track.appendChild(this.cmdFill);
     bar.append(head, this.cmdQuote, track);
-    this.cmd.append(face, bar);
+    this.cmd.append(this.cmdFace, bar);
 
     this.banner = document.createElement('div');
     this.banner.className = 'rl-bigbanner';
@@ -563,6 +588,10 @@ export class Hud {
     const total = this.beats.length;
     this.cmdPrev.disabled = this.beatIdx === 0;
     this.cmdNext.disabled = total === 0 || this.beatIdx === total - 1;
+    // Beats are always delivered by Shai, so the default speaker (no active
+    // `say` line) is his -- the same default `commanderLine` above already
+    // assumes.
+    this.paintFace(this.activeSay?.speaker ?? 'shai');
     if (this.activeSay) {
       const { speaker, text } = this.activeSay;
       this.cmdWho.textContent = speakerPlate(this.deps.commander, speaker);
@@ -580,6 +609,26 @@ export class Hud {
     this.beatTimer = window.setTimeout(() => {
       this.cmd.dataset.open = '0';
     }, beatDwellMs(text));
+  }
+
+  /**
+   * `.rl-cmd__face` tracks whoever is currently speaking -- Shai while the
+   * bar shows his own beats, whoever a `say` line names otherwise
+   * (`speakerPortrait`, `hud-model.ts`). `undefined` covers three cases the
+   * caller does not need to tell apart: the person has no portrait
+   * authored, `commander.json` names a file this build never found on disk,
+   * or the speaker is `net`/`enemy` and is not a person on the roster at
+   * all -- every one of them means "show the hatch".
+   */
+  private paintFace(speaker: string): void {
+    const url = speakerPortrait(this.deps.commander, speaker);
+    if (url === undefined) {
+      this.cmdFaceImg.hidden = true;
+      this.cmdFaceImg.removeAttribute('src');
+      return;
+    }
+    this.cmdFaceImg.hidden = false;
+    if (this.cmdFaceImg.getAttribute('src') !== url) this.cmdFaceImg.src = url;
   }
 
   // ------------------------------------------------------------------

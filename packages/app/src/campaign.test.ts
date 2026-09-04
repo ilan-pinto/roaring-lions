@@ -215,8 +215,20 @@ describe('campaignRoe', () => {
 
 describe('parseCommander', () => {
   it('reads Shai and Idit from the shipped commander.json', () => {
-    expect(commander.people.shai).toEqual({ name: 'Shai Hammai', plate: 'Hammai' });
+    // Shai carries a `portrait` file name; Idit does not have one authored
+    // yet -- both are exercised below, by the same `toEqual` this file
+    // already used before the field existed.
+    expect(commander.people.shai).toEqual({
+      name: 'Shai Hammai',
+      plate: 'Hammai',
+      portrait: 'shai_hammai.png',
+    });
     expect(commander.people.idit).toEqual({ name: 'Idit Zohar', plate: 'Zohar' });
+  });
+
+  it('carries an unresolved portrait file name through untouched -- resolving it to a URL is not this module\'s job', () => {
+    expect(parseCommander(commanderJson).people.shai.portrait).toBe('shai_hammai.png');
+    expect(parseCommander({ people: { shai: { name: 'S', plate: 'P' }, idit: { name: 'I', plate: 'Q' } }, ranks: [{ rank: 'R', stars: 1 }] }).people.shai.portrait).toBeUndefined();
   });
 
   it('maps the authoring spelling (until_mission) onto the runtime one (untilMission)', () => {

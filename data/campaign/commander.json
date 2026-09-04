@@ -1,6 +1,6 @@
 {
   "people": {
-    "shai": { "name": "Shai Hammai", "plate": "Hammai" },
+    "shai": { "name": "Shai Hammai", "plate": "Hammai", "portrait": "shai_hammai.png" },
     "idit": { "name": "Idit Zohar", "plate": "Zohar" }
   },
   "ranks": [

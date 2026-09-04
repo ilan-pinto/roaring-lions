@@ -72,6 +72,11 @@
           "type": "string",
           "minLength": 1,
           "description": "Short name for the commander bar / speaker label."
+        },
+        "portrait": {
+          "type": "string",
+          "minLength": 1,
+          "description": "File name (not a path) under assets/ui/portraits/, e.g. \"shai_hammai.png\". Optional -- a person with none shows the `.rl-cmd__face` hatch, exactly like one whose named file is not on disk yet."
         }
       }
     }

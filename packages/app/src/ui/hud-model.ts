@@ -208,6 +208,25 @@ export function speakerPlate(
   return speaker === 'net' ? 'NET' : 'ENEMY';
 }
 
+/**
+ * The photo `.rl-cmd__face` shows for whoever is currently speaking on the
+ * bar -- the same `speaker` string `speakerPlate` reads, resolved against
+ * each person's ALREADY-RESOLVED portrait URL (`HudCommanderInfo`'s own doc
+ * comment; this function does no path-to-URL resolution of its own).
+ * `net`/`enemy` are not people on this roster and have no portrait to look
+ * up, so they fall to `undefined` exactly like a named person who simply has
+ * none authored yet -- both mean "show the hatch", and the caller does not
+ * need to tell them apart.
+ */
+export function speakerPortrait(
+  people: { shai: { portrait?: string }; idit: { portrait?: string } },
+  speaker: string
+): string | undefined {
+  if (speaker === 'shai') return people.shai.portrait;
+  if (speaker === 'idit') return people.idit.portrait;
+  return undefined;
+}
+
 /** How long a beat stays open before the bar folds back to the portrait.
  *
  *  Proportional to its own length, because the beats are split on sentence

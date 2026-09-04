@@ -84,6 +84,41 @@ describe('showLoading with orders to read', () => {
     showLoading(el, 'M0 sandbox', undefined, { rank: 'Captain', plate: 'Hammai' });
     expect(el.textContent).not.toContain('Hammai');
   });
+
+  it('shows the commander portrait beside the rank/plate line when one resolves', () => {
+    const el = host();
+    showLoading(el, 'Break the Depot', 'Seven structures inside the walled depot.', {
+      rank: 'Captain',
+      plate: 'Hammai',
+      portrait: '/ui/portraits/shai_hammai.png',
+    });
+    const img = el.querySelector<HTMLImageElement>('.rl-loading__face-img')!;
+    expect(img.hidden).toBe(false);
+    expect(img.src).toContain('shai_hammai.png');
+  });
+
+  it('falls back to the hatch -- no image -- when the commander has no portrait', () => {
+    const el = host();
+    showLoading(el, 'Break the Depot', 'Seven structures inside the walled depot.', {
+      rank: 'Captain',
+      plate: 'Hammai',
+    });
+    expect(el.querySelector<HTMLImageElement>('.rl-loading__face-img')!.hidden).toBe(true);
+  });
+
+  it('falls back to the hatch when a resolved portrait URL fails to load', () => {
+    const el = host();
+    showLoading(el, 'Break the Depot', 'Seven structures inside the walled depot.', {
+      rank: 'Captain',
+      plate: 'Hammai',
+      portrait: '/ui/portraits/shai_hammai.png',
+    });
+    const img = el.querySelector<HTMLImageElement>('.rl-loading__face-img')!;
+    expect(img.hidden).toBe(false);
+    img.dispatchEvent(new Event('error'));
+    expect(img.hidden).toBe(true);
+    expect(img.getAttribute('src')).toBeNull();
+  });
 });
 
 // A briefing long enough to scroll is a briefing the player scrolls, and the
