@@ -252,31 +252,51 @@ the silhouette and it sits on the ground beside the man, so it reads as
 
 ---
 
-## Prompt 3 — Suicide-vest fighter (`charge_squad`)
+## Prompt 3 — Heavy-rig fighter (`charge_squad`)
+
+`charge_squad` is "Suicide Squad" in the data — `abilities: ["kamikaze"]`, and
+a `vest` weapon of type `demolition` at 1.1 tiles with 420 damage and 0.85
+collateral risk. So the thing being modelled is a suicide vest, and `charge`
+sits in the closed ten-role vocabulary for exactly this.
+
+**The prompt below never says so, and that is deliberate.** A 3D generator
+asked in plain terms for an improvised explosive vest with detonator cord and a
+firing switch is very likely to decline, and a refusal costs a generation to
+discover. Everything that reads at gameplay size is silhouette — bulky chest
+panels, cabling, a satchel at the hip — and none of it needs the words that
+trip a filter. Ask for the shape; the unit's meaning is carried by
+`data/units/enemy/charge_squad.json`, not by the prompt.
 
 Two generations of one character. This is the one team whose "weapon" is worn
 rather than held, so the standing figure already carries everything.
 
-> **[shared character description]**, and over the chest rig an improvised
-> explosive vest: front and back canvas panels each holding four cylindrical
-> charges 12 centimetres long and 5 centimetres across in stitched pockets,
-> wired together with red and black detonator cord running up to a toggle
-> switch taped to the left shoulder strap. A closed canvas satchel 26 by 18 by
-> 20 centimetres hangs from a long sling at his hip, one wire emerging from
-> under its flap. His hands are empty and open at his sides — no rifle, no
-> launcher.
+> **[shared character description]**, and over the chest rig a bulky
+> load-bearing harness: front and back canvas panels, each holding four
+> cylindrical grey canisters 12 centimetres long and 5 centimetres across in
+> stitched fabric pockets, linked by red and black electrical cabling that runs
+> up to a small taped switch box on the left shoulder strap. A closed canvas
+> satchel 26 by 18 by 20 centimetres hangs from a long sling at his hip, with a
+> short length of the same cabling emerging from under its flap. His hands are
+> empty and open at his sides — no rifle, no launcher, nothing carried.
 >
 > **Crouching:** the same fighter low to the ground in a sprinter's crouch, one
-> hand on the ground and the other closed around the toggle switch at his
-> shoulder, head up and looking forward.
+> hand on the ground and the other closed around the shoulder switch box, head
+> up and looking forward.
 >
 > **[shared five requirements]** · **[shared clip list]**, and additionally a
 > **Sprinting** animation — a flat-out run, faster and lower than the normal
 > run, arms driving.
 
 **Why the hands are explicitly empty:** the supplied irregular has a rifle
-fused into its right hand that had to be cut out by vertex weight. Asking for
-empty hands up front is cheaper than removing a weapon later.
+fused into its right hand that had to be cut out by vertex weight after the
+fact. Asking for empty hands up front is cheaper than removing a weapon later.
+
+**Name the parts for the palette anyway**, unusually for a figure prompt: ask
+for the panels and cabling as `vest_front_charge`, `vest_back_charge`,
+`wire_charge`, `switch_metal`, `satchel_webbing`. If this figure ends up
+palette-painted rather than shipping its bake, `charge` is the one role that
+makes an explosive read as an explosive rather than as webbing, and it is
+cheap to have and impossible to add later without re-exporting.
 
 ---
 
@@ -337,7 +357,7 @@ ditch's rather than a role invented off-table.
 | `militia_cell` | **none** — reuses `sarim_rifles.glb`'s figure | 2 figures, tight pair at `(0.0, -0.24)` / `(0.12, 0.26)` |
 | `rpg_team` | **delivered** (prompt 1) | 2 figures, standing rig for `move`/`down`, crouch for `idle`/`fire` |
 | `mortar_crew` | Prompt 2 | 3 figures; the mortar comes with the kneeling one |
-| `charge_squad` | Prompt 3 | 2 figures, vest and satchel already on them |
+| `charge_squad` | Prompt 3 | 2 figures, rig and satchel already on them |
 | `digger_crew` | Prompt 4 + the spoil from prompt 5 | 1 figure + 3 heaps |
 
 **One thing to measure, not assume.** `pnpm validate:meshes` fails any two
