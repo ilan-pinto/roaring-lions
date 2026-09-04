@@ -1,7 +1,7 @@
 {
   "people": {
     "shai": { "name": "Shai Hammai", "plate": "Hammai", "portrait": "shai_hammai.png" },
-    "idit": { "name": "Idit Zohar", "plate": "Zohar" }
+    "idit": { "name": "Idit Zohar", "plate": "Zohar", "portrait": "idit_zohar.png" }
   },
   "ranks": [
     { "rank": "Captain", "stars": 2, "until_mission": "beit_sahwan_4_subterranean" },
