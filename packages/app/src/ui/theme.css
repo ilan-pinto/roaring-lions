@@ -165,7 +165,7 @@
      five are the measurements the whole layout is built from, so a later slice
      (chips, dock tiles, minimap) sizes itself from the same numbers this one
      reserves rather than inventing a second set. */
-  --hud-strip-h: 30px;
+  --hud-strip-h: 42px; /* was 30: the lead found the strip's text and icons almost invisible */
   --tile: 60px;
   --chip-w: 150px;
   --card-w: 460px;
@@ -196,6 +196,8 @@
   --t-body: 12px;
   --t-m: 13px;
   --t-band: 15px; /* strip and band titles */
+  --t-strip: 17px; /* the top strip's readouts, chips and icons */
+  --t-strip-name: 19px; /* the mission name in the strip */
   --t-read: 20px; /* the lines the player reads mid-mission -- the commander's beats and lines, the feed, the objective in hand (the lead: 12px was too small) */
   --t-card: 19px; /* the single-unit card's name */
   --t-l: 20px;
@@ -709,6 +711,7 @@ body {
   gap: var(--s4);
   white-space: nowrap;
   color: var(--ink);
+  font-size: var(--t-strip);
   /* The strip is furniture over a live battlefield; only its controls take
      the pointer. Same rule as .rl-panel, for the same reason. */
   pointer-events: none;
@@ -731,7 +734,7 @@ body {
 }
 .rl-strip__name {
   font-family: var(--font-display);
-  font-size: var(--t-band);
+  font-size: var(--t-strip-name);
   font-weight: 800;
   letter-spacing: var(--track-title);
   text-transform: uppercase;
@@ -740,6 +743,10 @@ body {
 .rl-strip__mark {
   flex: none;
   align-self: center;
+}
+.rl-strip__mark svg {
+  width: 21px;
+  height: 17px;
 }
 /* Pushes the right-hand instruments away from the mission's own fields. The
    two halves report different things -- what the mission wants on the left,
@@ -762,7 +769,7 @@ body {
   border: 1px solid var(--panel-frame);
   color: var(--ink-dim);
   background: none;
-  padding: 0 6px;
+  padding: 0 8px;
   font: inherit;
   cursor: pointer;
   line-height: 1.4;
@@ -790,7 +797,7 @@ body {
    more often than the map, and a frame around it only added weight. */
 .rl-clock {
   position: absolute;
-  top: 38px;
+  top: calc(var(--hud-strip-h) + 8px);
   left: 50%;
   transform: translateX(-50%);
   font-family: var(--font-display);
@@ -817,7 +824,7 @@ body {
 .rl-cmd {
   position: absolute;
   left: var(--s2);
-  top: 40px;
+  top: calc(var(--hud-strip-h) + 10px);
   display: flex;
   gap: var(--s2);
   align-items: flex-start;
