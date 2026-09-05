@@ -292,6 +292,16 @@ async function main(): Promise<void> {
   const stage = document.getElementById('stage');
   if (!stage) throw new Error('no #stage');
 
+  // --- audio, on every screen -----------------------------------------------
+  // Created before the mode split so the menu, the campaign board and the
+  // sandbox picker carry the music too, not just a mission. Recorded clips
+  // when they exist, procedural synth per-sound where they don't — so the
+  // library can be filled in one file at a time. Nothing sounds until the
+  // browser's first gesture; `attach` waits for it.
+  const audio = new BattleAudio();
+  audio.useManifest(audioManifest as AudioManifest, `${BASE}audio/`);
+  audio.attach();
+
   // --- mode selection ------------------------------------------------------
   const params = new URLSearchParams(window.location.search);
   if (params.get('fresh') !== null && params.get('mission') === null) {
@@ -330,6 +340,7 @@ async function main(): Promise<void> {
       base: BASE,
       version: __GAME_VERSION__,
       world: worldData,
+      audio: { isMuted: () => audio.isMuted(), toggle: () => audio.toggle() },
       tutorial: {
         id: 'beit_sahwan_0_tutorial',
         name: missions.beit_sahwan_0_tutorial.name ?? 'Tutorial',
@@ -1093,7 +1104,9 @@ async function main(): Promise<void> {
   let gameSpeed = 1;
   // BattleAudio keeps `muted` private and reports the new state from
   // `toggle()`, so the strip's chip reads this mirror rather than the mixer.
-  let audioMuted = false;
+  // Seeded from the mixer rather than `false`: the mute is remembered across
+  // screens now, so a mission opened muted must paint its chip muted.
+  let audioMuted = audio.isMuted();
 
   // --- the five orders, once ------------------------------------------------
   //
@@ -1326,12 +1339,6 @@ async function main(): Promise<void> {
       },
     });
   }
-
-  const audio = new BattleAudio();
-  // Recorded clips when they exist, procedural synth per-sound where they
-  // don't — so the library can be filled in one file at a time.
-  audio.useManifest(audioManifest as AudioManifest, `${BASE}audio/`);
-  audio.attach();
 
   // --- input ---------------------------------------------------------------
   const canvas = renderer.canvas;

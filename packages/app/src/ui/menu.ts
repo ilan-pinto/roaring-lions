@@ -24,6 +24,12 @@ export interface MenuOptions {
   world: ParsedWorld;
   /** The tutorial is not on the map — it teaches the mouse, not the war. */
   tutorial: { id: string; name: string; done: boolean };
+  /**
+   * The mixer's mute, when the shell has one. The menu is where the music
+   * first sounds, and a screen that plays music with no visible way to stop
+   * it reads as a bug; the same toggle is `m` in a mission.
+   */
+  audio?: { isMuted(): boolean; toggle(): boolean };
 }
 
 export interface CampaignOptions {
@@ -102,11 +108,37 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): void {
   // Same defect as `&mesh`, which no menu link ever appended either.
   addAside('sandbox — pick a map', '?sandboxes');
   addAside('reset campaign ledger', '?fresh=1');
+  if (opts.audio) aside.appendChild(audioToggle(opts.audio));
   wrap.appendChild(aside);
 
   // The menu introduces itself rather than simply existing.
   stagger(wrap);
   stage.appendChild(wrap);
+}
+
+/**
+ * The music/sound toggle on the menu. A button, not a link: it is the one
+ * item here that changes state instead of leaving the page, and clicking it
+ * is also the gesture a first visit needs before the browser lets the theme
+ * sound at all -- so "turn the music on" and "let it start" are one click.
+ */
+function audioToggle(audio: { isMuted(): boolean; toggle(): boolean }): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'rl-btn rl-menu__item';
+  b.dataset.kind = 'aside';
+  b.title = 'music and sound — m in a mission';
+  const paint = (): void => {
+    const on = !audio.isMuted();
+    b.textContent = on ? '♪ audio on' : '♪ audio off';
+    b.setAttribute('aria-pressed', String(on));
+  };
+  b.addEventListener('click', () => {
+    audio.toggle();
+    paint();
+  });
+  paint();
+  return b;
 }
 
 /**

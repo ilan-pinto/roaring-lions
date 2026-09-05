@@ -6,7 +6,39 @@
 // assert beyond "the link exists", which is not what changed here.
 
 import { describe, expect, it } from 'vitest';
-import { showEndScreen } from './menu';
+import { showEndScreen, showMenu } from './menu';
+import type { ParsedWorld } from '../campaign';
+
+const world = { name: 'The Sahar Basin' } as unknown as ParsedWorld;
+const tutorial = { id: 'beit_sahwan_0_tutorial', name: 'Tutorial', done: true };
+
+describe('showMenu audio toggle', () => {
+  it('renders the mixer state and flips it on click, through the mixer and not a local copy', () => {
+    let muted = true;
+    const audio = {
+      isMuted: () => muted,
+      toggle: () => {
+        muted = !muted;
+        return muted;
+      },
+    };
+    const stage = document.createElement('div');
+    showMenu(stage, { base: '/', version: '0.0.0', world, tutorial, audio });
+    const b = stage.querySelector<HTMLButtonElement>('button.rl-menu__item')!;
+    expect(b.textContent).toBe('♪ audio off');
+    expect(b.getAttribute('aria-pressed')).toBe('false');
+    b.click();
+    expect(muted).toBe(false);
+    expect(b.textContent).toBe('♪ audio on');
+    expect(b.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('draws no toggle when the shell passes no mixer', () => {
+    const stage = document.createElement('div');
+    showMenu(stage, { base: '/', version: '0.0.0', world, tutorial });
+    expect(stage.querySelector('button.rl-menu__item')).toBeNull();
+  });
+});
 
 describe('showEndScreen', () => {
   it('shows the debrief above the rating when the mission declares one', () => {
