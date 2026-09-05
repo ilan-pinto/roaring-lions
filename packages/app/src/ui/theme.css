@@ -1793,6 +1793,11 @@ body {
   color: var(--ink-dim);
   padding: var(--s1) var(--s3);
 }
+/* The audio toggle is the one <button> in that list; a button does not fill
+   its row the way a block <a> does, and would sit as a pill among rules. */
+button.rl-menu__item[data-kind='aside'] {
+  width: 100%;
+}
 /* The tutorial, while unplayed: it should be the first thing a new
    commander's eye lands on, not just the first item in the list. */
 .rl-menu__item[data-kind='primary'],

@@ -68,9 +68,82 @@ export interface Listener {
   y: number;
 }
 
+/**
+ * Where the music was, so a full page load continues it rather than starting
+ * over. Every screen here is its own document -- the menu, the campaign board
+ * and a mission are links, not routes -- so without this the theme restarted
+ * from the first bar on every navigation. sessionStorage on purpose: it is the
+ * TAB's listening position, and a second tab is a fresh start.
+ */
+const MUSIC_POSITION_KEY = 'lions.music';
+/** The mute preference. localStorage: `m` on one screen should hold on the next. */
+const MUTE_KEY = 'lions.muted';
+/** How often the position is written while playing, in seconds of track time. */
+const POSITION_WRITE_INTERVAL = 1;
+
+type Store = 'localStorage' | 'sessionStorage';
+
+/**
+ * Storage is optional everywhere here. jsdom under this vitest config exposes
+ * a bare `{}` for it, a browser with site data blocked THROWS on the property
+ * access itself, and a private window can hand back nothing -- so every read
+ * and write is guarded and the music plays from the top when storage is gone.
+ */
+function readStore(store: Store, key: string): string | null {
+  try {
+    if (typeof window === 'undefined') return null;
+    return window[store]?.getItem?.(key) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStore(store: Store, key: string, value: string | null): void {
+  try {
+    if (typeof window === 'undefined') return;
+    if (value === null) window[store]?.removeItem?.(key);
+    else window[store]?.setItem?.(key, value);
+  } catch {
+    // Storage refused: the music simply does not carry over.
+  }
+}
+
+interface MusicPosition {
+  i: number;
+  t: number;
+}
+
+function readPosition(): MusicPosition | null {
+  const raw = readStore('sessionStorage', MUSIC_POSITION_KEY);
+  if (raw === null) return null;
+  try {
+    const v: unknown = JSON.parse(raw);
+    if (typeof v !== 'object' || v === null) return null;
+    const { i, t } = v as Record<string, unknown>;
+    if (typeof i !== 'number' || typeof t !== 'number' || !Number.isFinite(t) || t < 0) return null;
+    return { i: Math.max(0, Math.floor(i)), t };
+  } catch {
+    return null;
+  }
+}
+
+function writePosition(i: number, t: number): void {
+  writeStore('sessionStorage', MUSIC_POSITION_KEY, JSON.stringify({ i, t }));
+}
+
+/**
+ * `play()` returns a promise in every browser and `undefined` in jsdom, whose
+ * media elements are stubs. Swallow the rejection either way: autoplay being
+ * refused is the expected path before the first gesture, not an error.
+ */
+function tryPlay(el: HTMLAudioElement): void {
+  const p: unknown = el.play();
+  if (p instanceof Promise) p.catch(() => {});
+}
+
 export class BattleAudio {
   private ctx: AudioContext | null = null;
-  private muted = false;
+  private muted = readStore('localStorage', MUTE_KEY) === '1';
   private master: GainNode | null = null;
   private masterGain = 0.9;
 
@@ -111,6 +184,11 @@ export class BattleAudio {
     };
     window.addEventListener('pointerdown', start);
     window.addEventListener('keydown', start);
+    // And once right now. A first visit is refused here and waits for the
+    // gesture above, but a same-origin navigation the player clicked into is
+    // allowed to keep sounding in Chromium, which is how the theme carries
+    // from the home page into the campaign board and the mission unbroken.
+    this.startMusic();
   }
 
   /**
@@ -171,27 +249,37 @@ export class BattleAudio {
     this.listener = l;
   }
 
+  isMuted(): boolean {
+    return this.muted;
+  }
+
   toggle(): boolean {
     this.muted = !this.muted;
+    writeStore('localStorage', MUTE_KEY, this.muted ? '1' : null);
     // Pause rather than zero the volume: a muted player is not paying to
     // stream and decode a track nobody hears, and unmuting resumes where it
     // stopped instead of mid-bar somewhere else.
     if (this.music) {
       if (this.muted) this.music.pause();
-      else void this.music.play().catch(() => {});
+      else tryPlay(this.music);
     }
     return this.muted;
   }
 
   /**
-   * Start the manifest's music on the first gesture; idempotent after that.
+   * Start the manifest's music, or resume it. Creating the element happens
+   * once; every later call is a cheap "play it if it should be playing", which
+   * is what the gesture path needs when the boot-time attempt was refused.
    * Tracks play in manifest order and wrap, which for the usual single track
    * is a plain loop. A track that will not load or play is skipped rather
    * than fatal, in the same spirit as a missing clip falling back to the
    * synth: the game must never depend on music to run.
    */
   private startMusic(): void {
-    if (this.music) return;
+    if (this.music) {
+      if (!this.muted && this.music.paused) tryPlay(this.music);
+      return;
+    }
     const spec = this.manifest?.music;
     const tracks = spec?.tracks ?? [];
     if (tracks.length === 0) return;
@@ -199,11 +287,33 @@ export class BattleAudio {
     el.preload = 'auto';
     el.volume = Math.max(0, Math.min(1, (spec?.gain ?? 1) * this.masterGain));
     el.loop = tracks.length === 1;
+
+    // Where the previous document left off, if this tab has one.
+    const saved = readPosition();
+    let resumeAt = saved && saved.i < tracks.length ? saved.t : 0;
+    const startIndex = saved && saved.i < tracks.length ? saved.i : 0;
+
     const cue = (i: number): void => {
       this.musicIndex = ((i % tracks.length) + tracks.length) % tracks.length;
       el.src = `${this.baseUrl}${tracks[this.musicIndex].file}`;
-      if (!this.muted) void el.play().catch(() => {});
+      if (!this.muted) tryPlay(el);
     };
+    // Seeking before metadata is unreliable across browsers; seek once it is
+    // known, and only for the document's first cue -- a wrapped track starts
+    // from its own top.
+    el.addEventListener('loadedmetadata', () => {
+      if (resumeAt > 0 && resumeAt < el.duration) el.currentTime = resumeAt;
+      resumeAt = 0;
+    });
+    let lastWrite = -POSITION_WRITE_INTERVAL;
+    el.addEventListener('timeupdate', () => {
+      if (el.currentTime - lastWrite < POSITION_WRITE_INTERVAL && el.currentTime >= lastWrite) return;
+      lastWrite = el.currentTime;
+      writePosition(this.musicIndex, el.currentTime);
+    });
+    // `pagehide` is the last reliable moment before the next document; the
+    // throttled write above can be up to a second stale by then.
+    window.addEventListener('pagehide', () => writePosition(this.musicIndex, el.currentTime));
     el.addEventListener('ended', () => cue(this.musicIndex + 1));
     el.addEventListener('error', () => {
       // Every track failing would spin here forever; stop after one lap.
@@ -216,7 +326,7 @@ export class BattleAudio {
     el.hidden = true;
     document.body.appendChild(el);
     this.music = el;
-    cue(0);
+    cue(startIndex);
   }
 
   /** xorshift — presentation randomness only. */

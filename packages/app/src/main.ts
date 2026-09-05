@@ -340,6 +340,7 @@ async function main(): Promise<void> {
       base: BASE,
       version: __GAME_VERSION__,
       world: worldData,
+      audio: { isMuted: () => audio.isMuted(), toggle: () => audio.toggle() },
       tutorial: {
         id: 'beit_sahwan_0_tutorial',
         name: missions.beit_sahwan_0_tutorial.name ?? 'Tutorial',
@@ -1103,7 +1104,9 @@ async function main(): Promise<void> {
   let gameSpeed = 1;
   // BattleAudio keeps `muted` private and reports the new state from
   // `toggle()`, so the strip's chip reads this mirror rather than the mixer.
-  let audioMuted = false;
+  // Seeded from the mixer rather than `false`: the mute is remembered across
+  // screens now, so a mission opened muted must paint its chip muted.
+  let audioMuted = audio.isMuted();
 
   // --- the five orders, once ------------------------------------------------
   //
