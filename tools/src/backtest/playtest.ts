@@ -298,6 +298,13 @@ const led3 = run(
 // on the same schedule as II and III, for the same reason: a wave that
 // breaks and runs pulls a pursuing force past the zone edge and the hold
 // clock does not resume until something brings them back.
+//
+// Option C detour (script.md §9.1): `get_the_carriers_out` runs a 300s clock
+// from t=0 regardless of contact, so the jeep alone is diverted to shepherd
+// both carrier groups off the south ford before rejoining the ford-watch
+// anchor -- a three-leg detour that costs the plan 0 survivors and about
+// 0.6 minutes. The drone's own tour gains one extra leg to mark
+// `wh_hide_south`, which is the carry-over III spends (script.md §2.3).
 const wh1 = run('wadi_halam_1_fords', (sim, rt, ids, at) => {
   const drone = ids('recon_drone');
   const screen = [...ids('apc_eitan'), ...ids('inf_squad'), ...ids('at_team')];
@@ -306,13 +313,23 @@ const wh1 = run('wadi_halam_1_fords', (sim, rt, ids, at) => {
     // North first: the near gallery ambush is 4 tiles off the axis, and
     // going in under attackMove springs and kills it instead of walking past.
     sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(9, 15) });
-    sim.queueCommand({ kind: 'move', ids: jeep, ...M(9, 20) });
+    // Detour, not the shipped [9,20]: closes on carrier group A ([13.5,30.5])
+    // first, within SHEPHERD_RADIUS_SQ (4 tiles).
+    sim.queueCommand({ kind: 'move', ids: jeep, ...M(15, 31) });
     sim.queueCommand({ kind: 'move', ids: drone, ...M(20, 17) });
   });
   at(45, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(20, 30) }));
   // South gallery next -- the second identified contact the picture needs
   // beyond the bank/bund pair the drone is already turning up.
   at(60, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(9, 31) }));
+  // Jeep's second leg: closes on carrier group B ([16.5,33.5]).
+  at(60, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(17, 34) }));
+  // Drone marks wh_hide_south while its tour is already this far south --
+  // the identification III's carry-over spends (script.md §2.3, 5.9 -> 5.2 min).
+  at(90, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(21, 35) }));
+  // Jeep rejoins the ford-watch anchor loop the screen re-issues every 45s
+  // from t=130.
+  at(120, () => sim.queueCommand({ kind: 'attackMove', ids: jeep, ...M(10, 24) }));
   // Settle on the ford watch itself.
   at(110, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(10, 24) }));
   for (let when = 130; when <= 320; when += 45) {
@@ -324,6 +341,7 @@ const wh1 = run('wadi_halam_1_fords', (sim, rt, ids, at) => {
   }
   void rt;
 });
+run('wadi_halam_1_fords', () => {}, {}, 'defeat', 'wadi_halam_1_fords (no orders)');
 
 // II — Grazing Ground: dig the whole force in on the pump house corner of
 // the pasture and take every wave as it arrives; nothing here rewards
@@ -337,14 +355,39 @@ const wh1 = run('wadi_halam_1_fords', (sim, rt, ids, at) => {
 // wanders off after the first withdraw and the hold never resumes -- so this
 // re-anchors on the pump house corner periodically, sweeping in whatever
 // spawned since the last order too.
+//
+// `burn_store` (script.md's `structures[]` shed at [16,19], Option C): a
+// masonry structure with nobody garrisoned inside is not a valid target for
+// ordinary weapons fire at all -- `selectStructureTarget` only ever picks a
+// building that holds an IDENTIFIED HOSTILE occupant (mission.ts / sim.ts:
+// "Nothing in the open to shoot? Then the enemy is inside a building"), and
+// script.md's own fragment for the shed's defender cannot be authored as
+// `stance: garrison` -- `validate_data.mjs`'s garrison-building check reads
+// only the map's own static grid, never a mission's own `structures[]` (see
+// script.md's correction to §2.2/§8a). So the anchor's firing line alone
+// cannot bring the shed down, contrary to script.md's own measurement
+// ("brings the new shed's HP down over the course of the mission with no
+// amendment"), which was not run against this validator. The mission's own
+// briefing already promises engineers ("...while the engineers lay the
+// crossing behind you"), so `demo_squad` fields that promise: one combat
+// engineer team, added to starting_force, explicitly demolishes the shed --
+// the same idiom V already uses for its own seven structures. It is kept
+// out of the periodic anchor sweep so a later `attackMove` never cancels its
+// charge.
 const wh2 = run(
   'wadi_halam_2_laager',
-  (sim, rt, _ids, at) => {
+  (sim, rt, ids, at) => {
+    const engineers = new Set(ids('demo_squad'));
     const anchor = (): void => {
       const all: number[] = [];
-      for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1) all.push(i);
+      for (let i = 0; i < sim.entityCount; i++)
+        if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !engineers.has(i)) all.push(i);
       sim.queueCommand({ kind: 'attackMove', ids: all, ...M(18, 21) });
     };
+    at(0, () => {
+      const shed = sim.structureAt(16, 19);
+      if (shed >= 0) sim.queueCommand({ kind: 'demolish', ids: [...engineers], structure: shed });
+    });
     at(1, anchor);
     for (let when = 45; when <= 700; when += 45) at(when, anchor);
     for (let when = 90; when <= 700; when += 60) {
@@ -353,6 +396,10 @@ const wh2 = run(
   },
   wh1
 );
+// `burn_store` reaches `failed` at 300s, and `hold_pasture` never even
+// starts (the force spawns at x2-4, `pasture` begins at x13) -- nothing else
+// on the map can end a passive run.
+run('wadi_halam_2_laager', () => {}, wh1, 'defeat', 'wadi_halam_2_laager (no orders)');
 
 // III — The Cattle Track: a fast, armoured pair (jeep + APC) runs the
 // commander down at the north hide -- enough firepower to drop him before
@@ -382,6 +429,9 @@ const wh3 = run(
   },
   wh2
 );
+// `get_the_herders_out` reaches `failed` at 300s. `hold_bunds` never starts
+// for the same structural reason as II; `kill_amir` cannot fail on its own.
+run('wadi_halam_3_counterraid', () => {}, wh2, 'defeat', 'wadi_halam_3_counterraid (no orders)');
 
 // IV — Wadi Halam (the village): clear the four corner cells, kill the cache
 // guard in the SE house, and get the families out. Mind the mosque block --
@@ -434,6 +484,9 @@ const wh4 = run(
   },
   wh3
 );
+// `evac_families` already reaches `failed` at 300s today -- the only change
+// Option C makes is that it is now a primary, so `checkEnd` finally reads it.
+run('wadi_halam_4_village', () => {}, wh3, 'defeat', 'wadi_halam_4_village (no orders)');
 
 // V — Break the Depot: bring the D9 and the combat engineers in behind the
 // screen from the start to level all seven structures by explicit order,

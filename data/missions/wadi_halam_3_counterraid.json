@@ -5,6 +5,7 @@
   "phase": "buildup",
   "target_minutes": 6,
   "briefing": "The pasture is ours; now we raid back. Intel puts the local commander at the north hide — Jubran Hallaq's man on this ground, riding a technical he will not hesitate to run in if he has to. A second position dug in to the south covers the cattle track. Kill the commander, get eyes on the southern hide, and hold the bunds for five minutes. The moment the commander goes down, what is left of the local cell will come back at the bunds twice more to retake them. Catching the commander himself is a mobility problem, not a firepower one.",
+  "debrief": "The only breathing room the brigade gets in this war, and it was spent going forward.",
   "map": {
     "file": "wadi_halam_basin",
     "player_start": [
@@ -21,7 +22,8 @@
       "roster.surviving_units",
       "roe.mission_ratings",
       "campaign.completed_missions",
-      "intel.marked_positions"
+      "intel.marked_positions",
+      "civ.settlements_evacuated"
     ]
   },
   "starting_force": [
@@ -76,7 +78,8 @@
       "type": "eliminate_hvt",
       "primary": true,
       "target": "wh_hvt_amir",
-      "text": "Kill or capture Hallaq's local commander"
+      "text": "Kill or capture Hallaq's local commander",
+      "say": { "speaker": "idit", "text": "That is Hallaq's man on this ground. He does not know where the rockets went; he knows which nights the fords were clear, and that is what puts us at the depot." }
     },
     {
       "id": "hold_bunds",
@@ -84,18 +87,38 @@
       "primary": true,
       "target": "pasture",
       "seconds": 300,
-      "text": "Hold the bunds for five minutes while the counter-raid comes in"
+      "text": "Hold the bunds for five minutes while the counter-raid comes in",
+      "say": { "speaker": "net", "text": "Bunds held. Both counter-raids are off the pasture." }
     },
     {
       "id": "mark_hides",
       "type": "locate",
       "primary": false,
       "target": "wh_hide_south",
-      "text": "Get eyes on the southern hide"
+      "text": "Get eyes on the southern hide",
+      "say": { "speaker": "idit", "text": "That is the hide, and I am not asking for a second one. What is left in those bunds we can read off the ground afterwards; the herd on the track cannot wait for me to be sure." }
+    },
+    {
+      "id": "get_the_herders_out",
+      "type": "evacuate_before",
+      "primary": true,
+      "target": "refuge",
+      "count": 3,
+      "seconds": 300,
+      "text": "Get three herders off the cattle track to the refuge",
+      "say": { "speaker": "net", "text": "Herd and herders are off the track and inside the refuge line." },
+      "say_on_fail": { "speaker": "shai", "text": "The track is shut with them still on it. We chose to raid this ground; they only live on it." }
     }
   ],
   "roe": {
     "enabled": true
+  },
+  "civilians": {
+    "refuge": "civ_refuge",
+    "groups": [
+      { "unit": "civilians", "count": 2, "at": [20.5, 32.5] },
+      { "unit": "civilians", "count": 2, "at": [23.5, 33.5] }
+    ]
   },
   "enemy": {
     "faction": "rif",
@@ -223,7 +246,7 @@
   },
   "triggers": [
     {
-      "id": "amir_runs",
+      "id": "the_commander_runs_for_the_east_track",
       "on": {
         "kind": "casualties_pct",
         "value": 40
@@ -232,7 +255,8 @@
         "kind": "withdraw_to",
         "group": "amir",
         "to": "rif_east"
-      }
+      },
+      "say": { "speaker": "shai", "text": "He is running for the east track and he will not stop. Take him if the shot is there — do not take the bunds off the map to chase him." }
     }
   ]
 }

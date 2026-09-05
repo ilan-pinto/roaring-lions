@@ -4,7 +4,8 @@
   "town": "wadi_halam",
   "phase": "foothold",
   "target_minutes": 7,
-  "briefing": "Push through to the pasture and dig in while the engineers lay the crossing behind you. The ground is terraced — bunds run across the pasture in bands, real cover if you hold it, and the Rif know the ground as well as you do. Technicals and motorcycles will come at the pump house from every direction in waves. Accumulate five minutes of uncontested pasture and the corridor is yours.",
+  "briefing": "Push through to the pasture and dig in while the engineers lay the crossing behind you. The ground is terraced — bunds run across the pasture in bands, real cover if you hold it, and the Rif know the ground as well as you do. Technicals and motorcycles will come at the pump house from every direction in waves. Accumulate five minutes of uncontested pasture and the corridor is yours. There is a shed on the pasture's western edge and it is his forward store — it comes down inside the same five minutes.",
+  "debrief": "A laager is a place that can be found. That is the trade — they know where you are, and you know they are coming.",
   "map": {
     "file": "wadi_halam_basin",
     "player_start": [
@@ -14,12 +15,14 @@
   },
   "ledger": {
     "requires": [
-      "roster.surviving_units"
+      "roster.surviving_units",
+      "intel.marked_positions"
     ],
     "produces": [
       "roster.surviving_units",
       "roe.mission_ratings",
-      "campaign.completed_missions"
+      "campaign.completed_missions",
+      "intel.marked_positions"
     ]
   },
   "starting_force": [
@@ -58,6 +61,14 @@
         17
       ],
       "from_ledger": true
+    },
+    {
+      "unit": "demo_squad",
+      "count": 1,
+      "at": [
+        2,
+        19
+      ]
     }
   ],
   "resources": {
@@ -71,7 +82,8 @@
       "primary": true,
       "target": "pasture",
       "seconds": 300,
-      "text": "Hold the pasture for five minutes"
+      "text": "Hold the pasture for five minutes",
+      "say": { "speaker": "net", "text": "Five minutes of pasture, uncontested. The crossing is laid and the corridor is open behind you." }
     },
     {
       "id": "keep_ford",
@@ -80,11 +92,24 @@
       "target": "ford_watch",
       "seconds": 15,
       "text": "Keep the ford watch clear"
+    },
+    {
+      "id": "burn_store",
+      "type": "raze",
+      "primary": true,
+      "target": "pasture",
+      "seconds": 300,
+      "text": "Burn the forward store at the pump house inside five minutes",
+      "say": { "speaker": "idit", "text": "The shed was a forward store — fuel, crates, a manifest. Half of what was in it was routed on to Sur. This ground is not the end of his road; it is the middle of it." },
+      "say_on_fail": { "speaker": "shai", "text": "The shed is standing and the pasture is ours. One of those was the mission." }
     }
   ],
   "roe": {
     "enabled": true
   },
+  "structures": [
+    { "type": "shanty", "at": [16, 19], "size": [2, 2] }
+  ],
   "enemy": {
     "faction": "rif",
     "doctrine_profile": "engage and disengage",
@@ -102,12 +127,19 @@
           "kind": "hold_position"
         },
         "tag": "wh_aa_east"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [16.5, 18.5],
+        "facing_deg": 180,
+        "stance": { "kind": "hold_position" }
       }
     ]
   },
   "triggers": [
     {
-      "id": "wave_1",
+      "id": "riders_out_of_the_north",
       "on": {
         "kind": "timer_s",
         "value": 60
@@ -138,7 +170,7 @@
       }
     },
     {
-      "id": "wave_2",
+      "id": "riders_out_of_the_south",
       "on": {
         "kind": "timer_s",
         "value": 150
@@ -188,7 +220,7 @@
       }
     },
     {
-      "id": "wave_3",
+      "id": "technicals_off_the_east_track",
       "on": {
         "kind": "timer_s",
         "value": 240
@@ -216,10 +248,11 @@
             }
           }
         ]
-      }
+      },
+      "say": { "speaker": "idit", "text": "Third compass point in four minutes. There is no direction this pasture is safe from, which is why they gave you a field and not a hill." }
     },
     {
-      "id": "wave_4",
+      "id": "the_last_of_the_motorcycles",
       "on": {
         "kind": "timer_s",
         "value": 330
@@ -250,7 +283,7 @@
       }
     },
     {
-      "id": "picket_withdraws",
+      "id": "the_raiders_break_off_east",
       "on": {
         "kind": "casualties_pct",
         "value": 60
@@ -259,7 +292,8 @@
         "kind": "withdraw_to",
         "group": "raiders",
         "to": "rif_east"
-      }
+      },
+      "say": { "speaker": "idit", "text": "Sixty per cent and they are breaking off east. That is not a rout — mobility is their armour, and they will be back on the same trucks inside a week." }
     }
   ]
 }

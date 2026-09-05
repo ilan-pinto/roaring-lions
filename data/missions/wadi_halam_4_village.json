@@ -5,6 +5,7 @@
   "phase": "clearance",
   "target_minutes": 7,
   "briefing": "The village is inhabited and the mosque is under protection — heavy ordnance reaches further across open ground than it does between walls, so mind what you call in. A cache guard and three cells hold the houses; a pair of technicals waiting at the south hide will run for the village the moment you make contact. Clear and hold the village, kill or capture whoever is guarding the cache, and get the families out to the refuge before the fighting closes the road.",
+  "debrief": "A garrisoned house comes down or it stays garrisoned; there is no third way to clear one. What that costs is on the rating. What it was for is on the order.",
   "map": {
     "file": "wadi_halam_basin",
     "player_start": [
@@ -75,23 +76,27 @@
       "primary": true,
       "target": "village",
       "seconds": 20,
-      "text": "Clear and hold the village for 20 seconds"
+      "text": "Clear and hold the village for 20 seconds",
+      "say": { "speaker": "net", "text": "Village is held. Four houses, four cells, and none of them left it." }
     },
     {
       "id": "kill_cache_guard",
       "type": "eliminate_hvt",
       "primary": true,
       "target": "wh_hvt_cache",
-      "text": "Kill or capture the quartermaster holding Hallaq's cache"
+      "text": "Kill or capture the quartermaster holding Hallaq's cache",
+      "say": { "speaker": "idit", "text": "That is not a fighter, that is a book-keeper with a launcher. What he was holding names the depot east of here and says how much of it is still full." }
     },
     {
       "id": "evac_families",
       "type": "evacuate_before",
-      "primary": false,
+      "primary": true,
       "target": "refuge",
       "count": 3,
       "seconds": 300,
-      "text": "Shepherd the families to the refuge before the road closes"
+      "text": "Shepherd the families to the refuge before the road closes",
+      "say": { "speaker": "shai", "text": "Every one of them is at the refuge." },
+      "say_on_fail": { "speaker": "idit", "text": "The road is shut and there are still families inside it. Nine did not come in at First Light. Somebody has to keep saying the number, and it is not going to be you." }
     }
   ],
   "roe": {
@@ -218,7 +223,7 @@
   },
   "triggers": [
     {
-      "id": "reserve_commits",
+      "id": "the_technicals_at_the_south_hide_run_for_the_village",
       "on": {
         "kind": "first_contact"
       },
@@ -226,7 +231,8 @@
         "kind": "commit",
         "group": "reserve",
         "to": "village_center"
-      }
+      },
+      "say": { "speaker": "net", "text": "Two technicals off the south hide, running for the village centre." }
     }
   ]
 }

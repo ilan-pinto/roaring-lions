@@ -364,10 +364,24 @@ player chose to run, in the village they are in houses he is clearing).
   is a bare coordinate with no building behind it today, and T10 is exactly
   *"the pump house is the cache"* — the shed gives that marker a body for the
   first time.
-- **The garrison:** one `militia_cell` at `[16.5,18.5]` (open ground one tile
-  north of the footprint), `facing_deg: 180`, `stance: {"kind": "garrison",
-  "building": [16,19]}` — the unit spawns outside and walks in on the first
-  ticks, exactly as `stance: garrison` already works in IV.
+- **The defender:** one `militia_cell` at `[16.5,18.5]` (open ground one tile
+  north of the footprint), `facing_deg: 180`. **Correction (mission-author,
+  2026-09-06): this fragment shipped `stance: {"kind": "garrison", "building":
+  [16,19]}` in draft and it does not pass `pnpm validate:data`.**
+  `validate_data.mjs`'s garrison-stance check reads a `garrison` placement's
+  `building` tile straight off the MAP's own static `rows` grid (`'#hawsm'`),
+  never off a mission's own `structures[]` — and `MissionRuntime.start()`
+  raises this shanty at runtime, so on the shipped map `[16,19]` is still `.`
+  when the validator looks at it. A `structures[]`-raised building can never
+  pass this check as written, which is a gap in the validator (out of scope
+  here — `tools/validate_*` is not this document's or `mission-author`'s to
+  edit) rather than in the mission. The shipped fragment therefore uses
+  `stance: {"kind": "hold_position"}` instead: same unit, same tile, same
+  facing, guarding the shed from outside rather than garrisoning it. This
+  changes nothing the design measured (§2.2's ROE-98/VICTORY-5.7min figures
+  read on structure HP and the shared firing line, not on this unit's
+  stance), but it does mean the defender can be shot directly rather than
+  requiring the shed to come down first — the reverse of IV's cells.
 - **Passive control's loss:** design measured **ONGOING at 20.0 min** —
   `hold_pasture` never even starts (the force spawns at x2–4, `pasture`
   begins at x13). With `burn_store` added: **DEFEAT at 5.0 min**,
@@ -521,7 +535,7 @@ the enemy trigger.
 | tag/group | unit | count | at/marker | stance |
 |---|---|---|---|---|
 | `wh_aa_east`, group `raiders` (initial) | `gun_truck` | 1 | `[44.5,20.5]` | `hold_position` |
-| **[C]** shed garrison | `militia_cell` | 1 | `[16.5,18.5]` | `garrison`, building `[16,19]` |
+| **[C]** shed defender | `militia_cell` | 1 | `[16.5,18.5]` | `hold_position` (not `garrison` — see §2.2's correction) |
 
 **Structure:** **[C]** one `shanty`, `at [16,19] size [2,2]`.
 
@@ -787,7 +801,11 @@ Ledger fix (§3, item 2):
 { "structures": [ { "type": "shanty", "at": [16, 19], "size": [2, 2] } ] }
 ```
 
-`enemy.garrison[]` — one appended entry:
+`enemy.garrison[]` — one appended entry (`hold_position`, not `garrison` —
+see §2.2's correction: `validate_data.mjs`'s garrison-building check reads
+only the map's own static grid, never a mission's own `structures[]`, so a
+`garrison` stance pointed at a mission-raised building fails
+`pnpm validate:data` on every mission that would otherwise use it):
 
 ```json
 {
@@ -795,7 +813,7 @@ Ledger fix (§3, item 2):
   "count": 1,
   "at": [16.5, 18.5],
   "facing_deg": 180,
-  "stance": { "kind": "garrison", "building": [16, 19] }
+  "stance": { "kind": "hold_position" }
 }
 ```
 

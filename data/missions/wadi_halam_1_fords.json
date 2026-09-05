@@ -4,7 +4,9 @@
   "town": "wadi_halam",
   "phase": "recon",
   "target_minutes": 6,
-  "briefing": "Naharin opens at the wadi. Two fords cross it, and the Rif who work this corridor disperse the moment they are seen — so the job tonight is to see them first. Push a screen across the tree line, build the picture, and hold the ford watch for four minutes while the column crosses behind you — riders will keep coming at the crossing out of the east the whole time you sit on it. Do not chase what runs.",
+  "briefing": "Naharin opens at the wadi. Two fords cross it, and the Rif who work this corridor disperse the moment they are seen — so the job tonight is to see them first. Push a screen across the tree line, build the picture, and hold the ford watch for four minutes while the column crosses behind you — riders will keep coming at the crossing out of the east the whole time you sit on it. Four of them are carrying for him at the south ford tonight and cannot get off it on their own. Do not chase what runs.",
+  "dispatch": "The corridor into Naharin has carried somebody else's war for four years, and the people who live on it carry it by hand. One hamlet stopped hauling for Jubran Hallaq last spring. Nobody on that road has stopped since.",
+  "debrief": "The fords are the only two crossings in forty tiles. Whatever happened tonight, the corridor still runs through them.",
   "map": {
     "file": "wadi_halam_basin",
     "player_start": [
@@ -20,7 +22,8 @@
       "roster.surviving_units",
       "roe.mission_ratings",
       "campaign.completed_missions",
-      "intel.marked_positions"
+      "intel.marked_positions",
+      "civ.settlements_evacuated"
     ]
   },
   "starting_force": [
@@ -71,7 +74,8 @@
       "type": "locate",
       "primary": true,
       "count": 4,
-      "text": "Identify four dispersal sites"
+      "text": "Identify four dispersal sites",
+      "say": { "speaker": "idit", "text": "Four sites and not one of them is a position. Nobody digs in on a road he means to keep using — this is a haulage route with guns parked along it." }
     },
     {
       "id": "take_ford",
@@ -79,7 +83,8 @@
       "primary": true,
       "target": "ford_watch",
       "seconds": 240,
-      "text": "Hold the ford watch for four minutes"
+      "text": "Hold the ford watch for four minutes",
+      "say": { "speaker": "net", "text": "Ford watch held. The column is across the wadi." }
     },
     {
       "id": "screen_out",
@@ -87,10 +92,28 @@
       "primary": false,
       "seconds": 200,
       "text": "Stay in the field for the first three minutes twenty"
+    },
+    {
+      "id": "get_the_carriers_out",
+      "type": "evacuate_before",
+      "primary": true,
+      "target": "refuge",
+      "count": 3,
+      "seconds": 300,
+      "text": "Get three carriers off the south ford to the refuge",
+      "say": { "speaker": "shai", "text": "Four of them off the ford and out of the corridor. They were on his road because somebody put them on it; tonight they are not." },
+      "say_on_fail": { "speaker": "shai", "text": "The crossing shut with them still on it. We were eight tiles away and looking the other way." }
     }
   ],
   "roe": {
     "enabled": true
+  },
+  "civilians": {
+    "refuge": "civ_refuge",
+    "groups": [
+      { "unit": "civilians", "count": 2, "at": [13.5, 30.5] },
+      { "unit": "civilians", "count": 2, "at": [16.5, 33.5] }
+    ]
   },
   "enemy": {
     "faction": "rif",
@@ -240,7 +263,7 @@
   },
   "triggers": [
     {
-      "id": "bank_reacts",
+      "id": "the_bank_patrol_turns_for_the_ford",
       "on": {
         "kind": "zone_entered",
         "zone": "ford_watch"
@@ -249,7 +272,8 @@
         "kind": "commit",
         "group": "bank",
         "to": "ford_north"
-      }
+      },
+      "say": { "speaker": "idit", "text": "Both bank patrols have turned for the north ford. They did not wait to be told and they will not stay to be fought." }
     }
   ]
 }
