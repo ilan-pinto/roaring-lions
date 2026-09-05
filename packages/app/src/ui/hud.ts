@@ -400,6 +400,7 @@ export class Hud {
     head.append(this.cmdWho, paging);
 
     this.cmdQuote = document.createElement('div');
+    this.cmdQuote.className = 'rl-cmd__quote';
     const track = document.createElement('div');
     track.className = 'rl-cmd__track';
     this.cmdFill = document.createElement('i');

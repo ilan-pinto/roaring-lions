@@ -196,6 +196,7 @@
   --t-body: 12px;
   --t-m: 13px;
   --t-band: 15px; /* strip and band titles */
+  --t-read: 20px; /* the lines the player reads mid-mission -- the commander's beats and lines, the feed, the objective in hand (the lead: 12px was too small) */
   --t-card: 19px; /* the single-unit card's name */
   --t-l: 20px;
   --t-xl: 28px;
@@ -722,6 +723,8 @@ body {
    stamp; a long mission name plus a long objective is what actually overflows
    at 1440, and truncating the objective loses less than truncating a count. */
 .rl-strip__obj {
+  font-size: var(--t-read);
+  line-height: 1.1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -934,6 +937,11 @@ body {
   opacity: 0.35;
   cursor: default;
 }
+.rl-cmd__quote {
+  font-size: var(--t-read);
+  line-height: 1.3;
+  margin-top: 2px;
+}
 .rl-cmd__track {
   height: 2px;
   background: var(--well);
@@ -964,6 +972,8 @@ body {
   pointer-events: none;
 }
 .rl-notice {
+  font-size: var(--t-read);
+  line-height: 1.25;
   transition: opacity var(--dur-fast) var(--ease);
 }
 
