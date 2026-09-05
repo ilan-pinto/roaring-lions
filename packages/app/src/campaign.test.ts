@@ -215,15 +215,14 @@ describe('campaignRoe', () => {
 
 describe('parseCommander', () => {
   it('reads Shai and Idit from the shipped commander.json', () => {
-    // Shai carries a `portrait` file name; Idit does not have one authored
-    // yet -- both are exercised below, by the same `toEqual` this file
-    // already used before the field existed.
+    // Both carry a `portrait` file name (Shai's and Idit's landed 2026-09-04);
+    // exercised by the same `toEqual` this file used before the field existed.
     expect(commander.people.shai).toEqual({
       name: 'Shai Hammai',
       plate: 'Hammai',
       portrait: 'shai_hammai.png',
     });
-    expect(commander.people.idit).toEqual({ name: 'Idit Zohar', plate: 'Zohar' });
+    expect(commander.people.idit).toEqual({ name: 'Idit Zohar', plate: 'Zohar', portrait: 'idit_zohar.png' });
   });
 
   it('carries an unresolved portrait file name through untouched -- resolving it to a URL is not this module\'s job', () => {
