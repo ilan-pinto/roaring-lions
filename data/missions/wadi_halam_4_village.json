@@ -82,7 +82,7 @@
       "type": "eliminate_hvt",
       "primary": true,
       "target": "wh_hvt_cache",
-      "text": "Kill or capture whoever is guarding the cache"
+      "text": "Kill or capture the quartermaster holding Hallaq's cache"
     },
     {
       "id": "evac_families",
