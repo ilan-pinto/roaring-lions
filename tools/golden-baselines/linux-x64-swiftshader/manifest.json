@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "add37ef7d982b988e43e82a3e98cb8b1ea1ad5e5",
-  "blessedAt": "2026-09-03T08:25:52.106Z",
-  "reason": "Terrain tiles (b70a51d) and the commander plate rename (f32004a): green basin, road track, scrub and orchard textures on every map that carries those symbols, plus Dagan -> Hamami in the HUD. darwin re-blessed alongside and reads at the floor; this is the matching linux-x64-swiftshader half.",
+  "commit": "0b6e38dd2609cf49b8e4a8a4d77dc9853dc448ee",
+  "blessedAt": "2026-09-05T23:02:52.484Z",
+  "reason": "HUD strip and mute chip (2026-09-05/06): the top strip grew from 30 to 42px with 17px readouts and a 19px name (7d53146), the commander frame to 96px (24ae277), the music mute chip landed (c38691a). Measured on run 33997241867: every differing pixel in quiet (10843) and relief (6016) and 4892 of 4898 in vehicle sit in rows 5-41, the strip; the map is unchanged.",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "097dfd9684559fd000844a4f2ea44a7a184b97578ea7add8d588586d214112b0"
+      "sha256": "f0de27ddc1935ee859a006e7359cc674eddb36d523a8bc76fe77069c0747e7b5"
     },
     "open-ground": {
       "tick": 60,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "7e0c76ffb6af9c1e114b0d67cde8fea40dbee6411ed89712f45eda2f835ed1c7"
+      "sha256": "5990a8485d24902ca6332c69fc7a5efd9833d062f47758ffd9d338dc3d407e12"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "c993681595e804484de408ea3244127b159e36529bd6ac5ea35002f28faf48ef"
+      "sha256": "d541bc86e647eb2fcb49812b17842686c68c5cec08d4dfe2a2bee1d753ab1aaa"
     },
     "relief": {
       "tick": 500,
@@ -67,7 +67,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "472b9ff2cac3b34a4013033b4ffd8585e1c43245072afd4deeb2a5090ecc7484"
+      "sha256": "9e25b5cca63994c18c093c2e1af4d87dcb3548f7aa6c7f480b74519ca25c8051"
     }
   }
 }
