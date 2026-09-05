@@ -251,9 +251,9 @@ stays for units; these five are people, not units.
 |---|---|---|---|
 | Shai Hammai | **delivered 2026-09-04** as `art/blend/KDF/Shai Hammi/` — the textured remesh only (5,147 verts, 2048 bake), no rigged `_biped.zip` yet | **rendered and wired 2026-09-04**: `assets/ui/portraits/shai_hammai.png` (56 KiB) shows on the commander bar and the deploy panel (`tools/render_portrait.py`) | never on the map |
 | Idit Zohar | **delivered 2026-09-04** as `art/blend/KDF/idit zohar/` — a concept image approved against the brief, then its image-to-3D blend (170 MB, unremeshed; no rig) | **rendered and wired 2026-09-04**: `assets/ui/portraits/idit_zohar.png` (50 KiB) shows on the bar on her lines | never on the map |
-| Nadir Sahim | `art/blend/enemy/nadir_sahim/` | `assets/ui/portraits/nadir_sahim.png` → debrief / overlay, when built | `bs4_hvt_spade`, once a placement can name a mesh |
-| Karim Adhal | `art/blend/enemy/karim_adhal/` | `assets/ui/portraits/karim_adhal.png` | `uz_hvt_lantern` |
-| Jubran Hallaq | `art/blend/enemy/jubran_hallaq/` | `assets/ui/portraits/jubran_hallaq.png` | `wh_gate_rpg` |
+| Nadir Sahim | **delivered 2026-09-05** as `art/blend/enemy/Nadir Sahim/` (image-to-3D, standing) | **rendered 2026-09-05**: `assets/ui/portraits/nadir_sahim.png` (65 KiB) — no surface shows an enemy yet, by design; waits for the debrief and the overlay | `bs4_hvt_spade`, once a placement can name a mesh |
+| Karim Adhal | **delivered 2026-09-05** as `art/blend/enemy/Karim Adhal /` (remesh) | **rendered 2026-09-05**: `assets/ui/portraits/karim_adhal.png` (42 KiB) | `uz_hvt_lantern` |
+| Jubran Hallaq | **delivered 2026-09-05** as `art/blend/enemy/Jubran Hallaq/` (image-to-3D, standing) | **rendered 2026-09-05**: `assets/ui/portraits/jubran_hallaq.png` (58 KiB) | `wh_gate_rpg` |
 
 **Disclosure.** Every one of these is AI-generated art and the PR that ships
 any of them says so (`CONTRIBUTING.md`). Everything under `assets/` is CC BY-SA
