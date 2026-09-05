@@ -2,6 +2,19 @@
   "$comment": "Battle audio manifest. Every file listed here MUST carry a license that permits redistribution in a public repo (CC0 or equivalent) -- see CONTRIBUTING.md. Files live in assets/audio/<set>/. Missing files are not an error: BattleAudio falls back to its procedural synth, so the game is never silent mid-development.",
   "version": 1,
   "master_gain": 0.9,
+  "music": {
+    "$comment": "Background music. One looping track, streamed through an <audio> element rather than decoded into memory (a 3.7 MB decode is ~28 MB of PCM). Starts on the first user gesture like everything else, and the same mute toggle silences it. `gain` is the element volume, 0..1, on top of master_gain.",
+    "gain": 0.4,
+    "tracks": [
+      {
+        "file": "music/holding_the_perimeter.mp3",
+        "title": "Holding the Perimeter",
+        "license": "CC-BY-4.0",
+        "credit": "Ilan Pinto",
+        "source": "AI-generated main theme from the prompt in docs/audio/main-theme-prompt.md, supplied by the project lead 2026-09-05"
+      }
+    ]
+  },
   "sets": {
     "small_arms": {
       "event": "fire",

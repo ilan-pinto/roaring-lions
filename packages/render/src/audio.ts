@@ -33,9 +33,26 @@ export interface AudioSet {
   variants?: AudioVariant[];
 }
 
+export interface MusicTrack {
+  file: string;
+  alt?: string;
+  title?: string;
+  license?: string;
+  source?: string;
+  credit?: string;
+}
+
+export interface MusicSpec {
+  /** Element volume, 0..1, multiplied by `master_gain`. */
+  gain?: number;
+  /** Played in order and wrapped; a single track simply loops. */
+  tracks?: MusicTrack[];
+}
+
 export interface AudioManifest {
   version?: number;
   master_gain?: number;
+  music?: MusicSpec;
   sets?: Record<string, AudioSet>;
 }
 
@@ -70,6 +87,15 @@ export class BattleAudio {
 
   private listener: Listener = { x: 0, y: 0 };
 
+  /**
+   * Background music. An `<audio>` element rather than a decoded buffer: a
+   * three-minute track decodes to tens of megabytes of PCM, and the element
+   * streams it and loops it for free. Not routed through the AudioContext —
+   * nothing positional applies to it, so it needs none of the graph above.
+   */
+  private music: HTMLAudioElement | null = null;
+  private musicIndex = 0;
+
   /** Browsers require a user gesture before audio starts. */
   attach(): void {
     const start = (): void => {
@@ -81,6 +107,7 @@ export class BattleAudio {
         void this.decodeAll();
       }
       if (this.ctx.state === 'suspended') void this.ctx.resume();
+      this.startMusic();
     };
     window.addEventListener('pointerdown', start);
     window.addEventListener('keydown', start);
@@ -146,7 +173,50 @@ export class BattleAudio {
 
   toggle(): boolean {
     this.muted = !this.muted;
+    // Pause rather than zero the volume: a muted player is not paying to
+    // stream and decode a track nobody hears, and unmuting resumes where it
+    // stopped instead of mid-bar somewhere else.
+    if (this.music) {
+      if (this.muted) this.music.pause();
+      else void this.music.play().catch(() => {});
+    }
     return this.muted;
+  }
+
+  /**
+   * Start the manifest's music on the first gesture; idempotent after that.
+   * Tracks play in manifest order and wrap, which for the usual single track
+   * is a plain loop. A track that will not load or play is skipped rather
+   * than fatal, in the same spirit as a missing clip falling back to the
+   * synth: the game must never depend on music to run.
+   */
+  private startMusic(): void {
+    if (this.music) return;
+    const spec = this.manifest?.music;
+    const tracks = spec?.tracks ?? [];
+    if (tracks.length === 0) return;
+    const el = new Audio();
+    el.preload = 'auto';
+    el.volume = Math.max(0, Math.min(1, (spec?.gain ?? 1) * this.masterGain));
+    el.loop = tracks.length === 1;
+    const cue = (i: number): void => {
+      this.musicIndex = ((i % tracks.length) + tracks.length) % tracks.length;
+      el.src = `${this.baseUrl}${tracks[this.musicIndex].file}`;
+      if (!this.muted) void el.play().catch(() => {});
+    };
+    el.addEventListener('ended', () => cue(this.musicIndex + 1));
+    el.addEventListener('error', () => {
+      // Every track failing would spin here forever; stop after one lap.
+      if (this.musicIndex + 1 < tracks.length) cue(this.musicIndex + 1);
+    });
+    // Parented and hidden rather than left detached: a detached element plays
+    // just as well, but then nothing outside this class can tell whether the
+    // music is playing, paused or failed. `document.querySelector('audio')` is
+    // the readback, the same way the cursor is read from `canvas.dataset`.
+    el.hidden = true;
+    document.body.appendChild(el);
+    this.music = el;
+    cue(0);
   }
 
   /** xorshift — presentation randomness only. */

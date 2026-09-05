@@ -292,6 +292,16 @@ async function main(): Promise<void> {
   const stage = document.getElementById('stage');
   if (!stage) throw new Error('no #stage');
 
+  // --- audio, on every screen -----------------------------------------------
+  // Created before the mode split so the menu, the campaign board and the
+  // sandbox picker carry the music too, not just a mission. Recorded clips
+  // when they exist, procedural synth per-sound where they don't — so the
+  // library can be filled in one file at a time. Nothing sounds until the
+  // browser's first gesture; `attach` waits for it.
+  const audio = new BattleAudio();
+  audio.useManifest(audioManifest as AudioManifest, `${BASE}audio/`);
+  audio.attach();
+
   // --- mode selection ------------------------------------------------------
   const params = new URLSearchParams(window.location.search);
   if (params.get('fresh') !== null && params.get('mission') === null) {
@@ -1326,12 +1336,6 @@ async function main(): Promise<void> {
       },
     });
   }
-
-  const audio = new BattleAudio();
-  // Recorded clips when they exist, procedural synth per-sound where they
-  // don't — so the library can be filled in one file at a time.
-  audio.useManifest(audioManifest as AudioManifest, `${BASE}audio/`);
-  audio.attach();
 
   // --- input ---------------------------------------------------------------
   const canvas = renderer.canvas;

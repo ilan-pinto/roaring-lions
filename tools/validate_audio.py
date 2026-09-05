@@ -17,6 +17,10 @@ Checks (all fail the build):
                   differ: OGG everywhere except Safari, M4A/MP3 for Safari.
   4. SANITY    -- pitch jitter and gains inside sane bounds, so one bad number
                   cannot blow out a player's ears.
+  5. MUSIC     -- the `music` section, if present: the same license/source/
+                  exists/format checks as a clip, with its own size ceiling.
+                  A one-shot has no business over 512 KB; a looping track is
+                  minutes long and streams, so it gets 8 MB.
 
 Empty variant lists are legal and expected: BattleAudio falls back to its
 procedural synth, so the game ships with sound from day one and real
@@ -49,8 +53,41 @@ KNOWN_WEAPON_CLASSES = {
 }
 ALLOWED_EXT = {".ogg", ".m4a", ".mp3"}
 MAX_BYTES = 512 * 1024      # a battlefield one-shot has no business being bigger
+MAX_MUSIC_BYTES = 8 * 1024 * 1024  # a looping track streams; it is never decoded whole
 MAX_GAIN = 1.5
 MAX_JITTER = 0.5
+
+
+def check_licensed_file(entry, failures, max_bytes, roles=("file", "alt")):
+    """The load-bearing checks, shared by battle clips and music tracks:
+    redistribution-safe license (with credit where the license obliges it),
+    a checkable source, and every declared encoding present, playable and
+    under the ceiling. `entry` is one manifest object carrying `file`."""
+    f = entry.get("file")
+    lic = entry.get("license")
+    if lic not in ALLOWED_LICENSES:
+        failures.append(
+            f"{f}: license '{lic}' is not redistribution-safe "
+            f"(allowed: {', '.join(sorted(ALLOWED_LICENSES))})"
+        )
+    elif ALLOWED_LICENSES[lic] and not entry.get("credit"):
+        failures.append(f"{f}: license {lic} requires a 'credit' line")
+    if not entry.get("source"):
+        failures.append(f"{f}: no 'source' URL -- provenance must be checkable")
+
+    for role in roles:
+        rel = entry.get(role)
+        if rel is None:
+            continue
+        ext = os.path.splitext(rel)[1].lower()
+        if ext not in ALLOWED_EXT:
+            failures.append(f"{rel}: extension {ext} not one of {sorted(ALLOWED_EXT)} ({role})")
+        path = os.path.join(AUDIO_DIR, rel)
+        if not os.path.exists(path):
+            failures.append(f"{rel}: declared in the manifest but missing from assets/audio/")
+        elif os.path.getsize(path) > max_bytes:
+            kb = os.path.getsize(path) // 1024
+            failures.append(f"{rel}: {kb} KB exceeds the {max_bytes // 1024} KB ceiling")
 
 
 def main():
@@ -90,31 +127,24 @@ def main():
                 failures.append(f"set '{name}': variant with no file")
                 continue
 
-            lic = v.get("license")
-            if lic not in ALLOWED_LICENSES:
-                failures.append(
-                    f"{f}: license '{lic}' is not redistribution-safe "
-                    f"(allowed: {', '.join(sorted(ALLOWED_LICENSES))})"
-                )
-            elif ALLOWED_LICENSES[lic] and not v.get("credit"):
-                failures.append(f"{f}: license {lic} requires a 'credit' line")
-            if not v.get("source"):
-                failures.append(f"{f}: no 'source' URL -- provenance must be checkable")
-
             # `file` is the primary encoding, `alt` the Safari fallback of the
             # same sound — both must exist and both must be playable formats.
-            for role, rel in (("file", f), ("alt", v.get("alt"))):
-                if rel is None:
-                    continue
-                ext = os.path.splitext(rel)[1].lower()
-                if ext not in ALLOWED_EXT:
-                    failures.append(f"{rel}: extension {ext} not one of {sorted(ALLOWED_EXT)} ({role})")
-                path = os.path.join(AUDIO_DIR, rel)
-                if not os.path.exists(path):
-                    failures.append(f"{rel}: declared in the manifest but missing from assets/audio/")
-                elif os.path.getsize(path) > MAX_BYTES:
-                    kb = os.path.getsize(path) // 1024
-                    failures.append(f"{rel}: {kb} KB exceeds the {MAX_BYTES // 1024} KB ceiling")
+            check_licensed_file(v, failures, MAX_BYTES)
+
+    # Music: same provenance bar as a clip, larger ceiling, and a 0..1 gain
+    # because it is an <audio> element's volume rather than a GainNode.
+    music = man.get("music")
+    total_tracks = 0
+    if music is not None:
+        mgain = music.get("gain", 1.0)
+        if not 0 <= mgain <= 1:
+            failures.append(f"music: gain {mgain} outside 0..1")
+        for t in music.get("tracks", []):
+            total_tracks += 1
+            if not t.get("file"):
+                failures.append("music: track with no file")
+                continue
+            check_licensed_file(t, failures, MAX_MUSIC_BYTES)
 
     # Files on disk that nothing references are dead weight nobody will notice.
     if os.path.isdir(AUDIO_DIR):
@@ -123,6 +153,12 @@ def main():
             for spec in man.get("sets", {}).values()
             for v in spec.get("variants", [])
             for rel in (v.get("file"), v.get("alt"))
+            if rel
+        }
+        declared |= {
+            rel
+            for t in (man.get("music") or {}).get("tracks", [])
+            for rel in (t.get("file"), t.get("alt"))
             if rel
         }
         for dirpath, _, files in os.walk(AUDIO_DIR):
@@ -139,10 +175,11 @@ def main():
             print(f"  - {f}")
         return 1
 
+    music_note = f", {total_tracks} music track(s)" if total_tracks else ""
     if total_variants == 0:
-        print("audio gate passed: manifest valid, no recordings yet (procedural synth in use)")
+        print(f"audio gate passed: manifest valid, no recordings yet (procedural synth in use){music_note}")
     else:
-        print(f"audio gate passed: {total_variants} clip(s), all licensed for redistribution")
+        print(f"audio gate passed: {total_variants} clip(s){music_note}, all licensed for redistribution")
     return 0
 
 
