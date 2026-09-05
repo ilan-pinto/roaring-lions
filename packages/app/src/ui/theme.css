@@ -196,6 +196,7 @@
   --t-body: 12px;
   --t-m: 13px;
   --t-band: 15px; /* strip and band titles */
+  --cmd-face: 96px; /* the commander's portrait frame; was the 60px --tile shared with the dock */
   --t-strip: 17px; /* the top strip's readouts, chips and icons */
   --t-strip-name: 19px; /* the mission name in the strip */
   --t-read: 20px; /* the lines the player reads mid-mission -- the commander's beats and lines, the feed, the objective in hand (the lead: 12px was too small) */
@@ -841,8 +842,8 @@ body {
    CSS, and the JOIN that decides which face to show (or none) lives in
    `hud.ts`'s `paintFace`. */
 .rl-cmd__face {
-  width: var(--tile);
-  height: var(--tile);
+  width: var(--cmd-face);
+  height: var(--cmd-face);
   flex: none;
   position: relative;
   overflow: hidden;
@@ -881,6 +882,7 @@ body {
   cursor: default;
 }
 .rl-cmd__plate {
+  font-size: var(--t-body);
   /* Positioned, not static, so it paints in the SAME stacking step as
      `.rl-cmd__face-img` rather than the earlier one CSS2.1 Appendix E gives
      non-positioned in-flow content -- otherwise a landed portrait paints
@@ -888,7 +890,6 @@ body {
   position: relative;
   z-index: 1;
   font-family: var(--font-display);
-  font-size: var(--t-xs);
   font-weight: 600;
   letter-spacing: var(--track-label);
   text-transform: uppercase;
@@ -917,7 +918,7 @@ body {
 }
 .rl-cmd__who {
   font-family: var(--font-display);
-  font-size: var(--t-xs);
+  font-size: var(--t-body);
   font-weight: 600;
   letter-spacing: var(--track-label);
   text-transform: uppercase;
