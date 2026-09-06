@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
+import { missions } from '@lions/data';
 import { briefingBeats, briefingHoldsDeployment, showLoading } from './loading';
 
 // Whether the deploying screen waits for the player is the whole of #82, and it
@@ -184,5 +185,77 @@ describe('briefingBeats', () => {
     for (const beat of briefingBeats('One.  Two.   Three.    Four. Five.')) {
       expect(beat.trim().length).toBeGreaterThan(0);
     }
+  });
+});
+
+// GH-162: the deploy screen used to land the whole briefing as one paragraph
+// in the plate-style body size. It now lays out one <p class="rl-loading__beat">
+// per beat, fades them in on a stagger CSS reads off `--i` (the same
+// per-child property `motion.ts`'s `stagger()` sets for the menu entrance),
+// and fires a hook a future music cue can attach to. jsdom does not run CSS
+// animations at all, so what is provable here is the DOM structure and the
+// attributes the stylesheet keys on -- not the opacity a frame would show.
+describe('deploy screen beat layout (GH-162)', () => {
+  const firstLight = missions.beit_sahwan_breach;
+  // `briefing` is optional on the JSON type (a sandbox mission has none); First
+  // Light authors one, and the guard narrows it to `string` for every test
+  // below without an assertion.
+  const firstLightBriefing = firstLight.briefing;
+  if (firstLightBriefing === undefined) {
+    throw new Error('beit_sahwan_breach (First Light) has no briefing -- test fixture is stale');
+  }
+
+  it('renders one paragraph per beat for a shipped briefing', () => {
+    const el = document.createElement('div');
+    showLoading(el, firstLight.name, firstLightBriefing);
+    const expected = briefingBeats(firstLightBriefing);
+    expect(expected.length).toBe(8); // First Light's own count -- see the issue text.
+    const rendered = [...el.querySelectorAll<HTMLParagraphElement>('.rl-loading__beat')];
+    expect(rendered).toHaveLength(expected.length);
+    expect(rendered.map((p) => p.textContent)).toEqual(expected);
+  });
+
+  it('stamps each beat with a 0-based index sequence, for the CSS stagger', () => {
+    const el = document.createElement('div');
+    showLoading(el, firstLight.name, firstLightBriefing);
+    const rendered = [...el.querySelectorAll<HTMLParagraphElement>('.rl-loading__beat')];
+    rendered.forEach((p, i) => {
+      expect(p.dataset.index).toBe(String(i));
+      expect(p.style.getPropertyValue('--i')).toBe(String(i));
+    });
+  });
+
+  it('renders no beats at all when there is no briefing to hold deployment', () => {
+    const el = document.createElement('div');
+    showLoading(el, 'M0 sandbox');
+    expect(el.querySelectorAll('.rl-loading__beat')).toHaveLength(0);
+  });
+
+  it('fires the music hook once, naming the mission, the moment the screen mounts (GH-133)', () => {
+    const seen: CustomEvent[] = [];
+    const onCue = (e: Event): void => {
+      seen.push(e as CustomEvent);
+    };
+    document.addEventListener('rl:cue', onCue);
+    try {
+      const el = document.createElement('div');
+      showLoading(el, firstLight.name, firstLightBriefing);
+      expect(seen).toHaveLength(1);
+      expect(seen[0].detail).toEqual({ cue: 'briefing', mission: firstLight.name });
+    } finally {
+      document.removeEventListener('rl:cue', onCue);
+    }
+  });
+
+  it('offers an enabled deploy button immediately, before any beat animation could have finished', () => {
+    const el = document.createElement('div');
+    showLoading(el, firstLight.name, firstLightBriefing);
+    // Deliberately not calling `.done()` first: that is where the click and key
+    // listeners attach, and the button must already exist and be usable before
+    // that -- nothing about the beat stagger may hold up the field being handed
+    // over.
+    const deploy = el.querySelector<HTMLButtonElement>('.rl-loading__deploy');
+    expect(deploy).not.toBeNull();
+    expect(deploy?.disabled).toBe(false);
   });
 });

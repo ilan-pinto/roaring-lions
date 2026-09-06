@@ -157,9 +157,31 @@ export function showLoading(
   commanderHead.className = 'rl-loading__head';
   commanderHead.append(commanderFace, commanderLine);
 
-  const orders = document.createElement('p');
+  // A container of beats, not one paragraph (GH-162): the eleven authored
+  // briefings already split on `briefingBeats` for the in-mission commander
+  // bar, and landing the whole string as one block at the plate-style body
+  // size was the complaint. `orders` keeps the class the scroll/max-height
+  // rule below already targets -- only the tag changes, `<p>` to a `<div>`
+  // that can hold one `<p class="rl-loading__beat">` per beat -- so the
+  // "Deploy never leaves the screen" contract is untouched.
+  const orders = document.createElement('div');
   orders.className = 'rl-loading__brief';
-  if (holds) orders.textContent = briefing as string;
+  if (holds) {
+    for (const [i, beat] of briefingBeats(briefing as string).entries()) {
+      const p = document.createElement('p');
+      p.className = 'rl-loading__beat';
+      p.textContent = beat;
+      // `--i` is the same per-child stagger property `motion.ts`'s `stagger()`
+      // sets for the menu entrance (`.rl-stagger`) -- reused here rather than
+      // a new custom property, and read at a different pace by
+      // `.rl-loading__beat`'s own animation-delay in theme.css. `data-index`
+      // is the redundant, assertable half: jsdom does not run CSS animations
+      // at all (see loading.test.ts), so the test reads this, not `--i`.
+      p.style.setProperty('--i', String(i));
+      p.dataset.index = String(i);
+      orders.appendChild(p);
+    }
+  }
 
   const deploy = document.createElement('button');
   deploy.className = 'rl-loading__deploy';
@@ -174,6 +196,19 @@ export function showLoading(
   }
   wrap.appendChild(box);
   host.appendChild(wrap);
+
+  // Hook for GH-133 (music epic), not music: this is where a mission's theme
+  // would start, and firing it here -- once, the moment the screen mounts --
+  // means the cue lands without this screen ever needing to be re-laid out
+  // for it. `title` is the same identifier main.ts already resolves before
+  // calling this (`mission?.name ?? mission?.id ?? 'M0 sandbox'`), so no
+  // caller needs to change to supply one. Nobody listens yet: `data/audio.json`
+  // has no music-set kind to key a per-mission theme off, and
+  // `packages/render/src/audio.ts`'s `BattleAudio.startMusic` is private and
+  // plays one manifest-wide loop with no per-screen cue call to reach for
+  // instead. Do not call it from here -- that would be reaching from `app`
+  // into a module that has not grown the API this event is standing in for.
+  document.dispatchEvent(new CustomEvent('rl:cue', { detail: { cue: 'briefing', mission: title } }));
 
   let loaded = 0;
   let expected = 0;

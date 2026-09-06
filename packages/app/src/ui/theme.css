@@ -199,7 +199,7 @@
   --cmd-face: 96px; /* the commander's portrait frame; was the 60px --tile shared with the dock */
   --t-strip: 17px; /* the top strip's readouts, chips and icons */
   --t-strip-name: 19px; /* the mission name in the strip */
-  --t-read: 20px; /* the lines the player reads mid-mission -- the commander's beats and lines, the feed, the objective in hand (the lead: 12px was too small) */
+  --t-read: 20px; /* the lines the player reads -- the commander's beats and lines, the feed, the objective in hand (the lead: 12px was too small), and since GH-162 the deploy screen's briefing beats, before the mission even starts */
   --t-card: 19px; /* the single-unit card's name */
   --t-l: 20px;
   --t-xl: 28px;
@@ -2141,20 +2141,66 @@ button.rl-menu__item[data-kind='aside'] {
   text-transform: uppercase;
   color: var(--ink-label);
 }
+/* The reading face, not the plate face (GH-162): the label/count above still
+   wear `.rl-loading`'s own `--font-mono` -- readouts, not prose -- and
+   `.rl-loading__commander` keeps the tracked display caps of a rank/plate
+   line, both untouched. The briefing itself is what the player has to sit
+   and read, so it takes the same treatment `.rl-cmd__quote` already gives
+   the identical prose mid-mission: Barlow (`--font-body`, GH-153 retired
+   mono from body copy for exactly this reason -- nothing here is a column of
+   figures) at `--t-read`, the size this file already reserves for "the lines
+   the player reads" rather than `--t-m`'s 13px plate-label size. `max-width`
+   caps the measure so a line does not run the full 680px box -- a column
+   this wide unclamped reads as a wall regardless of font size. */
 .rl-loading__brief {
   margin-top: var(--s4);
-  font-size: var(--t-m);
-  line-height: 1.55;
+  font-family: var(--font-body);
+  font-size: var(--t-read);
+  line-height: var(--lh-body);
+  max-width: 62ch;
   color: var(--ink);
   /* The longest authored briefing is ~1,225 characters. Unbounded, it grows the
      centred box past a short viewport and takes the deploy control off the
      bottom of the screen with it -- the one thing the player has to be able to
      reach. The prose scrolls inside its own block instead, so the button never
-     moves no matter how long the orders are. */
-  max-height: min(42vh, 340px);
+     moves no matter how long the orders are. This still holds now that the
+     block holds several `<p>` beats instead of one: the container is the
+     thing that scrolls, not any beat inside it. */
+  max-height: min(42vh, 440px); /* the vh half is the binding one on a 720px-tall screen (48vh measured Deploy 29px below the fold there); the px half lets a tall screen show more of the eight 20px beats than the old 340 did. */
   overflow-y: auto;
   /* Scrolled text needs a margin to breathe against the scrollbar. */
   padding-right: var(--s2);
+}
+/* One beat, one paragraph, with air between them -- the "wall of text"
+   complaint was as much about the missing paragraph breaks as the size.
+   Fades in on a short stagger keyed by `--i`, the same per-child custom
+   property `motion.ts`'s `stagger()` sets for the menu entrance (there at
+   60ms/200ms; a beat of prose is read, not scanned, so this reuses the
+   property and not the pace). `both` holds the first frame before the delay
+   elapses and the last frame after the animation ends, so a beat is never
+   briefly visible at full opacity before its own turn. This is a delivery
+   cue, not a gate: the Deploy button below is interactive from the moment
+   the screen mounts, whichever beats have or have not finished animating
+   in. */
+.rl-loading__beat {
+  margin: 0 0 var(--s3) 0;
+  opacity: 0;
+  transform: translateY(6px);
+  animation: rl-beat-in 320ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 140ms);
+}
+.rl-loading__beat:last-child {
+  margin-bottom: 0;
+}
+@keyframes rl-beat-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 .rl-loading__deploy {
   margin-top: var(--s5);
@@ -2174,9 +2220,21 @@ button.rl-menu__item[data-kind='aside'] {
 }
 
 /* A player who has asked for less motion still gets the fill, just without
-   the interpolation between counts. */
+   the interpolation between counts -- and gets every beat at once rather
+   than staggered, the same "report the state, drop the movement" rule the
+   house pattern above (the blanket `*` collapse) already states once for
+   every animation in the file. That blanket rule alone would leave a beat
+   sitting at `animation-duration: 1ms`, which is imperceptible but is not
+   the same thing as never having animated -- `.rl-pulse` above gets the same
+   explicit override for the same reason, so this follows precedent rather
+   than adding a new one. */
 @media (prefers-reduced-motion: reduce) {
   .rl-loading__fill {
     transition: none;
+  }
+  .rl-loading__beat {
+    animation: none;
+    opacity: 1;
+    transform: none;
   }
 }
