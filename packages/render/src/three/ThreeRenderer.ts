@@ -261,6 +261,7 @@ import { computeFog, isFogVisible, type FogInput } from './fog';
 import { FogMesh } from './fog-mesh';
 import { SmokeMesh } from './smoke-mesh';
 import { perTileRunYaw } from './units/run-direction';
+import { drawBlockedMask } from './terrain/draw-mask';
 import { TrailMesh, collapsedRouteLevel, type TrailInstanceInput } from './trail-mesh';
 import { VehicleTrackMesh, trackKindFor, stepTrackAccum, TRACK_POOL_CAPACITY } from './vehicle-tracks';
 import { UnitShadowMesh, groundShadowRadiusTiles } from './unit-shadows';
@@ -6261,7 +6262,10 @@ export function composeTerrain(
     height: sim.height,
     decor,
     elevation,
-    blocked: sim.blocked,
+    // The DRAW mask, not the sim's: a live low-profile structure (fence,
+    // compound wall) stands on the ground rather than covering it, so its
+    // tiles draw as open ground under the mesh -- terrain/draw-mask.ts.
+    blocked: drawBlockedMask(sim),
     cover: sim.cover,
     // Read only by `decorPlacements`'s `boulder` family below -- ground/
     // scatter/groves/buildings are indifferent to it, the same reason a
