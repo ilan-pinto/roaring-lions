@@ -218,7 +218,12 @@ import {
 } from './units/mesh-unit';
 import { applyMeshClip } from './units/mesh-clip';
 import { pickMeshVariant } from './units/mesh-variant';
-import { meshYawFromFacing, MESH_UNITS_PER_TILE, MESH_SCALE } from './units/mesh-anim';
+import {
+  meshYawFromFacing,
+  MESH_UNITS_PER_TILE,
+  MESH_SCALE,
+  resolveMeshMotionClip,
+} from './units/mesh-anim';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { stepTurretFacing } from './units/frame-state';
 import {
@@ -4117,7 +4122,16 @@ export class ThreeRenderer implements Renderer {
         firing: this.firingTimer[i] > 0,
         working: this.sim.tunnelChargeProgress(i) > 0,
       };
-      applyMeshClip(entity, resolveClip(anim));
+      // `resolveMeshMotionClip` overrides `fire` to `moveFire` only when this
+      // entity is actually moving AND its GLB carries the clip (today, only
+      // `sarim_rifles`) -- every other infantry mesh gets `resolveClip`'s
+      // own answer back unchanged. See that function's own doc comment.
+      const desiredClip = resolveMeshMotionClip(
+        resolveClip(anim),
+        anim.speed > 0,
+        entity.actions.has('moveFire')
+      );
+      applyMeshClip(entity, desiredClip);
       entity.mixer.update(dtSeconds);
     }
 
@@ -4170,7 +4184,7 @@ export class ThreeRenderer implements Renderer {
       else if (id < n && st.removed[id] === 1) {
         this.scene.remove(entity.root);
         disposeMeshUnitEntity(entity);
-      } else this.meshDying.push(beginMeshDeath(entity));
+      } else this.meshDying.push(beginMeshDeath(entity, id));
     }
     this.stepMeshDeaths(dtSeconds);
     this.stepMeshEvacs(dtSeconds);

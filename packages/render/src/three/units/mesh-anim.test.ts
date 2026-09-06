@@ -12,12 +12,17 @@ import {
   MESH_UNITS_PER_TILE,
   MESH_SCALE,
   meshYawFromFacing,
+  resolveMeshMotionClip,
+  hashEntityId,
+  pickDeathClip,
 } from './mesh-anim';
 import type { ClipName } from '../../sheet';
 
 describe('CLIP_NAMES / isMeshClipName', () => {
-  it('lists exactly the six canonical clip names', () => {
-    expect(new Set(CLIP_NAMES)).toEqual(new Set(['idle', 'move', 'fire', 'down', 'wreck', 'work']));
+  it('lists exactly the eight canonical clip names', () => {
+    expect(new Set(CLIP_NAMES)).toEqual(
+      new Set(['idle', 'move', 'fire', 'down', 'wreck', 'work', 'moveFire', 'wreckAlt'])
+    );
   });
 
   it('accepts every canonical name and rejects a typo', () => {
@@ -101,6 +106,68 @@ describe('meshYawFromFacing', () => {
       const expected = [Math.cos(2 * Math.PI * f), Math.sin(2 * Math.PI * f)];
       expect(rotated[0]).toBeCloseTo(expected[0], 10);
       expect(rotated[1]).toBeCloseTo(expected[1], 10);
+    }
+  });
+});
+
+describe('resolveMeshMotionClip', () => {
+  // Break: change `desired === 'fire' && moving && hasMoveFire` to
+  // `hasMoveFire` alone. Verified by hand -- this test then expects 'fire'
+  // but gets 'moveFire' for a standing shooter, going red.
+  it('plays moveFire only when firing, moving, and the GLB carries the clip', () => {
+    expect(resolveMeshMotionClip('fire', true, true)).toBe('moveFire');
+  });
+
+  it('the fifteen-other-teams case: no moveFire clip, plain fire passes through unchanged', () => {
+    expect(resolveMeshMotionClip('fire', true, false)).toBe('fire');
+  });
+
+  it('standing and firing (not moving): stays on fire even when the GLB has moveFire', () => {
+    expect(resolveMeshMotionClip('fire', false, true)).toBe('fire');
+  });
+
+  it('any non-fire desired clip passes through unchanged regardless of the other inputs', () => {
+    expect(resolveMeshMotionClip('move', true, true)).toBe('move');
+    expect(resolveMeshMotionClip('idle', false, true)).toBe('idle');
+    expect(resolveMeshMotionClip('down', true, true)).toBe('down');
+  });
+});
+
+describe('hashEntityId', () => {
+  it('is deterministic -- the same id always hashes the same', () => {
+    expect(hashEntityId(42)).toBe(hashEntityId(42));
+    expect(hashEntityId(0)).toBe(hashEntityId(0));
+  });
+
+  it('different ids are not all mapped to the same bucket', () => {
+    const buckets = new Set([0, 1, 2, 3, 4, 5, 6, 7].map((id) => hashEntityId(id) % 2));
+    expect(buckets.size).toBe(2);
+  });
+});
+
+describe('pickDeathClip', () => {
+  it('always picks wreck when the GLB has no wreckAlt', () => {
+    for (const id of [0, 1, 2, 3, 17, 256]) {
+      expect(pickDeathClip(id, false)).toBe('wreck');
+    }
+  });
+
+  // Break: change `hashEntityId(entityId) % 2 === 1` to `=== 0`. Verified by
+  // hand -- this test's own "not every id gives the same answer" assertion
+  // still passes either way (it is symmetric), but the fixed set of ids
+  // below stops matching this exact split, going red -- which is the point:
+  // it pins the ACTUAL split, not merely "some split exists".
+  it('splits ids between wreck and wreckAlt when the GLB has both', () => {
+    const picks = new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((id) => pickDeathClip(id, true)));
+    expect(picks.has('wreck')).toBe(true);
+    expect(picks.has('wreckAlt')).toBe(true);
+  });
+
+  it('is deterministic for a fixed entity id -- the same replay shows the same fall', () => {
+    for (const id of [0, 1, 2, 41, 999]) {
+      const first = pickDeathClip(id, true);
+      const second = pickDeathClip(id, true);
+      expect(second).toBe(first);
     }
   });
 });

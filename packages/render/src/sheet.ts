@@ -13,8 +13,22 @@
 
 /** Canonical clip names. A sheet need not contain all of them — `work` in
  *  particular exists only on sheets whose unit can work a tunnel charge, and
- *  `clipOrFallback` resolves it to idle everywhere else. */
-export type ClipName = 'idle' | 'move' | 'fire' | 'down' | 'wreck' | 'work';
+ *  `clipOrFallback` resolves it to idle everywhere else.
+ *
+ *  `moveFire` and `wreckAlt` (added 2026-09-06) are MESH-ONLY extensions,
+ *  the same kind of addition `work` was: no sprite sheet declares either (no
+ *  `tools/render_*.py` rig authors them, so `atlas.ts`'s own `CLIP_ORDER`
+ *  deliberately does not list them) and no billboard code path ever asks for
+ *  one. `moveFire` is a real gait cycle while firing, distinct from `fire`'s
+ *  near-zero-Hips recoil-in-place pose — a unit that fires while still
+ *  moving in the sim otherwise has no clip that shows both at once.
+ *  `wreckAlt` is a second, equally valid corpse pose, picked per entity by a
+ *  deterministic hash rather than authored per figure — see
+ *  `packages/render/src/three/units/mesh-anim.ts`'s `resolveMeshMotionClip`
+ *  and `pickDeathClip`. Only `art/meshes/sarim_rifles.glb` ships either
+ *  today; every other GLB's `applyMeshClip` call simply never resolves to
+ *  them, exactly like `work` on a sheet that never declares it. */
+export type ClipName = 'idle' | 'move' | 'fire' | 'down' | 'wreck' | 'work' | 'moveFire' | 'wreckAlt';
 
 export interface ClipSpec {
   /** Number of frames in this clip. */

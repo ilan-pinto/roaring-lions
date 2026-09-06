@@ -100,6 +100,7 @@ import { groundWorldY, type ElevationSource } from '../ground-height';
 import { WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import { applyMeshClip } from './mesh-clip';
 import { disposeMeshUnitEntity, type MeshUnitEntity } from './mesh-unit';
+import { pickDeathClip } from './mesh-anim';
 
 /** Seconds a dying mesh unit fades before it either becomes a wreck or is
  *  torn down -- see this file's own top comment, "The curve, read from the
@@ -221,6 +222,15 @@ export function endMeshDeathFade(swaps: readonly MeshFadeSwap[]): void {
  *  was constructed, so a later spawn reusing that id can never alias it. */
 export interface DyingMeshUnit {
   readonly entity: MeshUnitEntity;
+  /** The sim entity id `entity` was drawing, at the moment it died — kept
+   *  only so the eventual `wreck`/`wreckAlt` choice (`stepMeshDeath`, once
+   *  the settle phase begins) can hash a STABLE id rather than needing the
+   *  caller to thread it through a second time. Defaulted to 0 by
+   *  `beginMeshDeath` for every existing caller that has no id to give
+   *  (every fixture-driven test today) — `pickDeathClip(0, ...)` is exactly
+   *  as deterministic as any other id, so this changes no existing test's
+   *  outcome. */
+  readonly entityId: number;
   t: number;
   readonly baseWorldY: number;
   readonly swaps: readonly MeshFadeSwap[];
@@ -249,11 +259,19 @@ export interface DyingMeshUnit {
  *  collapse clip SHORTER than the fade window would loop back to its own
  *  start and replay while the corpse is still fading, a visible flip-flop
  *  `down`'s own static shipped pose happens not to expose today, but a
- *  future animated one would. */
-export function beginMeshDeath(entity: MeshUnitEntity): DyingMeshUnit {
+ *  future animated one would.
+ *
+ *  `entityId` defaults to 0 so every existing call site (test fixtures with
+ *  no sim entity id to give) keeps compiling with unchanged, deterministic
+ *  behaviour; `ThreeRenderer`'s own real call site passes the actual id,
+ *  which is what makes `wreckAlt`'s per-entity pick (`pickDeathClip`, used
+ *  once the settle phase begins) vary entity to entity rather than picking
+ *  the same fall for every corpse in a mission. */
+export function beginMeshDeath(entity: MeshUnitEntity, entityId: number = 0): DyingMeshUnit {
   applyMeshClip(entity, 'down', { once: true });
   return {
     entity,
+    entityId,
     t: 0,
     baseWorldY: entity.root.position.y,
     swaps: beginMeshDeathFade(entity.root),
@@ -390,8 +408,15 @@ export function stepMeshDeath(d: DyingMeshUnit, dtSeconds: number, env: MeshDeat
     return 'removed';
   }
 
-  applyMeshClip(d.entity, 'wreck', { once: true });
-  d.wreckAction = d.entity.actions.get('wreck') ?? null;
+  // `pickDeathClip` decides `wreck` vs `wreckAlt` deterministically from
+  // `d.entityId` -- `wreckAction` MUST be looked up under whichever name it
+  // actually resolved to, not a hardcoded `'wreck'`: an entity that picked
+  // `wreckAlt` would otherwise capture the UNPLAYED `wreck` action, whose
+  // `.paused` never flips true, hanging this entity in the settle phase
+  // forever (its mixer keeps advancing a clip nothing ever started).
+  const wreckClip = pickDeathClip(d.entityId, d.entity.actions.has('wreckAlt'));
+  applyMeshClip(d.entity, wreckClip, { once: true });
+  d.wreckAction = d.entity.actions.get(wreckClip) ?? null;
   d.settling = true;
   return 'fading';
 }

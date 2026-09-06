@@ -45,31 +45,28 @@ that script's five hard-won mechanisms unchanged --
 
 ## Source clips, and why each canonical clip maps where it does
 
-    Walking_withSkin.glb                       -> move   (real gait, 6.371)
-    Idle_02_withSkin.glb                       -> idle   (near-zero, 0.955)
-    Shot_and_Slow_Fall_Backward_withSkin.glb   -> wreck  (last frame only)
-    Running_withSkin.glb                        UNUSED  (spare `move`, same
-                                                          as the KDF source's
-                                                          own unused `Running`)
-    Shot_and_Fall_Forward_withSkin.glb          UNUSED  (a second one-shot
-                                                          fall; its own last
-                                                          frame was rendered
-                                                          and rejected for
-                                                          `wreck` -- reads as
-                                                          a body still curled
-                                                          mid-tumble, knees
-                                                          drawn up, not a
-                                                          settled corpse. The
-                                                          Backward clip's own
-                                                          last frame reads as
-                                                          a figure laid out
-                                                          flat -- the choice
-                                                          was visual, not the
-                                                          lower-Hips-Z number
-                                                          alone, which
-                                                          actually favoured
-                                                          Forward at 0.128 vs
-                                                          Backward's 0.178.)
+    Walking_withSkin.glb                       -> move     (real gait, 6.371)
+    Idle_02_withSkin.glb                       -> idle     (near-zero, 0.955)
+    Walk_Forward_While_Shooting_withSkin.glb   -> moveFire (real gait, 5.53 --
+                                                             bound 2026-09-06;
+                                                             see below for why
+                                                             this needed a new
+                                                             `ClipName`, not a
+                                                             `fire` slot)
+    Shot_and_Slow_Fall_Backward_withSkin.glb   -> wreck    (last frame only)
+    Shot_and_Fall_Forward_withSkin.glb         -> wreckAlt (last frame only --
+                                                             bound 2026-09-06,
+                                                             free variation,
+                                                             see FALL_SOURCE_ALT)
+    Running_withSkin.glb                        UNUSED    (needs a "fleeing"
+                                                          signal that does not
+                                                          reach the renderer --
+                                                          GH-152's blocker, the
+                                                          same reason the KDF
+                                                          source's own `Running`
+                                                          stays unused. Do not
+                                                          bind this until that
+                                                          signal exists.)
     Side_Shot_withSkin.glb                      UNUSED  (measured 14.14 x100
                                                           Hips travel, ~15x
                                                           idle -- a hit
@@ -78,18 +75,27 @@ that script's five hard-won mechanisms unchanged --
                                                           identically-named
                                                           clip. Read by
                                                           nothing here.)
-    Walk_Forward_While_Shooting_withSkin.glb    UNUSED  (5.53 x100, real gait
-                                                          travel -- disqualified
-                                                          from `fire`'s
-                                                          near-zero-Hips
-                                                          ceiling by the same
-                                                          logic `move` itself
-                                                          would be. A genuine
-                                                          moving-fire asset for
-                                                          potential future
-                                                          work, not built here
-                                                          -- no contract clip
-                                                          slot wants it.)
+
+`Walk_Forward_While_Shooting` measured 5.53 x100 Hips travel -- real gait
+travel, disqualified from `fire`'s near-zero-Hips ceiling by the same logic
+`move` itself would be, and a glTF animation can only be bound under ONE
+`ClipName` per file (`buildMeshUnitTemplate`'s `clips` is a `Map` keyed by
+name, so a second `move`-named or `fire`-named clip would silently overwrite
+whichever import ran first, never coexist). It therefore binds under a new
+`ClipName` member, `moveFire`, added to `packages/render/src/sheet.ts` the
+same way `work` was added for `yahalom_squad` -- an extension proposed and
+documented against the pinned contract, not an improvisation outside it. The
+renderer plays it only when a unit is both moving and has fired recently
+(`resolveMeshMotionClip`, `packages/render/src/three/units/mesh-anim.ts`),
+falling back to plain `move` for the fifteen other infantry teams whose GLBs
+never authored it.
+
+`wreckAlt` is free variation on the SAME reasoning: two falls existed, one
+was already spoken for (see the visual-judgement call above), and the second
+reads as a perfectly good, merely DIFFERENT corpse. Picked per living entity
+by a deterministic hash in the renderer (`pickDeathClip`, same module) rather
+than assigned at export time, so a replay shows the same fall for the same
+entity every time.
 
 `fire` and `down` are synthesized by the exact same functions
 `import_meshy_soldier.py` already built and proved (`build_fire_src`,
@@ -98,6 +104,12 @@ that script's five hard-won mechanisms unchanged --
 shares the donor rig's exact bone names AND (confirmed by rendering the
 result, not assumed) produces a comparable, non-self-intersecting pose. See
 the task report for the render check.
+
+The texture question (this GLB ships palette-painted, zero materials, while
+the source carries a Meshy bake) is left exactly as it was -- that call
+belongs to the project lead, per the same "used as is unless I provide other
+instruction" rule CLAUDE.md records for the three textured buildings, and
+this task does not extend that exemption to infantry on its own authority.
 
 No `mathutils.noise` anywhere in this file.
 """
@@ -111,30 +123,57 @@ import bpy
 import numpy as np
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+#: Corrected 2026-09-06: the supplied asset actually lives one level deeper,
+#: under an "enemy" grouping folder alongside the other Meshy character
+#: sources (`art/blend/enemy/Sarim irregular/...`) -- this constant's own
+#: original value omitted "enemy" and would fail FileNotFoundError from a
+#: fresh checkout that actually has `art/blend` populated. Verified against
+#: the real directory, not assumed.
 SRC_DIR = os.path.join(
-    REPO, "art", "blend", "Sarim irregular", "Meshy_AI_irregular_fighter_rig_biped"
+    REPO, "art", "blend", "enemy", "Sarim irregular", "Meshy_AI_irregular_fighter_rig_biped"
 )
 OUT_PATH = os.path.join(REPO, "art", "meshes", "sarim_rifles.glb")
 
 #: Clip build order -- also the order clips appear in the merged file.
-CLIP_ORDER = ("idle", "move", "fire", "down", "wreck")
+#: `moveFire`/`wreckAlt` added 2026-09-06 (queue item: "improve smoke
+#: animation" backlog's sibling task, the Sarim irregular clip census) --
+#: see the module docstring's "Source clips" table for what each binds and
+#: `docs/superpowers/specs/2026-08-28-mesh-unit-contract.md`'s v1 "Clips"
+#: section, extended the same way `work` was: a new `ClipName` member,
+#: proposed and documented rather than improvised outside the contract.
+CLIP_ORDER = ("idle", "move", "fire", "moveFire", "down", "wreck", "wreckAlt")
 
-#: The two clips that actually loop at runtime. Identical to
+#: The clips that actually loop at runtime. Identical shape to
 #: `import_meshy_soldier.py`'s own `CYCLIC_CLIPS` -- see that file's
 #: `write_combined_clip` for why this is what makes a per-figure phase
-#: shift well-defined, and why `fire`/`down`/`wreck` are excluded.
-CYCLIC_CLIPS = frozenset({"idle", "move"})
+#: shift well-defined, and why `fire`/`down`/`wreck`/`wreckAlt` are excluded.
+#: `moveFire` is a real gait cycle (same shape as `move`, just with the rifle
+#: raised) so it gets the same per-figure phase offset `move` does.
+CYCLIC_CLIPS = frozenset({"idle", "move", "moveFire"})
 
 CLIP_SOURCES = {
     "move": "Meshy_AI_irregular_fighter_rig_biped_Animation_Walking_withSkin.glb",
     "idle": "Meshy_AI_irregular_fighter_rig_biped_Animation_Idle_02_withSkin.glb",
+    "moveFire": "Meshy_AI_irregular_fighter_rig_biped_Animation_Walk_Forward_While_Shooting_withSkin.glb",
 }
 
-#: Read by exactly one caller, `build_wreck_src`, for `wreck`'s own
-#: last-frame corpse pose. See the module docstring for why this file (not
-#: `Shot_and_Fall_Forward`) was chosen -- a rendered, visually-judged call,
-#: not the lower-Hips-Z number alone.
+#: Read by `build_wreck_src`, for `wreck`'s own last-frame corpse pose. See
+#: the module docstring for why this file (not `Shot_and_Fall_Forward`) was
+#: chosen as the PRIMARY fall -- a rendered, visually-judged call, not the
+#: lower-Hips-Z number alone.
 FALL_SOURCE = "Meshy_AI_irregular_fighter_rig_biped_Animation_Shot_and_Slow_Fall_Backward_withSkin.glb"
+
+#: The second fall, bound 2026-09-06 as `wreckAlt` -- free variation, not a
+#: replacement for `FALL_SOURCE`. Its own last frame was rendered and
+#: rejected for the PRIMARY `wreck` slot (see the module docstring: "reads
+#: as a body still curled mid-tumble, knees drawn up, not a settled corpse"),
+#: but "not the best single corpse pose" and "not worth shipping as visual
+#: variety" are different questions -- a squad of three that always collapses
+#: identically is the same "three clones in a chorus line" `rig.py`'s own
+#: `GAIT_PHASE_FRACTIONS` was written to fix, applied here to death instead
+#: of gait. Picked per living ENTITY, not per figure within a squad -- see
+#: `packages/render/src/three/units/mesh-anim.ts`'s `pickDeathClip`.
+FALL_SOURCE_ALT = "Meshy_AI_irregular_fighter_rig_biped_Animation_Shot_and_Fall_Forward_withSkin.glb"
 
 #: Same semantics table `import_meshy_soldier.py` already built and proved.
 #: See that file's own `CLIP_SEMANTICS` docstring for the two prior
@@ -155,6 +194,14 @@ CLIP_SEMANTICS = {
         "means": "stand and shoot; recoil is upper-body only, so Hips travel must not exceed idle's own.",
         "ceiling": lambda idle_travel: idle_travel + 0.5,
     },
+    "moveFire": {
+        "means": (
+            "a real gait cycle WHILE firing -- the source's own "
+            "Walk_Forward_While_Shooting clip. Hips travel is EXPECTED here, "
+            "exactly like `move` -- this is NOT `fire`'s near-zero-Hips shape."
+        ),
+        "ceiling": lambda idle_travel: None,
+    },
     "down": {
         "means": (
             "a HELD pose -- suppression, looped indefinitely, AND the first phase of death "
@@ -164,6 +211,13 @@ CLIP_SEMANTICS = {
     },
     "wreck": {
         "means": "a HELD corpse pose -- same requirement as down: static, near-zero Hips travel.",
+        "ceiling": lambda idle_travel: max(1.0, idle_travel * 0.5),
+    },
+    "wreckAlt": {
+        "means": (
+            "a SECOND held corpse pose (the forward fall, free variation) -- "
+            "same requirement as wreck: static, near-zero Hips travel."
+        ),
         "ceiling": lambda idle_travel: max(1.0, idle_travel * 0.5),
     },
 }
@@ -916,12 +970,15 @@ def merge_clip_glbs(clip_paths, out_path, forward_fix_deg=0.0):
 def main():
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
-    # --- 1. import: base rig from Walking, then idle and the wreck-fall clip.
+    # --- 1. import: base rig from Walking, then idle, the moving-fire gait,
+    # and both fall clips.
     scratch_arm, scratch_mesh, move_src = import_base_clip(
         os.path.join(SRC_DIR, CLIP_SOURCES["move"]), "move_src"
     )
     idle_src = import_clip(os.path.join(SRC_DIR, CLIP_SOURCES["idle"]), "idle_src")
+    move_fire_src = import_clip(os.path.join(SRC_DIR, CLIP_SOURCES["moveFire"]), "move_fire_src")
     fall_src = import_clip(os.path.join(SRC_DIR, FALL_SOURCE), "fall_src")
+    fall_alt_src = import_clip(os.path.join(SRC_DIR, FALL_SOURCE_ALT), "fall_alt_src")
 
     # --- 2. classify every vertex's rl_role from the mesh's OWN base-color
     # texture, BEFORE the material is stripped.
@@ -946,17 +1003,21 @@ def main():
     fire_src = build_fire_src(scratch_arm, idle_src)
     down_src = build_down_src(scratch_arm, idle_src)
 
-    # --- 5. derive wreck from the imported fall clip's own last frame ------
+    # --- 5. derive wreck/wreckAlt from each imported fall clip's own last
+    # frame ------------------------------------------------------------------
     wreck_src = build_wreck_src(scratch_arm, fall_src)
+    wreck_alt_src = build_wreck_src(scratch_arm, fall_alt_src)
 
-    # --- 6. sample all five clips into plain Python data, off the scratch
+    # --- 6. sample all seven clips into plain Python data, off the scratch
     # rig, BEFORE any duplication happens.
     src_by_clip = {
         "idle": idle_src,
         "move": move_src,
         "fire": fire_src,
+        "moveFire": move_fire_src,
         "down": down_src,
         "wreck": wreck_src,
+        "wreckAlt": wreck_alt_src,
     }
     frames_by_clip = {
         clip_name: sample_clip(scratch_arm, src_by_clip[clip_name]) for clip_name in CLIP_ORDER
@@ -969,7 +1030,10 @@ def main():
     # See `import_meshy_soldier.py`'s own `main()` for the full account of
     # why this ordering is load-bearing (Blender's bone-rename callback is
     # not scoped to the object being renamed).
-    for action in (move_src, idle_src, fire_src, down_src, wreck_src, fall_src):
+    for action in (
+        move_src, idle_src, move_fire_src, fire_src, down_src,
+        wreck_src, wreck_alt_src, fall_src, fall_alt_src,
+    ):
         action.use_fake_user = False
         bpy.data.actions.remove(action)
 

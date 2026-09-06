@@ -31,6 +31,8 @@ const CLIP_NAME_SET: { readonly [K in ClipName]: true } = {
   down: true,
   wreck: true,
   work: true,
+  moveFire: true,
+  wreckAlt: true,
 };
 
 /** Every `ClipName`, for iteration and validation. */
@@ -95,4 +97,72 @@ export const MESH_SCALE = 1 / MESH_UNITS_PER_TILE;
  */
 export function meshYawFromFacing(facingTurns: number): number {
   return -2 * Math.PI * facingTurns;
+}
+
+/**
+ * Override `resolveClip`'s output when a unit is BOTH moving and has fired
+ * recently, so a mesh with the `moveFire` clip shows a real walking gait
+ * with the rifle raised instead of `fire`'s legs-frozen recoil pose.
+ *
+ * `resolveClip` (`../../clip.ts`) already outranks `moving` with `firing` in
+ * its own precedence chain — a moving unit that just fired is handed `fire`,
+ * not `move` — so `desired === 'fire'` here IS "moving and fired recently"
+ * once combined with the `moving` flag this function also takes: `firing`
+ * (the sim signal `resolveClip` read to arrive at `'fire'`) is itself
+ * "`firingTimer[i] > 0`", latched to this type's own mesh fire-clip duration
+ * by `ThreeRenderer.fireLatchSeconds` (0.5 s measured for `sarim_rifles`) —
+ * no new sim coupling, no new timer, the exact signal the brief said to
+ * reuse.
+ *
+ * `hasMoveFire` is a plain boolean (`entity.actions.has('moveFire')`)
+ * rather than a `ReadonlySet`/`ReadonlyMap` — the call site already has the
+ * one bit this function needs and there is no reason to make it build or
+ * pass a collection just to ask one question of it.
+ *
+ * Returns `desired` UNCHANGED whenever the override does not apply —
+ * deliberately never routing back through `meshClipOrFallback` itself,
+ * because that function degrades ANY clip absent from `available` to
+ * `idle`, which is wrong here: a GLB with no `moveFire` (all fifteen other
+ * infantry teams, today) must keep showing exactly what `resolveClip`
+ * already asked for (`fire`, then `applyMeshClip`'s own existing fallback
+ * chain from there) — "untouched" by this feature, not silently frozen to
+ * idle by it.
+ */
+export function resolveMeshMotionClip(
+  desired: ClipName,
+  moving: boolean,
+  hasMoveFire: boolean
+): ClipName {
+  return desired === 'fire' && moving && hasMoveFire ? 'moveFire' : desired;
+}
+
+/**
+ * A cheap, render-only integer hash of an entity id — never `Math.random`,
+ * never a sim RNG stream (invariant 3 is sim machinery for sim OUTCOMES;
+ * which of two equally-valid corpse poses an already-dead entity's mesh
+ * shows changes nothing the sim can observe, so pulling from a seeded
+ * per-entity stream for it would be exactly the sim/render coupling
+ * invariant 4 forbids). Knuth's multiplicative hash — deterministic, and the
+ * same entity id always produces the same bit, which is the whole point:
+ * the same replay must show the same fall every time.
+ */
+export function hashEntityId(id: number): number {
+  return Math.imul(id ^ 0x9e3779b9, 2654435761) >>> 0;
+}
+
+/**
+ * Which wreck clip entity `entityId` should play. `wreckAlt` is free visual
+ * variation on the same corpse state, not a fallback and not a preference —
+ * see `import_meshy_soldier_irregular.py`'s module docstring for why the
+ * second fall was rejected for the PRIMARY `wreck` slot but is a perfectly
+ * good SECOND one. `hasWreckAlt` is `entity.actions.has('wreckAlt')`, the
+ * same "one bit, pass it directly" shape `resolveMeshMotionClip` uses above.
+ *
+ * Only ever called once the caller has already confirmed `wreck` itself is
+ * available (`stepMeshDeath`'s existing `entity.actions.has('wreck')` gate,
+ * unchanged) — a team with no `wreckAlt` simply always gets `'wreck'` back,
+ * exactly today's behaviour.
+ */
+export function pickDeathClip(entityId: number, hasWreckAlt: boolean): ClipName {
+  return hasWreckAlt && hashEntityId(entityId) % 2 === 1 ? 'wreckAlt' : 'wreck';
 }
