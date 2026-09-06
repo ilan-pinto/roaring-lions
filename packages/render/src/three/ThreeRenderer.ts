@@ -283,6 +283,10 @@ import {
   objectiveZoneColorKey,
   objectiveZoneFallbackColor,
   objectiveZonePulse,
+  OBJECTIVE_ZONE_HALO_INSET_TILES,
+  OBJECTIVE_ZONE_HALO_COLOR_KEY,
+  OBJECTIVE_ZONE_HALO_FALLBACK,
+  OBJECTIVE_ZONE_FILL_ALPHA,
   OBJECTIVE_ZONE_STROKE_INSET_TILES,
   AIR_SHADOW_COLOR_KEY,
   WRECK_MARKER_COLOR_KEY,
@@ -5389,10 +5393,13 @@ export class ThreeRenderer implements Renderer {
       const colorKey = objectiveZoneColorKey(this.objectiveZoneState);
       const color = this.overlayColor(colorKey, objectiveZoneFallbackColor(this.objectiveZoneState));
       const pulse = objectiveZonePulse(this.objectiveZoneState, this.frameN);
-      // renderer.ts: `.stroke({width: 2, color, alpha: pulse + 0.25})` then
-      // `.fill({color, alpha: 0.05})` -- same two calls, same two alphas.
-      this.overlayBatch.polygonStrokeWorld(corners, OBJECTIVE_ZONE_STROKE_INSET_TILES, color, pulse + 0.25);
-      this.overlayBatch.polygonFillWorld(corners, color, 0.05);
+      // Was renderer.ts's `.stroke({width: 2, ...})` + `.fill({alpha: 0.05})`
+      // verbatim until 2026-09-06; see OBJECTIVE_ZONE_HALO_INSET_TILES for
+      // why a dark halo now sits under a wider stroke and the fill is 0.12.
+      const halo = this.overlayColor(OBJECTIVE_ZONE_HALO_COLOR_KEY, OBJECTIVE_ZONE_HALO_FALLBACK);
+      this.overlayBatch.polygonStrokeWorld(corners, OBJECTIVE_ZONE_HALO_INSET_TILES, halo, 0.6);
+      this.overlayBatch.polygonStrokeWorld(corners, OBJECTIVE_ZONE_STROKE_INSET_TILES, color, pulse + 0.35);
+      this.overlayBatch.polygonFillWorld(corners, color, OBJECTIVE_ZONE_FILL_ALPHA);
     }
 
     // Tutorial focus ring -- renderer.ts's own manual 24-point loop, a

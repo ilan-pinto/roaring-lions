@@ -170,7 +170,25 @@ export function objectiveZonePulse(state: 'held' | 'unheld' | 'contested', frame
  *  `overlay-geometry.ts`'s `billboardPoint` is built from -- which resolves
  *  to about 0.044 tile units; rounded up slightly, to 0.05, so the outline
  *  reads as a visible line rather than vanishing at typical gameplay zoom. */
-export const OBJECTIVE_ZONE_STROKE_INSET_TILES = 0.05;
+export const OBJECTIVE_ZONE_STROKE_INSET_TILES = 0.11;
+
+/** The dark band the coloured outline sits inside. Added 2026-09-06 after the
+ *  lead reported Umm Zeitoun II's hold zone "almost invisible": the unheld
+ *  colour is `team.neutral`, a sand yellow, drawn two pixels wide on sand at
+ *  gameplay zoom, and the fill was 0.05 alpha -- photographed at zoom 2.5 on
+ *  the crest it read as a single faint line. A halo makes any state colour
+ *  legible on any ground (arid sand, green basin, road) without changing
+ *  which colour says what. Inset is in world tiles like the stroke's own,
+ *  for the reason that constant's comment gives; the stroke itself doubled
+ *  from 0.05 so the pair reads as a marked edge rather than a hairline. */
+export const OBJECTIVE_ZONE_HALO_INSET_TILES = 0.2;
+/** Palette key for the halo -- the ramp's darkest step; `overlayColor`
+ *  resolves it through the same `paletteColor` every other overlay key uses. */
+export const OBJECTIVE_ZONE_HALO_COLOR_KEY = 'shadow.2';
+export const OBJECTIVE_ZONE_HALO_FALLBACK = '#0A0A08';
+/** Fill alpha inside the zone -- Pixi's 0.05 was invisible on textured
+ *  ground; 0.12 tints the held ground without hiding what stands on it. */
+export const OBJECTIVE_ZONE_FILL_ALPHA = 0.12;
 
 /** Palette key for an airborne unit's ground shadow -- Pixi's own `#0A0A08`
  *  (`renderer.ts`'s air-lift shadow ellipse), the same swatch `fog-mesh.ts`
