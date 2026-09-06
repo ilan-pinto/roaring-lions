@@ -912,7 +912,12 @@ run(
     const at_ = ids('at_team');
     const mortar = ids('mortar_team');
     const demo = ids('demo_squad');
-    at(3, () => {
+    // `at(3)` moved to `at(1)` -- map-variants-design.md §3.1's `tel_marum_2`
+    // write-up: the ditch/crossing terrain costs the vehicle route at most
+    // 1 tile (measured: start_line -> approach still 20, -> hollow 15 -> 16),
+    // and this mission runs 0.87 of target with only 1.1 minutes above its
+    // 240s floor -- no reason to spend that margin on travel.
+    at(1, () => {
       // Into the southern edge of the approach zone — inside it for the hold,
       // furthest from the battery.
       sim.queueCommand({ kind: 'move', ids: armour, ...M(23, 26) });
@@ -1002,9 +1007,25 @@ const ledTelMarum3 = run(
       sim.queueCommand({ kind: 'move', ids: tanks, ...M(25, 22) });
       sim.queueCommand({ kind: 'move', ids: namer, ...M(24, 23) });
     });
+    // Split into east/west arms -- map-variants-design.md §3.1's
+    // `tel_marum_3` write-up: the crater belt (rows 20-21) now gates the
+    // approach to x<=19 (west) and x>=29 (east), so a single attackMove to
+    // each of [28,16]/[20,16] would have both arms converge on the SAME gate
+    // before diverging, arriving as a column instead of abreast. Waypoint
+    // each arm through its own gate first, then the attackMove target
+    // `append`ed onto the same order -- queued behind the first leg
+    // (`sim.ts`'s "appending to a unit already under way queues the point
+    // instead of overriding it"), not timed by guesswork the way a second
+    // `at()` call would be. A guessed 15s gap here (tried first) delayed the
+    // advance enough to fail `get_the_block_out`'s 300s evacuation clock --
+    // the append fast-path costs no extra wall-clock at all, since both
+    // commands land in the same tick's queue and the second only ever
+    // widens the unit's own path.
     at(130, () => {
-      sim.queueCommand({ kind: 'attackMove', ids: tanks, ...M(28, 16) });
-      sim.queueCommand({ kind: 'attackMove', ids: namer, ...M(20, 16) });
+      sim.queueCommand({ kind: 'move', ids: tanks, ...M(30, 20) });
+      sim.queueCommand({ kind: 'attackMove', ids: tanks, ...M(28, 16), append: true });
+      sim.queueCommand({ kind: 'move', ids: namer, ...M(18, 20) });
+      sim.queueCommand({ kind: 'attackMove', ids: namer, ...M(20, 16), append: true });
     });
     at(190, () => {
       sim.queueCommand({ kind: 'move', ids: tanks, ...M(24, 13) });

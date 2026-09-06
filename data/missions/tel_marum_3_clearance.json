@@ -16,7 +16,7 @@
   },
   "briefing": "Two ways through the wall and neither is free. The wide saddle lies under both Kornet pockets and will cost you vehicles. The narrow one is ten tiles longer and no missile reaches it — the Grad's rockets do, at seventeen, but the only Sarim eyes over that corridor sit at its northern mouth and see no further, so most of its length goes unwatched. What you cannot do is send everything that way: the corridor is choked with fallen rock, passable on foot and to nothing on wheels or tracks. Armour goes through the pass or it does not go. Mind the town block behind the pass: it stands two tiles from the battery you are ordered to destroy, which is the one place heavy ordnance is guaranteed to land. Take the pass, and put the battery out of the war.",
   "map": {
-    "file": "tel_marum",
+    "file": "tel_marum_3",
     "player_start": [24, 44]
   },
   "ledger": {

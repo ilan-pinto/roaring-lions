@@ -12,6 +12,12 @@ import beitSahwanOutskirts from '../../../data/maps/beit_sahwan_outskirts.json';
 import marjPerimeter from '../../../data/maps/marj_perimeter.json';
 import qarnHadid from '../../../data/maps/qarn_hadid.json';
 import telMarum from '../../../data/maps/tel_marum.json';
+// Tel Marum's per-mission variants (docs/campaign/map-variants-design.md):
+// same 48x48 frame, same markers/zones, same rows 12-17 (the wall), obstacles
+// and elevation bent around it per mission. The base file is untouched.
+import telMarum1 from '../../../data/maps/tel_marum_1.json';
+import telMarum2 from '../../../data/maps/tel_marum_2.json';
+import telMarum3 from '../../../data/maps/tel_marum_3.json';
 // The four tile-study sandboxes (2026-09-03). Not campaign ground and no
 // mission references any of them: each exists to put ONE of the ground
 // albedos in front of the player at gameplay zoom, reachable from the
@@ -116,6 +122,9 @@ export const maps = {
   marj_perimeter: marjPerimeter,
   qarn_hadid: qarnHadid,
   tel_marum: telMarum,
+  tel_marum_1: telMarum1,
+  tel_marum_2: telMarum2,
+  tel_marum_3: telMarum3,
   tile_green: tileGreen,
   tile_orchard: tileOrchard,
   tile_road: tileRoad,

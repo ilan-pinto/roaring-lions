@@ -17,7 +17,7 @@
   },
   "briefing": "Sur begins at the pass, and the pass is watched. Rockets have been falling on the north for a week and nobody can say from where, so tonight you find out. Push the drone up the valley and build the picture — two ATGM pockets on the wall, a Grad section behind it, and whoever is feeding them targets. Keep the metal in the hollow: the valley floor south of it is out of the battery's reach, and everything north of it is not. Bring back the picture, not casualties.",
   "map": {
-    "file": "tel_marum",
+    "file": "tel_marum_1",
     "player_start": [24, 44]
   },
   "ledger": {

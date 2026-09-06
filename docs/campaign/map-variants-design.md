@@ -532,6 +532,25 @@ rest of the ground it is standing on.
 - road `r` at x=25, y=8–11 (cosmetic — `r` is cover 0, blocked 0)
 - plateau knolls `n` at (18–21, 6–8) and (29–32, 8–10)
 
+> **Correction after authoring (2026-09-06).** The "pockets' footings" bullet
+> above is not in the shipped `tel_marum_3.json` and should not be authored
+> from this sketch as written: (19,16) and (29,16) sit inside rows 16-17,
+> which this same section's own opening sentence (and CLAUDE.md, a third
+> time) requires stay byte-identical to the base on all three variants — the
+> wall is what 27 `tel_marum_doctrine.test.ts` assertions are about and what
+> the `relief` visual-gate scenario photographs. Worse, (19,16) is the exact
+> tile `tm_pocket_west`'s `atgm_cell` garrisons at `[19.5,16.5]` in both
+> `tel_marum_1_recon` and `tel_marum_2_foothold` (III moves the same pocket to
+> the same tile) — a boulder under a live garrison spawn. The shipped file
+> keeps rows 12-17 an exact copy of the base for all three variants and drops
+> both footing tiles; `tools/src/tel_marum_variants.test.ts`'s shared-landmark
+> block pins the byte-identity as a guard against this recurring. Nothing
+> measured below moved: `start_line -> battery_position` (38->39, 3->8
+> columns), `approach -> saddle_wide` (10->14, 3->6 columns) and the two-gate
+> redundancy check were all re-run against the real `FlowField` with the
+> footings absent and match this section's numbers exactly — the crater belt
+> at rows 20-21 already does the gating the footings were meant to sharpen.
+
 > **A hazard this document caught by measuring rather than reading.** The first
 > draft ran the revetment berm to x=27. The three families spawn at [27.5,5.5] —
 > tile (27,5) — so they would have started standing inside a boulder field. It
