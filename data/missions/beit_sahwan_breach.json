@@ -173,6 +173,15 @@
       "clinic"
     ]
   },
+  "structures": [
+    { "type": "fence", "at": [16, 17], "size": [1, 4] },
+    { "type": "fence", "at": [16, 24], "size": [1, 6] },
+    { "type": "fence", "at": [32, 17], "size": [1, 6] },
+    { "type": "fence", "at": [32, 26], "size": [1, 4] },
+    { "type": "fence", "at": [15, 32], "size": [4, 1] },
+    { "type": "fence", "at": [22, 32], "size": [5, 1] },
+    { "type": "fence", "at": [30, 32], "size": [4, 1] }
+  ],
   "civilians": {
     "refuge": "civ_refuge",
     "groups": [

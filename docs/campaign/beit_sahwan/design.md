@@ -232,6 +232,58 @@ blocks on the diagonals and a road running east–west straight through it.
 | marker | `families_se` | `[35,27]` | " |
 | marker *(optional)* | `village_nw/ne/sw/se` | `[8,8] [39,8] [8,39] [39,39]` | withdraw destinations, if `level-scripter` wants the ring to leave with what it took |
 
+**2026-09-06 — the perimeter made visible (`mission-author`).** The lead's ask:
+"the perimeter that needs to be held in all the fortress missions should be
+surrounded by fences and guards so it's more visible." This is the fence half,
+on First Light, as the pattern the other eight hold/survive missions follow;
+guards are a separate balance change and are not added here. The fence is
+raised through `beit_sahwan_breach.json`'s own `structures[]` — **not** the
+base map's rows, which the doctrine tests above and the visual gate both pin —
+as thirty-three `fence` bodies (60 hp/tile, `per_tile`, `roe_penalty: 0`,
+`low_profile`, so it never blocks sight, only movement): a run hugging the
+wall's west face at x=16 (y17–20, y24–29; gap y21–23, the wall's own gate at
+y21–22 plus the road tile at y23), a mirror at x=32 on the east face (y17–22,
+y26–29; gap y23–25, road at y23–24 plus the gate at y24–25), and a run two
+tiles south of the wall at y=32 (x15–18, x22–26, x30–33; gaps at x19–21 and
+x27–29, centred on `assault_sw`/`assault_se`). **The north face is
+deliberately left unfenced** — the outpost already stands on that ground, and
+fencing it would contradict the briefing's own "outside the wire."
+
+Measured, not assumed (`tools/src/first_light_fence.test.ts`): every
+civilian's foot route to `civ_refuge` is **byte-identical** before and after
+(nw 12, ne 14, sw 13, se 11 tiles); every one of the mission's own wave routes
+from a `raid_*` marker to its `to` target still exists, with at most a
+1-tile detour; `walk_placements.ts beit_sahwan_breach` reads "all placements
+clear"; and the two `playtest` verdicts hold — passive control still DEFEATs
+at 4.5 min (ROE 97, `evac_settlements=failed`, byte-identical to the fenceless
+baseline), and the scripted plan still VICTORYs in the same 5.0 min, with ROE
+moving 75→100 and roster-out moving 14→12. Both of those last two numbers move
+because the fence bends the enemy's own approach lanes by a tile or two, not
+because the plan's orders changed (none did): the raiders arrive by a
+marginally different line, so the exchange that follows lands two fewer
+friendly hits and two more stray rounds land clear of the flagged zones than
+before.
+
+**A wider first draft is worth recording as a trap for the other eight
+missions, not just a footnote.** The first attempt stood the fence two tiles
+out (x=14/x=33) rather than hugging the wall at one. Every route still
+existed and every detour was still small (1–3 tiles) — but the passive
+control stopped DEFEATing: with the fence at that stand-off (west or east
+alone, independently — the south run never did this), the civilians in
+`families_nw`/`families_ne` crossed `CIV_FLEE_AT` (suppression 0.3) within the
+first 30–70 seconds of a run with **zero player orders** and walked
+themselves to `civ_refuge`, satisfying `evacuate_before`'s count of 2 for
+free. `evac_settlements` is First Light's *only* passive-loss condition
+(§5.1); a fence that lets it complete unattended is a fence too many, exactly
+as this file's brief warned. Hugging the wall at one tile out removes it
+entirely — the civilian routes go back to byte-identical rather than moving
+1–3 tiles each, which is the more reliable tell than the passive verdict
+itself. The lesson for I–V of the other hold missions: stand a perimeter
+fence on the wall it echoes, not a symbolic distance out from it, and re-run
+the mission's own passive control (not just a route-exists check) before
+trusting the layout — a fence with every route intact can still hand a
+passive player an objective the mission was built to deny.
+
 ### 3.2 `beit_sahwan_outskirts` — I, II, III, IV
 
 `data/maps/beit_sahwan_outskirts.json` · 48×48 · no elevation.
