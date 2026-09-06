@@ -102,7 +102,7 @@
       "rubble_cover": 2,
       "height_px": 16,
       "color": "limestone.1",
-      "roe_penalty": 25
+      "roe_penalty": 6
     }
   }
 }
