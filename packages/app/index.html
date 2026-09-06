@@ -4,6 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Roaring Lions</title>
+    <!-- The lion emblem the lead supplied (art/favicon/favicon.png is the
+         1254px source; these are sips-derived copies). PNG only: every
+         browser this app targets reads a PNG icon, and an .ico would be a
+         third copy of the same pixels. -->
+    <link rel="icon" type="image/png" sizes="32x32" href="%BASE_URL%ui/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="64x64" href="%BASE_URL%ui/favicon-64.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="%BASE_URL%ui/favicon-180.png" />
     <!-- The display face is on screen before anything else is: the wordmark on
          the menu, the mission title card on the way in. Fetching it with the
          document rather than after the first stylesheet parse keeps the title
