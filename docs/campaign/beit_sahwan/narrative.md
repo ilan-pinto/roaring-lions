@@ -252,6 +252,8 @@ Rewritten for the level script (`script.md` §1.2). Waves and trigger ids are re
 from `data/missions/beit_sahwan_breach.json` as it now stands, not from the
 design sheet's summary of it.
 
+**wave `say` live since 2026-09-06 (G12).**
+
 | event | channel | speaker | line | overlay / audio | status |
 |---|---|---|---|---|---|
 | mission start | `title` | system | `Beit Sahwan — First Light` · *2 primary objectives* | applied | live |
@@ -261,13 +263,13 @@ design sheet's summary of it.
 | garrison `bs0_barrage` first fires | `radio` | Idit | "The tube is behind him and it is firing off what he can see. Take one of the two away and the other stops being worth anything." | | engine |
 | wave t=18 s (10 units, five `raid_*` markers → `compound_centre`) | `toast` | system | `enemy reinforcements — 10 unit(s) inbound` | hard-coded | live |
 | wave t=18 s (6 units, three `raid_*` markers → `assault_sw`) | `toast` | system | `enemy reinforcements — 6 unit(s) inbound` | hard-coded | live |
-| wave t=18 s (either) | `radio` | Idit | "Every approach at once. There is no main effort in this — he does not need one." | | engine |
-| wave t=50 s (2 `paramotor` from `raid_n`) | `radio` | Idit | "Two more aloft, north. They are coming in over the wire rather than through it." | retimed from the shipped t=245 wave; *"more"* added because the eye is already up at t=0 | engine |
+| wave t=18 s (either) | `radio` | Idit | "Every approach at once. There is no main effort in this — he does not need one." | applied to the larger wave (10 units, `compound_centre`); the smaller (`assault_sw`) carries none | live |
+| wave t=50 s (2 `paramotor` from `raid_n`) | `radio` | Idit | "Two more aloft, north. They are coming in over the wire rather than through it." | retimed from the shipped t=245 wave; *"more"* added because the eye is already up at t=0; **applied** | live |
 | `first_contact` → `villages_rise` | `toast` | system | `enemy reacts (villages_rise)` | id shown verbatim; **rename proposed, §10** | live |
 | `first_contact` → `villages_rise` | `radio` | Idit | "The north-east corner is moving and it is not moving on us. Those positions were manned before dawn, not after." | rewritten: the shipped line said *"corners"* plural and this trigger commits one group | live |
 | `first_contact` → `they_take_the_south_village` | `toast` | system | `enemy reacts (they_take_the_south_village)` | reads as prose; **keep** | live |
 | `first_contact` → `they_take_the_south_village` | `radio` | Idit | "South-east the same second. They are not queuing for the gates — they are going to the houses." | new; the old `south_rises` line is retired with its trigger | live |
-| wave t=120 s (3 `militia_cell` + 1 `charge_squad` → `outpost`) | `radio` | Shai | "That is a charge squad walking onto the forward post. Whatever is out there is out there now." | the physical event `hold_outpost` is timed against | engine |
+| wave t=120 s (3 `militia_cell` + 1 `charge_squad` → `outpost`) | `radio` | Shai | "That is a charge squad walking onto the forward post. Whatever is out there is out there now." | the physical event `hold_outpost` is timed against; **applied** | live |
 | `objective(hold_outpost, complete)` @120 s | `toast` | system | `OBJECTIVE COMPLETE — Hold the post outside the wire for two minutes` | **applied**; lands in the same breath as the wave above | live |
 | `objective(hold_outpost, complete)` @120 s | `radio` | Shai | "Two minutes on that corner. Nobody is going to ask them for a third." | | live |
 | `timer_s(150)` → `they_come_for_the_west_families` | `toast` | system | `enemy reacts (they_come_for_the_west_families)` | reads as prose; **keep** | live |
@@ -276,7 +278,7 @@ design sheet's summary of it.
 | **`timer_s(165)` → `they_take_the_section`** | `radio` | Idit | "The forward post is off the net. Nobody saw them fall and there is nothing out there to recover." | **the taking of the section.** No `do.kind` removes anything and `starting_force` cannot carry a `group` (`script.md` §1.6 G1, G2), so neither the trigger nor its line exists | live |
 | `timer_s(190)` → `the_last_village_goes` | `toast` | system | `enemy reacts (the_last_village_goes)` | reads as prose; **keep** | live |
 | `timer_s(190)` → `the_last_village_goes` | `radio` | Idit | "That is the last corner. All four villages are inside their line now, not ours." | | live |
-| wave t=205 s (3 `moto_rpg` + 4 `militia_cell` → `assault_se`) | `radio` | Idit | "South-east now. Same face, other corner — he is reading which one you reinforced." | shipped line, retimed 15 s, content identical | engine |
+| wave t=205 s (3 `moto_rpg` + 4 `militia_cell` → `assault_se`) | `radio` | Idit | "South-east now. Same face, other corner — he is reading which one you reinforced." | shipped line, retimed 15 s, content identical; **applied** | live |
 | wave t=250 s (2 `paramotor` + 4 `militia_cell` → `compound_centre`) | `toast` | system | `enemy reinforcements — 6 unit(s) inbound` | hard-coded | live |
 | `evacuated` (a civilian reaches `compound`) | `toast` | system | **nothing at all** — `describeMissionEvent` has no case for it | **defect, §11 G-B**; proposed: `one family through the wire` | engine |
 | `objective(evac_settlements, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Get two families inside the wire before the ring closes` | applied | live |
@@ -427,6 +429,8 @@ Both **unchanged.** `collapse_tunnel` declares no `seconds`, so it cannot fail
 
 ### 4.4 Trigger table
 
+**wave `say` live since 2026-09-06 (G12).**
+
 | event | channel | speaker | line | overlay / audio | status |
 |---|---|---|---|---|---|
 | mission start | `title` | system | `Beit Sahwan II — Foothold` · *1 primary objective* | applied | live |
@@ -436,8 +440,8 @@ Both **unchanged.** `collapse_tunnel` declares no `seconds`, so it cannot fail
 | `timer_s(67)` → `flank_delivery_drops` | `toast` | system | `enemy reacts (flank_delivery_drops)` | rename proposed, §10 | live |
 | `timer_s(67)` → `flank_delivery_drops` | `radio` | Idit | "It has put an RPG team down short of your line and turned for home." | | live |
 | wave t=45 s (2) | `toast` | system | `enemy reinforcements — 2 unit(s) inbound` | hard-coded | live |
-| wave t=150 s (3) | `radio` | Idit | "Second lot out of the town centre, same track as the first." | | engine |
-| wave t=260 s (3, from `mortar_line`) | `radio` | Idit | "Technicals off the mortar line. They only have the one road east and they keep using it." | ambient, §9 | engine |
+| wave t=150 s (3) | `radio` | Idit | "Second lot out of the town centre, same track as the first." | **applied** | live |
+| wave t=260 s (3, from `mortar_line`) | `radio` | Idit | "Technicals off the mortar line. They only have the one road east and they keep using it." | ambient, §9; **applied** | live |
 | `SimEvent ventOpened` on `bs_tn_west` | `radio` | Idit | "A vent has opened behind the line. The shaft was finished before we got here." | | engine |
 | `SimEvent surfaced` | `radio` | Idit | "They are up on the surface. They will fire once and go back down." | describes the shipped vent-and-submerge loop exactly | engine |
 | `SimEvent tunnelCollapsed` | `eva` | brigade net | "Route collapsed." | shared set, §8 | engine |
@@ -683,6 +687,8 @@ Status **`schema`** — the field does not exist (`storyline.md` §7 G3).
 
 ### 6.5 Trigger table
 
+**wave `say` live since 2026-09-06 (G12).**
+
 `beit_sahwan_4_subterranean` still declares **no triggers**, deliberately: T-B5
 (*"he waits"*) is the absence of a `withdraw_to`, and adding a
 `casualties_pct(spade_party)` row would delete it. Every row below is an
@@ -709,7 +715,7 @@ objective, a wave, a `SimEvent` or the mission end.
 | `objective(get_them_out, failed)` @240 s | `radio` | Shai | "Clock is out on the people. Nothing under this town is worth what we just did not do." | the mirror of First Light's failure, at the other end of the act | live |
 | `objective(take_the_shaft_head, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Hold the shaft head until Sahim is out of it` | **applied** | live |
 | `objective(take_the_shaft_head, complete)` | `radio` | Idit | "The shaft head is yours and he is standing on the wrong side of it. Four years of digging and he is above ground." | **Act I's ending, said once** | live |
-| wave t=240 s (1 `rpg_team` + 1 `technical` from `mortar_line`) | `radio` | Idit | "Last of what the mortar line can send. After this he is spending the ones underground." | | engine |
+| wave t=240 s (1 `rpg_team` + 1 `technical` from `mortar_line`) | `radio` | Idit | "Last of what the mortar line can send. After this he is spending the ones underground." | **applied** | live |
 | `objective(read_the_ground, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Find the crew reopening Sahim's western route` | applied | live |
 | `objective(read_the_ground, complete)` | `radio` | Idit | "That is the crew on the west route. He keeps his diggers close to the work, which is how we found him." | tense changed: the sheet no longer promises a capture the mission cannot stage — it has one | live |
 | `SimEvent tunnelCollapsed` (`bs_tn_west`) | `radio` | Shai | "West route down." | needs a per-route `say`; `level-scripter` | engine |
@@ -903,24 +909,29 @@ counted by script rather than by eye. **170 rows**, up from 140 before this
 delta pass — the level script added triggers, waves, objectives and two whole
 positions, and each of them needed binding.
 
+**2026-09-06: seven wave `radio` rows moved `engine` → `live` (G12) — the four
+First Light waves at t=18/50/120/205, both Beit Sahwan II waves at t=150/260,
+and Beit Sahwan IV's wave at t=240 — now that `enemy.waves[].say` exists. The
+counts below are updated for that move; nothing else in this table changed.**
+
 | status | rows | what they are |
 |---|---|---|
-| `live` | **95** (was 90) | `title` 6 · `brief` 6 · `toast` 49 · `tutorial` 2 · `dispatch` 1 · `aftermath` 1 · `radio` 23 · `debrief` 7 — the last four are `say`/`dispatch`/`aftermath`/`debrief` applied to `data/missions/` this pass. **The 6 applied briefings and the 4 applied objective labels are inside this count, validated.** Eight of the 49 toasts are `live` and *wrong* — the six `enemy reacts (deliver_*)` deliveries and the two raw-id `built` lines (G-C, G-D) |
+| `live` | **102** (was 95) | `title` 6 · `brief` 6 · `toast` 49 · `tutorial` 2 · `dispatch` 1 · `aftermath` 1 · `radio` 30 · `debrief` 7 — the last four are `say`/`dispatch`/`aftermath`/`debrief` applied to `data/missions/` this pass. **The 6 applied briefings and the 4 applied objective labels are inside this count, validated.** Eight of the 49 toasts are `live` and *wrong* — the six `enemy reacts (deliver_*)` deliveries and the two raw-id `built` lines (G-C, G-D) |
 | `schema` | **0** (was 2) | none remaining — `dispatch` on First Light and `aftermath` on IV are both applied and counted under `live` above |
-| `engine` | **75** (was 80) | `radio` 49 · `eva` 18 · `debrief` 4 · `toast` 4 (the replacements the hard-coded strings block) |
+| `engine` | **68** (was 75) | `radio` 42 · `eva` 18 · `debrief` 4 · `toast` 4 (the replacements the hard-coded strings block) |
 
-**75 `engine` rows, down from 80 after `debrief` split win from loss.** The engine slice of
+**68 `engine` rows, down from 75 after the seven wave-`say` lines landed (G12).** The engine slice of
 2026-09-03 (`docs/superpowers/specs/2026-09-03-narrative-layer-engine-design.md`)
 landed `say` on triggers and objectives, the `remove` verb, `group` on
 `starting_force`, and the `dispatch`/`aftermath`/`debrief` fields, and 27 rows
 of this sheet were applied to `data/missions/` and flipped to `live`; a second
 pass then applied five of the nine paired `debrief` rows once the field could
-tell a win from a loss (below). **44% of the writing in this act still reaches
+tell a win from a loss (below), and a third pass (2026-09-06, G12) applied the
+seven wave `say` lines above. **40% of the writing in this act still reaches
 nobody**, and all of it now sits behind three things: a radio overlay with
 portraits (the lines already fire into the notice feed and onto the commander
-bar), a voice layer (GH-110), and trigger conditions over waves and
-`SimEvent`s so a line can be bound to a shaft opening or a route being found
-rather than to a clock.
+bar), a voice layer (GH-110), and trigger conditions over `SimEvent`s so a line
+can be bound to a shaft opening or a route being found rather than to a clock.
 
 **The two takings are live.** `they_take_the_section` (§2.5, `timer_s(165)`,
 `remove` group `outpost_section` in zone `outpost_ground`) and `the_ring_closes`

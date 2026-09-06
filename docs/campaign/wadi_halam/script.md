@@ -130,9 +130,9 @@ reacts (<id>)` line.** Verified before proposing it:
 | **[C]** Deadline runs out short | `objective(get_the_carriers_out, failed)` @300s | `objectives[].say_on_fail`; **loses the mission** | shai: *"The crossing shut with them still on it. We were eight tiles away and looking the other way."* | live |
 | A carrier reaches the refuge | `evacuated` event | nothing spoken | `describeMissionEvent` has no `evacuated` case (Act I's G-B, still open) | engine |
 | Bank patrol turns | `zone_entered(ford_watch)` → renamed trigger | `commit bank → ford_north`; `triggers[].say` | idit: *"Both bank patrols have turned for the north ford. They did not wait to be told..."* | live |
-| Wave @90s (2 `moto_rpg` from `rif_south` → `ford_south`) | clock | toast (hard-coded) | proposed radio line — a wave cannot speak | live (wave) / engine (line) |
+| Wave @90s (2 `moto_rpg` from `rif_south` → `ford_south`) | clock | toast + `say` | idit: *"Motorcycles off the southern track. Ninety seconds of quiet and then something every fifteen — that is the cadence, and it does not change."* — applied 2026-09-06, **G12** | live |
 | Wave @210s (2 `moto_rpg` from `rif_east` → `ford_north`) | clock | toast | none proposed | live |
-| Wave @225s (1 `technical` + 1 `moto_rpg` from `rif_south` → `ford_south`) | clock | toast | proposed radio line — same limit | live (wave) / engine (line) |
+| Wave @225s (1 `technical` + 1 `moto_rpg` from `rif_south` → `ford_south`) | clock | toast + `say` | idit: *"Both fords at once now. They are not trying to hold the crossing — they are pricing the four minutes you agreed to sit on it."* — applied 2026-09-06, **G12** | live |
 | Mission ends | `missionEnd(any)` | `debrief` string set (§8a) | narrative §1.6 — honest on a win and a loss | live |
 | Mission ends (victory) | `missionEnd(victory)` | `debrief`-split line proposed | needs the win/lose split (G-C) | engine |
 
@@ -198,7 +198,7 @@ the town.
 | A herder reaches the refuge | `evacuated` event | nothing spoken | Act I's G-B, still open | engine |
 | Commander runs for the east track | `casualties_pct(40)` → renamed trigger | `withdraw_to amir → rif_east`; `triggers[].say` | shai: *"He is running for the east track and he will not stop... do not take the bunds off the map to chase him."* | live |
 | Wave @90s (2 `technical` from `rif_east` → `pump_house`) | clock | toast | none proposed | live |
-| Wave @200s (2 `moto_rpg` + 1 `technical` from `rif_south` → `pump_house`) | clock | toast | proposed radio line — a wave cannot speak | live (wave) / engine (line) |
+| Wave @200s (2 `moto_rpg` + 1 `technical` from `rif_south` → `pump_house`) | clock | toast + `say` | idit: *"Second counter-raid, and it is going for the pump house rather than for you. They want the pasture back more than they want the fight."* — applied 2026-09-06, **G12** | live |
 | South hide contacted unmarked | `SimEvent contact` on `wh_hide_south` | proposed radio line | needs a sim-watching trigger (G8/G-E) — the carry-over said aloud | engine |
 | Mission ends | `missionEnd(any)` | `debrief` string set | narrative §3.4 — *"The only breathing room the brigade gets in this war, and it was spent going forward."* | live |
 
@@ -258,13 +258,20 @@ deadline is the families.
 | Hallaq's portrait, on his one line | same trigger | `.rl-cmd__face` shows `jubran_hallaq.png` | `speakerPortrait` resolves only `shai`/`idit`; `speakerPlate` returns the literal `ENEMY` (G18/G-F) | engine |
 | Wave @45s (1 `technical` + 1 `moto_rpg` from `rif_south`) | clock | toast | none proposed | live |
 | Wave @100s (1 `technical` + 2 `moto_rpg` from `rif_east`) | clock | toast | none proposed | live |
-| Wave @160s (1 `technical` + 3 `moto_rpg` from `rif_south`) | clock | toast | proposed radio line — a wave cannot speak | live (wave) / engine (line) |
+| Wave @160s (1 `technical` + 3 `moto_rpg` from `rif_south`) | clock | toast + `say` | idit: *"Escalating each time and always at the gate. Four minutes of this and then they stop counting and start arriving."* — applied 2026-09-06, **G12** | live |
 | Wave @220s (1 `technical` + 2 `moto_rpg` from `rif_south`) | clock | toast | none proposed | live |
 | A house comes down beside the D9, unordered | `stepDemolition`'s auto-search | hard-coded `roe` copy; nothing names the building or the D9 | proposed radio line needs a sim-watching trigger | live (mechanism) / engine (line) |
 | Mission ends | `missionEnd(any)` | `debrief` string set (§8a) | narrative §5.5 — *"Nineteen points of this depot is the order itself..."* | live |
 | Mission ends (victory) | `missionEnd(victory)` | `aftermath` string set (§8a, **both variants**) | narrative §5.6 — the campaign's closing line | live |
 
 **Row count this mission: 15 live, 0 schema, 1 engine.**
+
+**2026-09-06 (G12): `enemy.waves[].say` landed, and the four `live (wave) /
+engine (line)` wave rows above that carried a proposed line (I@90s, I@225s,
+III@200s, V@160s) are now applied to `data/missions/` and read plain `live`.
+Because this town's own counting convention already tallied a compound
+`live (wave) / engine (line)` row under `live`, none of the numbers below
+move — see §1.10's own methodology note, restated here for the whole town.**
 
 **Row counts by status, §1's five ECA tables (counted by script, not by eye —
 a row whose status reads `live (wave) / engine (line)` or `live (mechanism) /
@@ -702,7 +709,7 @@ repeated here.
 |---|---|---|---|---|---|
 | **G11 / G-C** | **`debrief` is one string on every mission end**, where `aftermath` shows on victory only (`ui/hud.ts:555`) — so the campaign's closing screen cannot tell a win from a loss. Verified: `ui/menu.ts:387` prints one `debrief` regardless of `missionEnd.result` | design §9, narrative §10 | `debrief_victory` / `debrief_defeat` (or `debrief: {victory, defeat}`), read by `showEndScreen` off `missionEnd.result` | `sim-guard` (schema) + `render-vfx` (`ui/menu.ts`) | **The ending itself, §5.6/§8a.** Both `aftermath` variants close the war, but the `debrief` beneath them — the one that has to read honestly on a defeat too — cannot yet be two sentences. Ten paired win/lose lines across the five missions' ECA tables above are `engine` for this reason alone |
 | **G18 / G-F** | **A villain portrait has no surface.** `assets/ui/portraits/jubran_hallaq.png` ships (58.2 KiB, verified present); `speakerPortrait` (`ui/hud-model.ts:221`) resolves only `shai`/`idit`, and `speakerPlate` returns the literal string `ENEMY` | design §9, narrative §10 | a `villains` map in `commander.json` keyed by front or mission, and one branch each in `speakerPlate`/`speakerPortrait`. The `enemy` speaker enum value already exists in `$defs.say` | `mission-author` (data) + `render-vfx` (`hud-model.ts`) | Hallaq's one line in the whole act (`the_motorcycles_come_down_on_the_column.say`, V) lands as `— <text>` beside a hatch labelled `ENEMY` instead of his face. Cheapest unrealised story surface in the tree |
-| **G12 / G-D** | **A wave cannot speak.** The wave item is `{at_seconds, trigger, to, units}` (schema, grepped this session) — `say` landed on `triggers[]` and `objectives[]` in the 2026-09-03 slice and not on waves | design §9, narrative §10 | `say?: {speaker, text}` on the wave item, emitted with the existing `wave` `MissionEvent` | `sim-guard` | Wadi Halam is **the wave town** — nine `enemy.waves` entries across I, III and V, plus four `spawn` triggers in II that already carry `say` (only one of which this document uses, §1.4). Six rows across §1's ECA tables are `engine` for this reason alone, and reinforcements arriving is the single most legible thing that happens in three of the five missions |
+| **G12 / G-D** | ~~**A wave cannot speak.**~~ **CLOSED 2026-09-06.** `enemy.waves[].say` now exists and is emitted with the existing `wave` `MissionEvent`. The four rows across §1's ECA tables that carried a proposed wave line (I@90s, I@225s, III@200s, V@160s) are applied to `data/missions/`; the other five `enemy.waves` entries across I, III and V never had a proposed line to begin with | design §9, narrative §10 | done | `sim-guard` | Wadi Halam is **the wave town**, and reinforcements arriving is the single most legible thing that happens in three of the five missions — all four of the reactions this document proposed a line for now speak |
 | **G8 / G-E** | **A trigger cannot fire on an objective or on a `SimEvent`.** `on.kind` is exactly `first_contact \| casualties_pct \| timer_s \| zone_entered` (grepped from `mission.ts`'s `stepTriggers`) | design §9, narrative §10 | two new `on.kind`s: `objective` (an objective id) and `sim` (one of the 24 `SimEvent` kinds); the tutorial's `await` predicate already gates on every `SimEvent`, so the pattern is proven elsewhere in the tree | `sim-guard` | Every reaction in the town is on a clock or a casualty percentage because there is no "the depot is down," "the families are out," or "the drone just died" condition. Five rows across §1 are `engine` for it — the bait line in V ("that house came down beside him and nobody ordered it") is the one this blocks hardest, because it needs to fire at the moment of a specific unordered demolition, which only a `SimEvent`-watching trigger can see |
 
 ---
@@ -1008,8 +1015,9 @@ nothing):
 Neither fragment below is part of Option C. Both are held here so
 `sim-guard`'s eventual work has a concrete target rather than a description.
 
-**If `waves[].say` existed (G12/G-D)** — V's 160s wave, the one narrative.md
-proposes a line for:
+**`waves[].say` exists since 2026-09-06 (G12/G-D closed)** — V's 160s wave, the
+one narrative.md proposed a line for, and the fragment below is applied
+verbatim to `data/missions/wadi_halam_5_depot.json`:
 
 ```json
 {

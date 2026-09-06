@@ -239,7 +239,8 @@
             "count": 2,
             "from": "rif_south"
           }
-        ]
+        ],
+        "say": { "speaker": "idit", "text": "Motorcycles off the southern track. Ninety seconds of quiet and then something every fifteen — that is the cadence, and it does not change." }
       },
       {
         "at_seconds": 210,
@@ -266,7 +267,8 @@
             "count": 1,
             "from": "rif_south"
           }
-        ]
+        ],
+        "say": { "speaker": "idit", "text": "Both fords at once now. They are not trying to hold the crossing — they are pricing the four minutes you agreed to sit on it." }
       }
     ]
   },

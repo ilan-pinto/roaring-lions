@@ -254,7 +254,8 @@
             "count": 1,
             "from": "rif_south"
           }
-        ]
+        ],
+        "say": { "speaker": "idit", "text": "Second counter-raid, and it is going for the pump house rather than for you. They want the pasture back more than they want the fight." }
       }
     ]
   },

@@ -151,7 +151,7 @@ both endings are all independent of it.
 | | |
 |---|---|
 | **new since Act II** | nothing. The vocabulary is exactly the 2026-09-03 slice |
-| **still impossible** | **a wave cannot speak.** Act III is *the wave town* — nine authored `waves` entries and four `spawn` triggers, thirteen reinforcement events across five missions — and reinforcements arriving is the most legible thing that happens in any of them. Five rows here are `engine` for it (§10 G-D) |
+| **CLOSED 2026-09-06 (G12)** | ~~a wave cannot speak~~. Act III is *the wave town* — nine authored `waves` entries and four `spawn` triggers, thirteen reinforcement events across five missions — and reinforcements arriving is the most legible thing that happens in any of them. `enemy.waves[].say` now exists and the four proposed lines in this sheet (`wadi_halam_1_fords`@90s/@225s, `wadi_halam_3_counterraid`@200s, `wadi_halam_5_depot`@160s) are applied to `data/missions/` (§10 G-D) |
 | **still impossible** | a trigger cannot fire on an **objective** or on a `SimEvent`, so every line bound to "the depot is down" or "the D9 is dead" is on a clock or on `casualties_pct` instead (§10 G-E) |
 | **still half-built** | `debrief` is one string on **every** end, so it cannot tell a win from a loss. Ten paired lines below are `engine` for that reason alone (§10 G-C) |
 | **still silent** | **a civilian reaching the refuge produces no notice at all in a real mission.** `describeMissionEvent` (`main.ts:248`) has no `evacuated` case and falls to `default: return null`; the `civilian evacuated — n of m out` line at `main.ts:1844` is the **sandbox `&civ` path only**. Act III scores on civilians in one shipped mission and three under Option C (§10 G-H) |
@@ -263,6 +263,8 @@ not a flourish.
 
 ### 1.7 Trigger table
 
+**wave `say` live since 2026-09-06 (G12).**
+
 | event | channel | speaker | line | overlay / audio | status |
 |---|---|---|---|---|---|
 | mission start | `title` | system | `Wadi Halam I — The Fords` · *2 primary objectives* (*3* under C) | `hud.announce`; shipped | live |
@@ -282,10 +284,10 @@ not a flourish.
 | trigger `bank_reacts` → `the bank patrol turns for the ford` | `toast` | system | `enemy reacts (the bank patrol turns for the ford)` | id renamed for prose (§9); `zone_entered(ford_watch)` → `commit bank` | live |
 | same trigger | `radio` | **Idit** | "Both bank patrols have turned for the north ford. They did not wait to be told and they will not stay to be fought." | `triggers[].say`; the first time the player sees Rif mobility used as a *decision* | live |
 | wave t=90 s (2 `moto_rpg` from `rif_south` → `ford_south`) | `toast` | system | `enemy reinforcements — 2 unit(s) inbound` | hard-coded string | live |
-| wave t=90 s | `radio` | Idit | "Motorcycles off the southern track. Ninety seconds of quiet and then something every fifteen — that is the cadence, and it does not change." | a wave cannot carry a `say` (§10 G-D) | engine |
+| wave t=90 s | `radio` | Idit | "Motorcycles off the southern track. Ninety seconds of quiet and then something every fifteen — that is the cadence, and it does not change." | **applied** (G12) | live |
 | wave t=210 s (2 `moto_rpg` from `rif_east` → `ford_north`) | `toast` | system | `enemy reinforcements — 2 unit(s) inbound` | hard-coded | live |
 | wave t=225 s (1 `technical` + 1 `moto_rpg` from `rif_south` → `ford_south`) | `toast` | system | `enemy reinforcements — 2 unit(s) inbound` | hard-coded | live |
-| wave t=225 s | `radio` | Idit | "Both fords at once now. They are not trying to hold the crossing — they are pricing the four minutes you agreed to sit on it." | a wave cannot speak (§10 G-D) | engine |
+| wave t=225 s | `radio` | Idit | "Both fords at once now. They are not trying to hold the crossing — they are pricing the four minutes you agreed to sit on it." | **applied** (G12) | live |
 | `SimEvent destroyed`, the `recon_drone` | `radio` | Idit | "Drone is down. Whatever it had not looked at yet, somebody walks to." | needs a trigger that can watch the sim (§10 G-E) | engine |
 | `missionEnd(victory)` | `toast` | system | `MISSION ACCOMPLISHED — ROE n, k units survive` | hard-coded | live |
 | `missionEnd(any)` | `debrief` | narrator | §1.6 | end screen, above the rating | live |
@@ -464,6 +466,8 @@ on: Act I has no build-up at all and Act III's is a raid.
 
 ### 3.5 Trigger table
 
+**wave `say` live since 2026-09-06 (G12).**
+
 | event | channel | speaker | line | overlay / audio | status |
 |---|---|---|---|---|---|
 | mission start | `title` | system | `Wadi Halam III — The Cattle Track` · *2 primary objectives* (*3* under C) | shipped | live |
@@ -483,7 +487,7 @@ on: Act I has no build-up at all and Act III's is a raid.
 | same trigger | `radio` | **Shai** | "He is running for the east track and he will not stop. Take him if the shot is there — do not take the bunds off the map to chase him." | `triggers[].say`; the scripted withdrawal turned into characterisation, and it is *"Do not chase what runs"* charged for the second time | live |
 | wave t=90 s (2 `technical` from `rif_east` → `pump_house`) | `toast` | system | `enemy reinforcements — 2 unit(s) inbound` | hard-coded | live |
 | wave t=200 s (2 `moto_rpg` + 1 `technical` from `rif_south` → `pump_house`) | `toast` | system | `enemy reinforcements — 3 unit(s) inbound` | hard-coded | live |
-| wave t=200 s | `radio` | Idit | "Second counter-raid, and it is going for the pump house rather than for you. They want the pasture back more than they want the fight." | a wave cannot speak (§10 G-D) | engine |
+| wave t=200 s | `radio` | Idit | "Second counter-raid, and it is going for the pump house rather than for you. They want the pasture back more than they want the fight." | **applied** (G12) | live |
 | `SimEvent contact` on `wh_hide_south` when it was **not** pre-marked | `radio` | Idit | "The southern hide was live. If the drone had been eight tiles further south last week, that would have been a map reference instead of an ambush." | needs a sim-watching trigger (§10 G-E); it is the act's carry-over said aloud | engine |
 | `missionEnd(victory)` | `toast` | system | `MISSION ACCOMPLISHED — ROE n, k units survive` | hard-coded | live |
 | `missionEnd(any)` | `debrief` | narrator | §3.4 | | live |
@@ -806,6 +810,8 @@ labelled ENEMY (§10 G-F). Cheapest unrealised story surface in the tree.
 
 ### 5.8 Trigger table
 
+**wave `say` live since 2026-09-06 (G12).**
+
 | event | channel | speaker | line | overlay / audio | status |
 |---|---|---|---|---|---|
 | mission start | `title` | system | `Wadi Halam V — Break the Depot` · *3 primary objectives* | shipped | live |
@@ -827,7 +833,7 @@ labelled ENEMY (§10 G-F). Cheapest unrealised story surface in the tree.
 | wave t=45 s (1 `technical` + 1 `moto_rpg` from `rif_south`) | `toast` | system | `enemy reinforcements — 2 unit(s) inbound` | hard-coded | live |
 | wave t=100 s (1 `technical` + 2 `moto_rpg` from `rif_east`) | `toast` | system | `enemy reinforcements — 3 unit(s) inbound` | hard-coded | live |
 | wave t=160 s (1 `technical` + 3 `moto_rpg` from `rif_south`) | `toast` | system | `enemy reinforcements — 4 unit(s) inbound` | hard-coded | live |
-| wave t=160 s | `radio` | Idit | "Escalating each time and always at the gate. Four minutes of this and then they stop counting and start arriving." | a wave cannot speak (§10 G-D) | engine |
+| wave t=160 s | `radio` | Idit | "Escalating each time and always at the gate. Four minutes of this and then they stop counting and start arriving." | **applied** (G12) | live |
 | wave t=220 s (1 `technical` + 2 `moto_rpg` from `rif_south`) | `toast` | system | `enemy reinforcements — 3 unit(s) inbound` | hard-coded | live |
 | a house levelled by the D9 in the village | `toast` | system | hard-coded `roe` copy; **nothing names the building or says the D9 did it** | `stepDemolition` levels what it halts beside and no notice says which; `render-vfx` | engine |
 | a house levelled by the D9 | `radio` | Shai | "It came down beside him. Nobody ordered that and it is still on the rating." | needs a sim-watching trigger (§10 G-E); **the bait's own line, and it cannot be authored** | engine |
@@ -978,7 +984,7 @@ place it does.
 | **G-A** | **A single sentence longer than 240 characters becomes a beat longer than 240 characters, silently.** `briefingBeats` flushes only when something is already held, so it cannot split a sentence. `wadi_halam_3_counterraid` shipped a **289-character beat** and was the only briefing in the tree over the limit; **fixed in this pass**, but nothing prevents the next one. `loading.test.ts` tests the splitter, not the content | a check over `data/missions/*.json` in `tools/validate_data.mjs`, or one spec that runs `briefingBeats` across every shipped briefing and asserts the limit | `content-validator` |
 | **G-B** | **The harness and the game disagree about Act III's ledger.** `wadi_halam_2_laager` neither requires nor produces `intel.marked_positions`, and `playtest.ts` chains each mission on the *produced* ledger of the one before, so **III has been measured with an empty marked list since the town shipped**. `main.ts:1759` merges instead, so the app does not have the bug. `wh_aa_east` is the tag that satisfies `validate_data.mjs` | declare the key on II (design §5.2). Leave IV and V alone — no tag in either is produced by an earlier mission, so `requires` there would be aspiration (design §10 O-F) | `mission-author` |
 | **G-C** | **`debrief` is one string on every mission end**, where `aftermath` is victory-only, so the campaign's closing screen cannot tell a win from a loss. **Ten** written lines here are `engine` for that and no other reason | `debrief_victory` / `debrief_defeat` (or `debrief: { victory, defeat }`), read by `showEndScreen` off `missionEnd.result` | `sim-guard` + `render-vfx`; `storyline.md` §7 **G11** |
-| **G-D** | **A wave cannot speak**, and **Act III is the wave town** — nine `waves` entries plus four `spawn` triggers, thirteen reinforcement events across five missions. Five rows here are `engine` for it. The `timer_s` workaround is not available: `do` is required | `say?: {speaker, text}` on the wave item, emitted with the existing `wave` event | `sim-guard`; design §9 **G12** |
+| **G-D** | ~~**A wave cannot speak**, and **Act III is the wave town** — nine `waves` entries plus four `spawn` triggers, thirteen reinforcement events across five missions.~~ **CLOSED 2026-09-06 (G12).** `enemy.waves[].say` now exists and the four rows here that named this gap (`wadi_halam_1_fords`@90s/@225s, `wadi_halam_3_counterraid`@200s, `wadi_halam_5_depot`@160s) are applied to `data/missions/` | done | `sim-guard` |
 | **G-E** | **A trigger cannot fire on an objective or on a `SimEvent`.** Every reaction in Act III is on a clock or on `casualties_pct`, so the bait's own line — *the house came down beside him and nobody ordered it* — cannot be authored at the moment it happens. Five rows are `engine` for it | two `on.kind`s: `objective` (an objective id) and `sim` (one of the 24 `SimEvent` kinds); the tutorial's `await` already gates on every `SimEvent` | `sim-guard`; design §9 **G8** |
 | **G-F** | **A villain portrait has no surface**, and Act III is where it costs a picture. `assets/ui/portraits/jubran_hallaq.png` ships; `speakerPortrait` (`ui/hud-model.ts:221`) resolves only `shai`/`idit` and `speakerPlate` returns the literal `ENEMY` | a `villains` map in `commander.json` keyed by front, and one branch each in `speakerPlate`/`speakerPortrait`. The `enemy` speaker value already exists | `mission-author` (data) + `render-vfx`; design §9 **G18** |
 | **G-G** | **`pnpm validate:audio` cannot accept a voice file.** `KNOWN_EVENTS` is six weapon and impact events. Every `eva` row in §7 and every voice line in the act is blocked on the gate widening **before** anything is recorded | a non-weapon set kind and its events; the licence and source-URL checks stay | `content-validator`; GH-110, design §9 **G4** |
@@ -1058,30 +1064,41 @@ counted by script rather than by eye.
 
 **164 rows** carry one.
 
+**2026-09-06: four wave `radio` rows moved `engine` → `live` (G12) —
+`wadi_halam_1_fords`@90s/@225s, `wadi_halam_3_counterraid`@200s,
+`wadi_halam_5_depot`@160s — now that `enemy.waves[].say` exists. The counts
+below are updated for that move; nothing else in this table changed.**
+
 | status | rows | what they are |
 |---|---|---|
-| `live` | **124** (was 114) | `toast` 47 · `radio`, i.e. a `say` on a trigger or an objective, 25 · objective labels 18 · `brief` 5 · `title` 5 · `debrief` 15 · `dispatch` 3 · twist rows 3 · `aftermath` 1 · and **4 rows recording a deliberate silence** (`screen_out` and `no_bleed`, neither of which can fail; the second and third `dispatch`, which must not exist) |
+| `live` | **128** (was 124) | `toast` 47 · `radio`, i.e. a `say` on a trigger, an objective or a wave, 29 · objective labels 18 · `brief` 5 · `title` 5 · `debrief` 15 · `dispatch` 3 · twist rows 3 · `aftermath` 1 · and **4 rows recording a deliberate silence** (`screen_out` and `no_bleed`, neither of which can fail; the second and third `dispatch`, which must not exist) |
 | `schema` | **0** | none. Every field Act III needs exists |
-| `engine` | **40** (was 50) | ambient lore 17 · `radio` 10 · `toast` 6 · `eva` 4 · twist rows 2 (T9, T12) · Hallaq's portrait on the commander bar 1 |
+| `engine` | **36** (was 40) | ambient lore 17 · `radio` 6 · `toast` 6 · `eva` 4 · twist rows 2 (T9, T12) · Hallaq's portrait on the commander bar 1 |
 
-**40 `engine` rows**, and not one of them is blocked on a *field*. The
-**`debrief` that can tell a win from a loss** blocker (G-C) is closed — the
-field now carries `victory`/`defeat` separately and all ten of this sheet's
-paired rows are applied to `data/missions/` and flipped to `live` above. What
-remains is blocked on four things: a **radio overlay with portraits** (G-L,
-and G-F for the one row that would draw Hallaq), a **voice layer** (G-G, and the
-audio gate widens first), **a line bound to a wave or to a `SimEvent`** — the
-ten `engine` `radio` rows split exactly five and five — and the **silent
-`evacuated` event** (G-H, 3 of the 6 `engine` toasts). Every one of the 17
-ambient rows is `engine` for two of those together: no event to fire on, and no
-surface to fire into.
+**36 `engine` rows, down from 40 after G12.** Not one of them is blocked on a
+*field* any more. The **`debrief` that can tell a win from a loss** blocker
+(G-C) is closed — the field now carries `victory`/`defeat` separately and all
+ten of this sheet's paired rows are applied to `data/missions/` and flipped to
+`live` above. **The wave-cannot-speak blocker (G-D) is closed too** — the six
+remaining `engine` `radio` rows are five G-E (a line bound to a `SimEvent`) plus
+`wadi_halam_2_laager`'s `wave_3` spawn-trigger row, which was never blocked on
+G-D or G-E at all: `triggers[].say` already exists, and the row stays `engine`
+by authorial choice (one line of four so the feed does not read as a chatline),
+not by engine limitation. What remains is blocked on three things now: a
+**radio overlay with portraits** (G-L, and G-F for the one row that would draw
+Hallaq), a **voice layer** (G-G, and the audio gate widens first), and **a line
+bound to a `SimEvent`** (G-E, 5 of the 6 remaining `radio` rows) — and the
+**silent `evacuated` event** (G-H, 3 of the 6 `engine` toasts). Every one of the
+17 ambient rows is `engine` for the first and third of those together: no event
+to fire on, and no surface to fire into.
 
-**24 %** of the writing in this act still reaches nobody, down from 30 % before
-the `debrief` split. Act I was 44 %, Act II 25 %; the difference between Act I
-and the two since is the engine slice of 2026-09-03, and what keeps Act III
-from going lower is that **Naharin is the wave town** — five `engine` rows are
-wave lines, in a town where reinforcements arriving is the most legible thing
-that happens.
+**22 %** of the writing in this act still reaches nobody, down from 24 % before
+G12 and 30 % before the `debrief` split. Act I was 40 %, Act II 22 %; the
+difference between Act I and the two since is the engine slice of 2026-09-03
+and 2026-09-06, and what keeps Act III from going lower is that **Naharin is
+the wave town** — the `wave_3` spawn-trigger row above is the one reinforcement
+line in the act still unauthored, in a town where reinforcements arriving is
+the most legible thing that happens.
 
 ---
 

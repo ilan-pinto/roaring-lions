@@ -186,7 +186,8 @@
       {
         "at_seconds": 150,
         "to": "uz_wells",
-        "units": [{ "unit": "sarim_rifles", "count": 1, "from": "sarim_west" }]
+        "units": [{ "unit": "sarim_rifles", "count": 1, "from": "sarim_west" }],
+        "say": { "speaker": "idit", "text": "One rifle section walking to the wells. He is not coming for you." }
       },
       {
         "at_seconds": 260,

@@ -340,7 +340,8 @@
             "count": 2,
             "from": "raid_e"
           }
-        ]
+        ],
+        "say": { "speaker": "idit", "text": "Every approach at once. There is no main effort in this — he does not need one." }
       },
       {
         "at_seconds": 18,
@@ -372,7 +373,8 @@
             "count": 2,
             "from": "raid_n"
           }
-        ]
+        ],
+        "say": { "speaker": "idit", "text": "Two more aloft, north. They are coming in over the wire rather than through it." }
       },
       {
         "at_seconds": 120,
@@ -388,7 +390,8 @@
             "count": 1,
             "from": "raid_n"
           }
-        ]
+        ],
+        "say": { "speaker": "shai", "text": "That is a charge squad walking onto the forward post. Whatever is out there is out there now." }
       },
       {
         "at_seconds": 160,
@@ -420,7 +423,8 @@
             "count": 4,
             "from": "raid_s"
           }
-        ]
+        ],
+        "say": { "speaker": "idit", "text": "South-east now. Same face, other corner — he is reading which one you reinforced." }
       },
       {
         "at_seconds": 250,

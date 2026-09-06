@@ -201,7 +201,8 @@
         "units": [
           { "unit": "recoilless_team", "count": 1, "from": "sarim_west" },
           { "unit": "sarim_rifles", "count": 1, "from": "sarim_west" }
-        ]
+        ],
+        "say": { "speaker": "idit", "text": "They are reinforcing the crest, not the depot. He is worth more to them than the rockets are." }
       },
       {
         "at_seconds": 360,

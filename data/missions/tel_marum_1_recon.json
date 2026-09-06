@@ -157,7 +157,8 @@
       {
         "at_seconds": 150,
         "to": "hollow",
-        "units": [{ "unit": "sarim_rifles", "count": 1, "from": "town_edge" }]
+        "units": [{ "unit": "sarim_rifles", "count": 1, "from": "town_edge" }],
+        "say": { "speaker": "idit", "text": "Something came down off the wall and it is walking to the hollow. They know where you would have parked." }
       },
       {
         "at_seconds": 260,

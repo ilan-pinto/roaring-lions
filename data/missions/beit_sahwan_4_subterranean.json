@@ -183,7 +183,8 @@
         "units": [
           { "unit": "rpg_team", "count": 1, "from": "mortar_line" },
           { "unit": "technical", "count": 1, "from": "mortar_line" }
-        ]
+        ],
+        "say": { "speaker": "idit", "text": "Last of what the mortar line can send. After this he is spending the ones underground." }
       }
     ]
   },

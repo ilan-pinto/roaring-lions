@@ -406,7 +406,7 @@ civ.settlements_evacuated`. `target_minutes` 6. **Failable primary:
 | A family reaches the wadi | `evacuated` event (per `CivilianFlight.collect`) | nothing spoken | **G-B** (Act I) still open: `describeMissionEvent` has no `evacuated` case | engine |
 | Two families clear | `objective(get_the_wells_clear, complete)` @≤240s | toast + `say` | shai: *"Two families in the wadi. Leave the rest of that flank alone; nothing else out there is worth the jeep."* | live |
 | Four minutes run out short | `objective(get_the_wells_clear, failed)` @240s | toast + `say_on_fail` | shai: *"Four minutes. Whatever is still at the wells is not ours to move now."* — the mission's own loss line | live |
-| Rifle section to the wells | wave t=150s, 1 `sarim_rifles` from `sarim_west` → `uz_wells` | toast (hard-coded) | narrative proposes a `radio` line here; **a wave cannot carry `say`** | live (wave) / engine (line, **G12/G-D**) |
+| Rifle section to the wells | wave t=150s, 1 `sarim_rifles` from `sarim_west` → `uz_wells` | toast (hard-coded) + `say` | idit: *"One rifle section walking to the wells. He is not coming for you."* — applied 2026-09-06, **G12** | live |
 | Rifles to the centre | wave t=260s, 2 `sarim_rifles` from `sarim_north` → `lane_centre` | toast | none proposed | live |
 | The wells are swept | `timer_s(242)` → `they_move_the_families_off` | `do:{remove, group:wells_families}` + `say` | idit: *"The wells are empty and nobody fought over them. They walked them north between the hills while we were looking at the hills."* — **T-U1** | live |
 | Drone lost | `SimEvent destroyed` on `recon_drone` | nothing authored | idit's proposed line (**T-U3**) needs a trigger that watches a `SimEvent` | engine (**G8/G-E**) |
@@ -414,8 +414,8 @@ civ.settlements_evacuated`. `target_minutes` 6. **Failable primary:
 | Mission ends | `missionEnd(any)` | `debrief` | *"Four hills, and a drone that can only pay for some of them. That is the whole of Sur in one night."* | live |
 
 **Row count this mission: 12 live, 0 schema, 2 engine** (the `evacuated`
-silence and the `SimEvent`-watching lines; the wave's own spawn is `live`,
-only its proposed spoken line is `engine`).
+silence and the `SimEvent`-watching lines; the wave's `say` landed 2026-09-06,
+**G12**).
 
 ### 4.3 AI director
 
@@ -493,7 +493,7 @@ evacuation is the objective that actually ends the mission on the clock.
 | gap | cites | Umm Zeitoun I impact |
 |---|---|---|
 | **G8/G-E** — a trigger cannot fire on an objective or a `SimEvent` | design §7, narrative §12 | blocks T-U3's line (drone lost) and the proposed wave-arrival `radio` line |
-| **G12/G-D** — a wave cannot carry `say` | design §7, narrative §12 | blocks both wave rows' proposed lines; the spawn itself is unaffected |
+| ~~**G12/G-D** — a wave cannot carry `say`~~ | **CLOSED 2026-09-06.** The t=150s wave's line is applied; no line was ever proposed for t=260s | — |
 | **G-B** (Act I) — `evacuated` produces no toast/line | narrative §4.6 | every family reaching the wadi is silent until the fourth or the deadline |
 
 ---
@@ -526,14 +526,16 @@ roe.mission_ratings, campaign.completed_missions`. `target_minutes` 7.
 | Knoll held 15s | `objective(take_the_stone_knoll, complete)` | toast, **no `say` deliberately** | narrative.md: *"the toast is the whole beat, and T-U6 says they come back for it"* | live |
 | Battery displaces | `casualties_pct(30)` → `the_tube_moves_north` | `withdraw_to`, group `battery` → `battery_north` + `say` | idit: *"Battery is displacing north. Twenty-eight tiles to the crest line from there — that is what taking a third of them off him buys."* | live |
 | Rifles reinforce the knoll | wave t=90s, 2 `sarim_rifles` from `sarim_west` → `knoll_stone` | toast | none proposed | live |
-| Recoilless to the crest | wave t=180s, 1 `recoilless_team` from `sarim_north` → `rim_crest` | toast (proposed line: **T-U4**'s companion) | a wave cannot speak | live (wave) / engine (line) |
-| Kamikaze at the camp | wave t=210s, 1 `loiter_drone` from `sarim_north` → `camp_ground` | toast | **T-U4**, "the camp is the target" — same wave-say limit | live (wave) / engine (line) |
+| Recoilless to the crest | wave t=180s, 1 `recoilless_team` from `sarim_north` → `rim_crest` | toast | **T-U4**'s "companion" is named but no text for it exists anywhere (narrative §5.5); not invented | live (wave) / engine (line, unauthored) |
+| Kamikaze at the camp | wave t=210s, 1 `loiter_drone` from `sarim_north` → `camp_ground` | toast + `say` | **T-U4**, "the camp is the target" — shai: *"Something small and low is going for the camp, not the line. Whatever is behind you is the thing you are building."* — applied 2026-09-06, **G12** | live |
 | Ground retaken | wave t=300s, 2 `sarim_rifles` from `sarim_east` → `rim_crest` (marker substitution, §2 above) | toast | **T-U6**, deliberately no line | live |
 | A purchased squad arrives | `built` event | toast (hard-coded, prints raw unit id) | Act I's **G-D**, still open | engine |
 | Mission ends | `missionEnd(any)` | `debrief` | *"Nobody replaces an observer on a heap of blocks. They replace him on the next hill."* | live |
 
-**Row count this mission: 9 live, 0 schema, 4 engine** (two wave-say lines,
-the `built` display-name gap, and the un-authored `SimEvent fire` EVA line).
+**Row count this mission: 10 live, 0 schema, 3 engine** (down from 4 after the
+t=210s wave's `say` landed 2026-09-06, **G12**; the remaining 3 are the t=180s
+wave's never-written "companion" line, the `built` display-name gap, and the
+un-authored `SimEvent fire` EVA line).
 
 ### 5.3 AI director
 
@@ -609,7 +611,7 @@ the force is never wiped. The raze deadline is the whole loss condition.
 
 | gap | cites | Umm Zeitoun II impact |
 |---|---|---|
-| **G12/G-D** — a wave cannot speak | design §7, narrative §12 | blocks the 180s/210s waves' proposed lines |
+| ~~**G12/G-D** — a wave cannot speak~~ | **CLOSED 2026-09-06.** The 210s wave's line is applied; the 180s wave's "companion" line was never actually written down anywhere | — |
 | **G-I** (Act I) — `built` prints a raw unit id | narrative §12 | this is the one mission in the act that buys units repeatedly |
 | **G10 (corrected)** — no authored intel *rate* field | design §7 | not blocking: `intel_start:150` alone funds one satellite sweep; the drone/stationary-scout accrual (8/5 per min) already exists with no schema change |
 
@@ -651,11 +653,12 @@ civ.settlements_evacuated`. `target_minutes` 7. **Failable primary:
 | Garrison ordered into the street | `zone_entered(hamlet)` → `the_house_was_the_section` | `commit`, group `hamlet_garrison` → `hamlet_square` + `say` | idit: *"They are out of the houses and into the street. They will not fight you from in there — they were never going to."* — **T-U9, corrected**, see §6.3 | live |
 | Rifles to the west horn | wave t=120s, 2 `sarim_rifles` from `sarim_west` → `horn_west` | toast | none proposed | live |
 | Recoilless to the east horn | wave t=240s, 1 `recoilless_team` from `sarim_east` → `horn_east` | toast | none proposed | live |
-| Rifles into the square | wave t=330s, 2 `sarim_rifles` from `sarim_north` → `hamlet_square` | toast (proposed line) | *"He is putting rifles into the square while the families are still walking out of it."* — a wave cannot speak | live (wave) / engine (line) |
+| Rifles into the square | wave t=330s, 2 `sarim_rifles` from `sarim_north` → `hamlet_square` | toast + `say` | idit: *"He is putting rifles into the square while the families are still walking out of it."* — applied 2026-09-06, **G12** | live |
 | Mission ends | `missionEnd(any)` | `debrief` | *"A block like that is blind in both directions. That is not an accident and it is not geology."* | live |
 
-**Row count this mission: 12 live, 0 schema, 3 engine** (the `evacuated`
-silence, the flagged-zone deduction's spoken line, and the 330s wave's line).
+**Row count this mission: 13 live, 0 schema, 2 engine** (down from 3 after the
+330s wave's `say` landed 2026-09-06, **G12**; the remaining 2 are the
+`evacuated` silence and the flagged-zone deduction's spoken line).
 
 ### 6.3 T-U9, corrected — `dismount` does not mean what the twist needs
 
@@ -783,7 +786,7 @@ file exists, not mine to estimate.
 | gap | cites | Umm Zeitoun III impact |
 |---|---|---|
 | **G8/G-E** — trigger cannot watch a `SimEvent` | design §7, narrative §12 | blocks the flagged-zone deduction's proposed spoken line |
-| **G12/G-D** — wave cannot speak | design §7, narrative §12 | blocks the 330s wave's line |
+| ~~**G12/G-D** — wave cannot speak~~ | **CLOSED 2026-09-06.** The 330s wave's line is applied | — |
 | **G-B** (Act I) — `evacuated` silent | narrative §12 | this mission scores fatally on the mechanic that produces no feedback |
 | §6.5's finding | this document | not a gap — a measured fact that should be written into the briefing, not engineered around |
 
@@ -826,14 +829,15 @@ both end here.**
 | Relay hut down | `objective(bring_the_relay_down, complete)` | toast + `say` | net: *"Relay hut is down."* — four words, deliberately, per narrative.md **T-U13** | live |
 | Danger-close demolition near a porter | `charges` (collateral_risk 0.6) within 2 tiles of a civilian | ROE deduction (danger-close, or −8 if killed) | hard-coded `roeNotice`; no line proposed | live |
 | Rifles into the yard | wave t=150s, 2 `sarim_rifles` from `sarim_north` → `stockpile_yard` | toast | none proposed | live |
-| Reinforcing the crest, not the depot | wave t=260s, 1 `recoilless_team` + 1 `sarim_rifles` from `sarim_west` → `crest` | toast (proposed line) | *"They are reinforcing the crest, not the depot. He is worth more to them than the rockets are."* — a wave cannot speak | live (wave) / engine (line) |
+| Reinforcing the crest, not the depot | wave t=260s, 1 `recoilless_team` + 1 `sarim_rifles` from `sarim_west` → `crest` | toast + `say` | idit: *"They are reinforcing the crest, not the depot. He is worth more to them than the rockets are."* — applied 2026-09-06, **G12** | live |
 | Kamikaze at the yard | wave t=360s, 1 `loiter_drone` from `sarim_north` → `stockpile_yard` | toast | none proposed | live |
 | Both demolition parties lost | `SimEvent destroyed` ×2 on `demo_squad` | nothing authored | shai's proposed line needs a sim-watching trigger | engine |
 | Mission ends (victory) | `missionEnd(victory)` | `aftermath` (Act II closes) | *"Nothing fell on the north that morning, or the one after it. They took Adhal off the crest with the whole basin still in front of him. Brigade put a fourth star on the slip. The tubes came up a road, and the road is not in Sur."* | live |
 | Mission ends (any) | `missionEnd(any)` | `debrief` | *"Nothing in Sur comes down by driving at it. Five seconds at a time, standing still, with the hill watching."* | live |
 
-**Row count this mission: 15 live, 0 schema, 3 engine** (the `evacuated`
-silence, the 260s wave's line, and the both-demo-squads-lost line).
+**Row count this mission: 16 live, 0 schema, 2 engine** (down from 3 after the
+260s wave's `say` landed 2026-09-06, **G12**; the remaining 2 are the
+`evacuated` silence and the both-demo-squads-lost line).
 
 ### 7.3 AI director
 
@@ -910,7 +914,7 @@ end condition (the same trap `mission.ts`'s own comment on `raze` describes).
 
 | gap | cites | Umm Zeitoun IV impact |
 |---|---|---|
-| **G12/G-D** — wave cannot speak | design §7, narrative §12 | blocks the 260s wave's line |
+| ~~**G12/G-D** — wave cannot speak~~ | **CLOSED 2026-09-06.** The 260s wave's line is applied | — |
 | **G8/G-E** — trigger cannot watch a `SimEvent` | design §7, narrative §12 | blocks the both-demo-squads-lost line |
 | **G-B** (Act I) — `evacuated` silent | narrative §12 | porters reaching the shelf are silent |
 | **G14/G-G** — structure destruction carries no authored consequence | design §7, narrative §12 | cuts T-U11 cleanly |
@@ -932,13 +936,14 @@ numbered lists and one is not a schema gap at all.
    `on.kind`s, `objective` (an objective id) and `sim` (one of the 24
    `SimEvent` kinds, reusing the tutorial's existing `await` predicate).
    Owner `sim-guard`.
-2. **G12** (design §7) / **G-D** (narrative §12) — **a wave cannot carry
-   `say`.** The wave item is `{at_seconds, trigger, to, units}`; `say` was
-   added to triggers and objectives on 2026-09-03 and not to waves. Six rows
-   across these seven missions are `engine` for exactly this reason — every
-   one is otherwise a fully `live` wave, missing only its spoken line.
-   Smallest proposal: `say?: {speaker, text}` on the wave item, emitted
-   alongside the existing `wave` `MissionEvent`. Owner `sim-guard`.
+2. **G12** (design §7) / **G-D** (narrative §12) — ~~**a wave cannot carry
+   `say`.**~~ **CLOSED 2026-09-06.** `say?: {speaker, text}` now exists on the
+   wave item and is emitted alongside the existing `wave` `MissionEvent`. Five
+   of the six proposed wave lines across these seven missions are applied to
+   `data/missions/` (Tel Marum I@150s, Tel Marum II@210s, Umm Zeitoun
+   I@150s/III@330s/IV@260s); the sixth, Umm Zeitoun II's t=180s wave, never had
+   a written line to apply (only "T-U4's companion", never stated) and is not
+   invented here. Owner `sim-guard`.
 3. **G5** — this number is ambiguous across the two source documents and I am
    answering both readings rather than guessing one:
    - **Design §7's G5 / narrative §12's G-L**: `world.schema.json` has no
@@ -1364,15 +1369,16 @@ world.json's campaign order."* Verified both ways this session.
 ## 10. (b) Engine-gated — needs G8 or G12
 
 Nothing above is engine-gated; every skeleton, every campaign fragment,
-passes today. What is engine-gated is the set of **spoken lines** narrative.md
-proposes that this document could not attach to a live mechanism — restated
-here as the fragments they would be, so `sim-guard` can see the exact shape
-needed rather than a prose description.
+passes today. **G12 closed 2026-09-06**: `enemy.waves[].say` now exists and
+the fragment below is applied, verbatim, to `data/missions/umm_zeitoun_2_buildup.json`.
+Five more of the six proposed wave lines this document named are applied the
+same way (UZ I t=150s, UZ III t=330s, UZ IV t=260s, plus Tel Marum I t=150s and
+Tel Marum II t=210s from narrative.md's own sheets) — the one that stays
+unauthored is UZ II's t=180s wave, whose "companion" line was never actually
+written anywhere. What remains engine-gated is G8/G-E alone.
 
 ```json
-// NOT VALID today — wave items have no "say" (G12/G-D). Six of these exist
-// across the four missions (UZ I t=150s, UZ II t=180s and t=210s,
-// UZ III t=330s, UZ IV t=260s), all following this exact shape.
+// VALID since 2026-09-06 (G12) and applied to data/missions/.
 {
   "at_seconds": 210,
   "to": "camp_ground",
@@ -1593,23 +1599,38 @@ fix for a spawn that would otherwise throw on a shanty tile).
 6.2, 7.2 (AI-director cadence tables are cadence, not ECA, and not counted
 twice):
 
+**2026-09-06 (G12): `enemy.waves[].say` landed, and five of the six proposed
+wave lines below are applied to `data/missions/`** (UZ I t=150s, UZ II t=210s,
+UZ III t=330s, UZ IV t=260s, plus one already counted `live` under UZ I's own
+convention before this pass — see the note below). The table is updated for
+the four missions whose own row-count paragraph counted a wave line as
+`engine`.
+
 | mission | live | schema | engine | total |
 |---|---|---|---|---|
 | Tel Marum I (§1.2) | 7 | 0 | 0 | 7 |
 | Tel Marum II (§2.2) | 3 | 0 | 0 | 3 |
 | Tel Marum III (§3.3) | 4 | 0 | 0 | 4 |
 | Umm Zeitoun I (§4.2) | 12 | 0 | 2 | 14 |
-| Umm Zeitoun II (§5.2) | 9 | 0 | 4 | 13 |
-| Umm Zeitoun III (§6.2) | 12 | 0 | 3 | 15 |
-| Umm Zeitoun IV (§7.2) | 15 | 0 | 3 | 18 |
-| **total** | **62** | **0** | **12** | **74** |
+| Umm Zeitoun II (§5.2) | 10 | 0 | 3 | 13 |
+| Umm Zeitoun III (§6.2) | 13 | 0 | 2 | 15 |
+| Umm Zeitoun IV (§7.2) | 16 | 0 | 2 | 18 |
+| **total** | **65** | **0** | **9** | **74** |
 
 Zero `schema`-status rows anywhere in this document: every mechanism used
 across all seven missions is either already live (`say`/`say_on_fail`/
 `dispatch`/`aftermath`/`debrief`/`remove`/`starting_force.group`, all landed
-2026-09-03) or blocked on genuine runtime work (`engine`, ranked in Part
-Three). The 12 `engine` rows are, without exception, spoken lines with no
-live carrier — six blocked on G12/G-D (a wave cannot speak), four on G8/G-E
-(a trigger cannot watch an objective or a `SimEvent`), two on Act I's still-
-open G-B (`evacuated` produces no toast or line). No mechanism — no trigger,
-no wave, no objective — was left unauthored for want of a schema field.
+2026-09-03, plus `enemy.waves[].say`, landed 2026-09-06) or blocked on genuine
+runtime work (`engine`, ranked in Part Three). The 9 `engine` rows are,
+without exception, spoken lines with no live carrier — one still blocked on
+G12/G-D (UZ II's t=180s wave, whose proposed "companion" line was never
+actually written down anywhere and is not invented here), four on G8/G-E (a
+trigger cannot watch an objective or a `SimEvent`), and — separately from the
+per-mission counting note above — the same 2 on Act I's still-open G-B
+(`evacuated` produces no toast or line) as before. **UZ I's own row-count
+convention already treated its one wave line as `live` overall** (a
+compound-status row, `live (wave) / engine (line, G12/G-D)`, whose row-counting
+script reads the leading token), which is why that mission's totals above are
+unchanged even though its wave line's `say` is applied. No mechanism — no
+trigger, no wave, no objective — was left unauthored for want of a schema
+field.

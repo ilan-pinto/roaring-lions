@@ -156,7 +156,8 @@
       {
         "at_seconds": 210,
         "to": "camp_ground",
-        "units": [{ "unit": "loiter_drone", "count": 1, "from": "sarim_north" }]
+        "units": [{ "unit": "loiter_drone", "count": 1, "from": "sarim_north" }],
+        "say": { "speaker": "shai", "text": "Something small and low is going for the camp, not the line. Whatever is behind you is the thing you are building." }
       },
       {
         "at_seconds": 300,

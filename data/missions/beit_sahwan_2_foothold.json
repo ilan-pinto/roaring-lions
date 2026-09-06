@@ -223,7 +223,8 @@
             "count": 2,
             "from": "town_center"
           }
-        ]
+        ],
+        "say": { "speaker": "idit", "text": "Second lot out of the town centre, same track as the first." }
       },
       {
         "at_seconds": 260,
@@ -239,7 +240,8 @@
             "count": 1,
             "from": "town_center"
           }
-        ]
+        ],
+        "say": { "speaker": "idit", "text": "Technicals off the mortar line. They only have the one road east and they keep using it." }
       }
     ]
   },

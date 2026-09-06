@@ -105,7 +105,7 @@ be recorded — retrofitting the rule means throwing audio away (GH-110).
 | | |
 |---|---|
 | **new since Act I** | a line can fire on an objective completing, an objective **failing**, or a trigger firing, in any of four voices, and it reaches the player |
-| **still impossible** | **a wave cannot speak.** The wave item is `{at_seconds, trigger, to, units}` — `say` was added to triggers and objectives and not to waves. The `timer_s` workaround costs a real order, because `do` is required (§12 G-D) |
+| **CLOSED 2026-09-06 (G12)** | ~~a wave cannot speak~~. `enemy.waves[].say` now exists, and the six proposed wave lines this document names are applied to `data/missions/` (§12 G-D) |
 | **still impossible** | a trigger cannot fire **on an objective** or on a `SimEvent`, so every line bound to "he was identified" or "that route opened" is on a clock or on `casualties_pct` instead (§12 G-E) |
 | **still half-built** | `debrief` is one string shown on **every** mission end, so it cannot say different things for a win and a loss. Every paired Shai/Idit end line below is `engine` for that reason alone (§12 G-C) |
 
@@ -179,6 +179,8 @@ One line, honest on a win and on a loss, which is what `debrief` requires today
 
 ### 1.6 Trigger table
 
+**wave `say` live since 2026-09-06 (G12).**
+
 The mission ships `"triggers": []`. Every row below is an objective, a wave, or
 the mission end, except **T6**, which is the town's first trigger and is
 `mission-author`'s to author.
@@ -198,7 +200,7 @@ the mission end, except **T6**, which is the town's first trigger and is
 | `objective(screen_out, complete)` @240 s | `toast` | system | `OBJECTIVE COMPLETE — Stay in the field for four minutes` | shipped | live |
 | `screen_out` failing | — | — | **cannot happen.** `survive_until` is not one of the three types `checkEnd` can fail, so `say_on_fail` here would never fire and must not be authored | — | live |
 | wave t=150 s (1 `sarim_rifles` from `town_edge` → `hollow`) | `toast` | system | `enemy reinforcements — 1 unit(s) inbound` | hard-coded string | live |
-| wave t=150 s | `radio` | Idit | "Something came down off the wall and it is walking to the hollow. They know where you would have parked." | **a wave cannot carry a `say`** (§12 G-D) | engine |
+| wave t=150 s | `radio` | Idit | "Something came down off the wall and it is walking to the hollow. They know where you would have parked." | **applied** (G12) | live |
 | wave t=260 s (2 `sarim_rifles` → `start_line`) | `toast` | system | `enemy reinforcements — 2 unit(s) inbound` | hard-coded | live |
 | wave t=380 s (1 `recoilless_team` → `start_line`) | `toast` | system | `enemy reinforcements — 1 unit(s) inbound` | hard-coded | live |
 | **T6** `zone_entered(valley_floor)` → `something_moves_behind_the_hollow` | `toast` | system | `enemy reacts (something_moves_behind_the_hollow)` | id renamed for prose (§11); trigger not yet authored | live |
@@ -262,6 +264,8 @@ Honest on a win and on a loss. Status **`live`**.
 
 ### 2.6 Trigger table
 
+**wave `say` live since 2026-09-06 (G12).**
+
 `"triggers": []`. Nothing new is needed — this mission's twist is text.
 
 | event | channel | speaker | line | overlay / audio | status |
@@ -274,7 +278,7 @@ Honest on a win and on a loss. Status **`live`**.
 | `objective(hold_approach, complete)` | `radio` | **net** | "Approach held. Start line is marked and the engineers are off the ground." | `objectives[].say`; the brigade net, flat, no name | live |
 | wave t=120 s (1 `sarim_rifles` → `saddle_wide`) | `toast` | system | `enemy reinforcements — 1 unit(s) inbound` | hard-coded | live |
 | wave t=210 s (1 `recoilless_team` → `saddle_wide`) | `toast` | system | `enemy reinforcements — 1 unit(s) inbound` | hard-coded | live |
-| wave t=210 s | `radio` | Idit | "Recoilless coming down to the wide saddle. He is not reinforcing the pocket — he is pricing the road behind you." | a wave cannot speak (§12 G-D) | engine |
+| wave t=210 s | `radio` | Idit | "Recoilless coming down to the wide saddle. He is not reinforcing the pocket — he is pricing the road behind you." | **applied** (G12) | live |
 | `SimEvent fire` from `tm_hvt_battery` onto the approach | `eva` | brigade net | "Incoming. Indirect." | shared set, §9 | engine |
 | `missionEnd(any)` | `debrief` | narrator | §2.5 above | | live |
 | `missionEnd(victory)` | `debrief` | Idit | "One eye off that ground and the rounds kept coming. That is the front, not a bad night." | applied | live |
@@ -444,6 +448,8 @@ Honest on a win and on a loss. Status **`live`**.
 
 ### 4.6 Trigger table
 
+**wave `say` live since 2026-09-06 (G12).**
+
 | event | channel | speaker | line | overlay / audio | status |
 |---|---|---|---|---|---|
 | mission start | `title` | system | `Umm Zeitoun I — Cold Ground` · *5 primary objectives* | | live |
@@ -467,7 +473,7 @@ Honest on a win and on a loss. Status **`live`**.
 | same trigger | `toast` | system | `taken (1)` ×3 | `removedNotice`, side 2; one line per body, by design | live |
 | same trigger | `radio` | **Idit** | "The wells are empty and nobody fought over them. They walked them north between the hills while we were looking at the hills." | `triggers[].say`; **T-U1**, and the enemy's act costs the player nothing on ROE — `stepRoe` only bills a `destroyed` whose `by` is a player unit | live |
 | wave t=150 s (1 `sarim_rifles` from `sarim_west` → `uz_wells`) | `toast` | system | `enemy reinforcements — 1 unit(s) inbound` | hard-coded | live |
-| wave t=150 s | `radio` | Idit | "One rifle section walking to the wells. He is not coming for you." | a wave cannot speak (§12 G-D) | engine |
+| wave t=150 s | `radio` | Idit | "One rifle section walking to the wells. He is not coming for you." | **applied** (G12) | live |
 | wave t=260 s (2 `sarim_rifles` from `sarim_north` → `lane_centre`) | `toast` | system | `enemy reinforcements — 2 unit(s) inbound` | hard-coded | live |
 | `SimEvent destroyed` on the `recon_drone` | `radio` | Idit | "Drone is gone. Whatever it had not looked at yet, we go and look at on foot, next week, with people." | **T-U3** — the ledger said out loud; needs a sim-watching trigger (§12 G-E) | engine |
 | `missionEnd(any)` | `debrief` | narrator | §4.5 above | | live |
@@ -533,6 +539,10 @@ Honest on a win and a loss. Status **`live`**.
 
 ### 5.5 Trigger table
 
+**wave `say` live since 2026-09-06 (G12) — except the t=180s wave, which stays
+`engine`: no proposed text exists for it anywhere (only "T-U4's companion" in
+`script.md`, with T-U4 itself belonging to the t=210s wave).**
+
 | event | channel | speaker | line | overlay / audio | status |
 |---|---|---|---|---|---|
 | mission start | `title` | system | `Umm Zeitoun II — The Long Look` · *2 primary objectives* | | live |
@@ -551,7 +561,7 @@ Honest on a win and a loss. Status **`live`**.
 | wave t=90 s (2 `sarim_rifles` from `sarim_west` → `knoll_stone`) | `toast` | system | `enemy reinforcements — 2 unit(s) inbound` | hard-coded | live |
 | wave t=180 s (1 `recoilless_team` → `rim_crest`) | `toast` | system | `enemy reinforcements — 1 unit(s) inbound` | hard-coded | live |
 | wave t=210 s (1 `loiter_drone` from `sarim_north` → `camp_ground`) | `toast` | system | `enemy reinforcements — 1 unit(s) inbound` | hard-coded | live |
-| wave t=210 s | `radio` | Shai | "Something small and low is going for the camp, not the line. Whatever is behind you is the thing you are building." | **T-U4**; a wave cannot speak (§12 G-D) | engine |
+| wave t=210 s | `radio` | Shai | "Something small and low is going for the camp, not the line. Whatever is behind you is the thing you are building." | **T-U4**; **applied** (G12) | live |
 | wave t=300 s (2 `sarim_rifles` from `sarim_east` → `crest_line`) | `toast` | system | `enemy reinforcements — 2 unit(s) inbound` | hard-coded | live |
 | `built` — a purchased `inf_squad` arrives | `toast` | system | `reinforcement deployed — inf_squad` | **prints a raw unit id.** Act I's **G-D**, still open; `render-vfx` | engine |
 | `SimEvent fire` from `uz_battery` onto `crest_line` | `eva` | brigade net | "Incoming. Indirect." | shared set, §9 | engine |
@@ -644,6 +654,8 @@ clinic route. Status **`live`**.
 
 ### 6.5 Trigger table
 
+**wave `say` live since 2026-09-06 (G12).**
+
 | event | channel | speaker | line | overlay / audio | status |
 |---|---|---|---|---|---|
 | mission start | `title` | system | `Umm Zeitoun III — Blinding` · *3 primary objectives* | | live |
@@ -671,7 +683,7 @@ clinic route. Status **`live`**.
 | wave t=120 s (2 `sarim_rifles` from `sarim_west` → `horn_west`) | `toast` | system | `enemy reinforcements — 2 unit(s) inbound` | hard-coded | live |
 | wave t=240 s (1 `recoilless_team` from `sarim_east` → `horn_east`) | `toast` | system | `enemy reinforcements — 1 unit(s) inbound` | hard-coded | live |
 | wave t=330 s (2 `sarim_rifles` from `sarim_north` → `hamlet_square`) | `toast` | system | `enemy reinforcements — 2 unit(s) inbound` | hard-coded | live |
-| wave t=330 s | `radio` | Idit | "He is putting rifles into the square while the families are still walking out of it." | a wave cannot speak (§12 G-D) | engine |
+| wave t=330 s | `radio` | Idit | "He is putting rifles into the square while the families are still walking out of it." | **applied** (G12) | live |
 | `missionEnd(any)` | `debrief` | narrator | §6.4 above | | live |
 | `missionEnd(victory)` | `debrief` | Shai | "Both horns down and four out of the block, and we took it with rifles because the rating is the equipment." | applied | live |
 | `missionEnd(defeat)` via `fail_below: 45` | `debrief` | Idit | "The rating went under forty-five inside the block. He did not have to be in it — he only had to be able to reach it." | applied | live |
@@ -793,6 +805,8 @@ does, and it does it in four words. Status **`live`**; owner `mission-author`.
 
 ### 7.7 Trigger table
 
+**wave `say` live since 2026-09-06 (G12).**
+
 | event | channel | speaker | line | overlay / audio | status |
 |---|---|---|---|---|---|
 | mission start | `title` | system | `Umm Zeitoun IV — The Stockpile` · *2 primary objectives* | | live |
@@ -820,7 +834,7 @@ does, and it does it in four words. Status **`live`**; owner `mission-author`.
 | a building levelled by a halted `demo_squad` | `toast` | system | **nothing that names it** | `stepDemolition` levels what it halts beside and no notice says which; `render-vfx` | engine |
 | wave t=150 s (2 `sarim_rifles` from `sarim_north` → `stockpile_yard`) | `toast` | system | `enemy reinforcements — 2 unit(s) inbound` | hard-coded | live |
 | wave t=260 s (1 `recoilless_team` + 1 `sarim_rifles` from `sarim_west` → `crest`) | `toast` | system | `enemy reinforcements — 2 unit(s) inbound` | hard-coded | live |
-| wave t=260 s | `radio` | Idit | "They are reinforcing the crest, not the depot. He is worth more to them than the rockets are." | a wave cannot speak (§12 G-D) | engine |
+| wave t=260 s | `radio` | Idit | "They are reinforcing the crest, not the depot. He is worth more to them than the rockets are." | **applied** (G12) | live |
 | wave t=360 s (1 `loiter_drone` → `stockpile_yard`) | `toast` | system | `enemy reinforcements — 1 unit(s) inbound` | hard-coded | live |
 | `SimEvent destroyed`, both `demo_squad` | `radio` | Shai | "That was the last party. Whatever is still standing at the deadline stays standing." | needs a sim-watching trigger (§12 G-E) | engine |
 | `missionEnd(any)` | `debrief` | narrator | §7.4 above | | live |
@@ -934,7 +948,7 @@ now, which is the difference between this table and Act I's.
 | **T-U1** | UZ I | *They were gone before you got there* | Idit | "The wells are empty and nobody fought over them. They walked them north between the hills while we were looking at the hills." | `timer_s(242)` → `remove`; landed 2026-09-03 | live |
 | **T-U2** | UZ I | *The fourth hill is not a hill.* The crest post decays back to unknown | Idit | "That is the crest post, and I have him for as long as something is looking at him. Nothing of ours can hold that from outside thirteen tiles." | none — `revealAt` is not exempt from decay. Needs **measuring**, not building | live |
 | **T-U3** | UZ I | *The drone is the mission.* Losing it costs nothing now and everything in III | Idit | "Drone is gone. Whatever it had not looked at yet, we go and look at on foot, next week, with people." | a trigger that can watch a `SimEvent` (§12 G-E) | engine |
-| **T-U4** | UZ II | *The camp is the target.* The loiter drone goes for `camp_ground` | Shai | "Something small and low is going for the camp, not the line. Whatever is behind you is the thing you are building." | a wave cannot speak (§12 G-D) | engine |
+| **T-U4** | UZ II | *The camp is the target.* The loiter drone goes for `camp_ground` | Shai | "Something small and low is going for the camp, not the line. Whatever is behind you is the thing you are building." | **applied** (G12) | live |
 | **T-U5** | UZ II | *He watched you dig it.* The post sees the line and not the bowl | Idit | briefing beat 3 — *"nothing up there can see what you are putting on it. What they can see is the line."* | none; it is text and it is applied | live |
 | **T-U6** | UZ II | *They come back for the hill.* The 300 s wave retakes the razed post's ground | — | **no line, deliberately** — `enemy reinforcements — 2 unit(s) inbound` while the player stands on the rubble is the whole beat | none | live |
 | **T-U7** | UZ II→III | *The eye you left alive.* The knoll observer survives II and is why the refugees are shelled in III | Idit | "The near one is in the shed on the stone knoll, four tiles from the wadi road. That is the eye that matters to the families, not to us." | none — a secondary in II, a secondary in III, and a `say` in I that plants it | live |
@@ -985,7 +999,7 @@ hard-coded prefix is correct on all nine rows. The tutorial's six friendly
 | **G-A** | **The rank is wrong for all four Umm Zeitoun missions, and it is measured.** `commanderForMission` was driven against the shipped `data/campaign/commander.json` and `world.json` this session: `tel_marum_1_recon` and `tel_marum_3_clearance` resolve **Major, 3 stars** (correct), and `umm_zeitoun_1_recon` and `umm_zeitoun_4_clearance` resolve **Lieutenant Colonel, 4 stars** — Shai is promoted **mid-act**, which D-level policy forbids. The cause is two data facts: the Major entry's `until_mission` is `tel_marum_3_clearance`, and `world.json`'s `umm_zeitoun` town carries `"missions": []`, so the ids fall through `missionPosition`'s prefix match to a town that sits *after* the Major boundary | `until_mission` → `umm_zeitoun_4_clearance`, **and** the four ids into `world.json`'s `umm_zeitoun.missions`. Both are one line; **either alone is not enough** | `mission-author` |
 | **G-B** | **`tel_marum_3_clearance` does not declare the recon it reads.** `requires` is `["roster.surviving_units"]` where `beit_sahwan_3_clearance` and `tel_marum_2_foothold` both declare `intel.marked_positions`. Verified in the design: `requires` is read by neither the runtime nor `campaign.ts`, so the fix cannot move a measurement — but Act II spends two missions building a picture and its clearance does not say it uses one, while `tm_bay_lip` sits in `ambush(4)` carrying the same tag mission I marks | add `intel.marked_positions` | `mission-author` |
 | **G-C** | **`debrief` is one string on every mission end**, where `aftermath` is victory-only, so a debrief cannot say different things for a win and a loss. Fifteen written lines in this sheet are `engine` for that reason and no other | `debrief_victory` / `debrief_defeat`, read off `missionEnd.result` in `showEndScreen` | `sim-guard` + `render-vfx`; `storyline.md` §7 **G11** |
-| **G-D** | **A wave cannot speak.** The wave item is `{at_seconds, trigger, to, units}` — `say` was added to triggers and objectives and not to waves. Reinforcements arriving is the most legible thing that happens in a mission and it is the one event with no voice. Six rows in this sheet are `engine` for it. The `timer_s` workaround costs a real order, because `do` is **required** | `say?: {speaker, text}` on the wave item, emitted with the existing `wave` event | `sim-guard`; design §7 **G12** |
+| **G-D** | ~~**A wave cannot speak.**~~ **CLOSED 2026-09-06 (G12).** `enemy.waves[].say` now exists (`{speaker, text}`, emitted with the existing `wave` `MissionEvent`), and all six proposed lines in this sheet are applied to `data/missions/`: `tel_marum_1_recon`@150s, `tel_marum_2_foothold`@210s, `umm_zeitoun_1_recon`@150s, `umm_zeitoun_2_buildup`@210s (T-U4), `umm_zeitoun_3_clearance`@330s, `umm_zeitoun_4_clearance`@260s. One residue: `umm_zeitoun_2_buildup`'s t=180s wave has no proposed text anywhere in this sheet or `script.md` (only "T-U4's companion", never stated) and stays unauthored rather than invented | done | `sim-guard` |
 | **G-E** | **A trigger cannot fire on a `SimEvent` or on an objective.** Every displacement in this act is on `casualties_pct` or a clock because there is no "the player entered the depot" or "the drone died" condition. Five `radio` rows here are `engine` for it | two `on.kind`s — `sim` (one of the 24 `SimEvent` kinds) and `objective`. The tutorial's `await` already gates on every `SimEvent`, so the predicate is reused | `sim-guard`; design §7 **G8** |
 | **G-F** | **An author cannot choose where an enemy round lands**, so T8's literal form is unbuildable. Recorded, not blocking: Umm Zeitoun III delivers the *meaning* by placement instead | out of scope | `sim-guard`; design §7 **G13** |
 | **G-G** | **A structure's destruction carries no authored consequence** (`COLLAPSE_SHOCK` is a tuning constant), so T-U11 is cut | `collapse_damage` / `collapse_radius` on a structure type | `sim-guard`; design §7 **G14** |
@@ -1060,32 +1074,43 @@ counted by script rather than by eye.
 
 **213 rows** carry one.
 
+**2026-09-06: six wave `radio` rows (trigger tables) plus T-U4's duplicate in
+the twist table — seven rows in all — moved `engine` → `live` (G12), now that
+`enemy.waves[].say` exists. The counts below are updated for that move; nothing
+else in this table changed.**
+
 | status | rows | what they are |
 |---|---|---|
-| `live` | **160** (was 147) | `toast` 67 · `radio`, i.e. a `say` on a trigger or an objective, 39 · `title` 7 · `brief` 7 · `debrief` 20 · twist rows 15 · `dispatch` 1 · `aftermath` 1 · `roe` 1 · two rows that record a **deliberate silence** (the pockets that get no `say`; the `survive_until` that cannot fail) |
+| `live` | **167** (was 160) | `toast` 67 · `radio`, i.e. a `say` on a trigger, an objective or a wave, 45 · `title` 7 · `brief` 7 · `debrief` 20 · twist rows 16 · `dispatch` 1 · `aftermath` 1 · `roe` 1 · two rows that record a **deliberate silence** (the pockets that get no `say`; the `survive_until` that cannot fail) |
 | `schema` | **0** | none. Every field this act needs exists |
-| `engine` | **53** (was 66) | ambient lore 25 (`radio` 24, `toast` 1) · paired win/lose `debrief` 2 · `radio` 11 · `eva` 6 · `toast` 5 · twist rows 4 |
+| `engine` | **46** (was 53) | ambient lore 25 (`radio` 24, `toast` 1) · paired win/lose `debrief` 2 · `radio` 5 · `eva` 6 · `toast` 5 · twist rows 3 |
 
-**53 `engine` rows.** The **`debrief` that can tell a win from a loss** blocker
-(§12 G-C) is closed — the field now carries `victory`/`defeat` separately, and
-13 of this sheet's 15 paired rows are applied to `data/missions/` and flipped to
-`live` above (all six Tel Marum rows and six of Umm Zeitoun's eight). The two
-that stay `engine` are not blocked on the field either: `umm_zeitoun_4_clearance`
-authored **two** lines for the same victory outcome — Idit's close and Shai's
-act-boundary promotion — and `debrief.victory` holds exactly one `say`. Picking
-one would silently drop the other's content; recorded at the row, not resolved
-here. What remains is blocked on three things: a **radio overlay with
-portraits** (`render-vfx`), a **voice layer** (GH-110, and the audio gate widens
-first), and **trigger conditions over waves and `SimEvent`s** so a line can be
-bound to a drone dying or reinforcements landing rather than to a clock (§12 G-D
-6 rows, G-E 5 rows). Every one of the 25 ambient rows is `engine` for the second
-and third reasons together: they have no event to fire on and no surface to fire
-into.
+**46 `engine` rows, down from 53 after G12.** The **`debrief` that can tell a
+win from a loss** blocker (§12 G-C) is closed — the field now carries
+`victory`/`defeat` separately, and 13 of this sheet's 15 paired rows are applied
+to `data/missions/` and flipped to `live` above (all six Tel Marum rows and six
+of Umm Zeitoun's eight). The two that stay `engine` are not blocked on the field
+either: `umm_zeitoun_4_clearance` authored **two** lines for the same victory
+outcome — Idit's close and Shai's act-boundary promotion — and
+`debrief.victory` holds exactly one `say`. Picking one would silently drop the
+other's content; recorded at the row, not resolved here. **The wave-cannot-speak
+blocker (§12 G-D, 6 rows) is closed too** — the remaining 5 `radio`-channel
+`engine` rows are all G-E (a trigger cannot fire on a `SimEvent` or an
+objective), plus one residue named at G-D itself:
+`umm_zeitoun_2_buildup`'s t=180s wave has a "companion" mentioned in `script.md`
+but no text anywhere, so it stays unauthored rather than invented. What remains
+is blocked on three things now: a **radio overlay with portraits** (`render-vfx`),
+a **voice layer** (GH-110, and the audio gate widens first), and **trigger
+conditions over `SimEvent`s** so a line can be bound to a drone dying rather
+than to a clock (§12 G-E, 5 rows). Every one of the 25 ambient rows is `engine`
+for the first and third reasons together: they have no event to fire on and no
+surface to fire into.
 
-**25 %** of the writing in this act still reaches nobody, down from 31 % before
-the `debrief` split. In Act I the figure is now 44 %, and the whole difference
-is the engine slice of 2026-09-03 — the `say` lines that were the largest
-`engine` block in Beit Sahwan are the largest `live` block here.
+**22 %** of the writing in this act still reaches nobody, down from 25 % before
+G12 and 31 % before the `debrief` split. In Act I the figure is now 40 %, and
+the whole difference is the engine slice of 2026-09-03 and 2026-09-06 — the
+`say` lines that were the largest `engine` block in Beit Sahwan are the largest
+`live` block here.
 
 **What is applied to `data/missions/` this pass: nothing.** The three shipped Tel
 Marum missions were read, their briefings beat-checked with a port of

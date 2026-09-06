@@ -273,7 +273,8 @@
             "count": 3,
             "from": "rif_south"
           }
-        ]
+        ],
+        "say": { "speaker": "idit", "text": "Escalating each time and always at the gate. Four minutes of this and then they stop counting and start arriving." }
       },
       {
         "at_seconds": 220,

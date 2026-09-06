@@ -210,7 +210,8 @@
       {
         "at_seconds": 330,
         "to": "hamlet_square",
-        "units": [{ "unit": "sarim_rifles", "count": 2, "from": "sarim_north" }]
+        "units": [{ "unit": "sarim_rifles", "count": 2, "from": "sarim_north" }],
+        "say": { "speaker": "idit", "text": "He is putting rifles into the square while the families are still walking out of it." }
       }
     ]
   },

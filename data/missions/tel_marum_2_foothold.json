@@ -150,7 +150,8 @@
       {
         "at_seconds": 210,
         "to": "saddle_wide",
-        "units": [{ "unit": "recoilless_team", "count": 1, "from": "town_edge" }]
+        "units": [{ "unit": "recoilless_team", "count": 1, "from": "town_edge" }],
+        "say": { "speaker": "idit", "text": "Recoilless coming down to the wide saddle. He is not reinforcing the pocket — he is pricing the road behind you." }
       }
     ]
   },
