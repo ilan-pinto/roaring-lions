@@ -32,8 +32,10 @@
     { "unit": "at_team", "count": 1, "at": [27, 44], "from_ledger": true },
     { "unit": "apc_eitan", "count": 2, "at": [22, 45] },
     { "unit": "mbt_lavi", "count": 1, "at": [26, 45] },
-    { "unit": "mortar_team", "count": 1, "at": [24, 46] }
+    { "unit": "mortar_team", "count": 1, "at": [24, 46] },
+    { "unit": "demo_squad", "count": 1, "at": [21, 44] }
   ],
+  "structures": [{ "type": "shanty", "at": [22, 27], "size": [2, 2] }],
   "objectives": [
     {
       "id": "hold_approach",
@@ -56,6 +58,22 @@
       "say": {
         "speaker": "shai",
         "text": "Eyes off that lip. Count the next thirty seconds — anything that still lands is being called by somebody else."
+      }
+    },
+    {
+      "id": "burn_the_ammo_point",
+      "type": "raze",
+      "primary": true,
+      "target": "ammo_draw",
+      "seconds": 300,
+      "text": "Burn the ammunition cache in the draw below the wall",
+      "say": {
+        "speaker": "idit",
+        "text": "That cache was feeding the pockets on the wall. They fight on what is left in their pouches now."
+      },
+      "say_on_fail": {
+        "speaker": "shai",
+        "text": "The cache is still standing and so is everything it was feeding. We bought them another night of fire."
       }
     }
   ],
@@ -108,6 +126,14 @@
         "at": [25.5, 6.5],
         "facing_deg": 180,
         "tag": "tm_hvt_battery"
+      },
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [22.5, 26.5],
+        "facing_deg": 180,
+        "tag": "tm_ammo_guard",
+        "stance": { "kind": "hold_position" }
       }
     ],
     "waves": [

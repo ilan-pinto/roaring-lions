@@ -822,30 +822,20 @@ run('beit_sahwan_4_subterranean', (sim, _rt, ids, at) => {
 // round-1 exploit: this control cannot WIN, which is a real assertion --
 // round 1's untargeted `picture` could be won by a passive player for free.
 //
-// It still cannot LOSE either, and BOUNDED FALLBACK authorised: this was
-// tried honestly before falling back. Wiping this mission's starting force
-// (Eitan APC 1600 hp/220 front armour, Spike AT team, three rifle squads,
-// jeep_shoded) takes real volume -- both AT-capable types in this garrison
-// are ground-only (`can_target: ["ground"]`), so a wave built from them
-// alone can kill every crewed unit and still never touch `recon_drone`
-// (air): confirmed directly, an all-AT-team wave series left the drone the
-// sole survivor, unkillable, for the rest of the 20 minutes, so every wave
-// below needs a sarim_rifles (the garrison's only air-capable weapon)
-// alongside the anti-armour pair. With that fixed, volume is what's left to
-// tune, and it does not scale gently: 6 waves of 4 (24 attackers, every 90s
-// to 600s) leaves ONE player unit alive and unreachable for the rest of the
-// cap; 7 waves of 4 (28 attackers, to 690s) wipes the defenders cleanly at
-// 742.6s (12.4 min). There is no gradual middle -- below the threshold the
-// mission gets permanently stuck, not gracefully close. 28 attackers in
-// sustained pursuit for 10+ minutes is a stand-up battle, not a pursuit
-// response to a recon patrol that "brings back the picture, not
-// casualties" -- so per the bounded fallback, the light 3-wave/4-unit
-// pursuit below ships instead (thematically real, and harmless to the
-// scripted run, which resolves at 0.9 min, before the first wave even
-// spawns at 150s), and the control's expectation stays `ongoing`: unable to
-// WIN (closed exploit, verified) and, at a volume this mission can still
-// call a recon, unable to LOSE either.
-run('tel_marum_1_recon', () => {}, {}, 'ongoing', 'tel_marum_1_recon (passive control)');
+// It used to be that this control could not LOSE either, on the reasoning
+// that wiping the starting force takes more wave volume than a "bring back
+// the picture, not casualties" recon should carry -- see git history for
+// the retired bounded-fallback measurement (6-vs-7-wave wipe thresholds).
+// That reasoning no longer applies: per
+// `docs/campaign/tel_marum/script-losable.md` (design decision O-C), this
+// mission now carries `clear_the_valley_floor`, an `evacuate_before`
+// primary with its own 300s deadline (herders placed on the valley floor,
+// at [21,24]), so a passive player loses on that clock regardless of wave
+// volume -- `checkEnd` fails the mission the instant the count never
+// reaches 2 by t=300s. Measured (this session): DEFEAT at 5.00 min. See
+// that document's §1/§2 for the new primary's shape and the shipped plan's
+// unchanged victory.
+run('tel_marum_1_recon', () => {}, {}, 'defeat', 'tel_marum_1_recon (passive control)');
 
 run(
   'tel_marum_1_recon',
@@ -899,19 +889,19 @@ run(
 // mission II's own briefing, which already carries this caveat).
 //
 // Control: a player who gives no orders never enters the approach, so
-// hold_for never starts and kill_spotter never fires. Neither primary can
-// go to 'failed', though: `hold_for` and `eliminate_hvt` are not among the
-// three objective types `checkEnd` can ever fail (only `raze`, `collapse`,
-// both seconds-gated, and `evacuate_before` can -- mission.ts:1361/1372/1423),
-// and `checkEnd` (mission.ts:1434+) otherwise loses only on a wipe or an ROE
-// collapse. The passive force sits at [24,44], 38 tiles from the battery
-// (out of its 20-tile reach) behind a standoff garrison that will not come
-// to it, so it is never wiped either. Observed, not assumed: this control
-// stays ONGOING for the full 20-minute cap, exactly as Task 2's did.
-// Unlike mission I's control, no wave-volume wipe was attempted for this
-// mission -- the 'ongoing' ruling here is inherited from I's method, not
-// backed by its own 24-stall/28-wipe-style measurement.
-run('tel_marum_2_foothold', () => {}, {}, 'ongoing', 'tel_marum_2_foothold (passive control)');
+// hold_for never starts and kill_spotter never fires, and `hold_for`/
+// `eliminate_hvt` are still not among the three objective types `checkEnd`
+// can ever fail on their own (only `raze`, `collapse`, both seconds-gated,
+// and `evacuate_before` -- mission.ts:1361/1372/1423). But per
+// `docs/campaign/tel_marum/script-losable.md` (design decision O-C), this
+// mission now also carries `burn_the_ammo_point`, a `raze` primary with its
+// own 300s deadline against a mission-raised `shanty` in the new
+// `ammo_draw` zone -- a passive player never orders a demolition (the
+// structure cannot be destroyed by ordinary weapon fire; see that
+// document's Mission II write-up), so it stands at 300s and the primary
+// fails. `checkEnd` returns DEFEAT on that clock regardless of the
+// hold/HVT pair. Measured (this session): DEFEAT at 5.00 min.
+run('tel_marum_2_foothold', () => {}, {}, 'defeat', 'tel_marum_2_foothold (passive control)');
 
 run(
   'tel_marum_2_foothold',
@@ -921,6 +911,7 @@ run(
     const foot = ids('inf_squad');
     const at_ = ids('at_team');
     const mortar = ids('mortar_team');
+    const demo = ids('demo_squad');
     at(3, () => {
       // Into the southern edge of the approach zone — inside it for the hold,
       // furthest from the battery.
@@ -930,6 +921,11 @@ run(
       // Mortar stays in the hollow: 18 tiles of reach covers the bay lip from
       // ground the Grad cannot touch.
       sim.queueCommand({ kind: 'move', ids: mortar, ...M(24, 29) });
+      // The demo squad moves on the ammo cache in the draw. Within 2 tiles
+      // of the shanty's footprint it self-targets and burns it with no
+      // explicit `demolish` order needed (`stepDemolition`'s automatic
+      // branch, sim.ts:4335) -- script-losable.md §1/§2.
+      sim.queueCommand({ kind: 'move', ids: demo, ...M(23, 28) });
     });
     at(20, () => {
       // Infantry up the west side toward the pocket.
@@ -962,19 +958,18 @@ run(
 // tile of the wide saddle is inside the Grad's reach and being seen there is
 // what makes it lethal rather than merely defended.
 //
-// Control: primaries are `capture` (take_pass) and `eliminate_hvt`
-// (kill_battery), and neither is among the three objective types `checkEnd`
-// can ever fail (only `raze`, `collapse`, both seconds-gated, and
-// `evacuate_before` -- mission.ts:1361/1372/1423), so a passive run cannot
-// lose on an objective going 'failed'. checkEnd otherwise loses only on a
-// wipe or an ROE collapse. The passive force sits at [24,44], 38 tiles from
-// the battery (out of its 20-tile reach) behind a standoff garrison that will
-// not come to it, so it is never wiped either. Observed, not assumed: this
-// control stays ONGOING for the full 20-minute cap, exactly as Task 2's did.
-// As with II, no wave-volume wipe was attempted for this mission -- the
-// 'ongoing' ruling is inherited from I's method, not backed by its own
-// 24-stall/28-wipe-style measurement.
-run('tel_marum_3_clearance', () => {}, {}, 'ongoing', 'tel_marum_3_clearance (passive control)');
+// Control: primaries `capture` (take_pass) and `eliminate_hvt`
+// (kill_battery) are still not among the three objective types `checkEnd`
+// can ever fail on their own (only `raze`, `collapse`, both seconds-gated,
+// and `evacuate_before` -- mission.ts:1361/1372/1423). But per
+// `docs/campaign/tel_marum/script-losable.md` (design decision O-C), this
+// mission now also carries `get_the_block_out`, an `evacuate_before`
+// primary reusing the `approach` zone/marker with its own 300s deadline
+// (three families placed east of `town_block` at [27.5,5.5]) -- a passive
+// player never shepherds them, so the count never reaches 2 by t=300s and
+// `checkEnd` returns DEFEAT on that clock regardless of the pass/HVT pair.
+// Measured (this session): DEFEAT at 5.00 min.
+run('tel_marum_3_clearance', () => {}, {}, 'defeat', 'tel_marum_3_clearance (passive control)');
 
 // Captured (not part of the shipped Tel Marum patch) so Umm Zeitoun -- the
 // next town in the same region -- can thread the ledger the way the app

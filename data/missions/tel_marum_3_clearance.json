@@ -36,6 +36,10 @@
     { "unit": "mortar_team", "count": 1, "at": [24, 46] },
     { "unit": "recon_drone", "count": 1, "at": [22, 43] }
   ],
+  "civilians": {
+    "refuge": "approach",
+    "groups": [{ "unit": "civilians", "count": 3, "at": [27.5, 5.5] }]
+  },
   "objectives": [
     {
       "id": "take_pass",
@@ -58,6 +62,23 @@
       "say": {
         "speaker": "idit",
         "text": "The tube is down and the north can sleep tonight. Whoever was telling it where to fire has not been on this ground once — the file calls him LANTERN."
+      }
+    },
+    {
+      "id": "get_the_block_out",
+      "type": "evacuate_before",
+      "primary": true,
+      "target": "approach",
+      "count": 2,
+      "seconds": 300,
+      "text": "Get three families out of the town block before the fighting reaches it",
+      "say": {
+        "speaker": "net",
+        "text": "Block is clear. Three families in the approach and out of the line of it."
+      },
+      "say_on_fail": {
+        "speaker": "idit",
+        "text": "The block came down around people who were still inside it. LANTERN's gun was never the only thing we were fighting there."
       }
     }
   ],

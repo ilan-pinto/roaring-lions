@@ -570,6 +570,12 @@ Ordered by how much of the storyline each blocks.
 
 > **Status 2026-09-03 (later):** Act II shipped on the engine slice below — see D14.
 >
+> **Status 2026-09-06:** G11 landed — `debrief` is `{ victory, defeat }` of `say` lines and the end
+> screen shows the speaker's face and plate for the result it got; the three sheets' paired
+> lines are applied across all eighteen missions. G18 landed — an `enemy` line paints the
+> front's villain, still unnamed (`commander.json` `villains` by region). Act II's O-C (Tel
+> Marum stuck-not-lost) is in flight as `docs/campaign/tel_marum/script-losable.md`.
+>
 > **Status 2026-09-03 (evening):** G1 (`say`, as a `MissionEvent` into the notice
 > feed and the commander bar), G2 (`data/campaign/commander.json`, rank per
 > mission), G3 (`dispatch`, `aftermath`, `debrief`) and G7's `remove` verb with

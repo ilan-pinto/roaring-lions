@@ -36,6 +36,10 @@
     { "unit": "at_team", "count": 1, "at": [27, 44], "from_ledger": true },
     { "unit": "apc_eitan", "count": 1, "at": [22, 45] }
   ],
+  "civilians": {
+    "refuge": "start_line",
+    "groups": [{ "unit": "civilians", "count": 3, "at": [21, 24] }]
+  },
   "objectives": [
     {
       "id": "find_pocket_east",
@@ -79,6 +83,23 @@
       "primary": false,
       "seconds": 240,
       "text": "Stay in the field for four minutes"
+    },
+    {
+      "id": "clear_the_valley_floor",
+      "type": "evacuate_before",
+      "primary": true,
+      "target": "muster_ground",
+      "count": 2,
+      "seconds": 300,
+      "text": "Get the herders off the valley floor before the battery finds the range",
+      "say": {
+        "speaker": "net",
+        "text": "Herders are off the floor. Whatever the battery ranges onto tonight, it will not be them."
+      },
+      "say_on_fail": {
+        "speaker": "shai",
+        "text": "The battery walked its fire onto the floor before the herders were clear of it. That ground was never ours to spend."
+      }
     }
   ],
   "roe": {
