@@ -103,6 +103,20 @@
       "height_px": 16,
       "color": "limestone.1",
       "roe_penalty": 6
+    },
+    "fence": {
+      "id": "fence",
+      "name": "Fence",
+      "symbol": "f",
+      "hp_per_tile": 60,
+      "garrison_slots": 0,
+      "rubble_cover": 0,
+      "height_px": 7,
+      "color": "gunmetal.1",
+      "roe_penalty": 0,
+      "per_tile": true,
+      "low_profile": true,
+      "standing_cover": 1
     }
   }
 }

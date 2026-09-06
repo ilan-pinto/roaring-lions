@@ -80,8 +80,15 @@ describe('texturedBuildingMaterial', () => {
 });
 
 describe('the textured opt-out is a named list', () => {
-  it('covers exactly the five supplied Meshy buildings', () => {
-    expect([...TEXTURED_BUILDING_TYPES].sort()).toEqual(['apartment', 'clinic', 'hall', 'house', 'warehouse']);
+  it('covers exactly the six supplied Meshy buildings', () => {
+    expect([...TEXTURED_BUILDING_TYPES].sort()).toEqual([
+      'apartment',
+      'clinic',
+      'fence',
+      'hall',
+      'house',
+      'warehouse',
+    ]);
   });
 
   // Drift between the two sides is the failure this exists to stop: adding a

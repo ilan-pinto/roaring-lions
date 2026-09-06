@@ -154,6 +154,12 @@ const WALL_SURFACE: Record<string, WallSurface> = {
   shanty: 'flat',
   warehouse: 'flat',
   camp: 'flat',
+  // Also textured (see `clinic`'s own comment above -- the same "required
+  // even though never drawn" reasoning applies), and 'flat' is the honest
+  // answer regardless: chain-link on steel posts is neither coursed masonry
+  // nor poured, board-formed concrete -- coursing it would be a lie about
+  // what it is, exactly `shanty`/`warehouse`/`camp`'s own reasoning.
+  fence: 'flat',
 };
 
 /** The `WallSurface` for a `data/structures.json` type id. Throws for an

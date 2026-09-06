@@ -104,6 +104,7 @@ export const TEXTURED_BUILDING_TYPES: ReadonlySet<string> = new Set([
   'warehouse',
   'clinic',
   'hall',
+  'fence',
 ]);
 
 /**
