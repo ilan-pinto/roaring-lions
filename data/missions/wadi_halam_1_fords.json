@@ -6,7 +6,12 @@
   "target_minutes": 6,
   "briefing": "Naharin opens at the wadi. Two fords cross it, and the Rif who work this corridor disperse the moment they are seen — so the job tonight is to see them first. Push a screen across the tree line, build the picture, and hold the ford watch for four minutes while the column crosses behind you — riders will keep coming at the crossing out of the east the whole time you sit on it. Four of them are carrying for him at the south ford tonight and cannot get off it on their own. Do not chase what runs.",
   "dispatch": "The corridor into Naharin has carried somebody else's war for four years, and the people who live on it carry it by hand. One hamlet stopped hauling for Jubran Hallaq last spring. Nobody on that road has stopped since.",
-  "debrief": "The fords are the only two crossings in forty tiles. Whatever happened tonight, the corridor still runs through them.",
+  "debrief": {
+    "victory": {
+      "speaker": "shai",
+      "text": "The fords are the only two crossings in forty tiles. Whatever happened tonight, the corridor still runs through them."
+    }
+  },
   "map": {
     "file": "wadi_halam_basin",
     "player_start": [

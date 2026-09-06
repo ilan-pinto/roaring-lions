@@ -4,7 +4,12 @@
   "town": "beit_sahwan",
   "phase": "recon",
   "target_minutes": 7,
-  "debrief": "That is the district on a board for the first time. Everything after this is us choosing where to go into it.",
+  "debrief": {
+    "victory": {
+      "speaker": "shai",
+      "text": "That is the district on a board for the first time. Everything after this is us choosing where to go into it."
+    }
+  },
   "briefing": "Before anything moves on Beit Sahwan, Idit needs the picture: six garrison positions, and the ATGM cell that overlooks the east road. An identification takes eyes held on a position, not a glance. The battalion has attached one of everything it owns \u2014 armor, an IFV, mortars, scouts and a drone \u2014 so use this approach to learn your tools. Push the drone east, keep the heavy metal back as a screen, and do not get decisively engaged. The mortar does not care who is under it. What you find and who you bring home is what the brigade fights with next week.",
   "map": {
     "file": "beit_sahwan_outskirts",

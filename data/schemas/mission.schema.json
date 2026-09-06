@@ -88,9 +88,19 @@
       "description": "Story voice: appended to the victory banner."
     },
     "debrief": {
-      "type": "string",
-      "maxLength": 240,
-      "description": "Story voice: shown on the end screen, above the rating."
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Story voice: shown on the end screen, above the rating -- outcome-aware since G11, because a win and a loss are not the same beat and the campaign's paired Shai/Idit lines need somewhere to land. `victory` fires on a victory ending, `defeat` on a defeat ending; either or both may be absent, and an absent variant shows nothing rather than falling back to the other one.",
+      "properties": {
+        "victory": {
+          "$ref": "#/$defs/say",
+          "description": "Shown on the end screen when the mission is won."
+        },
+        "defeat": {
+          "$ref": "#/$defs/say",
+          "description": "Shown on the end screen when the mission is lost."
+        }
+      }
     },
     "map": {
       "type": "object",

@@ -6,7 +6,12 @@
   "target_minutes": 7,
   "briefing": "Seven structures inside Hallaq's depot, one unarmed bulldozer, and a choice of route. Mind which one you take. The straight line east runs through the village, and a D9 levels whatever it halts beside — the houses will come down one at a time with nobody ordering it, and each one is judged. The mosque is not a target at any price. The road south of the village costs you a little time and nothing else. The D9 cannot defend itself and it is the slowest thing on the map — escort it, do not race it. An RPG team holds the gate gap and three gun trucks sit inside the wire; a second RPG team is dug in dead centre of the depot. The gun trucks cannot scratch the D9's armour, but either RPG team will put a rocket straight through its blade if it works unescorted. Motorcycles are staged to the east and will come down on the column the moment you push that way, and more will keep arriving from the east and south the whole time the charges are going in. Levelling the depot is not the end of it — the Rif want the ground back, and the column has to hold the rubble for four minutes against everything still coming. Raze the depot, kill or capture whoever is holding the gate, hold what is left, and keep the column intact.",
   "aftermath": "The corridor is cut. Brigade signed the file at first light, the same hour of the same day it started. They are giving you the Ari'im — all of it, not a company in a yard. Idit brings the callsign down herself: Ari Actual. Five stars.",
-  "debrief": "Nineteen points of this depot is the order itself. Whatever the number below says, part of it was decided before the column moved.",
+  "debrief": {
+    "victory": {
+      "speaker": "shai",
+      "text": "Nineteen points of this depot is the order itself. Whatever the number below says, part of it was decided before the column moved."
+    }
+  },
   "map": {
     "file": "wadi_halam_basin",
     "player_start": [

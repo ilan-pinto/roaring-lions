@@ -6,7 +6,12 @@
   "target_minutes": 7,
   "briefing": "The depot is three buildings on the northern shelf, seven and a half thousand between them, and there is an eye on the spur beside it that sees the yard at five tiles. What that eye sees, the tube shells. Bring all of it down inside five minutes. There is no dozer in Sur — that is two demolition parties, five seconds of charges at a time, standing still within two tiles of what they are dropping. The man every post in this basin has been reporting to is on the crest, sixteen tiles the other way. Idit has had his voice for two towns and never once his ground. You cannot do both of those slowly. Buy a third party with the logistics if you want the depot and the crest inside the same seven minutes. Four porters are on the depot ground and the shelf behind it is five tiles from them. Charges do not care who is beside the wall: set one within two tiles of them and you are billed for it, and the party will level whatever else it halts beside.",
   "aftermath": "Nothing fell on the north that morning, or the one after it. They took Adhal off the crest with the whole basin still in front of him. Brigade put a fourth star on the slip. The tubes came up a road, and the road is not in Sur.",
-  "debrief": "Nothing in Sur comes down by driving at it. Five seconds at a time, standing still, with the hill watching.",
+  "debrief": {
+    "victory": {
+      "speaker": "shai",
+      "text": "Nothing in Sur comes down by driving at it. Five seconds at a time, standing still, with the hill watching."
+    }
+  },
   "map": {
     "file": "umm_zeitoun",
     "player_start": [24, 45]

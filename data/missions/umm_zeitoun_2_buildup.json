@@ -5,7 +5,12 @@
   "phase": "buildup",
   "target_minutes": 7,
   "briefing": "Sur has more than one tube: this one is south of the basin, and from there it reaches the crest line at twelve tiles. Idit has an observer marked on the stone knoll, eight tiles off that same ground. Hold the crest line for four minutes while the engineers work behind you. It is the highest ground on this half of the basin and the one piece of it he can both see and shell. The camp ground in the bowl is dead to every position on this map — nothing up there can see what you are putting on it. What they can see is the line. Supply is coming forward and the corridor behind it is open, so spend it as it arrives. Level the post above the knoll inside five minutes, with charges or with fire while the observer is still inside the shed. Break a third of what is in front of you and the tube pulls north, out of reach of the line entirely. Everything you buy to make that happen is not standing on the crest while it happens.",
-  "debrief": "Nobody replaces an observer on a heap of blocks. They replace him on the next hill.",
+  "debrief": {
+    "victory": {
+      "speaker": "shai",
+      "text": "Nobody replaces an observer on a heap of blocks. They replace him on the next hill."
+    }
+  },
   "map": {
     "file": "umm_zeitoun",
     "player_start": [24, 45]

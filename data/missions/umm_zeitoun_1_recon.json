@@ -5,7 +5,12 @@
   "phase": "recon",
   "target_minutes": 6,
   "briefing": "Umm Zeitoun is a basin: no wall across it, no gate to force, crossable anywhere on its width. Idit counts four hills over the floor and each one sees a different piece of it. Identify all four posts before the brigade puts anything on this ground. Push the drone up the middle and take the cheap looks first. Two missile teams cover the northern half, air only, out to thirteen tiles. The crest cannot be identified from outside that envelope, so the drone buys you the near hills for nothing and that one for its life. Three families are at the wells on the west flank, nine tiles from the wadi on foot. You have four minutes before somebody else moves them. The jeep is the only thing you have that can screen the drone and the only thing that can carry a family off that flank. It will not do both.",
-  "debrief": "Four hills, and a drone that can only pay for some of them. That is the whole of Sur in one night.",
+  "debrief": {
+    "victory": {
+      "speaker": "shai",
+      "text": "Four hills, and a drone that can only pay for some of them. That is the whole of Sur in one night."
+    }
+  },
   "map": {
     "file": "umm_zeitoun",
     "player_start": [24, 45]

@@ -5,7 +5,12 @@
   "phase": "clearance",
   "target_minutes": 7,
   "briefing": "Both horns sit eighteen tiles from the crest and they are not the same job: the western is scree, and nothing on wheels or tracks gets up it. The eastern is a bare glacis with a Kornet team lying on it at ten tiles. Kill both posts. You have one force, it will not take the western horn in vehicles, and you decide which half of it walks before anything moves. Six families are in the hamlet on the floor between them, eleven tiles from the wadi. Nobody inside that block can see out of it and nothing outside it can see in — the houses do that in both directions. Get four of them to the wadi inside five minutes. The block is flagged: rifles, the remote gun and the sniper's rifle work in there, and autocannon, tank fire or anything from the tubes is billed against a floor of forty-five. His battery is west of the basin and reaches neither the hamlet nor the road out of it from there. Press him off that ground and it goes south, and the eye on the stone knoll can hand it both. You will not be billed for a rocket he fires. You will lose this all the same if four of them do not reach the wadi.",
-  "debrief": "A block like that is blind in both directions. That is not an accident and it is not geology.",
+  "debrief": {
+    "victory": {
+      "speaker": "shai",
+      "text": "A block like that is blind in both directions. That is not an accident and it is not geology."
+    }
+  },
   "map": {
     "file": "umm_zeitoun",
     "player_start": [24, 45]

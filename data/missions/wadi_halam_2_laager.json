@@ -5,7 +5,12 @@
   "phase": "foothold",
   "target_minutes": 7,
   "briefing": "Push through to the pasture and dig in while the engineers lay the crossing behind you. The ground is terraced — bunds run across the pasture in bands, real cover if you hold it, and the Rif know the ground as well as you do. Technicals and motorcycles will come at the pump house from every direction in waves. Accumulate five minutes of uncontested pasture and the corridor is yours. There is a shed on the pasture's western edge and it is his forward store — it comes down inside the same five minutes.",
-  "debrief": "A laager is a place that can be found. That is the trade — they know where you are, and you know they are coming.",
+  "debrief": {
+    "victory": {
+      "speaker": "shai",
+      "text": "A laager is a place that can be found. That is the trade — they know where you are, and you know they are coming."
+    }
+  },
   "map": {
     "file": "wadi_halam_basin",
     "player_start": [

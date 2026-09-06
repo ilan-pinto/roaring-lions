@@ -79,11 +79,11 @@ describe('the 240-character story-voice limit', () => {
   const LONG = 'x'.repeat(241);
   const OK = 'x'.repeat(240);
 
-  it('passes short dispatch/aftermath/debrief and short say text', () => {
+  it('passes short dispatch/aftermath and a short victory+defeat debrief and short say text', () => {
     const m = {
       dispatch: OK,
       aftermath: OK,
-      debrief: OK,
+      debrief: { victory: { speaker: 'shai', text: OK }, defeat: { speaker: 'idit', text: OK } },
       triggers: [{ id: 't1', on: { kind: 'timer_s', value: 1 }, do: { kind: 'spawn' }, say: { speaker: 'shai', text: OK } }],
       objectives: [{ id: 'o1', type: 'destroy_all', primary: true, say: { speaker: 'idit', text: OK }, say_on_fail: { speaker: 'net', text: OK } }],
     };
@@ -97,11 +97,43 @@ describe('the 240-character story-voice limit', () => {
     expect(out[0]).toContain('241 characters');
   });
 
-  it('rejects an over-length aftermath and debrief independently', () => {
-    const out = narrativeTextFailures({ aftermath: LONG, debrief: LONG }, 'm.json');
-    expect(out).toHaveLength(2);
-    expect(out.some((f) => f.includes('aftermath'))).toBe(true);
-    expect(out.some((f) => f.includes('debrief'))).toBe(true);
+  it('rejects an over-length aftermath', () => {
+    const out = narrativeTextFailures({ aftermath: LONG }, 'm.json');
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain('aftermath');
+  });
+
+  describe('debrief.victory / debrief.defeat (G11)', () => {
+    it('passes a mission with only one variant declared', () => {
+      const m = { debrief: { victory: { speaker: 'shai', text: OK } } };
+      expect(narrativeTextFailures(m, 'm.json')).toEqual([]);
+    });
+
+    it('passes a mission with no debrief at all', () => {
+      expect(narrativeTextFailures({}, 'm.json')).toEqual([]);
+    });
+
+    it('rejects an over-length victory and defeat text independently', () => {
+      const m = { debrief: { victory: { speaker: 'shai', text: LONG }, defeat: { speaker: 'idit', text: LONG } } };
+      const out = narrativeTextFailures(m, 'm.json');
+      expect(out).toHaveLength(2);
+      expect(out.some((f) => f.includes('debrief.victory.text'))).toBe(true);
+      expect(out.some((f) => f.includes('debrief.defeat.text'))).toBe(true);
+    });
+
+    it('rejects an illegal speaker on either variant, independently', () => {
+      const m = {
+        debrief: {
+          victory: { speaker: 'commander', text: OK },
+          defeat: { speaker: 'idit', text: OK },
+        },
+      };
+      const out = narrativeTextFailures(m, 'm.json');
+      expect(out).toHaveLength(1);
+      expect(out[0]).toContain('debrief.victory.speaker');
+      expect(out[0]).toContain('"commander"');
+      expect(out[0]).toContain('shai/idit/net/enemy');
+    });
   });
 
   it('rejects an over-length trigger say.text, naming the trigger', () => {

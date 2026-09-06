@@ -5,7 +5,12 @@
   "phase": "buildup",
   "target_minutes": 6,
   "briefing": "The pasture is ours; now we raid back. Intel puts the local commander at the north hide — Jubran Hallaq's man on this ground, riding a technical he will not hesitate to run in if he has to. A second position dug in to the south covers the cattle track. Kill the commander, get eyes on the southern hide, and hold the bunds for five minutes. The moment the commander goes down, what is left of the local cell will come back at the bunds twice more to retake them. Catching the commander himself is a mobility problem, not a firepower one.",
-  "debrief": "The only breathing room the brigade gets in this war, and it was spent going forward.",
+  "debrief": {
+    "victory": {
+      "speaker": "shai",
+      "text": "The only breathing room the brigade gets in this war, and it was spent going forward."
+    }
+  },
   "map": {
     "file": "wadi_halam_basin",
     "player_start": [

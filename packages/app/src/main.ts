@@ -54,7 +54,8 @@ import './ui/theme.css';
 import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type Tone } from './ui/hud';
 import { portraitUrl, type SheetManifest } from './ui/portrait';
 import { Minimap } from './ui/minimap';
-import { showMenu, showCampaign, showSandbox, showEndScreen } from './ui/menu';
+import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
+import { speakerPlate, speakerPortrait } from './ui/hud-model';
 import { briefingBeats, showLoading } from './ui/loading';
 import { removedNotice, sayNotice } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
@@ -1765,16 +1766,29 @@ async function main(): Promise<void> {
             // Campaign order lives in world.json, not in the order data/missions files
             // happen to be imported.
             const nextMissionId = nextMissionAfter(parseWorld(world), missionId, updatedLedger);
+            // G11: `debrief` is outcome-aware -- pick the variant for the
+            // outcome that just happened, off the same `me.result` this
+            // screen's own `result` is, and resolve its speaker into a
+            // plate/portrait the same way `hud.ts`'s commander bar does
+            // (`speakerPlate`/`speakerPortrait`, `hud-model.ts`), since
+            // `menu.ts` has no `HudCommanderInfo` of its own to look one up
+            // against. `mission` is still the same JSON object
+            // `getMission()` reads `aftermath` off, above.
+            const say = me.result === 'victory' ? mission.debrief?.victory : mission.debrief?.defeat;
+            const debrief: EndScreenDebrief | undefined = say
+              ? {
+                  plate: speakerPlate(hudCommander, say.speaker),
+                  text: say.text,
+                  portrait: speakerPortrait(hudCommander, say.speaker),
+                }
+              : undefined;
             showEndScreen(document.body, {
               result: me.result,
               roe: me.roeRating,
               survivors: me.survivors.length,
               missionId,
               nextMissionId,
-              // The story voice's closing word (GDD §11) -- `mission` is
-              // still the same JSON object `getMission()` reads `aftermath`
-              // off, above.
-              debrief: mission.debrief,
+              debrief,
             });
           }
         }

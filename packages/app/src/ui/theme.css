@@ -1877,8 +1877,50 @@ button.rl-menu__item[data-kind='aside'] {
   margin-top: var(--s3);
 }
 
-/* The story voice's closing word (GDD §11), above the ROE/survivors rating
-   in the same panel body. Prose, so the body font, not a HUD label. */
+/* The story voice's outcome-specific closing word (G11 / GDD §11), above the
+   ROE/survivors rating in the same panel body -- `mission.debrief.victory`
+   on a win, `.defeat` on a loss (`showEndScreen`'s own `EndScreenOptions`
+   doc comment). Face and plate above the quote, centred like the rest of
+   this panel (`panel()`'s own inline `text-align: center`) rather than the
+   commander bar's side-by-side row -- this panel is narrow (420px) and
+   already centred, and a row would fight that. */
+.rl-enddebrief__head {
+  margin: 0 0 var(--s2);
+}
+/* Hatched exactly like `.rl-cmd__face`/`.rl-loading__face` whenever the
+   speaker has no resolved portrait URL -- authored or not, on disk or not,
+   and `net`/`enemy` (no portrait to look up at all) read identically. */
+.rl-enddebrief__face {
+  width: var(--cmd-face);
+  height: var(--cmd-face);
+  margin: 0 auto var(--s1);
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+  border: 1px solid var(--panel-frame);
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--type-shadow) 0,
+    var(--type-shadow) 4px,
+    var(--panel-frame) 4px,
+    var(--panel-frame) 6px
+  );
+}
+.rl-enddebrief__face-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.rl-enddebrief__who {
+  font-family: var(--font-display);
+  font-size: var(--t-body);
+  font-weight: 600;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
 .rl-enddebrief {
   margin: 0 0 var(--s2);
   font-family: var(--font-body);

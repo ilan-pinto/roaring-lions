@@ -361,6 +361,27 @@ export function showSandbox(stage: HTMLElement): void {
   stage.appendChild(wrap);
 }
 
+/**
+ * The story voice's closing line for ONE outcome, already resolved the same
+ * way the commander bar resolves a `say` line -- `plate` is `speakerPlate`'s
+ * answer (Shai's or Idit's rank/plate, or the literal NET/ENEMY word) and
+ * `portrait` is `speakerPortrait`'s (`hud-model.ts`, both called once in
+ * `main.ts`, which is the only place `HudCommanderInfo` and a mission's
+ * `debrief` object are both in scope). This screen does no speaker lookup of
+ * its own, on purpose -- `menu.ts` has no `HudCommanderInfo` to resolve one
+ * against, and duplicating that join here is exactly the second
+ * implementation of a lookup `hud.ts`'s `paintFace` already owns.
+ */
+export interface EndScreenDebrief {
+  plate: string;
+  text: string;
+  /** Already-resolved portrait URL. `undefined` falls back to the hatch,
+   *  covering "no portrait authored" and "speaker is net/enemy" alike --
+   *  the caller does not need to tell them apart, exactly as `speakerPortrait`
+   *  itself does not. */
+  portrait?: string;
+}
+
 export interface EndScreenOptions {
   result: 'victory' | 'defeat';
   roe: number;
@@ -368,10 +389,14 @@ export interface EndScreenOptions {
   missionId: string;
   /** Next mission in campaign order, if this one was won and one follows. */
   nextMissionId?: string;
-  /** The story voice's closing word (GDD §11), shown above the rating when
-   *  the mission declares one -- `mission.ts`'s own doc comment: "Shown on
-   *  the end screen, above the rating." */
-  debrief?: string;
+  /** The story voice's OUTCOME-SPECIFIC closing word (GDD §11, G11) --
+   *  `mission.debrief.victory` on a win, `.defeat` on a loss, picked by the
+   *  caller off the same `missionEnd.result` this screen's own `result` is
+   *  (`mission.schema.json`'s `debrief`: "shown on the end screen, above the
+   *  rating"). Absent entirely when THAT outcome has no line declared --
+   *  never a fallback to the other outcome's, and never the hatch alone
+   *  standing in for missing text: no paragraph at all. */
+  debrief?: EndScreenDebrief;
 }
 
 export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): void {
@@ -385,9 +410,41 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): void {
   p.el.classList.add('rl-enter');
 
   if (opts.debrief) {
+    const { plate, text, portrait } = opts.debrief;
+
+    const head = document.createElement('div');
+    head.className = 'rl-enddebrief__head';
+
+    // Hatched exactly like the commander bar's own `.rl-cmd__face` whenever
+    // there is no resolved URL -- `error` catches a URL that resolved but
+    // still failed to load, which `portrait !== undefined` alone does not
+    // guarantee (`portrait-catalogue.ts`'s own doc comment on this exact gap).
+    const face = document.createElement('div');
+    face.className = 'rl-enddebrief__face';
+    const faceImg = document.createElement('img');
+    faceImg.className = 'rl-enddebrief__face-img';
+    faceImg.alt = '';
+    faceImg.hidden = true;
+    faceImg.addEventListener('error', () => {
+      faceImg.hidden = true;
+      faceImg.removeAttribute('src');
+    });
+    if (portrait !== undefined) {
+      faceImg.src = portrait;
+      faceImg.hidden = false;
+    }
+    face.appendChild(faceImg);
+
+    const who = document.createElement('div');
+    who.className = 'rl-enddebrief__who';
+    who.textContent = plate;
+
+    head.append(face, who);
+    p.body.appendChild(head);
+
     const debrief = document.createElement('p');
     debrief.className = 'rl-enddebrief';
-    debrief.textContent = opts.debrief;
+    debrief.textContent = `“${text}”`;
     p.body.appendChild(debrief);
   }
 

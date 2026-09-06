@@ -5,7 +5,12 @@
   "phase": "clearance",
   "target_minutes": 7,
   "briefing": "The village is inhabited and the mosque is under protection — heavy ordnance reaches further across open ground than it does between walls, so mind what you call in. A cache guard and three cells hold the houses; a pair of technicals waiting at the south hide will run for the village the moment you make contact. Clear and hold the village, kill or capture whoever is guarding the cache, and get the families out to the refuge before the fighting closes the road.",
-  "debrief": "A garrisoned house comes down or it stays garrisoned; there is no third way to clear one. What that costs is on the rating. What it was for is on the order.",
+  "debrief": {
+    "victory": {
+      "speaker": "shai",
+      "text": "A garrisoned house comes down or it stays garrisoned; there is no third way to clear one. What that costs is on the rating. What it was for is on the order."
+    }
+  },
   "map": {
     "file": "wadi_halam_basin",
     "player_start": [

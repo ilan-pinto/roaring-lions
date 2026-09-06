@@ -164,8 +164,13 @@ export interface MissionJson {
   dispatch?: string;
   /** Shown on the victory banner. */
   aftermath?: string;
-  /** Shown on the end screen, above the rating. */
-  debrief?: string;
+  /** Shown on the end screen, above the rating -- outcome-aware (G11): a win
+   *  and a loss read `victory`/`defeat` respectively, and either may be
+   *  absent on its own, independent of the other. A type only, like the
+   *  three siblings above it -- the sim never reads any of these four, and
+   *  the app is what branches on `victory` vs `defeat` off the same
+   *  `missionEnd` event's `result` it already gets. */
+  debrief?: { victory?: SayJson; defeat?: SayJson };
   map: { file: string; player_start?: readonly number[] };
   ledger: { requires: readonly string[]; produces: readonly string[] };
   objectives: readonly ObjectiveJson[];

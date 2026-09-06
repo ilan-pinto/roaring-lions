@@ -10,6 +10,10 @@
 // call it directly against a bare fixture object.
 
 const MAX_SAY_LENGTH = 240;
+/** `$defs/say`'s own `speaker` enum in mission.schema.json, copied here for
+ *  the same reason MAX_SAY_LENGTH is: a direct, importable test rather than
+ *  one that can only be exercised through ajv. */
+const LEGAL_SPEAKERS = new Set(['shai', 'idit', 'net', 'enemy']);
 
 /**
  * Every `group` any placement in this mission declares -- enemy garrison,
@@ -74,11 +78,19 @@ export function removeTriggerFailures(mission, label) {
 }
 
 /**
- * The story voice's 240-character ceiling. mission.schema.json's own
- * `maxLength` on `say.text`/`dispatch`/`aftermath`/`debrief` already
- * enforces this through ajv on every real mission file; this hand-rolled
- * copy exists purely so the limit has a direct, importable test, the same
- * reason every other function in this module exists.
+ * The story voice's 240-character ceiling, plus (G11) the `$defs/say`
+ * speaker vocabulary for `debrief`'s two variants. mission.schema.json's own
+ * `maxLength` on `say.text`/`dispatch`/`aftermath` and `$defs/say`'s
+ * `speaker` enum already enforce both through ajv on every real mission
+ * file; this hand-rolled copy exists purely so the limits have a direct,
+ * importable test, the same reason every other function in this module
+ * exists.
+ *
+ * `debrief` stopped being a plain string at G11 -- it is now
+ * `{ victory?: say, defeat?: say }`, one line per outcome, either or both
+ * absent -- so it is checked like a `say` (text AND speaker) rather than
+ * like `dispatch`/`aftermath`, which stay bare strings with no speaker of
+ * their own.
  */
 export function narrativeTextFailures(mission, label) {
   const out = [];
@@ -87,9 +99,19 @@ export function narrativeTextFailures(mission, label) {
       out.push(`${label}: ${where} is ${text.length} characters, over the ${MAX_SAY_LENGTH} limit`);
     }
   };
+  const checkSay = (say, where) => {
+    if (!say) return;
+    check(say.text, `${where}.text`);
+    if (typeof say.speaker === 'string' && !LEGAL_SPEAKERS.has(say.speaker)) {
+      out.push(
+        `${label}: ${where}.speaker is "${say.speaker}", not one of ${[...LEGAL_SPEAKERS].join('/')}`
+      );
+    }
+  };
   check(mission.dispatch, 'dispatch');
   check(mission.aftermath, 'aftermath');
-  check(mission.debrief, 'debrief');
+  checkSay(mission.debrief?.victory, 'debrief.victory');
+  checkSay(mission.debrief?.defeat, 'debrief.defeat');
   for (const t of mission.triggers ?? []) {
     if (t.say) check(t.say.text, `trigger "${t.id ?? '(unnamed)'}" say.text`);
   }
