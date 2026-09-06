@@ -629,6 +629,17 @@ async function main(): Promise<void> {
     // `terrainTones` two lines up -- `TERRAIN_GROUND_TEXTURE[map.terrain]`,
     // typed as a total `Record<TerrainTheme, ...>` so a new theme is a
     // compile error here rather than a map that silently draws sand.
+    //
+    // All five of these are requested UNCONDITIONALLY here -- main.ts has no
+    // per-tile view of the map (and, since 2026-09-06, is expressly forbidden
+    // from building one: `@lions/render/terrain` is production-app-restricted
+    // by `eslint.config.mjs`, precisely because this package has no other use
+    // for the pure builders). Deciding which of the five this map's own tiles
+    // can actually sample -- and skipping a fetch for the rest -- is
+    // `ThreeRenderer.loadGroundTexture`'s own job now: it already holds the
+    // real `sim`/decor/elevation once `init()` runs, and building a second,
+    // independent copy of that state here just to answer the same question
+    // twice is exactly the risk of two answers drifting apart.
     groundTextureUrl: `${BASE}textures/${TERRAIN_GROUND_TEXTURE[map.terrain]}.png`,
     // Each of the four below is one surface, one image, and one independent
     // failure: a ridge that loses its texture is still a ridge, and a road

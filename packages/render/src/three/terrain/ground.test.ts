@@ -10,12 +10,14 @@ import {
   ROAD_AXIS_JUNCTION,
   ROAD_AXIS_NORTH_SOUTH,
   SCRUB_TIER_STRENGTH,
+  groundAlbedoSlotsUsed,
 } from './ground';
 import { WORLD_PER_LEVEL } from './shared';
 import { DECOR_GROVE, DECOR_KNOLL, DECOR_RIDGE, DECOR_ROAD } from './shared';
 import { SURFACE_OVERSHOOT_LEVELS, SURFACE_SUBDIVISIONS } from './surface';
 import { PALETTE_HEXES } from './tones';
 import { VIEW_DIRECTION } from '../camera';
+import { GROUND_SLOTS } from './mesh';
 import type { MeshData, TerrainInput } from './types';
 
 type Vec3 = [number, number, number];
@@ -906,5 +908,82 @@ describe('the ground albedo masks', () => {
     }
     // The ridge top (4) plus its east and south faces.
     expect(rockVertices).toBeGreaterThan(4);
+  });
+});
+
+/**
+ * `groundAlbedoSlotsUsed` -- the derivation `packages/app`'s ground-texture
+ * loader (2026-09-06) relies on to skip fetching an image no tile on the
+ * current map could ever sample. Asserted against `albedoFor`'s own
+ * decision, walked through the real `buildGround` masks above, not
+ * re-derived by a second reading of the map symbols.
+ */
+describe('groundAlbedoSlotsUsed', () => {
+  it('reports only sand on ground with no ridge, road, cover or grove', () => {
+    expect(groundAlbedoSlotsUsed(flat(4, 4))).toEqual(new Set(['sand']));
+  });
+
+  it('every value it ever returns is one of GROUND_SLOTS -- the two lists agree', () => {
+    // `GROUND_SLOTS` (mesh.ts) is the shader's own enumeration; this type is
+    // declared independently so the pure barrel never imports `three`
+    // (`ground.ts`'s own doc comment on `GroundAlbedoSlot`). If the two ever
+    // drift, this is where it is caught.
+    const w = 6;
+    const input = flat(w, w);
+    const decor = new Uint8Array(w * w);
+    const cover = new Uint8Array(w * w);
+    const at = (x: number, y: number): number => y * w + x;
+    decor[at(1, 1)] = DECOR_ROAD;
+    decor[at(2, 2)] = DECOR_GROVE;
+    cover[at(2, 2)] = 1;
+    cover[at(3, 3)] = 2;
+    decor[at(4, 4)] = DECOR_RIDGE;
+    input.blocked[at(4, 4)] = 1;
+    input.decor = decor;
+    input.cover = cover;
+    const used = groundAlbedoSlotsUsed(input);
+    for (const slot of used) expect(GROUND_SLOTS).toContain(slot);
+  });
+
+  it('finds every slot a map actually uses -- road, grove, scrub, rock and sand together', () => {
+    const w = 6;
+    const input = flat(w, w);
+    const decor = new Uint8Array(w * w);
+    const cover = new Uint8Array(w * w);
+    const at = (x: number, y: number): number => y * w + x;
+    decor[at(1, 1)] = DECOR_ROAD;
+    decor[at(2, 2)] = DECOR_GROVE;
+    cover[at(2, 2)] = 1;
+    cover[at(3, 3)] = 2;
+    decor[at(4, 4)] = DECOR_RIDGE;
+    input.blocked[at(4, 4)] = 1;
+    input.decor = decor;
+    input.cover = cover;
+    expect(groundAlbedoSlotsUsed(input)).toEqual(new Set(['sand', 'road', 'grove', 'scrub', 'rock']));
+  });
+
+  it('omits a slot the map genuinely never lands on -- no ridge means no rock', () => {
+    const w = 4;
+    const input = flat(w, w);
+    const decor = new Uint8Array(w * w);
+    decor[1 * w + 1] = DECOR_ROAD;
+    input.decor = decor;
+    const used = groundAlbedoSlotsUsed(input);
+    expect(used.has('rock')).toBe(false);
+    expect(used.has('grove')).toBe(false);
+    expect(used.has('scrub')).toBe(false);
+    expect(used).toEqual(new Set(['sand', 'road']));
+  });
+
+  it('an `n` knoll alone does not pull in scrub -- it is cover 2 with its own decor kind', () => {
+    const w = 3;
+    const input = flat(w, w);
+    const decor = new Uint8Array(w * w);
+    const cover = new Uint8Array(w * w);
+    decor[1 * w + 1] = DECOR_KNOLL;
+    cover[1 * w + 1] = 2;
+    input.decor = decor;
+    input.cover = cover;
+    expect(groundAlbedoSlotsUsed(input)).toEqual(new Set(['sand']));
   });
 });

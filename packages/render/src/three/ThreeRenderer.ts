@@ -123,7 +123,7 @@ import {
 } from './units/explosion-burst';
 import { SmokePlumeManager, SMOKE_PLUME_DEFAULT_DURATION_MS } from './units/smoke-plume';
 import { CollapseShroudManager, COLLAPSE_SHROUD_SWAP_DELAY_MS } from './units/collapse-shroud';
-import { buildGround } from './terrain/ground';
+import { buildGround, groundAlbedoSlotsUsed } from './terrain/ground';
 import { buildScatter } from './terrain/scatter';
 import { buildBuildings, type StructureFootprint } from './terrain/buildings';
 import {
@@ -845,10 +845,37 @@ export class ThreeRenderer implements Renderer {
    * detail nobody has seen yet. A failure warns by name and leaves the flat
    * tone -- a missing texture must not cost the player a map, which is the
    * same fail-soft rule `loadSprites` follows for a 404ing sheet.
+   *
+   * **A slot the current map's own tiles can never sample is skipped
+   * entirely -- 2026-09-06's boot-cost fix.** `main.ts` still hands this
+   * class all five URLs unconditionally (it has no per-tile view of the map,
+   * and is expressly forbidden from building one -- `@lions/render/terrain`
+   * is production-app-restricted, `eslint.config.mjs`); this is the one place
+   * that DOES have a per-tile view, since `setDecor`/`setElevation` have
+   * already populated `this.retained` and `this.sim` already carries
+   * `applyTerrain`'s `blocked`/`cover` by the time `init()` runs. `ground
+   * AlbedoSlotsUsed` (`terrain/ground.ts`) is the SAME per-tile decision
+   * `buildGround` itself makes (`albedoFor`, walked once here rather than
+   * re-derived from map symbols by a second rule that could drift from it)
+   * -- an arid map with no `o` grove tile skips `orchard_floor_tile.png`
+   * outright, and `tel_marum`'s base map (no `r` road, no plain cover tile at
+   * all) skips THREE of the five. Skipping the fetch changes bytes
+   * downloaded, never a rendered pixel: the skipped slot's `*Strength`
+   * uniform simply never leaves its already-0 default, which is the exact
+   * state a 404 on that same URL already leaves it in today.
    */
   private loadGroundTexture(): void {
+    const usedSlots = groundAlbedoSlotsUsed({
+      width: this.sim.width,
+      height: this.sim.height,
+      decor: this.retained.decor,
+      elevation: this.retained.elevationLevels,
+      blocked: this.sim.blocked,
+      cover: this.sim.cover,
+    });
     const load = (url: string | undefined, slot: GroundSlot, what: string): void => {
       if (!url) return;
+      if (!usedSlots.has(slot)) return;
       // The basename, with any query string or extension stripped: `BASE`
       // may be a full origin and a bundler may append a hash-free query.
       const id = (url.split('?')[0].split('/').pop() ?? '').replace(/\.[a-z0-9]+$/i, '');

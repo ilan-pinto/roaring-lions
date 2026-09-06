@@ -239,6 +239,54 @@ function albedoFor(input: TerrainInput, x: number, y: number): Albedo {
   return SAND_ALBEDO;
 }
 
+/**
+ * The five ground-albedo slots `mesh.ts`'s `GROUND_SLOTS` names, spelled out
+ * again here rather than imported: `mesh.ts` is the one file in this
+ * directory that touches `THREE.*` (`toGeometry`'s `BufferAttribute`,
+ * `whitePixel`'s `DataTexture`), and this barrel's own doc comment
+ * (`terrain/index.ts`) is explicit that nothing in it may drag three.js in.
+ * `mesh.test.ts` pins that the two lists agree.
+ */
+export type GroundAlbedoSlot = 'sand' | 'rock' | 'road' | 'scrub' | 'grove';
+
+/**
+ * Which of the five ground-albedo slots a map's own tiles can ever land on --
+ * derived by walking every tile through `albedoFor`, the SAME per-tile
+ * decision `buildGround` itself makes, rather than a second, hand-kept rule
+ * about which map symbols imply which texture (a hand-kept list is exactly
+ * the `SPRITE_MAP` failure mode CLAUDE.md already names elsewhere, and it
+ * would go stale the same silent way).
+ *
+ * The one caller today is `packages/app`'s ground-texture loader
+ * (`ground-textures.ts`): a map with no `^` ridge has no use for
+ * `rock_ground_tile.png`, one with no `o` grove has no use for
+ * `orchard_floor_tile.png`, and so on -- fetching an image no vertex will
+ * ever sample costs bytes and a request for nothing. `sand` covers BOTH
+ * open-ground images (`desert_sand_tile`/`green_basin_tile`); which one a
+ * caller resolves it to is a `map.terrain` decision this function has no
+ * opinion on, the same split `TERRAIN_GROUND_TEXTURE` already keeps.
+ *
+ * Short-circuits once all five slots have been seen: a slot already present
+ * cannot become "more present" by scanning further tiles, so a large map
+ * that uses everything pays for a partial scan, not a full one.
+ */
+export function groundAlbedoSlotsUsed(input: TerrainInput): ReadonlySet<GroundAlbedoSlot> {
+  const used = new Set<GroundAlbedoSlot>();
+  const { width, height } = input;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const a = albedoFor(input, x, y);
+      if (a.sand > 0) used.add('sand');
+      if (a.rock > 0) used.add('rock');
+      if (a.road > 0) used.add('road');
+      if (a.scrub > 0) used.add('scrub');
+      if (a.grove > 0) used.add('grove');
+      if (used.size === 5) return used;
+    }
+  }
+  return used;
+}
+
 /** The six per-vertex albedo channels, as the plain arrays `buildGround`
  *  accumulates before they become `Float32Array`s. One struct rather than
  *  six positional parameters: `pushSmoothTile` and `pushWall` already took
