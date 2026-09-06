@@ -37,6 +37,13 @@ import tileRoad from '../../../data/maps/tile_road.json';
 import tileScrub from '../../../data/maps/tile_scrub.json';
 import tutorialGround from '../../../data/maps/tutorial_ground.json';
 import ummZeitoun from '../../../data/maps/umm_zeitoun.json';
+// Umm Zeitoun's per-mission variants (docs/campaign/map-variants-design.md
+// §3.4): same 48x48 frame, same markers/zones, same `stockpile`, `crest_top`,
+// `post_stone` and `hamlet` contents -- obstacles bent around them per
+// mission. The base file is untouched; I and II stay on it (the basin's
+// "no wall, no gate, crossable anywhere" briefing is the point of both).
+import ummZeitoun3 from '../../../data/maps/umm_zeitoun_3.json';
+import ummZeitoun4 from '../../../data/maps/umm_zeitoun_4.json';
 import wadiHalamBasin from '../../../data/maps/wadi_halam_basin.json';
 // Wadi Halam's per-mission variants (docs/campaign/map-variants-design.md
 // §3.3): same 48x48 frame, same markers/zones, same depot compound and
@@ -152,6 +159,8 @@ export const maps = {
   tile_scrub: tileScrub,
   tutorial_ground: tutorialGround,
   umm_zeitoun: ummZeitoun,
+  umm_zeitoun_3: ummZeitoun3,
+  umm_zeitoun_4: ummZeitoun4,
   wadi_halam_basin: wadiHalamBasin,
   wadi_halam_2: wadiHalam2,
   wadi_halam_3: wadiHalam3,

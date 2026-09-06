@@ -1098,6 +1098,24 @@ twice, so "which half walks" becomes "which half walks *where*".
 
 Estimated: +0 to +2 tiles either arm; shape 5 columns → 8.
 
+> **Correction after authoring (2026-09-06).** The estimate above does not
+> occur. Measured against the shipped `umm_zeitoun_3.json` through the real
+> `FlowField`: every leg this section's own two changes touch —
+> `rim_crest -> horn_west`, `rim_crest -> horn_east`, `rim_crest ->
+> hamlet_square`, `hamlet_square -> civ_refuge`, both civilian groups' own
+> lines to `refuge_wadi`, and each horn's own lane sight pair — is
+> **byte-identical to the base, path included, not merely equal in length**,
+> for both foot and vehicle. The reason is mechanical, not a measurement
+> fluke: `o` grove and cover levels 1–3 are not members of `blocked` or
+> `blockedVehicle` at §2.1's own table (every column but `cover` reads "–"),
+> so `FlowField.compute` prices them identically to open ground and the
+> shortest-path set cannot move — this is CLAUDE.md's own "cover changes no
+> route" finding (`tools/src/qarn_hadid_relief.test.ts`) reproduced here on a
+> third map, not a defect in this variant. The two blocks still do the job
+> the Effect paragraph above actually promises — cover for the FIGHT, "each
+> half of the split its own covered line" — because that promise was never
+> about the march. Pinned in `tools/src/umm_zeitoun_variants.test.ts`.
+
 Constraints, all hard. **Do not touch one tile inside `hamlet` [19,24,9,5]** —
 `umm_zeitoun_doctrine.test.ts` pins its exact mix (14 house, 6 shanty, 5 road, 20
 open) and it is the ROE `flagged_zone` with `fail_below: 45`; the hamlet is
