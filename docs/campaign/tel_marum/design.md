@@ -251,6 +251,19 @@ is `at_seconds trigger to units` and carries no `say` (§7 G12).
 | **twist** | **T7** |
 | **story hook** | the mission that teaches the rule the act is made of: indirect fire is not weather, it is a person on a hill |
 
+**2026-09-06 — both left bare (`mission-author`).** Delegated across the
+lead's fence ask (`beit_sahwan_breach`'s dated note, its own §3.1), alongside
+`beit_sahwan_2_foothold` and Umm Zeitoun II. **I's `screen_out`** is a
+`survive_until` with no zone target at all — there is no perimeter to ring,
+only a clock, and the mission raises no structures and has no economy. Its own
+briefing calls the ground "the valley floor," open and unwalled. **II's
+`hold_approach`** targets `approach` [21,22,7,5] on `tel_marum_2.json` — a
+7×5 patch of open valley floor with no adjacent structure. Its wave `to`
+marker is `saddle_wide`, not `approach`: the hold zone is a checkpoint the
+player occupies while other things happen (`kill_spotter`, `burn_the_ammo_point`),
+not a besieged position. Neither reads as a camp, a laager, a compound, a
+depot or a town edge, so neither gets a fence.
+
 #### III — `tel_marum_3_clearance` · *The Pass* · clearance · 7 min
 
 | | |
@@ -782,6 +795,19 @@ fielded by nothing, as it is today.
 | **loss condition (for `playtest`)** | **`raze(post_stone)` fails at 300 s.** A passive player never orders a demolition and never fires, so the shed stands. `hold_for` cannot fail; `capture` cannot fail; the force is never wiped. The raze deadline is the whole loss condition and it must not be removed or lengthened past 300 |
 | **twist candidates** | **T-U4 "The camp is the target."** The `loiter_drone` at 210 s goes for `camp_ground`, not for the line — a build-up loses by losing what it is building. *Expressible today.* **T-U5 "He watched you dig it."** The knoll post's own field of view is measured to include the crest line and **exclude** the staging bowl, so the enemy knows what you are building and not where — a `say` line, not a mechanic. *Live.* **T-U6 "They come back for the hill."** The 300 s wave from `sarim_east` retakes the razed post's ground. *Expressible today*, and it argues for `capture(post_stone, 15)` staying a secondary rather than becoming a primary |
 | **story hooks** | The one mission in Act II with breathing room, and it should feel like it: engineers, a camp, a supply corridor, and a man on a hill eight tiles away watching all of it. Shai's beat is the arithmetic of a hold; Idit's is that the shelling has a source and the source has a name now. `say` on `hold_the_line`, speaker **net**; `say` on the `withdraw_to` trigger, speaker **idit** — *the tube has moved, and that is what killing his eyes buys* |
+
+**2026-09-06 — left bare (`mission-author`).** The lead's fence ask, delegated
+across eight hold/survive/capture missions with First Light already fenced as
+the pattern. `hold_the_crest_line`'s zone is `crest_line` [18,40,13,2] — a
+13×2 firing line along an exposed elevation-4 rim, held by shooting rather
+than by walls, and waves converge on it (and on `rim_crest` just past it) from
+three separate compass points — `sarim_west`, `sarim_north` and `sarim_east` —
+so there is no single face to hug. The mission's one `structures[]` entry
+(`camp` at `camp_ground [21,44]`) sits in the staging bowl behind the line,
+already documented above as "measured unobservable from every enemy
+position" — the terrain itself is doing the job a fence would visually
+repeat, on ground nothing can shell or shoot at in the first place. Left bare,
+per the brief's own named example.
 
 ---
 

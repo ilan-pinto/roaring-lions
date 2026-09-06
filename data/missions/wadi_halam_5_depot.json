@@ -95,6 +95,11 @@
       ]
     }
   ],
+  "structures": [
+    { "type": "fence", "at": [33, 15], "size": [11, 1] },
+    { "type": "fence", "at": [43, 16], "size": [1, 16] },
+    { "type": "fence", "at": [34, 32], "size": [10, 1] }
+  ],
   "objectives": [
     {
       "id": "raze_depot",

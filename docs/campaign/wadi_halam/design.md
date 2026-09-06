@@ -459,6 +459,12 @@ first mission of the war where what she is looking for is *a road* rather than a
 weapon or a pair of eyes. Shai's line about not chasing is already written and is
 the best statement of Rif doctrine in the tree.
 
+**2026-09-06 — left bare (`mission-author`).** `take_ford`'s hold zone is
+`ford_watch`, a wadi crossing corridor [7,12,6,24] — a ford, not a compound, and
+exactly the shape the lead's own brief names as not worth ringing. No structure
+stands anywhere near it to hug, and a fence across a river crossing would only
+bend the very approach the raiders and the carriers both use.
+
 ---
 
 ### 5.2 II — `wadi_halam_2_laager` · *Grazing Ground* · **foothold** · 7 min
@@ -540,6 +546,16 @@ tags nothing" rule.
 the one where the player's own supply line is the subject. Idit's absence is
 deliberate: II produces no `locate` and asks no question. She is not spending a
 life on a field.
+
+**2026-09-06 — left bare (`mission-author`).** `hold_pasture`'s zone is `pasture`
+[13,14,11,20] — 220 tiles of terraced farmland (hedgerow bunds, dry-stone
+terraces, the census in §3), with no wall anywhere on the base map. Calling it "a
+supply laager" is the fiction's own metaphor, not a mechanical one: the only
+structure inside it is the enemy's own pump house being burned, and the raiders
+come from three separate markers on three clocks, exactly the shape a ring would
+box the player OUT of rather than in. A fence here would wall off ground the
+`hold_for` requires the player to occupy freely, not a position to defend from
+inside.
 
 ---
 
@@ -638,6 +654,13 @@ should say this once, in III's `mark_hides.say`, and never again.
 
 **Story hooks.** The only build-up in the war, and it is a raid. The brigade's one
 piece of breathing room is spent going forward.
+
+**2026-09-06 — left bare (`mission-author`).** `hold_bunds` targets the same
+`pasture` zone as II, for the same reason: open terraced farmland, no wall,
+raiders coming for the pump house rather than the player. III also carries a
+`camp` structure, but it sits at the player's OWN deploy point [3,20], ten-plus
+tiles from the contested ground and off every measured route — fencing it would
+ring an empty corner of the map, not the perimeter anyone is fighting over.
 
 ---
 
@@ -810,6 +833,47 @@ would bite exactly the player the briefing is warning.
 
 **Story hooks.** The end of the war is a man standing in a gateway refusing to
 move, and a bulldozer that has to be walked past four houses to reach him.
+
+**2026-09-06 — the perimeter made visible, second mission (`mission-author`).**
+The lead's ask ("every held perimeter should be surrounded by fences... more
+visible") was delegated across the eight remaining hold/survive/capture
+missions, with First Light already fenced as the pattern
+(`beit_sahwan_breach`, `639bab2`). Depot is the only one of those eight that
+already has a compound to hug: `data/maps/wadi_halam_5.json` raises its own
+`wall` around the depot on the base map (x=34 west with a single gate at
+y=24 — the `depot_gate` marker — x=42 east, y=16 north, y=31 south, all
+solid), enclosing the `depot` raze/hold zone exactly. The mission's own
+`structures[]` adds **37 `fence` bodies** one tile outside three of those
+four faces — north (y=15, x33–43), east (x=43, y16–31) and south (y=32,
+x34–43, gap at x=33) — and leaves the **west face bare on purpose**: a
+pre-existing `house` block (x=33, y16–18) and `shanty` (x=33, y20) already
+stand against that side of the wall, and the access road itself runs down
+x=33 from y25 to the gate. Fencing there would either try to stand a
+structure on an existing building (`raiseMissionStructures` refuses that) or
+reduce to two or three isolated tiles that read as nothing beside a hamlet
+already doing the job.
+
+Measured (`tools/src/wadi_halam_5_depot_fence.test.ts`): both raid approaches
+still reach `depot_gate` with a small, real detour (`rif_south` vehicle route
++1 tile, `rif_east` +3 — forced around the new ring rather than straight in
+from the east), the player's own start-to-gate route is **byte-identical**
+for both foot and vehicle, and the two `pnpm playtest` verdicts hold —
+passive control still DEFEATs at `raze_depot=failed` (byte-identical to the
+fenceless baseline), and the scripted plan still VICTORYs, a little faster
+(6.2 → 5.5 min) at 2 fewer ROE points (81 → 79) and one fewer friendly lost
+(roster out 4 → 3): the ring delays the raiders' arrival relative to the
+plan's own pace rather than changing what the plan does.
+
+**Seven of the other eight hold/survive missions stayed bare, each for a
+reason grounded in its own map, not a shortcut** — full accounting in
+`docs/campaign/tel_marum/design.md`'s dated 2026-09-06 note (Tel Marum I/II,
+Umm Zeitoun II) and this file's own mission sections above (I, II, III) plus
+`beit_sahwan_2_foothold`'s dated note in `docs/campaign/beit_sahwan/design.md`.
+The short version: a ford (I), an open terraced pasture with no wall on the
+base map (II, III), and an already-wall-gated 17×32 approach corridor
+(`beit_sahwan_2_foothold`) are not compounds, and ringing any of them would
+either wall off ground the objective needs open or duplicate a barrier that
+already does the gating.
 
 ---
 

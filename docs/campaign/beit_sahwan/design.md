@@ -677,6 +677,21 @@ exactly; anything not listed is unchanged.
 | **twists** | **T3 (storyline) "The spoil was a decoy"** — the western shaft is real and empty and the route under the line is a second one. *Expressible today* — two routes, one `collapse` target. **T-B2 "It is not a shaft, it is a door"** — the vent at `[7,22]` is inside the player's own laager, and the briefing already says a route behind your line is worth more than every man in front of it. *Radio line only* |
 | **story hooks** | Idit reads spoil. Shai has to choose between closing a door and keeping a thread, and neither of them says which one they would pick. The briefing must not resolve it |
 
+**2026-09-06 — left bare (`mission-author`).** The lead's fence ask
+(`beit_sahwan_breach`'s dated note, §3.1) was delegated across the eight
+remaining hold/survive/capture missions. `hold_for`'s zone here is
+`west_approach` [0,8,17,32] on `beit_sahwan_2.json` — a 17×32 open approach
+corridor, not a compound, and already gated on the enemy's side by the
+variant map's own `wall` (x=11, y9–39, two 1-tile gaps at y17 and y27, verified
+this session). The one `structures[]` entry this mission raises is a 2×2
+`camp` at [2,20] — but the player's starting force spans well past its
+footprint (x2–6, y20–26), and the wave `to` marker (`kdf_assembly`) sits
+between the camp and the approach's far side, not against it. Ringing the
+whole corridor would wall off a third of the map; ringing just the camp
+fences a token dozen tiles the enemy's own routes never touch, since the base
+map's wall already does the gating job a mission fence exists to make
+visible. Left bare.
+
 ### III — `beit_sahwan_3_clearance` · *Clearance* · 7 min
 
 | | |
