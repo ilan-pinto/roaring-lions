@@ -140,6 +140,15 @@ const WALL_SURFACE: Record<string, WallSurface> = {
   apartment: 'brick',
   mosque: 'brick',
   wall: 'brick',
+  // Textured (photographed) like house/apartment -- see textured-building.ts.
+  // `wallSurfaceForBuilding` is still called unconditionally by
+  // `ThreeRenderer.loadBuildingMesh` before the textured branch is decided,
+  // so this entry is required even though the coursing it names is never
+  // actually drawn: every clinic wall mesh keeps its own UV + base_color map
+  // and takes the textured branch in `buildBuildingMeshTemplate`, which is
+  // checked BEFORE `isBuildingMeshRole`/coursing. 'brick' is the honest
+  // answer regardless -- rendered masonry, per the Meshy prompt.
+  clinic: 'brick',
   concrete: 'panel',
   shanty: 'flat',
   warehouse: 'flat',

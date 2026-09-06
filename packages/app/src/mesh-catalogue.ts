@@ -169,6 +169,7 @@ export const BUILDING_MESHES: Readonly<Record<string, { readonly idle: string; r
   house: { idle: 'buildings/house.glb', wreck: 'buildings/house_wreck.glb' },
   warehouse: { idle: 'buildings/warehouse.glb', wreck: 'buildings/warehouse_wreck.glb' },
   apartment: { idle: 'buildings/apartment.glb', wreck: 'buildings/apartment_wreck.glb' },
+  clinic: { idle: 'buildings/clinic.glb', wreck: 'buildings/clinic_wreck.glb' },
   concrete: { idle: 'buildings/concrete.glb', wreck: 'buildings/concrete_wreck.glb' },
   mosque: { idle: 'buildings/mosque.glb', wreck: 'buildings/mosque_wreck.glb' },
   wall: { idle: 'buildings/wall.glb', wreck: 'buildings/wall_wreck.glb' },

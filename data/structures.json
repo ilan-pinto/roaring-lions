@@ -92,6 +92,17 @@
       "color": "olive.1",
       "roe_penalty": 0,
       "produces_for": 0
+    },
+    "clinic": {
+      "id": "clinic",
+      "name": "Clinic",
+      "symbol": "k",
+      "hp_per_tile": 260,
+      "garrison_slots": 2,
+      "rubble_cover": 2,
+      "height_px": 16,
+      "color": "limestone.1",
+      "roe_penalty": 25
     }
   }
 }

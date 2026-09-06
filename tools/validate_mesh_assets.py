@@ -147,7 +147,7 @@ REPO = os.path.dirname(HERE)
 # (`check_image`, `check_framing`, `MIN_FILL`). What still runs: the
 # silhouette IoU comparison against every other mesh and sprite -- a textured
 # building must still not read as some other building.
-TEXTURED_MESH_EXEMPT = {"house", "apartment", "warehouse"}
+TEXTURED_MESH_EXEMPT = {"house", "apartment", "warehouse", "clinic"}
 
 
 def textured_exempt(unit_id):
