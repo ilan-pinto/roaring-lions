@@ -9,7 +9,11 @@
   "debrief": {
     "victory": {
       "speaker": "shai",
-      "text": "Nineteen points of this depot is the order itself. Whatever the number below says, part of it was decided before the column moved."
+      "text": "Nineteen points, and every one of them was the order. There is no carelessness on this rating."
+    },
+    "defeat": {
+      "speaker": "idit",
+      "text": "The depot is standing and the road is open. Whatever came up it last month comes up it next month."
     }
   },
   "map": {

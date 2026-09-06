@@ -9,7 +9,11 @@
   "debrief": {
     "victory": {
       "speaker": "shai",
-      "text": "The fords are the only two crossings in forty tiles. Whatever happened tonight, the corridor still runs through them."
+      "text": "Four sites, and every one of them empty by the time anybody looked twice. That is the picture: there is nothing here to take, only a road."
+    },
+    "defeat": {
+      "speaker": "idit",
+      "text": "We have part of the picture and they have the crossing. Whatever we did not see tonight goes east tomorrow."
     }
   },
   "map": {

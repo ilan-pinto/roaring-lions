@@ -4,6 +4,12 @@
   "town": "beit_sahwan",
   "phase": "recon",
   "target_minutes": 10,
+  "debrief": {
+    "victory": {
+      "speaker": "shai",
+      "text": "That is everything the battalion will hand you. Next week none of it is a demonstration."
+    }
+  },
   "briefing": "Nothing here is contested yet. The battalion has given you a corner of the training area and one of everything it will hand you next week, delivered a piece at a time as you get to it. Learn what each of them is for. Nothing you lose here comes off the roster, and nothing you learn here is free later. The exercise runs ten minutes. Work through it at your own pace; nothing out here is trying to beat the clock.",
   "map": {
     "file": "tutorial_ground",

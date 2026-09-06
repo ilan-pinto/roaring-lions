@@ -289,8 +289,8 @@ not a flourish.
 | `SimEvent destroyed`, the `recon_drone` | `radio` | Idit | "Drone is down. Whatever it had not looked at yet, somebody walks to." | needs a trigger that can watch the sim (§10 G-E) | engine |
 | `missionEnd(victory)` | `toast` | system | `MISSION ACCOMPLISHED — ROE n, k units survive` | hard-coded | live |
 | `missionEnd(any)` | `debrief` | narrator | §1.6 | end screen, above the rating | live |
-| `missionEnd(victory)` | `debrief` | Shai | "Four sites, and every one of them empty by the time anybody looked twice. That is the picture: there is nothing here to take, only a road." | needs the win/lose split | engine |
-| `missionEnd(defeat)` | `debrief` | Idit | "We have part of the picture and they have the crossing. Whatever we did not see tonight goes east tomorrow." | needs the win/lose split | engine |
+| `missionEnd(victory)` | `debrief` | Shai | "Four sites, and every one of them empty by the time anybody looked twice. That is the picture: there is nothing here to take, only a road." | applied | live |
+| `missionEnd(defeat)` | `debrief` | Idit | "We have part of the picture and they have the crossing. Whatever we did not see tonight goes east tomorrow." | applied | live |
 
 ---
 
@@ -381,8 +381,8 @@ the nine are in this mission.
 | `built` (an `inf_squad` bought with the 120/min) | `toast` | system | `reinforcement deployed — inf_squad` | prints the raw unit id; Act I **G-D**, still open | engine |
 | `missionEnd(victory)` | `toast` | system | `MISSION ACCOMPLISHED — ROE n, k units survive` | hard-coded | live |
 | `missionEnd(any)` | `debrief` | narrator | §2.5 | | live |
-| `missionEnd(victory)` | `debrief` | net | "Pasture held, crossing laid. The brigade is east of the wadi for the first time in this war." | needs the win/lose split | engine |
-| `missionEnd(defeat)` | `debrief` | Shai | "We did not keep five minutes of a field. The engineers are not laying a crossing under that." | needs the win/lose split | engine |
+| `missionEnd(victory)` | `debrief` | net | "Pasture held, crossing laid. The brigade is east of the wadi for the first time in this war." | applied | live |
+| `missionEnd(defeat)` | `debrief` | Shai | "We did not keep five minutes of a field. The engineers are not laying a crossing under that." | applied | live |
 
 ---
 
@@ -487,8 +487,8 @@ on: Act I has no build-up at all and Act III's is a raid.
 | `SimEvent contact` on `wh_hide_south` when it was **not** pre-marked | `radio` | Idit | "The southern hide was live. If the drone had been eight tiles further south last week, that would have been a map reference instead of an ambush." | needs a sim-watching trigger (§10 G-E); it is the act's carry-over said aloud | engine |
 | `missionEnd(victory)` | `toast` | system | `MISSION ACCOMPLISHED — ROE n, k units survive` | hard-coded | live |
 | `missionEnd(any)` | `debrief` | narrator | §3.4 | | live |
-| `missionEnd(victory)` | `debrief` | Idit | "One commander, one hide and a track full of people. Two of those we were asked for." | needs the win/lose split | engine |
-| `missionEnd(defeat)` | `debrief` | Shai | "He is east with his cell and the bunds are theirs again. We spent the only quiet week of the war on it." | needs the win/lose split | engine |
+| `missionEnd(victory)` | `debrief` | Idit | "One commander, one hide and a track full of people. Two of those we were asked for." | applied | live |
+| `missionEnd(defeat)` | `debrief` | Shai | "He is east with his cell and the bunds are theirs again. We spent the only quiet week of the war on it." | applied | live |
 
 ---
 
@@ -583,8 +583,8 @@ families.
 | `SimEvent destroyed` on the last garrisoned house | `radio` | Shai | "That is the last of the four. Everything still moving in there lives here." | needs a sim-watching trigger (§10 G-E) | engine |
 | `missionEnd(victory)` | `toast` | system | `MISSION ACCOMPLISHED — ROE n, k units survive` | hard-coded | live |
 | `missionEnd(any)` | `debrief` | narrator | §4.4 | | live |
-| `missionEnd(victory)` | `debrief` | Shai | "Twenty-three points. Eighteen of them were the order and five were how we carried it out, and only the five are mine." | needs the win/lose split; **this is where the 18/5 split is said** | engine |
-| `missionEnd(defeat)` | `debrief` | Idit | "The village is standing and so are they. Whoever was in those houses is still in them." | needs the win/lose split | engine |
+| `missionEnd(victory)` | `debrief` | Shai | "Twenty-three points. Eighteen of them were the order and five were how we carried it out, and only the five are mine." | applied; **this is where the 18/5 split is said** | live |
+| `missionEnd(defeat)` | `debrief` | Idit | "The village is standing and so are they. Whoever was in those houses is still in them." | applied | live |
 
 ### 4.6 The two lines on `evac_families`, and why they are not both Shai's
 
@@ -835,8 +835,8 @@ labelled ENEMY (§10 G-F). Cheapest unrealised story surface in the tree.
 | `missionEnd(victory)` | `toast` | system | `MISSION ACCOMPLISHED — ROE n, k units survive` | hard-coded | live |
 | `missionEnd(victory)` | `aftermath` | narrator | §5.6, Option 1 or Option 2 | victory banner; **the campaign's last line** | live |
 | `missionEnd(any)` | `debrief` | narrator | §5.5 | end screen, above the rating | live |
-| `missionEnd(victory)` | `debrief` | Shai | "Nineteen points, and every one of them was the order. There is no carelessness on this rating." | needs the win/lose split; deliberately subordinate to the `aftermath` | engine |
-| `missionEnd(defeat)` | `debrief` | Idit | "The depot is standing and the road is open. Whatever came up it last month comes up it next month." | needs the win/lose split | engine |
+| `missionEnd(victory)` | `debrief` | Shai | "Nineteen points, and every one of them was the order. There is no carelessness on this rating." | applied; deliberately subordinate to the `aftermath` | live |
+| `missionEnd(defeat)` | `debrief` | Idit | "The depot is standing and the road is open. Whatever came up it last month comes up it next month." | applied | live |
 
 ---
 
@@ -1060,24 +1060,28 @@ counted by script rather than by eye.
 
 | status | rows | what they are |
 |---|---|---|
-| `live` | **114** | `toast` 47 · `radio`, i.e. a `say` on a trigger or an objective, 25 · objective labels 18 · `brief` 5 · `title` 5 · `debrief` 5 · `dispatch` 3 · twist rows 3 · `aftermath` 1 · and **4 rows recording a deliberate silence** (`screen_out` and `no_bleed`, neither of which can fail; the second and third `dispatch`, which must not exist) |
+| `live` | **124** (was 114) | `toast` 47 · `radio`, i.e. a `say` on a trigger or an objective, 25 · objective labels 18 · `brief` 5 · `title` 5 · `debrief` 15 · `dispatch` 3 · twist rows 3 · `aftermath` 1 · and **4 rows recording a deliberate silence** (`screen_out` and `no_bleed`, neither of which can fail; the second and third `dispatch`, which must not exist) |
 | `schema` | **0** | none. Every field Act III needs exists |
-| `engine` | **50** | ambient lore 17 · paired win/lose `debrief` 10 · `radio` 10 · `toast` 6 · `eva` 4 · twist rows 2 (T9, T12) · Hallaq's portrait on the commander bar 1 |
+| `engine` | **40** (was 50) | ambient lore 17 · `radio` 10 · `toast` 6 · `eva` 4 · twist rows 2 (T9, T12) · Hallaq's portrait on the commander bar 1 |
 
-**50 `engine` rows**, and not one of them is blocked on a *field*. They are
-blocked on five things and only five: a **radio overlay with portraits** (G-L,
+**40 `engine` rows**, and not one of them is blocked on a *field*. The
+**`debrief` that can tell a win from a loss** blocker (G-C) is closed — the
+field now carries `victory`/`defeat` separately and all ten of this sheet's
+paired rows are applied to `data/missions/` and flipped to `live` above. What
+remains is blocked on four things: a **radio overlay with portraits** (G-L,
 and G-F for the one row that would draw Hallaq), a **voice layer** (G-G, and the
-audio gate widens first), a **`debrief` that can tell a win from a loss** (G-C,
-10 rows), **a line bound to a wave or to a `SimEvent`** — the ten `engine`
-`radio` rows split exactly five and five — and the **silent `evacuated` event**
-(G-H, 3 of the 6 `engine` toasts). Every one of the 17 ambient rows is `engine`
-for two of those together: no event to fire on, and no surface to fire into.
+audio gate widens first), **a line bound to a wave or to a `SimEvent`** — the
+ten `engine` `radio` rows split exactly five and five — and the **silent
+`evacuated` event** (G-H, 3 of the 6 `engine` toasts). Every one of the 17
+ambient rows is `engine` for two of those together: no event to fire on, and no
+surface to fire into.
 
-**30 %** of the writing in this act still reaches nobody. Act I was 47 %, Act II
-31 %; the difference between Act I and the two since is the engine slice of
-2026-09-03, and what keeps Act III from going lower is that **Naharin is the wave
-town** — five `engine` rows are wave lines, in a town where reinforcements
-arriving is the most legible thing that happens.
+**24 %** of the writing in this act still reaches nobody, down from 30 % before
+the `debrief` split. Act I was 44 %, Act II 25 %; the difference between Act I
+and the two since is the engine slice of 2026-09-03, and what keeps Act III
+from going lower is that **Naharin is the wave town** — five `engine` rows are
+wave lines, in a town where reinforcements arriving is the most legible thing
+that happens.
 
 ---
 

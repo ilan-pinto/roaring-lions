@@ -136,7 +136,7 @@ Both **unchanged.**
 | `objective(work_up, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Work through the training area` | applied | live |
 | `objective(clear_the_area, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Clear the training area` | applied | live |
 | `missionEnd(victory)` | `toast` | system | `MISSION ACCOMPLISHED — ROE n, k units survive` | hard-coded | live |
-| `missionEnd(victory)` | `debrief` | Shai | "That is everything the battalion will hand you. Next week none of it is a demonstration." | end screen has zero authorable text | engine |
+| `missionEnd(victory)` | `debrief` | Shai | "That is everything the battalion will hand you. Next week none of it is a demonstration." | end screen has zero authorable text | live |
 
 ---
 
@@ -288,9 +288,9 @@ design sheet's summary of it.
 | `objective(survive_relief, complete)` @300 s | `toast` | system | `OBJECTIVE COMPLETE — Still be standing when the relief column arrives` | applied | live |
 | `roe` deduction inside `clinic` | `toast` | system | hard-coded `roeNotice` copy | strings are not authorable | live |
 | `missionEnd(victory)` | `toast` | system | `MISSION ACCOMPLISHED — ROE n, k units survive` | hard-coded | live |
-| `missionEnd(victory)` | `debrief` | Shai | "The column is through. We hold the yard we started the morning in and nothing else." | | engine |
-| `missionEnd(victory)` | `debrief` | Idit | "Eleven were outside the wire at first light. Two came in." | **she says the number he will not**; `storyline.md` §2.2(6) | engine |
-| `missionEnd(defeat)` | `debrief` | Idit | "The compound went at 0-something. I did not get the time." | | engine |
+| `missionEnd(victory)` | `debrief` | Shai | "The column is through. We hold the yard we started the morning in and nothing else." | `debrief.victory` holds one `say`; two lines authored for this outcome, not applied — not a schema decision to make silently | engine |
+| `missionEnd(victory)` | `debrief` | Idit | "Eleven were outside the wire at first light. Two came in." | **she says the number he will not**; `storyline.md` §2.2(6); same one-line limit as the row above | live |
+| `missionEnd(defeat)` | `debrief` | Idit | "The compound went at 0-something. I did not get the time." | | live |
 
 **The two takings are the only `engine` mechanisms in this mission** — every
 other row above is either applied today or waits on the `radio` surface alone
@@ -537,8 +537,8 @@ All three **unchanged.** They read correctly in both positions already.
 | `objective(kill_atgm, complete)` | `radio` | Idit | "East road is clear of it. The convoy can move whenever you say." | | live |
 | `objective(take_town, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Clear the town centre and hold it for 20 seconds` | applied | live |
 | `objective(take_town, complete)` | `radio` | Shai | "Town centre is ours. Nobody goes into the southern block for any reason." | | live |
-| `missionEnd(defeat)` via `fail_below: 40` | `debrief` | Idit | "The rating went under forty at the clinic block. That is the mission, and it is also the next three." | ROE gates nine KDF unlocks | engine |
-| `missionEnd(victory)` | `debrief` | Shai | "The town is ours and the block is still standing. Both of those were the objective." | | engine |
+| `missionEnd(defeat)` via `fail_below: 40` | `debrief` | Idit | "The rating went under forty at the clinic block. That is the mission, and it is also the next three." | ROE gates nine KDF unlocks | live |
+| `missionEnd(victory)` | `debrief` | Shai | "The town is ours and the block is still standing. Both of those were the objective." | | live |
 
 ---
 
@@ -720,10 +720,10 @@ objective, a wave, a `SimEvent` or the mission end.
 | `objective(bring_it_down, failed)` @300 s | `toast` | system | `OBJECTIVE FAILED — Collapse every route under the district` | applied | live |
 | `objective(bring_it_down, failed)` @300 s | `radio` | Idit | "Clock is out and there is still ground under this town that is not ours." | | live |
 | `roe` deduction within 2 tiles of the four | `toast` | system | hard-coded `roeNotice` copy | strings not authorable; this is the deduction the briefing priced | live |
-| `missionEnd(defeat)` via `fail_below: 40` | `debrief` | Idit | "The rating went under forty with them standing there. He does not have to win these; he only has to be next to them." | | engine |
+| `missionEnd(defeat)` via `fail_below: 40` | `debrief` | Idit | "The rating went under forty with them standing there. He does not have to win these; he only has to be next to them." | | live |
 | `missionEnd(victory)` | `aftermath` | narrator | §6.4 above | victory banner | live |
-| `missionEnd(victory)` | `debrief` | Idit | "Four routes, and all four were his. That is the Marj." | | engine |
-| `missionEnd(victory)` | `debrief` | Shai | "Then we go north." | **the act boundary and the promotion**; Captain → Major | engine |
+| `missionEnd(victory)` | `debrief` | Idit | "Four routes, and all four were his. That is the Marj." | `debrief.victory` holds one `say`; two lines authored for this outcome, applied 2026-09-06 as the victory line; the paired promotion/report line is carried by the aftermath or stays unshipped | live |
+| `missionEnd(victory)` | `debrief` | Shai | "Then we go north." | **the act boundary and the promotion**; Captain → Major; same one-line limit as the row above | engine |
 
 ---
 
@@ -905,20 +905,22 @@ positions, and each of them needed binding.
 
 | status | rows | what they are |
 |---|---|---|
-| `live` | **90** (was 63) | `title` 6 · `brief` 6 · `toast` 49 · `tutorial` 2 · `dispatch` 1 · `aftermath` 1 · `radio` 23 · `debrief` 2 — the last four are `say`/`dispatch`/`aftermath`/`debrief` applied to `data/missions/` this pass. **The 6 applied briefings and the 4 applied objective labels are inside this count, validated.** Eight of the 49 toasts are `live` and *wrong* — the six `enemy reacts (deliver_*)` deliveries and the two raw-id `built` lines (G-C, G-D) |
+| `live` | **95** (was 90) | `title` 6 · `brief` 6 · `toast` 49 · `tutorial` 2 · `dispatch` 1 · `aftermath` 1 · `radio` 23 · `debrief` 7 — the last four are `say`/`dispatch`/`aftermath`/`debrief` applied to `data/missions/` this pass. **The 6 applied briefings and the 4 applied objective labels are inside this count, validated.** Eight of the 49 toasts are `live` and *wrong* — the six `enemy reacts (deliver_*)` deliveries and the two raw-id `built` lines (G-C, G-D) |
 | `schema` | **0** (was 2) | none remaining — `dispatch` on First Light and `aftermath` on IV are both applied and counted under `live` above |
-| `engine` | **80** (was 105) | `radio` 49 · `eva` 18 · `debrief` 9 · `toast` 4 (the replacements the hard-coded strings block) |
+| `engine` | **75** (was 80) | `radio` 49 · `eva` 18 · `debrief` 4 · `toast` 4 (the replacements the hard-coded strings block) |
 
-**80 `engine` rows, down from 105 the same day.** The engine slice of
+**75 `engine` rows, down from 80 after `debrief` split win from loss.** The engine slice of
 2026-09-03 (`docs/superpowers/specs/2026-09-03-narrative-layer-engine-design.md`)
 landed `say` on triggers and objectives, the `remove` verb, `group` on
 `starting_force`, and the `dispatch`/`aftermath`/`debrief` fields, and 27 rows
-of this sheet were applied to `data/missions/` and flipped to `live`. **47% of
-the writing in this act still reaches nobody**, and all of it now sits behind
-three things: a radio overlay with portraits (the lines already fire into the
-notice feed and onto the commander bar), a voice layer (GH-110), and trigger
-conditions over waves and `SimEvent`s so a line can be bound to a shaft opening
-or a route being found rather than to a clock.
+of this sheet were applied to `data/missions/` and flipped to `live`; a second
+pass then applied five of the nine paired `debrief` rows once the field could
+tell a win from a loss (below). **44% of the writing in this act still reaches
+nobody**, and all of it now sits behind three things: a radio overlay with
+portraits (the lines already fire into the notice feed and onto the commander
+bar), a voice layer (GH-110), and trigger conditions over waves and
+`SimEvent`s so a line can be bound to a shaft opening or a route being found
+rather than to a clock.
 
 **The two takings are live.** `they_take_the_section` (§2.5, `timer_s(165)`,
 `remove` group `outpost_section` in zone `outpost_ground`) and `the_ring_closes`
@@ -929,10 +931,16 @@ section is already dead by ordinary combat before 165 s, so the backstop finds
 nobody; in the scripted plan it is pulled inside at t=0 and the plan's ROE rose
 from 61 to 75 for it.
 
-**`debrief` cannot yet tell victory from defeat.** The field is one string shown
-on every mission end (`main.ts`), where `aftermath` shows only on victory. The
-sheet's paired debrief lines (Shai on a win, Idit on a loss) therefore stay
-`engine` until the field is split — recorded as G11 in `storyline.md` §7.
+**`debrief` now tells victory from defeat, and five of the nine paired rows are
+applied.** `beit_sahwan_1_recon` and `beit_sahwan_2_foothold` already carried a
+migrated victory line under Shai; both are corrected to the sheet's own speaker
+(Idit) here, text unchanged. `beit_sahwan_3_clearance` gains both variants
+fresh. Four rows stay `engine` and not for lack of a field: First Light and IV
+each authored **two** lines for the same victory outcome (Shai's report and
+Idit's personal one; Idit's close and Shai's act-boundary promotion), and
+`debrief.victory` holds exactly one `say`. Picking one would silently drop the
+other's content; that is a call for whoever owns this sheet, not a script.
+Recorded at each row above. G11 in `storyline.md` §7 is otherwise closed.
 
 **What this delta pass changed in the JSON**, and nothing else:
 `beit_sahwan_breach.briefing` (675 → 1,182 chars, 5 → 8 beats),

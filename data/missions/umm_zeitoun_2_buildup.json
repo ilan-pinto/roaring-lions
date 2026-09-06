@@ -8,7 +8,11 @@
   "debrief": {
     "victory": {
       "speaker": "shai",
-      "text": "Nobody replaces an observer on a heap of blocks. They replace him on the next hill."
+      "text": "Four minutes on the line, a camp behind it, and one less hill in this basin with a man on it."
+    },
+    "defeat": {
+      "speaker": "idit",
+      "text": "The shed is standing and everything we built is inside twelve tiles of a tube. We built it where he was looking."
     }
   },
   "map": {

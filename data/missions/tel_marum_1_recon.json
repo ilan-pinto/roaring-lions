@@ -5,6 +5,16 @@
   "town": "tel_marum",
   "phase": "recon",
   "target_minutes": 7,
+  "debrief": {
+    "victory": {
+      "speaker": "shai",
+      "text": "Four positions and a tube. That is more of Sur than anybody has had since the shelling started."
+    },
+    "defeat": {
+      "speaker": "idit",
+      "text": "We came back with part of it. The part we did not get is the part that has been killing people."
+    }
+  },
   "briefing": "Sur begins at the pass, and the pass is watched. Rockets have been falling on the north for a week and nobody can say from where, so tonight you find out. Push the drone up the valley and build the picture — two ATGM pockets on the wall, a Grad section behind it, and whoever is feeding them targets. Keep the metal in the hollow: the valley floor south of it is out of the battery's reach, and everything north of it is not. Bring back the picture, not casualties.",
   "map": {
     "file": "tel_marum",

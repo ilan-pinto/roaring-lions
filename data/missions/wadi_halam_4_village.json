@@ -8,7 +8,11 @@
   "debrief": {
     "victory": {
       "speaker": "shai",
-      "text": "A garrisoned house comes down or it stays garrisoned; there is no third way to clear one. What that costs is on the rating. What it was for is on the order."
+      "text": "Twenty-three points. Eighteen of them were the order and five were how we carried it out, and only the five are mine."
+    },
+    "defeat": {
+      "speaker": "idit",
+      "text": "The village is standing and so are they. Whoever was in those houses is still in them."
     }
   },
   "map": {

@@ -206,8 +206,8 @@ the mission end, except **T6**, which is the town's first trigger and is
 | `SimEvent contact` on `tm_manpad` | `radio` | Idit | "Missile team on the shoulder. Nothing of ours flies over that line twice." | needs a trigger that can watch the sim (§12 G-E) | engine |
 | `missionEnd(victory)` | `toast` | system | `MISSION ACCOMPLISHED — ROE n, k units survive` | hard-coded | live |
 | `missionEnd(any)` | `debrief` | narrator | §1.5 above | end screen, above the rating | live |
-| `missionEnd(victory)` | `debrief` | Shai | "Four positions and a tube. That is more of Sur than anybody has had since the shelling started." | needs the win/lose split | engine |
-| `missionEnd(defeat)` | `debrief` | Idit | "We came back with part of it. The part we did not get is the part that has been killing people." | needs the win/lose split | engine |
+| `missionEnd(victory)` | `debrief` | Shai | "Four positions and a tube. That is more of Sur than anybody has had since the shelling started." | applied | live |
+| `missionEnd(defeat)` | `debrief` | Idit | "We came back with part of it. The part we did not get is the part that has been killing people." | applied | live |
 
 ---
 
@@ -277,8 +277,8 @@ Honest on a win and on a loss. Status **`live`**.
 | wave t=210 s | `radio` | Idit | "Recoilless coming down to the wide saddle. He is not reinforcing the pocket — he is pricing the road behind you." | a wave cannot speak (§12 G-D) | engine |
 | `SimEvent fire` from `tm_hvt_battery` onto the approach | `eva` | brigade net | "Incoming. Indirect." | shared set, §9 | engine |
 | `missionEnd(any)` | `debrief` | narrator | §2.5 above | | live |
-| `missionEnd(victory)` | `debrief` | Idit | "One eye off that ground and the rounds kept coming. That is the front, not a bad night." | needs the win/lose split | engine |
-| `missionEnd(defeat)` | `debrief` | Shai | "We did not hold the ground the engineers were marking. There is no start line, so there is no pass." | needs the win/lose split | engine |
+| `missionEnd(victory)` | `debrief` | Idit | "One eye off that ground and the rounds kept coming. That is the front, not a bad night." | applied | live |
+| `missionEnd(defeat)` | `debrief` | Shai | "We did not hold the ground the engineers were marking. There is no start line, so there is no pass." | applied | live |
 
 ---
 
@@ -363,8 +363,8 @@ shipped plan is recorded in the design's §3.5, not here.
 | **T-C2** `zone_entered(narrow_corridor)` → `the_corridor_was_watched_after_all` | `toast` | system | `enemy reacts (the_corridor_was_watched_after_all)` | needs a new zone on the map (design §3.3); **the map is another agent's file this session** | live |
 | **T-C2** same trigger | `radio` | **Idit** | "Rifles in the corridor. Somebody was watching the one route the rock was supposed to keep quiet." | `triggers[].say` | live |
 | `missionEnd(any)` | `debrief` | narrator | §3.5 above | | live |
-| `missionEnd(victory)` | `debrief` | Shai | "The pass is a road now. The block behind it is still standing, which is the only part of this I will be asked about." | needs the win/lose split | engine |
-| `missionEnd(defeat)` via `fail_below: 45` | `debrief` | Idit | "The rating went under forty-five with the tube still firing. He parked it there for that and it worked." | needs the win/lose split | engine |
+| `missionEnd(victory)` | `debrief` | Shai | "The pass is a road now. The block behind it is still standing, which is the only part of this I will be asked about." | applied | live |
+| `missionEnd(defeat)` via `fail_below: 45` | `debrief` | Idit | "The rating went under forty-five with the tube still firing. He parked it there for that and it worked." | applied | live |
 
 ---
 
@@ -471,8 +471,8 @@ Honest on a win and on a loss. Status **`live`**.
 | wave t=260 s (2 `sarim_rifles` from `sarim_north` → `lane_centre`) | `toast` | system | `enemy reinforcements — 2 unit(s) inbound` | hard-coded | live |
 | `SimEvent destroyed` on the `recon_drone` | `radio` | Idit | "Drone is gone. Whatever it had not looked at yet, we go and look at on foot, next week, with people." | **T-U3** — the ledger said out loud; needs a sim-watching trigger (§12 G-E) | engine |
 | `missionEnd(any)` | `debrief` | narrator | §4.5 above | | live |
-| `missionEnd(victory)` | `debrief` | Idit | "Four posts on the board and two families in the wadi. It is the first night of this front we have finished holding more than we started with." | needs the win/lose split | engine |
-| `missionEnd(defeat)` | `debrief` | Shai | "We were four tiles from the wells and looking at a hill. That is the whole report." | needs the win/lose split | engine |
+| `missionEnd(victory)` | `debrief` | Idit | "Four posts on the board and two families in the wadi. It is the first night of this front we have finished holding more than we started with." | applied | live |
+| `missionEnd(defeat)` | `debrief` | Shai | "We were four tiles from the wells and looking at a hill. That is the whole report." | applied | live |
 
 ---
 
@@ -556,8 +556,8 @@ Honest on a win and a loss. Status **`live`**.
 | `built` — a purchased `inf_squad` arrives | `toast` | system | `reinforcement deployed — inf_squad` | **prints a raw unit id.** Act I's **G-D**, still open; `render-vfx` | engine |
 | `SimEvent fire` from `uz_battery` onto `crest_line` | `eva` | brigade net | "Incoming. Indirect." | shared set, §9 | engine |
 | `missionEnd(any)` | `debrief` | narrator | §5.4 above | | live |
-| `missionEnd(victory)` | `debrief` | Shai | "Four minutes on the line, a camp behind it, and one less hill in this basin with a man on it." | needs the win/lose split | engine |
-| `missionEnd(defeat)` | `debrief` | Idit | "The shed is standing and everything we built is inside twelve tiles of a tube. We built it where he was looking." | needs the win/lose split | engine |
+| `missionEnd(victory)` | `debrief` | Shai | "Four minutes on the line, a camp behind it, and one less hill in this basin with a man on it." | applied | live |
+| `missionEnd(defeat)` | `debrief` | Idit | "The shed is standing and everything we built is inside twelve tiles of a tube. We built it where he was looking." | applied | live |
 
 ---
 
@@ -673,8 +673,8 @@ clinic route. Status **`live`**.
 | wave t=330 s (2 `sarim_rifles` from `sarim_north` → `hamlet_square`) | `toast` | system | `enemy reinforcements — 2 unit(s) inbound` | hard-coded | live |
 | wave t=330 s | `radio` | Idit | "He is putting rifles into the square while the families are still walking out of it." | a wave cannot speak (§12 G-D) | engine |
 | `missionEnd(any)` | `debrief` | narrator | §6.4 above | | live |
-| `missionEnd(victory)` | `debrief` | Shai | "Both horns down and four out of the block, and we took it with rifles because the rating is the equipment." | needs the win/lose split | engine |
-| `missionEnd(defeat)` via `fail_below: 45` | `debrief` | Idit | "The rating went under forty-five inside the block. He did not have to be in it — he only had to be able to reach it." | needs the win/lose split | engine |
+| `missionEnd(victory)` | `debrief` | Shai | "Both horns down and four out of the block, and we took it with rifles because the rating is the equipment." | applied | live |
+| `missionEnd(defeat)` via `fail_below: 45` | `debrief` | Idit | "The rating went under forty-five inside the block. He did not have to be in it — he only had to be able to reach it." | applied | live |
 
 ---
 
@@ -825,9 +825,9 @@ does, and it does it in four words. Status **`live`**; owner `mission-author`.
 | `SimEvent destroyed`, both `demo_squad` | `radio` | Shai | "That was the last party. Whatever is still standing at the deadline stays standing." | needs a sim-watching trigger (§12 G-E) | engine |
 | `missionEnd(any)` | `debrief` | narrator | §7.4 above | | live |
 | `missionEnd(victory)` | `aftermath` | narrator | §7.6 above | victory banner | live |
-| `missionEnd(victory)` | `debrief` | Idit | "Two towns, seven missions and one man, and the only thing he ever did was look at us." | needs the win/lose split | engine |
-| `missionEnd(victory)` | `debrief` | Shai | "Then we go to the road." | **the act boundary and the promotion**; Major → Lieutenant Colonel | engine |
-| `missionEnd(defeat)` | `debrief` | Idit | "The depot is standing and he is on the reverse slope. Nothing about the north changes tonight." | needs the win/lose split | engine |
+| `missionEnd(victory)` | `debrief` | Idit | "Two towns, seven missions and one man, and the only thing he ever did was look at us." | `debrief.victory` holds one `say`; two lines authored for this outcome, applied 2026-09-06 as the victory line; the paired promotion/report line is carried by the aftermath or stays unshipped; migrated Shai line kept in the JSON meanwhile | live |
+| `missionEnd(victory)` | `debrief` | Shai | "Then we go to the road." | **the act boundary and the promotion**; Major → Lieutenant Colonel; same one-line limit as the row above | engine |
+| `missionEnd(defeat)` | `debrief` | Idit | "The depot is standing and he is on the reverse slope. Nothing about the north changes tonight." | applied | live |
 
 ---
 
@@ -1062,23 +1062,30 @@ counted by script rather than by eye.
 
 | status | rows | what they are |
 |---|---|---|
-| `live` | **147** | `toast` 67 · `radio`, i.e. a `say` on a trigger or an objective, 39 · `title` 7 · `brief` 7 · `debrief` 7 · twist rows 15 · `dispatch` 1 · `aftermath` 1 · `roe` 1 · two rows that record a **deliberate silence** (the pockets that get no `say`; the `survive_until` that cannot fail) |
+| `live` | **160** (was 147) | `toast` 67 · `radio`, i.e. a `say` on a trigger or an objective, 39 · `title` 7 · `brief` 7 · `debrief` 20 · twist rows 15 · `dispatch` 1 · `aftermath` 1 · `roe` 1 · two rows that record a **deliberate silence** (the pockets that get no `say`; the `survive_until` that cannot fail) |
 | `schema` | **0** | none. Every field this act needs exists |
-| `engine` | **66** | ambient lore 25 (`radio` 24, `toast` 1) · paired win/lose `debrief` 15 · `radio` 11 · `eva` 6 · `toast` 5 · twist rows 4 |
+| `engine` | **53** (was 66) | ambient lore 25 (`radio` 24, `toast` 1) · paired win/lose `debrief` 2 · `radio` 11 · `eva` 6 · `toast` 5 · twist rows 4 |
 
-**66 `engine` rows.** Not one of them is blocked on a *field*: they are blocked on
-four things and only four — a **radio overlay with portraits** (`render-vfx`), a
-**voice layer** (GH-110, and the audio gate widens first), a **`debrief` that can
-tell a win from a loss** (§12 G-C, 15 rows), and **trigger conditions over waves
-and `SimEvent`s** so a line can be bound to a drone dying or reinforcements
-landing rather than to a clock (§12 G-D 6 rows, G-E 5 rows). Every one of the 25
-ambient rows is `engine` for the second and fourth reasons together: they have no
-event to fire on and no surface to fire into.
+**53 `engine` rows.** The **`debrief` that can tell a win from a loss** blocker
+(§12 G-C) is closed — the field now carries `victory`/`defeat` separately, and
+13 of this sheet's 15 paired rows are applied to `data/missions/` and flipped to
+`live` above (all six Tel Marum rows and six of Umm Zeitoun's eight). The two
+that stay `engine` are not blocked on the field either: `umm_zeitoun_4_clearance`
+authored **two** lines for the same victory outcome — Idit's close and Shai's
+act-boundary promotion — and `debrief.victory` holds exactly one `say`. Picking
+one would silently drop the other's content; recorded at the row, not resolved
+here. What remains is blocked on three things: a **radio overlay with
+portraits** (`render-vfx`), a **voice layer** (GH-110, and the audio gate widens
+first), and **trigger conditions over waves and `SimEvent`s** so a line can be
+bound to a drone dying or reinforcements landing rather than to a clock (§12 G-D
+6 rows, G-E 5 rows). Every one of the 25 ambient rows is `engine` for the second
+and third reasons together: they have no event to fire on and no surface to fire
+into.
 
-**31 %** of the writing in this act still reaches nobody. In Act I the figure was
-47 %, and the whole difference is the engine slice of 2026-09-03 — the `say`
-lines that were the largest `engine` block in Beit Sahwan are the largest `live`
-block here.
+**25 %** of the writing in this act still reaches nobody, down from 31 % before
+the `debrief` split. In Act I the figure is now 44 %, and the whole difference
+is the engine slice of 2026-09-03 — the `say` lines that were the largest
+`engine` block in Beit Sahwan are the largest `live` block here.
 
 **What is applied to `data/missions/` this pass: nothing.** The three shipped Tel
 Marum missions were read, their briefings beat-checked with a port of

@@ -4,6 +4,16 @@
   "town": "beit_sahwan",
   "phase": "breach",
   "target_minutes": 5,
+  "debrief": {
+    "defeat": {
+      "speaker": "idit",
+      "text": "The compound went at 0-something. I did not get the time."
+    },
+    "victory": {
+      "speaker": "idit",
+      "text": "Eleven were outside the wire at first light. Two came in."
+    }
+  },
   "dispatch": "Beit Sahwan, before dawn. Nadir Sahim spent four years digging under the Marj and one morning spending it — every approach at once, and four villages left outside the wire. The senior officer still inside was a captain.",
   "briefing": "They came at dawn, out of the Marj, across every approach at once. What is left of the company is inside the compound on the Beit Sahwan road, and the road is still open behind us — supply is coming forward, so spend it as it arrives rather than banking it. Two gates, both on the road, and two blind faces they will cut straight through rather than walk round. A section of the company is still outside the wire, north-west of the yard: bring it in and that corner of the wall is manned again, or leave it out and hold the one position we have past it. They have an eye aloft north of the wire and a mortar crew laid in behind it. What lands in this yard lands because that eye is watching. Only the sniper's rifle reaches that high, and the tube itself is four tiles off the section's position. Whichever of the two you spend is not covering the wall while it works. The villages are outside the wire and the families in them have nowhere else to go: get at least two inside before the ring closes, because nobody is coming back for them afterwards. Take something fast, brush them, and let them walk themselves in. Hold the yard, and still be standing when the column reaches us.",
   "map": {
