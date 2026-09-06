@@ -450,7 +450,7 @@ const wh3 = run(
 run('wadi_halam_3_counterraid', () => {}, wh2, 'defeat', 'wadi_halam_3_counterraid (no orders)');
 
 // IV — Wadi Halam (the village): clear the four corner cells, kill the cache
-// guard in the SE house, and get the families out. Mind the mosque block --
+// guard in the SE house, and get the families out. Mind the hall block --
 // nothing in this force fires ordnance heavy enough to charge it, so the
 // only ROE discipline needed is not parking a gun on top of it.
 //

@@ -1486,7 +1486,7 @@ describe('determinism through the runtime', () => {
 
 describe('buildings in missions (garrison stance + structure ROE)', () => {
   const HOUSE = { id: 'house', name: 'House', hp_per_tile: 200, garrison_slots: 2, rubble_cover: 2, roe_penalty: 6 };
-  const MOSQUE = { id: 'mosque', name: 'Mosque', hp_per_tile: 300, garrison_slots: 2, rubble_cover: 2, roe_penalty: 30 };
+  const HALL = { id: 'hall', name: 'Civic Hall', hp_per_tile: 300, garrison_slots: 2, rubble_cover: 2, roe_penalty: 30 };
 
   const HOLDER: UnitTypeJson = {
     id: 'b_inf',
@@ -1500,19 +1500,19 @@ describe('buildings in missions (garrison stance + structure ROE)', () => {
     ],
   };
 
-  function buildingWorld(partial: Partial<MissionJson>): World & { house: number; mosque: number } {
+  function buildingWorld(partial: Partial<MissionJson>): World & { house: number; hall: number } {
     const sim = new Sim({ seed: 3, width: 28, height: 14, capacity: 24 });
     const ids = new Map<string, number>();
     for (const t of [SQUAD, HOLDER]) ids.set(t.id, sim.addUnitType(t));
     const ht = sim.addStructureType(HOUSE);
-    const mt = sim.addStructureType(MOSQUE);
+    const mt = sim.addStructureType(HALL);
     const rect = (typeIdx: number, x: number, y: number, w: number, h: number): number => {
       const tiles: number[] = [];
       for (let ty = y; ty < y + h; ty++) for (let tx = x; tx < x + w; tx++) tiles.push(ty * sim.width + tx);
       return sim.addStructure(typeIdx, tiles);
     };
     const house = rect(ht, 14, 6, 2, 2);
-    const mosque = rect(mt, 20, 6, 2, 2);
+    const hall = rect(mt, 20, 6, 2, 2);
     const runtime = new MissionRuntime(sim, baseMission(partial), {
       typeIdOf: (u) => {
         const t = ids.get(u);
@@ -1527,7 +1527,7 @@ describe('buildings in missions (garrison stance + structure ROE)', () => {
       sim,
       runtime,
       house,
-      mosque,
+      hall,
       step: (ticks: number) => {
         const out: { sim: SimEvent[]; mission: MissionEvent[] } = { sim: [], mission: [] };
         for (let i = 0; i < ticks; i++) {
@@ -1571,12 +1571,12 @@ describe('buildings in missions (garrison stance + structure ROE)', () => {
     expect(out.filter((e) => e.kind === 'roe').length).toBe(1);
     expect(w.runtime.roeScore).toBe(94);
 
-    // The mosque is a different order of mistake.
-    const mosqueDown: SimEvent = { kind: 'structureDestroyed', tick: 2, structure: w.mosque, by: 0 };
-    out = w.runtime.step([mosqueDown]);
+    // The hall is a different order of mistake.
+    const hallDown: SimEvent = { kind: 'structureDestroyed', tick: 2, structure: w.hall, by: 0 };
+    out = w.runtime.step([hallDown]);
     expect(w.runtime.roeScore).toBe(64);
     const ev = out.find((e) => e.kind === 'roe');
-    expect(ev?.kind === 'roe' && ev.reason).toContain('Mosque');
+    expect(ev?.kind === 'roe' && ev.reason).toContain('Hall');
   });
 
   it('the enemy demolishing its own town is not the player\'s ROE problem', () => {
@@ -1596,7 +1596,7 @@ describe('buildings in missions (garrison stance + structure ROE)', () => {
       starting_force: [{ unit: 'm_squad', count: 1, at: [3, 6] }],
       roe: { enabled: true, structure_penalty_mult: 0 },
     });
-    w.runtime.step([{ kind: 'structureDestroyed', tick: 1, structure: w.mosque, by: 0 }]);
+    w.runtime.step([{ kind: 'structureDestroyed', tick: 1, structure: w.hall, by: 0 }]);
     expect(w.runtime.roeScore).toBe(100);
   });
 });

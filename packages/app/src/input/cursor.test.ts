@@ -47,7 +47,7 @@ describe('cursorFor', () => {
     expect(cursorFor(moving({ roe: 'costly' }), NONE)).toBe('costly');
   });
 
-  it('is protected over a mosque or a flagged zone', () => {
+  it('is protected over a hall or a flagged zone', () => {
     expect(cursorFor(moving({ roe: 'protected' }), NONE)).toBe('protected');
   });
 
@@ -192,7 +192,7 @@ describe('the cursor names the verb', () => {
     expect(cursorFor(r, { hostile: false, blocked: true })).toBe('demolish');
   });
 
-  it('but still says protected over a mosque, whatever the verb', () => {
+  it('but still says protected over a hall, whatever the verb', () => {
     const r = res([at('demolish', { structure: 3 })], { roe: 'protected' });
     expect(cursorFor(r, NONE)).toBe('protected');
   });
@@ -292,7 +292,7 @@ describe('the badge says who is doing it', () => {
   });
 
   it('gives no badge when the resolved name is protected, even though a demolish intent survived -- closing Critical 1', () => {
-    // The exact composition bug: a lone demolisher razing a mosque produces
+    // The exact composition bug: a lone demolisher razing a hall produces
     // intents:[demolish] AND roe:'protected' (sortStructureOrder lets a pure-
     // demolisher selection through even without Alt), so cursorFor names it
     // 'protected' -- the roe rung fires before the verb rung. The old

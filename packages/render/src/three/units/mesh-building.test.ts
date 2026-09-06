@@ -23,11 +23,11 @@ describe('buildBuildingMeshTemplate', () => {
     expect(template.root.scale.x).toBeCloseTo(MESH_SCALE);
   });
 
-  it('a mosque and a house wall differ, from their own structures.json colour', async () => {
+  it('a hall and a house wall differ, from their own structures.json colour', async () => {
     const gltf = await parseRigidFixture({ parts: [{ nodeName: 'wall', extrasRole: 'wall' }] });
-    const mosque = buildBuildingMeshTemplate(gltf, 'limestone.1', 'flat');
+    const hall = buildBuildingMeshTemplate(gltf, 'limestone.1', 'flat');
     const house = buildBuildingMeshTemplate(gltf, 'limestone.3', 'flat');
-    const mat1 = mosque.materials[0] as import('three').ShaderMaterial;
+    const mat1 = hall.materials[0] as import('three').ShaderMaterial;
     const mat2 = house.materials[0] as import('three').ShaderMaterial;
     expect(mat1.uniforms.uRamp.value).not.toEqual(mat2.uniforms.uRamp.value);
   });

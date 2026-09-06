@@ -2,7 +2,7 @@
 authored `.blend` sources.
 
     /Applications/Blender.app/Contents/MacOS/Blender --background \
-        --python tools/export_mesh_building.py -- mosque
+        --python tools/export_mesh_building.py -- shanty
 
     # or every building this pipeline covers:
     /Applications/Blender.app/Contents/MacOS/Blender --background \

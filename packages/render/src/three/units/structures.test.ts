@@ -74,7 +74,7 @@ const ROOT = join(import.meta.dirname, '..', '..', '..', '..', '..');
 /** `roofTopPx`/`badgeTopPx` read straight off a shipped structure sheet's
  *  own `manifest.json` -- see `resolveRoofPx`'s own doc comment for what
  *  they mean. `manifestDir` is the sheet's directory name under
- *  `assets/sprites/` (e.g. `BLD_MOSQUE`). */
+ *  `assets/sprites/` (e.g. `BLD_HOUSE`). */
 function readStructureManifest(manifestDir: string): { roofTopPx: number; badgeTopPx: number } {
   const raw: unknown = JSON.parse(
     readFileSync(join(ROOT, 'assets/sprites', manifestDir, 'manifest.json'), 'utf8')
@@ -99,28 +99,28 @@ function readStructureHeightPx(structureId: string): number {
   return entry.height_px;
 }
 
-/** A 6x6 sim with two structure types: `mosque` (a 2x2 footprint at
+/** A 6x6 sim with two structure types: `hall` (a 2x2 footprint at
  *  tiles (1,1)-(2,2), footprint centre (2, 2) exactly) and `shanty` (a
  *  single tile at (4,4), footprint centre (4.5, 4.5)) -- one even-width, one
  *  odd, so the `(min + max + 1) / 2` centre formula is exercised both ways. */
-function buildSim(): { sim: Sim; mosqueIdx: number; shantyIdx: number } {
+function buildSim(): { sim: Sim; hallIdx: number; shantyIdx: number } {
   const sim = new Sim({ seed: 1, width: 6, height: 6, capacity: 4 });
-  const mosqueType = sim.addStructureType({ id: 'mosque', hp_per_tile: 100, height_px: 34, color: 'limestone.4' });
+  const hallType = sim.addStructureType({ id: 'hall', hp_per_tile: 100, height_px: 34, color: 'limestone.4' });
   const shantyType = sim.addStructureType({ id: 'shanty', hp_per_tile: 50, height_px: 11, color: 'dust.1' });
   const w = 6;
-  const mosqueTiles = [1 + 1 * w, 2 + 1 * w, 1 + 2 * w, 2 + 2 * w];
-  const mosqueIdx = sim.addStructure(mosqueType, mosqueTiles);
+  const hallTiles = [1 + 1 * w, 2 + 1 * w, 1 + 2 * w, 2 + 2 * w];
+  const hallIdx = sim.addStructure(hallType, hallTiles);
   const shantyIdx = sim.addStructure(shantyType, [4 + 4 * w]);
-  return { sim, mosqueIdx, shantyIdx };
+  return { sim, hallIdx, shantyIdx };
 }
 
 describe('liveStructurePlacements / deadStructurePlacements', () => {
   it("computes the footprint centre as (min + max + 1) / 2, Pixi's own drawStructureSprite formula", () => {
     const { sim } = buildSim();
-    const mosque = liveStructurePlacements(sim, 'mosque', null);
-    expect(mosque).toHaveLength(1);
-    expect(mosque[0].fx).toBeCloseTo(2, 10); // (1+2+1)/2
-    expect(mosque[0].fy).toBeCloseTo(2, 10);
+    const hall = liveStructurePlacements(sim, 'hall', null);
+    expect(hall).toHaveLength(1);
+    expect(hall[0].fx).toBeCloseTo(2, 10); // (1+2+1)/2
+    expect(hall[0].fy).toBeCloseTo(2, 10);
 
     const shanty = liveStructurePlacements(sim, 'shanty', null);
     expect(shanty).toHaveLength(1);
@@ -130,38 +130,38 @@ describe('liveStructurePlacements / deadStructurePlacements', () => {
 
   it('filters by structureId -- asking for one type never returns the other', () => {
     const { sim } = buildSim();
-    expect(liveStructurePlacements(sim, 'mosque', null).some((p) => p.fx === 4.5)).toBe(false);
+    expect(liveStructurePlacements(sim, 'hall', null).some((p) => p.fx === 4.5)).toBe(false);
     expect(liveStructurePlacements(sim, 'shanty', null).some((p) => p.fx === 2)).toBe(false);
   });
 
   it('a full-integrity live structure gets alpha 1 (0.55 + 0.45 * 1)', () => {
     const { sim } = buildSim();
-    expect(liveStructurePlacements(sim, 'mosque', null)[0].alpha).toBeCloseTo(1, 10);
+    expect(liveStructurePlacements(sim, 'hall', null)[0].alpha).toBeCloseTo(1, 10);
   });
 
   it("a battered structure's alpha follows Pixi's own 0.55 + 0.45 * integrity", () => {
-    const { sim, mosqueIdx } = buildSim();
-    const max = sim.structures.maxHp[mosqueIdx];
-    sim.structures.hp[mosqueIdx] = Math.round(max * 0.2);
-    const integrity = sim.structures.hp[mosqueIdx] / max;
-    expect(liveStructurePlacements(sim, 'mosque', null)[0].alpha).toBeCloseTo(0.55 + 0.45 * integrity, 10);
+    const { sim, hallIdx } = buildSim();
+    const max = sim.structures.maxHp[hallIdx];
+    sim.structures.hp[hallIdx] = Math.round(max * 0.2);
+    const integrity = sim.structures.hp[hallIdx] / max;
+    expect(liveStructurePlacements(sim, 'hall', null)[0].alpha).toBeCloseTo(0.55 + 0.45 * integrity, 10);
   });
 
   it('worldY is the footprint centre tile\'s own elevation-adjusted ground height', () => {
     const { sim } = buildSim();
     const elevation = new Uint8Array(36);
-    elevation[2 + 2 * 6] = 3; // the tile under the mosque's footprint centre (2,2)
+    elevation[2 + 2 * 6] = 3; // the tile under the hall's footprint centre (2,2)
     const expected = groundWorldY(elevation, 6, 6, 2, 2);
     expect(expected).toBeCloseTo(3 * WORLD_PER_LEVEL, 10);
-    expect(liveStructurePlacements(sim, 'mosque', elevation)[0].worldY).toBeCloseTo(expected, 10);
+    expect(liveStructurePlacements(sim, 'hall', elevation)[0].worldY).toBeCloseTo(expected, 10);
   });
 
   it('a dead structure is absent from liveStructurePlacements and present (alpha 1) in deadStructurePlacements', () => {
-    const { sim, mosqueIdx } = buildSim();
-    sim.structures.hp[mosqueIdx] = Math.round(sim.structures.maxHp[mosqueIdx] * 0.2); // would-be alpha != 1 if it leaked through
-    sim.structures.alive[mosqueIdx] = 0;
-    expect(liveStructurePlacements(sim, 'mosque', null)).toHaveLength(0);
-    const dead = deadStructurePlacements(sim, 'mosque', null);
+    const { sim, hallIdx } = buildSim();
+    sim.structures.hp[hallIdx] = Math.round(sim.structures.maxHp[hallIdx] * 0.2); // would-be alpha != 1 if it leaked through
+    sim.structures.alive[hallIdx] = 0;
+    expect(liveStructurePlacements(sim, 'hall', null)).toHaveLength(0);
+    const dead = deadStructurePlacements(sim, 'hall', null);
     expect(dead).toHaveLength(1);
     expect(dead[0].alpha).toBe(1);
     expect(dead[0].fx).toBeCloseTo(2, 10);
@@ -169,7 +169,7 @@ describe('liveStructurePlacements / deadStructurePlacements', () => {
 
   it('deadStructurePlacements is empty while the structure is alive', () => {
     const { sim } = buildSim();
-    expect(deadStructurePlacements(sim, 'mosque', null)).toHaveLength(0);
+    expect(deadStructurePlacements(sim, 'hall', null)).toHaveLength(0);
   });
 });
 
@@ -190,8 +190,8 @@ describe('resolveRoofPx -- the discrepancy this task resolves', () => {
     expect(resolveRoofPx({ roofTopPx: null, badgeTopPx: null }, 34)).toBe(34);
   });
 
-  it('re-measures the B3.3 gap: the mosque and one BLD_* house both close to exactly 0', () => {
-    // Task B4: real manifest numbers (assets/sprites/BLD_MOSQUE, BLD_HOUSE)
+  it('re-measures the B3.3 gap: the apartment and one BLD_* house both close to exactly 0', () => {
+    // Task B4: real manifest numbers (assets/sprites/BLD_APARTMENT, BLD_HOUSE)
     // and real data/structures.json heightPx, READ off those files rather
     // than hardcoded -- the previous version pinned four literals (104.11,
     // 136.65, 125.98, 140.86) plus a fifth and sixth (34, 16) that a
@@ -200,7 +200,7 @@ describe('resolveRoofPx -- the discrepancy this task resolves', () => {
     // statically import `@lions/data` (ESLint-enforced), hence reading the
     // raw JSON directly rather than importing the `structures` catalogue.
     const cases = [
-      { id: 'mosque', manifestDir: 'BLD_MOSQUE' },
+      { id: 'apartment', manifestDir: 'BLD_APARTMENT' },
       { id: 'house', manifestDir: 'BLD_HOUSE' },
     ];
     for (const c of cases) {
@@ -414,9 +414,9 @@ describe('structureAliveAlpha', () => {
 
 describe('footprintCentre', () => {
   it("matches liveStructurePlacements' own (min + max + 1) / 2 formula for the same structure", () => {
-    const { sim, mosqueIdx } = buildSim();
-    const { fx, fy } = footprintCentre(sim, mosqueIdx);
-    const placement = liveStructurePlacements(sim, 'mosque', null)[0];
+    const { sim, hallIdx } = buildSim();
+    const { fx, fy } = footprintCentre(sim, hallIdx);
+    const placement = liveStructurePlacements(sim, 'hall', null)[0];
     expect(fx).toBeCloseTo(placement.fx, 10);
     expect(fy).toBeCloseTo(placement.fy, 10);
   });

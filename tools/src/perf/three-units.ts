@@ -482,7 +482,6 @@ const STRUCTURE_SPRITES: Record<string, string> = {
   warehouse: 'sprites/BLD_WAREHOUSE/',
   apartment: 'sprites/BLD_APARTMENT/',
   concrete: 'sprites/BLD_CONCRETE/',
-  mosque: 'sprites/BLD_MOSQUE/',
   wall: 'sprites/BLD_WALL/',
 };
 

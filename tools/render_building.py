@@ -896,42 +896,12 @@ def render_building(spec):
     )
 
 
-MOSQUE = BuildingSpec(
-    src=os.path.abspath("art/src/buildings/mosque.blend"),
-    out_dir=os.path.abspath("assets/sprites/BLD_MOSQUE"),
-    unit="mosque",
-    mesh_owner=MESH_KIT_OWNED,
-    credit="Original work for Roaring Lions (CC BY-SA 4.0)",
-    # data/maps: the mosque is a 3x3 block of 'm'.
-    footprint_tiles=3,
-    colour_key="limestone.1",
-    brick=True,
-    drop={
-        "Ground",  # 26x22 ground plane; fills the frame
-        "Cube",  # leftover default cube, half below grade inside Hall
-        # Forecourt. The map declares a 3x3 square and these make the model
-        # 1.36:1; at 64px they read as thin noise and shrink the dome, which is
-        # what identifies a mosque. They stay in the .blend.
-        "Wall_L",
-        "Wall_R",
-        "Wall_side_L",
-        "Wall_side_R",
-        "Gate_L",
-        "Gate_R",
-        "Gate_lintel",
-    },
-    offsets={
-        # The minaret was placed inside the forecourt. With the walls dropped it
-        # reads as a detached pillar, so it is tucked against the hall's corner.
-        # Fill rises from 19-23% to 24-30% and the group reads as one building.
-        "Minaret_base": (-1.55, 0.60, 0.0),
-        "Minaret_shaft": (-1.55, 0.60, 0.0),
-        "Minaret_balcony": (-1.55, 0.60, 0.0),
-        "Minaret_dome": (-1.55, 0.60, 0.0),
-        "Minaret_top": (-1.55, 0.60, 0.0),
-        "Minaret_finial": (-1.55, 0.60, 0.0),
-    },
-)
+# `MOSQUE` (the BuildingSpec for the retired kit-authored mosque.blend, its
+# billboard sheet BLD_MOSQUE) was removed here -- task O10, GDD Section 2
+# ("never a faith"). Its replacement, `hall`, ships no billboard sheet at
+# all: like `clinic`, it is a supplied Meshy asset that goes through the
+# textured mesh branch, and this BuildingSpec table has no entry for either
+# of them (see `export_meshy_hall.py`).
 
 
 HOUSE = BuildingSpec(
@@ -1025,7 +995,6 @@ WALL = BuildingSpec(
 
 
 BUILDINGS = {
-    "mosque": MOSQUE,
     "house": HOUSE,
     "shanty": SHANTY,
     "warehouse": WAREHOUSE,

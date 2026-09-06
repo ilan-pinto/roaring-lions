@@ -89,14 +89,14 @@ describe('chargeTunnel intent', () => {
 
 // Right-clicking a building splits the selection three ways: demolishers level
 // it, garrisoners enter it, everyone else attack-moves at it. That is fine for
-// a shed and catastrophic for a mosque.
+// a shed and catastrophic for a hall.
 //
 // The sim already refuses to level a protected site on a unit's own initiative
 // (`PROTECTED_ROE`, and the carve-outs in selectStructureTarget, the demolition
 // auto-search, and selectBreachTarget). What it cannot refuse is an explicit
 // `demolish` order, because an explicit order means the player accepted the
 // bill. The trap was that the app manufactured that order out of an ambiguous
-// click: select the whole force, right-click east past a mosque to advance, and
+// click: select the whole force, right-click east past a hall to advance, and
 // the D9 in the selection quietly took a demolish order worth 30 ROE while
 // everything else attack-moved and it looked like a move.
 //

@@ -997,7 +997,6 @@ async function main(): Promise<void> {
     warehouse: `${BASE}sprites/BLD_WAREHOUSE/`,
     apartment: `${BASE}sprites/BLD_APARTMENT/`,
     concrete: `${BASE}sprites/BLD_CONCRETE/`,
-    mosque: `${BASE}sprites/BLD_MOSQUE/`,
     wall: `${BASE}sprites/BLD_WALL/`,
   };
   // Every sheet is fetched in parallel, but the mission does not start until
@@ -1601,7 +1600,7 @@ async function main(): Promise<void> {
       // The sandbox has no mission and therefore no declared no-fire ground,
       // so `?sandbox=<map>&roe` supplies some. Without it the protected X is
       // unreachable on four of the five shipped maps -- only
-      // wadi_halam_basin contains a mosque.
+      // wadi_halam_basin contains a civic hall.
       for (const z of sandboxZones) {
         if (zoneContains(z, tx, ty)) return true;
       }

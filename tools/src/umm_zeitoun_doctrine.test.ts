@@ -197,7 +197,7 @@ describe('the map the design specifies', () => {
     expect(Math.max(...[...levels].map(Number))).toBe(7);
   });
 
-  it('has no chokepoint: no tunnels, no mosque, no cover-3', () => {
+  it('has no chokepoint: no tunnels, no hall, no cover-3', () => {
     // §4.6: Sarim doctrine is standoff, not the Marj's spade, and this map's
     // whole structural difference from Tel Marum is that the `^` frame is a
     // boundary, not a wall -- absent means absent, never an empty array.

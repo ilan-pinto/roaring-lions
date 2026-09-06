@@ -16,7 +16,7 @@ const SAPPER: UnitTypeJson = {
 const DOZER: UnitTypeJson = { ...SAPPER, id: 'test_dozer', demolition_time_s: 2.0 };
 
 const SHACK: StructureTypeJson = { id: 'test_shack', hp_per_tile: 100 };
-/** roe_penalty at PROTECTED_ROE. A mosque is 30; the threshold is 20. */
+/** roe_penalty at PROTECTED_ROE. A hall is 30; the threshold is 20. */
 const SHRINE: StructureTypeJson = { id: 'test_shrine', hp_per_tile: 100, roe_penalty: 30 };
 
 /** The D9: same 2 s timer as DOZER, but it grinds rather than setting charges. */
@@ -95,7 +95,7 @@ describe('per-unit demolition time', () => {
   // selectStructureTarget already refuses protected sites "on a gunner's
   // initiative" (sim.ts). Demolition is the same kind of unordered act by the
   // same unit, and was the one path that never got the rule: a dozer halted
-  // beside a mosque levelled it with no order given, for -30 ROE.
+  // beside a hall levelled it with no order given, for -30 ROE.
   it('does not demolish a protected site on its own initiative', () => {
     const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 8 });
     const shrine = sim.addStructureType(SHRINE);

@@ -23,11 +23,11 @@ describe('building-mesh-role', () => {
   });
 
   it('resolves wall colour from data/structures.json\'s own colour key, per type', () => {
-    const mosque = rampForBuildingRole('wall', 'limestone.1');
+    const hall = rampForBuildingRole('wall', 'limestone.1');
     const house = rampForBuildingRole('wall', 'limestone.3');
     const warehouse = rampForBuildingRole('wall', 'gunmetal.1');
-    expect(mosque).not.toEqual(house);
-    expect(mosque).not.toEqual(warehouse);
+    expect(hall).not.toEqual(house);
+    expect(hall).not.toEqual(warehouse);
   });
 
   it('throws on a role outside the closed set', () => {
@@ -63,12 +63,13 @@ describe('building-mesh-role', () => {
   });
 
   it('courses masonry, panels concrete, and leaves sheet/metal/canvas flat', () => {
-    // The lead's split, verbatim. `house`/`apartment`/`mosque` are exactly
-    // `render_building.py`'s three `brick=True` specs; `wall` is the
-    // compound wall it leaves flat and this does not.
+    // The lead's split, verbatim. `house`/`apartment`/`hall` (the retired
+    // mosque's replacement, task O10) are exactly `render_building.py`'s
+    // three `brick=True` specs; `wall` is the compound wall it leaves flat
+    // and this does not.
     expect(wallSurfaceForBuilding('house')).toBe('brick');
     expect(wallSurfaceForBuilding('apartment')).toBe('brick');
-    expect(wallSurfaceForBuilding('mosque')).toBe('brick');
+    expect(wallSurfaceForBuilding('hall')).toBe('brick');
     expect(wallSurfaceForBuilding('wall')).toBe('brick');
     expect(wallSurfaceForBuilding('concrete')).toBe('panel');
     expect(wallSurfaceForBuilding('shanty')).toBe('flat');

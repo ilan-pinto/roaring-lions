@@ -167,7 +167,7 @@ The combat model is the product. Everything else is scaffolding around it.
   subsystem is not buried under four others (`&nomesh` is the one opt-OUT
   — see "Mesh units"). **This list goes stale; the table and `__lions.help()`
   do not** — it is here for the reasoning, not the enumeration. `&roe` supplies
-  flagged ground (the map's own `clinic`/`mosque`/`refuge` zone where it has
+  flagged ground (the map's own `clinic`/`hall`/`refuge` zone where it has
   one, otherwise a 4×4 synthesised midway between the two anchors); `&tunnel`
   appends a pre-dug route from the hostile side toward the friendly one and adds
   two `yahalom_squad`; `&sur` adds the four Sarim units no mission fields
@@ -196,7 +196,7 @@ The combat model is the product. Everything else is scaffolding around it.
   is a permanent hang rather than a miss. `civilians` is the one unit type with
   no `SPRITE_MAP` entry, so `&civ` under `&nomesh` or on Pixi spawns a crowd
   that draws nothing — it warns by name rather than refusing.
-- Two ROE facts a visual check needs: **three maps carry mosque tiles — `beit_sahwan_outskirts` (9),
+- Two ROE facts a visual check needs: **three maps carry `m` civic-hall tiles (`hall`, the O10 replacement; the type was `mosque` until 2026-09-06) — `beit_sahwan_outskirts` (9),
   `marj_perimeter` (4) and `wadi_halam_basin` (9), counted 2026-09-03 from the
   map rows; this line said "only `wadi_halam_basin`" until then** — so the
   protected-target X (keyed on the STRUCTURE's `roe_penalty`, `input/intents.ts`

@@ -72,7 +72,7 @@ describe('roeNotice', () => {
 describe('isProtectedZoneReason', () => {
   it('matches both the fire and strike wordings the runtime emits', () => {
     expect(isProtectedZoneReason('fire into protected structure (clinic)')).toBe(true);
-    expect(isProtectedZoneReason('strike into protected structure (mosque_block)')).toBe(true);
+    expect(isProtectedZoneReason('strike into protected structure (hall_block)')).toBe(true);
   });
 
   it('does not match the other deduction reasons', () => {

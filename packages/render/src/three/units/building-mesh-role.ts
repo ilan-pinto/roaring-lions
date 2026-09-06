@@ -24,7 +24,7 @@
  * `render_building.py`'s own comment: "`wall` is deliberately absent above:
  * it is brick or flat stone per the spec" -- each building type's wall takes
  * its OWN colour, `BuildingSpec.colour_key`, which is read directly off
- * `data/structures.json`'s `color` field for that type (verified: mosque
+ * `data/structures.json`'s `color` field for that type (verified: hall
  * `limestone.1`, house `limestone.3`, shanty `dust.1`, warehouse
  * `gunmetal.1`, apartment/concrete `limestone.4`, wall `limestone.5` --
  * `colour_key=` literals in `tools/render_building.py` match
@@ -118,7 +118,7 @@ const BUILDING_ROLE_PALETTE: Record<Exclude<BuildingMeshRole, 'wall'>, readonly 
  * (which only knows brick/not-brick), though `brick` matches its three
  * `brick=True` specs plus `wall`:
  *
- *  - `brick`  house, apartment, mosque, wall -- masonry.
+ *  - `brick`  house, apartment, hall, wall -- masonry.
  *  - `panel`  concrete -- poured, so board-formed banding at a much larger
  *             scale and in a STACK bond, never courses.
  *             `render_building.py` leaves this one flat. It first shipped
@@ -138,16 +138,17 @@ export type WallSurface = CourseSurface | 'flat';
 const WALL_SURFACE: Record<string, WallSurface> = {
   house: 'brick',
   apartment: 'brick',
-  mosque: 'brick',
+  hall: 'brick',
   wall: 'brick',
   // Textured (photographed) like house/apartment -- see textured-building.ts.
   // `wallSurfaceForBuilding` is still called unconditionally by
   // `ThreeRenderer.loadBuildingMesh` before the textured branch is decided,
   // so this entry is required even though the coursing it names is never
-  // actually drawn: every clinic wall mesh keeps its own UV + base_color map
-  // and takes the textured branch in `buildBuildingMeshTemplate`, which is
-  // checked BEFORE `isBuildingMeshRole`/coursing. 'brick' is the honest
-  // answer regardless -- rendered masonry, per the Meshy prompt.
+  // actually drawn: every clinic/hall wall mesh keeps its own UV +
+  // base_color map and takes the textured branch in
+  // `buildBuildingMeshTemplate`, which is checked BEFORE
+  // `isBuildingMeshRole`/coursing. 'brick' is the honest answer regardless
+  // -- rendered masonry, per the Meshy prompt.
   clinic: 'brick',
   concrete: 'panel',
   shanty: 'flat',

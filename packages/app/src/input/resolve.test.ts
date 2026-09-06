@@ -104,7 +104,7 @@ describe('right-clicking a building', () => {
   });
 
   it('and turns the same click into a move when anything else is selected', () => {
-    // The mosque bug: an ambiguous click past a protected site used to give
+    // The hall bug: an ambiguous click past a protected site used to give
     // the D9 a 30-point demolish order while everything else attack-moved.
     // confirm: true here on purpose -- this test is about sortStructureOrder's
     // selection-purity rule, not the Alt gate, and it is deliberately proven
@@ -325,7 +325,7 @@ describe('the keyboard verbs, resolved the same way', () => {
 });
 
 describe('attacking a protected structure needs a deliberate confirm', () => {
-  const mosque = (over: Partial<IntentWorld> = {}): IntentWorld =>
+  const hall = (over: Partial<IntentWorld> = {}): IntentWorld =>
     emptyWorld({
       structureAt: () => 7,
       isProtected: () => true,
@@ -335,7 +335,7 @@ describe('attacking a protected structure needs a deliberate confirm', () => {
     });
 
   it('drops the attack-move and says why, without the modifier', () => {
-    const r = resolvePointer(mosque(), {
+    const r = resolvePointer(hall(), {
       ids: [1, 2], x: 3.5, y: 3.5, append: false, armed: null, confirm: false,
     });
     expect(r.intents).toEqual([]);
@@ -349,7 +349,7 @@ describe('attacking a protected structure needs a deliberate confirm', () => {
   });
 
   it('issues exactly the same order with it', () => {
-    const r = resolvePointer(mosque(), {
+    const r = resolvePointer(hall(), {
       ids: [1, 2], x: 3.5, y: 3.5, append: false, armed: null, confirm: true,
     });
     expect(r.intents).toEqual([
@@ -365,14 +365,14 @@ describe('attacking a protected structure needs a deliberate confirm', () => {
     // site with no modifier, because isolating the engineers IS the act of
     // taking responsibility. That rule fixed a real bug and is not this
     // slice's to revisit.
-    const r = resolvePointer(mosque({ canDemolish: () => true }), {
+    const r = resolvePointer(hall({ canDemolish: () => true }), {
       ids: [1, 2], x: 3.5, y: 3.5, append: false, armed: null, confirm: false,
     });
     expect(r.intents).toEqual([{ kind: 'demolish', ids: [1, 2], structure: 7 }]);
   });
 
   it('never gates garrisoning', () => {
-    const r = resolvePointer(mosque({ canGarrison: () => true }), {
+    const r = resolvePointer(hall({ canGarrison: () => true }), {
       ids: [2], x: 3.5, y: 3.5, append: false, armed: null, confirm: false,
     });
     expect(r.intents).toEqual([{ kind: 'garrison', ids: [2], structure: 7 }]);
@@ -401,7 +401,7 @@ describe('attacking a protected structure needs a deliberate confirm', () => {
     // garrisoner's order is untouched. The garrison surviving must not
     // swallow the note that explains why the rest of the click did nothing.
     const r = resolvePointer(
-      mosque({ canDemolish: (i) => i === 1, canGarrison: (i) => i === 2 }),
+      hall({ canDemolish: (i) => i === 1, canGarrison: (i) => i === 2 }),
       { ids: [1, 2], x: 3.5, y: 3.5, append: false, armed: null, confirm: false }
     );
     expect(r.intents).toEqual([{ kind: 'garrison', ids: [2], structure: 7 }]);

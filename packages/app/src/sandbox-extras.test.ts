@@ -27,7 +27,7 @@ describe('sandboxFlaggedZones', () => {
 
   it('takes every protected zone, not just the first', () => {
     const z = sandboxFlaggedZones(
-      { width: 48, height: 48, zones: { mosque_block: [10, 10, 4, 4], refuge: [20, 20, 3, 3] } },
+      { width: 48, height: 48, zones: { hall_block: [10, 10, 4, 4], refuge: [20, 20, 3, 3] } },
       ANCHORS
     );
     expect(z).toHaveLength(2);

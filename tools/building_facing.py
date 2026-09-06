@@ -72,8 +72,7 @@ shutter on BOTH gable ends, so its 180-degree rotation is genuinely not a
 defect. Measured on the shipped tree, the camera-half / hidden-half ratio
 separates cleanly into three populations rather than two:
 
-    mosque_wr   2939 /  186    directional, and correct  (15.80x)
-    mosque      3071 /  198    directional, and correct  (15.51x)
+    hall        3880 /   15    directional, and correct  (258.67x)
     house       5708 /    0    directional, and correct  (inf)
     shanty_wr    607 /  130    directional, and correct  ( 4.67x)
     ------------------------------------------- FRONT_MARGIN = 2.0
@@ -81,7 +80,16 @@ separates cleanly into three populations rather than two:
     warehouse   1946 / 1757    glazed both halves        ( 1.11x)
     concrete    1080 / 1080    glazed both halves        ( 1.00x)
     concrete_wr  333 /  370    glazed both halves        ( 0.90x)
-    apartment, camp, wall, house_wreck, ...   no glass role at all
+    apartment, camp, wall, house_wreck, clinic, clinic_wreck,
+    hall_wreck, ...   no glass role at all
+
+`hall` replaces the retired `mosque` in this table (task O10, GDD Section 2:
+"never a faith") -- the old `mosque`/`mosque_wr` rows (15.51x / 15.80x, from
+the procedural kit pipeline's own glass roles, present on both idle and
+wreck) are gone with that asset. `hall`'s glass comes from the new Meshy
+textured pipeline instead, which -- like `clinic`'s -- ships no glass role on
+its wreck at all (see `hall_wreck` in the bottom bucket), so there is only
+one `hall` row rather than a pair.
 
 Note the gap the margin sits in: nothing shipped reads between 1.32 and
 4.67, so 2.0 is not fitted to the closest asset on either side of it.

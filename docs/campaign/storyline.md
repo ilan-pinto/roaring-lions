@@ -56,7 +56,7 @@ a voice layer, which are new surfaces. Read it as retired, not quietly broken
 |---|---|---|---|
 | O7 | Is "no new screens" retired? | An earlier spec said the story may only use screens that already exist (the deploy screen and the title card). You have since asked for a radio overlay, which is a new screen. The remaining question is whether to **also** build a debrief screen at the end of a mission where Shai and Idit close the story beat — today the end screen shows only a ROE number and a survivor count | **Build both.** The debrief is the cheaper half and the end of every mission is where the player has time to read |
 | O9 | The ending | §5 Option 1 "Ari Actual" (the brigade is handed to Shai) · Option 2 "The Quiet Ground" (the ground is handed back) | can wait until Act III is re-briefed; nothing in Act I depends on it |
-| O10 | A structure type named for a place of worship of a real faith (`roe_penalty` 30, on three maps) | GDD §2 says never a faith | the lead's; no beat here depends on it |
+| O10 | ~~A structure type named for a place of worship of a real faith (`roe_penalty` 30, on three maps)~~ **Resolved 2026-09-06:** the type is `hall`, "Civic Hall", a Meshy-textured portico-and-tower hall on the same `m` tiles with the same `roe_penalty` 30; `mosque` is retired (id, GLBs, sprite sheet, kit source), the Wadi Halam zone is `hall_block`, and the three briefings say "the civic hall" | GDD §2 says never a faith | done |
 
 > **Two corrections found by census.**
 > **(1)** `CLAUDE.md` ("Two ROE facts a visual check needs") says only `wadi_halam_basin`
@@ -521,7 +521,7 @@ the ones in `package.json`.
 Verified: 28 of 30 unit types are fielded by some shipped mission. `heli_peten` is
 fielded by none; `civilians` arrives through the `civilians` block, not a
 placement. **Structures** — all 8 (`shanty house apartment warehouse concrete wall
-mosque camp`) are PRESENT in `data/structures.json` with idle + wreck GLBs in
+hall camp`; `hall` replaced `mosque` on 2026-09-06, O10) are PRESENT in `data/structures.json` with idle + wreck GLBs in
 `art/meshes/buildings/`. **VFX** — all 15 PRESENT in `data/vfx/`, including
 `tunnel_collapse.json` and `structure_collapse.json`. **Decor** — all eight
 families PRESENT in `art/meshes/decor/`.

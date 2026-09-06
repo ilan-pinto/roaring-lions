@@ -43,11 +43,22 @@ import { SMOKE_RENDER_ORDER } from './render-order';
  * every tile of a run its own structure) and the height `marj_perimeter`
  * draws it at. It is the SHORTEST thing in the game by a wide margin and is
  * the case `COLLAPSE_SHROUD_MIN_RADIUS` exists for.
+ *
+ * `hall` replaces the retired `mosque` row (task O10, GDD Section 2: "never
+ * a faith") -- NOT read off a browser like the rest of this table, since
+ * none was available this session. Computed instead straight from the
+ * shipped `art/meshes/buildings/hall.glb`'s own accessor bounds (raw extent
+ * 8.4168 x 4.5617 x 9.6216 world units) divided by `MESH_SCALE`'s inverse,
+ * i.e. `/ MESH_UNITS_PER_TILE` (3.0) -- the identical relationship the other
+ * six rows in this table satisfy exactly against their own shipped GLBs
+ * (e.g. `apartment`'s 14.752/23.235/14.656 raw extent, divided by 3, is this
+ * table's own 4.917/7.745/4.885 to three decimal places), which is how this
+ * number was cross-checked rather than assumed.
  */
 const SHIPPED_BUILDINGS: ReadonlyArray<readonly [string, number, number, number]> = [
   ['apartment', 4.917, 7.745, 4.885],
   ['house', 4.264, 4.237, 3.712],
-  ['mosque', 3.6, 3.317, 2.767],
+  ['hall', 2.806, 1.521, 3.207],
   ['concrete', 2.343, 2.993, 2.31],
   ['warehouse', 3.999, 1.396, 4.0],
   ['shanty', 2.977, 1.017, 2.368],

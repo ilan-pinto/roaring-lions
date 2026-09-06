@@ -166,7 +166,7 @@ From `packages/data/src/map.ts` `TERRAIN_LEGEND` (lines 207–240) and
 | `w` warehouse | **yes** | **yes** | **yes** | yes | rubble 1 | 340/tile | 3 | building mesh |
 | `a` apartment | **yes** | **yes** | **yes** | yes | rubble 2 | 520/tile | 14 | building mesh |
 | `#` concrete | **yes** | **yes** | **yes** | yes | rubble 2 | 700/tile | 3 | building mesh |
-| `m` mosque | **yes** | **yes** | **yes** | yes | rubble 2 | 900/tile | **30** | building mesh |
+| `m` hall (civic hall; the type was `mosque` until 2026-09-06, O10) | **yes** | **yes** | **yes** | yes | rubble 2 | 900/tile | **30** | building mesh |
 | `=` wall | **yes** | **yes** | **yes** | **no** (`low_profile`) | standing 2 | 200/tile | **0** | building mesh |
 | `c` camp | **yes** | **yes** | **yes** | yes | rubble 2 | 300/tile | 0 | building mesh |
 | elevation 0–9 | – | – | – | see below | – | – | – | – |

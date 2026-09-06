@@ -32,9 +32,10 @@ import {
   type CourseSurface,
 } from './palette-material';
 
-/** The limestone slice a mosque wall actually shades through
- *  (`building-mesh-role.ts`'s `sliceFrom('limestone', 1)`). */
-const MOSQUE_WALL = ['#E6D8BE', '#D9C7A7', '#C8B494'];
+/** The limestone slice a hall wall actually shades through -- the retired
+ *  mosque's wall took the identical slice, unchanged by the rename (both
+ *  `limestone.1`; `building-mesh-role.ts`'s `sliceFrom('limestone', 1)`). */
+const HALL_WALL = ['#E6D8BE', '#D9C7A7', '#C8B494'];
 const OLIVE = ['#8F9464', '#6E7449', '#4E5433', '#333821'];
 
 const ALL_PALETTE_HEXES = new Set(
@@ -77,8 +78,8 @@ describe('coursing is opt-in and a no-op for every existing caller', () => {
     // stops matching and this goes red -- which a "does not contain
     // courseShiftSteps" check never would.
     for (const surface of COURSE_SURFACES) {
-      const off = toonRampMaterial(MOSQUE_WALL);
-      const on = toonRampMaterial(MOSQUE_WALL, { coursing: surface });
+      const off = toonRampMaterial(HALL_WALL);
+      const on = toonRampMaterial(HALL_WALL, { coursing: surface });
       expect(uncourse(on.vertexShader, surface)).toBe(off.vertexShader);
       expect(uncourse(on.fragmentShader, surface)).toBe(off.fragmentShader);
     }
@@ -86,8 +87,8 @@ describe('coursing is opt-in and a no-op for every existing caller', () => {
 
   it('composes with specular without either flag disturbing the other', () => {
     const surface: CourseSurface = 'brick';
-    const specOnly = toonRampMaterial(MOSQUE_WALL, { specular: true });
-    const both = toonRampMaterial(MOSQUE_WALL, { specular: true, coursing: surface });
+    const specOnly = toonRampMaterial(HALL_WALL, { specular: true });
+    const both = toonRampMaterial(HALL_WALL, { specular: true, coursing: surface });
     expect(uncourse(both.fragmentShader, surface)).toBe(specOnly.fragmentShader);
     expect(uncourse(both.vertexShader, surface)).toBe(specOnly.vertexShader);
   });
@@ -95,8 +96,8 @@ describe('coursing is opt-in and a no-op for every existing caller', () => {
   it('adds no uniform of its own -- the pattern is pure position', () => {
     // A uniform would be a second thing to keep in sync per material and a
     // second thing `FlashLightManager.register` could collide with.
-    const off = Object.keys(toonRampMaterial(MOSQUE_WALL).uniforms).sort();
-    const on = Object.keys(toonRampMaterial(MOSQUE_WALL, { coursing: 'brick' }).uniforms).sort();
+    const off = Object.keys(toonRampMaterial(HALL_WALL).uniforms).sort();
+    const on = Object.keys(toonRampMaterial(HALL_WALL, { coursing: 'brick' }).uniforms).sort();
     expect(on).toEqual(off);
   });
 });
@@ -107,7 +108,7 @@ describe('coursing stays inside the palette by construction', () => {
     // colour reaching `outColor` shows up here as an assignment that is not
     // a bare `uRamp[...]` read.
     for (const surface of COURSE_SURFACES) {
-      const f = toonRampMaterial(MOSQUE_WALL, { coursing: surface }).fragmentShader;
+      const f = toonRampMaterial(HALL_WALL, { coursing: surface }).fragmentShader;
       const assigned = [...f.matchAll(/outColor\s*=\s*([^;]+);/g)].map((m) => m[1].trim());
       expect(assigned.length).toBeGreaterThan(0);
       for (const rhs of assigned) expect(rhs).toMatch(/^uRamp\[[a-z0-9]+\]$/);
@@ -127,7 +128,7 @@ describe('coursing stays inside the palette by construction', () => {
     // "only uRamp entries" property above true for the SHIFTED band and not
     // merely for the shaded one.
     for (const surface of COURSE_SURFACES) {
-      const f = toonRampMaterial(MOSQUE_WALL, { coursing: surface }).fragmentShader;
+      const f = toonRampMaterial(HALL_WALL, { coursing: surface }).fragmentShader;
       expect(f).toContain(
         'band = min(max(band + courseShiftSteps(vWorldPos, vWorldNormal), 0), uSteps - 1);'
       );
@@ -138,7 +139,7 @@ describe('coursing stays inside the palette by construction', () => {
     // The emittable SET, checked against the palette file itself rather than
     // against a hardcoded list -- so this measures the real thing even
     // though the shader cannot be executed in `environment: 'node'`.
-    const m = toonRampMaterial(MOSQUE_WALL, { coursing: 'brick' });
+    const m = toonRampMaterial(HALL_WALL, { coursing: 'brick' });
     const ramp = m.uniforms.uRamp.value as THREE.Color[];
     expect(ramp).toHaveLength(9);
     for (const c of ramp) {

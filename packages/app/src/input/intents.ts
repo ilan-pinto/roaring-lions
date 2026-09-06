@@ -113,12 +113,12 @@ export function sortMount(
  * main.ts's rule, kept here so the split is one stated fact rather than three
  * filters that have to agree.
  *
- * `isProtected` is the mosque case (`roePenalty >= PROTECTED_ROE`), and it is
+ * `isProtected` is the hall case (`roePenalty >= PROTECTED_ROE`), and it is
  * the whole reason this function exists. The sim already refuses to level a
  * protected site on a unit's own initiative; what it cannot refuse is an
  * explicit `demolish` order, because an explicit order is how the player takes
  * responsibility for the ROE bill. The bug was that an ambiguous click
- * manufactured that order — select the force, right-click east past a mosque to
+ * manufactured that order — select the force, right-click east past a hall to
  * advance, and the D9 in the selection took a 30-point demolish order while
  * everything else attack-moved, so it read as a move and cost a third of the
  * mission's ROE budget.
@@ -150,7 +150,7 @@ export function sortStructureOrder(
 }
 
 /** How much a click here costs against the rules of engagement. Three tiers,
- *  because the data supports three: a mosque (30) is protected, an apartment
+ *  because the data supports three: a hall (30) is protected, an apartment
  *  (14) is costly, a wall (0) is free. */
 export type RoeTier = 'free' | 'costly' | 'protected';
 

@@ -54,12 +54,12 @@
 //   `wadi_halam_4`'s headline vehicle route (`player_start` -> `village_center`)
 //   is measured UNCHANGED (20 tiles, 1 turn) on every edit made -- it runs
 //   along y=26, south of the courtyard wall (y16-18), the west-approach
-//   rubble (y19-21) and the mosque forecourt (y22-25) alike. This is the
+//   rubble (y19-21) and the hall forecourt (y22-25) alike. This is the
 //   same shape as Beit Sahwan III's own correction: the headline leg is
 //   untouched: what is real are several substantial LOCAL closures (the
 //   only north-south gap in the whole two-house block goes from 4 to 19
 //   tiles to cross once walled; the west rubble lane from 2 to 6; the
-//   mosque forecourt from 8 to 9 and 4 to 6 on its two approaches).
+//   hall forecourt from 8 to 9 and 4 to 6 on its two approaches).
 //
 //   `wadi_halam_5`'s northern spoil patch, as the design sketched it
 //   (31-32, 25-26), sits directly on the D9's own chosen tile (31,25) --
@@ -392,7 +392,7 @@ describe('wadi_halam_4 (The Village): the headline route is untouched, three loc
     expect(route(WH4, 'vehicle', [23, 20], [25, 20])).toBe(6);
   });
 
-  it('the mosque forecourt wall is a real, modest barrier on both of its approaches', () => {
+  it('the hall forecourt wall is a real, modest barrier on both of its approaches', () => {
     expect(route(BASE, 'vehicle', [29, 20], [29, 26])).toBe(8);
     expect(route(WH4, 'vehicle', [29, 20], [29, 26])).toBe(9);
     expect(route(BASE, 'vehicle', [32, 23], VILLAGE_CENTER)).toBe(4);
@@ -414,9 +414,9 @@ describe('wadi_halam_4 (The Village): the headline route is untouched, three loc
     expect(route(BASE, 'vehicle', [29, 15], [29, 19])).toBe(4);
   });
 
-  it('the mosque itself and the ROE flagged_zone are untouched -- the wall sits on the zone\'s own border, never its interior', () => {
-    const mz = BASE.zones?.mosque_block;
-    if (!mz) throw new Error('no mosque_block zone');
+  it('the hall itself and the ROE flagged_zone are untouched -- the wall sits on the zone\'s own border, never its interior', () => {
+    const mz = BASE.zones?.hall_block;
+    if (!mz) throw new Error('no hall_block zone');
     for (let y = mz[1] + 0; y < mz[1] + 3; y++)
       for (let x = mz[0]; x < mz[0] + 3; x++) expect(WH4.rows[y][x]).toBe('m');
   });

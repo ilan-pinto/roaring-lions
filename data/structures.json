@@ -70,14 +70,14 @@
       "low_profile": true,
       "standing_cover": 2
     },
-    "mosque": {
-      "id": "mosque",
-      "name": "Mosque",
+    "hall": {
+      "id": "hall",
+      "name": "Civic Hall",
       "symbol": "m",
       "hp_per_tile": 900,
       "garrison_slots": 3,
       "rubble_cover": 2,
-      "height_px": 34,
+      "height_px": 22,
       "color": "limestone.1",
       "roe_penalty": 30
     },

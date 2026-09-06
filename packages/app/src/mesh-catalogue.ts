@@ -171,7 +171,7 @@ export const BUILDING_MESHES: Readonly<Record<string, { readonly idle: string; r
   apartment: { idle: 'buildings/apartment.glb', wreck: 'buildings/apartment_wreck.glb' },
   clinic: { idle: 'buildings/clinic.glb', wreck: 'buildings/clinic_wreck.glb' },
   concrete: { idle: 'buildings/concrete.glb', wreck: 'buildings/concrete_wreck.glb' },
-  mosque: { idle: 'buildings/mosque.glb', wreck: 'buildings/mosque_wreck.glb' },
+  hall: { idle: 'buildings/hall.glb', wreck: 'buildings/hall_wreck.glb' },
   wall: { idle: 'buildings/wall.glb', wreck: 'buildings/wall_wreck.glb' },
   // The KDF field camp a mission places (`structures[]` in
   // mission.schema.json) and produces from -- the one building type that

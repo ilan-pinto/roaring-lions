@@ -19,7 +19,7 @@
 import type { SandboxAnchors } from './sandbox-anchors';
 
 /** Zones whose name marks them protected in the shipped corpus. */
-const PROTECTED_ZONE = /clinic|mosque|refuge|hospital|school/i;
+const PROTECTED_ZONE = /clinic|hall|refuge|hospital|school/i;
 
 /** Side of the synthesised zone, in tiles, when a map declares none. */
 const SYNTHETIC_SIDE = 4;
@@ -34,7 +34,7 @@ export interface ZonedMap {
  * Rectangles the sandbox should treat as no-fire ground.
  *
  * Prefers what the map already declares — `clinic` on beit_sahwan_outskirts
- * and marj_perimeter, `mosque_block` and `refuge` on wadi_halam_basin — so
+ * and marj_perimeter, `hall_block` and `refuge` on wadi_halam_basin — so
  * the flagged ground is somewhere an author already thought about.
  *
  * Tel Marum declares none (`valley_floor`, `pass`, `overwatch_east/west`),

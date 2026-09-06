@@ -310,7 +310,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Map zone ids under protection (clinic, mosque, school). Player ordnance landing inside deducts flagged_structure_penalty per impact."
+          "description": "Map zone ids under protection (clinic, hall, school). Player ordnance landing inside deducts flagged_structure_penalty per impact."
         },
         "fail_below": {
           "type": "integer",
