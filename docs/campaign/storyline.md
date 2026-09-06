@@ -582,7 +582,49 @@ Ordered by how much of the storyline each blocks.
 > `group` on `starting_force` **landed** on main — see
 > `docs/superpowers/specs/2026-09-03-narrative-layer-engine-design.md`. The radio
 > overlay's art, G4, G5, G6, G8, G9 and G10 stand as written.
-
+>
+> **Status 2026-09-06 (economy pass):** the five non-recon missions with no
+> `resources` block gained one, closing the build-panel gap the lead reported
+> (GDD §3's per-phase rates: foothold ~120/min, buildup ~200/min, clearance
+> ~80/min trickle). `tel_marum_2_foothold` (400/120) and `tel_marum_3_clearance`
+> (400/80) use the `player_start` fallback — the map carries no road, so
+> `supply_corridor` is false, and neither mission's design names a sweep or a
+> strike, so no `intel_start`. `wadi_halam_3_counterraid` (400/150) is the one
+> buildup among the five and gets a `camp` at `[3,20]`, off the player cluster
+> and every enemy route, which is what §10 O-E in the Wadi Halam MDD left for
+> the lead to decide; the lead's ask decided it. `umm_zeitoun_3_clearance`
+> (400/80) and `wadi_halam_4_village` (400/80) get the fallback and a bare
+> trickle — this **overrides** both towns' own design docs, which call a
+> clearance-phase economy on those two missions out by name ("a clearance is
+> about what you brought" / "the town is the map"); the override is the lead's
+> and is recorded here rather than silently reconciled. All five additions were
+> measured to move nothing: every scripted plan and every passive control
+> across all eighteen missions reads identical before and after, because
+> neither path ever calls `requestBuild`.
+>
+> Separately, the lead's reported bug — `umm_zeitoun_2_buildup`'s camp reading
+> "field camp destroyed — no production" inside ten seconds of a live game —
+> was `stepDemolition`'s automatic branch (`sim.ts`), which levels the nearest
+> unprotected, unoccupied structure a `canDemolish` unit merely stands beside
+> with no order at all. The mission's own `demo_squad` spawned one tile off the
+> camp's footprint, inside `DEMO_RANGE_SQ` (2 tiles), and auto-demolished its
+> own camp at tick 100 (5.0 s) — no enemy round involved, not the battery, not
+> the recoilless ambush. It never showed up in either playtest scenario: the
+> scripted plan orders the squad onto the knoll shed at tick 20, before the
+> automatic branch can fire, and the passive control never touches the camp
+> objective either. It surfaces only where a live player has not yet given
+> that order, which is exactly the first-ten-seconds report. Fixed in the
+> ENGINE, not the placement: `stepDemolition`'s automatic branch now skips any
+> structure whose `produces_for` is the demolisher's own side — a side's camp
+> is never a target on a sapper's initiative, the same way a protected site and
+> a fence are not, while an explicit `demolish` order on it still works
+> (`demolition.test.ts` pins all three). The spawn stays at `[21,45]`: moving
+> it to `[16,45]` was measured as a working workaround, but it rippled through
+> `roster.surviving_units` (II 6.4 → 7.0 min, III 1.3 → 2.6 min and ROE 76 → 87),
+> and with the guard in place the baselines hold exactly — II 6.4 / ROE 98,
+> III 1.3 / ROE 76 / roster 7 — and the determinism hash is unmoved. Verified
+> live: at 30 s the camp stands at 1200 hp, `buildBlockedReason` is null, and
+> every card shows its price.
 
 | # | gap | smallest proposal | owner |
 |---|---|---|---|

@@ -78,6 +78,10 @@
       ]
     }
   ],
+  "resources": {
+    "logistics_start": 400,
+    "logistics_rate_per_min": 80
+  },
   "objectives": [
     {
       "id": "take_village",

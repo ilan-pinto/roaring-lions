@@ -39,6 +39,10 @@
     { "unit": "sniper_team", "count": 1, "at": [24, 44] },
     { "unit": "recon_drone", "count": 1, "at": [24, 43] }
   ],
+  "resources": {
+    "logistics_start": 400,
+    "logistics_rate_per_min": 80
+  },
   "objectives": [
     {
       "id": "kill_the_west_horn",

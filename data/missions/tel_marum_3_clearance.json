@@ -36,6 +36,10 @@
     { "unit": "mortar_team", "count": 1, "at": [24, 46] },
     { "unit": "recon_drone", "count": 1, "at": [22, 43] }
   ],
+  "resources": {
+    "logistics_start": 400,
+    "logistics_rate_per_min": 80
+  },
   "civilians": {
     "refuge": "approach",
     "groups": [{ "unit": "civilians", "count": 3, "at": [27.5, 5.5] }]

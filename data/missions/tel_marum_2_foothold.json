@@ -36,6 +36,10 @@
     { "unit": "mortar_team", "count": 1, "at": [24, 46] },
     { "unit": "demo_squad", "count": 1, "at": [21, 44] }
   ],
+  "resources": {
+    "logistics_start": 400,
+    "logistics_rate_per_min": 120
+  },
   "structures": [{ "type": "shanty", "at": [22, 27], "size": [2, 2] }],
   "objectives": [
     {
