@@ -866,6 +866,47 @@ the same clock, and the plan sits at 0.80 of target with 0.6 min above its floor
 — **do not lengthen the player's march**. The `shanty` the mission raises at
 [16,19] must sit on a terrace *tread*, not a riser.
 
+> **Correction after authoring (2026-09-06), two parts.**
+>
+> **Part one, the ditch coordinates.** The sketch's `(36-41, y18-19)` and
+> `(36-41, y28-29)` sit INSIDE the depot compound's own walled footprint
+> (x34-42, y16-31) — a shared landmark every Wadi Halam variant must leave
+> untouched, the same rule Beit Sahwan and Tel Marum's variants carry for
+> their own compounds and wall bands. Shipped instead: the same columns
+> (36-41), relocated to open ground just outside the compound, at the rows
+> each raider group's own straight-line beeline actually crosses — measured
+> through the real `FlowField`, not estimated: `rif_north`'s beeline crosses
+> x=36-41 at y≈12, `rif_south`'s at y≈35.
+>
+> **Part two, the estimate itself does not hold, and the reason is worth
+> recording because it is a new variant of an old lesson.** Measured against
+> the real `FlowField`, `rif_east → pump_house` is **35 tiles unchanged, the
+> identical tile sequence** with or without the elevation grid — not the
+> 25-27 estimated. Every one of the three wave approaches (`rif_north`,
+> `rif_south`, `rif_east`) funnels through the SAME northwest corner (23,16)
+> regardless of origin, because the depot compound's own bulk forces that
+> funnel with no elevation involved at all, and climbing the shoulder there
+> (a real cost) is still cheaper than any detour long enough to avoid it —
+> the same "distant ridge"/"bowl" absorption CLAUDE.md already documents
+> twice (Tel Marum, Qarn Hadid), reproduced here on a third map, and this
+> time with no cover-vs-route confusion possible since it is elevation cost
+> being absorbed, not a hard block being walked around. What the shoulder
+> DOES do, measured: real dead ground (a sight line laid flat across its
+> crest is blocked on the variant and clear on the base) — which is the
+> OTHER half of §2.2's own conclusion ("elevation's real jobs are... shape at
+> zero tile cost and dead ground"), just not the route-bending half. The
+> shipped shoulder's own peak was also lowered from level 3 to level 2 during
+> authoring, independent of the above: a single-tile jump from outside
+> ground (elevation 0) to a level-3 zone edge measured over
+> `SURFACE_OVERSHOOT_LEVELS`, the calibrated bound on how far the renderer's
+> C1 ground spline may overshoot a sharp step (`packages/app/src/terrain-parity.test.ts`).
+> Level 2 clears it with margin and still sits at exactly `BLOCK_RISE`, so
+> the dead-ground claim survives unchanged. `d` ditch stubs still reroute
+> **every raider that crosses them** (both are wheeled-only), and the
+> mission's own two-gap texture is intact — it just is not what makes the
+> approach longer, since it does not. All measured claims are pinned in
+> `tools/src/wadi_halam_variants.test.ts`.
+
 #### `wadi_halam_3` — *the cattle track* (buildup)
 
 Fiction: *"Catching the commander himself is a mobility problem, not a firepower
@@ -891,6 +932,28 @@ it finite.
 
 Estimated: commander's escape 18 → **20–22 tiles**, turns 1 → 4+.
 
+> **Correction after authoring (2026-09-06).** The sketch's own row numbers
+> (y=13 north, y=33 south) are unchanged — those rows ARE genuinely open,
+> clear of the depot compound. What the sketch under-specified is the ditch's
+> WIDTH: at 11 columns wide (x36-46) with two full rows of open ground on
+> either side of it (row 14/15 north, row 34 south), a vehicle sidesteps a
+> one-row ditch for nothing when the surrounding field is open — Beit Sahwan
+> II's own "obstacle beside the road" correction, reproduced here on a
+> second map. `wh_hvt_amir`'s withdrawal (`hide_north → rif_east`) measured
+> completely unaffected either way, **30 tiles, finite** — which satisfies
+> the design's own explicit ask (finite, not necessarily longer) exactly.
+> Shipped and measured instead: a genuine LIGHT effect on the wheeled wave
+> approaches to `pump_house`, matching CLAUDE.md's own calibration table
+> (route length UNCHANGED, shape bent) rather than the estimated length
+> increase — `rif_north → pump_house` stays 27 tiles with turns going 3 → 5,
+> and `rif_south → pump_house` stays 30 tiles on a measurably different set
+> of tiles (both dodge the ditch stub without a net-longer trip, since the
+> lateral dogleg is absorbed the same way a Tel Marum saddle absorbs one —
+> CLAUDE.md's "a climb telescopes", here without any elevation at all).
+> Crossing either ditch directly is a genuine local closure (2 → 4 tiles),
+> pinned as such rather than as a route-length claim.
+> `tools/src/wadi_halam_variants.test.ts` pins all of the above.
+
 #### `wadi_halam_4` — *the village* (clearance)
 
 The village is two rows of houses — (25–28, 16–18) and (30–33, 16–18) north,
@@ -912,6 +975,42 @@ a 300 s clock. **The one at (29,28) is standing in the southern lane**, which is
 why the southern lane is left open and only the northern one is walled. Walls
 block foot; `b` does not. Measure all three routes on the variant and require each
 within ~3 tiles of the base's; where one is not, swap that run from `=` to `b`.
+
+> **Correction after authoring (2026-09-06), two parts.**
+>
+> **Part one, the headline estimate does not hold.** Measured against the
+> real `FlowField`, `player_start(9,21) → village_center` is **unchanged at
+> 20 tiles, 1 turn** — not 29-31/6+. The route runs the entire way along
+> y=26, south of the courtyard wall (y16-18), the west-approach rubble
+> (y19-21) and the mosque forecourt (y22-25) alike. This is Beit Sahwan
+> III's own correction shape again: the headline leg is untouched, and what
+> is real is a set of substantial LOCAL closures. Measured: the northern
+> lane (x=29) turns out to be the ONLY north-south gap across the entire
+> two-house block for its whole 16-18 height — every neighbouring column is
+> a house — so walling it is not "one gap in a wide wall" but a closure of
+> the block's single passage, and crossing it locally goes from 4 to **19**
+> tiles; the west-approach rubble is a genuine local closure too (2 → 6);
+> the mosque forecourt wall adds a real, modest cost on both of its
+> approaches (8 → 9, 4 → 6).
+>
+> **Part two, the "one gap" in the northern lane is geometrically inert, and
+> that is worth recording rather than silently shipping.** (29,17), the
+> gap's own tile, is flanked on its EAST and WEST by houses at every one of
+> rows 16-18, and its NORTH and SOUTH neighbours are the new wall — so it
+> has no reachable orthogonal neighbour, and `FlowField.compute`'s
+> no-corner-cutting rule (CLAUDE.md, "diagonal steps require both adjacent
+> orthogonal tiles open") blocks every diagonal approach around a house too.
+> A single-tile-wide corridor flanked by buildings for its entire length
+> cannot host a partial "wall with a gap" the way Beit Sahwan II's wide
+> field or Tel Marum's ditch can: any wall tile placed anywhere in it seals
+> it completely, and the position of the "gap" is cosmetic. Measured by
+> sealing that already-unreachable tile too and confirming the crossing
+> length does not move at all. The wall is authored with the gap anyway,
+> both because the sketch's own visual promise (a wall a player can SEE has
+> a break in it) still reads correctly and because a future width change to
+> this lane would make the gap load-bearing again for free. Civilian foot
+> routes (all three) measured completely unaffected, matching rule 4 by
+> construction. `tools/src/wadi_halam_variants.test.ts` pins all of the above.
 
 #### `wadi_halam_5` — *the depot* (clearance) — **highest risk, author last**
 
@@ -942,6 +1041,24 @@ razes fast** (CLAUDE.md). Any lengthening of the D9's march eats that margin
 directly. Measure the D9's vehicle route before and after and require it
 **identical**; anything else means the spoil has leaked onto the road, and the
 change should be dropped rather than trimmed.
+
+> **Correction after authoring (2026-09-06).** The northern spoil patch's own
+> sketch coordinates, `(31-32, 25-26)`, moved the D9's route: measured, the
+> D9's real route from its own spawn `[13,25]` to `depot_gate` steps through
+> `(31,25)` as a diagonal shortcut on the unmodified base, and blocking it
+> pushed the route from 21 to 22 tiles — precisely the failure this
+> mission's own design text names ("anything else means the spoil has
+> leaked onto the road, and the change should be dropped rather than
+> trimmed"). Rather than dropping the change outright, the patch is shifted
+> one row south to `(31-32, 26-27)`, which stays beside the same leg (the
+> road at x=33 and the gate) and produces a route that is not merely the
+> same LENGTH but the exact same tile sequence, byte for byte, verified
+> against the base's own path array. One further correction the shift
+> itself required: `(31,27)`/`(32,27)` are already the south house block's
+> own footprint (`(30-32,27-29)`), so the shipped patch is a 2-tile sliver
+> at row 26 rather than the sketch's full 2x2 — the same "never overwrite a
+> building" rule (`only_open`) every other town's variants already follow.
+> `tools/src/wadi_halam_variants.test.ts` pins the exact byte-identical path.
 
 ---
 

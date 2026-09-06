@@ -38,6 +38,15 @@ import tileScrub from '../../../data/maps/tile_scrub.json';
 import tutorialGround from '../../../data/maps/tutorial_ground.json';
 import ummZeitoun from '../../../data/maps/umm_zeitoun.json';
 import wadiHalamBasin from '../../../data/maps/wadi_halam_basin.json';
+// Wadi Halam's per-mission variants (docs/campaign/map-variants-design.md
+// §3.3): same 48x48 frame, same markers/zones, same depot compound and
+// poplar gallery, obstacles (and, for II, a first elevation grid) bent
+// around them per mission. The base file is untouched; I stays on it (the
+// fords are the lesson the base map already teaches).
+import wadiHalam2 from '../../../data/maps/wadi_halam_2.json';
+import wadiHalam3 from '../../../data/maps/wadi_halam_3.json';
+import wadiHalam4 from '../../../data/maps/wadi_halam_4.json';
+import wadiHalam5 from '../../../data/maps/wadi_halam_5.json';
 import structureCatalogue from '../../../data/structures.json';
 import beitSahwanBreach from '../../../data/missions/beit_sahwan_breach.json';
 import beitSahwan0 from '../../../data/missions/beit_sahwan_0_tutorial.json';
@@ -144,6 +153,10 @@ export const maps = {
   tutorial_ground: tutorialGround,
   umm_zeitoun: ummZeitoun,
   wadi_halam_basin: wadiHalamBasin,
+  wadi_halam_2: wadiHalam2,
+  wadi_halam_3: wadiHalam3,
+  wadi_halam_4: wadiHalam4,
+  wadi_halam_5: wadiHalam5,
 } as const;
 
 export type MapId = keyof typeof maps;
