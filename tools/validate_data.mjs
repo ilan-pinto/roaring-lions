@@ -708,6 +708,19 @@ const structureSymbols = new Map(
       }
     }
 
+    // A briefing video is a file the deploy screen will ask for by URL; a
+    // missing one is a dead <video> element in front of the player with no
+    // error anyone reads. Same shape as the world-art check above.
+    for (const m of missionIds) {
+      const mission = loadJson(join(ROOT, 'data/missions', `${m}.json`));
+      if (mission && typeof mission.briefing_video === 'string') {
+        const videoPath = join(ROOT, 'assets', mission.briefing_video);
+        if (!existsSync(videoPath)) {
+          failures.push(`data/missions/${m}.json: briefing_video "${mission.briefing_video}" not found at assets/${mission.briefing_video}`);
+        }
+      }
+    }
+
     // Every mission must be reachable from the map, or it is unplayable content. The
     // tutorial is the one exception: it is deliberately not on the map, because it
     // teaches the mouse rather than the war.

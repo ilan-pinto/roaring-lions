@@ -77,6 +77,11 @@
     "briefing": {
       "type": "string"
     },
+    "briefing_video": {
+      "type": "string",
+      "pattern": "^video/[a-z0-9_]+\\.(mp4|webm)$",
+      "description": "A short cinematic shown on the deploy screen above the briefing beats, as a path under assets/ (served by Vite's public dir). Optional; the beats and the deploy button are unchanged with or without it. validate_data.mjs checks the file exists."
+    },
     "dispatch": {
       "type": "string",
       "maxLength": 240,
@@ -362,7 +367,7 @@
         },
         "garrison": {
           "type": "array",
-          "description": "Defenders emplaced at mission start, with the GDD \u00a76 behaviour vocabulary: one stance per unit, declarative, never scripted.",
+          "description": "Defenders emplaced at mission start, with the GDD §6 behaviour vocabulary: one stance per unit, declarative, never scripted.",
           "items": {
             "$ref": "#/$defs/placement"
           }
@@ -427,7 +432,7 @@
     },
     "triggers": {
       "type": "array",
-      "description": "Reactive behaviour (GDD \u00a76): a condition fires an order once. A handful per mission is the budget.",
+      "description": "Reactive behaviour (GDD §6): a condition fires an order once. A handful per mission is the budget.",
       "items": {
         "type": "object",
         "required": [

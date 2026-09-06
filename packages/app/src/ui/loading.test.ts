@@ -30,6 +30,36 @@ describe('briefingHoldsDeployment', () => {
 
 // The wiring, in a DOM. worldmap.test.ts's precedent: this UI is provable
 // without a browser, and the browser was not available when this was written.
+describe('showLoading with a briefing video', () => {
+  it('mounts the cinematic above the beats, with controls and an inline hint, and keeps Deploy', () => {
+    const host = document.createElement('div');
+    showLoading(host, 'Tel Marum II', 'Orders. More orders.', undefined, '/video/tel_marum_2_briefing.mp4');
+    const video = host.querySelector<HTMLVideoElement>('video.rl-loading__video');
+    expect(video).not.toBeNull();
+    expect(video?.getAttribute('src')).toBe('/video/tel_marum_2_briefing.mp4');
+    expect(video?.controls).toBe(true);
+    expect(host.querySelector('.rl-loading__box--video')).not.toBeNull();
+    const box = host.querySelector('.rl-loading__box') as HTMLElement;
+    const order = [...box.children].map((c) => c.className.split(' ')[0]);
+    expect(order.indexOf('rl-loading__video')).toBeLessThan(order.indexOf('rl-loading__brief'));
+    expect(host.querySelector('.rl-loading__deploy')).not.toBeNull();
+  });
+
+  it('mounts nothing when the mission declares no video', () => {
+    const host = document.createElement('div');
+    showLoading(host, 'Beit Sahwan I', 'Orders.');
+    expect(host.querySelector('video')).toBeNull();
+    expect(host.querySelector('.rl-loading__box--video')).toBeNull();
+  });
+
+  it('still offers Deploy for a cinematic with no orders at all', () => {
+    const host = document.createElement('div');
+    showLoading(host, 'Sandbox', undefined, undefined, '/video/x.mp4');
+    expect(host.querySelector('video')).not.toBeNull();
+    expect(host.querySelector('.rl-loading__deploy')).not.toBeNull();
+  });
+});
+
 describe('showLoading with orders to read', () => {
   const host = (): HTMLElement => document.createElement('div');
 

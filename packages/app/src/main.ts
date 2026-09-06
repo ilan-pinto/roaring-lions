@@ -887,7 +887,8 @@ async function main(): Promise<void> {
     stage,
     mission?.name ?? mission?.id ?? 'M0 sandbox',
     mission?.briefing,
-    { rank: hudCommander.shai.rank, plate: hudCommander.shai.plate, portrait: hudCommander.shai.portrait }
+    { rank: hudCommander.shai.rank, plate: hudCommander.shai.plate, portrait: hudCommander.shai.portrait },
+    mission?.briefing_video !== undefined ? `${BASE}${mission.briefing_video}` : undefined
   );
   await renderer.init(stage);
   renderer.useEmitters(vfxEmitters as EmitterSpec[], paletteColor);

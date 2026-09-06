@@ -157,6 +157,9 @@ export interface MissionJson {
    *  mission has carried one since the format was written, and no call site
    *  could reach a field the type did not describe. */
   briefing?: string;
+  /** A short cinematic for the deploy screen, as a path under assets/
+   *  (`video/<id>.mp4`). The sim never reads it; carried for the app. */
+  briefing_video?: string;
   /** Story voice (GDD §11), shown before the mission starts alongside the
    *  title. The sim never reads these three -- they are carried on the
    *  mission object purely so the app can, off the same JSON it already

@@ -92,7 +92,13 @@ export function showLoading(
    *  `commanderPortraitUrl`, called once in `main.ts` -- the same value
    *  `ui/hud.ts`'s commander bar shows for Shai), not the bare file name
    *  `commander.json` authors. */
-  commander?: { rank: string; plate: string; portrait?: string }
+  commander?: { rank: string; plate: string; portrait?: string },
+  /** A short cinematic for this mission, already the RESOLVED URL (main.ts
+   *  prefixes `BASE` to the mission's `briefing_video`). Shown above the
+   *  beats; the beats and the deploy button are unchanged with or without
+   *  it, and a URL that fails to load removes the element rather than
+   *  leaving a dead player on the screen. */
+  briefingVideo?: string
 ): LoadingScreen {
   const wrap = document.createElement('div');
   wrap.className = 'rl-loading';
@@ -183,16 +189,52 @@ export function showLoading(
     }
   }
 
+  // The cinematic, when the mission has one. Autoplay is asked for with sound
+  // -- the player reached this screen by clicking a mission, which is the
+  // gesture browsers want -- and if the browser still refuses, the element
+  // falls back to muted autoplay and keeps its controls, so the picture plays
+  // either way and the sound is one click away. Nothing here holds
+  // deployment: Deploy stays the player's decision, exactly as for the beats.
+  let video: HTMLVideoElement | null = null;
+  if (briefingVideo !== undefined) {
+    video = document.createElement('video');
+    video.className = 'rl-loading__video';
+    video.src = briefingVideo;
+    video.autoplay = true;
+    video.controls = true;
+    video.playsInline = true;
+    video.preload = 'auto';
+    video.addEventListener('error', () => {
+      video?.remove();
+      box.classList.remove('rl-loading__box--video');
+    });
+    const attempt = video.play?.();
+    if (attempt && typeof attempt.catch === 'function') {
+      attempt.catch(() => {
+        if (!video) return;
+        video.muted = true;
+        void video.play?.()?.catch(() => undefined);
+      });
+    }
+  }
+
   const deploy = document.createElement('button');
   deploy.className = 'rl-loading__deploy';
   deploy.type = 'button';
   deploy.textContent = 'deploy';
 
   box.append(label, name, track, count);
+  if (video) {
+    box.classList.add('rl-loading__box--video');
+    box.append(video);
+  }
   if (holds) {
     box.classList.add('rl-loading__box--brief');
     if (commander) box.append(commanderHead);
     box.append(orders, deploy);
+  } else if (video) {
+    // A cinematic with no orders still needs the player's go.
+    box.append(deploy);
   }
   wrap.appendChild(box);
   host.appendChild(wrap);

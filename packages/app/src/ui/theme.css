@@ -2251,6 +2251,33 @@ button.rl-menu__item[data-kind='aside'] {
    the player reads" rather than `--t-m`'s 13px plate-label size. `max-width`
    caps the measure so a line does not run the full 680px box -- a column
    this wide unclamped reads as a wall regardless of font size. */
+/* The mission's cinematic, above the beats (2026-09-06, Tel Marum II first).
+   Height-capped so Deploy stays on a 720px-tall screen with the brief's own
+   cap below it; the brief gives up a third of its height when a video sits
+   above it rather than pushing the button off. */
+.rl-loading__video {
+  display: block;
+  width: 100%;
+  max-height: min(24vh, 260px);
+  object-fit: contain;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  margin: var(--s3) 0 var(--s2);
+}
+.rl-loading__box--video .rl-loading__brief {
+  max-height: min(22vh, 240px);
+}
+/* With a cinematic above, the commander's photo is the third picture on the
+   screen; it steps down so the whole column -- video, head, beats, Deploy --
+   fits a 720px-tall window with Deploy still on it (measured: 900px tall put
+   Deploy 0.4px below the fold at the first cut). */
+.rl-loading__box--video .rl-loading__face {
+  width: 72px;
+  height: 90px;
+}
+.rl-loading__box--video .rl-loading__video {
+  margin-top: var(--s2);
+}
 .rl-loading__brief {
   margin-top: var(--s4);
   font-family: var(--font-body);
