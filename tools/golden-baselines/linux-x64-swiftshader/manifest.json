@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "0b6e38dd2609cf49b8e4a8a4d77dc9853dc448ee",
-  "blessedAt": "2026-09-05T23:02:52.484Z",
-  "reason": "HUD strip and mute chip (2026-09-05/06): the top strip grew from 30 to 42px with 17px readouts and a 19px name (7d53146), the commander frame to 96px (24ae277), the music mute chip landed (c38691a). Measured on run 33997241867: every differing pixel in quiet (10843) and relief (6016) and 4892 of 4898 in vehicle sit in rows 5-41, the strip; the map is unchanged.",
+  "commit": "e2ac67150a40a4ee14440b545f447fd0a7800514",
+  "blessedAt": "2026-09-06T15:51:04.413Z",
+  "reason": "Civic hall replaces the mosque (63395db, O10): the compound at beit_sahwan_outskirts town_center is the hall now. Measured on run 34043224541: quiet 9141 px / 0.496 all inside x 389-570, y 160-315 (the compound); vehicle 6693 px / 0.353 all inside x 1189-1370, y 608-679 (the compound's roof edge); open-ground and relief 0 / 0.0000. Nothing else moved.",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "f0de27ddc1935ee859a006e7359cc674eddb36d523a8bc76fe77069c0747e7b5"
+      "sha256": "f9d4c8a1f7e1204f87ca9cd0958af94b467d17297fe59793f26290d6394cdaba"
     },
     "open-ground": {
       "tick": 60,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "5990a8485d24902ca6332c69fc7a5efd9833d062f47758ffd9d338dc3d407e12"
+      "sha256": "79a8b8eb78475c44e7794b7e9363d0d7169655cc69f74c14c5e1d6d43379df89"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "d541bc86e647eb2fcb49812b17842686c68c5cec08d4dfe2a2bee1d753ab1aaa"
+      "sha256": "d3facdfc5b0092998f0771786a66e8ba06eba2428b952733121f9ca40123c2d1"
     },
     "relief": {
       "tick": 500,
