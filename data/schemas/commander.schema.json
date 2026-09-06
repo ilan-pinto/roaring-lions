@@ -53,6 +53,22 @@
           }
         }
       }
+    },
+    "villains": {
+      "type": "object",
+      "description": "The villain's face for a front's commander-bar `enemy` line (GDD §11, storyline.md G18) -- keyed by `world.json` region id, NOT by a personal name: this block gives the bar a face, never a name. `people`'s own description stands unchanged -- `enemy` is still not a person on that roster, and the HUD still names an enemy line literally (ENEMY) rather than looking a name up anywhere.",
+      "additionalProperties": false,
+      "properties": {
+        "marj": {
+          "$ref": "#/$defs/villain"
+        },
+        "sur": {
+          "$ref": "#/$defs/villain"
+        },
+        "naharin": {
+          "$ref": "#/$defs/villain"
+        }
+      }
     }
   },
   "$defs": {
@@ -77,6 +93,20 @@
           "type": "string",
           "minLength": 1,
           "description": "File name (not a path) under assets/ui/portraits/, e.g. \"shai_hammai.png\". Optional -- a person with none shows the `.rl-cmd__face` hatch, exactly like one whose named file is not on disk yet."
+        }
+      }
+    },
+    "villain": {
+      "type": "object",
+      "required": [
+        "portrait"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "portrait": {
+          "type": "string",
+          "minLength": 1,
+          "description": "File name (not a path) under assets/ui/portraits/, e.g. \"nadir_sahim.png\". No name field, deliberately -- unlike $defs/person, this def has nowhere to put one: the plate an `enemy` line wears stays the HUD's own literal word, never a lookup."
         }
       }
     }

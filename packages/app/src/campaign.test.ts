@@ -10,8 +10,10 @@ import {
   nextMissionOf,
   parseCommander,
   parseWorld,
+  regionForTown,
   regionProgress,
   townProgress,
+  villainPortrait,
   type CommanderData,
   type ParsedWorld,
 } from './campaign';
@@ -292,5 +294,44 @@ describe('commanderForMission', () => {
     expect(commanderForMission(midTown, world, 'beit_sahwan_breach').rank).toBe('Lieutenant');
     expect(commanderForMission(midTown, world, 'beit_sahwan_1_recon').rank).toBe('Lieutenant');
     expect(commanderForMission(midTown, world, 'beit_sahwan_2_foothold').rank).toBe('Captain');
+  });
+});
+
+describe('regionForTown', () => {
+  it('finds the region that owns a town id', () => {
+    expect(regionForTown(world, 'beit_sahwan')?.id).toBe('marj');
+    expect(regionForTown(world, 'tel_marum')?.id).toBe('sur');
+    expect(regionForTown(world, 'umm_zeitoun')?.id).toBe('sur');
+    expect(regionForTown(world, 'wadi_halam')?.id).toBe('naharin');
+  });
+
+  it('is undefined for a town id world.json does not have, and for undefined itself', () => {
+    expect(regionForTown(world, 'not_a_real_town')).toBeUndefined();
+    expect(regionForTown(world, undefined)).toBeUndefined();
+  });
+});
+
+describe('villainPortrait', () => {
+  it("reads each front's villain face from the shipped commander.json (storyline.md G18)", () => {
+    expect(villainPortrait(commander, 'marj')).toBe('nadir_sahim.png');
+    expect(villainPortrait(commander, 'sur')).toBe('karim_adhal.png');
+    expect(villainPortrait(commander, 'naharin')).toBe('jubran_hallaq.png');
+  });
+
+  it('is undefined for a region with no villain entry, and for undefined itself', () => {
+    expect(villainPortrait(commander, 'not_a_real_region')).toBeUndefined();
+    expect(villainPortrait(commander, undefined)).toBeUndefined();
+  });
+
+  it('is undefined on a commander object with no villains block at all, rather than throwing', () => {
+    const noVillains: CommanderData = { people: commander.people, ranks: commander.ranks };
+    expect(villainPortrait(noVillains, 'marj')).toBeUndefined();
+  });
+
+  it('composes with regionForTown the way main.ts resolves the enemy face end to end', () => {
+    const region = regionForTown(world, 'tel_marum');
+    expect(villainPortrait(commander, region?.id)).toBe('karim_adhal.png');
+    const unknown = regionForTown(world, 'not_a_real_town');
+    expect(villainPortrait(commander, unknown?.id)).toBeUndefined();
   });
 });

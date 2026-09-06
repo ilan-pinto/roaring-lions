@@ -8,5 +8,10 @@
     { "rank": "Major", "stars": 3, "until_mission": "umm_zeitoun_4_clearance" },
     { "rank": "Lieutenant Colonel", "stars": 4, "until_mission": "wadi_halam_5_depot" },
     { "rank": "Colonel", "stars": 5 }
-  ]
+  ],
+  "villains": {
+    "marj": { "portrait": "nadir_sahim.png" },
+    "sur": { "portrait": "karim_adhal.png" },
+    "naharin": { "portrait": "jubran_hallaq.png" }
+  }
 }

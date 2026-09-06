@@ -74,10 +74,21 @@ export type { OrderId } from './selection-model';
  * the current speaker and falls back to its hatch when that person's is
  * `undefined`, which covers both "never authored" and "authored, file not
  * on disk yet" identically.
+ *
+ * `enemy` carries a portrait ONLY -- no name, no plate (storyline.md G18:
+ * the bar shows the front's villain a face, never a name; `speakerPlate`
+ * still answers the literal word `ENEMY` regardless of this field).
+ * `main.ts` resolves it from the current mission's `town`, through
+ * `regionForTown` and `villainPortrait` (`campaign.ts`), to
+ * `commander.json`'s `villains` block -- absent on a sandbox (no owning
+ * town), on a front whose villain has no portrait authored yet, or on any
+ * mission the enemy has not spoken on at all, which is also fine: this
+ * field is read only while an `enemy` `say` line is showing.
  */
 export interface HudCommanderInfo {
   shai: ResolvedCommander;
   idit: { name: string; plate: string; portrait?: string };
+  enemy?: { portrait?: string };
 }
 
 /** The feed is punctuation, not a log. Four lines is what fits above the dock
@@ -615,11 +626,16 @@ export class Hud {
   /**
    * `.rl-cmd__face` tracks whoever is currently speaking -- Shai while the
    * bar shows his own beats, whoever a `say` line names otherwise
-   * (`speakerPortrait`, `hud-model.ts`). `undefined` covers three cases the
-   * caller does not need to tell apart: the person has no portrait
+   * (`speakerPortrait`, `hud-model.ts`). `undefined` covers several cases
+   * the caller does not need to tell apart: the person has no portrait
    * authored, `commander.json` names a file this build never found on disk,
-   * or the speaker is `net`/`enemy` and is not a person on the roster at
-   * all -- every one of them means "show the hatch".
+   * the speaker is `net` (never a person on the roster), or the speaker is
+   * `enemy` and this mission's front has no villain portrait resolved
+   * (`deps.commander.enemy`, absent on a sandbox or a front not yet
+   * reached) -- every one of them means "show the hatch". When it IS
+   * resolved, `enemy` paints the villain's face while `speakerPlate` still
+   * answers the literal word `ENEMY` on the line beside it (storyline.md
+   * G18: a face, never a name).
    */
   private paintFace(speaker: string): void {
     const url = speakerPortrait(this.deps.commander, speaker);

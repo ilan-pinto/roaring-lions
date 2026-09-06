@@ -108,7 +108,15 @@ import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { resolveRendererChoice, RENDERER_STORAGE_KEY } from './renderer-choice';
 import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
 import { tutorialPanel, type TutorialPanel } from './tutorial/panel';
-import { parseWorld, parseCountries, parseCommander, commanderForMission, nextMissionAfter } from './campaign';
+import {
+  parseWorld,
+  parseCountries,
+  parseCommander,
+  commanderForMission,
+  nextMissionAfter,
+  regionForTown,
+  villainPortrait,
+} from './campaign';
 import { commanderPortraitUrl } from './portrait-catalogue';
 
 /** Deploy base ('/' locally, '/<repo>/' on GitHub Pages) — every asset URL
@@ -361,25 +369,37 @@ async function main(): Promise<void> {
   const ledger: LedgerData = params.get('fresh') !== null ? {} : loadLedger();
 
   // The chain of command (GDD §11): resolved once, here, off the mission id
-  // alone -- world.json and commander.json are both static data, so this
-  // needs neither the mission JSON nor the ledger. A sandbox (`missionId`
+  // alone -- world.json and commander.json are both static data, so rank and
+  // plate need neither the mission JSON nor the ledger. A sandbox (`missionId`
   // null) resolves through the same "unknown mission id" path an unrecognised
   // one would (`commanderForMission`'s own doc comment) and is harmless: the
   // commander bar stays hidden without a briefing regardless of what rank it
   // would have shown (`ui/hud.ts`'s `brief`).
+  //
+  // The enemy's face (storyline.md G18) is the one piece of this that DOES
+  // need the mission JSON: `town` is schema-required (`mission.schema.json`)
+  // but, like `phase`, not modelled on `@lions/sim`'s `MissionJson` -- nothing
+  // in the sim reads either field -- so it is read off the raw JSON here
+  // rather than widening that type for a lookup only `app` makes.
   const commanderData = parseCommander(commander);
+  const worldData = parseWorld(world);
+  const missionTown = (mission as { town?: string } | undefined)?.town;
+  const enemyRegion = regionForTown(worldData, missionTown);
   // `commanderForMission` never sets `portrait` -- it has no asset resolver
   // to call (`portrait-catalogue.ts`'s own doc comment). The resolved URL is
-  // layered on here, once, for both people the bar can show a face for.
+  // layered on here, once, for every voice the bar can show a face for.
   const hudCommander: HudCommanderInfo = {
     shai: {
-      ...commanderForMission(commanderData, parseWorld(world), missionId ?? ''),
+      ...commanderForMission(commanderData, worldData, missionId ?? ''),
       portrait: commanderPortraitUrl(commanderData.people.shai.portrait),
     },
     idit: {
       name: commanderData.people.idit.name,
       plate: commanderData.people.idit.plate,
       portrait: commanderPortraitUrl(commanderData.people.idit.portrait),
+    },
+    enemy: {
+      portrait: commanderPortraitUrl(villainPortrait(commanderData, enemyRegion?.id)),
     },
   };
 

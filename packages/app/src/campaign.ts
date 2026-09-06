@@ -137,6 +137,20 @@ export function parseWorld(json: unknown): ParsedWorld {
   };
 }
 
+/**
+ * The region that owns a town id, or undefined when `townId` is undefined or
+ * names nothing in `world.json` -- the first step of resolving a mission's
+ * front for the commander bar's `enemy` face (GDD §11, storyline.md G18).
+ * A mission's own `town` field (`mission.schema.json`) is the second step;
+ * `main.ts` reads that off the raw mission JSON, since `@lions/sim`'s
+ * `MissionJson` does not model it (nothing in the sim reads it either, the
+ * same as `phase`).
+ */
+export function regionForTown(world: ParsedWorld, townId: string | undefined): WorldRegion | undefined {
+  if (townId === undefined) return undefined;
+  return world.regions.find((r) => r.towns.some((t) => t.id === townId));
+}
+
 const completed = (ledger: LedgerData | undefined): ReadonlySet<string> => {
   const done = ledger?.['campaign.completed_missions'];
   return new Set(Array.isArray(done) ? done : []);
@@ -258,10 +272,30 @@ export interface CommanderRank {
   untilMission?: string;
 }
 
+/**
+ * A front's villain, for the commander bar's `enemy` line (GDD §11,
+ * storyline.md G18) -- a face only, deliberately with no `name` field at
+ * all: `people`'s own doc comment already says the HUD names `enemy`
+ * literally rather than looking a name up, and `commander.schema.json`'s
+ * `$defs/villain` has nowhere to put one, unlike `$defs/person`.
+ */
+export interface CommanderVillain {
+  /** File name (not a path) under `assets/ui/portraits/` -- the same
+   *  bare-name convention as `CommanderPerson.portrait`, resolved to a URL
+   *  the same way, by `portrait-catalogue.ts`, called from `main.ts`. */
+  portrait?: string;
+}
+
 export interface CommanderData {
   people: { shai: CommanderPerson; idit: CommanderPerson };
   /** Ascending campaign order -- see `commanderForMission`. */
   ranks: readonly CommanderRank[];
+  /** Keyed by `world.json` region id (`marj` / `sur` / `naharin`). Absent
+   *  entirely on a commander object with no villains authored yet; a region
+   *  id absent from this map (or a `regionId` of `undefined`, e.g. a
+   *  sandbox with no owning town) both read as "no face for this front" --
+   *  see `villainPortrait`. */
+  villains?: Record<string, CommanderVillain>;
 }
 
 /** Shai's rank and plate for one mission -- what `ui/hud.ts` and
@@ -290,6 +324,7 @@ interface CommanderRankJson {
 interface CommanderJson {
   people: { shai: CommanderPerson; idit: CommanderPerson };
   ranks: CommanderRankJson[];
+  villains?: Record<string, CommanderVillain>;
 }
 
 /** Maps the authoring spelling (`until_mission`) onto the runtime one
@@ -300,7 +335,7 @@ export function parseCommander(json: unknown): CommanderData {
   if (!c || !c.people?.shai || !c.people.idit || !Array.isArray(c.ranks)) {
     throw new Error('commander: expected people (shai, idit) and a ranks array');
   }
-  return {
+  const data: CommanderData = {
     people: { shai: { ...c.people.shai }, idit: { ...c.people.idit } },
     ranks: c.ranks.map((r) => {
       const rank: CommanderRank = { rank: r.rank, stars: r.stars };
@@ -308,6 +343,25 @@ export function parseCommander(json: unknown): CommanderData {
       return rank;
     }),
   };
+  if (c.villains) {
+    data.villains = Object.fromEntries(
+      Object.entries(c.villains).map(([regionId, v]) => [regionId, { ...v }])
+    );
+  }
+  return data;
+}
+
+/**
+ * The bare portrait file name for the villain of a front, or undefined when
+ * `regionId` is undefined (no owning town resolved -- a sandbox, or a
+ * mission id this build does not recognise) or names a region
+ * `commander.json`'s `villains` block has no entry for (a front not yet
+ * reached in the story, or one whose face is not authored yet). Both read
+ * identically to the caller, the same as `CommanderPerson.portrait` being
+ * absent -- `.rl-cmd__face` shows its hatch either way.
+ */
+export function villainPortrait(commander: CommanderData, regionId: string | undefined): string | undefined {
+  return regionId === undefined ? undefined : commander.villains?.[regionId]?.portrait;
 }
 
 /**

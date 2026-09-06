@@ -213,17 +213,22 @@ export function speakerPlate(
  * bar -- the same `speaker` string `speakerPlate` reads, resolved against
  * each person's ALREADY-RESOLVED portrait URL (`HudCommanderInfo`'s own doc
  * comment; this function does no path-to-URL resolution of its own).
- * `net`/`enemy` are not people on this roster and have no portrait to look
- * up, so they fall to `undefined` exactly like a named person who simply has
- * none authored yet -- both mean "show the hatch", and the caller does not
- * need to tell them apart.
+ * `net` is not a person on this roster and has no portrait to look up, so it
+ * falls to `undefined` exactly like a named person who simply has none
+ * authored yet -- both mean "show the hatch". `enemy` gets the SAME
+ * treatment as `net` only when `people.enemy` is absent (a sandbox with no
+ * owning town, or a front whose villain has no portrait authored yet,
+ * `main.ts`'s own resolution via `villainPortrait`, `campaign.ts`) --
+ * `speakerPlate` still never names him (storyline.md G18: a face, never a
+ * name).
  */
 export function speakerPortrait(
-  people: { shai: { portrait?: string }; idit: { portrait?: string } },
+  people: { shai: { portrait?: string }; idit: { portrait?: string }; enemy?: { portrait?: string } },
   speaker: string
 ): string | undefined {
   if (speaker === 'shai') return people.shai.portrait;
   if (speaker === 'idit') return people.idit.portrait;
+  if (speaker === 'enemy') return people.enemy?.portrait;
   return undefined;
 }
 

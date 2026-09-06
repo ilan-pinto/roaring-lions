@@ -40,6 +40,15 @@ const TEST_COMMANDER_WITH_PORTRAITS: HudCommanderInfo = {
   idit: { name: 'Idit Zohar', plate: 'Zohar', portrait: '/ui/portraits/idit_zohar.png' },
 };
 
+/** Same again, plus the front's villain (storyline.md G18) -- what `main.ts`
+ *  hands over once `regionForTown`/`villainPortrait` (`campaign.ts`) resolve
+ *  a mission's `town` to a face. No name or plate on this entry at all: the
+ *  bar shows a face beside the literal word ENEMY, never a lookup. */
+const TEST_COMMANDER_WITH_ENEMY: HudCommanderInfo = {
+  ...TEST_COMMANDER_WITH_PORTRAITS,
+  enemy: { portrait: '/ui/portraits/nadir_sahim.png' },
+};
+
 /** A two-unit force on an 8x8 field: enough for the suppression counter to have
  *  something to count, and nothing else. The type is the shipped `inf_squad`
  *  rather than a hand-written stand-in — a stand-in here would only be testing
@@ -309,6 +318,12 @@ describe('commander', () => {
     expect(who()).toBe('ENEMY');
   });
 
+  it('stays ENEMY -- never the villain\'s name -- even once a face is resolved for him (storyline.md G18)', () => {
+    const r = rig(mission(), { commander: TEST_COMMANDER_WITH_ENEMY });
+    r.hud.say('enemy', 'We see you.');
+    expect(r.host.querySelector('.rl-cmd__who')!.textContent).toBe('ENEMY');
+  });
+
   it('◂/▸ keep stepping the underlying beat regardless of a say overlay, and paging dismisses it', () => {
     const r = rig(mission());
     r.hud.brief(['One.', 'Two.']);
@@ -374,6 +389,24 @@ describe('commander portrait', () => {
 
     r.hud.say('enemy', 'We see you.');
     expect(face(r.host).hidden).toBe(true);
+  });
+
+  it("an enemy say paints the front's villain face (G18), and Shai's next beat restores his own", () => {
+    const r = rig(mission(), { commander: TEST_COMMANDER_WITH_ENEMY });
+    r.hud.brief(['One.', 'Two.']);
+    expect(face(r.host).src).toContain('shai_hammai.png');
+
+    r.hud.say('enemy', 'We see you.');
+    expect(face(r.host).hidden).toBe(false);
+    expect(face(r.host).src).toContain('nadir_sahim.png');
+    // The plate beside that face stays unnamed regardless of the resolved
+    // portrait -- covered on its own in the `commander` describe above.
+    expect(r.host.querySelector('.rl-cmd__who')!.textContent).toBe('ENEMY');
+
+    // Paging clears the say overlay the same way it does for Idit above.
+    const buttons = r.host.querySelectorAll<HTMLButtonElement>('.rl-cmd__page button');
+    buttons[1].click();
+    expect(face(r.host).src).toContain('shai_hammai.png');
   });
 
   it('falls back to the hatch when a resolved URL fails to load, rather than a broken-image glyph', () => {
