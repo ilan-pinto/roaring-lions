@@ -21,7 +21,10 @@
  * contract's own words) -- so, unlike a vehicle or a billboard, a building
  * mesh needs no per-instance geometry offset at all: `ThreeRenderer`
  * translates the cloned root straight to the footprint's world position and
- * leaves rotation at identity (a building never turns; the sim tracks no
+ * leaves rotation at identity for every building with a facade (a building
+ * never turns; the one exception since 2026-09-06 is a per_tile RUN, which
+ * `ThreeRenderer.updateBuildingMeshes` turns a quarter to follow its
+ * neighbours -- see `units/run-direction.ts`; the sim tracks no
  * orientation for one).
  */
 import * as THREE from 'three';

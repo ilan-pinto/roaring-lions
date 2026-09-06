@@ -1022,7 +1022,17 @@ export class MissionRuntime {
           tiles.push(y * this.sim.width + x);
         }
       }
-      this.sim.addStructure(ti, tiles);
+      // A per_tile type is a RUN of single-tile structures, exactly as the
+      // map loader raises it from a row of symbols (`@lions/data` parseMap):
+      // one body per tile, each with its own hit points, so a fence can be
+      // breached in one place and drawn one segment per tile. Until
+      // 2026-09-06 this path raised one footprint-sized structure whatever the
+      // type, and a 6x1 fence came up as a single panel on a six-tile pad.
+      if (this.sim.structureTypes[ti].perTile) {
+        for (const t of tiles) this.sim.addStructure(ti, [t]);
+      } else {
+        this.sim.addStructure(ti, tiles);
+      }
     }
   }
 

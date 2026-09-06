@@ -260,6 +260,7 @@ import { tileHash } from '../tile-hash';
 import { computeFog, isFogVisible, type FogInput } from './fog';
 import { FogMesh } from './fog-mesh';
 import { SmokeMesh } from './smoke-mesh';
+import { perTileRunYaw } from './units/run-direction';
 import { TrailMesh, collapsedRouteLevel, type TrailInstanceInput } from './trail-mesh';
 import { VehicleTrackMesh, trackKindFor, stepTrackAccum, TRACK_POOL_CAPACITY } from './vehicle-tracks';
 import { UnitShadowMesh, groundShadowRadiusTiles } from './unit-shadows';
@@ -4435,6 +4436,20 @@ export class ThreeRenderer implements Renderer {
    * present skips straight past this block and leaves whatever scale the
    * settle step last wrote alone.
    */
+  /** A per-tile structure turns to read along its run -- see
+   *  `units/run-direction.ts`. Neighbours are read off the sim's own tile
+   *  index, dead or alive: a breached fence still lies along its run. */
+  private perTileYaw(s: number): number {
+    const st = this.sim.structures;
+    const x = st.minX[s];
+    const y = st.minY[s];
+    const typeIdx = st.typeIdx[s];
+    return perTileRunYaw((dx, dy) => {
+      const n = this.sim.structureAt(x + dx, y + dy);
+      return n >= 0 && n !== s && st.typeIdx[n] === typeIdx;
+    });
+  }
+
   private updateBuildingMeshes(): void {
     if (this.buildingMeshIdleTemplates.size === 0) return;
     const st = this.sim.structures;
@@ -4452,6 +4467,7 @@ export class ThreeRenderer implements Renderer {
           const { fx: cx, fy: cy } = footprintCentre(this.sim, s);
           const worldY = groundWorldY(elevation, this.sim.width, this.sim.height, cx, cy);
           root.position.set(cx, worldY, cy);
+          if (type.perTile) root.rotation.y = this.perTileYaw(s);
           this.buildingMeshIdleEntities.set(s, root);
           this.scene.add(root);
         }
@@ -4498,6 +4514,7 @@ export class ThreeRenderer implements Renderer {
         const { fx: cx, fy: cy } = footprintCentre(this.sim, s);
         const worldY = groundWorldY(elevation, this.sim.width, this.sim.height, cx, cy);
         root.position.set(cx, worldY, cy);
+        if (type.perTile) root.rotation.y = this.perTileYaw(s);
         // GH #143 follow-up: start squashed on Y alone (see this method's
         // own doc comment and `buildingSettleScale`'s), so the wreck appears
         // already forming rather than instantly at full height.

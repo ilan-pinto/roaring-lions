@@ -247,6 +247,35 @@ describe('spawning and stances', () => {
     expect(Math.abs(y - 9.5)).toBeLessThan(2.0);
   });
 
+  it('raises a per_tile structure run as one structure per tile, like the map loader', () => {
+    // A mission-placed fence (2026-09-06) came up as ONE structure spanning
+    // six tiles -- one panel drawn on a six-tile pad, one hit-point pool, no
+    // breach possible -- where the same run authored in a map's rows is six.
+    const sim = new Sim({ seed: 3, width: 24, height: 24, capacity: 8 });
+    const fence = sim.addStructureType({ id: 't_fence', hp_per_tile: 60, per_tile: true, low_profile: true });
+    const camp = sim.addStructureType({ id: 't_camp', hp_per_tile: 300 });
+    const mission: MissionJson = {
+      id: 'per_tile_test',
+      map: { file: 'none' },
+      ledger: { requires: [], produces: [] },
+      structures: [
+        { type: 't_fence', at: [2, 2], size: [6, 1] },
+        { type: 't_camp', at: [10, 10], size: [2, 2] },
+      ],
+      objectives: [{ id: 'clock', type: 'survive_until', primary: true, seconds: 600 }],
+    };
+    const rt = new MissionRuntime(sim, mission, { typeIdOf: () => 0, markers: {}, zones: {} });
+    rt.start();
+    const fences = new Set<number>();
+    for (let x = 2; x < 8; x++) fences.add(sim.structureAt(x, 2));
+    expect(fences.size).toBe(6); // six bodies, not one
+    expect([...fences].every((i) => i >= 0 && sim.structures.typeIdx[i] === fence)).toBe(true);
+    const campIdx = sim.structureAt(10, 10);
+    expect(campIdx).toBeGreaterThanOrEqual(0);
+    expect(sim.structures.typeIdx[campIdx]).toBe(camp);
+    expect(sim.structureAt(11, 11)).toBe(campIdx); // the camp is still one 2x2 body
+  });
+
   it('a wave with a say speaks right after its own wave event (G12)', () => {
     // Until 2026-09-06 a wave could not speak: every narrative document carried
     // radio lines against waves with status 'engine'. The say rides the wave

@@ -88,7 +88,15 @@ describe('the building facing gate agrees with the renderer it is gating', () =>
     const end = renderer.indexOf('\n  private ', start + 1);
     const body = renderer.slice(start, end === -1 ? undefined : end);
     expect(body).toContain('root.position.set(');
-    expect(/\brotation\b/.test(body)).toBe(false);
+    // Since 2026-09-06 one exception is deliberate: a per_tile run turns a
+    // quarter to read along its neighbours (`units/run-direction.ts`), and a
+    // per_tile type has no facade for this gate to judge -- wall and fence
+    // both read `unchecked`/`symmetric`. Every other building still draws at
+    // identity, which this pins by requiring that any line in the method that
+    // speaks of rotation is the guarded per-tile one.
+    const rotating = body.split('\n').filter((line) => /\brotation\b/.test(line));
+    expect(rotating.length).toBeGreaterThan(0);
+    for (const line of rotating) expect(line).toContain('type.perTile');
   });
 
   it('marks the facade with a role the building vocabulary actually has', () => {
