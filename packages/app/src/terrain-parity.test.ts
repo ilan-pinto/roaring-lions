@@ -184,6 +184,8 @@ function loadMap(id: MapId): LoadedMap {
 // --- shared assertions -----------------------------------------------------
 
 const PALETTE_ENTRIES = new Set(PALETTE_HEXES.map((h) => h.toUpperCase()));
+/** The same entries as 24-bit ints, `(r << 16) | (g << 8) | b` -- the hot loop's key. */
+const PALETTE_INTS = new Set(PALETTE_HEXES.map((h) => parseInt(h.replace('#', ''), 16)));
 
 /** Recovers the hex a vertex colour rounds to -- the exact inverse of
  *  every builder's own `hexToUnit`, so this is comparing in the same space
@@ -203,11 +205,29 @@ function hexAt(mesh: MeshData, i: number): string {
  *  suite already asserts this on synthetic fixtures; this is the same
  *  assertion run on what a shipped map actually produces. */
 function assertPaletteColors(mesh: MeshData, label: string): void {
+  // One `expect` per vertex was the whole cost of this file: at 21 shipped
+  // maps (scatter alone is 53k-86k vertices each) it ran 64-70 s on CI and
+  // the vitest worker's 60 s RPC call to the main process timed out behind
+  // it -- every test green, run red (2026-09-06, twice on the same commit).
+  // The scan is a packed-int Set lookup now, and `expect` fires once, on the
+  // first offender, with the message the per-vertex version carried.
+  let offender = -1;
   for (let i = 0; i < mesh.colors.length; i += 3) {
-    const hex = hexAt(mesh, i);
-    expect(PALETTE_ENTRIES, `${label}: vertex colour ${hex} at colour index ${i / 3} is not a palette entry`).toContain(
-      hex
-    );
+    const r = Math.round(mesh.colors[i] * 255);
+    const g = Math.round(mesh.colors[i + 1] * 255);
+    const b = Math.round(mesh.colors[i + 2] * 255);
+    const inByte = r >= 0 && r <= 255 && g >= 0 && g <= 255 && b >= 0 && b <= 255;
+    if (!inByte || !PALETTE_INTS.has((r << 16) | (g << 8) | b)) {
+      offender = i;
+      break;
+    }
+  }
+  if (offender >= 0) {
+    const hex = hexAt(mesh, offender);
+    expect(
+      PALETTE_ENTRIES,
+      `${label}: vertex colour ${hex} at colour index ${offender / 3} is not a palette entry`
+    ).toContain(hex);
   }
 }
 
