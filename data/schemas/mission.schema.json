@@ -424,6 +424,10 @@
                     }
                   }
                 }
+              },
+              "say": {
+                "$ref": "#/$defs/say",
+                "description": "Spoken when the wave spawns -- the net or Idit calling the movement. Same shape and 240-character ceiling as a trigger's say."
               }
             }
           }

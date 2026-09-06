@@ -247,6 +247,54 @@ describe('spawning and stances', () => {
     expect(Math.abs(y - 9.5)).toBeLessThan(2.0);
   });
 
+  it('a wave with a say speaks right after its own wave event (G12)', () => {
+    // Until 2026-09-06 a wave could not speak: every narrative document carried
+    // radio lines against waves with status 'engine'. The say rides the wave
+    // and follows the wave event in the same tick, the ordering a trigger's
+    // say keeps relative to its trigger.
+    const w = makeWorld(
+      baseMission({
+        enemy: {
+          garrison: [{ unit: 'm_tech', count: 1, at: [4, 2] }],
+          waves: [
+            {
+              at_seconds: 1,
+              to: 'rally',
+              units: [{ unit: 'm_tech', count: 2, from: 'rally' }],
+              say: { speaker: 'idit', text: 'Two off the ridge, walking to the rally point.' },
+            },
+          ],
+        },
+      }),
+      { markers: { rally: [20, 8] } }
+    );
+    const seen: MissionEvent[] = [];
+    for (let t = 0; t < 3 * TICKS_PER_SECOND; t++) seen.push(...w.runtime.step(w.sim.tick()));
+    const wave = seen.findIndex((e) => e.kind === 'wave');
+    const say = seen.findIndex((e) => e.kind === 'say');
+    expect(wave).toBeGreaterThanOrEqual(0);
+    expect(say).toBe(wave + 1);
+    const line = seen[say];
+    expect(line.kind === 'say' && line.speaker).toBe('idit');
+    expect(line.kind === 'say' && line.text).toContain('rally point');
+  });
+
+  it('a wave without a say spawns silently, as every wave did before G12', () => {
+    const w = makeWorld(
+      baseMission({
+        enemy: {
+          garrison: [{ unit: 'm_tech', count: 1, at: [4, 2] }],
+          waves: [{ at_seconds: 1, to: 'rally', units: [{ unit: 'm_tech', count: 2, from: 'rally' }] }],
+        },
+      }),
+      { markers: { rally: [20, 8] } }
+    );
+    const seen: MissionEvent[] = [];
+    for (let t = 0; t < 3 * TICKS_PER_SECOND; t++) seen.push(...w.runtime.step(w.sim.tick()));
+    expect(seen.some((e) => e.kind === 'wave')).toBe(true);
+    expect(seen.some((e) => e.kind === 'say')).toBe(false);
+  });
+
   it('casualties_pct measures the force that was there at the start, not the running total', () => {
     // Issue #88. The denominator was `enemyIds.length` read at trigger time, and
     // enemyIds grows with every wave and trigger spawn -- so a threshold written

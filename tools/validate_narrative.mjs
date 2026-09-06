@@ -119,6 +119,12 @@ export function narrativeTextFailures(mission, label) {
     if (o.say) check(o.say.text, `objective "${o.id}" say.text`);
     if (o.say_on_fail) check(o.say_on_fail.text, `objective "${o.id}" say_on_fail.text`);
   }
+  // G12 (2026-09-06): a wave can speak. Checked like a trigger's say -- text
+  // AND speaker, since the wave has no id of its own to name it by, the clock
+  // does.
+  for (const w of mission.enemy?.waves ?? []) {
+    checkSay(w.say, `wave @${w.at_seconds}s say`);
+  }
   return out;
 }
 

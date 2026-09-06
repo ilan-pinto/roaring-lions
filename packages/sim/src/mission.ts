@@ -207,6 +207,9 @@ export interface MissionJson {
       trigger?: string;
       to?: string;
       units: readonly { unit: string; count: number; from?: string; group?: string; tag?: string }[];
+      /** Spoken when the wave spawns (G12, 2026-09-06): the same say a
+       *  trigger carries, emitted right after the wave event. */
+      say?: SayJson;
     }[];
   };
   triggers?: readonly {
@@ -1480,6 +1483,9 @@ export class MissionRuntime {
         );
       }
       out.push({ kind: 'wave', tick, count: spawned.length });
+      // The story voice on the wave, after the event it annotates -- the same
+      // ordering a trigger's say keeps relative to its trigger event.
+      if (w.say) out.push({ kind: 'say', tick, speaker: w.say.speaker, text: w.say.text });
       if (w.to && spawned.length > 0) {
         const [x, y] = this.markerPos(w.to);
         this.sim.queueCommand({ kind: 'attackMove', ids: spawned, x, y });

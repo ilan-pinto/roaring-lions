@@ -76,6 +76,28 @@ describe('remove trigger guards', () => {
 });
 
 describe('the 240-character story-voice limit', () => {
+  // G12 (2026-09-06): a wave can speak, so its line is checked like a
+  // trigger's -- text and speaker -- named by its clock, since a wave has no id.
+  it('checks a wave say: over 240 characters fails, and so does an unknown speaker', () => {
+    const tooLong = 'w'.repeat(241);
+    const long = narrativeTextFailures(
+      { enemy: { waves: [{ at_seconds: 90, units: [], say: { speaker: 'idit', text: tooLong } }] } },
+      'm.json'
+    );
+    expect(long).toEqual([`m.json: wave @90s say.text is 241 characters, over the 240 limit`]);
+    const who = narrativeTextFailures(
+      { enemy: { waves: [{ at_seconds: 200, units: [], say: { speaker: 'narrator', text: 'fine' } }] } },
+      'm.json'
+    );
+    expect(who).toHaveLength(1);
+    expect(who[0]).toContain('wave @200s say.speaker is "narrator"');
+    const ok = narrativeTextFailures(
+      { enemy: { waves: [{ at_seconds: 90, units: [], say: { speaker: 'net', text: 'Movement north.' } }] } },
+      'm.json'
+    );
+    expect(ok).toEqual([]);
+  });
+
   const LONG = 'x'.repeat(241);
   const OK = 'x'.repeat(240);
 
