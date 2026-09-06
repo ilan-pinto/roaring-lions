@@ -29,7 +29,7 @@ import {
   smokePlumeYawTurns,
   smokePlumeZoneOffset,
 } from './smoke-plume';
-import { SMOKE_ALPHA_MAX } from '../smoke-mesh';
+import { SMOKE_ALPHA_CEIL } from '../smoke-mesh';
 
 describe('smokePlumeRiseEnvelope', () => {
   it('starts at 0 and ramps linearly to 1 over the rise fraction', () => {
@@ -191,7 +191,11 @@ describe('createSmokePlumeMaterial -- the opaque-cutout fix', () => {
 
   it('stays under the sim smoke screen\'s own density -- a dispersing plume is thinner than a laid screen', () => {
     expect(SMOKE_PLUME_DENSITY).toBeGreaterThan(0);
-    expect(SMOKE_PLUME_DENSITY).toBeLessThan(SMOKE_ALPHA_MAX);
+    // SMOKE_ALPHA_CEIL (0.80), not the old SMOKE_ALPHA_MAX (0.72, retired
+    // 2026-09-06 -- see smoke-mesh.ts's own top comment) -- the ceiling a
+    // laid screen's density curve now approaches, rather than a flat
+    // multiplier.
+    expect(SMOKE_PLUME_DENSITY).toBeLessThan(SMOKE_ALPHA_CEIL);
   });
 
   it('thins toward the top rather than holding one density up the whole column', () => {

@@ -28,7 +28,7 @@ import {
   createCollapseShroudMaterial,
 } from './collapse-shroud';
 import { SMOKE_PLUME_DENSITY, SMOKE_PLUME_DEFAULT_DURATION_MS } from './smoke-plume';
-import { SMOKE_ALPHA_MAX } from '../smoke-mesh';
+import { SMOKE_ALPHA_CEIL } from '../smoke-mesh';
 import { SMOKE_RENDER_ORDER } from './render-order';
 
 /**
@@ -363,7 +363,12 @@ describe('createCollapseShroudMaterial', () => {
     // Range-bounded rather than compared to an interpolated copy of itself:
     // the assertion has to fail if somebody "restores" this to plume levels.
     expect(COLLAPSE_SHROUD_DENSITY).toBeGreaterThan(SMOKE_PLUME_DENSITY);
-    expect(COLLAPSE_SHROUD_DENSITY).toBeGreaterThan(SMOKE_ALPHA_MAX);
+    // SMOKE_ALPHA_CEIL (0.80), not the old SMOKE_ALPHA_MAX (0.72, retired
+    // 2026-09-06 when ambient smoke moved from a flat multiplier to a
+    // density curve) -- see smoke-mesh.ts's own "Why 0.80, not 0.85"
+    // section: that curve's own ceiling was deliberately solved to stay
+    // BELOW this constant, precisely so this assertion keeps holding.
+    expect(COLLAPSE_SHROUD_DENSITY).toBeGreaterThan(SMOKE_ALPHA_CEIL);
     expect(COLLAPSE_SHROUD_DENSITY).toBeLessThan(1);
   });
 
