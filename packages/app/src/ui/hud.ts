@@ -387,7 +387,18 @@ export class Hud {
     const plate = document.createElement('span');
     plate.className = 'rl-cmd__plate';
     plate.textContent = deps.commander.shai.plate;
-    this.cmdFace.append(this.cmdFaceImg, plate);
+    // The brigade net (`net`, GDD §11) is a system voice, not a person on the
+    // roster -- `speakerPortrait` already returns `undefined` for it exactly
+    // as it does for an unauthored portrait, and the hatch that answer used
+    // to paint reads as "reserved for art nobody drew yet". That is the wrong
+    // message for a speaker with no face to draw at all, so `paintFace`
+    // recognises `net` by name and swaps in this mark instead -- always in
+    // the DOM like `cmdFaceImg`, shown or hidden purely by the
+    // `rl-cmd__face--net` modifier class (theme.css) so CSS owns the look.
+    const faceMark = document.createElement('div');
+    faceMark.className = 'rl-cmd__face-mark';
+    faceMark.innerHTML = markSvg(86, 52);
+    this.cmdFace.append(this.cmdFaceImg, plate, faceMark);
 
     const bar = document.createElement('div');
     bar.className = 'rl-cmd__bar';
@@ -626,18 +637,28 @@ export class Hud {
   /**
    * `.rl-cmd__face` tracks whoever is currently speaking -- Shai while the
    * bar shows his own beats, whoever a `say` line names otherwise
-   * (`speakerPortrait`, `hud-model.ts`). `undefined` covers several cases
-   * the caller does not need to tell apart: the person has no portrait
-   * authored, `commander.json` names a file this build never found on disk,
-   * the speaker is `net` (never a person on the roster), or the speaker is
-   * `enemy` and this mission's front has no villain portrait resolved
+   * (`speakerPortrait`, `hud-model.ts`). `net` is carved out FIRST and
+   * always paints the brigade mark (`rl-cmd__face--net`, theme.css) rather
+   * than looking up a portrait at all -- it is the brigade radio net, never
+   * a person, so there is no face to reserve a hatch for. `undefined` from
+   * `speakerPortrait` still covers the remaining cases the caller does not
+   * need to tell apart: the person has no portrait authored, `commander.json`
+   * names a file this build never found on disk, or the speaker is `enemy`
+   * and this mission's front has no villain portrait resolved
    * (`deps.commander.enemy`, absent on a sandbox or a front not yet
-   * reached) -- every one of them means "show the hatch". When it IS
+   * reached) -- every one of THOSE means "show the hatch", because each is
+   * art not yet produced rather than art that will never exist. When it IS
    * resolved, `enemy` paints the villain's face while `speakerPlate` still
    * answers the literal word `ENEMY` on the line beside it (storyline.md
    * G18: a face, never a name).
    */
   private paintFace(speaker: string): void {
+    this.cmdFace.classList.toggle('rl-cmd__face--net', speaker === 'net');
+    if (speaker === 'net') {
+      this.cmdFaceImg.hidden = true;
+      this.cmdFaceImg.removeAttribute('src');
+      return;
+    }
     const url = speakerPortrait(this.deps.commander, speaker);
     if (url === undefined) {
       this.cmdFaceImg.hidden = true;

@@ -13,7 +13,7 @@ import { RENDERER_STORAGE_KEY, resolveRendererChoice } from '../renderer-choice'
 import { SANDBOX_FLAGS, sandboxUrl, type SandboxFlagName } from '../sandbox-help';
 import { panel } from './panel';
 import { stagger } from './motion';
-import { wordmark } from './mark';
+import { markSvg, wordmark } from './mark';
 import { worldMap } from './worldmap';
 import { campaignBoard, worldMap3d } from './worldmap3d';
 
@@ -380,6 +380,15 @@ export interface EndScreenDebrief {
    *  the caller does not need to tell them apart, exactly as `speakerPortrait`
    *  itself does not. */
   portrait?: string;
+  /** The raw `say` speaker id (`hud-model.ts`'s vocabulary), carried
+   *  separately from `portrait` for one reason: `net` has to be told apart
+   *  from "no portrait authored yet", and `portrait` alone cannot do that --
+   *  `speakerPortrait` maps both to the same `undefined`. `net` paints the
+   *  brigade mark instead of the hatch, mirroring `hud.ts`'s `paintFace`;
+   *  every other speaker, and a debrief built with no `speaker` at all
+   *  (every caller before this field existed), falls back to the ordinary
+   *  portrait/hatch join unchanged. */
+  speaker?: string;
 }
 
 export interface EndScreenOptions {
@@ -410,7 +419,7 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): void {
   p.el.classList.add('rl-enter');
 
   if (opts.debrief) {
-    const { plate, text, portrait } = opts.debrief;
+    const { plate, text, portrait, speaker } = opts.debrief;
 
     const head = document.createElement('div');
     head.className = 'rl-enddebrief__head';
@@ -419,8 +428,11 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): void {
     // there is no resolved URL -- `error` catches a URL that resolved but
     // still failed to load, which `portrait !== undefined` alone does not
     // guarantee (`portrait-catalogue.ts`'s own doc comment on this exact gap).
+    // `net` is carved out first and paints the brigade mark instead of
+    // either, the same split `hud.ts`'s `paintFace` makes.
     const face = document.createElement('div');
     face.className = 'rl-enddebrief__face';
+    if (speaker === 'net') face.classList.add('rl-enddebrief__face--net');
     const faceImg = document.createElement('img');
     faceImg.className = 'rl-enddebrief__face-img';
     faceImg.alt = '';
@@ -429,11 +441,14 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): void {
       faceImg.hidden = true;
       faceImg.removeAttribute('src');
     });
-    if (portrait !== undefined) {
+    if (speaker !== 'net' && portrait !== undefined) {
       faceImg.src = portrait;
       faceImg.hidden = false;
     }
-    face.appendChild(faceImg);
+    const faceMark = document.createElement('div');
+    faceMark.className = 'rl-enddebrief__face-mark';
+    faceMark.innerHTML = markSvg(86, 52);
+    face.append(faceImg, faceMark);
 
     const who = document.createElement('div');
     who.className = 'rl-enddebrief__who';

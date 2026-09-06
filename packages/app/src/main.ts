@@ -1800,6 +1800,7 @@ async function main(): Promise<void> {
                   plate: speakerPlate(hudCommander, say.speaker),
                   text: say.text,
                   portrait: speakerPortrait(hudCommander, say.speaker),
+                  speaker: say.speaker,
                 }
               : undefined;
             showEndScreen(document.body, {

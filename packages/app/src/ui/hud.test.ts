@@ -382,13 +382,34 @@ describe('commander portrait', () => {
     expect(face(r.host).src).toContain('shai_hammai.png');
   });
 
-  it('falls to the hatch for net and enemy, who are not people on the roster', () => {
+  it('falls to the hatch for enemy, who is not a person on the roster', () => {
     const r = rig(mission(), { commander: TEST_COMMANDER_WITH_PORTRAITS });
-    r.hud.say('net', 'Reinforcements are twelve minutes out.');
-    expect(face(r.host).hidden).toBe(true);
-
     r.hud.say('enemy', 'We see you.');
     expect(face(r.host).hidden).toBe(true);
+    expect(r.host.querySelector('.rl-cmd__face')!.classList.contains('rl-cmd__face--net')).toBe(
+      false
+    );
+  });
+
+  it('paints the brigade mark for net -- not the hatch, no <img> -- and restores Shai\'s portrait on his next beat', () => {
+    const r = rig(mission(), { commander: TEST_COMMANDER_WITH_PORTRAITS });
+    r.hud.brief(['One.', 'Two.']);
+    expect(face(r.host).src).toContain('shai_hammai.png');
+
+    r.hud.say('net', 'Reinforcements are twelve minutes out.');
+    const frame = r.host.querySelector('.rl-cmd__face')!;
+    expect(frame.classList.contains('rl-cmd__face--net')).toBe(true);
+    expect(face(r.host).hidden).toBe(true);
+    expect(face(r.host).hasAttribute('src')).toBe(false);
+    expect(frame.querySelector('.rl-cmd__face-mark svg')).not.toBeNull();
+
+    // Paging clears the say overlay the same way it does for Idit/enemy.
+    const buttons = r.host.querySelectorAll<HTMLButtonElement>('.rl-cmd__page button');
+    buttons[1].click();
+    expect(r.host.querySelector('.rl-cmd__face')!.classList.contains('rl-cmd__face--net')).toBe(
+      false
+    );
+    expect(face(r.host).src).toContain('shai_hammai.png');
   });
 
   it("an enemy say paints the front's villain face (G18), and Shai's next beat restores his own", () => {

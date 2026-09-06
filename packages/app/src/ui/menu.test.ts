@@ -104,6 +104,26 @@ describe('showEndScreen', () => {
     const img = host.querySelector<HTMLImageElement>('.rl-enddebrief__face-img')!;
     expect(img.hidden).toBe(true);
     expect(img.hasAttribute('src')).toBe(false);
+    expect(host.querySelector('.rl-enddebrief__face')!.classList.contains('rl-enddebrief__face--net')).toBe(
+      false
+    );
+  });
+
+  it('shows the brigade mark, not the hatch, for a net debrief speaker', () => {
+    const host = document.createElement('div');
+    showEndScreen(host, {
+      result: 'defeat',
+      roe: 40,
+      survivors: 2,
+      missionId: 'x',
+      debrief: { plate: 'NET', text: 'Reinforcements are twelve minutes out.', speaker: 'net' },
+    });
+    const face = host.querySelector('.rl-enddebrief__face')!;
+    expect(face.classList.contains('rl-enddebrief__face--net')).toBe(true);
+    const img = host.querySelector<HTMLImageElement>('.rl-enddebrief__face-img')!;
+    expect(img.hidden).toBe(true);
+    expect(img.hasAttribute('src')).toBe(false);
+    expect(face.querySelector('.rl-enddebrief__face-mark svg')).not.toBeNull();
   });
 
   it('does not truncate a debrief at any length -- character limits are the schema\'s, not this screen\'s', () => {

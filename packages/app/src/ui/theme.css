@@ -875,6 +875,33 @@ body {
   height: 100%;
   object-fit: cover;
 }
+/* The brigade net (`net`, GDD §11) is a system voice, not a person -- the
+   hatch above means "reserved for art nobody has drawn yet", which is the
+   wrong claim for a speaker with no face to draw at all. `hud.ts`'s
+   `paintFace` toggles this modifier by name; everything else about the
+   look -- the plain panel background instead of the hatch, and centring
+   `.rl-cmd__face-mark` over it -- lives here. */
+.rl-cmd__face--net {
+  background: var(--panel-bg);
+}
+/* Hidden by default and shown only under the modifier above, so JS never
+   has to touch this element's own visibility -- the mark is always in the
+   DOM, like `.rl-cmd__face-img`. Sized to ~60% of the frame and centred,
+   per the mark's own `markSvg` viewBox aspect (auto height keeps it). */
+.rl-cmd__face-mark {
+  display: none;
+}
+.rl-cmd__face--net .rl-cmd__face-mark {
+  display: flex;
+  position: absolute;
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+}
+.rl-cmd__face-mark svg {
+  width: 60%;
+  height: auto;
+}
 /* Open, the frame belongs to the briefing rather than to the machinery, and
    its edge says so in the same olive the mission band wears. */
 .rl-cmd[data-open='1'] .rl-cmd__face {
@@ -1888,8 +1915,11 @@ button.rl-menu__item[data-kind='aside'] {
   margin: 0 0 var(--s2);
 }
 /* Hatched exactly like `.rl-cmd__face`/`.rl-loading__face` whenever the
-   speaker has no resolved portrait URL -- authored or not, on disk or not,
-   and `net`/`enemy` (no portrait to look up at all) read identically. */
+   speaker has no resolved portrait URL -- authored or not, on disk or not.
+   `net` is the one case with no portrait to look up at all, and paints the
+   brigade mark instead (`.rl-enddebrief__face--net` below), mirroring the
+   commander bar's own `.rl-cmd__face--net`; `enemy` with no villain
+   resolved still falls to this same hatch. */
 .rl-enddebrief__face {
   width: var(--cmd-face);
   height: var(--cmd-face);
@@ -1912,6 +1942,26 @@ button.rl-menu__item[data-kind='aside'] {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+/* Plain panel background instead of the hatch, and the mark centred over it
+   -- see `.rl-cmd__face--net`'s own comment for why `net` gets a mark rather
+   than reserved-art hatching. */
+.rl-enddebrief__face--net {
+  background: var(--panel-bg);
+}
+.rl-enddebrief__face-mark {
+  display: none;
+}
+.rl-enddebrief__face--net .rl-enddebrief__face-mark {
+  display: flex;
+  position: absolute;
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+}
+.rl-enddebrief__face-mark svg {
+  width: 60%;
+  height: auto;
 }
 .rl-enddebrief__who {
   font-family: var(--font-display);
