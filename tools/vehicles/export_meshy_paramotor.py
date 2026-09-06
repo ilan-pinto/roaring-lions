@@ -354,6 +354,7 @@ from dimetric import metres_per_unit  # noqa: E402
 import kit as vehicle_kit  # noqa: E402 -- ROLES, the closed vehicle role vocabulary
 
 from export_mesh_vehicle import _bake_scale, _extent  # noqa: E402 -- shared helpers
+import textured as vehicle_textured  # noqa: E402 -- 2026-09-07: ship the source's own base_color bake
 
 REPO = os.path.dirname(TOOLS)
 
@@ -563,8 +564,9 @@ def _load_object(path, new_name):
 
 
 def _strip_per_loop_data(ob, label):
-    """Clear baked custom split normals, any vertex-colour layer, and every UV
-    map, then shade-smooth.
+    """Clear baked custom split normals and any vertex-colour layer, then
+    shade-smooth. UV maps used to be cleared here too -- see 2026-09-07
+    update below the historical paragraph for why that stopped.
 
     The first two are `export_meshy_jeep.py`'s own helper of the same purpose,
     and for its reason: left alone, glTF export must split a vertex everywhere
@@ -579,18 +581,32 @@ def _strip_per_loop_data(ob, label):
     has one, and, worse, splits a vertex at every UV SEAM. These sources are
     `image-to-3d-texture` exports and are seamed all over. Measured on this
     asset: keeping the UVs exported 60,276 glTF vertices for 32,780 Blender
-    vertices (1.84x) in a 2.34 MB file; dropping them exports far closer to
-    1:1. Three shipped vehicles (`technical`, `mbt_lavi`, `ifv_namer`) do
-    still carry a dead `TEXCOORD_0` for want of this step; four
-    (`apc_eitan`, `dozer_d9`, `heli_peten`, `jeep_shoded`) do not."""
+    vertices (1.84x) in a 2.34 MB file; dropping them exported far closer to
+    1:1. Three shipped vehicles (`technical`, `mbt_lavi`, `ifv_namer`) still
+    carried a dead `TEXCOORD_0` for want of this step; four (`apc_eitan`,
+    `dozer_d9`, `heli_peten`, `jeep_shoded`) did not.
+
+    2026-09-07: UV stripping is REMOVED from this function (see the body
+    below). The project lead's "used as is" direction now covers this
+    source's own base_color bake (`tools/vehicles/textured.py`), which reads
+    exactly the UV coordinates this used to throw away -- the 1.84x vertex
+    cost above is no longer dead weight, it is what a seamed material needs.
+    `technical`/`mbt_lavi`/`ifv_namer` are no longer the exception this
+    docstring named them as: as of the same date they ship the identical
+    "keep the seam-split UVs" choice, for the identical reason."""
     had_colour = len(ob.data.color_attributes)
     had_normals = bool(getattr(ob.data, "has_custom_normals", False))
     had_uvs = [layer.name for layer in ob.data.uv_layers]
     flat = sum(1 for p in ob.data.polygons if not p.use_smooth)
     while ob.data.color_attributes:
         ob.data.color_attributes.remove(ob.data.color_attributes[0])
-    while ob.data.uv_layers:
-        ob.data.uv_layers.remove(ob.data.uv_layers[0])
+    # 2026-09-07: UV maps are KEPT, not removed -- this export now ships the
+    # source's own base_color bake (`tools/vehicles/textured.py`), so the
+    # exact bloat this stripped ("60,276 glTF vertices for 32,780 Blender
+    # vertices... dropping them exports far closer to 1:1", this function's
+    # own docstring) is the seam-duplication a real material now needs to
+    # read. The vertex-count increase from keeping them is expected and is
+    # NOT new geometry -- see this task's own report.
     bpy.ops.object.select_all(action="DESELECT")
     ob.select_set(True)
     bpy.context.view_layer.objects.active = ob
@@ -696,7 +712,16 @@ def _split(ob, face_fn, keep_name, cut_name, label):
 def _join(objs, label):
     """`bpy.ops.object.join()`, active object first. Names are captured BEFORE
     the call: every non-active object in `objs` is deleted by it, and reading
-    even `.name` off a deleted `bpy.types.Object` raises `ReferenceError`."""
+    even `.name` off a deleted `bpy.types.Object` raises `ReferenceError`.
+
+    UNUSED as of 2026-09-07 -- `export()` used to call this to merge
+    `frame`+`rigging` into one `hull_metal` mesh; that join is gone now that
+    the two halves carry different base_color materials (see the block
+    comment at that call site, now removed, for the measured reason: a
+    multi-material join is a shape three.js's `GLTFLoader` cannot round-trip
+    `rl_role` extras through). Left in place rather than deleted -- it is a
+    correct, generic helper, and a future asset that DOES need to merge two
+    same-material pieces can still reach for it."""
     names = [o.name for o in objs]
     bpy.ops.object.select_all(action="DESELECT")
     for ob in objs:
@@ -857,28 +882,46 @@ def export():
     if abs(zmin_after) > 1e-5:
         raise SystemExit(f"ground plane drifted to z={zmin_after:.6f} after renormalisation")
 
-    # -- Joins and contract naming. The rigging (canopy source) and the frame
-    # (trike source) are both `metal` and both static, so they become one
-    # mesh -- the same "one mesh, several disjoint islands" shape
-    # `export_meshy_apache.py`'s own `hull_metal` already is. The join happens
-    # AFTER both scale bakes, because until then the two halves are in
-    # different unit systems.
-    metal = _join([frame, rigging], "hull_metal")
-    for ob, role in ((wing, "hull"), (metal, "metal"), (tyres, "rubber")):
-        name = f"hull_{role}"
-        ob.name = name
-        ob.data.name = name
-        ob.data.materials.clear()
+    # -- Contract naming. The rigging (canopy source) and the frame (trike
+    # source) are both `metal` and both static -- until 2026-09-07 they were
+    # JOINED into one "hull_metal" mesh (`_join`, the "one mesh, several
+    # disjoint islands" shape `export_meshy_apache.py`'s own `hull_metal`
+    # already is). That join is REMOVED now that each half carries its own
+    # Meshy base_color bake: `bpy.ops.object.join()` merges two
+    # DIFFERENT-material objects into one Blender mesh with two material
+    # slots, which glTF exports as one "mesh" with TWO primitives -- and
+    # three.js's `GLTFLoader` turns a multi-primitive mesh into a `Group`
+    # wrapping two anonymous child `Mesh` nodes, extras attached to the GROUP
+    # rather than to either child. Measured directly (this task's own
+    # report): a synthetic two-material cube built and exported the same way
+    # loads back as `Group name="hull_metal" userData={rl_role:...}
+    # children=2` over `Mesh name="Cube" userData={}` /
+    # `Mesh name="Cube_1" userData={}` -- neither child mesh carries
+    # `rl_role`, so `buildVehicleMeshTemplate`'s per-MESH
+    # `mesh.userData.rl_role` read finds nothing, falls back to `mesh.name`
+    # ("Cube"/"Cube_1"), and throws "no ramp for rl_role Cube, Cube_1". A
+    # single-material mesh does not hit this: the same probe against the
+    # real (single-material) `mbt_lavi.glb` loads every role mesh's extras
+    # correctly. So `frame` and `rigging` ship as two independent
+    # single-material objects instead -- one extra draw call (3 meshes -> 4
+    # for this vehicle) for a shape the runtime can actually read.
+    for ob in (frame, rigging):
+        ob.data.name = ob.name
+    for ob, role in ((wing, "hull"), (frame, "metal"), (rigging, "metal"), (tyres, "rubber")):
         for k in list(ob.keys()):
             if k != "_RNA_UI":
                 del ob[k]
         ob["rl_role"] = role
         ob["rl_part"] = "hull"
+    wing.name = wing.data.name = "hull_hull"
+    tyres.name = tyres.data.name = "hull_rubber"
+    # `frame`/`rigging` keep their own object names (Blender will avoid a
+    # literal collision on "hull_metal" automatically) -- see the block
+    # comment above for why the node NAME is not load-bearing here, only the
+    # `rl_role`/`rl_part` extras just set above.
 
-    final = [wing, metal, tyres]
+    final = [wing, frame, rigging, tyres]
     for ob in final:
-        if ob.data.materials:
-            raise SystemExit(f"{ob.name}: materials survived the clear -- contract requires zero")
         # `triangle_fill` can leave a duplicate or zero-area face behind on a
         # decimated shell, which glTF export reports as "Mesh <name> is not
         # valid, and may be exported wrongly" and then exports anyway. Fix it
@@ -887,24 +930,27 @@ def export():
         if ob.data.validate(verbose=False):
             print(f"[paramotor] {ob.name}: mesh.validate() removed invalid geometry")
 
+    # 2026-09-07: ships both sources' own base_color bakes -- see
+    # `export_meshy_tank.py`'s identical block and `tools/vehicles/textured.py`.
+    kept, dropped = vehicle_textured.prepare_vehicle_textures()
+    for name, before, after in kept:
+        print(f"[paramotor] shipping {name!r} at {after[0]}x{after[1]} (was {before[0]}x{before[1]}), JPEG q{vehicle_textured.JPEG_QUALITY}")
+    for name, size in dropped:
+        print(f"[paramotor] dropped {name!r} ({size[0]}x{size[1]})")
+
     os.makedirs(OUT_DIR, exist_ok=True)
     bpy.ops.object.select_all(action="DESELECT")
     bpy.ops.export_scene.gltf(
-        filepath=OUT_PATH,
-        export_format="GLB",
-        use_selection=False,
-        export_apply=True,
-        export_yup=True,
-        export_skins=False,
-        export_animations=False,
-        export_extras=True,
-        export_materials="NONE",
-        export_copyright=(
+        **vehicle_textured.gltf_kwargs(
+            OUT_PATH,
             "Tandem powered parachute -- AI-generated (Meshy), two image-to-3d-texture "
-            "exports (canopy, trike), disclosed per CONTRIBUTING.md; joined and re-split "
-            "into hull_hull/hull_metal/hull_rubber for this repository. Replaces the "
-            "authored-primitive PARA_MOTOR sprite sheet (CC BY-SA 4.0)."
-        ),
+            "exports (canopy, trike), disclosed per CONTRIBUTING.md; re-split into "
+            "hull_hull/hull_metal_frame/hull_metal_rigging/hull_rubber for this "
+            "repository (frame and rigging ship unjoined, each its own single-material "
+            "mesh -- see the block comment above 'final ='). Replaces the "
+            "authored-primitive PARA_MOTOR sprite sheet (CC BY-SA 4.0). Ships both "
+            "sources' own base_color bakes (project lead direction, 2026-09-07)."
+        )
     )
     (fx0, fx1), (fy0, fy1), (fz0, fz1) = _bbox(final)
     size = os.path.getsize(OUT_PATH)
@@ -915,7 +961,8 @@ def export():
     print(
         f"[paramotor] wrote {OUT_PATH} ({size} bytes) meshes: "
         f"hull_hull={len(wing.data.polygons)} polys / {len(wing.data.vertices)} verts, "
-        f"hull_metal={len(metal.data.polygons)} / {len(metal.data.vertices)}, "
+        f"hull_metal_frame={len(frame.data.polygons)} / {len(frame.data.vertices)}, "
+        f"hull_metal_rigging={len(rigging.data.polygons)} / {len(rigging.data.vertices)}, "
         f"hull_rubber={len(tyres.data.polygons)} / {len(tyres.data.vertices)}"
     )
     return OUT_PATH

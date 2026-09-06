@@ -29,6 +29,21 @@
  * `WebGLRenderer`, the same headless property `mesh-unit.ts`'s own top
  * comment records; `tools/src/mesh_gait.test.ts` is the precedent for a
  * test reading the shipped meshes off disk.
+ *
+ * 2026-09-07: this file's own `environment: 'node'` (`vitest.config.ts`'s
+ * root default -- deliberately not jsdom, per the paragraph above) stopped
+ * being enough the moment six shipped GLBs started carrying a real
+ * `base_color` image. `GLTFParser.loadImageSource` reaches for the global
+ * `self` to decide how to decode a texture's bytes, which plain Node does
+ * not define -- `ReferenceError: self is not defined`, thrown from deep
+ * inside `assignTexture`/`loadMaterial`, on every textured vehicle. The
+ * fix is NOT to switch this file to jsdom (that would re-add the network/
+ * WebGL weight this test exists to avoid); `self = globalThis` is enough
+ * for `loadImageSource` to pick a code path, and the path it picks then
+ * fails to actually decode (no `Image`/`createImageBitmap` in Node either)
+ * -- caught by `GLTFLoader`'s own error handler and logged as a console
+ * warning, not thrown, because texture PIXELS are not what this file
+ * checks. Materials, clips and pivots are still built correctly either way.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -36,6 +51,12 @@ import { describe, expect, it } from 'vitest';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { buildVehicleMeshTemplate, instantiateVehicleMesh } from './mesh-vehicle';
 import { CLIP_NAMES } from './mesh-anim';
+import { TEXTURED_VEHICLE_TYPES } from './textured-vehicle';
+
+// See this file's own top comment, 2026-09-07 paragraph.
+if (typeof (globalThis as { self?: unknown }).self === 'undefined') {
+  (globalThis as { self?: unknown }).self = globalThis;
+}
 
 const REPO = fileURLToPath(new URL('../../../../../', import.meta.url));
 const VEHICLE_MESHES = `${REPO}art/meshes/vehicles/`;
@@ -67,7 +88,12 @@ describe('shipped vehicle GLBs', () => {
     const gltf = await parseShipped(id);
     // Not `expect(...).not.toThrow()`: naming the offender is the whole
     // value here, and `buildVehicleMeshTemplate`'s own throw already does.
-    const template = buildVehicleMeshTemplate(gltf, id);
+    // `allowTextured` mirrors `ThreeRenderer.loadVehicleMesh`'s own
+    // computation (`TEXTURED_VEHICLE_TYPES.has(id)`) -- six of nine-plus
+    // shipped GLBs now carry a real base_color material (2026-09-07), and
+    // without this a real load would throw "ships a texture, but ... is not
+    // in TEXTURED_VEHICLE_TYPES" on every one of them.
+    const template = buildVehicleMeshTemplate(gltf, id, TEXTURED_VEHICLE_TYPES.has(id));
     for (const name of template.clips.keys()) {
       expect(CLIP_NAMES).toContain(name);
     }
@@ -75,7 +101,7 @@ describe('shipped vehicle GLBs', () => {
 
   it.each(shippedVehicleIds())('%s: a mixer exists exactly when clips do', async (id) => {
     const gltf = await parseShipped(id);
-    const template = buildVehicleMeshTemplate(gltf, id);
+    const template = buildVehicleMeshTemplate(gltf, id, TEXTURED_VEHICLE_TYPES.has(id));
     const entity = instantiateVehicleMesh(template, id);
 
     expect(entity.mixer === null).toBe(template.clips.size === 0);
@@ -89,7 +115,7 @@ describe('shipped vehicle GLBs', () => {
     '%s: with no clips authored, the clone carries no animation machinery at all',
     async (id) => {
       const gltf = await parseShipped(id);
-      const template = buildVehicleMeshTemplate(gltf, id);
+      const template = buildVehicleMeshTemplate(gltf, id, TEXTURED_VEHICLE_TYPES.has(id));
       if (template.clips.size > 0) return; // an authored clip is not this case
       const entity = instantiateVehicleMesh(template, id);
       expect(entity.mixer).toBeNull();

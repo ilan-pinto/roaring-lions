@@ -149,14 +149,36 @@ from dimetric import metres_per_unit  # noqa: E402
 import kit as vehicle_kit  # noqa: E402 -- ROLES, the closed vehicle role vocabulary
 
 from export_mesh_vehicle import _bake_scale  # noqa: E402 -- shared bake-scale-into-verts helper
+import textured as vehicle_textured  # noqa: E402 -- 2026-09-07: ship the source's own base_color bake
 
 REPO = os.path.dirname(TOOLS)
+#: Corrected 2026-09-07: this used to read "art/blend/namer/..." (no `KDF`
+#: segment, and "namer" rather than "Namer IFV"), a path that has never
+#: existed -- the real source has always lived at
+#: "art/blend/KDF/Namer IFV/...". See `export_meshy_tank.py`'s own fix, made
+#: the same day for the identical reason.
 SRC = os.path.join(
-    REPO, "art", "blend", "namer",
+    REPO, "art", "blend", "KDF", "Namer IFV",
     "Meshy_AI_heavy_ifv_multigun_mo_0830112110_image-to-3d-texture.blend",
 )
+#: The .blend files are gitignored and live only in the MAIN checkout, not
+#: in a worktree -- same fallback convention this pipeline already uses
+#: elsewhere (`export_meshy_paramotor.py`'s `_resolve`,
+#: `export_meshy_rocket_battery.py`'s `SRC_FALLBACK`).
+SRC_FALLBACK_ROOTS = (REPO, "/Users/ilpinto/dev/roaring-lions")
 OUT_DIR = os.path.join(REPO, "art", "meshes", "vehicles")
 OUT_PATH = os.path.join(OUT_DIR, "ifv_namer.glb")
+
+
+def _resolve(path):
+    if os.path.exists(path):
+        return path
+    tail = os.path.relpath(path, REPO)
+    for root in SRC_FALLBACK_ROOTS:
+        alt = os.path.join(root, tail)
+        if os.path.exists(alt):
+            return alt
+    raise SystemExit(f"source not found: {path} (also tried {SRC_FALLBACK_ROOTS})")
 
 #: ifv_namer's own declared real-world size -- read from the sprite sheet it
 #: currently ships with (NAMER_HULL), the same "read the shipped manifest,
@@ -336,7 +358,7 @@ def _turret_pivot(turret_obj):
 
 
 def export():
-    bpy.ops.wm.open_mainfile(filepath=SRC)
+    bpy.ops.wm.open_mainfile(filepath=_resolve(SRC))
     src_obj = bpy.data.objects["mesh_node"]
     if src_obj.modifiers:
         raise SystemExit(f"mesh_node carries {len(src_obj.modifiers)} modifier(s) -- apply before cutting")
@@ -445,7 +467,11 @@ def export():
         name = f"{part}_{role}"
         ob.name = name
         ob.data.name = name
-        ob.data.materials.clear()
+        # 2026-09-07: materials KEPT, not cleared -- see
+        # `export_meshy_tank.py`'s identical comment and
+        # `tools/vehicles/textured.py`. Every object here is a duplicate of
+        # the one source `mesh_node`, so all four still reference the same
+        # material/base_color datablock.
         for k in list(ob.keys()):
             if k != "_RNA_UI":
                 del ob[k]
@@ -497,22 +523,23 @@ def export():
         ob.parent = pivot_obj
         ob.matrix_parent_inverse = inv
 
+    # 2026-09-07: ships the source's own base_color bake -- see
+    # `export_meshy_tank.py`'s identical block and `tools/vehicles/textured.py`.
+    kept, dropped = vehicle_textured.prepare_vehicle_textures()
+    for name, before, after in kept:
+        print(f"[ifv_namer] shipping {name!r} at {after[0]}x{after[1]} (was {before[0]}x{before[1]}), JPEG q{vehicle_textured.JPEG_QUALITY}")
+    for name, size in dropped:
+        print(f"[ifv_namer] dropped {name!r} ({size[0]}x{size[1]})")
+
     os.makedirs(OUT_DIR, exist_ok=True)
     bpy.ops.object.select_all(action="DESELECT")
     bpy.ops.export_scene.gltf(
-        filepath=OUT_PATH,
-        export_format="GLB",
-        use_selection=False,
-        export_apply=True,
-        export_yup=True,
-        export_skins=False,
-        export_animations=False,
-        export_extras=True,
-        export_materials="NONE",
-        export_copyright=(
+        **vehicle_textured.gltf_kwargs(
+            OUT_PATH,
             "Namer IFV hull+turret -- AI-generated (Meshy), disclosed per CONTRIBUTING.md; "
-            "cut into hull_hull/hull_rubber/turret_metal/turret_glass for this repository"
-        ),
+            "cut into hull_hull/hull_rubber/turret_metal/turret_glass for this repository; "
+            "ships the source's own base_color bake (project lead direction, 2026-09-07)",
+        )
     )
     size = os.path.getsize(OUT_PATH)
     print(

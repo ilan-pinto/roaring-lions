@@ -58,6 +58,7 @@ import { isVehicleMeshRole, rampForVehicleRole } from './vehicle-mesh-role';
 import { isMeshClipName, MESH_SCALE } from './mesh-anim';
 import type { ClipPlayer } from './mesh-clip';
 import { HULL_RENDER_ORDER, TURRET_RENDER_ORDER } from './render-order';
+import { texturedBuildingMaterial } from './textured-building';
 
 /** The pivot node's own name, per the contract: "The turret pivot is a node
  *  named `turret_pivot` carrying `extras.rl_pivot = "turret"` on that node
@@ -146,10 +147,26 @@ export interface VehicleMeshTemplate {
  * exactly the way `buildMeshUnitTemplate` fails it: "a clip present under
  * any other name is a failure" (`mesh-unit-contract.md`), loudly and at
  * load time, rather than silently never playing.
+ *
+ * `allowTextured` (default `false`, mirroring `buildBuildingMeshTemplate`'s
+ * own default) is the caller's answer to
+ * `TEXTURED_VEHICLE_TYPES.has(vehicleId)` -- see `units/textured-vehicle.ts`
+ * for the named list and `units/textured-building.ts` for the material this
+ * reuses UNCHANGED rather than forking a vehicle-specific variant: that
+ * material's own invariant is "the bake, untouched, only a scalar multiply"
+ * (no palette entry read, no colour substituted), and a vehicle hull's own
+ * "Cel specular" ramp trick below (`specular: true`) works by SELECTING an
+ * existing ramp entry, never inventing one -- there is no equivalent
+ * palette-safe operation for a sampled photograph, so adding a synthesised
+ * highlight would be the one thing this backend's texture path is built not
+ * to do. Checked against the real headless render (this task's own report):
+ * six textured hulls under the shipped `texturedBuildingMaterial` read fine
+ * without it.
  */
 export function buildVehicleMeshTemplate(
   gltf: Pick<GLTF, 'scene'> & Partial<Pick<GLTF, 'animations'>>,
-  vehicleId: string
+  vehicleId: string,
+  allowTextured = false
 ): VehicleMeshTemplate {
   const root = gltf.scene;
   root.scale.setScalar(MESH_SCALE);
@@ -157,6 +174,7 @@ export function buildVehicleMeshTemplate(
   const materials: THREE.Material[] = [];
   const geometries: THREE.BufferGeometry[] = [];
   const unmapped = new Set<string>();
+  const smuggled = new Set<string>();
   let pivotNode: THREE.Object3D | null = null;
   let rotorPivotNode: THREE.Object3D | null = null;
 
@@ -183,6 +201,33 @@ export function buildVehicleMeshTemplate(
     if (!mesh.isMesh) return;
     const extrasRole = (mesh.userData as { rl_role?: unknown }).rl_role;
     const role = typeof extrasRole === 'string' && extrasRole.length > 0 ? extrasRole : mesh.name;
+
+    // The per-MESH textured opt-out -- see `units/mesh-building.ts`'s
+    // identical block for the full reasoning, restated here only where it
+    // differs. Checked BEFORE `isVehicleMeshRole`: a textured mesh needs no
+    // ramp. Render order and the turret/rotor pivot lookup above are
+    // unaffected either way -- both are decided from the node's own name/
+    // extras, not from whether it draws through a ramp or a photograph.
+    const loaded = mesh.material as THREE.Material | undefined;
+    const loadedMap =
+      loaded && 'map' in loaded ? ((loaded as { map?: THREE.Texture | null }).map ?? null) : null;
+    if (loadedMap) {
+      if (!allowTextured) {
+        smuggled.add(role || '(unnamed mesh)');
+        return;
+      }
+      const textured = texturedBuildingMaterial(loadedMap);
+      mesh.material = textured;
+      mesh.renderOrder = renderOrderForPart(mesh.name);
+      materials.push(textured);
+      geometries.push(mesh.geometry);
+      // The `MeshStandardMaterial` GLTFLoader built is now unreferenced.
+      // Its TEXTURE is not -- `texturedBuildingMaterial` holds it -- so
+      // dispose the material alone, mirroring `mesh-building.ts` exactly.
+      loaded?.dispose();
+      return;
+    }
+
     if (!isVehicleMeshRole(role)) {
       unmapped.add(role || '(unnamed mesh)');
       return;
@@ -199,6 +244,13 @@ export function buildVehicleMeshTemplate(
     geometries.push(mesh.geometry);
   });
 
+  if (smuggled.size > 0) {
+    throw new Error(
+      `mesh-vehicle: ${[...smuggled].join(', ')} ships a texture, but vehicle "${vehicleId}" is not in ` +
+        `TEXTURED_VEHICLE_TYPES (textured-vehicle.ts). Add it there and to TEXTURED_VEHICLE_EXEMPT ` +
+        `in tools/validate_mesh_assets.py, or export the GLB without materials.`
+    );
+  }
   if (unmapped.size > 0) {
     throw new Error(`mesh-vehicle: no ramp for rl_role ${[...unmapped].join(', ')} (vehicle "${vehicleId}")`);
   }
@@ -225,10 +277,16 @@ export function buildVehicleMeshTemplate(
 
 /** Fetches and parses `glbUrl`, then builds a `VehicleMeshTemplate` --
  *  mirrors `mesh-unit.ts`'s `loadMeshUnitTemplate` exactly, minus the
- *  faction parameter (vehicles have none, see this module's top comment). */
-export async function loadVehicleMeshTemplate(glbUrl: string, vehicleId: string): Promise<VehicleMeshTemplate> {
+ *  faction parameter (vehicles have none, see this module's top comment).
+ *  `allowTextured` threads through unchanged; see `buildVehicleMeshTemplate`
+ *  for what it gates. */
+export async function loadVehicleMeshTemplate(
+  glbUrl: string,
+  vehicleId: string,
+  allowTextured = false
+): Promise<VehicleMeshTemplate> {
   const gltf = await new GLTFLoader().loadAsync(glbUrl);
-  return buildVehicleMeshTemplate(gltf, vehicleId);
+  return buildVehicleMeshTemplate(gltf, vehicleId, allowTextured);
 }
 
 /** One living entity's vehicle instance. `turretPivot`, if present, is

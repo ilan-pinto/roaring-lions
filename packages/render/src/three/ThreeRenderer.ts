@@ -243,6 +243,7 @@ import {
 } from './units/mesh-building';
 import { wallSurfaceForBuilding } from './units/building-mesh-role';
 import { TEXTURED_BUILDING_TYPES } from './units/textured-building';
+import { TEXTURED_VEHICLE_TYPES } from './units/textured-vehicle';
 import {
   beginMeshDeath,
   stepMeshDeath,
@@ -3350,9 +3351,13 @@ export class ThreeRenderer implements Renderer {
    * a billboard -- see that method's own doc comment and `updateUnits`'s
    * `vehicleMeshTemplates.has(type.id)` guard for the "mesh wins" rule this
    * shares with `loadMeshUnit`.
+   *
+   * `allowTextured` is computed here, once, the same way `loadBuildingMesh`
+   * computes its own -- see `units/textured-vehicle.ts` for the named list.
    */
   async loadVehicleMesh(unitTypeId: string, glbUrl: string): Promise<void> {
-    const template = await loadVehicleMeshTemplate(glbUrl, unitTypeId);
+    const allowTextured = TEXTURED_VEHICLE_TYPES.has(unitTypeId);
+    const template = await loadVehicleMeshTemplate(glbUrl, unitTypeId, allowTextured);
 
     const previous = this.vehicleMeshTemplates.get(unitTypeId);
     if (previous) {

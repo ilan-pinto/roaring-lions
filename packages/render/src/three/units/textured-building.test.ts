@@ -94,13 +94,22 @@ describe('the textured opt-out is a named list', () => {
   // Drift between the two sides is the failure this exists to stop: adding a
   // type here but not there silently un-gates a palette check; adding it
   // there but not here makes the runtime throw on a GLB the gate waved past.
-  it('agrees with TEXTURED_MESH_EXEMPT in tools/validate_mesh_assets.py', () => {
+  //
+  // 2026-09-07: parses `TEXTURED_BUILDING_EXEMPT`, not `TEXTURED_MESH_EXEMPT`
+  // -- the Python side split the one set into a building half and a vehicle
+  // half (`TEXTURED_VEHICLE_EXEMPT`, pinned separately by
+  // `textured-vehicle.test.ts`) once six vehicles got the same override,
+  // precisely so THIS exact-match assertion never has to filter vehicle
+  // names out of its own building-only list. `TEXTURED_MESH_EXEMPT` still
+  // exists in that file as their union, for the one check that does not
+  // care which asset class it is looking at.
+  it('agrees with TEXTURED_BUILDING_EXEMPT in tools/validate_mesh_assets.py', () => {
     const py = readFileSync(
       fileURLToPath(new URL('../../../../../tools/validate_mesh_assets.py', import.meta.url)),
       'utf8'
     );
-    const block = /TEXTURED_MESH_EXEMPT\s*=\s*\{([^}]*)\}/.exec(py);
-    expect(block, 'TEXTURED_MESH_EXEMPT not found in tools/validate_mesh_assets.py').not.toBeNull();
+    const block = /TEXTURED_BUILDING_EXEMPT\s*=\s*\{([^}]*)\}/.exec(py);
+    expect(block, 'TEXTURED_BUILDING_EXEMPT not found in tools/validate_mesh_assets.py').not.toBeNull();
     const ids = [...(block as RegExpExecArray)[1].matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
     expect(ids).toEqual([...TEXTURED_BUILDING_TYPES].sort());
   });

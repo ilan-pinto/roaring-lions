@@ -205,18 +205,38 @@ from dimetric import metres_per_unit  # noqa: E402
 import kit as vehicle_kit  # noqa: E402 -- ROLES, the closed vehicle role vocabulary
 
 from export_mesh_vehicle import _bake_scale  # noqa: E402 -- shared bake-scale-into-verts helper
+import textured as vehicle_textured  # noqa: E402 -- 2026-09-07: ship the source's own base_color bake
 
 REPO = os.path.dirname(TOOLS)
+#: Corrected 2026-09-07: this used to read "art/blend/truck/..." (no
+#: `enemy` segment), a path that has never existed -- the real source has
+#: always lived at "art/blend/enemy/truck/...". Same fix, same day, as
+#: `export_meshy_tank.py`/`export_meshy_namer.py`.
 SRC_HULL = os.path.join(
-    REPO, "art", "blend", "truck",
+    REPO, "art", "blend", "enemy", "truck",
     "Meshy_AI_Technical_Truck_Body_0829203857_image-to-3d-texture.blend",
 )
 SRC_TURRET = os.path.join(
-    REPO, "art", "blend", "truck",
+    REPO, "art", "blend", "enemy", "truck",
     "Meshy_AI_Pintle_Mount_Machine__0829203951_image-to-3d-texture.blend",
 )
+#: The .blend files are gitignored and live only in the MAIN checkout, not
+#: in a worktree -- same fallback convention this pipeline already uses
+#: elsewhere.
+SRC_FALLBACK_ROOTS = (REPO, "/Users/ilpinto/dev/roaring-lions")
 OUT_DIR = os.path.join(REPO, "art", "meshes", "vehicles")
 OUT_PATH = os.path.join(OUT_DIR, "technical.glb")
+
+
+def _resolve(path):
+    if os.path.exists(path):
+        return path
+    tail = os.path.relpath(path, REPO)
+    for root in SRC_FALLBACK_ROOTS:
+        alt = os.path.join(root, tail)
+        if os.path.exists(alt):
+            return alt
+    raise SystemExit(f"source not found: {path} (also tried {SRC_FALLBACK_ROOTS})")
 
 #: technical's own declared real-world size -- read from the sprite sheet it
 #: currently ships with (TECH_HULL/render_technical.py's own VehicleSpec),
@@ -341,6 +361,7 @@ def _load_object(path, new_name):
     """Append `mesh_node` from `path` into the CURRENT scene, renamed so two
     files' identically-named root objects don't collide once both are
     loaded together."""
+    path = _resolve(path)
     with bpy.data.libraries.load(path, link=False) as (src, dst):
         dst.objects = [n for n in src.objects if n == "mesh_node"]
     if not dst.objects or dst.objects[0] is None:
@@ -654,7 +675,12 @@ def export():
         name = f"{part}_{role}"
         ob.name = name
         ob.data.name = name
-        ob.data.materials.clear()
+        # 2026-09-07: materials KEPT, not cleared -- see
+        # `export_meshy_tank.py`'s identical comment and
+        # `tools/vehicles/textured.py`. `hull_obj`/`turret_obj` are each
+        # appended (`_load_object`) from their OWN Meshy source and keep
+        # their own base_color material; `_split_hull`'s new hull pieces are
+        # all duplicates of `hull_obj` and inherit the same reference.
         for k in list(ob.keys()):
             if k != "_RNA_UI":
                 del ob[k]
@@ -716,23 +742,27 @@ def export():
     turret_obj.parent = pivot_obj
     turret_obj.matrix_parent_inverse = inv
 
+    # 2026-09-07: ships both sources' own base_color bakes -- see
+    # `export_meshy_tank.py`'s identical block and `tools/vehicles/textured.py`.
+    # There are TWO base_color images here (hull's own "base_color", turret's
+    # own "base_color.001") -- `prepare_vehicle_textures` matches by prefix
+    # for exactly this reason; see that module's own docstring.
+    kept, dropped = vehicle_textured.prepare_vehicle_textures()
+    for name, before, after in kept:
+        print(f"[technical] shipping {name!r} at {after[0]}x{after[1]} (was {before[0]}x{before[1]}), JPEG q{vehicle_textured.JPEG_QUALITY}")
+    for name, size in dropped:
+        print(f"[technical] dropped {name!r} ({size[0]}x{size[1]})")
+
     os.makedirs(OUT_DIR, exist_ok=True)
     bpy.ops.object.select_all(action="DESELECT")
     bpy.ops.export_scene.gltf(
-        filepath=OUT_PATH,
-        export_format="GLB",
-        use_selection=False,
-        export_apply=True,
-        export_yup=True,
-        export_skins=False,
-        export_animations=False,
-        export_extras=True,
-        export_materials="NONE",
-        export_copyright=(
+        **vehicle_textured.gltf_kwargs(
+            OUT_PATH,
             "Armed technical hull+turret -- AI-generated (Meshy), disclosed per "
             "CONTRIBUTING.md; truck body and pintle-mounted DShK from two separate "
-            "Meshy exports, combined for this repository"
-        ),
+            "Meshy exports, combined for this repository; ships both sources' own "
+            "base_color bakes (project lead direction, 2026-09-07)",
+        )
     )
     size = os.path.getsize(OUT_PATH)
     print(f"[technical] wrote {OUT_PATH} ({size} bytes)")
