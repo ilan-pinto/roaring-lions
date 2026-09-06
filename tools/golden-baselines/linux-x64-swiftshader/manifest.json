@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "e2ac67150a40a4ee14440b545f447fd0a7800514",
-  "blessedAt": "2026-09-06T15:51:04.413Z",
-  "reason": "Civic hall replaces the mosque (63395db, O10): the compound at beit_sahwan_outskirts town_center is the hall now. Measured on run 34043224541: quiet 9141 px / 0.496 all inside x 389-570, y 160-315 (the compound); vehicle 6693 px / 0.353 all inside x 1189-1370, y 608-679 (the compound's roof edge); open-ground and relief 0 / 0.0000. Nothing else moved.",
+  "commit": "d02262ed4469439ddabef8344d618917863dfac4",
+  "blessedAt": "2026-09-06T23:34:26.858Z",
+  "reason": "Six vehicles ship their Meshy bakes (836ce96): mbt_lavi, ifv_namer, heli_peten, technical, rocket_battery, paramotor draw their own base_color instead of the palette ramp. Measured on run 34066951363: vehicle 7353 px / 0.364, every differing pixel on the two Lavis, the two Namers and the Peten in frame (bbox x 289-849, y 318-649); the palette apc_eitan and dozer_d9 beside them read 0. quiet, open-ground and relief 0 / 0.0000.",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "79a8b8eb78475c44e7794b7e9363d0d7169655cc69f74c14c5e1d6d43379df89"
+      "sha256": "4312846cf06065ce3a6d0da1bd072393799d587b8a75a13cbe4fbf85e29a665d"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "d3facdfc5b0092998f0771786a66e8ba06eba2428b952733121f9ca40123c2d1"
+      "sha256": "abd5a20615df2178ab024f4e9ef4500ea7860c9dae2a2c3f34e76b21a9a67f07"
     },
     "relief": {
       "tick": 500,
