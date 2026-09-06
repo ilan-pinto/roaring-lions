@@ -132,8 +132,10 @@ export const BADGE_TEXT_COLOR_KEY = 'shadow.1';
  * same key `OVERLAY_ACCENT_COLOR_KEY` above already names for "held", since
  * both are Pixi's identical `#B8FF5A`).
  */
-export function objectiveZoneColorKey(state: 'held' | 'unheld' | 'contested'): string {
-  if (state === 'contested') return 'team.hostile';
+export function objectiveZoneColorKey(state: 'held' | 'unheld' | 'contested' | 'target'): string {
+  // A raze/collapse zone is ground to bring down: the hostile colour, like
+  // a contested hold, but steady -- see objectiveZonePulse.
+  if (state === 'contested' || state === 'target') return 'team.hostile';
   if (state === 'unheld') return 'team.neutral';
   return OVERLAY_ACCENT_COLOR_KEY;
 }
@@ -142,8 +144,8 @@ export function objectiveZoneColorKey(state: 'held' | 'unheld' | 'contested'): s
  *  `resolveColor` is supplied -- Pixi's own three literals verbatim, kept
  *  next to the key function above rather than folded into it so the two can
  *  be read side by side against `renderer.ts`'s own ternary. */
-export function objectiveZoneFallbackColor(state: 'held' | 'unheld' | 'contested'): string {
-  if (state === 'contested') return '#D93A2B';
+export function objectiveZoneFallbackColor(state: 'held' | 'unheld' | 'contested' | 'target'): string {
+  if (state === 'contested' || state === 'target') return '#D93A2B';
   if (state === 'unheld') return '#E8C33A';
   return '#B8FF5A';
 }
@@ -156,8 +158,10 @@ export function objectiveZoneFallbackColor(state: 'held' | 'unheld' | 'contested
  * `+ 0.25` for the stroke (mirroring Pixi's `pulse + 0.25`) and uses the bare
  * value for the fill, exactly as `renderer.ts` does.
  */
-export function objectiveZonePulse(state: 'held' | 'unheld' | 'contested', frameN: number): number {
-  if (state === 'held') return 0.3;
+export function objectiveZonePulse(state: 'held' | 'unheld' | 'contested' | 'target', frameN: number): number {
+  // Held and target are steady: nothing about them is changing under the
+  // player's feet. Unheld and contested pulse, because they are.
+  if (state === 'held' || state === 'target') return 0.3;
   return 0.35 + 0.25 * Math.sin(frameN * 0.09);
 }
 

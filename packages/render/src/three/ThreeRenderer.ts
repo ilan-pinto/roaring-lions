@@ -105,7 +105,7 @@
  */
 import * as THREE from 'three';
 import { fx, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent } from '@lions/sim';
-import type { Renderer, RendererOptions, TerrainTones } from '../api'; // both, after Step 2
+import type { ObjectiveZoneView, Renderer, RendererOptions, TerrainTones } from '../api'; // both, after Step 2
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
 import { SIM_HZ } from '../anim';
@@ -575,6 +575,7 @@ export class ThreeRenderer implements Renderer {
   hoverStructure = -1;
   hoverCanGarrison = false;
   objectiveZone: readonly number[] | null = null;
+  objectiveZones?: readonly ObjectiveZoneView[];
   objectiveZoneState: 'held' | 'unheld' | 'contested' = 'held';
 
   private readonly renderer: THREE.WebGLRenderer;
@@ -5385,14 +5386,20 @@ export class ThreeRenderer implements Renderer {
     // genuine interface stubs of 28"). The colour is not decoration: it is
     // the hold-state readout itself (held/unheld/contested), exactly like
     // every other palette-key overlay in this tier.
-    if (this.objectiveZone) {
-      const [zx, zy, zw, zh] = this.objectiveZone;
+    // Every active zone objective when the app supplies the list (2026-09-06:
+    // the cache's draw beside the approach on Tel Marum II), else the single
+    // zone the Pixi-era interface carries.
+    const zoneViews: readonly ObjectiveZoneView[] =
+      this.objectiveZones ??
+      (this.objectiveZone ? [{ id: 'zone', rect: this.objectiveZone, state: this.objectiveZoneState }] : []);
+    for (const zv of zoneViews) {
+      const [zx, zy, zw, zh] = zv.rect;
       const corners = objectiveZoneCorners(zx, zy, zw, zh, (cx, cy) =>
         groundWorldY(elevation, width, height, cx, cy)
       );
-      const colorKey = objectiveZoneColorKey(this.objectiveZoneState);
-      const color = this.overlayColor(colorKey, objectiveZoneFallbackColor(this.objectiveZoneState));
-      const pulse = objectiveZonePulse(this.objectiveZoneState, this.frameN);
+      const colorKey = objectiveZoneColorKey(zv.state);
+      const color = this.overlayColor(colorKey, objectiveZoneFallbackColor(zv.state));
+      const pulse = objectiveZonePulse(zv.state, this.frameN);
       // Was renderer.ts's `.stroke({width: 2, ...})` + `.fill({alpha: 0.05})`
       // verbatim until 2026-09-06; see OBJECTIVE_ZONE_HALO_INSET_TILES for
       // why a dark halo now sits under a wider stroke and the fill is 0.12.

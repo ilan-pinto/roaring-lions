@@ -141,6 +141,13 @@ export interface RendererOptions {
   groveTextureUrl?: string;
 }
 
+/** One outlined objective zone: its rect in tiles and how it is going. */
+export interface ObjectiveZoneView {
+  id: string;
+  rect: readonly number[];
+  state: 'held' | 'unheld' | 'contested' | 'target';
+}
+
 export interface Renderer {
   // --- lifecycle
   init(host: HTMLElement): Promise<void>;
@@ -225,6 +232,13 @@ export interface Renderer {
   hoverCanGarrison: boolean;
   objectiveZone: readonly number[] | null;
   objectiveZoneState: 'held' | 'unheld' | 'contested';
+  /** Every active objective that is about a piece of ground, not only the
+   *  first (2026-09-06: Tel Marum II outlined the approach and never the
+   *  cache's draw the mission is lost on). `target` is a raze/collapse zone --
+   *  something to bring down rather than to hold. Optional because
+   *  `renderer.ts` is frozen: the Pixi backend keeps the single zone above and
+   *  ignores this; `main.ts` writes both. */
+  objectiveZones?: readonly ObjectiveZoneView[];
 
   addOrderMarker(x: number, y: number): void;
   setTutorialFocus(x: number, y: number, radius: number): void;

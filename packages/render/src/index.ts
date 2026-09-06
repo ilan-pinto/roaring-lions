@@ -22,7 +22,7 @@ export const RENDER_VERSION = 1;
 // rather than joining the lazy entry point. See `decor.ts`'s own comment for
 // why it is redeclared rather than imported from `renderer.ts`.
 export { TERRAIN_DECOR } from './decor';
-export type { RendererOptions, TerrainTones, TerrainScatter } from './api';
+export type { RendererOptions, TerrainTones, TerrainScatter, ObjectiveZoneView } from './api';
 export { DebugOverlay } from './overlay';
 // ThreeRenderer is deliberately NOT re-exported here. It lives behind its own
 // entry point, `@lions/render/three`, so that `import '@lions/render'` does

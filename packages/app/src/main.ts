@@ -4,6 +4,7 @@
 // JSON. The app owns the real-time loop: the sim ticks at a fixed 20 Hz from
 // an accumulator; the renderer interpolates between ticks (invariant 1).
 
+import { objectiveZonesFor } from './objective-zones';
 import {
   Sim,
   fx,
@@ -1914,11 +1915,15 @@ async function main(): Promise<void> {
     }
     // Show the ground a timed objective is about, and how it is going.
     if (runtime && sim.tickCount % 5 === 0) {
+      // The single zone is the Pixi backend's whole picture (renderer.ts is
+      // frozen); three draws the full list beside it -- every active zone
+      // objective, the cache's draw included (objective-zones.ts).
       const timed = runtime.objectiveList.find((o) => o.status === 'active' && o.zone !== undefined);
       const rect = timed?.zone !== undefined ? map.zones[timed.zone] : undefined;
       renderer.objectiveZone = rect ?? null;
       renderer.objectiveZoneState =
         timed?.paused === 'contested' ? 'contested' : timed?.paused === 'unheld' ? 'unheld' : 'held';
+      renderer.objectiveZones = objectiveZonesFor(runtime.objectiveList, map.zones);
     }
   };
 
