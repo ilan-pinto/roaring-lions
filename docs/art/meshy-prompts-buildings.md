@@ -103,11 +103,12 @@ docstring):
 |---|---|---|
 | `mosque`, `mosque_wreck` | 3071/198, 2939/186 | directional, correct |
 | `house` | 5708/0 | directional, correct |
+| `clinic` | 2178/993 | directional, correct (2.19x) — measured on the shipped export, 2026-09-06 |
 | `shanty_wreck` | 607/130 | directional, correct |
 | `shanty` (idle) | 1215/922 | **symmetric** (1.32x, below `FRONT_MARGIN=2.0`) |
 | `warehouse` | 1946/1757 | symmetric — roller doors on both gable ends, genuinely no front |
 | `concrete`, `concrete_wreck` | 1080/1080, 333/370 | symmetric |
-| `apartment`, `camp`, `wall`, `house_wreck` | — | **no `glass` role at all — unchecked**, named on the passing path |
+| `apartment`, `camp`, `wall`, `house_wreck`, `clinic_wreck` | — | **no `glass` role at all — unchecked**, named on the passing path |
 
 `apartment`'s windows are painted into its bake with no separate pane, so it
 has no `glass` role and the gate cannot see a front on it at all — not a
@@ -427,9 +428,11 @@ came down here" — worth a decor-team follow-up, not a structures.json type.
 
 ## What lands where
 
+**Clinic status, 2026-09-06.** Landed at `77390ab`: 961k source verts decimated to 11.9k standing / 9.1k wrecked, scale area-matched to the 4×4 block (idle 10.2 × 14.1 × 6.7 m), `roe_penalty` 25 — above `PROTECTED_ROE`, so the building draws the protected-target mark the way a mosque does, on top of the zone penalty Beit Sahwan III already charges. Playtest verdicts and Beit Sahwan III's ROE (84) are unchanged: no scripted plan destroys the block. Two things the gates said that are worth knowing. `validate:meshes` passes with it (48 meshes, no silhouette collision). And **the visual gate cannot see it**: the `quiet` scenario frames `town_center`, but that block sits under fog in an order-free sandbox — CI read 0 px, bit-identical, on the commit that placed it. A local `pnpm golden-baseline` run reported ~10.9k px in `quiet` and attributed them to the clinic; those are the HUD strip against the macOS baseline last blessed 2026-09-03. Nothing was blessed.
+
 | type | `art/blend/` source | export script | GLB output | `structures.json` | placement | gates |
 |---|---|---|---|---|---|---|
-| `clinic` | new Meshy generation, once approved | new `tools/buildings/export_meshy_clinic.py`, modelled on `export_meshy_house.py`'s role-split/decimate/join pattern | `art/meshes/buildings/clinic.glb` + `_wreck.glb` | new entry, symbol `k` | map edit to `beit_sahwan_outskirts.json` swapping the clinic zone's `w` tiles to `k` (not touched here — concurrent agent) | `pnpm validate:meshes` (facing gated only if a modelled `glass` pane is included; silhouette IoU always runs); `pnpm validate:data` (new symbol cross-check, `tools/validate_data.mjs`) |
+| `clinic` | **shipped 2026-09-06 (`77390ab`)** — local `art/blend/enemy/clinic/`, intact and destroyed textured passes; the part-segmentation pass was rejected (42 anonymous parts, no material, no labels) | new `tools/buildings/export_meshy_clinic.py`, modelled on `export_meshy_house.py`'s role-split/decimate/join pattern | `art/meshes/buildings/clinic.glb` + `_wreck.glb` | new entry, symbol `k` | map edit to `beit_sahwan_outskirts.json` swapping the clinic zone's `w` tiles to `k` — **done** on `beit_sahwan_outskirts` and its three variants; `marj_perimeter`'s clinic zone is a 3×3 `#` block and is unchanged | `pnpm validate:meshes` (facing gated only if a modelled `glass` pane is included; silhouette IoU always runs); `pnpm validate:data` (new symbol cross-check, `tools/validate_data.mjs`) |
 | `hall` (O10) | new Meshy generation, or a `tools/buildings/kit.py` build, per the lead's choice | new `export_meshy_hall.py` (textured path) **or** extend `render_building.py`'s `BUILDINGS` + `export_mesh_building.py` (kit-built path) | replaces or supersedes `art/meshes/buildings/mosque.glb` + `_wreck.glb` | rename/replace the `mosque` entry, symbol unchanged (`m`) | none — the three maps that already author `m` need no edit | same as above; the facing gate's existing `mosque`/`mosque_wreck` "directional, correct" verdict must be re-measured against new geometry, not assumed to carry over |
 | `fence` | supplied, `art/blend/terrain object/fences/*.blend` (three variants, unexported) | new `tools/buildings/export_meshy_fence.py` | `art/meshes/buildings/fence.glb` + `_wreck.glb` | new entry, symbol `f`, `per_tile: true`, `low_profile: true` | new map symbol, authorable directly in any map's rows | `pnpm validate:meshes`; `pnpm validate:data` (symbol cross-check) |
 | revetment | none — reuses shipped `camp.glb`/`camp_wreck.glb` | none | none | none (existing `camp` entry) | `structures[]` in the owning Tel Marum mission (not touched here) | none beyond what `camp` already clears |
