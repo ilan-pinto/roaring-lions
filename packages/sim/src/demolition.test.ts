@@ -18,6 +18,8 @@ const DOZER: UnitTypeJson = { ...SAPPER, id: 'test_dozer', demolition_time_s: 2.
 const SHACK: StructureTypeJson = { id: 'test_shack', hp_per_tile: 100 };
 /** roe_penalty at PROTECTED_ROE. A hall is 30; the threshold is 20. */
 const SHRINE: StructureTypeJson = { id: 'test_shrine', hp_per_tile: 100, roe_penalty: 30 };
+/** A field camp: the side it produces for is the side that must never level it by reflex. */
+const CAMP: StructureTypeJson = { id: 'test_camp', hp_per_tile: 100, produces_for: 0 };
 
 /** The D9: same 2 s timer as DOZER, but it grinds rather than setting charges. */
 const BLADE: UnitTypeJson = { ...SAPPER, id: 'test_blade', demolition_time_s: 2.0, demolition_method: 'blade' };
@@ -104,6 +106,51 @@ describe('per-unit demolition time', () => {
     sim.spawn(t, 0, fx.from(11.5), fx.from(10.5));
     for (let n = 0; n < 400; n++) sim.tick();
     expect(sim.structureAt(10, 10)).toBeGreaterThanOrEqual(0);
+  });
+
+  // Umm Zeitoun II, 2026-09-06: the mission's own demo_squad spawned one tile
+  // off its field camp and levelled it at tick 100 with no order given, and
+  // every build card read 'field camp destroyed' for the rest of the mission.
+  // A side's own production structure is never a target on a sapper's
+  // initiative.
+  it('does not demolish its own side\'s field camp on its own initiative', () => {
+    const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 8 });
+    const camp = sim.addStructureType(CAMP);
+    sim.addStructure(camp, [10 * 32 + 10]);
+    const t = sim.addUnitType(DOZER);
+    sim.spawn(t, 0, fx.from(11.5), fx.from(10.5));
+    for (let n = 0; n < 400; n++) sim.tick();
+    expect(sim.structureAt(10, 10)).toBeGreaterThanOrEqual(0);
+  });
+
+  // The guard is about WHOSE camp it is, not about camps being immune.
+  it('still levels the other side\'s camp beside it', () => {
+    const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 8 });
+    const camp = sim.addStructureType(CAMP); // produces_for 0
+    sim.addStructure(camp, [10 * 32 + 10]);
+    const t = sim.addUnitType(DOZER);
+    sim.spawn(t, 1, fx.from(11.5), fx.from(10.5)); // side 1 sapper
+    for (let n = 0; n < 400; n++) sim.tick();
+    expect(sim.structureAt(10, 10)).toBe(-1);
+  });
+
+  // Levelling your own camp is an order, like cutting your own wire.
+  it('demolishes its own camp when the player designates it', () => {
+    const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 8 });
+    const camp = sim.addStructureType(CAMP);
+    const s = sim.addStructure(camp, [10 * 32 + 10]);
+    const t = sim.addUnitType(DOZER);
+    const id = sim.spawn(t, 0, fx.from(11.5), fx.from(10.5));
+    sim.queueCommand({ kind: 'demolish', ids: [id], structure: s });
+    let fell = -1;
+    for (let n = 1; n <= 400; n++) {
+      sim.tick();
+      if (sim.structureAt(10, 10) < 0) {
+        fell = n;
+        break;
+      }
+    }
+    expect(fell).toBeGreaterThan(0);
   });
 
   // The guard must be about the ROE flag, not about demolition being broken.

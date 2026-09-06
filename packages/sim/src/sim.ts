@@ -4348,6 +4348,16 @@ export class Sim {
           // one panel every few seconds, and the player would never see why the
           // wall was falling down. Cutting your own wire is an order.
           if (this.structureTypes[this.stTypeIdx[s]].lowProfile) continue;
+          // Nor the side's own field camp. Production deploys there and is
+          // lost with it, and a demolisher that merely spawns or halts within
+          // two tiles of it would level it on its own initiative before the
+          // first order: Umm Zeitoun II's demo_squad, placed one tile off the
+          // camp's footprint, brought the camp down at tick 100 and every
+          // build card read 'field camp destroyed' for the rest of the mission
+          // (2026-09-06). The scripted plan never saw it because it orders
+          // the squad away at tick 20. Levelling your own camp is an order,
+          // like cutting your own wire.
+          if (this.structureTypes[this.stTypeIdx[s]].producesFor === this.side[i]) continue;
           if (this.stOccupants[s] > 0 && this.friendlyInside(s, this.side[i])) continue;
           const d = this.structDistSq(s, this.posX[i], this.posY[i]);
           if (d <= bestD) {
