@@ -17,7 +17,7 @@
   "aftermath": "Four routes under Beit Sahwan, and the man who dug them came up out of the last one with his hands empty. Brigade put a third star on the slip and said nothing else about it. The Marj is quiet. Sur is not.",
   "briefing": "The town is ours and the fighting has not stopped. Rounds come from empty ground, the shooters are gone before the echo, and the reason is under your feet. Nadir Sahim mined this district years before we reached it and he has not left it. He holds the north shaft head, with four people beside him who have been out of reach since the first morning. The collection point is three tiles from your start line, and they are counted the moment they reach it. Four minutes for the people and five for the routes; the second does not wait for the first. Idit has four routes under the town, and one is being reopened right now: spoil creeping west along the main road. Disturbed earth is something any soldier can read. A rocket team stands over the four; the Namer's cannon answers that and loses you the mission. Nothing heavy inside two tiles of them. Only the drone or the engineers can tell you where the other three run, and only while somebody is looking. Yahalom must stand still in the open beside a route to set the charge, so whether they live is a decision you make with everything else you have. Get the people out, take the ground he stands on, then bring all four down.",
   "map": {
-    "file": "beit_sahwan_outskirts",
+    "file": "beit_sahwan_4",
     "player_start": [26, 34]
   },
   "ledger": {

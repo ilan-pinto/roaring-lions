@@ -267,11 +267,27 @@ const led3 = run(
       // penalty, and its business is the technical and the gun truck anyway.
       sim.queueCommand({ kind: 'attackMove', ids: ids('at_team'), ...M(30, 14) });
     });
-    at(140, () => {
+    // Armour's own move east was retimed from t=140 to t=85 for the
+    // map-variants slice (docs/campaign/map-variants-design.md,
+    // `beit_sahwan_3` -- the clinic wall). The wall's own north face (y=23)
+    // is 10 tiles from the armour's north-block waypoint (30,12ish, snapped
+    // off the blocked house tile) -- inside both mbt_lavi's 12-tile gun_120
+    // range and ifv_namer's 10-tile cannon_30 range. Once bs_cell_north_block
+    // dies the armour has nothing else to shoot at that range and, still
+    // under attackMove, fixates on the wall itself: `wall`'s own roe_penalty
+    // is 0, so destroying it is free, but `roe.flagged_zones` charges every
+    // STRAY heavy round that scatters into the zone regardless of intended
+    // target, and at 10-12 tiles those stray rounds land squarely on it.
+    // Measured (isolating the wall alone via a scratch run): six such
+    // deductions, ROE 94 -> 61. Moving this order earlier -- before the
+    // fixation has time to compound -- cuts it to one, ROE 94 -> 89.
+    at(85, () => {
+      const armor = [...ids('mbt_lavi'), ...ids('ifv_namer')];
       // East along the northern edge to the ATGM at (38.5,22.5) — approaching
       // on y=16 keeps the gun line clear of the clinic the whole way.
-      const armor = [...ids('mbt_lavi'), ...ids('ifv_namer')];
       sim.queueCommand({ kind: 'attackMove', ids: armor, ...M(38, 16) });
+    });
+    at(140, () => {
       sim.queueCommand({
         kind: 'attackMove',
         ids: [...ids('inf_squad'), ...ids('apc_eitan')],

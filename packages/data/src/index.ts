@@ -9,6 +9,15 @@ import worldJson from '../../../data/campaign/world.json';
 import countriesJson from '../../../data/campaign/countries.json';
 import commanderJson from '../../../data/campaign/commander.json';
 import beitSahwanOutskirts from '../../../data/maps/beit_sahwan_outskirts.json';
+// Beit Sahwan's per-mission variants (docs/campaign/map-variants-design.md
+// §3.2): same 48x48 frame, same markers/zones, same `tunnels` block, same
+// structure tiles a `garrison` stance points at by tile -- obstacles bent
+// around the town's own roads and buildings per mission. The base file is
+// untouched; I and the breach stay on it (recon learns the town as it is;
+// the yard's eight raid axes are the mission's own shape).
+import beitSahwan2Map from '../../../data/maps/beit_sahwan_2.json';
+import beitSahwan3Map from '../../../data/maps/beit_sahwan_3.json';
+import beitSahwan4Map from '../../../data/maps/beit_sahwan_4.json';
 import marjPerimeter from '../../../data/maps/marj_perimeter.json';
 import qarnHadid from '../../../data/maps/qarn_hadid.json';
 import telMarum from '../../../data/maps/tel_marum.json';
@@ -119,6 +128,9 @@ export {
 /** Battlefield maps, keyed by map id. Shapes match map.schema.json. */
 export const maps = {
   beit_sahwan_outskirts: beitSahwanOutskirts,
+  beit_sahwan_2: beitSahwan2Map,
+  beit_sahwan_3: beitSahwan3Map,
+  beit_sahwan_4: beitSahwan4Map,
   marj_perimeter: marjPerimeter,
   qarn_hadid: qarnHadid,
   tel_marum: telMarum,

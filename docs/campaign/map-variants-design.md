@@ -646,6 +646,28 @@ corridor; expect no order to move, and expect the waves to arrive later and
 concentrated. **Re-measure the passive control** — this is the one variant that
 could make a *passive* player harder to kill, and the control must stay DEFEAT.
 
+> **Correction after authoring (2026-09-06).** The two horizontal wall runs
+> above (y=17 and y=27, x=2–7) were built as sketched and measured to have
+> **zero effect on anything the mission actually sends across them.** Both
+> named enemy sources this mission fields (`town_center` [31,22] and
+> `mortar_line` [44,24]) reduce to the identical straight line at **y=23**
+> the entire width of `west_approach` for x≤16 — five and six rows off either
+> sketched wall respectively — so the "must funnel through two gaps" effect
+> above never happened; `kdf_assembly` → `town_center` measured **27 tiles, 1
+> direction change, unchanged**, on both the base and the sketch. This is the
+> same failure mode as the distant-saddle and bowl negatives in §2.2, just
+> found on a second, more open map. Shipped instead: **one north–south wall
+> at x=11**, spanning the zone's full height (y=9–39), with the sketch's own
+> y=17 and y=27 kept as the two GATES cut into it rather than two separate
+> wall rows — the vertical analogue of Tel Marum's TM-2 ditch. Measured
+> against the real `FlowField`: `kdf_assembly` → `town_center` is now **27
+> tiles (unchanged) with 1 → 3 direction changes** for both foot and vehicle,
+> blocking either gate alone still routes at 27 tiles, and blocking both
+> seals it to 36. `pnpm playtest` needed no order change — a flow field
+> resolves the gate on its own — and the passive control stays DEFEAT.
+> `tools/src/beit_sahwan_variants.test.ts` pins all of this against the base
+> as a control.
+
 #### `beit_sahwan_3` — *the town, contested* (clearance)
 
 Fiction: the clinic-block briefing is the strongest ROE writing in the tree and
@@ -674,6 +696,48 @@ Plan impact: the clearance plan drives to `town_center` and to `bs_hvt_atgm`
 [38,22]; whichever road entry it uses must survive. Author the rubble on the two
 entries the plan does *not* use, then re-run and check the printed minutes (the
 plan runs 0.36 of target, so there is room).
+
+> **Correction after authoring (2026-09-06), two parts.**
+>
+> **Part one, the "27 → 31–33 tiles" estimate does not hold.** Measured
+> through the real `FlowField`, `kdf_assembly` → `town_center` and
+> `kdf_assembly` → `bs_hvt_atgm` are **both unchanged** — 27 and 34 tiles, 1
+> direction change each, identical to the base — because the plan's own
+> route runs the main east–west road at y≈22, and both the north-spur rubble
+> (y=14–16) and the south vertical-road rubble (y=29–31) sit five-plus rows
+> off it, the same "obstacle beside the road rather than on it" shape §0
+> already names for this map. This is not nothing: crossing the north spur
+> directly is a genuine local closure (5 → 7 tiles, vehicle-only) and so is
+> the south vertical road (9 → 10), and both are pinned as such. But neither
+> bends the two headline legs, and the sentence "armour enters the town by
+> two ways instead of four" should be read as "two of the town's *named
+> side-streets* are now foot-only", not as a route-length claim. The clinic
+> wall is the variant's real, substantial barrier: measured round it,
+> **9 → 13 tiles** where the base map only detours the building itself.
+>
+> **Part two, the clinic wall exposed the plan to a new ROE fault the
+> sketch could not have predicted, and it needed an order change to fix.**
+> `wall` is `per_tile` and carries its own HP (200/tile) — a real structure,
+> unlike the `2` cover it replaced. The plan's armour (`mbt_lavi` + `ifv_namer`)
+> parks near the house block clearing `bs_cell_north_block` from t=1 to the
+> old t=140, and once that fight ends it has nothing else to shoot at with
+> nothing else in range: the wall's own north face (y=23) sits **10 tiles**
+> from that position, inside both `ifv_namer`'s `cannon_30` (range 10) and
+> `mbt_lavi`'s `gun_120` (range 12). Attack-move idle-fixates on it, and while
+> knocking the wall down is free (`roe_penalty: 0`), `roe.flagged_zones`
+> charges every stray heavy round that scatters into the zone regardless of
+> intended target — six such strays over ~50s, ROE **94 → 61** (still clear
+> of `fail_below: 40`, but a real, avoidable hit). Isolated by re-running with
+> ONLY the wall present, nothing else, to confirm it was the cause and not
+> the road rubble (which alone reproduces the base's ROE 94 exactly). Fixed
+> in `playtest.ts` by moving the armour's own eastward order from t=140 to
+> **t=85** — before the fixation has time to compound — cutting it to one
+> stray (ROE 94 → 89). The infantry/Eitan half of that same `at(140)` block is
+> untouched; it was never implicated. Final measured line: **2.6 min, ROE 84**
+> (a second RNG-sensitive shift from the retiming itself, still comfortably
+> above the floor). `tools/src/beit_sahwan_variants.test.ts` pins the two
+> local closures and the clinic-wall detour as the variant's real, measured
+> claims.
 
 #### `beit_sahwan_4` — *the town after* (subterranean)
 
@@ -716,6 +780,51 @@ vehicle carries it and whether its lane survives. The mission runs 0.22 of
 target, so the clock has room. **`evacuate_before` at 240 s is the risk** —
 measure the hostages' foot route on the variant and require it within 2 tiles of
 the base's.
+
+> **Correction after authoring (2026-09-06), two parts, both found by running
+> `pnpm playtest`, not by reading the sketch.**
+>
+> **Part one — the warehouse rubble is dropped.** `b` carries no sight-block
+> (the terrain table, both here and in CLAUDE.md: boulder/rubble blocks sight
+> NO, a building blocks sight YES), so replacing the warehouse opened a
+> sightline south from `bs4_ambush_mouth_west`'s garrison at (31.5,23.5) —
+> which sits on the warehouse's own top ring row — straight through ground a
+> 340 hp/tile structure used to cover. Isolated by re-running with ONLY that
+> one edit present: it alone turns this mission's scripted plan from VICTORY
+> (2.1 min, roster 6) into DEFEAT, with an `inf_squad` dead at t=4.9s that
+> previously only dropped to ~8 hp, and then **both** irreplaceable
+> `yahalom_squad` teams dead by t=172s — this mission fields exactly two, and
+> losing either makes `bring_it_down` unfinishable inside its 300s deadline
+> regardless of anything else. The design's own stated EFFECT for this
+> mission ("the Namer and the Eitan can no longer drive the shaft axis") is
+> attributed to the road closure below, not the warehouse — the warehouse was
+> flavour ("a building that came down") rather than load-bearing, so it is
+> the piece dropped rather than re-tuning a plan finely balanced enough that
+> its own comments already record hunting for a single winning tick. The
+> warehouse stays a `w` building on the shipped `beit_sahwan_4.json`; the
+> apartment surrounds and the road closure below are otherwise as sketched.
+>
+> **Part two — "one road down" needed widening, and the reason is the same
+> diagonal-absorption finding as `beit_sahwan_2`'s wall.** The literal
+> `b` across (26–27, 23–28) is 2 columns wide with open ground either side;
+> a vehicle steps 1 column west onto (25,*y*) and the measured route does
+> not lengthen AT ALL (21 tiles either way). Widened to the full open belt
+> between the western tunnel-vent corridor and the clinic zone's own ring,
+> x=20–28 (one row short of the souk's own ring at y=29, which must not be
+> touched) — this does not lengthen the route either (still 21 tiles; a
+> Chebyshev detour well inside this journey's own vertical distance is
+> absorbed for free, exactly CLAUDE.md's "a climb telescopes" without any
+> elevation at all), but it does bend it: **0 → 3 direction changes**,
+> foot completely unaffected (0 → 0). This is the design's own "light"
+> setting from §2.3 working as intended — route length unchanged, shape
+> bent — not a shortfall to keep pushing on.
+>
+> Final measured line with both corrections: **2.1 min, ROE 98, roster out
+> 4** (two fewer survivors than the unmodified base's roster 6, from the
+> same RNG-stream sensitivity every entry in this document's Beit Sahwan
+> section records — the objectives and the verdict are unchanged).
+> `tools/src/beit_sahwan_variants.test.ts`'s shared-landmark block now
+> asserts NO building tile changes on any of the three Beit Sahwan variants.
 
 ---
 
