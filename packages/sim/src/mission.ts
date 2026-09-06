@@ -650,7 +650,17 @@ export class MissionRuntime {
       if (o.status === 'active') {
         const secs = o.def.seconds;
         if (secs !== undefined) {
-          if (o.def.type === 'survive_until' || o.def.type === 'evacuate_before') {
+          if (
+            o.def.type === 'survive_until' ||
+            o.def.type === 'evacuate_before' ||
+            o.def.type === 'raze' ||
+            o.def.type === 'collapse'
+          ) {
+            // A deadline from mission start. `raze` and `collapse` were left
+            // out until 2026-09-06: Tel Marum II's cache had a 300 s clock the
+            // player could not see anywhere, and the mission was lost with the
+            // hold complete on the strip. A deadline that loses the mission is
+            // the clock most worth showing.
             const left = secs * TICKS_PER_SECOND - this.sim.tickCount;
             ticksLeft = left > 0 ? left : 0;
           } else if (o.def.type === 'hold_for' || o.def.type === 'capture') {

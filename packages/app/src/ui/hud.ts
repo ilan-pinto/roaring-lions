@@ -688,7 +688,7 @@ export class Hud {
           `<span><b class="rl-${roeTone(m.roe)}" data-roe>${m.roe}</b> <span class="rl-dim">ROE</span></span>`
         );
       }
-      const { primary, secondaryOpen } = stripObjectives(m);
+      const { primary, deadline, primaryOpen, secondaryOpen } = stripObjectives(m);
       const hold = holdClock(m);
       if (primary) {
         // The clock is stamped inline ONLY when it belongs to this objective.
@@ -704,6 +704,23 @@ export class Hud {
           `<span class="rl-strip__obj ${tone}" data-obj="${escapeAttr(primary.id)}">` +
             `${objectiveGlyph(primary.status)} ${primary.text}${inline}</span>`
         );
+      }
+      if (deadline) {
+        // A failable primary's clock, running out while the strip shows a
+        // different primary. Tel Marum II was lost on exactly this clock with
+        // the hold ticked complete beside it (2026-09-06).
+        rows.push(
+          // Clock FIRST: this span shrinks with an ellipsis at the end, and
+          // the clock is the part that must survive the cut -- at 1440 px with
+          // two long objectives it was the clock that vanished.
+          `<span class="rl-strip__obj rl-strip__deadline" data-obj="${escapeAttr(deadline.objective.id)}">` +
+            `${objectiveGlyph(deadline.objective.status)} ` +
+            `<b class="${deadline.tone ? `rl-${deadline.tone}` : ''}">${deadline.text}</b> ` +
+            `${deadline.objective.text}</span>`
+        );
+      }
+      if (primaryOpen > 0) {
+        rows.push(`<span class="rl-dim">+${primaryOpen} primary</span>`);
       }
       if (secondaryOpen > 0) {
         rows.push(`<span class="rl-dim">+${secondaryOpen} secondary</span>`);

@@ -16,12 +16,20 @@ import { TICKS_PER_SECOND } from '@lions/sim';
 
 export interface ObjectiveView {
   id: string;
+  /** The schema's objective type. The strip reads it for one thing only:
+   *  whether a clock is a DEADLINE that loses the mission when it runs out. */
+  type?: string;
   text: string;
   primary: boolean;
   status: string;
   ticksLeft?: number;
   paused?: 'contested' | 'unheld';
 }
+
+/** The objective types whose `seconds` is a deadline the mission is LOST on
+ *  when it expires -- the failable three. `hold_for`/`survive_until` clocks
+ *  are the opposite kind: running out is how they complete. */
+const DEADLINE_TYPES: ReadonlySet<string> = new Set(['raze', 'collapse', 'evacuate_before']);
 
 export interface MissionView {
   name: string;
@@ -101,17 +109,42 @@ export function roeTone(roe: number): 'good' | 'warn' | 'bad' {
 export interface StripObjectives {
   /** The one objective the strip has room for. */
   primary: ObjectiveView | null;
+  /** A second line the strip makes room for: the most urgent active FAILABLE
+   *  primary with a clock, when it is not the primary already shown. Null
+   *  when there is none, or when the shown primary is itself that deadline
+   *  (its clock is then stamped inline instead). */
+  deadline: StripDeadline | null;
+  /** Active primaries the strip is NOT showing -- neither as the primary
+   *  nor as the deadline. Zero when the strip is telling the whole story. */
+  primaryOpen: number;
   /** Everything else, as a count. */
   secondaryOpen: number;
 }
 
+export interface StripDeadline {
+  objective: ObjectiveView;
+  /** Ready to draw. */
+  text: string;
+  tone: '' | 'warn' | 'bad';
+}
+
 /**
- * What the top strip says about objectives: one primary, and a count.
+ * What the top strip says about objectives: one primary, a deadline if one is
+ * running out of sight, and counts.
  *
  * The strip has room for a single line, so it shows the primary the player is
  * currently working — the first ACTIVE one. Falling back to the first primary
  * rather than to nothing matters at the end of a mission: with every primary
  * complete the strip should say so, not go blank.
+ *
+ * The deadline line exists because of Tel Marum II (2026-09-06): three
+ * primaries, the strip showing the hold, and a 300 s `raze` deadline on the
+ * cache that no surface showed anywhere. The player held the approach for
+ * four minutes, the hold ticked complete, and the mission was lost on a clock
+ * they had never seen. A clock that loses the mission when it runs out is
+ * never allowed to run out of sight: when the most urgent active failable
+ * primary is not the one the strip is showing, it gets its own line, with
+ * its own clock. Amber under a minute, red under thirty seconds.
  *
  * Secondaries are counted only while still active. A completed secondary is
  * not something the player has left to do, and counting it would leave the
@@ -119,8 +152,25 @@ export interface StripObjectives {
  */
 export function stripObjectives(m: MissionView): StripObjectives {
   const primaries = m.objectives.filter((o) => o.primary);
+  const active = primaries.filter((o) => o.status === 'active');
+  const primary = active[0] ?? primaries[0] ?? null;
+  const urgent = active
+    .filter((o) => o.ticksLeft !== undefined && o.type !== undefined && DEADLINE_TYPES.has(o.type))
+    .sort((a, b) => (a.ticksLeft ?? 0) - (b.ticksLeft ?? 0))[0];
+  let deadline: StripDeadline | null = null;
+  if (urgent && urgent.ticksLeft !== undefined && primary && urgent.id !== primary.id) {
+    const secs = Math.ceil(urgent.ticksLeft / TICKS_PER_SECOND);
+    deadline = {
+      objective: urgent,
+      text: clockText(urgent.ticksLeft),
+      tone: secs <= 30 ? 'bad' : secs <= 60 ? 'warn' : '',
+    };
+  }
+  const shown = new Set([primary?.id, deadline?.objective.id]);
   return {
-    primary: primaries.find((o) => o.status === 'active') ?? primaries[0] ?? null,
+    primary,
+    deadline,
+    primaryOpen: active.filter((o) => !shown.has(o.id)).length,
     secondaryOpen: m.objectives.filter((o) => !o.primary && o.status === 'active').length,
   };
 }

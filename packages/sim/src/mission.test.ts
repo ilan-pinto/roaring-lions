@@ -2171,6 +2171,19 @@ describe('a raze objective that has become impossible', () => {
     return { sim, rt, shed };
   }
 
+  it('shows the raze deadline as a countdown -- Tel Marum II was lost on a clock nobody could see', () => {
+    // Until 2026-09-06 `ticksLeft` was computed for survive/evacuate/hold/
+    // capture and not for raze or collapse, so a raze primary's `seconds`
+    // ran down with no clock anywhere in the view.
+    const { sim, rt } = stalled();
+    for (let t = 0; t < 20; t++) {
+      sim.tick();
+      rt.step([]);
+    }
+    const view = rt.objectiveList.find((o) => o.id === 'level_it');
+    expect(view?.ticksLeft).toBe(60 * TICKS_PER_SECOND - 20);
+  });
+
   it('ends the mission instead of running for ever', () => {
     const { sim, rt, shed } = stalled();
     for (let t = 0; t < 90 * TICKS_PER_SECOND; t++) {

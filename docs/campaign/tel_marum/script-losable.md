@@ -204,6 +204,16 @@ block behind the pass"*). This primary puts people in it.
 **Does the shipped briefing's fiction need a clause?** Yes, for all three —
 `narrative-designer`'s to write, not this document's:
 
+> **Closed 2026-09-06.** All three clauses below are in the shipped briefings
+> now, each naming the thing and the five minutes, and the three objective
+> texts carry "— five minutes". It took a lost mission to close them: the lead
+> held Tel Marum II's approach to completion and was defeated on the cache's
+> 300 s deadline, which no surface had ever shown — the briefing said nothing,
+> the strip shows one primary, and `objectiveList` computed no `ticksLeft` for
+> a `raze` at all. The engine half is closed in the same commit: `raze` and
+> `collapse` deadlines have a clock, and the strip gives the most urgent
+> failable primary its own line when it is not the one being shown.
+
 - **I** — the briefing already says the valley floor north of the hollow is in
   reach; it does not yet say anyone is standing on it. One clause naming the
   herders belongs beside that line.

@@ -145,7 +145,7 @@ any input (`ui/motion.ts:49`), so a longer hold for a mission that carries one i
 |---|---|---|---|
 | 1 | **Idit** | Sur begins at the pass, and the pass is watched. Rockets have been falling on the north for a week and nobody can say from where, so tonight you find out. | 154 |
 | 2 | **Shai** | Push the drone up the valley and build the picture — two ATGM pockets on the wall, a Grad section behind it, and whoever is feeding them targets. | 145 |
-| 3 | **Shai** | Keep the metal in the hollow: the valley floor south of it is out of the battery's reach, and everything north of it is not. Bring back the picture, not casualties. | 164 |
+| 3 | **Shai** | Keep the metal in the hollow: the valley floor south of it is out of the battery's reach, and everything north of it is not. Herders are grazing that floor north of the hollow — get them south to the muster ground inside five minutes, before the battery finds the range. Bring back the picture, not casualties. | 310 |
 
 Idit / Shai / Shai — the picture, the plan, the cost, which is the shape every
 Act I briefing closes on.
@@ -228,7 +228,7 @@ thesis already… Keep verbatim."* It does, and it is kept.
 | beat | speaker | line | chars |
 |---|---|---|---|
 | 1 | **Idit** | The picture says the Grad cannot see past the wall — it doesn't have to. It fires wherever the Sarim line can see, and the best eyes on that ground belong to the man in the west pocket. | 185 |
-| 2 | **Shai** | Take the approach and hold it for four minutes while the engineers mark the start line behind you. Kill him and the shelling slackens — he is not the only pair of eyes on that ground, so do not expect it to stop. | 212 |
+| 2 | **Shai** | Take the approach and hold it for four minutes while the engineers mark the start line behind you. Kill him and the shelling slackens — he is not the only pair of eyes on that ground, so do not expect it to stop. The pockets on the wall shoot from an ammunition cache in the draw below it: burn it inside five minutes, or they fight the whole night on what it holds. | 366 |
 | 3 | **Shai** | Not every tile of the approach is watched: pick your ground before you are made to. | 83 |
 
 Idit / Shai / Shai. Beat 1 opens *"The picture says"* — it is hers by
@@ -303,7 +303,7 @@ CLAUDE.md records the earlier "nine" as wrong and this text as already corrected
 | 1 | **Idit** | Two ways through the wall and neither is free. The wide saddle lies under both Kornet pockets and will cost you vehicles. | 121 |
 | 2 | **Idit** | The narrow one is ten tiles longer and no missile reaches it — the Grad's rockets do, at seventeen, but the only Sarim eyes over that corridor sit at its northern mouth and see no further, so most of its length goes unwatched. | 226 |
 | 3 | **Shai** | What you cannot do is send everything that way: the corridor is choked with fallen rock, passable on foot and to nothing on wheels or tracks. Armour goes through the pass or it does not go. | 189 |
-| 4 | **Shai** | Mind the town block behind the pass: it stands two tiles from the battery you are ordered to destroy, which is the one place heavy ordnance is guaranteed to land. Take the pass, and put the battery out of the war. | 213 |
+| 4 | **Shai** | Mind the town block behind the pass: it stands two tiles from the battery you are ordered to destroy, which is the one place heavy ordnance is guaranteed to land. Three families still live in it — get them out to the approach inside five minutes, before the fighting reaches them. Take the pass, and put the battery out of the war. | 331 |
 
 Idit / Idit / Shai / Shai — two beats of measured picture, two of decision and
 cost. The seam falls exactly where the mission's own argument turns.

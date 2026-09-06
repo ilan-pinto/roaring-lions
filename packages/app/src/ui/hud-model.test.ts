@@ -125,6 +125,57 @@ describe('stripObjectives', () => {
     expect(stripObjectives(mission([obj({ primary: false })])).primary).toBeNull();
   });
 
+  it('gives a failable deadline its own line when the strip is showing a different primary', () => {
+    // Tel Marum II, 2026-09-06: hold_for first, a 300 s raze deadline third,
+    // and the strip showing only the hold. The mission was lost on a clock
+    // nobody had seen. The deadline now rides beside the primary, with its
+    // own clock and its own tone.
+    const m = mission([
+      obj({ id: 'hold', type: 'hold_for', ticksLeft: 200 * TICKS_PER_SECOND }),
+      obj({ id: 'spotter', type: 'eliminate_hvt' }),
+      obj({ id: 'cache', type: 'raze', ticksLeft: 45 * TICKS_PER_SECOND }),
+    ]);
+    const s = stripObjectives(m);
+    expect(s.primary?.id).toBe('hold');
+    expect(s.deadline?.objective.id).toBe('cache');
+    expect(s.deadline?.text).toBe('0:45');
+    expect(s.deadline?.tone).toBe('warn');
+    expect(s.primaryOpen).toBe(1); // the spotter, shown nowhere
+  });
+
+  it('picks the most urgent deadline, and runs red under thirty seconds', () => {
+    const m = mission([
+      obj({ id: 'hold', type: 'hold_for', ticksLeft: 200 * TICKS_PER_SECOND }),
+      obj({ id: 'evac', type: 'evacuate_before', ticksLeft: 120 * TICKS_PER_SECOND }),
+      obj({ id: 'cache', type: 'collapse', ticksLeft: 20 * TICKS_PER_SECOND }),
+    ]);
+    const s = stripObjectives(m);
+    expect(s.deadline?.objective.id).toBe('cache');
+    expect(s.deadline?.tone).toBe('bad');
+    expect(s.primaryOpen).toBe(1);
+  });
+
+  it('does not double up when the shown primary IS the deadline -- its clock is inline', () => {
+    const m = mission([
+      obj({ id: 'cache', type: 'raze', ticksLeft: 45 * TICKS_PER_SECOND }),
+      obj({ id: 'spotter', type: 'eliminate_hvt' }),
+    ]);
+    const s = stripObjectives(m);
+    expect(s.primary?.id).toBe('cache');
+    expect(s.deadline).toBeNull();
+    expect(s.primaryOpen).toBe(1);
+  });
+
+  it('treats a hold or survive clock as no deadline at all -- running out is how those complete', () => {
+    const m = mission([
+      obj({ id: 'spotter', type: 'eliminate_hvt' }),
+      obj({ id: 'hold', type: 'hold_for', ticksLeft: 10 * TICKS_PER_SECOND }),
+      obj({ id: 'endure', type: 'survive_until', ticksLeft: 10 * TICKS_PER_SECOND }),
+    ]);
+    expect(stripObjectives(m).deadline).toBeNull();
+    expect(stripObjectives(m).primaryOpen).toBe(2);
+  });
+
   it('counts only the secondaries still open', () => {
     const m = mission([
       obj({ id: 'p', primary: true }),

@@ -733,6 +733,13 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* A failable primary's clock running while the strip shows another primary
+   (Tel Marum II, 2026-09-06). Same shrink rule as the objective it rides
+   beside; the rule keeps the two from reading as one sentence. */
+.rl-strip__deadline {
+  border-left: 1px solid var(--panel-frame);
+  padding-left: var(--s3);
+}
 .rl-strip__name {
   font-family: var(--font-display);
   font-size: var(--t-strip-name);
