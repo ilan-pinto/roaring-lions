@@ -5,6 +5,44 @@
 
 Writes `art/meshes/vehicles/heli_peten.glb`.
 
+2026-09-07, SECOND PASS -- THE ROTOR CUT IS MESHY'S OWN SEGMENTATION NOW.
+The project lead's report on the first textured export: "peten rotor doesn't
+look good". Measured against the shipped GLB rather than argued: the
+`Z_ROTOR_CUT` plane (0.20, textured frame) had left the outer half of the two
+FORWARD blades in the static `hull_hull` mesh (1,488 hull vertices at rotor
+height, tip radius 2.80 m, in two 15-degree sectors either side of the nose),
+while `rotor_metal` spun three whole blades, two stubs and a slab of
+fuselage top. On screen that is two fixed blades over the canopy with a
+spiky rotor turning through them. The cause is the geometry, not the number:
+Meshy's rotor disc is TILTED nose-down by 3.27 degrees (plane fit, residual
+sd 0.0066), so its forward blade tips (z 0.157) hang BELOW the fuselage's own
+peak (0.1915) and the tail fin's (0.1963). No horizontal plane separates
+rotor from hull on this model -- any cut above the canopy severs two blades,
+any cut below the blade tips sweeps in the canopy and the fin.
+
+What replaced it is exact, and rests on one measurement this file's first
+pass got wrong. The two Meshy passes are NOT "different reconstructions"
+(the retracted claim survives below, under "GEOMETRY SOURCE, 2026-09-07",
+with its correction): carried through the same affine, every textured
+vertex that is unambiguously rotor sits within **0.0004 model units** of a
+part-segmentation rotor vertex (p99.9 0.0002, over 24,492 sampled), while
+every vertex that is unambiguously hull sits at least **0.0171** away. The
+part-segmentation file is the same mesh, split -- its 787,084 vertices
+against the welded file's 786,886 differ by the 198 seam vertices the split
+duplicated. So `_label_textured_vertices` labels every vertex of the textured
+mesh by the part of its coincident part-segmentation copy (a
+`SEGMENT_MATCH_RADIUS` range query, 2.5x the worst residual), a face joins a
+piece when every vertex of it is that part or a seam vertex and at least one
+is unambiguously the part, and the pieces are cut on the FULL-resolution mesh
+BEFORE any decimation, then decimated at the pre-2026-09-07 per-part ratios.
+`Z_ROTOR_CUT`, `DECIMATE_RATIO_WHOLE` and the Z-threshold face test are gone;
+the canopy box cut is unchanged. Two consequences: the rotor piece is exactly
+Meshy's `model_part0`, mast and all, so the blade-axis check runs with its
+spacing tolerance ENFORCED again; and the disc's tilt is now honoured by the
+node graph rather than fought by the spin -- see "ROTOR PIVOT" for the
+`rotor_tilt` parent that makes `rotation.y` a spin about the disc's own
+normal instead of a wobble about world up.
+
 2026-09-07 UPDATE -- GEOMETRY SOURCE CHANGED. Project lead direction: a
 supplied Meshy asset ships its own bake, "used as is unless ill provide
 other instruction" (the rule already applied to the three textured
@@ -14,7 +52,7 @@ export cuts from is now the sibling `image-to-3d-texture` file (one welded
 `mesh_node`, 786,886 verts, one material, a 4096^2 `base_color` bake; see
 `tools/vehicles/textured.py`). The part-segmentation file is NOT discarded:
 it is opened FIRST, read-only, purely to locate where the rotor/gun/tail
-pieces sit -- see `_PARTSEG_TO_TEXTURED_SCALE`/`_partseg_bboxes` below and
+pieces sit -- see `_fit_affine`/`_partseg_census` below and
 the new section "GEOMETRY SOURCE, 2026-09-07" for the affine fit this
 produces and why it is a measurement rather than a guess. Every downstream
 step below this note (decimation ratios, the canopy cut, blade widening,
@@ -133,6 +171,28 @@ degree rotational symmetry, and no `fire` clip at all because a fixed pose
 None of that applies to a mesh: a pivot spun by the renderer at a constant
 rate turns independently of clip or firing state, so this export only has to
 locate the hub once.
+
+THE DISC IS TILTED, AND THE PIVOT NOW SAYS SO (2026-09-07, second pass).
+Meshy built this rotor with its disc pitched nose-down by 3.27 degrees --
+a plane fit over every blade vertex beyond 35% of the tip radius, residual
+sd 0.0066 model units against a blade thickness of ~0.08, so it is a rigid
+tilt of the whole disc, not five drooping blades: the aft blade tip sits at
+z 0.242 and the two forward tips at 0.157 (textured frame). The renderer
+spins `rotor_pivot.rotation.y`, i.e. about the pivot's OWN local up. With the
+pivot at identity that is world up, and spinning a tilted disc about world up
+makes every tip trace a circle at its own height -- a 0.21 m bob per
+revolution at the tips, once a second. So `rotor_pivot` is now the child of a
+`rotor_tilt` empty at the hub whose local Z is the fitted disc normal; the
+pivot itself stays at identity and the rotor mesh keeps its
+`matrix_parent_inverse` so nothing moves at export. `rotation.y` on the pivot
+is then a spin about the disc's own axis, and the geometry ships exactly as
+Meshy posed it. Nothing in `mesh-vehicle.ts` changes: it finds the pivot by
+name or `rl_pivot` anywhere under the root, and a non-mesh parent is
+skipped like any other empty. One consequence worth recording for
+`export_meshy_paramotor.py`'s "NO PIVOT" argument: a propeller can now
+reuse `rotor_pivot` under a `rotor_tilt` rotated 90 degrees onto the thrust
+axis, so the "third pivot kind" it says a propeller would need is no longer
+needed.
 
 The hub is found geometrically, not eyeballed: `_rotor_pivot` takes the mean
 position of every vertex within 10% of the (already-decimated) rotor mesh's
@@ -338,6 +398,22 @@ below is still a z-height in `model_part2`'s own frame, exactly as
 pre-2026-09-07, transformed through this same affine rather than used
 directly, since `model_part2` is no longer its own object.
 
+CORRECTION, 2026-09-07 (second pass). The paragraph above calls the two
+passes "DIFFERENT reconstructions (different vertex counts, different
+topology)". That was inferred from the vertex counts and it is wrong: the
+counts differ by 198, which is the number of seam vertices a part split
+duplicates, and a nearest-neighbour measurement through the same affine
+(`probe_apache_segmentation.py` beside this file, 262,296 textured vertices sampled)
+puts every unambiguous rotor vertex within 0.0004 of a part-segmentation
+rotor vertex and every unambiguous hull vertex no closer than 0.0171. The
+affine is therefore not a "bounded imprecision" that locates regions to
+within a box -- it is an exact correspondence, and the box tests, the
+Z-threshold and both "accepted approximations" (the tail sliver and the
+canopy peak sharing the rotor's boundary) are retired with it. The same
+correspondence is what lets the gun, the tail brackets and the tail fin be
+cut on Meshy's own seams too (`_label_textured_vertices`, `_face_masks`),
+with the tail decimated at its own ratio again instead of inside the hull's.
+
 ROLES. `model_part0` -> `metal` (`render_apache.py`'s own `ROLE_PALETTE`:
 "metal -- rotor, mast, gun, gear legs" -- the sourced authority for this
 airframe, see that file's own docstring). `model_part1`+`model_part3`
@@ -411,7 +487,8 @@ import sys
 
 import bpy
 import bmesh
-from mathutils import Matrix, Vector
+import numpy as np
+from mathutils import Matrix, Vector, kdtree
 from collections import defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -431,7 +508,7 @@ REPO = os.path.dirname(TOOLS)
 #: that has never existed -- see `export_meshy_tank.py`'s identical fix.
 #: NO LONGER what this export cuts geometry from -- see the module
 #: docstring's 2026-09-07 update. Kept and still opened, first, for its own
-#: part positions (`_partseg_bboxes`).
+#: part positions and, since the second pass, its vertex labels (`_partseg_census`).
 SRC_PARTSEG = os.path.join(
     REPO, "art", "blend", "KDF", "AH-64 attack helicopter",
     "Meshy_AI_attack_helicopter_spl_0830150207_part-segmentation.blend",
@@ -579,34 +656,34 @@ CANOPY_XY_PARTSEG = ((-0.086, 0.009), (-0.020, 0.016))
 #: box). Model units, textured frame.
 _TRANSFER_MARGIN = 0.01
 
-#: The rotor cut, textured frame, POST-transform -- deliberately NOT the
-#: affine-transformed `model_part0` z_min directly (0.1554, which the
-#: 2026-09-07 histogram sweep on the actual decimated whole mesh agrees
-#: with as the point vertex density visibly steps up). That value sits
-#: BELOW both the fuselage/canopy's own transformed peak (0.1915) and the
-#: tail assembly's (0.1963) -- see module docstring for why those two
-#: features share this boundary with the rotor from the other side. 0.20 is
-#: chosen to sit above both, at the cost of leaving the rotor's own mast
-#: stub (0.1554-0.20) joined to the static hull instead of the spinning
-#: rotor mesh -- a stationary few centimetres of mast reads better than a
-#: visible fragment of canopy or tail spinning. Verified by rendering the
-#: result (this task's own report).
-Z_ROTOR_CUT = 0.20
+#: Segmentation transfer (2026-09-07, second pass) -- see module docstring's
+#: top note. A textured vertex takes the label of every part-segmentation
+#: vertex within this radius of it (textured model units). Sized from the
+#: measurement: the worst coincidence residual over 24,492 sampled rotor
+#: vertices is 0.0004 (p99.9 0.0002), so 0.001 is 2.5x that; the nearest
+#: vertex of a DIFFERENT part, away from a seam, is an edge away -- ~0.002
+#: on this 787k-vertex mesh -- and a vertex that does collect two labels is
+#: a seam vertex by definition and is treated as one (`LABEL_SEAM`).
+SEGMENT_MATCH_RADIUS = 0.001
 
-#: Decimate the WHOLE textured mesh once, before any cut -- 2026-09-07
-#: replacement for the pre-existing per-part `DECIMATE_RATIO_*` constants
-#: above, which applied to seven ALREADY-SEPARATE Meshy objects and no
-#: longer have distinct objects to apply to. Reuses `DECIMATE_RATIO_HULL`'s
-#: own value (0.02, this pipeline's established "one big welded remainder"
-#: ratio -- `export_meshy_namer.py`, `export_meshy_jeep.py`'s own
-#: `model_part0`) rather than inventing a new number, since the whole mesh
-#: IS now one big welded remainder. Measured result: 786,886 -> 15,578
-#: verts -- a smaller total than the OLD pipeline's own sum across seven
-#: separately-decimated parts (~20,046), because small parts (gun, tail
-#: brackets) no longer get their own generous ratio (0.08-0.15) and instead
-#: share the whole mesh's 0.02 budget -- accepted, and verified acceptable
-#: by rendering the result.
-DECIMATE_RATIO_WHOLE = DECIMATE_RATIO_HULL
+#: Vertex/face labels for the transfer. `LABEL_HULL` is the fall-through
+#: (`model_part2`, and anything a range query somehow misses -- counted and
+#: printed, never silent); `LABEL_SEAM` marks a vertex two parts both own.
+LABEL_HULL = 0
+LABEL_ROTOR = 1
+LABEL_GUN = 2
+LABEL_BRACKET = 3
+LABEL_TAIL = 4
+LABEL_SEAM = -1
+_PARTSEG_LABEL = {
+    _PARTSEG_HULL: LABEL_HULL,
+    _PARTSEG_ROTOR: LABEL_ROTOR,
+    _PARTSEG_GUN: LABEL_GUN,
+    _PARTSEG_NOSE_FIN: LABEL_GUN,
+    _PARTSEG_BRACKET_A: LABEL_BRACKET,
+    _PARTSEG_BRACKET_B: LABEL_BRACKET,
+    _PARTSEG_TAIL: LABEL_TAIL,
+}
 
 
 def _obj_bbox(ob):
@@ -633,21 +710,168 @@ def _union_bbox(boxes):
     )
 
 
-def _partseg_bboxes(path):
-    """Opens the part-segmentation source and returns `{name: bbox}` for
-    every object in `_PARTSEG_NAMES` -- READ ONLY. Nothing from this file
-    ships; see module docstring's top update note. Called BEFORE
-    `SRC_TEXTURED` is opened, since `bpy.ops.wm.open_mainfile` replaces the
-    whole scene -- the returned dict is plain Python and outlives the file
-    that produced it."""
+def _partseg_census(path):
+    """Opens the part-segmentation source and returns `(boxes, verts,
+    labels)` -- READ ONLY, nothing from this file ships. `boxes` is
+    `{name: bbox}` for every `_PARTSEG_NAMES` object (the affine fit reads
+    it); `verts` is every vertex of every part as one `(N, 3)` float64
+    array in that file's own frame, and `labels` the matching `(N,)`
+    `_PARTSEG_LABEL` per vertex -- the segmentation `_label_textured_vertices`
+    transfers. Called BEFORE `SRC_TEXTURED` is opened, since
+    `bpy.ops.wm.open_mainfile` replaces the whole scene; everything returned
+    is plain Python/numpy and outlives the file that produced it."""
     bpy.ops.wm.open_mainfile(filepath=_resolve(path))
     boxes = {}
+    chunks = []
+    labels = []
     for name in _PARTSEG_NAMES:
         ob = bpy.data.objects[name]
         if ob.modifiers:
             raise SystemExit(f"{name} carries {len(ob.modifiers)} modifier(s) in the part-segmentation census")
+        if tuple(ob.matrix_world.translation) != (0.0, 0.0, 0.0) or any(abs(s - 1.0) > 1e-9 for s in ob.matrix_world.to_scale()):
+            raise SystemExit(f"{name} is not at the origin with unit scale -- `_obj_bbox` and the census assume it is")
         boxes[name] = _obj_bbox(ob)
-    return boxes
+        n = len(ob.data.vertices)
+        co = np.empty(n * 3, dtype=np.float32)
+        ob.data.vertices.foreach_get("co", co)
+        chunks.append(co.reshape(-1, 3).astype(np.float64))
+        labels.append(np.full(n, _PARTSEG_LABEL[name], dtype=np.int8))
+    verts = np.vstack(chunks)
+    labels = np.concatenate(labels)
+    print(f"[heli_peten] part-segmentation census: {len(verts)} verts across {len(_PARTSEG_NAMES)} parts")
+    return boxes, verts, labels
+
+
+def _label_textured_vertices(ob, partseg_verts, partseg_labels, scale, offset):
+    """Every vertex of `ob` labelled by Meshy's own segmentation -- see module
+    docstring's top note for the measurement that makes this exact. Returns
+    an `(N,)` int8 array of `LABEL_*` values over `ob.data.vertices`, with
+    `LABEL_SEAM` where two parts both claim the position."""
+    me = ob.data
+    n = len(me.vertices)
+    co = np.empty(n * 3, dtype=np.float32)
+    me.vertices.foreach_get("co", co)
+    co = co.reshape(-1, 3).astype(np.float64)
+    pts = partseg_verts * scale + np.asarray(offset, dtype=np.float64)
+    kd = kdtree.KDTree(len(pts))
+    for i, p in enumerate(pts):
+        kd.insert(Vector(p), i)
+    kd.balance()
+    labels = np.full(n, LABEL_HULL, dtype=np.int8)
+    seams = 0
+    misses = 0
+    miss_worst = 0.0
+    for i in range(n):
+        hits = kd.find_range(Vector(co[i]), SEGMENT_MATCH_RADIUS)
+        if not hits:
+            _, idx, dist = kd.find(Vector(co[i]))
+            misses += 1
+            miss_worst = max(miss_worst, dist)
+            labels[i] = partseg_labels[idx]
+            continue
+        found = {int(partseg_labels[idx]) for _, idx, _ in hits}
+        if len(found) == 1:
+            labels[i] = found.pop()
+        else:
+            labels[i] = LABEL_SEAM
+            seams += 1
+    counts = {name: int((labels == lab).sum()) for name, lab in (
+        ("hull", LABEL_HULL), ("rotor", LABEL_ROTOR), ("gun", LABEL_GUN),
+        ("bracket", LABEL_BRACKET), ("tail", LABEL_TAIL), ("seam", LABEL_SEAM))}
+    print(f"[heli_peten] textured vertex labels: {counts}; range-query misses {misses} (worst nearest {miss_worst:.5f})")
+    if misses > n * 0.001:
+        raise SystemExit(
+            f"segmentation transfer: {misses} of {n} textured vertices have no part-segmentation "
+            f"vertex within {SEGMENT_MATCH_RADIUS} -- the two sources are no longer the same mesh; re-measure"
+        )
+    return labels
+
+
+def _face_masks(ob, labels):
+    """`{label: bool mask over ob.data.polygons}` for every non-hull label: a
+    face belongs to a part when every vertex of it is that part or a seam
+    vertex, and at least one is unambiguously the part. A face with an
+    unambiguous vertex of another part is never claimed, so the only faces
+    the rule can misplace are triangles whose three corners all lie ON a
+    seam, and those fall through to the hull. Requires a triangulated mesh
+    (every Meshy export here is one; asserted)."""
+    me = ob.data
+    nf = len(me.polygons)
+    totals = np.empty(nf, dtype=np.int32)
+    me.polygons.foreach_get("loop_total", totals)
+    if not np.all(totals == 3):
+        raise SystemExit(f"_face_masks: {int((totals != 3).sum())} non-triangle face(s) -- triangulate first")
+    vi = np.empty(len(me.loops), dtype=np.int32)
+    me.loops.foreach_get("vertex_index", vi)
+    tri = labels[vi.reshape(-1, 3)]
+    masks = {}
+    for lab in (LABEL_ROTOR, LABEL_GUN, LABEL_BRACKET, LABEL_TAIL):
+        ok = (tri == lab) | (tri == LABEL_SEAM)
+        masks[lab] = ok.all(axis=1) & (tri == lab).any(axis=1)
+    claimed = np.zeros(nf, dtype=bool)
+    for m in masks.values():
+        claimed |= m
+    print(
+        f"[heli_peten] face masks: rotor={int(masks[LABEL_ROTOR].sum())} gun={int(masks[LABEL_GUN].sum())} "
+        f"bracket={int(masks[LABEL_BRACKET].sum())} tail={int(masks[LABEL_TAIL].sum())} "
+        f"hull(remainder)={int((~claimed).sum())} of {nf}"
+    )
+    return masks
+
+
+def _delete_faces_mask(ob, keep_mask):
+    """`_delete_faces` for a precomputed boolean mask over `ob.data.polygons`
+    (bmesh preserves polygon order on `from_mesh`, so face `i` is polygon
+    `i`). Used on the FULL-resolution mesh, where a per-face Python predicate
+    over 1.57M faces would be the slow part."""
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bm.faces.ensure_lookup_table()
+    to_delete = [bm.faces[int(i)] for i in np.flatnonzero(~keep_mask)]
+    bmesh.ops.delete(bm, geom=to_delete, context="FACES")
+    bm.to_mesh(ob.data)
+    bm.free()
+
+
+def _split_piece(src_obj, keep_mask, name):
+    """A duplicate of `src_obj` reduced to the faces in `keep_mask`, named
+    `name`. `src_obj` itself is untouched -- the caller removes every claimed
+    face from it in ONE pass afterwards, so every mask is evaluated against
+    the same original polygon order."""
+    bpy.ops.object.select_all(action="DESELECT")
+    src_obj.select_set(True)
+    bpy.context.view_layer.objects.active = src_obj
+    bpy.ops.object.duplicate()
+    piece = bpy.context.object
+    piece.name = name
+    _delete_faces_mask(piece, keep_mask)
+    print(f"[heli_peten] {name}: {len(piece.data.polygons)} faces cut from the full-resolution mesh")
+    return piece
+
+
+def _rotor_plane_normal(rotor_obj, hub):
+    """The disc's own unit normal (source frame, z-positive), fitted by PCA
+    over every vertex beyond `BLADE_DETECT_FRAC` of the tip radius -- blades
+    only, so the thick hub blob cannot bias a fit to a ~0.08-thick disc.
+    See module docstring "ROTOR PIVOT" for why the pivot needs it."""
+    pts = np.array([[v.co.x, v.co.y, v.co.z] for v in rotor_obj.data.vertices], dtype=np.float64)
+    radius = _rotor_radius(rotor_obj, hub)
+    r = np.hypot(pts[:, 0] - hub[0], pts[:, 1] - hub[1])
+    blade = pts[r >= BLADE_DETECT_FRAC * radius]
+    if len(blade) < 50:
+        raise SystemExit(f"rotor plane: only {len(blade)} blade vertices beyond {BLADE_DETECT_FRAC} R -- re-examine the cut")
+    centred = blade - blade.mean(axis=0)
+    _, _, vt = np.linalg.svd(centred, full_matrices=False)
+    normal = vt[2]
+    if normal[2] < 0:
+        normal = -normal
+    residual = centred @ normal
+    tilt = math.degrees(math.acos(max(-1.0, min(1.0, normal[2]))))
+    print(
+        f"[heli_peten] rotor disc plane: normal ({normal[0]:.4f},{normal[1]:.4f},{normal[2]:.4f}) "
+        f"tilt {tilt:.2f} deg over {len(blade)} blade verts, residual sd {residual.std():.4f}"
+    )
+    return (float(normal[0]), float(normal[1]), float(normal[2])), tilt
 
 
 def _fit_affine(partseg_boxes, textured_box):
@@ -837,11 +1061,6 @@ def _make_box_face_test(*boxes):
         return any(_in_box(pt, box) for box in boxes)
     return test
 
-
-def _make_z_face_test(z_cut):
-    def test(f):
-        return f.calc_center_median().z >= z_cut
-    return test
 
 
 def _rotor_pivot(rotor_obj, radius_frac=ROTOR_HUB_RADIUS_FRAC):
@@ -1041,10 +1260,12 @@ def _join(objs, label):
 
 
 def export():
-    # -- GEOMETRY SOURCE, 2026-09-07: census the part-segmentation file
-    # FIRST (read-only, nothing from it ships), then open the textured file
-    # that actually does. See module docstring's section of this name.
-    partseg_boxes = _partseg_bboxes(SRC_PARTSEG)
+    # -- Census the part-segmentation file FIRST (read-only; nothing from it
+    # ships). Its seven objects are the SAME MESH as the textured file's one
+    # `mesh_node`, split -- see module docstring's top note -- so their
+    # vertices, carried through the affine, label the textured mesh's own
+    # vertices part by part.
+    partseg_boxes, partseg_verts, partseg_labels = _partseg_census(SRC_PARTSEG)
 
     bpy.ops.wm.open_mainfile(filepath=_resolve(SRC_TEXTURED))
     src_obj = bpy.data.objects["mesh_node"]
@@ -1053,14 +1274,6 @@ def export():
     textured_box = _obj_bbox(src_obj)
     scale, offset = _fit_affine(partseg_boxes, textured_box)
 
-    gun_box = _transform_box(
-        _union_bbox([partseg_boxes[_PARTSEG_GUN], partseg_boxes[_PARTSEG_NOSE_FIN]]),
-        scale, offset, margin=_TRANSFER_MARGIN,
-    )
-    bracket_box = _transform_box(
-        _union_bbox([partseg_boxes[_PARTSEG_BRACKET_A], partseg_boxes[_PARTSEG_BRACKET_B]]),
-        scale, offset, margin=_TRANSFER_MARGIN,
-    )
     canopy_box = (
         (
             CANOPY_XY_PARTSEG[0][0] * scale + offset[0] - _TRANSFER_MARGIN,
@@ -1072,11 +1285,7 @@ def export():
         ),
         (_transform_z(Z_CANOPY_CUT, scale, offset), textured_box[2][1] + 1.0),
     )
-    print(f"[heli_peten] gun_box={tuple(tuple(round(v,4) for v in ax) for ax in gun_box)}")
-    print(f"[heli_peten] bracket_box={tuple(tuple(round(v,4) for v in ax) for ax in bracket_box)}")
     print(f"[heli_peten] canopy_box={tuple(tuple(round(v,4) for v in ax) for ax in canopy_box)}")
-    print(f"[heli_peten] Z_ROTOR_CUT={Z_ROTOR_CUT} (affine-predicted rotor z_min "
-          f"{_transform_z(partseg_boxes[_PARTSEG_ROTOR][2][0], scale, offset):.4f})")
 
     extent_model = _extent([src_obj])
     real_metres = _read_real_metres()
@@ -1086,110 +1295,90 @@ def export():
         f"({mpu:.5f} m/unit, real_metres from {APACHE_HULL_MANIFEST})"
     )
 
-    # Strip baked custom split normals + vertex colour BEFORE any decimate
-    # or cut -- reuses `_strip_split_normals_and_colour` unchanged; it never
-    # touched UV data (checked), so it is still safe now that a UV layer is
-    # what a real material reads.
+    # Strip baked custom split normals + vertex colour BEFORE any cut or
+    # decimate -- `_strip_split_normals_and_colour` never touches UV data
+    # (checked), so it is safe now that a UV layer is what the material reads.
     _strip_split_normals_and_colour(src_obj, "mesh_node")
-
-    # Decimate the WHOLE mesh ONCE -- see `DECIMATE_RATIO_WHOLE`'s own
-    # comment for why this replaces the old per-part ratios.
-    _decimate(src_obj, DECIMATE_RATIO_WHOLE, "mesh_node(whole)")
 
     for role in ("hull", "glass", "metal"):
         if role not in vehicle_kit.ROLES:
             raise SystemExit(f"role {role!r} outside tools/vehicles/kit.py's ROLES {vehicle_kit.ROLES}")
 
-    # -- Metal cut: gun+nose-fin box OR tail-bracket box, one pass -- both
-    # regions are far apart and share no boundary, so this needs no
-    # per-region join afterward (unlike the pre-2026-09-07 pipeline, which
-    # joined four separately-cut Meshy objects into one).
-    is_metal_face = _make_box_face_test(gun_box, bracket_box)
-    bpy.ops.object.select_all(action="DESELECT")
-    src_obj.select_set(True)
-    bpy.context.view_layer.objects.active = src_obj
-    bpy.ops.object.duplicate()
-    metal_obj = bpy.context.object
-    metal_obj.name = "metal_cut"
-    _delete_faces(metal_obj, is_metal_face, invert=False)
-    _delete_faces(src_obj, is_metal_face, invert=True)
-    print(f"[heli_peten] pre-fill metal faces={len(metal_obj.data.polygons)} remaining={len(src_obj.data.polygons)}")
-    _fill_holes(metal_obj, "metal")
-    _fill_holes(src_obj, "whole-post-metal-cut")
-    print(f"[heli_peten] post-fill metal faces={len(metal_obj.data.polygons)} remaining={len(src_obj.data.polygons)}")
+    # -- The cuts: Meshy's own segmentation, transferred vertex by vertex on
+    # the FULL-resolution mesh (module docstring, top note). Every piece is
+    # a duplicate reduced to its own faces; the hull remainder loses every
+    # claimed face in one pass at the end, so all four masks are read
+    # against the same original polygon order.
+    labels = _label_textured_vertices(src_obj, partseg_verts, partseg_labels, scale, offset)
+    masks = _face_masks(src_obj, labels)
+    rotor_obj = _split_piece(src_obj, masks[LABEL_ROTOR], "rotor_cut")
+    metal_obj = _split_piece(src_obj, masks[LABEL_GUN] | masks[LABEL_BRACKET], "metal_cut")
+    tail_obj = _split_piece(src_obj, masks[LABEL_TAIL], "tail_cut")
+    claimed = masks[LABEL_ROTOR] | masks[LABEL_GUN] | masks[LABEL_BRACKET] | masks[LABEL_TAIL]
+    _delete_faces_mask(src_obj, ~claimed)
+    print(f"[heli_peten] hull remainder: {len(src_obj.data.polygons)} faces")
 
-    # -- Rotor cut: everything at or above Z_ROTOR_CUT, from what remains
-    # after the metal cut (metal's own z-range sits far below zero and
-    # cannot overlap this).
-    is_rotor_face = _make_z_face_test(Z_ROTOR_CUT)
-    bpy.ops.object.select_all(action="DESELECT")
-    src_obj.select_set(True)
-    bpy.context.view_layer.objects.active = src_obj
-    bpy.ops.object.duplicate()
-    rotor_obj = bpy.context.object
-    rotor_obj.name = "rotor_cut"
-    _delete_faces(rotor_obj, is_rotor_face, invert=False)
-    _delete_faces(src_obj, is_rotor_face, invert=True)
-    print(f"[heli_peten] pre-fill rotor faces={len(rotor_obj.data.polygons)} remaining={len(src_obj.data.polygons)}")
-    _fill_holes(rotor_obj, "rotor")
-    _fill_holes(src_obj, "whole-post-rotor-cut")
-    print(f"[heli_peten] post-fill rotor faces={len(rotor_obj.data.polygons)} remaining={len(src_obj.data.polygons)}")
+    # -- Decimate each piece at its own ratio (module docstring "DECIMATION"
+    # -- the pre-2026-09-07 per-part numbers, which apply again now that the
+    # parts are separate objects again), then cap the seams each cut opened.
+    # Decimate first, fill second: a boundary loop of a few hundred edges
+    # at full resolution is a few dozen after collapse, and `triangle_fill`
+    # caps the smaller loop with fewer, larger faces.
+    for ob, ratio, label in (
+        (rotor_obj, DECIMATE_RATIO_ROTOR, "rotor"),
+        (metal_obj, DECIMATE_RATIO_GUN, "metal"),
+        (tail_obj, DECIMATE_RATIO_TAIL, "tail"),
+        (src_obj, DECIMATE_RATIO_HULL, "hull"),
+    ):
+        _decimate(ob, ratio, label)
+        _fill_holes(ob, label)
 
-    # -- Canopy cut: hull vs glass -- see module docstring "THE CUT", now
-    # applied through the transformed `canopy_box` to whatever remains
-    # after metal and rotor have already claimed their own faces.
+    # The tail fin (fused tail rotor and all -- module docstring "TAIL ROTOR")
+    # is `hull` role, so it rejoins the hull remainder here, at its own
+    # decimation rather than the hull's.
+    hull_joined = _join([src_obj, tail_obj], "hull+tail")
+
+    # -- Canopy cut: hull vs glass -- module docstring "THE CUT", applied
+    # through the transformed `canopy_box` to the decimated hull, exactly as
+    # before; the rotor is already gone, so the box cannot reach a blade.
     is_canopy_face = _make_box_face_test(canopy_box)
     bpy.ops.object.select_all(action="DESELECT")
-    src_obj.select_set(True)
-    bpy.context.view_layer.objects.active = src_obj
+    hull_joined.select_set(True)
+    bpy.context.view_layer.objects.active = hull_joined
     bpy.ops.object.duplicate()
     canopy_obj = bpy.context.object
     canopy_obj.name = "canopy_cut"
     _delete_faces(canopy_obj, is_canopy_face, invert=False)
-    _delete_faces(src_obj, is_canopy_face, invert=True)
+    _delete_faces(hull_joined, is_canopy_face, invert=True)
     print(
         f"[heli_peten] pre-fill canopy faces={len(canopy_obj.data.polygons)} "
-        f"hull-remaining faces={len(src_obj.data.polygons)}"
+        f"hull-remaining faces={len(hull_joined.data.polygons)}"
     )
     _fill_holes(canopy_obj, "canopy")
-    _fill_holes(src_obj, "hull-post-canopy-cut")
+    _fill_holes(hull_joined, "hull-post-canopy-cut")
     print(
         f"[heli_peten] post-fill canopy faces={len(canopy_obj.data.polygons)} "
-        f"hull-remaining faces={len(src_obj.data.polygons)}"
+        f"hull-remaining faces={len(hull_joined.data.polygons)}"
     )
-
-    # `src_obj` is now the hull remainder -- fuselage, landing gear, boom,
-    # AND the tail fin/pylon (model_part6, `hull` role pre- and
-    # post-2026-09-07 alike -- see module docstring "ROLES": it was never
-    # cut to its own piece, only joined into the hull remainder, so there is
-    # nothing to peel off here that the pre-2026-09-07 pipeline peeled off
-    # either). No join needed to reach `hull_hull` -- it already is one.
-    hull_joined = src_obj
     hull_joined.name = "hull_hull"
     metal_joined = metal_obj
 
-    # Rotor hub, from the freshly-cut rotor mesh, in the SOURCE (pre-scale,
-    # pre-rotation) frame -- rotated/scaled alongside the geometry below.
+    # Rotor hub and disc plane, from the decimated rotor mesh, in the SOURCE
+    # (pre-scale, pre-rotation) frame -- rotated/scaled alongside the
+    # geometry below.
     hub_local = _rotor_pivot(rotor_obj)
+    normal_local, tilt_deg = _rotor_plane_normal(rotor_obj, hub_local)
 
-    # Blade chord, widened about each blade's own axis -- see module
-    # docstring "BLADE WIDTH". Done here, in the source frame and BEFORE the
-    # scale bake and the Z flip, for the identical commuting-transform
-    # reason the pre-2026-09-07 pipeline did it at this same point.
-    #
-    # 2026-09-07: `enforce_spacing=False` -- this cut's own boundary is
-    # messier than Meshy's clean part-segmentation seam and measurably
-    # shifts each blade's own centroid without changing which five vertex
-    # clusters are blades. See `_rotor_blade_axes`'s own comment for the
-    # full argument, and for why the alternative (grow the whole disc
-    # radius, no per-blade axis needed at all) was tried and measured WORSE
-    # -- 5.7% -> 5.2% fill against the real gate, because it grows
-    # `render_rig.frame_camera`'s own bounding-sphere frame as fast as it
-    # grows ink.
-    _widen_rotor_blades(rotor_obj, hub_local, enforce_spacing=False)
+    # Blade chord, widened about each blade's own axis -- module docstring
+    # "BLADE WIDTH". Source frame, BEFORE the scale bake and the Z flip, for
+    # the commuting-transform reason the first pipeline did it here. The
+    # spacing check is ENFORCED again: this rotor is Meshy's own
+    # `model_part0` cut on Meshy's own seam, the geometry the tolerance was
+    # measured on.
+    _widen_rotor_blades(rotor_obj, hub_local)
 
     # Contract naming and role tagging: {part}_{role}, extras.rl_role /
-    # extras.rl_part on each. `rotor` is a NEW part category alongside
+    # extras.rl_part on each. `rotor` is a part category alongside
     # `hull`/`turret` -- see module docstring "ROTOR PIVOT".
     for ob, role, part in (
         (hull_joined, "hull", "hull"),
@@ -1200,10 +1389,10 @@ def export():
         name = f"{part}_{role}"
         ob.name = name
         ob.data.name = name
-        # 2026-09-07: materials KEPT, not cleared -- see
-        # `export_meshy_tank.py`'s identical comment and
-        # `tools/vehicles/textured.py`. All four pieces are duplicates of
-        # the one source `mesh_node` and still reference the same material.
+        # Materials KEPT, not cleared -- see `export_meshy_tank.py`'s
+        # identical comment and `tools/vehicles/textured.py`. All four pieces
+        # are duplicates of the one source `mesh_node` and still reference
+        # the same material.
         for k in list(ob.keys()):
             if k != "_RNA_UI":
                 del ob[k]
@@ -1219,8 +1408,9 @@ def export():
     # Reorient: nose is this source's own -X (chin gun, short taper), tail is
     # +X (long boom, tail-rotor cluster) -- see module docstring
     # "ORIENTATION". 180-degree Z rotation, applied and baked in AFTER the
-    # cuts/joins and the scale bake, on every piece and on the rotor hub
-    # alike -- same bake point as every other Meshy source in this pipeline.
+    # cuts and the scale bake, on every piece, the rotor hub and the disc
+    # normal alike -- same bake point as every other Meshy source in this
+    # pipeline.
     bpy.ops.object.select_all(action="DESELECT")
     for ob in all_parts:
         ob.select_set(True)
@@ -1229,6 +1419,7 @@ def export():
     bpy.context.view_layer.objects.active = hull_joined
     bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
     hub_world = (-hub_world_src[0], -hub_world_src[1], hub_world_src[2])
+    normal_world = Vector((-normal_local[0], -normal_local[1], normal_local[2]))
 
     # Ground alignment, from the actual combined minimum -- see module
     # docstring "GROUND".
@@ -1243,20 +1434,35 @@ def export():
     hub_world = (hub_world[0], hub_world[1], hub_world[2] + shift_z)
     print(f"[heli_peten] ground shift +{shift_z:.4f} m (lowest vertex -> z=0)")
     print(f"[heli_peten] rotor hub (export frame, +X forward, metres): {tuple(round(c, 4) for c in hub_world)}")
+    print(f"[heli_peten] rotor disc normal (export frame): {tuple(round(c, 4) for c in normal_world)}, tilt {tilt_deg:.2f} deg")
 
-    # Rotor pivot node: parents ONLY the rotor mesh (unlike a turret pivot,
-    # nothing else on this airframe traverses with it).
+    # Rotor nodes -- module docstring "ROTOR PIVOT", "THE DISC IS TILTED":
+    #   rotor_tilt  (empty at the hub, local Z = the disc normal)
+    #     rotor_pivot (empty, identity, extras.rl_pivot="rotor" -- the node
+    #                  the renderer spins about its own local up)
+    #       rotor_metal (the rotor mesh, parent-inverse so it does not move)
+    tilt_obj = bpy.data.objects.new("rotor_tilt", None)
+    tilt_obj.empty_display_size = 0.25
+    bpy.context.collection.objects.link(tilt_obj)
+    tilt_obj.location = hub_world
+    tilt_obj.rotation_mode = "QUATERNION"
+    tilt_obj.rotation_quaternion = Vector((0.0, 0.0, 1.0)).rotation_difference(normal_world)
+
     pivot_obj = bpy.data.objects.new("rotor_pivot", None)
     pivot_obj.empty_display_size = 0.5
     pivot_obj["rl_pivot"] = "rotor"
     bpy.context.collection.objects.link(pivot_obj)
-    pivot_obj.location = hub_world
-    inv = Matrix.Translation(Vector(hub_world) * -1.0)
+    pivot_obj.parent = tilt_obj
+    bpy.context.view_layer.update()
     rotor_obj.parent = pivot_obj
-    rotor_obj.matrix_parent_inverse = inv
+    rotor_obj.matrix_parent_inverse = pivot_obj.matrix_world.inverted()
+    bpy.context.view_layer.update()
+    drift = max(abs(c) for c in (rotor_obj.matrix_world.translation))
+    if drift > 1e-5:
+        raise SystemExit(f"rotor re-parenting moved the mesh by {drift:.6f} m -- matrix_parent_inverse is wrong")
 
-    # 2026-09-07: ships the source's own base_color bake -- see
-    # `export_meshy_tank.py`'s identical block and `tools/vehicles/textured.py`.
+    # Ships the source's own base_color bake -- see `export_meshy_tank.py`'s
+    # identical block and `tools/vehicles/textured.py`.
     kept, dropped = vehicle_textured.prepare_vehicle_textures()
     for name, before, after in kept:
         print(f"[heli_peten] shipping {name!r} at {after[0]}x{after[1]} (was {before[0]}x{before[1]}), JPEG q{vehicle_textured.JPEG_QUALITY}")
@@ -1269,20 +1475,19 @@ def export():
         **vehicle_textured.gltf_kwargs(
             OUT_PATH,
             "AH-64 Peten -- AI-generated (Meshy), image-to-3d-texture export, disclosed per "
-            "CONTRIBUTING.md; the geometry is one welded mesh, cut into "
-            "hull_hull/hull_glass/hull_metal/rotor_metal for this repository using regions "
-            "located from the sibling part-segmentation export (see this file's own "
-            "docstring, 'GEOMETRY SOURCE, 2026-09-07'). Replaces the authored-primitive "
-            "APACHE_HULL sprite sheet (CC BY-SA 4.0, no licensing debt retired by this swap "
-            "-- see this task's report). Ships the source's own base_color bake (project "
-            "lead direction, 2026-09-07)."
+            "CONTRIBUTING.md; one welded mesh, cut into hull_hull/hull_glass/hull_metal/"
+            "rotor_metal along Meshy's own part-segmentation seams (see this file's own "
+            "docstring, 2026-09-07 second pass). Replaces the authored-primitive APACHE_HULL "
+            "sprite sheet (CC BY-SA 4.0, no licensing debt retired by this swap). Ships the "
+            "source's own base_color bake (project lead direction, 2026-09-07)."
         )
     )
     size = os.path.getsize(OUT_PATH)
     print(
         f"[heli_peten] wrote {OUT_PATH} ({size} bytes) meshes: "
         f"hull_hull={len(hull_joined.data.polygons)} hull_glass={len(canopy_obj.data.polygons)} "
-        f"hull_metal={len(metal_joined.data.polygons)} rotor_metal={len(rotor_obj.data.polygons)}"
+        f"hull_metal={len(metal_joined.data.polygons)} rotor_metal={len(rotor_obj.data.polygons)}; "
+        f"rotor_tilt {tilt_deg:.2f} deg -> rotor_pivot -> rotor_metal"
     )
     return OUT_PATH
 

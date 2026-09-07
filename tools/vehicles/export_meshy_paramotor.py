@@ -303,6 +303,14 @@ it on is in this source (the caged prop is the +X cluster) and is flagged here
 for whoever adds it, the same way `export_meshy_apache.py` flags its own tail
 rotor.
 
+2026-09-07 -- THE "THIRD PIVOT KIND" IS NO LONGER NEEDED. `export_meshy_apache.py`
+now parents `rotor_pivot` under a `rotor_tilt` empty whose local up is the
+disc normal (that rotor is pitched 3.26 degrees), and the renderer's
+`rotation.y` spins about the pivot's OWN local up, so the same node pair
+turned 90 degrees onto +X would spin a propeller correctly with zero renderer
+work. The cut that would isolate the caged prop from the trike frame is still
+the actual gap here, not the axis.
+
 AIR LIFT is a runtime concern, not an export one, exactly as it is for
 `heli_peten`: this script grounds the model at z=0 like every wheeled vehicle
 (a PPC cart does sit on its wheels), and `ThreeRenderer` lifts `isAir` types.

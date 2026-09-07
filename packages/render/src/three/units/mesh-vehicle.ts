@@ -82,6 +82,18 @@ const PIVOT_ROLE = 'turret';
  * Unlike `turret_pivot`, a rotor spins at a constant rate with no target to
  * track (`ThreeRenderer.updateVehicleMeshes`'s own rotor-spin block), so it
  * needs no spring state to go with it.
+ *
+ * The spin is `rotation.y` on THIS node, i.e. about the pivot's own local
+ * up -- which is world up only while every ancestor is at identity. Since
+ * 2026-09-07 `heli_peten.glb` parents `rotor_pivot` under a `rotor_tilt`
+ * empty whose local up is the disc's fitted normal (Meshy built the disc
+ * pitched 3.26 degrees nose-down; spinning it about world up made every tip
+ * bob 0.21 m per revolution), so the same one line of renderer code spins it
+ * about the disc's own axis. Nothing here reads the parent: the two-tier
+ * lookup finds the pivot anywhere under the root, and the tilt node is
+ * skipped like any other non-mesh. A propeller could reuse the same pair
+ * with the tilt node turned onto the thrust axis -- see
+ * `tools/vehicles/export_meshy_apache.py` ("THE DISC IS TILTED").
  */
 const ROTOR_PIVOT_NODE_NAME = 'rotor_pivot';
 const ROTOR_PIVOT_ROLE = 'rotor';
