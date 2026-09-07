@@ -74,7 +74,7 @@ finished.
 | channel | what the player sees or hears | speaker | when | status | where |
 |---|---|---|---|---|---|
 | `brief` | deploy-screen beats, then the in-mission commander bar (◂/▸ paging) | Shai / Idit | start | **live**, one hard-coded speaker | `ui/loading.ts` `briefingBeats`, `ui/hud.ts` `COMMANDER`, `renderCommander` |
-| `video` | deploy-screen cinematic above the beats: `briefing_video`, a short mp4/webm under `assets/video/` (Tel Marum II ships a 10 s, 3.4 MB h264 at 1280×720); autoplays with sound after the mission click, falls back to muted autoplay with controls; never holds Deploy | the lead's cut | start | **live** since 2026-09-06 | `ui/loading.ts`, `mission.schema.json` `briefing_video`, `validate_data.mjs` (file must exist) |
+| `video` | deploy-screen cinematic above the beats: `briefing_video`, a short mp4/webm under `assets/video/` (Tel Marum II ships a 10 s, 3.4 MB h264 at 1280×720; Tel Marum III a 10 s, 2.8 MB cut of the same shape, added 2026-09-07 — each a file under `assets/video/` named `<mission>_briefing.mp4`); autoplays with sound after the mission click, falls back to muted autoplay with controls; never holds Deploy | the lead's cut | start | **live** since 2026-09-06 | `ui/loading.ts`, `mission.schema.json` `briefing_video`, `validate_data.mjs` (file must exist) |
 | `toast` | notice feed, 4 lines, 9 s | system | on `MissionEvent` | **live**, strings hard-coded; only `objectives[].text` and the raw `trigger.id` are authored | `main.ts` `describeMissionEvent`, `hud.note` |
 | `title` | title card | system | start | **live**: `name` + "N primary objective(s)" | `hud.announce` |
 | `dispatch` | story line on the title card | narrator | start | **specced, unbuilt** (2026-08-21 storyline spec) | — |
