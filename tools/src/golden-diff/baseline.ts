@@ -267,12 +267,25 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
       },
       {
         layer: 'decor',
-        minDiffPixels: 4700,
-        minMeanAbsChannelDelta: 0.4,
+        minDiffPixels: 1190,
+        minMeanAbsChannelDelta: 0.097,
         rationale:
-          'hiding both decor batches moves 14180 px / 1.2038 here, identical on 5 runs. Floors are a ' +
-          'third. Erasing every decor object (decor-place.ts `familyFor` -> null) takes it to 0 / ' +
-          '0.0000 -- the defect that used to reach exit 3 with a green self-check.',
+          'hiding both decor batches moves 3576 px / 0.2919 here, identical on 3 consecutive runs ' +
+          '(macOS SwiftShader) and 3576 px / 0.2925 on CI linux-x64-swiftshader -- the same pixel ' +
+          'count and 0.2% on magnitude, the cross-backend agreement this file claims for every ' +
+          'floor. Floors are a third. RE-CUT 2026-09-07 from 4700 / 0.4, which was a third of ' +
+          '14180 / 1.2038: that signal was measured when this town stood in an OLIVE grove, and ' +
+          'the project lead retired the olive from every arid map that day ("using olive tree does ' +
+          'not fit the desert terrain"). The desert tree that replaced it is a fifth of the ' +
+          'canopy and a twenty-fifth of the geometry, so decor genuinely contributes 4x less ink ' +
+          'to THIS frame -- the art changed, not the renderer, and a floor is only ever a third of ' +
+          'what the layer actually draws. The other two decor witnesses are the control that says ' +
+          'so: open-ground (18 grove tiles, crop mostly grass) and relief (zero grove tiles, the ' +
+          'boulder field) are UNMOVED at 916 / 0.4584 and 38523 / 2.7700, bit-identical before and ' +
+          'after. This makes quiet the weakest decor witness of the three, which is worth knowing ' +
+          'before leaning on it alone. Erasing every decor object (decor-place.ts `familyFor` -> ' +
+          'null) still takes it to 0 / 0.0000 -- the defect that used to reach exit 3 with a green ' +
+          'self-check, and 1190 px still stands between that and a pass.',
       },
       {
         layer: 'ground-albedo',
