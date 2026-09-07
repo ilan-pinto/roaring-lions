@@ -1,0 +1,91 @@
+{
+  "id": "khan_rafid_2_foothold",
+  "name": "Khan Rafid II — The Ward",
+  "town": "khan_rafid",
+  "phase": "foothold",
+  "target_minutes": 7,
+  "map": { "file": "khan_rafid", "player_start": [24, 45] },
+  "ledger": {
+    "requires": ["roster.surviving_units", "intel.marked_positions"],
+    "produces": ["roster.surviving_units", "roe.mission_ratings", "campaign.completed_missions", "civ.settlements_evacuated"]
+  },
+  "briefing": "The ward is nine tiles by seven with four gates and a low wall, and the wall stops men and not bullets. A cell in the souk can fire into that compound over it, you can fire back, and only one of you is billed for it. There is nothing in that ward worth taking and you are going to hold it for four minutes anyway. The clock is cumulative and it stops the moment anything hostile is standing inside the wall with you. Six people in three groups: two groups north of the ward in the Old Town and one south of Main Street. Four have to be inside that wall in five minutes; the wall will hold all six. Rifles and the Eitan's fifty are free inside the compound. The Namer's cannon is not: it is billed for every ten seconds it fires in there, and this mission is lost under forty-five. So the infantry and the Eitan clear the ward and the Namer holds the street outside it. At a hundred and twenty a minute the camp buys you three rifle sections or one more gun you may not use inside the wire. He will walk into that compound the moment it is yours, because it is the one place you will not shoot.",
+  "starting_force": [
+    { "unit": "inf_squad", "count": 3, "at": [24, 46], "from_ledger": true },
+    { "unit": "at_team", "count": 1, "at": [27, 46], "from_ledger": true },
+    { "unit": "mortar_team", "count": 1, "at": [21, 46], "from_ledger": true },
+    { "unit": "apc_eitan", "count": 2, "at": [26, 45] },
+    { "unit": "jeep_shoded", "count": 1, "at": [22, 45] },
+    { "unit": "ifv_namer", "count": 1, "at": [29, 45] },
+    { "unit": "recon_drone", "count": 1, "at": [24, 44] }
+  ],
+  "resources": { "logistics_start": 400, "logistics_rate_per_min": 120 },
+  "structures": [{ "type": "camp", "at": [24, 33], "size": [2, 2] }],
+  "objectives": [
+    { "id": "hold_the_ward", "type": "hold_for", "primary": true, "target": "ward", "seconds": 240,
+      "text": "Hold the ward for four minutes",
+      "say": { "speaker": "net", "text": "Ward held, four minutes. Nothing came out of that compound that we did not carry out of it." } },
+    { "id": "get_four_in", "type": "evacuate_before", "primary": true, "target": "ward", "count": 4, "seconds": 300,
+      "text": "Get four families into the ward inside five minutes",
+      "say": { "speaker": "idit", "text": "Four inside the wall. There is room in there for the other two and eighty seconds of clock; that is your decision, not mine." },
+      "say_on_fail": { "speaker": "shai", "text": "Five minutes. We held the compound and put nobody in it, which is the one way this was always going to be lost." } },
+    { "id": "take_the_market", "type": "capture", "primary": false, "target": "market", "seconds": 15,
+      "text": "Take the market and hold it for 15 seconds",
+      "say": { "speaker": "net", "text": "Market square is ours. Main Street is cut east of the ward." } },
+    { "id": "kill_the_west_lane", "type": "eliminate_hvt", "primary": false, "target": "kr_lane_west",
+      "text": "Kill the rocket team in the west lane",
+      "say": { "speaker": "shai", "text": "West lane is clear. That is one of the two ways north that does not go through the compound." } }
+  ],
+  "roe": { "enabled": true, "flagged_zones": ["ward"], "fail_below": 45, "structure_penalty_mult": 1 },
+  "civilians": {
+    "refuge": "civ_refuge",
+    "groups": [
+      { "unit": "civilians", "count": 2, "at": [16, 16] },
+      { "unit": "civilians", "count": 2, "at": [31, 16] },
+      { "unit": "civilians", "count": 2, "at": [23, 27] }
+    ]
+  },
+  "enemy": {
+    "faction": "ashwar",
+    "doctrine_profile": "the town he built",
+    "garrison": [
+      { "unit": "militia_cell", "count": 1, "at": [24, 14], "group": "ward_push" },
+      { "unit": "militia_cell", "count": 1, "at": [29, 14], "group": "ward_push" },
+      { "unit": "rpg_team", "count": 1, "at": [22, 16], "group": "ward_push", "stance": { "kind": "ambush", "tiles": 3 } },
+      { "unit": "rpg_team", "count": 1, "at": [13, 18], "tag": "kr_lane_west", "stance": { "kind": "ambush", "tiles": 3 } },
+      { "unit": "rpg_team", "count": 1, "at": [33, 18], "tag": "kr_lane_east", "stance": { "kind": "ambush", "tiles": 3 } },
+      { "unit": "militia_cell", "count": 1, "at": [24, 9], "tag": "kr_hvt_ward", "group": "ward_party" },
+      { "unit": "militia_cell", "count": 2, "at": [34, 8], "stance": { "kind": "garrison", "building": [34, 8] } },
+      { "unit": "mortar_crew", "count": 1, "at": [24, 3] },
+      { "unit": "technical", "count": 1, "at": [8, 25], "stance": { "kind": "patrol", "waypoints": [[8, 25], [40, 25]] } }
+    ],
+    "waves": [
+      { "at_seconds": 120, "to": "ward_north_gate",
+        "units": [{ "unit": "militia_cell", "count": 2, "from": "north_road" }],
+        "say": { "speaker": "idit", "text": "Two sections down the north road for the gate. Every two minutes, on the clock, whether or not there is anything at the gate to fight." } },
+      { "at_seconds": 240, "to": "main_street",
+        "units": [{ "unit": "rpg_team", "count": 1, "from": "kr_west_edge" }, { "unit": "moto_rpg", "count": 1, "from": "kr_west_edge" }] },
+      { "at_seconds": 330, "to": "ward_gate",
+        "units": [{ "unit": "militia_cell", "count": 2, "from": "north_road" }],
+        "say": { "speaker": "idit", "text": "Two more at the north gate, and the families are still walking to it. He is not aiming at them; he is aiming at the gate, and they are in it." } }
+    ]
+  },
+  "triggers": [
+    { "id": "they_walk_into_the_ward",
+      "on": { "kind": "zone_entered", "zone": "ward" },
+      "do": { "kind": "commit", "group": "ward_push", "to": "civ_refuge" },
+      "say": { "speaker": "idit", "text": "They are walking into the ward. Not round it and not at the gates — into it, because it is the one piece of ground on this map where your guns are the ones that cost you." } },
+    { "id": "the_block_pulls_back_into_the_souk",
+      "on": { "kind": "casualties_pct", "value": 40 },
+      "do": { "kind": "withdraw_to", "group": "ward_party", "to": "souk_alley" },
+      "say": { "speaker": "net", "text": "The party forward of the compound has gone back into the souk. They are not finished; they are shortening." } },
+    { "id": "a_charge_squad_comes_for_the_gate",
+      "on": { "kind": "timer_s", "value": 200 },
+      "do": { "kind": "spawn", "units": [{ "unit": "charge_squad", "count": 1, "marker": "souk_alley" }] },
+      "say": { "speaker": "shai", "text": "One charge squad, out of the souk, coming at the gate. That is the only thing on this map that can kill a family inside the wall, and it does not care which side of it he dies on." } }
+  ],
+  "debrief": {
+    "victory": { "speaker": "idit", "text": "Four inside the wall and the wall held. That is the first compound in this district we have stood in without taking it apart." },
+    "defeat": { "speaker": "shai", "text": "We held a compound for four minutes and put nobody in it. The clock was never on the ground; it was on the families, and it always was." }
+  }
+}

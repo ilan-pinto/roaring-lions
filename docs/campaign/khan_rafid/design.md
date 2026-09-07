@@ -1536,6 +1536,48 @@ rule); `paramotor` and `gun_truck` are available and unused.
 
 ---
 
+## 7a. What the ladder measured, once it was playable (2026-09-08)
+
+`pnpm playtest` carries six passive controls and six scripted plans. Every
+passive run loses on its own clock (4/5/5/4/4/5 min) and every plan wins
+(0.5 / 4.4 / 2.8 / 1.0 / 4.8 / 1.4 min, ROE 100 / 95 / 86 / 100 / 70 / 85).
+Two findings contradict this document's own framing and are recorded here
+rather than quietly fixed.
+
+**O-KR4 is settled by measurement: KR III keeps `structure_penalty_mult: 2`
+and `fail_below: 50`.** The scripted plan rates **86**, well over the 65 the
+gate asked for, so the fallback (mult 1, floor 55) was not taken and its
+drafted briefing clause stays unused. The 86 is one shanty at −4, the Lavi's
+own splash during the souk fight, plus −10 of flagged-zone fire reaching
+into the ward. The hall itself was never hit: `roe_penalty` 30 keeps it off
+`selectStructureTarget` entirely, exactly as §3.1 argued.
+
+**The rising civilian count bites in ONE mission, not three.** §1 sells the
+spine as escalating pressure across the town; measured, KR I's `get_two_in`
+and KR II's `get_four_in` are both nearly free — `CivilianFlight`'s 4-tile
+shepherd radius means a plain mass attack-move toward the ward incidentally
+boards families nobody ordered anywhere, so KR I's real gate is recon
+sequencing and KR II's is attrition discipline. Only **KR III** holds the
+thesis cleanly: a plan that takes the souk first and detaches transports
+afterwards wins the fight (souk taken, HVT dead) and **loses the mission**
+on the 300 s deadline. The arc still escalates; it escalates in the last
+mission rather than across all three, and a future pass that wants the
+design's own curve should tighten KR II's count or its refuge distance
+rather than add a fourth mission.
+
+**Deir Amun's sequencing is forced by asset scarcity, not by the decay
+timer.** Two `mark_tunnel` carriers against four routes cannot hold all four
+identified at once whatever the timer does, and the winning plan never once
+triggered the 16 s decay: each team holds its own mouth while charging it.
+What actually breaks a plan is adjacent and sharper, and it is worth
+knowing before authoring any charge: **a `move` or `attackMove` order
+silently clears `chargeOrder`**, so retasking a team to its second mouth
+before the first charge completes cancels that charge with no warning and
+the route never comes down. That is the naive plan's exact failure and it
+costs `da_tn_north` and the `all_four` deadline.
+
+---
+
 ## 8. Open decisions for the lead
 
 | # | decision | recommendation |

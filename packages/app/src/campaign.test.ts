@@ -23,11 +23,18 @@ const marj = world.regions[0]!;
 const sur = world.regions[1]!;
 const beitSahwan = marj.towns[0]!;
 const ALL_BS = beitSahwan.missions;
+// The Marj's full roster, across all three towns (Beit Sahwan, Khan Rafid,
+// Deir Amun) -- used wherever a test needs region-wide completion rather
+// than one town's.
+const ALL_MARJ = marj.towns.flatMap((t) => t.missions);
 const commander = parseCommander(commanderJson);
 
 describe('parseWorld', () => {
   it('maps snake_case authoring keys onto the runtime spelling', () => {
-    expect(sur.unlock?.afterMission).toBe('beit_sahwan_4_subterranean');
+    // Moved with the Marj's completion (Khan Rafid + Deir Amun, design.md C3
+    // / O-KR1): Sur now opens only once the whole Marj -- Beit Sahwan, Khan
+    // Rafid and Deir Amun -- is finished, not two-thirds of it.
+    expect(sur.unlock?.afterMission).toBe('deir_amun_3_subterranean');
   });
 
   it('keeps town positions as a fixed pair', () => {
@@ -48,13 +55,16 @@ describe('regionProgress', () => {
   });
 
   it('counts completed missions across all of a region towns', () => {
+    // The Marj is three towns now (Beit Sahwan, Khan Rafid, Deir Amun), so
+    // the region's total is all eleven of their missions, not just Beit
+    // Sahwan's five.
     const p = regionProgress(marj, { 'campaign.completed_missions': [ALL_BS[0]!] });
     expect(p.done).toBe(1);
-    expect(p.total).toBe(ALL_BS.length);
+    expect(p.total).toBe(ALL_MARJ.length);
   });
 
   it('is complete only when every mission of every town is done', () => {
-    const p = regionProgress(marj, { 'campaign.completed_missions': [...ALL_BS] });
+    const p = regionProgress(marj, { 'campaign.completed_missions': [...ALL_MARJ] });
     expect(p.status).toBe('complete');
     expect(p.done).toBe(p.total);
   });
@@ -62,23 +72,21 @@ describe('regionProgress', () => {
   it('is locked, and says why, while its gate is unmet', () => {
     const p = regionProgress(sur, {});
     expect(p.status).toBe('locked');
-    expect(p.lockedBecause).toContain('beit_sahwan_4_subterranean');
+    expect(p.lockedBecause).toContain('deir_amun_3_subterranean');
   });
 
   it('opens once the gating mission is cleared', () => {
-    const p = regionProgress(sur, { 'campaign.completed_missions': ['beit_sahwan_4_subterranean'] });
+    const p = regionProgress(sur, { 'campaign.completed_missions': ['deir_amun_3_subterranean'] });
     expect(p.status).toBe('live');
     expect(p.lockedBecause).toBe(null);
   });
 
   it('reports an unlocked region with nothing authored as empty, not complete and not live', () => {
-    // Originally exercised via sur.towns[1] (umm_zeitoun), which now carries
-    // umm_zeitoun_1_recon.._4_clearance and no longer fits this case (nor does
-    // tel_marum, sur.towns[0], which already carried tel_marum_1_recon before
-    // that). marj has no unlock gate at all, and khan_rafid (marj.towns[1])
-    // still has missions: [] in world.json, so it stands in for "unlocked
-    // region, one town, nothing authored" without needing any ledger entries
-    // to unlock it.
+    // Every real town in world.json now carries missions -- Khan Rafid and
+    // Deir Amun landed theirs alongside Sur's gate moving to
+    // deir_amun_3_subterranean -- so this is a synthetic fixture rather than
+    // a real town standing in for "unlocked region, one town, nothing
+    // authored", the way nextMissionOf's equivalent case below is.
     //
     // It must not read as `live` either (#117): the card printed the badge
     // `live` directly above "no operations authored yet", and the badge is the
@@ -86,7 +94,10 @@ describe('regionProgress', () => {
     // open ground with nothing on it. The un-clickable hover affordances that
     // made that promise worse are gated on the same distinction -- see
     // worldmap.test.ts.
-    const marjWithOneEmptyTown = { ...marj, towns: [marj.towns[1]!] };
+    const marjWithOneEmptyTown = {
+      ...marj,
+      towns: [{ id: 'empty_town', name: 'Empty Town', at: [0, 0] as [number, number], missions: [] }],
+    };
     const p = regionProgress(marjWithOneEmptyTown, {});
     expect(p.total).toBe(0);
     expect(p.status).toBe('empty');
@@ -118,10 +129,10 @@ describe('nextMissionOf', () => {
   });
 
   it('is null for a town with no missions authored yet', () => {
-    // Both of sur's towns now carry missions (tel_marum_1_recon and
-    // umm_zeitoun_1_recon respectively), so neither fits this case any more.
-    // khan_rafid (marj.towns[1]) still has missions: [] in world.json.
-    expect(nextMissionOf(marj.towns[1]!, {})).toBe(null);
+    // Every real town in world.json now carries missions -- Khan Rafid and
+    // Deir Amun (marj.towns[1] and marj.towns[2]) landed theirs -- so this is
+    // a synthetic fixture rather than a real, still-empty town.
+    expect(nextMissionOf({ id: 'empty_town', name: 'Empty Town', at: [0, 0], missions: [] }, {})).toBe(null);
   });
 });
 
@@ -233,7 +244,11 @@ describe('parseCommander', () => {
   });
 
   it('maps the authoring spelling (until_mission) onto the runtime one (untilMission)', () => {
-    expect(commander.ranks[0]!.untilMission).toBe('beit_sahwan_4_subterranean');
+    // Moved with Khan Rafid / Deir Amun (design.md C4): the Captain's tenure
+    // now runs through all six of those missions too, so the act boundary --
+    // and the third star -- lands at deir_amun_3_subterranean rather than at
+    // beit_sahwan_4_subterranean.
+    expect(commander.ranks[0]!.untilMission).toBe('deir_amun_3_subterranean');
     // The last entry is the default and carries no until_mission at all.
     expect(commander.ranks[commander.ranks.length - 1]!.untilMission).toBeUndefined();
   });
@@ -251,6 +266,23 @@ describe('commanderForMission', () => {
     // `missionPosition`'s id-prefix fallback exists for. First Light is
     // `beit_sahwan_breach`, ALL_BS[0], already in the list.
     for (const id of [...ALL_BS, 'beit_sahwan_0_tutorial']) {
+      expect(commanderForMission(commander, world, id).rank).toBe('Captain');
+    }
+  });
+
+  it('is Captain throughout Khan Rafid and Deir Amun -- the arc these six missions belong to', () => {
+    // design.md D1/D2 and C4: the whole point of moving the Captain
+    // until_mission to deir_amun_3_subterranean is that Shai is not promoted
+    // mid-arc. Every one of the six missions, including the last, must still
+    // read Captain.
+    for (const id of [
+      'khan_rafid_1_recon',
+      'khan_rafid_2_foothold',
+      'khan_rafid_3_clearance',
+      'deir_amun_1_recon',
+      'deir_amun_2_foothold',
+      'deir_amun_3_subterranean',
+    ]) {
       expect(commanderForMission(commander, world, id).rank).toBe('Captain');
     }
   });

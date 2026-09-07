@@ -1,0 +1,82 @@
+{
+  "id": "deir_amun_2_foothold",
+  "name": "Deir Amun II — Set the Charges",
+  "town": "deir_amun",
+  "phase": "foothold",
+  "target_minutes": 7,
+  "map": { "file": "deir_amun", "player_start": [24, 44] },
+  "ledger": {
+    "requires": ["roster.surviving_units", "intel.marked_positions"],
+    "produces": ["roster.surviving_units", "roe.mission_ratings", "campaign.completed_missions"]
+  },
+  "briefing": "The pump yard is a walled compound with one gate, on the south side, and a route runs up into it. The mouth is inside the wall, so the ground you are being told to hold is a door. Hold the yard for four minutes and bring that route down in the same four minutes. Neither clock waits for the other. It is stocked, and whoever is in it comes up in the wadi bed behind you rather than through your gate. They will do it while your engineers are kneeling on the mouth. Two Yahalom teams, and the charge is eight seconds of standing still that resets the moment they move. Send both and the yard is thin; send one and he works under contest, which is the same as not working. The camp is on the bank four tiles from the centre ford and in plain view of their street. Not everything that comes south is coming for the yard. Hold the gate, put the route down, and keep something between them and the camp.",
+  "starting_force": [
+    { "unit": "yahalom_squad", "count": 1, "at": [26, 45] },
+    { "unit": "yahalom_squad", "count": 1, "at": [22, 45] },
+    { "unit": "inf_squad", "count": 3, "at": [24, 46], "from_ledger": true },
+    { "unit": "at_team", "count": 1, "at": [28, 46], "from_ledger": true },
+    { "unit": "mortar_team", "count": 1, "at": [20, 46], "from_ledger": true },
+    { "unit": "apc_eitan", "count": 2, "at": [28, 44] },
+    { "unit": "ifv_namer", "count": 1, "at": [30, 45] },
+    { "unit": "recon_drone", "count": 1, "at": [24, 43] }
+  ],
+  "resources": { "logistics_start": 400, "logistics_rate_per_min": 120 },
+  "structures": [{ "type": "camp", "at": [26, 34], "size": [2, 2] }],
+  "objectives": [
+    { "id": "hold_the_yard", "type": "hold_for", "primary": true, "target": "pump_yard", "seconds": 240,
+      "text": "Hold the pump yard for four minutes",
+      "say": { "speaker": "net", "text": "Pump yard held, four minutes. One gate, and it stayed ours." } },
+    { "id": "shut_the_door", "type": "collapse", "primary": true, "target": "pump_yard", "seconds": 240,
+      "text": "Collapse the route under the pump yard inside four minutes",
+      "say": { "speaker": "shai", "text": "The route under the yard is down. Whatever was still in it is not coming up anywhere." },
+      "say_on_fail": { "speaker": "shai", "text": "Four minutes on the charge and the mouth is still open inside the wall. We are holding a yard with a door in the floor of it." } },
+    { "id": "take_the_store_yard", "type": "capture", "primary": false, "target": "store_yard", "seconds": 15,
+      "text": "Take the store compound and hold it for 15 seconds",
+      "say": { "speaker": "net", "text": "Store compound is clear. The east road is watched from our side of it now." } },
+    { "id": "kill_the_gap_gun", "type": "eliminate_hvt", "primary": false, "target": "da_watch_gap",
+      "text": "Kill the rocket team over the west gap",
+      "say": { "speaker": "shai", "text": "The gap is clear. That is one of the two ways through the rock line and it is the one their reinforcements use." } }
+  ],
+  "roe": { "enabled": true, "flagged_zones": ["hamlet"], "fail_below": 40, "structure_penalty_mult": 1 },
+  "enemy": {
+    "faction": "ashwar",
+    "doctrine_profile": "the network beneath",
+    "garrison": [
+      { "unit": "militia_cell", "count": 1, "at": [14, 26], "group": "yard", "stance": { "kind": "garrison", "building": [14, 26] } },
+      { "unit": "rpg_team", "count": 1, "at": [18, 28], "group": "yard", "stance": { "kind": "ambush", "tiles": 4 } },
+      { "unit": "rpg_team", "count": 1, "at": [18, 11], "tag": "da_watch_gap", "stance": { "kind": "ambush", "tiles": 4 } },
+      { "unit": "militia_cell", "count": 1, "at": [19, 21], "group": "hamlet", "stance": { "kind": "garrison", "building": [19, 21] } },
+      { "unit": "militia_cell", "count": 1, "at": [31, 20], "group": "hamlet", "stance": { "kind": "garrison", "building": [31, 20] } },
+      { "unit": "mortar_crew", "count": 1, "at": [28, 17], "group": "hamlet" },
+      { "unit": "digger_crew", "count": 1, "at": [33, 22], "tag": "da_hvt_engineer", "digs": "da_tn_pump" },
+      { "unit": "rpg_team", "count": 2, "at": [20, 30], "in_tunnel": "da_tn_pump" },
+      { "unit": "militia_cell", "count": 2, "at": [33, 21], "in_tunnel": "da_tn_yard" },
+      { "unit": "technical", "count": 1, "at": [41, 20], "stance": { "kind": "patrol", "waypoints": [[41, 20], [41, 32]] } }
+    ],
+    "waves": [
+      { "at_seconds": 110, "to": "pump_gate", "units": [{ "unit": "militia_cell", "count": 2, "from": "gap_west" }] },
+      { "at_seconds": 230, "to": "hamlet_lane", "units": [{ "unit": "rpg_team", "count": 1, "from": "north_road" }, { "unit": "moto_rpg", "count": 1, "from": "north_road" }] },
+      { "at_seconds": 340, "to": "ford_centre",
+        "units": [{ "unit": "militia_cell", "count": 2, "from": "gap_east" }],
+        "say": { "speaker": "idit", "text": "Two sections across the centre ford. They are not going to the yard — they are going to the camp on the bank, and the camp is four tiles from that ford." } }
+    ]
+  },
+  "triggers": [
+    { "id": "the_village_comes_down_to_the_yard",
+      "on": { "kind": "zone_entered", "zone": "pump_yard" },
+      "do": { "kind": "commit", "group": "hamlet", "to": "pump_gate" },
+      "say": { "speaker": "idit", "text": "The village is coming down the lane at the yard. There are nine houses up there and not one person in them; every body on that street is a fighter." } },
+    { "id": "the_yard_party_falls_back_up_the_lane",
+      "on": { "kind": "casualties_pct", "value": 40 },
+      "do": { "kind": "withdraw_to", "group": "yard", "to": "hamlet_north" },
+      "say": { "speaker": "net", "text": "The yard party is out of the pump house and going north up the lane." } },
+    { "id": "a_charge_squad_comes_down_the_lane",
+      "on": { "kind": "timer_s", "value": 180 },
+      "do": { "kind": "spawn", "units": [{ "unit": "charge_squad", "count": 1, "marker": "hamlet_lane" }] },
+      "say": { "speaker": "shai", "text": "Charge squad down the lane. Get the engineers off the mouth or get something between him and them." } }
+  ],
+  "debrief": {
+    "victory": { "speaker": "idit", "text": "The yard is ours and the door under it is shut. He built this place so that holding a piece of ground and standing on a door were the same act." },
+    "defeat": { "speaker": "shai", "text": "We held the yard for four minutes and left the way in open underneath it. Everything we did today we did standing on their road." }
+  }
+}

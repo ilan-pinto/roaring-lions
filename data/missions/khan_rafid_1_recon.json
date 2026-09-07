@@ -1,0 +1,88 @@
+{
+  "id": "khan_rafid_1_recon",
+  "name": "Khan Rafid I — House Numbers",
+  "town": "khan_rafid",
+  "phase": "recon",
+  "target_minutes": 6,
+  "map": { "file": "khan_rafid", "player_start": [24, 45] },
+  "ledger": {
+    "requires": ["roster.surviving_units"],
+    "produces": ["roster.surviving_units", "roe.mission_ratings", "campaign.completed_missions", "intel.marked_positions", "civ.settlements_evacuated"]
+  },
+  "dispatch": "The man who prepared the Marj has been at brigade a week, answering questions. Seven kilometres up the coast road the town he built for this is still holding, and nobody in it has had a new order since the morning he was taken.",
+  "briefing": "Khan Rafid has house numbers, a market day, a clinic and a civic hall, and every one of those is why he chose it. The man who chose it is answering questions at brigade, and none of his answers say who is holding the town this week. Push the drone up the centre and identify the posts in the two Old Town alleys. It can have both in one sortie; nothing on the ground can, because an alley one tile wide sees along its own axis and nowhere else. The third post is a missile cell nineteen tiles east on Main Street, and Main Street is the only road across this town. It runs the full width, it is straight, and there is no cover on it. Four people are stopped in the Old Town alleys, thirty tiles out and past both the road and the ward. Get two of them back inside the ward inside four minutes. The jeep and the Eitan carry two each, and nothing boards until a soldier is within four tiles of it. The walk back from there is nine tiles and the walk out is thirty, which is the whole of this clock. Bring back the posts, and do not cross that street twice for a picture you already have.",
+  "starting_force": [
+    { "unit": "recon_drone", "count": 1, "at": [24, 44] },
+    { "unit": "jeep_shoded", "count": 1, "at": [22, 45] },
+    { "unit": "apc_eitan", "count": 1, "at": [26, 45] },
+    { "unit": "inf_squad", "count": 2, "at": [24, 46], "from_ledger": true },
+    { "unit": "at_team", "count": 1, "at": [27, 46], "from_ledger": true }
+  ],
+  "objectives": [
+    { "id": "find_the_watch", "type": "locate", "primary": true, "target": "kr_watch",
+      "text": "Identify the three posts covering the ward crossing",
+      "say": { "speaker": "idit", "text": "Three posts, and not one of them can put a round inside the ward. Every one of them can put a round on anybody crossing to it. That is not an accident of ground; it was laid that way." } },
+    { "id": "get_two_in", "type": "evacuate_before", "primary": true, "target": "ward", "count": 2, "seconds": 240,
+      "text": "Get two families into the ward inside four minutes",
+      "say": { "speaker": "shai", "text": "Two inside the wall. Whatever is still in that alley is not worth a second run across the street." },
+      "say_on_fail": { "speaker": "shai", "text": "Four minutes, and nothing of ours got within four tiles of them. They are somebody else's problem now, and there is nobody left in this town whose problem that is." } },
+    { "id": "find_the_west_lane", "type": "locate", "primary": false, "target": "kr_lane_west",
+      "text": "Identify the rocket team in the west lane",
+      "say": { "speaker": "idit", "text": "Rocket team in the west lane, in a road one tile wide with houses on both sides. He is on the board now and he does not get a first shot next week." } },
+    { "id": "find_the_east_lane", "type": "locate", "primary": false, "target": "kr_lane_east",
+      "text": "Identify the rocket team in the east lane",
+      "say": { "speaker": "idit", "text": "The east lane is the mirror of it. Two lanes, two teams, and the only third way north runs through the compound we are not allowed to fight in." } },
+    { "id": "find_the_block_commander", "type": "locate", "primary": false, "target": "kr_hvt_ward",
+      "text": "Find the man giving the orders in this block",
+      "say": { "speaker": "idit", "text": "That is the man giving the orders in this block, and he has not been given one himself since the shaft head. He is holding a town to a plan nobody is still writing." } },
+    { "id": "screen_out", "type": "survive_until", "primary": false, "seconds": 300,
+      "text": "Stay in the field for five minutes" }
+  ],
+  "roe": { "enabled": true },
+  "civilians": {
+    "refuge": "civ_refuge",
+    "groups": [
+      { "unit": "civilians", "count": 2, "at": [20, 16], "group": "families" },
+      { "unit": "civilians", "count": 2, "at": [27, 16], "group": "families" }
+    ]
+  },
+  "enemy": {
+    "faction": "ashwar",
+    "doctrine_profile": "the town he built",
+    "garrison": [
+      { "unit": "militia_cell", "count": 1, "at": [19, 11], "tag": "kr_watch" },
+      { "unit": "militia_cell", "count": 1, "at": [29, 11], "tag": "kr_watch" },
+      { "unit": "rpg_team", "count": 1, "at": [13, 20], "tag": "kr_lane_west", "stance": { "kind": "ambush", "tiles": 3 } },
+      { "unit": "atgm_cell", "count": 1, "at": [43, 25], "tag": "kr_watch" },
+      { "unit": "militia_cell", "count": 1, "at": [31, 16], "tag": "kr_hvt_ward", "group": "ward_party" },
+      { "unit": "rpg_team", "count": 1, "at": [33, 20], "tag": "kr_lane_east", "stance": { "kind": "ambush", "tiles": 3 } },
+      { "unit": "militia_cell", "count": 1, "at": [24, 24], "stance": { "kind": "patrol", "waypoints": [[24, 24], [24, 17]] } },
+      { "unit": "mortar_crew", "count": 1, "at": [24, 3] }
+    ],
+    "waves": [
+      { "at_seconds": 150, "to": "souk_alley",
+        "units": [{ "unit": "militia_cell", "count": 2, "from": "north_road" }],
+        "say": { "speaker": "idit", "text": "Two sections down the north road into the souk alleys. Nobody called for them — that is a standing order arriving on time, from before anybody was on this road to call it off." } },
+      { "at_seconds": 260, "to": "main_street",
+        "units": [{ "unit": "technical", "count": 1, "from": "kr_east_edge" }] }
+    ]
+  },
+  "triggers": [
+    { "id": "the_compound_was_never_empty",
+      "on": { "kind": "zone_entered", "zone": "ward" },
+      "do": { "kind": "spawn", "units": [{ "unit": "militia_cell", "count": 1, "marker": "ward_north_gate" }] },
+      "say": { "speaker": "idit", "text": "There is a section coming in through the north gate. The compound was never empty — he has been walking men through it since before we crossed the perimeter." } },
+    { "id": "he_gives_up_the_crossing",
+      "on": { "kind": "casualties_pct", "value": 35 },
+      "do": { "kind": "withdraw_to", "group": "ward_party", "to": "souk_alley" },
+      "say": { "speaker": "net", "text": "The party forward of the ward is falling back into the souk. The crossing is open." } },
+    { "id": "they_move_the_families_off",
+      "on": { "kind": "timer_s", "value": 250 },
+      "do": { "kind": "remove", "group": "families" },
+      "say": { "speaker": "idit", "text": "The alley is empty. Nobody fought over them; they were walked off it while the drone was over the souk." } }
+  ],
+  "debrief": {
+    "victory": { "speaker": "shai", "text": "Two into the ward and two still in the alley. Four seats, one street and thirty tiles — that arithmetic does not get better by being braver." },
+    "defeat": { "speaker": "idit", "text": "Nothing of ours was within four tiles of those alleys in four minutes. The picture we did bring back is of a town that still has people living in it." }
+  }
+}

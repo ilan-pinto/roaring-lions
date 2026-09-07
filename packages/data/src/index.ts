@@ -18,6 +18,8 @@ import beitSahwanOutskirts from '../../../data/maps/beit_sahwan_outskirts.json';
 import beitSahwan2Map from '../../../data/maps/beit_sahwan_2.json';
 import beitSahwan3Map from '../../../data/maps/beit_sahwan_3.json';
 import beitSahwan4Map from '../../../data/maps/beit_sahwan_4.json';
+import khanRafidMap from '../../../data/maps/khan_rafid.json';
+import deirAmunMap from '../../../data/maps/deir_amun.json';
 import marjPerimeter from '../../../data/maps/marj_perimeter.json';
 import qarnHadid from '../../../data/maps/qarn_hadid.json';
 import telMarum from '../../../data/maps/tel_marum.json';
@@ -76,6 +78,12 @@ import wadiHalam2Laager from '../../../data/missions/wadi_halam_2_laager.json';
 import wadiHalam3Counterraid from '../../../data/missions/wadi_halam_3_counterraid.json';
 import wadiHalam4Village from '../../../data/missions/wadi_halam_4_village.json';
 import wadiHalam5Depot from '../../../data/missions/wadi_halam_5_depot.json';
+import khanRafid1Recon from '../../../data/missions/khan_rafid_1_recon.json';
+import khanRafid2Foothold from '../../../data/missions/khan_rafid_2_foothold.json';
+import khanRafid3Clearance from '../../../data/missions/khan_rafid_3_clearance.json';
+import deirAmun1Recon from '../../../data/missions/deir_amun_1_recon.json';
+import deirAmun2Foothold from '../../../data/missions/deir_amun_2_foothold.json';
+import deirAmun3Subterranean from '../../../data/missions/deir_amun_3_subterranean.json';
 import tutorialBeitSahwan0 from '../../../data/tutorial/beit_sahwan_0.json';
 
 import mbtLavi from '../../../data/units/kdf/mbt_lavi.json';
@@ -150,6 +158,8 @@ export const maps = {
   beit_sahwan_2: beitSahwan2Map,
   beit_sahwan_3: beitSahwan3Map,
   beit_sahwan_4: beitSahwan4Map,
+  khan_rafid: khanRafidMap,
+  deir_amun: deirAmunMap,
   marj_perimeter: marjPerimeter,
   qarn_hadid: qarnHadid,
   tel_marum: telMarum,
@@ -185,6 +195,12 @@ export const missions = {
   beit_sahwan_2_foothold: beitSahwan2,
   beit_sahwan_3_clearance: beitSahwan3,
   beit_sahwan_4_subterranean: beitSahwan4,
+  khan_rafid_1_recon: khanRafid1Recon,
+  khan_rafid_2_foothold: khanRafid2Foothold,
+  khan_rafid_3_clearance: khanRafid3Clearance,
+  deir_amun_1_recon: deirAmun1Recon,
+  deir_amun_2_foothold: deirAmun2Foothold,
+  deir_amun_3_subterranean: deirAmun3Subterranean,
   tel_marum_1_recon: telMarum1Recon,
   tel_marum_2_foothold: telMarum2Foothold,
   tel_marum_3_clearance: telMarum3Clearance,

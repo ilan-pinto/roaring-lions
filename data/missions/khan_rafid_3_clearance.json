@@ -1,0 +1,92 @@
+{
+  "id": "khan_rafid_3_clearance",
+  "name": "Khan Rafid III — What You Keep",
+  "town": "khan_rafid",
+  "phase": "clearance",
+  "target_minutes": 7,
+  "map": { "file": "khan_rafid", "player_start": [24, 45] },
+  "ledger": {
+    "requires": ["roster.surviving_units", "intel.marked_positions"],
+    "produces": ["roster.surviving_units", "roe.mission_ratings", "campaign.completed_missions", "intel.marked_positions", "civ.settlements_evacuated"]
+  },
+  "briefing": "The man running this block is inside the civic hall in the ward, and the hall is the one building here that nothing of ours will fire on by itself. It is not shot at, not breached and not brought down by anybody acting on his own. You have nobody with you who can level it, and that is deliberate. Hurt his people hard enough and he leaves it on his own feet, which is the only way he comes out. The lanes and the road east are laid the way they were laid last week. Whatever you identified then comes back with its ambush spent; whatever you did not gets its first shot. Clear the souk and hold it twenty seconds without a break. Eight families are in that quarter and six of them have to be inside the ward in five minutes. The carriers hold eleven between them, so the clock is the only thing standing between you and all eight. Nothing boards until a soldier is inside four tiles of it. Every structure you bring down here is billed at twice the usual, and eight houses is this mission. The floor is fifty and there is no getting a house back. Take the souk, get them in, and be able to say what is still standing.",
+  "starting_force": [
+    { "unit": "inf_squad", "count": 4, "at": [24, 46], "from_ledger": true },
+    { "unit": "at_team", "count": 1, "at": [27, 46], "from_ledger": true },
+    { "unit": "mortar_team", "count": 1, "at": [20, 46], "from_ledger": true },
+    { "unit": "apc_eitan", "count": 2, "at": [26, 45] },
+    { "unit": "jeep_shoded", "count": 1, "at": [22, 45] },
+    { "unit": "ifv_namer", "count": 1, "at": [29, 45] },
+    { "unit": "mbt_lavi", "count": 1, "at": [24, 44] },
+    { "unit": "sniper_team", "count": 1, "at": [31, 45] },
+    { "unit": "recon_drone", "count": 1, "at": [24, 43] }
+  ],
+  "resources": { "logistics_start": 400, "logistics_rate_per_min": 80 },
+  "objectives": [
+    { "id": "take_the_souk", "type": "capture", "primary": true, "target": "souk", "seconds": 20,
+      "text": "Clear the souk and hold it for 20 seconds",
+      "say": { "speaker": "net", "text": "Souk is held. The Old Town is ours from Main Street to the north road." } },
+    { "id": "get_six_in", "type": "evacuate_before", "primary": true, "target": "ward", "count": 6, "seconds": 300,
+      "text": "Get six families into the ward inside five minutes",
+      "say": { "speaker": "idit", "text": "Six into the ward. I have kept this count since the first morning of the war and that is the best of them." },
+      "say_on_fail": { "speaker": "shai", "text": "Five minutes, and six of them were not inside the wall when it ran out. We took ground today and we did not keep the thing we came for." } },
+    { "id": "kill_the_block_commander", "type": "eliminate_hvt", "primary": false, "target": "kr_hvt_ward",
+      "text": "Kill the block commander if you can make him leave the hall",
+      "say": { "speaker": "idit", "text": "He is down in the street outside the hall. He could have stayed in that building for the rest of the war and we would have had to walk away from him." } },
+    { "id": "take_the_store", "type": "capture", "primary": false, "target": "store", "seconds": 15,
+      "text": "Take the store on the north road and hold it for 15 seconds",
+      "say": { "speaker": "net", "text": "Store compound is clear. Nothing comes down the north road into this town without crossing us now." } }
+  ],
+  "roe": { "enabled": true, "flagged_zones": ["ward"], "fail_below": 50, "structure_penalty_mult": 2 },
+  "civilians": {
+    "refuge": "civ_refuge",
+    "groups": [
+      { "unit": "civilians", "count": 2, "at": [16, 16] },
+      { "unit": "civilians", "count": 2, "at": [20, 16] },
+      { "unit": "civilians", "count": 2, "at": [31, 16] },
+      { "unit": "civilians", "count": 2, "at": [30, 27] }
+    ]
+  },
+  "enemy": {
+    "faction": "ashwar",
+    "doctrine_profile": "the town he built",
+    "garrison": [
+      { "unit": "militia_cell", "count": 1, "at": [27, 19], "tag": "kr_hvt_ward", "group": "hall_party", "stance": { "kind": "garrison", "building": [27, 19] } },
+      { "unit": "rpg_team", "count": 1, "at": [25, 22], "group": "hall_party", "stance": { "kind": "ambush", "tiles": 3 } },
+      { "unit": "militia_cell", "count": 1, "at": [21, 8], "group": "souk", "stance": { "kind": "garrison", "building": [21, 8] } },
+      { "unit": "militia_cell", "count": 1, "at": [26, 13], "group": "souk", "stance": { "kind": "garrison", "building": [26, 13] } },
+      { "unit": "rpg_team", "count": 1, "at": [24, 11], "group": "souk", "stance": { "kind": "ambush", "tiles": 3 } },
+      { "unit": "rpg_team", "count": 1, "at": [33, 14], "tag": "kr_lane_east", "stance": { "kind": "ambush", "tiles": 3 } },
+      { "unit": "atgm_cell", "count": 1, "at": [41, 25], "tag": "kr_watch", "stance": { "kind": "ambush", "tiles": 6 } },
+      { "unit": "charge_squad", "count": 1, "at": [19, 6] },
+      { "unit": "militia_cell", "count": 2, "at": [19, 3], "group": "store", "stance": { "kind": "garrison", "building": [19, 3] } },
+      { "unit": "mortar_crew", "count": 1, "at": [38, 3] },
+      { "unit": "loiter_drone", "count": 1, "at": [24, 1] }
+    ],
+    "waves": [
+      { "at_seconds": 130, "to": "souk_alley", "units": [{ "unit": "militia_cell", "count": 2, "from": "north_road" }] },
+      { "at_seconds": 250, "to": "main_street", "units": [{ "unit": "technical", "count": 1, "from": "kr_west_edge" }, { "unit": "moto_rpg", "count": 1, "from": "kr_west_edge" }] },
+      { "at_seconds": 340, "to": "ward_north_gate",
+        "units": [{ "unit": "militia_cell", "count": 2, "from": "north_road" }],
+        "say": { "speaker": "idit", "text": "Two sections at the north gate of the ward, and there are families inside it. He is putting rifles into the one compound on this map you cannot answer with a cannon." } }
+    ]
+  },
+  "triggers": [
+    { "id": "the_souk_empties_into_its_own_alleys",
+      "on": { "kind": "zone_entered", "zone": "souk" },
+      "do": { "kind": "commit", "group": "souk", "to": "souk_alley" },
+      "say": { "speaker": "net", "text": "The garrison is out of the blocks and forming in the alleys." } },
+    { "id": "he_walks_out_of_the_hall",
+      "on": { "kind": "casualties_pct", "value": 45 },
+      "do": { "kind": "withdraw_to", "group": "hall_party", "to": "souk_alley" },
+      "say": { "speaker": "idit", "text": "He is out of the hall and moving into the souk. He was not going to leave for us; he left because there was nobody left in the block for him to hold it with." } },
+    { "id": "a_rocket_team_moves_into_the_east_lane",
+      "on": { "kind": "first_contact" },
+      "do": { "kind": "spawn", "units": [{ "unit": "rpg_team", "count": 1, "marker": "east_lane" }] },
+      "say": { "speaker": "shai", "text": "Rocket team into the east lane, on the road we came up. Nothing goes back down it on wheels until somebody clears that." } }
+  ],
+  "debrief": {
+    "victory": { "speaker": "idit", "text": "Six of the eight into the ward, and the town is still standing. I will write the other two down, the same way I wrote down the ones at the compound." },
+    "defeat": { "speaker": "shai", "text": "The souk is ours and the ward is empty. I would rather have had it the other way round, and next week somebody will ask me which I chose." }
+  }
+}

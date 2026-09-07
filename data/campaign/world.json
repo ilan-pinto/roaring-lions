@@ -32,7 +32,7 @@
             113.7,
             385.5
           ],
-          "missions": []
+          "missions": ["khan_rafid_1_recon", "khan_rafid_2_foothold", "khan_rafid_3_clearance"]
         },
         {
           "id": "deir_amun",
@@ -41,7 +41,7 @@
             281.4,
             480.9
           ],
-          "missions": []
+          "missions": ["deir_amun_1_recon", "deir_amun_2_foothold", "deir_amun_3_subterranean"]
         }
       ]
     },
@@ -52,7 +52,7 @@
       "doctrine": "rockets, ATGMs, standoff",
       "blurb": "Rockets range onto Kedem's north from behind a mountain wall.",
       "unlock": {
-        "after_mission": "beit_sahwan_4_subterranean"
+        "after_mission": "deir_amun_3_subterranean"
       },
       "towns": [
         {

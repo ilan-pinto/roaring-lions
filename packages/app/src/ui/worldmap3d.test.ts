@@ -72,12 +72,12 @@ interface Screen {
 
 const mountScreen = (
   ledger: LedgerData,
-  over: { webgl?: () => boolean; mount?: MountWorldView } = {}
+  over: { webgl?: () => boolean; mount?: MountWorldView; world?: typeof world } = {}
 ): Screen => {
   const fake = fakeMount();
   const went: string[] = [];
   const { el, ready } = worldMap3d({
-    world,
+    world: over.world ?? world,
     ledger,
     href: (id) => `?mission=${id}`,
     meshUrl: '/art/sahar_basin.glb',
@@ -157,10 +157,11 @@ describe('the 3D board reads the ledger the same way the flat one does', () => {
   it('opens the next region once its gate is met', async () => {
     // Sur and naharin used to share one gate (beit_sahwan_3_clearance), so
     // clearing it opened both at once. They now gate on different missions --
-    // sur on beit_sahwan_4_subterranean, naharin on umm_zeitoun_4_clearance,
-    // a mission inside sur's own progression -- so meeting sur's gate alone
-    // no longer opens naharin too.
-    const s = mountScreen({ 'campaign.completed_missions': ['beit_sahwan_4_subterranean'] });
+    // sur on deir_amun_3_subterranean (moved with the Marj's completion,
+    // design.md C3 / O-KR1), naharin on umm_zeitoun_4_clearance, a mission
+    // inside sur's own progression -- so meeting sur's gate alone no longer
+    // opens naharin too.
+    const s = mountScreen({ 'campaign.completed_missions': ['deir_amun_3_subterranean'] });
     await s.ready;
     expect(s.view().statuses.sur).toBe('live');
     expect([...s.view().clickable].sort()).toEqual(['marj', 'sur']);
@@ -195,7 +196,7 @@ describe('clicking the ground', () => {
     await s.ready;
     s.view().pick('sur');
     expect(s.went).toEqual([]);
-    expect(say(s.el)).toBe('Sur — requires clearing beit_sahwan_4_subterranean');
+    expect(say(s.el)).toBe('Sur — requires clearing deir_amun_3_subterranean');
     expect(tone(s.el)).toBe('bad');
   });
 
@@ -271,9 +272,19 @@ describe('the town pins', () => {
   });
 
   it('marks a town with nothing authored empty, not the region status', async () => {
-    const s = mountScreen({});
+    // Every real town in world.json now carries missions -- Khan Rafid and
+    // Deir Amun landed theirs -- so this needs a synthetic world with an
+    // unauthored town standing in for the case.
+    const worldWithEmptyTown = {
+      ...world,
+      regions: [
+        { ...world.regions[0]!, towns: [...world.regions[0]!.towns, { id: 'empty_town', name: 'Empty Town', at: [500, 500] as [number, number], missions: [] }] },
+        ...world.regions.slice(1),
+      ],
+    };
+    const s = mountScreen({}, { world: worldWithEmptyTown });
     await s.ready;
-    expect((s.el.querySelector('[data-town="khan_rafid"]') as HTMLElement).dataset.status).toBe(
+    expect((s.el.querySelector('[data-town="empty_town"]') as HTMLElement).dataset.status).toBe(
       'empty'
     );
   });

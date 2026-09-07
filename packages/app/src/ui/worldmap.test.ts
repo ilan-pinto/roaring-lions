@@ -11,6 +11,10 @@ import { showCampaign, showMenu } from './menu';
 const world = parseWorld(worldJson);
 const countries = parseCountries(countriesJson);
 const ALL_BS = world.regions[0]!.towns[0]!.missions;
+// The Marj's full roster across all three towns (Beit Sahwan, Khan Rafid,
+// Deir Amun) -- used wherever a test needs region-wide completion or a
+// region-wide mission count rather than one town's.
+const ALL_MARJ = world.regions[0]!.towns.flatMap((t) => t.missions);
 
 const render = (ledger: LedgerData): HTMLElement =>
   worldMap({ base: '/', world, countries, ledger, href: (id) => `?mission=${id}` });
@@ -26,12 +30,17 @@ describe('worldMap', () => {
   });
 
   it('flattens a region once every one of its missions is done', () => {
-    const el = render({ 'campaign.completed_missions': [...ALL_BS] });
+    // The Marj is three towns now (Beit Sahwan, Khan Rafid, Deir Amun), so
+    // completing it needs all eleven of their missions, not just Beit
+    // Sahwan's five.
+    const el = render({ 'campaign.completed_missions': [...ALL_MARJ] });
     expect(statusOf(el, 'marj')).toBe('complete');
   });
 
   it('opens the next region when its gate is met', () => {
-    const el = render({ 'campaign.completed_missions': ['beit_sahwan_4_subterranean'] });
+    // Moved with the Marj's completion (design.md C3 / O-KR1): Sur opens
+    // once Deir Amun III is cleared, not Beit Sahwan IV.
+    const el = render({ 'campaign.completed_missions': ['deir_amun_3_subterranean'] });
     expect(statusOf(el, 'sur')).toBe('live');
   });
 
@@ -92,12 +101,22 @@ describe('worldMap', () => {
   });
 
   it('marks a town with nothing authored empty, not live -- it must not read as finished', () => {
-    // marj is a live region (fresh ledger), but khan_rafid has missions: [] in
-    // world.json. Stamping it with the region's 'live' status is the bug: CSS
-    // struck through every non-link townname that wasn't 'locked', so an
-    // unauthored town read as complete.
-    const el = render({});
-    const marker = el.querySelector('[data-town="khan_rafid"]') as HTMLElement;
+    // Every real town in world.json now carries missions -- Khan Rafid and
+    // Deir Amun landed theirs -- so this needs a synthetic world with an
+    // unauthored town standing in for the case, rather than a real one.
+    // marj is a live region (fresh ledger); stamping an empty town with the
+    // region's 'live' status is the bug this guards: CSS struck through
+    // every non-link townname that wasn't 'locked', so an unauthored town
+    // read as complete.
+    const marjWithEmptyTown = {
+      ...world,
+      regions: [
+        { ...world.regions[0]!, towns: [...world.regions[0]!.towns, { id: 'empty_town', name: 'Empty Town', at: [500, 500] as [number, number], missions: [] }] },
+        ...world.regions.slice(1),
+      ],
+    };
+    const el = worldMap({ base: '/', world: marjWithEmptyTown, countries, ledger: {}, href: (id) => `?mission=${id}` });
+    const marker = el.querySelector('[data-town="empty_town"]') as HTMLElement;
     expect(marker.dataset.status).toBe('empty');
   });
 
@@ -110,13 +129,13 @@ describe('worldMap', () => {
 
   it('says why a locked region is locked, naming the condition', () => {
     const panel = render({}).querySelector('[data-region-card="sur"]') as HTMLElement;
-    expect(panel.textContent).toContain('beit_sahwan_4_subterranean');
+    expect(panel.textContent).toContain('deir_amun_3_subterranean');
   });
 
   it('shows each region doctrine and mission count', () => {
     const card = render({}).querySelector('[data-region-card="marj"]') as HTMLElement;
     expect(card.textContent).toContain('tunnels');
-    expect(card.textContent).toContain(`0 / ${ALL_BS.length}`);
+    expect(card.textContent).toContain(`0 / ${ALL_MARJ.length}`);
   });
 
   it('shows the campaign ROE rating when there is one', () => {
@@ -142,7 +161,7 @@ describe('worldMap', () => {
   });
 
   it('flies the brigade flag over a completed country, anchored to it', () => {
-    const el = render({ 'campaign.completed_missions': [...ALL_BS] });
+    const el = render({ 'campaign.completed_missions': [...ALL_MARJ] });
     const flag = el.querySelector('#region-marj .country-flag');
     expect(flag).not.toBe(null);
     expect(flag?.getAttribute('href')).toBe('/campaign/flag_brigade.png');

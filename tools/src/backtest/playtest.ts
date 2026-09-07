@@ -801,6 +801,341 @@ run('beit_sahwan_4_subterranean', (sim, _rt, ids, at) => {
   at(115, () => sim.queueCommand({ kind: 'move', ids: holdForce, ...M(26, 13) }));
 }, led4In);
 
+// --- Marj: Khan Rafid -----------------------------------------------------------
+//
+// Passive controls (mission-author's task) plus the six winning plans
+// (playtest agent's task, GH-151). Each mission has exactly one failable
+// primary -- an evacuate_before/collapse whose deadline the sim itself can
+// reach with zero player orders -- so a `() => {}` plan and an empty ledger
+// are the whole control, matching the tel_marum/qarn_hadid/umm_zeitoun
+// convention. The winning plans below are likewise standalone (`{}` ledger,
+// no KR I->II->III chaining): the same convention tel_marum_2/3 already use,
+// since a later mission's `ledger.requires` degrades gracefully with no
+// upstream ledger rather than breaking (mission.schema.json's own contract).
+// That means none of intel.marked_positions' three carried tags
+// (kr_lane_west/east, kr_watch's ATGM) arrive pre-identified here -- these
+// plans face the full, un-shortcut ambush stances script.md §5.1-5.3 draw.
+
+run('khan_rafid_1_recon', () => {}, {}, 'defeat', 'khan_rafid_1_recon (passive control)');
+
+// KR I -- the drone banks the harmless ATGM first (kornet cannot target
+// air), THEN flies the alley row at [24,11]: standing there is 5 tiles from
+// BOTH `kr_watch` militia at once, inside their 7-tile rifle range, and no
+// stand-off point on that open row clears both simultaneously (the two are
+// 10 tiles apart on a straight corridor, so any point outside one's range is
+// outside the other's sight). Ordering the ATGM leg first means the drone
+// banks it for free while a rifleman cannot even see it, then spends itself
+// on the alley flyby last -- both `kr_watch` militia are IDENTIFIED at
+// t=15.1s and the drone is shot down at t=30.6s, but by then `find_the_watch`
+// is already latched complete (`identified` only grows, mission.ts:1150).
+// Jeep and Eitan drive straight to one family each (2.9/1.8 tiles/s against
+// a 30-tile reach) and both are back inside the ward well under the 240s
+// clock. Measured: VICTORY in 0.53 min, ROE 100.
+run(
+  'khan_rafid_1_recon',
+  (sim, _rt, ids, at) => {
+    const drone = ids('recon_drone');
+    const jeep = ids('jeep_shoded');
+    const eitan = ids('apc_eitan');
+
+    at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(38, 25) }));
+    at(22, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 11) }));
+
+    at(0, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(20, 16) }));
+    at(0, () => sim.queueCommand({ kind: 'move', ids: eitan, ...M(27, 16) }));
+    at(30, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(24, 22) }));
+    at(30, () => sim.queueCommand({ kind: 'move', ids: eitan, ...M(24, 22) }));
+  },
+  {},
+  'victory',
+  'khan_rafid_1_recon'
+);
+
+run('khan_rafid_2_foothold', () => {}, {}, 'defeat', 'khan_rafid_2_foothold (passive control)');
+
+// KR II -- clear the ward with the hold force (rifles + one Eitan, both
+// under the 0.3 structural-collateral threshold that arms `fire into
+// protected structure (ward)`), while the Namer runs a family in from BOTH
+// sides via the east lane corridor (x=33) rather than straight up the
+// middle -- it never crosses the flagged rectangle, so its 0.35-collateral
+// cannon_30 can only reach INTO the ward from outside it on a stray round,
+// not fire from inside it. AT team and mortar stay south at the staging
+// ground the whole mission: their collateral (0.3, 0.7) is exactly the kind
+// this mission bills for, and neither is needed to clear six rifle-armed
+// militia off a compound. Measured: VICTORY in 4.43 min, ROE 95 (one
+// flagged-zone deduction survives: the Namer's cannon can still reach INTO
+// the zone from its own corridor once a `ward_push` section is standing in
+// it, which is the mechanic `khan_rafid_2_foothold.json`'s own `commit`
+// trigger is built to force).
+run(
+  'khan_rafid_2_foothold',
+  (sim, _rt, ids, at) => {
+    const inf = ids('inf_squad');
+    const eitan = ids('apc_eitan');
+    const jeep = ids('jeep_shoded');
+    const namer = ids('ifv_namer');
+    const at_team = ids('at_team');
+    const mortar = ids('mortar_team');
+    const drone = ids('recon_drone');
+    const holdForce = [...inf, ...eitan];
+
+    at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 20) }));
+    at(0, () => sim.queueCommand({ kind: 'attackMove', ids: holdForce, ...M(24, 20) }));
+
+    // Jeep: the close southern family, five tiles from the start line.
+    at(0, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(23, 27) }));
+    at(15, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(24, 22) }));
+
+    // Namer: the eastern family via the east lane corridor, staying outside
+    // the ward's flagged rectangle for the whole round trip.
+    at(0, () => {
+      sim.queueCommand({ kind: 'move', ids: namer, ...M(33, 25) });
+      sim.queueCommand({ kind: 'move', ids: namer, ...M(31, 16), append: true });
+    });
+    at(35, () => {
+      sim.queueCommand({ kind: 'move', ids: namer, ...M(33, 25) });
+      sim.queueCommand({ kind: 'move', ids: namer, ...M(24, 22), append: true });
+    });
+
+    at(0, () => sim.queueCommand({ kind: 'move', ids: at_team, ...M(24, 36) }));
+    at(0, () => sim.queueCommand({ kind: 'move', ids: mortar, ...M(22, 38) }));
+  },
+  {},
+  'victory',
+  'khan_rafid_2_foothold'
+);
+
+run('khan_rafid_3_clearance', () => {}, {}, 'defeat', 'khan_rafid_3_clearance (passive control)');
+
+// KR III -- O-KR4's measurement gate. `structure_penalty_mult: 2` ships as
+// authored (see the note below the ladder): this plan clears the souk with
+// the vanguard (rifles + one Eitan + the Lavi + the sniper) walking straight
+// at `souk_alley`, which enters the `souk` zone before it is in weapon range
+// of either garrisoned shanty -- `zone_entered(souk)` fires the `commit`
+// trigger first, and a `commit`/`withdraw_to` order calls `leaveStructure`
+// on a garrisoned unit exactly as an explicit move does (sim.ts:1927), so
+// the souk garrison is walking in the open by the time anyone is close
+// enough to shoot at their buildings. The hall itself is never engaged --
+// `roe_penalty` 30 keeps it off `selectStructureTarget` entirely -- and the
+// store's secondary is skipped outright, since its warehouse garrison has no
+// commit trigger of its own and any fight there is a structure paid for at
+// mult 2 for a secondary nobody needs. Namer and the second Eitan run the
+// three remaining families via the west/east-lane corridors, clear of both
+// the souk and hall. Measured: VICTORY in 2.77 min, ROE 86 -- one Shanty (-4)
+// from the Lavi's own splash during the souk fight, plus two flagged-zone
+// deductions from fire reaching into the ward while `hall_party`'s ambush
+// team is engaged near it. 86 >= 65, so O-KR4 keeps the dial as authored:
+// `structure_penalty_mult: 2`, `fail_below: 50`. (Compare the naive plan
+// below, which throws the same roster at the souk WITHOUT peeling off for
+// the families until t=90s: ROE 70 -- still clear of the 65 gate and the 50
+// floor -- but DEFEAT, because `get_six_in` misses its 300s deadline. The
+// rising evacuation count, not the ROE floor, is what actually decides this
+// mission for a player who does not split forces early.)
+run(
+  'khan_rafid_3_clearance',
+  (sim, _rt, ids, at) => {
+    const inf = ids('inf_squad');
+    const eitan = ids('apc_eitan');
+    const jeep = ids('jeep_shoded');
+    const namer = ids('ifv_namer');
+    const lavi = ids('mbt_lavi');
+    const sniper = ids('sniper_team');
+    const at_team = ids('at_team');
+    const mortar = ids('mortar_team');
+    const drone = ids('recon_drone');
+    const vanguard = [...inf, eitan[0], ...lavi, ...sniper];
+
+    at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 11) }));
+    at(0, () => sim.queueCommand({ kind: 'attackMove', ids: vanguard, ...M(24, 11) }));
+
+    // South family, close.
+    at(0, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(30, 27) }));
+    at(15, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(24, 22) }));
+
+    // Namer sweeps both western families, well clear of the souk/hall fight.
+    at(0, () => sim.queueCommand({ kind: 'move', ids: namer, ...M(20, 16) }));
+    at(25, () => sim.queueCommand({ kind: 'move', ids: namer, ...M(16, 16) }));
+    at(45, () => sim.queueCommand({ kind: 'move', ids: namer, ...M(24, 22) }));
+
+    // Second Eitan grabs the eastern family via the east lane corridor.
+    at(0, () => {
+      sim.queueCommand({ kind: 'move', ids: [eitan[1]], ...M(33, 25) });
+      sim.queueCommand({ kind: 'move', ids: [eitan[1]], ...M(31, 16), append: true });
+    });
+    at(35, () => {
+      sim.queueCommand({ kind: 'move', ids: [eitan[1]], ...M(33, 25) });
+      sim.queueCommand({ kind: 'move', ids: [eitan[1]], ...M(24, 22), append: true });
+    });
+
+    at(0, () => sim.queueCommand({ kind: 'move', ids: at_team, ...M(24, 36) }));
+    at(0, () => sim.queueCommand({ kind: 'move', ids: mortar, ...M(22, 38) }));
+  },
+  {},
+  'victory',
+  'khan_rafid_3_clearance'
+);
+
+// --- Marj: Deir Amun -------------------------------------------------------------
+
+run('deir_amun_1_recon', () => {}, {}, 'defeat', 'deir_amun_1_recon (passive control)');
+
+// DA I -- the escort and the lone Yahalom team go down the gully bed
+// TOGETHER: soloing the engineers (see the naive plan below) leaves them to
+// the militia guarding the mouth with nothing shooting back, and the team
+// dies mid-approach with the route never charged. Escorted, the mouth's
+// guards die to the escort's own weapons well before the charge starts.
+// `find_the_crew` needs all three `da_diggers`-tagged units identified,
+// including the one placed near the hamlet lane rather than at the mouth --
+// the drone banks that one, then the digging chief and the west gap gun, in
+// one sweep, before it is eventually shot down (a `locate` target latches
+// once identified and does not un-identify, mission.ts:1150). Measured:
+// VICTORY in 1.02 min, ROE 100.
+run(
+  'deir_amun_1_recon',
+  (sim, _rt, ids, at) => {
+    const drone = ids('recon_drone');
+    const yahalom = ids('yahalom_squad');
+    const inf = ids('inf_squad');
+    const at_team = ids('at_team');
+    const eitan = ids('apc_eitan');
+    const escort = [...inf, ...at_team, ...eitan];
+
+    // Drone sweeps the hamlet lane for the far da_diggers militia and the
+    // digging chief, then the west gap for the rocket team.
+    at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(21, 22) }));
+    at(15, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(28, 17) }));
+    at(28, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(18, 11) }));
+
+    // Escort and engineers go down the gully bed together toward the west route.
+    at(0, () => sim.queueCommand({ kind: 'attackMove', ids: escort, ...M(9, 18) }));
+    at(0, () => sim.queueCommand({ kind: 'move', ids: yahalom, ...M(9, 18) }));
+    at(30, () => sim.queueCommand({ kind: 'chargeTunnel', ids: yahalom, tunnel: 0 }));
+  },
+  {},
+  'victory',
+  'deir_amun_1_recon'
+);
+
+run('deir_amun_2_foothold', () => {}, {}, 'defeat', 'deir_amun_2_foothold (passive control)');
+
+// DA II -- both Yahalom teams charge `da_tn_pump` together the moment the
+// hold force clears the yard's one gate, then pull straight back out: their
+// job is done at t=34s and there is nothing to gain by leaving an
+// irreplaceable engineer team parked in a compound a `charge_squad` is timed
+// to reach (`timer_s(180)`). The holding force then SPLITS across two points
+// a few tiles apart inside the yard -- one kamikaze hit (splash 1.6 tiles)
+// catches whichever cluster it reaches, not both -- and the mortar stays
+// well back at the staging ground the whole mission, off the flagged
+// `hamlet` rectangle and out of splash range of the drone. This is the
+// `economy` mission: `requestBuild('inf_squad')` fires on a schedule from
+// t=60s once the camp is up, spending logistics on replacements rather than
+// banking them. Measured: VICTORY in 4.75 min, ROE 70 (five flagged-zone
+// deductions over eight minutes of contact -- comfortably clear of the 40
+// floor, but the highest cost of any plan in the arc, matching the design's
+// own read that this is the arc's most attrition-heavy foothold).
+run(
+  'deir_amun_2_foothold',
+  (sim, rt, ids, at) => {
+    const yahalom = ids('yahalom_squad');
+    const inf = ids('inf_squad');
+    const at_team = ids('at_team');
+    const mortar = ids('mortar_team');
+    const eitan = ids('apc_eitan');
+    const namer = ids('ifv_namer');
+    const drone = ids('recon_drone');
+
+    const holdForce = [...inf, ...eitan, ...namer];
+    at(0, () => sim.queueCommand({ kind: 'attackMove', ids: holdForce, ...M(15, 27) }));
+    at(0, () => sim.queueCommand({ kind: 'move', ids: yahalom, ...M(16, 26) }));
+    at(25, () => sim.queueCommand({ kind: 'chargeTunnel', ids: yahalom, tunnel: 1 }));
+    at(40, () => sim.queueCommand({ kind: 'move', ids: yahalom, ...M(24, 40) }));
+
+    // Once the door is down, split the holding force: two at the gate, the
+    // rest at the interior, so one kamikaze cannot reach everyone at once.
+    at(45, () => {
+      sim.queueCommand({ kind: 'move', ids: [inf[0], eitan[0]], ...M(15, 28) });
+      sim.queueCommand({ kind: 'move', ids: [inf[1], inf[2], eitan[1], ...namer], ...M(16, 25) });
+    });
+
+    at(0, () => sim.queueCommand({ kind: 'move', ids: at_team, ...M(17, 27) }));
+    at(0, () => sim.queueCommand({ kind: 'move', ids: mortar, ...M(24, 40) }));
+    at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(15, 27) }));
+
+    // Spend logistics as it lands, once the camp is producing.
+    for (let when = 60; when <= 420; when += 40) {
+      at(when, () => void rt.requestBuild('inf_squad'));
+    }
+  },
+  {},
+  'victory',
+  'deir_amun_2_foothold'
+);
+
+run('deir_amun_3_subterranean', () => {}, {}, 'defeat', 'deir_amun_3_subterranean (passive control)');
+
+// DA III -- the sequencing problem the design is built on. Each Yahalom team
+// takes two of the four routes, charging from the MOUTH rather than the
+// vent -- every one of the four is stocked, but its occupants surface at the
+// far VENT, tiles away, so a charge worked from the mouth side never wakes
+// them (the same trick beit_sahwan_4_subterranean's plan uses). The tell:
+// the west team's own two-route schedule (t=20 charge, t=35 retask, t=50
+// charge) works for both its routes, but the identical schedule on the east
+// team loses `da_tn_north`'s charge outright -- a `move`/`attackMove` order
+// clears `chargeOrder` (sim.ts), so retasking the team to its second mouth
+// before the first charge actually finishes cancels it silently, and
+// `da_tn_north` never comes down. East's schedule below is stretched to
+// t=60/75 for exactly this reason, confirmed by the `tunnelCollapsed`
+// trace: all four routes down by t=87s. The heavy force (Namer, Lavi, AT
+// team) takes the spoil field directly, since the chief never leaves it.
+// Measured: VICTORY in 1.45 min, ROE 85.
+run(
+  'deir_amun_3_subterranean',
+  (sim, _rt, ids, at) => {
+    const yahalom = ids('yahalom_squad');
+    const inf = ids('inf_squad');
+    const at_team = ids('at_team');
+    const mortar = ids('mortar_team');
+    const eitan = ids('apc_eitan');
+    const namer = ids('ifv_namer');
+    const lavi = ids('mbt_lavi');
+    const drone = ids('recon_drone');
+
+    const west = [yahalom[0]];
+    const east = [yahalom[1]];
+    const westEscort = [inf[0], inf[1], eitan[0]];
+    const eastEscort = [inf[2], inf[3], eitan[1]];
+    const chiefForce = [...namer, ...lavi, ...at_team];
+
+    // West pair: da_tn_lane (mouth [20,23] = route 2), then da_tn_yard
+    // (mouth [25,26] = route 3).
+    at(0, () => sim.queueCommand({ kind: 'attackMove', ids: westEscort, ...M(20, 23) }));
+    at(0, () => sim.queueCommand({ kind: 'move', ids: west, ...M(20, 23) }));
+    at(20, () => sim.queueCommand({ kind: 'chargeTunnel', ids: west, tunnel: 2 }));
+    at(35, () => sim.queueCommand({ kind: 'attackMove', ids: westEscort, ...M(25, 26) }));
+    at(35, () => sim.queueCommand({ kind: 'move', ids: west, ...M(25, 26) }));
+    at(50, () => sim.queueCommand({ kind: 'chargeTunnel', ids: west, tunnel: 3 }));
+
+    // East pair: da_tn_north (mouth [30,22] = route 4), then da_tn_east
+    // (mouth [33,25] = route 5) -- held later than the west pair's schedule
+    // on purpose; see the comment above.
+    at(0, () => sim.queueCommand({ kind: 'attackMove', ids: eastEscort, ...M(30, 22) }));
+    at(0, () => sim.queueCommand({ kind: 'move', ids: east, ...M(30, 22) }));
+    at(20, () => sim.queueCommand({ kind: 'chargeTunnel', ids: east, tunnel: 4 }));
+    at(60, () => sim.queueCommand({ kind: 'attackMove', ids: eastEscort, ...M(33, 25) }));
+    at(60, () => sim.queueCommand({ kind: 'move', ids: east, ...M(33, 25) }));
+    at(75, () => sim.queueCommand({ kind: 'chargeTunnel', ids: east, tunnel: 5 }));
+
+    // Heavy force takes the spoil field and kills the chief.
+    at(0, () => sim.queueCommand({ kind: 'attackMove', ids: chiefForce, ...M(28, 17) }));
+
+    at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(28, 17) }));
+    at(0, () => sim.queueCommand({ kind: 'move', ids: mortar, ...M(22, 40) }));
+  },
+  {},
+  'victory',
+  'deir_amun_3_subterranean'
+);
+
 // --- Sur: Tel Marum -----------------------------------------------------------
 
 // Tel Marum I — the picture, taken from dead ground.

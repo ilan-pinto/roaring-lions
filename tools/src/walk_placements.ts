@@ -28,6 +28,13 @@
  *   blocked/off-map check for those bodies too, but still marks them on the grid
  *   (`g`) so they read as "present but deliberately unchecked" rather than
  *   silently absent or falsely failed.
+ * - An `in_tunnel` placement is exempt for the same reason and a stronger one:
+ *   its bodies occupy the ROUTE, not the declared tile, and only come back up
+ *   at the vent (`spawnPlacement`, mission.ts:1094-1100 -- "surface clearance
+ *   where they were authored proves nothing"). Without this, a multi-body
+ *   buried placement whose spread crosses a wall or a building next to its
+ *   vent reads as a bad placement when it is not one: nothing ever stands on
+ *   that tile. Marked `b` on the grid, mirroring `g`.
  *
  * Lives under tools/src so `pnpm typecheck` covers it. Read-only: nothing is
  * written, nothing is rendered.
@@ -43,6 +50,7 @@ interface Placement {
   at?: readonly [number, number];
   marker?: string;
   stance?: { kind?: string };
+  in_tunnel?: string;
 }
 
 /** Wave units use `from` instead of `marker` for their spawn point (mission.schema.json).
@@ -128,15 +136,18 @@ function place(p: Placement | WavePlacement, label: string): void {
   // spawnPlacement never calls assertGroundClear for a garrison stance
   // (mission.ts:769-774) -- overlapping the building it enters is intended, not
   // a bug. Mirror that: no BLOCKED/OFF-MAP verdict for these bodies, just a
-  // distinct mark so the grid shows them instead of hiding them.
+  // distinct mark so the grid shows them instead of hiding them. An in_tunnel
+  // placement gets the same treatment for the same reason (mission.ts:1094-1100):
+  // its bodies stand in the route, not on this tile, until they surface at the vent.
   const garrison = p.stance?.kind === 'garrison';
+  const buried = p.in_tunnel !== undefined;
   const n = p.count ?? 1;
   for (let k = 0; k < n; k++) {
     const bx = Math.floor(origin[0] + (k % 3) * 1.25);
     const by = Math.floor(origin[1] + Math.floor(k / 3) * 1.25);
-    if (garrison) {
+    if (garrison || buried) {
       const cellRow = cell[by];
-      if (bx >= 0 && bx < W && cellRow) cellRow[bx] = 'g';
+      if (bx >= 0 && bx < W && cellRow) cellRow[bx] = garrison ? 'g' : 'b';
       continue;
     }
     if (bx < 0 || bx >= W || by < 0 || by >= H) {

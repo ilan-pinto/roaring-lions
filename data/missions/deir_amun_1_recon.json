@@ -1,0 +1,74 @@
+{
+  "id": "deir_amun_1_recon",
+  "name": "Deir Amun I — Read the Ground",
+  "town": "deir_amun",
+  "phase": "recon",
+  "target_minutes": 6,
+  "map": { "file": "deir_amun", "player_start": [24, 44] },
+  "ledger": {
+    "requires": ["roster.surviving_units", "intel.marked_positions"],
+    "produces": ["roster.surviving_units", "roe.mission_ratings", "campaign.completed_missions", "intel.marked_positions"]
+  },
+  "dispatch": "Everything that ever came into the Marj came through Deir Amun. The people left it in the first week of the war; the district's routes did not, and all six of them join the road east under nine empty houses.",
+  "briefing": "Deir Amun is nine houses and a pump yard on the lip of a dry watercourse, and nobody lives in any of it now. What is left is the junction: every route in this district joins the road east under that village. A crew is working the western route this morning. Find them, find where it runs, and put it down inside four minutes. I have his routes on paper and paper is not identification. A route is on the board only while somebody with a detector is looking at it, and it goes back to a rumour the moment they stop. This one is being dug now, so it is throwing spoil along the gully floor, and disturbed earth is something any soldier can read. The ones he finished before the war throw nothing at all. Two ways west and they are not the same road. The bed is twenty-seven tiles on foot and nothing on the terrace can see into it; the shoulder is thirty-seven for anything on wheels. The engineers set a charge standing still in the open, two tiles from the route, for eight seconds. Get them there with something that can shoot, and bring the west route down.",
+  "starting_force": [
+    { "unit": "recon_drone", "count": 1, "at": [24, 43] },
+    { "unit": "yahalom_squad", "count": 1, "at": [24, 45] },
+    { "unit": "inf_squad", "count": 2, "at": [22, 45], "from_ledger": true },
+    { "unit": "at_team", "count": 1, "at": [27, 45], "from_ledger": true },
+    { "unit": "apc_eitan", "count": 1, "at": [28, 45] }
+  ],
+  "objectives": [
+    { "id": "find_the_crew", "type": "locate", "primary": true, "target": "da_diggers",
+      "text": "Find the crew working the western route",
+      "say": { "speaker": "idit", "text": "That is the crew, and they are still working. Nobody has told them to stop, and the man who would have is in a cell at brigade." } },
+    { "id": "bring_down_the_west", "type": "collapse", "primary": true, "target": "da_west", "seconds": 240,
+      "text": "Collapse the western route inside four minutes",
+      "say": { "speaker": "shai", "text": "West route down. One of six, and the other five are on a piece of paper that has never been checked against the ground." },
+      "say_on_fail": { "speaker": "idit", "text": "Four minutes, and the route is still open and still growing. They will have another twelve tiles of it by the time anybody comes back." } },
+    { "id": "find_the_chief", "type": "locate", "primary": false, "target": "da_hvt_engineer",
+      "text": "Find the digging chief on the spoil field",
+      "say": { "speaker": "idit", "text": "That is the man running the digging, standing on his own spoil. He is the only one down here who knows where all six of them go." } },
+    { "id": "find_the_gap_gun", "type": "locate", "primary": false, "target": "da_watch_gap",
+      "text": "Identify the rocket team over the west gap",
+      "say": { "speaker": "idit", "text": "Rocket team laid on the west gap, which is one of the two ways through the rock line. He is on the board and he does not get a first shot next week." } },
+    { "id": "screen_out", "type": "survive_until", "primary": false, "seconds": 300,
+      "text": "Stay in the field for five minutes" }
+  ],
+  "roe": { "enabled": true },
+  "enemy": {
+    "faction": "ashwar",
+    "doctrine_profile": "the network beneath",
+    "garrison": [
+      { "unit": "digger_crew", "count": 1, "at": [9, 18], "tag": "da_diggers", "group": "da_diggers", "digs": "da_tn_west" },
+      { "unit": "militia_cell", "count": 1, "at": [7, 19], "tag": "da_diggers", "group": "da_diggers" },
+      { "unit": "militia_cell", "count": 1, "at": [21, 22], "tag": "da_diggers", "group": "da_diggers" },
+      { "unit": "digger_crew", "count": 1, "at": [28, 17], "tag": "da_hvt_engineer" },
+      { "unit": "rpg_team", "count": 1, "at": [18, 11], "tag": "da_watch_gap", "stance": { "kind": "ambush", "tiles": 4 } },
+      { "unit": "rpg_team", "count": 1, "at": [16, 29], "stance": { "kind": "ambush", "tiles": 4 } },
+      { "unit": "militia_cell", "count": 2, "at": [27, 18], "in_tunnel": "da_tn_lane" },
+      { "unit": "mortar_crew", "count": 1, "at": [24, 2] }
+    ],
+    "waves": [
+      { "at_seconds": 140, "to": "da_west_head",
+        "units": [{ "unit": "militia_cell", "count": 2, "from": "gap_west" }],
+        "say": { "speaker": "idit", "text": "Two sections down through the west gap for the gully head. They are not defending a village; there is nobody in it. They are defending the work." } },
+      { "at_seconds": 260, "to": "hamlet_lane",
+        "units": [{ "unit": "rpg_team", "count": 1, "from": "north_road" }] }
+    ]
+  },
+  "triggers": [
+    { "id": "the_crew_stops_digging_and_turns_round",
+      "on": { "kind": "zone_entered", "zone": "da_west" },
+      "do": { "kind": "commit", "group": "da_diggers", "to": "da_west_head" },
+      "say": { "speaker": "net", "text": "The crew has stopped digging. They are coming up onto the shoulder with the section that was covering them." } },
+    { "id": "the_bed_is_a_road_and_it_is_theirs",
+      "on": { "kind": "first_contact" },
+      "do": { "kind": "spawn", "units": [{ "unit": "militia_cell", "count": 1, "marker": "wadi_bend" }] },
+      "say": { "speaker": "idit", "text": "There is a section in the bed behind you. That watercourse is not dead ground for them — it is a road, and it is theirs." } }
+  ],
+  "debrief": {
+    "victory": { "speaker": "shai", "text": "One route down and the crew with it. Five more on a sheet of paper written by a man who has been in a cell for a week." },
+    "defeat": { "speaker": "idit", "text": "The route is still open and the crew is still working it. Nobody has told them to stop and there is nobody left who can." }
+  }
+}

@@ -1,0 +1,85 @@
+{
+  "id": "deir_amun_3_subterranean",
+  "name": "Deir Amun III — All Four",
+  "town": "deir_amun",
+  "phase": "subterranean",
+  "target_minutes": 7,
+  "map": { "file": "deir_amun", "player_start": [24, 44] },
+  "ledger": {
+    "requires": ["roster.surviving_units", "intel.marked_positions"],
+    "produces": ["roster.surviving_units", "roe.mission_ratings", "campaign.completed_missions", "intel.marked_positions"]
+  },
+  "briefing": "There are four routes under this village and every one was finished before the war, so none of them throws spoil. The only thing that can find them is a man with a detector and a clear line to the ground they run under. You cannot hold all four at once. Contact goes cold about sixteen seconds after the last eye leaves it, and the drone is a pointer rather than a scout, blind behind a building exactly like a rifleman. Work them in an order and mean it. Bringing one down kills whoever is stocked in it, so what you drop first decides which of the rest comes up behind you. One of them surfaces on your own road east. Whatever you leave standing there is standing under your armour. The chief is on the spoil field north of the village, a level above everything around it, on ground his own crews raised. He does not go underground and he will not leave it. The Lavi's gun and the mortar are billed by the ten seconds in that village and there is nothing in it worth the money. Rifles and the Eitan's fifty are free. Bring all four down inside five minutes, and take the chief off that spoil.",
+  "starting_force": [
+    { "unit": "yahalom_squad", "count": 2, "at": [26, 45] },
+    { "unit": "inf_squad", "count": 4, "at": [24, 46], "from_ledger": true },
+    { "unit": "at_team", "count": 1, "at": [28, 46], "from_ledger": true },
+    { "unit": "mortar_team", "count": 1, "at": [20, 46], "from_ledger": true },
+    { "unit": "apc_eitan", "count": 2, "at": [28, 44] },
+    { "unit": "ifv_namer", "count": 1, "at": [30, 45] },
+    { "unit": "mbt_lavi", "count": 1, "at": [24, 45] },
+    { "unit": "recon_drone", "count": 1, "at": [24, 43] }
+  ],
+  "resources": { "logistics_start": 500, "logistics_rate_per_min": 90 },
+  "objectives": [
+    { "id": "all_four", "type": "collapse", "primary": true, "target": "hamlet", "seconds": 300,
+      "text": "Collapse all four routes under the village inside five minutes",
+      "say": { "speaker": "shai", "text": "All four down. There is nothing under this village any more, and that is the last of the district." },
+      "say_on_fail": { "speaker": "idit", "text": "Five minutes. Whatever is still open under that village is open for good, and there is nobody left who has to be told where it runs." } },
+    { "id": "kill_the_chief", "type": "eliminate_hvt", "primary": true, "target": "da_hvt_engineer",
+      "text": "Kill the digging chief on the spoil field",
+      "say": { "speaker": "idit", "text": "The chief is down on his own spoil. He was digging to a plan drawn before the war by a man who has not seen this ground in years." } },
+    { "id": "clear_the_ground", "type": "destroy_all", "primary": false,
+      "text": "Clear everything Ashwar still has above ground here",
+      "say": { "speaker": "net", "text": "Nothing of theirs is standing above ground in Deir Amun." } },
+    { "id": "screen_out", "type": "survive_until", "primary": false, "seconds": 300,
+      "text": "Stay in the field for five minutes" }
+  ],
+  "roe": { "enabled": true, "flagged_zones": ["hamlet"], "fail_below": 45, "structure_penalty_mult": 1 },
+  "enemy": {
+    "faction": "ashwar",
+    "doctrine_profile": "the network beneath",
+    "garrison": [
+      { "unit": "digger_crew", "count": 1, "at": [28, 17], "tag": "da_hvt_engineer", "group": "chief" },
+      { "unit": "militia_cell", "count": 1, "at": [26, 18], "group": "chief" },
+      { "unit": "militia_cell", "count": 1, "at": [31, 18], "group": "chief" },
+      { "unit": "militia_cell", "count": 1, "at": [19, 21], "group": "hamlet", "stance": { "kind": "garrison", "building": [19, 21] } },
+      { "unit": "militia_cell", "count": 1, "at": [26, 20], "group": "hamlet", "stance": { "kind": "garrison", "building": [26, 20] } },
+      { "unit": "rpg_team", "count": 1, "at": [25, 22], "group": "hamlet", "stance": { "kind": "ambush", "tiles": 3 } },
+      { "unit": "rpg_team", "count": 1, "at": [33, 24], "group": "hamlet", "stance": { "kind": "ambush", "tiles": 3 } },
+      { "unit": "rpg_team", "count": 2, "at": [27, 18], "in_tunnel": "da_tn_lane" },
+      { "unit": "militia_cell", "count": 2, "at": [33, 21], "in_tunnel": "da_tn_yard" },
+      { "unit": "rpg_team", "count": 1, "at": [34, 13], "in_tunnel": "da_tn_north" },
+      { "unit": "militia_cell", "count": 1, "at": [34, 13], "in_tunnel": "da_tn_north" },
+      { "unit": "militia_cell", "count": 2, "at": [41, 19], "in_tunnel": "da_tn_east" },
+      { "unit": "charge_squad", "count": 1, "at": [28, 20], "stance": { "kind": "ambush", "tiles": 2 } },
+      { "unit": "mortar_crew", "count": 1, "at": [24, 2] },
+      { "unit": "atgm_cell", "count": 1, "at": [41, 14], "stance": { "kind": "ambush", "tiles": 6 } }
+    ],
+    "waves": [
+      { "at_seconds": 120, "to": "hamlet_north", "units": [{ "unit": "militia_cell", "count": 2, "from": "gap_east" }] },
+      { "at_seconds": 250, "to": "hamlet_lane",
+        "units": [{ "unit": "rpg_team", "count": 1, "from": "gap_west" }, { "unit": "technical", "count": 1, "from": "gap_west" }],
+        "say": { "speaker": "idit", "text": "One rocket team and a technical through the west gap. That is the last of what the plateau can send; after this he is spending what is underground." } }
+    ]
+  },
+  "triggers": [
+    { "id": "the_village_comes_out_of_its_houses",
+      "on": { "kind": "zone_entered", "zone": "hamlet" },
+      "do": { "kind": "commit", "group": "hamlet", "to": "hamlet_lane" },
+      "say": { "speaker": "net", "text": "They are out of the houses and into the lanes between the mouths." } },
+    { "id": "he_falls_back_onto_his_own_spoil",
+      "on": { "kind": "casualties_pct", "value": 50 },
+      "do": { "kind": "withdraw_to", "group": "chief", "to": "spoil_field_centre" },
+      "say": { "speaker": "idit", "text": "He has gone back onto the spoil field. It is the only high ground on this map and his own crews built it out of the routes you are here to bring down." } },
+    { "id": "a_charge_squad_comes_for_the_engineers",
+      "on": { "kind": "timer_s", "value": 210 },
+      "do": { "kind": "spawn", "units": [{ "unit": "charge_squad", "count": 1, "marker": "hamlet_north" }] },
+      "say": { "speaker": "shai", "text": "Charge squad in the lanes, and your engineers are the only thing on this map that has to stand still. Cover them or move them." } }
+  ],
+  "debrief": {
+    "victory": { "speaker": "idit", "text": "All four, and the file on this district closes tonight. Taking the man never stopped any of it — the ground was the thing he was, and there is none of it left under here now." },
+    "defeat": { "speaker": "shai", "text": "The village is standing on four open routes and we are going home. This district works tomorrow exactly the way it worked yesterday." }
+  },
+  "aftermath": "Six routes under the junction, and by morning none of them went anywhere. Brigade put a third star on the slip and said nothing else about it. The Marj is quiet. Sur is not."
+}
