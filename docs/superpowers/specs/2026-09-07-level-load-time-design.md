@@ -102,8 +102,9 @@ Three facts that decide the order below:
    (terrain compose, scatter, decor placement, fog, first GPU upload). Unmeasured on a real
    GPU; profile before touching. Not started.
 
-Not on the list: reducing vehicle bake resolution below 2048^2. It would save ~1 MB per
-vehicle and is the lead's call on how the art reads, not a load-time decision.
+Not on the list, by the lead's decision (2026-09-07: *"dont drop resolution"*): reducing
+vehicle bake resolution below 2048^2. It would save ~1 MB per vehicle; the art reads at
+2048 and stays there. `tools/vehicles/textured.py`'s `TEXTURE_PX` is that decision in code.
 
 ## Measuring
 
