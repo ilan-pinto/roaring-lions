@@ -48,3 +48,32 @@ export function sayNotice(speaker: string, text: string): [string, Tone] {
 export function removedNotice(side: number, unit: string): [string, Tone] {
   return side === 2 ? ['<b>taken</b> (1)', 'bad'] : [`${unit} <b>taken</b>`, 'bad'];
 }
+
+/**
+ * `evacuated`: a civilian reached the refuge and is off the board alive --
+ * the exact mirror of `removedNotice`'s civilian case, and worded as one
+ * deliberately. A rescue and an abduction are the two ways a civilian leaves
+ * the field, the runtime distinguishes them on the way out rather than
+ * making the renderer infer it (the sim's own doc comment on this event
+ * says so), and the feed should read the same way: one line, a count of
+ * one, opposite tone.
+ *
+ * Added 2026-09-07, and the gap it closes is not cosmetic. `evacuate_before`
+ * is scored on every civilian who arrives, `describeMissionEvent` had no
+ * case for this kind at all, and the `objective` case fires only on complete
+ * or failed -- so a player watching an evacuation had NO feedback between
+ * "the clock is running" and "the count landed". The arc that made it
+ * unignorable is Khan Rafid, where `evacuate_before` is a primary in all
+ * three missions on rising counts (`docs/campaign/khan_rafid/`): twelve
+ * arrivals across the town with nothing said for any of them.
+ *
+ * Takes no arguments on purpose. The event carries `{ tick, entity }` and
+ * nothing else, because only a civilian can evacuate -- there is no side to
+ * branch on the way `removedNotice` must. One line per civilian, not
+ * coalesced across a tick, for the reason `removedNotice` gives at length:
+ * threading tick-scoped state through `main.ts`'s event loop is not worth a
+ * cosmetic win, and here the per-arrival beat is the point.
+ */
+export function evacuatedNotice(): [string, Tone] {
+  return ['<b>clear</b> (1)', 'good'];
+}

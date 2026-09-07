@@ -58,7 +58,7 @@ import { Minimap } from './ui/minimap';
 import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
 import { speakerPlate, speakerPortrait } from './ui/hud-model';
 import { briefingBeats, showLoading } from './ui/loading';
-import { removedNotice, sayNotice } from './ui/mission-notice';
+import { evacuatedNotice, removedNotice, sayNotice } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
 import { doctrineTags } from './ui/dock-model';
 import {
@@ -287,6 +287,8 @@ function describeMissionEvent(
       return sayNotice(e.speaker, e.text);
     case 'removed':
       return removedNotice(e.side, e.unit);
+    case 'evacuated':
+      return evacuatedNotice();
     case 'missionEnd':
       return [
         e.result === 'victory'

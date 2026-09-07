@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { removedNotice, sayNotice } from './mission-notice';
+import { evacuatedNotice, removedNotice, sayNotice } from './mission-notice';
 
 describe('sayNotice', () => {
   it('names Shai in full caps, with an em dash before the line', () => {
@@ -46,5 +46,25 @@ describe('removedNotice', () => {
         expect(html.toLowerCase()).not.toContain(forbidden);
       }
     }
+  });
+});
+
+describe('evacuatedNotice', () => {
+  it('reads as the mirror of an abduction: same shape, opposite tone', () => {
+    const [html, tone] = evacuatedNotice();
+    const [takenHtml, takenTone] = removedNotice(2, 'civilians');
+    expect(html).toBe('<b>clear</b> (1)');
+    expect(tone).toBe('good');
+    // The two ways a civilian leaves the field, worded alike on purpose.
+    expect(takenHtml).toBe('<b>taken</b> (1)');
+    expect(takenTone).toBe('bad');
+    expect(tone).not.toBe(takenTone);
+  });
+
+  it('says one, never a running total', () => {
+    // One line per arrival, like `removedNotice`: nothing here coalesces a
+    // tick's worth of civilians, so the count is always (1).
+    expect(evacuatedNotice()[0]).toContain('(1)');
+    expect(evacuatedNotice()[0]).toBe(evacuatedNotice()[0]);
   });
 });
