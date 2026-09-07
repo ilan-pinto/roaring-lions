@@ -390,35 +390,57 @@ const structureSymbols = new Map(
           // only `wall`, which is both low_profile and per_tile) gets a message for
           // each reason instead of the first reason found silently winning.
           const bad = new Map();
+          // One check for both sources of a structure inside the zone. `via`
+          // names where the structure came from, because the fix differs: a
+          // map symbol is edited in the map, a placed body in the mission.
+          const flag = (typeId, x, y, via) => {
+            const spec = structureCatalogue.types[typeId];
+            if (spec.low_profile && !bad.has(`${typeId}:low_profile`)) {
+              bad.set(
+                `${typeId}:low_profile`,
+                `${rel(file)}: raze "${o.id}" zone "${o.target}" contains "${typeId}" -- low_profile ` +
+                  `at (${x},${y})${via}. A demolisher will not level it unattended.`
+              );
+            }
+            if ((spec.roe_penalty ?? 0) >= PROTECTED_ROE && !bad.has(`${typeId}:protected`)) {
+              bad.set(
+                `${typeId}:protected`,
+                `${rel(file)}: raze "${o.id}" zone "${o.target}" contains "${typeId}" -- protected ` +
+                  `(roe_penalty ${spec.roe_penalty}) at (${x},${y})${via}. A demolisher will not level it unattended.`
+              );
+            }
+            if (spec.per_tile && !bad.has(`${typeId}:per_tile`)) {
+              bad.set(
+                `${typeId}:per_tile`,
+                `${rel(file)}: raze "${o.id}" zone "${o.target}" contains "${typeId}" -- per_tile ` +
+                  `at (${x},${y})${via}: every tile is its own structure, so this raze zone is N separate ` +
+                  `demolish orders, not one.`
+              );
+            }
+          };
           for (let y = zy; y < zy + zh; y++) {
             for (let x = zx; x < zx + zw; x++) {
               const sym = map.rows?.[y]?.[x];
               const typeId = structureSymbols.get(sym);
               if (!typeId) continue;
-              const spec = structureCatalogue.types[typeId];
-              if (spec.low_profile && !bad.has(`${typeId}:low_profile`)) {
-                bad.set(
-                  `${typeId}:low_profile`,
-                  `${rel(file)}: raze "${o.id}" zone "${o.target}" contains "${typeId}" -- low_profile ` +
-                    `at (${x},${y}). A demolisher will not level it unattended.`
-                );
-              }
-              if ((spec.roe_penalty ?? 0) >= PROTECTED_ROE && !bad.has(`${typeId}:protected`)) {
-                bad.set(
-                  `${typeId}:protected`,
-                  `${rel(file)}: raze "${o.id}" zone "${o.target}" contains "${typeId}" -- protected ` +
-                    `(roe_penalty ${spec.roe_penalty}) at (${x},${y}). A demolisher will not level it unattended.`
-                );
-              }
-              if (spec.per_tile && !bad.has(`${typeId}:per_tile`)) {
-                bad.set(
-                  `${typeId}:per_tile`,
-                  `${rel(file)}: raze "${o.id}" zone "${o.target}" contains "${typeId}" -- per_tile ` +
-                    `at (${x},${y}): every tile is its own structure, so this raze zone is N separate ` +
-                    `demolish orders, not one.`
-                );
-              }
+              flag(typeId, x, y, '');
             }
+          }
+          // Mission-placed bodies too (2026-09-07, Qarn Hadid design G1): the
+          // runtime raises `structures[]` BEFORE the objective snapshot
+          // (`MissionRuntime.raiseMissionStructures`), so a wall or fence a
+          // mission drops inside its own raze zone is exactly as unrazeable as
+          // one drawn in the map rows -- and until this loop the gate never saw
+          // it. `at` is the top-left tile, `size` the footprint (default 1x1).
+          for (const placed of mi.structures ?? []) {
+            if (!placed?.type || !Array.isArray(placed.at)) continue;
+            const [px, py] = placed.at;
+            const [pw, ph] = placed.size ?? [1, 1];
+            const ox = Math.max(px, zx);
+            const oy = Math.max(py, zy);
+            if (ox >= Math.min(px + pw, zx + zw) || oy >= Math.min(py + ph, zy + zh)) continue;
+            if (!structureCatalogue.types[placed.type]) continue; // the schema check reports that
+            flag(placed.type, ox, oy, ', placed by the mission\'s "structures"');
           }
           for (const msg of bad.values()) failures.push(msg);
         }
