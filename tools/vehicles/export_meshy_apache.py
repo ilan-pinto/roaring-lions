@@ -29,7 +29,8 @@ part-segmentation rotor vertex (p99.9 0.0002, over 24,492 sampled), while
 every vertex that is unambiguously hull sits at least **0.0171** away. The
 part-segmentation file is the same mesh, split -- its 787,084 vertices
 against the welded file's 786,886 differ by the 198 seam vertices the split
-duplicated. So `_label_textured_vertices` labels every vertex of the textured
+duplicated. So `_label_textured_vertices` (`segmentation.py` beside this file, shared with
+`export_meshy_jeep.py`) labels every vertex of the textured
 mesh by the part of its coincident part-segmentation copy (a
 `SEGMENT_MATCH_RADIUS` range query, 2.5x the worst residual), a face joins a
 piece when every vertex of it is that part or a seam vertex and at least one
@@ -488,7 +489,7 @@ import sys
 import bpy
 import bmesh
 import numpy as np
-from mathutils import Matrix, Vector, kdtree
+from mathutils import Matrix, Vector
 from collections import defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -501,6 +502,7 @@ import kit as vehicle_kit  # noqa: E402 -- ROLES, the closed vehicle role vocabu
 
 from export_mesh_vehicle import _bake_scale, _extent  # noqa: E402 -- shared helpers
 import textured as vehicle_textured  # noqa: E402 -- 2026-09-07: ship the source's own base_color bake
+import segmentation  # noqa: E402 -- 2026-09-07: Meshy's own part split, transferred vertex by vertex
 
 REPO = os.path.dirname(TOOLS)
 #: Corrected 2026-09-07 alongside the geometry-source change: this used to
@@ -664,7 +666,7 @@ _TRANSFER_MARGIN = 0.01
 #: vertex of a DIFFERENT part, away from a seam, is an edge away -- ~0.002
 #: on this 787k-vertex mesh -- and a vertex that does collect two labels is
 #: a seam vertex by definition and is treated as one (`LABEL_SEAM`).
-SEGMENT_MATCH_RADIUS = 0.001
+SEGMENT_MATCH_RADIUS = segmentation.DEFAULT_MATCH_RADIUS
 
 #: Vertex/face labels for the transfer. `LABEL_HULL` is the fall-through
 #: (`model_part2`, and anything a range query somehow misses -- counted and
@@ -684,169 +686,46 @@ _PARTSEG_LABEL = {
     _PARTSEG_BRACKET_B: LABEL_BRACKET,
     _PARTSEG_TAIL: LABEL_TAIL,
 }
+_LABEL_NAMES = {
+    LABEL_HULL: "hull", LABEL_ROTOR: "rotor", LABEL_GUN: "gun", LABEL_BRACKET: "bracket", LABEL_TAIL: "tail",
+}
 
 
 def _obj_bbox(ob):
-    """This object's own world-space bbox, as ((xmin,xmax),(ymin,ymax),
-    (zmin,zmax)) -- every object read here (`_PARTSEG_NAMES`) sits at the
-    origin with an identity transform (confirmed: `loc=(0,0,0) scale=(1,1,1)
-    rot=(0,0,0)` for all seven, this task's own census), so local and world
-    coordinates coincide; computed from local `co` directly rather than via
-    `matrix_world` for that reason."""
-    xs = [v.co.x for v in ob.data.vertices]
-    ys = [v.co.y for v in ob.data.vertices]
-    zs = [v.co.z for v in ob.data.vertices]
-    return ((min(xs), max(xs)), (min(ys), max(ys)), (min(zs), max(zs)))
+    return segmentation.obj_bbox(ob)
 
 
 def _union_bbox(boxes):
-    xs = [b[0] for b in boxes]
-    ys = [b[1] for b in boxes]
-    zs = [b[2] for b in boxes]
-    return (
-        (min(x[0] for x in xs), max(x[1] for x in xs)),
-        (min(y[0] for y in ys), max(y[1] for y in ys)),
-        (min(z[0] for z in zs), max(z[1] for z in zs)),
-    )
+    return segmentation.union_bbox(boxes)
 
 
 def _partseg_census(path):
-    """Opens the part-segmentation source and returns `(boxes, verts,
-    labels)` -- READ ONLY, nothing from this file ships. `boxes` is
-    `{name: bbox}` for every `_PARTSEG_NAMES` object (the affine fit reads
-    it); `verts` is every vertex of every part as one `(N, 3)` float64
-    array in that file's own frame, and `labels` the matching `(N,)`
-    `_PARTSEG_LABEL` per vertex -- the segmentation `_label_textured_vertices`
-    transfers. Called BEFORE `SRC_TEXTURED` is opened, since
-    `bpy.ops.wm.open_mainfile` replaces the whole scene; everything returned
-    is plain Python/numpy and outlives the file that produced it."""
-    bpy.ops.wm.open_mainfile(filepath=_resolve(path))
-    boxes = {}
-    chunks = []
-    labels = []
-    for name in _PARTSEG_NAMES:
-        ob = bpy.data.objects[name]
-        if ob.modifiers:
-            raise SystemExit(f"{name} carries {len(ob.modifiers)} modifier(s) in the part-segmentation census")
-        if tuple(ob.matrix_world.translation) != (0.0, 0.0, 0.0) or any(abs(s - 1.0) > 1e-9 for s in ob.matrix_world.to_scale()):
-            raise SystemExit(f"{name} is not at the origin with unit scale -- `_obj_bbox` and the census assume it is")
-        boxes[name] = _obj_bbox(ob)
-        n = len(ob.data.vertices)
-        co = np.empty(n * 3, dtype=np.float32)
-        ob.data.vertices.foreach_get("co", co)
-        chunks.append(co.reshape(-1, 3).astype(np.float64))
-        labels.append(np.full(n, _PARTSEG_LABEL[name], dtype=np.int8))
-    verts = np.vstack(chunks)
-    labels = np.concatenate(labels)
-    print(f"[heli_peten] part-segmentation census: {len(verts)} verts across {len(_PARTSEG_NAMES)} parts")
-    return boxes, verts, labels
+    """See `segmentation.partseg_census` -- READ ONLY, nothing from the
+    part-segmentation file ships; called BEFORE `SRC_TEXTURED` is opened."""
+    return segmentation.partseg_census(_resolve(path), _PARTSEG_NAMES, _PARTSEG_LABEL, tag="heli_peten")
 
 
 def _label_textured_vertices(ob, partseg_verts, partseg_labels, scale, offset):
-    """Every vertex of `ob` labelled by Meshy's own segmentation -- see module
-    docstring's top note for the measurement that makes this exact. Returns
-    an `(N,)` int8 array of `LABEL_*` values over `ob.data.vertices`, with
-    `LABEL_SEAM` where two parts both claim the position."""
-    me = ob.data
-    n = len(me.vertices)
-    co = np.empty(n * 3, dtype=np.float32)
-    me.vertices.foreach_get("co", co)
-    co = co.reshape(-1, 3).astype(np.float64)
-    pts = partseg_verts * scale + np.asarray(offset, dtype=np.float64)
-    kd = kdtree.KDTree(len(pts))
-    for i, p in enumerate(pts):
-        kd.insert(Vector(p), i)
-    kd.balance()
-    labels = np.full(n, LABEL_HULL, dtype=np.int8)
-    seams = 0
-    misses = 0
-    miss_worst = 0.0
-    for i in range(n):
-        hits = kd.find_range(Vector(co[i]), SEGMENT_MATCH_RADIUS)
-        if not hits:
-            _, idx, dist = kd.find(Vector(co[i]))
-            misses += 1
-            miss_worst = max(miss_worst, dist)
-            labels[i] = partseg_labels[idx]
-            continue
-        found = {int(partseg_labels[idx]) for _, idx, _ in hits}
-        if len(found) == 1:
-            labels[i] = found.pop()
-        else:
-            labels[i] = LABEL_SEAM
-            seams += 1
-    counts = {name: int((labels == lab).sum()) for name, lab in (
-        ("hull", LABEL_HULL), ("rotor", LABEL_ROTOR), ("gun", LABEL_GUN),
-        ("bracket", LABEL_BRACKET), ("tail", LABEL_TAIL), ("seam", LABEL_SEAM))}
-    print(f"[heli_peten] textured vertex labels: {counts}; range-query misses {misses} (worst nearest {miss_worst:.5f})")
-    if misses > n * 0.001:
-        raise SystemExit(
-            f"segmentation transfer: {misses} of {n} textured vertices have no part-segmentation "
-            f"vertex within {SEGMENT_MATCH_RADIUS} -- the two sources are no longer the same mesh; re-measure"
-        )
-    return labels
+    return segmentation.label_textured_vertices(
+        ob, partseg_verts, partseg_labels, scale, offset,
+        radius=SEGMENT_MATCH_RADIUS, fallthrough=LABEL_HULL, seam=LABEL_SEAM,
+        names=_LABEL_NAMES, tag="heli_peten",
+    )
 
 
 def _face_masks(ob, labels):
-    """`{label: bool mask over ob.data.polygons}` for every non-hull label: a
-    face belongs to a part when every vertex of it is that part or a seam
-    vertex, and at least one is unambiguously the part. A face with an
-    unambiguous vertex of another part is never claimed, so the only faces
-    the rule can misplace are triangles whose three corners all lie ON a
-    seam, and those fall through to the hull. Requires a triangulated mesh
-    (every Meshy export here is one; asserted)."""
-    me = ob.data
-    nf = len(me.polygons)
-    totals = np.empty(nf, dtype=np.int32)
-    me.polygons.foreach_get("loop_total", totals)
-    if not np.all(totals == 3):
-        raise SystemExit(f"_face_masks: {int((totals != 3).sum())} non-triangle face(s) -- triangulate first")
-    vi = np.empty(len(me.loops), dtype=np.int32)
-    me.loops.foreach_get("vertex_index", vi)
-    tri = labels[vi.reshape(-1, 3)]
-    masks = {}
-    for lab in (LABEL_ROTOR, LABEL_GUN, LABEL_BRACKET, LABEL_TAIL):
-        ok = (tri == lab) | (tri == LABEL_SEAM)
-        masks[lab] = ok.all(axis=1) & (tri == lab).any(axis=1)
-    claimed = np.zeros(nf, dtype=bool)
-    for m in masks.values():
-        claimed |= m
-    print(
-        f"[heli_peten] face masks: rotor={int(masks[LABEL_ROTOR].sum())} gun={int(masks[LABEL_GUN].sum())} "
-        f"bracket={int(masks[LABEL_BRACKET].sum())} tail={int(masks[LABEL_TAIL].sum())} "
-        f"hull(remainder)={int((~claimed).sum())} of {nf}"
+    return segmentation.face_masks(
+        ob, labels, claim=(LABEL_ROTOR, LABEL_GUN, LABEL_BRACKET, LABEL_TAIL),
+        seam=LABEL_SEAM, names=_LABEL_NAMES, tag="heli_peten",
     )
-    return masks
 
 
 def _delete_faces_mask(ob, keep_mask):
-    """`_delete_faces` for a precomputed boolean mask over `ob.data.polygons`
-    (bmesh preserves polygon order on `from_mesh`, so face `i` is polygon
-    `i`). Used on the FULL-resolution mesh, where a per-face Python predicate
-    over 1.57M faces would be the slow part."""
-    bm = bmesh.new()
-    bm.from_mesh(ob.data)
-    bm.faces.ensure_lookup_table()
-    to_delete = [bm.faces[int(i)] for i in np.flatnonzero(~keep_mask)]
-    bmesh.ops.delete(bm, geom=to_delete, context="FACES")
-    bm.to_mesh(ob.data)
-    bm.free()
+    return segmentation.delete_faces_mask(ob, keep_mask)
 
 
 def _split_piece(src_obj, keep_mask, name):
-    """A duplicate of `src_obj` reduced to the faces in `keep_mask`, named
-    `name`. `src_obj` itself is untouched -- the caller removes every claimed
-    face from it in ONE pass afterwards, so every mask is evaluated against
-    the same original polygon order."""
-    bpy.ops.object.select_all(action="DESELECT")
-    src_obj.select_set(True)
-    bpy.context.view_layer.objects.active = src_obj
-    bpy.ops.object.duplicate()
-    piece = bpy.context.object
-    piece.name = name
-    _delete_faces_mask(piece, keep_mask)
-    print(f"[heli_peten] {name}: {len(piece.data.polygons)} faces cut from the full-resolution mesh")
-    return piece
+    return segmentation.split_piece(src_obj, keep_mask, name, tag="heli_peten")
 
 
 def _rotor_plane_normal(rotor_obj, hub):
@@ -875,48 +754,17 @@ def _rotor_plane_normal(rotor_obj, hub):
 
 
 def _fit_affine(partseg_boxes, textured_box):
-    """One GLOBAL (scale, per-axis offset) mapping the part-segmentation
-    file's own model units into the textured file's own model units -- see
-    module docstring "GEOMETRY SOURCE, 2026-09-07" for the measurement this
-    is (agreement to four significant figures across three independent
-    axis ratios), not an assumption.
-
-    `scale` is the mean of the three per-axis ratios between the two files'
-    own AGGREGATE bboxes (the union of every `_PARTSEG_NAMES` object against
-    the textured mesh's single one); `offset` is solved per axis from the
-    aggregate bbox's own MINIMUM-corner correspondence. Returns
-    `(scale, (ox, oy, oz))`.
-    """
-    agg = _union_bbox(partseg_boxes.values())
-    axis_scales = [
-        (textured_box[ax][1] - textured_box[ax][0]) / (agg[ax][1] - agg[ax][0])
-        for ax in range(3)
-    ]
-    scale = sum(axis_scales) / 3.0
-    offsets = tuple(textured_box[ax][0] - scale * agg[ax][0] for ax in range(3))
-    print(
-        f"[heli_peten] partseg->textured affine: per-axis scale {[round(s,4) for s in axis_scales]}, "
-        f"mean {scale:.4f}, offsets {tuple(round(o,4) for o in offsets)}"
-    )
-    return scale, offsets
+    """See `segmentation.fit_affine` and module docstring "GEOMETRY SOURCE,
+    2026-09-07" (with its correction) for the measurement this is."""
+    return segmentation.fit_affine(partseg_boxes, textured_box, tag="heli_peten")
 
 
 def _transform_box(box, scale, offset, margin=0.0):
-    """`box` (part-segmentation frame) -> textured frame, widened by
-    `margin` model units on every side -- a small, explicit slop for the
-    affine fit's own measured residual (see module docstring), rather than
-    an exact-corners box that would clip a genuinely-transferred vertex
-    sitting a thousandth of a unit outside it."""
-    out = []
-    for ax in range(3):
-        lo = box[ax][0] * scale + offset[ax] - margin
-        hi = box[ax][1] * scale + offset[ax] + margin
-        out.append((lo, hi))
-    return tuple(out)
+    return segmentation.transform_box(box, scale, offset, margin)
 
 
 def _transform_z(z, scale, offset):
-    return z * scale + offset[2]
+    return segmentation.transform_scalar(z, 2, scale, offset)
 
 
 def _in_box(pt, box):
@@ -943,7 +791,15 @@ def _trace_boundary_loops(bm):
     """Identical to export_meshy_namer.py's/export_meshy_jeep.py's own helper
     of the same name -- every closed boundary-edge loop in `bm`, flagged
     open/closed so `_fill_holes` never hands a non-loop to `triangle_fill`."""
-    boundary = set(e for e in bm.edges if len(e.link_faces) == 1)
+    # ORDERED by edge index, deliberately (2026-09-07). This used to iterate a
+    # Python set of BMEdge objects, whose order follows memory addresses, so
+    # which edge started each loop -- and therefore which triangulation
+    # `triangle_fill` produced for a messy cap -- changed from run to run:
+    # two consecutive exports of the same source differed by a triangle and
+    # ~100 bytes. Same inputs now give the same GLB, which is what makes
+    # "re-export and cmp" a usable regression check for this pipeline.
+    bm.edges.ensure_lookup_table()
+    boundary = sorted((e for e in bm.edges if len(e.link_faces) == 1), key=lambda e: e.index)
     vadj = defaultdict(list)
     for e in boundary:
         v0, v1 = e.verts
@@ -951,8 +807,9 @@ def _trace_boundary_loops(bm):
         vadj[v1].append((v0, e))
     unvisited = set(boundary)
     loops = []
-    while unvisited:
-        e0 = next(iter(unvisited))
+    for e0 in boundary:
+        if e0 not in unvisited:
+            continue
         unvisited.discard(e0)
         v0, v1 = e0.verts
         cur = v1
@@ -1041,6 +898,20 @@ def _decimate(ob, ratio, label):
     bpy.ops.object.modifier_apply(modifier=mod.name)
     after_v, after_p = len(ob.data.vertices), len(ob.data.polygons)
     print(f"[heli_peten] {label} decimate ratio={ratio}: {before_v} -> {after_v} verts, {before_p} -> {after_p} polys")
+
+
+def _validate_mesh(ob, label):
+    """Blender's own `Mesh.validate()` before export. The glTF exporter warns
+    "Mesh X is not valid, and may be exported wrongly" on the hull and wheel
+    pieces -- degenerate edges left where a cap could not close (`_fill_holes`
+    reports them as boundary edges remaining open). `validate` removes
+    invalid geometry rather than shipping it; it changes nothing on a mesh
+    that is already valid, and says what it fixed."""
+    changed = ob.data.validate(verbose=False)
+    ob.data.update()
+    print(f"[{label}] mesh validate: {'fixed invalid geometry' if changed else 'already valid'} "
+          f"({len(ob.data.vertices)} verts, {len(ob.data.polygons)} faces)")
+    return changed
 
 
 def _read_real_metres():
@@ -1400,6 +1271,8 @@ def export():
         ob["rl_part"] = part
 
     all_parts = [hull_joined, canopy_obj, metal_joined, rotor_obj]
+    for ob in all_parts:
+        _validate_mesh(ob, ob.name)
 
     # Bake model-units -> metres into vertex data (object scale stays 1).
     _bake_scale(all_parts, mpu)

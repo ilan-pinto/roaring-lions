@@ -16,12 +16,14 @@
  * (see `tools/vehicles/export_meshy_apache.py`'s own docstring, "GEOMETRY
  * SOURCE, 2026-09-07").
  *
- * Three vehicle sources ship no base_color bake at all and are
- * DELIBERATELY absent from this list: `jeep_shoded` and `dozer_d9`
- * (`KDF/Shodeed jeep`, `KDF/d9` -- part-segmentation only, no image in
- * either file) and the `KDF camp` prop (same). Those keep
- * `rampForVehicleRole`'s palette path unchanged, and `apc_eitan` is
- * kit-built and was never a candidate.
+ * `jeep_shoded` joined the list on 2026-09-07 (evening) when the lead
+ * supplied its `image-to-3d-texture` pass -- the same mesh as its
+ * part-segmentation file, so `export_meshy_jeep.py` transfers Meshy's own
+ * split onto the textured geometry (see `tools/vehicles/segmentation.py`).
+ * Two vehicle sources still ship no base_color bake and are DELIBERATELY
+ * absent: `dozer_d9` (`KDF/d9`, part-segmentation only) and the `KDF camp`
+ * prop (same). Those keep `rampForVehicleRole`'s palette path unchanged,
+ * and `apc_eitan` is kit-built and was never a candidate.
  *
  * Must stay in step with `TEXTURED_VEHICLE_EXEMPT` in
  * `tools/validate_mesh_assets.py` -- these types are skipped by the palette
@@ -40,4 +42,5 @@ export const TEXTURED_VEHICLE_TYPES: ReadonlySet<string> = new Set([
   'rocket_battery',
   'paramotor',
   'heli_peten',
+  'jeep_shoded',
 ]);

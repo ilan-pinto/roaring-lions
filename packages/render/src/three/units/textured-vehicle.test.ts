@@ -26,10 +26,11 @@ function sceneOf(parts: { name: string; role: string; map: THREE.Texture | null 
 const texture = () => new THREE.Texture();
 
 describe('the textured vehicle opt-out is a named list', () => {
-  it('covers exactly the six supplied Meshy vehicles', () => {
+  it('covers exactly the seven supplied Meshy vehicles', () => {
     expect([...TEXTURED_VEHICLE_TYPES].sort()).toEqual([
       'heli_peten',
       'ifv_namer',
+      'jeep_shoded',
       'mbt_lavi',
       'paramotor',
       'rocket_battery',

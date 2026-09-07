@@ -158,12 +158,14 @@ TEXTURED_BUILDING_EXEMPT = {"house", "apartment", "warehouse", "clinic", "hall",
 # against `TEXTURED_BUILDING_TYPES` by `textured-building.test.ts` -- kept
 # SEPARATE from that set (rather than one shared list) so neither pinning
 # test has to filter the other asset class's names out of its own exact-match
-# assertion. Three vehicle sources ship no base_color bake at all
-# (`jeep_shoded`, `dozer_d9`, the `KDF camp` prop) and are deliberately absent
-# here -- there is no photograph to ship for those, and they still take
+# assertion. `jeep_shoded` joined on 2026-09-07 (evening) when its textured
+# pass was supplied. Two vehicle sources ship no base_color bake at all
+# (`dozer_d9`, the `KDF camp` prop) and are deliberately absent here -- there
+# is no photograph to ship for those, and they still take
 # `apply_vehicle_materials`'s/`rampForVehicleRole`'s palette path unchanged.
 TEXTURED_VEHICLE_EXEMPT = {
     "mbt_lavi", "ifv_namer", "technical", "rocket_battery", "paramotor", "heli_peten",
+    "jeep_shoded",
 }
 
 # The union `textured_exempt` below actually checks against -- a mesh's
