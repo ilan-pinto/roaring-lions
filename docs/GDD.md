@@ -1,6 +1,6 @@
 # Roaring Lions — Game Design Document
 
-**Version:** 1.2.1 · **Status:** decisions locked; §5 synced to the calibrated M0 model; §11 (story) added 2026-09-03 as a draft, its surface list corrected the same day when `dispatch`/`aftermath`/`debrief`/`say` landed
+**Version:** 1.2.2 · **Status:** decisions locked; §5 synced to the calibrated M0 model; §11 (story) added 2026-09-03 as a draft, its surface list corrected the same day when `dispatch`/`aftermath`/`debrief`/`say` landed
 **Companion docs:** `CLAUDE.md` (working conventions), `docs/ART_PIPELINE.md`, `CONTRIBUTING.md`
 
 ---
@@ -335,7 +335,7 @@ his discipline, and the game scores the second, not the first.
 **Idit Zohar**, an intelligence officer who was in the same compound at First Light,
 grows beside him and provides the intelligence in every mission. The two of
 them are the voices of the HUD: every briefing is a two-hander, Idit's picture
-and Shai's plan, and every mid-mission transmission comes from one of them.
+and Shai's plan, and mid-mission transmissions come from them, from the brigade net, or — rarely, and only through something he has just done — from the enemy.
 
 **One villain per front.** Each campaign — the Marj, Sur, Naharin — introduces
 an arch-terrorist through an atrocity in its opening mission, keeps him present
