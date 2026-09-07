@@ -50,6 +50,7 @@ import {
   decorFamiliesFor,
   missionUnitTypes,
   hasUnitMesh,
+  spriteSheetPlan,
 } from './mesh-catalogue';
 
 const MESH_ROOT = path.resolve(
@@ -282,5 +283,87 @@ describe('mesh catalogue: what has a mesh at all', () => {
       boulder: 3,
       ditch: 1,
     });
+  });
+});
+
+describe('sprite sheet plan (level load time, step 1)', () => {
+  const spriteTypes = new Set(['inf_squad', 'mbt_lavi', 'gun_truck', 'recon_drone', 'heli_peten', 'sarim_rifles']);
+  const structureSprites = new Set(['house', 'wall', 'kiosk']);
+
+  it('on the mesh path, only a fielded type with no mesh gates deploy', () => {
+    const plan = spriteSheetPlan({
+      meshPath: true,
+      roster: new Set(['inf_squad', 'mbt_lavi', 'gun_truck', 'sarim_rifles']),
+      deferred: new Set(['heli_peten']),
+      spriteTypes,
+      structureTypes: new Set(['house', 'wall']),
+      structureSprites,
+    });
+    expect([...plan.before].sort()).toEqual(['gun_truck']);
+    // A mesh vehicle still needs its wreck sprite; a deferred buildable its
+    // billboard fallback. A rigged type needs neither.
+    expect([...plan.after].sort()).toEqual(['heli_peten', 'mbt_lavi']);
+    expect(plan.after.has('inf_squad')).toBe(false);
+    expect(plan.after.has('sarim_rifles')).toBe(false);
+    // Nothing standing on this map lacks a building mesh.
+    expect([...plan.structures]).toEqual([]);
+  });
+
+  it('a fielded type that is not in the plan is not loaded at all', () => {
+    const plan = spriteSheetPlan({
+      meshPath: true,
+      roster: new Set(['inf_squad']),
+      deferred: new Set(),
+      spriteTypes,
+      structureTypes: new Set(),
+      structureSprites,
+    });
+    expect(plan.before.size).toBe(0);
+    expect(plan.after.size).toBe(0);
+    // An unfielded no-mesh type is not loaded either: the roster decides.
+    expect(plan.before.has('recon_drone')).toBe(false);
+  });
+
+  it('a standing structure type with no building mesh still gets its sprite', () => {
+    const plan = spriteSheetPlan({
+      meshPath: true,
+      roster: new Set(),
+      deferred: new Set(),
+      spriteTypes,
+      structureTypes: new Set(['kiosk', 'house']),
+      structureSprites,
+    });
+    expect([...plan.structures]).toEqual(['kiosk']);
+  });
+
+  it('off the mesh path everything loads before deploy, as it always did', () => {
+    const plan = spriteSheetPlan({
+      meshPath: false,
+      roster: new Set(['inf_squad']),
+      deferred: new Set(['heli_peten']),
+      spriteTypes,
+      structureTypes: new Set(['house']),
+      structureSprites,
+    });
+    expect([...plan.before].sort()).toEqual([...spriteTypes].sort());
+    expect(plan.after.size).toBe(0);
+    expect([...plan.structures].sort()).toEqual([...structureSprites].sort());
+  });
+
+  it('every shipped mission gates deploy only on types with no mesh', () => {
+    const unitIds = new Set(Object.keys(units));
+    for (const [id, mission] of Object.entries(missions as Record<string, MissionJson>)) {
+      const roster = missionUnitTypes(mission, unitIds);
+      const plan = spriteSheetPlan({
+        meshPath: true,
+        roster,
+        deferred: new Set(),
+        spriteTypes: unitIds,
+        structureTypes: new Set(),
+        structureSprites: new Set(),
+      });
+      for (const t of plan.before) expect(hasUnitMesh(t), `${id}: ${t} gates deploy but has a mesh`).toBe(false);
+      for (const t of roster) if (!hasUnitMesh(t)) expect(plan.before.has(t), `${id}: ${t} has no mesh and is not loaded`).toBe(true);
+    }
   });
 });

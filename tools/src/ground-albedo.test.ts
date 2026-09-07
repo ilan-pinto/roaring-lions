@@ -98,7 +98,7 @@ describe('the ground albedo table', () => {
   });
 
   it.each(table)("$id's declared mean is the image's own", ({ id, mean }) => {
-    const actual = imageMean(root(`assets/textures/${id}.png`));
+    const actual = imageMean(root(`art/textures/${id}.png`));
     // 0.05 of a byte: the table carries one decimal place, so anything
     // looser would pass a mean that had been rounded from a different image.
     expect(actual[0]).toBeCloseTo(mean[0], 1);
@@ -116,7 +116,7 @@ describe('the ground albedo table', () => {
     // surface draws as the flat palette tone it had before anyone wired a
     // texture to it -- with every uniform set, every mask correct, and
     // nothing at all to see. Photographed on the road at gain 1.
-    const png = PNG.sync.read(readFileSync(root(`assets/textures/${id}.png`)));
+    const png = PNG.sync.read(readFileSync(root(`art/textures/${id}.png`)));
     // Texels per screen pixel at zoom 1: the source spans `tiles` tiles, and
     // a tile is TILE_PIXELS wide.
     const minification = png.width / (tiles * TILE_PIXELS);
@@ -159,7 +159,7 @@ describe('the ground albedo table', () => {
     const ids = new Set(table.map((e) => e.id));
     const asked = new Set<string>();
     const main = readFileSync(root('packages/app/src/main.ts'), 'utf8');
-    for (const m of main.matchAll(/textures\/([a-z0-9_]+)\.png/g)) asked.add(m[1]);
+    for (const m of main.matchAll(/textures\/([a-z0-9_]+)\.jpg/g)) asked.add(m[1]);
     const themes = readFileSync(root('packages/app/src/terrain-themes.ts'), 'utf8');
     const themeBlock = /TERRAIN_GROUND_TEXTURE[^=]*= \{([\s\S]*?)\};/.exec(themes);
     expect(themeBlock, 'TERRAIN_GROUND_TEXTURE not found').not.toBeNull();
@@ -169,15 +169,27 @@ describe('the ground albedo table', () => {
     for (const id of asked) expect(ids, `main.ts asks for ${id}, which no GROUND_ALBEDOS entry names`).toContain(id);
   });
 
-  it('names every PNG in assets/textures/, and no PNG it does not ship', () => {
+  it('names every tile on disk, and no tile it does not ship', () => {
     // Both directions, and the first is the one that matters: a texture
     // added to `assets/textures/` with no table entry is a file the renderer
     // will refuse to bind, which reads on screen as a surface that never got
     // its material -- with nothing anywhere saying why.
-    const onDisk = readdirSync(root('assets/textures'))
+    //
+    // Two directories since 2026-09-07 (level load time, step 2): the tracked
+    // PNG SOURCE in `art/textures/` and the JPEG that SHIPS in
+    // `assets/textures/`, written from it by `tools/textures/encode_ground_tiles.py`.
+    // Both must name exactly the table, or a source without a shipped file
+    // (or the reverse) is a tile that silently never draws.
+    const ids = table.map((e) => e.id).sort();
+    const sources = readdirSync(root('art/textures'))
       .filter((f) => f.endsWith('.png'))
       .map((f) => f.replace(/\.png$/, ''))
       .sort();
-    expect(table.map((e) => e.id).sort()).toEqual(onDisk);
+    const shipped = readdirSync(root('assets/textures'))
+      .filter((f) => f.endsWith('.jpg'))
+      .map((f) => f.replace(/\.jpg$/, ''))
+      .sort();
+    expect(sources, 'art/textures/*.png').toEqual(ids);
+    expect(shipped, 'assets/textures/*.jpg').toEqual(ids);
   });
 });

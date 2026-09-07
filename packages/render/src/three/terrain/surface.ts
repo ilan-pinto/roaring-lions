@@ -171,16 +171,16 @@ export const SURFACE_OVERSHOOT_LEVELS = 0.3;
  *  - The ground ALBEDO -- FIVE images now, one per surface, each applied as a
  *    ratio to its own measured mean (`mesh.ts`'s `GROUND_ALBEDOS`):
  *
- *      * open ground: `desert_sand_tile.png` on an `arid` map,
- *        `green_basin_tile.png` on a `green` one. Chosen by `map.terrain`,
+ *      * open ground: `desert_sand_tile.jpg` on an `arid` map,
+ *        `green_basin_tile.jpg` on a `green` one. Chosen by `map.terrain`,
  *        the same read that picks the tone bundle -- before 2026-09-03 it was
  *        the sand unconditionally, so the Naharin river basin drew as desert.
- *      * a `^` rock ridge, top and cliff face: `rock_ground_tile.png`.
- *      * an `r` dirt road: `road_track_tile.png`, a single wheel track whose
+ *      * a `^` rock ridge, top and cliff face: `rock_ground_tile.jpg`.
+ *      * an `r` dirt road: `road_track_tile.jpg`, a single wheel track whose
  *        axis is decided per tile from the road's own neighbours.
- *      * a `1`/`2`/`3` cover tile: `rough_scrub_tile.png`, at a per-tier
+ *      * a `1`/`2`/`3` cover tile: `rough_scrub_tile.jpg`, at a per-tier
  *        strength so a thicket reads denser than light cover.
- *      * an `o` olive grove's floor: `orchard_floor_tile.png`.
+ *      * an `o` olive grove's floor: `orchard_floor_tile.jpg`.
  *
  *    The ratio form is what keeps the exemption to the VARIATION only: the
  *    AVERAGE of a stretch of any of them is still exactly the

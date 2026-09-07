@@ -104,6 +104,7 @@ import {
   missionUnitTypes,
   decorFamiliesFor,
   hasUnitMesh,
+  spriteSheetPlan,
 } from './mesh-catalogue';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { resolveRendererChoice, RENDERER_STORAGE_KEY } from './renderer-choice';
@@ -640,14 +641,14 @@ async function main(): Promise<void> {
     // real `sim`/decor/elevation once `init()` runs, and building a second,
     // independent copy of that state here just to answer the same question
     // twice is exactly the risk of two answers drifting apart.
-    groundTextureUrl: `${BASE}textures/${TERRAIN_GROUND_TEXTURE[map.terrain]}.png`,
+    groundTextureUrl: `${BASE}textures/${TERRAIN_GROUND_TEXTURE[map.terrain]}.jpg`,
     // Each of the four below is one surface, one image, and one independent
     // failure: a ridge that loses its texture is still a ridge, and a road
     // that loses its wheel track is still the authored road tone.
-    rockTextureUrl: `${BASE}textures/rock_ground_tile.png`,
-    roadTextureUrl: `${BASE}textures/road_track_tile.png`,
-    scrubTextureUrl: `${BASE}textures/rough_scrub_tile.png`,
-    groveTextureUrl: `${BASE}textures/orchard_floor_tile.png`,
+    rockTextureUrl: `${BASE}textures/rock_ground_tile.jpg`,
+    roadTextureUrl: `${BASE}textures/road_track_tile.jpg`,
+    scrubTextureUrl: `${BASE}textures/rough_scrub_tile.jpg`,
+    groveTextureUrl: `${BASE}textures/orchard_floor_tile.jpg`,
   };
   // Three is the default as of Phase D; Pixi remains reachable through
   // `?renderer=pixi`, which `renderer-choice.ts` persists so it survives the
@@ -1026,12 +1027,36 @@ async function main(): Promise<void> {
   // developers reading the console; this array is what makes the same
   // failure unmissable to a player.
   const failedArt: string[] = [];
-  loading.total(Object.keys(STRUCTURE_SPRITES).length + Object.keys(SPRITE_MAP).length);
+  // Which sheets THIS boot needs, and when -- `spriteSheetPlan`'s own doc
+  // comment has the rules and the measurement behind them (61 MiB and 3,665
+  // requests of a 115 MiB level were sheets for types the mesh path draws
+  // as models). Portrait manifests are still read for every type below,
+  // because the HUD shows a face for a type whose sheet is not loaded.
+  const spritePlan = spriteSheetPlan({
+    meshPath: meshPathActive,
+    roster: meshRoster,
+    deferred: meshDeferred,
+    spriteTypes: new Set(Object.keys(SPRITE_MAP)),
+    structureTypes: meshStructures,
+    structureSprites: new Set(Object.keys(STRUCTURE_SPRITES)),
+  });
+  console.log(
+    `[lions] sheets: ${spritePlan.before.size} before deploy` +
+      (spritePlan.before.size ? ` (${[...spritePlan.before].join(', ')})` : '') +
+      `, ${spritePlan.after.size} after the first frame` +
+      (spritePlan.after.size ? ` (${[...spritePlan.after].join(', ')})` : '') +
+      `, ${spritePlan.structures.size} structure sprite(s)` +
+      (meshPathActive ? '' : ' -- no mesh path, everything loads up front')
+  );
+  // The bar counts SHEETS, so it counts what this boot actually loads --
+  // not the 2 KB portrait manifests, which would read "29 / 29 sheets" over
+  // one real sheet. A mesh-only boot reads 'meshes only' (`ui/loading.ts`).
+  loading.total(spritePlan.structures.size + spritePlan.before.size);
 
-  for (const [id, path] of Object.entries(STRUCTURE_SPRITES)) {
+  for (const id of spritePlan.structures) {
     artJobs.push(
       renderer
-        .loadStructureSprite(id, path)
+        .loadStructureSprite(id, STRUCTURE_SPRITES[id])
         .catch((err) => {
           console.warn(`[lions] structure sprite FAILED for ${id}:`, err);
           failedArt.push(id);
@@ -1039,6 +1064,16 @@ async function main(): Promise<void> {
         .then(() => loading.step())
     );
   }
+
+  /** One unit sheet, its own failure swallowed into `failedArt` -- shared by
+   *  the deploy-gating loop below and the after-first-frame loads. */
+  const loadUnitSheet = (id: string): Promise<void> => {
+    const { path, ...rest } = SPRITE_MAP[id];
+    return renderer.loadSprites(id, path, rest).catch((err) => {
+      console.warn(`[lions] sprites FAILED for ${id}:`, err);
+      failedArt.push(id);
+    });
+  };
 
   /**
    * The frame each unit type shows in the HUD's selection cluster (GH-153).
@@ -1057,17 +1092,15 @@ async function main(): Promise<void> {
   const portraits: Record<string, string> = {};
 
   for (const [id, spec] of Object.entries(SPRITE_MAP)) {
-    const { path, ...rest } = spec;
+    const { path } = spec;
     artJobs.push(
       Promise.all([
-        renderer.loadSprites(id, path, rest).catch((err) => {
-          console.warn(`[lions] sprites FAILED for ${id}:`, err);
-          failedArt.push(id);
-        }),
+        spritePlan.before.has(id) ? loadUnitSheet(id) : Promise.resolve(),
         // Its own fetch and its own failure: a manifest that 404s costs the HUD
         // a picture, not the battlefield a unit, so it must not push onto
-        // `failedArt` and must not hold up the art gate on its own. In practice
-        // the renderer has just fetched the same URL and this is a cache hit.
+        // `failedArt` and must not hold up the art gate on its own. For a type
+        // whose sheet loads, the renderer has just fetched the same URL and
+        // this is a cache hit; for the rest it is the 2 KB the portrait needs.
         fetch(`${path}manifest.json`)
           .then((r) => (r.ok ? (r.json() as Promise<SheetManifest>) : null))
           .then((m) => {
@@ -1077,7 +1110,9 @@ async function main(): Promise<void> {
           .catch((err: unknown) => {
             console.warn(`[lions] portrait manifest FAILED for ${id}:`, err);
           }),
-      ]).then(() => loading.step())
+      ]).then(() => {
+        if (spritePlan.before.has(id)) loading.step();
+      })
     );
   }
 
@@ -1109,6 +1144,20 @@ async function main(): Promise<void> {
   // Waits for the player when there are orders to read; resolves at once when
   // there are none, which is every sandbox and the tutorial.
   await loading.done();
+
+  // The sheets the game may still need but nobody is waiting for -- a mesh
+  // vehicle's wreck sprite, a deferred buildable's billboard fallback -- start
+  // two frames after deploy, so the first picture the player sees is not
+  // competing with 40 PNG decodes. Deliberately after `loading.done()`, not
+  // between the two waits like the deferred meshes: a briefing is read for
+  // seconds and a wreck is minutes away, so nothing is lost by waiting.
+  if (spritePlan.after.size > 0) {
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        for (const id of spritePlan.after) void loadUnitSheet(id);
+      })
+    );
+  }
 
   const getMission = (): MissionView | null =>
     runtime && mission

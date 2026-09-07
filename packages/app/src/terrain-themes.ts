@@ -98,7 +98,9 @@ export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
 
 /**
  * The OPEN-GROUND albedo each theme draws, as the basename of a file in
- * `assets/textures/` (and a key of `terrain/mesh.ts`'s `GROUND_ALBEDOS`,
+ * `assets/textures/` -- a `.jpg` since 2026-09-07, encoded from the tracked
+ * PNG source in `art/textures/` by `tools/textures/encode_ground_tiles.py`
+ * (level load time, step 2) -- (and a key of `terrain/mesh.ts`'s `GROUND_ALBEDOS`,
  * which is where its mean colour and repeat scale live).
  *
  * A second table beside `TERRAIN_THEMES` rather than a field inside

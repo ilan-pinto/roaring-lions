@@ -254,19 +254,26 @@ export function showLoading(
 
   let loaded = 0;
   let expected = 0;
+  let totalKnown = false;
 
   const paint = (): void => {
     // Before the total is known the bar would divide by zero; an empty bar and
-    // a bare count is honest about not knowing yet.
-    const ratio = expected > 0 ? Math.min(1, loaded / expected) : 0;
+    // a bare count is honest about not knowing yet. Three states since
+    // 2026-09-07, not two: a boot on the mesh path can have NO sheets to load
+    // at all (every fielded type draws as a model -- `spriteSheetPlan`), and
+    // that is a full bar reading 'meshes only', not a bar stuck at 'reading
+    // manifests' under a deploy button that already works.
+    const ratio = expected > 0 ? Math.min(1, loaded / expected) : totalKnown ? 1 : 0;
     fill.style.width = `${(ratio * 100).toFixed(1)}%`;
-    count.textContent = expected > 0 ? `${loaded} / ${expected} sheets` : 'reading manifests';
+    count.textContent =
+      expected > 0 ? `${loaded} / ${expected} sheets` : totalKnown ? 'meshes only' : 'reading manifests';
   };
   paint();
 
   return {
     total(n: number): void {
       expected = n;
+      totalKnown = true;
       paint();
     },
     step(): void {

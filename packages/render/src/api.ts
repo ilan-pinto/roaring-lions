@@ -92,8 +92,10 @@ export interface RendererOptions {
    * URL of the OPEN-GROUND albedo tile.
    *
    * Chosen by the map's own `terrain` theme, exactly the way `terrainTones`
-   * above is: `assets/textures/desert_sand_tile.png` for `arid`,
-   * `green_basin_tile.png` for `green`. Before 2026-09-03 it was the sand
+   * above is: `assets/textures/desert_sand_tile.jpg` for `arid` (a JPEG since
+   * 2026-09-07; the tracked PNG source is `art/textures/`, see
+   * `tools/textures/encode_ground_tiles.py`),
+   * `green_basin_tile.jpg` for `green`. Before 2026-09-03 it was the sand
    * unconditionally, so `wadi_halam_basin` -- the only green map, the whole
    * Naharin arc, the only map with a mosque -- drew a river basin as desert.
    *
@@ -113,14 +115,14 @@ export interface RendererOptions {
   groundTextureUrl?: string;
   /**
    * URL of the `^` rock-ridge albedo tile --
-   * `assets/textures/rock_ground_tile.png`. Same contract as
+   * `assets/textures/rock_ground_tile.jpg`. Same contract as
    * `groundTextureUrl` above in every respect: three-only, read only by
    * `groundSurfaceMaterial`, optional, and fail-soft.
    */
   rockTextureUrl?: string;
   /**
    * URL of the `r` dirt-road albedo tile --
-   * `assets/textures/road_track_tile.png`. Same contract.
+   * `assets/textures/road_track_tile.jpg`. Same contract.
    *
    * The image is a single wheel track, and which way it points is decided
    * per tile by the renderer from the road's own neighbours
@@ -128,14 +130,14 @@ export interface RendererOptions {
    */
   roadTextureUrl?: string;
   /**
-   * URL of the cover-tile albedo -- `assets/textures/rough_scrub_tile.png`.
+   * URL of the cover-tile albedo -- `assets/textures/rough_scrub_tile.jpg`.
    * Same contract. One image for all three tiers; how strongly each tier
    * takes it is the renderer's own `SCRUB_TIER_STRENGTH`.
    */
   scrubTextureUrl?: string;
   /**
    * URL of the `o` olive-grove floor albedo --
-   * `assets/textures/orchard_floor_tile.png`. Same contract. The trees
+   * `assets/textures/orchard_floor_tile.jpg`. Same contract. The trees
    * themselves are unaffected: they are palette-only geometry and stay so.
    */
   groveTextureUrl?: string;

@@ -613,9 +613,23 @@ warning. The escape hatch inverted: **`&nomesh`** walks the billboard path on
 `three` (and skips the GLB downloads entirely), and `?renderer=pixi` has no
 mesh path at all — not a gap to close, a permanent property of that backend.
 
-The whole set costs **34 GLB fetches, 25.3 MiB**, loaded unconditionally at
-boot rather than per mission roster — measured, and the reason a lazy per-type
-load is worth doing before release. Pipeline: `tools/units/kit.py` (geometry)
+~~The whole set costs **34 GLB fetches, 25.3 MiB**, loaded unconditionally at
+boot rather than per mission roster~~ — **stale on both counts since
+2026-09-07.** Meshes have been roster-driven for a while (`mesh-catalogue.ts`,
+`missionUnitTypes`: the types a mission can field, the buildings its map
+stands, the decor families its tiles use; KDF buildables deferred past deploy
+on a `resources` mission), and as of 2026-09-07 so are the sprite sheets
+(`spriteSheetPlan`: on the mesh path a sheet loads before deploy only for a
+fielded type with no GLB; a mesh vehicle's wreck sprite and a deferred
+buildable's fallback load after the first frame). **Measure, don't recite:**
+`pnpm perf:load -- --mission=<id> --serve=preview` prints what one level
+fetches and when. The first reading (beit_sahwan_1_recon, production build,
+cold, localhost) was 3,736 requests / 114.8 MiB, of which 3,665 requests /
+61 MiB were sprite sheets for types the mesh path draws as models; after
+steps 1-2 of `docs/superpowers/specs/2026-09-07-level-load-time-design.md`
+it is ~170 requests and the GLBs are what remain. That document ranks what
+is left (wreck meshes after the first frame, Draco, a service worker for
+Pages' `max-age=600`, the first-frame gap). Pipeline: `tools/units/kit.py` (geometry)
 → `tools/units/rig.py` (armature + clips, authored as Python tables) →
 `tools/export_mesh_team.py` → `art/meshes/<team_id>.glb` → `three/units/mesh-*.ts`.
 

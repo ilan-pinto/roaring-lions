@@ -858,7 +858,7 @@ export class ThreeRenderer implements Renderer {
    * AlbedoSlotsUsed` (`terrain/ground.ts`) is the SAME per-tile decision
    * `buildGround` itself makes (`albedoFor`, walked once here rather than
    * re-derived from map symbols by a second rule that could drift from it)
-   * -- an arid map with no `o` grove tile skips `orchard_floor_tile.png`
+   * -- an arid map with no `o` grove tile skips `orchard_floor_tile.jpg`
    * outright, and `tel_marum`'s base map (no `r` road, no plain cover tile at
    * all) skips THREE of the five. Skipping the fetch changes bytes
    * downloaded, never a rendered pixel: the skipped slot's `*Strength`

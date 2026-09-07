@@ -259,8 +259,8 @@ export type GroundAlbedoSlot = 'sand' | 'rock' | 'road' | 'scrub' | 'grove';
  *
  * The one caller today is `packages/app`'s ground-texture loader
  * (`ground-textures.ts`): a map with no `^` ridge has no use for
- * `rock_ground_tile.png`, one with no `o` grove has no use for
- * `orchard_floor_tile.png`, and so on -- fetching an image no vertex will
+ * `rock_ground_tile.jpg`, one with no `o` grove has no use for
+ * `orchard_floor_tile.jpg`, and so on -- fetching an image no vertex will
  * ever sample costs bytes and a request for nothing. `sand` covers BOTH
  * open-ground images (`desert_sand_tile`/`green_basin_tile`); which one a
  * caller resolves it to is a `map.terrain` decision this function has no
