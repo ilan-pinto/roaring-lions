@@ -54,6 +54,11 @@ export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
     spoil: paletteColor('terracotta.1'),
     crownRatio: 0.52,
     scatter: 'stone',
+    // A desert tree, not an olive -- the lead's call, 2026-09-07. See
+    // `TerrainTones.groveFamily`: the two supplied olive sources are the only
+    // tree in the blend library, and this default-`arid` theme is every map
+    // in the game but Wadi Halam.
+    groveFamily: 'desert_tree',
   },
   green: {
     open: paletteColor('grass.2'),
@@ -93,6 +98,9 @@ export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
     // correct for what it is; a poplar needs the ratio the other side of 1.
     crownRatio: 1.5,
     scatter: 'sward',
+    // The olive stays where it belongs: the one green map is the river basin,
+    // and an olive terrace there is the picture the Naharin arc is written on.
+    groveFamily: 'tree',
   },
 };
 

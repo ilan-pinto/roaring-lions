@@ -576,7 +576,7 @@ civ.settlements_evacuated`.
 | Three families clear | `evacuate_before(clinic, 3, 300s)` completes | toast + `say` | shai: *"Three in the clinic yard. Nothing heavier than a rifle goes into that yard while they are standing in it."* | live |
 | Five minutes, families short | `evacuate_before(clinic)` fails @300s | toast `OBJECTIVE FAILED —…` + `say_on_fail` — **the only way to lose this mission on a clock** | shai: *"Five minutes. They are still in the village and the village is still being fought over, and that is on the plan, not on them."* | live |
 | Terraces held 15s | `capture(the_terraces, 15s)` completes | toast + `say` | net: *"Terraces are ours. The armour's road out of the west ditch end is unwatched for the first time."* | live |
-| Grove post found | `locate(qh_watch_grove)` completes | toast + `say` | idit: *"One post in the olive grove, over the east ditch end. He goes into the file for the basin — the same idea is waiting for us there."* | live |
+| Grove post found | `locate(qh_watch_grove)` completes | toast + `say` | idit: *"One post in the thorn grove, over the east ditch end. He goes into the file for the basin — the same idea is waiting for us there."* | live |
 | Wave toward the junction | wave `at_seconds:120`, `from:"village_square"`, `to:"north_junction"`, 2 `sarim_rifles` | toast only, no `say` | — | live |
 | Wave to the shoulder | wave `at_seconds:240`, `from:"knoll_top"`, `to:"shoulder_gate"`, 1 `recoilless_team` | toast only, no `say` | — | live |
 | Wave to the clinic yard | wave `at_seconds:330`, `from:"village_square"`, `to:"clinic_yard"`, 2 `sarim_rifles` | toast + `say` | idit: *"Two sections off the square and they are going to the clinic, not to you. He knows which yard we told those families to walk to."* (T-QH8, cheap half) | live |
@@ -629,8 +629,15 @@ civ.settlements_evacuated`.
 armour road (17 tiles, crossing the second ditch at x=19) runs directly under
 the terraced knoll, where `[15,8]` sees 8 of its 10 tiles at sight 8 and the
 carried-over Kornet (`qh_atgm_ditch`) sits at `[14,12]`, 7 of 10; the east
-armour road (23 tiles, through the olive grove, crossing at x=37) runs under
-`qh_watch_grove` instead. Neither road is free. The village garrison
+armour road (23 tiles, through the thorn grove, crossing at x=37) runs under
+`qh_watch_grove` instead. Neither road is free.
+
+> **Both numbers above were measured false at authoring** (2026-09-07) and the
+> shipped briefing carries the measured ones instead: the western leg is a
+> **7**-tile sample, not 10; `[15,8]` sees **4 of 7**, `[14,12]` **7 of 7**, and
+> `knoll_top` sees **4 of 7** of its own road rather than none of it. See
+> `tools/src/qarn_hadid_doctrine.test.ts` S8c–S11, which pins them.
+ The village garrison
 (2 garrisoned + 1 ambush) is a modest fight that displaces to the square on
 first contact and falls back to the hill at 45% losses, concentrating the
 mission's last engagement on the ground the player has to climb regardless.
@@ -744,8 +751,8 @@ only "does the plan clear all three primaries before the mission's own
       "text": "Take the terraces and hold them for 15 seconds",
       "say": { "speaker": "net", "text": "Terraces are ours. The armour's road out of the west ditch end is unwatched for the first time." } },
     { "id": "find_the_grove_post", "type": "locate", "primary": false, "target": "qh_watch_grove",
-      "text": "Identify the post in the olive grove",
-      "say": { "speaker": "idit", "text": "One post in the olive grove, over the east ditch end. He goes into the file for the basin — the same idea is waiting for us there." } }
+      "text": "Identify the post in the thorn grove",
+      "say": { "speaker": "idit", "text": "One post in the thorn grove, over the east ditch end. He goes into the file for the basin — the same idea is waiting for us there." } }
   ],
   "roe": { "enabled": true, "flagged_zones": ["clinic"], "fail_below": 45 },
   "civilians": {
@@ -903,7 +910,7 @@ adjusting S8c–S11 to whatever a different slice returns.
 | R8b | vehicle | same | 14 | 166 | neither | same |
 | R9 | vehicle | shoulder gate's north exit `[20,17]` → village | 17 | — | crosses the second ditch at **x=19** (west end) | `design.md` §3.2, "two armour roads" table |
 | R10 | foot | same | 13 | — | — | same |
-| R11 | vehicle | saddle gate's north exit `[30,17]` → village | 23 | — | crosses the second ditch at **x=37** (east end, olive grove) | same |
+| R11 | vehicle | saddle gate's north exit `[30,17]` → village | 23 | — | crosses the second ditch at **x=37** (east end, thorn grove) | same |
 | R12 | foot | same | 12 | — | — | same |
 | R13 | — | zone `the_gates [17,16,17,9]` | 153 tiles total | — | 108 foot-passable, 104 vehicle-passable | `design.md` §3.3.7 |
 | R14 | foot | mission I road party `[34,31]` → refuge | 10 | — | crosses into zone `south_staging` after 3 of the 10 tiles | `design.md` §5.1 |

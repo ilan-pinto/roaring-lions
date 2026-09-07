@@ -15,6 +15,7 @@
  * Several independent streams come from offsetting the coordinates, which is
  * cheaper than threading a seed and just as stable.
  */
+import type { GroveFamily } from '../../api';
 import { tileHash } from '../../tile-hash';
 import {
   DECOR_DITCH,
@@ -30,7 +31,7 @@ export type DecorFamily =
   | 'grass'
   | 'sand'
   | 'bush'
-  | 'tree'
+  | GroveFamily
   | 'rock'
   | 'slab'
   | 'boulder'
@@ -59,6 +60,10 @@ const DENSITY: Record<DecorFamily, number> = {
   sand: 0.18,
   bush: 0.3,
   tree: 1.0,
+  // Same 1.0 as the olive, and for the same reason: a grove tile is an
+  // authored `o`, so every one of them draws its tree. The species differs
+  // (`GroveFamily`), the placement rule does not.
+  desert_tree: 1.0,
   rock: 0.75,
   slab: 0.6,
   boulder: 1.0,
@@ -108,7 +113,13 @@ const DITCH_VARIANT = 0;
  *  sand" -- so a boulder tile that fell through to those branches would draw
  *  as bare, walkable ground with a tuft on it, the T1-C bug this exists to
  *  fix. */
-function familyFor(decor: number, cover: number, roll: number, boulder: boolean): DecorFamily | null {
+function familyFor(
+  decor: number,
+  cover: number,
+  roll: number,
+  boulder: boolean,
+  grove: GroveFamily
+): DecorFamily | null {
   // BEFORE the boulder branch, and that order is load-bearing. A `d` tile
   // sets `boulder` too -- the two symbols share one vehicle-only mask by
   // design -- so a ditch that fell through to the branch below would draw a
@@ -116,7 +127,9 @@ function familyFor(decor: number, cover: number, roll: number, boulder: boolean)
   if (decor === DECOR_DITCH) return 'ditch';
   if (boulder) return 'boulder';
   if (decor === DECOR_ROAD) return null;
-  if (decor === DECOR_GROVE) return 'tree';
+  // The theme's own species -- `TerrainTones.groveFamily`. An olive on a
+  // green basin, a desert tree on arid ground.
+  if (decor === DECOR_GROVE) return grove;
   if (decor === DECOR_KNOLL) return 'rock';
   if (decor === DECOR_RIDGE) return 'slab';
   if (cover > 0) return 'bush';
@@ -194,6 +207,9 @@ const DITCH_YAW_BOTH: readonly number[] = [0, 0.25];
 
 export function decorPlacements(input: TerrainInput): DecorPlacement[] {
   const { width, height, blocked, cover, decor, boulder } = input;
+  // Absent means arid means a desert tree -- see `TerrainInput.groveFamily`
+  // for why that is the safe default rather than the olive.
+  const grove: GroveFamily = input.groveFamily ?? 'desert_tree';
   // Every object below sits on the DRAWN ground, sampled at its own
   // jittered position -- not on `elevation[tile] * WORLD_PER_LEVEL`, which
   // was right when a tile top was a flat quad at its own integer height and
@@ -219,7 +235,7 @@ export function decorPlacements(input: TerrainInput): DecorPlacement[] {
       if (blocked[t] !== 0 && d !== DECOR_RIDGE) continue;
       const c = cover[t];
       const isBoulder = boulder ? boulder[t] !== 0 : false;
-      const family = familyFor(d, c, tileHash(x + 977, y + 311), isBoulder);
+      const family = familyFor(d, c, tileHash(x + 977, y + 311), isBoulder, grove);
       if (family === null) continue;
 
       // Cover level thickens a bush tile; every other family keeps its base
@@ -300,11 +316,16 @@ export function decorPlacements(input: TerrainInput): DecorPlacement[] {
       // pair unused by any other roll in this file) so the second tree's
       // position/variant/yaw are independent draws, not a duplicate
       // stacked exactly on the first.
-      if (family === 'tree' && tileHash(x * 3, y * 7) > 0.62) {
+      // `family === grove`, not `=== 'tree'`: the twin rule is about a GROVE
+      // TILE carrying two canopies, and since 2026-09-07 the species on that
+      // tile is the theme's (`GroveFamily`). Keyed on the literal olive it
+      // stopped firing on every arid map at once and thinned every desert
+      // grove to one tree -- caught by this file's own twin tests.
+      if (family === grove && tileHash(x * 3, y * 7) > 0.62) {
         const jx2 = tileHash(x + 601, y + 491) - 0.5;
         const jy2 = tileHash(x + 491, y + 601) - 0.5;
         out.push({
-          family: 'tree',
+          family: grove,
           variant: Math.floor(tileHash(x + 601, y + 991) * VARIANTS_PER_FAMILY),
           x: x + 0.5 + jx2 * 0.6,
           z: y + 0.5 + jy2 * 0.6,

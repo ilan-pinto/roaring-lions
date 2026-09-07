@@ -59,6 +59,7 @@ const TONES: TerrainTones = {
   trunk: '#4E5433', trunkLit: '#8F9464', leafDark: '#333821', leafMid: '#4E5433',
   leafLit: '#6E7449', bladeLit: '#8F9464', bladeShade: '#4E5433', spoil: '#6E7449',
   crownRatio: 0.52, scatter: 'stone',
+    groveFamily: 'desert_tree',
 };
 
 function makeOpts(): RendererOptions {

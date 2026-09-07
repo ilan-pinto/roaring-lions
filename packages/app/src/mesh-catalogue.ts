@@ -58,6 +58,7 @@ export type DecorFamilyName =
   | 'sand'
   | 'bush'
   | 'tree'
+  | 'desert_tree'
   | 'rock'
   | 'slab'
   | 'boulder'
@@ -189,6 +190,13 @@ export const DECOR_MESHES: Readonly<Record<DecorFamilyName, readonly string[]>> 
   sand: ['decor/sand_0.glb', 'decor/sand_1.glb', 'decor/sand_2.glb'],
   bush: ['decor/bush_0.glb', 'decor/bush_1.glb', 'decor/bush_2.glb'],
   tree: ['decor/tree_0.glb', 'decor/tree_1.glb', 'decor/tree_2.glb'],
+  // The arid grove -- `TerrainTones.groveFamily`. An arid map fetches these
+  // three and NOT the olive's, which is also 2.5 MiB it no longer pays for.
+  desert_tree: [
+    'decor/desert_tree_0.glb',
+    'decor/desert_tree_1.glb',
+    'decor/desert_tree_2.glb',
+  ],
   rock: ['decor/rock_0.glb', 'decor/rock_1.glb', 'decor/rock_2.glb'],
   slab: ['decor/slab_0.glb', 'decor/slab_1.glb', 'decor/slab_2.glb'],
   boulder: ['decor/boulder_0.glb', 'decor/boulder_1.glb', 'decor/boulder_2.glb'],
@@ -460,7 +468,10 @@ export function decorFamiliesFor(map: ParsedMap): Set<DecorFamilyName> {
       continue;
     }
     if (d === DECOR.road) continue;
-    if (d === DECOR.grove) out.add('tree');
+    // Must agree with `decor-place.ts`'s `familyFor` and with
+    // `TERRAIN_THEMES[map.terrain].groveFamily`: fetching the family the
+    // renderer will not place leaves a grove drawing nothing at all.
+    if (d === DECOR.grove) out.add(map.terrain === 'green' ? 'tree' : 'desert_tree');
     else if (d === DECOR.knoll) out.add('rock');
     else if (d === DECOR.ridge) out.add('slab');
     else if (cover[t] > 0) out.add('bush');

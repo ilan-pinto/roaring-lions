@@ -14,7 +14,7 @@
       "text": "The ditch is still across the fields and the mast is still on the hill. Whatever the basin's guns are told tomorrow, they are told fast."
     }
   },
-  "briefing": "There is a second ditch and it is not at the gates. He cut an anti-tank line across the fields on the village's own approach, with the town beyond it and two narrow ways round the ends. Two roads into that town and you take one. Seventeen tiles round the west end, twenty-three round the east through the olive grove, and there is an eye in the grove. The west end runs under the terraced knoll; a post on its east shoulder sees four of its seven tiles, and the Kornet below the post sees all seven. Whatever you identified here last week comes back with its ambush spent; whatever you did not gets its first shot. Take the knoll first with foot and the armour walks in behind you. Take it second and it walks in under a Kornet. The mast up there sees the shoulder gate and the last bend of its own road, and nothing else on this map — not the village, not the junction. It watches little; it tells the basin what the eyes here saw. Clear the village and hold it, and kill the relay crew on the knoll. Three families are in it and the yard they walk to is the clinic's own. That yard is flagged: heavy ordnance into it is billed by the round, and they are inside it for five minutes. Open the road — everything this brigade does after this town is on the other side of it.",
+  "briefing": "There is a second ditch and it is not at the gates. He cut an anti-tank line across the fields on the village's own approach, with the town beyond it and two narrow ways round the ends. Two roads into that town and you take one. Seventeen tiles round the west end, twenty-three round the east through the thorn grove, and there is an eye in the grove. The west end runs under the terraced knoll; a post on its east shoulder sees four of its seven tiles, and the Kornet below the post sees all seven. Whatever you identified here last week comes back with its ambush spent; whatever you did not gets its first shot. Take the knoll first with foot and the armour walks in behind you. Take it second and it walks in under a Kornet. The mast up there sees the shoulder gate and the last bend of its own road, and nothing else on this map — not the village, not the junction. It watches little; it tells the basin what the eyes here saw. Clear the village and hold it, and kill the relay crew on the knoll. Three families are in it and the yard they walk to is the clinic's own. That yard is flagged: heavy ordnance into it is billed by the round, and they are inside it for five minutes. Open the road — everything this brigade does after this town is on the other side of it.",
   "map": {
     "file": "qarn_hadid",
     "player_start": [24, 42]
@@ -56,8 +56,8 @@
       "text": "Take the terraces and hold them for 15 seconds",
       "say": { "speaker": "net", "text": "Terraces are ours. The armour's road out of the west ditch end is unwatched for the first time." } },
     { "id": "find_the_grove_post", "type": "locate", "primary": false, "target": "qh_watch_grove",
-      "text": "Identify the post in the olive grove",
-      "say": { "speaker": "idit", "text": "One post in the olive grove, over the east ditch end. He goes into the file for the basin — the same idea is waiting for us there." } }
+      "text": "Identify the post in the thorn grove",
+      "say": { "speaker": "idit", "text": "One post in the thorn grove, over the east ditch end. He goes into the file for the basin — the same idea is waiting for us there." } }
   ],
   "roe": { "enabled": true, "flagged_zones": ["clinic"], "fail_below": 45 },
   "civilians": {

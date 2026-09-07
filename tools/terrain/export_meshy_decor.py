@@ -31,14 +31,15 @@ export_meshy_camp.py`'s own SRC_DIR is.
 
 ## THE FAMILY MAP -- not derivable from filenames, so recorded once here
 
-    family   source prefix                              variants  role(s)
-    grass    Meshy_AI_foliage_grass_tuft_va               4 -> 3   foliage
-    sand     Meshy_AI_sand_gravel_patch_var                3      sand
-    bush     Meshy_AI_shrub_desert_varN (+ _spl_ company)  3      trunk + foliage
-    rock     Meshy_AI_rock_cluster_varN                    3      rock
-    slab     Meshy_AI_rock_outcrop_varN                    3      rock
-    tree     olive tree/ (2 sources)                       2 -> 3 trunk + foliage
-    boulder  Meshy_AI_rock_boulder_varN                    3      rock
+    family       source prefix                                  variants  role(s)
+    grass        Meshy_AI_foliage_grass_tuft_va                   4 -> 3   foliage
+    sand         Meshy_AI_sand_gravel_patch_var                    3      sand
+    bush         Meshy_AI_shrub_desert_varN (+ _spl_ company)      3      trunk + foliage
+    rock         Meshy_AI_rock_cluster_varN                        3      rock
+    slab         Meshy_AI_rock_outcrop_varN                        3      rock
+    tree         olive tree/ (2 sources)                          2 -> 3  trunk + foliage
+    boulder      Meshy_AI_rock_boulder_varN                        3      rock
+    desert_tree  bush's own var1/var3 _spl_ files (var2 excluded)  2 -> 3  trunk + foliage
 
 Every one of the 15 grass/sand/rock/slab source files was opened and
 inspected: each is a single object named `mesh_node`, zero materials, zero
@@ -62,13 +63,26 @@ choice rather than a judged one.
 
 **Tree: 2 sources, ship 3.** `TREE_SRC` exports `tree_0` from the first
 source and `tree_1` from the second. `tree_2` is a SECOND export of the
-second source (`0831112418`), not a fresh decimation of the same cached
-result -- picked over the first by side-by-side render (see the report for
-both preview PNGs): its canopy is fuller and more rounded, reading better as
-a small silhouette at gameplay zoom, where the first source's crown is more
-triangular/upward-funnelled. This ships all three `tree_N` keys with real
-geometry rather than leaving `tree_2` to the loader's silent-drop-on-missing-
-key behaviour, which the plan explicitly warns would punch holes in groves.
+second source (`0831112418`), picked over the first by side-by-side render
+(see the report for both preview PNGs): its canopy is fuller and more
+rounded, reading better as a small silhouette at gameplay zoom, where the
+first source's crown is more triangular/upward-funnelled. This ships all
+three `tree_N` keys with real geometry rather than leaving `tree_2` to the
+loader's silent-drop-on-missing-key behaviour, which the plan explicitly
+warns would punch holes in groves.
+
+**CORRECTION, 2026-09-07.** The paragraph above used to end "not a fresh
+decimation of the same cached result", which reads as a claim that `tree_2`
+differs from `tree_1`. It does not: `TREE_SRC[1] is TREE_SRC[2]` literally,
+the pipeline is deterministic, and the two shipped files are BYTE-IDENTICAL
+(md5 `c9b22c2165d69da590c42f9cdab0e708`, both 826,504 bytes -- verified from
+disk, not inferred). So the olive grove has always drawn TWO silhouettes
+across three variant slots, and a third of every olive tile is a repeat of
+another third. It is recorded rather than fixed because the fix is a
+judgement about the olive's own art, not a bug in this script -- and because
+`desert_tree` below, which faced the identical "three from two" situation,
+answers it a different way (`DESERT_TREE_THIN_STRIDE`) that a future olive
+pass could copy.
 
 ## BUSH -- why the part-segmentation companion, and how the split is read
 
@@ -128,6 +142,73 @@ instance (real GPU instancing -- confirmed by reading that module), so
 against this project's existing low-poly decor budget (rock ~120-230 verts,
 shrub ~250) with headroom for a much larger, more detailed hero silhouette.
 
+## DESERT TREE -- reusing bush's own sources, and correcting a claim about precedent
+
+The project lead: "using olive tree does not fit the desert terrain. you
+should use other trees from the blend folder." Censused before touching
+anything: the only tree geometry in the whole blend library is `olive tree/`
+(already `tree_N` above), and `map.schema.json` defaults `terrain` to `arid`,
+so every non-`green` map (everything shipped but Wadi Halam) currently stands
+Mediterranean olives on desert ground. The desert-appropriate foliage that
+DOES exist is `bush`'s own `Meshy_AI_shrub_desert_varN` part-segmentation
+set, rendered orthographically for this task: `var1` and `var3` are upright,
+thin-stemmed, open-crowned shrubs that read as an acacia or tamarisk at tree
+height, while `var2` is low and spreading -- a ground shrub, not a tree
+candidate, and deliberately excluded here exactly as `bush` already keeps it
+distinct from the other two.
+
+`DESERT_TREE_SRC` therefore reads `BUSH_SRC[0]` and `BUSH_SRC[2]` -- the same
+files, not new sources -- through `_export_desert_tree_variant`, which is
+`_export_bush_variant` with two differences: it calibrates to
+`DESERT_TREE_TARGET_HEIGHT` (2.90, not `BUSH_TARGET_HEIGHT`'s 0.90) and, on
+the third variant only, thins the foliage set (below). It reuses
+`HUE_TRUNK_MAX` unchanged -- same sources, same measured split, nothing new
+to derive.
+
+**Three variants from two sources, and the third is deliberately NOT another
+`tree_2`.** This task's brief described the `tree_2` precedent as changing
+decimation to earn a third variant from two sources. Checked against the
+shipped bytes before repeating it: `tree_1.glb` and `tree_2.glb` are
+byte-identical (md5 `c9b22c2165d69da590c42f9cdab0e708`, both 826504 bytes) --
+`TREE_SRC[1] is TREE_SRC[2]` literally, and the same deterministic decimate
+run against the same source file produces the same mesh, so `tree_2` is a
+literal duplicate under a different filename, not a distinct decimation.
+Repeating that here would ship `desert_tree_1.glb` and `desert_tree_2.glb`
+byte-identical, which the brief explicitly asked not to do ("make the third
+variant visibly different from the one it re-exports"). So `desert_tree_2`
+re-exports `var3` (the same source as `desert_tree_1`) but drops every
+`DESERT_TREE_THIN_STRIDE`-th foliage object -- sorted by NAME, not by
+`bpy.data.objects` iteration order, which nothing here documents as stable
+-- leaving the full trunk untouched and roughly half the leaf clusters. This
+is the same lever the file already exposes for this family (a role's object
+LIST, joined) rather than a new mechanism, it is deterministic, and it reads
+as a sparser, wind-thinned acacia next to `desert_tree_1`'s fuller crown: a
+real silhouette difference, not a duplicate under a new name. The dropped
+objects are removed from the scene outright (`bpy.data.objects.remove`, not
+merely left unselected) -- `_finalize_and_export` exports with
+`use_selection=False`, so an unselected-but-still-present object would ship
+in the GLB anyway.
+
+**Vertex budget: the source decides it, not a decimate target.** Unlike
+`tree`'s ~950k-vertex sources, `bush`'s (and therefore `desert_tree`'s)
+sources are already low-poly part-segmentation exports -- 252-257 total
+vertices across all objects (measured directly on all three shrub sources),
+an order of magnitude under `TREE_TARGET_VERTS` (3500) and in the same band
+as the existing `bush` family's own ~250, per this section's own comparison
+above. No `DESERT_TREE_TARGET_VERTS` decimate step runs on variants 0/1 for
+the same reason `bush` runs none: there is nothing to trim on a mesh this
+size without visibly damaging its dozen leaf-cluster blobs, and a silhouette
+sparser than `tree`'s falls out of using this source at all, not from a
+chosen ratio. Measured after export: `desert_tree_2`'s foliage set drops from
+`var3`'s 9 objects to 5 (a ~44% cut to leaf clusters), which shows up as a
+~23% total-vertex reduction (257 -> 198 raw Blender verts; 1320 -> 1014 in
+the exported GLB's POSITION accessor, which is larger than the raw count on
+every variant here because glTF export splits vertices at hard-shaded face
+boundaries) -- not a clean half, because `var3`'s eight trunk/twig objects,
+untouched by thinning, already carry more of this source's geometry than its
+nine foliage clusters do. This is a side effect of the thinning pass, not a
+separately chosen vertex target.
+
 ## SCALE -- the "3 GLB units per tile" convention, deliberately NOT MESH_SCALE
 
 Every decor GLB here is baked to the SAME convention
@@ -155,14 +236,18 @@ Per-family target sizes (in GLB build-units, ~metres at this convention),
 each a judged real-world size for the object, NOT derived from the source's
 own arbitrary Meshy normalisation:
 
-    family   target  calibration axis   why
-    grass    0.40    longest axis       a low tuft/clump, ~40 cm
-    sand     1.20    longest axis       a modest gravel patch, ~1.2 m across
-    bush     0.90    Z (height)         a desert shrub, ~90 cm tall
-    rock     0.75    longest axis       a small rock cluster, ~75 cm across
-    slab     1.50    longest axis       a flatter, wider outcrop, ~1.5 m
-    tree     3.40    Z (height)         a small olive tree, a little over 1 tile tall
-    boulder  2.50    longest axis       vehicle-blocking, against a 3 m tile
+    family       target  calibration axis   why
+    grass        0.40    longest axis       a low tuft/clump, ~40 cm
+    sand         1.20    longest axis       a modest gravel patch, ~1.2 m across
+    bush         0.90    Z (height)         a desert shrub, ~90 cm tall
+    rock         0.75    longest axis       a small rock cluster, ~75 cm across
+    slab         1.50    longest axis       a flatter, wider outcrop, ~1.5 m
+    tree         3.40    Z (height)         a small olive tree, a little over 1 tile tall
+    boulder      2.50    longest axis       vehicle-blocking, against a 3 m tile
+    desert_tree  2.90    Z (height)         a small acacia/tamarisk, shorter and
+                                             airier than the olive's 3.40 -- right
+                                             for this setting, still under a tile-
+                                             and-a-bit
 
 `bush` and `tree` calibrate on Z (height) rather than "longest axis of any
 kind", the same principle `dimetric.metres_per_unit`'s own docstring gives
@@ -301,6 +386,17 @@ BOULDER_SRC = [
     os.path.join(SRC_DIR, "Meshy_AI_rock_boulder_var2_0901052738_generate.blend"),
     os.path.join(SRC_DIR, "Meshy_AI_rock_boulder_var3_0901052728_generate.blend"),
 ]
+# desert_tree reuses BUSH_SRC's own var1/var3 files -- NOT new sources; var2
+# (the low, spreading one) stays excluded, same as `bush` treats it as one of
+# three shrub variants rather than promoting it. desert_tree_2 re-exports
+# var3 (the same file as desert_tree_1) but is thinned in
+# _export_desert_tree_variant, not a literal duplicate -- see docstring
+# "DESERT TREE".
+DESERT_TREE_SRC = [
+    BUSH_SRC[0],  # var1 -- upright, thin-stemmed, open crown
+    BUSH_SRC[2],  # var3 -- upright, thin-stemmed, open crown
+    BUSH_SRC[2],  # var3 again, thinned below -- not a byte-identical repeat
+]
 
 # Per-family target size (GLB build-units, ~metres) and calibration axis.
 # See module docstring "SCALE" (and "BOULDER" for why that one is "longest"
@@ -315,9 +411,15 @@ FAMILY_TARGET = {
 BUSH_TARGET_HEIGHT = 0.90
 TREE_TARGET_HEIGHT = 3.40
 TREE_TARGET_VERTS = 3500
+DESERT_TREE_TARGET_HEIGHT = 2.90  # shorter/airier than the olive -- see docstring "SCALE"
+
+# Desert tree only: every Nth foliage object (sorted by name) survives into
+# variant 2's thinned canopy. See module docstring "DESERT TREE".
+DESERT_TREE_THIN_STRIDE = 2
 
 # Bush: hue (degrees, HLS) at or below this is the trunk/stem; above it is a
-# leaf cluster. See module docstring "BUSH".
+# leaf cluster. See module docstring "BUSH". desert_tree reuses this
+# threshold unchanged -- same sources, same measured split.
 HUE_TRUNK_MAX = 30.0
 
 # Tree: raw (unscaled, source-frame) Z below this is trunk/root; at or above
@@ -526,6 +628,71 @@ def _export_bush_variant(label, src, out_path):
 
 
 # ---------------------------------------------------------------------------
+# desert_tree -- bush's own hue split, bush's own sources, a taller target.
+# See module docstring "DESERT TREE".
+# ---------------------------------------------------------------------------
+def _export_desert_tree_variant(label, src, out_path, thin=False):
+    """Same hue-classified trunk/foliage split as `_export_bush_variant`, on
+    the same sources, calibrated to `DESERT_TREE_TARGET_HEIGHT` instead of
+    `BUSH_TARGET_HEIGHT`. `thin=True` (variant 2 only) drops every
+    `DESERT_TREE_THIN_STRIDE`-th foliage object -- sorted by NAME for a
+    result independent of `bpy.data.objects` iteration order, which nothing
+    documents as stable -- and removes the dropped objects from the scene
+    outright rather than leaving them merely unselected, because
+    `_finalize_and_export` exports with `use_selection=False` and would ship
+    an unselected-but-present object anyway."""
+    bpy.ops.wm.open_mainfile(filepath=src)
+    meshes = _meshes()
+    trunk_objs, foliage_objs = [], []
+    for ob in meshes:
+        hue = _hue_degrees(ob)
+        if hue is None:
+            raise SystemExit(f"[{label}] {ob.name}: no per-object Color attribute "
+                              f"-- expected every part-segmentation object to carry one")
+        (trunk_objs if hue <= HUE_TRUNK_MAX else foliage_objs).append(ob)
+
+    if len(trunk_objs) < 1:
+        raise SystemExit(f"[{label}] found 0 trunk-hued objects -- the hue<="
+                          f"{HUE_TRUNK_MAX} split matched nothing; re-derive "
+                          f"HUE_TRUNK_MAX against the regenerated source")
+    if len(foliage_objs) < 5:
+        raise SystemExit(f"[{label}] only {len(foliage_objs)} foliage-hued objects "
+                          f"found -- expected roughly a dozen leaf clusters")
+
+    if thin:
+        foliage_sorted = sorted(foliage_objs, key=lambda o: o.name)
+        keep = set(foliage_sorted[::DESERT_TREE_THIN_STRIDE])
+        dropped = [o for o in foliage_sorted if o not in keep]
+        for ob in dropped:
+            bpy.data.objects.remove(ob, do_unlink=True)
+        foliage_objs = [o for o in foliage_sorted if o in keep]
+        if len(foliage_objs) < 3:
+            raise SystemExit(f"[{label}] thinning left only {len(foliage_objs)} foliage "
+                              f"object(s) -- DESERT_TREE_THIN_STRIDE="
+                              f"{DESERT_TREE_THIN_STRIDE} is too aggressive for this source")
+
+    print(f"[{label}] trunk={len(trunk_objs)} object(s), foliage={len(foliage_objs)} "
+          f"object(s){' (thinned)' if thin else ''}")
+
+    joined = {}
+    for role, objs in (("trunk", trunk_objs), ("foliage", foliage_objs)):
+        bpy.ops.object.select_all(action="DESELECT")
+        for ob in objs:
+            ob.select_set(True)
+        bpy.context.view_layer.objects.active = objs[0]
+        if len(objs) > 1:
+            bpy.ops.object.join()
+        target_ob = bpy.context.view_layer.objects.active
+        _strip(target_ob)
+        joined[role] = target_ob
+
+    extent = _extent(list(joined.values()), axis="z")
+    mpu = metres_per_unit(extent, DESERT_TREE_TARGET_HEIGHT)
+    _bake_scale_and_ground(list(joined.values()), mpu, label)
+    return _finalize_and_export(joined, out_path, label)
+
+
+# ---------------------------------------------------------------------------
 # tree -- decimate, then a Z-height geometric split into trunk + foliage.
 # ---------------------------------------------------------------------------
 def _decimate(ob, target_verts, label):
@@ -651,6 +818,14 @@ def export():
             label = f"tree_{variant}"
             out_path = os.path.join(OUT_DIR, f"{label}.glb")
             result = _export_tree_variant(label, src, out_path)
+            summary[label] = {"path": out_path, "bytes": result[0], "verts": result[1],
+                               "polys": result[2], "roles": result[3]}
+
+    if ONLY_FAMILIES is None or "desert_tree" in ONLY_FAMILIES:
+        for variant, src in enumerate(DESERT_TREE_SRC):
+            label = f"desert_tree_{variant}"
+            out_path = os.path.join(OUT_DIR, f"{label}.glb")
+            result = _export_desert_tree_variant(label, src, out_path, thin=(variant == 2))
             summary[label] = {"path": out_path, "bytes": result[0], "verts": result[1],
                                "polys": result[2], "roles": result[3]}
 

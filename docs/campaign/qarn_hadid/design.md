@@ -214,8 +214,8 @@ can be a `collapse`.
 | **the village** | zone `village [20,1,18,10]` (x20–37, y1–10) | the pass-road town: 1 apartment, 3 houses, 1 shanty, 1 walled warehouse compound (12 `=` wall tiles), on a road that runs east–west along y=6 |
 | **the clinic** | zone `clinic [42,6,5,5]` (x42–46, y6–10) | one `house` structure at the village's eastern end, in its own zone, with a walled yard around it. **The only zone on the map holding exactly one structure** |
 | **the terraces** | zone `the_terraces [8,5,7,7]`, marker `knoll_top [10,9]` | a terraced knoll in the north-west: cover-3 benches around an impassable `^` core, elevation to 5. Cover 3 is authored **nowhere else in the game** |
-| **the second ditch** | `d`, x20–34, y=11 | an anti-tank line across the village's own approach. Two ways round it: the **west end at x=17–19** and the **east end at x=35–37**, through the olive grove |
-| **the olive grove** | `o`, x35–43, y11–15 | cover 1, elevation to 4; the eastern approach to the village and the east ditch end |
+| **the second ditch** | `d`, x20–34, y=11 | an anti-tank line across the village's own approach. Two ways round it: the **west end at x=17–19** and the **east end at x=35–37**, through the thorn grove |
+| **the thorn grove** (`o` draws the arid grove species since 2026-09-07 — the lead: *"using olive tree does not fit the desert terrain"*; `TerrainTones.groveFamily`) | `o`, x35–43, y11–15 | cover 1, elevation to 4; the eastern approach to the village and the east ditch end |
 | **the cover-3 block** | `3`, x26–33, y14–16 | heavy cover straddling the road just north of the wall. `[32,15]` is the tile that watches the low gate |
 | **the wall** | `^`, y18–22, full width but for two gaps | impassable, sight-blocking, no HP. The horn between the gaps is elevation **7** |
 | **the shoulder gate (high, west)** | x18–21, y18–22; marker `shoulder_gate [20,20]` | open ground **at the crest**: elevation 6, five levels above the plain either side. **The only road north for a vehicle** |
@@ -265,7 +265,7 @@ terraced knoll — then enters the town from the west at `[20,9]`.
 | from | vehicle | foot | crosses the second ditch at |
 |---|---|---|---|
 | shoulder gate's north exit `[20,17]` | **17 tiles** | 13 | **x=19** (west end, under the relay hill) |
-| saddle gate's north exit `[30,17]` | **23 tiles** | 12 | **x=37** (east end, through the olive grove) |
+| saddle gate's north exit `[30,17]` | **23 tiles** | 12 | **x=37** (east end, through the thorn grove) |
 
 ### 3.3 The sight facts the arc is built on
 
@@ -619,7 +619,7 @@ a tax.
 | `qh_atgm_ditch` | `atgm_cell` ×1 | `[14,12]` | `ambush(6)` | Kornet range 10 over the west ditch end. **Pre-identified and ambush-forfeited if I found it** |
 | group `village` | `sarim_rifles` ×2 | apartment `[22,3]`, house `[27,3]` | `garrison` | the town |
 | group `village` | `recoilless_team` ×1 | warehouse yard `[34,9]` | `ambush(5)` | the compound |
-| `qh_watch_grove` | `sarim_rifles` ×1 | `[39,13]` (olive grove, elev 2) | `hold_position` | the eastern eye over the east ditch end. A `locate` secondary, and the tag Umm Zeitoun inherits |
+| `qh_watch_grove` | `sarim_rifles` ×1 | `[39,13]` (thorn grove, elev 2) | `hold_position` | the eastern eye over the east ditch end. A `locate` secondary, and the tag Umm Zeitoun inherits |
 | `qh_watch_notch` | `sarim_rifles` ×1 | `[32,15]` | `hold_position` | returns from I and II |
 | `qh_manpad_north` | `manpad_team` ×1 | `[36,12]` | `hold_position` | prices the drone north of the wall |
 
@@ -642,7 +642,7 @@ Kornet at the second of those. The player can:
   worth having, and the mast party will not shoot until you are on it), then walk
   the armour in safely; or
 - send the armour round the **east** ditch end instead — 23 tiles from the saddle
-  exit instead of 17 from the shoulder exit, through the olive grove and under
+  exit instead of 17 from the shoulder exit, through the thorn grove and under
   `qh_watch_grove`; or
 - run the gauntlet and pay for it.
 

@@ -93,7 +93,7 @@ describe('decorPlacements', () => {
       );
       return new Set(out.map((p) => p.family));
     };
-    expect(families(DECOR_GROVE)).toEqual(new Set(['tree']));
+    expect(families(DECOR_GROVE)).toEqual(new Set(['desert_tree']));
     expect(families(DECOR_KNOLL)).toEqual(new Set(['rock']));
     expect(families(DECOR_RIDGE, true)).toEqual(new Set(['slab']));
   });
@@ -182,7 +182,7 @@ describe('decorPlacements', () => {
         })
       );
       expect(out.length).toBe(1);
-      expect(out[0].family).toBe('tree');
+      expect(out[0].family).toBe('desert_tree');
     });
 
     it('places two trees above the threshold, the second at 0.68 the first\'s scale', () => {
@@ -192,7 +192,7 @@ describe('decorPlacements', () => {
           decor[TWIN_Y * w + TWIN_X] = DECOR_GROVE;
         })
       );
-      const trees = out.filter((p) => p.family === 'tree');
+      const trees = out.filter((p) => p.family === 'desert_tree');
       expect(trees.length).toBe(2);
       expect(trees[1].scale).toBeCloseTo(trees[0].scale * 0.68, 6);
     });
@@ -204,7 +204,7 @@ describe('decorPlacements', () => {
           decor[TWIN_Y * w + TWIN_X] = DECOR_GROVE;
         })
       );
-      const trees = out.filter((p) => p.family === 'tree');
+      const trees = out.filter((p) => p.family === 'desert_tree');
       expect(trees[0].x === trees[1].x && trees[0].z === trees[1].z).toBe(false);
     });
 
@@ -215,7 +215,7 @@ describe('decorPlacements', () => {
           decor[TWIN_Y * w + TWIN_X] = DECOR_GROVE;
         })
       );
-      for (const p of out.filter((t) => t.family === 'tree')) {
+      for (const p of out.filter((t) => t.family === 'desert_tree')) {
         expect(p.x).toBeGreaterThanOrEqual(TWIN_X);
         expect(p.x).toBeLessThanOrEqual(TWIN_X + 1);
         expect(p.z).toBeGreaterThanOrEqual(TWIN_Y);
@@ -477,5 +477,35 @@ describe('an anti-tank ditch (`d`)', () => {
     const out = ditchOnly(decorPlacements(ditchInput(w, 24, (_x, y) => y === 12)));
     expect(out.length).toBe(w);
     expect(new Set(out.map((p) => p.x))).toEqual(new Set(Array.from({ length: w }, (_, i) => i + 0.5)));
+  });
+});
+
+describe('the grove species follows the map theme', () => {
+  // The lead, 2026-09-07: "using olive tree does not fit the desert terrain."
+  // `TerrainTones.groveFamily` is the switch; these three pin both ends of it
+  // and the default, because the default is what every fixture in this file
+  // and every map with no `terrain` key gets.
+  const groveOnly = (groveFamily?: 'tree' | 'desert_tree'): Set<string> => {
+    const out = decorPlacements({
+      ...input(1, 1, (_t, decor) => {
+        decor[0] = DECOR_GROVE;
+      }),
+      ...(groveFamily === undefined ? {} : { groveFamily }),
+    });
+    return new Set(out.map((p) => p.family));
+  };
+
+  it('draws the olive on a green map', () => {
+    expect(groveOnly('tree')).toEqual(new Set(['tree']));
+  });
+
+  it('draws the desert tree on an arid one', () => {
+    expect(groveOnly('desert_tree')).toEqual(new Set(['desert_tree']));
+  });
+
+  it('defaults to the desert tree, because map.schema.json defaults terrain to arid', () => {
+    // The safe default in both directions: a caller that forgets to thread
+    // the theme puts a desert tree on a desert map, never an olive.
+    expect(groveOnly()).toEqual(new Set(['desert_tree']));
   });
 });

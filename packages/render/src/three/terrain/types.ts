@@ -6,6 +6,7 @@
  * type from a file that does not exist yet. `ground.ts` imports both of
  * these rather than redeclaring them.
  */
+import type { GroveFamily } from '../../api';
 
 /** Plain-array geometry. No three.js types, so builders stay headless. */
 export interface MeshData {
@@ -185,4 +186,16 @@ export interface TerrainInput {
    * keeps testing exactly what it tested before this field existed.
    */
   boulder?: Uint8Array | null;
+  /**
+   * Which family a grove tile draws -- `TerrainTones.groveFamily`, passed
+   * through by `composeTerrain`.
+   *
+   * Optional, and ABSENT MEANS `'desert_tree'`, which mirrors
+   * `map.schema.json`'s own `"default": "arid"` for `terrain`: a fixture that
+   * declares no theme is an arid map, and an arid map's grove is a desert
+   * tree. That makes every pre-existing fixture correct rather than stale,
+   * and it is the one default under which forgetting to thread this field
+   * cannot put a Mediterranean olive back on a dune.
+   */
+  groveFamily?: GroveFamily;
 }

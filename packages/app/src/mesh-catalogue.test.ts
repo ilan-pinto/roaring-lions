@@ -219,6 +219,11 @@ describe('mesh catalogue: decor families', () => {
         blocked: sim.blocked,
         cover: sim.cover,
         boulder: sim.boulder,
+        // `composeTerrain` passes `TerrainTones.groveFamily`; this stand-in
+        // resolves the same value from the same place the theme table does,
+        // so a green map is compared against olives and an arid one against
+        // desert trees rather than both against whatever the default is.
+        groveFamily: parsed.terrain === 'green' ? ('tree' as const) : ('desert_tree' as const),
       },
     };
   }
@@ -278,6 +283,7 @@ describe('mesh catalogue: what has a mesh at all', () => {
       sand: 3,
       bush: 3,
       tree: 3,
+      desert_tree: 3,
       rock: 3,
       slab: 3,
       boulder: 3,

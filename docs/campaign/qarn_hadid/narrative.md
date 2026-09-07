@@ -109,7 +109,7 @@ say it.
 canon (`storyline.md` §4.3, `data/maps/qarn_hadid.json`, whose own `name` is
 *"Qarn Hadid — The Two Gates"*), and `design.md` C2 gives it its `world.json`
 entry. Every other name on the page — the shoulder, the notch, the terraces, the
-hollow, the scree, the olive grove, the clinic — is a **feature**, not a place
+hollow, the scree, the thorn grove, the clinic — is a **feature**, not a place
 name, and resolves to a marker or a zone in that file. This binds hardest on the
 `eva` and `bark` rows, which are the ones that would be recorded (GH-110).
 
@@ -484,7 +484,7 @@ away.
 | beat | speaker | line | chars |
 |---|---|---|---|
 | 1 | **Idit** | There is a second ditch and it is not at the gates. He cut an anti-tank line across the fields on the village's own approach, with the town beyond it and two narrow ways round the ends. | 185 |
-| 2 | **Shai** | Two roads into that town and you take one. Seventeen tiles round the west end, twenty-three round the east through the olive grove, and there is an eye in the grove. | 165 |
+| 2 | **Shai** | Two roads into that town and you take one. Seventeen tiles round the west end, twenty-three round the east through the thorn grove, and there is an eye in the grove. | 165 |
 | 3 | **Idit** | The west end runs under the terraced knoll; a post on its east shoulder sees four of its seven tiles, and the Kornet below the post sees all seven. Whatever you identified here last week comes back with its ambush spent; whatever you did not gets its first shot. | 262 |
 | 4 | **Shai** | Take the knoll first with foot and the armour walks in behind you. Take it second and it walks in under a Kornet. | 113 |
 | 5 | **Idit** | The mast up there sees the shoulder gate and the last bend of its own road, and nothing else on this map — not the village, not the junction. It watches little; it tells the basin what the eyes here saw. | 203 |
@@ -499,9 +499,16 @@ this tree always ends a briefing.
 (`design.md` §3.2, §3.3.4): the two armour roads into the village are **17
 tiles** from the shoulder gate's north exit (crossing the ditch at its west end,
 x=19) and **23** from the saddle gate's north exit (crossing at the east end,
-x=37, through the olive grove); `[15,8]` on the knoll's east shoulder sees **8 of
+x=37, through the thorn grove); `[15,8]` on the knoll's east shoulder sees **8 of
 the 10** tiles of the western leg at sight 8; and `knoll_top [10,9]` at sight 48
-sees the shoulder gate and **nothing else on the map**. **Do not paraphrase beat
+sees the shoulder gate and **nothing else on the map**.
+
+> **Both numbers above were measured false at authoring** (2026-09-07) and the
+> shipped briefing carries the measured ones instead: the western leg is a
+> **7**-tile sample, not 10; `[15,8]` sees **4 of 7**, `[14,12]` **7 of 7**, and
+> `knoll_top` sees **4 of 7** of its own road rather than none of it. See
+> `tools/src/qarn_hadid_doctrine.test.ts` S8c–S11, which pins them.
+ **Do not paraphrase beat
 5** — it is the pinned measurement and its whole force is that it is exact.
 
 **Beat 3's second sentence is the recon-dependent clause, and it is written as a
@@ -521,7 +528,7 @@ briefing says the bill, never the wrong.
 
 **The JSON string, to be pasted whole:**
 
-> There is a second ditch and it is not at the gates. He cut an anti-tank line across the fields on the village's own approach, with the town beyond it and two narrow ways round the ends. Two roads into that town and you take one. Seventeen tiles round the west end, twenty-three round the east through the olive grove, and there is an eye in the grove. The west end runs under the terraced knoll; a post on its east shoulder sees four of its seven tiles, and the Kornet below the post sees all seven. Whatever you identified here last week comes back with its ambush spent; whatever you did not gets its first shot. Take the knoll first with foot and the armour walks in behind you. Take it second and it walks in under a Kornet. The mast up there sees the shoulder gate and the last bend of its own road, and nothing else on this map — not the village, not the junction. It watches little; it tells the basin what the eyes here saw. Clear the village and hold it, and kill the relay crew on the knoll. Three families are in it and the yard they walk to is the clinic's own. That yard is flagged: heavy ordnance into it is billed by the round, and they are inside it for five minutes. Open the road — everything this brigade does after this town is on the other side of it.
+> There is a second ditch and it is not at the gates. He cut an anti-tank line across the fields on the village's own approach, with the town beyond it and two narrow ways round the ends. Two roads into that town and you take one. Seventeen tiles round the west end, twenty-three round the east through the thorn grove, and there is an eye in the grove. The west end runs under the terraced knoll; a post on its east shoulder sees four of its seven tiles, and the Kornet below the post sees all seven. Whatever you identified here last week comes back with its ambush spent; whatever you did not gets its first shot. Take the knoll first with foot and the armour walks in behind you. Take it second and it walks in under a Kornet. The mast up there sees the shoulder gate and the last bend of its own road, and nothing else on this map — not the village, not the junction. It watches little; it tells the basin what the eyes here saw. Clear the village and hold it, and kill the relay crew on the knoll. Three families are in it and the yard they walk to is the clinic's own. That yard is flagged: heavy ordnance into it is billed by the round, and they are inside it for five minutes. Open the road — everything this brigade does after this town is on the other side of it.
 
 ### 3.3 `briefing_video`
 
@@ -542,7 +549,7 @@ length and shape.
 | `kill_the_relay` | `eliminate_hvt` · `qh_hvt_relay` · **primary** | Kill the relay crew on the terraced knoll | `OBJECTIVE COMPLETE — Kill the relay crew on the terraced knoll` |
 | `get_the_families_clear` | `evacuate_before` · `clinic` ×3 @300 s · **primary** | Get three families out of the village to the clinic yard inside five minutes | `OBJECTIVE COMPLETE — Get three families out of the village to the clinic yard inside five minutes` |
 | `take_the_terraces` | `capture` · `the_terraces` 15 s · secondary | Take the terraces and hold them for 15 seconds | `OBJECTIVE COMPLETE — Take the terraces and hold them for 15 seconds` |
-| `find_the_grove_post` | `locate` · `qh_watch_grove` · secondary | Identify the post in the olive grove | `OBJECTIVE COMPLETE — Identify the post in the olive grove` |
+| `find_the_grove_post` | `locate` · `qh_watch_grove` · secondary | Identify the post in the thorn grove | `OBJECTIVE COMPLETE — Identify the post in the thorn grove` |
 
 `take_the_village` follows `wadi_halam_4_village` (*"Clear and hold the village
 for 20 seconds"*) and `beit_sahwan_3_clearance` (*"Clear the town centre and hold
@@ -605,8 +612,8 @@ Idit's file is one list two towns long by the time the basin opens.
 | `objective(get_the_families_clear, failed)` @300 s | `radio` | **Shai** | "Five minutes. They are still in the village and the village is still being fought over, and that is on the plan, not on them." | `objectives[].say_on_fail`; he takes it, which is the character and is not a sermon | live |
 | `objective(take_the_terraces, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Take the terraces and hold them for 15 seconds` | shipped | live |
 | `objective(take_the_terraces, complete)` | `radio` | **net** | "Terraces are ours. The armour's road out of the west ditch end is unwatched for the first time." | `objectives[].say`; states the mechanical payoff of the climb | live |
-| `objective(find_the_grove_post, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Identify the post in the olive grove` | shipped | live |
-| `objective(find_the_grove_post, complete)` | `radio` | **Idit** | "One post in the olive grove, over the east ditch end. He goes into the file for the basin — the same idea is waiting for us there." | `objectives[].say`; the tag Umm Zeitoun inherits, said as an intel act and never as an order | live |
+| `objective(find_the_grove_post, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Identify the post in the thorn grove` | shipped | live |
+| `objective(find_the_grove_post, complete)` | `radio` | **Idit** | "One post in the thorn grove, over the east ditch end. He goes into the file for the basin — the same idea is waiting for us there." | `objectives[].say`; the tag Umm Zeitoun inherits, said as an intel act and never as an order | live |
 | first `roe` deduction inside `clinic` | `toast` | system | hard-coded `roeNotice` copy | strings are not authorable; this is the deduction beat 7 priced | live |
 | first `roe` deduction inside `clinic` | `radio` | **Shai** | "That was the clinic, not the town. Whatever fired that is off the yard now and stays off it." | needs a trigger that can watch the sim (§10 **G-E**) | engine |
 | wave t=120 s (2 `sarim_rifles`, `village_square` → `north_junction`) | `toast` | system | `enemy reinforcements — 2 unit(s) inbound` | hard-coded; no `say` | live |
@@ -694,7 +701,7 @@ is measured now.
 | the clinic | zone `clinic [42,6,5,5]` | `radio` | Shai | "One building in its own walled yard at the east end of the town. It is the only zone on this map holding exactly one thing, and that is what the flag is for." | engine |
 | the terraces | `knoll_top [10,9]` / zone `the_terraces [8,5,7,7]` | `radio` | Idit | "Benched terraces around a rock core, and the heaviest cover authored anywhere in this war. A section on those benches loses under a fifth of what it loses in the open." | engine |
 | the second ditch | `d`, x20–34, y=11 | `radio` | Idit | "Fifteen tiles of anti-tank line across the fields, with two ways round the ends and the town on the far side. It was dug against armour and it is the people behind it who live with it." | engine |
-| the olive grove | `o`, x35–43, y11–15 | `radio` | Shai | "Grove on the eastern approach, cover one, rising to four. It is the long road into that town and it is the only one with anything growing on it." | engine |
+| the thorn grove | `o`, x35–43, y11–15 | `radio` | Shai | "Grove on the eastern approach, cover one, rising to four. It is the long road into that town and it is the only one with anything growing on it." | engine |
 | the cover-3 block | `3`, x26–33, y14–16 | `radio` | Idit | "Heavy cover straddling the road just north of the wall. From its eastern end a man sees every tile of the low gate and not one tile of the high one." | engine |
 | the scree | zone `scree [33,23,15,6]`, `scree_north [40,23]`, `scree_south [40,30]` | `radio` | Shai | "Boulder fan across the eastern flank. Eight tiles on foot, twenty on tracks, and one column at its western edge that armour can use." | engine |
 | the hollow | zone `hollow [31,31,15,15]`, `hollow_floor [38,38]` | `radio` | Idit | "A bowl with its floor at nothing and its rim at three. Nothing outside it sees in, and from the floor you see your own rim and no further." | engine |

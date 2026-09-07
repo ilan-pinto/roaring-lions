@@ -28,7 +28,7 @@ const TONES = {
   rock: '#8E9491', rockLit: '#F2E8D5', earth: '#6E7449', low: '#8F9464',
   trunk: '#4E5433', trunkLit: '#8F9464', leafDark: '#333821', leafMid: '#4E5433',
   leafLit: '#6E7449', bladeLit: '#8F9464', bladeShade: '#4E5433', spoil: '#6E7449',
-  crownRatio: 0.52, scatter: 'stone' as const,
+  crownRatio: 0.52, scatter: 'stone' as const, groveFamily: 'desert_tree' as const,
 };
 
 /**

@@ -513,6 +513,7 @@ function aridTerrainTones(): TerrainTones {
     spoil: paletteColor('terracotta.1'),
     crownRatio: 0.52,
     scatter: 'stone',
+    groveFamily: 'desert_tree',
   };
 }
 

@@ -6317,6 +6317,8 @@ export function composeTerrain(
     // scatter/groves/buildings are indifferent to it, the same reason a
     // ridge's `^` needs no layer of its own here either.
     boulder: sim.boulder,
+    // The theme's grove species, read only by `decorPlacements` below.
+    groveFamily: tones.groveFamily,
   };
   const ground = buildGround(input, tones, background);
   const scatter = buildScatter(input, tones, background);

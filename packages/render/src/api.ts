@@ -47,7 +47,36 @@ export interface TerrainTones {
   /** Crown aspect: olive is wide and squat (0.52), poplar is tall (0.95). */
   crownRatio: number;
   scatter: TerrainScatter;
+  /**
+   * Which mesh family a GROVE tile draws on the three.js backend -- the mesh
+   * counterpart of `crownRatio` above, which says the same thing about the
+   * canopy Pixi paints.
+   *
+   * Added 2026-09-07 on the project lead's judgement: *"using olive tree does
+   * not fit the desert terrain."* He was right, and the reason is that
+   * `map.schema.json` defaults `terrain` to `arid`, so the two supplied olive
+   * sources -- the only tree in `art/blend/`, censused that day -- stood on
+   * every desert map in the game (Beit Sahwan 83 grove tiles, Qarn Hadid 96,
+   * Tel Marum I 60, Umm Zeitoun 31-67, the orchard showcase 440) and only
+   * Wadi Halam, the one `green` map, was ever the basin they belong in.
+   * `desert_tree` is the same `Meshy_AI_shrub_desert_var{1,3}` source the
+   * `bush` family already ships, exported at tree height instead of 0.90 m:
+   * an open, thin-stemmed crown that reads as acacia or tamarisk.
+   *
+   * Read only by `three/terrain/decor-place.ts`. Pixi paints its canopy from
+   * `leaf*`/`crownRatio` and has no mesh path to switch.
+   */
+  groveFamily: GroveFamily;
 }
+
+/**
+ * The two grove species a theme can choose between, and the whole of the
+ * `DecorFamily` union that is about trees. Authored here rather than in
+ * `three/terrain/decor-place.ts` so `TerrainTones` -- which every backend
+ * reads -- does not depend on a three-only module; `DecorFamily` imports it
+ * back, so the two cannot drift.
+ */
+export type GroveFamily = 'tree' | 'desert_tree';
 
 export interface RendererOptions {
   background: string;
