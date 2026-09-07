@@ -19,6 +19,7 @@
     "balance": "pnpm --filter @lions/tools balance",
     "playtest": "pnpm --filter @lions/tools playtest",
     "perf:units": "pnpm --filter @lions/tools perf:units",
+    "perf:load": "pnpm --filter @lions/tools perf:load",
     "golden-baseline": "pnpm --filter @lions/tools golden-baseline",
     "golden-baseline:bless": "pnpm --filter @lions/tools golden-baseline:bless",
     "golden-diff:compare": "pnpm --filter @lions/tools golden-diff:compare",
