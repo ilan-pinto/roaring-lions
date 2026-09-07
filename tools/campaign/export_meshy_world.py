@@ -212,6 +212,28 @@ TEX_BLEND = os.path.join(
 SEG_BLEND = os.path.join(
     SRC_DIR, "Meshy_AI_multi_biome_hex_diora_0902123927_part-segmentation.blend")
 
+#: 2026-09-07: `art/blend/` is gitignored and lives only in the main
+#: checkout, not in an arbitrary worktree -- the three-renderer special case
+#: above covers exactly one worktree name, and every other one (this script
+#: run from `/Users/ilpinto/dev/roaring-lions-story`) left `SRC_DIR` pointing
+#: at a path that has never existed there. Same fallback convention
+#: `tools/vehicles/export_meshy_apache.py`'s `SRC_FALLBACK_ROOTS` already
+#: uses: try the path as built, then re-root its tail (relative to
+#: `MAIN_REPO`, the base it was joined from) under each fallback in turn.
+SRC_FALLBACK_ROOTS = (MAIN_REPO, "/Users/ilpinto/dev/roaring-lions")
+
+
+def _resolve(path):
+    if os.path.exists(path):
+        return path
+    tail = os.path.relpath(path, MAIN_REPO)
+    for root in SRC_FALLBACK_ROOTS:
+        alt = os.path.join(root, tail)
+        if os.path.exists(alt):
+            return alt
+    raise SystemExit(f"source not found: {path} (also tried {SRC_FALLBACK_ROOTS})")
+
+
 OUT_DEFAULT = os.path.join(REPO, "art", "meshes", "campaign", "sahar_basin.glb")
 
 CREDIT = (
@@ -263,6 +285,10 @@ TOWN_SITES = {
     "deir_amun": ("marj", 0.545, 0.205),     # the ground between wadi and lake
     # sur -- the north-central basin under the mountain wall
     "tel_marum": ("sur", 0.413, 0.481),      # the grid town
+    "qarn_hadid": ("sur", 0.466, 0.540),     # midpoint of the pass road climbing
+                                              # from the grid town toward the
+                                              # mountain notch, open basin floor
+                                              # short of the treeline -- 2026-09-07
     "umm_zeitoun": ("sur", 0.520, 0.600),    # the wadi head below the ridge
     # naharin -- the western forest corridor
     "wadi_halam": ("naharin", 0.196, 0.437),  # the river bank
@@ -280,9 +306,7 @@ def _bbox(pts):
 def harvest_segmentation():
     """The sixteen supplied parts as one triangle soup plus a per-triangle
     owner, in the SEGMENTATION file's own frame."""
-    if not os.path.exists(SEG_BLEND):
-        raise SystemExit(f"missing segmentation source: {SEG_BLEND}")
-    bpy.ops.wm.open_mainfile(filepath=SEG_BLEND)
+    bpy.ops.wm.open_mainfile(filepath=_resolve(SEG_BLEND))
     objs = sorted((o for o in bpy.data.objects if o.type == "MESH"),
                   key=lambda o: int(o.name.replace("model_part", "")))
     verts, tris, owner = [], [], []
@@ -645,9 +669,7 @@ def export(ratio, texture_px, out_path, dry_run, smooth_passes=SMOOTH_PASSES):
     t0 = time.time()
     sverts, tris, owner = harvest_segmentation()
 
-    if not os.path.exists(TEX_BLEND):
-        raise SystemExit(f"missing textured source: {TEX_BLEND}")
-    bpy.ops.wm.open_mainfile(filepath=TEX_BLEND)
+    bpy.ops.wm.open_mainfile(filepath=_resolve(TEX_BLEND))
     meshes = [o for o in bpy.data.objects if o.type == "MESH"]
     if len(meshes) != 1:
         raise SystemExit(f"expected one mesh in the textured source, found {len(meshes)}")

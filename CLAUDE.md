@@ -205,8 +205,10 @@ The combat model is the product. Everything else is scaffolding around it.
   (`concrete`, penalty 3), so they read as the *costly* tier, not protected.
 - **`qarn_hadid` is the terrain map** — the only one carrying all ten terrain
   symbols, and the only place `3` (cover 3) and `d` (the anti-tank ditch) are
-  authored at all; both had ZERO tiles anywhere before it. Sandbox-only, no
-  mission. Its shape is one idea: a rock wall across the middle with TWO ways
+  authored at all; both had ZERO tiles anywhere before it. Sandbox-only until 2026-09-07; it now carries the three Qarn Hadid missions
+  (Act II's interlude between Tel Marum and Umm Zeitoun, `docs/campaign/qarn_hadid/`),
+  with the arc's own sight and route facts pinned in
+  `tools/src/qarn_hadid_doctrine.test.ts` beside the relief test. Its shape is one idea: a rock wall across the middle with TWO ways
   through — a HIGH shoulder gate (crest 6) near the axis and a LOW saddle notch
   (plain level) eight tiles further out — because a climb telescopes and slope
   can only reorder a route over ground that rises above its destination and

@@ -1060,6 +1060,184 @@ const ledTelMarum3 = run(
   'tel_marum_3_clearance'
 );
 
+// --- Sur: Qarn Hadid -----------------------------------------------------------
+
+// Qarn Hadid I -- Both Gates: one drone sortie finds both watch posts while
+// the jeep and the Eitan run the two-vehicle round trip east for the road
+// party.
+//
+// The drone's own flow-field routing prefers the low saddle for ANY
+// northbound order -- the shoulder's five-level climb costs more than the
+// loop around, the same terrain fact this map's doctrine test pins for foot
+// -- so a waypoint straight up the saddle at [30,17] walks the drone directly
+// under the picket patrolling [30,16]-[30,22] and gets it shot down before it
+// ever sees a post. Sending it up the WEST side instead reaches [14,6] --
+// 11+ tiles from both `qh_watch_shoulder` and the ditch gun, outside their
+// own sight -- then a second waypoint at [28,4] sees the notch post from just
+// as far. Both gate posts complete inside 76 seconds and the drone never
+// takes a hit.
+//
+// The road party's own reach is the whole clock, exactly as the briefing
+// says: the jeep and the Eitan each carry two, and once either is inside
+// CivilianFlight's four-tile shepherd radius the families board and ride
+// home -- well inside the 240-second deadline.
+//
+// Control: a passive force at [24,42] is seen by nothing (design.md's own
+// measured fact: nothing in the scree sees `kdf_start` at sight 8, 9 or 12),
+// so the tube never gets a target, nobody boards, and `get_the_road_party_
+// clear` -- the only failable primary -- fails on the clock at 240s.
+// `checkEnd` returns DEFEAT. The three `locate` primaries also stay
+// incomplete on a passive run, but the evacuation clock is what ends it.
+run('qarn_hadid_1_recon', () => {}, {}, 'defeat', 'qarn_hadid_1_recon (passive control)');
+
+const ledQH1 = run(
+  'qarn_hadid_1_recon',
+  (sim, _rt, ids, at) => {
+    const drone = ids('recon_drone');
+    const jeep = ids('jeep_shoded');
+    const eitan = ids('apc_eitan');
+    at(1, () => {
+      sim.queueCommand({ kind: 'move', ids: jeep, ...M(34, 31) });
+      sim.queueCommand({ kind: 'move', ids: eitan, ...M(36, 32) });
+      sim.queueCommand({ kind: 'move', ids: drone, ...M(14, 6) });
+    });
+    at(20, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(28, 4) }));
+    at(45, () => {
+      sim.queueCommand({ kind: 'move', ids: jeep, ...M(24, 39) });
+      sim.queueCommand({ kind: 'move', ids: eitan, ...M(24, 39) });
+    });
+  },
+  ledTelMarum3,
+  'victory',
+  'qarn_hadid_1_recon'
+);
+
+// Qarn Hadid II -- The Shoulder: the demolition and the hold, kept off each
+// other's feet.
+//
+// `demolish`'s own goal-snap is the trap here. The revetment's centroid
+// ring-searches outward for the nearest open tile, and finds one on EITHER
+// face at the same Chebyshev distance -- but the scan is row-major and the
+// north face (still sealed, on the far side of the wall) is checked before
+// the south one, so an explicit `demolish` order routes the whole way around
+// by the saddle to reach a tile it could have reached in five. Two fixes,
+// both needed: approach on a plain `move` to an OPEN tile immediately south
+// of the structure ([20,20]) rather than `demolish`'s own snap, so the flow
+// field takes the short way instead of the long one; and hold that unit at
+// the start line until the escort has had time to clear the two defenders
+// who can see that tile (the garrisoned rifleman and the west ATGM cell -- a
+// waypoint sent any sooner still sits inside the Kornet's ten-tile reach and
+// dies waiting there). Once it moves, `stepDemolition`'s automatic search
+// does the rest: no explicit `demolish` order needed once it is standing
+// within two tiles of an unoccupied, unprotected structure.
+//
+// The armour never crosses the gate at all -- the revetment seals both
+// domains until it falls -- so it parks at [20,20] and fights from there,
+// which the revetment's own sight-block (same as a building's) keeps safe:
+// nothing north of the wall can see a unit stalled one row south of it. Note
+// `attackMove`'s chase is the wrong order for that park: a unit follows a
+// broken contact clean across the map (the relocating west garrison, chased
+// far enough, once dragged this same escort onto the fleeing battery's own
+// square), so the hold is a plain `move`.
+//
+// The infantry crosses low and alone, into the hollow -- the tube's now-empty
+// floor, `take_the_hollow` -- rather than the notch: a bonus 15s capture and
+// an HVT this plan does not need the notch fight to reach.
+//
+// Control: the revetment stands untouched by anything a passive force does
+// (raze needs an explicit demolish or a hostile occupant taking fire, neither
+// of which a stationary force provides), so `open_the_shoulder` -- the only
+// failable primary -- fails on the clock at 300s. `checkEnd` returns DEFEAT.
+// `hold_the_gates` never starts on a passive run either (`livingIn` needs a
+// player unit physically present), but the raze deadline ends it first.
+run('qarn_hadid_2_foothold', () => {}, {}, 'defeat', 'qarn_hadid_2_foothold (passive control)');
+
+const ledQH2 = run(
+  'qarn_hadid_2_foothold',
+  (sim, _rt, ids, at) => {
+    const tank = ids('mbt_lavi');
+    const namer = ids('ifv_namer');
+    const armour = ids('apc_eitan');
+    const foot = ids('inf_squad');
+    const at_ = ids('at_team');
+    const mortar = ids('mortar_team');
+    const demo = ids('demo_squad');
+    const drone = ids('recon_drone');
+    at(1, () => {
+      sim.queueCommand({ kind: 'move', ids: [...tank, ...namer, ...armour], ...M(20, 20) });
+      sim.queueCommand({ kind: 'attackMove', ids: [...foot, ...at_], ...M(38, 38) });
+      sim.queueCommand({ kind: 'move', ids: mortar, ...M(26, 30) });
+      sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 30) });
+    });
+    at(100, () => sim.queueCommand({ kind: 'move', ids: demo, ...M(20, 20) }));
+  },
+  ledQH1,
+  'victory',
+  'qarn_hadid_2_foothold'
+);
+
+// QH2 does not declare `intel.marked_positions` in its own `produces`, so its
+// own `run()` return has already dropped it -- merge back to QH1's output,
+// the same shape as Beit Sahwan's `led4In` and Umm Zeitoun's `ledUZ2In`.
+const ledQH2In = { ...ledQH1, ...ledQH2 };
+
+// Qarn Hadid III -- The Village Road: one armour road, a dedicated rescue
+// detail, and the knoll taken before the road is watched.
+//
+// The two civilian groups sit INSIDE the village a combined-arms push has to
+// clear anyway, and CivilianFlight boards the nearest player unit with a
+// free slot -- so if a vehicle happens to be adjacent when suppression or
+// proximity triggers the flee, the family rides wherever THAT vehicle is
+// actually going, which on an `attackMove` chasing a live contact is not
+// necessarily the clinic. A dedicated two-body detail (no transport, so no
+// boarding, just a walk) sent straight at the larger family group settles
+// that before the main column ever gets close: three families are moving on
+// their own by the time anything else arrives.
+//
+// One soldier alone climbs the terraces first -- the mast party will not
+// fire until it is entered -- so the relay dies to a small force rather than
+// costing the main column a detour, and the west ditch crossing under the
+// terraces is unwatched by the time the armour needs it.
+//
+// `inf_squad` is `from_ledger`, so this plan never hard-indexes it: the
+// terrace climber, the rescue detail and the main column are `slice`s of
+// whatever survived Qarn Hadid II, the same shape Umm Zeitoun III uses for
+// the same reason.
+//
+// Control: a passive force never comes within four tiles of either family
+// group, so `get_the_families_clear` -- the only failable primary -- fails
+// on the clock at 300s. `checkEnd` returns DEFEAT. `take_the_village` and
+// `kill_the_relay` also stay incomplete, but the evacuation clock ends it.
+run('qarn_hadid_3_clearance', () => {}, {}, 'defeat', 'qarn_hadid_3_clearance (passive control)');
+
+run(
+  'qarn_hadid_3_clearance',
+  (sim, _rt, ids, at) => {
+    const tank = ids('mbt_lavi');
+    const namer = ids('ifv_namer');
+    const armour = ids('apc_eitan');
+    const foot = ids('inf_squad');
+    const at_ = ids('at_team');
+    const mortar = ids('mortar_team');
+    const demo = ids('demo_squad');
+    const sniper = ids('sniper_team');
+    const drone = ids('recon_drone');
+    const west = foot.slice(0, 1);
+    const civTeam = [...foot.slice(1, 2), ...at_];
+    const main = [...tank, ...namer, ...armour, ...foot.slice(2), ...demo, ...mortar, ...sniper];
+    at(1, () => {
+      sim.queueCommand({ kind: 'attackMove', ids: west, ...M(10, 9) });
+      sim.queueCommand({ kind: 'move', ids: civTeam, ...M(29, 3) });
+      sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 30) });
+    });
+    at(60, () => sim.queueCommand({ kind: 'attackMove', ids: main, ...M(20, 9) }));
+    at(160, () => sim.queueCommand({ kind: 'attackMove', ids: main, ...M(28, 5) }));
+  },
+  ledQH2In,
+  'victory',
+  'qarn_hadid_3_clearance'
+);
+
 // --- Sur: Umm Zeitoun ---------------------------------------------------------
 
 // Umm Zeitoun I -- Cold Ground: the drone builds the picture, the jeep buys

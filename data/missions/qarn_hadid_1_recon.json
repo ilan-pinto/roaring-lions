@@ -1,0 +1,106 @@
+{
+  "id": "qarn_hadid_1_recon",
+  "name": "Qarn Hadid I — Both Gates",
+  "dispatch": "Twelve kilometres of pass road join Tel Marum to the basin, and for two weeks the brigade has driven round them. Nobody ever fought over that road. Somebody came through it with a machine, priced it, and went on.",
+  "town": "qarn_hadid",
+  "phase": "recon",
+  "target_minutes": 6,
+  "debrief": {
+    "victory": {
+      "speaker": "idit",
+      "text": "This is the first ground where the map was the intelligence. I could tell you which gate your vehicles could use before anybody had seen a man on it."
+    },
+    "defeat": {
+      "speaker": "shai",
+      "text": "We had four minutes and two vehicles and we spent them on the wall. The road party was eleven tiles away the whole time."
+    }
+  },
+  "briefing": "The wall across this pass has two ways through it: a shoulder at the crest, and a notch at plain level with the road in it. Somebody has cut an anti-tank ditch across the notch, so your men go low and your vehicles go high. Push the drone through the notch and identify the post over each gate. It can have both in one sortie; nothing on the ground can, because neither gate sees the other from any range on this map. What the drone cannot buy is the eastern pocket. A missile team on the scree covers it out to thirteen tiles, air only, and the battery it protects sits in a bowl nothing here can see into. Four families are stopped on the pass road east of the staging ground, inside that battery's arc. Get two of them back to the staging ground inside four minutes. The jeep and the Eitan carry two each, and the same men are the only ones who can reach anything east. Driving is how you beat that clock; walking is how you lose it. Bring back both gate posts, and do not buy the pocket with the drone.",
+  "map": {
+    "file": "qarn_hadid",
+    "player_start": [24, 42]
+  },
+  "ledger": {
+    "requires": ["roster.surviving_units"],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions",
+      "intel.marked_positions",
+      "civ.settlements_evacuated"
+    ]
+  },
+  "starting_force": [
+    { "unit": "recon_drone", "count": 1, "at": [24, 41] },
+    { "unit": "jeep_shoded", "count": 1, "at": [22, 43] },
+    { "unit": "inf_squad", "count": 2, "at": [24, 43], "from_ledger": true },
+    { "unit": "at_team", "count": 1, "at": [26, 43], "from_ledger": true },
+    { "unit": "apc_eitan", "count": 1, "at": [25, 44] }
+  ],
+  "objectives": [
+    { "id": "find_the_high_gate_post", "type": "locate", "primary": true, "target": "qh_watch_shoulder",
+      "text": "Identify the post over the high gate",
+      "say": { "speaker": "idit", "text": "The post over the shoulder holds eight of that gate's twenty tiles and not one tile of the other. From where he is standing the low gate does not exist." } },
+    { "id": "find_the_low_gate_post", "type": "locate", "primary": true, "target": "qh_watch_notch",
+      "text": "Identify the post over the low gate",
+      "say": { "speaker": "idit", "text": "The one over the notch is in heavy cover and has the whole of it, twenty tiles out of twenty. Anything that crosses low crosses in front of him." } },
+    { "id": "get_the_road_party_clear", "type": "evacuate_before", "primary": true, "target": "south_staging", "count": 2, "seconds": 240,
+      "text": "Get two families off the pass road inside four minutes",
+      "say": { "speaker": "shai", "text": "Two into the staging ground. Whatever is still on that road is not worth a second run east." },
+      "say_on_fail": { "speaker": "shai", "text": "Four minutes, and nothing of ours got within four tiles of that road. They will be moved by somebody else now." } },
+    { "id": "find_the_tube", "type": "locate", "primary": false, "target": "qh_hvt_tube",
+      "text": "Find the rocket battery in the hollow behind the start line",
+      "say": { "speaker": "idit", "text": "The battery is on the floor of the bowl behind you, on your own side of the wall. Nothing here can see into that hollow and it does not need to: its eyes are eight tiles forward, on the boulder bench." } },
+    { "id": "find_the_bench_post", "type": "locate", "primary": false, "target": "qh_watch_bench",
+      "text": "Identify the observer on the boulder bench",
+      "say": { "speaker": "idit", "text": "That is the tube's eye. Take him off the bench and the battery is firing at the last place somebody told it about." } },
+    { "id": "find_the_ditch_gun", "type": "locate", "primary": false, "target": "qh_atgm_ditch",
+      "text": "Identify the ATGM cell over the west ditch end",
+      "say": { "speaker": "idit", "text": "ATGM cell seventeen tiles past the notch, laid on the west end of a second ditch nobody has been close enough to draw. That gun is on the board now." } },
+    { "id": "screen_out", "type": "survive_until", "primary": false, "seconds": 300,
+      "text": "Stay in the field for five minutes" }
+  ],
+  "roe": { "enabled": true },
+  "civilians": {
+    "refuge": "kdf_start",
+    "groups": [
+      { "unit": "civilians", "count": 2, "at": [34, 31], "group": "road_party" },
+      { "unit": "civilians", "count": 2, "at": [36, 32], "group": "road_party" }
+    ]
+  },
+  "enemy": {
+    "faction": "sarim",
+    "doctrine_profile": "standoff overwatch",
+    "garrison": [
+      { "unit": "sarim_rifles", "count": 1, "at": [24, 12], "tag": "qh_watch_shoulder" },
+      { "unit": "sarim_rifles", "count": 1, "at": [32, 15], "tag": "qh_watch_notch" },
+      { "unit": "recoilless_team", "count": 1, "at": [33, 26], "tag": "qh_watch_bench", "stance": { "kind": "ambush", "tiles": 4 } },
+      { "unit": "atgm_cell", "count": 1, "at": [14, 12], "tag": "qh_atgm_ditch" },
+      { "unit": "rocket_battery", "count": 1, "marker": "hollow_floor", "group": "tube", "tag": "qh_hvt_tube" },
+      { "unit": "manpad_team", "count": 1, "at": [40, 30], "tag": "qh_manpad_scree" },
+      { "unit": "sarim_rifles", "count": 1, "at": [30, 16],
+        "stance": { "kind": "patrol", "waypoints": [[30, 16], [30, 22]] } }
+    ],
+    "waves": [
+      { "at_seconds": 150, "to": "saddle_gate",
+        "units": [ { "unit": "sarim_rifles", "count": 1, "from": "north_junction" } ],
+        "say": { "speaker": "idit", "text": "One section walking down to the notch from the junction. They are reinforcing the low gate while you are still photographing it." } },
+      { "at_seconds": 260, "to": "shoulder_gate",
+        "units": [ { "unit": "sarim_rifles", "count": 1, "from": "north_junction" } ] }
+    ]
+  },
+  "triggers": [
+    { "id": "something_is_living_in_the_scree",
+      "on": { "kind": "zone_entered", "zone": "scree" },
+      "do": { "kind": "spawn", "units": [ { "unit": "sarim_rifles", "count": 1, "marker": "scree_north" } ] },
+      "say": { "speaker": "idit", "text": "There is a section in the boulders and it did not walk in behind you. That pocket has been held since before anybody came up this road." } },
+    { "id": "he_will_not_leave_the_tube",
+      "on": { "kind": "casualties_pct", "value": 40 },
+      "do": { "kind": "withdraw_to", "group": "tube", "to": "village_square" },
+      "say": { "speaker": "idit", "text": "The tube is out of the hollow and driving for the high gate. He does not leave one standing on a floor he can be walked onto." } },
+    { "id": "they_move_the_road_party_off",
+      "on": { "kind": "timer_s", "value": 250 },
+      "do": { "kind": "remove", "group": "road_party" },
+      "say": { "speaker": "idit", "text": "The road is empty. Nobody fought over it — they were walked off it while the drone was over the wall." } }
+  ]
+}

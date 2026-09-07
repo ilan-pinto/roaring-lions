@@ -328,10 +328,28 @@ const structureSymbols = new Map(
     for (const p of mi.enemy?.garrison ?? []) {
       wantUnit(p.unit, 'garrison');
       wantMarker(p.marker, 'garrison');
-      // A garrison stance must point at an actual building on this map.
+      // A garrison stance must point at an actual building on this map --
+      // either baked into the map's own rows, or raised by this mission's own
+      // `structures[]`. MissionRuntime.raiseMissionStructures runs before any
+      // garrison spawns (mission.ts start()), so the runtime already treats a
+      // mission-placed structure exactly like a map one; until this fix (2026-
+      // 09-07, Qarn Hadid II's revetment) only the static rows were checked
+      // here, so garrisoning a mission-placed building failed this gate even
+      // though the mission plays correctly.
       if (p.stance?.kind === 'garrison') {
         const b = p.stance.building;
-        const sym = b && map.rows?.[Math.floor(b[1])]?.[Math.floor(b[0])];
+        let sym = b && map.rows?.[Math.floor(b[1])]?.[Math.floor(b[0])];
+        if ((!sym || !'#hawsm'.includes(sym)) && b) {
+          const [bx, by] = b;
+          const placed = (mi.structures ?? []).find((s) => {
+            if (!s?.type || !Array.isArray(s.at)) return false;
+            const [px, py] = s.at;
+            const [pw, ph] = s.size ?? [1, 1];
+            return bx >= px && bx < px + pw && by >= py && by < py + ph;
+          });
+          const placedSym = placed && structureCatalogue.types[placed.type]?.symbol;
+          if (placedSym) sym = placedSym;
+        }
         if (!sym || !'#hawsm'.includes(sym)) {
           failures.push(
             `${rel(file)}: ${p.unit} garrison stance points at (${b?.join(',')}) which is not a building`

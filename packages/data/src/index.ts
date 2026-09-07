@@ -64,6 +64,9 @@ import beitSahwan4 from '../../../data/missions/beit_sahwan_4_subterranean.json'
 import telMarum1Recon from '../../../data/missions/tel_marum_1_recon.json';
 import telMarum2Foothold from '../../../data/missions/tel_marum_2_foothold.json';
 import telMarum3Clearance from '../../../data/missions/tel_marum_3_clearance.json';
+import qarnHadid1Recon from '../../../data/missions/qarn_hadid_1_recon.json';
+import qarnHadid2Foothold from '../../../data/missions/qarn_hadid_2_foothold.json';
+import qarnHadid3Clearance from '../../../data/missions/qarn_hadid_3_clearance.json';
 import ummZeitoun1Recon from '../../../data/missions/umm_zeitoun_1_recon.json';
 import ummZeitoun2Buildup from '../../../data/missions/umm_zeitoun_2_buildup.json';
 import ummZeitoun3Clearance from '../../../data/missions/umm_zeitoun_3_clearance.json';
@@ -185,6 +188,9 @@ export const missions = {
   tel_marum_1_recon: telMarum1Recon,
   tel_marum_2_foothold: telMarum2Foothold,
   tel_marum_3_clearance: telMarum3Clearance,
+  qarn_hadid_1_recon: qarnHadid1Recon,
+  qarn_hadid_2_foothold: qarnHadid2Foothold,
+  qarn_hadid_3_clearance: qarnHadid3Clearance,
   umm_zeitoun_1_recon: ummZeitoun1Recon,
   umm_zeitoun_2_buildup: ummZeitoun2Buildup,
   umm_zeitoun_3_clearance: ummZeitoun3Clearance,

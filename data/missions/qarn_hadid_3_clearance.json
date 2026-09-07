@@ -1,0 +1,105 @@
+{
+  "id": "qarn_hadid_3_clearance",
+  "name": "Qarn Hadid III — The Village Road",
+  "town": "qarn_hadid",
+  "phase": "clearance",
+  "target_minutes": 7,
+  "debrief": {
+    "victory": {
+      "speaker": "shai",
+      "text": "The road is open. It was cut by a man who has never been here, and opening it cost a climb, a demolition and a clinic full of people."
+    },
+    "defeat": {
+      "speaker": "idit",
+      "text": "The ditch is still across the fields and the mast is still on the hill. Whatever the basin's guns are told tomorrow, they are told fast."
+    }
+  },
+  "briefing": "There is a second ditch and it is not at the gates. He cut an anti-tank line across the fields on the village's own approach, with the town beyond it and two narrow ways round the ends. Two roads into that town and you take one. Seventeen tiles round the west end, twenty-three round the east through the olive grove, and there is an eye in the grove. The west end runs under the terraced knoll; a post on its east shoulder sees four of its seven tiles, and the Kornet below the post sees all seven. Whatever you identified here last week comes back with its ambush spent; whatever you did not gets its first shot. Take the knoll first with foot and the armour walks in behind you. Take it second and it walks in under a Kornet. The mast up there sees the shoulder gate and the last bend of its own road, and nothing else on this map — not the village, not the junction. It watches little; it tells the basin what the eyes here saw. Clear the village and hold it, and kill the relay crew on the knoll. Three families are in it and the yard they walk to is the clinic's own. That yard is flagged: heavy ordnance into it is billed by the round, and they are inside it for five minutes. Open the road — everything this brigade does after this town is on the other side of it.",
+  "map": {
+    "file": "qarn_hadid",
+    "player_start": [24, 42]
+  },
+  "ledger": {
+    "requires": ["roster.surviving_units", "intel.marked_positions"],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions",
+      "intel.marked_positions",
+      "civ.settlements_evacuated"
+    ]
+  },
+  "starting_force": [
+    { "unit": "inf_squad", "count": 3, "at": [24, 43], "from_ledger": true },
+    { "unit": "at_team", "count": 1, "at": [26, 43], "from_ledger": true },
+    { "unit": "mortar_team", "count": 1, "at": [23, 44], "from_ledger": true },
+    { "unit": "demo_squad", "count": 1, "at": [22, 43], "from_ledger": true },
+    { "unit": "mbt_lavi", "count": 1, "at": [26, 44] },
+    { "unit": "ifv_namer", "count": 1, "at": [20, 44] },
+    { "unit": "apc_eitan", "count": 2, "at": [25, 44] },
+    { "unit": "sniper_team", "count": 1, "at": [23, 43] },
+    { "unit": "recon_drone", "count": 1, "at": [24, 41] }
+  ],
+  "resources": { "logistics_start": 400, "logistics_rate_per_min": 80 },
+  "objectives": [
+    { "id": "take_the_village", "type": "capture", "primary": true, "target": "village", "seconds": 20,
+      "text": "Clear the village and hold it for 20 seconds",
+      "say": { "speaker": "net", "text": "Village is held. The pass road runs from the staging ground into the basin without stopping now." } },
+    { "id": "kill_the_relay", "type": "eliminate_hvt", "primary": true, "target": "qh_hvt_relay",
+      "text": "Kill the relay crew on the terraced knoll",
+      "say": { "speaker": "idit", "text": "The mast is down. It never saw one thing on this map but the high gate — it was the wire, and from tonight the basin's guns are slower to be told." } },
+    { "id": "get_the_families_clear", "type": "evacuate_before", "primary": true, "target": "clinic", "count": 3, "seconds": 300,
+      "text": "Get three families out of the village to the clinic yard inside five minutes",
+      "say": { "speaker": "shai", "text": "Three in the clinic yard. Nothing heavier than a rifle goes into that yard while they are standing in it." },
+      "say_on_fail": { "speaker": "shai", "text": "Five minutes. They are still in the village and the village is still being fought over, and that is on the plan, not on them." } },
+    { "id": "take_the_terraces", "type": "capture", "primary": false, "target": "the_terraces", "seconds": 15,
+      "text": "Take the terraces and hold them for 15 seconds",
+      "say": { "speaker": "net", "text": "Terraces are ours. The armour's road out of the west ditch end is unwatched for the first time." } },
+    { "id": "find_the_grove_post", "type": "locate", "primary": false, "target": "qh_watch_grove",
+      "text": "Identify the post in the olive grove",
+      "say": { "speaker": "idit", "text": "One post in the olive grove, over the east ditch end. He goes into the file for the basin — the same idea is waiting for us there." } }
+  ],
+  "roe": { "enabled": true, "flagged_zones": ["clinic"], "fail_below": 45 },
+  "civilians": {
+    "refuge": "clinic_yard",
+    "groups": [
+      { "unit": "civilians", "count": 3, "at": [29, 3] },
+      { "unit": "civilians", "count": 2, "at": [22, 5] }
+    ]
+  },
+  "enemy": {
+    "faction": "sarim",
+    "doctrine_profile": "standoff overwatch",
+    "garrison": [
+      { "unit": "sarim_rifles", "count": 1, "at": [10, 9], "tag": "qh_hvt_relay", "group": "relay", "stance": { "kind": "ambush", "tiles": 2 } },
+      { "unit": "sarim_rifles", "count": 1, "at": [11, 10], "tag": "qh_hvt_relay", "group": "relay", "stance": { "kind": "ambush", "tiles": 2 } },
+      { "unit": "sarim_rifles", "count": 1, "at": [15, 8] },
+      { "unit": "atgm_cell", "count": 1, "at": [14, 12], "tag": "qh_atgm_ditch", "stance": { "kind": "ambush", "tiles": 6 } },
+      { "unit": "sarim_rifles", "count": 1, "at": [22, 3], "group": "village", "stance": { "kind": "garrison", "building": [22, 3] } },
+      { "unit": "sarim_rifles", "count": 1, "at": [27, 3], "group": "village", "stance": { "kind": "garrison", "building": [27, 3] } },
+      { "unit": "recoilless_team", "count": 1, "at": [34, 7], "group": "village", "stance": { "kind": "ambush", "tiles": 5 } },
+      { "unit": "sarim_rifles", "count": 1, "at": [39, 13], "tag": "qh_watch_grove" },
+      { "unit": "sarim_rifles", "count": 1, "at": [32, 15], "tag": "qh_watch_notch" },
+      { "unit": "manpad_team", "count": 1, "at": [36, 12], "tag": "qh_manpad_north" }
+    ],
+    "waves": [
+      { "at_seconds": 120, "to": "north_junction",
+        "units": [ { "unit": "sarim_rifles", "count": 2, "from": "village_square" } ] },
+      { "at_seconds": 240, "to": "shoulder_gate",
+        "units": [ { "unit": "recoilless_team", "count": 1, "from": "knoll_top" } ] },
+      { "at_seconds": 330, "to": "clinic_yard",
+        "units": [ { "unit": "sarim_rifles", "count": 2, "from": "village_square" } ],
+        "say": { "speaker": "idit", "text": "Two sections off the square and they are going to the clinic, not to you. He knows which yard we told those families to walk to." } }
+    ]
+  },
+  "triggers": [
+    { "id": "they_come_out_of_the_square",
+      "on": { "kind": "zone_entered", "zone": "village" },
+      "do": { "kind": "commit", "group": "village", "to": "village_square" },
+      "say": { "speaker": "net", "text": "The garrison is out of the buildings and forming on the square." } },
+    { "id": "the_town_falls_back_onto_the_hill",
+      "on": { "kind": "casualties_pct", "value": 45 },
+      "do": { "kind": "withdraw_to", "group": "village", "to": "knoll_top" },
+      "say": { "speaker": "idit", "text": "They have left the houses and gone up onto the terraces. He is giving you the town and keeping the hill you have to climb." } }
+  ]
+}

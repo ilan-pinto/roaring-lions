@@ -49,6 +49,7 @@ a voice layer, which are new surfaces. Read it as retired, not quietly broken
 | D14 | **Act II is landed** (2026-09-03): the four Umm Zeitoun missions ship on `data/maps/umm_zeitoun.json`, `world.json` enforces proximity → standoff → source (Sur after Beit Sahwan IV, Naharin after Umm Zeitoun IV), Shai is a Major through the act and Karim Adhal ends on the crest | pipeline, measured by `pnpm playtest` | GH-122's content exists; the ending (O9) can now be written against a war with a middle; Act III (Naharin) is next |
 | D15 | **Act III started** (2026-09-06): Naharin, Wadi Halam's five shipped missions re-integrated around Jubran Hallaq, Shai Lieutenant Colonel then Colonel; the ending (O9) still open, so the design carries both | lead | `docs/campaign/wadi_halam/design.md` is the Act III MDD |
 | D16 | **Act III is landed** (2026-09-06): Wadi Halam I–IV each carry one failable primary and every passive control loses on its clock; Hallaq named across the act; the dispatch on I and the aftermath on V. **The aftermath applied is Option 1 "Ari Actual", the design's recommendation; O9 stays the lead's — Option 2 is one string in `docs/campaign/wadi_halam/script.md` §8** | pipeline, measured by `pnpm playtest` | the whole war now plays Marj → Sur → Naharin with a middle and an end; next are the surfaces (G11 debrief split, G18 the villain's face) and the housekeeping in §7 |
+| D17 | **Qarn Hadid is landed** (2026-09-07): §4.3's plot (c) — three missions on the shipped relief map, Sur's third town between Tel Marum and Umm Zeitoun, Shai a Major throughout, Adhal present only in what he built; every passive control loses on its clock and every plan wins (`pnpm playtest`); the campaign board carries its pin | pipeline, measured by `pnpm playtest` | §4.4's order continues with (b) Khan Rafid and Deir Amun — two new maps, six missions, the strongest beat |
 
 ### 0.3 Still open — for the lead
 
@@ -413,7 +414,7 @@ prefers the build-up, the Cattle Track's line is rewritten in the same commit.
 
 **Cost:** two new 48×48 maps + six missions. The largest of the three.
 
-### 4.3 (c) Qarn Hadid — the two gates · *the plot nobody asked for*
+### 4.3 (c) Qarn Hadid — the two gates · *the plot nobody asked for* · **landed 2026-09-07** (`docs/campaign/qarn_hadid/`)
 
 **The map exists and nothing uses it.** `data/maps/qarn_hadid.json` — 48×48,
 `terrain: arid`, elevation 0–7 (every other map tops out at 4), the **only** map

@@ -287,6 +287,11 @@ pure terrain.
    gate and **nothing else on the map** — not the village, not the junction, not
    the ditch. It sees **0 of 10** tiles of the armour's road. But the knoll's
    **east shoulder** does: `[15,8]` sees 8/10 at sight 8, `[14,12]` 7/10,
+   [**corrected at authoring, 2026-09-07** — the 10-tile road sample does not
+   reproduce from the script's definition (it is 7 tiles); measured through the
+   real `Sim` and pinned in `tools/src/qarn_hadid_doctrine.test.ts` S8c–S11:
+   `knoll_top` sees **4 of 7**, not 0; `[15,8]` 4/7; `[14,12]` (the Kornet) **7/7**;
+   `[13,10]` 5/7. III's briefing beats 4–5 were rewritten to those numbers.]
    `[13,10]` 6/10. The mast sits where it cannot see; the rifles sit where they
    can.
 5. **The Hollow is dead ground twice over.** `hollow_floor [38,38]` at sight 48
@@ -325,7 +330,7 @@ for III is offered as O-QH7.
 |---|---|---|---|---|---|---|---|
 | I | `qarn_hadid_1_recon` · *Both Gates* | recon | **6** | `locate` · `qh_watch_shoulder` · `locate` · `qh_watch_notch` · **`evacuate_before` · `south_staging` (count 2, 240 s)** | `locate` · `qh_hvt_tube`; `locate` · `qh_watch_bench`; `locate` · `qh_atgm_ditch`; `survive_until` 300 | **R** / **R M C I E** | n |
 | II | `qarn_hadid_2_foothold` · *The Shoulder* | foothold | **7** | `hold_for` · `the_gates` (180 s) · **`raze` · `the_gates` (300 s)** | `capture` · `hollow` (15 s); `eliminate_hvt` · `qh_watch_bench` | **R I** / **R M C** | **y** |
-| III | `qarn_hadid_3_clearance` · *The Village Road* | clearance | **7** | `capture` · `village` (20 s) · `eliminate_hvt` · `qh_hvt_relay` · **`evacuate_before` · `clinic` (count 3, 300 s)** | `capture` · `the_terraces` (15 s); `locate` · `qh_watch_grove` | **R I** / **R M C I E** | n |
+| III | `qarn_hadid_3_clearance` · *The Village Road* | clearance | **7** | `capture` · `village` (20 s) · `eliminate_hvt` · `qh_hvt_relay` · **`evacuate_before` · `clinic` (count 3, 300 s)** | `capture` · `the_terraces` (15 s); `locate` · `qh_watch_grove` | **R I** / **R M C I E** | **y** (was `n` here; §5.3, the sheet and the script all author it, and the JSON does) |
 
 Phases ascend **2 → 3 → 5**. Every objective type is one of the nine the runtime
 runs; no `mark`, `escort` or `no_collateral_above` appears anywhere. Every

@@ -34,7 +34,7 @@ All geography, factions, and place names are **fictional**. Enemy forces are def
 | **Sur** | northern mountains | Sarim Brigades | rockets, ATGMs, best-trained, standoff |
 | **Naharin** | eastern river basin — irrigated green highland | Rif Cells | technicals, raids, smuggling, mobility |
 
-**Towns:** Beit Sahwan, Khan Rafid, Deir Amun (Marj) · Tel Marum, Umm Zeitoun (Sur) · Wadi Halam (Naharin).
+**Towns:** Beit Sahwan, Khan Rafid, Deir Amun (Marj) · Tel Marum, Qarn Hadid, Umm Zeitoun (Sur) · Wadi Halam (Naharin).
 
 **Layout.** Kedem sits in the centre of the basin with all three fronts on its borders,
 and the geography sets the order of the war: **proximity, then standoff, then source.**

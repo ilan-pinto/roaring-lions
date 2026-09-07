@@ -1,0 +1,96 @@
+{
+  "id": "qarn_hadid_2_foothold",
+  "name": "Qarn Hadid II — The Shoulder",
+  "town": "qarn_hadid",
+  "phase": "foothold",
+  "target_minutes": 7,
+  "debrief": {
+    "victory": {
+      "speaker": "shai",
+      "text": "The crest is a road. It took five minutes of standing still under fire to make it one, and he poured it in an afternoon a year before we came."
+    },
+    "defeat": {
+      "speaker": "idit",
+      "text": "The concrete is still across the shoulder. Everything we sent through the low gate is on the wrong side of a wall we never opened."
+    }
+  },
+  "briefing": "The high gate is shut. Four tiles of poured concrete across the shoulder gap at the crest — the drone brought back men, not masonry, so it was never on the board. The infantry crosses low, then, and it crosses alone. The notch is open on foot from the first second and it is covered end to end from the cover above it, so they are seen the whole way through. That concrete was poured before the brigade was in Sur. He did not garrison this pass — he priced it, and he set a different price for men and for vehicles. Engineers take the revetment down inside five minutes or this is over. Until it comes down nothing on wheels or tracks goes north of the wall at all, and the camp behind you is the only place anything new comes from. Buy accordingly: a Namer bought at two minutes cannot use a road the engineers have not opened yet. Then hold both gates for three minutes. Nothing crossing the notch can be supported from the shoulder, or the other way round. Send them anyway, and know how long they are alone.",
+  "map": {
+    "file": "qarn_hadid",
+    "player_start": [24, 42]
+  },
+  "ledger": {
+    "requires": ["roster.surviving_units", "intel.marked_positions"],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions"
+    ]
+  },
+  "starting_force": [
+    { "unit": "inf_squad", "count": 3, "at": [24, 43], "from_ledger": true },
+    { "unit": "at_team", "count": 1, "at": [26, 43], "from_ledger": true },
+    { "unit": "mortar_team", "count": 1, "at": [23, 44], "from_ledger": true },
+    { "unit": "demo_squad", "count": 1, "at": [22, 43] },
+    { "unit": "mbt_lavi", "count": 1, "at": [26, 44] },
+    { "unit": "ifv_namer", "count": 1, "at": [20, 44] },
+    { "unit": "apc_eitan", "count": 2, "at": [25, 44] },
+    { "unit": "recon_drone", "count": 1, "at": [24, 41] }
+  ],
+  "resources": { "logistics_start": 500, "logistics_rate_per_min": 130 },
+  "structures": [
+    { "type": "concrete", "at": [18, 19], "size": [4, 1] },
+    { "type": "camp", "at": [25, 34], "size": [2, 2] }
+  ],
+  "objectives": [
+    { "id": "open_the_shoulder", "type": "raze", "primary": true, "target": "the_gates", "seconds": 300,
+      "text": "Raze the revetment on the high gate inside five minutes",
+      "say": { "speaker": "shai", "text": "Revetment is down and the crest is a road. Nothing on tracks has had one since we got to this pass." },
+      "say_on_fail": { "speaker": "shai", "text": "Five minutes. The concrete is standing, the armour has not moved a tile north, and the men who crossed low are still over there." } },
+    { "id": "hold_the_gates", "type": "hold_for", "primary": true, "target": "the_gates", "seconds": 180,
+      "text": "Hold both gates for three minutes",
+      "say": { "speaker": "net", "text": "Both gates held. Nothing crossed this wall tonight that we did not put through it." } },
+    { "id": "take_the_hollow", "type": "capture", "primary": false, "target": "hollow", "seconds": 15,
+      "text": "Take the hollow behind the start line and hold it for 15 seconds",
+      "say": { "speaker": "idit", "text": "The bowl is empty. He took the tube north through a gate you have not opened yet, and while you stand in this one he cannot bring it back." } },
+    { "id": "kill_the_bench_post", "type": "eliminate_hvt", "primary": false, "target": "qh_watch_bench",
+      "text": "Kill the observer on the boulder bench",
+      "say": { "speaker": "idit", "text": "Bench is clear. The battery still has its range card and nobody left to read it out." } }
+  ],
+  "roe": { "enabled": true },
+  "enemy": {
+    "faction": "sarim",
+    "doctrine_profile": "standoff overwatch",
+    "garrison": [
+      { "unit": "sarim_rifles", "count": 1, "at": [19, 19], "group": "gate",
+        "stance": { "kind": "garrison", "building": [19, 19] } },
+      { "unit": "sarim_rifles", "count": 1, "at": [21, 17], "group": "gate" },
+      { "unit": "atgm_cell", "count": 1, "at": [19, 16], "group": "gate" },
+      { "unit": "sarim_rifles", "count": 1, "at": [32, 15], "tag": "qh_watch_notch" },
+      { "unit": "atgm_cell", "count": 1, "at": [33, 16], "tag": "qh_atgm_saddle", "stance": { "kind": "ambush", "tiles": 6 } },
+      { "unit": "recoilless_team", "count": 1, "at": [33, 26], "tag": "qh_watch_bench", "stance": { "kind": "ambush", "tiles": 4 } },
+      { "unit": "manpad_team", "count": 1, "at": [40, 30], "tag": "qh_manpad_scree" },
+      { "unit": "sarim_rifles", "count": 1, "at": [38, 38] },
+      { "unit": "rocket_battery", "count": 1, "at": [26, 13], "group": "tube", "tag": "qh_hvt_tube" }
+    ],
+    "waves": [
+      { "at_seconds": 120, "to": "shoulder_gate",
+        "units": [ { "unit": "sarim_rifles", "count": 2, "from": "north_junction" } ] },
+      { "at_seconds": 240, "to": "saddle_gate",
+        "units": [ { "unit": "recoilless_team", "count": 1, "from": "village_square" } ] },
+      { "at_seconds": 330, "to": "saddle_gate",
+        "units": [ { "unit": "sarim_rifles", "count": 2, "from": "village_square" } ],
+        "say": { "speaker": "idit", "text": "Two more sections off the square, and they are going to the notch rather than to the shoulder. He is fighting for the gate you did not choose." } }
+    ]
+  },
+  "triggers": [
+    { "id": "the_shoulder_garrison_walks_to_the_notch",
+      "on": { "kind": "zone_entered", "zone": "the_gates" },
+      "do": { "kind": "commit", "group": "gate", "to": "saddle_gate" },
+      "say": { "speaker": "idit", "text": "The section in the revetment has left it and gone east to the notch. You are five minutes into opening a gate they have stopped defending." } },
+    { "id": "he_takes_the_tube_into_the_village",
+      "on": { "kind": "casualties_pct", "value": 40 },
+      "do": { "kind": "withdraw_to", "group": "tube", "to": "village_square" },
+      "say": { "speaker": "net", "text": "Battery is displacing onto the village square. It will not be where the drone last had it and it still reaches both gates." } }
+  ]
+}

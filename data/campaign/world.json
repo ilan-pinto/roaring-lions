@@ -65,6 +65,15 @@
           "missions": ["tel_marum_1_recon", "tel_marum_2_foothold", "tel_marum_3_clearance"]
         },
         {
+          "id": "qarn_hadid",
+          "name": "Qarn Hadid",
+          "at": [
+            548.0,
+            105.0
+          ],
+          "missions": ["qarn_hadid_1_recon", "qarn_hadid_2_foothold", "qarn_hadid_3_clearance"]
+        },
+        {
           "id": "umm_zeitoun",
           "name": "Umm Zeitoun",
           "at": [

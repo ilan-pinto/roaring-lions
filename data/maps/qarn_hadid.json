@@ -52,6 +52,10 @@
   "civ_refuge": [
    10,
    43
+  ],
+  "clinic_yard": [
+   44,
+   10
   ]
  },
  "zones": {
