@@ -372,8 +372,59 @@ const structureSymbols = new Map(
       for (const u of t.do?.units ?? []) wantUnit(u.unit, 'trigger spawn');
     }
     for (const o of mi.objectives ?? []) {
-      if ((o.type === 'capture' || o.type === 'hold_for') && o.target && !zoneNames.has(o.target)) {
-        failures.push(`${rel(file)}: objective "${o.id}" references unknown zone "${o.target}"`);
+      if ((o.type === 'capture' || o.type === 'hold_for') && o.target) {
+        if (!zoneNames.has(o.target)) {
+          failures.push(`${rel(file)}: objective "${o.id}" references unknown zone "${o.target}"`);
+        } else {
+          // ...and that at least one tile of it can hold a living unit
+          // (2026-09-07, Khan Rafid design G9). Both types complete on
+          // `livingIn(zone, side) > 0`, so a zone drawn tightly round a walled
+          // compound -- every tile a building or a `^` ridge -- is unreachable
+          // by anyone, which makes the objective unwinnable AND, since neither
+          // type can fail, unlosable: `checkEnd` never reaches an end
+          // condition. Exactly the trap the raze check above exists to stop,
+          // in the other direction, and found by an author nearly shipping a
+          // `store` zone drawn round a warehouse.
+          //
+          // `b` and `d` are passable here on purpose: they are open ground on
+          // foot and only a wall to wheels and tracks, so a zone of boulders
+          // is takeable by infantry and is not this defect.
+          const rect = map.zones?.[o.target];
+          if (rect) {
+            const [zx, zy, zw, zh] = rect;
+            let passable = 0;
+            for (let y = zy; y < zy + zh; y++) {
+              for (let x = zx; x < zx + zw; x++) {
+                const sym = map.rows?.[y]?.[x];
+                if (sym === undefined) continue;
+                if (sym === '^' || structureSymbols.has(sym)) continue;
+                passable += 1;
+              }
+            }
+            // Mission-placed bodies stand on ground the rows still call open
+            // -- `raiseMissionStructures` again -- so a zone whose only open
+            // tiles are covered by a placed wall or fence is the same defect.
+            for (const placed of mi.structures ?? []) {
+              if (!placed?.type || !Array.isArray(placed.at)) continue;
+              const [px, py] = placed.at;
+              const [pw, ph] = placed.size ?? [1, 1];
+              for (let y = Math.max(py, zy); y < Math.min(py + ph, zy + zh); y++) {
+                for (let x = Math.max(px, zx); x < Math.min(px + pw, zx + zw); x++) {
+                  const sym = map.rows?.[y]?.[x];
+                  if (sym !== undefined && sym !== '^' && !structureSymbols.has(sym)) passable -= 1;
+                }
+              }
+            }
+            if (passable <= 0) {
+              failures.push(
+                `${rel(file)}: ${o.type} "${o.id}" zone "${o.target}" has no tile a unit can stand on ` +
+                  `-- every tile is a building, a "^" ridge or a mission-placed structure. ` +
+                  `Both types complete on a living unit inside the zone and neither can fail, so this ` +
+                  `objective is unwinnable and unlosable at once.`
+              );
+            }
+          }
+        }
       }
       // stepDemolition (sim.ts:2914-2919) consults `roePenalty` and `lowProfile` only
       // when a demolisher is picking a target on its own initiative -- `per_tile`
