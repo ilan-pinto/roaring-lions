@@ -78,12 +78,20 @@ Three facts that decide the order below:
    `&nomesh` keep loading everything, unchanged: they draw from the sheets.
    The decision is a pure function, `spriteSheetPlan` in `mesh-catalogue.ts`, tested.
 2. **Ground textures ship as JPEG, sources stay PNG** (`-8 MiB`, done 2026-09-07). The
-   six 1024^2 tiles are opaque photographic noise stored losslessly at 2.2-2.5 MB each;
-   JPEG q90 with no chroma subsampling reads 490-680 KB each (measured on all six; q85
+   1024^2 tiles are opaque photographic noise stored losslessly at 2.2-2.5 MB each;
+   JPEG q90 with no chroma subsampling reads 490-680 KB each (measured on all of them; q85
    saves another 20% and was not taken, q95 costs 40% more for nothing this camera can
    show), so the four a map fetches drop from 9.4 MiB to about 2.4. The PNGs move to `art/textures/` as the source of record
    (`art/blend/` is untracked); `assets/textures/*.jpg` ships. Colour space and wrap are
    unchanged (`NoColorSpace`, `RepeatWrapping`).
+
+   **A seventh tile landed 2026-09-08** -- `knoll_scree_tile.jpg`, 584 KiB, the `n`
+   rocky knoll's own albedo. It is a real addition to the wire, not a saving: 19 of the
+   25 shipped maps carry knolls, so nearly every playable level now fetches one more tile. That
+   is affordable at this step's own prices (a level's ground textures go from about 2.4
+   MiB to 3.0, against the 47.9 MiB the whole level costs after step 1) and it is why
+   the per-map skip in `loadGroundTexture` had to exist first: the one map with no `n`
+   pays nothing, and neither does any map for a slot it cannot sample.
 3. **Wreck meshes load after the first frame** (`-8 to -12 MiB` depending on the map).
    `hall_wreck` is 3.8 MB, `house_wreck` 2.6, `apartment_wreck` 1.6; a building takes
    minutes to fall and `loadBuildingMesh` already takes the wreck as a separate URL. Same

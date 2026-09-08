@@ -45,7 +45,16 @@
  * noise floor across this change while `relief` moves wholesale.
  */
 import { composite, quantise, groundTone, rampNeighbor, PALETTE_HEXES } from './tones';
-import { DECOR_GROVE, DECOR_RIDGE, DECOR_ROAD, hexToUnit, levelAt, pushPolygon, WORLD_PER_LEVEL } from './shared';
+import {
+  DECOR_GROVE,
+  DECOR_KNOLL,
+  DECOR_RIDGE,
+  DECOR_ROAD,
+  hexToUnit,
+  levelAt,
+  pushPolygon,
+  WORLD_PER_LEVEL,
+} from './shared';
 import {
   buildTerrainSurface,
   hasWall,
@@ -86,11 +95,11 @@ export const FACE_ALPHA_SOUTH = 0.85;
 const UP_NORMAL: readonly [number, number, number] = [0, 1, 0];
 
 /**
- * Which of `groundSurfaceMaterial`'s five albedo slots a vertex draws, and
+ * Which of `groundSurfaceMaterial`'s six albedo slots a vertex draws, and
  * how strongly.
  *
- * One value per slot rather than one enum, because they are five separate
- * decisions about five separate surfaces and each is asserted on its own
+ * One value per slot rather than one enum, because they are six separate
+ * decisions about six separate surfaces and each is asserted on its own
  * (`types.ts` gives the same reason for keeping `sandMask` and `rockMask`
  * apart). They are nevertheless MUTUALLY EXCLUSIVE by construction -- a tile
  * is one surface -- and `ground.test.ts` asserts that on every shipped map,
@@ -111,14 +120,17 @@ interface Albedo {
   readonly scrub: number;
   /** An `o` olive grove's floor. */
   readonly grove: number;
+  /** An `n` rocky knoll. */
+  readonly knoll: number;
 }
 
 /** No albedo at all: the palette tone, untouched. A building footprint, and
  *  every wall that is not a ridge face. */
-const NO_ALBEDO: Albedo = { sand: 0, rock: 0, road: 0, roadAxis: 0, scrub: 0, grove: 0 };
+const NO_ALBEDO: Albedo = { sand: 0, rock: 0, road: 0, roadAxis: 0, scrub: 0, grove: 0, knoll: 0 };
 const SAND_ALBEDO: Albedo = { ...NO_ALBEDO, sand: 1 };
 const RIDGE_ALBEDO: Albedo = { ...NO_ALBEDO, rock: 1 };
 const GROVE_ALBEDO: Albedo = { ...NO_ALBEDO, grove: 1 };
+const KNOLL_ALBEDO: Albedo = { ...NO_ALBEDO, knoll: 1 };
 
 /**
  * How strongly each cover tier samples the scrub albedo -- the mix weight
@@ -211,16 +223,15 @@ export function roadAxisAt(input: TerrainInput, x: number, y: number): number {
  *     belongs there.
  *  2. **A road** (`r`) takes the wheel track, at the axis its neighbours
  *     imply.
- *  3. **A grove** (`o`) takes the orchard floor. It reaches this line before
- *     the cover test deliberately: `o` IS cover 1 (`@lions/data`'s `LEGEND`),
- *     so without the ordering every olive grove in the game would draw as
+ *  3. **A grove** (`o`) takes the orchard floor, and **a knoll** (`n`) the
+ *     scree. Both reach this line before the cover test deliberately: `o` IS
+ *     cover 1 and `n` IS cover 2 (`@lions/data`'s `LEGEND`), so without the
+ *     ordering every olive grove and every knoll in the game would draw as
  *     scrub.
  *  4. **A plain cover tile** (`1`/`2`/`3` -- cover with no decor kind) takes
  *     scrub at its tier's strength. Keyed on the SYMBOL, not on the cover
- *     number, which is what keeps an `n` rocky knoll (cover 2, decor
- *     `knoll`) exactly as it was: neither the brief nor the art named it,
- *     and quietly restyling a symbol is how a map stops looking like the one
- *     its author drew.
+ *     number, which is what lets three surfaces sharing a cover tier draw
+ *     three different materials.
  *  5. **Everything else** is open ground and takes sand. A `b` boulder field
  *     and a `d` anti-tank ditch land here, as they did before: both are open
  *     ground the sim charges nothing for on foot, and both already carry
@@ -232,6 +243,7 @@ function albedoFor(input: TerrainInput, x: number, y: number): Albedo {
   if (input.blocked[ti] !== 0) return decorHere === DECOR_RIDGE ? RIDGE_ALBEDO : NO_ALBEDO;
   if (decorHere === DECOR_ROAD) return { ...NO_ALBEDO, road: 1, roadAxis: roadAxisAt(input, x, y) };
   if (decorHere === DECOR_GROVE) return GROVE_ALBEDO;
+  if (decorHere === DECOR_KNOLL) return KNOLL_ALBEDO;
   // DECOR none is 0 -- `shared.ts` names every kind but that one, since
   // "no decor" is the absence of an entry rather than a kind of its own.
   const tier = decorHere === 0 ? input.cover[ti] : 0;
@@ -240,17 +252,17 @@ function albedoFor(input: TerrainInput, x: number, y: number): Albedo {
 }
 
 /**
- * The five ground-albedo slots `mesh.ts`'s `GROUND_SLOTS` names, spelled out
+ * The six ground-albedo slots `mesh.ts`'s `GROUND_SLOTS` names, spelled out
  * again here rather than imported: `mesh.ts` is the one file in this
  * directory that touches `THREE.*` (`toGeometry`'s `BufferAttribute`,
  * `whitePixel`'s `DataTexture`), and this barrel's own doc comment
  * (`terrain/index.ts`) is explicit that nothing in it may drag three.js in.
  * `mesh.test.ts` pins that the two lists agree.
  */
-export type GroundAlbedoSlot = 'sand' | 'rock' | 'road' | 'scrub' | 'grove';
+export type GroundAlbedoSlot = 'sand' | 'rock' | 'road' | 'scrub' | 'grove' | 'knoll';
 
 /**
- * Which of the five ground-albedo slots a map's own tiles can ever land on --
+ * Which of the six ground-albedo slots a map's own tiles can ever land on --
  * derived by walking every tile through `albedoFor`, the SAME per-tile
  * decision `buildGround` itself makes, rather than a second, hand-kept rule
  * about which map symbols imply which texture (a hand-kept list is exactly
@@ -266,7 +278,7 @@ export type GroundAlbedoSlot = 'sand' | 'rock' | 'road' | 'scrub' | 'grove';
  * caller resolves it to is a `map.terrain` decision this function has no
  * opinion on, the same split `TERRAIN_GROUND_TEXTURE` already keeps.
  *
- * Short-circuits once all five slots have been seen: a slot already present
+ * Short-circuits once all six slots have been seen: a slot already present
  * cannot become "more present" by scanning further tiles, so a large map
  * that uses everything pays for a partial scan, not a full one.
  */
@@ -281,15 +293,16 @@ export function groundAlbedoSlotsUsed(input: TerrainInput): ReadonlySet<GroundAl
       if (a.road > 0) used.add('road');
       if (a.scrub > 0) used.add('scrub');
       if (a.grove > 0) used.add('grove');
-      if (used.size === 5) return used;
+      if (a.knoll > 0) used.add('knoll');
+      if (used.size === 6) return used;
     }
   }
   return used;
 }
 
-/** The six per-vertex albedo channels, as the plain arrays `buildGround`
+/** The seven per-vertex albedo channels, as the plain arrays `buildGround`
  *  accumulates before they become `Float32Array`s. One struct rather than
- *  six positional parameters: `pushSmoothTile` and `pushWall` already took
+ *  seven positional parameters: `pushSmoothTile` and `pushWall` already took
  *  fifteen arguments apiece. */
 interface AlbedoArrays {
   sand: number[];
@@ -298,6 +311,7 @@ interface AlbedoArrays {
   roadAxis: number[];
   scrub: number[];
   grove: number[];
+  knoll: number[];
 }
 
 /** Appends `a` to every channel of `into`, `times` times -- one call per
@@ -311,6 +325,7 @@ function pushAlbedo(into: AlbedoArrays, a: Albedo, times: number): void {
     into.roadAxis.push(a.roadAxis);
     into.scrub.push(a.scrub);
     into.grove.push(a.grove);
+    into.knoll.push(a.knoll);
   }
 }
 
@@ -338,7 +353,7 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
   const colors: number[] = [];
   const litColors: number[] = [];
   const normals: number[] = [];
-  const albedo: AlbedoArrays = { sand: [], rock: [], road: [], roadAxis: [], scrub: [], grove: [] };
+  const albedo: AlbedoArrays = { sand: [], rock: [], road: [], roadAxis: [], scrub: [], grove: [], knoll: [] };
   const groundUv: number[] = [];
   const indices: number[] = [];
 
@@ -539,6 +554,7 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
     roadAxis: Float32Array.from(albedo.roadAxis),
     scrubMask: Float32Array.from(albedo.scrub),
     groveMask: Float32Array.from(albedo.grove),
+    knollMask: Float32Array.from(albedo.knoll),
     groundUv: Float32Array.from(groundUv),
     indices: Uint32Array.from(indices),
   };

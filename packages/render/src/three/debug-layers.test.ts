@@ -144,7 +144,7 @@ describe('DEBUG_LAYERS', () => {
     const i = internals(r);
     i.groundMat.uniforms.uSandStrength.value = 0.7;
     i.groundMat.uniforms.uRockStrength.value = 0.4;
-    expect(r.setDebugLayerVisible('ground-albedo', false)).toBe(5);
+    expect(r.setDebugLayerVisible('ground-albedo', false)).toBe(6);
     expect(i.groundMat.uniforms.uSandStrength.value).toBe(0);
     expect(i.groundMat.uniforms.uRockStrength.value).toBe(0);
     r.setDebugLayerVisible('ground-albedo', true);

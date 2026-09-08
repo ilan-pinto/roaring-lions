@@ -16,7 +16,7 @@
  * The guard rail this task must not fail: "if a map's tiles can sample a
  * slot the loader would skip, that is the bug this task must not
  * introduce." Asserted by walking the REAL `buildGround` mesh's own masks
- * (`sandMask`/`rockMask`/`roadMask`/`scrubMask`/`groveMask`) for every
+ * (`sandMask`/`rockMask`/`roadMask`/`scrubMask`/`groveMask`/`knollMask`) for every
  * shipped map -- the exact attributes `groundSurfaceMaterial` samples at
  * render time -- rather than comparing `groundAlbedoSlotsUsed` against
  * itself, which would only prove the function agrees with itself and could
@@ -31,7 +31,7 @@ import { TERRAIN_THEMES } from './terrain-themes';
 const BACKGROUND = '#14150F';
 const MAP_IDS = Object.keys(maps) as MapId[];
 
-type GroundAlbedoSlot = 'sand' | 'rock' | 'road' | 'scrub' | 'grove';
+type GroundAlbedoSlot = 'sand' | 'rock' | 'road' | 'scrub' | 'grove' | 'knoll';
 
 /**
  * Builds the same `TerrainInput` `ThreeRenderer.loadGroundTexture` now
@@ -68,7 +68,7 @@ function loadInput(id: MapId): { input: TerrainInput; terrain: 'arid' | 'green' 
   };
 }
 
-/** Which of `buildGround`'s five masks the mesh actually carries a non-zero
+/** Which of `buildGround`'s six masks the mesh actually carries a non-zero
  *  value on, read directly off the uploaded geometry the material samples --
  *  an INDEPENDENT walk of the real mesh, not the private per-tile decision
  *  (`albedoFor`) that produced it. */
@@ -85,6 +85,7 @@ function slotsInMesh(mesh: MeshData): Set<GroundAlbedoSlot> {
   if (has(mesh.roadMask)) used.add('road');
   if (has(mesh.scrubMask)) used.add('scrub');
   if (has(mesh.groveMask)) used.add('grove');
+  if (has(mesh.knollMask)) used.add('knoll');
   return used;
 }
 

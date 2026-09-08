@@ -825,8 +825,8 @@ export class ThreeRenderer implements Renderer {
   private groundAlbedoStrengths: number[] | null = null;
 
   /**
-   * Fetches the five ground albedo tiles `RendererOptions` names -- open
-   * ground, `^` ridge, `r` road, cover, `o` grove -- and, as each arrives,
+   * Fetches the six ground albedo tiles `RendererOptions` names -- open
+   * ground, `^` ridge, `r` road, cover, `o` grove, `n` knoll -- and, as each arrives,
    * switches its own slot on. Each is independent: a rock tile that 404s
    * costs the ridges their texture and leaves the other four alone.
    *
@@ -849,7 +849,7 @@ export class ThreeRenderer implements Renderer {
    *
    * **A slot the current map's own tiles can never sample is skipped
    * entirely -- 2026-09-06's boot-cost fix.** `main.ts` still hands this
-   * class all five URLs unconditionally (it has no per-tile view of the map,
+   * class all six URLs unconditionally (it has no per-tile view of the map,
    * and is expressly forbidden from building one -- `@lions/render/terrain`
    * is production-app-restricted, `eslint.config.mjs`); this is the one place
    * that DOES have a per-tile view, since `setDecor`/`setElevation` have
@@ -911,6 +911,7 @@ export class ThreeRenderer implements Renderer {
     load(this.opts.roadTextureUrl, 'road', 'road');
     load(this.opts.scrubTextureUrl, 'scrub', 'cover scrub');
     load(this.opts.groveTextureUrl, 'grove', 'grove floor');
+    load(this.opts.knollTextureUrl, 'knoll', 'rocky knoll');
   }
   /** `groveMesh` alone -- see `terrain/mesh.ts`'s own `groveMaterial` doc
    *  comment for why the wind-sway shader needs to be a separate material

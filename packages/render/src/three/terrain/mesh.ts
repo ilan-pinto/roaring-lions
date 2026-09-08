@@ -80,6 +80,7 @@ export function toGeometry(data: MeshData): THREE.BufferGeometry {
   if (data.roadAxis) geometry.setAttribute('roadAxis', new THREE.BufferAttribute(data.roadAxis, 1));
   if (data.scrubMask) geometry.setAttribute('scrubMask', new THREE.BufferAttribute(data.scrubMask, 1));
   if (data.groveMask) geometry.setAttribute('groveMask', new THREE.BufferAttribute(data.groveMask, 1));
+  if (data.knollMask) geometry.setAttribute('knollMask', new THREE.BufferAttribute(data.knollMask, 1));
   // Albedo sampling coordinates. Under a custom name rather than three.js's
   // reserved `uv`, so nothing in three's own shader chunks can be surprised
   // by a `uv` on geometry that has no material expecting one.
@@ -313,6 +314,7 @@ export const GROUND_SHADE_CEIL = 1.14;
  * | road_track_tile    | 1     | .039 | .116   |
  * | rough_scrub_tile   | 2     | .129 | .258   |
  * | orchard_floor_tile | 2     | .130 | .196   |
+ * | knoll_scree_tile   | 3     | .207 | .207   |
  *
  * `desert_sand_tile`'s 0.060 is the reference: it is the surface that was
  * signed off on screen at gain 1, so it is what "enough" looks like. The
@@ -417,6 +419,30 @@ export const GROUND_ALBEDOS = {
    * is the correct picture rather than a missing feature.
    */
   orchard_floor_tile: { tiles: 2, gain: 1.5, mean: [132.0, 77.3, 42.8] },
+  /**
+   * An `n` rocky knoll -- 1,084 tiles across 19 of the 25 shipped maps, and
+   * until 2026-09-08 the only ground in the game with no albedo at all.
+   *
+   * 3, and the two neighbours it was picked against are what fixes it. At 2
+   * the chips fall to about 2.5 screen pixels at zoom 1 and the surface
+   * reads as fine noise with the tile's own repeat legible as a grid across
+   * it -- the same failure the sand tile's doc comment records at that
+   * repeat, for the same reason. At 4 the chips reach 8-15 px, which is the
+   * size of the four stone blobs `scatter.ts` ALREADY draws on every knoll
+   * tile (radius 3-8 px, `DECOR_KNOLL`), so the texture stops being the bed
+   * those blobs sit on and starts competing with them. 3 puts a chip at
+   * about 5 px: broken stone at the default camera, individual chips when
+   * the player leans in, and subordinate to the marks either way.
+   *
+   * Its raw 0.207 is the highest of the seven and it takes gain 1, which is
+   * deliberate rather than a shortfall of ambition. A knoll carries the same
+   * `tones.open` wash as the sand beside it -- `groundTone` does not branch
+   * on cover, and this work did not change that -- so CONTRAST is the whole
+   * of what separates a knoll from open ground, exactly as it is for the
+   * three cover tiers. Driving it further only makes the chips louder than
+   * the blobs.
+   */
+  knoll_scree_tile: { tiles: 3, gain: 1, mean: [162.8, 149.5, 135.0] },
 } as const satisfies Record<
   string,
   { readonly tiles: number; readonly gain: number; readonly mean: readonly [number, number, number] }
@@ -436,7 +462,7 @@ export function albedoMean(id: GroundAlbedoId): THREE.Vector3 {
 }
 
 /**
- * The five albedo SLOTS `groundSurfaceMaterial` declares, in the order the
+ * The six albedo SLOTS `groundSurfaceMaterial` declares, in the order the
  * fragment shader multiplies them, and the uniform-name stem each one uses
  * (`sand` -> `uSand`, `uSandStrength`, `uSandMean`, `uSandTiles`).
  *
@@ -452,7 +478,7 @@ export function albedoMean(id: GroundAlbedoId): THREE.Vector3 {
  * source -- a slot added to one and not the other is otherwise silent (the
  * uniform is simply never written, and the ground draws its flat tone).
  */
-export const GROUND_SLOTS = ['sand', 'rock', 'road', 'scrub', 'grove'] as const;
+export const GROUND_SLOTS = ['sand', 'rock', 'road', 'scrub', 'grove', 'knoll'] as const;
 export type GroundSlot = (typeof GROUND_SLOTS)[number];
 
 /** `sand` -> `uSand`. The one place the stem-to-uniform spelling lives. */
@@ -607,6 +633,10 @@ export function groundSurfaceMaterial(): THREE.ShaderMaterial {
       uGroveStrength: { value: 0 },
       uGroveMean: { value: albedoMean('orchard_floor_tile') },
       uGroveTiles: { value: GROUND_ALBEDOS.orchard_floor_tile.tiles },
+      uKnoll: { value: whitePixel() },
+      uKnollStrength: { value: 0 },
+      uKnollMean: { value: albedoMean('knoll_scree_tile') },
+      uKnollTiles: { value: GROUND_ALBEDOS.knoll_scree_tile.tiles },
     },
     vertexShader: /* glsl */ `
       attribute vec3 color;
@@ -617,6 +647,7 @@ export function groundSurfaceMaterial(): THREE.ShaderMaterial {
       attribute float roadAxis;
       attribute float scrubMask;
       attribute float groveMask;
+      attribute float knollMask;
       attribute vec2 groundUv;
       varying vec3 vColor;
       varying vec3 vLitColor;
@@ -628,6 +659,7 @@ export function groundSurfaceMaterial(): THREE.ShaderMaterial {
       varying float vRoadAxis;
       varying float vScrubMask;
       varying float vGroveMask;
+      varying float vKnollMask;
       varying vec2 vGroundUv;
       void main() {
         vColor = color;
@@ -638,6 +670,7 @@ export function groundSurfaceMaterial(): THREE.ShaderMaterial {
         vRoadAxis = roadAxis;
         vScrubMask = scrubMask;
         vGroveMask = groveMask;
+        vKnollMask = knollMask;
         vGroundUv = groundUv;
         // Already world-space: buildGround writes world normals and this
         // mesh carries no transform, so the attribute is passed straight
@@ -675,6 +708,10 @@ export function groundSurfaceMaterial(): THREE.ShaderMaterial {
       uniform float uGroveStrength;
       uniform vec3 uGroveMean;
       uniform float uGroveTiles;
+      uniform sampler2D uKnoll;
+      uniform float uKnollStrength;
+      uniform vec3 uKnollMean;
+      uniform float uKnollTiles;
       varying vec3 vColor;
       varying vec3 vLitColor;
       varying vec3 vWorldPos;
@@ -685,21 +722,23 @@ export function groundSurfaceMaterial(): THREE.ShaderMaterial {
       varying float vRoadAxis;
       varying float vScrubMask;
       varying float vGroveMask;
+      varying float vKnollMask;
       varying vec2 vGroundUv;
       ${FLASH_UNIFORMS_GLSL}
       ${FLASH_SHIFT_GLSL}
       void main() {
         int shift = flashShiftSteps(vWorldPos);
         vec3 base = shift > 0 ? vLitColor : vColor;
-        // Ground albedo, five materials over one geometry: open ground (sand
+        // Ground albedo, six materials over one geometry: open ground (sand
         // on an arid map, dry sward on a green one), rock on a ^ ridge, the
         // wheel track on a road, scrub on a cover tile, orchard floor under a
-        // grove. Each is a RATIO to its own image mean, so the AVERAGE of a
+        // grove, scree on an n knoll. Each is a RATIO to its own image mean,
+        // so the AVERAGE of a
         // stretch of any of them is still the palette tone the tone pipeline
         // composited and only the variation comes from the image -- see
         // GROUND_ALBEDOS' own doc comment.
         //
-        // The five masks are mutually exclusive by construction (a tile is
+        // The six masks are mutually exclusive by construction (a tile is
         // one surface), so the multiplies could have been a chain of
         // branches; they are a chain of MIXES because at most one factor is
         // ever anything but exactly vec3(1.0) and a mix by 0 is free where a
@@ -716,8 +755,8 @@ export function groundSurfaceMaterial(): THREE.ShaderMaterial {
         // 1.0 -- so this whole block is a no-op on the palette byte. The
         // fetches are unconditional rather than branched: a dynamic branch
         // around a texture fetch forces a gradient the hardware cannot
-        // compute, so all six happen on every ground fragment even though
-        // five of them are multiplied by zero. That is six taps on a single
+        // compute, so all seven happen on every ground fragment even though
+        // six of them are multiplied by zero. That is seven taps on a single
         // draw call with an overdraw of one, and it was measured rather than
         // assumed -- see the report for the frame-time delta.
         vec3 sand = texture2D(uSand, vGroundUv / uSandTiles).rgb / uSandMean;
@@ -739,11 +778,13 @@ export function groundSurfaceMaterial(): THREE.ShaderMaterial {
         vec3 road = mix(texture2D(uRoad, roadUv).rgb, texture2D(uRoad, roadUv.yx).rgb, vRoadAxis) / uRoadMean;
         vec3 scrub = texture2D(uScrub, vGroundUv / uScrubTiles).rgb / uScrubMean;
         vec3 grove = texture2D(uGrove, vGroundUv / uGroveTiles).rgb / uGroveMean;
+        vec3 knoll = texture2D(uKnoll, vGroundUv / uKnollTiles).rgb / uKnollMean;
         base *= mix(vec3(1.0), sand, uSandStrength * vSandMask);
         base *= mix(vec3(1.0), rock, uRockStrength * vRockMask);
         base *= mix(vec3(1.0), road, uRoadStrength * vRoadMask);
         base *= mix(vec3(1.0), scrub, uScrubStrength * vScrubMask);
         base *= mix(vec3(1.0), grove, uGroveStrength * vGroveMask);
+        base *= mix(vec3(1.0), knoll, uKnollStrength * vKnollMask);
         vec3 L = normalize(uLightDir);
         // The DEPARTURE from a level surface, not an absolute N.L -- see
         // this function's doc comment, property 1. Both terms are the same

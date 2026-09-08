@@ -112,10 +112,11 @@ export interface MeshData {
    * is faintly rough ground and a garrison-grade one is a thicket.
    *
    * Set on the `1`/`2`/`3` symbols only -- a cover tile whose `decor` is
-   * `none`. An `o` grove is cover 1 and takes the orchard floor instead; an
-   * `n` knoll is cover 2 and is deliberately left as it was, since neither
-   * the brief nor the art named it and quietly restyling a symbol is how a
-   * map stops looking like the one its author drew.
+   * `none`. An `o` grove is cover 1 and takes the orchard floor instead, and
+   * an `n` knoll is cover 2 and takes the scree (`knollMask`, below). Both
+   * are keyed on the SYMBOL rather than on the cover number, which is what
+   * keeps three surfaces that share a cover tier drawing three different
+   * materials.
    *
    * OPTIONAL, `ground.ts` only.
    */
@@ -131,6 +132,19 @@ export interface MeshData {
    * OPTIONAL, `ground.ts` only.
    */
   groveMask?: Float32Array;
+  /**
+   * One float per vertex -- 1 on an `n` rocky knoll, where the scree albedo
+   * is sampled (`mesh.ts`, `uKnoll`), 0 elsewhere.
+   *
+   * A knoll is cover 2 and has its own decor kind, so it reaches this mask
+   * rather than `scrubMask` -- and unlike the cover tiers it is 0-or-1, with
+   * no tier ladder, because there is only one kind of `n`. The four stone
+   * blobs `scatter.ts` draws on the same tile are unchanged and still
+   * palette-only geometry; this is the bed they sit on.
+   *
+   * OPTIONAL, `ground.ts` only.
+   */
+  knollMask?: Float32Array;
   /**
    * xy pairs, one per vertex: the WORLD-space coordinates the ground albedo
    * is sampled at, before the per-texture repeat scale.

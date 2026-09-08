@@ -139,7 +139,7 @@ export interface RendererOptions {
    * The file's BASENAME is significant: the renderer looks the image's mean
    * colour and repeat scale up in `GROUND_ALBEDOS` by it, and refuses to bind
    * one the table does not name rather than dividing by a number nobody
-   * measured. Same for all four fields below.
+   * measured. Same for all five fields below.
    */
   groundTextureUrl?: string;
   /**
@@ -170,6 +170,13 @@ export interface RendererOptions {
    * themselves are unaffected: they are palette-only geometry and stay so.
    */
   groveTextureUrl?: string;
+  /**
+   * URL of the `n` rocky-knoll albedo -- `assets/textures/knoll_scree_tile.jpg`.
+   * Same contract. The four stone blobs the renderer already scatters on a
+   * knoll tile are unaffected: they are palette-only geometry and stay so,
+   * and this is the broken-stone bed they sit on.
+   */
+  knollTextureUrl?: string;
 }
 
 /** One outlined objective zone: its rect in tiles and how it is going. */

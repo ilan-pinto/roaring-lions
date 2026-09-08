@@ -265,13 +265,14 @@ function assertPaletteColors(mesh: MeshData, label: string): void {
 // here would throw on the temporal-dead-zone, not merely warn.
 const KNOWN_EMPTY: ReadonlySet<string> = new Set([
   ...Object.keys(maps).map((id) => `${id}:grove`),
-  // The four tile-study sandboxes author no structures at all, deliberately:
+  // The five tile-study sandboxes author no structures at all, deliberately:
   // each one exists to put ONE ground albedo in front of the player, and a
   // building would be the loudest thing in the frame on a map whose subject
   // is the ground. Named individually rather than derived from "has no
   // building symbols", so a shipped map that LOSES its buildings still fails
   // -- which is the regression this set exists to catch.
   'tile_green:buildings',
+  'tile_knoll:buildings',
   'tile_orchard:buildings',
   'tile_road:buildings',
   'tile_scrub:buildings',
@@ -413,7 +414,7 @@ describe.each(MAP_IDS)('terrain parity: %s', (id) => {
   });
 
   it('gives every vertex at most one ground albedo, on real map data', () => {
-    // `groundSurfaceMaterial` multiplies its five albedo slots in sequence,
+    // `groundSurfaceMaterial` multiplies its six albedo slots in sequence,
     // so two non-zero masks on one vertex would multiply two images onto one
     // fragment and the result would be neither surface. `ground.ts`'s
     // `albedoFor` is a chain of exclusions, so this holds by construction --

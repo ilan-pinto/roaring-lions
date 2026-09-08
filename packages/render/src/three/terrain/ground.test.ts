@@ -677,9 +677,9 @@ describe('buildGround', () => {
 });
 
 /**
- * The five ground albedos (2026-09-03).
+ * The six ground albedos (2026-09-03; the knoll joined them 2026-09-08).
  *
- * `buildGround` decides, per tile, WHICH of `groundSurfaceMaterial`'s five
+ * `buildGround` decides, per tile, WHICH of `groundSurfaceMaterial`'s six
  * albedo slots that tile's fragments sample. These tests assert the decision
  * through the mesh it actually emits, not through the private function that
  * makes it -- so a mask that stops reaching the GPU fails here too.
@@ -844,30 +844,41 @@ describe('the ground albedo masks', () => {
     expect(maskOf(m, 'sandMask', 5, 0)).toBe(0);
   });
 
-  it('leaves an `n` rocky knoll exactly as it was -- open ground, no scrub', () => {
-    // Cover 2, but its own decor kind. Deliberately out of scope: neither
-    // the brief nor the art named it, and quietly restyling a symbol is how
-    // a map stops looking like the one its author drew.
+  it('draws an `n` rocky knoll as scree, NOT as scrub and NOT as open ground -- `n` is cover 2', () => {
+    // The same ordering trap the grove has, one tier up: `n` carries cover 2
+    // in `@lions/data`'s own LEGEND, so a cover test placed before the knoll
+    // test would draw every knoll in the game as scrub. Falsify by swapping
+    // those two branches in `albedoFor` and this goes red.
+    //
+    // It drew SAND until 2026-09-08 -- 1,084 tiles across 19 maps, the last
+    // untextured ground in the game -- because the 2026-09-03 pass had no
+    // art for it. `sandMask` going to 0 here is that change.
     const m = buildGround(everySurface(), TONES, '#14150F');
-    expect(maskOf(m, 'sandMask', 5, 1)).toBe(1);
+    expect(maskOf(m, 'knollMask', 5, 1)).toBe(1);
     expect(maskOf(m, 'scrubMask', 5, 1)).toBe(0);
+    expect(maskOf(m, 'sandMask', 5, 1)).toBe(0);
   });
 
   it('never gives one vertex two albedos', () => {
-    // The property the whole design rests on: the shader multiplies all five
+    // The property the whole design rests on: the shader multiplies all six
     // slots in sequence, so two non-zero masks on one vertex would multiply
     // two images onto one fragment and the result would be neither.
     const m = buildGround(everySurface(), TONES, '#14150F');
     const n = m.colors.length / 3;
     for (let i = 0; i < n; i++) {
-      const on = [m.sandMask![i], m.rockMask![i], m.roadMask![i], m.scrubMask![i], m.groveMask![i]].filter(
-        (v) => v !== 0
-      );
+      const on = [
+        m.sandMask![i],
+        m.rockMask![i],
+        m.roadMask![i],
+        m.scrubMask![i],
+        m.groveMask![i],
+        m.knollMask![i],
+      ].filter((v) => v !== 0);
       expect(on.length, `vertex ${i} samples ${on.length} albedos`).toBeLessThanOrEqual(1);
     }
   });
 
-  it('keeps all six albedo channels in lockstep with the vertex count', () => {
+  it('keeps all seven albedo channels in lockstep with the vertex count', () => {
     // A `push` missed on one path and not another would silently misalign
     // every vertex after it -- the mask arrays are read by index.
     const input = everySurface();
@@ -876,7 +887,15 @@ describe('the ground albedo masks', () => {
     input.decor![2 * input.width + 2] = DECOR_RIDGE;
     const m = buildGround(input, TONES, '#14150F');
     const n = m.colors.length / 3;
-    for (const key of ['sandMask', 'rockMask', 'roadMask', 'roadAxis', 'scrubMask', 'groveMask'] as const) {
+    for (const key of [
+      'sandMask',
+      'rockMask',
+      'roadMask',
+      'roadAxis',
+      'scrubMask',
+      'groveMask',
+      'knollMask',
+    ] as const) {
       expect((m[key] as Float32Array).length, `${key} length`).toBe(n);
     }
     expect(m.normals!.length).toBe(n * 3);
@@ -975,7 +994,11 @@ describe('groundAlbedoSlotsUsed', () => {
     expect(used).toEqual(new Set(['sand', 'road']));
   });
 
-  it('an `n` knoll alone does not pull in scrub -- it is cover 2 with its own decor kind', () => {
+  it('an `n` knoll pulls in the scree and NOT scrub -- it is cover 2 with its own decor kind', () => {
+    // The slot a knoll map now pays a fetch for, and the one it must not: a
+    // knoll carries cover 2, so a derivation keyed on the cover NUMBER would
+    // fetch `rough_scrub_tile.jpg` for a map with no plain cover tile on it
+    // and then sample it nowhere.
     const w = 3;
     const input = flat(w, w);
     const decor = new Uint8Array(w * w);
@@ -984,6 +1007,6 @@ describe('groundAlbedoSlotsUsed', () => {
     cover[1 * w + 1] = 2;
     input.decor = decor;
     input.cover = cover;
-    expect(groundAlbedoSlotsUsed(input)).toEqual(new Set(['sand']));
+    expect(groundAlbedoSlotsUsed(input)).toEqual(new Set(['sand', 'knoll']));
   });
 });

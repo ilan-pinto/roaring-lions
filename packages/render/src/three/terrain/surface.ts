@@ -168,7 +168,7 @@ export const SURFACE_OVERSHOOT_LEVELS = 0.3;
  *    indistinguishable from flat ground, so removing the terrace edges
  *    without adding a normal-driven term would have made the map read
  *    FLATTER, not rounder.
- *  - The ground ALBEDO -- FIVE images now, one per surface, each applied as a
+ *  - The ground ALBEDO -- SIX images now, one per surface, each applied as a
  *    ratio to its own measured mean (`mesh.ts`'s `GROUND_ALBEDOS`):
  *
  *      * open ground: `desert_sand_tile.jpg` on an `arid` map,
@@ -181,6 +181,11 @@ export const SURFACE_OVERSHOOT_LEVELS = 0.3;
  *      * a `1`/`2`/`3` cover tile: `rough_scrub_tile.jpg`, at a per-tier
  *        strength so a thicket reads denser than light cover.
  *      * an `o` olive grove's floor: `orchard_floor_tile.jpg`.
+ *      * an `n` rocky knoll: `knoll_scree_tile.jpg`, added 2026-09-08 from a
+ *        tile the project lead supplied. Knolls were the last untextured
+ *        ground in the game -- 1,084 tiles across 19 maps -- and they were
+ *        left out of the 2026-09-03 pass deliberately, because neither the
+ *        brief nor the art named them. The art names them now.
  *
  *    The ratio form is what keeps the exemption to the VARIATION only: the
  *    AVERAGE of a stretch of any of them is still exactly the
@@ -190,7 +195,7 @@ export const SURFACE_OVERSHOOT_LEVELS = 0.3;
  *    image has loaded, the ratio is exactly 1 and the fragment is the palette
  *    byte it always was.
  *
- *    The five masks are MUTUALLY EXCLUSIVE by construction (`ground.ts`'s
+ *    The six masks are MUTUALLY EXCLUSIVE by construction (`ground.ts`'s
  *    `albedoFor` is one chain of exclusions, and `ground.test.ts` asserts no
  *    vertex carries two), so no fragment is ever multiplied by two images.
  *
@@ -220,8 +225,12 @@ export const SURFACE_OVERSHOOT_LEVELS = 0.3;
  *     albedo at all.
  *  4. A BUILDING FOOTPRINT takes no albedo either: a structure pad is not
  *     ground, and `groundTone`'s own `underBuilding` wash owns it.
- *  5. An `n` rocky knoll is untouched -- it is cover 2, but its own decor
- *     kind, and it draws exactly what it drew before.
+ *  5. A knoll's four stone BLOBS are untouched. `scatter.ts` draws them at
+ *     `tones.rock` over the tile's own base, with a `tones.rockLit`
+ *     highlight, and both are quantised onto the palette exactly as before
+ *     -- the scree is the bed they sit on, not a replacement for them. It is
+ *     also why the tile repeats over 3 world units rather than 4: at 4 the
+ *     chips reach the blobs' own size and the two compete.
  *  6. The SHADE, specifically, is exactly 1.0 on flat ground -- every tile of
  *     a map with no relief, and every level patch of a map with one --
  *     because they carry the same up normal. The shading half of this
@@ -246,15 +255,15 @@ export const SURFACE_OVERSHOOT_LEVELS = 0.3;
  * rather than merely close to it.
  */
 export const SURFACE_SHADING_EXEMPTION = {
-  what: 'the drawn ground, at the fragment stage only: a smooth normal-driven shade on INTERPOLATED open ground, and one sampled albedo per surface -- open ground (desert_sand_tile on arid, green_basin_tile on green), a ^ ridge (rock_ground_tile), an r road (road_track_tile), a 1/2/3 cover tile (rough_scrub_tile) and an o grove floor (orchard_floor_tile)',
-  why: 'an unlit vertex-coloured heightfield reads flat; the normal-driven shade and the five albedos are what make relief and material legible',
+  what: 'the drawn ground, at the fragment stage only: a smooth normal-driven shade on INTERPOLATED open ground, and one sampled albedo per surface -- open ground (desert_sand_tile on arid, green_basin_tile on green), a ^ ridge (rock_ground_tile), an r road (road_track_tile), a 1/2/3 cover tile (rough_scrub_tile), an o grove floor (orchard_floor_tile) and an n rocky knoll (knoll_scree_tile)',
+  why: 'an unlit vertex-coloured heightfield reads flat; the normal-driven shade and the six albedos are what make relief and material legible',
   notExempt: [
     'every vertex colour and litColor emitted by buildGround (still asserted palette-only), cover tiers included -- groundTone still does not branch on cover',
     'terrace tops and terrace/rim walls (up normal, shade exactly 1.0, and no albedo unless the terrace is a ^ ridge)',
     'flat ground shading on any map (up normal, so the shade term is exactly 1.0 -- flat ground still takes its surface albedo)',
     'walls (bedrock or nothing: a building wall keeps its authored FACE_ALPHA composite with no albedo)',
     'building footprints (no albedo, so groundTone underBuilding wash still owns that ground)',
-    'knoll tiles (an n is cover 2 with its own decor kind, and draws exactly what it drew before)',
+    "a knoll's four stone blobs and their highlights (scatter marks, still quantised onto the palette -- the scree tile is the bed they sit on)",
     'scatter marks, groves, building boxes and the residual layer (drawn through the unlit terrainMaterial, untouched)',
   ],
 } as const;

@@ -2,12 +2,12 @@
 
     python3 tools/textures/encode_ground_tiles.py
 
-The six 1024^2 tiles are opaque photographic noise; stored losslessly they
+The seven 1024^2 tiles are opaque photographic noise; stored losslessly they
 were 2.2-2.5 MB each and the four a map fetches were 9.4 MiB of a 115 MiB
 level (docs/superpowers/specs/2026-09-07-level-load-time-design.md, step 2).
 JPEG q90 with NO chroma subsampling (4:4:4 -- a tile is sampled at every
 zoom and subsampled chroma smears on a repeat seam) reads 490-680 KB each,
-measured on all six; q85 saves another 20% and q95 costs 40% more for
+measured on all seven; q85 saves another 20% and q95 costs 40% more for
 nothing this camera can show. The PNG in art/textures/ is the source of
 record (the image the lead fed to Meshy, the one that measured seamless --
 see CLAUDE.md, "For a texture, the image fed to Meshy is the asset"); this

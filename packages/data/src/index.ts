@@ -34,6 +34,7 @@ import telMarum3 from '../../../data/maps/tel_marum_3.json';
 // albedos in front of the player at gameplay zoom, reachable from the
 // `?sandboxes` picker, which builds its list from this registry.
 import tileGreen from '../../../data/maps/tile_green.json';
+import tileKnoll from '../../../data/maps/tile_knoll.json';
 import tileOrchard from '../../../data/maps/tile_orchard.json';
 import tileRoad from '../../../data/maps/tile_road.json';
 import tileScrub from '../../../data/maps/tile_scrub.json';
@@ -167,6 +168,7 @@ export const maps = {
   tel_marum_2: telMarum2,
   tel_marum_3: telMarum3,
   tile_green: tileGreen,
+  tile_knoll: tileKnoll,
   tile_orchard: tileOrchard,
   tile_road: tileRoad,
   tile_scrub: tileScrub,
