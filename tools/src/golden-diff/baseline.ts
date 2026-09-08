@@ -292,10 +292,13 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
         minDiffPixels: 750,
         minMeanAbsChannelDelta: 0.28,
         rationale:
-          'driving the five ground texture strengths to 0 -- the material\'s own 404 path -- moves ' +
-          '2266 px / 0.8628 here, identical on 5 runs. Floors are a third. This is the check that ' +
+          'driving the ground texture strengths to 0 -- the material\'s own 404 path -- moves ' +
+          '2861 px / 0.9137 here (SIX slots since 2026-09-08, when the `n` knoll gained the scree ' +
+          'tile; it was 2266 / 0.8628 over five, identical on 5 runs). This is the check that ' +
           'replaces what `groundTextureCheck` was meant to do and stopped doing: a sand tile that ' +
-          'never arrives now fails, where the dominant-colour fraction could not see it at all.',
+          'never arrives now fails, where the dominant-colour fraction could not see it at all. ' +
+          'THE FLOOR WAS NOT RE-CUT for the sixth slot, and that is deliberate -- see the ' +
+          'open-ground entry, which carries the argument.',
       },
       {
         layer: 'buildings',
@@ -365,10 +368,21 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
         minDiffPixels: 170,
         minMeanAbsChannelDelta: 1.84,
         rationale:
-          "driving the five ground texture strengths to 0 moves 511 px / 5.5363 inside this crop, " +
-          'identical on 5 runs -- the largest magnitude anywhere in the gate, because this crop is ' +
-          'entirely textured open ground. Floors are a third. Note the shape: 511 px against a ' +
-          '180000 px crop, so the pixel count is the weak half and the magnitude is the real signal.',
+          'driving the ground texture strengths to 0 moves 6840 px / 6.9094 inside this crop -- ' +
+          'the largest signal anywhere in the gate, and 13x what it was over five slots ' +
+          '(511 px / 5.5363, identical on 5 runs) because `tutorial_ground` carries 35 `n` knoll ' +
+          'tiles and the scree that landed on them 2026-09-08 is the highest-contrast tile of the ' +
+          'seven. Measured 6840 px / 6.9094 locally and 6840 px / 6.9097 on CI ' +
+          'linux-x64-swiftshader -- the same pixel count and 0.004% on magnitude across two GL ' +
+          'backends. ' +
+          'THE FLOOR IS STILL A THIRD OF THE FIVE-SLOT SIGNAL, NOT OF THIS ONE, and the reason is ' +
+          'robustness rather than inertia: the old signal comes from tiles that cover the WHOLE ' +
+          'crop, while the new headroom comes from a few knoll patches, so a floor cut to a third ' +
+          'of 6840 would start failing the day someone edits knolls out of `tutorial_ground` -- a ' +
+          'red gate with no defect behind it, which is the failure mode the decor floor already ' +
+          'walked into once. A floor is a lower bound on what the layer must contribute, and 170 / ' +
+          '1.84 remains a true one. Note the shape too: 511 px against a 180000 px crop, so the ' +
+          'pixel count is the weak half and the magnitude is the real signal.',
       },
     ],
     rationale:
@@ -510,9 +524,11 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
         minDiffPixels: 330,
         minMeanAbsChannelDelta: 1.02,
         rationale:
-          'driving the five ground texture strengths to 0 moves 1015 px / 3.0769 here, identical on ' +
+          'driving the ground texture strengths to 0 moves 1015 px / 3.0769 here, identical on ' +
           '5 runs. Floors are a third. Covers the rock slot as well as sand -- tel_marum is the only ' +
-          'gated map with `^` ridge walls.',
+          'gated map with `^` ridge walls. UNMOVED by the sixth slot (996 px / 3.0685 local, ' +
+          '997 / 3.0726 on CI): the base `tel_marum` authors no `n` at all, which makes this the ' +
+          'control that says the knoll scree reached knoll tiles and nowhere else.',
       },
     ],
     rationale:
