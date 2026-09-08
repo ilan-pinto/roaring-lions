@@ -224,7 +224,7 @@ import {
   MESH_SCALE,
   resolveMeshMotionClip,
 } from './units/mesh-anim';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { gltfLoader, setDracoDecoderPath, disposeGltfLoader } from './units/gltf-loader';
 import { stepTurretFacing } from './units/frame-state';
 import {
   loadVehicleMeshTemplate,
@@ -1495,6 +1495,12 @@ export class ThreeRenderer implements Renderer {
     private readonly sim: Sim,
     private readonly opts: RendererOptions
   ) {
+    // FIRST, before any loader can be built: every shipped GLB carries
+    // `KHR_draco_mesh_compression` (level load time, step 4), and a
+    // `GLTFLoader` constructed without a decoder throws on the first one.
+    // `units/gltf-loader.ts` holds it for the whole module graph, because the
+    // decoder is a property of the runtime rather than of any one asset.
+    if (opts.dracoDecoderPath) setDracoDecoderPath(opts.dracoDecoderPath);
     this.unitGroup = new Uint8Array(sim.capacity);
     const n = sim.capacity;
     this.prevX = new Float64Array(n);
@@ -1720,6 +1726,10 @@ export class ThreeRenderer implements Renderer {
   dispose(): void {
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
+    // The Draco decoder keeps a worker pool. Shared across renderers by
+    // design (it is the runtime's, not this instance's), so this is the one
+    // place it can be torn down at all.
+    disposeGltfLoader();
     this.terrainMesh?.geometry.dispose();
     this.scatterMesh?.geometry.dispose();
     this.groveMesh?.geometry.dispose();
@@ -3638,7 +3648,7 @@ export class ThreeRenderer implements Renderer {
     const textured = new Map<string, { geometry: THREE.BufferGeometry; map: THREE.Texture }>();
     await Promise.all(
       [...urls].map(async ([id, url]) => {
-        const gltf = await new GLTFLoader().loadAsync(url);
+        const gltf = await gltfLoader().loadAsync(url);
         gltf.scene.scale.setScalar(MESH_SCALE);
         const list: { role: DecorMeshRole; geometry: THREE.BufferGeometry }[] = [];
         gltf.scene.traverse((o) => {

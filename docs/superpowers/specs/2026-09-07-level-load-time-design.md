@@ -106,12 +106,47 @@ Three facts that decide the order below:
    ranges that do not touch: **deploy-ready 21321-21493 ms -> 17297-17322**, loading
    screen 19716-19761 -> 15697-15715, first frame 23317-24106 -> 19407-19836. The
    saving is 4.03 s and 9.62 MiB at 20 Mbit/s is 4.03 s, which is the whole of it.
-4. **Geometry compression.** The rigged infantry GLBs are the heaviest files that are not
-   texture-bound (`meshy_mortar_team` 5.5 MB, `sarim_rifles` 3.6, `meshy_soldier` 3.0).
-   Blender's exporter has Draco; three.js has `DRACOLoader` (a ~150 KB decoder, fetched
-   once). Expected 3-5x on geometry-heavy files, nothing on the textured vehicles whose
-   bytes are JPEG. Needs the whole export pipeline plus `validate:meshes` to read the
-   compressed files. Not started.
+4. **Geometry compression** (`-20.79 MiB` on the profile mission, done 2026-09-08).
+   Draco over all 79 shipped meshes: **75.47 MiB -> 25.98, 34%**, and not one file grows.
+   Two guesses in the old text were wrong and are worth correcting rather than deleting.
+   The estimate was "3-5x on geometry-heavy files": the rigged infantry beat it
+   (`meshy_mortar_team` 5.51 -> 0.81 MiB, 6.8x). And "nothing on the textured vehicles
+   whose bytes are JPEG" is false -- `technical` goes 2.90 -> 1.34 and `paramotor` 3.37
+   -> 1.46, because their geometry was a bigger share of the file than assumed. What is
+   left in those two IS the bake, so the SHAPE of the guess held and the size did not.
+
+   **It is a ship step, not an export step** -- the project lead's call, and it is the
+   ground tiles' split (step 2) applied to meshes: `art/meshes/` stays the uncompressed
+   source of record and `assets/meshes/` is the compressed copy that ships, written by
+   `pnpm encode:meshes` (`tools/src/meshes/encode-meshes.ts`, deterministic -- two full
+   encodes are byte-identical across all 79). That matters more here than for a texture,
+   because Draco quantisation is LOSSY and `validate:meshes`, `building_facing.py` and
+   the mesh contract all read geometry as though it were exact. They still read the
+   source. `pnpm encode:meshes -- --check` runs in CI's `gates` job and fails, naming
+   files, when the two trees disagree in either direction.
+
+   Three consequences of the move, none incidental. `meshUrl` now returns a `publicDir`
+   path rather than a Vite glob, which **retires the GH-147 stale-listing failure for
+   meshes by construction** and makes them consistent with every other large binary this
+   game ships. The decoder is self-hosted in `assets/draco/` (the wasm pair, 245 KB,
+   fetched once) -- never a CDN, the fonts' rule. And one shared `GLTFLoader`
+   (`three/units/gltf-loader.ts`) replaces nine `new GLTFLoader()` sites, because a tenth
+   added without the decoder would throw on every compressed file it touched.
+
+   **Draco buys bytes with CPU, and on localhost that is a bad trade.** Unthrottled, the
+   first frame goes 2252-2622 ms uncompressed to 2716-3624 compressed -- about half a
+   second of decode, after raising `DRACOLoader`'s worker limit from three's default 4
+   (3318-4993 ms) to 8; 12 was no better (2787-4170), so the cap sits where the curve
+   flattens. On a link it is not close. At `--mbps=20`, 3 runs each:
+
+   | milestone      | after step 3 (ms) | after step 4 (ms) |
+   |----------------|-------------------|-------------------|
+   | loading screen | 15697-15715       | 6670-6690         |
+   | deploy-ready   | 17297-17322       | 8212-8252         |
+   | first frame    | 19407-19836       | 10725-11501       |
+
+   **47.00 -> 16.59 MiB and deploy-ready 21.4 s -> 8.2 s across steps 3 and 4 together**,
+   on the same machine and the same command.
 5. **A service worker for Pages.** Cache-first for Vite's hashed `/assets/*`, stale-while-
    revalidate for everything under `publicDir` (sprites, audio, textures, video), so the
    second level in a session loads from disk whatever the host's `max-age` says. Not

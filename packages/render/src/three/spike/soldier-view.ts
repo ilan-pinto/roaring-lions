@@ -33,7 +33,7 @@
  * uncorrected here so it is visible rather than silently normalised away.
  */
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { gltfLoader } from '../units/gltf-loader';
 import { dimetricCamera } from '../camera';
 import { applyPalettePipeline } from '../palette-material';
 import { readRamp } from '../units/mesh-role';
@@ -87,7 +87,7 @@ export async function mountSoldierView(
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
 
-  const gltf = await new GLTFLoader().loadAsync(glbUrl);
+  const gltf = await gltfLoader().loadAsync(glbUrl);
   const root = gltf.scene;
   root.scale.setScalar(1 / UNITS_PER_TILE);
   scene.add(root);

@@ -31,7 +31,7 @@
  * expansion of this one.
  */
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { gltfLoader } from './gltf-loader';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import type { ClipName } from '../../sheet';
@@ -128,14 +128,14 @@ export function buildMeshUnitTemplate(
 /**
  * Fetches and parses `glbUrl`, then builds a `MeshUnitTemplate` from it --
  * the network half `buildMeshUnitTemplate` deliberately does not own. Mirrors
- * the spike's own `new GLTFLoader().loadAsync(glbUrl)` call
+ * the spike's own `gltfLoader().loadAsync(glbUrl)` call
  * (`spike/rig-scene.ts`).
  */
 export async function loadMeshUnitTemplate(
   glbUrl: string,
   faction: MeshFaction
 ): Promise<MeshUnitTemplate> {
-  const gltf = await new GLTFLoader().loadAsync(glbUrl);
+  const gltf = await gltfLoader().loadAsync(glbUrl);
   return buildMeshUnitTemplate(gltf, faction);
 }
 

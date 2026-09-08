@@ -36,6 +36,12 @@ export default tseslint.config(
       '**/*.d.ts',
       '.claude/worktrees/**',
       '.superpowers/**',
+      // Vendored, minified, and not ours: the Draco decoder copied out of the
+      // `three` package (`assets/draco/`, level load time step 4). Same class
+      // of noise as a build output -- linting it produced 179 errors, every
+      // one of them `no-undef` on `module`/`define`/`exports` in an UMD
+      // wrapper.
+      'assets/draco/**',
     ],
   },
   eslint.configs.recommended,

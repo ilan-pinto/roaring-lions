@@ -50,7 +50,7 @@
  * avoid).
  */
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { gltfLoader } from './gltf-loader';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import type { ClipName } from '../../sheet';
 import { toonRampMaterial } from '../palette-material';
@@ -297,7 +297,7 @@ export async function loadVehicleMeshTemplate(
   vehicleId: string,
   allowTextured = false
 ): Promise<VehicleMeshTemplate> {
-  const gltf = await new GLTFLoader().loadAsync(glbUrl);
+  const gltf = await gltfLoader().loadAsync(glbUrl);
   return buildVehicleMeshTemplate(gltf, vehicleId, allowTextured);
 }
 

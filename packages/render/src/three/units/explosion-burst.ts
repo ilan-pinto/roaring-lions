@@ -97,7 +97,7 @@
  * as the muzzle flash.
  */
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { gltfLoader } from './gltf-loader';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { paletteColorNoConvert } from '../palette-material';
 import {
@@ -282,7 +282,7 @@ export function buildExplosionBurstTemplate(gltf: Pick<GLTF, 'scene'>): Explosio
 /** Fetches and parses `glbUrl`, then builds an `ExplosionBurstTemplate` --
  *  mirrors `loadMuzzleFlashTemplate` exactly. */
 export async function loadExplosionBurstTemplate(glbUrl: string): Promise<ExplosionBurstTemplate> {
-  const gltf = await new GLTFLoader().loadAsync(glbUrl);
+  const gltf = await gltfLoader().loadAsync(glbUrl);
   return buildExplosionBurstTemplate(gltf);
 }
 

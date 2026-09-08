@@ -28,7 +28,7 @@
  * orientation for one).
  */
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { gltfLoader } from './gltf-loader';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { toonRampMaterial } from '../palette-material';
 import { isBuildingMeshRole, rampForBuildingRole, type WallSurface } from './building-mesh-role';
@@ -174,7 +174,7 @@ export async function loadBuildingMeshTemplate(
   wallSurface: WallSurface,
   allowTextured = false
 ): Promise<BuildingMeshTemplate> {
-  const gltf = await new GLTFLoader().loadAsync(glbUrl);
+  const gltf = await gltfLoader().loadAsync(glbUrl);
   return buildBuildingMeshTemplate(gltf, wallColorKey, wallSurface, allowTextured);
 }
 

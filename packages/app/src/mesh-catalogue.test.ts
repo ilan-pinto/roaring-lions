@@ -58,6 +58,13 @@ const MESH_ROOT = path.resolve(
   '../../../art/meshes'
 );
 
+/** Where `meshUrl` actually points since level load time step 4 -- the
+ *  Draco-compressed mirror `pnpm encode:meshes` writes. */
+const SHIPPED_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../../assets/meshes'
+);
+
 /** Every `.glb` under `art/meshes/**`, as the catalogue spells them:
  *  `'demo_squad.glb'`, `'vehicles/apc_eitan.glb'`. */
 function shippedMeshFiles(dir = MESH_ROOT, prefix = ''): string[] {
@@ -85,12 +92,23 @@ describe('mesh catalogue: every shipped GLB is accounted for', () => {
   });
 
   it('claims nothing that is not on disk', () => {
-    // The other direction: a catalogue entry whose file is gone resolves to
-    // `<dir>/undefined`, which the dev server answers with index.html at HTTP
-    // 200 and GLTFLoader reports as a JSON parse error naming a file nobody
-    // touched. `meshUrl` throws instead, but only when reached -- this fails
-    // for the whole catalogue at once.
+    // The other direction: a catalogue entry whose file is gone 404s, which
+    // the dev server answers with index.html at HTTP 200 and GLTFLoader
+    // reports as a JSON parse error naming a file nobody touched. This fails
+    // for the whole catalogue at once instead.
     const missing = [...claimedMeshFiles()].filter((f) => !existsSync(path.join(MESH_ROOT, f)));
+    expect(missing).toEqual([]);
+  });
+
+  it('claims nothing that is not SHIPPED, which is a different directory since step 4', () => {
+    // `meshUrl` serves `assets/meshes/`, the Draco-compressed copy written by
+    // `pnpm encode:meshes`; `art/meshes/` above is only the source of record.
+    // A mesh present in one and not the other draws nothing at runtime while
+    // every other gate stays green, because every other gate reads the
+    // source. `encode-meshes.ts --check` is the fuller guard (it compares
+    // content hashes, not just presence) and runs in CI; this is the same
+    // question asked from the catalogue's side, in the fast suite.
+    const missing = [...claimedMeshFiles()].filter((f) => !existsSync(path.join(SHIPPED_ROOT, f)));
     expect(missing).toEqual([]);
   });
 

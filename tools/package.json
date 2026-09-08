@@ -12,17 +12,22 @@
     "golden-diff": "tsx src/golden-diff/diff.ts",
     "golden-diff:compare": "tsx src/ci/golden-diff-gate.ts",
     "golden-baseline": "tsx src/ci/three-baseline-gate.ts",
-    "golden-baseline:bless": "tsx src/ci/three-baseline-gate.ts --bless"
+    "golden-baseline:bless": "tsx src/ci/three-baseline-gate.ts --bless",
+    "encode:meshes": "tsx src/meshes/encode-meshes.ts"
   },
   "dependencies": {
     "@lions/data": "workspace:*",
     "@lions/sim": "workspace:*"
   },
   "devDependencies": {
-    "tsx": "^4.19.2",
-    "pixelmatch": "^7.2.0",
-    "pngjs": "^7.0.0",
+    "@gltf-transform/core": "^4.5.0",
+    "@gltf-transform/extensions": "^4.5.0",
+    "@gltf-transform/functions": "^4.5.0",
     "@types/pngjs": "^6.0.5",
-    "playwright": "^1.55.0"
+    "draco3dgltf": "^1.5.7",
+    "pixelmatch": "^7.2.0",
+    "playwright": "^1.55.0",
+    "pngjs": "^7.0.0",
+    "tsx": "^4.19.2"
   }
 }

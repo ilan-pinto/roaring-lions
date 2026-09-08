@@ -191,7 +191,7 @@
  * this recipe's own "one pool, not one per trigger" shape.
  */
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { gltfLoader } from './gltf-loader';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { paletteColorNoConvert } from '../palette-material';
 import {
@@ -522,7 +522,7 @@ export function buildSmokePlumeTemplate(gltf: Pick<GLTF, 'scene'>): SmokePlumeTe
 /** Fetches and parses `glbUrl`, then builds a `SmokePlumeTemplate` --
  *  mirrors `loadExplosionBurstTemplate` exactly. */
 export async function loadSmokePlumeTemplate(glbUrl: string): Promise<SmokePlumeTemplate> {
-  const gltf = await new GLTFLoader().loadAsync(glbUrl);
+  const gltf = await gltfLoader().loadAsync(glbUrl);
   return buildSmokePlumeTemplate(gltf);
 }
 

@@ -1,8 +1,26 @@
 // Keeps Vite's dynamic-`new URL()` directory listings fresh in dev (GH-147).
 //
+// THE MESH CASE THIS WAS WRITTEN FOR IS GONE, and the plugin is not.
+// Level load time step 4 (2026-09-08) moved every GLB out of the glob:
+// `art/meshes/` is the uncompressed source of record now and `assets/meshes/`
+// is the Draco-compressed copy that ships, reached by a plain
+// `${BASE}meshes/<file>` URL through Vite's `publicDir`
+// (`mesh-catalogue.ts`'s `meshUrl`). A file under `publicDir` is served by
+// path and watched by Vite itself, so there is no baked listing left to go
+// stale -- the failure below is retired for meshes by construction rather
+// than worked around.
+//
+// What still globs is `art/blend/soldier/` (`spike/soldier-view.ts`), which
+// is one directory and a dev view, and any glob a future module adds. That
+// is why this plugin DERIVES the directories rather than listing them: it
+// keeps working for whatever globs next without anybody remembering it
+// exists. Deleting it would be a bet that nobody ever writes another
+// dynamic `new URL()` in this app, and the account below is the reason not
+// to take that bet.
+//
 // THE MECHANISM, because the symptom points nowhere near the cause.
 //
-// `main.ts` asks for meshes by name:
+// `main.ts` USED TO ask for meshes by name:
 //
 //     new URL(`../../../art/meshes/${id}.glb`, import.meta.url).href
 //

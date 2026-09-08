@@ -254,61 +254,40 @@ export const RETIRED_MESH_FILES: Readonly<Record<string, string>> = {
 };
 
 /**
- * The served URL for one catalogue path.
+ * The served URL for one catalogue path -- `assets/meshes/<file>`, through
+ * Vite's `publicDir`.
  *
- * Seven `new URL()` forms rather than one, because Vite's
- * `vite:asset-import-meta-url` rewrite turns each into a glob whose `*` does
- * not cross a `/` -- a single `art/meshes/*` pattern would match the seventeen
- * top-level files and none of the subdirectories. Seven forms also means
- * `vite-plugin-asset-watch.ts` (GH-147) derives and watches all seven
- * directories from this file exactly as it did from `main.ts`, so adding a GLB
- * to any of them still invalidates the listing in a running dev server.
+ * **This used to be seven `new URL(..., import.meta.url)` forms globbing
+ * `art/meshes/`, and the change is the whole of level load time step 4.**
+ * `art/meshes/` is the uncompressed SOURCE of record now -- what
+ * `pnpm validate:meshes` renders, what `tools/building_facing.py`
+ * rasterises, what the mesh contract is checked against -- and
+ * `assets/meshes/` is the Draco-compressed copy that ships, written from it
+ * by `pnpm encode:meshes` (75.47 MiB -> 25.98). The same split the ground
+ * tiles have used since step 2, for the same reason: the gates should judge
+ * the geometry the artist exported, not a quantised copy of it.
  *
- * Throws rather than returning a URL Vite could not resolve: an unmatched glob
- * key yields `undefined`, `new URL(undefined, ...)` resolves to
- * `<dir>/undefined`, the SPA fallback answers that with index.html at HTTP 200
- * and GLTFLoader reports `SyntaxError: Unexpected token '<'` naming a file
- * nobody touched. Naming the missing asset instead is the whole point.
+ * Three consequences of moving to `publicDir`, none of them incidental:
+ *
+ *  - **No Vite glob, so no baked directory listing** -- which retires the
+ *    GH-147 failure mode for meshes entirely rather than working around it.
+ *    A file under `publicDir` is served by path and watched by Vite's own
+ *    watcher, so there is no snapshot to go stale. `vite-plugin-asset-watch.ts`
+ *    stays for `art/blend/soldier/`, the one glob left.
+ *  - **No content hash in the filename.** Every other large binary this game
+ *    ships already comes from `publicDir` unhashed -- sprite sheets, ground
+ *    textures, fonts, audio, video -- so meshes were the odd ones out, and
+ *    Pages' `max-age=600` is what governs all of them alike.
+ *  - **A missing file 404s as `index.html` again**, which is the trap GH-147
+ *    documented: the SPA fallback answers 200 and `GLTFLoader` reports
+ *    `SyntaxError: Unexpected token '<'` naming a file nobody touched. It is
+ *    caught earlier now and by construction -- `encode-meshes.ts --check`
+ *    fails CI when `art/meshes` and `assets/meshes` disagree in either
+ *    direction, and `mesh-catalogue.test.ts` pins the catalogue against
+ *    what is on disk.
  */
 export function meshUrl(file: string): string {
-  const slash = file.indexOf('/');
-  const dir = slash === -1 ? '' : file.slice(0, slash);
-  const base = slash === -1 ? file : file.slice(slash + 1);
-  let href: string;
-  switch (dir) {
-    case '':
-      href = new URL(`../../../art/meshes/${base}`, import.meta.url).href;
-      break;
-    case 'vehicles':
-      href = new URL(`../../../art/meshes/vehicles/${base}`, import.meta.url).href;
-      break;
-    case 'buildings':
-      href = new URL(`../../../art/meshes/buildings/${base}`, import.meta.url).href;
-      break;
-    case 'civilians':
-      href = new URL(`../../../art/meshes/civilians/${base}`, import.meta.url).href;
-      break;
-    case 'decor':
-      href = new URL(`../../../art/meshes/decor/${base}`, import.meta.url).href;
-      break;
-    case 'vfx':
-      href = new URL(`../../../art/meshes/vfx/${base}`, import.meta.url).href;
-      break;
-    case 'campaign':
-      href = new URL(`../../../art/meshes/campaign/${base}`, import.meta.url).href;
-      break;
-    default:
-      throw new Error(
-        `mesh-catalogue: "${file}" is in a directory meshUrl does not glob — ` +
-          `add a case here, or the asset resolves to /undefined and 404s as index.html`
-      );
-  }
-  if (href === '' || href.endsWith('/undefined')) {
-    throw new Error(
-      `mesh-catalogue: art/meshes/${file} is claimed by the catalogue but not on disk`
-    );
-  }
-  return href;
+  return `${import.meta.env.BASE_URL}meshes/${file}`;
 }
 
 /** Every file path any table above claims. The completeness gate compares

@@ -30,6 +30,14 @@ jobs:
       - run: pnpm test
       - run: pnpm validate:data
       - run: pnpm validate:assets
+      # Level load time, step 4: `art/meshes/` is the uncompressed source of
+      # record and `assets/meshes/` is the Draco-compressed copy that SHIPS.
+      # Every other mesh gate reads the source, so a shipped file that is
+      # stale or missing is invisible to all of them and shows up only as art
+      # that silently does not draw. `--check` writes nothing; it compares a
+      # content hash of each source against `assets/meshes/manifest.json` and
+      # fails naming the files, in both directions.
+      - run: pnpm encode:meshes -- --check
       # Phase G (docs/superpowers/specs/2026-08-26-three-renderer-design.md):
       # validate:assets never looks at art/meshes/ -- it walks PNGs, and a mesh
       # produces none. tools/validate_mesh_assets.py renders every mesh headlessly

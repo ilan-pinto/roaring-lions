@@ -23,7 +23,8 @@
     "golden-baseline": "pnpm --filter @lions/tools golden-baseline",
     "golden-baseline:bless": "pnpm --filter @lions/tools golden-baseline:bless",
     "golden-diff:compare": "pnpm --filter @lions/tools golden-diff:compare",
-    "gen:luts": "node tools/gen_luts.mjs"
+    "gen:luts": "node tools/gen_luts.mjs",
+    "encode:meshes": "pnpm --filter @lions/tools encode:meshes"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",

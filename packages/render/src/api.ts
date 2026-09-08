@@ -177,6 +177,20 @@ export interface RendererOptions {
    * and this is the broken-stone bed they sit on.
    */
   knollTextureUrl?: string;
+  /**
+   * Directory the Draco decoder is fetched from -- `${BASE}draco/`, ending in
+   * a slash. Three-only, read once at construction and handed to
+   * `three/units/gltf-loader.ts`.
+   *
+   * NOT optional in practice even though the type says so: every shipped mesh
+   * carries `KHR_draco_mesh_compression` since 2026-09-08, and a `GLTFLoader`
+   * with no decoder throws on the first one rather than degrading. It is
+   * typed optional for the same reason every other URL here is -- Pixi
+   * ignores it, and a test constructing a renderer that loads no mesh needs
+   * no decoder. `packages/render` cannot compute it: `BASE` is `/` locally
+   * and `/roaring-lions/` on Pages, and that is an app fact.
+   */
+  dracoDecoderPath?: string;
 }
 
 /** One outlined objective zone: its rect in tiles and how it is going. */

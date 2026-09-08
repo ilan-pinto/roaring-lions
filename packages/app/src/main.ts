@@ -652,6 +652,11 @@ async function main(): Promise<void> {
     scrubTextureUrl: `${BASE}textures/rough_scrub_tile.jpg`,
     groveTextureUrl: `${BASE}textures/orchard_floor_tile.jpg`,
     knollTextureUrl: `${BASE}textures/knoll_scree_tile.jpg`,
+    // Where the Draco decoder is fetched from. Self-hosted in `assets/draco/`
+    // like the fonts, never a CDN. Every shipped GLB is Draco-compressed
+    // (level load time, step 4), so a mesh renderer without this loads no
+    // mesh at all -- it is not a nicety, and `gltf-loader.ts` says so.
+    dracoDecoderPath: `${BASE}draco/`,
   };
   // Three is the default as of Phase D; Pixi remains reachable through
   // `?renderer=pixi`, which `renderer-choice.ts` persists so it survives the

@@ -50,7 +50,7 @@
  * turns a fair comparison into a rigged one.
  */
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { gltfLoader } from '../units/gltf-loader';
 import { dimetricCamera } from '../camera';
 import { applyPalettePipeline } from '../palette-material';
 import { toonRampSkinnedMaterial } from '../units/mesh-material';
@@ -130,7 +130,7 @@ export async function mountRigSpike(
   scene.add(ground);
 
   // --- the rigged mesh -----------------------------------------------------
-  const gltf = await new GLTFLoader().loadAsync(glbUrl);
+  const gltf = await gltfLoader().loadAsync(glbUrl);
   const rigRoot = gltf.scene;
   rigRoot.scale.setScalar(1 / UNITS_PER_TILE);
   rigRoot.position.set(MESH_X, 0, 0);

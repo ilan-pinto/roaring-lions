@@ -107,7 +107,7 @@
  * `muzzleFlashPowerScale`, `muzzleFlashEnvelope`, `MUZZLE_FLASH_BASE_SCALE`.
  */
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { gltfLoader } from './gltf-loader';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { paletteColorNoConvert } from '../palette-material';
 import { meshYawFromFacing } from './mesh-anim';
@@ -274,7 +274,7 @@ export function buildMuzzleFlashTemplate(gltf: Pick<GLTF, 'scene'>): MuzzleFlash
 /** Fetches and parses `glbUrl`, then builds a `MuzzleFlashTemplate` --
  *  mirrors `mesh-vehicle.ts`'s `loadVehicleMeshTemplate` exactly. */
 export async function loadMuzzleFlashTemplate(glbUrl: string): Promise<MuzzleFlashTemplate> {
-  const gltf = await new GLTFLoader().loadAsync(glbUrl);
+  const gltf = await gltfLoader().loadAsync(glbUrl);
   return buildMuzzleFlashTemplate(gltf);
 }
 

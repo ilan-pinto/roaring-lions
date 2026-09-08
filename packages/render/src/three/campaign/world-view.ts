@@ -50,7 +50,7 @@
  * like a plausible diorama.
  */
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { gltfLoader } from '../units/gltf-loader';
 
 import {
   fitHalfHeight,
@@ -143,7 +143,7 @@ export async function mountWorldView(
   host: HTMLElement,
   opts: WorldViewOptions
 ): Promise<WorldView> {
-  const gltf = await new GLTFLoader().loadAsync(opts.meshUrl);
+  const gltf = await gltfLoader().loadAsync(opts.meshUrl);
 
   const renderer = new THREE.WebGLRenderer({
     // Transparent: the campaign page's own ground shows through, so the
