@@ -737,6 +737,12 @@ async function main(): Promise<void> {
   const meshLoaded = new Set<string>([...meshPlan.rigged, ...meshPlan.vehicles]);
   /** Type ids whose deferred mesh failed, surfaced beside `failedArt`. */
   const failedMesh: string[] = [];
+  /** Starts one structure type's WRECK mesh, or null on a backend with no
+   *  mesh path. Assigned in the three branch beside `ensureUnitMesh`, for
+   *  the same reason: `three` is in scope only there, and this file is the
+   *  only thing that calls the loaders. Deferred to after the first frame --
+   *  see the call site below `loading.done()`. */
+  let wreckMeshLoader: ((structureId: string) => void) | null = null;
   /** Load one unit type's mesh if it has one and has not been asked for yet.
    *  Assigned only on the three backend with meshes on; a no-op on Pixi and
    *  under `&nomesh`, where `meshPathActive` keeps the sweep off entirely. */
@@ -794,16 +800,18 @@ async function main(): Promise<void> {
         ...[...meshPlan.vehicles].map((id) =>
           three.loadVehicleMesh(id, meshUrl(VEHICLE_UNIT_MESHES[id]))
         ),
-        // Building meshes: standing plus wreck, for the structure types this
-        // map actually stands. `colour_key`/`wallColorKey` is resolved inside
-        // `loadBuildingMesh` itself off `Sim.structureTypes[...].color` --
-        // nothing here needs to know it.
+        // Building meshes: the STANDING state only, for the structure types
+        // this map actually stands. `colour_key`/`wallColorKey` is resolved
+        // inside `loadBuildingMesh` itself off `Sim.structureTypes[...].color`
+        // -- nothing here needs to know it.
+        //
+        // `null` for the wreck, deliberately: it is fetched after the first
+        // frame instead (below, beside `spritePlan.after`). Level load time,
+        // step 3 -- on `beit_sahwan_outskirts` the five wreck GLBs are 9.62
+        // MiB of a 47.0 MiB level and `hall_wreck` alone is 3.77, while the
+        // earliest a building can fall is minutes of play away.
         ...[...meshPlan.buildings].map((id) =>
-          three.loadBuildingMesh(
-            id,
-            meshUrl(BUILDING_MESHES[id].idle),
-            meshUrl(BUILDING_MESHES[id].wreck)
-          )
+          three.loadBuildingMesh(id, meshUrl(BUILDING_MESHES[id].idle), null)
         ),
         // The three shared VFX meshes (`units/muzzle-flash.ts`,
         // `units/explosion-burst.ts`, `units/smoke-plume.ts`). Not keyed by
@@ -845,6 +853,18 @@ async function main(): Promise<void> {
         job.catch((err: unknown) => {
           console.warn(`[lions] mesh FAILED for ${typeId}:`, err);
           failedMesh.push(typeId);
+        });
+      };
+      // The wreck half of every building this map stands, started after the
+      // first frame. Failing is survivable in the strongest sense available
+      // here: the type simply keeps the procedural wreck `updateStructures`
+      // is already drawing for it, so the warning is the whole cost.
+      wreckMeshLoader = (structureId: string): void => {
+        const files = BUILDING_MESHES[structureId];
+        if (!files) return;
+        three.loadBuildingWreckMesh(structureId, meshUrl(files.wreck)).catch((err: unknown) => {
+          console.warn(`[lions] building wreck mesh FAILED for ${structureId}:`, err);
+          failedMesh.push(`${structureId}_wreck`);
         });
       };
     }
@@ -1148,16 +1168,35 @@ async function main(): Promise<void> {
   // there are none, which is every sandbox and the tutorial.
   await loading.done();
 
-  // The sheets the game may still need but nobody is waiting for -- a mesh
-  // vehicle's wreck sprite, a deferred buildable's billboard fallback -- start
-  // two frames after deploy, so the first picture the player sees is not
-  // competing with 40 PNG decodes. Deliberately after `loading.done()`, not
-  // between the two waits like the deferred meshes: a briefing is read for
-  // seconds and a wreck is minutes away, so nothing is lost by waiting.
+  // The art the game may still need but nobody is waiting for -- a mesh
+  // vehicle's wreck sprite, a deferred buildable's billboard fallback, and
+  // every BUILDING WRECK mesh -- starts two frames after deploy, so the first
+  // picture the player sees is not competing with 40 PNG decodes and 9.6 MiB
+  // of collapsed masonry. Deliberately after `loading.done()`, not between the
+  // two waits like the deferred unit meshes: a briefing is read for seconds
+  // and a wreck is minutes away, so nothing is lost by waiting.
+  //
+  // Both halves fail soft and neither can draw a hole. A sheet that never
+  // arrives leaves its type on the mesh it already has; a wreck mesh that is
+  // still in flight leaves `buildingMeshWreckTemplates` without the type,
+  // which is exactly the state in which `updateStructures` keeps drawing the
+  // procedural wreck -- see `loadBuildingWreckMesh`'s own doc comment.
+  const afterFirstFrame: Array<() => void> = [];
   if (spritePlan.after.size > 0) {
+    afterFirstFrame.push(() => {
+      for (const id of spritePlan.after) void loadUnitSheet(id);
+    });
+  }
+  if (meshPathActive && wreckMeshLoader) {
+    const loadWreck = wreckMeshLoader;
+    afterFirstFrame.push(() => {
+      for (const id of meshPlan.buildings) loadWreck(id);
+    });
+  }
+  if (afterFirstFrame.length > 0) {
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
-        for (const id of spritePlan.after) void loadUnitSheet(id);
+        for (const start of afterFirstFrame) start();
       })
     );
   }

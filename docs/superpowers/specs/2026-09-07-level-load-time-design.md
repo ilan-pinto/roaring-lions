@@ -92,10 +92,20 @@ Three facts that decide the order below:
    MiB to 3.0, against the 47.9 MiB the whole level costs after step 1) and it is why
    the per-map skip in `loadGroundTexture` had to exist first: the one map with no `n`
    pays nothing, and neither does any map for a slot it cannot sample.
-3. **Wreck meshes load after the first frame** (`-8 to -12 MiB` depending on the map).
-   `hall_wreck` is 3.8 MB, `house_wreck` 2.6, `apartment_wreck` 1.6; a building takes
-   minutes to fall and `loadBuildingMesh` already takes the wreck as a separate URL. Same
-   shape as step 1's background list. Not started.
+3. **Wreck meshes load after the first frame** (`-9.62 MiB` on the profile mission, done
+   2026-09-08). `loadBuildingMesh` takes `wreckUrl: null` from `main.ts` now and the new
+   `ThreeRenderer.loadBuildingWreckMesh` runs in the same two-rAF bucket as
+   `spritePlan.after`. Measured per map, since it is the set of types the map stands:
+   `khan_rafid` 11.32 MiB, `beit_sahwan_*` 9.62-9.66, `marj_perimeter` and the whole
+   Wadi Halam arc 8.14, `qarn_hadid` 5.99, the Umm Zeitoun set 4.32, `deir_amun` 4.36,
+   `tutorial_ground` 2.66, and the Tel Marum set only 0.13-0.19 (they stand `concrete`
+   and little else). On `beit_sahwan_1_recon`: **47.00 -> 37.38 MiB, 168 -> 159 requests**,
+   both exactly reproducible over 3 runs. Unthrottled on localhost the milestones do not
+   separate -- the before and after ranges overlap, because 9.62 MiB off local disk is
+   nearly free -- so the win was measured on a link instead. At `--mbps=20`, 3 runs each,
+   ranges that do not touch: **deploy-ready 21321-21493 ms -> 17297-17322**, loading
+   screen 19716-19761 -> 15697-15715, first frame 23317-24106 -> 19407-19836. The
+   saving is 4.03 s and 9.62 MiB at 20 Mbit/s is 4.03 s, which is the whole of it.
 4. **Geometry compression.** The rigged infantry GLBs are the heaviest files that are not
    texture-bound (`meshy_mortar_team` 5.5 MB, `sarim_rifles` 3.6, `meshy_soldier` 3.0).
    Blender's exporter has Draco; three.js has `DRACOLoader` (a ~150 KB decoder, fetched

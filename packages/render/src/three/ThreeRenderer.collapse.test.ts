@@ -395,3 +395,85 @@ describe('ThreeRenderer collapse shroud: the swap is held until the smoke hides 
     expect(priv.collapseShrouds.liveCount).toBe(0);
   });
 });
+
+/**
+ * Level load time, step 3: the building WRECK mesh is fetched after the
+ * first frame (`main.ts` passes `loadBuildingMesh` a null `wreckUrl` and
+ * calls `loadBuildingWreckMesh` two frames after deploy). On
+ * `beit_sahwan_outskirts` that is 9.62 MiB of a 47.0 MiB level, and the
+ * earliest a building can fall is minutes of play away.
+ *
+ * The deferral is only safe because of two properties this class already
+ * had, and neither was pinned. Both are asserted here through the same
+ * private surface the suites above use -- there is no public seam for
+ * either map without a real GLB fetch.
+ */
+interface DeferredWreckPrivate extends BuildingMeshPrivate {
+  structureIdle: Map<string, StructureInstancer>;
+  structureWreck: Map<string, StructureInstancer>;
+  updateStructures(): void;
+}
+
+/** Arms the BILLBOARD wreck instancer for `typeId` and returns a spy on the
+ *  one call `updateStructures` makes into it, so a test can read what the
+ *  renderer decided to draw rather than inspecting instance matrices. */
+function armWreckInstancer(renderer: ThreeRenderer, typeId: string): ReturnType<typeof vi.fn> {
+  const priv = renderer as unknown as DeferredWreckPrivate;
+  const geometry = structureBillboardGeometry(1, 64, 64);
+  const instancer = new StructureInstancer(new THREE.Texture(), geometry, 1);
+  const update = vi.fn();
+  (instancer as unknown as { update: unknown }).update = update;
+  priv.structureWreck.set(typeId, instancer);
+  return update;
+}
+
+describe('a building wreck mesh that has not arrived yet (level load time, step 3)', () => {
+  it('keeps drawing the procedural wreck while the mesh template is missing, and stops the moment it lands', () => {
+    // THE property the deferral rests on. `updateStructures` forces the
+    // billboard instancer to an EMPTY placement list once the mesh template
+    // exists ("mesh wins") -- so for as long as it does not, the type must
+    // still be fed its real dead placements or a building destroyed in the
+    // first two frames would draw NOTHING at all.
+    const { sim, structureIdx } = buildSim();
+    const renderer = new ThreeRenderer(sim, makeOpts());
+    const priv = renderer as unknown as DeferredWreckPrivate;
+    priv.buildingMeshIdleTemplates.set('shanty', fakeBuildingMeshTemplate());
+    const update = armWreckInstancer(renderer, 'shanty');
+
+    sim.structures.alive[structureIdx] = 0;
+    priv.updateStructures();
+
+    // In flight: the procedural wreck is drawn.
+    expect(update).toHaveBeenCalledTimes(1);
+    expect((update.mock.calls[0][0] as unknown[]).length).toBeGreaterThan(0);
+
+    // Arrived: the same call now gets nothing, because the mesh draws it.
+    priv.buildingMeshWreckTemplates.set('shanty', fakeBuildingMeshTemplate());
+    priv.updateStructures();
+
+    expect(update).toHaveBeenCalledTimes(2);
+    expect(update.mock.calls[1][0]).toEqual([]);
+  });
+
+  it('stands the mesh wreck up on a later frame for a structure that died before the template arrived', () => {
+    // The second property: `updateBuildingMeshes` revisits every dead
+    // structure each frame rather than acting once at the moment of death,
+    // so a template that lands afterwards is still picked up. Without this
+    // the deferral would leave a permanent procedural wreck on anything
+    // destroyed early -- a real, silent downgrade rather than a delay.
+    const { sim, structureIdx } = buildSim();
+    const renderer = new ThreeRenderer(sim, makeOpts());
+    const priv = renderer as unknown as DeferredWreckPrivate;
+    priv.buildingMeshIdleTemplates.set('shanty', fakeBuildingMeshTemplate());
+
+    sim.structures.alive[structureIdx] = 0;
+    priv.updateBuildingMeshes();
+    // Died with no wreck template: no mesh wreck, and no throw.
+    expect(priv.buildingMeshWreckEntities.has(structureIdx)).toBe(false);
+
+    priv.buildingMeshWreckTemplates.set('shanty', fakeBuildingMeshTemplate());
+    priv.updateBuildingMeshes();
+
+    expect(priv.buildingMeshWreckEntities.has(structureIdx)).toBe(true);
+  });
+});

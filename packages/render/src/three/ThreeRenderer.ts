@@ -3434,6 +3434,14 @@ export class ThreeRenderer implements Renderer {
    * files them under `structureId` -- the mesh counterpart of
    * `loadStructureSprite`.
    *
+   * **`wreckUrl` is `null` from the shipping caller since 2026-09-08**, and
+   * the wreck arrives later through `loadBuildingWreckMesh` (level load
+   * time, step 3). The parameter stays because the two-argument form is the
+   * honest one for anybody loading a type outright -- a test, a future
+   * tool -- and because splitting the METHOD in two while leaving the
+   * capability only in the deferred path would make "load this building" a
+   * thing no single call can do.
+   *
    * `wallColorKey` is looked up here, once, from `Sim.structureTypes` --
    * never from `@lions/data` (this package must not import it) -- and
    * threaded into BOTH templates: idle and wreck share the same building's
@@ -3507,31 +3515,76 @@ export class ThreeRenderer implements Renderer {
       this.flashLights.register(material as THREE.ShaderMaterial);
     }
 
-    if (wreckUrl) {
-      const wreckTemplate = await loadBuildingMeshTemplate(
-        wreckUrl,
-        wallColorKey,
-        wallSurface,
-        allowTextured
-      );
-      const previousWreck = this.buildingMeshWreckTemplates.get(structureId);
-      if (previousWreck) {
-        const st = this.sim.structures;
-        for (const [s, root] of this.buildingMeshWreckEntities) {
-          if (this.sim.structureTypes[st.typeIdx[s]].id !== structureId) continue;
-          this.scene.remove(root);
-          this.buildingMeshWreckEntities.delete(s);
-        }
-        disposeBuildingMeshTemplate(previousWreck);
-      }
-      this.buildingMeshWreckTemplates.set(structureId, wreckTemplate);
-      // Muzzle-flash ramp shift -- see `loadMeshUnit`'s identical comment. A
-      // wreck can still sit near a live firefight, so it registers too.
-      for (const material of wreckTemplate.materials) {
-        this.flashLights.register(material as THREE.ShaderMaterial);
-      }
-    }
+    if (wreckUrl) await this.loadBuildingWreckMesh(structureId, wreckUrl);
 
+    this.terrainDirty = true;
+  }
+
+  /**
+   * One building type's WRECK template, on its own -- `loadBuildingMesh`
+   * without the standing half.
+   *
+   * **Why it is separate: a wreck is 20% of a level's bytes and nobody is
+   * waiting for it.** On `beit_sahwan_outskirts` the five wreck GLBs are
+   * 9.62 MiB of a 47.0 MiB level (`hall_wreck` alone is 3.77), and a
+   * building takes MINUTES of play to fall -- the first one cannot collapse
+   * before the player has even deployed. `main.ts` therefore passes
+   * `wreckUrl: null` to `loadBuildingMesh` and calls this two frames after
+   * the deploy click, the same bucket the wreck SPRITES already sit in
+   * (`spritePlan.after`). Level load time, step 3
+   * (`docs/superpowers/specs/2026-09-07-level-load-time-design.md`).
+   *
+   * **Nothing draws a hole while it is in flight, and that is a property
+   * this class already had rather than one this method adds.**
+   * `updateStructures` feeds the billboard wreck instancer
+   * `deadStructurePlacements` for exactly as long as
+   * `buildingMeshWreckTemplates` lacks the type, and zeroes it the moment
+   * the template lands; `updateBuildingMeshes` revisits every dead
+   * structure each frame and stands the mesh wreck up on the first frame a
+   * template exists (its `!this.buildingMeshWreckEntities.has(s)` guard is
+   * what makes that self-healing rather than a one-shot). So a building
+   * destroyed in the first two frames draws its procedural wreck and is
+   * swapped for the mesh one; every later one never sees the gap.
+   *
+   * Re-entrant like `loadBuildingMesh`: a second call for the same type
+   * tears down that type's live wreck clones and disposes the old template
+   * first.
+   */
+  async loadBuildingWreckMesh(structureId: string, wreckUrl: string): Promise<void> {
+    const structureType = this.sim.structureTypes.find((t) => t.id === structureId);
+    if (!structureType) {
+      throw new Error(`loadBuildingWreckMesh: unknown structure type "${structureId}"`);
+    }
+    // Resolved here rather than passed in, so this method is callable on its
+    // own -- and resolved the SAME three ways `loadBuildingMesh` resolves
+    // them, because a wrecked masonry wall is still that type's masonry
+    // (`building-mesh-role.ts`'s own top comment).
+    const wreckTemplate = await loadBuildingMeshTemplate(
+      wreckUrl,
+      structureType.color,
+      wallSurfaceForBuilding(structureId),
+      TEXTURED_BUILDING_TYPES.has(structureId)
+    );
+    const previousWreck = this.buildingMeshWreckTemplates.get(structureId);
+    if (previousWreck) {
+      const st = this.sim.structures;
+      for (const [s, root] of this.buildingMeshWreckEntities) {
+        if (this.sim.structureTypes[st.typeIdx[s]].id !== structureId) continue;
+        this.scene.remove(root);
+        this.buildingMeshWreckEntities.delete(s);
+      }
+      disposeBuildingMeshTemplate(previousWreck);
+    }
+    this.buildingMeshWreckTemplates.set(structureId, wreckTemplate);
+    // Muzzle-flash ramp shift -- see `loadMeshUnit`'s identical comment. A
+    // wreck can still sit near a live firefight, so it registers too.
+    for (const material of wreckTemplate.materials) {
+      this.flashLights.register(material as THREE.ShaderMaterial);
+    }
+    // `updateStructures` reads `buildingMeshWreckTemplates` to decide whether
+    // this type's BILLBOARD wreck instancer still draws -- so the arrival has
+    // to reach the terrain the same way the standing template's does, or a
+    // type that collapsed early would draw both.
     this.terrainDirty = true;
   }
 
