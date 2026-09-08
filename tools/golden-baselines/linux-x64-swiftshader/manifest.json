@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "7639d1d4d29f9b5b1a1a436d440e6d2a10de2c46",
-  "blessedAt": "2026-09-08T11:07:07.402Z",
-  "reason": "rocky knolls draw scree (9bcc657): the n knoll gained a sixth ground-albedo slot, so every knoll tile in shot changes. open-ground 6344 px / 2.2231 and vehicle 1364 px / 0.1525; the diff images confine every moved pixel to knoll patches (tutorial_ground's 35, beit_sahwan_outskirts' 41) with vehicles, trees, buildings and open sand untouched. quiet read 0 px (its camera frames town_center under fog and sees no knoll) and relief 0 px (base tel_marum authors no n at all) -- the knoll-free control, so nothing leaked. All layer checks pass, ground-albedo now toggling six slots: quiet 2861 px / 0.9140, open-ground 6840 / 6.9097, relief 997 / 3.0726, floors unchanged and argued in baseline.ts (7639d1d).",
+  "commit": "1ea856248fec2102828994c32875b5c9d4836635",
+  "blessedAt": "2026-09-08T18:39:42.706Z",
+  "reason": "Draco geometry compression (1ea8562): shipped meshes are quantised now, so a vertex can move a fraction of a pixel. quiet reads 19 px / 0.0050 -- UNDER the 40 px count threshold and 1.3x over the 0.0039 magnitude one, which is why it is the only gated scenario that moved: open-ground (ground crop), relief (terrain and boulders) and vehicle all read within noise and PASS. All 19 changed pixels sit on the thinnest geometry in the frame -- rooftop railings, a dish, aerials, tripod legs -- which is the sub-pixel edge shift 14-bit position quantisation produces, not a shading or colour change. For scale, the scatter defect this threshold was calibrated against reads 0.0470 here, roughly 10x this. Blessing rather than widening the threshold, per CLAUDE.md. All six self-checks pass.",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "b6014b07ce0c07de2013a3dfaa237486ac9e84f43a5212293001390ae3c36aa8"
+      "sha256": "3192dec65937c2bff8bb8e0a3d0c8cbeba53d9718d0d46fdca55a6439e788a8a"
     },
     "open-ground": {
       "tick": 60,
