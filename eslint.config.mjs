@@ -59,6 +59,14 @@ export default tseslint.config(
     files: ['tools/**/*.ts', 'tools/**/*.mjs', '*.mjs', 'packages/app/vite.config.ts'],
     languageOptions: { globals: { ...globals.node } },
   },
+  {
+    // The service worker (level load time step 5). Linted rather than
+    // ignored -- it is code this repository wrote and the one file that can
+    // brick the deployed site -- but it runs in a worker scope, where `self`,
+    // `caches` and `clients` are the globals and `window` does not exist.
+    files: ['assets/sw.js'],
+    languageOptions: { globals: { ...globals.serviceworker } },
+  },
 
   // ------------------------------------------------------------------
   // Invariant enforcement for @lions/sim. This block is the mechanical

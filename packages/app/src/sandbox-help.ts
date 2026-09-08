@@ -88,6 +88,16 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
     // does. `&nomesh` is the live flag now.
     blurb: 'accepted, no effect — meshes are the default; use &nomesh to turn them off',
   },
+  {
+    name: 'nosw',
+    // The service worker's escape hatch (level load time step 5). It belongs
+    // in KNOWN_PARAMS and NOT in SANDBOX_FLAGS for the same reason `mesh`
+    // does not: this is not a sandbox extra, it is a recovery switch that
+    // works on any URL the game serves, including a mission and the campaign
+    // shell. Listing it here is also the only place a stuck player could
+    // find it -- a worker that will not stand down has no UI.
+    blurb: 'unregister the service worker and purge its caches — the recovery switch if a cached build goes wrong',
+  },
   ...SANDBOX_FLAGS,
 ];
 

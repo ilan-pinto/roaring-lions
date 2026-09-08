@@ -107,6 +107,7 @@ import {
   spriteSheetPlan,
 } from './mesh-catalogue';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
+import { registerServiceWorker } from './service-worker';
 import { resolveRendererChoice, RENDERER_STORAGE_KEY } from './renderer-choice';
 import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
 import { tutorialPanel, type TutorialPanel } from './tutorial/panel';
@@ -440,6 +441,12 @@ async function main(): Promise<void> {
   const wantMesh = !flags.nomesh;
   // A misspelled flag (`&tunel`) otherwise does nothing at all, silently,
   // which reads as a broken feature rather than as a typo.
+  // Level load time step 5. Fire-and-forget and deliberately NOT awaited: the
+  // worker is a cache for the NEXT load, so making this boot wait on it would
+  // trade the thing it is meant to buy. It never rejects (see its own doc
+  // comment) -- a browser that refuses registration keeps the game exactly as
+  // it is today.
+  void registerServiceWorker(BASE, window.location.search);
   const strays = unknownParams(params);
   if (strays.length > 0) {
     console.warn(

@@ -3,7 +3,7 @@
 //   pnpm perf:load -- --mission=beit_sahwan_1_recon            # dev server (started if needed)
 //   pnpm perf:load -- --sandbox=tel_marum --mbps=20            # throttled to a 20 Mbit/s downlink
 //   pnpm perf:load -- --mission=tel_marum_2_foothold --serve=preview   # the production build in dist/
-//   pnpm perf:load -- --mission=... --warm                     # HTTP cache ON (a second visit)
+//   pnpm perf:load -- --mission=... --warm                     # HTTP cache AND service worker ON (a second visit)
 //
 // Loads one mission or sandbox in headless Chromium with the HTTP cache
 // DISABLED (a first visit, or a visit after GitHub Pages' 10-minute max-age
@@ -98,6 +98,18 @@ type Req = { url: string; mime: string; bytes: number; start: number; end: numbe
 async function attachNetwork(cdp: CDPSession, warm: boolean, mbps: number | null): Promise<() => Req[]> {
   await cdp.send('Network.enable');
   await cdp.send('Network.setCacheDisabled', { cacheDisabled: !warm });
+  // The service worker (level load time step 5) has to be bypassed on a COLD
+  // run, and this is not a tidy-up -- without it this tool silently stops
+  // measuring what it says it measures. A worker that has claimed the client
+  // serves requests out of the Cache API, and Chrome reports
+  // `encodedDataLength: 0` for those, so the run still counts 161 requests
+  // and reports 0.39 MiB while printing "cache=OFF (cold)". Measured the day
+  // the worker landed, against a real 16.59 MiB.
+  //
+  // `--warm` deliberately leaves it ON: with the worker in the build, "warm"
+  // is no longer just the HTTP cache, it is the returning player, and that is
+  // the thing step 5 exists to improve.
+  await cdp.send('Network.setBypassServiceWorker', { bypass: !warm });
   if (mbps !== null) {
     await cdp.send('Network.emulateNetworkConditions', {
       offline: false,
@@ -214,7 +226,8 @@ async function main(): Promise<void> {
   const query = args.mission ? `?mission=${args.mission}` : `?sandbox=${args.sandbox}`;
   const url = `http://localhost:${args.port}/${query}`;
   console.log(
-    `[${TAG}] ${url}  serve=${args.serve}  cache=${args.warm ? 'ON (warm)' : 'OFF (cold)'}  ` +
+    `[${TAG}] ${url}  serve=${args.serve}  ` +
+      `cache=${args.warm ? 'ON, service worker ON (warm -- a returning player)' : 'OFF, service worker BYPASSED (cold -- a first visit)'}  ` +
       `${args.mbps ? `downlink ${args.mbps} Mbit/s, 20 ms latency` : 'unthrottled'}  runs=${args.runs}`
   );
   const browser = await chromium.launch({ headless: true });

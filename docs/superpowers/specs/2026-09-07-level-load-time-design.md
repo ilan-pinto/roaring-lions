@@ -147,10 +147,39 @@ Three facts that decide the order below:
 
    **47.00 -> 16.59 MiB and deploy-ready 21.4 s -> 8.2 s across steps 3 and 4 together**,
    on the same machine and the same command.
-5. **A service worker for Pages.** Cache-first for Vite's hashed `/assets/*`, stale-while-
-   revalidate for everything under `publicDir` (sprites, audio, textures, video), so the
-   second level in a session loads from disk whatever the host's `max-age` says. Not
-   started; it is the only item that helps a returning player more than a new one.
+5. **A service worker for Pages** (done 2026-09-08). `assets/sw.js`, registered by
+   `packages/app/src/service-worker.ts` in production builds only. Network-first for a
+   navigation, cache-first for Vite's hashed `assets/`, stale-while-revalidate for the
+   unhashed `publicDir` binaries; `video/` and any ranged request are never touched.
+
+   Measured with a purpose-built probe (three loads in ONE browser context, against
+   `vite preview`, which sends `Cache-Control: no-cache` and is therefore a fair stand-in
+   for Pages ten minutes on). Repeat loads, throttled to 20 Mbit/s and 20 ms RTT:
+
+   | | requests over the wire | ready |
+   |---|---|---|
+   | without the worker (`?nosw`) | 343-352, all revalidations | 8160-8206 ms |
+   | with the worker | **0** | **6829-6999 ms** |
+
+   The bytes were already small (304s); **the win is 350 round trips**, which is what
+   this document's own "requests matter more on a real host" note predicted. ~1.3 s per
+   repeat load at 20 ms RTT, and it grows roughly with RTT -- a mobile connection at 100
+   ms is several seconds.
+
+   **The dangerous half is the recovery path, not the caching.** A navigation is
+   network-first so no deploy can be pinned out; the cache name carries the full version
+   and `activate` deletes every other `lions-` cache; and `?nosw` purges the caches and
+   unregisters the worker, listed in `KNOWN_PARAMS` because a stuck player has no other
+   way to find it. `sw-policy.test.ts` evaluates the SHIPPED file in a `node:vm` sandbox
+   and drives its `strategyFor` directly, on both the origin root and a Pages sub-path.
+
+   **It also broke `pnpm perf:load` silently, which is worth knowing before trusting any
+   number from that tool again.** A worker controlling the page serves out of the Cache
+   API, Chrome reports `encodedDataLength: 0` for those responses, and the cold profile
+   went on printing "cache=OFF (cold)" while reporting **0.39 MiB against a real 16.59**.
+   Fixed with `Network.setBypassServiceWorker` on cold runs; `--warm` deliberately leaves
+   the worker on, because with it in the build "warm" now means a returning player, which
+   is the thing this step exists to improve.
 6. **First frame.** 2.9 s between the deploy click and `window.__lions` on SwiftShader
    (terrain compose, scatter, decor placement, fog, first GPU upload). Unmeasured on a real
    GPU; profile before touching. Not started.

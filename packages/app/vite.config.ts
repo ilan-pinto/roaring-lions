@@ -12,6 +12,10 @@ const pkg = JSON.parse(
 ) as { version: string };
 const [major, minor] = pkg.version.split('.');
 const GAME_VERSION = `${major}.${minor}`;
+// The FULL version, for the service worker's cache name and worker URL
+// (`src/service-worker.ts`). Not `GAME_VERSION`: a patch release changes the
+// hashed assets, and a cache that survived it would serve the old ones.
+const APP_BUILD = pkg.version;
 
 export default defineConfig({
   // The palette reaches CSS as --rl-* custom properties, from the same
@@ -27,7 +31,10 @@ export default defineConfig({
     assetWatchPlugin(),
   ],
   // Build-time constant: no runtime fetch, and it works the same on Pages.
-  define: { __GAME_VERSION__: JSON.stringify(GAME_VERSION) },
+  define: {
+    __GAME_VERSION__: JSON.stringify(GAME_VERSION),
+    __APP_BUILD__: JSON.stringify(APP_BUILD),
+  },
   // GitHub Pages serves the app from /<repo>/, so asset URLs need that
   // prefix; local dev and the preview harness stay at the root.
   base: process.env.VITE_BASE ?? '/',
