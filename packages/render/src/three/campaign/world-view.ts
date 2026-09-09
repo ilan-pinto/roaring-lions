@@ -50,7 +50,7 @@
  * like a plausible diorama.
  */
 import * as THREE from 'three';
-import { gltfLoader } from '../units/gltf-loader';
+import { gltfLoader, setDracoDecoderPath } from '../units/gltf-loader';
 
 import {
   fitHalfHeight,
@@ -77,6 +77,26 @@ export interface WorldViewOptions {
   /** Served URL of the world GLB. Paths are the app's business; this takes
    *  the resolved URL, exactly as `loadBuildingMeshTemplate` does. */
   meshUrl: string;
+  /**
+   * Directory the Draco decoder is fetched from -- `${BASE}draco/`, ending
+   * in a slash. Same field, same contract and the same reason as
+   * `RendererOptions.dracoDecoderPath`: `packages/render` cannot compute
+   * `BASE`.
+   *
+   * **This screen has to ask for it separately, and forgetting that was a
+   * shipped regression.** Every mesh has carried
+   * `KHR_draco_mesh_compression` since 2026-09-08, but the decoder path was
+   * set in ONE place -- `ThreeRenderer`'s constructor -- and this board never
+   * constructs a `ThreeRenderer`. So `?campaign` fetched the diorama (HTTP
+   * 200), threw `No DRACOLoader instance provided`, and fell back to the flat
+   * PNG board with the reason visible only as a console warning.
+   *
+   * Optional, because a caller loading an UNCOMPRESSED GLB (the spikes, a
+   * test fixture) legitimately needs no decoder -- but every SHIPPED asset
+   * needs it, so `mountWorldView` warns by name when it is absent rather
+   * than letting the fallback swallow the reason.
+   */
+  dracoDecoderPath?: string;
   /** Region id -> state, as the app derived it from the ledger. A region the
    *  GLB carries and this omits is drawn `locked`: the safe direction, since
    *  the failure it guards is a region becoming clickable by accident. */
@@ -143,6 +163,17 @@ export async function mountWorldView(
   host: HTMLElement,
   opts: WorldViewOptions
 ): Promise<WorldView> {
+  // BEFORE the load, for the same reason `ThreeRenderer`'s constructor does
+  // it first: `gltfLoader()` builds its loader once and attaches the decoder
+  // only if a path is known by then.
+  if (opts.dracoDecoderPath) {
+    setDracoDecoderPath(opts.dracoDecoderPath);
+  } else {
+    console.warn(
+      '[lions] campaign board: no dracoDecoderPath given, so a Draco-compressed diorama cannot parse ' +
+        '-- every shipped GLB is compressed (level load time, step 4)'
+    );
+  }
   const gltf = await gltfLoader().loadAsync(opts.meshUrl);
 
   const renderer = new THREE.WebGLRenderer({

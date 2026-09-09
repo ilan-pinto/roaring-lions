@@ -290,6 +290,24 @@ export function meshUrl(file: string): string {
   return `${import.meta.env.BASE_URL}meshes/${file}`;
 }
 
+/**
+ * Where the Draco decoder is fetched from -- `${BASE}draco/`, self-hosted
+ * beside the meshes it decodes.
+ *
+ * A function here rather than a `${BASE}draco/` literal at each call site,
+ * and the reason is a regression rather than tidiness. Every shipped GLB is
+ * Draco-compressed (level load time, step 4), so EVERY entry point that
+ * loads one has to supply this -- and there are two, not one:
+ * `main.ts` builds a `ThreeRenderer`, and `ui/menu.ts` mounts the campaign
+ * board, which constructs no renderer at all. The board was missed, fetched
+ * its diorama, threw `No DRACOLoader instance provided`, and fell back to
+ * the flat PNG. One spelling, in the file that already owns every other
+ * asset URL, is what keeps a third entry point from inventing its own.
+ */
+export function dracoDecoderPath(): string {
+  return `${import.meta.env.BASE_URL}draco/`;
+}
+
 /** Every file path any table above claims. The completeness gate compares
  *  this against what `art/meshes/**` actually holds, in both directions. */
 export function claimedMeshFiles(): Set<string> {

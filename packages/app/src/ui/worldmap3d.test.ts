@@ -29,6 +29,9 @@ interface FakeView extends MountedView {
   nudges: number[];
   resets: number;
   disposed: number;
+  /** What this screen handed the renderer for the Draco decoder. Recorded
+   *  because it once handed it nothing -- see the test at the bottom. */
+  dracoDecoderPath: string | undefined;
 }
 
 const fakeMount = (): { mount: MountWorldView; view: () => FakeView } => {
@@ -40,6 +43,7 @@ const fakeMount = (): { mount: MountWorldView; view: () => FakeView } => {
       statuses: { ...opts.statuses },
       clickable: opts.clickable,
       meshUrl: opts.meshUrl,
+      dracoDecoderPath: opts.dracoDecoderPath,
       nudges: [],
       resets: 0,
       disposed: 0,
@@ -81,6 +85,7 @@ const mountScreen = (
     ledger,
     href: (id) => `?mission=${id}`,
     meshUrl: '/art/sahar_basin.glb',
+    dracoDecoderPath: '/draco/',
     fallback: () => {
       const f = document.createElement('div');
       f.className = 'rl-world__flatstub';
@@ -372,5 +377,32 @@ describe('showCampaign picks the board from the renderer the player chose', () =
       expect(back.getAttribute('href'), choice).toBe('?');
       expect(stage.querySelector('[data-town="beit_sahwan"]'), choice).not.toBe(null);
     }
+  });
+});
+
+/**
+ * The regression this screen shipped with on 2026-09-08, and the one thing
+ * about it that made it expensive: it failed SOFTLY.
+ *
+ * Every shipped GLB carries `KHR_draco_mesh_compression` since level load
+ * time step 4, and a `GLTFLoader` with no `DRACOLoader` attached does not
+ * degrade on one -- it throws. The decoder path was set in exactly one place,
+ * `ThreeRenderer`'s constructor, and this board constructs no `ThreeRenderer`
+ * at all. So `?campaign` fetched `sahar_basin.glb` (HTTP 200), threw
+ * `No DRACOLoader instance provided`, and this screen's own fallback caught
+ * it and drew the flat PNG board -- which is exactly what it is supposed to
+ * do for a browser with no WebGL2, so the screen looked like it was working
+ * as designed. The only evidence was one console warning.
+ *
+ * `World3dOptions.dracoDecoderPath` is REQUIRED rather than optional so the
+ * compiler is the thing that catches the next caller; this pins that the
+ * value actually reaches the renderer, which the type alone cannot.
+ */
+describe('the Draco decoder path', () => {
+  it('is handed to the renderer, or the diorama cannot parse a compressed GLB', () => {
+    const s = mountScreen({});
+    return s.ready.then(() => {
+      expect(s.view().dracoDecoderPath).toBe('/draco/');
+    });
   });
 });

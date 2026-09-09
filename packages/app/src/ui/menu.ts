@@ -8,7 +8,7 @@ import type { LedgerData } from '@lions/sim';
 // takes `Object.keys(maps)` the same way, for the same reason.
 import { maps, type MapJson } from '@lions/data';
 import type { ParsedWorld, WorldCountry } from '../campaign';
-import { CAMPAIGN_MESHES, meshUrl } from '../mesh-catalogue';
+import { CAMPAIGN_MESHES, dracoDecoderPath, meshUrl } from '../mesh-catalogue';
 import { RENDERER_STORAGE_KEY, resolveRendererChoice } from '../renderer-choice';
 import { SANDBOX_FLAGS, sandboxUrl, type SandboxFlagName } from '../sandbox-help';
 import { panel } from './panel';
@@ -233,6 +233,9 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): void {
         ledger: opts.ledger,
         href,
         meshUrl: boardUrl,
+        // This screen constructs no `ThreeRenderer`, so nothing else can
+        // hand it the decoder every shipped GLB now needs.
+        dracoDecoderPath: dracoDecoderPath(),
         fallback: flat,
       }).el
     );

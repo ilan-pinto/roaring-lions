@@ -13,8 +13,25 @@
  * `new GLTFLoader()` call sites when this landed (unit, vehicle, building,
  * decor, three VFX meshes, the campaign board, the soldier spike), and a
  * tenth added later without the decoder would fail exactly that way: loudly,
- * but only for whatever art that one site loads. One factory makes forgetting
- * impossible rather than merely unlikely.
+ * but only for whatever art that one site loads.
+ *
+ * **This comment used to end "one factory makes forgetting impossible rather
+ * than merely unlikely", and that was wrong within a day.** The factory makes
+ * forgetting the LOADER impossible; it does nothing about forgetting the
+ * DECODER PATH, which is separate state set by whoever owns `BASE`. On
+ * 2026-09-08 that was `ThreeRenderer`'s constructor and nowhere else -- so
+ * the campaign board, which constructs no `ThreeRenderer`, fetched its
+ * diorama, threw `No DRACOLoader instance provided`, and fell back to the
+ * flat PNG map. It failed SOFTLY, which is why it reached main with CI
+ * green: no gate loads `?campaign` with a real WebGL2 context.
+ *
+ * There are TWO entry points that must set the path, and the app names them
+ * from one place (`mesh-catalogue.ts`'s `dracoDecoderPath`): `main.ts` via
+ * `RendererOptions.dracoDecoderPath`, and `ui/menu.ts` via
+ * `WorldViewOptions.dracoDecoderPath`. A third would have to be told too --
+ * so if you are adding one, that is the thing to remember, and
+ * `mountWorldView` warns by name when it is missing rather than letting a
+ * fallback swallow the reason.
  *
  * ## The decoder is self-hosted and its path comes from the app
  *

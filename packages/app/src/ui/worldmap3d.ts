@@ -100,6 +100,7 @@ export type MountWorldView = (
   host: HTMLElement,
   opts: {
     meshUrl: string;
+    dracoDecoderPath?: string;
     statuses: Readonly<Record<string, RegionStatus>>;
     clickable: ReadonlySet<string>;
     onPick: (regionId: string | null) => void;
@@ -115,6 +116,13 @@ export interface World3dOptions {
    *  this screen takes the URL already resolved, the same way the renderer's
    *  own mesh loaders do. */
   meshUrl: string;
+  /** Where the Draco decoder is fetched from -- `${BASE}draco/`. Every
+   *  shipped GLB is Draco-compressed, and this screen does NOT construct a
+   *  `ThreeRenderer`, so it is the only thing that can hand the decoder path
+   *  to `@lions/render/three-campaign`. Omitting it fell back to the flat
+   *  board with the reason only in the console -- the regression this field
+   *  exists to make unrepresentable. */
+  dracoDecoderPath: string;
   /** The flat PNG board, built lazily -- it is only ever needed if the
    *  diorama cannot be drawn, and building it eagerly would mean every
    *  player parsing an SVG overlay they will not see. */
@@ -369,6 +377,7 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
       const mount = opts.mount ?? (await loadView());
       const view = await mount(host, {
         meshUrl: opts.meshUrl,
+        dracoDecoderPath: opts.dracoDecoderPath,
         statuses,
         clickable,
         onPick,

@@ -101,6 +101,7 @@ import {
   DECOR_MESHES,
   VFX_MESHES,
   meshUrl,
+  dracoDecoderPath,
   missionUnitTypes,
   decorFamiliesFor,
   hasUnitMesh,
@@ -663,7 +664,7 @@ async function main(): Promise<void> {
     // like the fonts, never a CDN. Every shipped GLB is Draco-compressed
     // (level load time, step 4), so a mesh renderer without this loads no
     // mesh at all -- it is not a nicety, and `gltf-loader.ts` says so.
-    dracoDecoderPath: `${BASE}draco/`,
+    dracoDecoderPath: dracoDecoderPath(),
   };
   // Three is the default as of Phase D; Pixi remains reachable through
   // `?renderer=pixi`, which `renderer-choice.ts` persists so it survives the
