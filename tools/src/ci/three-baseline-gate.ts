@@ -97,6 +97,7 @@
 //     re-authored (`capturePreconditionMismatches`) rather than reporting the
 //     re-authoring as a regression.
 
+import { checkCampaignBoard } from '../golden-diff/screens-check';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -502,6 +503,32 @@ async function main(): Promise<void> {
     const page = await browser.newPage({ viewport: { ...CAPTURE_VIEWPORT } });
     const outcomes: ScenarioOutcome[] = [];
 
+    // Screens the scenario harness cannot frame, checked before the
+    // scenarios so a broken one is reported even if a capture later throws.
+    // Reference-free: it asks which PATH the screen took, never what it looks
+    // like -- see `screens-check.ts` for the bug that bought this.
+    const screen = await checkCampaignBoard(page, `http://localhost:${args.port}/`);
+    console.log(
+      `\n[${TAG}] screen "${screen.id}": ${screen.detail} ` +
+        `(data-board=${String(screen.board)}, canvas=${screen.hasCanvas}) -> ${screen.ok ? 'PASS' : 'FAIL'}`
+    );
+    // Tracked in a variable, NOT left to `process.exitCode` to carry: the
+    // success path below assigns `EXIT_OK` unconditionally when every gated
+    // scenario matches, which would clobber a failure set here and exit 0
+    // over a printed FAIL. Found by reading that assignment rather than by a
+    // run -- it is the same green-tick-over-a-real-failure shape this whole
+    // check exists to stop.
+    const screensOk = screen.ok;
+    if (!screen.ok) {
+      for (const m of screen.messages.slice(0, 5)) console.error(`[${TAG}]   ${m}`);
+      console.error(
+        `[${TAG}] the campaign board fell back on a runner that draws every other scenario in three.js. ` +
+          `That is a real regression, not an environment limit -- the fallback is legitimate ONLY for a browser ` +
+          `with no WebGL2, and this one has it.`
+      );
+      process.exitCode = EXIT_DIFF;
+    }
+
     for (const scenario of scenarios) {
       const spec = specFor(scenario.id);
       const gated = isGated(spec);
@@ -762,8 +789,15 @@ async function main(): Promise<void> {
           `[${TAG}] tick here.`
       );
       process.exitCode = EXIT_NO_BASELINE;
+    } else if (!screensOk) {
+      console.error(
+        `\n[${TAG}] every gated scenario matches the "${key}" baseline, but a SCREEN check failed ` +
+          `(see "campaign-board" above). Exiting non-zero: a screen that silently takes its fallback ` +
+          `path is invisible to a pixel baseline, because the fallback is a legitimate picture.`
+      );
+      process.exitCode = EXIT_DIFF;
     } else {
-      console.log(`\n[${TAG}] all gated scenarios match the "${key}" baseline.`);
+      console.log(`\n[${TAG}] all gated scenarios match the "${key}" baseline, and every screen check passes.`);
       process.exitCode = EXIT_OK;
     }
   } finally {

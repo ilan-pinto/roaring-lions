@@ -473,6 +473,24 @@ yours; each one records what the next phase inherits.
   against a stored baseline — moves them by under 2% bar one (`relief`
   `ground-albedo` pixel count 1015 → 906, still 2.7× its floor). The toggles
   cost **~4.9 s** on the gate's ~34.8 s (3 runs each, same machine).
+  **The gate also checks one whole SCREEN the scenario harness cannot frame**
+  (`tools/src/golden-diff/screens-check.ts`, added 2026-09-09). `?campaign` is
+  loaded before the scenarios and must draw the 3D diorama: the check reads
+  the screen's own `wrap.dataset.board` back off the DOM and fails when it
+  says `flat`. It exists because Draco compression broke that board and CI
+  stayed green -- every scenario here is a `sandbox=` or `mission=` URL, so
+  nothing loaded the campaign screen at all. It is reference-free by
+  construction and asks which PATH the screen took rather than what it looks
+  like, because **the fallback is a legitimate picture**: dropping to the flat
+  PNG board is correct for a browser with no WebGL2, so a pixel baseline
+  cannot tell that outcome from the bug. Falsified by re-injecting the
+  decoder defect: `data-board=flat, canvas=false -> FAIL`, with
+  `No DRACOLoader instance provided` printed beneath it. One trap found while
+  wiring it and worth knowing before adding a second screen check: the
+  success path assigns `EXIT_OK` unconditionally once every gated scenario
+  matches, so a failure recorded only in `process.exitCode` is silently
+  clobbered -- carry it in a variable and consult it at the end.
+
   **Exit 3 still means "nothing was COMPARED", and two scenarios are captured
   and not judged at all**: `vehicle`, because the only thing it uniquely frames
   is mesh vehicles and `updateVehicleMeshes` re-asserts `root.visible` every
