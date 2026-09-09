@@ -37,7 +37,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { chromium, type CDPSession, type Page } from 'playwright';
-import { ensureDevServer, isServerUp, stopDevServer } from '../golden-diff/browser';
+import { ensureDevServer, isServerUp, readUnmaskedRenderer, stopDevServer } from '../golden-diff/browser';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..', '..');
@@ -230,8 +230,39 @@ async function main(): Promise<void> {
       `cache=${args.warm ? 'ON, service worker ON (warm -- a returning player)' : 'OFF, service worker BYPASSED (cold -- a first visit)'}  ` +
       `${args.mbps ? `downlink ${args.mbps} Mbit/s, 20 ms latency` : 'unthrottled'}  runs=${args.runs}`
   );
-  const browser = await chromium.launch({ headless: true });
+  // **The real GPU, and printing which one.** This harness measures SPEED, and
+  // a player never runs on a software rasteriser -- so it takes the same
+  // arguments `perf/backend-curve-gate.ts` takes, for the reason
+  // `docs/PERFORMANCE.md` gives at length: Playwright's default headless
+  // launch renders WebGL through SwiftShader, and that was "the single largest
+  // confound found while producing this doc".
+  //
+  // This file went four steps of the load-time plan without them (2026-09-07
+  // to 09-08), so every `first-frame` it reported in that window was a
+  // software-rasteriser number. The bytes and request counts were never
+  // affected -- the network does not care what draws -- but the milestone that
+  // step 6 exists to attack was measured through the wrong renderer, and
+  // nothing in the output said so. That is the point of the header line below:
+  // a number from this tool can no longer be quoted without its renderer.
+  //
+  // The golden-image gate makes the OPPOSITE choice deliberately, and both are
+  // right: speed wants the GPU, reproducibility wants the CPU
+  // (`golden-diff/browser.ts`'s `launchCaptureBrowser`).
+  const browser = await chromium.launch({
+    headless: true,
+    args: [
+      '--use-angle=metal',
+      '--ignore-gpu-blocklist',
+      '--use-gl=angle',
+      '--enable-gpu-rasterization',
+      '--disable-gpu-sandbox',
+    ],
+  });
   try {
+    // Read, never assumed -- the same probe the visual gate keys its baselines
+    // on. If this ever prints SwiftShader again, every millisecond below is a
+    // CPU rasteriser's and the `first-frame` figure means something else.
+    console.log(`[${TAG}] renderer: ${await readUnmaskedRenderer(browser)}`);
     for (let run = 1; run <= args.runs; run++) {
       const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
       const page = await context.newPage();

@@ -180,9 +180,35 @@ Three facts that decide the order below:
    Fixed with `Network.setBypassServiceWorker` on cold runs; `--warm` deliberately leaves
    the worker on, because with it in the build "warm" now means a returning player, which
    is the thing this step exists to improve.
-6. **First frame.** 2.9 s between the deploy click and `window.__lions` on SwiftShader
-   (terrain compose, scatter, decor placement, fog, first GPU upload). Unmeasured on a real
-   GPU; profile before touching. Not started.
+6. **First frame.** ~~2.9 s between the deploy click and `window.__lions`~~ -- **that
+   number was a software rasteriser's, and on real hardware the gap is mostly not there.**
+   Profiled 2026-09-09 after fixing the harness (below): on `ANGLE Metal Renderer: Apple
+   M3 Pro`, first frame reads **887, 892 and 1797 ms** against SwiftShader's 2439-3239 for
+   the same build. `ready` is ~340 ms either way, so the deploy-to-world gap is about
+   **550 ms warm**, not 2.5 s. The 1797 ms outlier is the FIRST run of a fresh browser --
+   shader compilation -- and it is the only part of this step with a real target left in
+   it. Terrain compose, scatter, decor placement and fog are not the problem they looked
+   like. **Do not tune against a SwiftShader profile.**
+
+   **The harness was measuring through the wrong renderer, for four steps.** Playwright's
+   default headless launch renders WebGL through SwiftShader, which `docs/PERFORMANCE.md`
+   already names as "the single largest confound found while producing this doc" and which
+   `perf/backend-curve-gate.ts` already worked around -- and `load-profile.ts` shipped
+   without the same arguments. Every `first-frame` figure this document quoted between
+   2026-09-07 and 09-08 is therefore a CPU rasteriser's. **Bytes and request counts were
+   never affected**, so steps 1-5's headline results stand exactly as recorded; only the
+   first-frame column was wrong. Fixed by taking `backend-curve-gate.ts`'s arguments and
+   by PRINTING the unmasked renderer on every run, so a number from this tool can no
+   longer be quoted without knowing what drew it.
+
+   One measurement subtlety this exposed and that any future reader needs: the profiler's
+   window ends the instant `window.__lions` exists, and the deferred art from step 3
+   (wreck meshes, after-frame sheets) is issued from a `requestAnimationFrame` callback.
+   On a fast renderer that work is issued and largely completes inside the window --
+   **175-180 requests / 20.07 MiB** -- while on SwiftShader the window closed first and
+   the same build read 162 / 16.64. Both are true and they answer different questions:
+   **16.6 MiB is what gates the deploy screen; ~20.1 MiB is everything a first visit
+   eventually pulls.**
 
 Not on the list, by the lead's decision (2026-09-07: *"dont drop resolution"*): reducing
 vehicle bake resolution below 2048^2. It would save ~1 MB per vehicle; the art reads at
