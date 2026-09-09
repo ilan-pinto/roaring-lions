@@ -4,7 +4,11 @@
 **Asked by:** the project lead -- *"let's start handling the load time of each level. How
 can we make it fast?"*
 **Instrument:** `pnpm perf:load` (`tools/src/perf/load-profile.ts`), landed at `e7a8c8b`.
-**Status:** measured; steps 1-2 landed the same day; 3-6 queued in ranked order.
+**Status:** **DONE, 2026-09-09.** Steps 1-5 shipped; step 6 CLOSED by the project lead
+without being built, because profiling it correctly showed there was almost nothing there
+(see step 6). A level went from **3,736 requests / 114.8 MiB** to **162 / 16.6 MiB** for a
+first-time visitor and to **nothing at all** for a returning one; deploy-ready on a 20
+Mbit/s link went **21.4 s -> 8.2 s**.
 
 ## After steps 1-2 (same command, same machine, same day)
 
@@ -190,6 +194,14 @@ Three facts that decide the order below:
    it. Terrain compose, scatter, decor placement and fog are not the problem they looked
    like. **Do not tune against a SwiftShader profile.**
 
+   **CLOSED, not built** -- the project lead's call, 2026-09-09, on the recommendation
+   that what was left did not pay for itself. Attacking the remaining ~900 ms means a
+   shader warm-up pass compiling materials before the deploy screen: real work, and it
+   helps a player exactly once, on their first level ever, on a cold browser profile. The
+   step is left written down rather than deleted so the next reader can see both the
+   original 2.9 s premise and why it evaporated -- the lesson is the instrument, not the
+   frame time.
+
    **The harness was measuring through the wrong renderer, for four steps.** Playwright's
    default headless launch renders WebGL through SwiftShader, which `docs/PERFORMANCE.md`
    already names as "the single largest confound found while producing this doc" and which
@@ -222,7 +234,20 @@ Before and after every step, the same command, and the numbers go in the commit:
 pnpm build && pnpm perf:load -- --mission=beit_sahwan_1_recon --serve=preview
 ```
 
-`--mbps=20` puts a downlink under it; `--warm` runs with the cache on; `--sandbox=<map>`
-profiles a sandbox. The milestones are read from the page's own DOM and are portable; the
-milliseconds are this machine's and SwiftShader's, and every number quoted from the tool
-should say so.
+`--mbps=20` puts a downlink under it; `--warm` runs with the HTTP cache AND the service
+worker on (a returning player); `--sandbox=<map>` profiles a sandbox. The milestones are
+read from the page's own DOM and are portable; the milliseconds are this machine's.
+
+**Every run prints the unmasked WebGL renderer, and a number from this tool must be quoted
+with it.** That line exists because this harness spent four steps reporting SwiftShader
+frame timings while saying nothing about it, and the whole of step 6 was scoped against
+those numbers. Two other ways this instrument has lied, both now fixed and both worth
+knowing before trusting a new one:
+
+  - a service worker controlling the page serves out of the Cache API and Chrome reports
+    `encodedDataLength: 0` for those responses, so a cold run read **0.39 MiB against a
+    real 16.59** while printing "cache=OFF (cold)". Cold runs bypass the worker now.
+  - the measurement window ends the instant `window.__lions` exists, so work issued from a
+    `requestAnimationFrame` callback may or may not be inside it depending on frame rate.
+    **16.6 MiB is what gates the deploy screen; ~20.1 MiB is everything a first visit
+    eventually pulls.**
