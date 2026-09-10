@@ -83,7 +83,11 @@ describe('DEBUG_LAYERS', () => {
     expect(() => r.setDebugLayerVisible('scater', false)).toThrow(/unknown layer "scater"/);
     expect(unknownDebugLayerMessage('x')).toContain(DEBUG_LAYERS.join(', '));
     expect(isDebugLayer('scatter')).toBe(true);
-    expect(isDebugLayer('units')).toBe(false);
+    // `units` became a real layer on 2026-09-10 -- see `unitsDebugHidden`.
+    // `unitz` stands in as the not-a-layer, so this keeps asserting what it
+    // was written to assert rather than quietly passing on a stale name.
+    expect(isDebugLayer('units')).toBe(true);
+    expect(isDebugLayer('unitz')).toBe(false);
     r.dispose();
   });
 

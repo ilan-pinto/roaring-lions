@@ -491,14 +491,36 @@ yours; each one records what the next phase inherits.
   matches, so a failure recorded only in `process.exitCode` is silently
   clobbered -- carry it in a variable and consult it at the end.
 
-  **Exit 3 still means "nothing was COMPARED", and two scenarios are captured
-  and not judged at all**: `vehicle`, because the only thing it uniquely frames
-  is mesh vehicles and `updateVehicleMeshes` re-asserts `root.visible` every
-  frame, so the repaint meant to photograph them missing is the call that puts
-  them back (76 px / 0.0100 for hiding "units" there, against 6922 / 0.5014 for
-  scatter — there is deliberately no `units` layer); and `combat`, whose scene
-  does not hold still between two photographs at all (two screenshots with NO
-  repaint between them differ by 10989 px, then 22215). A regression in anything
+  **Exit 3 still means "nothing was COMPARED", and ONE scenario is now
+  captured and not judged**: `combat`, whose scene does not hold still between
+  two photographs at all (two screenshots with NO repaint between them differ
+  by 10989 px, then 22215).
+  **`vehicle` joined the judged set on 2026-09-10 and how it did is the
+  useful part.** It had no reference-free check because the obvious one does
+  not work: `updateMeshUnits`/`updateVehicleMeshes` re-assert `root.visible`
+  from fog EVERY frame, so the repaint meant to photograph the units missing
+  is the call that puts them back — hiding "units" that way moved 76 px /
+  0.0100, against 6922 / 0.5014 for scatter in the same frame. It was
+  measuring the few billboard instancers and silhouettes that happen not to be
+  re-asserted. `ThreeRenderer.unitsDebugHidden`, a flag those two writes
+  consult, takes the same toggle to **23147–23152 px / 2.0232–2.0247** — 305×
+  — with a floor at a third (7700 / 0.67). **A toggle that only holds until
+  the next frame is not a measurement**, and any future layer whose objects
+  are re-asserted per frame needs the same treatment rather than a bare
+  `setObjectsVisible`.
+  Two things that fell out of it. The `units` layer hides mesh units, mesh
+  vehicles AND the billboard instancers, so it is the unit BODIES rather than
+  overlays or silhouettes. And giving `vehicle` any check at all made it run
+  the zero-time **repaint control for the first time** — `runSelfChecks`
+  returns early on an empty `layerChecks` — where it fails the global hard
+  zero at 0 px / 0.0002–0.0003. That drift was already measured and recorded
+  in its own entry; it is now expressed as `BaselineSpec.repaintControl`, a
+  PER-SCENARIO budget (0 px, 0.001 mean) that loosens one scenario and nothing
+  else. The constants stay 0 and must: their own comment is right that
+  widening them would silently loosen every layer floor at once. **What
+  drifts is still unknown** — ~65–99 scattered pixels around the vehicles,
+  decaying over successive repaints, and a literal 0 on the other three
+  scenarios. Finding it would let that field go away. A regression in anything
   no layer check names still passes on an unblessed runner at any size.
   **Run-to-run noise is not spread over the frame**; it sits in tight clusters
   around animating mesh units and real-time VFX, and every other pixel is

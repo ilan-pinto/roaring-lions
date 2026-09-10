@@ -616,15 +616,31 @@ describe('BASELINES layerChecks', () => {
     }
   });
 
-  it('has no `units` layer to declare, because the renderer re-shows units every frame', () => {
-    // Measured: `updateMeshUnits`/`updateVehicleMeshes` assign `root.visible`
-    // from fog visibility on every frame, so the repaint that should photograph
-    // units missing is the call that puts them back -- 76 px / 0.0100 on the
-    // `vehicle` scenario, whose subject IS mesh vehicles, against 6922 px /
-    // 0.5014 for scatter in the same frame. Re-adding it without also giving
-    // the per-frame path a flag to consult would ship a check that fails on a
-    // healthy tree.
-    expect(debugLayersFromRendererSource()).not.toContain('units');
+  it('has a `units` layer, and it only works because the per-frame path consults a flag', () => {
+    // This test asserted the OPPOSITE until 2026-09-10, and the measurement it
+    // was built on is still true about the obvious implementation:
+    // `updateMeshUnits`/`updateVehicleMeshes` assign `root.visible` from fog
+    // every frame, so the repaint that should photograph units missing is the
+    // call that puts them back -- 76 px / 0.0100 on the `vehicle` scenario,
+    // whose subject IS mesh vehicles, against 6922 px / 0.5014 for scatter in
+    // the same frame.
+    //
+    // What changed is the renderer, not the conclusion: `unitsDebugHidden`
+    // (`ThreeRenderer.ts`) is a flag those two writes consult, which takes the
+    // same toggle to 23149 px / 2.0236. Pinning the FLAG here, not just the
+    // layer name, is the point -- a `units` entry in `DEBUG_LAYERS` without it
+    // would be a check that reads 76 px and fails on a healthy tree.
+    expect(debugLayersFromRendererSource()).toContain('units');
+    const renderer = readFileSync(
+      path.resolve(
+        path.dirname(fileURLToPath(import.meta.url)),
+        '../../../packages/render/src/three/ThreeRenderer.ts'
+      ),
+      'utf8'
+    );
+    expect(renderer, 'the per-frame visibility writes must consult unitsDebugHidden').toContain(
+      '!this.unitsDebugHidden && unitIsObserved('
+    );
   });
 
   it('gives every gated scenario either a reference-free check or a stated reason to have none', () => {
@@ -637,7 +653,11 @@ describe('BASELINES layerChecks', () => {
     const withoutChecks = Object.entries(BASELINES)
       .filter(([, spec]) => (spec.layerChecks ?? []).length === 0)
       .map(([id]) => id);
-    expect(withoutChecks.sort()).toEqual(['combat', 'vehicle']);
+    // `vehicle` left this list on 2026-09-10 when `units` became measurable.
+    // `combat` remains: its scene does not hold still between two photographs
+    // (two screenshots with NO repaint between them differ by 10,989 px, then
+    // 22,215), so no toggle there can be told from the frame moving.
+    expect(withoutChecks.sort()).toEqual(['combat']);
   });
 
   it('covers all three maps the gate looks at, for scatter, decor and ground albedo alike', () => {
@@ -681,6 +701,12 @@ describe('BASELINES layerChecks', () => {
         scatter: { px: 7146, mean: 0.4093 },
         decor: { px: 38513, mean: 2.7695 },
         'ground-albedo': { px: 1015, mean: 3.0769 },
+      },
+      // The LOW end of the measured range (23147-23152 px / 2.0232-2.0247 over
+      // 3 runs), so "floor is a third of the signal" is checked against the
+      // weakest reading rather than the flattering one.
+      vehicle: {
+        units: { px: 23147, mean: 2.0232 },
       },
     };
     for (const [id, spec] of Object.entries(BASELINES)) {

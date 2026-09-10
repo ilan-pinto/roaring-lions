@@ -303,13 +303,17 @@ async function runSelfChecks(
     threshold: PIXELMATCH_THRESHOLD,
     region: spec.region ?? undefined,
   });
+  // Per-scenario when the entry declares one, the global hard zero otherwise
+  // -- see `BaselineSpec.repaintControl` for why that is not the same thing as
+  // widening the constants.
+  const controlMaxPixels = spec.repaintControl?.maxDiffPixels ?? REPAINT_CONTROL_MAX_DIFF_PIXELS;
+  const controlMaxMean = spec.repaintControl?.maxMeanAbsChannelDelta ?? REPAINT_CONTROL_MAX_MEAN_DELTA;
   const controlOk =
-    control.diffPixels <= REPAINT_CONTROL_MAX_DIFF_PIXELS &&
-    control.meanAbsChannelDelta <= REPAINT_CONTROL_MAX_MEAN_DELTA;
+    control.diffPixels <= controlMaxPixels && control.meanAbsChannelDelta <= controlMaxMean;
   lines.push(
     `repaint-control: a zero-time repaint moved ${control.diffPixels} px / ` +
-      `${control.meanAbsChannelDelta.toFixed(4)} (budget <=${REPAINT_CONTROL_MAX_DIFF_PIXELS} px / ` +
-      `${REPAINT_CONTROL_MAX_MEAN_DELTA}) -> ${controlOk ? 'PASS' : 'FAIL'}`
+      `${control.meanAbsChannelDelta.toFixed(4)} (budget <=${controlMaxPixels} px / ` +
+      `${controlMaxMean}${spec.repaintControl ? ', this scenario\'s own' : ''}) -> ${controlOk ? 'PASS' : 'FAIL'}`
   );
   if (!controlOk) {
     failures.push(

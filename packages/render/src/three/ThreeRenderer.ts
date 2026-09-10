@@ -1128,6 +1128,32 @@ export class ThreeRenderer implements Renderer {
    *  hands the `MeshUnitEntity` off to `meshDying` (`updateMeshUnits`'s own
    *  prune loop) -- so an id never appears in both collections at once, and
    *  a later spawn reusing the id can never alias the dying entity. */
+  /**
+   * `setDebugLayerVisible('units', false)` in force -- the ONE piece of
+   * shipping-code surface the visual gate's instrument owns.
+   *
+   * **A plain `root.visible = false` cannot express this, and that is the
+   * whole reason this field exists.** `updateMeshUnits` and
+   * `updateVehicleMeshes` assign `entity.root.visible` from fog visibility on
+   * EVERY frame, so the repaint that is supposed to photograph the units
+   * missing is the same call that puts them back. Measured before this
+   * landed: hiding "units" on the `vehicle` scenario -- a frame whose subject
+   * IS mesh vehicles, 94 objects toggled -- moved 76 px / 0.0100, against
+   * 6922 / 0.5014 for hiding scatter in the same frame. It was not measuring
+   * the units; it was measuring the few billboard instancers and silhouettes
+   * that happen not to be re-asserted.
+   *
+   * CLAUDE.md recorded that as a layer the seam "cannot measure" and said a
+   * real toggle "means a flag the per-frame path consults, which is shipping-
+   * code surface this instrument has not earned". The project lead's call on
+   * 2026-09-09 was to earn it: `vehicle` is the only gated scenario whose
+   * subject is mesh vehicles, and with no reference-free check it is captured
+   * and never judged on a runner with no baseline.
+   *
+   * Costs one boolean read per entity per frame, on a path that already reads
+   * fog for the same entity.
+   */
+  private unitsDebugHidden = false;
   private readonly meshUnitEntities = new Map<number, MeshUnitEntity>();
   /** Mesh units mid-death-fade, not keyed by entity id -- see
    *  `meshUnitEntities`'s own doc comment for why an id-keyed collection
@@ -2035,6 +2061,19 @@ export class ThreeRenderer implements Renderer {
           ...this.buildingMeshWreckEntities.values(),
           ...[...this.structureIdle.values()].map((i) => i.mesh),
           ...[...this.structureWreck.values()].map((i) => i.mesh)
+        );
+      case 'units':
+        // The one layer that CANNOT be done with `setObjectsVisible`, because
+        // the per-frame path would undo it on the very next repaint -- see
+        // `unitsDebugHidden`. The flag is set first so the billboard
+        // instancers and the mesh entities go dark on the SAME repaint.
+        this.unitsDebugHidden = !visible;
+        for (const entity of this.meshUnitEntities.values()) entity.root.visible = visible;
+        for (const entity of this.vehicleMeshEntities.values()) entity.root.visible = visible;
+        return (
+          this.meshUnitEntities.size +
+          this.vehicleMeshEntities.size +
+          setObjectsVisible(visible, ...[...this.unitInstancers.values()].map((i) => i.mesh))
         );
       case 'ground-albedo':
         // Not a visibility flag: the ground's texture term is a per-slot
@@ -4208,7 +4247,8 @@ export class ThreeRenderer implements Renderer {
       // Side 0 (the player's own) is always drawn, matching `entityFrame`'s
       // own `contactLevel` short-circuit for it -- everything else defers to
       // real fog-of-war, exactly like `updateUnits`'s own `isVisible` gate.
-      entity.root.visible = unitIsObserved(st.side[i], wx, wy, this.fogVisibleAt);
+      entity.root.visible =
+        !this.unitsDebugHidden && unitIsObserved(st.side[i], wx, wy, this.fogVisibleAt);
 
       const anim: UnitAnimInput = {
         alive: st.alive[i],
@@ -4405,7 +4445,8 @@ export class ThreeRenderer implements Renderer {
       // local-frame pitch rather than a world-axis tilt.
       entity.root.rotation.x = hullPitch;
       entity.root.rotation.y = meshYawFromFacing(facingNorm);
-      entity.root.visible = unitIsObserved(st.side[i], wx, wy, this.fogVisibleAt);
+      entity.root.visible =
+        !this.unitsDebugHidden && unitIsObserved(st.side[i], wx, wy, this.fogVisibleAt);
 
       if (entity.turretPivot) {
         const target = this.resolveTurretTarget(i);

@@ -53,22 +53,35 @@
  * - `buildings`   structure boxes, mesh building clones (idle and wreck) and
  *                 the billboard structure instancers.
  *
- * THERE IS NO `units` LAYER, and the reason is measured rather than an
- * oversight. One was written, gated and thrown away: `updateMeshUnits` and
+ * THERE IS A `units` LAYER SINCE 2026-09-10, and the paragraph that used to
+ * stand here explaining why there could not be one is worth keeping, because
+ * it is still true about the OBVIOUS implementation.
+ *
+ * One was written, gated and thrown away first: `updateMeshUnits` and
  * `updateVehicleMeshes` assign `entity.root.visible` from fog visibility on
  * EVERY frame (`ThreeRenderer.ts`, the two `unitIsObserved` writes), so the
  * repaint that is supposed to photograph the units missing is the same call
  * that puts them back. On the `vehicle` scenario -- a frame whose subject IS
- * mesh vehicles, 94 objects toggled -- hiding "units" moved 76 px / 0.0100,
- * against 6922 px / 0.5014 for hiding scatter in the same frame. It was not
- * measuring the units; it was measuring the few billboard instancers and
- * silhouettes that happen not to be re-asserted. A layer this seam can only
- * hide for less than one frame is a layer it cannot measure, and shipping it
- * would have meant a check that fails on a healthy tree for a reason nobody
- * could read. Giving units a real toggle means a flag the per-frame path
- * consults, which is shipping-code surface this instrument has not earned.
+ * mesh vehicles, 94 objects toggled -- hiding "units" that way moved 76 px /
+ * 0.0100, against 6922 px / 0.5014 for hiding scatter in the same frame. It
+ * was not measuring the units; it was measuring the few billboard instancers
+ * and silhouettes that happen not to be re-asserted.
+ *
+ * The conclusion drawn then was that a real toggle "means a flag the
+ * per-frame path consults, which is shipping-code surface this instrument has
+ * not earned". The project lead's call on 2026-09-09 was to earn it, and the
+ * reason is that `vehicle` is the ONLY gated scenario whose subject is mesh
+ * vehicles: with no reference-free check it was captured and never judged on
+ * a runner with no baseline, so a mesh-vehicle regression on a fresh
+ * environment passed silently. That is `ThreeRenderer`'s `unitsDebugHidden`
+ * -- one boolean, read on a path that already reads fog for the same entity.
+ *
+ * So the lesson survives the change: **a toggle that only holds until the
+ * next frame is not a measurement**, and any future layer whose objects are
+ * re-asserted per frame needs the same treatment rather than a bare
+ * `setObjectsVisible`.
  */
-export const DEBUG_LAYERS = ['scatter', 'decor', 'ground-albedo', 'buildings'] as const;
+export const DEBUG_LAYERS = ['scatter', 'decor', 'ground-albedo', 'buildings', 'units'] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];
 
