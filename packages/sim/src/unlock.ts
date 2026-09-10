@@ -29,7 +29,7 @@ export function unlockReason(unlock: UnlockGate | undefined, ledger: LedgerData 
     let detail = '';
     if (rated === 0 && typeof legacy === 'number') detail = ` (currently ${legacy})`;
     else if (rated === 0) detail = ' (no missions rated yet)';
-    return `requires campaign ROE ${unlock.roeMin}${detail}`;
+    return `requires campaign Conduct ${unlock.roeMin}${detail}`;
   }
   if (unlock.afterMission !== undefined) {
     const done = ledger?.['campaign.completed_missions'];

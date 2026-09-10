@@ -253,7 +253,7 @@ One stance per unit and a handful of triggers per mission is the budget. If a mi
 
 Every mission scores 0–100 on rules of engagement. Civilian casualties, damage to flagged structures, and ordnance disproportionate to target all deduct. The rating gates unit unlocks and feeds `roe.cumulative_rating`.
 
-This is the mechanic that makes the game a strategy title rather than a shooting gallery. It must be legible in the UI at all times — the player should always know what a shot will cost them before taking it.
+This is the mechanic that makes the game a strategy title rather than a shooting gallery. It must be legible in the UI at all times — the player should always know what a shot will cost them before taking it. Its player-facing name is **Conduct** (2026-09-10); the acronym never reaches the screen.
 
 ---
 

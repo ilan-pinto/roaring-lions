@@ -10,6 +10,7 @@ describe('roeNotice', () => {
   it('states the deduction, the reason and the running score', () => {
     const [html, tone] = roeNotice(5, 'House destroyed', 82, undefined, false);
     expect(html).toContain('−5');
+    expect(html).toContain('Conduct −5');
     expect(html).toContain('House destroyed');
     expect(html).toContain('82');
     expect(tone).toBe('bad');

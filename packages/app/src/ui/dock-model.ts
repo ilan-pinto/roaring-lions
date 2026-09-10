@@ -74,10 +74,10 @@ export interface TileState {
 /**
  * What a lock says inside a 60px tile.
  *
- * `buildBlockedReason` answers in a full sentence — "requires campaign ROE 55
+ * `buildBlockedReason` answers in a full sentence — "requires campaign Conduct 55
  * (no missions rated yet)", "field camp destroyed — no production" — because
  * its other caller is the campaign menu, which has a paragraph to spend. A
- * tile has about eleven characters, so the ROE gate becomes its number and
+ * tile has about eleven characters, so the Conduct gate becomes its number and
  * everything else becomes the word `locked`. The sentence is not thrown away:
  * it goes on the tile's `title`, and the click's own note repeats it in the
  * feed.
@@ -87,8 +87,8 @@ export interface TileState {
  * `locked`, which is honest; a table would degrade to a missing case.
  */
 export function lockLabel(reason: string): string {
-  const roe = /^requires campaign ROE (\d+)/.exec(reason);
-  return roe === null ? 'locked' : `ROE ≥ ${roe[1]}`;
+  const roe = /^requires campaign Conduct (\d+)/.exec(reason);
+  return roe === null ? 'locked' : `Conduct ≥${roe[1]}`;
 }
 
 /**

@@ -138,8 +138,8 @@ describe('worldMap', () => {
     expect(card.textContent).toContain(`0 / ${ALL_MARJ.length}`);
   });
 
-  it('shows the campaign ROE rating when there is one', () => {
-    expect(render({ 'roe.mission_ratings': { a: 82 } }).textContent).toContain('82');
+  it('shows the campaign Conduct rating when there is one', () => {
+    expect(render({ 'roe.mission_ratings': { a: 82 } }).textContent).toContain('Conduct 82');
   });
 
   it('names the worst-rated mission, so a low rating is explainable', () => {

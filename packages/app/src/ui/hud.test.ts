@@ -163,6 +163,14 @@ describe('top strip', () => {
     expect(roeClass(20)).toBe('rl-bad');
   });
 
+  it('labels the figure Conduct, never ROE, and defines it on hover', () => {
+    const r = rig(mission({ roe: 95 }));
+    expect(r.strip()).toContain('95 Conduct');
+    expect(r.strip()).not.toContain('ROE');
+    const figure = r.host.querySelector('[data-roe]')!;
+    expect(figure.closest('[title]')?.getAttribute('title')).toContain('how cleanly you fight');
+  });
+
   it('shows ⚑ broken and ▼ pinned only when there are some', () => {
     const r = rig(mission());
     expect(r.strip()).not.toContain('pinned');

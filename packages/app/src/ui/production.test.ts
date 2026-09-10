@@ -195,13 +195,13 @@ describe('tile states', () => {
 
   it('shortens the lock to what fits, and keeps the whole sentence on the title', () => {
     const rt = fakeRuntime({
-      blocked: { inf_squad: 'requires campaign ROE 55 (no missions rated yet)' },
+      blocked: { inf_squad: 'requires campaign Conduct 55 (no missions rated yet)' },
     });
     const r = rig([dockUnit()], rt);
     const t = r.tile('inf_squad');
     expect(t.dataset.locked).toBe('1');
-    expect(t.querySelector('.rl-tile__lock')?.textContent).toBe('ROE ≥ 55');
-    expect(t.title).toContain('requires campaign ROE 55 (no missions rated yet)');
+    expect(t.querySelector('.rl-tile__lock')?.textContent).toBe('Conduct ≥55');
+    expect(t.title).toContain('requires campaign Conduct 55 (no missions rated yet)');
   });
 
   // A type the campaign has not opened is not "expensive". Saying both at once
@@ -451,6 +451,6 @@ describe('invariant 4: the dock never touches the sim', () => {
       runtime as unknown as FakeRuntime
     );
     expect(r.tile('mbt_lavi').dataset.locked).toBe('1');
-    expect(r.tile('mbt_lavi').querySelector('.rl-tile__lock')?.textContent).toBe('ROE ≥ 55');
+    expect(r.tile('mbt_lavi').querySelector('.rl-tile__lock')?.textContent).toBe('Conduct ≥55');
   });
 });

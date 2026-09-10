@@ -69,9 +69,10 @@ describe('showEndScreen', () => {
     expect(debrief?.textContent).toBe(`“${shaiVictory.text}”`);
     expect(host.querySelector('.rl-enddebrief__who')?.textContent).toBe(shaiVictory.plate);
     // "above the rating" -- the face+plate head is the FIRST thing in the
-    // panel body, ahead of the `ROE 94 · 11 unit(s) walking out` line.
+    // panel body, ahead of the `Conduct 94 · 11 unit(s) walking out` line.
     const body = host.querySelector('.rl-panel__body')!;
     expect(body.firstElementChild).toBe(host.querySelector('.rl-enddebrief__head'));
+    expect(body.textContent).toContain('Conduct 94 · 11 unit(s) walking out');
   });
 
   it('shows the defeat line and plate on a loss', () => {

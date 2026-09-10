@@ -59,7 +59,7 @@ export function roeNotice(
   failBelow: number | undefined,
   first: boolean
 ): [string, Tone] {
-  const head = `<b>ROE −${penalty}</b> (${reason}) → ${score}`;
+  const head = `<b>Conduct −${penalty}</b> (${reason}) → ${score}`;
 
   // Already below the floor. The mission is lost whatever else is on screen,
   // and saying so plainly beats leaving the player to infer it from a number.

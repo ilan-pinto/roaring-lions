@@ -58,12 +58,12 @@ describe('unlockReason', () => {
     expect(unlockReason({ afterMission: 'beit_sahwan_3_clearance' }, done)).toBe(null);
   });
 
-  it('reports the ROE gate first when both gates fail, since it is the harder one to fix', () => {
+  it('reports the Conduct gate first when both gates fail, since it is the harder one to fix', () => {
     const why = unlockReason(
       { roeMin: 60, afterMission: 'beit_sahwan_3_clearance' },
       { 'roe.mission_ratings': { a: 10 } }
     );
-    expect(why).toContain('60');
+    expect(why).toContain('Conduct 60');
   });
 
   it('survives a ledger holding junk of the wrong type', () => {

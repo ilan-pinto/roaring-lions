@@ -158,7 +158,7 @@ function campaignSummary(ledger: LedgerData): string {
     const vets = roster.filter((r) => r.veterancy > 0).length;
     parts.push(`roster ${roster.length}${vets > 0 ? ` (${vets}★)` : ''}`);
   }
-  if (typeof roe === 'number') parts.push(`ROE ${roe}`);
+  if (typeof roe === 'number') parts.push(`Conduct ${roe}`);
   return parts.length > 0 ? `campaign: ${parts.join(' · ')}` : 'campaign: fresh start';
 }
 
@@ -294,7 +294,7 @@ function describeMissionEvent(
     case 'missionEnd':
       return [
         e.result === 'victory'
-          ? `<b>MISSION ACCOMPLISHED</b> — ROE ${e.roeRating}, ${e.survivors.length} units survive`
+          ? `<b>MISSION ACCOMPLISHED</b> — Conduct ${e.roeRating}, ${e.survivors.length} units survive`
           : '<b>MISSION FAILED</b>',
         e.result === 'victory' ? 'good' : 'bad',
       ];
@@ -1896,7 +1896,7 @@ async function main(): Promise<void> {
           const updatedLedger = { ...ledger, ...me.ledger };
           if (me.result === 'victory') {
             saveLedger(updatedLedger);
-            hud.note('<b>campaign ledger updated</b> — survivors and ROE carried forward', 'info');
+            hud.note('<b>campaign ledger updated</b> — survivors and Conduct carried forward', 'info');
           }
           if (missionId) {
             // Campaign order lives in world.json, not in the order data/missions files

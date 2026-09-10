@@ -101,7 +101,15 @@ export function holdClock(m: MissionView | null): HoldClock | null {
   };
 }
 
-/** ROE gates campaign progression, so its colour is a verdict, not decoration. */
+/**
+ * The one-line definition of the Conduct rating, for the strip's hover and anywhere
+ * else the figure appears without room to explain itself. "ROE" is the design and
+ * ledger term; the player never sees the acronym (renamed 2026-09-10).
+ */
+export const CONDUCT_DEFINITION =
+  'Conduct: how cleanly you fight. Civilian harm, protected buildings and disproportionate fire all lower it. Under the mission floor, the mission is lost.';
+
+/** Conduct gates campaign progression, so its colour is a verdict, not decoration. */
 export function roeTone(roe: number): 'good' | 'warn' | 'bad' {
   return roe >= 80 ? 'good' : roe >= 50 ? 'warn' : 'bad';
 }

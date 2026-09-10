@@ -223,7 +223,7 @@
     {
       "id": "what_a_shot_costs",
       "title": "What a shot costs",
-      "teach": "Swing south past the shed for a mortar team and a demo squad. Fire the mortar near the flagged house and watch the ROE reading: the mortar does not care who is under it, and the score you carry forward remembers.",
+      "teach": "Swing south past the shed for a mortar team and a demo squad. Fire the mortar near the flagged house and watch Conduct: it scores how cleanly you fight, the mortar does not care who is under it, and the score you carry forward remembers.",
       "await": {
         "kind": "any_of",
         "of": [
@@ -242,7 +242,7 @@
         "zone": "z_clinic"
       },
       "nudge_after_s": 25,
-      "nudge": "Push south for the mortar, then try it near the flagged house and watch the ROE reading move."
+      "nudge": "Push south for the mortar, then try it near the flagged house and watch the Conduct reading move."
     },
     {
       "id": "command_groups",

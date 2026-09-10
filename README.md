@@ -47,7 +47,7 @@ First Light defence. Objectives are declarative data, never TypeScript:
 `destroy_all`, `evacuate_before`. Missions target 5–7 minutes, so a balance
 change can actually be re-tested.
 
-**Campaign.** A ledger carries surviving units, ROE ratings and intel between
+**Campaign.** A ledger carries surviving units, Conduct ratings and intel between
 missions, with a world map of the Sahar Basin. Rules of engagement are scored,
 and unit unlocks are gated on that score — collateral damage costs you options
 rather than a lecture.

@@ -1590,6 +1590,9 @@ body {
   text-align: center;
   font-size: var(--t-xs);
   color: var(--ink-dim);
+  /* "Conduct ≥55" is eleven characters on a 60px tile: it may overflow the edge
+     by a pixel or two, but it must never wrap onto the art. */
+  white-space: nowrap;
 }
 /* The price is not the answer when the campaign is the answer. */
 .rl-tile[data-locked='0'] .rl-tile__lock,

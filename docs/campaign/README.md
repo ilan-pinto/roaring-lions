@@ -55,8 +55,11 @@ in step with it.
 - **Nine live objective types.** `locate eliminate_hvt capture hold_for
   survive_until destroy_all raze collapse evacuate_before`. Three more are in the
   schema and the runtime throws on them (`mark escort no_collateral_above`).
-- **ROE is the second score.** 0–100, `flagged_zones` from map zones, `fail_below`
-  loses the mission. Restraint must be the mechanically superior play. A villain's
+- **ROE is the second score, and the player calls it Conduct.** 0–100, `flagged_zones` from map zones, `fail_below`
+  loses the mission. Since 2026-09-10 the HUD, the deduction notice, the lock label,
+  the end screen and the board all print **Conduct**, never the acronym, and authored
+  lines should say Conduct too; `ROE` stays the design and ledger term. Restraint must
+  be the mechanically superior play. A villain's
   job is to make the player want to break it.
 - **Everything is fictional and defined by doctrine.** Kedem, the KDF 401st
   "Ari'im" Brigade, the Sahar Basin. Ashwar Front (tunnels, ambush), Sarim

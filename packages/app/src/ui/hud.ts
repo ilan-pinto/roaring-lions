@@ -44,6 +44,7 @@ import {
   worstPenalties,
   type MissionView,
   type Tone,
+  CONDUCT_DEFINITION,
 } from './hud-model';
 import {
   ORDERS,
@@ -685,7 +686,7 @@ export class Hud {
       );
       if (m.roe !== undefined) {
         rows.push(
-          `<span><b class="rl-${roeTone(m.roe)}" data-roe>${m.roe}</b> <span class="rl-dim">ROE</span></span>`
+          `<span title="${escapeAttr(CONDUCT_DEFINITION)}"><b class="rl-${roeTone(m.roe)}" data-roe>${m.roe}</b> <span class="rl-dim">Conduct</span></span>`
         );
       }
       const { primary, deadline, primaryOpen, secondaryOpen } = stripObjectives(m);

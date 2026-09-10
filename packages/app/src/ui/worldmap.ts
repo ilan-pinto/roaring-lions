@@ -230,11 +230,11 @@ export function ledgerLine(ledger: LedgerData): HTMLElement {
   }
 
   // The mean lives in campaignRoe, not in the ledger: the sim stores per-mission bests and
-  // does not divide. This is also the figure a locked region's "requires campaign ROE 45"
+  // does not divide. This is also the figure a locked region's "requires campaign Conduct 45"
   // is asking you to raise, so the two read together.
   const roe = campaignRoe(ledger);
   if (roe !== null) {
-    parts.push(`ROE ${roe.mean}`);
+    parts.push(`Conduct ${roe.mean}`);
     if (roe.worst !== null) parts.push(`worst ${roe.worst[0]} (${roe.worst[1]})`);
   }
 

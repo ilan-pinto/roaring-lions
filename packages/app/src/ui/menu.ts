@@ -468,7 +468,7 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): void {
 
   const summary = document.createElement('div');
   summary.className = 'rl-dim';
-  summary.textContent = `ROE ${opts.roe} · ${opts.survivors} unit(s) walking out`;
+  summary.textContent = `Conduct ${opts.roe} · ${opts.survivors} unit(s) walking out`;
   p.body.appendChild(summary);
 
   const nav = document.createElement('div');

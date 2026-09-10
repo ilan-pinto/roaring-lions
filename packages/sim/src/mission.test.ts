@@ -1380,8 +1380,8 @@ describe('ROE-gated unit unlocks (GDD §6)', () => {
   it('refuses equipment the campaign has not earned, and says why', () => {
     const w = econWorld({ 'roe.cumulative_rating': 40 });
     expect(w.runtime.requestBuild('m_squad')).toBe(true); // no unlock gate
-    expect(w.runtime.requestBuild('m_tank')).toBe(false); // needs ROE 60
-    expect(w.runtime.buildBlockedReason('m_tank')).toMatch(/ROE 60/);
+    expect(w.runtime.requestBuild('m_tank')).toBe(false); // needs Conduct 60
+    expect(w.runtime.buildBlockedReason('m_tank')).toMatch(/Conduct 60/);
     expect(w.runtime.buildBlockedReason('m_squad')).toBeNull();
   });
 
@@ -1394,7 +1394,7 @@ describe('ROE-gated unit unlocks (GDD §6)', () => {
   it('a fresh campaign has no rating yet, so rated equipment stays locked', () => {
     const w = econWorld({});
     expect(w.runtime.requestBuild('m_tank')).toBe(false);
-    expect(w.runtime.buildBlockedReason('m_tank')).toMatch(/ROE 60/);
+    expect(w.runtime.buildBlockedReason('m_tank')).toMatch(/Conduct 60/);
   });
 
   it('honours after_mission gates from the ledger', () => {

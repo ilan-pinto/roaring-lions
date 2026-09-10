@@ -40,9 +40,9 @@ function view(over: Partial<DockView> = {}): DockView {
 }
 
 describe('lockLabel', () => {
-  it('keeps the ROE gate’s number, which is the one thing a tile can act on', () => {
-    expect(lockLabel('requires campaign ROE 55 (no missions rated yet)')).toBe('ROE ≥ 55');
-    expect(lockLabel('requires campaign ROE 90 (currently 71)')).toBe('ROE ≥ 90');
+  it('keeps the Conduct gate’s number, which is the one thing a tile can act on', () => {
+    expect(lockLabel('requires campaign Conduct 55 (no missions rated yet)')).toBe('Conduct ≥55');
+    expect(lockLabel('requires campaign Conduct 90 (currently 71)')).toBe('Conduct ≥90');
   });
 
   it('falls back to one word for a reason with no number in it', () => {
@@ -59,7 +59,7 @@ describe('lockLabel', () => {
   it('reads the sentence @lions/sim actually produces, not a copy of it', () => {
     const why = unlockReason({ roeMin: 55 }, { 'roe.mission_ratings': { a: 20 } });
     expect(why).not.toBe(null);
-    expect(lockLabel(why ?? '')).toBe('ROE ≥ 55');
+    expect(lockLabel(why ?? '')).toBe('Conduct ≥55');
   });
 });
 
@@ -183,11 +183,11 @@ describe('tileState', () => {
   it('carries both the short lock and the runtime’s own sentence', () => {
     const state = tileState(
       unit(),
-      view({ buildBlockedReason: () => 'requires campaign ROE 60 (currently 41)' })
+      view({ buildBlockedReason: () => 'requires campaign Conduct 60 (currently 41)' })
     );
     expect(state.lock).toEqual({
-      short: 'ROE ≥ 60',
-      full: 'requires campaign ROE 60 (currently 41)',
+      short: 'Conduct ≥60',
+      full: 'requires campaign Conduct 60 (currently 41)',
     });
   });
 
