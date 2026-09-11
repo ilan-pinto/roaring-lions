@@ -139,4 +139,12 @@ describe('showEndScreen', () => {
     });
     expect(host.querySelector('.rl-enddebrief')!.textContent).toBe(`“${long}”`);
   });
+
+  it('offers the debrief when a caller wires one', () => {
+    const host = document.createElement('div');
+    let opened = 0;
+    showEndScreen(host, { result: 'victory', roe: 94, survivors: 11, missionId: 'x', onDebrief: () => opened++ });
+    host.querySelector<HTMLButtonElement>('button.rl-endnav__debrief')!.click();
+    expect(opened).toBe(1);
+  });
 });

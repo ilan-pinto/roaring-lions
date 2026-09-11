@@ -2007,6 +2007,23 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--ink);
 }
 
+/* The debrief screen (`ui/debrief.ts`, Task 9) -- the full card that would not
+   fit in the 420px end panel above. `--t-lg` does not exist in this file;
+   `.rl-debrief__tier` uses `--t-card`, the same token `.rl-panel__title` is
+   set in, so the tier name reads at the same size as a panel's own title. */
+.rl-debrief__head { display: flex; align-items: baseline; gap: 12px; }
+.rl-debrief__tier { font-size: var(--t-card); color: var(--ink); }
+.rl-debrief__stars { color: var(--commend); letter-spacing: 2px; }
+.rl-debrief__line { margin: 8px 0; color: var(--ink); font-style: italic; }
+.rl-debrief__who { display: block; margin-top: 2px; font-style: normal; color: var(--ink-dim); }
+.rl-debrief__grid { display: grid; grid-template-columns: 6em 1fr; gap: 2px 12px; margin: 10px 0; }
+.rl-debrief__grid dt { color: var(--ink-dim); }
+.rl-debrief__deductions, .rl-debrief__secondaries { margin: 4px 0 8px 1.2em; padding: 0; }
+.rl-debrief__deductions li { color: var(--bad); }
+.rl-debrief__secondary[data-carries='1'] { color: var(--commend); }
+.rl-debrief__unlocked, .rl-debrief__promotion { margin-top: 8px; color: var(--good); }
+.rl-debrief__villain { margin-top: 8px; color: var(--ink-mute); font-style: italic; }
+
 /* ====================================================================== */
 /* Motion — short, interruptible, and only where it carries meaning        */
 /* ====================================================================== */

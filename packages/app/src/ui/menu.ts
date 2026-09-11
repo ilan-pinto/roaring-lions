@@ -420,6 +420,11 @@ export interface EndScreenOptions {
    *  never a fallback to the other outcome's, and never the hatch alone
    *  standing in for missing text: no paragraph at all. */
   debrief?: EndScreenDebrief;
+  /** Opens the full debrief screen (Task 9's `ui/debrief.ts`) in place of this
+   *  panel. Optional: a caller with nothing to show beyond this 420px card
+   *  (no wiring yet, or a context with no ledger to report on) simply omits
+   *  it, and no button appears. */
+  onDebrief?: () => void;
 }
 
 export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): void {
@@ -491,6 +496,17 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): void {
     a.className = 'rl-btn';
     nav.appendChild(a);
   };
+  if (opts.onDebrief) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'rl-btn rl-endnav__debrief';
+    btn.textContent = 'debrief';
+    btn.addEventListener('click', () => {
+      p.el.remove();
+      opts.onDebrief?.();
+    });
+    nav.appendChild(btn);
+  }
   if (won && opts.nextMissionId) link('next mission →', `?mission=${opts.nextMissionId}`);
   link(won ? 'replay' : 'try again', `?mission=${opts.missionId}`);
   link('campaign map', '?campaign');
