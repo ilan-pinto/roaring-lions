@@ -7,7 +7,7 @@
   "map": { "file": "deir_amun", "player_start": [24, 44] },
   "ledger": {
     "requires": ["roster.surviving_units", "intel.marked_positions"],
-    "produces": ["roster.surviving_units", "roe.mission_ratings", "campaign.completed_missions"]
+    "produces": ["roster.surviving_units", "roe.mission_ratings", "campaign.completed_missions", "campaign.mission_results"]
   },
   "briefing": "The pump yard is a walled compound with one gate, on the south side, and a route runs up into it. The mouth is inside the wall, so the ground you are being told to hold is a door. Hold the yard for four minutes and bring that route down in the same four minutes. Neither clock waits for the other. It is stocked, and whoever is in it comes up in the wadi bed behind you rather than through your gate. They will do it while your engineers are kneeling on the mouth. Two Yahalom teams, and the charge is eight seconds of standing still that resets the moment they move. Send both and the yard is thin; send one and he works under contest, which is the same as not working. The camp is on the bank four tiles from the centre ford and in plain view of their street. Not everything that comes south is coming for the yard. Hold the gate, put the route down, and keep something between them and the camp.",
   "starting_force": [

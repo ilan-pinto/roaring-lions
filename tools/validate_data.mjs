@@ -695,6 +695,19 @@ const structureSymbols = new Map(
           `placement carries a "tag" — nothing can be marked or matched`
       );
     }
+    // The grade is written only where the contract asks for it (`checkEnd`'s produce
+    // loop), so a campaign mission that omits the key is ungraded forever and the
+    // board's stars read 0 with every test green -- exactly how this shipped. The rule
+    // keys off the contract rather than a name list: the tutorial produces nothing at
+    // all and is exempt by its own `produces: []`, and any future mission that joins
+    // the campaign chain has to grade the moment it carries anything forward.
+    const produces = mi.ledger?.produces ?? [];
+    if (produces.length > 0 && !produces.includes('campaign.mission_results')) {
+      failures.push(
+        `${rel(file)}: carries ledger keys forward but does not produce ` +
+          `campaign.mission_results — the mission would never be graded`
+      );
+    }
 
     for (const t of mi.triggers ?? []) {
       const kind = t.do?.kind;

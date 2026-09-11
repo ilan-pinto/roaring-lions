@@ -252,6 +252,18 @@ const led2 = run(
 // threshold, while the armour works the north block and swings east along
 // y=16 to the ATGM rather than across the clinic. Same objectives, and it
 // finishes faster and with more of the roster alive than the shelling did.
+//
+// `picture` is a plain secondary and deliberately NOT `carries: true`, so this
+// mission caps at two stars. The flag would have to mean something: a carrying
+// secondary is one a later mission reads, and III produced no
+// `intel.marked_positions` for IV to read. Closing that by adding the key to
+// III's contract was tried and MEASURED on 2026-09-11 -- it hands IV the union
+// of III's marked tags at t=0, and IV's own plan goes from `VICTORY in 2.1 min,
+// ROE 98` to `ONGOING in 20.0 min` with `take_the_shaft_head` never taken and
+// the whole roster dead (`roster out 0`). Pre-marked positions change which
+// enemies IV's force engages and when, and the scripted plan is not written for
+// that fight. So the carry-over stays closed and the claim comes off the flag
+// rather than the flag standing on a claim nothing honours.
 const led3 = run(
   'beit_sahwan_3_clearance',
   (sim, _rt, ids, at) => {
@@ -311,8 +323,7 @@ const led3 = run(
   },
   led2,
   'victory',
-  'beit_sahwan_3_clearance',
-  3
+  'beit_sahwan_3_clearance'
 );
 
 // --- Naharin: Wadi Halam ------------------------------------------------------

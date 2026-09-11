@@ -7,7 +7,7 @@
   "map": { "file": "deir_amun", "player_start": [24, 44] },
   "ledger": {
     "requires": ["roster.surviving_units", "intel.marked_positions"],
-    "produces": ["roster.surviving_units", "roe.mission_ratings", "campaign.completed_missions", "intel.marked_positions"]
+    "produces": ["roster.surviving_units", "roe.mission_ratings", "campaign.completed_missions", "campaign.mission_results", "intel.marked_positions"]
   },
   "dispatch": "Everything that ever came into the Marj came through Deir Amun. The people left it in the first week of the war; the district's routes did not, and all six of them join the road east under nine empty houses.",
   "briefing": "Deir Amun is nine houses and a pump yard on the lip of a dry watercourse, and nobody lives in any of it now. What is left is the junction: every route in this district joins the road east under that village. A crew is working the western route this morning. Find them, find where it runs, and put it down inside four minutes. I have his routes on paper and paper is not identification. A route is on the board only while somebody with a detector is looking at it, and it goes back to a rumour the moment they stop. This one is being dug now, so it is throwing spoil along the gully floor, and disturbed earth is something any soldier can read. The ones he finished before the war throw nothing at all. Two ways west and they are not the same road. The bed is twenty-seven tiles on foot and nothing on the terrace can see into it; the shoulder is thirty-seven for anything on wheels. The engineers set a charge standing still in the open, two tiles from the route, for eight seconds. Get them there with something that can shoot, and bring the west route down.",

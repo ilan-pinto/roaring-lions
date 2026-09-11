@@ -7,7 +7,7 @@
   "map": { "file": "khan_rafid", "player_start": [24, 45] },
   "ledger": {
     "requires": ["roster.surviving_units", "intel.marked_positions"],
-    "produces": ["roster.surviving_units", "roe.mission_ratings", "campaign.completed_missions", "civ.settlements_evacuated"]
+    "produces": ["roster.surviving_units", "roe.mission_ratings", "campaign.completed_missions", "campaign.mission_results", "civ.settlements_evacuated"]
   },
   "briefing": "The ward is nine tiles by seven with four gates and a low wall, and the wall stops men and not bullets. A cell in the souk can fire into that compound over it, you can fire back, and only one of you is billed for it. There is nothing in that ward worth taking and you are going to hold it for four minutes anyway. The clock is cumulative and it stops the moment anything hostile is standing inside the wall with you. Six people in three groups: two groups north of the ward in the Old Town and one south of Main Street. Four have to be inside that wall in five minutes; the wall will hold all six. Rifles and the Eitan's fifty are free inside the compound. The Namer's cannon is not: it is billed for every ten seconds it fires in there, and this mission is lost under forty-five. So the infantry and the Eitan clear the ward and the Namer holds the street outside it. At a hundred and twenty a minute the camp buys you three rifle sections or one more gun you may not use inside the wire. He will walk into that compound the moment it is yours, because it is the one place you will not shoot.",
   "starting_force": [

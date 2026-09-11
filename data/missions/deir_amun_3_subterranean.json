@@ -7,7 +7,7 @@
   "map": { "file": "deir_amun", "player_start": [24, 44] },
   "ledger": {
     "requires": ["roster.surviving_units", "intel.marked_positions"],
-    "produces": ["roster.surviving_units", "roe.mission_ratings", "campaign.completed_missions", "intel.marked_positions"]
+    "produces": ["roster.surviving_units", "roe.mission_ratings", "campaign.completed_missions", "campaign.mission_results", "intel.marked_positions"]
   },
   "briefing": "There are four routes under this village and every one was finished before the war, so none of them throws spoil. The only thing that can find them is a man with a detector and a clear line to the ground they run under. You cannot hold all four at once. Contact goes cold about sixteen seconds after the last eye leaves it, and the drone is a pointer rather than a scout, blind behind a building exactly like a rifleman. Work them in an order and mean it. Bringing one down kills whoever is stocked in it, so what you drop first decides which of the rest comes up behind you. One of them surfaces on your own road east. Whatever you leave standing there is standing under your armour. The chief is on the spoil field north of the village, a level above everything around it, on ground his own crews raised. He does not go underground and he will not leave it. The Lavi's gun and the mortar are billed by the ten seconds in that village and there is nothing in it worth the money. Rifles and the Eitan's fifty are free. Bring all four down inside five minutes, and take the chief off that spoil.",
   "starting_force": [

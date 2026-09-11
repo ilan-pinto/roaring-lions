@@ -7,7 +7,7 @@
   "map": { "file": "khan_rafid", "player_start": [24, 45] },
   "ledger": {
     "requires": ["roster.surviving_units", "intel.marked_positions"],
-    "produces": ["roster.surviving_units", "roe.mission_ratings", "campaign.completed_missions", "intel.marked_positions", "civ.settlements_evacuated"]
+    "produces": ["roster.surviving_units", "roe.mission_ratings", "campaign.completed_missions", "campaign.mission_results", "intel.marked_positions", "civ.settlements_evacuated"]
   },
   "briefing": "The man running this block is inside the civic hall in the ward, and the hall is the one building here that nothing of ours will fire on by itself. It is not shot at, not breached and not brought down by anybody acting on his own. You have nobody with you who can level it, and that is deliberate. Hurt his people hard enough and he leaves it on his own feet, which is the only way he comes out. The lanes and the road east are laid the way they were laid last week. Whatever you identified then comes back with its ambush spent; whatever you did not gets its first shot. Clear the souk and hold it twenty seconds without a break. Eight families are in that quarter and six of them have to be inside the ward in five minutes. The carriers hold eleven between them, so the clock is the only thing standing between you and all eight. Nothing boards until a soldier is inside four tiles of it. Every structure you bring down here is billed at twice the usual, and eight houses is this mission. The floor is fifty and there is no getting a house back. Take the souk, get them in, and be able to say what is still standing.",
   "starting_force": [

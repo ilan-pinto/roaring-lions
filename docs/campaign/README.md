@@ -63,11 +63,18 @@ in step with it.
   job is to make the player want to break it.
 - **The third star is the carrying secondaries.** `carries: true` marks a secondary a later
   mission reads (spec 2026-09-10 §4.1); the Ari'im citation needs every one complete, and a
-  mission with none caps at two stars. As of 2026-09-11 that is Beit Sahwan II and IV, every
-  Tel Marum mission, Umm Zeitoun II and IV, Wadi Halam I–V, and the last mission of every
-  other town. Giving one of them a third star means authoring a secondary something later
-  reads, never flagging a `survive_until` clock. `pnpm playtest` prints each plan's stars and
-  asserts the authored expectation.
+  mission with none caps at two stars. As of 2026-09-11 only **six** missions can reach three
+  stars — Beit Sahwan I, Deir Amun I, Khan Rafid I, Qarn Hadid I, Umm Zeitoun I and Umm
+  Zeitoun III — and every other mission in the campaign caps at two. No foothold, build-up,
+  subterranean or breach mission carries anything. Tel Marum I and Wadi Halam I are recon
+  missions and still cap: both make every `locate` a PRIMARY, which leaves a bare
+  `survive_until` screen as their only secondary, and a clock the passive control also
+  completes is exactly what must never be flagged. Giving a mission a third star means
+  authoring a secondary something later actually reads, never flagging a clock — and the
+  something later has to survive `pnpm playtest`: Beit Sahwan III's `picture` lost its flag
+  on 2026-09-11 because making III produce the `intel.marked_positions` it claimed to carry
+  put Beit Sahwan IV's whole roster in the ground. `pnpm playtest` prints each plan's stars
+  and asserts the authored expectation.
 - **Everything is fictional and defined by doctrine.** Kedem, the KDF 401st
   "Ari'im" Brigade, the Sahar Basin. Ashwar Front (tunnels, ambush), Sarim
   Brigades (rockets, ATGMs, standoff), Rif Cells (technicals, raids, smuggling).

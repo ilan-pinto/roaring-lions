@@ -30,7 +30,8 @@
     "produces": [
       "roster.surviving_units",
       "roe.mission_ratings",
-      "campaign.completed_missions"
+      "campaign.completed_missions",
+      "campaign.mission_results"
     ]
   },
   "starting_force": [
@@ -109,7 +110,6 @@
       "id": "picture",
       "type": "locate",
       "primary": false,
-      "carries": true,
       "count": 4,
       "text": "Build the picture: identify four garrison positions"
     },

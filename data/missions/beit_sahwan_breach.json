@@ -30,6 +30,7 @@
       "roster.surviving_units",
       "roe.mission_ratings",
       "campaign.completed_missions",
+      "campaign.mission_results",
       "civ.settlements_evacuated"
     ]
   },
