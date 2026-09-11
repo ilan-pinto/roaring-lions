@@ -612,6 +612,50 @@ describe('campaign ledger (GDD §6 carry-over)', () => {
   });
 });
 
+describe('the grade and the debrief figures', () => {
+  it('reads the live grade: two stars for a clean win with no carrying secondary', () => {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_tank', count: 1, at: [4, 5] }],
+        enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [11, 5], facing_deg: 180 }] },
+      })
+    );
+    expect(w.runtime.stars).toBe(0); // ongoing
+    w.step(90 * TICKS_PER_SECOND);
+    expect(w.runtime.result).toBe('victory');
+    expect(w.runtime.stars).toBe(2);
+  });
+
+  it('counts fielded, lost by type, marked and promoted', () => {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_tank', count: 1, at: [4, 5] }],
+        enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [11, 5], facing_deg: 180 }] },
+      })
+    );
+    expect(w.runtime.fieldedCount).toBe(1);
+    w.step(90 * TICKS_PER_SECOND);
+    expect(w.runtime.lostByType()).toEqual({});
+    expect(w.runtime.promotedCount).toBe(1); // the tank got the kill
+    expect(w.runtime.markedCount).toBe(0);
+  });
+
+  it('exposes carries on the objective list', () => {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+        objectives: [
+          { id: 'hold', type: 'survive_until', primary: true, seconds: 2 },
+          { id: 'see', type: 'locate', primary: false, count: 1, carries: true },
+        ],
+      })
+    );
+    const list = w.runtime.objectiveList;
+    expect(list.find((o) => o.id === 'hold')?.carries).toBe(false);
+    expect(list.find((o) => o.id === 'see')?.carries).toBe(true);
+  });
+});
+
 describe('veterancy has combat meaning', () => {
   it('veterans shoot with better effective accuracy', () => {
     const shots = (vet: number): number => {

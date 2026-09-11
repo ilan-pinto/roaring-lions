@@ -10,6 +10,7 @@
 
 import { CivilianFlight } from './civilians';
 import { fx, HALF, type Fx } from './fixed';
+import { starsFor, type Stars } from './grade';
 import { TICKS_PER_SECOND, type Sim, type SimEvent } from './sim';
 import type { TunnelRouteJson } from './tunnels';
 import { unlockReason, type UnlockGate } from './unlock';
@@ -138,6 +139,9 @@ export interface ObjectiveJson {
   id: string;
   type: string;
   primary: boolean;
+  /** A secondary whose result a later mission reads; the third star needs every one
+   *  of these complete. Schema-enforced never on a primary. */
+  carries?: boolean;
   text?: string;
   target?: string;
   count?: number;
@@ -431,6 +435,8 @@ export class MissionRuntime {
   private readonly collapseTargets = new Map<string, readonly number[]>();
   private roeScoreValue = 100;
   private roeFailed = false;
+  /** Survivors that came back a stripe more veteran this mission; set in checkEnd. */
+  private promotedValue = 0;
   private logisticsValue = 0;
   private intelValue = 0;
   private readonly buildQueue: { unit: string; startTick: number; readyTick: number }[] = [];
@@ -616,6 +622,43 @@ export class MissionRuntime {
     return this.roeScoreValue;
   }
 
+  /** The live grade (spec §4.1). 0 until the mission is won. */
+  get stars(): Stars {
+    return starsFor(
+      this.result,
+      this.roeScoreValue,
+      this.mission.roe?.fail_below,
+      this.objectives.map((o) => ({ primary: o.def.primary, carries: o.def.carries, status: o.status }))
+    );
+  }
+
+  /** Every player unit that ever took the field, dead or alive. Losses in a mission that
+   *  builds units cannot be read from the survivor count alone; this can. */
+  get fieldedCount(): number {
+    return this.playerIds.length;
+  }
+
+  /** Player units lost, by type id. Empty when nobody died. */
+  lostByType(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const id of this.playerIds) {
+      if (this.sim.state.alive[id] !== 0) continue;
+      const typeId = this.sim.unitTypes[this.sim.state.typeIdx[id]].id;
+      out[typeId] = (out[typeId] ?? 0) + 1;
+    }
+    return out;
+  }
+
+  /** Placement tags this mission's recon identified. */
+  get markedCount(): number {
+    return this.markedThisMission.size;
+  }
+
+  /** Survivors that gained a stripe at the end. 0 until the mission ends. */
+  get promotedCount(): number {
+    return this.promotedValue;
+  }
+
   /** In-flight production for the HUD, in whole ticks — the presentation
    *  layer turns these into a bar and a countdown (no floats in the sim). */
   get production(): { unit: string; doneTicks: number; totalTicks: number; ticksLeft: number }[] {
@@ -641,6 +684,7 @@ export class MissionRuntime {
     type: string;
     text: string;
     primary: boolean;
+    carries: boolean;
     status: ObjectiveStatus;
     /** Ticks still to run on a timed objective — undefined when it is not
      *  timed. 'Hold for five minutes' is not an order you can follow without
@@ -682,6 +726,7 @@ export class MissionRuntime {
         type: o.def.type,
         text: o.def.text ?? o.def.id,
         primary: o.def.primary,
+        carries: o.def.carries === true,
         status: o.status,
         ticksLeft,
         paused: o.status === 'active' && o.paused !== null ? o.paused : undefined,
@@ -1629,7 +1674,10 @@ export class MissionRuntime {
       const typeId = this.sim.unitTypes[this.sim.state.typeIdx[id]].id;
       survivors.push(typeId);
       let vet = this.sim.state.veterancy[id];
-      if ((this.kills.get(id) ?? 0) > 0 && vet < 3) vet++;
+      if ((this.kills.get(id) ?? 0) > 0 && vet < 3) {
+        vet++;
+        this.promotedValue++;
+      }
       roster.push({ type: typeId, veterancy: vet });
     }
     // Best-of per mission. Storage only -- no averaging here, because an average is
