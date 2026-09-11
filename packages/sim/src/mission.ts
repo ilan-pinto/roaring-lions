@@ -86,6 +86,13 @@ export interface SayJson {
 export interface LedgerRosterEntry {
   type: string;
   veterancy: number;
+  /** The unit's name, assigned by the app from a screened table and carried here
+   *  opaquely (spec §4.7). The sim never reads or invents one. */
+  name?: string;
+  /** Missions this unit has come back from. */
+  missions?: number;
+  /** Kills across the campaign. */
+  kills?: number;
 }
 export interface LedgerData {
   'roster.surviving_units'?: LedgerRosterEntry[];
@@ -463,6 +470,9 @@ export class MissionRuntime {
   private readonly markedThisMission = new Set<string>();
   private readonly kills = new Map<number, number>();
   private readonly rosterPool: LedgerRosterEntry[];
+  /** Which pool entry each fielded entity was drawn from, so its name and record can
+   *  travel through this mission and back out. Fresh spawns have no entry. */
+  private readonly entityRoster = new Map<number, LedgerRosterEntry>();
   private readonly firedTriggers: boolean[] = [];
   private readonly spawnedWaves: boolean[] = [];
   private firstContact = false;
@@ -692,6 +702,12 @@ export class MissionRuntime {
     const o = this.objectives.find((x) => x.def.id === id);
     if (!o) throw new Error(`no objective ${id}`);
     return o.status;
+  }
+
+  /** The ledger entry a fielded entity was drawn from, if any. The HUD's single-unit
+   *  card reads the name and record off it; a fresh spawn returns undefined. */
+  rosterEntryOf(id: number): LedgerRosterEntry | undefined {
+    return this.entityRoster.get(id);
   }
 
   /** Objective list for UI: id, type, text, primary, status. */
@@ -1124,18 +1140,18 @@ export class MissionRuntime {
     // remnant — harder mission, never a broken one. A campaign that has not
     // produced a roster yet (key absent) is a fresh start, not a degraded one.
     const hasRoster = this.ctx.ledger?.['roster.surviving_units'] !== undefined;
-    let veterancies: number[];
+    let drawn: (LedgerRosterEntry | null)[];
     if (side === 0 && p.from_ledger === true && hasRoster) {
-      veterancies = [];
+      drawn = [];
       for (let k = 0; k < p.count; k++) {
         const idx = this.rosterPool.findIndex((r) => r.type === p.unit);
         if (idx < 0) break;
-        veterancies.push(this.rosterPool[idx].veterancy);
+        drawn.push(this.rosterPool[idx]);
         this.rosterPool.splice(idx, 1);
       }
-      if (veterancies.length === 0) veterancies = [0];
+      if (drawn.length === 0) drawn = [null];
     } else {
-      veterancies = new Array(p.count).fill(0);
+      drawn = new Array<LedgerRosterEntry | null>(p.count).fill(null);
     }
 
     // Resolved before any body spawns: a bad route id is an authoring error
@@ -1163,15 +1179,17 @@ export class MissionRuntime {
     // where they were authored proves nothing. Everything else must land on
     // ground it can move off.
     if (p.stance?.kind !== 'garrison' && tunnelIdx < 0) {
-      this.assertGroundClear(p.unit, bx, by, veterancies.length);
+      this.assertGroundClear(p.unit, bx, by, drawn.length);
     }
 
     const ids: number[] = [];
-    for (let k = 0; k < veterancies.length; k++) {
+    for (let k = 0; k < drawn.length; k++) {
       const ox = (k % 3) * SPREAD;
       const oy = ((k - (k % 3)) / 3) * SPREAD;
-      const id = this.sim.spawn(typeIdx, side, fx.add(bx, ox), fx.add(by, oy), facing, veterancies[k]);
+      const origin = drawn[k];
+      const id = this.sim.spawn(typeIdx, side, fx.add(bx, ox), fx.add(by, oy), facing, origin?.veterancy ?? 0);
       ids.push(id);
+      if (origin !== null) this.entityRoster.set(id, origin);
       // Each carrier gets the declared load, not a share of it.
       if (p.passengers) this.embarkPassengers(id, p.passengers, side);
       (side === 0 ? this.playerIds : side === 1 ? this.enemyIds : this.civIds).push(id);
@@ -1694,8 +1712,20 @@ export class MissionRuntime {
         vet++;
         this.promotedValue++;
       }
-      roster.push({ type: typeId, veterancy: vet });
+      const origin = this.entityRoster.get(id);
+      const entry: LedgerRosterEntry = {
+        type: typeId,
+        veterancy: vet,
+        missions: (origin?.missions ?? 0) + 1,
+        kills: (origin?.kills ?? 0) + (this.kills.get(id) ?? 0),
+      };
+      if (origin?.name !== undefined) entry.name = origin.name;
+      roster.push(entry);
     }
+    // Survivors first, then whoever was never fielded: a unit that stayed in the pool
+    // neither served nor changed, and dropping it because this mission's placements did
+    // not call for its type was the silent deletion spec §4.7 names.
+    for (const left of this.rosterPool) roster.push({ ...left });
     // Best-of per mission. Storage only -- no averaging here, because an average is
     // division and this package bans floating point. See LedgerData['roe.mission_ratings'].
     const prevRatings = this.ctx.ledger?.['roe.mission_ratings'];

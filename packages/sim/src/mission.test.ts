@@ -5,6 +5,7 @@ import { STRIKE_DELAY_TICKS } from './tuning';
 import {
   MissionRuntime,
   type LedgerData,
+  type LedgerRosterEntry,
   type MissionContext,
   type MissionEvent,
   type MissionJson,
@@ -589,8 +590,9 @@ describe('campaign ledger (GDD §6 carry-over)', () => {
     expect(Array.isArray(roster)).toBe(true);
     if (Array.isArray(roster)) {
       expect(roster.length).toBe(1);
-      // The tank got the kill: veterancy 0 -> 1.
-      expect(roster[0]).toEqual({ type: 'm_tank', veterancy: 1 });
+      // The tank got the kill: veterancy 0 -> 1. Never drawn from a ledger entry,
+      // so it comes back with a first mission and that kill, and no name.
+      expect(roster[0]).toEqual({ type: 'm_tank', veterancy: 1, missions: 1, kills: 1 });
     }
     // This mission's rating (100) beats the seeded prior best (60), so best-of keeps it.
     expect((end.ledger['roe.mission_ratings'] as Record<string, number>).test_mission).toBe(100);
@@ -609,6 +611,71 @@ describe('campaign ledger (GDD §6 carry-over)', () => {
     if (end?.kind !== 'missionEnd') throw new Error('no end');
     expect((end.ledger['roe.mission_ratings'] as Record<string, number>).test_mission).toBe(100);
     expect('roster.surviving_units' in end.ledger).toBe(false);
+  });
+
+  it("carries a drawn unit's name and record through, and counts the mission served", () => {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_tank', count: 1, at: [4, 5], from_ledger: true }],
+        enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [11, 5], facing_deg: 180 }] },
+        ledger: { requires: ['roster.surviving_units'], produces: ['roster.surviving_units'] },
+      }),
+      { ledger: { 'roster.surviving_units': [{ type: 'm_tank', veterancy: 1, name: '2-1 Gachelet', missions: 2, kills: 3 }] } }
+    );
+    // No named playerIds() helper on World; list side-0 entities the way the
+    // rest of this file does (see 'a fresh campaign ... fields a remnant' above).
+    const players: number[] = [];
+    for (let i = 0; i < w.sim.entityCount; i++) if (w.sim.state.side[i] === 0) players.push(i);
+    const tank = players[0];
+    expect(w.runtime.rosterEntryOf(tank)?.name).toBe('2-1 Gachelet');
+    const { mission } = w.step(90 * TICKS_PER_SECOND);
+    const end = mission.find((e) => e.kind === 'missionEnd');
+    if (end?.kind !== 'missionEnd') throw new Error('no end');
+    const roster = end.ledger['roster.surviving_units'] as LedgerRosterEntry[];
+    expect(roster).toEqual([{ type: 'm_tank', veterancy: 2, name: '2-1 Gachelet', missions: 3, kills: 4 }]);
+  });
+
+  it('a fresh survivor gets a record and no name; the app names it later', () => {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 2 }],
+        ledger: { requires: [], produces: ['roster.surviving_units'] },
+      })
+    );
+    const { mission } = w.step(4 * TICKS_PER_SECOND);
+    const end = mission.find((e) => e.kind === 'missionEnd');
+    if (end?.kind !== 'missionEnd') throw new Error('no end');
+    const roster = end.ledger['roster.surviving_units'] as LedgerRosterEntry[];
+    expect(roster).toEqual([{ type: 'm_squad', veterancy: 0, missions: 1, kills: 0 }]);
+    const players: number[] = [];
+    for (let i = 0; i < w.sim.entityCount; i++) if (w.sim.state.side[i] === 0) players.push(i);
+    expect(w.runtime.rosterEntryOf(players[0])).toBeUndefined();
+  });
+
+  it('an unfielded pool entry carries forward unchanged, after the survivors', () => {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5], from_ledger: true }],
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 2 }],
+        ledger: { requires: ['roster.surviving_units'], produces: ['roster.surviving_units'] },
+      }),
+      {
+        ledger: {
+          'roster.surviving_units': [
+            { type: 'm_squad', veterancy: 2, name: 'Sela', missions: 1, kills: 1 },
+            { type: 'm_tank', veterancy: 3, name: '1-2 Ayil', missions: 4, kills: 9 },
+          ],
+        },
+      }
+    );
+    const { mission } = w.step(4 * TICKS_PER_SECOND);
+    const end = mission.find((e) => e.kind === 'missionEnd');
+    if (end?.kind !== 'missionEnd') throw new Error('no end');
+    expect(end.ledger['roster.surviving_units']).toEqual([
+      { type: 'm_squad', veterancy: 2, name: 'Sela', missions: 2, kills: 1 },
+      { type: 'm_tank', veterancy: 3, name: '1-2 Ayil', missions: 4, kills: 9 },
+    ]);
   });
 });
 
