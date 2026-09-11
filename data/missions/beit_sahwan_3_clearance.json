@@ -109,6 +109,7 @@
       "id": "picture",
       "type": "locate",
       "primary": false,
+      "carries": true,
       "count": 4,
       "text": "Build the picture: identify four garrison positions"
     },

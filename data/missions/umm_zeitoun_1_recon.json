@@ -102,6 +102,7 @@
       "id": "find_the_missile_team",
       "type": "locate",
       "primary": false,
+      "carries": true,
       "target": "uz_manpad_basin",
       "text": "Identify the missile team covering the basin",
       "say": {

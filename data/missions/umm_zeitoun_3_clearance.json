@@ -87,6 +87,7 @@
       "id": "find_adhal",
       "type": "locate",
       "primary": false,
+      "carries": true,
       "target": "uz_hvt_lantern",
       "text": "Find the man the posts are reporting to",
       "say": {

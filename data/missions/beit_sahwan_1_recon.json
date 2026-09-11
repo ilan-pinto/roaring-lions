@@ -100,6 +100,7 @@
       "id": "hvt_seen",
       "type": "locate",
       "primary": false,
+      "carries": true,
       "target": "bs_hvt_atgm",
       "text": "Identify the ATGM cell overlooking the east road",
       "say": { "speaker": "idit", "text": "The ATGM cell has the whole east road. It has been in that position long enough to have a range card." }
@@ -108,6 +109,7 @@
       "id": "find_the_column",
       "type": "locate",
       "primary": false,
+      "carries": true,
       "target": "bs_track_north",
       "text": "Identify the track north of the road"
     }

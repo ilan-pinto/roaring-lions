@@ -309,7 +309,10 @@ const led3 = run(
       sim.queueCommand({ kind: 'attackMove', ids: armor, ...M(38, 22) });
     });
   },
-  led2
+  led2,
+  'victory',
+  'beit_sahwan_3_clearance',
+  3
 );
 
 // --- Naharin: Wadi Halam ------------------------------------------------------
@@ -1454,7 +1457,8 @@ const ledQH1 = run(
   },
   ledTelMarum3,
   'victory',
-  'qarn_hadid_1_recon'
+  'qarn_hadid_1_recon',
+  3
 );
 
 // Qarn Hadid II -- The Shoulder: the demolition and the hold, kept off each

@@ -61,6 +61,13 @@ in step with it.
   lines should say Conduct too; `ROE` stays the design and ledger term. Restraint must
   be the mechanically superior play. A villain's
   job is to make the player want to break it.
+- **The third star is the carrying secondaries.** `carries: true` marks a secondary a later
+  mission reads (spec 2026-09-10 §4.1); the Ari'im citation needs every one complete, and a
+  mission with none caps at two stars. As of 2026-09-11 that is Beit Sahwan II and IV, every
+  Tel Marum mission, Umm Zeitoun II and IV, Wadi Halam I–V, and the last mission of every
+  other town. Giving one of them a third star means authoring a secondary something later
+  reads, never flagging a `survive_until` clock. `pnpm playtest` prints each plan's stars and
+  asserts the authored expectation.
 - **Everything is fictional and defined by doctrine.** Kedem, the KDF 401st
   "Ari'im" Brigade, the Sahar Basin. Ashwar Front (tunnels, ambush), Sarim
   Brigades (rockets, ATGMs, standoff), Rif Cells (technicals, raids, smuggling).
