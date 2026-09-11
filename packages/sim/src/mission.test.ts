@@ -647,7 +647,9 @@ describe('campaign ledger (GDD §6 carry-over)', () => {
     const end = mission.find((e) => e.kind === 'missionEnd');
     if (end?.kind !== 'missionEnd') throw new Error('no end');
     const roster = end.ledger['roster.surviving_units'] as LedgerRosterEntry[];
-    expect(roster).toEqual([{ type: 'm_squad', veterancy: 0, missions: 1, kills: 0 }]);
+    // No kill, but the squad was alive when the survive_until primary completed --
+    // the earn rule (spec §4.8) credits that as contribution, so veterancy 0 -> 1.
+    expect(roster).toEqual([{ type: 'm_squad', veterancy: 1, missions: 1, kills: 0 }]);
     const players: number[] = [];
     for (let i = 0; i < w.sim.entityCount; i++) if (w.sim.state.side[i] === 0) players.push(i);
     expect(w.runtime.rosterEntryOf(players[0])).toBeUndefined();
@@ -673,7 +675,10 @@ describe('campaign ledger (GDD §6 carry-over)', () => {
     const end = mission.find((e) => e.kind === 'missionEnd');
     if (end?.kind !== 'missionEnd') throw new Error('no end');
     expect(end.ledger['roster.surviving_units']).toEqual([
-      { type: 'm_squad', veterancy: 2, name: 'Sela', missions: 2, kills: 1 },
+      // Sela is the drawn survivor: no kill this mission, but alive when the
+      // survive_until primary completed, which the earn rule (spec §4.8) credits
+      // as contribution -- veterancy 2 -> 3. Ayil never fielded, so unchanged.
+      { type: 'm_squad', veterancy: 3, name: 'Sela', missions: 2, kills: 1 },
       { type: 'm_tank', veterancy: 3, name: '1-2 Ayil', missions: 4, kills: 9 },
     ]);
   });
@@ -876,6 +881,67 @@ describe('the grade and the debrief figures', () => {
     if (end?.kind !== 'missionEnd') throw new Error('no end');
     expect(end.result).toBe('victory');
     expect(end.ledger['civ.hostages_recovered']).toEqual({ test_mission: 2 });
+  });
+
+  // Reuses the zone origin the 'capture: clear the zone, hold it, win' test above
+  // (line 372) uses for its own zone -- an open tile of baseMission's 28x12 map.
+  const ZONE_X = 19;
+  const ZONE_Y = 3;
+
+  it('a survivor with no kill and no part in any objective earns no stripe', () => {
+    // Two squads; the enemy is out of reach, so nobody kills; a survive primary completes.
+    // Alive at a survive_until completion counts as contributing, so BOTH earn. Then the
+    // negative: a hold_for zone one squad never enters.
+    const w = makeWorld(
+      baseMission({
+        starting_force: [
+          { unit: 'm_squad', count: 1, at: [3, 5] },
+          { unit: 'm_squad', count: 1, at: [3, 6] },
+        ],
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 2 }],
+        ledger: { requires: [], produces: ['roster.surviving_units'] },
+      })
+    );
+    const { mission } = w.step(4 * TICKS_PER_SECOND);
+    const end = mission.find((e) => e.kind === 'missionEnd');
+    if (end?.kind !== 'missionEnd') throw new Error('no end');
+    const roster = end.ledger['roster.surviving_units'] as LedgerRosterEntry[];
+    expect(roster.map((r) => r.veterancy)).toEqual([1, 1]);
+  });
+
+  it('holding the zone earns the stripe; standing elsewhere does not', () => {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [
+          { unit: 'm_squad', count: 1, at: [ZONE_X, ZONE_Y] },
+          { unit: 'm_squad', count: 1, at: [3, 6] },
+        ],
+        objectives: [{ id: 'take', type: 'hold_for', primary: true, target: 'hold_zone', seconds: 2 }],
+        ledger: { requires: [], produces: ['roster.surviving_units'] },
+      }),
+      { zones: { hold_zone: [ZONE_X, ZONE_Y, 2, 2] } }
+    );
+    const { mission } = w.step(6 * TICKS_PER_SECOND);
+    const end = mission.find((e) => e.kind === 'missionEnd');
+    if (end?.kind !== 'missionEnd') throw new Error('no end');
+    const roster = end.ledger['roster.surviving_units'] as LedgerRosterEntry[];
+    expect(roster.map((r) => r.veterancy)).toEqual([1, 0]);
+  });
+
+  it('the observer that identified the located unit earns the stripe', () => {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+        enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [7, 5], tag: 'post' }] },
+        objectives: [{ id: 'see', type: 'locate', primary: true, target: 'post' }],
+        ledger: { requires: [], produces: ['roster.surviving_units'] },
+      })
+    );
+    const { mission } = w.step(20 * TICKS_PER_SECOND);
+    const end = mission.find((e) => e.kind === 'missionEnd');
+    if (end?.kind !== 'missionEnd') throw new Error('no end');
+    const roster = end.ledger['roster.surviving_units'] as LedgerRosterEntry[];
+    expect(roster[0]?.veterancy).toBe(1);
   });
 });
 

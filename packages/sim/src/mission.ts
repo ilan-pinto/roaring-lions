@@ -469,6 +469,15 @@ export class MissionRuntime {
   /** Tags whose units were identified *this* mission, for the outgoing ledger. */
   private readonly markedThisMission = new Set<string>();
   private readonly kills = new Map<number, number>();
+  /** Player entities that contributed to a completed objective this mission (spec §4.8):
+   *  kill credit, held a zone at a hold/capture completion, alive at a survive completion,
+   *  identified a unit a locate needed, or found a route a collapse brought down. The
+   *  stripe reads this, not the kill map alone. */
+  private readonly contributed = new Set<number>();
+  /** Which player entity identified each enemy entity, from `contact.observer`. */
+  private readonly identifiedBy = new Map<number, number>();
+  /** Which player entity found each route, from the route event's observer. */
+  private readonly routeFoundBy = new Map<number, number>();
   private readonly rosterPool: LedgerRosterEntry[];
   /** Which pool entry each fielded entity was drawn from, so its name and record can
    *  travel through this mission and back out. Fresh spawns have no entry. */
@@ -634,6 +643,12 @@ export class MissionRuntime {
     if (this.ended) return false;
     const o = this.objectives.find((x) => x.def.id === id);
     if (!o || o.status !== 'active') return false;
+    // Same earn rule as an internally-detected completion (spec §4.8) -- the
+    // tutorial's step-driven objectives share the same nine types, so a
+    // hold_for/capture/survive_until/locate/collapse forced complete from
+    // outside credits contribution off current world state exactly as
+    // stepObjectives does; this is the only other place status becomes 'complete'.
+    this.creditContribution(o.def);
     o.status = 'complete';
     this.externallyCompleted.push(id);
     return true;
@@ -683,6 +698,12 @@ export class MissionRuntime {
   /** Survivors that gained a stripe at the end. 0 until the mission ends. */
   get promotedCount(): number {
     return this.promotedValue;
+  }
+
+  /** Player entities that contributed to a completed objective this mission (§4.8's
+   *  earn rule), for the debrief. Grows through the mission, not just at the end. */
+  get contributedCount(): number {
+    return this.contributed.size;
   }
 
   /** In-flight production for the HUD, in whole ticks — the presentation
@@ -898,7 +919,10 @@ export class MissionRuntime {
       if (e.kind === 'fire') this.firstContact = true;
       if (e.kind === 'contact' && e.level === 'identified') {
         this.firstContact = true;
-        if (e.side === 0 && this.sim.state.side[e.target] === 1) this.identified.add(e.target);
+        if (e.side === 0 && this.sim.state.side[e.target] === 1) {
+          this.identified.add(e.target);
+          if (e.observer >= 0) this.identifiedBy.set(e.target, e.observer);
+        }
         // Carry-over, produced. The tag joins the ledger the moment any unit of that
         // placement is identified -- no separate mark verb, and no objective needed:
         // intel is what recon *saw*. Partial credit falls out, because sweeping half
@@ -909,8 +933,12 @@ export class MissionRuntime {
           }
         }
       }
+      if (e.kind === 'tunnelContact' && e.level === 'identified' && e.side === 0 && e.observer >= 0) {
+        this.routeFoundBy.set(e.tunnel, e.observer);
+      }
       if (e.kind === 'destroyed' && e.by >= 0) {
         this.kills.set(e.by, (this.kills.get(e.by) ?? 0) + 1);
+        if (this.sim.state.side[e.by] === 0) this.contributed.add(e.by);
       }
     }
 
@@ -1441,6 +1469,48 @@ export class MissionRuntime {
     return n;
   }
 
+  /** Living player entities standing in `zone` (same rule as livingIn: buried units hold no ground). */
+  private playerIdsIn(zone: readonly number[]): number[] {
+    const out: number[] = [];
+    const st = this.sim.state;
+    for (const id of this.playerIds) {
+      if (st.alive[id] === 0 || st.tunnelIn[id] >= 0) continue;
+      const tx = st.posX[id] >> 16;
+      const ty = st.posY[id] >> 16;
+      if (tx >= zone[0] && tx < zone[0] + zone[2] && ty >= zone[1] && ty < zone[1] + zone[3]) out.push(id);
+    }
+    return out;
+  }
+
+  /** Who earns a stripe for this objective's completion (spec §4.8). Kill credit is
+   *  digested continuously in step() and is not this method's concern. */
+  private creditContribution(d: ObjectiveJson): void {
+    const st = this.sim.state;
+    if (d.type === 'hold_for' || d.type === 'capture') {
+      const z = this.zone(d.target);
+      if (z) for (const id of this.playerIdsIn(z)) this.contributed.add(id);
+    } else if (d.type === 'survive_until') {
+      // R1: a survive_until has no zone; credit is every living player unit at
+      // completion, since simply being present -- not fighting -- is the ask.
+      for (const id of this.playerIds) if (st.alive[id] === 1) this.contributed.add(id);
+    } else if (d.type === 'locate') {
+      const targets = d.target ? (this.tags.get(d.target) ?? []) : [...this.identified];
+      for (const t of targets) {
+        const by = this.identifiedBy.get(t);
+        if (by !== undefined) this.contributed.add(by);
+      }
+    } else if (d.type === 'collapse') {
+      // R2: the runtime snapshots the objective's own route set in collapseTargets
+      // (see start()), so credit is restricted to finders of THOSE routes -- not
+      // every carrier that ever found any route on the map.
+      const targets = this.collapseTargets.get(d.id) ?? [];
+      for (const r of targets) {
+        const by = this.routeFoundBy.get(r);
+        if (by !== undefined) this.contributed.add(by);
+      }
+    }
+  }
+
   private stepTriggers(tick: number, out: MissionEvent[]): void {
     const triggers = this.mission.triggers ?? [];
     for (let i = 0; i < triggers.length; i++) {
@@ -1667,6 +1737,7 @@ export class MissionRuntime {
         failed = !complete && tick >= (d.seconds ?? 300) * TICKS_PER_SECOND;
       }
       if (complete) {
+        this.creditContribution(o.def);
         o.status = 'complete';
         out.push({ kind: 'objective', tick, id: d.id, status: 'complete' });
         if (d.say) out.push({ kind: 'say', tick, speaker: d.say.speaker, text: d.say.text });
@@ -1708,7 +1779,7 @@ export class MissionRuntime {
       const typeId = this.sim.unitTypes[this.sim.state.typeIdx[id]].id;
       survivors.push(typeId);
       let vet = this.sim.state.veterancy[id];
-      if ((this.kills.get(id) ?? 0) > 0 && vet < 3) {
+      if (this.contributed.has(id) && vet < 3) {
         vet++;
         this.promotedValue++;
       }
