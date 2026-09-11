@@ -47,6 +47,11 @@
     "name": {
       "type": "string"
     },
+    "hostages_place": {
+      "type": "string",
+      "maxLength": 40,
+      "description": "Where the taken came back, for the board's line \"N came back at <place>\". Author it on any mission with a hostages evacuation."
+    },
     "town": {
       "enum": [
         "beit_sahwan",
@@ -261,6 +266,10 @@
           "carries": {
             "type": "boolean",
             "description": "A secondary whose result a later mission reads -- a locate whose target tag reappears as an enemy tag in a later mission that requires intel.marked_positions, or an evacuation that feeds civ.hostages_recovered. The third star (Ari'im citation) needs every carrying secondary complete; a mission with none caps at two stars. Never on a primary."
+          },
+          "hostages": {
+            "type": "boolean",
+            "description": "This evacuate_before brings back people the enemy took. On completion its count is written to the ledger key civ.hostages_recovered for this mission, and the campaign board's account of the taken moves. Only meaningful on evacuate_before."
           },
           "text": {
             "type": "string"

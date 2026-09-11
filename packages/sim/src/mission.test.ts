@@ -699,6 +699,31 @@ describe('the grade and the debrief figures', () => {
     expect(r.lost).toBe(0);
     expect(Number.isInteger(r.ticks) && r.ticks > 0 && r.ticks <= 90 * TICKS_PER_SECOND).toBe(true);
   });
+
+  it('writes this mission\'s recovered hostages best-of, and only from flagged evacuations', () => {
+    // A two-second survive primary wins the mission; the flagged evacuation never completes
+    // (no civilians on this map), so the count written is 0 -- and the prior 2 is kept.
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+        civilians: { groups: [], refuge: 'refuge' },
+        objectives: [
+          { id: 'hold', type: 'survive_until', primary: true, seconds: 2 },
+          { id: 'out', type: 'evacuate_before', primary: false, target: 'refuge_zone', count: 2, seconds: 300, hostages: true },
+        ],
+        ledger: { requires: [], produces: ['civ.hostages_recovered'] },
+      }),
+      {
+        markers: { refuge: [2, 10] },
+        zones: { refuge_zone: [0, 8, 6, 4] },
+        ledger: { 'civ.hostages_recovered': { test_mission: 2 } },
+      }
+    );
+    const { mission } = w.step(4 * TICKS_PER_SECOND);
+    const end = mission.find((e) => e.kind === 'missionEnd');
+    if (end?.kind !== 'missionEnd') throw new Error('no end');
+    expect(end.ledger['civ.hostages_recovered']).toEqual({ test_mission: 2 });
+  });
 });
 
 describe('veterancy has combat meaning', () => {

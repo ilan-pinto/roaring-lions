@@ -23,6 +23,11 @@
       "type": "string",
       "pattern": "\\.(svg|png)$"
     },
+    "taken": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "How many people the enemy took on the first morning (storyline D12). The board subtracts the ledger's civ.hostages_recovered from it."
+    },
     "regions": {
       "type": "array",
       "minItems": 1,

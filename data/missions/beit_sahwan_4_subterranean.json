@@ -1,6 +1,7 @@
 {
   "id": "beit_sahwan_4_subterranean",
   "name": "Beit Sahwan IV — Subterranean",
+  "hostages_place": "the shaft head",
   "town": "beit_sahwan",
   "phase": "subterranean",
   "target_minutes": 6,
@@ -26,7 +27,8 @@
       "roster.surviving_units",
       "roe.mission_ratings",
       "campaign.completed_missions",
-      "intel.marked_positions"
+      "intel.marked_positions",
+      "civ.hostages_recovered"
     ]
   },
   "starting_force": [
@@ -66,6 +68,7 @@
       "target": "collection_point",
       "count": 5,
       "seconds": 240,
+      "hostages": true,
       "text": "Get five people out to the collection point before the routes come down",
       "say": { "speaker": "idit", "text": "Five at the collection point. That is the first time this district has given anybody back." },
       "say_on_fail": { "speaker": "shai", "text": "Clock is out on the people. Nothing under this town is worth what we just did not do." }

@@ -2,6 +2,7 @@
   "id": "sahar_basin",
   "name": "The Sahar Basin",
   "art": "campaign/world_map.png",
+  "taken": 19,
   "regions": [
     {
       "id": "marj",

@@ -134,6 +134,10 @@ export interface LedgerData {
    * sums stars for the board and the star-gated unlocks with integer addition.
    */
   'campaign.mission_results'?: Record<string, MissionResult>;
+  /** People the enemy took who a mission brought back, keyed by mission id, best-of (max)
+   *  so a replay never double-counts. The app sums it and subtracts from world.json's
+   *  `taken` for the board's account of the taken (spec §4.4). */
+  'civ.hostages_recovered'?: Record<string, number>;
   /** How many civilian units got out — reached the refuge zone, latched, so
    *  dying afterwards does not un-count them. Written by missions whose
    *  premise includes an evacuation (the breach), read by later missions
@@ -149,6 +153,9 @@ export interface ObjectiveJson {
   /** A secondary whose result a later mission reads; the third star needs every one
    *  of these complete. Schema-enforced never on a primary. */
   carries?: boolean;
+  /** This evacuation brings back people the enemy TOOK (spec §4.4). On completion its
+   *  `count` is written to `civ.hostages_recovered` for this mission. */
+  hostages?: boolean;
   text?: string;
   target?: string;
   count?: number;
@@ -163,6 +170,8 @@ export interface ObjectiveJson {
 export interface MissionJson {
   id: string;
   name?: string;
+  /** Where the taken came back, for the board's line "N came back at <place>" (≤ 40 chars). */
+  hostages_place?: string;
   /** The orders, shown on the deploying screen before the mission starts.
    *  Undeclared until 2026-08-21, which is why nothing rendered it: every
    *  mission has carried one since the format was written, and no call site
@@ -1723,11 +1732,32 @@ export class MissionRuntime {
     const results: Record<string, MissionResult> = {};
     for (const k of Object.keys(mergedResults).sort()) results[k] = mergedResults[k];
 
+    // Best-of per mission, sorted keys -- the same shape as `ratings` and `results`
+    // above. Counted from completed `hostages` evacuations only, so a mission with
+    // none writes 0 rather than leaving the key absent.
+    let recoveredHere = 0;
+    for (const o of this.objectives) {
+      if (o.def.hostages === true && o.status === 'complete') recoveredHere += o.def.count ?? 1;
+    }
+    const prevRecovered = this.ctx.ledger?.['civ.hostages_recovered'];
+    const mergedRecovered: Record<string, number> = {};
+    if (prevRecovered !== null && typeof prevRecovered === 'object') {
+      const prior = prevRecovered as Record<string, number>;
+      for (const k of Object.keys(prior)) mergedRecovered[k] = prior[k];
+    }
+    const priorRecovered = mergedRecovered[this.mission.id];
+    if (typeof priorRecovered !== 'number' || recoveredHere > priorRecovered) {
+      mergedRecovered[this.mission.id] = recoveredHere;
+    }
+    const recovered: Record<string, number> = {};
+    for (const k of Object.keys(mergedRecovered).sort()) recovered[k] = mergedRecovered[k];
+
     const produced: LedgerData = {};
     for (const key of this.mission.ledger.produces) {
       if (key === 'roster.surviving_units') produced[key] = roster;
       else if (key === 'roe.mission_ratings') produced[key] = ratings;
       else if (key === 'campaign.mission_results') produced[key] = results;
+      else if (key === 'civ.hostages_recovered') produced[key] = recovered;
       else if (key === 'campaign.completed_missions') {
         const prevDone = this.ctx.ledger?.['campaign.completed_missions'];
         const done = Array.isArray(prevDone) ? [...prevDone] : [];
