@@ -1942,8 +1942,12 @@ async function main(): Promise<void> {
             const account = hostagesAccount(worldData, updatedLedger);
             const cameBack = me.ledger['civ.hostages_recovered']?.[missionId] ?? 0;
             const place = (mission as { hostages_place?: string }).hostages_place;
+            // Truthiness rather than `!== undefined`: the schema puts no
+            // `minLength` on `hostages_place`, so an empty string is authorable
+            // and would render "Four came back at ." rather than dropping the
+            // clause.
             const takenAccount = account
-              ? hostagesLine(account, place !== undefined ? { count: cameBack, place } : undefined)
+              ? hostagesLine(account, place ? { count: cameBack, place } : undefined)
               : undefined;
             const debriefOpts: DebriefOptions = {
               result: me.result,
