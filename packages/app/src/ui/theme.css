@@ -2356,6 +2356,14 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-loading__beat:last-child {
   margin-bottom: 0;
 }
+/* "What you brought" (Task 11): a sibling of the beats, between the orders and
+   Deploy -- never a beat itself. The left rule borrows `--commend`, the same
+   token the world-map star line uses, so a carry-over reads as an earned
+   thing rather than as another paragraph of prose. */
+.rl-loading__brought { margin: 10px 0 0; padding: 8px 10px; border-left: 2px solid var(--commend); color: var(--ink); }
+.rl-loading__brought-head { color: var(--ink-dim); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 1px; }
+.rl-loading__brought ul { margin: 4px 0; padding-left: 1.1em; }
+.rl-loading__brought-line { margin: 4px 0 0; color: var(--ink-mute); }
 @keyframes rl-beat-in {
   from {
     opacity: 0;

@@ -60,7 +60,7 @@ import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebri
 import { showDebrief, type DebriefOptions } from './ui/debrief';
 import { TIER_LINES } from './ui/grade-copy';
 import { speakerPlate, speakerPortrait } from './ui/hud-model';
-import { briefingBeats, showLoading } from './ui/loading';
+import { briefingBeats, broughtFor, showLoading } from './ui/loading';
 import { evacuatedNotice, removedNotice, sayNotice } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
 import { doctrineTags } from './ui/dock-model';
@@ -941,7 +941,8 @@ async function main(): Promise<void> {
     mission?.name ?? mission?.id ?? 'M0 sandbox',
     mission?.briefing,
     { rank: hudCommander.shai.rank, plate: hudCommander.shai.plate, portrait: hudCommander.shai.portrait },
-    mission?.briefing_video !== undefined ? `${BASE}${mission.briefing_video}` : undefined
+    mission?.briefing_video !== undefined ? `${BASE}${mission.briefing_video}` : undefined,
+    mission ? (broughtFor(mission, ledger, (id) => units[id as keyof typeof units]?.name ?? id) ?? undefined) : undefined
   );
   await renderer.init(stage);
   renderer.useEmitters(vfxEmitters as EmitterSpec[], paletteColor);

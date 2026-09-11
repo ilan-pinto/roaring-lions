@@ -14,6 +14,9 @@
 // room and the time for prose, which is what #82 was really complaining about:
 // it held for as long as the sheets took and then vanished.
 
+import type { LedgerData } from '@lions/sim';
+import { campaignRoe } from '../campaign';
+
 /**
  * Does this screen wait for the player before handing over the field?
  *
@@ -65,6 +68,53 @@ export function briefingBeats(text: string): string[] {
   return beats;
 }
 
+export interface BroughtPanel {
+  roster: { type: string; count: number; stripes: number }[];
+  marked: number;
+  conduct: number | null;
+  sentences: string[];
+}
+
+const NUM = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
+const num = (n: number): string => (n < NUM.length ? NUM[n] : String(n));
+
+/** What the ledger hands this mission, in the player's terms (spec §5). Null when the
+ *  mission's contract reads nothing, so a sandbox and First Light show no panel. */
+export function broughtFor(
+  mission: { ledger: { requires: readonly string[] } },
+  ledger: LedgerData,
+  unitName: (id: string) => string
+): BroughtPanel | null {
+  const req = mission.ledger.requires;
+  if (req.length === 0) return null;
+  const roster: BroughtPanel['roster'] = [];
+  if (req.includes('roster.surviving_units')) {
+    const entries = ledger['roster.surviving_units'] ?? [];
+    const byType = new Map<string, { count: number; stripes: number }>();
+    for (const e of entries) {
+      const cur = byType.get(e.type) ?? { count: 0, stripes: 0 };
+      cur.count++;
+      if (e.veterancy > cur.stripes) cur.stripes = e.veterancy;
+      byType.set(e.type, cur);
+    }
+    for (const [type, v] of byType) roster.push({ type: unitName(type), ...v });
+  }
+  const marked = req.includes('intel.marked_positions') ? (ledger['intel.marked_positions'] ?? []).length : 0;
+  const conduct = campaignRoe(ledger)?.mean ?? null;
+  const sentences: string[] = [];
+  if (req.includes('intel.marked_positions')) {
+    sentences.push(
+      marked > 0
+        ? `${num(marked)} position${marked === 1 ? '' : 's'} your recon marked ${marked === 1 ? 'is' : 'are'} on your map before a shot is fired.`
+        : 'Nothing marked. Whatever is out there, you find under fire.'
+    );
+  }
+  if (req.includes('roster.surviving_units') && roster.length === 0) {
+    sentences.push('No survivors carried forward. The brigade fields a fresh remnant for each slot.');
+  }
+  return { roster, marked, conduct, sentences };
+}
+
 export interface LoadingScreen {
   /** How many assets the gate is waiting on. Drives the bar's denominator. */
   total(n: number): void;
@@ -98,7 +148,13 @@ export function showLoading(
    *  beats; the beats and the deploy button are unchanged with or without
    *  it, and a URL that fails to load removes the element rather than
    *  leaving a dead player on the screen. */
-  briefingVideo?: string
+  briefingVideo?: string,
+  /** What the campaign ledger hands this mission (`broughtFor`), rendered as a
+   *  sibling of the beats -- never one itself, so the beat count a test reads
+   *  off a briefing is unaffected by whether a panel is present. Gated on
+   *  `holds`, the same condition the orders paragraph and commander line are:
+   *  a sandbox or a mission with no briefing shows neither. */
+  brought?: BroughtPanel
 ): LoadingScreen {
   const wrap = document.createElement('div');
   wrap.className = 'rl-loading';
@@ -189,6 +245,38 @@ export function showLoading(
     }
   }
 
+  // "What you brought" -- a sibling of the beats, never a beat itself, so the
+  // beat count a test reads off a briefing stays what the briefing alone
+  // produces. Gated on `holds` exactly like `orders` above it: a sandbox or a
+  // mission with no briefing shows no panel, whether or not one was supplied.
+  let broughtEl: HTMLElement | null = null;
+  if (holds && brought) {
+    broughtEl = document.createElement('div');
+    broughtEl.className = 'rl-loading__brought';
+    const h = document.createElement('div');
+    h.className = 'rl-loading__brought-head';
+    h.textContent = 'What you brought';
+    broughtEl.appendChild(h);
+    const ul = document.createElement('ul');
+    for (const r of brought.roster) {
+      const li = document.createElement('li');
+      li.textContent = `${r.type} ×${r.count}${r.stripes > 0 ? ` ${'★'.repeat(r.stripes)}` : ''}`;
+      ul.appendChild(li);
+    }
+    if (brought.conduct !== null) {
+      const li = document.createElement('li');
+      li.textContent = `Conduct ${brought.conduct}`;
+      ul.appendChild(li);
+    }
+    broughtEl.appendChild(ul);
+    for (const s of brought.sentences) {
+      const p = document.createElement('p');
+      p.className = 'rl-loading__brought-line';
+      p.textContent = s;
+      broughtEl.appendChild(p);
+    }
+  }
+
   // The cinematic, when the mission has one. Autoplay is asked for with sound
   // -- the player reached this screen by clicking a mission, which is the
   // gesture browsers want -- and if the browser still refuses, the element
@@ -231,7 +319,9 @@ export function showLoading(
   if (holds) {
     box.classList.add('rl-loading__box--brief');
     if (commander) box.append(commanderHead);
-    box.append(orders, deploy);
+    box.append(orders);
+    if (broughtEl) box.append(broughtEl);
+    box.append(deploy);
   } else if (video) {
     // A cinematic with no orders still needs the player's go.
     box.append(deploy);

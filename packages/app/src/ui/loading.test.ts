@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { missions } from '@lions/data';
-import { briefingBeats, briefingHoldsDeployment, showLoading } from './loading';
+import { briefingBeats, briefingHoldsDeployment, broughtFor, showLoading } from './loading';
 
 // Whether the deploying screen waits for the player is the whole of #82, and it
 // is decidable without a DOM: a screen that tears itself down the instant the
@@ -287,5 +287,52 @@ describe('deploy screen beat layout (GH-162)', () => {
     const deploy = el.querySelector<HTMLButtonElement>('.rl-loading__deploy');
     expect(deploy).not.toBeNull();
     expect(deploy?.disabled).toBe(false);
+  });
+});
+
+describe('what you brought', () => {
+  const ledger = {
+    'roster.surviving_units': [
+      { type: 'inf_squad', veterancy: 2 },
+      { type: 'inf_squad', veterancy: 0 },
+      { type: 'mbt_lavi', veterancy: 1 },
+    ],
+    'intel.marked_positions': ['bs_hvt_atgm', 'bs_track_north'],
+    'roe.mission_ratings': { a: 80 },
+  };
+  const name = (id: string): string => (id === 'inf_squad' ? 'Rifle Squad' : 'Lavi');
+
+  it('is nothing for a mission that requires nothing', () => {
+    expect(broughtFor({ ledger: { requires: [] } }, ledger, name)).toBeNull();
+  });
+
+  it('groups the roster by type with its best stripes, counts the marks, reads Conduct', () => {
+    const b = broughtFor({ ledger: { requires: ['roster.surviving_units', 'intel.marked_positions'] } }, ledger, name)!;
+    expect(b.roster).toEqual([
+      { type: 'Rifle Squad', count: 2, stripes: 2 },
+      { type: 'Lavi', count: 1, stripes: 1 },
+    ]);
+    expect(b.marked).toBe(2);
+    expect(b.conduct).toBe(80);
+    expect(b.sentences).toContain('Two positions your recon marked are on your map before a shot is fired.');
+  });
+
+  it('says so when the ledger is thin', () => {
+    const b = broughtFor({ ledger: { requires: ['roster.surviving_units', 'intel.marked_positions'] } }, {}, name)!;
+    expect(b.roster).toEqual([]);
+    expect(b.sentences).toContain('Nothing marked. Whatever is out there, you find under fire.');
+  });
+
+  it('renders beside the orders without becoming a beat', () => {
+    const host = document.createElement('div');
+    showLoading(host, 'X', 'Orders. More orders.', undefined, undefined, {
+      roster: [{ type: 'Rifle Squad', count: 2, stripes: 2 }],
+      marked: 2,
+      conduct: 80,
+      sentences: ['Two positions your recon marked are on your map before a shot is fired.'],
+    });
+    expect(host.querySelectorAll('.rl-loading__beat').length).toBe(1);
+    expect(host.querySelector('.rl-loading__brought')?.textContent).toContain('Rifle Squad ×2 ★★');
+    expect(host.querySelector('.rl-loading__brought')?.textContent).toContain('Conduct 80');
   });
 });
