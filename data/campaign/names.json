@@ -1,0 +1,24 @@
+{
+  "kinds": {
+    "task_roles": ["drone", "gunship"],
+    "vehicle_roles": ["apc", "ifv", "mbt"],
+    "vehicle_ids": ["dozer_d9"]
+  },
+  "squads": [
+    { "name": "Sela", "screened": "2026-09-11" },
+    { "name": "Barzel", "screened": "2026-09-11" },
+    { "name": "Tzur", "screened": "2026-09-11" },
+    { "name": "Marom", "screened": "2026-09-11" },
+    { "name": "Keshet", "screened": "2026-09-11" },
+    { "name": "Migdal", "screened": "2026-09-11" }
+  ],
+  "vehicles": [
+    { "hull": "1-2", "name": "Ayil", "screened": "2026-09-11" },
+    { "hull": "2-1", "name": "Gachelet", "screened": "2026-09-11" },
+    { "hull": "2-4", "name": "Yated", "screened": "2026-09-11" }
+  ],
+  "tasks": [
+    { "name": "Eye Two", "screened": "2026-09-11" },
+    { "name": "Kite One", "screened": "2026-09-11" }
+  ]
+}

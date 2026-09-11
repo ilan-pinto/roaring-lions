@@ -164,6 +164,10 @@ calling anything missing (see `docs/ASSET_PROVENANCE.md`).
    content never authors against a stale schema ceiling.
 8. Nothing here touches `packages/sim/src/tuning.ts`. Difficulty is measured by
    `playtest`, not estimated.
+9. Unit names come from `data/campaign/names.json` only (storyline §2.4 rule 4): single
+   common nouns in the materiel register, screened and dated, issued in table order by a
+   counter on the ledger. Never write a name into a mission, a line or a briefing; the
+   player's units are named by the app, and a name the table does not hold does not exist.
 
 ## Verification for narrative content
 

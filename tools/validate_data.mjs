@@ -105,12 +105,13 @@ const schemas = {
   world: loadJson(join(ROOT, 'data/schemas/world.schema.json')),
   countries: loadJson(join(ROOT, 'data/schemas/countries.schema.json')),
   commander: loadJson(join(ROOT, 'data/schemas/commander.schema.json')),
+  names: loadJson(join(ROOT, 'data/schemas/names.schema.json')),
 };
 
 let checked = 0;
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tutorial &&
-  schemas.world && schemas.countries && schemas.commander
+  schemas.world && schemas.countries && schemas.commander && schemas.names
 ) {
   const validators = {
     unit: ajv.compile(schemas.unit),
@@ -121,6 +122,7 @@ if (
     world: ajv.compile(schemas.world),
     countries: ajv.compile(schemas.countries),
     commander: ajv.compile(schemas.commander),
+    names: ajv.compile(schemas.names),
   };
   checked += validateDir(join(ROOT, 'data/units'), validators.unit, 'unit.schema');
   checked += validateDir(join(ROOT, 'data/missions'), validators.mission, 'mission.schema');
@@ -133,6 +135,7 @@ if (
   checked += validateFile(join(ROOT, 'data/campaign/world.json'), validators.world, 'world.schema');
   checked += validateFile(join(ROOT, 'data/campaign/countries.json'), validators.countries, 'countries.schema');
   checked += validateFile(join(ROOT, 'data/campaign/commander.json'), validators.commander, 'commander.schema');
+  checked += validateFile(join(ROOT, 'data/campaign/names.json'), validators.names, 'names.schema');
 } else {
   failures.push('schema files missing or unparseable — cannot validate content');
 }
@@ -895,6 +898,47 @@ const structureSymbols = new Map(
     const commanderDoc = loadJson(commanderPath);
     if (commanderDoc) {
       failures.push(...commanderRankFailures(commanderDoc, world, rel(commanderPath)));
+    }
+  }
+}
+
+// --- the campaign name table -------------------------------------------------
+// names.json's `kinds` block decides a unit's name kind (task/vehicle/squad) from
+// its role or id. JSON Schema can check the table's own shape but not whether
+// those roles and ids mean anything -- a typo here would silently name a
+// bulldozer "Sela" (or worse, never fire at all) with every gate green.
+{
+  const namesPath = join(ROOT, 'data/campaign/names.json');
+  const namesDoc = loadJson(namesPath);
+  if (namesDoc?.kinds) {
+    const kdfRoles = new Set();
+    const kdfIds = new Set();
+    for (const file of jsonFilesIn(join(ROOT, 'data/units/kdf'))) {
+      const u = loadJson(file);
+      if (!u) continue;
+      if (u.id) kdfIds.add(u.id);
+      if (u.role) kdfRoles.add(u.role);
+    }
+    for (const role of namesDoc.kinds.task_roles ?? []) {
+      if (!kdfRoles.has(role)) {
+        failures.push(
+          `${rel(namesPath)}: kinds.task_roles "${role}" is not a role any unit in data/units/kdf declares`
+        );
+      }
+    }
+    for (const role of namesDoc.kinds.vehicle_roles ?? []) {
+      if (!kdfRoles.has(role)) {
+        failures.push(
+          `${rel(namesPath)}: kinds.vehicle_roles "${role}" is not a role any unit in data/units/kdf declares`
+        );
+      }
+    }
+    for (const id of namesDoc.kinds.vehicle_ids ?? []) {
+      if (!kdfIds.has(id)) {
+        failures.push(
+          `${rel(namesPath)}: kinds.vehicle_ids "${id}" is not a unit id in data/units/kdf`
+        );
+      }
     }
   }
 }
