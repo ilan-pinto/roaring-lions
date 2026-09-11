@@ -201,3 +201,24 @@ describe('removeFromPlay (the narrative layer: an abduction, not a kill)', () =>
     expect(sim.state.removed[alreadyDead]).toBe(0); // destroy() never sets it
   });
 });
+
+describe('detection observer credit', () => {
+  // The brief names these fixtures SQUAD/RUNNER; this file's own equivalents
+  // are RIFLES and TANK (both weaponless here, so no firing-signature
+  // multiplier confounds the timing) — same shape, same role: an armed-ish
+  // spotter and a highly visible target.
+  it('names the observer that identified a contact', () => {
+    const sim = new Sim({ seed: 7, width: 24, height: 8, capacity: 8 });
+    const rifles = sim.addUnitType(RIFLES);
+    const tank = sim.addUnitType(TANK);
+    const eye = sim.spawn(rifles, 0, fx.from(3.5), fx.from(4.5));
+    sim.spawn(tank, 1, fx.from(7.5), fx.from(4.5));
+    let observer = -2;
+    for (let t = 0; t < 10 * TICKS_PER_SECOND && observer === -2; t++) {
+      for (const e of sim.tick()) {
+        if (e.kind === 'contact' && e.level === 'identified' && e.side === 0) observer = e.observer;
+      }
+    }
+    expect(observer).toBe(eye);
+  });
+});

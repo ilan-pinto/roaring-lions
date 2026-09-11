@@ -254,13 +254,13 @@ describe('mark_tunnel senses the route itself', () => {
 
   it('identifies a spoilless pre_dug route in one look', () => {
     const { sim, idx, marker } = preDugWorld();
-    sim.spawn(marker, 0, fx.from(4.5), fx.from(4.5)); // 2 tiles off the route at y=2
+    const carrier = sim.spawn(marker, 0, fx.from(4.5), fx.from(4.5)); // 2 tiles off the route at y=2
     const events = sim.tick();
     expect(sim.trail.every((d) => d === 0)).toBe(true); // premise: no spoil anywhere
     expect(sim.tunnelContactLevel(0, idx)).toBe(2);
     expect(sim.tunnelContactLevel(1, idx)).toBe(0); // the other side learned nothing
     expect(events).toContainEqual(
-      expect.objectContaining({ kind: 'tunnelContact', side: 0, tunnel: idx, level: 'identified' })
+      expect.objectContaining({ kind: 'tunnelContact', side: 0, tunnel: idx, level: 'identified', observer: carrier })
     );
   });
 

@@ -573,7 +573,7 @@ export type ComponentResult =
  *  All numeric payloads are raw Q16.16 — the render side converts. */
 export type SimEvent =
   | { kind: 'spawn'; tick: number; entity: number; typeId: string; side: number }
-  | { kind: 'contact'; tick: number; side: number; target: number; level: ContactLevel; confidence: Fx }
+  | { kind: 'contact'; tick: number; side: number; target: number; level: ContactLevel; confidence: Fx; observer: number }
   | {
       kind: 'fire';
       tick: number;
@@ -620,7 +620,7 @@ export type SimEvent =
   | { kind: 'garrison'; tick: number; entity: number; structure: number; entered: boolean }
   | { kind: 'transport'; tick: number; entity: number; carrier: number; loaded: boolean }
   | { kind: 'ventOpened'; tick: number; tunnel: number }
-  | { kind: 'tunnelContact'; tick: number; side: number; tunnel: number; level: ContactLevel }
+  | { kind: 'tunnelContact'; tick: number; side: number; tunnel: number; level: ContactLevel; observer: number }
   | { kind: 'surfaced'; tick: number; entity: number; tunnel: number }
   | { kind: 'submerged'; tick: number; entity: number; tunnel: number }
   | { kind: 'tunnelCollapsed'; tick: number; tunnel: number; by: number }
@@ -930,6 +930,11 @@ export class Sim {
   private readonly contact: Int32Array;
   private readonly contactState: Uint8Array;
   private readonly seenThisTick: Uint8Array;
+  /** Per (side, target) this tick: the observer whose detection probability was highest,
+   *  so an `identified` transition can say who saw it. Scratch, rebuilt every tick,
+   *  never hashed -- it is a label on an event, not state. -1 = nobody this tick. */
+  private readonly bestObserver: Int32Array;
+  private readonly bestObserverP: Int32Array;
   /** Per (side, target): where that enemy was last actually observed, and
    *  whether that memory is still worth walking to. Troops do not forget a
    *  position the moment they lose sight of it. */
@@ -1137,6 +1142,8 @@ export class Sim {
     this.contact = new Int32Array(2 * n);
     this.contactState = new Uint8Array(2 * n);
     this.seenThisTick = new Uint8Array(2 * n);
+    this.bestObserver = new Int32Array(2 * n);
+    this.bestObserverP = new Int32Array(2 * n);
     this.lastSeenX = new Int32Array(2 * n);
     this.lastSeenY = new Int32Array(2 * n);
     this.lastSeenValid = new Uint8Array(2 * n);
@@ -2435,6 +2442,7 @@ export class Sim {
       target,
       level: 'identified',
       confidence: ONE,
+      observer: -1,
     });
   }
 
@@ -2645,6 +2653,8 @@ export class Sim {
   private stepDetection(): void {
     const cap = this.capacity;
     this.seenThisTick.fill(0);
+    this.bestObserver.fill(-1);
+    this.bestObserverP.fill(0);
     for (let obs = 0; obs < this.count; obs++) {
       if (this.alive[obs] === 0) continue;
       const oSide = this.side[obs];
@@ -2669,6 +2679,10 @@ export class Sim {
         if (!d.visible) continue;
         const k = oSide * cap + tgt;
         this.seenThisTick[k] = 1;
+        if (d.p > this.bestObserverP[k]) {
+          this.bestObserverP[k] = d.p;
+          this.bestObserver[k] = obs;
+        }
         this.lastSeenX[k] = this.posX[tgt];
         this.lastSeenY[k] = this.posY[tgt];
         this.lastSeenValid[k] = 1;
@@ -2687,13 +2701,13 @@ export class Sim {
         const st = this.contactState[k];
         if (st < 2 && c >= IDENTIFIED_AT) {
           this.contactState[k] = 2;
-          this.pendingEvents.push({ kind: 'contact', tick: this.tickCount, side: s, target: tgt, level: 'identified', confidence: c });
+          this.pendingEvents.push({ kind: 'contact', tick: this.tickCount, side: s, target: tgt, level: 'identified', confidence: c, observer: this.bestObserver[k] });
         } else if (st < 1 && c >= SUSPECTED_AT) {
           this.contactState[k] = 1;
-          this.pendingEvents.push({ kind: 'contact', tick: this.tickCount, side: s, target: tgt, level: 'suspected', confidence: c });
+          this.pendingEvents.push({ kind: 'contact', tick: this.tickCount, side: s, target: tgt, level: 'suspected', confidence: c, observer: this.bestObserver[k] });
         } else if (st > 0 && c < LOST_AT) {
           this.contactState[k] = 0;
-          this.pendingEvents.push({ kind: 'contact', tick: this.tickCount, side: s, target: tgt, level: 'lost', confidence: c });
+          this.pendingEvents.push({ kind: 'contact', tick: this.tickCount, side: s, target: tgt, level: 'lost', confidence: c, observer: this.bestObserver[k] });
         }
       }
     }
@@ -2716,8 +2730,9 @@ export class Sim {
         // HOLDS the contact at identified. mark_tunnel is a detector, not a
         // cartographer — the moment nobody who can sense the route is near
         // it, the knowledge starts to fade (the decay branch below).
-        if (this.markerSeesRoute(s, r)) {
-          this.identifyTunnelTo(s, r);
+        const marker = this.markerSeeingRoute(s, r);
+        if (marker >= 0) {
+          this.identifyTunnelTo(s, r, marker);
           continue;
         }
         const strength = this.trailStrengthFor(s, r);
@@ -2756,13 +2771,13 @@ export class Sim {
         const st = this.tnContactState[k];
         if (st < 2 && c >= IDENTIFIED_AT) {
           this.tnContactState[k] = 2;
-          this.pendingEvents.push({ kind: 'tunnelContact', tick: this.tickCount, side: s, tunnel: r, level: 'identified' });
+          this.pendingEvents.push({ kind: 'tunnelContact', tick: this.tickCount, side: s, tunnel: r, level: 'identified', observer: -1 });
         } else if (st < 1 && c >= SUSPECTED_AT) {
           this.tnContactState[k] = 1;
-          this.pendingEvents.push({ kind: 'tunnelContact', tick: this.tickCount, side: s, tunnel: r, level: 'suspected' });
+          this.pendingEvents.push({ kind: 'tunnelContact', tick: this.tickCount, side: s, tunnel: r, level: 'suspected', observer: -1 });
         } else if (st > 0 && c < LOST_AT) {
           this.tnContactState[k] = 0;
-          this.pendingEvents.push({ kind: 'tunnelContact', tick: this.tickCount, side: s, tunnel: r, level: 'lost' });
+          this.pendingEvents.push({ kind: 'tunnelContact', tick: this.tickCount, side: s, tunnel: r, level: 'lost', observer: -1 });
         }
       }
     }
@@ -2805,8 +2820,10 @@ export class Sim {
    *  clear sight line to any tile the route passes under, inside the unit's
    *  own sight radius? Trail density plays no part: this is the channel that
    *  finds a pre_dug route, which never had any. First hit wins. Same scan
-   *  shape as trailStrengthFor above, and like it allocates nothing. */
-  private markerSeesRoute(side: number, r: number): boolean {
+   *  shape as trailStrengthFor above, and like it allocates nothing. Returns
+   *  the carrier's entity id, or -1 when none sees it — callers that only
+   *  need the boolean fact use `>= 0`. */
+  private markerSeeingRoute(side: number, r: number): number {
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0 || this.side[i] !== side || this.tunnelIn[i] >= 0) continue;
       const type = this.unitTypes[this.typeIdx[i]];
@@ -2830,11 +2847,11 @@ export class Sim {
           // the route is the best look at it there is.
           if (dSq > type.sightSq) continue;
           if (this.losRay(px, py, tx, ty) < 0) continue;
-          return true;
+          return i;
         }
       }
     }
-    return false;
+    return -1;
   }
 
   /** Does route `r` pass under this tile? */
@@ -2902,12 +2919,12 @@ export class Sim {
    *  Held, not latched: stepDetection re-calls this every tick some carrier
    *  keeps the route in sight, and once nothing does, the contact decays
    *  back down the ladder like any other — visibility is live. */
-  identifyTunnelTo(side: number, r: number): void {
+  identifyTunnelTo(side: number, r: number, observer = -1): void {
     const k = side * MAX_TUNNELS + r;
     this.tnContact[k] = ONE;
     if (this.tnContactState[k] !== 2) {
       this.tnContactState[k] = 2;
-      this.pendingEvents.push({ kind: 'tunnelContact', tick: this.tickCount, side, tunnel: r, level: 'identified' });
+      this.pendingEvents.push({ kind: 'tunnelContact', tick: this.tickCount, side, tunnel: r, level: 'identified', observer });
     }
   }
 

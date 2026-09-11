@@ -125,7 +125,7 @@ describe('advance', () => {
     let s = initTutorial(steps, 0);
     s = advance(s, { kind: 'intent', intent: { kind: 'overlay', on: true } }, 10);
     expect(s.index).toBe(0);
-    s = advance(s, { kind: 'sim', event: { kind: 'contact', tick: 1, side: 0, target: 4, level: 'identified', confidence: 0 }, sideOf: () => 1 }, 20);
+    s = advance(s, { kind: 'sim', event: { kind: 'contact', tick: 1, side: 0, target: 4, level: 'identified', confidence: 0, observer: -1 }, sideOf: () => 1 }, 20);
     expect(s.index).toBe(1);
   });
 
@@ -147,7 +147,7 @@ describe('advance', () => {
       },
     ];
     let s = initTutorial(steps, 0);
-    s = advance(s, { kind: 'sim', event: { kind: 'contact', tick: 1, side: 0, target: 4, level: 'identified', confidence: 0 }, sideOf: () => 1 }, 10);
+    s = advance(s, { kind: 'sim', event: { kind: 'contact', tick: 1, side: 0, target: 4, level: 'identified', confidence: 0, observer: -1 }, sideOf: () => 1 }, 10);
     expect(s.index).toBe(0);
     s = advance(s, { kind: 'intent', intent: { kind: 'overlay', on: true } }, 20);
     expect(s.index).toBe(1);
