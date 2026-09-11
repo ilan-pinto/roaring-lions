@@ -17,6 +17,12 @@ export interface DebriefOptions {
   secondaries: { text: string; complete: boolean; carries: boolean }[];
   marked: number;
   promoted: number;
+  /** The account of the taken (spec §4.4), already built by `hostagesLine` --
+   *  "Fifteen still out. Four came back at the shaft head." The second sentence
+   *  only exists here: the campaign board prints the standing total but does not
+   *  know which mission was just played, and this screen does. Absent on a world
+   *  that declares no `taken` at all. */
+  taken?: string;
   unlocked: string[];
   promotion?: { rank: string; stars: number; line?: { plate: string; text: string } };
   next?: { id: string; name: string; villainLine?: string };
@@ -70,6 +76,8 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): void {
   row('Promoted', String(o.promoted), 'rl-debrief__promoted');
   b.appendChild(grid);
 
+  if (o.taken) b.appendChild(el('div', 'rl-debrief__taken', o.taken));
+
   if (o.deductions.length > 0) {
     const ul = el('ul', 'rl-debrief__deductions');
     for (const d of o.deductions) ul.appendChild(el('li', '', `−${d.penalty} ${d.reason}`));
@@ -87,7 +95,14 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): void {
     b.appendChild(ul);
   }
 
-  if (o.unlocked.length > 0) b.appendChild(el('div', 'rl-debrief__unlocked', `Now available: ${o.unlocked.join(', ')}`));
+  // One line per unlock, not a comma-joined run: each string carries its own
+  // reason ("Campaign Conduct 58 → 62: Namer IFV available", spec §4.5), and two
+  // of those in one sentence is unreadable.
+  if (o.unlocked.length > 0) {
+    const ul = el('ul', 'rl-debrief__unlocked');
+    for (const u of o.unlocked) ul.appendChild(el('li', '', u));
+    b.appendChild(ul);
+  }
 
   if (o.promotion) {
     const pr = el('div', 'rl-debrief__promotion', `Promoted: ${o.promotion.rank} · ${'★'.repeat(o.promotion.stars)}`);

@@ -402,7 +402,26 @@ describe('newlyUnlocked', () => {
     ];
     const before = { 'roe.mission_ratings': { m1: 50 } };
     const after = { 'roe.mission_ratings': { m1: 50, m2: 80 } }; // mean 65
-    expect(newlyUnlocked(units, before, after)).toEqual([{ id: 'a', name: 'A' }]);
+    expect(newlyUnlocked(units, before, after)).toEqual([{ id: 'a', name: 'A', gate: 'conduct' }]);
+  });
+
+  it('says which gate opened, so the debrief can print the why', () => {
+    // Spec §4.5 wants "Campaign Conduct 58 → 62: Namer IFV available", and the
+    // two figures only make sense for a Conduct gate -- a unit opened by
+    // clearing a mission has no before/after number to show.
+    const units = [
+      { id: 'a', name: 'A', unlock: { roeMin: 60 } },
+      { id: 'b', name: 'B', unlock: { afterMission: 'm2' } },
+    ];
+    const before = { 'roe.mission_ratings': { m1: 50 }, 'campaign.completed_missions': [] };
+    const after = {
+      'roe.mission_ratings': { m1: 50, m2: 80 },
+      'campaign.completed_missions': ['m2'],
+    };
+    expect(newlyUnlocked(units, before, after)).toEqual([
+      { id: 'a', name: 'A', gate: 'conduct' },
+      { id: 'b', name: 'B', gate: 'mission' },
+    ]);
   });
 });
 

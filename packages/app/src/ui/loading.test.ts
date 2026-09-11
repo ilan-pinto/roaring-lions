@@ -335,4 +335,22 @@ describe('what you brought', () => {
     expect(host.querySelector('.rl-loading__brought')?.textContent).toContain('Rifle Squad ×2 ★★');
     expect(host.querySelector('.rl-loading__brought')?.textContent).toContain('Conduct 80');
   });
+
+  it('gives the stripe the same commendation colour the card gives it', () => {
+    // One stripe, one colour, wherever it is drawn -- the deploy panel and the
+    // single-unit card are the two places a player sees it.
+    const host = document.createElement('div');
+    showLoading(host, 'X', 'Orders. More orders.', undefined, undefined, {
+      roster: [
+        { type: 'Rifle Squad', count: 2, stripes: 2 },
+        { type: 'Lavi', count: 1, stripes: 0 },
+      ],
+      marked: 0,
+      conduct: null,
+      sentences: [],
+    });
+    const stripes = host.querySelectorAll('.rl-loading__brought .rl-commend');
+    expect(stripes).toHaveLength(1);
+    expect(stripes[0].textContent).toBe('★★');
+  });
 });

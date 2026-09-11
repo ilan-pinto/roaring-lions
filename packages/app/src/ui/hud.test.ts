@@ -672,6 +672,21 @@ describe('the single-unit card', () => {
     expect(cond.textContent).toContain('moving');
   });
 
+  it('paints a veteran’s stripe as a commendation, never as a caution', () => {
+    // The stripe is earned, not a warning, and `--commend` exists so a reward
+    // never borrows the caution colour. The card is the one place the stripe
+    // is drawn for a single unit, and it wore `rl-warn` until 2026-09-11 --
+    // the same red-amber that means "collateral risk: heavy" two lines up.
+    const world = makeForce();
+    const r = clusterRig(() => [world.namer], {}, world);
+    world.sim.state.veterancy[world.namer] = 2;
+    for (let i = 0; i < 5; i++) r.tick();
+    const card = r.host.querySelector<HTMLElement>('.rl-card')!;
+    const stripe = card.querySelector('.rl-commend')!;
+    expect(stripe.textContent).toBe('★★');
+    expect(card.querySelector('.rl-warn')).toBeNull();
+  });
+
   it('hides the whole cluster when nothing is selected', () => {
     const world = makeForce();
     let sel: number[] = [world.namer];

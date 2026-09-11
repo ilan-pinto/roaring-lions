@@ -63,6 +63,21 @@ describe('showDebrief', () => {
     expect(text(host, '.rl-debrief__promotion')).toContain('Third star.');
   });
 
+  it('gives each unlock its own line, with the reason it opened', () => {
+    // Spec §4.5: the announcement carries the WHY. Joining them into one
+    // comma-separated run turned two sentences with arrows in them into an
+    // unreadable line, so each is its own `li`.
+    const host = document.createElement('div');
+    showDebrief(
+      host,
+      base({ unlocked: ['Campaign Conduct 58 → 62: Namer IFV available', 'D9 Dozer available'] })
+    );
+    const items = host.querySelectorAll('.rl-debrief__unlocked li');
+    expect(items).toHaveLength(2);
+    expect(items[0].textContent).toBe('Campaign Conduct 58 → 62: Namer IFV available');
+    expect(items[1].textContent).toBe('D9 Dozer available');
+  });
+
   it('names the next mission with the villain\'s line, and links to it', () => {
     const host = document.createElement('div');
     showDebrief(host, base({ next: { id: 'beit_sahwan_4_subterranean', name: 'Beit Sahwan IV — Subterranean', villainLine: 'The digger.' } }));
@@ -70,6 +85,24 @@ describe('showDebrief', () => {
     expect(a.getAttribute('href')).toBe('?mission=beit_sahwan_4_subterranean');
     expect(a.textContent).toContain('Beit Sahwan IV');
     expect(text(host, '.rl-debrief__villain')).toBe('The digger.');
+  });
+
+  it('accounts for the taken when this mission brought some back', () => {
+    // Spec §4.4's second sentence. The board can only print the standing total
+    // -- it does not know which mission was just played -- so "N came back at
+    // <place>" belongs here, where the mission is known. `hostagesLine` builds
+    // the string; this screen only has to give it a place to land.
+    const host = document.createElement('div');
+    showDebrief(host, base({ taken: 'Fifteen still out. Four came back at the shaft head.' }));
+    expect(text(host, '.rl-debrief__taken')).toBe(
+      'Fifteen still out. Four came back at the shaft head.'
+    );
+  });
+
+  it('says nothing about the taken on a world that keeps no such account', () => {
+    const host = document.createElement('div');
+    showDebrief(host, base());
+    expect(host.querySelector('.rl-debrief__taken')).toBeNull();
   });
 
   it('renders a defeat with no tier and no stars', () => {

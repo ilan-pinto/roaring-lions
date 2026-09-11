@@ -260,7 +260,16 @@ export function showLoading(
     const ul = document.createElement('ul');
     for (const r of brought.roster) {
       const li = document.createElement('li');
-      li.textContent = `${r.type} ×${r.count}${r.stripes > 0 ? ` ${'★'.repeat(r.stripes)}` : ''}`;
+      li.textContent = `${r.type} ×${r.count}`;
+      // The stripe is its own element so it can wear `--commend` like the HUD
+      // card's does. Built rather than assigned as innerHTML: `r.type` is a
+      // unit name out of the catalogue and this panel never interpolates.
+      if (r.stripes > 0) {
+        const s = document.createElement('span');
+        s.className = 'rl-commend';
+        s.textContent = '★'.repeat(r.stripes);
+        li.append(' ', s);
+      }
       ul.appendChild(li);
     }
     if (brought.conduct !== null) {

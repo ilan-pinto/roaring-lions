@@ -1144,7 +1144,7 @@ export class Hud {
       `<div class="rl-card__body">` +
       `<div class="rl-card__top">` +
       `<span class="rl-card__name">${type.name}</span>` +
-      (vet > 0 ? `<span class="rl-warn">${'★'.repeat(vet)}</span>` : '') +
+      (vet > 0 ? `<span class="rl-commend">${'★'.repeat(vet)}</span>` : '') +
       `<span class="rl-card__hp rl-dim">${hpNow.toFixed(0)} / ${hpMax.toFixed(0)} hp</span>` +
       `</div>` +
       `<div class="rl-track"><i class="rl-fill-${hpTone(hpPct)}" ` +

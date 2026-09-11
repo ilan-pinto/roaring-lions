@@ -119,8 +119,11 @@ import {
   parseWorld,
   parseCountries,
   parseCommander,
+  campaignRoe,
   campaignSummary,
   commanderForMission,
+  hostagesAccount,
+  hostagesLine,
   nextMissionAfter,
   newlyUnlocked,
   promotionAfter,
@@ -1932,6 +1935,16 @@ async function main(): Promise<void> {
             const nextJson = nextMissionId ? (missions as Record<string, MissionJson | undefined>)[nextMissionId] : undefined;
             const region = enemyRegion;
             const villain = region ? commanderData.villains?.[region.id] : undefined;
+            // `hostagesAccount` is null for a world that declares no `taken` at
+            // all, which is not the same as a world where nobody was taken --
+            // that distinction is the whole reason the field is optional, so the
+            // line is skipped rather than printed as "Nobody still out."
+            const account = hostagesAccount(worldData, updatedLedger);
+            const cameBack = me.ledger['civ.hostages_recovered']?.[missionId] ?? 0;
+            const place = (mission as { hostages_place?: string }).hostages_place;
+            const takenAccount = account
+              ? hostagesLine(account, place !== undefined ? { count: cameBack, place } : undefined)
+              : undefined;
             const debriefOpts: DebriefOptions = {
               result: me.result,
               stars: runtime.stars,
@@ -1949,7 +1962,34 @@ async function main(): Promise<void> {
                 .map((o) => ({ text: o.text, complete: o.status === 'complete', carries: o.carries })),
               marked: runtime.markedCount,
               promoted: runtime.promotedCount,
-              unlocked: me.result === 'victory' ? newlyUnlocked(kdfUnits, ledger, updatedLedger).map((u) => u.name) : [],
+              // The account of the taken (spec §4.4). The board prints only the
+              // standing total, because the board does not know which mission was
+              // just played -- so "N came back at <place>", the half that needs a
+              // mission, is this screen's. The count is THIS run's entry off the
+              // produced ledger rather than the merged best-of, since the sentence
+              // is about what just happened; `hostagesLine` drops the clause on 0
+              // and on a mission with no `hostages_place` to name.
+              taken: takenAccount,
+              // Spec §4.5 wants the WHY, not just the name: "Campaign Conduct
+              // 58 → 62: Namer IFV available". The two figures are the campaign
+              // mean before and after this mission's rating landed, so they are
+              // read off the two ledgers this block already holds. Either being
+              // null means there is no figure to show (a first mission has no
+              // "before"), and the bare name is the honest fallback rather than
+              // a sentence with a hole in it. A mission-gated unit never has a
+              // figure at all -- the mission it was waiting for is the one the
+              // player just finished, and this screen is already that news.
+              unlocked:
+                me.result === 'victory'
+                  ? newlyUnlocked(kdfUnits, ledger, updatedLedger).map((u) => {
+                      if (u.gate !== 'conduct') return `${u.name} available`;
+                      const was = campaignRoe(ledger)?.mean;
+                      const now = campaignRoe(updatedLedger)?.mean;
+                      return was === undefined || now === undefined
+                        ? `${u.name} available`
+                        : `Campaign Conduct ${was} → ${now}: ${u.name} available`;
+                    })
+                  : [],
               promotion: promotion
                 ? {
                     rank: promotion.rank,

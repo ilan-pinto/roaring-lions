@@ -601,6 +601,11 @@ body {
 .rl-warn {
   color: var(--warn);
 }
+/* Earned, not a state — the stripe, a citation, a star. Its own class so the
+   HUD card and the deploy panel draw one stripe in one colour. */
+.rl-commend {
+  color: var(--commend);
+}
 .rl-bad {
   color: var(--bad);
 }
@@ -2018,10 +2023,17 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-debrief__who { display: block; margin-top: 2px; font-style: normal; color: var(--ink-dim); }
 .rl-debrief__grid { display: grid; grid-template-columns: 6em 1fr; gap: 2px 12px; margin: 10px 0; }
 .rl-debrief__grid dt { color: var(--ink-dim); }
+/* The account of the taken, the same ink the board's own line takes. */
+.rl-debrief__taken { margin: 0 0 8px; color: var(--ink); }
 .rl-debrief__deductions, .rl-debrief__secondaries { margin: 4px 0 8px 1.2em; padding: 0; }
 .rl-debrief__deductions li { color: var(--bad); }
 .rl-debrief__secondary[data-carries='1'] { color: var(--commend); }
-.rl-debrief__unlocked, .rl-debrief__promotion { margin-top: 8px; color: var(--good); }
+/* `__unlocked` is a `ul` -- one line per unlock, since each carries its own
+   reason -- so it needs the same list reset the two lists above take, or the
+   browser's own 40px indent and block margins land it well off their column. */
+.rl-debrief__unlocked { margin: 8px 0 0 1.2em; padding: 0; }
+.rl-debrief__unlocked, .rl-debrief__promotion { color: var(--good); }
+.rl-debrief__promotion { margin-top: 8px; }
 .rl-debrief__villain { margin-top: 8px; color: var(--ink-mute); font-style: italic; }
 
 /* ====================================================================== */
@@ -2180,6 +2192,11 @@ button.rl-menu__item[data-kind='aside'] {
   background: var(--panel-bg-solid);
   font-family: var(--font-mono);
   color: var(--ink);
+  /* The screen is `inset: 0` and centres its box, so anything taller than the
+     viewport is clipped at both ends with no way to reach it. "What you
+     brought" made that reachable: a full roster plus its sentences can push
+     Deploy off the bottom, and an unclickable Deploy button is a dead game. */
+  overflow: auto;
 }
 .rl-loading__box {
   width: min(420px, 82vw);

@@ -485,15 +485,26 @@ export function regionStars(region: WorldRegion, ledger: LedgerData | undefined)
 }
 
 /** Units a mission just opened: locked against the ledger before it, open against the
- *  ledger after it. The debrief announces these by name. */
+ *  ledger after it. The debrief announces these by name AND by reason (spec §4.5,
+ *  "Campaign Conduct 58 → 62: Namer IFV available"), so each one says which gate it
+ *  came through: `conduct` where the unit declares `roeMin`, `mission` otherwise.
+ *
+ *  `roeMin` wins where a unit declares both, because `unlockReason` checks it first and
+ *  reports it first -- the gate named here is the one the player was actually held by.
+ *  Only a Conduct gate has a before/after figure to print; a mission gate's "why" is the
+ *  mission the player just finished, which the debrief is already the screen for. */
 export function newlyUnlocked(
   units: readonly { id: string; name: string; unlock?: UnlockGate }[],
   before: LedgerData,
   after: LedgerData
-): { id: string; name: string }[] {
+): { id: string; name: string; gate: 'conduct' | 'mission' }[] {
   return units
     .filter((u) => unlockReason(u.unlock, before) !== null && unlockReason(u.unlock, after) === null)
-    .map((u) => ({ id: u.id, name: u.name }));
+    .map((u) => ({
+      id: u.id,
+      name: u.name,
+      gate: u.unlock?.roeMin !== undefined ? ('conduct' as const) : ('mission' as const),
+    }));
 }
 
 /** The rank Shai is promoted TO when `missionId` is the mission some rank holds through,
