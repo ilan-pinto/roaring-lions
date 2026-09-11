@@ -1925,8 +1925,15 @@ async function main(): Promise<void> {
             // §4.7); nothing here draws from the sim's RNG.
             const rosterIn = updatedLedger['roster.surviving_units'];
             if (Array.isArray(rosterIn)) {
-              const issuedIn =
-                (updatedLedger['campaign.names_issued'] as Record<NameKind, number> | undefined) ?? { squad: 0, vehicle: 0, task: 0 };
+              // Defaults first, then whatever the save already carried: no cast,
+              // now that `LedgerData` declares the key, and a save written before
+              // one of the three kinds existed still starts that kind at zero.
+              const issuedIn: Record<NameKind, number> = {
+                squad: 0,
+                vehicle: 0,
+                task: 0,
+                ...updatedLedger['campaign.names_issued'],
+              };
               const named = assignNames(rosterIn, issuedIn, (typeId) => nameKind(unitFor(typeId), names as NamesJson), names as NamesJson);
               updatedLedger['roster.surviving_units'] = named.roster;
               updatedLedger['campaign.names_issued'] = named.issued;

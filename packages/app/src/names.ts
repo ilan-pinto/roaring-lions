@@ -24,10 +24,25 @@ export function nameKind(unit: { id: string; role: string }, table: NamesJson): 
 const ROMAN = ['', '', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
 const suffix = (round: number): string => (round < 2 ? '' : ` ${ROMAN[round] ?? String(round)}`);
 
+/** The highest first digit a hull number can carry -- `names.schema.json` pins
+ *  the shape as `^[1-9]-[1-9]$`, so a cycle runs out of room at nine and the
+ *  Roman suffix takes over from there. */
+const HULL_TOP = 9;
+
 function nthName(kind: NameKind, n: number, table: NamesJson): string {
   if (kind === 'vehicle') {
+    // A vehicle is a hull number AND a painted name (spec §4.7), so the wrap
+    // repaints the hull rather than appending a numeral to the pair: 1-2 Ayil,
+    // 2-2 Ayil, 3-2 Ayil. "1-2 Ayil II" would put the same hull number on two
+    // tanks at once, which is the one thing that definition cannot survive.
+    // The painted name stays because it is what the crew answers to.
     const v = table.vehicles[n % table.vehicles.length];
-    return `${v.hull} ${v.name}${suffix(1 + Math.floor(n / table.vehicles.length))}`;
+    const pass = Math.floor(n / table.vehicles.length);
+    const first = Number(v.hull[0]) + pass;
+    const digit = Math.min(HULL_TOP, first);
+    // Only past the last digit the hull can hold does a numeral appear, and
+    // then it counts the passes BEYOND it -- so 9-2 Ayil, then 9-2 Ayil II.
+    return `${digit}${v.hull.slice(1)} ${v.name}${suffix(1 + first - digit)}`;
   }
   const list = kind === 'squad' ? table.squads : table.tasks;
   const e = list[n % list.length];

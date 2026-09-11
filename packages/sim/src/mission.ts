@@ -134,6 +134,11 @@ export interface LedgerData {
   'intel.marked_positions'?: string[];
   /** Mission ids already cleared, for `unlock.after_mission` gates. */
   'campaign.completed_missions'?: string[];
+  /** How many names of each kind the app has issued (spec §4.7). App-written; the sim
+   *  never reads it. Declared here rather than left to the index signature so the one
+   *  writer (`main.ts`) needs no cast, and so a reader can see that the counter --
+   *  not the roster's length -- is what makes a name unique within a run. */
+  'campaign.names_issued'?: Record<string, number>;
   /**
    * Each mission's best grade (spec 2026-09-10 §4.1), keyed by mission id. Best-of by
    * `betterResult` (stars, then Conduct, then a faster clock) so a replay can only help,
