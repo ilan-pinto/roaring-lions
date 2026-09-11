@@ -12,6 +12,7 @@ import {
   TICKS_PER_SECOND,
   CivilianFlight,
   MissionRuntime,
+  starRoeFloor,
   zoneContains,
   type LedgerData,
   type MissionEvent,
@@ -56,6 +57,8 @@ import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type 
 import { portraitUrl, type SheetManifest } from './ui/portrait';
 import { Minimap } from './ui/minimap';
 import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
+import { showDebrief, type DebriefOptions } from './ui/debrief';
+import { TIER_LINES } from './ui/grade-copy';
 import { speakerPlate, speakerPortrait } from './ui/hud-model';
 import { briefingBeats, showLoading } from './ui/loading';
 import { evacuatedNotice, removedNotice, sayNotice } from './ui/mission-notice';
@@ -119,6 +122,9 @@ import {
   campaignSummary,
   commanderForMission,
   nextMissionAfter,
+  newlyUnlocked,
+  promotionAfter,
+  villainState,
   regionForTown,
   villainPortrait,
 } from './campaign';
@@ -547,6 +553,9 @@ async function main(): Promise<void> {
   // protected-zone violation is offered once rather than on every cooldown
   // expiry. One mission, one set — it lives as long as the runtime does.
   const narratedRoeReasons = new Set<string>();
+  /** Every Conduct deduction this mission, for the debrief. The sim keeps no
+   *  presentation log; the events are the record. */
+  const deductions: { penalty: number; reason: string }[] = [];
   /**
    * `&civ`: where the crowd is walked to, and the ground that counts as out.
    *
@@ -1873,6 +1882,7 @@ async function main(): Promise<void> {
       renderer.onMissionEvents?.(missionEvents);
       for (const me of missionEvents) {
         if (tut) tut = advance(tut, { kind: 'mission', event: me }, performance.now());
+        if (me.kind === 'roe') deductions.push({ penalty: me.penalty, reason: me.reason });
         const described = describeMissionEvent(me, mission, narratedRoeReasons);
         if (described) hud.note(described[0], described[1]);
         // The story voice (GDD §11): the feed gets the note above, the
@@ -1897,6 +1907,67 @@ async function main(): Promise<void> {
             // Campaign order lives in world.json, not in the order data/missions files
             // happen to be imported.
             const nextMissionId = nextMissionAfter(parseWorld(world), missionId, updatedLedger);
+            // The full debrief (Task 9's `ui/debrief.ts`), opened from the end panel's
+            // `debrief` button. `kdfUnits` mirrors the `unitInfo` builder above's own
+            // narrowing (`'unlock' in u`) -- not every kdf unit's JSON declares one.
+            // `enemyRegion` is reused rather than a second `regionForTown` call: it is
+            // already `regionForTown(worldData, missionTown)`, and `mission.town` is
+            // deliberately not modelled on `@lions/sim`'s `MissionJson` (see the
+            // comment above `missionTown`), so this is the one cast that already
+            // exists rather than a second one. `target_minutes` gets that same
+            // treatment -- the sim never reads it either (`grade.ts`).
+            const kdfUnits = Object.values(units)
+              .filter((u) => u.faction === 'kdf')
+              .map((u) => {
+                const unlock = 'unlock' in u ? (u.unlock as { roe_rating_min?: number; after_mission?: string }) : undefined;
+                return {
+                  id: u.id,
+                  name: u.name ?? u.id,
+                  unlock: unlock ? { roeMin: unlock.roe_rating_min, afterMission: unlock.after_mission } : undefined,
+                };
+              });
+            const tier = TIER_LINES[runtime.stars];
+            const promotion = me.result === 'victory' ? promotionAfter(commanderData, worldData, missionId) : null;
+            const nextJson = nextMissionId ? (missions as Record<string, MissionJson | undefined>)[nextMissionId] : undefined;
+            const region = enemyRegion;
+            const villain = region ? commanderData.villains?.[region.id] : undefined;
+            const debriefOpts: DebriefOptions = {
+              result: me.result,
+              stars: runtime.stars,
+              tierLine: tier
+                ? { plate: speakerPlate(hudCommander, tier.speaker), text: tier.text, portrait: speakerPortrait(hudCommander, tier.speaker) }
+                : undefined,
+              roe: me.roeRating,
+              roeFloor: starRoeFloor(mission.roe?.fail_below),
+              deductions,
+              ticks: sim.tickCount,
+              targetMinutes: (mission as { target_minutes?: number }).target_minutes,
+              lost: Object.entries(runtime.lostByType()).map(([type, count]) => ({ type, count })),
+              secondaries: runtime.objectiveList
+                .filter((o) => !o.primary)
+                .map((o) => ({ text: o.text, complete: o.status === 'complete', carries: o.carries })),
+              marked: runtime.markedCount,
+              promoted: runtime.promotedCount,
+              unlocked: me.result === 'victory' ? newlyUnlocked(kdfUnits, ledger, updatedLedger).map((u) => u.name) : [],
+              promotion: promotion
+                ? {
+                    rank: promotion.rank,
+                    stars: promotion.stars,
+                    line: promotion.line ? { plate: speakerPlate(hudCommander, promotion.line.speaker), text: promotion.line.text } : undefined,
+                  }
+                : undefined,
+              next: nextMissionId
+                ? {
+                    id: nextMissionId,
+                    name: nextJson?.name ?? nextMissionId,
+                    villainLine:
+                      region && villain?.lines
+                        ? villain.lines[villainState(region, updatedLedger, (id) => (missions as Record<string, MissionJson | undefined>)[id])]
+                        : undefined,
+                  }
+                : undefined,
+              missionId,
+            };
             // G11: `debrief` is outcome-aware -- pick the variant for the
             // outcome that just happened, off the same `me.result` this
             // screen's own `result` is, and resolve its speaker into a
@@ -1921,6 +1992,7 @@ async function main(): Promise<void> {
               missionId,
               nextMissionId,
               debrief,
+              onDebrief: () => showDebrief(document.body, debriefOpts),
             });
           }
         }
