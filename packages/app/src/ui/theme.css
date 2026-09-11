@@ -2383,6 +2383,9 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-loading__brought-head { color: var(--ink-dim); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 1px; }
 .rl-loading__brought ul { margin: 4px 0; padding-left: 1.1em; }
 .rl-loading__brought-line { margin: 4px 0 0; color: var(--ink-mute); }
+/* Survivors this mission does not field -- a count, under the roster, in the
+   same muted ink the panel's own prose uses rather than the roster's. */
+.rl-loading__reserve { color: var(--ink-mute); }
 @keyframes rl-beat-in {
   from {
     opacity: 0;

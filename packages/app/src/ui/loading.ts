@@ -69,7 +69,14 @@ export function briefingBeats(text: string): string[] {
 }
 
 export interface BroughtPanel {
+  /** Only what this mission's own `from_ledger` placements draw -- not the whole
+   *  pool. The roster is cumulative (spec §4.7), so by mid-campaign the two are
+   *  very different numbers and naming the pool overstates the force. */
   roster: { type: string; count: number; stripes: number; names: string[] }[];
+  /** Everything the pool still holds once those draws are taken: survivors this
+   *  mission does not field. Rendered as one line, never named -- a reserve is a
+   *  count, and the names belong to the people on the map. */
+  reserve: number;
   marked: number;
   conduct: number | null;
   sentences: string[];
@@ -79,19 +86,52 @@ const NUM = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight
 const num = (n: number): string => (n < NUM.length ? NUM[n] : String(n));
 
 /** What the ledger hands this mission, in the player's terms (spec §5). Null when the
- *  mission's contract reads nothing, so a sandbox and First Light show no panel. */
+ *  mission's contract reads nothing, so a sandbox and First Light show no panel.
+ *
+ *  Scoped to what this mission actually FIELDS, which is not the same as what the
+ *  pool holds: `roster.surviving_units` is cumulative since the step-2 branch --
+ *  survivors plus every entry an earlier mission never fielded -- while a mission
+ *  only ever puts on the map what its own `from_ledger` placements draw. Naming
+ *  the whole pool told the player they had brought a force they had not.
+ *
+ *  The draw simulated below is `MissionRuntime.spawnPlacement`'s own, deliberately
+ *  step for step: each `from_ledger` placement takes up to `count` entries of its
+ *  type in pool order, each entry removed as it is taken, so a second placement
+ *  for the same type continues where the first stopped. `starting_force` cannot
+ *  carry passengers or markers (`mission.schema.json` pins its keys), so array
+ *  order here is the spawn order there and nothing else can draw. What the sim
+ *  does that this deliberately does not is substitute a single fresh remnant for
+ *  an empty draw: a fresh unit has no name, no stripes and no record, so it is
+ *  not something the player "brought". */
 export function broughtFor(
-  mission: { ledger: { requires: readonly string[] } },
+  mission: {
+    ledger: { requires: readonly string[] };
+    starting_force?: readonly { unit: string; count: number; from_ledger?: boolean }[];
+  },
   ledger: LedgerData,
   unitName: (id: string) => string
 ): BroughtPanel | null {
   const req = mission.ledger.requires;
   if (req.length === 0) return null;
   const roster: BroughtPanel['roster'] = [];
+  let reserve = 0;
+  let draws = false;
   if (req.includes('roster.surviving_units')) {
-    const entries = ledger['roster.surviving_units'] ?? [];
+    const pool = [...(ledger['roster.surviving_units'] ?? [])];
+    const fielded: typeof pool = [];
+    for (const p of mission.starting_force ?? []) {
+      if (p.from_ledger !== true) continue;
+      draws = true;
+      for (let k = 0; k < p.count; k++) {
+        const idx = pool.findIndex((r) => r.type === p.unit);
+        if (idx < 0) break;
+        fielded.push(pool[idx]);
+        pool.splice(idx, 1);
+      }
+    }
+    reserve = pool.length;
     const byType = new Map<string, { count: number; stripes: number; names: string[] }>();
-    for (const e of entries) {
+    for (const e of fielded) {
       const cur = byType.get(e.type) ?? { count: 0, stripes: 0, names: [] };
       cur.count++;
       if (e.veterancy > cur.stripes) cur.stripes = e.veterancy;
@@ -110,10 +150,16 @@ export function broughtFor(
         : 'Nothing marked. Whatever is out there, you find under fire.'
     );
   }
-  if (req.includes('roster.surviving_units') && roster.length === 0) {
+  // Gated on `draws`, not on `roster.length` alone: a mission that reads the
+  // roster key but fields nobody from it (no `from_ledger` placement at all) has
+  // an empty roster here by design, and saying "no survivors carried forward"
+  // over a pool of twenty would be a lie. The sentence is for the case it was
+  // written for -- this mission wanted survivors and the pool had none of that
+  // type, so the brigade hands over fresh remnants instead.
+  if (draws && roster.length === 0) {
     sentences.push('No survivors carried forward. The brigade fields a fresh remnant for each slot.');
   }
-  return { roster, marked, conduct, sentences };
+  return { roster, reserve, marked, conduct, sentences };
 }
 
 export interface LoadingScreen {
@@ -274,6 +320,15 @@ export function showLoading(
       // Names, spelled out rather than counted -- who came back is the point
       // of a service record, and a count would just repeat `×${r.count}`.
       if (r.names.length > 0) li.append(` (${r.names.join(', ')})`);
+      ul.appendChild(li);
+    }
+    // The reserve is a count on its own line under the roster, not a roster row:
+    // it is the one number here that is about people who are NOT coming, and
+    // giving it a `×N` of its own would read as another unit type.
+    if (brought.reserve > 0) {
+      const li = document.createElement('li');
+      li.className = 'rl-loading__reserve';
+      li.textContent = `${brought.reserve} in reserve`;
       ul.appendChild(li);
     }
     if (brought.conduct !== null) {

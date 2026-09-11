@@ -289,45 +289,129 @@ describe('deploy screen beat layout (GH-162)', () => {
     expect(deploy?.disabled).toBe(false);
   });
 });
-
 describe('what you brought', () => {
+  // Six in the pool, five of them rifle squads, the first three named.
+  // Deliberately larger than anything below fields: the roster is cumulative
+  // (spec §4.7), so the pool and what a mission actually puts on the map are
+  // different numbers, and this panel is about the second one.
   const ledger = {
     'roster.surviving_units': [
       { type: 'inf_squad', veterancy: 2, name: 'Sela' },
       { type: 'inf_squad', veterancy: 0, name: 'Barzel' },
+      { type: 'inf_squad', veterancy: 3, name: 'Tzur' },
+      { type: 'inf_squad', veterancy: 0 },
+      { type: 'inf_squad', veterancy: 1 },
       { type: 'mbt_lavi', veterancy: 1 },
     ],
     'intel.marked_positions': ['bs_hvt_atgm', 'bs_track_north'],
     'roe.mission_ratings': { a: 80 },
   };
   const name = (id: string): string => (id === 'inf_squad' ? 'Rifle Squad' : 'Lavi');
+  const requires = ['roster.surviving_units', 'intel.marked_positions'];
 
   it('is nothing for a mission that requires nothing', () => {
     expect(broughtFor({ ledger: { requires: [] } }, ledger, name)).toBeNull();
   });
 
-  it('groups the roster by type with its best stripes, counts the marks, reads Conduct', () => {
-    const b = broughtFor({ ledger: { requires: ['roster.surviving_units', 'intel.marked_positions'] } }, ledger, name)!;
-    expect(b.roster).toEqual([
-      { type: 'Rifle Squad', count: 2, stripes: 2, names: ['Sela', 'Barzel'] },
-      { type: 'Lavi', count: 1, stripes: 1, names: [] },
-    ]);
-    expect(b.roster[0].names).toEqual(['Sela', 'Barzel']);
+  it('names only what this mission fields, and counts the rest as reserve', () => {
+    // The draw rule is the sim's own (`spawnPlacement`): each `from_ledger`
+    // placement takes up to `count` entries of its type in pool order, each
+    // entry drawn once. Two of five squads come; the tank is not asked for.
+    const b = broughtFor(
+      {
+        ledger: { requires },
+        starting_force: [
+          { unit: 'inf_squad', count: 2, from_ledger: true },
+          { unit: 'apc_eitan', count: 1 },
+        ],
+      },
+      ledger,
+      name
+    )!;
+    expect(b.roster).toEqual([{ type: 'Rifle Squad', count: 2, stripes: 2, names: ['Sela', 'Barzel'] }]);
+    // Tzur's three stripes are in the pool, not on the map, so the group's best
+    // stripe is Sela's two -- the whole point of scoping to the draw.
+    expect(b.reserve).toBe(4);
     expect(b.marked).toBe(2);
     expect(b.conduct).toBe(80);
     expect(b.sentences).toContain('Two positions your recon marked are on your map before a shot is fired.');
   });
 
+  it('draws across placements in order, each entry once', () => {
+    const b = broughtFor(
+      {
+        ledger: { requires },
+        starting_force: [
+          { unit: 'mbt_lavi', count: 1, from_ledger: true },
+          { unit: 'inf_squad', count: 3, from_ledger: true },
+        ],
+      },
+      ledger,
+      name
+    )!;
+    expect(b.roster).toEqual([
+      { type: 'Lavi', count: 1, stripes: 1, names: [] },
+      { type: 'Rifle Squad', count: 3, stripes: 3, names: ['Sela', 'Barzel', 'Tzur'] },
+    ]);
+    expect(b.reserve).toBe(2);
+  });
+
+  it('asks for more than the pool holds and fields what there is', () => {
+    const b = broughtFor(
+      { ledger: { requires }, starting_force: [{ unit: 'mbt_lavi', count: 3, from_ledger: true }] },
+      ledger,
+      name
+    )!;
+    expect(b.roster).toEqual([{ type: 'Lavi', count: 1, stripes: 1, names: [] }]);
+    expect(b.reserve).toBe(5);
+    expect(b.sentences).not.toContain(
+      'No survivors carried forward. The brigade fields a fresh remnant for each slot.'
+    );
+  });
+
+  it('fields nothing from the ledger when no placement draws, and does not call that an empty pool', () => {
+    const b = broughtFor({ ledger: { requires }, starting_force: [{ unit: 'apc_eitan', count: 1 }] }, ledger, name)!;
+    expect(b.roster).toEqual([]);
+    expect(b.reserve).toBe(6);
+    expect(b.sentences).not.toContain(
+      'No survivors carried forward. The brigade fields a fresh remnant for each slot.'
+    );
+  });
+
+  it('says so when a placement draws and the pool has nobody of that type', () => {
+    const b = broughtFor(
+      { ledger: { requires }, starting_force: [{ unit: 'inf_squad', count: 2, from_ledger: true }] },
+      {},
+      name
+    )!;
+    expect(b.roster).toEqual([]);
+    expect(b.reserve).toBe(0);
+    expect(b.sentences).toContain('No survivors carried forward. The brigade fields a fresh remnant for each slot.');
+  });
+
   it('says so when the ledger is thin', () => {
-    const b = broughtFor({ ledger: { requires: ['roster.surviving_units', 'intel.marked_positions'] } }, {}, name)!;
+    const b = broughtFor({ ledger: { requires } }, {}, name)!;
     expect(b.roster).toEqual([]);
     expect(b.sentences).toContain('Nothing marked. Whatever is out there, you find under fire.');
+  });
+
+  it('scopes a shipped mission to its own from_ledger placements', () => {
+    // Beit Sahwan III draws a Lavi, two Namers, three squads, an AT team and a
+    // mortar team; the Eitan, the drone and the demo squad are fresh. Against a
+    // pool of five squads and one Lavi it fields four bodies and keeps two.
+    const b = broughtFor(missions.beit_sahwan_3_clearance, ledger, name)!;
+    expect(b.roster).toEqual([
+      { type: 'Lavi', count: 1, stripes: 1, names: [] },
+      { type: 'Rifle Squad', count: 3, stripes: 3, names: ['Sela', 'Barzel', 'Tzur'] },
+    ]);
+    expect(b.reserve).toBe(2);
   });
 
   it('renders beside the orders without becoming a beat', () => {
     const host = document.createElement('div');
     showLoading(host, 'X', 'Orders. More orders.', undefined, undefined, {
       roster: [{ type: 'Rifle Squad', count: 2, stripes: 2, names: ['Sela', 'Barzel'] }],
+      reserve: 4,
       marked: 2,
       conduct: 80,
       sentences: ['Two positions your recon marked are on your map before a shot is fired.'],
@@ -335,6 +419,22 @@ describe('what you brought', () => {
     expect(host.querySelectorAll('.rl-loading__beat').length).toBe(1);
     expect(host.querySelector('.rl-loading__brought')?.textContent).toContain('Rifle Squad ×2 ★★ (Sela, Barzel)');
     expect(host.querySelector('.rl-loading__brought')?.textContent).toContain('Conduct 80');
+  });
+
+  it('draws the reserve as its own line, and draws none when the pool is spent', () => {
+    const panel = {
+      roster: [{ type: 'Rifle Squad', count: 2, stripes: 0, names: [] }],
+      marked: 0,
+      conduct: null,
+      sentences: [],
+    };
+    const withReserve = document.createElement('div');
+    showLoading(withReserve, 'X', 'Orders. More orders.', undefined, undefined, { ...panel, reserve: 4 });
+    expect(withReserve.querySelector('.rl-loading__reserve')?.textContent).toBe('4 in reserve');
+
+    const spent = document.createElement('div');
+    showLoading(spent, 'X', 'Orders. More orders.', undefined, undefined, { ...panel, reserve: 0 });
+    expect(spent.querySelector('.rl-loading__reserve')).toBeNull();
   });
 
   it('gives the stripe the same commendation colour the card gives it', () => {
@@ -346,6 +446,7 @@ describe('what you brought', () => {
         { type: 'Rifle Squad', count: 2, stripes: 2, names: [] },
         { type: 'Lavi', count: 1, stripes: 0, names: [] },
       ],
+      reserve: 0,
       marked: 0,
       conduct: null,
       sentences: [],
