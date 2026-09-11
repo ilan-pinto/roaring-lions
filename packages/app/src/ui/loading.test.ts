@@ -293,8 +293,8 @@ describe('deploy screen beat layout (GH-162)', () => {
 describe('what you brought', () => {
   const ledger = {
     'roster.surviving_units': [
-      { type: 'inf_squad', veterancy: 2 },
-      { type: 'inf_squad', veterancy: 0 },
+      { type: 'inf_squad', veterancy: 2, name: 'Sela' },
+      { type: 'inf_squad', veterancy: 0, name: 'Barzel' },
       { type: 'mbt_lavi', veterancy: 1 },
     ],
     'intel.marked_positions': ['bs_hvt_atgm', 'bs_track_north'],
@@ -309,9 +309,10 @@ describe('what you brought', () => {
   it('groups the roster by type with its best stripes, counts the marks, reads Conduct', () => {
     const b = broughtFor({ ledger: { requires: ['roster.surviving_units', 'intel.marked_positions'] } }, ledger, name)!;
     expect(b.roster).toEqual([
-      { type: 'Rifle Squad', count: 2, stripes: 2 },
-      { type: 'Lavi', count: 1, stripes: 1 },
+      { type: 'Rifle Squad', count: 2, stripes: 2, names: ['Sela', 'Barzel'] },
+      { type: 'Lavi', count: 1, stripes: 1, names: [] },
     ]);
+    expect(b.roster[0].names).toEqual(['Sela', 'Barzel']);
     expect(b.marked).toBe(2);
     expect(b.conduct).toBe(80);
     expect(b.sentences).toContain('Two positions your recon marked are on your map before a shot is fired.');
@@ -326,13 +327,13 @@ describe('what you brought', () => {
   it('renders beside the orders without becoming a beat', () => {
     const host = document.createElement('div');
     showLoading(host, 'X', 'Orders. More orders.', undefined, undefined, {
-      roster: [{ type: 'Rifle Squad', count: 2, stripes: 2 }],
+      roster: [{ type: 'Rifle Squad', count: 2, stripes: 2, names: ['Sela', 'Barzel'] }],
       marked: 2,
       conduct: 80,
       sentences: ['Two positions your recon marked are on your map before a shot is fired.'],
     });
     expect(host.querySelectorAll('.rl-loading__beat').length).toBe(1);
-    expect(host.querySelector('.rl-loading__brought')?.textContent).toContain('Rifle Squad ×2 ★★');
+    expect(host.querySelector('.rl-loading__brought')?.textContent).toContain('Rifle Squad ×2 ★★ (Sela, Barzel)');
     expect(host.querySelector('.rl-loading__brought')?.textContent).toContain('Conduct 80');
   });
 
@@ -342,8 +343,8 @@ describe('what you brought', () => {
     const host = document.createElement('div');
     showLoading(host, 'X', 'Orders. More orders.', undefined, undefined, {
       roster: [
-        { type: 'Rifle Squad', count: 2, stripes: 2 },
-        { type: 'Lavi', count: 1, stripes: 0 },
+        { type: 'Rifle Squad', count: 2, stripes: 2, names: [] },
+        { type: 'Lavi', count: 1, stripes: 0, names: [] },
       ],
       marked: 0,
       conduct: null,

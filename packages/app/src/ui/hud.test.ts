@@ -696,6 +696,31 @@ describe('the single-unit card', () => {
     for (let i = 0; i < 5; i++) r.tick();
     expect(r.host.querySelector<HTMLElement>('.rl-sel')!.style.display).toBe('none');
   });
+
+  it('names a unit drawn from the roster and shows its service record on the card', () => {
+    const world = makeForce();
+    const r = clusterRig(
+      () => [world.namer],
+      {
+        rosterEntryOf: (id) =>
+          id === world.namer
+            ? { type: 'inf_squad', veterancy: 2, name: 'Sela', missions: 3, kills: 4 }
+            : undefined,
+      },
+      world
+    );
+    const card = r.host.querySelector<HTMLElement>('.rl-card')!;
+    expect(card.querySelector('.rl-card__callsign')?.textContent).toBe('Sela');
+    expect(card.querySelector('.rl-card__record')?.textContent).toBe('3 missions · 4 kills');
+  });
+
+  it('a fresh unit has no callsign and no record line', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [world.namer], { rosterEntryOf: () => undefined }, world);
+    const card = r.host.querySelector<HTMLElement>('.rl-card')!;
+    expect(card.querySelector('.rl-card__callsign')).toBeNull();
+    expect(card.querySelector('.rl-card__record')).toBeNull();
+  });
 });
 
 describe('unit art the pipeline has not produced', () => {

@@ -1356,6 +1356,10 @@ async function main(): Promise<void> {
     orders,
     armedOrder: () => armedOrder,
     portrait: (typeId) => portraits[typeId] ?? null,
+    // A closure over `runtime`, not a snapshot of it: the Hud is constructed
+    // before a runtime exists on some paths (`runtime` is set only `if
+    // (mission)`, above), so this must read the variable at call time.
+    rosterEntryOf: (id) => runtime?.rosterEntryOf(id),
     setSelection: (ids) => {
       renderer.selection = ids;
       dispatch({ kind: 'select', ids, via: 'click' });

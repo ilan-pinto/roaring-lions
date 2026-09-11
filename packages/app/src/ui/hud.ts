@@ -26,7 +26,7 @@
 // that the strip's inline clock and the big centred clock cannot derive the
 // same number twice, and so that "can this selection unload" is answered once.
 
-import { fx, type Sim } from '@lions/sim';
+import { fx, type LedgerRosterEntry, type Sim } from '@lions/sim';
 import type { ResolvedCommander } from '../campaign';
 import { flash, leave, titleCard } from './motion';
 import { markSvg } from './mark';
@@ -140,6 +140,10 @@ export interface HudDeps {
   /** The idle-frame URL for a unit type, or null where the type ships no sprite
    *  sheet. Resolved once at boot in main.ts from each sheet's own manifest. */
   portrait?: (typeId: string) => string | null;
+  /** The campaign roster entry a fielded unit was drawn from, if any -- the
+   *  card's callsign and service record. Absent in tests and for a fresh spawn
+   *  with no campaign history. */
+  rosterEntryOf?: (id: number) => LedgerRosterEntry | undefined;
   /** Narrow the selection to one chip's sub-group. */
   setSelection?: (ids: number[]) => void;
   /** Game speed as a multiplier: 0 paused, 1 normal, 2 double. The strip owns
@@ -1079,6 +1083,15 @@ export class Hud {
     const vet = st.veterancy[id];
     const bucket = roleBucket(type);
 
+    // Callsign and service record, from the campaign roster this unit was
+    // drawn from -- both absent for a fresh spawn with no history.
+    const entry = this.deps.rosterEntryOf?.(id);
+    const callsign = entry?.name ? `<span class="rl-card__callsign">${escapeHtml(entry.name)}</span> ` : '';
+    const record =
+      entry && (entry.missions !== undefined || entry.kills !== undefined)
+        ? `<div class="rl-card__record rl-dim">${entry.missions ?? 0} mission${(entry.missions ?? 0) === 1 ? '' : 's'} · ${entry.kills ?? 0} kill${(entry.kills ?? 0) === 1 ? '' : 's'}</div>`
+        : '';
+
     // Condition: only what is actually true right now. Unchanged from the panel
     // this replaces — the list is the product of a dozen play sessions and the
     // layout around it is what GH-153 is changing, not the facts in it.
@@ -1143,10 +1156,12 @@ export class Hud {
       `</div>` +
       `<div class="rl-card__body">` +
       `<div class="rl-card__top">` +
+      callsign +
       `<span class="rl-card__name">${type.name}</span>` +
       (vet > 0 ? `<span class="rl-commend">${'★'.repeat(vet)}</span>` : '') +
       `<span class="rl-card__hp rl-dim">${hpNow.toFixed(0)} / ${hpMax.toFixed(0)} hp</span>` +
       `</div>` +
+      record +
       `<div class="rl-track"><i class="rl-fill-${hpTone(hpPct)}" ` +
       `style="width:${(hpPct * 100).toFixed(0)}%"></i></div>` +
       `<div class="rl-card__cond">${flags.length > 0 ? flags.join(' · ') : 'holding position'}</div>` +
@@ -1179,4 +1194,12 @@ export class Hud {
  *  name would otherwise end the attribute and eat the rest of the strip. */
 function escapeAttr(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+/** The same discipline as `escapeAttr`, for a string landing as text content
+ *  rather than inside an attribute -- a unit's callsign is authored data (spec
+ *  §4.7: assigned by the app, carried opaquely by the sim) and goes through
+ *  the same escaping path as every other string built here. */
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

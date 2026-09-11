@@ -1332,6 +1332,8 @@ body {
   line-height: 1;
   text-transform: uppercase;
 }
+.rl-card__callsign { color: var(--commend); font-weight: 600; }
+.rl-card__record { font-size: var(--t-xs); }
 .rl-card__hp {
   margin-left: auto;
   white-space: nowrap;

@@ -69,7 +69,7 @@ export function briefingBeats(text: string): string[] {
 }
 
 export interface BroughtPanel {
-  roster: { type: string; count: number; stripes: number }[];
+  roster: { type: string; count: number; stripes: number; names: string[] }[];
   marked: number;
   conduct: number | null;
   sentences: string[];
@@ -90,11 +90,12 @@ export function broughtFor(
   const roster: BroughtPanel['roster'] = [];
   if (req.includes('roster.surviving_units')) {
     const entries = ledger['roster.surviving_units'] ?? [];
-    const byType = new Map<string, { count: number; stripes: number }>();
+    const byType = new Map<string, { count: number; stripes: number; names: string[] }>();
     for (const e of entries) {
-      const cur = byType.get(e.type) ?? { count: 0, stripes: 0 };
+      const cur = byType.get(e.type) ?? { count: 0, stripes: 0, names: [] };
       cur.count++;
       if (e.veterancy > cur.stripes) cur.stripes = e.veterancy;
+      if (e.name) cur.names.push(e.name);
       byType.set(e.type, cur);
     }
     for (const [type, v] of byType) roster.push({ type: unitName(type), ...v });
@@ -270,6 +271,9 @@ export function showLoading(
         s.textContent = '★'.repeat(r.stripes);
         li.append(' ', s);
       }
+      // Names, spelled out rather than counted -- who came back is the point
+      // of a service record, and a count would just repeat `×${r.count}`.
+      if (r.names.length > 0) li.append(` (${r.names.join(', ')})`);
       ul.appendChild(li);
     }
     if (brought.conduct !== null) {
