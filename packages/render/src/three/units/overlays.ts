@@ -123,6 +123,11 @@ export const OVERLAY_ACCENT_COLOR_KEY = 'vfx.tracer';
  *  palette swatch, exactly as Pixi's own literal hex values coincide). */
 export const BADGE_TEXT_COLOR_KEY = 'shadow.1';
 
+/** Palette key for the veterancy chevron -- the same swatch `theme.css`'s
+ *  `--commend` maps to, so a stripe is one colour on the card, the board
+ *  and the unit. */
+export const STRIPE_COLOR_KEY = 'dust.0';
+
 /**
  * Palette key for the objective zone's outline and fill -- Pixi's own
  * `this.objectiveZoneState === 'contested' ? '#D93A2B' : this
@@ -714,6 +719,199 @@ export class NumeralBatch {
       // billboardPoint's own upPx is positive-up; yPx above is Pixi's own
       // positive-down, so it negates going in -- identical convention to
       // pushVertexPx in overlay-geometry.ts.
+      const [wx, wy, wz] = billboardPoint(anchor, xPx, -yPx);
+      const i = this.count;
+      this.positions[i * 3] = wx;
+      this.positions[i * 3 + 1] = wy;
+      this.positions[i * 3 + 2] = wz;
+      this.uvs[i * 2] = u;
+      this.uvs[i * 2 + 1] = v;
+      this.count++;
+    }
+  }
+
+  endFrame(): void {
+    this.mesh.geometry.setDrawRange(0, this.count);
+    this.positionAttr.needsUpdate = true;
+    this.uvAttr.needsUpdate = true;
+  }
+
+  dispose(): void {
+    this.mesh.geometry.dispose();
+    this.material.dispose();
+    this.texture?.dispose();
+  }
+}
+
+/** Texture-space pixels per chevron cell -- see `NUMERAL_CELL_PX`'s own doc
+ *  comment; the same reasoning applies here, unrelated to on-screen size. */
+const CHEVRON_CELL_PX = 64;
+/** Stripe counts a veteran ever carries -- `sim.ts`'s own `spawn()` clamps
+ *  `veterancy` to `0..3`, and 0 never reaches `ChevronBatch.push` at all
+ *  (`ThreeRenderer`'s own `stripes > 0` guard at the call site), so three
+ *  cells cover every value this batch is ever asked to draw. */
+const CHEVRON_CELLS = 3;
+
+/**
+ * Builds the three-cell chevron glyph atlas `ChevronBatch` samples from --
+ * one canvas, cell `n` (1-indexed) holding `n` chevrons ("^") stacked
+ * vertically, `fillColorHex` already resolved (this module's own "colour is
+ * looked up, never computed" rule -- see `buildDigitTexture`'s identical
+ * comment). `flipY = false` for the identical reason `buildDigitTexture`
+ * sets it: `ChevronBatch.push` assigns UV `v = 0` to its quad's own top
+ * edge, and a chevron flipped vertically is not the same mark (it points
+ * the other way), so leaving three.js's own default flip on would be wrong
+ * here for the same reason it would turn a `6` into a `9`.
+ */
+function buildChevronTexture(fillColorHex: string): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = CHEVRON_CELL_PX * CHEVRON_CELLS;
+  canvas.height = CHEVRON_CELL_PX;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('overlays: 2D canvas context unavailable for chevrons');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = fillColorHex;
+  ctx.lineWidth = 7;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  // Cell n holds n chevrons stacked vertically, each a "^" 36 px wide and 14 px tall.
+  for (let n = 1; n <= CHEVRON_CELLS; n++) {
+    const cx = (n - 1) * CHEVRON_CELL_PX + CHEVRON_CELL_PX / 2;
+    const total = n * 16;
+    const top = CHEVRON_CELL_PX / 2 - total / 2;
+    for (let k = 0; k < n; k++) {
+      const y = top + k * 16 + 14;
+      ctx.beginPath();
+      ctx.moveTo(cx - 18, y);
+      ctx.lineTo(cx, y - 14);
+      ctx.lineTo(cx + 18, y);
+      ctx.stroke();
+    }
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.flipY = false;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+/**
+ * The veterancy chevron -- `NumeralBatch`'s structural twin (see this file's
+ * top comment for why a textured quad is its own batch rather than folded
+ * into `OverlayBatch`): one quad per living, visible, side-0 entity with
+ * `sim.state.veterancy[i] > 0`, UV-addressed into `buildChevronTexture`'s
+ * three-cell atlas by that entity's own stripe count. Drawn at the same
+ * `BADGE_NUMERAL_RENDER_ORDER` band as the numeral -- both are textured,
+ * both need to sit above the vertex-coloured overlay tier for the identical
+ * reason (this file's top comment) -- at the unit's top-RIGHT corner,
+ * opposite the group badge's top-left.
+ */
+export class ChevronBatch {
+  readonly mesh: THREE.Mesh;
+  private readonly material: THREE.MeshBasicMaterial;
+  /** Built lazily, on the first chevron actually pushed -- see
+   *  `NumeralBatch.ensureTexture`'s own doc comment for why the constructor
+   *  must not touch `document` (this class is constructed under the same
+   *  `environment: 'node'` `ThreeRenderer.test.ts` suite). */
+  private texture: THREE.CanvasTexture | null = null;
+  private readonly fillColorHex: string;
+  private readonly positions: Float32Array;
+  private readonly uvs: Float32Array;
+  private readonly positionAttr: THREE.BufferAttribute;
+  private readonly uvAttr: THREE.BufferAttribute;
+  private count = 0;
+
+  /** `entityCapacity` quads' worth of room -- 6 vertices (2 triangles)
+   *  each, matching `NumeralBatch` and every other non-indexed shape in
+   *  this file. */
+  constructor(entityCapacity: number, fillColorHex: string) {
+    this.fillColorHex = fillColorHex;
+    const vertexCapacity = entityCapacity * 6;
+    this.positions = new Float32Array(vertexCapacity * 3);
+    this.uvs = new Float32Array(vertexCapacity * 2);
+    const geometry = new THREE.BufferGeometry();
+    this.positionAttr = new THREE.BufferAttribute(this.positions, 3);
+    this.positionAttr.setUsage(THREE.DynamicDrawUsage);
+    this.uvAttr = new THREE.BufferAttribute(this.uvs, 2);
+    this.uvAttr.setUsage(THREE.DynamicDrawUsage);
+    geometry.setAttribute('position', this.positionAttr);
+    geometry.setAttribute('uv', this.uvAttr);
+    geometry.setDrawRange(0, 0);
+
+    // `map: null` here, not `buildChevronTexture(...)` -- see `ensureTexture`.
+    this.material = new THREE.MeshBasicMaterial({
+      map: null,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    this.mesh = new THREE.Mesh(geometry, this.material);
+    this.mesh.renderOrder = BADGE_NUMERAL_RENDER_ORDER;
+    this.mesh.frustumCulled = false;
+  }
+
+  /** Builds `buildChevronTexture`'s canvas atlas on first use rather than in
+   *  the constructor -- see `NumeralBatch.ensureTexture`'s own doc comment
+   *  for the full reason; identical here. */
+  private ensureTexture(): void {
+    if (this.texture) return;
+    this.texture = buildChevronTexture(this.fillColorHex);
+    this.material.map = this.texture;
+    this.material.needsUpdate = true;
+  }
+
+  beginFrame(): void {
+    this.count = 0;
+  }
+
+  /**
+   * One chevron quad, `widthPx` x `heightPx`, centred `centerRightPx`/
+   * `centerUpPx` screen pixels from `anchor` (the same `billboardPoint`
+   * convention every push* function in `overlay-geometry.ts` uses, and
+   * `NumeralBatch.push`'s own). `stripes` is `sim.state.veterancy[i]`
+   * verbatim -- a plain `number` (a `Uint8Array` element), not a `1|2|3`
+   * literal type, matching `NumeralBatch.push`'s own `digit: number` shape
+   * so the call site needs no cast. Practically 1-3 (`sim.ts`'s `spawn()`
+   * clamps `veterancy` to `0..3`, and the call site never pushes 0 -- see
+   * `ThreeRenderer`'s own `stripes > 0` guard); anything outside `1..3`
+   * (nothing to draw) or past this batch's own capacity is silently
+   * skipped, matching `NumeralBatch.push`'s own bounds check.
+   */
+  push(
+    anchor: readonly [number, number, number],
+    centerRightPx: number,
+    centerUpPx: number,
+    widthPx: number,
+    heightPx: number,
+    stripes: number
+  ): void {
+    if (stripes < 1 || stripes > CHEVRON_CELLS) return;
+    const vertexCapacity = this.positions.length / 3;
+    if (this.count + 6 > vertexCapacity) return;
+    this.ensureTexture();
+
+    const x0 = centerRightPx - widthPx / 2;
+    const x1 = centerRightPx + widthPx / 2;
+    // Pixi y-down convention (overlay-geometry.ts's own): "up" is negative.
+    const yTop = -centerUpPx - heightPx / 2;
+    const yBot = -centerUpPx + heightPx / 2;
+    const u0 = (stripes - 1) / CHEVRON_CELLS;
+    const u1 = stripes / CHEVRON_CELLS;
+
+    const corners: readonly [number, number, number, number][] = [
+      [x0, yTop, u0, 0],
+      [x1, yTop, u1, 0],
+      [x1, yBot, u1, 1],
+      [x0, yTop, u0, 0],
+      [x1, yBot, u1, 1],
+      [x0, yBot, u0, 1],
+    ];
+    for (const [xPx, yPx, u, v] of corners) {
+      // billboardPoint's own upPx is positive-up; yPx above is Pixi's own
+      // positive-down, so it negates going in -- identical convention to
+      // pushVertexPx in overlay-geometry.ts and to NumeralBatch.push.
       const [wx, wy, wz] = billboardPoint(anchor, xPx, -yPx);
       const i = this.count;
       this.positions[i * 3] = wx;

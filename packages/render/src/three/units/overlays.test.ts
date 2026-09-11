@@ -51,6 +51,8 @@ import {
   tileRadiusToEllipsePx,
   OverlayBatch,
   NumeralBatch,
+  ChevronBatch,
+  STRIPE_COLOR_KEY,
 } from './overlays';
 
 describe('unitOverlayRadiusPx', () => {
@@ -198,6 +200,10 @@ describe('overlay palette keys resolve to the exact hex Pixi hard-codes at the e
   it('FIREPOWER_KILL_COLOR_KEY resolves to its own stated fallback -- Pixi\'s own #8B1E12 has no palette match at all (see this key\'s own doc comment)', () => {
     expect(resolve(FIREPOWER_KILL_COLOR_KEY)).toBe(FIREPOWER_KILL_FALLBACK_COLOR);
     expect(resolve(FIREPOWER_KILL_COLOR_KEY)).not.toBe('#8B1E12');
+  });
+
+  it('STRIPE_COLOR_KEY -> #E0B87A, the same swatch theme.css\'s --commend (--rl-dust-0) maps to', () => {
+    expect(resolve(STRIPE_COLOR_KEY)).toBe('#E0B87A');
   });
 });
 
@@ -443,5 +449,33 @@ describe('NumeralBatch construction', () => {
   it('never frustum-culls, matching OverlayBatch', () => {
     const batch = new NumeralBatch(16, '#14150F');
     expect(batch.mesh.frustumCulled).toBe(false);
+  });
+});
+
+describe('ChevronBatch construction', () => {
+  // Same "constructor-time properties only" scope as NumeralBatch's own
+  // suite above, for the identical reason: push() calls ensureTexture(),
+  // which touches document -- unavailable under this suite's environment:
+  // 'node'. The browser verification (task brief step 4) covers push()
+  // itself.
+  it('draws at BADGE_NUMERAL_RENDER_ORDER, the same textured band the numeral uses -- both are textured quads that must sit above the vertex-coloured overlay tier', () => {
+    const batch = new ChevronBatch(16, '#E8C33A');
+    expect(batch.mesh.renderOrder).toBe(BADGE_NUMERAL_RENDER_ORDER);
+    expect(batch.mesh.renderOrder).not.toBe(OVERLAY_RENDER_ORDER);
+  });
+
+  it('starts with no texture bound (map: null) -- built lazily on first push(), not in the constructor', () => {
+    const batch = new ChevronBatch(16, '#E8C33A');
+    expect((batch.mesh.material as THREE.MeshBasicMaterial).map).toBeNull();
+  });
+
+  it('never frustum-culls, matching NumeralBatch/OverlayBatch', () => {
+    const batch = new ChevronBatch(16, '#E8C33A');
+    expect(batch.mesh.frustumCulled).toBe(false);
+  });
+
+  it('starts with an empty draw range -- nothing pushed yet, nothing drawn', () => {
+    const batch = new ChevronBatch(16, '#E8C33A');
+    expect(batch.mesh.geometry.drawRange.count).toBe(0);
   });
 });

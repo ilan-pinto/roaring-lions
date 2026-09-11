@@ -275,6 +275,8 @@ import { billboardPoint, objectiveZoneCorners } from './units/overlay-geometry';
 import {
   OverlayBatch,
   NumeralBatch,
+  ChevronBatch,
+  STRIPE_COLOR_KEY,
   unitOverlayRadiusPx,
   hpBarColorKey,
   orderMarkerSize,
@@ -1394,6 +1396,10 @@ export class ThreeRenderer implements Renderer {
    */
   private readonly overlayBatch: OverlayBatch;
   private readonly numeralBatch: NumeralBatch;
+  /** The veterancy chevron -- `NumeralBatch`'s structural twin, same reason
+   *  for a constructor-body assignment rather than a field initializer.
+   *  See `units/overlays.ts`'s own `ChevronBatch` doc comment. */
+  private readonly chevronBatch: ChevronBatch;
   /**
    * The three occlusion-silhouette team colours (`units/silhouette.ts`),
    * indexed by `silhouetteSideIndex`, resolved once at construction.
@@ -1594,6 +1600,11 @@ export class ThreeRenderer implements Renderer {
       sim.capacity,
       opts.resolveColor ? opts.resolveColor(BADGE_TEXT_COLOR_KEY) : '#14150F'
     );
+    // Veterancy chevron fill: the same swatch theme.css's --commend maps to
+    // (STRIPE_COLOR_KEY's own doc comment), with the identical no-resolver
+    // fallback shape the numeral above uses for ThreeRenderer.test.ts's own
+    // makeOpts().
+    this.chevronBatch = new ChevronBatch(sim.capacity, opts.resolveColor ? opts.resolveColor(STRIPE_COLOR_KEY) : '#E8C33A');
     // Occlusion silhouettes: three colours for the whole scene, resolved
     // once here rather than per unit type or per entity. Indexed by
     // `silhouetteSideIndex` -- see `units/silhouette.ts` for the mechanism
@@ -1649,7 +1660,7 @@ export class ThreeRenderer implements Renderer {
     // just above -- both start at drawRange 0 (`beginFrame`/`endFrame`
     // haven't run yet) and stay that way until `updateOverlays`'s first
     // call, from `frame()`.
-    this.scene.add(this.overlayBatch.mesh, this.numeralBatch.mesh);
+    this.scene.add(this.overlayBatch.mesh, this.numeralBatch.mesh, this.chevronBatch.mesh);
     // Pixi's own `trailG` is `world`'s SECOND child (`renderer.ts:539`,
     // below fxG/wreckLayer/spriteLayer alike) -- but per trail-mesh.ts's own
     // top comment, scene-graph position carries no draw-order meaning in
@@ -1887,6 +1898,7 @@ export class ThreeRenderer implements Renderer {
     // used to be a real leak elsewhere, guarded against here from the start.
     this.overlayBatch.dispose();
     this.numeralBatch.dispose();
+    this.chevronBatch.dispose();
     // Final-review fix: FogMesh owns a full-map `InstancedMesh` (geometry,
     // material, instance buffers) and this call was missing entirely --
     // `FogMesh.dispose()` existed but nothing called it. No `scene.remove`
@@ -5109,6 +5121,7 @@ export class ThreeRenderer implements Renderer {
     this.frameN++;
     this.overlayBatch.beginFrame();
     this.numeralBatch.beginFrame();
+    this.chevronBatch.beginFrame();
     this.unitShadowMesh.beginFrame();
 
     const st = this.sim.state;
@@ -5265,6 +5278,14 @@ export class ThreeRenderer implements Renderer {
         const badgeCenter = billboardPoint(anchor, -(r + 4), r + 4);
         this.overlayBatch.ellipseFan(badgeCenter, 7, 7, groupColor || accentDefault, 0.95);
         this.numeralBatch.push(badgeCenter, 0, 0, 10, 12, grp);
+      }
+
+      // Veterancy chevron (spec §4.7): top-right, opposite the group badge, one quad
+      // from a three-cell atlas. Reads the sim's own stripe count; the card and the
+      // board show the same number in the same colour.
+      const stripes = st.veterancy[i];
+      if (st.side[i] === 0 && stripes > 0) {
+        this.chevronBatch.push(billboardPoint(anchor, r + 4, r + 4), 0, 0, 12, 12, stripes);
       }
     }
 
@@ -5641,6 +5662,7 @@ export class ThreeRenderer implements Renderer {
 
     this.overlayBatch.endFrame();
     this.numeralBatch.endFrame();
+    this.chevronBatch.endFrame();
     this.unitShadowMesh.endFrame();
   }
 
