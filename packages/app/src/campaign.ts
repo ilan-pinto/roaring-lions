@@ -11,7 +11,7 @@
  * `campaign.completed_missions`, which the ledger already writes, so the map cannot
  * disagree with what was actually played and there is no second save file to migrate.
  */
-import { unlockReason, type LedgerData, type UnlockGate } from '@lions/sim';
+import { unlockReason, type LedgerData, type MissionResult, type UnlockGate } from '@lions/sim';
 
 export interface WorldTown {
   id: string;
@@ -37,6 +37,10 @@ export interface ParsedWorld {
   /** Path under assets/, e.g. "campaign/sahar_basin.svg". */
   art: string;
   regions: readonly WorldRegion[];
+  /** The story constant (spec 2026-09-10 §4.4): how many people the enemy took on the
+   *  first morning. Absent means the world declares no account of the taken at all --
+   *  distinct from zero, which would mean nobody was. */
+  taken?: number;
 }
 
 /** `empty` is "unlocked, but nothing authored" -- distinct from `live`, which
@@ -101,6 +105,7 @@ interface WorldJson {
   id: string;
   name: string;
   art: string;
+  taken?: number;
   regions: RegionJson[];
 }
 
@@ -110,7 +115,7 @@ interface WorldJson {
 export function parseWorld(json: unknown): ParsedWorld {
   const w = json as WorldJson;
   if (!w || !Array.isArray(w.regions)) throw new Error('world: expected an object with a regions array');
-  return {
+  const world: ParsedWorld = {
     id: w.id,
     name: w.name,
     art: w.art,
@@ -135,6 +140,8 @@ export function parseWorld(json: unknown): ParsedWorld {
       return region;
     }),
   };
+  if (typeof w.taken === 'number') world.taken = w.taken;
+  return world;
 }
 
 /**
@@ -270,20 +277,33 @@ export interface CommanderRank {
   /** Mission id (campaign order) this rank holds through. Absent only on
    *  the last entry, which is the default for everything after it. */
   untilMission?: string;
+  /** Idit's (or Shai's, for the last rank) line for the debrief promotion beat
+   *  (spec 2026-09-10 §4.5), announcing promotion INTO this rank -- shown
+   *  when the completed mission is the PREVIOUS entry's `untilMission`, i.e.
+   *  what `promotionAfter` returns as the next rank's line. Absent on the
+   *  first rank, which nobody is promoted into. */
+  promotionLine?: { speaker: string; text: string };
 }
 
 /**
  * A front's villain, for the commander bar's `enemy` line (GDD §11,
- * storyline.md G18) -- a face only, deliberately with no `name` field at
- * all: `people`'s own doc comment already says the HUD names `enemy`
- * literally rather than looking a name up, and `commander.schema.json`'s
- * `$defs/villain` has nowhere to put one, unlike `$defs/person`.
+ * storyline.md G18) and the campaign board's villain-state line
+ * (`villainState` below). The commander bar itself still never looks a name
+ * up: `people`'s own doc comment stands unchanged there, and the HUD's
+ * `enemy` line stays the literal word. `name` and `lines` feed the board's
+ * own text instead, where the story does put a name and a fate to it.
  */
 export interface CommanderVillain {
   /** File name (not a path) under `assets/ui/portraits/` -- the same
    *  bare-name convention as `CommanderPerson.portrait`, resolved to a URL
    *  the same way, by `portrait-catalogue.ts`, called from `main.ts`. */
   portrait?: string;
+  /** The villain's name in the towns' own fictional register (storyline.md
+   *  G18) -- absent only on a villain entry authored with a face and
+   *  nothing else yet. */
+  name?: string;
+  /** One line per `VillainState`, for the board under the front's card. */
+  lines?: { at_large: string; captured: string; killed: string };
 }
 
 export interface CommanderData {
@@ -319,6 +339,7 @@ interface CommanderRankJson {
   rank: string;
   stars: number;
   until_mission?: string;
+  promotion_line?: { speaker: string; text: string };
 }
 
 interface CommanderJson {
@@ -340,6 +361,7 @@ export function parseCommander(json: unknown): CommanderData {
     ranks: c.ranks.map((r) => {
       const rank: CommanderRank = { rank: r.rank, stars: r.stars };
       if (r.until_mission !== undefined) rank.untilMission = r.until_mission;
+      if (r.promotion_line) rank.promotionLine = { ...r.promotion_line };
       return rank;
     }),
   };
@@ -422,4 +444,120 @@ export function commanderForMission(
   }
   const last = commander.ranks[commander.ranks.length - 1];
   return { name: shai.name, plate: shai.plate, rank: last.rank, stars: last.stars };
+}
+
+/** The between-missions line for the menu and the strip tooltip. Reads `campaignRoe`, not
+ *  `roe.cumulative_rating`: nothing has written that key since per-mission ratings landed,
+ *  so the figure was dead on every fresh save. */
+export function campaignSummary(ledger: LedgerData): string {
+  const parts: string[] = [];
+  const roster = ledger['roster.surviving_units'];
+  if (Array.isArray(roster) && roster.length > 0) {
+    const vets = roster.filter((r) => r.veterancy > 0).length;
+    parts.push(`roster ${roster.length}${vets > 0 ? ` (${vets}★)` : ''}`);
+  }
+  const roe = campaignRoe(ledger);
+  if (roe !== null) parts.push(`Conduct ${roe.mean}`);
+  return parts.length > 0 ? `campaign: ${parts.join(' · ')}` : 'campaign: fresh start';
+}
+
+const results = (ledger: LedgerData | undefined): Record<string, MissionResult> => {
+  const r = ledger?.['campaign.mission_results'];
+  return r !== null && typeof r === 'object' ? (r as Record<string, MissionResult>) : {};
+};
+
+export function townStars(town: WorldTown, ledger: LedgerData | undefined): { earned: number; possible: number } {
+  const r = results(ledger);
+  let earned = 0;
+  for (const m of town.missions) earned += r[m]?.stars ?? 0;
+  return { earned, possible: town.missions.length * 3 };
+}
+
+export function regionStars(region: WorldRegion, ledger: LedgerData | undefined): { earned: number; possible: number } {
+  let earned = 0;
+  let possible = 0;
+  for (const t of region.towns) {
+    const s = townStars(t, ledger);
+    earned += s.earned;
+    possible += s.possible;
+  }
+  return { earned, possible };
+}
+
+/** Units a mission just opened: locked against the ledger before it, open against the
+ *  ledger after it. The debrief announces these by name. */
+export function newlyUnlocked(
+  units: readonly { id: string; name: string; unlock?: UnlockGate }[],
+  before: LedgerData,
+  after: LedgerData
+): { id: string; name: string }[] {
+  return units
+    .filter((u) => unlockReason(u.unlock, before) !== null && unlockReason(u.unlock, after) === null)
+    .map((u) => ({ id: u.id, name: u.name }));
+}
+
+/** The rank Shai is promoted TO when `missionId` is the mission some rank holds through,
+ *  with that rank's authored line. Null when the mission ends no rank.
+ *
+ *  `world` is unused: a rank boundary is `until_mission` equality against the mission id
+ *  that just ended, not a campaign-order lookup (unlike `commanderForMission`, which needs
+ *  `world` to place a mission not itself named by any `untilMission`). Kept in the signature
+ *  for the same shape as `commanderForMission` and because the debrief screen that calls
+ *  this already has a `ParsedWorld` in hand. */
+export function promotionAfter(
+  commander: CommanderData,
+  _world: ParsedWorld,
+  missionId: string
+): { rank: string; stars: number; line?: { speaker: string; text: string } } | null {
+  const i = commander.ranks.findIndex((r) => r.untilMission === missionId);
+  if (i < 0 || i + 1 >= commander.ranks.length) return null;
+  const next = commander.ranks[i + 1];
+  const out: { rank: string; stars: number; line?: { speaker: string; text: string } } = { rank: next.rank, stars: next.stars };
+  if (next.promotionLine) out.line = next.promotionLine;
+  return out;
+}
+
+export type VillainState = 'at_large' | 'captured' | 'killed';
+
+/** A front's villain is at large until the front's last authored mission is complete, then
+ *  captured if that mission's primaries include a `capture`, otherwise killed. */
+export function villainState(
+  region: WorldRegion,
+  ledger: LedgerData | undefined,
+  missionOf: (id: string) => { objectives: readonly { type: string; primary: boolean }[] } | undefined
+): VillainState {
+  const towns = region.towns.filter((t) => t.missions.length > 0);
+  const last = towns.length > 0 ? towns[towns.length - 1].missions[towns[towns.length - 1].missions.length - 1] : undefined;
+  if (last === undefined || !completed(ledger).has(last)) return 'at_large';
+  const m = missionOf(last);
+  return m?.objectives.some((o) => o.primary && o.type === 'capture') ? 'captured' : 'killed';
+}
+
+export function hostagesAccount(
+  world: ParsedWorld,
+  ledger: LedgerData | undefined
+): { taken: number; recovered: number } | null {
+  if (typeof world.taken !== 'number') return null;
+  const rec = ledger?.['civ.hostages_recovered'];
+  let recovered = 0;
+  if (rec !== null && typeof rec === 'object') {
+    for (const v of Object.values(rec as Record<string, number>)) recovered += v;
+  }
+  return { taken: world.taken, recovered };
+}
+
+const WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
+  'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty'];
+const asWords = (n: number): string => (n >= 0 && n < WORDS.length ? WORDS[n] : String(n));
+const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** Idit's line under the region cards: who is still out there, and who just came home. */
+export function hostagesLine(
+  account: { taken: number; recovered: number },
+  last?: { count: number; place: string }
+): string {
+  const out = account.taken - account.recovered;
+  const head = out <= 0 ? 'Nobody still out.' : `${cap(asWords(out))} still out.`;
+  if (!last || last.count <= 0) return head;
+  return `${head} ${cap(asWords(last.count))} came back at ${last.place}.`;
 }

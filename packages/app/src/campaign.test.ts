@@ -5,15 +5,23 @@ import commanderJson from '../../../data/campaign/commander.json';
 import type { LedgerData } from '@lions/sim';
 import {
   campaignRoe,
+  campaignSummary,
   commanderForMission,
+  hostagesAccount,
+  hostagesLine,
+  newlyUnlocked,
   nextMissionAfter,
   nextMissionOf,
   parseCommander,
   parseWorld,
+  promotionAfter,
   regionForTown,
   regionProgress,
+  regionStars,
   townProgress,
+  townStars,
   villainPortrait,
+  villainState,
   type CommanderData,
   type ParsedWorld,
 } from './campaign';
@@ -365,5 +373,76 @@ describe('villainPortrait', () => {
     expect(villainPortrait(commander, region?.id)).toBe('karim_adhal.png');
     const unknown = regionForTown(world, 'not_a_real_town');
     expect(villainPortrait(commander, unknown?.id)).toBeUndefined();
+  });
+});
+
+describe('campaignSummary', () => {
+  it('reads the mean of the per-mission ratings, not the legacy key nothing writes', () => {
+    expect(campaignSummary({ 'roe.mission_ratings': { a: 80, b: 60 } })).toBe('campaign: Conduct 70');
+    expect(campaignSummary({})).toBe('campaign: fresh start');
+  });
+});
+
+describe('stars on the board', () => {
+  const bs = world.regions[0]!.towns[0]!;
+  it('sums each mission\'s best stars against three per mission', () => {
+    const ledger: LedgerData = { 'campaign.mission_results': { [bs.missions[0]!]: { stars: 2, roe: 90, ticks: 1, lost: 0 } } };
+    expect(townStars(bs, ledger)).toEqual({ earned: 2, possible: bs.missions.length * 3 });
+    expect(regionStars(world.regions[0]!, ledger).earned).toBe(2);
+    expect(townStars(bs, undefined)).toEqual({ earned: 0, possible: bs.missions.length * 3 });
+  });
+});
+
+describe('newlyUnlocked', () => {
+  it('lists units locked before and open after, and nothing else', () => {
+    const units = [
+      { id: 'a', name: 'A', unlock: { roeMin: 60 } },
+      { id: 'b', name: 'B', unlock: { roeMin: 90 } },
+      { id: 'c', name: 'C' },
+    ];
+    const before = { 'roe.mission_ratings': { m1: 50 } };
+    const after = { 'roe.mission_ratings': { m1: 50, m2: 80 } }; // mean 65
+    expect(newlyUnlocked(units, before, after)).toEqual([{ id: 'a', name: 'A' }]);
+  });
+});
+
+describe('promotionAfter', () => {
+  it('names the next rank when the mission ends a rank, and nothing otherwise', () => {
+    // deir_amun_3_subterranean, not beit_sahwan_4_subterranean: Captain's authored
+    // until_mission moved there when Khan Rafid and Deir Amun landed in the Marj
+    // (design.md C3/C4), and the motivation-layer spec (§4.5) says ranks already
+    // live in commander.json matching the act ends -- deir_amun_3_subterranean is
+    // that act end today.
+    const p = promotionAfter(commander, world, 'deir_amun_3_subterranean');
+    expect(p?.rank).toBe('Major');
+    expect(p?.stars).toBe(3);
+    expect(promotionAfter(commander, world, 'beit_sahwan_1_recon')).toBeNull();
+  });
+});
+
+describe('villainState', () => {
+  const marj = world.regions[0]!;
+  const last = marj.towns[marj.towns.length - 1]!.missions.at(-1)!;
+  it('is at large until the front\'s last mission is done', () => {
+    expect(villainState(marj, {}, () => undefined)).toBe('at_large');
+  });
+  it('is captured when that mission\'s primaries include a capture, else killed', () => {
+    const done = { 'campaign.completed_missions': [last] };
+    expect(villainState(marj, done, () => ({ objectives: [{ type: 'capture', primary: true }] }))).toBe('captured');
+    expect(villainState(marj, done, () => ({ objectives: [{ type: 'eliminate_hvt', primary: true }] }))).toBe('killed');
+  });
+});
+
+describe('the account of the taken', () => {
+  it('subtracts what came back from what was taken, and reads nothing when the world names no number', () => {
+    expect(hostagesAccount(world, { 'civ.hostages_recovered': { a: 2, b: 3 } })).toEqual({ taken: 19, recovered: 5 });
+    expect(hostagesAccount({ ...world, taken: undefined }, {})).toBeNull();
+  });
+  it('is Idit\'s line', () => {
+    expect(hostagesLine({ taken: 19, recovered: 0 })).toBe('Nineteen still out.');
+    expect(hostagesLine({ taken: 19, recovered: 2 }, { count: 2, place: 'the shaft head' })).toBe(
+      'Seventeen still out. Two came back at the shaft head.'
+    );
+    expect(hostagesLine({ taken: 19, recovered: 19 })).toBe('Nobody still out.');
   });
 });

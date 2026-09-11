@@ -5,13 +5,43 @@
   },
   "ranks": [
     { "rank": "Captain", "stars": 2, "until_mission": "deir_amun_3_subterranean" },
-    { "rank": "Major", "stars": 3, "until_mission": "umm_zeitoun_4_clearance" },
-    { "rank": "Lieutenant Colonel", "stars": 4, "until_mission": "wadi_halam_5_depot" },
-    { "rank": "Colonel", "stars": 5 }
+    {
+      "rank": "Major", "stars": 3, "until_mission": "umm_zeitoun_4_clearance",
+      "promotion_line": { "speaker": "idit", "text": "Third star. Nobody said promotion — they handed him a wider map and a longer list of towns." }
+    },
+    {
+      "rank": "Lieutenant Colonel", "stars": 4, "until_mission": "wadi_halam_5_depot",
+      "promotion_line": { "speaker": "idit", "text": "Fourth star. The north has not been shelled in two days and he has not mentioned it once." }
+    },
+    {
+      "rank": "Colonel", "stars": 5,
+      "promotion_line": { "speaker": "shai", "text": "Five. They are giving me the brigade because the corridor is cut, and it is cut because you kept off the village." }
+    }
   ],
   "villains": {
-    "marj": { "portrait": "nadir_sahim.png" },
-    "sur": { "portrait": "karim_adhal.png" },
-    "naharin": { "portrait": "jubran_hallaq.png" }
+    "marj": {
+      "portrait": "nadir_sahim.png", "name": "Nadir Sahim",
+      "lines": {
+        "at_large": "The digger. Four years under the Marj, and still under it.",
+        "captured": "Taken at the shaft head with his hands empty.",
+        "killed": "Killed at the shaft head. The routes were his; so was the map of them."
+      }
+    },
+    "sur": {
+      "portrait": "karim_adhal.png", "name": "Karim Adhal",
+      "lines": {
+        "at_large": "He has never fired at us. He has seen every round that came back.",
+        "captured": "Taken on the crest. He gave us the road before he gave us his name.",
+        "killed": "Off the crest, with the basin still in front of him."
+      }
+    },
+    "naharin": {
+      "portrait": "jubran_hallaq.png", "name": "Jubran Hallaq",
+      "lines": {
+        "at_large": "Everything under the Marj and over Sur came up his road.",
+        "captured": "Taken at his own gate. He asks what happens to the road.",
+        "killed": "Dead at the gate he would not leave."
+      }
+    }
   }
 }

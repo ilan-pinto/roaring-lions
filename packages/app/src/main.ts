@@ -116,6 +116,7 @@ import {
   parseWorld,
   parseCountries,
   parseCommander,
+  campaignSummary,
   commanderForMission,
   nextMissionAfter,
   regionForTown,
@@ -148,18 +149,6 @@ function loadLedger(): LedgerData {
 
 function saveLedger(ledger: LedgerData): void {
   window.localStorage.setItem(LEDGER_KEY, JSON.stringify(ledger));
-}
-
-function campaignSummary(ledger: LedgerData): string {
-  const roster = ledger['roster.surviving_units'];
-  const roe = ledger['roe.cumulative_rating'];
-  const parts: string[] = [];
-  if (Array.isArray(roster) && roster.length > 0) {
-    const vets = roster.filter((r) => r.veterancy > 0).length;
-    parts.push(`roster ${roster.length}${vets > 0 ? ` (${vets}★)` : ''}`);
-  }
-  if (typeof roe === 'number') parts.push(`Conduct ${roe}`);
-  return parts.length > 0 ? `campaign: ${parts.join(' · ')}` : 'campaign: fresh start';
 }
 
 interface SandboxForce {

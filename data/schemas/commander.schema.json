@@ -50,6 +50,16 @@
           "until_mission": {
             "type": "string",
             "description": "Mission id (data/missions, campaign order) this rank holds through. Omit only on the last entry."
+          },
+          "promotion_line": {
+            "type": "object",
+            "required": ["speaker", "text"],
+            "additionalProperties": false,
+            "description": "The debrief promotion beat's line (spec 2026-09-10 §4.5), announcing promotion INTO this rank -- shown when the completed mission is the PREVIOUS entry's until_mission. Omit on the first rank, which nobody is promoted into.",
+            "properties": {
+              "speaker": { "enum": ["shai", "idit"] },
+              "text": { "type": "string", "minLength": 1 }
+            }
           }
         }
       }
@@ -106,7 +116,23 @@
         "portrait": {
           "type": "string",
           "minLength": 1,
-          "description": "File name (not a path) under assets/ui/portraits/, e.g. \"nadir_sahim.png\". No name field, deliberately -- unlike $defs/person, this def has nowhere to put one: the plate an `enemy` line wears stays the HUD's own literal word, never a lookup."
+          "description": "File name (not a path) under assets/ui/portraits/, e.g. \"nadir_sahim.png\"."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The villain's name in the towns' own fictional register (storyline.md G18), for the campaign board's villain-state line. The in-mission commander bar's `enemy` line still never looks this up -- it stays the HUD's own literal word."
+        },
+        "lines": {
+          "type": "object",
+          "required": ["at_large", "captured", "killed"],
+          "additionalProperties": false,
+          "description": "One line per villain state (at large / captured / killed), for the board under the front's card.",
+          "properties": {
+            "at_large": { "type": "string", "minLength": 1 },
+            "captured": { "type": "string", "minLength": 1 },
+            "killed": { "type": "string", "minLength": 1 }
+          }
         }
       }
     }
