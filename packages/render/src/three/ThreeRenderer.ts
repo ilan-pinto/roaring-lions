@@ -1604,7 +1604,10 @@ export class ThreeRenderer implements Renderer {
     // (STRIPE_COLOR_KEY's own doc comment), with the identical no-resolver
     // fallback shape the numeral above uses for ThreeRenderer.test.ts's own
     // makeOpts().
-    this.chevronBatch = new ChevronBatch(sim.capacity, opts.resolveColor ? opts.resolveColor(STRIPE_COLOR_KEY) : '#E8C33A');
+    // `#E0B87A` is what `dust.0` resolves to in `data/palette.json`, and the
+    // same swatch `theme.css`'s `--commend` maps to -- NOT `team.neutral`'s
+    // `#E8C33A`, which is what this line shipped with.
+    this.chevronBatch = new ChevronBatch(sim.capacity, opts.resolveColor ? opts.resolveColor(STRIPE_COLOR_KEY) : '#E0B87A');
     // Occlusion silhouettes: three colours for the whole scene, resolved
     // once here rather than per unit type or per entity. Indexed by
     // `silhouetteSideIndex` -- see `units/silhouette.ts` for the mechanism

@@ -142,8 +142,9 @@ export interface HudDeps {
   portrait?: (typeId: string) => string | null;
   /** The campaign roster entry a fielded unit was drawn from, if any -- the
    *  card's callsign and service record. Absent in tests and for a fresh spawn
-   *  with no campaign history. */
-  rosterEntryOf?: (id: number) => LedgerRosterEntry | undefined;
+   *  with no campaign history. Readonly, matching `MissionRuntime.rosterEntryOf`:
+   *  this is the runtime's own entry, not a copy, and the HUD only ever reads it. */
+  rosterEntryOf?: (id: number) => Readonly<LedgerRosterEntry> | undefined;
   /** Narrow the selection to one chip's sub-group. */
   setSelection?: (ids: number[]) => void;
   /** Game speed as a multiplier: 0 paused, 1 normal, 2 double. The strip owns
@@ -1191,15 +1192,20 @@ export class Hud {
 
 /** Mission and objective text reaches the strip inside an attribute. Escaped
  *  rather than trusted: it is authored JSON, but an apostrophe in a mission
- *  name would otherwise end the attribute and eat the rest of the strip. */
+ *  name would otherwise end the attribute and eat the rest of the strip.
+ *  For a string landing between tags rather than inside `attr="..."`, use
+ *  `escapeHtml` below -- it escapes `>` instead of `"`, and the two are not
+ *  interchangeable. */
 function escapeAttr(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
 
-/** The same discipline as `escapeAttr`, for a string landing as text content
- *  rather than inside an attribute -- a unit's callsign is authored data (spec
- *  §4.7: assigned by the app, carried opaquely by the sim) and goes through
- *  the same escaping path as every other string built here. */
+/** The same discipline as `escapeAttr` above, for a string landing as TEXT
+ *  CONTENT between tags rather than inside `attr="..."` -- so it escapes `>`
+ *  where `escapeAttr` escapes `"`, and reaching for the wrong one leaves the
+ *  hole the other closes. A unit's callsign is authored data (spec §4.7:
+ *  assigned by the app, carried opaquely by the sim) and goes through the same
+ *  escaping path as every other string built here. */
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

@@ -731,8 +731,14 @@ export class MissionRuntime {
   }
 
   /** The ledger entry a fielded entity was drawn from, if any. The HUD's single-unit
-   *  card reads the name and record off it; a fresh spawn returns undefined. */
-  rosterEntryOf(id: number): LedgerRosterEntry | undefined {
+   *  card reads the name and record off it; a fresh spawn returns undefined.
+   *
+   *  `Readonly` because this hands out the runtime's OWN entry, not a copy, and
+   *  invariant 4 is the reason: a caller that wrote to it would be mutating sim
+   *  state from outside the sim, and the write would reach `checkEnd`'s roster
+   *  through `entityRoster`. Freezing the type is what makes that a compile
+   *  error instead of a save file the player cannot account for. */
+  rosterEntryOf(id: number): Readonly<LedgerRosterEntry> | undefined {
     return this.entityRoster.get(id);
   }
 

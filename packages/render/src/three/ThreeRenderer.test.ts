@@ -31,8 +31,10 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Sim } from '@lions/sim';
+import paletteJson from '../../../../data/palette.json';
 import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
+import { STRIPE_COLOR_KEY } from './units/overlays';
 
 const disposeSpy = vi.fn();
 
@@ -162,5 +164,27 @@ describe('ThreeRenderer.onEvents removed', () => {
     const priv = renderer as unknown as { dying: unknown[] };
     renderer.onEvents([{ kind: 'removed', tick: 0, entity: 0, side: 0 }]);
     expect(priv.dying).toHaveLength(0);
+  });
+});
+
+describe('the chevron fallback colour', () => {
+  // `makeOpts()` supplies no `resolveColor`, which is the one caller shape that
+  // reaches the constructor's literal at all -- in the app `main.ts` always
+  // passes one. A wrong literal is therefore invisible on screen and shows up
+  // only as a test drawing a stripe in some other swatch's colour, so it is
+  // pinned against `data/palette.json` itself rather than a second copy of the
+  // hex. The chevron shipped with `team.neutral`'s `#E8C33A` while its own key
+  // is `dust.0`.
+  const ramps = paletteJson.ramps as Record<string, { colors: string[] }>;
+  const swatch = (key: string): string => {
+    const [band, index] = key.split('.');
+    return ramps[band].colors[Number(index)];
+  };
+
+  it('falls back to the swatch STRIPE_COLOR_KEY resolves to, not to team.neutral', () => {
+    const renderer = new ThreeRenderer(makeSim(), makeOpts());
+    const fill = (renderer as unknown as { chevronBatch: { fillColorHex: string } }).chevronBatch.fillColorHex;
+    expect(fill).toBe(swatch(STRIPE_COLOR_KEY));
+    expect(fill).not.toBe('#E8C33A');
   });
 });

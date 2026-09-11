@@ -714,6 +714,21 @@ describe('the single-unit card', () => {
     expect(card.querySelector('.rl-card__record')?.textContent).toBe('3 missions · 4 kills');
   });
 
+  it('shows the callsign alone for a named unit that carries no record', () => {
+    // An old save's entry: named on a victory before `missions`/`kills` were
+    // written at all, and never fielded since. The callsign is still its name
+    // and must show; "0 missions - 0 kills" would be a fact nobody recorded.
+    const world = makeForce();
+    const r = clusterRig(
+      () => [world.namer],
+      { rosterEntryOf: (id) => (id === world.namer ? { type: 'inf_squad', veterancy: 0, name: 'Keshet' } : undefined) },
+      world
+    );
+    const card = r.host.querySelector<HTMLElement>('.rl-card')!;
+    expect(card.querySelector('.rl-card__callsign')?.textContent).toBe('Keshet');
+    expect(card.querySelector('.rl-card__record')).toBeNull();
+  });
+
   it('a fresh unit has no callsign and no record line', () => {
     const world = makeForce();
     const r = clusterRig(() => [world.namer], { rosterEntryOf: () => undefined }, world);
