@@ -681,6 +681,55 @@ describe('the grade and the debrief figures', () => {
     expect(Object.keys(results)).toEqual(['test_mission', 'zzz_other']); // sorted
   });
 
+  it('writes this run when the ledger has no entry for this mission at all', () => {
+    // The first play of any mission, and the only path a fresh campaign ever
+    // takes. The best-of merge reads a prior that is not there, so nothing
+    // guarded it going in -- and a `campaign.mission_results` that stayed empty
+    // on a fresh save is exactly what the board would have drawn as 0 stars.
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_tank', count: 1, at: [4, 5] }],
+        enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [11, 5], facing_deg: 180 }] },
+        ledger: { requires: [], produces: ['campaign.mission_results'] },
+      })
+      // No ctx at all: no prior ledger, the way a first mission starts.
+    );
+    const { mission } = w.step(90 * TICKS_PER_SECOND);
+    const end = mission.find((e) => e.kind === 'missionEnd');
+    if (end?.kind !== 'missionEnd') throw new Error('no end');
+    const results = end.ledger['campaign.mission_results'] as Record<
+      string,
+      { stars: number; roe: number; lost: number }
+    >;
+    expect(Object.keys(results)).toEqual(['test_mission']);
+    expect(results.test_mission.stars).toBe(2);
+    expect(results.test_mission.roe).toBe(100);
+    expect(results.test_mission.lost).toBe(0);
+  });
+
+  it('records a defeat as zero stars rather than leaving the mission unwritten', () => {
+    // `starsFor` answers 0 for anything but a victory, and the entry is still
+    // written -- a played-and-lost mission is a row on the board reading 0/3,
+    // not a mission the ledger has never heard of. The two are indistinguishable
+    // to `townStars`, which is the argument for pinning it.
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [10, 5] }],
+        enemy: { garrison: [{ unit: 'm_tank', count: 2, at: [16, 5], facing_deg: 180 }] },
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+        ledger: { requires: [], produces: ['campaign.mission_results'] },
+      })
+    );
+    const { mission } = w.step(120 * TICKS_PER_SECOND);
+    const end = mission.find((e) => e.kind === 'missionEnd');
+    if (end?.kind !== 'missionEnd') throw new Error('no end');
+    expect(end.result).toBe('defeat');
+    const r = (end.ledger['campaign.mission_results'] as Record<string, { stars: number; lost: number }>)
+      .test_mission;
+    expect(r.stars).toBe(0);
+    expect(r.lost).toBe(1); // the squad that was wiped
+  });
+
   it('stores this run when it beats the prior, with the real tick and loss counts', () => {
     const w = makeWorld(
       baseMission({
@@ -722,6 +771,43 @@ describe('the grade and the debrief figures', () => {
     const { mission } = w.step(4 * TICKS_PER_SECOND);
     const end = mission.find((e) => e.kind === 'missionEnd');
     if (end?.kind !== 'missionEnd') throw new Error('no end');
+    expect(end.ledger['civ.hostages_recovered']).toEqual({ test_mission: 2 });
+  });
+
+  it('writes the count of an evacuation that actually completes', () => {
+    // The other half of the test above, and the one that matters: two civilians
+    // walk to the refuge, the flagged evacuation completes, and the mission's
+    // own clock then ends it. The count written is the objective's `count`, not
+    // the default 1 -- so a mission that brings four people back says four, and
+    // the board's account of the taken moves by four.
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [11, 6] }],
+        civilians: { groups: [{ unit: 'm_civ', count: 2, at: [12, 6] }], refuge: 'refuge' },
+        objectives: [
+          { id: 'hold', type: 'survive_until', primary: true, seconds: 60 },
+          {
+            id: 'out',
+            type: 'evacuate_before',
+            primary: false,
+            target: 'refuge_zone',
+            count: 2,
+            seconds: 300,
+            hostages: true,
+          },
+        ],
+        ledger: { requires: [], produces: ['civ.hostages_recovered'] },
+      }),
+      { markers: { refuge: [2, 10] }, zones: { clinic: [20, 2, 4, 4], refuge_zone: [0, 8, 6, 4] } }
+    );
+    const { mission } = w.step(60 * TICKS_PER_SECOND);
+    const done = mission.filter(
+      (m) => m.kind === 'objective' && m.id === 'out' && m.status === 'complete'
+    );
+    expect(done).toHaveLength(1);
+    const end = mission.find((e) => e.kind === 'missionEnd');
+    if (end?.kind !== 'missionEnd') throw new Error('no end');
+    expect(end.result).toBe('victory');
     expect(end.ledger['civ.hostages_recovered']).toEqual({ test_mission: 2 });
   });
 });

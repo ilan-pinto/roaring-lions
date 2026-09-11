@@ -269,7 +269,7 @@
           },
           "hostages": {
             "type": "boolean",
-            "description": "This evacuate_before brings back people the enemy took. On completion its count is written to the ledger key civ.hostages_recovered for this mission, and the campaign board's account of the taken moves. Only meaningful on evacuate_before."
+            "description": "This evacuate_before brings back people the enemy took. On completion its count is written to the ledger key civ.hostages_recovered for this mission, and the campaign board's account of the taken moves. Legal ONLY on evacuate_before, and enforced -- the runtime counts a completed hostages objective's `count` and nothing else, so the flag on any other type is a silent no-op that reads in the JSON as though the mission recovers people."
           },
           "text": {
             "type": "string"
@@ -301,8 +301,16 @@
             "description": "Story voice: fires the tick this objective fails, right after the objective/failed event it annotates."
           }
         },
-        "if": { "properties": { "carries": { "const": true } }, "required": ["carries"] },
-        "then": { "properties": { "primary": { "const": false } } }
+        "allOf": [
+          {
+            "if": { "properties": { "carries": { "const": true } }, "required": ["carries"] },
+            "then": { "properties": { "primary": { "const": false } } }
+          },
+          {
+            "if": { "properties": { "hostages": { "const": true } }, "required": ["hostages"] },
+            "then": { "properties": { "type": { "const": "evacuate_before" } } }
+          }
+        ]
       }
     },
     "roe": {

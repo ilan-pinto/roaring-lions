@@ -268,6 +268,21 @@ describe('the town pins', () => {
     expect(a.textContent).toBe('Beit Sahwan 1/5');
   });
 
+  it('shows the town’s stars beside its progress, as the flat board does', async () => {
+    // The two boards are one screen with two renderers behind it, so a
+    // motivation surface that reaches only one of them is a bug the player
+    // meets by switching backends. `worldmap.test.ts` pins the same fact for
+    // the flat board; this is its twin.
+    const town = world.regions[0]!.towns[0]!;
+    const s = mountScreen({
+      'campaign.completed_missions': ['beit_sahwan_breach'],
+      'campaign.mission_results': { [town.missions[0]!]: { stars: 2, roe: 90, ticks: 1, lost: 0 } },
+    });
+    await s.ready;
+    const pin = s.el.querySelector('[data-town="beit_sahwan"]') as HTMLElement;
+    expect(pin.textContent).toContain(`2/${town.missions.length * 3}★`);
+  });
+
   it('gives a locked region’s town no link', async () => {
     const s = mountScreen({});
     await s.ready;
