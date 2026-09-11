@@ -13,8 +13,9 @@ function run(
   expect: 'victory' | 'defeat' | 'ongoing' = 'victory',
   label: string = id,
   /** The grade the plan must reach (spec §4.1). Every winning plan clears ★★ under the
-   *  rule -- the lowest Conduct any plan posts is 75 -- and a control that loses gets 0
-   *  by construction, so the defaults assert the gradient with no per-plan edits. Pass 3
+   *  rule -- the lowest Conduct any plan posts is 70 (`deir_amun_2_foothold`, exactly at
+   *  the 70 default floor, measured 2026-09-11) -- and a control that loses gets 0 by
+   *  construction, so the defaults assert the gradient with no per-plan edits. Pass 3
    *  only where the plan completes every carrying secondary. */
   expectStar: 0 | 1 | 2 | 3 = expect === 'victory' ? 2 : 0
 ): LedgerData {
