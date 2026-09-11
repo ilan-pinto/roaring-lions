@@ -943,6 +943,108 @@ describe('the grade and the debrief figures', () => {
     const roster = end.ledger['roster.surviving_units'] as LedgerRosterEntry[];
     expect(roster[0]?.veterancy).toBe(1);
   });
+
+  it('the observer earns the stripe for a count-based locate too (no target tag)', () => {
+    // Same shape as the tagged test above, but the objective names no target --
+    // the count-based branch (d.target undefined) reads [...this.identified]
+    // instead of a tag's own id list.
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+        enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [7, 5] }] },
+        objectives: [{ id: 'see', type: 'locate', primary: true, count: 1 }],
+        ledger: { requires: [], produces: ['roster.surviving_units'] },
+      })
+    );
+    const { mission } = w.step(20 * TICKS_PER_SECOND);
+    const end = mission.find((e) => e.kind === 'missionEnd');
+    if (end?.kind !== 'missionEnd') throw new Error('no end');
+    const roster = end.ledger['roster.surviving_units'] as LedgerRosterEntry[];
+    expect(roster[0]?.veterancy).toBe(1);
+  });
+
+  it('a collapse credits its route-finder, and only for its OWN snapshotted route (R2)', () => {
+    // Modelled on 'a mark_tunnel unit finds a spoilless route, and the charge it
+    // enables completes a collapse objective' (mission.test.ts, 'the authored
+    // chain' describe): same tn_pre route, same district zone, same marker/
+    // charger fixtures and positions. Built directly (not through makeWorld)
+    // because it needs sim.addTunnel before the runtime exists, exactly as
+    // that test does.
+    //
+    // Four player units: the finder of tn_pre (credited -- it is the route
+    // THIS objective brings down); the charger that collapses tn_pre (gets its
+    // own kill credit for the buried garrison, unrelated to this assertion);
+    // a second mark_tunnel unit that finds tn_other, a route well outside the
+    // collapse zone (R2: found a route, but not the objective's own -- not
+    // credited); and a bystander that finds nor collapses nothing at all (not
+    // credited). tn_other is shifted 22 rows south of tn_pre, and its finder
+    // likewise -- both markers have an 8-tile sight radius, and "first hit
+    // wins" on the lower entity id, so if the tn_pre finder (spawned first)
+    // could also see tn_other, IT would silently steal credit as tn_other's
+    // finder and the R2 assertion below would test nothing.
+    const sim = new Sim({ seed: 7, width: 26, height: 30, capacity: 16 });
+    const types = new Map<string, number>();
+    for (const t of [AMBUSHER, M_MARKER, M_CHARGER, SQUAD]) types.set(t.id, sim.addUnitType(t));
+    const route: TunnelRouteJson = {
+      id: 'tn_pre',
+      points: [[3, 3], [12, 3]],
+      dig_tiles_per_s: 1,
+      pre_dug: true, // finished before the mission began: never any spoil
+    };
+    const otherRoute: TunnelRouteJson = {
+      id: 'tn_other',
+      points: [[3, 25], [12, 25]],
+      dig_tiles_per_s: 1,
+      pre_dug: true,
+    };
+    sim.addTunnel(route);
+    sim.addTunnel(otherRoute);
+    const mission: MissionJson = {
+      id: 'chain_mark_r2',
+      map: { file: 'none' },
+      ledger: { requires: [], produces: ['roster.surviving_units'] },
+      starting_force: [
+        { unit: M_MARKER.id, count: 1, at: [7, 7] }, // finds tn_pre
+        { unit: M_CHARGER.id, count: 1, at: [6, 5] }, // brings tn_pre down
+        { unit: M_MARKER.id, count: 1, at: [7, 29] }, // finds tn_other -- outside the zone
+        { unit: SQUAD.id, count: 1, at: [20, 14] }, // neither finds nor collapses anything
+      ],
+      objectives: [{ id: 'seal', type: 'collapse', primary: true, target: 'district', seconds: 120 }],
+      enemy: { garrison: [{ unit: AMBUSHER.id, count: 1, at: [3, 3], in_tunnel: 'tn_pre' }] },
+    };
+    const rt = new MissionRuntime(sim, mission, {
+      typeIdOf: (u) => {
+        const t = types.get(u);
+        if (t === undefined) throw new Error(`unknown unit ${u}`);
+        return t;
+      },
+      markers: {},
+      zones: { district: [2, 2, 4, 4] }, // holds tn_pre's mouth at (3,3); tn_other's mouth (3,25) is outside it
+      tunnels: [route, otherRoute],
+    });
+    rt.start();
+    // Spawn order is placement order.
+    const [finder, charger, otherFinder, bystander] = [0, 1, 2, 3];
+    // Unlike the test this is modelled on, real sim events are fed to rt.step
+    // here (not `[]`): the contribution bookkeeping this test exercises is
+    // digested from events, where objective-status/tnAlive (all that test
+    // checked) live on the sim itself and update regardless.
+    rt.step(sim.tick());
+    expect(sim.tunnelContactLevel(0, 0)).toBe(2); // tn_pre found
+    expect(sim.tunnelContactLevel(0, 1)).toBe(2); // tn_other found too, by the OTHER marker
+    sim.queueCommand({ kind: 'chargeTunnel', ids: [charger], tunnel: 0 });
+    let end: MissionEvent | undefined;
+    for (let t = 0; t < 200 && !end; t++) {
+      const out = rt.step(sim.tick());
+      end = out.find((e) => e.kind === 'missionEnd');
+    }
+    if (end?.kind !== 'missionEnd') throw new Error('no end');
+    expect(end.result).toBe('victory');
+    const roster = end.ledger['roster.surviving_units'] as LedgerRosterEntry[];
+    expect(roster[finder]?.veterancy).toBe(1); // the finder of the route THIS objective brought down
+    expect(roster[otherFinder]?.veterancy).toBe(0); // found a route, but not this objective's (R2 scoping)
+    expect(roster[bystander]?.veterancy).toBe(0); // neither found nor collapsed anything
+  });
 });
 
 describe('veterancy has combat meaning', () => {

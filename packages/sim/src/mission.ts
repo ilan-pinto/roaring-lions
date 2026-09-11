@@ -1254,6 +1254,10 @@ export class MissionRuntime {
         // and what the combat model may shoot at. Writing only the first is how a
         // pre-marked ambusher satisfied its objective while staying invisible on
         // screen -- green tests, nothing on the map.
+        // No `identifiedBy` entry follows this add: nobody earns a stripe for
+        // intel carried in from a PRIOR mission -- a stripe is for what a unit
+        // did THIS mission, and a locate completed entirely off carry-over
+        // credits nobody. Intended, not a gap.
         this.identified.add(id);
         this.sim.identifyTo(0, id);
       }
