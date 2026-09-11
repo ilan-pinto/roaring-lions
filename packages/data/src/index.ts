@@ -8,6 +8,7 @@ import audioManifest from '../../../data/audio.json';
 import worldJson from '../../../data/campaign/world.json';
 import countriesJson from '../../../data/campaign/countries.json';
 import commanderJson from '../../../data/campaign/commander.json';
+import namesJson from '../../../data/campaign/names.json';
 import beitSahwanOutskirts from '../../../data/maps/beit_sahwan_outskirts.json';
 // Beit Sahwan's per-mission variants (docs/campaign/map-variants-design.md
 // §3.2): same 48x48 frame, same markers/zones, same `tunnels` block, same
@@ -231,6 +232,12 @@ export const countries = countriesJson;
  *  Shai's rank per campaign span. Shape matches commander.schema.json;
  *  parsed by app/src/campaign.ts (`parseCommander`). */
 export const commander = commanderJson;
+
+/** The screened tables units are named from (spec §4.7): squads, vehicles and
+ *  task units, plus the `kinds` block that sorts a unit type into one of the
+ *  three. Shape matches `@lions/app`'s `NamesJson`; the app assigns names,
+ *  never the sim. */
+export const names = namesJson;
 
 export type MissionId = keyof typeof missions;
 

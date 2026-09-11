@@ -5,6 +5,7 @@
 // an accumulator; the renderer interpolates between ticks (invariant 1).
 
 import { objectiveZonesFor } from './objective-zones';
+import { assignNames, nameKind, type NameKind, type NamesJson } from './names';
 import {
   Sim,
   fx,
@@ -42,6 +43,7 @@ import {
   world,
   countries,
   commander,
+  names,
   structures as structureCatalogue,
   parseMap,
   applyTerrain,
@@ -158,6 +160,14 @@ function loadLedger(): LedgerData {
 
 function saveLedger(ledger: LedgerData): void {
   window.localStorage.setItem(LEDGER_KEY, JSON.stringify(ledger));
+}
+
+/** `{ id, role }` for `nameKind` (spec §4.7), from the same `units` catalogue every
+ *  other lookup in this file reads. An unknown id (a future or removed unit type
+ *  surviving in an old save) falls back to a plain squad rather than throwing. */
+function unitFor(typeId: string): { id: string; role: string } {
+  const u = units[typeId as keyof typeof units] as { id: string; role: string } | undefined;
+  return u ?? { id: typeId, role: 'infantry' };
 }
 
 interface SandboxForce {
@@ -1904,6 +1914,19 @@ async function main(): Promise<void> {
           renderer.clearTutorialFocus();
           const updatedLedger = { ...ledger, ...me.ledger };
           if (me.result === 'victory') {
+            // Names are issued here, on the victory path only -- a defeat writes
+            // nothing to the ledger at all (see the comment above LEDGER_KEY), so
+            // there is no roster to name and no counter to advance. Table order and
+            // the `campaign.names_issued` counter are the whole mechanism (spec
+            // §4.7); nothing here draws from the sim's RNG.
+            const rosterIn = updatedLedger['roster.surviving_units'];
+            if (Array.isArray(rosterIn)) {
+              const issuedIn =
+                (updatedLedger['campaign.names_issued'] as Record<NameKind, number> | undefined) ?? { squad: 0, vehicle: 0, task: 0 };
+              const named = assignNames(rosterIn, issuedIn, (typeId) => nameKind(unitFor(typeId), names as NamesJson), names as NamesJson);
+              updatedLedger['roster.surviving_units'] = named.roster;
+              updatedLedger['campaign.names_issued'] = named.issued;
+            }
             saveLedger(updatedLedger);
             hud.note('<b>campaign ledger updated</b> — survivors and Conduct carried forward', 'info');
           }
