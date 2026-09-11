@@ -206,14 +206,20 @@ crossing two lists. The name is assigned **in the app**, deterministically from 
 roster index, unit type), and stored as `name` on `LedgerRosterEntry`. It never draws from
 the sim's per-entity RNG: `Rng.state` is folded into the state hash and `Sim.spawn` consumes
 zero draws today, so one draw would move the golden hash and every later roll for that
-entity.
+entity. As built the derivation is not that tuple: names are issued by a per-kind counter on
+the ledger (`campaign.names_issued`) in table order, which guarantees uniqueness within a run
+rather than reproducibility from a mission id -- a replayed mission issues NEW names to its
+survivors, and names consumed by a roster the player then discards are not reclaimed.
 
 Prerequisite sim fix: `checkEnd` currently rebuilds the roster from `playerIds` only, so a
 pool entry that was not fielded is silently dropped; unfielded entries carry forward
 unchanged. The record (missions served, stripes, kills, whether it has ever been lost and
 replaced) shows in the single-unit card (`hud.ts` `cardHtml`, which already prints stripes)
-and never in the type chips. A chevron draws at render band 1.5 as its own atlas quad, both
-mesh and billboard paths.
+and never in the type chips. As built the record carries missions, stripes and kills only,
+and "lost and replaced" is deferred to step 3: a dead unit leaves the roster entirely, and
+the fresh remnant that fills its place is a new entry with no link to the slot it fills, so
+recording it needs a durable slot identity the roster does not have yet. A chevron draws at
+render band 1.5 as its own atlas quad, both mesh and billboard paths.
 
 ### 4.8 The veterancy earn rule
 

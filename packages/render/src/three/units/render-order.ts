@@ -38,12 +38,12 @@
  * | -1   | `WORLD_RENDER_ORDER`     | Opaque, depth-writing WORLD geometry that units stand in front of and behind -- today, mesh buildings (`units/mesh-building.ts`, idle and wreck alike). Every band in this table above 0 is about compositing translucent things in the right order; this one is not, and it is the only band whose value has an effect on an OPAQUE mesh, where the depth buffer normally makes submission order irrelevant. It was added for `units/silhouette.ts`'s stencil mask, which back when the silhouette was a solid FILL was stamped only where a unit body's fragment WON the depth test -- true only once everything that could beat it had already drawn. three.js's opaque sort is `groupOrder, renderOrder, material.id, z` -- `material.id` BEFORE `z` -- so at band 0 the draw order between a unit and a building is decided by which template happened to load first, and on `beit_sahwan_outskirts` it is the units (measured: unit materials 164-167, building materials 246-250). A tank behind an apartment therefore stamped the mask while only terrain was in the depth buffer, the building overwrote the colour but not the mask, and the tank's own silhouette was masked out down to a few slivers. **That dependency is gone.** The outline needs the mask to mean "a unit's footprint covers this pixel", so a body now stamps on `stencilZFail` as well, which no depth test and therefore no draw order can change. The band stays because it is still correct, still free, and still where a future opaque occluder belongs -- but it is no longer load-bearing, and reverting it would not bring the slivers back. |
  * | 0    | `HULL_RENDER_ORDER`      | every `UnitInstancer` hull mesh -- three.js's own default, never set explicitly. `StructureInstancer` (idle/wreck billboards) ties here too, left at the same unset default -- real depth-tested world geometry, occluding units and buildings against each other purely through the actual depth buffer, exactly like Pixi's own `spriteLayer` depth-sorts buildings and units together by `zIndex` rather than giving buildings a separate paint pass. `STRUCTURE_RENDER_ORDER` (Task B4.4) is this same value, aliased and exported explicitly for the one caller that needs to SET it rather than merely rely on the default -- see that constant's own doc comment below for why. |
  * | 1    | `TURRET_RENDER_ORDER`    | every `UnitInstancer` turret mesh -- must outrank its own hull at a co-located, identical-depth instance (`instances.ts`'s own "why this needs to be explicit" comment) |
- * | 1.5  | `BADGE_NUMERAL_RENDER_ORDER` | Phase C: the control-group badge's NUMERAL only -- see this file's closing paragraphs for why it cannot share `OVERLAY_RENDER_ORDER` (band 4) with the rest of the overlay tier, including its own ring. Deliberately a non-integer: it has to sit strictly between `TURRET_RENDER_ORDER` and `FX_RENDER_ORDER`, and nothing was free there before Phase C claimed it. |
+ * | 1.5  | `BADGE_NUMERAL_RENDER_ORDER` | Every TEXTURED quad in the overlay tier -- two of them today: the control-group badge's NUMERAL (`NumeralBatch`, Phase C) and the veterancy chevron (`ChevronBatch`, spec 2026-09-10 §4.7). Neither can share `OVERLAY_RENDER_ORDER` (band 4) with the vertex-coloured rest of that tier, the badge's own ring included -- see this file's closing paragraphs for the Pixi relation that settles it for the numeral, and `units/overlays.ts`'s own top comment for why a textured quad is its own batch at all. The chevron joined rather than claiming a band of its own because it is the same KIND of thing, drawn the same way, needing the same one relation (above the vertex-coloured tier), and a second fraction would have implied an ordering between numeral and chevron that nothing needs: they are at opposite corners of the same unit and cannot overlap. The constant keeps the badge's name for the same reason `STRUCTURE_RENDER_ORDER` keeps its own -- renaming a band every consumer already imports buys nothing this row does not say. Deliberately a non-integer: it has to sit strictly between `TURRET_RENDER_ORDER` and `FX_RENDER_ORDER`, and nothing was free there before Phase C claimed it. |
  * | 2    | `FX_RENDER_ORDER`        | `TracerBatch` and the BELOW-tier, normal-blended `ParticleInstancer` (Pixi's `fxG`) -- still depth-tested against terrain/buildings/units, so must outrank every unit mesh, hull AND turret, now that FX's own materials are `depthWrite: false` (`fx.ts`'s "FX-vs-UNIT ordering is a DIFFERENT question") |
  * | 2.5  | `FX_RENDER_ORDER_ADDITIVE` | the BELOW-tier's `additive`-flagged `ParticleInstancer` (`units/fx.ts`'s `createParticleMaterial`, the `additive` schema field) -- forced-opaque hot-core particles (`vfx.white_hot`-class effects), which must draw AFTER this tier's own normal siblings or an ordinary dust/smoke particle that happens to submit later would opaquely overwrite the hot core it should sit on top of. Not a GPU blend-mode band (`fx.ts`'s own doc comment explains why true `AdditiveBlending` was rejected -- it sums to colours no palette entry names) -- this is still `depthTest: true`, normal-blended-but-forced-to-alpha-1 geometry, one band later than its sibling for exactly the ordering reason just given. |
  * | 3    | `FX_RENDER_ORDER_ABOVE`  | the ABOVE-tier, normal-blended `ParticleInstancer` (`above_units`-tagged emitters, Pixi's `fxAboveG`) -- `depthTest: false`, unconditionally on top |
  * | 3.5  | `FX_RENDER_ORDER_ABOVE_ADDITIVE` | the ABOVE-tier's `additive`-flagged `ParticleInstancer` -- same forced-opaque hot-core treatment as band 2.5, one band after `FX_RENDER_ORDER_ABOVE` for the identical reason: it must draw over this tier's own normal siblings (muzzle-flash cores over their own ring/smoke), not the other way around. Every shipped `additive: true` particle today lands here (all eleven `above_units` fire/cigarette emitters) -- band 2.5 exists for schema completeness, not because anything currently populates it. |
- * | 4    | `OVERLAY_RENDER_ORDER`   | Phase C: `OverlayBatch` (`units/overlays.ts`) -- selection rings, HP bars, suppression bars, the control-group badge's RING (not its numeral, see band 1.5 above), order markers, the tutorial focus ring, and the garrison hover highlight. One shared band for the whole tier, matching Pixi's own single `unitsG` exactly (this file's closing paragraphs explain why Pixi has only the one container despite drawing all of this). |
+ * | 4    | `OVERLAY_RENDER_ORDER`   | Phase C: `OverlayBatch` (`units/overlays.ts`) -- selection rings, HP bars, suppression bars, the control-group badge's RING (not its numeral, and not the veterancy chevron; both of those are textured and sit at band 1.5 above), order markers, the tutorial focus ring, and the garrison hover highlight. One shared band for the whole tier, matching Pixi's own single `unitsG` exactly (this file's closing paragraphs explain why Pixi has only the one container despite drawing all of this). |
  * | 5    | `SMOKE_RENDER_ORDER`     | Phase D readiness fix: `SmokeMesh` (`../smoke-mesh.ts`) -- one translucent quad per smoked tile. Pixi's own smoke loop draws into the SAME `unitsG` every band-4 overlay does (`renderer.ts`'s smoke block runs later in the identical per-frame method, after the order-marker/tutorial-focus passes, still before `fogG`), so on screen it paints OVER the overlay tier, not merely alongside it -- a dedicated band one above `OVERLAY_RENDER_ORDER`, rather than folding smoke into `OverlayBatch` itself, reproduces that draw-order relationship without depending on which of two independently-constructed meshes happens to get a lower `Object3D.id` (this file's own top comment: id is the tiebreak of last resort, and relying on construction order to encode a real ordering requirement is the exact hazard the badge-numeral/turret history above already paid for once). `depthTest: false`, matching fog and the overlay tier -- Pixi's comment ("drawn over the ground and under the units so troops inside one still read") is about ALPHA legibility (smoke tops out at 0.72), not depth occlusion; Pixi's own container order paints it over units regardless, translucently. |
  * | 6    | `SILHOUETTE_RENDER_ORDER` | The occlusion silhouette (`units/silhouette.ts`): a team-coloured OUTLINE of a unit's own shape, drawn ONLY where the unit already lost the depth test to something in front of it -- an inverted hull whose interior the stencil punches out. Unlike every other band in this table, its material is neither `depthTest: false` nor an ordinary `LessEqualDepth` -- it is `depthTest: true` with the comparison INVERTED (`GreaterDepth`) plus a view-space bias, so "which pixels" is settled by the depth buffer and this number settles only "in what order". See that module's own top comment for the mechanism and for the fog guarantee (a silhouette rides the body's own `Object3D.visible`, or the hull's own `instanceMatrix`/`count` -- it never re-derives visibility). Why band 6 and not one of the fractional slots below band 4: see this file's closing "Update, the silhouette band" paragraph. |
  * | 7-9  | *(reserved, no constant)* | Still headroom, now that Phase C claimed band 4, the Phase D readiness fix claimed band 5 and the silhouette claimed band 6 -- kept reserved rather than renumbering `FOG_RENDER_ORDER` down, on the same "reserving the NUMBERS costs nothing, reserving unconsumed CONSTANTS recreates the hazard" reasoning this table's top comment already gives. |
@@ -97,7 +97,8 @@
  * tier, and Phase C took the "one shared overlay band" option the paragraph
  * above always allowed: `OVERLAY_RENDER_ORDER` (band 4) is one `unitsG`-
  * shaped bucket, matching Pixi exactly, for every overlay this table names
- * except the badge numeral (its own band, 1.5, above). Bands 5-9 stay
+ * except the textured ones -- the badge numeral and the veterancy chevron,
+ * which share band 1.5 above. Bands 5-9 stay
  * reserved and undeclared -- Phase C did not need a second band, and this
  * module remains where any of it gets added if a future task does: one
  * file, one ascending list, so the next collision is a merge conflict or a
@@ -187,13 +188,22 @@ export const WORLD_RENDER_ORDER = -1;
 export const HULL_RENDER_ORDER = 0;
 export const TURRET_RENDER_ORDER = 1;
 /**
- * Phase C: the control-group badge's NUMERAL alone -- see the table's own
- * 1.5 row and the closing paragraphs' "one exception... a control-group
- * badge is SPLIT across two containers" section for why this cannot be
- * `OVERLAY_RENDER_ORDER`. Deliberately not an integer: it has to sit
- * strictly between `TURRET_RENDER_ORDER` and `FX_RENDER_ORDER`, and every
- * integer in that neighbourhood was already claimed before Phase C needed
- * this one.
+ * The textured quads of the overlay tier. TWO consumers, not one, despite
+ * the name: `NumeralBatch` (the control-group badge's numeral, Phase C) and
+ * `ChevronBatch` (the veterancy chevron, spec 2026-09-10 §4.7). Both are
+ * textured quads that must sit above the vertex-coloured overlay tier; see
+ * the table's own 1.5 row for why they share one band rather than taking a
+ * fraction each, and the closing paragraphs' "one exception... a control-
+ * group badge is SPLIT across two containers" section for why neither can be
+ * `OVERLAY_RENDER_ORDER`.
+ *
+ * The name is the badge's because the badge got here first, and renaming a
+ * band every consumer already imports would buy nothing the line above does
+ * not already say -- the same call `STRUCTURE_RENDER_ORDER` makes.
+ *
+ * Deliberately not an integer: it has to sit strictly between
+ * `TURRET_RENDER_ORDER` and `FX_RENDER_ORDER`, and every integer in that
+ * neighbourhood was already claimed before Phase C needed this one.
  */
 export const BADGE_NUMERAL_RENDER_ORDER = 1.5;
 export const FX_RENDER_ORDER = 2;
@@ -214,9 +224,10 @@ export const FX_RENDER_ORDER_ABOVE = 3;
 export const FX_RENDER_ORDER_ABOVE_ADDITIVE = 3.5;
 /**
  * Phase C: `OverlayBatch` (`units/overlays.ts`) -- every overlay this
- * table's own 4-9 row and closing paragraphs describe, EXCEPT the badge
- * numeral (`BADGE_NUMERAL_RENDER_ORDER` above). One band for the whole
- * tier, matching Pixi's own single `unitsG` container.
+ * table's own 4-9 row and closing paragraphs describe, EXCEPT the two
+ * textured quads, the badge numeral and the veterancy chevron
+ * (`BADGE_NUMERAL_RENDER_ORDER` above). One band for the whole tier,
+ * matching Pixi's own single `unitsG` container.
  */
 export const OVERLAY_RENDER_ORDER = 4;
 /**

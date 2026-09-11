@@ -867,6 +867,23 @@ it compares `window.localStorage.length` before and after, and both are
 
 ## Known scaling debts
 
+- **`roster.surviving_units` is CUMULATIVE since the motivation-layer branch, and it
+  grows every mission.** `checkEnd` used to rebuild the roster from `playerIds` alone, so
+  a pool entry no placement fielded was silently deleted; it now writes the fielded
+  survivors and then appends every unfielded pool entry unchanged (spec §4.7). The
+  consequence nobody asked for is arithmetic: a mission's survivors include units that
+  were never in the pool -- every `starting_force` placement without `from_ledger` spawns
+  fresh, and whatever lives writes a NEW entry -- so the pool APPENDS rather than
+  replaces, and replaying a mission appends again. Measured in `pnpm playtest`: the Beit
+  Sahwan chain's final roster went **10 -> 23** and Umm Zeitoun's **12 -> 26** (re-measured
+  2026-09-11: 23 and 26 stand, with `beit_sahwan_1_recon` already at 17). Nothing in the
+  sim scans the roster per tick, so this is not a tick cost -- it is a SAVE that grows
+  without bound and a deploy panel that would have named a force three times the size of
+  the one on the map. The panel is fixed (`broughtFor` scopes to this mission's own
+  `from_ledger` draws and prints the rest as one `N in reserve` line); the roster itself
+  is not capped, deliberately. **Whether the roster or the reserve gets a cap, and what
+  falls off it, is a step-3 decision** -- a cap is a game rule (which veteran do you
+  lose?) and picking one here would have been a balance change smuggled in as a bugfix.
 - Detection is O(N²) pairs per tick. **The "~150 units" figure this line used to
   carry was a guess and it was wrong by an order of magnitude** — measured
   2026-08-30 (`docs/PERFORMANCE.md`, "Sim tick cost"), the 300-unit GDD target
