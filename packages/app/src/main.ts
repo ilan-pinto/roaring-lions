@@ -327,6 +327,12 @@ async function main(): Promise<void> {
         world: worldData,
         countries: parseCountries(countries),
         ledger: loadLedger(),
+        // Parsed here rather than reusing a hoisted `commanderData`: that
+        // name is not in scope on this branch, which returns before the
+        // mission-specific commander resolution below ever runs.
+        commander: parseCommander(commander),
+        missionOf: (id) => (missions as Record<string, MissionJson | undefined>)[id],
+        portraitUrl: commanderPortraitUrl,
       });
       return;
     }

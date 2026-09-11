@@ -15,9 +15,14 @@ import type { LedgerData } from '@lions/sim';
 
 import {
   campaignRoe,
+  hostagesAccount,
+  hostagesLine,
   nextMissionOf,
   regionProgress,
   townProgress,
+  townStars,
+  villainState,
+  type CommanderData,
   type ParsedWorld,
   type WorldCountry,
   type WorldRegion,
@@ -30,6 +35,13 @@ export interface WorldMapOptions {
   countries: readonly WorldCountry[];
   ledger: LedgerData;
   href: (missionId: string) => string;
+  commander?: CommanderData;
+  missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[] } | undefined;
+  /** Resolves a villain's bare portrait file name to a URL an `<img>` can
+   *  load -- the same `portrait-catalogue.ts` function the commander bar
+   *  uses, handed in from `main.ts` because this module has no browser-side
+   *  asset resolver of its own. */
+  portraitUrl?: (file: string) => string | undefined;
 }
 
 /** viewBox the town coordinates in world.json are expressed in. */
@@ -169,6 +181,7 @@ export function worldMap(opts: WorldMapOptions): HTMLElement {
         marker.addEventListener('focusout', () => g.removeAttribute('data-hover'));
       }
 
+      const stars = townStars(town, opts.ledger);
       const label = `${town.name}${tp.total > 0 ? ` ${tp.done}/${tp.total}` : ''}`;
       if (next !== null && p.status !== 'locked') {
         const a = document.createElement('a');
@@ -178,6 +191,9 @@ export function worldMap(opts: WorldMapOptions): HTMLElement {
         marker.appendChild(a);
       } else {
         marker.appendChild(el('span', 'rl-world__townname', label));
+      }
+      if (stars.possible > 0) {
+        marker.appendChild(el('span', 'rl-world__stars', ` ${stars.earned}/${stars.possible}★`));
       }
       board.appendChild(marker);
     }
@@ -189,14 +205,22 @@ export function worldMap(opts: WorldMapOptions): HTMLElement {
   for (const region of opts.world.regions) cards.appendChild(regionCard(region, opts));
   wrap.appendChild(cards);
 
-  wrap.appendChild(ledgerLine(opts.ledger));
+  wrap.appendChild(ledgerLine(opts.ledger, opts.world));
   return wrap;
 }
 
 /** One region's status card. Exported because the 3D board (`worldmap3d.ts`)
  *  shows the identical column beside its diorama: the boards differ in how
  *  the ground is drawn, and must not differ in what the cards say. */
-export function regionCard(region: WorldRegion, opts: { ledger: LedgerData }): HTMLElement {
+export function regionCard(
+  region: WorldRegion,
+  opts: {
+    ledger: LedgerData;
+    commander?: CommanderData;
+    missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[] } | undefined;
+    portraitUrl?: (file: string) => string | undefined;
+  }
+): HTMLElement {
   const p = regionProgress(region, opts.ledger);
   const card = el('div', 'rl-world__card');
   card.dataset.regionCard = region.id;
@@ -213,13 +237,35 @@ export function regionCard(region: WorldRegion, opts: { ledger: LedgerData }): H
         : `${p.done} / ${p.total} missions`;
   card.appendChild(el('div', 'rl-world__cardprogress', progress));
   card.appendChild(el('span', 'rl-world__badge', p.status));
+
+  const villain = opts.commander?.villains?.[region.id];
+  if (villain && opts.missionOf) {
+    const state = villainState(region, opts.ledger, opts.missionOf);
+    const box = el('div', 'rl-world__villain');
+    box.dataset.villain = region.id;
+    box.dataset.state = state;
+    const face = document.createElement('img');
+    face.className = 'rl-world__villain-face';
+    face.alt = '';
+    if (villain.portrait && opts.portraitUrl) {
+      const src = opts.portraitUrl(villain.portrait);
+      if (src) face.src = src;
+    }
+    const text = el('div', '');
+    text.appendChild(el('div', 'rl-world__villain-name', villain.name ?? region.faction));
+    if (villain.lines) text.appendChild(el('div', 'rl-world__villain-line', villain.lines[state]));
+    box.append(face, text);
+    card.appendChild(box);
+  }
   return card;
 }
 
 /** Roster, campaign ROE, and -- when the rating is dragging -- the mission dragging it.
  *  #22 asks for the ledger to be visible and for a low rating to be explainable, and a
- *  bare number explains nothing. */
-export function ledgerLine(ledger: LedgerData): HTMLElement {
+ *  bare number explains nothing. `world`, when given, adds the account of the taken
+ *  (spec 2026-09-10 §4.4) as a sibling line under this one -- absent on a world that
+ *  declares no `taken` count at all, the same as `hostagesAccount` itself. */
+export function ledgerLine(ledger: LedgerData, world?: ParsedWorld): HTMLElement {
   const line = el('div', 'rl-world__ledger rl-info');
   const parts: string[] = [];
 
@@ -239,5 +285,10 @@ export function ledgerLine(ledger: LedgerData): HTMLElement {
   }
 
   line.textContent = parts.length > 0 ? parts.join(' · ') : 'campaign: fresh start';
-  return line;
+
+  const wrap = el('div', 'rl-world__ledgerwrap');
+  wrap.appendChild(line);
+  const account = world ? hostagesAccount(world, ledger) : null;
+  if (account) wrap.appendChild(el('div', 'rl-world__taken', hostagesLine(account)));
+  return wrap;
 }

@@ -7,7 +7,7 @@ import type { LedgerData } from '@lions/sim';
 // makes it playable from the UI with no edit here. `terrain-parity.test.ts`
 // takes `Object.keys(maps)` the same way, for the same reason.
 import { maps, type MapJson } from '@lions/data';
-import type { ParsedWorld, WorldCountry } from '../campaign';
+import type { CommanderData, ParsedWorld, WorldCountry } from '../campaign';
 import { CAMPAIGN_MESHES, dracoDecoderPath, meshUrl } from '../mesh-catalogue';
 import { RENDERER_STORAGE_KEY, resolveRendererChoice } from '../renderer-choice';
 import { SANDBOX_FLAGS, sandboxUrl, type SandboxFlagName } from '../sandbox-help';
@@ -38,6 +38,11 @@ export interface CampaignOptions {
   /** Generated country geometry for the world render's overlay. */
   countries: readonly WorldCountry[];
   ledger: LedgerData;
+  commander?: CommanderData;
+  missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[] } | undefined;
+  /** Resolves a villain's bare portrait file name to a URL, threaded to both
+   *  boards -- neither builds a `portraits/...` path itself. */
+  portraitUrl?: (file: string) => string | undefined;
 }
 
 export function showMenu(stage: HTMLElement, opts: MenuOptions): void {
@@ -209,6 +214,9 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): void {
       countries: opts.countries,
       ledger: opts.ledger,
       href,
+      commander: opts.commander,
+      missionOf: opts.missionOf,
+      portraitUrl: opts.portraitUrl,
     });
   // A world with no GLB in the catalogue has no diorama to draw, and
   // `meshUrl` throws by name for a catalogue entry whose file is gone. Both
@@ -237,6 +245,9 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): void {
         // hand it the decoder every shipped GLB now needs.
         dracoDecoderPath: dracoDecoderPath(),
         fallback: flat,
+        commander: opts.commander,
+        missionOf: opts.missionOf,
+        portraitUrl: opts.portraitUrl,
       }).el
     );
   }

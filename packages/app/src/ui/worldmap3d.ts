@@ -59,6 +59,8 @@ import {
   nextMissionOf,
   regionProgress,
   townProgress,
+  townStars,
+  type CommanderData,
   type ParsedWorld,
   type RegionStatus,
   type WorldRegion,
@@ -127,6 +129,12 @@ export interface World3dOptions {
    *  diorama cannot be drawn, and building it eagerly would mean every
    *  player parsing an SVG overlay they will not see. */
   fallback: () => HTMLElement;
+  commander?: CommanderData;
+  missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[] } | undefined;
+  /** Resolves a villain's bare portrait file name to a URL, same as the flat
+   *  board's `WorldMapOptions.portraitUrl` -- both boards get it from
+   *  `main.ts`, never build a `portraits/...` path themselves. */
+  portraitUrl?: (file: string) => string | undefined;
   /** Test seams. `mount` defaults to the real dynamic import, `webgl` to a
    *  live context probe, `navigate` to a real navigation. */
   mount?: MountWorldView;
@@ -236,6 +244,7 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
       // Nothing is placed until the board has drawn a frame. A pin at 0,0 in
       // the corner reads as a bug, so it is hidden until it has a position.
       marker.dataset.placed = '0';
+      const stars = townStars(town, ledger);
       const label = `${town.name}${total > 0 ? ` ${done}/${total}` : ''}`;
       if (next !== null && p.status !== 'locked') {
         const a = document.createElement('a');
@@ -245,6 +254,9 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
         marker.appendChild(a);
       } else {
         marker.appendChild(el('span', 'rl-world__townname', label));
+      }
+      if (stars.possible > 0) {
+        marker.appendChild(el('span', 'rl-world__stars', ` ${stars.earned}/${stars.possible}★`));
       }
       pins.appendChild(marker);
       pinFor.set(town.id, marker);
@@ -286,12 +298,17 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
   const cards = el('div', 'rl-world__cards');
   const cardFor = new Map<string, HTMLElement>();
   for (const region of world.regions) {
-    const card = regionCard(region, { ledger });
+    const card = regionCard(region, {
+      ledger,
+      commander: opts.commander,
+      missionOf: opts.missionOf,
+      portraitUrl: opts.portraitUrl,
+    });
     cards.appendChild(card);
     cardFor.set(region.id, card);
   }
   wrap.appendChild(cards);
-  wrap.appendChild(ledgerLine(ledger));
+  wrap.appendChild(ledgerLine(ledger, world));
 
   const speak = (text: string, tone: 'hint' | 'good' | 'bad' | 'info'): void => {
     say.textContent = text;

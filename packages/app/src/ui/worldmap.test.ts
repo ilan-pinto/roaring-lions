@@ -3,8 +3,9 @@ import { describe, expect, it } from 'vitest';
 
 import worldJson from '../../../../data/campaign/world.json';
 import countriesJson from '../../../../data/campaign/countries.json';
+import commanderJson from '../../../../data/campaign/commander.json';
 import type { LedgerData } from '@lions/sim';
-import { parseCountries, parseWorld } from '../campaign';
+import { parseCommander, parseCountries, parseWorld, type CommanderData } from '../campaign';
 import { worldMap } from './worldmap';
 import { showCampaign, showMenu } from './menu';
 
@@ -16,8 +17,12 @@ const ALL_BS = world.regions[0]!.towns[0]!.missions;
 // region-wide mission count rather than one town's.
 const ALL_MARJ = world.regions[0]!.towns.flatMap((t) => t.missions);
 
-const render = (ledger: LedgerData): HTMLElement =>
-  worldMap({ base: '/', world, countries, ledger, href: (id) => `?mission=${id}` });
+const render = (
+  ledger: LedgerData,
+  commander?: CommanderData,
+  missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[] } | undefined
+): HTMLElement =>
+  worldMap({ base: '/', world, countries, ledger, href: (id) => `?mission=${id}`, commander, missionOf });
 
 const statusOf = (el: HTMLElement, region: string): string | null =>
   el.querySelector(`#region-${region}`)?.getAttribute('data-status') ?? null;
@@ -240,5 +245,27 @@ describe('showCampaign', () => {
     expect(stage.querySelector('[data-town="beit_sahwan"]')).not.toBe(null);
     const back = stage.querySelector('[data-kind="back"]') as HTMLAnchorElement;
     expect(back.getAttribute('href')).toBe('?');
+  });
+});
+
+describe("the board's motivation surfaces", () => {
+  it('shows each town\'s stars beside its progress', () => {
+    const first = ALL_BS[0]!;
+    const el = render({ 'campaign.mission_results': { [first]: { stars: 2, roe: 90, ticks: 1, lost: 0 } } });
+    const pin = el.querySelector('[data-town="beit_sahwan"]')!;
+    expect(pin.textContent).toContain(`2/${ALL_BS.length * 3}★`);
+  });
+
+  it('shows a villain card per front, at large until the front is done', () => {
+    const el = render({}, parseCommander(commanderJson), () => undefined);
+    const card = el.querySelector('[data-villain="marj"]')!;
+    expect(card.textContent).toContain('Nadir Sahim');
+    expect(card.getAttribute('data-state')).toBe('at_large');
+    expect(card.textContent).toContain('The digger.');
+  });
+
+  it('keeps the account of the taken under the cards', () => {
+    const el = render({ 'civ.hostages_recovered': { beit_sahwan_4_subterranean: 2 } });
+    expect(el.querySelector('.rl-world__taken')?.textContent).toBe('Seventeen still out.');
   });
 });
