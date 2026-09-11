@@ -11,7 +11,12 @@ function run(
   plan: Plan,
   ledger: LedgerData = {},
   expect: 'victory' | 'defeat' | 'ongoing' = 'victory',
-  label: string = id
+  label: string = id,
+  /** The grade the plan must reach (spec §4.1). Every winning plan clears ★★ under the
+   *  rule -- the lowest Conduct any plan posts is 75 -- and a control that loses gets 0
+   *  by construction, so the defaults assert the gradient with no per-plan edits. Pass 3
+   *  only where the plan completes every carrying secondary. */
+  expectStar: 0 | 1 | 2 | 3 = expect === 'victory' ? 2 : 0
 ): LedgerData {
   const mission = missions[id] as unknown as MissionJson;
   const map = parseMap(maps[mission.map.file as keyof typeof maps]);
@@ -91,12 +96,16 @@ function run(
   }
   const mins = (t / TICKS_PER_SECOND / 60).toFixed(1);
   console.log(
-    `${label}: ${rt.result.toUpperCase()} in ${mins} min, ROE ${rt.roeScore}, ` +
+    `${label}: ${rt.result.toUpperCase()} in ${mins} min, ROE ${rt.roeScore}, stars ${rt.stars}, ` +
       `objectives ${rt.objectiveList.map((o) => `${o.id}=${o.status[0]}`).join(' ')}, ` +
       `roster out ${(produced['roster.surviving_units'] ?? []).length}`
   );
   if (rt.result !== expect) {
     console.error(`${label}: FAILED — expected ${expect.toUpperCase()}, got ${rt.result.toUpperCase()}`);
+    process.exitCode = 1;
+  }
+  if (rt.stars < expectStar) {
+    console.error(`${label}: FAILED — expected ${expectStar} star(s), got ${rt.stars}`);
     process.exitCode = 1;
   }
   return produced;
