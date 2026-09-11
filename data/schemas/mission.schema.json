@@ -258,6 +258,10 @@
           "primary": {
             "type": "boolean"
           },
+          "carries": {
+            "type": "boolean",
+            "description": "A secondary whose result a later mission reads -- a locate whose target tag reappears as an enemy tag in a later mission that requires intel.marked_positions, or an evacuation that feeds civ.hostages_recovered. The third star (Ari'im citation) needs every carrying secondary complete; a mission with none caps at two stars. Never on a primary."
+          },
           "text": {
             "type": "string"
           },
@@ -287,7 +291,9 @@
             "$ref": "#/$defs/say",
             "description": "Story voice: fires the tick this objective fails, right after the objective/failed event it annotates."
           }
-        }
+        },
+        "if": { "properties": { "carries": { "const": true } }, "required": ["carries"] },
+        "then": { "properties": { "primary": { "const": false } } }
       }
     },
     "roe": {

@@ -26,6 +26,16 @@ export {
 // alternative to sharing it was a second copy of a game rule in `packages/app`.
 export { CivilianFlight, CIV_FLEE_AT, SHEPHERD_RADIUS_SQ } from './civilians';
 export { unlockReason, type UnlockGate } from './unlock';
+export {
+  starsFor,
+  starRoeFloor,
+  betterResult,
+  STAR_ROE_MARGIN,
+  STAR_ROE_DEFAULT,
+  type Stars,
+  type MissionResult,
+  type GradedObjective,
+} from './grade';
 // The mosque threshold. The sim keeps units from levelling a protected site on
 // their own initiative; the app needs the same number to keep an ambiguous
 // right-click from manufacturing the explicit order that bypasses that rule.
