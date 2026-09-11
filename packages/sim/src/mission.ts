@@ -10,7 +10,7 @@
 
 import { CivilianFlight } from './civilians';
 import { fx, HALF, type Fx } from './fixed';
-import { starsFor, type Stars } from './grade';
+import { starsFor, betterResult, type Stars, type MissionResult } from './grade';
 import { TICKS_PER_SECOND, type Sim, type SimEvent } from './sim';
 import type { TunnelRouteJson } from './tunnels';
 import { unlockReason, type UnlockGate } from './unlock';
@@ -127,6 +127,13 @@ export interface LedgerData {
   'intel.marked_positions'?: string[];
   /** Mission ids already cleared, for `unlock.after_mission` gates. */
   'campaign.completed_missions'?: string[];
+  /**
+   * Each mission's best grade (spec 2026-09-10 §4.1), keyed by mission id. Best-of by
+   * `betterResult` (stars, then Conduct, then a faster clock) so a replay can only help,
+   * exactly the property `roe.mission_ratings` has. Every field is an integer; the app
+   * sums stars for the board and the star-gated unlocks with integer addition.
+   */
+  'campaign.mission_results'?: Record<string, MissionResult>;
   /** How many civilian units got out — reached the refuge zone, latched, so
    *  dying afterwards does not un-count them. Written by missions whose
    *  premise includes an evacuation (the breach), read by later missions
@@ -1698,10 +1705,29 @@ export class MissionRuntime {
     const ratings: Record<string, number> = {};
     for (const k of Object.keys(merged).sort()) ratings[k] = merged[k];
 
+    // The grade, best-of per mission, sorted keys -- the same shape and the same
+    // reasoning as `ratings` above. `this.stars` reads `resultValue`, set above.
+    let lostCount = 0;
+    for (const id of this.playerIds) if (this.sim.state.alive[id] === 0) lostCount++;
+    const thisResult: MissionResult = { stars: this.stars, roe: roeRating, ticks: tick, lost: lostCount };
+    const prevResults = this.ctx.ledger?.['campaign.mission_results'];
+    const mergedResults: Record<string, MissionResult> = {};
+    if (prevResults !== null && typeof prevResults === 'object') {
+      const prior = prevResults as Record<string, MissionResult>;
+      for (const k of Object.keys(prior)) mergedResults[k] = prior[k];
+    }
+    const priorResult = mergedResults[this.mission.id];
+    if (priorResult === undefined || betterResult(thisResult, priorResult)) {
+      mergedResults[this.mission.id] = thisResult;
+    }
+    const results: Record<string, MissionResult> = {};
+    for (const k of Object.keys(mergedResults).sort()) results[k] = mergedResults[k];
+
     const produced: LedgerData = {};
     for (const key of this.mission.ledger.produces) {
       if (key === 'roster.surviving_units') produced[key] = roster;
       else if (key === 'roe.mission_ratings') produced[key] = ratings;
+      else if (key === 'campaign.mission_results') produced[key] = results;
       else if (key === 'campaign.completed_missions') {
         const prevDone = this.ctx.ledger?.['campaign.completed_missions'];
         const done = Array.isArray(prevDone) ? [...prevDone] : [];

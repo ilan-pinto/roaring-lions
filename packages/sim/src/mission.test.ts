@@ -654,6 +654,51 @@ describe('the grade and the debrief figures', () => {
     expect(list.find((o) => o.id === 'hold')?.carries).toBe(false);
     expect(list.find((o) => o.id === 'see')?.carries).toBe(true);
   });
+
+  it('produces campaign.mission_results best-of, keyed by mission, all integers', () => {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_tank', count: 1, at: [4, 5] }],
+        enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [11, 5], facing_deg: 180 }] },
+        ledger: { requires: [], produces: ['campaign.mission_results'] },
+      }),
+      // A prior, better run of this same mission and a run of another mission.
+      {
+        ledger: {
+          'campaign.mission_results': {
+            zzz_other: { stars: 1, roe: 50, ticks: 100, lost: 0 },
+            test_mission: { stars: 3, roe: 100, ticks: 10, lost: 0 },
+          },
+        },
+      }
+    );
+    const { mission } = w.step(90 * TICKS_PER_SECOND);
+    const end = mission.find((e) => e.kind === 'missionEnd');
+    if (end?.kind !== 'missionEnd') throw new Error('no end');
+    const results = end.ledger['campaign.mission_results'] as Record<string, unknown>;
+    // The prior three-star run stays; this two-star run does not replace it.
+    expect(results.test_mission).toEqual({ stars: 3, roe: 100, ticks: 10, lost: 0 });
+    expect(Object.keys(results)).toEqual(['test_mission', 'zzz_other']); // sorted
+  });
+
+  it('stores this run when it beats the prior, with the real tick and loss counts', () => {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_tank', count: 1, at: [4, 5] }],
+        enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [11, 5], facing_deg: 180 }] },
+        ledger: { requires: [], produces: ['campaign.mission_results'] },
+      }),
+      { ledger: { 'campaign.mission_results': { test_mission: { stars: 1, roe: 50, ticks: 100, lost: 3 } } } }
+    );
+    const { mission } = w.step(90 * TICKS_PER_SECOND);
+    const end = mission.find((e) => e.kind === 'missionEnd');
+    if (end?.kind !== 'missionEnd') throw new Error('no end');
+    const r = (end.ledger['campaign.mission_results'] as Record<string, { stars: number; roe: number; ticks: number; lost: number }>).test_mission;
+    expect(r.stars).toBe(2);
+    expect(r.roe).toBe(100);
+    expect(r.lost).toBe(0);
+    expect(Number.isInteger(r.ticks) && r.ticks > 0 && r.ticks <= 90 * TICKS_PER_SECOND).toBe(true);
+  });
 });
 
 describe('veterancy has combat meaning', () => {
