@@ -962,7 +962,7 @@ it compares `window.localStorage.length` before and after, and both are
   first content to use the `subterranean` phase. `tunnel_travel` remains unit data
   only.
 - The trail-detection scan is O(routes × living units × sight²) per tick
-  (`trailStrengthFor`), on top of detection's existing O(N²) — and `markerSeesRoute`
+  (`trailStrengthFor`), on top of detection's existing O(N²) — and `markerSeeingRoute`
   is the same shape again for `mark_tunnel` carriers, though it stops scanning a
   route once identified. At the largest authored
   mission (65 units) that is ~10⁵ extra array probes a tick — immaterial now, real at the

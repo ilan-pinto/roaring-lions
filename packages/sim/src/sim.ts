@@ -2884,7 +2884,7 @@ export class Sim {
   }
 
   /** sideSeesTile restricted to `mark_tunnel` carriers — the eyes that
-   *  read the ROUTE, not just its dirt (markerSeesRoute's per-unit
+   *  read the ROUTE, not just its dirt (markerSeeingRoute's per-unit
    *  filters). The renderer draws the identified line with it, so the line
    *  lights up around a sweeping drone or Yahalom and fades behind them —
    *  only a detector tells you what the dirt means. Pure read
@@ -2895,7 +2895,7 @@ export class Sim {
 
   /** Shared body of the two tile-sight reads above. Round sight rather
    *  than trailStrengthFor's square scan window, and no MIN_DETECT floor,
-   *  both per markerSeesRoute's own reasoning: the floor exists to cap a
+   *  both per markerSeeingRoute's own reasoning: the floor exists to cap a
    *  1/dSq division no predicate here performs — a unit standing on the
    *  dirt sees the dirt, even though its accrual skips that tile. */
   private seesTile(side: number, tx: number, ty: number, carriersOnly: boolean): boolean {

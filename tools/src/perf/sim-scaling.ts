@@ -2,7 +2,7 @@
 //
 // CLAUDE.md's "Known scaling debts" names four things that "want staggering
 // in the same sweep" -- detection's O(N^2) pair scan, the trail-detection
-// scan (trailStrengthFor), the mark_tunnel scan (markerSeesRoute), and
+// scan (trailStrengthFor), the mark_tunnel scan (markerSeeingRoute), and
 // drawTrail (renderer-side, out of this file's scope) -- but nobody had
 // ever measured which one actually dominates, or at what unit count.
 // three-units.ts's own Node CLI times sim.tick() as one number up to 400
@@ -19,7 +19,7 @@
 //
 //   1. registers beit_sahwan_outskirts's own 4 authored tunnel routes
 //      (map.tunnels, the same conversion main.ts performs) so
-//      trailStrengthFor and markerSeesRoute actually run every tick --
+//      trailStrengthFor and markerSeeingRoute actually run every tick --
 //      buildWorld alone leaves tunnelCount_ at 0, which would make the
 //      whole debt this file exists to measure silently cost zero. The
 //      friendly roster's own recon_drone carries mark_tunnel already (real
@@ -32,7 +32,7 @@
 //      methods without editing sim.ts at all. stepDetection is further
 //      split into its pairwise unit-vs-unit scan (attributed as
 //      stepDetection's own total minus the two sub-scans below) and the
-//      two named sub-scans (trailStrengthFor, markerSeesRoute), each
+//      two named sub-scans (trailStrengthFor, markerSeeingRoute), each
 //      wrapped separately -- both are called at most 2*tunnelCount times a
 //      tick (a handful), so wrapping them adds no per-call overhead worth
 //      worrying about, unlike wrapping the O(N^2) pair predicate itself
@@ -115,7 +115,7 @@ const PHASES = [
  *  stepDetection's own accumulator can be reported both as a total AND
  *  split into "pairwise scan" (total minus these two) and these two by
  *  name. */
-const DETECTION_SUBSCANS = ['trailStrengthFor', 'markerSeesRoute'] as const;
+const DETECTION_SUBSCANS = ['trailStrengthFor', 'markerSeeingRoute'] as const;
 
 interface Instrumentation {
   totals: Map<string, number>;
@@ -173,7 +173,7 @@ interface CheckpointReport {
   phases: PhaseReport[];
   detectionPairwiseAvgMs: number;
   trailStrengthAvgMs: number;
-  markerSeesRouteAvgMs: number;
+  markerSeeingRouteAvgMs: number;
   flowFieldComputeAvgMs: number;
   flowFieldComputeCalls: number;
 }
@@ -274,7 +274,7 @@ async function main(): Promise<void> {
     });
 
     const trailTotal = subscanInstr.totals.get('trailStrengthFor') ?? 0;
-    const markerTotal = subscanInstr.totals.get('markerSeesRoute') ?? 0;
+    const markerTotal = subscanInstr.totals.get('markerSeeingRoute') ?? 0;
     const detectionTotal = phaseInstr.totals.get('stepDetection') ?? 0;
     const flowFieldTotal = flowFieldInstr.totals.get('compute') ?? 0;
 
@@ -285,7 +285,7 @@ async function main(): Promise<void> {
       phases,
       detectionPairwiseAvgMs: (detectionTotal - trailTotal - markerTotal) / timedTicks,
       trailStrengthAvgMs: trailTotal / timedTicks,
-      markerSeesRouteAvgMs: markerTotal / timedTicks,
+      markerSeeingRouteAvgMs: markerTotal / timedTicks,
       flowFieldComputeAvgMs: flowFieldTotal / timedTicks,
       flowFieldComputeCalls: flowFieldCalls.count,
     });
@@ -303,7 +303,7 @@ async function main(): Promise<void> {
   console.log(`Capture: node ${process.version}, ${timedTicks} timed ticks / ${warmup} warmup per checkpoint, map ${map.id}, seed fixed (three-units.ts's SEED).`);
   console.log('Budget crossing is against the 50ms/20Hz TICK budget (invariant 1), not the renderer 16.7ms frame budget.');
   console.log('');
-  console.log('| target | living | tick avg | tick p95 | tick max | detection pairwise | trailStrengthFor | markerSeesRoute | stepCombat | stepMovement | stepProjectiles | flowField.compute (calls) |');
+  console.log('| target | living | tick avg | tick p95 | tick max | detection pairwise | trailStrengthFor | markerSeeingRoute | stepCombat | stepMovement | stepProjectiles | flowField.compute (calls) |');
   console.log('|---|---|---|---|---|---|---|---|---|---|---|---|');
   for (const r of reports) {
     const byName = new Map(r.phases.map((p) => [p.name, p]));
@@ -312,7 +312,7 @@ async function main(): Promise<void> {
     const projectiles = byName.get('stepProjectiles')!;
     const crossed = r.tick.avgMs >= BUDGET_MS ? '  <-- BUDGET CROSSED (avg)' : r.tick.p95Ms >= BUDGET_MS ? '  <-- BUDGET CROSSED (p95)' : '';
     console.log(
-      `| ${r.target} | ${r.living} | ${r.tick.avgMs.toFixed(2)} | ${r.tick.p95Ms.toFixed(2)} | ${r.tick.maxMs.toFixed(2)} | ${r.detectionPairwiseAvgMs.toFixed(3)} | ${r.trailStrengthAvgMs.toFixed(3)} | ${r.markerSeesRouteAvgMs.toFixed(3)} | ${combat.avgMs.toFixed(3)} | ${movement.avgMs.toFixed(3)} | ${projectiles.avgMs.toFixed(3)} | ${r.flowFieldComputeAvgMs.toFixed(3)} (${r.flowFieldComputeCalls}) |${crossed}`
+      `| ${r.target} | ${r.living} | ${r.tick.avgMs.toFixed(2)} | ${r.tick.p95Ms.toFixed(2)} | ${r.tick.maxMs.toFixed(2)} | ${r.detectionPairwiseAvgMs.toFixed(3)} | ${r.trailStrengthAvgMs.toFixed(3)} | ${r.markerSeeingRouteAvgMs.toFixed(3)} | ${combat.avgMs.toFixed(3)} | ${movement.avgMs.toFixed(3)} | ${projectiles.avgMs.toFixed(3)} | ${r.flowFieldComputeAvgMs.toFixed(3)} (${r.flowFieldComputeCalls}) |${crossed}`
     );
   }
   console.log('');
@@ -326,7 +326,7 @@ async function main(): Promise<void> {
     }
     console.log(`  ${'  detection pairwise'.padEnd(18)} ${r.detectionPairwiseAvgMs.toFixed(4).padStart(9)}ms`);
     console.log(`  ${'  trailStrengthFor'.padEnd(18)} ${r.trailStrengthAvgMs.toFixed(4).padStart(9)}ms`);
-    console.log(`  ${'  markerSeesRoute'.padEnd(18)} ${r.markerSeesRouteAvgMs.toFixed(4).padStart(9)}ms`);
+    console.log(`  ${'  markerSeeingRoute'.padEnd(18)} ${r.markerSeeingRouteAvgMs.toFixed(4).padStart(9)}ms`);
     console.log(`  ${'flowField.compute'.padEnd(18)} ${r.flowFieldComputeAvgMs.toFixed(4).padStart(9)}ms  (${r.flowFieldComputeCalls} calls across ${timedTicks} ticks)`);
   }
 }
