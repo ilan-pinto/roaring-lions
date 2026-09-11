@@ -60,8 +60,11 @@ Three tiers, ascending. Conduct is printed beside the tier unchanged.
 | ★★★ | Ari'im citation | ★★ and every secondary objective with `carries: true` complete |
 
 Why these numbers: every shipped optimal plan in `tools/src/backtest/playtest.ts` clears ★★
-under +20/70 (the lowest ROE any plan posts is 75, on `beit_sahwan_breach` and
-`umm_zeitoun_3_clearance`), and every passive control already loses, so the gradient
+under +20/70, and what it clears it by is the MARGIN against each mission's own floor rather
+than the raw Conduct — measured 2026-09-11 over all 26 winning plans, the tightest are
+`deir_amun_2_foothold` (+10: Conduct 70 against a floor of 60, since it declares
+`fail_below: 40`) and `umm_zeitoun_3_clearance` (+11: 76 against 65), and every other plan is
++16 or better. Every passive control already loses, so the gradient
 *optimal ≥ ★★, passive = 0* exists today with no tuning. "No losses" was rejected because it
 cannot be counted in the three missions that build units, the optimal plans lose 11→5 and
 8→4 in the clearance missions by design, and the roster already prices losses as next
@@ -151,10 +154,15 @@ brings someone home.
 
 ### 4.5 Promotion beats and unlock announcements
 
-Ranks already live in `commander.json` `ranks[].until_mission` and match the act ends. The
-debrief screen renders the beat from that table with the insignia when the completed mission
-is a rank's `until_mission`. The three act-end `aftermath` lines already announce each star,
-so no new prose repeats the count; the beat's line is:
+Ranks already live in `commander.json` `ranks[].until_mission`, and that file is the boundary
+— not this document's reading of where an act ends. Measured against it 2026-09-11, Captain
+holds through `deir_amun_3_subterranean` (NOT `beit_sahwan_4_subterranean`, which this
+section used to imply), Major through `umm_zeitoun_4_clearance`, Lieutenant Colonel through
+`wadi_halam_5_depot`, and Colonel is the default after that. The debrief screen renders the
+beat from that table with the insignia when the completed mission is a rank's
+`until_mission`, so each line below fires at the end of the rank ABOVE it in that list. The
+three act-end `aftermath` lines already announce each star, so no new prose repeats the
+count; the beat's line is:
 
 - → Major, Idit: "Third star. Nobody said promotion — they handed him a wider map and a longer list of towns."
 - → Lt Col, Idit: "Fourth star. The north has not been shelled in two days and he has not mentioned it once."
@@ -172,9 +180,11 @@ Three new units, one per act, that exist only to be earned. Each is a unit JSON 
 `campaign.mission_results`, computed with integer addition only), a mesh through the
 Blender pipeline, and a `SPRITE_MAP` / mesh-catalogue entry so it actually draws. The
 thresholds are set so a ★★ player reaches the first inside Act I and a ★★★ player reaches
-the third before the last town: with 17 gradable missions (the tutorial produces no
-result) and a ceiling of 51 stars, provisional gates are 8, 21 and 36, to be re-fitted once the harness reports the optimal
-plans' star totals.
+the third before the last town: with 26 gradable missions (the tutorial produces no
+result) and a ceiling of 78 stars — counted 2026-09-11 from `data/missions/`, where the
+17/51 this line used to carry predated two whole towns — provisional gates are 8, 32 and 55,
+the same proportion of the ceiling the old ones were, to be re-fitted once the harness
+reports the optimal plans' star totals.
 
 What the three units are is the campaign designer's brief, not this document's: each must be
 a new role no shipped unit fills, must pass the cost-curve band and `pnpm balance`, and must

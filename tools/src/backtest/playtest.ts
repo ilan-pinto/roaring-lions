@@ -12,11 +12,15 @@ function run(
   ledger: LedgerData = {},
   expect: 'victory' | 'defeat' | 'ongoing' = 'victory',
   label: string = id,
-  /** The grade the plan must reach (spec §4.1). Every winning plan clears ★★ under the
-   *  rule -- the lowest Conduct any plan posts is 70 (`deir_amun_2_foothold`, exactly at
-   *  the 70 default floor, measured 2026-09-11) -- and a control that loses gets 0 by
-   *  construction, so the defaults assert the gradient with no per-plan edits. Pass 3
-   *  only where the plan completes every carrying secondary. */
+  /** The grade the plan must reach (spec §4.1). Every winning plan clears ★★, and what
+   *  it clears it by is the MARGIN against that mission's own floor (`fail_below + 20`,
+   *  or 70 where none is declared) -- never the raw Conduct, since a mission declaring
+   *  `fail_below: 40` sets its ★★ bar at 60 and not at 70. Measured 2026-09-11 over 26
+   *  winning plans: the tightest are `deir_amun_2_foothold` (+10, Conduct 70 against a
+   *  floor of 60) and `umm_zeitoun_3_clearance` (+11, 76 against 65); every other plan
+   *  is +16 or better. A control that loses gets 0 by construction, so the defaults
+   *  assert the gradient with no per-plan edits. Pass 3 only where the plan completes
+   *  every carrying secondary. */
   expectStar: 0 | 1 | 2 | 3 = expect === 'victory' ? 2 : 0
 ): LedgerData {
   const mission = missions[id] as unknown as MissionJson;
