@@ -74,13 +74,13 @@
     { "hull": "7-9", "name": "Mafselet", "screened": "2026-09-13" }
   ],
   "tasks": [
-    { "name": "Eye Two", "screened": "2026-09-11" },
-    { "name": "Kite One", "screened": "2026-09-11" },
     { "name": "Eye One", "screened": "2026-09-13" },
+    { "name": "Kite One", "screened": "2026-09-11" },
     { "name": "Lens One", "screened": "2026-09-13" },
     { "name": "Gimbal One", "screened": "2026-09-13" },
     { "name": "Aperture One", "screened": "2026-09-13" },
     { "name": "Spool One", "screened": "2026-09-13" },
+    { "name": "Eye Two", "screened": "2026-09-11" },
     { "name": "Kite Two", "screened": "2026-09-13" },
     { "name": "Lens Two", "screened": "2026-09-13" },
     { "name": "Gimbal Two", "screened": "2026-09-13" },
