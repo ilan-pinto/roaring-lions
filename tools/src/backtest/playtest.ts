@@ -7,14 +7,33 @@ import {
   TICKS_PER_SECOND,
   MissionRuntime,
   resolveUpgrades,
+  unlockReason,
+  starsEarned,
   type MissionJson,
   type LedgerData,
   type TunnelRouteJson,
   type UnlockGate,
+  type MissionResult,
+  type Stars,
 } from '@lions/sim';
-import { units, maps, missions, structures as structureCatalogue, parseMap, applyTerrain } from '@lions/data';
+import { units, maps, missions, structures as structureCatalogue, parseMap, applyTerrain, world } from '@lions/data';
 
 type Plan = (sim: Sim, rt: MissionRuntime, ids: (t: string) => number[], at: (t: number, fn: () => void) => void) => void;
+
+/**
+ * Task 7 / controller ruling R2: the harness's chained ledgers (`led…`) do not
+ * reliably reach the three star gates -- Khan Rafid and Deir Amun's plans, for
+ * instance, deliberately run on a bare `{}` ledger rather than chaining off
+ * Beit Sahwan (see the Khan Rafid comment below), so no single threaded ledger
+ * ever accumulates the whole campaign's stars. Instead of asserting on one of
+ * those partial ledgers, this records every mission's OWN measured grade here
+ * -- keyed by mission id, written only by the winning plan (never a control) --
+ * and the assertions at the bottom of this file walk `world.json`'s own
+ * region -> town -> mission order and accumulate these recorded stars into a
+ * synthetic `campaign.mission_results` ledger, exactly the shape a real
+ * playthrough would write one mission at a time.
+ */
+const missionStars = new Map<string, Stars>();
 
 /** A unit JSON entry's `unlock` gate, mapped from the authored
  *  `roe_rating_min`/`stars_min`/`after_mission` field names to `UnlockGate` -- the one
@@ -143,6 +162,11 @@ function run(
     console.error(`${label}: FAILED — expected ${expectStar} star(s), got ${rt.stars}`);
     process.exitCode = 1;
   }
+  // Task 7 / R2: record this mission's own grade for the synthetic ladder --
+  // only the winning plan (never a control, which passes its own distinct
+  // label) and only a real victory, so a passive-control defeat can never
+  // contribute a false star.
+  if (expect === 'victory' && label === id) missionStars.set(id, rt.stars);
   return produced;
 }
 
@@ -1901,3 +1925,86 @@ run(
   'victory',
   'umm_zeitoun_4_clearance'
 );
+
+// --- Task 7: the harness proves the gates open where the ladder says -------
+//
+// The three star-gated units carry `stars_min` 12 (`breach_team`), 30
+// (`scout_shachaf`) and 44 (`apc_kipod`) -- data/units/breach_team.json,
+// scout_shachaf.json, apc_kipod.json. The design measured that a ★★ player
+// reaches each gate at mission 6/15/22 of the flattened `world.json` order
+// (region -> town -> mission), so this asserts the gate is OPEN there and
+// CLOSED one mission earlier -- against a SYNTHETIC ladder (controller ruling
+// R2, see the comment on `missionStars` above), not the harness's own chained
+// `led…` ledgers, which do not reliably reach the gates.
+
+const missionOrder: string[] = [];
+for (const region of world.regions) {
+  for (const town of region.towns) {
+    for (const missionId of town.missions) missionOrder.push(missionId);
+  }
+}
+
+/** `missionOrder`, paired with each mission's own recorded grade. A mission
+ *  with no recorded winning plan contributes 0 stars and is named here, once,
+ *  rather than silently dropped -- only the tutorial (which is not itself a
+ *  `world.json` entry, so it can never appear in this walk at all) should
+ *  ever be missing a `missionStars` entry. */
+const missionResults: [string, MissionResult][] = missionOrder.map((missionId) => {
+  const stars = missionStars.get(missionId);
+  if (stars === undefined) {
+    console.log(`gate ladder: no recorded winning plan for ${missionId} (contributes 0 stars)`);
+  }
+  return [missionId, { stars: stars ?? 0, roe: 0, ticks: 0, lost: 0 }];
+});
+
+/** The synthetic `campaign.mission_results` ledger a real playthrough would
+ *  hold after clearing the first `count` missions of `missionOrder` -- built
+ *  the same way `MissionRuntime`'s own end-of-mission write is (spec §4.1),
+ *  so `starsEarned`/`unlockReason` read it exactly as they read a real save. */
+function syntheticLedgerAfter(count: number): LedgerData {
+  const results: Record<string, MissionResult> = {};
+  for (let i = 0; i < count; i++) {
+    const [missionId, result] = missionResults[i];
+    results[missionId] = result;
+  }
+  return { 'campaign.mission_results': results };
+}
+
+interface GateSpec {
+  /** The star-gated unit this line names in the printout. */
+  unit: string;
+  starsMin: number;
+  /** 1-based position in `missionOrder` where the measured ladder opens this gate. */
+  opensAfter: number;
+}
+
+const GATES: GateSpec[] = [
+  { unit: 'breach_team', starsMin: 12, opensAfter: 6 },
+  { unit: 'scout_shachaf', starsMin: 30, opensAfter: 15 },
+  { unit: 'apc_kipod', starsMin: 44, opensAfter: 22 },
+];
+
+for (const gate of GATES) {
+  const openLedger = syntheticLedgerAfter(gate.opensAfter);
+  const openStars = starsEarned(openLedger);
+  const openReason = unlockReason({ starsMin: gate.starsMin }, openLedger);
+  console.log(`gate ${gate.unit}: OPEN after mission ${gate.opensAfter} at ${openStars} stars`);
+  if (openReason !== null) {
+    console.error(
+      `gate ${gate.unit}: FAILED — expected OPEN (>= ${gate.starsMin} stars) after mission ${gate.opensAfter}, got ${openStars} stars`
+    );
+    process.exitCode = 1;
+  }
+
+  const closedAfter = gate.opensAfter - 1;
+  const closedLedger = syntheticLedgerAfter(closedAfter);
+  const closedStars = starsEarned(closedLedger);
+  const closedReason = unlockReason({ starsMin: gate.starsMin }, closedLedger);
+  console.log(`gate ${gate.unit}: CLOSED after mission ${closedAfter} at ${closedStars} stars`);
+  if (closedReason === null) {
+    console.error(
+      `gate ${gate.unit}: FAILED — expected CLOSED (< ${gate.starsMin} stars) after mission ${closedAfter}, got ${closedStars} stars`
+    );
+    process.exitCode = 1;
+  }
+}
