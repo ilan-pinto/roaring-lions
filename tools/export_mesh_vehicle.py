@@ -46,6 +46,7 @@ import os
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
+from typing import Optional
 
 import bpy
 from mathutils import Matrix, Vector
@@ -100,7 +101,7 @@ class VehicleMeshSpec:
     #: would let them. `None` for a vehicle with no shipped sprite sheet at
     #: all (a mesh-only unit) -- see `real_metres` below, its only
     #: alternative.
-    sprite_manifest: str = None
+    sprite_manifest: Optional[str] = None
     #: A literal real-world size in metres, for a vehicle with no sprite
     #: manifest to read one from. Exactly the same DECLARATION a sprite's
     #: `author_*.py` script already makes in its own header comment (see
@@ -108,7 +109,7 @@ class VehicleMeshSpec:
     #: derives `scale` FROM, never a substitute for deriving it. Precisely one
     #: of `sprite_manifest`/`real_metres` must be set; `_read_real_metres`
     #: raises if both or neither are.
-    real_metres: float = None
+    real_metres: Optional[float] = None
     credit: str = ""
 
 

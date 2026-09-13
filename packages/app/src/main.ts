@@ -136,6 +136,7 @@ import {
   villainState,
   regionForTown,
   villainPortrait,
+  possibleStars,
 } from './campaign';
 import { commanderPortraitUrl } from './portrait-catalogue';
 
@@ -489,16 +490,14 @@ async function main(): Promise<void> {
     }
     if (params.get('brigade') !== null) {
       // The roster: every KDF unit the campaign knows about, and what still
-      // gates the ones not yet earned. `possibleStars` comes from the same
-      // towns the campaign map itself walks -- every mission grades to 3
-      // stars, and a town added to `world.json` counts itself in without an
-      // edit here (the tutorial is deliberately off the map, so it is never
-      // in this sum at all).
+      // gates the ones not yet earned. `possibleStars` (campaign.ts, F10) walks
+      // the same towns the campaign map itself walks, counting only missions
+      // whose own ledger contract can carry a star at all -- a town added to
+      // `world.json` counts itself in without an edit here (the tutorial is
+      // deliberately off the map, so it is never in this sum at all).
       const kdfUnits = Object.values(units)
         .filter((u) => u.faction === 'kdf')
         .map((u) => ({ id: u.id, name: u.name, role: u.role, unlock: kdfUnlockGate(u) }));
-      const possibleStars =
-        3 * worldData.regions.reduce((n, r) => n + r.towns.reduce((m, t) => m + t.missions.length, 0), 0);
       const portraits: Record<string, string> = {};
       await Promise.all(
         kdfUnits.map(async ({ id }) => {
@@ -510,7 +509,7 @@ async function main(): Promise<void> {
         units: kdfUnits,
         ledger: loadLedger(),
         portrait: (typeId) => portraits[typeId] ?? null,
-        possibleStars,
+        possibleStars: possibleStars(worldData, missions as Record<string, MissionJson | undefined>),
       });
       return;
     }

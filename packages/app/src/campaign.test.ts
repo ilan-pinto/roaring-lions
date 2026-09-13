@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import worldJson from '../../../data/campaign/world.json';
 import commanderJson from '../../../data/campaign/commander.json';
-import type { LedgerData } from '@lions/sim';
+import type { LedgerData, MissionJson } from '@lions/sim';
 import {
   campaignRoe,
   campaignSummary,
@@ -14,6 +14,7 @@ import {
   nextMissionOf,
   parseCommander,
   parseWorld,
+  possibleStars,
   promotionAfter,
   regionForTown,
   regionProgress,
@@ -390,6 +391,34 @@ describe('stars on the board', () => {
     expect(townStars(bs, ledger)).toEqual({ earned: 2, possible: bs.missions.length * 3 });
     expect(regionStars(world.regions[0]!, ledger).earned).toBe(2);
     expect(townStars(bs, undefined)).toEqual({ earned: 0, possible: bs.missions.length * 3 });
+  });
+});
+
+describe('possibleStars', () => {
+  it('counts only missions whose ledger contract can produce campaign.mission_results', () => {
+    // F10: main.ts:500 used to count every mission a town names as worth 3
+    // stars, with no check that the mission's own ledger contract can carry
+    // one at all -- exactly the tutorial's own shape, which is why it is
+    // never named by any town's `missions` list in the first place.
+    const fakeWorld: ParsedWorld = {
+      id: 'test',
+      name: 'Test',
+      art: 'campaign/test.svg',
+      regions: [
+        {
+          id: 'r1',
+          name: 'R1',
+          faction: 'kdf',
+          doctrine: 'test doctrine',
+          towns: [{ id: 't1', name: 'T1', at: [0, 0], missions: ['produces_it', 'does_not'] }],
+        },
+      ],
+    };
+    const missionsById: Record<string, MissionJson | undefined> = {
+      produces_it: { ledger: { requires: [], produces: ['campaign.mission_results'] } } as unknown as MissionJson,
+      does_not: { ledger: { requires: [], produces: [] } } as unknown as MissionJson,
+    };
+    expect(possibleStars(fakeWorld, missionsById)).toBe(3);
   });
 });
 

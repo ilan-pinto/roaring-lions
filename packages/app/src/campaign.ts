@@ -11,7 +11,7 @@
  * `campaign.completed_missions`, which the ledger already writes, so the map cannot
  * disagree with what was actually played and there is no second save file to migrate.
  */
-import { unlockReason, type LedgerData, type MissionResult, type UnlockGate } from '@lions/sim';
+import { unlockReason, type LedgerData, type MissionJson, type MissionResult, type UnlockGate } from '@lions/sim';
 
 export interface WorldTown {
   id: string;
@@ -465,6 +465,29 @@ const results = (ledger: LedgerData | undefined): Record<string, MissionResult> 
   const r = ledger?.['campaign.mission_results'];
   return r !== null && typeof r === 'object' ? (r as Record<string, MissionResult>) : {};
 };
+
+/** How many stars a fresh campaign could ever earn from `world` -- the brigade
+ *  screen's "N of POSSIBLE stars" header (F10: this used to live in `main.ts`
+ *  and counted every mission the world names as worth 3, with no check that
+ *  the mission can carry a star at all). A mission whose `ledger.produces`
+ *  omits `campaign.mission_results` never writes a result for `starsEarned`
+ *  to sum -- the tutorial's own contract, and the reason it is "deliberately
+ *  off the map" and never named by any town's `missions` list in the first
+ *  place -- so counting it here would overstate the total for a mission that
+ *  structurally cannot contribute. Every mission that DOES declare the key
+ *  still grades to the same ceiling (`MissionRuntime`'s ★★★), so this is a
+ *  plain count times 3, not a sum of anything mission-specific. */
+export function possibleStars(world: ParsedWorld, missions: Record<string, MissionJson | undefined>): number {
+  let count = 0;
+  for (const region of world.regions) {
+    for (const town of region.towns) {
+      for (const missionId of town.missions) {
+        if (missions[missionId]?.ledger.produces.includes('campaign.mission_results')) count += 1;
+      }
+    }
+  }
+  return count * 3;
+}
 
 export function townStars(town: WorldTown, ledger: LedgerData | undefined): { earned: number; possible: number } {
   const r = results(ledger);
