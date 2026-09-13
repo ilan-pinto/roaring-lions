@@ -76,7 +76,8 @@
       "at": [
         8,
         22
-      ]
+      ],
+      "upgrades_to": "apc_kipod"
     }
   ],
   "resources": {

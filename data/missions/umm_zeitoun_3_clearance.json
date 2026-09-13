@@ -38,7 +38,8 @@
     { "unit": "ifv_namer", "count": 1, "at": [20, 44] },
     { "unit": "apc_eitan", "count": 2, "at": [22, 45] },
     { "unit": "sniper_team", "count": 1, "at": [24, 44] },
-    { "unit": "recon_drone", "count": 1, "at": [24, 43] }
+    { "unit": "recon_drone", "count": 1, "at": [24, 43] },
+    { "unit": "jeep_shoded", "count": 1, "at": [25, 45], "upgrades_to": "scout_shachaf" }
   ],
   "resources": {
     "logistics_start": 400,

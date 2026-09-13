@@ -19,7 +19,8 @@
     { "unit": "ifv_namer", "count": 1, "at": [29, 45] },
     { "unit": "mbt_lavi", "count": 1, "at": [24, 44] },
     { "unit": "sniper_team", "count": 1, "at": [31, 45] },
-    { "unit": "recon_drone", "count": 1, "at": [24, 43] }
+    { "unit": "recon_drone", "count": 1, "at": [24, 43] },
+    { "unit": "inf_squad", "count": 1, "at": [23, 45], "upgrades_to": "breach_team" }
   ],
   "resources": { "logistics_start": 400, "logistics_rate_per_min": 80 },
   "objectives": [
