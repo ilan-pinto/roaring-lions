@@ -58,6 +58,7 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
   },
   { name: 'mission', blurb: '<mission id> — run a real mission' },
   { name: 'campaign', blurb: 'open the campaign shell' },
+  { name: 'brigade', blurb: 'the brigade — every KDF unit and what opens it' },
   { name: 'fresh', blurb: 'ignore the saved ledger' },
   { name: 'tutorial', blurb: 'replay the tutorial' },
   {
