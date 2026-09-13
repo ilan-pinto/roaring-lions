@@ -44,8 +44,8 @@ in step with it.
   Logistics (a per-minute rate, spent on production at a `camp` structure the
   author places) and Intel (drones and stationary markers earn it; it buys a
   satellite sweep or a precision strike). Only 6 of 14 shipped missions declare
-  any economy. Unit availability is gated by campaign ROE rating and completed
-  missions, not by tiers.
+  any economy. Unit availability is gated by campaign ROE rating, completed
+  missions and earned stars, not by tiers.
 - **The player force is placed, not built.** `starting_force` plus ledger
   survivors (`from_ledger`), plus authored `reinforce` triggers and waves.
 - **The enemy is stances, one-shot triggers and waves.** One stance per placement

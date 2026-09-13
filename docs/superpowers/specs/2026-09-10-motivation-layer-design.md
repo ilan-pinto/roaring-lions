@@ -182,9 +182,11 @@ Blender pipeline, and a `SPRITE_MAP` / mesh-catalogue entry so it actually draws
 thresholds are set so a ★★ player reaches the first inside Act I and a ★★★ player reaches
 the third before the last town: with 26 gradable missions (the tutorial produces no
 result) and a ceiling of 78 stars — counted 2026-09-11 from `data/missions/`, where the
-17/51 this line used to carry predated two whole towns — provisional gates are 8, 32 and 55,
-the same proportion of the ceiling the old ones were, to be re-fitted once the harness
-reports the optimal plans' star totals.
+17/51 this line used to carry predated two whole towns — the measured gates, fitted to that
+26-mission ladder and replacing the provisional 8/32/55, are 12 (`breach_team`), 30
+(`scout_shachaf`) and 44 (`apc_kipod`) stars, opening after missions 6, 15 and 22 of the
+flattened region → town → mission order, pinned by the `GATES` table in
+`tools/src/backtest/playtest.ts`.
 
 What the three units are is the campaign designer's brief, not this document's: each must be
 a new role no shipped unit fills, must pass the cost-curve band and `pnpm balance`, and must
@@ -194,7 +196,9 @@ lock state and the sentence that opens it, and the star total.
 
 A gate on `starting_force` is the same rule inverted: an optional `upgrades_to` on a
 placement fields the named unit instead when its gate is open, never a downgrade, so no
-proven starting force can regress.
+proven starting force can regress — resolved once, before the runtime exists, by the pure
+`resolveUpgrades` pre-pass (`packages/sim/src/unlock.ts`), which `main.ts` and the playtest
+harness both call so the spawner itself stays gate-blind.
 
 ### 4.7 Named units and the service record
 
