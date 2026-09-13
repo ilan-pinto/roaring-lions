@@ -1206,7 +1206,11 @@ body {
 .rl-chip[data-focus='1'] {
   border-color: var(--live);
 }
-.rl-chip__art {
+/* `.rl-brigade__art` (ui/brigade.ts) shares this rule by declaration rather
+   than borrowing `.rl-chip__art` by name -- same 40px chip-art frame, same
+   rules, one place to change either. */
+.rl-chip__art,
+.rl-brigade__art {
   flex: 0 0 auto;
   width: 40px;
   height: 40px;
@@ -1259,9 +1263,13 @@ body {
 /* Art the pipeline has not produced. The commander portrait's hatch, so
    "reserved" reads the same way everywhere in this HUD, with the role mark on
    top so the frame still says what the unit IS. Never an empty box: a blank
-   40px hole reads as a broken image, and this reads as a deliberate gap. */
+   40px hole reads as a broken image, and this reads as a deliberate gap.
+   `.rl-brigade__art[data-nosprite='1']` (ui/brigade.ts, the mesh-only
+   breach_team/scout_shachaf/apc_kipod rows) shares this by declaration --
+   see the shared sizing rule above. */
 .rl-chip__art[data-nosprite='1'],
-.rl-card__art[data-nosprite='1'] {
+.rl-card__art[data-nosprite='1'],
+.rl-brigade__art[data-nosprite='1'] {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2433,10 +2441,52 @@ button.rl-menu__item[data-kind='aside'] {
   }
 }
 
-/* The brigade screen (ui/brigade.ts). A locked row reads as reserved, the
-   same "dimmed, not hidden" language the rest of this file already uses --
-   `data-locked` is the same attribute the DOM carries, not a class the
-   component keeps in sync by hand. */
+/* The brigade screen (ui/brigade.ts). Capped and centred to the same width
+   range debrief's own panel uses (debrief.ts's `place:` inline style reads
+   `top:6%;left:50%;transform:translateX(-50%);width:min(720px,94vw);
+   max-height:88vh;overflow:auto`) -- expressed here as a class rule instead
+   of a second inline style, since `panel()`'s own `place` option is
+   documented "never colour" but every rl-brigade__* rule already lives in
+   this file, and a screen with no per-instance placement (unlike a mission's
+   HUD panels, which move) has no reason to reach for an inline style at all.
+   `.rl-panel`'s own rule already sets `position: absolute`. */
+.rl-brigade {
+  top: 6%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(720px, 94vw);
+  max-height: 88vh;
+  overflow: auto;
+}
+.rl-brigade__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: var(--s3);
+}
+.rl-brigade__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.rl-brigade__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+/* Name-over-role: the one column between the art (a fixed 40px leading
+   frame, `.rl-chip__art`'s own size) and the reason text that is itself two
+   rows tall, so `.rl-brigade__row`'s single flex row does not have to know
+   that. */
+.rl-brigade__info {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  min-width: 8em;
+}
+/* A locked row reads as reserved, the same "dimmed, not hidden" language the
+   rest of this file already uses -- `data-locked` is the same attribute the
+   DOM carries, not a class the component keeps in sync by hand. */
 .rl-brigade__row[data-locked='1'] {
   opacity: 0.6;
 }
@@ -2444,7 +2494,13 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-brigade__stars {
   color: var(--commend);
 }
+.rl-brigade__gate {
+  flex: 0 0 auto;
+  text-align: right;
+}
 .rl-brigade__why {
+  flex: 1 1 auto;
+  min-width: 0;
   color: var(--ink-dim);
   font-size: var(--t-xs);
 }

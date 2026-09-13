@@ -185,6 +185,28 @@ function kdfUnlockGate(u: (typeof units)[keyof typeof units]): UnlockGate | unde
     : undefined;
 }
 
+/** What `roleBucket` needs to pick a role mark for the brigade screen's
+ *  mesh-only stand-in hatch (F2), reproduced from a unit's own JSON exactly
+ *  as `sim.ts`'s `addUnitType` derives it (`abilities.includes('kamikaze')`,
+ *  `hull.transport_slots ?? 0`, `hull.armor.front < 30` -- tuning.ts's
+ *  `SOFT_ARMOR_LIMIT` pins the threshold at 30mm) rather than a new rule,
+ *  since this screen has no running Sim to read the real fields off of. The
+ *  `in` checks are the same union-narrowing `kdfUnlockGate` above uses --
+ *  `(typeof units)[keyof typeof units]` is a union over every faction's unit
+ *  JSON, and not every member declares `abilities` or `hull.transport_slots`
+ *  at all. */
+function kdfBrigadeTraits(
+  u: (typeof units)[keyof typeof units]
+): { isKamikaze: boolean; transportSlots: number; isSoft: boolean } {
+  const abilities = 'abilities' in u ? (u.abilities as string[]) : [];
+  const hull = u.hull as { transport_slots?: number; armor: { front: number } };
+  return {
+    isKamikaze: abilities.includes('kamikaze'),
+    transportSlots: hull.transport_slots ?? 0,
+    isSoft: hull.armor.front < 30,
+  };
+}
+
 interface SandboxForce {
   /** Side 0. Who can shepherd a civilian, and who can carry one. */
   player: number[];
@@ -497,7 +519,7 @@ async function main(): Promise<void> {
       // deliberately off the map, so it is never in this sum at all).
       const kdfUnits = Object.values(units)
         .filter((u) => u.faction === 'kdf')
-        .map((u) => ({ id: u.id, name: u.name, role: u.role, unlock: kdfUnlockGate(u) }));
+        .map((u) => ({ id: u.id, name: u.name, role: u.role, unlock: kdfUnlockGate(u), ...kdfBrigadeTraits(u) }));
       const portraits: Record<string, string> = {};
       await Promise.all(
         kdfUnits.map(async ({ id }) => {

@@ -5,7 +5,8 @@
 // it says soft. One classifier, two callers -- the same reasoning as
 // zoneContains in the slice before this one.
 import { describe, expect, it } from 'vitest';
-import { ROLE_GLYPH, roleBucket, type RoleBucket } from './role';
+import { units } from '@lions/data';
+import { ROLE_GLYPH, ROLE_LABEL, roleBucket, roleLabel, type RoleBucket } from './role';
 
 /** The four fields the classifier reads, defaulted to an armour unit. */
 function unit(over: Partial<Parameters<typeof roleBucket>[0]> = {}) {
@@ -43,5 +44,29 @@ describe('roleBucket', () => {
       'kamikaze', 'drone', 'gunship', 'sniper', 'transport', 'soft', 'armour',
     ];
     for (const b of buckets) expect(ROLE_GLYPH[b]).toBeTruthy();
+  });
+});
+
+describe('ROLE_LABEL', () => {
+  it('covers every role any shipped KDF unit declares, so a new one cannot leak its id', () => {
+    const roles = new Set(
+      Object.values(units)
+        .filter((u) => u.faction === 'kdf')
+        .map((u) => u.role)
+    );
+    expect(roles.size).toBeGreaterThan(0);
+    for (const role of roles) expect(ROLE_LABEL[role]).toBeTruthy();
+  });
+
+  it('never prints a raw role id', () => {
+    expect(ROLE_LABEL.at_team).not.toBe('at_team');
+    expect(ROLE_LABEL.ifv).not.toBe('ifv');
+    expect(ROLE_LABEL.mbt).not.toBe('mbt');
+    expect(ROLE_LABEL.recon).not.toBe('recon');
+    expect(ROLE_LABEL.apc).not.toBe('apc');
+  });
+
+  it('falls back to the id with underscores turned to spaces for an unknown role', () => {
+    expect(roleLabel('made_up_role')).toBe('made up role');
   });
 });

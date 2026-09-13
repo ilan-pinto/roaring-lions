@@ -3,9 +3,25 @@ import { describe, expect, it } from 'vitest';
 import { showBrigade } from './brigade';
 
 const units = [
-  { id: 'inf_squad', name: 'Rifle Squad', role: 'infantry' },
-  { id: 'ifv_namer', name: 'Namer IFV', role: 'ifv', unlock: { roeMin: 40 } },
-  { id: 'breach_team', name: 'Tzinah Breach Team', role: 'support', unlock: { starsMin: 12 } },
+  { id: 'inf_squad', name: 'Rifle Squad', role: 'infantry', isKamikaze: false, transportSlots: 0, isSoft: true },
+  {
+    id: 'ifv_namer',
+    name: 'Namer IFV',
+    role: 'ifv',
+    unlock: { roeMin: 40 },
+    isKamikaze: false,
+    transportSlots: 6,
+    isSoft: false,
+  },
+  {
+    id: 'breach_team',
+    name: 'Tzinah Breach Team',
+    role: 'support',
+    unlock: { starsMin: 12 },
+    isKamikaze: false,
+    transportSlots: 0,
+    isSoft: true,
+  },
 ];
 
 describe('showBrigade', () => {
@@ -47,5 +63,37 @@ describe('showBrigade', () => {
     expect(host.querySelector('[data-unit="ifv_namer"]')?.getAttribute('data-locked')).toBe('1');
     const rows = [...host.querySelectorAll('[data-unit]')].map((r) => r.getAttribute('data-unit'));
     expect(rows).toEqual(['inf_squad', 'ifv_namer', 'breach_team']);
+  });
+
+  it('prints a player-facing role label, never the raw role id', () => {
+    const host = document.createElement('div');
+    showBrigade(host, { units, ledger: {}, possibleStars: 78 });
+    // F2 minor 4: `ifv` used to print verbatim.
+    expect(host.querySelector('[data-unit="ifv_namer"] .rl-brigade__role')?.textContent).toBe('fighting vehicle');
+    expect(host.querySelector('[data-unit="ifv_namer"] .rl-brigade__role')?.textContent).not.toBe('ifv');
+  });
+
+  it('falls back to the id with underscores turned to spaces for an unrecognised role', () => {
+    const host = document.createElement('div');
+    showBrigade(host, {
+      units: [
+        { id: 'made_up_unit', name: 'Made Up Unit', role: 'not_a_real_role', isKamikaze: false, transportSlots: 0, isSoft: false },
+      ],
+      ledger: {},
+      possibleStars: 78,
+    });
+    expect(host.querySelector('[data-unit="made_up_unit"] .rl-brigade__role')?.textContent).toBe('not a real role');
+  });
+
+  it('draws a mesh-only unit as the HUD hatch with a role mark, never a bare hatch', () => {
+    // No `portrait` resolver at all -- exactly the case a mesh-only unit
+    // (breach_team, scout_shachaf, apc_kipod: no SPRITE_MAP entry, correctly)
+    // hits for real, since main.ts's portrait lookup only ever resolves a
+    // sprite sheet URL.
+    const host = document.createElement('div');
+    showBrigade(host, { units, ledger: {}, possibleStars: 78 });
+    const art = host.querySelector('[data-unit="breach_team"] .rl-brigade__art');
+    expect(art?.getAttribute('data-nosprite')).toBe('1');
+    expect(art?.querySelector('svg')).not.toBeNull();
   });
 });

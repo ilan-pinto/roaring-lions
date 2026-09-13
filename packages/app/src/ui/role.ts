@@ -48,6 +48,35 @@ export const ROLE_GLYPH: Record<RoleBucket, string> = {
 };
 
 /**
+ * The twelve KDF roles (`data/units/kdf/*.json`'s own `role` field), as
+ * lowercase player-facing words. The brigade screen (F2) is the first place
+ * that ever printed a raw role id to a player; this is what stops it doing
+ * that again the moment a thirteenth role ships. `role.test.ts` pins every
+ * role any shipped KDF unit declares against this table.
+ */
+export const ROLE_LABEL: Record<string, string> = {
+  apc: 'carrier',
+  artillery: 'artillery',
+  at_team: 'anti-tank team',
+  drone: 'drone',
+  engineer: 'engineer',
+  gunship: 'gunship',
+  ifv: 'fighting vehicle',
+  infantry: 'infantry',
+  mbt: 'tank',
+  recon: 'reconnaissance',
+  sniper: 'sniper',
+  support: 'support',
+};
+
+/** `ROLE_LABEL[role]`, or the id with underscores turned to spaces for a role
+ *  this table has not caught up with yet -- never a crash, and never the raw
+ *  snake_case id verbatim. */
+export function roleLabel(role: string): string {
+  return ROLE_LABEL[role] ?? role.replace(/_/g, ' ');
+}
+
+/**
  * The seven marks as SVG geometry, centred on (x, y) at radius r.
  *
  * Moved here from `vite-plugin-cursors.ts`'s `badgeMark`, which now calls it,

@@ -4,12 +4,26 @@
 import { conductAtLeast, starsEarned, unlockReason, type LedgerData, type UnlockGate } from '@lions/sim';
 import { campaignRoe } from '../campaign';
 import { panel } from './panel';
+import { roleBadgeSvg, roleBucket, roleLabel } from './role';
 
 export interface BrigadeUnit {
   id: string;
   name: string;
   role: string;
   unlock?: UnlockGate;
+  /**
+   * What `roleBucket` needs to pick a role mark for a mesh-only unit's
+   * stand-in hatch (F2) — the same four structural fields hud.ts's own card
+   * reads off a live `Sim.unitTypes` entry (`packages/sim/src/sim.ts`'s
+   * `addUnitType`: `isKamikaze` from `abilities.includes('kamikaze')`,
+   * `transportSlots` from `hull.transport_slots ?? 0`, `isSoft` from
+   * `hull.armor.front < 30` — the SOFT_ARMOR_LIMIT tuning.ts pins at 30mm),
+   * reproduced here from the unit's own JSON because this screen has no
+   * running Sim to read them off of.
+   */
+  isKamikaze: boolean;
+  transportSlots: number;
+  isSoft: boolean;
 }
 
 export interface BrigadeOptions {
@@ -30,6 +44,25 @@ const el = (tag: string, cls: string, text?: string): HTMLElement => {
   if (text !== undefined) e.textContent = text;
   return e;
 };
+
+/** The role mark's size inside the 40px `.rl-brigade__art` frame, matching
+ *  hud.ts's own `CHIP_MARK` — the two hatches are the same physical size, so
+ *  the mark inside them should read at the same size too. */
+const ART_MARK = 18;
+
+/** A row once it is known to be locked: `unlock` narrowed to defined (never a
+ *  cast) because `classifyRow` only builds this variant when `u.unlock` is
+ *  itself checked non-undefined, and `reason` narrowed to a real string for
+ *  the same reason (F2 minor 5: `brigade.ts:79-80` used to cast `u.unlock as
+ *  UnlockGate` twice instead of typing this). */
+type Row = { u: BrigadeUnit; locked: false } | { u: BrigadeUnit; locked: true; unlock: UnlockGate; reason: string };
+
+function classifyRow(u: BrigadeUnit, ledger: LedgerData): Row {
+  if (u.unlock === undefined) return { u, locked: false };
+  const reason = unlockReason(u.unlock, ledger);
+  if (reason === null) return { u, locked: false };
+  return { u, locked: true, unlock: u.unlock, reason };
+}
 
 /**
  * Which of `unlockReason`'s three checks is the one actually holding a unit
@@ -59,6 +92,7 @@ function bindingGate(unlock: UnlockGate, ledger: LedgerData): readonly [rank: nu
 
 export function showBrigade(host: HTMLElement, opts: BrigadeOptions): void {
   const p = panel({ rank: 'mission', title: 'The brigade', mark: true });
+  p.el.classList.add('rl-brigade');
   const b = p.body;
 
   const head = el('div', 'rl-brigade__head');
@@ -70,47 +104,57 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): void {
   // Available first; ties keep their given order (no gate to sort by).
   // Locked rows follow, ordered by the gate that opens soonest — a Conduct
   // floor, then a star count, then a named mission last — ties broken by name.
-  const rows = opts.units.map((u) => ({ u, reason: unlockReason(u.unlock, opts.ledger) }));
+  const rows = opts.units.map((u) => classifyRow(u, opts.ledger));
   rows.sort((a, b2) => {
-    const lockedA = a.reason !== null;
-    const lockedB = b2.reason !== null;
-    if (lockedA !== lockedB) return lockedA ? 1 : -1;
-    if (!lockedA) return 0; // both available: stable, preserves input order
-    const [rankA, valA] = bindingGate(a.u.unlock as UnlockGate, opts.ledger);
-    const [rankB, valB] = bindingGate(b2.u.unlock as UnlockGate, opts.ledger);
+    if (a.locked !== b2.locked) return a.locked ? 1 : -1;
+    if (!a.locked || !b2.locked) return 0; // both available: stable, preserves input order
+    const [rankA, valA] = bindingGate(a.unlock, opts.ledger);
+    const [rankB, valB] = bindingGate(b2.unlock, opts.ledger);
     if (rankA !== rankB) return rankA - rankB;
     if (valA !== valB) return valA - valB;
     return a.u.name.localeCompare(b2.u.name);
   });
 
   const list = el('div', 'rl-brigade__list');
-  for (const { u, reason } of rows) {
-    const row = el('div', 'rl-brigade__row');
-    row.dataset.unit = u.id;
-    row.dataset.locked = reason !== null ? '1' : '0';
+  for (const row of rows) {
+    const { u } = row;
+    const rowEl = el('div', 'rl-brigade__row');
+    rowEl.dataset.unit = u.id;
+    rowEl.dataset.locked = row.locked ? '1' : '0';
 
     const src = opts.portrait?.(u.id) ?? null;
     if (src !== null) {
       const img = document.createElement('img');
-      img.className = 'rl-chip__art';
+      // Shared by declaration with the HUD's own chip art (theme.css's
+      // `.rl-chip__art` rule lists `.rl-brigade__art` too) rather than
+      // borrowing the HUD's class name by string.
+      img.className = 'rl-brigade__art';
       img.src = src;
       img.alt = '';
-      row.appendChild(img);
+      rowEl.appendChild(img);
     } else {
+      // The HUD's own "reserved, not broken" hatch (hud.ts's `artHtml`) —
+      // the role mark on top, never a bare hatch, so a mesh-only unit
+      // (breach_team, scout_shachaf, apc_kipod — no SPRITE_MAP entry,
+      // correctly) reads as "reserved" rather than "broken".
       const art = document.createElement('div');
-      art.className = 'rl-chip__art';
+      art.className = 'rl-brigade__art';
       art.dataset.nosprite = '1';
       art.title = `${u.id} — no sprite sheet`;
-      row.appendChild(art);
+      art.innerHTML = roleBadgeSvg(roleBucket(u), ART_MARK);
+      rowEl.appendChild(art);
     }
 
-    row.appendChild(el('div', 'rl-brigade__name', u.name));
-    row.appendChild(el('div', 'rl-brigade__role', u.role));
-    row.appendChild(el('div', 'rl-brigade__why', reason ?? 'available'));
+    const info = el('div', 'rl-brigade__info');
+    info.appendChild(el('div', 'rl-brigade__name', u.name));
+    info.appendChild(el('div', 'rl-brigade__role', roleLabel(u.role)));
+    rowEl.appendChild(info);
+
+    rowEl.appendChild(el('div', 'rl-brigade__why', row.locked ? row.reason : 'available'));
     if (u.unlock?.starsMin !== undefined) {
-      row.appendChild(el('div', 'rl-brigade__gate', `★ ${u.unlock.starsMin}`));
+      rowEl.appendChild(el('div', 'rl-brigade__gate', `★ ${u.unlock.starsMin}`));
     }
-    list.appendChild(row);
+    list.appendChild(rowEl);
   }
   b.appendChild(list);
 
