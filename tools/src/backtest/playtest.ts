@@ -1,7 +1,17 @@
 // Headless mission playtests: each Beit Sahwan mission must be winnable by a
 // sensible scripted plan inside its time budget. Run: tsx src/backtest/playtest.ts
 
-import { Sim, fx, TICKS_PER_SECOND, MissionRuntime, type MissionJson, type LedgerData, type TunnelRouteJson } from '@lions/sim';
+import {
+  Sim,
+  fx,
+  TICKS_PER_SECOND,
+  MissionRuntime,
+  resolveUpgrades,
+  type MissionJson,
+  type LedgerData,
+  type TunnelRouteJson,
+  type UnlockGate,
+} from '@lions/sim';
 import { units, maps, missions, structures as structureCatalogue, parseMap, applyTerrain } from '@lions/data';
 
 type Plan = (sim: Sim, rt: MissionRuntime, ids: (t: string) => number[], at: (t: number, fn: () => void) => void) => void;
@@ -55,7 +65,19 @@ function run(
   }
   const typeOf = new Map<string, number>();
   for (const u of Object.values(units)) typeOf.set(u.id, sim.addUnitType(u));
-  const rt = new MissionRuntime(sim, mission, {
+  // `upgrades_to` resolved once, before the runtime is built, exactly as main.ts
+  // does it -- so a placed force fields the earned unit here too and the spawner
+  // stays gate-blind.
+  const unlockOf = (unitId: string): UnlockGate | undefined => {
+    const d = (units as Record<string, { unlock?: { roe_rating_min?: number; stars_min?: number; after_mission?: string } } | undefined>)[
+      unitId
+    ];
+    return d?.unlock
+      ? { roeMin: d.unlock.roe_rating_min, starsMin: d.unlock.stars_min, afterMission: d.unlock.after_mission }
+      : undefined;
+  };
+  const resolvedMission = resolveUpgrades(mission, ledger, unlockOf);
+  const rt = new MissionRuntime(sim, resolvedMission, {
     typeIdOf: (u) => typeOf.get(u) as number,
     markers: map.markers,
     zones: map.zones,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { starsEarned, unlockReason } from './unlock';
-import type { LedgerData } from './mission';
+import { resolveUpgrades, starsEarned, unlockReason, type UnlockGate } from './unlock';
+import type { LedgerData, MissionJson, PlacementJson } from './mission';
 
 describe('unlockReason', () => {
   it('returns null when there is no gate at all', () => {
@@ -86,5 +86,39 @@ describe('unlockReason', () => {
     expect(why).toContain('Conduct 60');
     const why2 = unlockReason({ starsMin: 9, afterMission: 'x' }, {});
     expect(why2).toBe('requires 9 stars (currently 0)');
+  });
+});
+
+describe('resolveUpgrades', () => {
+  const gates: Record<string, UnlockGate | undefined> = { breach_team: { starsMin: 12 } };
+  const unlockOf = (id: string): UnlockGate | undefined => gates[id];
+  const mission = {
+    id: 'm', starting_force: [
+      { unit: 'inf_squad', count: 1, at: [1, 1], upgrades_to: 'breach_team' },
+      { unit: 'mbt_lavi', count: 1, at: [2, 2] },
+    ],
+  } as unknown as MissionJson;
+
+  it('fields the base unit while the gate is closed', () => {
+    const out = resolveUpgrades(mission, {}, unlockOf);
+    const force = out.starting_force as PlacementJson[];
+    expect(force[0].unit).toBe('inf_squad');
+    expect('upgrades_to' in force[0]).toBe(false);
+  });
+
+  it('fields the upgrade once the gate is open, and never mutates the input', () => {
+    const ledger: LedgerData = {
+      'campaign.mission_results': {
+        a: { stars: 3, roe: 90, ticks: 1, lost: 0 },
+        b: { stars: 3, roe: 90, ticks: 1, lost: 0 },
+        c: { stars: 3, roe: 90, ticks: 1, lost: 0 },
+        d: { stars: 3, roe: 90, ticks: 1, lost: 0 },
+      },
+    };
+    const out = resolveUpgrades(mission, ledger, unlockOf);
+    const force = out.starting_force as PlacementJson[];
+    expect(force[0].unit).toBe('breach_team');
+    expect(force[1].unit).toBe('mbt_lavi');
+    expect((mission.starting_force as PlacementJson[])[0].unit).toBe('inf_squad');
   });
 });

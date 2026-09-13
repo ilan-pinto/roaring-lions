@@ -13,6 +13,7 @@ import {
   TICKS_PER_SECOND,
   CivilianFlight,
   MissionRuntime,
+  resolveUpgrades,
   starRoeFloor,
   starsEarned,
   zoneContains,
@@ -20,6 +21,7 @@ import {
   type MissionEvent,
   type MissionJson,
   type TunnelRouteJson,
+  type UnlockGate,
 } from '@lions/sim';
 // PixiRenderer is deliberately NOT imported here (see the dynamic import
 // below, and `@lions/render/pixi`'s own comment): a static import of it,
@@ -169,6 +171,16 @@ function saveLedger(ledger: LedgerData): void {
 function unitFor(typeId: string): { id: string; role: string } {
   const u = units[typeId as keyof typeof units] as { id: string; role: string } | undefined;
   return u ?? { id: typeId, role: 'infantry' };
+}
+
+/** A KDF unit JSON entry's `unlock` gate, mapped from the authored
+ *  `roe_rating_min`/`stars_min`/`after_mission` field names to `UnlockGate` --
+ *  the one mapping `unitInfo`, `kdfUnits` and `resolveUpgrades`'s lookup all share. */
+function kdfUnlockGate(u: (typeof units)[keyof typeof units]): UnlockGate | undefined {
+  const unlock = 'unlock' in u ? (u.unlock as { roe_rating_min?: number; stars_min?: number; after_mission?: string }) : undefined;
+  return unlock
+    ? { roeMin: unlock.roe_rating_min, starsMin: unlock.stars_min, afterMission: unlock.after_mission }
+    : undefined;
 }
 
 interface SandboxForce {
@@ -584,8 +596,17 @@ async function main(): Promise<void> {
   /** Who the sandbox spawned, for the two lists `CivilianFlight.step` takes. */
   let sandboxForce: SandboxForce = { player: [], civilians: [] };
   let runtime: MissionRuntime | null = null;
+  /** The force `MissionRuntime` and the deploy panel (`broughtFor`) actually see:
+   *  `upgrades_to` resolved once here (spec §4.6), before the runtime is built, so
+   *  the spawner stays gate-blind. Every other reader of `mission` -- briefing,
+   *  debrief, `getMission()` -- keeps the original JSON. */
+  let resolvedMission: MissionJson | undefined;
   if (mission) {
-    runtime = new MissionRuntime(sim, mission, {
+    resolvedMission = resolveUpgrades(mission, ledger, (id) => {
+      const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
+      return u ? kdfUnlockGate(u) : undefined;
+    });
+    runtime = new MissionRuntime(sim, resolvedMission, {
       typeIdOf: (id) => {
         const t = typeOf.get(id);
         if (t === undefined) throw new Error(`mission references unknown unit ${id}`);
@@ -598,13 +619,10 @@ async function main(): Promise<void> {
       unitInfo: (id) => {
         const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
         if (!u || u.faction !== 'kdf') return null;
-        const unlock = 'unlock' in u ? (u.unlock as { roe_rating_min?: number; stars_min?: number; after_mission?: string }) : undefined;
         return {
           logistics: u.cost.logistics,
           buildTimeS: 'build_time_s' in u.cost ? u.cost.build_time_s : 20,
-          unlock: unlock
-            ? { roeMin: unlock.roe_rating_min, starsMin: unlock.stars_min, afterMission: unlock.after_mission }
-            : undefined,
+          unlock: kdfUnlockGate(u),
         };
       },
     });
@@ -956,7 +974,7 @@ async function main(): Promise<void> {
     mission?.briefing,
     { rank: hudCommander.shai.rank, plate: hudCommander.shai.plate, portrait: hudCommander.shai.portrait },
     mission?.briefing_video !== undefined ? `${BASE}${mission.briefing_video}` : undefined,
-    mission ? (broughtFor(mission, ledger, (id) => units[id as keyof typeof units]?.name ?? id) ?? undefined) : undefined
+    resolvedMission ? (broughtFor(resolvedMission, ledger, (id) => units[id as keyof typeof units]?.name ?? id) ?? undefined) : undefined
   );
   await renderer.init(stage);
   renderer.useEmitters(vfxEmitters as EmitterSpec[], paletteColor);
@@ -1957,16 +1975,11 @@ async function main(): Promise<void> {
             // treatment -- the sim never reads it either (`grade.ts`).
             const kdfUnits = Object.values(units)
               .filter((u) => u.faction === 'kdf')
-              .map((u) => {
-                const unlock = 'unlock' in u ? (u.unlock as { roe_rating_min?: number; stars_min?: number; after_mission?: string }) : undefined;
-                return {
-                  id: u.id,
-                  name: u.name ?? u.id,
-                  unlock: unlock
-                    ? { roeMin: unlock.roe_rating_min, starsMin: unlock.stars_min, afterMission: unlock.after_mission }
-                    : undefined,
-                };
-              });
+              .map((u) => ({
+                id: u.id,
+                name: u.name ?? u.id,
+                unlock: kdfUnlockGate(u),
+              }));
             const tier = TIER_LINES[runtime.stars];
             const promotion = me.result === 'victory' ? promotionAfter(commanderData, worldData, missionId) : null;
             const nextJson = nextMissionId ? (missions as Record<string, MissionJson | undefined>)[nextMissionId] : undefined;

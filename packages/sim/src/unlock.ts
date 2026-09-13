@@ -1,4 +1,4 @@
-import type { LedgerData } from './mission';
+import type { LedgerData, MissionJson, PlacementJson } from './mission';
 
 /** A campaign progression gate, as parsed from `unlock` in unit or world data.
  *  Authoring spells these `roe_rating_min`, `stars_min` and `after_mission`; the app maps them. */
@@ -89,4 +89,24 @@ function roeAtLeast(ledger: LedgerData | undefined, floor: number): boolean {
   // A save written before per-mission ratings existed carries a single number.
   const legacy = ledger?.['roe.cumulative_rating'];
   return typeof legacy === 'number' && legacy >= floor;
+}
+
+/**
+ * Field the earned unit where a placement offers one (spec §4.6, `upgrades_to`). Pure and
+ * called ONCE, by the app and by the playtest harness, before `new MissionRuntime` -- so
+ * the runtime never learns a gate exists (spawnPlacement stays gate-blind on purpose: the
+ * Wadi Halam V D9 hole is a separate decision) and both callers share one implementation.
+ */
+export function resolveUpgrades(
+  mission: MissionJson,
+  ledger: LedgerData | undefined,
+  unlockOf: (unitId: string) => UnlockGate | undefined
+): MissionJson {
+  const force = (mission.starting_force ?? []).map((p: PlacementJson) => {
+    if (p.upgrades_to === undefined) return p;
+    const { upgrades_to, ...rest } = p;
+    if (unlockReason(unlockOf(upgrades_to), ledger) === null) return { ...rest, unit: upgrades_to };
+    return rest;
+  });
+  return { ...mission, starting_force: force };
 }

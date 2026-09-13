@@ -190,6 +190,10 @@
             "default": false,
             "description": "If true, draw survivors with veterancy from roster.surviving_units instead of spawning fresh."
           },
+          "upgrades_to": {
+            "type": "string",
+            "description": "Field this unit instead when its unlock is open -- an upgrade only, never a downgrade (spec 2026-09-10 §4.6). Resolved before the runtime is built; the spawner never consults a gate. Not allowed beside from_ledger: a survivor's veterancy cannot survive a type swap."
+          },
           "group": {
             "type": "string",
             "description": "Trigger orders address groups -- spawnPlacement already registers this for every side, starting_force included. A `remove` trigger naming this group must not cover every starting_force entry: validate_data.mjs refuses one that would (removing the last living player unit would read as a wipe)."

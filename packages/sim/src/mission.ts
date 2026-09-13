@@ -40,6 +40,10 @@ export interface PlacementJson {
    *  spawning fresh. Sparse rosters degrade gracefully: fewer units, and a
    *  single fresh remnant when the roster has none of this type. */
   from_ledger?: boolean;
+  /** The unit this placement fields INSTEAD when that unit's `unlock` is open — an
+   *  upgrade only, never a downgrade, resolved by `resolveUpgrades` before the runtime
+   *  is built (the spawner never consults a gate). Refused beside `from_ledger`. */
+  upgrades_to?: string;
   /** Route id (map `tunnels[].id`) this placement starts inside. The bodies
    *  spawn underground in that route rather than standing on their tile, and
    *  stay below until the route is dug through and vents — or die with it if

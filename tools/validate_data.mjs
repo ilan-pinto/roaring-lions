@@ -327,7 +327,28 @@ const structureSymbols = new Map(
     const wantUnit = (name, where) => {
       if (name && !unitIds.has(name)) failures.push(`${rel(file)}: ${where} references unknown unit "${name}"`);
     };
-    for (const p of mi.starting_force ?? []) wantUnit(p.unit, 'starting_force');
+    for (const p of mi.starting_force ?? []) {
+      wantUnit(p.unit, 'starting_force');
+      if (p.upgrades_to !== undefined) {
+        if (p.from_ledger === true) {
+          failures.push(
+            `${rel(file)}: ${p.unit} upgrades_to ${p.upgrades_to} on a from_ledger placement -- ` +
+              `a survivor cannot change type`
+          );
+        }
+        const target = unitsById.get(p.upgrades_to);
+        if (!target || target.faction !== 'kdf') {
+          failures.push(
+            `${rel(file)}: ${p.unit} upgrades_to "${p.upgrades_to}", which is not a KDF unit id`
+          );
+        } else if (target.unlock === undefined) {
+          failures.push(
+            `${rel(file)}: ${p.unit} upgrades_to ${p.upgrades_to}, which has no unlock -- ` +
+              `an upgrade with no gate is a free unit`
+          );
+        }
+      }
+    }
     for (const p of mi.enemy?.garrison ?? []) {
       wantUnit(p.unit, 'garrison');
       wantMarker(p.marker, 'garrison');
