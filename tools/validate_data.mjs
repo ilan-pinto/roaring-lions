@@ -339,7 +339,7 @@ const structureSymbols = new Map(
         const target = unitsById.get(p.upgrades_to);
         if (!target || target.faction !== 'kdf') {
           failures.push(
-            `${rel(file)}: ${p.unit} upgrades_to "${p.upgrades_to}", which is not a KDF unit id`
+            `${rel(file)}: ${p.unit} upgrades_to ${p.upgrades_to}, which is not a KDF unit id`
           );
         } else if (target.unlock === undefined) {
           failures.push(

@@ -121,4 +121,15 @@ describe('resolveUpgrades', () => {
     expect(force[1].unit).toBe('mbt_lavi');
     expect((mission.starting_force as PlacementJson[])[0].unit).toBe('inf_squad');
   });
+
+  it('pins the trust boundary: an unlockOf that finds no gate at all reads as open', () => {
+    // validate_data.mjs refuses an upgrades_to target with no unlock (so a real caller's
+    // unlockOf is never asked about one), and this function does not defend against that
+    // itself -- undefined here is indistinguishable from "no gate", and unlockReason(undefined,
+    // ledger) is null either way. Pinned so a future change to that fallback is deliberate.
+    const noGate = (): UnlockGate | undefined => undefined;
+    const out = resolveUpgrades(mission, {}, noGate);
+    const force = out.starting_force as PlacementJson[];
+    expect(force[0].unit).toBe('breach_team');
+  });
 });

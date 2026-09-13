@@ -16,6 +16,18 @@ import { units, maps, missions, structures as structureCatalogue, parseMap, appl
 
 type Plan = (sim: Sim, rt: MissionRuntime, ids: (t: string) => number[], at: (t: number, fn: () => void) => void) => void;
 
+/** A unit JSON entry's `unlock` gate, mapped from the authored
+ *  `roe_rating_min`/`stars_min`/`after_mission` field names to `UnlockGate` -- the one
+ *  mapping `unitInfo` and `unlockOf` (`resolveUpgrades`'s lookup) both share, exactly
+ *  as main.ts's own `kdfUnlockGate` does for the app. */
+function kdfUnlockGate(u: {
+  unlock?: { roe_rating_min?: number; stars_min?: number; after_mission?: string };
+}): UnlockGate | undefined {
+  return u.unlock
+    ? { roeMin: u.unlock.roe_rating_min, starsMin: u.unlock.stars_min, afterMission: u.unlock.after_mission }
+    : undefined;
+}
+
 function run(
   id: keyof typeof missions,
   plan: Plan,
@@ -72,9 +84,7 @@ function run(
     const d = (units as Record<string, { unlock?: { roe_rating_min?: number; stars_min?: number; after_mission?: string } } | undefined>)[
       unitId
     ];
-    return d?.unlock
-      ? { roeMin: d.unlock.roe_rating_min, starsMin: d.unlock.stars_min, afterMission: d.unlock.after_mission }
-      : undefined;
+    return d ? kdfUnlockGate(d) : undefined;
   };
   const resolvedMission = resolveUpgrades(mission, ledger, unlockOf);
   const rt = new MissionRuntime(sim, resolvedMission, {
@@ -97,9 +107,7 @@ function run(
       return {
         logistics: d.cost.logistics,
         buildTimeS: d.cost.build_time_s ?? 20,
-        unlock: d.unlock
-          ? { roeMin: d.unlock.roe_rating_min, starsMin: d.unlock.stars_min, afterMission: d.unlock.after_mission }
-          : undefined,
+        unlock: kdfUnlockGate(d),
       };
     },
   });

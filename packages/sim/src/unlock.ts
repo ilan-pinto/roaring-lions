@@ -96,6 +96,12 @@ function roeAtLeast(ledger: LedgerData | undefined, floor: number): boolean {
  * called ONCE, by the app and by the playtest harness, before `new MissionRuntime` -- so
  * the runtime never learns a gate exists (spawnPlacement stays gate-blind on purpose: the
  * Wadi Halam V D9 hole is a separate decision) and both callers share one implementation.
+ *
+ * Trust boundary: `unlockOf(upgrades_to)` returning `undefined` reads as an OPEN gate
+ * (`unlockReason(undefined, ledger)` is `null`), same as a unit with no `unlock` at all --
+ * this function does not distinguish "no gate" from "unlockOf found nothing". It is safe
+ * only because `validate_data.mjs` refuses an `upgrades_to` target that declares no
+ * `unlock`, so a real caller's `unlockOf` is never asked about an ungated target.
  */
 export function resolveUpgrades(
   mission: MissionJson,
