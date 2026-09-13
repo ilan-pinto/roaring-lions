@@ -336,6 +336,14 @@ const structureSymbols = new Map(
               `a survivor cannot change type`
           );
         }
+        // F7(a): a placement upgrading to its own base type is not an upgrade at
+        // all -- almost certainly a copy-paste of the wrong id.
+        if (p.upgrades_to === p.unit) {
+          failures.push(
+            `${rel(file)}: ${p.unit} upgrades_to ${p.upgrades_to}, its own base type -- ` +
+              `an upgrade must name a different unit`
+          );
+        }
         const target = unitsById.get(p.upgrades_to);
         if (!target || target.faction !== 'kdf') {
           failures.push(
@@ -346,6 +354,29 @@ const structureSymbols = new Map(
             `${rel(file)}: ${p.unit} upgrades_to ${p.upgrades_to}, which has no unlock -- ` +
               `an upgrade with no gate is a free unit`
           );
+        } else if (Object.keys(target.unlock).length === 0) {
+          // F7(b): `unlock: {}` is schema-legal (every gate field is optional) and
+          // `unlockReason` treats an absent field as already cleared, so an empty
+          // object is always open -- the same free-unit problem as no `unlock` key
+          // at all, just spelled differently.
+          failures.push(
+            `${rel(file)}: ${p.unit} upgrades_to ${p.upgrades_to}, whose unlock is an empty ` +
+              `object -- schema-legal and always open, the same free-unit problem as no unlock at all`
+          );
+        } else {
+          // F7(c): a foot base becoming a wheeled target is the one domain change
+          // `mobility.wheeled` can name -- resolved with the SAME default the sim
+          // applies (sim.ts's `json.mobility.wheeled ?? !FOOT_ROLES.has(role)`),
+          // reusing the `FOOT_ROLES` mirror already declared above (the can_embark
+          // check's own) rather than a second hand-copy of the same set.
+          const base = unitsById.get(p.unit);
+          const wheeledOf = (u) => u.mobility?.wheeled ?? !FOOT_ROLES.has(u.role ?? '');
+          if (base && !wheeledOf(base) && wheeledOf(target)) {
+            failures.push(
+              `${rel(file)}: ${p.unit} upgrades_to ${p.upgrades_to}, a foot base becoming a ` +
+                `wheeled target -- an upgrade must never cross that domain`
+            );
+          }
         }
       }
     }
