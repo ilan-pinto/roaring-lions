@@ -2,6 +2,7 @@
   "sources": {
     "at_team.glb": "3b45bce6029a467654fec08e5e3e78c3572de607eaee0f9f7a31344bda246363",
     "atgm_cell.glb": "1df28f99a6038866d9e252bd4fd4857537cf712f767813b3fcc523300a0ecf76",
+    "breach_team.glb": "b3d886ec50a7c71e6cd446a7f20d9dc8307a78a87d054d31a382959b4f787e31",
     "buildings/apartment.glb": "805112e4a89a1cdddd1d12790bfe7439e553593c16bf67e2260e27ff7d5cb901",
     "buildings/apartment_wreck.glb": "9848672d465133a0ea84ebc6b8e307a0955dd7b80c3ec31c38bd3bfd6939fa5c",
     "buildings/camp.glb": "ef6cb8ba9769b02a6940e5a9356f0ec7d344734f1b770b5f82ff8e000ee41cbb",
@@ -66,6 +67,7 @@
     "sarim_rifles.glb": "45afa17f262579b647599f178adc60132c5cc7159270bc4e9622c5dacaa1508f",
     "sniper_team.glb": "4e5a827156edca21933d41fd873e7c0cfb9029551ed167e3dba95f457a9a388f",
     "vehicles/apc_eitan.glb": "89cce2bae326c9a835b27f16abf363553a57022078ff3d8eadfd061c54d4371a",
+    "vehicles/apc_kipod.glb": "a736ddc4942eba6dff4c0683361f0a1a0f6f0ad87094139511919f675d8cbe2c",
     "vehicles/dozer_d9.glb": "94e4dfc7f1b66a961bf09d945c94d43037ce62c11f011e2523dcf6805ea8ffb8",
     "vehicles/heli_peten.glb": "fec25beb95e7420e6ec0a9634b366fcf33b0d7066538b7bebef329787d8eded9",
     "vehicles/ifv_namer.glb": "8b841d1e49b0485f95d9b0821ee82a6fb98d1ba80d1a547fbbabe6dc556365fc",
@@ -73,6 +75,7 @@
     "vehicles/mbt_lavi.glb": "5b9d335683ab4d938384c79e13cf010973d49a44d9c1ac7208ca886c2c27df27",
     "vehicles/paramotor.glb": "b428f095f4da2dead47feb00cda17b8918e72483eeefa0c0148a27e84a763130",
     "vehicles/rocket_battery.glb": "cbce1f9f80b048cb5c1f1784e2723d3cbdf2ae3ff663a1dc5d2f1d467b00dceb",
+    "vehicles/scout_shachaf.glb": "d474e2eae91cc9c2600e2651f6eb308cd01cc397f8b7121f1e36765a956b6843",
     "vehicles/technical.glb": "f90a14d9a3740ddf33be95f289c96ca33c1a85779a16e731cec560feee3dbedd",
     "vfx/explosion_burst.glb": "c111861d350311378a23a73568b9c8ab5fc42308e6d33d107f75db39d68f1702",
     "vfx/muzzle_flash.glb": "cd6d18faa40aaa5ceaeb4a104efc4dd2f62fb99632a56ff3f2d9c03b0294db7b",

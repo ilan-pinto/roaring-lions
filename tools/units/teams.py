@@ -505,6 +505,28 @@ def _yah_pack(name, at, kneel=False):
     return kit.box(name, YAH_PACK_SIZE, (at[0] - 0.18, at[1], 0.95 - drop), role="webbing")
 
 
+def breach_team(clip, frame):
+    """Tzinah Breach Team, crew 6. `brc_point` carries a 0.55 x 1.20 m
+    ballistic shield out in front -- the widest flat panel in the set, and
+    nothing else stands one upright in front of a figure at all. `brc_cover`
+    wears a breaching pole charge slung across the back, nearly upright,
+    never wielded. Both carry a rifle. The shield is the primary tell against
+    the nearest neighbours: `demo_squad`'s satchel sits low on the GROUND,
+    and `yahalom_squad`'s mast is a thin bar held level at the hip, not a
+    plate at all."""
+    p, st = _standing_posture(clip), _stride(clip, frame)
+    A, B = (0.32, -0.18, 0.0), (-0.30, 0.24, 0.0)
+    out = kit.figure("brc_point", A, posture=p, stride=st, leader=True)
+    out += kit.rifle("brc_point_w", A, posture=p, aim=(clip == "fire"))
+    if _weapon_visible(clip):
+        out += kit.ballistic_shield("brc_point_shield", A)
+    out += kit.figure("brc_cover", B, posture=p, stride=st)
+    out += kit.rifle("brc_cover_w", B, posture=p, aim=(clip == "fire"))
+    if _weapon_visible(clip):
+        out += kit.breach_pole("brc_cover_pole", B)
+    return out
+
+
 def yahalom_squad(clip, frame):
     """Yahalom Engineers, crew 5. Two upright figures: the lead sweeps a 1.45 m
     ground-penetrating mast held out level at hip height, and both wear large
@@ -670,6 +692,7 @@ TEAMS = {
     "mortar_team": (mortar_team, "kdf", "INF_MORTAR"),
     "sniper_team": (sniper_team, "kdf", "INF_SNIPER"),
     "yahalom_squad": (yahalom_squad, "kdf", "INF_YAHALOM"),
+    "breach_team": (breach_team, "kdf", "INF_BREACH"),
     "militia_cell": (militia_cell, "enemy", "INF_MILITIA"),
     "rpg_team": (rpg_team, "enemy", "INF_RPG"),
     "atgm_cell": (atgm_cell, "enemy", "INF_ATGM"),

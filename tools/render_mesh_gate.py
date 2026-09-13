@@ -198,6 +198,22 @@ VEHICLE_ROLE_PALETTES = {
         "hull": "dust.1", "plate": "dust.2", "metal": "gunmetal.2",
         "rubber": "shadow.0", "glass": "gunmetal.3", "recess": "shadow.1",
     },
+    # tools/vehicles/author_scout_shachaf.py's own KDF olive tones -- same
+    # ramp as apc_eitan (both KDF), added rather than left to the generic
+    # fallback per this table's own instruction ("extend this table when a
+    # new vehicle mesh ships"). No `plate`/`recess` role: this hull has
+    # neither part.
+    "scout_shachaf": {
+        "hull": "olive.0", "metal": "gunmetal.2",
+        "rubber": "shadow.0", "glass": "gunmetal.3",
+    },
+    # tools/vehicles/author_apc_kipod.py's own KDF olive tones. `plate` is
+    # this unit's slab side-screens (its own reactive-plate read); `recess`
+    # is the rear stowage box.
+    "apc_kipod": {
+        "hull": "olive.0", "plate": "olive.1", "metal": "gunmetal.2",
+        "rubber": "shadow.0", "glass": "gunmetal.3", "recess": "shadow.1",
+    },
 }
 VEHICLE_ROLE_PALETTE_FALLBACK = {
     "hull": "olive.0", "plate": "olive.0", "metal": "gunmetal.2",

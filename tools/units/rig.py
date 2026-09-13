@@ -130,6 +130,7 @@ SUPPORTED_TEAMS = (
     "inf_squad", "militia_cell", "demo_squad", "charge_squad",
     "at_team", "rpg_team", "mortar_team", "mortar_crew", "atgm_cell",
     "sniper_team", "yahalom_squad", "digger_crew", "moto_rpg",
+    "breach_team",
 )
 DEFAULT_TEAM = "inf_squad"
 
@@ -206,6 +207,22 @@ PART_BONE = {
     "hood": "head", "balaclava": "head", "gaiter": "neck",
     "helm_counterweight": "head",
     "kef_crown": "head", "kef_mantle": "head", "kef_tail": "head",
+    # --- breach_team's own props (new this pass) ---
+    # `kit.ballistic_shield` is held out in front by the same hand a rifle
+    # would occupy on the OTHER arm, so it binds to the off-hand forearm
+    # rather than through the forced-bone convention _weapon_parts uses for
+    # the rifle itself -- it is worn kit from this rig's point of view, the
+    # same class as a dropleg holster or a canteen, just larger. `pole`/
+    # `pole_head` are `kit.breach_pole`'s two objects (the rod and its small
+    # block tip), both worn slung across the back and so both bound to
+    # `spine`, the same convention a carried pack (`yah_pack_a`/`_b`) uses in
+    # `_yahalom_extras` -- except those go through an explicit `forced` dict
+    # because their object names carry no "prefix_suffix" split at all
+    # ("yah_pack_a"), where breach_team's props are named
+    # "{prefix}_shield"/"{prefix}_pole"/"{prefix}_pole_head" and so resolve
+    # through this table's normal fallback path instead.
+    "shield": "forearm_L",
+    "pole": "spine", "pole_head": "spine",
     # --- weapon assembly, bound rigidly via forced_bone below, not this
     # table -- see _weapon_parts and _add_figure. Retained here only so a
     # stray unmapped "_w"-suffixed object still raises loudly rather than
@@ -507,6 +524,10 @@ TEAM_FIGURES = {
         _f("yah_a", 0.30, -0.20, leader=True),
         _f("yah_b", -0.34, 0.26, weapon="rifle"),
     ],
+    "breach_team": [
+        _f("brc_point", 0.32, -0.18, leader=True, weapon="rifle"),
+        _f("brc_cover", -0.30, 0.24, weapon="rifle"),
+    ],
     # `dig` stays kneeling through idle/move/fire in this pass rather than
     # standing to relocate for `move` the way `teams.digger_crew` itself
     # does (`_crew_posture`'s own kneeling/prone split, plus a THIRD
@@ -551,7 +572,7 @@ def _check_team_figures_against_teams():
         "charge_squad": "enemy", "at_team": "kdf", "rpg_team": "enemy",
         "mortar_team": "kdf", "mortar_crew": "enemy", "atgm_cell": "enemy",
         "sniper_team": "kdf", "yahalom_squad": "kdf", "digger_crew": "enemy",
-        "moto_rpg": "enemy",
+        "moto_rpg": "enemy", "breach_team": "kdf",
     }
     for team_id, figures in TEAM_FIGURES.items():
         assert team_id in teams.TEAMS, f"{team_id} missing from teams.TEAMS"
@@ -740,6 +761,21 @@ def _digger_extras():
     return heap, [ground_bone], {ob: "ground" for ob in heap}
 
 
+def _breach_extras():
+    """breach_team's own props: `brc_point`'s ballistic shield and
+    `brc_cover`'s breach pole. Unlike every other entry in this table, both
+    resolve through the plain PART_BONE fallback rather than an explicit
+    `forced` dict -- see PART_BONE's own "breach_team's own props" comment
+    for why: both objects are named `f"{prefix}_{suffix}"` against a real
+    figure prefix, the same convention `kit.figure()`'s own worn-kit parts
+    (pouches, dropleg, canteen) already use, so `rig_parts` binds them for
+    free. Returning `{}` for `forced` here is the tell that these are worn
+    kit, not a free-standing crew-served weapon with no hand to grip."""
+    shield = kit.ballistic_shield("brc_point_shield", (0.32, -0.18, 0.0))
+    pole = kit.breach_pole("brc_cover_pole", (-0.30, 0.24, 0.0))
+    return shield + pole, [], {}
+
+
 TEAM_EXTRAS = {
     "demo_squad": _demo_extras,
     "at_team": _at_extras,
@@ -749,6 +785,7 @@ TEAM_EXTRAS = {
     "atgm_cell": _atgm_extras,
     "yahalom_squad": _yahalom_extras,
     "digger_crew": _digger_extras,
+    "breach_team": _breach_extras,
 }
 
 

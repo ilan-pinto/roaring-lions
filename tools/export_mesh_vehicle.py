@@ -97,9 +97,19 @@ class VehicleMeshSpec:
     #: derived `realMetres` into. Read at export time rather than copied as
     #: a literal, so the mesh and the sprite it stands beside can never
     #: silently drift apart in size the way a second hand-typed number
-    #: would let them.
-    sprite_manifest: str
-    credit: str
+    #: would let them. `None` for a vehicle with no shipped sprite sheet at
+    #: all (a mesh-only unit) -- see `real_metres` below, its only
+    #: alternative.
+    sprite_manifest: str = None
+    #: A literal real-world size in metres, for a vehicle with no sprite
+    #: manifest to read one from. Exactly the same DECLARATION a sprite's
+    #: `author_*.py` script already makes in its own header comment (see
+    #: `author_eitan.py`'s `L, W, H` block) -- what `dimetric.metres_per_unit`
+    #: derives `scale` FROM, never a substitute for deriving it. Precisely one
+    #: of `sprite_manifest`/`real_metres` must be set; `_read_real_metres`
+    #: raises if both or neither are.
+    real_metres: float = None
+    credit: str = ""
 
 
 SPECS = {
@@ -122,6 +132,28 @@ SPECS = {
         turret_prefixes=(),
         sprite_manifest=os.path.join(REPO, "assets", "sprites", "D9_HULL", "manifest.json"),
         credit="D9 armoured dozer -- authored from primitives for this repository, CC BY-SA 4.0",
+    ),
+    "scout_shachaf": VehicleMeshSpec(
+        unit_id="scout_shachaf",
+        src=os.path.join(REPO, "art", "src", "vehicles", "scout_shachaf.blend"),
+        # Its own cupola_mg is a small fixed pintle mount, not a manned
+        # turret -- the same hull-only branch dozer_d9 takes, and for the
+        # same reason: nothing in this hull needs to traverse independently.
+        turret_prefixes=(),
+        # No shipped sprite sheet exists for this star-gated unit (it ships
+        # mesh-only) -- the literal declares the same real-world size
+        # `author_scout_shachaf.py`'s own header comment states (hull length
+        # 4.6 m, the model's longest axis).
+        real_metres=4.6,
+        credit="Light scout car -- authored from primitives for this repository, CC BY-SA 4.0",
+    ),
+    "apc_kipod": VehicleMeshSpec(
+        unit_id="apc_kipod",
+        src=os.path.join(REPO, "art", "src", "vehicles", "apc_kipod.blend"),
+        # Its own remote_mg is fixed, same reasoning as scout_shachaf above.
+        turret_prefixes=(),
+        real_metres=7.2,
+        credit="Screen carrier APC -- authored from primitives for this repository, CC BY-SA 4.0",
     ),
 }
 DEFAULT_UNIT = "apc_eitan"
@@ -281,6 +313,12 @@ def _turret_pivot(turret_meshes, eps=0.05):
 
 
 def _read_real_metres(spec):
+    if spec.sprite_manifest is not None and spec.real_metres is not None:
+        raise SystemExit(f"{spec.unit_id}: set only one of sprite_manifest/real_metres, not both")
+    if spec.real_metres is not None:
+        return spec.real_metres
+    if spec.sprite_manifest is None:
+        raise SystemExit(f"{spec.unit_id}: needs a sprite_manifest or a literal real_metres")
     with open(spec.sprite_manifest) as fh:
         manifest = json.load(fh)
     return manifest["realMetres"]
@@ -361,9 +399,10 @@ def export_vehicle(spec, out_path=None):
     extent_model = _extent(meshes)
     real_metres = _read_real_metres(spec)
     mpu = metres_per_unit(extent_model, real_metres)
+    metres_source = spec.sprite_manifest if spec.sprite_manifest is not None else f"literal {spec.real_metres}"
     print(
         f"[{spec.unit_id}] extent {extent_model:.3f} model units -> {real_metres:.3f} m "
-        f"declared ({mpu:.5f} m/unit, real_metres from {spec.sprite_manifest})"
+        f"declared ({mpu:.5f} m/unit, real_metres from {metres_source})"
     )
 
     meshes = _cull_subpixel(spec.unit_id, meshes, mpu)

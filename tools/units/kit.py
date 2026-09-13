@@ -1075,3 +1075,41 @@ def binoculars(name, at, yaw=0.0, posture="standing"):
     x0, y0, z0 = at
     c, s = math.cos(yaw), math.sin(yaw)
     return [box(name, (0.16, 0.24, 0.12), (x0 + 0.16 * c, y0 + 0.16 * s, z0 + z), "metal")]
+
+
+def ballistic_shield(name, at, role="metal"):
+    """A handheld ballistic shield: one flat plate, 0.55 m wide and 1.20 m
+    tall, stood upright about 0.28 m in front of the figure's own centre
+    line, its base clearing the ground by 0.03 m -- breach_team's own tell.
+    The widest single flat panel in the infantry kit, deliberately: nothing
+    else in the set stands anything this large upright in front of a body --
+    `demo_charge` is a low box set on the GROUND, and `yahalom_squad`'s mast
+    is a 0.03 m bar held level at the hip, not a plate at all. `chamfer`
+    softens the four edges so it reads as plate rather than a packing
+    crate."""
+    x0, y0, z0 = at
+    width, height, thick = 0.55, 1.20, 0.055
+    cz = z0 + 0.03 + height / 2.0
+    cx = x0 + 0.28
+    return [rbox(name, (thick, width, height), (cx, y0, cz), chamfer=0.12, role=role)]
+
+
+def breach_pole(name, at, role="charge"):
+    """A breaching pole worn slung across the back: a stout rod rising
+    steeply from waist to above the shoulder, tipped with a small block
+    charge -- carried, not wielded ("a pole charge they never have to use").
+    Against `yahalom_squad`'s mast -- thin (0.03 m radius), held level, out
+    in FRONT of the body at hip height -- this one is thicker (0.045 m),
+    rides on the BACK, and stands nearly upright (roughly 80 degrees from
+    horizontal) rather than level, so the two read as different objects
+    rather than a different pose of the same one."""
+    x0, y0, z0 = at
+    low = (x0 - 0.12, y0, z0 + 0.55)
+    high = (x0 + 0.10, y0, z0 + 1.78)
+    dx, dz = high[0] - low[0], high[2] - low[2]
+    length = math.hypot(dx, dz)
+    pitch = math.atan2(dz, dx)
+    mid = ((low[0] + high[0]) / 2.0, y0, (low[2] + high[2]) / 2.0)
+    pole = tube(name, length, 0.045, mid, yaw=0.0, pitch=pitch, role=role)
+    head = box(f"{name}_head", (0.12, 0.12, 0.16), high, role=role)
+    return [pole, head]

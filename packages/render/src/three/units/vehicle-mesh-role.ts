@@ -308,6 +308,36 @@ const VEHICLE_ROLE_PALETTE: Record<string, Partial<Record<VehicleMeshRole, reado
     glass: sliceFrom('gunmetal', 3, 1),
     recess: sliceFrom('shadow', 1, 2),
   },
+  // `tools/vehicles/author_scout_shachaf.py`'s own KDF olive tones, hand-copied
+  // from `tools/render_mesh_gate.py`'s own `VEHICLE_ROLE_PALETTES["scout_shachaf"]`
+  // (`hull`/`metal`/`rubber`/`glass` -- the recon-role vehicle from the
+  // 2026-09-13 special-units drop; see this task's report). Same ramp as
+  // `apc_eitan` (both native KDF armour), each extended to the end of its own
+  // band the same way every entry above is. No `plate` or `recess` role: this
+  // hull has neither part (a scout car with no bolt-on armour and no stowage
+  // recess), so those two stay genuinely absent rather than mapped and unused
+  // -- unlike `technical`/`mbt_lavi`/`ifv_namer`/`jeep_shoded`, which hold a
+  // complete table for a part that MIGHT arrive later, this hull's own gate
+  // entry never declared them either.
+  scout_shachaf: {
+    hull: sliceFrom('olive', 0, 4),
+    metal: sliceFrom('gunmetal', 2, 2),
+    rubber: sliceFrom('shadow', 0, 3),
+    glass: sliceFrom('gunmetal', 3, 1),
+  },
+  // `tools/vehicles/author_apc_kipod.py`'s own KDF olive tones, hand-copied
+  // from the gate's `VEHICLE_ROLE_PALETTES["apc_kipod"]`. `plate` (the slab
+  // side-screens) steps one deeper than `hull`, the same "bolt-on reads as
+  // distinct, not flush" reasoning `mbt_lavi`'s own `plate` uses against its
+  // hull; `recess` (the rear stowage box) matches `dozer_d9`'s own value.
+  apc_kipod: {
+    hull: sliceFrom('olive', 0, 4),
+    plate: sliceFrom('olive', 1, 3),
+    metal: sliceFrom('gunmetal', 2, 2),
+    rubber: sliceFrom('shadow', 0, 3),
+    glass: sliceFrom('gunmetal', 3, 1),
+    recess: sliceFrom('shadow', 1, 2),
+  },
 };
 
 /**
