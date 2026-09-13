@@ -39,7 +39,11 @@ describe('assignNames', () => {
       kindOf,
       table
     );
-    expect(roster.map((r) => r.name)).toEqual(['Sela', '2-1 Gachelet', 'Barzel', 'Eye One', '1-2 Ayil']);
+    // F6: task index 0 is `Eye Two`, not `Eye One` -- names.json §7 rule 3 is
+    // append-only, and `Eye Two`/`Kite One` are the two pre-existing entries
+    // (commit 15a2b5c) restored to indices 0/1 ahead of the 22 names added
+    // alongside the motivation layer.
+    expect(roster.map((r) => r.name)).toEqual(['Sela', '2-1 Gachelet', 'Barzel', 'Eye Two', '1-2 Ayil']);
     expect(issued).toEqual({ squad: 2, vehicle: 1, task: 1 });
   });
 
@@ -132,19 +136,30 @@ describe('assignNames', () => {
     expect(new Set(names.map((name) => name.split(' ')[0])).size).toBe(69);
   });
 
-  it('issues the first twenty-four task names across the blocks then down the numbers', () => {
-    // docs/campaign/names.md §2/§4: a task number is a callsign block plus a
-    // number word, issued across all six blocks before the number advances --
-    // Eye One, Kite One, Lens One, Gimbal One, Aperture One, Spool One, then
-    // the second airframe on each line takes Two, starting with Eye Two.
+  it('issues the two pre-existing task names first, then the rest in table order', () => {
+    // F6 / names.md §7 rule 3: table order is issue order, and a counter on a
+    // live save is an index into it -- inserting ahead of an already-shipped
+    // entry silently re-points a future issue to a name already given to
+    // someone else. `Eye Two` and `Kite One` are the two entries that shipped
+    // before the motivation layer (commit 15a2b5c); the 22 names added since
+    // are appended after them in the order they appear in the table, not
+    // grouped by callsign block the way a from-scratch table would read.
     const names = Array.from(
       { length: 24 },
       (_, n) =>
         assignNames([{ type: 'recon_drone', veterancy: 0 }], { squad: 0, vehicle: 0, task: n }, kindOf, table)
           .roster[0].name as string
     );
-    expect(names.slice(0, 6)).toEqual(['Eye One', 'Kite One', 'Lens One', 'Gimbal One', 'Aperture One', 'Spool One']);
-    expect(names[6]).toBe('Eye Two');
+    expect(names.slice(0, 7)).toEqual([
+      'Eye Two',
+      'Kite One',
+      'Eye One',
+      'Lens One',
+      'Gimbal One',
+      'Aperture One',
+      'Spool One',
+    ]);
+    expect(new Set(names).size).toBe(24);
   });
 
   it('gives thirty vehicles thirty different names', () => {
