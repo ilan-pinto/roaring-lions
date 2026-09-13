@@ -178,21 +178,30 @@ Three new units, one per act, that exist only to be earned. Each is a unit JSON 
 `data/units/kdf/` with `unlock.stars_min` (a new integer gate in `unit.schema.json` and in
 `UnlockGate`, read by `unlockReason` as the sum of best-of stars over
 `campaign.mission_results`, computed with integer addition only), a mesh through the
-Blender pipeline, and a `SPRITE_MAP` / mesh-catalogue entry so it actually draws. The
-thresholds are set so a ★★ player reaches the first inside Act I and a ★★★ player reaches
-the third before the last town: with 26 gradable missions (the tutorial produces no
+Blender pipeline, a mesh-catalogue entry, and — for a new vehicle role — a
+`VEHICLE_ROLE_PALETTE` ramp (`packages/render/src/three/units/vehicle-mesh-role.ts`). Never a
+`SPRITE_MAP` entry: all three are mesh-only and draw nothing on `&nomesh` or on the Pixi
+backend, which has no mesh path at all — a known, accepted gap (see "Mesh units" in
+CLAUDE.md), not an oversight to fix here. The thresholds are set so a ★★ player reaches
+the first inside Act I and a ★★★ player reaches the third before the last town: with 26
+gradable missions (the tutorial produces no
 result) and a ceiling of 78 stars — counted 2026-09-11 from `data/missions/`, where the
 17/51 this line used to carry predated two whole towns — the measured gates, fitted to that
 26-mission ladder and replacing the provisional 8/32/55, are 12 (`breach_team`), 30
 (`scout_shachaf`) and 44 (`apc_kipod`) stars, opening after missions 6, 15 and 22 of the
 flattened region → town → mission order, pinned by the `GATES` table in
-`tools/src/backtest/playtest.ts`.
+`tools/src/backtest/playtest.ts`. On that same optimal ladder the cumulative stars after
+missions 6/15/22 are 12/31/45 — margins 0/1/1 over the three gates — so `pnpm playtest`'s
+gate assertions go red the moment any content change moves one star inside the first 22
+missions. Read a red gate as "a star moved", never as "widen the gate".
 
 What the three units are is the campaign designer's brief, not this document's: each must be
-a new role no shipped unit fills, must pass the cost-curve band and `pnpm balance`, and must
-not raise armour, penetration, rate of fire or APS beyond the shipped roster (the §5.7
-inputs). The brigade screen (a new full screen from the menu) lists every KDF unit with its
-lock state and the sentence that opens it, and the star total.
+a new role, or a filled role with a capability nothing shipped has (`apc_kipod` is the third
+`apc` and the first protected-transport capacity — `docs/campaign/special_units/design.md`
+§5), must pass the cost-curve band and `pnpm balance`, and must not raise armour,
+penetration, rate of fire or APS beyond the shipped roster (the §5.7 inputs). The brigade
+screen (a new full screen from the menu) lists every KDF unit with its lock state and the
+sentence that opens it, and the star total.
 
 A gate on `starting_force` is the same rule inverted: an optional `upgrades_to` on a
 placement fields the named unit instead when its gate is open, never a downgrade, so no
