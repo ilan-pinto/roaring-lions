@@ -32,7 +32,7 @@ export function starsEarned(ledger: LedgerData | undefined): number {
  */
 export function unlockReason(unlock: UnlockGate | undefined, ledger: LedgerData | undefined): string | null {
   if (!unlock) return null;
-  if (unlock.roeMin !== undefined && !roeAtLeast(ledger, unlock.roeMin)) {
+  if (unlock.roeMin !== undefined && !conductAtLeast(ledger, unlock.roeMin)) {
     // Three cases, because two of them are not the same sentence: rated and short,
     // never rated, and an old save whose only record is a single number. Telling a
     // player with a low rating that they have none sends them to do the wrong thing.
@@ -65,7 +65,7 @@ const ratings = (ledger: LedgerData | undefined): Record<string, number> | null 
 };
 
 /**
- * Whether the campaign's average ROE is at least `floor`, decided without dividing.
+ * Whether the campaign's average Conduct is at least `floor`, decided without dividing.
  *
  * `sum >= floor * count` is the same predicate as `sum / count >= floor` for positive
  * counts, using only integer multiplication -- so this package keeps its no-floating-point
@@ -75,8 +75,16 @@ const ratings = (ledger: LedgerData | undefined): Record<string, number> | null 
  *
  * The message a locked thing shows names only the floor. The player's current figure is
  * rendered beside it by the shell, which may divide freely.
+ *
+ * Exported (as `conductAtLeast`, `unlockReason`'s own internal name for it) so a caller
+ * that needs to know WHICH gate is binding -- the brigade screen's row order, not its
+ * lock state -- can ask the exact same question `unlockReason` does, rather than
+ * approximating it from `campaignRoe`'s rounded mean. A rounded mean can disagree with
+ * this at the boundary (two ratings of 39 and 40 against a floor of 40: exact sum 79 <
+ * 80, still short; the rounded mean is 40, which reads as clearing it) -- harmless for
+ * display, since `campaignRoe` is presentation-only, but wrong for a gate check.
  */
-function roeAtLeast(ledger: LedgerData | undefined, floor: number): boolean {
+export function conductAtLeast(ledger: LedgerData | undefined, floor: number): boolean {
   const map = ratings(ledger);
   if (map !== null) {
     const keys = Object.keys(map);

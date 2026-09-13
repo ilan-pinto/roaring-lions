@@ -25,7 +25,7 @@ export {
 // Exported because a sandbox has no mission and therefore no runtime, and the
 // alternative to sharing it was a second copy of a game rule in `packages/app`.
 export { CivilianFlight, CIV_FLEE_AT, SHEPHERD_RADIUS_SQ } from './civilians';
-export { unlockReason, starsEarned, resolveUpgrades, type UnlockGate } from './unlock';
+export { unlockReason, starsEarned, conductAtLeast, resolveUpgrades, type UnlockGate } from './unlock';
 export {
   starsFor,
   starRoeFloor,
