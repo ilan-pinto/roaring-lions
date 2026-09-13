@@ -204,6 +204,17 @@ describe('tile states', () => {
     expect(t.title).toContain('requires campaign Conduct 55 (no missions rated yet)');
   });
 
+  it('shortens a stars lock to a star count, and keeps the whole sentence on the title', () => {
+    const rt = fakeRuntime({
+      blocked: { inf_squad: 'requires 12 stars (currently 4)' },
+    });
+    const r = rig([dockUnit()], rt);
+    const t = r.tile('inf_squad');
+    expect(t.dataset.locked).toBe('1');
+    expect(t.querySelector('.rl-tile__lock')?.textContent).toBe('★ ≥12');
+    expect(t.title).toContain('requires 12 stars (currently 4)');
+  });
+
   // A type the campaign has not opened is not "expensive". Saying both at once
   // would dim the tile for two reasons and name neither.
   it('lets the lock outrank the price', () => {

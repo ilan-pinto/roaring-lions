@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { unlockReason } from './unlock';
+import { starsEarned, unlockReason } from './unlock';
+import type { LedgerData } from './mission';
 
 describe('unlockReason', () => {
   it('returns null when there is no gate at all', () => {
@@ -69,5 +70,21 @@ describe('unlockReason', () => {
   it('survives a ledger holding junk of the wrong type', () => {
     const junk = { 'campaign.completed_missions': 'not an array' } as unknown as Parameters<typeof unlockReason>[1];
     expect(unlockReason({ afterMission: 'x' }, junk)).toContain('x');
+  });
+
+  it('sums earned stars with integer addition and gates on them', () => {
+    const ledger: LedgerData = { 'campaign.mission_results': { a: { stars: 2, roe: 90, ticks: 1, lost: 0 }, b: { stars: 3, roe: 90, ticks: 1, lost: 0 } } };
+    expect(starsEarned(ledger)).toBe(5);
+    expect(starsEarned(undefined)).toBe(0);
+    expect(unlockReason({ starsMin: 5 }, ledger)).toBe(null);
+    expect(unlockReason({ starsMin: 6 }, ledger)).toBe('requires 6 stars (currently 5)');
+    expect(unlockReason({ starsMin: 1 }, {})).toBe('requires 1 star (currently 0)');
+  });
+
+  it('reports Conduct before stars, and stars before the mission gate', () => {
+    const why = unlockReason({ roeMin: 60, starsMin: 9, afterMission: 'x' }, { 'roe.mission_ratings': { a: 10 } });
+    expect(why).toContain('Conduct 60');
+    const why2 = unlockReason({ starsMin: 9, afterMission: 'x' }, {});
+    expect(why2).toBe('requires 9 stars (currently 0)');
   });
 });

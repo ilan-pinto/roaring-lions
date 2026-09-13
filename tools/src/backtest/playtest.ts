@@ -66,7 +66,7 @@ function run(
         string,
         | {
             faction: string;
-            unlock?: { roe_rating_min?: number; after_mission?: string };
+            unlock?: { roe_rating_min?: number; stars_min?: number; after_mission?: string };
             cost: { logistics: number; build_time_s?: number };
           }
         | undefined
@@ -76,7 +76,7 @@ function run(
         logistics: d.cost.logistics,
         buildTimeS: d.cost.build_time_s ?? 20,
         unlock: d.unlock
-          ? { roeMin: d.unlock.roe_rating_min, afterMission: d.unlock.after_mission }
+          ? { roeMin: d.unlock.roe_rating_min, starsMin: d.unlock.stars_min, afterMission: d.unlock.after_mission }
           : undefined,
       };
     },

@@ -94,6 +94,11 @@
         },
         "after_mission": {
           "type": "string"
+        },
+        "stars_min": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Opens when the campaign's earned stars (the sum of best-of stars over campaign.mission_results, spec 2026-09-10 §4.6) reach this. The three star-gated units carry 12, 30 and 44, fitted to the measured optimal ladder (docs/campaign/special_units/design.md §2)."
         }
       }
     },

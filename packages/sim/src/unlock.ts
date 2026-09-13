@@ -1,10 +1,23 @@
 import type { LedgerData } from './mission';
 
 /** A campaign progression gate, as parsed from `unlock` in unit or world data.
- *  Authoring spells these `roe_rating_min` and `after_mission`; the app maps them. */
+ *  Authoring spells these `roe_rating_min`, `stars_min` and `after_mission`; the app maps them. */
 export interface UnlockGate {
   roeMin?: number;
+  starsMin?: number;
   afterMission?: string;
+}
+
+/** Earned stars: the integer sum of each mission's best grade. No division. */
+export function starsEarned(ledger: LedgerData | undefined): number {
+  const results = ledger?.['campaign.mission_results'];
+  if (results === null || typeof results !== 'object') return 0;
+  let total = 0;
+  for (const k of Object.keys(results as Record<string, { stars?: number }>)) {
+    const s = (results as Record<string, { stars?: number }>)[k]?.stars;
+    if (typeof s === 'number') total += s;
+  }
+  return total;
 }
 
 /**
@@ -30,6 +43,12 @@ export function unlockReason(unlock: UnlockGate | undefined, ledger: LedgerData 
     if (rated === 0 && typeof legacy === 'number') detail = ` (currently ${legacy})`;
     else if (rated === 0) detail = ' (no missions rated yet)';
     return `requires campaign Conduct ${unlock.roeMin}${detail}`;
+  }
+  if (unlock.starsMin !== undefined) {
+    const have = starsEarned(ledger);
+    if (have < unlock.starsMin) {
+      return `requires ${unlock.starsMin} star${unlock.starsMin === 1 ? '' : 's'} (currently ${have})`;
+    }
   }
   if (unlock.afterMission !== undefined) {
     const done = ledger?.['campaign.completed_missions'];

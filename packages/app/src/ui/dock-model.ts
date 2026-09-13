@@ -82,13 +82,16 @@ export interface TileState {
  * it goes on the tile's `title`, and the click's own note repeats it in the
  * feed.
  *
- * Deliberately a match on the one gate that has a NUMBER worth showing rather
+ * Deliberately a match on the gates that have a NUMBER worth showing rather
  * than a table of every reason. A reason this does not recognise degrades to
  * `locked`, which is honest; a table would degrade to a missing case.
  */
 export function lockLabel(reason: string): string {
   const roe = /^requires campaign Conduct (\d+)/.exec(reason);
-  return roe === null ? 'locked' : `Conduct ≥${roe[1]}`;
+  if (roe !== null) return `Conduct ≥${roe[1]}`;
+  const stars = /^requires (\d+) stars? \(/.exec(reason);
+  if (stars !== null) return `★ ≥${stars[1]}`;
+  return 'locked';
 }
 
 /**

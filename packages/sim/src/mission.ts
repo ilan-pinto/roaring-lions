@@ -284,7 +284,7 @@ export interface MissionContext {
     buildTimeS: number;
     /** Progression gate from the unit schema (GDD §6): restraint is what
      *  pays for the good equipment. */
-    unlock?: { roeMin?: number; afterMission?: string };
+    unlock?: { roeMin?: number; starsMin?: number; afterMission?: string };
   } | null;
 }
 

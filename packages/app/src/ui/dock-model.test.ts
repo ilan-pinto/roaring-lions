@@ -61,6 +61,10 @@ describe('lockLabel', () => {
     expect(why).not.toBe(null);
     expect(lockLabel(why ?? '')).toBe('Conduct ≥55');
   });
+
+  it('renders the stars gate as a star count', () => {
+    expect(lockLabel('requires 12 stars (currently 4)')).toBe('★ ≥12');
+  });
 });
 
 describe('doctrineTags', () => {

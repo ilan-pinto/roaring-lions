@@ -14,6 +14,7 @@ import {
   CivilianFlight,
   MissionRuntime,
   starRoeFloor,
+  starsEarned,
   zoneContains,
   type LedgerData,
   type MissionEvent,
@@ -597,12 +598,12 @@ async function main(): Promise<void> {
       unitInfo: (id) => {
         const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
         if (!u || u.faction !== 'kdf') return null;
-        const unlock = 'unlock' in u ? (u.unlock as { roe_rating_min?: number; after_mission?: string }) : undefined;
+        const unlock = 'unlock' in u ? (u.unlock as { roe_rating_min?: number; stars_min?: number; after_mission?: string }) : undefined;
         return {
           logistics: u.cost.logistics,
           buildTimeS: 'build_time_s' in u.cost ? u.cost.build_time_s : 20,
           unlock: unlock
-            ? { roeMin: unlock.roe_rating_min, afterMission: unlock.after_mission }
+            ? { roeMin: unlock.roe_rating_min, starsMin: unlock.stars_min, afterMission: unlock.after_mission }
             : undefined,
         };
       },
@@ -1957,11 +1958,13 @@ async function main(): Promise<void> {
             const kdfUnits = Object.values(units)
               .filter((u) => u.faction === 'kdf')
               .map((u) => {
-                const unlock = 'unlock' in u ? (u.unlock as { roe_rating_min?: number; after_mission?: string }) : undefined;
+                const unlock = 'unlock' in u ? (u.unlock as { roe_rating_min?: number; stars_min?: number; after_mission?: string }) : undefined;
                 return {
                   id: u.id,
                   name: u.name ?? u.id,
-                  unlock: unlock ? { roeMin: unlock.roe_rating_min, afterMission: unlock.after_mission } : undefined,
+                  unlock: unlock
+                    ? { roeMin: unlock.roe_rating_min, starsMin: unlock.stars_min, afterMission: unlock.after_mission }
+                    : undefined,
                 };
               });
             const tier = TIER_LINES[runtime.stars];
@@ -2020,6 +2023,7 @@ async function main(): Promise<void> {
               unlocked:
                 me.result === 'victory'
                   ? newlyUnlocked(kdfUnits, ledger, updatedLedger).map((u) => {
+                      if (u.gate === 'stars') return `${starsEarned(updatedLedger)} stars: ${u.name} available`;
                       if (u.gate !== 'conduct') return `${u.name} available`;
                       const was = campaignRoe(ledger)?.mean;
                       const now = campaignRoe(updatedLedger)?.mean;

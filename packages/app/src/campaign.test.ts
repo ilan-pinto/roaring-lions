@@ -423,6 +423,13 @@ describe('newlyUnlocked', () => {
       { id: 'b', name: 'B', gate: 'mission' },
     ]);
   });
+
+  it('names the stars gate kind when stars opened the unit', () => {
+    const units = [{ id: 's', name: 'S', unlock: { starsMin: 2 } }];
+    const before: LedgerData = { 'campaign.mission_results': { a: { stars: 1, roe: 90, ticks: 1, lost: 0 } } };
+    const after: LedgerData = { 'campaign.mission_results': { a: { stars: 1, roe: 90, ticks: 1, lost: 0 }, b: { stars: 1, roe: 90, ticks: 1, lost: 0 } } };
+    expect(newlyUnlocked(units, before, after)).toEqual([{ id: 's', name: 'S', gate: 'stars' }]);
+  });
 });
 
 describe('promotionAfter', () => {
