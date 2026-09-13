@@ -294,6 +294,14 @@ distinct hull numbers**, and **the first 24 task names are the base-word scheme*
 3. **Append, never insert.** Table order is issue order and a counter on a live save is
    an index into it. Inserting renames nobody already named, but it silently re-points
    every future issue and breaks the §4 measurements.
+   The `tasks` table broke this rule ONCE, on 2026-09-13, before any release: it went from
+   `[Eye Two, Kite One]` to the 24-entry across-the-blocks order §4 derives, because the
+   two-entry table named the third drone `Eye Two II`. A review then "restored" the two
+   originals to the front and that was reverted: it put `Eye Two II` back at the wrap and
+   broke the counter-shape argument above for a save-compatibility gain nobody could
+   collect. What the breach costs, recorded: a save made between that day's two merges
+   with `names_issued.task >= 1` re-issues `Eye Two` at issue 6, since `assignNames`
+   never dedupes against the roster. Nothing may do this again.
 4. A new vehicle needs a hull whose first digit is drawn from `{1, 4, 7}` for its second
    digit, or the §4 collision-free property is gone. Adding a 26th and 27th entry means
    taking the constrained `s=1`/`s=4` slots at first digit 8, whose third pass produces
