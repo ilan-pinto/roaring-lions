@@ -132,7 +132,7 @@ Idit's file names for them (`storyline.md` §2.3).
 Never assert content exists from memory or from this file. Run the census:
 
 ```bash
-ls data/units/kdf data/units/enemy data/units/civilians.json
+ls data/units/kdf data/units/enemy data/units/civilians.json   # 17 KDF units as of 2026-09-13: the fourteen shipped plus the three star-gated units (breach_team, scout_shachaf, apc_kipod; docs/campaign/special_units/design.md)
 ls art/meshes art/meshes/vehicles art/meshes/buildings art/meshes/decor art/meshes/civilians
 ls assets/sprites assets/audio assets/ui assets/campaign assets/textures
 jq -r '.id' data/maps/*.json

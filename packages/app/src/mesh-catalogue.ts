@@ -115,6 +115,10 @@ export const RIGGED_UNIT_MESHES: Readonly<Record<string, RiggedMeshEntry>> = {
   mortar_team: { files: ['meshy_mortar_team.glb'], faction: 'kdf' },
   yahalom_squad: { files: ['yahalom_engineer.glb'], faction: 'kdf' },
 
+  // The star-gated Tzinah (docs/campaign/special_units/design.md §3), built by
+  // the same kit.py/teams.py pipeline as the rest of this table.
+  breach_team: { files: ['breach_team.glb'], faction: 'kdf' },
+
   // GH-149. Four figures for ONE unit type -- `data/units/civilians.json` is a
   // single type, so these are VARIANTS, and `three/units/mesh-variant.ts`
   // decides which entity draws which. THE ORDER OF THIS LIST IS THE VARIANT
@@ -162,6 +166,14 @@ export const VEHICLE_UNIT_MESHES: Readonly<Record<string, string>> = {
   heli_peten: 'vehicles/heli_peten.glb',
   paramotor: 'vehicles/paramotor.glb',
   rocket_battery: 'vehicles/rocket_battery.glb',
+
+  // The star-gated Shachaf and Kipod (docs/campaign/special_units/design.md
+  // §4-5). Claimed here so the GLBs are not orphans; the separate render-side
+  // ramp table in `packages/render/src/three/units/vehicle-mesh-role.ts`
+  // (`VEHICLE_ROLE_PALETTE`) still needs entries for both before either can
+  // actually build a mesh at runtime -- tracked, not fixed, by this commit.
+  scout_shachaf: 'vehicles/scout_shachaf.glb',
+  apc_kipod: 'vehicles/apc_kipod.glb',
 };
 
 /** Structure types drawing a building mesh: standing plus its wreck sibling. */

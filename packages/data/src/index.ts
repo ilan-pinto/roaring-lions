@@ -102,6 +102,12 @@ import jeepShoded from '../../../data/units/kdf/jeep_shoded.json';
 import dozerD9 from '../../../data/units/kdf/dozer_d9.json';
 import heliPeten from '../../../data/units/kdf/heli_peten.json';
 import yahalomSquad from '../../../data/units/kdf/yahalom_squad.json';
+// The three star-gated units (docs/campaign/special_units/design.md):
+// `unlock.stars_min` opens each on the campaign's earned-stars total rather
+// than the ROE rating the units above gate on.
+import breachTeam from '../../../data/units/kdf/breach_team.json';
+import scoutShachaf from '../../../data/units/kdf/scout_shachaf.json';
+import apcKipod from '../../../data/units/kdf/apc_kipod.json';
 import militiaCell from '../../../data/units/enemy/militia_cell.json';
 import rpgTeam from '../../../data/units/enemy/rpg_team.json';
 import atgmCell from '../../../data/units/enemy/atgm_cell.json';
@@ -269,6 +275,9 @@ export const units = {
   dozer_d9: dozerD9,
   heli_peten: heliPeten,
   yahalom_squad: yahalomSquad,
+  breach_team: breachTeam,
+  scout_shachaf: scoutShachaf,
+  apc_kipod: apcKipod,
   militia_cell: militiaCell,
   rpg_team: rpgTeam,
   atgm_cell: atgmCell,

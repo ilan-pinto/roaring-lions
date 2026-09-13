@@ -1,7 +1,7 @@
 {
   "kinds": {
     "task_roles": ["drone", "gunship"],
-    "vehicle_roles": ["apc", "ifv", "mbt"],
+    "vehicle_roles": ["apc", "ifv", "mbt", "recon"],
     "vehicle_ids": ["dozer_d9"]
   },
   "squads": [

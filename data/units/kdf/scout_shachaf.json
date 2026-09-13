@@ -1,0 +1,61 @@
+{
+  "id": "scout_shachaf",
+  "name": "Shachaf Scout Car",
+  "blurb": "A ground eye that sees sixteen tiles and cannot be shot down. Carries a mast, not a gun.",
+  "faction": "kdf",
+  "role": "recon",
+  "cost": {
+    "logistics": 410,
+    "build_time_s": 24,
+    "population": 1
+  },
+  "unlock": {
+    "stars_min": 30
+  },
+  "hull": {
+    "hp": 900,
+    "armor": {
+      "front": 130,
+      "side": 75,
+      "rear": 50,
+      "top": 25
+    },
+    "crew": 3,
+    "suppression_resistance": 0.7,
+    "can_embark": false
+  },
+  "mobility": {
+    "speed_tiles_s": 2.0,
+    "turn_rate_deg_s": 140
+  },
+  "sensors": {
+    "optics": 1.9,
+    "sight_tiles": 16,
+    "thermal": true,
+    "signature": 0.45,
+    "firing_signature_mult": 1.6
+  },
+  "abilities": [
+    "mark_target",
+    "mark_tunnel",
+    "smoke"
+  ],
+  "weapons": [
+    {
+      "id": "cupola_mg",
+      "type": "hmg",
+      "range_tiles": 6,
+      "effective_range_tiles": 5,
+      "accuracy": 0.6,
+      "penetration": 18,
+      "damage": 26,
+      "suppression": 55,
+      "rof_per_min": 200,
+      "can_target": [
+        "ground",
+        "air"
+      ],
+      "collateral_risk": 0.12
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "id": "apc_kipod",
+  "name": "Kipod Screen Carrier",
+  "blurb": "Six seats behind reactive plate, and a gun that pins people without killing a truck.",
+  "faction": "kdf",
+  "role": "apc",
+  "cost": {
+    "logistics": 562,
+    "build_time_s": 30,
+    "population": 2
+  },
+  "unlock": {
+    "stars_min": 44
+  },
+  "hull": {
+    "hp": 1750,
+    "armor": {
+      "front": 260,
+      "side": 160,
+      "rear": 100,
+      "top": 45
+    },
+    "era": true,
+    "crew": 2,
+    "transport_slots": 6,
+    "suppression_resistance": 0.75
+  },
+  "mobility": {
+    "speed_tiles_s": 1.7,
+    "turn_rate_deg_s": 95
+  },
+  "sensors": {
+    "optics": 1.0,
+    "sight_tiles": 10,
+    "signature": 0.85,
+    "firing_signature_mult": 2.0
+  },
+  "abilities": [
+    "smoke",
+    "mark_target"
+  ],
+  "weapons": [
+    {
+      "id": "remote_mg",
+      "type": "hmg",
+      "range_tiles": 7,
+      "effective_range_tiles": 5.6,
+      "accuracy": 0.62,
+      "penetration": 16,
+      "damage": 24,
+      "suppression": 70,
+      "rof_per_min": 260,
+      "can_target": [
+        "ground",
+        "air"
+      ],
+      "collateral_risk": 0.1
+    }
+  ]
+}

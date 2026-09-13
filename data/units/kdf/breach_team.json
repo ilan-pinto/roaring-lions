@@ -1,0 +1,57 @@
+{
+  "id": "breach_team",
+  "name": "Tzinah Breach Team",
+  "blurb": "Empties a garrisoned house instead of levelling it. No sustained fire costs Conduct less.",
+  "faction": "kdf",
+  "role": "support",
+  "cost": {
+    "logistics": 306,
+    "build_time_s": 20,
+    "population": 1
+  },
+  "unlock": {
+    "stars_min": 12
+  },
+  "hull": {
+    "hp": 440,
+    "armor": {
+      "front": 10,
+      "side": 10,
+      "rear": 10
+    },
+    "crew": 6,
+    "suppression_resistance": 0.7
+  },
+  "mobility": {
+    "speed_tiles_s": 0.95
+  },
+  "sensors": {
+    "optics": 1.3,
+    "sight_tiles": 10,
+    "thermal": true,
+    "signature": 0.5,
+    "firing_signature_mult": 2.5
+  },
+  "abilities": [
+    "garrison",
+    "smoke",
+    "mark_target"
+  ],
+  "weapons": [
+    {
+      "id": "entry_guns",
+      "type": "small_arms",
+      "range_tiles": 5,
+      "effective_range_tiles": 4.5,
+      "accuracy": 0.72,
+      "penetration": 26,
+      "damage": 30,
+      "suppression": 110,
+      "rof_per_min": 150,
+      "can_target": [
+        "ground"
+      ],
+      "collateral_risk": 0.08
+    }
+  ]
+}

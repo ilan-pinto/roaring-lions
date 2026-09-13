@@ -16,6 +16,13 @@ describe('nameKind', () => {
     expect(kindOf('heli_peten')).toBe('task');
     expect(kindOf('dozer_d9')).toBe('vehicle');
   });
+
+  it('names the scout car by its recon role, not the squad fallback', () => {
+    // R1 (docs/campaign/special_units/design.md §4): `recon` joins
+    // `kinds.vehicle_roles` in the same commit as the unit, since the Shachaf
+    // is a scout car and would otherwise fall through to the squad table.
+    expect(nameKind({ id: 'scout_shachaf', role: 'recon' }, table)).toBe('vehicle');
+  });
 });
 
 describe('assignNames', () => {
