@@ -62,7 +62,13 @@ function run(
    *  is +16 or better. A control that loses gets 0 by construction, so the defaults
    *  assert the gradient with no per-plan edits. Pass 3 only where the plan completes
    *  every carrying secondary. */
-  expectStar: 0 | 1 | 2 | 3 = expect === 'victory' ? 2 : 0
+  expectStar: 0 | 1 | 2 | 3 = expect === 'victory' ? 2 : 0,
+  /** F1 / ruling R2(b): a unit type id that must be alive on side 0 immediately after
+   *  `start()` -- proves a placement's `upgrades_to` actually resolved to the upgraded
+   *  type at spawn, not merely that the mission still wins fielding its un-upgraded
+   *  fallback. Checked before the plan issues a single order or a tick runs; named in
+   *  the printed line either way so a reader never has to re-derive it. */
+  fielded?: string
 ): LedgerData {
   const mission = missions[id] as unknown as MissionJson;
   const map = parseMap(maps[mission.map.file as keyof typeof maps]);
@@ -137,6 +143,13 @@ function run(
       if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && sim.unitTypes[sim.state.typeIdx[i]].id === t) out.push(i);
     return out;
   };
+  // F1: checked immediately after `start()`, before the plan or the tick loop runs --
+  // proves the swap happened, not merely that the mission (still) wins.
+  const fieldedOk = fielded === undefined ? null : ids(fielded).length > 0;
+  if (fieldedOk === false) {
+    console.error(`${label}: FAILED — expected '${fielded}' fielded on side 0 after start(), found none`);
+    process.exitCode = 1;
+  }
   const timed: [number, () => void][] = [];
   plan(sim, rt, ids, (t, fn) => timed.push([t * TICKS_PER_SECOND, fn]));
   let produced: LedgerData = {};
@@ -152,7 +165,8 @@ function run(
   console.log(
     `${label}: ${rt.result.toUpperCase()} in ${mins} min, ROE ${rt.roeScore}, stars ${rt.stars}, ` +
       `objectives ${rt.objectiveList.map((o) => `${o.id}=${o.status[0]}`).join(' ')}, ` +
-      `roster out ${(produced['roster.surviving_units'] ?? []).length}`
+      `roster out ${(produced['roster.surviving_units'] ?? []).length}` +
+      (fielded !== undefined ? `, fielded ${fielded}=${fieldedOk}` : '')
   );
   if (rt.result !== expect) {
     console.error(`${label}: FAILED — expected ${expect.toUpperCase()}, got ${rt.result.toUpperCase()}`);
@@ -168,6 +182,38 @@ function run(
   // contribute a false star.
   if (expect === 'victory' && label === id) missionStars.set(id, rt.stars);
   return produced;
+}
+
+/**
+ * F1 / ruling R2(b): the six `upgrades_to` sites (`data/campaign/special_units/design.md`
+ * §3-5) are exercised elsewhere in this file only with the gate CLOSED -- every chained
+ * `led…` ledger this harness threads together stays far below all three star gates (12,
+ * 30, 44; see the GATES table and the `missionOrder` walk at the bottom of this file), so
+ * `resolveUpgrades` never fires against real mission JSON anywhere CI can see. `gateLedger`
+ * builds a synthetic `campaign.mission_results` ledger of `entries` two-star placeholder
+ * missions merged over `base`, keyed `synthetic_<n>` -- never a real mission id, so nothing
+ * downstream (`starsEarned`, the debrief, a save file) could ever mistake one for a played
+ * mission. The six probes below each mission's own winning-plan run pass `gateLedger({}, 6)`
+ * (12 stars) to open `breach_team` (`stars_min` 12), `gateLedger(<ledger>, 15)` (30 stars) to
+ * open `scout_shachaf` (30), and `gateLedger(<ledger>, 22)` (44 stars) to open `apc_kipod`
+ * (44) -- the same three entry counts the measured optimal-play ladder itself reaches at
+ * missions 6/15/22 of `world.json`'s flattened order, landing at 12/31/45 cumulative stars
+ * (margins 0/1/1 over the three gates -- see the `GATES` loop's own printed lines). Each
+ * probe's `label` is distinct from the mission id (`'<id> (gate open)'`), so the `label ===
+ * id` guard above never lets a probe overwrite that mission's real `missionStars` entry and
+ * the GATES ladder stays exactly as measured. A red gate probe here means a star moved
+ * somewhere on the ladder -- read it that way, never as "widen the gate".
+ */
+function gateLedger(base: LedgerData, entries: number): LedgerData {
+  const results: Record<string, MissionResult> = {};
+  for (let n = 0; n < entries; n++) results[`synthetic_${n}`] = { stars: 2, roe: 100, ticks: 1, lost: 0 };
+  return {
+    ...base,
+    'campaign.mission_results': {
+      ...(base['campaign.mission_results'] as Record<string, MissionResult> | undefined),
+      ...results,
+    },
+  };
 }
 
 const M = (x: number, y: number) => ({ x: fx.from(x), y: fx.from(y) });
@@ -553,35 +599,48 @@ run('wadi_halam_3_counterraid', () => {}, wh2, 'defeat', 'wadi_halam_3_counterra
 // plan before it evacuated anyone. Five transport slots covers all four
 // civilians in one circuit. The APC alone (plus the infantry) is enough
 // to clear the north side without the IFV's cannon.
-const wh4 = run(
+const wadiHalam4Plan: Plan = (sim, _rt, ids, at) => {
+  const apc = ids('apc_eitan');
+  const ifv = ids('ifv_namer');
+  const infantry = [...ids('inf_squad'), ...ids('at_team')];
+  // One building at a time, and everything that can hurt masonry aimed at the
+  // same one. All four cells are garrisoned, and a garrisoned man cannot be
+  // shot -- his house has to come down -- so clearing the village is four
+  // sequential demolitions by gunfire, and splitting the force across two
+  // corners halves the rate on both.
+  const guns = [...apc, ...infantry];
+  at(0, () => {
+    sim.queueCommand({ kind: 'attackMove', ids: guns, ...M(27, 19) });
+    sim.queueCommand({ kind: 'move', ids: ifv, ...M(28, 21) });
+  });
+  at(20, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(25, 23) }));
+  at(40, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(29, 28) }));
+  at(60, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(22, 36) }));
+  // The IFV's autocannon is the heaviest thing here, so it joins the sweep
+  // the moment its circuit is done rather than parking on the objective.
+  at(105, () => sim.queueCommand({ kind: 'attackMove', ids: [...guns, ...ifv], ...M(32, 19) }));
+  at(210, () => sim.queueCommand({ kind: 'attackMove', ids: [...guns, ...ifv], ...M(27, 30) }));
+  at(300, () => sim.queueCommand({ kind: 'attackMove', ids: [...guns, ...ifv], ...M(32, 30) }));
+  // Consolidate on the centre for the capture clock once the corners are down.
+  at(390, () => sim.queueCommand({ kind: 'attackMove', ids: [...guns, ...ifv], ...M(29, 26) }));
+};
+
+const wh4 = run('wadi_halam_4_village', wadiHalam4Plan, wh3);
+
+// F1 / ruling R2(b): gate-open probe -- apc_kipod (stars_min 44) reached via
+// gateLedger(wh3, 22), proving the mission's fresh jeep_shoded placement
+// resolves to apc_kipod once the gate is open, not merely that the mission
+// still wins fielding the un-upgraded jeep. Same plan body as the run above.
+run(
   'wadi_halam_4_village',
-  (sim, _rt, ids, at) => {
-    const apc = ids('apc_eitan');
-    const ifv = ids('ifv_namer');
-    const infantry = [...ids('inf_squad'), ...ids('at_team')];
-    // One building at a time, and everything that can hurt masonry aimed at the
-    // same one. All four cells are garrisoned, and a garrisoned man cannot be
-    // shot -- his house has to come down -- so clearing the village is four
-    // sequential demolitions by gunfire, and splitting the force across two
-    // corners halves the rate on both.
-    const guns = [...apc, ...infantry];
-    at(0, () => {
-      sim.queueCommand({ kind: 'attackMove', ids: guns, ...M(27, 19) });
-      sim.queueCommand({ kind: 'move', ids: ifv, ...M(28, 21) });
-    });
-    at(20, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(25, 23) }));
-    at(40, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(29, 28) }));
-    at(60, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(22, 36) }));
-    // The IFV's autocannon is the heaviest thing here, so it joins the sweep
-    // the moment its circuit is done rather than parking on the objective.
-    at(105, () => sim.queueCommand({ kind: 'attackMove', ids: [...guns, ...ifv], ...M(32, 19) }));
-    at(210, () => sim.queueCommand({ kind: 'attackMove', ids: [...guns, ...ifv], ...M(27, 30) }));
-    at(300, () => sim.queueCommand({ kind: 'attackMove', ids: [...guns, ...ifv], ...M(32, 30) }));
-    // Consolidate on the centre for the capture clock once the corners are down.
-    at(390, () => sim.queueCommand({ kind: 'attackMove', ids: [...guns, ...ifv], ...M(29, 26) }));
-  },
-  wh3
+  wadiHalam4Plan,
+  gateLedger(wh3, 22),
+  'victory',
+  'wadi_halam_4_village (gate open)',
+  2,
+  'apc_kipod'
 );
+
 // `evac_families` already reaches `failed` at 300s today -- the only change
 // Option C makes is that it is now a primary, so `checkEnd` finally reads it.
 run('wadi_halam_4_village', () => {}, wh3, 'defeat', 'wadi_halam_4_village (no orders)');
@@ -614,77 +673,88 @@ run('wadi_halam_4_village', () => {}, wh3, 'defeat', 'wadi_halam_4_village (no o
 // open tile before building the flow field, so the D9 and the engineers
 // route themselves through the one-tile gate on their own, the same as any
 // other `move` order would.
-run(
-  'wadi_halam_5_depot',
-  (sim, _rt, ids, at) => {
-    const screen = [...ids('apc_eitan'), ...ids('ifv_namer'), ...ids('inf_squad'), ...ids('at_team')];
-    const dozer = ids('dozer_d9');
-    const engineers = ids('demo_squad');
-    const jeep = ids('jeep_shoded');
-    // The seven structures inside the wire, by one tile each inside their
-    // footprint -- see the map's depot zone. One shared pool rather than a
-    // fixed split: the combat engineers (HP 380, no armour worth the name)
-    // are the softest thing in the column, and the harassment this mission
-    // throws at the gate can plausibly kill them before they clear their
-    // share. A demolisher pulls the next live target off the shared list
-    // rather than a list assigned to it specifically, so if the engineers
-    // go down the D9 (slower alone, but unkillable by anything in this
-    // mission's roster) picks up what is left instead of three buildings
-    // simply never coming down.
-    const targets: [number, number][] = [
-      [36, 18],
-      [40, 18],
-      [36, 21],
-      [40, 21],
-      [36, 24],
-      [39, 24],
-      [37, 27],
-    ];
-    // Checked against the live structure table so a target already down is
-    // skipped. Scanned from opposite ends of the shared list so that, when
-    // both demolishers are free in the same tick, they claim different
-    // structures instead of doubling up on the first one.
-    const orderNext = (unit: number[], forward: boolean): void => {
-      const order = forward ? targets : [...targets].reverse();
-      for (const [tx, ty] of order) {
-        const s = sim.structureAt(tx, ty);
-        if (s >= 0) {
-          sim.queueCommand({ kind: 'demolish', ids: unit, structure: s });
-          return;
-        }
+const wadiHalam5Plan: Plan = (sim, _rt, ids, at) => {
+  const screen = [...ids('apc_eitan'), ...ids('ifv_namer'), ...ids('inf_squad'), ...ids('at_team')];
+  const dozer = ids('dozer_d9');
+  const engineers = ids('demo_squad');
+  const jeep = ids('jeep_shoded');
+  // The seven structures inside the wire, by one tile each inside their
+  // footprint -- see the map's depot zone. One shared pool rather than a
+  // fixed split: the combat engineers (HP 380, no armour worth the name)
+  // are the softest thing in the column, and the harassment this mission
+  // throws at the gate can plausibly kill them before they clear their
+  // share. A demolisher pulls the next live target off the shared list
+  // rather than a list assigned to it specifically, so if the engineers
+  // go down the D9 (slower alone, but unkillable by anything in this
+  // mission's roster) picks up what is left instead of three buildings
+  // simply never coming down.
+  const targets: [number, number][] = [
+    [36, 18],
+    [40, 18],
+    [36, 21],
+    [40, 21],
+    [36, 24],
+    [39, 24],
+    [37, 27],
+  ];
+  // Checked against the live structure table so a target already down is
+  // skipped. Scanned from opposite ends of the shared list so that, when
+  // both demolishers are free in the same tick, they claim different
+  // structures instead of doubling up on the first one.
+  const orderNext = (unit: number[], forward: boolean): void => {
+    const order = forward ? targets : [...targets].reverse();
+    for (const [tx, ty] of order) {
+      const s = sim.structureAt(tx, ty);
+      if (s >= 0) {
+        sim.queueCommand({ kind: 'demolish', ids: unit, structure: s });
+        return;
       }
-    };
-    at(0, () => {
-      sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(34, 24) });
-      sim.queueCommand({ kind: 'move', ids: jeep, ...M(30, 24) });
+    }
+  };
+  at(0, () => {
+    sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(34, 24) });
+    sim.queueCommand({ kind: 'move', ids: jeep, ...M(30, 24) });
+    orderNext(dozer, true);
+    orderNext(engineers, false);
+  });
+  // Reissue cadence: 15s, comfortably longer than either demolisher's own
+  // timer (D9 2s, engineers 5s), so this only ever catches a demolisher
+  // that has actually finished and gone idle -- it does not interrupt one
+  // still working (a fresh demolish order resets its charge timer).
+  for (let when = 15; when <= 200; when += 15) {
+    at(when, () => {
       orderNext(dozer, true);
       orderNext(engineers, false);
     });
-    // Reissue cadence: 15s, comfortably longer than either demolisher's own
-    // timer (D9 2s, engineers 5s), so this only ever catches a demolisher
-    // that has actually finished and gone idle -- it does not interrupt one
-    // still working (a fresh demolish order resets its charge timer).
-    for (let when = 15; when <= 200; when += 15) {
-      at(when, () => {
-        orderNext(dozer, true);
-        orderNext(engineers, false);
-      });
-    }
-    // Once the column has a foothold, the screen advances into the compound
-    // and holds there for hold_depot's clock -- re-anchored periodically for
-    // the same reason II and III need it: attackMove does not mean "stand
-    // here", and a wave that breaks and runs pulls a pursuing force out past
-    // the zone edge.
-    at(40, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(38, 22) }));
-    for (let when = 85; when <= 400; when += 45) {
-      at(when, () => {
-        const cur: number[] = [];
-        for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1) cur.push(i);
-        sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(38, 22) });
-      });
-    }
-  },
-  wh4
+  }
+  // Once the column has a foothold, the screen advances into the compound
+  // and holds there for hold_depot's clock -- re-anchored periodically for
+  // the same reason II and III need it: attackMove does not mean "stand
+  // here", and a wave that breaks and runs pulls a pursuing force out past
+  // the zone edge.
+  at(40, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(38, 22) }));
+  for (let when = 85; when <= 400; when += 45) {
+    at(when, () => {
+      const cur: number[] = [];
+      for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1) cur.push(i);
+      sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(38, 22) });
+    });
+  }
+};
+
+run('wadi_halam_5_depot', wadiHalam5Plan, wh4);
+
+// F1 / ruling R2(b): gate-open probe -- apc_kipod (stars_min 44) reached via
+// gateLedger(wh4, 22), proving the mission's fresh jeep_shoded placement
+// resolves to apc_kipod once the gate is open. Same plan body as the run above.
+run(
+  'wadi_halam_5_depot',
+  wadiHalam5Plan,
+  gateLedger(wh4, 22),
+  'victory',
+  'wadi_halam_5_depot (gate open)',
+  2,
+  'apc_kipod'
 );
 
 // A player who gives no orders must not WIN the depot. This is the executable
@@ -1013,48 +1083,63 @@ run('khan_rafid_3_clearance', () => {}, {}, 'defeat', 'khan_rafid_3_clearance (p
 // floor -- but DEFEAT, because `get_six_in` misses its 300s deadline. The
 // rising evacuation count, not the ROE floor, is what actually decides this
 // mission for a player who does not split forces early.)
+const khanRafid3Plan: Plan = (sim, _rt, ids, at) => {
+  const inf = ids('inf_squad');
+  const eitan = ids('apc_eitan');
+  const jeep = ids('jeep_shoded');
+  const namer = ids('ifv_namer');
+  const lavi = ids('mbt_lavi');
+  const sniper = ids('sniper_team');
+  const at_team = ids('at_team');
+  const mortar = ids('mortar_team');
+  const drone = ids('recon_drone');
+  const vanguard = [...inf, eitan[0], ...lavi, ...sniper];
+
+  at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 11) }));
+  at(0, () => sim.queueCommand({ kind: 'attackMove', ids: vanguard, ...M(24, 11) }));
+
+  // South family, close.
+  at(0, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(30, 27) }));
+  at(15, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(24, 22) }));
+
+  // Namer sweeps both western families, well clear of the souk/hall fight.
+  at(0, () => sim.queueCommand({ kind: 'move', ids: namer, ...M(20, 16) }));
+  at(25, () => sim.queueCommand({ kind: 'move', ids: namer, ...M(16, 16) }));
+  at(45, () => sim.queueCommand({ kind: 'move', ids: namer, ...M(24, 22) }));
+
+  // Second Eitan grabs the eastern family via the east lane corridor.
+  at(0, () => {
+    sim.queueCommand({ kind: 'move', ids: [eitan[1]], ...M(33, 25) });
+    sim.queueCommand({ kind: 'move', ids: [eitan[1]], ...M(31, 16), append: true });
+  });
+  at(35, () => {
+    sim.queueCommand({ kind: 'move', ids: [eitan[1]], ...M(33, 25) });
+    sim.queueCommand({ kind: 'move', ids: [eitan[1]], ...M(24, 22), append: true });
+  });
+
+  at(0, () => sim.queueCommand({ kind: 'move', ids: at_team, ...M(24, 36) }));
+  at(0, () => sim.queueCommand({ kind: 'move', ids: mortar, ...M(22, 38) }));
+};
+
 run(
   'khan_rafid_3_clearance',
-  (sim, _rt, ids, at) => {
-    const inf = ids('inf_squad');
-    const eitan = ids('apc_eitan');
-    const jeep = ids('jeep_shoded');
-    const namer = ids('ifv_namer');
-    const lavi = ids('mbt_lavi');
-    const sniper = ids('sniper_team');
-    const at_team = ids('at_team');
-    const mortar = ids('mortar_team');
-    const drone = ids('recon_drone');
-    const vanguard = [...inf, eitan[0], ...lavi, ...sniper];
-
-    at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 11) }));
-    at(0, () => sim.queueCommand({ kind: 'attackMove', ids: vanguard, ...M(24, 11) }));
-
-    // South family, close.
-    at(0, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(30, 27) }));
-    at(15, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(24, 22) }));
-
-    // Namer sweeps both western families, well clear of the souk/hall fight.
-    at(0, () => sim.queueCommand({ kind: 'move', ids: namer, ...M(20, 16) }));
-    at(25, () => sim.queueCommand({ kind: 'move', ids: namer, ...M(16, 16) }));
-    at(45, () => sim.queueCommand({ kind: 'move', ids: namer, ...M(24, 22) }));
-
-    // Second Eitan grabs the eastern family via the east lane corridor.
-    at(0, () => {
-      sim.queueCommand({ kind: 'move', ids: [eitan[1]], ...M(33, 25) });
-      sim.queueCommand({ kind: 'move', ids: [eitan[1]], ...M(31, 16), append: true });
-    });
-    at(35, () => {
-      sim.queueCommand({ kind: 'move', ids: [eitan[1]], ...M(33, 25) });
-      sim.queueCommand({ kind: 'move', ids: [eitan[1]], ...M(24, 22), append: true });
-    });
-
-    at(0, () => sim.queueCommand({ kind: 'move', ids: at_team, ...M(24, 36) }));
-    at(0, () => sim.queueCommand({ kind: 'move', ids: mortar, ...M(22, 38) }));
-  },
+  khanRafid3Plan,
   {},
   'victory',
   'khan_rafid_3_clearance'
+);
+
+// F1 / ruling R2(b): gate-open probe -- breach_team (stars_min 12) reached via
+// gateLedger({}, 6), proving the mission's fresh inf_squad placement resolves
+// to breach_team once the gate is open. Same plan body as the run above.
+run(
+  'khan_rafid_3_clearance',
+  khanRafid3Plan,
+  gateLedger({}, 6),
+  'victory',
+  'khan_rafid_3_clearance (gate open)',
+  2,
+  'breach_team'
 );
 
 // --- Marj: Deir Amun -------------------------------------------------------------
@@ -1115,42 +1200,57 @@ run('deir_amun_2_foothold', () => {}, {}, 'defeat', 'deir_amun_2_foothold (passi
 // deductions over eight minutes of contact -- comfortably clear of the 40
 // floor, but the highest cost of any plan in the arc, matching the design's
 // own read that this is the arc's most attrition-heavy foothold).
+const deirAmun2Plan: Plan = (sim, rt, ids, at) => {
+  const yahalom = ids('yahalom_squad');
+  const inf = ids('inf_squad');
+  const at_team = ids('at_team');
+  const mortar = ids('mortar_team');
+  const eitan = ids('apc_eitan');
+  const namer = ids('ifv_namer');
+  const drone = ids('recon_drone');
+
+  const holdForce = [...inf, ...eitan, ...namer];
+  at(0, () => sim.queueCommand({ kind: 'attackMove', ids: holdForce, ...M(15, 27) }));
+  at(0, () => sim.queueCommand({ kind: 'move', ids: yahalom, ...M(16, 26) }));
+  at(25, () => sim.queueCommand({ kind: 'chargeTunnel', ids: yahalom, tunnel: 1 }));
+  at(40, () => sim.queueCommand({ kind: 'move', ids: yahalom, ...M(24, 40) }));
+
+  // Once the door is down, split the holding force: two at the gate, the
+  // rest at the interior, so one kamikaze cannot reach everyone at once.
+  at(45, () => {
+    sim.queueCommand({ kind: 'move', ids: [inf[0], eitan[0]], ...M(15, 28) });
+    sim.queueCommand({ kind: 'move', ids: [inf[1], inf[2], eitan[1], ...namer], ...M(16, 25) });
+  });
+
+  at(0, () => sim.queueCommand({ kind: 'move', ids: at_team, ...M(17, 27) }));
+  at(0, () => sim.queueCommand({ kind: 'move', ids: mortar, ...M(24, 40) }));
+  at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(15, 27) }));
+
+  // Spend logistics as it lands, once the camp is producing.
+  for (let when = 60; when <= 420; when += 40) {
+    at(when, () => void rt.requestBuild('inf_squad'));
+  }
+};
+
 run(
   'deir_amun_2_foothold',
-  (sim, rt, ids, at) => {
-    const yahalom = ids('yahalom_squad');
-    const inf = ids('inf_squad');
-    const at_team = ids('at_team');
-    const mortar = ids('mortar_team');
-    const eitan = ids('apc_eitan');
-    const namer = ids('ifv_namer');
-    const drone = ids('recon_drone');
-
-    const holdForce = [...inf, ...eitan, ...namer];
-    at(0, () => sim.queueCommand({ kind: 'attackMove', ids: holdForce, ...M(15, 27) }));
-    at(0, () => sim.queueCommand({ kind: 'move', ids: yahalom, ...M(16, 26) }));
-    at(25, () => sim.queueCommand({ kind: 'chargeTunnel', ids: yahalom, tunnel: 1 }));
-    at(40, () => sim.queueCommand({ kind: 'move', ids: yahalom, ...M(24, 40) }));
-
-    // Once the door is down, split the holding force: two at the gate, the
-    // rest at the interior, so one kamikaze cannot reach everyone at once.
-    at(45, () => {
-      sim.queueCommand({ kind: 'move', ids: [inf[0], eitan[0]], ...M(15, 28) });
-      sim.queueCommand({ kind: 'move', ids: [inf[1], inf[2], eitan[1], ...namer], ...M(16, 25) });
-    });
-
-    at(0, () => sim.queueCommand({ kind: 'move', ids: at_team, ...M(17, 27) }));
-    at(0, () => sim.queueCommand({ kind: 'move', ids: mortar, ...M(24, 40) }));
-    at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(15, 27) }));
-
-    // Spend logistics as it lands, once the camp is producing.
-    for (let when = 60; when <= 420; when += 40) {
-      at(when, () => void rt.requestBuild('inf_squad'));
-    }
-  },
+  deirAmun2Plan,
   {},
   'victory',
   'deir_amun_2_foothold'
+);
+
+// F1 / ruling R2(b): gate-open probe -- breach_team (stars_min 12) reached via
+// gateLedger({}, 6), proving the mission's fresh inf_squad placement resolves
+// to breach_team once the gate is open. Same plan body as the run above.
+run(
+  'deir_amun_2_foothold',
+  deirAmun2Plan,
+  gateLedger({}, 6),
+  'victory',
+  'deir_amun_2_foothold (gate open)',
+  2,
+  'breach_team'
 );
 
 run('deir_amun_3_subterranean', () => {}, {}, 'defeat', 'deir_amun_3_subterranean (passive control)');
@@ -1628,32 +1728,47 @@ const ledQH2In = { ...ledQH1, ...ledQH2 };
 // `kill_the_relay` also stay incomplete, but the evacuation clock ends it.
 run('qarn_hadid_3_clearance', () => {}, {}, 'defeat', 'qarn_hadid_3_clearance (passive control)');
 
+const qarnHadid3Plan: Plan = (sim, _rt, ids, at) => {
+  const tank = ids('mbt_lavi');
+  const namer = ids('ifv_namer');
+  const armour = ids('apc_eitan');
+  const foot = ids('inf_squad');
+  const at_ = ids('at_team');
+  const mortar = ids('mortar_team');
+  const demo = ids('demo_squad');
+  const sniper = ids('sniper_team');
+  const drone = ids('recon_drone');
+  const west = foot.slice(0, 1);
+  const civTeam = [...foot.slice(1, 2), ...at_];
+  const main = [...tank, ...namer, ...armour, ...foot.slice(2), ...demo, ...mortar, ...sniper];
+  at(1, () => {
+    sim.queueCommand({ kind: 'attackMove', ids: west, ...M(10, 9) });
+    sim.queueCommand({ kind: 'move', ids: civTeam, ...M(29, 3) });
+    sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 30) });
+  });
+  at(60, () => sim.queueCommand({ kind: 'attackMove', ids: main, ...M(20, 9) }));
+  at(160, () => sim.queueCommand({ kind: 'attackMove', ids: main, ...M(28, 5) }));
+};
+
 run(
   'qarn_hadid_3_clearance',
-  (sim, _rt, ids, at) => {
-    const tank = ids('mbt_lavi');
-    const namer = ids('ifv_namer');
-    const armour = ids('apc_eitan');
-    const foot = ids('inf_squad');
-    const at_ = ids('at_team');
-    const mortar = ids('mortar_team');
-    const demo = ids('demo_squad');
-    const sniper = ids('sniper_team');
-    const drone = ids('recon_drone');
-    const west = foot.slice(0, 1);
-    const civTeam = [...foot.slice(1, 2), ...at_];
-    const main = [...tank, ...namer, ...armour, ...foot.slice(2), ...demo, ...mortar, ...sniper];
-    at(1, () => {
-      sim.queueCommand({ kind: 'attackMove', ids: west, ...M(10, 9) });
-      sim.queueCommand({ kind: 'move', ids: civTeam, ...M(29, 3) });
-      sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 30) });
-    });
-    at(60, () => sim.queueCommand({ kind: 'attackMove', ids: main, ...M(20, 9) }));
-    at(160, () => sim.queueCommand({ kind: 'attackMove', ids: main, ...M(28, 5) }));
-  },
+  qarnHadid3Plan,
   ledQH2In,
   'victory',
   'qarn_hadid_3_clearance'
+);
+
+// F1 / ruling R2(b): gate-open probe -- scout_shachaf (stars_min 30) reached via
+// gateLedger(ledQH2In, 15), proving the mission's fresh jeep_shoded placement
+// resolves to scout_shachaf once the gate is open. Same plan body as the run above.
+run(
+  'qarn_hadid_3_clearance',
+  qarnHadid3Plan,
+  gateLedger(ledQH2In, 15),
+  'victory',
+  'qarn_hadid_3_clearance (gate open)',
+  2,
+  'scout_shachaf'
 );
 
 // --- Sur: Umm Zeitoun ---------------------------------------------------------
@@ -1803,51 +1918,68 @@ const ledUZ2In = { ...ledUZ1, ...ledUZ2 };
 // the three failable objective types).
 run('umm_zeitoun_3_clearance', () => {}, {}, 'defeat', 'umm_zeitoun_3_clearance (no orders)');
 
+const ummZeitoun3Plan: Plan = (sim, _rt, ids, at) => {
+  // `inf_squad` is `from_ledger`, so this may be 1-3 bodies depending on
+  // what UZ II's fight left in the roster -- never hard-indexed. The
+  // hamlet group is the one that actually loses the mission if it is
+  // short a body (it is what triggers the evacuation and clears the
+  // garrison the ROE-safe way), so it is filled first; west and east take
+  // whatever is left, and the apc/mbt/namer/at_team/mortar/sniper carry
+  // both flanks regardless.
+  const infantry = ids('inf_squad');
+  const hamletInfantry = infantry.slice(0, 1);
+  const westInfantry = infantry.slice(1, 2);
+  const eastInfantry = infantry.slice(2);
+  const apcs = ids('apc_eitan');
+  const west = [...westInfantry, ...ids('at_team'), ...ids('mortar_team'), ...ids('sniper_team')];
+  const east = [...eastInfantry, ...ids('mbt_lavi'), ...ids('ifv_namer'), ...apcs.slice(0, 1)];
+  // Rifles and the Eitan's rws_50 only -- both under the 0.3 structural
+  // threshold that arms the flagged hamlet's penalty (§6.5's measured
+  // finding: cannon_30/gun_120/spike_atgm/mortar_60 all arm it; rifles and
+  // rws_50 do not).
+  const hamlet = [...hamletInfantry, ...apcs.slice(1)];
+  at(1, () => {
+    sim.queueCommand({ kind: 'attackMove', ids: west, ...M(12, 24) });
+    sim.queueCommand({ kind: 'attackMove', ids: east, ...M(35, 24) });
+    // Straight into the hamlet: `zone_entered` fires `the_house_was_the_section`
+    // the moment either body crosses in, walking both garrisoned riflemen
+    // out of their houses and into the open street at `hamlet_square`.
+    sim.queueCommand({ kind: 'attackMove', ids: hamlet, ...M(24, 26) });
+  });
+  // Re-press both flanks once the first contact clears -- attackMove halts
+  // on a live fight rather than closing the last few tiles to the post
+  // itself.
+  at(60, () => {
+    sim.queueCommand({ kind: 'attackMove', ids: west, ...M(10, 23) });
+    sim.queueCommand({ kind: 'attackMove', ids: east, ...M(37, 23) });
+  });
+  at(120, () => {
+    sim.queueCommand({ kind: 'attackMove', ids: west, ...M(10, 23) });
+    sim.queueCommand({ kind: 'attackMove', ids: east, ...M(37, 23) });
+  });
+};
+
 const ledUZ3 = run(
   'umm_zeitoun_3_clearance',
-  (sim, _rt, ids, at) => {
-    // `inf_squad` is `from_ledger`, so this may be 1-3 bodies depending on
-    // what UZ II's fight left in the roster -- never hard-indexed. The
-    // hamlet group is the one that actually loses the mission if it is
-    // short a body (it is what triggers the evacuation and clears the
-    // garrison the ROE-safe way), so it is filled first; west and east take
-    // whatever is left, and the apc/mbt/namer/at_team/mortar/sniper carry
-    // both flanks regardless.
-    const infantry = ids('inf_squad');
-    const hamletInfantry = infantry.slice(0, 1);
-    const westInfantry = infantry.slice(1, 2);
-    const eastInfantry = infantry.slice(2);
-    const apcs = ids('apc_eitan');
-    const west = [...westInfantry, ...ids('at_team'), ...ids('mortar_team'), ...ids('sniper_team')];
-    const east = [...eastInfantry, ...ids('mbt_lavi'), ...ids('ifv_namer'), ...apcs.slice(0, 1)];
-    // Rifles and the Eitan's rws_50 only -- both under the 0.3 structural
-    // threshold that arms the flagged hamlet's penalty (§6.5's measured
-    // finding: cannon_30/gun_120/spike_atgm/mortar_60 all arm it; rifles and
-    // rws_50 do not).
-    const hamlet = [...hamletInfantry, ...apcs.slice(1)];
-    at(1, () => {
-      sim.queueCommand({ kind: 'attackMove', ids: west, ...M(12, 24) });
-      sim.queueCommand({ kind: 'attackMove', ids: east, ...M(35, 24) });
-      // Straight into the hamlet: `zone_entered` fires `the_house_was_the_section`
-      // the moment either body crosses in, walking both garrisoned riflemen
-      // out of their houses and into the open street at `hamlet_square`.
-      sim.queueCommand({ kind: 'attackMove', ids: hamlet, ...M(24, 26) });
-    });
-    // Re-press both flanks once the first contact clears -- attackMove halts
-    // on a live fight rather than closing the last few tiles to the post
-    // itself.
-    at(60, () => {
-      sim.queueCommand({ kind: 'attackMove', ids: west, ...M(10, 23) });
-      sim.queueCommand({ kind: 'attackMove', ids: east, ...M(37, 23) });
-    });
-    at(120, () => {
-      sim.queueCommand({ kind: 'attackMove', ids: west, ...M(10, 23) });
-      sim.queueCommand({ kind: 'attackMove', ids: east, ...M(37, 23) });
-    });
-  },
+  ummZeitoun3Plan,
   ledUZ2In,
   'victory',
   'umm_zeitoun_3_clearance'
+);
+
+// F1 / ruling R2(b): gate-open probe -- scout_shachaf (stars_min 30) reached via
+// gateLedger(ledUZ2In, 15), proving the mission's fresh jeep_shoded placement
+// resolves to scout_shachaf once the gate is open. Same plan body as the run
+// above; the returned ledger is deliberately discarded here (`ledUZ3`, used by
+// umm_zeitoun_4_clearance downstream, must stay the closed-gate result).
+run(
+  'umm_zeitoun_3_clearance',
+  ummZeitoun3Plan,
+  gateLedger(ledUZ2In, 15),
+  'victory',
+  'umm_zeitoun_3_clearance (gate open)',
+  2,
+  'scout_shachaf'
 );
 
 // Umm Zeitoun IV -- The Stockpile: raze three structures on a 300s clock
