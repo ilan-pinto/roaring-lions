@@ -32,7 +32,7 @@ describe('assignNames', () => {
       kindOf,
       table
     );
-    expect(roster.map((r) => r.name)).toEqual(['Sela', '2-1 Gachelet', 'Barzel', 'Eye Two', '1-2 Ayil']);
+    expect(roster.map((r) => r.name)).toEqual(['Sela', '2-1 Gachelet', 'Barzel', 'Eye One', '1-2 Ayil']);
     expect(issued).toEqual({ squad: 2, vehicle: 1, task: 1 });
   });
 
@@ -43,15 +43,27 @@ describe('assignNames', () => {
       kindOf,
       table
     );
-    expect(roster.map((r) => r.name)).toEqual(['Migdal', 'Sela II']);
+    expect(roster.map((r) => r.name)).toEqual(['Migdal', 'Chatzatz']);
     expect(issued.squad).toBe(7);
+
+    // Past the last of the 40 callsigns (docs/campaign/names.md §4, ceiling 40)
+    // the counter wraps to the head of the list with a lineage numeral: squad
+    // 39 is "Kivun", the table's last entry, and squad 40 is "Sela" again.
+    const wrapped = assignNames(
+      [{ type: 'inf_squad', veterancy: 0 }, { type: 'inf_squad', veterancy: 0 }],
+      { squad: 39, vehicle: 0, task: 0 },
+      kindOf,
+      table
+    );
+    expect(wrapped.roster.map((r) => r.name)).toEqual(['Kivun', 'Sela II']);
+    expect(wrapped.issued.squad).toBe(41);
   });
 
   it('wraps a vehicle by cycling the hull number, not by a numeral', () => {
     // Spec §4.7: a vehicle is a hull number and a painted name, and two tanks
     // carrying the same hull is the one thing that definition cannot survive.
-    // The table holds three, so the fourth vehicle is Ayil again -- repainted
-    // 2-2, not called "1-2 Ayil II".
+    // The 25-entry table (docs/campaign/names.md §4) does not wrap within six
+    // draws from counter 0.
     const { roster, issued } = assignNames(
       Array.from({ length: 6 }, () => ({ type: 'mbt_lavi', veterancy: 0 })),
       { squad: 0, vehicle: 0, task: 0 },
@@ -62,21 +74,70 @@ describe('assignNames', () => {
       '1-2 Ayil',
       '2-1 Gachelet',
       '2-4 Yated',
+      '4-2 Kardom',
+      '7-2 Mesor',
+      '5-1 Mafuach',
+    ]);
+    expect(issued.vehicle).toBe(6);
+
+    // From counter 22 the draw crosses the table's 25-entry end: the wrap
+    // repaints the hull's first digit rather than appending a numeral to the
+    // painted name.
+    const wrapped = assignNames(
+      Array.from({ length: 6 }, () => ({ type: 'mbt_lavi', veterancy: 0 })),
+      { squad: 0, vehicle: 22, task: 0 },
+      kindOf,
+      table
+    );
+    expect(wrapped.roster.map((r) => r.name)).toEqual([
+      '1-9 Machsan',
+      '4-9 Metach',
+      '7-9 Mafselet',
       '2-2 Ayil',
       '3-1 Gachelet',
       '3-4 Yated',
     ]);
-    expect(issued.vehicle).toBe(6);
+    expect(wrapped.issued.vehicle).toBe(28);
   });
 
   it('reaches for the Roman numeral only once the hull digit has run out of room', () => {
     const nth = (n: number): string =>
       assignNames([{ type: 'mbt_lavi', veterancy: 0 }], { squad: 0, vehicle: n, task: 0 }, kindOf, table).roster[0]
         .name as string;
-    // Ayil starts at 1, so its ninth pass is the last digit a hull can hold.
-    expect(nth(24)).toBe('9-2 Ayil');
-    expect(nth(27)).toBe('9-2 Ayil II');
-    expect(nth(30)).toBe('9-2 Ayil III');
+    // Mesor's hull starts at 7, so its third pass (7+2=9) is the last digit a
+    // hull can hold; the fourth pass is where the Roman numeral takes over.
+    expect(nth(54)).toBe('9-2 Mesor');
+    expect(nth(79)).toBe('9-2 Mesor II');
+    expect(nth(104)).toBe('9-2 Mesor III');
+  });
+
+  it('gives sixty-nine vehicles sixty-nine distinct hull numbers', () => {
+    // docs/campaign/names.md §4: the 25-entry table is laid out so that no two
+    // entries' first three passes collide, which covers a full campaign's
+    // measured draw of ~69 vehicles with margin (the first hull collision is
+    // at issue 75, past this).
+    const names = Array.from(
+      { length: 69 },
+      (_, n) =>
+        assignNames([{ type: 'mbt_lavi', veterancy: 0 }], { squad: 0, vehicle: n, task: 0 }, kindOf, table).roster[0]
+          .name as string
+    );
+    expect(new Set(names.map((name) => name.split(' ')[0])).size).toBe(69);
+  });
+
+  it('issues the first twenty-four task names across the blocks then down the numbers', () => {
+    // docs/campaign/names.md §2/§4: a task number is a callsign block plus a
+    // number word, issued across all six blocks before the number advances --
+    // Eye One, Kite One, Lens One, Gimbal One, Aperture One, Spool One, then
+    // the second airframe on each line takes Two, starting with Eye Two.
+    const names = Array.from(
+      { length: 24 },
+      (_, n) =>
+        assignNames([{ type: 'recon_drone', veterancy: 0 }], { squad: 0, vehicle: 0, task: n }, kindOf, table)
+          .roster[0].name as string
+    );
+    expect(names.slice(0, 6)).toEqual(['Eye One', 'Kite One', 'Lens One', 'Gimbal One', 'Aperture One', 'Spool One']);
+    expect(names[6]).toBe('Eye Two');
   });
 
   it('gives thirty vehicles thirty different names', () => {
