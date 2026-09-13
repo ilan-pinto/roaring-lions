@@ -62,6 +62,7 @@ import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type 
 import { portraitUrl, type SheetManifest } from './ui/portrait';
 import { Minimap } from './ui/minimap';
 import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
+import { showBrigade } from './ui/brigade';
 import { showDebrief, type DebriefOptions } from './ui/debrief';
 import { TIER_LINES } from './ui/grade-copy';
 import { speakerPlate, speakerPortrait } from './ui/hud-model';
@@ -181,6 +182,124 @@ function kdfUnlockGate(u: (typeof units)[keyof typeof units]): UnlockGate | unde
   return unlock
     ? { roeMin: unlock.roe_rating_min, starsMin: unlock.stars_min, afterMission: unlock.after_mission }
     : undefined;
+}
+
+// Which sheet a unit uses -- facing convention, frame counts, clip list and
+// draw scale all come from the sheet's own manifest, written by the rig that
+// produced the files. Module scope (not `main()`'s, where this lived until
+// the brigade screen needed it too): it is pure data keyed only on `BASE`, so
+// hoisting it costs nothing and gives both the mission HUD's card and the
+// brigade route the same table -- one unit id can only ever mean one sheet.
+type SpriteSpec = { path: string; turretPath?: string };
+const TANK: SpriteSpec = {
+  path: `${BASE}sprites/TNK_HULL/`,
+  turretPath: `${BASE}sprites/TNK_TURR/`,
+};
+const EITAN: SpriteSpec = {
+  path: `${BASE}sprites/EITAN_HULL/`,
+  turretPath: `${BASE}sprites/EITAN_TURR/`,
+};
+const NAMER: SpriteSpec = {
+  path: `${BASE}sprites/NAMER_HULL/`,
+  turretPath: `${BASE}sprites/NAMER_TURR/`,
+};
+// Hull only: the model carries no separately modelled weapon station, so
+// there is no turret sheet to composite.
+const JEEP: SpriteSpec = { path: `${BASE}sprites/JEEP_HULL/` };
+// The enemy's armed pickup. Its turret manifest carries `turretAxisPx`, which
+// no other sheet does: a pintle gun on a bed sits well off the model's centre,
+// and without that the renderer would swing it off the truck while tracking.
+const TECHNICAL: SpriteSpec = {
+  path: `${BASE}sprites/TECH_HULL/`,
+  turretPath: `${BASE}sprites/TECH_TURR/`,
+};
+// No shared infantry sheet. Seven types used to point at one directory, which
+// meant a rifle squad and an enemy militia cell were the same PNG and the
+// silhouette gate could never compare them -- it cannot compare a file with
+// itself. Each type now names its own sheet, so a sheet that fails to load is
+// a visible gap rather than something masked by an alias.
+// The only animated sheet: four frames of hover per facing, looping. Nothing
+// here says so -- the frame count, rate and loop flag all come from the
+// sheet's own manifest, same as every other property of every other sheet.
+const DRONE: SpriteSpec = { path: `${BASE}sprites/DRONE_RECON/` };
+const SPRITE_MAP: Record<string, SpriteSpec> = {
+  mbt_lavi: TANK,
+  apc_eitan: EITAN,
+  ifv_namer: NAMER,
+  jeep_shoded: JEEP,
+  technical: TECHNICAL,
+  recon_drone: DRONE,
+  dozer_d9: { path: `${BASE}sprites/D9_HULL/` },
+  heli_peten: { path: `${BASE}sprites/APACHE_HULL/` },
+  // One sheet per infantry type, composed from tools/units/kit.py. Each is a
+  // distinct silhouette rather than a distinct texture: posture, weapon axis
+  // and figure count are what survive downsampling to a 64px black shape.
+  inf_squad: { path: `${BASE}sprites/INF_SQUAD/` },
+  demo_squad: { path: `${BASE}sprites/INF_DEMO/` },
+  at_team: { path: `${BASE}sprites/INF_AT/` },
+  mortar_team: { path: `${BASE}sprites/INF_MORTAR/` },
+  sniper_team: { path: `${BASE}sprites/INF_SNIPER/` },
+  // The Yahalom sheet is the one carrying a `work` clip — what resolveClip
+  // shows for the whole of a tunnel charge.
+  yahalom_squad: { path: `${BASE}sprites/INF_YAHALOM/` },
+  militia_cell: { path: `${BASE}sprites/INF_MILITIA/` },
+  rpg_team: { path: `${BASE}sprites/INF_RPG/` },
+  atgm_cell: { path: `${BASE}sprites/INF_ATGM/` },
+  mortar_crew: { path: `${BASE}sprites/INF_MORTAR_E/` },
+  // The Sarim set. These three shipped complete, gate-passing sheets and
+  // still drew NOTHING, because art existing and art being LOADED are
+  // different things and only the first has a gate.
+  sarim_rifles: { path: `${BASE}sprites/INF_SARIM/` },
+  recoilless_team: { path: `${BASE}sprites/INF_RECOILLESS/` },
+  manpad_team: { path: `${BASE}sprites/INF_MANPAD/` },
+  // The raider set. Like the technical, the gun truck's turret manifest
+  // carries `turretAxisPx`: its cannon sits 1.65 m behind the model centre,
+  // so without the correction the renderer swings it off the bed while
+  // tracking.
+  gun_truck: {
+    path: `${BASE}sprites/GUNTRUCK_HULL/`,
+    turretPath: `${BASE}sprites/GUNTRUCK_TURR/`,
+  },
+  charge_squad: { path: `${BASE}sprites/INF_CHARGE/` },
+  moto_rpg: { path: `${BASE}sprites/MOTO_RPG/` },
+  digger_crew: { path: `${BASE}sprites/INF_DIGGER/` },
+  // Hull only: the rack is fixed to the bed, not a separately traversing
+  // weapon station, so there is no turret sheet to composite -- same shape
+  // as dozer_d9 above.
+  rocket_battery: { path: `${BASE}sprites/ROCKETBATTERY_HULL/` },
+  // Two air sheets whose flight is presentational: the sim has no altitude,
+  // so these move on the ground plane like anything else. The paramotor's
+  // `down` clip is its landed state, authored against a land-and-dismount
+  // behaviour that does not exist yet.
+  paramotor: { path: `${BASE}sprites/PARA_MOTOR/` },
+  loiter_drone: { path: `${BASE}sprites/DRONE_LOITER/` },
+  // attack_drone shares loiter_drone's shape of unit -- KDF's own loitering
+  // munition -- but not its source: reusing loitering_munition.blend would
+  // have been an identical silhouette (IoU ~= 1.0, guaranteed, not merely a
+  // risk), so it renders from its own hull, art/src/drones/attack_drone.blend.
+  attack_drone: { path: `${BASE}sprites/DRONE_ATTACK/` },
+};
+
+/**
+ * A unit type's portrait URL, resolved the same way the mission HUD resolves
+ * one for its card (`portraits[typeId]`, built from `SPRITE_MAP` and each
+ * sheet's own manifest via `portraitUrl`) -- fetched fresh here because the
+ * brigade screen has no running renderer to have already fetched it for. A
+ * type absent from `SPRITE_MAP`, or whose manifest 404s, resolves to `null`;
+ * the caller draws the reserved hatch for that, same as the HUD's card does.
+ */
+async function loadBrigadePortrait(id: string): Promise<string | null> {
+  const spec = SPRITE_MAP[id];
+  if (!spec) return null;
+  try {
+    const res = await fetch(`${spec.path}manifest.json`);
+    if (!res.ok) return null;
+    const manifest = (await res.json()) as SheetManifest;
+    return portraitUrl(spec.path, manifest);
+  } catch (err) {
+    console.warn(`[lions] portrait manifest FAILED for ${id}:`, err);
+    return null;
+  }
 }
 
 interface SandboxForce {
@@ -365,6 +484,33 @@ async function main(): Promise<void> {
         commander: parseCommander(commander),
         missionOf: (id) => (missions as Record<string, MissionJson | undefined>)[id],
         portraitUrl: commanderPortraitUrl,
+      });
+      return;
+    }
+    if (params.get('brigade') !== null) {
+      // The roster: every KDF unit the campaign knows about, and what still
+      // gates the ones not yet earned. `possibleStars` comes from the same
+      // towns the campaign map itself walks -- every mission grades to 3
+      // stars, and a town added to `world.json` counts itself in without an
+      // edit here (the tutorial is deliberately off the map, so it is never
+      // in this sum at all).
+      const kdfUnits = Object.values(units)
+        .filter((u) => u.faction === 'kdf')
+        .map((u) => ({ id: u.id, name: u.name, role: u.role, unlock: kdfUnlockGate(u) }));
+      const possibleStars =
+        3 * worldData.regions.reduce((n, r) => n + r.towns.reduce((m, t) => m + t.missions.length, 0), 0);
+      const portraits: Record<string, string> = {};
+      await Promise.all(
+        kdfUnits.map(async ({ id }) => {
+          const url = await loadBrigadePortrait(id);
+          if (url !== null) portraits[id] = url;
+        })
+      );
+      showBrigade(stage, {
+        units: kdfUnits,
+        ledger: loadLedger(),
+        portrait: (typeId) => portraits[typeId] ?? null,
+        possibleStars,
       });
       return;
     }
@@ -983,95 +1129,11 @@ async function main(): Promise<void> {
   // Which sheet a unit uses is the only decision left here: facing convention,
   // frame counts, clip list and draw scale all come from the sheet's own
   // manifest, written by the rig that produced the files.
-  type SpriteSpec = { path: string; turretPath?: string };
-  const TANK: SpriteSpec = {
-    path: `${BASE}sprites/TNK_HULL/`,
-    turretPath: `${BASE}sprites/TNK_TURR/`,
-  };
-  const EITAN: SpriteSpec = {
-    path: `${BASE}sprites/EITAN_HULL/`,
-    turretPath: `${BASE}sprites/EITAN_TURR/`,
-  };
-  const NAMER: SpriteSpec = {
-    path: `${BASE}sprites/NAMER_HULL/`,
-    turretPath: `${BASE}sprites/NAMER_TURR/`,
-  };
-  // Hull only: the model carries no separately modelled weapon station, so
-  // there is no turret sheet to composite.
-  const JEEP: SpriteSpec = { path: `${BASE}sprites/JEEP_HULL/` };
-  // The enemy's armed pickup. Its turret manifest carries `turretAxisPx`, which
-  // no other sheet does: a pintle gun on a bed sits well off the model's centre,
-  // and without that the renderer would swing it off the truck while tracking.
-  const TECHNICAL: SpriteSpec = {
-    path: `${BASE}sprites/TECH_HULL/`,
-    turretPath: `${BASE}sprites/TECH_TURR/`,
-  };
-  // No shared infantry sheet. Seven types used to point at one directory, which
-  // meant a rifle squad and an enemy militia cell were the same PNG and the
-  // silhouette gate could never compare them -- it cannot compare a file with
-  // itself. Each type now names its own sheet, so a sheet that fails to load is
-  // a visible gap rather than something masked by an alias.
-  // The only animated sheet: four frames of hover per facing, looping. Nothing
-  // here says so -- the frame count, rate and loop flag all come from the
-  // sheet's own manifest, same as every other property of every other sheet.
-  const DRONE: SpriteSpec = { path: `${BASE}sprites/DRONE_RECON/` };
-  const SPRITE_MAP: Record<string, SpriteSpec> = {
-    mbt_lavi: TANK,
-    apc_eitan: EITAN,
-    ifv_namer: NAMER,
-    jeep_shoded: JEEP,
-    technical: TECHNICAL,
-    recon_drone: DRONE,
-    dozer_d9: { path: `${BASE}sprites/D9_HULL/` },
-    heli_peten: { path: `${BASE}sprites/APACHE_HULL/` },
-    // One sheet per infantry type, composed from tools/units/kit.py. Each is a
-    // distinct silhouette rather than a distinct texture: posture, weapon axis
-    // and figure count are what survive downsampling to a 64px black shape.
-    inf_squad: { path: `${BASE}sprites/INF_SQUAD/` },
-    demo_squad: { path: `${BASE}sprites/INF_DEMO/` },
-    at_team: { path: `${BASE}sprites/INF_AT/` },
-    mortar_team: { path: `${BASE}sprites/INF_MORTAR/` },
-    sniper_team: { path: `${BASE}sprites/INF_SNIPER/` },
-    // The Yahalom sheet is the one carrying a `work` clip — what resolveClip
-    // shows for the whole of a tunnel charge.
-    yahalom_squad: { path: `${BASE}sprites/INF_YAHALOM/` },
-    militia_cell: { path: `${BASE}sprites/INF_MILITIA/` },
-    rpg_team: { path: `${BASE}sprites/INF_RPG/` },
-    atgm_cell: { path: `${BASE}sprites/INF_ATGM/` },
-    mortar_crew: { path: `${BASE}sprites/INF_MORTAR_E/` },
-    // The Sarim set. These three shipped complete, gate-passing sheets and
-    // still drew NOTHING, because art existing and art being LOADED are
-    // different things and only the first has a gate.
-    sarim_rifles: { path: `${BASE}sprites/INF_SARIM/` },
-    recoilless_team: { path: `${BASE}sprites/INF_RECOILLESS/` },
-    manpad_team: { path: `${BASE}sprites/INF_MANPAD/` },
-    // The raider set. Like the technical, the gun truck's turret manifest
-    // carries `turretAxisPx`: its cannon sits 1.65 m behind the model centre,
-    // so without the correction the renderer swings it off the bed while
-    // tracking.
-    gun_truck: {
-      path: `${BASE}sprites/GUNTRUCK_HULL/`,
-      turretPath: `${BASE}sprites/GUNTRUCK_TURR/`,
-    },
-    charge_squad: { path: `${BASE}sprites/INF_CHARGE/` },
-    moto_rpg: { path: `${BASE}sprites/MOTO_RPG/` },
-    digger_crew: { path: `${BASE}sprites/INF_DIGGER/` },
-    // Hull only: the rack is fixed to the bed, not a separately traversing
-    // weapon station, so there is no turret sheet to composite -- same shape
-    // as dozer_d9 above.
-    rocket_battery: { path: `${BASE}sprites/ROCKETBATTERY_HULL/` },
-    // Two air sheets whose flight is presentational: the sim has no altitude,
-    // so these move on the ground plane like anything else. The paramotor's
-    // `down` clip is its landed state, authored against a land-and-dismount
-    // behaviour that does not exist yet.
-    paramotor: { path: `${BASE}sprites/PARA_MOTOR/` },
-    loiter_drone: { path: `${BASE}sprites/DRONE_LOITER/` },
-    // attack_drone shares loiter_drone's shape of unit -- KDF's own loitering
-    // munition -- but not its source: reusing loitering_munition.blend would
-    // have been an identical silhouette (IoU ~= 1.0, guaranteed, not merely a
-    // risk), so it renders from its own hull, art/src/drones/attack_drone.blend.
-    attack_drone: { path: `${BASE}sprites/DRONE_ATTACK/` },
-  };
+  //
+  // `SPRITE_MAP` itself lives at module scope, above (it is pure data keyed
+  // only on `BASE`) — the brigade screen's portrait resolver, below, reads
+  // the same table so a unit's picture cannot differ between the HUD's card
+  // and the roster screen.
   // Structures with art. A building has one sprite, not sixteen: it is placed
   // with a fixed orientation under a fixed camera and never turns. Types without
   // a sheet keep the procedural extrusion, so art lands one building at a time.

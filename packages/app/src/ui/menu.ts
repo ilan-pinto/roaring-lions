@@ -88,6 +88,7 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): void {
   // The war itself lives on its own page: the menu stays a landing, the map a
   // destination you can always come back to.
   add('Campaign', '?campaign', 'campaign');
+  add('Brigade', '?brigade', 'brigade');
   wrap.appendChild(nav);
 
   const aside = document.createElement('nav');

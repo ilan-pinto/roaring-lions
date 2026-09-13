@@ -2432,3 +2432,19 @@ button.rl-menu__item[data-kind='aside'] {
     transform: none;
   }
 }
+
+/* The brigade screen (ui/brigade.ts). A locked row reads as reserved, the
+   same "dimmed, not hidden" language the rest of this file already uses --
+   `data-locked` is the same attribute the DOM carries, not a class the
+   component keeps in sync by hand. */
+.rl-brigade__row[data-locked='1'] {
+  opacity: 0.6;
+}
+.rl-brigade__gate,
+.rl-brigade__stars {
+  color: var(--commend);
+}
+.rl-brigade__why {
+  color: var(--ink-dim);
+  font-size: var(--t-xs);
+}
