@@ -168,10 +168,10 @@ export const VEHICLE_UNIT_MESHES: Readonly<Record<string, string>> = {
   rocket_battery: 'vehicles/rocket_battery.glb',
 
   // The star-gated Shachaf and Kipod (docs/campaign/special_units/design.md
-  // §4-5). Claimed here so the GLBs are not orphans; the separate render-side
-  // ramp table in `packages/render/src/three/units/vehicle-mesh-role.ts`
-  // (`VEHICLE_ROLE_PALETTE`) still needs entries for both before either can
-  // actually build a mesh at runtime -- tracked, not fixed, by this commit.
+  // §4-5). The separate render-side ramp table in
+  // `packages/render/src/three/units/vehicle-mesh-role.ts`
+  // (`VEHICLE_ROLE_PALETTE`) carries an entry for both -- `scout_shachaf` and
+  // `apc_kipod` (landed in 2f93129) -- so both build a mesh at runtime.
   scout_shachaf: 'vehicles/scout_shachaf.glb',
   apc_kipod: 'vehicles/apc_kipod.glb',
 };
