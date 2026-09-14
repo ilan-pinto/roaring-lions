@@ -78,13 +78,13 @@ export const AO_SCALE = 1.2;
  * The fraction of the frame the AO's own targets run at, and the reason this
  * pass ships at all. Measured, not chosen -- `docs/PERFORMANCE.md`, "Lit
  * renderer frame cost (2026-09-14)", on an M3 Pro through ANGLE/Metal at
- * 1440x900 and pixel ratio 2, two samples of each configuration. AO at FULL
- * resolution lands the p95 of the acceptance view (zoom 0.5) at 16.0-16.4 ms
- * against a 16.7 ms frame budget -- a pass with no margin -- and takes the
- * two closer views to 21-22 ms. At half it costs 3.6-4.4 ms and every view
- * stays under 15. What full resolution buys back is sharpness in the
- * occlusion TERM alone, which a Poisson denoise has already blurred and
- * which the blend lays over a full-resolution frame.
+ * 1440x900 and pixel ratio 2, two samples of each shipped configuration. AO
+ * at FULL resolution lands the p95 of the acceptance view (zoom 0.5) at
+ * 15.40 ms against a 16.7 ms frame budget -- and takes the two closer views
+ * to 20.3-21.7 ms, 3.6-5.0 ms over. At half it costs 2.8-3.7 ms of median
+ * across all three and every p95 stays under 13.2. What full resolution buys
+ * back is sharpness in the occlusion TERM alone, which a Poisson denoise has
+ * already blurred and which the blend lays over a full-resolution frame.
  */
 export const AO_RESOLUTION_SCALE = 0.5;
 
@@ -133,10 +133,12 @@ export function isAoOccluder(object: THREE.Object3D): boolean {
 }
 
 /**
- * `GTAOPass` taught the two things this scene needs: that only the opaque
+ * `GTAOPass` taught the four things this scene needs: that only the opaque
  * world belongs in its G-buffer (`isAoOccluder` above -- without it the
- * picture is unusable, not merely imperfect), and that its own targets may
- * run at a fraction of the frame.
+ * picture is unusable, not merely imperfect), that its own targets may run
+ * at a fraction of the frame, that its G-buffer render must not drag the
+ * sun's shadow map along with it, and that a throw inside that render must
+ * not leave half the renderer invisible.
  *
  * **Half resolution has to live in `setSize`**, because the constructor's
  * `width`/`height` are overwritten by `EffectComposer.addPass` (see
@@ -154,6 +156,18 @@ export function isAoOccluder(object: THREE.Object3D): boolean {
  */
 class WorldGTAOPass extends GTAOPass {
   private readonly resolutionScale: number;
+  /**
+   * Whether `overrideVisibility` has run without its matching restore.
+   *
+   * A flag rather than an unconditional restore in the `finally` below, and
+   * the reason is a trap in r170: `restoreVisibility` is **not idempotent**.
+   * It traverses the scene writing `object.visible = cache.get(object)` and
+   * then clears the cache -- so a second call reads `undefined` out of the
+   * empty cache and assigns it to EVERY object in the scene. `undefined` is
+   * falsy, so calling it twice does not "restore twice", it blanks the
+   * frame. Verified in `GTAOPass.js`, not assumed.
+   */
+  private visibilityOverridden = false;
 
   constructor(scene: THREE.Scene, camera: THREE.Camera, width: number, height: number, resolutionScale: number) {
     super(scene, camera, Math.max(1, Math.round(width * resolutionScale)), Math.max(1, Math.round(height * resolutionScale)));
@@ -180,6 +194,62 @@ class WorldGTAOPass extends GTAOPass {
     this.scene.traverse((object) => {
       if (!isAoOccluder(object)) object.visible = false;
     });
+    this.visibilityOverridden = true;
+  }
+
+  override restoreVisibility(): void {
+    super.restoreVisibility();
+    this.visibilityOverridden = false;
+  }
+
+  /**
+   * Two things wrapped around the base render, both of which cost nothing
+   * and one of which was costing a whole shadow pass a frame.
+   *
+   * **The G-buffer pre-pass must not re-render the sun's shadow map.**
+   * `renderOverride` is a full `renderer.render(scene, camera)`, and
+   * `WebGLShadowMap.render` runs on every one of those unless it is told
+   * otherwise (`autoUpdate === false && needsUpdate === false` is its only
+   * early return besides `enabled === false`). So a second 4096 map was
+   * being drawn for the whole scene each frame and thrown away: the pre-pass
+   * draws through `MeshNormalMaterial`, which consumes no shadows at all.
+   * Measured at **0.7-0.9 ms a frame** across the three views of
+   * `docs/PERFORMANCE.md`'s own table -- a tenth of the lit renderer's whole
+   * frame, bought back for four lines.
+   *
+   * **This is not the frame-level `shadowMap.autoUpdate = false` that would
+   * freeze shadows on moving units** -- that was considered for this branch
+   * and ruled out, correctly. The flag is saved, cleared and restored around
+   * this ONE nested render; the composer's `RenderPass` has already drawn
+   * this frame's shadows by the time the AO pass runs, with `autoUpdate`
+   * untouched, and finds it untouched again next frame.
+   *
+   * **And the `finally` is not defensive decoration.** Between
+   * `overrideVisibility` and `restoreVisibility` the base pass has every
+   * billboard, tracer, decal, overlay and outline hull in this scene set
+   * invisible (this subclass widened that set from three's own points and
+   * lines). A throw in there -- a shader compile failure, a lost context, a
+   * bad uniform -- would leave them that way for the rest of the session,
+   * turning a transient GL error into a permanently half-drawn game.
+   */
+  override render(
+    renderer: THREE.WebGLRenderer,
+    writeBuffer: THREE.WebGLRenderTarget,
+    readBuffer: THREE.WebGLRenderTarget,
+    deltaTime: number,
+    maskActive: boolean
+  ): void {
+    const shadowAutoUpdate = renderer.shadowMap.autoUpdate;
+    renderer.shadowMap.autoUpdate = false;
+    try {
+      super.render(renderer, writeBuffer, readBuffer, deltaTime, maskActive);
+    } finally {
+      renderer.shadowMap.autoUpdate = shadowAutoUpdate;
+      // Only if the base pass did not get as far as its own restore -- see
+      // `visibilityOverridden` for why calling it a second time would blank
+      // the scene rather than do nothing.
+      if (this.visibilityOverridden) this.restoreVisibility();
+    }
   }
 }
 
@@ -196,7 +266,9 @@ class WorldGTAOPass extends GTAOPass {
  * into its own target with its own depth -- so `(scene, camera, w, h)` is
  * genuinely all it takes. It is also where the cost is: one extra full scene
  * render per frame plus three full-screen passes (AO, Poisson denoise,
- * copy+blend).
+ * copy+blend). That nested render used to drag a second 4096 shadow pass
+ * behind it, for a pre-pass that consumes no shadows -- worth 0.7-0.9 ms a
+ * frame, and now suppressed in `WorldGTAOPass.render`.
  *
  * **The camera must be the persistent one.** `GTAOPass` reads
  * `camera.isPerspectiveCamera` ONCE, in its constructor, to set a shader

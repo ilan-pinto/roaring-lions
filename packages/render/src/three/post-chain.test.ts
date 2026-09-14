@@ -183,6 +183,96 @@ describe('createPostChain', () => {
     pass.dispose();
   });
 
+  /**
+   * Enough renderer for `GTAOPass.render` to run without a GL context: it
+   * touches `shadowMap.autoUpdate` (this subclass) and is otherwise only
+   * handed to `renderOverride`/`renderPass`, both stubbed by the callers
+   * below.
+   */
+  function fakeRendererWithShadows(): THREE.WebGLRenderer {
+    return { shadowMap: { enabled: true, autoUpdate: true, needsUpdate: false } } as unknown as THREE.WebGLRenderer;
+  }
+
+  /** A scene with one piece of world and one outline hull, plus the pass
+   *  that will hide the hull for its G-buffer render. */
+  function aoOverScene(): { pass: GTAOPass; world: THREE.Mesh; outlineHull: THREE.Mesh } {
+    const scene = new THREE.Scene();
+    const world = meshWith({ normals: true });
+    const outlineHull = meshWith({ normals: false, transparent: true, depthWrite: false });
+    scene.add(world, outlineHull);
+    return { pass: createAoPass(scene, new THREE.OrthographicCamera(), 8, 6) as GTAOPass, world, outlineHull };
+  }
+
+  it('renders its G-buffer with the shadow map switched off, and hands it back', () => {
+    // `renderOverride` is a full `renderer.render(scene, camera)`, and a
+    // shadow pass runs on every one of those -- so without this, the sun's
+    // 4096 map was being redrawn for the whole scene once per frame and
+    // thrown away, for a pre-pass that draws through `MeshNormalMaterial`
+    // and consumes no shadows.
+    const { pass } = aoOverScene();
+    const renderer = fakeRendererWithShadows();
+    const seen: boolean[] = [];
+    Object.assign(pass, {
+      renderOverride: () => seen.push(renderer.shadowMap.autoUpdate),
+      renderPass: () => undefined,
+    });
+
+    const target = new THREE.WebGLRenderTarget(8, 6);
+    pass.render(renderer, target, target, 0, false);
+
+    expect(seen).toEqual([false]);
+    // Restored, because the composer's RenderPass draws this frame's real
+    // shadows and must go on doing so -- this is scoped to the nested
+    // render, NOT the frame-level freeze that would pin shadows under
+    // moving units.
+    expect(renderer.shadowMap.autoUpdate).toBe(true);
+    target.dispose();
+    pass.dispose();
+  });
+
+  it('restores visibility and the shadow flag when the G-buffer render throws', () => {
+    // Between `overrideVisibility` and `restoreVisibility` every billboard,
+    // tracer, decal, overlay and outline hull in the scene is invisible. A
+    // transient throw in there -- a shader compile failure, a lost context
+    // -- must not leave them that way for the rest of the session.
+    const { pass, world, outlineHull } = aoOverScene();
+    const renderer = fakeRendererWithShadows();
+    Object.assign(pass, {
+      renderOverride: () => {
+        throw new Error('G-buffer render failed');
+      },
+      renderPass: () => undefined,
+    });
+
+    const target = new THREE.WebGLRenderTarget(8, 6);
+    expect(() => pass.render(renderer, target, target, 0, false)).toThrow('G-buffer render failed');
+
+    expect(outlineHull.visible).toBe(true);
+    expect(world.visible).toBe(true);
+    expect(renderer.shadowMap.autoUpdate).toBe(true);
+    target.dispose();
+    pass.dispose();
+  });
+
+  it('does not restore visibility twice on the happy path', () => {
+    // `GTAOPass.restoreVisibility` is NOT idempotent in r170: it writes
+    // `cache.get(object)` onto every object and then clears the cache, so a
+    // second call assigns `undefined` -- falsy -- to `visible` on the whole
+    // scene. The guard flag is what stops the `finally` above from blanking
+    // the frame on every successful render.
+    const { pass, world, outlineHull } = aoOverScene();
+    const renderer = fakeRendererWithShadows();
+    Object.assign(pass, { renderOverride: () => undefined, renderPass: () => undefined });
+
+    const target = new THREE.WebGLRenderTarget(8, 6);
+    pass.render(renderer, target, target, 0, false);
+
+    expect(world.visible).toBe(true);
+    expect(outlineHull.visible).toBe(true);
+    target.dispose();
+    pass.dispose();
+  });
+
   it('runs the AO targets at AO_RESOLUTION_SCALE of the frame, through resize', () => {
     // Half resolution is the reason this pass fits the frame budget at all
     // (see `AO_RESOLUTION_SCALE`), and `setSize` is the only place it can

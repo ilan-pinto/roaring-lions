@@ -525,9 +525,40 @@ above is that.
 GPU milliseconds of fill can move it by nothing at all. `gpu` brackets the
 same call with `gl.finish()` — frame wall time on this canvas, a lower bound
 on what the display sees. The two tracked each other within 0.4 ms through
-every configuration below, which is not the `gl.finish()` failing to bite: it
-is this scene being **submission-bound** on this machine, and it is the whole
-explanation of what GTAO costs here (a second full scene render, not fill).
+every configuration below.
+
+**That agreement is a property of the platform, not a finding about the
+scene, and an earlier draft of this section got it wrong.** The obvious
+reading — "the scene is submission-bound, so `cpu` already tells you
+everything" — is disproved by the control below: a change that alters *only*
+fill moves `cpu` almost exactly as much as `gpu`. On ANGLE/Metal here,
+`frame()` does not return before the GPU work; the driver applies
+back-pressure inside submission, so `cpu` is already most of a wall-clock
+frame. Read `gpu` for the accept/reject, treat `cpu` as a slightly looser
+measure of the same thing, and **do not use the pair to attribute cost
+between submission and fill** — that needs a GPU timer query
+(`EXT_disjoint_timer_query_webgl2`), which this instrument does not use and
+which is still owed.
+
+**The positive control for `gpu`.** A `gpu` figure that just tracks `cpu` has
+a dull explanation too: ask a canvas with no context for `webgl2` and the
+browser hands you a fresh empty one, whose `finish()` drains nothing,
+forever. Two things rule that out here. The instrument takes
+`Renderer.canvas` (public API) rather than guessing at the biggest canvas in
+the document, and it then **asserts the context is one it did not create** —
+`stencil: true`, which is in `ThreeRenderer`'s own context attributes and is
+not a WebGL default, and a non-null `CURRENT_PROGRAM`, which only a context
+that has actually drawn has. Either check failing throws. And the fill
+control, same scene and camera and not one draw call different, run at 4× the
+pixels (`2880x1800` CSS, so a 5760×3600 drawing buffer):
+
+| view | cpu median @1× | cpu median @4× | gpu median @1× | gpu median @4× |
+|---|---|---|---|---|
+| (5,22) zoom 2.5 | 11.70 | 36.00 | 11.80 | 35.90 |
+| (22,24) zoom 0.5 | 10.30 | 27.60 | 10.60 | 27.50 |
+| (26,22) zoom 1.6 | 11.30 | 38.90 | 11.20 | 38.80 |
+
+Fill is being measured — by both figures.
 
 ### Capture conditions
 
@@ -556,36 +587,72 @@ explanation of what GTAO costs here (a second full scene render, not fill).
 
 | view | cpu median | cpu p95 | gpu median | gpu p95 |
 |---|---|---|---|---|
-| (5,22) zoom 2.5 | 12.40 / 12.30 | 13.50 / 13.80 | 12.50 / 12.30 | 14.90 / 13.40 |
-| (22,24) zoom 0.5 | 11.30 / 11.10 | 13.20 / 12.70 | 11.50 / 11.20 | 12.50 / 13.20 |
-| (26,22) zoom 1.6 | 12.20 / 12.10 | 13.40 / 13.20 | 12.10 / 12.10 | 13.40 / 13.70 |
+| (5,22) zoom 2.5 | 11.70 / 11.70 | 13.20 / 12.90 | 11.80 / 11.70 | 13.00 / 13.00 |
+| (22,24) zoom 0.5 | 10.30 / 10.40 | 12.20 / 12.30 | 10.60 / 10.60 | 12.60 / 12.50 |
+| (26,22) zoom 1.6 | 11.30 / 11.50 | 12.30 / 13.00 | 11.20 / 11.40 | 12.20 / 12.30 |
 
-**The branch costs roughly 8 ms a frame more than `main` before AO is added
+**The branch costs roughly 7.5 ms a frame more than `main` before AO is added
 at all**, and that is the headline number here: the sun with its 4096 shadow
 map, the composer's four passes at 2880×1800, and the fog post pass. AO is
-the smaller half of the change.
+the smaller half of the change — 2.8–3.7 ms of median across the three views,
+against the AO-free baseline in the ladder below.
+
+### One 4096 shadow map a frame was being drawn and thrown away
+
+GTAO's G-buffer pre-pass is a full `renderer.render(scene, camera)` with an
+override material, and `WebGLShadowMap.render` runs on every one of those
+unless it is told otherwise — its only early returns are `enabled === false`
+and `autoUpdate === false && needsUpdate === false`. So the sun's whole
+shadow map was being redrawn inside the AO pass, each frame, for a pre-pass
+that draws through `MeshNormalMaterial` and consumes no shadows at all.
+
+`WorldGTAOPass.render` now saves `shadowMap.autoUpdate`, clears it around the
+nested render, and restores it. **This is not the frame-level
+`autoUpdate = false` that would freeze shadows under moving units** — that
+was considered for this branch and ruled out, correctly. It is scoped to the
+one nested render; the composer's `RenderPass` has already drawn this frame's
+real shadows before the AO pass runs.
+
+Measured, half-resolution AO, same two-sample protocol, before → after:
+
+| view | cpu median | gpu median | saved |
+|---|---|---|---|
+| (5,22) zoom 2.5 | 12.40 / 12.30 → 11.70 / 11.70 | 12.50 / 12.30 → 11.80 / 11.70 | ~0.65 ms |
+| (22,24) zoom 0.5 | 11.30 / 11.10 → 10.30 / 10.40 | 11.50 / 11.20 → 10.60 / 10.60 | ~0.85 ms |
+| (26,22) zoom 1.6 | 12.20 / 12.10 → 11.30 / 11.50 | 12.10 / 12.10 → 11.20 / 11.40 | ~0.75 ms |
+
+**0.7–0.9 ms a frame** — near a tenth of the lit renderer's whole frame cost,
+and roughly a quarter of what ambient occlusion costs in total. Anyone adding
+another pass that re-renders the scene should check the same thing.
 
 ### The ladder, and where it stopped
 
 Every row is the acceptance view, (22,24) zoom 0.5, both samples, against the
 16.7 ms frame budget.
 
+All rows carry the shadow-map fix above, so they are comparable to each other
+and to the AFTER table.
+
 | configuration | cpu p95 | gpu p95 | verdict |
 |---|---|---|---|
 | branch, no AO pass | 9.00 | 9.00 | — (one sample; the AO-free baseline) |
-| AO at full resolution | 16.20 / 16.40 | 16.00 / 16.20 | passes by 0.3–0.7 ms, and takes the other two views to **21.1–22.4** |
-| **AO at half resolution (shipped)** | **13.20 / 12.70** | **12.50 / 13.20** | **accepted** — 3.5 ms of margin, every view under 15 |
+| AO at full resolution | 15.40 | 15.40 | one sample; clears the stated gate, and takes the other two views to **20.3–21.7** |
+| **AO at half resolution (shipped)** | **12.20 / 12.30** | **12.60 / 12.50** | **accepted** — 4.1 ms of margin, every view under 13.2 |
 | `setAoPass(null)` | not reached | | |
 
-Full-resolution AO technically clears the stated gate at the stated view and
-was still rejected, for two reasons worth recording. It clears it by less
-than the difference between the two samples of any other row — a pass, not a
-margin — and the gate names one view while the pass has to survive all three:
-at zoom 2.5 and 1.6 the same build sits **4.4 to 5.7 ms over budget**. Half
-resolution costs 3.6–4.4 ms across the three views instead of 11–13, and
-what it gives up is sharpness in the occlusion TERM only, which a Poisson
-denoise has already blurred and which the blend lays over a
-full-resolution frame. Ladder step (b), shipping AO off, was never reached.
+Full-resolution AO clears the stated gate at the stated view and was still
+rejected, because the gate names one view while the pass has to survive all
+three: at zoom 2.5 and 1.6 the same build sits at 21.7 and 20.3 ms p95,
+**3.6 to 5.0 ms over budget**. Half resolution costs 2.8–3.7 ms of median
+across the three views instead of 6.5–12.3, and what it gives up is sharpness
+in the occlusion TERM only, which a Poisson denoise has already blurred and
+which the blend lays over a full-resolution frame. Ladder step (b), shipping
+AO off, was never reached.
+
+(The pre-shadow-fix readings, for the record: full resolution 16.20 / 16.40
+cpu p95 at this view and 21.1–22.4 at the other two; half resolution 13.20 /
+12.70. The decision was taken on those and is unchanged by the fix, which
+moves both arms of it by the same ~0.8 ms.)
 
 **Half resolution is not `createAoPass(scene, camera, w / 2, h / 2)`**, and
 that was measured before it was designed around: `EffectComposer.addPass`
@@ -621,6 +688,10 @@ switching it off was 1 ms and because the renderer keeps a composer-less path
 (`frame()` before `init()`, which the spikes and the nine `ThreeRenderer*`
 test fakes take) where that context flag is the only antialiasing there is.
 
+Both arms of that A/B were taken on the pre-shadow-fix build, so the rows
+read ~0.8 ms high against the AFTER table — the *difference* between them,
+which is the only thing the A/B is for, is unaffected.
+
 ### What this section does not measure
 
 - **One machine, one GPU, one OS.** Same gap the sections above name. No
@@ -630,9 +701,20 @@ test fakes take) where that context flag is the only antialiasing there is.
 - **`gpu` is a lower bound, not the frame time a player sees.** It excludes
   compositing and presentation, and `gl.finish()` drains a pipeline the
   browser would otherwise overlap with the next frame's CPU work.
+- **Nothing here attributes cost between submission and fill**, and the one
+  attempt to (the retracted "submission-bound" reading) was wrong. The
+  control above shows `cpu` and `gpu` both respond to a pure fill change, so
+  neither figure isolates either half. **A GPU timer query
+  (`EXT_disjoint_timer_query_webgl2`) is still owed** if anyone wants to say
+  where a pass's cost actually goes — which means the claim that GTAO's price
+  here is its second scene render rather than its fill is also unproven. What
+  *is* measured is that removing a whole shadow pass from it saved 0.7–0.9 ms
+  and quartering its fill saved ~4 ms, so both halves are real.
 - **The sandbox roster is not a mission roster.** `&sur&civ` on
   `beit_sahwan_outskirts` is a fixed, modest force; nothing here says what
   the GDD's 300-unit target costs with this renderer, and `three-units.ts`
   above remains the instrument for that question.
-- **`shadowMap.autoUpdate = false` was not tried**, deliberately: units move
-  every frame and their shadows have to follow.
+- **Frame-level `shadowMap.autoUpdate = false` was not tried**, deliberately:
+  units move every frame and their shadows have to follow. The fix recorded
+  above is the opposite scope — the flag is cleared and restored around
+  GTAO's own nested render only, and never spans a `RenderPass`.
