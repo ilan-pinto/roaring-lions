@@ -360,7 +360,7 @@
 import * as THREE from 'three';
 import type { ParticleSystem } from '../../vfx';
 import { WORLD_Y_PER_LIFT_PIXEL, isoX, isoY } from '../../project';
-import { screenOffsetToWorld, hexToUnit } from '../terrain/shared';
+import { screenOffsetToWorld, hexToLinear } from '../terrain/shared';
 import { groundWorldY, type ElevationSource } from '../ground-height';
 import { tracerAlpha, type TracerModel } from './tracers';
 import {
@@ -618,29 +618,34 @@ export interface ParticleInstanceBuffers {
 }
 
 /**
- * `hexToUnit(color)`, memoised. `forEachLive`'s own doc comment (`particles.ts`)
+ * `hexToLinear(color)`, memoised. `forEachLive`'s own doc comment (`particles.ts`)
  * says the flat-argument callback shape exists so a three.js caller
  * "inherits no GC-pressure regression `draw()` never had" -- `writeParticleInstances`
- * calling `hexToUnit` fresh per particle per frame would be exactly that
+ * calling `hexToLinear` fresh per particle per frame would be exactly that
  * regression reintroduced one call up: one destructured tuple plus (inside
- * `hexToUnit`) four `slice`/`parseInt` substring allocations, for EVERY live
- * particle, EVERY frame -- roughly 10k allocations a frame at
- * `PARTICLE_CAPACITY`. `color_over_life` and `tracerColors` both draw from a
- * tiny, effectively fixed palette (a handful of `data/vfx/*.json` hex
- * strings, two team tracer colours), so a module-level cache keyed on the hex
- * string itself is safe -- `hexToUnit` is pure, and every distinct colour
- * this module will ever see gets computed once and reused for the life of
- * the tab, not per `ParticleSystem`/`ThreeRenderer` instance. Callers only
- * ever READ the returned tuple (destructure into scalars, copy into a typed
- * array) -- never mutate it -- so sharing the same array reference across
- * every hit is safe.
+ * `hexToLinear`, which itself calls `hexToUnit`) four `slice`/`parseInt`
+ * substring allocations, for EVERY live particle, EVERY frame -- roughly 10k
+ * allocations a frame at `PARTICLE_CAPACITY`. `color_over_life` and
+ * `tracerColors` both draw from a tiny, effectively fixed palette (a handful
+ * of `data/vfx/*.json` hex strings, two team tracer colours), so a
+ * module-level cache keyed on the hex string itself is safe -- `hexToLinear`
+ * is pure, and every distinct colour this module will ever see gets computed
+ * once and reused for the life of the tab, not per
+ * `ParticleSystem`/`ThreeRenderer` instance. Callers only ever READ the
+ * returned tuple (destructure into scalars, copy into a typed array) --
+ * never mutate it -- so sharing the same array reference across every hit is
+ * safe. LINEAR, not sRGB-unit, for the same reason `vehicle-tracks.ts`'s own
+ * `createTrackMaterial` gives: every value this cache feeds lands in an
+ * instanced `aColor` attribute with no colour-space transform of its own, so
+ * it has to already be linear before the composer's `OutputPass` encodes the
+ * frame once on the way out.
  */
-const hexToUnitCache = new Map<string, readonly [number, number, number]>();
-function cachedHexToUnit(hex: string): readonly [number, number, number] {
-  let rgb = hexToUnitCache.get(hex);
+const hexToLinearCache = new Map<string, readonly [number, number, number]>();
+function cachedHexToLinear(hex: string): readonly [number, number, number] {
+  let rgb = hexToLinearCache.get(hex);
   if (!rgb) {
-    rgb = hexToUnit(hex);
-    hexToUnitCache.set(hex, rgb);
+    rgb = hexToLinear(hex);
+    hexToLinearCache.set(hex, rgb);
   }
   return rgb;
 }
@@ -677,7 +682,7 @@ export function writeParticleInstances(
   let count = 0;
   const visit = (x: number, y: number, color: string, alpha: number, radius: number, soft: boolean): void => {
     if (count >= capacity) return;
-    const [r, g, b] = cachedHexToUnit(color);
+    const [r, g, b] = cachedHexToLinear(color);
     const liftY = groundWorldY(elevation, mapWidth, mapHeight, x, y) + Math.max(PARTICLE_LIFT_PX, radius) * WORLD_Y_PER_LIFT_PIXEL;
     out.positions[count * 3] = x;
     out.positions[count * 3 + 1] = liftY;
@@ -804,7 +809,7 @@ export function writeTracerInstances(
     const t = tracers[i];
     const quad = tracerQuadPositions(t, elevation, mapWidth, mapHeight);
     const alpha = tracerAlpha(t);
-    const [r, g, b] = cachedHexToUnit(tracerColors[t.side] ?? tracerColors[0]);
+    const [r, g, b] = cachedHexToLinear(tracerColors[t.side] ?? tracerColors[0]);
     out.positions.set(quad, count * 12);
     for (let v = 0; v < 4; v++) {
       const ci = count * 12 + v * 3;
@@ -951,7 +956,7 @@ export function writeShellInstances(
     // GH-149: per KIND, not one constant -- a `bolt` is a thinner streak than
     // a mortar bomb. `SHELL_WIDTH_PX` remains the arcing kinds' own value.
     const widthPx = SHELL_PROFILES[s.kind].widthPx;
-    const [r, g, b] = cachedHexToUnit(tracerColors[s.side] ?? tracerColors[0]);
+    const [r, g, b] = cachedHexToLinear(tracerColors[s.side] ?? tracerColors[0]);
     for (let seg = 0; seg < SHELL_TRAIL_SEGMENTS; seg++) {
       const fA = seg / SHELL_TRAIL_SEGMENTS;
       const fB = (seg + 1) / SHELL_TRAIL_SEGMENTS;

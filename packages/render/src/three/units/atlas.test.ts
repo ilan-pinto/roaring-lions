@@ -7,6 +7,11 @@
  * specifically because it has no I/O of its own and its queueing behaviour
  * (fix round 2, the unthrottled-parallel-fetch bug B3.5 hit) is exactly the
  * kind of off-by-one that deserves a real test rather than a read-through.
+ * `configureUnitTexture` is the third pure-enough piece: it sets plain
+ * properties on an already-constructed texture, touching no GPU/DOM of its
+ * own, so it is exercised directly here too, against a bare
+ * `new THREE.DataArrayTexture()` rather than one `buildUnitTexture` actually
+ * decoded pixels into.
  *
  * Fixture: the real `INF_SQUAD` manifest, not a hand-rolled toy shape.
  * `INF_SQUAD`/`INF_RPG`/`INF_MILITIA`/`INF_DEMO`/`INF_AT` are the largest
@@ -18,8 +23,16 @@
  * the real asset rather than a transcription of it that could drift.
  */
 import { describe, it, expect } from 'vitest';
+import * as THREE from 'three';
 import { parseManifest, type ClipName, type SheetSpec } from '../../sheet';
-import { packSheet, MAX_ARRAY_LAYERS, FRAME_PX, Semaphore, type FrameRegion } from './atlas';
+import {
+  packSheet,
+  MAX_ARRAY_LAYERS,
+  FRAME_PX,
+  Semaphore,
+  configureUnitTexture,
+  type FrameRegion,
+} from './atlas';
 import infSquadManifest from '../../../../../assets/sprites/INF_SQUAD/manifest.json';
 
 const infSquad: SheetSpec = parseManifest(infSquadManifest);
@@ -236,5 +249,25 @@ describe('Semaphore', () => {
     // Not just "never exceeded" -- confirms it actually reaches the budget
     // rather than a stricter, accidentally-serialising bug passing the same assertion.
     expect(maxObserved).toBe(limit);
+  });
+});
+
+/**
+ * `configureUnitTexture` used to be inline code at the tail of
+ * `buildUnitTexture` with no seam of its own -- pulled out (this task) so the
+ * fixed, pixel-independent texture configuration is testable at all under
+ * `environment: 'node'`. `new THREE.DataArrayTexture()` needs no GPU or DOM
+ * (three.js's own JS-side object, per `DataArrayTexture.js`'s constructor),
+ * only `buildUnitTexture`'s own `fetch`/`document`/canvas calls do.
+ */
+describe('configureUnitTexture', () => {
+  it('tags the texture sRGB, so three uploads it as SRGB8_ALPHA8 and the GPU decodes it to linear on sample', () => {
+    const texture = new THREE.DataArrayTexture();
+    expect(configureUnitTexture(texture).colorSpace).toBe(THREE.SRGBColorSpace);
+  });
+
+  it('returns the same texture instance, configured in place, not a copy', () => {
+    const texture = new THREE.DataArrayTexture();
+    expect(configureUnitTexture(texture)).toBe(texture);
   });
 });

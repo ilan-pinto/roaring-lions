@@ -648,10 +648,14 @@ export { HULL_RENDER_ORDER, TURRET_RENDER_ORDER };
 /**
  * The unit material: samples one layer of a `DataArrayTexture` per instance,
  * blends (see this file's top comment for the alpha decision), and applies
- * no colour-space transform -- `applyPalettePipeline`'s pass-through
- * `outputColorSpace` and `buildUnitTexture`'s untagged (`NoColorSpace`)
- * texture mean the sampled bytes must reach `gl_FragColor` unmodified, the
- * same contract `terrainMaterial`'s vertex colours honour.
+ * no colour-space transform of its own: `buildUnitTexture`'s own
+ * `configureUnitTexture` (`atlas.ts`) tags the texture `SRGBColorSpace`, so
+ * the GPU decodes each sampled texel to linear before this shader's
+ * `texture2D` call ever reads it, and `gl_FragColor` passes that value
+ * straight through. The composer's `OutputPass` re-encodes the whole frame
+ * back to sRGB exactly once, on the way out -- see `atlas.ts`'s own
+ * `configureUnitTexture` doc comment for the double-encode an untagged
+ * texture used to cause.
  *
  * A custom `ShaderMaterial` rather than `MeshBasicMaterial`: three.js's
  * built-in materials have no `sampler2DArray` path at all, and per-instance

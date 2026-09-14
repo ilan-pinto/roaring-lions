@@ -28,7 +28,7 @@ import {
   ROUTE_LINE_ALPHA,
   ROUTE_NODE_RADIUS_PX,
   ROUTE_NODE_ALPHA,
-  cachedHexToUnit,
+  cachedHexToLinear,
   HP_BG_COLOR_KEY,
   SUPPRESSION_COLOR_KEY,
   OVERLAY_ACCENT_COLOR_KEY,
@@ -119,15 +119,15 @@ describe('ORDER_MARKER_TTL', () => {
   });
 });
 
-describe('cachedHexToUnit', () => {
-  it('converts #RRGGBB to an RGB triple in 0..1', () => {
-    expect(cachedHexToUnit('#FF0000')).toEqual([1, 0, 0]);
-    expect(cachedHexToUnit('#00FF00')).toEqual([0, 1, 0]);
+describe('cachedHexToLinear', () => {
+  it('converts #RRGGBB to a LINEAR RGB triple in 0..1 -- 0x00 and 0xFF are fixed points of the sRGB transfer function, so the pure-red/pure-green corners land the same as hexToUnit would', () => {
+    expect(cachedHexToLinear('#FF0000')).toEqual([1, 0, 0]);
+    expect(cachedHexToLinear('#00FF00')).toEqual([0, 1, 0]);
   });
 
   it('returns the identical cached array reference on a repeat call for the same hex', () => {
-    const a = cachedHexToUnit('#B8FF5A');
-    const b = cachedHexToUnit('#B8FF5A');
+    const a = cachedHexToLinear('#B8FF5A');
+    const b = cachedHexToLinear('#B8FF5A');
     expect(a).toBe(b);
   });
 });

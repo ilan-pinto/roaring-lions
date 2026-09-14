@@ -68,7 +68,7 @@
  * does not resolve the scaling debt.
  */
 import * as THREE from 'three';
-import { pushPolygon, hexToUnit, MARK_EPSILON } from './terrain/shared';
+import { pushPolygon, hexToLinear, MARK_EPSILON } from './terrain/shared';
 import { tileGroundWorldY, type ElevationSource } from './ground-height';
 import { trailTileAlpha } from '../trail';
 import { TRAIL_RENDER_ORDER } from './units/render-order';
@@ -268,9 +268,15 @@ export function writeTrailInstances(input: TrailInstanceInput, out: TrailInstanc
  * this file's own top comment argues for: `depthTest: true` (real ground
  * geometry, occluded correctly by terrain/buildings/units) and a colour
  * baked from the caller's own `spoilColor` rather than a hardcoded literal.
+ * `uColor` is LINEAR (`hexToLinear`, not `hexToUnit`), the same reason
+ * `vehicle-tracks.ts`'s own `createTrackMaterial` gives: this is a live
+ * shader uniform read by a `ShaderMaterial` with no colour-space transform
+ * of its own, and the composer's `OutputPass` encodes the whole frame to
+ * sRGB once at the end -- an un-linearised sRGB hex here would get encoded a
+ * second time and land brighter than the palette entry authored.
  */
 function createTrailMaterial(spoilColor: string): THREE.ShaderMaterial {
-  const [r, g, b] = hexToUnit(spoilColor);
+  const [r, g, b] = hexToLinear(spoilColor);
   return new THREE.ShaderMaterial({
     uniforms: {
       uColor: { value: new THREE.Vector3(r, g, b) },

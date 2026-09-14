@@ -230,7 +230,7 @@
  * operative number on all of them).
  */
 import * as THREE from 'three';
-import { pushPolygon, hexToUnit } from './terrain/shared';
+import { pushPolygon, hexToLinear } from './terrain/shared';
 import { tileGroundWorldY, type ElevationSource } from './ground-height';
 import { SOFT_PARTICLE_CORE } from './units/fx';
 import { SMOKE_RENDER_ORDER } from './units/render-order';
@@ -730,9 +730,15 @@ const Y_AXIS = new THREE.Vector3(0, 1, 0);
  * does not. `depthTest`/`depthWrite: false` for the same "unconditional
  * overlay" reason `FogMesh`'s own material needs it -- a puff lying flat on
  * the ground would otherwise lose the depth test to a unit standing in it.
+ * `uColor` itself is LINEAR (`hexToLinear`, not `hexToUnit`) for the same
+ * reason `trail-mesh.ts`'s own `createTrailMaterial` gives: a bare
+ * `ShaderMaterial` uniform applies no colour-space transform of its own, and
+ * the composer's `OutputPass` encodes the whole frame to sRGB once at the
+ * end -- an un-linearised sRGB hex here would get encoded a second time and
+ * land brighter than the authored smoke tone.
  */
 function createSmokeMaterial(): THREE.ShaderMaterial {
-  const [r, g, b] = hexToUnit(SMOKE_COLOR);
+  const [r, g, b] = hexToLinear(SMOKE_COLOR);
   return new THREE.ShaderMaterial({
     uniforms: {
       uColor: { value: new THREE.Vector3(r, g, b) },

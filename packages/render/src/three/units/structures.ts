@@ -597,12 +597,16 @@ const ALPHA_PADDING_DISCARD = 0.02;
  * `DataArrayTexture` -- there is no per-instance frame/layer to select, a
  * structure sheet has exactly one frame per instancer), blends per-instance
  * alpha the same way `units/instances.ts`'s own material does, and applies
- * no colour-space transform for the same reason units do not: a plain
- * `new THREE.Texture(...)` (this file's own `loadStructureFrame`, not
- * `THREE.TextureLoader`) defaults `colorSpace` to `NoColorSpace`
- * (`three/src/textures/Texture.js`, verified against the installed 0.170
- * source), so the sampled bytes already reach `gl_FragColor` unmodified with
- * no extra code needed here.
+ * no colour-space transform of its own -- the same shape `createUnitMaterial`
+ * uses, for the same reason: `configureStructureTexture` (below) now tags
+ * `loadStructureFrame`'s `new THREE.Texture(bitmap)` `SRGBColorSpace` (it was
+ * left untagged before -- a fresh `THREE.Texture`'s own three.js default,
+ * `three/src/textures/Texture.js`, verified against the installed 0.170
+ * source), so three uploads it as `SRGB8_ALPHA8` and the GPU decodes each
+ * texel to linear on the `texture2D` call below, with nothing further to do
+ * here. `gl_FragColor` passes that linear value straight through, and the
+ * composer's
+ * `OutputPass` re-encodes the whole frame to sRGB once, on the way out.
  *
  * ## Ground-clip fix -- measured here, not merely inherited by reading
  *
@@ -792,6 +796,44 @@ export interface LoadedStructureFrame {
 }
 
 /**
+ * Every fixed `Texture` setting that does not depend on the decoded bitmap
+ * itself -- split out from `loadStructureFrame` so this part is testable
+ * under `environment: 'node'`, the same "construct is free, use is not"
+ * split `atlas.ts`'s own `configureUnitTexture` draws for the identical
+ * reason (see that function's own doc comment): constructing a texture and
+ * setting plain properties on it touches no GPU and no DOM, only
+ * `fetch`/`createImageBitmap` do. `structures.test.ts` calls this directly
+ * against a bare `new THREE.Texture()`; `loadStructureFrame` below is the
+ * only caller that ever hands it a texture actually backed by a decoded
+ * bitmap.
+ */
+export function configureStructureTexture(texture: THREE.Texture): THREE.Texture {
+  // `flipY` is set to `false` explicitly, NOT left at a plain `THREE.Texture`'s
+  // own default (`true`) -- see `structureBillboardGeometry`'s own uv comment
+  // for the browser-measured reason: an `ImageBitmap` source combined with the
+  // default `flipY = true` rendered every structure upside down in practice,
+  // discovered by isolating the mesh in the live scene, not by reading the
+  // shader. Forcing `false` here matches `atlas.ts`'s `DataArrayTexture`
+  // convention exactly, which this module's uvs are written against.
+  texture.flipY = false;
+  // Structure sheets are sRGB PNGs too -- `createStructureMaterial`'s own doc
+  // comment has the full mechanism (SRGB8_ALPHA8 upload, hardware decode on
+  // sample, one sRGB re-encode in the composer's `OutputPass`). Tagging it
+  // here is the same fix `atlas.ts`'s own `configureUnitTexture` makes for
+  // the unit atlas, and for the identical reason: left untagged, a raw sRGB
+  // texel would reach the framebuffer as though it were already linear and
+  // get encoded a second time on the way out.
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+/**
  * Fetch and decode one structure frame -- `spec.file` (idle) or
  * `spec.wreckFile` (wreck), each its own independent call, matching Pixi's
  * own `Assets.load` per file (`renderer.ts:656,658`). No `fetchSlots`
@@ -799,15 +841,8 @@ export interface LoadedStructureFrame {
  * is one or two files, never the 272-file burst per unit type that throttle
  * exists to prevent, and `main.ts` already loads at most seven structure
  * types in parallel (`STRUCTURE_SPRITES`), a fraction of the unit roster's
- * own concurrency.
- *
- * `flipY` is set to `false` explicitly, NOT left at a plain `THREE.Texture`'s
- * own default (`true`) -- see `structureBillboardGeometry`'s own uv comment
- * for the browser-measured reason: an `ImageBitmap` source combined with the
- * default `flipY = true` rendered every structure upside down in practice,
- * discovered by isolating the mesh in the live scene, not by reading the
- * shader. Forcing `false` here matches `atlas.ts`'s `DataArrayTexture`
- * convention exactly, which this module's uvs are written against.
+ * own concurrency. `configureStructureTexture` (above) owns every fixed
+ * property the decoded bitmap's texture gets.
  */
 export async function loadStructureFrame(basePath: string, file: string): Promise<LoadedStructureFrame> {
   const url = `${basePath}${file}`;
@@ -815,13 +850,6 @@ export async function loadStructureFrame(basePath: string, file: string): Promis
   if (!res.ok) throw new Error(`structure sprite: ${res.status} fetching ${url}`);
   const blob = await res.blob();
   const bitmap = await createImageBitmap(blob);
-  const texture = new THREE.Texture(bitmap);
-  texture.flipY = false;
-  texture.generateMipmaps = false;
-  texture.minFilter = THREE.LinearFilter;
-  texture.magFilter = THREE.LinearFilter;
-  texture.wrapS = THREE.ClampToEdgeWrapping;
-  texture.wrapT = THREE.ClampToEdgeWrapping;
-  texture.needsUpdate = true;
+  const texture = configureStructureTexture(new THREE.Texture(bitmap));
   return { texture, width: bitmap.width, height: bitmap.height };
 }

@@ -60,7 +60,7 @@
  * never does that), not a faithful port of it.
  */
 import * as THREE from 'three';
-import { hexToUnit } from '../terrain/shared';
+import { hexToLinear } from '../terrain/shared';
 import {
   createTriangleSoup,
   resetSoup,
@@ -348,18 +348,24 @@ export function tileRadiusToEllipsePx(tiles: number, tileWPx: number, tileHPx: n
   return { rightR: tiles * tileWPx * ISO_K, upR: tiles * tileHPx * ISO_K };
 }
 
-/** RGB triple in 0..1, memoised -- the last step before a resolved palette
- *  hex becomes vertex colour, mirroring `fx.ts`'s own `cachedHexToUnit`
- *  (private there; this module needs its own for the identical reason:
- *  `writeParticleInstances`/`OverlayBatch` both convert a tiny, effectively
- *  fixed set of hex strings every frame, and a fresh `hexToUnit` parse per
- *  overlay per entity per frame would be the allocation churn that
- *  function's own doc comment already argues against). */
+/** RGB triple, LINEAR, in 0..1, memoised -- the last step before a resolved
+ *  palette hex becomes vertex colour, mirroring `fx.ts`'s own
+ *  `cachedHexToLinear` (private there; this module needs its own for the
+ *  identical reason: `writeParticleInstances`/`OverlayBatch` both convert a
+ *  tiny, effectively fixed set of hex strings every frame, and a fresh
+ *  `hexToLinear` parse per overlay per entity per frame would be the
+ *  allocation churn that function's own doc comment already argues
+ *  against). `OverlayBatch`'s `aColor` attribute reaches `gl_FragColor` with
+ *  no shader-side colour-space transform of its own
+ *  (`createOverlayMaterial`'s fragment shader below), so the value cached
+ *  here must already be linear -- the composer's `OutputPass` is the only
+ *  sRGB encode this colour gets (`terrain/shared.ts`'s own `srgbToLinear`
+ *  doc comment, "spec §1"). */
 const colorCache = new Map<string, OverlayColor>();
-export function cachedHexToUnit(hex: string): OverlayColor {
+export function cachedHexToLinear(hex: string): OverlayColor {
   let rgb = colorCache.get(hex);
   if (!rgb) {
-    rgb = hexToUnit(hex);
+    rgb = hexToLinear(hex);
     colorCache.set(hex, rgb);
   }
   return rgb;
@@ -456,7 +462,7 @@ export class OverlayBatch {
     colorHex: string,
     alpha: number
   ): void {
-    pushRectPx(this.soup, anchor, x0, y0, x1, y1, cachedHexToUnit(colorHex), alpha);
+    pushRectPx(this.soup, anchor, x0, y0, x1, y1, cachedHexToLinear(colorHex), alpha);
   }
 
   rectStroke(
@@ -469,7 +475,7 @@ export class OverlayBatch {
     colorHex: string,
     alpha: number
   ): void {
-    pushRectStrokePx(this.soup, anchor, x0, y0, x1, y1, strokeWidthPx, cachedHexToUnit(colorHex), alpha);
+    pushRectStrokePx(this.soup, anchor, x0, y0, x1, y1, strokeWidthPx, cachedHexToLinear(colorHex), alpha);
   }
 
   /** A stroked straight line segment -- see `pushLinePx`'s own doc comment
@@ -485,7 +491,7 @@ export class OverlayBatch {
     colorHex: string,
     alpha: number
   ): void {
-    pushLinePx(this.soup, anchor, x0, y0, x1, y1, widthPx, cachedHexToUnit(colorHex), alpha);
+    pushLinePx(this.soup, anchor, x0, y0, x1, y1, widthPx, cachedHexToLinear(colorHex), alpha);
   }
 
   triangle(
@@ -494,7 +500,7 @@ export class OverlayBatch {
     colorHex: string,
     alpha: number
   ): void {
-    pushTrianglePx(this.soup, anchor, points, cachedHexToUnit(colorHex), alpha);
+    pushTrianglePx(this.soup, anchor, points, cachedHexToLinear(colorHex), alpha);
   }
 
   ellipseFan(
@@ -505,7 +511,7 @@ export class OverlayBatch {
     alpha: number,
     segments: number = OVERLAY_RING_SEGMENTS
   ): void {
-    pushEllipseFanPx(this.soup, anchor, rightR, upR, cachedHexToUnit(colorHex), alpha, segments);
+    pushEllipseFanPx(this.soup, anchor, rightR, upR, cachedHexToLinear(colorHex), alpha, segments);
   }
 
   ellipseRing(
@@ -517,27 +523,27 @@ export class OverlayBatch {
     alpha: number,
     segments: number = OVERLAY_RING_SEGMENTS
   ): void {
-    pushEllipseRingPx(this.soup, anchor, rightR, upR, strokeWidthPx, cachedHexToUnit(colorHex), alpha, segments);
+    pushEllipseRingPx(this.soup, anchor, rightR, upR, strokeWidthPx, cachedHexToLinear(colorHex), alpha, segments);
   }
 
   /** The objective zone's fill -- see `overlay-geometry.ts`'s own top
    *  comment for why this is the one overlay drawn from literal world
    *  points rather than a single billboard anchor. */
   polygonFillWorld(points: readonly WorldPoint[], colorHex: string, alpha: number): void {
-    pushPolygonFillWorld(this.soup, points, cachedHexToUnit(colorHex), alpha);
+    pushPolygonFillWorld(this.soup, points, cachedHexToLinear(colorHex), alpha);
   }
 
   /** The objective zone's outline -- see `pushPolygonStrokeWorld`'s own doc
    *  comment for what `insetTiles` means and why it is not a literal
    *  screen-pixel width. */
   polygonStrokeWorld(points: readonly WorldPoint[], insetTiles: number, colorHex: string, alpha: number): void {
-    pushPolygonStrokeWorld(this.soup, points, insetTiles, cachedHexToUnit(colorHex), alpha);
+    pushPolygonStrokeWorld(this.soup, points, insetTiles, cachedHexToLinear(colorHex), alpha);
   }
 
   /** The engagement-reticle duel line -- see `pushLineWorld`'s own doc
    *  comment for why two independent world points, not one shared anchor. */
   lineWorld(p0: WorldPoint, p1: WorldPoint, widthPx: number, colorHex: string, alpha: number): void {
-    pushLineWorld(this.soup, p0, p1, widthPx, cachedHexToUnit(colorHex), alpha);
+    pushLineWorld(this.soup, p0, p1, widthPx, cachedHexToLinear(colorHex), alpha);
   }
 
   /** Uploads this frame's triangles and trims the draw range to what was

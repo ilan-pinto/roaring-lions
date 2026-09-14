@@ -26,6 +26,7 @@ import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
 import type { TracerModel } from './units/tracers';
 import { SHELL_PROFILES, type ShellModel } from './units/shells';
+import { hexToLinear } from './terrain/shared';
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>();
@@ -348,12 +349,20 @@ describe('direct fire draws a travelling round', () => {
 
     // makeOpts: shellColors[0] = '#FFB43C' (vfx.fire), tracerColors[0] =
     // '#F2E8D5'. The bomb must be the FORMER -- it was drawn from
-    // tracerColors before GH-149, which is the bug being fixed.
-    expect(bombRgb[0]).toBeCloseTo(1, 3);
-    expect(bombRgb[1]).toBeCloseTo(0xb4 / 255, 3);
-    expect(bombRgb[2]).toBeCloseTo(0x3c / 255, 3);
-    expect(boltRgb[1]).toBeCloseTo(0xe8 / 255, 3);
-    expect(boltRgb[2]).toBeCloseTo(0xd5 / 255, 3);
+    // tracerColors before GH-149, which is the bug being fixed. Both
+    // expectations are LINEAR (`hexToLinear`, not the raw sRGB hex bytes)
+    // since Task 12: `aColor` is an instanced attribute with no
+    // colour-space transform of its own, so `cachedHexToLinear`
+    // (`units/fx.ts`) is what actually lands in this buffer, and the
+    // composer's `OutputPass` encodes the frame to sRGB once, on the way
+    // out.
+    const [fireR, fireG, fireB] = hexToLinear('#FFB43C');
+    const [, tracerG, tracerB] = hexToLinear('#F2E8D5');
+    expect(bombRgb[0]).toBeCloseTo(fireR, 3);
+    expect(bombRgb[1]).toBeCloseTo(fireG, 3);
+    expect(bombRgb[2]).toBeCloseTo(fireB, 3);
+    expect(boltRgb[1]).toBeCloseTo(tracerG, 3);
+    expect(boltRgb[2]).toBeCloseTo(tracerB, 3);
     mortarRenderer.dispose();
     tankRenderer.dispose();
   });

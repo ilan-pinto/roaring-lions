@@ -15,7 +15,7 @@ import * as THREE from 'three';
 import { ParticleSystem } from '../../vfx';
 import type { ParticleSpec } from '../../vfx';
 import { isoX, isoY, WORLD_Y_PER_LIFT_PIXEL } from '../../project';
-import { hexToUnit, screenOffsetToWorld, WORLD_PER_LEVEL } from '../terrain/shared';
+import { hexToLinear, screenOffsetToWorld, WORLD_PER_LEVEL } from '../terrain/shared';
 import { groundWorldY } from '../ground-height';
 import type { SheetSpec } from '../../sheet';
 import { packSheet } from './atlas';
@@ -156,7 +156,7 @@ describe('writeParticleInstances', () => {
     // clipping into it.
     expect(out.positions[1]).toBeCloseTo(8 * WORLD_Y_PER_LIFT_PIXEL, 5);
     expect(out.positions[2]).toBe(20);
-    const [r, g, b] = hexToUnit('#00FF80');
+    const [r, g, b] = hexToLinear('#00FF80');
     expect(out.colors[0]).toBeCloseTo(r, 6);
     expect(out.colors[1]).toBeCloseTo(g, 6);
     expect(out.colors[2]).toBeCloseTo(b, 6);
@@ -337,13 +337,13 @@ describe('writeTracerInstances', () => {
     const out = tBuffers(4);
     const count = writeTracerInstances(tracers, ['#FF0000', '#00FF00'], null, 0, 0, out);
     expect(count).toBe(2);
-    const [r0, g0, b0] = hexToUnit('#FF0000');
+    const [r0, g0, b0] = hexToLinear('#FF0000');
     for (let v = 0; v < 4; v++) {
       expect(out.colors[v * 3]).toBeCloseTo(r0, 6);
       expect(out.colors[v * 3 + 1]).toBeCloseTo(g0, 6);
       expect(out.colors[v * 3 + 2]).toBeCloseTo(b0, 6);
     }
-    const [r1, g1, b1] = hexToUnit('#00FF00');
+    const [r1, g1, b1] = hexToLinear('#00FF00');
     for (let v = 0; v < 4; v++) {
       const base = 12 + v * 3; // second tracer's vertex block
       expect(out.colors[base]).toBeCloseTo(r1, 6);
@@ -758,11 +758,11 @@ describe('writeShellInstances', () => {
     const out = sBuffers(SHELL_TRAIL_SEGMENTS * 2);
     const count = writeShellInstances(shells, ['#FF0000', '#00FF00'], null, 0, 0, out);
     expect(count).toBe(SHELL_TRAIL_SEGMENTS * 2);
-    const [r0, g0, b0] = hexToUnit('#FF0000');
+    const [r0, g0, b0] = hexToLinear('#FF0000');
     expect(out.colors[0]).toBeCloseTo(r0, 6);
     expect(out.colors[1]).toBeCloseTo(g0, 6);
     expect(out.colors[2]).toBeCloseTo(b0, 6);
-    const [r1] = hexToUnit('#00FF00');
+    const [r1] = hexToLinear('#00FF00');
     // Second shell's first quad starts after the first shell's own segments.
     expect(out.colors[SHELL_TRAIL_SEGMENTS * 12]).toBeCloseTo(r1, 6);
   });

@@ -495,6 +495,21 @@ export async function buildUnitTexture(
   }
 
   const texture = new THREE.DataArrayTexture(data, frameSize, frameSize, layers);
+  return configureUnitTexture(texture);
+}
+
+/**
+ * Every fixed `DataArrayTexture` setting that does not depend on the decoded
+ * pixels themselves -- split out from `buildUnitTexture` so this part is
+ * testable under `environment: 'node'`: constructing a texture and setting
+ * plain properties on it touches no GPU and no DOM, only `fetch`/`document`
+ * (`decodeFrame`, the 2D canvas above) do. The same "construct is free, use
+ * is not" split `world-materials.ts`'s own `prepareTexturedMap` relies on for
+ * its own headless test. `atlas.test.ts` calls this directly against a bare
+ * `new THREE.DataArrayTexture()`; `buildUnitTexture` above is the only
+ * caller that ever hands it a texture actually backed by decoded pixels.
+ */
+export function configureUnitTexture(texture: THREE.DataArrayTexture): THREE.DataArrayTexture {
   // Set explicitly rather than left at `DataArrayTexture`'s own default
   // (`false`, verified against 0.170's source -- see `unitBillboardGeometry`'s
   // own uv comment in `instances.ts`, which this texture's row-0-at-v-0
@@ -508,15 +523,17 @@ export async function buildUnitTexture(
   // Structures now set this explicitly for the same reason
   // (`loadStructureFrame`'s own comment); this closes the same gap here.
   texture.flipY = false;
-  // No colour-space tag: `palette-material.ts`'s `applyPalettePipeline` sets
-  // `renderer.outputColorSpace` to a pass-through (`LinearSRGBColorSpace`),
-  // deliberately, so vertex colours reach the framebuffer byte-identical to
-  // `data/palette.json`. Tagging this texture `SRGBColorSpace` would make
-  // three.js decode it in the shader with nothing downstream to re-encode --
-  // the exact double-transform Phase 0 measured at zero-of-65 palette
-  // colours for the terrain path. Leaving `colorSpace` at its `NoColorSpace`
-  // default keeps sampled sprite bytes passing through unchanged, matching
-  // how Pixi displays the same PNGs today.
+  // The sheets are sRGB PNGs -- the same bytes Pixi displays today. Tagging
+  // `SRGBColorSpace` makes three upload this texture as `SRGB8_ALPHA8`, so
+  // `instances.ts`'s own `texture2D` call reads back a LINEAR texel with no
+  // shader-side decode of its own, and the composer's `OutputPass`
+  // (`renderer.outputColorSpace = SRGBColorSpace`, `ThreeRenderer.ts`)
+  // encodes the whole frame back to sRGB exactly once, on the way out. Left
+  // untagged (a fresh texture's own three.js default), a raw sRGB texel
+  // would reach the framebuffer as though it were already linear and get
+  // encoded a SECOND time by the output pass -- the washed-out billboards
+  // this fixes, not a subtler shade shift.
+  texture.colorSpace = THREE.SRGBColorSpace;
   texture.generateMipmaps = false;
   texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;

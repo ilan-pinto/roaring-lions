@@ -15,7 +15,7 @@
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import { groundWorldY } from './ground-height';
-import { hexToUnit, MARK_EPSILON } from './terrain/shared';
+import { hexToLinear, MARK_EPSILON } from './terrain/shared';
 import { trailTileAlpha } from '../trail';
 import { HULL_RENDER_ORDER, TURRET_RENDER_ORDER, TRAIL_RENDER_ORDER } from './units/render-order';
 import {
@@ -347,23 +347,23 @@ describe('TrailMesh construction', () => {
     expect(m.depthWrite).toBe(false);
   });
 
-  // Break: hardcode `hexToUnit('#FFFFFF')` in createTrailMaterial instead of
+  // Break: hardcode `hexToLinear('#FFFFFF')` in createTrailMaterial instead of
   // the caller's own `spoilColor` parameter. Verified by hand: this test's
   // uColor assertions fail while a hardcoded-literal test would not have
   // caught it -- palette exactness for a value that varies PER MAP is the
   // property this guards, not merely "some colour is set".
-  it('the uColor uniform holds exactly hexToUnit(spoilColor) for the colour this instance was constructed with', () => {
+  it('the uColor uniform holds exactly hexToLinear(spoilColor) for the colour this instance was constructed with', () => {
     const mesh = new TrailMesh(W, H, SPOIL);
     const material = mesh.mesh.material as THREE.ShaderMaterial;
     const uColor = material.uniforms.uColor.value as THREE.Vector3;
-    const [r, g, b] = hexToUnit(SPOIL);
+    const [r, g, b] = hexToLinear(SPOIL);
     expect(uColor.x).toBeCloseTo(r, 6);
     expect(uColor.y).toBeCloseTo(g, 6);
     expect(uColor.z).toBeCloseTo(b, 6);
 
     const other = new TrailMesh(W, H, '#123456');
     const otherUColor = (other.mesh.material as THREE.ShaderMaterial).uniforms.uColor.value as THREE.Vector3;
-    const [or, og, ob] = hexToUnit('#123456');
+    const [or, og, ob] = hexToLinear('#123456');
     expect(otherUColor.x).toBeCloseTo(or, 6);
     expect(otherUColor.y).toBeCloseTo(og, 6);
     expect(otherUColor.z).toBeCloseTo(ob, 6);

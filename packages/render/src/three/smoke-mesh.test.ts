@@ -23,7 +23,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as THREE from 'three';
 import { groundWorldY } from './ground-height';
-import { hexToUnit } from './terrain/shared';
+import { hexToLinear } from './terrain/shared';
 import { SOFT_PARTICLE_CORE } from './units/fx';
 import { SMOKE_RENDER_ORDER, OVERLAY_RENDER_ORDER } from './units/render-order';
 import {
@@ -321,11 +321,11 @@ describe('SmokeMesh construction', () => {
     expect(m.depthWrite).toBe(false);
   });
 
-  it('the uColor uniform holds exactly hexToUnit(SMOKE_COLOR), component-wise -- the value the shader actually reads', () => {
+  it('the uColor uniform holds exactly hexToLinear(SMOKE_COLOR), component-wise -- the value the shader actually reads', () => {
     const mesh = new SmokeMesh(W, H);
     const material = mesh.mesh.material as THREE.ShaderMaterial;
     const uColor = material.uniforms.uColor.value as THREE.Vector3;
-    const [r, g, b] = hexToUnit(SMOKE_COLOR);
+    const [r, g, b] = hexToLinear(SMOKE_COLOR);
     expect(uColor.x).toBeCloseTo(r, 6);
     expect(uColor.y).toBeCloseTo(g, 6);
     expect(uColor.z).toBeCloseTo(b, 6);

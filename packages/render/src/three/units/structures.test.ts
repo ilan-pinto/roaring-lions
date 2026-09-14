@@ -5,7 +5,11 @@
  * exercise their own pure halves. `StructureInstancer`/`loadStructureFrame`
  * need a real `WebGLRenderer`/`fetch`/`createImageBitmap` and stay untested,
  * the same reason `UnitInstancer`/`buildUnitTexture` do -- covered instead by
- * the browser verification in this task's report.
+ * the browser verification in this task's report. `configureStructureTexture`
+ * is the exception: it sets plain properties on an already-constructed
+ * texture, no GPU or DOM of its own, so it is exercised directly here against
+ * a bare `new THREE.Texture()` (this file's own `StructureInstancer` tests,
+ * below, already construct one the identical way).
  *
  * One of this task's own required "break checks" lives here, named as such
  * in its `it` title: drawing the sprite off the footprint's centre. The
@@ -44,6 +48,7 @@ import {
   writeStructureInstances,
   footprintCentre,
   StructureInstancer,
+  configureStructureTexture,
   type StructureInstanceBuffers,
 } from './structures';
 import { STRUCTURE_RENDER_ORDER, HULL_RENDER_ORDER } from './render-order';
@@ -629,4 +634,25 @@ describe('STRUCTURE_RENDER_ORDER', () => {
   // ground is dimmed with that ground whatever band it draws in. The test is
   // deleted rather than rewritten because there is no surviving relation for
   // it to assert -- the property it guarded is now structural.
+});
+
+/**
+ * `configureStructureTexture` used to be inline code at the tail of
+ * `loadStructureFrame` with no seam of its own -- pulled out (this task) so
+ * the fixed, bitmap-independent texture configuration is testable at all
+ * under `environment: 'node'`. `new THREE.Texture()` needs no GPU or DOM
+ * (three.js's own JS-side object -- the ground-clip suite above already
+ * constructs one the identical way), only `loadStructureFrame`'s own
+ * `fetch`/`createImageBitmap` calls do.
+ */
+describe('configureStructureTexture', () => {
+  it('tags the texture sRGB, so three uploads it as SRGB8_ALPHA8 and the GPU decodes it to linear on sample', () => {
+    const texture = new THREE.Texture();
+    expect(configureStructureTexture(texture).colorSpace).toBe(THREE.SRGBColorSpace);
+  });
+
+  it('returns the same texture instance, configured in place, not a copy', () => {
+    const texture = new THREE.Texture();
+    expect(configureStructureTexture(texture)).toBe(texture);
+  });
 });
