@@ -1677,6 +1677,25 @@ export class ThreeRenderer implements Renderer {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
     this.renderer.setClearColor(new THREE.Color(this.opts.background));
+    // AND `scene.background`, which is the one that actually decides the
+    // colour the composer's target is cleared to -- measured, not belt and
+    // braces. `setClearColor` hands the triple to `state.buffers.color`
+    // through `getUnlitUniformColorSpace`, which returns
+    // `renderer.outputColorSpace` (sRGB) whenever NO render target is bound
+    // and the working space (linear) when one is. Every frame ends with
+    // `SMAAPass` drawing its quad to the screen -- a `renderer.render` with
+    // a null target -- so the GL clear colour is left holding the
+    // sRGB-ENCODED triple, and the next frame's `RenderPass.render` clears
+    // the linear HalfFloat target with it before anything rebinds. The hex
+    // then reaches `OutputPass` as if it were already linear: `shadow.1`
+    // (#14150F) photographed as #484B3B off the map edge, 9.3x its authored
+    // luminance, where `main`'s pass-through pipeline drew it exactly.
+    // A `Scene.background` Color is read inside `WebGLBackground.render`,
+    // which runs with the target bound -- so it converts to linear -- and
+    // sets `forceClear`, so the clear happens even though `RenderPass` has
+    // turned `autoClear` off. Measured after: #050502, the authored tone
+    // through ACES's low-end compression, 15/255 from `main` instead of 52.
+    this.scene.background = new THREE.Color(this.opts.background);
     // Added unconditionally, not lazily on first useEmitters/spawn -- all
     // three meshes start at count/drawRange 0 (nothing live yet) and simply
     // stay that way until there is something to draw, the same "always

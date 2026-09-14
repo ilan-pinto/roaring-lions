@@ -685,30 +685,46 @@ describe('BASELINES layerChecks', () => {
     // arithmetic behind "a third of the signal" is checkable without a browser,
     // and so a floor edited upward past its own measurement is caught in
     // `pnpm test` rather than by a red gate nobody can explain.
+    //
+    // RE-MEASURED 2026-09-14 on the lit renderer (one sun, shadows, half-res
+    // GTAO, sRGB/ACES output, SMAA, texture fog). Every number moved; the
+    // pre-lit reading is quoted in each `rationale` in `baseline.ts` so the
+    // direction of each move is on the record.
     const MEASURED: Record<string, Record<string, { px: number; mean: number }>> = {
       quiet: {
-        scatter: { px: 1730, mean: 0.1318 },
-        decor: { px: 14180, mean: 1.2038 },
-        'ground-albedo': { px: 2266, mean: 0.8628 },
-        buildings: { px: 28026, mean: 1.458 },
+        scatter: { px: 2151, mean: 0.4168 },
+        decor: { px: 10424, mean: 0.6869 },
+        'ground-albedo': { px: 29, mean: 1.0883 },
+        buildings: { px: 122262, mean: 7.4369 },
       },
       'open-ground': {
-        scatter: { px: 4610, mean: 1.6858 },
-        decor: { px: 915, mean: 0.4583 },
-        'ground-albedo': { px: 511, mean: 5.5363 },
+        scatter: { px: 3615, mean: 1.6071 },
+        decor: { px: 958, mean: 0.5393 },
+        'ground-albedo': { px: 472, mean: 2.6658 },
       },
       relief: {
-        scatter: { px: 7146, mean: 0.4093 },
-        decor: { px: 38513, mean: 2.7695 },
-        'ground-albedo': { px: 1015, mean: 3.0769 },
+        scatter: { px: 4300, mean: 0.4535 },
+        decor: { px: 45442, mean: 3.8029 },
+        'ground-albedo': { px: 4, mean: 1.9069 },
       },
-      // The LOW end of the measured range (23147-23152 px / 2.0232-2.0247 over
-      // 3 runs), so "floor is a third of the signal" is checked against the
+      // The LOW end of the measured range (27531-27536 px / 2.6776-2.6797 over
+      // 5 runs), so "floor is a third of the signal" is checked against the
       // weakest reading rather than the flattering one.
       vehicle: {
-        units: { px: 23147, mean: 2.0232 },
+        units: { px: 27531, mean: 2.6776 },
       },
     };
+    /** Below this many pixels a count is not a measurement you can take a
+     *  third of, and `LayerCheckSpec` says so: `minDiffPixels` "is
+     *  deliberately 0 for a layer whose contribution is entirely
+     *  sub-threshold". Two entries are there since the relight -- quiet and
+     *  relief's `ground-albedo`, at 29 px and 4 px -- because the albedo is a
+     *  ratio field and one sun spreads its removal under pixelmatch's 0.1
+     *  threshold almost everywhere while moving the MAGNITUDE by 1.09 and
+     *  1.91. Those two checks are carried by the magnitude floor alone, which
+     *  is still asserted non-zero below, and total erasure still fails them
+     *  (the last assertion in this loop). */
+    const SUB_THRESHOLD_PX = 100;
     for (const [id, spec] of Object.entries(BASELINES)) {
       for (const check of spec.layerChecks ?? []) {
         const m = MEASURED[id]?.[check.layer];
@@ -718,9 +734,13 @@ describe('BASELINES layerChecks', () => {
         expect(check.minDiffPixels).toBeLessThanOrEqual(m.px / 3);
         expect(check.minMeanAbsChannelDelta).toBeLessThanOrEqual(m.mean / 3);
         // And not zero: a floor of 0 is a check that cannot fail, which is the
-        // failure mode this whole file is a reaction to.
-        expect(check.minDiffPixels).toBeGreaterThan(0);
+        // failure mode this whole file is a reaction to. The magnitude floor is
+        // the primary metric and is never allowed to be 0; the pixel floor may
+        // be, and only for a layer whose measured pixel footprint is itself
+        // sub-threshold -- see `SUB_THRESHOLD_PX`.
         expect(check.minMeanAbsChannelDelta).toBeGreaterThan(0);
+        if (m.px >= SUB_THRESHOLD_PX) expect(check.minDiffPixels).toBeGreaterThan(0);
+        else expect(check.minDiffPixels).toBe(0);
         // The clean-tree signal passes, and a total erasure does not.
         expect(evaluateLayerCheck(summary({ diffPixels: m.px, meanAbsChannelDelta: m.mean }), check).ok).toBe(true);
         expect(evaluateLayerCheck(summary({ diffPixels: 0, meanAbsChannelDelta: 0 }), check).ok).toBe(false);

@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0) (0x0000C0DE)), SwiftShader driver)",
   "platform": "darwin",
   "arch": "arm64",
-  "commit": "fb635c25b88223c1207c2cf943d694a659a6ac9d",
-  "blessedAt": "2026-09-03T08:23:23.335Z",
-  "reason": "Terrain tiles (b70a51d) plus the story layer (f32004a): green basin ground on terrain:green maps, road track with per-tile axis, scrub on cover 1-3, orchard floor on groves; and the HUD commander plate renamed Dagan -> Hamami to match GDD 11. Every gated scenario shows ground and the plate, so every one moves. Attribution by the implementing agent: quiet 2,855 px / 0.3599 and vehicle 3,214 / 0.3813 are entirely the new surfaces (re-running with the three arid albedos removed takes them to 0 / 0.1435 and 17 / 0.1621); open-ground's gated crop holds no road/cover/grove and read 0; relief read 0 -- nothing leaked onto tel_marum. Sim untouched: determinism, playtest (byte-for-byte) and balance unmoved.",
+  "commit": "d800ea9e448cdf60551d856884a353b8d148b7d6",
+  "blessedAt": "2026-09-14T21:46:00.271Z",
+  "reason": "Phase 0 lit renderer: sun, shadows, AO, sRGB output, SMAA, texture fog (spec 2026-09-14-lit-renderer-design.md)",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "8b08c6955f1834edd5234b67f544fddeba59c71d0839dccc09c34e6175516a72"
+      "sha256": "720348269fa763556a4aae754bccbb0bc1dc56561fcfa8401c0c820688d15fff"
     },
     "open-ground": {
       "tick": 60,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "2a9b8fc6146c8d4474224dff758be4e40d2af9ae053f6338dbd97aa6872d9b4b"
+      "sha256": "792c0aee39420982ce2a5faa4bc8b9f26c0af8e2d45afbb170d10baf1f8fffaf"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "01dcd49d39fa69cd5dce288f25f90e63a30dadd8b1f828c8106fa3789a9e5c8c"
+      "sha256": "3c7e9b81755f24de786254d373adbb8a228da6c7138c47600db3083acad14447"
     },
     "relief": {
       "tick": 500,
@@ -67,7 +67,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "231c01e704a78583dbe84f2310d573eedeec39a7a3f00ce4dc79b5b1bf720459"
+      "sha256": "8b7d58e672d13a9ef6bbb260c739e089405a6fafc4b8e1be46b17dbc2e464960"
     }
   }
 }

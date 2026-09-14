@@ -46,6 +46,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { SimplexNoise } from 'three/addons/math/SimplexNoise.js';
 import type { Pass } from 'three/addons/postprocessing/Pass.js';
 
 /** Retina is worth paying for; a 3x phone panel is not, and this canvas is
@@ -154,6 +155,46 @@ export function isAoOccluder(object: THREE.Object3D): boolean {
  * rather than assumed, because a constructor that DID call it would read
  * `resolutionScale` as `undefined` and size every target NaN.
  */
+/**
+ * The seed for the AO pass's Poisson-denoise noise texture, and the reason
+ * this renderer builds that texture itself.
+ *
+ * `GTAOPass`'s own `generateNoise` does `new SimplexNoise()`, and three's
+ * `SimplexNoise` defaults its random source to `Math` -- so the 64x64 RGBA
+ * texture the denoise samples is a fresh draw from `Math.random()` in every
+ * process. Within one process the frame is bit-identical (the visual gate's
+ * zero-time repaint control reads 0 px / 0.0000), which is exactly why this
+ * hid until the gate compared two SEPARATE captures: with AO in the chain,
+ * `quiet` moved 20 px / 0.1021, `relief` 2 px / 0.1418 and `vehicle` 57 px /
+ * 0.1051 against a freshly-blessed baseline of the same commit, where the
+ * pre-AO renderer read 0-1 px / 0.0000-0.0001 over 73 runs. Almost every
+ * pixel shifting by a fraction of a level is the signature: a different
+ * denoise kernel offset, not a different scene.
+ *
+ * A gate whose primary metric is `meanAbsChannelDelta` cannot live with
+ * that, and `baseline.ts` is explicit that the fix is to find the drift
+ * rather than widen the ceiling. So the noise is seeded instead: the same
+ * texture in every process, on every machine, for ever.
+ */
+const AO_NOISE_SEED = 0x5ea50f21;
+
+/** mulberry32 -- three lines, no dependency, and the only property asked of
+ *  it is that it give the same stream from the same seed in every engine.
+ *  Shaped as `{ random() }` because that is the interface
+ *  `SimplexNoise(r)` wants. */
+function seededRandomSource(seed: number): { random(): number } {
+  let state = seed >>> 0;
+  return {
+    random(): number {
+      state = (state + 0x6d2b79f5) >>> 0;
+      let t = state;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    },
+  };
+}
+
 class WorldGTAOPass extends GTAOPass {
   private readonly resolutionScale: number;
   /**
@@ -179,6 +220,47 @@ class WorldGTAOPass extends GTAOPass {
       Math.max(1, Math.round(width * this.resolutionScale)),
       Math.max(1, Math.round(height * this.resolutionScale))
     );
+  }
+
+  /**
+   * r170's own noise loop with a SEEDED simplex -- see `AO_NOISE_SEED` for
+   * the measurement that made it necessary.
+   *
+   * The loop is copied rather than delegated because `generateNoise` builds
+   * its `SimplexNoise` inline, so there is no seam to inject through short
+   * of swapping the global `Math.random` around a `super` call. The output
+   * contract is the part that matters and it is narrow: a 64x64 RGBA
+   * `DataTexture`, repeat-wrapped, sampled by the Poisson denoise for a
+   * per-pixel kernel rotation. Any noise field satisfies it; only
+   * REPEATABILITY is at stake here.
+   *
+   * Called from the BASE constructor (`this.pdNoiseTexture =
+   * this.generateNoise()`), which is before this subclass's own field
+   * initialisers run -- so it must touch no instance state, and does not.
+   */
+  override generateNoise(size = 64): THREE.DataTexture {
+    const simplex = new SimplexNoise(seededRandomSource(AO_NOISE_SEED));
+    const data = new Uint8Array(size * size * 4);
+    for (let i = 0; i < size; i++) {
+      for (let j = 0; j < size; j++) {
+        const at = (i * size + j) * 4;
+        data[at] = (simplex.noise(i, j) * 0.5 + 0.5) * 255;
+        data[at + 1] = (simplex.noise(i + size, j) * 0.5 + 0.5) * 255;
+        data[at + 2] = (simplex.noise(i, j + size) * 0.5 + 0.5) * 255;
+        data[at + 3] = (simplex.noise(i + size, j + size) * 0.5 + 0.5) * 255;
+      }
+    }
+    const noiseTexture = new THREE.DataTexture(
+      data,
+      size,
+      size,
+      THREE.RGBAFormat,
+      THREE.UnsignedByteType
+    );
+    noiseTexture.wrapS = THREE.RepeatWrapping;
+    noiseTexture.wrapT = THREE.RepeatWrapping;
+    noiseTexture.needsUpdate = true;
+    return noiseTexture;
   }
 
   /**

@@ -234,10 +234,13 @@ export interface BaselineSpec {
 /** Every floor below is ONE THIRD of this machine's measured signal, on both
  *  metrics, rounded down to a readable number.
  *
- *  Why a third, when the measurement carries no noise at all to leave room
- *  for -- all ten layer deltas below are BIT-IDENTICAL across five
+ *  Why a third, when the measurement carries almost no noise to leave room
+ *  for -- ten of the eleven layer deltas below are BIT-IDENTICAL across five
  *  consecutive full-gate runs, to four decimal places, because the scene is
- *  frozen and the two photographs differ only by the toggle. The floor's job
+ *  frozen and the two photographs differ only by the toggle. (The eleventh is
+ *  `vehicle`'s `units`, whose frame carries continuous dust and exhaust FX:
+ *  27531-27536 px / 2.6776-2.6797, and the floor is a third of the
+ *  smallest.) The floor's job
  *  is therefore not headroom; it is a statement about how much of a layer may
  *  disappear before the gate calls it gone. A third says "two thirds of this
  *  layer's contribution can vanish before this fails", which is loose enough
@@ -247,6 +250,34 @@ export interface BaselineSpec {
  *  wide margin. Tightening it toward the signal would make this a golden
  *  number in disguise, which is the one thing a reference-free check must not
  *  become. */
+/** The capture conditions every floor below was re-measured under, written
+ *  once because all eleven share them, and written at all because a range
+ *  with no conditions beside it is an anecdote (see fact 3 above).
+ *
+ *  The lit renderer moved every one of these signals, so every floor here is
+ *  a fresh third of a fresh measurement rather than a carried-forward number
+ *  -- the pre-lit reading is quoted in each entry so the size and DIRECTION
+ *  of the move is on the record.
+ *
+ *  ONE FINDING MADE THE RE-MEASUREMENT POSSIBLE AT ALL, and it is the fourth
+ *  instance of this file's own rule that a drifting number is a bug to find
+ *  rather than a band to widen. With AO in the chain, the first post-bless
+ *  run read `quiet` 20 px / 0.1021, `relief` 2 px / 0.1418 and `vehicle`
+ *  57 px / 0.1051 against a baseline blessed from the SAME commit minutes
+ *  earlier -- 25x to 35x the ceilings, on scenarios whose pre-lit noise was a
+ *  literal zero -- while each scenario's own zero-time repaint control still
+ *  read 0 px / 0.0000. Deterministic inside a process, random across
+ *  processes: `GTAOPass.generateNoise` builds its Poisson-denoise texture
+ *  from `new SimplexNoise()`, which defaults its random source to `Math`.
+ *  `post-chain.ts` seeds it now (`AO_NOISE_SEED`), and the same three
+ *  scenarios went back to 0 px / 0.0000 over five runs. Nothing in this file
+ *  was widened for it. */
+const PRE_LIT =
+  're-measured 2026-09-14 on the LIT renderer (Phase 0: one sun, a map-wide shadow box, ' +
+  'half-resolution GTAO, sRGB/ACES output through OutputPass, SMAA, and fog as a depth-reading ' +
+  'pass), 5 consecutive full-gate runs on macOS 15 / M3 Pro, headless Chromium, software ' +
+  'SwiftShader, frame loop frozen -- bit-identical on all five. Floors are a third. ';
+
 export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
   quiet: {
     // The camera sits on `town_center` while the sandbox force spawns at the
@@ -270,74 +301,84 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     layerChecks: [
       {
         layer: 'scatter',
-        minDiffPixels: 550,
-        minMeanAbsChannelDelta: 0.04,
+        minDiffPixels: 700,
+        minMeanAbsChannelDelta: 0.13,
         toneCheck: {
           over: 'ground-albedo',
           minFootprintRatio: 0.8,
           rationale:
-            'the grain mesh covers 8938 px of this frame over textured ground and 8318 px over the ' +
-            'flat palette tone -- ratio 0.9306, identical on 4 consecutive full-gate runs. With the ' +
-            'scatter no-op re-injected (671acdb) the same reading is 8794 / 5212 = 0.5927. Nothing ' +
-            'measured falls between 0.70 and 0.93, so the 0.8 floor sits in a gap.',
+            'the grain mesh covers 53427 px of this frame over textured ground and 49830 px over ' +
+            'the flat palette tone -- ratio 0.9326, identical on the 5 lit-renderer runs (it was ' +
+            '8938 / 8318 = 0.9306 before the lights; the footprints grew because a lit mark now ' +
+            'differs from lit ground over its whole area, not only where the tone stepped). THE ' +
+            '0.8 FLOOR IS UNCHANGED AND STILL RESTS ON THE PRE-LIT DEFECT MEASUREMENT: with the ' +
+            'scatter no-op re-injected (671acdb) this read 8794 / 5212 = 0.5927, and that has NOT ' +
+            'been re-taken on the lit renderer. The clean ratio moved by 0.002, so the gap between ' +
+            '0.70 and 0.93 is undisturbed, but say so rather than imply a fresh measurement.',
         },
         rationale:
-          'hiding the grain mesh moves 1730 px / 0.1318 here, identical on 5 consecutive full-gate ' +
-          'runs (macOS SwiftShader, frame loop frozen). Floors are a third of that. The weakest of ' +
-          "the three scatter witnesses -- this camera looks at a town, not at open ground -- which " +
-          'is why open-ground carries the same check at 4x the signal.',
+          PRE_LIT +
+          'hiding the grain mesh moves 2151 px / 0.4168 here (1730 / 0.1318 before the lights: the ' +
+          'pixel count is up 24% and the magnitude 3.2x, because a shaded mark against shaded ' +
+          'ground separates further than two palette tones did). The weakest of the three scatter ' +
+          'witnesses -- this camera looks at a town, not at open ground -- which is why ' +
+          'open-ground carries the same check at 1.7x the signal.',
       },
       {
         layer: 'decor',
-        minDiffPixels: 1190,
-        minMeanAbsChannelDelta: 0.097,
+        minDiffPixels: 3400,
+        minMeanAbsChannelDelta: 0.22,
         rationale:
-          'hiding both decor batches moves 3576 px / 0.2919 here, identical on 3 consecutive runs ' +
-          '(macOS SwiftShader) and 3576 px / 0.2925 on CI linux-x64-swiftshader -- the same pixel ' +
-          'count and 0.2% on magnitude, the cross-backend agreement this file claims for every ' +
-          'floor. Floors are a third. RE-CUT 2026-09-07 from 4700 / 0.4, which was a third of ' +
-          '14180 / 1.2038: that signal was measured when this town stood in an OLIVE grove, and ' +
-          'the project lead retired the olive from every arid map that day ("using olive tree does ' +
-          'not fit the desert terrain"). The desert tree that replaced it is a fifth of the ' +
-          'canopy and a twenty-fifth of the geometry, so decor genuinely contributes 4x less ink ' +
-          'to THIS frame -- the art changed, not the renderer, and a floor is only ever a third of ' +
-          'what the layer actually draws. The other two decor witnesses are the control that says ' +
-          'so: open-ground (18 grove tiles, crop mostly grass) and relief (zero grove tiles, the ' +
-          'boulder field) are UNMOVED at 916 / 0.4584 and 38523 / 2.7700, bit-identical before and ' +
-          'after. This makes quiet the weakest decor witness of the three, which is worth knowing ' +
-          'before leaning on it alone. Erasing every decor object (decor-place.ts `familyFor` -> ' +
-          'null) still takes it to 0 / 0.0000 -- the defect that used to reach exit 3 with a green ' +
-          'self-check, and 1190 px still stands between that and a pass.',
+          PRE_LIT +
+          'hiding both decor batches moves 10424 px / 0.6869 here -- 2.9x the pre-lit 3576 / ' +
+          '0.2919, because a tree now casts a shadow on the ground beside it and hiding the tree ' +
+          'takes the shadow with it. The RE-CUT of 2026-09-07 (from 4700 / 0.4 down to 1190 / ' +
+          '0.097, when the project lead retired the olive from every arid map and the desert tree ' +
+          'that replaced it drew a fifth of the canopy) is therefore superseded by a measurement ' +
+          'rather than reversed: the art is the same, the light is new. Quiet is no longer the ' +
+          'weakest decor witness -- open-ground is, at 958 px. Erasing every decor object ' +
+          '(decor-place.ts `familyFor` -> null) still takes this to 0 / 0.0000, and 3400 px now ' +
+          'stands between that and a pass.',
       },
       {
         layer: 'ground-albedo',
-        minDiffPixels: 750,
-        minMeanAbsChannelDelta: 0.28,
+        minDiffPixels: 0,
+        minMeanAbsChannelDelta: 0.36,
         rationale:
-          'driving the ground texture strengths to 0 -- the material\'s own 404 path -- moves ' +
-          '2861 px / 0.9137 here (SIX slots since 2026-09-08, when the `n` knoll gained the scree ' +
-          'tile; it was 2266 / 0.8628 over five, identical on 5 runs). This is the check that ' +
-          'replaces what `groundTextureCheck` was meant to do and stopped doing: a sand tile that ' +
-          'never arrives now fails, where the dominant-colour fraction could not see it at all. ' +
-          'THE FLOOR WAS NOT RE-CUT for the sixth slot, and that is deliberate -- see the ' +
-          'open-ground entry, which carries the argument.',
+          PRE_LIT +
+          'driving the six ground texture strengths to 0 -- the material\'s own 404 path -- moves ' +
+          '29 px / 1.0883 here, against a pre-lit 2861 px / 0.9137. THE PIXEL COUNT COLLAPSED AND ' +
+          'THE MAGNITUDE DID NOT, and that is the shape of the whole gate rather than a fault: ' +
+          'under one sun the albedo ratio field shifts a wide area by a fraction of a level, ' +
+          'which is under pixelmatch\'s 0.1 perceptual threshold everywhere and over it almost ' +
+          'nowhere. A third of 29 px is not a floor, it is a coin toss, so `minDiffPixels` is 0 ' +
+          'here for exactly the reason `LayerCheckSpec` gives for allowing it -- the contribution ' +
+          'is sub-threshold and the magnitude is the whole check. A texture that never arrives ' +
+          'still reads 0.0000 and still fails. If a future environment reads a big pixel count ' +
+          'here, that is a rasteriser difference worth understanding, not a floor worth raising.',
       },
       {
         layer: 'buildings',
-        minDiffPixels: 9300,
-        minMeanAbsChannelDelta: 0.48,
+        minDiffPixels: 40000,
+        minMeanAbsChannelDelta: 2.4,
         rationale:
+          PRE_LIT +
           'hiding structure boxes, mesh building clones and billboard structure instancers moves ' +
-          '28026 px / 1.4580 here, identical on 5 runs. Floors are a third. Only this scenario and ' +
-          'vehicle frame a building at all; open-ground and relief read a literal 0 and therefore do ' +
-          'not declare it.',
+          '122262 px / 7.4369 here, against a pre-lit 28026 / 1.4580 -- 4.4x and 5.1x, because a ' +
+          'building now removes its own cast shadow and its AO contact seam from the street as ' +
+          'well as itself. The largest signal in the gate. Only this scenario and vehicle frame a ' +
+          'building at all; open-ground and relief read a literal 0 and therefore do not declare ' +
+          'it.',
       },
     ],
     rationale:
       'whole frame, no units in shot. Noise 0-1 px / 0.0000-0.0001 pooled over 73 gate runs in two ' +
-      'samples (24 + 49; macOS SwiftShader, frame loop frozen); thresholds are 40x the pixel maximum ' +
-      'and 39x the magnitude one. The re-injected scatter defect reads 14 px / 0.0470 -- 12x over the ' +
-      'magnitude threshold, and 457x the noise floor, while the pixel count moves by 13.',
+      'samples (24 + 49; macOS SwiftShader, frame loop frozen) BEFORE the lit renderer, and ' +
+      're-measured at a literal 0 px / 0.0000 over 5 runs against the 2026-09-14 baseline once the ' +
+      'AO noise texture was seeded (see PRE_LIT). The thresholds are therefore UNCHANGED: the noise ' +
+      'model held, which is why nothing here was widened for the relight. The re-injected scatter ' +
+      'defect read 14 px / 0.0470 pre-lit -- 12x over the magnitude threshold -- and has not been ' +
+      're-taken since.',
   },
   'open-ground': {
     // The crop the retired `groundTextureCheck` used, kept for its own reason:
@@ -359,62 +400,68 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     layerChecks: [
       {
         layer: 'scatter',
-        minDiffPixels: 1500,
-        minMeanAbsChannelDelta: 0.56,
+        minDiffPixels: 1200,
+        minMeanAbsChannelDelta: 0.53,
         toneCheck: {
           over: 'ground-albedo',
           minFootprintRatio: 0.8,
           rationale:
-            'the grain mesh covers 8967 px of this crop over textured ground and 8558 px over the ' +
-            'flat palette tone -- ratio 0.9544, identical on 4 consecutive full-gate runs. With the ' +
-            'scatter no-op re-injected (671acdb) the same reading is 8912 / 6183 = 0.6938. The ' +
-            'closest any measurement comes to the 0.8 floor, from either side.',
+            'the grain mesh covers 10254 px of this crop over textured ground and 9487 px over ' +
+            'the flat palette tone -- ratio 0.9252, identical on the 5 lit-renderer runs (it was ' +
+            '8967 / 8558 = 0.9544 before the lights). THE 0.8 FLOOR IS UNCHANGED AND STILL RESTS ' +
+            'ON THE PRE-LIT DEFECT MEASUREMENT of 8912 / 6183 = 0.6938, which has NOT been ' +
+            're-taken on the lit renderer. This remains the closest any measurement comes to the ' +
+            'floor from the clean side, and it moved 0.03 CLOSER, so it is the entry to re-measure ' +
+            'first if the defect is ever re-injected again.',
         },
         rationale:
-          'hiding the grain mesh moves 4610 px / 1.6858 inside this crop, identical on 5 consecutive ' +
-          'full-gate runs. Floors are a third. This is the strongest scatter witness in the gate -- ' +
-          'the crop is nothing but open ground at zoom 3, which is what it was chosen for.',
+          PRE_LIT +
+          'hiding the grain mesh moves 3615 px / 1.6071 inside this crop, against a pre-lit 4610 ' +
+          'px / 1.6858 -- the one signal in the gate that went DOWN, and only on the pixel count: ' +
+          'this crop is bare ground at zoom 3, so the marks had nothing but ground to differ from ' +
+          'already and the sun shades mark and ground together. Still the strongest scatter ' +
+          'witness on magnitude, which is what the crop was chosen for.',
       },
       {
         layer: 'decor',
-        minDiffPixels: 300,
-        minMeanAbsChannelDelta: 0.15,
+        minDiffPixels: 310,
+        minMeanAbsChannelDelta: 0.17,
         rationale:
-          'hiding both decor batches moves 915 px / 0.4583 inside this crop, identical on 5 runs. ' +
-          'Floors are a third. The smallest decor signal of the three, and kept anyway: it is the ' +
-          'only decor check on `tutorial_ground`, and a decor fault that spared the other two maps ' +
+          PRE_LIT +
+          'hiding both decor batches moves 958 px / 0.5393 inside this crop, against a pre-lit 915 ' +
+          'px / 0.4583. The smallest decor signal of the three, and kept anyway: it is the only ' +
+          'decor check on `tutorial_ground`, and a decor fault that spared the other two maps ' +
           'would otherwise be invisible.',
       },
       {
         layer: 'ground-albedo',
-        minDiffPixels: 170,
-        minMeanAbsChannelDelta: 1.84,
+        minDiffPixels: 150,
+        minMeanAbsChannelDelta: 0.88,
         rationale:
-          'driving the ground texture strengths to 0 moves 6840 px / 6.9094 inside this crop -- ' +
-          'the largest signal anywhere in the gate, and 13x what it was over five slots ' +
-          '(511 px / 5.5363, identical on 5 runs) because `tutorial_ground` carries 35 `n` knoll ' +
-          'tiles and the scree that landed on them 2026-09-08 is the highest-contrast tile of the ' +
-          'seven. Measured 6840 px / 6.9094 locally and 6840 px / 6.9097 on CI ' +
-          'linux-x64-swiftshader -- the same pixel count and 0.004% on magnitude across two GL ' +
-          'backends. ' +
-          'THE FLOOR IS STILL A THIRD OF THE FIVE-SLOT SIGNAL, NOT OF THIS ONE, and the reason is ' +
-          'robustness rather than inertia: the old signal comes from tiles that cover the WHOLE ' +
-          'crop, while the new headroom comes from a few knoll patches, so a floor cut to a third ' +
-          'of 6840 would start failing the day someone edits knolls out of `tutorial_ground` -- a ' +
-          'red gate with no defect behind it, which is the failure mode the decor floor already ' +
-          'walked into once. A floor is a lower bound on what the layer must contribute, and 170 / ' +
-          '1.84 remains a true one. Note the shape too: 511 px against a 180000 px crop, so the ' +
-          'pixel count is the weak half and the magnitude is the real signal.',
+          PRE_LIT +
+          'driving the six ground texture strengths to 0 moves 472 px / 2.6658 inside this crop, ' +
+          'against a pre-lit 6840 px / 6.9094. Both halves fell, and the reason is the same one ' +
+          'that collapsed quiet\'s pixel count to 29: the albedo is a RATIO field, and under one ' +
+          'sun removing it shifts a wide area smoothly instead of stepping it between palette ' +
+          'tones. This is still the largest ground-albedo signal in the gate and the only one ' +
+          'whose pixel count is worth a floor at all. ' +
+          'THE FLOOR IS A THIRD OF THIS MEASUREMENT, which is a change of policy from the entry ' +
+          'this replaces: that one deliberately kept a third of the OLDER five-slot signal, ' +
+          'because the extra headroom came from 35 `n` knoll tiles that someone might edit away. ' +
+          'That argument does not survive the relight -- the 2.67 here is the sand and road over ' +
+          'the whole crop, not the knolls, and holding a 1.84 floor against a 2.67 signal would ' +
+          'leave only 31% of headroom on the metric this check actually rests on.',
       },
     ],
     rationale:
       'unit-free ground crop (the region the retired groundTextureCheck used). Noise 0 px / 0.0000 over 73 gate ' +
-      'runs in two samples (24 + 49) -- a literal zero, so no headroom multiple exists; a different ' +
-      'GL backend on the same machine moves it to 25 px / ' +
+      'runs in two samples (24 + 49) before the lit renderer, and a literal 0 px / 0.0000 again ' +
+      'over 5 runs against the 2026-09-14 baseline -- so no headroom multiple exists, and these ' +
+      'thresholds are unchanged. A different GL backend on the same machine moved it to 25 px / ' +
       '0.0131, which is the cushion these thresholds sit above rather than their calibration ' +
-      'basis. The re-injected scatter defect reads 0 px / 0.3519 -- 17x over the threshold on ' +
-      'meanAbsChannelDelta and literally invisible to the pixel count. This is the scenario that ' +
-      'discriminates the defect cross-backend measured 1.945%-vs-1.937% on.',
+      'basis. The re-injected scatter defect read 0 px / 0.3519 pre-lit -- 17x over the threshold ' +
+      'on meanAbsChannelDelta and literally invisible to the pixel count. This is the scenario ' +
+      'that discriminates the defect cross-backend measured 1.945%-vs-1.937% on.',
   },
   vehicle: {
     // Whole frame: the vehicles' own dust and exhaust are the only real-time
@@ -479,11 +526,19 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     // vehicles and their continuous FX -- the same place this entry's own
     // run-to-run noise already sits.
     // 0 px is still demanded -- the PIXEL count is bit-identical here, as
-    // everywhere. Only the mean is given room, and only for this scenario:
-    // measured 0.0002-0.0003 over 4 consecutive runs (and 0.0001-0.0004 in the
-    // older sample this entry already carried). 0.001 is 3.3x the observed
-    // maximum and ~670x BELOW this scenario's own `units` floor of 0.67, so
-    // the control still proves the toggle is the toggle.
+    // everywhere, on all 5 lit-renderer runs. Only the mean is given room, and
+    // only for this scenario: RE-MEASURED 2026-09-14 at 0.0002-0.0003 over
+    // those 5 runs (it was 0.0002-0.0003 over 4 pre-lit runs, and 0.0001-0.0004
+    // in the older sample this entry already carried -- the relight did not
+    // move it). 0.00036 is the largest reading plus 20%, and ~2500x BELOW this
+    // scenario's own `units` floor of 0.89, so the control still proves the
+    // toggle is the toggle by a wide margin. It is TIGHTER than the 0.001 this
+    // entry used to carry (3.3x the maximum), which is the direction a control
+    // should move. One caveat worth knowing before reacting to a red here: the
+    // gate prints this number to four decimal places, so "0.0003" is anything
+    // up to 0.00035 and the true headroom may be as little as 3%. A run that
+    // fails by a hair is a reason to print more digits and re-derive, not to
+    // widen.
     //
     // WHAT DRIFTS IS NOT KNOWN, and that is recorded rather than closed: it is
     // ~65-99 scattered pixels around the vehicles, it decays over successive
@@ -491,15 +546,20 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     // `open-ground` and `relief` all read a literal 0. Whatever it is lives
     // with the mesh vehicles and their continuous FX. Finding it would let
     // this field go away.
-    repaintControl: { maxDiffPixels: 0, maxMeanAbsChannelDelta: 0.001 },
+    repaintControl: { maxDiffPixels: 0, maxMeanAbsChannelDelta: 0.00036 },
     layerChecks: [
       {
         layer: 'units',
-        minDiffPixels: 7700,
-        minMeanAbsChannelDelta: 0.67,
+        minDiffPixels: 9100,
+        minMeanAbsChannelDelta: 0.89,
         rationale:
-          'hiding every unit body moves 23147-23152 px / 2.0232-2.0247 here, over 3 consecutive runs ' +
-          '(macOS SwiftShader, frame loop frozen) -- a spread of 5 px and 0.0015. Floors are a third. ' +
+          PRE_LIT +
+          'hiding every unit body moves 27531-27536 px / 2.6776-2.6797 here -- a spread of 5 px ' +
+          'and 0.0021, the ONE layer delta in the gate that is not bit-identical run to run, for ' +
+          'the same reason this scenario\'s baseline is not: continuous dust and exhaust FX. ' +
+          'Floors are a third of the SMALLEST of the five. Against a pre-lit 23147-23152 px / ' +
+          '2.0232-2.0247: the pixel count is up 19% (each vehicle now takes a cast shadow and an ' +
+          'AO seam with it) and the magnitude 32%. ' +
           'THIS SCENARIO HAD NO REFERENCE-FREE CHECK AT ALL until 2026-09-10, so on a runner with no ' +
           'baseline it was captured and never judged -- and it is the only gated scenario whose subject ' +
           'is mesh vehicles, which is exactly what a fresh environment could not see. ' +
@@ -551,51 +611,65 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     layerChecks: [
       {
         layer: 'scatter',
-        minDiffPixels: 2300,
-        minMeanAbsChannelDelta: 0.13,
+        minDiffPixels: 1400,
+        minMeanAbsChannelDelta: 0.15,
         toneCheck: {
           over: 'ground-albedo',
           minFootprintRatio: 0.8,
           rationale:
-            'the grain mesh covers 23915 px of this frame over textured ground and 22426 px over ' +
-            'the flat palette tone -- ratio 0.9377, identical on 4 consecutive full-gate runs. With ' +
-            'the scatter no-op re-injected (671acdb) the same reading is 23731 / 15090 = 0.6359, ' +
-            'and this is the framing where the defect moves the most pixels in absolute terms.',
+            'the grain mesh covers 93062 px of this frame over textured ground and 92076 px over ' +
+            'the flat palette tone -- ratio 0.9894, identical on the 5 lit-renderer runs (it was ' +
+            '23915 / 22426 = 0.9377 before the lights; the footprint quadrupled because a shaded ' +
+            'mark differs from shaded ground over its whole area). THE 0.8 FLOOR IS UNCHANGED AND ' +
+            'STILL RESTS ON THE PRE-LIT DEFECT MEASUREMENT of 23731 / 15090 = 0.6359, which has ' +
+            'NOT been re-taken on the lit renderer. This is still the framing where the defect ' +
+            'moves the most pixels in absolute terms.',
         },
         rationale:
-          'hiding the grain mesh moves 7146 px / 0.4093 here, identical on 5 consecutive full-gate ' +
-          'runs. Floors are a third. The only scatter witness on a map with relief, where the marks ' +
-          'also dress slope faces.',
+          PRE_LIT +
+          'hiding the grain mesh moves 4300 px / 0.4535 here, against a pre-lit 7146 px / 0.4093 ' +
+          '-- the magnitude held and the pixel count fell 40%, because tel_marum\'s relief now ' +
+          'carries its own slope shading and a mark on a lit slope separates from it by less than ' +
+          'it did from a flat palette tone. The only scatter witness on a map with relief.',
       },
       {
         layer: 'decor',
-        minDiffPixels: 12800,
-        minMeanAbsChannelDelta: 0.92,
+        minDiffPixels: 15000,
+        minMeanAbsChannelDelta: 1.26,
         rationale:
-          'hiding both decor batches moves 38513 px / 2.7695 here, identical on 5 runs -- the ' +
-          'largest pixel signal in the gate, because this framing is the T1-C boulder field. Floors ' +
-          'are a third. This is the check that closes the exit-3 hole by name: the decor erase that ' +
-          'read 37183 px against a baseline and passed the old self-check.',
+          PRE_LIT +
+          'hiding both decor batches moves 45442 px / 3.8029 here, against a pre-lit 38513 / ' +
+          '2.7695 -- still the largest pixel signal in the gate, because this framing is the T1-C ' +
+          'boulder field, and larger now because each boulder takes its cast shadow with it. This ' +
+          'is the check that closes the exit-3 hole by name: the decor erase that read 37183 px ' +
+          'against a baseline and passed the old self-check.',
       },
       {
         layer: 'ground-albedo',
-        minDiffPixels: 330,
-        minMeanAbsChannelDelta: 1.02,
+        minDiffPixels: 0,
+        minMeanAbsChannelDelta: 0.63,
         rationale:
-          'driving the ground texture strengths to 0 moves 1015 px / 3.0769 here, identical on ' +
-          '5 runs. Floors are a third. Covers the rock slot as well as sand -- tel_marum is the only ' +
-          'gated map with `^` ridge walls. UNMOVED by the sixth slot (996 px / 3.0685 local, ' +
-          '997 / 3.0726 on CI): the base `tel_marum` authors no `n` at all, which makes this the ' +
-          'control that says the knoll scree reached knoll tiles and nowhere else.',
+          PRE_LIT +
+          'driving the six ground texture strengths to 0 moves 4 px / 1.9069 here, against a ' +
+          'pre-lit 1015 px / 3.0769. FOUR pixels: a third of that is not a floor, so ' +
+          '`minDiffPixels` is 0 for the reason `LayerCheckSpec` gives for allowing it, exactly as ' +
+          'on quiet -- the albedo is a ratio field and one sun spreads its removal below ' +
+          'pixelmatch\'s threshold almost everywhere. The magnitude is the whole check here and ' +
+          'it is a strong one: a texture that never arrives reads 0.0000 against a 0.63 floor. ' +
+          'Still covers the rock slot as well as sand -- tel_marum is the only gated map with `^` ' +
+          'ridge walls -- and the base map authors no `n`, which keeps this the control that says ' +
+          'the knoll scree reached knoll tiles and nowhere else.',
       },
     ],
     rationale:
       'whole frame, tel_marum boulder corridor @ tile (10,15) zoom 2, tick 500 -- the T1-C boulder ' +
       'field plus the extruded rock-ridge relief either side of it. Noise 0 px / 0.0000 over 73 gate ' +
-      'runs in two samples (24 + 49; macOS SwiftShader). Deleting every boulder decor object reads 36001 ' +
-      'px / 2.6292 here -- 900x and 657x the thresholds -- while quiet, open-ground and vehicle do ' +
-      'not move outside their own noise at all. The scatter defect also fires here, at 86 px / ' +
-      '0.1452, so this is map coverage rather than a single-feature tripwire.',
+      'runs in two samples (24 + 49; macOS SwiftShader) before the lit renderer, and a literal ' +
+      '0 px / 0.0000 again over 5 runs against the 2026-09-14 baseline; thresholds unchanged. ' +
+      'Deleting every boulder decor object read 36001 px / 2.6292 here pre-lit -- 900x and 657x ' +
+      'the thresholds -- while quiet, open-ground and vehicle did not move outside their own noise ' +
+      'at all. The scatter defect also fired here, at 86 px / 0.1452, so this is map coverage ' +
+      'rather than a single-feature tripwire.',
   },
   combat: {
     // NOT GATED, and this is a finding rather than a gap. Real deaths, wrecks,

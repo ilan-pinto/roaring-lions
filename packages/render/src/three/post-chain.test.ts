@@ -24,6 +24,19 @@ import {
 import { GTAOPass as THREE_GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import type { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 
+/**
+ * The order-sensitive digest of the 64x64 RGBA Poisson-denoise noise texture
+ * `WorldGTAOPass.generateNoise` builds from `AO_NOISE_SEED`.
+ *
+ * Recorded here rather than recomputed, because the property under test is
+ * that this number is the same in EVERY process -- comparing two textures
+ * built side by side would pass even with three's own `Math.random()`
+ * version. Changing the seed, the generator, or upgrading three's
+ * `SimplexNoise` moves it, and moving it means every golden baseline needs
+ * re-blessing.
+ */
+const AO_NOISE_DIGEST = 3346967380;
+
 /** The composer needs only these members of a renderer at construction. */
 function fakeRenderer(): THREE.WebGLRenderer {
   const size = new THREE.Vector2(1440, 900);
@@ -109,6 +122,41 @@ describe('createPostChain', () => {
     expect(pass.gtaoMaterial.defines.PERSPECTIVE_CAMERA).toBe(0);
     expect(pass.blendIntensity).toBe(1.0);
     pass.dispose();
+  });
+
+  it('builds the AO denoise noise texture from a seed, so two processes photograph the same frame', () => {
+    // The gate found this, not a reviewer. `GTAOPass.generateNoise` does `new
+    // SimplexNoise()`, and three's `SimplexNoise` defaults its random source
+    // to `Math` -- so the Poisson-denoise kernel rotation was a fresh draw
+    // from `Math.random()` per process. Inside one process the frame is
+    // bit-identical (the visual gate's zero-time repaint control reads 0 px /
+    // 0.0000), which is why it survived every in-process test; ACROSS
+    // processes `quiet` moved 20 px / 0.1021 and `relief` 2 px / 0.1418
+    // against a baseline blessed from the same commit minutes before, where
+    // the pre-AO renderer read 0-1 px / 0.0000-0.0001 over 73 runs.
+    //
+    // Two passes built in the SAME process would agree even with the bug, so
+    // this asserts against a stored digest of the seeded stream rather than
+    // against a sibling: the texture has to be the same NUMBER, not merely
+    // the same twice.
+    const a = createAoPass(new THREE.Scene(), new THREE.OrthographicCamera(), 800, 600) as GTAOPass;
+    const b = createAoPass(new THREE.Scene(), new THREE.OrthographicCamera(), 800, 600) as GTAOPass;
+    const dataA = a.pdNoiseTexture.image.data as Uint8Array;
+    const dataB = b.pdNoiseTexture.image.data as Uint8Array;
+    expect(dataA.length).toBe(64 * 64 * 4);
+    expect(Array.from(dataA)).toEqual(Array.from(dataB));
+    // A cheap order-sensitive digest of the whole texture. Any change to the
+    // seed, the generator or three's noise function moves it -- which is the
+    // point: this number IS the contract that every capture environment
+    // shares, and a deliberate change to it means re-blessing the baselines.
+    let digest = 0;
+    for (let i = 0; i < dataA.length; i++) digest = (digest * 31 + dataA[i]) >>> 0;
+    expect(digest).toBe(AO_NOISE_DIGEST);
+    // And it is real noise, not a constant field the assertions above would
+    // also accept.
+    expect(new Set(dataA).size).toBeGreaterThan(32);
+    a.dispose();
+    b.dispose();
   });
 
   it('the real AO pass lands between fog and OutputPass, and the composer sizes it', () => {

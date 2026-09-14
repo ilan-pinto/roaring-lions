@@ -19,7 +19,7 @@
  * The one real obstacle is `new THREE.WebGLRenderer(...)`, which cannot
  * construct under this suite's headless `environment: 'node'` (no `document`,
  * no WebGL). Every other object `ThreeRenderer`'s constructor builds --
- * `ShroudTexture`, `ParticleInstancer`, `TracerBatch`, `terrainMaterial()`
+ * `ShroudTexture`, `ParticleInstancer`, `TracerBatch`, `vertexColorMaterial()`
  * -- is plain `THREE.*` JS-side construction with no GPU context needed,
  * already proven headless-safe by `shroud-texture.test.ts`,
  * `units/fx.test.ts` and elsewhere. (`FogOfWarPass` is deliberately NOT in
@@ -216,6 +216,15 @@ describe('the colour pipeline', () => {
     expect(gl.outputColorSpace).toBe(THREE.SRGBColorSpace);
     expect(gl.toneMapping).toBe(THREE.ACESFilmicToneMapping);
     expect(gl.clearColorCalls).toEqual(['14150f']);
+    // And the SCENE background, which is the one the composer actually
+    // clears with: `setClearColor` alone leaves the GL clear colour holding
+    // an sRGB-encoded triple whenever the previous `renderer.render` went to
+    // the screen (SMAAPass does, every frame), and `RenderPass` then clears
+    // the linear target with it -- measured off the map edge as #484b3b for
+    // this #14150f. `Scene.background` is read with the target bound, so it
+    // converts to linear. See the constructor's own comment.
+    const scene = (renderer as unknown as { scene: THREE.Scene }).scene;
+    expect((scene.background as THREE.Color).getHexString()).toBe('14150f');
     renderer.dispose();
   });
 });
