@@ -1,10 +1,9 @@
 /**
  * `rl_role` -> the RAMP SLICE a VEHICLE mesh's role shades through, for the
- * same toon material infantry roles shade through (`mesh-material.ts`'s
- * `toonRampSkinnedMaterial` for infantry; the RIGID, non-skinned counterpart
- * `../palette-material.ts`'s `toonRampMaterial` for a vehicle -- a vehicle
- * hull/turret is never skinned, so it needs no skinning vertex chunks, and
- * `mesh-vehicle.ts` builds its material through the latter, not the former).
+ * same lit standard material infantry roles shade through
+ * (`../world-materials.ts`'s `rampMaterial` -- one function for both, since
+ * skinning is automatic on a `THREE.SkinnedMesh` and needs no material-side
+ * fork the way the toon-ramp era's separate skinned/rigid shaders once did).
  *
  * Deliberately NOT `mesh-role.ts`'s `MESH_ROLES`/`rampForRole`, per the mesh
  * unit contract v2 ("Roles are a closed set per ASSET CLASS, not one

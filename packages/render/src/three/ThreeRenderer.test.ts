@@ -15,21 +15,21 @@
  *
  * The one real obstacle is `new THREE.WebGLRenderer(...)`, which cannot
  * construct under this suite's headless `environment: 'node'` (no `document`,
- * no WebGL -- see `palette-material.test.ts`'s own top-of-file comment for
- * the established precedent). Every other object `ThreeRenderer`'s
- * constructor builds -- `FogMesh`, `ParticleInstancer`, `TracerBatch`,
- * `terrainMaterial()` -- is plain `THREE.*` JS-side construction with no GPU
- * context needed, already proven headless-safe by `fog-mesh.test.ts`,
- * `units/fx.test.ts` and elsewhere. So this file substitutes a minimal
- * stand-in for `THREE.WebGLRenderer` alone (via `vi.mock`, scoped to this one
- * test file) rather than a real one, keeping every other `three` export
- * untouched. Confirmed by reading the constructor directly
- * (`ThreeRenderer.ts:595-646`): nothing runs between `new
+ * no WebGL). Every other object `ThreeRenderer`'s constructor builds --
+ * `FogMesh`, `ParticleInstancer`, `TracerBatch`, `terrainMaterial()` -- is
+ * plain `THREE.*` JS-side construction with no GPU context needed, already
+ * proven headless-safe by `fog-mesh.test.ts`, `units/fx.test.ts` and
+ * elsewhere. So this file substitutes a minimal stand-in for
+ * `THREE.WebGLRenderer` alone (via `vi.mock`, scoped to this one test file)
+ * rather than a real one, keeping every other `three` export untouched.
+ * Confirmed by reading the constructor directly: nothing runs between `new
  * THREE.WebGLRenderer(...)` and the end of the constructor that touches the
- * renderer beyond `applyPalettePipeline`'s two calls
- * (`outputColorSpace`/`setClearColor`), both stubbed below.
+ * renderer beyond the colour-pipeline assignments (`outputColorSpace`,
+ * `toneMapping`, `toneMappingExposure`, `setClearColor`) the "colour
+ * pipeline" describe block below pins, all stubbed below.
  */
 import { describe, it, expect, vi } from 'vitest';
+import * as THREE from 'three';
 import { Sim } from '@lions/sim';
 import paletteJson from '../../../../data/palette.json';
 import type { RendererOptions, TerrainTones } from '../api';
@@ -47,9 +47,13 @@ vi.mock('three', async (importOriginal) => {
   class FakeWebGLRenderer {
     outputColorSpace = actual.SRGBColorSpace;
     domElement: unknown = {};
-    setClearColor(): void {
-      // Real `WebGLRenderer#setClearColor` reads `outputColorSpace`
-      // synchronously; this stand-in only needs to accept the call.
+    /** Every hex `setClearColor` was called with, via `Color#getHexString()`
+     *  (lower-case, no `#`) -- what `the colour pipeline`'s test below reads
+     *  back to prove the constructor's background hex reached the clear
+     *  colour. */
+    clearColorCalls: string[] = [];
+    setClearColor(color: THREE.Color): void {
+      this.clearColorCalls.push(color.getHexString());
     }
     dispose(): void {
       disposeSpy();
@@ -186,5 +190,21 @@ describe('the chevron fallback colour', () => {
     const fill = (renderer as unknown as { chevronBatch: { fillColorHex: string } }).chevronBatch.fillColorHex;
     expect(fill).toBe(swatch(STRIPE_COLOR_KEY));
     expect(fill).not.toBe('#E8C33A');
+  });
+});
+
+describe('the colour pipeline', () => {
+  // Replaces `palette-material.test.ts`'s own `applyPalettePipeline` test,
+  // deleted with that module (Task 7): the pass-through colour space it
+  // pinned is gone, folded into four plain assignments at the
+  // `ThreeRenderer` constructor's own call site instead of one shared
+  // function, so this is where that behaviour is proven now.
+  it('configures the standard sRGB + ACES output and the palette background as clear colour', () => {
+    const renderer = new ThreeRenderer(makeSim(), makeOpts());
+    const gl = (renderer as unknown as { renderer: { outputColorSpace: string; toneMapping: number; clearColorCalls: string[] } }).renderer;
+    expect(gl.outputColorSpace).toBe(THREE.SRGBColorSpace);
+    expect(gl.toneMapping).toBe(THREE.ACESFilmicToneMapping);
+    expect(gl.clearColorCalls).toEqual(['14150f']);
+    renderer.dispose();
   });
 });

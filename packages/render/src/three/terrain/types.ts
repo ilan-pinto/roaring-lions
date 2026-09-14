@@ -19,7 +19,7 @@ export interface MeshData {
    * rgb triples in 0..1, one per vertex, same length and vertex order as
    * `colors` -- each vertex's own tone shifted toward its ramp's lightest
    * step (`tones.ts`'s `rampNeighbor`), for the muzzle-flash effect
-   * (`../palette-material.ts`'s "The muzzle-flash 'light'" doc comment).
+   * (`../flash-light.ts`'s own top comment).
    * OPTIONAL: only `ground.ts`'s `buildGround` computes this today (see its
    * own doc comment for why scatter/grove/residual/building-decor meshes
    * do not); `toGeometry` (`mesh.ts`) aliases the `litColor` GPU attribute

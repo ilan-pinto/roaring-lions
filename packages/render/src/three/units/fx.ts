@@ -1072,11 +1072,12 @@ export function writeShellInstances(
  * -- and it was REJECTED after review, not merely reconsidered:
  *
  *  - **This backend's palette guarantee is per-material, enforced by
- *    construction.** `palette-material.ts`'s `toonRampMaterial` can only
- *    emit a colour it reads out of `uRamp` -- its own doc comment: "A shaded
- *    fragment cannot emit an off-palette colour because the only values it
- *    can write are the ones read out of the ramp." This material has no
- *    ramp (it writes a literal resolved palette hex straight to
+ *    construction.** The toon-ramp era's `toonRampMaterial` (retired by
+ *    Task 7, `palette-material.ts`) could only emit a colour it read out of
+ *    `uRamp` -- its own doc comment said: "A shaded fragment cannot emit an
+ *    off-palette colour because the only values it can write are the ones
+ *    read out of the ramp." This material has no ramp (it writes a literal
+ *    resolved palette hex straight to
  *    `gl_FragColor`), but the SAME property -- every fragment this material
  *    ever writes is one of the 65 -- held for it too, by a different
  *    mechanism (a hardcoded, already-palette-resolved `vColor`), until

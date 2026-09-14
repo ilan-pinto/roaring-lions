@@ -26,11 +26,11 @@
  *
  * Each zone maps to exactly ONE flat, unlit, already-resolved palette entry
  * -- a modelled incandescent effect reads as something EMITTING light, and a
- * quantized `N·L` band across its surface (`palette-material.ts`'s
- * `toonRampMaterial`) would put a dark side on a shape whose whole point is
- * to look uniformly hot. See `muzzle-flash.ts`'s own top comment
- * ("Why a mesh at all") for the full palette argument this vocabulary is
- * built on.
+ * quantized `N·L` band across its surface (the toon-ramp era's
+ * `toonRampMaterial`, retired by Task 7) would put a dark side on a shape
+ * whose whole point is to look uniformly hot. See `muzzle-flash.ts`'s own
+ * top comment ("Why a mesh at all") for the full palette argument this
+ * vocabulary is built on.
  */
 
 /** The shared VFX-mesh closed role vocabulary. */

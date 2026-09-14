@@ -4,10 +4,10 @@
  * ## Why not the toon ramp, and why not CSS
  *
  * The asset is the named exemption from the palette repaint: its subject is
- * BIOME, colour at a constant normal, and `toonRampMaterial` indexes colour
- * by `N·L` (see `textured-world.ts`'s top comment). So region state has to
- * be expressed as an operation ON the bake rather than as a substitution
- * for it.
+ * BIOME, colour at a constant normal, unlike a kit-built asset's ramp
+ * material, which picks colour by ROLE (see `textured-world.ts`'s top
+ * comment). So region state has to be expressed as an operation ON the bake
+ * rather than as a substitution for it.
  *
  * The flat PNG board answers the same question with a CSS `filter`
  * (`theme.css`: `grayscale(0.55) saturate(0.55)` for a finished country,
@@ -28,29 +28,53 @@
  * the board changes as it rotates -- which is what makes the rotation read
  * as an object turning rather than as a texture sliding.
  *
- * That is deliberately NOT `texturedBuildingMaterial`'s banded shade.
- * That material quantizes into `TEXTURED_SHADE_STEPS` bands so a building's
- * facets break at the same angles its toon-ramped neighbours' do; a
- * building is flat-faced and the banding lands on real edges. This board is
- * continuous terrain, where three hard bands would draw contour terraces
- * across every hillside that are not in the source. Smooth here, banded
- * there, for the same reason in both places: match the SHAPE of the thing
- * being lit.
+ * That is deliberately NOT a banded shade. Until Task 7, the battlefield's
+ * textured buildings quantized into shade bands so a building's facets
+ * broke at the same angles its toon-ramped neighbours' did -- right for a
+ * flat-faced building, where the banding lands on real edges. Task 7 put
+ * every world material, textured buildings included, under one real sun
+ * instead (`world-materials.ts`), so that comparison no longer holds
+ * elsewhere in this tree -- but the reasoning this screen was built on still
+ * does: this board is continuous terrain, where hard bands would draw
+ * contour terraces across every hillside that are not in the source, so it
+ * stays smooth. Match the SHAPE of the thing being lit.
  */
 import * as THREE from 'three';
 
-import { prepareTexturedMap } from '../units/textured-building';
 import type { CampaignRegionStatus } from './world-scene';
 
 /**
- * `prepareTexturedMap` under this screen's own name.
+ * Makes a `base_color` map from `GLTFLoader` safe for THIS screen's own
+ * colour pipeline.
  *
- * Re-exported rather than left to be found in `../units/textured-building`:
- * the colour-space line is the one thing on this asset that fails silently,
- * and naming it here means a reader of this file does not have to already
- * know that a campaign world and a Meshy house share a hazard.
+ * Own definition, not a re-export, as of Task 7: the battlefield renderer's
+ * equivalent (`world-materials.ts`'s `prepareTexturedMap`) used to live in
+ * `units/textured-building.ts` and was re-exported from here under this
+ * name so a reader would not have to already know that a campaign world and
+ * a Meshy house shared a colour-space hazard -- Task 7 deleted that copy
+ * along with the rest of the toon-ramp pipeline, and moved the battlefield's
+ * own version to `world-materials.ts` tagged `SRGBColorSpace`, because
+ * `ThreeRenderer`'s output is standard sRGB now. This screen is a
+ * deliberate, separate exemption from that migration (`world-view.ts`'s own
+ * top comment: `applyPalettePipeline` was never called here, and
+ * `outputColorSpace` is set directly, still pass-through
+ * `LinearSRGBColorSpace` -- "keeps its own smooth-shade material this
+ * phase", the design spec's own words), so this map still wants
+ * `NoColorSpace`: `GLTFLoader` stamps `SRGBColorSpace` on a baseColorTexture
+ * regardless of what renders it, and with no matching encode on output
+ * here, a decoded sample would come out wrong twice over. Measured
+ * elsewhere in this tree (when this was still the shared function), getting
+ * it wrong drops a lit wall from rgb 67 to 51 and still looks like a
+ * building.
  */
-export { prepareTexturedMap as prepareCampaignMap };
+export function prepareCampaignMap(map: THREE.Texture): THREE.Texture {
+  map.colorSpace = THREE.NoColorSpace;
+  map.generateMipmaps = true;
+  map.minFilter = THREE.LinearMipmapLinearFilter;
+  map.magFilter = THREE.LinearFilter;
+  map.needsUpdate = true;
+  return map;
+}
 
 /** Saturation multiplier and brightness multiplier for one region state. */
 export interface RegionVisual {
@@ -119,8 +143,9 @@ export const HOVER_BRIGHT = 1.16;
  */
 export const WORLD_SHADE = 0.34;
 
-/** The sun, in world space. `toonRampMaterial`'s own long-standing constant,
- *  so the board is lit from where the battlefield is lit from. */
+/** The sun, in world space -- the toon-ramp era's own long-standing
+ *  constant, so the board is lit from where the battlefield used to be lit
+ *  from. */
 export const WORLD_LIGHT_DIR = new THREE.Vector3(0.5, 1, 0.3).normalize();
 
 /**
@@ -130,17 +155,13 @@ export const WORLD_LIGHT_DIR = new THREE.Vector3(0.5, 1, 0.3).normalize();
  * a uniform, so a shared material would mean locking one region locked every
  * region.
  *
- * `map` goes through `prepareTexturedMap` for `NoColorSpace`: `GLTFLoader`
- * stamps `SRGBColorSpace` on a baseColorTexture and this renderer's output
- * is pass-through (`applyPalettePipeline`), so an sRGB internal format
- * decodes on every sample with nothing to re-encode it. Measured elsewhere
- * in this tree, getting it wrong drops a lit wall from rgb 67 to 51 and
- * still looks like a building.
+ * `map` goes through `prepareCampaignMap` (above) for `NoColorSpace`: see
+ * that function's own doc comment for why this screen still wants it.
  */
 export function campaignWorldMaterial(map: THREE.Texture, visual: RegionVisual): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     uniforms: {
-      uMap: { value: prepareTexturedMap(map) },
+      uMap: { value: prepareCampaignMap(map) },
       uLightDir: { value: WORLD_LIGHT_DIR.clone() },
       uShade: { value: WORLD_SHADE },
       uSat: { value: visual.sat },

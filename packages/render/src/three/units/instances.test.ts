@@ -9,7 +9,8 @@
  * mechanism work (see `instances.ts`'s own top comment, "The unit-vs-tree
  * tie, and what actually resolves it"), needs no GPU at all: `THREE.Material`
  * and friends are plain JS objects under `environment: 'node'`, the same
- * fact `palette-material.test.ts` already relies on for `new THREE.Color`.
+ * fact `ThreeRenderer.test.ts`'s "the colour pipeline" tests rely on for
+ * `new THREE.Color`.
  */
 import { describe, it, expect, vi } from 'vitest';
 import * as THREE from 'three';

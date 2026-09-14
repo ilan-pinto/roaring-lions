@@ -109,7 +109,6 @@
 import * as THREE from 'three';
 import { gltfLoader } from './gltf-loader';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
-import { paletteColorNoConvert } from '../palette-material';
 import { meshYawFromFacing } from './mesh-anim';
 import {
   MUZZLE_FLASH_ROLES,
@@ -182,7 +181,7 @@ export function muzzleFlashPowerScale(power: number): number {
  * past PI. `sin(progress * PI)`: 0 at spawn, peaks at exactly the flash's
  * own midlife, back to 0 at death -- the identical curve
  * `FlashLightManager.step` already uses for the ramp-shift "light" this
- * mesh is spawned alongside (`palette-material.ts`'s own doc comment,
+ * mesh is spawned alongside (`flash-light.ts`'s own `step` doc comment,
  * "grow fast, shrink out" -- restated verbatim there), reused rather than
  * a second curve invented for the mesh side of the same event.
  */
@@ -218,7 +217,7 @@ export const MUZZLE_FLASH_BASE_SCALE = 0.3;
  *  instance lives for (`MuzzleFlashManager.spawn`'s doc comment) -- this is
  *  the fallback for the (currently unreachable, since `fire_apfsds.json`
  *  declares `light`) case of a future `mesh_flash`-marked layer on an
- *  emitter with none. Matches `palette-material.ts`'s own documented
+ *  emitter with none. Matches `flash-light.ts`'s own documented
  *  "130ms median" across the eight shipped `light` declarations, rounded. */
 export const MUZZLE_FLASH_DEFAULT_DURATION_MS = 130;
 
@@ -377,7 +376,7 @@ export class MuzzleFlashManager {
    *  with `load()`. */
   setColors(resolve: (key: string) => string): void {
     for (const role of MUZZLE_FLASH_ROLES) {
-      const color = paletteColorNoConvert(resolve(muzzleFlashPaletteKey(role)));
+      const color = new THREE.Color(resolve(muzzleFlashPaletteKey(role)));
       (this.materials[role].uniforms.uColor.value as THREE.Color).copy(color);
     }
   }

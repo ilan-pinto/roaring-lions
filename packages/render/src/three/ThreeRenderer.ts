@@ -112,7 +112,6 @@ import { SIM_HZ } from '../anim';
 import { parseManifest, parseStructureManifest, clipOrFallback, type SheetSpec } from '../sheet';
 import { resolveClip, type UnitAnimInput } from '../clip';
 import { dimetricCamera, worldToScreenThree, screenToWorldThree } from './camera';
-import { applyPalettePipeline } from './palette-material';
 import { FlashLightManager } from './flash-light';
 import { MuzzleFlashManager, MUZZLE_FLASH_DEFAULT_DURATION_MS } from './units/muzzle-flash';
 import {
@@ -156,7 +155,7 @@ import {
   type TexturedDecorSet,
 } from './terrain/decor-textured-mesh';
 import { isTexturedDecorKey } from './terrain/textured-decor';
-import { prepareTexturedMap } from './units/textured-building';
+import { prepareTexturedMap } from './world-materials';
 import { dirtyForStructureHit, dirtyForStructureDestroyed } from './terrain/dirty';
 import { isGrindingHit } from '../grind';
 import { packSheet, buildUnitTexture } from './units/atlas';
@@ -922,11 +921,11 @@ export class ThreeRenderer implements Renderer {
    *  comment). Reused across rebuilds for the same reason `terrainMat` is. */
   private readonly groveMat: GroveMaterial = new GroveMaterial();
   /**
-   * Owns the muzzle-flash ramp-shift pool (`./palette-material.ts`'s own
-   * "The muzzle-flash 'light'" doc comment) -- one instance for the whole
-   * renderer, since the effect is deliberately GLOBAL: every registered
-   * material sampled the SAME uniform arrays, differentiated only by each
-   * fragment's own world position, not by which entity fired.
+   * Owns the muzzle-flash ramp-shift pool (`./flash-light.ts`'s own top
+   * comment) -- one instance for the whole renderer, since the effect is
+   * deliberately GLOBAL: every registered material sampled the SAME uniform
+   * arrays, differentiated only by each fragment's own world position, not
+   * by which entity fired.
    *
    * **It has no registered materials at all right now, and that is the
    * intended intermediate state.** A ramp shift is a step down a quantized
@@ -1622,22 +1621,18 @@ export class ThreeRenderer implements Renderer {
     this.silhouetteMeshMaterials = SILHOUETTE_COLOR_KEY_BY_SIDE.map((key, slot) =>
       createMeshSilhouetteMaterial(this.overlayColor(key, SILHOUETTE_FALLBACK_HEX_BY_SIDE[slot]))
     );
-    // antialias stays off deliberately (Phase 0 verdict, "Antialiasing must
-    // be off, or accounted for"): a blended edge pixel is by definition not
-    // a palette colour, and this backend's sprite/toon pipeline quantizes
-    // rather than blends. Do not re-enable it without accounting for edges.
     // `stencil: true` is NOT boilerplate: `units/silhouette.ts` masks a
     // unit's own far side out of its occlusion silhouette with a one-bit
     // stencil, and three.js's own default is `stencil: false`. With no
     // stencil attachment the test silently always passes and every vehicle
     // grows flat blue patches in the open -- measured, not feared.
-    this.renderer = new THREE.WebGLRenderer({ antialias: false, stencil: true });
-    // outputColorSpace and the clear colour, in the one order that is
-    // correct -- see palette-material.ts's module doc comment for why
-    // three.js reads outputColorSpace synchronously inside setClearColor(),
-    // which is exactly why this is a single call rather than two lines a
-    // future edit could reorder.
-    applyPalettePipeline(this.renderer, this.opts.background);
+    // Antialiasing on the raw renderer covers the composer-less path (tests,
+    // spikes); the composer's SMAA pass covers the game (post-chain.ts).
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true });
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.0;
+    this.renderer.setClearColor(new THREE.Color(this.opts.background));
     // Added unconditionally, not lazily on first useEmitters/spawn -- all
     // three meshes start at count/drawRange 0 (nothing live yet) and simply
     // stay that way until there is something to draw, the same "always
@@ -2656,15 +2651,15 @@ export class ThreeRenderer implements Renderer {
 
     const emitter = this.emitterLibrary.fireEmitterFor(cls);
     const power = wp ? firePower(wp) : 0;
-    // Muzzle-flash ramp shift (`./palette-material.ts`'s own "The
-    // muzzle-flash 'light'" doc comment) -- a no-op when this emitter
-    // declares no `light` (`FlashLightManager.spawn` itself no-ops on a
-    // missing/zero `decay_ms`, which an absent `light` object also produces
-    // via the `?.` below). `light.color` is deliberately NOT read here: the
-    // chosen mechanism shifts a surface toward ITS OWN ramp's lighter step,
-    // not toward the flash's own hue -- tinting every nearby surface toward
-    // `vfx.white_hot` would reintroduce the exact off-palette RGB-summation
-    // problem `additive` (`units/fx.ts`) was already rejected for.
+    // Muzzle-flash ramp shift (`./flash-light.ts`'s own top comment) -- a
+    // no-op when this emitter declares no `light` (`FlashLightManager.spawn`
+    // itself no-ops on a missing/zero `decay_ms`, which an absent `light`
+    // object also produces via the `?.` below). `light.color` is
+    // deliberately NOT read here: the chosen mechanism shifts a surface
+    // toward ITS OWN ramp's lighter step, not toward the flash's own hue --
+    // tinting every nearby surface toward `vfx.white_hot` would reintroduce
+    // the exact off-palette RGB-summation problem `additive`
+    // (`units/fx.ts`) was already rejected for.
     if (emitter?.light) this.flashLights.spawn(mzX, mzY, emitter.light);
 
     // Kick the shooter back along its own bearing (renderer.ts:792-800).

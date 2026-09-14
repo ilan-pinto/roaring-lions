@@ -93,9 +93,9 @@ export function quantise(hex: string, palette: readonly string[]): string {
  * straight from `data/palette.json`'s `ramps`, where that convention lives).
  * Used to build a "lit" variant of a terrain TONE (`buildGround`'s own
  * `litColors` output) for the muzzle-flash ramp-shift effect
- * (`../palette-material.ts`'s "The muzzle-flash 'light'" doc comment) --
- * terrain has no normal and no per-vertex ramp/index bookkeeping the way
- * `toonRampMaterial` does (this module's own top comment: terrain is
+ * (`../flash-light.ts`'s own top comment) -- terrain has no normal and no
+ * per-vertex ramp/index bookkeeping the way the toon-ramp era's
+ * `toonRampMaterial` did (this module's own top comment: terrain is
  * "composited... then quantised", a single already-resolved hex with no
  * ramp identity preserved past that point), so the lighter step has to be
  * computed from the TONE itself, once, before compositing -- not from the

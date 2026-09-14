@@ -111,7 +111,6 @@ import {
   collapseShroudPaletteKey,
   collapseShroudShadeForRow,
 } from './collapse-shroud-role';
-import { paletteColorNoConvert } from '../palette-material';
 import { SMOKE_RENDER_ORDER } from './render-order';
 
 // ---------------------------------------------------------------------------
@@ -726,7 +725,7 @@ export class CollapseShroudManager {
   setColors(resolve: (key: string) => string): void {
     const uniforms = ['uDeep', 'uBody', 'uCrown'] as const;
     for (let i = 0; i < COLLAPSE_SHROUD_SHADES.length; i++) {
-      const color = paletteColorNoConvert(resolve(collapseShroudPaletteKey(COLLAPSE_SHROUD_SHADES[i])));
+      const color = new THREE.Color(resolve(collapseShroudPaletteKey(COLLAPSE_SHROUD_SHADES[i])));
       (this.material.uniforms[uniforms[i]].value as THREE.Color).copy(color);
     }
   }

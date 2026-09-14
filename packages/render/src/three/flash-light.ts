@@ -1,10 +1,15 @@
 /**
- * The muzzle-flash "light": a bounded pool of transient ramp-index shifts,
- * shared by every registered `toonRampMaterial`/`toonRampSkinnedMaterial`/
- * terrain-material instance. See `./palette-material.ts`'s own doc comment
- * ("The muzzle-flash 'light'") for why this is an index shift and not a
- * `THREE.PointLight` or additive RGB, and for `FLASH_CAPACITY`'s own budget
- * reasoning.
+ * The muzzle-flash "light": a bounded pool of transient ramp-index shifts.
+ * Until Task 7, `register()` pointed every `toonRampMaterial`/
+ * `toonRampSkinnedMaterial`/terrain-material instance's `uFlash*` uniforms
+ * at this manager's own live arrays; those materials are gone
+ * (`ThreeRenderer`'s world materials are all `MeshStandardMaterial` now,
+ * with no such uniforms to point at), so `register()` currently has no
+ * caller -- `spawn`/`step`
+ * still run every frame, harmlessly, tracking state nothing samples. Task 8
+ * rewrites this manager to drive real `THREE.PointLight`s instead of a
+ * shader-side index shift, keeping this file's shape (`spawn`/`step`/pool
+ * eviction) but not its GLSL-era reasoning.
  *
  * Pure aside from the `register()` method's own material-uniform wiring --
  * `spawn`/`step` touch nothing GPU-facing, so this is exercised directly in
@@ -18,7 +23,26 @@
  * nothing back, exactly like every other VFX consumer in this backend.
  */
 import * as THREE from 'three';
-import { FLASH_CAPACITY } from './palette-material';
+
+/**
+ * How many flashes can be simultaneously active, GLOBALLY, not per
+ * material. 8 is a deliberate ceiling, not the literal "eight emitters
+ * declare `light`" coincidence: unlike a tracer (which persists for its
+ * whole ballistic flight -- Task B3.14 measured 268 CONCURRENT tracers from
+ * a dozen shooters in a real firefight, `units/fx.ts`'s `TRACER_CAPACITY`
+ * doc comment), a flash is tied 1:1 to a `fire` event and decays fast
+ * (70-500ms across the eight declarations, 130ms median) -- expected
+ * concurrent count even in a 400-unit battle is bounded by (fleet-wide
+ * shots/second x mean decay time), not by ballistic flight time, and low
+ * single digits to a dozen is the plausible range from that arithmetic.
+ * Overflow drops the OLDEST active flash (`spawn` below), the same "keep
+ * the newest, that is what the player is looking at" reasoning
+ * `units/fx.ts`'s `writeTracerInstances` already uses for tracer overflow.
+ * This is an ASSUMPTION, not a measurement -- no 400-unit browser run of
+ * this feature exists yet to confirm 8 is enough headroom, the same caveat
+ * `TRACER_CAPACITY`'s own doc comment carries for its own number.
+ */
+export const FLASH_CAPACITY = 8;
 
 /** The `light` sub-object shape this manager consumes -- `EmitterSpec`'s own
  *  field (`../vfx/emitters.ts`), narrowed to what `spawn` reads so this file
@@ -32,11 +56,12 @@ export interface FlashLightSpec {
 /**
  * Ramp steps a flash shifts by AT FULL STRENGTH (the peak of its own
  * `sin(progress * PI)` curve, `step`'s own doc comment) -- `round(intensity)`
- * clamped to this. Half of `RAMP_MAX` (9): a shipped `fire_apfsds`/
- * `catastrophic_kill` (`intensity` 3.5-3.8, the two brightest of the eight
- * declarations) round to exactly this cap, reading as a strong, unmistakable
- * pop without collapsing every ramp to its single lightest entry regardless
- * of how many bands it actually has.
+ * clamped to this. Half of the longest ramp in `data/palette.json`
+ * (limestone, 9 steps): a shipped `fire_apfsds`/`catastrophic_kill`
+ * (`intensity` 3.5-3.8, the two brightest of the eight declarations) round
+ * to exactly this cap, reading as a strong, unmistakable pop without
+ * collapsing every ramp to its single lightest entry regardless of how many
+ * bands it actually has.
  */
 const MAX_SHIFT_STEPS = 4;
 
@@ -58,8 +83,7 @@ export class FlashLightManager {
    *  registered material's `uFlashPos.value` (`register` below), so mutating
    *  these in place (`step`) updates every material with no per-material
    *  write loop. Unused slots (beyond `flashes.length`) sit far off any
-   *  authored map (`1e6`), matching `defaultFlashUniforms`'s own inert
-   *  default. */
+   *  authored map (`1e6`), an inert default regardless of what reads it. */
   readonly posArray: THREE.Vector2[];
   readonly radiusArray: number[];
   readonly shiftArray: number[];
@@ -73,8 +97,9 @@ export class FlashLightManager {
 
   /**
    * Spawns one flash at `(x, y)` (game tile coordinates, which this backend
-   * maps 1:1 onto world X/Z -- see `palette-material.ts`'s `FLASH_SHIFT_GLSL`
-   * doc comment) from an `EmitterSpec.light`. A no-op when `decay_ms` is
+   * maps 1:1 onto world X/Z -- `camera.ts`'s own documented convention,
+   * game tile `(x, y)` is three.js `(x, elevation, y)`) from an
+   * `EmitterSpec.light`. A no-op when `decay_ms` is
    * absent/zero (nothing to animate) or when `round(intensity)` rounds to 0
    * -- `cigarette_ember`'s declared `intensity: 0.3` is the one shipped
    * emitter this excludes: reading `light` now does not mean every
@@ -103,12 +128,12 @@ export class FlashLightManager {
    * intensity curve, not a linear fade -- rises from 0, peaks at the flash's
    * own midlife, falls back to 0, "grow fast, shrink out" rather than
    * starting at full brightness and ticking down. `shiftArray[i]` is that
-   * curve's value at THIS frame, ROUNDED to a whole ramp step (not
-   * interpolated) -- the spatial falloff is already stepped (inside `radius`
-   * or not, `flashShiftSteps` in the shared GLSL), and rounding the temporal
-   * curve too keeps every sampled fragment colour an exact `uRamp` entry at
-   * every instant, provable by direct pixel comparison against
-   * `data/palette.json` rather than merely argued.
+   * curve's value at THIS frame, ROUNDED to a whole step (not interpolated)
+   * -- a whole-step spatial falloff was the shader-era reason (on-palette by
+   * construction, every sampled fragment an exact `uRamp` entry); nothing
+   * samples `shiftArray` today (see this class's own top comment), but the
+   * rounding stays because a fractional shift has no other meaning defined
+   * for it yet either.
    */
   step(dtMs: number): void {
     for (let i = this.flashes.length - 1; i >= 0; i--) {
@@ -139,10 +164,11 @@ export class FlashLightManager {
    * no-op in effect) and safe on a material this manager never spawns a
    * flash near (its slot values simply never move off their inert default).
    *
-   * Requires `material` to have been built with `defaultFlashUniforms()`
-   * (`toonRampMaterial`, `toonRampSkinnedMaterial`, and the terrain
-   * material all are) -- narrowed to a structural shape rather than
-   * `THREE.ShaderMaterial` so a test fixture needs no full material.
+   * Requires `material` to already carry `uFlashPos`/`uFlashRadius`/
+   * `uFlashShift` uniforms -- no shipped material does as of Task 7 (this
+   * class's own top comment), so `register()` currently has no caller.
+   * Narrowed to a structural shape rather than `THREE.ShaderMaterial` so a
+   * test fixture needs no full material.
    */
   register(material: { uniforms: Record<string, { value: unknown }> }): void {
     material.uniforms.uFlashPos.value = this.posArray;

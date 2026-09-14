@@ -35,9 +35,8 @@
 import * as THREE from 'three';
 import { gltfLoader } from '../units/gltf-loader';
 import { dimetricCamera } from '../camera';
-import { applyPalettePipeline } from '../palette-material';
 import { readRamp } from '../units/mesh-role';
-import { toonRampSkinnedMaterial } from '../units/mesh-material';
+import { rampMaterial } from '../world-materials';
 
 /** `tools/dimetric.py`'s `UNITS_PER_TILE`: a tile is 3 m, three draws 1 unit
  *  per tile, and this asset is authored in metres like our own. */
@@ -71,7 +70,8 @@ export async function mountSoldierView(
   renderer.setPixelRatio(1);
   const vp = { width: host.clientWidth, height: host.clientHeight };
   renderer.setSize(vp.width, vp.height, false);
-  applyPalettePipeline(renderer, readRamp('limestone')[3]);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.setClearColor(new THREE.Color(readRamp('limestone')[3]));
   host.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
@@ -81,7 +81,7 @@ export async function mountSoldierView(
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(8, 8),
     new THREE.MeshBasicMaterial({
-      color: new THREE.Color().setStyle(readRamp('limestone')[3], THREE.LinearSRGBColorSpace),
+      color: new THREE.Color(readRamp('limestone')[3]),
     })
   );
   ground.rotation.x = -Math.PI / 2;
@@ -97,7 +97,7 @@ export async function mountSoldierView(
   // shared toon ramp, since this mesh has ONE material and no `rl_role` parts
   // to shade separately -- unlike our own figures, which carry seven.
   const originals = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
-  const paletteMat = toonRampSkinnedMaterial(readRamp('olive'));
+  const paletteMat = rampMaterial(readRamp('olive'));
   root.traverse((o) => {
     const m = o as THREE.Mesh;
     if (m.isMesh) originals.set(m, m.material);

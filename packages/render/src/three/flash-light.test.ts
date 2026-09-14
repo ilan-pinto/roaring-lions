@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FlashLightManager } from './flash-light';
-import { FLASH_CAPACITY } from './palette-material';
+import { FlashLightManager, FLASH_CAPACITY } from './flash-light';
 
 describe('FlashLightManager', () => {
   it('spawns nothing for a light with no decay_ms -- there is no duration to animate', () => {

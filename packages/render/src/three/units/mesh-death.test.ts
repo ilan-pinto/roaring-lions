@@ -113,10 +113,9 @@ describe('beginMeshDeathFade / setMeshDeathOpacity / endMeshDeathFade', () => {
     // production -- not a hand-rolled stand-in -- so this exercises the
     // clone path against the real `MeshStandardMaterial` shape it actually
     // runs on. Two overlapping windows of the same "olive" example ramp
-    // (`mesh-material.test.ts`'s own `OLIVE`) give two materials whose lit
-    // tone (`liftTone` picks index 1 of a >=3-step ramp) differs -- A lands
-    // on `#6E7449`, B on `#4E5433` -- so they stay distinguishable by more
-    // than object identity alone.
+    // give two materials whose lit tone (`liftTone` picks index 1 of a
+    // >=3-step ramp) differs -- A lands on `#6E7449`, B on `#4E5433` -- so
+    // they stay distinguishable by more than object identity alone.
     const materialA = rampMaterial(['#8F9464', '#6E7449', '#4E5433']);
     const materialB = rampMaterial(['#6E7449', '#4E5433', '#333821']);
     const root = new THREE.Group();

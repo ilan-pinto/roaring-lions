@@ -39,15 +39,17 @@
  *
  * ## Colour space
  *
- * `applyPalettePipeline` is deliberately NOT used here, and that is not an
- * oversight. It does two things: sets `outputColorSpace` to pass-through,
- * and puts the CLEAR colour through the same non-converting path so the
- * background lands on-palette. This canvas has no clear colour -- it is
- * transparent, and the campaign page's own theme is the ground behind it --
- * so the second half has nothing to do. The first half is done directly
- * below, and it is the half `prepareTexturedMap`'s `NoColorSpace` is paired
- * with: get either wrong and the whole board renders dark and still looks
- * like a plausible diorama.
+ * This screen never went through the battlefield renderer's own shared
+ * pass-through helper (`ThreeRenderer.ts`'s own colour-pipeline lines,
+ * `applyPalettePipeline` before Task 7 deleted it), and that is not an
+ * oversight. That helper did two things: set `outputColorSpace` to
+ * pass-through, and put the CLEAR colour through the same non-converting
+ * path so the background lands on-palette. This canvas has no clear colour
+ * -- it is transparent, and the campaign page's own theme is the ground
+ * behind it -- so the second half has nothing to do here. The first half is
+ * done directly below, and it is the half `prepareCampaignMap`'s
+ * `NoColorSpace` (`world-material.ts`) is paired with: get either wrong and
+ * the whole board renders dark and still looks like a plausible diorama.
  */
 import * as THREE from 'three';
 import { gltfLoader, setDracoDecoderPath } from '../units/gltf-loader';
@@ -180,19 +182,22 @@ export async function mountWorldView(
     // Transparent: the campaign page's own ground shows through, so the
     // board is an object on the page rather than a rectangle cut out of it.
     alpha: true,
-    // ON, unlike every other surface in this backend. `ThreeRenderer` turns
-    // it off because a blended edge pixel is by definition not one of
-    // `data/palette.json`'s 42 colours (Phase 0's second finding) -- but
-    // this asset is the named exemption from that palette entirely, its
+    // ON. Before Task 7, this was unlike every other surface in this
+    // backend: `ThreeRenderer` turned it off because a blended edge pixel
+    // was by definition not one of `data/palette.json`'s 42 colours (Phase
+    // 0's second finding), and this asset was the named exemption from that
+    // palette entirely. `ThreeRenderer` now matches (Task 7 lifted the
+    // ban), but this screen's own reason stands independently of that: its
     // colours are a photographic bake, and its silhouette is a hex rim that
     // turns. Aliasing on a rotating diagonal edge is the single most visible
-    // artefact this screen could have, and there is no palette guarantee
-    // here for it to cost.
+    // artefact this screen could have.
     antialias: true,
   });
   renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 2));
-  // Pass-through output, pairing with `prepareTexturedMap`'s `NoColorSpace`.
-  // See this file's header for why `applyPalettePipeline` is not the call.
+  // Pass-through output, pairing with `prepareCampaignMap`'s `NoColorSpace`
+  // (`world-material.ts`). See this file's header for why
+  // `applyPalettePipeline`'s replacement in `ThreeRenderer.ts` is not the
+  // call here either.
   renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
   renderer.setClearAlpha(0);
   renderer.domElement.style.display = 'block';

@@ -1,8 +1,8 @@
 /**
  * `rl_role` -> the RAMP SLICE a BUILDING mesh's role shades through, for the
- * same rigid, non-skinned toon material vehicles shade through
- * (`../palette-material.ts`'s `toonRampMaterial` -- a building is rigid
- * geometry, per the contract: "no armature, no skin, no clips, no pivot").
+ * same lit standard material vehicles shade through (`../world-materials.ts`'s
+ * `rampMaterial` -- a building is rigid geometry, per the contract: "no
+ * armature, no skin, no clips, no pivot").
  *
  * A THIRD closed role vocabulary, distinct from both infantry's ten and
  * vehicles' six -- the mesh unit contract's v2 text never enumerates one for
@@ -47,7 +47,6 @@
  * task's report exactly like the vehicle table is.
  */
 import { readRamp } from './mesh-role';
-import type { CourseSurface } from '../palette-material';
 
 export const BUILDING_MESH_ROLES = [
   'wall',
@@ -104,10 +103,24 @@ const BUILDING_ROLE_PALETTE: Record<Exclude<BuildingMeshRole, 'wall'>, readonly 
 };
 
 /**
+ * The two masonry-like surfaces a wall's `render_building.py` bond graphic
+ * distinguished -- `brick`'s coursed joints and `panel`'s (concrete) larger,
+ * uncoursed board-formed bands. The GLSL that actually drew that distinction
+ * (`toonRampMaterial`'s `coursing` option, `COURSE_SPECS`) was retired with
+ * the rest of the toon-ramp pipeline in Task 7 -- the sun and normal maps do
+ * that job on a photographed building now, and a kit-built one just shades
+ * flat -- but the vocabulary survives here as `WallSurface`'s non-`'flat'`
+ * half, a parameter a future lit-coursing mechanism has waiting for it
+ * (`mesh-building.ts`'s `buildBuildingMeshTemplate` still threads
+ * `wallSurfaceForBuilding(structureId)` through, unread, rather than
+ * ripping the signature out for a removal this task did not ask for).
+ */
+type CourseSurface = 'brick' | 'panel';
+
+/**
  * What a building TYPE's `wall` role is made of, and therefore which
- * generated surface (if any) its wall material draws --
- * `palette-material.ts`'s `CourseSurface`, plus `'flat'` for a wall that is
- * not masonry at all.
+ * generated surface (if any) its wall material once drew -- `CourseSurface`
+ * above, plus `'flat'` for a wall that is not masonry at all.
  *
  * A ninth thing keyed by structure id, and the closed-set rule applies here
  * exactly as it does to the role vocabulary above: an id outside this table
@@ -126,9 +139,9 @@ const BUILDING_ROLE_PALETTE: Record<Exclude<BuildingMeshRole, 'wall'>, readonly 
  *             on seeing it was that concrete did not read at gameplay zoom
  *             at all; it is now as loud as brick, and stays concrete rather
  *             than becoming big brick because of the bond, not the
- *             contrast. See `palette-material.ts`'s `COURSE_SPECS` for the
- *             measurement that settled which of the two candidate causes
- *             was real (it was not the geometry).
+ *             contrast -- a measurement made against the two candidate
+ *             causes (it was not the geometry) back when coursing was still
+ *             GLSL, in the now-deleted `COURSE_SPECS`.
  *  - `flat`   shanty (corrugated sheet), warehouse (metal), camp (canvas
  *             over HESCO). None of the three is a laid material and coursing
  *             any of them would be a lie about what it is.

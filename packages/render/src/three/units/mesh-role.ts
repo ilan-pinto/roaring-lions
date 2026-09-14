@@ -1,6 +1,7 @@
 /**
  * `rl_role` -> the RAMP SLICE that role shades through, for a mesh unit's
- * toon material (`mesh-material.ts`'s `toonRampSkinnedMaterial`).
+ * lit standard material (`../world-materials.ts`'s `rampMaterial`; the
+ * toon-ramp era's `toonRampSkinnedMaterial` was retired by Task 7).
  *
  * Promoted from Phase R0's spike (`spike/rig-scene.ts`'s `RAMP_FOR_ROLE`)
  * after the GO verdict (`docs/superpowers/specs/2026-08-28-phase-r0-verdict.md`).

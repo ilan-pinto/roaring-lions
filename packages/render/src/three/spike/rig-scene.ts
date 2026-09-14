@@ -4,10 +4,13 @@
  * this file's own two load-bearing pieces -- the skinned toon material and the
  * `rl_role` -> ramp-slice table -- were promoted out of this directory into
  * `../units/mesh-material.ts` and `../units/mesh-role.ts`, which the shipped
- * mesh-unit path (`../units/mesh-unit.ts`) now uses too. This file imports
- * both rather than keeping its own copy. What remains here -- the side-by-side
- * judging rig itself -- is still throwaway: a dev-only comparison harness, not
- * wired into `ThreeRenderer`, deletable on its own schedule.
+ * mesh-unit path (`../units/mesh-unit.ts`) now used too. Task 7 deleted
+ * `mesh-material.ts` along with the rest of the toon-ramp pipeline; this file
+ * now imports the lit replacement, `rampMaterial` (`../world-materials.ts`),
+ * and still imports `../units/mesh-role.ts` unchanged. What remains here --
+ * the side-by-side judging rig itself -- is still throwaway: a dev-only
+ * comparison harness, not wired into `ThreeRenderer`, deletable on its own
+ * schedule.
  *
  * A side-by-side judging rig: the code-authored rigged infantry mesh on the
  * left, the SHIPPING `INF_SQUAD` billboard sheet on the right, same camera,
@@ -33,10 +36,10 @@
  * would answer a question about a projection the game does not have.
  *
  * The mesh carries no materials from Blender (the GLB exports zero) -- every
- * colour on it comes from `toonRampSkinnedMaterial` and `rampForRole`
- * (imported above). That is deliberate: it keeps the palette guarantee
- * entirely on this side, where it can be reasoned about, rather than
- * splitting it across an art tool and a shader.
+ * colour on it comes from `rampMaterial` and `rampForRole` (imported
+ * above). That is deliberate: it keeps the palette guarantee entirely on
+ * this side, where it can be reasoned about, rather than splitting it
+ * across an art tool and a shader.
  *
  * ## The scale chain, which is easy to get wrong in two places
  *
@@ -52,8 +55,7 @@
 import * as THREE from 'three';
 import { gltfLoader } from '../units/gltf-loader';
 import { dimetricCamera } from '../camera';
-import { applyPalettePipeline } from '../palette-material';
-import { toonRampSkinnedMaterial } from '../units/mesh-material';
+import { rampMaterial } from '../world-materials';
 import { readRamp, rampForRole, isMeshRole } from '../units/mesh-role';
 
 /** `tools/dimetric.py`'s `UNITS_PER_TILE`. Blender builds at metres; three
@@ -112,9 +114,8 @@ export async function mountRigSpike(
   renderer.setPixelRatio(1);
   const vp = { width: host.clientWidth, height: host.clientHeight };
   renderer.setSize(vp.width, vp.height, false);
-  // Sets outputColorSpace AND the clear colour, in that order, so neither
-  // lands off-palette. See `palette-material.ts` on why this is one call.
-  applyPalettePipeline(renderer, readRamp('limestone')[3]);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.setClearColor(new THREE.Color(readRamp('limestone')[3]));
   host.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
@@ -124,7 +125,7 @@ export async function mountRigSpike(
   // for the same reason.
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(6, 6),
-    new THREE.MeshBasicMaterial({ color: new THREE.Color().setStyle(readRamp('limestone')[3], THREE.LinearSRGBColorSpace) })
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(readRamp('limestone')[3]) })
   );
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
@@ -152,7 +153,7 @@ export async function mountRigSpike(
       return;
     }
     // The spike only ever showed a KDF figure (Phase R0 tested one faction).
-    const mat = toonRampSkinnedMaterial(rampForRole(role, 'kdf'));
+    const mat = rampMaterial(rampForRole(role, 'kdf'));
     mesh.material = mat;
     ownedMaterials.push(mat);
   });
@@ -183,7 +184,7 @@ export async function mountRigSpike(
       // blends palette entries into values that are not in the palette.
       tex.magFilter = THREE.NearestFilter;
       tex.minFilter = THREE.NearestFilter;
-      tex.colorSpace = THREE.LinearSRGBColorSpace;
+      tex.colorSpace = THREE.SRGBColorSpace;
       frames.push(tex);
     }
     spriteFrames.set(clipName, frames);

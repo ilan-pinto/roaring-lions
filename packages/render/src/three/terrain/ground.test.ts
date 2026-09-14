@@ -122,9 +122,9 @@ describe('buildGround', () => {
   });
 
   it('litColors matches colors in length and vertex order, and is ALSO always a palette entry', () => {
-    // The muzzle-flash ramp-shift effect (`../palette-material.ts`'s "The
-    // muzzle-flash 'light'" doc comment) swaps a fragment's colour for
-    // `litColors` wholesale, never blends the two -- so `litColors` has to
+    // The muzzle-flash ramp-shift effect (`../flash-light.ts`'s own top
+    // comment) swaps a fragment's colour for `litColors` wholesale, never
+    // blends the two -- so `litColors` has to
     // carry the SAME on-palette guarantee `colors` does, proven the same
     // direct way, not merely argued from `rampNeighbor` only ever returning
     // a ramp member (or its input unchanged).
@@ -150,7 +150,7 @@ describe('buildGround', () => {
     // that fed rampNeighbor a positive-but-wrong sign, or looked up the wrong
     // ramp, could still land on a valid palette entry while getting brighter
     // and darker backwards -- exactly the "index 0 is the LIGHTEST step"
-    // mistake `palette-material.ts` warns has already cost three renders.
+    // mistake that has already cost three renders elsewhere in this tree.
     // Luminance (perceptual weights, matching common practice) is a coarse
     // proxy for "brighter", but it is directionally reliable for the specific
     // tone/ramp pairs this map's TONES use, and every one of them is checked.

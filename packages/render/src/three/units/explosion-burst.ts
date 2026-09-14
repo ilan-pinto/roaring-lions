@@ -99,7 +99,6 @@
 import * as THREE from 'three';
 import { gltfLoader } from './gltf-loader';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
-import { paletteColorNoConvert } from '../palette-material';
 import {
   EXPLOSION_BURST_ROLES,
   isExplosionBurstRole,
@@ -352,7 +351,7 @@ export class ExplosionBurstManager {
    *  mirrors `MuzzleFlashManager.setColors` exactly. */
   setColors(resolve: (key: string) => string): void {
     for (const role of EXPLOSION_BURST_ROLES) {
-      const color = paletteColorNoConvert(resolve(explosionBurstPaletteKey(role)));
+      const color = new THREE.Color(resolve(explosionBurstPaletteKey(role)));
       (this.materials[role].uniforms.uColor.value as THREE.Color).copy(color);
     }
   }
