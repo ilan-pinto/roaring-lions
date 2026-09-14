@@ -30,6 +30,7 @@ import {
 import { SMOKE_PLUME_DENSITY, SMOKE_PLUME_DEFAULT_DURATION_MS } from './smoke-plume';
 import { SMOKE_ALPHA_CEIL } from '../smoke-mesh';
 import { SMOKE_RENDER_ORDER } from './render-order';
+import { hexToLinear } from '../terrain/shared';
 
 /**
  * The world-space extents of every shipped building mesh, read off the loaded
@@ -467,7 +468,16 @@ describe('CollapseShroudManager', () => {
       return '#C29455';
     });
     expect(asked).toEqual(['dust.4', 'dust.2', 'dust.1']);
-    expect((m.mesh.material as THREE.ShaderMaterial).uniforms.uBody.value).toBeInstanceOf(THREE.Color);
+    const uBody = (m.mesh.material as THREE.ShaderMaterial).uniforms.uBody.value;
+    expect(uBody).toBeInstanceOf(THREE.Color);
+    // Linear, not the raw sRGB byte value -- `setColors`'s own doc comment:
+    // this shader writes the uniform straight to `gl_FragColor` with no
+    // `<colorspace_fragment>` chunk, so the value stored here IS what
+    // reaches the framebuffer (until Task 9's `OutputPass` encodes it).
+    const [r, g, b] = hexToLinear('#C29455');
+    expect((uBody as THREE.Color).r).toBeCloseTo(r, 6);
+    expect((uBody as THREE.Color).g).toBeCloseTo(g, 6);
+    expect((uBody as THREE.Color).b).toBeCloseTo(b, 6);
     m.dispose();
   });
 

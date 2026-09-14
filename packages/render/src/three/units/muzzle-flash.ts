@@ -369,11 +369,30 @@ export class MuzzleFlashManager {
     return this.meshes !== null;
   }
 
-  /** Resolves this manager's three fixed palette keys through `resolve`
-   *  (the same callback `ThreeRenderer.useEmitters` already receives) and
-   *  copies the result into each zone's own `uColor` uniform, in place --
-   *  see this class's own doc comment for why this needs no coordination
-   *  with `load()`. */
+  /**
+   * Resolves this manager's three fixed palette keys through `resolve`
+   * (the same callback `ThreeRenderer.useEmitters` already receives) and
+   * copies the result into each zone's own `uColor` uniform, in place --
+   * see this class's own doc comment for why this needs no coordination
+   * with `load()`.
+   *
+   * `new THREE.Color(hex)` converts the resolved sRGB hex to three.js's
+   * LINEAR working space (`ColorManagement`'s default) -- deliberately, not
+   * a leftover of dropping `paletteColorNoConvert`. This material is a raw
+   * `THREE.ShaderMaterial` (`createVfxMeshMaterial`, `./vfx-mesh-material.ts`)
+   * whose fragment shader writes `gl_FragColor = vec4(uColor, 1.0)` with no
+   * `<colorspace_fragment>` chunk, so `renderer.outputColorSpace` does
+   * nothing to it -- `uColor` reaches the framebuffer exactly as written,
+   * unlike a `MeshStandardMaterial`, which three.js's own built-in chunk
+   * would re-encode. Linear is still the right value to write: spec §1
+   * (`terrain/shared.ts`'s own `srgbToLinear` doc comment) commits every
+   * shader uniform to LINEAR now, on the promise that Task 9's composer
+   * `OutputPass` encodes the WHOLE frame to sRGB once, at the very end.
+   * Until that pass lands, this effect draws visibly DARKER than its
+   * authored hex -- the same accepted, temporary state
+   * `FlashLightManager`'s own top comment records for the muzzle-flash
+   * ramp-shift pool, not a bug this task introduces.
+   */
   setColors(resolve: (key: string) => string): void {
     for (const role of MUZZLE_FLASH_ROLES) {
       const color = new THREE.Color(resolve(muzzleFlashPaletteKey(role)));

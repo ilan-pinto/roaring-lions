@@ -348,7 +348,8 @@ export class ExplosionBurstManager {
 
   /** Resolves this manager's three fixed palette keys through `resolve` and
    *  copies the result into each zone's own `uColor` uniform, in place --
-   *  mirrors `MuzzleFlashManager.setColors` exactly. */
+   *  mirrors `MuzzleFlashManager.setColors` exactly, `new THREE.Color`'s own
+   *  linear-uniform reasoning included (that method's own doc comment). */
   setColors(resolve: (key: string) => string): void {
     for (const role of EXPLOSION_BURST_ROLES) {
       const color = new THREE.Color(resolve(explosionBurstPaletteKey(role)));

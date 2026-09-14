@@ -30,6 +30,7 @@ import {
   smokePlumeZoneOffset,
 } from './smoke-plume';
 import { SMOKE_ALPHA_CEIL } from '../smoke-mesh';
+import { hexToLinear } from '../terrain/shared';
 
 describe('smokePlumeRiseEnvelope', () => {
   it('starts at 0 and ramps linearly to 1 over the rise fraction', () => {
@@ -404,6 +405,17 @@ describe('SmokePlumeManager', () => {
   it('setColors is safe to call before any GLB has loaded', () => {
     const mgr = new SmokePlumeManager();
     expect(() => mgr.setColors((key) => (key === 'gunmetal.3' ? '#363B39' : '#8E9491'))).not.toThrow();
+    // Linear, not the raw sRGB byte value -- `setColors`'s own doc comment:
+    // this shader writes the uniform straight to `gl_FragColor` with no
+    // `<colorspace_fragment>` chunk, so the value stored here IS what
+    // reaches the framebuffer (until Task 9's `OutputPass` encodes it).
+    const materials = (mgr as unknown as { materials: Record<'base' | 'mid' | 'top', THREE.ShaderMaterial> })
+      .materials;
+    const uColor = materials.base.uniforms.uColor.value as THREE.Color;
+    const [r, g, b] = hexToLinear('#363B39');
+    expect(uColor.r).toBeCloseTo(r, 6);
+    expect(uColor.g).toBeCloseTo(g, 6);
+    expect(uColor.b).toBeCloseTo(b, 6);
     mgr.dispose();
   });
 

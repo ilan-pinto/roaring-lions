@@ -721,7 +721,12 @@ export class CollapseShroudManager {
 
   /** Resolves this manager's three fixed palette keys through `resolve` and
    *  copies the result into the shade uniforms, in place -- mirrors
-   *  `SmokePlumeManager.setColors` exactly. */
+   *  `SmokePlumeManager.setColors` exactly, `new THREE.Color`'s own
+   *  linear-uniform reasoning included (`MuzzleFlashManager.setColors`'s own
+   *  doc comment) -- `createCollapseShroudMaterial`'s fragment shader
+   *  interpolates `uDeep`/`uBody`/`uCrown` into `vColor` and writes that
+   *  straight to `gl_FragColor`, the identical no-`<colorspace_fragment>`
+   *  shape. */
   setColors(resolve: (key: string) => string): void {
     const uniforms = ['uDeep', 'uBody', 'uCrown'] as const;
     for (let i = 0; i < COLLAPSE_SHROUD_SHADES.length; i++) {

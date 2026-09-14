@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import * as THREE from 'three';
 import { parseRigidFixture } from './rigid-mesh-fixture';
 import {
   buildMuzzleFlashTemplate,
@@ -7,6 +8,7 @@ import {
   MuzzleFlashManager,
   MUZZLE_FLASH_CAPACITY,
 } from './muzzle-flash';
+import { hexToLinear } from '../terrain/shared';
 
 describe('muzzleFlashPowerScale', () => {
   it('matches vfx/particles.ts:174\'s own established magnitude-to-size law', () => {
@@ -129,6 +131,17 @@ describe('MuzzleFlashManager', () => {
   it('setColors is safe to call before any GLB has loaded', () => {
     const mgr = new MuzzleFlashManager();
     expect(() => mgr.setColors((key) => (key === 'vfx.white_hot' ? '#FFF6D0' : '#FFB43C'))).not.toThrow();
+    // Linear, not the raw sRGB byte value -- `setColors`'s own doc comment:
+    // this shader writes the uniform straight to `gl_FragColor` with no
+    // `<colorspace_fragment>` chunk, so the value stored here IS what
+    // reaches the framebuffer (until Task 9's `OutputPass` encodes it).
+    const materials = (mgr as unknown as { materials: Record<'core' | 'mid' | 'outer', THREE.ShaderMaterial> })
+      .materials;
+    const uColor = materials.core.uniforms.uColor.value as THREE.Color;
+    const [r, g, b] = hexToLinear('#FFF6D0');
+    expect(uColor.r).toBeCloseTo(r, 6);
+    expect(uColor.g).toBeCloseTo(g, 6);
+    expect(uColor.b).toBeCloseTo(b, 6);
     mgr.dispose();
   });
 

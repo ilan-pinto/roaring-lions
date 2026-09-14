@@ -771,7 +771,13 @@ export class SmokePlumeManager {
 
   /** Resolves this manager's three fixed palette keys through `resolve` and
    *  copies the result into each zone's own `uColor` uniform, in place --
-   *  mirrors `ExplosionBurstManager.setColors` exactly. */
+   *  mirrors `ExplosionBurstManager.setColors` exactly, `new THREE.Color`'s
+   *  own linear-uniform reasoning included (`MuzzleFlashManager.setColors`'s
+   *  own doc comment) -- this class's own `createSmokePlumeMaterial` is a
+   *  different hand-rolled `THREE.ShaderMaterial` from that one's
+   *  `createVfxMeshMaterial`, but its fragment shader writes `uColor`
+   *  straight to `gl_FragColor` the identical way, with no
+   *  `<colorspace_fragment>` chunk either. */
   setColors(resolve: (key: string) => string): void {
     for (const role of SMOKE_PLUME_ROLES) {
       const color = new THREE.Color(resolve(smokePlumePaletteKey(role)));

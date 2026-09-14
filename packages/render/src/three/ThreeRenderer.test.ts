@@ -45,7 +45,14 @@ const disposeSpy = vi.fn();
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>();
   class FakeWebGLRenderer {
-    outputColorSpace = actual.SRGBColorSpace;
+    // Deliberately the WRONG value (three.js's own default is
+    // `SRGBColorSpace`, not this) -- `the colour pipeline`'s test below
+    // proves the constructor's own `this.renderer.outputColorSpace =
+    // THREE.SRGBColorSpace` assignment runs. Starting the fake already at
+    // `SRGBColorSpace` would make that assertion pass whether or not the
+    // constructor ever touched the property at all -- the identical trap
+    // review caught here, fixed the same way.
+    outputColorSpace = actual.LinearSRGBColorSpace;
     domElement: unknown = {};
     /** Every hex `setClearColor` was called with, via `Color#getHexString()`
      *  (lower-case, no `#`) -- what `the colour pipeline`'s test below reads
