@@ -44,6 +44,9 @@ export interface PlacementJson {
    *  upgrade only, never a downgrade, resolved by `resolveUpgrades` before the runtime
    *  is built (the spawner never consults a gate). Refused beside `from_ledger`. */
   upgrades_to?: string;
+  /** Requires `upgrades_to`. While the gate is closed, `resolveUpgrades` drops this
+   *  placement instead of fielding the base unit. */
+  gate_only?: boolean;
   /** Route id (map `tunnels[].id`) this placement starts inside. The bodies
    *  spawn underground in that route rather than standing on their tile, and
    *  stay below until the route is dug through and vents — or die with it if
