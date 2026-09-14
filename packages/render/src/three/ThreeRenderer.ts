@@ -5779,7 +5779,7 @@ export class ThreeRenderer implements Renderer {
     this.scene.add(this.residualMesh);
 
     for (const box of composed.buildings) {
-      const mesh = new THREE.Mesh(toGeometry(box.mesh), this.terrainMat);
+      const mesh = new THREE.Mesh(toGeometry(box.mesh, { normals: 'compute' }), this.terrainMat);
       this.structureBoxes.set(box.structureIndex, mesh);
       this.structureFootprintTiles.set(box.structureIndex, box.tiles);
       this.scene.add(mesh);

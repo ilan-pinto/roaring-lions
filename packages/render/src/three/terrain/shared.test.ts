@@ -13,7 +13,19 @@
  * exactly, on the callers' own real inputs, not merely "in spirit".
  */
 import { describe, it, expect } from 'vitest';
-import { hexToUnit, levelAt, rectCorners, pushPolygon, DECOR_ROAD, DECOR_GROVE, DECOR_KNOLL, DECOR_RIDGE } from './shared';
+import * as THREE from 'three';
+import {
+  hexToUnit,
+  levelAt,
+  rectCorners,
+  pushPolygon,
+  DECOR_ROAD,
+  DECOR_GROVE,
+  DECOR_KNOLL,
+  DECOR_RIDGE,
+  srgbToLinear,
+  hexToLinear,
+} from './shared';
 import type { TerrainInput } from './types';
 
 describe('hexToUnit', () => {
@@ -194,5 +206,21 @@ describe('pushPolygon: the unified fan reproduces both pre-consolidation pushers
     expect(indices).toEqual(expectedIndices);
     expect(positions.length).toBe(octagon.length * 3);
     expect(colors.length).toBe(octagon.length * 3);
+  });
+});
+
+describe('srgbToLinear / hexToLinear', () => {
+  it('decodes the sRGB transfer curve (0, mid grey, white)', () => {
+    expect(srgbToLinear(0)).toBe(0);
+    expect(srgbToLinear(1)).toBeCloseTo(1, 9);
+    expect(srgbToLinear(0.5)).toBeCloseTo(0.214041, 5);
+    expect(srgbToLinear(0.04)).toBeCloseTo(0.04 / 12.92, 9);
+  });
+  it('hexToLinear agrees with three.js Color (ColorManagement on)', () => {
+    const [r, g, b] = hexToLinear('#C8B494');
+    const c = new THREE.Color('#C8B494');
+    expect(r).toBeCloseTo(c.r, 6);
+    expect(g).toBeCloseTo(c.g, 6);
+    expect(b).toBeCloseTo(c.b, 6);
   });
 });

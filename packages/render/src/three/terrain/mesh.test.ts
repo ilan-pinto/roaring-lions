@@ -32,6 +32,7 @@ import {
   slotUniforms,
   prepareGroundTexture,
 } from './mesh';
+import { srgbToLinear } from './shared';
 import type { MeshData } from './types';
 
 /** The shade term, evaluated in TypeScript exactly as the fragment shader
@@ -296,11 +297,17 @@ describe('toGeometry', () => {
     indices: Uint32Array.from([0, 1, 2]),
   };
 
-  it('uploads a normal attribute when the builder computed one, and none when it did not', () => {
-    // Only `buildGround` computes normals; every other terrain sub-mesh draws
-    // through a material that declares none. Uploading a default would be a
-    // lie about geometry that has no meaningful normal.
-    expect(toGeometry(base).getAttribute('normal')).toBeUndefined();
+  it('uploads a default up normal when the builder computed none, and the authored one when it did', () => {
+    // Every geometry gets a `normal` attribute now (see `GeometryOptions` in
+    // mesh.ts): ground/scatter/residual/building-decor with no normals of
+    // their own get an up-fill default, and only `buildGround`'s own
+    // analytic normals (or an explicit `{ normals: 'compute' }`) differ from
+    // that -- see the "toGeometry colour space and normals" suite below for
+    // the compute case.
+    const def = toGeometry(base).getAttribute('normal');
+    expect(def).toBeDefined();
+    expect(def.count).toBe(3);
+    expect([def.getX(0), def.getY(0), def.getZ(0)]).toEqual([0, 1, 0]);
     const withNormals = toGeometry({ ...base, normals: Float32Array.from([0, 1, 0, 0, 1, 0, 0, 1, 0]) });
     expect(withNormals.getAttribute('normal')).toBeDefined();
     expect(withNormals.getAttribute('normal').count).toBe(3);
@@ -325,5 +332,37 @@ describe('toGeometry', () => {
     expect(full.getAttribute('groundUv').itemSize).toBe(2);
     // Deliberately NOT three.js's reserved `uv` name -- see toGeometry.
     expect(full.getAttribute('uv')).toBeUndefined();
+  });
+});
+
+describe('toGeometry colour space and normals', () => {
+  const data = (): MeshData => ({
+    positions: Float32Array.from([0, 0, 0, 1, 0, 0, 0, 0, 1]),
+    colors: Float32Array.from([200 / 255, 180 / 255, 148 / 255, 1, 1, 1, 0, 0, 0]),
+    indices: Uint32Array.from([0, 1, 2]),
+  });
+  it('writes LINEAR vertex colours from the builders sRGB bytes and no litColor', () => {
+    const g = toGeometry(data());
+    const c = g.getAttribute('color');
+    expect(c.getX(0)).toBeCloseTo(srgbToLinear(200 / 255), 6);
+    expect(c.getX(1)).toBeCloseTo(1, 6);
+    expect(c.getX(2)).toBe(0);
+    expect(g.getAttribute('litColor')).toBeUndefined();
+  });
+  it('gives a normal-less mark an up normal by default', () => {
+    const n = toGeometry(data()).getAttribute('normal');
+    expect(n.count).toBe(3);
+    expect([n.getX(0), n.getY(0), n.getZ(0)]).toEqual([0, 1, 0]);
+  });
+  it('computes face normals on request', () => {
+    const n = toGeometry(data(), { normals: 'compute' }).getAttribute('normal');
+    // The triangle (0,0,0)-(1,0,0)-(0,0,1) lies in the XZ plane: its normal is +/-Y.
+    expect(Math.abs(n.getY(0))).toBeCloseTo(1, 6);
+  });
+  it('keeps authored normals verbatim', () => {
+    const d = data();
+    d.normals = Float32Array.from([0, 0, 1, 0, 0, 1, 0, 0, 1]);
+    const n = toGeometry(d, { normals: 'compute' }).getAttribute('normal');
+    expect(n.getZ(0)).toBe(1);
   });
 });

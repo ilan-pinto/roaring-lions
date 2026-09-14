@@ -22,48 +22,56 @@
 import * as THREE from 'three';
 import type { MeshData } from './ground';
 import { defaultFlashUniforms, FLASH_UNIFORMS_GLSL, FLASH_SHIFT_GLSL } from '../palette-material';
+import { srgbToLinear } from './shared';
 
 /**
  * Uploads `data`'s positions, colours and indices as a `BufferGeometry`.
  * Non-indexed attributes are never shared between quads (see `ground.ts`'s
- * doc comment on why), so this is a direct, unmodified upload -- no
- * `mergeVertices`, and no normal COMPUTATION here either: `buildGround`
- * writes its own analytic normals into `data.normals` and every other
- * builder has none, so there is nothing for this function to derive.
- *
- * `litColor` is `data.litColors` when the builder computed one (`ground.ts`'s
- * `buildGround`, the only caller today), or the SAME `BufferAttribute` as
- * `color` otherwise -- aliasing one attribute object under two names is a
- * real, supported three.js/WebGL usage (both names simply read the same
- * buffer), and it is what keeps every scatter/grove/residual/building-decor
- * mesh (none of which compute a lit variant -- see `types.ts`'s own
- * `litColors` doc comment for why) correct without a special case: the
- * terrain material's own flash shift always has a `litColor` attribute to
- * read, and for these meshes it is identical to `color`, so shifting toward
- * it is a genuine, harmless no-op rather than a missing-attribute error.
+ * doc comment on why), so this is a direct, unmodified upload for every
+ * attribute except colour: the output pass now encodes to sRGB, so a
+ * builder's sRGB palette bytes (`MeshData.colors` -- still asserted as such
+ * in `ground.test.ts` and `terrain-parity.test.ts`) are decoded to LINEAR
+ * here, on the way to the GPU, via `shared.ts`'s `srgbToLinear`.
  */
-export function toGeometry(data: MeshData): THREE.BufferGeometry {
+export interface GeometryOptions {
+  /** What to do when `data.normals` is absent: `'up'` (default) writes
+   *  (0, 1, 0) for every vertex -- right for flat ground marks and canopy
+   *  billboards, which should light like the ground they stand on;
+   *  `'compute'` derives face normals -- right for the extruded structure
+   *  boxes, whose walls must shade as walls. */
+  normals?: 'up' | 'compute';
+}
+
+export function toGeometry(data: MeshData, opts: GeometryOptions = {}): THREE.BufferGeometry {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
-  const colorAttr = new THREE.BufferAttribute(data.colors, 3);
-  geometry.setAttribute('color', colorAttr);
-  geometry.setAttribute('litColor', data.litColors ? new THREE.BufferAttribute(data.litColors, 3) : colorAttr);
+  const linear = new Float32Array(data.colors.length);
+  for (let i = 0; i < linear.length; i++) linear[i] = srgbToLinear(data.colors[i]);
+  geometry.setAttribute('color', new THREE.BufferAttribute(linear, 3));
   geometry.setIndex(new THREE.BufferAttribute(data.indices, 1));
-  // Wind-sway weight -- see `types.ts`'s own `MeshData.sway` doc comment.
-  // Unlike `litColor` above, no aliased default when absent: only
-  // `groveMaterial` below ever declares a `sway` attribute in its shader,
-  // and only `buildGroves`' own output ever sets `data.sway`, so every
-  // OTHER terrain sub-mesh (ground/scatter/residual/building-decor, drawn
-  // through the plain `terrainMaterial` below) simply never has the
-  // attribute at all -- correct, since nothing ever reads it there.
+  // Wind-sway weight -- see `types.ts`'s own `MeshData.sway` doc comment. No
+  // aliased default when absent: only `groveMaterial` below ever declares a
+  // `sway` attribute in its shader, and only `buildGroves`' own output ever
+  // sets `data.sway`, so every OTHER terrain sub-mesh (ground/scatter/
+  // residual/building-decor, drawn through the plain `terrainMaterial`
+  // below) simply never has the attribute at all -- correct, since nothing
+  // ever reads it there.
   if (data.sway) geometry.setAttribute('sway', new THREE.BufferAttribute(data.sway, 1));
-  // Surface normal -- `ground.ts` only, and only for `groundSurfaceMaterial`
-  // to read. Uploaded under three.js's own reserved `normal` name (not a
-  // custom one), so the attribute is the one a `ShaderMaterial` gets for
-  // free without an `attribute vec3 normal;` declaration. No aliased
-  // default when absent, unlike `litColor` above: a scatter mark has no
-  // meaningful normal and `terrainMaterial` never asks for one.
-  if (data.normals) geometry.setAttribute('normal', new THREE.BufferAttribute(data.normals, 3));
+  // Surface normal, three.js's own reserved `normal` name (not a custom
+  // one), so a `ShaderMaterial` gets it for free without declaring
+  // `attribute vec3 normal;` itself. `data.normals` wins when the builder
+  // computed one (`ground.ts`'s `buildGround`, for `groundSurfaceMaterial`'s
+  // shade term); otherwise every mark still gets a normal -- see
+  // `GeometryOptions.normals` above for the up-fill/computed choice.
+  if (data.normals) {
+    geometry.setAttribute('normal', new THREE.BufferAttribute(data.normals, 3));
+  } else if ((opts.normals ?? 'up') === 'compute') {
+    geometry.computeVertexNormals();
+  } else {
+    const up = new Float32Array(data.positions.length);
+    for (let i = 1; i < up.length; i += 3) up[i] = 1;
+    geometry.setAttribute('normal', new THREE.BufferAttribute(up, 3));
+  }
   // Ground-albedo mask -- `ground.ts` only, and 1 on exactly the vertices
   // allowed to sample the sand tile. Absent for every other builder, whose
   // material declares none, the same shape `sway` above already uses.

@@ -92,6 +92,20 @@ export function hexToUnit(hex: string): [number, number, number] {
   ];
 }
 
+/** The sRGB electro-optical transfer function, one channel. Vertex colours
+ *  and shader uniforms must be LINEAR now that the output pass encodes to
+ *  sRGB (spec §1): a palette hex fed in raw would be encoded twice and land
+ *  brighter than authored. `hexToUnit` stays sRGB for the pure builders,
+ *  whose `MeshData.colors` are still asserted against palette bytes. */
+export function srgbToLinear(c: number): number {
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+
+export function hexToLinear(hex: string): [number, number, number] {
+  const [r, g, b] = hexToUnit(hex);
+  return [srgbToLinear(r), srgbToLinear(g), srgbToLinear(b)];
+}
+
 /** Elevation level (0-9) at `(x, y)`, or 0 off the map -- the rule that makes
  *  a rim tile show its full face rather than nothing at all. Was declared
  *  identically in `ground.ts`, `scatter.ts`, `grove.ts`, `buildings.ts` and
