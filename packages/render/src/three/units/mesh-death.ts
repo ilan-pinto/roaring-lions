@@ -44,13 +44,16 @@
  * read ALPHA CURVE, not to invent a new rotation curve nobody has read from
  * anywhere, so it is left out on purpose, not by oversight.
  *
- * ## The palette tension, and where it is actually resolved
+ * ## Opacity, and where it lives now
  *
- * A dying unit needs to look faded, and `mesh-material.ts`'s toon-ramp
- * material had no notion of partial opacity before this task -- see that
- * file's own "uOpacity, added for the death fade" section for the full
- * argument. The short version: RGB is never touched, only alpha, and only
- * ever on a per-entity CLONE this module makes for the fade window
+ * A dying unit needs to look faded. Every `THREE.Material` -- the lit
+ * `MeshStandardMaterial` `rampMaterial`/`texturedMaterial` build
+ * (`../world-materials.ts`) included -- already carries a built-in
+ * `opacity` number and a `transparent` flag, so nothing here has to declare
+ * its own notion of partial opacity the way the toon shader this module
+ * originally faded had to (`mesh-material.ts`'s now-unused `uOpacity`
+ * uniform). RGB is never touched, only `opacity`, and only ever on a
+ * per-entity CLONE this module makes for the fade window
  * (`beginMeshDeathFade` below) -- the shared TEMPLATE material every other
  * living clone of the same type/role still draws through
  * (`MeshUnitTemplate`'s own doc comment) is never mutated, so a corpse
@@ -146,7 +149,7 @@ export function meshDeathSinkPx(t: number, deathSeconds: number = MESH_DEATH_SEC
 export interface MeshFadeSwap {
   readonly mesh: THREE.Mesh;
   readonly original: THREE.Material;
-  readonly fade: THREE.ShaderMaterial;
+  readonly fade: THREE.Material;
 }
 
 /**
@@ -163,14 +166,14 @@ export interface MeshFadeSwap {
  */
 export function beginMeshDeathFade(root: THREE.Object3D): MeshFadeSwap[] {
   const swaps: MeshFadeSwap[] = [];
-  const cloned = new Map<THREE.Material, THREE.ShaderMaterial>();
+  const cloned = new Map<THREE.Material, THREE.Material>();
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
     const original = mesh.material as THREE.Material;
     let fade = cloned.get(original);
     if (!fade) {
-      fade = (original as THREE.ShaderMaterial).clone();
+      fade = original.clone();
       fade.transparent = true;
       cloned.set(original, fade);
     }
@@ -180,17 +183,14 @@ export function beginMeshDeathFade(root: THREE.Object3D): MeshFadeSwap[] {
   return swaps;
 }
 
-/** Writes this frame's opacity into every distinct fade clone `swaps`
- *  covers -- deduplicated the same way `beginMeshDeathFade` built them, so a
- *  material shared by two meshes is written once, not twice (harmless
- *  either way; avoided because it is free to avoid). */
+/** Writes this frame's opacity into every fade clone `swaps` covers.
+ *  `swaps` can repeat the same clone (two meshes sharing one original
+ *  material, per `beginMeshDeathFade`'s own dedup) -- writing a plain
+ *  `Material.opacity` number twice is harmless, so this no longer bothers
+ *  deduplicating the write itself the way the old `uOpacity` uniform write
+ *  did. */
 export function setMeshDeathOpacity(swaps: readonly MeshFadeSwap[], opacity: number): void {
-  const written = new Set<THREE.ShaderMaterial>();
-  for (const s of swaps) {
-    if (written.has(s.fade)) continue;
-    written.add(s.fade);
-    (s.fade.uniforms.uOpacity as { value: number }).value = opacity;
-  }
+  for (const s of swaps) s.fade.opacity = opacity;
 }
 
 /** Restores every mesh's ORIGINAL (shared, template-owned) material and
@@ -201,7 +201,7 @@ export function setMeshDeathOpacity(swaps: readonly MeshFadeSwap[], opacity: num
  *  Pixi's own `addWreck`, which never touches `spr.alpha`); being torn down
  *  needs the clones disposed so they do not leak. */
 export function endMeshDeathFade(swaps: readonly MeshFadeSwap[]): void {
-  const disposed = new Set<THREE.ShaderMaterial>();
+  const disposed = new Set<THREE.Material>();
   for (const s of swaps) {
     s.mesh.material = s.original;
     if (disposed.has(s.fade)) continue;

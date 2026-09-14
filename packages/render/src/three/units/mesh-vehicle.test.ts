@@ -10,9 +10,11 @@ import {
 import { applyMeshClip } from './mesh-clip';
 import { MESH_SCALE } from './mesh-anim';
 import { HULL_RENDER_ORDER, TURRET_RENDER_ORDER } from './render-order';
+import { liftTone } from '../world-materials';
+import { rampForVehicleRole } from './vehicle-mesh-role';
 
 describe('buildVehicleMeshTemplate', () => {
-  it('assigns one material per mesh, from the vehicle-specific ramp table', async () => {
+  it('assigns one lit standard material per mesh, from the vehicle-specific ramp table, shadows on', async () => {
     const gltf = await parseRigidFixture({
       parts: [
         { nodeName: 'hull_hull', extrasRole: 'hull' },
@@ -25,6 +27,17 @@ describe('buildVehicleMeshTemplate', () => {
     expect(template.geometries).toHaveLength(2);
     expect(template.hasTurretPivot).toBe(true);
     expect(template.root.scale.x).toBeCloseTo(MESH_SCALE);
+
+    const expectedHex = liftTone(rampForVehicleRole('mbt_lavi', 'hull')).slice(1).toUpperCase();
+    template.root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const m = mesh.material as THREE.MeshStandardMaterial;
+      expect(m.isMeshStandardMaterial).toBe(true);
+      expect(m.color.getHexString().toUpperCase()).toBe(expectedHex);
+      expect(mesh.castShadow).toBe(true);
+      expect(mesh.receiveShadow).toBe(true);
+    });
   });
 
   it('sets render order by the {part}_ prefix, not by role', async () => {

@@ -141,10 +141,10 @@ describe('beginMeshDeathFade / setMeshDeathOpacity / endMeshDeathFade', () => {
     expect(swaps.find((s) => s.mesh === meshB)!.fade).not.toBe(fadeForA);
 
     setMeshDeathOpacity(swaps, 0.6);
-    expect((fadeForA.uniforms.uOpacity as { value: number }).value).toBeCloseTo(0.6, 10);
-    // The ORIGINAL material's own uOpacity is untouched -- proof the clone
-    // is a genuinely separate uniform, not an alias.
-    expect((materialA.uniforms.uOpacity as { value: number }).value).toBe(1.0);
+    expect(fadeForA.opacity).toBeCloseTo(0.6, 10);
+    // The ORIGINAL material's own opacity is untouched -- proof the clone
+    // is a genuinely separate object, not an alias.
+    expect(materialA.opacity).toBe(1.0);
 
     const disposeSpyA = vi.spyOn(fadeForA, 'dispose');
     const fadeForB = swaps.find((s) => s.mesh === meshB)!.fade;
@@ -216,7 +216,7 @@ describe('stepMeshDeath', () => {
     // `setMeshDeathOpacity(d.swaps, meshDeathOpacity(d.t));` line in
     // `stepMeshDeath`. This assertion then reads 1.0 (the material's own
     // untouched default) instead of the faded value and goes red.
-    const opacityNow = (dying.swaps[0].fade.uniforms.uOpacity as { value: number }).value;
+    const opacityNow = dying.swaps[0].fade.opacity;
     expect(opacityNow).toBeCloseTo(meshDeathOpacity(0.1), 10);
     expect(entity.root.position.y).toBeCloseTo(7 - meshDeathSinkPx(0.1) * WORLD_Y_PER_LIFT_PIXEL, 10);
   });

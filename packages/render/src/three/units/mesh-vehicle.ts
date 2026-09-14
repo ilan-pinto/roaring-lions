@@ -53,12 +53,11 @@ import * as THREE from 'three';
 import { gltfLoader } from './gltf-loader';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import type { ClipName } from '../../sheet';
-import { toonRampMaterial } from '../palette-material';
+import { rampMaterial, texturedMaterial } from '../world-materials';
 import { isVehicleMeshRole, rampForVehicleRole } from './vehicle-mesh-role';
 import { isMeshClipName, MESH_SCALE } from './mesh-anim';
 import type { ClipPlayer } from './mesh-clip';
 import { HULL_RENDER_ORDER, TURRET_RENDER_ORDER } from './render-order';
-import { texturedBuildingMaterial } from './textured-building';
 
 /** The pivot node's own name, per the contract: "The turret pivot is a node
  *  named `turret_pivot` carrying `extras.rl_pivot = "turret"` on that node
@@ -163,17 +162,16 @@ export interface VehicleMeshTemplate {
  * `allowTextured` (default `false`, mirroring `buildBuildingMeshTemplate`'s
  * own default) is the caller's answer to
  * `TEXTURED_VEHICLE_TYPES.has(vehicleId)` -- see `units/textured-vehicle.ts`
- * for the named list and `units/textured-building.ts` for the material this
- * reuses UNCHANGED rather than forking a vehicle-specific variant: that
- * material's own invariant is "the bake, untouched, only a scalar multiply"
- * (no palette entry read, no colour substituted), and a vehicle hull's own
- * "Cel specular" ramp trick below (`specular: true`) works by SELECTING an
- * existing ramp entry, never inventing one -- there is no equivalent
- * palette-safe operation for a sampled photograph, so adding a synthesised
- * highlight would be the one thing this backend's texture path is built not
- * to do. Checked against the real headless render (this task's own report):
- * six textured hulls under the shipped `texturedBuildingMaterial` read fine
- * without it.
+ * for the named list. The material itself is `texturedMaterial`
+ * (`../world-materials.ts`), the SAME function `mesh-building.ts` calls
+ * rather than a vehicle-specific fork: it keeps and normalises whatever
+ * material `GLTFLoader` already built for the mesh (sRGB map, dielectric
+ * unless the GLB says otherwise) instead of building a private shader per
+ * asset class. The toon shader's own "Cel specular" ramp trick a vehicle
+ * hull used to opt into (`palette-material.ts`, `specular: true`) has no
+ * counterpart here and needs none: a lit material's specular response comes
+ * from `roughness`/`metalness` against the scene's real sun, not a
+ * hand-picked ramp step.
  */
 export function buildVehicleMeshTemplate(
   gltf: Pick<GLTF, 'scene'> & Partial<Pick<GLTF, 'animations'>>,
@@ -228,15 +226,13 @@ export function buildVehicleMeshTemplate(
         smuggled.add(role || '(unnamed mesh)');
         return;
       }
-      const textured = texturedBuildingMaterial(loadedMap);
+      const textured = texturedMaterial(loaded as THREE.Material);
       mesh.material = textured;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
       mesh.renderOrder = renderOrderForPart(mesh.name);
       materials.push(textured);
       geometries.push(mesh.geometry);
-      // The `MeshStandardMaterial` GLTFLoader built is now unreferenced.
-      // Its TEXTURE is not -- `texturedBuildingMaterial` holds it -- so
-      // dispose the material alone, mirroring `mesh-building.ts` exactly.
-      loaded?.dispose();
       return;
     }
 
@@ -244,13 +240,14 @@ export function buildVehicleMeshTemplate(
       unmapped.add(role || '(unnamed mesh)');
       return;
     }
-    // Cel specular ON: a vehicle hull is exactly the "reads as a hard
-    // surface" case `palette-material.ts`'s own "Cel specular" doc comment
-    // names first -- see it for why this is opt-in per material rather than
-    // always on, and `units/mesh-building.ts`'s own call site for the one
-    // that deliberately leaves it off.
-    const mat = toonRampMaterial(rampForVehicleRole(vehicleId, role), { specular: true });
+    // Every ramp asset -- vehicle hull included -- takes its ramp's lit step
+    // as a flat albedo (`rampMaterial`, `../world-materials.ts`); specular
+    // response now comes from the shared `WORLD_ROUGHNESS`/metalness against
+    // the scene's real sun, not a per-material opt-in.
+    const mat = rampMaterial(rampForVehicleRole(vehicleId, role));
     mesh.material = mat;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
     mesh.renderOrder = renderOrderForPart(mesh.name);
     materials.push(mat);
     geometries.push(mesh.geometry);

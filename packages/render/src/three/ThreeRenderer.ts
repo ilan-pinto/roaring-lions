@@ -3388,14 +3388,6 @@ export class ThreeRenderer implements Renderer {
       for (const template of previous) disposeMeshUnitTemplate(template);
     }
     this.meshUnitTemplates.set(unitTypeId, templates);
-    // Muzzle-flash ramp shift: every material these templates' meshes draw
-    // through gets pointed at the shared flash-uniform arrays -- see
-    // `flashLights`'s own field doc comment. Clones share these materials BY
-    // REFERENCE (this file's own doc comment on `MeshUnitTemplate`), so one
-    // registration per template covers every living/future clone of it.
-    for (const material of templates.flatMap((t) => t.materials)) {
-      this.flashLights.register(material as THREE.ShaderMaterial);
-    }
   }
 
   /**
@@ -3437,11 +3429,6 @@ export class ThreeRenderer implements Renderer {
       disposeVehicleMeshTemplate(previous);
     }
     this.vehicleMeshTemplates.set(unitTypeId, template);
-    // Muzzle-flash ramp shift -- see `loadMeshUnit`'s identical comment just
-    // above; the reasoning is unchanged, only the template kind differs.
-    for (const material of template.materials) {
-      this.flashLights.register(material as THREE.ShaderMaterial);
-    }
   }
 
   /**
@@ -3574,10 +3561,6 @@ export class ThreeRenderer implements Renderer {
       structureId,
       new THREE.Box3().setFromObject(idleTemplate.root).getSize(new THREE.Vector3())
     );
-    // Muzzle-flash ramp shift -- see `loadMeshUnit`'s identical comment.
-    for (const material of idleTemplate.materials) {
-      this.flashLights.register(material as THREE.ShaderMaterial);
-    }
 
     if (wreckUrl) await this.loadBuildingWreckMesh(structureId, wreckUrl);
 
@@ -3640,11 +3623,6 @@ export class ThreeRenderer implements Renderer {
       disposeBuildingMeshTemplate(previousWreck);
     }
     this.buildingMeshWreckTemplates.set(structureId, wreckTemplate);
-    // Muzzle-flash ramp shift -- see `loadMeshUnit`'s identical comment. A
-    // wreck can still sit near a live firefight, so it registers too.
-    for (const material of wreckTemplate.materials) {
-      this.flashLights.register(material as THREE.ShaderMaterial);
-    }
     // `updateStructures` reads `buildingMeshWreckTemplates` to decide whether
     // this type's BILLBOARD wreck instancer still draws -- so the arrival has
     // to reach the terrain the same way the standing template's does, or a

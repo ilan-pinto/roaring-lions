@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import * as THREE from 'three';
 import { parseRigidFixture } from './rigid-mesh-fixture';
 import {
   buildBuildingMeshTemplate,
@@ -8,9 +9,11 @@ import {
   BUILDING_SETTLE_SECONDS,
 } from './mesh-building';
 import { MESH_SCALE } from './mesh-anim';
+import { liftTone } from '../world-materials';
+import { rampForBuildingRole } from './building-mesh-role';
 
 describe('buildBuildingMeshTemplate', () => {
-  it('assigns one material per role, incl. the wall from its own colour key', async () => {
+  it('assigns one lit standard material per role, incl. the wall from its own colour key, shadows on', async () => {
     const gltf = await parseRigidFixture({
       parts: [
         { nodeName: 'wall', extrasRole: 'wall' },
@@ -21,15 +24,29 @@ describe('buildBuildingMeshTemplate', () => {
     expect(template.materials).toHaveLength(2);
     expect(template.geometries).toHaveLength(2);
     expect(template.root.scale.x).toBeCloseTo(MESH_SCALE);
+
+    const expectedHex: Record<string, string> = {
+      wall: liftTone(rampForBuildingRole('wall', 'limestone.1')).slice(1).toUpperCase(),
+      roof: liftTone(rampForBuildingRole('roof', 'limestone.1')).slice(1).toUpperCase(),
+    };
+    template.root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const m = mesh.material as THREE.MeshStandardMaterial;
+      expect(m.isMeshStandardMaterial).toBe(true);
+      expect(m.color.getHexString().toUpperCase()).toBe(expectedHex[mesh.name]);
+      expect(mesh.castShadow).toBe(true);
+      expect(mesh.receiveShadow).toBe(true);
+    });
   });
 
   it('a hall and a house wall differ, from their own structures.json colour', async () => {
     const gltf = await parseRigidFixture({ parts: [{ nodeName: 'wall', extrasRole: 'wall' }] });
     const hall = buildBuildingMeshTemplate(gltf, 'limestone.1', 'flat');
     const house = buildBuildingMeshTemplate(gltf, 'limestone.3', 'flat');
-    const mat1 = hall.materials[0] as import('three').ShaderMaterial;
-    const mat2 = house.materials[0] as import('three').ShaderMaterial;
-    expect(mat1.uniforms.uRamp.value).not.toEqual(mat2.uniforms.uRamp.value);
+    const mat1 = hall.materials[0] as THREE.MeshStandardMaterial;
+    const mat2 = house.materials[0] as THREE.MeshStandardMaterial;
+    expect(mat1.color.getHexString()).not.toEqual(mat2.color.getHexString());
   });
 
   it('falls back to the node name when extras.rl_role is absent', async () => {
@@ -43,49 +60,15 @@ describe('buildBuildingMeshTemplate', () => {
     expect(() => buildBuildingMeshTemplate(gltf, 'limestone.1', 'flat')).toThrow(/no ramp for rl_role/);
   });
 
-  // The lead's complaint that started this: a mesh building drew one flat
-  // colour per role while its own sprite has had coursed brick since the
-  // building set shipped. Coursing is generated in the fragment shader and
-  // selects a step of the role's OWN ramp, so it stays palette-exact --
-  // `palette-material.coursing.test.ts` owns that half. These pin the
-  // WIRING: which role, and which building type.
-  describe('coursing', () => {
-    async function wallAndRoof(surface: 'brick' | 'panel' | 'flat') {
-      const gltf = await parseRigidFixture({
-        parts: [
-          { nodeName: 'wall', extrasRole: 'wall' },
-          { nodeName: 'roof', extrasRole: 'roof' },
-        ],
-      });
-      const t = buildBuildingMeshTemplate(gltf, 'limestone.1', surface);
-      const [wall, roof] = t.materials as import('three').ShaderMaterial[];
-      return { wall, roof };
-    }
-
-    it('courses the wall of a masonry building', async () => {
-      const { wall } = await wallAndRoof('brick');
-      expect(wall.fragmentShader).toContain('courseShiftSteps');
-    });
-
-    it('leaves every other role flat, even on a coursed building', async () => {
-      // A coursed roof deck or a coursed dome is the exact failure
-      // `render_building.py`'s `smooth_parts` exists to prevent.
-      const { roof } = await wallAndRoof('brick');
-      expect(roof.fragmentShader).not.toContain('courseShiftSteps');
-    });
-
-    it('leaves the wall flat for a type whose wall is not a laid material', async () => {
-      const { wall } = await wallAndRoof('flat');
-      expect(wall.fragmentShader).not.toContain('courseShiftSteps');
-    });
-
-    it('gives concrete a different pattern from masonry, not the same one', async () => {
-      const brick = (await wallAndRoof('brick')).wall.fragmentShader;
-      const panel = (await wallAndRoof('panel')).wall.fragmentShader;
-      expect(panel).toContain('courseShiftSteps');
-      expect(panel).not.toBe(brick);
-    });
-  });
+  // Coursing (the brick/panel pattern the toon shader generated per-fragment
+  // from a role's own ramp) had no lit-material equivalent as of the switch
+  // to `rampMaterial` (`../world-materials.ts`) and is retired along with the
+  // toon shader -- `wallSurface` stays a required parameter (every caller
+  // still threads `wallSurfaceForBuilding(structureId)` through it) so a
+  // future lit-coursing mechanism has somewhere to land, but it is currently
+  // unread by this function. The wiring tests that used to live here
+  // (`describe('coursing', ...)`) pinned a fragment-shader string that no
+  // longer exists on any material this function builds.
 });
 
 describe('instantiateBuildingMesh', () => {

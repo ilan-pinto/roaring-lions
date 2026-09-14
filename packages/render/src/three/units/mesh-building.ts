@@ -30,9 +30,8 @@
 import * as THREE from 'three';
 import { gltfLoader } from './gltf-loader';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
-import { toonRampMaterial } from '../palette-material';
+import { rampMaterial, texturedMaterial } from '../world-materials';
 import { isBuildingMeshRole, rampForBuildingRole, type WallSurface } from './building-mesh-role';
-import { texturedBuildingMaterial } from './textured-building';
 import { MESH_SCALE } from './mesh-anim';
 import { WORLD_RENDER_ORDER } from './render-order';
 
@@ -54,18 +53,21 @@ export interface BuildingMeshTemplate {
  * is a required parameter rather than a default, and why it is sourced from
  * `Sim` rather than `@lions/data` (this package must not import that).
  *
- * `wallSurface` is the same shape of decision: what the wall is MADE of
- * (`wallSurfaceForBuilding`, keyed by structure type id), which decides
- * whether the wall material generates coursing and of which kind. Required,
- * not defaulted to `'flat'`, for the identical reason `wallColorKey` is
- * required -- a default would quietly mean "whatever the caller forgot to
- * look up", and its failure mode (a flat wall) is indistinguishable from
- * the bug this parameter exists to fix.
+ * `wallSurface` (`_wallSurface` below) USED to decide whether the wall
+ * material generated coursing and of which kind -- the toon ramp's
+ * fragment-shader trick. The lit `rampMaterial` (`../world-materials.ts`)
+ * has no coursing equivalent, so this parameter is unread in the body
+ * (underscore-prefixed for `noUnusedParameters`); it stays in the signature
+ * -- every caller still threads `wallSurfaceForBuilding(structureId)`
+ * through it -- rather than rippling a signature change through
+ * `loadBuildingMeshTemplate` and `ThreeRenderer`'s two call sites for a
+ * removal this task did not ask for. A future lit-coursing mechanism has a
+ * parameter already waiting for it.
  */
 export function buildBuildingMeshTemplate(
   gltf: Pick<GLTF, 'scene'>,
   wallColorKey: string,
-  wallSurface: WallSurface,
+  _wallSurface: WallSurface,
   allowTextured = false
 ): BuildingMeshTemplate {
   const root = gltf.scene;
@@ -107,16 +109,13 @@ export function buildBuildingMeshTemplate(
         smuggled.add(role || '(unnamed mesh)');
         return;
       }
-      const textured = texturedBuildingMaterial(loadedMap);
+      const textured = texturedMaterial(loaded as THREE.Material);
       mesh.material = textured;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
       mesh.renderOrder = WORLD_RENDER_ORDER;
       materials.push(textured);
       geometries.push(mesh.geometry);
-      // The `MeshStandardMaterial` GLTFLoader built is now unreferenced.
-      // Its TEXTURE is not -- `texturedBuildingMaterial` holds it -- so
-      // dispose the material alone and let the template's own disposal path
-      // own the map through the material that actually uses it.
-      loaded?.dispose();
       return;
     }
 
@@ -124,27 +123,17 @@ export function buildBuildingMeshTemplate(
       unmapped.add(role || '(unnamed mesh)');
       return;
     }
-    // Cel specular deliberately left OFF here (default `false`) -- the ask
-    // (`palette-material.ts`'s own "Cel specular" doc comment) is metal/
-    // glass/vehicle-hull surfaces, and a building wall's own ramp is a
-    // plaster/concrete tone (`rampForBuildingRole`), not a hard one. See
-    // `units/mesh-vehicle.ts`'s own call site for the one that opts in.
-    //
-    // Coursing is `wall`-only and surface-gated. Not because the other
-    // seven roles could not carry a pattern, but because none of them is a
-    // laid material: `roof` is a packed-earth deck, `dome`/`trim` are
-    // rendered plaster, `metal`/`glass`/`rust`/`wood` name themselves.
-    // `render_building.py` draws the identical line -- its brick material
-    // reaches `WALL_ROLE` and nothing else -- and its `smooth_parts` list
-    // (domes, finials, drums stay flat, "coursing a curved surface reads as
-    // scaffolding, not stonework") needs no counterpart here: on every
-    // shipped GLB those parts already carry their own `dome`/`trim` role,
-    // so the curved geometry is outside `wall` by construction rather than
-    // by a name-fragment match.
-    const mat = toonRampMaterial(rampForBuildingRole(role, wallColorKey), {
-      ...(role === 'wall' && wallSurface !== 'flat' ? { coursing: wallSurface } : {}),
-    });
+    // Every ramp asset takes its ramp's lit step as a flat albedo
+    // (`rampMaterial`, `../world-materials.ts`) -- the toon shader's
+    // per-material "Cel specular" opt-in and the brick/panel coursing this
+    // wall role used to generate in its own fragment shader are both retired
+    // along with it: a lit `MeshStandardMaterial` gets its facet separation
+    // and its specular response from the scene's real sun and its shared
+    // roughness/metalness instead of a hand-picked ramp step.
+    const mat = rampMaterial(rampForBuildingRole(role, wallColorKey));
     mesh.material = mat;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
     mesh.renderOrder = WORLD_RENDER_ORDER;
     materials.push(mat);
     geometries.push(mesh.geometry);
@@ -240,10 +229,10 @@ export function disposeBuildingMeshTemplate(template: BuildingMeshTemplate): voi
     // `Material.dispose()` does NOT release textures -- three.js leaves that
     // to the owner deliberately, since a map is routinely shared. Here it is
     // not shared, so this is the owner: 2048x2048 of GPU memory per building
-    // type would otherwise leak on every template reload.
-    const map = 'uniforms' in material
-      ? (material as THREE.ShaderMaterial).uniforms.uMap?.value
-      : undefined;
+    // type would otherwise leak on every template reload. A RAMP material
+    // (`rampMaterial`) never carries a `map` at all, so this is a no-op for
+    // seven of every eight roles on a typical building.
+    const map = (material as THREE.MeshStandardMaterial).map;
     if (map instanceof THREE.Texture) map.dispose();
     material.dispose();
   }

@@ -30,8 +30,8 @@ async function buildEntity(clips: string | string[]): Promise<MeshUnitEntity> {
   return instantiateMeshUnit(template, 'inf_squad');
 }
 
-function opacityOf(swaps: readonly { fade: THREE.ShaderMaterial }[]): number {
-  return (swaps[0].fade.uniforms.uOpacity as { value: number }).value;
+function opacityOf(swaps: readonly { fade: THREE.Material }[]): number {
+  return swaps[0].fade.opacity;
 }
 
 // --- the curve -------------------------------------------------------------

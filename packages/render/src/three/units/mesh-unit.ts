@@ -35,7 +35,7 @@ import { gltfLoader } from './gltf-loader';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import type { ClipName } from '../../sheet';
-import { toonRampSkinnedMaterial } from './mesh-material';
+import { rampMaterial } from '../world-materials';
 import { isMeshRole, rampForRole, type MeshFaction } from './mesh-role';
 import { isMeshClipName, MESH_SCALE } from './mesh-anim';
 import type { ClipPlayer } from './mesh-clip';
@@ -101,8 +101,10 @@ export function buildMeshUnitTemplate(
       unmapped.add(role || '(unnamed mesh)');
       return;
     }
-    const mat = toonRampSkinnedMaterial(rampForRole(role, faction));
+    const mat = rampMaterial(rampForRole(role, faction));
     mesh.material = mat;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
     mesh.renderOrder = HULL_RENDER_ORDER;
     materials.push(mat);
     geometries.push(mesh.geometry);

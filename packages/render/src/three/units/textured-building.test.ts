@@ -2,14 +2,10 @@ import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import {
-  TEXTURED_BUILDING_TYPES,
-  TEXTURED_SHADE,
-  TEXTURED_SHADE_STEPS,
-  prepareTexturedMap,
-  texturedBuildingMaterial,
-} from './textured-building';
+import { TEXTURED_BUILDING_TYPES } from './textured-building';
 import { buildBuildingMeshTemplate, disposeBuildingMeshTemplate } from './mesh-building';
+import { liftTone } from '../world-materials';
+import { rampForBuildingRole } from './building-mesh-role';
 
 /** A `GLTFLoader`-shaped result: a scene holding one mesh per part, each with
  *  whatever material that part is supposed to arrive with. Hand-built rather
@@ -30,54 +26,15 @@ function sceneOf(parts: { role: string; map: THREE.Texture | null }[]): { scene:
 
 const texture = () => new THREE.Texture();
 
-describe('prepareTexturedMap', () => {
-  // The one that fails silently. GLTFLoader stamps `SRGBColorSpace` on a
-  // baseColorTexture, three.js turns that into an sRGB internal format at
-  // upload, and the GPU then decodes sRGB->linear on every sample -- with no
-  // matching encode on output, because `applyPalettePipeline` sets
-  // `outputColorSpace = LinearSRGBColorSpace` deliberately. The building
-  // comes out dark and flat, and still looks like a building, which is why
-  // nothing but an assertion catches it.
-  it('strips the sRGB colour space GLTFLoader stamps on a base_color map', () => {
-    const map = texture();
-    map.colorSpace = THREE.SRGBColorSpace;
-    prepareTexturedMap(map);
-    expect(map.colorSpace).toBe(THREE.NoColorSpace);
-  });
-
-  it('mipmaps, because a 2048 map is drawn at ~40px at zoom 0.35', () => {
-    const map = prepareTexturedMap(texture());
-    expect(map.generateMipmaps).toBe(true);
-    expect(map.minFilter).toBe(THREE.LinearMipmapLinearFilter);
-  });
-});
-
-describe('texturedBuildingMaterial', () => {
-  it('samples the supplied map and reads no palette ramp at all', () => {
-    const map = texture();
-    const mat = texturedBuildingMaterial(map);
-    expect(mat.uniforms.uMap.value).toBe(map);
-    // The palette path's own uniform. Its ABSENCE is the assertion: this
-    // material must not be able to substitute a palette colour even by
-    // accident, which is the lead's whole instruction.
-    expect(mat.uniforms.uRamp).toBeUndefined();
-    expect(mat.fragmentShader).toContain('texture2D(uMap, vUv)');
-  });
-
-  it('leaves the brightest band as the source bake, byte for byte', () => {
-    // shade = 1 - uShade * (band / (steps-1)); band 0 -> 1.0. The lit face of
-    // a textured building is the photograph and nothing else.
-    const brightest = 1 - TEXTURED_SHADE * (0 / (TEXTURED_SHADE_STEPS - 1));
-    expect(brightest).toBe(1);
-  });
-
-  it('registers for muzzle flash like every other material in this backend', () => {
-    const mat = texturedBuildingMaterial(texture());
-    for (const u of ['uFlashPos', 'uFlashRadius', 'uFlashShift']) {
-      expect(mat.uniforms[u]).toBeDefined();
-    }
-  });
-});
+// `prepareTexturedMap`/`texturedBuildingMaterial` (this module's own toon-era
+// ShaderMaterial) are no longer reachable from any production call site as of
+// the lit-material switch (`mesh-building.ts`/`mesh-vehicle.ts` now build
+// through `texturedMaterial`, `../world-materials.ts`, which keeps and
+// normalises the loader's own `MeshStandardMaterial` instead). They stay in
+// `textured-building.ts` until Task 7 deletes the old toon modules outright;
+// this file keeps only what is still live: the named-list export below, and
+// `buildBuildingMeshTemplate`'s own textured path (exercised further down
+// against the CURRENT material shape).
 
 describe('the textured opt-out is a named list', () => {
   it('covers exactly the six supplied Meshy buildings', () => {
@@ -116,16 +73,20 @@ describe('the textured opt-out is a named list', () => {
 });
 
 describe('buildBuildingMeshTemplate, textured path', () => {
-  it('draws a mapped mesh through the texture, not rampForBuildingRole', () => {
-    const template = buildBuildingMeshTemplate(
-      sceneOf([{ role: 'wall', map: texture() }]),
-      'limestone.3',
-      'brick',
-      true
-    );
-    const mat = template.materials[0] as THREE.ShaderMaterial;
-    expect(mat.uniforms.uMap).toBeDefined();
-    expect(mat.uniforms.uRamp).toBeUndefined();
+  it('draws a mapped mesh through the texture, keeping the loader\'s own material, not rampForBuildingRole', () => {
+    const map = texture();
+    const scene = sceneOf([{ role: 'wall', map }]);
+    let loaded: THREE.Material | null = null;
+    scene.scene.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh) loaded = m.material as THREE.Material;
+    });
+
+    const template = buildBuildingMeshTemplate(scene, 'limestone.3', 'brick', true);
+    const mat = template.materials[0] as THREE.MeshStandardMaterial;
+    expect(mat.isMeshStandardMaterial).toBe(true);
+    expect(mat).toBe(loaded);
+    expect(map.colorSpace).toBe(THREE.SRGBColorSpace);
   });
 
   // The warehouse. Its Meshy source is an open-topped scan, so the exporter
@@ -143,10 +104,12 @@ describe('buildBuildingMeshTemplate, textured path', () => {
       true
     );
     expect(template.materials).toHaveLength(2);
-    const [wall, metal] = template.materials as THREE.ShaderMaterial[];
-    expect(wall.uniforms.uMap).toBeDefined();
-    expect(metal.uniforms.uRamp).toBeDefined();
-    expect(metal.uniforms.uMap).toBeUndefined();
+    const [wall, metal] = template.materials as THREE.MeshStandardMaterial[];
+    expect(wall.map).not.toBeNull();
+    expect(metal.map).toBeNull();
+    expect(metal.color.getHexString().toUpperCase()).toBe(
+      liftTone(rampForBuildingRole('metal', 'gunmetal.1')).slice(1).toUpperCase()
+    );
   });
 
   it('refuses a texture from a type outside the named list', () => {

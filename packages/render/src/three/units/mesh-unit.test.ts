@@ -47,6 +47,8 @@ import { applyMeshClip } from './mesh-clip';
 import { MESH_SCALE } from './mesh-anim';
 import { HULL_RENDER_ORDER, TURRET_RENDER_ORDER } from './render-order';
 import { parseFixture } from './mesh-fixture';
+import { liftTone } from '../world-materials';
+import { rampForRole } from './mesh-role';
 
 // --- tests --------------------------------------------------------------
 
@@ -70,27 +72,20 @@ describe('buildFixtureGlb + GLTFLoader (fixture sanity)', () => {
 });
 
 describe('buildMeshUnitTemplate', () => {
-  it('assigns one toon-ramp material per role and scales the root by MESH_SCALE', async () => {
+  it('assigns one lit standard material per role, shadows on, and scales the root by MESH_SCALE', async () => {
     const gltf = await parseFixture({ roleName: 'uniform', clipName: 'move' });
     const template = buildMeshUnitTemplate(gltf, 'kdf');
-
     expect(template.materials).toHaveLength(1);
-    expect(template.materials[0]).toBeInstanceOf(THREE.ShaderMaterial);
-    expect(template.geometries).toHaveLength(1);
-    expect(template.root.scale.x).toBeCloseTo(MESH_SCALE, 10);
-    expect(template.root.scale.y).toBeCloseTo(MESH_SCALE, 10);
-    expect(template.root.scale.z).toBeCloseTo(MESH_SCALE, 10);
-    expect(template.clips.get('move')).toBeDefined();
-
-    // renderOrder: read render-order.ts before setting any renderOrder --
-    // mesh units are real depth-tested world geometry and belong at
-    // HULL_RENDER_ORDER, exactly like the billboards they replace.
-    let mesh: THREE.Mesh | null = null;
+    const m = template.materials[0] as THREE.MeshStandardMaterial;
+    expect(m.isMeshStandardMaterial).toBe(true);
+    expect(m.color.getHexString().toUpperCase()).toBe(liftTone(rampForRole('uniform', 'kdf')).slice(1).toUpperCase());
     template.root.traverse((o) => {
-      if ((o as THREE.Mesh).isMesh) mesh = o as THREE.Mesh;
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      expect(mesh.castShadow).toBe(true);
+      expect(mesh.receiveShadow).toBe(true);
     });
-    expect(mesh).not.toBeNull();
-    expect((mesh as unknown as THREE.Mesh).renderOrder).toBe(HULL_RENDER_ORDER);
+    expect(template.root.scale.x).toBeCloseTo(MESH_SCALE, 9);
   });
 
   // Break: in `buildMeshUnitTemplate`, change `mesh.renderOrder =

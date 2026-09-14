@@ -53,15 +53,20 @@ describe('the textured vehicle opt-out is a named list', () => {
 });
 
 describe('buildVehicleMeshTemplate, textured path', () => {
-  it('draws a mapped mesh through the texture, not rampForVehicleRole', () => {
-    const template = buildVehicleMeshTemplate(
-      sceneOf([{ name: 'hull_hull', role: 'hull', map: texture() }]),
-      'mbt_lavi',
-      true
-    );
-    const mat = template.materials[0] as THREE.ShaderMaterial;
-    expect(mat.uniforms.uMap).toBeDefined();
-    expect(mat.uniforms.uRamp).toBeUndefined();
+  it('draws a mapped mesh through the texture, keeping the loader\'s own material, not rampForVehicleRole', () => {
+    const map = texture();
+    const scene = sceneOf([{ name: 'hull_hull', role: 'hull', map }]);
+    let loaded: THREE.Material | null = null;
+    scene.scene.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh) loaded = m.material as THREE.Material;
+    });
+
+    const template = buildVehicleMeshTemplate(scene, 'mbt_lavi', true);
+    const mat = template.materials[0] as THREE.MeshStandardMaterial;
+    expect(mat.isMeshStandardMaterial).toBe(true);
+    expect(mat).toBe(loaded);
+    expect(map.colorSpace).toBe(THREE.SRGBColorSpace);
   });
 
   it('refuses a texture from a vehicle outside the named list', () => {
