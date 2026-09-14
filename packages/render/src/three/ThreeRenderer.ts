@@ -111,7 +111,9 @@ import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type Parti
 import { SIM_HZ } from '../anim';
 import { parseManifest, parseStructureManifest, clipOrFallback, type SheetSpec } from '../sheet';
 import { resolveClip, type UnitAnimInput } from '../clip';
-import { dimetricCamera, worldToScreenThree, screenToWorldThree } from './camera';
+import { updateDimetricCamera, worldToScreenThree, screenToWorldThree } from './camera';
+import { createSceneLights, type SceneLights } from './lighting';
+import { createPostChain, PIXEL_RATIO_CAP, type PostChain } from './post-chain';
 import { FlashLightManager } from './flash-light';
 import { MuzzleFlashManager, MUZZLE_FLASH_DEFAULT_DURATION_MS } from './units/muzzle-flash';
 import {
@@ -589,6 +591,31 @@ export class ThreeRenderer implements Renderer {
 
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
+  /** The scene's sun and sky bounce (`lighting.ts`). Built in the
+   *  constructor, not `init`, because every material in this scene is a
+   *  `MeshStandardMaterial` now: a scene with no lights in it is not a
+   *  dimmer picture, it is a black one. */
+  private readonly sceneLights: SceneLights;
+  /**
+   * ONE camera, reconfigured in place every frame by `threeCamera()`.
+   *
+   * It used to be a fresh `dimetricCamera(...)` per frame, which was free
+   * while `frame()` ended in a bare `renderer.render(scene, camera)`. It is
+   * not free now: `RenderPass` (and, from Task 13, the AO pass) holds the
+   * camera it was constructed with, so a new instance each frame would leave
+   * the composer rendering through the camera of whichever frame built the
+   * chain -- the picture would simply stop panning.
+   */
+  private readonly viewCamera = new THREE.OrthographicCamera();
+  /** Null until `init` -- building it needs a live GL context, and the nine
+   *  `ThreeRenderer*.test.ts` fakes never call `init`. `frame()` therefore
+   *  keeps a composer-less path: the raw renderer, whose own `antialias:
+   *  true` covers what SMAA covers in the game. */
+  private post: PostChain | null = null;
+  /** CSS pixels, which is what `width`/`height` report -- see their own doc
+   *  comment for why that is not the drawing buffer's size any more. */
+  private cssWidth = 0;
+  private cssHeight = 0;
   private host: HTMLElement | null = null;
   private resizeObserver: ResizeObserver | null = null;
 
@@ -1641,13 +1668,22 @@ export class ThreeRenderer implements Renderer {
       this.shellBatch.mesh,
       this.boltBatch.mesh
     );
+    // The scene's own light, sized to this map: one sun with a map-wide
+    // shadow box, one hemisphere bounce, and the sun's target (a
+    // DirectionalLight aims at an Object3D, which has to be in the scene for
+    // its world matrix to update). Here rather than in `init` because the
+    // spike scenes and the tests construct this class and never call `init`
+    // -- and with every world material now a `MeshStandardMaterial`, a
+    // lightless scene renders black rather than flat.
+    this.sceneLights = createSceneLights(sim.width, sim.height);
+    this.sceneLights.addTo(this.scene);
     // Same "always present, draws nothing until fed" shape as the FX meshes
     // just above, but for real `THREE.PointLight`s rather than a batched
     // mesh: all `FLASH_CAPACITY` of them go in now, at intensity 0, and stay
     // in the scene for its life -- see `flashLights`' own field doc comment
-    // for why a changing light count is the thing this avoids. Task 9 adds
-    // the scene's ambient/directional lights; for now this is the only
-    // light source `frame()` ever turns on.
+    // for why a changing light count is the thing this avoids. These are the
+    // scene's only MOVING lights; the sun and sky above are the standing
+    // ones.
     this.flashLights.addTo(this.scene);
     // Same "always present, draws nothing until fed" shape as the FX meshes
     // just above -- both start at drawRange 0 (`beginFrame`/`endFrame`
@@ -1695,18 +1731,54 @@ export class ThreeRenderer implements Renderer {
   get canvas(): HTMLCanvasElement {
     return this.renderer.domElement;
   }
+  /**
+   * CSS pixels, NOT the drawing buffer's size.
+   *
+   * These two were `domElement.width`/`.height` while the pixel ratio was
+   * pinned at 1, where the two readings are the same number. They are not
+   * the same number now (`init` sets the ratio up to `PIXEL_RATIO_CAP`), and
+   * every caller wants CSS: `worldToScreen`/`screenToWorld` sit on the same
+   * axis as a pointer event's `clientX`, and `threeCamera`'s frustum is
+   * solved in CSS pixels per tile so a tile keeps its on-screen size. Left
+   * on the drawing buffer, every pointer read on a retina display would land
+   * one tile-pair off and the camera would frame a quarter of the map.
+   *
+   * `api.ts` does not say which of the two it means, because until now
+   * nothing could tell them apart; Pixi's own `app.renderer.width` is its
+   * screen size, i.e. CSS, so this agrees with the other backend.
+   */
   get width(): number {
-    return this.renderer.domElement.width;
+    return this.cssWidth;
   }
   get height(): number {
-    return this.renderer.domElement.height;
+    return this.cssHeight;
   }
 
   async init(host: HTMLElement): Promise<void> {
     this.host = host;
     this.loadGroundTexture();
-    this.renderer.setPixelRatio(1);
+    // Everything in this method that needs a live GL context lives here
+    // rather than in the constructor, which the nine `ThreeRenderer*.test.ts`
+    // fakes exercise with a renderer stub that has four members.
+    this.renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, PIXEL_RATIO_CAP));
+    this.renderer.shadowMap.enabled = true;
+    // PCFSoft, not PCF or VSM: the sun casts one map-wide 4096 map
+    // (`lighting.ts`), so a shadow texel is coarse in world terms and a hard
+    // edge on it reads as a staircase across a tank's own footprint.
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.fitToHost();
+    // AFTER `fitToHost`, which is what first fills `cssWidth`/`cssHeight`,
+    // and after `setPixelRatio`, which `getPixelRatio` reads back here so
+    // the composer's targets and the canvas agree on their scale without
+    // this line having to re-derive the cap.
+    this.post = createPostChain(
+      this.renderer,
+      this.scene,
+      this.viewCamera,
+      this.cssWidth,
+      this.cssHeight,
+      this.renderer.getPixelRatio()
+    );
     host.appendChild(this.renderer.domElement);
     // PixiRenderer gets this from `resizeTo: host` (renderer.ts). Without an
     // equivalent the three canvas would stay at boot size while `width`/
@@ -1926,17 +1998,36 @@ export class ThreeRenderer implements Renderer {
     // Same "added once in the constructor, no scene.remove needed" shape as
     // vehicleTrackMesh just above.
     this.unitShadowMesh.dispose();
+    // BEFORE `renderer.dispose()`, and nulled: the composer owns three
+    // full-screen render targets plus SMAA's two lookup textures, none of
+    // which `WebGLRenderer.dispose()` reaches. Nulling it also means a
+    // `frame()` after `dispose()` takes the composer-less path rather than
+    // rendering into freed targets.
+    this.post?.dispose();
+    this.post = null;
+    // The sun's shadow map is a render target of its own, on the same
+    // footing as the composer's above.
+    this.sceneLights.dispose();
     this.renderer.dispose();
     this.host = null;
   }
 
-  /** Size the drawing buffer to the host element, exactly as Pixi's
-   *  `resizeTo` does: `clientWidth`/`clientHeight`, at resolution 1. No clamp
-   *  to a minimum -- a zero-sized host produces a zero-sized canvas on both
-   *  backends, and inventing a 1x1 floor here would make them disagree. */
+  /** Size the canvas to the host element, exactly as Pixi's `resizeTo` does:
+   *  `clientWidth`/`clientHeight`. No clamp to a minimum -- a zero-sized host
+   *  produces a zero-sized canvas on both backends, and inventing a 1x1 floor
+   *  here would make them disagree.
+   *
+   *  These are CSS pixels; `setSize` multiplies them by the pixel ratio for
+   *  the drawing buffer, and the composer's targets are sized the same way
+   *  from the same two numbers, so the three never drift apart. Retained in
+   *  `cssWidth`/`cssHeight` because that is what `width`/`height` report and
+   *  the canvas can no longer be asked for it. */
   private fitToHost(): void {
     if (!this.host) return;
-    this.renderer.setSize(this.host.clientWidth, this.host.clientHeight);
+    this.cssWidth = this.host.clientWidth;
+    this.cssHeight = this.host.clientHeight;
+    this.renderer.setSize(this.cssWidth, this.cssHeight);
+    this.post?.setSize(this.cssWidth, this.cssHeight, this.renderer.getPixelRatio());
   }
 
   /** `alpha` (interpolation) and `dtMs` (presentation animation -- frame
@@ -2034,7 +2125,16 @@ export class ThreeRenderer implements Renderer {
     this.windClockMs += dtMs;
     this.groveMat.uniforms.uTime.value = this.windClockMs / 1000;
     this.updateSilhouetteOutlineWidth();
-    this.renderer.render(this.scene, this.threeCamera());
+    // `threeCamera()` reconfigures the ONE camera the composer's RenderPass
+    // already holds, so this call has to happen whether or not the composer
+    // draws -- its return value is used only by the composer-less path.
+    const camera = this.threeCamera();
+    // No composer before `init` (the tests, the spikes): the raw renderer,
+    // whose own `antialias: true` stands in for the SMAA pass. Tone mapping
+    // and the sRGB encode happen either way -- on this path the renderer
+    // does them itself, on the composer's path `OutputPass` does.
+    if (this.post) this.post.render();
+    else this.renderer.render(this.scene, camera);
   }
 
   /**
@@ -3948,8 +4048,11 @@ export class ThreeRenderer implements Renderer {
     this.retained.tutorialFocus = null;
   }
 
+  /** Reconfigures `viewCamera` in place and returns it -- never a fresh
+   *  instance, because `RenderPass` (and Task 13's AO pass) holds the one it
+   *  was built with. See the field's own doc comment. */
   private threeCamera(): THREE.OrthographicCamera {
-    return dimetricCamera(this.camera, { width: this.width, height: this.height });
+    return updateDimetricCamera(this.camera, { width: this.width, height: this.height }, this.viewCamera);
   }
 
   /** Wall-clock seconds since the previous frame, clamped exactly the way
