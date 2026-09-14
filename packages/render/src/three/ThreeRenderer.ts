@@ -265,7 +265,8 @@ export type { MeshFaction } from './units/mesh-role';
 import { groundWorldY } from './ground-height';
 import { tileHash } from '../tile-hash';
 import { computeFog, isFogVisible, type FogInput } from './fog';
-import { FogMesh } from './fog-mesh';
+import { ShroudTexture } from './shroud-texture';
+import { FogOfWarPass } from './fog-pass';
 import { SmokeMesh } from './smoke-mesh';
 import { perTileRunYaw } from './units/run-direction';
 import { drawBlockedMask } from './terrain/draw-mask';
@@ -1460,10 +1461,11 @@ export class ThreeRenderer implements Renderer {
    *  the tick rate. */
   private fogTick = 0;
   /** Set whenever `recomputeFog` produces new fog data; cleared once
-   *  `frame()` has rebuilt `fogMesh` from it. Mirrors Pixi's own `fogDirty`
-   *  (`renderer.ts:200`) -- avoids rebuilding the fog mesh's instance buffers
-   *  on every 60 Hz `frame()` when the underlying data only changes at 5 Hz. */
-  private fogMeshDirty = true;
+   *  `frame()` has rebuilt `shroud` from it. Mirrors Pixi's own `fogDirty`
+   *  (`renderer.ts:200`) -- avoids re-blurring and re-uploading the shroud
+   *  image on every 60 Hz `frame()` when the underlying data only changes at
+   *  5 Hz. */
+  private shroudDirty = true;
   /**
    * Sight radius in tiles, indexed by unit TYPE index (not per entity) --
    * `./fog.ts`'s own `FogInput.sightByType` doc comment names this as an
@@ -1478,10 +1480,27 @@ export class ThreeRenderer implements Renderer {
    * NEW `sim.unitTypes` entry appearing later).
    */
   private readonly sightByType: Float64Array;
-  private readonly fogMesh: FogMesh;
+  /**
+   * Task 10: fog of war on screen. The shroud is the feathered R8 IMAGE of
+   * `this.fog` (`./shroud-texture.ts`); `fogPass` is what samples it, by the
+   * world position the depth buffer reports (`./fog-pass.ts`). Together they
+   * replace `FogMesh`, which drew one `depthTest: false` black quad per
+   * non-visible tile at render band 10 -- a recipe that could not tell a
+   * roof from the ground under it and staircased every fog edge.
+   *
+   * The split across the two fields is the constructor/`init()` line every
+   * GPU-touching thing in this class already respects: a `DataTexture` is a
+   * plain JS object and can be built in the constructor the nine
+   * `ThreeRenderer*.test.ts` fakes drive, while the pass belongs to the post
+   * chain and is therefore built in `init()` alongside it. `post-chain.ts`
+   * explicitly does NOT own a pass handed to `setFogPass`, so `dispose()`
+   * below releases both of these.
+   */
+  private readonly shroud: ShroudTexture;
+  private fogPass: FogOfWarPass | null = null;
   /**
    * Phase D readiness fix: `sim.smoke` on screen -- see `smoke-mesh.ts`'s own
-   * top comment for the full port account. Unlike `fogMesh`, there is no
+   * top comment for the full port account. Unlike the shroud, there is no
    * dirty flag gating this one: Pixi's own smoke loop (`renderer.ts:2576`)
    * runs unconditionally every `frame()` call, not behind `fogDirty`, so
    * `smokeMesh.update` is called the same way, every `frame()`, below.
@@ -1491,10 +1510,10 @@ export class ThreeRenderer implements Renderer {
    * Phase C: tunnel trails, the three.js counterpart of `PixiRenderer
    * .drawTrail` (`renderer.ts:1121-1167`) -- see `./trail-mesh.ts`'s own top
    * comment for the full port account, including why its `renderOrder`/depth
-   * recipe deliberately diverges from `fogMesh`'s.
+   * recipe deliberately diverges from the retired `FogMesh`'s.
    */
   private readonly trailMesh: TrailMesh;
-  /** Set on the SAME `fogTick` cadence as `fogMeshDirty` -- Pixi's own
+  /** Set on the SAME `fogTick` cadence as `shroudDirty` -- Pixi's own
    *  `snapshot()` refreshes fog and trail off one shared `refresh` gate
    *  (`renderer.ts:733-735`, "the trail rides the same cadence, since its
    *  stamp/decay clock is slower still"), so this backend reuses `fogTick`
@@ -1584,7 +1603,9 @@ export class ThreeRenderer implements Renderer {
     this.fog = new Uint8Array(sim.width * sim.height);
     this.sightByType = new Float64Array(sim.unitTypes.length);
     for (let t = 0; t < sim.unitTypes.length; t++) this.sightByType[t] = fx.toNumber(sim.unitTypes[t].sight);
-    this.fogMesh = new FogMesh(sim.width, sim.height);
+    // A `DataTexture` and nothing else -- no GL context needed, so this
+    // belongs here rather than in `init()`. Its `FogOfWarPass` does not.
+    this.shroud = new ShroudTexture(sim.width, sim.height);
     this.smokeMesh = new SmokeMesh(sim.width, sim.height);
     // Colour baked once from opts.terrainTones.spoil, matching every other
     // per-map tone this backend reads once at construction rather than
@@ -1693,11 +1714,10 @@ export class ThreeRenderer implements Renderer {
     // Pixi's own `trailG` is `world`'s SECOND child (`renderer.ts:539`,
     // below fxG/wreckLayer/spriteLayer alike) -- but per trail-mesh.ts's own
     // top comment, scene-graph position carries no draw-order meaning in
-    // this backend the way it does not for fogMesh either; `trailMesh.mesh
-    // .renderOrder` (`TRAIL_RENDER_ORDER`) plus real depth-buffer arbitration
-    // is what actually places it. Added here, not last, only so a reader
-    // scanning this constructor sees ground-plane geometry grouped before
-    // the always-on-top fog mesh below it.
+    // this backend; `trailMesh.mesh.renderOrder` (`TRAIL_RENDER_ORDER`) plus
+    // real depth-buffer arbitration is what actually places it. Added here
+    // only so a reader scanning this constructor sees the ground-plane
+    // meshes grouped together.
     this.scene.add(this.trailMesh.mesh);
     // Same ground-band placement as trailMesh just above, for the same
     // "scene-graph position is cosmetic here, renderOrder plus real depth
@@ -1706,26 +1726,24 @@ export class ThreeRenderer implements Renderer {
     // Same ground-band placement as vehicleTrackMesh just above -- see
     // unit-shadows.ts's own top comment.
     this.scene.add(this.unitShadowMesh.mesh);
-    // `SMOKE_RENDER_ORDER` sits above the overlay tier and below fog -- see
+    // `SMOKE_RENDER_ORDER` sits above the overlay tier -- see
     // `smoke-mesh.ts`'s own top comment. Scene-graph position is cosmetic
-    // here for the identical reason it is for `fogMesh`/`trailMesh` (three.js
-    // does not order draws by child order); added before `fogMesh` only so a
-    // reader scanning constructor order sees smoke grouped with the other
-    // ground-relative overlay meshes, fog last.
+    // here for the identical reason it is for `trailMesh` (three.js
+    // does not order draws by child order); grouped here only so a
+    // reader scanning constructor order sees smoke with the other
+    // ground-relative overlay meshes.
     this.scene.add(this.smokeMesh.mesh);
     // The collapse shroud draws in the same band (`SMOKE_RENDER_ORDER`) and
     // with the same `depthTest: false` for the same reason -- see
     // `units/collapse-shroud.ts`'s own material comment. Grouped here beside
     // `smokeMesh` so the two smoke layers read together.
     this.scene.add(this.collapseShrouds.mesh);
-    // Added LAST, matching Pixi's own `world.addChild(this.fogG)` being the
-    // final call in its constructor (`renderer.ts:551`, "above terrain AND
-    // units") -- three.js does not order draws by scene-graph child order
-    // the way Pixi does, so this placement is cosmetic here; `fogMesh.mesh
-    // .renderOrder` (`FOG_RENDER_ORDER`) is what actually enforces it. Kept
-    // last anyway so a reader scanning constructor order sees the same story
-    // both backends tell.
-    this.scene.add(this.fogMesh.mesh);
+    // Nothing for fog: it is a post pass now (`./fog-pass.ts`), not an
+    // object in this scene at all. Pixi still ends its own constructor with
+    // `world.addChild(this.fogG)` (`renderer.ts:551`, "above terrain AND
+    // units"); this backend's equivalent is `init()` handing a
+    // `FogOfWarPass` to the post chain, which dims by DEPTH rather than
+    // painting quads over whatever happens to be underneath.
   }
 
   get canvas(): HTMLCanvasElement {
@@ -1779,6 +1797,12 @@ export class ThreeRenderer implements Renderer {
       this.cssHeight,
       this.renderer.getPixelRatio()
     );
+    // Task 10: fog of war, slotted directly after `RenderPass` so what it
+    // reads as `readBuffer.depthTexture` is that pass's own depth. The chain
+    // does NOT take ownership (see `PostChain.setFogPass`), so `dispose()`
+    // releases this one.
+    this.fogPass = new FogOfWarPass(this.shroud.texture, this.sim.width, this.sim.height);
+    this.post.setFogPass(this.fogPass);
     host.appendChild(this.renderer.domElement);
     // PixiRenderer gets this from `resizeTo: host` (renderer.ts). Without an
     // equivalent the three canvas would stay at boot size while `width`/
@@ -1966,31 +1990,40 @@ export class ThreeRenderer implements Renderer {
     this.shellBatch.dispose();
     this.boltBatch.dispose();
     // Phase C: same "added once in the constructor, no scene.remove needed"
-    // shape as the FX batches just above -- see this file's own comment on
-    // the `fogMesh.dispose()` fix a few lines down for why that omission
-    // used to be a real leak elsewhere, guarded against here from the start.
+    // shape as the FX batches just above -- see the shroud/fog-pass comment
+    // a few lines down for the omit-then-fix history that class of leak has
+    // in this file, guarded against here from the start.
     this.overlayBatch.dispose();
     this.numeralBatch.dispose();
     this.chevronBatch.dispose();
-    // Final-review fix: FogMesh owns a full-map `InstancedMesh` (geometry,
-    // material, instance buffers) and this call was missing entirely --
-    // `FogMesh.dispose()` existed but nothing called it. No `scene.remove`
-    // needed, matching every other "added once in the constructor, left for
-    // the life of the renderer" mesh above (terrain, particles, tracers):
-    // this dispose() sequence never removes those from `scene` either,
-    // relying on `renderer.dispose()` forcing context loss below. Only the
-    // `collapsing` loop above calls `scene.remove`, because those meshes are
-    // dynamically added and removed one at a time outside of dispose().
-    this.fogMesh.dispose();
-    // Same full-map `InstancedMesh` shape as `fogMesh`, same "added once in
-    // the constructor, no scene.remove needed" reasoning -- guarded against
-    // the identical leak from the start rather than repeating fogMesh's own
-    // omit-then-fix history.
+    // Task 10, and the one ownership rule the post chain states outright:
+    // `PostChain` releases only the four passes it constructed itself, never
+    // one handed to `setFogPass`, so BOTH halves of fog are this class's to
+    // free -- the shroud's GPU texture and the pass's material/quad. This is
+    // the same class of leak the retired `FogMesh` shipped with (a
+    // `dispose()` that existed and was called from nowhere), which is why
+    // `ThreeRenderer.test.ts` still guards this line.
+    //
+    // Out of the chain BEFORE it is freed, which is the order `setFogPass`'s
+    // own doc asks for ("after taking it out of the chain rather than
+    // instead of"). Nothing renders between here and `this.post.dispose()`
+    // below, so today it is bookkeeping -- but a composer holding a freed
+    // pass is a hazard that costs one line to not have.
+    this.post?.setFogPass(null);
+    this.shroud.dispose();
+    this.fogPass?.dispose();
+    this.fogPass = null;
+    // A full-map `InstancedMesh`, same "added once in the constructor, no
+    // scene.remove needed" reasoning as every mesh above (terrain,
+    // particles, tracers): this dispose() sequence never removes those from
+    // `scene` either, relying on `renderer.dispose()` forcing context loss
+    // below. Only the `collapsing` loop above calls `scene.remove`, because
+    // those meshes are dynamically added and removed one at a time outside
+    // of dispose().
     this.smokeMesh.dispose();
-    // Phase C: same full-map `InstancedMesh` shape as `fogMesh`, same
+    // Phase C: same full-map `InstancedMesh` shape as `smokeMesh`, same
     // "added once in the constructor, no scene.remove needed" reasoning
-    // just above -- guarded against the identical leak from the start
-    // rather than repeating fogMesh's own omit-then-fix history.
+    // just above.
     this.trailMesh.dispose();
     // Same "added once in the constructor, no scene.remove needed" shape as
     // trailMesh just above.
@@ -2050,18 +2083,20 @@ export class ThreeRenderer implements Renderer {
    *  from the just-drained values, or every latch would read one frame
    *  stale.
    *
-   *  Task B4.2: the fog MESH (GPU instance buffers) rebuilds only when
-   *  `fogMeshDirty` -- set by `recomputeFog`, which runs at 5 Hz from
+   *  Task 10: the SHROUD image (blur + GPU upload) rebuilds only when
+   *  `shroudDirty` -- set by `recomputeFog`, which runs at 5 Hz from
    *  `snapshot`, not every 60 Hz `frame()` -- mirroring Pixi's own
    *  `fogDirty`-gated `drawFog` (`renderer.ts:2574`). `isVisible`'s
    *  correctness for THIS frame's `updateUnits` call does not depend on this
    *  gate at all: it reads `this.fog` (the plain data `recomputeFog` last
-   *  wrote) directly via `isFogVisible`, never through `fogMesh` -- the mesh
+   *  wrote) directly via `isFogVisible`, never through the shroud -- the
    *  rebuild below is purely what appears on screen, decoupled from what the
-   *  living-unit skip decides.
+   *  living-unit skip decides. The pass's CAMERA matrices are not on this
+   *  gate: they are refreshed every frame, just before rendering, because
+   *  the reconstruction they drive is per-pixel and per-view, not per-tile.
    *
    *  Phase C: `trailMesh` rebuilds on the identical `trailMeshDirty` gate,
-   *  set by `snapshot()` on the same 5 Hz tick `fogMeshDirty` uses -- unlike
+   *  set by `snapshot()` on the same 5 Hz tick `shroudDirty` uses -- unlike
    *  fog, there is no intermediate "recompute" step producing owned data:
    *  Pixi's own `drawTrail` reads `Sim.trail`/`tunnelContactLevel`/etc.
    *  live at draw time with nothing cached in between, and `buildTrailInput`
@@ -2093,9 +2128,9 @@ export class ThreeRenderer implements Renderer {
     // tracer stepping already stands on.
     this.flashLights.step(dtMs);
     this.updateOverlays(alpha);
-    if (this.fogMeshDirty) {
-      this.fogMesh.update(this.fog, this.retained.elevation, this.sim.width, this.sim.height);
-      this.fogMeshDirty = false;
+    if (this.shroudDirty) {
+      this.shroud.update(this.fog);
+      this.shroudDirty = false;
     }
     // No dirty gate -- Pixi's own smoke loop redraws every `frame()` call,
     // not behind `fogDirty` (`smokeMesh`'s own doc comment above).
@@ -2129,6 +2164,11 @@ export class ThreeRenderer implements Renderer {
     // already holds, so this call has to happen whether or not the composer
     // draws -- its return value is used only by the composer-less path.
     const camera = this.threeCamera();
+    // AFTER `threeCamera()`, which is what rewrites the projection and world
+    // matrices this frame -- copying them before that call would unproject
+    // this frame's depth through last frame's view, which reads on screen as
+    // the shroud sliding a frame behind the ground whenever the camera pans.
+    this.fogPass?.updateCamera(camera);
     // No composer before `init` (the tests, the spikes): the raw renderer,
     // whose own `antialias: true` stands in for the SMAA pass. Tone mapping
     // and the sRGB encode happen either way -- on this path the renderer
@@ -2363,8 +2403,8 @@ export class ThreeRenderer implements Renderer {
    * Task B4.2: one tick of fog-of-war -- assembles `./fog.ts`'s `FogInput`
    * from `Sim` and this class's own `sightByType`, and reassigns `this.fog`
    * to `computeFog`'s fresh result (pure function, never mutates `prev` in
-   * place -- see that module's own doc comment). Sets `fogMeshDirty` so
-   * `frame()` rebuilds the GPU mesh from the new data on its next call.
+   * place -- see that module's own doc comment). Sets `shroudDirty` so
+   * `frame()` rebuilds the shroud image from the new data on its next call.
    */
   private recomputeFog(): void {
     const st = this.sim.state;
@@ -2382,7 +2422,7 @@ export class ThreeRenderer implements Renderer {
       isLowProfile: (x, y) => this.isLowProfileTile(x, y),
     };
     this.fog = computeFog(this.fog, input);
-    this.fogMeshDirty = true;
+    this.shroudDirty = true;
   }
 
   /** A chest-high wall casts no fog shadow, because the sim lets sight and

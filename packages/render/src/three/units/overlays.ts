@@ -50,7 +50,10 @@
  * or another unit's sprite, only by fog (`render-order.ts`'s own closing
  * paragraphs, "so in Pixi every overlay draws UNDER fog, never over it").
  * `depthTest: false` plus `OVERLAY_RENDER_ORDER`/`BADGE_NUMERAL_RENDER_ORDER`
- * sitting below `FOG_RENDER_ORDER` reproduces exactly that: real depth
+ * sitting below the retired fog band reproduces exactly that -- fog no
+ * longer competes with any object, so the fog half is settled by the post
+ * pass instead (`../fog-pass.ts`), which dims an overlay reaching onto
+ * unobserved ground by the same amount as that ground. Real depth
  * buffer arbitration would be a BEHAVIOUR CHANGE from what Pixi ships (a
  * selected unit standing behind a building, from this camera's fixed
  * dimetric angle, would lose its ring to the building's own depth -- Pixi

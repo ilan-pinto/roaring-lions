@@ -29,8 +29,6 @@ import {
   SHELL_TRAIL_SEGMENTS,
   type ShellModel,
 } from './shells';
-import { FOG_RENDER_ORDER } from './render-order';
-import { FogMesh } from '../fog-mesh';
 import {
   PARTICLE_CAPACITY,
   PARTICLE_LIFT_PX,
@@ -548,18 +546,13 @@ describe('ParticleInstancer construction', () => {
     // fails THIS test rather than silently drifting again) is what this
     // suite could not do before FX_RENDER_ORDER was exported.
     //
-    // Task B4.2 extends this SAME test with `FogMesh` rather than adding a
-    // parallel one (the brief's own instruction) -- `FOG_RENDER_ORDER` is
-    // the fifth and, so far, last band in the table, and it is the one this
-    // whole chain exists to protect the most directly: a fog quad that ends
-    // up BELOW a unit's own renderOrder would stop hiding a hostile standing
-    // on the tile it covers, which is this task's entire point. `depthTest:
-    // false` (asserted separately, fog-mesh.test.ts's own "unconditional
-    // overlay" test) makes fog immune to genuine depth occlusion, but immune
-    // to a LOSING renderOrder it is not -- three.js still submits transparent
-    // objects in renderOrder order, so the ordering half of "fog draws over
-    // everything" lives here, in the one file that can reach every band at
-    // once.
+    // Task B4.2 had extended this SAME test with `FogMesh` at band 10, the
+    // top of the table: a fog quad that ended up BELOW a unit's own
+    // renderOrder would have stopped hiding a hostile standing on the tile
+    // it covered. Task 10 retired that band with the mesh -- fog is a post
+    // pass (`../fog-pass.ts`) running after the whole scene is drawn, so it
+    // has no renderOrder to lose and no object to be ordered against. The
+    // chain below is the four bands that remain.
     const sheet = tinySheet;
     const packing = packSheet(sheet);
     const hull = new UnitInstancer(sheet, new THREE.DataArrayTexture(), packing, 4);
@@ -567,19 +560,12 @@ describe('ParticleInstancer construction', () => {
     const below = new ParticleInstancer(4, 0, true);
     const above = new ParticleInstancer(4, 1, false);
     const tracers = new TracerBatch(4);
-    const fog = new FogMesh(4, 4);
 
     // The full band table, asserted as a strict ascending chain rather than
-    // pairwise against zero -- HULL < TURRET < FX < FX_ABOVE < FOG, with no
+    // pairwise against zero -- HULL < TURRET < FX < FX_ABOVE, with no
     // two bands equal. This is the exact shape of assertion the old
     // collision (TURRET_RENDER_ORDER === FX_RENDER_ORDER, both 1) would fail.
-    const bands = [
-      HULL_RENDER_ORDER,
-      TURRET_RENDER_ORDER,
-      FX_RENDER_ORDER,
-      FX_RENDER_ORDER_ABOVE,
-      FOG_RENDER_ORDER,
-    ];
+    const bands = [HULL_RENDER_ORDER, TURRET_RENDER_ORDER, FX_RENDER_ORDER, FX_RENDER_ORDER_ABOVE];
     for (let i = 1; i < bands.length; i++) {
       expect(bands[i]).toBeGreaterThan(bands[i - 1]);
     }
@@ -593,7 +579,6 @@ describe('ParticleInstancer construction', () => {
     expect(below.mesh.renderOrder).toBeGreaterThan(turret.mesh.renderOrder);
     expect(tracers.mesh.renderOrder).toBeGreaterThan(turret.mesh.renderOrder);
     expect(above.mesh.renderOrder).toBeGreaterThan(below.mesh.renderOrder);
-    expect(fog.mesh.renderOrder).toBeGreaterThan(above.mesh.renderOrder);
   });
 
   it('writes correct per-instance position and scale into the instance matrix, not merely the right count', () => {
@@ -844,7 +829,11 @@ describe('ShellBatch construction', () => {
     const batch = new ShellBatch(4);
     expect(batch.mesh.renderOrder).toBe(FX_RENDER_ORDER_ABOVE);
     expect(batch.mesh.renderOrder).toBeGreaterThan(new TracerBatch(4).mesh.renderOrder);
-    expect(batch.mesh.renderOrder).toBeLessThan(FOG_RENDER_ORDER);
+    // A `.toBeLessThan` against the fog band stood here until Task 10
+    // retired it -- an arcing shell over unobserved ground is dimmed by the
+    // post pass now, not covered by a quad, so there is nothing left to
+    // out-rank.
+    expect(batch.mesh.renderOrder).toBeGreaterThan(FX_RENDER_ORDER);
     expect(batch.mesh.frustumCulled).toBe(false);
   });
 

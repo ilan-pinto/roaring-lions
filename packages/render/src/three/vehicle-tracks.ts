@@ -76,16 +76,16 @@
  *
  * ## Fog: no separate visibility gate, because opaque ground geometry does not need one
  *
- * `FogMesh` (`./fog-mesh.ts`) already paints an unconditional, `depthTest:
- * false` quad over every tile not currently in sight -- opaque for
- * never-explored (fog level 0), 0.55-alpha dim for explored-but-unobserved
- * (level 1) -- regardless of what real geometry sits beneath it. That is the
+ * `FogOfWarPass` (`./fog-pass.ts`) already dims every pixel by the shroud
+ * value at the world position that pixel's own DEPTH reports -- 85% for
+ * never-explored (fog level 0), 40% for explored-but-unobserved (level 1)
+ * -- whatever geometry drew there. That is the
  * SAME mechanism that already hides/dims a wreck or a building standing on
  * unexplored ground; a mark drawn as ordinary opaque, depth-tested ground
  * geometry (this module's own recipe, see below) gets that guarantee for
  * free, with no extra `Sim.sideSeesTile`-style query of its own. Concretely:
  * an enemy vehicle's track crossing ground the player has never explored is
- * invisible (fog level 0 draws a fully opaque cover quad); once explored,
+ * dimmed into the shroud with the ground it sits on; once explored,
  * the track becomes visible, dimmed to the same "remembered terrain" look
  * every other permanent ground feature gets, even after the player's own
  * sight has moved on. This leaks nothing the player has not earned -- it is
@@ -96,11 +96,12 @@
  * (`Sim.sideSeesTile`, CURRENT sight only) -- that gates a LIVE mechanic
  * ("something is being dug right now nearby"), not a permanent decal, and
  * this module has no equivalent live signal to gate on nor a reason to
- * invent one. Because this is real, opaque (`transparent: false`) geometry,
- * it also draws in three.js's OPAQUE render queue, which is submitted
- * before the TRANSPARENT queue (where `FogMesh` lives) unconditionally --
- * fog covering a mark does not even depend on `renderOrder` agreeing, the
- * way it would for a transparent mesh sharing fog's own queue.
+ * invent one. Nothing about this depends on render order any more, in
+ * either queue: fog runs AFTER the whole scene is drawn, so there is no
+ * band a mark could claim that would put it outside the shroud. (This
+ * paragraph used to turn on the opaque queue being submitted before the
+ * transparent one `FogMesh` drew in; that dependency is retired with the
+ * mesh -- see `units/render-order.ts`'s band-10 row.)
  *
  * ## Render order and depth recipe
  *

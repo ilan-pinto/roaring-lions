@@ -25,7 +25,7 @@ import * as THREE from 'three';
 import { groundWorldY } from './ground-height';
 import { hexToUnit } from './terrain/shared';
 import { SOFT_PARTICLE_CORE } from './units/fx';
-import { SMOKE_RENDER_ORDER, OVERLAY_RENDER_ORDER, FOG_RENDER_ORDER } from './units/render-order';
+import { SMOKE_RENDER_ORDER, OVERLAY_RENDER_ORDER } from './units/render-order';
 import {
   SMOKE_COLOR,
   SMOKE_ALPHA_CEIL,
@@ -337,11 +337,17 @@ describe('SmokeMesh construction', () => {
     expect(material.fragmentShader).toContain(SOFT_PARTICLE_CORE.toFixed(2));
   });
 
-  it('draws in the SMOKE band, above the overlay tier and below fog -- it must paint over HP bars/rings/markers, and still be hidden by fog', () => {
+  // The second half of this test used to assert that smoke's band sat
+  // below fog's -- "and still be hidden by fog". Task
+  // 10 retired that band: fog is a post pass (`./fog-pass.ts`) that dims
+  // whatever the depth buffer reports, so smoke over unobserved ground is
+  // dimmed with the ground under it whatever band it draws in, and there is
+  // no scene object left to be ordered against. The overlay relation below
+  // is the one that still constrains anything.
+  it('draws in the SMOKE band, above the overlay tier -- it must paint over HP bars/rings/markers', () => {
     const mesh = new SmokeMesh(W, H);
     expect(mesh.mesh.renderOrder).toBe(SMOKE_RENDER_ORDER);
     expect(SMOKE_RENDER_ORDER).toBeGreaterThan(OVERLAY_RENDER_ORDER);
-    expect(SMOKE_RENDER_ORDER).toBeLessThan(FOG_RENDER_ORDER);
   });
 
   it('mesh is exempt from frustum culling, matching every other whole-map mesh in this backend', () => {

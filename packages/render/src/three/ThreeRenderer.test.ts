@@ -1,25 +1,29 @@
 /**
- * Final whole-branch review (Fix 2): `dispose()` never disposed `fogMesh` --
- * `FogMesh.dispose()` existed and was called from nowhere, so
- * `tools/src/perf/three-units.ts:757` (which calls `renderer.dispose()`
- * between backends to publish a peak-VRAM figure) leaked a full-map
- * `InstancedMesh` on every run. That fix is one line in `dispose()`; this
- * file exists to guard it, and it is deliberately narrow.
+ * Final whole-branch review (Fix 2): `dispose()` never disposed the fog
+ * layer -- the retired `FogMesh`'s own `dispose()` existed and was called
+ * from nowhere, so `tools/src/perf/three-units.ts:757` (which calls
+ * `renderer.dispose()` between backends to publish a peak-VRAM figure)
+ * leaked a full-map `InstancedMesh` on every run. That fix is one line in
+ * `dispose()`; this file exists to guard it, and it is deliberately narrow.
+ * Task 10 replaced the mesh with a `ShroudTexture` + `FogOfWarPass` pair
+ * and the guard moved with it -- the GPU object changed, the leak shape did
+ * not.
  *
  * `ThreeRenderer` has no other headless coverage (recorded, deliberately
  * deferred, in `progress.md`'s "Deferred to Phase C" list -- proving the
  * phase's headline fog/visibility claim wants a real seam, not a
  * constructor-level workaround). This file does not attempt that. It
  * constructs exactly enough of a real `ThreeRenderer` to prove one thing:
- * that `dispose()` reaches `fogMesh.dispose()`.
+ * that `dispose()` reaches the fog layer's own `dispose()`.
  *
  * The one real obstacle is `new THREE.WebGLRenderer(...)`, which cannot
  * construct under this suite's headless `environment: 'node'` (no `document`,
  * no WebGL). Every other object `ThreeRenderer`'s constructor builds --
- * `FogMesh`, `ParticleInstancer`, `TracerBatch`, `terrainMaterial()` -- is
- * plain `THREE.*` JS-side construction with no GPU context needed, already
- * proven headless-safe by `fog-mesh.test.ts`, `units/fx.test.ts` and
- * elsewhere. So this file substitutes a minimal stand-in for
+ * `ShroudTexture`, `ParticleInstancer`, `TracerBatch`, `terrainMaterial()`
+ * -- is plain `THREE.*` JS-side construction with no GPU context needed,
+ * already proven headless-safe by `shroud-texture.test.ts`,
+ * `units/fx.test.ts` and elsewhere. (`FogOfWarPass` is deliberately NOT in
+ * that list: it is built in `init()`, which this file never calls.) So this file substitutes a minimal stand-in for
  * `THREE.WebGLRenderer` alone (via `vi.mock`, scoped to this one test file)
  * rather than a real one, keeping every other `three` export untouched.
  * Confirmed by reading the constructor directly: nothing runs between `new
@@ -99,44 +103,44 @@ function makeSim(): Sim {
 }
 
 describe('ThreeRenderer.dispose', () => {
-  it('disposes fogMesh -- the exact regression this test guards', () => {
+  it('disposes the fog shroud texture -- the exact regression this test guards', () => {
     const renderer = new ThreeRenderer(makeSim(), makeOpts());
     // Reach into the private field the same way this suite already treats
-    // `FogMesh` as testable (`fog-mesh.test.ts` constructs and inspects one
-    // directly) -- there is no public accessor for it, and adding one
-    // purely for a test would widen `Renderer`'s surface for no runtime
-    // reason (`api.ts`'s own top comment: "The surface is small ... and
-    // that smallness is the whole reason replacing the backend is
+    // `ShroudTexture` as testable (`shroud-texture.test.ts` constructs and
+    // inspects one directly) -- there is no public accessor for it, and
+    // adding one purely for a test would widen `Renderer`'s surface for no
+    // runtime reason (`api.ts`'s own top comment: "The surface is small ...
+    // and that smallness is the whole reason replacing the backend is
     // tractable").
-    const fogMesh = (renderer as unknown as { fogMesh: { mesh: { geometry: unknown; material: unknown } } })
-      .fogMesh;
-    const geometry = fogMesh.mesh.geometry as { addEventListener: (type: string, cb: () => void) => void };
-    const material = fogMesh.mesh.material as { addEventListener: (type: string, cb: () => void) => void };
-    let geometryDisposed = false;
-    let materialDisposed = false;
-    // three.js's own disposal signal: `BufferGeometry.dispose()` and
-    // `Material.dispose()` both dispatch a `'dispose'` event (they extend
-    // `EventDispatcher`) -- asserting on that is a stronger guard than
-    // spying on `.dispose` directly, since it proves the REAL three.js
-    // method ran, not merely that something callable named `dispose` was
-    // invoked.
-    geometry.addEventListener('dispose', () => {
-      geometryDisposed = true;
-    });
-    material.addEventListener('dispose', () => {
-      materialDisposed = true;
+    //
+    // Task 10 moved this guard from `fogMesh` (a full-map `InstancedMesh`,
+    // geometry + material) to the shroud (a `DataTexture`), because fog is
+    // a post pass now and the mesh is gone. The LEAK is the same shape and
+    // so is the fix: a `dispose()` the class owns and has to actually call.
+    // The other half of fog, `FogOfWarPass`, is built in `init()` -- which
+    // needs a live GL context and is therefore out of this file's reach;
+    // its release is pinned by reading `dispose()`, not by a test here.
+    const shroud = (renderer as unknown as { shroud: { texture: unknown } }).shroud;
+    const texture = shroud.texture as { addEventListener: (type: string, cb: () => void) => void };
+    let textureDisposed = false;
+    // three.js's own disposal signal: `Texture.dispose()` dispatches a
+    // `'dispose'` event (it extends `EventDispatcher`) -- asserting on that
+    // is a stronger guard than spying on `.dispose` directly, since it
+    // proves the REAL three.js method ran, not merely that something
+    // callable named `dispose` was invoked.
+    texture.addEventListener('dispose', () => {
+      textureDisposed = true;
     });
 
     renderer.dispose();
 
-    expect(geometryDisposed).toBe(true);
-    expect(materialDisposed).toBe(true);
-    // And the renderer's own WebGLRenderer.dispose() still ran too --
-    // fogMesh disposal was ADDED, not substituted for something else.
+    expect(textureDisposed).toBe(true);
+    // And the renderer's own WebGLRenderer.dispose() still ran too -- fog
+    // disposal was ADDED, not substituted for something else.
     expect(disposeSpy).toHaveBeenCalled();
   });
 
-  it('disposes smokeMesh -- the identical shape of leak fogMesh once had, guarded against from the start', () => {
+  it('disposes smokeMesh -- the identical shape of leak the fog layer once had, guarded against from the start', () => {
     const renderer = new ThreeRenderer(makeSim(), makeOpts());
     const smokeMesh = (renderer as unknown as { smokeMesh: { mesh: { geometry: unknown; material: unknown } } })
       .smokeMesh;

@@ -85,9 +85,10 @@
  *
  * ## Fog: no separate gate, for a DIFFERENT reason than vehicle-tracks.ts's
  *
- * `vehicle-tracks.ts` needs no fog gate because it is opaque ground geometry
- * `FogMesh` unconditionally covers. This module gets the same property, but
- * more directly: it is only ever pushed from INSIDE `updateOverlays`'s
+ * `vehicle-tracks.ts` needs no fog gate because it is ground geometry the
+ * fog post pass dims along with the ground it lies on. This module gets the
+ * same property, but more directly: it is only ever pushed from INSIDE
+ * `updateOverlays`'s
  * existing per-entity loop, which already skips any non-player entity the
  * player does not currently observe (`if (side !== 0 && !this.isVisible(ix,
  * iy)) continue`) before this module is ever called. An enemy shadow is

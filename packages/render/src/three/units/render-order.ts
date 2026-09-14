@@ -46,12 +46,15 @@
  * | 4    | `OVERLAY_RENDER_ORDER`   | Phase C: `OverlayBatch` (`units/overlays.ts`) -- selection rings, HP bars, suppression bars, the control-group badge's RING (not its numeral, and not the veterancy chevron; both of those are textured and sit at band 1.5 above), order markers, the tutorial focus ring, and the garrison hover highlight. One shared band for the whole tier, matching Pixi's own single `unitsG` exactly (this file's closing paragraphs explain why Pixi has only the one container despite drawing all of this). |
  * | 5    | `SMOKE_RENDER_ORDER`     | Phase D readiness fix: `SmokeMesh` (`../smoke-mesh.ts`) -- one translucent quad per smoked tile. Pixi's own smoke loop draws into the SAME `unitsG` every band-4 overlay does (`renderer.ts`'s smoke block runs later in the identical per-frame method, after the order-marker/tutorial-focus passes, still before `fogG`), so on screen it paints OVER the overlay tier, not merely alongside it -- a dedicated band one above `OVERLAY_RENDER_ORDER`, rather than folding smoke into `OverlayBatch` itself, reproduces that draw-order relationship without depending on which of two independently-constructed meshes happens to get a lower `Object3D.id` (this file's own top comment: id is the tiebreak of last resort, and relying on construction order to encode a real ordering requirement is the exact hazard the badge-numeral/turret history above already paid for once). `depthTest: false`, matching fog and the overlay tier -- Pixi's comment ("drawn over the ground and under the units so troops inside one still read") is about ALPHA legibility (smoke tops out at 0.72), not depth occlusion; Pixi's own container order paints it over units regardless, translucently. |
  * | 6    | `SILHOUETTE_RENDER_ORDER` | The occlusion silhouette (`units/silhouette.ts`): a team-coloured OUTLINE of a unit's own shape, drawn ONLY where the unit already lost the depth test to something in front of it -- an inverted hull whose interior the stencil punches out. Unlike every other band in this table, its material is neither `depthTest: false` nor an ordinary `LessEqualDepth` -- it is `depthTest: true` with the comparison INVERTED (`GreaterDepth`) plus a view-space bias, so "which pixels" is settled by the depth buffer and this number settles only "in what order". See that module's own top comment for the mechanism and for the fog guarantee (a silhouette rides the body's own `Object3D.visible`, or the hull's own `instanceMatrix`/`count` -- it never re-derives visibility). Why band 6 and not one of the fractional slots below band 4: see this file's closing "Update, the silhouette band" paragraph. |
- * | 7-9  | *(reserved, no constant)* | Still headroom, now that Phase C claimed band 4, the Phase D readiness fix claimed band 5 and the silhouette claimed band 6 -- kept reserved rather than renumbering `FOG_RENDER_ORDER` down, on the same "reserving the NUMBERS costs nothing, reserving unconsumed CONSTANTS recreates the hazard" reasoning this table's top comment already gives. |
- * | 10   | `FOG_RENDER_ORDER`       | `FogMesh` (`../fog-mesh.ts`) -- Pixi's `fogG`, the LAST child added to `world` (`renderer.ts:551`, its own comment: "above terrain AND units"). `depthTest: false` like band 3, for the identical reason: fog must hide a hostile standing on the tile it covers regardless of how tall that unit's own geometry rises above the flat ground plane a fog quad sits on -- a depth-tested quad coplanar with the ground would lose that comparison to the unit's own raised vertices. Above every FX tier, not merely above units, because a below-tier particle (e.g. `tunnel_collapse`, genuinely depth-tested against terrain) must not poke through fog covering the ground it is spawned into either -- Pixi's `fxG` sits below `fogG` in container order for the identical reason. Numbered 10, not 4 (its value before this fix round) -- see the 4-9 row above and this file's closing paragraph: Pixi draws its overlays BELOW fog, not above it, so fog had to move up to leave room for that tier underneath it rather than the tier being squeezed in below band 3. |
+ * | 7-9  | *(reserved, no constant)* | Still headroom, now that Phase C claimed band 4, the Phase D readiness fix claimed band 5 and the silhouette claimed band 6 -- and more of it than before, since band 10 is retired (row below). Kept reserved rather than renumbered, on the same "reserving the NUMBERS costs nothing, reserving unconsumed CONSTANTS recreates the hazard" reasoning this table's top comment already gives. |
+ * | 10   | *(retired 2026-09-14)*   | Fog of war is a post pass now (`../fog-pass.ts`); **nothing in the scene draws at 10**. It used to be `FogMesh` -- one `depthTest: false` black quad per non-visible tile, the top band precisely so it could paint over everything unconditionally. That is what a quad lying on the ground plane has to do to hide a unit whose body rises above it, and it is also why a building in an explored tile wore a black slab across its roof and every fog edge was a tile staircase. Dimming by the world position the DEPTH buffer reports needs neither a band nor a scene object: it runs after the whole scene is drawn, so there is nothing left to be ordered against. Consequently the old "X must sit below the fog band" relation, which several bands below were chosen to satisfy, no longer constrains anything -- fog does not compete with any object. |
  *
  * Phase C (selection rings, HP bars, group badges, hover, and a focus ring)
- * adds two bands, both UI-adjacent overlays -- but they belong
- * BELOW `FOG_RENDER_ORDER`, not above it. An earlier version of this
+ * adds two bands, both UI-adjacent overlays -- and when fog was still a
+ * mesh they belonged BELOW it, not above. (That relation is retired with
+ * the band; the paragraph is kept because it is also the derivation of
+ * where the overlay tier sits relative to FX, which still holds.) An
+ * earlier version of this
  * paragraph claimed the opposite, citing Pixi identifiers (`hpBarG`,
  * `selectionG`) that do not exist and a container order that is backwards;
  * `grep -c "hpBarG\|selectionG" packages/render/src/renderer.ts` returns 0.
@@ -92,8 +95,8 @@
  * at all. The cases that differ are exactly the ones that reach onto ground
  * you cannot see.)
  *
- * Bands 4-9 -- above every FX tier, below `FOG_RENDER_ORDER` (moved from 4
- * to 10 in an earlier fix round to open the room) -- were reserved for this
+ * Bands 4-9 -- above every FX tier, and (while fog was still band 10)
+ * below it -- were reserved for this
  * tier, and Phase C took the "one shared overlay band" option the paragraph
  * above always allowed: `OVERLAY_RENDER_ORDER` (band 4) is one `unitsG`-
  * shaped bucket, matching Pixi exactly, for every overlay this table names
@@ -152,16 +155,21 @@
  *    overlaps it -- against smoke's full-body wash, this is the smaller
  *    loss, and it is a loss rather than a wash because the silhouette
  *    draws only over the OCCLUDED part.
- *  - Below `FOG_RENDER_ORDER` (10), which must still win. A silhouette is
+ *  - Below the retired fog band (10). A silhouette is
  *    only ever drawn for a unit that already passed the fog gate
- *    (`units/observed.ts`), so this is not what stops a silhouette leaking
- *    an unseen unit -- that is settled structurally, in
- *    `units/silhouette.ts`. What it settles is the overhang: a unit's
+ *    (`units/observed.ts`), so this was never what stopped a silhouette
+ *    leaking an unseen unit -- that is settled structurally, in
+ *    `units/silhouette.ts`. What it settled was the overhang: a unit's
  *    geometry standing at the edge of observed ground reaches over
  *    neighbouring tiles that are NOT observed, and on that ground fog must
- *    paint over the silhouette exactly as it already paints over the unit's
- *    own body. Above fog, a silhouette would poke a unit-shaped hole in the
- *    dark.
+ *    cover the silhouette exactly as it covers the unit's own body.
+ *    **The post pass settles that by construction now** and settles it
+ *    better: it dims by the world position each PIXEL reports, so the part
+ *    of an outline that overhangs unobserved ground is dimmed and the part
+ *    over observed ground is not -- where a band could only ever have hidden
+ *    the whole outline or none of it. Fog no longer competes with any
+ *    object, so this bullet constrains nothing; it is kept because the two
+ *    bullets above it are still live.
  *
  * One property this band deliberately does NOT carry, unlike every other
  * entry from 3 upward: it is not what decides which pixels the silhouette
@@ -242,15 +250,19 @@ export const SMOKE_RENDER_ORDER = 5;
  * The occlusion silhouette (`units/silhouette.ts`) -- see the table's own
  * band-6 row for what draws here and this file's closing "Update, the
  * silhouette band" paragraph for why it sits ABOVE `OVERLAY_RENDER_ORDER`
- * and `SMOKE_RENDER_ORDER` and BELOW `FOG_RENDER_ORDER`.
+ * and `SMOKE_RENDER_ORDER`. (It also sat below the fog band, which is
+ * retired -- fog no longer competes with any object.)
  */
 export const SILHOUETTE_RENDER_ORDER = 6;
-/** Bands 7-9 (undeclared on purpose): still-reserved headroom above
- *  `SILHOUETTE_RENDER_ORDER` -- see the table's own 7-9 row and this file's
- *  closing paragraphs for why the gap remains deliberate rather than a
- *  typo, now that Phase C claimed band 4, the Phase D readiness fix claimed
- *  band 5 and the silhouette claimed band 6. */
-export const FOG_RENDER_ORDER = 10;
+/* Bands 7 and up (undeclared on purpose): still-reserved headroom above
+ * `SILHOUETTE_RENDER_ORDER` -- see the table's own 7-9 row for why the gap
+ * is deliberate rather than a typo. Band 10 -- the fog band until
+ * 2026-09-14 -- is now free too: fog is a post pass (`../fog-pass.ts`) and
+ * draws nothing in this scene. Its constant is DELETED rather than kept at
+ * its old value, because an exported band nothing sets is exactly the
+ * "reserving unconsumed CONSTANTS recreates the hazard" trap the table's
+ * own 7-9 row warns about -- and because every `toBeLessThan` test it
+ * anchored was asserting a relation that no longer exists. */
 /**
  * Task B4.4: the band a falling building's collapse `Mesh` draws in -- the
  * same value as `HULL_RENDER_ORDER` (band 0), aliased and exported under
@@ -270,15 +282,15 @@ export const FOG_RENDER_ORDER = 10;
  * catch a future edit that changed `HULL_RENDER_ORDER` and left this one
  * behind.
  *
- * Why band 0 specifically, and not band 3 (still below fog either way):
- * real `depthTest`/`depthWrite` handle a collapse's occlusion against
- * terrain and units correctly regardless of which of bands 0-3 it draws
- * in -- none of those four are `depthTest: false`. What band 0 buys is the
- * OTHER property: staying below `FOG_RENDER_ORDER` (band 10) at all, which
- * is what lets `FogMesh`'s own unconditional overpaint (`depthTest: false`)
- * hide a collapse standing in fog rather than the collapse poking through
- * it -- the identical mechanism that already hides a `tunnel_collapse` dust
- * burst in fog (this file's own band-10 row, above).
+ * Why band 0 specifically, and not band 3: real `depthTest`/`depthWrite`
+ * handle a collapse's occlusion against terrain and units correctly
+ * regardless of which of bands 0-3 it draws in -- none of those four are
+ * `depthTest: false`. The band used to buy a second property as well,
+ * staying below the fog band so `FogMesh`'s unconditional overpaint
+ * could hide a collapse standing in fog; that is retired with the band
+ * (this file's own band-10 row), since the post pass dims a collapse by the
+ * same depth-reported world position as the ground it stands on, whatever
+ * band it draws in.
  */
 export const STRUCTURE_RENDER_ORDER = HULL_RENDER_ORDER;
 

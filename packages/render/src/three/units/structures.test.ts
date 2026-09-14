@@ -46,7 +46,7 @@ import {
   StructureInstancer,
   type StructureInstanceBuffers,
 } from './structures';
-import { STRUCTURE_RENDER_ORDER, HULL_RENDER_ORDER, FOG_RENDER_ORDER } from './render-order';
+import { STRUCTURE_RENDER_ORDER, HULL_RENDER_ORDER } from './render-order';
 
 const TONES = {
   open: '#C8B494', cover: ['#8F9464', '#6E7449', '#4E5433'] as [string, string, string],
@@ -620,7 +620,13 @@ describe('STRUCTURE_RENDER_ORDER', () => {
     expect(STRUCTURE_RENDER_ORDER).toBe(HULL_RENDER_ORDER);
   });
 
-  it('sits strictly below FOG_RENDER_ORDER -- the one property beginCollapse actually depends on, so a collapsing building in unobserved territory is hidden by fog\'s own unconditional overpaint rather than skipped', () => {
-    expect(STRUCTURE_RENDER_ORDER).toBeLessThan(FOG_RENDER_ORDER);
-  });
+  // A second test here asserted that `STRUCTURE_RENDER_ORDER` sat below
+  // the fog band
+  // -- "so a collapsing building in unobserved territory is hidden by fog's
+  // own unconditional overpaint rather than skipped". Task 10 retired that
+  // band: fog is a post pass (`../fog-pass.ts`) that dims by the world
+  // position the depth buffer reports, so a collapse standing on unobserved
+  // ground is dimmed with that ground whatever band it draws in. The test is
+  // deleted rather than rewritten because there is no surviving relation for
+  // it to assert -- the property it guarded is now structural.
 });
