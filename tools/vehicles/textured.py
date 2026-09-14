@@ -35,11 +35,14 @@ regardless of how many source files were appended.
 """
 import bpy
 
-#: `base_color` images ship, downscaled to this -- identical figure and
+#: Every kept image ships downscaled to this -- identical figure and
 #: reasoning to `tools/buildings/textured.py::TEXTURE_PX`: measured there
 #: against a comparable ~1.2 MB base geometry, 2048 costs 385 KB over 1024
 #: and holds detail 1024 blurs, while 4096 re-encodes the decoded buffer at
-#: ~11 MB for resolution no camera in this game reaches.
+#: ~11 MB for resolution no camera in this game reaches. Originally sized
+#: against `base_color` alone; `metallic_roughness` and `normal` now share
+#: the same ceiling rather than a separate, smaller one -- the lead: "dont
+#: drop resolution".
 TEXTURE_PX = 2048
 
 #: JPEG quality for the re-encoded `base_color` -- Blender's own near-default,
@@ -47,13 +50,20 @@ TEXTURE_PX = 2048
 JPEG_QUALITY = 85
 
 #: Image name PREFIXES (the part before a trailing `.NNN` Blender appends on
-#: a name collision) that are dropped before export. Not for size -- there is
-#: nothing in this renderer to consume them: no lights in the scene, `N.L`
+#: a name collision) that are dropped before export. Empty since 2026-09-14:
+#: the old argument was that nothing in this renderer could consume a
+#: `metallic_roughness`/`normal` map -- no lights in the scene, `N.L`
 #: quantized into bands by `palette-material.ts`/`textured-building.ts`, no
-#: PBR response for a roughness or normal map to feed. See
-#: `tools/buildings/textured.py`'s own docstring for the fuller argument;
-#: it is unchanged here.
-DROPPED_PREFIXES = ("metallic_roughness", "normal")
+#: PBR response to feed -- and that stopped being true the same day: the
+#: renderer has real lights now (`packages/render/src/three/lighting.ts`),
+#: and `packages/render/src/three/world-materials.ts`'s `texturedMaterial`
+#: keeps a GLB's `metalnessMap`/`roughnessMap`/`normalMap` when present. Kept
+#: maps ship at `TEXTURE_PX`, same ceiling as the base colour -- the lead:
+#: "dont drop resolution" -- so this stays empty rather than naming a
+#: smaller, separate one for them. `tools/buildings/textured.py` still drops
+#: the same two names under the now-stale version of this argument; that is
+#: a different pipeline and a different task.
+DROPPED_PREFIXES: tuple[str, ...] = ()
 
 #: The map that ships.
 BASE_COLOR_PREFIX = "base_color"
@@ -72,9 +82,10 @@ def _basename(name):
 
 
 def prepare_vehicle_textures():
-    """Drops every `DROPPED_PREFIXES` image, downscales every `base_color`
-    image (there may be more than one -- see module docstring) to at most
-    `TEXTURE_PX` on a side.
+    """Drops every `DROPPED_PREFIXES` image (none, currently -- see its own
+    docstring), downscales every remaining image -- `base_color`,
+    `metallic_roughness` and `normal` alike, there may be more than one of
+    each, see module docstring -- to at most `TEXTURE_PX` on a side.
 
     Call AFTER every role split, cut and transform bake, immediately before
     `export_scene.gltf` -- exactly `tools/buildings/textured.py`'s own
@@ -84,8 +95,10 @@ def prepare_vehicle_textures():
 
     Returns `(kept, dropped)`: `kept` is a list of
     `(image.name, (before_w, before_h), (after_w, after_h))` for every
-    shipped base_color image, `dropped` a list of `(image.name, (w, h))` for
-    every removed one -- both for the caller's own summary print.
+    shipped image, `dropped` a list of `(image.name, (w, h))` for every
+    removed one -- both for the caller's own summary print. `dropped` is
+    always `[]` while `DROPPED_PREFIXES` is empty; every caller's print loop
+    already handles that.
     """
     dropped = []
     for img in list(bpy.data.images):
@@ -95,14 +108,12 @@ def prepare_vehicle_textures():
 
     kept = []
     for img in bpy.data.images:
-        if _basename(img.name) != BASE_COLOR_PREFIX:
-            continue
         before = tuple(img.size)
         if img.size[0] > TEXTURE_PX or img.size[1] > TEXTURE_PX:
             img.scale(min(img.size[0], TEXTURE_PX), min(img.size[1], TEXTURE_PX))
         kept.append((img.name, before, tuple(img.size)))
 
-    if not kept:
+    if not any(_basename(name) == BASE_COLOR_PREFIX for name, _, _ in kept):
         raise SystemExit(
             f"textured: no {BASE_COLOR_PREFIX!r} image found -- "
             f"present: {sorted(i.name for i in bpy.data.images)}"
