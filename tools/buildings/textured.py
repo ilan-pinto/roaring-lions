@@ -1,12 +1,19 @@
 """Ship a Meshy building's OWN baked material instead of repainting it from
 the palette at runtime.
 
-Imported by `export_meshy_house.py`, `export_meshy_apartment.py` and
-`export_meshy_warehouse.py`, which are otherwise unchanged: every one of them
-already decimates the source, splits it into `rl_role` pieces, bakes scale /
-forward-reorientation / ground alignment, and writes one GLB per state. The
-only thing they did differently before this module existed is the last step
--- `ob.data.materials.clear()` plus `export_materials="NONE"` and (for two of
+Imported by six building exporters -- `export_meshy_house.py`,
+`export_meshy_apartment.py`, `export_meshy_warehouse.py`,
+`export_meshy_clinic.py`, `export_meshy_fence.py` and `export_meshy_hall.py`
+(three when this module was first written; clinic/fence/hall were added
+later and this line was not updated until 2026-09-14 -- CLAUDE.md's own
+"three textured buildings" framing is stale for the same reason) -- plus
+`tools/terrain/export_meshy_ditch.py`'s decor export, which is not a
+building type but takes the same exemption through this same module. All
+otherwise unchanged: every one of them already decimates the source, splits
+it into `rl_role` pieces, bakes scale / forward-reorientation / ground
+alignment, and writes one GLB per state. The only thing the three original
+callers did differently before this module existed is the last step --
+`ob.data.materials.clear()` plus `export_materials="NONE"` and (for two of
 the three) `export_texcoords=False`.
 
 WHY THIS EXISTS, since it reverses a rule the mesh contract states outright.
@@ -19,9 +26,9 @@ source, and the project lead has overridden it explicitly:
     "i have provided a very detailed blender files and i want them to be
      used as is unless ill provide other instruction."
 
-So these three building types -- and ONLY these three -- ship their own
-`base_color` bake, and the runtime draws it instead of
-`rampForBuildingRole`'s palette slice. The opt-out is named on both sides:
+So these building types -- and no others -- ship their own `base_color`
+bake, and the runtime draws it instead of `rampForBuildingRole`'s palette
+slice. The opt-out is named on both sides:
 `TEXTURED_BUILDING_TYPES` in
 `packages/render/src/three/units/textured-building.ts`, and
 `TEXTURED_MESH_EXEMPT` in `tools/validate_mesh_assets.py`. Every other
@@ -46,14 +53,18 @@ WHAT SHIPS, AND WHAT IS DROPPED.
     source JPEG through, so "keep the source resolution" costs 11.4 MB for
     detail no camera in this game can reach.
 
-  - `metallic_roughness` and `normal` are DROPPED. Not for size -- because
-    there is nothing to consume them. This renderer has no PBR lighting rig
-    at all: `palette-material.ts` quantizes `N.L` into bands and indexes a
-    ramp, with a single hard-coded light direction and no lights in the
-    scene. A normal map with no light to perturb and a roughness map with no
-    specular response are bytes that would change no pixel. Shipping them
-    would also invite a later reader to conclude this backend is PBR when it
-    is not.
+  - `metallic_roughness` and `normal` are KEPT, since 2026-09-14. Until then
+    they were DROPPED, on the argument that nothing in this renderer could
+    consume them: `palette-material.ts` quantized `N.L` into bands and
+    indexed a ramp, with a single hard-coded light direction and no lights
+    in the scene, so shipping a PBR map would change no pixel and would
+    invite a later reader to conclude this backend is PBR when it is not.
+    That stopped being true the same day: the renderer has real lights now
+    (`packages/render/src/three/lighting.ts`), and
+    `packages/render/src/three/world-materials.ts`'s `texturedMaterial`
+    keeps a GLB's `metalnessMap`/`roughnessMap`/`normalMap` when present.
+    Kept maps ship at the same `TEXTURE_PX` ceiling as `base_color` -- the
+    lead: "dont drop resolution" -- rather than a separate, smaller one.
 
 COLOUR SPACE, which is where this fails silently if it fails at all. The
 runtime consumer must sample this texture with NO sRGB decode -- see
@@ -63,19 +74,25 @@ reader changing the export does not also have to rediscover it.
 """
 import bpy
 
-#: `base_color` is downscaled to this before export. See the module
-#: docstring's own measured table for why 2048 and not 1024 or 4096.
+#: Every kept image -- `base_color`, and now `metallic_roughness`/`normal`
+#: too -- is downscaled to this before export. See the module docstring's
+#: own measured table for why 2048 and not 1024 or 4096; originally sized
+#: against `base_color` alone, `metallic_roughness`/`normal` now share the
+#: same ceiling rather than a separate, smaller one -- the lead: "dont drop
+#: resolution".
 TEXTURE_PX = 2048
 
 #: JPEG quality for the re-encoded `base_color`. 85 is Blender's own
 #: near-default and the quality the size table above was measured at.
 JPEG_QUALITY = 85
 
-#: The maps dropped before export -- see the docstring's "WHAT SHIPS".
-#: Named rather than inferred (e.g. "everything that is not base_color") so a
-#: source that one day carries a fourth map fails the assertion below rather
-#: than being silently discarded.
-DROPPED_MAPS = ("metallic_roughness", "normal")
+#: The maps dropped before export -- see the docstring's "WHAT SHIPS". Empty
+#: since 2026-09-14: the renderer has lights now and `texturedMaterial`
+#: consumes `metallic_roughness`/`normal` when present -- see the docstring's
+#: "WHAT SHIPS, AND WHAT IS DROPPED" for the fuller argument, restated from
+#: `tools/vehicles/textured.py`'s own `DROPPED_PREFIXES`, its sibling
+#: constant, fixed the same way in the same change.
+DROPPED_MAPS: tuple[str, ...] = ()
 
 #: The map that ships. A source lacking it is an authoring error, not
 #: something to paper over with a palette fallback.
@@ -83,7 +100,10 @@ BASE_COLOR = "base_color"
 
 
 def prepare_textured_images():
-    """Drops `DROPPED_MAPS`, downscales `BASE_COLOR` to `TEXTURE_PX`.
+    """Drops every `DROPPED_MAPS` image (none, currently -- see its own
+    docstring), downscales every remaining image -- `BASE_COLOR` and any
+    kept `metallic_roughness`/`normal` alike -- to at most `TEXTURE_PX` on a
+    side.
 
     Call AFTER the role split and the transform bakes, immediately before
     `export_scene.gltf` -- the role split duplicates objects, and every
@@ -91,12 +111,18 @@ def prepare_textured_images():
     datablocks, so one pass here covers every piece and the glTF exporter
     emits the image exactly once no matter how many role meshes sample it.
 
-    Returns the shipped image's own (width, height) for the caller's summary.
+    Returns the shipped `base_color` image's own (width, height) for the
+    caller's summary -- unchanged shape, so none of the seven callers (six
+    building exporters plus the ditch decor exporter) need editing for this.
     """
     for name in DROPPED_MAPS:
         img = bpy.data.images.get(name)
         if img is not None:
             bpy.data.images.remove(img)
+
+    for img in bpy.data.images:
+        if img.size[0] > TEXTURE_PX or img.size[1] > TEXTURE_PX:
+            img.scale(min(img.size[0], TEXTURE_PX), min(img.size[1], TEXTURE_PX))
 
     base = bpy.data.images.get(BASE_COLOR)
     if base is None:
@@ -104,8 +130,6 @@ def prepare_textured_images():
             f"textured: source carries no {BASE_COLOR!r} image -- "
             f"present: {sorted(i.name for i in bpy.data.images)}"
         )
-    if base.size[0] > TEXTURE_PX or base.size[1] > TEXTURE_PX:
-        base.scale(min(base.size[0], TEXTURE_PX), min(base.size[1], TEXTURE_PX))
     return tuple(base.size)
 
 
@@ -113,7 +137,7 @@ def split_textured_roles(role_objs, label):
     """Decides, per role mesh, whether it ships the source texture or stays
     on the palette -- and strips the material from the ones that stay.
 
-    NOT every mesh in these three GLBs comes from the Meshy source. The
+    NOT every mesh in these GLBs comes from the Meshy source. The
     warehouse's intact `metal` role is a flat roof cap this pipeline
     SYNTHESISES with `from_pydata` (`_synthesize_roof_cap`), because the
     source is a photogrammetry-style scan of an open-topped building and has

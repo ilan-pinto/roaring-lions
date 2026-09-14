@@ -126,8 +126,31 @@ CROUCH_DECIMATE_TARGET = 19000
 #: Bake resolution to ship. The source is 4096x4096 on a figure the player
 #: sees at roughly 30 px; every textured building in this repo carries a JPEG
 #: of 520-660 KiB and a whole file under 1.8 MB, and exporting this source
-#: unscaled wrote 22,404 KiB.
+#: unscaled wrote 22,404 KiB. Deliberately lower than
+#: `tools/vehicles/textured.py`/`tools/buildings/textured.py`'s shared 2048:
+#: those ship on vehicles and buildings the camera gets far closer to, and
+#: this figure's own screen footprint was measured, not assumed. Unaffected
+#: by "dont drop resolution" -- that instruction is about not dropping a MAP
+#: (see `DROPPED_TEXTURE_SUBSTRINGS`), not about raising this ceiling.
 TEXTURE_PX = 1024
+
+#: Name substrings dropped before export (a loose `in` match, not an exact
+#: or prefix match like the two sibling modules use -- catches a name
+#: regardless of what Blender's `.001`-style collision suffix does to it,
+#: which matters here since the standing and crouch poses are two separate
+#: Meshy generations, each appending its own `metallic_roughness`/`normal`
+#: pair). Empty since 2026-09-14: the renderer has lights now
+#: (`packages/render/src/three/lighting.ts`), and
+#: `packages/render/src/three/world-materials.ts`'s `texturedMaterial` keeps
+#: a GLB's `metalnessMap`/`roughnessMap`/`normalMap` when present, so these
+#: are no longer dead weight. Kept maps still go through the `shrink_texture`
+#: calls below like every other image, so they ship at the same `TEXTURE_PX`
+#: ceiling as `base_color` rather than at native resolution -- the lead:
+#: "dont drop resolution". This is the third, independent copy of the same
+#: policy `tools/vehicles/textured.py::DROPPED_PREFIXES` and
+#: `tools/buildings/textured.py::DROPPED_MAPS` name; fixed the same way in
+#: the same change.
+DROPPED_TEXTURE_SUBSTRINGS: tuple[str, ...] = ()
 
 
 def log(msg):
@@ -299,12 +322,12 @@ def main():
     clo, chi = mesh_bbox([crouch])
     log(f"crouch bbox size=({chi[0]-clo[0]:.3f},{chi[1]-clo[1]:.3f},{chi[2]-clo[2]:.3f})")
 
-    # Drop the maps this renderer has no lights to consume, and keep exactly
-    # one base_color. Same call CLAUDE.md records for the textured buildings:
-    # "metallic_roughness/normal are dropped at export: there are no lights in
-    # this scene to consume them."
+    # DROPPED_TEXTURE_SUBSTRINGS is empty since 2026-09-14 -- see its own
+    # docstring -- so this no longer removes anything; kept as a loop rather
+    # than deleted outright so a future re-drop is a one-line constant change
+    # here, matching how the two sibling modules keep theirs.
     for name in [i.name for i in bpy.data.images]:
-        if "metallic" in name or "normal" in name:
+        if any(s in name for s in DROPPED_TEXTURE_SUBSTRINGS):
             img = bpy.data.images.get(name)
             if img:
                 bpy.data.images.remove(img)
