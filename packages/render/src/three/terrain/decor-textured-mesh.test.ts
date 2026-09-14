@@ -60,6 +60,24 @@ describe('buildTexturedDecorMesh', () => {
     expect(mesh.count).toBe(1);
   });
 
+  it('draws the bake through a lit standard material, and casts and receives shadows', () => {
+    // The three facts the ditch's whole look now rests on, none of which any
+    // other test here can see: it is a `MeshStandardMaterial` (so the scene
+    // sun models the trench walls instead of a hand-written band), the map is
+    // the part's OWN bake rather than a palette tone, and it is tagged sRGB --
+    // the reverse of what the retired pass-through pipeline wanted, and
+    // getting it wrong leaves a ditch that is merely darker and still looks
+    // exactly like a ditch.
+    const s = set(['ditch_0']);
+    const mesh = buildTexturedDecorMesh([place()], s).children[0] as THREE.InstancedMesh;
+    const mat = mesh.material as THREE.MeshStandardMaterial;
+    expect(mat.isMeshStandardMaterial).toBe(true);
+    expect(mat.map).toBe(s.parts.get('ditch_0')?.map);
+    expect(mat.map?.colorSpace).toBe(THREE.SRGBColorSpace);
+    expect(mesh.castShadow).toBe(true);
+    expect(mesh.receiveShadow).toBe(true);
+  });
+
   it('drops a key whose GLB never loaded rather than throwing', () => {
     const group = buildTexturedDecorMesh([place()], set([]));
     expect(group.children.length).toBe(0);

@@ -2,7 +2,7 @@
  * The three.js backend. Phase B1 got it on screen with nothing but the clear
  * colour; Phase B2.4 adds the first drawn geometry -- terrain, built lazily
  * from `buildGround` (see `rebuildTerrain` below) and uploaded once per
- * change via `toGeometry`/`terrainMaterial`. Phase B3.5 adds the second:
+ * change via `toGeometry`/`vertexColorMaterial`. Phase B3.5 adds the second:
  * living units, one `THREE.InstancedMesh` per loaded unit type
  * (`units/instances.ts`), fed a fresh `EntityFrame` per living entity every
  * frame (`units/frame-state.ts`) from real per-entity position tracking this
@@ -128,9 +128,9 @@ import { buildScatter } from './terrain/scatter';
 import { buildBuildings, type StructureFootprint } from './terrain/buildings';
 import {
   toGeometry,
-  terrainMaterial,
-  groveMaterial,
-  groundSurfaceMaterial,
+  vertexColorMaterial,
+  GroundMaterial,
+  GroveMaterial,
   prepareGroundTexture,
   albedoMean,
   slotUniforms,
@@ -815,11 +815,11 @@ export class ThreeRenderer implements Renderer {
      *  to full -- mirrors Pixi's own `alpha0` field exactly. */
     alpha0: number;
   }[] = [];
-  /** Reused across rebuilds -- one unlit, vertex-coloured material carries no
+  /** Reused across rebuilds -- one lit, vertex-coloured material carries no
    *  per-terrain state, so there is nothing a fresh instance would buy. */
-  private readonly terrainMat: THREE.Material = terrainMaterial();
+  private readonly terrainMat: THREE.MeshStandardMaterial = vertexColorMaterial();
   /** The ground mesh's own material -- see `rebuildTerrain`. */
-  private readonly groundMat: THREE.ShaderMaterial = groundSurfaceMaterial();
+  private readonly groundMat: GroundMaterial = new GroundMaterial();
   /** Non-null only while `setDebugLayerVisible('ground-albedo', false)` is in
    *  force: the per-slot strengths to put back, in `GROUND_SLOTS` order. Not
    *  a live rendering concern -- it is null in every frame the gate is not
@@ -915,25 +915,28 @@ export class ThreeRenderer implements Renderer {
     load(this.opts.groveTextureUrl, 'grove', 'grove floor');
     load(this.opts.knollTextureUrl, 'knoll', 'rocky knoll');
   }
-  /** `groveMesh` alone -- see `terrain/mesh.ts`'s own `groveMaterial` doc
+  /** `groveMesh` alone -- see `terrain/mesh.ts`'s own `GroveMaterial` doc
    *  comment for why the wind-sway shader needs to be a separate material
    *  from `terrainMat` rather than a flag on it (the `sway` attribute this
    *  shader reads exists ONLY on grove geometry -- `toGeometry`'s own
    *  comment). Reused across rebuilds for the same reason `terrainMat` is. */
-  private readonly groveMat: THREE.ShaderMaterial = groveMaterial();
+  private readonly groveMat: GroveMaterial = new GroveMaterial();
   /**
    * Owns the muzzle-flash ramp-shift pool (`./palette-material.ts`'s own
    * "The muzzle-flash 'light'" doc comment) -- one instance for the whole
    * renderer, since the effect is deliberately GLOBAL: every registered
-   * toon-ramp material (vehicle hull/turret, building, rigged infantry) and
-   * the terrain material all sample the SAME uniform arrays, differentiated
-   * only by each fragment's own world position, not by which entity fired.
-   * `register()` is called once per material, at `terrainMat`'s own
-   * construction (below, in the constructor body) and at every
-   * `loadMeshUnit`/`loadVehicleMesh`/`loadBuildingMesh` template load; `step()`
-   * runs once a frame from `frame()`, after which every registered material
-   * is current with no further per-material write (`FlashLightManager`'s own
-   * doc comment on `register`).
+   * material sampled the SAME uniform arrays, differentiated only by each
+   * fragment's own world position, not by which entity fired.
+   *
+   * **It has no registered materials at all right now, and that is the
+   * intended intermediate state.** A ramp shift is a step down a quantized
+   * palette ramp, and nothing in this scene is drawn that way any more: units,
+   * vehicles, buildings, decor and terrain are all `MeshStandardMaterial`
+   * under one sun. `step()` still runs once a frame from `frame()` and updates
+   * nothing. The art uplift's own Task 8 replaces the mechanism with a real
+   * light; until then a muzzle flash simply does not brighten what it is
+   * beside, which is a regression this branch takes knowingly rather than one
+   * to fix by re-registering anything here.
    */
   private readonly flashLights = new FlashLightManager();
   /** Reused across `onFire` calls so reading a mesh vehicle's turret-pivot
@@ -1502,7 +1505,7 @@ export class ThreeRenderer implements Renderer {
    *  field rather than reusing `trackClockMs` itself so the wind's own
    *  period stays independent of whatever `vehicleTrackMesh` does with its
    *  clock. Converted from ms to seconds only at the point `frame()` writes
-   *  the uniform; see `terrain/mesh.ts`'s `groveMaterial` doc comment for
+   *  the uniform; see `terrain/mesh.ts`'s `GroveMaterial` doc comment for
    *  the shader-side use. */
   private windClockMs = 0;
   /** GH #144: `SmokeMesh`'s own animation clock, the same "accumulated
@@ -1635,16 +1638,6 @@ export class ThreeRenderer implements Renderer {
     // which is exactly why this is a single call rather than two lines a
     // future edit could reorder.
     applyPalettePipeline(this.renderer, this.opts.background);
-    // Terrain is a single shared material for the whole map (ground, scatter,
-    // residual, building-decor boxes alike) -- one registration here covers
-    // all of it, unlike the mesh-unit/vehicle/building materials below,
-    // which are registered per template as each loads. `groveMat` is a
-    // SECOND registration, not covered by this one -- see its own field doc
-    // comment for why the wind-sway shader is a separate material rather
-    // than a flag on this one; both still sample the identical shared
-    // uFlash* arrays this call points every material at.
-    this.flashLights.register(this.terrainMat as THREE.ShaderMaterial);
-    this.flashLights.register(this.groveMat);
     // Added unconditionally, not lazily on first useEmitters/spawn -- all
     // three meshes start at count/drawRange 0 (nothing live yet) and simply
     // stay that way until there is something to draw, the same "always
@@ -5737,27 +5730,50 @@ export class ThreeRenderer implements Renderer {
       this.opts.background
     );
 
-    // The GROUND alone draws through `groundSurfaceMaterial` -- the one
-    // material in this backend that reads a surface normal. Scatter, groves,
-    // the residual layer and every building box keep the unlit
-    // `terrainMaterial`, which declares no normal and is handed no `normals`
-    // by `toGeometry`: the palette exemption is scoped to the interpolated
-    // ground and nothing else (`terrain/surface.ts`,
-    // `SURFACE_SHADING_EXEMPTION`).
+    // The GROUND alone draws through `GroundMaterial` -- the one material here
+    // that carries the six-slot albedo blend. Scatter, groves, the residual
+    // layer and every building box take the plain vertex-coloured
+    // `terrainMat`; every one of them is lit by the same scene sun now, which
+    // is what the ground's own private light used to do for it alone.
+    //
+    // Shadows are asymmetric across these layers, deliberately. RECEIVING is
+    // universal: every terrain layer is ground, or lies on it, and must darken
+    // under a building or a tank. CASTING is not. Scatter marks and the
+    // residual layer are FLAT polygons lying IN the surface -- a caster
+    // coplanar with its own receiver is the textbook acne case, and a mark has
+    // no height to throw anything with. The GROUND is a real judgement rather
+    // than an obvious one: a ridge genuinely could shadow the valley beside
+    // it, but a self-shadowing heightfield is also where a bias tuned for
+    // objects (`lighting.ts`) shows up as acne along every slope -- so it
+    // stays off here, as something to measure on screen and turn on
+    // deliberately, not to assume.
     this.terrainMesh = new THREE.Mesh(toGeometry(composed.ground), this.groundMat);
+    this.terrainMesh.receiveShadow = true;
     this.scene.add(this.terrainMesh);
 
     this.scatterMesh = new THREE.Mesh(toGeometry(composed.scatter), this.terrainMat);
+    this.scatterMesh.receiveShadow = true;
     this.scene.add(this.scatterMesh);
 
     this.groveMesh = new THREE.Mesh(toGeometry(composed.groves), this.groveMat);
+    // A canopy billboard is a flat card standing edge-on to the sun: what it
+    // would cast is a sliver, which is worse than the tree's own painted
+    // ground shadow (`grove.ts`'s `pushShadow`) that is already there.
+    this.groveMesh.receiveShadow = true;
+    this.groveMesh.castShadow = false;
     this.scene.add(this.groveMesh);
 
     this.residualMesh = new THREE.Mesh(toGeometry(composed.residual), this.terrainMat);
+    this.residualMesh.receiveShadow = true;
     this.scene.add(this.residualMesh);
 
     for (const box of composed.buildings) {
+      // A box is extruded, and `{ normals: 'compute' }` is what makes its
+      // walls shade as walls instead of taking the up-fill default and
+      // lighting like the ground they stand on.
       const mesh = new THREE.Mesh(toGeometry(box.mesh, { normals: 'compute' }), this.terrainMat);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
       this.structureBoxes.set(box.structureIndex, mesh);
       this.structureFootprintTiles.set(box.structureIndex, box.tiles);
       this.scene.add(mesh);
@@ -5769,21 +5785,6 @@ export class ThreeRenderer implements Renderer {
     // layer, rather than reconstructing an `input` here, is the coherent
     // choice (this method has no `TerrainInput` of its own to reach for).
     this.decorGroup = buildDecorMesh(composed.decorPlacements, this.decorSet);
-    // Task 6, seam fix 3: `buildDecorMesh` returns a bare `THREE.Group`
-    // rather than a `{ group, materials }` pair (unlike `BuildingMeshTemplate`
-    // -- see this task's own brief) -- surfaced here instead, by reading
-    // each batch's own `.material` straight off the group's children, so
-    // decor responds to `flashLights` the same way every other toon-ramp
-    // material in this backend does, with no change to `decor-mesh.ts`'s
-    // already-shipped, already-tested return shape. Re-registering on every
-    // rebuild is correct, not wasteful: `buildDecorMesh` builds fresh
-    // `ShaderMaterial`s each call (this file's own top comment on the "full
-    // GPU re-upload" cost `rebuildTerrain` already pays), so the materials
-    // from the PREVIOUS rebuild are already disposed by `disposeDecorMesh`
-    // above and would be dangling references if left registered.
-    for (const child of this.decorGroup.children) {
-      this.flashLights.register((child as THREE.BatchedMesh).material as THREE.ShaderMaterial);
-    }
     this.scene.add(this.decorGroup);
 
     // The textured half of the same placement list. `buildDecorMesh` above
@@ -5794,9 +5795,6 @@ export class ThreeRenderer implements Renderer {
       composed.decorPlacements,
       this.texturedDecorSet
     );
-    for (const child of this.texturedDecorGroup.children) {
-      this.flashLights.register((child as THREE.InstancedMesh).material as THREE.ShaderMaterial);
-    }
     this.scene.add(this.texturedDecorGroup);
   }
 
@@ -5881,7 +5879,13 @@ export class ThreeRenderer implements Renderer {
       this.scene.remove(previous);
       previous.geometry.dispose();
     }
-    const mesh = new THREE.Mesh(toGeometry(data), this.terrainMat);
+    // The same three lines `rebuildTerrain` uses for a box, and they have to
+    // be: this replaces one box in place, so a damaged building that shaded or
+    // cast differently from its undamaged neighbours would announce which one
+    // has been shot at.
+    const mesh = new THREE.Mesh(toGeometry(data, { normals: 'compute' }), this.terrainMat);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
     this.structureBoxes.set(structure, mesh);
     this.scene.add(mesh);
   }

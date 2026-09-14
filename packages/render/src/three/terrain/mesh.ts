@@ -11,17 +11,19 @@
  *
  * `toGeometry` did nothing a test could usefully assert beyond "three.js
  * accepted these buffers", which is why B2.4 added no test file here. That
- * stopped being true on 2026-09-03: `groundSurfaceMaterial` below is the
- * FOURTH named exemption from `data/palette.json` (`surface.ts`,
- * `SURFACE_SHADING_EXEMPTION`), and both of the properties that keep it
- * narrow are structural -- they live in the shader source and in one
- * arithmetic identity, not in a rendered pixel. `mesh.test.ts` asserts them.
+ * stopped being true on 2026-09-03, and what `mesh.test.ts` asserts has since
+ * moved with the lighting. The three materials below are `MeshStandardMaterial`
+ * now, lit and shadowed by `lighting.ts`'s one sun: the slope shade the ground
+ * used to compute against its own private light is the scene's job, so the
+ * arithmetic identity that kept THAT exemption narrow is gone with it. What
+ * `mesh.test.ts` still pins is the six-slot albedo blend, which three.js does
+ * not provide and which reaches the GPU through an `onBeforeCompile` string
+ * edit -- a seam where every failure is silent and draws a plausible map.
  * The palette guarantee on the vertex COLOURS is still proved where it
  * always was, in `ground.test.ts`, on data this consumes unchanged.
  */
 import * as THREE from 'three';
 import type { MeshData } from './ground';
-import { defaultFlashUniforms, FLASH_UNIFORMS_GLSL, FLASH_SHIFT_GLSL } from '../palette-material';
 import { srgbToLinear } from './shared';
 
 /**
@@ -50,19 +52,20 @@ export function toGeometry(data: MeshData, opts: GeometryOptions = {}): THREE.Bu
   geometry.setAttribute('color', new THREE.BufferAttribute(linear, 3));
   geometry.setIndex(new THREE.BufferAttribute(data.indices, 1));
   // Wind-sway weight -- see `types.ts`'s own `MeshData.sway` doc comment. No
-  // aliased default when absent: only `groveMaterial` below ever declares a
+  // aliased default when absent: only `GroveMaterial` below ever declares a
   // `sway` attribute in its shader, and only `buildGroves`' own output ever
   // sets `data.sway`, so every OTHER terrain sub-mesh (ground/scatter/
-  // residual/building-decor, drawn through the plain `terrainMaterial`
-  // below) simply never has the attribute at all -- correct, since nothing
-  // ever reads it there.
+  // residual/building-decor, drawn through `vertexColorMaterial` or
+  // `GroundMaterial`) simply never has the attribute at all -- correct, since
+  // nothing ever reads it there.
   if (data.sway) geometry.setAttribute('sway', new THREE.BufferAttribute(data.sway, 1));
-  // Surface normal, three.js's own reserved `normal` name (not a custom
-  // one), so a `ShaderMaterial` gets it for free without declaring
-  // `attribute vec3 normal;` itself. `data.normals` wins when the builder
-  // computed one (`ground.ts`'s `buildGround`, for `groundSurfaceMaterial`'s
-  // shade term); otherwise every mark still gets a normal -- see
-  // `GeometryOptions.normals` above for the up-fill/computed choice.
+  // Surface normal, three.js's own reserved `normal` name (not a custom one),
+  // so the standard material's lighting gets it without anything here
+  // declaring `attribute vec3 normal;`. `data.normals` wins when the builder
+  // computed one (`ground.ts`'s `buildGround`, whose analytic heightfield
+  // normals are smoother than a face average); otherwise every mark still
+  // gets a normal -- see `GeometryOptions.normals` above for the
+  // up-fill/computed choice.
   if (data.normals) {
     geometry.setAttribute('normal', new THREE.BufferAttribute(data.normals, 3));
   } else if ((opts.normals ?? 'up') === 'compute') {
@@ -96,71 +99,32 @@ export function toGeometry(data: MeshData, opts: GeometryOptions = {}): THREE.Bu
   return geometry;
 }
 
-/**
- * The terrain material: unlit, vertex-coloured, per the chosen look (B2 does
- * no lighting -- `toonRampMaterial` stays unused until units arrive in B3).
- * Still true today: this is a hand-written `ShaderMaterial`, not
- * `MeshBasicMaterial`, but it reads no normal and computes no `N·L` -- the
- * ONLY thing it adds over plain vertex-colour passthrough is the
- * muzzle-flash ramp shift below, which is a per-vertex colour SWAP
- * (`color` vs. `litColor`), not lighting.
+/** Scatter marks, the residual layer and the structure boxes: flat palette
+ *  tones from the builders, lit by the scene.
  *
- * `MeshBasicMaterial` with `vertexColors: true` used to read the `color`
- * attribute straight into the fragment colour, with no colour-space
- * conversion applied to vertex colours at any stage -- so the palette bytes
- * `buildGround` wrote (already quantised, already 0..1 floats of the raw
- * hex) reached the framebuffer exactly. This hand-written material
- * reproduces that pass-through exactly (`vColor`/`vLitColor` copied straight
- * from the vertex attributes to `gl_FragColor`, no math) UNLESS a flash is
- * active nearby, in which case it swaps to `litColor` -- itself an equally
- * exact, quantised, on-palette vertex colour (`ground.ts`'s `buildGround`
- * doc comment), never a blend of the two. The swap is a hard cut (`shift > 0
- * ? vLitColor : vColor`), not an interpolated mix -- deliberately, so every
- * sampled pixel is provably one of the two baked colours at any instant,
- * matching the toon-ramp materials' own stepped, not smooth, falloff.
- */
-export function terrainMaterial(): THREE.Material {
-  return new THREE.ShaderMaterial({
-    uniforms: { ...defaultFlashUniforms() },
-    vertexShader: /* glsl */ `
-      attribute vec3 color;
-      varying vec3 vColor;
-      varying vec3 vWorldPos;
-      void main() {
-        vColor = color;
-        vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: /* glsl */ `
-      varying vec3 vColor;
-      varying vec3 vWorldPos;
-      ${FLASH_UNIFORMS_GLSL}
-      ${FLASH_SHIFT_GLSL}
-      void main() {
-        gl_FragColor = vec4(vColor, 1.0);
-      }
-    `,
-  });
+ *  `roughness: 1`, not `world-materials.ts`'s `WORLD_ROUGHNESS` -- these are
+ *  dirt, rubble and unfinished blockwork, and the 0.85 that gives a vehicle
+ *  hull a faint sheen has no subject here. Ground is the one surface in this
+ *  scene that is fully matte, and `GroundMaterial` below agrees with it. */
+export function vertexColorMaterial(): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
 }
 
 /**
- * The grove material: `terrainMaterial`'s own vertex-colour + flash-shift
- * pass-through, verbatim (see that function's doc comment -- nothing about
- * the colour path changes here), plus wind. This is the consumer
- * `types.ts`'s `MeshData.sway` doc comment and this file's own `toGeometry`
- * comment both already named -- the `sway` attribute existed and was
- * uploaded to the GPU before this function did, but nothing read it, so
- * every tree stood dead still regardless of the per-vertex weight
- * `grove.ts`'s `buildGroves` was already computing. `groveMesh` is the only
- * mesh in `ThreeRenderer.ts` built from this material, and it is the only
- * geometry `toGeometry` ever gives a `sway` attribute to -- see its own
- * comment for why that pairing is exact, not merely conventional.
+ * The grove canopy: vertex palette tone, lit, plus the wind offset the
+ * retired `groveMaterial` applied -- ported verbatim.
  *
- * Wind is a pure vertex-stage position offset -- `vColor`/`vLitColor` are
- * copied through completely unchanged, so nothing about the palette
- * guarantee this file's sibling functions carry is even at stake here: a
- * displaced vertex still carries the exact quantised colour `grove.ts` gave
+ * This is the consumer `types.ts`'s `MeshData.sway` doc comment and this
+ * file's own `toGeometry` comment both already name -- the `sway` attribute
+ * existed and was uploaded to the GPU before any material read it, so every
+ * tree stood dead still regardless of the per-vertex weight `grove.ts`'s
+ * `buildGroves` was already computing. `groveMesh` is the only mesh in
+ * `ThreeRenderer.ts` built from this material, and it is the only geometry
+ * `toGeometry` ever gives a `sway` attribute to -- see its own comment for
+ * why that pairing is exact, not merely conventional.
+ *
+ * Wind is a pure vertex-stage position offset, so it costs the palette tone
+ * nothing: a displaced vertex still carries the exact colour `grove.ts` gave
  * it, just at a different screen position. `sway` is 0 for every vertex of
  * `pushShadow`'s flat ground marks (`grove.ts`'s own `pushPolygon` doc
  * comment), so a tree's shadow never moves even though the canopy above it
@@ -176,15 +140,17 @@ export function terrainMaterial(): THREE.Material {
  * this fixed-pitch, never-orbiting camera (`grove.ts`, same comment) would
  * expose immediately as wrong.
  *
- * Per-vertex phase (`vWorldPos.x * 0.6 + vWorldPos.z * 0.9`, both prime-ish
+ * Per-vertex phase (`position.x * 0.6 + position.z * 0.9`, both prime-ish
  * irrational-feeling multipliers chosen only to avoid a common period with
  * the other) keeps neighbouring trees out of lockstep without a second
- * per-vertex attribute -- world position is already available (needed for
- * the flash-shift check below regardless), so this reads it before wind
- * pushes it, never after: computing phase from a position that already
- * includes this same frame's wind offset would be circular, and would also
- * make the flash-shift distance check jitter with the wind instead of
- * tracking the tree's own nominal ground position.
+ * per-vertex attribute. It reads OBJECT space where the retired material read
+ * a world position, and the two are the same numbers here -- the grove mesh
+ * carries no transform (`ThreeRenderer.rebuildTerrain` adds it to the scene
+ * untransformed, exactly as it does the ground) -- but object space is the
+ * honest one to read inside `begin_vertex`, where the world matrix has not
+ * been applied yet. What matters either way is that phase is taken BEFORE the
+ * offset, never after: computing it from a position that already includes
+ * this same frame's wind would be circular.
  *
  * `uTime` is `ThreeRenderer`'s own accumulated `dtMs` total in seconds --
  * see `unitShadowMesh`'s sibling field `trackClockMs`'s own doc comment for
@@ -192,75 +158,30 @@ export function terrainMaterial(): THREE.Material {
  * keeps this deterministic-enough for a purely cosmetic effect without
  * reading `Date.now()`/`performance.now()` from render code.
  */
-export function groveMaterial(): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
-    uniforms: { ...defaultFlashUniforms(), uTime: { value: 0 } },
-    vertexShader: /* glsl */ `
-      attribute vec3 color;
-      attribute float sway;
-      uniform float uTime;
-      varying vec3 vColor;
-      varying vec3 vWorldPos;
-      void main() {
-        vColor = color;
-        vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
-        float phase = uTime * 1.6 + vWorldPos.x * 0.6 + vWorldPos.z * 0.9;
-        float wind = sin(phase) * sway * 0.05;
-        vec3 swayed = position + vec3(wind, 0.0, -wind);
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(swayed, 1.0);
-      }
-    `,
-    fragmentShader: /* glsl */ `
-      varying vec3 vColor;
-      varying vec3 vWorldPos;
-      ${FLASH_UNIFORMS_GLSL}
-      ${FLASH_SHIFT_GLSL}
-      void main() {
-        gl_FragColor = vec4(vColor, 1.0);
-      }
-    `,
-  });
+export class GroveMaterial extends THREE.MeshStandardMaterial {
+  readonly uniforms: { uTime: THREE.IUniform<number> };
+
+  constructor() {
+    super({ vertexColors: true, roughness: 1, metalness: 0 });
+    this.uniforms = { uTime: { value: 0 } };
+    this.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = this.uniforms.uTime;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute float sway;\nuniform float uTime;')
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+float rlPhase = uTime * 1.6 + position.x * 0.6 + position.z * 0.9;
+float rlWind = sin(rlPhase) * sway * 0.05;
+transformed += vec3(rlWind, 0.0, -rlWind);`
+        );
+    };
+  }
+
+  override customProgramCacheKey(): string {
+    return 'rl-grove';
+  }
 }
-
-/**
- * The sun, in world space -- `toonRampMaterial`'s own long-standing
- * `(0.5, 1, 0.3)`, normalised, so the ground is lit from where every unit,
- * building and decor mesh in this scene is already lit from. Declared here
- * rather than imported for the same reason `mesh-material.ts` and
- * `palette-material.ts` each declare their own: this module may not reach
- * into `../palette-material` for a value, only for the flash GLSL it already
- * imports, and a wrong copy would be immediately visible as ground lit from
- * one side and units from another.
- */
-export const GROUND_LIGHT_DIR = new THREE.Vector3(0.5, 1, 0.3).normalize();
-
-/**
- * How hard the surface normal drives the shade.
- *
- * The term is `1 + RELIEF * (N·L - up·L)`, so it is a DEPARTURE from flat
- * ground rather than a lighting model: at 0 the ground is exactly the flat
- * vertex colour it has always been, and it grows from there. That framing is
- * what makes the number tunable by eye without any risk of quietly
- * re-toning the four flat maps.
- *
- * The light sits 59.8 degrees above the horizon (`asin(1/|(0.5,1,0.3)|)`),
- * so the two directions are not symmetric and that is physical, not a bug:
- * a slope tilting AWAY from a near-overhead sun loses much more `N·L` than
- * one tilting toward it gains. `N·L - up·L` spans about `[-1.86, +0.14]`
- * over all possible normals, so at this strength a hillside's shaded flank
- * darkens far more than its lit flank brightens -- which is exactly how a
- * dune reads.
- */
-export const GROUND_RELIEF_STRENGTH = 0.9;
-
-/** Floor and ceiling on the shade multiplier. The floor stops a wall-steep
- *  patch going to mud (and, at strengths above ~0.54, to negative); the
- *  ceiling stops a sun-facing slope of the `arid` theme's own light
- *  limestone clipping to white. Both are outside the range flat ground can
- *  reach, so neither can affect a level tile: `clamp(1.0, 0.45, 1.14)` is
- *  1.0 exactly. */
-export const GROUND_SHADE_FLOOR = 0.45;
-export const GROUND_SHADE_CEIL = 1.14;
 
 /**
  * Every ground albedo this renderer knows how to draw, by the BASENAME of
@@ -278,11 +199,12 @@ export const GROUND_SHADE_CEIL = 1.14;
  * somebody guessed).
  *
  * `mean` is the image's own mean colour in 0..255 bytes, measured off the
- * shipped PNG -- `mesh.test.ts` recomputes every one of them from
- * `assets/textures/` and fails if a number here drifts from its file. The
- * texture is applied as a RATIO to it, never as a replacement, which is what
- * keeps this exemption to the VARIATION only (see `GROUND_TEXTURE_MEAN`
- * below, and `surface.ts`'s `SURFACE_SHADING_EXEMPTION`).
+ * shipped PNG -- `tools/src/ground-albedo.test.ts` recomputes every one of
+ * them from `assets/textures/` and fails if a number here drifts from its
+ * file. The texture is applied as a RATIO to it, never as a replacement,
+ * which is what keeps this exemption to the VARIATION only (see
+ * `GROUND_BLEND_GLSL` below, and `surface.ts`'s
+ * `SURFACE_SHADING_EXEMPTION`).
  *
  * `tiles` is how many world units (= game tiles) one repeat spans. Every one
  * was picked on screen at gameplay zoom, and the reasoning per image is on
@@ -460,8 +382,8 @@ export function albedoMean(id: GroundAlbedoId): THREE.Vector3 {
 }
 
 /**
- * The six albedo SLOTS `groundSurfaceMaterial` declares, in the order the
- * fragment shader multiplies them, and the uniform-name stem each one uses
+ * The six albedo SLOTS `GroundMaterial` declares, in the order the fragment
+ * shader multiplies them, and the uniform-name stem each one uses
  * (`sand` -> `uSand`, `uSandStrength`, `uSandMean`, `uSandTiles`).
  *
  * A slot is a SURFACE, not an image. `sand` is the open-ground slot and takes
@@ -478,6 +400,28 @@ export function albedoMean(id: GroundAlbedoId): THREE.Vector3 {
  */
 export const GROUND_SLOTS = ['sand', 'rock', 'road', 'scrub', 'grove', 'knoll'] as const;
 export type GroundSlot = (typeof GROUND_SLOTS)[number];
+
+/**
+ * The image each slot's `mean` and `tiles` uniforms start at, before any
+ * fetch has landed.
+ *
+ * These are DEFAULTS, not bindings: `ThreeRenderer.loadGroundTexture`
+ * overwrites both from `GROUND_ALBEDOS` keyed by the URL it was handed, which
+ * is the whole reason that table exists (the open-ground slot takes
+ * `desert_sand_tile` on an arid map and `green_basin_tile` on a green one,
+ * with different numbers). They still have to be the right image's numbers:
+ * until a fetch lands -- or forever, on a map whose tile 404s -- this is what
+ * the shader would divide by, and every slot's `strength` is 0 until then
+ * precisely so nothing is divided by anything at all.
+ */
+const DEFAULT_ALBEDO_FOR_SLOT: Record<GroundSlot, GroundAlbedoId> = {
+  sand: 'desert_sand_tile',
+  rock: 'rock_ground_tile',
+  road: 'road_track_tile',
+  scrub: 'rough_scrub_tile',
+  grove: 'orchard_floor_tile',
+  knoll: 'knoll_scree_tile',
+};
 
 /** `sand` -> `uSand`. The one place the stem-to-uniform spelling lives. */
 export function slotUniforms(slot: GroundSlot): {
@@ -503,17 +447,17 @@ function whitePixel(): THREE.DataTexture {
 
 /**
  * Makes the ground albedo tile safe for this renderer's colour pipeline, and
- * returns it. The mirror of `units/textured-building.ts`'s
- * `prepareTexturedMap`, and the colour-space line is load-bearing in exactly
- * the same way.
+ * returns it.
  *
- * `NoColorSpace`: `TextureLoader` stamps `SRGBColorSpace` on a colour map and
- * this renderer's output is pass-through (`applyPalettePipeline`), so an sRGB
- * internal format decodes on every sample with nothing to re-encode it.
- * Measured elsewhere in this tree, getting it wrong dropped a lit wall from
- * rgb 67 to 51 and still looked like a building; here it would drag the whole
- * ground off the tone `tones.ts` composited and it would still look like
- * sand.
+ * `NoColorSpace` -- and this is now the OPPOSITE of what every other map in
+ * this renderer gets (`world-materials.ts`'s `prepareTexturedMap` forces
+ * `SRGBColorSpace`, because a photographic bake IS a colour and the output
+ * pass encodes one). This image is not used as a colour. The blend below
+ * divides each texel by the image's own mean, `GROUND_ALBEDOS` measured that
+ * mean in raw file BYTES, and the ratio is 1-on-average only while both sides
+ * live in the same space. Tag it sRGB and the GPU decodes the texel on every
+ * sample while the divisor stays a byte -- which drags the whole ground off
+ * the tone `tones.ts` composited and still looks exactly like sand.
  *
  * `RepeatWrapping` on both axes and NOT mirrored: the source was measured
  * seamless (left/right edge delta 14.6, top/bottom 15.9, against an
@@ -538,262 +482,198 @@ export function prepareGroundTexture(map: THREE.Texture): THREE.Texture {
   map.needsUpdate = true;
   return map;
 }
+/**
+ * The vertex attributes the ground geometry carries that three.js's own
+ * standard shader knows nothing about, and the varyings that hand them to the
+ * fragment stage.
+ *
+ * Declared here rather than in the fragment half below because the two halves
+ * must agree exactly: a varying declared in one stage and not the other is a
+ * link error, and one declared with a different type is worse -- it links and
+ * draws nonsense.
+ */
+const GROUND_ATTRIBUTES_GLSL = /* glsl */ `
+attribute float sandMask;
+attribute float rockMask;
+attribute float roadMask;
+attribute float roadAxis;
+attribute float scrubMask;
+attribute float groveMask;
+attribute float knollMask;
+attribute vec2 groundUv;
+varying float vSandMask;
+varying float vRockMask;
+varying float vRoadMask;
+varying float vRoadAxis;
+varying float vScrubMask;
+varying float vGroveMask;
+varying float vKnollMask;
+varying vec2 vGroundUv;
+`;
+
+/** The fragment half: one quartet of uniforms per `GROUND_SLOTS` entry, and
+ *  the receiving end of every varying above. */
+const GROUND_VARYINGS_GLSL = /* glsl */ `
+uniform sampler2D uSand; uniform float uSandStrength; uniform vec3 uSandMean; uniform float uSandTiles;
+uniform sampler2D uRock; uniform float uRockStrength; uniform vec3 uRockMean; uniform float uRockTiles;
+uniform sampler2D uRoad; uniform float uRoadStrength; uniform vec3 uRoadMean; uniform float uRoadTiles;
+uniform sampler2D uScrub; uniform float uScrubStrength; uniform vec3 uScrubMean; uniform float uScrubTiles;
+uniform sampler2D uGrove; uniform float uGroveStrength; uniform vec3 uGroveMean; uniform float uGroveTiles;
+uniform sampler2D uKnoll; uniform float uKnollStrength; uniform vec3 uKnollMean; uniform float uKnollTiles;
+varying float vSandMask;
+varying float vRockMask;
+varying float vRoadMask;
+varying float vRoadAxis;
+varying float vScrubMask;
+varying float vGroveMask;
+varying float vKnollMask;
+varying vec2 vGroundUv;
+`;
 
 /**
- * The material the GROUND mesh alone draws through -- `terrainMaterial`'s
- * colour path verbatim (vertex colour, flash swap, no blend between the
- * two), plus the one thing this whole change is for: a smooth,
- * normal-driven shade.
+ * The six-slot albedo blend, verbatim from the retired custom shader: each
+ * texel is a RATIO to its image's own mean, so the blend cannot move the
+ * surface's average off the palette tone the vertex colour carries.
  *
- * This is the fourth named exemption from the palette, and `surface.ts`'s
- * `SURFACE_SHADING_EXEMPTION` is its authority -- read that first. The two
- * properties this function is responsible for keeping:
+ * Six surfaces over one geometry: open ground (sand on an arid map, dry sward
+ * on a green one), rock on a `^` ridge, the wheel track on a road, scrub on a
+ * cover tile, orchard floor under a grove, scree on an `n` knoll. The masks
+ * are mutually exclusive by construction (a tile is one surface), so the
+ * multiplies could have been a chain of branches; they are a chain of MIXES
+ * because at most one factor is ever anything but exactly `vec3(1.0)` and a
+ * mix by 0 is free where a branch is not. Every mask 0, or no image loaded,
+ * and the whole block is a no-op on the vertex colour.
  *
- *  1. **Flat ground is bit-identical to the unlit path.** `shade` is
- *     `1 + RELIEF * (N·L - up·L)`, not `1 - S * (1 - N·L)` the way the
- *     campaign board's is. Written that way, an UP normal makes the two dot
- *     products the same expression over the same operands, the difference
- *     exactly 0, and the multiplier exactly 1.0 -- so a level tile, a
- *     terrace top and every wall (all of which `ground.ts` gives the up
- *     normal deliberately) emit the identical palette bytes they emitted
- *     before this material existed. The campaign board's form cannot do
- *     this: with a light 59.8 degrees up, `1 - S * (1 - N·L)` darkens flat
- *     ground by `0.136 * S` for no reason at all, which would have re-toned
- *     every map in the game including the four with no relief.
- *  2. **The shade is SMOOTH, never banded.** `texturedBuildingMaterial`
- *     quantises into `TEXTURED_SHADE_STEPS` because a building is
- *     flat-faced and the bands land on real edges. Terrain is continuous,
- *     and three hard bands across a hillside draw contour terraces that are
- *     not in the heightfield -- which is the exact defect this work exists
- *     to remove. Same reasoning, and the same conclusion, as
- *     `campaign/world-material.ts` reached for the diorama.
+ * The fetches are unconditional rather than branched: a dynamic branch around
+ * a texture fetch forces a gradient the hardware cannot compute, so all seven
+ * happen on every ground fragment even though six of them are multiplied by
+ * zero. That is seven taps on a single draw call with an overdraw of one, and
+ * it was measured rather than assumed.
  *
- * `normal` is three.js's own reserved attribute name, injected into a
- * `ShaderMaterial`'s vertex shader without being declared -- and it is in
- * WORLD space here already (`buildGround` writes world normals and the
- * ground mesh carries no transform), so it is passed through with neither
- * `normalMatrix` nor `mat3(modelMatrix)`. Only `ground.ts` populates the
- * attribute, which is why only the ground mesh may use this material.
+ * `vGroundUv`, not a projection taken from the world position: the builder
+ * emits the right planar projection per piece of geometry, because projecting
+ * straight down is only correct for a HORIZONTAL surface and a cliff face is
+ * not one. See `MeshData.groundUv`.
+ *
+ * The ROAD is the one slot that is not rotationally free, and the only one
+ * that fetches twice. Its source is a single wheel track running along the
+ * image's V axis, so the unrotated sample draws a road running north-south and
+ * the coordinate SWAP draws one running east-west. `vRoadAxis` is the blend
+ * between them: 0 north-south, 1 east-west, 0.5 at a corner, a T or a
+ * crossroads, where the average of the two is a plus-shaped patch of lane with
+ * the gravel left in the four corners -- which is what a junction is. See
+ * `ground.ts`'s `roadAxisAt` for the neighbour rule that picks it. The swap is
+ * done here rather than by emitting swapped coordinates in the builder because
+ * a junction needs BOTH at once, and a vertex can only carry one pair.
+ *
+ * Every local is `rl`-prefixed: this code is spliced into three.js's own
+ * `main()`, where a bare `sand` or `road` would be one chunk away from
+ * colliding with a name three.js owns. (No backticks anywhere in this shader
+ * source: it is a JS template literal and one would close it mid-string.)
  */
-export function groundSurfaceMaterial(): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
-    // The one setting here that is insurance rather than intent, and it was
-    // measured rather than assumed. A heightfield patch turns its back on
-    // this camera once it slopes away more steeply than the camera's own
-    // 30-degree pitch allows -- about 3.2 levels per tile. `qarn_hadid`'s
-    // steepest open ground reads 3.75 and `tel_marum`'s 4.01, and while
-    // neither actually produces a back-facing triangle today (measured: 0 on
-    // every shipped map), `qarn_hadid`'s closest triangle clears the
-    // threshold by a dot product of 0.00001. Under the default `FrontSide`
-    // that is one authored tile away from a HOLE in the map -- which reads
-    // as missing geometry, not as a lighting bug. `DoubleSide` costs the
-    // ground mesh its back-face culling (it is one draw call, and the
-    // triangles in question are edge-on) and cannot change a single pixel of
-    // a front-facing patch.
+const GROUND_BLEND_GLSL = /* glsl */ `
+vec3 rlSand = texture2D(uSand, vGroundUv / uSandTiles).rgb / uSandMean;
+vec3 rlRock = texture2D(uRock, vGroundUv / uRockTiles).rgb / uRockMean;
+vec2 rlRoadUv = vGroundUv / uRoadTiles;
+vec3 rlRoad = mix(texture2D(uRoad, rlRoadUv).rgb, texture2D(uRoad, rlRoadUv.yx).rgb, vRoadAxis) / uRoadMean;
+vec3 rlScrub = texture2D(uScrub, vGroundUv / uScrubTiles).rgb / uScrubMean;
+vec3 rlGrove = texture2D(uGrove, vGroundUv / uGroveTiles).rgb / uGroveMean;
+vec3 rlKnoll = texture2D(uKnoll, vGroundUv / uKnollTiles).rgb / uKnollMean;
+vec3 rlAlbedo = vec3(1.0);
+rlAlbedo *= mix(vec3(1.0), rlSand, uSandStrength * vSandMask);
+rlAlbedo *= mix(vec3(1.0), rlRock, uRockStrength * vRockMask);
+rlAlbedo *= mix(vec3(1.0), rlRoad, uRoadStrength * vRoadMask);
+rlAlbedo *= mix(vec3(1.0), rlScrub, uScrubStrength * vScrubMask);
+rlAlbedo *= mix(vec3(1.0), rlGrove, uGroveStrength * vGroveMask);
+rlAlbedo *= mix(vec3(1.0), rlKnoll, uKnollStrength * vKnollMask);
+diffuseColor.rgb *= rlAlbedo;
+`;
+
+/** One quartet of uniforms per slot, each starting at its own image's numbers
+ *  (`DEFAULT_ALBEDO_FOR_SLOT`) with a valid 1x1 sampler bound and a strength
+ *  of 0 -- so a map with no texture, or one whose fetch failed, draws the flat
+ *  palette tone it always did rather than a white or undefined one. */
+function groundUniforms(): Record<string, THREE.IUniform> {
+  const u: Record<string, THREE.IUniform> = {};
+  for (const slot of GROUND_SLOTS) {
+    const names = slotUniforms(slot);
+    const id = DEFAULT_ALBEDO_FOR_SLOT[slot];
+    u[names.map] = { value: whitePixel() };
+    u[names.strength] = { value: 0 };
+    u[names.mean] = { value: albedoMean(id) };
+    u[names.tiles] = { value: GROUND_ALBEDOS[id].tiles };
+  }
+  return u;
+}
+
+/**
+ * The drawn ground: `MeshStandardMaterial` with the vertex palette tone
+ * multiplied by the six-slot albedo blend, lit and shadowed by the scene.
+ *
+ * The retired `groundSurfaceMaterial` shaded slopes itself against a private
+ * light; the sun does that now, so `GROUND_RELIEF_STRENGTH` and its floor and
+ * ceiling are gone with it -- and with them the arithmetic identity
+ * (`1 + R * (N.L - up.L)`, exactly 1.0 at an up normal) that used to keep flat
+ * ground byte-identical to the unlit path. Nothing is byte-identical to that
+ * path any more: the whole scene is lit.
+ *
+ * The blend is injected AFTER `<color_fragment>`, which is where three.js
+ * multiplies the vertex colour into `diffuseColor`. That order is the
+ * contract, not a convenience: the albedo has to scale the palette tone rather
+ * than stand in for it, because the ratio form is what keeps the surface's
+ * average on-palette (`GROUND_ALBEDOS`). Injected before it, the albedo would
+ * scale the material's own flat white `color` and the vertex tone would then
+ * overwrite the result.
+ *
+ * `uniforms` is a field on this subclass so `ThreeRenderer.loadGroundTexture`
+ * and the `ground-albedo` debug layer keep writing
+ * `uniforms.uSandStrength.value` exactly as before; `onBeforeCompile` hands the
+ * SAME uniform objects to the program, so a write here is a write the GPU sees.
+ *
+ * `customProgramCacheKey` replaces three.js's default, which is the callback's
+ * own `toString()` -- correct, but a long string rebuilt and compared every
+ * time this material is initialised. A constant is cheaper and reads better in
+ * a cache key; what it must be is stable per class and DIFFERENT from
+ * `GroveMaterial`'s, since the two inject different source into the same two
+ * chunks. (three.js appends this to the full parameter hash rather than
+ * replacing it, so a constant cannot collapse two genuinely different
+ * programs -- a shadow-casting variant, a different light count -- into one.)
+ */
+export class GroundMaterial extends THREE.MeshStandardMaterial {
+  readonly uniforms: Record<string, THREE.IUniform>;
+
+  constructor() {
+    // DoubleSide: a heightfield patch turns its back on this camera past
+    // ~3.2 levels per tile of slope; measured 0 back faces on every shipped
+    // map, but qarn_hadid clears the threshold by a dot product of 0.00001.
+    // Culling it would read as a hole, not a lighting bug.
     //
-    // The normal is deliberately NOT flipped for a back face: a heightfield
-    // normal always points up by construction (`surfaceNormal` returns a
-    // positive Y), so ground that has turned away from the camera SHOULD
-    // shade as ground turned away from the light. Flipping it would light
-    // the steepest slope on the map as though the sun were under it.
-    side: THREE.DoubleSide,
-    uniforms: {
-      ...defaultFlashUniforms(),
-      uLightDir: { value: GROUND_LIGHT_DIR.clone() },
-      uRelief: { value: GROUND_RELIEF_STRENGTH },
-      uShadeFloor: { value: GROUND_SHADE_FLOOR },
-      uShadeCeil: { value: GROUND_SHADE_CEIL },
-      // 0 until `setGroundTexture` supplies a real image -- so a map with no
-      // texture, or one whose fetch failed, draws the flat palette tone it
-      // always did rather than a white or undefined one.
-      // One quartet per `GROUND_SLOTS` entry. `mean` and `tiles` start at the
-      // image the slot draws today and are OVERWRITTEN at load time from
-      // `GROUND_ALBEDOS`, because the open-ground slot takes two different
-      // images with different numbers -- see `ThreeRenderer.loadGroundTexture`.
-      // Until then `strength` is 0, so neither is read.
-      uSand: { value: whitePixel() },
-      uSandStrength: { value: 0 },
-      uSandMean: { value: albedoMean('desert_sand_tile') },
-      uSandTiles: { value: GROUND_ALBEDOS.desert_sand_tile.tiles },
-      uRock: { value: whitePixel() },
-      uRockStrength: { value: 0 },
-      uRockMean: { value: albedoMean('rock_ground_tile') },
-      uRockTiles: { value: GROUND_ALBEDOS.rock_ground_tile.tiles },
-      uRoad: { value: whitePixel() },
-      uRoadStrength: { value: 0 },
-      uRoadMean: { value: albedoMean('road_track_tile') },
-      uRoadTiles: { value: GROUND_ALBEDOS.road_track_tile.tiles },
-      uScrub: { value: whitePixel() },
-      uScrubStrength: { value: 0 },
-      uScrubMean: { value: albedoMean('rough_scrub_tile') },
-      uScrubTiles: { value: GROUND_ALBEDOS.rough_scrub_tile.tiles },
-      uGrove: { value: whitePixel() },
-      uGroveStrength: { value: 0 },
-      uGroveMean: { value: albedoMean('orchard_floor_tile') },
-      uGroveTiles: { value: GROUND_ALBEDOS.orchard_floor_tile.tiles },
-      uKnoll: { value: whitePixel() },
-      uKnollStrength: { value: 0 },
-      uKnollMean: { value: albedoMean('knoll_scree_tile') },
-      uKnollTiles: { value: GROUND_ALBEDOS.knoll_scree_tile.tiles },
-    },
-    vertexShader: /* glsl */ `
-      attribute vec3 color;
-      attribute vec3 litColor;
-      attribute float sandMask;
-      attribute float rockMask;
-      attribute float roadMask;
-      attribute float roadAxis;
-      attribute float scrubMask;
-      attribute float groveMask;
-      attribute float knollMask;
-      attribute vec2 groundUv;
-      varying vec3 vColor;
-      varying vec3 vLitColor;
-      varying vec3 vWorldPos;
-      varying vec3 vWorldNormal;
-      varying float vSandMask;
-      varying float vRockMask;
-      varying float vRoadMask;
-      varying float vRoadAxis;
-      varying float vScrubMask;
-      varying float vGroveMask;
-      varying float vKnollMask;
-      varying vec2 vGroundUv;
-      void main() {
-        vColor = color;
-        vLitColor = litColor;
-        vSandMask = sandMask;
-        vRockMask = rockMask;
-        vRoadMask = roadMask;
-        vRoadAxis = roadAxis;
-        vScrubMask = scrubMask;
-        vGroveMask = groveMask;
-        vKnollMask = knollMask;
-        vGroundUv = groundUv;
-        // Already world-space: buildGround writes world normals and this
-        // mesh carries no transform, so the attribute is passed straight
-        // through -- neither of the two transforms every other material
-        // here applies. (Spelled out in prose rather than naming them:
-        // mesh.test.ts asserts this source contains no such token, and a
-        // comment would satisfy the grep.)
-        vWorldNormal = normal;
-        vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: /* glsl */ `
-      uniform vec3 uLightDir;
-      uniform float uRelief;
-      uniform float uShadeFloor;
-      uniform float uShadeCeil;
-      uniform sampler2D uSand;
-      uniform float uSandStrength;
-      uniform vec3 uSandMean;
-      uniform float uSandTiles;
-      uniform sampler2D uRock;
-      uniform float uRockStrength;
-      uniform vec3 uRockMean;
-      uniform float uRockTiles;
-      uniform sampler2D uRoad;
-      uniform float uRoadStrength;
-      uniform vec3 uRoadMean;
-      uniform float uRoadTiles;
-      uniform sampler2D uScrub;
-      uniform float uScrubStrength;
-      uniform vec3 uScrubMean;
-      uniform float uScrubTiles;
-      uniform sampler2D uGrove;
-      uniform float uGroveStrength;
-      uniform vec3 uGroveMean;
-      uniform float uGroveTiles;
-      uniform sampler2D uKnoll;
-      uniform float uKnollStrength;
-      uniform vec3 uKnollMean;
-      uniform float uKnollTiles;
-      varying vec3 vColor;
-      varying vec3 vLitColor;
-      varying vec3 vWorldPos;
-      varying vec3 vWorldNormal;
-      varying float vSandMask;
-      varying float vRockMask;
-      varying float vRoadMask;
-      varying float vRoadAxis;
-      varying float vScrubMask;
-      varying float vGroveMask;
-      varying float vKnollMask;
-      varying vec2 vGroundUv;
-      ${FLASH_UNIFORMS_GLSL}
-      ${FLASH_SHIFT_GLSL}
-      void main() {
-        int shift = flashShiftSteps(vWorldPos);
-        vec3 base = shift > 0 ? vLitColor : vColor;
-        // Ground albedo, six materials over one geometry: open ground (sand
-        // on an arid map, dry sward on a green one), rock on a ^ ridge, the
-        // wheel track on a road, scrub on a cover tile, orchard floor under a
-        // grove, scree on an n knoll. Each is a RATIO to its own image mean,
-        // so the AVERAGE of a
-        // stretch of any of them is still the palette tone the tone pipeline
-        // composited and only the variation comes from the image -- see
-        // GROUND_ALBEDOS' own doc comment.
-        //
-        // The six masks are mutually exclusive by construction (a tile is
-        // one surface), so the multiplies could have been a chain of
-        // branches; they are a chain of MIXES because at most one factor is
-        // ever anything but exactly vec3(1.0) and a mix by 0 is free where a
-        // branch is not.
-        //
-        // vGroundUv, not a projection taken from the world position here:
-        // the builder emits the right planar projection per piece of
-        // geometry, because projecting straight down is only correct for a
-        // HORIZONTAL surface and a cliff face is not one. See
-        // MeshData.groundUv. (No backticks anywhere in this shader source:
-        // it is a JS template literal and one would close it mid-string.)
-        //
-        // Every mask 0, or no image loaded, and every mix below is exactly
-        // 1.0 -- so this whole block is a no-op on the palette byte. The
-        // fetches are unconditional rather than branched: a dynamic branch
-        // around a texture fetch forces a gradient the hardware cannot
-        // compute, so all seven happen on every ground fragment even though
-        // six of them are multiplied by zero. That is seven taps on a single
-        // draw call with an overdraw of one, and it was measured rather than
-        // assumed -- see the report for the frame-time delta.
-        vec3 sand = texture2D(uSand, vGroundUv / uSandTiles).rgb / uSandMean;
-        vec3 rock = texture2D(uRock, vGroundUv / uRockTiles).rgb / uRockMean;
-        // The ROAD is the one slot that is not rotationally free, and the
-        // only one that fetches twice. Its source is a single wheel track
-        // running along the image's V axis, so the unrotated sample draws a
-        // road running north-south and the coordinate SWAP draws one running
-        // east-west. vRoadAxis is the blend between them: 0 north-south,
-        // 1 east-west, 0.5 at a corner, a T or a crossroads, where the
-        // average of the two is a plus-shaped patch of lane with the gravel
-        // left in the four corners -- which is what a junction is. See
-        // ground.ts's roadAxisAt for the neighbour rule that picks it.
-        //
-        // The swap is done here rather than by emitting swapped coordinates
-        // in the builder because a junction needs BOTH at once, and a vertex
-        // can only carry one pair.
-        vec2 roadUv = vGroundUv / uRoadTiles;
-        vec3 road = mix(texture2D(uRoad, roadUv).rgb, texture2D(uRoad, roadUv.yx).rgb, vRoadAxis) / uRoadMean;
-        vec3 scrub = texture2D(uScrub, vGroundUv / uScrubTiles).rgb / uScrubMean;
-        vec3 grove = texture2D(uGrove, vGroundUv / uGroveTiles).rgb / uGroveMean;
-        vec3 knoll = texture2D(uKnoll, vGroundUv / uKnollTiles).rgb / uKnollMean;
-        base *= mix(vec3(1.0), sand, uSandStrength * vSandMask);
-        base *= mix(vec3(1.0), rock, uRockStrength * vRockMask);
-        base *= mix(vec3(1.0), road, uRoadStrength * vRoadMask);
-        base *= mix(vec3(1.0), scrub, uScrubStrength * vScrubMask);
-        base *= mix(vec3(1.0), grove, uGroveStrength * vGroveMask);
-        base *= mix(vec3(1.0), knoll, uKnollStrength * vKnollMask);
-        vec3 L = normalize(uLightDir);
-        // The DEPARTURE from a level surface, not an absolute N.L -- see
-        // this function's doc comment, property 1. Both terms are the same
-        // expression over the same operands when the normal is up, so the
-        // difference there is exactly zero and shade is exactly 1.0.
-        // (No backticks in this comment: it lives inside a JS template
-        // literal, where one would close the shader source mid-string.)
-        float rel = dot(normalize(vWorldNormal), L) - dot(vec3(0.0, 1.0, 0.0), L);
-        float shade = clamp(1.0 + uRelief * rel, uShadeFloor, uShadeCeil);
-        gl_FragColor = vec4(base * shade, 1.0);
-      }
-    `,
-  });
+    // The back face's normal IS flipped now, by three.js's own
+    // `normal_fragment_begin` (`gl_FrontFacing`), where the retired shader
+    // deliberately did not flip it. That reverses on one count: a heightfield
+    // normal always points up by construction, so the un-flipped normal is the
+    // truthful one. It costs nothing to leave alone -- the triangles in
+    // question are edge-on to this camera by definition, which is why they are
+    // back-facing at all.
+    super({ vertexColors: true, roughness: 1, metalness: 0, side: THREE.DoubleSide });
+    this.uniforms = groundUniforms();
+    this.onBeforeCompile = (shader) => {
+      for (const [name, uniform] of Object.entries(this.uniforms)) shader.uniforms[name] = uniform;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>\n${GROUND_ATTRIBUTES_GLSL}`)
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+vSandMask = sandMask; vRockMask = rockMask; vRoadMask = roadMask; vRoadAxis = roadAxis;
+vScrubMask = scrubMask; vGroveMask = groveMask; vKnollMask = knollMask; vGroundUv = groundUv;`
+        );
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>\n${GROUND_VARYINGS_GLSL}`)
+        .replace('#include <color_fragment>', `#include <color_fragment>\n${GROUND_BLEND_GLSL}`);
+    };
+  }
+
+  override customProgramCacheKey(): string {
+    return 'rl-ground';
+  }
 }

@@ -1,32 +1,30 @@
 /**
- * `groundSurfaceMaterial`'s contract, asserted against the shader source and
- * the uniforms rather than against a rendered pixel -- the same way
+ * The three terrain materials' contract, asserted against the uniforms and
+ * against the shader source three.js would actually compile -- the same way
  * `campaign/world-material.test.ts` pins the diorama's, and for the same
- * reason: this suite runs under `environment: 'node'` with no GL context,
- * and the two properties that matter here are both structural.
+ * reason: this suite runs under `environment: 'node'` with no GL context.
  *
- * The shade term is the FOURTH named exemption from `data/palette.json`
- * (`surface.ts`, `SURFACE_SHADING_EXEMPTION`). What keeps it narrow is not
- * the comment on it, it is these two facts:
+ * All three are `MeshStandardMaterial` now, lit and shadowed by `lighting.ts`'s
+ * one sun. What used to need asserting -- that the ground's own slope shade was
+ * a DEPARTURE from flat, and smooth rather than banded -- is gone with the
+ * private light that needed it: the third named palette exemption
+ * (`surface.ts`, `SURFACE_SHADING_EXEMPTION`) is now the scene's job, not this
+ * file's.
  *
- *  1. It is written as a DEPARTURE from a level surface, so an up normal
- *     gives exactly 1.0 and everything carrying one -- every terrace top,
- *     every wall, every tile of the four maps with no relief -- emits the
- *     same palette bytes it always did.
- *  2. It is smooth, never banded, so it cannot draw the contour terraces
- *     this whole change exists to remove.
+ * What still has to be pinned here is the part three.js does NOT provide and
+ * that this change had to carry over verbatim: the six-slot albedo blend. It
+ * reaches the GPU through `onBeforeCompile`, which is a string edit of three's
+ * own chunks -- so an anchor that stops matching, a uniform the material owns
+ * but never hands the program, or a slot wired into `GROUND_SLOTS` and not into
+ * the shader are all silent, and all of them draw a plausible flat-toned map.
  */
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import {
-  groundSurfaceMaterial,
-  terrainMaterial,
-  groveMaterial,
+  GroundMaterial,
+  GroveMaterial,
+  vertexColorMaterial,
   toGeometry,
-  GROUND_LIGHT_DIR,
-  GROUND_RELIEF_STRENGTH,
-  GROUND_SHADE_FLOOR,
-  GROUND_SHADE_CEIL,
   GROUND_ALBEDOS,
   GROUND_SLOTS,
   albedoMean,
@@ -36,102 +34,85 @@ import {
 import { srgbToLinear } from './shared';
 import type { MeshData } from './types';
 
-/** The shade term, evaluated in TypeScript exactly as the fragment shader
- *  writes it. Not an approximation of the shader: the same three lines, so a
- *  change to the shader that this file does not mirror shows up as a failing
- *  assertion below rather than as a silently different picture. */
-function shade(nx: number, ny: number, nz: number): number {
-  const L = GROUND_LIGHT_DIR;
-  const len = Math.hypot(nx, ny, nz);
-  const rel = (nx / len) * L.x + (ny / len) * L.y + (nz / len) * L.z - (0 * L.x + 1 * L.y + 0 * L.z);
-  return Math.min(GROUND_SHADE_CEIL, Math.max(GROUND_SHADE_FLOOR, 1 + GROUND_RELIEF_STRENGTH * rel));
+/**
+ * The standard material's own sources with this material's injection applied
+ * -- the text the GPU would compile.
+ *
+ * `onBeforeCompile` is three.js's only seam onto that text, so a test that
+ * wants to read the shader has to run it. The three fields below are all
+ * `WebGLProgramParametersWithUniforms` members these materials touch; the cast
+ * is what the signature demands and nothing here reads the rest.
+ */
+function compiled(material: THREE.Material): {
+  uniforms: Record<string, THREE.IUniform>;
+  vertexShader: string;
+  fragmentShader: string;
+} {
+  const shader = {
+    uniforms: {} as Record<string, THREE.IUniform>,
+    vertexShader: THREE.ShaderChunk.meshphysical_vert,
+    fragmentShader: THREE.ShaderChunk.meshphysical_frag,
+  };
+  material.onBeforeCompile(
+    shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    {} as THREE.WebGLRenderer
+  );
+  return shader;
 }
 
-describe('groundSurfaceMaterial', () => {
-  it('is EXACTLY 1.0 at an up normal -- flat ground, terrace tops and walls keep their palette bytes', () => {
-    // Not `toBeCloseTo`. The whole reason the term is `1 + R * (N.L - up.L)`
-    // rather than the campaign board's `1 - S * (1 - N.L)` is that this
-    // subtraction is of one expression from itself when the normal is up, so
-    // the difference is exactly zero and the multiplier exactly one. The
-    // board's form would have darkened every flat map in the game by
-    // `0.136 * S` for no reason -- and every flat map is three of the four
-    // gated golden scenarios.
-    expect(shade(0, 1, 0)).toBe(1);
-  });
-
-  it('darkens a slope turned away from the sun and lifts one turned toward it', () => {
-    const away = shade(-0.5, 1, -0.5);
-    const toward = shade(0.5, 1, 0.3);
-    expect(away).toBeLessThan(1);
-    expect(toward).toBeGreaterThan(1);
-    // Asymmetric, and physically so: the sun sits 59.8 degrees up, so a tilt
-    // can only take much away. Stated as a property because a symmetric
-    // result would mean the light had been flattened toward the horizon.
-    expect(1 - away).toBeGreaterThan(toward - 1);
-  });
-
-  it('never leaves [FLOOR, CEIL], so a wall-steep patch cannot go to mud or to white', () => {
-    for (let i = 0; i < 2000; i++) {
-      const a = (i / 2000) * Math.PI * 2;
-      const b = ((i * 7) / 2000) * Math.PI;
-      const s = shade(Math.cos(a) * Math.sin(b), Math.abs(Math.cos(b)) + 1e-3, Math.sin(a) * Math.sin(b));
-      expect(s).toBeGreaterThanOrEqual(GROUND_SHADE_FLOOR);
-      expect(s).toBeLessThanOrEqual(GROUND_SHADE_CEIL);
+describe('GroundMaterial', () => {
+  it('is a lit, vertex-coloured, double-sided standard material with the six albedo slots as uniforms', () => {
+    const m = new GroundMaterial();
+    expect(m.isMeshStandardMaterial).toBe(true);
+    expect(m.vertexColors).toBe(true);
+    expect(m.side).toBe(THREE.DoubleSide);
+    for (const slot of GROUND_SLOTS) {
+      const u = slotUniforms(slot);
+      expect(m.uniforms[u.map]).toBeDefined();
+      expect(m.uniforms[u.strength].value).toBe(0);
+      expect(m.uniforms[u.mean]).toBeDefined();
+      expect(m.uniforms[u.tiles]).toBeDefined();
     }
   });
-
-  it('does not band the shade -- this is a heightfield, not a building facet', () => {
-    // `texturedBuildingMaterial` quantises into hard steps because a building
-    // is flat-faced and the bands land on real edges. Three hard bands across
-    // a hillside draw contour terraces that are not in the heightfield --
-    // which is the defect this material exists to remove, reintroduced by a
-    // different route. Same call `campaign/world-material.test.ts` makes for
-    // the diorama.
-    const src = groundSurfaceMaterial().fragmentShader;
-    expect(src).not.toMatch(/floor\s*\(/);
-    expect(src).not.toMatch(/uSteps|SHADE_STEPS/);
-    expect(src).toMatch(/clamp\s*\(\s*1\.0\s*\+\s*uRelief/);
-  });
-
-  it('reads the WORLD normal with no normalMatrix -- buildGround already writes world normals', () => {
-    const vert = groundSurfaceMaterial().vertexShader;
-    expect(vert).toMatch(/vWorldNormal\s*=\s*normal\s*;/);
-    expect(vert).not.toMatch(/normalMatrix/);
-  });
-
-  it('is DoubleSide, because a heightfield patch can legitimately turn away from this camera', () => {
-    // Measured: the steepest open ground on `qarn_hadid` is 3.75 levels per
-    // tile and on `tel_marum` 4.01, against a back-facing threshold of about
-    // 3.2 -- and the closest triangle on a shipped map clears it by a dot
-    // product of 0.00001. Under FrontSide that is one authored tile away from
-    // a HOLE in the map.
-    expect(groundSurfaceMaterial().side).toBe(THREE.DoubleSide);
-  });
-
-  it('leaves terrainMaterial alone -- the exemption is the ground surface and nothing else', () => {
-    // Scatter marks, groves, the residual layer and every building box still
-    // draw through the unlit vertex-colour pass-through. If this material
-    // ever grew a normal or a shade term, the palette exemption would have
-    // silently widened to most of the frame.
-    const src = terrainMaterial() as THREE.ShaderMaterial;
-    expect(src.fragmentShader).not.toMatch(/uLightDir|uRelief|shade/);
-    expect(src.vertexShader).not.toMatch(/normal/);
-    expect(src.side).toBe(THREE.FrontSide);
+  it('injects the albedo blend into the standard fragment shader after the vertex colour', () => {
+    const m = new GroundMaterial();
+    const shader = {
+      uniforms: {} as Record<string, THREE.IUniform>,
+      vertexShader: THREE.ShaderChunk.meshphysical_vert,
+      fragmentShader: THREE.ShaderChunk.meshphysical_frag,
+    };
+    m.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, {} as THREE.WebGLRenderer);
+    expect(shader.uniforms.uSandStrength).toBe(m.uniforms.uSandStrength);
+    expect(shader.vertexShader).toContain('attribute vec2 groundUv;');
+    expect(shader.fragmentShader).toContain('diffuseColor.rgb *= rlAlbedo;');
+    expect(shader.fragmentShader.indexOf('#include <color_fragment>')).toBeLessThan(
+      shader.fragmentShader.indexOf('diffuseColor.rgb *= rlAlbedo;')
+    );
+    expect(m.customProgramCacheKey()).toBe('rl-ground');
   });
 });
 
-describe('terrainMaterial / groveMaterial: no litColor', () => {
-  // Task 3 review finding: `toGeometry` stopped uploading a `litColor`
-  // attribute, but these two materials still declared and read one --
-  // sampling the generic attribute default (0,0,0,1), solid black, on
-  // every scatter mark, grove, residual tile and structure box whenever a
-  // muzzle flash is active (FlashLightManager is live). Both shader stages
-  // of both materials must be clean of the identifier.
-  it('neither material declares or reads litColor/vLitColor, in either shader stage', () => {
-    for (const material of [terrainMaterial(), groveMaterial()] as THREE.ShaderMaterial[]) {
-      expect(material.vertexShader).not.toMatch(/litColor/i);
-      expect(material.fragmentShader).not.toMatch(/litColor/i);
-    }
+describe('GroveMaterial', () => {
+  it('injects the wind offset into the vertex shader and exposes uTime', () => {
+    const m = new GroveMaterial();
+    const shader = {
+      uniforms: {} as Record<string, THREE.IUniform>,
+      vertexShader: THREE.ShaderChunk.meshphysical_vert,
+      fragmentShader: THREE.ShaderChunk.meshphysical_frag,
+    };
+    m.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, {} as THREE.WebGLRenderer);
+    expect(shader.uniforms.uTime).toBe(m.uniforms.uTime);
+    expect(shader.vertexShader).toContain('attribute float sway;');
+    expect(shader.vertexShader).toContain('transformed += vec3(rlWind, 0.0, -rlWind);');
+    expect(m.customProgramCacheKey()).toBe('rl-grove');
+  });
+});
+
+describe('vertexColorMaterial', () => {
+  it('is a lit vertex-coloured standard material', () => {
+    const m = vertexColorMaterial();
+    expect(m.isMeshStandardMaterial).toBe(true);
+    expect(m.vertexColors).toBe(true);
   });
 });
 
@@ -142,7 +123,7 @@ describe('the ground albedo tile', () => {
     // is still `NaN` -- so the default has to be a real 1x1 texture as well
     // as a zero strength, or a map whose fetch failed could draw garbage
     // rather than flat ground.
-    const m = groundSurfaceMaterial();
+    const m = new GroundMaterial();
     expect(m.uniforms.uSandStrength.value).toBe(0);
     expect(m.uniforms.uSand.value).toBeInstanceOf(THREE.Texture);
     expect(m.uniforms.uSand.value.image.width).toBe(1);
@@ -155,9 +136,9 @@ describe('the ground albedo tile', () => {
     // degrades to exactly 1.0 where the mask is 0 or the image is absent,
     // which is what makes terraces, walls, roads and every map with no relief
     // byte-identical.
-    const src = groundSurfaceMaterial().fragmentShader;
+    const src = compiled(new GroundMaterial()).fragmentShader;
     expect(src).toMatch(/texture2D\s*\(\s*uSand[^)]*\)\.rgb\s*\/\s*uSandMean/);
-    expect(src).toMatch(/mix\s*\(\s*vec3\(1\.0\)\s*,\s*sand\s*,\s*uSandStrength\s*\*\s*vSandMask\s*\)/);
+    expect(src).toMatch(/mix\s*\(\s*vec3\(1\.0\)\s*,\s*rlSand\s*,\s*uSandStrength\s*\*\s*vSandMask\s*\)/);
     // The builder's own planar projection, NOT `vWorldPos.xz`: XZ is only
     // right for a horizontal surface, and an east-facing cliff has a constant
     // world X, so XZ would give every fragment on it the same U and smear one
@@ -167,11 +148,11 @@ describe('the ground albedo tile', () => {
   });
 
   it('applies the ROCK tile the same way, on its own mask, at its own scale', () => {
-    const src = groundSurfaceMaterial().fragmentShader;
+    const src = compiled(new GroundMaterial()).fragmentShader;
     expect(src).toMatch(/texture2D\s*\(\s*uRock[^)]*\)\.rgb\s*\/\s*uRockMean/);
-    expect(src).toMatch(/mix\s*\(\s*vec3\(1\.0\)\s*,\s*rock\s*,\s*uRockStrength\s*\*\s*vRockMask\s*\)/);
+    expect(src).toMatch(/mix\s*\(\s*vec3\(1\.0\)\s*,\s*rlRock\s*,\s*uRockStrength\s*\*\s*vRockMask\s*\)/);
     expect(src).toMatch(/vGroundUv\s*\/\s*uRockTiles/);
-    const m = groundSurfaceMaterial();
+    const m = new GroundMaterial();
     expect(m.uniforms.uRockStrength.value).toBe(0);
     expect(m.uniforms.uRock.value.image.width).toBe(1);
     // A ridge face is one to two levels tall; the rock repeat has to be
@@ -195,9 +176,8 @@ describe('the ground albedo tile', () => {
     // uniforms or mask the shader never declares. Nothing throws -- the
     // write lands on an object three.js ignores, and the ground quietly
     // draws its flat palette tone forever.
-    const m = groundSurfaceMaterial();
-    const frag = m.fragmentShader;
-    const vert = m.vertexShader;
+    const m = new GroundMaterial();
+    const { fragmentShader: frag, vertexShader: vert } = compiled(m);
     for (const slot of GROUND_SLOTS) {
       const u = slotUniforms(slot);
       for (const name of [u.map, u.strength, u.mean, u.tiles]) {
@@ -221,7 +201,7 @@ describe('the ground albedo tile', () => {
     // these are only the values used before an image arrives. They still
     // have to BE one of the table's entries, or the pre-load default is a
     // number nobody measured.
-    const m = groundSurfaceMaterial();
+    const m = new GroundMaterial();
     const known = Object.values(GROUND_ALBEDOS);
     for (const slot of GROUND_SLOTS) {
       const u = slotUniforms(slot);
@@ -240,6 +220,42 @@ describe('the ground albedo tile', () => {
     }
   });
 
+  it('defaults each slot to the image that slot actually draws', () => {
+    // Stronger than "a pair the table has", and the reason is that the
+    // defaults used to be written out one uniform at a time inside the
+    // material and are a TABLE now (`DEFAULT_ALBEDO_FOR_SLOT`). A table is
+    // exactly the shape a transcription slip hides in: rock defaulting to the
+    // road's mean would still pass the test above, and would only show as a
+    // colour cast on ridges during the fraction of a second before the image
+    // arrives -- or permanently, on a map whose rock tile 404s.
+    const m = new GroundMaterial();
+    const expected: Record<string, keyof typeof GROUND_ALBEDOS> = {
+      sand: 'desert_sand_tile',
+      rock: 'rock_ground_tile',
+      road: 'road_track_tile',
+      scrub: 'rough_scrub_tile',
+      grove: 'orchard_floor_tile',
+      knoll: 'knoll_scree_tile',
+    };
+    for (const slot of GROUND_SLOTS) {
+      const u = slotUniforms(slot);
+      const id = expected[slot];
+      expect(m.uniforms[u.tiles].value, `slot ${slot} tiles`).toBe(GROUND_ALBEDOS[id].tiles);
+      const mean = m.uniforms[u.mean].value as THREE.Vector3;
+      expect(mean.equals(albedoMean(id)), `slot ${slot} mean is not ${id}'s`).toBe(true);
+    }
+  });
+
+  it('gives each slot its OWN mean vector, never one shared object', () => {
+    // Uniform values are mutable and `loadGroundTexture` writes them per slot.
+    // Two slots sharing one `THREE.Vector3` would make the open-ground image's
+    // arrival silently re-mean the rock as well.
+    const m = new GroundMaterial();
+    const seen = new Set<THREE.Vector3>();
+    for (const slot of GROUND_SLOTS) seen.add(m.uniforms[slotUniforms(slot).mean].value as THREE.Vector3);
+    expect(seen.size).toBe(GROUND_SLOTS.length);
+  });
+
   it('applies every albedo as a MIX FROM 1.0, which is what keeps the average on-palette', () => {
     // The exemption's whole scope rests on one identity: the fragment is
     // `1 + g*(texel/mean - 1)`, whose average over the image is exactly 1 for
@@ -249,12 +265,12 @@ describe('the ground albedo tile', () => {
     // whole surface off the tone `tones.ts` composited -- and would still
     // look like ground, which is why this is asserted against the source
     // rather than left to the doc comment that derives it.
-    const src = groundSurfaceMaterial().fragmentShader;
+    const src = compiled(new GroundMaterial()).fragmentShader;
     for (const slot of GROUND_SLOTS) {
       const u = slotUniforms(slot);
       const cap = slot.charAt(0).toUpperCase() + slot.slice(1);
       const pattern = new RegExp(
-        `mix\\s*\\(\\s*vec3\\(1\\.0\\)\\s*,\\s*${slot}\\s*,\\s*${u.strength}\\s*\\*\\s*v${cap}Mask\\s*\\)`
+        `mix\\s*\\(\\s*vec3\\(1\\.0\\)\\s*,\\s*rl${cap}\\s*,\\s*${u.strength}\\s*\\*\\s*v${cap}Mask\\s*\\)`
       );
       expect(src, `${slot} is not applied as a mix from vec3(1.0)`).toMatch(pattern);
       // ...and each is a ratio to its own measured mean, never the raw texel.
@@ -267,9 +283,9 @@ describe('the ground albedo tile', () => {
     // track -- so it is the one slot that fetches twice and mixes by an
     // axis. If that mix ever disappears, every junction on every map goes
     // back to being a road that runs one way and stops.
-    const src = groundSurfaceMaterial().fragmentShader;
-    expect(src).toMatch(/mix\s*\(\s*texture2D\s*\(\s*uRoad\s*,\s*roadUv\s*\)\.rgb\s*,/);
-    expect(src).toMatch(/texture2D\s*\(\s*uRoad\s*,\s*roadUv\.yx\s*\)\.rgb\s*,\s*vRoadAxis\s*\)/);
+    const src = compiled(new GroundMaterial()).fragmentShader;
+    expect(src).toMatch(/mix\s*\(\s*texture2D\s*\(\s*uRoad\s*,\s*rlRoadUv\s*\)\.rgb\s*,/);
+    expect(src).toMatch(/texture2D\s*\(\s*uRoad\s*,\s*rlRoadUv\.yx\s*\)\.rgb\s*,\s*vRoadAxis\s*\)/);
     // ...and no other slot does, which is what keeps the extra tap paid for
     // once rather than five times.
     for (const slot of GROUND_SLOTS) {
@@ -289,11 +305,14 @@ describe('the ground albedo tile', () => {
   });
 
   it('prepareGroundTexture forces NoColorSpace and plain repeat wrapping', () => {
-    // `TextureLoader` stamps `SRGBColorSpace` on a colour map and this
-    // renderer's output is pass-through, so an sRGB internal format decodes
-    // on every sample with nothing to re-encode it -- measured elsewhere in
-    // this tree as a lit wall dropping from rgb 67 to 51 while still looking
-    // like a building. And the wrap must be REPEAT, not mirrored: the source
+    // NoColorSpace even though every OTHER map in this renderer is sRGB now
+    // (`world-materials.ts`'s `prepareTexturedMap`, the reverse call). This
+    // one is not a colour: the blend divides each texel by the image's own
+    // mean, `GROUND_ALBEDOS` measures that mean in raw file BYTES, and the
+    // ratio is only 1-on-average if both sides are in the same space. Tag it
+    // sRGB and the GPU decodes the texel while the divisor stays a byte, which
+    // drags the whole surface off the tone `tones.ts` composited and still
+    // looks like ground. And the wrap must be REPEAT, not mirrored: the source
     // is seamless (edge deltas 14.6/15.9 against an adjacent-column baseline
     // of 14.2), and mirroring a seamless tile draws a kaleidoscope diamond at
     // every junction.

@@ -186,9 +186,22 @@ describe('buildDecorMesh', () => {
     expect(batchesOf(g)[0].instanceCount).toBe(2);
   });
 
-  it('keeps the normal attribute — the toon ramp indexes by it', () => {
-    // Stripping to `position` alone would compile and draw solid black
-    // silhouettes, since `toonRampMaterial` picks its ramp entry from N·L.
+  it('draws through a lit standard material and both casts and receives shadows', () => {
+    // The flags are what put decor into the sun's shadow map at all. Without
+    // `castShadow` a boulder sits on ground it does not darken, which reads as
+    // an object pasted onto the map rather than standing on it -- and it is
+    // exactly the kind of miss no other test in this file can see, since every
+    // assertion here is about batching and none about light.
+    const mesh = batchesOf(buildDecorMesh(P(3), SET))[0];
+    expect((mesh.material as THREE.MeshStandardMaterial).isMeshStandardMaterial).toBe(true);
+    expect(mesh.castShadow).toBe(true);
+    expect(mesh.receiveShadow).toBe(true);
+  });
+
+  it('keeps the normal attribute — the sun shades by it', () => {
+    // Stripping to `position` alone would compile and draw flat, unlit-looking
+    // blobs: `rampMaterial` carries one tone and the whole of its form comes
+    // from `N·L` against the scene sun.
     const g = geo();
     g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(9), 3));
     g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(6), 2));

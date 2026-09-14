@@ -17,8 +17,9 @@
  * bottleneck, so that matters more than the vertex count does.
  */
 import * as THREE from 'three';
+import { texturedMapMaterial } from '../world-materials';
 import type { DecorPlacement } from './decor-place';
-import { isTexturedDecorKey, texturedDecorMaterial } from './textured-decor';
+import { isTexturedDecorKey } from './textured-decor';
 
 /** One textured decor GLB's geometry and its own baked map. */
 export interface TexturedDecorPart {
@@ -74,13 +75,18 @@ export function buildTexturedDecorMesh(
     const part = set.parts.get(key);
     if (part === undefined) continue;
     // A fresh material per build, matching `buildDecorMesh`: `rebuildTerrain`
-    // disposes the whole group and re-registers what it makes, so a material
-    // reused across rebuilds would be a dangling registration.
+    // disposes the whole group and everything it made, so a material reused
+    // across rebuilds would be a dangling reference to a disposed program.
     const mesh = new THREE.InstancedMesh(
       part.geometry,
-      texturedDecorMaterial(part.map),
+      texturedMapMaterial(part.map),
       list.length
     );
+    // A ditch is cut INTO the ground and still owes both: its far lip throws a
+    // shadow down the trench, which is most of what makes it read as depth
+    // rather than as a dark stripe painted on the map.
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
     for (let i = 0; i < list.length; i++) {
       const p = list[i];
       q.setFromAxisAngle(axis, p.yawTurns * TAU);

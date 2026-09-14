@@ -30,23 +30,21 @@ export interface MeshData {
   litColors?: Float32Array;
   /**
    * xyz triples, one per vertex, same length and vertex order as `colors` --
-   * the world-space surface normal `mesh.ts`'s `groundSurfaceMaterial` reads
-   * for its shade term.
+   * the world-space surface normal the scene sun shades this surface by.
    *
-   * OPTIONAL, and only `ground.ts`'s `buildGround` computes one today, the
-   * same shape `litColors` above already establishes. Scatter marks, grove
-   * billboards, building boxes and the residual layer all draw through the
-   * plain `terrainMaterial`, which declares no `normal` attribute and reads
-   * none -- leaving this absent for them is a correct no-op, not a missing
-   * attribute. `toGeometry` therefore uploads it only when present rather
-   * than aliasing a default the way it does for `litColor`: there is no
-   * sensible default normal for a flat mark, and no shader asking for one.
+   * OPTIONAL, and only `ground.ts`'s `buildGround` computes one today: its
+   * analytic heightfield normals are smoother than any face average of the
+   * same triangles. Every OTHER layer still ends up with a normal, because
+   * every layer is lit now -- `toGeometry` fills one in, either straight up
+   * (flat marks, canopy billboards) or computed from the faces (the extruded
+   * structure boxes, whose walls must shade as walls). See `GeometryOptions`
+   * in `mesh.ts` for which builder takes which.
    */
   normals?: Float32Array;
   /**
    * One float per vertex, same length and vertex order as `colors` -- 1 where
    * this vertex is allowed to sample the ground albedo tile
-   * (`mesh.ts`'s `groundSurfaceMaterial`, `uSand`), 0 where it is not.
+   * (`mesh.ts`'s `GroundMaterial`, `uSand`), 0 where it is not.
    *
    * Not a redundant restatement of "is this an interpolated patch": a ROAD
    * tile is drawn as an interpolated patch and is deliberately masked OFF, so
@@ -126,8 +124,8 @@ export interface MeshData {
    * orchard albedo is sampled (`mesh.ts`, `uGrove`), 0 elsewhere.
    *
    * The trees themselves are `grove.ts`'s own mesh and are untouched by
-   * this: they draw through the unlit `terrainMaterial` and are still
-   * palette-only, including the flat trunk shadows they cast on this ground.
+   * this: they draw through `GroveMaterial`, which samples no albedo at all,
+   * including the flat trunk shadows they cast on this ground.
    *
    * OPTIONAL, `ground.ts` only.
    */
@@ -167,9 +165,9 @@ export interface MeshData {
    * far this vertex sits above its own object's ground anchor, in world-Y
    * units (0 at a trunk base or a flat ground mark, larger toward a
    * crown's own topmost highlight). Wind-sway weight, read only by
-   * `mesh.ts`'s `groveMaterial` fragment/vertex pair -- `terrainMaterial`
-   * (the shared material every other terrain sub-mesh draws through) never
-   * declares a `sway` attribute, so leaving this absent is a correct no-op
+   * `mesh.ts`'s `GroveMaterial` -- `vertexColorMaterial` (the shared material
+   * every other terrain sub-mesh draws through) and `GroundMaterial` never
+   * declare a `sway` attribute, so leaving this absent is a correct no-op
    * for ground/scatter/residual/building-decor meshes, the same "OPTIONAL,
    * only one builder populates it" shape `litColors` above already
    * establishes. OPTIONAL: only `grove.ts`'s `buildGroves` computes this

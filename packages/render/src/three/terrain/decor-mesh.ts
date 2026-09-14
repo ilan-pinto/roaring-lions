@@ -8,7 +8,7 @@
  * families across four roles is four draws, not eighteen.
  */
 import * as THREE from 'three';
-import { toonRampMaterial } from '../palette-material';
+import { rampMaterial } from '../world-materials';
 import { rampForDecorRole, type DecorMeshRole } from './decor-role';
 import type { DecorPlacement } from './decor-place';
 
@@ -35,8 +35,9 @@ export interface DecorGeometrySet {
  *
  * Normalising here rather than re-exporting the trees is the durable fix: the
  * next decor GLB to arrive with a stray attribute is a content change, not a
- * crash. `position` and `normal` are exactly what `toonRampMaterial`'s vertex
- * shader reads, so nothing that survives this strip is ever missed.
+ * crash. `position` and `normal` are exactly what a lit `rampMaterial` draw
+ * reads -- the flat tone is the material's own `color`, and the normal is what
+ * the sun shades it by -- so nothing that survives this strip is ever missed.
  */
 const BATCH_ATTRIBUTES: ReadonlySet<string> = new Set(['position', 'normal']);
 
@@ -139,8 +140,14 @@ export function buildDecorMesh(
       maxInstances,
       acc.verts,
       acc.idx,
-      toonRampMaterial(rampForDecorRole(role))
+      rampMaterial(rampForDecorRole(role))
     );
+    // Both, for every role. A boulder casts onto the ground it sits on and
+    // takes a building's shadow across it; foliage is no different -- a tree
+    // that took no shadow would be the one object on the map lit from
+    // everywhere.
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
     // One geometry id per PART, not per key -- a key may legitimately hold
     // several same-role parts (a rock-cluster family exported as multiple
     // rock sub-meshes under one family/variant), and collapsing them to one
