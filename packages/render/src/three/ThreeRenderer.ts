@@ -1693,8 +1693,11 @@ export class ThreeRenderer implements Renderer {
     // A `Scene.background` Color is read inside `WebGLBackground.render`,
     // which runs with the target bound -- so it converts to linear -- and
     // sets `forceClear`, so the clear happens even though `RenderPass` has
-    // turned `autoClear` off. Measured after: #050502, the authored tone
+    // turned `autoClear` off. Measured after: #050503, the authored tone
     // through ACES's low-end compression, 15/255 from `main` instead of 52.
+    // (Re-measured 2026-09-15 off the map edge of `01-wide-fog`, under both
+    // the front-lit and the side-light sun: #050503 either way, to the byte.
+    // It cannot move with the sun -- nothing is lit out there.)
     this.scene.background = new THREE.Color(this.opts.background);
     // Added unconditionally, not lazily on first useEmitters/spawn -- all
     // three meshes start at count/drawRange 0 (nothing live yet) and simply

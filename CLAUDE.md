@@ -295,7 +295,21 @@ yours; each one records what the next phase inherits.
   `MeshStandardMaterial` (`units/world-materials.ts`, and `terrain/mesh.ts`'s
   `GroundMaterial`/`GroveMaterial`). One sun plus one hemisphere bounce in
   `lighting.ts`, with a 4096² map-wide orthographic shadow box fitted once per
-  map. The frame goes through `post-chain.ts`: `RenderPass → FogOfWarPass →
+  map. **The sun is a SIDE light — `SUN_DIRECTION` `(-0.406, 0.819, 0.406)`,
+  the render rig's stated azimuth 135° at altitude 55°, which is the CAMERA'S
+  LEFT** (the camera sits at 225° in `dimetric.py`, so its right-hand vector
+  points at 315°). The X and Z signs DIFFER and that is the point: a box's
+  screen-left face is lit, its screen-right face falls to hemisphere light
+  alone, and shadows land on the ground beside a caster instead of straight
+  up-screen inside its own silhouette. Do **not** re-derive it from
+  `build_lights`' lamp — `rotation_euler = (90−55, 0, 135)` yaws a beam
+  already tilted toward `+Y` and puts the light source at 45°, behind the
+  subject; that rig convention bug is why every sprite sheet has a bright top
+  over two equally dark sides (`BLD_WALL` is `limestone.0` on top and
+  `limestone.7` on BOTH flanks, identical to the byte). Settled by the project
+  lead on 2026-09-15; `lighting.ts`'s header and the spec's Deviations entry 3
+  carry both retired alternatives with their measurements.
+  The frame goes through `post-chain.ts`: `RenderPass → FogOfWarPass →
   WorldGTAOPass (half resolution) → OutputPass → SMAAPass`. Fog of war is
   `shroud-texture.ts` + `fog-pass.ts` — a depth-reading post pass, not
   geometry. A muzzle flash is a pooled `PointLight` (`units/flash-light.ts`),
@@ -589,7 +603,11 @@ yours; each one records what the next phase inherits.
   boulder decor object (`decor-place.ts`) left every gated scenario green.
   It now reads **36001 px / 2.6292** there against a 0/0.0000 noise floor,
   while `quiet`, `open-ground` and `vehicle` stay inside their own noise. It
-  costs **74.4 KiB** per environment (the set is 464.3 KiB) and it needs an
+  costs **1136.4 KiB** per environment (the darwin set is 4161.2 KiB, measured
+  2026-09-15 off the blessed files; the 74.4 KiB / 464.3 KiB this line used to
+  carry was the PRE-LIT set, and the lit renderer's frames are ~9x less
+  compressible because a palette-quantised image is mostly flat runs and a
+  shaded one is not) and it needs an
   `orders` entry, because fog is computed from living side-0 units only and the
   sandbox force spawns thirty tiles away: the scenario sends the `recon_drone`
   to the corridor mouth, without which the frame is a black rectangle.

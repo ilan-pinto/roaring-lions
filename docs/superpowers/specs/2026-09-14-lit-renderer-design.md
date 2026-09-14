@@ -2,10 +2,10 @@
 
 **Status:** implemented on `worktree-art-uplift`. Approved in principle by the
 project lead ("lets go with your recommendation", 2026-09-14). Read
-"Deviations" below before this design's own text — six things shipped
-differently from what it specifies, each for a measured reason, and two of
-its acceptance clauses were falsified rather than met.
-**Date:** 2026-09-14
+"Deviations" below before this design's own text — **eight** things shipped
+differently from what it specifies, each for a measured reason, and one of
+its acceptance clauses was falsified rather than met.
+**Date:** 2026-09-14 (sun ruling 2026-09-15 — deviation 3)
 **Branch:** `worktree-art-uplift` (from `main` @ `8db0215`, v0.61.0)
 **Report:** https://claude.ai/code/artifact/26a809d0-5d74-4fd4-abf6-7aa9d3e669ae
 (the sweep this spec answers: nine captures, the diagnosis, the five-phase plan)
@@ -120,12 +120,16 @@ never per frame:
   by eye against the neutral-light property above), positioned along
   `SUN_DIRECTION` from the scene origin with its target at the origin.
   `SUN_DIRECTION` is the render rig's own sun — `tools/dimetric.py`
-  `build_lights()` (azimuth 135°, altitude 55°) — transformed into three's world
+  (`SUN_AZIMUTH` 135°, `SUN_ALTITUDE` 55°) — transformed into three's world
   frame (tile x → world X, tile y → world Z, `VIEW_DIRECTION` in `camera.ts`
-  is the reference for which world diagonal the camera sits on). The rule that
-  fixes any ambiguity: **a billboard sprite's baked shadow and a mesh's cast
-  shadow, standing side by side, must fall the same way.** The first task of
-  the plan photographs exactly that pair and settles the vector.
+  is the reference for which world diagonal the camera sits on). ~~The rule
+  that fixes any ambiguity: a billboard sprite's baked shadow and a mesh's
+  cast shadow, standing side by side, must fall the same way. The first task
+  of the plan photographs exactly that pair and settles the vector.~~ **That
+  tie-breaker cannot discriminate and was not what settled it** — see
+  deviation 3. The shipped vector is `(−0.406, 0.819, 0.406)`, the rig's
+  stated AZIMUTH rather than its lamp's actual beam, ruled by the project
+  lead on 2026-09-15.
 - **Sky/ground bounce**: `THREE.HemisphereLight(sky, ground, 0.9)` with
   `sky = water.0` and `ground = dust.4`, both from the palette — the ratio to the
   sun is the report's 1 : 0.35 figure expressed in ACES-scaled intensities.
@@ -280,8 +284,11 @@ Rendering does not require tests (CLAUDE.md), but this backend's existing
 tests are how its measured facts survive, so the new ones are:
 
 - `lighting.test.ts`: exactly one `DirectionalLight` and one `HemisphereLight`
-  in the scene; `SUN_DIRECTION` is normalised, has positive Y, and its XZ
-  projection has the sign pair the sprite-shadow rule fixed; the shadow camera
+  in the scene; `SUN_DIRECTION` is normalised and pinned component by component
+  to `(−0.406, 0.819, 0.406)` at three decimals, with its X and Z signs asserted
+  to DIFFER (deviation 3 — the earlier "the two signs must agree" assertion is
+  gone, and the test says in its title and body why, so it cannot be restored
+  by someone reading the diff backwards); the shadow camera
   box contains every tile corner of a 48×48 and a 64×64 map and the tallest
   building's roof.
 - `materials.test.ts`: every material handed to a mesh unit, vehicle, building
@@ -369,20 +376,61 @@ the ratio is taken against, and the exemption record would stop being true.
 the paragraph `pnpm validate:assets` prints carries it to the art gate's
 output.
 
-**3. `SUN_DIRECTION` stayed at `(0.406, 0.819, 0.406)` — and the tie-breaker
-the design wrote does not settle it.** §2 says "a billboard sprite's baked
-shadow and a mesh's cast shadow, standing side by side, must fall the same
-way", and Task 1 was to photograph that pair. It could not: the shipped XZ
-pair lies in the camera's own azimuth plane, so both camera-facing vertical
-faces receive identical `N·L` either way and there is no left/right asymmetry
-to compare — the drone-and-Eitan pair the plan named is a weak discriminator
-by construction. Task 9 ran the stronger experiment instead, the same unit at
-the same camera drawn once as a lit mesh and once as the rig's own bake
-(`&nomesh`), over one 69,759-px mask: flank ÷ up-face reads **0.872** on the
-bake, **0.891** at the shipped sun (2% off) and **0.760** flipped (13% off,
-and in the wrong direction). Kept on that measurement. **See "Open questions"
-below — a later measurement points the other way and the two have not been
-reconciled.**
+**3. `SUN_DIRECTION` is `(-0.406, 0.819, 0.406)` — a SIDE light, and the
+design's own azimuth is what it implements.** Settled by the project lead on
+2026-09-15 (Task 16) after two tasks had carried a different vector each and
+neither had reconciled with the other. §2's stated number, **azimuth 135° at
+altitude 55°**, is the ruling: in the rig's own frame the camera sits at
+ground azimuth 225°, so its right-hand vector points at 315° and **135° is the
+camera's LEFT**. A ground azimuth `a` at altitude `el` is the to-sun vector
+`(cos a·cos el, sin a·cos el, sin el)` in Blender (X, Y, Z-up); at 135°/55°
+that is `(−0.406, 0.406, 0.819)`, and with tile x → world X, tile y → world Z,
+Blender Z-up → world Y, three's frame gets `(−0.406, 0.819, 0.406)`.
+
+*What it produces, measured on the capture set rather than predicted:* `+x` is
+screen-right and `+y` (world Z) screen-left on this camera, so a box's
+screen-left face takes `N·L = +0.406`, its screen-right face `−0.406` and
+falls to hemisphere light alone, and its top `0.819`. On
+`05-town-fog-blocks` the warehouse's screen-right wall goes **42.6 → 10.0**
+mean sRGB luminance while its roof stays **80.9 → 80.2** — the sun's Y did not
+change, so lit ground and lit roofs did not either. Shadows run along `−L` in
+XZ, toward `(+X, −Z)`, which is screen-right with the two vertical components
+exactly cancelling: a caster of height `h` lays its shadow `0.99h` tiles
+across the ground *beside* it, against the `1.225h` its own roof is drawn
+up-screen. On `03-town-fight` the low warehouse's shadow crosses the road
+(**137.4 → 115.7** on a road patch to its right) where before there was none;
+on `02-force-closeup` every vehicle and infantry figure has a ground shadow.
+The visual gate registered the same thing on its own terms: `quiet`/`buildings`
+went **122262 px → 216469** (+77%) because hiding a building now clears a
+patch of lit street as well as the building.
+
+*Both earlier vectors are retired, and this is why.* **The rig's lamp does not
+implement the rig's stated azimuth.** `build_lights` sets `rotation_euler =
+(90−55, 0, 135)`, yawing a beam already tilted toward `+Y`, which puts the
+light SOURCE at azimuth 45° — opposite the camera, back-lighting the subject.
+That is a rig convention bug, and the sprite sheets are the witness:
+`assets/sprites/BLD_WALL/idle_f00_000.png` is a plain single-material box
+whose top is `limestone.0` (`#F2E8D5`, 43,264 px) and whose TWO visible sides
+are both `limestone.7` (`#75624A`, 44,163 px), identical to the byte — a
+bright top over two equally dark sides. Task 1 negated that beam and got the
+front-lit `(+0.406, 0.819, +0.406)`; Task 9 kept it on a flank ÷ up-face
+luminance ratio over one 69,759-px mask (**0.872** on the bake, **0.891**
+front-lit, **0.760** flipped). Neither survives. The front-lit pair lies in
+the camera's own azimuth plane, so both camera-facing faces take an identical
+`N·L` — which is also why Task 1 could not run §2's own tie-breaker ("a
+billboard sprite's baked shadow and a mesh's cast shadow, standing side by
+side, must fall the same way"): there is no left/right asymmetry to compare,
+and the drone-and-Eitan pair the plan named is a weak discriminator by
+construction. Its shadow falls straight up-screen at 40% of the caster's own
+screen height, inside any box-shaped silhouette, which is what made
+acceptance 1 and half of acceptance 3 unreachable. And Task 9's 0.872 was
+measured on a VEHICLE bake, whose shading is `render_team.py`'s
+`ROLE_PALETTE`/`LIT_GAIN` mapping rather than a physical render (`CLAUDE.md`:
+that table "compensates for a multiply-style light"), so the statistic was
+probably reading albedo — no 55° key can produce 0.872 in either direction.
+The back-lit `(−0.406, 0.819, −0.406)` the open question proposed is retired
+too: it is the lamp's bug carried faithfully into three, and it would put
+every camera-facing face on hemisphere light alone.
 
 **4. Ambient occlusion ships at HALF resolution, through a subclass, with two
 fixes the design did not anticipate (§5.2, §11).** `GTAOPass` could not be
@@ -468,7 +516,9 @@ Acceptance 3's second clause, decisively: `main` drew hard black slabs with
 sawtooth tile edges across the warehouse roof, the apartment's upper half and
 the mosque — **no black slab survives anywhere in the set**.
 
-**Not met, both recorded rather than worked around.**
+**Not met, recorded rather than worked around.** (This was TWO items when it
+was written; the cast-shadow half was closed by deviation 3's side light on
+2026-09-15 and has moved up into the "met" list below.)
 
 *Acceptance 3, "textured apartments read brighter than on `main` (sRGB, not
 pass-through)" — FALSE, and the prediction's mechanism had the sign wrong.*
@@ -484,59 +534,98 @@ dim is a look call for the lead, not a threshold anyone here should re-tune.
 `SUN_INTENSITY`, the 1 : 0.35 sun-to-hemisphere ratio and exposure 1.0 are all
 lead-approved numbers and were left alone.
 
+The side light of 2026-09-15 did not reverse this and moved it very little:
+against the front-lit set, on the same frame at the same tick, the whole
+warehouse box goes **86.8 → 80.3** and the whole apartment box **42.5 →
+36.2** (plain channel mean, the definition those two figures were taken
+with). What it redistributed rather than dimmed is the CONTRAST between
+faces — the warehouse's screen-right wall 42.6 → 10.0 and its screen-left
+wall 29.0 → 42.4 in Rec.709 luminance, with the roof flat at 80.9 → 80.2. So
+the town is marginally dimmer again and now reads as volume instead of
+flat-shaded boxes; the look call is still the lead's, and still nothing here
+should be re-tuned to answer it. Capture noise on these numbers is a measured
+**0.00–0.02** (two full capture runs of the same build, same boxes), so every
+figure above is signal.
+
 *Acceptance 1, "every unit has a cast shadow on the sand", and acceptance 3,
-"building shadows fall across the road" — NOT REACHABLE at the shipped sun,
-and this is geometry rather than tuning.* With `SUN_DIRECTION`'s XZ pair on
-the camera's own diagonal, a caster of height `h` throws its shadow `0.406h /
-0.819 = 0.496h` tiles along `(−X, −Z)`, which on this dimetric screen is
-straight UP with zero horizontal offset — while the caster's own roof is drawn
-`1.225h` up-screen. **The shadow reaches 40% of the object's own screen
-height, so for any box-shaped caster it lies entirely inside the caster's
-silhouette.** No building or vehicle can show a ground shadow; what does show
-is exactly what the captures show — trees (a canopy offset from a thin trunk),
-masts, and the contact darkening around wheels and tracks. Shadows are real,
-the shadow map is working, and they land where nobody can see them.
+"building shadows fall across the road" — WERE NOT REACHABLE at the front-lit
+sun, and BOTH ARE MET at the side light that replaced it on 2026-09-15
+(deviation 3).* The diagnosis was right and it was geometry rather than
+tuning: with the XZ pair on the camera's own diagonal, a caster of height `h`
+threw its shadow `0.406h / 0.819 = 0.496h` tiles along `(−X, −Z)`, which on
+this dimetric screen is straight UP with zero horizontal offset — while the
+caster's own roof is drawn `1.225h` up-screen, so **the shadow reached 40% of
+the object's own screen height and lay entirely inside any box-shaped
+caster's silhouette.** What showed was only what the front-lit captures show:
+trees (a canopy offset from a thin trunk), masts, and contact darkening
+around wheels and tracks. At `(−0.406, 0.819, 0.406)` the two horizontal
+components ADD instead of cancelling and the two vertical ones cancel, so the
+same shadow runs `0.99h` tiles horizontally, screen-right, across the ground
+beside the caster. Photographed on the re-captured set: the low warehouse on
+`03-town-fight` lays a shadow over the road (a road patch to its right reads
+137.4 → 115.7), the Namer on `02-force-closeup` lays one on open sand (172.2
+→ 163.6), and every infantry figure, vehicle and tree in that frame has one.
+Both clauses now read MET.
 
 ## Open questions
 
-**The sun's XZ sign is not settled, and the two measurements disagree.** Task
-9's flank-to-up-face ratio (deviation 3) kept the shipped pair. A later
-measurement, taken while checking acceptance 1, points the other way and is
-harder to explain away:
+**~~The sun's XZ sign is not settled~~ — SETTLED 2026-09-15 by the project
+lead (Task 16). `SUN_DIRECTION` is `(−0.406, 0.819, 0.406)`, the side light
+this spec's own azimuth 135° names; see deviation 3 for the derivation, the
+measurements, and both retired alternatives.** The question is recorded rather
+than deleted, because the evidence that raised it is still true and a future
+session will meet it again in the rig:
 
 - The rig's camera POSITION is at ground azimuth 225° (`render_rig.py`
   `frame_camera`: `center + horiz·(cos 225°, sin 225°)`), and its key light's
   to-sun vector is `(+0.406, +0.406, +0.819)` — **verified by running the rig's
   own Euler through Blender 5.2 headless**, not derived on paper. Those are
-  180° apart: the rig BACK-lights its subject, and both camera-facing vertical
-  faces are the shadow side.
+  180° apart: **the rig's LAMP back-lights its subject, and that is a rig
+  convention bug rather than an authored intent** — `rotation_euler = (90−55,
+  0, 135)` yaws a beam that is already tilted toward `+Y`, so the yaw that
+  reads as "azimuth 135" lands the source at 45°. The stated constant is the
+  intent; the lamp is the defect.
 - `assets/sprites/BLD_WALL/idle_f00_000.png` is the cleanest witness in the
   tree — a plain single-material box. Its top face is `#F2E8D5` (limestone.0,
   the palette's brightest) and **both** visible side faces are `#75624A`
   (limestone.7), identical to the byte. Side ÷ top linear luminance = **0.160**.
   A front-lit 55° key predicts ≈0.46 on the same geometry; a back-lit one with
-  only the fill predicts ≈0.03–0.04, and the ramp's darkest step is 0.10.
+  only the fill predicts ≈0.03–0.04, and the ramp's darkest step is 0.10. So
+  the sheets confirm the lamp, not the constant.
 - Task 9's own statistic reads 0.872 on a vehicle bake, which no 55° key can
   produce in either direction — a vehicle sheet's shading is
   `render_team.py`'s `ROLE_PALETTE`/`LIT_GAIN` mapping rather than a physical
   render (`CLAUDE.md` says that table "compensates for a multiply-style
   light"), so the flank/up ratio there is probably measuring albedo.
 
-If the rig is back-lit, the matching three vector is `(−0.406, 0.819, −0.406)`
-and cast shadows would fall DOWN-screen, toward the viewer, across roads —
-which is what both unmet acceptance clauses describe. The cost is that every
-camera-facing face goes to hemisphere-only light, which Task 9 photographed
-and called flat. **This is a look decision for the project lead with a
-measurement on each side, not a bug to fix silently**, and it is the first
-thing to settle before Phase 1. The before/after capture sets are in
-`.superpowers/art-captures/{before,after}/` (gitignored — regenerate with
-`tools/src/perf/art-captures.ts`).
+The back-lit `(−0.406, 0.819, −0.406)` this section used to propose was
+rejected with the front-lit pair: it is the lamp's bug carried faithfully into
+three, and it puts every camera-facing face on hemisphere light alone.
+
+**What that leaves genuinely open** is the rig, not the renderer. `dimetric.py`
+still builds a lamp whose source is at 45° while its own constant says 135°, so
+a sprite sheet re-rendered today would still come out back-lit and would still
+disagree with the meshes beside it. Fixing it means either negating the beam in
+`build_lights` or re-authoring the Euler, and then re-rendering every sheet in
+`assets/sprites` — which is a Phase-G-sized job with its own four gates, not a
+one-line change, and it would move `pnpm validate:assets`. Until then a bake
+and a mesh disagree in a specific, stateable way: the bake has a bright top and
+two EQUALLY dark flanks, because it was lit from behind, while a mesh beside it
+has a bright top, a lit screen-left flank and a shaded screen-right one. Every
+unit type without a GLB still draws from the bake, so that pair is on screen in
+the default renderer — `02-force-closeup`'s `recon_drone` is one. This was
+equally true of the front-lit sun the ruling replaces (the bake had no lit
+flank to agree with either vector), so nothing was made worse; it is simply no
+longer hidden behind an argument about which way three should point.
+The before/after/side-light capture sets are in
+`.superpowers/art-captures/{before,after,sun-after}/` (gitignored — regenerate
+with `tools/src/perf/art-captures.ts`).
 
 ## Numbers the lead approved with the recommendation
 
 | Knob | Value |
 |---|---|
-| Sun azimuth / altitude | 135° / 55° (the render rig's own) |
+| Sun azimuth / altitude | 135° / 55° — the render rig's own STATED constant, which is the camera's left. Shipped as `(−0.406, 0.819, 0.406)`; see deviation 3 |
 | Sun : hemisphere | 1.0 : 0.35 |
 | Shadow map | 4096², PCF soft, one map-wide ortho box |
 | AO radius / intensity | 0.6 tile / 1.2 |

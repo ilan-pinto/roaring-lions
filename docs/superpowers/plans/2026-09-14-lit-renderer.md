@@ -21,7 +21,7 @@
 - Dev server for browser checks: run from THIS worktree with Bash in the background, `pnpm --filter @lions/app exec vite --port 5178 --strictPort --host 127.0.0.1`, then `navigate` the Browser pane to `http://127.0.0.1:5178/...`. Never `preview_start` (it serves the launch directory, not this worktree). Never kill a process you did not start (`pkill -f vite` has taken the lead's server down four times; do not run it).
 - Numbers from the spec, verbatim: sun 135°/55° (render rig), sun : hemisphere 1.0 : 0.35 expressed as intensities 2.6 : 0.9, shadow map 4096², PCF soft, one map-wide box; AO radius 0.6 tile / scale 1.2; ACES / exposure 1.0; pixel ratio cap 2; fog never-seen 85% / explored 40% / feather 1.5 tiles; track alpha 0.35, life 180 s (unchanged).
 - Two deliberate deviations from the spec text, both recorded in Task 15's spec edit: (1) antialiasing is `SMAAPass` on a single-sampled target rather than hardware MSAA 4×, because the fog pass reads the composer target's depth texture and a multisampled depth attachment would have to be resolved first; (2) ground albedo textures stay `NoColorSpace`, because the ground blend uses them as a ratio to their own byte mean (`mix(1, texel/mean, gain)`) and decoding them would move that mean off 1.
-- The `SUN_DIRECTION` sign pair is settled ON SCREEN in Task 9 step 7 against a billboard's baked lighting. Do not skip that step.
+- ~~The `SUN_DIRECTION` sign pair is settled ON SCREEN in Task 9 step 7 against a billboard's baked lighting. Do not skip that step.~~ **SETTLED 2026-09-15 and NOT that way (Task 16).** A billboard's bake has no lit flank to compare against — the rig's lamp back-lights it — so that step cannot discriminate. The project lead ruled the spec's stated azimuth: `SUN_DIRECTION` is `(-0.406, 0.819, 0.406)`, a side light with X and Z differing in sign. See the spec's Deviations entry 3.
 
 ---
 
@@ -105,6 +105,11 @@ function scene(width: number, height: number) {
 }
 
 describe('lighting', () => {
+  // SUPERSEDED 2026-09-15 -- this assertion shipped and was then REPLACED. The
+  // sun is a side light, `(-0.406, 0.819, 0.406)`, and its X and Z signs
+  // DIFFER on purpose; the live test pins all three components and asserts
+  // exactly that. Kept here as written because this file is the plan as it
+  // was executed, not the current contract.
   it('sun direction is a unit vector pointing up, on the camera side of the map', () => {
     expect(SUN_DIRECTION.length()).toBeCloseTo(1, 6);
     expect(SUN_DIRECTION.y).toBeGreaterThan(0.5);
@@ -163,6 +168,12 @@ Expected: FAIL — `Cannot find module './lighting'`.
 
 ```ts
 // packages/render/src/three/lighting.ts
+// SUPERSEDED 2026-09-15: this snippet's `SUN_DIRECTION` and the derivation in
+// its header are BOTH retired. The shipped vector is `(-0.406, 0.819, 0.406)`
+// -- the rig's stated azimuth 135 (= the camera's LEFT) rather than its lamp's
+// actual beam, which points from 45 and back-lights every sprite sheet. Read
+// the live `lighting.ts` header, not this. Kept verbatim because this file
+// records the plan as it was executed.
 /**
  * The scene's light: one sun, one sky/ground bounce, one map-wide shadow box.
  *
@@ -1760,7 +1771,7 @@ const c = window.__lions.renderer.camera; c.x = 5; c.y = 22; c.zoom = 2.5; 'ok'
 and screenshot. Check, in this order:
 1. Console has no shader compile errors (`read_console_messages onlyErrors`). A `GroundMaterial` GLSL typo shows here as `THREE.WebGLProgram: Shader Error`.
 2. Every vehicle and infantry figure has a cast shadow on the sand. If shadows are missing entirely, `renderer.shadowMap.enabled` did not run (is `init` reached?) or the sun's `target` is not in the scene.
-3. **The sun check.** The `recon_drone` at (8, 23) is a billboard whose sprite was rendered by the Blender rig; the `apc_eitan` beside it is a lit mesh. The drone's BRIGHT side and the Eitan's lit hull faces must be on the same screen side. If the Eitan is lit from the opposite side, flip BOTH signs in `SUN_DIRECTION` to `(-0.406, 0.819, -0.406)` in `lighting.ts`, re-run `lighting.test.ts` (the sign-pair test still passes), and record the outcome in the commit message. Do not leave this step on a guess.
+3. ~~**The sun check.** The `recon_drone` at (8, 23) is a billboard whose sprite was rendered by the Blender rig; the `apc_eitan` beside it is a lit mesh. The drone's BRIGHT side and the Eitan's lit hull faces must be on the same screen side. If the Eitan is lit from the opposite side, flip BOTH signs in `SUN_DIRECTION` to `(-0.406, 0.819, -0.406)` in `lighting.ts`, re-run `lighting.test.ts` (the sign-pair test still passes), and record the outcome in the commit message. Do not leave this step on a guess.~~ **SUPERSEDED — do not run this step, and do not flip "BOTH signs".** This check cannot discriminate (an equal XZ pair lights both camera-facing faces identically, and the rig's bakes have no lit flank at all), and the project lead settled the vector on 2026-09-15 at `(-0.406, 0.819, 0.406)` — a SIDE light, X and Z differing in sign on purpose. `lighting.test.ts` now pins all three components and asserts the signs DIFFER, so following this step would make it red. See `lighting.ts`'s header and the spec's Deviations entry 3.
 4. Shadow acne (moiré stripes on flat sand) → raise `normalBias` to 0.04; peter-panning (a shadow detached from the feet) → lower `bias` toward 0.
 5. Zoom 0.5 at (22, 24): the picture is antialiased (no staircase on the Eitan's hull edge at 2.5 either).
 

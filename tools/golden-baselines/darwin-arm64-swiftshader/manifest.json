@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0) (0x0000C0DE)), SwiftShader driver)",
   "platform": "darwin",
   "arch": "arm64",
-  "commit": "d800ea9e448cdf60551d856884a353b8d148b7d6",
-  "blessedAt": "2026-09-14T21:46:00.271Z",
-  "reason": "Phase 0 lit renderer: sun, shadows, AO, sRGB output, SMAA, texture fog (spec 2026-09-14-lit-renderer-design.md)",
+  "commit": "8b103ae1ce8529cb5713d50969fe7d741f5b0aac",
+  "blessedAt": "2026-09-14T22:48:49.463Z",
+  "reason": "Phase 0 lit renderer, sun as a side light: SUN_DIRECTION (-0.406, 0.819, 0.406) per the spec's azimuth 135 = the camera's left (spec 2026-09-14-lit-renderer-design.md, Task 16)",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "720348269fa763556a4aae754bccbb0bc1dc56561fcfa8401c0c820688d15fff"
+      "sha256": "149447d9aeadfc2fc51a421cd50a9db25b41f69b315130712a9767fa92d0bcb6"
     },
     "open-ground": {
       "tick": 60,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "792c0aee39420982ce2a5faa4bc8b9f26c0af8e2d45afbb170d10baf1f8fffaf"
+      "sha256": "d52ec14b6bbfb651ae0fa2348bcceaa895b62112af3134a806a298e234e8cd45"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "3c7e9b81755f24de786254d373adbb8a228da6c7138c47600db3083acad14447"
+      "sha256": "8cc00cd12c8a8050846a3fe02c0f43f88d0018a1f501b849b490dd17be682bb5"
     },
     "relief": {
       "tick": 500,
@@ -67,7 +67,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "8b7d58e672d13a9ef6bbb260c739e089405a6fafc4b8e1be46b17dbc2e464960"
+      "sha256": "afd29ddb255a63aca85ed22f1e4eddc4e6315c1a46be3045b74e2deb9b990514"
     }
   }
 }

@@ -256,8 +256,22 @@ describe('SURFACE_SHADING_EXEMPTION', () => {
       expect(printed, `the gate never names ${asset}`).toContain(asset);
       expect(SURFACE_SHADING_EXEMPTION.what, `the exemption never names ${asset}`).toContain(asset);
     }
-    for (const kept of ['terrace', 'flat ground', 'road', 'scatter']) {
-      expect(printed, `the gate never says ${kept} is still palette-only`).toContain(kept);
+    // SCOPED 2026-09-15 to the "STILL palette-only" SECTION rather than the
+    // whole paragraph, and the list narrowed to what that section actually
+    // claims. Three of the four entries this used to carry were true of text
+    // that CONTRADICTS their own failure message: `terrace` and `flat ground`
+    // matched only inside the retirement sentence, which names them precisely
+    // to say they are no longer carved out, and `road` matched the EXEMPT
+    // list's own "r dirt road" line. An assertion that passes on the sentence
+    // retiring its subject is the failure mode this whole cross-language pin
+    // exists to prevent, so it is the section that is searched now.
+    const stillStart = printed.indexOf('still palette-only');
+    const retiredStart = printed.indexOf('the shade half of this exemption was retired');
+    expect(stillStart, 'the gate has no "STILL palette-only" section any more').toBeGreaterThan(-1);
+    expect(retiredStart, 'the retirement sentence moved above the claims').toBeGreaterThan(stillStart);
+    const stillPaletteOnly = printed.slice(stillStart, retiredStart);
+    for (const kept of ['vertex colour', 'cover tier', 'building footprint', 'scatter']) {
+      expect(stillPaletteOnly, `the gate never says ${kept} is still palette-only`).toContain(kept);
     }
     // ...and every `notExempt` entry's own subject is named, so adding one in
     // TypeScript without widening the printed text fails rather than being

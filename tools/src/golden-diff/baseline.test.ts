@@ -686,42 +686,52 @@ describe('BASELINES layerChecks', () => {
     // and so a floor edited upward past its own measurement is caught in
     // `pnpm test` rather than by a red gate nobody can explain.
     //
-    // RE-MEASURED 2026-09-14 on the lit renderer (one sun, shadows, half-res
-    // GTAO, sRGB/ACES output, SMAA, texture fog). Every number moved; the
-    // pre-lit reading is quoted in each `rationale` in `baseline.ts` so the
-    // direction of each move is on the record.
+    // RE-MEASURED 2026-09-15 on the lit renderer with the sun as a SIDE light
+    // (Task 16: `SUN_DIRECTION` (-0.406, 0.819, 0.406), the rig azimuth 135 =
+    // the camera's LEFT), 5 consecutive full-gate runs. Both earlier readings
+    // -- the front-lit sun of 2026-09-14 and the pre-lit renderer -- are quoted
+    // in each `rationale` in `baseline.ts`, so the direction of both moves is
+    // on the record.
+    //
+    // The pattern worth knowing before reading a number here as noise: the
+    // azimuth flip moved every check that frames a VERTICAL FACE or a caster's
+    // ground shadow (quiet/buildings +77% px, relief/decor +16%, vehicle/units
+    // +8%, quiet/decor +10% on magnitude) and left every check on flat ground
+    // almost exactly where it was (open-ground/scatter, the same 3615 px;
+    // relief/scatter +1%; both `ground-albedo` crops). The sun's Y component
+    // did not change, so lit ground did not change.
     const MEASURED: Record<string, Record<string, { px: number; mean: number }>> = {
       quiet: {
-        scatter: { px: 2151, mean: 0.4168 },
-        decor: { px: 10424, mean: 0.6869 },
-        'ground-albedo': { px: 29, mean: 1.0883 },
-        buildings: { px: 122262, mean: 7.4369 },
+        scatter: { px: 2105, mean: 0.4032 },
+        decor: { px: 10505, mean: 0.7573 },
+        'ground-albedo': { px: 51, mean: 1.0316 },
+        buildings: { px: 216469, mean: 10.6308 },
       },
       'open-ground': {
-        scatter: { px: 3615, mean: 1.6071 },
-        decor: { px: 958, mean: 0.5393 },
-        'ground-albedo': { px: 472, mean: 2.6658 },
+        scatter: { px: 3615, mean: 1.6088 },
+        decor: { px: 1025, mean: 0.646 },
+        'ground-albedo': { px: 470, mean: 2.6616 },
       },
       relief: {
-        scatter: { px: 4300, mean: 0.4535 },
-        decor: { px: 45442, mean: 3.8029 },
-        'ground-albedo': { px: 4, mean: 1.9069 },
+        scatter: { px: 4344, mean: 0.4536 },
+        decor: { px: 52587, mean: 4.7771 },
+        'ground-albedo': { px: 8, mean: 1.9043 },
       },
-      // The LOW end of the measured range (27531-27536 px / 2.6776-2.6797 over
+      // The LOW end of the measured range (29622-29624 px / 2.9600-2.9620 over
       // 5 runs), so "floor is a third of the signal" is checked against the
       // weakest reading rather than the flattering one.
       vehicle: {
-        units: { px: 27531, mean: 2.6776 },
+        units: { px: 29622, mean: 2.96 },
       },
     };
     /** Below this many pixels a count is not a measurement you can take a
      *  third of, and `LayerCheckSpec` says so: `minDiffPixels` "is
      *  deliberately 0 for a layer whose contribution is entirely
      *  sub-threshold". Two entries are there since the relight -- quiet and
-     *  relief's `ground-albedo`, at 29 px and 4 px -- because the albedo is a
+     *  relief's `ground-albedo`, at 51 px and 8 px -- because the albedo is a
      *  ratio field and one sun spreads its removal under pixelmatch's 0.1
-     *  threshold almost everywhere while moving the MAGNITUDE by 1.09 and
-     *  1.91. Those two checks are carried by the magnitude floor alone, which
+     *  threshold almost everywhere while moving the MAGNITUDE by 1.03 and
+     *  1.90. Those two checks are carried by the magnitude floor alone, which
      *  is still asserted non-zero below, and total erasure still fails them
      *  (the last assertion in this loop). */
     const SUB_THRESHOLD_PX = 100;
