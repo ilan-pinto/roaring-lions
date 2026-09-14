@@ -272,7 +272,6 @@ import { perTileRunYaw } from './units/run-direction';
 import { drawBlockedMask } from './terrain/draw-mask';
 import { TrailMesh, collapsedRouteLevel, type TrailInstanceInput } from './trail-mesh';
 import { VehicleTrackMesh, trackKindFor, stepTrackAccum, TRACK_POOL_CAPACITY } from './vehicle-tracks';
-import { UnitShadowMesh, groundShadowRadiusTiles } from './unit-shadows';
 import { billboardPoint, objectiveZoneCorners } from './units/overlay-geometry';
 import {
   OverlayBatch,
@@ -1556,14 +1555,6 @@ export class ThreeRenderer implements Renderer {
    *  clocks. See `smoke-mesh.ts`'s own "Presentation animation (GH #144)"
    *  section comment for what this clock drives. */
   private smokeClockMs = 0;
-  /** Ground-unit shadows -- see `./unit-shadows.ts`'s own top comment for
-   *  the full design account (why real, depth-tested ground geometry rather
-   *  than reusing the air-unit shadow's billboard mechanism). Rebuilt every
-   *  `frame()` from `updateOverlays`'s own per-entity loop, unlike
-   *  `vehicleTrackMesh` above (a persistent ring buffer) -- a shadow tracks
-   *  its own unit's current position, so nothing here should outlive the
-   *  frame that placed it. */
-  private readonly unitShadowMesh: UnitShadowMesh;
 
   constructor(
     private readonly sim: Sim,
@@ -1619,15 +1610,6 @@ export class ThreeRenderer implements Renderer {
     // same material. See vehicle-tracks.ts's own top comment for the full
     // palette/fog/pool-sizing account.
     this.vehicleTrackMesh = new VehicleTrackMesh(TRACK_POOL_CAPACITY, opts.terrainTones.rut);
-    // Same colour key the existing air-unit shadow already resolves
-    // (`AIR_SHADOW_COLOR_KEY`, `shadow.2`) -- see unit-shadows.ts's own top
-    // comment for why a ground shadow reuses it rather than naming a second
-    // key for the identical swatch. Sized off sim.capacity: at most one
-    // shadow blob per living entity is ever pushed in a frame.
-    this.unitShadowMesh = new UnitShadowMesh(
-      sim.capacity,
-      opts.resolveColor ? opts.resolveColor(AIR_SHADOW_COLOR_KEY) : '#0A0A08'
-    );
     // Phase C: sized off sim.capacity, not a bare constant -- see
     // OVERLAY_VERTICES_PER_ENTITY's own doc comment for the per-entity
     // budget this multiplies, and the "+ 8192" headroom for the handful of
@@ -1723,9 +1705,6 @@ export class ThreeRenderer implements Renderer {
     // "scene-graph position is cosmetic here, renderOrder plus real depth
     // does the real work" reason -- see vehicle-tracks.ts's own top comment.
     this.scene.add(this.vehicleTrackMesh.mesh);
-    // Same ground-band placement as vehicleTrackMesh just above -- see
-    // unit-shadows.ts's own top comment.
-    this.scene.add(this.unitShadowMesh.mesh);
     // `SMOKE_RENDER_ORDER` sits above the overlay tier -- see
     // `smoke-mesh.ts`'s own top comment. Scene-graph position is cosmetic
     // here for the identical reason it is for `trailMesh` (three.js
@@ -2028,9 +2007,6 @@ export class ThreeRenderer implements Renderer {
     // Same "added once in the constructor, no scene.remove needed" shape as
     // trailMesh just above.
     this.vehicleTrackMesh.dispose();
-    // Same "added once in the constructor, no scene.remove needed" shape as
-    // vehicleTrackMesh just above.
-    this.unitShadowMesh.dispose();
     // BEFORE `renderer.dispose()`, and nulled: the composer owns three
     // full-screen render targets plus SMAA's two lookup textures, none of
     // which `WebGLRenderer.dispose()` reaches. Nulling it also means a
@@ -5255,7 +5231,6 @@ export class ThreeRenderer implements Renderer {
     this.overlayBatch.beginFrame();
     this.numeralBatch.beginFrame();
     this.chevronBatch.beginFrame();
-    this.unitShadowMesh.beginFrame();
 
     const st = this.sim.state;
     const n = this.sim.entityCount;
@@ -5322,14 +5297,12 @@ export class ThreeRenderer implements Renderer {
           this.overlayColor(AIR_SHADOW_COLOR_KEY, '#0A0A08'),
           0.28 * bodyAlpha
         );
-      } else {
-        // Ground-unit shadow -- see ./unit-shadows.ts's own top comment for
-        // the full design account (real, depth-tested ground geometry
-        // rather than this method's own billboard overlay tier). `anchor`
-        // already carries the garrison-roof lift computed just above, so a
-        // garrisoned unit's shadow sits on the roof with it.
-        this.unitShadowMesh.push(anchor[0], anchor[1], anchor[2], groundShadowRadiusTiles(type.isSoft));
       }
+      // Ground units get a real shadow from the lit scene's own shadow map
+      // (Task 9 -- every unit mesh casts one) instead of a second, synthetic
+      // one here; the opaque single-colour blob this `else` branch used to
+      // push (`./unit-shadows.ts`, deleted) is now a redundant, wrong-looking
+      // shadow next to the real one.
 
       // HP bar -- renderer.ts: `g.rect(sx - 12, sy - r - 10, 24, 3).fill(...)`
       // (background) then the same rect, width scaled by `hpRatio` (fill).
@@ -5796,7 +5769,6 @@ export class ThreeRenderer implements Renderer {
     this.overlayBatch.endFrame();
     this.numeralBatch.endFrame();
     this.chevronBatch.endFrame();
-    this.unitShadowMesh.endFrame();
   }
 
   /**

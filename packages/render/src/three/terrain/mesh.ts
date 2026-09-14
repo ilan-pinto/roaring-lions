@@ -153,7 +153,7 @@ export function vertexColorMaterial(): THREE.MeshStandardMaterial {
  * this same frame's wind would be circular.
  *
  * `uTime` is `ThreeRenderer`'s own accumulated `dtMs` total in seconds --
- * see `unitShadowMesh`'s sibling field `trackClockMs`'s own doc comment for
+ * see `ThreeRenderer`'s own `trackClockMs` field doc comment for
  * the identical "accumulated dtMs, never a direct clock read" shape, which
  * keeps this deterministic-enough for a purely cosmetic effect without
  * reading `Date.now()`/`performance.now()` from render code.

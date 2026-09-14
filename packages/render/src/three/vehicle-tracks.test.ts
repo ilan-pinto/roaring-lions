@@ -11,6 +11,7 @@ import {
   STAMP_SPACING_TILES,
   TRACK_POOL_CAPACITY,
   TRACK_PERSIST_MS,
+  TRACK_OPACITY,
   MAX_PLAUSIBLE_TRACK_STEP_TILES,
   trackKindFor,
   stepTrackAccum,
@@ -19,6 +20,7 @@ import {
   writeTrackMarkVertices,
   collapseTrackMarkVertices,
   sweepExpiredTrackSlots,
+  createTrackMaterial,
 } from './vehicle-tracks';
 
 describe('trackKindFor', () => {
@@ -249,5 +251,15 @@ describe('capacity sizing sanity', () => {
     const marksPerVehicle = (tilesIn3Min / STAMP_SPACING_TILES) * 2;
     expect(TRACK_POOL_CAPACITY / marksPerVehicle).toBeGreaterThan(1);
     expect(TRACK_POOL_CAPACITY / marksPerVehicle).toBeLessThan(20);
+  });
+});
+
+describe('createTrackMaterial', () => {
+  it('track marks are translucent decals: 0.35 alpha, no depth write, 180 s life unchanged', () => {
+    const mat = createTrackMaterial('#4E5433');
+    expect(mat.transparent).toBe(true);
+    expect(mat.depthWrite).toBe(false);
+    expect(mat.uniforms.uOpacity.value).toBe(TRACK_OPACITY);
+    expect(TRACK_OPACITY).toBe(0.35);
   });
 });

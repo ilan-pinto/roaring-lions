@@ -45,46 +45,55 @@
  * bug, and preferable to an unbounded array a battle-scale mission could
  * grow without limit.
  *
- * ## Palette exactness: opaque, one colour, never blended
+ * ## Translucent decals (Phase 0 of the art uplift; was "palette exactness:
+ * opaque, one colour, never blended")
  *
- * `units/fx.ts`'s own `additive`/`hotCore` doc comment is the worked
- * precedent this module follows, not `trail-mesh.ts`'s: ordinary
- * `SRC_ALPHA, ONE_MINUS_SRC_ALPHA` blending between two already-on-palette
- * colours (what `TrailMesh`'s graduated alpha does) is accepted elsewhere in
- * this backend because it stays BOUNDED between two palette entries -- but
- * this task's own report has to sample live framebuffer pixels and prove
- * they are exactly one of the 65 palette hexes, and a partial-alpha blend
- * against whatever terrain happens to sit underneath produces a continuum,
- * not a fixed set of exact matches. So `createTrackMaterial` below pins
- * alpha to 1.0 unconditionally in the fragment shader -- the identical
- * mechanism `hotCore` particles use to stay on-palette by construction, not
- * a NormalBlending fade -- and the whole mesh draws from ONE material
+ * This module shipped fully opaque (`transparent: false`, alpha pinned to
+ * 1.0) because the renderer it was built for had no real lighting: every
+ * material on screen was a flat, palette-quantised colour, and that task's
+ * own report had to sample live framebuffer pixels and prove each one was
+ * exactly one of the 65 `data/palette.json` hexes. A partial-alpha blend
+ * against whatever terrain happened to sit underneath would have produced a
+ * continuum, not a fixed set of exact matches, so `createTrackMaterial`
+ * pinned alpha to 1.0 unconditionally in the fragment shader -- the
+ * identical mechanism `units/fx.ts`'s `hotCore` particles used to stay
+ * on-palette by construction, not a `NormalBlending` fade.
+ *
+ * Phase 0 of the art uplift retired that guarantee: the scene now has a real
+ * sun, real shadows (Task 9) and an ACES/sRGB output pass, so a live-sampled
+ * pixel is already a shaded, tonemapped continuum for every OTHER material on
+ * screen -- the exact-hex proof this module alone was still paying for no
+ * longer holds anywhere else, and buying it here bought nothing. Worse, once
+ * real shadows exist, a flat-coloured, fully opaque rectangle laid on top of
+ * properly lit, shaded ground reads as exactly what it is: a solid plank of
+ * one flat colour, taped across the sand, unmistakably fake next to
+ * everything shaded around it. `createTrackMaterial` now draws at a fixed
+ * `TRACK_OPACITY` (0.35, `transparent: true`) instead of 1.0 -- still ONE
+ * uniform colour with no graduated fade (a mark still holds its one alpha for
+ * its whole life and then is gone; "persist flat then vanish" is unchanged),
+ * just blended enough to read as a mark ON the ground rather than a separate
+ * solid object sitting on it. The whole mesh still draws from ONE material
  * uniform (`opts.terrainTones.rut`, resolved once at construction exactly
- * like `TrailMesh` resolves `terrainTones.spoil`). `rut` is not a new
- * colour choice: it is the SAME palette entry (`dust.5`, `#806032`)
- * CLAUDE.md's own "Known scaling debts" names as the STATIC rut tone
- * already painted into open ground (`renderer.ts`'s `rut` stroke,
- * `TerrainTones.rut`) -- this module is that same tone, drawn dynamically
- * instead of baked into the terrain art, so a driven-over tile and a
- * hand-painted rut tile read as the same material by design. Because every
- * mark is fully opaque (`transparent: false`, matching real ground
- * geometry's own recipe, `terrain/mesh.ts`), there is no fade curve at all:
- * a mark holds its one exact colour for its whole life and then is gone --
- * "persist flat then vanish" from this task's own menu of options, chosen
- * specifically because the alternative (a graduated fade) is the exact
- * failure mode the palette-exactness proof exists to catch.
+ * like `TrailMesh` resolves `terrainTones.spoil`), and `rut` is still not a
+ * new colour choice: it is the SAME palette entry (`dust.5`, `#806032`)
+ * CLAUDE.md's own "Known scaling debts" names as the STATIC rut tone already
+ * painted into open ground (`renderer.ts`'s `rut` stroke, `TerrainTones.rut`)
+ * -- this module is still that same tone, drawn dynamically instead of baked
+ * into the terrain art, just no longer forced to full opacity to prove it
+ * stays on-palette.
  *
- * ## Fog: no separate visibility gate, because opaque ground geometry does not need one
+ * ## Fog: no separate visibility gate, because depth-tested ground geometry does not need one
  *
  * `FogOfWarPass` (`./fog-pass.ts`) already dims every pixel by the shroud
  * value at the world position that pixel's own DEPTH reports -- 85% for
  * never-explored (fog level 0), 40% for explored-but-unobserved (level 1)
  * -- whatever geometry drew there. That is the
  * SAME mechanism that already hides/dims a wreck or a building standing on
- * unexplored ground; a mark drawn as ordinary opaque, depth-tested ground
- * geometry (this module's own recipe, see below) gets that guarantee for
- * free, with no extra `Sim.sideSeesTile`-style query of its own. Concretely:
- * an enemy vehicle's track crossing ground the player has never explored is
+ * unexplored ground; a mark drawn as depth-tested ground geometry (this
+ * module's own recipe, see below -- opaque or not makes no difference here,
+ * since fog reads DEPTH, not colour or alpha) gets that guarantee for free,
+ * with no extra `Sim.sideSeesTile`-style query of its own. Concretely: an
+ * enemy vehicle's track crossing ground the player has never explored is
  * dimmed into the shroud with the ground it sits on; once explored,
  * the track becomes visible, dimmed to the same "remembered terrain" look
  * every other permanent ground feature gets, even after the player's own
@@ -109,16 +118,18 @@
  * `HULL_RENDER_ORDER`) is reused verbatim, per that file's own closing
  * paragraphs: a mark is flat, depth-tested ground geometry, "belongs at or
  * below `HULL_RENDER_ORDER` -- never band 1" (the TURRET band, which sits
- * ABOVE every hull). `depthWrite: true`, `depthTest: true` -- UNLIKE
- * `TrailMesh`'s `depthWrite: false` (which exists there specifically
- * because that mesh's alpha is graduated and soft; see that file's own doc
- * comment). This module's marks are fully opaque, so the correct recipe is
- * the SAME one `terrain/mesh.ts`'s own ground quads use: real depth writes,
- * because there is nothing translucent stacking on top of another mark for
- * `depthWrite: false` to protect. Each mark sits `MARK_EPSILON` above its
- * own tile's true top (`terrain/shared.ts`'s constant, the same one every
- * scatter/grove/trail mark already uses) to avoid z-fighting the terrain
- * quad directly beneath it.
+ * ABOVE every hull). `depthTest: true`, `depthWrite: false` -- now the SAME
+ * recipe `TrailMesh` already uses, and for the identical reason (that file's
+ * own doc comment): now that a mark is translucent (`TRACK_OPACITY`,
+ * "Translucent decals" above), a second mark stamped over ground an earlier
+ * mark already covers -- a vehicle re-tracing its own tread line, or a
+ * `'tracked'`/`'wheeled'` pair's two marks overlapping on a tight turn --
+ * would depth-fight and clobber rather than blend if this mesh wrote depth;
+ * `depthWrite: false` avoids that the same way it protects `TrailMesh`'s own
+ * graduated fade. Each mark sits `MARK_EPSILON` above its own tile's true top
+ * (`terrain/shared.ts`'s constant, the same one every scatter/grove/trail
+ * mark already uses) to avoid z-fighting the terrain quad directly beneath
+ * it.
  *
  * ## Vehicles only, and why `isSoft` is the WRONG gate here
  *
@@ -189,7 +200,7 @@
  * reads its own [clock] would make a frame depend on when it happened").
  */
 import * as THREE from 'three';
-import { hexToUnit, MARK_EPSILON } from './terrain/shared';
+import { hexToLinear, MARK_EPSILON } from './terrain/shared';
 import { groundWorldY, type ElevationSource } from './ground-height';
 import { tracerIndexBuffer } from './units/fx';
 import { TRAIL_RENDER_ORDER } from './units/render-order';
@@ -472,18 +483,30 @@ export function sweepExpiredTrackSlots(
 // verification in this task's own report instead.
 // ---------------------------------------------------------------------------
 
+/** Fixed alpha every track mark draws at -- see this file's top comment,
+ *  "Translucent decals", for why 0.35 rather than the fully opaque 1.0 this
+ *  module shipped with before real shadows existed. */
+export const TRACK_OPACITY = 0.35;
+
 /**
- * Flat-shaded, single-uniform-colour, fully OPAQUE material -- see this
- * file's top comment, "Palette exactness", for why alpha is pinned to 1.0
- * unconditionally rather than read from a per-instance/per-vertex
- * attribute: every fragment this material ever writes is exactly `color`,
- * with no blending step that could produce anything else.
+ * Flat-shaded, single-uniform-colour, translucent DECAL material -- see this
+ * file's top comment, "Translucent decals", for why alpha is now pinned to
+ * `TRACK_OPACITY` (0.35) unconditionally rather than 1.0: every fragment
+ * this material ever writes is exactly `color` at that one fixed alpha, with
+ * no per-instance/per-vertex attribute and no graduated fade -- still a
+ * single flat value, just no longer an opaque one. `uColor` is LINEAR
+ * (`hexToLinear`, not `hexToUnit`): this is a live shader uniform read by a
+ * `ShaderMaterial`, and the composer's `OutputPass` encodes the whole frame
+ * to sRGB once at the end (`terrain/shared.ts`'s own `srgbToLinear` doc
+ * comment, "spec §1") -- feeding it an un-linearised sRGB hex here would get
+ * encoded a second time and land brighter than the palette entry authored.
  */
-function createTrackMaterial(color: string): THREE.ShaderMaterial {
-  const [r, g, b] = hexToUnit(color);
+export function createTrackMaterial(color: string): THREE.ShaderMaterial {
+  const [r, g, b] = hexToLinear(color);
   return new THREE.ShaderMaterial({
     uniforms: {
       uColor: { value: new THREE.Vector3(r, g, b) },
+      uOpacity: { value: TRACK_OPACITY },
     },
     vertexShader: /* glsl */ `
       void main() {
@@ -492,13 +515,14 @@ function createTrackMaterial(color: string): THREE.ShaderMaterial {
     `,
     fragmentShader: /* glsl */ `
       uniform vec3 uColor;
+      uniform float uOpacity;
       void main() {
-        gl_FragColor = vec4(uColor, 1.0);
+        gl_FragColor = vec4(uColor, uOpacity);
       }
     `,
-    transparent: false,
+    transparent: true,
     depthTest: true,
-    depthWrite: true,
+    depthWrite: false,
     // DoubleSide, matching TracerBatch's own reasoning (`units/fx.ts`) even
     // though the specific hazard differs: a tracer's winding varies per shot
     // bearing and cannot be proven once, where this mesh's winding IS
