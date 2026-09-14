@@ -181,7 +181,8 @@ function rendererAfter(sim: Sim, events: SimEvent[]): ThreeRenderer {
 
 function privates(r: ThreeRenderer): Privates {
   // Same reach-into-privates convention `ThreeRenderer.test.ts` uses for
-  // `fogMesh`: there is no public accessor, and adding one purely for a test
+  // `shroud` (`fogMesh` until 2026-09-14, when fog became a post pass):
+  // there is no public accessor, and adding one purely for a test
   // would widen `Renderer`'s surface for no runtime reason.
   return r as unknown as Privates;
 }

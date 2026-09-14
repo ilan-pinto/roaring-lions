@@ -63,9 +63,12 @@ export async function mountSoldierView(
   glbUrl: string
 ): Promise<SoldierView> {
   const renderer = new THREE.WebGLRenderer({
-    // Off, matching the shipping backend: a blended edge pixel is by
-    // definition not a palette colour (Phase 0's second finding).
-    antialias: false,
+    // On, matching the shipping backend since 2026-09-14. It was off, on the
+    // rule that a blended edge pixel is by definition not a palette colour;
+    // that per-pixel guarantee is retired and `ThreeRenderer` antialiases
+    // (SMAA in the composer, MSAA on the raw renderer for the composer-less
+    // path -- which is the path this spike is).
+    antialias: true,
   });
   renderer.setPixelRatio(1);
   const vp = { width: host.clientWidth, height: host.clientHeight };

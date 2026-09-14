@@ -12,8 +12,10 @@
  * One flat, unlit, forced-opaque colour per zone -- meant to read as
  * EMITTING light, not reflecting it, so every fragment of one zone is the
  * same resolved `reserved.vfx` entry regardless of the mesh's own surface
- * normal. No lighting term at all (unlike `toonRampMaterial`'s quantized
- * `N·L`) -- there is no "dark side" of a flash or a fireball.
+ * normal. No lighting term at all -- unlike every WORLD material, which is a
+ * `MeshStandardMaterial` under the scene sun since 2026-09-14 (and the
+ * `toonRampMaterial` that quantized `N.L` before that) -- because there is no
+ * "dark side" of a flash or a fireball.
  *
  * `blending: THREE.NormalBlending` with alpha pinned to 1.0 in the
  * fragment shader (never real `AdditiveBlending`) is the recipe

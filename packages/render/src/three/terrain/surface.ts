@@ -250,21 +250,37 @@ export const SURFACE_OVERSHOOT_LEVELS = 0.3;
  *     olive trees standing on the orchard floor and the tuft marks on a
  *     cover tile, both of which are still palette-only geometry.
  *
- * `mesh.test.ts` pins 2 and 6 against the shader source, and
- * `surface.test.ts` pins that the shade term is exactly 1 at an up normal
- * rather than merely close to it.
+ * ## HALF OF THIS EXEMPTION WAS RETIRED ON 2026-09-14 AND THE OTHER HALF
+ * NARROWED (the lit renderer, spec `2026-09-14-lit-renderer-design.md`)
+ *
+ * **The SHADE is no longer an exemption from anything.** Points 2 and 6
+ * above, and every sentence about a "smooth normal-driven shade on
+ * INTERPOLATED open ground", were written when this ground was the only lit
+ * thing in a flat-shaded frame. Since Phase 0 the ground is a
+ * `MeshStandardMaterial` under the same sun, the same hemisphere bounce and
+ * the same shadow map as every unit, building and boulder in the scene -- so
+ * a sloped fragment is not an exception to a rule, it is the rule. There is
+ * no per-pixel palette guarantee left on this backend for it to be exempt
+ * FROM (`ART_PIPELINE.md` section 2, and the colour-pipeline bullet in
+ * `CLAUDE.md`). The shade assertions went with the toon shader they pinned.
+ *
+ * **What survives is the ALBEDO, and only because it is a ratio field.** The
+ * six images are still multiplied in as a ratio to their own measured mean,
+ * so a stretch of any surface still AVERAGES to its `palette.json` tone.
+ * That is the property this record keeps, and it is also why these textures
+ * alone stay tagged `NoColorSpace` while every base-colour map in the game
+ * is `SRGBColorSpace` -- a ratio is not a colour, and decoding it would bend
+ * the mean the ratio is taken against. Points 1, 4 and 5 above still hold
+ * exactly as written; 2, 3, 6 and 7 describe a shading model that no longer
+ * exists.
  */
 export const SURFACE_SHADING_EXEMPTION = {
-  what: 'the drawn ground, at the fragment stage only: a smooth normal-driven shade on INTERPOLATED open ground, and one sampled albedo per surface -- open ground (desert_sand_tile on arid, green_basin_tile on green), a ^ ridge (rock_ground_tile), an r road (road_track_tile), a 1/2/3 cover tile (rough_scrub_tile), an o grove floor (orchard_floor_tile) and an n rocky knoll (knoll_scree_tile)',
-  why: 'an unlit vertex-coloured heightfield reads flat; the normal-driven shade and the six albedos are what make relief and material legible',
+  what: "the drawn ground's six sampled albedos, applied as a ratio to each image's own mean, at the fragment stage only -- open ground (desert_sand_tile on arid, green_basin_tile on green), a ^ ridge (rock_ground_tile), an r road (road_track_tile), a 1/2/3 cover tile (rough_scrub_tile), an o grove floor (orchard_floor_tile) and an n rocky knoll (knoll_scree_tile)",
+  why: 'material and relief are legible; since 2026-09-14 the ground is lit and shadowed by the scene sun like every other object, so the shade term is no longer an exemption from anything',
   notExempt: [
     'every vertex colour and litColor emitted by buildGround (still asserted palette-only), cover tiers included -- groundTone still does not branch on cover',
-    'terrace tops and terrace/rim walls (up normal, shade exactly 1.0, and no albedo unless the terrace is a ^ ridge)',
-    'flat ground shading on any map (up normal, so the shade term is exactly 1.0 -- flat ground still takes its surface albedo)',
-    'walls (bedrock or nothing: a building wall keeps its authored FACE_ALPHA composite with no albedo)',
     'building footprints (no albedo, so groundTone underBuilding wash still owns that ground)',
     "a knoll's four stone blobs and their highlights (scatter marks, still quantised onto the palette -- the scree tile is the bed they sit on)",
-    'scatter marks, groves, building boxes and the residual layer (drawn through the unlit terrainMaterial, untouched)',
   ],
 } as const;
 

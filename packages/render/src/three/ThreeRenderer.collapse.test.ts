@@ -11,7 +11,8 @@
  * `beginCollapse` did not carry the same guard.
  *
  * Reaches into private state the same way `ThreeRenderer.test.ts` already
- * does for `fogMesh`/`smokeMesh` -- there is no public seam for either the
+ * does for `shroud`/`smokeMesh` (`fogMesh` until 2026-09-14, when fog became
+ * a post pass) -- there is no public seam for either the
  * sprite maps `loadStructureSprite` would populate (that path needs a real
  * `fetch` + `createImageBitmap`) or the mesh map `loadBuildingMesh` would
  * populate (a real GLB fetch), so both are armed directly with the minimal

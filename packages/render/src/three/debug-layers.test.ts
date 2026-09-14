@@ -18,6 +18,7 @@ import { Sim } from '@lions/sim';
 import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
 import { DEBUG_LAYERS, isDebugLayer, unknownDebugLayerMessage } from './debug-layers';
+import type { GroundMaterial } from './terrain/mesh';
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>();
@@ -61,15 +62,17 @@ function makeRenderer(): ThreeRenderer {
 }
 
 /** Reaches the private fields the same way `ThreeRenderer.test.ts` reaches
- *  `fogMesh`: there is no public accessor, and adding one purely for a test
- *  would widen `Renderer`'s surface for no runtime reason. */
+ *  `shroud`: there is no public accessor, and adding one purely for a test
+ *  would widen `Renderer`'s surface for no runtime reason. (It said `fogMesh`
+ *  until 2026-09-14; fog of war is a depth-reading post pass over a
+ *  `ShroudTexture` now, not a mesh.) */
 function internals(r: ThreeRenderer): {
   scatterMesh: THREE.Object3D | null;
   decorGroup: THREE.Object3D | null;
   texturedDecorGroup: THREE.Object3D | null;
   structureBoxes: Map<number, THREE.Object3D>;
   buildingMeshIdleEntities: Map<number, THREE.Object3D>;
-  groundMat: THREE.ShaderMaterial;
+  groundMat: GroundMaterial;
 } {
   return r as unknown as ReturnType<typeof internals>;
 }

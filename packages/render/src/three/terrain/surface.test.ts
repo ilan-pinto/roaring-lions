@@ -276,7 +276,22 @@ describe('SURFACE_SHADING_EXEMPTION', () => {
     // something can read and print -- not a sentence in a comment.
     expect(SURFACE_SHADING_EXEMPTION.what).toMatch(/fragment/);
     expect(SURFACE_SHADING_EXEMPTION.notExempt.length).toBeGreaterThanOrEqual(3);
-    expect(SURFACE_SHADING_EXEMPTION.notExempt.join(' ')).toMatch(/terrace/i);
-    expect(SURFACE_SHADING_EXEMPTION.notExempt.join(' ')).toMatch(/flat ground/i);
+    // NARROWED 2026-09-14 with the lit renderer. The entries this used to
+    // demand -- terraces and flat ground -- were both SHADE claims ("up
+    // normal, so the shade term is exactly 1.0"), and the shade term is not
+    // an exemption any more: the ground is a `MeshStandardMaterial` under the
+    // same sun as everything else, and there is no per-pixel palette
+    // guarantee on this backend for it to be an exception to. What is left is
+    // the albedo, a ratio field, and the three things that genuinely still
+    // carry raw palette bytes.
+    const notExempt = SURFACE_SHADING_EXEMPTION.notExempt.join(' ');
+    expect(notExempt).toMatch(/vertex colour/i);
+    expect(notExempt).toMatch(/building footprint/i);
+    expect(notExempt).toMatch(/scatter/i);
+    // And the shade is not claimed as exempt anywhere in the record, which is
+    // the half that was retired. A future change that re-adds a bespoke
+    // ground shade has to say so here rather than inherit a stale carve-out.
+    expect(SURFACE_SHADING_EXEMPTION.what).not.toMatch(/shade/i);
+    expect(SURFACE_SHADING_EXEMPTION.why).toMatch(/no longer an exemption/i);
   });
 });

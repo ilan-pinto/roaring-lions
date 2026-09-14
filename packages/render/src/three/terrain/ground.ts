@@ -71,13 +71,17 @@ export type { MeshData, TerrainInput };
 
 /** How many ramp steps `buildGround`'s `litColors` output shifts a tone
  *  toward its lightest step -- see this file's own `buildGround` doc
- *  comment. One step is deliberately modest: unlike a vehicle/building
- *  hull's `toonRampMaterial` (which can shift up to `MAX_SHIFT_STEPS` in
- *  `flash-light.ts`, four bands), terrain's own "ramp" per tile has no fixed
- *  length to reason about -- a tone can be one step from its ramp's own
- *  lightest entry already, and `rampNeighbor` clamps rather than wrapping,
- *  so asking for more than 1 buys nothing on a short ramp while still
- *  costing the same lookup on a long one. */
+ *  comment. One step is deliberately modest: terrain's own "ramp" per tile
+ *  has no fixed length to reason about -- a tone can be one step from its
+ *  ramp's own lightest entry already, and `rampNeighbor` clamps rather than
+ *  wrapping, so asking for more than 1 buys nothing on a short ramp while
+ *  still costing the same lookup on a long one.
+ *
+ *  Stale since 2026-09-14 in one respect worth stating: this used to be
+ *  contrasted with a hull's `toonRampMaterial` shifting up to
+ *  `MAX_SHIFT_STEPS` bands, and both that material and the ramp-shift flash
+ *  are deleted -- a muzzle flash is a pooled `PointLight` now. Nothing reads
+ *  `litColors`; see `types.ts`'s own field comment. */
 const GROUND_LIT_STEPS = 1;
 
 /** Alphas Pixi composites the two visible side faces at (`renderer.ts:1421`,

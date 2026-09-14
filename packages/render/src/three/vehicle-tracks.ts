@@ -395,7 +395,8 @@ export function trackMarkCorners(
  * `writeFogInstances` already use. Sampled ONCE at the mark's own centre
  * tile (`groundWorldY`), not per corner -- a mark is small enough that
  * sub-tile elevation interpolation would not be visible, matching how
- * `FogMesh`/`TrailMesh` both sample per TILE, never per vertex.
+ * `TrailMesh` -- and the retired `FogMesh` before it -- sample per TILE,
+ * never per vertex.
  */
 export function writeTrackMarkVertices(
   center: TrackMarkCenter,
@@ -476,11 +477,13 @@ export function sweepExpiredTrackSlots(
 
 // ---------------------------------------------------------------------------
 // GPU-facing: everything below touches THREE.* GPU-side construction
-// (BufferGeometry, Mesh, ShaderMaterial). Not exercised by
-// vehicle-tracks.test.ts for the same reason trail-mesh.ts's own GPU half is
-// not -- three.js accepts these buffers under `environment: 'node'`, but
-// *using* them end to end needs a real WebGLRenderer. Covered by the browser
-// verification in this task's own report instead.
+// (BufferGeometry, Mesh, ShaderMaterial). Constructed and inspected by
+// vehicle-tracks.test.ts since 2026-09-14 -- `createTrackMaterial`'s
+// transparency, `uOpacity` and `TRACK_OPACITY` are all asserted there -- but
+// still never DRAWN by it, for the same reason trail-mesh.ts's own GPU half
+// is not: three.js accepts these buffers under `environment: 'node'`, while
+// using them end to end needs a real WebGLRenderer. The browser half is the
+// visual gate.
 // ---------------------------------------------------------------------------
 
 /** Fixed alpha every track mark draws at -- see this file's top comment,

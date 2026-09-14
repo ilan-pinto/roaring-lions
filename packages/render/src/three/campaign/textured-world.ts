@@ -11,8 +11,10 @@
  * the same Python twin.
  *
  * Unlike the other two, this one is not a close call. Every other mesh in
- * this tree draws through `toonRampMaterial`, which indexes a palette ramp
- * by `N·L` -- colour as a function of SLOPE. A campaign world's entire
+ * this tree took its colour from a palette ramp -- through `toonRampMaterial`
+ * when this was written, which indexed the ramp by `N·L`, and through one
+ * flat `liftTone(ramp)` albedo under the scene sun since 2026-09-14. Either
+ * way it is colour as a function of ROLE and SLOPE, never of place. A campaign world's entire
  * subject is BIOME: forest, desert, snow, water, cultivation, all of it
  * colour at a constant normal. A normal-indexed ramp cannot express any of
  * it. Painted from the palette this asset would come out one flat colour per

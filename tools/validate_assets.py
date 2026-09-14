@@ -287,10 +287,9 @@ def representative(sprites):
 # TEXTURED_MESH_EXEMPT. A line added on one side and not the other fails
 # `pnpm test`.
 TERRAIN_PALETTE_EXEMPTION = (
-    "NOT palette-checked -- the drawn ground, at the fragment stage only:",
-    "a smooth normal-driven shade on INTERPOLATED open ground, plus ONE",
-    "sampled albedo per surface, each applied as a ratio to its own measured",
-    "mean so the surface still AVERAGES to its data/palette.json tone:",
+    "NOT palette-checked -- the drawn ground's six sampled albedos, at the",
+    "fragment stage only, each applied as a ratio to its own measured mean so",
+    "the surface still AVERAGES to its data/palette.json tone:",
     "  open ground   desert_sand_tile (arid) / green_basin_tile (green)",
     "  ^ rock ridge  rock_ground_tile",
     "  r dirt road   road_track_tile",
@@ -300,14 +299,15 @@ TERRAIN_PALETTE_EXEMPTION = (
     "STILL palette-only, and still asserted directly: every vertex colour and",
     "litColor buildGround emits, cover tiers included (groundTone does not",
     "branch on cover -- a tier reads as texture contrast, never as a tint);",
-    "terrace tops and terrace/rim walls; walls, which take bedrock or nothing;",
-    "building footprints; scatter, groves, building boxes and the residual",
-    "layer -- the olive trees standing on an orchard floor, the tuft marks on",
-    "a cover tile and the four stone blobs on a knoll are all still",
-    "palette-only geometry.",
-    "Flat ground keeps an up normal, so its SHADE term is exactly 1.0 -- but it",
-    "does take its surface albedo, by the project lead's call: the default",
-    "sandbox map is a flat one, and flat sand is still sand.",
+    "building footprints; and scatter marks, including the four stone blobs on",
+    "a knoll and the tuft marks on a cover tile.",
+    "THE SHADE HALF OF THIS EXEMPTION WAS RETIRED ON 2026-09-14. The ground is",
+    "lit and shadowed by the scene sun like every other object on the three.js",
+    "backend now, so there is no per-pixel palette guarantee left for a sloped",
+    "fragment, a terrace top or a flat tile to be exempt from. This gate --",
+    "the SPRITE gate -- is unchanged: every sheet in assets/sprites is still",
+    "checked against data/palette.json, and terraces, walls and flat ground",
+    "are named here only because they used to be carved out of this paragraph.",
 )
 
 

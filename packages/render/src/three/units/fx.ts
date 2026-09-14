@@ -1123,8 +1123,11 @@ export function writeShellInstances(
  * EXACTLY the resolved `color_over_life` palette entry for that particle's
  * current age, no interpolation, no summation. Every fragment a `hotCore`
  * material writes is therefore on-palette by construction, the identical
- * strength of guarantee `toonRampMaterial` gives lit geometry, achieved a
- * different way because this material has no lighting term to quantize.
+ * strength of guarantee the retired `toonRampMaterial` gave lit geometry,
+ * achieved a different way because this material has no lighting term to
+ * quantize. (World geometry has no such guarantee any more -- it is lit by a
+ * real sun since 2026-09-14. VFX keep theirs, which is the half of the
+ * palette that was always load-bearing.)
  *
  * This is a real, load-bearing behaviour change from what `additive: true`
  * suggests by name: it no longer sums brightness at all, so a cluster of

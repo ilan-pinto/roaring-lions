@@ -5,8 +5,11 @@
  *
  * The asset is the named exemption from the palette repaint: its subject is
  * BIOME, colour at a constant normal, unlike a kit-built asset's ramp
- * material, which picks colour by ROLE (see `textured-world.ts`'s top
- * comment). So region state has to be expressed as an operation ON the bake
+ * albedo, which is chosen by ROLE (see `textured-world.ts`'s top comment).
+ * That contrast was written against `toonRampMaterial`, which indexed a ramp
+ * by `N.L`; that material is gone since 2026-09-14 and a kit-built mesh is a
+ * flat ramp albedo under the scene sun now -- which changes nothing about
+ * why a biome bake cannot be repainted from a role ramp. So region state has to be expressed as an operation ON the bake
  * rather than as a substitution for it.
  *
  * The flat PNG board answers the same question with a CSS `filter`

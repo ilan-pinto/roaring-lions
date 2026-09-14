@@ -49,14 +49,14 @@
  * Pixi's `drawTrail` fills every tile -- spoil rung AND identified-line rung
  * alike -- with the SAME `this.opts.terrainTones.spoil` tone, varying only
  * alpha (`trailTileAlpha`'s own two-rung split is entirely an alpha
- * decision, never a colour one). So, like `FogMesh`'s single `uColor`
- * uniform, one colour serves the whole mesh -- baked in at construction from
+ * decision, never a colour one). So, like the RETIRED `FogMesh`'s single
+ * `uColor` uniform, one colour serves the whole mesh -- baked in at construction from
  * `RendererOptions.terrainTones.spoil` (a map-level config value, immutable
  * for the renderer's lifetime, unlike `FOG_COLOR`'s hardcoded literal) rather
  * than a per-instance colour attribute nothing would ever vary.
  *
- * Capacity is `width * height`, the same worst-case sizing `FogMesh` uses and
- * for the same reason: cheap, and the one ceiling that can never be
+ * Capacity is `width * height`, the same worst-case sizing `FogMesh` USED,
+ * before fog became a post pass in 2026-09-14, and for the same reason: cheap, and the one ceiling that can never be
  * exceeded, however many routes a mission ever authors.
  *
  * ## The known cost is ported, not fixed
@@ -306,8 +306,9 @@ function createTrailMaterial(spoilColor: string): THREE.ShaderMaterial {
 
 /**
  * Every trail-marked tile, one `THREE.InstancedMesh`, one draw call -- the
- * same shape `FogMesh` gives fog, sized to the map's own tile count for the
- * same reason.
+ * same shape `FogMesh` GAVE fog until 2026-09-14 (fog is a post pass over a
+ * `ShroudTexture` now), sized to the map's own tile count for the same
+ * reason.
  */
 export class TrailMesh {
   readonly mesh: THREE.InstancedMesh;

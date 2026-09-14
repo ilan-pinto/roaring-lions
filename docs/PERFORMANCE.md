@@ -549,8 +549,8 @@ the document, and it then **asserts the context is one it did not create** —
 `stencil: true`, which is in `ThreeRenderer`'s own context attributes and is
 not a WebGL default, and a non-null `CURRENT_PROGRAM`, which only a context
 that has actually drawn has. Either check failing throws. And the fill
-control, same scene and camera and not one draw call different, run at 4× the
-pixels (`2880x1800` CSS, so a 5760×3600 drawing buffer):
+control, same scene, same camera tile and zoom, run at 4× the pixels
+(`2880x1800` CSS, so a 5760×3600 drawing buffer):
 
 | view | cpu median @1× | cpu median @4× | gpu median @1× | gpu median @4× |
 |---|---|---|---|---|
@@ -559,6 +559,21 @@ pixels (`2880x1800` CSS, so a 5760×3600 drawing buffer):
 | (26,22) zoom 1.6 | 11.30 | 38.90 | 11.20 | 38.80 |
 
 Fill is being measured — by both figures.
+
+**This is not a pure fill control, and the sentence above used to say it was
+("not one draw call different"). It is wrong.** This camera's orthographic
+frustum is sized from the CSS viewport — `camera.ts`, `halfWidth = vp.width /
+(TILE_W · zoom · √2)` — so doubling the CSS size shows **4× the world** as
+well as drawing 4× the pixels: more tiles, more units, more draw calls. The
+`cpu` column rising with the `gpu` one is therefore partly real submission
+work, not only evidence that the two figures track. The **zoom-0.5 row is the
+closest thing to a fill-only change** in the table, because at that zoom the
+48-tile map already overflows a 1440×900 frame and widening it mostly adds
+empty ground — and it is also the row with the smallest 4× multiple (2.7× on
+both figures, against 3.1× and 3.4× for the two closer views), which is what
+that explanation predicts. What the control still establishes is the thing it
+was built for: `gpu` moves substantially when the GPU is given more to do, so
+it is not a dead `finish()` on an empty context.
 
 ### Capture conditions
 

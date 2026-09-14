@@ -1,7 +1,10 @@
 # Lit renderer — art uplift Phase 0
 
-**Status:** design, approved in principle by the project lead ("lets go with your
-recommendation", 2026-09-14). Not started.
+**Status:** implemented on `worktree-art-uplift`. Approved in principle by the
+project lead ("lets go with your recommendation", 2026-09-14). Read
+"Deviations" below before this design's own text — six things shipped
+differently from what it specifies, each for a measured reason, and two of
+its acceptance clauses were falsified rather than met.
 **Date:** 2026-09-14
 **Branch:** `worktree-art-uplift` (from `main` @ `8db0215`, v0.61.0)
 **Report:** https://claude.ai/code/artifact/26a809d0-5d74-4fd4-abf6-7aa9d3e669ae
@@ -335,6 +338,199 @@ the set is repeatable), and:
 7. `CLAUDE.md`'s "colour pipeline" bullets and `ART_PIPELINE.md` §0–§2
    rewritten to describe the lit pipeline and the palette's new role, so the
    next session does not restore the guarantee from the documentation.
+
+## Deviations
+
+Everything below shipped differently from the design above. Each entry says
+what the design asked for, what shipped, and the measurement behind the
+change. Nothing here was decided by taste.
+
+**1. SMAA in the composer, not hardware MSAA (§5).** The design asked for an
+`EffectComposer` target with `samples: 4`. `FogOfWarPass` reads that target's
+DEPTH texture, and a multisampled depth attachment has to be resolved before
+it can be sampled — support for that in three r170 is the one thing in this
+chain nobody here has measured, and the pass that needs it is the higher-value
+one. So the target is single-sampled and `SMAAPass` runs last, after
+`OutputPass`, which is also the textbook order (SMAA edge-detects on
+display-referred colour). The raw `WebGLRenderer` keeps `antialias: true` for
+the composer-less path the spikes and tests draw through; measured, turning it
+off saves 0.3–0.7 ms of p95 at the zoom-0.5 view, which is under the 1 ms it
+would take to be worth un-antialiasing a path with no SMAA to fall back on.
+The bless reason string says "SMAA" where §7 wrote "MSAA".
+
+**2. Ground albedo textures stay `NoColorSpace` (§1).** The design tags every
+base-colour texture `SRGBColorSpace` and deletes `prepareTexturedMap`, and
+that is what shipped for GLB bakes. The six ground albedos are the exception,
+because they are not colours: each is multiplied in as a **ratio to that
+image's own measured byte mean**, which is what keeps a stretch of any surface
+averaging to its `palette.json` tone. Decoding the image would bend the mean
+the ratio is taken against, and the exemption record would stop being true.
+`terrain/surface.ts`'s `SURFACE_SHADING_EXEMPTION` carries the argument, and
+the paragraph `pnpm validate:assets` prints carries it to the art gate's
+output.
+
+**3. `SUN_DIRECTION` stayed at `(0.406, 0.819, 0.406)` — and the tie-breaker
+the design wrote does not settle it.** §2 says "a billboard sprite's baked
+shadow and a mesh's cast shadow, standing side by side, must fall the same
+way", and Task 1 was to photograph that pair. It could not: the shipped XZ
+pair lies in the camera's own azimuth plane, so both camera-facing vertical
+faces receive identical `N·L` either way and there is no left/right asymmetry
+to compare — the drone-and-Eitan pair the plan named is a weak discriminator
+by construction. Task 9 ran the stronger experiment instead, the same unit at
+the same camera drawn once as a lit mesh and once as the rig's own bake
+(`&nomesh`), over one 69,759-px mask: flank ÷ up-face reads **0.872** on the
+bake, **0.891** at the shipped sun (2% off) and **0.760** flipped (13% off,
+and in the wrong direction). Kept on that measurement. **See "Open questions"
+below — a later measurement points the other way and the two have not been
+reconciled.**
+
+**4. Ambient occlusion ships at HALF resolution, through a subclass, with two
+fixes the design did not anticipate (§5.2, §11).** `GTAOPass` could not be
+handed this scene's graph unfiltered: it re-renders everything through
+`scene.overrideMaterial = MeshNormalMaterial`, which knows nothing about
+alpha, stencils or draw order, so every unit, vehicle and building came out
+SOLID BLACK over correct ground — the silhouette outline hull carries
+`position` and `aExpand` and no `normal`, and a normalised zero vector is NaN.
+`WorldGTAOPass.isAoOccluder` filters the G-buffer to opaque world objects with
+a normal attribute. The same subclass suppresses the shadow-map redraw inside
+its nested pre-pass (`renderer.shadowMap.autoUpdate = false` around that one
+render, restored after), which was drawing a second 4096² map per frame for a
+pass that consumes no shadows: **0.7–0.9 ms a frame**, bought back for four
+lines. And the ladder in §11 was needed: AO at FULL resolution lands the
+acceptance view (zoom 0.5) at **15.40 ms** against a 16.7 ms budget and takes
+the two closer views to 20.3–21.7 ms; at half it costs 2.8–3.7 ms of median
+and every p95 stays under 13.2. Numbers in `docs/PERFORMANCE.md`, "Lit
+renderer frame cost (2026-09-14)".
+
+**5. Performance: the budget holds, and the cost is real.** The zoom-0.5
+acceptance view went from **2.0 ms p95 unlit to ~12.2 ms lit** on an M3 Pro
+through ANGLE/Metal at 1440×900, pixel ratio 2 — against a 16.7 ms frame
+budget. That is a 6× frame cost for the whole feature and it clears the budget
+with 27% to spare on this machine; it does not have the margin the unlit
+renderer had, and a slower GPU is the case to measure before Phase 1 adds
+anything to the frame. §11's acceptance (the render budget is not crossed
+before 300 living figures) holds.
+
+**6. Never-seen fog stays at 85% dim (§6).** Kept as the lead approved it,
+with one thing worth recording because it is the argument someone will make
+for lowering it: terrain, buildings and roads are now LEGIBLE under the
+shroud rather than hidden by a black slab, which reads as an information leak
+until you notice the minimap has always drawn the building layout of the whole
+map. 85% is a mood setting, not a fog-of-war rule, and the rule is unchanged
+(`computeFog`/`isFogVisible` are untouched, and unit visibility is still
+gated in the sim's own terms).
+
+**7. The clear colour needed `scene.background`, not `setClearColor` (§1).**
+The design says the clear colour is `opts.background` (`shadow.1`) "through
+the same standard path". It was not: three resolves `setClearColor` through
+`getUnlitUniformColorSpace`, which returns `outputColorSpace` (sRGB) whenever
+no render target is bound — and every frame ends with `SMAAPass` drawing to
+the screen, so the GL clear colour was left holding the sRGB-ENCODED triple
+and the next frame's `RenderPass` cleared a LINEAR target with it.
+`OutputPass` then tone-mapped the raw hex as if it were already linear:
+`#14150F` photographed as **#484B3B** off the map edge, 9.3× its authored
+luminance, where `main` drew it exactly. Setting `Scene.background` as well
+fixes it — that path is read inside `WebGLBackground.render`, with the target
+bound, so it converts to linear, and it sets `forceClear` so the clear happens
+despite `RenderPass` turning `autoClear` off. Measured after: **#050503**, the
+authored tone through ACES's low-end compression — 15/255 from `main` instead
+of 52.
+
+**8. The AO pass had to be seeded before the visual gate could be re-blessed
+(§7).** §7 predicted the noise model would hold because "GTAO has no temporal
+component and the frame loop is frozen by the harness". It did not, and the
+reason is not temporal: `GTAOPass.generateNoise` builds its Poisson-denoise
+texture from `new SimplexNoise()`, and three's `SimplexNoise` defaults its
+random source to `Math` — a fresh draw from `Math.random()` **per process**.
+Within one process the frame is bit-identical (every scenario's zero-time
+repaint control read 0 px / 0.0000), so nothing in `pnpm test` could see it;
+across processes, `quiet` moved 20 px / **0.1021**, `relief` 2 px / **0.1418**
+and `vehicle` 57 px / **0.1051** against a baseline blessed from the same
+commit minutes earlier — 25–35× the ceilings, on scenarios whose pre-lit noise
+was a literal zero. `post-chain.ts` seeds it (`AO_NOISE_SEED`), and the same
+three scenarios went back to **0 px / 0.0000** over five runs. No threshold
+was widened.
+
+## Acceptance: what was and was not met
+
+Measured from the nine captures, re-taken through
+`tools/src/perf/art-captures.ts` against this branch and against `main` at the
+same URLs, cameras and ticks.
+
+**Met.** §5 (visual gate re-blessed, all ten layer floors and the `vehicle`
+repaint control re-derived from five runs), §6 (perf recorded), §7 (docs), §4
+(`pnpm test`, `typecheck`, `lint`, `validate:ui`, `test:determinism` green;
+`playtest` and `balance` byte-identical to `main`). Acceptance 2 in full: at
+zoom 0.5 terrain, buildings and roads are legible under the shroud, the fog
+boundary is a smooth feather with no tile-edge staircase anywhere, and the
+clear colour outside the map is `shadow.1` again after deviation 7.
+Acceptance 3's second clause, decisively: `main` drew hard black slabs with
+sawtooth tile edges across the warehouse roof, the apartment's upper half and
+the mosque — **no black slab survives anywhere in the set**.
+
+**Not met, both recorded rather than worked around.**
+
+*Acceptance 3, "textured apartments read brighter than on `main` (sRGB, not
+pass-through)" — FALSE, and the prediction's mechanism had the sign wrong.*
+The decode does happen; what the prediction ignored is that the bake is now
+multiplied by a light budget and compressed by ACES, and the net is DARKER.
+Measured on the same frame at the same tick (`05-town-fog-blocks`): the
+warehouse roof 145 → **92**, its near wall 104 → **45**, the whole warehouse
+box 99.3 → **86.8**, the whole apartment box 60.8 → **42.5**. That is the
+intended shift from a flat pass-through to a shaded surface — the near wall
+falls furthest because it is the face the sun rakes rather than strikes — but
+the acceptance clause as written is falsified, and whether the town is now too
+dim is a look call for the lead, not a threshold anyone here should re-tune.
+`SUN_INTENSITY`, the 1 : 0.35 sun-to-hemisphere ratio and exposure 1.0 are all
+lead-approved numbers and were left alone.
+
+*Acceptance 1, "every unit has a cast shadow on the sand", and acceptance 3,
+"building shadows fall across the road" — NOT REACHABLE at the shipped sun,
+and this is geometry rather than tuning.* With `SUN_DIRECTION`'s XZ pair on
+the camera's own diagonal, a caster of height `h` throws its shadow `0.406h /
+0.819 = 0.496h` tiles along `(−X, −Z)`, which on this dimetric screen is
+straight UP with zero horizontal offset — while the caster's own roof is drawn
+`1.225h` up-screen. **The shadow reaches 40% of the object's own screen
+height, so for any box-shaped caster it lies entirely inside the caster's
+silhouette.** No building or vehicle can show a ground shadow; what does show
+is exactly what the captures show — trees (a canopy offset from a thin trunk),
+masts, and the contact darkening around wheels and tracks. Shadows are real,
+the shadow map is working, and they land where nobody can see them.
+
+## Open questions
+
+**The sun's XZ sign is not settled, and the two measurements disagree.** Task
+9's flank-to-up-face ratio (deviation 3) kept the shipped pair. A later
+measurement, taken while checking acceptance 1, points the other way and is
+harder to explain away:
+
+- The rig's camera POSITION is at ground azimuth 225° (`render_rig.py`
+  `frame_camera`: `center + horiz·(cos 225°, sin 225°)`), and its key light's
+  to-sun vector is `(+0.406, +0.406, +0.819)` — **verified by running the rig's
+  own Euler through Blender 5.2 headless**, not derived on paper. Those are
+  180° apart: the rig BACK-lights its subject, and both camera-facing vertical
+  faces are the shadow side.
+- `assets/sprites/BLD_WALL/idle_f00_000.png` is the cleanest witness in the
+  tree — a plain single-material box. Its top face is `#F2E8D5` (limestone.0,
+  the palette's brightest) and **both** visible side faces are `#75624A`
+  (limestone.7), identical to the byte. Side ÷ top linear luminance = **0.160**.
+  A front-lit 55° key predicts ≈0.46 on the same geometry; a back-lit one with
+  only the fill predicts ≈0.03–0.04, and the ramp's darkest step is 0.10.
+- Task 9's own statistic reads 0.872 on a vehicle bake, which no 55° key can
+  produce in either direction — a vehicle sheet's shading is
+  `render_team.py`'s `ROLE_PALETTE`/`LIT_GAIN` mapping rather than a physical
+  render (`CLAUDE.md` says that table "compensates for a multiply-style
+  light"), so the flank/up ratio there is probably measuring albedo.
+
+If the rig is back-lit, the matching three vector is `(−0.406, 0.819, −0.406)`
+and cast shadows would fall DOWN-screen, toward the viewer, across roads —
+which is what both unmet acceptance clauses describe. The cost is that every
+camera-facing face goes to hemisphere-only light, which Task 9 photographed
+and called flat. **This is a look decision for the project lead with a
+measurement on each side, not a bug to fix silently**, and it is the first
+thing to settle before Phase 1. The before/after capture sets are in
+`.superpowers/art-captures/{before,after}/` (gitignored — regenerate with
+`tools/src/perf/art-captures.ts`).
 
 ## Numbers the lead approved with the recommendation
 

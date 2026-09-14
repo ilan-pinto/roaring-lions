@@ -22,10 +22,16 @@ export interface MeshData {
    * (`../flash-light.ts`'s own top comment).
    * OPTIONAL: only `ground.ts`'s `buildGround` computes this today (see its
    * own doc comment for why scatter/grove/residual/building-decor meshes
-   * do not); `toGeometry` (`mesh.ts`) aliases the `litColor` GPU attribute
-   * to `colors` itself when this is absent, which is a correct no-op (a
-   * flash never has anywhere lighter to shift that geometry toward), not a
-   * missing-attribute error.
+   * do not).
+   *
+   * **Nothing consumes it any more, and the aliasing this comment used to
+   * describe is gone.** `toGeometry` (`mesh.ts`) uploaded a `litColor` GPU
+   * attribute, aliased to `colors` when this was absent, for the ramp-shift
+   * muzzle flash. Since 2026-09-14 a flash is a pooled `PointLight`
+   * (`units/flash-light.ts`) and no terrain material declares the attribute.
+   * The field is still built and still asserted on-palette by
+   * `ground.test.ts`; retiring it is a separate change from the one that
+   * stopped reading it.
    */
   litColors?: Float32Array;
   /**

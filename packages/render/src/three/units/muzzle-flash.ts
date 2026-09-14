@@ -142,8 +142,9 @@ import { createVfxMeshMaterial } from './vfx-mesh-material';
  * .json`'s own `light.decay_ms`, the duration this pool's own instances
  * live for -- see `MuzzleFlashManager.spawn`'s doc comment) would need only
  * 8 concurrent slots; 16 is double that already-generous edge case. Cheap
- * to be generous here unlike `FLASH_CAPACITY` (bounded by a PER-FRAGMENT
- * terrain-shader loop) or `PARTICLE_CAPACITY`/`TRACER_CAPACITY` (bounded by
+ * to be generous here unlike `FLASH_CAPACITY` (8 real `PointLight`s always
+ * in the scene since 2026-09-14, each of which every lit material pays for;
+ * it was bounded by a per-fragment terrain-shader loop before that) or `PARTICLE_CAPACITY`/`TRACER_CAPACITY` (bounded by
  * real measured concurrency in the hundreds): a pooled `InstancedMesh`
  * instance costs one 4x4 matrix (64 bytes) per zone per slot, so even 16
  * slots x 3 zones is 3KB, not a real budget line. Unmeasured against an
@@ -338,9 +339,11 @@ const createMuzzleFlashMaterial = createVfxMeshMaterial;
  * whatever colour those uniforms currently hold -- if `load` finishes
  * first, the meshes simply start out coloured black (`createMuzzleFlashMaterial`'s
  * own default) until `setColors` corrects them in place, same object,
- * same uniform, no rebuild. Mirrors `FlashLightManager.posArray`'s own
- * "shared by reference... mutating these in place updates every material
- * with no per-material write loop" reasoning, one level up.
+ * same uniform, no rebuild. The same shape `FlashLightManager` keeps one level
+ * up: a fixed pool, allocated once, mutated in place. (It used to be phrased
+ * as mirroring that class's `posArray`, a uniform array shared by reference
+ * into every material -- gone since the flash became a pool of real
+ * `PointLight`s.)
  */
 export class MuzzleFlashManager {
   private readonly capacity: number;

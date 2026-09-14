@@ -124,9 +124,11 @@
  * occluder at least that far in FRONT counts. Applied in view space
  * (`mvPosition.z += bias`, then re-project) rather than through
  * `polygonOffset`, because `polygonOffset` is expressed in
- * hardware-dependent depth-buffer units and this camera's far plane is
- * 20000 world units away -- a value tuned on one driver would mean
- * something else on another. View space is metric: the bias is a distance
+ * hardware-dependent depth-buffer units -- a value tuned on one driver would
+ * mean something else on another. (The camera's far plane was 20000 world
+ * units when that was written and is 300 since the lit renderer tightened
+ * the depth range for the AO and fog passes; the argument does not depend on
+ * the number, only on the units.) View space is metric: the bias is a distance
  * in tiles, and reads as one.
  *
  * ### The two paths need DIFFERENT biases, and that is not a fudge

@@ -289,18 +289,47 @@ yours; each one records what the next phase inherits.
 - **`three` may only be imported under `packages/render/src/three/**`**, enforced
   by eslint. Note the rule's `paths` entry does NOT catch subpath imports like
   `three/addons/loaders/GLTFLoader.js` — keep those inside by discipline.
-- **The colour pipeline is not the default one and fails silently.**
-  `palette-material.ts`: LUT colours built with `setStyle(hex,
-  LinearSRGBColorSpace)`, `renderer.outputColorSpace = LinearSRGBColorSpace`, the
-  clear colour set through the same call (order matters — three reads
-  `outputColorSpace` synchronously when `setClearColor` runs), and antialiasing
-  OFF. The naive setup measured **0 of 65 colours in palette** and looked fine.
+- **The colour pipeline is the standard one since Phase 0 (2026-09-14).**
+  `renderer.outputColorSpace = SRGBColorSpace`, ACES tone mapping at exposure
+  1.0 applied in the composer's `OutputPass`, and every world material a
+  `MeshStandardMaterial` (`units/world-materials.ts`, and `terrain/mesh.ts`'s
+  `GroundMaterial`/`GroveMaterial`). One sun plus one hemisphere bounce in
+  `lighting.ts`, with a 4096² map-wide orthographic shadow box fitted once per
+  map. The frame goes through `post-chain.ts`: `RenderPass → FogOfWarPass →
+  WorldGTAOPass (half resolution) → OutputPass → SMAAPass`. Fog of war is
+  `shroud-texture.ts` + `fog-pass.ts` — a depth-reading post pass, not
+  geometry. A muzzle flash is a pooled `PointLight` (`units/flash-light.ts`),
+  not a ramp-index shift. `applyPalettePipeline`, `paletteColorNoConvert`, the
+  toon ramp materials, the blob shadows and the black fog quads are all
+  deleted.
+  **Two rules survive and both still cost a bug if broken.** Vertex colours
+  and shader-uniform colours must be LINEAR — `hexToLinear`, and `toGeometry`
+  decodes on the way in — because nothing between them and the frame buffer
+  will decode them for you. And **ground albedo textures stay `NoColorSpace`**
+  while every base-colour map in the game is `SRGBColorSpace`: they are not
+  colours, they are a ratio to their own measured mean
+  (`terrain/surface.ts`'s `SURFACE_SHADING_EXEMPTION`), and decoding a ratio
+  bends the mean it is taken against.
+  **The per-pixel palette guarantee is retired, deliberately.** It was never
+  protecting much: measured on `main`, a real frame was **24.5%** exact
+  palette colours at the force close-up and **11.3%** in a town fight, across
+  29,705 and 52,227 distinct colours against a 56-entry palette — so a rule
+  that forbade antialiasing, blending, lights, shadows and tone mapping was
+  costing the other 75–89% of the frame everything a lit renderer needs. The
+  argument and the nine captures are in
+  `docs/superpowers/specs/2026-09-14-lit-renderer-design.md`; the palette is
+  still the source of every AUTHORED colour (`docs/ART_PIPELINE.md` §2), and
+  `pnpm validate:ui` and `pnpm validate:assets` are unchanged.
 - **`units/render-order.ts` is the single source of truth for every
   `renderOrder`.** Read it before setting one. Bands are: **-1 world (mesh
   buildings)**, 0 hull/structures, 1 turret, 1.5 badge numeral, 2 FX,
-  3 FX-above, 4 overlays, 5 smoke, **6 occlusion silhouette**, 7-9 reserved,
-  10 fog. Overlays sit BELOW fog because Pixi's `unitsG` is added to `world`
-  before `fogG`; an earlier version of that file said the opposite, citing Pixi
+  2.5 FX additive, 3 FX-above, 3.5 FX-above additive, 4 overlays, 5 smoke,
+  **6 occlusion silhouette**, 7-9 reserved. **Band 10 is retired** — fog of
+  war was `FogMesh`, one black quad per unseen tile at the top band, and it is
+  a post pass now, so nothing in the scene draws at 10 and "must sit below the
+  fog band" no longer constrains anything. The overlay tier still sits where
+  it does because Pixi's `unitsG` is added to `world` before `fogG`; an
+  earlier version of that file said the opposite, citing Pixi
   identifiers that do not exist. Band -1 is the only one whose value changes
   anything for an OPAQUE mesh, where the depth buffer normally makes
   submission order irrelevant. It was added for the occlusion silhouette's
@@ -384,8 +413,12 @@ yours; each one records what the next phase inherits.
   Open ground carries the supplied **sand** PNG (4 tiles per repeat), `^` walls the supplied
   **rock** PNG (2 tiles), both `NoColorSpace` and plain `RepeatWrapping` -- **never mirror-tile
   them**, it kaleidoscopes -- with roads (`r`) masked out. Terrain is the fourth named palette
-  exemption, split in two on the gate: the *shade* is exempt on interpolated ground, the *albedo*
-  on all open ground and on `^`. Two things worth knowing. **For a texture, the image fed to Meshy
+  exemption, and **since 2026-09-14 only its ALBEDO half survives**: the ground is lit and
+  shadowed by the scene sun like everything else, so the *shade* is not an exemption from
+  anything any more (`terrain/surface.ts`'s `SURFACE_SHADING_EXEMPTION`, and the paragraph
+  `pnpm validate:assets` prints). The albedo is still exempt, on all open ground and on `^`,
+  because it is a ratio to each image's own mean rather than a colour -- which is also why these
+  six textures alone stay `NoColorSpace`. Two things worth knowing. **For a texture, the image fed to Meshy
   is the asset, not the model it produces** -- `art/blend/desert tile/`'s `.blend` bakes a
   scrambled UV atlas that tiles as noise, while the PNG beside it measured seamless (edge/adjacent
   ratio 0.95x). And **`groundTextureCheck` was structurally inert and is now
@@ -683,10 +716,13 @@ Pages' `max-age=600`, the first-frame gap). Pipeline: `tools/units/kit.py` (geom
 - Adding a part to `kit.py` makes `rig.py`'s `PART_BONE` stale. It **raises
   loudly** rather than leaving gear in bind pose. Extend it; never silence it.
 - **A GLB carries zero materials — except three buildings, by the lead's
-  explicit override.** Colour is applied at runtime from a ramp SLICE indexed
-  by normal. Do not port `render_team.py`'s `ROLE_PALETTE` or `LIT_GAIN` into
-  a mesh export — that table compensates for a multiply-style light and a
-  toon LUT indexes instead.
+  explicit override.** Colour is applied at runtime from the role ramp. Since
+  Phase 0 (2026-09-14) that is ONE flat albedo per part — `liftTone(ramp)`,
+  the ramp's lit face, on a `MeshStandardMaterial` — and the sun, the shadow
+  map and AO make the shading, where it used to be a ramp SLICE indexed by
+  normal. Do not port `render_team.py`'s `ROLE_PALETTE` or `LIT_GAIN` into
+  a mesh export — that table compensates for a multiply-style light, and a
+  real light does the job now.
   The exception is `house`, `apartment` and `warehouse` (and their wrecks),
   which ship their supplied Meshy `base_color` bake: *"i have provided a very
   detailed blender files and i want them to be used as is unless ill provide
@@ -703,13 +739,16 @@ Pages' `max-age=600`, the first-frame gap). Pipeline: `tools/units/kit.py` (geom
   could have — `render_mesh_gate.py` repaints every building from the palette
   before rendering, so the check was measuring a stand-in, and the gate now
   prints a `NOT palette-checked` line naming them (silhouette IoU still runs);
-  and **the map's `colorSpace` must be `NoColorSpace`**, because
-  `GLTFLoader` stamps `SRGBColorSpace` on a baseColorTexture and this
-  renderer's output is pass-through — measured on `beit_sahwan_outskirts`,
-  getting that wrong drops a lit wall from rgb 67 to 51 and a shaded one from
-  51 to 30 while the terrain beside it is byte-identical, and it still looks
-  like a building. `metallic_roughness`/`normal` are dropped at export: there
-  are no lights in this scene to consume them.
+  and ~~**the map's `colorSpace` must be `NoColorSpace`**~~ — **the opposite
+  since Phase 0 (2026-09-14): leave the `SRGBColorSpace` `GLTFLoader` stamps
+  on a baseColorTexture alone.** `prepareTexturedMap`, which used to undo it,
+  is deleted. The old rule was right for a pass-through output and wrong the
+  moment the renderer started decoding to linear and encoding in `OutputPass`.
+  The one texture class that still takes `NoColorSpace` is ground albedo,
+  because a ratio field is not a colour — see the colour-pipeline bullet
+  above. `metallic_roughness`/`normal` are no longer dropped at export either
+  (the exporters keep them since 2026-09-14) and the renderer binds whatever
+  maps a GLB carries: there is a sun in this scene to consume them now.
 - **A building's FACING is gated now** (GH-142, `tools/building_facing.py`,
   inside `pnpm validate:meshes`). A building never turns — `mesh-building.ts`
   leaves rotation at identity — so whichever elevation an export bakes toward
@@ -832,13 +871,18 @@ campaign can play. Scenery is drained to sit below `empty` and above `locked`.
 **The shade term is SMOOTH here and banded in `texturedBuildingMaterial`**, on
 purpose: a building's facets break on real edges, and three hard bands across a
 hillside draw contour terraces that are not in the source.
-**Antialiasing is ON, uniquely.** This asset is the named exemption from the
-palette entirely, so there is no palette guarantee for a blended edge pixel to
-cost, and its silhouette is a rotating hex rim -- the worst place aliasing could
-land. `applyPalettePipeline` is deliberately NOT called: its second job is the
-CLEAR colour, and this canvas is transparent. Its first job (pass-through
-`outputColorSpace`) is done directly, and pairs with `prepareTexturedMap`'s
-`NoColorSpace` exactly as the buildings' does.
+**Antialiasing is ON**, and since Phase 0 that is no longer unique — the
+mission renderer antialiases too (SMAA in the composer, plus the raw
+renderer's own MSAA for the composer-less path). Its silhouette is a rotating
+hex rim, the worst place aliasing could land.
+**This screen did NOT move onto the lit pipeline, and that is the spec's own
+scope call** (§9): `world-view.ts` still sets `outputColorSpace =
+LinearSRGBColorSpace` by hand and `world-material.ts` still tags its bake
+`NoColorSpace`, so the diorama is pass-through where the mission is sRGB +
+ACES. Nothing shares a light between them yet. Moving it onto `lighting.ts`'s
+sun is the named one-file follow-up; until someone does it, expect the board
+to read slightly differently from the same assets in a mission, and do not
+"fix" one of the two colour spaces in isolation.
 
 A click on locked ground **says why**, into an `aria-live` line. That is not
 polish: the ground is one canvas, so a click that resolved to nothing and

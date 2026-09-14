@@ -129,7 +129,7 @@ export interface RendererOptions {
    * Naharin arc, the only map with a mosque -- drew a river basin as desert.
    *
    * Read only by the three.js backend, and only by the open ground
-   * (`terrain/mesh.ts`'s `groundSurfaceMaterial`). `renderer.ts` (Pixi)
+   * (`terrain/mesh.ts`'s `GroundMaterial`). `renderer.ts` (Pixi)
    * ignores it, like every other three-only field here -- see `shellColors`
    * above for the same shape and the same reason. Optional and fail-soft: if
    * it is absent, or the fetch fails, the ground draws as the flat palette
@@ -146,7 +146,7 @@ export interface RendererOptions {
    * URL of the `^` rock-ridge albedo tile --
    * `assets/textures/rock_ground_tile.jpg`. Same contract as
    * `groundTextureUrl` above in every respect: three-only, read only by
-   * `groundSurfaceMaterial`, optional, and fail-soft.
+   * `GroundMaterial`, optional, and fail-soft.
    */
   rockTextureUrl?: string;
   /**

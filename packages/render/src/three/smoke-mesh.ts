@@ -202,8 +202,8 @@
  * ## Capacity: measured against a real multi-order scenario, not the map
  *
  * The pre-this-task `SmokeMesh` sized its one-quad-per-tile capacity to
- * `width * height` -- every tile smoked at once, matching `FogMesh`'s own
- * "the worst case is also the boot state" reasoning, which does not hold
+ * `width * height` -- every tile smoked at once, matching the then-current
+ * `FogMesh`'s own "the worst case is also the boot state" reasoning, which does not hold
  * for smoke (nothing lays a screen before the player does). This task's own
  * brief asks for a MEASURED number instead. Run through the real `Sim`
  * (`packages/sim/src/sim.ts`, five `k_demo`-type units each firing one
@@ -291,7 +291,7 @@ export interface SmokeInstanceBuffers {
  * tiles have smoke and what their base alpha is. Turning one tile-level
  * entry into `SMOKE_PUFFS_PER_TILE` drawn puffs is `SmokeMesh.update`'s job,
  * not this one's -- the same division of labour `writeFogInstances` and
- * `FogMesh` already keep.
+ * `FogMesh` kept, until fog became a post pass in 2026-09-14.
  *
  * Returns the number of TILE instances written (not puffs), which the
  * caller multiplies by `SMOKE_PUFFS_PER_TILE` for the actual instance count
@@ -728,7 +728,8 @@ const Y_AXIS = new THREE.Vector3(0, 1, 0);
  * see that file's own "`aSoft`: `smoke_puff` is feathered" section for why
  * a hard circle reads as a rim-lit disc under overlap and a feathered one
  * does not. `depthTest`/`depthWrite: false` for the same "unconditional
- * overlay" reason `FogMesh`'s own material needs it -- a puff lying flat on
+ * overlay" reason the retired `FogMesh`'s own material needed it -- a puff
+ * lying flat on
  * the ground would otherwise lose the depth test to a unit standing in it.
  * `uColor` itself is LINEAR (`hexToLinear`, not `hexToUnit`) for the same
  * reason `trail-mesh.ts`'s own `createTrailMaterial` gives: a bare

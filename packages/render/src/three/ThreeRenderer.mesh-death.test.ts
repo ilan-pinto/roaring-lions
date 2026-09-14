@@ -89,7 +89,8 @@ const INF: UnitTypeJson = {
 /** Reaches every private field/method this file needs -- there is no public
  *  accessor for any of them, and adding one purely for a test would widen
  *  `Renderer`'s surface for no runtime reason, the identical reasoning
- *  `ThreeRenderer.test.ts` already gives for its own `fogMesh` reach. */
+ *  `ThreeRenderer.test.ts` already gives for its own `shroud` reach (that
+ *  field was `fogMesh` until 2026-09-14, when fog became a post pass). */
 interface ThreeRendererPrivates {
   scene: THREE.Scene;
   // A LIST per type since GH-149 -- see the same field's doc comment on

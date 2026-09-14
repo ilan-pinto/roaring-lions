@@ -13,6 +13,8 @@ An open-source RTS has two art problems that look unrelated but share one soluti
 
 The solution to both is that **nobody hand-authors a sprite.** Contributors submit a `.blend`; CI renders it against a rig nobody can modify and quantizes it to a palette nobody can extend. Consistency stops being a matter of talent or taste and becomes a build step. This is how the original Command & Conquer and Red Alert were made, and it is the only approach that survives contact with strangers on the internet.
 
+**That is the SPRITE path, and since 2026-09-14 it is not the only one.** A mesh asset — every `art/meshes/**/*.glb`, which is what the three.js backend actually draws — is not baked at all. It ships geometry plus either a palette ramp colour or a supplied `base_color` texture, and it is **lit at runtime by one sun**: a single `DirectionalLight` on the render rig's own azimuth and altitude, a hemisphere bounce, a map-wide shadow map and screen-space ambient occlusion (`packages/render/src/three/lighting.ts`, `post-chain.ts`, and the spec at `docs/superpowers/specs/2026-09-14-lit-renderer-design.md`). So consistency for a mesh comes from sharing the scene's light rather than from sharing a bake — which is the same idea, moved from build time to frame time, and it is why the rig's sun angle is a number both halves of the pipeline read.
+
 The corollary, which is the single most important thing in this document: **at 40–80 px on screen, model quality is nearly irrelevant.** What players read as "good art" is lighting, palette, VFX, animation, and terrain density. Four of those five are code or data. Budget accordingly — the money goes to hero assets and the effort goes to effects.
 
 ---
@@ -44,7 +46,18 @@ Nearly invisible on a unit, which is small and not grid-aligned. Not invisible o
 
 ## 2. Palette — `data/palette.json`
 
-42 colors. Locked. Adding a color is a version bump and a project-lead decision, not a PR.
+The palette is the authored-colour source for UI, team colours, VFX keys, ramp albedos and terrain tones. **It is not a per-pixel guarantee on the three.js backend, and has not been since 2026-09-14.** Adding a colour is still a version bump and a project-lead decision, not a PR.
+
+What changed and why, because the rule this replaces was load-bearing for a year. §0's per-pixel guarantee forbade antialiasing ("a blended edge pixel is by definition not a palette colour"), blending, real lights, shadow maps and tone mapping. Measured on `main` the day it was retired, a real frame was **24.5%** exact palette colours at a force close-up and **11.3%** in a town fight, across 29,705 and 52,227 distinct colours — so the rule was protecting a tenth to a quarter of the frame and costing the rest everything a lit renderer needs. The full argument, the nine captures it was made from and the five-phase plan are in `docs/superpowers/specs/2026-09-14-lit-renderer-design.md`.
+
+What did NOT change:
+
+- **The sprite gate is untouched.** `tools/validate_assets.py` still quantises and checks every sheet in `assets/sprites/` against this file, reserved bands included, and `pnpm validate:meshes` still palette-checks every kit-built GLB. A contributor's `.blend` meets exactly the same bar it did.
+- **`pnpm validate:ui` is untouched.** No colour literal in UI source, no allowlist.
+- **Authored colour still comes from here.** A palette hex reaches the screen as that hex under neutral light — that is the property the old pass-through pipeline was protecting by hand and the standard sRGB transform gives for free.
+- The named exemptions (`TEXTURED_BUILDING_TYPES`, `TEXTURED_DECOR_FAMILIES`, the campaign board, and terrain's albedo half) are all still named, and still say what they cover.
+
+42 colors. Locked.
 
 | Band | Slots | Role |
 |---|---|---|

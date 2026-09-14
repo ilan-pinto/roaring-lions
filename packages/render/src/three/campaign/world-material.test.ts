@@ -121,9 +121,12 @@ describe('campaignWorldMaterial', () => {
   });
 
   it('does not band the shade — this is terrain, not a building facet', () => {
-    // `texturedBuildingMaterial` quantizes into TEXTURED_SHADE_STEPS because
-    // a building's facets break on real edges. The same banding across a
-    // hillside draws contour terraces that are not in the source.
+    // The retired `texturedBuildingMaterial` quantized into
+    // TEXTURED_SHADE_STEPS because a building's facets break on real edges.
+    // The same banding across a hillside draws contour terraces that are not
+    // in the source. (A building is a plain `MeshStandardMaterial` under the
+    // scene sun since 2026-09-14; this screen still has its own smooth-shade
+    // material -- see the spec's section 9.)
     const frag = code(make().m.fragmentShader);
     expect(frag).not.toMatch(/floor\s*\(/);
     expect(frag).toMatch(/1\.0\s*-\s*uShade\s*\*\s*\(\s*1\.0\s*-\s*nl\s*\)/);

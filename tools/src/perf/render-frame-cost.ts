@@ -9,9 +9,20 @@
  *
  * The optional third argument is the CSS viewport, `WIDTHxHEIGHT`, default
  * `1440x900`. It exists for one job: the drawing buffer is that times the
- * renderer's pixel ratio (capped at 2), so doubling it quadruples the fill
- * WITHOUT changing the scene, the camera or a single draw call. That is the
- * positive control for the `gpu` figure below -- see "Is `gpu` real".
+ * renderer's pixel ratio (capped at 2), so doubling it quadruples the fill.
+ * That is the positive control for the `gpu` figure below -- see "Is `gpu`
+ * real".
+ *
+ * **It is not a pure fill control, and an earlier version of this comment
+ * claimed it was.** This camera's orthographic frustum is sized FROM the CSS
+ * viewport (`camera.ts`: `halfWidth = vp.width / (TILE_W * zoom * sqrt2)`),
+ * so doubling the CSS size shows 4x the WORLD as well as drawing 4x the
+ * pixels -- more tiles, more units, more draw calls. The zoom-0.5 row is the
+ * closest thing to a fill-only change in the table, because at that zoom a
+ * 48-tile map already overflows the 1440x900 frame and widening it mostly
+ * adds empty ground. Read the control for what it proves -- that `gpu` moves
+ * at all when the GPU is given more to do -- and not as a clean 4x-fill
+ * coefficient.
  *
  * ## Two numbers per view, and the second one is the one a post pass moves
  *

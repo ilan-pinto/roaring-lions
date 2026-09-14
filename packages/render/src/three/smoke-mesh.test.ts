@@ -313,7 +313,7 @@ describe('SmokeMesh construction', () => {
     expect(mesh.mesh.count).toBe(1 * SMOKE_PUFFS_PER_TILE);
   });
 
-  it('the material is transparent, depth-tested false, depth-written false -- an unconditional overlay, matching FogMesh', () => {
+  it('the material is transparent, depth-tested false, depth-written false -- an unconditional overlay, as the retired FogMesh was', () => {
     const mesh = new SmokeMesh(W, H);
     const m = mesh.mesh.material as THREE.Material;
     expect(m.transparent).toBe(true);
