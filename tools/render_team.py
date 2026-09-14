@@ -62,6 +62,16 @@ SAMPLES = 48
 FACINGS = 16
 FRAME_MARGIN = 1.06
 SIZE_CLASS_NAME = "infantry"
+#: Teams whose portrait must NOT be cut at the roster-wide facing 3
+#: (`packages/app/src/ui/portrait.ts` PORTRAIT_FACING). That facing was chosen
+#: by looking at every sheet at the real 40 px chip size: three-figure teams
+#: spread into distinguishable figures there. A TWO-figure team in file does
+#: the opposite -- at facing 3 the point man stands in front of the shield
+#: bearer and the shield, the unit's whole tell, is hidden. Measured on
+#: INF_BREACH 2026-09-14: facing 5 shows the shield face-on beside both
+#: figures. Written into the manifest as `portraitFacing`; absent for every
+#: other team, so the picker keeps its default.
+PORTRAIT_FACING_OVERRIDES = {"breach_team": 5}
 
 #: Role -> palette key, per faction ramp. `uniform` and `webbing` are the only
 #: two that differ; a rifle is a rifle on either side.
@@ -439,6 +449,10 @@ def render_team(team_id, probe=False):
         "frameMetres": round(ortho_units * mpu, 3),
         "clips": {k: v for k, v in clips.items()},
         "files": files,
+        # See PORTRAIT_FACING_OVERRIDES: present only for a team whose
+        # formation hides its tell at the roster-wide portrait facing.
+        **({"portraitFacing": PORTRAIT_FACING_OVERRIDES[team_id]}
+           if team_id in PORTRAIT_FACING_OVERRIDES else {}),
     }
     with open(os.path.join(out_dir, "manifest.json"), "w") as fh:
         json.dump(manifest, fh, indent=2)
