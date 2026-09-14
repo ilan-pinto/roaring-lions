@@ -113,7 +113,8 @@ import { parseManifest, parseStructureManifest, clipOrFallback, type SheetSpec }
 import { resolveClip, type UnitAnimInput } from '../clip';
 import { updateDimetricCamera, worldToScreenThree, screenToWorldThree } from './camera';
 import { createSceneLights, type SceneLights } from './lighting';
-import { createPostChain, PIXEL_RATIO_CAP, type PostChain } from './post-chain';
+import { AO_RESOLUTION_SCALE, createAoPass, createPostChain, PIXEL_RATIO_CAP, type PostChain } from './post-chain';
+import type { Pass } from 'three/addons/postprocessing/Pass.js';
 import { FlashLightManager } from './flash-light';
 import { MuzzleFlashManager, MUZZLE_FLASH_DEFAULT_DURATION_MS } from './units/muzzle-flash';
 import {
@@ -1498,6 +1499,15 @@ export class ThreeRenderer implements Renderer {
   private readonly shroud: ShroudTexture;
   private fogPass: FogOfWarPass | null = null;
   /**
+   * Task 13: ambient occlusion, the contact shadow under a hull and along a
+   * wall base. Built in `init()` for the same reason the fog pass is (it
+   * belongs to the post chain, and the nine `ThreeRenderer*.test.ts` fakes
+   * never get that far), and held as a field for the same reason too:
+   * `post-chain.ts` does not own a pass it was handed, so `dispose()` below
+   * is the only thing that can release this one.
+   */
+  private aoPass: Pass | null = null;
+  /**
    * Phase D readiness fix: `sim.smoke` on screen -- see `smoke-mesh.ts`'s own
    * top comment for the full port account. Unlike the shroud, there is no
    * dirty flag gating this one: Pixi's own smoke loop (`renderer.ts:2576`)
@@ -1652,6 +1662,16 @@ export class ThreeRenderer implements Renderer {
     // grows flat blue patches in the open -- measured, not feared.
     // Antialiasing on the raw renderer covers the composer-less path (tests,
     // spikes); the composer's SMAA pass covers the game (post-chain.ts).
+    //
+    // Which makes the MSAA default framebuffer look like pure cost once the
+    // composer exists -- with it, the only thing the default buffer ever
+    // receives is SMAA's own quad. Measured rather than reasoned about
+    // (Task 13, `docs/PERFORMANCE.md`): turning it OFF saves 0.3-0.7 ms of
+    // p95 at the zoom-0.5 view, two samples each way on an M3 Pro. Kept ON,
+    // because the saving is under the 1 ms it would take to be worth
+    // un-antialiasing the composer-less path -- which is the path the spikes
+    // and any future `frame()` before `init()` draw through, and which has
+    // no SMAA to fall back on.
     this.renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -1782,6 +1802,14 @@ export class ThreeRenderer implements Renderer {
     // releases this one.
     this.fogPass = new FogOfWarPass(this.shroud.texture, this.sim.width, this.sim.height);
     this.post.setFogPass(this.fogPass);
+    // Task 13: ambient occlusion, AFTER fog -- see `createAoPass` for why
+    // that costs it nothing (it re-renders its own normals and depth rather
+    // than reading the chain's) and why `viewCamera`, the persistent one, is
+    // the camera it has to be given. Ownership is `setFogPass`'s again: the
+    // chain takes the pass, not responsibility for it, so `dispose()` frees
+    // this one.
+    this.aoPass = createAoPass(this.scene, this.viewCamera, this.cssWidth, this.cssHeight, AO_RESOLUTION_SCALE);
+    this.post.setAoPass(this.aoPass);
     host.appendChild(this.renderer.domElement);
     // PixiRenderer gets this from `resizeTo: host` (renderer.ts). Without an
     // equivalent the three canvas would stay at boot size while `width`/
@@ -1992,6 +2020,13 @@ export class ThreeRenderer implements Renderer {
     this.shroud.dispose();
     this.fogPass?.dispose();
     this.fogPass = null;
+    // Task 13, the same ownership rule and the same order (out of the chain,
+    // then freed). GTAO holds rather more than the fog pass does -- three
+    // render targets, two noise textures and five materials -- so this is a
+    // real free rather than a formality.
+    this.post?.setAoPass(null);
+    this.aoPass?.dispose();
+    this.aoPass = null;
     // A full-map `InstancedMesh`, same "added once in the constructor, no
     // scene.remove needed" reasoning as every mesh above (terrain,
     // particles, tracers): this dispose() sequence never removes those from

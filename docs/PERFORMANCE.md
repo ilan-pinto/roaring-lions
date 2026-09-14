@@ -503,3 +503,136 @@ route total the game can currently produce.
   `packages/sim/`); not measured here at all.
 - **Not wired into CI or `pnpm test`** either, same as the harness above —
   a manual `npx tsx` command.
+
+---
+
+## Lit renderer frame cost (2026-09-14)
+
+The before/after for the lit-renderer branch (`worktree-art-uplift`, tasks
+9–13: sun and shadows, fog as a post pass, the linear colour pipeline, and
+ambient occlusion), and the gate that decided how ambient occlusion ships.
+
+**Instrument:** `tools/src/perf/render-frame-cost.ts`. It drives the REAL
+renderer through `window.__lions` on a sandbox the dev server is serving —
+`?sandbox=beit_sahwan_outskirts&sur&civ` — at three fixed camera positions,
+and reports median and p95 of `renderer.frame(1, 16)` over 240 frames after a
+30-frame warm-up. It is deliberately not a unit-count curve; `three-units.ts`
+above is that.
+
+**Two numbers per view, and only one of them can reject a post pass.**
+`frame()` submits GL commands and returns; it does not wait for them. So
+`cpu` is scene update plus draw-call submission, and a pass that costs the
+GPU milliseconds of fill can move it by nothing at all. `gpu` brackets the
+same call with `gl.finish()` — frame wall time on this canvas, a lower bound
+on what the display sees. The two tracked each other within 0.4 ms through
+every configuration below, which is not the `gl.finish()` failing to bite: it
+is this scene being **submission-bound** on this machine, and it is the whole
+explanation of what GTAO costs here (a second full scene render, not fill).
+
+### Capture conditions
+
+- **Machine:** Apple M3 Pro, macOS 26.6.2, Node v25.9.0.
+- **GPU:** `ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified
+  Version)` — the real hardware backend, via the same launch args
+  `backend-curve-gate.ts` hard-codes. The script prints this string on every
+  run and warns if it reads SwiftShader; a software run is not comparable to
+  anything below.
+- **Viewport** 1440×900 at `deviceScaleFactor: 2`, so the drawing buffer and
+  every composer target are 2880×1800.
+- **Dev servers were started by hand for this measurement** — `main` on 5179,
+  the branch on 5178, never both at once, and each stopped afterwards.
+- **Two samples of every configuration**, taken as separate browser launches
+  against the same server. Both are quoted.
+
+### BEFORE — `main` @ 8db0215 (the branch point; no lighting, no composer)
+
+| view | cpu median | cpu p95 | gpu median | gpu p95 |
+|---|---|---|---|---|
+| (5,22) zoom 2.5 | 1.10 | 1.50 | 1.00 | 1.50 |
+| (22,24) zoom 0.5 | 1.50 | 2.00 | 1.50 | 1.80 |
+| (26,22) zoom 1.6 | 1.10 | 1.40 | 0.90 | 1.10 |
+
+### AFTER — this branch, ambient occlusion as shipped (half resolution)
+
+| view | cpu median | cpu p95 | gpu median | gpu p95 |
+|---|---|---|---|---|
+| (5,22) zoom 2.5 | 12.40 / 12.30 | 13.50 / 13.80 | 12.50 / 12.30 | 14.90 / 13.40 |
+| (22,24) zoom 0.5 | 11.30 / 11.10 | 13.20 / 12.70 | 11.50 / 11.20 | 12.50 / 13.20 |
+| (26,22) zoom 1.6 | 12.20 / 12.10 | 13.40 / 13.20 | 12.10 / 12.10 | 13.40 / 13.70 |
+
+**The branch costs roughly 8 ms a frame more than `main` before AO is added
+at all**, and that is the headline number here: the sun with its 4096 shadow
+map, the composer's four passes at 2880×1800, and the fog post pass. AO is
+the smaller half of the change.
+
+### The ladder, and where it stopped
+
+Every row is the acceptance view, (22,24) zoom 0.5, both samples, against the
+16.7 ms frame budget.
+
+| configuration | cpu p95 | gpu p95 | verdict |
+|---|---|---|---|
+| branch, no AO pass | 9.00 | 9.00 | — (one sample; the AO-free baseline) |
+| AO at full resolution | 16.20 / 16.40 | 16.00 / 16.20 | passes by 0.3–0.7 ms, and takes the other two views to **21.1–22.4** |
+| **AO at half resolution (shipped)** | **13.20 / 12.70** | **12.50 / 13.20** | **accepted** — 3.5 ms of margin, every view under 15 |
+| `setAoPass(null)` | not reached | | |
+
+Full-resolution AO technically clears the stated gate at the stated view and
+was still rejected, for two reasons worth recording. It clears it by less
+than the difference between the two samples of any other row — a pass, not a
+margin — and the gate names one view while the pass has to survive all three:
+at zoom 2.5 and 1.6 the same build sits **4.4 to 5.7 ms over budget**. Half
+resolution costs 3.6–4.4 ms across the three views instead of 11–13, and
+what it gives up is sharpness in the occlusion TERM only, which a Poisson
+denoise has already blurred and which the blend lays over a
+full-resolution frame. Ladder step (b), shipping AO off, was never reached.
+
+**Half resolution is not `createAoPass(scene, camera, w / 2, h / 2)`**, and
+that was measured before it was designed around: `EffectComposer.addPass`
+calls `pass.setSize(css × pixelRatio)` on every pass it takes, so the
+constructor's size is overwritten before the first frame. It lives in an
+overridden `setSize` (`WorldGTAOPass`).
+
+### The G-buffer filter is free
+
+GTAO as it first went in rendered every unit, vehicle and building **solid
+black** over correct ground, because its normal pre-pass drew this scene's
+outline hulls, billboards and decals too — see `isAoOccluder`, which also
+says how to photograph the G-buffer again. Filtering them out both fixes the
+picture and removes draw calls, while adding a scene traversal. Net, at half
+resolution, zoom 0.5: cpu p95 13.20 / 12.80 unfiltered against 13.20 / 12.70
+filtered. No measurable difference either way — so the correctness fix is
+free, and neither the filtered nor the unfiltered figure above needs an
+asterisk.
+
+### `antialias: true` on the WebGLRenderer context: measured, and kept
+
+With the composer in place the default framebuffer only ever receives SMAA's
+quad, which makes the context-level MSAA buffer look like pure cost. It is
+cost, and it is small. Acceptance view, half-resolution AO, two samples each:
+
+| | cpu median | cpu p95 | gpu median | gpu p95 |
+|---|---|---|---|---|
+| `antialias: true` (shipped) | 11.30 / 11.30 | 13.20 / 12.80 | 11.50 / 11.40 | 13.00 / 12.70 |
+| `antialias: false` | 10.80 / 10.80 | 12.60 / 12.10 | 10.90 / 10.80 | 12.50 / 12.70 |
+
+**0.3–0.7 ms of p95, 0.5 ms of median.** Kept ON, because the threshold for
+switching it off was 1 ms and because the renderer keeps a composer-less path
+(`frame()` before `init()`, which the spikes and the nine `ThreeRenderer*`
+test fakes take) where that context flag is the only antialiasing there is.
+
+### What this section does not measure
+
+- **One machine, one GPU, one OS.** Same gap the sections above name. No
+  Linux, no Windows, no discrete GPU, no CI runner.
+- **Not wired into CI or `pnpm test`** — a manual `npx tsx` command against a
+  dev server you start yourself, matching the precedent above.
+- **`gpu` is a lower bound, not the frame time a player sees.** It excludes
+  compositing and presentation, and `gl.finish()` drains a pipeline the
+  browser would otherwise overlap with the next frame's CPU work.
+- **The sandbox roster is not a mission roster.** `&sur&civ` on
+  `beit_sahwan_outskirts` is a fixed, modest force; nothing here says what
+  the GDD's 300-unit target costs with this renderer, and `three-units.ts`
+  above remains the instrument for that question.
+- **`shadowMap.autoUpdate = false` was not tried**, deliberately: units move
+  every frame and their shadows have to follow.
