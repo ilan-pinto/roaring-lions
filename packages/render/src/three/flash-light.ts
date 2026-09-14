@@ -1,183 +1,109 @@
 /**
- * The muzzle-flash "light": a bounded pool of transient ramp-index shifts.
- * Until Task 7, `register()` pointed every `toonRampMaterial`/
- * `toonRampSkinnedMaterial`/terrain-material instance's `uFlash*` uniforms
- * at this manager's own live arrays; those materials are gone
- * (`ThreeRenderer`'s world materials are all `MeshStandardMaterial` now,
- * with no such uniforms to point at), so `register()` currently has no
- * caller -- `spawn`/`step`
- * still run every frame, harmlessly, tracking state nothing samples. Task 8
- * rewrites this manager to drive real `THREE.PointLight`s instead of a
- * shader-side index shift, keeping this file's shape (`spawn`/`step`/pool
- * eviction) but not its GLSL-era reasoning.
+ * The muzzle flash and blast "light" -- real `THREE.PointLight`s now.
  *
- * Pure aside from the `register()` method's own material-uniform wiring --
- * `spawn`/`step` touch nothing GPU-facing, so this is exercised directly in
- * `environment: 'node'` the same way `units/fx.ts`'s pure half is (`THREE.
- * Vector2` needs no WebGL/DOM, only `THREE.ShaderMaterial` construction and
- * actual rendering do).
+ * Under the palette pipeline this was a ramp-index shift baked into every
+ * material's shader; a light could not be a light because nothing consumed
+ * three.js lighting. Everything world-side is `MeshStandardMaterial` since
+ * Phase 0, so an emitter's `light` block (`data/vfx/*.json`: `color`,
+ * `intensity`, `radius_tiles`, `decay_ms`) drives a pooled point light.
  *
- * Invariant 4: this is presentation state fed by ALREADY-EMITTED sim events
- * (`onFire` in `ThreeRenderer.ts` calls `spawn` from an `EmitterSpec.light`
- * it already reads for particles) -- it reads sim-derived data and writes
- * nothing back, exactly like every other VFX consumer in this backend.
+ * The pool is FIXED at `FLASH_CAPACITY` lights that are always in the scene:
+ * three.js compiles the light COUNT into every shader, so toggling `visible`
+ * per flash would recompile every material on the first shot of a fight.
+ * Idle lights sit at intensity 0. Overflow evicts the oldest flash -- the
+ * newest is what the player is looking at.
  */
 import * as THREE from 'three';
 
-/**
- * How many flashes can be simultaneously active, GLOBALLY, not per
- * material. 8 is a deliberate ceiling, not the literal "eight emitters
- * declare `light`" coincidence: unlike a tracer (which persists for its
- * whole ballistic flight -- Task B3.14 measured 268 CONCURRENT tracers from
- * a dozen shooters in a real firefight, `units/fx.ts`'s `TRACER_CAPACITY`
- * doc comment), a flash is tied 1:1 to a `fire` event and decays fast
- * (70-500ms across the eight declarations, 130ms median) -- expected
- * concurrent count even in a 400-unit battle is bounded by (fleet-wide
- * shots/second x mean decay time), not by ballistic flight time, and low
- * single digits to a dozen is the plausible range from that arithmetic.
- * Overflow drops the OLDEST active flash (`spawn` below), the same "keep
- * the newest, that is what the player is looking at" reasoning
- * `units/fx.ts`'s `writeTracerInstances` already uses for tracer overflow.
- * This is an ASSUMPTION, not a measurement -- no 400-unit browser run of
- * this feature exists yet to confirm 8 is enough headroom, the same caveat
- * `TRACER_CAPACITY`'s own doc comment carries for its own number.
- */
 export const FLASH_CAPACITY = 8;
+/** Emitter `intensity` is 0.3-3.5 across `data/vfx/`; point-light intensity
+ *  under physically correct lights is candela-ish, so a flash needs an order
+ *  of magnitude more to read on a sunlit surface. Judged on screen. */
+export const FLASH_INTENSITY_SCALE = 12;
+/** World units above the ground the light sits: a rifle's muzzle height. */
+export const FLASH_HEIGHT = 0.6;
 
-/** The `light` sub-object shape this manager consumes -- `EmitterSpec`'s own
- *  field (`../vfx/emitters.ts`), narrowed to what `spawn` reads so this file
- *  does not need to import the whole emitter type. */
 export interface FlashLightSpec {
+  color?: string;
   intensity?: number;
   radius_tiles?: number;
   decay_ms?: number;
 }
 
-/**
- * Ramp steps a flash shifts by AT FULL STRENGTH (the peak of its own
- * `sin(progress * PI)` curve, `step`'s own doc comment) -- `round(intensity)`
- * clamped to this. Half of the longest ramp in `data/palette.json`
- * (limestone, 9 steps): a shipped `fire_apfsds`/`catastrophic_kill`
- * (`intensity` 3.5-3.8, the two brightest of the eight declarations) round
- * to exactly this cap, reading as a strong, unmistakable pop without
- * collapsing every ramp to its single lightest entry regardless of how many
- * bands it actually has.
- */
-const MAX_SHIFT_STEPS = 4;
-
 interface ActiveFlash {
   x: number;
   y: number;
-  radiusTiles: number;
-  /** `round(intensity)`, clamped to `[1, MAX_SHIFT_STEPS]` -- `spawn` never
-   *  stores a flash whose rounded intensity is 0 (see its own doc comment). */
-  maxShift: number;
+  z: number;
+  peak: number;
+  radius: number;
   decayMs: number;
   ageMs: number;
+  color: THREE.Color;
 }
 
 export class FlashLightManager {
-  private readonly flashes: ActiveFlash[] = [];
-  private readonly capacity: number;
-  /** World-space (x, z) centre per slot -- shared BY REFERENCE with every
-   *  registered material's `uFlashPos.value` (`register` below), so mutating
-   *  these in place (`step`) updates every material with no per-material
-   *  write loop. Unused slots (beyond `flashes.length`) sit far off any
-   *  authored map (`1e6`), an inert default regardless of what reads it. */
-  readonly posArray: THREE.Vector2[];
-  readonly radiusArray: number[];
-  readonly shiftArray: number[];
+  readonly lights: readonly THREE.PointLight[];
+  private readonly active: ActiveFlash[] = [];
 
   constructor(capacity = FLASH_CAPACITY) {
-    this.capacity = capacity;
-    this.posArray = Array.from({ length: capacity }, () => new THREE.Vector2(1e6, 1e6));
-    this.radiusArray = new Array(capacity).fill(0);
-    this.shiftArray = new Array(capacity).fill(0);
+    this.lights = Array.from({ length: capacity }, () => {
+      const light = new THREE.PointLight(0xffffff, 0, 0.01, 2);
+      light.castShadow = false;
+      light.visible = true;
+      return light;
+    });
   }
 
-  /**
-   * Spawns one flash at `(x, y)` (game tile coordinates, which this backend
-   * maps 1:1 onto world X/Z -- `camera.ts`'s own documented convention,
-   * game tile `(x, y)` is three.js `(x, elevation, y)`) from an
-   * `EmitterSpec.light`. A no-op when `decay_ms` is
-   * absent/zero (nothing to animate) or when `round(intensity)` rounds to 0
-   * -- `cigarette_ember`'s declared `intensity: 0.3` is the one shipped
-   * emitter this excludes: reading `light` now does not mean every
-   * declaration becomes visible, and a light this faint genuinely should not
-   * move a toon band by a whole step. Over capacity, drops the OLDEST active
-   * flash before pushing the new one -- the identical "keep what the player
-   * is looking at" reasoning `units/fx.ts`'s `writeTracerInstances` already
-   * uses for tracer overflow.
-   */
-  spawn(x: number, y: number, light: FlashLightSpec): void {
-    const decayMs = light.decay_ms ?? 0;
+  get liveCount(): number {
+    return this.active.length;
+  }
+
+  addTo(scene: THREE.Object3D): void {
+    for (const light of this.lights) scene.add(light);
+  }
+
+  spawn(x: number, z: number, groundY: number, spec: FlashLightSpec, colorHex: string): void {
+    const decayMs = spec.decay_ms ?? 0;
     if (decayMs <= 0) return;
-    const maxShift = Math.min(MAX_SHIFT_STEPS, Math.round(light.intensity ?? 0));
-    if (maxShift <= 0) return;
-    if (this.flashes.length >= this.capacity) this.flashes.shift();
-    this.flashes.push({ x, y, radiusTiles: Math.max(0, light.radius_tiles ?? 0), maxShift, decayMs, ageMs: 0 });
+    const rounded = Math.round(spec.intensity ?? 0);
+    if (rounded <= 0) return;
+    if (this.active.length >= this.lights.length) this.active.shift();
+    this.active.push({
+      x,
+      y: groundY + FLASH_HEIGHT,
+      z,
+      peak: (spec.intensity ?? 0) * FLASH_INTENSITY_SCALE,
+      radius: Math.max(0.01, spec.radius_tiles ?? 0),
+      decayMs,
+      ageMs: 0,
+      color: new THREE.Color(colorHex),
+    });
   }
 
-  /**
-   * Ages every active flash by `dtMs`, retires any past its own `decay_ms`,
-   * and rewrites `posArray`/`radiusArray`/`shiftArray` in place from what
-   * remains -- called once a frame from `ThreeRenderer.frame()`, mirroring
-   * `ParticleSystem.step`'s own per-frame shape.
-   *
-   * `sin(progress * PI)` (progress = ageMs / decayMs, clamped [0, 1]) is the
-   * intensity curve, not a linear fade -- rises from 0, peaks at the flash's
-   * own midlife, falls back to 0, "grow fast, shrink out" rather than
-   * starting at full brightness and ticking down. `shiftArray[i]` is that
-   * curve's value at THIS frame, ROUNDED to a whole step (not interpolated)
-   * -- a whole-step spatial falloff was the shader-era reason (on-palette by
-   * construction, every sampled fragment an exact `uRamp` entry); nothing
-   * samples `shiftArray` today (see this class's own top comment), but the
-   * rounding stays because a fractional shift has no other meaning defined
-   * for it yet either.
-   */
+  /** Ages every flash, retires the finished ones, and writes the survivors
+   *  into the pool. `sin(progress * PI)`: rise fast, peak at midlife, fall. */
   step(dtMs: number): void {
-    for (let i = this.flashes.length - 1; i >= 0; i--) {
-      const f = this.flashes[i];
-      f.ageMs += dtMs;
-      if (f.ageMs >= f.decayMs) this.flashes.splice(i, 1);
+    for (const f of this.active) f.ageMs += dtMs;
+    for (let i = this.active.length - 1; i >= 0; i--) {
+      if (this.active[i].ageMs >= this.active[i].decayMs) this.active.splice(i, 1);
     }
-    for (let i = 0; i < this.capacity; i++) {
-      const f = this.flashes[i];
+    for (let i = 0; i < this.lights.length; i++) {
+      const light = this.lights[i];
+      const f = this.active[i];
       if (!f) {
-        this.radiusArray[i] = 0;
-        this.shiftArray[i] = 0;
+        light.intensity = 0;
         continue;
       }
       const progress = Math.min(1, f.ageMs / f.decayMs);
-      const strength = Math.sin(progress * Math.PI);
-      this.posArray[i].set(f.x, f.y);
-      this.radiusArray[i] = f.radiusTiles;
-      this.shiftArray[i] = Math.round(strength * f.maxShift);
+      light.position.set(f.x, f.y, f.z);
+      light.color.copy(f.color);
+      light.distance = f.radius;
+      light.intensity = f.peak * Math.sin(progress * Math.PI);
     }
   }
 
-  /**
-   * Points `material`'s `uFlash*` uniforms at THIS manager's own live
-   * arrays, by reference -- after this call, `step()` alone keeps `material`
-   * current with no further per-material write. Safe to call more than once
-   * on the same material (idempotent: re-pointing at the same arrays is a
-   * no-op in effect) and safe on a material this manager never spawns a
-   * flash near (its slot values simply never move off their inert default).
-   *
-   * Requires `material` to already carry `uFlashPos`/`uFlashRadius`/
-   * `uFlashShift` uniforms -- no shipped material does as of Task 7 (this
-   * class's own top comment), so `register()` currently has no caller.
-   * Narrowed to a structural shape rather than `THREE.ShaderMaterial` so a
-   * test fixture needs no full material.
-   */
-  register(material: { uniforms: Record<string, { value: unknown }> }): void {
-    material.uniforms.uFlashPos.value = this.posArray;
-    material.uniforms.uFlashRadius.value = this.radiusArray;
-    material.uniforms.uFlashShift.value = this.shiftArray;
-  }
-
-  /** Test/debug hook: how many flashes are currently alive. */
-  get liveCount(): number {
-    return this.flashes.length;
+  dispose(): void {
+    for (const light of this.lights) light.dispose();
+    this.active.length = 0;
   }
 }

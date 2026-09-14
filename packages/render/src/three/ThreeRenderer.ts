@@ -921,21 +921,15 @@ export class ThreeRenderer implements Renderer {
    *  comment). Reused across rebuilds for the same reason `terrainMat` is. */
   private readonly groveMat: GroveMaterial = new GroveMaterial();
   /**
-   * Owns the muzzle-flash ramp-shift pool (`./flash-light.ts`'s own top
-   * comment) -- one instance for the whole renderer, since the effect is
-   * deliberately GLOBAL: every registered material sampled the SAME uniform
-   * arrays, differentiated only by each fragment's own world position, not
-   * by which entity fired.
-   *
-   * **It has no registered materials at all right now, and that is the
-   * intended intermediate state.** A ramp shift is a step down a quantized
-   * palette ramp, and nothing in this scene is drawn that way any more: units,
-   * vehicles, buildings, decor and terrain are all `MeshStandardMaterial`
-   * under one sun. `step()` still runs once a frame from `frame()` and updates
-   * nothing. The art uplift's own Task 8 replaces the mechanism with a real
-   * light; until then a muzzle flash simply does not brighten what it is
-   * beside, which is a regression this branch takes knowingly rather than one
-   * to fix by re-registering anything here.
+   * Owns the muzzle-flash/blast light pool (`./flash-light.ts`'s own top
+   * comment) -- one instance for the whole renderer, `FLASH_CAPACITY` real
+   * `THREE.PointLight`s, all `addTo`'d the scene once in the constructor and
+   * left there for its life. A changing light COUNT recompiles every
+   * material in the scene, so the pool cannot grow, shrink, or toggle a
+   * light's `visible` per flash the way a sprite-era pool could -- an idle
+   * slot instead sits at intensity 0, which lights nothing. `spawn` (from
+   * `onFire`, below) and `step` (once a frame, from `frame()`) are the only
+   * two entry points; see their own doc comments in `flash-light.ts`.
    */
   private readonly flashLights = new FlashLightManager();
   /** Reused across `onFire` calls so reading a mesh vehicle's turret-pivot
@@ -1648,6 +1642,14 @@ export class ThreeRenderer implements Renderer {
       this.boltBatch.mesh
     );
     // Same "always present, draws nothing until fed" shape as the FX meshes
+    // just above, but for real `THREE.PointLight`s rather than a batched
+    // mesh: all `FLASH_CAPACITY` of them go in now, at intensity 0, and stay
+    // in the scene for its life -- see `flashLights`' own field doc comment
+    // for why a changing light count is the thing this avoids. Task 9 adds
+    // the scene's ambient/directional lights; for now this is the only
+    // light source `frame()` ever turns on.
+    this.flashLights.addTo(this.scene);
+    // Same "always present, draws nothing until fed" shape as the FX meshes
     // just above -- both start at drawRange 0 (`beginFrame`/`endFrame`
     // haven't run yet) and stay that way until `updateOverlays`'s first
     // call, from `frame()`.
@@ -1876,6 +1878,14 @@ export class ThreeRenderer implements Renderer {
     this.particleInstancerAbove.dispose();
     this.particleInstancerBelowAdditive.dispose();
     this.particleInstancerAboveAdditive.dispose();
+    // Same "added once in the constructor, no scene.remove needed" shape as
+    // the particle batches just above -- `renderer.dispose()` forces context
+    // loss below. Called for the same blanket "dispose everything this file
+    // owns" hygiene the rest of this method follows, though with
+    // `castShadow` permanently false on every pooled light (`flash-light.ts`)
+    // its own `PointLightShadow` never allocates a map, so there is nothing
+    // this actually frees today.
+    this.flashLights.dispose();
     this.muzzleFlashes.dispose();
     this.explosionBursts.dispose();
     this.smokePlumes.dispose();
@@ -2651,16 +2661,27 @@ export class ThreeRenderer implements Renderer {
 
     const emitter = this.emitterLibrary.fireEmitterFor(cls);
     const power = wp ? firePower(wp) : 0;
-    // Muzzle-flash ramp shift (`./flash-light.ts`'s own top comment) -- a
+    // Muzzle-flash/blast light (`./flash-light.ts`'s own top comment) -- a
     // no-op when this emitter declares no `light` (`FlashLightManager.spawn`
     // itself no-ops on a missing/zero `decay_ms`, which an absent `light`
-    // object also produces via the `?.` below). `light.color` is
-    // deliberately NOT read here: the chosen mechanism shifts a surface
-    // toward ITS OWN ramp's lighter step, not toward the flash's own hue --
-    // tinting every nearby surface toward `vfx.white_hot` would reintroduce
-    // the exact off-palette RGB-summation problem `additive`
-    // (`units/fx.ts`) was already rejected for.
-    if (emitter?.light) this.flashLights.spawn(mzX, mzY, emitter.light);
+    // object also produces via the `?.` below). Ground height is resampled
+    // here rather than reusing `mzZ` above: the mesh-turret branch sets
+    // `mzZ` to the turret pivot's own world height, but a flash sits
+    // `FLASH_HEIGHT` above the GROUND regardless of which branch fired it.
+    // `light.color` -- a palette key such as `vfx.fire` -- is now read,
+    // resolved through the same `overlayColor` every other palette-key
+    // consumer in this file already uses, falling back to `vfx.fire`'s own
+    // shipped `#FFB43C` if the key is missing.
+    if (emitter?.light) {
+      const light = emitter.light;
+      this.flashLights.spawn(
+        mzX,
+        mzY,
+        groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, mzX, mzY),
+        light,
+        this.overlayColor(light.color ?? 'vfx.fire', '#FFB43C')
+      );
+    }
 
     // Kick the shooter back along its own bearing (renderer.ts:792-800).
     // Demolition charges are placed, not fired -- a satchel charge must not
