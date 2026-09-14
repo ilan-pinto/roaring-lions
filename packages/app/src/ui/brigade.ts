@@ -134,9 +134,10 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): void {
       rowEl.appendChild(img);
     } else {
       // The HUD's own "reserved, not broken" hatch (hud.ts's `artHtml`) —
-      // the role mark on top, never a bare hatch, so a mesh-only unit
-      // (breach_team, scout_shachaf, apc_kipod — no SPRITE_MAP entry,
-      // correctly) reads as "reserved" rather than "broken".
+      // the role mark on top, never a bare hatch, so a type with no sheet
+      // (`civilians` is the shipped case; the three star-gated units were
+      // until their sheets landed) or a sheet that failed to fetch reads as
+      // "reserved" rather than "broken".
       const art = document.createElement('div');
       art.className = 'rl-brigade__art';
       art.dataset.nosprite = '1';

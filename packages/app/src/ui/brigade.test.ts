@@ -85,11 +85,12 @@ describe('showBrigade', () => {
     expect(host.querySelector('[data-unit="made_up_unit"] .rl-brigade__role')?.textContent).toBe('not a real role');
   });
 
-  it('draws a mesh-only unit as the HUD hatch with a role mark, never a bare hatch', () => {
-    // No `portrait` resolver at all -- exactly the case a mesh-only unit
-    // (breach_team, scout_shachaf, apc_kipod: no SPRITE_MAP entry, correctly)
-    // hits for real, since main.ts's portrait lookup only ever resolves a
-    // sprite sheet URL.
+  it('draws a unit with no portrait as the HUD hatch with a role mark, never a bare hatch', () => {
+    // No `portrait` resolver at all -- the case a type with no sheet hits
+    // for real (`civilians` today; the three star-gated units until their
+    // sheets landed), and the case every unit hits when its manifest fails
+    // to fetch, since main.ts's portrait lookup only ever resolves a sprite
+    // sheet URL.
     const host = document.createElement('div');
     showBrigade(host, { units, ledger: {}, possibleStars: 78 });
     const art = host.querySelector('[data-unit="breach_team"] .rl-brigade__art');

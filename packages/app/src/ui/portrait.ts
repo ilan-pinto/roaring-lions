@@ -19,6 +19,11 @@
  *  an object rather than a file. */
 export interface SheetManifest {
   files?: { clip?: string; facing: number; frame: number; file: string }[];
+  /** A sheet's own portrait facing, overriding `PORTRAIT_FACING`. Written by
+   *  the renderer for the one team whose figures line up along the view axis
+   *  at facing 3 (`INF_BREACH`: two figures in file, the shield hidden behind
+   *  the point man), and absent from every other manifest. */
+  portraitFacing?: number;
 }
 
 /**
@@ -54,8 +59,12 @@ export function portraitFile(manifest: SheetManifest): string | null {
   // the idle pose — not that the frame belongs to some other clip.
   const idle = files.filter((f) => (f.clip ?? 'idle') === 'idle');
   const pool = idle.length > 0 ? idle : files;
+  // The roster-wide facing unless the sheet names its own: a two-figure team
+  // in file stacks into one column at facing 3 and hides its tell, and the
+  // renderer that knows the formation is the right place to say so.
+  const facing = manifest.portraitFacing ?? PORTRAIT_FACING;
   const pick =
-    pool.find((f) => f.facing === PORTRAIT_FACING && f.frame === 0) ??
+    pool.find((f) => f.facing === facing && f.frame === 0) ??
     pool.find((f) => f.frame === 0) ??
     pool[0];
   return pick.file;

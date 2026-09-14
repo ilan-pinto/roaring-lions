@@ -179,10 +179,13 @@ Three new units, one per act, that exist only to be earned. Each is a unit JSON 
 `UnlockGate`, read by `unlockReason` as the sum of best-of stars over
 `campaign.mission_results`, computed with integer addition only), a mesh through the
 Blender pipeline, a mesh-catalogue entry, and — for a new vehicle role — a
-`VEHICLE_ROLE_PALETTE` ramp (`packages/render/src/three/units/vehicle-mesh-role.ts`). Never a
-`SPRITE_MAP` entry: all three are mesh-only and draw nothing on `&nomesh` or on the Pixi
-backend, which has no mesh path at all — a known, accepted gap (see "Mesh units" in
-CLAUDE.md), not an oversight to fix here. The thresholds are set so a ★★ player reaches
+`VEHICLE_ROLE_PALETTE` ramp (`packages/render/src/three/units/vehicle-mesh-role.ts`), and a
+sprite sheet with a `SPRITE_MAP` entry rendered from the SAME kit-authored source as the mesh
+(`INF_BREACH`, `SHACHAF_HULL`, `KIPOD_HULL`, landed 2026-09-14). The sheet is what the
+portrait is cut from (frame 0 of `idle` at facing 3, `ui/portrait.ts`), what draws on
+`&nomesh` and on the Pixi backend, and what a dead mesh vehicle falls back to for its wreck;
+the three shipped mesh-only for one day and drew the reserved hatch on the brigade screen,
+which is the gap this closes. The thresholds are set so a ★★ player reaches
 the first inside Act I and a ★★★ player reaches the third before the last town: with 26
 gradable missions (the tutorial produces no
 result) and a ceiling of 78 stars — counted 2026-09-11 from `data/missions/`, where the

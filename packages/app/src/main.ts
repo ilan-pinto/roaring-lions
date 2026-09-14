@@ -409,6 +409,14 @@ async function main(): Promise<void> {
     recon_drone: DRONE,
     dozer_d9: { path: `${BASE}sprites/D9_HULL/` },
     heli_peten: { path: `${BASE}sprites/APACHE_HULL/` },
+    // The two star-gated vehicles (docs/campaign/special_units/design.md
+    // §4-5). Hull only, like the jeep: each carries a fixed gun, not a
+    // traversing station. Rendered from the same kit-authored sources their
+    // GLBs were exported from, so the billboard, the portrait and the mesh
+    // agree; the sheet is what gives a dead one a wreck instead of the grey
+    // cross, since a mesh vehicle's death falls back to its sheet.
+    scout_shachaf: { path: `${BASE}sprites/SHACHAF_HULL/` },
+    apc_kipod: { path: `${BASE}sprites/KIPOD_HULL/` },
     // One sheet per infantry type, composed from tools/units/kit.py. Each is a
     // distinct silhouette rather than a distinct texture: posture, weapon axis
     // and figure count are what survive downsampling to a 64px black shape.
@@ -420,6 +428,9 @@ async function main(): Promise<void> {
     // The Yahalom sheet is the one carrying a `work` clip — what resolveClip
     // shows for the whole of a tunnel charge.
     yahalom_squad: { path: `${BASE}sprites/INF_YAHALOM/` },
+    // The star-gated Tzinah team (design.md §3): the upright shield is its
+    // silhouette, the same kit the mesh was exported from.
+    breach_team: { path: `${BASE}sprites/INF_BREACH/` },
     militia_cell: { path: `${BASE}sprites/INF_MILITIA/` },
     rpg_team: { path: `${BASE}sprites/INF_RPG/` },
     atgm_cell: { path: `${BASE}sprites/INF_ATGM/` },

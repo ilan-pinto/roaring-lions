@@ -31,6 +31,23 @@ describe('portrait frame', () => {
     expect(portraitFile(withClips)).toBe(`idle_f0${PORTRAIT_FACING}_000.png`);
   });
 
+  it("honours a sheet's own portraitFacing over the roster-wide one", () => {
+    // INF_BREACH: two figures in file, so facing 3 stacks them into one
+    // column with the shield hidden. Its manifest names facing 5 instead,
+    // and the picker must follow the manifest, not the constant.
+    const inFile = {
+      portraitFacing: 5,
+      files: [
+        { clip: 'idle', facing: 3, frame: 0, file: 'idle_f03_000.png' },
+        { clip: 'idle', facing: 5, frame: 0, file: 'idle_f05_000.png' },
+        { clip: 'idle', facing: 5, frame: 1, file: 'idle_f05_001.png' },
+      ],
+    };
+    expect(portraitFile(inFile)).toBe('idle_f05_000.png');
+    // A sheet that names a facing it does not carry still gets a picture.
+    expect(portraitFile({ ...inFile, portraitFacing: 9 })).toBe('idle_f03_000.png');
+  });
+
   it('never takes a death or movement frame as the portrait', () => {
     // `down_f03_000.png` is first in the list and matches the facing exactly.
     // Filtering by clip is the only thing keeping a corpse out of the chip.
