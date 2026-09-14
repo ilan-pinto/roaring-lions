@@ -84,6 +84,10 @@ describe('buildMeshUnitTemplate', () => {
       if (!mesh.isMesh) return;
       expect(mesh.castShadow).toBe(true);
       expect(mesh.receiveShadow).toBe(true);
+      // renderOrder: read render-order.ts before setting any renderOrder --
+      // mesh units are real depth-tested world geometry and belong at
+      // HULL_RENDER_ORDER, exactly like the billboards they replace.
+      expect(mesh.renderOrder).toBe(HULL_RENDER_ORDER);
     });
     expect(template.root.scale.x).toBeCloseTo(MESH_SCALE, 9);
   });

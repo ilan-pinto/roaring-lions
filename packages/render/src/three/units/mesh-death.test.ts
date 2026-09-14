@@ -18,7 +18,7 @@ import { describe, it, expect, vi } from 'vitest';
 import * as THREE from 'three';
 import { buildMeshUnitTemplate, instantiateMeshUnit, type MeshUnitEntity } from './mesh-unit';
 import { parseFixture } from './mesh-fixture';
-import { toonRampSkinnedMaterial } from './mesh-material';
+import { rampMaterial } from '../world-materials';
 import { groundWorldY } from '../ground-height';
 import { WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import {
@@ -109,8 +109,16 @@ describe('meshDeathSinkPx', () => {
 
 describe('beginMeshDeathFade / setMeshDeathOpacity / endMeshDeathFade', () => {
   it('clones a distinct material per identity, installs it with transparent:true, and leaves the original untouched', () => {
-    const materialA = toonRampSkinnedMaterial(['#8F9464']);
-    const materialB = toonRampSkinnedMaterial(['#6E7449']);
+    // `rampMaterial`, the SAME constructor `buildMeshUnitTemplate` calls in
+    // production -- not a hand-rolled stand-in -- so this exercises the
+    // clone path against the real `MeshStandardMaterial` shape it actually
+    // runs on. Two overlapping windows of the same "olive" example ramp
+    // (`mesh-material.test.ts`'s own `OLIVE`) give two materials whose lit
+    // tone (`liftTone` picks index 1 of a >=3-step ramp) differs -- A lands
+    // on `#6E7449`, B on `#4E5433` -- so they stay distinguishable by more
+    // than object identity alone.
+    const materialA = rampMaterial(['#8F9464', '#6E7449', '#4E5433']);
+    const materialB = rampMaterial(['#6E7449', '#4E5433', '#333821']);
     const root = new THREE.Group();
     const meshA1 = new THREE.Mesh(new THREE.BufferGeometry(), materialA);
     const meshA2 = new THREE.Mesh(new THREE.BufferGeometry(), materialA); // shares materialA
@@ -122,7 +130,7 @@ describe('beginMeshDeathFade / setMeshDeathOpacity / endMeshDeathFade', () => {
 
     // Break check (verified by hand, then reverted): delete `fade.transparent
     // = true;` in `beginMeshDeathFade`. This assertion then reads `false`
-    // (three.js's own `ShaderMaterial` default) and goes red.
+    // (three.js's own `Material` default) and goes red.
     for (const s of swaps) expect(s.fade.transparent).toBe(true);
 
     expect(meshA1.material).not.toBe(materialA);

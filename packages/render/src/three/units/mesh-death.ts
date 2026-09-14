@@ -161,8 +161,12 @@ export interface MeshFadeSwap {
  * normally has at most one mesh per material already, but two meshes
  * sharing one material object would otherwise get two independent fade
  * clones drifting out of sync with each other for no reason -- dedup keeps
- * `setMeshDeathOpacity` writing one clone's uniform once per distinct
- * material, however many meshes reference it.
+ * every mesh that shares an original material pointing at the SAME clone.
+ * `setMeshDeathOpacity` (below) does not itself dedup -- it writes `opacity`
+ * to `s.fade` for every swap, which can mean writing the same clone more
+ * than once per call -- but because the clone is shared, every one of those
+ * writes lands on the one object the meshes actually draw through, so they
+ * end up fading in lockstep regardless of how many times it is written.
  */
 export function beginMeshDeathFade(root: THREE.Object3D): MeshFadeSwap[] {
   const swaps: MeshFadeSwap[] = [];
