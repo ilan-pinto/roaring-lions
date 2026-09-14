@@ -141,11 +141,13 @@ SPECS = {
         # turret -- the same hull-only branch dozer_d9 takes, and for the
         # same reason: nothing in this hull needs to traverse independently.
         turret_prefixes=(),
-        # No shipped sprite sheet exists for this star-gated unit (it ships
-        # mesh-only) -- the literal declares the same real-world size
-        # `author_scout_shachaf.py`'s own header comment states (hull length
-        # 4.6 m, the model's longest axis).
-        real_metres=4.6,
+        # Read from the sheet since 2026-09-14, when SHACHAF_HULL landed
+        # (tools/render_scout_shachaf.py, real_metres 4.6 -- hull length,
+        # the model's longest axis, per author_scout_shachaf.py). This spec
+        # carried a `real_metres=4.6` literal while the unit shipped
+        # mesh-only; a literal here and another in the render script is the
+        # drift `sprite_manifest` exists to make impossible.
+        sprite_manifest=os.path.join(REPO, "assets", "sprites", "SHACHAF_HULL", "manifest.json"),
         credit="Light scout car -- authored from primitives for this repository, CC BY-SA 4.0",
     ),
     "apc_kipod": VehicleMeshSpec(
@@ -153,7 +155,9 @@ SPECS = {
         src=os.path.join(REPO, "art", "src", "vehicles", "apc_kipod.blend"),
         # Its own remote_mg is fixed, same reasoning as scout_shachaf above.
         turret_prefixes=(),
-        real_metres=7.2,
+        # KIPOD_HULL's manifest (tools/render_apc_kipod.py, real_metres 7.2),
+        # for the reason given on scout_shachaf above.
+        sprite_manifest=os.path.join(REPO, "assets", "sprites", "KIPOD_HULL", "manifest.json"),
         credit="Screen carrier APC -- authored from primitives for this repository, CC BY-SA 4.0",
     ),
 }
