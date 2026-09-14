@@ -124,26 +124,21 @@ export function terrainMaterial(): THREE.Material {
     uniforms: { ...defaultFlashUniforms() },
     vertexShader: /* glsl */ `
       attribute vec3 color;
-      attribute vec3 litColor;
       varying vec3 vColor;
-      varying vec3 vLitColor;
       varying vec3 vWorldPos;
       void main() {
         vColor = color;
-        vLitColor = litColor;
         vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
     fragmentShader: /* glsl */ `
       varying vec3 vColor;
-      varying vec3 vLitColor;
       varying vec3 vWorldPos;
       ${FLASH_UNIFORMS_GLSL}
       ${FLASH_SHIFT_GLSL}
       void main() {
-        int shift = flashShiftSteps(vWorldPos);
-        gl_FragColor = vec4(shift > 0 ? vLitColor : vColor, 1.0);
+        gl_FragColor = vec4(vColor, 1.0);
       }
     `,
   });
@@ -202,15 +197,12 @@ export function groveMaterial(): THREE.ShaderMaterial {
     uniforms: { ...defaultFlashUniforms(), uTime: { value: 0 } },
     vertexShader: /* glsl */ `
       attribute vec3 color;
-      attribute vec3 litColor;
       attribute float sway;
       uniform float uTime;
       varying vec3 vColor;
-      varying vec3 vLitColor;
       varying vec3 vWorldPos;
       void main() {
         vColor = color;
-        vLitColor = litColor;
         vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
         float phase = uTime * 1.6 + vWorldPos.x * 0.6 + vWorldPos.z * 0.9;
         float wind = sin(phase) * sway * 0.05;
@@ -220,13 +212,11 @@ export function groveMaterial(): THREE.ShaderMaterial {
     `,
     fragmentShader: /* glsl */ `
       varying vec3 vColor;
-      varying vec3 vLitColor;
       varying vec3 vWorldPos;
       ${FLASH_UNIFORMS_GLSL}
       ${FLASH_SHIFT_GLSL}
       void main() {
-        int shift = flashShiftSteps(vWorldPos);
-        gl_FragColor = vec4(shift > 0 ? vLitColor : vColor, 1.0);
+        gl_FragColor = vec4(vColor, 1.0);
       }
     `,
   });

@@ -21,6 +21,7 @@ import * as THREE from 'three';
 import {
   groundSurfaceMaterial,
   terrainMaterial,
+  groveMaterial,
   toGeometry,
   GROUND_LIGHT_DIR,
   GROUND_RELIEF_STRENGTH,
@@ -116,6 +117,21 @@ describe('groundSurfaceMaterial', () => {
     expect(src.fragmentShader).not.toMatch(/uLightDir|uRelief|shade/);
     expect(src.vertexShader).not.toMatch(/normal/);
     expect(src.side).toBe(THREE.FrontSide);
+  });
+});
+
+describe('terrainMaterial / groveMaterial: no litColor', () => {
+  // Task 3 review finding: `toGeometry` stopped uploading a `litColor`
+  // attribute, but these two materials still declared and read one --
+  // sampling the generic attribute default (0,0,0,1), solid black, on
+  // every scatter mark, grove, residual tile and structure box whenever a
+  // muzzle flash is active (FlashLightManager is live). Both shader stages
+  // of both materials must be clean of the identifier.
+  it('neither material declares or reads litColor/vLitColor, in either shader stage', () => {
+    for (const material of [terrainMaterial(), groveMaterial()] as THREE.ShaderMaterial[]) {
+      expect(material.vertexShader).not.toMatch(/litColor/i);
+      expect(material.fragmentShader).not.toMatch(/litColor/i);
+    }
   });
 });
 
