@@ -39,6 +39,26 @@ describe('createPostChain', () => {
     expect(chain.composer.renderTarget2.depthTexture).not.toBeNull();
   });
 
+  it('gives each buffer its OWN depth-stencil texture, not the clone that shares a Source', () => {
+    // `EffectComposer` builds renderTarget2 as `renderTarget1.clone()`, and
+    // that clone's depth texture shares a `THREE.Source` with the original
+    // (`Texture.copy` does `this.source = source.source`; `RenderTarget.copy`
+    // re-sources only the colour texture). `WebGLTextures` caches the GL
+    // texture per Source under a parameters-only key, so a shared Source
+    // means ONE `__webglTexture` for both buffers -- and a pass that samples
+    // `readBuffer.depthTexture` while drawing into `writeBuffer` is then a
+    // WebGL2 feedback loop, silently dropping the draw. Identity of the
+    // `Source`, not of the `DepthTexture`, is the thing that has to differ.
+    const chain = createPostChain(fakeRenderer(), new THREE.Scene(), new THREE.OrthographicCamera(), 1440, 900, 1);
+    const one = chain.composer.renderTarget1.depthTexture;
+    const two = chain.composer.renderTarget2.depthTexture;
+    expect(one).not.toBeNull();
+    expect(two).not.toBeNull();
+    expect((one as THREE.DepthTexture).source).not.toBe((two as THREE.DepthTexture).source);
+    expect((two as THREE.DepthTexture).format).toBe(THREE.DepthStencilFormat);
+    expect((two as THREE.DepthTexture).type).toBe(THREE.UnsignedInt248Type);
+  });
+
   it('slots the fog pass after RenderPass and the AO pass after fog, OutputPass and SMAA last', () => {
     const chain = createPostChain(fakeRenderer(), new THREE.Scene(), new THREE.OrthographicCamera(), 800, 600, 1);
     const fog = { name: 'FogOfWarPass', render() {}, setSize() {}, dispose() {}, needsSwap: true, enabled: true, clear: false, renderToScreen: false } as unknown as import('three/addons/postprocessing/Pass.js').Pass;

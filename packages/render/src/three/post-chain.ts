@@ -19,8 +19,25 @@
  * With a stencil, the depth texture must be `DepthStencilFormat` /
  * `UnsignedInt248Type`.
  *
+ * **Each of the composer's two targets carries its OWN depth-stencil
+ * texture, and that is what makes the chain work at all**: a pass reads the
+ * depth of the buffer it is NOT writing into (Task 10's fog pass does
+ * `tDepth = readBuffer.depthTexture` while rendering into `writeBuffer`),
+ * which is only sound if those are two different GL textures. Getting there
+ * takes an explicit second allocation below, because `EffectComposer` builds
+ * `renderTarget2` as `renderTarget1.clone()` and that clone does NOT produce
+ * an independent depth texture: `RenderTarget.copy` re-sources the COLOUR
+ * texture alone (`this.texture.source = new Source(image)`) and merely
+ * `clone()`s the depth one, while `Texture.copy` does `this.source =
+ * source.source` -- so the two depth textures share a `Source`, and
+ * `WebGLTextures` caches the GL texture per `Source` under a
+ * parameters-only key, handing both targets the same `__webglTexture`.
+ * Sampling it while it is the depth/stencil attachment of the framebuffer
+ * being drawn into is a WebGL2 feedback loop: INVALID_OPERATION, and the
+ * draw is dropped.
+ *
  * Fog sits BEFORE ambient occlusion so it reads the RenderPass's own buffer
- * (a pass that swaps leaves the scene depth in the OTHER target); AO is
+ * (the pass swaps, leaving the scene depth in the other target); AO is
  * self-contained and re-renders normals itself.
  */
 import * as THREE from 'three';
@@ -41,8 +58,23 @@ export interface PostChain {
   readonly passNames: readonly string[];
   setSize(cssWidth: number, cssHeight: number, pixelRatio: number): void;
   render(): void;
+  /**
+   * Slot a pass in, or `null` to take it out again.
+   *
+   * **The chain does not own these two.** `dispose()` below releases only the
+   * four passes this module constructed; whoever built the fog pass (Task 10)
+   * or the AO pass (Task 13) disposes it, and must do so after taking it out
+   * of the chain rather than instead of. Any other split would mean a caller
+   * cannot move one pass between chains, or hold one across a
+   * `setFogPass(null)` -- and a chain that disposed a pass it was merely
+   * handed would make `setFogPass(null); setFogPass(same)` a use-after-free.
+   */
   setFogPass(pass: Pass | null): void;
+  /** Ownership as for `setFogPass` above: the caller disposes what it built. */
   setAoPass(pass: Pass | null): void;
+  /** Releases the composer's targets and the four passes this module owns
+   *  (RenderPass, OutputPass, SMAAPass, and the composer's own copy pass) --
+   *  never a fog or AO pass handed in from outside. */
   dispose(): void;
 }
 
@@ -81,12 +113,32 @@ export function createPostChain(
   // Set BEFORE the composer is constructed: it builds `renderTarget2` as a
   // `clone()` of this one, and `RenderTarget.copy` clones a depth texture
   // only if the source already has one. Attaching it afterwards would leave
-  // the read buffer without depth, so every other frame the fog pass would
-  // sample nothing.
+  // the read buffer without depth at all, so the fog pass would sample
+  // nothing every other frame.
   target.depthTexture = depthStencilTexture(w, h);
   const composer = new EffectComposer(renderer, target);
-  composer.setPixelRatio(pixelRatio);
+  // ...and then give the read buffer a depth texture that is genuinely its
+  // own. The clone above shares a `Source` with target 1's, which means one
+  // GL texture for both buffers -- see this file's header for the chain from
+  // `Texture.copy` to the feedback loop that causes. Disposing the clone
+  // first is bookkeeping (nothing has been uploaded yet, so it early-returns)
+  // rather than a real free, and it is refcounted per `Source` regardless, so
+  // it cannot take target 1's texture with it.
+  composer.renderTarget2.depthTexture?.dispose();
+  composer.renderTarget2.depthTexture = depthStencilTexture(w, h);
+  // `setSize` BEFORE `setPixelRatio`, and the order is not arbitrary. The
+  // r170 constructor seeds `_width`/`_height` from the RENDER TARGET's size
+  // (already css x pixelRatio), so `setPixelRatio(pr)` -- which re-runs
+  // `setSize(_width, _height)` internally -- would resize both targets to
+  // css x pr^2 before the real `setSize` brought them back. This way round,
+  // `setSize` first rewrites `_width` to the css figure, so the ratio call
+  // that follows re-runs it at css x pr, which is the size the targets were
+  // constructed at. `ThreeRenderer` passes `renderer.getPixelRatio()`, the
+  // same value the constructor read, so in the game this pair resizes
+  // nothing at all; `setPixelRatio` still has to be called because the
+  // argument and the renderer's own ratio are free to differ.
   composer.setSize(cssWidth, cssHeight);
+  composer.setPixelRatio(pixelRatio);
 
   const renderPass = new RenderPass(scene, camera);
   const outputPass = new OutputPass();
@@ -110,8 +162,13 @@ export function createPostChain(
       return composer.passes.map(passName);
     },
     setSize(cw, ch, pr) {
-      composer.setPixelRatio(pr);
+      // Same order as the constructor above, for one rule rather than two.
+      // Here `_width` is already a css figure, so neither order could reach
+      // css x pr^2; this order additionally makes the no-op case free (a
+      // window resize at an unchanged pixel ratio resizes the targets once,
+      // and the ratio call that follows finds nothing to change).
       composer.setSize(cw, ch);
+      composer.setPixelRatio(pr);
     },
     render() {
       composer.render();
