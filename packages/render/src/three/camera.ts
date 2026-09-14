@@ -63,9 +63,16 @@ const SIN_EL = Math.sin(ELEVATION);
 /** Both ground axes contribute equally at a 45-degree azimuth. */
 const AZIMUTH = Math.SQRT1_2;
 
-/** Arbitrary: orthographic projection depends only on view direction, not
- *  camera distance. Large enough that near/far comfortably bracket it. */
-const CAMERA_DISTANCE = 10_000;
+/** Orthographic projection depends only on view direction, not distance, so
+ *  this only has to keep the whole map in front of the camera: the far
+ *  corner of a 64x64 map is ~45 world units from its centre along
+ *  `VIEW_DIRECTION`, and a roof is under 8 up. 120 puts every depth in
+ *  [~70, ~170]. It was 10,000 with far at 20,000 -- a 20,000-unit range for a
+ *  50-unit scene, which starved the depth buffer the AO and fog passes read
+ *  (spec §5). */
+const CAMERA_DISTANCE = 120;
+export const CAMERA_NEAR = 1;
+export const CAMERA_FAR = 300;
 
 /** Unit view direction from the camera's target toward the camera, fixed by
  *  the 45-degree azimuth and the solved elevation angle. */
@@ -76,10 +83,16 @@ export const VIEW_DIRECTION = new THREE.Vector3(
 );
 
 /**
- * The three.js orthographic camera reproducing `project.worldToScreen`'s
- * projection for the given pan/zoom and viewport.
+ * Configure `camera` in place for the given pan/zoom and viewport and return
+ * it. `ThreeRenderer` keeps ONE camera and calls this every frame: the post
+ * passes and the AO pass hold a camera reference, so a fresh instance per
+ * frame would leave them pointed at last frame's object.
  */
-export function dimetricCamera(cam: Camera, vp: Viewport): THREE.OrthographicCamera {
+export function updateDimetricCamera(
+  cam: Camera,
+  vp: Viewport,
+  camera: THREE.OrthographicCamera
+): THREE.OrthographicCamera {
   const target = new THREE.Vector3(cam.x, 0, cam.y);
 
   // Frustum half-extents in view space. Scaled by vp so a tile's pixel size
@@ -88,21 +101,22 @@ export function dimetricCamera(cam: Camera, vp: Viewport): THREE.OrthographicCam
   // the view, matching a bigger `z` multiplying every projected pixel.
   const halfWidth = vp.width / (TILE_W * cam.zoom * Math.SQRT2);
   const halfHeight = (vp.height * SIN_EL) / (TILE_H * cam.zoom * Math.SQRT2);
-
-  const camera = new THREE.OrthographicCamera(
-    -halfWidth,
-    halfWidth,
-    halfHeight,
-    -halfHeight,
-    0.1,
-    CAMERA_DISTANCE * 2
-  );
+  camera.left = -halfWidth;
+  camera.right = halfWidth;
+  camera.top = halfHeight;
+  camera.bottom = -halfHeight;
+  camera.near = CAMERA_NEAR;
+  camera.far = CAMERA_FAR;
   camera.position.copy(target).addScaledVector(VIEW_DIRECTION, CAMERA_DISTANCE);
   camera.up.set(0, 1, 0);
   camera.lookAt(target);
   camera.updateProjectionMatrix();
   camera.updateMatrixWorld(true);
   return camera;
+}
+
+export function dimetricCamera(cam: Camera, vp: Viewport): THREE.OrthographicCamera {
+  return updateDimetricCamera(cam, vp, new THREE.OrthographicCamera());
 }
 
 /**

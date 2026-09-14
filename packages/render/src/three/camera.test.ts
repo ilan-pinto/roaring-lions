@@ -7,9 +7,10 @@
  * These assertions are the specification. The camera's position, frustum and
  * elevation angle are whatever satisfies them.
  */
+import * as THREE from 'three';
 import { describe, it, expect } from 'vitest';
 import { worldToScreen, screenToWorldFlat, isoX, isoY, ELEV_STEP, type Camera, type Viewport } from '../project';
-import { worldToScreenThree, screenToWorldThree, dimetricCamera } from './camera';
+import { worldToScreenThree, screenToWorldThree, dimetricCamera, updateDimetricCamera, CAMERA_NEAR, CAMERA_FAR } from './camera';
 import { groundLevelAt } from './ground-height';
 
 const VP: Viewport = { width: 800, height: 600 };
@@ -307,5 +308,47 @@ describe('screenToWorldThree is elevation-aware (bugfix)', () => {
     expect(byLevel.get(2)).toEqual({ total: 56, pixi: 56, three: 56 });
     expect(byLevel.get(3)).toEqual({ total: 490, pixi: 462, three: 462 });
     expect(byLevel.get(4)).toEqual({ total: 166, pixi: 137, three: 137 });
+  });
+});
+
+describe('updateDimetricCamera', () => {
+  it('reuses one camera instance and matches a fresh dimetricCamera for the same input', () => {
+    const persistent = new THREE.OrthographicCamera();
+    const vp = { width: 1440, height: 900 };
+    for (const cam of [
+      { x: 5, y: 22, zoom: 2.5 },
+      { x: 24, y: 24, zoom: 0.5 },
+    ]) {
+      const a = updateDimetricCamera(cam, vp, persistent);
+      const b = dimetricCamera(cam, vp);
+      expect(a).toBe(persistent);
+      expect(a.projectionMatrix.toArray()).toEqual(b.projectionMatrix.toArray());
+      expect(a.matrixWorld.toArray()).toEqual(b.matrixWorld.toArray());
+    }
+  });
+
+  it('near/far bracket a 64x64 map with 8 units of height from any target on it', () => {
+    expect(CAMERA_NEAR).toBe(1);
+    expect(CAMERA_FAR).toBe(300);
+    const vp = { width: 1440, height: 900 };
+    for (const [tx, ty] of [
+      [0, 0],
+      [64, 64],
+      [32, 32],
+      [0, 64],
+    ]) {
+      const cam = dimetricCamera({ x: tx, y: ty, zoom: 1 }, vp);
+      for (const [x, z] of [
+        [0, 0],
+        [64, 0],
+        [0, 64],
+        [64, 64],
+      ]) {
+        for (const y of [-1, 8]) {
+          const ndc = new THREE.Vector3(x, y, z).project(cam);
+          expect(Math.abs(ndc.z), `depth of ${x},${y},${z} from target ${tx},${ty}`).toBeLessThan(1);
+        }
+      }
+    }
   });
 });
