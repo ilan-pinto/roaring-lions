@@ -26,11 +26,20 @@ function scene(width: number, height: number) {
 }
 
 describe('lighting', () => {
-  it('sun direction is a unit vector pointing up, on the camera side of the map', () => {
+  it('sun is the side light at rig azimuth 135 / altitude 55: X and Z differ in sign ON PURPOSE', () => {
+    // The rig's stated azimuth 135 is the CAMERA'S LEFT (the camera sits at
+    // 225, so its right-hand vector points at 315). Normalised, the to-sun
+    // vector is (-0.406, 0.819, 0.406) to three decimals. The X/Z signs
+    // differing is the whole point -- an equal pair lies in the camera's own
+    // azimuth plane, lights both camera-facing faces identically and throws
+    // its shadow straight up-screen, inside the caster. Do NOT "restore" the
+    // agreement this test used to demand; see lighting.ts's header for the
+    // two retired alternatives and their measurements.
     expect(SUN_DIRECTION.length()).toBeCloseTo(1, 6);
-    expect(SUN_DIRECTION.y).toBeGreaterThan(0.5);
-    // Task 9 step 7 may flip both signs together; they must always agree.
-    expect(Math.sign(SUN_DIRECTION.x)).toBe(Math.sign(SUN_DIRECTION.z));
+    expect(SUN_DIRECTION.x).toBeCloseTo(-0.406, 3);
+    expect(SUN_DIRECTION.y).toBeCloseTo(0.819, 3);
+    expect(SUN_DIRECTION.z).toBeCloseTo(0.406, 3);
+    expect(Math.sign(SUN_DIRECTION.x)).not.toBe(Math.sign(SUN_DIRECTION.z));
   });
 
   it('sun : hemisphere is the spec ratio (2.6 : 0.9)', () => {
