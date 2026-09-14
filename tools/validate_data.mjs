@@ -329,6 +329,15 @@ const structureSymbols = new Map(
     };
     for (const p of mi.starting_force ?? []) {
       wantUnit(p.unit, 'starting_force');
+      // The schema's own if/then already refuses this shape, but the message there is a
+      // bare "must have required property" -- this one says WHY: gate_only means nothing
+      // without a gate to be closed on, and upgrades_to is the only thing that names one.
+      if (p.gate_only === true && p.upgrades_to === undefined) {
+        failures.push(
+          `${rel(file)}: ${p.unit} sets gate_only with no upgrades_to -- gate_only only ` +
+            `makes sense on a placement resolveUpgrades can drop, which requires upgrades_to`
+        );
+      }
       if (p.upgrades_to !== undefined) {
         if (p.from_ledger === true) {
           failures.push(
