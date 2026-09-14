@@ -32,10 +32,11 @@ replacement, `docs/art/meshy-prompts-buildings.md` Prompt 2 / Open Decision 1):
     art/blend/enemy/civic hall/Meshy_AI_civic_hall_destroyed__0906113210_image-to-3d-texture.blend
 
 Each is a single mesh object `mesh_node`, one material (`base_color` 4096,
-`metallic_roughness` 2048, `normal` 4096 -- the latter two dropped at export,
-see `tools/buildings/textured.py`), one UV map (`UVMap`). Census (this
-session, fresh per-file Blender process, raw un-decimated): intact 974,541
-verts / 1,949,370 polys, source extent x=1.6669 y=1.9043 z=0.9031 model
+`metallic_roughness` 2048, `normal` 4096 -- the latter two shipped since
+2026-09-14 too, capped at the same `TEXTURE_PX` as `base_color`; dropped
+before that, see `tools/buildings/textured.py`), one UV map (`UVMap`).
+Census (this session, fresh per-file Blender process, raw un-decimated):
+intact 974,541 verts / 1,949,370 polys, source extent x=1.6669 y=1.9043 z=0.9031 model
 units, lowest vertex z=-0.4501. Destroyed 952,925 verts / 1,922,562 polys,
 extent x=1.9210 y=1.8226 z=1.1565, lowest vertex z=-0.5796.
 

@@ -150,9 +150,24 @@ it; the map would come out one flat colour per slope angle.
     pass-through, so an sRGB internal format decodes on every sample with
     nothing to re-encode it. Measured on `beit_sahwan_outskirts` that drops a
     lit wall from rgb 67 to 51 -- and it still looks like a building.
-  * `metallic_roughness` and `normal` are DROPPED. Not for size: there are no
-    lights in this scene to consume them, and shipping them would invite a
-    later reader to conclude this backend is PBR when it is not.
+  * `metallic_roughness` and `normal` are DROPPED, and still are since
+    2026-09-14 even though `tools/buildings/textured.py`'s own twin maps are
+    kept now (the renderer has real lights, `packages/render/src/three/
+    lighting.ts`). This asset is the one place that stopped applying to: the
+    campaign board keeps its own bespoke `ShaderMaterial`,
+    `campaignWorldMaterial` (`packages/render/src/three/campaign/
+    world-material.ts`), which reads only `map` this phase -- see "The
+    campaign board" in CLAUDE.md and the design spec's §9 (optional,
+    unbuilt: moving it onto `lighting.ts`'s sun). Shipping the other two maps
+    here would be dead weight for a different, narrower reason than "no
+    lights exist" (untrue of this renderer generally): nothing in THIS
+    asset's own material samples them, and `tools/validate_mesh_assets.py`'s
+    `check_campaign_meshes` gate requires `sahar_basin.glb` to ship exactly
+    one material/image/texture, so shipping a second or third would fail
+    `pnpm validate:meshes` outright, not merely waste bytes. Uses its own
+    `CAMPAIGN_DROPPED_MAPS` below rather than `textured.DROPPED_MAPS` --
+    see `_prepare_images`'s own docstring for why the two must not share one
+    constant.
 
 ## TEXTURE: 4096, AND THE RE-ENCODE IS NOT OPTIONAL
 
@@ -183,8 +198,15 @@ Against the passthrough the re-encode reads meanAbsChannelDelta 1.09/255 and
 is indistinguishable in a 4x crop of the town roofs; 3584 reads 1.57 and is
 visibly softer, 2048 reads 2.62 and blurs the huts into each other at 1:1 on
 a 1600 px presentation. So the choice is 4096 re-encoded, and `_prepare_images`
-below exists purely to force that scale call -- `textured.py` is left alone
-because the three buildings that share it would change bytes.
+below exists purely to force that scale call -- `textured.py`'s own
+`prepare_textured_images` is left alone (still only scales when oversized)
+because the six buildings and the ditch decor that share it would change
+bytes. That same reasoning is now doubled: `_prepare_images` also uses its
+own `CAMPAIGN_DROPPED_MAPS` rather than reading `textured.DROPPED_MAPS`
+directly, after 2026-09-14's Task 14 fix round 1 emptied that constant for
+the buildings and silently stopped this file dropping the two maps too --
+the two policies (drop / do not drop) are opposite for this asset and the
+buildings, on purpose, and can only stay that way if they are two constants.
 """
 import argparse
 import json
@@ -641,18 +663,39 @@ def _ray_down(ob, origin):
     return (ob.matrix_world @ loc, nrm, idx, 0.0) if ok else (None, None, None, None)
 
 
+#: This file's OWN drop list -- deliberately NOT `textured.DROPPED_MAPS`.
+#: `tools/buildings/textured.py` keeps `metallic_roughness`/`normal` since
+#: 2026-09-14 because the lit renderer's `texturedMaterial` consumes them;
+#: this asset does not follow that change, because it does not go through
+#: `texturedMaterial` at all. `campaignWorldMaterial`
+#: (`packages/render/src/three/campaign/world-material.ts`) is a bespoke
+#: `ShaderMaterial` that reads only `map` this phase (design spec §9: moving
+#: it onto the shared sun is listed as an optional, unbuilt follow-up), and
+#: `tools/validate_mesh_assets.py`'s `check_campaign_meshes` gate requires
+#: `sahar_basin.glb` to ship exactly one material/image/texture -- shipping
+#: a second or third here does not just waste bytes, it fails
+#: `pnpm validate:meshes`. A shared constant with the buildings module would
+#: silently flip this asset's policy every time that one changes, which is
+#: exactly what happened once already (see the module docstring's "TEXTURE:
+#: 4096" section) -- so this stays a separate name.
+CAMPAIGN_DROPPED_MAPS: tuple[str, ...] = ("metallic_roughness", "normal")
+
+
 # --------------------------------------------------------------------------
 def _prepare_images(px):
-    """Drop `metallic_roughness`/`normal`, then ALWAYS resize `base_color`.
+    """Drop `CAMPAIGN_DROPPED_MAPS`, then ALWAYS resize `base_color`.
 
     `textured.prepare_textured_images` resizes only when the source is bigger
     than the target, which is right for the buildings and wrong here: this
     source IS 4096, so that guard leaves the datablock untouched and the glTF
     exporter copies the packed source JPEG through verbatim -- 15.09 MB
     instead of 3.96. The scale call is what puts it back on the encode curve.
-    Constants come from `textured` so the two cannot drift on WHAT ships.
+    `BASE_COLOR`/`JPEG_QUALITY`/`gltf_kwargs` still come from `textured` so
+    the two cannot drift on those -- but the drop list is this module's own,
+    on purpose: see `CAMPAIGN_DROPPED_MAPS`'s docstring for why sharing
+    `textured.DROPPED_MAPS` was the bug, not the fix.
     """
-    for name in textured.DROPPED_MAPS:
+    for name in CAMPAIGN_DROPPED_MAPS:
         img = bpy.data.images.get(name)
         if img is not None:
             bpy.data.images.remove(img)

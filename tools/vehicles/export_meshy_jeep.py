@@ -10,8 +10,9 @@ Writes `art/meshes/vehicles/jeep_shoded.glb`.
 texture"): `Meshy_AI_military_utility_vehi_0907064115_image-to-3d-texture.blend`
 beside the part-segmentation file below -- one welded `mesh_node`, 982,851
 verts / 1,967,072 tris, one material, `base_color` 4096^2 (+ a
-`metallic_roughness` and a `normal` map this scene has no lights to read, both
-dropped at export by `textured.prepare_vehicle_textures`). Under the lead's
+`metallic_roughness` and a `normal` map, both shipped since 2026-09-14 at the
+same `TEXTURE_PX` ceiling as `base_color` via
+`textured.prepare_vehicle_textures` -- dropped before that). Under the lead's
 standing rule a supplied bake ships as-is, so this export now cuts its
 geometry from THAT file and keeps its material, exactly as the six vehicles
 in `TEXTURED_VEHICLE_TYPES` do.

@@ -22,10 +22,11 @@ Prompt 1:
     art/blend/enemy/clinic/Meshy_AI_clinic_destroyed_3d_0906100207_image-to-3d-texture.blend
 
 Each is a single mesh object `mesh_node`, one material (`base_color` 4096,
-`metallic_roughness` 2048, `normal` 4096 -- the latter two dropped at export,
-see `tools/buildings/textured.py`), one UV map. Census (this session, fresh
-per-file Blender process, raw un-decimated): intact 961,122 verts /
-1,922,539 polys, source extent x=1.3747 y=1.9037 z=0.9005 model units.
+`metallic_roughness` 2048, `normal` 4096 -- the latter two shipped since
+2026-09-14 too, capped at the same `TEXTURE_PX` as `base_color`; dropped
+before that, see `tools/buildings/textured.py`), one UV map. Census (this
+session, fresh per-file Blender process, raw un-decimated): intact 961,122
+verts / 1,922,539 polys, source extent x=1.3747 y=1.9037 z=0.9005 model units.
 Destroyed 927,299 verts / 1,859,069 polys, extent x=1.6230 y=1.9001
 z=0.7228.
 

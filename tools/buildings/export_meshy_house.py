@@ -692,8 +692,9 @@ def _finalize_and_export(role_objs, out_path):
     The material is KEPT rather than cleared -- see `tools/buildings/
     textured.py`'s own module docstring for the project lead's override of
     the contract's "a GLB carries zero materials" rule, the measured texture
-    size table, and why `metallic_roughness`/`normal` are dropped while
-    `base_color` ships."""
+    size table, and why `metallic_roughness`/`normal` ship at the same
+    `TEXTURE_PX` ceiling as `base_color` (since 2026-09-14; dropped before
+    that)."""
     for role, ob in role_objs.items():
         ob.name = role
         ob.data.name = role

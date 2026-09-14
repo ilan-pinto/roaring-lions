@@ -25,6 +25,7 @@ make the exception invisible at exactly the place a reader looks for the rule.
     materials 1                    uv layers 1        modifiers 0
     images    3  base_color 4096^2 (sRGB), metallic_roughness 2048^2,
                  normal 4096^2                        transform: identity
+                 (the latter two shipped since 2026-09-14 too, see below)
     bbox      X -0.95206..+0.95108  extent 1.90314   <- the ditch runs along X
               Y -0.40223..+0.40319  extent 0.80542
               Z -0.11875..+0.11726  extent 0.23601
@@ -160,10 +161,11 @@ blender files and i want them to be used as is unless ill provide other
 instruction") points the same way, but the argument above is the one that
 decides it.
 
-So the ditch takes the same exemption the three Meshy buildings take, through
+So the ditch takes the same exemption the Meshy buildings take, through
 the same module (`tools/buildings/textured.py`): `base_color` ships,
 downscaled to 2048 and re-encoded as JPEG; `metallic_roughness` and `normal`
-are DROPPED, because this renderer has no lights to consume them. The
+ship too, since 2026-09-14, capped at the same 2048 ceiling -- the renderer
+has lights now and consumes them; before that they were DROPPED. The
 exemption is a NAMED LIST on both sides, exactly as the building one is:
 
     TEXTURED_DECOR_FAMILIES  packages/render/src/three/terrain/textured-decor.ts

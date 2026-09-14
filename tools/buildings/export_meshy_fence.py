@@ -29,9 +29,10 @@ CONTRIBUTING.md), three candidates, all in
 CENSUS (this session, fresh per-file Blender process, raw un-decimated).
 Every one of the three is a single mesh object `mesh_node`, zero modifiers,
 one material (`base_color` 4096, `metallic_roughness` 2048, `normal` 4096 --
-the latter two dropped at export, see `tools/buildings/textured.py`), one UV
-map (`UVMap`) -- structurally identical to the clinic/hall pattern, unlike
-what `docs/art/meshy-prompts-buildings.md` Prompt 3 predicted ("no texture
+the latter two shipped since 2026-09-14 too, capped at the same `TEXTURE_PX`
+as `base_color`; dropped before that, see `tools/buildings/textured.py`),
+one UV map (`UVMap`) -- structurally identical to the clinic/hall pattern,
+unlike what `docs/art/meshy-prompts-buildings.md` Prompt 3 predicted ("no texture
 requested from Meshy for this one"): all three carry a real photographed
 bake. World-space extent (x = post-to-post run, y = fence thickness,
 z = height, including the coil wire on top):
