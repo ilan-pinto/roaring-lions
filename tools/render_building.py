@@ -121,14 +121,17 @@ for _role in list(ROLE_PALETTE):
         print(f"  role override: {_role} -> {_override}")
 
 
-#: The sentinel `BuildingSpec.mesh_owner` value meaning "this kit's own `src`
-#: is authoritative for the shipped art/meshes/buildings/<unit>.glb pair too,
-#: not just the sprite `render_building.py` renders." A supplied replacement
-#: (a Meshy export, or anything else that is not this kit) names itself
-#: instead -- see the field's own comment on why there is no default.
-#: `export_mesh_building.py` imports this constant rather than every call
-#: site retyping the string "kit".
-MESH_KIT_OWNED = "kit"
+#: Re-exported, not defined here any more. `tools/mesh_ownership.py` is the one
+#: place this idea is spelled out, and it is this file's own mechanism moved
+#: there so the vehicle and infantry-team pipelines can share it rather than
+#: inventing a third and a fourth name for it -- read that module for why the
+#: field is required, why there is no default, and for the two other assets
+#: (`sniper_team.glb`, `dozer_d9.glb`) that had the same hole open.
+#:
+#: The name stays importable from here because `export_mesh_building.py` and
+#: this file's own `BuildingSpec.__post_init__` already read it from this
+#: module, and because a building author looking for the sentinel looks here.
+from mesh_ownership import MESH_KIT_OWNED  # noqa: E402,F401  (re-export)
 
 
 @dataclass
@@ -941,7 +944,16 @@ WAREHOUSE = BuildingSpec(
     src=os.path.abspath("art/src/buildings/warehouse.blend"),
     out_dir=os.path.abspath("assets/sprites/BLD_WAREHOUSE"),
     unit="warehouse",
-    mesh_owner=MESH_KIT_OWNED,
+    mesh_owner=(
+        "tools/buildings/export_meshy_warehouse.py -- art/meshes/buildings/"
+        "warehouse.glb and warehouse_wreck.glb are a supplied Meshy warehouse "
+        "shell, not this kit source. This entry said MESH_KIT_OWNED until "
+        "2026-09-16 while both GLBs already shipped 1 material, 1 texture and "
+        "a Meshy copyright (read off the bytes) -- the same shape as `house`, "
+        "half a step behind it. Only `_assert_no_provenance_drift`'s credit "
+        "check stood between `-- all` and overwriting them. The BLD_WAREHOUSE "
+        "sprite sheet below is still rendered from `src` and is unaffected."
+    ),
     credit="Original work for Roaring Lions (CC BY-SA 4.0)",
     footprint_tiles=4,
     colour_key="gunmetal.1",
@@ -952,7 +964,15 @@ APARTMENT = BuildingSpec(
     src=os.path.abspath("art/src/buildings/apartment.blend"),
     out_dir=os.path.abspath("assets/sprites/BLD_APARTMENT"),
     unit="apartment",
-    mesh_owner=MESH_KIT_OWNED,
+    mesh_owner=(
+        "tools/buildings/export_meshy_apartment.py -- art/meshes/buildings/"
+        "apartment.glb and apartment_wreck.glb are a supplied Meshy Levantine "
+        "block, not this kit source. Same correction as WAREHOUSE above and "
+        "on the same date, for the same reason: 1 material, 1 texture and a "
+        "Meshy copyright on the shipped bytes against a MESH_KIT_OWNED "
+        "declaration. The BLD_APARTMENT sprite sheet is still rendered from "
+        "`src` and is unaffected."
+    ),
     credit="Original work for Roaring Lions (CC BY-SA 4.0)",
     footprint_tiles=5,
     colour_key="limestone.4",

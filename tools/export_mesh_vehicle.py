@@ -57,6 +57,11 @@ sys.path.insert(0, os.path.join(HERE, "vehicles"))
 
 from dimetric import metres_per_unit  # noqa: E402
 import kit as vehicle_kit  # noqa: E402 -- tools/vehicles/kit.py, ROLES is the vehicle role vocabulary
+from mesh_ownership import (  # noqa: E402
+    MESH_KIT_OWNED,
+    assert_kit_owns_path,
+    split_owned_and_superseded,
+)
 
 REPO = os.path.dirname(HERE)
 OUT_DIR = os.path.join(REPO, "art", "meshes", "vehicles")
@@ -111,6 +116,36 @@ class VehicleMeshSpec:
     #: raises if both or neither are.
     real_metres: Optional[float] = None
     credit: str = ""
+    #: Who may regenerate `art/meshes/vehicles/<unit_id>.glb`.
+    #: `MESH_KIT_OWNED` means this script may derive it from `src` above; any
+    #: other string names the script that produces the shipped asset instead,
+    #: and this one refuses. `tools/mesh_ownership.py` is where the mechanism
+    #: and its history live.
+    #:
+    #: **No default, and that is the whole point of the field.** `dozer_d9`
+    #: sat in this table pointing at the primitive `art/src/vehicles/d9.blend`
+    #: for weeks after `31c9799` gave `art/meshes/vehicles/dozer_d9.glb` to
+    #: `tools/vehicles/export_meshy_d9.py`, and `main`'s `all` branch was
+    #: `names = list(SPECS)` with no filter -- so one run would have replaced a
+    #: supplied Meshy bulldozer with boxes AND discarded the `death_root` /
+    #: `WRECK_` children `pnpm wreck:meshes` added to it, with
+    #: `pnpm validate:meshes` passing afterwards because a dozer still looks
+    #: like a dozer. A `field(default=MESH_KIT_OWNED)` here would reopen that
+    #: for whichever vehicle is replaced next.
+    mesh_owner: str = ""
+
+    def __post_init__(self):
+        # Enforced at construction rather than only declared, and by the same
+        # reasoning as `BuildingSpec.__post_init__`: every SPECS entry is built
+        # at module scope, so this fires at import.
+        if not self.mesh_owner:
+            raise SystemExit(
+                f"{self.unit_id}: VehicleMeshSpec.mesh_owner must be set -- "
+                f"{MESH_KIT_OWNED!r} if this script may regenerate "
+                f"art/meshes/vehicles/{self.unit_id}.glb from `src`, or a "
+                "string naming whatever else owns it. See "
+                "tools/mesh_ownership.py."
+            )
 
 
 SPECS = {
@@ -120,6 +155,7 @@ SPECS = {
         turret_prefixes=("turret_", "mgun_coax", "aps_radar_"),
         sprite_manifest=os.path.join(REPO, "assets", "sprites", "EITAN_HULL", "manifest.json"),
         credit="8x8 APC -- authored from primitives for this repository, CC BY-SA 4.0",
+        mesh_owner=MESH_KIT_OWNED,
     ),
     "dozer_d9": VehicleMeshSpec(
         unit_id="dozer_d9",
@@ -133,6 +169,16 @@ SPECS = {
         turret_prefixes=(),
         sprite_manifest=os.path.join(REPO, "assets", "sprites", "D9_HULL", "manifest.json"),
         credit="D9 armoured dozer -- authored from primitives for this repository, CC BY-SA 4.0",
+        mesh_owner=(
+            "tools/vehicles/export_meshy_d9.py -- art/meshes/vehicles/dozer_d9.glb "
+            "has been a supplied Meshy bulldozer since 31c9799, and has SINCE "
+            "taken the vehicle wreck pass (it carries a death_root node and "
+            "WRECK_ children that this kit export knows nothing about and "
+            "_drop_wreck_variants would discard). This spec is kept rather than "
+            "deleted because the primitive build is still the reference the "
+            "replacement was measured against -- point it at your own output "
+            "path to rebuild it."
+        ),
     ),
     "scout_shachaf": VehicleMeshSpec(
         unit_id="scout_shachaf",
@@ -149,6 +195,7 @@ SPECS = {
         # drift `sprite_manifest` exists to make impossible.
         sprite_manifest=os.path.join(REPO, "assets", "sprites", "SHACHAF_HULL", "manifest.json"),
         credit="Light scout car -- authored from primitives for this repository, CC BY-SA 4.0",
+        mesh_owner=MESH_KIT_OWNED,
     ),
     "apc_kipod": VehicleMeshSpec(
         unit_id="apc_kipod",
@@ -159,6 +206,7 @@ SPECS = {
         # for the reason given on scout_shachaf above.
         sprite_manifest=os.path.join(REPO, "assets", "sprites", "KIPOD_HULL", "manifest.json"),
         credit="Screen carrier APC -- authored from primitives for this repository, CC BY-SA 4.0",
+        mesh_owner=MESH_KIT_OWNED,
     ),
 }
 DEFAULT_UNIT = "apc_eitan"
@@ -449,6 +497,10 @@ def export_vehicle(spec, out_path=None):
 
     os.makedirs(OUT_DIR, exist_ok=True)
     path = out_path or os.path.join(OUT_DIR, f"{spec.unit_id}.glb")
+    assert_kit_owns_path(
+        spec.unit_id, spec.mesh_owner, path,
+        os.path.join(OUT_DIR, f"{spec.unit_id}.glb"),
+    )
     bpy.ops.object.select_all(action="DESELECT")
     bpy.ops.export_scene.gltf(
         filepath=path,
@@ -474,7 +526,15 @@ def export_vehicle(spec, out_path=None):
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     if argv == ["all"]:
-        names = list(SPECS)
+        # "all" means "everything this kit owns" -- and says which it skipped.
+        # This branch was `names = list(SPECS)` with no filter, which is the
+        # whole of how `dozer_d9` stayed a live trap: see that spec's own
+        # `mesh_owner` string.
+        owners = {name: spec.mesh_owner for name, spec in SPECS.items()}
+        names, superseded = split_owned_and_superseded(list(SPECS), owners, "SPECS")
+        for n in superseded:
+            print(f"[{n}] SKIPPED by `all`: art/meshes/vehicles/{n}.glb is not "
+                  f"this kit's to regenerate -- {owners[n]}")
     else:
         names = argv or [DEFAULT_UNIT]
     for name in names:

@@ -123,6 +123,11 @@ sys.path.insert(0, os.path.join(REPO, "tools"))
 sys.path.insert(0, os.path.join(REPO, "tools", "units"))
 import kit  # noqa: E402
 import teams  # noqa: E402
+from mesh_ownership import (  # noqa: E402
+    MESH_KIT_OWNED,
+    assert_kit_owns_path,
+    require_owner,
+)
 
 OUT_DIR = os.path.join(REPO, "art", "meshes")
 
@@ -136,7 +141,11 @@ SUPPORTED_TEAMS = (
 )
 DEFAULT_TEAM = "inf_squad"
 
-#: Teams this file still BUILDS but no longer OWNS on disk, and what owns them.
+#: Who may regenerate `art/meshes/<team_id>.glb`, one entry per
+#: `SUPPORTED_TEAMS` member, no default -- `tools/mesh_ownership.py` is where
+#: the mechanism, the `MESH_KIT_OWNED` sentinel and the history live. The
+#: buildings pipeline (`BuildingSpec.mesh_owner`) invented it first and this is
+#: the same spelling, deliberately, rather than a third name for the same idea.
 #:
 #: `art/meshes/sniper_team.glb` has not been a `kit.py` build since
 #: `tools/export_meshy_sniper.py` landed: that file writes the same path from
@@ -153,9 +162,33 @@ DEFAULT_TEAM = "inf_squad"
 #: `SUPPORTED_TEAMS` round-trips byte-for-byte (checked, 13 of 14). This guard
 #: is why it cannot. A caller that really wants the primitive build can still
 #: have it by naming its own `out_path`.
-SUPERSEDED_ELSEWHERE = {
+#:
+#: `tools/src/mesh_ownership.test.ts` pins every non-kit entry against the named
+#: script's OWN output path, so retiring that script turns this into a red test
+#: rather than a permanent unexplained block on a file nobody else claims.
+TEAM_MESH_OWNER = {
+    "inf_squad": MESH_KIT_OWNED,
+    "militia_cell": MESH_KIT_OWNED,
+    "demo_squad": MESH_KIT_OWNED,
+    "charge_squad": MESH_KIT_OWNED,
+    "at_team": MESH_KIT_OWNED,
+    "rpg_team": MESH_KIT_OWNED,
+    "mortar_team": MESH_KIT_OWNED,
+    "mortar_crew": MESH_KIT_OWNED,
+    "atgm_cell": MESH_KIT_OWNED,
     "sniper_team": "tools/export_meshy_sniper.py",
+    "yahalom_squad": MESH_KIT_OWNED,
+    "digger_crew": MESH_KIT_OWNED,
+    "moto_rpg": MESH_KIT_OWNED,
+    "breach_team": MESH_KIT_OWNED,
 }
+assert set(TEAM_MESH_OWNER) == set(SUPPORTED_TEAMS), (
+    "TEAM_MESH_OWNER needs exactly one entry per SUPPORTED_TEAMS member -- "
+    f"missing {sorted(set(SUPPORTED_TEAMS) - set(TEAM_MESH_OWNER))}, "
+    f"extra {sorted(set(TEAM_MESH_OWNER) - set(SUPPORTED_TEAMS))}. A team with "
+    "no entry would fall through to a default, which is the hole this table "
+    "closes; see tools/mesh_ownership.py."
+)
 
 _H = kit.FIGURE_H
 
@@ -420,9 +453,49 @@ IDLE_FRAMES = 32
 #: above carries the remaining 4 degrees.
 CHARGE_REST_LEAN_DEG = 20.0
 
-#: Radians of spine lean already baked into a team's rest geometry, by team.
+#: Radians of forward lean already baked into a team's REST geometry, by team.
 #: Only `charge_squad` has any; every other team stands upright at rest.
+#:
+#: **Declared here AND observed at build time, because a hand-maintained table
+#: of "which teams lean" is the second copy of a number that lives elsewhere --
+#: exactly what hoisting `CHARGE_REST_LEAN_DEG` one paragraph above was meant
+#: to avoid.** `build_team_rest` wraps `teams._lean_forward` for the duration of
+#: the build and records the largest lean it actually applies per team
+#: (`_OBSERVED_REST_LEAN`); `rest_lean_for` prefers that observation, and
+#: `_check_observed_rest_lean` raises when the two disagree. So a team that
+#: gains a rest lean through `teams._lean_forward` without an entry here fails
+#: the build rather than silently getting the full gait lean on top of it.
 REST_LEAN_RAD = {"charge_squad": math.radians(CHARGE_REST_LEAN_DEG)}
+
+#: Filled by `build_team_rest`. Keyed by team id, radians, largest lean applied.
+_OBSERVED_REST_LEAN = {}
+
+
+def rest_lean_for(team_id):
+    """The rest lean the gait must budget around. The build-time observation
+    when there is one -- which is every real export, since `build_team_rest`
+    always runs first -- and the declared table otherwise, so
+    `gait_amplitudes` stays callable from a probe with no scene."""
+    if team_id in _OBSERVED_REST_LEAN:
+        return _OBSERVED_REST_LEAN[team_id]
+    return REST_LEAN_RAD.get(team_id, 0.0)
+
+
+def _check_observed_rest_lean(team_id, observed_deg):
+    """What `teams._lean_forward` actually did, against what this file says."""
+    observed = math.radians(observed_deg)
+    declared = REST_LEAN_RAD.get(team_id, 0.0)
+    if abs(observed - declared) < 1e-9:
+        _OBSERVED_REST_LEAN[team_id] = observed
+        return
+    raise RuntimeError(
+        f"{team_id}: rest geometry was leaned {observed_deg:.3f} deg by "
+        f"teams._lean_forward, but REST_LEAN_RAD declares "
+        f"{math.degrees(declared):.3f} deg. The gait's own spine lean is "
+        f"budgeted against that number (MOVE_LEAN_TOTAL_MAX), so a silent "
+        f"disagreement here stacks two leans on one figure. Update "
+        f"REST_LEAN_RAD -- and say which call site put it there."
+    )
 
 
 # --- the stride is sized from the team's own speed --------------------------
@@ -547,42 +620,63 @@ def move_seconds():
     return MOVE_FRAMES / float(bpy.context.scene.render.fps)
 
 
-def gait_for_team(team_id):
-    """Every per-frame amplitude `build_move_clip` uses, scaled from this
-    team's own `mobility.speed_tiles_s`.
+#: Every amplitude that is a PLAIN multiple of the stride scale, paired with
+#: the R0 constant it scales. One table, walked by `gait_amplitudes` to build
+#: the dict and by `_check_gait_identity_at_reference` to check it, so the two
+#: cannot describe different gaits. `thigh` and `lean` are deliberately absent:
+#: the thigh saturates through a sine and the lean has its own two ceilings,
+#: and both are asserted separately below.
+_LINEAR_TERMS = (
+    ("shin", B_SHIN),
+    ("settle", SETTLE_AMP),
+    ("arm_free", A_ARM_FREE),
+    ("arm_weapon", A_ARM_WEAPON),
+    ("elbow", ELBOW_FREE_AMP),
+    ("bob", BOB_AMP),
+    ("hip_twist", HIP_TWIST_AMP),
+    ("shoulder_twist", SHOULDER_TWIST_AMP),
+)
+
+
+def gait_amplitudes(want, rest_lean_rad=0.0):
+    """Every per-frame amplitude `build_move_clip` reads, for a stride scale.
+
+    Split out of `gait_for_team` so it touches NO `bpy` and reads NO file --
+    which is what lets `_check_gait_identity_at_reference` call it for real.
+    The first version of that guard asserted `x * 1.0 == x` against constants
+    it had restated itself and never called this code at all, so changing
+    `B_SHIN * scale` to `B_SHIN * scale * 1.2` left it perfectly green.
 
     `want` is the scale that would make the boots exactly keep up with the
-    ground. `scale` is what the rig actually delivers after `THIGH_CAP`.
-    Whatever the cap leaves unmet is the RENDERER's to take up as cadence
-    (design D4) -- the division of labour is that the rig owns stride and the
-    renderer owns cadence, which is also what a sprinter does: a longer
-    stride AND a faster one. At `charge_squad`'s 1.9 tiles/s no stride on a
-    1.67 m figure closes the gap: 3.80 m of ground per cycle needs a 3.80 m
-    foot excursion, and a fully split leg cannot reach half of it.
+    ground; `scale` is what the rig delivers after `THIGH_CAP`. Whatever the
+    cap leaves unmet is the RENDERER's to take up as cadence (design D4) --
+    the rig owns stride, the renderer owns cadence, which is also what a
+    sprinter does: a longer stride AND a faster one. At `charge_squad`'s
+    1.9 tiles/s no stride on a 1.67 m figure closes the gap: 3.80 m of ground
+    per cycle needs a 3.80 m foot excursion, and a fully split leg cannot
+    reach half of it.
     """
-    speed = unit_speed_tiles_s(team_id)
-    ground_m = speed * move_seconds() * TILE_M
-    want = ground_m / BASE_BOOT_TRAVEL_M
     scale = min(want, STRIDE_CAP)
+    out = {key: base * scale for key, base in _LINEAR_TERMS}
     # The thigh is the one term whose own geometry saturates, so it is scaled
     # through the sine rather than multiplied: a step is 2*L*sin(theta).
-    thigh = math.asin(min(1.0, math.sin(A_THIGH) * scale))
-    lean_room = MOVE_LEAN_TOTAL_MAX - REST_LEAN_RAD.get(team_id, 0.0)
-    lean = min(MOVE_LEAN * want, MOVE_LEAN_MAX, max(MOVE_LEAN, lean_room))
-    return {
-        "team": team_id, "speed": speed, "ground_m": ground_m,
-        "want": want, "scale": scale, "capped": want > STRIDE_CAP,
-        "thigh": thigh,
-        "shin": B_SHIN * scale,
-        "settle": SETTLE_AMP * scale,
-        "arm_free": A_ARM_FREE * scale,
-        "arm_weapon": A_ARM_WEAPON * scale,
-        "elbow": ELBOW_FREE_AMP * scale,
-        "lean": lean,
-        "bob": BOB_AMP * scale,
-        "hip_twist": HIP_TWIST_AMP * scale,
-        "shoulder_twist": SHOULDER_TWIST_AMP * scale,
-    }
+    out["thigh"] = math.asin(min(1.0, math.sin(A_THIGH) * scale))
+    lean_room = MOVE_LEAN_TOTAL_MAX - rest_lean_rad
+    out["lean"] = min(MOVE_LEAN * want, MOVE_LEAN_MAX, max(MOVE_LEAN, lean_room))
+    out["want"] = want
+    out["scale"] = scale
+    out["capped"] = want > STRIDE_CAP
+    return out
+
+
+def gait_for_team(team_id):
+    """`gait_amplitudes` for this team, from its own data: its unit JSON's
+    `mobility.speed_tiles_s` and the scene's own frame rate."""
+    speed = unit_speed_tiles_s(team_id)
+    ground_m = speed * move_seconds() * TILE_M
+    gait = gait_amplitudes(ground_m / BASE_BOOT_TRAVEL_M, rest_lean_for(team_id))
+    gait.update(team=team_id, speed=speed, ground_m=ground_m)
+    return gait
 
 
 def _stance_drop(thigh_angle, base_angle):
@@ -605,14 +699,47 @@ def _stance_drop(thigh_angle, base_angle):
     return LEG_REACH_M * (math.cos(thigh_angle) - math.cos(base_angle))
 
 
+#: Every key `build_move_clip` reads out of a gait dict. `gait_amplitudes` must
+#: produce exactly these and no others, so a term added there without being
+#: asserted below cannot slip through the identity check.
+GAIT_KEYS = frozenset(
+    [key for key, _ in _LINEAR_TERMS] + ["thigh", "lean", "want", "scale", "capped"]
+)
+
+
 def _check_gait_identity_at_reference():
-    """At scale 1.0 every scaled amplitude is its own R0 constant, and the
-    stance drop is zero. Cheap, and it is the guard that keeps this block a
-    scaling of known-good numbers rather than a second gait."""
-    for value, base in ((math.asin(math.sin(A_THIGH) * 1.0), A_THIGH),
-                        (B_SHIN * 1.0, B_SHIN), (SETTLE_AMP * 1.0, SETTLE_AMP),
-                        (A_ARM_FREE * 1.0, A_ARM_FREE), (BOB_AMP * 1.0, BOB_AMP)):
-        assert abs(value - base) < 1e-12, (value, base)
+    """Call `gait_amplitudes(1.0)` for real and require every amplitude it
+    returns to BE its own R0 constant, term by term.
+
+    This is the guard that keeps the block above a scaling of known-good
+    numbers rather than a second gait, and it has to call the real function to
+    be that. The version this replaced asserted `x * 1.0 == x` against
+    constants it had restated itself: four of its five assertions were
+    tautologies and the fifth recomputed its own right-hand side, so
+    `"shin": B_SHIN * scale * 1.2` passed it. Falsified by hand after the
+    rewrite -- that exact edit now raises `AssertionError: ('shin', 1.08, 0.9)`
+    at import.
+    """
+    g = gait_amplitudes(1.0, 0.0)
+    assert set(g) == GAIT_KEYS, (sorted(set(g) ^ GAIT_KEYS))
+    for key, base in list(_LINEAR_TERMS) + [("thigh", A_THIGH), ("lean", MOVE_LEAN)]:
+        assert abs(g[key] - base) < 1e-12, (key, g[key], base)
+    assert g["scale"] == 1.0 and g["want"] == 1.0 and g["capped"] is False
+    # A team that already leans at rest is never penalised below R0's own
+    # value at the reference...
+    rest = math.radians(CHARGE_REST_LEAN_DEG)
+    assert gait_amplitudes(1.0, rest)["lean"] == MOVE_LEAN
+    # ...and the budget BINDS where it has to, which is the only place it can:
+    # a `want` big enough that the gait would otherwise stack a second lean on
+    # a figure that already leans. 3.0 is charge_squad's own regime (3.29).
+    # Checking this at the reference alone is vacuous -- `MOVE_LEAN * 1.0` is
+    # the smallest term there whatever the budget says, so an inverted
+    # `MOVE_LEAN_TOTAL_MAX + rest_lean_rad` passed a scale-1.0 assertion.
+    # Falsified after the fix: that inversion now raises here.
+    assert gait_amplitudes(3.0, 0.0)["lean"] == MOVE_LEAN_MAX
+    leaned = gait_amplitudes(3.0, rest)["lean"]
+    assert abs(leaned - (MOVE_LEAN_TOTAL_MAX - rest)) < 1e-12, leaned
+    assert leaned + rest <= MOVE_LEAN_TOTAL_MAX + 1e-12, leaned + rest
     for a in (0.0, 0.3, A_THIGH):
         assert abs(_stance_drop(a, a)) < 1e-12, a
     assert abs(STRIDE_CAP - math.sin(THIGH_CAP) / math.sin(A_THIGH)) < 1e-12
@@ -1291,6 +1418,28 @@ def build_team_rest(team_id):
         "module's own docstring for what's out of scope and why"
     )
     kit.new_scene()
+    # Observe what `teams._lean_forward` actually does to this team's rest
+    # geometry, rather than trusting REST_LEAN_RAD to still be right. The
+    # wrapper is removed in `finally`, so a raise inside the build cannot
+    # leave `teams` permanently patched for the next team in an `all` run.
+    real_lean_forward = teams._lean_forward
+    observed_deg = 0.0
+
+    def _watched_lean_forward(parts, deg, at_x=0.0):
+        nonlocal observed_deg
+        observed_deg = max(observed_deg, abs(deg))
+        return real_lean_forward(parts, deg, at_x)
+
+    teams._lean_forward = _watched_lean_forward
+    try:
+        parts, bone_table, forced_bone = _build_team_rest_inner(team_id)
+    finally:
+        teams._lean_forward = real_lean_forward
+    _check_observed_rest_lean(team_id, observed_deg)
+    return parts, bone_table, forced_bone
+
+
+def _build_team_rest_inner(team_id):
     parts, bone_table, forced_bone = [], [], {}
     if team_id == "charge_squad":
         p, b, f = _charge_squad_rest()
@@ -1585,6 +1734,18 @@ def build_move_clip(arm_obj, figures, gait):
     printed line is a PREDICTION, not a verdict: what the ratio actually
     comes out at is `measureRoleTravel` on the exported bytes.
     """
+    _new_action(arm_obj, "move")
+    bones = arm_obj.data.bones
+    pbones = arm_obj.pose.bones
+    _key_death_visibility(pbones, figures, "prop" in pbones, alive=True)
+    walkers = [s for s in figures if s["animates"]]
+    if not walkers:
+        # A crew-served team keys no leg at all, so there is no stride to
+        # report. The print used to sit above this return and announced a
+        # predicted boot travel for three teams whose `move` is a 0.04 s clip
+        # with nothing in it -- a number that read as a claim about art that
+        # does not exist.
+        return
     print(
         f"  gait[{gait['team']}] speed={gait['speed']} tiles/s "
         f"ground={gait['ground_m']:.3f} m/cycle want={gait['want']:.3f} "
@@ -1592,13 +1753,6 @@ def build_move_clip(arm_obj, figures, gait):
         f"thigh={gait['thigh']:.3f} rad lean={gait['lean']:.3f} rad "
         f"predicted boot travel={BASE_BOOT_TRAVEL_M * gait['scale']:.3f} m"
     )
-    _new_action(arm_obj, "move")
-    bones = arm_obj.data.bones
-    pbones = arm_obj.pose.bones
-    _key_death_visibility(pbones, figures, "prop" in pbones, alive=True)
-    walkers = [s for s in figures if s["animates"]]
-    if not walkers:
-        return
     root_bob_dir = local_offset_for_world_axis(bones[f"{walkers[0]['prefix']}_root"], AXIS_Z)
     for f in range(0, MOVE_FRAMES + 1):
         base_phase = 2.0 * math.pi * f / MOVE_FRAMES
@@ -1901,19 +2055,22 @@ def export_glb(arm_obj, path):
 
 
 def build_and_export(team_id=DEFAULT_TEAM, out_path=None):
-    if out_path is None and team_id in SUPERSEDED_ELSEWHERE:
-        raise RuntimeError(
-            f"{team_id}: art/meshes/{team_id}.glb is written by "
-            f"{SUPERSEDED_ELSEWHERE[team_id]}, not by this module -- writing it "
-            f"from here would replace that asset with the primitive build. Pass "
-            f"an explicit out_path if the primitive build is really what you want."
-        )
+    owned_path = os.path.join(OUT_DIR, f"{team_id}.glb")
+    path = out_path or owned_path
+    # Keyed on the resolved PATH, never on `out_path is None`. The first
+    # version of this guard fired only on the absent argument, so
+    # `build_and_export(team, out_path=owned_path)` -- the shape any loop
+    # script naturally takes, including this task's own probes -- walked
+    # straight through it.
+    assert_kit_owns_path(
+        team_id, require_owner(TEAM_MESH_OWNER, team_id, "TEAM_MESH_OWNER"),
+        path, owned_path,
+    )
     parts, bone_table, forced_bone = build_team_rest(team_id)
     arm_obj = build_armature(bone_table)
     figure_prefixes = {spec["prefix"] for spec in TEAM_FIGURES[team_id]}
     rig_parts(parts, arm_obj, forced_bone, figure_prefixes)
     merged = join_by_role(parts)
     build_clips(arm_obj, team_id)
-    path = out_path or os.path.join(OUT_DIR, f"{team_id}.glb")
     export_glb(arm_obj, path)
     return arm_obj, merged, path

@@ -22,17 +22,21 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "units"))
 
 import rig  # noqa: E402
+from mesh_ownership import split_owned_and_superseded  # noqa: E402
 
 
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     if argv == ["all"]:
-        names = [n for n in rig.SUPPORTED_TEAMS if n not in rig.SUPERSEDED_ELSEWHERE]
-        for name, owner in rig.SUPERSEDED_ELSEWHERE.items():
-            # Named and skipped, never silently dropped -- `all` meaning "all
-            # but one" is exactly the kind of thing a reader has to be told.
-            print(f"[{name}] SKIPPED by `all`: art/meshes/{name}.glb is {owner}'s "
-                  f"output, not rig.py's. Name it explicitly to see the guard.")
+        # "all" means "everything this kit owns", and it says which it skipped.
+        # Named, never silently dropped: `all` meaning "all but one" is exactly
+        # the kind of thing a reader has to be told.
+        names, superseded = split_owned_and_superseded(
+            list(rig.SUPPORTED_TEAMS), rig.TEAM_MESH_OWNER, "rig.TEAM_MESH_OWNER"
+        )
+        for name in superseded:
+            print(f"[{name}] SKIPPED by `all`: art/meshes/{name}.glb is not "
+                  f"rig.py's to regenerate -- {rig.TEAM_MESH_OWNER[name]}")
     else:
         names = argv or [rig.DEFAULT_TEAM]
     for name in names:
