@@ -9,7 +9,8 @@
  * turret can rotate independently of the hull, where infantry's `metal`
  * role joins into ONE mesh across the whole figure.
  *
- * ## Animation, and the "no clips" case that is still every shipped asset
+ * ## Animation, and the "no clips" case that is now only the fixture and
+ * `&nomesh` path
  *
  * This module ALSO builds an `AnimationMixer` now, which it did not
  * originally -- the header used to read "no `AnimationMixer`, no clips",

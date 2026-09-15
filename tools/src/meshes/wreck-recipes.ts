@@ -75,10 +75,10 @@ export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
  *  2. **The read comes from the TILT and the THROWN TURRET, not the settle.**
  *     At gameplay zoom a 0.2-unit drop is about six screen pixels.
  *  3. **The lit renderer's charring is doing most of the work and none of
- *     these numbers control it.** Seven of the eleven photograph as a
- *     near-black mass in which no internal form survives; that is
- *     `CHARRED_TINT_HEX`'s business, not the recipe's, and it is the open
- *     question on the sheet.
+ *     these numbers control it.** That is `CHARRED_TINT_HEX`'s business, not
+ *     the recipe's. The colour was decided by the project lead on
+ *     2026-09-15 and lives in the two constants: `CHARRED_TINT_HEX`
+ *     (`world-materials.ts`) and `CHARRED_RAMP` (`units/vehicle-mesh-role.ts`).
  */
 export const WRECK_FRACTIONS = {
   /**

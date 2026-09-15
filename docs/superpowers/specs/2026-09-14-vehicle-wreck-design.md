@@ -204,7 +204,8 @@ the lit renderer (2026-09-14) a ramp resolves to ONE flat albedo on a
 
 * palette mesh → `rampMaterial(CHARRED_RAMP)` (`world-materials.ts`);
 * textured mesh → a clone of the loaded material with `color` set to
-  `CHARRED_TINT_HEX` (`0x2a2620`) and roughness driven to 1.
+  `CHARRED_TINT_HEX` (`0x6a5f55`, see the tint paragraph below) and roughness
+  driven to 1.
 
 The clone is **memoised per distinct LOADED material**, not per mesh, and that
 correction was not cosmetic. `mbt_lavi.glb`'s four live meshes all reference
@@ -216,13 +217,27 @@ both are pinned by a fixture that installs ONE material across four meshes —
 which the palette fixtures could not do, because `rampMaterial` allocates per
 mesh.
 
-**The charred tint is the open question on the screenshot sheet.** At
-`0x2a2620` seven of the eleven photograph as a near-black mass with no internal
-form surviving at zoom 1.6 or 2.2; the two palette vehicles read better because
-their charred ramp is not as dark. A lighter alternative (`0x4a423a`) was
-captured for the same vehicle at the same moment for the lead to pick between —
-`.superpowers/wreck-captures/mbt_lavi-wreck-{1.6,2.2}-lighttint.png` against
-`mbt_lavi-wreck-{1.6,2.2}.png`. Nothing in the recipe table controls this.
+**The charred tint was settled by the project lead on 2026-09-15: "a sooty
+dark grey that keeps the bakes' detail visible."** Both shipped constants
+carry that decision — `CHARRED_TINT_HEX 0x6a5f55` (`world-materials.ts`
+~:96) on the textured path and `CHARRED_RAMP = sliceFrom('gunmetal', 1, 3)`
+(`units/vehicle-mesh-role.ts` ~:134) on the palette path, whose lit face is
+`gunmetal.2` `#5C625F`. It was picked from two candidate pairs captured on
+`mbt_lavi` (textured) and `apc_eitan` (palette): pair 1, the shipped one
+above; pair 2, `0x8a7f74` paired with the next lighter band (lit face
+`gunmetal.1` `#8E9491`), rejected because the palette Eitan read as grey
+livery rather than a wreck. The originally shipped near-black — `0x2a2620`
+on the textured path, `sliceFrom('shadow', 0, 3)` on the palette path — is
+retired: at that value seven of the eleven wrecks photographed as
+featureless silhouettes at gameplay zoom, with no panel line, hatch or
+wheel surviving. The captures behind all of this live in four
+directories: `.superpowers/wreck-captures/` (the 44-shot sheet,
+re-captured at the shipped colour), `.superpowers/wreck-captures/candidates/`
+(the pair-1-vs-pair-2 A/B on the Lavi and the Eitan that the lead's call
+was made from), `.superpowers/wreck-captures-round1/` (the original
+near-black sheet), and `.superpowers/wreck-captures-lighttint-0x4a423a/`
+(an earlier, since-superseded lighter-tint probe on the Lavi alone).
+Nothing in the recipe table controls this.
 
 ### 2. The `masted` kind has no taker and was not written
 

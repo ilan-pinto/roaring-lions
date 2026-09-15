@@ -832,7 +832,11 @@ Pages' `max-age=600`, the first-frame gap). Pipeline: `tools/units/kit.py` (geom
   run headless Blender: the workflow downloads Blender 5.2.0 linux-x64 from
   download.blender.org and that URL is live (HTTP 200, verified 2026-09-01) --
   this is a real gate, not a green-looking no-op. Current state measured
-  2026-09-01: **passes in 31.69s**, "46 mesh unit(s) rendered and checked against
+  2026-09-15, after the wreck pass added eleven extra Cycles wreck renders:
+  **passes in roughly 45-70s on this machine, not 31.69s** (Task 3's own
+  report read 70.0s, its reviewer 45.7s, the final branch reviewer ~70s —
+  Cycles render time varies run to run; the gate logic did not slow down),
+  "46 mesh unit(s) rendered and checked against
   36 sprite unit(s); 21 decor mesh(es) checked against the mesh contract
   directly" -- the "29/29" this line used to carry is long stale. Locally it
   needs Blender on PATH or `--blender`/`BLENDER_BIN` (a macOS `Blender.app` is
