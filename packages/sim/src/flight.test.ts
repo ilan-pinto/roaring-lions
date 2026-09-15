@@ -97,7 +97,7 @@ describe('an air unit ignores terrain', () => {
     // formations) a drone can be left with a goal inside rock, so both snap —
     // but they must not be snapped onto ONE tile, which is precisely what the
     // formation buys. The drone is `front` (air leads the ranks), so it takes
-    // the clicked row and the truck the vehicle-spaced slot behind it.
+    // the clicked row and the truck beside it on the same rank.
     //
     // Before 2026-09-15 this asserted the opposite for the drone: it kept the
     // blocked point while the truck snapped away. See the note above.

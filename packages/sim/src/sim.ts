@@ -531,7 +531,12 @@ export type Command =
    *  answer "where should these units stand"; an exact order already has the
    *  answer, and spreading it around would move a unit off ground a rule
    *  picked. Such an order still RESERVES its goal tile against everyone
-   *  else's slots — it opts out of being placed, not out of being avoided. */
+   *  else's slots — it opts out of being placed, not out of being avoided.
+   *  `CivilianFlight` (`./civilians`) is the sole intended caller. A patrol
+   *  leg (`mission.ts`'s `stepPatrols`) is deliberately NOT exact: it is an
+   *  ordinary order, because a patroller whose waypoint tile is held by an
+   *  idle friend should stop beside it rather than displace it — spec
+   *  `2026-09-15-group-formation-design.md` §4.3. */
   | { kind: 'move'; ids: number[]; x: Fx; y: Fx; append?: boolean; exact?: boolean }
   | { kind: 'attackMove'; ids: number[]; x: Fx; y: Fx; append?: boolean; exact?: boolean }
   | { kind: 'halt'; ids: number[] }
@@ -1067,7 +1072,8 @@ export class Sim {
    * The pool grows up to MAX_FLOW_FIELDS, then `fieldFor` reuses the
    * least-recently-issued field no living unit still follows rather than
    * growing further; it only exceeds the cap when every field is live, which
-   * takes more distinct goals than there are units. Per-domain passability is
+   * takes more distinct goals than there are units, or when the only
+   * unreferenced fields were issued this tick. Per-domain passability is
    * what could have doubled it. It does not, on any map without boulders:
    * `fieldFor` collapses the domain there, because the two masks are the
    * same array.
@@ -1271,8 +1277,9 @@ export class Sim {
   /** How many flow fields have been allocated. Diagnostic: the pool grows up
    *  to MAX_FLOW_FIELDS and then reuses the least-recently-issued field no
    *  living unit follows, so this stays at or below the cap unless every
-   *  field in the pool is currently live. Per-domain passability is the
-   *  other thing that could double it. */
+   *  field in the pool is currently live, or the only unreferenced fields
+   *  were issued this tick. Per-domain passability is the other thing that
+   *  could double it. */
   get flowFieldCount(): number {
     return this.fields.length;
   }
@@ -1783,8 +1790,10 @@ export class Sim {
    *  `<` comparison only protects it while an older unreferenced field still
    *  exists in the pool. Excluding same-tick fields outright means the pool
    *  can grow past MAX_FLOW_FIELDS within a single tick, on the rare occasion
-   *  every idle field was issued that same tick; it settles back to the cap
-   *  on a later miss once the tick moves on.
+   *  every idle field was issued that same tick. `fields` never shrinks --
+   *  that growth is a permanent watermark, not a spike -- so what a later
+   *  miss buys back is only room for eviction to work again, not a smaller
+   *  array.
    *
    *  O(units + fields) per call, called once per cache miss, which is at
    *  most a few times per order. */
@@ -2043,11 +2052,15 @@ export class Sim {
             clickX: fgx,
             clickY: fgy,
             // `| 0` and not `Math.trunc`: `Math.*` is banned in this package
-            // (invariant 2) and both sums are non-negative tile counts, so
-            // the truncation is the integer divide it looks like.
+            // (invariant 2), and the dividend is non-negative on any
+            // map-legal position, so the truncation is the integer divide it
+            // looks like.
             fromX: (sumX / n) | 0,
             fromY: (sumY / n) | 0,
             units: members,
+            // An order's ids are single-side by construction (a player or a
+            // script never mixes sides in one command), so the first member
+            // stands in for all of them here.
             reserved: this.reservedTilesFor(this.side[members[0].id], cmd.ids),
           });
           for (const s of assigned) slots.set(s.id, [s.x, s.y]);
@@ -2069,6 +2082,11 @@ export class Sim {
           // pool reuses any field no living unit references, and a field
           // issued but not yet stamped is exactly that. (`evictableField`'s
           // same-tick exclusion is the other half of that guarantee.)
+          //
+          // `slot === undefined` here means the EXACT path: on the formation
+          // path a member always has a slot by construction (it would not be
+          // in `members` otherwise), and the guard above already `continue`d
+          // away anyone the formation path left without one.
           if (slot === undefined) {
             if (snapped && utype.isAir) {
               ux = gx;

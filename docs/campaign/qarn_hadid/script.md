@@ -609,15 +609,22 @@ civ.settlements_evacuated`.
 
 | group | count | at | refuge |
 |---|---|---|---|
-| — | 3 | `[29,3]` | `clinic_yard` |
+| — | 3 | `[22,1]` | `clinic_yard` |
 | — | 2 | `[22,5]` | `clinic_yard` |
+
+The first group moved `[29,3]` → `[22,1]` (2026-09-15, group-formation Task 5): at
+`[29,3]` its bodies sat on `village_square` (`[28,5]`), the enemy garrison's own
+`commit` rally and the `from` of two waves, which the group-formation change made a
+real hazard once formation slots put bodies where a click or a commit actually lands;
+`[22,1]` is the village's north lane behind the apartment block, six tiles clear of the
+square. See `.superpowers/sdd/2026-09-15-group-formation/task-5-report.md`.
 
 **Cadence table:**
 
 | t (s) | mechanism | size | from | to | group |
 |---|---|---|---|---|---|
 | 0 | garrison ×10 | 1 each | (see above) | — | — |
-| 0 | civilians | 3+2 | `[29,3]`,`[22,5]` | — | — |
+| 0 | civilians | 3+2 | `[22,1]`,`[22,5]` | — | — |
 | 120 | wave | 2 `sarim_rifles` | `village_square` | `north_junction` | — |
 | any tick, `zone_entered(village)` | trigger `commit` | group `village` (up to 4) | (see above) | `village_square` | `village` |
 | 240 | wave | 1 `recoilless_team` | `knoll_top` | `shoulder_gate` | — |

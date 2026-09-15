@@ -242,3 +242,115 @@ screenshot sheet of both at zoom 1.6 for the lead.
 - **Deferred:** separation while moving (D1); diagonal ranks for diagonal approaches; a
   cover preference for infantry slots (put teams on cover tiles inside the block first);
   per-slot ghost markers in the UI instead of the single order marker.
+
+## 8. Deviations
+
+Six, each with the ledger ruling it came from (`.superpowers/sdd/2026-09-15-group-formation/progress.md`).
+
+1. **The reservation "map" is derived per order, not persistent state.** §4.3 describes
+   "one reservation map per side" as if it were kept; it is instead built fresh by a scan
+   of every living same-side unit outside the order (`Sim.reservedTilesFor`), O(units) per
+   order. A scan needs no bookkeeping at any of the sites that set `goalX`/`goalY`, and
+   orders are rare next to ticks — the alternative was a persistent structure that every
+   boarding, garrisoning, burial and death would have to keep honest.
+2. **The clicked unit's slot keeps the exact click point; every other slot is a tile
+   centre.** §4.2's "moves by up to half a tile" is retracted: snapping every slot to a
+   tile centre, including the one under the cursor, broke `umm_zeitoun_1_recon` and the
+   unlock-gate probes (both depend on a single-unit order landing on the exact point
+   clicked, which is the pre-formation behaviour for that one case). The unit whose slot
+   IS the click tile has no reason to move off it — the tile is its alone either way — so
+   it keeps the fraction; a unit the formation displaced has no clicked point of its own
+   to keep, so it takes its slot's centre.
+3. **`move`/`attackMove` gained `exact?: boolean`.** For orders the sim issues to itself to
+   shepherd a unit to a point a rule already chose — `CivilianFlight`'s two move commands
+   are the sole intended caller — rather than a point a player clicked. An exact order
+   keeps its point verbatim and is assigned no slot (the formation machinery is skipped
+   outright), but it still reserves its goal tile against everyone else's slots: it opts
+   out of being placed, not out of being avoided. A patrol leg (`mission.ts`'s
+   `stepPatrols`) is deliberately NOT exact — it is an ordinary order, because a patroller
+   whose waypoint tile is held by an idle friend should stop beside it rather than
+   displace it (§4.3).
+4. **A front unit anchors its grid at its own domain's snapped origin; infantry anchors at
+   the click.** Reconciles §4.1 ("infantry behind vehicles") with §4.2 ("infantry inside
+   the corridor, vehicles at its mouth"): a vehicle or air unit ranks from the tile its OWN
+   mask snaps the click to, while infantry ranks from the click tile itself; infantry starts
+   behind the last front rank only when that rank shares the click's own anchor, else from
+   rank 0. Overflow — more units than the grid inside `SEARCH_RADIUS` holds — is
+   behind-first: a candidate tile ahead of the front rank (positive projection onto the
+   approach direction) is taken only once no tile at or behind it is free. This is how a
+   click inside the Tel Marum boulder corridor puts the infantry inside the field (anchored
+   at the click, which the foot mask accepts) and the vehicles at its mouth (anchored at
+   the nearest vehicle-open tile, which the boulder mask pushes back to the entrance).
+5. **The `FlowField` compute-heap scratch is shared module-wide, and the pool is bounded.**
+   `compute`'s heap arrays (`heapTile`/`heapCost`, 8×4 B/cell each) moved from per-instance
+   fields to a module-level scratch grown once to the largest map seen and reused by every
+   field's `compute` call — safe because `compute` always resets `heapSize = 0` and writes
+   from index 0, so nothing reads stale contents across calls. On a 48×48 map (2304 cells)
+   that took a `FlowField` instance from 158,976 B (dirs + cost + its own heap) to 11,520 B
+   (dirs + cost only); the shared scratch itself costs 147,456 B once, not per field —
+   "147 KB of a 160 KB field." The pool (`this.fields`) is bounded at `MAX_FLOW_FIELDS = 128`
+   with live-safe least-recently-issued reuse (`Sim.evictableField`), which additionally
+   never evicts a field issued earlier in the SAME tick — without that guard, a mixed-domain
+   order (an air or vehicle id ahead of a plain ground id in one command) could recompute
+   the ground unit's own just-created field for the earlier id's goal before the ground
+   unit's loop iteration had stamped it into `fieldRef`, corrupting which field the ground
+   unit ends up following. At the cap, the pool costs ~1.41 MiB (128 × 11,520 B) plus the
+   one-time ~144 KiB scratch.
+6. **Scripted enemy groups forming up moved the fire geometry of two missions; their
+   contracts were re-sited by content, the engine untouched.** §4.4 says scripted waves send
+   the same command and so stop stacking too — true, and its consequence was not scoped in
+   §4: `beit_sahwan_breach`'s passive-control contract (must DEFEAT with no player orders)
+   and `qarn_hadid_3_clearance`'s gate-open contract (must VICTORY with one extra fielded
+   unit) both flipped, because an enemy `commit`/`reinforce` group that used to converge on
+   one point now spreads into a formation whose slots land on or near civilian spawn tiles
+   and rally markers. Diagnosed to the mechanism (not tuned around): First Light's NE family
+   pair now sits inside a formed-up militia cell's suppression footprint from the first
+   minute and self-evacuates before the player can act; Qarn Hadid's families used to sit
+   beyond the reach of anything but a walking escort and now the nearest body — after
+   formation puts vehicles in the front ranks — is an IFV nobody drives to the clinic. Both
+   were re-sited (First Light's two civilian groups moved off the fire; Qarn Hadid's moved
+   off `village_square`, the enemy's own rally tile) rather than the engine changed; see
+   `.superpowers/sdd/2026-09-15-group-formation/task-5-report.md`.
+
+**Measured costs.**
+
+*Fields per order.* One cache miss per unit ordered, at most — measured on
+`tel_marum_2_foothold`'s 9-unit `starting_force` ordered as a whole into the open basin:
+`sim.flowFieldCount` went from 0 to 9 (`tools/src/formation_walk.test.ts`). The pool bound
+(Deviation 5) only becomes visible once a mission's distinct goal tiles exceed 128 in a
+single tick, which no shipped mission has been measured to reach.
+
+*`pnpm playtest`* (Task 4, re-run at `a809aaf`, seed 424242; the two lines Deviation 6
+restored, against the `75461bc` baseline before enemy formations landed, from Task 3's
+report):
+
+| line | `75461bc` (before formations) | current (after Task 5's re-siting, `a809aaf`) |
+|---|---|---|
+| `beit_sahwan_breach (passive control)` | DEFEAT, 4.5 min, ROE 97, `evac_settlements=f` | DEFEAT, 4.5 min, ROE 97, `evac_settlements=f`, roster 10 |
+| `qarn_hadid_3_clearance (gate open)` | VICTORY, 2.8 min, ROE 86, `get_the_families_clear=c` | VICTORY, 3.6 min, ROE 80, `get_the_families_clear=c`, 2 stars, roster 24 |
+| `gate breach_team` / `scout_shachaf` / `apc_kipod` | OPEN at 12 / 31 / 45 | OPEN at 12 / 31 / 45 |
+
+Qarn Hadid III's own time and ROE moved from the pre-formation baseline (2.8 min, ROE 86 →
+3.6 min, ROE 80) because Task 5 re-sited its village families off `village_square` to keep
+them clear of the enemy's own rally tile (Deviation 6) — the contract (VICTORY, 2 stars)
+holds; the minutes and ROE are the price of that placement, not a regression left open here.
+
+The whole chain is green (exit 0, no `FAILED` lines) at HEAD. Full output in
+`.superpowers/sdd/2026-09-15-group-formation/task-4-report.md`.
+
+*`pnpm balance`* — **a target left its band, and per §4.6 this stops the work for the
+lead's decision rather than being retuned silently.** Before (`main` @ `65cc56d`, the
+commit this branch started from) all four §5.7 targets passed, including "Urban assault
+force ratio" at win rates `1:1=0% 2:1=15% 3:1=95% 4:1=100%`. After (this branch, HEAD
+`a809aaf`), the same measurement reads `1:1=0% 2:1=70% 3:1=100% 4:1=100%` — the other three
+targets unchanged and passing, but the 2:1 rate now fails the target's own `<=60%` cap
+(target: "1:1 fails, 3:1 reliable (>=65%)"). The urban-assault backtest orders each of its
+three assault groups with one `attackMove` per group (`tools/src/backtest/targets.ts`), so
+it is exactly the kind of group order this spec changes: those groups now land in
+formation instead of converging on one point, which is engagement geometry, and formation
+spacing changing engagement geometry is what §4.6 predicted this backtest would be
+sensitive to. Nothing under `packages/sim/tuning.ts` was touched to produce or fix this —
+retuning is out of this task's scope by the rule quoted above. Recorded here as a STOP for
+the lead, not resolved.
+
+

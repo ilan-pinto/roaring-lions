@@ -151,7 +151,9 @@ The combat model is the product. Everything else is scaffolding around it.
   selection, and `cursorKey()` **reads back** `canvas.dataset.cursor`. That last one
   is a DOM read rather than a recomputation on purpose — the failure worth catching
   is a cursor whose logic is right and whose wiring is not, and recomputing would
-  agree with the logic and tell you nothing.
+  agree with the logic and tell you nothing. Since 2026-09-15 a group order lands
+  in formation (`packages/sim/src/formation.ts`), so "units stack on one tile" is
+  a bug again on the sandbox force, not the default outcome of a right-click.
 - **The sandbox documents itself** — `__lions.help()`, and the same text prints to
   the console on every sandbox boot: the map that loaded, which flags are on, every
   flag available, every shipped map id, and the console API. An unrecognised URL
@@ -1004,6 +1006,30 @@ it compares `window.localStorage.length` before and after, and both are
   billboard-vs-real-shipped-mesh comparison (a quarter of a mixed 400-unit
   roster swapped from billboard to real `art/meshes/` GLBs) adds at most
   ~1ms of p95 frame time at 320 living units, nowhere near either budget.
+- **The flow-field pool is bounded, since 2026-09-15** (group formations,
+  `MAX_FLOW_FIELDS = 128`, `sim.ts`): `fieldFor` reuses the least-recently-issued
+  field no living unit still follows once the pool is full, with a same-tick
+  guard (`evictableField`) so a field created earlier in the current tick can
+  never be evicted out from under the order that just created it — without it,
+  a mixed-domain order (air before ground in one command) could recompute the
+  ground unit's own just-issued field for the air goal before it was stamped
+  into anyone's `fieldRef`. `fields` never shrinks, so a same-tick spike that
+  pushes the pool past the cap is a permanent watermark, not a transient one.
+  The compute heap is shared module-wide rather than per-field: on a 48×48 map
+  (2304 cells) a `FlowField` instance fell from 158,976 B (dirs + cost + its
+  own 8×4 B/cell heap arrays) to 11,520 B (dirs + cost only), with the 147,456 B
+  scratch heap allocated once and reused by every field's `compute` call — so
+  the pool at its cap costs ~1.41 MiB (128 × 11,520 B) plus that one-time
+  ~144 KiB — arithmetically, 128 × the OLD 158,976 B per-field size (each
+  carrying its own heap) would have been ~19.4 MiB for the same 128 distinct
+  goals, unbounded and still growing.
+  A group order costs at most one field per unit ordered — measured on
+  `tel_marum_2_foothold`'s 9-unit force ordered into the open basin,
+  `sim.flowFieldCount` went 0 → 9 (`tools/src/formation_walk.test.ts`) — and
+  the bound only matters once a mission's distinct goal tiles exceed it, which
+  the walk test does not, by design: it is a floor pinned by
+  `packages/sim/src/sim.test.ts`'s `flow-field cache` tests, not a ceiling any
+  shipped mission has been measured to hit.
 - ~~Mesh units have no `down`/`wreck`/`work` clips~~ — **stale for INFANTRY since
   `233f683`, and the debt has moved to vehicles.** The prediction in the old text
   was right and was acted on: FK-folding the standing rig into prone did produce a

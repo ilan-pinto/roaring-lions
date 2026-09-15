@@ -278,7 +278,7 @@ This is the mechanic that makes the game a strategy title rather than a shooting
 
 ### Pathfinding
 
-Flow fields, not per-unit A*. Per-unit A* collapses above roughly 50 units and this game routinely exceeds that. One field per destination group, shared by all members, recomputed on terrain change (D9 bulldozer, structure collapse).
+Flow fields, not per-unit A*. Per-unit A* collapses above roughly 50 units and this game routinely exceeds that. One field per destination group, shared by all members, recomputed on terrain change (D9 bulldozer, structure collapse). Since 2026-09-15 a group order gives every unit its own slot tile (spec `2026-09-15-group-formation-design.md`), so a group holds one field per slot; the pool is bounded and reuses unreferenced fields.
 
 ### Performance budget
 
