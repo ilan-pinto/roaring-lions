@@ -548,6 +548,17 @@ Every file's declared `rl_gait` must equal a fresh `measureRoleTravel` of the sa
 
 `idle`, `move`, `fire`, `down`, `work`, `moveFire` where present. Exempt `wreck`/`wreckAlt` — corpses, and the spec records `meshy_soldier`'s −166° as deliberate. Set the tolerance from the measured contrapposto band (+3..+11) with margin, well clear of the 84° and 156° defects it exists to catch.
 
+**Gate the SPREAD as well as the mean, and the reason is specific.** `meanDeg`
+is a circular mean (Task 1, fix round 1). For a clip whose bearing sweeps
+through most of a circle — which is exactly what `meshy_soldier`'s broken
+`idle` did, +23° to −159° — the averaged unit vectors nearly cancel, so the
+mean is numerically unstable and means little. Measured: that clip's mean
+moved 7.8° purely from switching to the circular mean, while every non-sweeping
+clip moved less than 0.002°. A mean-only gate could therefore pass a figure
+spinning on the spot. `maxDeg − minDeg` is what catches that, and a figure that
+turns while standing still is a defect in its own right regardless of where the
+turn is centred. Set that bound from what the fixed art actually measures.
+
 - [ ] **Step 4: Falsify the gate**
 
 A gate that has never gone red is a gate of its own threshold. Temporarily re-point one assertion at a pre-fix copy of `meshy_soldier.glb` (or reconstruct the defect), confirm the facing check fails and names the clip, then revert. Record the failure output in your report. Do the same for the gait check.
