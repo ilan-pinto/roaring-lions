@@ -101,18 +101,61 @@ describe('mesh unit facing', () => {
     for (const f of figs) expect(Math.abs(f.meanDeg)).toBeLessThan(20);
   });
 
-  it('SEES the KDF rifleman firing backward -- the defect this instrument exists for', () => {
-    // Pre-fix characterisation. Task 2 replaces this expectation with the
-    // in-band one; until then it pins that the instrument can see the bug,
-    // which is the only thing that makes the gate in Task 7 trustworthy.
-    const figs = measureFacing(`${MESHES}meshy_soldier.glb`, 'fire');
-    expect(figs.length).toBe(3);
-    for (const f of figs) expect(Math.abs(f.meanDeg)).toBeGreaterThan(120);
-  });
+  // The KDF rifleman used to fire, stand and go to ground facing BACKWARD,
+  // and it was one mechanism producing all three: `import_meshy_soldier.py`
+  // bound the whole of `Gun_Hold_Left_Turn` to `idle` -- a clip that turns
+  // roughly 180 degrees -- and `build_fire_src`/`build_down_src` both took
+  // their base pose from that clip's LAST frame. Measured on the shipped
+  // bytes before the fix: `fire` -156, `down` -163, `idle` sweeping +23 to
+  // -159, against `move`'s correct -5.
+  //
+  // This test was the pre-fix characterisation (it asserted |meanDeg| > 120,
+  // pinning that the instrument could SEE the bug, which is what makes the
+  // gate in Task 7 trustworthy). Task 2 fixed the asset: the script now
+  // measures where the turn begins, binds only the pre-turn hold, yaws that
+  // hold to face +X, and takes fire's and down's base pose from inside the
+  // window. So the expectation is flipped to the in-band one.
+  //
+  // FACING_BAND is the design doc's own contrapposto band (section 2.1: the
+  // kit rigs sit at +3..+11 by deliberate authoring) with margin, and it is
+  // far below the 156 and 84 degree defects it exists to catch.
+  const FACING_BAND = 20;
+
+  it.each(['idle', 'fire', 'down'])(
+    'the KDF rifleman faces what he is shooting in %s (was -156/-163/sweeping)',
+    (clip) => {
+      const figs = measureFacing(`${MESHES}meshy_soldier.glb`, clip);
+      expect(figs.length).toBe(3);
+      for (const f of figs) expect(Math.abs(f.meanDeg)).toBeLessThan(FACING_BAND);
+    }
+  );
 
   it('reads the same rifleman walking CORRECTLY, so the reading is of the clip', () => {
     const figs = measureFacing(`${MESHES}meshy_soldier.glb`, 'move');
-    for (const f of figs) expect(Math.abs(f.meanDeg)).toBeLessThan(20);
+    for (const f of figs) expect(Math.abs(f.meanDeg)).toBeLessThan(FACING_BAND);
+  });
+
+  it('binds moveFire, and reads it as bladed rather than broken', () => {
+    // `Run_and_Shoot_withSkin.glb` was on disk and bound to nothing. It is a
+    // genuine walk-and-shoot mocap: the body blades to the target and the
+    // eyes square to the sights, so the head sits left of the line of
+    // travel. The sibling Sarim rig's own `moveFire` measures +42 and the
+    // design doc records it as "bladed but not broken"; this one is milder.
+    const figs = measureFacing(`${MESHES}meshy_soldier.glb`, 'moveFire');
+    expect(figs.length).toBe(3);
+    for (const f of figs) expect(Math.abs(f.meanDeg)).toBeLessThan(FACING_BAND);
+  });
+
+  it('leaves wreck facing backward, which is a corpse and not a defect', () => {
+    // Deliberately NOT in the band. `wreck` is the last frame of
+    // `Shot_and_Blown_Back` -- a body thrown round by the round that killed
+    // it lies where the blast put it. The design doc records the -166 so the
+    // next reader does not "fix" it, and `CLIP_SEMANTICS['wreck']['heading']`
+    // is `None` in the import script for the same reason. Pinned here so a
+    // future facing sweep that quietly squares every clip shows up as a red
+    // test rather than as a corpse politely facing the enemy.
+    const figs = measureFacing(`${MESHES}meshy_soldier.glb`, 'wreck');
+    for (const f of figs) expect(Math.abs(f.meanDeg)).toBeGreaterThan(120);
   });
 });
 
