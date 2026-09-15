@@ -72,7 +72,16 @@ scales by `1 / UNITS_PER_TILE` (3.0) because three draws one unit per tile.
 
 - Whether the hip needs geometry change, a third bone, or an accepted seam.
 - Bone count per figure beyond the 13 R0 used.
-- Whether `wreck` is a clip at all or stays separate geometry.
+- ~~Whether `wreck` is a clip at all or stays separate geometry.~~ **Closed, for
+  both asset classes, and the answer is the same shape twice: a clip that keys
+  SCALE, switching between two sets of geometry that both live in the file.**
+  Infantry closed it on 2026-09-01 (`rig.py`'s `_figure_death_parts` builds
+  separate prone geometry under a per-figure `{prefix}_death_root`; every clip
+  keys both roots' scale 1/0 living, 0/1 dead). Vehicles closed it on
+  2026-09-15, procedurally rather than by hand — see "Vehicles: the wreck"
+  below. Nothing needs a separate wreck FILE the way a building does, because
+  a unit is one model with two poses in it and a building's two states are two
+  models.
 
 ---
 
@@ -138,6 +147,50 @@ tree: `render_eitan.py` and `render_d9.py` map `hull → olive.*`, while
 turret parts at `TURRET_RENDER_ORDER`, keyed off the `{part}_` prefix — the
 same relationship the billboard path already encodes, for the same reason
 (a turret must outrank its own hull at a co-located, identical-depth instance).
+
+## Vehicles: the wreck, and the one place a mesh is deliberately shared
+
+**Every `art/meshes/vehicles/<id>.glb` carries a `death_root`** — a top-level
+sibling of the live geometry, the infantry `{prefix}_death_root` convention
+applied to a rigid model — holding one `WRECK_<live node name>` child per live
+MESH node. Design:
+`docs/superpowers/specs/2026-09-14-vehicle-wreck-design.md` §4.1.
+
+**Each wreck child references the SAME `Mesh` object its live twin does.** This
+is the one deliberate exception to "a node owns its geometry" in this document,
+and it is a size decision with a measurement behind it: the eight Meshy-sourced
+vehicles are 1.6–3.4 MiB each, and duplicating a buffer to pose it differently
+would have cost that again per file. Sharing costs **+1896…+3236 bytes** for
+the whole feature — the node graph, the clips and three accessors — which is
++0.1 % on the Meshy files and +12–15 % on the two small palette ones
+(`apc_kipod` 23,324 B, `scout_shachaf` 14,848 B). A downstream byte ceiling on
+this pass therefore wants to be about 4 KB and must not be a percentage.
+`validate_mesh_assets.py` fails a wreck child whose mesh no live node
+references, because a half-applied pass that copies geometry looks identical on
+screen and costs the megabytes the contract exists to avoid.
+
+**Two clips, `idle` and `wreck`**, each keying the SCALE of every top-level live
+node and of `death_root` as constants — 1/0 and 0/1 — with `STEP`
+interpolation over two keyframes 0.1 s apart. Exactly what the team rigs ship
+and what `applyMeshClip` / `pickDeathClip` already play. These two names are
+now reserved on a vehicle: the pass strips and rewrites any animation called
+`idle` or `wreck`, so an exporter that authors a real idling shake under that
+name would have it silently eaten.
+
+**Each wreck child carries its live twin's `extras` plus `rl_wreck: true`.** The
+role vocabulary above is unchanged and charring is NOT a role: it is a runtime
+material treatment of anything carrying that flag (one shared dark ramp slice
+for a palette vehicle, one tinted clone per distinct baked material for a
+textured one). The mesh gate repaints every vehicle from the palette tables
+before rendering, so it cannot see charring at all and says so out loud on its
+passing path.
+
+**The poses are PROCEDURAL, not authored**, written by `pnpm wreck:meshes` from
+a recipe of fractions of each vehicle's own measured bounds
+(`tools/src/meshes/wreck-recipes.ts`). The export side owns none of it and the
+supplied `.blend`/Meshy sources are never opened. A later per-vehicle art pass
+that ships real damaged geometry replaces a vehicle's `WRECK_` children and
+changes nothing else here.
 
 ## Unchanged from v1, for every class
 

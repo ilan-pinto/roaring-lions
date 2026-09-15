@@ -779,6 +779,13 @@ Pages' `max-age=600`, the first-frame gap). Pipeline: `tools/units/kit.py` (geom
   above. `metallic_roughness`/`normal` are no longer dropped at export either
   (the exporters keep them since 2026-09-14) and the renderer binds whatever
   maps a GLB carries: there is a sun in this scene to consume them now.
+  **Zero materials is not zero ANIMATIONS any more, for vehicles.** Every
+  `art/meshes/vehicles/*.glb` declared no clips at all until 2026-09-15; all
+  eleven now carry exactly `idle` and `wreck`, written by `pnpm wreck:meshes`
+  and keying only node SCALE, so every living mesh vehicle runs a mixer update
+  each frame where it used to skip one on a null check. Nothing in the export
+  scripts authors them and nothing else may use those two names — `stripWreck`
+  matches by name and would silently eat an authored `idle`.
 - **A building's FACING is gated now** (GH-142, `tools/building_facing.py`,
   inside `pnpm validate:meshes`). A building never turns — `mesh-building.ts`
   leaves rotation at identity — so whichever elevation an export bakes toward
@@ -1043,29 +1050,53 @@ it compares `window.localStorage.length` before and after, and both are
   Verified 2026-09-01 both from the shipped bytes and on screen — a killed
   `inf_squad` on `?sandbox=beit_sahwan_outskirts` leaves three prone figures beside
   a standing squad.
-  **What has NO death state is a mesh VEHICLE**, and the failure is worse than
-  "nothing draws". `art/meshes/vehicles/*.glb` declare zero animations, and
-  `updateVehicleMeshes` skips `alive[i] === 0` and prunes the clone in the SAME
-  frame — so at t=0 the 3D mesh vanishes. What replaces it is a BILLBOARD:
-  `ThreeRenderer.addWreck` excludes `meshUnitTemplates.has(typeId)` but **not**
-  `vehicleMeshTemplates`, so a mesh-drawn vehicle still gets a `UnitWreck`. The
-  sequence a player sees, measured at zoom 1.6 and 2.2 on the default renderer, is
-  three art styles in half a second: 3D mesh → a flat 2D sprite of the INTACT
-  vehicle fading over 0.4 s (`stepDeaths` falls `down` back to `idle` for a sheet
-  with no `down`, which is every mesh vehicle's sheet but `PARA_MOTOR`'s) → the 2D
-  `wreck` sprite. For
-  `mbt_lavi` there is no third step at all: `TNK_HULL`'s manifest declares no
-  `clips` key, so `clipOrFallback(sheet,'wreck') !== 'wreck'` and a destroyed Lavi
-  leaves only `updateOverlays`' grey cross on bare ground. Do NOT "fix" this by
-  adding `vehicleMeshTemplates` to that `addWreck` guard on its own — that deletes
-  the sprite wreck and leaves nothing, which is strictly worse. It needs a real
-  mesh wreck first. The asset mechanism is proven and the two Blender traps are
-  measured (see `.superpowers/queue/mesh-death-report.md`); what is missing is
-  wreck GEOMETRY for a currently-shipped vehicle. The only vehicle in the tree that
-  ever had any is the D9 — `d9.blend` carries seven `WRECK_` parts (collapsed cab,
-  blade off, stack down) that `export_mesh_vehicle.py` deletes at export — and
-  `31c9799` replaced `dozer_d9.glb` with a Meshy-sourced export, so
-  `export_mesh_vehicle.py` now produces no shipped asset but `apc_eitan.glb`.
+  **A mesh VEHICLE has one too, since 2026-09-15** — this entry used to say it had
+  none, and that a dying mesh vehicle showed three art styles in half a second
+  (3D mesh → a fading 2D sprite of the INTACT vehicle → the 2D `wreck` sprite, or
+  for `mbt_lavi` nothing at all, since `TNK_HULL`'s manifest declares no `clips`
+  key). What closes it is a PROCEDURAL wreck rather than authored geometry
+  (`docs/superpowers/specs/2026-09-14-vehicle-wreck-design.md`): `pnpm
+  wreck:meshes` (`tools/src/meshes/wreck-pass.ts`) post-processes each GLB with
+  `@gltf-transform`, adding one `death_root` node whose `WRECK_<name>` children
+  reference **the same `Mesh` objects** their live twins do, displaced by a recipe
+  (`wreck-recipes.ts`), plus the two constant-scale clips `idle` and `wreck`
+  (1/0 and 0/1) the infantry rigs already ship. Sharing the meshes is why all
+  eleven files grew by **+1896…+3236 bytes** rather than by a copy of a 1.6–3.4
+  MiB buffer. The pass is idempotent and re-runnable after a re-export; the Draco
+  mirror is re-encoded in the same commit.
+  Four things about it are worth knowing before touching any of it.
+  **The recipe is fractions of each vehicle's OWN measured bounds**, tuned
+  2026-09-15 against an eleven-pair screenshot sheet
+  (`tools/src/perf/wreck-captures.ts`) and recorded beside each constant. Two of
+  them are counter-intuitive and were measured: the settle is a fraction of the
+  vehicle's **clearance**, not its height, because the measured gap under these
+  bodies is 0.000–0.363 world units and a fraction of the height buried every one
+  of the eleven; and the turret is thrown **across** the hull, not along it,
+  because thrown along it the turret stays inside the vehicle's own silhouette and
+  the Lavi photographed as an intact tank with the gun sticking out. Every group
+  is then seated on the ground plane off real vertices, so nothing sinks and
+  nothing floats.
+  **`addWreck` steps aside only for a type whose template carries the `wreck`
+  clip** (`ThreeRenderer`). Do NOT add `vehicleMeshTemplates` to that guard
+  unconditionally — that deletes the sprite wreck and leaves `&nomesh` and any
+  un-passed re-export with nothing, which is strictly worse than the old bug.
+  **The runtime half is `units/mesh-vehicle-death.ts`**, a rigid sibling of
+  `mesh-death.ts` rather than a generalisation of it, importing that module's fade
+  curve, window, `MeshWreck` cap and fog rule unchanged. A vehicle wreck therefore
+  shares `MAX_MESH_WRECKS` (256) with infantry corpses. Charring is a runtime
+  material treatment of anything marked `rl_wreck` — one shared charred ramp
+  slice for a palette vehicle, one memoised tinted clone per distinct loaded
+  material for a textured one — so **`pnpm validate:meshes` cannot see it**: that
+  gate repaints every vehicle from the palette tables before rendering and says so
+  on its passing path. It judges the SHAPE, two ways, against a measured floor.
+  **What is still missing is real damaged GEOMETRY.** D1 in the spec: a wreck is
+  the same parts slumped and recoloured, and a torn hull or a missing wheel is a
+  later per-vehicle art pass that replaces a vehicle's `WRECK_` children and
+  changes nothing else in the contract. The one model that ever had any is the D9
+  — `d9.blend`'s seven `WRECK_` parts, deleted at export by
+  `export_mesh_vehicle.py`, and `31c9799` replaced `dozer_d9.glb` with a Meshy
+  export anyway. Also still open: a rigid rotor cannot droop, so `heli_peten`'s
+  wreck is distinguished mostly by its charring and by losing its air lift.
 - Tunnels are implemented (`feat/tunnel-subsystem`): routes are map data, a digger
   advances one and leaves surface spoil, stocked fighters surface at the vent to fire a
   volley and submerge, and a `yahalom_squad` charge collapses a route. Both content keys
