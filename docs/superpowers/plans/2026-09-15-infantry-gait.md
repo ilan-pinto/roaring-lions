@@ -118,7 +118,7 @@ Expected: PASS, all six tests (the three existing gait ones plus the three new o
 Run, from the repo root:
 
 ```bash
-pnpm exec tsx -e "import('./tools/src/mesh_gait').then(m=>console.log(m.measureFacing('art/meshes/meshy_soldier.glb','fire')))"
+npx tsx -e "import('./tools/src/mesh_gait').then(m=>console.log(m.measureFacing('art/meshes/meshy_soldier.glb','fire')))"
 ```
 
 Compare against the spec's §2.1 table, which was measured independently in the browser: `inf_squad` `fire` should read near **−156**, `move` near **−5**. Agreement within a few degrees is the point — two independent instruments, one answer. Record both numbers in your report. A disagreement of more than ~10° means one of the two is wrong and must be resolved before any art is touched.
