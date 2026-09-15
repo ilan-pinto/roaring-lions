@@ -19,7 +19,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { groundPerCycleM, measureRoleTravel } from './mesh_gait';
+import { groundPerCycleM, measureFacing, measureRoleTravel } from './mesh_gait';
 import { RIGGED_UNIT_MESHES } from '../../packages/app/src/mesh-catalogue';
 
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
@@ -88,5 +88,30 @@ describe('mesh unit gait', () => {
     const m = measureRoleTravel(`${MESHES}${wiredMortarGlb()}`, 'boot', 'move');
     const ground = groundPerCycleM(mortarSpeedTilesPerSecond(), m.clipSeconds);
     expect(m.maxTravelM / ground).toBeGreaterThan(WALK_FLOOR);
+  });
+});
+
+describe('mesh unit facing', () => {
+  it('reads the kit rigs at their authored contrapposto, not a defect', () => {
+    // kit.py's figure() yaws the head off the body axis by 0.18 rad (10.3 deg)
+    // deliberately -- "a head square to the shoulders is a machine stance".
+    // Measured on the running game: every kit team sits at +3..+11.
+    const figs = measureFacing(`${MESHES}militia_cell.glb`, 'move');
+    expect(figs.length).toBeGreaterThan(0);
+    for (const f of figs) expect(Math.abs(f.meanDeg)).toBeLessThan(20);
+  });
+
+  it('SEES the KDF rifleman firing backward -- the defect this instrument exists for', () => {
+    // Pre-fix characterisation. Task 2 replaces this expectation with the
+    // in-band one; until then it pins that the instrument can see the bug,
+    // which is the only thing that makes the gate in Task 7 trustworthy.
+    const figs = measureFacing(`${MESHES}meshy_soldier.glb`, 'fire');
+    expect(figs.length).toBe(3);
+    for (const f of figs) expect(Math.abs(f.meanDeg)).toBeGreaterThan(120);
+  });
+
+  it('reads the same rifleman walking CORRECTLY, so the reading is of the clip', () => {
+    const figs = measureFacing(`${MESHES}meshy_soldier.glb`, 'move');
+    for (const f of figs) expect(Math.abs(f.meanDeg)).toBeLessThan(20);
   });
 });

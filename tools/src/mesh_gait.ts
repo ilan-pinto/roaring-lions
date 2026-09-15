@@ -237,6 +237,46 @@ function nodeWorlds(glb: GlbFile, tracks: Map<string, Track>, t: number): Mat4[]
   return nodes.map((_, i) => resolve(i));
 }
 
+type Accessor = ReturnType<typeof readAccessor>;
+
+/**
+ * World * inverse-bind per skin joint, in the skin's own joint order.
+ * Shared by every skinning consumer in this file (`measureRoleTravel`'s
+ * travel measurement and `measureFacing`'s per-figure centroid) so this
+ * step has exactly one implementation.
+ */
+function computeSkinMats(skin: { joints: number[] }, worlds: Mat4[], ibm: Accessor | null): Mat4[] {
+  return skin.joints.map((jointNode, skinIndex) => {
+    const w = worlds[jointNode];
+    if (!ibm) return w;
+    const inv = new Float64Array(16);
+    for (let k = 0; k < 16; k++) inv[k] = ibm.data[skinIndex * 16 + k];
+    return multiply(w, inv);
+  });
+}
+
+/**
+ * The four-influence skinning blend for one vertex, against skin matrices
+ * already resolved by `computeSkinMats`. Shared for the same reason as
+ * `computeSkinMats` above -- see the module docstring's "no three.js here"
+ * note for why this is hand-rolled at all. A second copy of this blend is
+ * the exact failure mode this project has been bitten by before: behaviour
+ * in two places, so neither copy can be broken alone.
+ */
+function skinPoint(pos: Accessor, joints: Accessor, weights: Accessor, v: number, skinMats: Mat4[]): [number, number, number] {
+  const px = pos.data[v * 3], py = pos.data[v * 3 + 1], pz = pos.data[v * 3 + 2];
+  let ox = 0, oy = 0, oz = 0;
+  for (let k = 0; k < 4; k++) {
+    const w = weights.data[v * 4 + k];
+    if (w === 0) continue;
+    const m = skinMats[joints.data[v * 4 + k]];
+    ox += w * (m[0] * px + m[4] * py + m[8] * pz + m[12]);
+    oy += w * (m[1] * px + m[5] * py + m[9] * pz + m[13]);
+    oz += w * (m[2] * px + m[6] * py + m[10] * pz + m[14]);
+  }
+  return [ox, oy, oz];
+}
+
 export interface GaitMeasurement {
   /** Metres the mesh's own boots travel, peak to peak, worst vertex. */
   readonly maxTravelM: number;
@@ -277,25 +317,9 @@ export function measureRoleTravel(path: string, role: string, clip: string): Gai
   for (let s = 0; s < SAMPLES; s++) {
     const t = start + ((end - start) * s) / SAMPLES;
     const worlds = nodeWorlds(glb, tracks, t);
-    const skinMats = skin.joints.map((jn, ji) => {
-      const w = worlds[jn];
-      if (!ibm) return w;
-      const inv = new Float64Array(16);
-      for (let k = 0; k < 16; k++) inv[k] = ibm.data[ji * 16 + k];
-      return multiply(w, inv);
-    });
+    const skinMats = computeSkinMats(skin, worlds, ibm);
     for (let v = 0; v < n; v++) {
-      const px = pos.data[v * 3], py = pos.data[v * 3 + 1], pz = pos.data[v * 3 + 2];
-      let ox = 0, oy = 0, oz = 0;
-      for (let k = 0; k < 4; k++) {
-        const w = weights.data[v * 4 + k];
-        if (w === 0) continue;
-        const m = skinMats[joints.data[v * 4 + k]];
-        ox += w * (m[0] * px + m[4] * py + m[8] * pz + m[12]);
-        oy += w * (m[1] * px + m[5] * py + m[9] * pz + m[13]);
-        oz += w * (m[2] * px + m[6] * py + m[10] * pz + m[14]);
-      }
-      const o = [ox, oy, oz];
+      const o = skinPoint(pos, joints, weights, v, skinMats);
       for (let a = 0; a < 3; a++) {
         if (o[a] < lo[v * 3 + a]) lo[v * 3 + a] = o[a];
         if (o[a] > hi[v * 3 + a]) hi[v * 3 + a] = o[a];
@@ -314,6 +338,123 @@ export function measureRoleTravel(path: string, role: string, clip: string): Gai
     clipSeconds: end - start,
     vertexCount: n,
   };
+}
+
+export interface FigureFacing {
+  /** The head joint's own node name, e.g. `mil0_head` or `f0_Head`. */
+  readonly joint: string;
+  readonly meanDeg: number;
+  readonly minDeg: number;
+  readonly maxDeg: number;
+}
+
+/** `kit.py` rigs suffix a head bone `_head`; the Meshy rigs suffix `_Head`.
+ *  Both pipelines are in this tree and this instrument must read both. */
+const HEAD_JOINT_RE = /_(head|Head)$/;
+
+/**
+ * Which way does each figure in `path` face during `clip`, in degrees of
+ * ground-plane bearing?
+ *
+ * ## Method
+ *
+ * For each head joint on the rig (matched by `HEAD_JOINT_RE`, above), take
+ * the `face` role mesh's own vertices whose dominant skin influence --
+ * `JOINTS_0` equal to that joint's index WITHIN THE SKIN'S OWN `joints`
+ * array, `WEIGHTS_0 > 0.5` -- is that joint. Skin those vertices through the
+ * live clip exactly the way `measureRoleTravel` skins the `boot` mesh (same
+ * `computeSkinMats`/`skinPoint` blend, same `SAMPLES`-instant sampling), and
+ * centroid them per instant. The bearing at that instant is `atan2(dz, dx)`
+ * of (centroid − the head joint's own world position), read in the GLB's own
+ * frame where the mesh-unit contract's forward is `+X` -- so `0` means
+ * "facing forward" and positive is the figure's LEFT. `meanDeg`/`minDeg`/
+ * `maxDeg` are that bearing's mean/min/max across the sampled instants, so a
+ * clip that sweeps (an `idle` turning in place) is visible as a wide
+ * min-max spread and not just averaged away.
+ *
+ * ## Why this is a per-figure head-joint reading and not a whole-mesh one
+ *
+ * The obvious rig-agnostic alternative -- the `face` mesh's own centroid
+ * against the `uniform` mesh's own centroid, needing no bone names at all --
+ * was implemented and measured, and it does NOT measure facing. It is
+ * dominated by pack, keffiyeh and weapon-side asymmetry: it reports
+ * `inf_squad`'s CORRECT `move` at **−86°** against its true **−5°**, and
+ * `sarim_rifles`'s `moveFire` at **+148°** against its true **+42°**
+ * (`docs/superpowers/specs/2026-09-15-infantry-gait-design.md` §3.5). Do not
+ * re-derive that negative result -- it is recorded here so the next reader
+ * does not pay for it twice.
+ *
+ * Throws when `path` has no `face` mesh or no clip named `clip` -- a rig
+ * missing the role or clip this instrument reads is a contract failure, not
+ * a facing of zero.
+ */
+export function measureFacing(path: string, clip: string): FigureFacing[] {
+  const glb = readGlb(path);
+  const nodes = glb.json.nodes ?? [];
+  const meshes = glb.json.meshes ?? [];
+  const role = 'face';
+  const nodeIndex = nodes.findIndex((n) => n.mesh !== undefined && (n.name === role || meshes[n.mesh]?.name === role));
+  if (nodeIndex < 0) throw new Error(`${path}: no mesh node named "${role}" -- measureFacing needs it`);
+  const node = nodes[nodeIndex];
+  const prim = meshes[node.mesh as number].primitives[0];
+  const pos = readAccessor(glb, prim.attributes.POSITION);
+  const joints = readAccessor(glb, prim.attributes.JOINTS_0);
+  const weights = readAccessor(glb, prim.attributes.WEIGHTS_0);
+  const skin = glb.json.skins?.[node.skin as number];
+  if (!skin) throw new Error(`${path}: mesh "${role}" is not skinned`);
+  const ibmAcc = skin.inverseBindMatrices;
+  const ibm = ibmAcc === undefined ? null : readAccessor(glb, ibmAcc);
+
+  let clipData: { tracks: Map<string, Track>; start: number; end: number };
+  try {
+    clipData = readClip(glb, clip);
+  } catch {
+    throw new Error(`${path}: no clip "${clip}" -- measureFacing needs it`);
+  }
+  const { tracks, start, end } = clipData;
+
+  const headJoints = skin.joints
+    .map((jointNode, skinIndex) => ({ jointNode, skinIndex, name: nodes[jointNode]?.name ?? '' }))
+    .filter((j) => HEAD_JOINT_RE.test(j.name));
+
+  const vertsForSkinIndex = new Map<number, number[]>();
+  for (const { skinIndex } of headJoints) vertsForSkinIndex.set(skinIndex, []);
+  for (let v = 0; v < pos.count; v++) {
+    for (let k = 0; k < 4; k++) {
+      if (weights.data[v * 4 + k] <= 0.5) continue;
+      vertsForSkinIndex.get(joints.data[v * 4 + k])?.push(v);
+    }
+  }
+
+  const results: FigureFacing[] = [];
+  for (const { jointNode, skinIndex, name } of headJoints) {
+    const verts = vertsForSkinIndex.get(skinIndex) ?? [];
+    if (verts.length === 0) continue;
+    const bearings: number[] = [];
+    for (let s = 0; s < SAMPLES; s++) {
+      const t = start + ((end - start) * s) / SAMPLES;
+      const worlds = nodeWorlds(glb, tracks, t);
+      const skinMats = computeSkinMats(skin, worlds, ibm);
+      // Ground-plane centroid: y (height) plays no part in a bearing.
+      let cx = 0, cz = 0;
+      for (const v of verts) {
+        const [ox, , oz] = skinPoint(pos, joints, weights, v, skinMats);
+        cx += ox; cz += oz;
+      }
+      cx /= verts.length; cz /= verts.length;
+      const headWorld = worlds[jointNode];
+      const dx = cx - headWorld[12];
+      const dz = cz - headWorld[14];
+      bearings.push((Math.atan2(dz, dx) * 180) / Math.PI);
+    }
+    results.push({
+      joint: name,
+      meanDeg: bearings.reduce((a, b) => a + b, 0) / bearings.length,
+      minDeg: Math.min(...bearings),
+      maxDeg: Math.max(...bearings),
+    });
+  }
+  return results;
 }
 
 /**
