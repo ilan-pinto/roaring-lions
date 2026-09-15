@@ -22,6 +22,22 @@ export const COST_ORTH = 10;
 export const COST_DIAG = 14;
 const INF = 0x7fffffff;
 
+/**
+ * Scratch for `compute`'s heap, shared by every field. A field used to own
+ * two Int32Arrays of 8 cells each — 147 KB of the 160 KB a 48×48 field cost —
+ * for a heap that is empty between calls. `compute` is synchronous and the sim
+ * is single-threaded, so one scratch serves every field in every Sim.
+ */
+let scratchTile = new Int32Array(0);
+let scratchCost = new Int32Array(0);
+function scratchFor(cells: number): void {
+  const need = cells * 8;
+  if (scratchTile.length < need) {
+    scratchTile = new Int32Array(need);
+    scratchCost = new Int32Array(need);
+  }
+}
+
 export class FlowField {
   readonly width: number;
   readonly height: number;
@@ -31,17 +47,12 @@ export class FlowField {
   goalY = -1;
 
   private readonly cost: Int32Array;
-  private readonly heapTile: Int32Array;
-  private readonly heapCost: Int32Array;
 
   constructor(width: number, height: number) {
     this.width = width;
     this.height = height;
     this.dirs = new Uint8Array(width * height);
     this.cost = new Int32Array(width * height);
-    // Worst-case heap occupancy: every tile pushed a handful of times.
-    this.heapTile = new Int32Array(width * height * 8);
-    this.heapCost = new Int32Array(width * height * 8);
   }
 
   /**
@@ -78,9 +89,10 @@ export class FlowField {
     const goal = gy * w + gx;
     if (gx < 0 || gy < 0 || gx >= w || gy >= h || blocked[goal] !== 0) return;
 
+    scratchFor(w * h);
     let heapSize = 0;
-    const ht = this.heapTile;
-    const hc = this.heapCost;
+    const ht = scratchTile;
+    const hc = scratchCost;
 
     const push = (tile: number, c: number): void => {
       let i = heapSize++;

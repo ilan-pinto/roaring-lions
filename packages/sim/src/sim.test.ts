@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
-import { Sim, TICKS_PER_SECOND, type SimEvent, type UnitTypeJson } from './sim';
+import { MAX_FLOW_FIELDS, Sim, TICKS_PER_SECOND, type SimEvent, type UnitTypeJson } from './sim';
 
 // Minimal schema-shaped types for exercising the core. Combat stats are
 // present but only movement/detection-agnostic behaviour is tested here.
@@ -20,8 +20,8 @@ const TANK: UnitTypeJson = {
   weapons: [],
 };
 
-function makeSim(seed = 42): Sim {
-  return new Sim({ seed, width: 32, height: 32, capacity: 64 });
+function makeSim(seed = 42, capacity = 64): Sim {
+  return new Sim({ seed, width: 32, height: 32, capacity });
 }
 
 describe('sim construction and spawning', () => {
@@ -220,5 +220,39 @@ describe('detection observer credit', () => {
       }
     }
     expect(observer).toBe(eye);
+  });
+});
+
+describe('flow-field cache', () => {
+  it('never holds more than MAX_FLOW_FIELDS fields when goals are one-shot', () => {
+    const sim = makeSim();
+    const t = sim.addUnitType(RIFLES);
+    const id = sim.spawn(t, 0, fx.fromInt(1), fx.fromInt(1));
+    // Each order lands on a fresh tile; the unit never arrives, so the
+    // previous goal's field is unreferenced the moment the next lands.
+    for (let k = 0; k < MAX_FLOW_FIELDS + 40; k++) {
+      const gx = 2 + (k % 28);
+      const gy = 2 + Math.floor(k / 28);
+      sim.queueCommand({ kind: 'move', ids: [id], x: fx.fromInt(gx), y: fx.fromInt(gy) });
+      sim.tick();
+    }
+    expect(sim.flowFieldCount).toBeLessThanOrEqual(MAX_FLOW_FIELDS);
+  });
+
+  it('never reuses a field a living unit still follows', () => {
+    const sim = makeSim(42, 256);
+    const t = sim.addUnitType(RIFLES);
+    const ids: number[] = [];
+    for (let i = 0; i < MAX_FLOW_FIELDS + 8; i++) ids.push(sim.spawn(t, 0, fx.fromInt(1), fx.fromInt(1 + (i % 30))));
+    // Every unit gets its own goal tile, so every field is referenced.
+    for (let i = 0; i < ids.length; i++) {
+      sim.queueCommand({ kind: 'move', ids: [ids[i]], x: fx.fromInt(2 + (i % 28)), y: fx.fromInt(2 + Math.floor(i / 28)) });
+    }
+    sim.tick();
+    // The pool had to grow past the cap rather than steal a live field.
+    expect(sim.flowFieldCount).toBe(ids.length);
+    // And every unit is still walking toward ITS goal, not somebody else's.
+    for (let k = 0; k < 5; k++) sim.tick();
+    for (let i = 0; i < ids.length; i++) expect(sim.state.moving[ids[i]]).toBe(1);
   });
 });

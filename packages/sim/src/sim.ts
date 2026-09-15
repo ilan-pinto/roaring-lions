@@ -685,6 +685,13 @@ const MAX_STRUCTURES = 256;
 /** Queued path points per unit. Enough for a route around a block; a cap
  *  keeps the storage flat and the hash cheap. */
 const MAX_WAYPOINTS = 8;
+/** Flow fields kept alive at once. Slots give every unit in an order its own
+ *  goal tile (formation.ts), so a twelve-unit order can want twelve fields
+ *  where it used to want one. Beyond this many, `fieldFor` reuses the
+ *  least-recently-issued field that no living unit still follows; it only
+ *  grows past this when every field is live, which takes more distinct
+ *  goals than there are units. 128 × ~11.5 KB on a 48×48 map is 1.5 MB. */
+export const MAX_FLOW_FIELDS = 128;
 /** Routes per mission. Small on purpose: a mission with more than a handful of
  *  tunnels is a mission whose player cannot reason about any of them. */
 const MAX_TUNNELS = 16;
@@ -1049,12 +1056,20 @@ export class Sim {
    * than a bit stuffed into the tile index, so the key stays readable and the
    * tile index stays a tile index.
    *
-   * This pool still never evicts (`fields.push` grows for the mission's
-   * life), and per-domain passability is what could have doubled it. It does
-   * not, on any map without boulders: `fieldFor` collapses the domain there,
-   * because the two masks are the same array.
+   * The pool grows up to MAX_FLOW_FIELDS, then `fieldFor` reuses the
+   * least-recently-issued field no living unit still follows rather than
+   * growing further; it only exceeds the cap when every field is live, which
+   * takes more distinct goals than there are units. Per-domain passability is
+   * what could have doubled it. It does not, on any map without boulders:
+   * `fieldFor` collapses the domain there, because the two masks are the
+   * same array.
    */
   private readonly fieldByGoal: Map<number, number>[] = [new Map(), new Map()];
+  /** Tick each field was last handed out by `fieldFor`; the eviction key. */
+  private readonly fieldLastIssued: number[] = [];
+  /** Goal key of each field, so eviction can drop it from `fieldByGoal`. */
+  private readonly fieldGoalKey: number[] = [];
+  private readonly fieldDomain: number[] = [];
 
   constructor(config: SimConfig) {
     this.width = config.width;
@@ -1245,8 +1260,11 @@ export class Sim {
     return this.blockedVehicleMask;
   }
 
-  /** How many flow fields have been allocated. Diagnostic: the pool never
-   *  evicts, and per-domain passability is the thing that could double it. */
+  /** How many flow fields have been allocated. Diagnostic: the pool grows up
+   *  to MAX_FLOW_FIELDS and then reuses the least-recently-issued field no
+   *  living unit follows, so this stays at or below the cap unless every
+   *  field in the pool is currently live. Per-domain passability is the
+   *  other thing that could double it. */
   get flowFieldCount(): number {
     return this.fields.length;
   }
@@ -1717,20 +1735,48 @@ export class Sim {
    * The domain collapses to DOMAIN_FOOT on a map with no boulders. That is
    * not an optimisation bolted on afterwards: the two masks are the same
    * array there, so a vehicle field would be a byte-identical duplicate of
-   * one already in the pool — and this pool never evicts.
+   * one already in the pool.
    */
   private fieldFor(gx: number, gy: number, domain: number): number {
     const d = this.hasBoulders ? domain : DOMAIN_FOOT;
     const byGoal = this.fieldByGoal[d];
     const key = gy * this.width + gx;
     const existing = byGoal.get(key);
-    if (existing !== undefined) return existing;
-    const field = new FlowField(this.width, this.height);
-    field.compute(this.maskFor(d), this.elevation, gx, gy);
-    const idx = this.fields.length;
-    this.fields.push(field);
+    if (existing !== undefined) {
+      this.fieldLastIssued[existing] = this.tickCount;
+      return existing;
+    }
+    let idx = this.fields.length >= MAX_FLOW_FIELDS ? this.evictableField() : -1;
+    if (idx < 0) {
+      idx = this.fields.length;
+      this.fields.push(new FlowField(this.width, this.height));
+    } else {
+      this.fieldByGoal[this.fieldDomain[idx]].delete(this.fieldGoalKey[idx]);
+    }
+    this.fields[idx].compute(this.maskFor(d), this.elevation, gx, gy);
+    this.fieldLastIssued[idx] = this.tickCount;
+    this.fieldGoalKey[idx] = key;
+    this.fieldDomain[idx] = d;
     byGoal.set(key, idx);
     return idx;
+  }
+
+  /** The least-recently-issued field no living unit follows, or -1 when
+   *  every field is live. O(units + fields) per call, and a call happens at
+   *  most once per order once the pool is full. */
+  private evictableField(): number {
+    const live = new Uint8Array(this.fields.length);
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0) continue;
+      const f = this.fieldRef[i];
+      if (f >= 0) live[f] = 1;
+    }
+    let best = -1;
+    for (let f = 0; f < this.fields.length; f++) {
+      if (live[f] === 1) continue;
+      if (best < 0 || this.fieldLastIssued[f] < this.fieldLastIssued[best]) best = f;
+    }
+    return best;
   }
 
   /** The movement domain a living unit paths in. */
