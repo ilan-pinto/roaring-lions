@@ -26,7 +26,11 @@ export const INFANTRY_SPACING = 1;
 export const VEHICLE_TO_INFANTRY_GAP = 1;
 /** Ranks are tried this far behind the click; beyond it the unit overflows. */
 export const SEARCH_RADIUS = 8;
-/** The reachability walk's depth: a rank at SEARCH_RADIUS plus a full lateral offset. */
+/** The reachability walk's depth: a rank at SEARCH_RADIUS plus a full lateral
+ *  offset — 11, so the walk can touch up to (2·11 + 1)² = 529 tiles per
+ *  distinct (mask, origin), not the 289 spec §4.5 derived from SEARCH_RADIUS
+ *  alone. A slot beyond this is unreachable by construction, so the depth has
+ *  to cover the widest slot the grid can ask for, not the deepest rank. */
 const WALK_DEPTH = SEARCH_RADIUS + MAX_LATERAL;
 
 export interface FormationUnit {
@@ -121,7 +125,27 @@ export function assignFormation(input: FormationInput): Slot[] {
   const latX = -fwdY;
   const latY = fwdX;
 
-  const reach: Reach[] = input.masks.map((mask, d) => walk(mask, w, h, input.origins[d]));
+  // One walk per DISTINCT (mask, origin) pair. On a map with no boulders the
+  // foot and vehicle masks are the same array (`Sim.maskFor` collapses the
+  // domain there) and the click snaps to the same tile for both, so the
+  // second walk was a byte-identical copy of the first — up to WALK_DEPTH's
+  // full disc re-visited for nothing, on every map the game ships but one.
+  // Compared by identity and origin, never by contents: the collapse is a
+  // property of the caller handing the same array twice, and the ORIGIN has
+  // to match too, since the same mask walked from two tiles gives a different
+  // `order` (the overflow order) and a different `hit` disc. A shared `Reach`
+  // is safe to alias: nothing below writes to one.
+  const reach: Reach[] = [];
+  for (let d = 0; d < input.masks.length; d++) {
+    const mask = input.masks[d];
+    const [ox, oy] = input.origins[d];
+    let same = -1;
+    for (let e = 0; e < d && same < 0; e++) {
+      const [ex, ey] = input.origins[e];
+      if (input.masks[e] === mask && ex === ox && ey === oy) same = e;
+    }
+    reach.push(same < 0 ? walk(mask, w, h, input.origins[d]) : reach[same]);
+  }
   const taken = new Uint8Array(w * h);
   const out: Slot[] = [];
   const sorted = [...input.units].sort((a, b) => a.id - b.id);

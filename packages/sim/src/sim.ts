@@ -2051,12 +2051,15 @@ export class Sim {
             ],
             clickX: fgx,
             clickY: fgy,
-            // `| 0` and not `Math.trunc`: `Math.*` is banned in this package
-            // (invariant 2), and the dividend is non-negative on any
-            // map-legal position, so the truncation is the integer divide it
-            // looks like.
-            fromX: (sumX / n) | 0,
-            fromY: (sumY / n) | 0,
+            // The tree's integer-divide idiom (`fixed.ts:119`), not a float
+            // divide truncated: subtracting the remainder first leaves a
+            // dividend exactly divisible by `n`, so no float is ever produced
+            // to be rounded on the way past. `Math.trunc` is banned in this
+            // package (invariant 2), and `| 0` would have been bit-identical
+            // here — this says what it means instead of relying on the
+            // dividend staying non-negative and inside 2^31.
+            fromX: (sumX - (sumX % n)) / n,
+            fromY: (sumY - (sumY % n)) / n,
             units: members,
             // An order's ids are single-side by construction (a player or a
             // script never mixes sides in one command), so the first member
@@ -2076,30 +2079,40 @@ export class Sim {
           if (exact ? this.carriedBy[id] >= 0 : slot === undefined) continue;
           let ux: Fx;
           let uy: Fx;
-          let uf: number;
-          // Each `fieldFor` below is asked for and stamped into `fieldRef`
-          // inside the SAME iteration, with no other `fieldFor` between: the
-          // pool reuses any field no living unit references, and a field
-          // issued but not yet stamped is exactly that. (`evictableField`'s
-          // same-tick exclusion is the other half of that guarantee.)
+          // The point is resolved here; the FIELD toward it is not. Only the
+          // goal tile and the domain to path it on are carried down, because
+          // an appended order stores `ux/uy` as a waypoint and returns — the
+          // field is recomputed when that waypoint activates on arrival. A
+          // `fieldFor` call up here would therefore sweep 2304 cells per
+          // appended unit for a result nothing ever reads, and leave it in
+          // the pool for eviction to clear.
           //
           // `slot === undefined` here means the EXACT path: on the formation
           // path a member always has a slot by construction (it would not be
           // in `members` otherwise), and the guard above already `continue`d
           // away anyone the formation path left without one.
+          let ufx: number;
+          let ufy: number;
+          let ufd: number;
           if (slot === undefined) {
             if (snapped && utype.isAir) {
               ux = gx;
               uy = gy;
-              uf = this.fieldFor(tx, ty, DOMAIN_FOOT);
+              ufx = tx;
+              ufy = ty;
+              ufd = DOMAIN_FOOT;
             } else if (utype.moveDomain === DOMAIN_VEHICLE) {
               ux = xgx;
               uy = xgy;
-              uf = this.fieldFor(vgx, vgy, DOMAIN_VEHICLE);
+              ufx = vgx;
+              ufy = vgy;
+              ufd = DOMAIN_VEHICLE;
             } else {
               ux = sgx;
               uy = sgy;
-              uf = this.fieldFor(fgx, fgy, DOMAIN_FOOT);
+              ufx = fgx;
+              ufy = fgy;
+              ufd = DOMAIN_FOOT;
             }
           } else {
             // A unit whose slot IS the tile under the cursor keeps the exact
@@ -2112,7 +2125,9 @@ export class Sim {
             const onClick = slot[0] === tx && slot[1] === ty;
             ux = onClick ? gx : fx.add(fx.fromInt(slot[0]), HALF);
             uy = onClick ? gy : fx.add(fx.fromInt(slot[1]), HALF);
-            uf = this.fieldFor(slot[0], slot[1], utype.isAir ? DOMAIN_FOOT : utype.moveDomain);
+            ufx = slot[0];
+            ufy = slot[1];
+            ufd = utype.isAir ? DOMAIN_FOOT : utype.moveDomain;
           }
           // Appending to a unit already under way queues the point instead of
           // overriding it: that is how a player draws a route round a block.
@@ -2146,7 +2161,12 @@ export class Sim {
           this.chargeTicks[id] = 0;
           this.goalX[id] = ux;
           this.goalY[id] = uy;
-          this.fieldRef[id] = uf;
+          // Asked for and stamped into `fieldRef` in one statement, so no
+          // other `fieldFor` can run between the two: the pool reuses any
+          // field no living unit references, and a field issued but not yet
+          // stamped is exactly that. (`evictableField`'s same-tick exclusion
+          // is the other half of that guarantee.)
+          this.fieldRef[id] = this.fieldFor(ufx, ufy, ufd);
           this.moving[id] = 1;
           this.attackMove[id] = cmd.kind === 'attackMove' ? 1 : 0;
           this.engaging[id] = 0;

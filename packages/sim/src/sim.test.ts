@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
+import { MAX_LATERAL } from './formation';
 import { MAX_FLOW_FIELDS, Sim, TICKS_PER_SECOND, type SimEvent, type UnitTypeJson } from './sim';
 
 // Minimal schema-shaped types for exercising the core. Combat stats are
@@ -399,6 +400,42 @@ describe('formation on arrival', () => {
     expect(tileOf(sim, mover)).toBe('12,12');
   });
 
+  it('releases a group\'s own tiles before re-assigning them to it', () => {
+    // Spec §5's "re-ordering a group releases its old tiles first".
+    // `reservedTilesFor` skips the ids of the order being applied
+    // (`inOrder`); without that skip, every unit's current tile reads as
+    // reserved AGAINST ITSELF, so a group told to hold the ground it is
+    // already standing on is walked backwards a rank at a time — the
+    // vehicles off the clicked row onto rank 2, the infantry out behind
+    // them. With it, the second assignment is the first one again.
+    const sim = makeSim(42, 64);
+    const inf = sim.addUnitType(F_INF);
+    const tank = sim.addUnitType(F_TANK);
+    const ids: number[] = [];
+    for (let i = 0; i < 3; i++) ids.push(sim.spawn(tank, 0, fx.fromInt(4 + i), fx.fromInt(28)));
+    for (let i = 0; i < 11; i++) ids.push(sim.spawn(inf, 0, fx.fromInt(3 + i), fx.fromInt(29)));
+    sim.queueCommand({ kind: 'move', ids, x: fx.fromInt(12), y: fx.fromInt(12) });
+    settle(sim, 40);
+    const first = ids.map((id) => tileOf(sim, id));
+    expect(new Set(first).size).toBe(ids.length);
+    // Fourteen units is three ranks deep, so the settled group's own
+    // centroid still quantises to the same approach axis as the spawn line
+    // did — the second order re-derives the identical grid, and the only
+    // thing that can move a unit off its tile is the reservation scan.
+    sim.queueCommand({ kind: 'move', ids, x: fx.fromInt(12), y: fx.fromInt(12) });
+    settle(sim, 20);
+    expect(ids.map((id) => tileOf(sim, id))).toEqual(first);
+    // And every one of them is still inside the grid rather than out on the
+    // overflow ring: within MAX_LATERAL of the clicked column, on the clicked
+    // row or the two behind it.
+    for (const t of first) {
+      const [x, y] = t.split(',').map(Number);
+      expect(x - 12 <= MAX_LATERAL && 12 - x <= MAX_LATERAL).toBe(true);
+      expect(y).toBeGreaterThanOrEqual(12);
+      expect(y).toBeLessThanOrEqual(14);
+    }
+  });
+
   it('keeps two groups ordered to one click on disjoint tiles', () => {
     const sim = makeSim(42, 64);
     const inf = sim.addUnitType(F_INF);
@@ -441,15 +478,38 @@ describe('formation on arrival', () => {
   });
 
   it('gives a queued waypoint its own slot per unit', () => {
+    // Eight infantry, so the queued leg's grid is two ranks deep and the
+    // second rank's row is an assertion rather than an inference.
+    //
+    // The two clicks are chosen so the approach axis FLIPS between them, and
+    // that is what pins the `from` the appended leg is measured against.
+    // Leg 1 runs east from the start line at x = 1..8 and lands its eight
+    // slots on x = 26 (seven of them) and x = 25 (one), centroid (25, 15).
+    // Leg 2's click (25, 21) is due SOUTH of that centroid — approach +y, a
+    // rank running along x — but it is south-EAST of where the units are
+    // still standing when the append is issued, which quantises to +x and a
+    // rank running along y. So measuring `from` at the units instead of at
+    // the end of the leg before rotates the whole formation a quarter turn
+    // and this test goes red.
     const sim = makeSim(42, 64);
     const inf = sim.addUnitType(F_INF);
     const ids: number[] = [];
-    for (let i = 0; i < 4; i++) ids.push(sim.spawn(inf, 0, fx.fromInt(2 + i), fx.fromInt(2)));
-    sim.queueCommand({ kind: 'move', ids, x: fx.fromInt(12), y: fx.fromInt(2) });
+    for (let i = 0; i < 8; i++) ids.push(sim.spawn(inf, 0, fx.fromInt(1 + i), fx.fromInt(15)));
+    sim.queueCommand({ kind: 'move', ids, x: fx.fromInt(26), y: fx.fromInt(15) });
     sim.tick();
-    sim.queueCommand({ kind: 'move', ids, x: fx.fromInt(12), y: fx.fromInt(12), append: true });
+    sim.queueCommand({ kind: 'move', ids, x: fx.fromInt(25), y: fx.fromInt(21), append: true });
     settle(sim, 40);
-    expect(new Set(ids.map((id) => tileOf(sim, id))).size).toBe(4);
-    for (const id of ids) expect(fx.toInt(sim.state.posY[id])).toBeGreaterThanOrEqual(12);
+    expect(new Set(ids.map((id) => tileOf(sim, id))).size).toBe(8);
+    for (const id of ids) expect(sim.state.moving[id]).toBe(0);
+    // Rank 0 is the clicked row, 2·MAX_LATERAL + 1 wide and centred on the
+    // clicked column; rank 1 is the single row behind it, one unit at offset 0.
+    const rank0 = ids.filter((id) => fx.toInt(sim.state.posY[id]) === 21);
+    const rank1 = ids.filter((id) => fx.toInt(sim.state.posY[id]) === 20);
+    expect(rank0).toHaveLength(2 * MAX_LATERAL + 1);
+    expect(rank1).toHaveLength(1);
+    expect(rank0.map((id) => fx.toInt(sim.state.posX[id])).sort((a, b) => a - b)).toEqual([
+      22, 23, 24, 25, 26, 27, 28,
+    ]);
+    expect(fx.toInt(sim.state.posX[rank1[0]])).toBe(25);
   });
 });
