@@ -24,12 +24,14 @@ import {
   type Accessor,
   type Mesh,
   type Node,
+  type bbox,
   type vec3,
 } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { WRECK_FRACTIONS, WRECK_RECIPES, type WreckRecipe } from './wreck-recipes';
 import {
   applyWreckPass,
+  parseWreckArgs,
   runWreckPass,
   CLIP_IDLE,
   CLIP_WRECK,
@@ -100,6 +102,41 @@ function fixture(): Fixture {
 
   scene.addChild(hull).addChild(rubber).addChild(pivot);
   return { doc, recipe: { hull: 'wheeled', turretPivot: 'turret_pivot' } };
+}
+
+/**
+ * A single flat slab, long along one horizontal axis, as an `air` hull so it
+ * takes the big `BODY_ROLL_DEG` rather than the 6-degree ground roll.
+ *
+ * Flat on purpose. Under a roll a box's axis-aligned extent goes
+ * `W*cos + H*sin`, so a TALL box's width can grow under the very rotation that
+ * is tipping it over, and the measurement stops discriminating. At H = 0.1 x W
+ * the cross-term is small and the collapse is unambiguous.
+ */
+function slabFixture(long: 'x' | 'z'): Fixture {
+  const doc = new Document();
+  doc.createBuffer();
+  const min: vec3 = long === 'x' ? [-2, 0, -1] : [-1, 0, -2];
+  const max: vec3 = long === 'x' ? [2, 0.2, 1] : [1, 0.2, 2];
+  doc
+    .createScene('Scene')
+    .addChild(
+      doc
+        .createNode('hull_hull')
+        .setMesh(box(doc, 'hull_hull', min, max))
+        .setExtras({ rl_role: 'hull', rl_part: 'hull' })
+    );
+  return { doc, recipe: { hull: 'air' } };
+}
+
+const extent = (b: bbox, axis: number): number => b.max[axis] - b.min[axis];
+
+/** Where a node's own +Y has ended up in world space: the second basis column
+ *  of its world matrix, normalised. */
+function worldUp(n: Node): vec3 {
+  const m = n.getWorldMatrix();
+  const len = Math.hypot(m[4], m[5], m[6]) || 1;
+  return [m[4] / len, m[5] / len, m[6] / len];
 }
 
 const nodeNamed = (doc: Document, name: string): Node | undefined =>
@@ -200,6 +237,60 @@ describe('applyWreckPass', () => {
     const gap = worldY(rubber) - worldY(hull);
     expect(gap).toBeGreaterThan(0.5 * WRECK_FRACTIONS.HULL_DROP * height);
     expect(gap).toBeLessThan(1.5 * WRECK_FRACTIONS.HULL_DROP * height);
+  });
+
+  // The axes are not fixed: eight of the eleven shipped vehicles run along X
+  // and three do not. A roll hardcoded about world Z lays a Z-long vehicle on
+  // its side and stands an X-long one on its NOSE -- which is what
+  // `heli_peten` was doing, its fuselage running along X. Both orientations
+  // are asserted, because a version reading `m.longAxis` and a version
+  // hardcoding one axis are each right for exactly one of them.
+  //
+  // The assertion is where the body's own UP ends up, not how wide its
+  // bounding box is, and that is a correction made after measuring. "The
+  // perpendicular extent collapses" is the natural phrasing and it is FALSE
+  // here: the 4-degree pitch tilts a 4-long body's length into Y, that Y then
+  // feeds the roll's `W*cos + H*sin` cross-term, and the perpendicular AABB
+  // extent comes out at 1.0074x -- it GROWS. An axis-aligned box measurement
+  // cannot see this rotation. The up vector can, exactly: rolling about the
+  // long axis tips up ACROSS the body (0.4216 of it) and the pitch tips it
+  // ALONG (0.0698), a ratio of 6.04; swapping the axes swaps the two, giving
+  // 0.166. The 3.0 floor sits in that gap and leaves room for Task 5 to
+  // retune both angles.
+  for (const [long, longAxis, perpAxis] of [
+    ['x', 0, 2],
+    ['z', 2, 0],
+  ] as const) {
+    it(`rolls a ${long}-long body about its own long axis, tipping it sideways and not onto its nose`, () => {
+      const { doc, recipe } = slabFixture(long);
+
+      applyWreckPass(doc, `slab_${long}`, recipe);
+
+      const up = worldUp(deathRoot(doc).listChildren()[0]);
+      expect(Math.abs(up[perpAxis])).toBeGreaterThan(3 * Math.abs(up[longAxis]));
+      expect(up[1]).toBeGreaterThan(0); // still broadly upright, not flipped
+    });
+  }
+
+  it('treats an x-long and a z-long body identically in their own frames', () => {
+    // The symmetry a hardcoded axis cannot have. Measured: both come out at
+    // 1.0011 along and 1.0074 across, bit-identical -- so this is an equality,
+    // not a tolerance, and it fails on either half of the swap.
+    const ratios = (long: 'x' | 'z'): [number, number] => {
+      const { doc, recipe } = slabFixture(long);
+      const live = getBounds(doc.getRoot().listScenes()[0]);
+      applyWreckPass(doc, `slab_${long}`, recipe);
+      const wreck = getBounds(deathRoot(doc));
+      const [longAxis, perpAxis] = long === 'x' ? [0, 2] : [2, 0];
+      return [
+        extent(wreck, longAxis) / extent(live, longAxis),
+        extent(wreck, perpAxis) / extent(live, perpAxis),
+      ];
+    };
+    const [alongX, acrossX] = ratios('x');
+    const [alongZ, acrossZ] = ratios('z');
+    expect(alongX).toBeCloseTo(alongZ, 9);
+    expect(acrossX).toBeCloseTo(acrossZ, 9);
   });
 
   it('keys idle and wreck as constant scale channels on every top-level live node and death_root', () => {
@@ -316,6 +407,30 @@ describe('runWreckPass', () => {
   it('refuses a vehicle with no recipe', async () => {
     await expect(runWreckPass(['not_a_vehicle'])).rejects.toThrow(/not_a_vehicle/);
   });
+});
+
+describe('parseWreckArgs', () => {
+  it('reads --id= flags, and tolerates the separator pnpm forwards verbatim', () => {
+    expect(parseWreckArgs([])).toBe('all');
+    expect(parseWreckArgs(['--'])).toBe('all');
+    expect(parseWreckArgs(['--', '--id=mbt_lavi', '--id=technical'])).toEqual(['mbt_lavi', 'technical']);
+  });
+
+  // Falling through to "all eleven" on an argument nobody recognised rewrites
+  // 25 MB of tracked art the caller never asked about. A destructive default
+  // reached by a typo is worse than an error.
+  for (const argv of [
+    ['--id', 'mbt_lavi'],
+    ['--ids=mbt_lavi'],
+    ['--id='],
+    ['mbt_lavi'],
+    ['--all'],
+    ['--id=mbt_lavi', '--force'],
+  ]) {
+    it(`refuses [${argv.join(' ')}] rather than defaulting to all eleven`, () => {
+      expect(() => parseWreckArgs(argv)).toThrow(/unrecognised argument/);
+    });
+  }
 });
 
 describe('WRECK_RECIPES', () => {

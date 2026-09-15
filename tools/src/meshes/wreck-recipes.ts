@@ -68,19 +68,19 @@ export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
 export const WRECK_FRACTIONS = {
   /** Fraction of the vehicle's height the body settles by. Wheels and tracks stay. */
   HULL_DROP: 0.15,
-  /** Nose-down pitch of the whole vehicle, about its bounds centre. */
+  /** Nose-down pitch: about the TRANSVERSE axis, through the bounds centre. */
   HULL_PITCH_DEG: 4,
-  /** Roll of a ground vehicle, about its bounds centre. */
+  /** Roll of a ground vehicle: about its LONGITUDINAL axis, through the bounds centre. */
   HULL_ROLL_DEG: 6,
   /** Fraction of the vehicle's length the turret is thrown along its long axis. */
   TURRET_SHIFT: 0.25,
-  /** Roll of the thrown turret, about the pivot's own origin. */
+  /** Roll of the thrown turret: about the hull's longitudinal axis, through the pivot's origin. */
   TURRET_ROLL_DEG: 12,
-  /** Yaw of the thrown turret, about the pivot's own origin. */
+  /** Yaw of the thrown turret, about world +Y through the pivot's origin. Up needs no axis choice. */
   TURRET_YAW_DEG: 20,
-  /** Roll of an `air` hull: the fuselage lies on its side rather than tilting. */
+  /** Roll of an `air` hull, about its longitudinal axis: the fuselage lies on its SIDE, not on its nose. */
   BODY_ROLL_DEG: 25,
-  /** Pitch of the rotor subtree about the rotor pivot: the blades bend. */
+  /** Pitch of the rotor subtree, about the transverse axis through the rotor pivot: the blades bend. */
   ROTOR_BEND_DEG: 30,
   /** Roll of the canopy about the hull's long axis: the wing tips onto its edge. */
   CANOPY_ROLL_DEG: 80,

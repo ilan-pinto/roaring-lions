@@ -196,6 +196,29 @@ function measure(liveTop: readonly Node[], vehicleId: string): HullMetrics {
 const alongLongAxis = (m: HullMetrics, d: number): mat4 =>
   m.longAxis === 0 ? translation(d, 0, 0) : translation(0, 0, d);
 
+/**
+ * A ROLL: rotation about the vehicle's own longitudinal axis, the one it runs
+ * along. Tipping it over is what a roll means, so the extent that collapses is
+ * the width and the length is untouched.
+ */
+const roll = (m: HullMetrics, t: number): mat4 => (m.longAxis === 0 ? rotationX(t) : rotationZ(t));
+
+/**
+ * A PITCH: rotation about the vehicle's own transverse axis. Nose up or nose
+ * down, so the extent that collapses is the length.
+ *
+ * **These two exist because the axes are not fixed.** Eight of the eleven
+ * shipped vehicles run along X and three do not, and the same numeral means
+ * opposite things to the two groups -- a roll hardcoded about world Z tips a
+ * Z-long vehicle over and stands an X-long one on its nose. That was the
+ * defect: `heli_peten`'s fuselage runs along X, so `BODY_ROLL_DEG` 25 was
+ * pitching it instead of laying it on its side, and on every X-long ground
+ * vehicle `HULL_PITCH_DEG` and `HULL_ROLL_DEG` were swapped. Every rotation in
+ * this file reads its axis from `m.longAxis`; yaw is the one exception, and
+ * only because up is always +Y.
+ */
+const pitch = (m: HullMetrics, t: number): mat4 => (m.longAxis === 0 ? rotationZ(t) : rotationX(t));
+
 // ---------------------------------------------------------------------------
 // The recipe, as matrices
 // ---------------------------------------------------------------------------
@@ -208,10 +231,10 @@ const alongLongAxis = (m: HullMetrics, d: number): mat4 =>
  */
 function hullDisplacement(m: HullMetrics, kind: HullKind, drops: boolean): mat4 {
   const dy = drops ? -WRECK_FRACTIONS.HULL_DROP * m.height : 0;
-  const roll = kind === 'air' ? WRECK_FRACTIONS.BODY_ROLL_DEG : WRECK_FRACTIONS.HULL_ROLL_DEG;
+  const rollDeg = kind === 'air' ? WRECK_FRACTIONS.BODY_ROLL_DEG : WRECK_FRACTIONS.HULL_ROLL_DEG;
   const tilt = aboutPoint(
     m.centre,
-    multiply(rotationZ(rad(roll)), rotationX(rad(WRECK_FRACTIONS.HULL_PITCH_DEG)))
+    multiply(roll(m, rad(rollDeg)), pitch(m, rad(WRECK_FRACTIONS.HULL_PITCH_DEG)))
   );
   return multiply(tilt, translation(0, dy, 0));
 }
@@ -226,7 +249,9 @@ function turretDisplacement(m: HullMetrics, kind: HullKind, pivotWorld: vec3, dr
   const body = hullDisplacement(m, kind, drops);
   const thrown = aboutPoint(
     transformPoint(body, pivotWorld),
-    multiply(rotationY(rad(WRECK_FRACTIONS.TURRET_YAW_DEG)), rotationZ(rad(WRECK_FRACTIONS.TURRET_ROLL_DEG)))
+    // Yaw is about world Y on any vehicle -- up does not depend on which way
+    // the hull points. The roll does, so it goes through `roll`.
+    multiply(rotationY(rad(WRECK_FRACTIONS.TURRET_YAW_DEG)), roll(m, rad(WRECK_FRACTIONS.TURRET_ROLL_DEG)))
   );
   return multiply(alongLongAxis(m, WRECK_FRACTIONS.TURRET_SHIFT * m.length), multiply(thrown, body));
 }
@@ -235,7 +260,7 @@ function turretDisplacement(m: HullMetrics, kind: HullKind, pivotWorld: vec3, dr
 function rotorDisplacement(m: HullMetrics, pivotWorld: vec3, drops: boolean): mat4 {
   const body = hullDisplacement(m, 'air', drops);
   return multiply(
-    aboutPoint(transformPoint(body, pivotWorld), rotationX(rad(WRECK_FRACTIONS.ROTOR_BEND_DEG))),
+    aboutPoint(transformPoint(body, pivotWorld), pitch(m, rad(WRECK_FRACTIONS.ROTOR_BEND_DEG))),
     body
   );
 }
@@ -257,8 +282,7 @@ function canopyDisplacement(m: HullMetrics, canopyBounds: bbox): mat4 {
     (canopyBounds.min[1] + canopyBounds.max[1]) / 2,
     (canopyBounds.min[2] + canopyBounds.max[2]) / 2,
   ];
-  const angle = rad(WRECK_FRACTIONS.CANOPY_ROLL_DEG);
-  const rolled = aboutPoint(centre, m.longAxis === 0 ? rotationX(angle) : rotationZ(angle));
+  const rolled = aboutPoint(centre, roll(m, rad(WRECK_FRACTIONS.CANOPY_ROLL_DEG)));
 
   let minY = Infinity;
   for (let corner = 0; corner < 8; corner++) {
@@ -292,6 +316,18 @@ function disposeIfOrphan(accessor: Accessor): void {
   if (held.length === 0) accessor.dispose();
 }
 
+/**
+ * Remove everything a previous run of this pass added, so the next run rebuilds
+ * it identically.
+ *
+ * **Clips are matched BY NAME**, so this removes any animation called `idle` or
+ * `wreck` whoever authored it. Today that is safe -- all eleven shipped vehicle
+ * GLBs declare zero animations (censused 2026-09-15) -- but a future re-export
+ * that ships a REAL `idle`, an idling engine shake say, would have it silently
+ * eaten here. Deferred rather than solved: the fix is to mark this pass's own
+ * clips (an `extras` flag on the animation) and strip only those, and it costs
+ * nothing to do when the first authored clip appears.
+ */
 function stripWreck(doc: Document): void {
   for (const node of doc.getRoot().listNodes()) {
     if (node.getName() === DEATH_ROOT) disposeSubtree(node);
@@ -459,14 +495,43 @@ export function applyWreckPass(doc: Document, vehicleId: string, recipe: WreckRe
 // The CLI
 // ---------------------------------------------------------------------------
 
+const KNOWN = (): string => Object.keys(WRECK_RECIPES).join(', ');
+
+const ID_FLAG = '--id=';
+
+/**
+ * argv -> the vehicles to process. Empty means all eleven.
+ *
+ * **Every argument must be recognised, and that is the whole point of this
+ * function existing.** The first version kept the `--id=` entries and threw
+ * the rest away, so `--id mbt_lavi`, `--ids=mbt_lavi` or any typo silently fell
+ * through to "all eleven" and rewrote 25 MB of tracked art the caller never
+ * asked about. A destructive default reached by a typo is worse than an error.
+ *
+ * A bare `--` is tolerated because pnpm forwards its own separator verbatim:
+ * `pnpm wreck:meshes -- --id=x` reaches this as `['--', '--id=x']`.
+ */
+export function parseWreckArgs(argv: readonly string[]): readonly string[] | 'all' {
+  const ids: string[] = [];
+  for (const arg of argv) {
+    if (arg === '--') continue;
+    if (!arg.startsWith(ID_FLAG) || arg.length === ID_FLAG.length) {
+      throw new Error(
+        `unrecognised argument "${arg}" -- usage: wreck:meshes [--id=<vehicle>]... ` +
+          `-- known vehicles: ${KNOWN()}`
+      );
+    }
+    ids.push(arg.slice(ID_FLAG.length));
+  }
+  return ids.length ? ids : 'all';
+}
+
 /** Apply the pass to the named vehicles (or all eleven) and write them back. */
 export async function runWreckPass(ids: readonly string[] | 'all'): Promise<void> {
   const wanted = ids === 'all' ? Object.keys(WRECK_RECIPES) : ids;
   for (const id of wanted) {
     if (!Object.prototype.hasOwnProperty.call(WRECK_RECIPES, id)) {
-      throw new Error(
-        `no wreck recipe for "${id}" -- known vehicles: ${Object.keys(WRECK_RECIPES).join(', ')}`
-      );
+      throw new Error(`no wreck recipe for "${id}" -- known vehicles: ${KNOWN()}`);
     }
   }
 
@@ -489,9 +554,7 @@ export async function runWreckPass(ids: readonly string[] | 'all'): Promise<void
 }
 
 async function main(): Promise<number> {
-  const flagged = process.argv.slice(2).filter((a) => a.startsWith('--id='));
-  const ids = flagged.length ? flagged.map((a) => a.slice('--id='.length)) : 'all';
-  await runWreckPass(ids);
+  await runWreckPass(parseWreckArgs(process.argv.slice(2)));
   return 0;
 }
 
