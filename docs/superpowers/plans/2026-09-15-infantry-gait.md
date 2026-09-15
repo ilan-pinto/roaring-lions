@@ -559,6 +559,38 @@ spinning on the spot. `maxDeg − minDeg` is what catches that, and a figure tha
 turns while standing still is a defect in its own right regardless of where the
 turn is centred. Set that bound from what the fixed art actually measures.
 
+- [ ] **Step 3b: Measure the WEAPON axis, from geometry, and gate the two instruments against each other**
+
+Two findings from Task 2 make this step necessary rather than optional, and
+both were measured.
+
+**The weapon axis must come from geometry, not from a bone direction.** Task 2
+gates `fire`'s weapon using the firing hand's own bone direction as a proxy.
+Measured against the actual rifle — the first principal component of the
+`uniform` vertices dominantly weighted to that hand joint, a 0.63 m cloud that
+is unmistakably a rifle — the proxy is systematically offset: 4.1° on `idle`,
+4.2° on `moveFire`, **7.6° on `fire`**. So the shipped barrel sits near +8.8°
+where the proxy reports +1.2°. Use the PCA definition here. It needs only a
+joint name, it reads the real weapon, and it is the only definition that could
+catch a wrong bone.
+
+**Do not gate `move`'s weapon axis tightly.** On the Meshy rigs `Running`
+carries the rifle one-handed at the side, so its bearing spread is about 155°
+and that is correct. A tight bound here would fail correct art.
+
+**Gate the two instruments against each other.** Task 2 built a pose that
+passed every build-time check and was still wrong: an aim distributed through
+`Spine02` solved cleanly, put the weapon on the axis, and went green, while
+the exported face read +15.2° against the arms-only +0.3°. A spine roll tilts
+the head rather than yawing it, and the head-forward vector carries a vertical
+component (measured 0.0859 forward, 0.0311 up), so a roll rotates part of that
+into a lateral component and swings the ground bearing — which a marker-bone
+probe along the head's own forward axis cannot see. Nothing automated would
+have caught it: this test file gates `fire`'s face at 20 and that build read
+15.2. What caught it was a by-hand comparison of two instruments that normally
+agree to 1–3°. Assert that agreement, on the standing clips, with a bound near
+5°. Both numbers already exist, so this is cheap.
+
 - [ ] **Step 4: Falsify the gate**
 
 A gate that has never gone red is a gate of its own threshold. Temporarily re-point one assertion at a pre-fix copy of `meshy_soldier.glb` (or reconstruct the defect), confirm the facing check fails and names the clip, then revert. Record the failure output in your report. Do the same for the gait check.
