@@ -24,6 +24,15 @@ function settle(
   sim.queueCommand({ kind: 'move', ids, x: fx.fromInt(x), y: fx.fromInt(y) });
   for (let t = 0; t < seconds * TICKS_PER_SECOND; t++) sim.tick();
   const fieldsAfter = sim.flowFieldCount;
+  // Named per id, so a future death reads as a death and not as a stacking
+  // failure: without this, a dead unit just vanishes from `tiles` below and
+  // the generic `tiles.size === ids.length` check fires with no hint why.
+  for (const id of ids) {
+    expect(
+      sim.state.alive[id],
+      `unit ${id} (${nameOf.get(sim.state.typeIdx[id]) ?? '?'}) is not alive after settling`
+    ).toBe(1);
+  }
   const tiles = new Map<string, string[]>();
   for (const id of ids) {
     if (sim.state.alive[id] === 0) continue;

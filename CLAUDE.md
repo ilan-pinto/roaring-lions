@@ -1025,11 +1025,11 @@ it compares `window.localStorage.length` before and after, and both are
   goals, unbounded and still growing.
   A group order costs at most one field per unit ordered — measured on
   `tel_marum_2_foothold`'s 9-unit force ordered into the open basin,
-  `sim.flowFieldCount` went 0 → 9 (`tools/src/formation_walk.test.ts`) — and
-  the bound only matters once a mission's distinct goal tiles exceed it, which
-  the walk test does not, by design: it is a floor pinned by
-  `packages/sim/src/sim.test.ts`'s `flow-field cache` tests, not a ceiling any
-  shipped mission has been measured to hit.
+  `sim.flowFieldCount` went 0 → 9 (`tools/src/formation_walk.test.ts`). The 128
+  cap is a FLOOR, not a hard ceiling: `packages/sim/src/sim.test.ts`'s
+  `flow-field cache` tests pin that the pool may still exceed it when every
+  field is live, or when the only unreferenced fields were issued this tick.
+  No shipped mission has been measured to reach it.
 - ~~Mesh units have no `down`/`wreck`/`work` clips~~ — **stale for INFANTRY since
   `233f683`, and the debt has moved to vehicles.** The prediction in the old text
   was right and was acted on: FK-folding the standing rig into prone did produce a

@@ -340,16 +340,16 @@ The whole chain is green (exit 0, no `FAILED` lines) at HEAD. Full output in
 
 *`pnpm balance`* — **a target left its band, and per §4.6 this stops the work for the
 lead's decision rather than being retuned silently.** Before (`main` @ `65cc56d`, the
-commit this branch started from) all four §5.7 targets passed, including "Urban assault
+commit this branch started from) all five §5.7 targets passed, including "Urban assault
 force ratio" at win rates `1:1=0% 2:1=15% 3:1=95% 4:1=100%`. After (this branch, HEAD
-`a809aaf`), the same measurement reads `1:1=0% 2:1=70% 3:1=100% 4:1=100%` — the other three
+`a809aaf`), the same measurement reads `1:1=0% 2:1=70% 3:1=100% 4:1=100%` — the other four
 targets unchanged and passing, but the 2:1 rate now fails the target's own `<=60%` cap
 (target: "1:1 fails, 3:1 reliable (>=65%)"). The urban-assault backtest orders each of its
 three assault groups with one `attackMove` per group (`tools/src/backtest/targets.ts`), so
 it is exactly the kind of group order this spec changes: those groups now land in
 formation instead of converging on one point, which is engagement geometry, and formation
 spacing changing engagement geometry is what §4.6 predicted this backtest would be
-sensitive to. Nothing under `packages/sim/tuning.ts` was touched to produce or fix this —
+sensitive to. Nothing under `packages/sim/src/tuning.ts` was touched to produce or fix this —
 retuning is out of this task's scope by the rule quoted above. Recorded here as a STOP for
 the lead, not resolved.
 
