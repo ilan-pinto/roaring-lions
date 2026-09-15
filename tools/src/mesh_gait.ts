@@ -353,9 +353,20 @@ export interface FigureFacing {
   readonly maxDeg: number;
 }
 
-/** `kit.py` rigs suffix a head bone `_head`; the Meshy rigs suffix `_Head`.
- *  Both pipelines are in this tree and this instrument must read both. */
-const HEAD_JOINT_RE = /_(head|Head)$/;
+/** `kit.py` rigs suffix a head bone `_head`; the Meshy TEAM rigs suffix
+ *  `_Head` (`f0_`/`f1_`/`f2_`, one prefix per figure in the file). Both
+ *  pipelines are in this tree and this instrument must read both.
+ *
+ *  The leading `(?:^|_)` is not cosmetic. A SINGLE-figure GLB carries no
+ *  figure prefix at all -- `art/meshes/civilians/*.glb` name the bone plainly
+ *  `Head` -- so a bare `/_(head|Head)$/` matched nothing there and
+ *  `measureFacing` returned an EMPTY array for all four civilians rather than
+ *  raising. Measured 2026-09-16 while taking Task 3's baseline: every civilian
+ *  clip read as zero figures, and the `for (const f of figs)` shape every
+ *  caller uses turns that into a silent pass. Hence the `headJoints.length`
+ *  guard in `measureFacing` as well -- the regex fix alone would have left the
+ *  next unprefixed rig failing the same silent way. */
+const HEAD_JOINT_RE = /(?:^|_)(head|Head)$/;
 
 /** `deg` wrapped into `(-180, 180]`. Assumes `|deg| < 360`, which every
  *  caller here satisfies (a difference of two already-wrapped bearings). */
@@ -446,9 +457,12 @@ export function circularMeanDeg(bearingsDeg: readonly number[]): {
  * re-derive that negative result -- it is recorded here so the next reader
  * does not pay for it twice.
  *
- * Throws when `path` has no `face` mesh or no clip named `clip` -- a rig
- * missing the role or clip this instrument reads is a contract failure, not
- * a facing of zero.
+ * Throws when `path` has no `face` mesh, no clip named `clip`, or no head
+ * joint `HEAD_JOINT_RE` recognises -- a rig missing the role, the clip or the
+ * joint this instrument reads is a contract failure, not a facing of zero.
+ * The third of those was added 2026-09-16: an unrecognised head joint used to
+ * return `[]`, which every caller in this tree spells as a `for` loop over the
+ * result and therefore reads as "measured, and fine".
  */
 export function measureFacing(path: string, clip: string): FigureFacing[] {
   const glb = readGlb(path);
@@ -478,6 +492,12 @@ export function measureFacing(path: string, clip: string): FigureFacing[] {
   const headJoints = skin.joints
     .map((jointNode, skinIndex) => ({ jointNode, skinIndex, name: nodes[jointNode]?.name ?? '' }))
     .filter((j) => HEAD_JOINT_RE.test(j.name));
+  if (headJoints.length === 0) {
+    throw new Error(
+      `${path}: no joint matching ${HEAD_JOINT_RE} in the skin that drives "${role}" -- ` +
+        `measureFacing needs one per figure (have ${skin.joints.length} joints)`
+    );
+  }
 
   const vertsForSkinIndex = new Map<number, number[]>();
   for (const { skinIndex } of headJoints) vertsForSkinIndex.set(skinIndex, []);
