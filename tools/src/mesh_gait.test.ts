@@ -16,10 +16,17 @@
 // threshold test with no known-good file is a test of its own threshold: if the
 // skinning maths in `mesh_gait.ts` were wrong it would report a slide for
 // everything, and the assertion below would pass for the wrong reason.
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { circularMeanDeg, groundPerCycleM, measureFacing, measureRoleTravel } from './mesh_gait';
+import {
+  ACTIVE_TRAVEL_FRACTION,
+  circularMeanDeg,
+  groundPerCycleM,
+  measureFacing,
+  measureRoleFootprint,
+  measureRoleTravel,
+} from './mesh_gait';
 import { RIGGED_UNIT_MESHES } from '../../packages/app/src/mesh-catalogue';
 
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
@@ -327,5 +334,173 @@ describe('circularMeanDeg', () => {
     expect(meanDeg).toBeCloseTo(-5, 1);
     expect(minDeg).toBeCloseTo(-6, 1);
     expect(maxDeg).toBeCloseTo(-4, 1);
+  });
+});
+
+// Task 4 -- `tools/units/rig.py`'s hand-authored gait, sized per team from
+// that team's own `mobility.speed_tiles_s`.
+//
+// Before this pass one gait served all fourteen kit teams, so `sniper_team` at
+// 0.45 tiles/s and `charge_squad` at 1.90 played the same 16-frame stride and
+// the ratios ran 0.32 to 0.89. `before` below is the shipped value, measured on
+// the bytes at `9c3e9ed`, and every row must beat it -- a floor alone would
+// pass a slow unit that never changed.
+//
+// `charge_squad` is the row that must NOT be read as a failure. 1.9 tiles/s is
+// 3.80 m of ground per 0.667 s cycle and no stride on a 1.67 m figure reaches
+// it: the cap is what a fully split leg can do, and design D4's runtime
+// rate-match is what closes the rest. Its own `before` is the assertion that
+// matters there.
+describe('mesh unit gait -- the kit teams take their stride from their speed', () => {
+  const KIT: [string, number, number][] = [
+    ['at_team', 0.7, 0.824],
+    ['demo_squad', 0.85, 0.679],
+    ['rpg_team', 0.9, 0.641],
+    ['militia_cell', 0.95, 0.607],
+    ['breach_team', 0.95, 0.607],
+    ['charge_squad', 1.9, 0.321],
+    // Superseded by a Meshy asset and still built by `rig.py` -- see
+    // `RETIRED_MESH_FILES`. Measured for the same reason the retired files are
+    // kept: so the swap back stays one line.
+    ['inf_squad', 0.9, 0.644],
+    ['mortar_team', 0.65, 0.887],
+    ['yahalom_squad', 0.85, 0.679],
+  ];
+
+  it.each(KIT)('%s strides for its own speed', (team, speed, before) => {
+    const m = measureRoleTravel(`${MESHES}${team}.glb`, 'boot', 'move');
+    const ground = groundPerCycleM(speed, m.clipSeconds);
+    expect(m.maxTravelM / ground).toBeGreaterThan(before);
+  });
+
+  // The four the pass must NOT have touched. Three carry `animates: False` on
+  // every figure (`teams.py`: "crew-served weapons stay deployed through
+  // move") and ship a degenerate 0.04 s `move` with no leg keys at all; the
+  // fourth is a motorcycle whose riders' boots do not move. All four are built
+  // by the same `build_clips` this pass rewired, so "unchanged" is a real
+  // claim about the scaling being scoped to walkers and not a tautology.
+  const STILL: [string, number][] = [
+    ['atgm_cell', 0.0417],
+    ['mortar_crew', 0.0417],
+    ['digger_crew', 0.0417],
+    ['moto_rpg', 0.6667],
+  ];
+
+  it.each(STILL)('%s is deliberately not a walker and did not move', (team, cycleS) => {
+    const m = measureRoleTravel(`${MESHES}${team}.glb`, 'boot', 'move');
+    expect(m.clipSeconds).toBeCloseTo(cycleS, 3);
+    // A motorcycle's riders bob with the machine; the crew-served teams key
+    // nothing at all. Both are far under any gait.
+    expect(m.maxTravelM).toBeLessThan(0.1);
+  });
+
+  it('sizes every stride from data, so a team with no unit JSON cannot ship', () => {
+    // `rig.py`'s `unit_speed_tiles_s` raises rather than defaulting, and the
+    // reason is that a wrong stride looks like art. The Python guard cannot be
+    // run from here, so this asserts the input it depends on: every team the
+    // rig builds has exactly one unit JSON with a positive speed.
+    const teams: [string, number][] = [...KIT.map(([t, s]) => [t, s] as [string, number]),
+      ...STILL.map(([t]) => [t, 0] as [string, number])];
+    for (const [team, speed] of teams) {
+      const hits = ['kdf', 'enemy']
+        .map((side) => `${REPO}data/units/${side}/${team}.json`)
+        .filter((p) => existsSync(p));
+      expect(hits, `${team}: unit JSON`).toHaveLength(1);
+      const doc = JSON.parse(readFileSync(hits[0], 'utf8')) as {
+        mobility?: { speed_tiles_s?: number };
+      };
+      expect(doc.mobility?.speed_tiles_s, `${team}: mobility.speed_tiles_s`).toBeGreaterThan(0);
+      if (speed > 0) expect(doc.mobility?.speed_tiles_s).toBe(speed);
+    }
+  });
+});
+
+// The design (§2.1, §3.6) records `mortar_team`'s `move` as "+84 degrees,
+// identically, on all three figures". Measured on the bytes it is +87.7 /
+// -139.5 / -101.2, and NONE of the three is a reading of the marching crew:
+// that file's `move` posture is a second, STANDING rig (`f<N>_st_*`) with no
+// head bone at all, so `HEAD_JOINT_RE` matches only the kneeling heads, which
+// `move` keys to scale 0. A confident number, off geometry the player cannot
+// see. `hiddenInClip` exists so the next reader is told rather than having to
+// know.
+describe('measureFacing and the two-posture rigs', () => {
+  it('says so when the joints it read are scaled out of the clip', () => {
+    const figs = measureFacing(`${MESHES}meshy_mortar_team.glb`, 'move');
+    expect(figs).toHaveLength(3);
+    for (const f of figs) expect(f.hiddenInClip, f.joint).toBe(true);
+  });
+
+  it('reads the standing rig that IS on screen, and finds it marching forward', () => {
+    // Task 4 turned the supplied standing tableau 180 degrees
+    // (`import_meshy_mortar_team.py`'s `STAND_YAW_DEG`): it faces Blender +Y,
+    // where every standing constant in that file assumed -Y. Before the fix
+    // these read +25.4 / +7.2 / -15.9 -- and that was NOT evidence the crew
+    // marched forward, because the `face` ROLE is defined as the -Y half of
+    // each head and `FORWARD_FIX_DEG` maps -Y to +X, so the measurement and
+    // the role assignment shared the same wrong assumption and agreed with
+    // each other. The picture is what settled it; this pins the result.
+    const figs = measureFacing(`${MESHES}meshy_mortar_team.glb`, 'move', /_st_chest$/);
+    expect(figs).toHaveLength(3);
+    for (const f of figs) {
+      expect(f.hiddenInClip, f.joint).toBe(false);
+      expect(Math.abs(f.meanDeg), f.joint).toBeLessThan(20);
+    }
+  });
+
+  it('leaves the deployed crew splayed around their own tube, which is correct', () => {
+    // `idle` is the KNEELING tableau and was measured when that source landed.
+    // A crew spread around a mortar is not a facing defect, and this pass did
+    // not touch it -- these three numbers are unchanged to the tenth of a
+    // degree across the rebuild.
+    const figs = measureFacing(`${MESHES}meshy_mortar_team.glb`, 'idle');
+    expect(figs.map((f) => Math.round(f.meanDeg * 10) / 10)).toEqual([-7.5, 83.9, -67.3]);
+    for (const f of figs) expect(f.hiddenInClip, f.joint).toBe(false);
+  });
+
+  it('reads a single-posture rig as visible, so the flag is not always true', () => {
+    const figs = measureFacing(`${MESHES}meshy_soldier.glb`, 'move');
+    expect(figs).toHaveLength(3);
+    for (const f of figs) expect(f.hiddenInClip, f.joint).toBe(false);
+  });
+});
+
+// `measureRoleFootprint` -- where a gait's travel goes, and whether it leaves
+// the ground. Both were needed to derive `rig.py`'s `THIGH_CAP`: peak-to-peak
+// travel alone cannot tell a long step from a high heel kick, and a longer
+// swing lifts a straight-legged figure off the floor.
+describe('measureRoleFootprint', () => {
+  it('splits a kit gait into its step and its lift', () => {
+    const f = measureRoleFootprint(`${MESHES}militia_cell.glb`, 'boot', 'move');
+    const [x, y, z] = f.axisTravelM;
+    // Forward is +X in the mesh contract, and a gait is overwhelmingly along
+    // it: the lift is under half the step and the lateral component is noise.
+    expect(x).toBeGreaterThan(1.0);
+    expect(y).toBeLessThan(x * 0.5);
+    expect(z).toBeLessThan(x * 0.2);
+  });
+
+  it('keeps a boot on the ground -- the bound rig.py sizes its stride against', () => {
+    // `floatM` is the highest the lowest moving boot vertex ever gets. The
+    // stride grew ~35% in this pass and this did NOT, because `_stance_drop`
+    // sinks the root by exactly the reach a swung leg loses. Shipped before:
+    // 0.0922 m on a one-walker team.
+    for (const team of ['militia_cell', 'charge_squad', 'demo_squad', 'at_team']) {
+      const f = measureRoleFootprint(`${MESHES}${team}.glb`, 'boot', 'move');
+      expect(f.floatM, `${team} float`).toBeLessThan(0.0922);
+      expect(f.activeVertexCount, `${team} active`).toBeGreaterThan(100);
+    }
+  });
+
+  it('ignores the collapsed prone geometry every kit rig hides inside boot', () => {
+    // Without `ACTIVE_TRAVEL_FRACTION` this reads the `death_root` corpse's
+    // boots, which sit at a literal z=0 on every rig.py build and at -0.3875
+    // on the Meshy mortar team -- so `floatM` was 0.0000 for nine teams and
+    // measured nothing. The filter is what makes the number mean anything.
+    const withFilter = measureRoleFootprint(`${MESHES}at_team.glb`, 'boot', 'move');
+    expect(withFilter.floatM).toBeGreaterThan(0.01);
+    expect(withFilter.activeVertexCount).toBeLessThan(
+      measureRoleTravel(`${MESHES}at_team.glb`, 'boot', 'move').vertexCount
+    );
+    expect(ACTIVE_TRAVEL_FRACTION).toBeGreaterThan(0);
   });
 });

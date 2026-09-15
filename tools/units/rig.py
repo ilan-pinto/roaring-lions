@@ -109,6 +109,8 @@ future pass want it (not authored here, since neither launcher's own
 position varies with `clip` in `teams.py` either -- see the report's
 "what fire clip means per team" table for the exact reasoning per team).
 """
+import glob
+import json
 import math
 import os
 import sys
@@ -133,6 +135,27 @@ SUPPORTED_TEAMS = (
     "breach_team",
 )
 DEFAULT_TEAM = "inf_squad"
+
+#: Teams this file still BUILDS but no longer OWNS on disk, and what owns them.
+#:
+#: `art/meshes/sniper_team.glb` has not been a `kit.py` build since
+#: `tools/export_meshy_sniper.py` landed: that file writes the same path from
+#: two supplied Meshy sculpts, deliberately keeping this module's bone names,
+#: clip names and role vocabulary so the swap was one line. Measured on the
+#: shipped bytes 2026-09-16 -- the shipped file carries three roles
+#: (boot/uniform/weapon) and a 24-frame `move`, where this module builds seven
+#: roles and sixteen frames, and its `idle` renders as two ghillie-suited prone
+#: figures against this module's primitives.
+#:
+#: So `export_mesh_team.py -- all` would have QUIETLY overwritten
+#: photogrammetry-grade art with boxes. It never did, only because nobody had
+#: run `all` since that exporter landed -- every other team in
+#: `SUPPORTED_TEAMS` round-trips byte-for-byte (checked, 13 of 14). This guard
+#: is why it cannot. A caller that really wants the primitive build can still
+#: have it by naming its own `out_path`.
+SUPERSEDED_ELSEWHERE = {
+    "sniper_team": "tools/export_meshy_sniper.py",
+}
 
 _H = kit.FIGURE_H
 
@@ -387,6 +410,216 @@ FIRE_FRAMES = 6
 
 MOVE_FRAMES = 16
 IDLE_FRAMES = 32
+
+#: charge_squad's own rest lean, in degrees, baked into REST GEOMETRY by
+#: `_charge_squad_rest` through `teams._lean_forward`. Hoisted out of that
+#: call site so `gait_for_team` can subtract it from the gait's own spine
+#: lean budget rather than piling a second lean on top of it -- one number,
+#: two readers. `teams.py`'s own `lean = 24.0 if clip == "fire" else 20.0`
+#: is still the source; this is the non-fire half of it, and FIRE_ROOT_LEAN
+#: above carries the remaining 4 degrees.
+CHARGE_REST_LEAN_DEG = 20.0
+
+#: Radians of spine lean already baked into a team's rest geometry, by team.
+#: Only `charge_squad` has any; every other team stands upright at rest.
+REST_LEAN_RAD = {"charge_squad": math.radians(CHARGE_REST_LEAN_DEG)}
+
+
+# --- the stride is sized from the team's own speed --------------------------
+#
+# Every constant ABOVE is R0's, and stays exactly R0's value at the reference
+# speed this block derives. Nothing here re-authors the gait; it scales it,
+# and at scale 1.0 every number below reduces to the one above it (asserted
+# by `_check_gait_identity_at_reference`, which runs on import).
+#
+# Why a scale at all. `build_move_clip` authored ONE gait for all fourteen
+# teams, so `sniper_team` at 0.45 tiles/s and `charge_squad` at 1.90 took the
+# same 16-frame stride. Measured on the exported bytes, boot travel over one
+# cycle against the ground the sim moves the unit across in that same cycle:
+# 0.545 for the sniper and 0.321 for the charge squad, where 1.0 means the
+# feet keep up. The design's D3 (`docs/superpowers/specs/
+# 2026-09-15-infantry-gait-design.md` sec 3.3) is this block.
+
+#: Metres of ground one tile is. The mesh contract's own number, the same one
+#: `tools/src/mesh_gait.ts` measures against (`MESH_UNITS_PER_TILE`).
+TILE_M = 3.0
+
+#: `boot` peak-to-peak travel over one `move` cycle with every R0 constant
+#: above unscaled, MEASURED on the exported bytes rather than predicted from
+#: the bone lengths -- `measureRoleTravel(<team>.glb, 'boot', 'move')
+#: .maxTravelM`, which read 1.154 m to the millimetre on eight of the ten kit
+#: walkers (`charge_squad` 1.219 and `inf_squad` 1.159 differ only through
+#: their own rest geometry and figure count, not through this gait).
+#:
+#: This is the ONE calibration constant in the block and it is what makes
+#: "the reference speed" a measurement instead of a choice: the gait as R0
+#: authored it keeps up with 1.154 m / (MOVE_SECONDS * TILE_M) = 0.577
+#: tiles/s, and every team's scale is its own speed over that. Re-measure it
+#: if any of `A_THIGH`/`B_SHIN`/`SETTLE_AMP`/`SHIN_SWING_SHIFT` moves.
+BASE_BOOT_TRAVEL_M = 1.154
+
+#: Thigh-swing amplitude, radians, past which stride growth stops.
+#:
+#: A step is `2 * L * sin(theta)`, so the return on more rotation collapses
+#: as `theta` approaches a right angle -- but on THIS rig saturation does not
+#: arrive as a shorter step, it arrives as a SQUAT, and that is what sets the
+#: number. A straight leg swung `theta` off vertical reaches only
+#: `L * cos(theta)` toward the ground, so `_stance_drop` has to sink the root
+#: by `L * (cos(theta) - cos(A_THIGH))` to keep the feet on it, and that sink
+#: grows far faster than the step does.
+#:
+#: Built at 0.55 / 0.70 / 0.85 / 1.00 on `charge_squad` (the only team whose
+#: `want` is past every candidate, so the cap is what it gets), measured on
+#: the exported bytes and rendered at frame 4, the split instant:
+#:
+#:   cap   boot travel   stance sink   float    reads as
+#:   0.55      1.219 m       0.000 m   0.0865   the stroll this pass exists to fix
+#:   0.70      1.456         0.068     0.0914   a run
+#:   0.85      1.634         0.148     0.0812   a run, loaded
+#:   1.00      1.766         0.240     0.0715   a crouch -- hips visibly down,
+#:                                              thighs folded, and the step only
+#:                                              8% longer than 0.85 for a 62%
+#:                                              deeper sink
+#:
+#: So 0.85 is where the step stops being worth what it costs in posture, and
+#: it is a 97-degree hip split -- past a runner's and at the top of a
+#: sprinter's. Float is NOT what binds: it stays at or under the shipped
+#: gait's own 0.0865 m at every cap above, because `_stance_drop` cancels it.
+#: Renders in `.superpowers/sdd/2026-09-15-infantry-gait/`.
+THIGH_CAP = 0.85
+
+#: The stride scale `THIGH_CAP` corresponds to -- derived, never typed.
+STRIDE_CAP = math.sin(THIGH_CAP) / math.sin(A_THIGH)
+
+#: The gait's own spine lean is allowed to reach this, and a team's TOTAL
+#: lean (its rest geometry's plus the gait's) this. The second bound is what
+#: keeps `charge_squad` -- which already leans 20 degrees at rest -- from
+#: ending up folded double once the gait's own lean scales with its 1.9
+#: tiles/s.
+MOVE_LEAN_MAX = 0.30
+MOVE_LEAN_TOTAL_MAX = math.radians(30.0)
+
+#: Hip joint to ankle joint, off `_BASE_BONES` itself rather than restated:
+#: `thigh_L`'s head z minus `shin_L`'s tail z. `_stance_drop` needs a lever
+#: and this is the rig's own.
+LEG_REACH_M = (
+    dict((n, (h, t)) for n, _p, h, t in _BASE_BONES)["thigh_L"][0][2]
+    - dict((n, (h, t)) for n, _p, h, t in _BASE_BONES)["shin_L"][1][2]
+)
+
+DATA_UNITS_DIR = os.path.join(REPO, "data", "units")
+
+
+def unit_speed_tiles_s(team_id):
+    """`mobility.speed_tiles_s` from the team's OWN unit JSON.
+
+    Read, never restated. A second copy of a speed in this file is how these
+    tables go stale, and the failure would be silent -- a wrong stride looks
+    like art, not like a bug. So a team with no unit JSON, two unit JSONs, or
+    no `mobility.speed_tiles_s` raises here rather than taking a default.
+    "team id == unit type id == file basename" holds for every `kit.py` team
+    (`packages/app/src/mesh-catalogue.ts` says so in as many words, and names
+    the five Meshy assets as the exceptions, none of which this file builds).
+    """
+    hits = sorted(glob.glob(os.path.join(DATA_UNITS_DIR, "**", f"{team_id}.json"),
+                            recursive=True))
+    if len(hits) != 1:
+        raise RuntimeError(
+            f"{team_id}: expected exactly one unit JSON under {DATA_UNITS_DIR}, "
+            f"found {len(hits)}: {hits}. The gait is sized from "
+            f"mobility.speed_tiles_s and this file will not guess one."
+        )
+    with open(hits[0], encoding="utf-8") as fh:
+        doc = json.load(fh)
+    speed = doc.get("mobility", {}).get("speed_tiles_s")
+    if not isinstance(speed, (int, float)) or isinstance(speed, bool) or speed <= 0:
+        raise RuntimeError(
+            f"{hits[0]}: mobility.speed_tiles_s is {speed!r}; the gait is sized "
+            f"from it and this file will not guess one."
+        )
+    return float(speed)
+
+
+def move_seconds():
+    """`move`'s own length in seconds -- `MOVE_FRAMES` at the SCENE's frame
+    rate, read back rather than assumed, because the ratio this whole block
+    targets is measured against the clip length the exporter writes."""
+    return MOVE_FRAMES / float(bpy.context.scene.render.fps)
+
+
+def gait_for_team(team_id):
+    """Every per-frame amplitude `build_move_clip` uses, scaled from this
+    team's own `mobility.speed_tiles_s`.
+
+    `want` is the scale that would make the boots exactly keep up with the
+    ground. `scale` is what the rig actually delivers after `THIGH_CAP`.
+    Whatever the cap leaves unmet is the RENDERER's to take up as cadence
+    (design D4) -- the division of labour is that the rig owns stride and the
+    renderer owns cadence, which is also what a sprinter does: a longer
+    stride AND a faster one. At `charge_squad`'s 1.9 tiles/s no stride on a
+    1.67 m figure closes the gap: 3.80 m of ground per cycle needs a 3.80 m
+    foot excursion, and a fully split leg cannot reach half of it.
+    """
+    speed = unit_speed_tiles_s(team_id)
+    ground_m = speed * move_seconds() * TILE_M
+    want = ground_m / BASE_BOOT_TRAVEL_M
+    scale = min(want, STRIDE_CAP)
+    # The thigh is the one term whose own geometry saturates, so it is scaled
+    # through the sine rather than multiplied: a step is 2*L*sin(theta).
+    thigh = math.asin(min(1.0, math.sin(A_THIGH) * scale))
+    lean_room = MOVE_LEAN_TOTAL_MAX - REST_LEAN_RAD.get(team_id, 0.0)
+    lean = min(MOVE_LEAN * want, MOVE_LEAN_MAX, max(MOVE_LEAN, lean_room))
+    return {
+        "team": team_id, "speed": speed, "ground_m": ground_m,
+        "want": want, "scale": scale, "capped": want > STRIDE_CAP,
+        "thigh": thigh,
+        "shin": B_SHIN * scale,
+        "settle": SETTLE_AMP * scale,
+        "arm_free": A_ARM_FREE * scale,
+        "arm_weapon": A_ARM_WEAPON * scale,
+        "elbow": ELBOW_FREE_AMP * scale,
+        "lean": lean,
+        "bob": BOB_AMP * scale,
+        "hip_twist": HIP_TWIST_AMP * scale,
+        "shoulder_twist": SHOULDER_TWIST_AMP * scale,
+    }
+
+
+def _stance_drop(thigh_angle, base_angle):
+    """How far the root must sink so a longer swing does not lift both feet.
+
+    A straight leg swung `theta` off vertical reaches `LEG_REACH_M *
+    cos(theta)` toward the ground, so lengthening the swing raises the whole
+    figure off it. This returns the DIFFERENCE against the unscaled gait's
+    own reach at the same phase, so it is identically zero at scale 1.0 and
+    R0's authored look survives untouched -- what it adds is only the squat a
+    longer stride actually costs.
+
+    Not folded into `BOB_AMP`, deliberately. R0's bob is
+    `-BOB_AMP * cos(2 * phase)`, which puts the root at its HIGHEST at the
+    split and its lowest with the legs together -- the inverse of a real
+    gait, at 2.6 cm. That is R0's authored look and this pass does not
+    relitigate it; this term is a separate, derived quantity that happens to
+    share the same bone.
+    """
+    return LEG_REACH_M * (math.cos(thigh_angle) - math.cos(base_angle))
+
+
+def _check_gait_identity_at_reference():
+    """At scale 1.0 every scaled amplitude is its own R0 constant, and the
+    stance drop is zero. Cheap, and it is the guard that keeps this block a
+    scaling of known-good numbers rather than a second gait."""
+    for value, base in ((math.asin(math.sin(A_THIGH) * 1.0), A_THIGH),
+                        (B_SHIN * 1.0, B_SHIN), (SETTLE_AMP * 1.0, SETTLE_AMP),
+                        (A_ARM_FREE * 1.0, A_ARM_FREE), (BOB_AMP * 1.0, BOB_AMP)):
+        assert abs(value - base) < 1e-12, (value, base)
+    for a in (0.0, 0.3, A_THIGH):
+        assert abs(_stance_drop(a, a)) < 1e-12, a
+    assert abs(STRIDE_CAP - math.sin(THIGH_CAP) / math.sin(A_THIGH)) < 1e-12
+    assert abs(LEG_REACH_M - 0.770) < 1e-9, LEG_REACH_M
+
+
+_check_gait_identity_at_reference()
 
 #: charge_squad's own extra lean: teams.py's `lean = 24.0 if clip == "fire"
 #: else 20.0` -- 20 degrees is baked into REST geometry (see
@@ -826,7 +1059,7 @@ def _charge_squad_rest():
                            (x - 0.12, y + 0.19, 0.74), "charge")
             fig.append(sat)
             forced[sat] = f"{prefix}_spine"
-        teams._lean_forward(fig, 20.0, at_x=x)
+        teams._lean_forward(fig, CHARGE_REST_LEAN_DEG, at_x=x)
         parts += fig
         bone_table += _standing_bones(prefix, x, y)
         death_parts = _figure_death_parts(spec)
@@ -1324,7 +1557,7 @@ def _settle_bump(phase, heel_phase, width, amp):
     return amp * 0.5 * (1.0 - math.cos(2.0 * math.pi * d / width))
 
 
-def build_move_clip(arm_obj, figures):
+def build_move_clip(arm_obj, figures, gait):
     """Full gait -- thigh/shin/arm swing, weight transfer, settle, head
     stabilisation, vertical bob -- for every figure that walks
     (`spec["animates"]`). A crew-served figure (kneeling, or `rpg_fire`,
@@ -1343,7 +1576,22 @@ def build_move_clip(arm_obj, figures):
     frame 0 and frame `MOVE_FRAMES` still agree for every walker. This
     changes which pose lands on which frame, never the frame count or the
     loop seam.
+
+    `gait` is `gait_for_team`'s dict -- every amplitude below comes from it
+    rather than from the module constant it is named after, so a team's
+    stride is sized from its own `mobility.speed_tiles_s`. At scale 1.0 the
+    two are the same number (see `_check_gait_identity_at_reference`), which
+    is what makes this a scaling of R0's gait rather than a second one. The
+    printed line is a PREDICTION, not a verdict: what the ratio actually
+    comes out at is `measureRoleTravel` on the exported bytes.
     """
+    print(
+        f"  gait[{gait['team']}] speed={gait['speed']} tiles/s "
+        f"ground={gait['ground_m']:.3f} m/cycle want={gait['want']:.3f} "
+        f"scale={gait['scale']:.3f}{' (CAPPED)' if gait['capped'] else ''} "
+        f"thigh={gait['thigh']:.3f} rad lean={gait['lean']:.3f} rad "
+        f"predicted boot travel={BASE_BOOT_TRAVEL_M * gait['scale']:.3f} m"
+    )
     _new_action(arm_obj, "move")
     bones = arm_obj.data.bones
     pbones = arm_obj.pose.bones
@@ -1357,19 +1605,22 @@ def build_move_clip(arm_obj, figures):
         for i, spec in enumerate(walkers):
             prefix = spec["prefix"]
             phase = base_phase + _gait_phase(i)
-            thigh_l = A_THIGH * math.sin(phase)
-            thigh_r = -A_THIGH * math.sin(phase)
-            shin_l = B_SHIN * max(0.0, math.sin(phase - SHIN_SWING_SHIFT))
-            shin_r = B_SHIN * max(0.0, math.sin(phase + math.pi - SHIN_SWING_SHIFT))
-            shin_l += _settle_bump(phase, HEEL_L, SETTLE_WIDTH, SETTLE_AMP)
-            shin_r += _settle_bump(phase, HEEL_R, SETTLE_WIDTH, SETTLE_AMP)
-            arm_l = -A_ARM_FREE * math.sin(phase)
-            arm_r = A_ARM_WEAPON * math.sin(phase)
-            elbow_l = ELBOW_FREE_AMP * max(0.0, ELBOW_PHASE_SIGN * math.sin(phase))
-            hip_twist = HIP_TWIST_AMP * math.sin(phase)
-            shoulder_twist = -SHOULDER_TWIST_AMP * math.sin(phase)
+            thigh_l = gait["thigh"] * math.sin(phase)
+            thigh_r = -gait["thigh"] * math.sin(phase)
+            shin_l = gait["shin"] * max(0.0, math.sin(phase - SHIN_SWING_SHIFT))
+            shin_r = gait["shin"] * max(0.0, math.sin(phase + math.pi - SHIN_SWING_SHIFT))
+            shin_l += _settle_bump(phase, HEEL_L, SETTLE_WIDTH, gait["settle"])
+            shin_r += _settle_bump(phase, HEEL_R, SETTLE_WIDTH, gait["settle"])
+            arm_l = -gait["arm_free"] * math.sin(phase)
+            arm_r = gait["arm_weapon"] * math.sin(phase)
+            elbow_l = gait["elbow"] * max(0.0, ELBOW_PHASE_SIGN * math.sin(phase))
+            hip_twist = gait["hip_twist"] * math.sin(phase)
+            shoulder_twist = -gait["shoulder_twist"] * math.sin(phase)
             head_counter = -HEAD_COUNTER_FRAC * shoulder_twist
-            bob = -BOB_AMP * math.cos(2.0 * phase)
+            bob = -gait["bob"] * math.cos(2.0 * phase)
+            # Both feet reach `LEG_REACH_M * cos(thigh)` toward the ground, so
+            # a longer swing lifts the figure off it. Zero at scale 1.0.
+            bob += _stance_drop(thigh_l, A_THIGH * math.sin(phase))
             key(pbones[f"{prefix}_thigh_L"], bones[f"{prefix}_thigh_L"], AXIS_Y, thigh_l, f)
             key(pbones[f"{prefix}_thigh_R"], bones[f"{prefix}_thigh_R"], AXIS_Y, thigh_r, f)
             key(pbones[f"{prefix}_shin_L"], bones[f"{prefix}_shin_L"], AXIS_Y, shin_l, f)
@@ -1380,7 +1631,7 @@ def build_move_clip(arm_obj, figures):
             key(pbones[f"{prefix}_hip_L"], bones[f"{prefix}_hip_L"], AXIS_Y, thigh_l * 0.5, f)
             key(pbones[f"{prefix}_hip_R"], bones[f"{prefix}_hip_R"], AXIS_Y, thigh_r * 0.5, f)
             key_axes(pbones[f"{prefix}_spine"], bones[f"{prefix}_spine"],
-                     [(AXIS_Y, MOVE_LEAN), (AXIS_Z, shoulder_twist)], f)
+                     [(AXIS_Y, gait["lean"]), (AXIS_Z, shoulder_twist)], f)
             key(pbones[f"{prefix}_pelvis"], bones[f"{prefix}_pelvis"], AXIS_Z, hip_twist, f)
             key(pbones[f"{prefix}_head"], bones[f"{prefix}_head"], AXIS_Z, head_counter, f)
             pb_root = pbones[f"{prefix}_root"]
@@ -1466,7 +1717,7 @@ def build_death_clip(arm_obj, team_id, clip_name):
     _key_death_visibility(pbones, figures, "prop" in pbones, alive=False)
 
 
-def build_sniper_clips(arm_obj):
+def build_sniper_clips(arm_obj, gait):
     """sniper_team's own five clips -- bespoke, not `build_idle_clip`/
     `build_move_clip`/`build_fire_clip`/`build_death_clip`'s
     living-root/dead-root shape, because for THIS team the "dead" bone
@@ -1492,7 +1743,7 @@ def build_sniper_clips(arm_obj):
     """
     figures = [dict(prefix=s["prefix"], animates=True) for s in SNIPER_SPECS]
 
-    build_move_clip(arm_obj, figures)
+    build_move_clip(arm_obj, figures, gait)
 
     bones = arm_obj.data.bones
     delta = SNIPER_CLOSE_DOWN - SNIPER_CLOSE_IDLE
@@ -1607,14 +1858,18 @@ def build_moto_clips(arm_obj):
 
 def build_clips(arm_obj, team_id):
     if team_id == "sniper_team":
-        build_sniper_clips(arm_obj)
+        build_sniper_clips(arm_obj, gait_for_team(team_id))
         return
     if team_id == "moto_rpg":
+        # No `build_move_clip`, so no stride to size: `moto_rpg` is a machine
+        # whose riders' boots never move, and `build_moto_move_clip` spins
+        # wheels instead. Rate-matching that spin to the bike's own 3.4
+        # tiles/s is the design's own named follow-up, not this pass.
         build_moto_clips(arm_obj)
         return
     figures = TEAM_FIGURES[team_id]
     build_idle_clip(arm_obj, figures)
-    build_move_clip(arm_obj, figures)
+    build_move_clip(arm_obj, figures, gait_for_team(team_id))
     shooters = [s for s in figures if s["weapon"] == "rifle"]
     leaners = FIRE_ROOT_LEAN.get(team_id)
     if shooters or leaners:
@@ -1646,6 +1901,13 @@ def export_glb(arm_obj, path):
 
 
 def build_and_export(team_id=DEFAULT_TEAM, out_path=None):
+    if out_path is None and team_id in SUPERSEDED_ELSEWHERE:
+        raise RuntimeError(
+            f"{team_id}: art/meshes/{team_id}.glb is written by "
+            f"{SUPERSEDED_ELSEWHERE[team_id]}, not by this module -- writing it "
+            f"from here would replace that asset with the primitive build. Pass "
+            f"an explicit out_path if the primitive build is really what you want."
+        )
     parts, bone_table, forced_bone = build_team_rest(team_id)
     arm_obj = build_armature(bone_table)
     figure_prefixes = {spec["prefix"] for spec in TEAM_FIGURES[team_id]}

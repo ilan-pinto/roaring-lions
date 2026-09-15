@@ -27,7 +27,12 @@ import rig  # noqa: E402
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     if argv == ["all"]:
-        names = list(rig.SUPPORTED_TEAMS)
+        names = [n for n in rig.SUPPORTED_TEAMS if n not in rig.SUPERSEDED_ELSEWHERE]
+        for name, owner in rig.SUPERSEDED_ELSEWHERE.items():
+            # Named and skipped, never silently dropped -- `all` meaning "all
+            # but one" is exactly the kind of thing a reader has to be told.
+            print(f"[{name}] SKIPPED by `all`: art/meshes/{name}.glb is {owner}'s "
+                  f"output, not rig.py's. Name it explicitly to see the guard.")
     else:
         names = argv or [rig.DEFAULT_TEAM]
     for name in names:
