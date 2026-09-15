@@ -573,7 +573,36 @@ Exemptions, by name, printed on the passing path: `atgm_cell`, `mortar_crew`, `d
 
 - [ ] **Step 1: Gait band across every rigged type**
 
-Assert the residual time scale at each unit's own nominal speed sits in a band around 1.0. Derive the band from what Tasks 2–4 actually achieved — run the numbers first, then set the band with margin. Do not fit the band to the worst file; if one type cannot reach the band, that is a finding to report, not a band to widen.
+**Gate the MULTIPLIER Task 6 has to apply, not the residual after it applies
+one.** This wording originally said "the residual time scale … in a band around
+1.0", and that is a gate that cannot fail: Task 6 computes
+`timeScale = entitySpeed / clipGroundSpeed`, so the residual is 1.0 **by
+construction**, for any stride whatsoever, including none. It is the third time
+this plan has produced a check that passes by arithmetic rather than by
+measurement — after the face gate that was squared with the very numbers it
+then read, and the weapon gate that was nearly the same. Assert on
+`clipGroundSpeed / speed_tiles_s` — how far the art is from keeping up on its
+own — which no later code normalises.
+
+Measured after Task 4, this is what the multiplier actually is:
+`at_team` and `mortar_team` near **1.0**, `militia_cell` **1.22**,
+`sniper_team` **1.84**, `charge_squad` **2.33**. That last one is a 16-frame
+cycle at 2.33×, about **seven footfalls a second**, and nothing in this plan
+gates it. Set a ceiling that admits what the art achieved and refuses a
+regression, and record `charge_squad` as the named outlier with its reason —
+its stride ceiling is geometric (hip-to-ankle 0.770 m against 3.80 m of ground
+per cycle; pushing the thigh cap to 1.00 reaches only 0.465 and buys a visible
+crouch), so it is a documented limit, not a threshold to widen for.
+
+Do not fit the band to the worst file; if one type cannot reach it, that is a
+finding to report.
+
+**The `+3..+11` contrapposto band quoted earlier in this plan and in spec §2.1
+is wrong, and setting a facing gate from it would red the shipped tree.**
+Measured on the bytes, the kit teams' `move` means span **−2.0 … +8.6**
+(`charge_squad` chg1 −2.0 and chg0 +1.2, `at_team` at_fire +2.6). Task 4 did not
+move any of them — every mean matches to 0.1° before and after. Take the band
+from a fresh measurement, not from that quote.
 
 - [ ] **Step 2: Declared-vs-measured consistency**
 
@@ -636,6 +665,16 @@ drop coverage of every `kit.py` team — the majority of the roster, and the
 family that produced the `mortar_team` defect this instrument exists for. Use
 the centroid with `civilian_woman` excluded by name and by number, or find a
 geometric lever that works on both rig families.
+
+**Never gate a bearing read off a hidden figure, and check `hiddenInClip` to
+know.** Spec §2.1a is the whole account: the mortar crew's recorded "+84°
+sideways march" was read from joints keyed to zero scale in that clip, and the
+method generalises badly — reading a head joint's bearing and believing it will
+report a confident number for **any two-posture rig's hidden side**, which is
+every `rig.py` team in `down` and `wreck`, since those swap between a living
+root and a `death_root` by scale. `measureFacing` sets `hiddenInClip` when a
+joint's world-matrix basis stays collapsed across every sample. Skip those
+figures rather than gating them, and say so on the passing path.
 
 **`moto_rpg` has no head bone at all and will raise.** Its `face` role is bound
 entirely to `rid_seat`, `pas_seat` and two death roots — a rigid pillion rig,
