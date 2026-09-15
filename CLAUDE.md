@@ -477,9 +477,14 @@ yours; each one records what the next phase inherits.
   `open-ground`'s then-reference-free `groundTextureCheck` read `fraction 0.9363
   (budget <0.95), distinctColors 9 → PASS` there against macOS's own 0.9363
   (that check is retired now — see the toggle bullet below).
-  What remains genuinely unmeasured is cross-OS EQUIVALENCE of the pixels —
-  nobody has diffed a Linux capture against the macOS baseline — and that is
-  why the per-environment key stays.
+  **Cross-OS EQUIVALENCE of the pixels is measured too, as of the lit
+  renderer's Linux bless** (2026-09-15, run 34920932471, the first time a Linux
+  capture was diffed against the macOS baseline at the same commit): quiet
+  0.3146 / 42,781 px, open-ground 0.2899 / 41,569, vehicle 0.3056 / 16,602,
+  relief 0.2965 / 58,301 — mean |channel delta| over 255 and non-identical
+  pixels of a 1400x900 frame. The same picture, visibly and by number, and
+  still an order of magnitude and more above every scenario's magnitude
+  threshold (0.0039–0.02), which is exactly why the per-environment key stays.
   That workflow **could not create the first one**, which made the whole gate a
   green-ticking no-op on CI: its `git diff --quiet -- tools/golden-baselines`
   guard reports only TRACKED changes, and a first bless on a new runner writes
@@ -649,18 +654,23 @@ yours; each one records what the next phase inherits.
   exits in 10.9 s.
   **Accepting an intended change** is `pnpm golden-baseline:bless -- --reason="..."`,
   which refuses to run without the reason and writes it into `manifest.json`;
-  on CI it is a `workflow_dispatch` that opens a PR with the new PNGs so a human
-  sees the picture. Do not widen a threshold to clear a red run.
-  **That workflow cannot open the PR itself on this repository, and the reason
-  is a repo setting** — `can_approve_pull_request_reviews: false` (Settings →
-  Actions → General → Workflow permissions → "Allow GitHub Actions to create
-  and approve pull requests"), which makes `gh pr create` fail with `GraphQL:
-  GitHub Actions is not permitted to create or approve pull requests`. It
-  captures, commits and PUSHES the branch first, so nothing is lost — the step
-  now prints the `pull/new/<branch>` URL and names the setting instead of dying
-  on the bare GraphQL error. Until somebody flips it, finish a bless by opening
-  the PR by hand from that branch. The first Linux baseline
-  (`linux-x64-swiftshader`, run 33596042795) landed that way as PR #150.
+  on CI it is the `visual-baseline-bless` `workflow_dispatch`, which since
+  2026-09-02 **commits the new PNGs straight to `main`** (the lead's call:
+  "instead of PR merge to main and push"). Nobody sees the picture unless
+  whoever dispatched it downloads the `visual-baseline-bless-captures`
+  artifact and looks — so do that, every time. Do not widen a threshold to
+  clear a red run.
+  **The PR route this paragraph used to describe is retired.** The workflow no
+  longer calls `gh pr create`, so the repo setting that used to block it
+  (`can_approve_pull_request_reviews: false`, Settings → Actions → General →
+  Workflow permissions) no longer matters to it; the first Linux baseline
+  (`linux-x64-swiftshader`, run 33596042795) landed under the old route as
+  PR #150. Two consequences of the bot commit, both met on 2026-09-15: **its
+  push triggers NO `ci.yml` run** (GitHub never runs workflows for a
+  `GITHUB_TOKEN` push), so after a bless `main`'s `visual` status stays
+  whatever the last real push left it and the `version` job waits for the next
+  real push; and a bless dispatched while `main` is moving retries its push
+  three times before giving up.
 - **The cross-backend Pixi-vs-three diff is now REPORT-ONLY**
   (`pnpm golden-diff:compare`, `tools/src/ci/golden-diff-gate.ts`). It exits 0
   unless a capture fails, and its `SCENARIO_BUDGETS` are kept as historical
