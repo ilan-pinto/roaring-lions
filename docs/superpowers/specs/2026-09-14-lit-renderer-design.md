@@ -476,8 +476,10 @@ The instrument is `measureThreeMesh` driven by
 pre-pass, fog and SMAA are all live, with the real shipped mesh GLBs loaded;
 real hardware GPU, `ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro)`, now
 printed by the run rather than assumed from the launch args. The pre-lit figure
-on the same harness and the same checkpoints was 1.90–2.00 ms, so the lit chain
-costs **3.4× per frame here** — one extra submission per caster for the shadow
+on the same instrument and the same checkpoints was 1.90–2.00 ms (2026-08-30,
+before the harness scene gained smooth ground and the desert grove, so the
+multiple is indicative rather than a controlled A/B), so the lit chain
+costs **~3.4× per frame here** — one extra submission per caster for the shadow
 map and another for the AO normal pass, exactly the tripling the review
 predicted — and still clears the budget at 400/320-living (7.80 ms, both runs).
 **No ladder rung was taken**: the shadow map stays 4096², infantry still cast,

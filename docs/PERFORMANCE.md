@@ -721,6 +721,11 @@ own `ThreeRenderer`, calls `renderer.init(host)` (so the composer, the sun's
 shadow pass, GTAO's normal pre-pass, fog and SMAA are all live), loads the real
 shipped mesh GLBs for the five roster types that have one, and times
 `renderer.frame()` over 180 frames with the sim held still at each checkpoint.
+That `render` figure is the CPU-side bracket around `frame()` with no
+`gl.finish()`; on this ANGLE/Metal platform it tracks the `gl.finish()` figure
+within 0.4 ms ("Two numbers per view" under the capture conditions above), so
+read it as a frame time here and re-check that agreement before trusting it on
+another driver.
 Two things were added to that driver for this measurement and are now
 permanent: it prints the unmasked GL renderer string on every run (the
 capture-conditions section calls the GPU backend the largest confound in this
@@ -753,12 +758,17 @@ runs of every configuration, both quoted, as this document's own standard asks.
 | 400 | 320 | 2.70–2.90 | 5.98–6.00 | **7.80 / 7.80** | 9.2–20.3 |
 
 **BEFORE** is the pre-lit `measureThreeMesh` table in "Backend curve" above
-(2026-08-30, same machine, same harness, same checkpoints): 1.90–2.00 p95 at
+(2026-08-30, same machine, same instrument, same checkpoints): 1.90–2.00 p95 at
 the 300 checkpoint and 2.10–2.20 at 400. So the lit renderer costs **3.4× at
 300 living-266 and 3.6× at 400 living-320** on this curve — the shadow map's
 re-submission of every caster plus GTAO's normal pre-pass plus four composer
 passes, which is exactly the tripling the review predicted — and it still
-clears the budget by **2.5×** at the GDD target. **No ladder rung was taken.**
+clears the budget by **2.5×** at the GDD target. **That multiple is indicative,
+not a controlled A/B**: the harness scene itself changed between the two arms
+(smooth ground on 2026-09-03, the desert grove via `groveFamily: 'desert_tree'`
+on 2026-09-07), and the pre-lit arm was not re-taken on this branch's scene
+with the lighting off. The acceptance verdict does not rest on the multiple;
+only the attribution does. **No ladder rung was taken.**
 Shadow map stays 4096², infantry still cast, AO stays at half resolution.
 
 Two readings of the table worth stating rather than leaving to be inferred.
