@@ -525,8 +525,15 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
 // ---------------------------------------------------------------------------
 
 export type Command =
-  | { kind: 'move'; ids: number[]; x: Fx; y: Fx; append?: boolean }
-  | { kind: 'attackMove'; ids: number[]; x: Fx; y: Fx; append?: boolean }
+  /** `exact`: keep the point as given and assign no slot — for orders the sim
+   *  issues ITSELF to shepherd a unit to a point a rule has already chosen (a
+   *  civilian's refuge), never for a player order. A group formation exists to
+   *  answer "where should these units stand"; an exact order already has the
+   *  answer, and spreading it around would move a unit off ground a rule
+   *  picked. Such an order still RESERVES its goal tile against everyone
+   *  else's slots — it opts out of being placed, not out of being avoided. */
+  | { kind: 'move'; ids: number[]; x: Fx; y: Fx; append?: boolean; exact?: boolean }
+  | { kind: 'attackMove'; ids: number[]; x: Fx; y: Fx; append?: boolean; exact?: boolean }
   | { kind: 'halt'; ids: number[] }
   | { kind: 'garrison'; ids: number[]; structure: number }
   /** Climb aboard a vehicle with seats. */
@@ -1950,22 +1957,45 @@ export class Sim {
         // at the same tile the foot snap did. One collapse, in one place, is
         // the only kind a test can pin.
         const [vgx, vgy] = this.nearestOpenTile(tx, ty, this.blockedVehicleMask);
+        // An EXACT order opts out of the formation: it keeps the point it was
+        // given and every unit in it gets that same goal. It is how the sim
+        // shepherds a unit to a point one of its own rules has already chosen
+        // — `CivilianFlight` sending a family to the refuge — where spreading
+        // the order would move a unit off ground the rule picked, and off the
+        // evacuation zone drawn around it. Never set on a player order. Note
+        // it opts out of being PLACED, not out of being avoided:
+        // `reservedTilesFor` is untouched, so an exact goal still holds its
+        // tile against everybody else's slots.
+        //
+        // The three lines below are the goal resolution this branch had
+        // before formations (75461bc), kept whole rather than re-derived: the
+        // exact point when the click tile is open for that domain, the
+        // centre of that domain's snapped tile when it is not, and the raw
+        // point for air, which hovers over rock as happily as over road.
+        const exact = cmd.exact === true;
+        const snapped = fgx !== tx || fgy !== ty;
+        const vSnapped = vgx !== tx || vgy !== ty;
+        const sgx = snapped ? fx.add(fx.fromInt(fgx), HALF) : gx;
+        const sgy = snapped ? fx.add(fx.fromInt(fgy), HALF) : gy;
+        const xgx = vSnapped ? fx.add(fx.fromInt(vgx), HALF) : gx;
+        const xgy = vSnapped ? fx.add(fx.fromInt(vgy), HALF) : gy;
         // One slot per unit (formation.ts): a group order lands as a
         // formation around the click — vehicles and aircraft on the clicked
         // row, infantry in the ranks behind — instead of every unit
         // converging on the one point.
         //
-        // AIR is no longer exempt, deliberately. A drone ordered onto a blocked tile
-        // used to keep the raw point and the raw (all-DIR_NONE) field, which
-        // flew it to the rock it was told to hover over; that is a coherent
-        // order and it is simply not expressible as a slot. It now takes the
-        // foot-snapped click tile and the foot mask like everything else,
-        // with `front` set so it leads the ranks rather than queueing up
-        // behind the infantry.
+        // AIR is not exempt on this path, deliberately. A drone ordered onto a
+        // blocked tile used to keep the raw point and the raw (all-DIR_NONE)
+        // field, which flew it to the rock it was told to hover over; that is
+        // a coherent order and it is simply not expressible as a slot. It now
+        // takes the foot-snapped click tile and the foot mask like everything
+        // else, with `front` set so it leads the ranks rather than queueing up
+        // behind the infantry. (The exemption survives on the exact path
+        // above, which is not placing anything.)
         const members: FormationUnit[] = [];
         let sumX = 0;
         let sumY = 0;
-        for (const id of cmd.ids) {
+        for (const id of exact ? [] : cmd.ids) {
           // A passenger is inside a vehicle and does not walk anywhere: the
           // carrier decides where it goes, and `unload` is how it gets out.
           // This used to disembark instead, which made the ordinary workflow
@@ -2025,25 +2055,47 @@ export class Sim {
         const attack = cmd.kind === 'attackMove' ? 1 : 0;
         for (const id of cmd.ids) {
           if (this.alive[id] === 0 || this.routed[id] === 1) continue; // broken troops aren't listening
-          const slot = slots.get(id);
-          if (slot === undefined) continue; // carried: the carrier decides where it goes
           const utype = this.unitTypes[this.typeIdx[id]];
-          // A unit whose slot IS the tile under the cursor keeps the exact
-          // point clicked, fraction and all — snapping that to a tile centre
-          // would be a different order from the one issued, and it is the one
-          // case where nothing is bought by moving it: the tile is this
-          // unit's alone either way. Everyone the formation displaced takes
-          // its slot's centre, because a displaced unit has no clicked point
-          // of its own to keep.
-          const onClick = slot[0] === tx && slot[1] === ty;
-          const ux = onClick ? gx : fx.add(fx.fromInt(slot[0]), HALF);
-          const uy = onClick ? gy : fx.add(fx.fromInt(slot[1]), HALF);
-          // Asked for and stamped into `fieldRef` inside the SAME iteration,
-          // with no other `fieldFor` between: the pool reuses any field no
-          // living unit references, and a field issued but not yet stamped is
-          // exactly that. (`evictableField`'s same-tick exclusion is the
-          // other half of that guarantee.)
-          const uf = this.fieldFor(slot[0], slot[1], utype.isAir ? DOMAIN_FOOT : utype.moveDomain);
+          const slot = exact ? undefined : slots.get(id);
+          // A passenger is not going anywhere on its own feet either way: on
+          // the formation path it claimed no slot, and on the exact path it
+          // is refused here.
+          if (exact ? this.carriedBy[id] >= 0 : slot === undefined) continue;
+          let ux: Fx;
+          let uy: Fx;
+          let uf: number;
+          // Each `fieldFor` below is asked for and stamped into `fieldRef`
+          // inside the SAME iteration, with no other `fieldFor` between: the
+          // pool reuses any field no living unit references, and a field
+          // issued but not yet stamped is exactly that. (`evictableField`'s
+          // same-tick exclusion is the other half of that guarantee.)
+          if (slot === undefined) {
+            if (snapped && utype.isAir) {
+              ux = gx;
+              uy = gy;
+              uf = this.fieldFor(tx, ty, DOMAIN_FOOT);
+            } else if (utype.moveDomain === DOMAIN_VEHICLE) {
+              ux = xgx;
+              uy = xgy;
+              uf = this.fieldFor(vgx, vgy, DOMAIN_VEHICLE);
+            } else {
+              ux = sgx;
+              uy = sgy;
+              uf = this.fieldFor(fgx, fgy, DOMAIN_FOOT);
+            }
+          } else {
+            // A unit whose slot IS the tile under the cursor keeps the exact
+            // point clicked, fraction and all — snapping that to a tile centre
+            // would be a different order from the one issued, and it is the one
+            // case where nothing is bought by moving it: the tile is this
+            // unit's alone either way. Everyone the formation displaced takes
+            // its slot's centre, because a displaced unit has no clicked point
+            // of its own to keep.
+            const onClick = slot[0] === tx && slot[1] === ty;
+            ux = onClick ? gx : fx.add(fx.fromInt(slot[0]), HALF);
+            uy = onClick ? gy : fx.add(fx.fromInt(slot[1]), HALF);
+            uf = this.fieldFor(slot[0], slot[1], utype.isAir ? DOMAIN_FOOT : utype.moveDomain);
+          }
           // Appending to a unit already under way queues the point instead of
           // overriding it: that is how a player draws a route round a block.
           if (cmd.append === true && this.moving[id] === 1) {
@@ -2057,8 +2109,8 @@ export class Sim {
             }
             continue;
           }
-          // (A passenger never reached here: it claimed no slot, so the
-          // `slot === undefined` guard above turned it away.)
+          // (A passenger never reached here: the guard above turned it away —
+          // no slot on the formation path, refused outright on the exact one.)
           // (Buried units were already dropped where the ids expanded, above
           // the append fast-path — the earth's refusal is not per-branch.)
           this.wpCount[id] = 0; // a fresh order replaces the whole path

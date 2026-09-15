@@ -95,7 +95,10 @@ export class CivilianFlight {
         // Re-ordering there would queue one dead command every tick for the
         // rest of the mission, so it stops here instead.
         if (rdx * rdx + rdy * rdy <= SHEPHERD_RADIUS_SQ) continue;
-        sim.queueCommand({ kind: 'move', ids: [civ], x: rx, y: ry });
+        // `exact`: the refuge is a point a RULE chose, not a click, and the
+        // evacuation zone is drawn around it -- a formation slot beside it
+        // can sit outside that zone, so this order opts out of being placed.
+        sim.queueCommand({ kind: 'move', ids: [civ], x: rx, y: ry, exact: true });
         continue;
       }
       // A buried civilian cannot be reached, shepherded, or moved — and
@@ -137,7 +140,9 @@ export class CivilianFlight {
           break;
         }
       }
-      if (!boarded) sim.queueCommand({ kind: 'move', ids: [civ], x: rx, y: ry });
+      // `exact` for the same reason as the re-order above: a rule chose this
+      // point, so the walk to it is not a formation's to place.
+      if (!boarded) sim.queueCommand({ kind: 'move', ids: [civ], x: rx, y: ry, exact: true });
     }
   }
 

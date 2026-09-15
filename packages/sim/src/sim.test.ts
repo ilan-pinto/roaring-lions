@@ -414,6 +414,32 @@ describe('formation on arrival', () => {
     expect(new Set(tiles).size).toBe(10);
   });
 
+  it('lets an `exact` order stack on one tile, and still reserves it', () => {
+    // The sim's own shepherding orders opt out of being PLACED, not out of
+    // being avoided. `CivilianFlight` sends every family to one refuge point
+    // a rule already chose, with an evacuation zone drawn around it, so a
+    // slot beside that point can sit outside the zone; an exact order keeps
+    // the point as given for every unit in it. What it must NOT do is stop
+    // reserving — a player order to the same tile still has to go beside it.
+    const sim = makeSim();
+    const inf = sim.addUnitType(F_INF);
+    const a = sim.spawn(inf, 0, fx.fromInt(4), fx.fromInt(12));
+    const b = sim.spawn(inf, 0, fx.fromInt(4), fx.fromInt(14));
+    const c = sim.spawn(inf, 0, fx.fromInt(4), fx.fromInt(16));
+    // A tick apart, so the second order sees the first already moving to the
+    // tile it wants — the case an ordinary order is displaced by.
+    sim.queueCommand({ kind: 'move', ids: [a], x: fx.fromInt(12), y: fx.fromInt(12), exact: true });
+    sim.tick();
+    sim.queueCommand({ kind: 'move', ids: [b], x: fx.fromInt(12), y: fx.fromInt(12), exact: true });
+    sim.tick();
+    sim.queueCommand({ kind: 'move', ids: [c], x: fx.fromInt(12), y: fx.fromInt(12) });
+    settle(sim, 30);
+    expect(tileOf(sim, a)).toBe('12,12');
+    expect(tileOf(sim, b)).toBe('12,12');
+    expect(tileOf(sim, c)).not.toBe('12,12');
+    for (const id of [a, b, c]) expect(sim.state.moving[id]).toBe(0);
+  });
+
   it('gives a queued waypoint its own slot per unit', () => {
     const sim = makeSim(42, 64);
     const inf = sim.addUnitType(F_INF);
