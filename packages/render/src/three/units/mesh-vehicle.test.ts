@@ -264,7 +264,7 @@ describe('disposeVehicleMeshEntity', () => {
     expect(entity.mixer?.existingAction(template.clips.get('move') as THREE.AnimationClip)).toBeNull();
   });
 
-  it('is a safe no-op for a clipless entity -- every shipped vehicle today', async () => {
+  it('is a safe no-op for a clipless entity -- no shipped vehicle since the wreck pass, but nomesh and any un-passed export', async () => {
     const gltf = await parseRigidFixture({ parts: [{ nodeName: 'hull_hull', extrasRole: 'hull' }] });
     const template = buildVehicleMeshTemplate(gltf, 'dozer_d9');
     const entity = instantiateVehicleMesh(template, 'dozer_d9');

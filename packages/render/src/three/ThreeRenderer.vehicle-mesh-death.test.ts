@@ -187,6 +187,36 @@ describe('updateVehicleMeshes death hand-off', () => {
     expect(priv.scene.children).not.toContain(root);
   });
 
+  it('survives a template swapped under a living entity: warns, removes, and does NOT throw out of the frame', async () => {
+    // The one case `beginVehicleDeath` refuses. Reached by doing what a
+    // mid-mission `loadVehicleMesh` would: the entity is cloned from a
+    // CLIPLESS template, and the map then names a wreck-bearing one, so the
+    // prune loop's `hasWreck` gate and the clone's own actions disagree.
+    const { sim, priv, id } = await setUp(false);
+    priv.updateVehicleMeshes(1, 16);
+    const root = priv.vehicleMeshEntities.get(id)?.root;
+
+    const gltf = await parseRigidFixture({
+      parts: [{ nodeName: 'hull_hull', extrasRole: 'hull' }],
+      clipNames: ['idle', 'wreck'],
+      deathRoot: { parts: ['hull_hull'] },
+    });
+    priv.vehicleMeshTemplates.set(LAVI.id, buildVehicleMeshTemplate(gltf, LAVI.id));
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    sim.debugKill(id);
+    // Break check: restore the `throw` in `beginVehicleDeath`. This line goes
+    // red -- and in the real app that exception propagates out of `frame()`
+    // and the screen stops.
+    expect(() => priv.updateVehicleMeshes(1, 16)).not.toThrow();
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+
+    expect(priv.vehicleDying).toHaveLength(0);
+    expect(priv.meshWrecks).toHaveLength(0);
+    expect(priv.scene.children).not.toContain(root);
+  });
+
   it('dispose() tears down every dying vehicle', async () => {
     const { sim, renderer, priv, id } = await setUp(true);
     priv.updateVehicleMeshes(1, 16);

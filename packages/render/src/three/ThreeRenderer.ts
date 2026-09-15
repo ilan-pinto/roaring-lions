@@ -4610,6 +4610,23 @@ export class ThreeRenderer implements Renderer {
         // under, so the two would evict each other every single
         // instantiation. `add` re-appends as the LAST child, which is where
         // the wreck pass authored it.
+        //
+        // One consequence, recorded rather than fixed, and MEASURED rather
+        // than reasoned: `attachMeshSilhouette` is also where
+        // `markSilhouetteOccludee` stamps a body material into the silhouette
+        // stencil, so a wreck material never gets stamped and a vehicle wreck
+        // does not mask another unit's outline the way an INFANTRY wreck does
+        // (that path marks the shared TEMPLATE material while the figure is
+        // alive, and it stays marked). It is visible on screen: killing
+        // `mbt_lavi` on `?sandbox=beit_sahwan_outskirts&sur` puts a team-blue
+        // (#2F6FD9) contour across the wreck, 0 blue pixels alive and
+        // mid-fade against 97 once it settles. It is the LIVING `dozer_d9`
+        // one tile west -- hiding that unit's own silhouette objects takes the
+        // count 97 -> 0, hiding the `at_team`'s leaves it at 97, and the wreck
+        // root itself holds zero silhouette objects. The divergence runs in
+        // the vehicle's favour -- a unit behind a burnt-out hull keeps its
+        // whole outline instead of having it punched out -- so it is noted
+        // here rather than chased.
         const deathRoot = entity.deathRoot;
         if (deathRoot) entity.root.remove(deathRoot);
         attachMeshSilhouette(entity.root, this.silhouetteMaterialFor(st.side[i]));
@@ -4791,7 +4808,16 @@ export class ThreeRenderer implements Renderer {
         // root, and a silhouette's own `MeshBasicMaterial` is shared by every
         // unit on that side. A wreck has no outline to keep either.
         detachMeshSilhouette(entity.root);
-        this.vehicleDying.push(beginVehicleDeath(entity, id, deadTemplate));
+        // `null` means "this entity cannot start a death" -- it warns and
+        // falls through to the same immediate removal a clipless vehicle
+        // takes. Never a throw: this runs inside `frame()`, where an
+        // exception stops the whole screen rather than reporting anything.
+        const dying = beginVehicleDeath(entity, id, deadTemplate);
+        if (dying) this.vehicleDying.push(dying);
+        else {
+          this.scene.remove(entity.root);
+          disposeVehicleMeshEntity(entity);
+        }
       } else {
         this.scene.remove(entity.root);
         disposeVehicleMeshEntity(entity);

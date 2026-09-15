@@ -110,6 +110,10 @@ export interface DyingVehicle {
  * no longer alive, and only once (the caller owns that; `ThreeRenderer`'s own
  * prune loop deletes the id from `vehicleMeshEntities` in the same step).
  *
+ * Returns `null` when this entity cannot start a death at all, which the
+ * caller must read as "remove and dispose it now" -- `ThreeRenderer`'s prune
+ * loop already has that branch for every vehicle without the clip.
+ *
  * `template` is the template `entity` was cloned from, and it is here to be
  * CHECKED rather than stored: `hasWreck` is the single gate the renderer's
  * whole hand-off turns on, and `actions.has('wreck')` is the same fact read
@@ -117,8 +121,16 @@ export interface DyingVehicle {
  * living entity (`loadVehicleMesh`'s own reload path re-instantiates, but a
  * future caller might not), the two would disagree and this entity would
  * either hang in the settle phase forever waiting on an action that was never
- * started, or lose its wreck silently. Failing loudly at the one call site
- * that knows both is cheaper than either.
+ * started, or lose its wreck silently.
+ *
+ * That disagreement WARNS and returns `null`; it does not throw, and the
+ * difference matters more than the unreachability suggests. The only caller
+ * is `updateVehicleMeshes`, which runs inside `frame()`: an exception there
+ * does not report a bad template, it kills the frame loop and the whole
+ * screen stops. A warning plus the immediate-removal branch degrades to
+ * exactly the behaviour every clipless vehicle already has -- the vehicle
+ * disappears, which is a visible wrongness someone can act on, with the
+ * reason named in the console.
  *
  * The whole clone is faded, death root included -- `beginMeshDeathFade`
  * traverses everything under the root, so the charred materials get fade
@@ -131,12 +143,14 @@ export function beginVehicleDeath(
   entity: VehicleMeshEntity,
   entityId: number,
   template: VehicleMeshTemplate
-): DyingVehicle {
+): DyingVehicle | null {
   if (template.hasWreck !== entity.actions.has('wreck')) {
-    throw new Error(
+    console.warn(
       `mesh-vehicle-death: template for "${entity.typeId}" reports hasWreck=${template.hasWreck} but the ` +
-        `entity's own actions report ${entity.actions.has('wreck')} -- this entity was cloned from a different template`
+        `entity's own actions report ${entity.actions.has('wreck')} -- this entity was cloned from a different ` +
+        `template, so it is removed without a death sequence`
     );
+    return null;
   }
   return {
     entityId,

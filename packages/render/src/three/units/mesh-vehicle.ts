@@ -106,11 +106,13 @@ const ROTOR_PIVOT_ROLE = 'rotor';
  * mesh its twin does and carrying that twin's extras plus `rl_wreck: true`.
  *
  * `GLTFLoader` gives two nodes that share a glTF mesh two distinct
- * `THREE.Mesh` objects over ONE `BufferGeometry` -- which is the whole
- * reason `buildVehicleMeshTemplate` below dedupes `geometries` by identity
- * and does NOT dedupe `materials`: the geometry is genuinely one object
- * (disposing it twice is the bug), and the charred material is genuinely a
- * second one (sharing it with the live twin is the bug).
+ * `THREE.Mesh` objects over ONE `BufferGeometry` and, on a textured export,
+ * ONE `THREE.Material` -- which is why `buildVehicleMeshTemplate` below
+ * dedupes BOTH lists by object identity. What keeps a wreck's material
+ * distinct from its twin's is not the absence of dedup (this comment claimed
+ * that until the fix round, and it was wrong): it is that
+ * `charredTexturedMaterial` returns a CLONE, so the two are different
+ * objects and identity dedup keeps both.
  */
 export const VEHICLE_DEATH_ROOT_NAME = 'death_root';
 const WRECK_NODE_PREFIX = 'WRECK_';
@@ -151,16 +153,31 @@ export interface VehicleMeshTemplate {
   readonly clips: ReadonlyMap<ClipName, THREE.AnimationClip>;
   /**
    * Every material this template owns and disposes exactly once -- one per
-   * MESH, live and wreck alike, never deduped. Two meshes that share a glTF
-   * mesh index (a live node and its `WRECK_` twin) must NOT share a material:
-   * the whole point of the wreck copy is that it is charred and its twin is
-   * not. See `VEHICLE_DEATH_ROOT_NAME`.
+   * DISTINCT OBJECT, deduped by identity, exactly like `geometries` below.
+   *
+   * Sharing here is real and arrives from TWO directions, and the list said
+   * "one per MESH, never deduped" until 2026-09-15, which was false on every
+   * shipped textured vehicle. `mbt_lavi.glb`'s four live meshes all reference
+   * glTF material 0, so `GLTFLoader` builds ONE `THREE.Material` for all four
+   * and `texturedMaterial` hands that same object straight back -- the live
+   * path pushed it four times and `disposeVehicleMeshTemplate` disposed it
+   * four times. (The palette path allocates a fresh `rampMaterial` per mesh,
+   * which is why the fixture-driven tests could not see it.) The wreck half
+   * shares the same way: `charredTexturedMaterial` is memoised per ORIGINAL
+   * material inside `buildVehicleMeshTemplate`, so four wreck meshes over one
+   * bake get ONE charred clone between them rather than four identical ones.
+   *
+   * What must never be deduped is a wreck material against its LIVE twin's:
+   * they reference one glTF material and the whole point of the copy is that
+   * one is charred and the other is not. Identity dedup gets that right for
+   * free -- the charred clone is a different object. See
+   * `VEHICLE_DEATH_ROOT_NAME`.
    */
   readonly materials: readonly THREE.Material[];
   /** Every DISTINCT `BufferGeometry` this template owns, deduped by object
-   *  identity -- the mirror of `materials` above and for the opposite
-   *  reason: a wreck copy shares its twin's geometry, and disposing one
-   *  object twice is a real bug rather than a harmless repeat. */
+   *  identity -- the same rule as `materials` above, for the same reason: a
+   *  wreck copy shares its twin's geometry, and disposing one object twice
+   *  is a real bug rather than a harmless repeat. */
   readonly geometries: readonly THREE.BufferGeometry[];
   /** True when this vehicle's GLB carries the `wreck` clip -- i.e. the wreck
    *  pass has run on it and there is a death pose to settle into. The ONE
@@ -237,6 +254,38 @@ export function buildVehicleMeshTemplate(
     if (seenGeometries.has(g)) return;
     seenGeometries.add(g);
     geometries.push(g);
+  };
+  // Same rule for materials, and it is not merely defensive: every shipped
+  // textured vehicle shares ONE `THREE.Material` across all of its live
+  // meshes (one glTF material, four meshes on `mbt_lavi`), so an un-deduped
+  // list disposes that object once per mesh. See `VehicleMeshTemplate.
+  // materials`.
+  const seenMaterials = new Set<THREE.Material>();
+  const addMaterial = (m: THREE.Material): void => {
+    if (seenMaterials.has(m)) return;
+    seenMaterials.add(m);
+    materials.push(m);
+  };
+  /**
+   * The charred clone for one loaded bake, built at most once per template.
+   *
+   * Keyed on the ORIGINAL material rather than on the mesh, because that is
+   * the thing that is actually shared: four `WRECK_` meshes over one glTF
+   * material would otherwise get four byte-identical charred clones, each
+   * its own GPU upload. Keyed on the original rather than on the NORMALISED
+   * one only because they are the same object for every real bake
+   * (`texturedMaterial` returns its argument when it is already a
+   * `MeshStandardMaterial`, which is every `GLTFLoader` PBR material) -- and
+   * where they are not, the memo simply misses and mints a second clone,
+   * which is still correct because `addMaterial` records each distinct one.
+   */
+  const charredByOriginal = new Map<THREE.Material, THREE.MeshStandardMaterial>();
+  const charredFor = (loaded: THREE.Material): THREE.MeshStandardMaterial => {
+    const existing = charredByOriginal.get(loaded);
+    if (existing) return existing;
+    const charred = charredTexturedMaterial(loaded);
+    charredByOriginal.set(loaded, charred);
+    return charred;
   };
   const unmapped = new Set<string>();
   const smuggled = new Set<string>();
@@ -316,13 +365,13 @@ export function buildVehicleMeshTemplate(
         return;
       }
       const textured = isWreck
-        ? charredTexturedMaterial(loaded as THREE.Material)
+        ? charredFor(loaded as THREE.Material)
         : texturedMaterial(loaded as THREE.Material);
       mesh.material = textured;
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       mesh.renderOrder = renderOrderForPart(mesh.name);
-      materials.push(textured);
+      addMaterial(textured);
       addGeometry(mesh.geometry);
       return;
     }
@@ -345,7 +394,7 @@ export function buildVehicleMeshTemplate(
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.renderOrder = renderOrderForPart(mesh.name);
-    materials.push(mat);
+    addMaterial(mat);
     addGeometry(mesh.geometry);
   });
 
@@ -542,7 +591,9 @@ export function instantiateVehicleMesh(template: VehicleMeshTemplate, typeId: st
  * only `disposeVehicleMeshTemplate` (below) owns those. Mirrors
  * `mesh-unit.ts`'s `disposeMeshUnitEntity` exactly.
  *
- * A safe no-op for a clipless entity, which is every shipped vehicle: there
+ * A safe no-op for a clipless entity -- no longer any shipped vehicle (the
+ * 2026-09-15 wreck pass gave all eleven `idle` and `wreck`), but still the
+ * state `&nomesh` and any un-passed re-export are in: there
  * is no mixer to stop, and there never was one to leak. This function did
  * not exist at all before vehicles could animate -- `mesh-vehicle.ts`'s own
  * header used to say so ("there is no per-entity disposal function here at

@@ -25,10 +25,12 @@ import { meshClipOrFallback } from './mesh-anim';
  * The animation state `applyMeshClip` reads and writes. `MeshUnitEntity`
  * (infantry) and `VehicleMeshEntity` both satisfy it structurally.
  *
- * An EMPTY `actions` map is a legitimate, expected state, not a broken one:
- * every shipped `art/meshes/vehicles/*.glb` declares zero animations today,
- * so a vehicle entity carries no actions and no mixer. `applyMeshClip`
- * leaves such a player completely untouched -- see its `!next` guard.
+ * An EMPTY `actions` map is a legitimate, expected state, not a broken one.
+ * It was every shipped `art/meshes/vehicles/*.glb` until the 2026-09-15 wreck
+ * pass gave all eleven `idle` and `wreck`; it is still what `&nomesh` and any
+ * re-export the pass has not run on produce, and such an entity carries no
+ * actions and no mixer. `applyMeshClip` leaves it completely untouched -- see
+ * its `!next` guard.
  */
 export interface ClipPlayer {
   readonly actions: ReadonlyMap<ClipName, THREE.AnimationAction>;

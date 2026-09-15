@@ -16,12 +16,13 @@
  * SPECIFIC test named goes red, then reverting. Each break is named at its own
  * test, and again in this task's report.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import * as THREE from 'three';
 import { parseRigidFixture } from './rigid-mesh-fixture';
 import {
   buildVehicleMeshTemplate,
   instantiateVehicleMesh,
+  disposeVehicleMeshTemplate,
   VEHICLE_DEATH_ROOT_NAME,
   type VehicleMeshEntity,
   type VehicleMeshTemplate,
@@ -37,7 +38,18 @@ import {
   type MeshDeathEnv,
   type MeshWreck,
 } from './mesh-death';
-import { beginVehicleDeath, stepVehicleDeath } from './mesh-vehicle-death';
+import { beginVehicleDeath, stepVehicleDeath, type DyingVehicle } from './mesh-vehicle-death';
+
+/** `beginVehicleDeath`, insisting it actually started one. It returns `null`
+ *  (after a `console.warn`) for an entity whose template disagrees with its own
+ *  actions -- a case with its own test below; everywhere else a `null` here is
+ *  the test's own setup being wrong, and should read as such rather than as a
+ *  type error at every call site. */
+function mustBegin(entity: VehicleMeshEntity, entityId: number, template: VehicleMeshTemplate): DyingVehicle {
+  const d = beginVehicleDeath(entity, entityId, template);
+  if (!d) throw new Error('beginVehicleDeath returned null -- the fixture and the template disagree');
+  return d;
+}
 
 const WRECK_CLIPS = ['idle', 'wreck'] as const;
 
@@ -111,7 +123,7 @@ function makeEnv(overrides: Partial<MeshDeathEnv> = {}): MeshDeathEnv {
  *  out (which is itself a failure worth seeing as a timeout rather than a
  *  wrong assertion). */
 function runToCompletion(
-  d: ReturnType<typeof beginVehicleDeath>,
+  d: DyingVehicle,
   env: MeshDeathEnv,
   maxFrames = 200
 ): 'fading' | 'removed' | MeshWreck {
@@ -202,11 +214,15 @@ describe('buildVehicleMeshTemplate, with a death root', () => {
     const meshes = meshesOf(template.root);
     expect(meshes).toHaveLength(4); // two live, two wreck
 
-    // One material per MESH, none shared: disposal is once each, and a
-    // wreck sharing its twin's material would char the living vehicle.
+    // Four DISTINCT materials here because the palette path mints a fresh
+    // `rampMaterial` per mesh -- not because the list refuses to dedupe. The
+    // invariant is one entry per distinct object, which the textured case
+    // below exercises properly; what this pins is that a wreck never shares
+    // its twin's material, which would char the living vehicle.
+    expect(new Set(template.materials).size).toBe(template.materials.length);
     expect(template.materials).toHaveLength(4);
-    expect(new Set(template.materials).size).toBe(4);
     for (const mesh of meshes) expect(template.materials).toContain(mesh.material as THREE.Material);
+    expect(byName(template.root, 'WRECK_hull_hull').material).not.toBe(byName(template.root, 'hull_hull').material);
 
     // Break check: `addGeometry` -> `geometries.push`. This reads 4 and goes
     // red. `GLTFLoader` gives two nodes over one glTF mesh two `THREE.Mesh`
@@ -219,6 +235,51 @@ describe('buildVehicleMeshTemplate, with a death root', () => {
     expect(new Set(template.geometries).size).toBe(template.geometries.length);
     for (const mesh of meshes) expect(template.geometries).toContain(mesh.geometry);
     expect(byName(template.root, 'WRECK_hull_hull').geometry).toBe(byName(template.root, 'hull_hull').geometry);
+  });
+
+  it('holds ONE entry per distinct material when four meshes share one bake, and disposes each exactly once', async () => {
+    // The shipped shape this exists for: `mbt_lavi.glb`'s four live meshes
+    // all reference glTF material 0, so `GLTFLoader` builds ONE
+    // `THREE.Material` for the lot and `texturedMaterial` hands that same
+    // object back. Before the dedup, `materials` held it four times and
+    // `disposeVehicleMeshTemplate` disposed it four times -- the exact defect
+    // `addGeometry` was added to prevent, on the other axis. The palette
+    // fixtures above cannot see it, because `rampMaterial` allocates.
+    const gltf = await parseRigidFixture({
+      parts: [
+        { nodeName: 'hull_hull', extrasRole: 'hull' },
+        { nodeName: 'turret_metal', extrasRole: 'metal' },
+      ],
+      clipNames: WRECK_CLIPS,
+      deathRoot: { parts: ['hull_hull', 'turret_metal'] },
+    });
+    const bake = new THREE.MeshStandardMaterial({ map: new THREE.Texture() });
+    for (const mesh of meshesOf(gltf.scene)) mesh.material = bake; // all four, one object
+
+    const template = buildVehicleMeshTemplate(gltf, 'mbt_lavi', true);
+    expect(meshesOf(template.root)).toHaveLength(4);
+
+    // Break check: `addMaterial` -> `materials.push`. This reads 4 and goes
+    // red, and so does the disposal count below.
+    expect(template.materials).toHaveLength(2);
+    expect(new Set(template.materials).size).toBe(2);
+
+    const live = byName(template.root, 'hull_hull').material as THREE.Material;
+    const charred = byName(template.root, 'WRECK_hull_hull').material as THREE.Material;
+    expect(live).toBe(bake); // `texturedMaterial` normalises in place
+    expect(charred).not.toBe(bake);
+    // Break check: drop the `charredFor` memo and call
+    // `charredTexturedMaterial` directly. Both wreck meshes then get their
+    // own byte-identical clone, `materials` reads 3, and this goes red.
+    expect(byName(template.root, 'WRECK_turret_metal').material).toBe(charred);
+    expect(byName(template.root, 'turret_metal').material).toBe(bake);
+    expect(new Set(template.materials)).toEqual(new Set([live, charred]));
+
+    const liveSpy = vi.spyOn(live, 'dispose');
+    const charredSpy = vi.spyOn(charred, 'dispose');
+    disposeVehicleMeshTemplate(template);
+    expect(liveSpy).toHaveBeenCalledTimes(1);
+    expect(charredSpy).toHaveBeenCalledTimes(1);
   });
 
   it('keeps a wreck part in its twin\'s render-order band, shadows and all', async () => {
@@ -276,19 +337,31 @@ describe('instantiateVehicleMesh, with a death root', () => {
 // --- (b) the sequence ------------------------------------------------------
 
 describe('beginVehicleDeath', () => {
-  it('refuses an entity cloned from a different template than the one it is handed', async () => {
+  it('WARNS and returns null for an entity cloned from a different template -- never throws, this runs inside frame()', async () => {
     const withWreck = await buildTemplate();
     const gltf = await parseRigidFixture({ parts: [{ nodeName: 'hull_hull', extrasRole: 'hull' }] });
     const clipless = buildVehicleMeshTemplate(gltf, 'mbt_lavi');
     const entity = instantiateVehicleMesh(clipless, 'mbt_lavi');
-    expect(() => beginVehicleDeath(entity, 1, withWreck)).toThrow(/cloned from a different template/);
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // Break check: put the `throw new Error(...)` back. `toBeNull` goes red,
+    // and so does the renderer wiring test that drives the same path through
+    // `updateVehicleMeshes` -- which is the point: an exception raised there
+    // does not report a bad template, it stops the frame loop and the screen
+    // with it.
+    expect(beginVehicleDeath(entity, 1, withWreck)).toBeNull();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toMatch(/cloned from a different template/);
+    // And nothing was started: no fade clone was installed on the entity.
+    expect((byName(entity.root, 'hull_hull').material as THREE.Material).transparent).toBe(false);
+    warn.mockRestore();
   });
 
   it('swaps in transparent fade clones without touching the shared template materials', async () => {
     const template = await buildTemplate();
     const entity = instantiateVehicleMesh(template, 'mbt_lavi');
     const shared = byName(entity.root, 'hull_hull').material as THREE.Material;
-    const d = beginVehicleDeath(entity, 1, template);
+    const d = mustBegin(entity, 1, template);
     const installed = byName(entity.root, 'hull_hull').material as THREE.Material;
     expect(installed).not.toBe(shared);
     expect(installed.transparent).toBe(true);
@@ -304,7 +377,7 @@ describe('stepVehicleDeath', () => {
     entity.root.position.set(4, 7, 6);
     const env = makeEnv();
     env.scene.add(entity.root);
-    const d = beginVehicleDeath(entity, 3, template);
+    const d = mustBegin(entity, 3, template);
 
     // Every frame inside the fade window is still `'fading'`, and the body
     // sinks rather than jumping.
@@ -333,7 +406,7 @@ describe('stepVehicleDeath', () => {
     env.scene.add(entity.root);
     applyMeshClip(entity, 'idle');
 
-    const d = beginVehicleDeath(entity, 3, template);
+    const d = mustBegin(entity, 3, template);
     runToCompletion(d, env);
 
     for (const node of entity.liveTop) {
@@ -364,7 +437,7 @@ describe('stepVehicleDeath', () => {
     const alive = submittedMeshes(entity.root);
     expect(alive.map((m) => m.name).sort()).toEqual(['hull_hull', 'turret_metal']);
 
-    runToCompletion(beginVehicleDeath(entity, 3, template), env);
+    runToCompletion(mustBegin(entity, 3, template), env);
 
     // Dead: two draw calls again, both wreck. Break check: delete the
     // `node.visible = false` loop in `stepVehicleDeath`'s settle branch and
@@ -379,7 +452,7 @@ describe('stepVehicleDeath', () => {
     const env = makeEnv();
     env.scene.add(entity.root);
     const shared = byName(entity.root, 'WRECK_hull_hull').material as THREE.Material;
-    const d = beginVehicleDeath(entity, 3, template);
+    const d = mustBegin(entity, 3, template);
     runToCompletion(d, env);
     expect(byName(entity.root, 'WRECK_hull_hull').material).toBe(shared);
     expect(template.materials).toContain(byName(entity.root, 'WRECK_hull_hull').material as THREE.Material);
@@ -390,7 +463,7 @@ describe('stepVehicleDeath', () => {
     const entity = instantiateVehicleMesh(template, 'mbt_lavi');
     const env = makeEnv();
     env.scene.add(entity.root);
-    const d = beginVehicleDeath(entity, 3, template);
+    const d = mustBegin(entity, 3, template);
     runToCompletion(d, env);
 
     expect(entity.liveTop[0].scale.x).toBe(0);
@@ -416,7 +489,7 @@ describe('stepVehicleDeath', () => {
     const env = makeEnv();
     env.scene.add(entity.root);
 
-    const d = beginVehicleDeath(entity, 3, template);
+    const d = mustBegin(entity, 3, template);
     expect(runToCompletion(d, env)).toBe('removed');
     expect(env.scene.children).not.toContain(entity.root);
     expect(entity.actions.get('idle')?.isRunning()).toBe(false);
@@ -430,7 +503,7 @@ describe('stepVehicleDeath', () => {
     const env = makeEnv({ isExplored: () => explored });
     env.scene.add(entity.root);
 
-    const wreck = runToCompletion(beginVehicleDeath(entity, 3, template), env) as MeshWreck;
+    const wreck = runToCompletion(mustBegin(entity, 3, template), env) as MeshWreck;
     expect(wreck.shown).toBe(false);
     expect(entity.root.visible).toBe(false);
 
@@ -477,7 +550,7 @@ describe('a dying vehicle does not disturb a living one of the same type', () =>
     applyMeshClip(livingEntity, 'idle');
     livingEntity.mixer?.update(1 / 60);
 
-    runToCompletion(beginVehicleDeath(dyingEntity, 3, template), env);
+    runToCompletion(mustBegin(dyingEntity, 3, template), env);
 
     expect(livingEntity.deathRoot?.visible).toBe(false);
     expect(livingEntity.liveTop[0].visible).toBe(true);
