@@ -307,6 +307,30 @@ Read each team's `mobility.speed_tiles_s` from its own unit JSON under `data/uni
 
 `kit.py`'s `figure()` deliberately yaws the head by `head_turn = 0.18 * hand`. Leave it; the spec's §2.1 records +3..+11 as intended contrapposto, not a defect.
 
+**Four lessons from Tasks 2 and 3, each of which cost real time there:**
+
+- **A build-time gate can pass while the export is wrong.** Task 2 built a pose
+  that solved cleanly, put the weapon on the axis and went green in Python,
+  while the exported face read +15.2° against the arms-only +0.3° — because the
+  rotation it used tilts the head rather than yawing it, and the two instruments
+  diverge by 14° on a tilt. **Always re-measure the exported bytes with
+  `measureFacing` and `measureRoleTravel`. Treat the Python numbers as a
+  prediction, never a verdict.**
+- **Check every source path resolves before planning around it.** The soldier
+  script's `SRC_DIR` pointed at a directory that exists in no checkout, so that
+  pipeline could not be run at all and nobody had noticed — no gate reads these
+  scripts and the shipped GLB was the only evidence.
+- **Two obvious measures of "is this limb still plausible" are wrong on these
+  rigs.** A shoulder-to-hand distance is the arm's CHORD and grows as the elbow
+  straightens, so it loosens in exactly the direction a bad pose pushes; and
+  `data.bones[...].length` sums to 46.9 m on a 1.67 m figure, because the
+  auto-rig's tails do not sit at the child joints. Summed joint-to-joint
+  segments is the measure that works.
+- **An endpoint test is not a bound.** Separation is not monotonic in the
+  magnitude of a solve: Task 2 measured a pose that wrapped three joints most of
+  the way round and came back INSIDE an endpoint cap because the hand swung past
+  the far side. Sweep the path, do not sample its ends.
+
 The mortar crew defect (spec §3.6): the three figures hold an identical **+84°** in `move` and spread across −69…+94 in `idle`. `move` keys no crew-served figure (`animates: False`), so what `move` shows is the rest pose. Fix the rest pose so the team marches along its heading; leave `idle`'s splay alone, which is correct for a deployed weapon.
 
 - [ ] **Step 1: Read speeds from unit data**
