@@ -1288,7 +1288,10 @@ it compares `window.localStorage.length` before and after, and both are
   The fire-based half is now settled, and not in the direction this bullet used to point.
   Measured over ten seeds with the armour's orders held byte-identical in both arms and only
   the foot's route changed (`tools/src/backtest/saddle-price.ts`): through the pass costs
-  **1.20 losses a run**, up the corridor **0.30**, on the same 3.54-minute clock. The pass
+  **1.20 losses a run**, up the corridor **0.30**, on the same 3.54-minute clock —
+  **all three numbers measured before group formations (2026-09-15); `saddle-price.ts`
+  issues group orders, which now land in formation instead of converging on one point, so
+  they may not reproduce.** The pass
   kills the men -- seven of those twelve deaths are the `mortar_team` -- and the corridor
   kills nobody on foot at all; its three deaths over ten seeds are every one of them armour,
   lost in the pass fight the foot walked away from.

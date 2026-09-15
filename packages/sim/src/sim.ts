@@ -703,7 +703,8 @@ const MAX_WAYPOINTS = 8;
  *  where it used to want one. Beyond this many, `fieldFor` reuses the
  *  least-recently-issued field that no living unit still follows; it only
  *  grows past this when every field is live, which takes more distinct
- *  goals than there are units. 128 × ~11.5 KB on a 48×48 map is 1.5 MB. */
+ *  goals than there are units, or when the only unreferenced fields were
+ *  issued this tick. 128 × ~11.5 KB on a 48×48 map is 1.5 MB. */
 export const MAX_FLOW_FIELDS = 128;
 /** Routes per mission. Small on purpose: a mission with more than a handful of
  *  tunnels is a mission whose player cannot reason about any of them. */

@@ -123,9 +123,11 @@ idle unit's goal is its standing tile (spawn sets goal = position), so idle unit
 where they stand.
 
 Slot assignment releases the current order's own units first, then skips tiles reserved by
-any other same-side unit. That one map covers every stacking case: a group on one click,
-two groups on the same click at different times, and a single unit sent onto an idle friend,
-which now stops on an adjacent free tile.
+any other same-side unit. That one map covers every stacking case *a command can produce*:
+a group on one click, two groups on the same click at different times, and a single unit
+sent onto an idle friend, which now stops on an adjacent free tile. It does **not** cover
+the one goal the sim sets for itself without a command — `stepSweep`'s hunt after an
+attack-move loses contact, which reads no reservation and asks for no slot (Deviation 7).
 
 Enemies are not reservations. An attack-move still closes on the position; combat resolves
 it. A unit passing through a tile does not reserve it — only goals do — so a column moving
@@ -163,7 +165,11 @@ positions, the direction a comparison of two deltas, the walk visits neighbours 
 order, and ids are processed sorted. No random draw is needed, so no per-entity stream is
 touched. Data flow stays commands in, state out.
 
-The walk touches at most `(2·SEARCH_RADIUS + 1)² = 289` tiles per order. Each slot gets its
+The walk touches at most `(2·WALK_DEPTH + 1)² = 529` tiles per distinct (mask, origin) —
+`WALK_DEPTH` is `SEARCH_RADIUS + MAX_LATERAL = 11`, not `SEARCH_RADIUS`, because the widest
+slot the grid can ask for is a full lateral offset out from the deepest rank. The `289` this
+paragraph carried until 2026-09-15 was derived from `SEARCH_RADIUS` alone; §8's *The
+reachability walk* carries the cost. Each slot gets its
 own cached flow field, so a twelve-unit order can compute up to twelve fields instead of
 one, each a 2304-cell sweep on a 48×48 map. **The field cache is unbounded today**:
 `fieldFor` (`sim.ts:1722-1734`) appends to `this.fields` and keys `fieldByGoal` by tile with
@@ -245,7 +251,9 @@ screenshot sheet of both at zoom 1.6 for the lead.
 
 ## 8. Deviations
 
-Six, each with the ledger ruling it came from (`.superpowers/sdd/2026-09-15-group-formation/progress.md`).
+Eight. The first six carry the ledger ruling they came from
+(`.superpowers/sdd/2026-09-15-group-formation/progress.md`); 7 and 8 are the final review's
+(Ruling 12), recorded rather than resolved.
 
 1. **The reservation "map" is derived per order, not persistent state.** §4.3 describes
    "one reservation map per side" as if it were kept; it is instead built fresh by a scan
@@ -253,6 +261,15 @@ Six, each with the ledger ruling it came from (`.superpowers/sdd/2026-09-15-grou
    order. A scan needs no bookkeeping at any of the sites that set `goalX`/`goalY`, and
    orders are rare next to ticks — the alternative was a persistent structure that every
    boarding, garrisoning, burial and death would have to keep honest.
+   **A queued waypoint is not a reservation, and this is the scan's one blind spot.** The
+   scan reads `goalX`/`goalY` for a moving unit and its position otherwise; it never reads
+   `wpX`/`wpY`, so only a unit's CURRENT leg holds ground. Group A with a two-leg route
+   reserves its leg-1 slots and nothing at the leg-2 point, so group B clicked on that
+   point in the meantime is assigned slots that can coincide with A's leg-2 slots — they
+   stack when A arrives, and only until one of them is re-ordered. Follow-up shape: scan
+   the `wpCount[j]` entries of each unit too and mark every queued tile, which costs the
+   scan a bounded `MAX_WAYPOINTS` factor and needs a decision about whether a route's
+   later legs should fence ground off from everybody for the whole journey.
 2. **The clicked unit's slot keeps the exact click point; every other slot is a tile
    centre.** §4.2's "moves by up to half a tile" is retracted: snapping every slot to a
    tile centre, including the one under the cursor, broke `umm_zeitoun_1_recon` and the
@@ -311,8 +328,75 @@ Six, each with the ledger ruling it came from (`.superpowers/sdd/2026-09-15-grou
    were re-sited (First Light's two civilian groups moved off the fire; Qarn Hadid's moved
    off `village_square`, the enemy's own rally tile) rather than the engine changed; see
    `.superpowers/sdd/2026-09-15-group-formation/task-5-report.md`.
+7. **`stepSweep` is the one surviving convergence path, and it re-stacks an attack-moved
+   group after contact.** Everything in §3's scope is a *command*; the sweep is not. In
+   `sim.ts` (~4838–4892) every attack-moving unit that has arrived (`moving === 0`,
+   `attackMove === 1`, no `curTarget`) picks the nearest still-valid last-seen enemy
+   position and takes it verbatim — `goalX`/`goalY` set to that point and `fieldFor(raw)`
+   — with no slot, no reservation and no snap. "Nearest" is measured from each unit's own
+   position, but the last-seen set is per SIDE, and squads that arrived together are
+   standing next to each other: they pick the same point, and the point is a position, not
+   a tile. Eight squads attack-moved into a town finish the sweep heaped on one tile, which
+   is the §1 defect surviving inside the one code path this spec did not touch. **So
+   "units never stop on the same spot" (D1) is true of every order a player or a script
+   can issue, and false for an attack-move that loses contact and hunts.**
+   It was left alone deliberately. The sweep is the pre-existing hunt behaviour, and its
+   goal is not a destination somebody chose — it is a guess about where an enemy went.
+   Changing where a hunting squad walks is combat design (it moves engagement geometry,
+   which is exactly what `pnpm balance` is already stopped on), not the destination-slot
+   problem this spec scoped, and doing it here would have put a second uncosted geometry
+   change under the same red backtest.
+   Follow-up shape, which is the single-unit case's own rule and nothing new:
+   route the sweep goal through `reservedTilesFor(side, [i])` plus the nearest free
+   reachable tile — one unit, one slot, the same function §4.2's "a single unit is the
+   same function with one id" already describes. Two things to settle first: the sweep
+   runs per tick rather than per order, so an O(units) reservation scan per sweeping unit
+   per tick is the wrong cost and the scan wants hoisting to once per tick; and a hunting
+   unit displaced off its contact point is a behaviour change to measure through
+   `playtest` and `balance`, not to assume. Queued as engine design (Ruling 12).
+8. **A drone ordered onto a blocked tile now lands beside it instead of hovering over it.**
+   §4.2 exempts air from terrain en route and says air uses the foot passability set for
+   its slot; what it does not say is that the pre-formation branch also let an air unit
+   keep the RAW click point when the click was blocked, so a drone told to sit on a rock
+   ridge sat on it. On the formation path there is no way to express that — a slot is a
+   tile the walk reached, and the walk runs on the foot mask — so air is not exempt here
+   (`sim.ts`, "AIR is not exempt on this path, deliberately"): a blocked click gives the
+   drone the foot-snapped click tile, with `front` set so it still leads the ranks. This
+   is a player-visible change from `main` for one case, pinned by
+   `packages/sim/src/flight.test.ts:70–92` ("is not shoved along the wall it is flying
+   over, but still takes a slot off it", which used to assert the drone stops ON the
+   blocked tile and now asserts the foot snap at (11, 5)). The exemption survives on the
+   `exact` path, which places nothing.
 
 **Measured costs.**
+
+*The reachability walk.* §4.5's `289` was wrong: the walk's depth is `WALK_DEPTH =
+SEARCH_RADIUS + MAX_LATERAL = 11`, not `SEARCH_RADIUS = 8`, because a slot can sit a full
+lateral offset out from the deepest rank and an unreached tile is not a slot. So the bound
+is `(2·11 + 1)² = 529` tiles, per distinct (mask, origin), per order — 1.83× what the spec
+claimed, still trivially bounded, and still nothing per tick. It was also being paid
+**twice**: `input.masks.map(walk)` ran once per domain even when both entries are the same
+array, which is every map with no boulders (`Sim.maskFor` collapses the domain there and
+the click then snaps to the same tile for both). `assignFormation` now walks once per
+distinct (mask, origin) pair and aliases the `Reach` — the origin has to match too, since
+the same mask walked from two tiles gives a different `hit` disc and a different overflow
+`order`. Covered by `formation.test.ts`, which passes one array as both masks in most
+cases; the boulder-corridor and air cases hand it two genuinely different masks and still
+walk twice, as they must.
+
+*What the tests do not walk.* Spec §5's "two-tile street" is pinned **only** by the pure
+`street()` case in `formation.test.ts` — a synthetic mask with walls either side of x =
+10..11. The whole-system walk (`tools/src/formation_walk.test.ts`) and the screenshot
+sheet both use the Tel Marum boulder corridor instead, and a boulder field is a FOOT-open
+wall: it closes to vehicles only, so the vehicles anchor at its mouth (Deviation 4) rather
+than heading a column inside it — and the walk test's corridor case orders the foot units
+alone (`onFoot`), so no vehicle is even in that command. **Vehicles at the head of a
+street column is therefore unwalked on any shipped map** — the behaviour is pinned by
+construction and by the pure test, never by a real map's rows. The gap is a map-authoring
+fact, not a code one: no
+shipped map has a two-tile street walled to both domains where a mixed group is ordered.
+Closing it means either authoring such a street or adding a `walk_*` case on
+`beit_sahwan_outskirts`' built-up rows.
 
 *Fields per order.* One cache miss per unit ordered, at most — measured on
 `tel_marum_2_foothold`'s 9-unit `starting_force` ordered as a whole into the open basin:

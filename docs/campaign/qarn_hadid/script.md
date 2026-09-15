@@ -676,7 +676,7 @@ purely additive, so `tools/src/qarn_hadid_relief.test.ts` (which reads only
 | T-QH7 "The mast is not an eye." | `objectives[].say` on `kill_the_relay` | **expressible today** — measured fact, no mechanism beyond the `say` | §3.2 row "Relay crew killed" |
 | T-QH8 "The clinic fills up." | wave `to: clinic_yard` at 330s + `say`; the garrison variant (`zone_entered(clinic) → spawn` with `stance: garrison`) is a second, equally-expressible shape | **expressible today**, both variants — `zone_entered`→`spawn` and a `stance.kind:"garrison"` are both shipped fields. Which one ships is `playtest`'s call (`design.md` O-QH3), not an engine question | §3.2 row "Wave to the clinic yard" (shipped); the garrison variant is NOT authored here, per O-QH3 |
 | T-QH9 "He gives the town back." | `casualties_pct(45)` → `withdraw_to knoll_top`, group `village` | **expressible today** — re-run `playtest` after this lands, since a `withdraw_to` can walk a fight out of a scripted plan's reach (`tel_marum/design.md`'s T-C1 finding) | §3.2 row "The town falls back onto the hill" |
-| T-QH10 "His fire kills them and your score does not move." | as a **placement** (families on the axis of the enemy's own indirect fire) it is live and authored; as a **line bound to a specific round landing** it needs a trigger that watches a `SimEvent` (G-B) and a way to choose where an enemy round lands (G-C), neither of which exists | **split** — placement half expressible today (already authored: the civilian groups at `[29,3]`/`[22,5]` sit inside the corridor the village garrison's own indirect assets can range); the bound `say` is **engine work** | placement only; no ECA row for the bound line |
+| T-QH10 "His fire kills them and your score does not move." | as a **placement** (families on the axis of the enemy's own indirect fire) it is live and authored; as a **line bound to a specific round landing** it needs a trigger that watches a `SimEvent` (G-B) and a way to choose where an enemy round lands (G-C), neither of which exists | **split** — placement half expressible today (already authored: the civilian groups at `[29,3]`/`[22,5]` — `[29,3]` being the original position, moved to `[22,1]` on 2026-09-15 — sit inside the corridor the village garrison's own indirect assets can range); the bound `say` is **engine work** | placement only; no ECA row for the bound line |
 
 **Tally for III: 3 of 4 fully expressible today; T-QH10 is engine work for its
 literal (bound-line) form, with an expressible placement-only fallback already
@@ -711,7 +711,8 @@ mission first, at 300s rather than whenever a wipe might eventually occur.
 **`playtest`'s passive control must read DEFEAT.**
 
 **What the scripted plan must do to win:** move a rifle element toward
-`[29,3]`/`[22,5]` early enough to start the civilian walk to `clinic_yard`
+`[29,3]`/`[22,5]` (the original positions; `[29,3]` moved to `[22,1]` on
+2026-09-15) early enough to start the civilian walk to `clinic_yard`
 well inside 300s (17–19 tiles on foot per `design.md` §3.2's measured line);
 pick ONE armour road (west under the terraces, or east through the grove) and
 commit to it rather than splitting the vehicles across both; take
@@ -811,9 +812,10 @@ only "does the plan clear all three primaries before the mission's own
 }
 ```
 
-*One number above differs from this document's own tables (§3's placement rows
-still read `[29,3]`, the position authored here): the first civilian group ships
-on the north lane at `[22,1]` since 2026-09-15. In the alley at `[29,3]` the
+*The first civilian group ships on the north lane at `[22,1]` since 2026-09-15;
+§3.3's Civilians table carries that number, and the two prose citations that
+still reason from `[29,3]` (§3.5's T-QH10 row, §3.7's scripted-plan note) say so
+where they stand. In the alley at `[29,3]` the
 village fight never reached the families, so they waited for a soldier — and
 once group formations put vehicles in the front ranks, the soldier that arrived
 was the `ifv_namer`, which they boarded and rode away from the clinic, failing
