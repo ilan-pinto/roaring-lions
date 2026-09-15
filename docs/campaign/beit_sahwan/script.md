@@ -192,9 +192,25 @@ session (`python3` tile lookups, not eyeballing the grid).
 | marker | `outpost` | `[20,14]` — tile is `.` | the forward post's ground, and the t=120 wave's `to` | **missing — new, additive** |
 | zone | `outpost_ground` | `[19,12,4,4]` — 16 tiles, 15× `.` + one `o` at `(21,13)` | `hold_outpost`'s target; deliberately excludes wall row 16 | **missing — new** |
 | marker | `families_nw` | `[12,18]` — `.` | matches the floor of the shipped civilian group's `at:[12.5,18.5]`; `commit` destination for `ring_nw` | **missing — new** |
-| marker | `families_ne` | `[35,18]` — `.` | matches `at:[35.5,18.5]`; `ring_ne`'s destination | **missing — new** |
-| marker | `families_sw` | `[12,27]` — `.` | matches `at:[12.5,27.5]`; `ring_sw`'s destination | **missing — new** |
+| marker | `families_ne` | `[35,18]` — `.` | `ring_ne`'s destination. The group itself moved to `at:[37.5,18.5]` on 2026-09-15 and the marker deliberately did NOT follow it (below) | **missing — new** |
+| marker | `families_sw` | `[12,27]` — `.` | `ring_sw`'s destination; the group itself is at `at:[11.5,27.5]` since 2026-09-15 | **missing — new** |
 | marker | `families_se` | `[35,27]` — `.` | matches `at:[35.5,27.5]`; `ring_se`'s destination | **missing — new** |
+
+**Two of the four no longer sit on their group's first body, and that is the
+point.** A marker here is the enemy's `commit` target, so it is where the
+raiders *go*; it was only ever incidental that two of them also named the tile
+a family stood on. Once scripted enemy groups began forming up (the
+group-formation branch, 2026-09-15) `ring_ne`'s leading cell parked on
+`families_ne` at t=15s and the duel it fought there suppressed the family
+standing under it into fleeing for the compound on its own — with the
+south-west corner doing the same under the t=160s wave — which handed the
+passive control the two evacuees `evac_settlements` asks for and made a
+do-nothing run WIN. The two civilian groups moved instead (NE two tiles east to
+`[37.5,18.5]`, SW one tile west to `[11.5,27.5]`); the markers stayed exactly
+where they are, because moving them would move the raid itself and every
+`first_contact`/`timer_s` commit that names them. `tools/src/first_light_fence.test.ts`
+now derives the spawn tiles from the mission JSON rather than listing them, so
+the next such move cannot leave a stale census behind.
 
 Not proposed: the four optional `village_nw/ne/sw/se` withdraw markers design
 lists as "if `level-scripter` wants the ring to leave with what it took." I'm not
@@ -472,6 +488,11 @@ G1 lands:
   ]
 }
 ```
+
+*Shipped since 2026-09-15 with two of the four moved — NE `[37.5,18.5]`, SW
+`[11.5,27.5]` — to keep the passive control losing once scripted enemy groups
+began forming up on the village markers. See §1.4; `data/missions/beit_sahwan_breach.json`
+is the authority.*
 
 **Map additions (`marj_perimeter.json`), in `map.schema.json`'s shapes
 (markers: name → `[x,y]` int pair; zones: name → `[x,y,w,h]` int rect):**

@@ -758,7 +758,7 @@ only "does the plan clear all three primaries before the mission's own
   "civilians": {
     "refuge": "clinic_yard",
     "groups": [
-      { "unit": "civilians", "count": 3, "at": [29, 3] },
+      { "unit": "civilians", "count": 3, "at": [22, 1] },
       { "unit": "civilians", "count": 2, "at": [22, 5] }
     ]
   },
@@ -803,6 +803,17 @@ only "does the plan clear all three primaries before the mission's own
   }
 }
 ```
+
+*One number above differs from this document's own tables (§3's placement rows
+still read `[29,3]`, the position authored here): the first civilian group ships
+on the north lane at `[22,1]` since 2026-09-15. In the alley at `[29,3]` the
+village fight never reached the families, so they waited for a soldier — and
+once group formations put vehicles in the front ranks, the soldier that arrived
+was the `ifv_namer`, which they boarded and rode away from the clinic, failing
+`get_the_families_clear` in the gate-open run. On the north lane they break on
+suppression with no transport inside the 4-tile boarding radius and walk, which
+is what the briefing says they do. `data/missions/qarn_hadid_3_clearance.json`
+is the authority.*
 
 ---
 

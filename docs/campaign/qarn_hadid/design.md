@@ -588,7 +588,12 @@ same numbers `tel_marum_3_clearance` and `umm_zeitoun_3_clearance` carry.
 | `recon_drone` | 1 | — |
 
 **Civilians.** Five, in two groups: 3 at `[29,3]` (cover 2, by the road) and 2 at
-`[22,5]` (cover 2, by the apartments). `civilians.refuge: "clinic_yard"` — the
+`[22,5]` (cover 2, by the apartments). *(Shipped since 2026-09-15 with the first
+group on the north lane at `[22,1]` instead: in the alley at `[29,3]` the village
+fight never reached the families, so they waited for a soldier to walk up — and
+with group formations putting vehicles in the front ranks, the soldier was an IFV
+they then rode away from the clinic. `data/missions/qarn_hadid_3_clearance.json`
+is the authority.)* `civilians.refuge: "clinic_yard"` — the
 **new marker at `[44,10]`**, cover-2 open ground in the walled yard south of the
 clinic house, inside zone `clinic [42,6,5,5]`. Measured line: `[30,3]`→`[46,9]`
 is **17 tiles on foot**, `[29,8]`→`[46,9]` is 19 (both measured to `[46,9]`, two tiles from the proposed marker inside the same yard; `mission-author` re-measures to the marker itself) — short, on the player's axis of

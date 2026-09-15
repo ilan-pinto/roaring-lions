@@ -85,9 +85,18 @@ type Pt = readonly [number, number];
 
 const BASE = maps.marj_perimeter as unknown as MapJson;
 type FenceSpec = { type: string; at: readonly [number, number]; size?: readonly [number, number] };
+type PlacementSpec = {
+  unit: string;
+  count?: number;
+  at?: readonly number[];
+  marker?: string;
+};
 type MissionShape = {
   structures?: readonly FenceSpec[];
+  starting_force?: readonly PlacementSpec[];
+  civilians?: { groups?: readonly PlacementSpec[] };
   enemy?: {
+    garrison?: readonly PlacementSpec[];
     waves?: readonly { to: string; units: readonly { unit: string; from?: string; count: number }[] }[];
   };
 };
@@ -111,6 +120,49 @@ function expandFenceTiles(): Pt[] {
 }
 
 const FENCE_TILES = expandFenceTiles();
+
+/** A placement's bodies spread 1.25 tiles apart (`SPREAD`, mission.ts:367). */
+const SPREAD_TILES = 1.25;
+
+/** Every TILE a placement's bodies stand on, by `assertGroundClear`'s own rule
+ *  (mission.ts:1041): body k sits `(k % 3) * SPREAD` east and
+ *  `floor(k / 3) * SPREAD` south of the declared point, floored to a tile.
+ *
+ *  Derived, never hand-listed. The census below WAS a hand list, and moving
+ *  `families_ne` two tiles east and `families_sw` one tile west (2026-09-15,
+ *  the group-formation branch) left it asserting about tiles nobody occupied
+ *  any more -- the test stayed green while the thing it names went unchecked.
+ *  Widening the west run to x=15, the draft this file's header records
+ *  rejecting, would then have been cleared by a census claiming a body at
+ *  x=15 while the real third body at x=14 went unexamined.
+ *
+ *  The sim does this in Q16.16 (`fx.add(bx, (k % 3) * SPREAD) >> 16`); the
+ *  float form here agrees exactly because every coordinate involved is a
+ *  multiple of 0.25 and so is exact in binary. */
+function spawnTiles(p: PlacementSpec): Pt[] {
+  const at = p.at ?? (p.marker !== undefined ? BASE.markers?.[p.marker] : undefined);
+  if (at === undefined) throw new Error(`placement of ${p.unit} declares neither "at" nor a known marker`);
+  const out: Pt[] = [];
+  for (let k = 0; k < (p.count ?? 1); k++) {
+    out.push([
+      Math.floor(at[0] + (k % 3) * SPREAD_TILES),
+      Math.floor(at[1] + Math.floor(k / 3) * SPREAD_TILES),
+    ]);
+  }
+  return out;
+}
+
+/** Every placement this mission puts on the ground, in the order the runtime
+ *  spawns them. `in_tunnel` placements are excluded — a buried body stands on
+ *  no tile — but this mission authors none. */
+const PLACEMENTS: readonly PlacementSpec[] = [
+  ...(MISSION.starting_force ?? []),
+  ...(MISSION.enemy?.garrison ?? []),
+  ...(MISSION.civilians?.groups ?? []),
+];
+
+/** The civilian half of it, on its own: the routes below walk these. */
+const CIVILIAN_TILES: readonly Pt[] = (MISSION.civilians?.groups ?? []).flatMap(spawnTiles);
 
 describe('First Light fence — the tiles themselves', () => {
   it('the fence type is per_tile and fully blocking, roe-neutral, low profile (data/structures.json)', () => {
@@ -169,24 +221,26 @@ describe('First Light fence — the tiles themselves', () => {
     expect(FENCE_TILES.some(([, y]) => y < 17)).toBe(false);
   });
 
+  it('the census it asserts on is the mission\'s own placements, not a hand list (31 bodies, 11 of them civilian)', () => {
+    // The guard on the guard. `spawnTiles` is only worth trusting if it is
+    // reading the real placements, so pin the two counts and one tile that a
+    // stale hand list got wrong: `families_ne`'s first body.
+    expect(PLACEMENTS.flatMap(spawnTiles)).toHaveLength(31);
+    expect(CIVILIAN_TILES).toHaveLength(11);
+    expect(CIVILIAN_TILES).toContainEqual([37, 18]);
+  });
+
   it('no fence tile exactly coincides with a starting_force, garrison or civilian spawn tile', () => {
-    // A hand census of every `at` this mission places on the ground (civilian
-    // spread included, matching `assertGroundClear`'s 1.25-tile grid) --
-    // cheaper than re-running the mission runtime here, and this file's job
-    // is the terrain, not re-proving `walk_placements.ts`'s own "all
-    // placements clear" (already re-checked by hand while authoring this,
-    // both for the shipped x=16/x=32 layout and for the wider x=15/x=33
-    // draft this file's header describes rejecting). A fence tile standing
+    // Every `at` this mission places on the ground, derived from the mission
+    // JSON with the civilian/multi-body spread applied (`spawnTiles`, matching
+    // `assertGroundClear`'s 1.25-tile grid) -- cheaper than re-running the
+    // mission runtime here, and this file's job is the terrain, not re-proving
+    // `walk_placements.ts`'s own "all placements clear". A fence tile standing
     // ADJACENT to a spawn (distance 1) is fine and expected here -- the west
     // run's (16,17) sits diagonally next to `families_nw`'s third body at
     // (15,18) by design, one tile outside the wall the civilians are
     // sheltering behind.
-    const occupied: Pt[] = [
-      [20, 14], [27, 18], [21, 28], [27, 28], [22, 23], [27, 23], [24, 21], [24, 25], [26, 26], [22, 26], [25, 23],
-      [24, 10], [21, 10], [6, 8], [7, 8], [37, 8], [38, 8], [6, 39], [7, 39], [38, 39],
-      [12, 18], [13, 18], [15, 18], [35, 18], [36, 18], [38, 18],
-      [12, 27], [13, 27], [15, 27], [35, 27], [36, 27],
-    ];
+    const occupied: readonly Pt[] = PLACEMENTS.flatMap(spawnTiles);
     for (const [ox, oy] of occupied) {
       for (const [fx_, fy] of FENCE_TILES) {
         const onTop = fx_ === ox && fy === oy;
@@ -275,16 +329,61 @@ const afterMap = parseMap(BASE);
 
 describe('First Light fence — civilian routes to civ_refuge are untouched', () => {
   const REFUGE = marker(BASE, 'civ_refuge');
-  // Group `at`s from the mission, floored to the tile the group actually
-  // starts on (matches `walk_placements.ts`'s own convention).
-  const GROUPS: readonly [string, Pt][] = [
-    ['families_nw', [12, 18]],
-    ['families_ne', [35, 18]],
-    ['families_sw', [12, 27]],
-    ['families_se', [35, 27]],
+  // The four VILLAGE MARKERS, read live off the map -- terrain probes at the
+  // four corners, not the civilians' own start tiles. They are the enemy's
+  // `commit` targets (`villages_rise` and its three siblings), they do not
+  // move when a civilian group does, and the exact lengths pinned below are
+  // measured from them. Two of the four last coincided with a family's first
+  // body before 2026-09-15; `families_ne` now spawns at (37,18) and
+  // `families_sw` at (11,27), which is why the probes and the spawns are two
+  // separate cases here instead of one list doing both jobs badly.
+  const MARKER_PROBES: readonly [string, Pt][] = [
+    ['families_nw', marker(BASE, 'families_nw')],
+    ['families_ne', marker(BASE, 'families_ne')],
+    ['families_sw', marker(BASE, 'families_sw')],
+    ['families_se', marker(BASE, 'families_se')],
   ];
 
-  it.each(GROUPS)('%s: foot route to civ_refuge exists both before and after, byte-identical length', (_label, from) => {
+  /** Every civilian body's own walk to the refuge, before -> after the fence,
+   *  keyed by the tile it spawns on. Derived tiles, pinned numbers.
+   *
+   *  This table is why the case exists. The file header claims the shipped
+   *  x16/x32 layout leaves the civilian routes "BYTE-IDENTICAL" -- measured
+   *  from the four village MARKERS, which is true (the case below pins
+   *  12/14/13/11 there) and is not the whole truth: `families_nw`'s second and
+   *  third bodies at (13,18) and (15,18) each walk ONE tile further with the
+   *  fence up, because the west run at x=16 stands between them and the wall's
+   *  west gate. Nine of eleven bodies are unchanged. That +1 is recorded here
+   *  rather than smoothed into a `<= 1` bound, so a future fence edit that
+   *  makes a THIRD body detour, or costs either of these two a second tile,
+   *  goes red instead of passing inside a tolerance. */
+  const SPAWN_WALKS: Readonly<Record<string, readonly [number, number]>> = {
+    '12,18': [12, 12],
+    '13,18': [11, 12],
+    '15,18': [11, 12],
+    '37,18': [14, 14],
+    '38,18': [14, 14],
+    '40,18': [16, 16],
+    '11,27': [13, 13],
+    '12,27': [13, 13],
+    '14,27': [13, 13],
+    '35,27': [11, 11],
+    '36,27': [12, 12],
+  };
+
+  it('every civilian body still reaches civ_refuge on foot, at its pinned before/after length', () => {
+    const walked: Record<string, readonly [number, number]> = {};
+    for (const from of CIVILIAN_TILES) {
+      const b = route(before.sim, beforeMap, 'foot', from, REFUGE);
+      const a = route(after.sim, afterMap, 'foot', from, REFUGE);
+      expect(b, `(${from[0]},${from[1]}) had no route even before the fence`).not.toBeNull();
+      expect(a, `(${from[0]},${from[1]}) severed by the fence`).not.toBeNull();
+      walked[`${from[0]},${from[1]}`] = [b as number, a as number];
+    }
+    expect(walked).toEqual(SPAWN_WALKS);
+  });
+
+  it.each(MARKER_PROBES)('%s (marker, terrain probe): foot route to civ_refuge exists both before and after, byte-identical length', (_label, from) => {
     const b = route(before.sim, beforeMap, 'foot', from, REFUGE);
     const a = route(after.sim, afterMap, 'foot', from, REFUGE);
     expect(b).not.toBeNull();
@@ -292,14 +391,17 @@ describe('First Light fence — civilian routes to civ_refuge are untouched', ()
     expect(a).toBe(b);
   });
 
-  // Pinned exact lengths, so a future edit to the fence (or the map) that
-  // silently lengthens a civilian's walk shows up as a number changing here,
-  // not just as "still not null".
-  it('exact lengths: nw=12 ne=14 sw=13 se=11', () => {
-    expect(route(after.sim, afterMap, 'foot', [12, 18], REFUGE)).toBe(12);
-    expect(route(after.sim, afterMap, 'foot', [35, 18], REFUGE)).toBe(14);
-    expect(route(after.sim, afterMap, 'foot', [12, 27], REFUGE)).toBe(13);
-    expect(route(after.sim, afterMap, 'foot', [35, 27], REFUGE)).toBe(11);
+  // Pinned exact lengths FROM THE FOUR MARKERS, so a future edit to the fence
+  // (or the map) that silently lengthens the walk out of a village corner
+  // shows up as a number changing here, not just as "still not null". Marker
+  // tiles rather than spawn tiles deliberately: a marker is fixed geography a
+  // trigger commits to, so these numbers stay honest when a family moves,
+  // while the spawn tiles themselves are walked by the derived case above.
+  it('exact lengths from the village markers: nw=12 ne=14 sw=13 se=11', () => {
+    expect(route(after.sim, afterMap, 'foot', marker(BASE, 'families_nw'), REFUGE)).toBe(12);
+    expect(route(after.sim, afterMap, 'foot', marker(BASE, 'families_ne'), REFUGE)).toBe(14);
+    expect(route(after.sim, afterMap, 'foot', marker(BASE, 'families_sw'), REFUGE)).toBe(13);
+    expect(route(after.sim, afterMap, 'foot', marker(BASE, 'families_se'), REFUGE)).toBe(11);
   });
 });
 

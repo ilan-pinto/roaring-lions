@@ -65,7 +65,7 @@
   "civilians": {
     "refuge": "clinic_yard",
     "groups": [
-      { "unit": "civilians", "count": 3, "at": [27, 5] },
+      { "unit": "civilians", "count": 3, "at": [22, 1] },
       { "unit": "civilians", "count": 2, "at": [22, 5] }
     ]
   },
