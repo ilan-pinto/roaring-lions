@@ -116,34 +116,69 @@ describe('mesh unit facing', () => {
   // hold to face +X, and takes fire's and down's base pose from inside the
   // window. So the expectation is flipped to the in-band one.
   //
-  // FACING_BAND is the design doc's own contrapposto band (section 2.1: the
-  // kit rigs sit at +3..+11 by deliberate authoring) with margin, and it is
-  // far below the 156 and 84 degree defects it exists to catch.
-  const FACING_BAND = 20;
+  // The ceilings are NOT restated here. `import_meshy_soldier.py`'s own
+  // `CLIP_SEMANTICS` gates the same six clips at build time, and two numbers
+  // both claiming to be "the ceiling for moveFire" is how they drift apart --
+  // so this reads them out of that file, the way
+  // `textured-building.test.ts` reads `TEXTURED_BUILDING_EXEMPT`. One source,
+  // derived twice.
+  //
+  // The two instruments are not identical and the shared ceiling is
+  // deliberately the conservative side of that. The Python gate measures the
+  // rig's own `Head`->`headfront` marker pair; `measureFacing` here centroids
+  // the `face` mesh's own vertices against the head JOINT. Measured offset
+  // between them on this asset: 1-3 degrees on a square head, up to ~7 on a
+  // bladed one (`moveFire` reads +10.8 there and +17.6 here). Every clip
+  // still clears its ceiling with real margin on BOTH.
+  function headingCeilings(): Record<string, number> {
+    const py = readFileSync(fileURLToPath(new URL('../import_meshy_soldier.py', import.meta.url)), 'utf8');
+    const table = /\nCLIP_SEMANTICS = \{\n([\s\S]*?)\n\}\n/.exec(py);
+    expect(table, 'CLIP_SEMANTICS not found in tools/import_meshy_soldier.py').not.toBeNull();
+    const out: Record<string, number> = {};
+    for (const entry of (table as RegExpExecArray)[1].split(/\n {4}(?=")/)) {
+      // The FIRST chunk still carries its own indent; the split consumed it
+      // for every later one.
+      const name = /^\s*"(\w+)":/.exec(entry);
+      const heading = /"heading":\s*(?:None|\{"mean_deg":\s*([\d.]+))/.exec(entry);
+      expect(name, `a CLIP_SEMANTICS entry has no parseable clip name: ${entry.slice(0, 60)}`).not.toBeNull();
+      expect(heading, `CLIP_SEMANTICS['${name?.[1]}'] has no parseable "heading"`).not.toBeNull();
+      if ((heading as RegExpExecArray)[1] !== undefined) {
+        out[(name as RegExpExecArray)[1]] = Number((heading as RegExpExecArray)[1]);
+      }
+    }
+    // `wreck` is the one exemption, so five of the six carry a number. A
+    // parse that silently found none would otherwise make every assertion
+    // below vacuous.
+    expect(Object.keys(out).sort()).toEqual(['down', 'fire', 'idle', 'move', 'moveFire']);
+    return out;
+  }
 
   it.each(['idle', 'fire', 'down'])(
     'the KDF rifleman faces what he is shooting in %s (was -156/-163/sweeping)',
     (clip) => {
       const figs = measureFacing(`${MESHES}meshy_soldier.glb`, clip);
       expect(figs.length).toBe(3);
-      for (const f of figs) expect(Math.abs(f.meanDeg)).toBeLessThan(FACING_BAND);
+      for (const f of figs) expect(Math.abs(f.meanDeg)).toBeLessThan(headingCeilings()[clip]);
     }
   );
 
   it('reads the same rifleman walking CORRECTLY, so the reading is of the clip', () => {
     const figs = measureFacing(`${MESHES}meshy_soldier.glb`, 'move');
-    for (const f of figs) expect(Math.abs(f.meanDeg)).toBeLessThan(FACING_BAND);
+    for (const f of figs) expect(Math.abs(f.meanDeg)).toBeLessThan(headingCeilings().move);
   });
 
   it('binds moveFire, and reads it as bladed rather than broken', () => {
     // `Run_and_Shoot_withSkin.glb` was on disk and bound to nothing. It is a
     // genuine walk-and-shoot mocap: the body blades to the target and the
     // eyes square to the sights, so the head sits left of the line of
-    // travel. The sibling Sarim rig's own `moveFire` measures +42 and the
-    // design doc records it as "bladed but not broken"; this one is milder.
+    // travel -- and the WEAPON sits on the axis of travel, measured at +0.31
+    // deg by the Python gate, which is why that clip is the control the
+    // weapon check is calibrated against. The sibling Sarim rig's own
+    // `moveFire` measures +42 and the design doc records it as "bladed but
+    // not broken"; this one is milder, hence its own wider ceiling.
     const figs = measureFacing(`${MESHES}meshy_soldier.glb`, 'moveFire');
     expect(figs.length).toBe(3);
-    for (const f of figs) expect(Math.abs(f.meanDeg)).toBeLessThan(FACING_BAND);
+    for (const f of figs) expect(Math.abs(f.meanDeg)).toBeLessThan(headingCeilings().moveFire);
   });
 
   it('leaves wreck facing backward, which is a corpse and not a defect', () => {
