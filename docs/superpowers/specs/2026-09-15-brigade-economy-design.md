@@ -91,7 +91,7 @@ the point of D4 and an accidental wipe would undo hours.
 
 ### 4.2 Credits and the payout
 
-`creditsFor(result, secondariesDone, home)` is a pure integer function beside the grade in
+`creditsFor(input: CreditInput)` is a pure integer function beside the grade in
 `packages/sim/src/credits.ts` — integer addition only, no division, no RNG, no `Math.*` —
 and the only sim-package addition. It reads what the grade and the debrief already read:
 
@@ -99,7 +99,7 @@ and the only sim-package addition. It reads what the grade and the debrief alrea
 |---|---|---|
 | the win | 100 | `result === 'victory'`; a defeat pays nothing and writes nothing (motivation D4) |
 | each carrying secondary completed | 40 | the same `carries: true` set the third star counts |
-| each fielded unit brought home | 10 | `fieldedCount - lost` |
+| each unit of the STARTING force brought home | 10 | `startingCount - (startingCount - startingHome)`, production neutral (ruling R4: a unit built from logistics mid-mission is mastery practice, not a second payout lever — spec §2) |
 | each Conduct point over the two-star floor | 1 | `roe - starRoeFloor(mission)`, floored at 0 |
 
 The weights are provisional and belong to the balance analyst. The **campaign-level target**
@@ -230,7 +230,8 @@ Three steps, each its own plan and its own branch, in the order the motivation l
 
 1. **Earn** — the account module and its reset; `creditsFor`; the improvement rule; the
    debrief line; the harness's cumulative assertion; the docs — landed 2026-09-15,
-   ladder total 5644.
+   ladder total 5544 (re-pinned same day from 5644 once "brought home" was scoped to
+   the starting force only, ruling R4).
 2. **Buy** — `unlock.price`; bought-only units; `unlockReason` with the account; the shop's
    locked rows; the dock sentence; the harness's bought-gate probe.
 3. **Upgrade** — the `upgrades` schema and whitelist; `applyUpgrades`; the balance passes;

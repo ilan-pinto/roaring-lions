@@ -2160,7 +2160,10 @@ for (const gate of GATES) {
 let ladderCredits = 0;
 for (const missionId of missionOrder) ladderCredits += missionCredits.get(missionId) ?? 0;
 // Measured 2026-09-15 under weights win 100 / secondary 40 / home 10 / conduct 1.
-const LADDER_CREDITS = 5644;
+// Re-pinned 2026-09-15, same day: "home" now counts only the starting force
+// (ruling R4) -- production units no longer inflate the payout, which moved
+// the total 5644 -> 5544.
+const LADDER_CREDITS = 5544;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);

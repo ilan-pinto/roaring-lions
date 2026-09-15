@@ -43,7 +43,7 @@ describe('creditsFor', () => {
 });
 
 describe('creditInputFrom', () => {
-  it('extracts a CreditInput from a finished MissionRuntime', () => {
+  it('extracts a CreditInput from a finished MissionRuntime, scoped to the starting force', () => {
     const roe = 75;
     const failBelow = 40;
     const rt = {
@@ -53,8 +53,10 @@ describe('creditInputFrom', () => {
         { id: 'secondary1', type: 'evacuate_before', text: 'Evacuate', primary: false, carries: true, status: 'complete' as const },
         { id: 'secondary2', type: 'raze', text: 'Raze', primary: false, carries: true, status: 'active' as const },
       ],
-      fieldedCount: 8,
-      lostByType: () => ({ inf_squad: 2, jeep_shoded: 1 }),
+      // 8 started, 5 came home -- production units never enter either figure
+      // (ruling R4), which is exactly what distinguishes this from fieldedCount.
+      startingCount: 8,
+      startingHome: 5,
     };
 
     const input = creditInputFrom(rt, roe, failBelow);

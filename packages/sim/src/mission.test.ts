@@ -1612,6 +1612,38 @@ describe('economy (GDD §3, just enough for M1)', () => {
     expect(fx.toNumber(w.sim.state.posX[id])).toBeCloseTo(4, 0);
   });
 
+  it('startingCount and startingHome are scoped to the starting force, not production (ruling R4)', () => {
+    const w = makeWorld(
+      baseMission({
+        map: { file: 'none', player_start: [4, 6] },
+        starting_force: [{ unit: 'm_squad', count: 2, at: [3, 5] }],
+        resources: { logistics_start: 500, logistics_rate_per_min: 0 },
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+      }),
+      ECON_CTX
+    );
+    expect(w.runtime.startingCount).toBe(2);
+    expect(w.runtime.startingHome).toBe(2);
+
+    // Build a third unit from logistics -- it must never join either count,
+    // however many of these a player mass-produces.
+    expect(w.runtime.requestBuild('m_squad')).toBe(true);
+    w.step(2 * TICKS_PER_SECOND + 2);
+    expect(w.sim.entityCount).toBe(3); // two starting + one produced
+    expect(w.runtime.startingCount).toBe(2);
+    expect(w.runtime.startingHome).toBe(2);
+
+    // Kill one of the STARTING pair -- startingHome drops.
+    w.sim.debugKill(0);
+    expect(w.runtime.startingCount).toBe(2);
+    expect(w.runtime.startingHome).toBe(1);
+
+    // Kill the produced unit too -- it moves neither count.
+    w.sim.debugKill(2);
+    expect(w.runtime.startingCount).toBe(2);
+    expect(w.runtime.startingHome).toBe(1);
+  });
+
   // ---- production anchored to a camp -------------------------------------
   //
   // A camp is the first structure with an owner. Everything else in the

@@ -24,9 +24,11 @@ export interface CreditInput {
   result: 'ongoing' | 'victory' | 'defeat';
   /** Secondaries flagged `carries: true` whose status is 'complete'. */
   carryingComplete: number;
-  /** Player units that ever took the field (`MissionRuntime.fieldedCount`). */
+  /** The STARTING force only (`MissionRuntime.startingCount`) -- a unit built from
+   *  logistics mid-mission is neither fielded nor lost here (ruling R4, spec §2:
+   *  mastery, not repetition). */
   fielded: number;
-  /** Player units that died (sum of `lostByType()`). */
+  /** Starting-force units that died (`startingCount - startingHome`). */
   lost: number;
   roe: number;
   /** The mission's `roe.fail_below`, undefined when it declares none. */
@@ -48,16 +50,25 @@ export function creditsFor(input: CreditInput): number {
 }
 
 /** The credit input read straight off a finished runtime -- the same counters the
- *  debrief prints. `roe` is passed in because the app reads it off the `missionEnd`
- *  event while the harness reads `rt.roeScore`; they are equal at mission end. */
+ *  debrief prints, except "home": `fieldedCount`/`lostByType()` cover every unit that
+ *  ever took the field, including anything built from logistics mid-mission, and
+ *  ruling R4 says production must not move this payout. `startingCount`/`startingHome`
+ *  are scoped to the starting force alone. `roe` is passed in because the app reads it
+ *  off the `missionEnd` event while the harness reads `rt.roeScore`; they are equal at
+ *  mission end. */
 export function creditInputFrom(
-  rt: Pick<MissionRuntime, 'result' | 'objectiveList' | 'fieldedCount' | 'lostByType'>,
+  rt: Pick<MissionRuntime, 'result' | 'objectiveList' | 'startingCount' | 'startingHome'>,
   roe: number,
   failBelow: number | undefined,
 ): CreditInput {
-  let lost = 0;
-  for (const n of Object.values(rt.lostByType())) lost += n;
   let carryingComplete = 0;
   for (const o of rt.objectiveList) if (!o.primary && o.carries && o.status === 'complete') carryingComplete += 1;
-  return { result: rt.result, carryingComplete, fielded: rt.fieldedCount, lost, roe, failBelow };
+  return {
+    result: rt.result,
+    carryingComplete,
+    fielded: rt.startingCount,
+    lost: rt.startingCount - rt.startingHome,
+    roe,
+    failBelow,
+  };
 }

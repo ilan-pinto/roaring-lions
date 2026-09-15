@@ -429,6 +429,14 @@ export class MissionRuntime {
   private readonly tags = new Map<string, number[]>();
   private readonly patrols: PatrolState[] = [];
   private readonly playerIds: number[] = [];
+  /** Snapshot of `playerIds` taken at the end of `start()`, once every
+   *  `starting_force` placement has spawned and before any reinforcement,
+   *  production, or trigger-spawned unit can join `playerIds`. Credits'
+   *  "brought home" term (ruling R4) prices only the force the player deployed
+   *  with -- a unit built from logistics mid-mission must not be a second lever
+   *  on the same payout, so it is deliberately excluded from both `startingCount`
+   *  and `startingHome`. */
+  private startingIds: readonly number[] = [];
   private readonly enemyIds: number[] = [];
   /**
    * The enemy force that was on the ground when the player arrived.
@@ -691,6 +699,22 @@ export class MissionRuntime {
     return this.playerIds.length;
   }
 
+  /** How many player units the STARTING force fielded -- the `startingIds` snapshot
+   *  taken at the end of `start()`. Unlike `fieldedCount`, this never grows: a unit
+   *  built from logistics mid-mission is not counted, by design (ruling R4). */
+  get startingCount(): number {
+    return this.startingIds.length;
+  }
+
+  /** How many of the starting-force snapshot are alive right now. Paired with
+   *  `startingCount` for credits' "brought home" term (ruling R4): production
+   *  units are mastery practice and neither help nor hurt this count. */
+  get startingHome(): number {
+    let home = 0;
+    for (const id of this.startingIds) if (this.sim.state.alive[id] !== 0) home++;
+    return home;
+  }
+
   /** Player units lost, by type id. Empty when nobody died. */
   lostByType(): Record<string, number> {
     const out: Record<string, number> = {};
@@ -923,6 +947,11 @@ export class MissionRuntime {
         this.collapseTargets.set(o.def.id, found);
       }
     }
+    // Every starting_force placement has spawned and nothing above this line
+    // touches playerIds again -- reinforcements, production, and trigger
+    // spawns all land through step(), which runs after start() returns. See
+    // startingIds above.
+    this.startingIds = [...this.playerIds];
   }
 
   /** Advance the mission one tick. Call immediately after sim.tick(). */
