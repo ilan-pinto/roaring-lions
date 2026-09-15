@@ -345,6 +345,17 @@ Derive the stride terms from the target step length the speed implies, capped. K
 
 - [ ] **Step 4: Re-export all fourteen teams**
 
+**This command as originally written would have destroyed shipped art, and that
+is worth stating rather than quietly fixing.** `art/meshes/sniper_team.glb` is
+NOT `rig.py`'s output — it comes from `tools/export_meshy_sniper.py` and
+contains two photogrammetry figures — so `-- all` replaced them with composed
+primitives. Task 4 caught it by exporting to a scratch directory and diffing
+BEFORE writing into `art/meshes/`, which is the habit worth copying: **a
+pipeline that names a team is not proof that it owns that team's file.** A
+`SUPERSEDED_ELSEWHERE` guard now makes `rig.py` refuse it and `all` skip it by
+name, so the command below is safe — but check the guard is still there before
+trusting it, and never run a bulk export straight into `art/meshes/`.
+
 ```bash
 /Applications/Blender.app/Contents/MacOS/Blender --background --python tools/export_mesh_team.py -- all
 ```
