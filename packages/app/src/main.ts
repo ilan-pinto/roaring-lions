@@ -170,6 +170,18 @@ function saveLedger(ledger: LedgerData): void {
   window.localStorage.setItem(LEDGER_KEY, JSON.stringify(ledger));
 }
 
+/** `window.localStorage` can throw on the PROPERTY ACCESS itself (private mode, site
+ *  data blocked) rather than on a method call. The brigade account route and the
+ *  victory payout both read/write it through here instead of the global directly, so
+ *  a blocked store means no credits line and no payout -- never a thrown error. */
+function safeStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
 /** `{ id, role }` for `nameKind` (spec §4.7), from the same `units` catalogue every
  *  other lookup in this file reads. An unknown id (a future or removed unit type
  *  surviving in an old save) falls back to a plain squad rather than throwing. */
@@ -543,16 +555,19 @@ async function main(): Promise<void> {
           if (url !== null) portraits[id] = url;
         })
       );
+      const storage = safeStorage();
       showBrigade(stage, {
         units: kdfUnits,
         ledger: loadLedger(),
         portrait: (typeId) => portraits[typeId] ?? null,
         possibleStars: possibleStars(worldData, missions as Record<string, MissionJson | undefined>),
-        credits: loadAccount(window.localStorage).balance,
-        onReset: () => {
-          resetAccount(window.localStorage);
-          window.location.reload();
-        },
+        credits: storage ? loadAccount(storage).balance : undefined,
+        onReset: storage
+          ? () => {
+              resetAccount(storage);
+              window.location.reload();
+            }
+          : undefined,
       });
       return;
     }
@@ -2068,10 +2083,11 @@ async function main(): Promise<void> {
             // and therefore outside the pinned ladder, and CLAUDE.md already says it
             // is not a campaign mission. Gate on the mission's own contract rather
             // than a name list, the same test `validate_data.mjs` already applies.
-            if (mission.ledger.produces.length > 0) {
+            const storage = safeStorage();
+            if (mission.ledger.produces.length > 0 && storage) {
               const runValue = creditsFor(creditInputFrom(runtime, me.roeRating, mission.roe?.fail_below));
-              payout = missionId ? payMission(loadAccount(window.localStorage), missionId, runValue, Date.now()) : null;
-              if (payout) saveAccount(window.localStorage, payout.account);
+              payout = missionId ? payMission(loadAccount(storage), missionId, runValue, Date.now()) : null;
+              if (payout) saveAccount(storage, payout.account);
             }
             hud.note('<b>campaign ledger updated</b> — survivors and Conduct carried forward', 'info');
           }

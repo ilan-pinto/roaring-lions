@@ -188,8 +188,10 @@ function run(
   // only the winning plan (never a control, which passes its own distinct
   // label) and only a real victory, so a passive-control defeat can never
   // contribute a false star.
-  if (expect === 'victory' && label === id) missionStars.set(id, rt.stars);
-  if (expect === 'victory' && label === id) missionCredits.set(id, credits);
+  if (expect === 'victory' && label === id) {
+    missionStars.set(id, rt.stars);
+    missionCredits.set(id, credits);
+  }
   return produced;
 }
 
@@ -2158,6 +2160,9 @@ for (const gate of GATES) {
 // same commit as the change that moved it, and say why. The balance analyst fits
 // prices (steps 2-3) against this figure.
 let ladderCredits = 0;
+// `?? 0` for the same reason the star ladder's walk above needs one: a mission
+// with no recorded winning plan contributes nothing, and it was already named
+// in that log line rather than silently dropped here too.
 for (const missionId of missionOrder) ladderCredits += missionCredits.get(missionId) ?? 0;
 // Measured 2026-09-15 under weights win 100 / secondary 40 / home 10 / conduct 1.
 // Re-pinned 2026-09-15, same day: "home" now counts only the starting force

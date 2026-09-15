@@ -138,7 +138,8 @@ export function saveAccount(store: StorageLike, account: BrigadeAccount): void {
   store.setItem(ACCOUNT_KEY, JSON.stringify(account));
 }
 
-/** The improvement rule (spec §4.2 D2). Pure: returns a new account and what was paid. */
+/** The improvement rule (spec §4.2 D2). Pure: returns the account unchanged, by
+ *  identity, when nothing is paid. */
 export function payMission(
   account: BrigadeAccount,
   missionId: string,
