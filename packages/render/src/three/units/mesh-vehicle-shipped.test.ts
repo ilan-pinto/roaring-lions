@@ -4,7 +4,7 @@
  *
  * ## What this file pins, and what changed on 2026-09-15
  *
- * It used to pin the CLIPLESS case: all nine shipped vehicles declared zero
+ * It used to pin the CLIPLESS case: all eleven shipped vehicles declared zero
  * `animations`, and the thing worth proving was that a real GLB with no
  * clips still produced an entity with no mixer, no actions and no latched
  * clip -- the exact object shape it had before the vehicle animation path

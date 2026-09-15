@@ -65,8 +65,20 @@ function box(doc: Document, name: string, min: vec3, max: vec3): Mesh {
 
 /** Node translation of the pivot in the fixture. Large enough that a wreck
  *  built from the turret part's LOCAL matrix lands nowhere near one built from
- *  its world matrix. */
+ *  its world matrix.
+ *
+ *  **`PIVOT_X` is what the bake test now reads, and the Y offset alone is no
+ *  longer enough to catch the defect.** Every wreck group is seated on the
+ *  ground plane (`seatOnGround`), which is a Y-only translation, and it lands
+ *  a turret built from either matrix at the same height -- so a horizontal
+ *  offset is the one the seat cannot erase. */
+const PIVOT_X = 2;
 const PIVOT_Y = 6;
+
+/** How far the fixture's hull stands above its rubber, and therefore the
+ *  suspension gap `HULL_DROP` is a fraction of. Real vehicles measure
+ *  0.000-0.363; this is a round number in the same territory. */
+const HULL_CLEARANCE = 0.5;
 
 interface Fixture {
   readonly doc: Document;
@@ -78,10 +90,13 @@ function fixture(): Fixture {
   doc.createBuffer();
   const scene = doc.createScene('Scene');
 
-  // Same box, same transform, different role: the drop is the only thing that
-  // may separate them.
+  // Same box, different role, and the hull sitting `HULL_CLEARANCE` higher:
+  // the tilt is identical between them and the settle is the only thing that
+  // can change the gap. It has to be a real gap now, because the drop is a
+  // fraction of the clearance and a hull resting on the ground has none.
   const hull = doc
     .createNode('hull_hull')
+    .setTranslation([0, HULL_CLEARANCE, 0])
     .setMesh(box(doc, 'hull_hull', [-1, 0, -1], [1, 2, 1]))
     .setExtras({ rl_role: 'hull', rl_part: 'hull' });
   const rubber = doc
@@ -91,7 +106,7 @@ function fixture(): Fixture {
 
   const pivot = doc
     .createNode('turret_pivot')
-    .setTranslation([0, PIVOT_Y, 0])
+    .setTranslation([PIVOT_X, PIVOT_Y, 0])
     .setExtras({ rl_pivot: 'turret' });
   const turret = doc
     .createNode('turret_metal')
@@ -196,33 +211,41 @@ describe('applyWreckPass', () => {
     const { doc, recipe } = fixture();
     const scene = doc.getRoot().listScenes()[0];
     const bounds = getBounds(scene);
-    const height = bounds.max[1] - bounds.min[1];
+    const length = bounds.max[0] - bounds.min[0];
 
     const live = nodeNamed(doc, 'turret_metal');
     if (!live) throw new Error('fixture lost turret_metal');
-    const liveWorld = worldY(live);
-    const liveLocal = live.getTranslation()[1];
-    expect(liveWorld).toBeCloseTo(PIVOT_Y, 6);
-    expect(liveLocal).toBeCloseTo(0, 6);
+    // Read ACROSS the pivot's horizontal offset, not up it. The ground seat
+    // is a Y translation and puts a turret built either way at the same
+    // height, so the Y reading this test used to take can no longer tell the
+    // two apart -- see `PIVOT_X`.
+    const liveWorld = live.getWorldTranslation()[0];
+    const liveLocal = live.getTranslation()[0];
+    expect(liveWorld).toBeCloseTo(PIVOT_X + 0.5, 6);
+    expect(liveLocal).toBeCloseTo(0.5, 6);
 
     applyWreckPass(doc, 'fixture', recipe);
 
     const wreck = nodeNamed(doc, `${WRECK_PREFIX}turret_metal`);
     if (!wreck) throw new Error('no WRECK_turret_metal');
-    const y = worldY(wreck);
+    const x = wreck.getWorldTranslation()[0];
 
     // Forgetting the pivot is the bug this catches, and it is invisible to a
     // "not the identity" check alone -- the part's own local matrix is not the
     // identity either.
     expect(wreck.getMatrix()).not.toEqual(IDENTITY);
-    expect(Math.abs(y - liveWorld)).toBeLessThan(Math.abs(y - liveLocal));
-    expect(Math.abs(y - liveWorld)).toBeLessThan(0.6 * height);
+    expect(Math.abs(x - liveWorld)).toBeLessThan(Math.abs(x - liveLocal));
+    expect(Math.abs(x - liveWorld)).toBeLessThan(0.6 * length);
   });
 
-  it('settles the body onto the wheels: the hull drops and the rubber does not', () => {
+  it('settles the body into its own clearance: the hull drops and the rubber does not', () => {
     const { doc, recipe } = fixture();
-    const bounds = getBounds(doc.getRoot().listScenes()[0]);
-    const height = bounds.max[1] - bounds.min[1];
+
+    const liveHull = nodeNamed(doc, 'hull_hull');
+    const liveRubber = nodeNamed(doc, 'hull_rubber');
+    if (!liveHull || !liveRubber) throw new Error('missing live hull parts');
+    const liveGap = worldY(liveHull) - worldY(liveRubber);
+    expect(liveGap).toBeCloseTo(HULL_CLEARANCE, 6);
 
     applyWreckPass(doc, 'fixture', recipe);
 
@@ -230,13 +253,39 @@ describe('applyWreckPass', () => {
     const rubber = nodeNamed(doc, `${WRECK_PREFIX}hull_rubber`);
     if (!hull || !rubber) throw new Error('missing wreck hull parts');
 
-    // The two share a box and a transform, so the tilt cancels between them
-    // exactly and the gap IS the drop, times cos(roll)cos(pitch). Half the
-    // nominal drop is the floor so Task 5 can retune the angles without
-    // touching this.
-    const gap = worldY(rubber) - worldY(hull);
-    expect(gap).toBeGreaterThan(0.5 * WRECK_FRACTIONS.HULL_DROP * height);
-    expect(gap).toBeLessThan(1.5 * WRECK_FRACTIONS.HULL_DROP * height);
+    // The two share a box and a tilt, and the ground seat is one translation
+    // applied to both, so everything cancels between them except the settle.
+    // What is left of the gap is `(clearance - drop) * cos(roll)cos(pitch)`,
+    // and the CHANGE in it is therefore the drop. Half the nominal is the
+    // floor so the angles can be retuned without touching this.
+    const settle = liveGap - (worldY(hull) - worldY(rubber));
+    const nominal = WRECK_FRACTIONS.HULL_DROP * HULL_CLEARANCE;
+    expect(settle).toBeGreaterThan(0.5 * nominal);
+    expect(settle).toBeLessThan(1.5 * nominal);
+  });
+
+  it('seats every group on the ground plane, so no part of a wreck is under the terrain', () => {
+    const { doc, recipe } = fixture();
+    const groundY = getBounds(doc.getRoot().listScenes()[0]).min[1];
+
+    applyWreckPass(doc, 'fixture', recipe);
+
+    // `getBounds` accumulates over the TRANSFORMED vertices, so `min[1]` here
+    // is the exact lowest point of the posed part and not a rotated box's
+    // corner. Two groups in this fixture: the body, and the thrown turret.
+    const lowest = (ns: Node[]): number => Math.min(...ns.map((n) => getBounds(n).min[1]));
+    const children = deathRoot(doc).listChildren();
+    const turret = children.filter((c) => c.getName().includes('turret'));
+    const body = children.filter((c) => !c.getName().includes('turret'));
+    expect(body.length).toBe(2);
+    expect(turret.length).toBe(1);
+
+    // Exactly ON the ground, both of them: the tilt would otherwise bury the
+    // body's low corner (every shipped wreck stood 0.20-0.69 units under it
+    // before this) and the throw would leave the turret in the air (the
+    // shipped Eitan's hung 2.06 above the sand).
+    expect(lowest(body)).toBeCloseTo(groundY, 6);
+    expect(lowest(turret)).toBeCloseTo(groundY, 6);
   });
 
   // The axes are not fixed: eight of the eleven shipped vehicles run along X
@@ -253,21 +302,30 @@ describe('applyWreckPass', () => {
   // feeds the roll's `W*cos + H*sin` cross-term, and the perpendicular AABB
   // extent comes out at 1.0074x -- it GROWS. An axis-aligned box measurement
   // cannot see this rotation. The up vector can, exactly: rolling about the
-  // long axis tips up ACROSS the body (0.4216 of it) and the pitch tips it
-  // ALONG (0.0698), a ratio of 6.04; swapping the axes swaps the two, giving
-  // 0.166. The 3.0 floor sits in that gap and leaves room for Task 5 to
-  // retune both angles.
+  // long axis tips up ACROSS the body and the pitch tips it ALONG, and the
+  // defect SWAPS the two -- so the ratio between them inverts, and 1.0 is
+  // where the boundary genuinely is rather than a number fitted to one set of
+  // angles. (It was 3.0 against the first `BODY_ROLL_DEG` 25 / `HULL_PITCH_DEG`
+  // 4, a ratio of 6.04 correct against 0.166 defective. The tuned 10 / 7 reads
+  // 1.42 against 0.70, so a 3.0 floor would now fail the CORRECT
+  // implementation.) The premise the boundary rests on -- that the air roll is
+  // the larger of the two -- is asserted rather than assumed, just below, so a
+  // future retune that broke it fails by name instead of by arithmetic. The
+  // mirror-symmetry case after this one pins the rest to nine places.
   for (const [long, longAxis, perpAxis] of [
     ['x', 0, 2],
     ['z', 2, 0],
   ] as const) {
     it(`rolls a ${long}-long body about its own long axis, tipping it sideways and not onto its nose`, () => {
+      // What makes the 1.0 boundary above discriminating at all.
+      expect(WRECK_FRACTIONS.BODY_ROLL_DEG).toBeGreaterThan(WRECK_FRACTIONS.HULL_PITCH_DEG);
+
       const { doc, recipe } = slabFixture(long);
 
       applyWreckPass(doc, `slab_${long}`, recipe);
 
       const up = worldUp(deathRoot(doc).listChildren()[0]);
-      expect(Math.abs(up[perpAxis])).toBeGreaterThan(3 * Math.abs(up[longAxis]));
+      expect(Math.abs(up[perpAxis])).toBeGreaterThan(Math.abs(up[longAxis]));
       expect(up[1]).toBeGreaterThan(0); // still broadly upright, not flipped
     });
   }

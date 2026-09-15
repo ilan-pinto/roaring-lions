@@ -9,12 +9,14 @@
  * Simpler than `mesh-fixture.ts` throughout: no skin, no joints/weights, and
  * -- unless `clipNames` asks for them -- no animations either, which is
  * exactly what `mesh-unit-contract.md` v2 pins for buildings ("no armature,
- * no skin, no clips") and what all nine shipped vehicle GLBs carry today.
- * `clipNames` exists because a vehicle GLB *may* carry rigid node-animation
- * clips even though none does yet, and the engine half of that path
- * (`mesh-vehicle.ts`) has to be exercisable before any asset ships one --
- * otherwise the only proof the code works arrives with the art, which is
- * the wrong order. One shared triangle's `POSITION`/`NORMAL`/
+ * no skin, no clips"). It was also what every shipped VEHICLE carried until
+ * 2026-09-15; the wreck pass gave all eleven `idle` and `wreck`, so the
+ * clipless shape below is now a fixture-only case -- which is the point of
+ * keeping it, since `&nomesh` and any un-passed re-export still land on it
+ * and no shipped file exercises it any more. `clipNames` was written before
+ * any asset shipped a clip, so that the engine half of that path
+ * (`mesh-vehicle.ts`) could be exercised first rather than arriving with the
+ * art. One shared triangle's `POSITION`/`NORMAL`/
  * indices accessors are reused across every mesh node the caller asks for --
  * legal glTF (multiple meshes may reference the same accessor), and there is
  * nothing about role/pivot resolution that depends on distinct geometry.
@@ -110,10 +112,12 @@ export interface RigidFixtureOpts {
    * and a test that cannot tell those apart is not testing clip selection.
    * Give it as many parts as clips to get one distinct motion each.
    *
-   * OMITTING this is the case every shipped `art/meshes/vehicles/*.glb`
-   * is in today -- all nine declare zero animations -- and when it is
-   * omitted this fixture emits NO `animations` key and no extra accessors,
-   * so the bytes are identical to what it produced before clips existed.
+   * OMITTING this is the case NO shipped `art/meshes/vehicles/*.glb` is in
+   * any more -- all eleven declare `idle` and `wreck` since the wreck pass
+   * (2026-09-15) -- so it is reachable only through `&nomesh` and an
+   * un-passed re-export. When it is omitted this fixture emits NO
+   * `animations` key and no extra accessors, so the bytes are identical to
+   * what it produced before clips existed.
    *
    * With `deathRoot` set, `idle` and `wreck` stop being rotation clips and
    * become the wreck pass's own constant SCALE clips instead (see that

@@ -80,7 +80,9 @@ export function applyMeshClip(player: ClipPlayer, desired: ClipName, opts?: { on
   // type with no loaded sheet: draw nothing rather than fabricate a pose.
   // This is ALSO the whole no-clips path for vehicles: an entity built from
   // a GLB with zero animations has an empty `actions` map, so every call
-  // lands here and `currentClip` never leaves `null`.
+  // lands here and `currentClip` never leaves `null`. No SHIPPED vehicle is
+  // in that state since the wreck pass (2026-09-15) gave all eleven `idle`
+  // and `wreck`; `&nomesh` and an un-passed re-export still are.
   for (const [name, action] of player.actions) {
     if (name !== resolved) action.stop();
   }

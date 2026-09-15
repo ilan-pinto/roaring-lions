@@ -53,6 +53,7 @@ import {
   getBounds,
   type Accessor,
   type Document,
+  type Mesh,
   type Node,
   type Scene,
   type bbox,
@@ -153,6 +154,24 @@ function transformPoint(m: mat4, p: vec3): vec3 {
 // Measurement
 // ---------------------------------------------------------------------------
 
+/**
+ * Which of the three ground seats a part takes. A `rotor` is bolted to the
+ * airframe and rests with it, so it is not a seat of its own; a thrown turret
+ * and a collapsed canopy are separate objects on the ground and are.
+ */
+type SeatGroup = 'body' | 'turret' | 'canopy';
+
+/** One live mesh node and the wreck pose being built for it. `base` is the
+ *  world-space displacement before the group's ground seat is applied. */
+interface Part {
+  readonly node: Node;
+  readonly mesh: Mesh;
+  readonly seat: SeatGroup;
+  /** Whether this part settles: `rubber` (wheels, tracks) does not. */
+  readonly drops: boolean;
+  base: mat4;
+}
+
 /** The measured facts a recipe's fractions are taken against. */
 interface HullMetrics {
   readonly height: number;
@@ -161,6 +180,58 @@ interface HullMetrics {
   readonly centre: vec3;
   /** Index of the longer horizontal axis: 0 for X, 2 for Z. */
   readonly longAxis: 0 | 2;
+  /**
+   * How far the lowest BODY vertex stands above the vehicle's own lowest
+   * point: the gap the hull has to settle into before it is sitting on the
+   * axle line. Measured, per vehicle, 2026-09-15:
+   *
+   *     ifv_namer 0.363  rocket_battery 0.352  mbt_lavi 0.311  apc_eitan 0.227
+   *     apc_kipod 0.210  scout_shachaf  0.147  paramotor 0.060  technical 0.046
+   *     dozer_d9  0.027  heli_peten     0.000  jeep_shoded 0.000
+   *
+   * **This is what `HULL_DROP` is a fraction of, and the reason it is not a
+   * fraction of the HEIGHT any more.** Against the height, the first
+   * numbers dropped every body by 0.19-0.53 world units into ground that is
+   * 0.00-0.36 below it, and all eleven shipped wrecks stood 0.20-0.69 units
+   * UNDER the ground plane. A fraction of the clearance cannot do that, at
+   * any value up to 1: a vehicle with no gap under it simply does not
+   * settle, which is the honest answer for a dozer resting on its blade.
+   */
+  readonly clearance: number;
+}
+
+/**
+ * The exact lowest world Y of one node's own geometry, after `extra` is
+ * applied on top of its world matrix.
+ *
+ * Reads the POSITION accessor rather than rotating the AABB's eight corners,
+ * and the difference is not pedantry. A rotated box's corners BOUND the
+ * rotated geometry from outside, so seating a part by that measurement leaves
+ * it floating by however much the box over-estimates -- which is exactly what
+ * the first paramotor canopy did, and the over-estimate grows with the angle,
+ * so the one part that rotates 80 degrees was the one it was worst for. Every
+ * seat in this file is therefore taken off real vertices. Cost is one pass
+ * over each vehicle's positions (measured: under 0.6 s for all eleven,
+ * against 1.6-3.4 MiB Meshy exports).
+ */
+function lowestY(node: Node, extra: mat4 | null): number {
+  const mesh = node.getMesh();
+  if (!mesh) return Infinity;
+  const world = node.getWorldMatrix();
+  const m = extra ? multiply(extra, world) : world;
+  const el = [0, 0, 0];
+  let min = Infinity;
+  for (const prim of mesh.listPrimitives()) {
+    const pos = prim.getAttribute('POSITION');
+    if (!pos) continue;
+    const count = pos.getCount();
+    for (let i = 0; i < count; i++) {
+      pos.getElement(i, el);
+      const y = m[1] * el[0] + m[5] * el[1] + m[9] * el[2] + m[13];
+      if (y < min) min = y;
+    }
+  }
+  return min;
 }
 
 const finite = (b: bbox): boolean => b.min.every(Number.isFinite) && b.max.every(Number.isFinite);
@@ -178,23 +249,50 @@ function unionBounds(nodes: readonly Node[]): bbox {
   return out;
 }
 
-function measure(liveTop: readonly Node[], vehicleId: string): HullMetrics {
+function measure(liveTop: readonly Node[], parts: readonly Part[], vehicleId: string): HullMetrics {
   const b = unionBounds(liveTop);
   if (!finite(b)) throw new Error(`${vehicleId}: no mesh geometry to measure`);
   const x = b.max[0] - b.min[0];
   const z = b.max[2] - b.min[2];
+
+  // The suspension gap, off real vertices: the lowest thing that settles,
+  // against the lowest thing there is. `Math.max(0, ...)` because a vehicle
+  // whose lowest point IS a body part has no gap at all rather than a
+  // negative one -- true of `heli_peten` and `jeep_shoded`, which have no
+  // `rubber` role reaching lower than their hulls.
+  let bodyMin = Infinity;
+  let anyMin = Infinity;
+  for (const part of parts) {
+    const y = lowestY(part.node, null);
+    anyMin = Math.min(anyMin, y);
+    if (part.drops) bodyMin = Math.min(bodyMin, y);
+  }
+
   return {
     height: b.max[1] - b.min[1],
     length: Math.max(x, z),
     groundY: b.min[1],
     centre: [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2],
     longAxis: x >= z ? 0 : 2,
+    clearance: Number.isFinite(bodyMin) && Number.isFinite(anyMin) ? Math.max(0, bodyMin - anyMin) : 0,
   };
 }
 
 /** A displacement of `d` along the hull's long axis. */
 const alongLongAxis = (m: HullMetrics, d: number): mat4 =>
   m.longAxis === 0 ? translation(d, 0, 0) : translation(0, 0, d);
+
+/**
+ * A displacement of `d` ACROSS the hull, at right angles to the axis it runs
+ * along. Where a thrown turret goes, and the reason is the camera rather than
+ * ballistics: thrown along the hull, a turret lands beyond the nose and its
+ * silhouette stays inside the vehicle's own -- photographed at zoom 2.2 the
+ * Lavi read as an intact tank with the barrel sticking out. Thrown across, it
+ * lands clear of the flank and reads as a separate object lying in the sand,
+ * which is the whole point of throwing it.
+ */
+const acrossLongAxis = (m: HullMetrics, d: number): mat4 =>
+  m.longAxis === 0 ? translation(0, 0, d) : translation(d, 0, 0);
 
 /**
  * A ROLL: rotation about the vehicle's own longitudinal axis, the one it runs
@@ -224,13 +322,16 @@ const pitch = (m: HullMetrics, t: number): mat4 => (m.longAxis === 0 ? rotationZ
 // ---------------------------------------------------------------------------
 
 /**
- * The body: settle by a fraction of the height (unless this part is a wheel or
- * a track), then pitch and roll about the centre of the vehicle's own bounds.
- * An `air` hull rolls by `BODY_ROLL_DEG` instead, so the fuselage lies over on
- * its side rather than merely leaning.
+ * The body: settle into the suspension gap under it (unless this part is a
+ * wheel or a track), then pitch and roll about the centre of the vehicle's own
+ * bounds. An `air` hull rolls by `BODY_ROLL_DEG` instead, so the fuselage
+ * leans over rather than merely settling.
+ *
+ * No ground seat here: every group is seated once, together, in
+ * `applyWreckPass` -- see `seatOnGround`.
  */
 function hullDisplacement(m: HullMetrics, kind: HullKind, drops: boolean): mat4 {
-  const dy = drops ? -WRECK_FRACTIONS.HULL_DROP * m.height : 0;
+  const dy = drops ? -WRECK_FRACTIONS.HULL_DROP * m.clearance : 0;
   const rollDeg = kind === 'air' ? WRECK_FRACTIONS.BODY_ROLL_DEG : WRECK_FRACTIONS.HULL_ROLL_DEG;
   const tilt = aboutPoint(
     m.centre,
@@ -253,7 +354,7 @@ function turretDisplacement(m: HullMetrics, kind: HullKind, pivotWorld: vec3, dr
     // the hull points. The roll does, so it goes through `roll`.
     multiply(rotationY(rad(WRECK_FRACTIONS.TURRET_YAW_DEG)), roll(m, rad(WRECK_FRACTIONS.TURRET_ROLL_DEG)))
   );
-  return multiply(alongLongAxis(m, WRECK_FRACTIONS.TURRET_SHIFT * m.length), multiply(thrown, body));
+  return multiply(acrossLongAxis(m, WRECK_FRACTIONS.TURRET_SHIFT * m.length), multiply(thrown, body));
 }
 
 /** The blades bend about the rotor pivot, on a fuselage already on its side. */
@@ -266,15 +367,14 @@ function rotorDisplacement(m: HullMetrics, pivotWorld: vec3, drops: boolean): ma
 }
 
 /**
- * The wing tips onto its edge about the hull's long axis, comes down to the
- * ground plane, and lies a little way from the motor. The ground placement is
- * read off the canopy's own rotated bounds rather than assumed, because a
- * paraglider wing is nothing like the shape of the frame it is attached to.
+ * The wing tips onto its edge about the hull's long axis and lies a little way
+ * from the motor. Rolled about the canopy's OWN bounds centre, because a
+ * paraglider wing is nothing like the shape of the frame it is attached to and
+ * turning it about the vehicle's centre would swing it into orbit.
  *
- * Rotating the canopy's AXIS-ALIGNED box and taking the new minimum is an
- * over-estimate of the true rotated extent, so the wing can float a little; it
- * is deterministic and cheap, and Task 5 is where the number gets judged on
- * screen anyway.
+ * It comes down to the ground plane through the shared seat rather than here;
+ * the AABB-corner estimate this used to take was an over-estimate of the true
+ * rotated extent, and at 80 degrees it was the worst case in the file.
  */
 function canopyDisplacement(m: HullMetrics, canopyBounds: bbox): mat4 {
   const centre: vec3 = [
@@ -283,19 +383,38 @@ function canopyDisplacement(m: HullMetrics, canopyBounds: bbox): mat4 {
     (canopyBounds.min[2] + canopyBounds.max[2]) / 2,
   ];
   const rolled = aboutPoint(centre, roll(m, rad(WRECK_FRACTIONS.CANOPY_ROLL_DEG)));
+  return multiply(alongLongAxis(m, WRECK_FRACTIONS.CANOPY_SHIFT * m.length), rolled);
+}
 
-  let minY = Infinity;
-  for (let corner = 0; corner < 8; corner++) {
-    const p: vec3 = [
-      corner & 1 ? canopyBounds.max[0] : canopyBounds.min[0],
-      corner & 2 ? canopyBounds.max[1] : canopyBounds.min[1],
-      corner & 4 ? canopyBounds.max[2] : canopyBounds.min[2],
-    ];
-    minY = Math.min(minY, transformPoint(rolled, p)[1]);
-  }
-
-  const shift = alongLongAxis(m, WRECK_FRACTIONS.CANOPY_SHIFT * m.length);
-  return multiply(multiply(shift, translation(0, m.groundY - minY, 0)), rolled);
+/**
+ * Every wreck rests ON the ground plane, and this is what puts it there.
+ *
+ * A group of parts is measured at its lowest real vertex and translated in Y
+ * so that vertex sits exactly on `groundY`. Three groups, seated
+ * independently: the BODY (hull, wheels, tracks, and a rotor, which is bolted
+ * to the airframe), the thrown TURRET, and the collapsed CANOPY.
+ *
+ * Two things about it are worth knowing.
+ *
+ * **It is a correction for the TILT, not for the settle.** The settle is
+ * already bounded by the clearance and cannot reach the ground on its own;
+ * what buries a wreck is rolling a 3-metre-wide hull about its own centre,
+ * which drops the low corner by half the width times the sine. Before this,
+ * all eleven wrecks stood 0.20-0.69 world units below the ground.
+ *
+ * **The lift commutes out of every displacement in this file, which is why it
+ * can be measured once and applied afterwards.** A rotation about a point that
+ * has itself been translated by `T` satisfies `A(T·p, R) = T·A(p, R)·T⁻¹`, so
+ * `A(T·p, R)·(T·body) = T·(A(p, R)·body)`: seating the body first and then
+ * throwing the turret off it gives exactly the same turret pose as throwing it
+ * first and seating afterwards. The horizontal throw translations commute with
+ * a vertical one for the same reason. So there is no ordering to get wrong,
+ * and the turret still comes off a hull that has settled.
+ */
+function seatOnGround(m: HullMetrics, parts: readonly Part[]): number {
+  let min = Infinity;
+  for (const part of parts) min = Math.min(min, lowestY(part.node, part.base));
+  return Number.isFinite(min) ? m.groundY - min : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -321,10 +440,11 @@ function disposeIfOrphan(accessor: Accessor): void {
  * it identically.
  *
  * **Clips are matched BY NAME**, so this removes any animation called `idle` or
- * `wreck` whoever authored it. Today that is safe -- all eleven shipped vehicle
- * GLBs declare zero animations (censused 2026-09-15) -- but a future re-export
- * that ships a REAL `idle`, an idling engine shake say, would have it silently
- * eaten here. Deferred rather than solved: the fix is to mark this pass's own
+ * `wreck` whoever authored it. Today that is safe: the only `idle`/`wreck` any
+ * shipped vehicle carries is this pass's own -- all eleven declared ZERO
+ * animations before it first ran (censused 2026-09-15) and the exporters have
+ * not authored one since. A future re-export that ships a REAL `idle`, an
+ * idling engine shake say, would have it silently eaten here. Deferred rather than solved: the fix is to mark this pass's own
  * clips (an `extras` flag on the animation) and strip only those, and it costs
  * nothing to do when the first authored clip appears.
  */
@@ -448,45 +568,64 @@ export function applyWreckPass(doc: Document, vehicleId: string, recipe: WreckRe
   const rotorPivot = recipe.rotorPivot ? requireNode(liveTop, recipe.rotorPivot, vehicleId) : null;
   const canopy = recipe.canopy ? requireNode(liveTop, recipe.canopy, vehicleId) : null;
 
-  const metrics = measure(liveTop, vehicleId);
+  // Classify first, displace second. A part is classified by its ANCESTORS
+  // (see the file header), and a node with no mesh is a pivot or a tilt empty
+  // whose transform reaches the wreck through its children's world matrices.
+  const parts: Part[] = [];
+  for (const top of liveTop) {
+    top.traverse((node) => {
+      const mesh = node.getMesh();
+      if (!mesh) return;
+      const seat: SeatGroup =
+        canopy && node === canopy
+          ? 'canopy'
+          : recipe.turretPivot && turretPivot && underNode(node, recipe.turretPivot)
+            ? 'turret'
+            : 'body';
+      parts.push({ node, mesh, seat, drops: DROP_ROLES.has(roleOf(node)), base: IDENTITY });
+    });
+  }
+
+  const metrics = measure(liveTop, parts, vehicleId);
+
+  for (const part of parts) {
+    if (part.seat === 'canopy') {
+      part.base = canopyDisplacement(metrics, getBounds(part.node));
+    } else if (part.seat === 'turret' && turretPivot) {
+      part.base = turretDisplacement(metrics, recipe.hull, turretPivot.getWorldTranslation(), part.drops);
+    } else if (rotorPivot && recipe.rotorPivot && underNode(part.node, recipe.rotorPivot)) {
+      part.base = rotorDisplacement(metrics, rotorPivot.getWorldTranslation(), part.drops);
+    } else {
+      part.base = hullDisplacement(metrics, recipe.hull, part.drops);
+    }
+  }
+
+  // One seat per group, measured off real vertices and applied last.
+  for (const seat of ['body', 'turret', 'canopy'] as const) {
+    const group = parts.filter((p) => p.seat === seat);
+    if (group.length === 0) continue;
+    const lift = translation(0, seatOnGround(metrics, group), 0);
+    for (const part of group) part.base = multiply(lift, part.base);
+  }
 
   const deathRoot = doc.createNode(DEATH_ROOT);
   scene.addChild(deathRoot);
 
-  const wrecks: Node[] = [];
-  for (const top of liveTop) {
-    top.traverse((node) => {
-      const mesh = node.getMesh();
-      if (!mesh) return; // a pivot or a tilt empty: its transform is in the child's world matrix
-
-      const drops = DROP_ROLES.has(roleOf(node));
-      let displacement: mat4;
-      if (canopy && node === canopy) {
-        displacement = canopyDisplacement(metrics, getBounds(node));
-      } else if (turretPivot && recipe.turretPivot && underNode(node, recipe.turretPivot)) {
-        displacement = turretDisplacement(metrics, recipe.hull, turretPivot.getWorldTranslation(), drops);
-      } else if (rotorPivot && recipe.rotorPivot && underNode(node, recipe.rotorPivot)) {
-        displacement = rotorDisplacement(metrics, rotorPivot.getWorldTranslation(), drops);
-      } else {
-        displacement = hullDisplacement(metrics, recipe.hull, drops);
-      }
-
-      // `D x W`: the node's own world matrix first, then the world-space
-      // displacement. The death root is at the identity, so a child's local
-      // matrix IS its world matrix and the pivot is baked in for free.
-      wrecks.push(
-        doc
-          .createNode(`${WRECK_PREFIX}${node.getName()}`)
-          .setMesh(mesh)
-          .setExtras({ ...node.getExtras(), rl_wreck: true })
-          .setMatrix(multiply(displacement, node.getWorldMatrix()))
-      );
-    });
+  // `D x W`: the node's own world matrix first, then the world-space
+  // displacement. The death root is at the identity, so a child's local matrix
+  // IS its world matrix and the pivot is baked in for free.
+  //
+  // Parented after the walk above, not during it: a node added to `death_root`
+  // while its own subtree was still being traversed would be visited again.
+  for (const part of parts) {
+    deathRoot.addChild(
+      doc
+        .createNode(`${WRECK_PREFIX}${part.node.getName()}`)
+        .setMesh(part.mesh)
+        .setExtras({ ...part.node.getExtras(), rl_wreck: true })
+        .setMatrix(multiply(part.base, part.node.getWorldMatrix()))
+    );
   }
-
-  // Parented after the walk, not during it: a node added to `death_root` while
-  // its own subtree is still being traversed would be visited again.
-  for (const wreck of wrecks) deathRoot.addChild(wreck);
 
   addClips(doc, liveTop, deathRoot);
 }

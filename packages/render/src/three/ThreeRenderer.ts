@@ -1965,8 +1965,10 @@ export class ThreeRenderer implements Renderer {
     // `meshUnitEntities`/`meshUnitTemplates` just above already follow.
     // A `VehicleMeshEntity` now owns its own mixer WHEN its GLB carried
     // clips (`mesh-vehicle.ts`'s own top comment) -- `disposeVehicleMesh
-    // Entity` releases it, and is a no-op for the clipless case every
-    // shipped vehicle is in. Its per-entity material clone situation is
+    // Entity` releases it, and is a no-op for the clipless case, which since
+    // the wreck pass (2026-09-15) is no shipped vehicle: all eleven carry
+    // `idle` and `wreck`, so all eleven allocate a mixer and this loop
+    // releases one each. Its per-entity material clone situation is
     // unchanged: there is none, so the shared resources below are still
     // disposed exactly once.
     for (const entity of this.vehicleMeshEntities.values()) {
@@ -4749,11 +4751,16 @@ export class ThreeRenderer implements Renderer {
 
       // Clips, when this vehicle's GLB carries any. Gated on `entity.mixer`
       // rather than run unconditionally, and that gate is the whole
-      // "clipless vehicles cost exactly what they did before" contract:
-      // every shipped `art/meshes/vehicles/*.glb` declares zero animations,
-      // so for all nine of them this branch is a single null check per
-      // frame -- no `UnitAnimInput` allocated, no `resolveClip` call, no
-      // `mixer.update`, nothing that can touch the clone.
+      // "clipless vehicles cost exactly what they did before" contract.
+      //
+      // It used to be free for every shipped vehicle and is not any more:
+      // since the wreck pass (2026-09-15) all ELEVEN declare `idle` and
+      // `wreck`, so every living mesh vehicle now runs this block and its
+      // `mixer.update` every frame. What it costs is one `UnitAnimInput`,
+      // one `resolveClip` and one mixer update over two constant scale
+      // channels per vehicle -- and `applyMeshClip` returns at its first
+      // line once `idle` has latched, so nothing switches. The null check
+      // still carries `&nomesh` and any GLB the pass has not been run on.
       //
       // Everything inside is the infantry path, reused rather than
       // reinvented: `resolveClip` (`../clip.ts`) is the SAME precedence

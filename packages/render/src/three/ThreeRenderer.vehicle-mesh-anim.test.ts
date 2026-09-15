@@ -215,7 +215,11 @@ describe('updateVehicleMeshes clip selection', () => {
   });
 });
 
-describe('updateVehicleMeshes with a clipless GLB -- every shipped vehicle today', () => {
+// A clipless GLB is no longer a shipped state -- the wreck pass gave all
+// eleven `idle` and `wreck` on 2026-09-15 -- but it is still reachable
+// (`&nomesh`, and any re-export the pass has not been run on) and it is still
+// the case this path must not touch, so it is pinned against the fixture.
+describe('updateVehicleMeshes with a clipless GLB -- &nomesh and any un-passed export', () => {
   it('builds no mixer and latches no clip, however the vehicle is behaving', async () => {
     const { sim, renderer, priv, id } = await setUp();
     sim.queueCommand({ kind: 'move', ids: [id], x: fx.from(18.5), y: fx.from(11.5) });

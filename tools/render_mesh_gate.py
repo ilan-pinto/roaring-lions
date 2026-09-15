@@ -402,9 +402,13 @@ def hide_death_root(objs, glb_path):
     What it DOES corrupt is the framing, and that is the whole reason this
     function exists. `render_rig.world_bounds()` walks
     `bpy.context.scene.objects` and transforms each `obj.bound_box` by
-    `matrix_world` with no visibility test at all -- and a ZERO matrix maps
-    all eight corners onto the death root's own origin, so the framed bounds
-    are stretched to include `(0, 0, 0)` by geometry that renders nothing.
+    `matrix_world` with no visibility test at all. The clip keys the scale of
+    the death root -- an EMPTY, which has no geometry and is not what
+    `world_bounds` reads -- but every `WRECK_*` MESH under it INHERITS that
+    zero through its own `matrix_world`, and a zero matrix maps all eight of
+    that child's `bound_box` corners onto the death root's origin. So it is
+    the children, one collapsed point each, that stretch the framed bounds to
+    include `(0, 0, 0)` while rendering nothing.
     Measured: three of the eleven have live bounds that do not already
     contain the origin (`apc_eitan` z 0.03, `apc_kipod` z 0.11,
     `scout_shachaf` z 0.09, all pulled to 0.00) and those are exactly the

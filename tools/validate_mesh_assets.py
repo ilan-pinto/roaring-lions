@@ -129,7 +129,15 @@ satisfied by a recipe that displaced NOTHING, which ships a vehicle that
 explodes into an identical copy of itself. Holding the two masks to one
 camera is what makes that measurable, and the floor (`WRECK_MIN_DISTINCT`)
 is taken from the eleven shipped results rather than guessed -- the
-derivation and all eleven numbers are written beside the constant.
+derivation and all eleven numbers are written beside the constant, and it is
+RE-DERIVED whenever the recipe is tuned, because a floor calibrated against
+poses that no longer ship is measuring nothing in particular.
+
+A third check runs first and is easy to miss the point of:
+`check_wreck_census` compares the wreck renders that EXIST against the
+vehicle directory. Both checks above iterate `wreck_masks`, so a vehicle
+whose wreck render never happened is checked zero times by either of them
+and the only trace is a smaller count on the passing line.
 
 Charring is NOT checked by any of it and cannot be: it is a runtime
 treatment of anything marked `rl_wreck` (spec §4.3), applied by the
@@ -158,6 +166,7 @@ with `import bpy` and cannot load in this plain-`python3` process. An empty
 failure -- `glob` returning nothing means zero iterations, zero failures.
 """
 import argparse
+from collections import Counter
 import glob
 import itertools
 import json
@@ -449,6 +458,114 @@ def check_collisions(mesh_masks, sprite_masks, sheets):
     return failures
 
 
+# How far a wreck's silhouette must move away from its own live pose, as a
+# fraction: the check is `IoU(live, wreck) <= 1 - WRECK_MIN_DISTINCT`, so
+# this is the floor on 1 - IoU. A recipe that displaced nothing scores an IoU
+# of 1.000 and fails; the question this answers is where between there and
+# the shipped results the line goes.
+#
+# MEASURED, not guessed, from the eleven shipped wrecks (this gate's own
+# renders at GAMEPLAY_ZOOM, live and wreck through one camera). RE-DERIVED
+# 2026-09-15 after the recipe was tuned against the screenshot sheet, by the
+# same rule as the first derivation -- the numbers all moved, so re-using the
+# old floor would have been keeping a threshold calibrated against poses that
+# no longer ship:
+#
+#     rocket_battery 0.7710      scout_shachaf  0.6983
+#     ifv_namer      0.7613      dozer_d9       0.6955
+#     apc_kipod      0.7583      technical      0.6874
+#     apc_eitan      0.7149      mbt_lavi       0.6479
+#     jeep_shoded    0.7126      heli_peten     0.6010
+#                                paramotor      0.0737
+#
+# (Before tuning: ifv_namer 0.8601, apc_kipod 0.8040, jeep_shoded 0.7777,
+# apc_eitan 0.7775, dozer_d9 0.7580, technical 0.7528, rocket_battery 0.7407,
+# mbt_lavi 0.7354, scout_shachaf 0.7276, heli_peten 0.5083, paramotor 0.0169.)
+#
+# The LARGEST is what the floor has to clear, because it is the least-changed
+# wreck in the tree and therefore the one that decides whether anything
+# shipped is too close to call: `rocket_battery` at 0.7710, whose distance
+# from a no-op is 1 - 0.7710 = 0.2290. Allowing it a third of that as margin
+# puts the threshold at 0.7710 + 0.2290/3 = 0.8473, so the floor is
+# 1 - 0.8473 = 0.1527, rounded DOWN to 0.152 (threshold 0.848, margin 0.0770
+# against the 0.0763 the rule asks for).
+#
+# Two things the spread is worth reading for before anyone retunes it again.
+# Which vehicle is tightest CHANGED with the tuning, from `ifv_namer` to
+# `rocket_battery`, so "measure the tightest one first" means re-measuring
+# which one that is rather than reaching for the name written down last time.
+# And the two outliers are not better wrecks, they are different ones:
+# `heli_peten` leans and cannot do more (`BODY_ROLL_DEG`'s own comment has the
+# geometry) and `paramotor` throws its canopy 0.6 of the vehicle's length
+# clear, which is why its wreck barely overlaps its live pose at all.
+WRECK_MIN_DISTINCT = 0.152
+
+# The wreck's own minimum fill, as a fraction of its LIVE twin's -- not an
+# absolute share of the frame.
+#
+# The failure this exists to catch is a wreck render that came back (almost)
+# empty, which `check_wreck_distinct` cannot see on its own: that check gets
+# EASIER as the render empties and an empty mask scores a perfect IoU of
+# 0.000. It is not hypothetical -- it is exactly what this gate produced on
+# its first run, before `render_vehicle_wreck` learned to undo the scale-zero
+# the importer's `idle` clip leaves on the death root.
+#
+# It was `va.MIN_FILL` (6% of the frame, absolute) until 2026-09-15, and that
+# was the wrong shape for two reasons. The wreck is framed on its LIVE twin's
+# bounds, so how much of the square it fills is mostly a fact about the unit,
+# not about the wreck: `paramotor` sat at 7.7% against a live pose of 8.4%,
+# 1.7 points clear of the floor, so a canopy retune that pushed the wing
+# further out of frame would have failed on FILL and reported "a wreck that
+# renders almost nothing" when the real cause was "a wreck that left the
+# square". Measured against its own twin it is a ratio, and the ratio is
+# stable across the whole fleet where the absolute fill is not.
+#
+# MEASURED, the eleven tuned wrecks' fill as a fraction of their own live
+# fill: 0.944 (rocket_battery), 0.986 (paramotor), 1.002, 1.017, 1.043,
+# 1.045, 1.092, 1.128, 1.159, 1.191, 1.197 (mbt_lavi). Nine of the eleven
+# come out ABOVE 1.0, which is the tuning working -- a canted hull with its
+# turret thrown clear covers more of the frame than the parade pose did.
+# The smallest is 0.944; a margin of a third of its distance from the 0.000
+# an empty render scores puts the floor at 0.944 - 0.315 = 0.629, rounded
+# DOWN to 0.60. That leaves a re-tuned canopy 37% of its mask to lose before
+# it trips, and still fails an empty render by the whole width of the band.
+WRECK_MIN_FILL_RATIO = 0.60
+
+
+def check_wreck_census(wreck_masks, vehicles_root):
+    """Every shipped vehicle must have PRODUCED a wreck render, not merely
+    have passed the checks on the renders that exist.
+
+    `load_mesh_masks` builds `wreck_masks` by globbing
+    `<out>/<unit>/wreck_f00_000.png`, and both wreck checks iterate that
+    dictionary -- so a vehicle whose wreck render never happened is checked
+    ZERO times and the gate says nothing at all about it. Every way that can
+    happen is a real failure that this file is otherwise blind to: the
+    Blender side raised and its FAIL line named a different stage, the vehicle
+    branch never ran because `mesh_kind` classified the file somewhere else,
+    or `render_vehicle_wreck` returned early. The count printed on the passing
+    path would simply have been smaller, and a smaller number reads like a
+    smaller fleet.
+
+    The census is the directory itself -- every `art/meshes/vehicles/*.glb` --
+    rather than `WRECK_RECIPES`, which is TypeScript this script cannot read,
+    or a list here, which would be the `SPRITE_MAP` hazard a third time.
+    """
+    census = {
+        os.path.splitext(os.path.basename(p))[0]
+        for p in glob.glob(os.path.join(vehicles_root, "*.glb"))
+    }
+    missing = sorted(census - set(wreck_masks))
+    if not missing:
+        return []
+    return [
+        f"{unit_id}: no wreck render was produced, so neither wreck check looked at this "
+        f"vehicle at all -- {os.path.relpath(vehicles_root, REPO)}/{unit_id}.glb is in the "
+        f"tree and `wreck_f00_000.png` is not; see render_mesh_gate.render_vehicle_wreck"
+        for unit_id in missing
+    ]
+
+
 def check_wreck_distinct(mesh_masks, wreck_masks):
     """A wreck must not read as its own live vehicle.
 
@@ -466,26 +583,19 @@ def check_wreck_distinct(mesh_masks, wreck_masks):
     so `IoU` here is comparing two poses and not two croppings, and a no-op
     recipe scores exactly 1.000.
 
-    The `MIN_FILL` clause is the other half and it is not decoration: this
-    check's own comparison gets EASIER as the wreck render gets emptier, and
-    a wreck that rendered nothing at all scores IoU 0.000 -- a perfect pass
-    for the worst possible defect. That is not hypothetical; it is exactly
-    what this gate produced on its first run, before `render_vehicle_wreck`
-    learned to undo the scale-zero the importer's `idle` clip leaves on the
-    death root. So the wreck is also held to the same `va.MIN_FILL` its live
-    twin is (the shipped eleven fill 7.7-24.5%, against a 6% floor).
+    The fill clause is the other half and it is not decoration: this check's
+    own comparison gets EASIER as the wreck render gets emptier, and a wreck
+    that rendered nothing at all scores IoU 0.000 -- a perfect pass for the
+    worst possible defect. That is not hypothetical; it is exactly what this
+    gate produced on its first run, before `render_vehicle_wreck` learned to
+    undo the scale-zero the importer's `idle` clip leaves on the death root.
+    The floor is `WRECK_MIN_FILL_RATIO` of the unit's OWN live mask rather
+    than an absolute share of the frame -- see that constant for why the
+    absolute form was measuring the unit and not the wreck.
     """
     failures = []
     limit = 1.0 - WRECK_MIN_DISTINCT
     for unit_id, wreck in sorted(wreck_masks.items()):
-        fill = wreck.sum() / float(wreck.size)
-        if fill < va.MIN_FILL:
-            failures.append(
-                f"{unit_id}: wreck silhouette fills {fill:.1%} of frame "
-                f"(min {va.MIN_FILL:.0%}) -- a wreck that renders (almost) nothing scores a "
-                f"perfect distinctness IoU, so this floor is what stops the check below "
-                f"passing for the worst reason there is"
-            )
         live = mesh_masks.get(unit_id)
         if live is None:
             failures.append(
@@ -493,6 +603,15 @@ def check_wreck_distinct(mesh_masks, wreck_masks):
                 f"nothing to compare it against"
             )
             continue
+        live_fill = live.sum()
+        ratio = (wreck.sum() / float(live_fill)) if live_fill else 0.0
+        if ratio < WRECK_MIN_FILL_RATIO:
+            failures.append(
+                f"{unit_id}: wreck silhouette covers {ratio:.0%} of its own live mask "
+                f"(min {WRECK_MIN_FILL_RATIO:.0%}; {wreck.sum():,} px against {live_fill:,}) -- a "
+                f"wreck that renders (almost) nothing scores a perfect distinctness IoU, so this "
+                f"floor is what stops the check below passing for the worst reason there is"
+            )
         score = va.iou(live, wreck)
         if score > limit:
             failures.append(
@@ -531,17 +650,25 @@ def check_wreck_collisions(wreck_masks, mesh_masks, sprite_masks, sheets):
     burnt-out vehicles resembling each other is what burnt-out vehicles do,
     and the "these read as the same unit in a fight" failure is about telling
     a live threat from another live threat. Measured rather than assumed
-    before leaving it out: the closest shipped wreck pair is `ifv_namer` vs
-    `jeep_shoded` at **0.8099** (then `apc_kipod` vs `ifv_namer` 0.8097),
+    before leaving it out: the closest shipped wreck pair is `apc_kipod` vs
+    `ifv_namer` at **0.8143** (then `apc_kipod` vs `jeep_shoded` 0.7722),
     both inside 0.88 -- so this is a scope decision and not a suppressed red,
     and adding the comparison later would cost nothing today.
 
     The headroom on what IS compared is worth knowing before retuning any
-    recipe: the tightest shipped pair is `ifv_namer`'s wreck against
-    `apc_kipod`'s LIVE mesh at **0.8488**, 0.031 under the limit. This check
-    is not a formality that could never fire -- the same vehicle owns the
-    largest live-vs-wreck IoU too, so a recipe change that moved LESS would
-    walk both checks toward their thresholds at once.
+    recipe. Re-measured 2026-09-15 after the recipe was tuned: the tightest
+    shipped pair is `scout_shachaf`'s wreck against `rocket_battery`'s LIVE
+    mesh at **0.8242**, 0.056 under the limit, then `ifv_namer`'s wreck
+    against the `KIPOD_HULL` sprite at 0.8044. The tuning IMPROVED this --
+    before it the tightest was `ifv_namer` vs `apc_kipod` at 0.8488, with
+    0.031 of headroom -- because every wreck moved further from its own
+    parade pose and therefore from everything else's. The general warning
+    survives the numbers changing: a recipe change that moved LESS would walk
+    this check and `check_wreck_distinct` toward their thresholds at once,
+    and which vehicle is tightest is not stable across a retune (it was
+    `ifv_namer` on both counts before, and is now `rocket_battery` on one and
+    `scout_shachaf` on the other), so measure rather than reach for the name
+    written down last time.
     """
     failures = []
     for wreck_id, wreck in sorted(wreck_masks.items()):
@@ -569,41 +696,6 @@ def check_wreck_collisions(wreck_masks, mesh_masks, sprite_masks, sheets):
     return failures
 
 
-# How far a wreck's silhouette must move away from its own live pose, as a
-# fraction: the check is `IoU(live, wreck) <= 1 - WRECK_MIN_DISTINCT`, so
-# this is the floor on 1 - IoU. A recipe that displaced nothing scores an IoU
-# of 1.000 and fails; the question this answers is where between there and
-# the shipped results the line goes.
-#
-# MEASURED, not guessed, from the eleven shipped wrecks (2026-09-15, this
-# gate's own renders at GAMEPLAY_ZOOM, live and wreck through one camera):
-#
-#     ifv_namer      0.8601      technical        0.7528
-#     apc_kipod      0.8040      rocket_battery   0.7407
-#     jeep_shoded    0.7777      mbt_lavi         0.7354
-#     apc_eitan      0.7775      scout_shachaf    0.7276
-#     dozer_d9       0.7580      heli_peten       0.5083
-#                                paramotor        0.0169
-#
-# The LARGEST is what the floor has to clear, because it is the least-changed
-# wreck in the tree and therefore the one that decides whether anything
-# shipped is too close to call: `ifv_namer` at 0.8601, whose distance from a
-# no-op is 1 - 0.8601 = 0.1399. Allowing it a third of that as margin puts
-# the threshold at 0.8601 + 0.1399/3 = 0.9067, so the floor is 1 - 0.9067 =
-# 0.0933, rounded down to 0.093 (threshold 0.907, margin 0.0469 against the
-# 0.0466 the rule asks for).
-#
-# Two things the spread is worth reading for before anyone retunes it. The
-# nine ground vehicles cluster in 0.73-0.86 and they are all the same recipe
-# -- a body dropped 15% of its height and tilted a few degrees -- so this
-# floor is really a statement about that one displacement, and a future
-# recipe that moved LESS would be caught here rather than shipped. And the
-# two outliers are not better wrecks, they are different ones: `heli_peten`
-# lies on its side (BODY_ROLL_DEG 25) and `paramotor` throws its canopy 0.6
-# of the vehicle's length clear (CANOPY_SHIFT), which is why its wreck
-# barely overlaps its live pose at all. Both are §4.5's to judge on screen;
-# neither is evidence that 0.093 is loose.
-WRECK_MIN_DISTINCT = 0.093
 
 
 # The closed decor role vocabulary, mirroring
@@ -1060,21 +1152,29 @@ def _check_vehicle_wreck_dir(vehicles_root, failures):
         # The pass writes `WRECK_<live node name>` for every live mesh node,
         # so the two sets are comparable by name and a difference names the
         # part rather than only counting it.
-        want_twins = {
+        # MULTISETS, not sets, and the difference is a real hole rather than
+        # a nicety: compared as sets, `len(got) != len(want)` could never
+        # fire once `got != want` had been checked, so a death root carrying
+        # `WRECK_hull_hull` TWICE and `WRECK_hull_metal` not at all was the
+        # one shape this clause could not see -- the names present are equal
+        # as sets and the counts are equal too. `Counter` makes the duplicate
+        # expressible, and the subtraction still names the part.
+        want_twins = Counter(
             f"{WRECK_NODE_PREFIX}{node.get('name')}" for i, node in enumerate(nodes)
             if "mesh" in node and i not in wreck_set
-        }
-        got_twins = {
+        )
+        got_twins = Counter(
             nodes[i].get("name") for i in wreck_nodes if "mesh" in nodes[i]
-        }
-        if got_twins != want_twins or len(got_twins) != len(want_twins):
-            missing = sorted(want_twins - got_twins)
-            extra = sorted(got_twins - want_twins)
+        )
+        if got_twins != want_twins:
+            missing = sorted((want_twins - got_twins).elements())
+            extra = sorted((got_twins - want_twins).elements())
             failures.append(
-                f"{name}: {DEATH_ROOT_NODE!r} carries {len(got_twins)} mesh-bearing child(ren) "
-                f"for {len(want_twins)} live mesh node(s); missing {missing}, unexpected "
-                f"{extra} -- one {WRECK_NODE_PREFIX}* twin per live mesh node, and a wreck "
-                f"short of one is a vehicle that dies leaving that part standing"
+                f"{name}: {DEATH_ROOT_NODE!r} carries {sum(got_twins.values())} mesh-bearing "
+                f"child(ren) for {sum(want_twins.values())} live mesh node(s); missing "
+                f"{missing}, unexpected {extra} -- one {WRECK_NODE_PREFIX}* twin per live mesh "
+                f"node, exactly once each, and a wreck short of one is a vehicle that dies "
+                f"leaving that part standing"
             )
 
         animations = gltf.get("animations", [])
@@ -1186,6 +1286,11 @@ def main():
         # work beyond that render: a floor under how far the wreck moved from
         # its own live pose, and the existing 0.88 ceiling against every
         # other unit on the roster.
+        # Before either wreck check, because both of them iterate the renders
+        # that EXIST and neither can notice one that does not.
+        failures.extend(
+            check_wreck_census(wreck_masks, os.path.join(REPO, "art", "meshes", "vehicles"))
+        )
         failures.extend(check_wreck_distinct(mesh_masks, wreck_masks))
         failures.extend(check_wreck_collisions(wreck_masks, mesh_masks, sprite_masks, sheets))
 
