@@ -133,3 +133,60 @@ describe('resolveUpgrades', () => {
     expect(force[0].unit).toBe('breach_team');
   });
 });
+
+describe('resolveUpgrades gate_only', () => {
+  // Qarn Hadid III's jeep_shoded slot (2026-09-14 ladder): a closed-gate base body there
+  // measured as a net negative for a realistic player, so the lead's call was that this
+  // placement must appear ONLY when its upgrade is earned -- never fielding the base.
+  const gates: Record<string, UnlockGate | undefined> = { scout_shachaf: { starsMin: 12 } };
+  const unlockOf = (id: string): UnlockGate | undefined => gates[id];
+  const gatedMission = {
+    id: 'm', starting_force: [
+      { unit: 'jeep_shoded', count: 1, at: [23, 42], upgrades_to: 'scout_shachaf', gate_only: true },
+      { unit: 'mbt_lavi', count: 1, at: [2, 2] },
+    ],
+  } as unknown as MissionJson;
+
+  it('drops the placement entirely while the gate is closed, fielding neither body', () => {
+    const out = resolveUpgrades(gatedMission, {}, unlockOf);
+    const force = out.starting_force as PlacementJson[];
+    expect(force.map((p) => p.unit)).toEqual(['mbt_lavi']);
+  });
+
+  it('fields the upgrade once the gate is open, with neither upgrades_to nor gate_only left on it', () => {
+    const ledger: LedgerData = {
+      'campaign.mission_results': {
+        a: { stars: 3, roe: 90, ticks: 1, lost: 0 },
+        b: { stars: 3, roe: 90, ticks: 1, lost: 0 },
+        c: { stars: 3, roe: 90, ticks: 1, lost: 0 },
+        d: { stars: 3, roe: 90, ticks: 1, lost: 0 },
+      },
+    };
+    const out = resolveUpgrades(gatedMission, ledger, unlockOf);
+    const force = out.starting_force as PlacementJson[];
+    expect(force[0].unit).toBe('scout_shachaf');
+    expect('upgrades_to' in force[0]).toBe(false);
+    expect('gate_only' in force[0]).toBe(false);
+  });
+
+  it('leaves a placement with no gate_only fielding the base unit as before', () => {
+    const ungatedMission = {
+      id: 'm', starting_force: [
+        { unit: 'jeep_shoded', count: 1, at: [23, 42], upgrades_to: 'scout_shachaf' },
+        { unit: 'mbt_lavi', count: 1, at: [2, 2] },
+      ],
+    } as unknown as MissionJson;
+    const out = resolveUpgrades(ungatedMission, {}, unlockOf);
+    const force = out.starting_force as PlacementJson[];
+    expect(force.map((p) => p.unit)).toEqual(['jeep_shoded', 'mbt_lavi']);
+  });
+
+  it('never mutates the input mission', () => {
+    resolveUpgrades(gatedMission, {}, unlockOf);
+    const original = (gatedMission.starting_force as PlacementJson[])[0];
+    expect(original.unit).toBe('jeep_shoded');
+    expect(original.gate_only).toBe(true);
+    expect(original.upgrades_to).toBe('scout_shachaf');
+    expect((gatedMission.starting_force as PlacementJson[]).length).toBe(2);
+  });
+});

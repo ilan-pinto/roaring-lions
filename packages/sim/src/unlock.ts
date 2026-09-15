@@ -110,17 +110,25 @@ export function conductAtLeast(ledger: LedgerData | undefined, floor: number): b
  * this function does not distinguish "no gate" from "unlockOf found nothing". It is safe
  * only because `validate_data.mjs` refuses an `upgrades_to` target that declares no
  * `unlock`, so a real caller's `unlockOf` is never asked about an ungated target.
+ *
+ * `gate_only` (also §4.6): while the gate is closed, the placement is DROPPED rather than
+ * fielding the base unit -- `filter` after `map`, so a dropped entry never reaches the
+ * output array at all. The 2026-09-14 Qarn Hadid III ladder is why: the closed-gate base
+ * body there measured as a net negative for a realistic player, unlike the other five
+ * `upgrades_to` sites, so this one must appear only once earned.
  */
 export function resolveUpgrades(
   mission: MissionJson,
   ledger: LedgerData | undefined,
   unlockOf: (unitId: string) => UnlockGate | undefined
 ): MissionJson {
-  const force = (mission.starting_force ?? []).map((p: PlacementJson) => {
-    if (p.upgrades_to === undefined) return p;
-    const { upgrades_to, ...rest } = p;
-    if (unlockReason(unlockOf(upgrades_to), ledger) === null) return { ...rest, unit: upgrades_to };
-    return rest;
-  });
+  const force = (mission.starting_force ?? [])
+    .map((p: PlacementJson) => {
+      if (p.upgrades_to === undefined) return p;
+      const { upgrades_to, gate_only, ...rest } = p;
+      if (unlockReason(unlockOf(upgrades_to), ledger) === null) return { ...rest, unit: upgrades_to };
+      return gate_only === true ? null : rest;
+    })
+    .filter((p): p is PlacementJson => p !== null);
   return { ...mission, starting_force: force };
 }

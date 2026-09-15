@@ -194,6 +194,11 @@
             "type": "string",
             "description": "Field this unit instead when its unlock is open -- an upgrade only, never a downgrade (spec 2026-09-10 §4.6). Resolved before the runtime is built; the spawner never consults a gate. Not allowed beside from_ledger: a survivor's veterancy cannot survive a type swap."
           },
+          "gate_only": {
+            "type": "boolean",
+            "default": false,
+            "description": "Requires upgrades_to. While the gate stays closed, resolveUpgrades drops this placement entirely instead of fielding the base unit -- the base is never fielded at all. Exists because a base body is not always a harmless placeholder: the 2026-09-14 Qarn Hadid III ladder measured the closed-gate jeep_shoded at [23,42] as a net negative for a realistic player (naive win rate 66.7% with it vs 90.0% without over 30 seeds; sensible 46.7% vs 66.7%), while the open-gate scout_shachaf in the same slot was a clear gain -- so that placement must appear only once its upgrade is earned."
+          },
           "group": {
             "type": "string",
             "description": "Trigger orders address groups -- spawnPlacement already registers this for every side, starting_force included. A `remove` trigger naming this group must not cover every starting_force entry: validate_data.mjs refuses one that would (removing the last living player unit would read as a wipe)."
@@ -206,6 +211,21 @@
             "minItems": 2,
             "maxItems": 2
           }
+        },
+        "if": {
+          "properties": {
+            "gate_only": {
+              "const": true
+            }
+          },
+          "required": [
+            "gate_only"
+          ]
+        },
+        "then": {
+          "required": [
+            "upgrades_to"
+          ]
         }
       }
     },

@@ -212,6 +212,17 @@ proven starting force can regress — resolved once, before the runtime exists, 
 `resolveUpgrades` pre-pass (`packages/sim/src/unlock.ts`), which `main.ts` and the playtest
 harness both call so the spawner itself stays gate-blind.
 
+A third shape, added 2026-09-14: `gate_only: true` beside `upgrades_to` means the placement
+is DROPPED while the gate is closed, rather than fielding the base unit. The default shape
+assumes a closed-gate base body is harmless filler; a 30-seed ladder on
+`qarn_hadid_3_clearance` measured that assumption false for its `jeep_shoded` at [23, 42]
+(naive win rate 66.7% with it vs 90.0% without; sensible 46.7% vs 66.7%), while the
+open-gate `scout_shachaf` in the same slot was a clear gain (sensible 80.0%). The lead's
+call: that placement fields nothing at all until earned. `resolveUpgrades` still runs once,
+pure, before the runtime exists — the spawner stays exactly as gate-blind either way, since
+dropping an entry from the array it never sees is no different to it than never authoring
+one.
+
 ### 4.7 Named units and the service record
 
 Squads get callsigns, single common nouns in the materiel register (Sela, Barzel, Tzur,

@@ -136,6 +136,13 @@ and the drone still flies that flank: the Shachaf buys standoff, not a new route
 Deliberately **not** an upgrade of the `recon_drone ×1` every Act II mission fields: swapping an air unit for
 a wheeled one is a downgrade on terrain, and the rule is no downgrades.
 
+**`qarn_hadid_3_clearance` alone is `gate_only: true` as of 2026-09-14.** A 30-seed ladder measured the
+closed-gate `jeep_shoded` at [23, 42] as a net negative for a realistic player there (naive win rate 66.7%
+with it vs 90.0% without; sensible 46.7% vs 66.7%), while the open-gate `scout_shachaf` in the same slot was
+a clear gain (sensible 80.0%) — so `resolveUpgrades` now drops that one placement entirely while the gate
+is closed rather than fielding the base jeep. `umm_zeitoun_3_clearance` was not part of that measurement and
+is unchanged: its `jeep_shoded` still fields normally with the gate closed.
+
 ## 5. Unit III — Naharin · `apc_kipod` "Kipod Screen Carrier" · `stars_min: 44`
 
 **The gap.** Functionally new though `apc` is filled: nothing the KDF fields is *protected capacity*. Seats
