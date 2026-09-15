@@ -310,4 +310,45 @@ describe('shipped vehicle GLBs', () => {
       expect(wreckMeshes).toBeGreaterThanOrEqual(1);
     }
   );
+
+  it.each(shippedVehicleIds())(
+    '%s: one `WRECK_` twin per live mesh node, by name -- a wreck missing a part is a part left standing',
+    async (id) => {
+      const template = await templateFor(id);
+      const deathRoot = deathRootOf(template);
+      expect(deathRoot).not.toBeNull();
+      if (!deathRoot) return;
+
+      // The case above is a CONTAINMENT test: every wreck mesh it finds must
+      // share a live geometry, so a death root that is MISSING a child gives
+      // it nothing to look at and it passes. Falsified by a reviewer on
+      // 2026-09-15 -- a repacked `scout_shachaf` with one `WRECK_` child
+      // deleted satisfied every other case here and
+      // `check_vehicle_wrecks`'s clauses 1-3 alike. The pass names each
+      // child `WRECK_<live node name>` (`wreck-pass.ts`), so comparing the
+      // two SETS by name is what makes a failure say which part is gone
+      // rather than only that one is.
+      const wanted = new Set<string>();
+      for (const node of liveTopLevel(template)) {
+        node.traverse((o) => {
+          if ((o as THREE.Mesh).isMesh) wanted.add(`${WRECK_PREFIX}${o.name}`);
+        });
+      }
+      expect(wanted.size).toBeGreaterThan(0);
+
+      const got = new Set<string>();
+      deathRoot.traverse((o) => {
+        if ((o as THREE.Mesh).isMesh) got.add(o.name);
+      });
+      expect(got).toEqual(wanted);
+      // Sets collapse duplicates, so state the count as well: two wreck
+      // children sharing one name would otherwise satisfy the line above
+      // while one live part went untwinned.
+      let wreckMeshCount = 0;
+      deathRoot.traverse((o) => {
+        if ((o as THREE.Mesh).isMesh) wreckMeshCount++;
+      });
+      expect(wreckMeshCount).toBe(wanted.size);
+    }
+  );
 });
