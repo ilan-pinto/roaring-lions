@@ -377,7 +377,8 @@ export class MuzzleFlashManager {
 
   /** True once `load()` has resolved -- `ThreeRenderer.onFire` reads this to
    *  decide whether a `mesh_flash`-marked particle layer is superseded yet
-   *  (`&mesh` off, or the GLB still loading, both fall back to the
+   *  (`&nomesh`, under which `main.ts` never calls `load()` at all, or the
+   *  GLB still loading on the default mesh path, both fall back to the
    *  authored particle exactly as before this feature existed). */
   get ready(): boolean {
     return this.meshes !== null;

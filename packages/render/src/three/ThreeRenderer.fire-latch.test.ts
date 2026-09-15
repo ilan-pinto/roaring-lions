@@ -205,10 +205,14 @@ async function setUp(opts: SetUpOpts = {}) {
   const renderer = new ThreeRenderer(sim, makeOpts());
   const priv = renderer as unknown as ThreeRendererPrivates;
 
-  // Both types get a sprite sheet, exactly as `main.ts` does: the SPRITE_MAP
-  // loop runs for every unit type regardless of `&mesh`, so a mesh-drawn
-  // type really does have a loaded `UnitInstancer` sitting beside its mesh
-  // template. That co-existence is what made the bug reachable at all.
+  // Both types get a sprite sheet, the co-existence `main.ts` can still
+  // produce: when this was written its SPRITE_MAP loop loaded every unit
+  // type's sheet regardless of the mesh flag, and since the roster-driven
+  // `spriteSheetPlan` (2026-09-07) a deferred KDF buildable's sheet still
+  // arrives after the first frame as its billboard fallback and stays loaded
+  // once its mesh lands, so a mesh-drawn type really can have a loaded
+  // `UnitInstancer` sitting beside its mesh template. That co-existence is
+  // what made the bug reachable at all.
   installSpriteSheet(priv, MESH_INF.id, sim.capacity);
   installSpriteSheet(priv, SPRITE_INF.id, sim.capacity);
 

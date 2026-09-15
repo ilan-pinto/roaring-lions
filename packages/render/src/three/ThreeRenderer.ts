@@ -2871,9 +2871,11 @@ export class ThreeRenderer implements Renderer {
       for (const layer of emitter.particles) {
         // A layer marked mesh_flash is superseded by the pooled, modelled
         // muzzle-flash mesh once one has loaded (`MuzzleFlashManager.ready`,
-        // `&mesh` only) -- the particle spec stays fully authored underneath
-        // it so Pixi (which never reads this field) and a three.js session
-        // with no mesh loaded both still get the exact particle this
+        // which only the mesh path sets -- the default on `three`; `&nomesh`
+        // never loads the GLB) -- the particle spec stays fully authored
+        // underneath it so Pixi (which never reads this field) and a three.js
+        // session with no mesh loaded, whether under `&nomesh` or with the
+        // GLB still in flight, both still get the exact particle this
         // replaces, unchanged. `emitter.light?.decay_ms` doubles as the
         // mesh's own lifetime -- the same duration the pooled `PointLight`
         // this shot already spawned (`flashLights.spawn`, above) decays
@@ -3075,8 +3077,10 @@ export class ThreeRenderer implements Renderer {
     for (const layer of em.particles) {
       // A layer marked mesh_burst is superseded by the pooled, modelled
       // explosion-burst mesh once one has loaded (`ExplosionBurstManager
-      // .ready`, `&mesh` only) -- the identical `mesh_flash`/`onFire`
-      // contract, see `units/explosion-burst.ts`'s own top comment.
+      // .ready`, set only on the mesh path -- the default on `three`, and
+      // never under `&nomesh`, which skips the GLB) -- the identical
+      // `mesh_flash`/`onFire` contract, see `units/explosion-burst.ts`'s
+      // own top comment.
       if (layer.mesh_burst && this.explosionBursts.ready) {
         const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, bx, by);
         this.explosionBursts.spawn(bx, worldY, by, yawTurns, power, EXPLOSION_BURST_DEFAULT_DURATION_MS);
@@ -3619,12 +3623,14 @@ export class ThreeRenderer implements Renderer {
    * top comment) -- loads `art/meshes/vfx/muzzle_flash.glb` ONCE (there is
    * only one asset, unlike `loadVehicleMesh`/`loadMeshUnit`, which key a
    * per-unit-type map) and adds its three pooled `InstancedMesh` zones to
-   * the scene. Called once by `main.ts`, inside the same `flags.mesh`
-   * branch every other mesh asset in this backend already loads from --
-   * `onFire` falls back to the authored particle for any `mesh_flash`
-   * layer until this resolves (`MuzzleFlashManager.ready`), so a caller
-   * that never invokes this at all (Pixi; three.js with `&mesh` off) is a
-   * silent, correct no-op, not a missing effect.
+   * the scene. Called once by `main.ts`, inside the same `wantMesh` branch
+   * (`!flags.nomesh` -- meshes are the default on `three` since the mesh
+   * flip, and `&nomesh` is the opt-out) every other mesh asset in this
+   * backend already loads from -- `onFire` falls back to the authored
+   * particle for any `mesh_flash` layer until this resolves
+   * (`MuzzleFlashManager.ready`), so a caller that never invokes this at
+   * all (Pixi; three.js under `&nomesh`) is a silent, correct no-op, not a
+   * missing effect.
    */
   async loadMuzzleFlashMesh(glbUrl: string): Promise<void> {
     const meshes = await this.muzzleFlashes.load(glbUrl);
@@ -3636,7 +3642,7 @@ export class ThreeRenderer implements Renderer {
    * own top comment) -- loads `art/meshes/vfx/explosion_burst.glb` ONCE and
    * adds its three pooled `InstancedMesh` zones to the scene. Mirrors
    * `loadMuzzleFlashMesh` exactly, including the same silent-no-op contract
-   * for a caller that never invokes this (Pixi; three.js with `&mesh` off):
+   * for a caller that never invokes this (Pixi; three.js under `&nomesh`):
    * `spawnCollapseFx` falls back to `structure_collapse.json`'s own
    * authored `mesh_burst` particle layer until this resolves
    * (`ExplosionBurstManager.ready`).
@@ -3651,8 +3657,8 @@ export class ThreeRenderer implements Renderer {
    * comment) -- loads `art/meshes/vfx/smoke_plume.glb` ONCE and adds its
    * three pooled `InstancedMesh` zones to the scene. Mirrors
    * `loadExplosionBurstMesh` exactly, including the same silent-no-op
-   * contract for a caller that never invokes this (Pixi; three.js with
-   * `&mesh` off): `spawnCollapseFx` falls back to `structure_collapse.json`'s
+   * contract for a caller that never invokes this (Pixi; three.js under
+   * `&nomesh`): `spawnCollapseFx` falls back to `structure_collapse.json`'s
    * own authored `mesh_plume` particle layer until this resolves
    * (`SmokePlumeManager.ready`).
    */
@@ -4995,14 +5001,19 @@ export class ThreeRenderer implements Renderer {
   private stepDeaths(dtSeconds: number): void {
     // Permanent wreckage: reveal, then draw real art where this type has
     // any -- see this method's own top comment for the fog-gate and the
-    // real-art-vs-cross-marker split. A mesh-enabled type (`&mesh`) is
-    // skipped here entirely: `addWreck` below never pushes one, because
-    // `mesh-death.ts`'s own `MeshWreck` already owns that type's wreckage
-    // end to end, and every unit type's billboard sheet is ALSO loaded
-    // unconditionally (`main.ts`'s `SPRITE_MAP` loop has no `&mesh` branch),
-    // so without that exclusion a mesh unit with a billboard `wreck` clip
-    // (`inf_squad`'s `INF_SQUAD` sheet among them) would draw a second,
-    // redundant wreck underneath its own mesh one.
+    // real-art-vs-cross-marker split. A rigged mesh type (one with a
+    // `meshUnitTemplates` entry -- the default for every such type on
+    // `three`; only `&nomesh` leaves that map empty) is skipped here
+    // entirely: `addWreck` below never pushes one, because `mesh-death.ts`'s
+    // own `MeshWreck` already owns that type's wreckage end to end. Its
+    // billboard sheet used to be loaded unconditionally beside the mesh
+    // (`main.ts`'s `SPRITE_MAP` loop had no mesh branch); since the
+    // roster-driven `spriteSheetPlan` (2026-09-07) a fielded rigged type's
+    // sheet is not loaded at all, but a deferred KDF buildable's sheet still
+    // arrives after the first frame as its billboard fallback and stays
+    // loaded once its mesh lands, so without that exclusion such a unit
+    // with a billboard `wreck` clip (`inf_squad`'s `INF_SQUAD` sheet among
+    // them) would draw a second, redundant wreck underneath its own mesh one.
     for (const wk of this.wrecks) {
       if (!wk.shown && this.isExplored(wk.x, wk.y)) wk.shown = true;
       if (!wk.shown) continue;
@@ -5101,15 +5112,23 @@ export class ThreeRenderer implements Renderer {
    * Pixi's own nullable `spr` field encodes (see `UnitWreck`'s own doc
    * comment).
    *
-   * Skips a mesh-enabled type entirely (`meshUnitTemplates.has(typeId)`):
-   * `mesh-death.ts`'s own `MeshWreck` system already owns that type's
-   * permanent wreckage end to end (`stepMeshDeaths` above), and every unit
-   * type's billboard sheet is loaded unconditionally regardless of `&mesh`
-   * (`main.ts`'s `SPRITE_MAP` loop) -- without this exclusion a mesh unit
-   * whose billboard sheet ALSO declares a `wreck` clip would draw a second,
-   * redundant wreck underneath its own mesh one. Pixi has no such case to
-   * exclude: it has no mesh path at all, so every destroyed entity there is
-   * a billboard one by construction.
+   * Skips a rigged mesh type entirely (`meshUnitTemplates.has(typeId)` --
+   * populated for every such type by default on `three`, and empty only
+   * under `&nomesh`): `mesh-death.ts`'s own `MeshWreck` system already owns
+   * that type's permanent wreckage end to end (`stepMeshDeaths` above). The
+   * billboard sheet this guards against used to load unconditionally beside
+   * the mesh (`main.ts`'s `SPRITE_MAP` loop); since the roster-driven
+   * `spriteSheetPlan` (2026-09-07) a fielded rigged type's sheet is never
+   * loaded on the mesh path, and the case that keeps this exclusion live is
+   * a deferred KDF buildable, whose sheet arrives after the first frame as
+   * its billboard fallback and stays loaded once its mesh lands -- without
+   * this exclusion such a unit whose billboard sheet ALSO declares a `wreck`
+   * clip would draw a second, redundant wreck underneath its own mesh one.
+   * A mesh VEHICLE (`vehicleMeshTemplates`) is deliberately NOT excluded:
+   * its GLB carries no wreck, so its sheet's `wreck` sprite is the only
+   * wreck it has (the mesh-vehicle death debt in CLAUDE.md). Pixi has no
+   * such case to exclude: it has no mesh path at all, so every destroyed
+   * entity there is a billboard one by construction.
    */
   private addWreck(x: number, y: number, facing: number, typeId: string, side: number): void {
     if (this.meshUnitTemplates.has(typeId)) return;
@@ -5276,8 +5295,9 @@ export class ThreeRenderer implements Renderer {
    * instead -- but Pixi draws an HP bar/selection ring for EVERY alive,
    * visible unit regardless of which draw path its body takes, and so does
    * this method. Folding overlay computation into `updateUnits`'s own loop
-   * would silently drop overlays for exactly the units `?sandbox&mesh`
-   * exists to exercise.
+   * would silently drop overlays for exactly the units the mesh path draws
+   * -- every rigged type, by default, on `three`, under any URL but
+   * `&nomesh`.
    *
    * `frameN` increments once per call, mirroring `PixiRenderer.frameN`
    * (`renderer.ts`'s own `this.frameN++`, top of `frame()`) -- every pulsing
