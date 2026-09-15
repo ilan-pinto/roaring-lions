@@ -602,6 +602,45 @@ catch a wrong bone.
 carries the rifle one-handed at the side, so its bearing spread is about 155°
 and that is correct. A tight bound here would fail correct art.
 
+**The face-centroid lever is unusable on one rig and you must exclude it by
+name, not widen the band.** The bearing is read from a head joint to that
+figure's own face-mesh centroid, and the length of that lever varies tenfold
+across the roster: measured in the bind pose, `sarim_rifles` 0.0813,
+`office_worker` 0.0692, `farm_worker` 0.0639, `meshy_soldier` 0.0582,
+`civilian_child` 0.0505, and **`civilian_woman` 0.0160**. At 16 mm the reading
+is noise: she measures a **78.7° spread on a STANDING idle**, against the
+child's 10.8° on the same instrument and the same kind of clip.
+
+**Do NOT "fix" that by reading `Head` → `headfront` instead, however tempting
+Task 3's report makes it sound.** That recommendation is true only for the
+seven Meshy-derived files. Checked in the actual bytes: `headfront` exists on
+`meshy_soldier`, `sarim_rifles`, `yahalom_engineer` and the four civilians, and
+is **absent from the other fifteen** — `at_team`, `atgm_cell`, `breach_team`,
+`charge_squad`, `demo_squad`, `digger_crew`, `inf_squad`, `meshy_mortar_team`,
+`militia_cell`, `mortar_crew`, `mortar_team`, `moto_rpg`, `rpg_team`,
+`sniper_team`, `yahalom_squad`. And there is no fallback for those: `rig.py`
+builds the head bone as a **vertical** segment, so its own direction has no
+ground-plane bearing at all. Switching the gate to the marker would silently
+drop coverage of every `kit.py` team — the majority of the roster, and the
+family that produced the `mortar_team` defect this instrument exists for. Use
+the centroid with `civilian_woman` excluded by name and by number, or find a
+geometric lever that works on both rig families.
+
+**`moto_rpg` has no head bone at all and will raise.** Its `face` role is bound
+entirely to `rid_seat`, `pas_seat` and two death roots — a rigid pillion rig,
+correct as built. Since Task 3 it raises rather than returning empty, so a
+sweep over `art/meshes/**` goes red on a file that is right. Exempt it by name,
+beside the `wreck` exemptions, with that reason. (`sniper_team` and
+`yahalom_engineer` carry no `face` mesh at all and already raise at an earlier
+guard — pre-existing, same treatment.)
+
+**Do not try to share one ceiling between the Python gates and this file.** On
+`sarim_rifles` the two instruments differ by 12–17°, because that rig's `face`
+role is a 167-vertex sliver in a keffiyeh eye-gap. Deriving this file's bounds
+from the import scripts' tables would be actively wrong. Either parse each
+script's table and carry an explicit per-asset offset, or keep the bounds
+literal here and say in the comment that they are literal and why.
+
 **Gate the two instruments against each other.** Task 2 built a pose that
 passed every build-time check and was still wrong: an aim distributed through
 `Spine02` solved cleanly, put the weapon on the axis, and went green, while
