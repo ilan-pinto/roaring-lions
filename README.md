@@ -12,7 +12,7 @@ The combat model is the product, and it is calibrated: the backtest harness (`pn
 
 | GDD §5.7 target | Measured |
 |---|---|
-| Urban assault needs ≈3:1 attacker:defender | 1:1 = 0% · 2:1 = 15% · **3:1 = 95%** · 4:1 = 100% |
+| Urban assault needs ≈3:1 attacker:defender | 1:1 = 0% · 2:1 = 63% · **3:1 = 100%** · 4:1 = 100%<br>(was 1:1 = 0% · 2:1 = 15% · 3:1 = 95% · 4:1 = 100% before group formations, 2026-09-15; the old 2:1 was a stacking artifact) |
 | ATGM Pk vs unprotected armour ≈ 0.7 | **0.67** over 400 launches |
 | APS intercept 0.6–0.9 vs shaped charge | **0.73** |
 | Lanchester's square law emerges | 12v6 → 12.0 survivors (square-law predicts 10.4; linear 6) |

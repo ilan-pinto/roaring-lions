@@ -153,7 +153,53 @@ function urbanAssault(attackers: number, seed: number): boolean {
   return alive[1] === 0 && alive[0] >= Math.ceil(attackers * 0.25);
 }
 
-export function urbanRatio(seedsPerRatio = 20): TargetResult {
+// ---------------------------------------------------------------------------
+// Why the 2:1 cap moved from 0.60 to 0.85, and the seed count from 20 to 60
+// (2026-09-15)
+//
+// The old condition was `rates['2:1'] <= 0.6`, fitted when a 2:1 assault won
+// 15% of the time. That 15% was a STACKING ARTIFACT, not a property of the
+// town. Before group formations, a group `attackMove` sent every member to the
+// same tile; a near miss suppresses everything inside NEAR_MISS_RADIUS_SQ
+// (94372 = 1.2 tile², radius 1.095 tiles), so ONE defender round pinned 3–5
+// attackers at once. Mean same-side neighbours inside that radius measured 2.35
+// stacked against 1.25 in formation, and the assault's volume of fire collapsed
+// with them — 12.9 rounds/s stacked against 18.2/s in formation. Mass pin →
+// pinned troops hold fire → rout (ROUT_AFTER_TICKS) → fall back → re-order →
+// repeat, for the whole 300 s clock. The old measurement therefore said "2:1
+// fails IF YOU BLOB", not "2:1 fails".
+//
+// Since 2026-09-15 (`packages/sim/src/formation.ts`) no player order can blob:
+// `Sim.applyCommands` routes every non-`exact` move/attackMove through
+// `assignFormation`, and `exact` is reserved for orders the sim issues to
+// itself. The gate was holding the combat model against a shape the game no
+// longer has. Measured on this branch at 100 seeds per ratio: 0 / 71 / 100 /
+// 100. Nothing in the feature flatters the attacker beyond the dilution —
+// `assignFormation` puts 0 of N slots in the town's cover ring at every ratio,
+// and its resolved shape is a one-deep skirmish line outside the buildings.
+//
+// Full diagnosis, including the four suppression knobs that do NOT restore the
+// old number (every one non-monotone) and the one that does at the cost of a
+// shipped mission's star rating:
+//   .superpowers/group-formation-balance-diagnosis-2026-09-15.md
+// That path is gitignored, so it is an author's working note rather than a
+// tracked document — this comment and
+// `docs/superpowers/specs/2026-09-15-group-formation-design.md` are the record
+// that survives a fresh clone.
+//
+// What §5.7 encodes is untouched: 1:1 fails, 3:1 is reliable, 4:1 ≥ 3:1. Only
+// the 2:1 cap was re-fitted, and 2:1 must still be meaningfully less reliable
+// than 3:1 — the second clause of the pass condition below.
+// ---------------------------------------------------------------------------
+
+// 60 seeds per ratio, not the old 20. The 20-seed estimator cannot carry a cap
+// this close to the measurement: its standard error is ±10pp, and splitting one
+// unchanged 200-seed run of this scenario into consecutive blocks of 20 gives
+// 70 65 55 70 95 55 65 55 60 60 — a 40pp range, with one block OVER the new cap
+// on a configuration that had not changed at all. Blocks of 60 from the same
+// pool give 63 73 60, a 13pp range. Cost, measured on the author's machine: the
+// whole backtest goes 9.6 s → 19.5 s wall, which CI's `gates` job can afford.
+export function urbanRatio(seedsPerRatio = 60): TargetResult {
   const defenders = 6;
   const rates: Record<string, number> = {};
   for (const ratio of [1, 2, 3, 4]) {
@@ -166,12 +212,33 @@ export function urbanRatio(seedsPerRatio = 20): TargetResult {
   const detail = Object.entries(rates)
     .map(([k, v]) => `${k}=${(v * 100).toFixed(0)}%`)
     .join(' ');
-  const pass = rates['1:1'] <= 0.25 && rates['2:1'] <= 0.6 && rates['3:1'] >= 0.65 && rates['4:1'] >= rates['3:1'] - 0.1;
+  // The 2:1 cap is 0.85, derived rather than picked:
+  //   * the point estimate is 65% over 200 seeds. The diagnosis's 71% was one
+  //     100-seed draw — seeds 100–199 of the same pool give 59% — and 0.71 is
+  //     kept as the anchor here because it is the higher of the two halves.
+  //   * 0.85 − 0.71 = 14pp ≈ 2.4 standard errors at 60 seeds (SE 5.9pp). Exact
+  //     binomial P(a clean run reads over the cap) = 0.36% at p=0.71, 0.01% at
+  //     p=0.65. At the old 20 seeds the same cap false-fails 4.3%. A 0.80 cap
+  //     was rejected: 4.2% false-fail at 60 seeds, and a measured 60-seed block
+  //     of this very configuration already reads 73%.
+  //   * it still bites. A regression carrying 2:1 to 90% is caught 86% of the
+  //     time at 60 seeds, and to 95% 99.7% of the time.
+  // The second clause is the doctrine — GDD §5.7's "roughly 3:1 for reliable
+  // success" means 2:1 must stay meaningfully less reliable than 3:1 whatever
+  // 3:1 itself reads, which a flat cap cannot say. The measurement supports it
+  // with room: 3:1 is 100% and 2:1 is 63–65%, a 35pp gap against the 15pp
+  // demanded.
+  const pass =
+    rates['1:1'] <= 0.25 &&
+    rates['2:1'] <= 0.85 &&
+    rates['2:1'] <= rates['3:1'] - 0.15 &&
+    rates['3:1'] >= 0.65 &&
+    rates['4:1'] >= rates['3:1'] - 0.1;
   return {
     name: 'Urban assault force ratio',
     detail: `win rates by attacker:defender — ${detail}`,
     measured: `3:1 → ${(rates['3:1'] * 100).toFixed(0)}%`,
-    target: '1:1 fails, 3:1 reliable (≥65%)',
+    target: '1:1 fails, 2:1 unreliable (≤85% and ≥15pp below 3:1), 3:1 reliable (≥65%)',
     pass,
   };
 }

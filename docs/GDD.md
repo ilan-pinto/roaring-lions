@@ -188,7 +188,7 @@ Soft units pinned continuously for ~10 s **rout**: they abandon orders and flee 
 
 The model is wrong unless the backtest harness reproduces these:
 
-- Urban assault requires roughly **3:1** attacker:defender for reliable success
+- Urban assault requires roughly **3:1** attacker:defender for reliable success. Measured since group formations landed (2026-09-15): 1:1 0%, 2:1 ~65% (0.65 over 200 seeds; the gate's own 60 read 63%), 3:1 100% — and the earlier 2:1 = 15% was a stacking artifact of every unit in a group sharing one tile inside the near-miss suppression radius, not a property of the town.
 - ATGM Pk vs unprotected armour ≈ **0.7**
 - APS intercept rate **0.6–0.9** vs shaped charge
 - **Lanchester's square law emerges naturally** — concentration of force wins superlinearly. If it doesn't, the model is broken regardless of how good the numbers look individually.

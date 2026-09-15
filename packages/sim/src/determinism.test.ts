@@ -355,7 +355,10 @@ describe('determinism (1000-tick replay)', () => {
     // carries `arc`, `effectiveArmor`, `pPen` and the penetration `roll` on
     // every impact, so an identical stream IS the statement that no armour arc
     // moved. `pnpm balance` agrees: all five §5.7 targets land on the same
-    // numbers, urban 1:1=0% 2:1=15% 3:1=95% 4:1=100% included.
+    // numbers, urban 1:1=0% 2:1=15% 3:1=95% 4:1=100% included (that curve is
+    // from before group formations, 2026-09-15; the same backtest now reads
+    // 0 / ~65 / 100 / 100, and the old 2:1 was a stacking artifact — see the
+    // comment above `urbanRatio` in tools/src/backtest/targets.ts).
     //
     // The reason it is outcome-neutral is structural, not lucky. `resolveHit`
     // returns for soft targets BEFORE it ever reads facing to pick the
