@@ -30,10 +30,12 @@
  * ...)` unconditionally, every time a building dies). `data/vfx/
  * structure_collapse.json` gained one new particle layer for this task --
  * a `soft_dot` hot core matching `catastrophic_kill.json`'s own shape,
- * marked `mesh_burst: true` -- superseded by this mesh once loaded
- * (`&mesh`), falling back to that authored particle exactly as declared
- * otherwise (Pixi, or three with the mesh not yet loaded), the identical
- * fallback contract `mesh_flash` already established for `fire_apfsds.json`.
+ * marked `mesh_burst: true` -- superseded by this mesh once loaded (the
+ * mesh path, which is the default on `three`; `&nomesh` never fetches it),
+ * falling back to that authored particle exactly as declared otherwise
+ * (Pixi, three under `&nomesh`, or three with the mesh not yet loaded), the
+ * identical fallback contract `mesh_flash` already established for
+ * `fire_apfsds.json`.
  * `tunnel_collapse` was considered and rejected: it declares `"layer":
  * "below_units"` (an underground vent's dust column, meant to be covered by
  * standing units and by fog the way a below-tier particle already is),

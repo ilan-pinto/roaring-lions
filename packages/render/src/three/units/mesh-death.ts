@@ -68,8 +68,10 @@
  * only ever adds a wreck SPRITE when `clipOrFallback(atlas.sheet, 'wreck')
  * === 'wreck'` -- i.e. the sheet genuinely has wreck art, not merely a
  * fallback to idle. `assets/sprites/INF_SQUAD/manifest.json` (the only
- * mesh-enabled unit type today, `?sandbox&renderer=three&mesh`) DOES declare
- * a `wreck` clip, so Pixi genuinely persists a wreck sprite for infantry --
+ * mesh-enabled unit type when this was written, reached then through an
+ * opt-in `&mesh` that is inert now -- meshes are the default on `three`
+ * and `&nomesh` is the opt-out) DOES declare a `wreck` clip, so Pixi
+ * genuinely persists a wreck sprite for infantry --
  * this is not a hypothetical the mesh path can skip. `stepMeshDeath` below
  * mirrors the same gate one level up: a `MeshUnitEntity` only becomes a
  * `MeshWreck` when `entity.actions.has('wreck')` is true, i.e. the loaded
