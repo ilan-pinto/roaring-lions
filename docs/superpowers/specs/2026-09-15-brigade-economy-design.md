@@ -116,6 +116,11 @@ way: "+120 credits" or "no improvement over your best, nothing paid". This compo
 best-of star rule (`betterResult`) without touching it: stars and credits each keep their own
 best.
 
+**No ledger key, no payout (ruling R5).** A mission that declares an empty or absent
+`ledger.produces` pays nothing on victory -- `beit_sahwan_0_tutorial` is the only one today,
+it sits outside `world.json` and therefore outside the pinned ladder, and CLAUDE.md already
+says it is not a campaign mission.
+
 ### 4.3 Unit upgrades
 
 A unit's JSON may carry an `upgrades` block:

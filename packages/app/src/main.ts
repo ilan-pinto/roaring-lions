@@ -2063,9 +2063,16 @@ async function main(): Promise<void> {
             // only for improvement over what this mission has paid before. Read from the
             // runtime's own counters -- the same numbers the debrief prints -- and the
             // wall clock is taken here, never in the sim.
-            const runValue = creditsFor(creditInputFrom(runtime, me.roeRating, mission.roe?.fail_below));
-            payout = missionId ? payMission(loadAccount(window.localStorage), missionId, runValue, Date.now()) : null;
-            if (payout) saveAccount(window.localStorage, payout.account);
+            // R5: a mission that produces no ledger key pays nothing -- the tutorial
+            // (`beit_sahwan_0_tutorial`) is the only one, sits outside `world.json`
+            // and therefore outside the pinned ladder, and CLAUDE.md already says it
+            // is not a campaign mission. Gate on the mission's own contract rather
+            // than a name list, the same test `validate_data.mjs` already applies.
+            if (mission.ledger.produces.length > 0) {
+              const runValue = creditsFor(creditInputFrom(runtime, me.roeRating, mission.roe?.fail_below));
+              payout = missionId ? payMission(loadAccount(window.localStorage), missionId, runValue, Date.now()) : null;
+              if (payout) saveAccount(window.localStorage, payout.account);
+            }
             hud.note('<b>campaign ledger updated</b> — survivors and Conduct carried forward', 'info');
           }
           if (missionId) {

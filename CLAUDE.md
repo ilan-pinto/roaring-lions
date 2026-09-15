@@ -204,7 +204,9 @@ The combat model is the product. Everything else is scaffolding around it.
   campaign starts with the brigade you built. Reset it from the brigade screen, twice.
   A victory pays `creditsFor` (`packages/sim/src/credits.ts`, integer-only, never called
   by the sim) only for improvement over what that mission paid before; `pnpm playtest`
-  pins the optimal ladder's total (`LADDER_CREDITS`) beside the star gates.
+  pins the optimal ladder's total (`LADDER_CREDITS`) beside the star gates. The tutorial
+  pays nothing: it produces no ledger keys, so `main.ts` gates the payout on
+  `mission.ledger.produces` rather than a name list.
 - Two ROE facts a visual check needs: **three maps carry `m` civic-hall tiles (`hall`, the O10 replacement; the type was `mosque` until 2026-09-06) — `beit_sahwan_outskirts` (9),
   `marj_perimeter` (4) and `wadi_halam_basin` (9), counted 2026-09-03 from the
   map rows; this line said "only `wadi_halam_basin`" until then** — so the
