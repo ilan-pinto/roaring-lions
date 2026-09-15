@@ -99,7 +99,7 @@ describe('flow-field cache', () => {
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `pnpm --filter @lions/sim exec vitest run src/sim.test.ts -t "flow-field cache"`
+Run: `pnpm exec vitest run packages/sim/src/sim.test.ts -t "flow-field cache"`
 Expected: FAIL — `MAX_FLOW_FIELDS` is not exported (compile error), or the count test reads `MAX_FLOW_FIELDS + 40`.
 
 - [ ] **Step 3: Share the compute scratch in `flowfield.ts`**
@@ -200,7 +200,7 @@ Replace `fieldFor` (`sim.ts:1722-1734`) with:
 
 - [ ] **Step 5: Run the tests**
 
-Run: `pnpm --filter @lions/sim exec vitest run src/sim.test.ts src/flowfield.test.ts`
+Run: `pnpm exec vitest run packages/sim/src/sim.test.ts packages/sim/src/flowfield.test.ts`
 Expected: PASS, including every pre-existing flow-field test (the dirs are bit-identical; only where the heap lives changed).
 
 - [ ] **Step 6: Run the determinism canary and lint**
@@ -373,12 +373,15 @@ describe('assignFormation in a street', () => {
     expect(new Set(slots.map(key)).size).toBe(15);
     for (const sl of slots) expect(s[sl.y * W + sl.x]).toBe(0);
     const m = byId(slots);
-    const vehicleRows = [0, 1, 2, 3].map((id) => m.get(id)?.y ?? -1);
-    const infantryRows = slots.filter((sl) => sl.id >= 4).map((sl) => sl.y);
-    // Every vehicle is nearer the click (smaller y) than every infantry team.
-    expect(Math.max(...vehicleRows)).toBeLessThan(Math.min(...infantryRows));
-    // Two wide at most: the street.
-    for (const sl of slots) expect(sl.x === 10 || sl.x === 11).toBe(true);
+    // The four vehicles hold the head of the column, one every two rows.
+    expect([0, 1, 2, 3].map((id) => `${m.get(id)?.x},${m.get(id)?.y}`)).toEqual(['10,4', '10,6', '10,8', '10,10']);
+    // Infantry fills the ranks behind and the gaps between the vehicles, and
+    // overflow is behind-first: nothing stands ahead of the click, and nothing
+    // wider than the street.
+    for (const sl of slots) {
+      expect(sl.y).toBeGreaterThanOrEqual(4);
+      expect(sl.x === 10 || sl.x === 11).toBe(true);
+    }
   });
 });
 
@@ -455,7 +458,7 @@ describe('assignFormation reservation, air and overflow', () => {
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `pnpm --filter @lions/sim exec vitest run src/formation.test.ts`
+Run: `pnpm exec vitest run packages/sim/src/formation.test.ts`
 Expected: FAIL — module `./formation` not found.
 
 - [ ] **Step 3: Write `formation.ts`**
@@ -599,23 +602,32 @@ export function assignFormation(input: FormationInput): Slot[] {
     out.push({ id: u.id, x, y });
   };
 
-  // Phase 1: the grid. Rank r sits r tiles behind the click; a slot is the
-  // click plus the lateral offset along (latX, latY) minus r along forward.
-  let lastFrontRank = -1;
+  // Phase 1: the grid. Rank r sits r tiles behind its anchor; a slot is the
+  // anchor plus the lateral offset along (latX, latY) minus r along forward.
+  // A FRONT unit anchors at its own domain's origin — the click tile snapped
+  // to ground a vehicle can hold, which is the click itself whenever the
+  // click is vehicle-open — so a click inside a boulder field puts the
+  // vehicles on the nearest ground they can stand on and leaves the click to
+  // the infantry (spec §4.2's corridor). Infantry always anchors at the click,
+  // and starts behind the last front rank only when that rank was anchored
+  // at the click too; otherwise the two grids are apart and it starts at 0.
+  let lastFrontRankAtClick = -1;
   let fi = 0;
   const frontLateral = lateralOffsets(VEHICLE_SPACING);
   for (let r = 0; r <= SEARCH_RADIUS && fi < front.length; r += VEHICLE_SPACING) {
     for (let k = 0; k < frontLateral.length && fi < front.length; k++) {
+      const u = front[fi];
+      const [ax, ay] = input.origins[u.domain];
       const l = frontLateral[k];
-      const x = input.clickX + l * latX - r * fwdX;
-      const y = input.clickY + l * latY - r * fwdY;
-      if (!usable(front[fi], x, y)) continue;
-      place(front[fi], x, y);
+      const x = ax + l * latX - r * fwdX;
+      const y = ay + l * latY - r * fwdY;
+      if (!usable(u, x, y)) continue;
+      place(u, x, y);
       fi++;
-      lastFrontRank = r;
+      if (ax === input.clickX && ay === input.clickY) lastFrontRankAtClick = r;
     }
   }
-  const rearStart = lastFrontRank < 0 ? 0 : lastFrontRank + VEHICLE_TO_INFANTRY_GAP;
+  const rearStart = lastFrontRankAtClick < 0 ? 0 : lastFrontRankAtClick + VEHICLE_TO_INFANTRY_GAP;
   let ri = 0;
   const rearLateral = lateralOffsets(INFANTRY_SPACING);
   for (let r = rearStart; r <= SEARCH_RADIUS && ri < rear.length; r += INFANTRY_SPACING) {
@@ -630,20 +642,32 @@ export function assignFormation(input: FormationInput): Slot[] {
   }
 
   // Phase 2: overflow. The nearest free reachable tile in walk order, spacing
-  // dropped; a unit that finds none keeps its origin — the one way two units
-  // can still share a tile, and it takes more units than free ground.
+  // dropped — behind-first: a tile AHEAD of the front rank (a positive
+  // projection onto the approach direction from the click) is taken only
+  // when nothing at or behind the click is free, so a column's tail fills
+  // the gaps between the spaced vehicles before it spills past the head.
+  // A unit that finds none keeps its origin — the one way two units can
+  // still share a tile, and it takes more units than free ground.
+  const ahead = (t: number): boolean => {
+    const x = t % w;
+    const y = (t - x) / w;
+    return (x - input.clickX) * fwdX + (y - input.clickY) * fwdY > 0;
+  };
   const rest = front.slice(fi).concat(rear.slice(ri));
   for (let i = 0; i < rest.length; i++) {
     const u = rest[i];
     const order = reach[u.domain].order;
     let placed = false;
-    for (let k = 0; k < order.length; k++) {
-      const t = order[k];
-      if (input.reserved[t] !== 0 || taken[t] !== 0) continue;
-      const x = t % w;
-      place(u, x, (t - x) / w);
-      placed = true;
-      break;
+    for (let pass = 0; pass < 2 && !placed; pass++) {
+      for (let k = 0; k < order.length; k++) {
+        const t = order[k];
+        if (input.reserved[t] !== 0 || taken[t] !== 0) continue;
+        if (pass === 0 && ahead(t)) continue;
+        const x = t % w;
+        place(u, x, (t - x) / w);
+        placed = true;
+        break;
+      }
     }
     if (!placed) {
       const [ox, oy] = input.origins[u.domain];
@@ -656,7 +680,7 @@ export function assignFormation(input: FormationInput): Slot[] {
 
 - [ ] **Step 4: Run the tests**
 
-Run: `pnpm --filter @lions/sim exec vitest run src/formation.test.ts`
+Run: `pnpm exec vitest run packages/sim/src/formation.test.ts`
 Expected: PASS. If the open-ground row test fails on the infantry x set, check the lateral sign convention: with `from` south of the click, forward is (0, −1) and lateral is (1, 0), so offset +1 is x + 1.
 
 - [ ] **Step 5: Lint and typecheck**
@@ -771,7 +795,7 @@ describe('formation on arrival', () => {
 
 - [ ] **Step 2: Run to verify they fail**
 
-Run: `pnpm --filter @lions/sim exec vitest run src/sim.test.ts -t "formation on arrival"`
+Run: `pnpm exec vitest run packages/sim/src/sim.test.ts -t "formation on arrival"`
 Expected: FAIL — every unit ends on `12,12` (the distinct-tile counts read 1).
 
 - [ ] **Step 3: Replace the per-domain goal resolution in the move branch**
@@ -865,7 +889,7 @@ Import at the top of `sim.ts`: `import { assignFormation, type FormationUnit } f
 
 - [ ] **Step 4: Run the new tests and the whole sim suite**
 
-Run: `pnpm --filter @lions/sim exec vitest run`
+Run: `pnpm exec vitest run packages/sim`
 Expected: the four formation tests PASS; `determinism.test.ts` FAILS on both pinned hashes (goals moved by design); every other test PASSES. If any OTHER test fails, read it: a test that ordered several units to one point and asserted on one unit's exact position is now asserting a slot, and needs its expectation moved to the tile the slot gives — never loosen a tolerance to cover it.
 
 - [ ] **Step 5: Re-pin the two hashes with their reasons**
@@ -993,7 +1017,7 @@ describe('a real roster lands on distinct tiles (tel_marum_2_foothold)', () => {
 
 `sim.unitTypes` and `isAir`/`moveDomain` are public on `Sim`/`UnitType` (main.ts reads them at `packages/app/src/main.ts:2360`); import `DOMAIN_FOOT` and `type Sim` from `../../packages/sim/src/sim`. Confirm the roster from `data/missions/tel_marum_2_foothold.json`'s `starting_force` before trusting the comment; if a placement changed, update the comment, not the assertions.
 
-Run: `pnpm --filter @lions/tools exec vitest run src/formation_walk.test.ts`
+Run: `pnpm exec vitest run tools/src/formation_walk.test.ts`
 Expected: PASS, with the printed tile list in the output.
 
 - [ ] **Step 4: The screenshot sheet**
