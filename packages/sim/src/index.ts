@@ -36,6 +36,7 @@ export {
   type MissionResult,
   type GradedObjective,
 } from './grade';
+export { creditsFor, creditInputFrom, CREDIT_WEIGHTS, type CreditInput } from './credits';
 // The mosque threshold. The sim keeps units from levelling a protected site on
 // their own initiative; the app needs the same number to keep an ambiguous
 // right-click from manufacturing the explicit order that bypasses that rule.
