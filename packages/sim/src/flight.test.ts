@@ -68,36 +68,54 @@ describe('an air unit ignores terrain', () => {
     expect(fx.toNumber(sim.state.posX[g])).toBeLessThan(12);
   });
 
-  it('does not get shoved off its goal by the wall it is flying over', () => {
+  it('is not shoved along the wall it is flying over, but still takes a slot off it', () => {
+    // 2026-09-15, group formations: this test used to assert the drone stops
+    // ON the blocked tile, because `move` kept the raw point for an air unit
+    // and handed it the raw all-DIR_NONE field. That exemption is gone — a
+    // slot is a TILE, so that no two units in one order can be given the
+    // same one, and "the exact point you clicked, fraction and all" cannot
+    // express that. The drone now snaps like everybody else, to the nearest
+    // foot-open tile, which for a wall down column 12 is (11, 5).
+    //
+    // What the test still guards is the half that never depended on the
+    // exemption: air is not WALL-SLID. A ground unit on this order grinds
+    // along the rock face; the drone goes straight to its slot centre and
+    // stops there, which is why the assertion is exact rather than a bound.
     const sim = new Sim({ seed: 12, width: 24, height: 12, capacity: 8 });
     for (let y = 0; y < 12; y++) sim.setBlocked(12, y, true);
     const air = sim.addUnitType(DRONE);
     const a = sim.spawn(air, 0, fx.from(4.5), fx.from(6.5));
     sim.queueCommand({ kind: 'move', ids: [a], x: fx.from(12.5), y: fx.from(6.5) });
     run(sim, 30 * TICKS_PER_SECOND);
-    // Stopping *on* the blocked tile is the point: nothing underneath matters.
-    expect(fx.toNumber(sim.state.posX[a])).toBeCloseTo(12.5, 1);
+    expect(fx.toNumber(sim.state.posX[a])).toBeCloseTo(11.5, 1);
+    expect(fx.toNumber(sim.state.posY[a])).toBeCloseTo(5.5, 1);
+    expect(sim.state.moving[a]).toBe(0);
   });
 
-  it('keeps its blocked goal when the same order snaps a ground unit off it', () => {
-    // One right-click, a mixed selection. A ground unit cannot stand on rock,
-    // so applyCommands moves its goal to the nearest tile it can; the drone
-    // above it must not be dragged along. Resolving the snap once for the
-    // whole order rather than per id gets this wrong in whichever direction
-    // the shared value happens to take.
+  it('takes its own slot when the same order snaps a ground unit off the rock', () => {
+    // One right-click, a mixed selection. Neither a truck nor (since group
+    // formations) a drone can be left with a goal inside rock, so both snap —
+    // but they must not be snapped onto ONE tile, which is precisely what the
+    // formation buys. The drone is `front` (air leads the ranks), so it takes
+    // the clicked row and the truck the vehicle-spaced slot behind it.
+    //
+    // Before 2026-09-15 this asserted the opposite for the drone: it kept the
+    // blocked point while the truck snapped away. See the note above.
     const sim = new Sim({ seed: 13, width: 24, height: 12, capacity: 8 });
     for (let y = 0; y < 12; y++) sim.setBlocked(12, y, true);
     const a = sim.spawn(sim.addUnitType(DRONE), 0, fx.from(4.5), fx.from(6.5));
     const g = sim.spawn(sim.addUnitType(TRUCK), 0, fx.from(4.5), fx.from(8.5));
     sim.queueCommand({ kind: 'move', ids: [a, g], x: fx.from(12.5), y: fx.from(6.5) });
     run(sim, 40 * TICKS_PER_SECOND);
-    // The drone hovers over the rock, exactly where it was sent.
-    expect(fx.toNumber(sim.state.posX[a])).toBeCloseTo(12.5, 1);
+    expect(fx.toNumber(sim.state.posX[a])).toBeCloseTo(11.5, 1);
+    expect(fx.toNumber(sim.state.posY[a])).toBeCloseTo(5.5, 1);
     expect(sim.state.moving[a]).toBe(0);
     // The truck stops on ground beside it, and stops — rather than grinding
     // against the wall face with `moving` stuck at 1 forever.
     expect(sim.state.moving[g]).toBe(0);
     expect(sim.blocked[fx.toInt(sim.state.posY[g]) * 24 + fx.toInt(sim.state.posX[g])]).toBe(0);
+    // Two units, one click, two tiles.
+    expect(fx.toInt(sim.state.posY[g])).not.toBe(fx.toInt(sim.state.posY[a]));
   });
 });
 

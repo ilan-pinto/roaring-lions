@@ -300,10 +300,21 @@ describe('the narrow corridor is infantry-only', () => {
       }
       expect(footEntered, `${label}: infantry through the corridor`).toBe(true);
       expect(tankEntered, `${label}: armour through the corridor`).toBe(label === 'control');
-      // The infantry did not merely enter — it came out the far side.
-      expect((sim.state.posY[foot] ?? 0) >> 16, `${label}: infantry north of the wall`).toBeLessThan(
-        12
-      );
+      // The infantry did not merely enter — it walked the corridor's whole
+      // length, from the scree apron at y=18 to its northern mouth.
+      //
+      // It stops one tile short of the clicked tile since group formations
+      // (2026-09-15): the Lavi is `front`, so ITS slot is the click at
+      // (10, 11) just north of the wall and the squad ranks up behind it at
+      // (10, 12). On the boulder map the Lavi never reaches that slot, so
+      // (10, 11) ends the run empty with the infantry alone at the mouth.
+      // Asserted as the exact tile rather than a bound: the slot is
+      // deterministic, and a squad that stalled anywhere in the six corridor
+      // tiles would read as some other pair.
+      expect(
+        [(sim.state.posX[foot] ?? 0) >> 16, (sim.state.posY[foot] ?? 0) >> 16],
+        `${label}: infantry at the corridor's northern mouth`
+      ).toEqual([10, 12]);
       expect(map.width).toBe(48);
     }
   });

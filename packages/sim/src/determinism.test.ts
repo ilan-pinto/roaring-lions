@@ -378,7 +378,17 @@ describe('determinism (1000-tick replay)', () => {
     // or its heading catches up, and nothing reads a soft unit's facing on the
     // way. So this number is unchanged on purpose. It is also the admission
     // that this replay does not pin the bound: `facing.test.ts` does.
-    expect(a.hash()).toBe(3160666129);
+    //
+    // 2026-09-15: group formations (formation.ts). A multi-unit move now
+    // gives every unit its own slot tile — the vehicles on the clicked row,
+    // infantry behind — instead of one shared point, so goalX/goalY, posX/
+    // posY and everything downstream of where units stand moved. The
+    // determinism PROPERTY is untouched: two runs from the same seed still
+    // agree (the test above this one), and the slot function draws no
+    // random number. Re-pinned in the commit that wired formation.ts into
+    // the move branch, and the relief replay below moved for the same reason.
+    // Was 3160666129.
+    expect(a.hash()).toBe(2109596329);
   });
 
   it('the replay actually exercises the structure paths', () => {
@@ -625,7 +635,20 @@ describe('determinism over relief (900-tick replay round a hill)', () => {
     // Set when T1-A gave the flow field a slope term (UPHILL_PER_LEVEL = 10,
     // descent free). There is no earlier value: before T1-A this replay would
     // have been identical to its own flat control.
-    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(2641065416);
+    //
+    // 2026-09-15: moved by group formations, for the reason given in full at
+    // the flat replay's pin above — a move order now hands every unit its own
+    // slot tile instead of one shared point. Was 2641065416.
+    //
+    // Measured while re-pinning, and worth knowing: this number moved a
+    // SECOND time when a unit whose slot is the clicked tile was allowed to
+    // keep the exact point clicked, and the flat replay's did not. Both
+    // replays order whole tiles, so the two builds differ only in the final
+    // half-tile of a lead unit's approach — which is visible here and not
+    // there, because the flow field is keyed on the slot TILE and is
+    // identical either way, so only a unit that actually closes the last
+    // tile can tell them apart.
+    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(1425295494);
   });
 
   it('the relief changes the route, not merely the hash', () => {

@@ -92,6 +92,30 @@ function walk(fill: 'b' | '.'): Walk {
   };
 }
 
+/**
+ * How many flow fields ONE goal tile costs when both domains ask for it.
+ *
+ * Since group formations (2026-09-15) a single order hands every unit its own
+ * slot TILE, so two units in one command never share a goal and this count
+ * would read 2 on any map, whatever the domains did — the flat control below
+ * would have stopped discriminating while still passing. The two units are
+ * therefore put on OPPOSITE SIDES and ordered separately: `reservedTilesFor`
+ * reserves only same-side units, so nothing pushes either slot off the clicked
+ * tile and the number is once again "how many domains asked for this tile".
+ * Neither fixture carries a weapon, so the sides do nothing else.
+ */
+function fieldsForOneGoal(fill: 'b' | '.'): number {
+  const map = parseMap(field(fill));
+  const sim = new Sim({ seed: 11, width: map.width, height: map.height, capacity: 8 });
+  applyTerrain(map, sim);
+  const foot = sim.spawn(sim.addUnitType(RIFLES), 0, fx.from(1.5), fx.from(3.5));
+  const veh = sim.spawn(sim.addUnitType(TANK), 1, fx.from(1.5), fx.from(5.5));
+  sim.queueCommand({ kind: 'move', ids: [foot], x: fx.from(13.5), y: fx.from(4.5) });
+  sim.queueCommand({ kind: 'move', ids: [veh], x: fx.from(13.5), y: fx.from(4.5) });
+  sim.tick();
+  return sim.flowFieldCount;
+}
+
 /** The five wall tiles, as tile indices. */
 const WALL = [2, 3, 4, 5, 6].map((y) => y * W + 7);
 
@@ -121,13 +145,13 @@ describe('a boulder field authored as `b`', () => {
     // The cache used to key on the goal tile alone. Two units, one goal, one
     // field -- and the vehicle would have inherited the infantry's route
     // straight over the boulders.
-    expect(walk('b').sim.flowFieldCount).toBe(2);
+    expect(fieldsForOneGoal('b')).toBe(2);
   });
 
   it('allocates no second field on a map with no boulders', () => {
     // The two masks are identical there, so a vehicle field would be a
     // duplicate. Decided once, at map load.
-    expect(walk('.').sim.flowFieldCount).toBe(1);
+    expect(fieldsForOneGoal('.')).toBe(1);
   });
 
   it('stops a vehicle whose field has nothing to say, on the straight-line leg', () => {
@@ -168,10 +192,16 @@ describe('a boulder field authored as `b`', () => {
     // The tank is held outside the ring by the boulders themselves.
     expect(ring.filter((t) => vehTiles.has(t))).toEqual([]);
     expect(sim.state.posX[veh] >> 16).toBeLessThan(4);
-    // The rifles crossed the ring and stand on the goal -- the control that
+    // The rifles crossed the ring and stand INSIDE it -- the control that
     // says the ring is passable at all and the order was a real one.
+    //
+    // One tile short of the goal since group formations (2026-09-15): the
+    // tank is `front`, so the slot on the clicked tile (6, 4) is ITS slot and
+    // the rifles rank up behind it at (5, 4). The tank of course never gets
+    // there, which is this test's whole point -- so the goal tile ends the
+    // run empty, with the infantry beside it and the armour outside the ring.
     expect(ring.some((t) => footTiles.has(t))).toBe(true);
-    expect([sim.state.posX[foot] >> 16, sim.state.posY[foot] >> 16]).toEqual([6, 4]);
+    expect([sim.state.posX[foot] >> 16, sim.state.posY[foot] >> 16]).toEqual([5, 4]);
   });
 
   it('leaves the boulder tiles open in the sim mask that infantry path on', () => {

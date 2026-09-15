@@ -14,6 +14,7 @@ import { fx, ONE, HALF, FX_MAX, type Fx } from './fixed';
 import { Rng } from './rng';
 import { HASH_SEED, hashArray, hashWord } from './hash';
 import { FlowField, DIR_NONE, DIR_VX, DIR_VY, COST_ORTH, COST_DIAG } from './flowfield';
+import { assignFormation, type FormationUnit } from './formation';
 import {
   structureTypeFromJson,
   STRUCT_DAMAGE,
@@ -1857,6 +1858,28 @@ export class Sim {
     return [gx, gy];
   }
 
+  /**
+   * Tiles a new order may not put a slot on: every living same-side unit
+   * outside the order that is on the surface, at its goal tile while moving
+   * and at its own tile otherwise (spawn never sets a goal, so "otherwise"
+   * is where it stands). Derived per order rather than kept as state: a scan
+   * is O(units), orders are rare, and it needs no bookkeeping at any of the
+   * sites that set `goalX` — spec §4.3's "reservation map", Deviation 1.
+   */
+  private reservedTilesFor(side: number, ids: readonly number[]): Uint8Array {
+    const reserved = new Uint8Array(this.width * this.height);
+    const inOrder = new Set(ids);
+    for (let j = 0; j < this.count; j++) {
+      if (this.alive[j] === 0 || this.side[j] !== side || inOrder.has(j)) continue;
+      if (this.garrisonedIn[j] >= 0 || this.carriedBy[j] >= 0 || this.tunnelIn[j] >= 0) continue;
+      const x = fx.toInt(this.moving[j] === 1 ? this.goalX[j] : this.posX[j]);
+      const y = fx.toInt(this.moving[j] === 1 ? this.goalY[j] : this.posY[j]);
+      if (x < 0 || y < 0 || x >= this.width || y >= this.height) continue;
+      reserved[y * this.width + x] = 1;
+    }
+    return reserved;
+  }
+
   private applyCommands(): void {
     const q = this.commandQueue;
     for (let c = 0; c < q.length; c++) {
@@ -1915,61 +1938,112 @@ export class Sim {
         const tx = fx.toInt(gx);
         const ty = fx.toInt(gy);
         const [fgx, fgy] = this.nearestOpenTile(tx, ty);
-        const snapped = fgx !== tx || fgy !== ty;
-        // Only when the tile really was blocked. An open goal keeps the exact
-        // point it was given, fraction and all — snapping those to a tile
-        // centre would be a different order from the one issued.
-        const sgx = snapped ? fx.add(fx.fromInt(fgx), HALF) : gx;
-        const sgy = snapped ? fx.add(fx.fromInt(fgy), HALF) : gy;
-        const fieldIdx = this.fieldFor(fgx, fgy, DOMAIN_FOOT);
         // A vehicle snaps against its OWN mask, because a boulder is open
         // ground to a rifleman and a wall to a tank: the same right-click
-        // resolves to different tiles for the two. `move` is the one order
-        // whose completion is a position test, so a vehicle goal left on a
-        // tile it can never stand on is the freeze described above, arriving
-        // by a different door. Resolved lazily, once per order at most —
-        // and deliberately with no `hasBoulders` shortcut of its own: on a
+        // resolves to different tiles for the two, and each domain's tile is
+        // where that domain's rank of the formation is anchored. `move` is
+        // the one order whose completion is a position test, so a vehicle
+        // goal left on a tile it can never stand on is the freeze described
+        // above, arriving by a different door. Resolved once per order, and
+        // deliberately with no `hasBoulders` shortcut of its own: on a
         // boulder-free map the two masks are the same array, so this arrives
-        // at the same tile and `fieldFor` hands back the same field. One
-        // collapse, in one place, is the only kind a test can pin.
-        let vgx = sgx;
-        let vgy = sgy;
-        let vField = fieldIdx;
-        let vResolved = false;
-        // Air is exempt, and that is the whole reason this is resolved per id
-        // rather than once for the order. A drone hovers over rock as happily
-        // as over road, stepMovement skips the wall-slide for it entirely, and
-        // "stop on the blocked tile" is a legitimate thing to ask of one — so
-        // it keeps the raw point AND the raw field, which for a blocked goal
-        // is the all-DIR_NONE one that flies it straight there. Resolved
-        // lazily: an all-ground selection, which is nearly every selection,
-        // computes exactly one field as it always did.
-        let airField = -1;
+        // at the same tile the foot snap did. One collapse, in one place, is
+        // the only kind a test can pin.
+        const [vgx, vgy] = this.nearestOpenTile(tx, ty, this.blockedVehicleMask);
+        // One slot per unit (formation.ts): a group order lands as a
+        // formation around the click — vehicles and aircraft on the clicked
+        // row, infantry in the ranks behind — instead of every unit
+        // converging on the one point.
+        //
+        // AIR is no longer exempt, deliberately. A drone ordered onto a blocked tile
+        // used to keep the raw point and the raw (all-DIR_NONE) field, which
+        // flew it to the rock it was told to hover over; that is a coherent
+        // order and it is simply not expressible as a slot. It now takes the
+        // foot-snapped click tile and the foot mask like everything else,
+        // with `front` set so it leads the ranks rather than queueing up
+        // behind the infantry.
+        const members: FormationUnit[] = [];
+        let sumX = 0;
+        let sumY = 0;
+        for (const id of cmd.ids) {
+          // A passenger is inside a vehicle and does not walk anywhere: the
+          // carrier decides where it goes, and `unload` is how it gets out.
+          // This used to disembark instead, which made the ordinary workflow
+          // fail — a box-select still holds the infantry after they board, so
+          // the next right-click dumped them in the road while the APC drove
+          // off. They are already untargetable while aboard; being immune to
+          // movement orders is the same idea. Refused HERE, where the members
+          // are gathered, so a passenger is not handed a slot on the ground
+          // either — the loop below then skips it for having none.
+          if (this.alive[id] === 0 || this.routed[id] === 1 || this.carriedBy[id] >= 0) continue;
+          const utype = this.unitTypes[this.typeIdx[id]];
+          const front = utype.isAir || utype.moveDomain === DOMAIN_VEHICLE;
+          members.push({ id, domain: utype.isAir ? DOMAIN_FOOT : utype.moveDomain, front });
+          // Where this unit will be coming FROM: its last queued point when
+          // the order appends to a route, otherwise where it stands. Their
+          // centroid is the only thing that fixes which way the ranks face,
+          // so an appended leg has to be measured from the end of the leg
+          // before it and not from a unit still standing on the start line.
+          const queued = cmd.append === true && this.moving[id] === 1;
+          const n = this.wpCount[id];
+          const fromX = queued
+            ? n > 0
+              ? this.wpX[id * MAX_WAYPOINTS + n - 1]
+              : this.goalX[id]
+            : this.posX[id];
+          const fromY = queued
+            ? n > 0
+              ? this.wpY[id * MAX_WAYPOINTS + n - 1]
+              : this.goalY[id]
+            : this.posY[id];
+          sumX += fx.toInt(fromX);
+          sumY += fx.toInt(fromY);
+        }
+        const slots = new Map<number, [number, number]>();
+        if (members.length > 0) {
+          const n = members.length;
+          const assigned = assignFormation({
+            width: this.width,
+            height: this.height,
+            masks: [this.blocked, this.blockedVehicleMask],
+            origins: [
+              [fgx, fgy],
+              [vgx, vgy],
+            ],
+            clickX: fgx,
+            clickY: fgy,
+            // `| 0` and not `Math.trunc`: `Math.*` is banned in this package
+            // (invariant 2) and both sums are non-negative tile counts, so
+            // the truncation is the integer divide it looks like.
+            fromX: (sumX / n) | 0,
+            fromY: (sumY / n) | 0,
+            units: members,
+            reserved: this.reservedTilesFor(this.side[members[0].id], cmd.ids),
+          });
+          for (const s of assigned) slots.set(s.id, [s.x, s.y]);
+        }
         const attack = cmd.kind === 'attackMove' ? 1 : 0;
         for (const id of cmd.ids) {
           if (this.alive[id] === 0 || this.routed[id] === 1) continue; // broken troops aren't listening
-          let ux = sgx;
-          let uy = sgy;
-          let uf = fieldIdx;
+          const slot = slots.get(id);
+          if (slot === undefined) continue; // carried: the carrier decides where it goes
           const utype = this.unitTypes[this.typeIdx[id]];
-          if (snapped && utype.isAir) {
-            if (airField < 0) airField = this.fieldFor(tx, ty, DOMAIN_FOOT);
-            ux = gx;
-            uy = gy;
-            uf = airField;
-          } else if (utype.moveDomain === DOMAIN_VEHICLE) {
-            if (!vResolved) {
-              vResolved = true;
-              const [bx, by] = this.nearestOpenTile(tx, ty, this.blockedVehicleMask);
-              const vSnapped = bx !== tx || by !== ty;
-              vgx = vSnapped ? fx.add(fx.fromInt(bx), HALF) : gx;
-              vgy = vSnapped ? fx.add(fx.fromInt(by), HALF) : gy;
-              vField = this.fieldFor(bx, by, DOMAIN_VEHICLE);
-            }
-            ux = vgx;
-            uy = vgy;
-            uf = vField;
-          }
+          // A unit whose slot IS the tile under the cursor keeps the exact
+          // point clicked, fraction and all — snapping that to a tile centre
+          // would be a different order from the one issued, and it is the one
+          // case where nothing is bought by moving it: the tile is this
+          // unit's alone either way. Everyone the formation displaced takes
+          // its slot's centre, because a displaced unit has no clicked point
+          // of its own to keep.
+          const onClick = slot[0] === tx && slot[1] === ty;
+          const ux = onClick ? gx : fx.add(fx.fromInt(slot[0]), HALF);
+          const uy = onClick ? gy : fx.add(fx.fromInt(slot[1]), HALF);
+          // Asked for and stamped into `fieldRef` inside the SAME iteration,
+          // with no other `fieldFor` between: the pool reuses any field no
+          // living unit references, and a field issued but not yet stamped is
+          // exactly that. (`evictableField`'s same-tick exclusion is the
+          // other half of that guarantee.)
+          const uf = this.fieldFor(slot[0], slot[1], utype.isAir ? DOMAIN_FOOT : utype.moveDomain);
           // Appending to a unit already under way queues the point instead of
           // overriding it: that is how a player draws a route round a block.
           if (cmd.append === true && this.moving[id] === 1) {
@@ -1983,14 +2057,8 @@ export class Sim {
             }
             continue;
           }
-          // A passenger is inside a vehicle and does not walk anywhere: the
-          // carrier decides where it goes, and `unload` is how it gets out.
-          // This used to disembark instead, which made the ordinary workflow
-          // fail — a box-select still holds the infantry after they board, so
-          // the next right-click dumped them in the road while the APC drove
-          // off. They are already untargetable while aboard; being immune to
-          // movement orders is the same idea.
-          if (this.carriedBy[id] >= 0) continue;
+          // (A passenger never reached here: it claimed no slot, so the
+          // `slot === undefined` guard above turned it away.)
           // (Buried units were already dropped where the ids expanded, above
           // the append fast-path — the earth's refusal is not per-branch.)
           this.wpCount[id] = 0; // a fresh order replaces the whole path

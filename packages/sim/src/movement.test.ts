@@ -200,6 +200,11 @@ describe('a goal on blocked ground', () => {
   it('leaves an open goal exactly where it was clicked', () => {
     // The guard against over-reaching: only a blocked goal is rewritten, so a
     // fractional point on open ground is still walked to precisely.
+    //
+    // Group formations (2026-09-15) kept this rather than retiring it. A slot
+    // is a TILE, but a unit whose slot IS the clicked tile has no reason to
+    // be moved to its centre -- the tile is that unit's alone either way --
+    // so the exact point survives for whoever the formation did not displace.
     const { sim, inf } = walled();
     const id = sim.spawn(inf, 0, fx.from(4.5), fx.from(2.5));
     const gx = fx.from(8.125);

@@ -334,3 +334,96 @@ describe('flow-field cache', () => {
     expect(sim.state.moving[a]).toBe(1);
   });
 });
+
+// RIFLES and TANK above declare no `role`, so both classify as VEHICLES
+// (`wheeled` defaults to `!FOOT_ROLES.has(role ?? '')`). Formation splits the
+// order by exactly that, so these two pin the split explicitly: `infantry` is
+// in FOOT_ROLES and takes the rear ranks, `tank` is not and takes the front.
+const F_INF: UnitTypeJson = { ...RIFLES, id: 'f_inf', role: 'infantry' };
+const F_TANK: UnitTypeJson = { ...TANK, id: 'f_tank', role: 'tank' };
+const tileOf = (sim: Sim, id: number): string =>
+  `${fx.toInt(sim.state.posX[id])},${fx.toInt(sim.state.posY[id])}`;
+function settle(sim: Sim, seconds: number): void {
+  for (let i = 0; i < seconds * TICKS_PER_SECOND; i++) sim.tick();
+}
+
+describe('formation on arrival', () => {
+  it('spreads a group over distinct tiles with the vehicles on the clicked row', () => {
+    const sim = makeSim(42, 64);
+    const inf = sim.addUnitType(F_INF);
+    const tank = sim.addUnitType(F_TANK);
+    const ids: number[] = [];
+    for (let i = 0; i < 3; i++) ids.push(sim.spawn(tank, 0, fx.fromInt(4 + i), fx.fromInt(28)));
+    for (let i = 0; i < 6; i++) ids.push(sim.spawn(inf, 0, fx.fromInt(3 + i), fx.fromInt(29)));
+    sim.queueCommand({ kind: 'move', ids, x: fx.fromInt(12), y: fx.fromInt(12) });
+    settle(sim, 40);
+    const tiles = ids.map((id) => tileOf(sim, id));
+    expect(new Set(tiles).size).toBe(ids.length);
+    for (const id of ids) expect(sim.state.moving[id]).toBe(0);
+    // Approaching from the south: the three tanks stand on row 12, the infantry below it.
+    for (let i = 0; i < 3; i++) expect(fx.toInt(sim.state.posY[ids[i]])).toBe(12);
+    for (let i = 3; i < 9; i++) expect(fx.toInt(sim.state.posY[ids[i]])).toBeGreaterThan(12);
+  });
+
+  it('sends a single unit beside an idle friend instead of onto it', () => {
+    const sim = makeSim();
+    const inf = sim.addUnitType(F_INF);
+    const idle = sim.spawn(
+      inf,
+      0,
+      fx.add(fx.fromInt(12), fx.fromInt(1) >> 1),
+      fx.add(fx.fromInt(12), fx.fromInt(1) >> 1)
+    );
+    const mover = sim.spawn(inf, 0, fx.fromInt(4), fx.fromInt(12));
+    sim.queueCommand({ kind: 'move', ids: [mover], x: fx.fromInt(12), y: fx.fromInt(12) });
+    settle(sim, 20);
+    expect(tileOf(sim, idle)).toBe('12,12');
+    expect(tileOf(sim, mover)).not.toBe('12,12');
+    expect(sim.state.moving[mover]).toBe(0);
+  });
+
+  it("frees a dead unit's tile", () => {
+    const sim = makeSim();
+    const inf = sim.addUnitType(F_INF);
+    const dead = sim.spawn(
+      inf,
+      0,
+      fx.add(fx.fromInt(12), fx.fromInt(1) >> 1),
+      fx.add(fx.fromInt(12), fx.fromInt(1) >> 1)
+    );
+    const mover = sim.spawn(inf, 0, fx.fromInt(4), fx.fromInt(12));
+    sim.debugKill(dead);
+    sim.tick();
+    sim.queueCommand({ kind: 'move', ids: [mover], x: fx.fromInt(12), y: fx.fromInt(12) });
+    settle(sim, 20);
+    expect(tileOf(sim, mover)).toBe('12,12');
+  });
+
+  it('keeps two groups ordered to one click on disjoint tiles', () => {
+    const sim = makeSim(42, 64);
+    const inf = sim.addUnitType(F_INF);
+    const a: number[] = [];
+    const b: number[] = [];
+    for (let i = 0; i < 5; i++) a.push(sim.spawn(inf, 0, fx.fromInt(2 + i), fx.fromInt(28)));
+    for (let i = 0; i < 5; i++) b.push(sim.spawn(inf, 0, fx.fromInt(2 + i), fx.fromInt(2)));
+    sim.queueCommand({ kind: 'move', ids: a, x: fx.fromInt(12), y: fx.fromInt(12) });
+    settle(sim, 2);
+    sim.queueCommand({ kind: 'move', ids: b, x: fx.fromInt(12), y: fx.fromInt(12) });
+    settle(sim, 40);
+    const tiles = [...a, ...b].map((id) => tileOf(sim, id));
+    expect(new Set(tiles).size).toBe(10);
+  });
+
+  it('gives a queued waypoint its own slot per unit', () => {
+    const sim = makeSim(42, 64);
+    const inf = sim.addUnitType(F_INF);
+    const ids: number[] = [];
+    for (let i = 0; i < 4; i++) ids.push(sim.spawn(inf, 0, fx.fromInt(2 + i), fx.fromInt(2)));
+    sim.queueCommand({ kind: 'move', ids, x: fx.fromInt(12), y: fx.fromInt(2) });
+    sim.tick();
+    sim.queueCommand({ kind: 'move', ids, x: fx.fromInt(12), y: fx.fromInt(12), append: true });
+    settle(sim, 40);
+    expect(new Set(ids.map((id) => tileOf(sim, id))).size).toBe(4);
+    for (const id of ids) expect(fx.toInt(sim.state.posY[id])).toBeGreaterThanOrEqual(12);
+  });
+});
