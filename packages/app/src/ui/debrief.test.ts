@@ -111,4 +111,22 @@ describe('showDebrief', () => {
     expect(text(host, '.rl-debrief__tier')).toBe('Withdraw and regroup');
     expect(host.querySelector('.rl-debrief__stars')).toBeNull();
   });
+
+  it('prints what the run paid into the brigade account', () => {
+    const host = document.createElement('div');
+    showDebrief(host, base({ credits: { paid: 120, balance: 460 } }));
+    expect(text(host, '.rl-debrief__credits')).toBe('+120 credits · 460 on hand');
+  });
+
+  it('says so when a replay did not improve on the best', () => {
+    const host = document.createElement('div');
+    showDebrief(host, base({ credits: { paid: 0, balance: 460 } }));
+    expect(text(host, '.rl-debrief__credits')).toBe('no improvement over your best, nothing paid · 460 on hand');
+  });
+
+  it('shows no credits row at all on a defeat', () => {
+    const host = document.createElement('div');
+    showDebrief(host, base({ result: 'defeat', stars: 0 }));
+    expect(host.querySelector('.rl-debrief__credits')).toBeNull();
+  });
 });
