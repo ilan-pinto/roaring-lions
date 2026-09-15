@@ -190,6 +190,11 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): void {
         reset.textContent = 'click again to reset — this cannot be undone';
         return;
       }
+      // Disabled BEFORE the handler runs, so the second click is provably the
+      // last one this control can fire: the caller re-renders, but nothing
+      // here relies on that, and a control that says "cannot be undone" must
+      // not be able to fire twice.
+      reset.disabled = true;
       opts.onReset?.();
     });
     nav.appendChild(reset);

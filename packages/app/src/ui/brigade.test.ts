@@ -110,6 +110,11 @@ describe('showBrigade', () => {
     expect(btn?.textContent).toBe('click again to reset — this cannot be undone');
     btn?.click();
     expect(resets).toBe(1);
+    // The second click is the last one this control can fire: disabled before
+    // the handler ran, so a third click on the same button reaches nothing.
+    expect(btn?.disabled).toBe(true);
+    btn?.click();
+    expect(resets).toBe(1);
   });
 
   it('prints no credits line and no reset control without an account', () => {
