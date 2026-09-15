@@ -97,4 +97,25 @@ describe('showBrigade', () => {
     expect(art?.getAttribute('data-nosprite')).toBe('1');
     expect(art?.querySelector('svg')).not.toBeNull();
   });
+
+  it('prints the credit balance in the header and asks twice before resetting the account', () => {
+    const host = document.createElement('div');
+    let resets = 0;
+    showBrigade(host, { units, ledger: {}, possibleStars: 78, credits: 460, onReset: () => resets++ });
+    expect(host.querySelector('.rl-brigade__credits')?.textContent).toBe('460 credits');
+    const btn = host.querySelector<HTMLButtonElement>('.rl-brigade__reset');
+    expect(btn?.textContent).toBe('reset brigade account');
+    btn?.click();
+    expect(resets).toBe(0);
+    expect(btn?.textContent).toBe('click again to reset — this cannot be undone');
+    btn?.click();
+    expect(resets).toBe(1);
+  });
+
+  it('prints no credits line and no reset control without an account', () => {
+    const host = document.createElement('div');
+    showBrigade(host, { units, ledger: {}, possibleStars: 78 });
+    expect(host.querySelector('.rl-brigade__credits')).toBeNull();
+    expect(host.querySelector('.rl-brigade__reset')).toBeNull();
+  });
 });

@@ -2505,3 +2505,9 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--ink-dim);
   font-size: var(--t-xs);
 }
+.rl-brigade__credits {
+  color: var(--commend);
+}
+.rl-brigade__reset {
+  margin-left: auto;
+}
