@@ -37,7 +37,7 @@ figure's left. Sampled 4–10 instants per clip, `?sandbox=beit_sahwan_outskirts
 | `at_team` | `at_team.glb` | +6 | +6 | — | — |
 | `atgm_cell`, `mortar_crew` | — | +3 | +3 | — | — |
 | `charge_squad` | `charge_squad.glb` | ~0 | +1 | ~0 | — |
-| `mortar_team` | `meshy_mortar_team.glb` | +3 (range −69…+94) | **+84** | −14 | — |
+| `mortar_team` | `meshy_mortar_team.glb` | +3 (range −69…+94) | ~~**+84**~~ **see §2.1a** | −14 | — |
 
 The **+3…+11 band is not a defect**: `kit.py`'s `figure()` yaws the head off the
 body axis by `head_turn = 0.18 * hand` (10.3°) on purpose — contrapposto, "a
@@ -50,8 +50,65 @@ Two real defects fall out:
   correct. A KDF rifleman standing still rotates roughly 180° over 3.67 s and
   loops; one that is shooting faces 156° away from what it is shooting at; one
   that is suppressed goes to ground facing backward.
-- **`mortar_team` marches 84° across its own line of travel** — all three
-  figures identically, in `move` only.
+- **`mortar_team` marches backward.** See §2.1a — the number first recorded
+  here was wrong, and so was the mechanism.
+
+### 2.1a Correction — the mortar crew, and a trap in §2.1's own method
+
+**This section was written after Task 4 and it retires what §2.1 and §3.6
+originally claimed.** Both were wrong, and the way they were wrong is worth
+more than the defect was.
+
+§2.1 recorded `mortar_team` holding an identical **+84°** across three figures
+in `move`, and §3.6 explained it as "`move` keys no crew-served figure at all,
+so what `move` shows is the rest pose". Neither survives measurement:
+
+- **The bearing was read off a rig scaled to zero.** In `move`, this file keys
+  `f0_head`, `f0_chest`, `f0_abdomen` and `f0_root` — and their `f1`/`f2`
+  twins — to scale exactly `(0,0,0)` at all 17 keyframes, while the standing
+  chain is keyed to 1. That chain (`STAND_CHAIN` in
+  `import_meshy_mortar_team.py`) carries **no head bone at all**, so the only
+  joints the head pattern can match are the kneeling heads, which in this clip
+  have zero world scale. Every `face` vertex collapses onto a blend of
+  collapsed joint translations and the bearing measures nothing that is on
+  screen. On the bytes it reads +87.7 / −139.5 / −101.2, before and after —
+  not the "identical +84" first recorded, which could not be reproduced by any
+  route.
+- **`move` is fully keyed and walks.** 17 keyframes on the standing rig, ratio
+  **0.996**. §3.6's premise was simply false.
+- **The real defect was 180°, not 84°: the limbered crew marched backward**,
+  and `classify_standing` had painted the skin ramp on the backs of three
+  heads.
+
+**The proof is non-circular, and that is the point.** The obvious check is
+circular — the `face` role *is* the −Y half of each head, so the role
+assignment and the facing measurement share one assumption and agree whichever
+way the sculpt points. The `boot` role does not: it is classified by HEIGHT,
+never by a half-space, and a boot's toe protrudes forward of its own ankle.
+Measuring each standing figure's boot centroid against its own ankle, in the
+pre-`forward_fix` space the vertices live in, against `meshy_soldier.glb` as a
+known-correct control:
+
+| file | boot centroid − ankle |
+|---|---|
+| `meshy_soldier.glb` (control) | dZ **+0.022…+0.065** |
+| `meshy_mortar_team.glb` after | dZ **+0.017…+0.027** |
+| `meshy_mortar_team.glb` before | dZ **−0.017…−0.027** |
+
+Both files carry `FORWARD_FIX_DEG = 90.0`, which carries pre-fix `+Z` to the
+contract's `+X`. So before the fix the toes pointed at −X. The left/right
+vertex groups also swap, which is the signature of a 180° yaw and of no other
+rotation.
+
+**The generalisable lesson, and it binds §3.5's gate.** §2.1's method — read a
+head joint's bearing and believe it — **will report a confident number for any
+two-posture rig's hidden side**, which is every `rig.py` team in `down` and
+`wreck`, since those swap between a living root and a `death_root` by scale.
+`measureFacing` now carries a `hiddenInClip` flag, true only when a joint's
+world-matrix basis stays collapsed across every sample, so a reading taken off
+an invisible figure is visible as such rather than silently authoritative.
+Bone LENGTH lives in the child's translation rather than in scale, so a
+physically small bone cannot trip it.
 
 ### 2.2 Gait — boot travel against ground covered
 
@@ -261,13 +318,21 @@ it reports `inf_squad`'s *correct* `move` at −86° (true value −5°) and
 head-joint method is the one that works, and it is what §2.1's table was
 produced with.
 
-### 3.6 D6 — `mortar_team`'s sideways march
+### 3.6 D6 — `mortar_team` marches backward
 
-The three figures hold an identical +84° in `move` and spread across −69…+94 in
-`idle`. `move` keys no crew-served figure at all, so what `move` shows is the
-rest pose; `idle` keys them apart deliberately. Fix the rest pose so the team
-marches along its heading, and let `idle` keep splaying the crew around its
-tube, which is correct for a deployed weapon.
+~~The three figures hold an identical +84° in `move` and spread across −69…+94
+in `idle`. `move` keys no crew-served figure at all, so what `move` shows is
+the rest pose.~~ **Both halves of that were false and §2.1a retires them.** The
++84 was read off a rig keyed to zero scale, and `move` is fully keyed — 17
+keyframes on the standing chain, walking at ratio 0.996.
+
+What is actually wrong: **the limbered crew marches 180° backward**, proved
+against the `boot` role's toe-versus-ankle offset, which shares no assumption
+with the `face` role the first reading depended on. `classify_standing` had
+painted the skin ramp on the backs of three heads.
+
+Turn the limbered crew to face its own line of travel, and leave `idle`
+splaying them around the tube, which is correct for a deployed weapon.
 
 ---
 
