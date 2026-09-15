@@ -192,6 +192,112 @@ describe('mesh unit facing', () => {
     const figs = measureFacing(`${MESHES}meshy_soldier.glb`, 'wreck');
     for (const f of figs) expect(Math.abs(f.meanDeg)).toBeGreaterThan(120);
   });
+
+  // Task 3. `HEAD_JOINT_RE` was `/_(head|Head)$/`, which needs a FIGURE PREFIX
+  // to match -- `f0_Head` on a three-man team file. A single-figure GLB names
+  // the bone plainly `Head`, so all four civilians matched nothing,
+  // `measureFacing` returned `[]`, and every caller in this tree spells its
+  // check as a `for` loop over the result. The whole family read as "measured,
+  // and fine". This is the guard on that: assert the COUNT, not just the
+  // angles, because an empty result passes any angle assertion ever written.
+  it.each(['civilian_woman', 'office_worker', 'farm_worker', 'civilian_child'])(
+    'measures %s at all -- one figure, not silently zero',
+    (figure) => {
+      const figs = measureFacing(`${MESHES}civilians/${figure}.glb`, 'move');
+      expect(figs.length).toBe(1);
+      expect(figs[0].joint).toBe('Head');
+    }
+  );
+
+  it.each(['office_worker', 'farm_worker', 'civilian_child'])(
+    '%s runs facing forward',
+    (figure) => {
+      // Measured after Task 3 bound `Running` to `move`: office_worker +14.1,
+      // farm_worker +2.3, civilian_child +0.4. The band is 30 rather than the
+      // 20 used for the soldiers because this instrument is noisier on these
+      // rigs -- see the `civilian_woman` exclusion below for how much.
+      const figs = measureFacing(`${MESHES}civilians/${figure}.glb`, 'move');
+      for (const f of figs) expect(Math.abs(f.meanDeg)).toBeLessThan(30);
+    }
+  );
+
+  it('reads civilian_woman through a 16 mm lever, so her angle is NOT asserted', () => {
+    // A NAMED exclusion with its measurement, not an oversight. `measureFacing`
+    // takes its bearing from the head joint to the centroid of that joint's own
+    // `face` vertices, so the lever arm it measures over is a property of the
+    // asset. In bind pose, ground-plane: sarim_rifles 0.0813 m, office_worker
+    // 0.0692, farm_worker 0.0639, meshy_soldier 0.0582, civilian_child 0.0505
+    // -- and civilian_woman **0.0160**, three to five times shorter, because
+    // her head-weighted `face` vertices sit almost symmetrically around the
+    // joint. The bearing is then made mostly of skinning wobble: she reads a
+    // spread of 78.7 deg on a STANDING `idle` and +26.0 mean on `move`, where
+    // the rig's own `Head`->`headfront` marker (the build-time instrument in
+    // `import_meshy_civilians.py`) reads that same idle at -3.86 with a spread
+    // of 5.83 and that same move at -0.08.
+    //
+    // So this pins the DEFECT, not the facing: if a later change shortens or
+    // lengthens that lever the count and the clip still have to work, and
+    // anyone tempted to add her to the band test above finds this first.
+    // Task 7 must not gate civilian facing on `measureFacing` until the lever
+    // is fixed -- taking the bearing from the rig's `headfront` marker, which
+    // every one of these rigs carries, would fix it for all of them.
+    const figs = measureFacing(`${MESHES}civilians/civilian_woman.glb`, 'move');
+    expect(figs.length).toBe(1);
+    expect(figs[0].maxDeg - figs[0].minDeg).toBeGreaterThan(30);
+  });
+
+  it('leaves the Sarim militia facing where it already faced', () => {
+    // The design's section 2.1 measured this asset at +10..+11 across every
+    // standing clip and called that the authored contrapposto rather than a
+    // defect. Task 3 changed only which file feeds `move`, so these three must
+    // not have moved at all: measured +11.1 / +10.9 / +9.7, identical before
+    // and after to the tenth of a degree.
+    for (const clip of ['idle', 'fire', 'down']) {
+      const figs = measureFacing(`${MESHES}sarim_rifles.glb`, clip);
+      expect(figs.length).toBe(3);
+      for (const f of figs) expect(Math.abs(f.meanDeg)).toBeLessThan(15);
+    }
+  });
+
+  it('reads the Sarim run as forward, at the looser bound its own face mesh needs', () => {
+    // +14.8, up from the walk's +10.0 -- and the RIG's own marker says the run
+    // is the SQUARER of the two (-0.10 against the walk's -2.72). Both are
+    // right: this asset's `face` role is the small visible-skin sliver at the
+    // keffiyeh's eye gap (221 of 16 557 vertices), so the centroid sits off the
+    // skull's axis and the two instruments differ by 8-17 deg depending on how
+    // the head is pitched. Recorded in `_face_bearing_deg` in the import
+    // script, which is why THAT file's ceilings are not shared with this one.
+    const figs = measureFacing(`${MESHES}sarim_rifles.glb`, 'move');
+    expect(figs.length).toBe(3);
+    for (const f of figs) expect(Math.abs(f.meanDeg)).toBeLessThan(20);
+  });
+});
+
+// Task 3: the Sarim militia and the four civilians move at 2.4-2.7 m/s and
+// used to play a stroll over it. `move` now binds each source's own `Running`.
+// The floor is `WALK_FLOOR`, shared with the tests above rather than restated,
+// and no CEILING is asserted: two of the civilians measure slightly over 1.0,
+// which is a run (a sprinting foot swings further back than the body advances)
+// and not an error, and the design's D4 rate-match is about to move all of
+// these anyway.
+describe('mesh unit gait -- the run clips', () => {
+  const RAN: [string, string, number, number][] = [
+    ['sarim_rifles', 'sarim_rifles.glb', 0.9, 0.332],
+    ['civilians/civilian_woman', 'civilians/civilian_woman.glb', 0.8, 0.382],
+    ['civilians/office_worker', 'civilians/office_worker.glb', 0.8, 0.445],
+    ['civilians/farm_worker', 'civilians/farm_worker.glb', 0.8, 0.428],
+    ['civilians/civilian_child', 'civilians/civilian_child.glb', 0.8, 0.295],
+  ];
+
+  it.each(RAN)('%s runs rather than strolls', (_label, file, speed, before) => {
+    const m = measureRoleTravel(`${MESHES}${file}`, 'boot', 'move');
+    const ground = groundPerCycleM(speed, m.clipSeconds);
+    const ratio = m.maxTravelM / ground;
+    expect(ratio).toBeGreaterThan(WALK_FLOOR);
+    // And it really is an improvement on what shipped, not merely above a
+    // floor a walk could also clear on a slower unit.
+    expect(ratio).toBeGreaterThan(before);
+  });
 });
 
 // Fix round 1: meanDeg was an arithmetic mean of degrees, which is wrong at

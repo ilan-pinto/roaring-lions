@@ -45,7 +45,9 @@ that script's five hard-won mechanisms unchanged --
 
 ## Source clips, and why each canonical clip maps where it does
 
-    Walking_withSkin.glb                       -> move     (real gait, 6.371)
+    Running_withSkin.glb                       -> move     (real gait, 5.534 --
+                                                             bound 2026-09-16,
+                                                             see below)
     Idle_02_withSkin.glb                       -> idle     (near-zero, 0.955)
     Walk_Forward_While_Shooting_withSkin.glb   -> moveFire (real gait, 5.53 --
                                                              bound 2026-09-06;
@@ -58,15 +60,12 @@ that script's five hard-won mechanisms unchanged --
                                                              bound 2026-09-06,
                                                              free variation,
                                                              see FALL_SOURCE_ALT)
-    Running_withSkin.glb                        UNUSED    (needs a "fleeing"
-                                                          signal that does not
-                                                          reach the renderer --
-                                                          GH-152's blocker, the
-                                                          same reason the KDF
-                                                          source's own `Running`
-                                                          stays unused. Do not
-                                                          bind this until that
-                                                          signal exists.)
+    Walking_withSkin.glb                        UNUSED    (was `move` until
+                                                          2026-09-16; measured
+                                                          6.371 x100 Hips
+                                                          travel and a gait
+                                                          ratio of 0.332 --
+                                                          see below)
     Side_Shot_withSkin.glb                      UNUSED  (measured 14.14 x100
                                                           Hips travel, ~15x
                                                           idle -- a hit
@@ -75,6 +74,42 @@ that script's five hard-won mechanisms unchanged --
                                                           identically-named
                                                           clip. Read by
                                                           nothing here.)
+
+## `move` is the RUN, and the note that used to forbid it was wrong
+
+This table said, until 2026-09-16, that `Running_withSkin.glb` was UNUSED and
+"needs a 'fleeing' signal that does not reach the renderer -- GH-152's
+blocker. Do not bind this until that signal exists." **The premise is false as
+measured, so the note is overridden rather than worked around.** A
+`sarim_rifles` has exactly ONE speed -- `data/units/enemy/sarim_rifles.json`'s
+`mobility.speed_tiles_s` is 0.9, and `MESH_UNITS_PER_TILE` is 3.0, so it
+crosses the ground at **2.7 m/s**. That is a run. There is no walk speed for a
+walk clip to be the honest picture of, so no runtime signal is needed to
+distinguish the two states: `move` IS the run, and playing a stroll over 2.7
+m/s of travel is the "walking nonchalantly" half of the project lead's
+complaint (`docs/superpowers/specs/2026-09-15-infantry-gait-design.md` sections
+2.2 and 3.2).
+
+Measured on the shipped bytes with `tools/src/mesh_gait.ts` -- boot travel over
+one `move` cycle against the ground the sim covers in that same time, where 1.0
+means the feet exactly keep up:
+
+    Walking (before)   cycle 1.0417 s   ground 2.812 m   boot 0.934 m   0.332
+    Running (after)    cycle 0.6250 s   ground 1.688 m   boot 1.357 m   0.804
+
+A 2.4x improvement, out of a clip that was already on disk. The residual under
+1.0 is what the design's D4 rate-match is for; no gait threshold is asserted
+anywhere for this asset, deliberately, because the playback rate is about to
+change and an assertion written now would have to be rewritten immediately.
+
+`Running` is also the BASE import now (it supplies the scratch mesh and
+armature every other clip is replayed onto), which is only sound because the
+supplied mesh is the same one in both files. That is measured, not assumed:
+`POSITION`/`NORMAL`/`TEXCOORD_0`/`JOINTS_0`/`WEIGHTS_0` of the 16 557-vertex
+`char1` mesh, and the 24 649 532-byte base-colour image beside it, hash
+IDENTICAL between `Walking_withSkin.glb` and `Running_withSkin.glb`. So
+`_ROLE_CENTROIDS_14` -- fit against `Walking`'s own scratch mesh -- classifies
+bit-identically either way.
 
 `Walk_Forward_While_Shooting` measured 5.53 x100 Hips travel -- real gait
 travel, disqualified from `fire`'s near-zero-Hips ceiling by the same logic
@@ -117,10 +152,25 @@ import json
 import math
 import os
 import struct
+import sys
 import tempfile
 
 import bpy
 import numpy as np
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+
+#: Three pure helpers only -- `_wrap_deg`, `_circular_mean_deg` and
+#: `_clip_frame_positions` -- shared rather than copied because none of them
+#: depends on any constant either file owns, and two implementations of a
+#: circular mean is exactly how two files come to disagree about what "the
+#: bearing" is. The three bearing functions BELOW are deliberately NOT shared:
+#: each closes over `FORWARD_FIX_DEG`, and this file owns its own, so importing
+#: the donor's would silently measure this asset through the donor's constant.
+#: (`import_meshy_civilians.py` already imports this module the same way; it
+#: has no module-level side effects, only constants and definitions.)
+import import_meshy_soldier as soldier  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 #: Corrected 2026-09-06: the supplied asset actually lives one level deeper,
@@ -152,7 +202,11 @@ CLIP_ORDER = ("idle", "move", "fire", "moveFire", "down", "wreck", "wreckAlt")
 CYCLIC_CLIPS = frozenset({"idle", "move", "moveFire"})
 
 CLIP_SOURCES = {
-    "move": "Meshy_AI_irregular_fighter_rig_biped_Animation_Walking_withSkin.glb",
+    # `Running`, not `Walking`, since 2026-09-16 -- see the module docstring's
+    # "`move` is the RUN" section for the speed that settles it and for the
+    # hashes proving the two files carry the same mesh, which is what makes
+    # this file's role classification indifferent to the swap.
+    "move": "Meshy_AI_irregular_fighter_rig_biped_Animation_Running_withSkin.glb",
     "idle": "Meshy_AI_irregular_fighter_rig_biped_Animation_Idle_02_withSkin.glb",
     "moveFire": "Meshy_AI_irregular_fighter_rig_biped_Animation_Walk_Forward_While_Shooting_withSkin.glb",
 }
@@ -181,18 +235,78 @@ FALL_SOURCE_ALT = "Meshy_AI_irregular_fighter_rig_biped_Animation_Shot_and_Fall_
 #: THIRD-AND-FOURTH instance on ITS OWN source before ever touching this
 #: table (`Side_Shot` -> hit reaction again, `Walk_Forward_While_Shooting`
 #: -> real gait, neither mapped to `fire`).
+#:
+#: `heading` and `weapon` are the SECOND and THIRD halves, added 2026-09-16 to
+#: match the shape `import_meshy_soldier.py` established -- one gate, two
+#: files, not two gates. Each is `{mean_deg, spread_deg}` in the exported
+#: file's own convention (`_exported_bearing_deg`: forward is `+X` is 0,
+#: positive is the figure's left), or `None` for exempt, and BOTH halves of
+#: each are checked because they catch different things:
+#:
+#:   * `mean_deg` catches a clip bound facing the wrong way -- the KDF
+#:     rifleman's `fire` at -156, which a Hips-travel ceiling cannot see at
+#:     all (a man standing still while shooting backwards travels zero).
+#:   * `spread_deg` catches a clip that TURNS. A mean is exactly the wrong
+#:     summary for a sweep: `Gun_Hold_Left_Turn` on the donor rig averages
+#:     -57 while sweeping 182 deg.
+#:
+#: Why BOTH bearings, and why this file's face half is not the fig leaf it is
+#: on the donor. There, `build_idle_src` yaws the hold by the circular mean of
+#: exactly the face bearings the gate then tests, so the face half is zero by
+#: construction on three clips and only the weapon half can fail. **Nothing in
+#: this file yaws anything** -- every clip is the supplied mocap, sampled -- so
+#: both halves are independent readings here and either can go red.
+#:
+#: Every ceiling below is set from a measurement of THIS asset's own sources
+#: (Blender probe, 2026-09-16), stated beside the value it bounds, and taken
+#: with `_face_bearing_deg`/`_weapon_bearing_deg` -- NOT with `measureFacing`,
+#: which reads this rig 12-17 deg differently for the reason
+#: `_face_bearing_deg` records.
 CLIP_SEMANTICS = {
     "idle": {
         "means": "standing hold, minimal motion -- the baseline every other clip is measured against.",
         "ceiling": lambda idle_travel: None,
+        # `Idle_02` measures face -1.07, spread 0.64 -- this rig's supplied
+        # hold already faces forward, which is why the donor's whole
+        # trim-and-yaw mechanism has no counterpart here and must not be
+        # ported in. 20/20 matches the donor's own idle ceiling.
+        "heading": {"mean_deg": 20.0, "spread_deg": 20.0},
+        # Measures +10.32, spread 2.67. The supplied hold is a near-axis
+        # carry, unlike the donor's, whose rifle sits 37 deg across the body
+        # and forced that file's ceiling out to 50. 25 is 2.4x the
+        # measurement and nowhere near a carry- or backwards-sized defect.
+        "weapon": {"mean_deg": 25.0, "spread_deg": 15.0},
     },
     "move": {
         "means": "a real gait cycle -- Hips travel is EXPECTED here, unlike every other clip in this table.",
         "ceiling": lambda idle_travel: None,
+        # `Running` measures face -0.10, spread 4.87 -- BETTER than the
+        # retired `Walking`, which read -2.72. A head bobs and counter-rotates
+        # through a stride, so the spread bound is looser than idle's.
+        "heading": {"mean_deg": 20.0, "spread_deg": 30.0},
+        # EXEMPT, and measured rather than waved through. The rifle is
+        # present -- it is sculpted into the one skinned mesh, in every clip
+        # -- but `Running` carries it one-handed at the side and swings that
+        # arm through the stride, so the weapon bearing spreads **203.38 deg**
+        # over the cycle. There is no single heading for a ceiling to mean
+        # anything against. (`Walking` was 148.43: also unbindable.)
+        "weapon": None,
     },
     "fire": {
         "means": "stand and shoot; recoil is upper-body only, so Hips travel must not exceed idle's own.",
         "ceiling": lambda idle_travel: idle_travel + 0.5,
+        # Synthesized from `idle`'s own last frame, so it inherits that clip's
+        # face: measures -1.39, spread 0.04 (`_FIRE_RECOIL_BONES` touches
+        # `Spine02` and the weapon-side arm, which is pitch and not yaw).
+        "heading": {"mean_deg": 20.0, "spread_deg": 15.0},
+        # Measures +7.82, spread 5.82, the spread being `_FIRE_CYCLE`'s own
+        # recoil. **This rig needs no aim solve** -- the donor's
+        # `_FIRE_AIM_BONES` exists because its carry held the weapon 36.65 deg
+        # off the face; this one's supplied hold is already within 10 deg of
+        # the axis, so there is nothing to correct and nothing was ported. 20
+        # is 2.6x the measurement, clear of the donor's -36.65 carry class and
+        # far from the +143 backwards class.
+        "weapon": {"mean_deg": 20.0, "spread_deg": 15.0},
     },
     "moveFire": {
         "means": (
@@ -201,6 +315,21 @@ CLIP_SEMANTICS = {
             "exactly like `move` -- this is NOT `fire`'s near-zero-Hips shape."
         ),
         "ceiling": lambda idle_travel: None,
+        # Measures face +24.86, spread 7.19 -- a genuinely BLADED stance,
+        # which is what a real walk-and-shoot is, and which the design doc
+        # records for this asset as "bladed but not broken" and puts out of
+        # scope. (`measureFacing` reads the same clip at +41.8 off the shipped
+        # bytes; both are right, see `_face_bearing_deg`.) So this ceiling
+        # deliberately bounds the DEFECT class -- a clip bound backwards --
+        # and not the blade. 40 is 1.6x the measurement and 140 short of it.
+        "heading": {"mean_deg": 40.0, "spread_deg": 20.0},
+        # THE CONTROL for the whole weapon half, and it was not authored as
+        # one: the supplier's own walk-and-shoot, untouched by this file,
+        # measures **-1.92 with a spread of 1.16**. A real firing gait puts
+        # the weapon on the axis of travel and blades the body behind it,
+        # which is independent evidence that `_weapon_bearing_deg` reads a
+        # weapon on this rig and not an arbitrary bone.
+        "weapon": {"mean_deg": 10.0, "spread_deg": 15.0},
     },
     "down": {
         "means": (
@@ -208,10 +337,32 @@ CLIP_SEMANTICS = {
             "(mesh-death.ts plays this before wreck) -- near-zero Hips travel, well under idle's."
         ),
         "ceiling": lambda idle_travel: max(1.0, idle_travel * 0.5),
+        # Two identical keyframes, so the spread is 0 by construction. The
+        # mean measures +1.41 -- `idle`'s own, moved 2.5 deg by
+        # `_CROUCH_BENDS`' spine and neck flexion, which is pitch not yaw.
+        "heading": {"mean_deg": 25.0, "spread_deg": 5.0},
+        # Measures +8.69, spread 0.00 -- `idle`'s carry with the torso folded
+        # on top of it.
+        "weapon": {"mean_deg": 25.0, "spread_deg": 10.0},
     },
     "wreck": {
         "means": "a HELD corpse pose -- same requirement as down: static, near-zero Hips travel.",
         "ceiling": lambda idle_travel: max(1.0, idle_travel * 0.5),
+        # EXEMPT from BOTH bearing checks, for two independent reasons, and
+        # this is not an oversight to tidy up later.
+        #
+        #   1. A body thrown round by the round that killed it lies where the
+        #      blast put it. Facing is not a property a corpse owes anyone.
+        #   2. NEITHER BEARING IS MEASURABLE on a figure lying down. Both
+        #      forward vectors are then nearly vertical, and the ground-plane
+        #      projection of a nearly-vertical vector is noise. The two
+        #      instruments bear that out on this asset the same way the donor
+        #      recorded it: `wreck` reads +80.72 here and +117.4 through
+        #      `measureFacing`, and `wreckAlt` reads -165.29 here and +140.3
+        #      there -- 37 and 54 deg apart, against 12-17 on every standing
+        #      clip. A "wider ceiling" would be gating noise.
+        "heading": None,
+        "weapon": None,
     },
     "wreckAlt": {
         "means": (
@@ -219,6 +370,9 @@ CLIP_SEMANTICS = {
             "same requirement as wreck: static, near-zero Hips travel."
         ),
         "ceiling": lambda idle_travel: max(1.0, idle_travel * 0.5),
+        # Exempt for exactly `wreck`'s two reasons; see that entry.
+        "heading": None,
+        "weapon": None,
     },
 }
 
@@ -703,17 +857,21 @@ def duplicate_figure(scratch_arm, scratch_role_meshes, prefix, dx, dy):
 def sample_clip(scratch_arm, src_action):
     """Identical to `import_meshy_soldier.py`'s own `sample_clip` -- see that
     function's docstring for why `action_slot` is reassigned explicitly
-    rather than left stale or cleared to `None`."""
+    rather than left stale or cleared to `None`.
+
+    The frame positions come from `soldier._clip_frame_positions` rather than
+    being re-derived here, which they used to be. Two callers in this file now
+    need the SAME list -- this one and `measure_clip_bearings` -- and a
+    bearing measured at one function's frame 12 has to be the pose another
+    function writes as frame 12, or the whole table below is comparing
+    different instants."""
     scratch_arm.animation_data.action = src_action
     scratch_arm.animation_data.action_slot = src_action.slots[0] if src_action.slots else None
     bpy.context.view_layer.update()
-    f0, f1 = src_action.frame_range
-    n_steps = max(1, round(f1 - f0))
     bone_names = [pb.name for pb in scratch_arm.pose.bones]
 
     frames = []
-    for step in range(n_steps + 1):
-        src_frame = f0 + (f1 - f0) * step / n_steps
+    for src_frame in soldier._clip_frame_positions(src_action):
         bpy.context.scene.frame_set(int(src_frame), subframe=src_frame - int(src_frame))
         bpy.context.view_layer.update()
         frames.append(
@@ -767,6 +925,115 @@ def write_combined_clip(merged_arm, figures, clip_name, frames, cyclic=False):
     return combined
 
 
+# --- bearings ----------------------------------------------------------
+#
+# Two ground-plane headings per frame, both expressed in the EXPORTED file's
+# own convention so a build-time number and a `tools/src/mesh_gait.ts` number
+# off the shipped bytes can be put side by side. The conversion is the two
+# fixed steps `import_meshy_soldier.py`'s own block comment derives and
+# cross-checks live: Blender is Z-up and its glTF exporter writes Y-up as
+# `(x, z, -y)`, which negates a ground bearing, and `apply_forward_fix`'s
+# wrapper node then subtracts `FORWARD_FIX_DEG` from every bearing in the
+# file.
+#
+# Cross-checked on THIS asset rather than inherited: the probe run predicted
+# `idle` at -1.07 with a spread of 0.64, and `measureFacing` reads the shipped
+# `sarim_rifles.glb`'s `idle` at +11.1 with a spread of 0.7. The SPREADS agree;
+# the MEANS differ by ~12 deg, and that offset is a property of this rig rather
+# than of the conversion -- see `_face_bearing_deg` below.
+
+
+def _exported_bearing_deg(dx, dy):
+    """A Blender WORLD ground-plane vector, as the exported file will read it.
+
+    Local, not imported, because it closes over THIS file's own
+    `FORWARD_FIX_DEG`. Both files happen to carry 90.0 today; sharing the
+    function would make that coincidence load-bearing."""
+    return soldier._wrap_deg(math.degrees(math.atan2(-dy, dx)) - FORWARD_FIX_DEG)
+
+
+def _face_bearing_deg(scratch_arm):
+    """Where the FACE points, from the currently evaluated pose.
+
+    The `Head` -> `headfront` marker pair, the supplier's own -- `headfront`
+    is a leaf marker bone in front of the skull. Same probe, same reasoning as
+    `import_meshy_soldier._face_bearing_deg`, and the two rigs really do share
+    the marker: this file's own module docstring records the identical bone
+    names and hierarchy as the first thing it verified.
+
+    **The offset from `measureFacing` is much larger here than on the KDF rig,
+    and that is a property of the ASSET, not a bug in either instrument.** The
+    shipped gate centroids the `face` ROLE MESH against the head joint; on the
+    KDF soldier that role is a whole face and the two readings agree to 1-3
+    deg, but on this rig `face` is the small visible-skin sliver at the
+    keffiyeh's eye gap (see `_FACE_ZFRAC_RANGE`), whose centroid sits off the
+    skull's own axis. Measured 2026-09-16: `idle` -1.07 here against +11.1
+    there, `moveFire` +24.86 here against +41.8 there -- 12 and 17 deg.
+    So the ceilings in `CLIP_SEMANTICS` below are set from the numbers THIS
+    function produces, and a test asserting against `measureFacing` must not
+    reuse them. `tools/src/mesh_gait.test.ts` parses the KDF table for exactly
+    that purpose and deliberately does NOT parse this one."""
+    world = scratch_arm.matrix_world
+    head = world @ scratch_arm.pose.bones["Head"].matrix.translation
+    front = world @ scratch_arm.pose.bones["headfront"].matrix.translation
+    return _exported_bearing_deg(front.x - head.x, front.y - head.y)
+
+
+def _weapon_bearing_deg(scratch_arm):
+    """Where the WEAPON points: `RightHand`'s own bone direction, head to tail.
+
+    Same definition, same justification as
+    `import_meshy_soldier._weapon_bearing_deg` -- read that one for why a
+    hand-to-hand vector and a mesh-centroid pair were both measured and
+    rejected. The rifle here is likewise sculpted into the one skinned mesh
+    and carries no `weapon` rl_role of its own (the module comment above
+    `_ROLE_CENTROIDS_14` records that it shades through `webbing`), so it
+    cannot be isolated by role and the bearing comes off the rig.
+
+    VALIDATED INDEPENDENTLY ON THIS RIG, not inherited. `moveFire` is the
+    supplier's own authored `Walk_Forward_While_Shooting`, untouched by
+    anything in this file, and it measures **-1.92 deg with a spread of
+    1.16** on this axis -- a real walk-and-shoot puts the weapon on the axis
+    of travel, so a proxy reading zero there is reading a weapon. Its FACE
+    over the same frames sits at +24.86, which is the blade. Same result the
+    KDF rig gave (+0.31 / 1.63), from a different mocap.
+
+    NOT meaningful on `move`: `Running` carries the rifle one-handed at the
+    side and swings that arm through the stride, so this measures a pumping
+    arm. Spread over the cycle: **203.38 deg**. (The retired `Walking` source
+    was no better -- 148.43.) Hence `CLIP_SEMANTICS['move']['weapon']` is
+    `None`."""
+    world = scratch_arm.matrix_world
+    pb = scratch_arm.pose.bones["RightHand"]
+    grip = world @ pb.matrix.translation
+    muzzle = world @ pb.tail
+    return _exported_bearing_deg(muzzle.x - grip.x, muzzle.y - grip.y)
+
+
+def measure_clip_bearings(scratch_arm, action):
+    """Replays `action` and returns `(face, weapon)`, one bearing per frame.
+
+    Sampled at exactly `sample_clip`'s own frame positions -- both call
+    `soldier._clip_frame_positions`, which is the single definition, so an
+    index into either list is the same frame as the same index into
+    `sample_clip`'s output.
+
+    Reassigns `action_slot` explicitly for the reason `sample_clip`'s own
+    docstring records: this function READS pose values back through
+    `frame_set` without writing a keyframe, so a stale slot left bound by a
+    previous action silently freezes every reading at that action's pose."""
+    scratch_arm.animation_data.action = action
+    scratch_arm.animation_data.action_slot = action.slots[0] if action.slots else None
+    bpy.context.view_layer.update()
+    face, weapon = [], []
+    for src_frame in soldier._clip_frame_positions(action):
+        bpy.context.scene.frame_set(int(src_frame), subframe=src_frame - int(src_frame))
+        bpy.context.view_layer.update()
+        face.append(_face_bearing_deg(scratch_arm))
+        weapon.append(_weapon_bearing_deg(scratch_arm))
+    return face, weapon
+
+
 def _hips_world_z_travel(frames, hips_rest, arm_world):
     """Identical to `import_meshy_soldier.py`'s own `_hips_world_z_travel`."""
     from mathutils import Matrix, Quaternion, Vector  # noqa: PLC0415
@@ -780,11 +1047,52 @@ def _hips_world_z_travel(frames, hips_rest, arm_world):
     return (max(zs) - min(zs)) * 100.0
 
 
-def check_clip_semantics(frames_by_clip, hips_rest, arm_world):
-    """Identical to `import_meshy_soldier.py`'s own `check_clip_semantics`."""
+def check_clip_semantics(frames_by_clip, hips_rest, arm_world, bearings_by_clip):
+    """Identical to `import_meshy_soldier.py`'s own `check_clip_semantics`:
+    enforces `CLIP_SEMANTICS`' numeric halves at BUILD time, before any of the
+    expensive downstream work (duplicate x3, seven-way export, GLB merge)
+    runs. Raises loudly, naming the clip, the measured number, the ceiling and
+    the entry's own `means`, rather than passing a build whose motion
+    contradicts its own clip name.
+
+    `bearings_by_clip` is `{clip: (face_list, weapon_list)}` from
+    `measure_clip_bearings`. THREE independent checks, and each exists because
+    the one before it was blind to a real defect that shipped on this project:
+
+      * Hips travel -- "does this clip move the body when it should not". It
+        cannot see a figure standing perfectly still while facing 156 deg away
+        from what it is shooting: that travels exactly zero.
+      * FACE bearing, mean and spread -- the mean catches a clip bound facing
+        the wrong way, the spread catches a clip that TURNS.
+      * WEAPON bearing, mean and spread -- because a face reading says nothing
+        about where the rifle points, and the complaint this work answers is
+        "shooting with their faces not in front of the gun". On this rig both
+        halves are independent readings of supplied mocap; see
+        `CLIP_SEMANTICS`' own comment for why that is NOT true of the donor
+        script and what it had to add to compensate.
+
+    Exemptions are `None` in the table and are printed by name on the passing
+    path, the way `pnpm validate:meshes` prints its own -- never silent."""
     travel = {name: _hips_world_z_travel(frames_by_clip[name], hips_rest, arm_world) for name in CLIP_ORDER}
     idle_travel = travel["idle"]
     print("Hips world-z travel x100, by clip:", {k: round(v, 3) for k, v in travel.items()})
+
+    stats = {}
+    for name in CLIP_ORDER:
+        face, weapon = bearings_by_clip[name]
+        stats[name] = {
+            "heading": soldier._circular_mean_deg(face),
+            "weapon": soldier._circular_mean_deg(weapon),
+        }
+    print("bearings deg (exported convention, +X = 0, + is the figure's left), by clip:")
+    for name in CLIP_ORDER:
+        line = []
+        for kind in ("heading", "weapon"):
+            mean, lo, hi = stats[name][kind]
+            label = "face" if kind == "heading" else "weapon"
+            line.append(f"{label} {mean:+7.2f} [{lo:+7.2f},{hi:+7.2f}] spread {hi - lo:6.2f}")
+        gap = soldier._wrap_deg(stats[name]["weapon"][0] - stats[name]["heading"][0])
+        print(f"  {name:10s} {'   '.join(line)}   face-to-weapon gap {gap:+7.2f}")
 
     for name in CLIP_ORDER:
         ceiling = CLIP_SEMANTICS[name]["ceiling"](idle_travel)
@@ -793,6 +1101,25 @@ def check_clip_semantics(frames_by_clip, hips_rest, arm_world):
                 f"{name}: Hips travel {travel[name]:.3f} exceeds {ceiling:.3f} -- "
                 f"CLIP_SEMANTICS['{name}']['means'] = {CLIP_SEMANTICS[name]['means']!r}"
             )
+        for kind, label in (("heading", "face"), ("weapon", "weapon")):
+            bound = CLIP_SEMANTICS[name][kind]
+            mean, lo, hi = stats[name][kind]
+            if bound is None:
+                print(f"  {name}: {label} bearing NOT gated (exempt) -- "
+                      f"mean {mean:+.1f} deg, spread {hi - lo:.1f} deg")
+                continue
+            if abs(mean) > bound["mean_deg"]:
+                raise RuntimeError(
+                    f"{name}: {label} bearing {mean:+.1f} deg exceeds "
+                    f"+-{bound['mean_deg']:.1f} deg -- "
+                    f"CLIP_SEMANTICS['{name}']['means'] = {CLIP_SEMANTICS[name]['means']!r}"
+                )
+            if hi - lo > bound["spread_deg"]:
+                raise RuntimeError(
+                    f"{name}: {label} bearing sweeps {hi - lo:.1f} deg "
+                    f"([{lo:+.1f},{hi:+.1f}]) exceeds {bound['spread_deg']:.1f} deg -- "
+                    f"CLIP_SEMANTICS['{name}']['means'] = {CLIP_SEMANTICS[name]['means']!r}"
+                )
     return travel
 
 
@@ -970,7 +1297,11 @@ def merge_clip_glbs(clip_paths, out_path, forward_fix_deg=0.0):
 def main():
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
-    # --- 1. import: base rig from Walking, then idle, the moving-fire gait,
+    # --- 1. import: base rig from Running (the `move` source -- it brings the
+    # mesh and the armature every other clip is replayed onto, and it carries
+    # byte-identical geometry and texture to the retired Walking source, which
+    # is what makes `_ROLE_CENTROIDS_14` indifferent to the swap), then idle,
+    # the moving-fire gait,
     # and both fall clips.
     scratch_arm, scratch_mesh, move_src = import_base_clip(
         os.path.join(SRC_DIR, CLIP_SOURCES["move"]), "move_src"
@@ -1022,9 +1353,13 @@ def main():
     frames_by_clip = {
         clip_name: sample_clip(scratch_arm, src_by_clip[clip_name]) for clip_name in CLIP_ORDER
     }
+    bearings_by_clip = {
+        clip_name: measure_clip_bearings(scratch_arm, src_by_clip[clip_name])
+        for clip_name in CLIP_ORDER
+    }
 
     # --- 6.5. enforce CLIP_SEMANTICS before any expensive downstream work --
-    check_clip_semantics(frames_by_clip, hips_rest, arm_world)
+    check_clip_semantics(frames_by_clip, hips_rest, arm_world, bearings_by_clip)
 
     # --- 7. delete every `*_src` action BEFORE duplicating/renaming --------
     # See `import_meshy_soldier.py`'s own `main()` for the full account of
