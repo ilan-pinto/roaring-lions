@@ -258,21 +258,27 @@ falls through to the same immediate removal every clipless vehicle takes.
 
 ### 4. Byte growth is a few KB per file, not "a few hundred bytes"
 
-§4.1's estimate was wrong and this is the correction, measured on all eleven:
+§4.1's estimate was wrong and this is the correction. Measured on the SHIPPED
+bytes against `30d1867`, the last commit before any vehicle carried a wreck —
+the table here first carried Task 1's pre-tuning dry run, which is a different
+set of matrices and therefore a different JSON packing:
 
 | vehicle | before | growth | |
 |---|---:|---:|---:|
-| `apc_eitan` | 1,872,556 | +3,236 | +0.2 % |
-| `apc_kipod` | 23,324 | +2,880 | **+12.3 %** |
-| `dozer_d9` | 277,888 | +2,512 | +0.9 % |
-| `heli_peten` | 1,683,616 | +1,992 | +0.1 % |
-| `ifv_namer` | 2,072,536 | +1,896 | +0.1 % |
-| `jeep_shoded` | 2,086,048 | +2,000 | +0.1 % |
-| `mbt_lavi` | 2,829,548 | +1,896 | +0.1 % |
+| `apc_eitan` | 1,872,556 | +3,220 | +0.2 % |
+| `apc_kipod` | 23,324 | +2,860 | **+12.3 %** |
+| `dozer_d9` | 277,888 | +2,500 | +0.9 % |
+| `heli_peten` | 1,683,616 | +2,004 | +0.1 % |
+| `ifv_namer` | 2,072,536 | +1,892 | +0.1 % |
+| `jeep_shoded` | 2,086,048 | +1,988 | +0.1 % |
+| `mbt_lavi` | 2,829,548 | +1,892 | +0.1 % |
 | `paramotor` | 3,532,440 | +1,940 | +0.1 % |
-| `rocket_battery` | 3,106,116 | +1,996 | +0.1 % |
-| `scout_shachaf` | 14,848 | +2,200 | **+14.8 %** |
-| `technical` | 3,040,236 | +2,248 | +0.1 % |
+| `rocket_battery` | 3,106,116 | +1,988 | +0.1 % |
+| `scout_shachaf` | 14,848 | +2,188 | **+14.7 %** |
+| `technical` | 3,040,236 | +2,244 | +0.1 % |
+
+Range **+1,892…+3,220 bytes**. The charring change that followed moved none of
+it: colour is a runtime material treatment and the pass did not re-run.
 
 It is still a node graph and not a buffer, and still nothing beside the
 1.6–3.4 MiB the duplication alternative would have cost. But a per-file byte
@@ -386,3 +392,18 @@ improvement on the sheet: **a turret thrown ALONG the hull stays inside the
 vehicle's own silhouette.** Photographed at zoom 2.2 the Lavi read as an intact
 tank with the gun sticking out. Thrown ACROSS the hull at 0.45 of its length it
 clears the flank and reads as a separate object lying in the sand.
+
+### 9. The Peten's pose is accepted as it stands
+
+**The lead's call on the sheet, 2026-09-15.** A rotor disc is one rigid mesh
+4.1 units across, so it STANDS whichever way the fuselage tilts — the wreck's
+height goes as the half-span times the sine of the tilt, and there is no angle
+that both bends the rotor visibly and keeps a downed helicopter lower than a
+flying one. What distinguishes the two on screen is therefore the charring, the
+lost `AIR_LIFT_PX` (0.357 world units), the stopped rotor — `updateVehicleMeshes`
+advances `rotorPhase` only for a living entity, so a wreck's blades hold still
+where a live Peten's spin — and the modest 10-degree lean. The follow-up, if
+anyone wants a downed helicopter to read as broken rather than as parked, is a
+per-vehicle override laying the disc FLAT against the ground (a rotor seat group
+of its own, seated like the thrown turret), which is a `WreckRecipe` field and
+a branch in the pass rather than a new number.

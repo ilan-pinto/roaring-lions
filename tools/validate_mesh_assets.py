@@ -372,16 +372,21 @@ def load_mesh_masks(out_dir, palette_path):
         that the render camera cropped the subject -- true for a pose framed
         on its own bounds, false here by design. The camera is fitted to the
         LIVE vehicle and held, which is the only way `IoU(live, wreck)`
-        means anything; a thrown turret (`TURRET_SHIFT` 0.25 of the hull's
-        length) or a collapsed canopy (`CANOPY_SHIFT` 0.6) is SUPPOSED to be
-        able to leave that square. Cropping is what makes the two masks
+        means anything; a turret thrown ACROSS the hull (`TURRET_SHIFT`
+        0.45 of its length, at right angles to the axis it runs along) or a
+        collapsed canopy (`CANOPY_SHIFT` 0.6) is SUPPOSED to be able to
+        leave that square. Cropping is what makes the two masks
         comparable here, so a check that forbids it would be reporting the
         method as a defect.
 
-    What the wreck mask IS held to is the two checks below, plus the shared
-    `va.MIN_FILL` floor inside `check_wreck_distinct` -- see that function
-    for why an unfilled wreck is the one failure the distinctness check
-    cannot see on its own.
+    What the wreck mask IS held to is the three checks below --
+    `check_wreck_census`, `check_wreck_distinct` and
+    `check_wreck_collisions` -- plus the `WRECK_MIN_FILL_RATIO` floor inside
+    the second of them, which is a fraction of the unit's OWN live mask
+    rather than of the frame. See that function for why an unfilled wreck is
+    the one failure the distinctness check cannot see on its own, and
+    `WRECK_MIN_FILL_RATIO` itself for why an absolute share of the frame was
+    measuring the unit instead of the wreck.
     """
     failures = []
     masks = {}
@@ -658,8 +663,12 @@ def check_wreck_collisions(wreck_masks, mesh_masks, sprite_masks, sheets):
     The headroom on what IS compared is worth knowing before retuning any
     recipe. Re-measured 2026-09-15 after the recipe was tuned: the tightest
     shipped pair is `scout_shachaf`'s wreck against `rocket_battery`'s LIVE
-    mesh at **0.8242**, 0.056 under the limit, then `ifv_namer`'s wreck
-    against the `KIPOD_HULL` sprite at 0.8044. The tuning IMPROVED this --
+    mesh at **0.8242**, 0.056 under the limit, then the SAME wreck against
+    `apc_kipod`'s live mesh at 0.8104, then `ifv_namer`'s wreck against the
+    `KIPOD_HULL` sprite at 0.8044. That `scout_shachaf` owns the two tightest
+    pairs is the reading, not a coincidence: it is the smallest, plainest hull
+    in the fleet, its wreck is one of the three with nothing thrown off it,
+    and a canted featureless box resembles every other canted box. The tuning IMPROVED this --
     before it the tightest was `ifv_namer` vs `apc_kipod` at 0.8488, with
     0.031 of headroom -- because every wreck moved further from its own
     parade pose and therefore from everything else's. The general warning

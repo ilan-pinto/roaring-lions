@@ -111,10 +111,16 @@ export const WRECK_FRACTIONS = {
    * 6 -> 12. The one number that makes a turretless hull read as dead:
    * `apc_kipod`, `jeep_shoded` and `scout_shachaf` have nothing thrown off
    * them and nothing else in this table touches their silhouette. Not pushed
-   * higher because a rigid roll necessarily raises the far side -- the wreck's
-   * top stands `width * sin(roll)` higher than the live model's, 0.4-0.7 units
-   * at 12 degrees, and past about 15 it starts reading as a vehicle parked on
-   * a slope rather than a wrecked one.
+   * higher because a rigid roll necessarily raises the far side: the wreck's
+   * top stands up to `width * sin(roll)` higher than the live model's, and
+   * past about 15 degrees it starts reading as a vehicle parked on a slope
+   * rather than a wrecked one. That ceiling is an UPPER BOUND and most
+   * vehicles are nowhere near it -- measured at 12 degrees over the five
+   * turretless hulls, the wreck's top gains `apc_kipod` +0.67, `jeep_shoded`
+   * +0.40, `dozer_d9` +0.39, `scout_shachaf` +0.19, `rocket_battery` +0.05
+   * world units. What separates them is how much of the body sits ABOVE the
+   * roll axis: a tall box gains the full `width * sin`, a long flat one
+   * almost nothing.
    */
   HULL_ROLL_DEG: 12,
   /**

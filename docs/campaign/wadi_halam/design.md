@@ -1057,13 +1057,19 @@ MDD records a quarter). It is a
 mesh GLB: gate `pnpm validate:meshes`, pipeline `tools/vehicles/kit.py` →
 `tools/export_mesh_vehicle.py`, owner `blender-art`.
 
-**And on `?renderer=pixi`, `gun_truck` is the only Act III unit that draws
-*better* than it does on three** — every mesh vehicle in the town has no death
-state (`art/meshes/vehicles/*.glb` declare zero animations), so a destroyed
-`technical` on the default renderer goes mesh → intact 2D sprite fading → 2D wreck
-in half a second. That is a known engine debt (CLAUDE.md, "Known scaling debts"),
-it is not Act III's to fix, and Act III is the town where it is most visible
-because the Rif roster is almost entirely vehicles.
+~~**And on `?renderer=pixi`, `gun_truck` is the only Act III unit that draws
+*better* than it does on three**~~ — **closed 2026-09-15, and the reading has
+inverted.** It said every mesh vehicle in the town had no death state
+(`art/meshes/vehicles/*.glb` declaring zero animations), so a destroyed
+`technical` on the default renderer went mesh → intact 2D sprite fading → 2D
+wreck in half a second. All eleven vehicle GLBs carry a `death_root` and the
+clips `idle`/`wreck` now (`pnpm wreck:meshes`), and `units/mesh-vehicle-death.ts`
+fades a dying vehicle into a persistent charred 3D wreck — so on `three` a
+destroyed `technical` leaves a slumped, burnt hull with its gun thrown clear,
+and it is PIXI that now draws the worse of the two. Act III is still the town
+where this is most visible, because the Rif roster is almost entirely vehicles;
+it is just visible the right way round. See CLAUDE.md's "Known scaling debts"
+mesh-vehicle-death paragraph.
 
 ### 8.2 Structures — all PRESENT
 

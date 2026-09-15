@@ -160,10 +160,11 @@ MESH node. Design:
 is the one deliberate exception to "a node owns its geometry" in this document,
 and it is a size decision with a measurement behind it: the eight Meshy-sourced
 vehicles are 1.6–3.4 MiB each, and duplicating a buffer to pose it differently
-would have cost that again per file. Sharing costs **+1896…+3236 bytes** for
+would have cost that again per file. Sharing costs **+1,892…+3,220 bytes** for
 the whole feature — the node graph, the clips and three accessors — which is
-+0.1 % on the Meshy files and +12–15 % on the two small palette ones
-(`apc_kipod` 23,324 B, `scout_shachaf` 14,848 B). A downstream byte ceiling on
++0.1 % on the Meshy files and +12.3 % / +14.7 % on the two small palette ones
+(`apc_kipod` 23,324 B, `scout_shachaf` 14,848 B). Measured on the shipped bytes
+against `30d1867`, the last commit before any vehicle carried a wreck. A downstream byte ceiling on
 this pass therefore wants to be about 4 KB and must not be a percentage.
 `validate_mesh_assets.py` fails a wreck child whose mesh no live node
 references, because a half-applied pass that copies geometry looks identical on

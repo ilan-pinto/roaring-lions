@@ -1061,7 +1061,7 @@ it compares `window.localStorage.length` before and after, and both are
   reference **the same `Mesh` objects** their live twins do, displaced by a recipe
   (`wreck-recipes.ts`), plus the two constant-scale clips `idle` and `wreck`
   (1/0 and 0/1) the infantry rigs already ship. Sharing the meshes is why all
-  eleven files grew by **+1896…+3236 bytes** rather than by a copy of a 1.6–3.4
+  eleven files grew by **+1892…+3220 bytes** rather than by a copy of a 1.6–3.4
   MiB buffer. The pass is idempotent and re-runnable after a re-export; the Draco
   mirror is re-encoded in the same commit.
   Four things about it are worth knowing before touching any of it.
