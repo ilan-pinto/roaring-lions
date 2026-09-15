@@ -2033,7 +2033,6 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-debrief__who { display: block; margin-top: 2px; font-style: normal; color: var(--ink-dim); }
 .rl-debrief__grid { display: grid; grid-template-columns: 6em 1fr; gap: 2px 12px; margin: 10px 0; }
 .rl-debrief__grid dt { color: var(--ink-dim); }
-.rl-debrief__conduct { color: var(--commend); }
 .rl-debrief__credits { color: var(--commend); }
 /* The account of the taken, the same ink the board's own line takes. */
 .rl-debrief__taken { margin: 0 0 8px; color: var(--ink); }
