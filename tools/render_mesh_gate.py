@@ -153,6 +153,15 @@ STRUCTURES_PATH = os.path.join(REPO, "data", "structures.json")
 SIZE = 256
 SAMPLES = 64
 
+# The wreck contract's death-root node name -- `DEATH_ROOT` in
+# `tools/src/meshes/wreck-pass.ts`, and `DEATH_ROOT_NODE` in
+# `tools/validate_mesh_assets.py`, which checks the contract from the bytes.
+# Restated rather than imported for the same reason every table in this file
+# is: this module runs inside Blender and can import neither. See
+# `hide_death_root` below for what it is used for and why hiding is not
+# enough on its own.
+DEATH_ROOT_NAME = "death_root"
+
 # unit id -> rl_role -> palette key, for the vehicle kit's closed role
 # vocabulary (tools/vehicles/kit.py's ROLES). Hand-copied from each vehicle's
 # own render_*.py ROLE_PALETTE rather than imported -- see this file's module
@@ -372,6 +381,168 @@ def apply_idle_pose():
         bpy.context.view_layer.update()
 
 
+def hide_death_root(objs, glb_path):
+    """Take `death_root` and everything under it out of the LIVE render --
+    the vehicle analogue of `apply_idle_pose` above, which is a no-op for a
+    model with no armature and so never did anything for a vehicle at all.
+
+    Every `art/meshes/vehicles/*.glb` carries a wreck since 2026-09-15
+    (`pnpm wreck:meshes`; spec 4.1): a `death_root` node whose `WRECK_*`
+    children reference the SAME meshes as the live parts, displaced into a
+    slumped pose. In the game it is invisible because the `idle` clip scales
+    it to zero at frame 0 -- and **Blender's importer evaluates that clip
+    too**, which is the opposite of what this docstring claimed when it was
+    written and matters to anyone reading it. Measured on all eleven
+    (Blender 5.2, slotted actions): `import_scene.gltf` builds an `idle`
+    action with one slot per animated node, assigns it, and the scene's
+    frame 1 drives `death_root` to scale **(0, 0, 0)**. A bare import does
+    NOT put the wreck on screen -- a render with the subtree re-linked and
+    nothing else changed comes back fully transparent.
+
+    What it DOES corrupt is the framing, and that is the whole reason this
+    function exists. `render_rig.world_bounds()` walks
+    `bpy.context.scene.objects` and transforms each `obj.bound_box` by
+    `matrix_world` with no visibility test at all. The clip keys the scale of
+    the death root -- an EMPTY, which has no geometry and is not what
+    `world_bounds` reads -- but every `WRECK_*` MESH under it INHERITS that
+    zero through its own `matrix_world`, and a zero matrix maps all eight of
+    that child's `bound_box` corners onto the death root's origin. So it is
+    the children, one collapsed point each, that stretch the framed bounds to
+    include `(0, 0, 0)` while rendering nothing.
+    Measured: three of the eleven have live bounds that do not already
+    contain the origin (`apc_eitan` z 0.03, `apc_kipod` z 0.11,
+    `scout_shachaf` z 0.09, all pulled to 0.00) and those are exactly the
+    three whose silhouette mask moved when this was added; the other eight
+    sit on z = 0 already and were byte-identical.
+
+    `hide_render` alone is therefore not enough, because it is not a
+    visibility problem: `world_bounds` would read the collapsed box either
+    way. So the subtree is UNLINKED from every collection. Unlinked, not
+    deleted: the objects stay in `bpy.data`, so `render_vehicle_wreck` below
+    re-links them for the wreck-only render rather than re-importing the file
+    -- which is also what makes the two renders share one camera.
+
+    `objs` is the scene's mesh objects, passed in only so the caller's own
+    `mesh_objs` list can be filtered in step -- the death root itself is an
+    EMPTY and is not in it, but its children are, and leaving them in that
+    list would send `apply_vehicle_materials` at geometry that is no longer
+    in the scene.
+
+    Returns (kept_objs, stashed), where `stashed` is a list of
+    `(object, [collections it was unlinked from])` -- the collections are
+    recorded rather than assumed so the restore is exact, and the OBJECTS
+    rather than their names because `render_vehicle_wreck` has to re-link and
+    repaint them.
+
+    **An empty result is a failure, not a quiet pass.** Every shipped vehicle
+    carries a death root since 2026-09-15, and this function running over a
+    file with none would have meant one of two things, both of which need to
+    be loud: the wreck pass was skipped for that file (which
+    `check_vehicle_wrecks` catches from the bytes, but only for the two
+    directories it walks), or the node was renamed on the export side and
+    every wreck check downstream is silently measuring nothing.
+    """
+    roots = [o for o in bpy.context.scene.objects if o.name == DEATH_ROOT_NAME]
+    stashed = []
+    for root in roots:
+        for obj in [root] + list(root.children_recursive):
+            obj.hide_render = True
+            obj.hide_viewport = True
+            colls = list(obj.users_collection)
+            for coll in colls:
+                coll.objects.unlink(obj)
+            stashed.append((obj, colls))
+    if not stashed:
+        # A path outside the repo (a throwaway copy under a falsification's
+        # temp directory) keeps its absolute form rather than a wall of `../`.
+        shown = os.path.relpath(glb_path, REPO)
+        if shown.startswith(os.pardir):
+            shown = glb_path
+        raise SystemExit(
+            f"{shown}: no {DEATH_ROOT_NAME!r} node -- every "
+            f"vehicle must carry a wreck (`pnpm wreck:meshes`; spec 4.1). Without one "
+            f"there is nothing for the wreck render or its distinctness floor to judge, "
+            f"and a vehicle that dies in the game simply vanishes"
+        )
+    hidden = {obj for obj, _ in stashed}
+    live = [o for o in objs if o not in hidden]
+    return live, stashed
+
+
+def render_vehicle_wreck(unit_id, stashed, out_dir):
+    """Render the wreck ALONE, through the camera the live render was already
+    framed with, to `<out_dir>/wreck_f00_000.png`.
+
+    The camera is the point. `validate_mesh_assets.py` compares this mask
+    against the live one and requires them to differ by a measured floor
+    (`WRECK_MIN_DISTINCT`), so the two photographs have to be of the same
+    scene from the same place -- reframing on the wreck's own bounds would
+    rescale a slumped hull back up to fill the square and the comparison
+    would be between two croppings rather than between two poses. So
+    `frame_camera` is NOT called again here: the caller has already fitted
+    the rig to the LIVE bounds and nothing below touches it.
+
+    The swap is the mirror image of `hide_death_root`'s. There, the wreck had
+    to leave the scene entirely because `render_rig.world_bounds()` reads
+    `obj.bound_box` with no visibility test and would have framed the
+    collapsed box. Here there is no framing left to inflate, so the live half
+    only needs `hide_render`.
+
+    **The death root arrives at scale zero and has to be put back.** The
+    importer assigns the `idle` action and the scene's own frame drives
+    `death_root` to (0, 0, 0) -- see `hide_death_root`'s docstring for the
+    measurement. Re-linking a zero-scaled empty renders nothing at all, and
+    an EMPTY wreck mask would sail through a check that only asks "does the
+    wreck differ from the live pose", so this is a silent-pass hazard rather
+    than a visible one. It is undone by clearing the animation and writing
+    scale 1 back, on the objects that actually carry animation data -- the
+    death root, and nothing else. Deliberately not by switching the action
+    to `wreck`: that would make this render depend on the very clip
+    `validate_mesh_assets.check_vehicle_wrecks` is separately pinning from
+    the bytes, and a gate should not read its subject through its subject.
+    The wreck CHILDREN are left alone, because their scale is authored by
+    the pass (`setMatrix`) and no clip keys them.
+
+    Palette: the wreck children carry their live twins' `rl_role` (the pass
+    copies each node's extras and adds `rl_wreck`), so
+    `apply_vehicle_materials` paints them from exactly the same
+    `VEHICLE_ROLE_PALETTES` row. **The runtime's charring is therefore
+    invisible to this gate** -- it is a material treatment the renderer
+    applies to anything marked `rl_wreck` (spec 4.3), and nothing here reads
+    that flag. What this render is for is the wreck's SHAPE; the colour is a
+    stand-in, the same way a repainted textured building is, and
+    `validate_mesh_assets.py` says so on its passing path.
+    """
+    for obj in bpy.context.scene.objects:
+        if obj.type in ("MESH", "EMPTY"):
+            obj.hide_render = True
+
+    wreck_meshes = []
+    for obj, colls in stashed:
+        for coll in colls:
+            coll.objects.link(obj)
+        obj.hide_render = False
+        obj.hide_viewport = False
+        if obj.animation_data is not None:
+            obj.animation_data_clear()
+            obj.scale = (1.0, 1.0, 1.0)
+        if obj.type == "MESH":
+            wreck_meshes.append(obj)
+    bpy.context.view_layer.update()
+
+    if not wreck_meshes:
+        raise SystemExit(
+            f"{unit_id}: {DEATH_ROOT_NAME!r} carries no mesh geometry -- an empty death "
+            f"root draws nothing at all when the vehicle dies"
+        )
+
+    apply_vehicle_materials(wreck_meshes, unit_id)
+    out_path = os.path.join(out_dir, "wreck_f00_000.png")
+    bpy.context.scene.render.filepath = out_path
+    bpy.ops.render.render(write_still=True)
+    return out_path
+
+
 def _material_cache_shader(cache, key):
     if key not in cache:
         cache[key] = render_team._shader(  # noqa: SLF001 -- intentional reuse, see module docstring.
@@ -478,6 +649,7 @@ def render_one(glb_path, out_root):
     if not mesh_objs:
         raise SystemExit(f"{unit_id}: no mesh geometry after import -- nothing to render")
 
+    stashed = []
     if kind == "infantry":
         faction, sheet = team_registry_entry(unit_id)
         if faction is None:
@@ -489,6 +661,16 @@ def render_one(glb_path, out_root):
         render_team.apply_materials(mesh_objs, faction, casualty=False)
         apply_idle_pose()
     elif kind == "vehicle":
+        # BEFORE materials and before framing, both of which would otherwise
+        # take the wreck into account -- see `hide_death_root`'s own docstring
+        # for why `hide_render` alone does not do it.
+        mesh_objs, stashed = hide_death_root(mesh_objs, glb_path)
+        print(f"MESH_GATE_WARN: {unit_id}: hid {len(stashed)} death-root "
+              f"object(s) for the live render: {[o.name for o, _ in stashed]}")
+        if not mesh_objs:
+            raise SystemExit(
+                f"{unit_id}: every mesh object is under {DEATH_ROOT_NAME!r} -- "
+                f"nothing live left to render")
         apply_vehicle_materials(mesh_objs, unit_id)
     else:
         apply_building_materials(mesh_objs, unit_id)
@@ -513,6 +695,16 @@ def render_one(glb_path, out_root):
     bpy.context.scene.render.filepath = out_path
     bpy.ops.render.render(write_still=True)
     print(f"MESH_GATE_OK: {unit_id} ({kind}) -> {out_path}")
+
+    if stashed:
+        # SECOND render, same camera, same rig, same palette table: the wreck
+        # with the live half hidden. Deliberately after the live one and
+        # after `frame_camera`, so the only thing that differs between the
+        # two photographs is which half of the file is visible -- which is
+        # what makes `IoU(live, wreck)` a measurement of the recipe rather
+        # than of two croppings.
+        wreck_path = render_vehicle_wreck(unit_id, stashed, out_dir)
+        print(f"MESH_GATE_OK: {unit_id} ({kind}-wreck) -> {wreck_path}")
 
 
 def main():

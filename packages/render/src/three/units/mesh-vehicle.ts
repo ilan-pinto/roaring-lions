@@ -9,7 +9,8 @@
  * turret can rotate independently of the hull, where infantry's `metal`
  * role joins into ONE mesh across the whole figure.
  *
- * ## Animation, and the "no clips" case that is still every shipped asset
+ * ## Animation, and the "no clips" case that is now only the fixture and
+ * `&nomesh` path
  *
  * This module ALSO builds an `AnimationMixer` now, which it did not
  * originally -- the header used to read "no `AnimationMixer`, no clips",
@@ -19,10 +20,12 @@
  * not move and a dozer's blade could not lift even if a GLB authored the
  * motion. The engine half is now here.
  *
- * The asset half has NOT changed: every shipped `art/meshes/vehicles/*.glb`
- * still declares zero `animations` and zero skins. That case is the one
- * this module is most careful about, because it is the case that must look
- * identical to before: a template built from a clipless GLB carries an
+ * The asset half HAS changed since (2026-09-15, the wreck pass): every
+ * shipped `art/meshes/vehicles/*.glb` now declares exactly `idle` and
+ * `wreck` -- two constant scale clips that swap the live body for the
+ * `death_root` copy -- and still zero skins. The CLIPLESS case remains the
+ * one this module is most careful about, because it is the case that must
+ * look identical to before: a template built from a clipless GLB carries an
  * empty `clips` map, and `instantiateVehicleMesh` then allocates **no
  * mixer at all** (`mixer: null`, `actions` empty). No mixer means no
  * `mixer.update` per frame, no actions to switch, and nothing that can
@@ -53,8 +56,8 @@ import * as THREE from 'three';
 import { gltfLoader } from './gltf-loader';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import type { ClipName } from '../../sheet';
-import { rampMaterial, texturedMaterial } from '../world-materials';
-import { isVehicleMeshRole, rampForVehicleRole } from './vehicle-mesh-role';
+import { charredTexturedMaterial, rampMaterial, texturedMaterial } from '../world-materials';
+import { CHARRED_RAMP, isVehicleMeshRole, rampForVehicleRole } from './vehicle-mesh-role';
 import { isMeshClipName, MESH_SCALE } from './mesh-anim';
 import type { ClipPlayer } from './mesh-clip';
 import { HULL_RENDER_ORDER, TURRET_RENDER_ORDER } from './render-order';
@@ -97,6 +100,24 @@ const PIVOT_ROLE = 'turret';
 const ROTOR_PIVOT_NODE_NAME = 'rotor_pivot';
 const ROTOR_PIVOT_ROLE = 'rotor';
 
+/**
+ * The wreck half of the vehicle asset contract (spec §4.1), written by
+ * `tools/src/meshes/wreck-pass.ts`: ONE extra top-level node holding one
+ * `WRECK_<name>` child per live mesh node, each referencing the SAME glTF
+ * mesh its twin does and carrying that twin's extras plus `rl_wreck: true`.
+ *
+ * `GLTFLoader` gives two nodes that share a glTF mesh two distinct
+ * `THREE.Mesh` objects over ONE `BufferGeometry` and, on a textured export,
+ * ONE `THREE.Material` -- which is why `buildVehicleMeshTemplate` below
+ * dedupes BOTH lists by object identity. What keeps a wreck's material
+ * distinct from its twin's is not the absence of dedup (this comment claimed
+ * that until the fix round, and it was wrong): it is that
+ * `charredTexturedMaterial` returns a CLONE, so the two are different
+ * objects and identity dedup keeps both.
+ */
+export const VEHICLE_DEATH_ROOT_NAME = 'death_root';
+const WRECK_NODE_PREFIX = 'WRECK_';
+
 /** `{part}_` prefix -> the render-order band its meshes draw at, per the
  *  contract: "Render order is per-mesh... hull parts at HULL_RENDER_ORDER,
  *  turret parts at TURRET_RENDER_ORDER, keyed off the `{part}_` prefix."
@@ -105,7 +126,12 @@ const ROTOR_PIVOT_ROLE = 'rotor';
  *  the safer of the two bands: it loses a render-order tie to a turret rather
  *  than winning one it has no claim to. */
 function renderOrderForPart(meshName: string): number {
-  if (meshName.startsWith('turret_')) return TURRET_RENDER_ORDER;
+  // A wreck copy is the same PART as its twin, so it belongs in the same
+  // band: `WRECK_turret_metal` is a turret. Stripping the prefix first is
+  // what keeps that true -- without it every wreck mesh, turret included,
+  // fell through to `HULL_RENDER_ORDER`.
+  const part = meshName.startsWith(WRECK_NODE_PREFIX) ? meshName.slice(WRECK_NODE_PREFIX.length) : meshName;
+  if (part.startsWith('turret_')) return TURRET_RENDER_ORDER;
   return HULL_RENDER_ORDER;
 }
 
@@ -117,15 +143,52 @@ export interface VehicleMeshTemplate {
   /**
    * Every clip this GLB authored, keyed by its canonical `ClipName`.
    *
-   * **Empty for every shipped vehicle today** -- all nine
-   * `art/meshes/vehicles/*.glb` declare zero `animations` -- and an empty
-   * map is the load-bearing case, not a degenerate one: it is what tells
-   * `instantiateVehicleMesh` to allocate no mixer at all. See this module's
-   * own top comment.
+   * **Every shipped vehicle now carries exactly `idle` and `wreck`** (the
+   * wreck pass, 2026-09-15) -- this said "empty for every shipped vehicle
+   * today" until then. The EMPTY map is still the load-bearing case to keep
+   * working, not a degenerate one: it is what tells `instantiateVehicleMesh`
+   * to allocate no mixer at all, it is what `&nomesh` and any future
+   * un-passed export land on, and it is what `hasWreck: false` means. See
+   * this module's own top comment.
    */
   readonly clips: ReadonlyMap<ClipName, THREE.AnimationClip>;
+  /**
+   * Every material this template owns and disposes exactly once -- one per
+   * DISTINCT OBJECT, deduped by identity, exactly like `geometries` below.
+   *
+   * Sharing here is real and arrives from TWO directions, and the list said
+   * "one per MESH, never deduped" until 2026-09-15, which was false on every
+   * shipped textured vehicle. `mbt_lavi.glb`'s four live meshes all reference
+   * glTF material 0, so `GLTFLoader` builds ONE `THREE.Material` for all four
+   * and `texturedMaterial` hands that same object straight back -- the live
+   * path pushed it four times and `disposeVehicleMeshTemplate` disposed it
+   * four times. (The palette path allocates a fresh `rampMaterial` per mesh,
+   * which is why the fixture-driven tests could not see it.) The wreck half
+   * shares the same way: `charredTexturedMaterial` is memoised per ORIGINAL
+   * material inside `buildVehicleMeshTemplate`, so four wreck meshes over one
+   * bake get ONE charred clone between them rather than four identical ones.
+   *
+   * What must never be deduped is a wreck material against its LIVE twin's:
+   * they reference one glTF material and the whole point of the copy is that
+   * one is charred and the other is not. Identity dedup gets that right for
+   * free -- the charred clone is a different object. See
+   * `VEHICLE_DEATH_ROOT_NAME`.
+   */
   readonly materials: readonly THREE.Material[];
+  /** Every DISTINCT `BufferGeometry` this template owns, deduped by object
+   *  identity -- the same rule as `materials` above, for the same reason: a
+   *  wreck copy shares its twin's geometry, and disposing one object twice
+   *  is a real bug rather than a harmless repeat. */
   readonly geometries: readonly THREE.BufferGeometry[];
+  /** True when this vehicle's GLB carries the `wreck` clip -- i.e. the wreck
+   *  pass has run on it and there is a death pose to settle into. The ONE
+   *  gate the renderer's whole death hand-off turns on: `addWreck` steps
+   *  aside, the billboard death fade is skipped, and the prune loop hands
+   *  the entity to `mesh-vehicle-death.ts` only for a type where this is
+   *  true. A vehicle without it keeps the billboard path byte for byte
+   *  (CLAUDE.md's own trap: excluding every vehicle template unconditionally
+   *  deletes the sprite wreck and leaves nothing behind). */
+  readonly hasWreck: boolean;
   /** True when this vehicle's GLB carries a `turret_pivot` node -- a dozer
    *  or a hull-only type legitimately has none (`dozer_d9.glb` today), and
    *  that is not an error: it simply means this vehicle's turret facing is
@@ -183,12 +246,71 @@ export function buildVehicleMeshTemplate(
 
   const materials: THREE.Material[] = [];
   const geometries: THREE.BufferGeometry[] = [];
+  // Deduped by IDENTITY, not by contents: a `WRECK_` node and its live twin
+  // reference one glTF mesh, so `GLTFLoader` hands back two `THREE.Mesh`
+  // objects over one `BufferGeometry`, and pushing it twice would have
+  // `disposeVehicleMeshTemplate` dispose the same object twice.
+  const seenGeometries = new Set<THREE.BufferGeometry>();
+  const addGeometry = (g: THREE.BufferGeometry): void => {
+    if (seenGeometries.has(g)) return;
+    seenGeometries.add(g);
+    geometries.push(g);
+  };
+  // Same rule for materials, and it is not merely defensive: every shipped
+  // textured vehicle shares ONE `THREE.Material` across all of its live
+  // meshes (one glTF material, four meshes on `mbt_lavi`), so an un-deduped
+  // list disposes that object once per mesh. See `VehicleMeshTemplate.
+  // materials`.
+  const seenMaterials = new Set<THREE.Material>();
+  const addMaterial = (m: THREE.Material): void => {
+    if (seenMaterials.has(m)) return;
+    seenMaterials.add(m);
+    materials.push(m);
+  };
+  /**
+   * The charred clone for one loaded bake, built at most once per template.
+   *
+   * Keyed on the ORIGINAL material rather than on the mesh, because that is
+   * the thing that is actually shared: four `WRECK_` meshes over one glTF
+   * material would otherwise get four byte-identical charred clones, each
+   * its own GPU upload. Keyed on the original rather than on the NORMALISED
+   * one only because they are the same object for every real bake
+   * (`texturedMaterial` returns its argument when it is already a
+   * `MeshStandardMaterial`, which is every `GLTFLoader` PBR material) -- and
+   * where they are not, the memo simply misses and mints a second clone,
+   * which is still correct because `addMaterial` records each distinct one.
+   */
+  const charredByOriginal = new Map<THREE.Material, THREE.MeshStandardMaterial>();
+  const charredFor = (loaded: THREE.Material): THREE.MeshStandardMaterial => {
+    const existing = charredByOriginal.get(loaded);
+    if (existing) return existing;
+    const charred = charredTexturedMaterial(loaded);
+    charredByOriginal.set(loaded, charred);
+    return charred;
+  };
   const unmapped = new Set<string>();
   const smuggled = new Set<string>();
   let pivotNode: THREE.Object3D | null = null;
   let rotorPivotNode: THREE.Object3D | null = null;
 
   root.traverse((o) => {
+    if (o.name === VEHICLE_DEATH_ROOT_NAME) {
+      // A living vehicle draws no wreck, and the clips alone are not enough
+      // to say so: `idle` keys the death root's SCALE to 0, and a scale-0
+      // mesh is still SUBMITTED -- three.js frustum-culls on a bounding
+      // sphere that collapses to a point at the vehicle's own position,
+      // which is in frustum, so every shipped vehicle would carry 4-8 draw
+      // calls that rasterise nothing (Task 2's own report measured the
+      // shape). `visible = false` is what three.js actually prunes on: it
+      // skips the whole subtree in `projectObject` and never reaches a
+      // child. Set on the TEMPLATE, so `clone(true)` (which copies
+      // `.visible`) hands every future instance the same state for free;
+      // `mesh-vehicle-death.ts` is the only thing that ever sets it back.
+      o.visible = false;
+      // NOT `return`-ing past the mesh branch below: `Object3D.traverse`
+      // ignores what this callback returns and still walks the children, and
+      // the children are exactly the wreck meshes that need charring.
+    }
     if (o.name === PIVOT_NODE_NAME) {
       pivotNode = o;
       return;
@@ -209,8 +331,25 @@ export function buildVehicleMeshTemplate(
 
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
+    // The wreck branch, and it is deliberately a MODIFIER on whichever
+    // branch this mesh's twin takes rather than a branch of its own (spec
+    // §4.3, as restated by the plan header for the lit renderer): a palette
+    // wreck is `rampMaterial(CHARRED_RAMP)` and a textured one is a tinted
+    // clone of the same normalised bake. Everything else about the mesh --
+    // shadows, render-order band, the role validation below -- is exactly
+    // what its live twin gets, because it IS its live twin's geometry.
+    const isWreck = (mesh.userData as { rl_wreck?: unknown }).rl_wreck === true;
     const extrasRole = (mesh.userData as { rl_role?: unknown }).rl_role;
-    const role = typeof extrasRole === 'string' && extrasRole.length > 0 ? extrasRole : mesh.name;
+    // The name-only fallback strips `WRECK_` for the same reason
+    // `renderOrderForPart` does: a wreck copy's ROLE is its twin's role, and
+    // `WRECK_hull` is not in the vocabulary. The shipped files never reach
+    // this (the wreck pass copies its twin's extras, `rl_role` included, and
+    // `validate_mesh_assets.py` requires them), but a twin authored with a
+    // name and no extras would otherwise fail on its wreck alone.
+    const nameRole = isWreck && mesh.name.startsWith(WRECK_NODE_PREFIX)
+      ? mesh.name.slice(WRECK_NODE_PREFIX.length)
+      : mesh.name;
+    const role = typeof extrasRole === 'string' && extrasRole.length > 0 ? extrasRole : nameRole;
 
     // The per-MESH textured opt-out -- see `units/mesh-building.ts`'s
     // identical block for the full reasoning, restated here only where it
@@ -226,13 +365,15 @@ export function buildVehicleMeshTemplate(
         smuggled.add(role || '(unnamed mesh)');
         return;
       }
-      const textured = texturedMaterial(loaded as THREE.Material);
+      const textured = isWreck
+        ? charredFor(loaded as THREE.Material)
+        : texturedMaterial(loaded as THREE.Material);
       mesh.material = textured;
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       mesh.renderOrder = renderOrderForPart(mesh.name);
-      materials.push(textured);
-      geometries.push(mesh.geometry);
+      addMaterial(textured);
+      addGeometry(mesh.geometry);
       return;
     }
 
@@ -244,13 +385,18 @@ export function buildVehicleMeshTemplate(
     // as a flat albedo (`rampMaterial`, `../world-materials.ts`); specular
     // response now comes from the shared `WORLD_ROUGHNESS`/metalness against
     // the scene's real sun, not a per-material opt-in.
-    const mat = rampMaterial(rampForVehicleRole(vehicleId, role));
+    //
+    // A wreck part takes `CHARRED_RAMP` whatever its role is -- see that
+    // constant's own doc comment. The role is still validated above, because
+    // a wreck copy whose role is outside this vehicle's own table means the
+    // pass copied extras from a node this module could not have drawn either.
+    const mat = rampMaterial(isWreck ? CHARRED_RAMP : rampForVehicleRole(vehicleId, role));
     mesh.material = mat;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.renderOrder = renderOrderForPart(mesh.name);
-    materials.push(mat);
-    geometries.push(mesh.geometry);
+    addMaterial(mat);
+    addGeometry(mesh.geometry);
   });
 
   if (smuggled.size > 0) {
@@ -279,6 +425,7 @@ export function buildVehicleMeshTemplate(
     clips,
     materials,
     geometries,
+    hasWreck: clips.has('wreck'),
     hasTurretPivot: pivotNode !== null,
     hasRotorPivot: rotorPivotNode !== null,
   };
@@ -307,8 +454,9 @@ export interface VehicleMeshEntity extends ClipPlayer {
   readonly root: THREE.Object3D;
   /**
    * This clone's own mixer, or `null` when its GLB authored no clips --
-   * which is every shipped vehicle today, and the case that must cost
-   * nothing. `null` is not "not yet built": it is final for this entity's
+   * no longer any shipped vehicle (the wreck pass gives all eleven `idle`
+   * and `wreck`), but still the case that must cost nothing when it occurs.
+   * `null` is not "not yet built": it is final for this entity's
    * whole life, because clip presence is a property of the template it was
    * cloned from. Callers gate their whole per-frame animation block on it
    * (`ThreeRenderer.updateVehicleMeshes`) so a clipless vehicle never even
@@ -341,6 +489,24 @@ export interface VehicleMeshEntity extends ClipPlayer {
    *  tracks no target and needs no base/rest position to kick away from and
    *  return to, so there is no `rotorPivotBase` counterpart. */
   readonly rotorPivot: THREE.Object3D | null;
+  /** THIS clone's own `death_root` node, or `null` for a GLB the wreck pass
+   *  has not run on. Invisible for as long as the vehicle lives (set on the
+   *  template, inherited by `clone(true)`); `mesh-vehicle-death.ts` is the
+   *  one thing that ever reveals it. */
+  readonly deathRoot: THREE.Object3D | null;
+  /**
+   * This clone's top-level LIVE nodes -- every scene-root child except
+   * `deathRoot`.
+   *
+   * Captured here, at instantiation, rather than re-derived at death, and
+   * that timing is the point: by the time a vehicle dies its root has picked
+   * up a silhouette child per live mesh (`attachMeshSilhouette` adds them as
+   * SIBLINGS), so a `children.filter(...)` taken then would answer a
+   * different, larger set. These are the nodes the `wreck` clip scales to
+   * zero, and the nodes the death path then hides outright -- a scale-0 mesh
+   * is still submitted to the GPU.
+   */
+  readonly liveTop: readonly THREE.Object3D[];
 }
 
 /**
@@ -393,7 +559,29 @@ export function instantiateVehicleMesh(template: VehicleMeshTemplate, typeId: st
     }
   }
 
-  return { typeId, root, mixer, actions, currentClip: null, turretPivot, turretPivotBase, rotorPivot };
+  // The live/dead split of the scene roots, taken BEFORE anything else can
+  // add a child (see `VehicleMeshEntity.liveTop`). One pass over 4-8
+  // children, not a `traverse`: the contract puts `death_root` at the top
+  // level and nowhere else.
+  let deathRoot: THREE.Object3D | null = null;
+  const liveTop: THREE.Object3D[] = [];
+  for (const child of root.children) {
+    if (child.name === VEHICLE_DEATH_ROOT_NAME) deathRoot = child;
+    else liveTop.push(child);
+  }
+
+  return {
+    typeId,
+    root,
+    mixer,
+    actions,
+    currentClip: null,
+    turretPivot,
+    turretPivotBase,
+    rotorPivot,
+    deathRoot,
+    liveTop,
+  };
 }
 
 /**
@@ -404,7 +592,9 @@ export function instantiateVehicleMesh(template: VehicleMeshTemplate, typeId: st
  * only `disposeVehicleMeshTemplate` (below) owns those. Mirrors
  * `mesh-unit.ts`'s `disposeMeshUnitEntity` exactly.
  *
- * A safe no-op for a clipless entity, which is every shipped vehicle: there
+ * A safe no-op for a clipless entity -- no longer any shipped vehicle (the
+ * 2026-09-15 wreck pass gave all eleven `idle` and `wreck`), but still the
+ * state `&nomesh` and any un-passed re-export are in: there
  * is no mixer to stop, and there never was one to leak. This function did
  * not exist at all before vehicles could animate -- `mesh-vehicle.ts`'s own
  * header used to say so ("there is no per-entity disposal function here at

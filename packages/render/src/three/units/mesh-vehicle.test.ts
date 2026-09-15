@@ -6,6 +6,7 @@ import {
   instantiateVehicleMesh,
   disposeVehicleMeshEntity,
   disposeVehicleMeshTemplate,
+  VEHICLE_DEATH_ROOT_NAME,
 } from './mesh-vehicle';
 import { applyMeshClip } from './mesh-clip';
 import { MESH_SCALE } from './mesh-anim';
@@ -24,7 +25,15 @@ describe('buildVehicleMeshTemplate', () => {
     });
     const template = buildVehicleMeshTemplate(gltf, 'mbt_lavi');
     expect(template.materials).toHaveLength(2);
-    expect(template.geometries).toHaveLength(2);
+    // ONE geometry, not two, and this changed on 2026-09-15: `geometries` is
+    // deduped by object identity now, because the wreck pass gives a
+    // `WRECK_` node and its live twin the same glTF mesh and disposing one
+    // `BufferGeometry` twice is a real bug. This fixture reuses a single
+    // accessor set across every part, which `GLTFLoader` caches, so its two
+    // meshes have always shared one geometry -- the old `toHaveLength(2)`
+    // was counting pushes, not objects. A real vehicle GLB, whose parts
+    // carry their own accessors, is unaffected either way.
+    expect(template.geometries).toHaveLength(1);
     expect(template.hasTurretPivot).toBe(true);
     expect(template.root.scale.x).toBeCloseTo(MESH_SCALE);
 
@@ -255,10 +264,93 @@ describe('disposeVehicleMeshEntity', () => {
     expect(entity.mixer?.existingAction(template.clips.get('move') as THREE.AnimationClip)).toBeNull();
   });
 
-  it('is a safe no-op for a clipless entity -- every shipped vehicle today', async () => {
+  it('is a safe no-op for a clipless entity -- no shipped vehicle since the wreck pass, but nomesh and any un-passed export', async () => {
     const gltf = await parseRigidFixture({ parts: [{ nodeName: 'hull_hull', extrasRole: 'hull' }] });
     const template = buildVehicleMeshTemplate(gltf, 'dozer_d9');
     const entity = instantiateVehicleMesh(template, 'dozer_d9');
     expect(() => disposeVehicleMeshEntity(entity)).not.toThrow();
+  });
+});
+
+/**
+ * The FIXTURE's own `deathRoot` option, checked against the asset contract it
+ * stands in for (spec §4.1) rather than against the runtime that consumes it
+ * -- if the fixture drifts from what `tools/src/meshes/wreck-pass.ts` writes,
+ * every test built on it is measuring the wrong asset.
+ */
+describe('rigid-mesh-fixture deathRoot', () => {
+  it('parses through the real GLTFLoader with the contract shape: shared meshes, twin extras, rl_wreck', async () => {
+    const gltf = await parseRigidFixture({
+      parts: [
+        { nodeName: 'hull_hull', extrasRole: 'hull' },
+        { nodeName: 'turret_metal', extrasRole: 'metal' },
+      ],
+      clipNames: ['idle', 'wreck'],
+      deathRoot: { parts: ['hull_hull', 'turret_metal'] },
+    });
+
+    const deathRoot = gltf.scene.getObjectByName(VEHICLE_DEATH_ROOT_NAME);
+    expect(deathRoot).toBeDefined();
+    expect(deathRoot?.children.map((c) => c.name)).toEqual(['WRECK_hull_hull', 'WRECK_turret_metal']);
+
+    const live = gltf.scene.getObjectByName('hull_hull') as THREE.Mesh;
+    const wreck = gltf.scene.getObjectByName('WRECK_hull_hull') as THREE.Mesh;
+    // The whole point of the pass: a node, not a buffer.
+    expect(wreck.geometry).toBe(live.geometry);
+    expect(wreck.userData.rl_wreck).toBe(true);
+    expect(wreck.userData.rl_role).toBe('hull');
+    expect(live.userData.rl_wreck).toBeUndefined();
+    // A displacement of its own, so a wreck copy is never merely its twin.
+    expect(wreck.position.y).not.toBe(live.position.y);
+  });
+
+  it('emits the two clips as constant STEP scale channels over every live root and the death root', async () => {
+    const gltf = await parseRigidFixture({
+      parts: [
+        { nodeName: 'hull_hull', extrasRole: 'hull' },
+        { nodeName: 'turret_metal', extrasRole: 'metal' },
+      ],
+      clipNames: ['idle', 'wreck'],
+      deathRoot: { parts: ['hull_hull', 'turret_metal'] },
+    });
+
+    const names = gltf.animations.map((c) => c.name).sort();
+    expect(names).toEqual(['idle', 'wreck']);
+    for (const clip of gltf.animations) {
+      // Live top-level roots + the death root: 2 + 1 here.
+      expect(clip.tracks).toHaveLength(3);
+      for (const track of clip.tracks) {
+        expect(track.name.endsWith('.scale')).toBe(true);
+        expect(track.getInterpolation()).toBe(THREE.InterpolateDiscrete);
+        // Constant across the clip -- a held pose, never a transition.
+        const half = track.values.length / 2;
+        expect([...track.values].slice(0, half)).toEqual([...track.values].slice(half));
+      }
+    }
+
+    // And the sense of it: idle shows the live body, wreck shows the wreck.
+    const trackFor = (clipName: string, node: string) => {
+      const clip = gltf.animations.find((c) => c.name === clipName);
+      return clip?.tracks.find((t) => t.name === `${node}.scale`);
+    };
+    expect(trackFor('idle', 'hull_hull')?.values[0]).toBe(1);
+    expect(trackFor('idle', VEHICLE_DEATH_ROOT_NAME)?.values[0]).toBe(0);
+    expect(trackFor('wreck', 'hull_hull')?.values[0]).toBe(0);
+    expect(trackFor('wreck', VEHICLE_DEATH_ROOT_NAME)?.values[0]).toBe(1);
+  });
+
+  it('emits the nodes but NO clips when the pair is not asked for -- a legal, hasWreck-false shape', async () => {
+    const gltf = await parseRigidFixture({
+      parts: [{ nodeName: 'hull_hull', extrasRole: 'hull' }],
+      deathRoot: { parts: ['hull_hull'] },
+    });
+    expect(gltf.scene.getObjectByName(VEHICLE_DEATH_ROOT_NAME)).toBeDefined();
+    expect(gltf.animations).toHaveLength(0);
+  });
+
+  it('refuses a deathRoot naming a part that does not exist', async () => {
+    await expect(
+      parseRigidFixture({ parts: [{ nodeName: 'hull_hull' }], deathRoot: { parts: ['nope'] } })
+    ).rejects.toThrow(/not one of the parts/);
   });
 });

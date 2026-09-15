@@ -9,12 +9,14 @@
  * Simpler than `mesh-fixture.ts` throughout: no skin, no joints/weights, and
  * -- unless `clipNames` asks for them -- no animations either, which is
  * exactly what `mesh-unit-contract.md` v2 pins for buildings ("no armature,
- * no skin, no clips") and what all nine shipped vehicle GLBs carry today.
- * `clipNames` exists because a vehicle GLB *may* carry rigid node-animation
- * clips even though none does yet, and the engine half of that path
- * (`mesh-vehicle.ts`) has to be exercisable before any asset ships one --
- * otherwise the only proof the code works arrives with the art, which is
- * the wrong order. One shared triangle's `POSITION`/`NORMAL`/
+ * no skin, no clips"). It was also what every shipped VEHICLE carried until
+ * 2026-09-15; the wreck pass gave all eleven `idle` and `wreck`, so the
+ * clipless shape below is now a fixture-only case -- which is the point of
+ * keeping it, since `&nomesh` and any un-passed re-export still land on it
+ * and no shipped file exercises it any more. `clipNames` was written before
+ * any asset shipped a clip, so that the engine half of that path
+ * (`mesh-vehicle.ts`) could be exercised first rather than arriving with the
+ * art. One shared triangle's `POSITION`/`NORMAL`/
  * indices accessors are reused across every mesh node the caller asks for --
  * legal glTF (multiple meshes may reference the same accessor), and there is
  * nothing about role/pivot resolution that depends on distinct geometry.
@@ -110,25 +112,75 @@ export interface RigidFixtureOpts {
    * and a test that cannot tell those apart is not testing clip selection.
    * Give it as many parts as clips to get one distinct motion each.
    *
-   * OMITTING this is the case every shipped `art/meshes/vehicles/*.glb`
-   * is in today -- all nine declare zero animations -- and when it is
-   * omitted this fixture emits NO `animations` key and no extra accessors,
-   * so the bytes are identical to what it produced before clips existed.
+   * OMITTING this is the case NO shipped `art/meshes/vehicles/*.glb` is in
+   * any more -- all eleven declare `idle` and `wreck` since the wreck pass
+   * (2026-09-15) -- so it is reachable only through `&nomesh` and an
+   * un-passed re-export. When it is omitted this fixture emits NO
+   * `animations` key and no extra accessors, so the bytes are identical to
+   * what it produced before clips existed.
+   *
+   * With `deathRoot` set, `idle` and `wreck` stop being rotation clips and
+   * become the wreck pass's own constant SCALE clips instead (see that
+   * option's doc comment); every other name keeps the rotation channel
+   * described above.
    */
   clipNames?: readonly string[];
+  /**
+   * The wreck half of the vehicle asset contract (spec §4.1), as
+   * `tools/src/meshes/wreck-pass.ts` actually writes it: one extra top-level
+   * node `death_root`, holding one `WRECK_<part>` child per NAMED part that
+   * references the SAME `mesh` index its live twin does and carries that
+   * twin's extras plus `rl_wreck: true`.
+   *
+   * Sharing the mesh index rather than emitting a second one is the whole
+   * point of the real pass (an eleven-file, 25 MB art tree could not afford
+   * duplicated geometry), and it is what makes the runtime's own
+   * bookkeeping interesting: `GLTFLoader` hands back two distinct
+   * `THREE.Mesh` objects that share one `BufferGeometry`, which is exactly
+   * the case `buildVehicleMeshTemplate` has to dedupe.
+   *
+   * The two clips are emitted only when `clipNames` contains BOTH `idle` and
+   * `wreck`, because the contract is the pair: `idle` keys every top-level
+   * live node's scale to 1 and `death_root`'s to 0, `wreck` the reverse,
+   * both as two-keyframe STEP channels. A `deathRoot` with no such clip
+   * names is still legal here and emits the nodes alone -- the shape a GLB
+   * would have if the pass ran and the clip half were dropped.
+   */
+  deathRoot?: { parts: string[] };
 }
+
+/** The wreck pass's own node name and child prefix, restated here rather
+ *  than imported from `tools/` (a `packages/render` test may not reach into
+ *  the tools tree). `mesh-vehicle.test.ts` pins them against
+ *  `VEHICLE_DEATH_ROOT_NAME`, the runtime's own copy. */
+const FIXTURE_DEATH_ROOT = 'death_root';
+const FIXTURE_WRECK_PREFIX = 'WRECK_';
+/** The wreck clips' second keyframe time -- `wreck-pass.ts`'s own
+ *  `CLIP_SECONDS`. Short enough that nothing reads a held pose as an
+ *  animated collapse. */
+const FIXTURE_CLIP_SECONDS = 0.1;
 
 export function buildRigidFixtureGlb(opts: RigidFixtureOpts): ArrayBuffer {
   const position = f32([-0.1, 0, 0, 0.1, 0, 0, 0, 0, 0.2]);
   const normal = f32([0, 1, 0, 0, 1, 0, 0, 1, 0]);
   const indices = u16([0, 1, 2]);
   const clipNames = opts.clipNames ?? [];
+  // The wreck pass writes the two clips as a PAIR or not at all, so the
+  // fixture emits them the same way -- a lone `wreck` with no `idle` is not
+  // a shape any asset can be in.
+  const wreckClips =
+    opts.deathRoot !== undefined && clipNames.includes('idle') && clipNames.includes('wreck');
   // Quaternion (x,y,z,w) keys: identity at t=0, 90 deg about X at t=1 --
   // the same two-key rotation track `mesh-fixture.ts` uses for the skinned
   // case, retargeted from a bone to a part node.
   const HALF = Math.SQRT1_2;
   const animParts: Uint8Array[] =
     clipNames.length > 0 ? [f32([0, 1]), f32([0, 0, 0, 1, HALF, 0, 0, HALF])] : [];
+  if (wreckClips) {
+    // A second time input (the pass's own 0.1 s hold) and the two constant
+    // VEC3 scale outputs every channel of both clips shares.
+    animParts.push(f32([0, FIXTURE_CLIP_SECONDS]), f32([1, 1, 1, 1, 1, 1]), f32([0, 0, 0, 0, 0, 0]));
+  }
   const { bytes, views } = packBufferViews([position, normal, indices, ...animParts]);
   const bufferViews = views.map((v) => ({ buffer: 0, byteOffset: v.byteOffset, byteLength: v.byteLength }));
   const accessors: unknown[] = [
@@ -142,18 +194,16 @@ export function buildRigidFixtureGlb(opts: RigidFixtureOpts): ArrayBuffer {
       { bufferView: 4, componentType: 5126, count: 2, type: 'VEC4' } // 4 anim output (quaternions)
     );
   }
-  const animations =
-    clipNames.length > 0
-      ? {
-          animations: clipNames.map((name, i) => ({
-            name,
-            channels: [
-              { sampler: 0, target: { node: i % opts.parts.length, path: 'rotation' } },
-            ],
-            samplers: [{ input: 3, output: 4, interpolation: 'LINEAR' }],
-          })),
-        }
-      : {};
+  const SCALE_TIME = 5;
+  const SCALE_SHOWN = 6;
+  const SCALE_HIDDEN = 7;
+  if (wreckClips) {
+    accessors.push(
+      { bufferView: 5, componentType: 5126, count: 2, type: 'SCALAR' }, // 5 scale-clip input
+      { bufferView: 6, componentType: 5126, count: 2, type: 'VEC3' }, // 6 scale 1,1,1
+      { bufferView: 7, componentType: 5126, count: 2, type: 'VEC3' } // 7 scale 0,0,0
+    );
+  }
 
   const meshes = opts.parts.map((p) => ({
     name: p.nodeName,
@@ -172,7 +222,7 @@ export function buildRigidFixtureGlb(opts: RigidFixtureOpts): ArrayBuffer {
   });
 
   const nodes: unknown[] = [...partNodes];
-  const sceneRoots = partNodes.map((_, i) => i);
+  let roots = partNodes.map((_, i) => i);
 
   if (opts.pivot) {
     const pivotIdx = nodes.length;
@@ -183,21 +233,71 @@ export function buildRigidFixtureGlb(opts: RigidFixtureOpts): ArrayBuffer {
     });
     // Pivot children are no longer scene roots -- they hang off the pivot.
     const childSet = new Set(opts.pivot.pivotChildren);
-    const roots = sceneRoots.filter((i) => !childSet.has(i));
+    roots = roots.filter((i) => !childSet.has(i));
     roots.push(pivotIdx);
-    const json = {
-      asset: { version: '2.0' },
-      buffers: [{ byteLength: bytes.byteLength }],
-      bufferViews,
-      accessors,
-      meshes,
-      nodes,
-      scenes: [{ nodes: roots }],
-      scene: 0,
-      ...animations,
-    };
-    return packGlb(json, bytes);
   }
+
+  // Every scene root that is NOT the death root -- the set both clips key to
+  // 1 (`idle`) and to 0 (`wreck`), and the set `mesh-vehicle.ts` records as
+  // an entity's `liveTop`.
+  const liveTopIndices = [...roots];
+  let deathRootIdx = -1;
+  if (opts.deathRoot) {
+    const byName = new Map(opts.parts.map((p, i) => [p.nodeName, i]));
+    const wreckChildIndices: number[] = [];
+    for (const partName of opts.deathRoot.parts) {
+      const partIdx = byName.get(partName);
+      if (partIdx === undefined) {
+        throw new Error(`rigid-mesh-fixture: deathRoot names "${partName}", which is not one of the parts`);
+      }
+      const twin = partNodes[partIdx] as { extras?: Record<string, unknown> };
+      wreckChildIndices.push(nodes.length);
+      nodes.push({
+        name: `${FIXTURE_WRECK_PREFIX}${partName}`,
+        // The SAME mesh index its live twin uses -- no second geometry.
+        mesh: partIdx,
+        extras: { ...(twin.extras ?? {}), rl_wreck: true },
+        // A token displacement, so a wreck copy is not merely its twin at
+        // the identity: the real pass bakes `D x W` into this matrix.
+        translation: [0, -0.05, 0],
+      });
+    }
+    deathRootIdx = nodes.length;
+    nodes.push({ name: FIXTURE_DEATH_ROOT, children: wreckChildIndices });
+    roots.push(deathRootIdx);
+  }
+
+  const rotationClip = (name: string, i: number) => ({
+    name,
+    channels: [{ sampler: 0, target: { node: i % opts.parts.length, path: 'rotation' } }],
+    samplers: [{ input: 3, output: 4, interpolation: 'LINEAR' }],
+  });
+
+  /** The pass's own shape: one sampler per output, shared by every channel
+   *  that wants it, so the pair costs three accessors between them. */
+  const scaleClip = (name: string, liveOut: number, deadOut: number) => ({
+    name,
+    channels: [
+      ...liveTopIndices.map((node) => ({ sampler: 0, target: { node, path: 'scale' } })),
+      { sampler: 1, target: { node: deathRootIdx, path: 'scale' } },
+    ],
+    samplers: [
+      { input: SCALE_TIME, output: liveOut, interpolation: 'STEP' },
+      { input: SCALE_TIME, output: deadOut, interpolation: 'STEP' },
+    ],
+  });
+
+  const animations =
+    clipNames.length > 0
+      ? {
+          animations: clipNames.map((name, i) => {
+            if (!wreckClips) return rotationClip(name, i);
+            if (name === 'idle') return scaleClip(name, SCALE_SHOWN, SCALE_HIDDEN);
+            if (name === 'wreck') return scaleClip(name, SCALE_HIDDEN, SCALE_SHOWN);
+            return rotationClip(name, i);
+          }),
+        }
+      : {};
 
   const json = {
     asset: { version: '2.0' },
@@ -206,7 +306,7 @@ export function buildRigidFixtureGlb(opts: RigidFixtureOpts): ArrayBuffer {
     accessors,
     meshes,
     nodes,
-    scenes: [{ nodes: sceneRoots }],
+    scenes: [{ nodes: roots }],
     scene: 0,
     ...animations,
   };

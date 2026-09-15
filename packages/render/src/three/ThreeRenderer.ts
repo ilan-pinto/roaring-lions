@@ -256,6 +256,7 @@ import {
   type MeshWreck,
   type MeshDeathEnv,
 } from './units/mesh-death';
+import { beginVehicleDeath, stepVehicleDeath, type DyingVehicle } from './units/mesh-vehicle-death';
 import { beginMeshEvac, stepMeshEvac, type DepartingMeshUnit } from './units/mesh-evac';
 import type { MeshFaction } from './units/mesh-role';
 /** Re-exported so `app` can name the side a mesh unit fights for without
@@ -1229,14 +1230,19 @@ export class ThreeRenderer implements Renderer {
    */
   private readonly vehicleMeshTemplates = new Map<string, VehicleMeshTemplate>();
   /** One `VehicleMeshEntity` per living entity of a vehicle-mesh-enabled
-   *  type, keyed by entity id -- pooled across frames like `meshUnitEntities`,
-   *  but torn down and removed IMMEDIATELY on death rather than handed to a
-   *  fade sequence: every shipped `art/meshes/vehicles/*.glb` carries zero
-   *  `down`/`wreck` clips (there is no animation at all), so there is no
-   *  pose for a vehicle fade to hold, unlike infantry's `meshDying`/
-   *  `meshWrecks`. See this task's own report for why that gap is left open
-   *  rather than closed here. */
+   *  type, keyed by entity id -- pooled across frames like `meshUnitEntities`.
+   *  On death it is handed to `vehicleDying` when its template carries the
+   *  `wreck` clip, and torn down immediately when it does not (the state
+   *  every shipped vehicle was in before the 2026-09-15 wreck pass). */
   private readonly vehicleMeshEntities = new Map<number, VehicleMeshEntity>();
+  /** Vehicles mid-death-fade -- the rigid counterpart of `meshDying`, a
+   *  separate array for the same reason `meshDeparting` is: the two
+   *  sequences share no state and step through different code
+   *  (`units/mesh-vehicle-death.ts`). Not keyed by entity id, for the reason
+   *  `meshUnitEntities`'s own doc comment gives. Their WRECKS are not
+   *  separate: a finished vehicle wreck is pushed into `meshWrecks` above,
+   *  so one cap and one fog rule cover both asset classes. */
+  private readonly vehicleDying: DyingVehicle[] = [];
 
   /**
    * Building meshes (mesh-unit-contract v2). One `BuildingMeshTemplate` per
@@ -1959,8 +1965,10 @@ export class ThreeRenderer implements Renderer {
     // `meshUnitEntities`/`meshUnitTemplates` just above already follow.
     // A `VehicleMeshEntity` now owns its own mixer WHEN its GLB carried
     // clips (`mesh-vehicle.ts`'s own top comment) -- `disposeVehicleMesh
-    // Entity` releases it, and is a no-op for the clipless case every
-    // shipped vehicle is in. Its per-entity material clone situation is
+    // Entity` releases it, and is a no-op for the clipless case, which since
+    // the wreck pass (2026-09-15) is no shipped vehicle: all eleven carry
+    // `idle` and `wreck`, so all eleven allocate a mixer and this loop
+    // releases one each. Its per-entity material clone situation is
     // unchanged: there is none, so the shared resources below are still
     // disposed exactly once.
     for (const entity of this.vehicleMeshEntities.values()) {
@@ -1968,6 +1976,17 @@ export class ThreeRenderer implements Renderer {
       disposeVehicleMeshEntity(entity);
     }
     this.vehicleMeshEntities.clear();
+    // Vehicles mid-death-fade own the identical per-entity material clone
+    // infantry's `meshDying` does (`beginVehicleDeath` calls the same
+    // `beginMeshDeathFade`), so they need the identical restore-then-dispose
+    // before their shared template resources go below. Their finished
+    // WRECKS need nothing here: they live in `meshWrecks`, already emptied.
+    for (const d of this.vehicleDying) {
+      endMeshDeathFade(d.swaps);
+      this.scene.remove(d.entity.root);
+      disposeVehicleMeshEntity(d.entity);
+    }
+    this.vehicleDying.length = 0;
     for (const template of this.vehicleMeshTemplates.values()) disposeVehicleMeshTemplate(template);
     this.vehicleMeshTemplates.clear();
     // Building meshes: same shape again -- every clone removed from the
@@ -2551,14 +2570,26 @@ export class ThreeRenderer implements Renderer {
         this.onTunnelCollapsed(e.tunnel, e.tick);
       } else if (e.kind === 'destroyed') {
         const deadType = this.sim.unitTypes[st.typeIdx[e.entity]];
-        this.dying.push({
-          x: this.curX[e.entity],
-          y: this.curY[e.entity],
-          facing: fx.toNumber(st.facing[e.entity]),
-          typeId: deadType.id,
-          t: 0,
-          side: st.side[e.entity],
-        });
+        // The BILLBOARD death fade -- the intact sprite dimming in place --
+        // is skipped for exactly the types `addWreck` steps aside for: one
+        // whose vehicle template carries the `wreck` clip, whose 3D mesh is
+        // at this moment being handed to `beginVehicleDeath` by
+        // `updateVehicleMeshes`' own prune loop. Without this the player
+        // sees a flat sprite of the INTACT vehicle fade on top of its own
+        // slumping mesh -- the first of the three art styles CLAUDE.md
+        // records, and the one a wreck mesh cannot hide. Every other type,
+        // mesh infantry included, pushes exactly as before: `stepDeaths` is
+        // also what calls `addWreck`, which owns its own exclusions.
+        if (this.vehicleMeshTemplates.get(deadType.id)?.hasWreck !== true) {
+          this.dying.push({
+            x: this.curX[e.entity],
+            y: this.curY[e.entity],
+            facing: fx.toNumber(st.facing[e.entity]),
+            typeId: deadType.id,
+            t: 0,
+            side: st.side[e.entity],
+          });
+        }
         // A hard-target kill (a vehicle) reuses the SAME pooled
         // explosion-burst mesh `structureDestroyed` already draws below --
         // "reuse the pooled mesh path... do not add a second one", per this
@@ -2871,9 +2902,11 @@ export class ThreeRenderer implements Renderer {
       for (const layer of emitter.particles) {
         // A layer marked mesh_flash is superseded by the pooled, modelled
         // muzzle-flash mesh once one has loaded (`MuzzleFlashManager.ready`,
-        // `&mesh` only) -- the particle spec stays fully authored underneath
-        // it so Pixi (which never reads this field) and a three.js session
-        // with no mesh loaded both still get the exact particle this
+        // which only the mesh path sets -- the default on `three`; `&nomesh`
+        // never loads the GLB) -- the particle spec stays fully authored
+        // underneath it so Pixi (which never reads this field) and a three.js
+        // session with no mesh loaded, whether under `&nomesh` or with the
+        // GLB still in flight, both still get the exact particle this
         // replaces, unchanged. `emitter.light?.decay_ms` doubles as the
         // mesh's own lifetime -- the same duration the pooled `PointLight`
         // this shot already spawned (`flashLights.spawn`, above) decays
@@ -3075,8 +3108,10 @@ export class ThreeRenderer implements Renderer {
     for (const layer of em.particles) {
       // A layer marked mesh_burst is superseded by the pooled, modelled
       // explosion-burst mesh once one has loaded (`ExplosionBurstManager
-      // .ready`, `&mesh` only) -- the identical `mesh_flash`/`onFire`
-      // contract, see `units/explosion-burst.ts`'s own top comment.
+      // .ready`, set only on the mesh path -- the default on `three`, and
+      // never under `&nomesh`, which skips the GLB) -- the identical
+      // `mesh_flash`/`onFire` contract, see `units/explosion-burst.ts`'s
+      // own top comment.
       if (layer.mesh_burst && this.explosionBursts.ready) {
         const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, bx, by);
         this.explosionBursts.spawn(bx, worldY, by, yawTurns, power, EXPLOSION_BURST_DEFAULT_DURATION_MS);
@@ -3619,12 +3654,14 @@ export class ThreeRenderer implements Renderer {
    * top comment) -- loads `art/meshes/vfx/muzzle_flash.glb` ONCE (there is
    * only one asset, unlike `loadVehicleMesh`/`loadMeshUnit`, which key a
    * per-unit-type map) and adds its three pooled `InstancedMesh` zones to
-   * the scene. Called once by `main.ts`, inside the same `flags.mesh`
-   * branch every other mesh asset in this backend already loads from --
-   * `onFire` falls back to the authored particle for any `mesh_flash`
-   * layer until this resolves (`MuzzleFlashManager.ready`), so a caller
-   * that never invokes this at all (Pixi; three.js with `&mesh` off) is a
-   * silent, correct no-op, not a missing effect.
+   * the scene. Called once by `main.ts`, inside the same `wantMesh` branch
+   * (`!flags.nomesh` -- meshes are the default on `three` since the mesh
+   * flip, and `&nomesh` is the opt-out) every other mesh asset in this
+   * backend already loads from -- `onFire` falls back to the authored
+   * particle for any `mesh_flash` layer until this resolves
+   * (`MuzzleFlashManager.ready`), so a caller that never invokes this at
+   * all (Pixi; three.js under `&nomesh`) is a silent, correct no-op, not a
+   * missing effect.
    */
   async loadMuzzleFlashMesh(glbUrl: string): Promise<void> {
     const meshes = await this.muzzleFlashes.load(glbUrl);
@@ -3636,7 +3673,7 @@ export class ThreeRenderer implements Renderer {
    * own top comment) -- loads `art/meshes/vfx/explosion_burst.glb` ONCE and
    * adds its three pooled `InstancedMesh` zones to the scene. Mirrors
    * `loadMuzzleFlashMesh` exactly, including the same silent-no-op contract
-   * for a caller that never invokes this (Pixi; three.js with `&mesh` off):
+   * for a caller that never invokes this (Pixi; three.js under `&nomesh`):
    * `spawnCollapseFx` falls back to `structure_collapse.json`'s own
    * authored `mesh_burst` particle layer until this resolves
    * (`ExplosionBurstManager.ready`).
@@ -3651,8 +3688,8 @@ export class ThreeRenderer implements Renderer {
    * comment) -- loads `art/meshes/vfx/smoke_plume.glb` ONCE and adds its
    * three pooled `InstancedMesh` zones to the scene. Mirrors
    * `loadExplosionBurstMesh` exactly, including the same silent-no-op
-   * contract for a caller that never invokes this (Pixi; three.js with
-   * `&mesh` off): `spawnCollapseFx` falls back to `structure_collapse.json`'s
+   * contract for a caller that never invokes this (Pixi; three.js under
+   * `&nomesh`): `spawnCollapseFx` falls back to `structure_collapse.json`'s
    * own authored `mesh_plume` particle layer until this resolves
    * (`SmokePlumeManager.ready`).
    */
@@ -4541,18 +4578,15 @@ export class ThreeRenderer implements Renderer {
    * `type.isAir` at all: every other mesh vehicle is ground-domain and gets
    * `airLift = 0`.
    *
-   * Death: immediate removal, no fade. Every shipped vehicle GLB still
-   * carries zero animations, so there is no `down`/`wreck` pose for a fade
-   * to hold -- a known gap, not silently dropped. The clip path added
-   * below does not close it: it plays whatever a GLB authors, and no
-   * vehicle authors a death pose yet. Wiring one up is
-   * `units/mesh-death.ts`'s shape and a separate job.
-   *
-   * This unconditional immediate removal already covers a mission `remove`
-   * trigger (GDD §11) with no fork needed, unlike `updateMeshUnits`'s own
-   * evacuated/removed/killed three-way split: every alive->0 transition ends
-   * up here regardless of cause, and every one of them already draws
-   * nothing extra.
+   * Death: a fade into a persistent charred wreck, for a type whose GLB
+   * carries the `wreck` clip -- `units/mesh-vehicle-death.ts`, and the prune
+   * loop at the bottom of this method. That was a known gap until
+   * 2026-09-15 ("immediate removal, no fade... no vehicle authors a death
+   * pose yet"); the wreck pass closed the asset half and this closed the
+   * runtime half. A vehicle WITHOUT the clip still takes the old
+   * unconditional immediate removal, and so does a mission `remove` trigger
+   * (GDD §11) on any vehicle -- the same abduction fork `updateMeshUnits`
+   * makes, for the same reason: an abduction must never draw as a death.
    */
   private updateVehicleMeshes(alpha: number, dtMs: number): void {
     if (this.vehicleMeshTemplates.size === 0) return;
@@ -4573,7 +4607,39 @@ export class ThreeRenderer implements Renderer {
         // Same attach-once contract as `updateMeshUnits` above -- and here
         // the turret comes along for free, because a vehicle's turret
         // meshes hang off `turretPivot` inside this same subtree.
+        //
+        // The death root is lifted OUT for the attach pass and put straight
+        // back. `attachMeshSilhouette` walks whatever root it is handed, and
+        // a wreck-bearing GLB carries a second copy of every mesh under
+        // `death_root` -- outlining those buys nothing (the subtree is
+        // invisible while the vehicle lives, and the silhouette is detached
+        // the moment it dies) and costs a merged-geometry build per clone:
+        // the live group and the wreck group share their first
+        // `BufferGeometry`, which is the key `mergedGeometryCache` is stored
+        // under, so the two would evict each other every single
+        // instantiation. `add` re-appends as the LAST child, which is where
+        // the wreck pass authored it.
+        //
+        // One consequence, recorded rather than fixed, and MEASURED rather
+        // than reasoned: `attachMeshSilhouette` is also where
+        // `markSilhouetteOccludee` stamps a body material into the silhouette
+        // stencil, so a wreck material never gets stamped and a vehicle wreck
+        // does not mask another unit's outline the way an INFANTRY wreck does
+        // (that path marks the shared TEMPLATE material while the figure is
+        // alive, and it stays marked). It is visible on screen: killing
+        // `mbt_lavi` on `?sandbox=beit_sahwan_outskirts&sur` puts a team-blue
+        // (#2F6FD9) contour across the wreck, 0 blue pixels alive and
+        // mid-fade against 97 once it settles. It is the LIVING `dozer_d9`
+        // one tile west -- hiding that unit's own silhouette objects takes the
+        // count 97 -> 0, hiding the `at_team`'s leaves it at 97, and the wreck
+        // root itself holds zero silhouette objects. The divergence runs in
+        // the vehicle's favour -- a unit behind a burnt-out hull keeps its
+        // whole outline instead of having it punched out -- so it is noted
+        // here rather than chased.
+        const deathRoot = entity.deathRoot;
+        if (deathRoot) entity.root.remove(deathRoot);
         attachMeshSilhouette(entity.root, this.silhouetteMaterialFor(st.side[i]));
+        if (deathRoot) entity.root.add(deathRoot);
         this.vehicleMeshEntities.set(i, entity);
         this.scene.add(entity.root);
       }
@@ -4692,11 +4758,16 @@ export class ThreeRenderer implements Renderer {
 
       // Clips, when this vehicle's GLB carries any. Gated on `entity.mixer`
       // rather than run unconditionally, and that gate is the whole
-      // "clipless vehicles cost exactly what they did before" contract:
-      // every shipped `art/meshes/vehicles/*.glb` declares zero animations,
-      // so for all nine of them this branch is a single null check per
-      // frame -- no `UnitAnimInput` allocated, no `resolveClip` call, no
-      // `mixer.update`, nothing that can touch the clone.
+      // "clipless vehicles cost exactly what they did before" contract.
+      //
+      // It used to be free for every shipped vehicle and is not any more:
+      // since the wreck pass (2026-09-15) all ELEVEN declare `idle` and
+      // `wreck`, so every living mesh vehicle now runs this block and its
+      // `mixer.update` every frame. What it costs is one `UnitAnimInput`,
+      // one `resolveClip` and one mixer update over two constant scale
+      // channels per vehicle -- and `applyMeshClip` returns at its first
+      // line once `idle` has latched, so nothing switches. The null check
+      // still carries `&nomesh` and any GLB the pass has not been run on.
       //
       // Everything inside is the infantry path, reused rather than
       // reinvented: `resolveClip` (`../clip.ts`) is the SAME precedence
@@ -4728,15 +4799,76 @@ export class ThreeRenderer implements Renderer {
       }
     }
 
-    // Immediate removal on death -- see this method's own doc comment for
-    // why there is no fade/wreck sequence to hand off to, unlike
-    // `updateMeshUnits`'s `beginMeshDeath`.
+    // Death. The fork is `template.hasWreck` -- CLAUDE.md's own recorded
+    // trap, and the spec's Global Constraints, both say the same thing: a
+    // vehicle steps off the billboard path ONLY when its own GLB carries the
+    // `wreck` clip. A type whose export has not been through the wreck pass
+    // (and `&nomesh`, which never builds a template here at all) keeps the
+    // immediate removal, the billboard death fade and the sprite wreck,
+    // byte for byte.
+    //
+    // `st.removed[id] === 1` is the same abduction fork `updateMeshUnits`
+    // makes: a mission `remove` trigger must never draw as a death, so it
+    // gets no fade, no `wreck` clip and no wreckage. `id >= n` falls to the
+    // same branch -- there is no `removed` flag to read, and nothing to
+    // stage a death for.
     for (const [id, entity] of this.vehicleMeshEntities) {
       if (id < n && st.alive[id] !== 0) continue;
-      this.scene.remove(entity.root);
-      disposeVehicleMeshEntity(entity);
       this.vehicleMeshEntities.delete(id);
+      const deadTemplate = this.vehicleMeshTemplates.get(entity.typeId);
+      if (deadTemplate?.hasWreck === true && id < n && st.removed[id] === 0) {
+        // Detach BEFORE the death sequence takes the entity, exactly as
+        // `updateMeshUnits` does: the fade clones every material under the
+        // root, and a silhouette's own `MeshBasicMaterial` is shared by every
+        // unit on that side. A wreck has no outline to keep either.
+        detachMeshSilhouette(entity.root);
+        // `null` means "this entity cannot start a death" -- it warns and
+        // falls through to the same immediate removal a clipless vehicle
+        // takes. Never a throw: this runs inside `frame()`, where an
+        // exception stops the whole screen rather than reporting anything.
+        const dying = beginVehicleDeath(entity, id, deadTemplate);
+        if (dying) this.vehicleDying.push(dying);
+        else {
+          this.scene.remove(entity.root);
+          disposeVehicleMeshEntity(entity);
+        }
+      } else {
+        this.scene.remove(entity.root);
+        disposeVehicleMeshEntity(entity);
+      }
     }
+    this.stepVehicleDeaths(dtSeconds);
+  }
+
+  /**
+   * Advances every vehicle mid-death-fade (`units/mesh-vehicle-death.ts`'s
+   * own `stepVehicleDeath`) and reveals any newly-explored permanent wreck --
+   * the rigid counterpart of `stepMeshDeaths`, and the same thin glue: three
+   * bookkeeping collections and the `isExplored` fog query neither module can
+   * reach on its own.
+   *
+   * `updateMeshWrecks` is called from here as well as from `stepMeshDeaths`,
+   * and that is not a redundant second call: `updateMeshUnits` returns early
+   * when no INFANTRY mesh template is loaded, so on a mission that fields
+   * mesh vehicles and no mesh infantry the fog reveal would never run. The
+   * rule it applies is a latch ("never goes back to false"), so running it
+   * twice in a frame is exactly as correct as running it once.
+   */
+  private stepVehicleDeaths(dtSeconds: number): void {
+    const env: MeshDeathEnv = {
+      scene: this.scene,
+      elevation: this.retained.elevation,
+      width: this.sim.width,
+      height: this.sim.height,
+      isExplored: (x, y) => this.isExplored(x, y),
+    };
+    for (let k = this.vehicleDying.length - 1; k >= 0; k--) {
+      const result = stepVehicleDeath(this.vehicleDying[k], dtSeconds, env);
+      if (result === 'fading') continue;
+      this.vehicleDying.splice(k, 1);
+      if (result !== 'removed') pushMeshWreck(this.meshWrecks, result, this.scene);
+    }
+    updateMeshWrecks(this.meshWrecks, (x, y) => this.isExplored(x, y));
   }
 
   /**
@@ -4995,14 +5127,19 @@ export class ThreeRenderer implements Renderer {
   private stepDeaths(dtSeconds: number): void {
     // Permanent wreckage: reveal, then draw real art where this type has
     // any -- see this method's own top comment for the fog-gate and the
-    // real-art-vs-cross-marker split. A mesh-enabled type (`&mesh`) is
-    // skipped here entirely: `addWreck` below never pushes one, because
-    // `mesh-death.ts`'s own `MeshWreck` already owns that type's wreckage
-    // end to end, and every unit type's billboard sheet is ALSO loaded
-    // unconditionally (`main.ts`'s `SPRITE_MAP` loop has no `&mesh` branch),
-    // so without that exclusion a mesh unit with a billboard `wreck` clip
-    // (`inf_squad`'s `INF_SQUAD` sheet among them) would draw a second,
-    // redundant wreck underneath its own mesh one.
+    // real-art-vs-cross-marker split. A rigged mesh type (one with a
+    // `meshUnitTemplates` entry -- the default for every such type on
+    // `three`; only `&nomesh` leaves that map empty) is skipped here
+    // entirely: `addWreck` below never pushes one, because `mesh-death.ts`'s
+    // own `MeshWreck` already owns that type's wreckage end to end. Its
+    // billboard sheet used to be loaded unconditionally beside the mesh
+    // (`main.ts`'s `SPRITE_MAP` loop had no mesh branch); since the
+    // roster-driven `spriteSheetPlan` (2026-09-07) a fielded rigged type's
+    // sheet is not loaded at all, but a deferred KDF buildable's sheet still
+    // arrives after the first frame as its billboard fallback and stays
+    // loaded once its mesh lands, so without that exclusion such a unit
+    // with a billboard `wreck` clip (`inf_squad`'s `INF_SQUAD` sheet among
+    // them) would draw a second, redundant wreck underneath its own mesh one.
     for (const wk of this.wrecks) {
       if (!wk.shown && this.isExplored(wk.x, wk.y)) wk.shown = true;
       if (!wk.shown) continue;
@@ -5101,18 +5238,34 @@ export class ThreeRenderer implements Renderer {
    * Pixi's own nullable `spr` field encodes (see `UnitWreck`'s own doc
    * comment).
    *
-   * Skips a mesh-enabled type entirely (`meshUnitTemplates.has(typeId)`):
-   * `mesh-death.ts`'s own `MeshWreck` system already owns that type's
-   * permanent wreckage end to end (`stepMeshDeaths` above), and every unit
-   * type's billboard sheet is loaded unconditionally regardless of `&mesh`
-   * (`main.ts`'s `SPRITE_MAP` loop) -- without this exclusion a mesh unit
-   * whose billboard sheet ALSO declares a `wreck` clip would draw a second,
-   * redundant wreck underneath its own mesh one. Pixi has no such case to
-   * exclude: it has no mesh path at all, so every destroyed entity there is
-   * a billboard one by construction.
+   * Skips a rigged mesh type entirely (`meshUnitTemplates.has(typeId)` --
+   * populated for every such type by default on `three`, and empty only
+   * under `&nomesh`): `mesh-death.ts`'s own `MeshWreck` system already owns
+   * that type's permanent wreckage end to end (`stepMeshDeaths` above). The
+   * billboard sheet this guards against used to load unconditionally beside
+   * the mesh (`main.ts`'s `SPRITE_MAP` loop); since the roster-driven
+   * `spriteSheetPlan` (2026-09-07) a fielded rigged type's sheet is never
+   * loaded on the mesh path, and the case that keeps this exclusion live is
+   * a deferred KDF buildable, whose sheet arrives after the first frame as
+   * its billboard fallback and stays loaded once its mesh lands -- without
+   * this exclusion such a unit whose billboard sheet ALSO declares a `wreck`
+   * clip would draw a second, redundant wreck underneath its own mesh one.
+   * A mesh VEHICLE (`vehicleMeshTemplates`) is deliberately NOT excluded:
+   * its GLB carries no wreck, so its sheet's `wreck` sprite is the only
+   * wreck it has (the mesh-vehicle death debt in CLAUDE.md). Pixi has no
+   * such case to exclude: it has no mesh path at all, so every destroyed
+   * entity there is a billboard one by construction.
    */
   private addWreck(x: number, y: number, facing: number, typeId: string, side: number): void {
     if (this.meshUnitTemplates.has(typeId)) return;
+    // The vehicle half of the same exclusion, and note what it is NOT: a
+    // plain `vehicleMeshTemplates.has(typeId)`. CLAUDE.md records that exact
+    // trap -- excluding every mesh vehicle unconditionally deletes the sprite
+    // wreck and leaves nothing behind, which is strictly worse than the
+    // three-art-styles sequence it was meant to fix. Only a type whose own
+    // GLB carries the `wreck` clip has a `MeshWreck` coming
+    // (`stepVehicleDeaths`), and only that type steps aside here.
+    if (this.vehicleMeshTemplates.get(typeId)?.hasWreck === true) return;
     this.wrecks.push({ x, y, facing, typeId, side, shown: this.isExplored(x, y) });
     while (this.wrecks.length > MAX_UNIT_WRECKS) this.wrecks.shift();
   }
@@ -5276,8 +5429,9 @@ export class ThreeRenderer implements Renderer {
    * instead -- but Pixi draws an HP bar/selection ring for EVERY alive,
    * visible unit regardless of which draw path its body takes, and so does
    * this method. Folding overlay computation into `updateUnits`'s own loop
-   * would silently drop overlays for exactly the units `?sandbox&mesh`
-   * exists to exercise.
+   * would silently drop overlays for exactly the units the mesh path draws
+   * -- every rigged type, by default, on `three`, under any URL but
+   * `&nomesh`.
    *
    * `frameN` increments once per call, mirroring `PixiRenderer.frameN`
    * (`renderer.ts`'s own `this.frameN++`, top of `frame()`) -- every pulsing

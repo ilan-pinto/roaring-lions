@@ -88,6 +88,65 @@ when three of them started shipping a photographed facade. See that
 module's docstring for what it measures, what it deliberately does not, and
 why the shipped `warehouse` is allowed to have no front.
 
+## Vehicles are checked a FIFTH way, also against the raw bytes
+
+Every `art/meshes/vehicles/*.glb` carries a WRECK -- a `death_root` node of
+static `WRECK_*` children sharing their live twins' meshes, plus the two
+clips `idle` and `wreck` that scale one half to zero and the other to one
+(`docs/superpowers/specs/2026-09-14-vehicle-wreck-design.md` §4.1, written
+by `pnpm wreck:meshes`). `check_vehicle_wrecks` below reads that contract
+straight out of the glTF JSON, for the same reason the decor and facing
+checks read bytes: the render this gate makes cannot see it. The live render
+deliberately HIDES the death root (`render_mesh_gate.py`'s
+`hide_death_root`, so the palette/framing/silhouette checks keep judging the
+live vehicle), so a file that lost its wreck would render identically and
+pass every pixel check here while a destroyed vehicle drew nothing in the
+game.
+
+The failure this exists to catch is quiet in both directions. A re-export
+that skips the pass produces a GLB that LOADS fine -- `buildVehicleMeshTemplate`
+is happy with zero animations, `instantiateVehicleMesh` allocates no mixer,
+and the only symptom is a vehicle that vanishes at t=0, which is exactly the
+bug the wreck was built to fix. And a half-applied pass (a death root whose
+children reference their own COPIES of the geometry rather than the live
+meshes) costs 1.6-3.4 MiB per file with nothing on screen to show for it.
+Both are invisible to a picture; both are one `!=` away in the JSON.
+
+Both trees are read, not one: `art/meshes/vehicles/` and the Draco mirror
+`assets/meshes/vehicles/`. The mirror is the artefact a browser downloads,
+no other gate parses its node graph, and `pnpm encode:meshes -- --check`
+compares hashes -- it proves the mirror matches the source it was made from,
+which is not the same as proving the encoder carried the contract across.
+
+## And a SIXTH way: the wreck is rendered and judged, not only parsed
+
+`render_mesh_gate.render_vehicle_wreck` takes a second photograph of every
+vehicle -- the death root alone, through the camera the LIVE pose was framed
+with -- and `load_mesh_masks` reads it back beside the live mask. Two checks
+run on it, `check_wreck_distinct` and `check_wreck_collisions`, and they
+answer the one question the bytes cannot: the contract above is entirely
+satisfied by a recipe that displaced NOTHING, which ships a vehicle that
+explodes into an identical copy of itself. Holding the two masks to one
+camera is what makes that measurable, and the floor (`WRECK_MIN_DISTINCT`)
+is taken from the eleven shipped results rather than guessed -- the
+derivation and all eleven numbers are written beside the constant, and it is
+RE-DERIVED whenever the recipe is tuned, because a floor calibrated against
+poses that no longer ship is measuring nothing in particular.
+
+A third check runs first and is easy to miss the point of:
+`check_wreck_census` compares the wreck renders that EXIST against the
+vehicle directory. Both checks above iterate `wreck_masks`, so a vehicle
+whose wreck render never happened is checked zero times by either of them
+and the only trace is a smaller count on the passing line.
+
+Charring is NOT checked by any of it and cannot be: it is a runtime
+treatment of anything marked `rl_wreck` (spec §4.3), applied by the
+renderer's material path, and this gate repaints every vehicle from the
+palette tables before rendering -- the wreck children carry their live
+twins' `rl_role`, so they come out in the LIVING colours. What is judged is
+the wreck's SHAPE. The passing path says both halves out loud, the way the
+`NOT palette-checked` lines do for textured buildings.
+
 `art/meshes/decor/*.glb` (scattered terrain props -- `docs/superpowers/plans/
 2026-09-01-terrain-c-mesh-decor.md`, Task 4) skips `render_mesh_gate.py`
 entirely: that script's own `render_one` returns early for `mesh_kind() ==
@@ -107,6 +166,7 @@ with `import bpy` and cannot load in this plain-`python3` process. An empty
 failure -- `glob` returning nothing means zero iterations, zero failures.
 """
 import argparse
+from collections import Counter
 import glob
 import itertools
 import json
@@ -205,8 +265,16 @@ DEFAULT_BLENDER_CANDIDATES = (
 # `out_turr` its own tools/render_*.py writes. Sheets those scripts name but
 # never write (`*_TURR_UNUSED`, for a vehicle whose weapon station is not
 # separately modelled) are correctly absent.
+#
+# `apc_kipod` and `scout_shachaf` joined on 2026-09-15. Both shipped a mesh
+# before they shipped a sheet, so neither had an entry to make; the sprite
+# halves (`KIPOD_HULL`, `SHACHAF_HULL`) landed on 2026-09-14 with the
+# special-unit sheets and nothing went back to close the exclusion. Until
+# this they were comparing against their own retired art -- which is the one
+# pairing this gate is documented not to make.
 VEHICLE_OWN_SPRITES = {
     "apc_eitan": ("EITAN_HULL", "EITAN_TURR"),
+    "apc_kipod": ("KIPOD_HULL",),
     "dozer_d9": ("D9_HULL",),
     "heli_peten": ("APACHE_HULL",),
     "ifv_namer": ("NAMER_HULL", "NAMER_TURR"),
@@ -214,6 +282,7 @@ VEHICLE_OWN_SPRITES = {
     "mbt_lavi": ("TNK_HULL", "TNK_TURR"),
     "paramotor": ("PARA_MOTOR",),
     "rocket_battery": ("ROCKETBATTERY_HULL",),
+    "scout_shachaf": ("SHACHAF_HULL",),
     "technical": ("TECH_HULL", "TECH_TURR"),
 }
 
@@ -280,10 +349,48 @@ def own_sprite_dirs(unit_id, sheets):
 def load_mesh_masks(out_dir, palette_path):
     """Quantize each render onto the palette (mirroring every other Blender
     output in this pipeline -- see module docstring), then run the same
-    per-image checks `validate_assets.py` runs on a sprite. Returns
-    (failures, masks)."""
+    per-image checks `validate_assets.py` runs on a sprite.
+
+    Returns (failures, masks, exempt, wreck_masks).
+
+    `wreck_masks` is the second render `render_mesh_gate.render_vehicle_wreck`
+    makes for every vehicle: the death root alone, through the camera the
+    LIVE pose was framed with. It is loaded here so both masks come off the
+    same `va.silhouette` at the same gameplay zoom, but it deliberately
+    takes NEITHER `check_image` NOR `check_framing`, and the reasons are
+    different for each:
+
+      * `check_image` would be a tautology. The gate paints the wreck from
+        the same `VEHICLE_ROLE_PALETTES` row as its live twin -- the wreck
+        children carry their twins' `rl_role` -- so a wreck render is
+        on-palette by construction exactly when the live render is, and the
+        live render is already checked. The charring that WOULD make the two
+        differ is a runtime material treatment this gate cannot see at all.
+
+      * `check_framing` would be wrong, not merely redundant. It fails an
+        image whose opaque pixels touch the frame edge, on the reasoning
+        that the render camera cropped the subject -- true for a pose framed
+        on its own bounds, false here by design. The camera is fitted to the
+        LIVE vehicle and held, which is the only way `IoU(live, wreck)`
+        means anything; a turret thrown ACROSS the hull (`TURRET_SHIFT`
+        0.45 of its length, at right angles to the axis it runs along) or a
+        collapsed canopy (`CANOPY_SHIFT` 0.6) is SUPPOSED to be able to
+        leave that square. Cropping is what makes the two masks
+        comparable here, so a check that forbids it would be reporting the
+        method as a defect.
+
+    What the wreck mask IS held to is the three checks below --
+    `check_wreck_census`, `check_wreck_distinct` and
+    `check_wreck_collisions` -- plus the `WRECK_MIN_FILL_RATIO` floor inside
+    the second of them, which is a fraction of the unit's OWN live mask
+    rather than of the frame. See that function for why an unfilled wreck is
+    the one failure the distinctness check cannot see on its own, and
+    `WRECK_MIN_FILL_RATIO` itself for why an absolute share of the frame was
+    measuring the unit instead of the wreck.
+    """
     failures = []
     masks = {}
+    wreck_masks = {}
     exempt = []
     targets, _ = qs.load_targets(palette_path)
     allowed, reserved = va.load_palette(palette_path)
@@ -315,7 +422,13 @@ def load_mesh_masks(out_dir, palette_path):
             continue
 
         masks[unit_id] = va.silhouette(path)
-    return failures, masks, exempt
+
+    for path in sorted(glob.glob(os.path.join(out_dir, "*", "wreck_f00_000.png"))):
+        unit_id = os.path.basename(os.path.dirname(path))
+        qs.quantize(path, targets, check_only=False)
+        wreck_masks[unit_id] = va.silhouette(path)
+
+    return failures, masks, exempt, wreck_masks
 
 
 def load_sprite_masks(sprites_root):
@@ -348,6 +461,250 @@ def check_collisions(mesh_masks, sprite_masks, sheets):
                     f"IoU={score:.3f} (limit {va.IOU_LIMIT:.2f}) -- these read as the same unit"
                 )
     return failures
+
+
+# How far a wreck's silhouette must move away from its own live pose, as a
+# fraction: the check is `IoU(live, wreck) <= 1 - WRECK_MIN_DISTINCT`, so
+# this is the floor on 1 - IoU. A recipe that displaced nothing scores an IoU
+# of 1.000 and fails; the question this answers is where between there and
+# the shipped results the line goes.
+#
+# MEASURED, not guessed, from the eleven shipped wrecks (this gate's own
+# renders at GAMEPLAY_ZOOM, live and wreck through one camera). RE-DERIVED
+# 2026-09-15 after the recipe was tuned against the screenshot sheet, by the
+# same rule as the first derivation -- the numbers all moved, so re-using the
+# old floor would have been keeping a threshold calibrated against poses that
+# no longer ship:
+#
+#     rocket_battery 0.7710      scout_shachaf  0.6983
+#     ifv_namer      0.7613      dozer_d9       0.6955
+#     apc_kipod      0.7583      technical      0.6874
+#     apc_eitan      0.7149      mbt_lavi       0.6479
+#     jeep_shoded    0.7126      heli_peten     0.6010
+#                                paramotor      0.0737
+#
+# (Before tuning: ifv_namer 0.8601, apc_kipod 0.8040, jeep_shoded 0.7777,
+# apc_eitan 0.7775, dozer_d9 0.7580, technical 0.7528, rocket_battery 0.7407,
+# mbt_lavi 0.7354, scout_shachaf 0.7276, heli_peten 0.5083, paramotor 0.0169.)
+#
+# The LARGEST is what the floor has to clear, because it is the least-changed
+# wreck in the tree and therefore the one that decides whether anything
+# shipped is too close to call: `rocket_battery` at 0.7710, whose distance
+# from a no-op is 1 - 0.7710 = 0.2290. Allowing it a third of that as margin
+# puts the threshold at 0.7710 + 0.2290/3 = 0.8473, so the floor is
+# 1 - 0.8473 = 0.1527, rounded DOWN to 0.152 (threshold 0.848, margin 0.0770
+# against the 0.0763 the rule asks for).
+#
+# Two things the spread is worth reading for before anyone retunes it again.
+# Which vehicle is tightest CHANGED with the tuning, from `ifv_namer` to
+# `rocket_battery`, so "measure the tightest one first" means re-measuring
+# which one that is rather than reaching for the name written down last time.
+# And the two outliers are not better wrecks, they are different ones:
+# `heli_peten` leans and cannot do more (`BODY_ROLL_DEG`'s own comment has the
+# geometry) and `paramotor` throws its canopy 0.6 of the vehicle's length
+# clear, which is why its wreck barely overlaps its live pose at all.
+WRECK_MIN_DISTINCT = 0.152
+
+# The wreck's own minimum fill, as a fraction of its LIVE twin's -- not an
+# absolute share of the frame.
+#
+# The failure this exists to catch is a wreck render that came back (almost)
+# empty, which `check_wreck_distinct` cannot see on its own: that check gets
+# EASIER as the render empties and an empty mask scores a perfect IoU of
+# 0.000. It is not hypothetical -- it is exactly what this gate produced on
+# its first run, before `render_vehicle_wreck` learned to undo the scale-zero
+# the importer's `idle` clip leaves on the death root.
+#
+# It was `va.MIN_FILL` (6% of the frame, absolute) until 2026-09-15, and that
+# was the wrong shape for two reasons. The wreck is framed on its LIVE twin's
+# bounds, so how much of the square it fills is mostly a fact about the unit,
+# not about the wreck: `paramotor` sat at 7.7% against a live pose of 8.4%,
+# 1.7 points clear of the floor, so a canopy retune that pushed the wing
+# further out of frame would have failed on FILL and reported "a wreck that
+# renders almost nothing" when the real cause was "a wreck that left the
+# square". Measured against its own twin it is a ratio, and the ratio is
+# stable across the whole fleet where the absolute fill is not.
+#
+# MEASURED, the eleven tuned wrecks' fill as a fraction of their own live
+# fill: 0.944 (rocket_battery), 0.986 (paramotor), 1.002, 1.017, 1.043,
+# 1.045, 1.092, 1.128, 1.159, 1.191, 1.197 (mbt_lavi). Nine of the eleven
+# come out ABOVE 1.0, which is the tuning working -- a canted hull with its
+# turret thrown clear covers more of the frame than the parade pose did.
+# The smallest is 0.944; a margin of a third of its distance from the 0.000
+# an empty render scores puts the floor at 0.944 - 0.315 = 0.629, rounded
+# DOWN to 0.60. That leaves a re-tuned canopy 37% of its mask to lose before
+# it trips, and still fails an empty render by the whole width of the band.
+WRECK_MIN_FILL_RATIO = 0.60
+
+
+def check_wreck_census(wreck_masks, vehicles_root):
+    """Every shipped vehicle must have PRODUCED a wreck render, not merely
+    have passed the checks on the renders that exist.
+
+    `load_mesh_masks` builds `wreck_masks` by globbing
+    `<out>/<unit>/wreck_f00_000.png`, and both wreck checks iterate that
+    dictionary -- so a vehicle whose wreck render never happened is checked
+    ZERO times and the gate says nothing at all about it. Every way that can
+    happen is a real failure that this file is otherwise blind to: the
+    Blender side raised and its FAIL line named a different stage, the vehicle
+    branch never ran because `mesh_kind` classified the file somewhere else,
+    or `render_vehicle_wreck` returned early. The count printed on the passing
+    path would simply have been smaller, and a smaller number reads like a
+    smaller fleet.
+
+    The census is the directory itself -- every `art/meshes/vehicles/*.glb` --
+    rather than `WRECK_RECIPES`, which is TypeScript this script cannot read,
+    or a list here, which would be the `SPRITE_MAP` hazard a third time.
+    """
+    census = {
+        os.path.splitext(os.path.basename(p))[0]
+        for p in glob.glob(os.path.join(vehicles_root, "*.glb"))
+    }
+    missing = sorted(census - set(wreck_masks))
+    if not missing:
+        return []
+    return [
+        f"{unit_id}: no wreck render was produced, so neither wreck check looked at this "
+        f"vehicle at all -- {os.path.relpath(vehicles_root, REPO)}/{unit_id}.glb is in the "
+        f"tree and `wreck_f00_000.png` is not; see render_mesh_gate.render_vehicle_wreck"
+        for unit_id in missing
+    ]
+
+
+def check_wreck_distinct(mesh_masks, wreck_masks):
+    """A wreck must not read as its own live vehicle.
+
+    This is the check that makes the whole wreck pass falsifiable. The recipe
+    (`tools/src/meshes/wreck-recipes.ts`) is a table of fractions, and a
+    fraction set to zero -- by a bad merge, by a retune that went the wrong
+    way, by a vehicle whose bounds measured wrong so every fraction of them
+    is ~0 -- produces a `death_root` full of parts sitting exactly where the
+    live ones are. That file still carries the death root, still carries both
+    clips, still shares every mesh, and passes `check_vehicle_wrecks` clause
+    for clause. What the player gets is a vehicle that explodes into an
+    identical copy of itself.
+
+    Both masks come from ONE camera (`render_vehicle_wreck` does not reframe),
+    so `IoU` here is comparing two poses and not two croppings, and a no-op
+    recipe scores exactly 1.000.
+
+    The fill clause is the other half and it is not decoration: this check's
+    own comparison gets EASIER as the wreck render gets emptier, and a wreck
+    that rendered nothing at all scores IoU 0.000 -- a perfect pass for the
+    worst possible defect. That is not hypothetical; it is exactly what this
+    gate produced on its first run, before `render_vehicle_wreck` learned to
+    undo the scale-zero the importer's `idle` clip leaves on the death root.
+    The floor is `WRECK_MIN_FILL_RATIO` of the unit's OWN live mask rather
+    than an absolute share of the frame -- see that constant for why the
+    absolute form was measuring the unit and not the wreck.
+    """
+    failures = []
+    limit = 1.0 - WRECK_MIN_DISTINCT
+    for unit_id, wreck in sorted(wreck_masks.items()):
+        live = mesh_masks.get(unit_id)
+        if live is None:
+            failures.append(
+                f"{unit_id}: a wreck render exists with no live render beside it -- there is "
+                f"nothing to compare it against"
+            )
+            continue
+        live_fill = live.sum()
+        ratio = (wreck.sum() / float(live_fill)) if live_fill else 0.0
+        if ratio < WRECK_MIN_FILL_RATIO:
+            failures.append(
+                f"{unit_id}: wreck silhouette covers {ratio:.0%} of its own live mask "
+                f"(min {WRECK_MIN_FILL_RATIO:.0%}; {wreck.sum():,} px against {live_fill:,}) -- a "
+                f"wreck that renders (almost) nothing scores a perfect distinctness IoU, so this "
+                f"floor is what stops the check below passing for the worst reason there is"
+            )
+        score = va.iou(live, wreck)
+        if score > limit:
+            failures.append(
+                f"{unit_id}: wreck reads as its own live pose, IoU={score:.4f} "
+                f"(limit {limit:.3f}, i.e. it must differ by at least "
+                f"{WRECK_MIN_DISTINCT:.3f}) -- the recipe in "
+                f"tools/src/meshes/wreck-recipes.ts displaced (almost) nothing, so a "
+                f"destroyed vehicle would look exactly like a live one"
+            )
+    return failures
+
+
+def check_wreck_collisions(wreck_masks, mesh_masks, sprite_masks, sheets):
+    """A wreck must not read as some OTHER unit, against the same
+    `IOU_LIMIT` every live silhouette is held to.
+
+    The same question `check_collisions` asks, asked of the second pose the
+    wreck pass added to the roster -- a wreck is on the battlefield for the
+    rest of the mission (`MAX_MESH_WRECKS`, fog-gated, evicted oldest first),
+    so "is that a burnt-out Namer or a live Kipod" is a real thing for a
+    player to get wrong.
+
+    Two exclusions, and each mirrors one this gate already makes:
+
+      * its OWN live mesh, because a wreck is supposed to resemble the
+        vehicle it used to be -- that pairing is judged by
+        `check_wreck_distinct` above, which puts a FLOOR under the same
+        number this function puts a ceiling on, and having both read the
+        pair would mean two checks disagreeing about one measurement.
+      * its own retired sprite (`VEHICLE_OWN_SPRITES`), for exactly the
+        reason the module docstring gives for the live case: a unit and its
+        own art are not two units.
+
+    Wreck-vs-wreck is deliberately NOT compared. Eleven slumped hulls at one
+    fixed camera angle are a population this gate has no opinion about --
+    burnt-out vehicles resembling each other is what burnt-out vehicles do,
+    and the "these read as the same unit in a fight" failure is about telling
+    a live threat from another live threat. Measured rather than assumed
+    before leaving it out: the closest shipped wreck pair is `apc_kipod` vs
+    `ifv_namer` at **0.8143** (then `apc_kipod` vs `jeep_shoded` 0.7722),
+    both inside 0.88 -- so this is a scope decision and not a suppressed red,
+    and adding the comparison later would cost nothing today.
+
+    The headroom on what IS compared is worth knowing before retuning any
+    recipe. Re-measured 2026-09-15 after the recipe was tuned: the tightest
+    shipped pair is `scout_shachaf`'s wreck against `rocket_battery`'s LIVE
+    mesh at **0.8242**, 0.056 under the limit, then the SAME wreck against
+    `apc_kipod`'s live mesh at 0.8104, then `ifv_namer`'s wreck against the
+    `KIPOD_HULL` sprite at 0.8044. That `scout_shachaf` owns the two tightest
+    pairs is the reading, not a coincidence: it is the smallest, plainest hull
+    in the fleet, its wreck is one of the three with nothing thrown off it,
+    and a canted featureless box resembles every other canted box. The tuning IMPROVED this --
+    before it the tightest was `ifv_namer` vs `apc_kipod` at 0.8488, with
+    0.031 of headroom -- because every wreck moved further from its own
+    parade pose and therefore from everything else's. The general warning
+    survives the numbers changing: a recipe change that moved LESS would walk
+    this check and `check_wreck_distinct` toward their thresholds at once,
+    and which vehicle is tightest is not stable across a retune (it was
+    `ifv_namer` on both counts before, and is now `rocket_battery` on one and
+    `scout_shachaf` on the other), so measure rather than reach for the name
+    written down last time.
+    """
+    failures = []
+    for wreck_id, wreck in sorted(wreck_masks.items()):
+        own = set(own_sprite_dirs(wreck_id, sheets))
+        for mesh_id, mask in sorted(mesh_masks.items()):
+            if mesh_id == wreck_id:
+                continue  # see the docstring: the distinctness floor owns this pair
+            score = va.iou(wreck, mask)
+            if score > va.IOU_LIMIT:
+                failures.append(
+                    f"silhouette collision: {wreck_id} (wreck) vs {mesh_id} (mesh) "
+                    f"IoU={score:.3f} (limit {va.IOU_LIMIT:.2f}) -- a destroyed "
+                    f"{wreck_id} reads as a live {mesh_id}"
+                )
+        for sprite_id, mask in sorted(sprite_masks.items()):
+            if sprite_id in own:
+                continue
+            score = va.iou(wreck, mask)
+            if score > va.IOU_LIMIT:
+                failures.append(
+                    f"silhouette collision: {wreck_id} (wreck) vs {sprite_id} (sprite) "
+                    f"IoU={score:.3f} (limit {va.IOU_LIMIT:.2f}) -- a destroyed "
+                    f"{wreck_id} reads as a live {sprite_id}"
+                )
+    return failures
+
+
 
 
 # The closed decor role vocabulary, mirroring
@@ -634,6 +991,265 @@ def check_campaign_meshes(campaign_root, world_path):
     return failures, textured_names
 
 
+# The wreck contract's own names, restated from `tools/src/meshes/wreck-pass.ts`
+# (`DEATH_ROOT`, `WRECK_PREFIX`) and `mesh-anim.ts`'s clip vocabulary rather
+# than imported -- this is a plain-`python3` process and the TypeScript side
+# is not reachable from it. Written down on three sides now (the pass, this
+# gate, `mesh-vehicle-shipped.test.ts`), which is what makes a rename on any
+# one of them a red gate rather than a silent miss.
+DEATH_ROOT_NODE = "death_root"
+WRECK_NODE_PREFIX = "WRECK_"
+WRECK_CLIP_NAMES = ("idle", "wreck")
+
+
+def _wreck_subtree(nodes, root_index):
+    """Every node index under `root_index`, the root itself excluded. A flat
+    list today -- the pass writes one child per live mesh node and no deeper
+    -- but walked rather than assumed, because the spec's later structural
+    pass "replaces a vehicle's `WRECK_` children with real damaged geometry"
+    and that geometry may well arrive nested."""
+    out = []
+    stack = list(nodes[root_index].get("children", []))
+    while stack:
+        i = stack.pop()
+        out.append(i)
+        stack.extend(nodes[i].get("children", []))
+    return out
+
+
+def check_vehicle_wrecks(vehicle_roots):
+    """Every vehicle GLB against the wreck contract, read straight out of the
+    raw GLB bytes -- see this module's docstring, "Vehicles are checked a
+    FIFTH way", for why no render can see this.
+
+    `vehicle_roots` is a SEQUENCE of directories and the shipped call passes
+    two: `art/meshes/vehicles/` (the uncompressed source of record, which
+    every other check in this file walks) and `assets/meshes/vehicles/` (the
+    Draco mirror `pnpm encode:meshes` writes, which is what a browser
+    actually downloads). Until 2026-09-15 only the first was read, and the
+    hole that leaves is specific rather than theoretical: the mirror is the
+    shipped artefact, no other gate parses its node graph at all, and
+    `pnpm encode:meshes -- --check` compares HASHES -- it proves the mirror
+    matches the source it was made from, which is silence rather than
+    agreement if the encoder ever drops a node, a clip or an extras flag on
+    the way through. Draco compresses mesh PRIMITIVES and leaves the node
+    graph and the animation accessors alone, so every clause below reads the
+    same on both sides, and the two counts are reported separately on the
+    passing path so "11 and 11" is visible rather than assumed.
+
+    Six clauses, each of which has a silent failure mode behind it:
+
+      1. A node named `death_root` among the scene's ROOT nodes. Not merely
+         somewhere in the file: it is a SIBLING of the live geometry, and one
+         that had drifted under a hull would inherit that hull's transform
+         twice while still being "present".
+      2. Every node under it is named `WRECK_*` and carries
+         `extras.rl_wreck = true`. The flag is what the runtime's charring
+         reads (spec §4.3); the name is what a human reads in Blender.
+      3. Every wreck node's `mesh` index is one a LIVE node also references
+         -- the sharing that keeps this whole feature a couple of KB per
+         file instead of a second copy of a 3.4 MiB buffer.
+      3b. ONE wreck child per live mesh node, matched BY NAME
+         (`WRECK_<live name>`, which is what `wreck-pass.ts` writes). Clause
+         3 is a containment test and it passes a death root that is MISSING
+         a part -- the pass's own `applyWreckPass` walks every live mesh node
+         and any future re-export, filter or hand-edit that drops one leaves
+         a wreck with, say, no wheels, and clauses 1-3 have nothing to say
+         about it. Added 2026-09-15 after a review falsified the gap: a
+         repacked `scout_shachaf` with one `WRECK_` child deleted read
+         `checked=1 failures=0`. Matching by name rather than by count alone
+         is what lets the failure NAME the missing twin, which is the whole
+         difference between "one part is gone" and "which part is gone".
+      4. Exactly the two animations `idle` and `wreck`, each keying `scale`
+         on exactly the set {every top-level live node} + {death_root}. A
+         clip that missed one live node leaves that part of the vehicle
+         standing inside its own wreck.
+      5. Every sampler is `STEP` with two keyframes, and its output is all
+         ones or all zeros the right way round: `idle` shows the live half
+         and hides the wreck, `wreck` is the reverse. `death_root` is
+         authored at scale 1 in the file, so clause 5 on `idle` is the ONLY
+         thing standing between the shipped bytes and a wreck drawn inside
+         its own live vehicle.
+
+    `bf.read_glb` and `bf._accessor` are reused, not reimplemented -- the
+    same "read, never reimplemented" the module docstring argues for the
+    palette and IoU maths. This is the second reader of a GLB's BIN chunk in
+    this process and there is no reason for it to be a second parse.
+
+    Returns (failures, counts), `counts` being one `(relative directory,
+    n_checked)` pair per root so the caller can name BOTH on the passing
+    path. An empty directory is zero iterations, not a failure.
+    """
+    failures = []
+    counts = []
+    for vehicles_root in vehicle_roots:
+        counts.append((os.path.relpath(vehicles_root, REPO),
+                       _check_vehicle_wreck_dir(vehicles_root, failures)))
+    return failures, counts
+
+
+def _check_vehicle_wreck_dir(vehicles_root, failures):
+    """One directory's worth of `check_vehicle_wrecks`, appending to
+    `failures` and returning how many files were checked. Split out only so
+    the loop over the two roots reads as a loop; every clause and every
+    message lives here."""
+    n_checked = 0
+    for path in sorted(glob.glob(os.path.join(vehicles_root, "*.glb"))):
+        # The RELATIVE path, not the basename: two directories are walked now
+        # and `mbt_lavi.glb` alone would not say which of them failed. A root
+        # outside the repo (a throwaway copy under a falsification's temp
+        # directory) keeps its absolute path rather than a wall of `../`.
+        name = os.path.relpath(path, REPO)
+        if name.startswith(os.pardir):
+            name = path
+        gltf, binary = bf.read_glb(path)
+        nodes = gltf.get("nodes", [])
+        scene = (gltf.get("scenes") or [{}])[gltf.get("scene", 0)]
+        roots = list(scene.get("nodes", []))
+
+        death = [i for i in roots if nodes[i].get("name") == DEATH_ROOT_NODE]
+        if len(death) != 1:
+            failures.append(
+                f"{name}: {len(death)} root node(s) named {DEATH_ROOT_NODE!r}, expected exactly "
+                f"one -- run `pnpm wreck:meshes`. A re-export that skipped the pass LOADS fine "
+                f"and simply has no death state: the vehicle vanishes the frame it dies, which "
+                f"is the bug the wreck exists to fix"
+            )
+            continue
+        death = death[0]
+        n_checked += 1
+        live_roots = [i for i in roots if i != death]
+
+        wreck_nodes = _wreck_subtree(nodes, death)
+        if not wreck_nodes:
+            failures.append(
+                f"{name}: {DEATH_ROOT_NODE!r} has no children -- an empty death root passes "
+                f"every clip check below and draws nothing at all when the vehicle dies"
+            )
+        wreck_set = set(wreck_nodes)
+        live_meshes = {
+            node["mesh"] for i, node in enumerate(nodes)
+            if "mesh" in node and i not in wreck_set
+        }
+        for i in wreck_nodes:
+            node = nodes[i]
+            node_name = node.get("name") or f"<node {i}>"
+            if not node_name.startswith(WRECK_NODE_PREFIX):
+                failures.append(
+                    f"{name}: node {node_name!r} under {DEATH_ROOT_NODE!r} is not named "
+                    f"{WRECK_NODE_PREFIX}*"
+                )
+            if (node.get("extras") or {}).get("rl_wreck") is not True:
+                failures.append(
+                    f"{name}: node {node_name!r} under {DEATH_ROOT_NODE!r} does not carry "
+                    f"extras.rl_wreck = true -- the runtime's charring reads that flag, so this "
+                    f"part would draw in its LIVING colours on a burnt-out hull"
+                )
+            if "mesh" not in node:
+                continue  # a grouping empty is legitimate; it just draws nothing
+            if node["mesh"] not in live_meshes:
+                failures.append(
+                    f"{name}: node {node_name!r} references mesh {node['mesh']}, which no live "
+                    f"node references -- the wreck must SHARE its twin's mesh, not carry a copy "
+                    f"(this file's buffer is {len(binary or b''):,} bytes; duplicating it is the "
+                    f"cost the contract exists to avoid)"
+                )
+
+        # Clause 3b. The loop above is a CONTAINMENT test -- every wreck node
+        # it sees must point at a shared mesh -- and a death root that is
+        # missing a child has nothing for it to look at, so it says nothing.
+        # The pass writes `WRECK_<live node name>` for every live mesh node,
+        # so the two sets are comparable by name and a difference names the
+        # part rather than only counting it.
+        # MULTISETS, not sets, and the difference is a real hole rather than
+        # a nicety: compared as sets, `len(got) != len(want)` could never
+        # fire once `got != want` had been checked, so a death root carrying
+        # `WRECK_hull_hull` TWICE and `WRECK_hull_metal` not at all was the
+        # one shape this clause could not see -- the names present are equal
+        # as sets and the counts are equal too. `Counter` makes the duplicate
+        # expressible, and the subtraction still names the part.
+        want_twins = Counter(
+            f"{WRECK_NODE_PREFIX}{node.get('name')}" for i, node in enumerate(nodes)
+            if "mesh" in node and i not in wreck_set
+        )
+        got_twins = Counter(
+            nodes[i].get("name") for i in wreck_nodes if "mesh" in nodes[i]
+        )
+        if got_twins != want_twins:
+            missing = sorted((want_twins - got_twins).elements())
+            extra = sorted((got_twins - want_twins).elements())
+            failures.append(
+                f"{name}: {DEATH_ROOT_NODE!r} carries {sum(got_twins.values())} mesh-bearing "
+                f"child(ren) for {sum(want_twins.values())} live mesh node(s); missing "
+                f"{missing}, unexpected {extra} -- one {WRECK_NODE_PREFIX}* twin per live mesh "
+                f"node, exactly once each, and a wreck short of one is a vehicle that dies "
+                f"leaving that part standing"
+            )
+
+        animations = gltf.get("animations", [])
+        got_clips = sorted(a.get("name") for a in animations)
+        if got_clips != sorted(WRECK_CLIP_NAMES):
+            failures.append(
+                f"{name}: animations are {got_clips}, expected exactly {sorted(WRECK_CLIP_NAMES)}"
+            )
+        want_targets = set(live_roots) | {death}
+        for anim in animations:
+            clip = anim.get("name")
+            if clip not in WRECK_CLIP_NAMES:
+                continue  # already reported by the set comparison above
+            samplers = anim.get("samplers", [])
+            got_targets = []
+            for channel in anim.get("channels", []):
+                target = channel.get("target") or {}
+                node_i = target.get("node")
+                got_targets.append(node_i)
+                node_name = nodes[node_i].get("name") if node_i is not None else "<none>"
+                if target.get("path") != "scale":
+                    failures.append(
+                        f"{name}: clip {clip!r} keys {target.get('path')!r} on {node_name!r} -- "
+                        f"the contract is scale, and only scale"
+                    )
+                    continue
+                sampler = samplers[channel["sampler"]]
+                if sampler.get("interpolation") != "STEP":
+                    failures.append(
+                        f"{name}: clip {clip!r}'s sampler for {node_name!r} interpolates "
+                        f"{sampler.get('interpolation')!r}, not STEP -- a LINEAR ramp between "
+                        f"1 and 0 makes the swap a half-second dissolve instead of a swap"
+                    )
+                times = bf._accessor(gltf, binary, sampler["input"])  # noqa: SLF001 -- see the docstring.
+                values = bf._accessor(gltf, binary, sampler["output"])  # noqa: SLF001
+                if len(times) != 2 or values.shape != (2, 3):
+                    failures.append(
+                        f"{name}: clip {clip!r}'s sampler for {node_name!r} has {len(times)} "
+                        f"keyframe(s) of {values.shape[1] if values.ndim > 1 else '?'} "
+                        f"component(s), expected 2 x VEC3"
+                    )
+                    continue
+                # `idle` shows the live half, `wreck` shows the death root.
+                shown = (node_i != death) == (clip == "idle")
+                want = 1.0 if shown else 0.0
+                if not (values == want).all():
+                    failures.append(
+                        f"{name}: clip {clip!r} scales {node_name!r} to "
+                        f"{values.tolist()}, expected every component {want} -- "
+                        f"{DEATH_ROOT_NODE!r} is authored at scale 1 in the file, so `idle`'s "
+                        f"zero is the only thing that keeps the wreck out of the live frame"
+                    )
+            if set(got_targets) != want_targets or len(got_targets) != len(want_targets):
+                missing = sorted(nodes[i].get("name") for i in want_targets - set(got_targets))
+                extra = sorted(
+                    (nodes[i].get("name") if i is not None else "<none>")
+                    for i in set(got_targets) - want_targets
+                )
+                failures.append(
+                    f"{name}: clip {clip!r} keys {len(got_targets)} channel(s) over "
+                    f"{len(set(got_targets))} node(s); missing {missing}, unexpected {extra} -- "
+                    f"every top-level live node plus {DEATH_ROOT_NODE!r}, exactly once each"
+                )
+    return n_checked
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--palette", default=os.path.join(REPO, "data", "palette.json"))
@@ -668,11 +1284,24 @@ def main():
 
         failures = [f"render: {u}" for u in fail]
 
-        image_failures, mesh_masks, textured = load_mesh_masks(out_dir, args.palette)
+        image_failures, mesh_masks, textured, wreck_masks = load_mesh_masks(out_dir, args.palette)
         failures.extend(image_failures)
 
         sprite_masks = load_sprite_masks(args.sprites)
         failures.extend(check_collisions(mesh_masks, sprite_masks, sheets))
+
+        # The wreck's own two checks, on the SECOND render every vehicle now
+        # produces. Both use the masks above, so they cost no extra Blender
+        # work beyond that render: a floor under how far the wreck moved from
+        # its own live pose, and the existing 0.88 ceiling against every
+        # other unit on the roster.
+        # Before either wreck check, because both of them iterate the renders
+        # that EXIST and neither can notice one that does not.
+        failures.extend(
+            check_wreck_census(wreck_masks, os.path.join(REPO, "art", "meshes", "vehicles"))
+        )
+        failures.extend(check_wreck_distinct(mesh_masks, wreck_masks))
+        failures.extend(check_wreck_collisions(wreck_masks, mesh_masks, sprite_masks, sheets))
 
         decor_root = os.path.join(REPO, "art", "meshes", "decor")
         decor_failures, textured_decor = check_decor_meshes(decor_root)
@@ -691,6 +1320,20 @@ def main():
         buildings_root = os.path.join(REPO, "art", "meshes", "buildings")
         facing_failures, facing_notes = bf.check_building_facing(buildings_root)
         failures.extend(facing_failures)
+
+        # A FIFTH way, raw bytes again, and the one whose defect is INVISIBLE
+        # to every render above by construction: `render_mesh_gate.py` hides
+        # `death_root` for the live pose, so a vehicle that lost its wreck
+        # photographs identically to one that has it. See this module's
+        # docstring, "Vehicles are checked a FIFTH way".
+        # BOTH trees: the uncompressed source of record and the Draco mirror
+        # a browser actually downloads. See `check_vehicle_wrecks`' docstring
+        # for why `pnpm encode:meshes -- --check` is not a substitute.
+        wreck_failures, wreck_counts = check_vehicle_wrecks((
+            os.path.join(REPO, "art", "meshes", "vehicles"),
+            os.path.join(REPO, "assets", "meshes", "vehicles"),
+        ))
+        failures.extend(wreck_failures)
 
         if failures:
             print(f"\nMESH GATE FAILED -- {len(failures)} issue(s):\n")
@@ -738,6 +1381,28 @@ def main():
                   "rendered by this gate, so no silhouette IoU applies either; its region "
                   "and town nodes ARE checked against data/campaign/world.json. See "
                   "TEXTURED_CAMPAIGN_EXEMPT)")
+        if any(n for _, n in wreck_counts):
+            # On the PASSING path, and the last clause is the point: a green
+            # tick here must not read as "the wreck looks right". The SHAPE
+            # is judged -- it has to differ from the live pose by
+            # WRECK_MIN_DISTINCT and must not collide with any other unit --
+            # but the COLOUR is not, and cannot be: charring is a runtime
+            # treatment of anything marked `rl_wreck` (spec 4.3), the wreck
+            # children carry their live twins' `rl_role`, and this gate
+            # repaints from the palette tables before rendering. So it is
+            # measuring a stand-in for the colour, exactly as it does for a
+            # textured building, and says so rather than letting the two
+            # checks below be read as covering it.
+            print("  vehicle wrecks: "
+                  + ", ".join(f"{n} GLB(s) in {root}" for root, n in wreck_counts)
+                  + " carry the death_root contract")
+            print(f"  {len(wreck_masks)} wreck(s) rendered alone through the live camera and "
+                  f"judged two ways: distinct from their own live silhouette (IoU <= "
+                  f"{1.0 - WRECK_MIN_DISTINCT:.3f}) and colliding with no other unit (IoU <= "
+                  f"{va.IOU_LIMIT:.2f})")
+            print("  (the wreck's CHARRING is a runtime material treatment and is NOT "
+                  "gate-checked -- the gate repaints every vehicle from the palette tables, so "
+                  "it is judging the wreck's shape against a stand-in for its colour)")
         if facing_notes:
             # Deliberately loud, and deliberately on the PASSING path, for the
             # same reason as the line above: a green tick must not read as
