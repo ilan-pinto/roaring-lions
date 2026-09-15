@@ -508,6 +508,23 @@ export function measureFacing(path: string, clip: string): FigureFacing[] {
     }
   }
 
+  // The SECOND route to an empty return, and it has to be closed here rather
+  // than left to the caller. The throw above catches a rig with no head JOINT;
+  // this catches a rig whose head joint owns no dominant `face` VERTEX -- a
+  // future rig that weights the face to `neck`, say. Skipping such a joint
+  // silently and returning `[]` is the exact shape that made this function
+  // blind to all four civilians while every caller's `for (const f of figs)`
+  // passed in 0 ms. Measured across all 82 shipped GLBs: no head joint owns
+  // zero dominant face vertices, so this is unreachable today and is here so
+  // it stays that way.
+  const empty = headJoints.filter((j) => (vertsForSkinIndex.get(j.skinIndex) ?? []).length === 0);
+  if (empty.length === headJoints.length) {
+    throw new Error(
+      `${path}: every head joint (${empty.map((j) => j.name).join(', ')}) owns no "${role}" ` +
+        `vertex weighted above 0.5 -- measureFacing cannot read a bearing without one`
+    );
+  }
+
   const results: FigureFacing[] = [];
   for (const { jointNode, skinIndex, name } of headJoints) {
     const verts = vertsForSkinIndex.get(skinIndex) ?? [];

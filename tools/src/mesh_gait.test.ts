@@ -164,6 +164,10 @@ describe('mesh unit facing', () => {
 
   it('reads the same rifleman walking CORRECTLY, so the reading is of the clip', () => {
     const figs = measureFacing(`${MESHES}meshy_soldier.glb`, 'move');
+    // The count assertion is not decoration: `for (const f of [])` passes in
+    // 0 ms, which is exactly how this instrument stayed blind to all four
+    // civilian rigs through two tasks and a review.
+    expect(figs.length).toBe(3);
     for (const f of figs) expect(Math.abs(f.meanDeg)).toBeLessThan(headingCeilings().move);
   });
 
@@ -190,6 +194,7 @@ describe('mesh unit facing', () => {
     // future facing sweep that quietly squares every clip shows up as a red
     // test rather than as a corpse politely facing the enemy.
     const figs = measureFacing(`${MESHES}meshy_soldier.glb`, 'wreck');
+    expect(figs.length).toBe(3);
     for (const f of figs) expect(Math.abs(f.meanDeg)).toBeGreaterThan(120);
   });
 
