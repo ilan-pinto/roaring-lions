@@ -229,7 +229,8 @@ closed again and the roster is empty, as today.
 Three steps, each its own plan and its own branch, in the order the motivation layer used:
 
 1. **Earn** — the account module and its reset; `creditsFor`; the improvement rule; the
-   debrief line; the harness's cumulative assertion; the docs.
+   debrief line; the harness's cumulative assertion; the docs — landed 2026-09-15,
+   ladder total 5644.
 2. **Buy** — `unlock.price`; bought-only units; `unlockReason` with the account; the shop's
    locked rows; the dock sentence; the harness's bought-gate probe.
 3. **Upgrade** — the `upgrades` schema and whitelist; `applyUpgrades`; the balance passes;
