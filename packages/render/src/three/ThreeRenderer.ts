@@ -256,6 +256,7 @@ import {
   type MeshWreck,
   type MeshDeathEnv,
 } from './units/mesh-death';
+import { beginVehicleDeath, stepVehicleDeath, type DyingVehicle } from './units/mesh-vehicle-death';
 import { beginMeshEvac, stepMeshEvac, type DepartingMeshUnit } from './units/mesh-evac';
 import type { MeshFaction } from './units/mesh-role';
 /** Re-exported so `app` can name the side a mesh unit fights for without
@@ -1229,14 +1230,19 @@ export class ThreeRenderer implements Renderer {
    */
   private readonly vehicleMeshTemplates = new Map<string, VehicleMeshTemplate>();
   /** One `VehicleMeshEntity` per living entity of a vehicle-mesh-enabled
-   *  type, keyed by entity id -- pooled across frames like `meshUnitEntities`,
-   *  but torn down and removed IMMEDIATELY on death rather than handed to a
-   *  fade sequence: every shipped `art/meshes/vehicles/*.glb` carries zero
-   *  `down`/`wreck` clips (there is no animation at all), so there is no
-   *  pose for a vehicle fade to hold, unlike infantry's `meshDying`/
-   *  `meshWrecks`. See this task's own report for why that gap is left open
-   *  rather than closed here. */
+   *  type, keyed by entity id -- pooled across frames like `meshUnitEntities`.
+   *  On death it is handed to `vehicleDying` when its template carries the
+   *  `wreck` clip, and torn down immediately when it does not (the state
+   *  every shipped vehicle was in before the 2026-09-15 wreck pass). */
   private readonly vehicleMeshEntities = new Map<number, VehicleMeshEntity>();
+  /** Vehicles mid-death-fade -- the rigid counterpart of `meshDying`, a
+   *  separate array for the same reason `meshDeparting` is: the two
+   *  sequences share no state and step through different code
+   *  (`units/mesh-vehicle-death.ts`). Not keyed by entity id, for the reason
+   *  `meshUnitEntities`'s own doc comment gives. Their WRECKS are not
+   *  separate: a finished vehicle wreck is pushed into `meshWrecks` above,
+   *  so one cap and one fog rule cover both asset classes. */
+  private readonly vehicleDying: DyingVehicle[] = [];
 
   /**
    * Building meshes (mesh-unit-contract v2). One `BuildingMeshTemplate` per
@@ -1968,6 +1974,17 @@ export class ThreeRenderer implements Renderer {
       disposeVehicleMeshEntity(entity);
     }
     this.vehicleMeshEntities.clear();
+    // Vehicles mid-death-fade own the identical per-entity material clone
+    // infantry's `meshDying` does (`beginVehicleDeath` calls the same
+    // `beginMeshDeathFade`), so they need the identical restore-then-dispose
+    // before their shared template resources go below. Their finished
+    // WRECKS need nothing here: they live in `meshWrecks`, already emptied.
+    for (const d of this.vehicleDying) {
+      endMeshDeathFade(d.swaps);
+      this.scene.remove(d.entity.root);
+      disposeVehicleMeshEntity(d.entity);
+    }
+    this.vehicleDying.length = 0;
     for (const template of this.vehicleMeshTemplates.values()) disposeVehicleMeshTemplate(template);
     this.vehicleMeshTemplates.clear();
     // Building meshes: same shape again -- every clone removed from the
@@ -2551,14 +2568,26 @@ export class ThreeRenderer implements Renderer {
         this.onTunnelCollapsed(e.tunnel, e.tick);
       } else if (e.kind === 'destroyed') {
         const deadType = this.sim.unitTypes[st.typeIdx[e.entity]];
-        this.dying.push({
-          x: this.curX[e.entity],
-          y: this.curY[e.entity],
-          facing: fx.toNumber(st.facing[e.entity]),
-          typeId: deadType.id,
-          t: 0,
-          side: st.side[e.entity],
-        });
+        // The BILLBOARD death fade -- the intact sprite dimming in place --
+        // is skipped for exactly the types `addWreck` steps aside for: one
+        // whose vehicle template carries the `wreck` clip, whose 3D mesh is
+        // at this moment being handed to `beginVehicleDeath` by
+        // `updateVehicleMeshes`' own prune loop. Without this the player
+        // sees a flat sprite of the INTACT vehicle fade on top of its own
+        // slumping mesh -- the first of the three art styles CLAUDE.md
+        // records, and the one a wreck mesh cannot hide. Every other type,
+        // mesh infantry included, pushes exactly as before: `stepDeaths` is
+        // also what calls `addWreck`, which owns its own exclusions.
+        if (this.vehicleMeshTemplates.get(deadType.id)?.hasWreck !== true) {
+          this.dying.push({
+            x: this.curX[e.entity],
+            y: this.curY[e.entity],
+            facing: fx.toNumber(st.facing[e.entity]),
+            typeId: deadType.id,
+            t: 0,
+            side: st.side[e.entity],
+          });
+        }
         // A hard-target kill (a vehicle) reuses the SAME pooled
         // explosion-burst mesh `structureDestroyed` already draws below --
         // "reuse the pooled mesh path... do not add a second one", per this
@@ -4540,18 +4569,15 @@ export class ThreeRenderer implements Renderer {
    * `type.isAir` at all: every other mesh vehicle is ground-domain and gets
    * `airLift = 0`.
    *
-   * Death: immediate removal, no fade. Every shipped vehicle GLB still
-   * carries zero animations, so there is no `down`/`wreck` pose for a fade
-   * to hold -- a known gap, not silently dropped. The clip path added
-   * below does not close it: it plays whatever a GLB authors, and no
-   * vehicle authors a death pose yet. Wiring one up is
-   * `units/mesh-death.ts`'s shape and a separate job.
-   *
-   * This unconditional immediate removal already covers a mission `remove`
-   * trigger (GDD §11) with no fork needed, unlike `updateMeshUnits`'s own
-   * evacuated/removed/killed three-way split: every alive->0 transition ends
-   * up here regardless of cause, and every one of them already draws
-   * nothing extra.
+   * Death: a fade into a persistent charred wreck, for a type whose GLB
+   * carries the `wreck` clip -- `units/mesh-vehicle-death.ts`, and the prune
+   * loop at the bottom of this method. That was a known gap until
+   * 2026-09-15 ("immediate removal, no fade... no vehicle authors a death
+   * pose yet"); the wreck pass closed the asset half and this closed the
+   * runtime half. A vehicle WITHOUT the clip still takes the old
+   * unconditional immediate removal, and so does a mission `remove` trigger
+   * (GDD §11) on any vehicle -- the same abduction fork `updateMeshUnits`
+   * makes, for the same reason: an abduction must never draw as a death.
    */
   private updateVehicleMeshes(alpha: number, dtMs: number): void {
     if (this.vehicleMeshTemplates.size === 0) return;
@@ -4572,7 +4598,22 @@ export class ThreeRenderer implements Renderer {
         // Same attach-once contract as `updateMeshUnits` above -- and here
         // the turret comes along for free, because a vehicle's turret
         // meshes hang off `turretPivot` inside this same subtree.
+        //
+        // The death root is lifted OUT for the attach pass and put straight
+        // back. `attachMeshSilhouette` walks whatever root it is handed, and
+        // a wreck-bearing GLB carries a second copy of every mesh under
+        // `death_root` -- outlining those buys nothing (the subtree is
+        // invisible while the vehicle lives, and the silhouette is detached
+        // the moment it dies) and costs a merged-geometry build per clone:
+        // the live group and the wreck group share their first
+        // `BufferGeometry`, which is the key `mergedGeometryCache` is stored
+        // under, so the two would evict each other every single
+        // instantiation. `add` re-appends as the LAST child, which is where
+        // the wreck pass authored it.
+        const deathRoot = entity.deathRoot;
+        if (deathRoot) entity.root.remove(deathRoot);
         attachMeshSilhouette(entity.root, this.silhouetteMaterialFor(st.side[i]));
+        if (deathRoot) entity.root.add(deathRoot);
         this.vehicleMeshEntities.set(i, entity);
         this.scene.add(entity.root);
       }
@@ -4727,15 +4768,67 @@ export class ThreeRenderer implements Renderer {
       }
     }
 
-    // Immediate removal on death -- see this method's own doc comment for
-    // why there is no fade/wreck sequence to hand off to, unlike
-    // `updateMeshUnits`'s `beginMeshDeath`.
+    // Death. The fork is `template.hasWreck` -- CLAUDE.md's own recorded
+    // trap, and the spec's Global Constraints, both say the same thing: a
+    // vehicle steps off the billboard path ONLY when its own GLB carries the
+    // `wreck` clip. A type whose export has not been through the wreck pass
+    // (and `&nomesh`, which never builds a template here at all) keeps the
+    // immediate removal, the billboard death fade and the sprite wreck,
+    // byte for byte.
+    //
+    // `st.removed[id] === 1` is the same abduction fork `updateMeshUnits`
+    // makes: a mission `remove` trigger must never draw as a death, so it
+    // gets no fade, no `wreck` clip and no wreckage. `id >= n` falls to the
+    // same branch -- there is no `removed` flag to read, and nothing to
+    // stage a death for.
     for (const [id, entity] of this.vehicleMeshEntities) {
       if (id < n && st.alive[id] !== 0) continue;
-      this.scene.remove(entity.root);
-      disposeVehicleMeshEntity(entity);
       this.vehicleMeshEntities.delete(id);
+      const deadTemplate = this.vehicleMeshTemplates.get(entity.typeId);
+      if (deadTemplate?.hasWreck === true && id < n && st.removed[id] === 0) {
+        // Detach BEFORE the death sequence takes the entity, exactly as
+        // `updateMeshUnits` does: the fade clones every material under the
+        // root, and a silhouette's own `MeshBasicMaterial` is shared by every
+        // unit on that side. A wreck has no outline to keep either.
+        detachMeshSilhouette(entity.root);
+        this.vehicleDying.push(beginVehicleDeath(entity, id, deadTemplate));
+      } else {
+        this.scene.remove(entity.root);
+        disposeVehicleMeshEntity(entity);
+      }
     }
+    this.stepVehicleDeaths(dtSeconds);
+  }
+
+  /**
+   * Advances every vehicle mid-death-fade (`units/mesh-vehicle-death.ts`'s
+   * own `stepVehicleDeath`) and reveals any newly-explored permanent wreck --
+   * the rigid counterpart of `stepMeshDeaths`, and the same thin glue: three
+   * bookkeeping collections and the `isExplored` fog query neither module can
+   * reach on its own.
+   *
+   * `updateMeshWrecks` is called from here as well as from `stepMeshDeaths`,
+   * and that is not a redundant second call: `updateMeshUnits` returns early
+   * when no INFANTRY mesh template is loaded, so on a mission that fields
+   * mesh vehicles and no mesh infantry the fog reveal would never run. The
+   * rule it applies is a latch ("never goes back to false"), so running it
+   * twice in a frame is exactly as correct as running it once.
+   */
+  private stepVehicleDeaths(dtSeconds: number): void {
+    const env: MeshDeathEnv = {
+      scene: this.scene,
+      elevation: this.retained.elevation,
+      width: this.sim.width,
+      height: this.sim.height,
+      isExplored: (x, y) => this.isExplored(x, y),
+    };
+    for (let k = this.vehicleDying.length - 1; k >= 0; k--) {
+      const result = stepVehicleDeath(this.vehicleDying[k], dtSeconds, env);
+      if (result === 'fading') continue;
+      this.vehicleDying.splice(k, 1);
+      if (result !== 'removed') pushMeshWreck(this.meshWrecks, result, this.scene);
+    }
+    updateMeshWrecks(this.meshWrecks, (x, y) => this.isExplored(x, y));
   }
 
   /**
@@ -5112,6 +5205,14 @@ export class ThreeRenderer implements Renderer {
    */
   private addWreck(x: number, y: number, facing: number, typeId: string, side: number): void {
     if (this.meshUnitTemplates.has(typeId)) return;
+    // The vehicle half of the same exclusion, and note what it is NOT: a
+    // plain `vehicleMeshTemplates.has(typeId)`. CLAUDE.md records that exact
+    // trap -- excluding every mesh vehicle unconditionally deletes the sprite
+    // wreck and leaves nothing behind, which is strictly worse than the
+    // three-art-styles sequence it was meant to fix. Only a type whose own
+    // GLB carries the `wreck` clip has a `MeshWreck` coming
+    // (`stepVehicleDeaths`), and only that type steps aside here.
+    if (this.vehicleMeshTemplates.get(typeId)?.hasWreck === true) return;
     this.wrecks.push({ x, y, facing, typeId, side, shown: this.isExplored(x, y) });
     while (this.wrecks.length > MAX_UNIT_WRECKS) this.wrecks.shift();
   }

@@ -99,6 +99,23 @@ function sliceFrom(band: string, index: number, width: number): readonly string[
   return ramp.slice(index, Math.min(ramp.length, index + width));
 }
 
+/**
+ * The charred slice every wreck part takes on a palette vehicle: the darkest
+ * band's lit face. One constant, not a role -- the role vocabulary
+ * (`VEHICLE_MESH_ROLES`) stays closed, and a burnt-out hull is not a new kind
+ * of surface, it is every surface after a fire.
+ *
+ * `shadow` in full (all three steps, `#23241F`/`#14150F`/`#0A0A08`), so
+ * `liftTone` takes `shadow.1` the same way it takes index 1 of any ramp three
+ * steps or longer -- the palette's own darkest usable tone, which is what
+ * `rubber` already draws through, so a wreck reads as the tyre-black end of
+ * the ramp rather than as an unlit version of its own paint. Deliberately
+ * NOT a per-vehicle table: charring is what the fire did, not what the
+ * factory painted, so `mbt_lavi`'s olive and `technical`'s limestone char to
+ * the same tone.
+ */
+export const CHARRED_RAMP: readonly string[] = sliceFrom('shadow', 0, 3);
+
 /** One vehicle type's role -> ramp-slice table -- only the roles that
  *  vehicle's own sprite-rig script (or, for `mbt_lavi`, the closest real
  *  analogue) actually declares. A role missing here is a genuine "no

@@ -68,6 +68,45 @@ export function texturedMaterial(loaded: THREE.Material): THREE.MeshStandardMate
   return std;
 }
 
+/**
+ * The tint a charred wreck multiplies its own bake by -- a warm near-black,
+ * one step off the palette's `shadow.1` (`#14150F`) toward the soot-brown a
+ * burnt hull actually reads as under this scene's sun.
+ *
+ * A TINT rather than a replacement because the bake is the asset: the lead's
+ * "use as-is" applies to a wreck exactly as it applies to a live vehicle, so
+ * the photograph's own panel lines, rivets and roughness must survive, only
+ * much darker and desaturated by the multiply. `MeshStandardMaterial.color`
+ * multiplies `map` per-fragment, which is precisely that.
+ */
+export const CHARRED_TINT_HEX = 0x2a2620;
+
+/**
+ * The charred sibling of `texturedMaterial`: the same normalised bake, on a
+ * material of its OWN, tinted to `CHARRED_TINT_HEX` and driven fully rough.
+ *
+ * A clone, never a mutation, for the reason every material rule in this file
+ * turns on: `loaded` is the one material `GLTFLoader` built for that glTF
+ * primitive, and a wreck mesh SHARES it with its live twin (the wreck pass
+ * gives the two nodes the same `mesh` index), so darkening it in place would
+ * char the living vehicle too. The clone keeps `map`, `metalnessMap` and
+ * `normalMap` by reference -- one upload, two draws.
+ *
+ * `roughness: 1` and `metalness: 0` are not cosmetic defaults: a burnt-out
+ * hull has no specular highlight left, and leaving the bake's own gloss
+ * would put a clean sheen on a wreck. They are applied AFTER
+ * `texturedMaterial`'s own normalisation, so they win over it deliberately,
+ * including over a bake that ships its own `roughnessMap`.
+ */
+export function charredTexturedMaterial(loaded: THREE.Material): THREE.MeshStandardMaterial {
+  const charred = texturedMaterial(loaded).clone();
+  charred.color.setHex(CHARRED_TINT_HEX);
+  charred.roughness = 1;
+  charred.metalness = 0;
+  charred.needsUpdate = true;
+  return charred;
+}
+
 export function texturedMapMaterial(map: THREE.Texture): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({
     map: prepareTexturedMap(map),
