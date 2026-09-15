@@ -132,7 +132,7 @@ pnpm typecheck
 pnpm lint
 ```
 ```bash
-/usr/bin/git commit -- tools/src/mesh_gait.ts tools/src/mesh_gait.test.ts -m "tools: the gait instrument can measure which way a figure faces"
+/usr/bin/git commit -m "tools: the gait instrument can measure which way a figure faces" -- tools/src/mesh_gait.ts tools/src/mesh_gait.test.ts
 ```
 
 ---
@@ -222,7 +222,7 @@ pnpm validate:meshes
 `validate:meshes` takes 45–70 s and needs `art/meshes/` clean of stray files — `git status art/meshes/` first, because it walks that directory with no filter and another session's scratch `.glb` will fail your run.
 
 ```bash
-/usr/bin/git commit -- tools/import_meshy_soldier.py art/meshes/meshy_soldier.glb assets/meshes/meshy_soldier.glb tools/src/mesh_gait.test.ts -m "art(kdf): the rifleman faces what he is shooting, and runs"
+/usr/bin/git commit -m "art(kdf): the rifleman faces what he is shooting, and runs" -- tools/import_meshy_soldier.py art/meshes/meshy_soldier.glb assets/meshes/meshy_soldier.glb tools/src/mesh_gait.test.ts
 ```
 
 Include `assets/meshes/manifest.json` in the commit if `pnpm encode:meshes` changed it.
@@ -282,7 +282,7 @@ pnpm test
 pnpm validate:meshes
 ```
 ```bash
-/usr/bin/git commit -- tools/import_meshy_soldier_irregular.py tools/import_meshy_civilians.py art/meshes/sarim_rifles.glb art/meshes/civilians assets/meshes -m "art: the militia and the civilians run, because their own speed is a run"
+/usr/bin/git commit -m "art: the militia and the civilians run, because their own speed is a run" -- tools/import_meshy_soldier_irregular.py tools/import_meshy_civilians.py art/meshes/sarim_rifles.glb art/meshes/civilians assets/meshes
 ```
 
 ---
@@ -345,7 +345,7 @@ Silhouette IoU is computed from a rendered pose, so a changed stride can move it
 pnpm test
 ```
 ```bash
-/usr/bin/git commit -- tools/units/rig.py art/meshes assets/meshes -m "art(kit): a team's stride is sized from its own speed, and the mortar crew marches forward"
+/usr/bin/git commit -m "art(kit): a team's stride is sized from its own speed, and the mortar crew marches forward" -- tools/units/rig.py art/meshes assets/meshes
 ```
 
 ---
@@ -414,7 +414,7 @@ Then read `rl_gait` back out of a file in `assets/meshes/` and confirm it is pre
 pnpm test
 ```
 ```bash
-/usr/bin/git commit -- tools/src/meshes/gait-pass.ts tools/src/meshes/gait-pass.test.ts tools/package.json package.json art/meshes assets/meshes -m "tools: every rigged mesh declares the stride its own legs describe"
+/usr/bin/git commit -m "tools: every rigged mesh declares the stride its own legs describe" -- tools/src/meshes/gait-pass.ts tools/src/meshes/gait-pass.test.ts tools/package.json package.json art/meshes assets/meshes
 ```
 
 ---
@@ -514,7 +514,7 @@ pnpm typecheck
 pnpm lint
 ```
 ```bash
-/usr/bin/git commit -- packages/render/src/three/units/mesh-anim.ts packages/render/src/three/units/mesh-anim.test.ts packages/render/src/three/units/mesh-unit.ts packages/render/src/three/units/mesh-unit.test.ts packages/render/src/three/ThreeRenderer.ts -m "render(three): a unit's legs keep up with the ground it crosses"
+/usr/bin/git commit -m "render(three): a unit's legs keep up with the ground it crosses" -- packages/render/src/three/units/mesh-anim.ts packages/render/src/three/units/mesh-anim.test.ts packages/render/src/three/units/mesh-unit.ts packages/render/src/three/units/mesh-unit.test.ts packages/render/src/three/ThreeRenderer.ts
 ```
 
 ---
@@ -558,7 +558,7 @@ A gate that has never gone red is a gate of its own threshold. Temporarily re-po
 pnpm test
 ```
 ```bash
-/usr/bin/git commit -- tools/src/mesh_gait.test.ts -m "tools: the gait gate measures every rig, not the one file it was raised against"
+/usr/bin/git commit -m "tools: the gait gate measures every rig, not the one file it was raised against" -- tools/src/mesh_gait.test.ts
 ```
 
 ---
@@ -606,7 +606,7 @@ The comment should say what actually resolved it: the civilians' own speed is 2.
 - [ ] **Step 7: Commit**
 
 ```bash
-/usr/bin/git commit -- tools/src/perf/gait-captures.ts CLAUDE.md docs -m "docs,tools: the gait sheet, the contract's new extra, and GH-152's real answer"
+/usr/bin/git commit -m "docs,tools: the gait sheet, the contract's new extra, and GH-152's real answer" -- tools/src/perf/gait-captures.ts CLAUDE.md docs
 ```
 
 ---
