@@ -1761,9 +1761,25 @@ export class Sim {
     return idx;
   }
 
-  /** The least-recently-issued field no living unit follows, or -1 when
-   *  every field is live. O(units + fields) per call, and a call happens at
-   *  most once per order once the pool is full. */
+  /** The least-recently-issued field no living unit follows and that was not
+   *  itself issued THIS tick, or -1 when no such field exists.
+   *
+   *  The same-tick exclusion is load-bearing, not a tie-break nicety. In the
+   *  move/attackMove handler, a ground field is resolved once before the
+   *  per-id loop and only lands in a unit's `fieldRef` when the loop reaches
+   *  a plain ground id; a mixed-type order can call `fieldFor` again for
+   *  `airField`/`vField` on an EARLIER id first. At that moment the ground
+   *  field is not yet referenced by anyone, so without this guard it reads
+   *  as free and can be evicted out from under the order that just created
+   *  it -- every field issued this tick shares `this.tickCount`, so a plain
+   *  `<` comparison only protects it while an older unreferenced field still
+   *  exists in the pool. Excluding same-tick fields outright means the pool
+   *  can grow past MAX_FLOW_FIELDS within a single tick, on the rare occasion
+   *  every idle field was issued that same tick; it settles back to the cap
+   *  on a later miss once the tick moves on.
+   *
+   *  O(units + fields) per call, called once per cache miss, which is at
+   *  most a few times per order. */
   private evictableField(): number {
     const live = new Uint8Array(this.fields.length);
     for (let i = 0; i < this.count; i++) {
@@ -1774,6 +1790,7 @@ export class Sim {
     let best = -1;
     for (let f = 0; f < this.fields.length; f++) {
       if (live[f] === 1) continue;
+      if (this.fieldLastIssued[f] === this.tickCount) continue;
       if (best < 0 || this.fieldLastIssued[f] < this.fieldLastIssued[best]) best = f;
     }
     return best;

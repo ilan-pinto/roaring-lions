@@ -20,6 +20,31 @@ const TANK: UnitTypeJson = {
   weapons: [],
 };
 
+const DRONE: UnitTypeJson = {
+  id: 'test_drone',
+  hull: { hp: 200, armor: { front: 0, side: 0, rear: 0 } },
+  mobility: { speed_tiles_s: 3.0, domain: 'air' },
+  sensors: { optics: 1.4, sight_tiles: 12, signature: 0.3 },
+  weapons: [],
+};
+
+// RIFLES above declares no `role`, which defaults `wheeled` to true
+// (DOMAIN_VEHICLE) -- harmless for the tests that use it alone, since on a
+// boulder-free map fieldFor's vehicle-branch call collapses to the exact
+// same cache key as the ground call and never allocates a second field. The
+// mixed-order test below needs a unit that takes the plain default branch in
+// the move handler (neither the air special-case nor the vehicle one), which
+// that extra same-key call would otherwise mask, so this fixture pins
+// DOMAIN_FOOT explicitly via `role`.
+const INFANTRY: UnitTypeJson = {
+  id: 'test_infantry_foot',
+  role: 'infantry',
+  hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
+  mobility: { speed_tiles_s: 2.0 },
+  sensors: { optics: 1.0, sight_tiles: 8, signature: 0.6 },
+  weapons: [],
+};
+
 function makeSim(seed = 42, capacity = 64): Sim {
   return new Sim({ seed, width: 32, height: 32, capacity });
 }
@@ -251,8 +276,61 @@ describe('flow-field cache', () => {
     sim.tick();
     // The pool had to grow past the cap rather than steal a live field.
     expect(sim.flowFieldCount).toBe(ids.length);
-    // And every unit is still walking toward ITS goal, not somebody else's.
-    for (let k = 0; k < 5; k++) sim.tick();
-    for (let i = 0; i < ids.length; i++) expect(sim.state.moving[ids[i]]).toBe(1);
+    // And every unit actually ARRIVES at its own ordered tile, not merely
+    // "is moving" -- this is what catches two fields swapped or one
+    // overwritten with another's data, which a bare `moving === 1` check
+    // cannot: a unit following the wrong field is still `moving`.
+    for (let k = 0; k < 40 * TICKS_PER_SECOND; k++) sim.tick();
+    for (let i = 0; i < ids.length; i++) {
+      expect(fx.toInt(sim.state.posX[ids[i]])).toBe(2 + (i % 28));
+      expect(fx.toInt(sim.state.posY[ids[i]])).toBe(2 + Math.floor(i / 28));
+    }
+  });
+
+  it('never evicts a field issued earlier in the same tick', () => {
+    // Reviewer scenario: in the move/attackMove handler, the ground field
+    // (`fieldIdx`) is resolved once before the per-id loop and is only
+    // stamped into a unit's `fieldRef` when the loop reaches a plain ground
+    // id. If `cmd.ids` puts an air unit before the ground unit, the loop's
+    // first iteration calls `fieldFor` again for `airField` -- and at that
+    // moment `fieldIdx`'s slot is referenced by nobody yet, so a pool with
+    // no other free slot could otherwise evict it out from under the very
+    // order that just created it.
+    const sim = makeSim(42, MAX_FLOW_FIELDS + 16);
+    const ground = sim.addUnitType(INFANTRY);
+    const air = sim.addUnitType(DRONE);
+    const fillers: number[] = [];
+    for (let i = 0; i < MAX_FLOW_FIELDS; i++) {
+      fillers.push(sim.spawn(ground, 0, fx.fromInt(1), fx.fromInt(1 + (i % 30))));
+    }
+    // Every filler gets its own goal tile and never arrives this tick, so
+    // every field in the pool is referenced -- nothing is free to evict.
+    for (let i = 0; i < fillers.length; i++) {
+      sim.queueCommand({
+        kind: 'move',
+        ids: [fillers[i]],
+        x: fx.fromInt(2 + (i % 28)),
+        y: fx.fromInt(2 + Math.floor(i / 28)),
+      });
+    }
+    sim.tick();
+    expect(sim.flowFieldCount).toBe(MAX_FLOW_FIELDS);
+
+    // A destination genuinely blocked, so the ground snap and the air
+    // unit's raw goal are two DIFFERENT tiles -- two distinct cache misses,
+    // both resolved inside the SAME move command, at the SAME tick. Neither
+    // (20, 20) nor its neighbours were ever a filler goal (filler goals
+    // stay at y <= 6), so both are cache misses per fieldFor's existing-hit
+    // path (a Map lookup by goal tile).
+    sim.setBlocked(20, 20, true);
+    const g = sim.spawn(ground, 0, fx.fromInt(1), fx.fromInt(1));
+    const a = sim.spawn(air, 0, fx.fromInt(1), fx.fromInt(1));
+    sim.queueCommand({ kind: 'move', ids: [a, g], x: fx.fromInt(20), y: fx.fromInt(20) });
+    sim.tick();
+    // Neither of this order's two new fields could evict the other, or any
+    // still-live filler field: the pool had to grow by two.
+    expect(sim.flowFieldCount).toBe(MAX_FLOW_FIELDS + 2);
+    expect(sim.state.moving[g]).toBe(1);
+    expect(sim.state.moving[a]).toBe(1);
   });
 });
